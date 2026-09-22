@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildReport, renderMarkdown } from "../report.ts";
+import { buildReport, renderMarkdown, weightedTokens } from "../report.ts";
 import type { HarnessCatalog } from "../harness.ts";
 import {
   type AgentRun,
@@ -913,13 +913,13 @@ describe("orchestrator card: which model spent the tokens (#607)", () => {
  * (`4935c4d7`, CC 2.1.236): `output_tokens_details.thinking_tokens <=
  * output_tokens` in 100% of them. Both cards printed `output + thinking` as
  * "razonamiento", so every thinking token was counted twice — and `contexto`,
- * which is whatever is LEFT of the billable total, was understated by exactly
- * the same amount. In a report whose entire product is the number, that is the
+ * which is whatever is LEFT of the raw total, was understated by exactly the
+ * same amount. In a report whose entire product is the number, that is the
  * most expensive kind of defect.
  */
 describe("thinking counts once, inside output (A3)", () => {
   // Round values so `k()` is exact and the card's three lines add up by hand:
-  // 17k startup + 2k reasoning + 83k context = 102k billable.
+  // 17k startup + 2k reasoning + 83k context = 102k raw.
   const thinker = (over: Partial<AgentRun> = {}): AgentRun =>
     agent({
       startupTokens: 17_000,
@@ -955,10 +955,13 @@ describe("thinking counts once, inside output (A3)", () => {
     expect(out).toContain("de los cuales ~3k thinking");
   });
 
-  it("keeps the card's three lines inside the billable total of the body", () => {
+  it("keeps the card's three lines inside the raw total of the body", () => {
     const out = md([thinker()]);
-    // The headline and the card describe the same money: 17 + 2 + 83 = 102.
-    expect(out).toContain("TOTAL facturable 102k tokens");
+    // The raw headline and the card describe the same tokens: 17 + 2 + 83 = 102.
+    // The weighted figure alongside it is a DIFFERENT scale on purpose: output
+    // is 5x, cacheCreation 1.25x — 2000*5 + 100_000*1.25 = 135_000 ("135k"),
+    // with cache_read at 0 in this fixture contributing nothing.
+    expect(out).toContain("TOTAL 102k tokens (135k ponderados, equivalentes a input)");
     expect(out).toMatch(/arranque\s+17k/);
     expect(out).toMatch(/razonamiento\s+2k/);
     expect(out).toMatch(/contexto\s+83k/);
@@ -981,6 +984,102 @@ describe("thinking counts once, inside output (A3)", () => {
     const out = renderMarkdown(report, "en");
     expect(out).toContain("of which ~1k thinking");
     expect(out).toContain("reasoning (output)");
+  });
+});
+
+/**
+ * #927 — tokens weighted into input-token equivalents.
+ *
+ * `cache_read` used to be excluded from `billable()` entirely. Weighting it
+ * down (0.1x by default) keeps it visible without letting it drown the rest —
+ * and the weight has to resolve per model, because three models bill it at a
+ * different rate.
+ */
+describe("weightedTokens: cache_read weighted per model (#927)", () => {
+  it("applies the standard 0.1x default", () => {
+    const t = { ...emptyTokens(), input: 100, cacheRead: 10_000 };
+    // 100 input + 10_000 * 0.1 = 1100.
+    expect(weightedTokens(t, "claude-sonnet-5")).toBe(1100);
+  });
+
+  it("falls back to the default for an unknown model instead of throwing", () => {
+    const t = { ...emptyTokens(), cacheRead: 10_000 };
+    expect(weightedTokens(t, "some-future-model-nobody-declared")).toBe(1000);
+  });
+
+  it("falls back to the default when the run carries no model at all", () => {
+    const t = { ...emptyTokens(), cacheRead: 10_000 };
+    expect(weightedTokens(t, null)).toBe(1000);
+  });
+
+  it("overrides to 0.025x for Claude Fable 5.1 and Claude Mythos 5.1", () => {
+    const t = { ...emptyTokens(), cacheRead: 10_000 };
+    expect(weightedTokens(t, "claude-fable-5-1-20260101")).toBe(250);
+    expect(weightedTokens(t, "claude-mythos-5-1-20260101")).toBe(250);
+  });
+
+  it("overrides to 0.05x for Claude Opus 5.5", () => {
+    const t = { ...emptyTokens(), cacheRead: 10_000 };
+    expect(weightedTokens(t, "claude-opus-5-5-20260101")).toBe(500);
+  });
+
+  it("weights output at 5x and cache write at 1.25x, uniformly across models", () => {
+    const t = { ...emptyTokens(), output: 100, cacheCreation: 100 };
+    // 100*5 + 100*1.25 = 625, same regardless of which model ran it.
+    expect(weightedTokens(t, "claude-opus-5")).toBe(625);
+    expect(weightedTokens(t, "claude-haiku-4-5")).toBe(625);
+  });
+});
+
+/**
+ * #927 — the rankings sort by the weighted axis, not the excluding one.
+ *
+ * `billable()` excluded `cache_read`, so an agent whose spend was almost
+ * entirely re-reads of cached context ranked as nearly free. Weighting makes
+ * that spend visible in the sort key too — otherwise the ranking and the
+ * headline would describe two different sessions.
+ */
+describe("rankings order by the weighted axis (#927)", () => {
+  const cacheHeavy = agent({
+    agentId: "ag_cache",
+    agentType: "cache-heavy",
+    description: "reads a lot of cached context",
+    // Fable 5.1's 0.025x override still outweighs a small reasoning-heavy run:
+    // 10_000_000 * 0.025 = 250_000.
+    model: "claude-fable-5-1",
+    tokens: { ...emptyTokens(), cacheRead: 10_000_000 },
+    startupTokens: 0,
+  });
+  const reasoningHeavy = agent({
+    agentId: "ag_reason",
+    agentType: "reasoning-heavy",
+    description: "does a lot of actual reasoning",
+    model: "claude-sonnet-5",
+    // Raw (old billable) total is 1000 — bigger than cacheHeavy's raw total of
+    // 0, since cache_read was excluded there. Weighted, cacheHeavy wins.
+    tokens: { ...emptyTokens(), output: 1000 },
+    startupTokens: 0,
+  });
+
+  it("puts the cache-heavy agent first in the timeline", () => {
+    const out = md([reasoningHeavy, cacheHeavy]);
+    const timeline = out.split("### Línea de tiempo")[1] ?? "";
+    expect(timeline.indexOf("cache-heavy")).toBeGreaterThanOrEqual(0);
+    expect(timeline.indexOf("cache-heavy")).toBeLessThan(timeline.indexOf("reasoning-heavy"));
+  });
+
+  it("puts the cache-heavy agent's card first", () => {
+    const out = md([reasoningHeavy, cacheHeavy]);
+    const cards = out.split("### Ficha por agente")[1] ?? "";
+    expect(cards.indexOf("cache-heavy")).toBeGreaterThanOrEqual(0);
+    expect(cards.indexOf("cache-heavy")).toBeLessThan(cards.indexOf("reasoning-heavy"));
+  });
+
+  it("puts the cache-heavy type first in the by-agent-type table", () => {
+    const out = md([reasoningHeavy, cacheHeavy]);
+    const byType = out.split("### Por tipo de agente")[1] ?? "";
+    expect(byType.indexOf("cache-heavy")).toBeGreaterThanOrEqual(0);
+    expect(byType.indexOf("cache-heavy")).toBeLessThan(byType.indexOf("reasoning-heavy"));
   });
 });
 

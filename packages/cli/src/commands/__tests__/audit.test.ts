@@ -563,12 +563,12 @@ describe("audit: output layout (R15, R16, R18)", () => {
 
 /**
  * R14 — the summary used to lead with `startupTokens`, the SMALLEST of the three
- * numbers in its own report: a run printing "346k" carried 2.3M billable and
- * 137.5M of cache_read in the body.
+ * numbers in its own report: a run printing "346k" carried 2.3M weighted and
+ * 137.5M of raw cache_read in the body.
  */
 describe("audit: the summary reports the real spend (R14)", () => {
   // Covers: R14
-  it("names the billable total, not only startup", () => {
+  it("names the weighted total, not only startup", () => {
     runAudit(["--start", "sess-sum"]);
     const transcripts = join(sandbox, "transcripts", "enc");
     mkdirSync(transcripts, { recursive: true });
@@ -598,15 +598,16 @@ describe("audit: the summary reports the real spend (R14)", () => {
 
     const res = runAudit(["--session", "sess-sum"]);
     expect(res.status).toBe(0);
-    expect(res.combined).toContain("facturable");
-    // cache_read is reported too, and separately: it accrues every turn and is
-    // not new spend, so folding it into one number would mislead the other way.
+    expect(res.combined).toContain("ponderado");
+    // cache_read is reported too, at its own raw figure: it is real, billed
+    // spend at (usually) 0.1x an input token, folded into the weighted total
+    // above rather than a separate "not new spend" caveat.
     expect(res.combined).toContain("cache_read");
   });
 });
 
 /**
- * Audit finding A3 — one run, two different "billable" totals.
+ * Audit finding A3 — one run, two different totals for the same figure.
  *
  * The terminal summary added `thinking` as a fourth addend while the report
  * body never did. Thinking is a SUBSET of output — verified over the 1028
@@ -614,8 +615,12 @@ describe("audit: the summary reports the real spend (R14)", () => {
  * <= output_tokens` in 100% of them — so the summary was inflated by the whole
  * session's thinking, and the two artifacts of the same command disagreed in
  * print about the only number the tool exists to produce.
+ *
+ * The invariant now guards the WEIGHTED figure (#927): terminal and body both
+ * call `weightedTokens` once, over the same totals, rather than each keeping
+ * its own arithmetic — the exact class of drift A3 found in the first place.
  */
-describe("audit: one billable definition, terminal and body (A3)", () => {
+describe("audit: one weighted definition, terminal and body (A3)", () => {
   it("prints the same figure in the summary and in the report", () => {
     markedSessionWithTranscript("sess-bill", "2026-08-25", {
       input_tokens: 10,
@@ -629,13 +634,16 @@ describe("audit: one billable definition, terminal and body (A3)", () => {
     expect(res.status).toBe(0);
 
     const dir = join(auditDir, "sessions", "2026-08-25-sess-bil");
-    const body = /TOTAL facturable (\S+) tokens/.exec(
-      readFileSync(join(dir, "report.md"), "utf-8"),
-    );
-    const terminal = /facturable\s+(\S+) tok/.exec(res.combined);
+    const bodyText = readFileSync(join(dir, "report.md"), "utf-8");
+    const raw = /TOTAL (\S+) tokens/.exec(bodyText);
+    const bodyWeighted = /\((\S+) ponderados/.exec(bodyText);
+    const terminal = /ponderado\s+(\S+) tok/.exec(res.combined);
     // input + output + cacheCreation, thinking NOT added on top of output.
-    expect(body?.[1]).toBe("500k");
-    expect(terminal?.[1]).toBe(body?.[1]);
+    expect(raw?.[1]).toBe("500k");
+    // input×1 + output×20×5 + cacheCreation×500_000×1.25 + cacheRead×9_000_000×0.1
+    // = 10 + 100 + 625_000 + 900_000 = 1_525_110 → "1.5M".
+    expect(bodyWeighted?.[1]).toBe("1.5M");
+    expect(terminal?.[1]).toBe(bodyWeighted?.[1]);
 
     // Guards the guard: with no thinking in the fixture the two figures would
     // agree for the wrong reason.

@@ -16,7 +16,7 @@ import { readHarnessCatalog, renderedHarnessVersion } from "../lib/audit/harness
 import { findMarkedSessions, resolveTranscript } from "../lib/audit/discovery.ts";
 import { attachHookEvents, parseSession } from "../lib/audit/parse.ts";
 import { detectSignals, type Lang } from "../lib/audit/signals.ts";
-import { billable, buildReport, renderJson, renderMarkdown } from "../lib/audit/report.ts";
+import { buildReport, renderJson, renderMarkdown, weightedTokens } from "../lib/audit/report.ts";
 import {
   auditsRoot,
   pendingSpoolPath,
@@ -613,22 +613,32 @@ export const auditCommand = defineCommand({
     const warn = report.signals.filter((s) => s.severity === "warn").length;
     // The summary used to lead with `startupTokens`, the SMALLEST of the three
     // numbers in the report: a run showing "346k" in the terminal had 2.3M
-    // billable and 137.5M of cache_read in its body. Billable leads now, and
-    // startup stays as the share it actually is.
+    // weighted and 137.5M of raw cache_read in its body. The weighted total
+    // leads now, and startup stays as the share it actually is.
     //
     // The figure comes from `report.ts` rather than from a second sum written
     // here: this one added `thinking` as a fourth addend, and thinking is a
     // SUBSET of output (`thinking_tokens <= output_tokens` in 100% of the 1028
     // assistant messages of transcript 4935c4d7, CC 2.1.236). So the same run
     // printed one billable in the terminal and a smaller one in the report it
-    // had just written (finding A3).
-    const billableTotal = billable(report.totals.tokens);
+    // had just written (finding A3) — the same invariant now holds for the
+    // weighted figure: one function, called once, printed in both places.
+    //
+    // `topModel` is the dominant model ACROSS AGENTS ONLY (`byModel` never
+    // counts the orchestrator's own model, #607's blind spot at range scale):
+    // an orchestrator-only range falls back to the multiplier default, which
+    // only mis-weights `cache_read` and only for the three rare model
+    // overrides — see `weightedTokens`'s own comment for why that gap is
+    // narrow rather than silent.
+    const topModel =
+      Object.entries(report.totals.byModel).sort(([, a], [, b]) => b - a)[0]?.[0] ?? null;
+    const weightedTotal = weightedTokens(report.totals.tokens, topModel);
     const k = (n: number): string =>
       n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`;
     p.note(
       [
         `${report.totals.sessions} ${isEs ? "sesiones" : "sessions"} · ${report.totals.agents} ${isEs ? "agentes" : "agents"}`,
-        `${isEs ? "facturable" : "billable"}  ${k(billableTotal)} tok`,
+        `${isEs ? "ponderado" : "weighted"}  ${k(weightedTotal)} tok`,
         `${isEs ? "arranque" : "startup"}  ${k(report.totals.startupTokens)} tok`,
         `cache_read  ${k(report.totals.tokens.cacheRead)} tok`,
         `${isEs ? "hallazgos" : "findings"}  ${high} ${isEs ? "alto" : "high"} · ${warn} ${isEs ? "medio" : "warn"}`,

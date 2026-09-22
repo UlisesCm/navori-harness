@@ -43,23 +43,130 @@ function t(lang: Lang, es: string, en: string): string {
 }
 
 /**
- * Tokens that were actually purchased for a session. The ONE definition.
- *
- * `cache_read` is deliberately excluded: it accumulates per turn (every turn
- * re-reads the whole cached context) and reaches hundreds of millions, which
- * would drown every other figure while representing re-reads of context
- * already paid for. It is reported separately, with that caveat stated.
- *
- * `thinking` is excluded for the opposite reason — it is already IN `output`,
- * not a fourth addend. Measured over the 1028 assistant messages of transcript
- * `4935c4d7` (CC 2.1.236): `output_tokens_details.thinking_tokens <=
- * output_tokens` in 100% of them. Exported because the command's terminal
- * summary used to carry its own arithmetic and added thinking on top, so one
- * run printed two different "billable" totals — in a tool whose product IS the
- * number (finding A3).
+ * `output` tokens cost 5x an input token across the whole pricing table,
+ * retired models included — verified 2026-09-22 against
+ * https://platform.claude.com/docs/en/about-claude/pricing.
  */
-export function billable(t: TokenTotals): number {
+const OUTPUT_MULTIPLIER = 5;
+
+/**
+ * Cache-write multiplier applied to `TokenTotals.cacheCreation`.
+ *
+ * Approximation, declared: the pricing table splits cache writes by TTL — 5
+ * minutes at 1.25x, 1 hour at 2x — but `cache_creation_input_tokens` (and so
+ * `TokenTotals.cacheCreation`) sums both without saying which TTL was used.
+ * Using 1.25x UNDERSTATES any session that used 1h caching; there is no field
+ * on the transcript's `usage` block to split them without re-parsing for a TTL
+ * hint it does not carry today.
+ */
+const CACHE_WRITE_MULTIPLIER = 1.25;
+
+/**
+ * Cache-read multiplier, the standard rate the pricing docs state for "all
+ * other models" — verified 2026-09-22.
+ */
+const CACHE_READ_MULTIPLIER_DEFAULT = 0.1;
+
+/**
+ * Per-model cache-read multiplier overrides (verified 2026-09-22): Claude
+ * Fable 5.1 and Claude Mythos 5.1 bill cache hits at 0.025x, Claude Opus 5.5
+ * at 0.05x. Matched by substring against the model id Claude Code stamps on
+ * the transcript, because navori has no catalog mapping ids to the docs'
+ * marketing names. An id that matches none of these falls back to the
+ * default rather than guessing.
+ */
+const CACHE_READ_MULTIPLIER_OVERRIDES: Record<string, number> = {
+  "fable-5-1": 0.025,
+  "mythos-5-1": 0.025,
+  "opus-5-5": 0.05,
+};
+
+function cacheReadMultiplier(model: string | null): number {
+  if (!model) return CACHE_READ_MULTIPLIER_DEFAULT;
+  const id = model.toLowerCase();
+  for (const [needle, mult] of Object.entries(CACHE_READ_MULTIPLIER_OVERRIDES)) {
+    if (id.includes(needle)) return mult;
+  }
+  return CACHE_READ_MULTIPLIER_DEFAULT;
+}
+
+/**
+ * Tokens weighted into input-token equivalents. NOT a dollar figure and NOT a
+ * price table — the multipliers are the pricing table's stable RATIOS, which
+ * outlive an actual price change.
+ *
+ * The previous `billable()` excluded `cache_read` entirely: unweighted, it
+ * reaches hundreds of millions on a long session and would drown every other
+ * figure in the same table. That made the number wrong instead of merely
+ * loud — `cache_read` is real, billed spend at (usually) 0.1x an input token,
+ * never "not new spend". Weighting it down to its real proportion is what
+ * lets it stay in the headline instead of being read separately with a caveat
+ * that was not true.
+ *
+ * `thinking` stays excluded for the same reason it always was — it is already
+ * IN `output`, not a fourth addend. Measured over the 1028 assistant messages
+ * of transcript `4935c4d7` (CC 2.1.236): `output_tokens_details.thinking_tokens
+ * <= output_tokens` in 100% of them.
+ *
+ * NOT modeled: `inference_geo: "us"` (1.1x on every counter) and fast mode
+ * (doubles Opus 5's base rate) — neither is exposed on the transcript's usage
+ * block today, so there is nothing to key an override on.
+ */
+export function weightedTokens(t: TokenTotals, model: string | null): number {
+  return (
+    t.input +
+    t.output * OUTPUT_MULTIPLIER +
+    t.cacheCreation * CACHE_WRITE_MULTIPLIER +
+    t.cacheRead * cacheReadMultiplier(model)
+  );
+}
+
+/**
+ * `input + output + cacheCreation`, excluding `cache_read` — the OLD
+ * `billable()` formula, kept private and renamed because it now serves a
+ * different job: it is the basis for the raw "where did the tokens go"
+ * breakdown (`spendBreakdown`, the per-card "context" row), not a headline
+ * cost figure. Weighting changes the scale of `output` and `cacheCreation`
+ * against `input`, so subtracting a weighted total from a raw `startupTokens`
+ * or a raw `output` would silently misattribute the remainder.
+ */
+function rawSpend(t: TokenTotals): number {
   return t.input + t.output + t.cacheCreation;
+}
+
+/**
+ * Every tool call across the orchestrator and every subagent — the
+ * denominator for `cache_read`'s normalized figure (see `spendBreakdown` and
+ * `agentCard`). Chosen over "turns" because the model exposes tool-call
+ * counts (`toolCounts`) directly; a turn count would require re-parsing the
+ * transcript for something not already captured.
+ */
+function toolCallCount(counts: Record<string, number>): number {
+  return Object.values(counts).reduce((sum, n) => sum + n, 0);
+}
+
+/**
+ * The model whose messages dominate a session, for weighting an aggregate
+ * that spans the orchestrator and every subagent.
+ *
+ * Approximation, declared: of the four multipliers, only `cache_read` varies
+ * by model in the verified table (input/output/cache-write are uniform across
+ * the whole range), and only for three rare models. Picking the busiest model
+ * mis-weights `cache_read` alone, and only on a session that mixed one of
+ * those with anything else — a narrow, stated blind spot rather than a silent
+ * one.
+ */
+function topModelOf(models: Record<string, number>): string | null {
+  const top = Object.entries(models).sort(([, x], [, y]) => y - x)[0];
+  return top?.[0] ?? null;
+}
+
+function dominantModel(s: SessionAudit): string | null {
+  const counts: Record<string, number> = { ...s.orchestrator.models };
+  for (const a of s.agents) {
+    if (a.model) counts[a.model] = (counts[a.model] ?? 0) + 1;
+  }
+  return topModelOf(counts);
 }
 
 function sessionTokens(s: SessionAudit): TokenTotals {
@@ -69,11 +176,18 @@ function sessionTokens(s: SessionAudit): TokenTotals {
 /** The headline table: where the tokens went, by concept. */
 function spendBreakdown(s: SessionAudit, lang: Lang): string {
   const total = sessionTokens(s);
+  const model = dominantModel(s);
   const startup =
     s.agents.reduce((sum, a) => sum + a.startupTokens, 0) + s.orchestrator.startupTokens;
   const reasoning = total.output;
-  const billed = billable(total);
-  const rest = Math.max(0, billed - startup - reasoning);
+  const raw = rawSpend(total);
+  const rest = Math.max(0, raw - startup - reasoning);
+  const weighted = weightedTokens(total, model);
+  const cacheReadWeighted = total.cacheRead * cacheReadMultiplier(model);
+  const toolCalls =
+    toolCallCount(s.orchestrator.toolCounts) +
+    s.agents.reduce((sum, a) => sum + toolCallCount(a.toolCounts), 0);
+  const perCall = toolCalls > 0 ? Math.round(total.cacheRead / toolCalls) : null;
 
   const rows = [
     [t(lang, "arranque de agentes", "agent startup"), startup],
@@ -84,30 +198,35 @@ function spendBreakdown(s: SessionAudit, lang: Lang): string {
   ] as const;
 
   const lines = rows.map(
-    ([label, n]) =>
-      `  ${String(label).padEnd(36)} ${k(n).padStart(7)}  ${pct(n, billed).padStart(4)}`,
+    ([label, n]) => `  ${String(label).padEnd(36)} ${k(n).padStart(7)}  ${pct(n, raw).padStart(4)}`,
   );
 
   return [
-    t(lang, `TOTAL facturable ${k(billed)} tokens`, `BILLABLE TOTAL ${k(billed)} tokens`),
+    t(
+      lang,
+      `TOTAL ${k(raw)} tokens (${k(weighted)} ponderados, equivalentes a input)`,
+      `TOTAL ${k(raw)} tokens (${k(weighted)} weighted, input-token equivalents)`,
+    ),
     ...lines,
     "",
     t(
       lang,
-      `  cache_read acumulado: ${k(total.cacheRead)} — relectura de contexto ya cacheado, se reporta aparte porque se acumula en cada turno y no es gasto nuevo.`,
-      `  accumulated cache_read: ${k(total.cacheRead)} — re-reads of already-cached context, reported separately because it accrues every turn and is not new spend.`,
+      `  cache_read: ${k(total.cacheRead)} bruto → ${k(cacheReadWeighted)} ponderado (${pct(cacheReadWeighted, weighted)} del total ponderado) — se cobra a este agente a ${cacheReadMultiplier(model)}× input, no es gasto nulo.${perCall !== null ? ` ${k(perCall)}/tool call.` : ""}`,
+      `  cache_read: ${k(total.cacheRead)} raw → ${k(cacheReadWeighted)} weighted (${pct(cacheReadWeighted, weighted)} of the weighted total) — billed at ${cacheReadMultiplier(model)}x input, not zero-cost.${perCall !== null ? ` ${k(perCall)}/tool call.` : ""}`,
     ),
   ].join("\n");
 }
 
 function agentTimeline(s: SessionAudit, lang: Lang): string {
   if (s.agents.length === 0) return t(lang, "(sin subagentes)", "(no subagents)");
-  const top = [...s.agents].sort((a, b) => billable(b.tokens) - billable(a.tokens)).slice(0, 15);
+  const top = [...s.agents]
+    .sort((a, b) => weightedTokens(b.tokens, b.model) - weightedTokens(a.tokens, a.model))
+    .slice(0, 15);
   const lines = top.map((a) => {
     const time = a.startedAt.slice(11, 16);
     const par = a.overlapsWith.length > 0 ? "∥" : " ";
     const verdict = a.verdict === "CHANGES_REQUESTED" ? " ⟲" : "";
-    return `  ${time} ${par} ${a.agentType.padEnd(16)} ${minutes(a.durationMs).padStart(5)} ${k(billable(a.tokens)).padStart(7)}${verdict}  ${a.description.slice(0, 44)}`;
+    return `  ${time} ${par} ${a.agentType.padEnd(16)} ${minutes(a.durationMs).padStart(5)} ${k(weightedTokens(a.tokens, a.model)).padStart(7)}${verdict}  ${a.description.slice(0, 44)}`;
   });
   const omitted = s.agents.length - top.length;
   if (omitted > 0) {
@@ -161,7 +280,7 @@ function agentCards(s: SessionAudit, lang: Lang): string {
   const cards = [orchestratorCard(s, lang)];
   cards.push(
     ...[...s.agents]
-      .sort((a, b) => billable(b.tokens) - billable(a.tokens))
+      .sort((a, b) => weightedTokens(b.tokens, b.model) - weightedTokens(a.tokens, a.model))
       .map((a) => agentCard(a, s.hookLogFrom, lang, s.agents.length)),
   );
   return cards.join("\n\n");
@@ -198,7 +317,7 @@ function modelsLabel(models: Record<string, number>): string {
  * SUBSET of output, measured over the 1028 assistant messages of transcript
  * `4935c4d7` (CC 2.1.236) — `thinking_tokens <= output_tokens` in 100% of them.
  * The double count also understated `context` by the same amount, since
- * context is whatever the billable total has LEFT after startup and reasoning.
+ * context is whatever the raw total has LEFT after startup and reasoning.
  *
  * So thinking is rendered as an informative breakdown of the line above it,
  * never as an addend — and only when there is some, because a card that
@@ -218,15 +337,17 @@ function reasoningRows(tokens: TokenTotals, lang: Lang): string[] {
 
 function orchestratorCard(s: SessionAudit, lang: Lang): string {
   const o = s.orchestrator;
-  const context = Math.max(0, billable(o.tokens) - o.startupTokens - o.tokens.output);
+  const context = Math.max(0, rawSpend(o.tokens) - o.startupTokens - o.tokens.output);
   const model = modelsLabel(o.models ?? {});
+  const calls = toolCallCount(o.toolCounts);
+  const perCall = calls > 0 ? k(Math.round(o.tokens.cacheRead / calls)) : null;
   const rows = [
     `${model ? `${model} · ` : ""}${minutes(s.wallClockMs)} · ${s.prompts.typed + s.prompts.queued} ${t(lang, "mensajes del usuario", "user messages")}`,
     "",
     `  ${t(lang, "arranque", "startup").padEnd(14)}${k(o.startupTokens)}`,
     ...reasoningRows(o.tokens, lang),
     `  ${t(lang, "contexto", "context").padEnd(14)}${k(context)}`,
-    `  ${"cache_read".padEnd(14)}${k(o.tokens.cacheRead)}`,
+    `  ${"cache_read".padEnd(14)}${k(o.tokens.cacheRead)}${perCall ? ` (${perCall}/tool call)` : ""}`,
     "",
     `  ${t(lang, "skills", "skills").padEnd(LABEL)}${o.skills.length > 0 ? o.skills.map((sk) => sk.slug).join(", ") : t(lang, "—", "—")}`,
     `  ${t(lang, "tools", "tools").padEnd(LABEL)}${toolsLine(o.toolCounts)}`,
@@ -437,7 +558,9 @@ function agentCard(
   agentCount: number,
 ): string {
   const head = `### ${a.agentType} · "${a.description}"`;
-  const context = Math.max(0, billable(a.tokens) - a.startupTokens - a.tokens.output);
+  const context = Math.max(0, rawSpend(a.tokens) - a.startupTokens - a.tokens.output);
+  const calls = toolCallCount(a.toolCounts);
+  const perCall = calls > 0 ? k(Math.round(a.tokens.cacheRead / calls)) : null;
 
   const rows: string[] = [
     `${a.model ?? "?"} · ${minutes(a.durationMs)}${a.overlapsWith.length > 0 ? t(lang, ` · en paralelo con ${a.overlapsWith.length}`, ` · in parallel with ${a.overlapsWith.length}`) : ""}`,
@@ -445,7 +568,7 @@ function agentCard(
     `  ${t(lang, "arranque", "startup").padEnd(14)}${k(a.startupTokens)}`,
     ...reasoningRows(a.tokens, lang),
     `  ${t(lang, "contexto", "context").padEnd(14)}${k(context)}`,
-    `  ${"cache_read".padEnd(14)}${k(a.tokens.cacheRead)}`,
+    `  ${"cache_read".padEnd(14)}${k(a.tokens.cacheRead)}${perCall ? ` (${perCall}/tool call)` : ""}`,
     "",
   ];
 
@@ -699,7 +822,7 @@ function byAgentType(s: SessionAudit): string {
     const cur = by.get(a.agentType) ?? { n: 0, tok: 0, startup: 0 };
     by.set(a.agentType, {
       n: cur.n + 1,
-      tok: cur.tok + billable(a.tokens),
+      tok: cur.tok + weightedTokens(a.tokens, a.model),
       startup: cur.startup + a.startupTokens,
     });
   }
