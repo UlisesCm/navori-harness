@@ -808,13 +808,13 @@ interface DoctorCmdStrings {
   docBudgetTitle: string;
   /** What a session pays: whole file, managed half vs its ceiling, user prose. */
   docBudgetSummary: (total: number, managed: number, ceiling: number, own: number) => string;
-  /** Claude-only: cada subagente recarga CLAUDE.md entero. Sin multiplicador inventado. */
+  /** Claude-only: every subagent reloads the whole CLAUDE.md. No invented multiplier. */
   docBudgetSubagents: (words: number) => string;
-  /** Blocks navori ships no ceiling for: contados, fuera del cociente. */
+  /** Blocks navori ships no ceiling for: counted, but out of the quotient. */
   docBudgetUnbudgeted: (words: number, ids: string) => string;
-  /** `AGENTS.md` contra el cap de bytes de Codex — se reporta, no se capea. */
+  /** `AGENTS.md` against Codex's byte cap — reported, never capped. */
   docBudgetAgentsMd: (words: number, bytes: number, pct: number, max: number) => string;
-  /** Igual, pasado el umbral de aviso: el modo de falla es truncamiento silencioso. */
+  /** Same, past the warn ratio: the failure mode there is silent truncation. */
   docBudgetAgentsMdNear: (words: number, bytes: number, pct: number, max: number) => string;
   /** `.claude/context/` — reported, never capped (#919 owns its ceiling). */
   docBudgetContext: (files: number, words: number, chars: number, budget: number) => string;
