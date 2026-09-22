@@ -2086,6 +2086,24 @@ export interface DocBudgetFile {
  * - `.claude/context/` — delivered by the SessionStart hook, REPORTED ONLY; its
  *   own ceiling needs a justified number of its own (#919).
  *
+ * NOT the same measurement as `lib/audit/harness.ts`'s `readHarnessCatalog`,
+ * and the two must not be collapsed into one (#917 / #926). Same file, three
+ * differences that make one number unable to serve the other's question:
+ *
+ * - UNIT. This report counts WORDS (and bytes for `AGENTS.md`), because that is
+ *   the unit `DOC_BUDGETS` is calibrated in and the unit Codex's cap is stated
+ *   in. The catalog estimates TOKENS as `length / 4`, because it attributes
+ *   model cost per agent run. Measured here today: 2307 words against 4104
+ *   estimated tokens for the same `CLAUDE.md` — both right, neither comparable.
+ * - SCOPE. The catalog reads the GLOBAL `~/.claude/CLAUDE.md` too, and declares
+ *   `AGENTS.md` under `notObserved`. This report is the mirror image: it prices
+ *   `AGENTS.md`, and never touches the global layer, which navori does not
+ *   render and which is machine-scoped, not repo-scoped. They are complements.
+ * - QUESTION. "Is what navori renders here within the ceilings navori ships?"
+ *   versus "which instructions did this session pay for and not reach?". The
+ *   second needs per-agent attribution and `omitClaudeMd`; the first needs a
+ *   per-block ceiling. Neither decomposition answers the other.
+ *
  * Every `CLAUDE.md` field is nullable because a repo on a prose engine
  * (`agents-md`, `codex`, `cursor`, `copilot`) legitimately has no such file.
  * Reporting nothing there was the previous behaviour and it was wrong: a panel
