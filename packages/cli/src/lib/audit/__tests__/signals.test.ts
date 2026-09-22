@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import type { HarnessCatalog } from "../harness.ts";
-import type { AgentRun, SessionAudit } from "../model.ts";
+import type { AgentRun, HookEvent, SessionAudit } from "../model.ts";
 import { emptyPermissionDecisions, emptyTokens, emptyToolErrors } from "../model.ts";
-import { detectSignals } from "../signals.ts";
+import { detectSignals, hookMisfires } from "../signals.ts";
+import { buildReport } from "../report.ts";
 
 function agent(over: Partial<AgentRun> = {}): AgentRun {
   return {
@@ -1141,5 +1142,84 @@ describe("classifier round-trips discount the host's read-only set (#730)", () =
     s.orchestrator.toolCountsByMode = { plan: { Bash: 30 } };
     s.orchestrator.classifierExemptBashByMode = { plan: 12 };
     expect(found(s)).toBeUndefined();
+  });
+});
+
+/**
+ * #924 — the subagent firings were never lost: 22,751 of 22,751 carry an
+ * `agentId`, they are attributed in `parse.ts` and printed on each agent's
+ * card. What was missing is the AGGREGATION — atomized across ~119 cards, the
+ * 80% share only exists across the range — and the DECLARATION that says which
+ * of those firings could do nothing where they landed.
+ *
+ * Fixture from the real store: `model-advisor`, whose script exits 0 the
+ * moment the payload carries `agent_id` (`model-advisor.sh:46`) and which
+ * nonetheless fired 3,649 times inside subagents.
+ */
+describe("signal: hook-misfire (#924)", () => {
+  const fired = (over: Partial<HookEvent> = {}): HookEvent => ({
+    ts: "2026-09-21T14:38:01Z",
+    name: "model-advisor",
+    phase: "PreToolUse",
+    verdict: "skip",
+    ms: 43,
+    source: "core",
+    toolUseId: "toolu_0112ZZBL716tqEDSLigb8tci",
+    ...over,
+  });
+
+  const range = (sessions: SessionAudit[]) => hookMisfires(sessions, "es");
+
+  it("cuenta los disparos de un hook main-thread-only dentro de subagentes", () => {
+    const runs = [
+      agent({ agentId: "a1", hookEvents: [fired({ agentId: "a1" }), fired({ agentId: "a1" })] }),
+    ];
+    const out = range([
+      session({
+        agents: runs,
+        orchestrator: {
+          ...session().orchestrator,
+          hookEvents: [fired({ agentId: "orchestrator" })],
+        },
+      }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.kind).toBe("hook-misfire");
+    expect(out[0]?.summary).toContain("2 de 3 disparos");
+    // Never latency: the hooks of one event start together, so dropping one
+    // buys the gap to the next-slowest (~3ms measured). #922 was argued on a
+    // latency claim this instrument no longer supports.
+    expect(out[0]?.evidence).toContain("NO latencia");
+  });
+
+  it("no dice nada de un hook que sí trabaja en subagentes", () => {
+    const runs = [
+      agent({ agentId: "a1", hookEvents: [fired({ agentId: "a1", name: "guard-destructive" })] }),
+    ];
+    expect(range([session({ agents: runs })])).toHaveLength(0);
+  });
+
+  it("degrada a silencio, nunca a cero, cuando el store no trae agentId", () => {
+    // Codex documents `agent_id` on SubagentStart/SubagentStop and NOT on the
+    // tool phases (`codex-hook-parallelism`), so a store from that host has
+    // firings with no owner. Publishing "0 misfires" about it would be a claim
+    // its logs never made; window-based attribution must not decide a finding.
+    const runs = [agent({ agentId: "a1", hookEvents: [fired(), fired()] })];
+    expect(range([session({ agents: runs })])).toHaveLength(0);
+  });
+
+  it("llega al reporte como señal de rango", () => {
+    const report = buildReport(
+      [
+        session({
+          agents: [agent({ agentId: "a1", hookEvents: [fired({ agentId: "a1" })] })],
+        }),
+      ],
+      { repo: "demo", version: "0.6.5", catalog: catalog(), lang: "es" },
+    );
+    // Range-level, like `harnessRegime`: a single session's handful of firings
+    // reads as noise, and the per-agent card already prints its own list.
+    expect(report.rangeSignals.map((s) => s.kind)).toContain("hook-misfire");
+    expect(report.signals.map((s) => s.kind)).not.toContain("hook-misfire");
   });
 });

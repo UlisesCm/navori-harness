@@ -12,7 +12,7 @@ import {
   emptyTokens,
   recorderWindow,
 } from "./model.ts";
-import { harnessRegime, reviewerGateLifecycle, type Lang } from "./signals.ts";
+import { harnessRegime, hookMisfires, reviewerGateLifecycle, type Lang } from "./signals.ts";
 
 /**
  * Renders a parsed audit into its two derived artifacts.
@@ -774,42 +774,149 @@ function hooksLine(events: HookEvent[], lang: Lang, agentCount: number): string 
     cur.phases.add(e.phase);
     by.set(e.name, cur);
   }
-  return (
-    [...by.entries()]
-      // Slowest first: the point of recording `ms` is finding the hook that costs
-      // seconds on every tool call.
-      .sort((x, y) => sumMs(y[1].ms) - sumMs(x[1].ms))
-      .map(([name, v]) => {
-        const total = sumMs(v.ms);
-        const work = v.ms.filter((ms) => ms > HOOK_WORK_MS);
-        const p50 = median([...v.ms].sort((a, b) => a - b));
-        const blocked =
-          v.blocked > 0 ? t(lang, ` · ${v.blocked} bloqueos`, ` · ${v.blocked} blocked`) : "";
-        // The split only appears when there is something to split. A hook that
-        // never ran long — the always-on ones — is honestly described by its
-        // total, and an unconditional parenthesis saying "0 runs" is noise.
-        const split =
-          work.length > 0
-            ? t(
-                lang,
-                ` · ${work.length} corridas >1s = ${(sumMs(work) / 1000).toFixed(1)}s`,
-                ` · ${work.length} runs >1s = ${(sumMs(work) / 1000).toFixed(1)}s`,
-              )
-            : "";
-        // Keyed on the PHASE and not on the hook's name: the name is a navori
-        // asset that can be renamed, while the phase is the host's contract.
-        const hostFired =
-          v.phases.size === 1 && v.phases.has(HOST_FIRED_PHASE)
-            ? t(
-                lang,
-                ` · disparos del host, no subagentes (agentes: ${agentCount})`,
-                ` · host firings, not subagents (agents: ${agentCount})`,
-              )
-            : "";
-        return `${name} ${v.ms.length}× ${(total / 1000).toFixed(1)}s · ${t(lang, "mediana", "median")} ${p50}ms${split}${blocked}${hostFired}`;
-      })
-      .join(`\n  ${" ".repeat(LABEL)}`)
+  const rows = [...by.entries()]
+    // Slowest first: the point of recording `ms` is finding the hook that costs
+    // seconds on every tool call.
+    .sort((x, y) => sumMs(y[1].ms) - sumMs(x[1].ms))
+    .map(([name, v]) => {
+      const total = sumMs(v.ms);
+      const work = v.ms.filter((ms) => ms > HOOK_WORK_MS);
+      const p50 = median([...v.ms].sort((a, b) => a - b));
+      const blocked =
+        v.blocked > 0 ? t(lang, ` · ${v.blocked} bloqueos`, ` · ${v.blocked} blocked`) : "";
+      // The split only appears when there is something to split. A hook that
+      // never ran long — the always-on ones — is honestly described by its
+      // total, and an unconditional parenthesis saying "0 runs" is noise.
+      const split =
+        work.length > 0
+          ? t(
+              lang,
+              ` · ${work.length} corridas >1s = ${(sumMs(work) / 1000).toFixed(1)}s`,
+              ` · ${work.length} runs >1s = ${(sumMs(work) / 1000).toFixed(1)}s`,
+            )
+          : "";
+      // Keyed on the PHASE and not on the hook's name: the name is a navori
+      // asset that can be renamed, while the phase is the host's contract.
+      const hostFired =
+        v.phases.size === 1 && v.phases.has(HOST_FIRED_PHASE)
+          ? t(
+              lang,
+              ` · disparos del host, no subagentes (agentes: ${agentCount})`,
+              ` · host firings, not subagents (agents: ${agentCount})`,
+            )
+          : "";
+      return `${name} ${v.ms.length}× ${(total / 1000).toFixed(1)}s · ${t(lang, "mediana", "median")} ${p50}ms${split}${blocked}${hostFired}`;
+    });
+  rows.push(...tollRows(completed, lang));
+  return rows.join(`\n  ${" ".repeat(LABEL)}`);
+}
+
+/** `ms` under a second, seconds above it: `75631ms` is a number nobody reads. */
+function msLabel(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}s` : `${Math.round(n)}ms`;
+}
+
+/** Largest `ms` of a group, 0 for an empty one. */
+function maxMs(events: HookEvent[]): number {
+  return events.reduce((top, e) => (e.ms > top ? e.ms : top), 0);
+}
+
+/**
+ * The hooks that raced on ONE host event, grouped.
+ *
+ * Keyed on `toolUseId` + `phase`, and both halves are load-bearing. The id
+ * alone would merge a `PreToolUse` with the `PostToolUse` of the same tool
+ * call, which are sequential and whose costs the session really did add up.
+ *
+ * An event with no `toolUseId` becomes its own group, so its cost is counted
+ * whole. That is not a fallback, it is the correct answer: the ONLY events
+ * without one are `SessionStart`/`SessionEnd` (measured over this repo's audit
+ * store: 91 of 23,084, all of them lifecycle phases), and Claude Code gives
+ * every `SessionEnd` hook a SHARED 1.5-second budget — there the sum is the
+ * statistic that describes what the session waited. Keying on the id means the
+ * exception falls out instead of being coded.
+ */
+function tollGroups(events: HookEvent[]): HookEvent[][] {
+  const byHostEvent = new Map<string, HookEvent[]>();
+  const ungrouped: HookEvent[][] = [];
+  for (const e of events) {
+    if (!e.toolUseId) {
+      ungrouped.push([e]);
+      continue;
+    }
+    // `\u0000` as the separator, never a raw NUL: same reason as `gateHandle`.
+    const key = `${e.toolUseId}\u0000${e.phase}`;
+    const group = byHostEvent.get(key);
+    if (group) group.push(e);
+    else byHostEvent.set(key, [e]);
+  }
+  return [...byHostEvent.values(), ...ungrouped];
+}
+
+/**
+ * What the hooks of this block actually cost the session, per host event.
+ *
+ * #924. The rows above are one per hook name, and there is no arithmetic
+ * BETWEEN them — so a reader who adds the column gets the sum of hooks that ran
+ * AT THE SAME TIME. Both hosts launch every matching hook of an event at once
+ * (`claude-hook-parallelism`, `codex-hook-parallelism` in `host-contracts.ts`),
+ * so what the session waited for is the SLOWEST of each event, not their sum.
+ * Measured over this repo's own 23,084 recorded hook runs: the column adds up
+ * to 1,564.3s where the blocking cost is 928.1s — 1.69×, +636.2s of time
+ * nobody spent. It is the same defect `wallClockOf` already fixes for agent
+ * durations, on the axis nobody had applied it to.
+ *
+ * Both figures ship, and neither replaces the other: the total is still the
+ * honest answer to "how much work did this hook do" (see `HOOK_WORK_MS`), and
+ * the toll is the honest answer to "how much did waiting for hooks cost".
+ *
+ * Silent when nothing ever raced: with one hook per event the toll IS the
+ * total, and printing it twice teaches the reader to skim the next line.
+ */
+function tollRows(completed: HookEvent[], lang: Lang): string[] {
+  const groups = tollGroups(completed);
+  const contended = groups.filter((g) => g.length > 1);
+  if (contended.length === 0) return [];
+
+  const tolls = groups.map(maxMs);
+  const toll = sumMs(tolls);
+  const naive = sumMs(completed.map((e) => e.ms));
+  const p50 = median([...tolls].sort((a, b) => a - b));
+
+  // The pacemaker is COMPUTED, never assumed: the issue that opened #924 named
+  // the wrong hook from a glance at the medians, and the measurement inverted
+  // it. Counted over contended events only — a hook that is alone on its event
+  // is not racing anyone, so calling it the fastest or the slowest says nothing.
+  const wins = new Map<string, number>();
+  for (const group of contended) {
+    const lead = group.reduce((top, e) => (e.ms > top.ms ? e : top));
+    wins.set(lead.name, (wins.get(lead.name) ?? 0) + 1);
+  }
+  const leader = [...wins.entries()].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))[0];
+
+  const rows = [
+    t(
+      lang,
+      `peaje por evento: ${msLabel(toll)} en ${groups.length} eventos · mediana ${p50}ms · las filas de arriba suman ${msLabel(naive)}, con ${contended.length} eventos de hooks en paralelo`,
+      `per-event toll: ${msLabel(toll)} over ${groups.length} events · median ${p50}ms · the rows above add up to ${msLabel(naive)}, with ${contended.length} events of parallel hooks`,
+    ),
+  ];
+  if (!leader) return rows;
+  const [pacemaker, led] = leader;
+  // Counterfactual, not a subtraction of its total: removing the pacemaker
+  // promotes the second-slowest of each event it led, and on the events it did
+  // not lead it changes nothing. This is the number that tells an operator
+  // whether retiring a hook buys latency — over this repo's store it is 75.6s
+  // of a 928.1s toll, against the 271.1s its own column advertises.
+  const without = sumMs(groups.map((g) => maxMs(g.filter((e) => e.name !== pacemaker))));
+  rows.push(
+    t(
+      lang,
+      `marca el paso ${pacemaker} en ${led} de ${contended.length} · retirarlo bajaría el peaje ${msLabel(toll - without)}`,
+      `${pacemaker} sets the pace on ${led} of ${contended.length} · dropping it would cut the toll by ${msLabel(toll - without)}`,
+    ),
   );
+  return rows;
 }
 
 function sumMs(xs: number[]): number {
@@ -1142,8 +1249,8 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
       "",
       t(
         lang,
-        "> Los `ms` de un hook los mide el hook mismo, y solo se miden con audit-mode activo: incluyen el costo del propio recorder. La **mediana** es el peaje que pagaría un comando más; el total incluye las corridas largas, que son el gate haciendo su trabajo en un commit y no overhead que se pueda recortar.",
-        "> A hook's `ms` are measured by the hook itself, and only while audit-mode is on: they include the recorder's own cost. The **median** is the toll one more command would pay; the total includes the long runs, which are the gate doing its job on a commit — not overhead to trim.",
+        "> Los `ms` de un hook los mide el hook mismo, y solo se miden con audit-mode activo: incluyen el costo del propio recorder. La **mediana** es el peaje que pagaría un comando más; el total incluye las corridas largas, que son el gate haciendo su trabajo en un commit y no overhead que se pueda recortar. **Los totales por hook no se suman entre sí**: los hooks de un mismo evento arrancan en paralelo, así que lo que la sesión esperó es el más lento de cada evento — eso es lo que dice `peaje por evento`.",
+        "> A hook's `ms` are measured by the hook itself, and only while audit-mode is on: they include the recorder's own cost. The **median** is the toll one more command would pay; the total includes the long runs, which are the gate doing its job on a commit — not overhead to trim. **The per-hook totals do not add up**: the hooks of one event start in parallel, so what the session waited for is the slowest of each event — that is what `per-event toll` reports.",
       ),
     );
 
@@ -1456,6 +1563,10 @@ export function buildReport(
       // totals once there is enough data. Range-level for the same reason
       // `harnessRegime` is: the sample-size floor is evaluated across sessions.
       ...reviewerGateLifecycle(sessions, opts.lang ?? "en"),
+      // #924: a hook declared main-thread-only that fired inside a subagent.
+      // Range-level because one session's handful of firings reads as noise —
+      // the 80% share only exists across the range.
+      ...hookMisfires(sessions, opts.lang ?? "en"),
     ],
     orphanSessions: opts.orphanSessions ?? [],
   };

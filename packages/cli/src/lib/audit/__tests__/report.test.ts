@@ -1210,3 +1210,100 @@ describe("totals.skills — el histograma del rango", () => {
     expect(out).toContain("**2 de 3** no se invocaron ni se heredaron");
   });
 });
+
+/**
+ * #924 — the hooks block printed one total per hook name with no arithmetic
+ * BETWEEN the rows, so adding the column added hooks that ran AT THE SAME TIME.
+ * Over this repo's own store the column said 1,564.3s where the blocking cost
+ * was 928.1s, and that 1.69x already produced a documented false conclusion
+ * (a hook argued for on latency grounds it saves ~3ms of).
+ *
+ * The fixture is ONE REAL host tool call lifted verbatim from
+ * `~/.navori/audits/navori-harness/`: `toolu_0112ZZBL716tqEDSLigb8tci`, five
+ * hooks racing on its `PreToolUse` plus one on its `PostToolUse`. It is the
+ * smallest slice that exercises BOTH halves of the grouping key, which is why
+ * an invented fixture would not do: the phase is what keeps the Pre and the
+ * Post — genuinely sequential — from being merged into one 43ms event.
+ */
+describe("peaje por evento de hooks concurrentes (#924)", () => {
+  /** The `PreToolUse` fan-out of one real Bash call. Max 43ms, sum 114ms. */
+  const REAL_PRE: HookEvent[] = [
+    { name: "guard-destructive", verdict: "skip", ms: 18, source: "core" },
+    { name: "quality-gate-pre-commit", verdict: "skip", ms: 17, source: "core" },
+    { name: "check-jscpd", verdict: "allow", ms: 17, source: "plugin:jscpd" },
+    { name: "check-semgrep", verdict: "allow", ms: 19, source: "plugin:semgrep" },
+    { name: "model-advisor", verdict: "skip", ms: 43, source: "core" },
+  ].map((e) => ({
+    ...e,
+    ts: "2026-09-21T14:38:01Z",
+    phase: "PreToolUse",
+    agentId: "a3c95de62d202e757",
+    toolUseId: "toolu_0112ZZBL716tqEDSLigb8tci",
+  }));
+
+  /** The `PostToolUse` of the SAME tool call: same id, different phase. */
+  const REAL_POST: HookEvent = {
+    ts: "2026-09-21T14:38:01Z",
+    name: "managed-drift-watch",
+    phase: "PostToolUse",
+    verdict: "skip",
+    ms: 33,
+    source: "core",
+    agentId: "a3c95de62d202e757",
+    toolUseId: "toolu_0112ZZBL716tqEDSLigb8tci",
+  };
+
+  /** A real `SessionEnd` run: no `toolUseId`, because nothing else has one. */
+  const REAL_SESSION_END: HookEvent = {
+    ts: "2026-09-21T14:40:00Z",
+    name: "worktree-reclaim",
+    phase: "SessionEnd",
+    verdict: "clean",
+    ms: 835,
+    source: "core",
+    agentId: "orchestrator",
+  };
+
+  function withHooks(hookEvents: HookEvent[]): string {
+    return md([], { orchestrator: { ...session([]).orchestrator, hookEvents } });
+  }
+
+  it("cobra el más lento de cada evento y deja ver la suma que NO se paga", () => {
+    const out = withHooks([...REAL_PRE, REAL_POST]);
+    // Two events, not six: 43ms (the slowest of the fan-out) + 33ms.
+    expect(out).toContain("peaje por evento: 76ms en 2 eventos");
+    // The naive figure stays visible and labelled as what it is — hiding it
+    // would trade one wrong reading for a missing one.
+    expect(out).toContain("las filas de arriba suman 147ms");
+    expect(out).toContain("1 eventos de hooks en paralelo");
+    // The per-hook rows survive untouched: they answer another question.
+    expect(out).toContain("model-advisor 1×");
+    expect(out).toContain("managed-drift-watch 1×");
+  });
+
+  it("nombra a quien marca el paso con su ahorro contrafactual, no con su total", () => {
+    const out = withHooks([...REAL_PRE, REAL_POST]);
+    expect(out).toContain("marca el paso model-advisor en 1 de 1");
+    // 24ms, not its 43ms total: removing it promotes check-semgrep's 19ms.
+    // This is the number that says whether retiring a hook buys latency.
+    expect(out).toContain("retirarlo bajaría el peaje 24ms");
+  });
+
+  it("deja intacta la suma de las fases de ciclo de vida", () => {
+    const out = withHooks([...REAL_PRE, REAL_POST, REAL_SESSION_END]);
+    // 43 + 33 + 835. The SessionEnd run is its own event because it carries no
+    // `toolUseId`, and that is the CORRECT treatment, not a fallback: Claude
+    // Code gives every SessionEnd hook a shared 1.5s budget, so there the sum
+    // is what describes the wait. Keying on the id makes it fall out.
+    expect(out).toContain("peaje por evento: 911ms en 3 eventos");
+  });
+
+  it("calla cuando ningún hook compitió con otro", () => {
+    const out = withHooks([REAL_POST]);
+    expect(out).toContain("managed-drift-watch 1×");
+    // With one hook per event the toll IS the total. Printing it twice teaches
+    // the reader to skim the next line. (The block's footnote names the figure
+    // in prose either way, hence the colon: what must be absent is the ROW.)
+    expect(out).not.toContain("peaje por evento:");
+  });
+});
