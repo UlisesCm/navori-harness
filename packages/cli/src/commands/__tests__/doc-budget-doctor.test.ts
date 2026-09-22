@@ -6,7 +6,12 @@ import { NavoriConfigSchema, type NavoriConfig, type NavoriConfigInput } from ".
 import { computeHealthVerdict, docBudgetLines, scanDocBudget } from "../doctor.ts";
 import { tc } from "../../lib/i18n.ts";
 import { readCliVersion } from "../../lib/bundled-assets.ts";
-import { MARKER_PAIR_WORDS, SESSION_CONTEXT_DELIVERY_BUDGET_CHARS } from "../../lib/doc-budgets.ts";
+import {
+  CODEX_PROJECT_DOC_MAX_BYTES,
+  CODEX_PROJECT_DOC_WARN_RATIO,
+  MARKER_PAIR_WORDS,
+  SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
+} from "../../lib/doc-budgets.ts";
 
 /**
  * #917 phase 2 — `doctor` prices what a session of this repo pays before its
@@ -201,6 +206,43 @@ describe("scanDocBudget (#917)", () => {
     // …and yet nothing is over budget: the only budgeted block fits.
     expect(report.overBy).toBe(0);
     expect(report.blocks.some((b) => b.over)).toBe(false);
+  });
+
+  /**
+   * Codex's surface. It is REPORTED against the host's byte cap and never
+   * capped by navori: the chain also carries the user's `~/.codex/AGENTS.md`
+   * and any nested file, so a repo's own share is a LOWER bound. And it is not
+   * measured block by block on purpose — `AGENTS.md` renders as one
+   * `navori-agents` block, so per-block would be `ceiling 0, overBy 0`: a line
+   * that can never fail.
+   */
+  it("reports AGENTS.md in bytes against Codex's cap, without capping it", () => {
+    const cwd = tempRepo();
+    writeFileSync(join(cwd, "AGENTS.md"), `${words(100)}\n`);
+    const report = scanDocBudget(cwd)!;
+    expect(report.agentsMd?.words).toBe(100);
+    expect(report.agentsMd?.chars).toBe(Buffer.byteLength(`${words(100)}\n`, "utf-8"));
+    expect(report.agentsMdMaxBytes).toBe(CODEX_PROJECT_DOC_MAX_BYTES);
+    // No Claude surface here at all, and the report still exists.
+    expect(report.totalWords).toBeNull();
+    expect(report.overBy).toBeNull();
+  });
+
+  it("turns the AGENTS.md line yellow past the warn ratio, never red", () => {
+    const small = tempRepo();
+    writeFileSync(join(small, "AGENTS.md"), "a".repeat(1000));
+    const under = docBudgetLines(scanDocBudget(small)!, tc("es").doctor);
+    expect(under.some((l) => l.includes("DEJA DE AGREGAR"))).toBe(false);
+    expect(under.some((l) => l.includes("AGENTS.md"))).toBe(true);
+
+    const big = tempRepo();
+    const bytes = Math.ceil(CODEX_PROJECT_DOC_MAX_BYTES * CODEX_PROJECT_DOC_WARN_RATIO) + 1;
+    writeFileSync(join(big, "AGENTS.md"), "a".repeat(bytes));
+    const over = docBudgetLines(scanDocBudget(big)!, tc("es").doctor);
+    expect(over.some((l) => l.includes("DEJA DE AGREGAR"))).toBe(true);
+    // Yellow, never red: the verdict of a repo whose AGENTS.md is past the
+    // threshold is identical to one whose file is tiny.
+    expect(computeHealthVerdict(big, config()).ok).toBe(computeHealthVerdict(small, config()).ok);
   });
 
   it("attributes a plugin block to the plugins lever via its marker source", () => {

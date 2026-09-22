@@ -129,6 +129,40 @@ export const MARKER_PAIR_WORDS = 11;
  */
 export const SESSION_CONTEXT_DELIVERY_BUDGET_CHARS = 8000;
 
+/**
+ * Codex's hard cap on the concatenated project instructions, in BYTES
+ * (`project_doc_max_bytes`, default 32 KiB). Verified live against
+ * `https://learn.chatgpt.com/docs/agent-configuration/agents-md` on 2026-09-22:
+ *
+ *   "Codex concatenates files from the root down, joining them with blank
+ *    lines. […] Codex skips empty files and stops adding files once the
+ *    combined size reaches the limit defined by `project_doc_max_bytes`
+ *    (32 KiB by default)."
+ *
+ * Two things make this unlike every other number in this module. It is in
+ * BYTES, not words — a word ceiling, however well calibrated, cannot detect
+ * this condition. And its failure mode is SILENT TRUNCATION: Codex stops adding
+ * files and says nothing, so the guidance that never arrived looks exactly like
+ * guidance the model chose to ignore.
+ *
+ * The chain also includes files navori does not write — the user's
+ * `~/.codex/AGENTS.md` and any nested `AGENTS.md` — so a repo's own share is a
+ * LOWER bound on what is consumed. That is precisely why this is REPORTED and
+ * never capped: navori knows its own contribution, not the total.
+ */
+export const CODEX_PROJECT_DOC_MAX_BYTES = 32768;
+
+/**
+ * Share of `CODEX_PROJECT_DOC_MAX_BYTES` at which the report turns the
+ * `AGENTS.md` line yellow. Advisory only — it never reaches the health verdict.
+ *
+ * 80% is a deliberate choice, not a round number picked for looks: navori's own
+ * `AGENTS.md` measures 26927 bytes = 82.2% of the cap today, so this repo is the
+ * first one the warning fires in. A threshold that spared the author would be a
+ * threshold nobody validated.
+ */
+export const CODEX_PROJECT_DOC_WARN_RATIO = 0.8;
+
 /** A ceiling that cannot be a constant: `base + perRow · rows`. */
 export interface ComputedBlockFormula {
   /** Heading, intro and the marker pair — everything that doesn't scale. */

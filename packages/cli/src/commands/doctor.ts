@@ -7,7 +7,12 @@ import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { resolveHarnessPlan } from "../engines/shared/harness-plan.ts";
 import { CLAUDE_COMPUTED_BLOCK_IDS } from "../engines/claude/index.ts";
 import { getCoreRoot, readCliVersion } from "../lib/bundled-assets.ts";
-import { countWords, SESSION_CONTEXT_DELIVERY_BUDGET_CHARS } from "../lib/doc-budgets.ts";
+import {
+  CODEX_PROJECT_DOC_MAX_BYTES,
+  CODEX_PROJECT_DOC_WARN_RATIO,
+  countWords,
+  SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
+} from "../lib/doc-budgets.ts";
 import { isDowngrade } from "../lib/semver.ts";
 import { isPlaceholderName } from "../lib/detect.ts";
 import { loadPlugin, loadEnabledPlugins } from "../lib/plugins.ts";
@@ -1097,6 +1102,29 @@ export function docBudgetLines(
       )}`,
     );
   }
+  // Codex's surface: reported against the host's BYTE cap, never capped by
+  // navori — same doctrine as `ownWords` and `.claude/context/`. Yellow past the
+  // warn ratio because the failure mode is silent truncation, but never red: it
+  // does not reach `computeHealthVerdict` and cannot fail `--strict`.
+  if (report.agentsMd) {
+    const ratio = report.agentsMd.chars / report.agentsMdMaxBytes;
+    const pct = Math.round(ratio * 100);
+    lines.push(
+      ratio >= CODEX_PROJECT_DOC_WARN_RATIO
+        ? `  ${color.yellow(sym.update)} ${td.docBudgetAgentsMdNear(
+            report.agentsMd.words,
+            report.agentsMd.chars,
+            pct,
+            report.agentsMdMaxBytes,
+          )}`
+        : `  ${grey(sym.bullet)} ${td.docBudgetAgentsMd(
+            report.agentsMd.words,
+            report.agentsMd.chars,
+            pct,
+            report.agentsMdMaxBytes,
+          )}`,
+    );
+  }
   if (report.staleBlocks > 0) {
     lines.push(
       `  ${color.yellow(sym.update)} ${td.docBudgetStale(report.staleBlocks, report.cliVersion)}`,
@@ -2083,6 +2111,17 @@ export interface DocBudgetReport {
   /** The hook's own delivery ceiling in characters — not a word budget. */
   contextDeliveryBudget: number;
   /**
+   * `AGENTS.md` — the prose engines' whole startup surface, and the one navori
+   * does NOT measure block by block. It renders as a single `navori-agents`
+   * block, so a per-block report there would be `ceiling 0, unbudgeted 100%,
+   * overBy 0`: a line that can never fail is noise, not signal. What IS real
+   * there is the host's byte cap, so that is what gets reported. Null when the
+   * repo has no such file.
+   */
+  agentsMd: DocBudgetFile | null;
+  /** Codex's `project_doc_max_bytes` default — reported against, never capped. */
+  agentsMdMaxBytes: number;
+  /**
    * Words each subagent reloads from scratch. It is the WHOLE `CLAUDE.md`, not
    * the managed half: a non-fork subagent starts with a fresh context window
    * that carries "every level of the CLAUDE.md hierarchy the main conversation
@@ -2127,11 +2166,12 @@ export function scanDocBudget(cwd: string): DocBudgetReport | null {
   const claudeMdPath = join(cwd, "CLAUDE.md");
   const hasClaudeMd = existsSync(claudeMdPath);
   const contextFiles = readContextSurface(cwd);
-  if (!hasClaudeMd && contextFiles.length === 0) return null;
+  if (!hasClaudeMd && contextFiles.length === 0 && !existsSync(join(cwd, "AGENTS.md"))) return null;
 
   // ONE read of the markers, two uses (the lever map and the staleness count).
   // The second `listMarkers` call re-read and re-parsed the same file for
   // nothing; with more surfaces to come it would have multiplied.
+  const agentsMd = readWholeSurface(cwd, "AGENTS.md");
   const claudeMarkers = hasClaudeMd ? listMarkers(claudeMdPath) : [];
   const measure = hasClaudeMd ? measureDocBudgetFile(claudeMdPath) : null;
   const cliVersion = readCliVersion();
@@ -2164,8 +2204,28 @@ export function scanDocBudget(cwd: string): DocBudgetReport | null {
     contextWords: contextFiles.reduce((sum, f) => sum + f.words, 0),
     contextChars: contextFiles.reduce((sum, f) => sum + f.chars, 0),
     contextDeliveryBudget: SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
+    agentsMd,
+    agentsMdMaxBytes: CODEX_PROJECT_DOC_MAX_BYTES,
     perSubagentWords: measure?.totalWords ?? null,
   };
+}
+
+/**
+ * One whole file of the startup surface, or null when it isn't there.
+ *
+ * `chars` carries BYTES here, not characters: `project_doc_max_bytes` is a byte
+ * cap and this prose is UTF-8 with accents, so a character count would
+ * undercount exactly the repos closest to the limit.
+ */
+function readWholeSurface(cwd: string, rel: string): DocBudgetFile | null {
+  const abs = join(cwd, rel);
+  if (!existsSync(abs)) return null;
+  try {
+    const content = readFileSync(abs, "utf-8");
+    return { path: rel, words: countWords(content), chars: Buffer.byteLength(content, "utf-8") };
+  } catch {
+    return null;
+  }
 }
 
 /** `.claude/context/*.md` measured in words and characters, in delivery order. */

@@ -812,6 +812,10 @@ interface DoctorCmdStrings {
   docBudgetSubagents: (words: number) => string;
   /** Blocks navori ships no ceiling for: contados, fuera del cociente. */
   docBudgetUnbudgeted: (words: number, ids: string) => string;
+  /** `AGENTS.md` contra el cap de bytes de Codex — se reporta, no se capea. */
+  docBudgetAgentsMd: (words: number, bytes: number, pct: number, max: number) => string;
+  /** Igual, pasado el umbral de aviso: el modo de falla es truncamiento silencioso. */
+  docBudgetAgentsMdNear: (words: number, bytes: number, pct: number, max: number) => string;
   /** `.claude/context/` — reported, never capped (#919 owns its ceiling). */
   docBudgetContext: (files: number, words: number, chars: number, budget: number) => string;
   /** "Your file is OLD": blocks rendered by an earlier navori. */
@@ -1939,6 +1943,14 @@ const CMD_ES: CmdStrings = {
       `${words} palabras en bloques sin techo (${ids}): se cuentan en el total pero quedan FUERA ` +
       `de la comparación — navori no envía techo para ellos, y casi siempre son bloques retirados ` +
       `que un 'navori render --apply' quita solo`,
+    docBudgetAgentsMd: (words, bytes, pct, max) =>
+      `AGENTS.md: ${words} palabras (${bytes} bytes, ${pct}% del cap de ${max} que Codex ` +
+      `concatena) — se reporta, no se capea: navori ve su parte, no la cadena completa`,
+    docBudgetAgentsMdNear: (words, bytes, pct, max) =>
+      `AGENTS.md: ${words} palabras (${bytes} bytes, ${pct}% del cap de ${max} de Codex). Al ` +
+      `llegar al tope Codex DEJA DE AGREGAR archivos sin avisar, y la cadena suma además tu ` +
+      `~/.codex/AGENTS.md y los AGENTS.md anidados — sube 'project_doc_max_bytes' o parte las ` +
+      `instrucciones en directorios anidados`,
     docBudgetContext: (files, words, chars, budget) =>
       `.claude/context/: ${files} archivo(s), ${words} palabras (${chars} caracteres) que entrega ` +
       `el hook SessionStart — se reporta, no se capea; su límite real es de ENTREGA ` +
@@ -3144,6 +3156,14 @@ const CMD_EN: CmdStrings = {
       `${words} words in blocks with no ceiling (${ids}): counted in the total but kept OUT of ` +
       `the comparison — navori ships no ceiling for them, and they are almost always retired ` +
       `blocks a 'navori render --apply' removes on its own`,
+    docBudgetAgentsMd: (words, bytes, pct, max) =>
+      `AGENTS.md: ${words} words (${bytes} bytes, ${pct}% of the ${max} cap Codex concatenates ` +
+      `against) — reported, not capped: navori sees its share, not the whole chain`,
+    docBudgetAgentsMdNear: (words, bytes, pct, max) =>
+      `AGENTS.md: ${words} words (${bytes} bytes, ${pct}% of Codex's ${max} cap). At the limit ` +
+      `Codex STOPS ADDING files with no warning, and the chain also carries your ` +
+      `~/.codex/AGENTS.md and any nested AGENTS.md — raise 'project_doc_max_bytes' or split the ` +
+      `instructions across nested directories`,
     docBudgetContext: (files, words, chars, budget) =>
       `.claude/context/: ${files} file(s), ${words} words (${chars} chars) delivered by the ` +
       `SessionStart hook — reported, not capped; its real limit is DELIVERY (${budget} chars), ` +
