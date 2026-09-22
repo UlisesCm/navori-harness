@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, rmSync } from "node:fs";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import {
   measureDocBudgetFile,
@@ -726,7 +726,27 @@ export const renderCommand = defineCommand({
     // exactly what this must not become: `render --all` sweeps the 30 repos of
     // the registry and already emits backups, drift and removals. `doctor` is
     // where a user goes to ASK the number; `render` only says it just broke.
-    const budgetBefore = measureDocBudgetFile(resolve(cwd, "CLAUDE.md"));
+    //
+    // The root AND every declared workspace, keyed by the same absolute path
+    // `result` reports back: a monorepo renders one `CLAUDE.md` per workspace,
+    // each with its own effective config, and a root-only snapshot left exactly
+    // those files with no signal. A file with no "before" entry (a workspace
+    // added by this very render, `--workspace` filtering, an unreadable config)
+    // is SKIPPED rather than warned about: without a before there is no
+    // crossing to report, only a number, and a number is what this must not be.
+    const budgetBefore = new Map<string, number>();
+    const snapshotBudget = (claudeMd: string): void => {
+      budgetBefore.set(claudeMd, measureDocBudgetFile(claudeMd).overBy);
+    };
+    snapshotBudget(resolve(cwd, "CLAUDE.md"));
+    try {
+      for (const ws of enabledMonorepoWorkspaces(readConfig(`${cwd}/navori.config.json`))) {
+        snapshotBudget(resolve(cwd, ws.path, "CLAUDE.md"));
+      }
+    } catch {
+      // A missing or invalid config is `runRender`'s to report, with its own
+      // message and exit code. An advisory snapshot may not pre-empt that.
+    }
 
     const result = runRender(cwd, {
       dryRun: preview,
@@ -879,10 +899,20 @@ export const renderCommand = defineCommand({
     // over stays silent here, because repeating a number the user can't act on
     // in this run is how a warning becomes wallpaper. Skipped on a preview: no
     // bytes changed, so nothing crossed.
-    if (!preview && budgetBefore.overBy === 0) {
-      const budgetAfter = measureDocBudgetFile(result.filePath);
-      if (budgetAfter.overBy > 0) {
-        p.log.warn(tr.docBudgetCrossed(budgetAfter.managedWords, budgetAfter.ceiling));
+    if (!preview) {
+      const rendered = [result.filePath, ...result.workspaces.map((ws) => ws.filePath)];
+      for (const filePath of rendered) {
+        if (budgetBefore.get(resolve(filePath)) !== 0) continue;
+        const budgetAfter = measureDocBudgetFile(filePath);
+        if (budgetAfter.overBy > 0) {
+          p.log.warn(
+            tr.docBudgetCrossed(
+              relative(cwd, filePath) || "CLAUDE.md",
+              budgetAfter.managedWords - budgetAfter.unbudgetedWords,
+              budgetAfter.ceiling,
+            ),
+          );
+        }
       }
     }
 

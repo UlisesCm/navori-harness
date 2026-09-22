@@ -609,7 +609,7 @@ interface RenderCmdStrings {
   staleCoreBundle: (source: string) => string;
   /** #917: this render is what pushed CLAUDE.md past its derived ceiling. Only
    *  on the crossing — never a fixed informational line. */
-  docBudgetCrossed: (managed: number, ceiling: number) => string;
+  docBudgetCrossed: (file: string, managed: number, ceiling: number) => string;
   /** Outro lead when the only thing that happened is a refusal to overwrite. */
   skippedWord: string;
   /** Outro tail naming how many files render refused to write. */
@@ -1620,10 +1620,10 @@ const CMD_ES: CmdStrings = {
       `build, no contra tu árbol de trabajo — puede decir 'unchanged' de más, y un --apply ` +
       `llega a revertir el espejo. Corre 'pnpm --filter navori build' (o 'pnpm render:apply', ` +
       `que ya lo encadena) y vuelve a renderizar.`,
-    docBudgetCrossed: (managed, ceiling) =>
-      `Este render cruzó el presupuesto de arranque: CLAUDE.md queda con ${managed} palabras de ` +
-      `bloques managed contra un techo derivado de ${ceiling}. Corre 'navori doctor' para ver qué ` +
-      `bloque lo cruzó y con qué palanca se recorta.`,
+    docBudgetCrossed: (file, managed, ceiling) =>
+      `Este render cruzó el presupuesto de arranque: '${file}' queda con ${managed} palabras de ` +
+      `bloques con techo contra un techo derivado de ${ceiling}. Corre 'navori doctor' para ver ` +
+      `qué bloque lo cruzó y con qué palanca se recorta.`,
     skippedWord: "Con omisiones",
     skippedOutro: (count) =>
       `${count} archivo(s) que render se negó a sobrescribir — el espejo NO está al día; ` +
@@ -2823,10 +2823,10 @@ const CMD_EN: CmdStrings = {
       `build, not against your working tree — it can report 'unchanged' wrongly, and an --apply ` +
       `can even revert the mirror. Run 'pnpm --filter navori build' (or 'pnpm render:apply', ` +
       `which chains both) and render again.`,
-    docBudgetCrossed: (managed, ceiling) =>
-      `This render crossed the startup budget: CLAUDE.md now carries ${managed} words of managed ` +
-      `blocks against a derived ceiling of ${ceiling}. Run 'navori doctor' to see which block ` +
-      `crossed it and which lever trims it.`,
+    docBudgetCrossed: (file, managed, ceiling) =>
+      `This render crossed the startup budget: '${file}' now carries ${managed} words of ` +
+      `budgeted blocks against a derived ceiling of ${ceiling}. Run 'navori doctor' to see which ` +
+      `block crossed it and which lever trims it.`,
     skippedWord: "Files skipped",
     skippedOutro: (count) =>
       `${count} file(s) render refused to overwrite — the mirror is NOT up to date; ` +
