@@ -831,6 +831,13 @@ interface DoctorCmdStrings {
   docBudgetCopilotInstructions: (words: number, bytes: number) => string;
   /** `.claude/context/` — reported, never capped (#919 owns its ceiling). */
   docBudgetContext: (files: number, words: number, chars: number, budget: number) => string;
+  /**
+   * One `.claude/context/*.md` file the SessionStart hook would deliver as a
+   * pointer instead of its body (#919). `ctxCharsBefore` names what actually
+   * caused it: files EARLIER in delivery order, not this file's own size —
+   * the fix is almost never trimming the file this line names.
+   */
+  docBudgetContextPointer: (path: string, ctxCharsBefore: number, budget: number) => string;
   /** "Your file is OLD": blocks rendered by an earlier navori. */
   docBudgetStale: (blocks: number, version: string) => string;
   /** "Your file is FAT": one block over its ceiling, with the knob that shrinks it. */
@@ -1978,6 +1985,10 @@ const CMD_ES: CmdStrings = {
       `.claude/context/: ${files} archivo(s), ${words} palabras (${chars} caracteres) que entrega ` +
       `el hook SessionStart — se reporta, no se capea; su límite real es de ENTREGA ` +
       `(${budget} caracteres), pasado el cual el hook manda un puntero en vez del cuerpo`,
+    docBudgetContextPointer: (path, ctxCharsBefore, budget) =>
+      `${path}: llega como PUNTERO, no inline — los archivos anteriores en el orden de entrega ya ` +
+      `sumaban ${ctxCharsBefore}/${budget} caracteres. El culpable casi nunca es este archivo: es el ` +
+      `que creció ANTES en el orden de '.claude/context/'`,
     docBudgetStale: (blocks, version) =>
       `${blocks} bloque(s) los renderizó una versión anterior de navori (la actual es ${version}): tu archivo no está gordo, está viejo — corre 'navori render --apply' y vuelve a medir antes de recortar nada`,
     docBudgetOverBlock: (id, words, ceiling, lever) =>
@@ -3201,6 +3212,10 @@ const CMD_EN: CmdStrings = {
       `.claude/context/: ${files} file(s), ${words} words (${chars} chars) delivered by the ` +
       `SessionStart hook — reported, not capped; its real limit is DELIVERY (${budget} chars), ` +
       `past which the hook sends a pointer instead of the body`,
+    docBudgetContextPointer: (path, ctxCharsBefore, budget) =>
+      `${path}: arrives as a POINTER, not inline — files ahead of it in delivery order already used ` +
+      `${ctxCharsBefore}/${budget} chars. The culprit is almost never this file: it's whichever one ` +
+      `grew EARLIER in '.claude/context/'s order`,
     docBudgetStale: (blocks, version) =>
       `${blocks} block(s) were rendered by an earlier navori (current is ${version}): your file isn't fat, it's old — run 'navori render --apply' and measure again before trimming anything`,
     docBudgetOverBlock: (id, words, ceiling, lever) =>

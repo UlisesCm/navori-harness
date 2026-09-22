@@ -12,6 +12,8 @@ import {
   CODEX_PROJECT_DOC_WARN_RATIO,
   countWords,
   SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
+  simulateContextDelivery,
+  type ContextDeliveryStatus,
 } from "../lib/doc-budgets.ts";
 import { isDowngrade } from "../lib/semver.ts";
 import { isPlaceholderName } from "../lib/detect.ts";
@@ -1106,6 +1108,20 @@ export function docBudgetLines(
         report.contextDeliveryBudget,
       )}`,
     );
+    // #919 — named per file, not folded into the aggregate above: the file
+    // that shows `pointer` is rarely the one that caused it (the budget is
+    // accumulated across everything AHEAD of it in delivery order), so the
+    // fix is naming which files precede it, not just flagging the degraded
+    // one.
+    for (const f of report.contextFiles.filter((c) => c.delivered === "pointer")) {
+      lines.push(
+        `  ${color.yellow(sym.update)} ${td.docBudgetContextPointer(
+          f.path,
+          f.ctxCharsBefore,
+          report.contextDeliveryBudget,
+        )}`,
+      );
+    }
   }
   // Codex's surface: reported against the host's BYTE cap, never capped by
   // navori — same doctrine as `ownWords` and `.claude/context/`. Yellow past the
@@ -2110,6 +2126,21 @@ export interface DocBudgetFile {
 }
 
 /**
+ * A `.claude/context/*.md` file plus the SessionStart hook's own delivery
+ * verdict for it (#919): whether the session actually gets its body, or a
+ * one-line pointer because an earlier file in delivery order already spent
+ * the budget. `DocBudgetFile` alone cannot say this — the other surfaces on
+ * this report (`AGENTS.md`, `CLAUDE.md`) are single files with no delivery
+ * order to accumulate against.
+ */
+export interface DocBudgetContextFile extends DocBudgetFile {
+  delivered: ContextDeliveryStatus;
+  /** Characters everything AHEAD of this file in delivery order already
+   *  queued — what a `pointer` verdict is actually attributable to. */
+  ctxCharsBefore: number;
+}
+
+/**
  * What every session of this repo pays before its first prompt (#917).
  *
  * The surfaces are reported together and treated differently on purpose, and
@@ -2160,7 +2191,7 @@ export interface DocBudgetReport {
   /** Blocks whose marker version differs from the running navori. */
   staleBlocks: number;
   cliVersion: string;
-  contextFiles: DocBudgetFile[];
+  contextFiles: DocBudgetContextFile[];
   contextWords: number;
   contextChars: number;
   /** The hook's own delivery ceiling in characters — not a word budget. */
@@ -2329,12 +2360,18 @@ function readWholeSurface(cwd: string, rel: string): DocBudgetFile | null {
   }
 }
 
-/** `.claude/context/*.md` measured in words and characters, in delivery order. */
-function readContextSurface(cwd: string): DocBudgetFile[] {
+/**
+ * `.claude/context/*.md` measured in words and characters, in delivery order,
+ * plus each file's inline/pointer verdict (#919) — `readdirSync().sort()` is
+ * the same alphabetical order the hook's own glob produces, which the numeric
+ * filename prefix turns into `ORCHESTRATOR_CONTEXT_ORDER`
+ * (`engines/claude/index.ts`); this function does not re-derive that list.
+ */
+function readContextSurface(cwd: string): DocBudgetContextFile[] {
   const dir = join(cwd, ".claude", "context");
   if (!existsSync(dir)) return [];
   try {
-    return readdirSync(dir)
+    const files = readdirSync(dir)
       .filter((name) => name.endsWith(".md"))
       .sort()
       .map((name) => {
@@ -2345,6 +2382,12 @@ function readContextSurface(cwd: string): DocBudgetFile[] {
           chars: content.length,
         };
       });
+    const delivery = simulateContextDelivery(files, SESSION_CONTEXT_DELIVERY_BUDGET_CHARS);
+    return files.map((f, i) => ({
+      ...f,
+      delivered: delivery[i]!.delivered,
+      ctxCharsBefore: delivery[i]!.ctxCharsBefore,
+    }));
   } catch {
     return [];
   }
