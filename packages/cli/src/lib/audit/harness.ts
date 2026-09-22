@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { listMarkers } from "../health.ts";
 
@@ -26,6 +27,16 @@ export interface DeclaredAgent {
    * otherwise. Omitting `tools:` inherits everything.
    */
   hasMcp: boolean;
+  /**
+   * Frontmatter `omitClaudeMd: true` — per the sub-agents doc, such an agent
+   * loads only the managed policy files (or none at all, from managed
+   * settings), never the CLAUDE.md hierarchy this catalog measures. Optional
+   * so existing `DeclaredAgent` literals elsewhere in the audit module (test
+   * fixtures, `report.ts`) do not need updating just to add this field;
+   * absent reads as `false`, the same permissive default `parseAgent` used
+   * before this field existed.
+   */
+  omitClaudeMd?: boolean;
 }
 
 export interface DeclaredSection {
@@ -51,6 +62,29 @@ export interface HarnessCatalog {
   managedSkills: string[];
   sections: DeclaredSection[];
   claudeMdTokens: number;
+  /**
+   * The `~/.claude/CLAUDE.md` layer a subagent also loads at startup, per the
+   * sub-agents doc ("every level of the CLAUDE.md hierarchy the main
+   * conversation loads, including `~/.claude/CLAUDE.md`"). `null` when this
+   * machine has none.
+   *
+   * Only size and section TITLES travel here, never the body (#926): the
+   * global file is scoped to the MACHINE, not the repo, and a report shared
+   * between repos would otherwise leak whatever it holds — on the machine
+   * this was written on, another workspace's project dictionary. Titles are
+   * still enough to surface the finding this exists for ("this section
+   * doesn't apply to anything in this repo") without exposing content.
+   */
+  globalClaudeMd?: { tokens: number; sections: Array<{ title: string; tokens: number }> } | null;
+  /**
+   * Hierarchy layers this audit never attempts to read: `CLAUDE.local.md`,
+   * managed policy files, and any `AGENTS.md` loaded as project instructions
+   * (#926). Declared explicitly rather than silently missing from
+   * `claudeMdTokens`, so a signal built on it states what it did not observe
+   * instead of presenting the repo's `CLAUDE.md` — or `CLAUDE.md` + the
+   * global — as the whole hierarchy a subagent pays for.
+   */
+  notObserved?: string[];
   /** The MCP servers this harness instructs agents to use. Exposed from
    *  `MCP_HINTS` rather than re-listed by the report: a server named in two
    *  places is a server that will be named in only one of them after the next
@@ -137,16 +171,34 @@ function parseToolsField(fm: string): string[] | null {
   return null;
 }
 
+/**
+ * `omitClaudeMd: true` in the frontmatter — the one boolean flag this module
+ * reads that way. Anything else (missing, `false`, unparseable) reads as
+ * `false`, the safe default: assuming an agent loads the hierarchy when it
+ * actually skips it only under-attributes a cost, never invents one.
+ */
+function parseOmitClaudeMd(fm: string): boolean {
+  const m = /^omitClaudeMd:[ \t]*(\S+)/m.exec(fm);
+  return m?.[1]?.replace(/^["']|["']$/g, "") === "true";
+}
+
 function parseAgent(file: string, name: string): DeclaredAgent {
   let body = "";
   try {
     body = readFileSync(file, "utf-8");
   } catch {
-    return { name, tools: null, hasMcp: true };
+    return { name, tools: null, hasMcp: true, omitClaudeMd: false };
   }
-  const tools = parseToolsField(frontmatter(body));
-  if (!tools) return { name, tools: null, hasMcp: true };
-  return { name, tools, hasMcp: tools.some((t) => t.startsWith("mcp__") || t === "*") };
+  const fm = frontmatter(body);
+  const tools = parseToolsField(fm);
+  const omitClaudeMd = parseOmitClaudeMd(fm);
+  if (!tools) return { name, tools: null, hasMcp: true, omitClaudeMd };
+  return {
+    name,
+    tools,
+    hasMcp: tools.some((t) => t.startsWith("mcp__") || t === "*"),
+    omitClaudeMd,
+  };
 }
 
 /**
@@ -194,8 +246,44 @@ function parseSections(claudeMd: string): DeclaredSection[] {
   return out;
 }
 
-/** Reads the declared harness of a repo. Missing pieces degrade to empty. */
-export function readHarnessCatalog(repoRoot: string): HarnessCatalog {
+/**
+ * Hierarchy layers this audit never attempts to read (#926): `CLAUDE.local.md`
+ * is repo-local but frequently gitignored and out of the render pipeline this
+ * module otherwise trusts; managed policy files and `AGENTS.md` project
+ * instructions have no single, predictable path this function can assume
+ * across engines. Declared as a constant so the report always names what it
+ * skipped, not just what it read.
+ */
+const HIERARCHY_NOT_OBSERVED = ["CLAUDE.local.md", "managed policy files", "AGENTS.md"];
+
+/**
+ * The `~/.claude/CLAUDE.md` layer, read for size and section titles only —
+ * never the body (see `HarnessCatalog.globalClaudeMd`). `null` when the file
+ * does not exist, which is a legitimate machine state, not a gap.
+ */
+function readGlobalClaudeMd(
+  homeDir: string,
+): { tokens: number; sections: Array<{ title: string; tokens: number }> } | null {
+  let body = "";
+  try {
+    body = readFileSync(join(homeDir, ".claude", "CLAUDE.md"), "utf-8");
+  } catch {
+    return null;
+  }
+  return {
+    tokens: Math.round(body.length / 4),
+    sections: parseSections(body).map((s) => ({ title: s.title, tokens: s.tokens })),
+  };
+}
+
+/**
+ * Reads the declared harness of a repo. Missing pieces degrade to empty.
+ *
+ * `homeDir` defaults to the real home directory and exists as a parameter
+ * only so tests can point it at a fixture instead of this machine's actual
+ * `~/.claude/CLAUDE.md` (#926) — production callers never pass it.
+ */
+export function readHarnessCatalog(repoRoot: string, homeDir: string = homedir()): HarnessCatalog {
   const agentsDir = join(repoRoot, ".claude", "agents");
   const agents: DeclaredAgent[] = [];
   if (existsSync(agentsDir)) {
@@ -242,6 +330,8 @@ export function readHarnessCatalog(repoRoot: string): HarnessCatalog {
     managedSkills: managedSkills.sort(),
     sections: parseSections(claudeMd),
     claudeMdTokens: Math.round(claudeMd.length / 4),
+    globalClaudeMd: readGlobalClaudeMd(homeDir),
+    notObserved: [...HIERARCHY_NOT_OBSERVED],
   };
 }
 

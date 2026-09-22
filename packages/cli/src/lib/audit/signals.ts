@@ -55,15 +55,26 @@ function k(n: number): string {
 }
 
 /**
- * Above this many wasted tokens the finding is `high`; below it, `warn`.
+ * Above this many wasted tokens PER ARRANQUE — `wasted / affected`, the
+ * average cost of the SAME barred-agent-type defect across however many times
+ * it ran — the finding is `high`; below it, `warn`.
  *
- * The per-server crossing makes the signal fire on cases the old boolean could
- * not see, and some are small — one `ticket-audit` barred from codegraph costs
- * 337 tokens. Real, worth printing, not worth the severity reserved for the
- * thousands a whole session of barred agents burns. A signal that shouts at
- * every magnitude stops being read.
+ * Crossed on the unit cost, not the session total (#926): the previous
+ * version summed every run of a barred agent type and crossed 2000 purely
+ * because a productive day ran it more times, so the identical per-startup
+ * defect swung from `warn` to `high` with no change in severity. The total is
+ * still real and still printed (`tokens: wasted` below, and the summary text)
+ * — it only stopped deciding severity.
+ *
+ * The cut is set against the one real number this repo has measured:
+ * `publisher` barred from one MCP-dependent section costs 731 tok/arranque,
+ * and that MUST stay `warn` no matter how many times it runs in a session —
+ * that is exactly the case #926 reports as broken. Doubling it (~1500) is the
+ * point where a single startup is blind to two sections that size, or to one
+ * twice as costly: a defect big enough to earn the top severity on its own,
+ * without needing a second run to get there.
  */
-const UNREACHABLE_HIGH_TOKENS = 2000;
+const UNREACHABLE_HIGH_TOKENS = 1500;
 
 /**
  * Instructions the harness ships to agents that cannot possibly follow them.
@@ -88,6 +99,10 @@ function unreachableInstructions(session: SessionAudit, cat: HarnessCatalog, lan
   let wasted = 0;
   for (const run of session.agents) {
     const declared = cat.agents.find((d) => d.name === run.agentType);
+    // An agent declaring `omitClaudeMd` never loads the CLAUDE.md sections
+    // this signal crosses against `tools:` — it cannot be barred from
+    // instructions it was never handed (#926).
+    if (declared?.omitClaudeMd) continue;
     const barred = barredMcpTokens(declared, cat);
     const perRun = Object.values(barred).reduce((sum, n) => sum + n, 0);
     if (perRun === 0) continue;
@@ -99,6 +114,10 @@ function unreachableInstructions(session: SessionAudit, cat: HarnessCatalog, lan
   if (wasted === 0) return [];
 
   const affected = [...perType.values()].reduce((sum, e) => sum + e.runs, 0);
+  // The severity axis: the cost of the defect at ONE startup, not the sum a
+  // session's run count happens to accumulate (#926 Parte A). `wasted` keeps
+  // deciding `tokens` and the printed total below.
+  const wastedPerRun = affected > 0 ? wasted / affected : 0;
   const detail = [...perType.entries()]
     .map(([type, e]) => {
       const servers = Object.entries(e.servers)
@@ -111,7 +130,7 @@ function unreachableInstructions(session: SessionAudit, cat: HarnessCatalog, lan
   return [
     {
       kind: "unreachable-instructions",
-      severity: wasted >= UNREACHABLE_HIGH_TOKENS ? "high" : "warn",
+      severity: wastedPerRun >= UNREACHABLE_HIGH_TOKENS ? "high" : "warn",
       tokens: wasted,
       summary: pick(
         lang,
@@ -138,6 +157,43 @@ function startupOverhead(session: SessionAudit, cat: HarnessCatalog, lang: Lang)
   const share = denominator > 0 ? startup / denominator : 0;
   const avg = Math.round(startup / Math.max(1, session.agents.length));
 
+  // The CLAUDE.md layers this catalog actually read (#926 Parte B): the
+  // repo's own file plus the machine-scoped global, when one exists.
+  const globalTokens = cat.globalClaudeMd?.tokens ?? 0;
+  const hierarchyTokens = cat.claudeMdTokens + globalTokens;
+  const globalTitles = (cat.globalClaudeMd?.sections ?? []).map((s) => s.title);
+  const globalClause =
+    globalTokens > 0
+      ? pick(
+          lang,
+          ` + ~${k(globalTokens)} del global (~/.claude/CLAUDE.md; secciones: ${globalTitles.join(", ")} — solo tamaño y títulos, nunca el cuerpo)`,
+          ` + ~${k(globalTokens)} from the global (~/.claude/CLAUDE.md; sections: ${globalTitles.join(", ")} — size and titles only, never the body)`,
+        )
+      : "";
+  const notObserved = cat.notObserved ?? [];
+  const notObservedClause =
+    notObserved.length > 0
+      ? pick(
+          lang,
+          ` No observado: ${notObserved.join(", ")}.`,
+          ` Not observed: ${notObserved.join(", ")}.`,
+        )
+      : "";
+  // Agents that declare `omitClaudeMd` never pay this hierarchy at all
+  // (#926), so folding their startup into the same average overstates what
+  // they actually loaded — say so rather than let the number imply otherwise.
+  const omitCount = session.agents.filter(
+    (a) => cat.agents.find((d) => d.name === a.agentType)?.omitClaudeMd,
+  ).length;
+  const omitClause =
+    omitCount > 0
+      ? pick(
+          lang,
+          ` ${omitCount} agente(s) declaran omitClaudeMd y no pagan esta jerarquía; el promedio los sobreestima.`,
+          ` ${omitCount} agent(s) declare omitClaudeMd and pay none of this hierarchy; the average overstates them.`,
+        )
+      : "";
+
   return [
     {
       kind: "startup-overhead",
@@ -151,10 +207,12 @@ function startupOverhead(session: SessionAudit, cat: HarnessCatalog, lang: Lang)
       evidence: pick(
         lang,
         `cache_creation del primer mensaje de cada agente: system prompt + jerarquía de CLAUDE.md + definición + git status. ` +
-          `De esos ${k(avg)} tok medios, el CLAUDE.md de este repo aporta ~${k(cat.claudeMdTokens)}. ` +
+          `De esos ${k(avg)} tok medios, la jerarquía de CLAUDE.md aporta ~${k(hierarchyTokens)}: ~${k(cat.claudeMdTokens)} del CLAUDE.md de este repo${globalClause}.` +
+          `${notObservedClause}${omitClause} ` +
           `El contenido del contexto inicial no queda en el transcript, solo su tamaño.`,
         `cache_creation of each agent's first message: system prompt + CLAUDE.md hierarchy + definition + git status. ` +
-          `Of those ~${k(avg)} tok on average, this repo's CLAUDE.md contributes ~${k(cat.claudeMdTokens)}. ` +
+          `Of those ~${k(avg)} tok on average, the CLAUDE.md hierarchy contributes ~${k(hierarchyTokens)}: ~${k(cat.claudeMdTokens)} from this repo's CLAUDE.md${globalClause}.` +
+          `${notObservedClause}${omitClause} ` +
           `The initial context's content is not persisted in the transcript, only its size.`,
       ),
     },
