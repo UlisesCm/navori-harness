@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import type { NavoriConfig } from "../../lib/config.ts";
-import { injectManagedSection, type CommentStyle, type InjectResult } from "../../lib/marker.ts";
+import {
+  injectManagedSection,
+  readMarkerAttrs,
+  type CommentStyle,
+  type InjectResult,
+  type MarkerMeta,
+} from "../../lib/marker.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
 import { interpolate } from "../../lib/interpolate.ts";
 import type { FallbackScope } from "../../lib/placeholders.ts";
@@ -152,7 +158,11 @@ function assembleFresh(
   meta: { source: string; version: string },
   commentStyle: CommentStyle,
 ): RenderManagedFileResult {
-  const inject = injectManagedSection("", managedId, body, meta, commentStyle);
+  // Stamp the fmkeys snapshot from the very first render so the SECOND render
+  // (a `rerender()`) already has it and never needs the grandfather pass.
+  const metaWithFmKeys: MarkerMeta =
+    Object.keys(fm).length > 0 ? { ...meta, fmKeys: Object.keys(fm) } : meta;
+  const inject = injectManagedSection("", managedId, body, metaWithFmKeys, commentStyle);
   const fmBlock = Object.keys(fm).length > 0 ? serializeFrontmatter(fm) + "\n\n" : "";
   const userTail = userTpl ? "\n" + userTpl.trimEnd() + "\n" : "";
   const content = fmBlock + inject.output.trimEnd() + "\n" + userTail;
@@ -180,14 +190,27 @@ function rerender(
   // verbatim: an empty header here used to be masked by the status collapse
   // below (the write never happened), and stripping it for real would tear the
   // `description`/`tools` off `orchestrator.md` on any sub-block update.
+  // Read the PREVIOUS fmkeys snapshot before the merge — `mergeFrontmatter`
+  // needs it to tell a retired asset key apart from a user addition (#907).
+  // Independent lookup from `injectManagedSection`'s own `findMarker` call
+  // below: the merge runs strictly before it, so it can't reuse that result.
+  const previousFmKeys =
+    Object.keys(assetFm).length > 0
+      ? (readMarkerAttrs(restOfDest, managedId, commentStyle)?.existingFmKeys ?? null)
+      : null;
+
   const fmHeader =
     Object.keys(assetFm).length > 0
-      ? mergeFrontmatter(assetFm, destFm).serialized + "\n"
+      ? mergeFrontmatter(assetFm, destFm, previousFmKeys).serialized + "\n"
       : fmBlock !== undefined
         ? `---\n${fmBlock}\n---\n`
         : "";
 
-  const inject = injectManagedSection(restOfDest, managedId, body, meta, commentStyle);
+  // Write the CURRENT declared keys as the new snapshot so the NEXT render
+  // can prune whatever this one stops declaring.
+  const metaWithFmKeys: MarkerMeta =
+    Object.keys(assetFm).length > 0 ? { ...meta, fmKeys: Object.keys(assetFm) } : meta;
+  const inject = injectManagedSection(restOfDest, managedId, body, metaWithFmKeys, commentStyle);
   const content = fmHeader + inject.output;
 
   // "unchanged" from injection only speaks for the managed BODY. The

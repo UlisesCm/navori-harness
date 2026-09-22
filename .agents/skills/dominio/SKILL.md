@@ -5,7 +5,7 @@ metadata:
   type: reference
 ---
 
-<!-- navori:managed id="dominio" hash="0e526e1d" version="0.9.0" source="@navori/core" -->
+<!-- navori:managed id="dominio" hash="0e526e1d" version="0.9.0" source="@navori/core" fmkeys="name,description,metadata" -->
 # dominio — the workspace knowledge base
 
 Canonical, cross-repo facts for a workspace live as markdown under

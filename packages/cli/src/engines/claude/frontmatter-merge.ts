@@ -2,7 +2,13 @@
  * Merge the frontmatter of an asset (authoritative for its keys) with the
  * frontmatter currently in the destination file (which may carry user
  * additions). v1 rule (DT confirmed): the asset wins for any key it
- * declares; the destination keeps keys the asset does NOT declare.
+ * declares; the destination keeps keys the asset does NOT declare — UNLESS
+ * the asset used to declare that key and retired it (#907): `previousFmKeys`
+ * is the snapshot of what the asset declared on the last render (read from
+ * the marker's `fmkeys` attribute), so a key present there but absent from
+ * `assetFm` now is dropped instead of surviving forever as an orphan. A
+ * `null` snapshot (pre-#907 marker, or no marker yet) means "don't prune
+ * this render" — the grandfather pass; see `readMarkerAttrs` in `marker.ts`.
  *
  * Returns both the merged object and its serialized form so the caller
  * can plug it back into the destination file without an extra pass.
@@ -18,8 +24,14 @@ export interface MergeFrontmatterResult {
 export function mergeFrontmatter(
   assetFm: Record<string, string>,
   destFm: Record<string, string>,
+  previousFmKeys: readonly string[] | null,
 ): MergeFrontmatterResult {
   const merged: Record<string, string> = { ...destFm, ...assetFm };
+  if (previousFmKeys) {
+    for (const key of previousFmKeys) {
+      if (!(key in assetFm)) delete merged[key];
+    }
+  }
   // `tools:` is the one key with a THIRD writer. The asset owns the native
   // list, but a plugin GRANTS its MCP server by appending `mcp__<id>__*` to
   // the rendered file (`withAgentMcpTools`) — the asset never carries those,

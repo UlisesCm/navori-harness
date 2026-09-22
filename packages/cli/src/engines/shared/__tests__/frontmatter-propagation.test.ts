@@ -73,9 +73,19 @@ describe("frontmatter-only changes propagate to an existing rendered file", () =
     expect(first.status).toBe("updated");
     expect(first.content).toContain("NEW trigger. Use proactively when it applies.");
     expect(first.content).not.toContain("OLD prose");
-    // The destination's own extra key survives the merge (asset wins only for
-    // the keys it declares).
+    // #907 grandfather pass: `existing`'s marker predates the `fmkeys`
+    // snapshot attribute, so this render has NO record of whether the asset
+    // ever declared `disable-model-invocation` — pruning would risk deleting
+    // a genuine hand-added user key, so this render prunes nothing (today's
+    // safe behavior) and only starts tracking from here on. See the
+    // dedicated "retires a key" describe block below for the case this fix
+    // actually targets: a key the asset declares in one render and drops in
+    // the next.
     expect(first.content).toContain("disable-model-invocation: true");
+    // The migration itself must be visible: the marker now carries a
+    // snapshot of what THIS render declared, so the next render can prune
+    // whatever it stops declaring.
+    expect(first.content).toMatch(/fmkeys="[^"]*"/);
   });
 
   it("is idempotent: the pass after the propagation reports unchanged", () => {
@@ -97,6 +107,60 @@ describe("frontmatter-only changes propagate to an existing rendered file", () =
     });
     expect(second.status).toBe("unchanged");
     expect(second.content).toBe(first.content);
+  });
+});
+
+describe("an asset that retires a frontmatter key it used to declare (#907)", () => {
+  /**
+   * The real-world shape of #892/#810: a key was NEVER hand-added by the
+   * user — the asset itself declared it in an older release and stopped
+   * declaring it in a newer one. Unlike the grandfather fixture above (whose
+   * marker predates the snapshot mechanism entirely), here the FIRST render
+   * writes the snapshot while the asset still declares the key, so the
+   * SECOND render — the asset's next release — has enough information to
+   * tell "navori retired this" apart from "the user added this" and drops it.
+   */
+  it("propagates the retirement on the render after the snapshot exists", () => {
+    // Covers: R1
+    const dir = mkdtempSync(join(tmpdir(), "navori-fm-retire-"));
+    const assetPath = join(dir, "agent.md");
+
+    writeFileSync(
+      assetPath,
+      "---\nname: agent\ndescription: X. Use when Y.\ndisable-model-invocation: true\n---\n\nBODY\n",
+    );
+    const first = renderManagedFile({
+      assetPath,
+      existingContent: null,
+      managedId: "agent-base",
+      meta: META,
+      config: config(),
+    });
+    expect(first.content).toContain("disable-model-invocation: true");
+    expect(first.content).toMatch(/fmkeys="[^"]*disable-model-invocation[^"]*"/);
+
+    // The asset's next release drops the key.
+    writeFileSync(assetPath, "---\nname: agent\ndescription: X. Use when Y.\n---\n\nBODY\n");
+    const second = renderManagedFile({
+      assetPath,
+      existingContent: first.content,
+      managedId: "agent-base",
+      meta: META,
+      config: config(),
+    });
+    expect(second.content).not.toContain("disable-model-invocation");
+    expect(second.status).toBe("updated");
+
+    // A third render (same, retired asset) is stable.
+    const third = renderManagedFile({
+      assetPath,
+      existingContent: second.content,
+      managedId: "agent-base",
+      meta: META,
+      config: config(),
+    });
+    expect(third.status).toBe("unchanged");
+    expect(third.content).toBe(second.content);
   });
 });
 

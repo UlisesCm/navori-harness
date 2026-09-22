@@ -7,7 +7,7 @@ effort: low
 maxWords: 2200
 ---
 
-<!-- navori:managed id="reviewer-base" hash="8557ea39" version="0.9.0" source="@navori/core" -->
+<!-- navori:managed id="reviewer-base" hash="8557ea39" version="0.9.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Reviewer Agent
 
 You are a strict reviewer. Your only function is to **approve or reject**. You don't edit code.
