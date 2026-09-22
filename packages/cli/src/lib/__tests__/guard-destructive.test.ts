@@ -1072,9 +1072,27 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
    * (a) never getting near it and (b) DENYING what is too big to inspect. Both
    * halves are asserted: the verdict AND the budget.
    */
-  describe("bounded work — the guard must never be killed mid-verdict (#511)", () => {
-    /** Comfortably under the hook's 10s timeout, with room for a slow CI box. */
-    const BUDGET_MS = 5000;
+  // #909 — a few tests below run two BUDGET_MS-bounded invocations
+  // sequentially; raise the per-test timeout so a worst-case pair under CPU
+  // contention doesn't hit the suite-wide 15s testTimeout before its own
+  // `toBeLessThan(BUDGET_MS)` assertion gets to fail with a useful message.
+  describe("bounded work — the guard must never be killed mid-verdict (#511)", {
+    timeout: 20_000,
+  }, () => {
+    /**
+     * Comfortably under the hook's 10s timeout, with room for a slow CI box.
+     *
+     * #909 — raised from 5000: this is a WALL-CLOCK budget, so it also
+     * absorbs CPU contention from other suites running concurrently (the
+     * guard itself under `settings.json`'s real 10s timeout doesn't change).
+     * This does NOT touch the algorithmic-shape protection: the "scales
+     * LINEARLY, not quadratically" test below asserts a RATIO
+     * (`large.ms / small.ms`), which is invariant to machine speed and stays
+     * unchanged — a wider absolute budget only gives the many `toBeLessThan`
+     * assertions in this describe more room against noise, it does not make
+     * a quadratic regression pass.
+     */
+    const BUDGET_MS = 8000;
     const segments = (n: number) =>
       Array.from({ length: n }, (_, i) => `echo seg${i}`).join(" && ");
     /** The hook's own ceilings, so a row can sit exactly ON one of them. */
