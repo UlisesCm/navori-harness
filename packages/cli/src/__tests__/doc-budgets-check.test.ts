@@ -6,9 +6,14 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import {
   COMPUTED_BLOCKS_WITHOUT_BUDGET,
+  COMPUTED_BLOCK_FORMULAS,
   DOC_BUDGETS,
   MANAGED_ASSET_PATHSPECS,
+  MARKER_PAIR_WORDS,
+  SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
+  computedBlockCeiling,
   countWords,
+  managedBlockCeilings,
 } from "../lib/doc-budgets.ts";
 
 /**
@@ -282,5 +287,71 @@ describe("doc-budgets module (#917)", () => {
       if (ceiling !== undefined && (ceiling - words) / words < 0.05) thin.push(rel);
     }
     expect(thin, "managed assets below the 5% headroom policy").toEqual([]);
+  });
+
+  /**
+   * Phase 2 reads the ceilings by RENDERED BLOCK ID, and that mapping is
+   * derived from the same paths — never a second table to keep in sync. Preset
+   * blocks are the one non-obvious case: every `presets/*.json` declares its
+   * extra as `stack-<preset>`, not `stack`.
+   */
+  it("maps every ceiling onto the block id that renders it", () => {
+    const byId = managedBlockCeilings();
+    expect(byId["operaciones-seguras"]).toBe(
+      DOC_BUDGETS["packages/core/core-assets/managed/operaciones-seguras.md"]! + MARKER_PAIR_WORDS,
+    );
+    expect(byId["gh-protocol"]).toBe(
+      DOC_BUDGETS["packages/plugins/gh/managed/gh-protocol.md"]! + MARKER_PAIR_WORDS,
+    );
+    expect(byId["stack-vite-react-ts-mantine"]).toBe(
+      DOC_BUDGETS["packages/core/core-assets/presets/vite-react-ts-mantine/managed/stack.md"]! +
+        MARKER_PAIR_WORDS,
+    );
+    // `CLAUDE.md` is a FILE ceiling, not a block: it must not leak in as an id.
+    expect(byId["CLAUDE.md"]).toBeUndefined();
+  });
+
+  /**
+   * The gap phase 1 declared and could not close: the ceilings were in `src/`
+   * but tree-shaken out of `dist/index.js`, because nothing in `src/` imported
+   * them. `doctor` does now, so the artifact npm publishes carries them — and a
+   * refactor that drops that import would silently take the budget report out
+   * of every installed navori.
+   */
+  it("ships the ceilings inside the published bundle", () => {
+    const bundle = readFileSync(join(REPO_ROOT, "packages/cli/dist/index.js"), "utf-8");
+    expect(bundle).toContain("packages/core/core-assets/presets/medusa/managed/stack.md");
+  });
+
+  it("gives each computed block a formula, since it can have no constant", () => {
+    for (const id of COMPUTED_BLOCKS_WITHOUT_BUDGET) {
+      expect(COMPUTED_BLOCK_FORMULAS[id], `${id} has no formula`).toBeDefined();
+      expect(computedBlockCeiling(id, 0)).toBe(COMPUTED_BLOCK_FORMULAS[id]!.base);
+    }
+    expect(computedBlockCeiling("operaciones-seguras", 3)).toBeNull();
+  });
+
+  /**
+   * `bonum-dashboard` renders `contexto-proyecto` at 335 words over 9 rows, and
+   * the user ruled that LEGITIMATE use of `project.*`. The formula exists to
+   * price a config entry, not to punish one: if this ever fails, the `k` was
+   * tightened into a false positive against a real repo.
+   */
+  it("keeps the computed ceilings generous enough for real consumer configs", () => {
+    expect(computedBlockCeiling("contexto-proyecto", 9)!).toBeGreaterThan(335);
+    // `bonum-webapp`: 32 skill rows / 208 words measured on a 0.9.0 render.
+    expect(computedBlockCeiling("skills-index", 32)!).toBeGreaterThan(208);
+  });
+
+  /**
+   * The characters budget is the hook's, mirrored here so `doctor` can report
+   * against it without parsing a shell script. Mirrors drift; this is the guard.
+   */
+  it("mirrors the SessionStart hook's own delivery budget", () => {
+    const hook = readFileSync(
+      join(REPO_ROOT, "packages/core/core-assets/hooks/session-start-context.sh"),
+      "utf-8",
+    );
+    expect(hook).toContain(`NAVORI_CTX_BUDGET:-${SESSION_CONTEXT_DELIVERY_BUDGET_CHARS}`);
   });
 });
