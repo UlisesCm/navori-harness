@@ -1,7 +1,7 @@
 ---
 name: publisher
 description: Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use after the reviewer approves, when the cycle ends in a commit, a push or a PR.
-tools: Read, Glob, Grep, Bash, Monitor, TaskStop
+tools: Read, Glob, Grep, Bash
 model: haiku
 effort: low
 maxWords: 3800

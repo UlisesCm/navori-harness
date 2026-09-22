@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes.
-tools: Read, Glob, Grep, Bash, Write, Monitor, TaskStop, mcp__codegraph__*, mcp__engram__mem_search, mcp__engram__mem_get_observation
+tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*, mcp__engram__mem_search, mcp__engram__mem_get_observation
 model: sonnet
 effort: low
 maxWords: 2200

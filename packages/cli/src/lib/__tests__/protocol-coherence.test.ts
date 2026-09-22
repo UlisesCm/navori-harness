@@ -178,21 +178,29 @@ describe(".claude/progress/ is created, never assumed (F9)", () => {
  * processes too, so it never exits — the reviewer looked stuck for ~10 min
  * with 9 orphaned background tasks.
  *
- * Fix: the three agents that run a quality gate carry `Monitor`/`TaskStop`,
+ * Fix (superseded by #860, structurally enforced by #909): a subagent never
+ * gets re-woken by a background task, so backgrounding one always orphans it
+ * — `Monitor`/`TaskStop` are for the main session only. The three agents
+ * that run a quality gate as a subagent run it foreground, chained-step by
+ * chained-step, and do NOT carry `Monitor`/`TaskStop` in `tools:` — a
+ * structural guardrail (the tool is absent, not just prose-forbidden).
  * `verify-before-done` owns the wait rule, and no asset anywhere prescribes
  * the polling loop.
  */
 describe("background-gate wait (no orphaned processes)", () => {
   const GATE_AGENTS = ["reviewer", "implementer", "publisher"];
 
-  it.each(GATE_AGENTS)("%s declares Monitor and TaskStop in its tools", (id) => {
-    const body = read(`agents/${id}.md`);
-    const toolsLine = lineWith(`agents/${id}.md`, "tools:");
-    expect(toolsLine, `${id}.md tools: line missing Monitor`).toContain("Monitor");
-    expect(toolsLine, `${id}.md tools: line missing TaskStop`).toContain("TaskStop");
-    // The agent must also point to the shared wait rule where it runs the gate.
-    expect(body).toContain("verify-before-done/SKILL.md");
-  });
+  it.each(GATE_AGENTS)(
+    "%s does not declare Monitor or TaskStop in its tools (subagent gate runs foreground)",
+    (id) => {
+      const body = read(`agents/${id}.md`);
+      const toolsLine = lineWith(`agents/${id}.md`, "tools:");
+      expect(toolsLine, `${id}.md tools: line still grants Monitor`).not.toContain("Monitor");
+      expect(toolsLine, `${id}.md tools: line still grants TaskStop`).not.toContain("TaskStop");
+      // The agent must still point to the shared wait rule where it runs the gate.
+      expect(body).toContain("verify-before-done/SKILL.md");
+    },
+  );
 
   it("verify-before-done carries the background-wait rule and forbids process polling", () => {
     const skill = read("skills/verify-before-done.md");

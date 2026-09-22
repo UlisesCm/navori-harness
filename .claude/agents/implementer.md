@@ -1,7 +1,7 @@
 ---
 name: implementer
 description: Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself.
-tools: Read, Write, Edit, Glob, Grep, Bash, Monitor, TaskStop, mcp__codegraph__*, mcp__engram__mem_search, mcp__engram__mem_get_observation
+tools: Read, Write, Edit, Glob, Grep, Bash, mcp__codegraph__*, mcp__engram__mem_search, mcp__engram__mem_get_observation
 model: sonnet
 effort: medium
 maxWords: 1800

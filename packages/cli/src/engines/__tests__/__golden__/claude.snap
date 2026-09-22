@@ -220,7 +220,7 @@ If a memory contradicts the code, the code wins — fix the memory.
 ---
 name: implementer
 description: Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself.
-tools: Read, Write, Edit, Glob, Grep, Bash, Monitor, TaskStop, mcp__engram__mem_search, mcp__engram__mem_get_observation
+tools: Read, Write, Edit, Glob, Grep, Bash, mcp__engram__mem_search, mcp__engram__mem_get_observation
 maxWords: 1800
 ---
 
@@ -596,7 +596,7 @@ Reach for it in `criticalAreas`, on high-blast-radius changes, or when the user 
 ---
 name: publisher
 description: Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use after the reviewer approves, when the cycle ends in a commit, a push or a PR.
-tools: Read, Glob, Grep, Bash, Monitor, TaskStop
+tools: Read, Glob, Grep, Bash
 maxWords: 3800
 ---
 
@@ -936,7 +936,7 @@ The body always comes from a file, never inline:
 ---
 name: reviewer
 description: Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes.
-tools: Read, Glob, Grep, Bash, Write, Monitor, TaskStop, mcp__engram__mem_search, mcp__engram__mem_get_observation
+tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation
 maxWords: 2200
 ---
 
