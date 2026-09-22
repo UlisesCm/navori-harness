@@ -93,6 +93,8 @@ function catalog(over: Partial<HarnessCatalog> = {}): HarnessCatalog {
     managedSkills: [],
     sections: [],
     claudeMdTokens: 8000,
+    globalClaudeMd: null,
+    notObserved: ["CLAUDE.local.md", "managed policy files", "AGENTS.md"],
     // Two families, and the second is deliberately not one navori bundles: the
     // signal crosses section↔server PER SERVER, so a single-family catalogue
     // could never tell the fixed version from the `hasMcp` boolean it replaced.
@@ -120,16 +122,43 @@ describe("signal: unreachable-instructions", () => {
     expect(found?.tokens).toBe(550);
   });
 
-  it("escalates to high once the waste crosses the token threshold", () => {
-    const s = session({
-      agents: [agent({ agentId: "a" }), agent({ agentId: "b" }), agent({ agentId: "c" })],
-    });
+  it("does NOT escalate to high just because the same defect ran more times (#926)", () => {
+    // The bug this signal shipped with: `wasted` summed every run of the
+    // barred agent type, so the IDENTICAL per-startup cost (700 tok, the same
+    // as one run) crossed the old absolute threshold purely by running a
+    // third time. The total keeps growing — it's real and still printed via
+    // `tokens` — but the per-arranque rate never changed, so the severity
+    // must not either.
     const c = catalog({
       sections: [{ ...mcpSection, tokens: 700 }],
       agents: [{ name: "implementer", tools: ["Bash"], hasMcp: false }],
     });
+    const oneRun = detectSignals(session({ agents: [agent({ agentId: "a" })] }), c, "es").find(
+      (x) => x.kind === "unreachable-instructions",
+    );
+    const threeRuns = detectSignals(
+      session({
+        agents: [agent({ agentId: "a" }), agent({ agentId: "b" }), agent({ agentId: "c" })],
+      }),
+      c,
+      "es",
+    ).find((x) => x.kind === "unreachable-instructions");
+    expect(oneRun?.tokens).toBe(700);
+    expect(threeRuns?.tokens).toBe(2100);
+    expect(oneRun?.severity).toBe("warn");
+    expect(threeRuns?.severity).toBe("warn");
+  });
+
+  it("escalates to high when a SINGLE startup's own cost crosses the threshold", () => {
+    // The axis that must move severity: the per-arranque cost of the defect,
+    // not how many times a session happened to run it.
+    const s = session({ agents: [agent({ agentId: "a" })] });
+    const c = catalog({
+      sections: [{ ...mcpSection, tokens: 1600 }],
+      agents: [{ name: "implementer", tools: ["Bash"], hasMcp: false }],
+    });
     const found = detectSignals(s, c, "es").find((x) => x.kind === "unreachable-instructions");
-    expect(found?.tokens).toBe(2100);
+    expect(found?.tokens).toBe(1600);
     expect(found?.severity).toBe("high");
   });
 
@@ -181,6 +210,49 @@ describe("signal: unreachable-instructions", () => {
     });
     const found = detectSignals(s, c, "es").find((x) => x.kind === "unreachable-instructions");
     expect(found?.tokens).toBe(1100);
+  });
+
+  it("an agent declaring omitClaudeMd is never counted as barred (#926)", () => {
+    // It never loaded the CLAUDE.md sections this signal crosses against
+    // `tools:` in the first place, so it cannot be attributed a cost it did
+    // not pay.
+    const s = session({ agents: [agent({ agentType: "implementer" })] });
+    const c = catalog({
+      sections: [mcpSection],
+      agents: [{ name: "implementer", tools: ["Bash"], hasMcp: false, omitClaudeMd: true }],
+    });
+    expect(kinds(s, c)).not.toContain("unreachable-instructions");
+  });
+});
+
+describe("signal: startup-overhead (#926)", () => {
+  it("attributes the CLAUDE.md hierarchy total, not just the repo's file", () => {
+    const s = session({ agents: [agent({ agentType: "implementer" })] });
+    const c = catalog({
+      claudeMdTokens: 4000,
+      globalClaudeMd: { tokens: 1300, sections: [{ title: "Bonum", tokens: 1300 }] },
+    });
+    const found = detectSignals(s, c, "es").find((x) => x.kind === "startup-overhead");
+    expect(found?.evidence).toContain("5k");
+    expect(found?.evidence).toContain("4k");
+    expect(found?.evidence).toContain("1k");
+    expect(found?.evidence).toContain("Bonum");
+  });
+
+  it("declares the hierarchy layers it never observed", () => {
+    const s = session({ agents: [agent({ agentType: "implementer" })] });
+    const found = detectSignals(s, catalog(), "es").find((x) => x.kind === "startup-overhead");
+    expect(found?.evidence).toContain("CLAUDE.local.md");
+    expect(found?.evidence).toContain("AGENTS.md");
+  });
+
+  it("flags that an omitClaudeMd agent's startup is overstated by the average", () => {
+    const s = session({ agents: [agent({ agentType: "implementer" })] });
+    const c = catalog({
+      agents: [{ name: "implementer", tools: null, hasMcp: true, omitClaudeMd: true }],
+    });
+    const found = detectSignals(s, c, "es").find((x) => x.kind === "startup-overhead");
+    expect(found?.evidence).toContain("omitClaudeMd");
   });
 });
 

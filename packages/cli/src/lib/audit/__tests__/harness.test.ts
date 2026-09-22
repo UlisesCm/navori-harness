@@ -85,7 +85,7 @@ describe("readHarnessCatalog: an absent harness is empty, never a throw", () => 
     // would fabricate the high-severity signal out of an I/O error.
     mkdirSync(join(root, ".claude", "agents", "broken.md"), { recursive: true });
     expect(readHarnessCatalog(root).agents).toEqual([
-      { name: "broken", tools: null, hasMcp: true },
+      { name: "broken", tools: null, hasMcp: true, omitClaudeMd: false },
     ]);
   });
 });
@@ -97,6 +97,7 @@ describe("readHarnessCatalog: `tools:` is an allowlist, and it lives in the fron
       name: "explorer",
       tools: ["Read", "Glob", "Grep", "Bash", "Write", "mcp__engram__*"],
       hasMcp: true,
+      omitClaudeMd: false,
     });
   });
 
@@ -118,6 +119,7 @@ describe("readHarnessCatalog: `tools:` is an allowlist, and it lives in the fron
       name: "free",
       tools: null,
       hasMcp: true,
+      omitClaudeMd: false,
     });
   });
 
@@ -130,6 +132,7 @@ describe("readHarnessCatalog: `tools:` is an allowlist, and it lives in the fron
       name: "blocklist",
       tools: ["Read", "Bash", "mcp__engram__*"],
       hasMcp: true,
+      omitClaudeMd: false,
     });
   });
 
@@ -139,6 +142,7 @@ describe("readHarnessCatalog: `tools:` is an allowlist, and it lives in the fron
       name: "flowseq",
       tools: ["Read", "mcp__engram__*"],
       hasMcp: true,
+      omitClaudeMd: false,
     });
   });
 
@@ -155,6 +159,7 @@ describe("readHarnessCatalog: `tools:` is an allowlist, and it lives in the fron
       name: "documenting",
       tools: null,
       hasMcp: true,
+      omitClaudeMd: false,
     });
   });
 
@@ -164,6 +169,7 @@ describe("readHarnessCatalog: `tools:` is an allowlist, and it lives in the fron
       name: "bare",
       tools: null,
       hasMcp: true,
+      omitClaudeMd: false,
     });
   });
 
@@ -295,5 +301,62 @@ describe("readHarnessCatalog: CLAUDE.md sections carry the cost of the high sign
     expect(cat.sections).toEqual([]);
     expect(cat.claudeMdTokens).toBe(0);
     expect(cat.agents).toHaveLength(1);
+  });
+});
+
+describe("readHarnessCatalog: `omitClaudeMd` (#926)", () => {
+  it("reads the frontmatter flag and defaults to false when absent", () => {
+    agent("skipper", ["tools: Read", "omitClaudeMd: true"]);
+    agent("regular", ["tools: Read"]);
+    const cat = readHarnessCatalog(root);
+    expect(cat.agents.find((a) => a.name === "skipper")?.omitClaudeMd).toBe(true);
+    expect(cat.agents.find((a) => a.name === "regular")?.omitClaudeMd).toBe(false);
+  });
+
+  it("an unreadable agent file defaults to false, the same permissive read as `hasMcp`", () => {
+    mkdirSync(join(root, ".claude", "agents", "broken.md"), { recursive: true });
+    expect(readHarnessCatalog(root).agents[0]?.omitClaudeMd).toBe(false);
+  });
+});
+
+describe("readHarnessCatalog: the CLAUDE.md hierarchy, not just the repo's file (#926)", () => {
+  let home: string;
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), "navori-harness-home-"));
+  });
+
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  function globalClaudeMd(...lines: string[]): void {
+    const dir = join(home, ".claude");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "CLAUDE.md"), lines.join("\n"), "utf-8");
+  }
+
+  it("is null when the machine has no global CLAUDE.md", () => {
+    expect(readHarnessCatalog(root, home).globalClaudeMd).toBeNull();
+  });
+
+  it("sizes the global file and lists section titles, never the body", () => {
+    globalClaudeMd("## Bonum", "una tabla de 16 proyectos con paths y stacks de otro cliente");
+    const cat = readHarnessCatalog(root, home);
+    expect(cat.globalClaudeMd?.tokens).toBeGreaterThan(0);
+    expect(cat.globalClaudeMd?.sections).toEqual([{ title: "Bonum", tokens: expect.any(Number) }]);
+    // The body never travels: only the title and a token count are exposed,
+    // exactly the shape a report shared across repos is allowed to print.
+    const serialized = JSON.stringify(cat.globalClaudeMd);
+    expect(serialized).not.toContain("16 proyectos");
+    expect(serialized).not.toContain("otro cliente");
+  });
+
+  it("declares the layers it never attempts to read", () => {
+    expect(readHarnessCatalog(root, home).notObserved).toEqual([
+      "CLAUDE.local.md",
+      "managed policy files",
+      "AGENTS.md",
+    ]);
   });
 });
