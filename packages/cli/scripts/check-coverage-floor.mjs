@@ -25,10 +25,16 @@ import { fileURLToPath } from "node:url";
  * command module ships genuinely untested, not before.
  *
  * Usage: node scripts/check-coverage-floor.mjs   (after `vitest run --coverage`)
+ *
+ * NAVORI_COVERAGE_DIR: same fallback as vitest.config.ts's `coverage.reportsDirectory`
+ * ("coverage" by default). Both processes run in the same `&&` chain
+ * (package.json's `test:coverage`), so a shell that exports the var before that
+ * command isolates a concurrent local run of the gate without touching CI or the
+ * default path (#909).
  */
 
 const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const SUMMARY = resolve(PKG_ROOT, "coverage", "coverage-summary.json");
+const SUMMARY = resolve(PKG_ROOT, process.env.NAVORI_COVERAGE_DIR ?? "coverage", "coverage-summary.json");
 /** Where a 0% reading really means "nothing exercises this". */
 const GUARDED_PREFIX = "src/lib/";
 

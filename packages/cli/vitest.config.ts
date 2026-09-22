@@ -23,6 +23,11 @@ export default defineConfig({
     maxWorkers: 4,
     coverage: {
       provider: "v8",
+      // Default stays "coverage" (matches CI and check-coverage-floor.mjs's own
+      // fallback) so nothing changes for the normal gate. Set NAVORI_COVERAGE_DIR
+      // before `test:coverage` to isolate concurrent local runs of the gate in
+      // the same working tree (#909) — e.g. `NAVORI_COVERAGE_DIR=coverage-$$`.
+      reportsDirectory: process.env.NAVORI_COVERAGE_DIR ?? "coverage",
       // #504 — INSTRUMENT everything, GATE what the bar was set for.
       //
       // The include used to be `src/lib/**`, so `src/commands/**` and

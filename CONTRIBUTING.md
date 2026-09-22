@@ -51,6 +51,12 @@ Es lo que valida el job `quality` de CI; si no pasa, el PR falla:
    - **`bun run format:check` (biome) NO está bajo `packages/cli`**: corre en la raíz, y es el paso
      que más se olvida. Biome expande objetos de una línea y parte llamadas largas. Se arregla
      con `bun run format`.
+   - **Dos gates corriendo el mismo `test:coverage` sobre el mismo árbol de trabajo** (dos agentes
+     en la misma sesión local, no en worktrees distintos) chocan escribiendo al mismo
+     `packages/cli/coverage/` (#909). Para aislar una corrida, exporta
+     `NAVORI_COVERAGE_DIR=coverage-<algo único>` antes del comando — `vitest.config.ts` y
+     `check-coverage-floor.mjs` leen la misma variable, con fallback a `coverage` (el default, sin
+     tocarlo, es lo que sigue corriendo en CI y en el gate normal).
 
    **`jscpd:check` y `semgrep:check`** entraron al gate en #777: son los mismos scripts que corren
    como hook de `git commit` con stdin cerrado, para que la revisión prediga el commit — antes, el
