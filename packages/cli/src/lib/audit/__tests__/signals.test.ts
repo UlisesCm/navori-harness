@@ -281,11 +281,92 @@ describe("signal: tool-errors (#686)", () => {
     expect(kinds(s, catalog())).not.toContain("tool-errors");
   });
 
-  it("escalates to warn at the same threshold as friction", () => {
-    const found = detectSignals(withErrors({ shellFailure: 20 }), catalog(), "es").find(
-      (x) => x.kind === "tool-errors",
-    );
+  it("escalates to warn when the error RATE crosses the threshold with enough sample", () => {
+    const s = session({
+      orchestrator: {
+        ...session().orchestrator,
+        toolCounts: { Bash: 100 },
+        toolErrors: { ...emptyToolErrors(), shellFailure: 10 }, // 10%, >= 25 calls
+      },
+    });
+    const found = detectSignals(s, catalog(), "es").find((x) => x.kind === "tool-errors");
     expect(found?.severity).toBe("warn");
+  });
+
+  // Covers the criterion of closure for #929: doubling the session's volume
+  // at an IDENTICAL error rate must not escalate severity. The pre-#929 code
+  // (`total >= 20`) would have: 40 stays info, 80 crosses to warn purely from
+  // running twice as many tools at the same 4% rate.
+  it("keeps severity stable when volume doubles at the same rate (#929)", () => {
+    const smaller = session({
+      orchestrator: {
+        ...session().orchestrator,
+        toolCounts: { Bash: 1000 },
+        toolErrors: { ...emptyToolErrors(), shellFailure: 40 }, // 4%
+      },
+    });
+    const bigger = session({
+      orchestrator: {
+        ...session().orchestrator,
+        toolCounts: { Bash: 2000 },
+        toolErrors: { ...emptyToolErrors(), shellFailure: 80 }, // same 4%
+      },
+    });
+    const a = detectSignals(smaller, catalog(), "es").find((x) => x.kind === "tool-errors");
+    const b = detectSignals(bigger, catalog(), "es").find((x) => x.kind === "tool-errors");
+    expect(a?.severity).toBe("info");
+    expect(b?.severity).toBe("info");
+  });
+
+  it("does not warn from a single error in a tiny session (sample floor)", () => {
+    const s = session({
+      orchestrator: {
+        ...session().orchestrator,
+        toolCounts: { Bash: 10 },
+        toolErrors: { ...emptyToolErrors(), shellFailure: 1 }, // 10%, but only 10 calls
+      },
+    });
+    const found = detectSignals(s, catalog(), "es").find((x) => x.kind === "tool-errors");
+    expect(found?.severity).toBe("info");
+  });
+});
+
+describe("signal: friction (#929)", () => {
+  it("stays quiet when nothing blocked", () => {
+    expect(kinds(session({ agents: [agent()] }), catalog())).not.toContain("friction");
+  });
+
+  it("escalates to warn when the friction RATE crosses the threshold with enough sample", () => {
+    const s = session({
+      orchestrator: { ...session().orchestrator, toolCounts: { Bash: 100 }, frictionEvents: 5 }, // 5%, >= 60 calls
+    });
+    const found = detectSignals(s, catalog(), "es").find((x) => x.kind === "friction");
+    expect(found?.severity).toBe("warn");
+    expect(found?.summary).toContain("5 bloqueos");
+  });
+
+  // Same criterion of closure as tool-errors: the old `total >= 20` escalated
+  // purely because a longer session accumulates more blocks. 15 stays info,
+  // 30 would have crossed to warn at an identical 1.5% rate.
+  it("keeps severity stable when volume doubles at the same rate (#929)", () => {
+    const smaller = session({
+      orchestrator: { ...session().orchestrator, toolCounts: { Bash: 1000 }, frictionEvents: 15 }, // 1.5%
+    });
+    const bigger = session({
+      orchestrator: { ...session().orchestrator, toolCounts: { Bash: 2000 }, frictionEvents: 30 }, // same 1.5%
+    });
+    const a = detectSignals(smaller, catalog(), "es").find((x) => x.kind === "friction");
+    const b = detectSignals(bigger, catalog(), "es").find((x) => x.kind === "friction");
+    expect(a?.severity).toBe("info");
+    expect(b?.severity).toBe("info");
+  });
+
+  it("does not warn from a single block in a tiny session (sample floor)", () => {
+    const s = session({
+      orchestrator: { ...session().orchestrator, toolCounts: { Bash: 10 }, frictionEvents: 1 }, // 10%, but only 10 calls
+    });
+    const found = detectSignals(s, catalog(), "es").find((x) => x.kind === "friction");
+    expect(found?.severity).toBe("info");
   });
 });
 

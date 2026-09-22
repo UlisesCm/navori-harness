@@ -48,6 +48,55 @@ const STARTUP_SHARE_WARN = 0.25;
 /** Unparseable lines above this ratio suggest the transcript format moved. */
 const PARSE_ERROR_WARN = 0.01;
 
+/**
+ * Above this share of the session's tool calls, friction is a pattern rather
+ * than the harness doing its job once or twice (#929).
+ *
+ * `frictionEvents / total tool calls` — the total is already on every card
+ * (`toolCounts`), so the rate costs nothing new to compute. Measured directly
+ * on this repo's own history: parsing every transcript under
+ * `~/.claude/projects/<navori-harness>` (97 sessions with at least one tool
+ * call) and keeping the 57 with >=50 calls to damp single-event noise, the
+ * friction rate sits at p50 0.3%, p90 1.5%, p95 1.8%, max 3.2%. 2% sits just
+ * above the p90–p95 band: it flags the worst slice of real sessions without
+ * firing on the routine handful of blocks any session accumulates.
+ */
+const FRICTION_RATE_WARN = 0.02;
+
+/**
+ * Below this many tool calls, `FRICTION_RATE_WARN` cannot tell a real pattern
+ * from one blocked call landing in a tiny session (#929) — the same role
+ * `TOOL_MIX_MIN_READS` plays for the read lane. Sized so a SINGLE friction
+ * event alone cannot cross the warn line: 1/60 = 1.7%, under 2%.
+ */
+const FRICTION_MIN_SAMPLE = 60;
+
+/**
+ * Above this share of the session's tool calls, tool errors are a pattern
+ * rather than the routine noise of a session that ran a lot of tools (#929) —
+ * same defect `unreachable-instructions` had before #926: `total >= 20` grew
+ * with volume, not with degradation, so a session that did twice the work at
+ * an identical error rate crossed to `warn` for having worked more.
+ *
+ * Same corpus and method as `FRICTION_RATE_WARN`: on the 57 sessions with
+ * >=50 tool calls, the error rate sits at p50 1.4%, p90 4.2%, p95 5.5%, max
+ * 10.3%. 5% sits in that p90–p95 band.
+ */
+const TOOL_ERROR_RATE_WARN = 0.05;
+
+/**
+ * Below this many tool calls the error rate is an accident: a single failed
+ * command already reads 4% (1/25), still short of `TOOL_ERROR_RATE_WARN`, so
+ * one flaky command cannot warn on its own — it takes a real second one.
+ */
+const TOOL_ERROR_MIN_SAMPLE = 25;
+
+/** Sum of a tool-call histogram, the shared denominator for the two rates
+ *  above — the same `toolCounts` field every card already carries. */
+function totalToolCalls(counts: Record<string, number>): number {
+  return Object.values(counts).reduce((n, c) => n + c, 0);
+}
+
 function pick(lang: Lang, es: string, en: string): string {
   return lang === "es" ? es : en;
 }
@@ -328,7 +377,23 @@ function deadCatalog(session: SessionAudit, cat: HarnessCatalog, lang: Lang): Si
   return out;
 }
 
-/** The same command over and over: rework paid in full tokens each time. */
+/**
+ * The same command over and over: rework paid in full tokens each time.
+ *
+ * `top[0]![1] >= 10` stayed an absolute count, deliberately (#929). It has
+ * the same shape of bias `friction`/`tool-errors` had — a longer session could
+ * in principle pad the count of its single most-repeated command — but unlike
+ * those two, whose totals are a SUM across every distinct block/error in the
+ * session, this counts repeats of ONE literal command, and volume does not
+ * drive that the same way. Measured on this repo's own 97-session history:
+ * only 2 sessions ever had a command repeat 3+ times at all (the floor
+ * `repeatedCommands` already applies), and the largest one — 1037 tool calls,
+ * the biggest session in the corpus — topped out at 4 repeats of its most
+ * common command, nowhere near the 10 that trips `warn`. A rate would need a
+ * denominator and a sample floor for a signal that real sessions do not push
+ * anywhere near its threshold by volume alone; the absolute count already does
+ * the job the data shows it needs to do.
+ */
 function rework(session: SessionAudit, lang: Lang): Signal[] {
   const tally = new Map<string, number>();
   const merge = (rec: Record<string, number>): void => {
@@ -354,15 +419,26 @@ function rework(session: SessionAudit, lang: Lang): Signal[] {
   ];
 }
 
-/** Blocks and denials that landed in a model's context, so they cost tokens. */
+/**
+ * Blocks and denials that landed in a model's context, so they cost tokens.
+ *
+ * Severity is decided on the RATE over the session's tool calls, not the raw
+ * sum (#929): a session with double the tool calls accumulates double the
+ * blocks at an identical rate, and the old `total >= 20` read that as having
+ * gotten worse rather than having worked more. The total is still real and
+ * still what the summary reports — only the severity axis moved.
+ */
 function friction(session: SessionAudit, lang: Lang): Signal[] {
-  const total =
-    session.orchestrator.frictionEvents + session.agents.reduce((s, a) => s + a.frictionEvents, 0);
+  const cards = [session.orchestrator, ...session.agents];
+  const total = cards.reduce((s, c) => s + c.frictionEvents, 0);
   if (total === 0) return [];
+  const toolTotal = cards.reduce((s, c) => s + totalToolCalls(c.toolCounts), 0);
+  const rate = toolTotal > 0 ? total / toolTotal : 0;
+  const severity = toolTotal >= FRICTION_MIN_SAMPLE && rate >= FRICTION_RATE_WARN ? "warn" : "info";
   return [
     {
       kind: "friction",
-      severity: total >= 20 ? "warn" : "info",
+      severity,
       summary: pick(
         lang,
         `${total} bloqueos de hook o denegaciones de permiso llegaron al contexto`,
@@ -370,8 +446,8 @@ function friction(session: SessionAudit, lang: Lang): Signal[] {
       ),
       evidence: pick(
         lang,
-        "Cada bloqueo entra al contexto del agente y cuesta tokens. Límite conocido: las aprobaciones manuales exitosas NO son distinguibles de una tool pre-aprobada.",
-        "Each block enters the agent's context and costs tokens. Known limit: successful manual approvals are NOT distinguishable from a pre-approved tool.",
+        `Cada bloqueo entra al contexto del agente y cuesta tokens. ${total} de ${toolTotal} tool calls (${(rate * 100).toFixed(1)}%). Límite conocido: las aprobaciones manuales exitosas NO son distinguibles de una tool pre-aprobada.`,
+        `Each block enters the agent's context and costs tokens. ${total} of ${toolTotal} tool calls (${(rate * 100).toFixed(1)}%). Known limit: successful manual approvals are NOT distinguishable from a pre-approved tool.`,
       ),
     },
   ];
@@ -386,6 +462,11 @@ function friction(session: SessionAudit, lang: Lang): Signal[] {
  * getting it wrong and paying context to find out. Across this repo's
  * transcripts the second was 89 of 117 discarded errors, and worth exactly zero
  * until now.
+ *
+ * Severity is decided on the RATE over the session's tool calls, not the raw
+ * sum (#929) — the same fix #926 applied to `unreachable-instructions`, and
+ * the function's own name (a "rate" whose severity ignored the denominator)
+ * is what gave the bug away. The total is still what the summary reports.
  */
 function toolErrorRate(session: SessionAudit, lang: Lang): Signal[] {
   const cards = [session.orchestrator, ...session.agents];
@@ -399,6 +480,11 @@ function toolErrorRate(session: SessionAudit, lang: Lang): Signal[] {
   const total = shellFailure + toolUnavailable + editMiss + other;
   if (total === 0) return [];
 
+  const toolTotal = cards.reduce((s, c) => s + totalToolCalls(c.toolCounts), 0);
+  const rate = toolTotal > 0 ? total / toolTotal : 0;
+  const severity =
+    toolTotal >= TOOL_ERROR_MIN_SAMPLE && rate >= TOOL_ERROR_RATE_WARN ? "warn" : "info";
+
   const parts: string[] = [];
   if (shellFailure) parts.push(pick(lang, `${shellFailure} shell`, `${shellFailure} shell`));
   if (toolUnavailable)
@@ -411,7 +497,7 @@ function toolErrorRate(session: SessionAudit, lang: Lang): Signal[] {
   return [
     {
       kind: "tool-errors",
-      severity: total >= 20 ? "warn" : "info",
+      severity,
       summary: pick(
         lang,
         `${total} errores de tool llegaron al contexto (${parts.join(", ")})`,
@@ -419,8 +505,8 @@ function toolErrorRate(session: SessionAudit, lang: Lang): Signal[] {
       ),
       evidence: pick(
         lang,
-        "Cada error entra al contexto y cuesta tokens. Los de shell son la clase grande: un agente que falla comandos está haciendo rework que `repeatedCommands` solo ve si además repite el comando idéntico 3+ veces.",
-        "Each error enters the context and costs tokens. Shell failures are the big class: an agent failing commands is doing rework that `repeatedCommands` only sees when it also repeats the identical command 3+ times.",
+        `Cada error entra al contexto y cuesta tokens. ${total} de ${toolTotal} tool calls (${(rate * 100).toFixed(1)}%). Los de shell son la clase grande: un agente que falla comandos está haciendo rework que \`repeatedCommands\` solo ve si además repite el comando idéntico 3+ veces.`,
+        `Each error enters the context and costs tokens. ${total} of ${toolTotal} tool calls (${(rate * 100).toFixed(1)}%). Shell failures are the big class: an agent failing commands is doing rework that \`repeatedCommands\` only sees when it also repeats the identical command 3+ times.`,
       ),
     },
   ];
