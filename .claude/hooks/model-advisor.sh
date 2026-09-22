@@ -1,4 +1,4 @@
-# navori:managed start id="model-advisor-base" hash="389dcba5" version="0.9.0" source="@navori/core"
+# navori:managed start id="model-advisor-base" hash="72411b6b" version="0.9.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Advisory-only main-session model recommendation. The hook reads only payload
@@ -316,6 +316,13 @@ navori_audit_on_exit() {
   return 0
 }
 trap navori_audit_on_exit EXIT
+
+# Tool events fire inside every subagent too, and a subagent firing can only
+# reach the `agent_id || agent_type` exit below, so its `node` spawn is pure
+# waste. Discard it here with a fork-free substring test: the same condition,
+# `agent_type` included, so a session started with `--agent` keeps behaving as
+# before. It sits after the trap so audit mode still records the firing.
+case "$payload" in *'"agent_id"'* | *'"agent_type"'*) exit 0 ;; esac
 
 # Node is already required by Claude Code and by the generated TypeScript CLI.
 # Keep all untrusted payload parsing here rather than interpolating JSON into shell.
