@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig, type NavoriConfigInput } from "../../lib/schema.ts";
 import { computeHealthVerdict, scanDocBudget } from "../doctor.ts";
 import { readCliVersion } from "../../lib/bundled-assets.ts";
-import { SESSION_CONTEXT_DELIVERY_BUDGET_CHARS } from "../../lib/doc-budgets.ts";
+import { MARKER_PAIR_WORDS, SESSION_CONTEXT_DELIVERY_BUDGET_CHARS } from "../../lib/doc-budgets.ts";
 
 /**
  * #917 phase 2 — `doctor` prices what a session of this repo pays before its
@@ -150,6 +150,28 @@ describe("scanDocBudget (#917)", () => {
     expect(block0.kind).toBe("unbudgeted");
     expect(block0.ceiling).toBeNull();
     expect(block0.over).toBe(false);
+  });
+
+  /**
+   * An unbudgeted block adds to `managedWords` and contributes ZERO to
+   * `ceiling`, so counting it in the quotient reports an excess the metric
+   * invented. Measured on the real `bonum-webapp` file: `engram-protocol` (497)
+   * + `codegraph-protocol` (255) were 752 of a 1207 `overBy` — 62% artifact.
+   * They stay visible in `unbudgetedWords`; they just stop being "over budget".
+   */
+  it("keeps unbudgeted blocks out of overBy while still publishing them", () => {
+    const cwd = tempRepo();
+    writeClaudeMd(
+      cwd,
+      [block("tipado-fuerte", words(20)), block("engram-protocol", words(497))].join("\n\n"),
+    );
+    const report = scanDocBudget(cwd)!;
+    // Body + the marker pair, which is exactly the constant the ceilings add.
+    expect(report.unbudgetedWords).toBe(497 + MARKER_PAIR_WORDS);
+    expect(report.managedWords).toBeGreaterThan(report.ceiling);
+    // …and yet nothing is over budget: the only budgeted block fits.
+    expect(report.overBy).toBe(0);
+    expect(report.blocks.some((b) => b.over)).toBe(false);
   });
 
   it("attributes a plugin block to the plugins lever via its marker source", () => {

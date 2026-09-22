@@ -163,6 +163,13 @@ Tres decisiones que no son obvias:
   engancharlo al veredicto los pone en rojo el día del bump por prosa legítima. `render` tampoco
   imprime una línea informativa fija: solo avisa cuando el techo **se cruza en esa ejecución**.
 
+Un detalle de la métrica que vale la pena conocer antes de leer un número: **los bloques sin
+techo no entran en la comparación**. Un bloque que navori no budgetea (típicamente uno retirado
+que sigue en un archivo viejo) suma palabras al total pero aporta 0 al techo, así que contarlo en
+el cociente reporta un exceso que inventó la métrica. Medido en el `CLAUDE.md` real de
+`bonum-webapp`: `engram-protocol` (497) + `codegraph-protocol` (255) eran **752 de 1207** del
+exceso reportado, el 62 %. Se cuentan aparte y se nombran en su propia línea, no se esconden.
+
 Y la distinción que decide qué hacer con el aviso: **"tu archivo está gordo" no es lo mismo que "tu
 archivo es viejo"**. Un `CLAUDE.md` rendereado por una versión anterior arrastra bloques que ya
 adelgazaron — en `bonum-webapp` un `navori render --apply` recorta 1175 palabras (−37 %) sin que su

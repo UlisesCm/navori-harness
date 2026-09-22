@@ -810,6 +810,8 @@ interface DoctorCmdStrings {
   docBudgetSummary: (total: number, managed: number, ceiling: number, own: number) => string;
   /** The same file is reloaded whole by every subagent — no invented multiplier. */
   docBudgetSubagents: (words: number) => string;
+  /** Blocks navori ships no ceiling for: contados, fuera del cociente. */
+  docBudgetUnbudgeted: (words: number, ids: string) => string;
   /** `.claude/context/` — reported, never capped (#919 owns its ceiling). */
   docBudgetContext: (files: number, words: number, chars: number, budget: number) => string;
   /** "Your file is OLD": blocks rendered by an earlier navori. */
@@ -1933,6 +1935,10 @@ const CMD_ES: CmdStrings = {
       `cada subagente recarga el archivo entero (${words} palabras): un ciclo ` +
       `implementer→reviewer→publisher lo paga una vez por agente, además de la sesión principal ` +
       `(no hay multiplicador fijo: los agentes los pone el ticket)`,
+    docBudgetUnbudgeted: (words, ids) =>
+      `${words} palabras en bloques sin techo (${ids}): se cuentan en el total pero quedan FUERA ` +
+      `de la comparación — navori no envía techo para ellos, y casi siempre son bloques retirados ` +
+      `que un 'navori render --apply' quita solo`,
     docBudgetContext: (files, words, chars, budget) =>
       `.claude/context/: ${files} archivo(s), ${words} palabras (${chars} caracteres) que entrega ` +
       `el hook SessionStart — se reporta, no se capea; su límite real es de ENTREGA ` +
@@ -3134,6 +3140,10 @@ const CMD_EN: CmdStrings = {
       `every subagent reloads the whole file (${words} words): an ` +
       `implementer→reviewer→publisher cycle pays it once per agent, on top of the main session ` +
       `(no fixed multiplier: the ticket decides how many agents run)`,
+    docBudgetUnbudgeted: (words, ids) =>
+      `${words} words in blocks with no ceiling (${ids}): counted in the total but kept OUT of ` +
+      `the comparison — navori ships no ceiling for them, and they are almost always retired ` +
+      `blocks a 'navori render --apply' removes on its own`,
     docBudgetContext: (files, words, chars, budget) =>
       `.claude/context/: ${files} file(s), ${words} words (${chars} chars) delivered by the ` +
       `SessionStart hook — reported, not capped; its real limit is DELIVERY (${budget} chars), ` +

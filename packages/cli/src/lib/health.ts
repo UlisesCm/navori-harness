@@ -121,7 +121,12 @@ export interface ManagedBlockMeasure {
   rows: number;
   /** Null when navori ships no ceiling for this id (a block it doesn't own). */
   ceiling: number | null;
-  /** `static` — the source asset's ceiling; `computed` — the `base + k·rows` formula. */
+  /**
+   * `static` — the source asset's ceiling; `computed` — the `base + k·rows`
+   * formula; `unbudgeted` — navori ships NO ceiling for this id, so the block is
+   * measured and reported but never compared (a retired block still sitting in
+   * a stale file, or one written by something that isn't navori).
+   */
   kind: "static" | "computed" | "unbudgeted";
   over: boolean;
 }
@@ -137,9 +142,24 @@ export interface DocBudgetMeasure {
    * this repo's own 536 words of it are the proof that the number is legitimate.
    */
   ownWords: number;
+  /**
+   * Words in blocks navori ships NO ceiling for. Part of `managedWords` — the
+   * session pays them — but deliberately OUT of the `overBy` quotient below.
+   */
+  unbudgetedWords: number;
   /** Σ of the ceilings of the blocks the file ACTUALLY carries. */
   ceiling: number;
-  /** `managedWords - ceiling`, 0 when within budget. */
+  /**
+   * `managedWords - unbudgetedWords - ceiling`, 0 when within budget.
+   *
+   * The subtraction is the whole point (#917 review): an unbudgeted block adds
+   * to `managedWords` and contributes ZERO to `ceiling`, so leaving it in
+   * compares apples to oranges and the excess is an artifact of the metric, not
+   * prose. Measured on the real `bonum-webapp` file: `engram-protocol` (497) +
+   * `codegraph-protocol` (255) = 752 of a 1207 `overBy` — 62% of the reported
+   * excess was two retired blocks navori never budgeted. They are not hidden:
+   * `unbudgetedWords` publishes them and the report names them on their own line.
+   */
   overBy: number;
   blocks: ManagedBlockMeasure[];
 }
@@ -162,6 +182,7 @@ export function measureDocBudget(content: string): DocBudgetMeasure {
   const ceilings = managedBlockCeilings();
   const blocks: ManagedBlockMeasure[] = [];
   let managedWords = 0;
+  let unbudgetedWords = 0;
   let ceiling = 0;
   for (const located of locateManagedBlocks(content, "html")) {
     const body = content.slice(located.openStart, located.closeEnd);
@@ -171,7 +192,8 @@ export function measureDocBudget(content: string): DocBudgetMeasure {
     const computed = computedBlockCeiling(located.id, rows);
     const blockCeiling = staticCeiling ?? computed;
     managedWords += words;
-    if (blockCeiling !== null) ceiling += blockCeiling;
+    if (blockCeiling === null) unbudgetedWords += words;
+    else ceiling += blockCeiling;
     blocks.push({
       id: located.id,
       words,
@@ -189,8 +211,9 @@ export function measureDocBudget(content: string): DocBudgetMeasure {
     totalWords,
     managedWords,
     ownWords: totalWords - managedWords,
+    unbudgetedWords,
     ceiling,
-    overBy: Math.max(0, managedWords - ceiling),
+    overBy: Math.max(0, managedWords - unbudgetedWords - ceiling),
     blocks,
   };
 }

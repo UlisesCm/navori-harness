@@ -1070,6 +1070,15 @@ export function docBudgetLines(
     )}`,
     `  ${grey(sym.bullet)} ${td.docBudgetSubagents(report.perSubagentWords)}`,
   ];
+  // Named on their own line instead of folded into the summary: a block with no
+  // ceiling is a different fact from a block over one, and the two fixes differ
+  // (a re-render drops a retired block; a trim shrinks a live one).
+  if (report.unbudgetedWords > 0) {
+    const ids = report.blocks.filter((b) => b.kind === "unbudgeted").map((b) => b.id);
+    lines.push(
+      `  ${grey(sym.bullet)} ${td.docBudgetUnbudgeted(report.unbudgetedWords, ids.join(", "))}`,
+    );
+  }
   if (report.contextFiles.length > 0) {
     lines.push(
       `  ${grey(sym.bullet)} ${td.docBudgetContext(
@@ -2042,9 +2051,11 @@ export interface DocBudgetReport {
   managedWords: number;
   /** The user's own prose. Reported, never capped. */
   ownWords: number;
+  /** Words in blocks navori ships no ceiling for — out of the `overBy` quotient. */
+  unbudgetedWords: number;
   /** Σ of the ceilings of the blocks this repo ACTUALLY renders. */
   ceiling: number;
-  /** `managedWords - ceiling`, 0 when within budget. */
+  /** `managedWords - unbudgetedWords - ceiling`, 0 when within budget. */
   overBy: number;
   blocks: DocBudgetBlock[];
   /** Blocks whose marker version differs from the running navori. */
@@ -2122,6 +2133,7 @@ export function scanDocBudget(cwd: string): DocBudgetReport | null {
     totalWords: measure.totalWords,
     managedWords: measure.managedWords,
     ownWords: measure.ownWords,
+    unbudgetedWords: measure.unbudgetedWords,
     ceiling: measure.ceiling,
     overBy: measure.overBy,
     blocks,
