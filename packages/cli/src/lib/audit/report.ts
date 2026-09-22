@@ -844,8 +844,8 @@ function tollGroups(events: HookEvent[]): HookEvent[][] {
       ungrouped.push([e]);
       continue;
     }
-    // ` ` as the separator, never a raw NUL: same reason as `gateHandle`.
-    const key = `${e.toolUseId} ${e.phase}`;
+    // `\u0000` as the separator, never a raw NUL: same reason as `gateHandle`.
+    const key = `${e.toolUseId}\u0000${e.phase}`;
     const group = byHostEvent.get(key);
     if (group) group.push(e);
     else byHostEvent.set(key, [e]);
