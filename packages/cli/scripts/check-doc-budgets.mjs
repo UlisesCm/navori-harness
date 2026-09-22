@@ -62,6 +62,16 @@ import {
  * erosion early (the actual #908 ask) without blocking work that didn't
  * cause it. Exceeding the cap outright stays a hard failure below,
  * unchanged.
+ *
+ * #930 — `AGENTS.md` (the prose surface `codex`/`agents-md` render) is now a
+ * plain entry in `DOC_BUDGETS` too, exactly like `CLAUDE.md`: neither matches
+ * a `MANAGED_ASSET_PATHSPECS` glob (both are rendered FILES, not source
+ * assets), so both are listed explicitly and checked by the same whole-file
+ * loop below — no new machinery, no second script path. This script stays
+ * intentionally light (no import beyond `doc-budgets.ts`, which is why it can
+ * run with zero build step) — a heavier per-block measure of the same file is
+ * what `doctor` reports informatively for every OTHER repo (`agentsMdCeiling`
+ * in `commands/doctor.ts`, `PROSE_WRAPPER_CEILINGS` in `doc-budgets.ts`).
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));

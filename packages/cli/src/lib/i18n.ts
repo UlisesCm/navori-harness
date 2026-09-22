@@ -816,6 +816,19 @@ interface DoctorCmdStrings {
   docBudgetAgentsMd: (words: number, bytes: number, pct: number, max: number) => string;
   /** Same, past the warn ratio: the failure mode there is silent truncation. */
   docBudgetAgentsMdNear: (words: number, bytes: number, pct: number, max: number) => string;
+  /**
+   * `navori-agents`' own word ceiling, past it (#930). Reported, never capped
+   * for a consumer — navori's own CI hard-fails on this same number for its
+   * self-hosted `AGENTS.md` (`check-doc-budgets.mjs`).
+   */
+  docBudgetAgentsMdOverCeiling: (words: number, ceiling: number, overBy: number) => string;
+  /**
+   * `.cursor/rules/navori.mdc` (#930) — weight only, no cap: Cursor publishes
+   * no `project_doc_max_bytes` equivalent to report against.
+   */
+  docBudgetCursorRules: (words: number, bytes: number) => string;
+  /** `.github/copilot-instructions.md` (#930). Same doctrine as `docBudgetCursorRules`. */
+  docBudgetCopilotInstructions: (words: number, bytes: number) => string;
   /** `.claude/context/` — reported, never capped (#919 owns its ceiling). */
   docBudgetContext: (files: number, words: number, chars: number, budget: number) => string;
   /** "Your file is OLD": blocks rendered by an earlier navori. */
@@ -1952,6 +1965,15 @@ const CMD_ES: CmdStrings = {
       `llegar al tope Codex DEJA DE AGREGAR archivos sin avisar, y la cadena suma además tu ` +
       `~/.codex/AGENTS.md y los AGENTS.md anidados — sube 'project_doc_max_bytes' o parte las ` +
       `instrucciones en directorios anidados`,
+    docBudgetAgentsMdOverCeiling: (words, ceiling, overBy) =>
+      `AGENTS.md ('navori-agents'): ${words} palabras contra un techo de ${ceiling} (${overBy} de más) ` +
+      `— se reporta, no se capea: navori no tiene standing sobre el AGENTS.md de otro repo`,
+    docBudgetCursorRules: (words, bytes) =>
+      `.cursor/rules/navori.mdc: ${words} palabras (${bytes} bytes) — Cursor no publica un cap ` +
+      `equivalente al 'project_doc_max_bytes' de Codex, así que solo se reporta el peso`,
+    docBudgetCopilotInstructions: (words, bytes) =>
+      `.github/copilot-instructions.md: ${words} palabras (${bytes} bytes) — Copilot no publica un ` +
+      `cap equivalente al 'project_doc_max_bytes' de Codex, así que solo se reporta el peso`,
     docBudgetContext: (files, words, chars, budget) =>
       `.claude/context/: ${files} archivo(s), ${words} palabras (${chars} caracteres) que entrega ` +
       `el hook SessionStart — se reporta, no se capea; su límite real es de ENTREGA ` +
@@ -3166,6 +3188,15 @@ const CMD_EN: CmdStrings = {
       `Codex STOPS ADDING files with no warning, and the chain also carries your ` +
       `~/.codex/AGENTS.md and any nested AGENTS.md — raise 'project_doc_max_bytes' or split the ` +
       `instructions across nested directories`,
+    docBudgetAgentsMdOverCeiling: (words, ceiling, overBy) =>
+      `AGENTS.md ('navori-agents'): ${words} words against a ${ceiling} ceiling (${overBy} over) ` +
+      `— reported, not capped: navori has no standing over another repo's AGENTS.md`,
+    docBudgetCursorRules: (words, bytes) =>
+      `.cursor/rules/navori.mdc: ${words} words (${bytes} bytes) — Cursor publishes no equivalent ` +
+      `of Codex's 'project_doc_max_bytes', so only the weight is reported`,
+    docBudgetCopilotInstructions: (words, bytes) =>
+      `.github/copilot-instructions.md: ${words} words (${bytes} bytes) — Copilot publishes no ` +
+      `equivalent of Codex's 'project_doc_max_bytes', so only the weight is reported`,
     docBudgetContext: (files, words, chars, budget) =>
       `.claude/context/: ${files} file(s), ${words} words (${chars} chars) delivered by the ` +
       `SessionStart hook — reported, not capped; its real limit is DELIVERY (${budget} chars), ` +

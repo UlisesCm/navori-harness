@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig, type NavoriConfigInput } from "../../lib/schema.ts";
 import { computeHealthVerdict, docBudgetLines, scanDocBudget } from "../doctor.ts";
@@ -23,6 +24,7 @@ import {
  */
 
 const CURRENT = readCliVersion();
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "..");
 
 function tempRepo(): string {
   return mkdtempSync(join(tmpdir(), "navori-doc-budget-"));
@@ -232,10 +234,7 @@ describe("scanDocBudget (#917)", () => {
   /**
    * Codex's surface. It is REPORTED against the host's byte cap and never
    * capped by navori: the chain also carries the user's `~/.codex/AGENTS.md`
-   * and any nested file, so a repo's own share is a LOWER bound. And it is not
-   * measured block by block on purpose — `AGENTS.md` renders as one
-   * `navori-agents` block, so per-block would be `ceiling 0, overBy 0`: a line
-   * that can never fail.
+   * and any nested file, so a repo's own share is a LOWER bound.
    */
   it("reports AGENTS.md in bytes against Codex's cap, without capping it", () => {
     const cwd = tempRepo();
@@ -247,6 +246,60 @@ describe("scanDocBudget (#917)", () => {
     // No Claude surface here at all, and the report still exists.
     expect(report.totalWords).toBeNull();
     expect(report.overBy).toBeNull();
+    // A plain file with no `navori-agents` marker carries no navori block at
+    // all, so it prices as zero rather than being "unbudgeted" (there is no
+    // block to leave unbudgeted).
+    expect(report.agentsMdCeiling).toBe(0);
+    expect(report.agentsMdOverBy).toBe(0);
+  });
+
+  /**
+   * #930 — the defect the issue names literally: before this, measuring
+   * `AGENTS.md`'s `navori-agents` block gave `ceiling 0` / `unbudgeted 100%` /
+   * `overBy 0` — green by construction, not by being inside a budget.
+   * `PROSE_WRAPPER_CEILINGS` (`doc-budgets.ts`) closes that: a real
+   * `navori-agents` block now prices against a real, positive ceiling.
+   */
+  it("gives navori-agents a real ceiling instead of reading 0 by construction", () => {
+    const cwd = tempRepo();
+    writeFileSync(join(cwd, "AGENTS.md"), `${block("navori-agents", words(100))}\n`);
+    const report = scanDocBudget(cwd, config())!;
+    expect(report.agentsMdCeiling).toBeGreaterThan(0);
+    expect(report.agentsMdOverBy).toBe(0);
+    // Never touches the Claude-surface fields — this is a DIFFERENT file.
+    expect(report.ceiling).toBeNull();
+  });
+
+  it("reports an AGENTS.md over its word ceiling, informatively", () => {
+    const cwd = tempRepo();
+    writeFileSync(join(cwd, "AGENTS.md"), `${block("navori-agents", words(5000))}\n`);
+    const report = scanDocBudget(cwd, config())!;
+    expect(report.agentsMdOverBy).toBeGreaterThan(0);
+    const lines = docBudgetLines(report, tc("es").doctor);
+    expect(lines.some((l) => l.includes("navori-agents"))).toBe(true);
+    // Informative only: never reaches the health verdict, same doctrine as
+    // every other line on this report (`ownWords`, the byte cap, staleness).
+    expect(computeHealthVerdict(cwd, config()).ok).toBe(true);
+  });
+
+  it("stays silent about the word ceiling when AGENTS.md is within budget", () => {
+    const cwd = tempRepo();
+    writeFileSync(join(cwd, "AGENTS.md"), `${block("navori-agents", words(100))}\n`);
+    const lines = docBudgetLines(scanDocBudget(cwd, config())!, tc("es").doctor);
+    expect(lines.some((l) => l.includes("navori-agents"))).toBe(false);
+  });
+
+  /**
+   * #930 — the exact defect the issue reports, measured against THIS repo's
+   * real, checked-in `AGENTS.md` (not a synthetic fixture): before
+   * `PROSE_WRAPPER_CEILINGS`, this read `ceiling: 0` / `unbudgetedWords ===
+   * managedWords` (100% unbudgeted) / `overBy: 0` — green by construction.
+   */
+  it("measures this repo's own AGENTS.md with a real ceiling, not 0 by construction", () => {
+    const report = scanDocBudget(REPO_ROOT, config())!;
+    expect(report.agentsMd).not.toBeNull();
+    expect(report.agentsMdCeiling).toBeGreaterThan(0);
+    expect(report.agentsMdOverBy).toBe(0);
   });
 
   it("turns the AGENTS.md line yellow past the warn ratio, never red", () => {
@@ -316,6 +369,42 @@ describe("scanDocBudget (#917)", () => {
     const report = scanDocBudget(cwd, config())!;
     expect(report.perSubagentWords).toBe(report.totalWords);
     expect(report.perSubagentWords!).toBeLessThan(report.totalWords! + report.contextWords);
+  });
+
+  /**
+   * #930 — `cursor` and `copilot` share `renderProseFile` with `codex`/
+   * `agents-md` and have the same reporting gap, but neither publishes a
+   * `project_doc_max_bytes` equivalent: weight only (words + bytes), no ratio,
+   * no ceiling. A repo whose ONLY startup surface is one of these still gets a
+   * report, same fix #917 made for an `AGENTS.md`-only repo.
+   */
+  it("reports .cursor/rules/navori.mdc and .github/copilot-instructions.md by weight, no cap", () => {
+    const cwd = tempRepo();
+    mkdirSync(join(cwd, ".cursor", "rules"), { recursive: true });
+    writeFileSync(join(cwd, ".cursor", "rules", "navori.mdc"), `${words(50)}\n`);
+    mkdirSync(join(cwd, ".github"), { recursive: true });
+    writeFileSync(join(cwd, ".github", "copilot-instructions.md"), `${words(30)}\n`);
+
+    const report = scanDocBudget(cwd, config())!;
+    expect(report).not.toBeNull();
+    expect(report.cursorRules?.words).toBe(50);
+    expect(report.copilotInstructions?.words).toBe(30);
+
+    const lines = docBudgetLines(report, tc("es").doctor);
+    expect(lines.some((l) => l.includes(".cursor/rules/navori.mdc"))).toBe(true);
+    expect(lines.some((l) => l.includes(".github/copilot-instructions.md"))).toBe(true);
+    // Weight only: no cap/ratio vocabulary leaks into either line.
+    expect(lines.some((l) => l.includes("cap de") && l.includes("cursor"))).toBe(false);
+  });
+
+  it("returns null for cursor/copilot only when NEITHER surface exists", () => {
+    const cwd = tempRepo();
+    mkdirSync(join(cwd, ".cursor", "rules"), { recursive: true });
+    writeFileSync(join(cwd, ".cursor", "rules", "navori.mdc"), `${words(10)}\n`);
+    const report = scanDocBudget(cwd, config());
+    expect(report).not.toBeNull();
+    expect(report!.cursorRules).not.toBeNull();
+    expect(report!.copilotInstructions).toBeNull();
   });
 });
 

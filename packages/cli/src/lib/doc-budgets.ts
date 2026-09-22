@@ -35,6 +35,14 @@ export { countWords } from "./skill-meta.ts";
  */
 export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   "CLAUDE.md": 2423,
+  // #930 — the prose surface self-hosted at this repo's root. Like `CLAUDE.md`
+  // above, it is a RENDERED file, not a source asset, so it matches no
+  // `MANAGED_ASSET_PATHSPECS` glob and is listed here explicitly. Same ceiling
+  // as `PROSE_WRAPPER_CEILINGS["navori-agents"]` (this file, below) — that one
+  // measures the `navori-agents` BLOCK alone for `doctor`'s per-repo report;
+  // this one measures the WHOLE file for navori's own hard gate. They differ
+  // by the ~12 words of the seeded user-section outside the marker.
+  "AGENTS.md": 4530, // 4128 → 9.7%
 
   // Core managed blocks — auto-discovered from `core-assets/managed/`.
   "packages/core/core-assets/managed/arranque-sesion.md": 200,
@@ -214,15 +222,56 @@ const PRESET_STACK_RE = /^packages\/core\/core-assets\/presets\/([^/]+)\/managed
 const MANAGED_ASSET_RE = /\/managed\/([^/]+)\.md$/;
 
 /**
- * Ceiling per RENDERED managed-block id, derived from `DOC_BUDGETS` — never a
- * second table. The block id is the asset's basename for core and plugin
- * blocks (`operaciones-seguras.md` → `operaciones-seguras`) and `stack-<preset>`
- * for a preset's `stack.md`, which is how every `presets/*.json` declares it.
+ * Ceiling for the SINGLE wrapper block a prose engine renders everything into
+ * (#930). `codex` and `agents-md` both stamp `managedId: "navori-agents"`
+ * (`engines/codex/index.ts`, `engines/agents-md/index.ts`) around the whole
+ * body `renderProseFile` builds — core rule blocks, the active preset's stack,
+ * the skills index, a short workflow summary, and (Codex only) plugin
+ * sub-blocks. Unlike every entry in `DOC_BUDGETS`, this id has no source `.md`
+ * asset to measure headroom against, and it CANNOT be keyed there: neither
+ * `PRESET_STACK_RE` nor `MANAGED_ASSET_RE` below matches a bare `AGENTS.md`.
  *
- * `MARKER_PAIR_WORDS` is added here, once, so callers compare like with like.
+ * `locateManagedBlocks` treats a managed body as OPAQUE (`marker.ts`'s
+ * `proseLines` jumps a block's nested markers), so this wrapper is measured as
+ * ONE block — no per-sub-block ceiling exists without migrating the file's
+ * marker topology across every `agents-md`/`codex` repo in the registry
+ * (`#930`'s "Approach B", deferred to a spec of its own). A FLAT ceiling here
+ * is therefore an approximation: it cannot scale with a consumer's own
+ * preset/plugin choices the way every other entry in this file does.
+ *
+ * It exists so the axis stops reading `ceiling 0` / `unbudgeted 100%` by
+ * construction — informative for every OTHER repo's `doctor`
+ * (`commands/doctor.ts`'s `scanDocBudget` never feeds `computeHealthVerdict`,
+ * so it never fails their build). navori's own HARD gate for its self-hosted
+ * `AGENTS.md` is a separate, simpler mechanism: the whole-file `"AGENTS.md"`
+ * entry in `DOC_BUDGETS` above, checked by `check-doc-budgets.mjs`'s plain
+ * per-path loop — same standing as `CLAUDE.md`. Both numbers are calibrated
+ * from the SAME measurement and happen to share a value; they are not the
+ * same table (see the comment on that entry for why they can drift by a few
+ * words).
+ *
+ * Measured 4116 words for the `navori-agents` block in THIS repo's own
+ * `AGENTS.md` (codex engine, plugin sub-blocks included) → ceiling below
+ * carries ~10% headroom over that.
+ */
+export const PROSE_WRAPPER_CEILINGS: Readonly<Record<string, number>> = {
+  "navori-agents": 4530,
+};
+
+/**
+ * Ceiling per RENDERED managed-block id, derived from `DOC_BUDGETS` plus
+ * `PROSE_WRAPPER_CEILINGS` — never a third table. The block id is the asset's
+ * basename for core and plugin blocks (`operaciones-seguras.md` →
+ * `operaciones-seguras`) and `stack-<preset>` for a preset's `stack.md`, which
+ * is how every `presets/*.json` declares it.
+ *
+ * `MARKER_PAIR_WORDS` is added only to the `DOC_BUDGETS` half: those ceilings
+ * are measured on source assets that carry no markers. `PROSE_WRAPPER_CEILINGS`
+ * is measured directly on the RENDERED file, markers included, so it is merged
+ * as-is.
  */
 export function managedBlockCeilings(): Record<string, number> {
-  const out: Record<string, number> = {};
+  const out: Record<string, number> = { ...PROSE_WRAPPER_CEILINGS };
   for (const [path, ceiling] of Object.entries(DOC_BUDGETS)) {
     const preset = PRESET_STACK_RE.exec(path);
     const id = preset ? `stack-${preset[1]}` : MANAGED_ASSET_RE.exec(path)?.[1];

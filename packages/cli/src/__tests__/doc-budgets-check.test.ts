@@ -10,6 +10,7 @@ import {
   DOC_BUDGETS,
   MANAGED_ASSET_PATHSPECS,
   MARKER_PAIR_WORDS,
+  PROSE_WRAPPER_CEILINGS,
   SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
   computedBlockCeiling,
   countWords,
@@ -241,6 +242,43 @@ describe("check-doc-budgets (#815)", () => {
     expect(result.combined).toContain("over their word ceiling");
     expect(result.combined).toContain(`${PLUGIN_ASSET}: 2 words > 1 ceiling`);
   });
+
+  /**
+   * #930 — the prose surface navori self-hosts. `AGENTS.md` matches no
+   * `MANAGED_ASSET_PATHSPECS` glob (it is a rendered FILE, not a source
+   * asset), so it is listed explicitly in `DOC_BUDGETS` — same standing as
+   * `CLAUDE.md` — and the plain per-path loop hard-fails on it exactly the
+   * same way. Closes the defect: before #930 nothing here even looked at
+   * `AGENTS.md`, so it was "green" only because it was never checked.
+   */
+  it("fails when the self-hosted AGENTS.md exceeds its word ceiling", () => {
+    const repo = seedRepo(
+      {
+        "CLAUDE.md": 10,
+        "packages/core/core-assets/managed/foo.md": 10,
+        "AGENTS.md": 2, // "one two three four five" is 5 words > 2
+      },
+      { "AGENTS.md": "one two three four five\n" },
+    );
+    const result = run([], repo);
+    expect(result.status).toBe(1);
+    expect(result.combined).toContain("over their word ceiling");
+    expect(result.combined).toContain("AGENTS.md: 5 words > 2 ceiling");
+  });
+
+  it("passes when the self-hosted AGENTS.md is within its word ceiling", () => {
+    const repo = seedRepo(
+      {
+        "CLAUDE.md": 10,
+        "packages/core/core-assets/managed/foo.md": 10,
+        "AGENTS.md": 10,
+      },
+      { "AGENTS.md": "one two three four five\n" },
+    );
+    const result = run([], repo);
+    expect(result.status).toBe(0);
+    expect(result.combined).toContain("within their word ceiling");
+  });
 });
 
 /**
@@ -353,5 +391,31 @@ describe("doc-budgets module (#917)", () => {
       "utf-8",
     );
     expect(hook).toContain(`NAVORI_CTX_BUDGET:-${SESSION_CONTEXT_DELIVERY_BUDGET_CHARS}`);
+  });
+
+  /**
+   * #930 — the defect the issue names literally: before this, `AGENTS.md` had
+   * no whole-file ceiling at all in `DOC_BUDGETS`, so `check-doc-budgets.mjs`
+   * never even looked at it. `"AGENTS.md"` must carry ≥5% headroom over this
+   * repo's real file, same policy as every other explicit entry.
+   */
+  it("gives the self-hosted AGENTS.md a whole-file ceiling with ≥5% headroom", () => {
+    const ceiling = DOC_BUDGETS["AGENTS.md"];
+    expect(ceiling, "AGENTS.md has no ceiling").toBeDefined();
+    const words = countWords(readFileSync(join(REPO_ROOT, "AGENTS.md"), "utf-8"));
+    expect(words).toBeGreaterThan(0);
+    expect((ceiling! - words) / words).toBeGreaterThanOrEqual(0.05);
+  });
+
+  /**
+   * `navori-agents` — the id BOTH `codex` and `agents-md` stamp around the
+   * whole prose body — is the one block id in `managedBlockCeilings()` with no
+   * source asset path behind it. Confirms it merges in as-is (no
+   * `MARKER_PAIR_WORDS`, unlike every path-derived entry): the number is
+   * measured on the RENDERED file, markers already included.
+   */
+  it("merges PROSE_WRAPPER_CEILINGS into managedBlockCeilings without the marker-pair addend", () => {
+    const byId = managedBlockCeilings();
+    expect(byId["navori-agents"]).toBe(PROSE_WRAPPER_CEILINGS["navori-agents"]);
   });
 });
