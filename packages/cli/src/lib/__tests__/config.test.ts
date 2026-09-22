@@ -9,6 +9,7 @@ import {
   ConfigError,
   findUnknownConfigKeys,
   checkRetiredConfigKeys,
+  migrateRetiredConfigKeys,
   RETIRED_CONFIG_KEYS,
   type RetiredConfigKey,
 } from "../config.ts";
@@ -607,16 +608,30 @@ describe("retired agent keys fail with replacement and conflicting values", () =
 
   it("names the single retired key and its replacement", () => {
     expect(() => checkRetiredConfigKeys({ harness: { leader: false } }, SEED)).toThrowError(
-      /harness\.leader is retired — replace it with harness\.orchestrator/,
+      /harness\.leader está retirada — reemplázala por harness\.orchestrator/,
     );
   });
 
   it("checks harness, models and effort independently", () => {
     expect(() => checkRetiredConfigKeys({ models: { leader: "opus" } }, SEED)).toThrowError(
-      /models\.leader is retired — replace it with models\.orchestrator/,
+      /models\.leader está retirada — reemplázala por models\.orchestrator/,
     );
     expect(() => checkRetiredConfigKeys({ effort: { leader: "high" } }, SEED)).toThrowError(
-      /effort\.leader is retired — replace it with effort\.orchestrator/,
+      /effort\.leader está retirada — reemplázala por effort\.orchestrator/,
+    );
+  });
+
+  it("speaks the repo's language and names the repair command (#920)", () => {
+    // The message is built before the schema parses, so the locale comes off
+    // the RAW `language` key. Default (no key) is DEFAULT_LANG = es.
+    expect(() =>
+      checkRetiredConfigKeys({ language: "en", models: { leader: "opus" } }, SEED),
+    ).toThrowError(/models\.leader is retired — replace it with models\.orchestrator/);
+    expect(() =>
+      checkRetiredConfigKeys({ language: "en", models: { leader: "opus" } }, SEED),
+    ).toThrowError(/Run 'navori configure migrate'/);
+    expect(() => checkRetiredConfigKeys({ models: { leader: "opus" } }, SEED)).toThrowError(
+      /Corre 'navori configure migrate'/,
     );
   });
 
@@ -657,6 +672,182 @@ describe("retired agent keys fail with replacement and conflicting values", () =
       // this proves the wiring rejects the pre-rename `harness.leader` shape
       // every one of the 28 existing repos carried before spec 0026 T11.
       expect(() => readConfig(path)).toThrowError(ConfigError);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+});
+
+describe("migrateRetiredConfigKeys — the repair path R40 lacked (#920)", () => {
+  // Covers: R40
+  const SEED: RetiredConfigKey[] = [
+    { key: "leader", replacement: "orchestrator" },
+    { key: "researcher", replacement: "scout" },
+    { key: "explorer", replacement: "scout" },
+    { key: "ticketAudit", replacement: "auditor" },
+  ];
+
+  it("renames a 1:1 retired key and drops the old one", () => {
+    const result = migrateRetiredConfigKeys({ models: { leader: "opus" } }, {}, SEED);
+    expect(result.config.models).toEqual({ orchestrator: "opus" });
+    expect(result.renamed).toEqual([{ from: "models.leader", to: "models.orchestrator" }]);
+    expect(result.decisions).toEqual([]);
+  });
+
+  it("migrates harness, models and effort independently in one pass", () => {
+    const result = migrateRetiredConfigKeys(
+      {
+        name: "demo",
+        harness: { leader: false, implementer: true },
+        models: { leader: "opus" },
+        effort: { leader: "high" },
+      },
+      {},
+      SEED,
+    );
+    expect(result.config).toEqual({
+      name: "demo",
+      harness: { orchestrator: false, implementer: true },
+      models: { orchestrator: "opus" },
+      effort: { orchestrator: "high" },
+    });
+    expect(result.renamed).toHaveLength(3);
+  });
+
+  it("NEVER infers the N:1 case with different values — it asks", () => {
+    const result = migrateRetiredConfigKeys(
+      { models: { researcher: "sonnet", explorer: "haiku" } },
+      {},
+      SEED,
+    );
+    expect(result.renamed).toEqual([]);
+    expect(result.decisions).toEqual([
+      {
+        target: "models.scout",
+        candidates: [
+          { path: "models.researcher", value: "sonnet" },
+          { path: "models.explorer", value: "haiku" },
+        ],
+      },
+    ]);
+    // The retired keys stay put: an unresolved section is left untouched, not
+    // half-repaired into something that reads as valid.
+    expect(result.config.models).toEqual({ researcher: "sonnet", explorer: "haiku" });
+  });
+
+  it("resolves the N:1 case from an explicit choice keyed by target path", () => {
+    const result = migrateRetiredConfigKeys(
+      { models: { researcher: "sonnet", explorer: "haiku" } },
+      { "models.scout": "sonnet" },
+      SEED,
+    );
+    expect(result.config.models).toEqual({ scout: "sonnet" });
+    expect(result.decisions).toEqual([]);
+    expect(result.renamed).toEqual([
+      { from: "models.researcher", to: "models.scout" },
+      { from: "models.explorer", to: "models.scout" },
+    ]);
+  });
+
+  it("does not ask when both retired keys carry the SAME value", () => {
+    const result = migrateRetiredConfigKeys(
+      { effort: { researcher: "medium", explorer: "medium" } },
+      {},
+      SEED,
+    );
+    expect(result.config.effort).toEqual({ scout: "medium" });
+    expect(result.decisions).toEqual([]);
+  });
+
+  it("a choice never overrides an unambiguous rename", () => {
+    const result = migrateRetiredConfigKeys(
+      { models: { researcher: "opus" } },
+      { "models.scout": "haiku" },
+      SEED,
+    );
+    expect(result.config.models).toEqual({ scout: "opus" });
+  });
+
+  it("drops the retired key when its replacement is already set", () => {
+    const result = migrateRetiredConfigKeys(
+      { models: { ticketAudit: "sonnet", auditor: "sonnet" } },
+      {},
+      SEED,
+    );
+    expect(result.config.models).toEqual({ auditor: "sonnet" });
+    expect(result.dropped).toEqual([{ from: "models.ticketAudit", to: "models.auditor" }]);
+    expect(result.renamed).toEqual([]);
+  });
+
+  it("leaves a clean config alone and never mutates its input", () => {
+    const input = { models: { orchestrator: "opus" }, plugins: { engram: { enabled: true } } };
+    const result = migrateRetiredConfigKeys(input, {}, SEED);
+    expect(result.config).toEqual(input);
+    expect(result.renamed).toEqual([]);
+    expect(result.dropped).toEqual([]);
+    expect(result.decisions).toEqual([]);
+    expect(input.models).toEqual({ orchestrator: "opus" });
+  });
+
+  it("mutating the result does not reach back into the input", () => {
+    const input = { models: { leader: "opus" } };
+    const result = migrateRetiredConfigKeys(input, {}, SEED);
+    (result.config.models as Record<string, unknown>).orchestrator = "haiku";
+    expect(input.models).toEqual({ leader: "opus" });
+  });
+
+  it("the migrated shape of the real blocked configs round-trips through readConfig", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      // The exact shape the 17 blocked repos carry (issue #920): 10 retired
+      // keys, `researcher`/`explorer` disagreeing in BOTH sections.
+      const broken = {
+        name: "demo",
+        engines: ["claude"],
+        preset: "custom",
+        models: {
+          leader: "opus",
+          researcher: "sonnet",
+          explorer: "haiku",
+          ticketAudit: "sonnet",
+          commitPrPilot: "haiku",
+        },
+        effort: {
+          leader: "high",
+          researcher: "medium",
+          explorer: "low",
+          ticketAudit: "medium",
+          commitPrPilot: "low",
+        },
+      };
+      writeFileSync(path, JSON.stringify(broken), "utf-8");
+      expect(() => readConfig(path)).toThrowError(ConfigError);
+
+      // Production registry (no SEED) + the global resolution the user picked.
+      const result = migrateRetiredConfigKeys(broken, {
+        "models.scout": "sonnet",
+        "effort.scout": "medium",
+      });
+      expect(result.decisions).toEqual([]);
+      const { $schema: _schema, ...rest } = result.config;
+      writeConfig(path, rest as Parameters<typeof writeConfig>[1]);
+
+      const reread = readConfig(path);
+      expect(reread.models).toEqual({
+        orchestrator: "opus",
+        scout: "sonnet",
+        auditor: "sonnet",
+        publisher: "haiku",
+      });
+      expect(reread.effort).toEqual({
+        orchestrator: "high",
+        scout: "medium",
+        auditor: "medium",
+        publisher: "low",
+      });
+      // And nothing retired survives on disk.
+      expect(readFileSync(path, "utf-8")).not.toMatch(/leader|researcher|explorer|ticketAudit/);
     } finally {
       rmSync(dir, { recursive: true });
     }

@@ -92,26 +92,127 @@ export function checkRetiredConfigKeys(
   }
   if (byReplacement.size === 0) return;
 
+  // Localized off the RAW `language` key: this fires before the schema parses,
+  // so there is no validated config to read it from yet.
+  const strings = tc(resolveLang(raw.language)).common;
   const lines = [...byReplacement.entries()].map(([replacementPath, entries]) => {
-    const keys = entries.map((e) => e.path).join(" and ");
+    const keys = entries.map((e) => e.path).join(", ");
     // `effort.orchestrator` doubles as the session-wide `effortLevel` default
     // (build-settings.ts, spec 0026 T11) — the embodied role has no
     // subagent frontmatter to carry it, so a user fixing this key needs to
     // know it drives more than its own agent's tier.
     const note =
-      replacementPath === "effort.orchestrator"
-        ? " (effort.orchestrator also sets the session's default effort level)"
-        : "";
-    if (entries.length === 1) {
-      return `${keys} is retired — replace it with ${replacementPath}${note}`;
-    }
+      replacementPath === "effort.orchestrator" ? strings.retiredEffortOrchestratorNote : "";
+    if (entries.length === 1) return strings.retiredKeyOne(keys, replacementPath, note);
     const values = entries.map((e) => `${e.path}=${JSON.stringify(e.value)}`).join(", ");
-    return (
-      `${keys} are retired and both map to ${replacementPath} — they carry different values ` +
-      `(${values}); choose one and set ${replacementPath} yourself, it is not inferred${note}`
-    );
+    return strings.retiredKeyAmbiguous(keys, replacementPath, values, note);
   });
-  throw new ConfigError(`Retired config keys: ${lines.join("; ")}`);
+  throw new ConfigError(strings.retiredConfigKeys(lines.join("; ")));
+}
+
+/** A retired key that was renamed onto its replacement, both fully qualified. */
+export type RetiredKeyRename = { readonly from: string; readonly to: string };
+
+/**
+ * An N:1 collision `migrateRetiredConfigKeys` refuses to resolve: two retired
+ * keys map to the same replacement carrying DIFFERENT values, and the
+ * replacement itself is unset. R40's invariant — the value is never inferred.
+ */
+export type RetiredKeyDecision = {
+  readonly target: string;
+  readonly candidates: ReadonlyArray<{ readonly path: string; readonly value: unknown }>;
+};
+
+export type RetiredKeyMigration = {
+  /** Deep-ish copy of the input with every resolvable retired key renamed. */
+  readonly config: Record<string, unknown>;
+  /** Renames applied (1:1, or N:1 whose values agreed / were chosen). */
+  readonly renamed: ReadonlyArray<RetiredKeyRename>;
+  /** Retired keys dropped because their replacement was ALREADY set. */
+  readonly dropped: ReadonlyArray<RetiredKeyRename>;
+  /** Collisions left untouched: the caller must ask, never guess. */
+  readonly decisions: ReadonlyArray<RetiredKeyDecision>;
+};
+
+/**
+ * Pure counterpart of `checkRetiredConfigKeys` (R40): instead of throwing, it
+ * returns what a repaired config would look like. `checkRetiredConfigKeys`
+ * keeps failing exactly as before — this is the tool that lets a command fix
+ * the file, since every other entry point goes through `readConfig` and aborts
+ * (issue #920).
+ *
+ * Rules, per `harness`/`models`/`effort` section and per replacement:
+ *  - replacement already present → the retired keys are dropped (the
+ *    replacement the user already set wins; that is the shape all the
+ *    `ticketAudit`/`auditor` pairs in the wild carry).
+ *  - exactly one retired key → renamed onto the replacement.
+ *  - several retired keys with the SAME value → renamed onto it (nothing to
+ *    decide: any choice yields the same config).
+ *  - several with DIFFERENT values → a `decisions` entry, unless `choices`
+ *    carries the fully-qualified target (e.g. `{"models.scout": "sonnet"}`).
+ *    Never inferred: that is the point of R40.
+ *
+ * Input is not mutated. `retired` is injectable for the same reason
+ * `checkRetiredConfigKeys` allows it: tests seed entries without touching the
+ * production registry.
+ */
+export function migrateRetiredConfigKeys(
+  raw: unknown,
+  choices: Readonly<Record<string, unknown>> = {},
+  retired: ReadonlyArray<RetiredConfigKey> = RETIRED_CONFIG_KEYS,
+): RetiredKeyMigration {
+  const renamed: RetiredKeyRename[] = [];
+  const dropped: RetiredKeyRename[] = [];
+  const decisions: RetiredKeyDecision[] = [];
+  if (!isRecord(raw)) return { config: {}, renamed, dropped, decisions };
+
+  const config: Record<string, unknown> = { ...raw };
+  for (const section of CONFIG_ROLE_SECTIONS) {
+    const sectionValue = config[section];
+    if (!isRecord(sectionValue)) continue;
+
+    const next = { ...sectionValue };
+    const byReplacement = new Map<string, Array<{ key: string; path: string; value: unknown }>>();
+    for (const { key, replacement } of retired) {
+      if (!(key in next)) continue;
+      const entries = byReplacement.get(replacement) ?? [];
+      entries.push({ key, path: `${section}.${key}`, value: next[key] });
+      byReplacement.set(replacement, entries);
+    }
+    if (byReplacement.size === 0) continue;
+
+    for (const [replacement, entries] of byReplacement) {
+      const target = `${section}.${replacement}`;
+      const remove = (): void => {
+        for (const entry of entries) delete next[entry.key];
+      };
+
+      if (replacement in next) {
+        for (const entry of entries) dropped.push({ from: entry.path, to: target });
+        remove();
+        continue;
+      }
+
+      const values = entries.map((e) => JSON.stringify(e.value));
+      const ambiguous = entries.length > 1 && !values.every((v) => v === values[0]);
+      const choice = choices[target];
+      if (ambiguous && choice === undefined) {
+        decisions.push({
+          target,
+          candidates: entries.map(({ path, value }) => ({ path, value })),
+        });
+        continue;
+      }
+
+      next[replacement] = ambiguous ? choice : entries[0]!.value;
+      for (const entry of entries) renamed.push({ from: entry.path, to: target });
+      remove();
+    }
+
+    config[section] = next;
+  }
+
+  return { config, renamed, dropped, decisions };
 }
 
 const QUALITY_GATE_RULE: ConfigObjectRule = { keys: ["fast", "full"] };

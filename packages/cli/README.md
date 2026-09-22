@@ -308,7 +308,15 @@ navori configure engines              # multiselect: claude / codex / agents-md 
 navori configure branch-base main     # punto de fork / rama protegida
 navori configure pr-target develop    # rama destino del PR (gh pr create --base)
 navori configure workspace bonum      # asociar a un workspace
+navori configure migrate              # renombra claves retiradas (el config vuelve a cargar)
 ```
+
+`migrate` es la salida cuando un `navori.config.json` quedó bloqueado por claves retiradas de
+`harness`/`models`/`effort`: cualquier otro comando aborta al leerlo, así que este lee el JSON
+crudo, respalda el archivo y lo reescribe. Los renames 1:1 son automáticos; cuando dos claves
+retiradas caen en la misma con valores distintos no se infiere nada — se pregunta, o se pasa por
+`--scout=<modelo> --scout-effort=<nivel>`. `--dry-run` no escribe, y `--all` barre el registry
+completo (preview salvo `--apply`).
 
 ## Extender el harness en tu repo
 

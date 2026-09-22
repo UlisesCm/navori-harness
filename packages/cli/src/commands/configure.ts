@@ -1,13 +1,21 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { writeConfig, type NavoriConfig } from "../lib/config.ts";
+import { basename, resolve } from "node:path";
+import {
+  writeConfig,
+  migrateRetiredConfigKeys,
+  type NavoriConfig,
+  type RetiredKeyDecision,
+  type RetiredKeyRename,
+} from "../lib/config.ts";
+import { createBackup } from "../lib/backup.ts";
+import { listRegistryRepos, registryPath } from "../lib/registry.ts";
 import { readConfigOrExit } from "../lib/cli-config.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
 import { EXCLUDABLE_BLOCK_IDS } from "../lib/render-plan.ts";
-import { brand, dim } from "../lib/style.ts";
-import { tc, resolveLang } from "../lib/i18n.ts";
+import { accent, brand, dim } from "../lib/style.ts";
+import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
 
 const ENGINE_OPTIONS = [
   { value: "claude", label: "Claude Code (.claude/)" },
@@ -40,6 +48,22 @@ function loadOrExit(cwd: string): {
   const config = readConfigOrExit(configPath);
   const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
   return { config, path: configPath, raw };
+}
+
+type ConfigureStrings = ReturnType<typeof tc>["configure"];
+
+/**
+ * Locale for a repo whose config may not even load: read straight off the raw
+ * `language` key, since `readConfig` aborts on the very configs `migrate`
+ * repairs. Unreadable config falls back to the default locale.
+ */
+function rawConfigLang(cwd: string): Lang {
+  try {
+    const raw = JSON.parse(readFileSync(resolve(cwd, "navori.config.json"), "utf-8")) as unknown;
+    return resolveLang((raw as Record<string, unknown>)?.language);
+  } catch {
+    return resolveLang(undefined);
+  }
 }
 
 function persist(path: string, raw: Record<string, unknown>): void {
@@ -451,6 +475,275 @@ const blocksSubCommand = defineCommand({
   },
 });
 
+/** What `migrateRepoConfig` did (or would do) to one repo's config. */
+export type MigrateStatus = "migrated" | "would-migrate" | "clean" | "needs-decision" | "error";
+
+export interface MigrateRepoResult {
+  readonly name: string;
+  readonly path: string;
+  readonly status: MigrateStatus;
+  readonly renamed: ReadonlyArray<RetiredKeyRename>;
+  readonly dropped: ReadonlyArray<RetiredKeyRename>;
+  readonly decisions: ReadonlyArray<RetiredKeyDecision>;
+  /** Set only when the config was actually rewritten. */
+  readonly backupPath?: string;
+  readonly error?: string;
+}
+
+/**
+ * Repair ONE repo's `navori.config.json` by renaming its retired keys (#920).
+ *
+ * Deliberately bypasses `readConfig`: that is the function whose R40 check
+ * aborts on exactly the configs this command exists to fix, so it reads the
+ * raw JSON instead — the same `JSON.parse` the other subcommands already do
+ * alongside `readConfigOrExit`.
+ *
+ * Writes nothing unless `apply` is true, and never writes a config that still
+ * has an undecided N:1 collision. When it does write, `createBackup` runs
+ * FIRST: this touches a file in the user's repo, so the previous version is
+ * always recoverable via `navori backup restore`.
+ */
+export function migrateRepoConfig(
+  repoRoot: string,
+  opts: { apply: boolean; choices: Readonly<Record<string, unknown>> },
+): MigrateRepoResult {
+  const configPath = resolve(repoRoot, "navori.config.json");
+  const base = { name: basename(repoRoot), path: repoRoot } as const;
+  const asError = (error: string): MigrateRepoResult => ({
+    ...base,
+    status: "error",
+    renamed: [],
+    dropped: [],
+    decisions: [],
+    error,
+  });
+
+  if (!existsSync(configPath)) return asError(`No navori.config.json at ${configPath}`);
+
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(readFileSync(configPath, "utf-8").replace(/^﻿/, "")) as Record<string, unknown>;
+  } catch (err) {
+    return asError(`Invalid JSON in ${configPath}: ${(err as Error).message}`);
+  }
+
+  const name = typeof raw.name === "string" ? raw.name : base.name;
+  const { config, renamed, dropped, decisions } = migrateRetiredConfigKeys(raw, opts.choices);
+  const common = { ...base, name, renamed, dropped, decisions } as const;
+
+  if (decisions.length > 0) return { ...common, status: "needs-decision" };
+  if (renamed.length === 0 && dropped.length === 0) return { ...common, status: "clean" };
+  if (!opts.apply) return { ...common, status: "would-migrate" };
+
+  try {
+    // Backup BEFORE the rewrite, always — the write itself is atomic, but the
+    // previous content is only recoverable from here.
+    const backup = createBackup(repoRoot, ["navori.config.json"]);
+    persist(configPath, config);
+    return { ...common, status: "migrated", backupPath: backup.path };
+  } catch (err) {
+    return asError(`${configPath}: ${(err as Error).message}`);
+  }
+}
+
+/** Fully-qualified choices (`models.scout`, `effort.scout`) from the flags. */
+function choicesFromFlags(scout?: string, scoutEffort?: string): Record<string, unknown> {
+  const choices: Record<string, unknown> = {};
+  if (scout) choices["models.scout"] = scout;
+  if (scoutEffort) choices["effort.scout"] = scoutEffort;
+  return choices;
+}
+
+function planLines(result: MigrateRepoResult, tcfg: ConfigureStrings): string[] {
+  return [
+    ...result.renamed.map((r) => tcfg.migrateRenamedLine(r.from, r.to)),
+    ...result.dropped.map((r) => tcfg.migrateDroppedLine(r.from, r.to)),
+  ];
+}
+
+/**
+ * Resolve every pending N:1 collision by asking, one target at a time. Returns
+ * null when the user cancels. Only ever ASKS — the flags are the
+ * non-interactive path, and nothing is inferred either way (R40).
+ */
+async function askForDecisions(
+  decisions: ReadonlyArray<RetiredKeyDecision>,
+  tcfg: ConfigureStrings,
+): Promise<Record<string, unknown> | null> {
+  const chosen: Record<string, unknown> = {};
+  for (const decision of decisions) {
+    const answer = await p.select<string>({
+      message: tcfg.migrateScoutPrompt(decision.target),
+      options: decision.candidates.map((c) => ({
+        value: JSON.stringify(c.value),
+        label: `${JSON.stringify(c.value)} (${c.path})`,
+      })),
+    });
+    if (p.isCancel(answer)) return null;
+    chosen[decision.target] = JSON.parse(answer as string) as unknown;
+  }
+  return chosen;
+}
+
+/**
+ * `configure migrate --all`: sweep every repo in the global registry. Resilient
+ * per repo, exactly like `render --all` — one broken config never aborts the
+ * pass. Never prompts: `--all` is a rollout, so an ambiguous repo without a
+ * flag is REPORTED, never guessed (R40).
+ */
+export function migrateAllRepos(opts: {
+  apply: boolean;
+  choices: Readonly<Record<string, unknown>>;
+}): MigrateRepoResult[] {
+  return listRegistryRepos().map((entry) => {
+    try {
+      const result = migrateRepoConfig(entry.path, opts);
+      return entry.name ? { ...result, name: entry.name } : result;
+    } catch (err) {
+      return {
+        name: entry.name ?? entry.path,
+        path: entry.path,
+        status: "error" as const,
+        renamed: [],
+        dropped: [],
+        decisions: [],
+        error: (err as Error).message,
+      };
+    }
+  });
+}
+
+/** One compact line per repo for the `--all` report. */
+function sweepLine(result: MigrateRepoResult): string {
+  const changes = result.renamed.length + result.dropped.length;
+  switch (result.status) {
+    case "clean":
+      return `${result.name}: up-to-date`;
+    case "migrated":
+      return `${result.name}: ${changes} migrated`;
+    case "would-migrate":
+      return `${result.name}: ${changes} would migrate`;
+    case "needs-decision":
+      return `${result.name}: undecided → ${result.decisions.map((d) => d.target).join(", ")}`;
+    default:
+      return `${result.name}: ${result.error ?? "error"}`;
+  }
+}
+
+async function runMigrateAll(
+  choices: Record<string, unknown>,
+  apply: boolean,
+  tcfg: ConfigureStrings,
+): Promise<void> {
+  p.intro(brand(`configure migrate ${accent("--all")}`));
+  const repos = listRegistryRepos();
+  p.log.info(tcfg.migrateAllHeader(repos.length, registryPath()));
+  if (!apply) p.log.info(tcfg.migrateAllPreviewHint);
+
+  const rows = migrateAllRepos({ apply, choices });
+  if (rows.length > 0) p.log.message(rows.map(sweepLine).join("\n"));
+
+  const count = (status: MigrateStatus): number => rows.filter((r) => r.status === status).length;
+  const changed = count(apply ? "migrated" : "would-migrate");
+  const pending = count("needs-decision");
+  const failed = count("error");
+  const summary = tcfg.migrateAllSummary(changed, count("clean"), pending, failed);
+
+  if (pending > 0) p.log.info(tcfg.migrateDecisionHint);
+  if (pending > 0 || failed > 0) {
+    p.outro(`${summary}`);
+    process.exit(1);
+  }
+  p.outro(apply ? summary : `${summary} · ${tcfg.migrateDryRun}`);
+}
+
+const migrateSubCommand = defineCommand({
+  meta: {
+    name: "migrate",
+    description: "Rename retired harness/models/effort keys so the config loads again",
+  },
+  args: {
+    cwd: { type: "string", description: "Directory (default: cwd)" },
+    all: { type: "boolean", description: "Every repo in the global registry (preview by default)" },
+    apply: { type: "boolean", description: "With --all: write (default is preview)" },
+    "dry-run": { type: "boolean", description: "Show the plan without writing" },
+    yes: { type: "boolean", description: "Skip the confirmation (non-interactive)" },
+    scout: { type: "string", description: "Value for models.scout when researcher/explorer clash" },
+    "scout-effort": { type: "string", description: "Value for effort.scout in the same case" },
+  },
+  async run({ args }) {
+    const cwd = resolve(args.cwd ?? process.cwd());
+    if (!existsSync(cwd)) fail(`Directory not found: ${cwd}`);
+    const lang = rawConfigLang(cwd);
+    const tcfg = tc(lang).configure;
+    const tcommon = tc(lang).common;
+    const dryRun = Boolean(args["dry-run"]);
+
+    const choices = choicesFromFlags(
+      args.scout as string | undefined,
+      args["scout-effort"] as string | undefined,
+    );
+
+    if (args.all) {
+      // `--apply` is the explicit opt-in to writing across the whole park;
+      // `--dry-run` keeps preview even if both are passed.
+      await runMigrateAll(choices, Boolean(args.apply) && !dryRun, tcfg);
+      return;
+    }
+
+    p.intro(brand("configure migrate"));
+    let preview = migrateRepoConfig(cwd, { apply: false, choices });
+
+    if (preview.status === "needs-decision" && !args.yes) {
+      const answers = await askForDecisions(preview.decisions, tcfg);
+      if (answers === null) {
+        p.cancel(tcfg.cancelled);
+        return;
+      }
+      Object.assign(choices, answers);
+      preview = migrateRepoConfig(cwd, { apply: false, choices });
+    }
+
+    if (preview.status === "error") fail(preview.error ?? "unknown error");
+    if (preview.status === "clean") {
+      p.log.info(tcfg.migrateNothingToDo);
+      p.outro(tcfg.done);
+      return;
+    }
+
+    const lines = planLines(preview, tcfg);
+    if (lines.length > 0) p.log.message(`${tcfg.migratePlanHeader}\n${lines.join("\n")}`);
+
+    if (preview.status === "needs-decision") {
+      p.cancel(tcfg.migrateDecisionPending(preview.decisions.map((d) => d.target).join(", ")));
+      p.log.info(tcfg.migrateDecisionHint);
+      process.exit(1);
+    }
+
+    if (dryRun) {
+      p.outro(tcfg.migrateDryRun);
+      return;
+    }
+
+    if (!args.yes) {
+      const ok = await p.confirm({
+        message: tcfg.migrateConfirm(lines.length),
+        initialValue: true,
+      });
+      if (p.isCancel(ok) || !ok) {
+        p.cancel(tcfg.aborted);
+        return;
+      }
+    }
+
+    const applied = migrateRepoConfig(cwd, { apply: true, choices });
+    if (applied.status === "error") fail(applied.error ?? "unknown error");
+    if (applied.backupPath) p.log.message(dim(`${tcommon.backupLabel} ${applied.backupPath}`));
+    p.log.success(tcfg.migrateApplied(planLines(applied, tcfg).length));
+    p.outro(tcfg.migrateRenderHint);
+  },
+});
+
 export const configureCommand = defineCommand({
   meta: {
     name: "configure",
@@ -462,6 +755,7 @@ export const configureCommand = defineCommand({
     "branch-base": branchBaseSubCommand,
     "pr-target": prTargetSubCommand,
     language: languageSubCommand,
+    migrate: migrateSubCommand,
     engines: enginesSubCommand,
     workspace: workspaceSubCommand,
     blocks: blocksSubCommand,
