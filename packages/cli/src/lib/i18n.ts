@@ -2232,7 +2232,7 @@ const CMD_ES: CmdStrings = {
     skillsIndex: {
       heading: "## Skills disponibles",
       intro:
-        "Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/SKILL.md` — el directorio no es opcional: es la única forma que Claude Code descubre, también para las tuyas. La nota tras el `·` dice cuándo usar cada una.",
+        'Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/SKILL.md` — el directorio no es opcional: es la única forma que Claude Code descubre, también para las tuyas. El listado nativo del host entrega el "cuándo usar" de cada una.',
       localNote: "Las `project-local` son tuyas — navori las indexa pero nunca toca su contenido.",
     },
     agentsIndex: {
@@ -3375,7 +3375,7 @@ const CMD_EN: CmdStrings = {
     skillsIndex: {
       heading: "## Available skills",
       intro:
-        "Skills the agents can apply. Every skill lives at `.claude/skills/<id>/SKILL.md` — the directory is not optional: it is the only shape Claude Code discovers, yours included. The `·` note says when to reach for each.",
+        'Skills the agents can apply. Every skill lives at `.claude/skills/<id>/SKILL.md` — the directory is not optional: it is the only shape Claude Code discovers, yours included. The host\'s native listing supplies the "when to use" for each one.',
       localNote:
         "The `project-local` ones are yours — navori indexes them but never touches their content.",
     },

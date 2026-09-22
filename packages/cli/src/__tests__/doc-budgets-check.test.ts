@@ -121,6 +121,31 @@ describe("check-doc-budgets (#815)", () => {
     expect(result.combined).toContain("packages/core/core-assets/managed/foo.md");
   });
 
+  // #908 — the ≥5% headroom policy from #815 lived only in prose and eroded
+  // silently across two ceiling raises. This warns (doesn't fail) when a
+  // budgeted file's margin drops below 5% of its actual word count.
+  it("warns (without failing) when a file's headroom drops below 5%", () => {
+    const repo = seedRepo({
+      "CLAUDE.md": 10, // "one two three four five" = 5 words, margin 5/5 = 100% headroom, fine
+      "packages/core/core-assets/managed/foo.md": 4, // "alpha beta gamma" = 3 words, margin 1/3 = 33%, fine
+    });
+    const result = run([], repo);
+    expect(result.status).toBe(0);
+    expect(result.combined).not.toContain("below 5% headroom");
+  });
+
+  it("emits a WARNING when margin is under 5% of the actual word count, still exits 0", () => {
+    const repo = seedRepo({
+      // "one two three four five" = 5 words; ceiling 5 -> margin 0 -> 0% headroom
+      "CLAUDE.md": 5,
+      "packages/core/core-assets/managed/foo.md": 10,
+    });
+    const result = run([], repo);
+    expect(result.status).toBe(0);
+    expect(result.combined).toContain("below 5% headroom");
+    expect(result.combined).toContain("CLAUDE.md: 5/5 words (0.0% headroom, < 5%)");
+  });
+
   it("--list prints words/ceiling/margin per file and exits 0, even over budget", () => {
     const repo = seedRepo({
       "CLAUDE.md": 2,

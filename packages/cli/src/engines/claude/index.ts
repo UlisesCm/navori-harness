@@ -212,7 +212,9 @@ function buildSkillsIndexBody(
    * next to it, which on a workspace render is NOT `repoRoot`. */
   cwd: string,
 ): string | null {
-  const rows = buildSkillRows(config, repoRoot, coreAssets, localSkills, cwd);
+  // #908: no trigger — the host's native skill listing already tells the
+  // model when to use each one (see buildSkillRows' docblock).
+  const rows = buildSkillRows(config, repoRoot, coreAssets, localSkills, cwd, false);
   if (rows.length === 0) return null;
   const t = tc(lang).blocks.skillsIndex;
   // The project-local note only makes sense when the repo actually declares

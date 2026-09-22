@@ -31,6 +31,21 @@ import { fileURLToPath } from "node:url";
  * Usage:
  *   node packages/cli/scripts/check-doc-budgets.mjs           # fail on violation
  *   node packages/cli/scripts/check-doc-budgets.mjs --list    # print, exit 0
+ *
+ * #815's own acceptance criterion required a ceiling raise to leave ≥5%
+ * headroom (margin / actual word count) and document why — but that policy
+ * lived only in prose (the #815 issue body and PR #855's description), so
+ * nothing enforced it. Two later raises (`c7718ab0`, `ac8ec4fb`/#887) bumped
+ * `CLAUDE.md`'s ceiling by exactly the amount needed to pass, with no
+ * headroom and no documented reason, and the gate silently let them through
+ * — that's how #908 (CLAUDE.md at 2548/2550, margin 2) happened. Below, a
+ * margin under 5% now prints a WARNING (not a failure): a hard error here
+ * would turn "a file approached its cap" into a red gate for every unrelated
+ * PR that merely adds a sentence to a file someone else is about to touch —
+ * fragile and unrelated to that PR's own change. A warning surfaces the
+ * erosion early (the actual #908 ask) without blocking work that didn't
+ * cause it. Exceeding the cap outright stays a hard failure below,
+ * unchanged.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -104,6 +119,18 @@ if (overBudget.length > 0) {
     console.error(`    ${rel}: ${words} words > ${ceiling} ceiling`);
   }
   process.exit(1);
+}
+
+// #908 — headroom = margin as a fraction of the actual word count (the same
+// basis #815 used: "2220 actual words, 5.85% headroom"). A file with 0 words
+// has no meaningful ratio; skip it rather than divide by zero.
+const lowHeadroom = rows.filter(({ words, margin }) => words > 0 && margin / words < 0.05);
+if (lowHeadroom.length > 0) {
+  console.warn(`⚠ doc budgets: ${lowHeadroom.length} file(s) below 5% headroom:`);
+  for (const { rel, words, ceiling, margin } of lowHeadroom) {
+    const pct = ((margin / words) * 100).toFixed(1);
+    console.warn(`    ${rel}: ${words}/${ceiling} words (${pct}% headroom, < 5%)`);
+  }
 }
 
 console.log(`✓ doc budgets: ${rows.length} file(s) within their word ceiling`);
