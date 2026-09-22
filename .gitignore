@@ -1,6 +1,9 @@
 node_modules/
 dist/
 coverage/
+# NAVORI_COVERAGE_DIR-isolated coverage output (packages/cli, #909) —
+# machine-local, same as coverage/ above.
+coverage-*/
 .astro/
 *.log
 .DS_Store
