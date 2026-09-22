@@ -1,24 +1,35 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { spawnSync, execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import {
+  COMPUTED_BLOCKS_WITHOUT_BUDGET,
+  DOC_BUDGETS,
+  MANAGED_ASSET_PATHSPECS,
+  countWords,
+} from "../lib/doc-budgets.ts";
 
 /**
  * #815 — `pnpm check:doc-budgets` → `packages/cli/scripts/check-doc-budgets.mjs`.
  *
- * The script reads its own manifest via a path resolved relative to itself and
- * shells out to `git ls-files` in the real repo's managed dir (there is no
- * `--cwd`/`--repo` override, unlike `check-render.mjs`), so these tests run it
- * against a throwaway REPO whose layout mimics the pieces it reads: a git repo
- * with a manifest, a `CLAUDE.md`, and a `packages/core/core-assets/managed/`
- * tree — a copy of the real script per fixture, since the script hardcodes its
- * own `..`-relative REPO_ROOT and MANIFEST_PATH from `import.meta.url`.
+ * The script reads its ceilings from `src/lib/doc-budgets.ts` (a path resolved
+ * relative to itself, #917) and shells out to `git ls-files` in the real repo
+ * (there is no `--cwd`/`--repo` override, unlike `check-render.mjs`), so these
+ * tests run it against a throwaway REPO whose layout mimics the pieces it
+ * reads: a git repo with a budgets module, a `CLAUDE.md`, and the managed
+ * trees it discovers — a copy of the real script per fixture, since the script
+ * hardcodes its own `..`-relative REPO_ROOT from `import.meta.url`.
+ *
+ * The fixture's budgets module is a STUB, not the real one: the ceilings are
+ * what each case is exercising. The real module is asserted directly in the
+ * last describe block.
  */
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REAL_SCRIPT = resolve(__dirname, "..", "..", "scripts", "check-doc-budgets.mjs");
+const REPO_ROOT = resolve(__dirname, "..", "..", "..", "..");
 
 interface RunResult {
   status: number;
@@ -36,25 +47,48 @@ function run(args: string[], cwd: string): RunResult {
 
 let dirs: string[] = [];
 
-/** Build a throwaway repo shaped like the pieces this script reads. */
-function seedRepo(manifest: Record<string, number>): string {
+/**
+ * Build a throwaway repo shaped like the pieces this script reads.
+ *
+ * `extraFiles` maps a repo-relative path to its content, for the cases that
+ * need a plugin or preset asset on top of the baseline core block (#917).
+ */
+function seedRepo(
+  budgets: Record<string, number>,
+  extraFiles: Record<string, string> = {},
+): string {
   const repo = mkdtempSync(join(tmpdir(), "navori-doc-budgets-"));
   dirs.push(repo);
 
   mkdirSync(join(repo, "packages/cli/scripts"), { recursive: true });
+  mkdirSync(join(repo, "packages/cli/src/lib"), { recursive: true });
   mkdirSync(join(repo, "packages/core/core-assets/managed"), { recursive: true });
 
-  // The real script, copied verbatim so REPO_ROOT/MANIFEST_PATH resolve inside
-  // the fixture instead of the real navori-harness checkout.
+  // The real script, copied verbatim so REPO_ROOT and its budgets-module import
+  // resolve inside the fixture instead of the real navori-harness checkout.
   const scriptSrc = readFileSync(REAL_SCRIPT, "utf-8");
   writeFileSync(join(repo, "packages/cli/scripts/check-doc-budgets.mjs"), scriptSrc);
   writeFileSync(
-    join(repo, "packages/cli/scripts/doc-budgets.manifest.json"),
-    JSON.stringify(manifest, null, 2),
+    join(repo, "packages/cli/src/lib/doc-budgets.ts"),
+    [
+      `export const DOC_BUDGETS: Readonly<Record<string, number>> = ${JSON.stringify(budgets, null, 2)};`,
+      `export const COMPUTED_BLOCKS_WITHOUT_BUDGET = ${JSON.stringify(COMPUTED_BLOCKS_WITHOUT_BUDGET)} as const;`,
+      `export const MANAGED_ASSET_PATHSPECS: readonly string[] = ${JSON.stringify(MANAGED_ASSET_PATHSPECS)};`,
+      "export function countWords(body: string): number {",
+      "  const trimmed = body.trim();",
+      '  return trimmed === "" ? 0 : trimmed.split(/\\s+/).length;',
+      "}",
+      "",
+    ].join("\n"),
   );
 
   writeFileSync(join(repo, "CLAUDE.md"), "one two three four five\n");
   writeFileSync(join(repo, "packages/core/core-assets/managed/foo.md"), "alpha beta gamma\n");
+
+  for (const [rel, content] of Object.entries(extraFiles)) {
+    mkdirSync(dirname(join(repo, rel)), { recursive: true });
+    writeFileSync(join(repo, rel), content);
+  }
 
   execFileSync("git", ["init", "-q"], { cwd: repo });
   execFileSync("git", ["add", "-A"], { cwd: repo });
@@ -107,7 +141,7 @@ describe("check-doc-budgets (#815)", () => {
     expect(result.status).toBe(1);
     expect(result.combined).toContain("no longer exist");
     expect(result.combined).toContain("packages/core/core-assets/managed/ghost.md");
-    expect(result.combined).toContain("update packages/cli/scripts/doc-budgets.manifest.json");
+    expect(result.combined).toContain("update packages/cli/src/lib/doc-budgets.ts");
   });
 
   it("fails when a managed .md exists but is missing from the manifest", () => {
@@ -157,5 +191,96 @@ describe("check-doc-budgets (#815)", () => {
     expect(result.combined).toContain(
       "packages/core/core-assets/managed/foo.md: 3/10 words (margin 7)",
     );
+  });
+
+  // #917 — discovery used to sweep `core-assets/managed/` only, so 18 static
+  // assets (6 plugin blocks + 12 preset `stack.md`) shipped with no ceiling.
+  const PLUGIN_ASSET = "packages/plugins/demo/managed/demo-protocol.md";
+  const PRESET_ASSET = "packages/core/core-assets/presets/demo/managed/stack.md";
+
+  it("fails when a plugin managed block is missing from the budgets module", () => {
+    const repo = seedRepo(
+      { "CLAUDE.md": 10, "packages/core/core-assets/managed/foo.md": 10 },
+      { [PLUGIN_ASSET]: "delta epsilon\n" },
+    );
+    const result = run([], repo);
+    expect(result.status).toBe(1);
+    expect(result.combined).toContain("missing from the manifest");
+    expect(result.combined).toContain(PLUGIN_ASSET);
+    expect(result.combined).toContain("add it to packages/cli/src/lib/doc-budgets.ts");
+  });
+
+  it("fails when a preset stack.md is missing from the budgets module", () => {
+    const repo = seedRepo(
+      { "CLAUDE.md": 10, "packages/core/core-assets/managed/foo.md": 10 },
+      { [PRESET_ASSET]: "zeta eta theta\n" },
+    );
+    const result = run([], repo);
+    expect(result.status).toBe(1);
+    expect(result.combined).toContain("missing from the manifest");
+    expect(result.combined).toContain(PRESET_ASSET);
+  });
+
+  it("measures plugin and preset assets once they carry a ceiling", () => {
+    const repo = seedRepo(
+      {
+        "CLAUDE.md": 10,
+        "packages/core/core-assets/managed/foo.md": 10,
+        [PLUGIN_ASSET]: 1, // "delta epsilon" is 2 words > 1
+        [PRESET_ASSET]: 10,
+      },
+      { [PLUGIN_ASSET]: "delta epsilon\n", [PRESET_ASSET]: "zeta eta theta\n" },
+    );
+    const result = run([], repo);
+    expect(result.status).toBe(1);
+    expect(result.combined).toContain("over their word ceiling");
+    expect(result.combined).toContain(`${PLUGIN_ASSET}: 2 words > 1 ceiling`);
+  });
+});
+
+/**
+ * #917 — the ceilings are a library module, not a JSON under `scripts/`: npm
+ * publishes `["dist", "README.md"]`, so a manifest there could never be read
+ * by `doctor` inside a consumer repo (phase 2). These assert the module's own
+ * contract, independent of the gate script.
+ */
+describe("doc-budgets module (#917)", () => {
+  it("is the single source of truth — the scripts/ manifest is gone", () => {
+    expect(existsSync(join(REPO_ROOT, "packages/cli/scripts/doc-budgets.manifest.json"))).toBe(
+      false,
+    );
+    expect(Object.keys(DOC_BUDGETS).length).toBeGreaterThan(20);
+    expect(countWords("alpha beta gamma")).toBe(3);
+  });
+
+  it("names the computed blocks it deliberately leaves unbudgeted", () => {
+    expect([...COMPUTED_BLOCKS_WITHOUT_BUDGET]).toEqual([
+      "skills-index",
+      "contexto-proyecto",
+      "agentes-disponibles",
+    ]);
+    for (const id of COMPUTED_BLOCKS_WITHOUT_BUDGET) {
+      expect(Object.keys(DOC_BUDGETS)).not.toContain(id);
+    }
+  });
+
+  it("gives every discovered managed asset a ceiling with ≥5% headroom", () => {
+    const discovered = execFileSync("git", ["ls-files", "--", ...MANAGED_ASSET_PATHSPECS], {
+      cwd: REPO_ROOT,
+      encoding: "utf-8",
+    })
+      .split("\n")
+      .filter(Boolean);
+    expect(discovered.length).toBeGreaterThan(20);
+
+    const thin: string[] = [];
+    for (const rel of discovered) {
+      const ceiling = DOC_BUDGETS[rel];
+      expect(ceiling, `${rel} has no ceiling`).toBeDefined();
+      const words = countWords(readFileSync(join(REPO_ROOT, rel), "utf-8"));
+      // `ceiling` is defined per the assertion above; the guard is for the type.
+      if (ceiling !== undefined && (ceiling - words) / words < 0.05) thin.push(rel);
+    }
+    expect(thin, "managed assets below the 5% headroom policy").toEqual([]);
   });
 });
