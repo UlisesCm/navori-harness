@@ -17,13 +17,13 @@ Use engine-specific lifecycle hooks, not `models` or `effort` config. Claude sto
 
 ## Failure modes
 - Missing Claude model or effort: no message.
-- A subagent hook event: no message.
+- A subagent hook event: no message, and no subprocess — the shell guard exits before the `node` block, so the only cost is the hook's own `bash`. Covers R8.
 - Repeated lifecycle/tool events: session state suppresses duplicate output.
 - Unsupported model: no message.
 
 ## Testing strategy
 - Classifier tests cover every supported and excluded tuple. // Covers: R1, R2, R3, R5, R7
-- Claude and Codex renderer/hook tests cover delivery, duplicate suppression, missing metadata, and subagent exclusion. // Covers: R1–R6
+- Claude and Codex renderer/hook tests cover delivery, duplicate suppression, missing metadata, and subagent exclusion, including a decoy `node` on the PATH that proves no spawn happens for a subagent firing. // Covers: R1–R6, R8
 - Config/render tests prove agent model and effort profiles do not change. // Covers: R6
 
 ## NOT in scope

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -19,12 +19,31 @@ function config(): NavoriConfig {
   });
 }
 
-function runHook(cwd: string, mode: string, payload: object): string {
+function runHook(cwd: string, mode: string, payload: object, pathEntry?: string): string {
   return execFileSync("bash", [join(cwd, ".claude/hooks/model-advisor.sh"), mode], {
     cwd,
     input: JSON.stringify(payload),
     encoding: "utf8",
+    env: pathEntry
+      ? { ...process.env, PATH: `${pathEntry}:${process.env.PATH ?? ""}` }
+      : process.env,
   }).trim();
+}
+
+/**
+ * Puts a decoy `node` first on the PATH that records every invocation instead
+ * of running the hook's script, so a test can assert on the spawn itself
+ * rather than on the hook's output. Returns the marker path the decoy touches.
+ */
+function decoyNode(): { pathEntry: string; marker: string } {
+  const pathEntry = mkdtempSync(join(tmpdir(), "navori-model-advisor-bin-"));
+  const marker = join(pathEntry, "spawned");
+  writeFileSync(
+    join(pathEntry, "node"),
+    `#!/bin/sh\ncat >/dev/null 2>&1\necho spawned >> "${marker}"\n`,
+  );
+  chmodSync(join(pathEntry, "node"), 0o755);
+  return { pathEntry, marker };
 }
 
 describe("Claude model advisor", () => {
@@ -78,6 +97,31 @@ describe("Claude model advisor", () => {
         effort: { level: "high" },
       }),
     ).toBe("");
+  });
+
+  // Covers: R5, R8
+  it("never spawns a subprocess for a subagent firing", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "navori-model-advisor-"));
+    renderClaudeEngine(cwd, config());
+    const { pathEntry, marker } = decoyNode();
+    const session = {
+      session_id: "session_spawn",
+      cwd,
+      scratchpad_dir: mkdtempSync(join(tmpdir(), "navori-model-advisor-state-")),
+      effort: { level: "high" },
+    };
+
+    expect(
+      runHook(cwd, "claude-pre-tool-use", { ...session, agent_id: "subagent_1" }, pathEntry),
+    ).toBe("");
+    expect(
+      runHook(cwd, "claude-pre-tool-use", { ...session, agent_type: "implementer" }, pathEntry),
+    ).toBe("");
+    expect(existsSync(marker)).toBe(false);
+
+    // The decoy proves a negative, so pin that a main-thread firing still reaches it.
+    expect(runHook(cwd, "claude-pre-tool-use", session, pathEntry)).toBe("");
+    expect(existsSync(marker)).toBe(true);
   });
 
   // Covers: R1, R2, R4, R5, R7
