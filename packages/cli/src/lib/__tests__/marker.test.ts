@@ -7,6 +7,7 @@ import {
   resolveCondition,
   splitUserSection,
   emitUserSection,
+  readMarkerAttrs,
   USER_SECTION_START,
   USER_SECTION_END,
 } from "../marker.ts";
@@ -1045,5 +1046,42 @@ describe("an UNCLOSED code fence never hides a real block (#498)", () => {
     expect(again.match(new RegExp(USER_SECTION_END, "g")) ?? []).toHaveLength(1);
     expect(again.match(new RegExp(USER_SECTION_START, "g")) ?? []).toHaveLength(1);
     expect(again).toBe(doc);
+  });
+});
+
+describe("fmkeys snapshot attribute (#907)", () => {
+  it("readMarkerAttrs reports no snapshot for a marker written before this attribute existed", () => {
+    const legacy = injectManagedSection("", "fm-block", "BODY", {
+      version: "1.0.0",
+      source: "@navori/core",
+    });
+    expect(legacy.output).not.toContain("fmkeys=");
+    const attrs = readMarkerAttrs(legacy.output, "fm-block");
+    expect(attrs?.existingFmKeys).toBeNull();
+  });
+
+  it("grandfather pass: stamps the snapshot even when body/version/source are unchanged, so the write isn't swallowed by the unchanged fast path", () => {
+    const legacy = injectManagedSection("", "fm-block", "BODY", {
+      version: "1.0.0",
+      source: "@navori/core",
+    });
+    // Same body, version and source as `legacy` — only `fmKeys` is new. Without
+    // the fmkeys check in `sameMeta`, this would report "unchanged" and the
+    // snapshot would never actually land on disk.
+    const migrated = injectManagedSection(legacy.output, "fm-block", "BODY", {
+      version: "1.0.0",
+      source: "@navori/core",
+      fmKeys: ["name", "description"],
+    });
+    expect(migrated.status).toBe("updated");
+    expect(migrated.output).toContain('fmkeys="name,description"');
+
+    const again = injectManagedSection(migrated.output, "fm-block", "BODY", {
+      version: "1.0.0",
+      source: "@navori/core",
+      fmKeys: ["name", "description"],
+    });
+    expect(again.status).toBe("unchanged");
+    expect(again.output).toBe(migrated.output);
   });
 });

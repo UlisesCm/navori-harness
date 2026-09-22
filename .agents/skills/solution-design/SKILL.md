@@ -10,7 +10,7 @@ metadata:
   maxWords: 1090
 ---
 
-<!-- navori:managed id="solution-design" hash="c3c2172e" version="0.9.0" source="@navori/core" -->
+<!-- navori:managed id="solution-design" hash="c3c2172e" version="0.9.0" source="@navori/core" fmkeys="name,description,metadata" -->
 # solution-design — decide what to build, then try to break it
 
 ## When to use this skill

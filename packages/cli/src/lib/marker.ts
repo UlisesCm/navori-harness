@@ -71,12 +71,22 @@ export interface MarkerMeta {
   source?: string;
   /** Version of the source package that wrote this block. */
   version?: string;
+  /**
+   * Snapshot of the frontmatter keys the ASSET declared on this render (#907).
+   * Only set by callers that also merge frontmatter (the Claude engine's base
+   * managed block). Lets the next render tell "navori used to declare this
+   * key and retired it" apart from "the user added this key by hand" — both
+   * look identical in the destination's frontmatter otherwise, which is why
+   * a retired key (e.g. `disable-model-invocation`) used to survive forever.
+   */
+  fmKeys?: string[];
 }
 
 function openMarker(id: string, hash: string, meta: MarkerMeta, syntax: MarkerSyntax): string {
   const parts = [`${syntax.openPrefix} id="${id}"`, `hash="${hash}"`];
   if (meta.version) parts.push(`version="${meta.version}"`);
   if (meta.source) parts.push(`source="${meta.source}"`);
+  if (meta.fmKeys && meta.fmKeys.length > 0) parts.push(`fmkeys="${meta.fmKeys.join(",")}"`);
   return parts.join(" ") + syntax.suffix;
 }
 
@@ -116,12 +126,20 @@ interface MarkerMatch {
   existingHash: string | null;
   existingVersion: string | null;
   existingSource: string | null;
+  /** Parsed `fmkeys="a,b,c"` attribute, or null when absent — either the
+   * marker predates #907 (grandfather case) or never carried frontmatter. */
+  existingFmKeys: string[] | null;
   content: string;
 }
 
 function extractAttr(open: string, name: string): string | null {
   const m = open.match(new RegExp(`${name}="([^"]+)"`));
   return m?.[1] ?? null;
+}
+
+function extractFmKeys(open: string): string[] | null {
+  const raw = extractAttr(open, "fmkeys");
+  return raw ? raw.split(",") : null;
 }
 
 /**
@@ -171,10 +189,46 @@ function findMarker(existing: string, id: string, style: CommentStyle): MarkerMa
       existingHash: extractAttr(openMatch[0], "hash"),
       existingVersion: extractAttr(openMatch[0], "version"),
       existingSource: extractAttr(openMatch[0], "source"),
+      existingFmKeys: extractFmKeys(openMatch[0]),
       content,
     };
   }
   return null;
+}
+
+export interface MarkerAttrs {
+  existingHash: string | null;
+  existingVersion: string | null;
+  existingSource: string | null;
+  /** null means no snapshot yet — either the marker predates #907 (grandfather
+   * case: prune nothing this render) or the id doesn't exist in `existing` at
+   * all. Callers must not tell these two apart by rechecking for a match: both
+   * mean "don't prune", which is the only thing that matters to them. */
+  existingFmKeys: string[] | null;
+}
+
+/**
+ * Read a managed block's marker attributes WITHOUT touching its body — the
+ * frontmatter merge (`mergeFrontmatter`, #907) needs the previous `fmkeys`
+ * snapshot strictly BEFORE `injectManagedSection` runs (the merge happens at
+ * `render-managed-file.ts`'s `rerender()`, ahead of the inject call), so it
+ * cannot depend on `injectManagedSection`'s own internal `findMarker` result.
+ * This duplicates one read per render but keeps `injectManagedSection`'s
+ * public contract untouched for its 9 other, unrelated callers.
+ */
+export function readMarkerAttrs(
+  existing: string,
+  id: string,
+  commentStyle: CommentStyle = "html",
+): MarkerAttrs | null {
+  const match = findMarker(existing, id, commentStyle);
+  if (!match) return null;
+  return {
+    existingHash: match.existingHash,
+    existingVersion: match.existingVersion,
+    existingSource: match.existingSource,
+    existingFmKeys: match.existingFmKeys,
+  };
 }
 
 function escapeRegex(s: string): string {
@@ -366,10 +420,19 @@ export function injectManagedSection(
   };
 
   if (canonicalContent === match.content) {
+    // Normalize "no keys declared" (undefined/[]) and "attribute absent"
+    // (null) to the same empty string so a body-only render doesn't spuriously
+    // rewrite the marker, while still forcing a write the one time `fmkeys`
+    // needs to appear or change (#907 grandfather/prune passes) — otherwise
+    // that write would be swallowed by the body-unchanged fast path below and
+    // the snapshot would never actually land on disk.
+    const existingFmKeysStr = (match.existingFmKeys ?? []).join(",");
+    const desiredFmKeysStr = (meta.fmKeys ?? []).join(",");
     const sameMeta =
       expectedHash === newHash &&
       match.existingVersion === (meta.version ?? null) &&
-      match.existingSource === (meta.source ?? null);
+      match.existingSource === (meta.source ?? null) &&
+      existingFmKeysStr === desiredFmKeysStr;
     if (sameMeta) {
       return { output: existing, status: "unchanged", details };
     }

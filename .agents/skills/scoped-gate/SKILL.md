@@ -11,7 +11,7 @@ metadata:
   maxWords: 750
 ---
 
-<!-- navori:managed id="scoped-gate-base" hash="45693abb" version="0.9.0" source="@navori/core" -->
+<!-- navori:managed id="scoped-gate-base" hash="45693abb" version="0.9.0" source="@navori/core" fmkeys="name,description,metadata" -->
 # Scoped gate — diff-scoped quality gate as hygiene, not a seal
 
 ## The problem

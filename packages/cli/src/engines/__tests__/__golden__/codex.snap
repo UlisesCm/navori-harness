@@ -24,7 +24,7 @@ metadata:
   maxWords: 850
 ---
 
-<!-- navori:managed id="debug-failure-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="debug-failure-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Debug failure — the one cycle
 
 A failure is not a mandate to change code. This skill forces diagnosis before any fix, and forces a hypothesis re-check when the fix doesn't clear the symptom.
@@ -79,7 +79,7 @@ metadata:
   type: reference
 ---
 
-<!-- navori:managed id="dominio" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="dominio" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # dominio — the workspace knowledge base
 
 Canonical, cross-repo facts for a workspace live as markdown under
@@ -154,7 +154,7 @@ metadata:
   maxWordsComposed: 550
 ---
 
-<!-- navori:managed id="follow-up-prs" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="follow-up-prs" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # follow-up-prs — pick up what happened after the PR
 
 ## When to use this skill
@@ -241,7 +241,7 @@ metadata:
   maxWordsComposed: 700
 ---
 
-<!-- navori:managed id="locate-code-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="locate-code-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # locate-code — bounded reading and AST shapes
 
 Read the minimum correct amount: confirm the region before opening it, and use `ast-grep` only for genuine syntactic shapes — it is not a call-graph.
@@ -306,7 +306,7 @@ metadata:
   maxWordsComposed: 500
 ---
 
-<!-- navori:managed id="quality-attributes" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="quality-attributes" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Quality attributes
 
 Use only when `solution-design` identifies architecture or a non-functional
@@ -350,7 +350,7 @@ metadata:
   maxWordsComposed: 650
 ---
 
-<!-- navori:managed id="resolve-ticket" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="resolve-ticket" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # resolve-ticket — 6-phase pipeline
 
 ## Pipeline
@@ -398,7 +398,7 @@ metadata:
   maxWordsComposed: 1450
 ---
 
-<!-- navori:managed id="review-diff-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="review-diff-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Code review — checklist for a diff
 
 Apply this checklist to a diff (staged, branch vs `main`, or a specific PR). The skeleton is stack-agnostic; the rules specific to your repo live in the user-section at the end.
@@ -561,7 +561,7 @@ metadata:
   maxWords: 750
 ---
 
-<!-- navori:managed id="scoped-gate-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="scoped-gate-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Scoped gate — diff-scoped quality gate as hygiene, not a seal
 
 ## The problem
@@ -666,7 +666,7 @@ metadata:
   maxWordsComposed: 650
 ---
 
-<!-- navori:managed id="secure-by-design-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="secure-by-design-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Secure by design
 
 This is a thin router, not a second security checklist. It composes with
@@ -722,7 +722,7 @@ metadata:
   maxWords: 1200
 ---
 
-<!-- navori:managed id="security-invariants-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="security-invariants-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Security invariants — the business security layer
 
 Feeds the `/security-review` flow and is the single owner of the security checklist for `reviewer` and `auditor`. `semgrep` is an OPT-IN plugin, not a given, so the business invariants below (authorization, IDOR, trust) sit next to a compact fallback list (§7) for the generic patterns a scanner would otherwise catch.
@@ -833,7 +833,7 @@ metadata:
   maxWords: 1090
 ---
 
-<!-- navori:managed id="solution-design" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="solution-design" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # solution-design — decide what to build, then try to break it
 
 ## When to use this skill
@@ -989,7 +989,7 @@ metadata:
   maxWordsComposed: 750
 ---
 
-<!-- navori:managed id="spec-bootstrap" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="spec-bootstrap" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # spec-bootstrap — kickoff of an SDD spec
 
 ## Before scaffolding — blocking precondition
@@ -1076,7 +1076,7 @@ metadata:
   maxWords: 600
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="verify-before-done-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -1152,7 +1152,7 @@ metadata:
   maxWords: 550
 ---
 
-<!-- navori:managed id="vitest" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="vitest" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Vitest — conventions
 
 ## When to use this skill
@@ -1235,7 +1235,7 @@ metadata:
   maxWords: 600
 ---
 
-<!-- navori:managed id="zod-validation" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="zod-validation" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Zod Validation — the canonical pattern
 
 One schema per resource (`<resource>.schema.ts`), a generic validate middleware, and the DTO from `z.infer`.

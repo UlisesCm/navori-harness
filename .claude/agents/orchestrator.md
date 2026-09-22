@@ -7,7 +7,7 @@ effort: medium
 maxWords: 2850
 ---
 
-<!-- navori:managed id="orchestrator-base" hash="03408b65" version="0.9.0" source="@navori/core" -->
+<!-- navori:managed id="orchestrator-base" hash="03408b65" version="0.9.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
