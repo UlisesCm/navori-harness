@@ -1130,6 +1130,38 @@ export function docBudgetLines(
           )}`,
     );
   }
+  // #930 — `navori-agents`' own word ceiling, informative only: it never
+  // reaches `computeHealthVerdict`, same doctrine as every other line above.
+  // Silent when within budget — the bytes line already carries the word count
+  // for the common case; this one only speaks up when there is something to
+  // act on.
+  if ((report.agentsMdOverBy ?? 0) > 0) {
+    lines.push(
+      `  ${color.yellow(sym.update)} ${td.docBudgetAgentsMdOverCeiling(
+        report.agentsMd?.words ?? 0,
+        report.agentsMdCeiling ?? 0,
+        report.agentsMdOverBy ?? 0,
+      )}`,
+    );
+  }
+  // #930 — weight only, no ratio: neither engine publishes a cap to compare
+  // against, unlike Codex's `AGENTS.md`.
+  if (report.cursorRules) {
+    lines.push(
+      `  ${grey(sym.bullet)} ${td.docBudgetCursorRules(
+        report.cursorRules.words,
+        report.cursorRules.chars,
+      )}`,
+    );
+  }
+  if (report.copilotInstructions) {
+    lines.push(
+      `  ${grey(sym.bullet)} ${td.docBudgetCopilotInstructions(
+        report.copilotInstructions.words,
+        report.copilotInstructions.chars,
+      )}`,
+    );
+  }
   if (report.staleBlocks > 0) {
     lines.push(
       `  ${color.yellow(sym.update)} ${td.docBudgetStale(report.staleBlocks, report.cliVersion)}`,
@@ -2134,16 +2166,33 @@ export interface DocBudgetReport {
   /** The hook's own delivery ceiling in characters — not a word budget. */
   contextDeliveryBudget: number;
   /**
-   * `AGENTS.md` — the prose engines' whole startup surface, and the one navori
-   * does NOT measure block by block. It renders as a single `navori-agents`
-   * block, so a per-block report there would be `ceiling 0, unbudgeted 100%,
-   * overBy 0`: a line that can never fail is noise, not signal. What IS real
-   * there is the host's byte cap, so that is what gets reported. Null when the
-   * repo has no such file.
+   * `AGENTS.md` — the prose engines' whole startup surface. It renders as a
+   * single `navori-agents` block, so it is measured as ONE unit rather than
+   * block by block (`locateManagedBlocks` treats a managed body as opaque —
+   * see `PROSE_WRAPPER_CEILINGS` in `doc-budgets.ts`). Null when the repo has
+   * no such file.
    */
   agentsMd: DocBudgetFile | null;
   /** Codex's `project_doc_max_bytes` default — reported against, never capped. */
   agentsMdMaxBytes: number;
+  /**
+   * `navori-agents`' word ceiling (#930), reported informatively — same
+   * doctrine as every other field on this report: it never reaches
+   * `computeHealthVerdict`, so navori has no standing to fail another repo's
+   * build over prose it renders there. Null when the repo has no `AGENTS.md`.
+   */
+  agentsMdCeiling: number | null;
+  /** `managedWords - ceiling`, 0 when within budget. Null alongside the ceiling. */
+  agentsMdOverBy: number | null;
+  /**
+   * `.cursor/rules/navori.mdc` (#930). Cursor publishes no equivalent of
+   * Codex's `project_doc_max_bytes`, so there is no cap to report against —
+   * weight only (words + bytes), same as `agentsMd` minus the ratio. Null
+   * when the repo has no such file.
+   */
+  cursorRules: DocBudgetFile | null;
+  /** `.github/copilot-instructions.md` (#930). Same doctrine as `cursorRules`. */
+  copilotInstructions: DocBudgetFile | null;
   /**
    * Words each subagent reloads from scratch. It is the WHOLE `CLAUDE.md`, not
    * the managed half: a non-fork subagent starts with a fresh context window
@@ -2198,12 +2247,28 @@ export function scanDocBudget(cwd: string, config: NavoriConfig): DocBudgetRepor
   const claudeMdPath = join(cwd, "CLAUDE.md");
   const hasClaudeMd = existsSync(claudeMdPath);
   const contextFiles = readContextSurface(cwd);
-  if (!hasClaudeMd && contextFiles.length === 0 && !existsSync(join(cwd, "AGENTS.md"))) return null;
+  // #930 — `cursor`/`copilot` render their own single-file surface too
+  // (`.cursor/rules/navori.mdc`, `.github/copilot-instructions.md`): a repo on
+  // ONLY one of those engines still gets a report, same fix #917 already made
+  // for `AGENTS.md`-only repos.
+  const hasProseSurface =
+    existsSync(join(cwd, "AGENTS.md")) ||
+    existsSync(join(cwd, ".cursor/rules/navori.mdc")) ||
+    existsSync(join(cwd, ".github/copilot-instructions.md"));
+  if (!hasClaudeMd && contextFiles.length === 0 && !hasProseSurface) return null;
 
   // ONE read of the markers, two uses (the lever map and the staleness count).
   // The second `listMarkers` call re-read and re-parsed the same file for
   // nothing; with more surfaces to come it would have multiplied.
   const agentsMd = readWholeSurface(cwd, "AGENTS.md");
+  // #930 — weight only, no ceiling: neither engine publishes a
+  // `project_doc_max_bytes` equivalent, so there is nothing to compare against.
+  const cursorRules = readWholeSurface(cwd, ".cursor/rules/navori.mdc");
+  const copilotInstructions = readWholeSurface(cwd, ".github/copilot-instructions.md");
+  // #930 — the `navori-agents` wrapper's own ceiling (`PROSE_WRAPPER_CEILINGS`
+  // in `doc-budgets.ts`), reported informatively. `overBy` is `Math.max(0, …)`
+  // already, so a bare `> 0` reads correctly downstream.
+  const agentsMdMeasure = agentsMd ? measureDocBudgetFile(join(cwd, "AGENTS.md")) : null;
   const claudeMarkers = hasClaudeMd ? listMarkers(claudeMdPath) : [];
   const measure = hasClaudeMd ? measureDocBudgetFile(claudeMdPath) : null;
   const cliVersion = readCliVersion();
@@ -2238,6 +2303,10 @@ export function scanDocBudget(cwd: string, config: NavoriConfig): DocBudgetRepor
     contextDeliveryBudget: SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
     agentsMd,
     agentsMdMaxBytes: CODEX_PROJECT_DOC_MAX_BYTES,
+    agentsMdCeiling: agentsMdMeasure?.ceiling ?? null,
+    agentsMdOverBy: agentsMdMeasure?.overBy ?? null,
+    cursorRules,
+    copilotInstructions,
     perSubagentWords: config.engines.includes("claude") ? (measure?.totalWords ?? null) : null,
   };
 }
