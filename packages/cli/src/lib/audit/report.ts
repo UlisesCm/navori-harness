@@ -779,7 +779,7 @@ function hooksLine(events: HookEvent[], lang: Lang, agentCount: number): string 
     // seconds on every tool call.
     .sort((x, y) => sumMs(y[1].ms) - sumMs(x[1].ms))
     .map(([name, v]) => {
-        const total = sumMs(v.ms);
+      const total = sumMs(v.ms);
       const work = v.ms.filter((ms) => ms > HOOK_WORK_MS);
       const p50 = median([...v.ms].sort((a, b) => a - b));
       const blocked =

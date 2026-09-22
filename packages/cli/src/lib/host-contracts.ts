@@ -204,7 +204,7 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
     source:
       'https://code.claude.com/docs/en/hooks — "All matching hooks run in parallel", ' +
       'and the `timeout` row: "`SessionEnd` hooks share a 1.5-second budget; if your ' +
-      'settings set a longer per-hook `timeout`, Claude Code raises the budget to match, ' +
+      "settings set a longer per-hook `timeout`, Claude Code raises the budget to match, " +
       'up to 60 seconds".',
     provedBy:
       "#924 — the audit report added the per-hook totals of the same tool call and " +
@@ -224,8 +224,8 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       "`PreToolUse`/`PostToolUse` carry `tool_use_id`, while `agent_id`/`agent_type` " +
       "appear on `SubagentStart`/`SubagentStop`.",
     source:
-      "https://learn.chatgpt.com/docs/hooks.md — \"Multiple matching command hooks for " +
-      'the same event are launched concurrently, so one hook can\'t prevent another ' +
+      'https://learn.chatgpt.com/docs/hooks.md — "Multiple matching command hooks for ' +
+      "the same event are launched concurrently, so one hook can't prevent another " +
       'matching hook from starting"; the timeout list ("`SessionEnd` and `Interrupt` ' +
       'use `1` second by default and support up to `3` seconds"); and the per-event ' +
       "field tables, where `PreToolUse` lists `tool_use_id` and only the `Subagent*` " +
