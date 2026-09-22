@@ -103,6 +103,19 @@ const HookEntrySchema = z.object({
   command: z.string().min(1),
   timeout: z.number().int().positive().optional(),
   statusMessage: z.string().optional(),
+  /**
+   * The hook can only do its job on the main thread — inside a subagent it is
+   * a spawn that produces nothing (#924). Same meaning as `PlannedHook`'s field
+   * of the same name, declared here because plugin hooks never pass through the
+   * core plan: `check-jscpd` and `check-semgrep` come from this schema.
+   *
+   * It does NOT change the registration. Both hosts fire `PreToolUse` and
+   * `PostToolUse` inside subagents and offer no per-thread filter, so the flag
+   * is a declaration the audit reads to tell a useless firing from a useful
+   * one. Omit it unless the hook's own code proves the inertness — an
+   * optimistic flag turns the finding into noise.
+   */
+  mainThreadOnly: z.boolean().optional(),
 });
 
 const ScriptEntrySchema = z.object({
