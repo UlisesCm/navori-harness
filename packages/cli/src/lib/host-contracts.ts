@@ -278,6 +278,60 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       "the event registrations and no automatic switch output.",
   },
   {
+    id: "claude-effort-env",
+    claim:
+      "Claude Code exports the ACTIVE effort level to every hook command and to the " +
+      "Bash tool as `$CLAUDE_EFFORT`, recomputed per invocation — the host's own " +
+      "process does not carry the variable. It is the same level the payload's " +
+      "`effort.level` reports, so it tracks a mid-session `/model` change. It is " +
+      "ABSENT when the current model has no effort parameter, which is why a guard " +
+      "that reads it must fail open on undefined instead of treating it as a low tier.",
+    source:
+      'https://code.claude.com/docs/en/hooks — "Object with a level field holding the ' +
+      'effort level in effect when the hook runs", "The object matches the status line ' +
+      'effort field", "Present ... when the current model supports the effort ' +
+      'parameter", and "The level is also available to hook commands and the Bash tool ' +
+      'as the $CLAUDE_EFFORT environment variable". Measured 2026-09-22: `ps eww` on ' +
+      "the host process shows ZERO `CLAUDE_*` variables in its own environment while " +
+      "its children receive `CLAUDE_EFFORT`, so the value is injected per spawn rather " +
+      "than inherited frozen from startup.",
+    provedBy:
+      "#923 — the advisor re-ran its whole decision inside a `node` spawn on every " +
+      "main-thread tool call (1055 firings over 32 sessions, 9.0s of blocking latency) " +
+      "because the one input that can change mid-session was being read from the " +
+      "payload by `node`, when the shell already had it for free.",
+    enforcedBy:
+      "`model-advisor.test.ts` drives the rendered hook with `$CLAUDE_EFFORT` set, " +
+      "unset, and disagreeing with the payload, and pins the absent `node` spawn with " +
+      "a decoy on the PATH. Nothing can enforce the host keeping the variable live: " +
+      "if it ever froze, the guard degrades to losing the mid-session rise, never to " +
+      "advising wrongly.",
+  },
+  {
+    id: "claude-no-model-env",
+    claim:
+      "There is no `$CLAUDE_MODEL` variable, and `$ANTHROPIC_MODEL` — if the user sets " +
+      "it — does not follow a `/model` switch. The active model reaches a hook only " +
+      "through SessionStart's optional `model` or PostModelSwitch's `to_model`, and " +
+      "those events carry model IDs only: NO effort field, so a bare effort change " +
+      "fires no event at all.",
+    source:
+      'https://code.claude.com/docs/en/hooks — "There is no $CLAUDE_MODEL environment ' +
+      "variable. The hook can read $ANTHROPIC_MODEL if you set it in your shell, but " +
+      "that value doesn't change when you switch models with /model during a session\", " +
+      'and "PreModelSwitch and PostModelSwitch hooks receive from_model and to_model ' +
+      'instead". Corroborated by the audit store: 0 PostModelSwitch events in 32 ' +
+      "sessions.",
+    provedBy:
+      "#923 — the fix the issue proposed (a negative terminal state) would have closed " +
+      "the advisor for good on a `medium` session, and no event exists that could " +
+      "reopen it when the user raises the effort.",
+    enforcedBy:
+      "`model-advisor.sh` keeps the model in session scratch state written by the " +
+      "lifecycle events, and `model-advisor.test.ts` pins that a PostModelSwitch " +
+      "replaces the stale shell sentinel. Nothing enforces the host's side.",
+  },
+  {
     id: "codex-model-advisor-payload",
     claim:
       "Codex SessionStart input includes the active `model`, and `/model` changes the " +
