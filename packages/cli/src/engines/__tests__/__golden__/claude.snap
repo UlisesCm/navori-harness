@@ -16,7 +16,7 @@ tools: Read, Glob, Grep, Bash, Write, WebFetch, WebSearch, mcp__engram__mem_sear
 maxWords: 1650
 ---
 
-<!-- navori:managed id="auditor-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="auditor-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
 # Auditor Agent
 
 You are a senior auditor. Your job is to **find real problems** and propose a plan or a verdict that a human (or the `orchestrator`) can act on. **You never edit production code**: you only write reports, plans and verdicts. The task demands architectural reasoning (SOLID, layers, security, performance, edge cases), it is not mechanical — set `models.auditor` to `opus` if your budget allows.
@@ -224,7 +224,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash, Monitor, TaskStop, mcp__engram__mem_
 maxWords: 1800
 ---
 
-<!-- navori:managed id="implementer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="implementer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
 # Implementer Agent
 
 You execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.
@@ -390,7 +390,7 @@ tools: Read, Glob, Grep, Bash, Agent, mcp__engram__mem_search, mcp__engram__mem_
 maxWords: 2850
 ---
 
-<!-- navori:managed id="orchestrator-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="orchestrator-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
@@ -600,7 +600,7 @@ tools: Read, Glob, Grep, Bash, Monitor, TaskStop
 maxWords: 3800
 ---
 
-<!-- navori:managed id="publisher-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="publisher-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
 # Publisher Agent
 
 You own the **end of the cycle**: well-structured commits in the configured style and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
@@ -940,7 +940,7 @@ tools: Read, Glob, Grep, Bash, Write, Monitor, TaskStop, mcp__engram__mem_search
 maxWords: 2200
 ---
 
-<!-- navori:managed id="reviewer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="reviewer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
 # Reviewer Agent
 
 You are a strict reviewer. Your only function is to **approve or reject**. You don't edit code.
@@ -1170,7 +1170,7 @@ tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_
 maxWords: 1050
 ---
 
-<!-- navori:managed id="scout-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="scout-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
 # Scout Agent
 
 You do **read-only reconnaissance** over the repo, in one of two shapes the orchestrator hands you:
@@ -1316,7 +1316,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash, TaskStop
 maxWords: 1200
 ---
 
-<!-- navori:managed id="scribe-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="scribe-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
 # Scribe Agent
 
 You serialize verified producer evidence into the prescribed transient Markdown artifact. You do not investigate, implement source code, review a diff, or invent technical claims. Preserve the producer's feature identity, status, evidence, files, and verification exactly.
@@ -11103,7 +11103,7 @@ metadata:
   maxWords: 850
 ---
 
-<!-- navori:managed id="debug-failure-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="debug-failure-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Debug failure — the one cycle
 
 A failure is not a mandate to change code. This skill forces diagnosis before any fix, and forces a hypothesis re-check when the fix doesn't clear the symptom.
@@ -11158,7 +11158,7 @@ metadata:
   type: reference
 ---
 
-<!-- navori:managed id="dominio" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="dominio" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # dominio — the workspace knowledge base
 
 Canonical, cross-repo facts for a workspace live as markdown under
@@ -11233,7 +11233,7 @@ metadata:
   maxWordsComposed: 550
 ---
 
-<!-- navori:managed id="follow-up-prs" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="follow-up-prs" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # follow-up-prs — pick up what happened after the PR
 
 ## When to use this skill
@@ -11320,7 +11320,7 @@ metadata:
   maxWordsComposed: 700
 ---
 
-<!-- navori:managed id="locate-code-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="locate-code-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # locate-code — bounded reading and AST shapes
 
 Read the minimum correct amount: confirm the region before opening it, and use `ast-grep` only for genuine syntactic shapes — it is not a call-graph.
@@ -11385,7 +11385,7 @@ metadata:
   maxWordsComposed: 500
 ---
 
-<!-- navori:managed id="quality-attributes" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="quality-attributes" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Quality attributes
 
 Use only when `solution-design` identifies architecture or a non-functional
@@ -11429,7 +11429,7 @@ metadata:
   maxWordsComposed: 650
 ---
 
-<!-- navori:managed id="resolve-ticket" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="resolve-ticket" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # resolve-ticket — 6-phase pipeline
 
 ## Pipeline
@@ -11477,7 +11477,7 @@ metadata:
   maxWordsComposed: 1450
 ---
 
-<!-- navori:managed id="review-diff-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="review-diff-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Code review — checklist for a diff
 
 Apply this checklist to a diff (staged, branch vs `main`, or a specific PR). The skeleton is stack-agnostic; the rules specific to your repo live in the user-section at the end.
@@ -11640,7 +11640,7 @@ metadata:
   maxWords: 750
 ---
 
-<!-- navori:managed id="scoped-gate-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="scoped-gate-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Scoped gate — diff-scoped quality gate as hygiene, not a seal
 
 ## The problem
@@ -11745,7 +11745,7 @@ metadata:
   maxWordsComposed: 650
 ---
 
-<!-- navori:managed id="secure-by-design-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="secure-by-design-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Secure by design
 
 This is a thin router, not a second security checklist. It composes with
@@ -11801,7 +11801,7 @@ metadata:
   maxWords: 1200
 ---
 
-<!-- navori:managed id="security-invariants-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="security-invariants-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Security invariants — the business security layer
 
 Feeds the `/security-review` flow and is the single owner of the security checklist for `reviewer` and `auditor`. `semgrep` is an OPT-IN plugin, not a given, so the business invariants below (authorization, IDOR, trust) sit next to a compact fallback list (§7) for the generic patterns a scanner would otherwise catch.
@@ -11912,7 +11912,7 @@ metadata:
   maxWords: 1090
 ---
 
-<!-- navori:managed id="solution-design" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="solution-design" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # solution-design — decide what to build, then try to break it
 
 ## When to use this skill
@@ -12068,7 +12068,7 @@ metadata:
   maxWordsComposed: 750
 ---
 
-<!-- navori:managed id="spec-bootstrap" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="spec-bootstrap" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # spec-bootstrap — kickoff of an SDD spec
 
 ## Before scaffolding — blocking precondition
@@ -12155,7 +12155,7 @@ metadata:
   maxWords: 600
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="verify-before-done-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -12231,7 +12231,7 @@ metadata:
   maxWords: 550
 ---
 
-<!-- navori:managed id="vitest" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="vitest" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Vitest — conventions
 
 ## When to use this skill
@@ -12314,7 +12314,7 @@ metadata:
   maxWords: 600
 ---
 
-<!-- navori:managed id="zod-validation" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
+<!-- navori:managed id="zod-validation" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Zod Validation — the canonical pattern
 
 One schema per resource (`<resource>.schema.ts`), a generic validate middleware, and the DTO from `z.infer`.
