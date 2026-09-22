@@ -1061,22 +1061,30 @@ export function docBudgetLines(
   report: DocBudgetReport,
   td: ReturnType<typeof tc>["doctor"],
 ): string[] {
-  const lines = [
-    `  ${grey(sym.bullet)} ${td.docBudgetSummary(
-      report.totalWords,
-      report.managedWords,
-      report.ceiling,
-      report.ownWords,
-    )}`,
-    `  ${grey(sym.bullet)} ${td.docBudgetSubagents(report.perSubagentWords)}`,
-  ];
+  const lines: string[] = [];
+  // Omitted whole — not printed as zeros — on a repo with no `CLAUDE.md`: a
+  // prose-engine repo does not have a smaller Claude surface, it has none.
+  if (report.managedWords !== null) {
+    lines.push(
+      `  ${grey(sym.bullet)} ${td.docBudgetSummary(
+        report.totalWords ?? 0,
+        // Same number `render`'s crossing notice prints, and for the same
+        // reason: the blocks with no ceiling are counted on their own line, so
+        // showing them here too made the two commands disagree about one fact.
+        report.managedWords - (report.unbudgetedWords ?? 0),
+        report.ceiling ?? 0,
+        report.ownWords ?? 0,
+      )}`,
+    );
+    lines.push(`  ${grey(sym.bullet)} ${td.docBudgetSubagents(report.perSubagentWords ?? 0)}`);
+  }
   // Named on their own line instead of folded into the summary: a block with no
   // ceiling is a different fact from a block over one, and the two fixes differ
   // (a re-render drops a retired block; a trim shrinks a live one).
-  if (report.unbudgetedWords > 0) {
+  if ((report.unbudgetedWords ?? 0) > 0) {
     const ids = report.blocks.filter((b) => b.kind === "unbudgeted").map((b) => b.id);
     lines.push(
-      `  ${grey(sym.bullet)} ${td.docBudgetUnbudgeted(report.unbudgetedWords, ids.join(", "))}`,
+      `  ${grey(sym.bullet)} ${td.docBudgetUnbudgeted(report.unbudgetedWords ?? 0, ids.join(", "))}`,
     );
   }
   if (report.contextFiles.length > 0) {
@@ -2039,24 +2047,32 @@ export interface DocBudgetFile {
 /**
  * What every session of this repo pays before its first prompt (#917).
  *
- * TWO surfaces, reported together and treated differently on purpose:
- * `CLAUDE.md`, whose managed half navori owns and therefore CAPS, and
- * `.claude/context/`, which the SessionStart hook delivers and which is
- * REPORTED ONLY — its own ceiling needs a justified number of its own (#919).
+ * The surfaces are reported together and treated differently on purpose, and
+ * WHICH of them a repo has depends on its engines:
+ * - `CLAUDE.md` — the only one navori CAPS, block by block.
+ * - `.claude/context/` — delivered by the SessionStart hook, REPORTED ONLY; its
+ *   own ceiling needs a justified number of its own (#919).
+ *
+ * Every `CLAUDE.md` field is nullable because a repo on a prose engine
+ * (`agents-md`, `codex`, `cursor`, `copilot`) legitimately has no such file.
+ * Reporting nothing there was the previous behaviour and it was wrong: a panel
+ * titled "what every session pays" that goes silent on a repo whose ENTIRE
+ * startup cost is one file is not conservative, it is false by omission.
  */
 export interface DocBudgetReport {
-  /** `CLAUDE.md`, whole file. */
-  totalWords: number;
+  /** `CLAUDE.md`, whole file. Null when the repo has none. */
+  totalWords: number | null;
   /** Words inside managed blocks — the only half with a ceiling. */
-  managedWords: number;
+  managedWords: number | null;
   /** The user's own prose. Reported, never capped. */
-  ownWords: number;
+  ownWords: number | null;
   /** Words in blocks navori ships no ceiling for — out of the `overBy` quotient. */
-  unbudgetedWords: number;
+  unbudgetedWords: number | null;
   /** Σ of the ceilings of the blocks this repo ACTUALLY renders. */
-  ceiling: number;
+  ceiling: number | null;
   /** `managedWords - unbudgetedWords - ceiling`, 0 when within budget. */
-  overBy: number;
+  overBy: number | null;
+  /** Empty when there is no `CLAUDE.md` — never a block from another surface. */
   blocks: DocBudgetBlock[];
   /** Blocks whose marker version differs from the running navori. */
   staleBlocks: number;
@@ -2080,7 +2096,7 @@ export interface DocBudgetReport {
    * agents a ticket spends is a property of the ticket. The honest report is
    * the unit cost plus "once per agent"; a constant would be invented.
    */
-  perSubagentWords: number;
+  perSubagentWords: number | null;
 }
 
 /** Which knob shrinks this block — keyed off what RENDERED it, not its name. */
@@ -2095,9 +2111,10 @@ function leverFor(id: string, source: string | null): DocBudgetLever {
 /**
  * Price this repo's startup surface against the ceilings navori ships (#917).
  *
- * Measures the file ON DISK, which is what the session actually pays — nothing
- * here predicts a render from the config. Returns null when there is no
- * `CLAUDE.md` to measure.
+ * Measures the files ON DISK, which is what the session actually pays — nothing
+ * here predicts a render from the config. Returns null only when the repo has
+ * NONE of the startup surfaces: a repo with just an `AGENTS.md` still gets its
+ * report, because that file is its whole startup cost.
  *
  * WARNING-LEVEL BY CONSTRUCTION, and this is the load-bearing property: the
  * result never reaches `computeHealthVerdict`, so it cannot flip `ok` and
@@ -2108,12 +2125,18 @@ function leverFor(id: string, source: string | null): DocBudgetLever {
  */
 export function scanDocBudget(cwd: string): DocBudgetReport | null {
   const claudeMdPath = join(cwd, "CLAUDE.md");
-  if (!existsSync(claudeMdPath)) return null;
+  const hasClaudeMd = existsSync(claudeMdPath);
+  const contextFiles = readContextSurface(cwd);
+  if (!hasClaudeMd && contextFiles.length === 0) return null;
 
-  const measure = measureDocBudgetFile(claudeMdPath);
+  // ONE read of the markers, two uses (the lever map and the staleness count).
+  // The second `listMarkers` call re-read and re-parsed the same file for
+  // nothing; with more surfaces to come it would have multiplied.
+  const claudeMarkers = hasClaudeMd ? listMarkers(claudeMdPath) : [];
+  const measure = hasClaudeMd ? measureDocBudgetFile(claudeMdPath) : null;
   const cliVersion = readCliVersion();
-  const sourceById = new Map(listMarkers(claudeMdPath).map((m) => [m.id, m.source]));
-  const blocks: DocBudgetBlock[] = measure.blocks.map((b) => ({
+  const sourceById = new Map(claudeMarkers.map((m) => [m.id, m.source]));
+  const blocks: DocBudgetBlock[] = (measure?.blocks ?? []).map((b) => ({
     ...b,
     lever: leverFor(b.id, sourceById.get(b.id) ?? null),
   }));
@@ -2123,19 +2146,17 @@ export function scanDocBudget(cwd: string): DocBudgetReport | null {
   // re-render recovered 1175 words (−37%) in `bonum-webapp` without its owner
   // deciding anything. Counted across BOTH files of the surface, since a stale
   // repo is stale in all of them.
-  const staleBlocks = [...listMarkers(claudeMdPath), ...listContextMarkers(cwd)].filter(
+  const staleBlocks = [...claudeMarkers, ...listContextMarkers(cwd)].filter(
     (m) => m.version !== null && m.version !== cliVersion,
   ).length;
 
-  const contextFiles = readContextSurface(cwd);
-
   return {
-    totalWords: measure.totalWords,
-    managedWords: measure.managedWords,
-    ownWords: measure.ownWords,
-    unbudgetedWords: measure.unbudgetedWords,
-    ceiling: measure.ceiling,
-    overBy: measure.overBy,
+    totalWords: measure?.totalWords ?? null,
+    managedWords: measure?.managedWords ?? null,
+    ownWords: measure?.ownWords ?? null,
+    unbudgetedWords: measure?.unbudgetedWords ?? null,
+    ceiling: measure?.ceiling ?? null,
+    overBy: measure?.overBy ?? null,
     blocks,
     staleBlocks,
     cliVersion,
@@ -2143,7 +2164,7 @@ export function scanDocBudget(cwd: string): DocBudgetReport | null {
     contextWords: contextFiles.reduce((sum, f) => sum + f.words, 0),
     contextChars: contextFiles.reduce((sum, f) => sum + f.chars, 0),
     contextDeliveryBudget: SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
-    perSubagentWords: measure.totalWords,
+    perSubagentWords: measure?.totalWords ?? null,
   };
 }
 

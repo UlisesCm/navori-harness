@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig, type NavoriConfigInput } from "../../lib/schema.ts";
-import { computeHealthVerdict, scanDocBudget } from "../doctor.ts";
+import { computeHealthVerdict, docBudgetLines, scanDocBudget } from "../doctor.ts";
+import { tc } from "../../lib/i18n.ts";
 import { readCliVersion } from "../../lib/bundled-assets.ts";
 import { MARKER_PAIR_WORDS, SESSION_CONTEXT_DELIVERY_BUDGET_CHARS } from "../../lib/doc-budgets.ts";
 
@@ -56,8 +57,36 @@ function config(overrides: Partial<NavoriConfigInput> = {}): NavoriConfig {
 }
 
 describe("scanDocBudget (#917)", () => {
-  it("returns null when there is no CLAUDE.md to measure", () => {
+  it("returns null only when the repo has NO startup surface at all", () => {
     expect(scanDocBudget(tempRepo())).toBeNull();
+  });
+
+  /**
+   * A repo on a prose engine has no `CLAUDE.md`, and the budget used to go
+   * silent there — a panel titled "what every session pays" reporting nothing
+   * about a repo whose whole startup cost is one file. The Claude half comes
+   * back null (there is none), the rest is still measured.
+   */
+  it("still reports when there is no CLAUDE.md but another surface exists", () => {
+    const cwd = tempRepo();
+    writeContext(cwd, "10-orquestacion.md", words(900));
+    const report = scanDocBudget(cwd)!;
+    expect(report).not.toBeNull();
+    expect(report.totalWords).toBeNull();
+    expect(report.managedWords).toBeNull();
+    expect(report.ceiling).toBeNull();
+    expect(report.overBy).toBeNull();
+    expect(report.perSubagentWords).toBeNull();
+    expect(report.blocks).toEqual([]);
+    expect(report.contextWords).toBe(900);
+  });
+
+  it("omits the CLAUDE.md lines entirely instead of printing them as zeros", () => {
+    const cwd = tempRepo();
+    writeContext(cwd, "10-orquestacion.md", words(900));
+    const lines = docBudgetLines(scanDocBudget(cwd)!, tc("es").doctor);
+    expect(lines.some((l) => l.includes("CLAUDE.md"))).toBe(false);
+    expect(lines.some((l) => l.includes(".claude/context/"))).toBe(true);
   });
 
   // `tipado-fuerte` ships a 50-word source ceiling, +11 for the rendered marker
@@ -94,7 +123,7 @@ describe("scanDocBudget (#917)", () => {
     writeClaudeMd(cwd, `${words(800)}\n\n${block("tipado-fuerte", words(20))}`);
     const report = scanDocBudget(cwd)!;
     expect(report.ownWords).toBe(800);
-    expect(report.managedWords).toBeLessThan(report.ceiling);
+    expect(report.managedWords!).toBeLessThan(report.ceiling!);
     expect(report.overBy).toBe(0);
     expect(report.blocks.some((b) => b.over)).toBe(false);
   });
@@ -168,7 +197,7 @@ describe("scanDocBudget (#917)", () => {
     const report = scanDocBudget(cwd)!;
     // Body + the marker pair, which is exactly the constant the ceilings add.
     expect(report.unbudgetedWords).toBe(497 + MARKER_PAIR_WORDS);
-    expect(report.managedWords).toBeGreaterThan(report.ceiling);
+    expect(report.managedWords!).toBeGreaterThan(report.ceiling!);
     // …and yet nothing is over budget: the only budgeted block fits.
     expect(report.overBy).toBe(0);
     expect(report.blocks.some((b) => b.over)).toBe(false);
@@ -223,7 +252,7 @@ describe("scanDocBudget (#917)", () => {
     writeContext(cwd, "10-orquestacion.md", words(900));
     const report = scanDocBudget(cwd)!;
     expect(report.perSubagentWords).toBe(report.totalWords);
-    expect(report.perSubagentWords).toBeLessThan(report.totalWords + report.contextWords);
+    expect(report.perSubagentWords!).toBeLessThan(report.totalWords! + report.contextWords);
   });
 });
 
