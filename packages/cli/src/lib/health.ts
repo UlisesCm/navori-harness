@@ -176,6 +176,22 @@ export interface DocBudgetMeasure {
  * preset or more plugins gets a bigger allowance instead of a false positive.
  * A block navori ships no ceiling for is measured and reported, never guessed.
  *
+ * PRECONDITION — the sum below is only additive over blocks that DO NOT NEST,
+ * and managed blocks nest for real: `AGENTS.md` in this repo carries
+ * `engram-orchestrator-extension` and `codegraph-access-v2-orchestrator` INSIDE
+ * `navori-agents`. Adding a nested body to `managedWords` counts it twice and
+ * drives `ownWords = total - managed` NEGATIVE — a number nobody catches by
+ * looking, only when a consumer reports something absurd.
+ *
+ * Today the precondition holds for a reason stronger than the shape of the
+ * files: `proseLines` treats a managed body as OPAQUE and jumps past its close,
+ * so `locateManagedBlocks` emits TOP-LEVEL blocks only (measured: that
+ * `AGENTS.md` yields exactly one block, `navori-agents`). The `containedIn`
+ * guard below therefore changes no current result — it exists so that the
+ * invariant is enforced here instead of being borrowed from a parser this
+ * function does not own, with #930 about to point a measurement at that very
+ * file.
+ *
  * Pure: takes text, touches no disk, flips no verdict.
  */
 export function measureDocBudget(content: string): DocBudgetMeasure {
@@ -184,7 +200,15 @@ export function measureDocBudget(content: string): DocBudgetMeasure {
   let managedWords = 0;
   let unbudgetedWords = 0;
   let ceiling = 0;
+  // End of the last block counted at top level. A block that opens before it is
+  // nested inside that one and its words are already in the outer body — skip
+  // it rather than count it twice. Cheap and local: spans come out in document
+  // order, so one number is the whole bookkeeping, and nothing here has to know
+  // how the parser found the markers.
+  let topLevelEnd = 0;
   for (const located of locateManagedBlocks(content, "html")) {
+    if (located.openStart < topLevelEnd) continue;
+    topLevelEnd = located.closeEnd;
     const body = content.slice(located.openStart, located.closeEnd);
     const words = countWords(body);
     const rows = body.split("\n").filter((line) => line.startsWith("- ")).length;
@@ -203,9 +227,10 @@ export function measureDocBudget(content: string): DocBudgetMeasure {
       over: blockCeiling !== null && words > blockCeiling,
     });
   }
-  // Additive by construction: a block span starts at the first character of its
-  // open marker line and ends at the last of its close, so no slice ever cuts a
-  // token in half and `total - managed` is exactly the prose in between.
+  // Additive: a block span starts at the first character of its open marker line
+  // and ends at the last of its close, so no slice cuts a token in half; and the
+  // spans are disjoint by the guard above, so `total - managed` is exactly the
+  // prose in between and can never go negative.
   const totalWords = countWords(content);
   return {
     totalWords,
