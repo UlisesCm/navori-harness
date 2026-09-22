@@ -94,6 +94,33 @@ describe("skills security and quality inventory", () => {
     expect(references).toContain("rollback is no-op");
   });
 
+  // #892 — dropping `disable-model-invocation` moved the opt-in gate from the
+  // frontmatter flag into a blocking precondition in the body. This only
+  // proves the guard is PRESENT in the text the host distributes, not that
+  // the model obeys it — there is no unit-testable way to assert the latter
+  // (same limitation as any other prose rule in CLAUDE.md).
+  it("keeps spec-bootstrap's opt-in gate as a blocking precondition in the body", () => {
+    const specBootstrap = asset("skills/spec-bootstrap.md");
+    expect(specBootstrap).not.toContain("disable-model-invocation: true");
+    expect(specBootstrap).toContain(
+      "Do not write anything under `{{sdd.specsDir}}` unless the user has explicitly accepted",
+    );
+  });
+
+  // #892 follow-up — `mergeFrontmatter` (engines/claude/frontmatter-merge.ts)
+  // treats any frontmatter key the asset no longer declares as a user
+  // addition to preserve, so a field REMOVED from the asset silently survives
+  // in a self-hosted `.claude/` mirror rendered by an older asset version
+  // (caught only by manual review, not by `check:render`, which uses the same
+  // merge). This repo self-hosts, so its own `.claude/skills/spec-bootstrap/
+  // SKILL.md` is exactly that mirror — pin it directly so this specific stale
+  // key can't silently reappear. Does not fix the general class of bug (see
+  // implementer's report for the follow-up issue material).
+  it("keeps the self-hosted spec-bootstrap mirror free of the retired flag", () => {
+    const rendered = repositoryFile(".claude/skills/spec-bootstrap/SKILL.md");
+    expect(rendered).not.toContain("disable-model-invocation: true");
+  });
+
   // Covers: R8
   it("keeps the release manifest, provenance, and rendered marker on 0.9.0", () => {
     const manifest = JSON.parse(repositoryFile("packages/cli/package.json")) as {

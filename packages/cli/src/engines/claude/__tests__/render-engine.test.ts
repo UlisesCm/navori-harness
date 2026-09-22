@@ -780,12 +780,14 @@ describe("renderClaudeEngine — SDD managed block + scaffolder", () => {
     expect(existsSync(join(cwd, ".claude/skills/spec-bootstrap/SKILL.md"))).toBe(true);
   });
 
-  // #823 — spec-bootstrap is user-invocable only: the model must not be able
-  // to trigger it via natural language, only `/spec-bootstrap`.
-  it("marks spec-bootstrap as disable-model-invocation: true", () => {
+  // #892 — spec-bootstrap is model-invocable again (accepting a proposal in
+  // prose can trigger it), but the opt-in gate must survive as a blocking
+  // precondition in the body instead of the frontmatter flag (#823).
+  it("does not mark spec-bootstrap as disable-model-invocation, and keeps the opt-in gate in the body", () => {
     renderClaudeEngine(cwd, CONFIG_FULL);
     const skill = readFileSync(join(cwd, ".claude/skills/spec-bootstrap/SKILL.md"), "utf-8");
-    expect(skill).toContain("disable-model-invocation: true");
+    expect(skill).not.toContain("disable-model-invocation: true");
+    expect(skill).toContain("blocking precondition");
   });
 });
 

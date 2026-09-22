@@ -1,10 +1,19 @@
 ---
 name: spec-bootstrap
 description: Use when starting a real-scope feature before writing code — scaffolds a complete SDD spec (requirements/design/tasks) with EARS and R<n>↔test traceability.
-disable-model-invocation: true
 metadata:
   type: reference
-  maxWords: 650
+  # #892: model invocation re-enabled (dropped `disable-model-invocation`) so
+  # accepting a proposal in prose can trigger scaffolding without asking the
+  # user to also type `/spec-bootstrap`. The opt-in gate moves into the body
+  # below as a blocking precondition instead — the host has no frontmatter
+  # field for "invocable but must confirm first" (audited against the
+  # official skills doc, ticket 892). That precondition costs ~50 words the
+  # 650 cap didn't have room for (647/650 before this change), so the cap
+  # goes up explicitly rather than shrinking unrelated prose to make space —
+  # the override is loud, not silent (skill-meta.ts). 720 leaves a real
+  # margin (697/720) instead of reproducing the same 3-word squeeze.
+  maxWords: 720
   # Spec 0026 T16 (R35): the critical-areas challenge interpolates
   # {{project.criticalAreas}} INSIDE the managed zone, same defect as
   # review-diff (#683) — a verbose repo config pushes the composed file past
@@ -14,6 +23,10 @@ metadata:
 ---
 
 # spec-bootstrap — kickoff of an SDD spec
+
+## Before scaffolding — blocking precondition
+
+Do not write anything under `{{sdd.specsDir}}` unless the user has explicitly accepted starting a spec in THIS thread — either by running `/spec-bootstrap` directly, or by accepting a proposal you made. No acceptance yet? Propose it and wait for the answer; never scaffold speculatively.
 
 ## When to use this skill
 
