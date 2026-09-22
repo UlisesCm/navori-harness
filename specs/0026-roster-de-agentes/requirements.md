@@ -118,7 +118,7 @@ archivo en el diff — ver la fila de arriba y R31.
   no se reabre antes, ni por intuición"*.
 - **La medición hoy no puede correr:**
   - `navori.config.json` de navori-harness no habilita `tgrep` ni `codegraph`.
-  - `scripts/mine-search-routing.py:113` solo cuenta el wrapper v1 (`WRAPPER = "tgrep-search.sh"`).
+  - `scripts/py/mine-search-routing.py:113` solo cuenta el wrapper v1 (`WRAPPER = "tgrep-search.sh"`).
 - **codegraph en el parque:** está habilitado en 21 repos locales y tuvo 105 llamadas a
   `codegraph_explore` en 30 días. Hoy lo reciben:
   - por inyección de plugin: `leader`, `implementer`, `reviewer`, `auditor` y `ticket-audit`;
@@ -264,7 +264,7 @@ Público: el operador del harness. Áreas críticas tocadas:
 
 - **R14** — El `navori.config.json` de navori-harness SHALL habilitar los plugins `tgrep` y
   `codegraph`, para que corra la métrica de campo D19 de `search-v2.md`.
-- **R15** — `scripts/mine-search-routing.py` SHALL contar `tgrep search` y `codegraph_explore` como
+- **R15** — `scripts/py/mine-search-routing.py` SHALL contar `tgrep search` y `codegraph_explore` como
   la vía v2, y `Grep` nativo, `rg`, `grep -r` y `git grep` como escape, según el instrumento de D19.
   SHALL incluir transcripts de subagentes vinculados a la sesión auditada, deduplicar eventos por
   identidad consistente y distinguir `unavailable`/malformed de conteo cero. El alcance medido es

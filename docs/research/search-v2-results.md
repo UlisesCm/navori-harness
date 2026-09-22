@@ -424,7 +424,7 @@ Reconstrucción de las fuentes reales usadas a lo largo de S01–S22 (todas docu
   de `*`). Verificado también contra el binario real `claude 2.1.267` durante el
   benchmark de §9 (§4.1: `claude --help` confirmó los flags verbatim).
 - **Secundarias**: S22 (`docs/research/tgrep-como-funcionaba.md` §5.1/§6/§9 y
-  `scripts/mine-search-routing.py`, evidencia local de adopción 7.4%/40.7% que sustenta
+  `scripts/py/mine-search-routing.py`, evidencia local de adopción 7.4%/40.7% que sustenta
   D19/§9.5).
 - **Hallazgo NO citado en el plan original, descubierto durante la implementación**:
   `packages/cli/src/lib/__tests__/mcp-capability-wiring.test.ts`, invariante fijado en

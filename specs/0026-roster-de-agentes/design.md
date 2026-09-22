@@ -83,7 +83,7 @@ Lo que queda es lo barato:
 ### G · tgrep y codegraph
 
 - `navori.config.json` del repo — plugins `tgrep` y `codegraph` — R14.
-- `scripts/mine-search-routing.py:113` — `tgrep search` y `codegraph_explore` como vía v2, con
+- `scripts/py/mine-search-routing.py:113` — `tgrep search` y `codegraph_explore` como vía v2, con
   transcripts padre+hijo, deduplicación por identidad y estados `unavailable`/malformed — R15, R52.
 - Assets que recetan búsqueda por shell — R16:
   - `skills/review-diff.md:36`.
@@ -152,7 +152,7 @@ Lo que queda es lo barato:
   (`lib/legacy-agents.ts:13-34`), `RECOMMENDED_MODELS` y `RECOMMENDED_EFFORT`
   (`lib/recommended.ts:83`, `:103`), `agentsIndex.when` (`lib/i18n.ts:2224`, `:3355`) — R42.
 - **Continuidad de medición:** `lib/audit/signals.ts:18` (`READ_ONLY_AGENTS`),
-  `scripts/mine-activation.py` y los mineros que leen nombres de hook — R43.
+  `scripts/py/mine-activation.py` y los mineros que leen nombres de hook — R43.
 - **Nombres muertos:** `lib/__tests__/retired-names.test.ts` (nuevo) — R44.
 - **Lifecycle de reviewer:** el asset `reviewer.md` reusa #854 (`7da709df`) si está presente;
   `lib/audit/{model,report,signals}.ts` correlaciona handle, diff y timing — R53, R54.
@@ -212,7 +212,7 @@ Lo que queda es lo barato:
   de hoy. Contra una rama local vieja, "rama detrás" no vería que el remoto avanzó, la clase de bug
   de #771, #785 y #793.
 - **Evidencia positiva, no código de salida (R7).** En el build de #485, citty respondía a un
-  subcomando desconocido con la ayuda y código 0 (`scripts/check-asset-commands.mjs:15-17`).
+  subcomando desconocido con la ayuda y código 0 (`scripts/js/check-asset-commands.mjs:15-17`).
 - **Target visible (R2).** deepseek-harness se niega a inferir el base (*"The command never
   guesses or fetches a base"*), porque en un PR apilado el base no es la rama principal. navori
   conserva el default por config, pero el JSON expone target y SHA para que un base equivocado

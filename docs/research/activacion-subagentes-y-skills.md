@@ -230,7 +230,7 @@ documentación oficial, y no toca ningún mecanismo. Si mueve la aguja, lo demá
 
 ## Resultados de la Fase 1 (2026-09-09)
 
-Instrumento: `scripts/mine-activation.py`, sobre las 13 sesiones auditadas.
+Instrumento: `scripts/py/mine-activation.py`, sobre las 13 sesiones auditadas.
 
 ### La tasa que faltaba
 
@@ -481,7 +481,7 @@ Todas las invocaciones reales fueron **automáticas**; ninguna la pidió el usua
 
 Los dos repos ya corren 0.8.2 con los archivos prefijados, así que el brazo "después" se
 acumula solo con el uso normal. Cuando haya sesiones suficientes, se corre
-`scripts/mine-activation.py` sobre ellas y se compara contra esta tabla. **No hace falta el
+`scripts/py/mine-activation.py` sobre ellas y se compara contra esta tabla. **No hace falta el
 A/B sintético** de `scripts/ab-activation/`: la observación natural mide trabajo real en vez
 de un fixture, que es justamente lo que el criterio de éxito pide.
 
@@ -583,9 +583,9 @@ El criterio de clasificación quedó en un script, para que la remedición no de
 recordar la distinción `stdout` / `hook_additional_context`:
 
 ```
-python3 scripts/classify-activation-arm.py <dir-de-proyecto> [<dir> ...]
-python3 scripts/classify-activation-arm.py --ids-after <dir> ... > after.txt
-python3 scripts/mine-activation.py after.txt
+python3 scripts/py/classify-activation-arm.py <dir-de-proyecto> [<dir> ...]
+python3 scripts/py/classify-activation-arm.py --ids-after <dir> ... > after.txt
+python3 scripts/py/mine-activation.py after.txt
 ```
 
 `<dir-de-proyecto>` es un directorio bajo `~/.claude/projects`. Sin `--ids-after` imprime la

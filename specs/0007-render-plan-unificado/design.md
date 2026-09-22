@@ -3,7 +3,7 @@
 **Status:** partially executed — M1 + Fases A y B ejecutadas y verdes; Fase C gated (spec propia)
 **Fecha:** 2026-07-28
 **Driver:** Ulises Ciprés
-**Depende de:** [Spec 0002](./0002-claude-engine-adapter.md) (engine Claude), [Spec 0004](./0004-codex-engine-adapter.md) (engine Codex, mergeado en rama `codex`), [Spec 0005](./0005-search-efficiency-layer.md)
+**Depende de:** [Spec 0002](../0002-claude-engine-adapter/design.md) (engine Claude), [Spec 0004](../0004-codex-engine-adapter/design.md) (engine Codex, mergeado en rama `codex`), [Spec 0005](../0005-search-efficiency-layer/design.md)
 **Objetivo:** que el proveedor N+1 cueste ~80 LOC de tabla declarativa (no 573 de reimplementación) y que un fix de pipeline llegue a todos los engines a la vez.
 
 > **Cómo leer esta spec (agente ejecutor):** ejecuta SOLO las fases marcadas `EJECUTABLE` en la tabla §2, **en orden**. Cada fase termina con un bloque **VERIFICAR** con comandos exactos; **no avances** hasta que todos pasen. Los diffs se dan con `ANTES` / `DESPUÉS` **literales** — localiza el bloque `ANTES` con grep (NO con número de línea, que puede derivar) y aplica el cambio exacto. Si un comando de VERIFICAR falla, o un bloque `ANTES` no aparece con grep, **detente y reporta** — no improvises. Al terminar cada fase, llena el **Registro de ejecución** al final del archivo.
@@ -40,7 +40,7 @@ Plan → backup → escritura atómica → chmod → poda de huérfanos → repo
 | **M1** | Test de paridad de inventario | ✅ **EJECUTADA 2026-07-28** — 3/3 verde | — |
 | **A** | Extraer `resolveHarnessPlan` a shared | ✅ **EJECUTADA 2026-07-28** — build+test verde, V-BYTE idéntico | ninguno; riesgo ~0 |
 | **B** | `executePlan` compartido + codex como adapter | ✅ **EJECUTADA 2026-07-28** — DT-2 adelantado por decisión explícita de Ulises; build+test verde, V-BYTE idéntico | (gate levantado por el driver) |
-| **C** | Claude sobre el spine | ✅ **EJECUTADA 2026-07-28** ([Spec 0008](./0008-fase-c-claude-spine.md)) — codex+claude comparten collectPlan/commitWrites; V-BYTE byte-idéntico | — |
+| **C** | Claude sobre el spine | ✅ **EJECUTADA 2026-07-28** ([Spec 0008](../0008-fase-c-claude-spine/design.md)) — codex+claude comparten collectPlan/commitWrites; V-BYTE byte-idéntico | — |
 | M3-M9 | Mejoras independientes (§9) | 🟡 backlog | aprobación por mejora |
 
 ---

@@ -40,13 +40,13 @@ export const OUT_DIR = resolve(REPO_ROOT, "apps", "website", "public", "schema")
  * The classify rules, materialized for the consumer that is not TypeScript.
  *
  * `source-classify.ts` is the single definition of "non-trivial source file";
- * `scripts/mine-activation.py` cannot import it, so the rule list is written
+ * `scripts/py/mine-activation.py` cannot import it, so the rule list is written
  * here and read there. A drift test regenerates this in memory and fails if the
  * checked-in file falls behind the module — the same shape the JSON Schemas use,
  * and for the same reason: two copies of a definition is how this term ended up
  * meaning three different things (#691).
  */
-export const CLASSIFY_RULES_PATH = resolve(REPO_ROOT, "scripts", "source-classify.rules.json");
+export const CLASSIFY_RULES_PATH = resolve(REPO_ROOT, "scripts", "py", "source-classify.rules.json");
 
 /**
  * The same rules, as a shell partial the hooks inline at render time.
@@ -140,7 +140,7 @@ export function serializeClassifyRules() {
  * behind `activation-aliases.ts`, the same shape `CLASSIFY_RULES_PATH` uses
  * above and for the same reason.
  */
-export const ACTIVATION_ALIASES_PATH = resolve(REPO_ROOT, "scripts", "activation-aliases.json");
+export const ACTIVATION_ALIASES_PATH = resolve(REPO_ROOT, "scripts", "py", "activation-aliases.json");
 
 export function serializeActivationAliases() {
   return `${JSON.stringify(

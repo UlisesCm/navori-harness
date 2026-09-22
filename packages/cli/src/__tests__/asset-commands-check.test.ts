@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * #490 — the unreleased-subcommand guard (`scripts/check-asset-commands.mjs`).
+ * #490 — the unreleased-subcommand guard (`scripts/js/check-asset-commands.mjs`).
  *
  * An asset that orders `navori <cmd>` resolves the PUBLISHED binary, so a PR
  * landing a subcommand and an asset calling it together ships an asset that is
@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..", "..", "..");
-const SCRIPT = resolve(REPO_ROOT, "scripts", "check-asset-commands.mjs");
+const SCRIPT = resolve(REPO_ROOT, "scripts", "js", "check-asset-commands.mjs");
 
 function run(cwd: string = REPO_ROOT, script: string = SCRIPT, ...args: string[]) {
   return spawnSync("node", [script, ...args], {
@@ -101,13 +101,13 @@ function makeFixture(spec: FixtureSpec): string {
     write(repo, "packages/core/core-assets/hooks/demo.sh", `${lines.join("\n")}\n`);
   }
 
-  mkdirSync(join(repo, "scripts"), { recursive: true });
-  copyFileSync(SCRIPT, join(repo, "scripts", "check-asset-commands.mjs"));
+  mkdirSync(join(repo, "scripts", "js"), { recursive: true });
+  copyFileSync(SCRIPT, join(repo, "scripts", "js", "check-asset-commands.mjs"));
   return repo;
 }
 
 function runFixture(repo: string, ...args: string[]) {
-  return run(repo, join(repo, "scripts", "check-asset-commands.mjs"), ...args);
+  return run(repo, join(repo, "scripts", "js", "check-asset-commands.mjs"), ...args);
 }
 
 afterEach(() => {

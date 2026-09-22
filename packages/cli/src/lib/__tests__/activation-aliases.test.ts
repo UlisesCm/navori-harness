@@ -106,7 +106,7 @@ describe("role/skill alias decisions cover every renamed retiree", () => {
 });
 
 describe("the JSON that mine-activation.py reads can't fall behind the module", () => {
-  it("scripts/activation-aliases.json matches activation-aliases.ts", () => {
+  it("scripts/py/activation-aliases.json matches activation-aliases.ts", () => {
     // Same pattern as source-classify.rules.json: regenerate in memory and
     // compare byte-for-byte with the checked-in file.
     const onDisk = readFileSync(resolve(ACTIVATION_ALIASES_PATH), "utf-8");

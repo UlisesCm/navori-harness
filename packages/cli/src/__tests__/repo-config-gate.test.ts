@@ -33,7 +33,7 @@ const REPO_ROOT = resolve(HERE, "..", "..", "..", "..");
 const CI_WORKFLOW = resolve(REPO_ROOT, ".github", "workflows", "ci.yml");
 const CONFIG_PATH = resolve(REPO_ROOT, "navori.config.json");
 const PRE_PUSH_HOOK = resolve(REPO_ROOT, "scripts", "git-hooks", "pre-push");
-const HOOK_INSTALLER = resolve(REPO_ROOT, "scripts", "install-git-hooks.mjs");
+const HOOK_INSTALLER = resolve(REPO_ROOT, "scripts", "js", "install-git-hooks.mjs");
 
 interface RootPackageJson {
   scripts?: Record<string, string>;

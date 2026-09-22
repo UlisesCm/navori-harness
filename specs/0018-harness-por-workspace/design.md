@@ -43,7 +43,7 @@ ignorando el stamp de versión, así que ni siquiera aportan contenido propio.
 
 ### Por qué el escenario que justificaba la copia no ocurre
 
-`specs/0001-monorepo-render-per-workspace.md`, open question #3, eligió
+`specs/0001-monorepo-render-per-workspace/design.md`, open question #3, eligió
 conscientemente *"render full `.claude/` por app (más simple, mayor footprint)"*.
 La premisa era que alguien trabajaría desde adentro del workspace.
 

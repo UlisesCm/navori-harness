@@ -552,8 +552,8 @@ v0.2 cierra cuando:
 - `docs/research/ponytail-lessons.md` — auditoría completa de ponytail (las lecciones técnicas aplicables siguen vigentes; el roadmap competitivo de ese doc está deprecado por este spec).
 - Repo ponytail: https://github.com/DietrichGebert/ponytail
 - Repo ECC: https://github.com/affaan-m/ecc
-- `specs/0001-monorepo-render-per-workspace.md` — base del render actual.
-- `specs/0002-claude-engine-adapter.md` — base del adapter Claude.
+- `specs/0001-monorepo-render-per-workspace/design.md` — base del render actual.
+- `specs/0002-claude-engine-adapter/design.md` — base del adapter Claude.
 
 ---
 

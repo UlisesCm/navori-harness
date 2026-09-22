@@ -103,8 +103,8 @@
 Al terminar los cuatro lotes, remedir con las herramientas que ya existen:
 
 ```
-python3 scripts/classify-activation-arm.py --ids-after <dir-de-proyecto> > after.txt
-python3 scripts/mine-activation.py after.txt
+python3 scripts/py/classify-activation-arm.py --ids-after <dir-de-proyecto> > after.txt
+python3 scripts/py/mine-activation.py after.txt
 ```
 
 y escribir el resultado en `docs/research/activacion-subagentes-y-skills.md` **contra

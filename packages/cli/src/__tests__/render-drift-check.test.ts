@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 /**
  * #421 — the harness-mirror drift guard (`bun check:render` → this repo's
- * `scripts/check-render.mjs`).
+ * `scripts/js/check-render.mjs`).
  *
  * navori dogfoods itself: `.claude/` + `CLAUDE.md` here are RENDER OUTPUT. When
  * a managed asset changes in `@navori/core` and nobody re-renders, the mirror
@@ -23,7 +23,16 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI = resolve(__dirname, "..", "..", "dist", "index.js");
-const CHECK_SCRIPT = resolve(__dirname, "..", "..", "..", "..", "scripts", "check-render.mjs");
+const CHECK_SCRIPT = resolve(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "..",
+  "scripts",
+  "js",
+  "check-render.mjs",
+);
 
 /** Throwaway HOME so `init` can't self-register into the real ~/.navori. */
 const E2E_HOME = mkdtempSync(join(tmpdir(), "navori-drift-home-"));

@@ -104,7 +104,7 @@ compatible con el azar — exactamente el error que produjo el hallazgo falso de
 
 ```bash
 ls ~/.navori/audits/*/session-*.log | sed 's|.*/session-||; s|\.log$||' | sort -u > sessions.txt
-python3 scripts/mine-activation.py sessions.txt
+python3 scripts/py/mine-activation.py sessions.txt
 ```
 
 Para el "después", filtrar a sesiones cuyo registro `start` declare

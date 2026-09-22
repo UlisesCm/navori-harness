@@ -34,7 +34,7 @@ import { dirname, resolve } from "node:path";
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(here, "..");
+const REPO_ROOT = resolve(here, "..", "..");
 const CLI_REL = "packages/cli/dist/index.js";
 const CLI = resolve(REPO_ROOT, CLI_REL);
 

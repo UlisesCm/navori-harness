@@ -119,7 +119,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
 - [x] **T6** (R14, R15, R52) — Medición D19.
   - **`navori.config.json` del repo:** habilita `tgrep` y `codegraph` con `navori add`; el
     espejo se re-renderiza.
-  - **`scripts/mine-search-routing.py`:** cuenta `tgrep search` y `codegraph_explore` como vía v2
+  - **`scripts/py/mine-search-routing.py`:** cuenta `tgrep search` y `codegraph_explore` como vía v2
     y `Grep` nativo, `rg`, `grep -r` y `git grep` como escape; incluye subagents vinculados al
     transcript padre, deduplica por identidad y separa unavailable/malformed de cero. Conserva
     `tgrep-search.sh` para transcripts v1.
@@ -365,7 +365,7 @@ Cada PR cierra con `pnpm check` verde. Si cambia lo renderizado, el golden se re
     sucesor.
   - **Mineros de `scripts/`:** cuentan `commit-pr-pilot` y `publisher`, y `pr-pilot-confirm` y
     `pr-publisher-confirm`, como el mismo rol.
-  - **Fixture del criterio 2:** `scripts/mine-activation.py` tiene un fixture con `subagent_type`
+  - **Fixture del criterio 2:** `scripts/py/mine-activation.py` tiene un fixture con `subagent_type`
     `architect` que produce un conteo distinto de cero.
   - **Barrido de ids retirados:** cubre contenido y rutas de `core-assets/agents`,
     `core-assets/skills`, `core-assets/managed`, `packages/plugins` y presets (incluidos los JSON).

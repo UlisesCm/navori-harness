@@ -156,4 +156,4 @@ Doc oficial: https://code.claude.com/docs/en/permission-modes
 | Assets bundleados | [core-assets/](../packages/core/core-assets) · [plugins/](../packages/plugins) |
 
 > El plan de release que produjo v0.2 está en
-> [specs/0003-v0.2-quality-velocity-tokens.md](../specs/0003-v0.2-quality-velocity-tokens.md).
+> [specs/0003-v0.2-quality-velocity-tokens/design.md](../specs/0003-v0.2-quality-velocity-tokens/design.md).

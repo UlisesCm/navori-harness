@@ -27,7 +27,7 @@ conducta, y esto no agrega prosa.
 La tesis del repo es que lo que bloquea funciona (`guard-destructive` 14/14, en
 `docs/research/activacion-subagentes-y-skills.md`; `guard-search-routing` llevó
 el parque de 6.6% a 40.7% de búsquedas por la vía buena, en
-`scripts/mine-search-routing.py:79` y en `progress/history.md`) y lo sugerido no
+`scripts/py/mine-search-routing.py:79` y en `progress/history.md`) y lo sugerido no
 (doctrina de búsqueda 4.0%). Aquí igual conviene la vía consultiva, y la razón
 no es timidez:
 

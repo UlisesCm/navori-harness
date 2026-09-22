@@ -918,7 +918,7 @@ export function resultHasPendingWrites(result: ReturnType<typeof runRender>): bo
 
 /**
  * How many FILES render refused to write this run (hand-edited managed block, or
- * a block written by a newer navori). Same partition `scripts/check-render.mjs`
+ * a block written by a newer navori). Same partition `scripts/js/check-render.mjs`
  * calls `blocked`: file-level skips only — CLAUDE.md block-level
  * `user-modified-skipped` entries are already surfaced by `summarize()` as a red
  * "N conflict", and the guard buckets them apart as `staleBlocks`.

@@ -45,7 +45,7 @@ import { dirname, join, relative, resolve } from "node:path";
  * Usage: node scripts/check-asset-commands.mjs [--strict]
  */
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const INDEX_TS = "packages/cli/src/index.ts";
 const ASSET_DIRS = ["packages/core/core-assets", "packages/plugins"];
 /** Turns "could not run" into a failure. CI passes it; a local clone does not. */

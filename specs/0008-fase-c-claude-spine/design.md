@@ -3,7 +3,7 @@
 **Status:** ✅ **EJECUTADA 2026-07-28** — C.1/C.2/C.3 verdes. V-BYTE (codex + matriz Claude simple/monorepo/plugins+injectInto+extras+language=en) byte-idéntico; suite 72/1108 verde; `claude/index.ts` 1354→1189 LOC. Ver Registro.
 **Fecha:** 2026-07-28
 **Driver:** Ulises Ciprés
-**Depende de:** [Spec 0007](./0007-render-plan-unificado.md) Fases A y B (mergeadas en rama `refactor/spec-0007-fase-b-execute-plan`): `resolveHarnessPlan` (Capa 1) y `executePlan` + contrato `EngineAdapter` (Capa 3) ya existen y Codex ya corre sobre ellos.
+**Depende de:** [Spec 0007](../0007-render-plan-unificado/design.md) Fases A y B (mergeadas en rama `refactor/spec-0007-fase-b-execute-plan`): `resolveHarnessPlan` (Capa 1) y `executePlan` + contrato `EngineAdapter` (Capa 3) ya existen y Codex ya corre sobre ellos.
 **Objetivo:** que Claude comparta el spine para la lógica que HOY duplica con Codex (resolver inventario + placement + backup/write/prune), sin forzar sus rarezas legítimas dentro del contrato. Cerrar la duplicación real, no mudar todo el archivo por simetría.
 
 > **Cómo leer esta spec:** es la "spec propia" que el runbook 0007 (§2 Fase C, DT-1) exigía antes de tocar Claude. La decisión de diseño abierta (DT-C1) ya está **ratificada** (§4); el runbook §6 es ejecutable en orden. Mismos gates que 0007: V-BYTE byte a byte (§7) como gate duro, no solo tests verdes. Localizar bloques `ANTES` por grep, no por línea.
