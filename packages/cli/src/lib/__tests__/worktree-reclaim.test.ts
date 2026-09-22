@@ -79,6 +79,12 @@ function ghInvocations(): string[] {
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "navori-wt-"));
+  // #909 — this hook spawns 8 real `git` processes (bare repo init + a repo
+  // with an actual push) under Vitest's default 10s hookTimeout. That budget
+  // is fine in isolation but flakes under CPU contention from other suites
+  // running concurrently (multi-agent sessions, CI matrix). A per-hook
+  // override keeps the fix local instead of raising `hookTimeout` globally in
+  // vitest.config.ts, which would mask real timeout regressions elsewhere.
   binDir = join(root, "bin");
   ghCalls = join(root, "gh-calls.log");
   mkdirSync(binDir, { recursive: true });
@@ -96,7 +102,7 @@ beforeEach(() => {
   git(repo, "remote", "add", "origin", origin);
   git(repo, "push", "-u", "origin", "main");
   mkdirSync(join(repo, ".claude", "worktrees"), { recursive: true });
-});
+}, 20_000);
 
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
