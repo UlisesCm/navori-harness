@@ -385,19 +385,24 @@ describe.each(SHELLS)("audit-mode fail-open under %s", (shell) => {
   });
 
   /**
-   * With HOME stripped from the environment the two shells genuinely differ:
-   * bash leaves it unset, so the hook cannot resolve an audit root and bails
-   * silently; zsh REPOPULATES $HOME from the passwd entry, so the same hook
-   * proceeds and emits its question. Both are acceptable — what must hold in
-   * either case is the contract: exit 0, and nothing written anywhere.
+   * The hook's first move is `[ -n "$HOME" ] || exit 0`: with no usable HOME it
+   * cannot resolve an audit root, and it must bail silently rather than compose
+   * a path from an empty string. The contract: exit 0, nothing written anywhere.
+   *
+   * HOME is passed EMPTY, not omitted (#954). Omitting it splits the shells —
+   * bash leaves it unset, but zsh REPOPULATES $HOME from the passwd entry, which
+   * points at the developer's real home, outside the ephemeral HOME the suite
+   * runs under and therefore outside the isolation guard's view. An explicit
+   * empty value is the same branch of the hook (`-n` is false either way) and
+   * both shells honour it, so the case tests what it says and can't escape.
    */
-  it("exits 0 and writes nothing when HOME is unset", () => {
+  it("exits 0 and writes nothing when HOME is empty", () => {
     let code = 0;
     try {
       execFileSync(shell, [install(shell, TRIGGER)], {
         input: payload("audit mode"),
         encoding: "utf-8",
-        env: { PATH: process.env.PATH ?? "" },
+        env: { PATH: process.env.PATH ?? "", HOME: "" },
       });
     } catch (e) {
       code = (e as { status?: number }).status ?? 1;

@@ -83,9 +83,30 @@ async function withBuildLock(fn: () => void): Promise<void> {
  *    workers inherit this env), so no spec can write backups into — or purge
  *    backups from — the developer's `~/.navori/backups` (#404). It overrides an
  *    inherited value on purpose: isolation is not opt-out.
- * 3. Snapshots the real `~/.navori` root and, on teardown, fails the run if any
- *    entry appeared, changed or disappeared (#424 — the other five
+ * 3. Points `HOME` at a throwaway directory for the whole run, so the entire
+ *    machine-global root — not just `backups/` — is ephemeral (#954). Every
+ *    home-derived path goes through `safeHomedir()`, which calls
+ *    `os.homedir()` on each call with no cache, so nothing under `src/` has to
+ *    change; forked workers inherit this env exactly as they do
+ *    `NAVORI_BACKUP_ROOT`. This MUST come after the build: bun caches under
+ *    `$HOME`.
+ *
+ *    What it buys: the guard below used to snapshot the developer's REAL
+ *    `~/.navori`, a tree any other process on the machine can write to. A
+ *    `navori render --apply` in another worktree landed in that diff and
+ *    failed unrelated green runs (#954). Now the watched tree is one nobody
+ *    else knows about, so a false positive is impossible by construction
+ *    rather than by filter.
+ *
+ *    What it costs, deliberately: the real `~/.navori` stops being OBSERVED.
+ *    The protection it had turns from detection into prevention — no spec can
+ *    resolve it anymore — which is the asymmetry `vitest.homeGuard.ts` has
+ *    listed as debt since #424.
+ * 4. Snapshots that run-local `~/.navori` root and, on teardown, fails the run
+ *    if any entry appeared, changed or disappeared (#424 — the other five
  *    machine-global directories have no env override, only per-spec mocks).
+ *    A spec that forgets to mock `lib/home.ts` writes there and is caught
+ *    exactly as before; only the address of the tree changed.
  *    The repo under test is named so the guard can tell this repo's audit logs
  *    (a real leak) from another repo's (a concurrent session, #656).
  */
@@ -109,6 +130,13 @@ export default async function setup(): Promise<() => void> {
   const runRoot = mkdtempSync(join(tmpdir(), "navori-test-backups-"));
   process.env.NAVORI_BACKUP_ROOT = runRoot;
 
+  const runHome = mkdtempSync(join(tmpdir(), "navori-test-home-"));
+  process.env.HOME = runHome;
+  // `os.homedir()` reads USERPROFILE on Windows and HOME everywhere else, so
+  // both are set: one of them is dead weight per platform, and guessing which
+  // is how this would silently stop isolating on the other.
+  process.env.USERPROFILE = runHome;
+
   const realRoot = realNavoriHome();
   // The audit store keys per-repo directories by `basename(resolve(cwd))`
   // (`lib/audit/paths.ts`), and this package sits two levels under the repo root.
@@ -117,12 +145,22 @@ export default async function setup(): Promise<() => void> {
 
   return () => {
     rmSync(runRoot, { recursive: true, force: true });
-    if (!realRoot) return;
-    const leak = describeNavoriHomeLeak(realRoot, before, snapshotNavoriHome(realRoot), selfRepo);
-    if (!leak) return;
+    const leak = realRoot
+      ? describeNavoriHomeLeak(realRoot, before, snapshotNavoriHome(realRoot), selfRepo)
+      : null;
+    if (!leak) {
+      rmSync(runHome, { recursive: true, force: true });
+      return;
+    }
+    // The leaked files are the only evidence of WHICH spec escaped isolation,
+    // and the message names them by relative path — so a red guard keeps its
+    // home instead of deleting the thing you need to open next.
     // Throwing here is swallowed by vitest (it logs "error during close" and
     // still exits 0), so the failure is signalled by the exit code directly.
-    process.stderr.write(`\n✖ ~/.navori isolation guard (#404/#424)\n${leak}\n\n`);
+    process.stderr.write(
+      `\n✖ ~/.navori isolation guard (#404/#424)\n${leak}\n` +
+        `  The run's home is kept for inspection: ${runHome}\n\n`,
+    );
     process.exitCode = 1;
   };
 }
