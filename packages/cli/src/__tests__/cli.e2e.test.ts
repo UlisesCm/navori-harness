@@ -14,9 +14,9 @@ import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
-import { listKnownPluginIds } from "../lib/plugins.ts";
+import { listKnownPluginIds } from "../lib/config/plugins.ts";
 import { scanMissingExternalTools } from "../commands/doctor.ts";
-import type { NavoriConfig } from "../lib/config.ts";
+import type { NavoriConfig } from "../lib/config/config.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI = resolve(__dirname, "..", "..", "dist", "index.js");

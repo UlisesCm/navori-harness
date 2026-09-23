@@ -6,8 +6,12 @@
 # style: reformatea con oxfmt tras la migración de biome (#889)
 9f886f8dfb648c0fcccd334a42f0d52d8fd822f5
 
-# refactor(lib): reescribe imports tras mover módulos de lib (#894)
-02c283772b8d1694889091099e6c00ab6a1de6f7
+# refactor(lib): agrupa assets, workspace y diagnose en subdirectorios (#894 fase 1)
+# — #986 se mergeó por squash a main como un solo commit (los SHAs originales
+# de sus commits mecánicos en la rama de origen no son ancestros de main).
+# Verificado pura move + import-rewrite + prose/path fixups + hash regen
+# derivado, sin cambios de comportamiento.
+7b727bcf8f71c8d0ebe07b46b03af162df87da54
 
-# style(lib): reformatea imports mas largos tras el movimiento (#894)
-5c5088294bb1f46169224d441386b8888c9707a9
+# refactor(lib): reescribe imports tras mover config, primitives y render (#894 fase 2)
+e876ddf26728c545c62bcffd96f455c2920c822e

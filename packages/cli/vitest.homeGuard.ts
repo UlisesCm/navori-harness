@@ -19,7 +19,7 @@ import { isAbsolute, join } from "node:path";
  * the real root is now PREVENTED from being written, like `NAVORI_BACKUP_ROOT`
  * already did for backups — and it also closes the false positives, since no
  * other process on the machine can reach the watched tree. What the guard
- * detects is unchanged: a spec that forgets to mock `lib/home.ts` writes into
+ * detects is unchanged: a spec that forgets to mock `lib/primitives/home.ts` writes into
  * the run's home and shows up in the diff exactly as before.
  *
  * Read-only on disk by construction: it never creates, modifies or removes

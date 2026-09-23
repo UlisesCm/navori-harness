@@ -1,7 +1,7 @@
 import type { DetectedProject } from "../lib/diagnose/detect.ts";
 import type { ClaudeInfraInventory } from "../lib/assets/claude-infra.ts";
 import type { WorkspaceConfig } from "../lib/workspace/workspace.ts";
-import { dim as grey, kv, color } from "../lib/style.ts";
+import { dim as grey, kv, color } from "../lib/primitives/style.ts";
 import { t, type Lang } from "../lib/i18n.ts";
 
 export { grey };

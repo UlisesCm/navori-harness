@@ -11,10 +11,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { getPluginPath } from "../bundled-assets.ts";
-import { interpolate } from "../interpolate.ts";
-import { expandHookIncludes } from "../hook-includes.ts";
-import type { NavoriConfig } from "../config.ts";
+import { getPluginPath } from "../render/bundled-assets.ts";
+import { interpolate } from "../render/interpolate.ts";
+import { expandHookIncludes } from "../render/hook-includes.ts";
+import type { NavoriConfig } from "../config/config.ts";
 import { acrossShells, type HookShell } from "./helpers/shells.ts";
 
 /**

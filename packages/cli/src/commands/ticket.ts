@@ -12,7 +12,7 @@ import {
   TicketError,
 } from "../lib/workspace/tickets.ts";
 import { loadWorkspace } from "../lib/workspace/workspace.ts";
-import { brand, dim, accent, color, sym, kv } from "../lib/style.ts";
+import { brand, dim, accent, color, sym, kv } from "../lib/primitives/style.ts";
 import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
 
 /** Locale for ticket output: the workspace's default language, else the fallback. */

@@ -16,11 +16,11 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { NavoriConfigSchema } from "../src/lib/schema.ts";
+import { NavoriConfigSchema } from "../src/lib/config/schema.ts";
 import { WorkspaceConfigSchema } from "../src/lib/workspace/workspace.ts";
-import { PresetDefinitionSchema } from "../src/lib/presets.ts";
+import { PresetDefinitionSchema } from "../src/lib/config/presets.ts";
 import { CorePromptsFileSchema } from "../src/engines/claude/prompts-loader.ts";
-import { SCHEMA_BASE_URL } from "../src/lib/schema-url.ts";
+import { SCHEMA_BASE_URL } from "../src/lib/config/schema-url.ts";
 import { CLASSIFY_RULES, HARNESS_PROSE, SOURCE_EXT } from "../src/lib/diagnose/source-classify.ts";
 import {
   roleAliasDecisions,
@@ -169,7 +169,7 @@ const BASE_URL = SCHEMA_BASE_URL;
 /**
  * Each spec pairs a zod schema with the exact filename its `$schema` URL points
  * at. The `file` values MUST match the URLs the CLI writes:
- *   - lib/config.ts        → navori.config.v1.json
+ *   - lib/config/config.ts → navori.config.v1.json
  *   - lib/workspace.ts     → navori.workspace.v1.json
  *   - commands/preset.ts   → navori.preset.v1.json
  *   - core-assets/prompts.json → prompts.v1.json

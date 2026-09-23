@@ -1,4 +1,4 @@
-import type { NavoriConfig } from "../../lib/config.ts";
+import type { NavoriConfig } from "../../lib/config/config.ts";
 
 /**
  * The commit-hygiene line ("Never commit `.claude/` or `CLAUDE.md`") must NOT be

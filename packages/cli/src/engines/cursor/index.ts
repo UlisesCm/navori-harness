@@ -1,4 +1,4 @@
-import { type NavoriConfig } from "../../lib/config.ts";
+import { type NavoriConfig } from "../../lib/config/config.ts";
 import { renderProseFile, type ProseEngineResult } from "../shared/prose-harness.ts";
 
 /**

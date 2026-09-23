@@ -22,7 +22,7 @@ import { join } from "node:path";
  */
 
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const prompted = vi.hoisted(() => ({ count: 0 }));
 vi.mock("@clack/prompts", () => {
@@ -50,7 +50,7 @@ vi.mock("@clack/prompts", () => {
   };
 });
 
-const { writeConfig } = await import("../../lib/config.ts");
+const { writeConfig } = await import("../../lib/config/config.ts");
 const { runRender } = await import("../render.ts");
 const {
   syncCommand,
@@ -59,7 +59,7 @@ const {
   summarizeConflictDiff,
   CONFLICT_DIFF_MAX_LINES,
 } = await import("../sync.ts");
-const { USER_SECTION_START, USER_SECTION_END } = await import("../../lib/marker.ts");
+const { USER_SECTION_START, USER_SECTION_END } = await import("../../lib/render/marker.ts");
 
 let cwd: string;
 

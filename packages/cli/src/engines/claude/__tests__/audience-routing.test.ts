@@ -3,8 +3,8 @@ import { mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync, existsSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
-import { CORE_MANAGED_ASSETS } from "../../../lib/render-plan.ts";
-import type { NavoriConfig } from "../../../lib/config.ts";
+import { CORE_MANAGED_ASSETS } from "../../../lib/render/render-plan.ts";
+import type { NavoriConfig } from "../../../lib/config/config.ts";
 
 /**
  * Spec 0015 (#573) — doctrine addressed to the orchestrator leaves the file

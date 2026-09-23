@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { getCoreRoot } from "../bundled-assets.ts";
+import { getCoreRoot } from "../render/bundled-assets.ts";
 
 /**
  * Shape contract for core skill assets. Skills don't carry the `tools` or

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { readCliVersion } from "../../lib/bundled-assets.ts";
+import { readCliVersion } from "../../lib/render/bundled-assets.ts";
 import { commitWrites } from "./execute-plan.ts";
 import { engineOutputPaths } from "./gitignore-harness.ts";
 import { tc, type Lang } from "../../lib/i18n.ts";
@@ -10,8 +10,8 @@ import {
   injectManagedSection,
   removeManagedSection,
   type MarkerMeta,
-} from "../../lib/marker.ts";
-import type { RenderStatus } from "../../lib/style.ts";
+} from "../../lib/render/marker.ts";
+import type { RenderStatus } from "../../lib/primitives/style.ts";
 
 /**
  * Prevention for #523: a formatter can freeze the whole harness.

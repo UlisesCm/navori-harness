@@ -10,7 +10,7 @@
 
 // Type-only (erased at build time): this file stays runtime-dependency-free,
 // but the prune's reason union is defined once, where the prune decides it.
-import type { KeepReason } from "./removable.ts";
+import type { KeepReason } from "./render/removable.ts";
 
 export type Lang = "es" | "en";
 

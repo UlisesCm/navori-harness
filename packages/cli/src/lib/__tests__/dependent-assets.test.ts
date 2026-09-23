@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { computeRenderPlan } from "../render-plan.ts";
-import { NavoriConfigSchema } from "../schema.ts";
+import { computeRenderPlan } from "../render/render-plan.ts";
+import { NavoriConfigSchema } from "../config/schema.ts";
 
 describe("dependent rendered doctrine (#769)", () => {
   it("does not route to disabled agents or SDD assets", () => {

@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
-import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/schema.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/config/schema.ts";
 
 /**
  * #443 — the class closer: a vocabulary rule that matches nothing is a BUG, not

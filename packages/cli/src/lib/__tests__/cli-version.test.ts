@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readCliVersion } from "../bundled-assets.ts";
+import { readCliVersion } from "../render/bundled-assets.ts";
 
 /**
  * #488 — `audit` stamped every report `navori@0.0.0`.

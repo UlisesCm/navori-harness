@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { getCoreRoot } from "../lib/bundled-assets.ts";
-import { conditionOrchestration } from "../lib/render-plan.ts";
-import { NavoriConfigSchema, type NavoriConfig } from "../lib/schema.ts";
+import { getCoreRoot } from "../lib/render/bundled-assets.ts";
+import { conditionOrchestration } from "../lib/render/render-plan.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../lib/config/schema.ts";
 
 /**
  * Spec 0030 (#985) Lote 2 — contract assertions on the prose assets T3-T5

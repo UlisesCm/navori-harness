@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { backupRoot } from "../lib/backup.ts";
+import { backupRoot } from "../lib/render/backup.ts";
 import {
   type HomeSnapshot,
   UNWATCHED_FINGERPRINT,

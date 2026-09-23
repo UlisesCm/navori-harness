@@ -10,7 +10,7 @@ import { join } from "node:path";
  * index is derived — these tests pin that contract (spec 0011 §5.4).
  */
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const {
   ensureDominio,

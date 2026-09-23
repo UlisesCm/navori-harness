@@ -1,5 +1,5 @@
 # Shared worktree resolver — inlined into each gate hook at render time (see the
-# include directive in the source scripts + lib/hook-includes.ts). Requires the
+# include directive in the source scripts + lib/render/hook-includes.ts). Requires the
 # `extract-cmd` partial to have run first ($payload and $cmd in scope).
 #
 # WHY (#454): settings.json invokes these hooks as

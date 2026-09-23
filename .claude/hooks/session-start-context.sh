@@ -1,4 +1,4 @@
-# navori:managed start id="session-start-context-base" hash="f8133d69" version="0.9.0" source="@navori/core"
+# navori:managed start id="session-start-context-base" hash="bd4da76e" version="0.9.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # SessionStart context hook.
@@ -97,7 +97,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,
@@ -414,7 +414,7 @@ add_bounded() {
 # UserPromptSubmit recorder, which covers the RUNNING session); this hook covers
 # "armed before the session opened".
 # Shared armed-audit consumption (#597, #599) — inlined into each consuming hook
-# at render time (see lib/hook-includes.ts). Single source of truth for the flag
+# at render time (see lib/render/hook-includes.ts). Single source of truth for the flag
 # protocol so the two consumers cannot drift apart:
 #
 #   · SessionStart  — arm BEFORE opening the session (original #597 flow).

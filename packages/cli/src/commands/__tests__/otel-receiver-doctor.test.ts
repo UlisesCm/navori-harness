@@ -1,6 +1,10 @@
 import { createServer } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import { NavoriConfigSchema, type NavoriConfig, type NavoriConfigInput } from "../../lib/schema.ts";
+import {
+  NavoriConfigSchema,
+  type NavoriConfig,
+  type NavoriConfigInput,
+} from "../../lib/config/schema.ts";
 import { scanOtelReceiver } from "../doctor.ts";
 import { startReceiver, type OtelReceiver } from "../../lib/audit/collect.ts";
 

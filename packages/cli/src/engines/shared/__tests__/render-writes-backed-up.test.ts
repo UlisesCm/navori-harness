@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { NavoriConfigInput } from "../../../lib/schema.ts";
+import type { NavoriConfigInput } from "../../../lib/config/schema.ts";
 
 /**
  * #458, the structural half: `.gitignore` skipped the backup for months because
@@ -22,11 +22,11 @@ import type { NavoriConfigInput } from "../../../lib/schema.ts";
  * store is redirected per spec file by `NAVORI_BACKUP_ROOT` (#404).
  */
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
-const { writeConfig } = await import("../../../lib/config.ts");
+const { writeConfig } = await import("../../../lib/config/config.ts");
 const { runRender } = await import("../../../commands/render.ts");
-const { backupRoot } = await import("../../../lib/backup.ts");
+const { backupRoot } = await import("../../../lib/render/backup.ts");
 const { EPHEMERAL_HARNESS_PATHS } = await import("../ephemeral-paths.ts");
 
 let cwd: string;

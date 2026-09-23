@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { computeRenderPlan } from "../render-plan.ts";
-import { injectManagedSection } from "../marker.ts";
-import { NavoriConfigSchema } from "../schema.ts";
-import { RETIRED_PLUGINS } from "../plugins.ts";
+import { computeRenderPlan } from "../render/render-plan.ts";
+import { injectManagedSection } from "../render/marker.ts";
+import { NavoriConfigSchema } from "../config/schema.ts";
+import { RETIRED_PLUGINS } from "../config/plugins.ts";
 
 /**
  * #271 — a plugin removed from navori (e.g. `cognitive`, removed in #130) still

@@ -14,8 +14,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readCliVersion } from "../../../lib/bundled-assets.ts";
-import { defaultGlobalConfig } from "../../../lib/global-config.ts";
+import { readCliVersion } from "../../../lib/render/bundled-assets.ts";
+import { defaultGlobalConfig } from "../../../lib/config/global-config.ts";
 import {
   applyGlobalRender,
   composeBaseline,

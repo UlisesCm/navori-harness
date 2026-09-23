@@ -2,16 +2,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NavoriConfigSchema, type NavoriConfig } from "../../lib/schema.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
 import { renderClaudeEngine } from "../claude/index.ts";
 import { renderCodexEngine } from "../codex/index.ts";
 import { renderCursorEngine } from "../cursor/index.ts";
 import { renderCopilotEngine } from "../copilot/index.ts";
 import { renderAgentsMdEngine } from "../agents-md/index.ts";
-import { writeConfig } from "../../lib/config.ts";
+import { writeConfig } from "../../lib/config/config.ts";
 import { runRender } from "../../commands/render.ts";
-import { extractManagedContent } from "../../lib/marker.ts";
-import { splitFrontmatter, getFrontmatterField } from "../../lib/frontmatter.ts";
+import { extractManagedContent } from "../../lib/render/marker.ts";
+import { splitFrontmatter, getFrontmatterField } from "../../lib/render/frontmatter.ts";
 
 // C07 (doctor half): `hasBinary` is mocked file-wide so `scanMissingExternalTools`/
 // `computeHealthVerdict` don't depend on what's actually installed on the test
@@ -19,7 +19,9 @@ import { splitFrontmatter, getFrontmatterField } from "../../lib/frontmatter.ts"
 // Harmless for every other describe block here: nothing in the render pipeline
 // calls `hasBinary`.
 const hasBinary = vi.fn();
-vi.mock(import("../../lib/which.ts"), () => ({ hasBinary: (n: string) => hasBinary(n) }));
+vi.mock(import("../../lib/primitives/which.ts"), () => ({
+  hasBinary: (n: string) => hasBinary(n),
+}));
 const { scanMissingExternalTools, computeHealthVerdict } = await import("../../commands/doctor.ts");
 
 /**

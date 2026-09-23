@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
-import type { NavoriConfig } from "../../../lib/config.ts";
+import type { NavoriConfig } from "../../../lib/config/config.ts";
 
 const CONFIG_FULL = {
   name: "demo",

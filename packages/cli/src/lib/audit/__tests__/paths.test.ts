@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { rangeReportDir, repoFromCwd, sessionReportDir } from "../paths.ts";
-import { NavoriError } from "../../errors.ts";
+import { NavoriError } from "../../primitives/errors.ts";
 
 /**
  * The report directories compose a filesystem path out of an OPAQUE HOST TOKEN

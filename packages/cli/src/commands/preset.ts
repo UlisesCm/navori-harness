@@ -2,11 +2,11 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { writeFileAtomic } from "../lib/atomic.ts";
-import { readConfig, writeConfig } from "../lib/config.ts";
-import { brand, accent, dim } from "../lib/style.ts";
+import { writeFileAtomic } from "../lib/primitives/atomic.ts";
+import { readConfig, writeConfig } from "../lib/config/config.ts";
+import { brand, accent, dim } from "../lib/primitives/style.ts";
 import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
-import { schemaUrl } from "../lib/schema-url.ts";
+import { schemaUrl } from "../lib/config/schema-url.ts";
 
 /** Mirrors PresetDefinitionSchema.id — kebab-case, alphanumeric start. */
 const PRESET_ID_RE = /^[a-z0-9][a-z0-9-]*$/;

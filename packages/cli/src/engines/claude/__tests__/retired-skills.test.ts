@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
 import { CORE_SKILLS, RETIRED_SKILLS, WORKFLOW_SKILLS } from "../../shared/harness-assets.ts";
-import { readCliVersion } from "../../../lib/bundled-assets.ts";
-import type { NavoriConfig } from "../../../lib/config.ts";
+import { readCliVersion } from "../../../lib/render/bundled-assets.ts";
+import type { NavoriConfig } from "../../../lib/config/config.ts";
 
 /**
  * A skill navori retires must leave the repos it was already rendered into

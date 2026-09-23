@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_LANG, SUPPORTED_LANGS } from "../i18n.ts";
+import { DEFAULT_LANG, SUPPORTED_LANGS } from "../../i18n.ts";
 import { placeholderFallback } from "../placeholders.ts";
 
 describe("placeholderFallback (F12)", () => {

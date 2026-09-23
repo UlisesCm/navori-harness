@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, relative } from "node:path";
-import type { NavoriConfigInput } from "../../lib/schema.ts";
+import type { NavoriConfigInput } from "../../lib/config/schema.ts";
 
 /**
  * #458 — `.gitignore` was the last render write that skipped the backup.
@@ -22,7 +22,7 @@ import type { NavoriConfigInput } from "../../lib/schema.ts";
  * itself is redirected per spec file by `NAVORI_BACKUP_ROOT` (#404).
  */
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 vi.mock("@clack/prompts", () => ({
   intro: vi.fn(),
@@ -42,10 +42,10 @@ vi.mock("@clack/prompts", () => ({
 }));
 
 const { runCommand } = await import("citty");
-const { writeConfig } = await import("../../lib/config.ts");
+const { writeConfig } = await import("../../lib/config/config.ts");
 const { runRender } = await import("../render.ts");
 const { backupCommand } = await import("../backup.ts");
-const { backupRoot } = await import("../../lib/backup.ts");
+const { backupRoot } = await import("../../lib/render/backup.ts");
 
 let cwd: string;
 

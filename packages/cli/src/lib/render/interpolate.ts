@@ -1,7 +1,7 @@
-import type { NavoriConfig } from "./config.ts";
-import { resolveLang } from "./i18n.ts";
+import type { NavoriConfig } from "../config/config.ts";
+import { resolveLang } from "../i18n.ts";
 import { placeholderFallback, type FallbackScope } from "./placeholders.ts";
-import { shellSingleQuote } from "./shell-escape.ts";
+import { shellSingleQuote } from "../primitives/shell-escape.ts";
 
 /**
  * The single `{{path.to.value}}` interpolator for the whole render pipeline

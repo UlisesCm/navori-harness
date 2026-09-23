@@ -2,11 +2,11 @@ import { describe, it, expect } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { injectManagedSection } from "../../../lib/marker.ts";
-import { writeFileAtomic } from "../../../lib/atomic.ts";
-import { readCliVersion } from "../../../lib/bundled-assets.ts";
+import { injectManagedSection } from "../../../lib/render/marker.ts";
+import { writeFileAtomic } from "../../../lib/primitives/atomic.ts";
+import { readCliVersion } from "../../../lib/render/bundled-assets.ts";
 import { collectPlan, type AdapterCtx, type EngineAdapter } from "../execute-plan.ts";
-import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/schema.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/config/schema.ts";
 import type { HarnessPlan } from "../harness-plan.ts";
 
 /**

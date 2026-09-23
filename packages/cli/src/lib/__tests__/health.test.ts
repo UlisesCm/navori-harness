@@ -16,14 +16,14 @@ import {
   listMarkers,
   type DriftReport,
 } from "../diagnose/health.ts";
-import * as plugins from "../plugins.ts";
-import { NavoriConfigSchema } from "../schema.ts";
-import { computeManagedHash, injectManagedSection } from "../marker.ts";
-import { computeRenderPlan } from "../render-plan.ts";
+import * as plugins from "../config/plugins.ts";
+import { NavoriConfigSchema } from "../config/schema.ts";
+import { computeManagedHash, injectManagedSection } from "../render/marker.ts";
+import { computeRenderPlan } from "../render/render-plan.ts";
 import { effectiveConfigForWorkspace } from "../workspace/monorepo.ts";
 import { CLAUDE_COMPUTED_BLOCK_IDS, renderClaudeEngine } from "../../engines/claude/index.ts";
 import { RETIRED_SKILLS, RETIRED_HOOKS } from "../../engines/shared/harness-assets.ts";
-import { readCliVersion } from "../bundled-assets.ts";
+import { readCliVersion } from "../render/bundled-assets.ts";
 
 const contentDrift: DriftReport = {
   filePath: ".claude/agents/leader.md",

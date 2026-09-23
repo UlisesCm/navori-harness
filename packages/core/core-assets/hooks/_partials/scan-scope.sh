@@ -1,5 +1,5 @@
 # Shared scan scope — inlined into the diff-scanning gate hooks at render time
-# (see the include directive in the source scripts + lib/hook-includes.ts).
+# (see the include directive in the source scripts + lib/render/hook-includes.ts).
 # DO NOT copy this body back into a hook by hand: hand-synced copies are how the
 # two scanners drifted apart in the first place (#225/#261, and #777 below).
 #

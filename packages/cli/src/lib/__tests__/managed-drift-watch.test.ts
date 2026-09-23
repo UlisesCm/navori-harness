@@ -3,10 +3,10 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
-import { getCoreRoot } from "../bundled-assets.ts";
-import { computeManagedHash } from "../marker.ts";
+import { getCoreRoot } from "../render/bundled-assets.ts";
+import { computeManagedHash } from "../render/marker.ts";
 import { buildClaudeSettings } from "../../engines/claude/build-settings.ts";
-import type { NavoriConfig } from "../config.ts";
+import type { NavoriConfig } from "../config/config.ts";
 
 const MINIMAL_CONFIG = {
   name: "test",

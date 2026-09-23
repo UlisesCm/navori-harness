@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { getCoreRoot } from "../../../lib/bundled-assets.ts";
+import { getCoreRoot } from "../../../lib/render/bundled-assets.ts";
 import { ROSTER_CORE_SKILLS } from "../roster.ts";
 
 const coreAssets = resolve(getCoreRoot(), "core-assets");

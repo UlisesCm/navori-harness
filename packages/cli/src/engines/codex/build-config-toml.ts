@@ -1,5 +1,5 @@
-import type { NavoriConfig } from "../../lib/config.ts";
-import type { LoadedPlugin } from "../../lib/plugins.ts";
+import type { NavoriConfig } from "../../lib/config/config.ts";
+import type { LoadedPlugin } from "../../lib/config/plugins.ts";
 
 function tomlString(value: string): string {
   return JSON.stringify(value);

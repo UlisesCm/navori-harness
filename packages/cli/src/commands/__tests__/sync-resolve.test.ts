@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveSyncTargets } from "../sync.ts";
-import type { NavoriConfig } from "../../lib/config.ts";
+import type { NavoriConfig } from "../../lib/config/config.ts";
 
 const ROOT_CONFIG = {
   name: "demo",

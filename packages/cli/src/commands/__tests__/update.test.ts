@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readConfig, writeConfig } from "../../lib/config.ts";
+import { readConfig, writeConfig } from "../../lib/config/config.ts";
 import { detectProject } from "../../lib/diagnose/detect.ts";
 import { runRender } from "../render.ts";
 import {

@@ -14,7 +14,11 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { splitFrontmatter, getFrontmatterField, getFrontmatterMapField } from "../frontmatter.ts";
+import {
+  splitFrontmatter,
+  getFrontmatterField,
+  getFrontmatterMapField,
+} from "../render/frontmatter.ts";
 
 /** File that marks a skill DIRECTORY (`.claude/skills/<id>/SKILL.md`). Shared so
  * `resolveLocalSkillPath` and `claude-infra`'s `listSkillDirs` agree on the

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import { safeHomedir } from "./home.ts";
+import { safeHomedir } from "../primitives/home.ts";
 
 /**
  * Machine-local config for the OPTIONAL global harness (Spec 0010). Lives next

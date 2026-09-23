@@ -3,9 +3,9 @@ import { mkdtempSync, writeFileSync, rmSync, chmodSync, mkdirSync, readFileSync 
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
-import { expandHookIncludes } from "../hook-includes.ts";
-import { getCoreRoot } from "../bundled-assets.ts";
-import { shellSingleQuote } from "../shell-escape.ts";
+import { expandHookIncludes } from "../render/hook-includes.ts";
+import { getCoreRoot } from "../render/bundled-assets.ts";
+import { shellSingleQuote } from "../primitives/shell-escape.ts";
 import { acrossShells, HOOK_SHELLS } from "./helpers/shells.ts";
 import type { HookShell } from "./helpers/shells.ts";
 

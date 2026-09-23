@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 // inference (`allowJs` in packages/cli/tsconfig.json) instead of a hand-written
 // declaration that would be a second thing to keep in sync.
 import { SCHEMA_SPECS, schemaPath, serializeSchema } from "../../../scripts/gen-schemas.mjs";
-import { schemaUrl } from "../schema-url.ts";
+import { schemaUrl } from "../config/schema-url.ts";
 
 /**
  * Guards against drift between the zod schemas and the JSON Schema files

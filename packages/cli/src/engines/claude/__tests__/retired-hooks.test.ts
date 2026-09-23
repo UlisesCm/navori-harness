@@ -12,8 +12,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
 import { RETIRED_HOOKS } from "../../shared/harness-assets.ts";
-import { getCoreRoot, readCliVersion } from "../../../lib/bundled-assets.ts";
-import type { NavoriConfig } from "../../../lib/config.ts";
+import { getCoreRoot, readCliVersion } from "../../../lib/render/bundled-assets.ts";
+import type { NavoriConfig } from "../../../lib/config/config.ts";
 
 /**
  * A hook navori retires must leave the repos it was already rendered into

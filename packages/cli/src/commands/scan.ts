@@ -2,7 +2,7 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { resolve } from "node:path";
 import { existsSync } from "node:fs";
-import { readConfig, writeConfig, type NavoriConfig } from "../lib/config.ts";
+import { readConfig, writeConfig, type NavoriConfig } from "../lib/config/config.ts";
 import {
   scanMonorepoWorkspaces,
   diffWorkspaces,
@@ -10,7 +10,7 @@ import {
   type ScanDiff,
 } from "../lib/diagnose/scan.ts";
 import type { MonorepoWorkspace } from "../lib/workspace/monorepo.ts";
-import { brand, dim, color, kv } from "../lib/style.ts";
+import { brand, dim, color, kv } from "../lib/primitives/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
 
 export type ScanOutcome =

@@ -1,4 +1,4 @@
-import { suggestTestsForNewCode, type DetectedProject } from "./diagnose/detect.ts";
+import { suggestTestsForNewCode, type DetectedProject } from "../diagnose/detect.ts";
 
 /**
  * Build a reasonable quality-gate fallback for `init --recommended` when

@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { buildClaudeSettings } from "../engines/claude/build-settings.ts";
-import { getCoreRoot, listBundledPluginIds } from "../lib/bundled-assets.ts";
-import { loadPlugin } from "../lib/plugins.ts";
-import { NavoriConfigSchema, type NavoriConfig } from "../lib/schema.ts";
+import { getCoreRoot, listBundledPluginIds } from "../lib/render/bundled-assets.ts";
+import { loadPlugin } from "../lib/config/plugins.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../lib/config/schema.ts";
 
 /**
  * #778 — every hook the harness REGISTERS must be able to say that it ran.

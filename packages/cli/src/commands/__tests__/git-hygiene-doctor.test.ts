@@ -3,7 +3,11 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { NavoriConfigSchema, type NavoriConfig, type NavoriConfigInput } from "../../lib/schema.ts";
+import {
+  NavoriConfigSchema,
+  type NavoriConfig,
+  type NavoriConfigInput,
+} from "../../lib/config/schema.ts";
 import { scanGitHygiene } from "../doctor.ts";
 
 /**

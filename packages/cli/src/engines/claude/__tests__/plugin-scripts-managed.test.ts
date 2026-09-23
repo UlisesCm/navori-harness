@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/schema.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/config/schema.ts";
 import { renderClaudeEngine } from "../index.ts";
-import { navoriAuthorship } from "../../../lib/removable.ts";
+import { navoriAuthorship } from "../../../lib/render/removable.ts";
 
 /**
  * #637 — a plugin script is no longer the one file navori cannot prove it wrote.

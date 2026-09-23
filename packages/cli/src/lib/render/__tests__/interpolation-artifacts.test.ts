@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_LANG } from "../i18n.ts";
-import { NavoriConfigSchema, type NavoriConfig } from "../schema.ts";
+import { DEFAULT_LANG } from "../../i18n.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../../config/schema.ts";
 import { placeholderFallback } from "../placeholders.ts";
 import { scanInterpolationArtifacts } from "../interpolation-artifacts.ts";
 

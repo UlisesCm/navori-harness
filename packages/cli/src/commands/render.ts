@@ -2,15 +2,19 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, rmSync } from "node:fs";
 import { relative, resolve } from "node:path";
-import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
+import { readConfig, ConfigError, type NavoriConfig } from "../lib/config/config.ts";
 import {
   measureDocBudgetFile,
   scanOrphanedEngineOutputs,
   type OrphanedEngineOutput,
 } from "../lib/diagnose/health.ts";
-import { planOrphanRemoval, removeEmptyDirs, type OrphanRemovalPlan } from "../lib/removable.ts";
-import { createBackup, purgeOldBackups } from "../lib/backup.ts";
-import type { AssetPlanEntry, UpdateAvailable } from "../lib/render-plan.ts";
+import {
+  planOrphanRemoval,
+  removeEmptyDirs,
+  type OrphanRemovalPlan,
+} from "../lib/render/removable.ts";
+import { createBackup, purgeOldBackups } from "../lib/render/backup.ts";
+import type { AssetPlanEntry, UpdateAvailable } from "../lib/render/render-plan.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
 import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
 import { renderCursorEngine } from "../engines/cursor/index.ts";
@@ -37,15 +41,15 @@ import {
   brand,
   sym,
   type RenderStatus,
-} from "../lib/style.ts";
+} from "../lib/primitives/style.ts";
 import { t, tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
-import { describeCoreProvenance, type CoreProvenance } from "../lib/bundled-assets.ts";
+import { describeCoreProvenance, type CoreProvenance } from "../lib/render/bundled-assets.ts";
 import {
   effectiveConfigForWorkspace,
   buildMonorepoContext,
   enabledMonorepoWorkspaces,
 } from "../lib/workspace/monorepo.ts";
-import { benchStart, benchMark, benchReport } from "../lib/bench.ts";
+import { benchStart, benchMark, benchReport } from "../lib/primitives/bench.ts";
 import {
   listRegistryRepos,
   pruneRegistry,

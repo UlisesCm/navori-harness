@@ -14,7 +14,7 @@ import { join } from "node:path";
  */
 
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const {
   detectPrettier,
@@ -23,7 +23,7 @@ const {
   scanPrettierIgnore,
   PRETTIERIGNORE_MANAGED_ID,
 } = await import("../prettierignore-harness.ts");
-const { extractManagedContent } = await import("../../../lib/marker.ts");
+const { extractManagedContent } = await import("../../../lib/render/marker.ts");
 
 let cwd: string;
 

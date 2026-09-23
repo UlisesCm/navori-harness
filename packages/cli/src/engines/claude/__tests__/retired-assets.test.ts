@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { NavoriConfig } from "../../../lib/config.ts";
+import type { NavoriConfig } from "../../../lib/config/config.ts";
 
 /**
  * spec 0026 T10 (R39, R41) — the agent half of retirement reconciliation, and
@@ -33,7 +33,7 @@ vi.mock(import("../../shared/harness-assets.ts"), async (importOriginal) => {
 });
 
 const { renderClaudeEngine } = await import("../index.ts");
-const { readCliVersion } = await import("../../../lib/bundled-assets.ts");
+const { readCliVersion } = await import("../../../lib/render/bundled-assets.ts");
 
 const CONFIG = {
   name: "demo",

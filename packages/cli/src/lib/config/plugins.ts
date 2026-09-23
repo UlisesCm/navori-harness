@@ -1,13 +1,13 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { z } from "zod";
-import { NavoriError } from "./errors.ts";
+import { NavoriError } from "../primitives/errors.ts";
 import {
   bundledPluginManifestPath,
   getPluginPath,
   listBundledPluginIds,
-} from "./bundled-assets.ts";
-import { safeRelPath } from "./zod-helpers.ts";
+} from "../render/bundled-assets.ts";
+import { safeRelPath } from "../primitives/zod-helpers.ts";
 
 /**
  * Exported (spec 0026 T8, R42) solely so `roster-parity.test.ts` can verify it

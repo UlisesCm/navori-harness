@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { getCoreRoot } from "../bundled-assets.ts";
-import { loadPlugin } from "../plugins.ts";
+import { getCoreRoot } from "../render/bundled-assets.ts";
+import { loadPlugin } from "../config/plugins.ts";
 
 /**
  * Spec 0026 T18 (R45, R46) — `publisher.md` gains the comment contract

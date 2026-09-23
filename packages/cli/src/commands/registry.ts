@@ -10,11 +10,11 @@ import {
   scanForRepos,
   registryPath,
 } from "../lib/workspace/registry.ts";
-import { readConfig } from "../lib/config.ts";
-import { intFlagOrExit } from "../lib/args.ts";
-import { brand, dim, color, accent, sym } from "../lib/style.ts";
+import { readConfig } from "../lib/config/config.ts";
+import { intFlagOrExit } from "../lib/primitives/args.ts";
+import { brand, dim, color, accent, sym } from "../lib/primitives/style.ts";
 import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
-import { readGlobalConfig } from "../lib/global-config.ts";
+import { readGlobalConfig } from "../lib/config/global-config.ts";
 
 /** Language for the machine-global registry commands: global config, else default. */
 function globalLang(): Lang {

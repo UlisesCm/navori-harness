@@ -25,7 +25,7 @@ import { join } from "node:path";
  * reaches the developer's `~/.navori` (#404).
  */
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 vi.mock("@clack/prompts", () => ({
   intro: vi.fn(),
@@ -181,7 +181,7 @@ describe("navori configure migrate — CLI", () => {
       rawArgs: ["migrate", "--cwd", cwd, "--yes", "--scout", "sonnet", "--scout-effort", "medium"],
     });
 
-    const { readConfig } = await import("../../lib/config.ts");
+    const { readConfig } = await import("../../lib/config/config.ts");
     const config = readConfig(join(cwd, "navori.config.json"));
     expect(config.models?.scout).toBe("sonnet");
     expect(config.effort?.scout).toBe("medium");

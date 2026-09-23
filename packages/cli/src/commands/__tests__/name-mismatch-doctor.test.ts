@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { NavoriConfig } from "../../lib/config.ts";
+import type { NavoriConfig } from "../../lib/config/config.ts";
 import { scanNameMismatch } from "../doctor.ts";
 import { detectProject } from "../../lib/diagnose/detect.ts";
 

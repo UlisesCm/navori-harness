@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
-import { getCoreRoot } from "./bundled-assets.ts";
-import { safeRelPath } from "./zod-helpers.ts";
-import { NavoriError } from "./errors.ts";
+import { getCoreRoot } from "../render/bundled-assets.ts";
+import { safeRelPath } from "../primitives/zod-helpers.ts";
+import { NavoriError } from "../primitives/errors.ts";
 
 /**
  * Preset definition — describes EXTRA managed assets a stack-specific preset

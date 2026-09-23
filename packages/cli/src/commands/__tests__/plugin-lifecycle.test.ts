@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeConfig } from "../../lib/config.ts";
+import { writeConfig } from "../../lib/config/config.ts";
 import { runRender } from "../render.ts";
-import { extractManagedContent } from "../../lib/marker.ts";
+import { extractManagedContent } from "../../lib/render/marker.ts";
 
 /**
  * #80 — disabling a plugin must clean up ALL its artifacts, not just its

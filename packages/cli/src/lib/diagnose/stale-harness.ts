@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import type { NavoriConfig } from "../config.ts";
+import type { NavoriConfig } from "../config/config.ts";
 import { enabledMonorepoWorkspaces } from "../workspace/monorepo.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../../engines/shared/ephemeral-paths.ts";
 

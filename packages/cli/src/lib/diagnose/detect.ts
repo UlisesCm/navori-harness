@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
-import { presetExists } from "../presets.ts";
+import { presetExists } from "../config/presets.ts";
 import { collectWorkspacePatterns } from "../workspace/workspace-patterns.ts";
 import {
   detectLibrarySkills,

@@ -17,7 +17,7 @@ import { resolve } from "node:path";
 const SRC = resolve(fileURLToPath(new URL(".", import.meta.url)), "../..");
 
 const REPO_PATH_FILES = [
-  "lib/render-plan.ts",
+  "lib/render/render-plan.ts",
   "lib/diagnose/health.ts",
   "engines/shared/execute-plan.ts",
   "engines/shared/harness-plan.ts",

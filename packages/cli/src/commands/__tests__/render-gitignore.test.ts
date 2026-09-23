@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { NavoriConfigInput } from "../../lib/schema.ts";
+import type { NavoriConfigInput } from "../../lib/config/schema.ts";
 
 /**
  * #313: `render` reconciles a managed `.gitignore` block driven by
@@ -12,11 +12,11 @@ import type { NavoriConfigInput } from "../../lib/schema.ts";
  */
 
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
-const { writeConfig } = await import("../../lib/config.ts");
+const { writeConfig } = await import("../../lib/config/config.ts");
 const { runRender } = await import("../render.ts");
-const { extractManagedContent } = await import("../../lib/marker.ts");
+const { extractManagedContent } = await import("../../lib/render/marker.ts");
 
 let cwd: string;
 

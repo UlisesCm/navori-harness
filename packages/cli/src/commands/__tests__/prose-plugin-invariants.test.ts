@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
-import { NavoriConfigSchema, type NavoriConfig } from "../../lib/schema.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
 import { renderAgentsMdEngine } from "../../engines/agents-md/index.ts";
 import { computeHealthVerdict } from "../doctor.ts";
 

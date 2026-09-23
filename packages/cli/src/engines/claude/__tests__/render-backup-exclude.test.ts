@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { NavoriConfig } from "../../../lib/config.ts";
+import type { NavoriConfig } from "../../../lib/config/config.ts";
 
 /**
  * #348: the pre-render backup used to copy `.claude/worktrees/` — a full repo
@@ -13,7 +13,7 @@ import type { NavoriConfig } from "../../../lib/config.ts";
  * throwaway home.
  */
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { renderClaudeEngine } = await import("../index.ts");
 const { renderCodexEngine } = await import("../../codex/index.ts");

@@ -1,6 +1,6 @@
 # Shared "the host cancelled this hook" recorder — inlined into the three gate
 # hooks at render time (see the include directive in the source scripts +
-# lib/hook-includes.ts).
+# lib/render/hook-includes.ts).
 #
 # WHY (#797): a `command` hook that reaches its host timeout is CANCELLED, and
 # bash still runs the EXIT trap on the way out with `$?` == 0 — the last

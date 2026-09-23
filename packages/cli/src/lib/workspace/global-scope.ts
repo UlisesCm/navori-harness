@@ -14,9 +14,9 @@ import {
   readHookDrift,
   type HookDrift,
 } from "../../engines/claude/global-render.ts";
-import { globalConfigExists, readGlobalConfig } from "../global-config.ts";
+import { globalConfigExists, readGlobalConfig } from "../config/global-config.ts";
 import { listMarkers } from "../diagnose/health.ts";
-import type { NavoriConfig } from "../config.ts";
+import type { NavoriConfig } from "../config/config.ts";
 
 /**
  * A plugin agent Claude Code will never load in this repo, because a

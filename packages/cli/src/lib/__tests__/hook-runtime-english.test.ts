@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getCoreRoot, getPluginPath, listBundledPluginIds } from "../bundled-assets.ts";
+import { getCoreRoot, getPluginPath, listBundledPluginIds } from "../render/bundled-assets.ts";
 
 /**
  * Runtime messages of the hook scripts ship in FIXED English (#284/#295;

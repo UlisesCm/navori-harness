@@ -1,4 +1,4 @@
-import type { NavoriConfig } from "../config.ts";
+import type { NavoriConfig } from "../config/config.ts";
 
 export type MonorepoWorkspace = NonNullable<
   NonNullable<NavoriConfig["monorepo"]>["workspaces"]

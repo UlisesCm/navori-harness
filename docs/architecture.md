@@ -30,7 +30,7 @@ flowchart TD
     click CORE "../packages/core/core-assets" "Core assets"
     click PRESET "../packages/core/core-assets/presets" "Presets"
     click WS "../packages/cli/src/lib/workspace/workspace.ts" "Workspace defaults"
-    click PROJ "../packages/cli/src/lib/schema.ts" "Config schema (Zod)"
+    click PROJ "../packages/cli/src/lib/config/schema.ts" "Config schema (Zod)"
     click ENGINE "../packages/cli/src/engines/claude/index.ts" "Claude engine"
 ```
 
@@ -70,12 +70,12 @@ flowchart TD
     GATE -- "--apply" --> WRITE
 
     click CMD "../packages/cli/src/commands/render.ts" "render command"
-    click READ "../packages/cli/src/lib/config.ts" "readConfig"
+    click READ "../packages/cli/src/lib/config/config.ts" "readConfig"
     click ENG "../packages/cli/src/engines/claude/index.ts" "Claude engine"
-    click P1 "../packages/cli/src/lib/render-plan.ts" "computeRenderPlan"
+    click P1 "../packages/cli/src/lib/render/render-plan.ts" "computeRenderPlan"
     click P2 "../packages/cli/src/engines/claude/build-settings.ts" "buildClaudeSettings"
     click P3 "../packages/cli/src/engines/shared/render-managed-file.ts" "renderManagedFile"
-    click WRITE "../packages/cli/src/lib/atomic.ts" "writeFileAtomic"
+    click WRITE "../packages/cli/src/lib/primitives/atomic.ts" "writeFileAtomic"
 ```
 
 ## 3. Lifecycle de comandos — cómo lo usás
@@ -122,7 +122,7 @@ regeneración es idempotente y nunca pisa lo que está fuera de los markers.
 - **`version`** → detecta que el bundle (core/preset/plugin) avanzó (version
   drift). `render --apply` lo actualiza.
 - **Fuera de los markers** → tuyo, intocable. Ese es el moat: regeneración
-  idempotente sin destruir tu trabajo. Ver [marker.ts](../packages/cli/src/lib/marker.ts).
+  idempotente sin destruir tu trabajo. Ver [marker.ts](../packages/cli/src/lib/render/marker.ts).
 
 ## 5. Modos de permiso de Claude Code — tabla de referencia
 
@@ -143,13 +143,13 @@ Doc oficial: https://code.claude.com/docs/en/permission-modes
 
 | Pieza | Archivo |
 |---|---|
-| Config + schema (Zod) | [lib/schema.ts](../packages/cli/src/lib/schema.ts) · [lib/config.ts](../packages/cli/src/lib/config.ts) |
-| Plan de render (CLAUDE.md) | [lib/render-plan.ts](../packages/cli/src/lib/render-plan.ts) |
-| Markers managed (inject/diff/hash) | [lib/marker.ts](../packages/cli/src/lib/marker.ts) |
+| Config + schema (Zod) | [lib/config/schema.ts](../packages/cli/src/lib/config/schema.ts) · [lib/config/config.ts](../packages/cli/src/lib/config/config.ts) |
+| Plan de render (CLAUDE.md) | [lib/render-plan.ts](../packages/cli/src/lib/render/render-plan.ts) |
+| Markers managed (inject/diff/hash) | [lib/marker.ts](../packages/cli/src/lib/render/marker.ts) |
 | Engine Claude | [engines/claude/index.ts](../packages/cli/src/engines/claude/index.ts) |
 | Settings deep-merge | [engines/claude/build-settings.ts](../packages/cli/src/engines/claude/build-settings.ts) |
 | Render de agents/skills/hooks | [engines/shared/render-managed-file.ts](../packages/cli/src/engines/shared/render-managed-file.ts) |
-| Presets / Plugins | [lib/presets.ts](../packages/cli/src/lib/presets.ts) · [lib/plugins.ts](../packages/cli/src/lib/plugins.ts) |
+| Presets / Plugins | [lib/presets.ts](../packages/cli/src/lib/config/presets.ts) · [lib/plugins.ts](../packages/cli/src/lib/config/plugins.ts) |
 | Health-check (doctor/status) | [lib/diagnose/health.ts](../packages/cli/src/lib/diagnose/health.ts) |
 | Detección de stack | [lib/diagnose/detect.ts](../packages/cli/src/lib/diagnose/detect.ts) |
 | Comandos | [src/commands/](../packages/cli/src/commands) |

@@ -6,7 +6,7 @@ import { join } from "node:path";
 // Isolate ~/.navori to a throwaway home so the scan never measures the real
 // machine-global backups dir (same pattern as backup.test.ts).
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { scanDiskUsage, humanBytes } = await import("../disk-usage.ts");
 

@@ -1,20 +1,24 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
-import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
-import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
-import { loadDisabledPlugins, loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
+import { effectiveConfig, type NavoriConfig } from "../../lib/config/config.ts";
+import { getCoreRoot, readCliVersion } from "../../lib/render/bundled-assets.ts";
+import {
+  loadDisabledPlugins,
+  loadEnabledPlugins,
+  type LoadedPlugin,
+} from "../../lib/config/plugins.ts";
 import { unknownLibraries } from "../../lib/assets/library-skills.ts";
-import { loadPreset, PresetError } from "../../lib/presets.ts";
+import { loadPreset, PresetError } from "../../lib/config/presets.ts";
 import { tc, resolveLang } from "../../lib/i18n.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
-import { interpolate } from "../../lib/interpolate.ts";
+import { interpolate } from "../../lib/render/interpolate.ts";
 import {
   getFrontmatterField,
   removeFrontmatterField,
   splitFrontmatter,
   stripFrontmatter,
-} from "../../lib/frontmatter.ts";
-import { injectManagedSection, removeManagedSection } from "../../lib/marker.ts";
+} from "../../lib/render/frontmatter.ts";
+import { injectManagedSection, removeManagedSection } from "../../lib/render/marker.ts";
 import { buildHarnessProse, type ProseEngineResult } from "../shared/prose-harness.ts";
 import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
 import {

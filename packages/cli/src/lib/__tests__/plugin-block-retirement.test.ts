@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../../engines/claude/index.ts";
-import { RETIRED_PLUGIN_BLOCKS } from "../plugins.ts";
-import type { NavoriConfig } from "../config.ts";
+import { RETIRED_PLUGIN_BLOCKS } from "../config/plugins.ts";
+import type { NavoriConfig } from "../config/config.ts";
 
 /**
  * #614 — doctrine addressed to one audience leaves the file every agent reads.

@@ -1,6 +1,6 @@
 import * as p from "@clack/prompts";
 import { readConfig, ConfigError, type NavoriConfig } from "./config.ts";
-import { NavoriError } from "./errors.ts";
+import { NavoriError } from "../primitives/errors.ts";
 
 /**
  * `readConfig` for command entry points. On a domain error (invalid or missing

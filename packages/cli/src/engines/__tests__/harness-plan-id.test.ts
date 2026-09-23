@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { resolveHarnessPlan } from "../shared/harness-plan.ts";
-import { NavoriConfigSchema } from "../../lib/schema.ts";
-import { PresetDefinitionSchema, type LoadedPreset } from "../../lib/presets.ts";
+import { NavoriConfigSchema } from "../../lib/config/schema.ts";
+import { PresetDefinitionSchema, type LoadedPreset } from "../../lib/config/presets.ts";
 
 /**
  * Regression (#166): the planned id of a preset agent/skill MUST come from the

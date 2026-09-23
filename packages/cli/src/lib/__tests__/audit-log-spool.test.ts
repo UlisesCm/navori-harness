@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { expandHookIncludes } from "../hook-includes.ts";
+import { expandHookIncludes } from "../render/hook-includes.ts";
 import { acrossShells, type HookShell } from "./helpers/shells.ts";
 
 /**

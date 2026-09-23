@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { computeRenderPlan } from "../render-plan.ts";
-import { NavoriConfigSchema } from "../schema.ts";
+import { computeRenderPlan } from "../render/render-plan.ts";
+import { NavoriConfigSchema } from "../config/schema.ts";
 
 /**
  * #229 — the base language of each core managed asset is declared truthfully

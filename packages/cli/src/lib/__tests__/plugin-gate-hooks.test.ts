@@ -10,13 +10,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { getCoreRoot, getPluginPath } from "../bundled-assets.ts";
-import { interpolate } from "../interpolate.ts";
-import { expandHookIncludes } from "../hook-includes.ts";
+import { getCoreRoot, getPluginPath } from "../render/bundled-assets.ts";
+import { interpolate } from "../render/interpolate.ts";
+import { expandHookIncludes } from "../render/hook-includes.ts";
 import { buildClaudeSettings } from "../../engines/claude/build-settings.ts";
 import { buildCodexConfigToml } from "../../engines/codex/build-config-toml.ts";
-import type { NavoriConfig } from "../config.ts";
-import type { LoadedPlugin } from "../plugins.ts";
+import type { NavoriConfig } from "../config/config.ts";
+import type { LoadedPlugin } from "../config/plugins.ts";
 import { acrossShells } from "./helpers/shells.ts";
 
 /**

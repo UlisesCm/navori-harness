@@ -1,4 +1,4 @@
-import { type Lang, tc } from "./i18n.ts";
+import { type Lang, tc } from "../i18n.ts";
 
 /**
  * Fallback text for an unresolved `{{path}}` placeholder, shared by both

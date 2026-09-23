@@ -3,7 +3,7 @@ import * as p from "@clack/prompts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
-import { writeConfig, readConfig } from "../lib/config.ts";
+import { writeConfig, readConfig } from "../lib/config/config.ts";
 import { runRender, printRenderSummary } from "./render.ts";
 import {
   loadPlugin,
@@ -11,17 +11,17 @@ import {
   PluginManifestError,
   listKnownPluginIds,
   type PluginExternalTool,
-} from "../lib/plugins.ts";
-import { hasBinary } from "../lib/which.ts";
-import { currentPlatform } from "../lib/platform.ts";
+} from "../lib/config/plugins.ts";
+import { hasBinary } from "../lib/primitives/which.ts";
+import { currentPlatform } from "../lib/config/platform.ts";
 import {
   listAvailableExternalProviders,
   EXTERNAL_PROVIDER_SETUP_RECIPE_URL,
   PROVIDERS_WITH_SETUP_RECIPE,
-} from "../lib/external-providers.ts";
-import { InstallError } from "../lib/errors.ts";
+} from "../lib/config/external-providers.ts";
+import { InstallError } from "../lib/primitives/errors.ts";
 import { detectProject } from "../lib/diagnose/detect.ts";
-import { brand, dim, accent, color, sym } from "../lib/style.ts";
+import { brand, dim, accent, color, sym } from "../lib/primitives/style.ts";
 import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 
 /** Resolve the repo's locale for human output; DEFAULT_LANG when no config yet. */

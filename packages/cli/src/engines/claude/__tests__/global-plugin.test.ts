@@ -13,8 +13,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getCoreRoot, readCliVersion } from "../../../lib/bundled-assets.ts";
-import { defaultGlobalConfig } from "../../../lib/global-config.ts";
+import { getCoreRoot, readCliVersion } from "../../../lib/render/bundled-assets.ts";
+import { defaultGlobalConfig } from "../../../lib/config/global-config.ts";
 import { composeBaseline } from "../global-render.ts";
 import {
   applyGlobalPlugin,
@@ -27,8 +27,8 @@ import {
   PLUGIN_HOOK_SCRIPT_REL,
   PLUGIN_MANIFEST_REL,
 } from "../global-plugin.ts";
-import { interpolate } from "../../../lib/interpolate.ts";
-import { placeholderFallback } from "../../../lib/placeholders.ts";
+import { interpolate } from "../../../lib/render/interpolate.ts";
+import { placeholderFallback } from "../../../lib/render/placeholders.ts";
 import { CORE_AGENTS, CORE_SKILLS, WORKFLOW_SKILLS } from "../../shared/harness-assets.ts";
 
 /**

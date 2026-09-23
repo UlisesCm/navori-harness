@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { safeHomedir } from "../home.ts";
+import { safeHomedir } from "../primitives/home.ts";
 import { DEFAULT_PORT, SERVICE_ID } from "./collect.ts";
 
 /**

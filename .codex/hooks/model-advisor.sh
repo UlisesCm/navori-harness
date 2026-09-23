@@ -1,4 +1,4 @@
-# navori:managed start id="model-advisor-base" hash="9e1a4bca" version="0.9.0" source="@navori/core"
+# navori:managed start id="model-advisor-base" hash="9fa53bd0" version="0.9.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Advisory-only main-session model recommendation. The hook reads only payload
@@ -40,7 +40,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,

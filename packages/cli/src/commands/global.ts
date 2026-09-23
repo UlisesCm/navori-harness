@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { join, sep } from "node:path";
-import { brand, check, color, dim as grey, sym } from "../lib/style.ts";
+import { brand, check, color, dim as grey, sym } from "../lib/primitives/style.ts";
 import { t, tc, resolveLang } from "../lib/i18n.ts";
 import {
   defaultGlobalConfig,
@@ -11,8 +11,8 @@ import {
   upgradeDefaultBlocks,
   writeGlobalConfig,
   type GlobalConfig,
-} from "../lib/global-config.ts";
-import { readCliVersion } from "../lib/bundled-assets.ts";
+} from "../lib/config/global-config.ts";
+import { readCliVersion } from "../lib/render/bundled-assets.ts";
 import {
   applyGlobalRender,
   composeBaseline,

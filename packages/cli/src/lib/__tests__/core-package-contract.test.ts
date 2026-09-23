@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { getCoreRoot, resolveBundledCoreAssetPath } from "../bundled-assets.ts";
+import { getCoreRoot, resolveBundledCoreAssetPath } from "../render/bundled-assets.ts";
 
 /**
  * `@navori/core` package contract — assets-only, consumed by FILESYSTEM (#406).

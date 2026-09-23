@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "no
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { renderCopilotEngine } from "../index.ts";
-import type { NavoriConfig } from "../../../lib/config.ts";
+import type { NavoriConfig } from "../../../lib/config/config.ts";
 
 function baseConfig(over: Partial<NavoriConfig> = {}): NavoriConfig {
   return {

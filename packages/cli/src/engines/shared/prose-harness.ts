@@ -1,14 +1,14 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
-import { writeFileAtomic } from "../../lib/atomic.ts";
-import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
-import { RenderWriteError } from "../../lib/errors.ts";
-import { computeRenderPlan } from "../../lib/render-plan.ts";
-import { injectManagedSection } from "../../lib/marker.ts";
-import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
+import { effectiveConfig, type NavoriConfig } from "../../lib/config/config.ts";
+import { writeFileAtomic } from "../../lib/primitives/atomic.ts";
+import { createBackup, purgeOldBackups } from "../../lib/render/backup.ts";
+import { RenderWriteError } from "../../lib/primitives/errors.ts";
+import { computeRenderPlan } from "../../lib/render/render-plan.ts";
+import { injectManagedSection } from "../../lib/render/marker.ts";
+import { getCoreRoot, readCliVersion } from "../../lib/render/bundled-assets.ts";
 import { tc, resolveLang } from "../../lib/i18n.ts";
-import type { RenderStatus } from "../../lib/style.ts";
+import type { RenderStatus } from "../../lib/primitives/style.ts";
 import { buildSkillRows } from "./skills-index.ts";
 import type { SkippedFile } from "./execute-plan.ts";
 

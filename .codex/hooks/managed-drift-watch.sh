@@ -1,4 +1,4 @@
-# navori:managed start id="managed-drift-watch-base" hash="1011b7b0" version="0.9.0" source="@navori/core"
+# navori:managed start id="managed-drift-watch-base" hash="b1db6dd1" version="0.9.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse watcher for managed-block drift (#530), on every tool that can
@@ -20,7 +20,7 @@
 # WHY NOT `FileChanged`, which the same doc section recommends for exactly this
 # ("to run a hook when a specific file changes on disk, whatever wrote it").
 # The CONTRACT is not the reason, and this comment used to say it was: core can
-# register the event today. `lib/plugins.ts:91` admits four events, but that
+# register the event today. `lib/config/plugins.ts:91` admits four events, but that
 # enum is the schema for a PLUGIN MANIFEST and is used nowhere else —
 # `buildClaudeSettings` returns `Record<string, unknown>` and validates no event
 # name at all, which is how core already ships `SessionEnd` and
@@ -162,7 +162,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,
@@ -509,12 +509,12 @@ printf '%s\n' "$current" > "$stamp" 2>/dev/null || true
 
 # From here on the work is per-CHANGED-file only. `$(…)` strips the trailing
 # newline, which is what makes these hashes agree with `computeManagedHash`
-# (lib/marker.ts: sha1 over the body with trailing whitespace removed, first 8
+# (lib/render/marker.ts: sha1 over the body with trailing whitespace removed, first 8
 # hex); without it every hash differs and the hook cries wolf on healthy files.
 drift=""
 while IFS= read -r file; do
   [ -n "$file" ] || continue
-  # Both marker syntaxes (lib/marker.ts): HTML for markdown, `#` for scripts and
+  # Both marker syntaxes (lib/render/marker.ts): HTML for markdown, `#` for scripts and
   # TOML. Anchored at the start of the line so a block QUOTED inside prose —
   # this file's own header, a skill that documents the format — is not read as a
   # real marker.

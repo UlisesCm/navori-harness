@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { NavoriConfig } from "../../../lib/config.ts";
+import type { NavoriConfig } from "../../../lib/config/config.ts";
 import { tc } from "../../../lib/i18n.ts";
 import { collectOmissionWarnings } from "../prose-harness.ts";
 

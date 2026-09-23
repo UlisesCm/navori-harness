@@ -3,10 +3,10 @@ import * as p from "@clack/prompts";
 import { existsSync, readdirSync, statSync, copyFileSync, mkdirSync } from "node:fs";
 import { join, relative, resolve, dirname } from "node:path";
 import { migrationsRoot } from "../lib/diagnose/migrate.ts";
-import { brand, dim, accent, color, sym } from "../lib/style.ts";
+import { brand, dim, accent, color, sym } from "../lib/primitives/style.ts";
 import { tc, resolveLang } from "../lib/i18n.ts";
-import { readGlobalConfig } from "../lib/global-config.ts";
-import { intFlagOrExit } from "../lib/args.ts";
+import { readGlobalConfig } from "../lib/config/global-config.ts";
+import { intFlagOrExit } from "../lib/primitives/args.ts";
 
 /**
  * Language for machine-global commands (migrations/backup/registry) that aren't

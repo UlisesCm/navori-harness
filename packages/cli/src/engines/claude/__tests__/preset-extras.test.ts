@@ -3,8 +3,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
-import { computeManagedHash } from "../../../lib/marker.ts";
-import type { NavoriConfig } from "../../../lib/config.ts";
+import { computeManagedHash } from "../../../lib/render/marker.ts";
+import type { NavoriConfig } from "../../../lib/config/config.ts";
 
 /** Skills materialize in directory form (`<id>/SKILL.md`) — the shape Claude
  * Code auto-discovers (#166). Absolute path and repo-relative path helpers. */

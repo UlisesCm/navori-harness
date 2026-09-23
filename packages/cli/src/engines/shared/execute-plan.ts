@@ -1,16 +1,20 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
-import type { NavoriConfig } from "../../lib/config.ts";
-import { writeFileAtomic } from "../../lib/atomic.ts";
-import { createBackup, purgeOldBackups } from "../../lib/backup.ts";
-import { RenderWriteError } from "../../lib/errors.ts";
-import { readCliVersion } from "../../lib/bundled-assets.ts";
-import { injectManagedSection } from "../../lib/marker.ts";
-import type { LoadedPlugin } from "../../lib/plugins.ts";
-import type { loadPreset } from "../../lib/presets.ts";
-import type { RenderStatus } from "../../lib/style.ts";
+import type { NavoriConfig } from "../../lib/config/config.ts";
+import { writeFileAtomic } from "../../lib/primitives/atomic.ts";
+import { createBackup, purgeOldBackups } from "../../lib/render/backup.ts";
+import { RenderWriteError } from "../../lib/primitives/errors.ts";
+import { readCliVersion } from "../../lib/render/bundled-assets.ts";
+import { injectManagedSection } from "../../lib/render/marker.ts";
+import type { LoadedPlugin } from "../../lib/config/plugins.ts";
+import type { loadPreset } from "../../lib/config/presets.ts";
+import type { RenderStatus } from "../../lib/primitives/style.ts";
 // The authorship test both delete paths share — see lib/removable.ts (#496).
-import { isRemovableNavoriFile, navoriAuthorship, type KeepReason } from "../../lib/removable.ts";
+import {
+  isRemovableNavoriFile,
+  navoriAuthorship,
+  type KeepReason,
+} from "../../lib/render/removable.ts";
 import { tc, DEFAULT_LANG, type Lang } from "../../lib/i18n.ts";
 import { renderManagedFile } from "./render-managed-file.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "./ephemeral-paths.ts";

@@ -21,7 +21,7 @@ import { stripVTControlCharacters } from "node:util";
  */
 
 const hasBinaryMock = vi.hoisted(() => vi.fn());
-vi.mock(import("../../lib/which.ts"), () => ({ hasBinary: hasBinaryMock }));
+vi.mock(import("../../lib/primitives/which.ts"), () => ({ hasBinary: hasBinaryMock }));
 
 const spawnSyncMock = vi.hoisted(() => vi.fn());
 vi.mock("node:child_process", () => ({ spawnSync: spawnSyncMock }));
@@ -74,7 +74,7 @@ vi.mock(import("../render.ts"), async (importOriginal) => {
 
 const { addCommand } = await import("../add.ts");
 const { runCommand } = await import("citty");
-const { writeConfig, readConfig } = await import("../../lib/config.ts");
+const { writeConfig, readConfig } = await import("../../lib/config/config.ts");
 
 let cwd: string;
 let originalPlatform: PropertyDescriptor | undefined;

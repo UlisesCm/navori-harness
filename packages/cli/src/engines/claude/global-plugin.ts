@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { chmodSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
-import type { NavoriConfig } from "../../lib/schema.ts";
-import type { GlobalConfig } from "../../lib/global-config.ts";
-import { CORE_SOURCE_ID } from "../../lib/render-plan.ts";
+import { getCoreRoot, readCliVersion } from "../../lib/render/bundled-assets.ts";
+import type { NavoriConfig } from "../../lib/config/schema.ts";
+import type { GlobalConfig } from "../../lib/config/global-config.ts";
+import { CORE_SOURCE_ID } from "../../lib/render/render-plan.ts";
 import { resolveHarnessPlan } from "../shared/harness-plan.ts";
 import { renderManagedFile } from "../shared/render-managed-file.ts";
 import {

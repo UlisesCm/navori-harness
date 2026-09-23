@@ -19,7 +19,7 @@
 # WHY NOT `FileChanged`, which the same doc section recommends for exactly this
 # ("to run a hook when a specific file changes on disk, whatever wrote it").
 # The CONTRACT is not the reason, and this comment used to say it was: core can
-# register the event today. `lib/plugins.ts:91` admits four events, but that
+# register the event today. `lib/config/plugins.ts:91` admits four events, but that
 # enum is the schema for a PLUGIN MANIFEST and is used nowhere else —
 # `buildClaudeSettings` returns `Record<string, unknown>` and validates no event
 # name at all, which is how core already ships `SessionEnd` and
@@ -222,12 +222,12 @@ printf '%s\n' "$current" > "$stamp" 2>/dev/null || true
 
 # From here on the work is per-CHANGED-file only. `$(…)` strips the trailing
 # newline, which is what makes these hashes agree with `computeManagedHash`
-# (lib/marker.ts: sha1 over the body with trailing whitespace removed, first 8
+# (lib/render/marker.ts: sha1 over the body with trailing whitespace removed, first 8
 # hex); without it every hash differs and the hook cries wolf on healthy files.
 drift=""
 while IFS= read -r file; do
   [ -n "$file" ] || continue
-  # Both marker syntaxes (lib/marker.ts): HTML for markdown, `#` for scripts and
+  # Both marker syntaxes (lib/render/marker.ts): HTML for markdown, `#` for scripts and
   # TOML. Anchored at the start of the line so a block QUOTED inside prose —
   # this file's own header, a skill that documents the format — is not read as a
   # real marker.

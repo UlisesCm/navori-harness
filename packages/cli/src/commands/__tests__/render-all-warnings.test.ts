@@ -17,7 +17,7 @@ vi.mock("@clack/prompts", () => ({
 }));
 
 import * as p from "@clack/prompts";
-import { writeConfig } from "../../lib/config.ts";
+import { writeConfig } from "../../lib/config/config.ts";
 import {
   renderRepoRows,
   rollupRenderRows,

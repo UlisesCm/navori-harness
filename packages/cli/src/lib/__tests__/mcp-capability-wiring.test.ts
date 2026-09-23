@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getCoreRoot } from "../bundled-assets.ts";
-import { getFrontmatterField, splitFrontmatter } from "../frontmatter.ts";
+import { getCoreRoot } from "../render/bundled-assets.ts";
+import { getFrontmatterField, splitFrontmatter } from "../render/frontmatter.ts";
 import { isInvokable, listAgentAssets } from "./helpers/agent-assets.ts";
 
 /**

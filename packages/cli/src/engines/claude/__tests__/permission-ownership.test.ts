@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { defaultGlobalConfig, type GlobalConfig } from "../../../lib/global-config.ts";
+import { defaultGlobalConfig, type GlobalConfig } from "../../../lib/config/global-config.ts";
 import {
   applyGlobalRender,
   planGlobalRender,

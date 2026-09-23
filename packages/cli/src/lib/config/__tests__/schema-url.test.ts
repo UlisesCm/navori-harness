@@ -31,7 +31,7 @@ import { SCHEMA_BASE_URL, schemaUrl } from "../schema-url.ts";
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const CLI_ROOT = resolve(HERE, "..", "..", "..");
+const CLI_ROOT = resolve(HERE, "..", "..", "..", "..");
 const REPO_ROOT = resolve(CLI_ROOT, "..", "..");
 const PUBLIC_SCHEMA_DIR = resolve(REPO_ROOT, "apps", "website", "public", "schema");
 const CNAME_PATH = resolve(REPO_ROOT, "apps", "website", "public", "CNAME");

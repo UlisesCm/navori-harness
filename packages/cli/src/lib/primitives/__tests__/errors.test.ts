@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { NavoriError, HomeError, InstallError } from "../errors.ts";
-import { ConfigError } from "../config.ts";
-import { PluginNotFoundError } from "../plugins.ts";
+import { ConfigError } from "../../config/config.ts";
+import { PluginNotFoundError } from "../../config/plugins.ts";
 
 /**
  * Spec 0003 §3.4.5 — every navori error is a NavoriError with a stable `code`

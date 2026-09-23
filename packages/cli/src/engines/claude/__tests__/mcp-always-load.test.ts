@@ -2,8 +2,8 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/schema.ts";
-import type { LoadedPlugin } from "../../../lib/plugins.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/config/schema.ts";
+import type { LoadedPlugin } from "../../../lib/config/plugins.ts";
 import { planMcpRegistration } from "../index.ts";
 
 /**

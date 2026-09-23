@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scanMonorepoDrift } from "../doctor.ts";
 import { scanManagedDrift } from "../../lib/diagnose/health.ts";
-import type { NavoriConfig } from "../../lib/config.ts";
+import type { NavoriConfig } from "../../lib/config/config.ts";
 
 /**
  * doctor's monorepo drift check (#70): a config with workspaces:[] or one that

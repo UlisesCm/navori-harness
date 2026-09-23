@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ENGINES } from "../../../lib/schema.ts";
+import { ENGINES } from "../../../lib/config/schema.ts";
 import {
   ENGINE_CAPABILITIES,
   validateEngineCapabilities,

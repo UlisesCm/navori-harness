@@ -65,7 +65,7 @@ export function getPluginPath(pluginId: string): string {
 export function readCliVersion(): string {
   for (const candidate of [
     resolve(HERE, "..", "package.json"), // bundled: dist/../package.json
-    resolve(HERE, "..", "..", "package.json"), // dev: src/lib/../../package.json
+    resolve(HERE, "..", "..", "..", "package.json"), // dev: src/lib/render/../../../package.json
   ]) {
     try {
       const pkg = JSON.parse(readFileSync(candidate, "utf-8")) as {

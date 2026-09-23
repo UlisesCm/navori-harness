@@ -1,8 +1,8 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
-import { getCoreRoot } from "../../lib/bundled-assets.ts";
-import { loadEnabledPlugins, type PluginPromptEntry } from "../../lib/plugins.ts";
+import { getCoreRoot } from "../../lib/render/bundled-assets.ts";
+import { loadEnabledPlugins, type PluginPromptEntry } from "../../lib/config/plugins.ts";
 
 /**
  * Aggregate the project-customization prompts shown by the init wizard

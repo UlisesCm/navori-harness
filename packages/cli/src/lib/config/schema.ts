@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { safeRelPath } from "./zod-helpers.ts";
+import { safeRelPath } from "../primitives/zod-helpers.ts";
 
 // Exported: the single source of truth for valid engine ids, reused by
 // `engines/shared/engine-capabilities.ts` to validate its registry stays in

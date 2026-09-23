@@ -1,4 +1,4 @@
-import { ENGINES } from "../../lib/schema.ts";
+import { ENGINES } from "../../lib/config/schema.ts";
 
 /** A valid engine id — the same union `NavoriConfigSchema.engines` accepts. */
 export type EngineId = (typeof ENGINES)[number];

@@ -6,10 +6,10 @@ import {
   permissionBagOf,
   readExistingSettings,
 } from "../../engines/claude/global-render.ts";
-import { globalConfigExists } from "../global-config.ts";
+import { globalConfigExists } from "../config/global-config.ts";
 import { listMarkers } from "./health.ts";
 import { SKILL_DIR_ENTRY } from "../assets/skill-meta.ts";
-import type { NavoriConfig } from "../config.ts";
+import type { NavoriConfig } from "../config/config.ts";
 
 /**
  * The harness that was already there when navori arrived (spec 0014, #555).

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getCoreRoot, getPluginPath } from "../bundled-assets.ts";
+import { getCoreRoot, getPluginPath } from "../render/bundled-assets.ts";
 
 /**
  * search-v2.md §7 P2 — policy content and the removal of the instructions it

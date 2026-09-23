@@ -45,7 +45,7 @@ const GUARDED_PREFIX = "src/lib/";
  */
 const KNOWN_ZERO = new Map([
   [
-    "src/lib/args.ts",
+    "src/lib/primitives/args.ts",
     "reached only from src/commands/**, which the e2e specs exercise in the spawned dist/index.js (invisible to in-process v8)",
   ],
   // The audit feature's reporting half is no longer untested: `report.ts` left

@@ -1,6 +1,6 @@
 import { mkdirSync, copyFileSync, existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { safeHomedir } from "./home.ts";
+import { safeHomedir } from "../primitives/home.ts";
 
 /** Env var that redirects the whole backup store (writes AND purge). */
 const BACKUP_ROOT_ENV = "NAVORI_BACKUP_ROOT";

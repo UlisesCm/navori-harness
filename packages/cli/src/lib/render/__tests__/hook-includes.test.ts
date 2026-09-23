@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { expandHookIncludes, hookPartialsDir } from "../hook-includes.ts";
-import { acrossShells } from "./helpers/shells.ts";
+import { acrossShells } from "../../__tests__/helpers/shells.ts";
 
 describe("expandHookIncludes", () => {
   it("returns content untouched when there is no directive", () => {

@@ -1,4 +1,4 @@
-# navori:managed start id="routing-watch-base" hash="0900477b" version="0.9.0" source="@navori/core"
+# navori:managed start id="routing-watch-base" hash="5495c1a9" version="0.9.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse routing watcher (spec 0020).
@@ -84,7 +84,7 @@ set -uo pipefail
 # not care about must not pay to locate a stamp it will never open. The Bash
 # probe is that same argument one level down — see `navori_has_write_token`.
 # Shared hook boilerplate — inlined into each hook at render time (see the
-# include directive in the source scripts + lib/hook-includes.ts). Single source
+# include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
 # by hand (that is the drift #225/#261 removed).
 #
@@ -156,7 +156,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,

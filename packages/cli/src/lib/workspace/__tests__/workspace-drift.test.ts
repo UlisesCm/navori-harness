@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { NavoriConfig } from "../../config.ts";
+import type { NavoriConfig } from "../../config/config.ts";
 
 /**
  * #326 — bonum-webapp spent a week with a hand-adopted harness (no workspace, a
@@ -16,7 +16,7 @@ import type { NavoriConfig } from "../../config.ts";
  * safeHomedir is mocked so the machine-local registry lives in a fake home.
  */
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { scanWorkspaceDrift } = await import("../workspace-drift.ts");
 const { writeWorkspace } = await import("../workspace.ts");

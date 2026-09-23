@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { NavoriConfig } from "../config.ts";
+import type { NavoriConfig } from "../config/config.ts";
 
 /**
  * PARITY between the delete paths — the test that keeps #496's whole CLASS of
@@ -39,16 +39,16 @@ import type { NavoriConfig } from "../config.ts";
  */
 
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../home.ts"), () => ({ safeHomedir: () => home.dir }));
-vi.mock(import("../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { renderCodexEngine } = await import("../../engines/codex/index.ts");
 const { renderClaudeEngine } = await import("../../engines/claude/index.ts");
 const { runRender } = await import("../../commands/render.ts");
-const { writeConfig } = await import("../config.ts");
-const { injectManagedSection } = await import("../marker.ts");
-const { readCliVersion } = await import("../bundled-assets.ts");
-const { isRemovableNavoriFile } = await import("../removable.ts");
+const { writeConfig } = await import("../config/config.ts");
+const { injectManagedSection } = await import("../render/marker.ts");
+const { readCliVersion } = await import("../render/bundled-assets.ts");
+const { isRemovableNavoriFile } = await import("../render/removable.ts");
 
 const CODEX_CONFIG = {
   name: "demo",
@@ -266,18 +266,18 @@ describe("the criterion has exactly one definition, and every caller uses it", (
     "engines/claude/index.ts",
   ];
 
-  it("defines isRemovableNavoriFile in lib/removable.ts and nowhere else", () => {
+  it("defines isRemovableNavoriFile in lib/render/removable.ts and nowhere else", () => {
     const definers = sourceFiles(SRC).filter((f) =>
       /function isRemovableNavoriFile/.test(readFileSync(f, "utf-8")),
     );
-    expect(definers.map((f) => f.slice(SRC.length + 1))).toEqual(["lib/removable.ts"]);
+    expect(definers.map((f) => f.slice(SRC.length + 1))).toEqual(["lib/render/removable.ts"]);
   });
 
   it("routes every delete path through the shared module", () => {
     for (const caller of CALLERS) {
       const src = readFileSync(join(SRC, caller), "utf-8");
       // Imported from the shared module — matched on the `from "…"` clause, not
-      // on the bare filename, so a COMMENT mentioning lib/removable.ts can never
+      // on the bare filename, so a COMMENT mentioning lib/render/removable.ts can never
       // stand in for an import that was deleted.
       expect(src).toMatch(/from "[^"]*\/removable\.ts"/);
       // …and actually consulted. `render.ts` reaches it through
@@ -294,7 +294,7 @@ describe("the criterion has exactly one definition, and every caller uses it", (
     const inliners = sourceFiles(SRC)
       .filter((f) => /navori:managed id="\$\{/.test(readFileSync(f, "utf-8")))
       .map((f) => f.slice(SRC.length + 1));
-    expect(inliners).toEqual(["lib/removable.ts"]);
+    expect(inliners).toEqual(["lib/render/removable.ts"]);
   });
 
   it("leaves no recursive rmSync on a path the user may own", () => {
@@ -351,17 +351,18 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "Its other two removals (disabled-plugin scripts §8.5, retired-plugin assets §8.5-bis) " +
       "are marker-FREE by construction: a shell script carries no managed block, and the path " +
       "comes from the plugin's own manifest, so navori is its only writer",
-    "lib/removable.ts": "the criterion itself, plus removeEmptyDirs (rmdirSync refuses non-empty)",
+    "lib/render/removable.ts":
+      "the criterion itself, plus removeEmptyDirs (rmdirSync refuses non-empty)",
 
     // ── Paths that are navori's OWN, not the user's content. ──
-    "lib/atomic.ts": "removes the `.tmp` file it just wrote, when the rename fails",
+    "lib/primitives/atomic.ts": "removes the `.tmp` file it just wrote, when the rename fails",
     "lib/audit/launchd.ts":
       "removes the LaunchAgent plist it wrote itself (~/Library/LaunchAgents), on an explicit " +
       "'global collect uninstall'. One fixed path composed from the label — never a user file, " +
       "and never a directory",
-    "lib/backup.ts": "prunes navori's own backup store (~/.navori/backups) by age and size",
-    "lib/lockfile.ts": "removes its own lock file",
-    "lib/global-config.ts": "deletes ~/.navori/global.json on an explicit command",
+    "lib/render/backup.ts": "prunes navori's own backup store (~/.navori/backups) by age and size",
+    "lib/primitives/lockfile.ts": "removes its own lock file",
+    "lib/config/global-config.ts": "deletes ~/.navori/global.json on an explicit command",
     "commands/audit.ts":
       "--disarm removes the `.armed` flag navori itself wrote under the audit root (#597). " +
       "Never a user file — the audit store is navori's own. (The armed flow's consumption " +
