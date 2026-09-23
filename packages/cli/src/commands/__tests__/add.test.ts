@@ -29,11 +29,12 @@ const confirmMock = vi.hoisted(() => vi.fn());
 const outroMock = vi.hoisted(() => vi.fn());
 const logInfoMock = vi.hoisted(() => vi.fn());
 const logWarnMock = vi.hoisted(() => vi.fn());
+const noteMock = vi.hoisted(() => vi.fn());
 vi.mock("@clack/prompts", () => ({
   intro: () => undefined,
   outro: outroMock,
   cancel: () => undefined,
-  note: () => undefined,
+  note: noteMock,
   log: {
     message: () => undefined,
     info: logInfoMock,
@@ -100,6 +101,7 @@ beforeEach(() => {
   outroMock.mockReset();
   logInfoMock.mockReset();
   logWarnMock.mockReset();
+  noteMock.mockReset();
   confirmMock.mockReset();
   confirmMock.mockResolvedValue(true);
   spawnSyncMock.mockReset();
@@ -437,5 +439,74 @@ describe("add — renders the plugin's wiring on enable (#974)", () => {
     // Nothing was ever rendered for this repo, so the wiring simply doesn't
     // exist yet — proof that this run didn't trigger one either.
     expect(existsSync(join(cwd, ".mcp.json"))).toBe(false);
+  });
+});
+
+/**
+ * #981 — `add --suggest` used to only ever mention the preset and engram, so
+ * `--yes`/`--recommended` init never taught a user that tgrep/codegraph/
+ * semgrep/jscpd/acli/gh exist. `spawnSync` here is the same mock used for
+ * install commands above, but `--suggest` never installs anything — its only
+ * call in this describe block is `isGitHubRepo`'s `git config --get
+ * remote.origin.url` (lib/git.ts), so controlling its return value pins
+ * whether the repo "has a GitHub remote" without touching any real git state.
+ */
+describe("add --suggest — available external providers (#981)", () => {
+  const noteText = (): string => noteMock.mock.calls.map((call) => String(call[0])).join("\n");
+
+  it("lists disabled external-tool providers, naming the command to enable each", async () => {
+    spawnSyncMock.mockReturnValue({ status: 1, signal: null, error: undefined }); // no git remote
+
+    await add("--suggest");
+
+    expect(noteText()).toContain("navori add codegraph");
+    expect(noteText()).toContain("navori add jscpd");
+  });
+
+  it("never lists an already-enabled provider", async () => {
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "demo",
+      engines: ["claude"],
+      preset: "custom",
+      plugins: { codegraph: { enabled: true } },
+    });
+    spawnSyncMock.mockReturnValue({ status: 1, signal: null, error: undefined });
+
+    await add("--suggest");
+
+    expect(noteText()).not.toContain("navori add codegraph");
+  });
+
+  it("never suggests engram itself as an external provider (it's always-on, not a user choice)", async () => {
+    spawnSyncMock.mockReturnValue({ status: 1, signal: null, error: undefined });
+
+    await add("--suggest");
+
+    // engram IS suggested, but only via the pre-existing `suggestedEngram`
+    // copy ('navori add engram'), never through the provider list's row —
+    // the shared filter (lib/external-providers.ts) excludes it by id.
+    expect(noteText()).toContain("navori add engram");
+    expect(noteText().match(/navori add engram/g)).toHaveLength(1);
+  });
+
+  it("gh is only suggested when the repo has a GitHub remote", async () => {
+    spawnSyncMock.mockReturnValue({ status: 1, signal: null, error: undefined }); // no remote
+
+    await add("--suggest");
+
+    expect(noteText()).not.toContain("navori add gh");
+  });
+
+  it("gh is suggested when origin points at github.com", async () => {
+    spawnSyncMock.mockReturnValue({
+      status: 0,
+      signal: null,
+      error: undefined,
+      stdout: "git@github.com:acme/demo.git\n",
+    });
+
+    await add("--suggest");
+
+    expect(noteText()).toContain("navori add gh");
   });
 });

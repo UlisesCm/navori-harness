@@ -2,8 +2,8 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { resolve, join, dirname, relative } from "node:path";
 import { existsSync, mkdirSync, chmodSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import { writeConfig } from "../lib/config.ts";
+import { isGitHubRepo } from "../lib/git.ts";
 import { writeFileAtomic } from "../lib/atomic.ts";
 import {
   detectProject,
@@ -889,15 +889,6 @@ function buildRecommendedPlugins(cwd: string): Record<string, { enabled: boolean
     result.gh = { enabled: true };
   }
   return result;
-}
-
-function isGitHubRepo(cwd: string): boolean {
-  const r = spawnSync("git", ["-C", cwd, "config", "--get", "remote.origin.url"], {
-    encoding: "utf-8",
-    stdio: ["ignore", "pipe", "ignore"],
-  });
-  if (r.status !== 0) return false;
-  return /github\.com/i.test(r.stdout);
 }
 
 /**

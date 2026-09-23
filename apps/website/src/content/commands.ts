@@ -74,7 +74,7 @@ const es: Record<string, CommandDoc> = {
       },
       {
         title: "Sugerencias por stack",
-        code: "$ navori add --suggest\nSugerencias:\n · Plugin engram: memoria persistente entre sesiones — 'navori add engram'",
+        code: "$ navori add --suggest\nSugerencias:\n · Plugin engram: memoria persistente entre sesiones — 'navori add engram'\n · Proveedor externo disponible: 'codegraph' — 'navori add codegraph'",
       },
     ],
     notes: [
@@ -830,7 +830,7 @@ const en: Record<string, CommandDoc> = {
       },
       {
         title: "Stack suggestions",
-        code: "$ navori add --suggest\nSuggestions:\n · Plugin engram: persistent memory across sessions — 'navori add engram'",
+        code: "$ navori add --suggest\nSuggestions:\n · Plugin engram: persistent memory across sessions — 'navori add engram'\n · Available external provider: 'codegraph' — 'navori add codegraph'",
       },
     ],
     notes: [
