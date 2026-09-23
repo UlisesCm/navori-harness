@@ -149,7 +149,7 @@ Never open the PR with the gate red.
 3. **Validate** before firing `gh`:
    - Every body bullet backed by the diff or the implementer's report.
    - If you mention a file that is NOT in `--stat`, remove it.
-   - No emojis. No AI attribution: no `Co-Authored-By` trailer for an AI, no "Generated with…" footer, no mention of Claude or any other AI tool in the title or body — unless the repo's CLAUDE.md explicitly allows it.
+   - No emojis. No AI attribution: no `Co-Authored-By` trailer for an AI, no "Generated with…" footer, no mention of Claude or any other AI tool in the title or body.
 
 4. **Publish the branch** — the step between validating and firing `gh`, and the one that is easiest to assume someone else did. A PR shows what the REMOTE has, so on a branch with no upstream `gh pr create` drops into an interactive prompt asking where to push it: a prompt you cannot answer, so the turn hangs and no URL ever reaches the user.
 
