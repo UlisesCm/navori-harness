@@ -178,10 +178,10 @@ To interact with GitHub (issues, PRs, repos) use **gh**:
 Use `tgrep search -n [flags] -- PATTERN ROOT`; without `-n` piped output has no line numbers. Prefer `-F` for literals. Scope by directory or `-t TYPE`; broad queries start with `-l`, then selected files and `-C 2`. Positive `-g` forces a scan. Use `--hidden` only for intended hidden paths. A disk index refreshes only under `tgrep serve`; otherwise it silently misses changes since indexing. If `tgrep status` shows `Server: not running`, use `--no-index` or warn. Exit 1 means no matches, 2 means error. Preserve stderr. If unavailable, use native Grep. Do not install, start servers or reindex during ordinary discovery.
 <!-- /navori:managed id="tgrep-search-v2" -->
 
-<!-- navori:managed id="codegraph-search-v2" hash="733bfc60" version="0.9.0" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-search-v2" hash="6cf0aeee" version="0.9.0" source="@navori/plugin-codegraph" -->
 ### Structural provider: CodeGraph
 
-Use `codegraph_explore` for structural discovery when available. Pass the current checkout's absolute `projectPath`; do not substitute another worktree's index. Treat sufficient fresh verbatim source returned to this context as already read. Respect stale/disabled-watch warnings and report unresolved relationships; the graph is not proof of completeness. Never initialize an index during ordinary discovery. If this project is unindexed or the provider fails, use scoped native exploration. Do not call tgrep merely to confirm the same symbol. Source unavailable in this context is missing evidence, even if another agent saw it.
+Use `codegraph_explore` for structural discovery when available. Pass the current checkout's absolute `projectPath`; do not substitute another worktree's index. Treat fresh verbatim source in context as already read. Covers only its indexed languages (see codegraph status); docs, shell and config usually fall outside, so an empty result there is a gap, not absence. Never initialize an index during ordinary discovery. If unindexed or the provider fails, use scoped native exploration. Pass `maxFiles` to bound a large response. Do not call tgrep merely to confirm the same symbol.
 <!-- /navori:managed id="codegraph-search-v2" -->
 
 <!-- navori:managed id="skills-index" hash="85e0811a" version="0.9.0" source="@navori/core" -->
