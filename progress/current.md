@@ -1,35 +1,74 @@
-idle
+en curso — plan de proveedores externos, fase 1 cerrada, faltan 0.3/0.4, 1.4b, 1.5 y las fases 2-3
 
-Último ciclo: auditoría del área search v2 (tgrep + codegraph). Sin código editado, sin PR — seis
-issues abiertos y un arreglo de infraestructura fuera del repo. Detalle completo en
-`progress/history.md` (entrada 2026-09-22 20:40). Reportes en `.claude/progress/`
-(gitignored, referencia local): `audit_deep_{prosa-search-v2,tests-search-v2,codegraph}.md` y
-`scout_{v1_vs_v2,uso_search_tools}.md`.
+**Plan completo**: `/Users/ulisescm/.claude/plans/por-ahora-solo-el-lovely-badger.md` (fuera del
+repo, no se inyecta solo — ábrelo con `Read`). Trae el contexto, los 16 hallazgos verificados con
+su evidencia, y la investigación contra doc oficial. Este archivo es el estado; ese es el porqué.
 
-Issues abiertos por este ciclo, todos sin empezar:
-- **#943** `doctor` no detecta el índice obsoleto de tgrep (bug/high/cableado). El comentario del
-  issue fija la forma: scan hermano de `scanOtelReceiver`, NO dentro de `scanMissingExternalTools`.
-- **#944** la prosa de tgrep conflaciona índice ausente con índice obsoleto (bug/high/docs).
-- **#945** el ruteo manda a CodeGraph preguntas sobre `.md`/`.sh`/`.json`, que no indexa
-  (bug/high/docs). Incluye el gap de `maxFiles`, ausente de los dos bloques.
-- **#946** falta el test de "índice en disco + mutación + sin server" (tests/high).
-- **#947** D19 da 7.3% contra umbral de 25% (tech-debt/high). **Tiene fecha**: la ventana cierra
-  ~2026-09-30; hay que correr el instrumento y registrar en `docs/research/search-v2-results.md`.
-- **#948** el presupuesto de arranque no cuenta lo que inyectan los MCP (bug/medium).
+**Decisiones que NO se re-litigan** (las tomó Ulises en este ciclo):
+- **Respetar D04**: `--recommended` NO habilita tgrep/codegraph. Se ofrecen, no se auto-habilitan.
+  Eso deja el eje `--recommended` vs `--full` como *"¿requiere instalar software externo?"*.
+- **Setup antes que descubrimiento**: no se recomienda una herramienta cuyo modo degradado miente.
+- Sin TTY, un `postInstall` interactivo **se salta con aviso** (no falla duro, no se añade un campo
+  `interactive` por plugin).
 
-#944 y #945 tocan prosa managed con el presupuesto al límite (`AGENTS.md` al 82% del cap de Codex):
-deben reescribir, no sumar. #944 además debe conservar las cadenas `tgrep search` y `--no-index`, o
-rompe el invariante declarado en `packages/plugins/tgrep/plugin.json`.
+## Avance
 
-Fuera del repo, ya hecho y verificado: LaunchAgent
-`~/Library/LaunchAgents/com.ulisescm.tgrep-serve.navori-harness.plist` mantiene `tgrep serve` vivo
-(PPID 1, watcher nativo). Sin él, las búsquedas textuales de este repo vuelven a mentir.
+| Fase | Estado |
+|---|---|
+| 0.1 doctor detecta índice obsoleto de tgrep | ✅ #950 |
+| 0.2 prosa de tgrep, tres estados | ✅ #952 |
+| 0.3 doctor verifica capacidad (`.mcp.json` válido, versión del binario) | ❌ sin empezar, sin issue |
+| 0.4 dientes del `--strict` | ❌ sin empezar, sin issue |
+| 1.1 `postInstall` alcanzable | ✅ #958 |
+| 1.2+1.3 verificar tras instalar + capturar stderr | ✅ #962 |
+| 1.4a comando roto de `acli` (NXDOMAIN + tap) | ✅ #966 |
+| 1.4b huecos de la matriz | ❌ **#965 abierto** |
+| 1.5 hueco `add`→`render` | ❌ sin empezar, sin issue |
+| 1.6 tests de la ruta de instalación | ✅ (en #958/#967) |
+| — ejecutabilidad + guarda de TTY (deuda emergente) | ✅ #967 |
+| Fase 2 descubrimiento | ❌ **nada** |
+| Fase 3 diferenciación `--recommended`/`--full` | ❌ **nada** |
 
-Arrastrados de ciclos anteriores, sin resolver:
-- Abrir issue por la colisión en `dist/` descubierta en PR #912 (`vitest.globalSetup.ts` ->
-  `bun run build` bajo concurrencia).
-- #908 (techo de CLAUDE.md agotado) — otra sesión lo tenía en curso.
-- Observación cosmética no bloqueante: comentario desactualizado en
-  `guard-destructive.test.ts:1200-1204` ("5s budget" tras subir a 8000).
-- Pendiente de decisión del usuario (de #891): abrir issue por el conflicto de merge en
-  `progress/current.md` cuando corren dos sesiones en paralelo sobre la misma raíz.
+## Siguiente paso — elegir uno
+
+**#965** (issue abierto, no hay que re-investigar). La matriz ya está verificada contra fuente
+oficial dentro del issue:
+- CON comando: `tgrep`/linux (`brew install tgrep`, bottles Linux confirmados), `semgrep`/win32
+  (`pipx install semgrep`, beta por la propia doc), `engram`/win32 (`go install …`).
+- SIN comando único, donde la respuesta correcta es una URL: `tgrep`/win32, `gh`/linux, `acli`/win32.
+- Además: que `add` deje de cerrar en `ta.done` ("Listo") sin haber instalado nada (`add.ts`, rama
+  `if (!installCmd)`); validar las claves de `install` contra las plataformas conocidas
+  (`plugins.ts`, hoy `z.record(z.string(), z.string())` acepta `"macos"` y nunca matchea); y
+  `currentPlatform()`, que mapea freebsd/openbsd/sunos a `win32`.
+- **Decisión pendiente en el issue**: si el manifest admite `installDocs` (URL). El argumento en
+  contra está escrito ahí — una URL se pudre sin que ningún test lo note, que es literalmente lo
+  que pasó con el host de `acli`.
+
+**1.5** (sin issue, el hueco más grande que queda). `navori add` no renderiza: `navori add
+codegraph` deja `enabled: true` **sin `.mcp.json`, sin permiso y sin grant en los agentes** — las
+tres capas que `mcp-capability-wiring.test.ts:14-21` documenta como obligatorias. Y `doctor` sale
+`ok: true` porque con `readRenderedText` vacío `scanMissingInvariants` devuelve `[]`. Este ciclo
+hizo a `add` honesto sobre el **binario**; sobre el **cableado** sigue mintiendo.
+
+**Fase 2** (sin issues). Es donde vive lo que originó todo esto:
+`apps/website/src/components/HeroTerminal.astro:8` promete que `--recommended` trae codegraph y
+tgrep (falso); `README.md:195` dice que codegraph "se retiró" (revertido por #838); `add --suggest`
+y `doctor` no nombran los plugins disponibles pero no habilitados (`doctor.ts:1537` corta con
+`if (settings.enabled !== true) continue`); y el runbook de setup vive solo en
+`docs/research/search-v2.md:337-340`, que no es user-facing.
+
+## Deuda declarada
+
+No existe **ningún** test que fije los comandos de instalación de los manifests, y uno que repita
+el string sería tautológico. Es lo que dejó vivir un host NXDOMAIN en el repo sin que nadie se
+enterara. Cubrirlo de forma no tautológica es parte de #965.
+
+## Higiene
+
+- Worktree `.claude/worktrees/issue-967` montado y limpio; su rama ya está mergeada, se puede
+  retirar.
+- Ramas `fix/943-doctor-index-freshness` y `test/946-tgrep-disk-mode-staleness`: redundantes (su
+  contenido entró por #950/#951), esperando decisión de borrado.
+- Relacionado, abierto por otro ciclo: **#954** (el guard de aislamiento de `~/.navori` no está
+  scoped por worktree). Es el mecanismo que produjo un falso rojo durante #960 — entonces la causa
+  real fue otra, pero el defecto existe.

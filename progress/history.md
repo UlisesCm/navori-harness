@@ -10,6 +10,42 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-23 08:55 — orchestrator — Plan de proveedores externos + bloque `navori add` honesto (4 PRs)
+
+- **Cambios**: `packages/cli/src/commands/add.ts`, `packages/cli/src/lib/which.ts`,
+  `packages/cli/src/lib/i18n.ts`, `packages/plugins/acli/plugin.json`, y tests
+  (`add.test.ts` creado, `which.test.ts` de 3 a 6 casos). PRs #958, #962, #966, #969 — los cuatro
+  mergeados. Issues #953, #960, #964, #967 cerrados; **#965 abierto sin empezar**.
+- **Quality gate**: ✅ verde. Evidencia del ciclo: Pass 2 del reviewer de #967 (`bun check` completo
+  desde el worktree, exit 0, 4579 tests) + CI `quality` verde en los cuatro PRs. Sin código editado
+  después.
+- **Notas**:
+  - El punto de partida fue una propuesta de hook `SessionStart` cada 48h para recomendar
+    engram/tgrep/codegraph. Se descartó el canal: `additionalContext` ya se desborda (presupuesto
+    8000, cuatro secciones cayendo a puntero) y le habla al modelo, no al usuario. El único canal
+    documentado al humano en `SessionStart` es **exit 2 + stderr**; `systemMessage` ahí no está
+    documentado. El comando facilitador ya existía: `navori add <id>`.
+  - Orden elegido por Ulises: **setup primero**, y **respetar D04** (`--recommended` no habilita
+    tgrep/codegraph). Eso deja el eje `--recommended` vs `--full` como "¿requiere software externo?".
+  - `hasBinary` usa ahora `accessSync(X_OK)` **solo en POSIX** — `X_OK` no tiene efecto en Windows
+    (doc de Node), donde la ejecutabilidad es pertenencia a `PATHEXT`. Se descartó `mode & 0o111`:
+    da `true` para un `---x------` de otro usuario. El `mode & 0o111` de `doctor.ts` **se queda**:
+    ahí es diagnóstico, no un gate.
+  - `acli` apuntaba a `acli-releases.atlassian.com` → **NXDOMAIN**: `navori add acli` fallaba en
+    Linux. El tap de macOS también estaba equivocado.
+  - **Deuda declarada**: no existe ningún test que fije los comandos de instalación de los
+    manifests, y uno que repita el string sería tautológico. Es lo que dejó vivir un host muerto en
+    el repo. Cubrirlo de forma no tautológica es parte de #965.
+  - Dos correcciones a datos propios durante el ciclo: `which.test.ts` **sí** existía (lo negué
+    apoyándome en una auditoría previa sin re-verificar), y mi `brew info` local estaba en caché —
+    la API upstream confirmó los bottles Linux de tgrep que yo había puesto en duda.
+  - El `publisher` de #967 se colgó a los 600s tras commitear y pushear; el PR lo abrí yo. No se
+    duplicó nada.
+- **Commit / PR**: https://github.com/UlisesCm/navori-harness/pull/958 ·
+  https://github.com/UlisesCm/navori-harness/pull/962 ·
+  https://github.com/UlisesCm/navori-harness/pull/966 ·
+  https://github.com/UlisesCm/navori-harness/pull/969
+
 ## 2026-09-21 16:24 — orchestrator — #891: el cierre de sesión ya no genera un PR suelto (opción A)
 
 - **Cambios**: `packages/core/core-assets/managed/cierre-sesion.md` (paso 5, dueño único de la regla
