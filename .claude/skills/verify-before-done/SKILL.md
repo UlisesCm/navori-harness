@@ -6,7 +6,7 @@ metadata:
   maxWords: 650
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="10260fc0" version="0.9.0" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="verify-before-done-base" hash="7b9aec13" version="0.9.0" source="@navori/core" fmkeys="name,description,metadata" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -55,7 +55,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the command that proves it â
 
 ## When invoked
 
-`implementer` before `done -> impl_<feature>.md`; `reviewer` before `APPROVED`; `publisher` in pre-flight; any agent before "done".
+`implementer` before `done -> impl_<feature>.json`; `reviewer` before `APPROVED`; `publisher` in pre-flight; any agent before "done".
 
 ## Closing
 
