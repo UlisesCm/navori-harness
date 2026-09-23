@@ -7,7 +7,7 @@ effort: medium
 maxWords: 3050
 ---
 
-<!-- navori:managed id="orchestrator-base" hash="03408b65" version="0.9.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="orchestrator-base" hash="a3a2b03f" version="0.9.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
@@ -36,7 +36,7 @@ One route removes the decision entirely. It is more expensive per change and tha
 | Very complex | Split into sub-tasks and re-apply the table |
 
 When you start a complex task with a prior audit, **hand the implementer the path to `.claude/progress/audit_ticket_<ID>.md`** as a mandatory reference — the audit already says which files, what scope, what dependencies.
-
+**The `scribe` leg.** The `implementer` writes no Markdown (R1); when its `impl_<feature>.json` carries a non-empty `markdownRequests`, chain `implementer` → `scribe` → `reviewer` — the `scribe` applies the requested prose in the producer's own worktree and branch, in a commit of its own, before the `reviewer` sees the diff. A prose-only change (no code) skips the `implementer` entirely: `scribe` → `reviewer`. Model is chosen PER DISPATCH, not by config default: pass `haiku` when the scribe is only rendering the handoff, and `model: sonnet` on that `Agent` call when any `markdownRequests` path belongs to the diff that ships (R8) — `models.scribe` stays on its cheap default for the common case.
 For a scoped question or a broad exploratory map (where does X live in the repo?), use `scout`. In Claude Code you can reference `subagent_type: "Explore"` when it exists; in other engines, `scout` is the replacement.
 
 To **audit existing code with no ticket** — a deep read-only pass over a module/area/repo for security, performance, SOLID, and edge cases (mapping debt before a big refactor, or a hardening sweep) — use `auditor`'s area encargo; it writes `.claude/progress/audit_deep_<scope>.md` + a prioritized plan. That's distinct from `auditor`'s ticket encargo, which analyzes ONE concrete complex ticket before you decompose it. Both are read-only and never edit code (see the agent's own triggers).
@@ -112,12 +112,12 @@ Expected files:
 - `.claude/progress/explore_<area>.md` — broad map (`scout`, map encargo)
 - `.claude/progress/research_<question>.md` — scoped question (`scout`, question encargo)
 - `.claude/progress/solution_<scope>.md` — the design pass's decision record (`solution-design` skill), plus `solution_review_<scope>.md` for its fresh-context challenge (`auditor`, challenge encargo)
-- `.claude/progress/impl_<feature>.md` — the `implementer`'s report (includes its `Status: DONE | BLOCKED`)
+- `.claude/progress/impl_<feature>.json` — the `implementer`'s evidence (R2, includes `status` and `markdownRequests`); the `scribe` renders `.claude/progress/impl_<feature>.md` from it and applies `markdownRequests`
 - `.claude/progress/review_<feature>.md` — the `reviewer`'s verdict
 - `.claude/progress/receipt.txt` — the `reviewer`'s content receipt on `APPROVED` (binds the diff to the reviewed bytes; consumed by `publisher`)
 - `.claude/progress/comment_<feature>.md` — the comment/review/ticket body `publisher` drafts before publishing it file-backed (comment contract)
 
-**Path separation (don't mix):** `.claude/progress/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`, `comment_*`) between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.md`, you record the blocker in `progress/current.md` along with the next step.
+**Path separation (don't mix):** `.claude/progress/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`, `comment_*`) between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.json`, you record the blocker in `progress/current.md` along with the next step.
 
 **Retirement:** `.claude/progress/` is gitignored — single-machine, not durable. No doc or argument may cite one of its files as evidence. Delete by hand anything older than **14 days**; nothing here is automated (no command/hook deletes on your behalf). Before deleting, promote whatever is still load-bearing (a decision reconstructable in six months) to `docs/` or engram via the `dominio` skill — otherwise it's lost for good. `progress/current.md` and `progress/history.md` (repo root, versioned) are a different, exempt directory.
 

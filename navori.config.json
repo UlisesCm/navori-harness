@@ -19,6 +19,9 @@
   "audit": {
     "mode": "always"
   },
+  "harness": {
+    "scribeOwnsMarkdown": true
+  },
   "models": {
     "orchestrator": "opus",
     "implementer": "sonnet",
