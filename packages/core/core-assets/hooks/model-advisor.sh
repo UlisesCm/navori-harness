@@ -37,6 +37,42 @@ trap navori_audit_on_exit EXIT
 # before. It sits after the trap so audit mode still records the firing.
 case "$payload" in *'"agent_id"'* | *'"agent_type"'*) exit 0 ;; esac
 
+# Second layer of the same guard, for main-thread tool events. The only decision
+# input that can change mid-session is the effort, and Claude hands it to the
+# shell for free in `$CLAUDE_EFFORT`; there is no `$CLAUDE_MODEL`, so the model
+# keeps coming from the session state that `node` writes once per lifecycle
+# event. That asymmetry is what lets the shell answer alone: the same `node` run
+# leaves a sentinel naming what is already settled, and a non-candidate tuple
+# stops paying a spawn per tool call while `medium` -> `high` stays detectable.
+# See `claude-effort-env` and `claude-no-model-env` in host-contracts.ts.
+if [ "$mode" = "claude-pre-tool-use" ]; then
+  # Parameter expansion only: no fork, and no dependency on optional `jq`.
+  # A payload without the key leaves the path empty and falls through to `node`.
+  navori_scratchpad=""
+  case "$payload" in
+    *'"scratchpad_dir":"'*)
+      navori_scratchpad=${payload#*'"scratchpad_dir":"'}
+      navori_scratchpad=${navori_scratchpad%%'"'*}
+      ;;
+  esac
+  if [ -n "$navori_scratchpad" ]; then
+    # Settled for the rest of the session: already advised, or a model that no
+    # effort can turn into a candidate.
+    if [ -f "$navori_scratchpad/navori-model-advisor.skip" ]; then
+      exit 0
+    fi
+    # Opus: only a high tier qualifies. An UNDEFINED `$CLAUDE_EFFORT` — the host
+    # omits it when the model has no effort parameter — must fall through to
+    # `node`, never exit, so the guard stays fail-open.
+    if [ -f "$navori_scratchpad/navori-model-advisor.effort-gated" ]; then
+      case "${CLAUDE_EFFORT:-}" in
+        "" | high | xhigh | max) ;;
+        *) exit 0 ;;
+      esac
+    fi
+  fi
+fi
+
 # Node is already required by Claude Code and by the generated TypeScript CLI.
 # Keep all untrusted payload parsing here rather than interpolating JSON into shell.
 PAYLOAD="$payload" MODE="$mode" node <<'NODE'
@@ -89,10 +125,34 @@ const writeState = (state) => {
   fs.writeFileSync(statePath, JSON.stringify(state));
 };
 
+// Sentinels are the shell half of the guard above: empty marker files whose
+// NAME carries the verdict, so `[ -f ]` answers without parsing anything.
+const SKIP = "navori-model-advisor.skip";
+const GATED = "navori-model-advisor.effort-gated";
+/**
+ * Leaves at most one sentinel, removing the other, so a `/model` switch cannot
+ * leave the shell reading a verdict from the previous model. `null` clears both
+ * (Fable, which qualifies at any effort and therefore has nothing to skip).
+ */
+const writeSentinel = (name) => {
+  for (const other of [SKIP, GATED]) {
+    if (other !== name) fs.rmSync(path.join(scratchpadDir, other), { force: true });
+  }
+  if (name) fs.writeFileSync(path.join(scratchpadDir, name), "");
+};
+/** The verdict the shell can apply on its own for this model. */
+const sentinelFor = (model, notified) => {
+  if (notified) return SKIP;
+  if (model === "claude-fable-5") return null;
+  return /opus/i.test(model) ? GATED : SKIP;
+};
+
 if (mode === "claude-session-start" || mode === "claude-post-model-switch") {
   const model = mode === "claude-session-start" ? payload.model : payload.to_model;
   if (typeof model !== "string" || !model) process.exit(0);
-  writeState({ model, notified: mode === "claude-post-model-switch" ? readState()?.notified === true : false });
+  const notified = mode === "claude-post-model-switch" ? readState()?.notified === true : false;
+  writeState({ model, notified });
+  writeSentinel(sentinelFor(model, notified));
   process.exit(0);
 }
 
@@ -104,5 +164,6 @@ const isFable = state.model === "claude-fable-5";
 const isHighOpus = /opus/i.test(state.model) && ["high", "xhigh", "max"].includes(effort);
 if (!isFable && !isHighOpus) process.exit(0);
 writeState({ ...state, notified: true });
+writeSentinel(SKIP);
 notice(claudeMessage(isFable ? state.model : `${state.model}/${effort}`));
 NODE

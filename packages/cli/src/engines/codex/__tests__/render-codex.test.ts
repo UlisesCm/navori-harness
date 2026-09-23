@@ -67,11 +67,17 @@ describe("renderCodexEngine", () => {
     expect(hook).toContain("eficiencia de tokens");
     expect(hook).toContain("`/model`");
     expect(hook).not.toContain("gpt-5.6-sol/high");
+    // R9's effort guard lives inside the `claude-pre-tool-use` branch, and Codex
+    // registers only `codex-session-start`, so the render carries it inert. An
+    // effort variable in the environment must not reach this path: Codex does
+    // not expose effort to hooks at all (R7).
+    expect(toml).not.toContain("claude-pre-tool-use");
     expect(
       execFileSync("bash", [join(cwd, ".codex/hooks/model-advisor.sh"), "codex-session-start"], {
         cwd,
         input: JSON.stringify({ model: "gpt-6-astra" }),
         encoding: "utf8",
+        env: { ...process.env, CLAUDE_EFFORT: "medium" },
       }),
     ).toContain("Modelo recomendado disponible");
     expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf8")).toContain(
