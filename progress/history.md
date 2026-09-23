@@ -10,6 +10,17 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-23 21:00 — orchestrator — Spec 0032: planificación por niveles
+- Cambios: `specs/0032-planificacion-por-niveles/{requirements,design,tasks}.md`. Niveles 0-3
+  decididos por las señales de la tabla de orquestación, `workplan_<feature>.md` con criterios
+  `A<n>` (comando + salida esperada), `navori plan check`, `architect` en el nivel 2, todo detrás
+  de `harness.planTiers`.
+- Quality gate: solo docs; `format:check` y `check:links` verdes.
+- Notas: investigación previa de ECC, gentle-ai, deepseek-harness, Claude Code, spec-kit, Kiro y
+  ExecPlan de Codex; ninguno resuelve la formalidad con un agente planificador, así que se descartó.
+  `plan_<scope>.md` ya es del `auditor`, de ahí el nombre `workplan`.
+- Commit / PR: pendiente de implementación (T1-T7).
+
 ## 2026-09-23 19:30 — orchestrator — Cierra el plan de proveedores externos (fases 0-3, 6 PRs)
 - Cambios: `add` renderiza inline (#976); `doctor` verifica `.mcp.json` y `--strict` falla solo por
   eso (#979); `add --suggest`/`doctor` sugieren proveedores disponibles (#988); docs corrigen el
