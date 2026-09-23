@@ -165,6 +165,10 @@ export const doctorCommand = defineCommand({
     const missingOptionalTools = scanMissingOptionalTools();
     // #697: only asked of a repo that audits every session — see the scanner.
     const otelReceiver = await scanOtelReceiver(config);
+    // #943: informational, per-provider, only for plugins the config enables.
+    // Two sibling scans, not one branching check — see each for why.
+    const tgrepIndexFreshness = scanTgrepFreshness(cwd, config);
+    const codegraphIndexDrift = scanCodegraphDrift(cwd, config);
     const monorepoDrift = scanMonorepoDrift(cwd, config);
     const workspaceLink = scanWorkspaceLink(cwd, config);
     // #368: the gate the whole pipeline leans on, checked statically — a gate
@@ -312,6 +316,8 @@ export const doctorCommand = defineCommand({
       missingExternalTools,
       missingOptionalTools,
       otelReceiver,
+      tgrepIndexFreshness,
+      codegraphIndexDrift,
       // The four warning-level checks below are serialized verbatim, in the
       // order the human output prints them: a CI pipeline (or an agent) reading
       // `--json` was blind to all of them, which defeats the purpose of #368 and
@@ -645,6 +651,18 @@ export const doctorCommand = defineCommand({
       } else {
         p.log.warn(td.otelReceiverManual);
       }
+    }
+
+    if (tgrepIndexFreshness) {
+      p.log.warn(td.tgrepIndexStale(tgrepIndexFreshness.age, tgrepIndexFreshness.rootPath));
+    }
+    if (codegraphIndexDrift) {
+      p.log.warn(
+        td.codegraphIndexDrift(
+          codegraphIndexDrift.builtWithVersion,
+          codegraphIndexDrift.currentVersion,
+        ),
+      );
     }
 
     if (gateReadiness.length > 0) {
@@ -1592,6 +1610,118 @@ interface OtelReceiverReport {
   supportsSupervisor: boolean;
   /** The receiver answered its own health route. */
   responding: boolean;
+}
+
+export interface TgrepIndexFreshness {
+  /** `tgrep status`'s own compact duration token (e.g. "1d", "5h", "30s"). */
+  age: string;
+  /** Absolute path `tgrep serve` should be pointed at. */
+  rootPath: string;
+}
+
+/**
+ * #943 — an index exists and no server is keeping it warm: the exact case
+ * that makes `tgrep search` answer from a frozen snapshot instead of erroring
+ * or falling back to a full scan. A missing index (never built) or a live
+ * server (index stays fresh) are both silent.
+ *
+ * A sibling of `scanOtelReceiver`, same shape on purpose: informative only,
+ * never feeds `computeHealthVerdict`, and it names the exact command the
+ * user runs — `doctor` diagnoses, it never starts a server, indexes, or
+ * installs one (D09/D10, docs/research/search-v2.md).
+ *
+ * Reads `tgrep status <cwd>`'s TEXT output rather than its files or `--json`:
+ * `--json` is accepted but silently ignored by this subcommand (still prints
+ * the human table), and the exit code is 0 in all three states (no index,
+ * index-with-no-server, index-with-server) — so nothing except the text
+ * distinguishes them today. See `parseTgrepStatusOutput`.
+ */
+export function scanTgrepFreshness(cwd: string, config: NavoriConfig): TgrepIndexFreshness | null {
+  if (config.plugins?.tgrep?.enabled !== true) return null;
+  if (!hasBinary("tgrep")) return null;
+  let raw: string;
+  try {
+    raw = execFileSync("tgrep", ["status", cwd], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5000, // best-effort external probe must not hang doctor (#268)
+    });
+  } catch {
+    return null; // status errored — nothing to report reliably
+  }
+  const parsed = parseTgrepStatusOutput(raw);
+  return parsed.kind === "stale" ? { age: parsed.age, rootPath: parsed.rootPath } : null;
+}
+
+type TgrepStatusState =
+  | { kind: "no-index" }
+  | { kind: "serving" }
+  | { kind: "stale"; age: string; rootPath: string }
+  | { kind: "unrecognized" };
+
+/**
+ * Parses `tgrep status`'s human table (see `scanTgrepFreshness` for why text
+ * parsing is the only option today). Recognizes the three headers tgrep 1.0.10
+ * prints: "No index found at <path>" (never indexed), "Server status for
+ * <path>" (a live server answers, header has no explicit "not running" line),
+ * and "Index status for <path>" with a "Server:     not running" row (index
+ * present, nobody serving it — the finding). Anything else parses as
+ * `unrecognized` so a future tgrep release changing this format degrades to
+ * silence instead of a false positive.
+ */
+export function parseTgrepStatusOutput(output: string): TgrepStatusState {
+  if (/^No index found at/m.test(output)) return { kind: "no-index" };
+  if (/^Server status for/m.test(output)) return { kind: "serving" };
+  const header = output.match(/^Index status for (.+)$/m);
+  const notRunning = /^\s*Server:\s+not running\s*$/m.test(output);
+  const updated = output.match(/^\s*Updated:\s+(\S+)\s+ago\s*$/m);
+  if (header?.[1] && notRunning && updated?.[1]) {
+    return { kind: "stale", age: updated[1], rootPath: header[1].trim() };
+  }
+  return { kind: "unrecognized" };
+}
+
+export interface CodegraphIndexDrift {
+  /** Engine version that built the on-disk index. */
+  builtWithVersion: string;
+  /** Currently installed `codegraph` binary version. */
+  currentVersion: string;
+}
+
+/**
+ * #943 — `codegraph status --json` already computes this drift
+ * (`index.builtWithVersion` vs. the running binary's `version`); this only
+ * surfaces it in `doctor` instead of leaving it to whoever happens to run
+ * `codegraph status` by hand.
+ *
+ * A sibling of `scanOtelReceiver` and `scanTgrepFreshness`: informative only,
+ * never feeds `computeHealthVerdict`, and read-only — the status query never
+ * mutates or rebuilds the index, matching D09/D10 (docs/research/search-v2.md).
+ * No index on disk is NOT a finding: nothing can have drifted from nothing.
+ * Unlike tgrep's status, `--json` here returns a real structured contract, so
+ * this reads it directly instead of parsing prose.
+ */
+export function scanCodegraphDrift(cwd: string, config: NavoriConfig): CodegraphIndexDrift | null {
+  if (config.plugins?.codegraph?.enabled !== true) return null;
+  if (!existsSync(join(cwd, ".codegraph"))) return null; // no index — nothing can have drifted
+  if (!hasBinary("codegraph")) return null;
+  try {
+    const raw = execFileSync("codegraph", ["status", "--json", cwd], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5000, // best-effort external probe must not hang doctor (#268)
+    });
+    const status: {
+      version?: unknown;
+      index?: { builtWithVersion?: unknown; reindexRecommended?: unknown };
+    } = JSON.parse(raw);
+    if (status.index?.reindexRecommended !== true) return null;
+    const { builtWithVersion } = status.index;
+    if (typeof builtWithVersion !== "string" || typeof status.version !== "string") return null;
+    return { builtWithVersion, currentVersion: status.version };
+  } catch {
+    return null; // binary absent, status errored, or unparseable output
+  }
 }
 
 export function scanMissingOptionalTools(): MissingOptionalTool[] {
