@@ -247,7 +247,8 @@ describe("subagent-stop-handoff hook", () => {
   // event regardless of nesting (confirmed against
   // https://code.claude.com/docs/en/hooks.md: PreToolUse/PostToolUse payloads
   // carry `tool_input` mirroring the tool's own parameters, and a real captured
-  // `Agent` tool_use — `cli.e2e.test.ts`'s audit fixture —
+  // `Agent` tool_use — `lib/audit/__tests__/parse.test.ts`'s fixture, read by
+  // `lib/audit/parse.ts` at `path(u, "input", "subagent_type")` —
   // records `input: { subagent_type: "implementer", ... }` under that exact
   // shape). Covers: R2, R10
   const VALID_JSON = JSON.stringify({
