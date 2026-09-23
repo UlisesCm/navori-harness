@@ -51,6 +51,13 @@ import { deepMerge } from "./deep-merge.ts";
  *      Blocks the `implementer` (identified by the payload's `agent_type`)
  *      from writing `.md`/`.mdx`; every other agent and the main thread pass
  *      untouched.
+ *   1d. `subagent-no-background` PreToolUse(`Bash|Monitor`) hook (#1003) —
+ *      always registered, like the guard: a universal invariant, not a
+ *      configurable feature. Blocks a `Bash` call with
+ *      `tool_input.run_in_background: true` or any `Monitor` call, but only
+ *      when the payload's `agent_id` is present (any subagent); the main
+ *      thread — where backgrounding a gate that outlives the Bash timeout is
+ *      the documented legitimate path — passes untouched. Exit 2.
  *   2. Quality-gate PreToolUse hook, only if `config.qualityGate.fast` is
  *      set. The hook entry references
  *      `$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh`
@@ -75,6 +82,7 @@ import { deepMerge } from "./deep-merge.ts";
 const QG_HOOK_DEST = ".claude/hooks/quality-gate-pre-commit.sh";
 const GUARD_HOOK_DEST = ".claude/hooks/guard-destructive.sh";
 const IMPLEMENTER_NO_MD_HOOK_DEST = ".claude/hooks/implementer-no-markdown.sh";
+const SUBAGENT_NO_BACKGROUND_HOOK_DEST = ".claude/hooks/subagent-no-background.sh";
 const SESSION_START_HOOK_DEST = ".claude/hooks/session-start-context.sh";
 const MODEL_ADVISOR_HOOK_DEST = ".claude/hooks/model-advisor.sh";
 const AUDIT_TRIGGER_HOOK_DEST = ".claude/hooks/audit-mode-trigger.sh";
@@ -128,6 +136,32 @@ export function buildClaudeSettings(
               command: `bash "$CLAUDE_PROJECT_DIR/${GUARD_HOOK_DEST}"`,
               timeout: 10,
               statusMessage: "navori: guard-destructive",
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  // #1003: the mechanical backstop for "a subagent does not background its
+  // own work" (`implementer.md:43`, `reviewer.md:79`, `verify-before-done.md`'s
+  // subagent row). Always registered, like the guard above — it is a
+  // universal invariant already stated unconditionally for every harness
+  // install, not tied to any optional feature. Exit 2 precedes permission
+  // rules. Matcher `Bash|Monitor`: `Monitor`'s hookability as a PreToolUse
+  // tool name is not confirmed by the official hooks doc, so this branch is
+  // defense in depth (see the hook's own header).
+  settings = deepMerge(settings, {
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: "Bash|Monitor",
+          hooks: [
+            {
+              type: "command",
+              command: `bash "$CLAUDE_PROJECT_DIR/${SUBAGENT_NO_BACKGROUND_HOOK_DEST}"`,
+              timeout: 10,
+              statusMessage: "navori: subagent-no-background",
             },
           ],
         },

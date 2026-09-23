@@ -53,6 +53,17 @@
         ]
       },
       {
+        "matcher": "Bash|Monitor",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/subagent-no-background.sh\"",
+            "timeout": 10,
+            "statusMessage": "navori: subagent-no-background"
+          }
+        ]
+      },
+      {
         "matcher": "Bash|Edit|Write|NotebookEdit",
         "hooks": [
           {
