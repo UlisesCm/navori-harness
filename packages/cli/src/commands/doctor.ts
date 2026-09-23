@@ -7,6 +7,7 @@ import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { resolveHarnessPlan } from "../engines/shared/harness-plan.ts";
 import { CLAUDE_COMPUTED_BLOCK_IDS } from "../engines/claude/index.ts";
 import { getCoreRoot, readCliVersion } from "../lib/bundled-assets.ts";
+import { isPlainObject } from "../engines/claude/coexist-settings.ts";
 import {
   CODEX_PROJECT_DOC_MAX_BYTES,
   CODEX_PROJECT_DOC_WARN_RATIO,
@@ -1107,6 +1108,19 @@ export function docBudgetLines(
   // every host that renders a harness.
   if (report.perSubagentWords !== null) {
     lines.push(`  ${grey(sym.bullet)} ${td.docBudgetSubagents(report.perSubagentWords)}`);
+  }
+  // #948 — listed, never priced (see `DocBudgetReport.mcpServers`'s doc for
+  // why). Two lines instead of folding `alwaysLoad` into the first: what it
+  // does (eager tool-schema load) is a separate fact from the instructions
+  // payload this section exists to make visible, and conflating them would
+  // reintroduce the attribution the #948 audit refuted.
+  if (report.mcpServers.length > 0) {
+    const ids = report.mcpServers.map((s) => s.id).join(", ");
+    lines.push(`  ${grey(sym.bullet)} ${td.docBudgetMcpServers(report.mcpServers.length, ids)}`);
+    const alwaysLoadIds = report.mcpServers.filter((s) => s.alwaysLoad).map((s) => s.id);
+    if (alwaysLoadIds.length > 0) {
+      lines.push(`  ${grey(sym.bullet)} ${td.docBudgetMcpAlwaysLoad(alwaysLoadIds.join(", "))}`);
+    }
   }
   // Named on their own line instead of folded into the summary: a block with no
   // ceiling is a different fact from a block over one, and the two fixes differ
@@ -2378,6 +2392,30 @@ export interface DocBudgetReport {
    * a Codex-only repo would be inventing a cost.
    */
   perSubagentWords: number | null;
+  /**
+   * MCP servers wired for this session (#948) — LISTED, never priced. This
+   * report never reads outside the repo (`scanDocBudget`'s own doc-comment:
+   * "measures the files ON DISK"), and a server's actual startup payload
+   * (its `initialize.instructions`) can only be read by starting the server,
+   * which `doctor` never does (D09/D10, `docs/research/search-v2.md:21-22`).
+   * So this is the one honest fact available from disk: WHICH servers a
+   * session pays for, not how much.
+   *
+   * Deliberately not attributed to `alwaysLoad`: an audit of #948 found a
+   * server WITHOUT `alwaysLoad` (`engram`) injecting its instructions from
+   * the same arranque as one WITH it (`codegraph`) — `alwaysLoad` forces
+   * eager load of the tool-SCHEMA half only (`McpServerSchema`'s doc in
+   * `plugins.ts`), not the instructions payload. Empty when the repo has no
+   * `.mcp.json` or it declares no servers.
+   */
+  mcpServers: DocBudgetMcpServer[];
+}
+
+/** One entry of `DocBudgetReport.mcpServers` — a server this repo wires, and
+ *  whether it forces eager tool-schema load. Never a size (#948). */
+export interface DocBudgetMcpServer {
+  id: string;
+  alwaysLoad: boolean;
 }
 
 /** Which knob shrinks this block — keyed off what RENDERED it, not its name. */
@@ -2469,7 +2507,31 @@ export function scanDocBudget(cwd: string, config: NavoriConfig): DocBudgetRepor
     cursorRules,
     copilotInstructions,
     perSubagentWords: config.engines.includes("claude") ? (measure?.totalWords ?? null) : null,
+    mcpServers: readMcpServers(cwd),
   };
+}
+
+/**
+ * `.mcp.json`'s `mcpServers` map, read for WHICH servers it lists — never
+ * for their size (#948). Reads `.mcp.json` itself rather than
+ * `loadEnabledPlugins`: the file is the actual wire contract Claude Code
+ * loads, so it also carries a server a user hand-added outside navori's
+ * plugin system, which a plugin-only read would miss.
+ */
+function readMcpServers(cwd: string): DocBudgetMcpServer[] {
+  const path = join(cwd, ".mcp.json");
+  if (!existsSync(path)) return [];
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
+    if (!isPlainObject(parsed)) return [];
+    const servers = parsed.mcpServers;
+    if (!isPlainObject(servers)) return [];
+    return Object.entries(servers)
+      .filter((entry): entry is [string, Record<string, unknown>] => isPlainObject(entry[1]))
+      .map(([id, entry]) => ({ id, alwaysLoad: entry.alwaysLoad === true }));
+  } catch {
+    return [];
+  }
 }
 
 /**

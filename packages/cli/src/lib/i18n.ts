@@ -814,6 +814,19 @@ interface DoctorCmdStrings {
   docBudgetSummary: (total: number, managed: number, ceiling: number, own: number) => string;
   /** Claude-only: every subagent reloads the whole CLAUDE.md. No invented multiplier. */
   docBudgetSubagents: (words: number) => string;
+  /**
+   * MCP servers wired for this session (#948), listed — never priced. Makes
+   * visible that a cost exists outside the figures above, without a token
+   * number this report cannot back honestly (see `DocBudgetMcpServer`'s doc
+   * in `doctor.ts` for why).
+   */
+  docBudgetMcpServers: (count: number, ids: string) => string;
+  /**
+   * `alwaysLoad` servers among the ones above, named for what the field
+   * actually does — eager load of tool SCHEMAS — never as the source of the
+   * cost the line above just flagged.
+   */
+  docBudgetMcpAlwaysLoad: (ids: string) => string;
   /** Blocks navori ships no ceiling for: counted, but out of the quotient. */
   docBudgetUnbudgeted: (words: number, ids: string) => string;
   /** `AGENTS.md` against Codex's byte cap — reported, never capped. */
@@ -1976,6 +1989,13 @@ const CMD_ES: CmdStrings = {
       `${words} palabras en bloques sin techo (${ids}): se cuentan en el total pero quedan FUERA ` +
       `de la comparación — navori no envía techo para ellos, y casi siempre son bloques retirados ` +
       `que un 'navori render --apply' quita solo`,
+    docBudgetMcpServers: (count, ids) =>
+      `${count} servidor(es) MCP activos (${ids}): cada uno puede inyectar sus propias ` +
+      `instrucciones desde el arranque — costo real, APARTE de las cifras de arriba, y no ` +
+      `medible desde aquí sin levantar el servidor (navori no lo hace)`,
+    docBudgetMcpAlwaysLoad: (ids) =>
+      `'alwaysLoad' en ${ids}: fuerza carga eager de los ESQUEMAS de sus tools en vez de ` +
+      `diferirlos vía Tool Search — no determina el costo de instrucciones de la línea anterior`,
     docBudgetAgentsMd: (words, bytes, pct, max) =>
       `AGENTS.md: ${words} palabras (${bytes} bytes, ${pct}% del cap de ${max} que Codex ` +
       `concatena) — se reporta, no se capea: navori ve su parte, no la cadena completa`,
@@ -3212,6 +3232,13 @@ const CMD_EN: CmdStrings = {
       `${words} words in blocks with no ceiling (${ids}): counted in the total but kept OUT of ` +
       `the comparison — navori ships no ceiling for them, and they are almost always retired ` +
       `blocks a 'navori render --apply' removes on its own`,
+    docBudgetMcpServers: (count, ids) =>
+      `${count} active MCP server(s) (${ids}): each can inject its own instructions from ` +
+      `startup — a real cost, ON TOP of the figures above, and not measurable from here without ` +
+      `starting the server (navori never does)`,
+    docBudgetMcpAlwaysLoad: (ids) =>
+      `'alwaysLoad' on ${ids}: forces eager load of their tool SCHEMAS instead of deferring via ` +
+      `Tool Search — it does not determine the instructions cost the line above just named`,
     docBudgetAgentsMd: (words, bytes, pct, max) =>
       `AGENTS.md: ${words} words (${bytes} bytes, ${pct}% of the ${max} cap Codex concatenates ` +
       `against) — reported, not capped: navori sees its share, not the whole chain`,

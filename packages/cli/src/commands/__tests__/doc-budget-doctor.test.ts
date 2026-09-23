@@ -439,6 +439,108 @@ describe("scanDocBudget (#917)", () => {
     expect(report!.cursorRules).not.toBeNull();
     expect(report!.copilotInstructions).toBeNull();
   });
+
+  /**
+   * #948 — the report lists which MCP servers this repo wires, but never
+   * prices them: their real startup payload can only be read by starting the
+   * server, which `doctor` never does (D09/D10). `.mcp.json` is read as-is,
+   * so a user-added server (outside any navori plugin) is listed too.
+   */
+  describe("MCP servers (#948)", () => {
+    it("is empty when the repo has no .mcp.json", () => {
+      const cwd = tempRepo();
+      writeClaudeMd(cwd, block("tipado-fuerte", words(20)));
+      expect(scanDocBudget(cwd, config())!.mcpServers).toEqual([]);
+    });
+
+    it("lists every server declared in .mcp.json, alwaysLoad included", () => {
+      const cwd = tempRepo();
+      writeClaudeMd(cwd, block("tipado-fuerte", words(20)));
+      writeFileSync(
+        join(cwd, ".mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            codegraph: { command: "codegraph", args: ["serve", "--mcp"], alwaysLoad: true },
+            engram: { command: "engram", args: ["mcp"] },
+          },
+        }),
+      );
+      const report = scanDocBudget(cwd, config())!;
+      expect(report.mcpServers).toEqual([
+        { id: "codegraph", alwaysLoad: true },
+        { id: "engram", alwaysLoad: false },
+      ]);
+    });
+
+    it("does not crash on a malformed .mcp.json — reports an empty list instead", () => {
+      const cwd = tempRepo();
+      writeClaudeMd(cwd, block("tipado-fuerte", words(20)));
+      writeFileSync(join(cwd, ".mcp.json"), "{ not json");
+      expect(scanDocBudget(cwd, config())!.mcpServers).toEqual([]);
+    });
+
+    it("prints the server list without any word/token figure attached", () => {
+      const cwd = tempRepo();
+      writeClaudeMd(cwd, block("tipado-fuerte", words(20)));
+      writeFileSync(
+        join(cwd, ".mcp.json"),
+        JSON.stringify({ mcpServers: { engram: { command: "engram", args: ["mcp"] } } }),
+      );
+      const lines = docBudgetLines(scanDocBudget(cwd, config())!, tc("es").doctor);
+      const mcpLine = lines.find((l) => l.includes("engram"));
+      expect(mcpLine).toBeDefined();
+      expect(mcpLine).not.toMatch(/\d+\s*(tokens?|palabras|words)/);
+    });
+
+    /**
+     * The #948 audit's core finding: `alwaysLoad` is never named as the
+     * source of the instructions cost — a server without it (`engram`) is
+     * evidence that field does not gate that payload.
+     */
+    it("names alwaysLoad only for what it does, never as the cost's cause", () => {
+      const cwd = tempRepo();
+      writeClaudeMd(cwd, block("tipado-fuerte", words(20)));
+      writeFileSync(
+        join(cwd, ".mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            codegraph: { command: "codegraph", args: [], alwaysLoad: true },
+            engram: { command: "engram", args: [] },
+          },
+        }),
+      );
+      const lines = docBudgetLines(scanDocBudget(cwd, config())!, tc("es").doctor);
+      const alwaysLoadLine = lines.find((l) => l.includes("alwaysLoad"));
+      expect(alwaysLoadLine).toBeDefined();
+      expect(alwaysLoadLine).toContain("codegraph");
+      expect(alwaysLoadLine).not.toContain("engram");
+      // What it says it does: tool schemas, not instructions.
+      expect(alwaysLoadLine).toMatch(/esquema/i);
+    });
+
+    it("stays silent about alwaysLoad when no server declares it", () => {
+      const cwd = tempRepo();
+      writeClaudeMd(cwd, block("tipado-fuerte", words(20)));
+      writeFileSync(
+        join(cwd, ".mcp.json"),
+        JSON.stringify({ mcpServers: { engram: { command: "engram", args: [] } } }),
+      );
+      const lines = docBudgetLines(scanDocBudget(cwd, config())!, tc("es").doctor);
+      expect(lines.some((l) => l.includes("alwaysLoad"))).toBe(false);
+    });
+
+    it("never flips the health verdict, same doctrine as every other line", () => {
+      const cwd = tempRepo();
+      writeClaudeMd(cwd, block("tipado-fuerte", words(20)));
+      writeFileSync(
+        join(cwd, ".mcp.json"),
+        JSON.stringify({
+          mcpServers: { codegraph: { command: "codegraph", args: [], alwaysLoad: true } },
+        }),
+      );
+      expect(computeHealthVerdict(cwd, config()).ok).toBe(true);
+    });
+  });
 });
 
 /**
