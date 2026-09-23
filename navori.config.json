@@ -69,7 +69,9 @@
     "testsExclude": [],
     "localSkills": [
       "playwright-cli",
-      "author-agent"
+      "author-agent",
+      "rebase-rerender",
+      "worktree-hygiene"
     ],
     "libraries": [
       "zod-validation",
