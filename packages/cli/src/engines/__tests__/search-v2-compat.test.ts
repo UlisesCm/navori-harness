@@ -19,7 +19,7 @@ import { splitFrontmatter, getFrontmatterField } from "../../lib/frontmatter.ts"
 // Harmless for every other describe block here: nothing in the render pipeline
 // calls `hasBinary`.
 const hasBinary = vi.fn();
-vi.mock("../../lib/which.ts", () => ({ hasBinary: (n: string) => hasBinary(n) }));
+vi.mock(import("../../lib/which.ts"), () => ({ hasBinary: (n: string) => hasBinary(n) }));
 const { scanMissingExternalTools, computeHealthVerdict } = await import("../../commands/doctor.ts");
 
 /**

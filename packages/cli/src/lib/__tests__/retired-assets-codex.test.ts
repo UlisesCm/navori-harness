@@ -13,7 +13,7 @@ import { join } from "node:path";
  * nothing here would otherwise run.
  */
 
-vi.mock("../../engines/shared/harness-assets.ts", async (importOriginal) => {
+vi.mock(import("../../engines/shared/harness-assets.ts"), async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../engines/shared/harness-assets.ts")>();
   return {
     ...actual,

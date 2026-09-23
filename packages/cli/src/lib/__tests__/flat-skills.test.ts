@@ -22,7 +22,7 @@ import { scanFlatSkills } from "../flat-skills.ts";
  * running it happens to have on their machine (#404/#424).
  */
 
-vi.mock("../home.ts", () => ({ safeHomedir: () => "" }));
+vi.mock(import("../home.ts"), () => ({ safeHomedir: () => "" }));
 
 let cwd: string;
 let skills: string;

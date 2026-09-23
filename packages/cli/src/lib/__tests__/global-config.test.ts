@@ -10,7 +10,7 @@ import { join } from "node:path";
  * returning null when the file is absent — the first two tests pin that.
  */
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock("../home.ts", () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const {
   readGlobalConfig,

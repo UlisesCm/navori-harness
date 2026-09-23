@@ -24,7 +24,7 @@ import { basename, dirname, join } from "node:path";
  * itself is redirected per spec file by `NAVORI_BACKUP_ROOT` (#404).
  */
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock("../../lib/home.ts", () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 vi.mock("@clack/prompts", () => ({
   intro: vi.fn(),

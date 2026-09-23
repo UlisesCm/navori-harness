@@ -27,7 +27,7 @@ import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/schema.ts";
  */
 const fed = vi.hoisted(() => ({ inputs: [] as string[] }));
 
-vi.mock("../compat.ts", async (importOriginal) => {
+vi.mock(import("../compat.ts"), async (importOriginal) => {
   const actual = await importOriginal<typeof import("../compat.ts")>();
   return {
     ...actual,

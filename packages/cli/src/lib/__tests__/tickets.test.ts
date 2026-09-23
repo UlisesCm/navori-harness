@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
  */
 
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock("../home.ts", () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const {
   findReferencingRepos,

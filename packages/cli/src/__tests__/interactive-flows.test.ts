@@ -50,7 +50,7 @@ vi.mock("@clack/prompts", () => {
 // in lib/__tests__/migrate.test.ts. That file is the reason this mock is
 // legitimate, and #504 found it did not exist when the mock first cited it: a
 // mock justified by coverage nobody had written.
-vi.mock("../lib/migrate.ts", () => ({
+vi.mock(import("../lib/migrate.ts"), () => ({
   createMigrationBackup: vi.fn(() => ({
     path: "/fake/backup",
     movedPaths: ["CLAUDE.md", ".claude"],

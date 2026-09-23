@@ -17,7 +17,7 @@ import { join } from "node:path";
  * throwaway fake home instead of the developer's real ~/.navori.
  */
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock("../home.ts", () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const {
   readRegistry,

@@ -16,7 +16,7 @@ import type { NavoriConfig } from "../config.ts";
  * safeHomedir is mocked so the machine-local registry lives in a fake home.
  */
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock("../home.ts", () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { scanWorkspaceDrift } = await import("../workspace-drift.ts");
 const { writeWorkspace } = await import("../workspace.ts");

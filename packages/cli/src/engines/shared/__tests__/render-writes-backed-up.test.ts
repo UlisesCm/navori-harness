@@ -22,7 +22,7 @@ import type { NavoriConfigInput } from "../../../lib/schema.ts";
  * store is redirected per spec file by `NAVORI_BACKUP_ROOT` (#404).
  */
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock("../../../lib/home.ts", () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { writeConfig } = await import("../../../lib/config.ts");
 const { runRender } = await import("../../../commands/render.ts");
