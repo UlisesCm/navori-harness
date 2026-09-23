@@ -166,10 +166,10 @@ Restates nothing already in "## Role: orchestrator" (edit source, write source, 
 If the task is a pure reading / conceptual question → answer directly, no subagents. Everything else that touches source goes through `implementer` → `reviewer` — see the top of this file: there is no size or path exception.
 <!-- /navori:managed id="orchestrator-base" -->
 
-<!-- navori:managed id="codegraph-access-v2-orchestrator" hash="41084677" version="0.9.0" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-access-v2-orchestrator" hash="5ac84549" version="0.9.0" source="@navori/plugin-codegraph" -->
 ### Structural discovery access
 
-Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Continue with scoped native tools if unavailable.
+Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Pass `maxFiles` to bound a large response. Continue with scoped native tools if unavailable.
 <!-- /navori:managed id="codegraph-access-v2-orchestrator" -->
 
 <!-- navori:managed id="codex-cross-review" hash="3b75baab" version="0.9.0" source="@navori/core" -->

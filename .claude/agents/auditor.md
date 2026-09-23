@@ -196,10 +196,10 @@ your report.
 If a memory contradicts the code, the code wins — fix the memory.
 <!-- /navori:managed id="engram-auditor-extension" -->
 
-<!-- navori:managed id="codegraph-access-v2-auditor" hash="41084677" version="0.9.0" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-access-v2-auditor" hash="5ac84549" version="0.9.0" source="@navori/plugin-codegraph" -->
 ### Structural discovery access
 
-Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Continue with scoped native tools if unavailable.
+Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Pass `maxFiles` to bound a large response. Continue with scoped native tools if unavailable.
 <!-- /navori:managed id="codegraph-access-v2-auditor" -->
 
 ## Project rules
