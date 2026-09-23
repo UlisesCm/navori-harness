@@ -14,8 +14,8 @@
     "name": "acli",
     "checkBinary": "acli",
     "install": {
-      "darwin": "brew install atlassian-labs/acli/acli",
-      "linux": "curl -fsSL https://acli-releases.atlassian.com/install.sh | bash"
+      "darwin": "brew install atlassian/acli/acli",
+      "linux": "curl -fsSL https://acli.atlassian.com/install.sh | bash"
     }
   },
   "settingsFragment": {
