@@ -52,7 +52,11 @@ Es lo que valida el job `quality` de CI; si no pasa, el PR falla:
      que más se olvida. Se arregla con `bun run format`.
    - **`blame.ignoreRevsFile`**: configúralo (`git config blame.ignoreRevsFile .git-blame-ignore-revs`)
      para que `git blame` salte los commits de reformateo masivo (p. ej. la migración a oxfmt,
-     #889) listados en `.git-blame-ignore-revs` en la raíz.
+     #889) listados en `.git-blame-ignore-revs` en la raíz. Un commit entra ahí **solo después de
+     aterrizar en `main`**, nunca en el mismo PR que se va a mergear por squash — el squash reescribe
+     el SHA y la entrada deja de ser ancestro de `main` (#986, #1004). `bun run check:blame-ignore`
+     (parte del gate) exige ambas cosas por entrada: que sea ancestro de `origin/main` y que su diff
+     sea mecánico.
    - **Dos gates corriendo el mismo `test:coverage` sobre el mismo árbol de trabajo** (dos agentes
      en la misma sesión local, no en worktrees distintos) chocan escribiendo al mismo
      `packages/cli/coverage/` (#909). Para aislar una corrida, exporta

@@ -14,7 +14,7 @@
   "packageManager": "bun",
   "qualityGate": {
     "fast": "cd packages/cli && bun lint",
-    "full": "bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck"
+    "full": "bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck"
   },
   "audit": {
     "mode": "always"

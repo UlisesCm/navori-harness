@@ -2,18 +2,10 @@
 # `blame.ignoreRevsFile` is configured to point at this file
 # (see CONTRIBUTING.md). Only mechanical, no-logic-change reformats
 # belong here — never a commit that also changes behavior.
-
-# style: reformatea con oxfmt tras la migración de biome (#889)
-9f886f8dfb648c0fcccd334a42f0d52d8fd822f5
-
-# refactor(lib): agrupa assets, workspace y diagnose en subdirectorios (#894 fase 1)
-# — #986 se mergeó por squash a main como un solo commit (los SHAs originales
-# de sus commits mecánicos en la rama de origen no son ancestros de main).
-# Verificado pura move + import-rewrite + prose/path fixups + hash regen
-# derivado, sin cambios de comportamiento.
-7b727bcf8f71c8d0ebe07b46b03af162df87da54
-
-# refactor(lib): reescribe imports tras mover config, primitives y render (#894 fase 2)
-# — #1004 se mergeó por squash a main como un solo commit (los SHAs originales
-# de sus commits mecánicos en la rama de origen no son ancestros de main).
-ba6322c1de43403b99e75a10b5038bba89063343
+#
+# An entry is added ONLY after its commit has landed on `main`, never for a
+# PR that will be squash-merged: the squash rewrites the SHA into a new merge
+# commit, so a pre-squash entry stops being an ancestor of `main` the moment
+# it merges (#986, #1004). `bun run check:blame-ignore` enforces both halves
+# — ancestry against `origin/main` and a mechanical (normalized-equal) diff
+# — so an entry that fails either is rejected before it can rot silently.

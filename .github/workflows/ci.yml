@@ -115,6 +115,13 @@ jobs:
       - name: Doc word budgets
         run: bun run check:doc-budgets
 
+      # #1002 — validates `.git-blame-ignore-revs`: every entry must be an
+      # ancestor of `origin/main` (not this branch — a squash merge rewrites
+      # the SHA on merge, see the script's own header) and mechanical. Needs
+      # full history, which the checkout above provides (fetch-depth: 0).
+      - name: Blame-ignore entries are ancestors with a mechanical diff
+        run: bun run check:blame-ignore
+
       # The hook suites run under bash AND zsh (#391) — the hooks execute with
       # whatever shell the host wires in — and ubuntu-latest ships without zsh.
       # The tests skip the zsh rows cleanly when the binary is missing, so this
