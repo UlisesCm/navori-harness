@@ -29,7 +29,7 @@ código; no la metas en un PR suelto.
 `bun install` desde la raíz. El `package.json` raíz declara
 `"trustedDependencies": ["esbuild", "sharp"]` — sin eso bun ignora sus scripts de postinstall (y
 ahí es donde antes, con pnpm, saltaba un error en vez de un warning). Ambos necesitan el suyo:
-esbuild descarga su binario nativo (del que dependen tsup y vitest) y sharp compila contra libvips
+esbuild descarga su binario nativo (del que depende vitest) y sharp compila contra libvips
 para el sitio Astro. Se listan explícitamente y se comitean para que un clon fresco instale sin que
 nadie tenga que aprobar nada a mano.
 
