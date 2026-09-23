@@ -14,4 +14,6 @@
 7b727bcf8f71c8d0ebe07b46b03af162df87da54
 
 # refactor(lib): reescribe imports tras mover config, primitives y render (#894 fase 2)
-e876ddf26728c545c62bcffd96f455c2920c822e
+# — #1004 se mergeó por squash a main como un solo commit (los SHAs originales
+# de sus commits mecánicos en la rama de origen no son ancestros de main).
+ba6322c1de43403b99e75a10b5038bba89063343
