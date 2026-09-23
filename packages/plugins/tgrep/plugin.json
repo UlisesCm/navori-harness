@@ -9,7 +9,11 @@
   "externalTool": {
     "name": "tgrep",
     "checkBinary": "tgrep",
-    "install": { "darwin": "brew install tgrep" }
+    "install": {
+      "darwin": "brew install tgrep",
+      "linux": "brew install tgrep"
+    },
+    "installDocs": "https://github.com/microsoft/tgrep"
   },
   "settingsFragment": {
     "permissions": {

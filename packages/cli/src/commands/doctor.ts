@@ -21,6 +21,7 @@ import { isPlaceholderName } from "../lib/detect.ts";
 import { loadPlugin, loadEnabledPlugins } from "../lib/plugins.ts";
 import { effectiveConfigForWorkspace, enabledMonorepoWorkspaces } from "../lib/monorepo.ts";
 import { hasBinary } from "../lib/which.ts";
+import { currentPlatform } from "../lib/platform.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";
 import { resolveLocalSkillPath } from "../lib/skill-meta.ts";
 import { unknownLibraries } from "../lib/library-skills.ts";
@@ -620,9 +621,13 @@ export const doctorCommand = defineCommand({
 
     if (missingExternalTools.length > 0) {
       const lines = missingExternalTools.map((t) => {
+        // No command for this platform is a legitimate manifest state (#965):
+        // point at the tool's official page instead of "install it somehow".
         const how = t.install
           ? `${t.install}${t.postInstall ? ` && ${t.postInstall}` : ""}`
-          : td.externalToolFallbackHow;
+          : t.installDocs
+            ? td.externalToolDocsHow(t.installDocs)
+            : td.externalToolFallbackHow;
         return `  ${color.yellow(sym.update)} ${accent(t.pluginId)}  ${grey(td.externalToolRow(t.binary, how))}`;
       });
       p.log.warn(td.externalTools(missingExternalTools.length, lines.join("\n")));
@@ -1535,6 +1540,8 @@ interface MissingExternalTool {
   binary: string;
   install: string | null;
   postInstall: string | null;
+  /** Official installation page, when the manifest declares one (#965). */
+  installDocs: string | null;
 }
 
 /**
@@ -1547,7 +1554,10 @@ interface MissingExternalTool {
  */
 export function scanMissingExternalTools(config: NavoriConfig): MissingExternalTool[] {
   const missing: MissingExternalTool[] = [];
-  const platform = process.platform;
+  // Shared with `add` (#965): both commands used to answer "which platform is
+  // this?" differently — `doctor` read `process.platform` raw while `add`
+  // folded every exotic OS into win32 — so they disagreed about the same cell.
+  const platform = currentPlatform();
   for (const [id, settings] of Object.entries(config.plugins ?? {})) {
     if (settings.enabled !== true) continue;
     try {
@@ -1556,8 +1566,9 @@ export function scanMissingExternalTools(config: NavoriConfig): MissingExternalT
       missing.push({
         pluginId: id,
         binary: tool.checkBinary,
-        install: tool.install?.[platform] ?? null,
+        install: (platform ? tool.install?.[platform] : undefined) ?? null,
         postInstall: tool.postInstall ?? null,
+        installDocs: tool.installDocs ?? null,
       });
     } catch {
       // Missing / broken plugin is reported via missingPlugins.

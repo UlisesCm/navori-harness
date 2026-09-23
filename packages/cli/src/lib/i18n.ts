@@ -728,6 +728,7 @@ interface DoctorCmdStrings {
   externalTools: (n: number, lines: string) => string;
   externalToolRow: (binary: string, how: string) => string;
   externalToolFallbackHow: string;
+  externalToolDocsHow: (url: string) => string;
   optionalTools: (n: number, lines: string) => string;
   optionalToolRow: (binaries: string, how: string) => string;
   /** #697 — the OTel receiver, only asked about when the repo audits always. */
@@ -1114,6 +1115,8 @@ interface AddCmdStrings {
   externalSkipped: (name: string) => string;
   doneInstallLater: string;
   noInstallCommand: (platform: string, name: string) => string;
+  installDocsHint: (url: string) => string;
+  doneNoInstall: (name: string) => string;
   done: string;
   installPrompt: (name: string, command: string) => string;
   postInstallPrompt: (name: string, command: string) => string;
@@ -1844,6 +1847,7 @@ const CMD_ES: CmdStrings = {
       `su protocolo/scan referencia algo que no está disponible en esta máquina:\n${lines}`,
     externalToolRow: (binary, how) => `— falta '${binary}' en PATH; ${how}`,
     externalToolFallbackHow: "instala la herramienta y reinicia Claude Code",
+    externalToolDocsHow: (url) => `instálala siguiendo ${url}`,
     optionalTools: (n, lines) =>
       `Herramientas opcionales no instaladas (${n}) — el harness funciona con fallback, ` +
       `pero pierde precisión en estos flujos:\n${lines}`,
@@ -2168,9 +2172,13 @@ const CMD_ES: CmdStrings = {
     externalAlreadyInstalled: (name) => `La herramienta externa '${name}' ya está instalada`,
     externalSkipped: (name) =>
       `La herramienta externa '${name}' no está instalada. Se pidió --skip-install.`,
-    doneInstallLater: "Listo — instálala manualmente después",
+    doneInstallLater:
+      "Listo — instálala manualmente después; luego corre 'navori render --apply' para aplicar",
     noInstallCommand: (platform, name) =>
       `No hay comando de instalación para '${platform}'. Instala '${name}' manualmente.`,
+    installDocsHint: (url) => `Instalación oficial: ${url}`,
+    doneNoInstall: (name) =>
+      `El plugin quedó registrado, pero '${name}' NO se instaló. Instálala y corre 'navori render --apply' para aplicar`,
     done: "Listo",
     installPrompt: (name, command) => `¿Instalar '${name}'? Se ejecutará: ${command}`,
     postInstallPrompt: (name, command) =>
@@ -3101,6 +3109,7 @@ const CMD_EN: CmdStrings = {
       `their protocol/scan references something not available on this machine:\n${lines}`,
     externalToolRow: (binary, how) => `— missing '${binary}' in PATH; ${how}`,
     externalToolFallbackHow: "install the tool and restart Claude Code",
+    externalToolDocsHow: (url) => `install it following ${url}`,
     optionalTools: (n, lines) =>
       `Optional tools not installed (${n}) — the harness keeps working with a fallback, ` +
       `but loses precision in these flows:\n${lines}`,
@@ -3423,9 +3432,12 @@ const CMD_EN: CmdStrings = {
     externalAlreadyInstalled: (name) => `External tool '${name}' is already installed`,
     externalSkipped: (name) =>
       `External tool '${name}' is not installed. --skip-install was requested.`,
-    doneInstallLater: "Done — install it manually later",
+    doneInstallLater: "Done — install it manually later, then run 'navori render --apply' to apply",
     noInstallCommand: (platform, name) =>
       `No install command for platform '${platform}'. Install '${name}' manually.`,
+    installDocsHint: (url) => `Official installation: ${url}`,
+    doneNoInstall: (name) =>
+      `The plugin was registered, but '${name}' was NOT installed. Install it and run 'navori render --apply' to apply`,
     done: "Done",
     installPrompt: (name, command) => `Install '${name}'? This will run: ${command}`,
     postInstallPrompt: (name, command) =>

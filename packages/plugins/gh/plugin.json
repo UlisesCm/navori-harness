@@ -17,6 +17,7 @@
       "darwin": "brew install gh",
       "win32": "winget install --id GitHub.cli"
     },
+    "installDocs": "https://github.com/cli/cli/blob/trunk/docs/install_linux.md",
     "postInstall": "gh auth status || gh auth login"
   },
   "settingsFragment": {
