@@ -1,0 +1,7 @@
+# Commits listed here are skipped by `git blame` when
+# `blame.ignoreRevsFile` is configured to point at this file
+# (see CONTRIBUTING.md). Only mechanical, no-logic-change reformats
+# belong here — never a commit that also changes behavior.
+
+# style: reformatea con oxfmt tras la migración de biome (#889)
+d884c94420d70b0c07bbd6650fb4f60c9721372d

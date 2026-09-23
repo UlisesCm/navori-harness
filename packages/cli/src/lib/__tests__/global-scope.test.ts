@@ -26,12 +26,10 @@ vi.mock("../home.ts", () => ({
 const { defaultManagedSettingsPath, scanGlobalScope } = await import("../global-scope.ts");
 const { defaultGlobalConfig, writeGlobalConfig } = await import("../global-config.ts");
 const { readCliVersion } = await import("../bundled-assets.ts");
-const { composeBaseline, generateHookScript } = await import(
-  "../../engines/claude/global-render.ts"
-);
-const { PLUGIN_HOOK_SCRIPT_REL, PLUGIN_MANIFEST_REL, globalPluginDir } = await import(
-  "../../engines/claude/global-plugin.ts"
-);
+const { composeBaseline, generateHookScript } =
+  await import("../../engines/claude/global-render.ts");
+const { PLUGIN_HOOK_SCRIPT_REL, PLUGIN_MANIFEST_REL, globalPluginDir } =
+  await import("../../engines/claude/global-plugin.ts");
 const { tc } = await import("../i18n.ts");
 
 let repo: string;

@@ -48,9 +48,11 @@ Es lo que valida el job `quality` de CI; si no pasa, el PR falla:
      `check-coverage-floor.mjs`, que además del umbral caza una entrada obsoleta en `KNOWN_ZERO`
      (los módulos que navori envía sin tests). Correr sólo `bun test` lo deja pasar, y ya costó
      un CI rojo con el gate verde.
-   - **`bun run format:check` (biome) NO está bajo `packages/cli`**: corre en la raíz, y es el paso
-     que más se olvida. Biome expande objetos de una línea y parte llamadas largas. Se arregla
-     con `bun run format`.
+   - **`bun run format:check` (oxfmt) NO está bajo `packages/cli`**: corre en la raíz, y es el paso
+     que más se olvida. Se arregla con `bun run format`.
+   - **`blame.ignoreRevsFile`**: configúralo (`git config blame.ignoreRevsFile .git-blame-ignore-revs`)
+     para que `git blame` salte los commits de reformateo masivo (p. ej. la migración a oxfmt,
+     #889) listados en `.git-blame-ignore-revs` en la raíz.
    - **Dos gates corriendo el mismo `test:coverage` sobre el mismo árbol de trabajo** (dos agentes
      en la misma sesión local, no en worktrees distintos) chocan escribiendo al mismo
      `packages/cli/coverage/` (#909). Para aislar una corrida, exporta

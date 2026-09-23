@@ -324,14 +324,12 @@ function createCodexAdapter(configTomlBody: string): EngineAdapter {
         // #823: one `agents/openai.yaml` sidecar per manual-only skill — Codex's
         // native `allow_implicit_invocation: false`, shell-comment managed so it
         // gets the same backup/anti-downgrade/prune treatment as every other file.
-        ...manualOnlySkillIds.map(
-          (id): PlacementRequest => ({
-            body: OPENAI_MANUAL_ONLY_POLICY,
-            destRelPath: `.agents/skills/${id}/agents/openai.yaml`,
-            managedId: `${id}-openai-policy`,
-            commentStyle: "shell",
-          }),
-        ),
+        ...manualOnlySkillIds.map((id): PlacementRequest => ({
+          body: OPENAI_MANUAL_ONLY_POLICY,
+          destRelPath: `.agents/skills/${id}/agents/openai.yaml`,
+          managedId: `${id}-openai-policy`,
+          commentStyle: "shell",
+        })),
       ];
     },
 

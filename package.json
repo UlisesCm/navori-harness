@@ -20,8 +20,8 @@
     "dev": "bun run --filter '*' dev",
     "lint": "oxlint packages/cli/src",
     "gen:schemas": "bun run --filter navori gen:schemas",
-    "format": "biome format --write packages/cli/src apps/website/src",
-    "format:check": "biome format packages/cli/src apps/website/src",
+    "format": "oxfmt \"packages/cli/src/**/*.{ts,tsx}\" \"apps/website/src/**/*.{ts,tsx}\"",
+    "format:check": "oxfmt --check \"packages/cli/src/**/*.{ts,tsx}\" \"apps/website/src/**/*.{ts,tsx}\"",
     "check:links": "node scripts/js/check-links.mjs",
     "check:render": "bun run --filter navori build && node scripts/js/check-render.mjs",
     "check:assets": "node scripts/js/check-asset-commands.mjs",
@@ -34,7 +34,7 @@
     "check": "bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.5",
+    "oxfmt": "^0.70.0",
     "oxlint": "1.75.0"
   }
 }
