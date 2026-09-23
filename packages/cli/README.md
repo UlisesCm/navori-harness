@@ -35,11 +35,13 @@ npx navori init
 ## Quick start
 
 ```bash
-# Modo opinado: cero preguntas, todo configurado
+# Modo opinado: cero preguntas, harness completo sin instalar software externo
+# (engram siempre activo, +gh si el repo tiene remote de GitHub)
 cd ~/tu-repo
 navori init --recommended
 
-# Instalación máxima: todos los plugins + pre-commit hook + scan-monorepo + project block estricto
+# + proveedores externos (tgrep, codegraph, semgrep, jscpd, acli) + pre-commit hook +
+# scan-monorepo + project block estricto — requiere instalar los binarios de esos proveedores
 navori init --full
 
 # O wizard interactivo con detección de stack
@@ -63,7 +65,7 @@ Y genera:
 
 | Comando | Qué hace |
 |---|---|
-| `init` | Bootstrap del repo con detección automática + wizard (o `--recommended` sin preguntas, o `--full` para la instalación máxima) |
+| `init` | Bootstrap del repo con detección automática + wizard (o `--recommended` sin preguntas y sin instalar software externo, o `--full` para sumar proveedores externos + política estricta) |
 | `add <plugin>` | Activa un plugin y opcionalmente instala la tool externa |
 | `remove <plugin>` | Desactiva un plugin y limpia sus bloques managed, sub-bloques y scripts |
 | `configure <section>` | Ajusta una sección del config sin re-correr el wizard |

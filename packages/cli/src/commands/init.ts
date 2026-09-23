@@ -137,12 +137,12 @@ export const initCommand = defineCommand({
     recommended: {
       type: "boolean",
       description:
-        "Opinionated mode: --yes + auto-enable recommended plugins (engram, +gh if GitHub repo)",
+        "Opinionated mode: --yes + full harness without installing external software (+gh if GitHub repo; engram already ships always-on)",
     },
     full: {
       type: "boolean",
       description:
-        "Maximal mode: --recommended + all plugins + pre-commit hook + monorepo scan + strict project block",
+        "--recommended + external providers (tgrep, codegraph, semgrep, jscpd, acli) + pre-commit hook + monorepo scan + strict project block",
     },
     lang: {
       type: "string",
