@@ -95,6 +95,7 @@ interface DoctorReport {
     hookDrift: { kind: string };
     managedPolicy: Array<{ key: string; path: string }>;
   } | null;
+  availableExternalProviders: string[];
   config: { monorepo?: { workspaces: Array<{ name: string; path: string }> } };
 }
 
@@ -254,6 +255,68 @@ describe("doctor --json — warning-level checks", () => {
       eslintConfig: ".eslintrc.js",
       worktrees: [".claude/worktrees/agent-a028"],
     });
+  });
+});
+
+describe("doctor --json — available external providers, not enabled (#981)", () => {
+  /** A section distinct from `missingExternalTools` (enabled but binary
+   *  absent): this one names plugins the repo never enabled at all, purely
+   *  informational — it must never gate `ok` nor `--strict`. */
+  function seedRepo(): string {
+    const dir = mkdtempSync(join(tmpdir(), "navori-doctor-providers-"));
+    seedRunnableRepo(dir, "doctor-providers-demo");
+    dirs.push(dir);
+    return dir;
+  }
+
+  it("lists external-tool plugins not yet enabled, excludes gh (no GitHub remote) and engram", () => {
+    const repo = seedRepo();
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    const providers = doctorJson(repo).availableExternalProviders;
+    expect(providers).toEqual(expect.arrayContaining(["codegraph", "tgrep", "semgrep", "jscpd"]));
+    expect(providers).not.toContain("gh"); // no git remote in this fixture
+    expect(providers).not.toContain("engram"); // always-on, not a user choice
+  });
+
+  it("drops a provider once it's enabled, and never flips `ok` or exits non-zero either way", () => {
+    const repo = seedRepo();
+    runCli(["init", "--recommended", "--cwd", repo]);
+    expect(doctorJson(repo).availableExternalProviders).toContain("codegraph");
+    expect(doctorJson(repo).ok).toBe(true);
+
+    expect(runCli(["add", "codegraph", "--skip-install", "--cwd", repo]).status).toBe(0);
+
+    const after = doctorJson(repo);
+    expect(after.availableExternalProviders).not.toContain("codegraph");
+    expect(after.ok).toBe(true);
+  });
+
+  it("never gates --strict — same contract as missingExternalTools", () => {
+    const repo = seedRepo();
+    runCli(["init", "--recommended", "--cwd", repo]);
+    expect(doctorJson(repo).availableExternalProviders.length).toBeGreaterThan(0);
+
+    const strict = runCli(["doctor", "--json", "--strict", "--cwd", repo]);
+    expect(strict.status).toBe(0);
+  });
+
+  it("prints a distinct 'available, not enabled' section in the human-readable run", () => {
+    const repo = seedRepo();
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    const human = runCli(["doctor", "--cwd", repo]);
+    expect(human.status).toBe(0);
+    // Distinct wording from `missingExternalTools`'s "enabled but absent from
+    // PATH" framing (`init --recommended` defaults to Spanish output) — this
+    // section is "exists, was never enabled". Asserted on its own header +
+    // row text, not on the ABSENCE of the sibling section: whether `engram`'s
+    // binary is on PATH is a fact about the machine running the test (CI
+    // lacks it, a dev box with the CLI globally installed may not), so that
+    // section can legitimately also be present here — it's simply not what
+    // this test is about.
+    expect(human.stdout).toContain("Proveedores externos disponibles, no habilitados");
+    expect(human.stdout).toContain("habilítalo con 'navori add codegraph'");
   });
 });
 

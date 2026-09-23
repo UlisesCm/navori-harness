@@ -14,6 +14,7 @@ import {
 } from "../lib/plugins.ts";
 import { hasBinary } from "../lib/which.ts";
 import { currentPlatform } from "../lib/platform.ts";
+import { listAvailableExternalProviders } from "../lib/external-providers.ts";
 import { InstallError } from "../lib/errors.ts";
 import { detectProject } from "../lib/diagnose/detect.ts";
 import { brand, dim, accent, color, sym } from "../lib/style.ts";
@@ -449,9 +450,10 @@ function printInstallDocs(tool: PluginExternalTool, ta: ReturnType<typeof tc>["a
 
 /**
  * Spec 0003 §3.5.2 — suggest (never install) based on the detected stack:
- * the preset that fits if it differs from the current one, and engram if not
- * enabled. Skills tied to a stack (mantine, nextjs…) live in presets, so the
- * actionable suggestion is the preset, not a plugin.
+ * the preset that fits if it differs from the current one, engram if not
+ * enabled, and (#981) any other external-tool provider that's available but
+ * not enabled. Skills tied to a stack (mantine, nextjs…) live in presets, so
+ * the actionable suggestion is the preset, not a plugin.
  */
 function printSuggestions(cwd: string, configPath: string, lang: Lang): void {
   const ta = tc(lang).add;
@@ -474,6 +476,14 @@ function printSuggestions(cwd: string, configPath: string, lang: Lang): void {
   );
   if (!enabled.has("engram")) {
     lines.push(`${color.cyan(sym.bullet)} ${ta.suggestedEngram}`);
+  }
+
+  // #981: name external-tool providers (codegraph, tgrep, semgrep, jscpd,
+  // acli, gh…) that exist but aren't enabled yet — the `--yes`/`--recommended`
+  // init paths never mention them, so this is the only place a user learns
+  // they exist. Offer only, never auto-enable (D04).
+  for (const id of listAvailableExternalProviders(config, cwd)) {
+    lines.push(`${color.cyan(sym.bullet)} ${ta.suggestedProvider(accent(id))}`);
   }
 
   if (lines.length === 0) {

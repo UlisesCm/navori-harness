@@ -68,7 +68,8 @@
     ],
     "testsExclude": [],
     "localSkills": [
-      "playwright-cli"
+      "playwright-cli",
+      "author-agent"
     ],
     "libraries": [
       "zod-validation",

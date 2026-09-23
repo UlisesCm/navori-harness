@@ -143,6 +143,7 @@ Choose by the missing information, not by keywords or a fixed tool sequence.
 - `dominio` — navori (workflow) · Use when you discover a durable fact that spans multiple repos of a workspace (data model, business rule, migration, cr…
 - `follow-up-prs` — navori (workflow) · Use when you resume a session with open PRs of yours, or when a check went red after a push
 - `quality-attributes` — navori (workflow) · Use when a task carries a non-functional requirement or architecture signal
+- `author-skill` — navori (workflow) · Use when creating or revising a skill (SKILL.md)
 - `zod-validation` — library (detected) · Use when creating a Zod schema or validating input at a trust boundary
 - `vitest` — library (detected) · Use when writing or fixing unit/integration tests with Vitest
 

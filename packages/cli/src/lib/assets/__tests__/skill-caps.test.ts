@@ -88,6 +88,18 @@ describe("skill output discipline (spec 0003 §3.2.1)", () => {
     },
   );
 
+  // The render splits an asset at the FIRST user-section sentinel. A second one
+  // (e.g. the sentinel quoted as an example in prose) cuts the managed block
+  // mid-file and drops the rest into the user zone, where it never re-renders.
+  it.each(files.map((f) => [f.split("/").slice(-1)[0]!, f] as const))(
+    "%s carries the user-section sentinel at most once",
+    (_name, file) => {
+      const raw = readFileSync(file, "utf-8");
+      const count = raw.split("<!-- navori:user-section -->").length - 1;
+      expect(count, `${file}: user-section sentinel appears ${count} times`).toBeLessThanOrEqual(1);
+    },
+  );
+
   // Spec 0003 §3.2.2 — descriptions must carry an activation trigger so the
   // skill loads on-demand, not always-on.
   it.each(files.map((f) => [f.split("/").slice(-1)[0]!, f] as const))(
