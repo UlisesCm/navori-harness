@@ -220,3 +220,63 @@ describe("renderManagedFile — shell (hook without frontmatter)", () => {
     expect(r.content).toContain("# user: add checks");
   });
 });
+
+/**
+ * Spec 0030 (#985), R13: `<!-- navori:if key -->` / `<!-- navori:if-not key -->`
+ * resolve for agent (and skill) assets in every engine, not just the
+ * `orquestacion` CLAUDE.md sub-block — this is the shared render path all of
+ * them go through.
+ *
+ * // Covers: R13
+ */
+describe("renderManagedFile — navori:if/if-not resolves in agent assets (spec 0030 T8)", () => {
+  let conditionalAssetPath: string;
+
+  beforeAll(() => {
+    conditionalAssetPath = join(dir, "conditional-agent.md");
+    writeFileSync(
+      conditionalAssetPath,
+      `---
+name: conditional-agent
+description: Fixture agent for the flag-conditioned prose test.
+tools: Read
+---
+
+# Conditional agent
+
+<!-- navori:if scribeOwnsMarkdown -->
+The scribe owns Markdown.
+<!-- /navori:if -->
+<!-- navori:if-not scribeOwnsMarkdown -->
+The implementer still writes Markdown.
+<!-- /navori:if-not -->
+`,
+      "utf-8",
+    );
+  });
+
+  it("renders the if-not branch when the flag is false (default)", () => {
+    const r = renderManagedFile({
+      assetPath: conditionalAssetPath,
+      existingContent: null,
+      managedId: "conditional-agent-base",
+      meta: META,
+      config: CONFIG,
+    });
+    expect(r.content).toContain("The implementer still writes Markdown.");
+    expect(r.content).not.toContain("The scribe owns Markdown.");
+  });
+
+  it("renders the if branch when the flag is true", () => {
+    const cfgOn = { ...CONFIG, harness: { scribeOwnsMarkdown: true } } as NavoriConfig;
+    const r = renderManagedFile({
+      assetPath: conditionalAssetPath,
+      existingContent: null,
+      managedId: "conditional-agent-base",
+      meta: META,
+      config: cfgOn,
+    });
+    expect(r.content).toContain("The scribe owns Markdown.");
+    expect(r.content).not.toContain("The implementer still writes Markdown.");
+  });
+});

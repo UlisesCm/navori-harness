@@ -13,7 +13,7 @@ corre con la cadena nueva.
 
 ## Lote 1b — flag (implementer)
 
-- [ ] **T8** (R13) · implementer — `harness.scribeOwnsMarkdown` (default `false`) en `HarnessSchema`; registro de `implementer-no-markdown.sh` condicionado al flag; `navori:if`/`navori:if-not` disponibles en los assets de agentes y skills que toca el lote 2 · test: schema default, settings con y sin flag, render condicional de un asset de agente, con `// Covers: R13`.
+- [x] **T8** (R13) · implementer — `harness.scribeOwnsMarkdown` (default `false`) en `HarnessSchema`; registro de `implementer-no-markdown.sh` condicionado al flag; `navori:if`/`navori:if-not` disponibles en los assets de agentes y skills que toca el lote 2 · test: schema default, settings con y sin flag, render condicional de un asset de agente, con `// Covers: R13`.
 
 ## Lote 2 — contratos de prosa (implementer, excepción final)
 

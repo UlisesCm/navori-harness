@@ -1193,3 +1193,40 @@ describe("buildClaudeSettings — denies Agent(orchestrator) and not Agent(leade
     expect(settings.permissions.deny).not.toContain("Agent(leader)");
   });
 });
+
+/**
+ * Spec 0030 (#985), R13: `implementer-no-markdown.sh` is registered only when
+ * `harness.scribeOwnsMarkdown` is `true`. With the flag off (the default),
+ * settings.json must render exactly as it did before T2 registered the hook.
+ *
+ * // Covers: R13
+ */
+describe("buildClaudeSettings — implementer-no-markdown hook gated by harness.scribeOwnsMarkdown (spec 0030 T8)", () => {
+  function findHook(settings: Record<string, unknown>): unknown {
+    const pre = (settings.hooks as { PreToolUse?: Array<{ hooks: Array<{ command: string }> }> })
+      .PreToolUse;
+    return pre?.find((b) => b.hooks.some((h) => h.command.includes("implementer-no-markdown.sh")));
+  }
+
+  it("is absent from settings.json when the flag is unset (default false)", () => {
+    const settings = buildClaudeSettings(MINIMAL_CONFIG, []);
+    expect(findHook(settings)).toBeUndefined();
+  });
+
+  it("is absent from settings.json when the flag is explicitly false", () => {
+    const cfg = {
+      ...MINIMAL_CONFIG,
+      harness: { scribeOwnsMarkdown: false },
+    } as unknown as NavoriConfig;
+    expect(findHook(buildClaudeSettings(cfg, []))).toBeUndefined();
+  });
+
+  it("registers the hook on PreToolUse(Bash|Edit|Write|NotebookEdit) when the flag is true", () => {
+    const cfg = {
+      ...MINIMAL_CONFIG,
+      harness: { scribeOwnsMarkdown: true },
+    } as unknown as NavoriConfig;
+    const bucket = findHook(buildClaudeSettings(cfg, [])) as { matcher: string } | undefined;
+    expect(bucket?.matcher).toBe("Bash|Edit|Write|NotebookEdit");
+  });
+});

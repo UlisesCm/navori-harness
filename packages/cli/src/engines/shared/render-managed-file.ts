@@ -13,6 +13,7 @@ import type { FallbackScope } from "../../lib/placeholders.ts";
 import { expandHookIncludes } from "../../lib/hook-includes.ts";
 import { mergeFrontmatter } from "../claude/frontmatter-merge.ts";
 import { parseFrontmatterFields, formatFrontmatterField } from "../../lib/frontmatter.ts";
+import { conditionOrchestration } from "../../lib/render-plan.ts";
 
 /**
  * Render one bundled asset against the current destination file. Pure-ish:
@@ -74,7 +75,14 @@ export function renderManagedFile(input: RenderManagedFileInput): RenderManagedF
   // so a hook's shared boilerplate is a single source of truth yet the rendered
   // file stays fully standalone. No-op for assets without a directive.
   const expanded = expandHookIncludes(readFileSync(input.assetPath, "utf-8"));
-  const raw = input.transform ? input.transform(expanded) : expanded;
+  const transformed = input.transform ? input.transform(expanded) : expanded;
+  // Spec 0030 (#985), R13: `<!-- navori:if key -->` / `<!-- navori:if-not key -->`
+  // resolve here — the one place shared by every engine's agent/skill/hook
+  // asset (Claude, Codex, Cursor, Copilot, agents-md) — instead of per-adapter,
+  // so an asset that carries a condition behaves the same regardless of which
+  // engine renders it. A no-op for every asset without a marker (the regex
+  // simply finds nothing to replace).
+  const raw = conditionOrchestration(transformed, input.config);
   const asset = parseAsset(raw, commentStyle);
 
   const scope = input.fallbackScope;

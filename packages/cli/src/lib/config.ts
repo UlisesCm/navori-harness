@@ -259,7 +259,10 @@ const CONFIG_KEY_RULE: ConfigObjectRule = {
     hooks: { keys: ["verifyOnStop"] },
     audit: { keys: ["mode"] },
     sdd: { keys: ["enabled", "specsDir", "applyWhen", "doesNotApplyTo"] },
-    harness: { keys: AGENT_ROLE_KEYS },
+    // `scribeOwnsMarkdown` (spec 0030, R13) is a harness FLAG, not a roster
+    // agent — added here directly instead of in `AGENT_ROLE_KEYS`, which
+    // `roster-parity.test.ts` checks 1:1 against the agent roster.
+    harness: { keys: [...AGENT_ROLE_KEYS, "scribeOwnsMarkdown"] },
     models: {
       keys: [...AGENT_ROLE_KEYS, "codexMap"],
       children: { codexMap: { keys: ["opus", "sonnet", "haiku"] } },

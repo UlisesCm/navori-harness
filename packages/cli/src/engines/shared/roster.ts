@@ -1,4 +1,4 @@
-import type { NavoriConfig } from "../../lib/config.ts";
+import { AGENT_ROLE_KEYS } from "../../lib/config.ts";
 
 /**
  * Canonical description of one core agent: its filename id, the
@@ -21,7 +21,14 @@ import type { NavoriConfig } from "../../lib/config.ts";
  */
 export interface RosterAgent {
   readonly id: string;
-  readonly harnessKey: keyof NonNullable<NavoriConfig["harness"]>;
+  // Spec 0030 (#985), R13: `harness.scribeOwnsMarkdown` widened
+  // `keyof NonNullable<NavoriConfig["harness"]>` to include a non-agent flag,
+  // which broke every call site that indexes `models`/`effort` (agent-only
+  // schemas) with an agent's `harnessKey` — those signatures never had room
+  // for the new key. `AGENT_ROLE_KEYS` is the roster-only key space
+  // (`roster-parity.test.ts` holds it 1:1 against this array), so it is the
+  // correct type source now that the two have diverged.
+  readonly harnessKey: (typeof AGENT_ROLE_KEYS)[number];
   readonly sandbox?: "read-only" | "workspace-write";
 }
 

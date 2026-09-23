@@ -10,6 +10,7 @@ import {
   RETIRED_SKILLS as ROSTER_RETIRED_SKILLS,
   RETIRED_HOOKS as ROSTER_RETIRED_HOOKS,
   type Retired,
+  type RosterAgent,
 } from "./roster.ts";
 
 export type { Retired, RetiredAdapter } from "./roster.ts";
@@ -32,11 +33,7 @@ export type { Retired, RetiredAdapter } from "./roster.ts";
  * Re-exported from `roster.ts` (spec 0026 T8): that file is now the canonical
  * source, checked against every other agent-id list by `roster-parity.test.ts`.
  */
-export const CORE_AGENTS: ReadonlyArray<{
-  id: string;
-  harnessKey: keyof NonNullable<NavoriConfig["harness"]>;
-  sandbox?: "read-only" | "workspace-write";
-}> = ROSTER_AGENTS;
+export const CORE_AGENTS: ReadonlyArray<RosterAgent> = ROSTER_AGENTS;
 
 /** Re-exported from `roster.ts` (spec 0026 T8) — see that file for the rationale. */
 export const CORE_SKILLS: ReadonlyArray<string> = ROSTER_CORE_SKILLS;

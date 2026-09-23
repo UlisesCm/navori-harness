@@ -11378,17 +11378,6 @@ esac
         ]
       },
       {
-        "matcher": "Bash|Edit|Write|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/implementer-no-markdown.sh\"",
-            "timeout": 10,
-            "statusMessage": "navori: implementer-no-markdown"
-          }
-        ]
-      },
-      {
         "matcher": ".*",
         "hooks": [
           {

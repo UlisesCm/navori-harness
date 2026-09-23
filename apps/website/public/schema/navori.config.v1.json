@@ -199,6 +199,10 @@
         "architect": {
           "default": false,
           "type": "boolean"
+        },
+        "scribeOwnsMarkdown": {
+          "default": false,
+          "type": "boolean"
         }
       },
       "required": [
@@ -209,7 +213,8 @@
         "auditor",
         "publisher",
         "scribe",
-        "architect"
+        "architect",
+        "scribeOwnsMarkdown"
       ],
       "additionalProperties": false
     },
