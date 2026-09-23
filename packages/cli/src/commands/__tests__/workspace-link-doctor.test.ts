@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { NavoriConfig } from "../../lib/config.ts";
+import type { NavoriConfig } from "../../lib/config/config.ts";
 
 /**
  * doctor's workspace-link check (#76): `workspace` in navori.config.json is
@@ -13,7 +13,7 @@ import type { NavoriConfig } from "../../lib/config.ts";
  */
 
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { scanWorkspaceLink } = await import("../doctor.ts");
 const { writeWorkspace } = await import("../../lib/workspace/workspace.ts");

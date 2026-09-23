@@ -2,10 +2,10 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
-import { writeConfig } from "../../lib/config.ts";
+import { writeConfig } from "../../lib/config/config.ts";
 import { runRender } from "../render.ts";
 import { computeHealthVerdict } from "../doctor.ts";
-import { NavoriConfigSchema, type NavoriConfig } from "../../lib/schema.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
 
 // #847: a plugin whose only output is `injectInto` sub-blocks (engram, since
 // #841 moved its protocol from a `managed[]` CLAUDE.md block to

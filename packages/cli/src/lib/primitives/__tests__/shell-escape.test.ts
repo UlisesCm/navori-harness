@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import { shellSingleQuote } from "../shell-escape.ts";
-import { acrossShells } from "./helpers/shells.ts";
+import { acrossShells } from "../../__tests__/helpers/shells.ts";
 
 describe("shellSingleQuote", () => {
   it("wraps a plain value in single quotes", () => {

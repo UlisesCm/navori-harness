@@ -6,8 +6,8 @@ import {
   buildFullProject,
   RECOMMENDED_MODELS,
   RECOMMENDED_EFFORT,
-} from "../../recommended.ts";
-import { KNOWN_PLUGINS } from "../../plugins.ts";
+} from "../../config/recommended.ts";
+import { KNOWN_PLUGINS } from "../../config/plugins.ts";
 import { ROSTER_AGENTS } from "../../../engines/shared/roster.ts";
 import type { DetectedProject } from "../detect.ts";
 

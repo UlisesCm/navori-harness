@@ -2,13 +2,13 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
+import { readConfig, ConfigError, type NavoriConfig } from "../lib/config/config.ts";
 import { scanManagedDrift, suggestNextSteps } from "../lib/diagnose/health.ts";
 import { scanDistribution, type DistributionReport } from "../lib/diagnose/distribution.ts";
 import { computeHealthVerdict } from "./doctor.ts";
-import { brand, dim as grey, color, sym, kv, accent } from "../lib/style.ts";
+import { brand, dim as grey, color, sym, kv, accent } from "../lib/primitives/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
-import { readNavoriOwnership } from "../lib/json-ownership.ts";
+import { readNavoriOwnership } from "../lib/primitives/json-ownership.ts";
 
 /**
  * `status` — spec 0003 §3.5.3. A quick "where did this repo land?" snapshot:

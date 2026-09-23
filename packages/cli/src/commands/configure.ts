@@ -8,13 +8,13 @@ import {
   type NavoriConfig,
   type RetiredKeyDecision,
   type RetiredKeyRename,
-} from "../lib/config.ts";
-import { createBackup } from "../lib/backup.ts";
+} from "../lib/config/config.ts";
+import { createBackup } from "../lib/render/backup.ts";
 import { listRegistryRepos, registryPath } from "../lib/workspace/registry.ts";
-import { readConfigOrExit } from "../lib/cli-config.ts";
-import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
-import { EXCLUDABLE_BLOCK_IDS } from "../lib/render-plan.ts";
-import { accent, brand, dim } from "../lib/style.ts";
+import { readConfigOrExit } from "../lib/config/cli-config.ts";
+import { listKnownPluginIds, loadPlugin } from "../lib/config/plugins.ts";
+import { EXCLUDABLE_BLOCK_IDS } from "../lib/render/render-plan.ts";
+import { accent, brand, dim } from "../lib/primitives/style.ts";
 import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
 
 const ENGINE_OPTIONS = [

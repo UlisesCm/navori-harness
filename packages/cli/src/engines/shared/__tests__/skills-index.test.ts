@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { NavoriConfig } from "../../../lib/config.ts";
-import { getCoreRoot } from "../../../lib/bundled-assets.ts";
+import type { NavoriConfig } from "../../../lib/config/config.ts";
+import { getCoreRoot } from "../../../lib/render/bundled-assets.ts";
 import { buildSkillRows } from "../skills-index.ts";
 
 /**

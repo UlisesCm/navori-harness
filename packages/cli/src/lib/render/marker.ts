@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { isDowngrade } from "./semver.ts";
-import { tc, SUPPORTED_LANGS, DEFAULT_LANG, type Lang } from "./i18n.ts";
+import { isDowngrade } from "../primitives/semver.ts";
+import { tc, SUPPORTED_LANGS, DEFAULT_LANG, type Lang } from "../i18n.ts";
 
 /**
  * Managed-section markers. Two syntaxes are supported:

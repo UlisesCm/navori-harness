@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { getCoreRoot } from "../../bundled-assets.ts";
+import { getCoreRoot } from "../../render/bundled-assets.ts";
 
 /**
  * The core agent roster, read from disk so a new role joins by existing — the

@@ -2,10 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildClaudeSettings } from "../engines/claude/build-settings.ts";
-import { getCoreRoot } from "../lib/bundled-assets.ts";
-import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
-import type { LoadedPlugin } from "../lib/plugins.ts";
-import type { NavoriConfig } from "../lib/config.ts";
+import { getCoreRoot } from "../lib/render/bundled-assets.ts";
+import { listKnownPluginIds, loadPlugin } from "../lib/config/plugins.ts";
+import type { LoadedPlugin } from "../lib/config/plugins.ts";
+import type { NavoriConfig } from "../lib/config/config.ts";
 
 /**
  * The CABLING invariant: every tool a hook's own `case` is written to accept

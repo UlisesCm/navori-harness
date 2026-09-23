@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, readdirSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { NavoriError } from "../errors.ts";
+import { NavoriError } from "../primitives/errors.ts";
 import { isoSeconds } from "./model.ts";
 import { auditsRoot, sessionLogPath } from "./paths.ts";
 

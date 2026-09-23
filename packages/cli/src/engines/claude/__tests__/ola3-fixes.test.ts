@@ -2,9 +2,9 @@ import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/schema.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/config/schema.ts";
 import { renderClaudeEngine } from "../index.ts";
-import { readCliVersion } from "../../../lib/bundled-assets.ts";
+import { readCliVersion } from "../../../lib/render/bundled-assets.ts";
 
 /**
  * Ola 3 fixes for the Claude engine:

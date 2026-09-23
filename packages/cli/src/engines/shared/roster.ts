@@ -1,4 +1,4 @@
-import { AGENT_ROLE_KEYS } from "../../lib/config.ts";
+import { AGENT_ROLE_KEYS } from "../../lib/config/config.ts";
 
 /**
  * Canonical description of one core agent: its filename id, the

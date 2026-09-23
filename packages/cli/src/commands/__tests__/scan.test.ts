@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeConfig, readConfig } from "../../lib/config.ts";
+import { writeConfig, readConfig } from "../../lib/config/config.ts";
 import { runScan } from "../scan.ts";
 
 let cwd: string;

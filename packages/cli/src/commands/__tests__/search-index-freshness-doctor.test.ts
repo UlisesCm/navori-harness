@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { NavoriConfig } from "../../lib/config.ts";
+import type { NavoriConfig } from "../../lib/config/config.ts";
 
 /**
  * #943 — tgrep and codegraph both cache a point-in-time snapshot on disk.
@@ -14,7 +14,9 @@ import type { NavoriConfig } from "../../lib/config.ts";
  */
 
 const hasBinary = vi.fn();
-vi.mock(import("../../lib/which.ts"), () => ({ hasBinary: (n: string) => hasBinary(n) }));
+vi.mock(import("../../lib/primitives/which.ts"), () => ({
+  hasBinary: (n: string) => hasBinary(n),
+}));
 
 const execFileSync = vi.fn();
 vi.mock("node:child_process", () => ({

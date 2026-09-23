@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { detectLegacyAgents, LEGACY_AGENT_ALIASES } from "../legacy-agents.ts";
 import { ROSTER_AGENTS } from "../../../engines/shared/roster.ts";
-import type { NavoriConfig } from "../../config.ts";
+import type { NavoriConfig } from "../../config/config.ts";
 
 const cfg = (harness?: Record<string, boolean>) =>
   ({ name: "demo", engines: ["claude"], harness }) as unknown as NavoriConfig;

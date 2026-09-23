@@ -1,19 +1,19 @@
 import { readFileSync } from "node:fs";
-import type { NavoriConfig } from "../../lib/config.ts";
+import type { NavoriConfig } from "../../lib/config/config.ts";
 import {
   injectManagedSection,
   readMarkerAttrs,
   type CommentStyle,
   type InjectResult,
   type MarkerMeta,
-} from "../../lib/marker.ts";
+} from "../../lib/render/marker.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
-import { interpolate } from "../../lib/interpolate.ts";
-import type { FallbackScope } from "../../lib/placeholders.ts";
-import { expandHookIncludes } from "../../lib/hook-includes.ts";
+import { interpolate } from "../../lib/render/interpolate.ts";
+import type { FallbackScope } from "../../lib/render/placeholders.ts";
+import { expandHookIncludes } from "../../lib/render/hook-includes.ts";
 import { mergeFrontmatter } from "../claude/frontmatter-merge.ts";
-import { parseFrontmatterFields, formatFrontmatterField } from "../../lib/frontmatter.ts";
-import { conditionOrchestration } from "../../lib/render-plan.ts";
+import { parseFrontmatterFields, formatFrontmatterField } from "../../lib/render/frontmatter.ts";
+import { conditionOrchestration } from "../../lib/render/render-plan.ts";
 
 /**
  * Render one bundled asset against the current destination file. Pure-ish:

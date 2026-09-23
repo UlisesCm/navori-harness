@@ -2,8 +2,8 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { type NavoriConfig } from "../lib/config.ts";
-import { readConfigOrExit } from "../lib/cli-config.ts";
+import { type NavoriConfig } from "../lib/config/config.ts";
+import { readConfigOrExit } from "../lib/config/cli-config.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
 import { renderNonClaudeEngines, type EngineRenderSummary } from "./render.ts";
 import {
@@ -12,8 +12,8 @@ import {
   enabledMonorepoWorkspaces,
   type MonorepoRenderContext,
 } from "../lib/workspace/monorepo.ts";
-import { extractManagedContent } from "../lib/marker.ts";
-import { formatLineDiff } from "../lib/diff.ts";
+import { extractManagedContent } from "../lib/render/marker.ts";
+import { formatLineDiff } from "../lib/primitives/diff.ts";
 import {
   renderStatusSymbol,
   renderStatusLabel,
@@ -22,7 +22,7 @@ import {
   sym,
   brand,
   accent,
-} from "../lib/style.ts";
+} from "../lib/primitives/style.ts";
 import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 
 /**

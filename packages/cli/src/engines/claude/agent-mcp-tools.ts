@@ -1,5 +1,5 @@
-import { splitFrontmatter, getFrontmatterField } from "../../lib/frontmatter.ts";
-import type { LoadedPlugin } from "../../lib/plugins.ts";
+import { splitFrontmatter, getFrontmatterField } from "../../lib/render/frontmatter.ts";
+import type { LoadedPlugin } from "../../lib/config/plugins.ts";
 
 /**
  * Give an agent the MCP tools that a plugin's own prose tells it to use.

@@ -2,11 +2,16 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readdirSync, statSync, copyFileSync, mkdirSync } from "node:fs";
 import { join, relative, resolve, dirname } from "node:path";
-import { backupRoot, backupRepoLabel, backupIdRepoLabel, purgeOldBackups } from "../lib/backup.ts";
-import { brand, dim, accent, color, sym } from "../lib/style.ts";
+import {
+  backupRoot,
+  backupRepoLabel,
+  backupIdRepoLabel,
+  purgeOldBackups,
+} from "../lib/render/backup.ts";
+import { brand, dim, accent, color, sym } from "../lib/primitives/style.ts";
 import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
-import { readGlobalConfig } from "../lib/global-config.ts";
-import { intFlagOrExit } from "../lib/args.ts";
+import { readGlobalConfig } from "../lib/config/global-config.ts";
+import { intFlagOrExit } from "../lib/primitives/args.ts";
 
 /** Language for machine-global backup commands: global config, else default. */
 function globalLang(): Lang {

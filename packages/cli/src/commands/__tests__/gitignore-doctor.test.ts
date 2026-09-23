@@ -2,12 +2,12 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { NavoriConfigSchema, type NavoriConfig } from "../../lib/schema.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
 import {
   buildGitignoreBody,
   scanGitignoreHarness,
 } from "../../engines/shared/gitignore-harness.ts";
-import { injectManagedSection } from "../../lib/marker.ts";
+import { injectManagedSection } from "../../lib/render/marker.ts";
 
 /**
  * #313 (R10): `doctor` reports drift when the harness `.gitignore` block is

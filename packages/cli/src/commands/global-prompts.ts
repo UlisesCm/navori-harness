@@ -1,10 +1,10 @@
 import * as p from "@clack/prompts";
-import { GLOBAL_SAFE_BLOCK_IDS } from "../lib/render-plan.ts";
+import { GLOBAL_SAFE_BLOCK_IDS } from "../lib/render/render-plan.ts";
 import {
   DEFAULT_GLOBAL_BLOCKS,
   PERMISSION_KINDS,
   type PermissionBag,
-} from "../lib/global-config.ts";
+} from "../lib/config/global-config.ts";
 import { tc, type Lang } from "../lib/i18n.ts";
 
 /**

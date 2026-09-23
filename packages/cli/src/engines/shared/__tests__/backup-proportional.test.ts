@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import type { NavoriConfig } from "../../../lib/config.ts";
+import type { NavoriConfig } from "../../../lib/config/config.ts";
 
 /**
  * #405: `commitWrites` used to snapshot the engine's whole tree (`CLAUDE.md`,
@@ -26,7 +26,7 @@ import type { NavoriConfig } from "../../../lib/config.ts";
  * `~/.navori`.
  */
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { renderClaudeEngine } = await import("../../claude/index.ts");
 

@@ -2,8 +2,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { listKnownPluginIds } from "../../../lib/plugins.ts";
-import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/schema.ts";
+import { listKnownPluginIds } from "../../../lib/config/plugins.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/config/schema.ts";
 import { renderClaudeEngine } from "../index.ts";
 
 /**

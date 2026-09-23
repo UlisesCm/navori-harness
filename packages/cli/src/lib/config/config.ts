@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { writeFileAtomic } from "./atomic.ts";
-import { NavoriError } from "./errors.ts";
+import { writeFileAtomic } from "../primitives/atomic.ts";
+import { NavoriError } from "../primitives/errors.ts";
 import { NavoriConfigSchema, type NavoriConfig, type NavoriConfigInput } from "./schema.ts";
-import { tc, resolveLang } from "./i18n.ts";
+import { tc, resolveLang } from "../i18n.ts";
 import { schemaUrl } from "./schema-url.ts";
 
 const SCHEMA_URL = schemaUrl("navori.config.v1.json");

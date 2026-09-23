@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { formatDowngradeWarning } from "../../commands/render.ts";
-import type { UpdateAvailable } from "../render-plan.ts";
+import type { UpdateAvailable } from "../render/render-plan.ts";
 import { t, tc, resolveLang, DEFAULT_LANG, SUPPORTED_LANGS } from "../i18n.ts";
 
 describe("i18n", () => {

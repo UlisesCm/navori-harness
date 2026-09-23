@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { safeHomedir } from "../home.ts";
+import { safeHomedir } from "../primitives/home.ts";
 
 /**
  * #626 — a `.md` sitting loose in a `skills/` directory is not a skill.

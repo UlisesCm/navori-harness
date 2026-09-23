@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { NavoriConfig } from "../../lib/config.ts";
-import type { LoadedPlugin, PluginHookEntry } from "../../lib/plugins.ts";
-import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
-import { interpolate } from "../../lib/interpolate.ts";
+import type { NavoriConfig } from "../../lib/config/config.ts";
+import type { LoadedPlugin, PluginHookEntry } from "../../lib/config/plugins.ts";
+import { getCoreRoot, readCliVersion } from "../../lib/render/bundled-assets.ts";
+import { interpolate } from "../../lib/render/interpolate.ts";
 import { deepMerge } from "./deep-merge.ts";
 
 /**

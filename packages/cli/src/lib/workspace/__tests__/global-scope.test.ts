@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { GlobalConfig } from "../../global-config.ts";
-import { NavoriConfigSchema, type NavoriConfig } from "../../schema.ts";
+import type { GlobalConfig } from "../../config/global-config.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../../config/schema.ts";
 
 /**
  * Spec 0010 FC (#547) — the repo doctor's cross-scope checks.
@@ -16,7 +16,7 @@ import { NavoriConfigSchema, type NavoriConfig } from "../../schema.ts";
  * these specs live in their own file.
  */
 const home = vi.hoisted(() => ({ dir: "", fail: false }));
-vi.mock(import("../../home.ts"), () => ({
+vi.mock(import("../../primitives/home.ts"), () => ({
   safeHomedir: () => {
     if (home.fail) throw new Error("HOME env var is empty or not absolute");
     return home.dir;
@@ -24,8 +24,8 @@ vi.mock(import("../../home.ts"), () => ({
 }));
 
 const { defaultManagedSettingsPath, scanGlobalScope } = await import("../global-scope.ts");
-const { defaultGlobalConfig, writeGlobalConfig } = await import("../../global-config.ts");
-const { readCliVersion } = await import("../../bundled-assets.ts");
+const { defaultGlobalConfig, writeGlobalConfig } = await import("../../config/global-config.ts");
+const { readCliVersion } = await import("../../render/bundled-assets.ts");
 const { composeBaseline, generateHookScript } =
   await import("../../../engines/claude/global-render.ts");
 const { PLUGIN_HOOK_SCRIPT_REL, PLUGIN_MANIFEST_REL, globalPluginDir } =

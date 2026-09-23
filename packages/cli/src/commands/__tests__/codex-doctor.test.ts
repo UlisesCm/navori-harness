@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { assert, describe, expect, it } from "vitest";
-import { NavoriConfigSchema, type NavoriConfig } from "../../lib/schema.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
 import { isCodexVersionTooOld, scanCodexHealth, buildEngineInventory } from "../doctor.ts";
 
 function tempRepo(): string {

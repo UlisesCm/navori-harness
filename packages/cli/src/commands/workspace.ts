@@ -14,12 +14,12 @@ import {
   type WorkspaceConfig,
 } from "../lib/workspace/workspace.ts";
 import { applyDefault, VALID_DEFAULT_KEYS } from "../lib/workspace/workspace-defaults.ts";
-import { safeHomedir } from "../lib/home.ts";
-import { readConfig, writeConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
+import { safeHomedir } from "../lib/primitives/home.ts";
+import { readConfig, writeConfig, ConfigError, type NavoriConfig } from "../lib/config/config.ts";
 import { t, tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
 import { isPlaceholderName } from "../lib/diagnose/detect.ts";
 import { renderRepoRows, reportRepoRenderRows } from "./render.ts";
-import { brand, dim, kv, color, sym, accent } from "../lib/style.ts";
+import { brand, dim, kv, color, sym, accent } from "../lib/primitives/style.ts";
 
 /**
  * Best-effort read of a registered repo's config.name. Returns null when the

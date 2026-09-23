@@ -1,6 +1,6 @@
 import type { NavoriConfig } from "./schema.ts";
 import { listKnownPluginIds, loadPlugin } from "./plugins.ts";
-import { isGitHubRepo } from "./git.ts";
+import { isGitHubRepo } from "../primitives/git.ts";
 
 /**
  * Recipe covering what to do AFTER a provider's binary lands (#982):

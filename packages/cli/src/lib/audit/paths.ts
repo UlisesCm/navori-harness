@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { NavoriError } from "../errors.ts";
-import { safeHomedir } from "../home.ts";
+import { NavoriError } from "../primitives/errors.ts";
+import { safeHomedir } from "../primitives/home.ts";
 
 /** Env var that redirects the whole audit store (logs AND generated reports). */
 const AUDITS_ROOT_ENV = "NAVORI_AUDITS_ROOT";

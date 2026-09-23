@@ -15,8 +15,8 @@ import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startReceiver, type OtelReceiver } from "../collect.ts";
 import { sessionLogPath } from "../paths.ts";
-import { getCoreRoot } from "../../bundled-assets.ts";
-import { NavoriError } from "../../errors.ts";
+import { getCoreRoot } from "../../render/bundled-assets.ts";
+import { NavoriError } from "../../primitives/errors.ts";
 
 /**
  * The receiver is exercised over REAL HTTP against an ephemeral port, never by

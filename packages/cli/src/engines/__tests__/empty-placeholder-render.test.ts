@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import type { Lang } from "../../lib/i18n.ts";
-import { placeholderFallback } from "../../lib/placeholders.ts";
-import { NavoriConfigSchema, type NavoriConfig } from "../../lib/schema.ts";
+import { placeholderFallback } from "../../lib/render/placeholders.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
 import { renderClaudeEngine } from "../claude/index.ts";
 import { renderCodexEngine } from "../codex/index.ts";
 

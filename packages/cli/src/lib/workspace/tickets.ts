@@ -33,10 +33,10 @@ import {
   rmSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { writeFileAtomic } from "../atomic.ts";
+import { writeFileAtomic } from "../primitives/atomic.ts";
 import { workspaceDirectory, loadWorkspace } from "./workspace.ts";
-import { NavoriError } from "../errors.ts";
-import { NavoriConfigSchema } from "../schema.ts";
+import { NavoriError } from "../primitives/errors.ts";
+import { NavoriConfigSchema } from "../config/schema.ts";
 
 export interface TicketSummary {
   id: string;

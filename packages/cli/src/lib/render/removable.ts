@@ -1,8 +1,8 @@
 import { lstatSync, readFileSync, readdirSync, rmdirSync } from "node:fs";
 import { join } from "node:path";
 import { readCliVersion } from "./bundled-assets.ts";
-import { readNavoriOwnership } from "./json-ownership.ts";
-import { isDowngrade } from "./semver.ts";
+import { readNavoriOwnership } from "../primitives/json-ownership.ts";
+import { isDowngrade } from "../primitives/semver.ts";
 
 /** Read once per process, like the `CORE_META` constant this criterion was
  *  extracted from: `readCliVersion()` re-reads package.json on every call and a

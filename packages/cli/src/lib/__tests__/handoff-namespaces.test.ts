@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { getCoreRoot } from "../bundled-assets.ts";
+import { getCoreRoot } from "../render/bundled-assets.ts";
 
 /**
  * Coherence guard (#409): `.claude/progress/` is declared as a CLOSED set in two

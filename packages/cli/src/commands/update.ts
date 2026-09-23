@@ -2,14 +2,14 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { writeConfig, type NavoriConfig } from "../lib/config.ts";
-import { readConfigOrExit } from "../lib/cli-config.ts";
+import { writeConfig, type NavoriConfig } from "../lib/config/config.ts";
+import { readConfigOrExit } from "../lib/config/cli-config.ts";
 import { detectProject } from "../lib/diagnose/detect.ts";
 import { scanMonorepoWorkspaces } from "../lib/diagnose/scan.ts";
 import { runRender, formatDowngradeWarning } from "./render.ts";
 import { registerRepoSafe } from "../lib/workspace/registry.ts";
-import type { UpdateAvailable } from "../lib/render-plan.ts";
-import { brand, dim, color, accent, sym, type RenderStatus } from "../lib/style.ts";
+import type { UpdateAvailable } from "../lib/render/render-plan.ts";
+import { brand, dim, color, accent, sym, type RenderStatus } from "../lib/primitives/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
 
 /** Progress keys removed from the schema (#75). `update` cleans them when it

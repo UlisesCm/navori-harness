@@ -3,10 +3,10 @@ import * as p from "@clack/prompts";
 import { existsSync, readFileSync, readdirSync, statSync, type Dirent } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { basename, join, resolve, relative } from "node:path";
-import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
+import { readConfig, ConfigError, type NavoriConfig } from "../lib/config/config.ts";
 import { resolveHarnessPlan } from "../engines/shared/harness-plan.ts";
 import { CLAUDE_COMPUTED_BLOCK_IDS, buildDesiredMcpServers } from "../engines/claude/index.ts";
-import { getCoreRoot, readCliVersion } from "../lib/bundled-assets.ts";
+import { getCoreRoot, readCliVersion } from "../lib/render/bundled-assets.ts";
 import { isPlainObject } from "../engines/claude/coexist-settings.ts";
 import {
   CODEX_PROJECT_DOC_MAX_BYTES,
@@ -16,21 +16,21 @@ import {
   simulateContextDelivery,
   type ContextDeliveryStatus,
 } from "../lib/assets/doc-budgets.ts";
-import { isDowngrade } from "../lib/semver.ts";
+import { isDowngrade } from "../lib/primitives/semver.ts";
 import { isPlaceholderName } from "../lib/diagnose/detect.ts";
-import { loadPlugin, loadEnabledPlugins } from "../lib/plugins.ts";
+import { loadPlugin, loadEnabledPlugins } from "../lib/config/plugins.ts";
 import {
   listAvailableExternalProviders,
   EXTERNAL_PROVIDER_SETUP_RECIPE_URL,
   PROVIDERS_WITH_SETUP_RECIPE,
-} from "../lib/external-providers.ts";
+} from "../lib/config/external-providers.ts";
 import {
   effectiveConfigForWorkspace,
   enabledMonorepoWorkspaces,
 } from "../lib/workspace/monorepo.ts";
-import { hasBinary } from "../lib/which.ts";
-import { currentPlatform } from "../lib/platform.ts";
-import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";
+import { hasBinary } from "../lib/primitives/which.ts";
+import { currentPlatform } from "../lib/config/platform.ts";
+import { loadPreset, presetExists, resolvePreset } from "../lib/config/presets.ts";
 import { resolveLocalSkillPath } from "../lib/assets/skill-meta.ts";
 import { unknownLibraries } from "../lib/assets/library-skills.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
@@ -44,10 +44,10 @@ import { scanWorkspaceDrift } from "../lib/workspace/workspace-drift.ts";
 import { scanForeignSkillIndexes } from "../lib/assets/foreign-skill-index.ts";
 import { scanFlatSkills } from "../lib/assets/flat-skills.ts";
 import { scanStaleHarness } from "../lib/diagnose/stale-harness.ts";
-import { scanQualityGateReadiness } from "../lib/gate-readiness.ts";
+import { scanQualityGateReadiness } from "../lib/config/gate-readiness.ts";
 import { scanEmptyUserSections } from "../lib/assets/skill-user-section.ts";
 import { scanTriggerlessLocalSkills } from "../lib/assets/skill-triggers.ts";
-import { scanInterpolationArtifacts } from "../lib/interpolation-artifacts.ts";
+import { scanInterpolationArtifacts } from "../lib/render/interpolation-artifacts.ts";
 import { scanMissingModelProfile } from "../lib/assets/model-profile.ts";
 import { scanDiskUsage, humanBytes } from "../lib/diagnose/disk-usage.ts";
 import { scanNestedWorktrees } from "../lib/workspace/nested-worktrees.ts";
@@ -73,7 +73,7 @@ import {
   type MissingPlugin,
   type DuplicateMarker,
 } from "../lib/diagnose/health.ts";
-import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
+import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/primitives/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
 
 /**

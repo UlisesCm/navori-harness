@@ -5,9 +5,9 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseSkillFrontmatter, countWords, skillComposedCap } from "../assets/skill-meta.ts";
 import { listMarkers } from "../diagnose/health.ts";
-import { extractManagedContent } from "../marker.ts";
+import { extractManagedContent } from "../render/marker.ts";
 import { renderClaudeEngine } from "../../engines/claude/index.ts";
-import type { NavoriConfig } from "../../lib/config.ts";
+import type { NavoriConfig } from "../config/config.ts";
 
 /**
  * #683 — the word cap was measured over the wrong artifact.

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
+import { effectiveConfig, type NavoriConfig } from "../../lib/config/config.ts";
 import {
   enabledMonorepoWorkspaces,
   type MonorepoRenderContext,
@@ -10,7 +10,7 @@ import {
   loadDisabledPlugins,
   RETIRED_PLUGINS,
   type LoadedPlugin,
-} from "../../lib/plugins.ts";
+} from "../../lib/config/plugins.ts";
 import {
   computeRenderPlan,
   resolveAssetPath,
@@ -19,34 +19,37 @@ import {
   type AssetPlanEntry,
   conditionOrchestration,
   type UpdateAvailable,
-} from "../../lib/render-plan.ts";
-import { loadPreset, PresetError } from "../../lib/presets.ts";
+} from "../../lib/render/render-plan.ts";
+import { loadPreset, PresetError } from "../../lib/config/presets.ts";
 import {
   LIBRARY_SKILLS,
   REMOVED_LIB_SKILLS,
   unknownLibraries,
 } from "../../lib/assets/library-skills.ts";
-import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
+import { getCoreRoot, readCliVersion } from "../../lib/render/bundled-assets.ts";
 // The authorship test every delete path in the product shares — see
 // lib/removable.ts. The skill prunes below pass their managed id so it answers
 // "did navori write this file AS that block?" (#496).
-import { isRemovableNavoriFile, navoriAuthorship } from "../../lib/removable.ts";
+import { isRemovableNavoriFile, navoriAuthorship } from "../../lib/render/removable.ts";
 import {
   injectManagedSection,
   removeManagedSection,
   reorderManagedBlocks,
   splitUserSection,
   emitUserSection,
-} from "../../lib/marker.ts";
-import type { RenderStatus } from "../../lib/style.ts";
-import { isNavoriOwnedSettings, NAVORI_OWNERSHIP_KEY } from "../../lib/json-ownership.ts";
+} from "../../lib/render/marker.ts";
+import type { RenderStatus } from "../../lib/primitives/style.ts";
+import {
+  isNavoriOwnedSettings,
+  NAVORI_OWNERSHIP_KEY,
+} from "../../lib/primitives/json-ownership.ts";
 import { buildClaudeSettings } from "./build-settings.ts";
 import { mergeCoexistSettings, isPlainObject } from "./coexist-settings.ts";
 import { renderManagedFile } from "../shared/render-managed-file.ts";
-import { interpolate, sanitizeProjectValue } from "../../lib/interpolate.ts";
-import { expandHookIncludes } from "../../lib/hook-includes.ts";
-import { benchMark } from "../../lib/bench.ts";
-import { stripFrontmatter } from "../../lib/frontmatter.ts";
+import { interpolate, sanitizeProjectValue } from "../../lib/render/interpolate.ts";
+import { expandHookIncludes } from "../../lib/render/hook-includes.ts";
+import { benchMark } from "../../lib/primitives/bench.ts";
+import { stripFrontmatter } from "../../lib/render/frontmatter.ts";
 import { tc, resolveLang, type Lang } from "../../lib/i18n.ts";
 import {
   CORE_AGENTS,

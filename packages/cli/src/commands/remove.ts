@@ -2,10 +2,10 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { writeConfig } from "../lib/config.ts";
-import { readConfigOrExit } from "../lib/cli-config.ts";
+import { writeConfig } from "../lib/config/config.ts";
+import { readConfigOrExit } from "../lib/config/cli-config.ts";
 import { runRender } from "./render.ts";
-import { brand, accent, dim } from "../lib/style.ts";
+import { brand, accent, dim } from "../lib/primitives/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
 
 /** engram ships with navori and can't be removed (always-on invariant, #68). */

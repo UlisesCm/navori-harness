@@ -5,7 +5,7 @@ import {
   signReceipt,
   type ReceiptOptions,
 } from "../lib/diagnose/receipt.ts";
-import { readConfig } from "../lib/config.ts";
+import { readConfig } from "../lib/config/config.ts";
 import { resolve } from "node:path";
 
 export function resolveReceiptOptions(args: {

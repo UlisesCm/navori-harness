@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { computeRenderPlan, canonicalManagedOrder } from "../render-plan.ts";
-import { NavoriConfigSchema } from "../schema.ts";
+import { computeRenderPlan, canonicalManagedOrder } from "../render/render-plan.ts";
+import { NavoriConfigSchema } from "../config/schema.ts";
 
 /**
  * Spec 0003 §3.1.4 — forceIds (accept-new) and skipIds (keep-mine) drive how a

@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
-import { getCoreRoot } from "../bundled-assets.ts";
+import { getCoreRoot } from "../render/bundled-assets.ts";
 
 /**
  * Behavioral tests for core-assets/hooks/worktree-reclaim.sh (#527).

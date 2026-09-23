@@ -2,13 +2,13 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { createBackup } from "../lib/backup.ts";
-import { readCliVersion } from "../lib/bundled-assets.ts";
-import { readConfigOrExit } from "../lib/cli-config.ts";
-import { injectManagedSection } from "../lib/marker.ts";
+import { createBackup } from "../lib/render/backup.ts";
+import { readCliVersion } from "../lib/render/bundled-assets.ts";
+import { readConfigOrExit } from "../lib/config/cli-config.ts";
+import { injectManagedSection } from "../lib/render/marker.ts";
 import { listMarkers } from "../lib/diagnose/health.ts";
 import { resolveLang, tc, DEFAULT_LANG } from "../lib/i18n.ts";
-import { accent, brand, dim } from "../lib/style.ts";
+import { accent, brand, dim } from "../lib/primitives/style.ts";
 
 /**
  * Take a hand-made harness file under navori's management (spec 0014, #555).

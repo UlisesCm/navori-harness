@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { buildClaudeSettings } from "../build-settings.ts";
-import type { NavoriConfig } from "../../../lib/config.ts";
-import { loadPlugin, type LoadedPlugin } from "../../../lib/plugins.ts";
-import { readCliVersion } from "../../../lib/bundled-assets.ts";
+import type { NavoriConfig } from "../../../lib/config/config.ts";
+import { loadPlugin, type LoadedPlugin } from "../../../lib/config/plugins.ts";
+import { readCliVersion } from "../../../lib/render/bundled-assets.ts";
 
 const MINIMAL_CONFIG = {
   name: "test",

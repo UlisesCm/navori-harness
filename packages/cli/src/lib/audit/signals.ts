@@ -1,7 +1,7 @@
 import { type HarnessCatalog, barredMcpTokens } from "./harness.ts";
 import type { AgentRun, GateExecution, SessionAudit, Signal } from "./model.ts";
 import { GATE_HOOK_NAMES, correlateGateExecutions, gateHandle, recorderWindow } from "./model.ts";
-import { compareSemver } from "../semver.ts";
+import { compareSemver } from "../primitives/semver.ts";
 import { RETIRED_AGENTS } from "../../engines/shared/roster.ts";
 import { MAIN_THREAD_ONLY_HOOKS } from "../../engines/shared/harness-plan.ts";
 import { ORCHESTRATOR_OWNER } from "./parse.ts";

@@ -18,13 +18,13 @@ import { join, relative } from "node:path";
  */
 
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { runCommand } = await import("citty");
-const { writeConfig } = await import("../../lib/config.ts");
+const { writeConfig } = await import("../../lib/config/config.ts");
 const { runRender, renderCommand } = await import("../render.ts");
-const { injectManagedSection } = await import("../../lib/marker.ts");
-const { readCliVersion } = await import("../../lib/bundled-assets.ts");
+const { injectManagedSection } = await import("../../lib/render/marker.ts");
+const { readCliVersion } = await import("../../lib/render/bundled-assets.ts");
 
 /** ANSI escapes, BUILT rather than written as a literal control char (which
  *  the linter rejects): picocolors keeps them under FORCE_COLOR. */

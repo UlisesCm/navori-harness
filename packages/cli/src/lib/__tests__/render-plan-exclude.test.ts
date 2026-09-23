@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { computeRenderPlan, canonicalManagedOrder, EXCLUDABLE_BLOCK_IDS } from "../render-plan.ts";
-import { NavoriConfigSchema } from "../schema.ts";
+import {
+  computeRenderPlan,
+  canonicalManagedOrder,
+  EXCLUDABLE_BLOCK_IDS,
+} from "../render/render-plan.ts";
+import { NavoriConfigSchema } from "../config/schema.ts";
 
 /**
  * Feature: `blocks.exclude` lets a repo opt OUT of specific core managed blocks

@@ -28,11 +28,11 @@ import {
   PENDING_SPOOL_RE,
 } from "../lib/audit/paths.ts";
 import { startReceiver, type OtelReceiver } from "../lib/audit/collect.ts";
-import { NavoriError } from "../lib/errors.ts";
+import { NavoriError } from "../lib/primitives/errors.ts";
 import { resolveLang } from "../lib/i18n.ts";
-import { readGlobalConfig } from "../lib/global-config.ts";
-import { readCliVersion } from "../lib/bundled-assets.ts";
-import { brand, color, dim } from "../lib/style.ts";
+import { readGlobalConfig } from "../lib/config/global-config.ts";
+import { readCliVersion } from "../lib/render/bundled-assets.ts";
+import { brand, color, dim } from "../lib/primitives/style.ts";
 
 /**
  * `audit` — post-hoc report over sessions explicitly marked with audit-mode.

@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../../engines/claude/index.ts";
 import { readRenderedVersion } from "../../commands/status.ts";
-import { NavoriConfigSchema } from "../schema.ts";
-import type { NavoriConfig } from "../config.ts";
+import { NavoriConfigSchema } from "../config/schema.ts";
+import type { NavoriConfig } from "../config/config.ts";
 
 /**
  * #604 — three fields `navori.config.json` declared and the render didn't honour.

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
-import { readCliVersion } from "../../lib/bundled-assets.ts";
+import { readCliVersion } from "../../lib/render/bundled-assets.ts";
 import { commitWrites } from "./execute-plan.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "./ephemeral-paths.ts";
 import { ENGINE_OUTPUTS, engineOwnedPaths } from "../../lib/diagnose/health.ts";
@@ -10,9 +10,9 @@ import {
   extractManagedContent,
   injectManagedSection,
   type MarkerMeta,
-} from "../../lib/marker.ts";
-import type { NavoriConfig } from "../../lib/schema.ts";
-import type { RenderStatus } from "../../lib/style.ts";
+} from "../../lib/render/marker.ts";
+import type { NavoriConfig } from "../../lib/config/schema.ts";
+import type { RenderStatus } from "../../lib/primitives/style.ts";
 
 /**
  * Managed-block id for the harness `.gitignore` region. A single block per repo

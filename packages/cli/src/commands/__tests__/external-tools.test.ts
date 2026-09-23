@@ -1,5 +1,5 @@
 import { assert, describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { NavoriConfig } from "../../lib/config.ts";
+import type { NavoriConfig } from "../../lib/config/config.ts";
 
 /**
  * doctor's external-tool check (issue #69): an enabled plugin declaring an
@@ -10,11 +10,13 @@ import type { NavoriConfig } from "../../lib/config.ts";
  */
 
 const hasBinary = vi.fn();
-vi.mock(import("../../lib/which.ts"), () => ({ hasBinary: (n: string) => hasBinary(n) }));
+vi.mock(import("../../lib/primitives/which.ts"), () => ({
+  hasBinary: (n: string) => hasBinary(n),
+}));
 
 const { scanMissingExternalTools, scanMissingOptionalTools } = await import("../doctor.ts");
-const { loadPlugin, listKnownPluginIds, PLATFORMS } = await import("../../lib/plugins.ts");
-const { currentPlatform } = await import("../../lib/platform.ts");
+const { loadPlugin, listKnownPluginIds, PLATFORMS } = await import("../../lib/config/plugins.ts");
+const { currentPlatform } = await import("../../lib/config/platform.ts");
 
 function config(plugins: Record<string, { enabled: boolean }>): NavoriConfig {
   return { plugins } as unknown as NavoriConfig;

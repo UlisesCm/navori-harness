@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderCodexEngine } from "../index.ts";
-import { readCliVersion } from "../../../lib/bundled-assets.ts";
-import { injectManagedSection } from "../../../lib/marker.ts";
-import type { NavoriConfig } from "../../../lib/config.ts";
+import { readCliVersion } from "../../../lib/render/bundled-assets.ts";
+import { injectManagedSection } from "../../../lib/render/marker.ts";
+import type { NavoriConfig } from "../../../lib/config/config.ts";
 
 /**
  * spec 0026 T10 (R39, R41) — Codex's own version of the "conservarlo y

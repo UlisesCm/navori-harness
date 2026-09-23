@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderManagedFile } from "../render-managed-file.ts";
-import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/schema.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/config/schema.ts";
 
 /**
  * Cold-review finding on PR #660, and the reason spec 0020's R1 was dead on

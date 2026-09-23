@@ -14,7 +14,7 @@
  * can plug it back into the destination file without an extra pass.
  */
 
-import { formatFrontmatterField } from "../../lib/frontmatter.ts";
+import { formatFrontmatterField } from "../../lib/render/frontmatter.ts";
 
 export interface MergeFrontmatterResult {
   merged: Record<string, string>;

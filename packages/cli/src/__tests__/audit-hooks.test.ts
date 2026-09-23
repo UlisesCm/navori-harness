@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expandHookIncludes } from "../lib/hook-includes.ts";
+import { expandHookIncludes } from "../lib/render/hook-includes.ts";
 
 /**
  * The audit-mode hooks run on EVERY prompt of every repo that renders the

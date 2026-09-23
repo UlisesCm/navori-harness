@@ -23,7 +23,7 @@
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { readConfig, type NavoriConfig } from "../config.ts";
+import { readConfig, type NavoriConfig } from "../config/config.ts";
 import { canonicalPath, loadWorkspace } from "./workspace.ts";
 
 /** Minimum sibling repos before the mode means anything: with a single sibling

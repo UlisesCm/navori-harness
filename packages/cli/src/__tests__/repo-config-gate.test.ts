@@ -4,9 +4,9 @@ import { dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { readConfig } from "../lib/config.ts";
+import { readConfig } from "../lib/config/config.ts";
 import { DEFAULT_LANG } from "../lib/i18n.ts";
-import { placeholderFallback } from "../lib/placeholders.ts";
+import { placeholderFallback } from "../lib/render/placeholders.ts";
 
 /**
  * This repo dogfoods navori: its own `navori.config.json` is what renders the

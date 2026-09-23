@@ -9,7 +9,7 @@ import {
   PresetError,
   PresetDefinitionSchema,
 } from "../presets.ts";
-import * as bundled from "../bundled-assets.ts";
+import * as bundled from "../../render/bundled-assets.ts";
 
 let fakeCoreRoot: string;
 let repoRoot: string;

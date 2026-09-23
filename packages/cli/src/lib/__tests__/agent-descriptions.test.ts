@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getFrontmatterField, splitFrontmatter } from "../frontmatter.ts";
+import { getFrontmatterField, splitFrontmatter } from "../render/frontmatter.ts";
 import { tc, type Lang } from "../i18n.ts";
-import { NavoriConfigSchema, type NavoriConfig } from "../schema.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../config/schema.ts";
 import { renderClaudeEngine } from "../../engines/claude/index.ts";
 import { isInvokable, listAgentAssets, type AgentAsset } from "./helpers/agent-assets.ts";
 

@@ -11,8 +11,8 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
-import { expandHookIncludes } from "../hook-includes.ts";
-import { getCoreRoot } from "../bundled-assets.ts";
+import { expandHookIncludes } from "../render/hook-includes.ts";
+import { getCoreRoot } from "../render/bundled-assets.ts";
 import { acrossShells } from "./helpers/shells.ts";
 
 /**

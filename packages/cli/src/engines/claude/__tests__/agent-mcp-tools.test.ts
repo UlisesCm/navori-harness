@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { deriveMcpTools, withAgentMcpTools, withoutAgentMcpTools } from "../agent-mcp-tools.ts";
-import type { LoadedPlugin } from "../../../lib/plugins.ts";
-import { splitFrontmatter, getFrontmatterField } from "../../../lib/frontmatter.ts";
+import type { LoadedPlugin } from "../../../lib/config/plugins.ts";
+import { splitFrontmatter, getFrontmatterField } from "../../../lib/render/frontmatter.ts";
 
 /**
  * A plugin can only make an agent USE its MCP server if the agent's `tools:`

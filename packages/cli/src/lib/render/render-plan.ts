@@ -6,19 +6,19 @@ import {
   resolveCondition,
   type InjectResult,
 } from "./marker.ts";
-import { compareSemver } from "./semver.ts";
+import { compareSemver } from "../primitives/semver.ts";
 import {
   loadPlugin,
   PluginNotFoundError,
   PluginManifestError,
   RETIRED_PLUGINS,
   RETIRED_PLUGIN_BLOCKS,
-} from "./plugins.ts";
+} from "../config/plugins.ts";
 import { getCoreRoot, readCliVersion } from "./bundled-assets.ts";
-import { loadPreset, PresetError } from "./presets.ts";
+import { loadPreset, PresetError } from "../config/presets.ts";
 import { interpolate } from "./interpolate.ts";
-import { effectiveConfig, type NavoriConfig } from "./config.ts";
-import { HARNESS_DEFAULTS } from "./schema.ts";
+import { effectiveConfig, type NavoriConfig } from "../config/config.ts";
+import { HARNESS_DEFAULTS } from "../config/schema.ts";
 
 export const CORE_SOURCE_ID = "@navori/core" as const;
 

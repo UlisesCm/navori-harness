@@ -29,8 +29,8 @@ vi.mock(import("../../../engines/shared/harness-assets.ts"), async (importOrigin
 });
 
 const { scanRetiredAssets } = await import("../health.ts");
-const { injectManagedSection } = await import("../../marker.ts");
-const { readCliVersion } = await import("../../bundled-assets.ts");
+const { injectManagedSection } = await import("../../render/marker.ts");
+const { readCliVersion } = await import("../../render/bundled-assets.ts");
 
 let cwd: string;
 

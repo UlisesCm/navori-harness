@@ -1,6 +1,6 @@
-import type { CommentStyle } from "../../lib/marker.ts";
-import { splitFrontmatter, parseFrontmatterFields } from "../../lib/frontmatter.ts";
-import { NavoriError } from "../../lib/errors.ts";
+import type { CommentStyle } from "../../lib/render/marker.ts";
+import { splitFrontmatter, parseFrontmatterFields } from "../../lib/render/frontmatter.ts";
+import { NavoriError } from "../../lib/primitives/errors.ts";
 
 /**
  * A bundled asset (agent, skill, hook) parsed into its three zones:

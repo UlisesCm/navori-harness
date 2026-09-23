@@ -10,8 +10,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { getCoreRoot } from "../bundled-assets.ts";
-import { expandHookIncludes } from "../hook-includes.ts";
+import { getCoreRoot } from "../render/bundled-assets.ts";
+import { expandHookIncludes } from "../render/hook-includes.ts";
 import { acrossShells, type HookShell } from "./helpers/shells.ts";
 import { ORCHESTRATOR_OWNER } from "../audit/parse.ts";
 

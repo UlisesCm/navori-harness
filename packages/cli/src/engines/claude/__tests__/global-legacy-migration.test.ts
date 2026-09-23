@@ -14,12 +14,12 @@ import { dirname, join, relative } from "node:path";
  * lives in its own file rather than alongside the rest of `global-render`.
  */
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { composeBaseline, detectLegacyGlobalHook, generateHookScript, migrateLegacyGlobalHook } =
   await import("../global-render.ts");
 const { legacyGlobalHookPath, settingsHasLegacyHook } = await import("../global-render.ts");
-const { defaultGlobalConfig } = await import("../../../lib/global-config.ts");
+const { defaultGlobalConfig } = await import("../../../lib/config/global-config.ts");
 
 let claudeDir: string;
 const savedEnv = process.env.CLAUDE_CONFIG_DIR;

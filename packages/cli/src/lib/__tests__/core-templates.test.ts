@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
-import { getCoreRoot } from "../bundled-assets.ts";
+import { getCoreRoot } from "../render/bundled-assets.ts";
 
 /**
  * Shape contracts for the three template assets D3 ships:

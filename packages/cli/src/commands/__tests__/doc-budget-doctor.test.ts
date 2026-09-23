@@ -3,10 +3,14 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { NavoriConfigSchema, type NavoriConfig, type NavoriConfigInput } from "../../lib/schema.ts";
+import {
+  NavoriConfigSchema,
+  type NavoriConfig,
+  type NavoriConfigInput,
+} from "../../lib/config/schema.ts";
 import { computeHealthVerdict, docBudgetLines, scanDocBudget } from "../doctor.ts";
 import { tc } from "../../lib/i18n.ts";
-import { readCliVersion } from "../../lib/bundled-assets.ts";
+import { readCliVersion } from "../../lib/render/bundled-assets.ts";
 import {
   CODEX_PROJECT_DOC_MAX_BYTES,
   CODEX_PROJECT_DOC_WARN_RATIO,

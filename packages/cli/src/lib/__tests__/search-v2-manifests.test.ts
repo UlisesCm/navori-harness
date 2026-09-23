@@ -1,10 +1,10 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { getCoreRoot } from "../bundled-assets.ts";
-import { loadEnabledPlugins, loadPlugin, PluginManifestSchema } from "../plugins.ts";
-import { PresetDefinitionSchema } from "../presets.ts";
-import { NavoriConfigSchema } from "../schema.ts";
+import { getCoreRoot } from "../render/bundled-assets.ts";
+import { loadEnabledPlugins, loadPlugin, PluginManifestSchema } from "../config/plugins.ts";
+import { PresetDefinitionSchema } from "../config/presets.ts";
+import { NavoriConfigSchema } from "../config/schema.ts";
 
 /**
  * Search v2 P1 — plugin/contract tests for the two new opt-in providers

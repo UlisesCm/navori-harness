@@ -20,10 +20,10 @@ import { join } from "node:path";
  */
 
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { runCommand } = await import("citty");
-const { writeConfig } = await import("../../lib/config.ts");
+const { writeConfig } = await import("../../lib/config/config.ts");
 const { renderCommand } = await import("../render.ts");
 
 type Counts = Record<string, number>;

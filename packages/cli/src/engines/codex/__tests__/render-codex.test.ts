@@ -14,7 +14,7 @@ import {
   NavoriConfigSchema,
   type NavoriConfig,
   type NavoriConfigInput,
-} from "../../../lib/schema.ts";
+} from "../../../lib/config/schema.ts";
 import { renderCodexEngine } from "../index.ts";
 import { adaptHarnessTextForCodex } from "../compat.ts";
 

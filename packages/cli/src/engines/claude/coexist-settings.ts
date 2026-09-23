@@ -27,7 +27,7 @@
  * user keeps ownership of everything else.
  */
 
-import { NAVORI_OWNERSHIP_KEY as OWNERSHIP_KEY } from "../../lib/json-ownership.ts";
+import { NAVORI_OWNERSHIP_KEY as OWNERSHIP_KEY } from "../../lib/primitives/json-ownership.ts";
 
 type Json = Record<string, unknown>;
 

@@ -21,7 +21,7 @@ import { globalCommand } from "./commands/global.ts";
 import { dominioCommand } from "./commands/dominio.ts";
 import { auditCommand } from "./commands/audit.ts";
 import { receiptCommand } from "./commands/receipt.ts";
-import { readCliVersion } from "./lib/bundled-assets.ts";
+import { readCliVersion } from "./lib/render/bundled-assets.ts";
 
 const main = defineCommand({
   meta: {

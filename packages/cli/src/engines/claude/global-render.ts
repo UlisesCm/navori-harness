@@ -3,24 +3,24 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { createBackup } from "../../lib/backup.ts";
+import { createBackup } from "../../lib/render/backup.ts";
 import { createMigrationSnapshot } from "../../lib/diagnose/migrate.ts";
-import { readCliVersion } from "../../lib/bundled-assets.ts";
-import { safeHomedir } from "../../lib/home.ts";
+import { readCliVersion } from "../../lib/render/bundled-assets.ts";
+import { safeHomedir } from "../../lib/primitives/home.ts";
 import {
   CORE_MANAGED_ASSETS,
   conditionOrchestration,
   resolveAssetPath,
-} from "../../lib/render-plan.ts";
-import { interpolate } from "../../lib/interpolate.ts";
-import type { NavoriConfig } from "../../lib/schema.ts";
+} from "../../lib/render/render-plan.ts";
+import { interpolate } from "../../lib/render/interpolate.ts";
+import type { NavoriConfig } from "../../lib/config/schema.ts";
 import { resolveLang, tc } from "../../lib/i18n.ts";
 import { deepMerge } from "./deep-merge.ts";
 import {
   PERMISSION_KINDS,
   type GlobalConfig,
   type PermissionBag,
-} from "../../lib/global-config.ts";
+} from "../../lib/config/global-config.ts";
 
 /**
  * Renders the OPTIONAL global harness (Spec 0010 F1) into Claude Code's global

@@ -19,7 +19,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { hasBinary } from "./which.ts";
+import { hasBinary } from "../primitives/which.ts";
 import type { NavoriConfig } from "./config.ts";
 
 export type GateBlocker = "missing-binary" | "missing-script" | "missing-deps";

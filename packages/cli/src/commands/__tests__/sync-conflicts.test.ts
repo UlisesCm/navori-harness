@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { collectTargetConflicts, type SyncTarget, type TargetPlan } from "../sync.ts";
 import type { ClaudeEngineResult } from "../../engines/claude/index.ts";
 import type { EngineRenderSummary } from "../render.ts";
-import type { NavoriConfig } from "../../lib/config.ts";
+import type { NavoriConfig } from "../../lib/config/config.ts";
 import type { SkippedFile } from "../../engines/shared/execute-plan.ts";
 
 /**

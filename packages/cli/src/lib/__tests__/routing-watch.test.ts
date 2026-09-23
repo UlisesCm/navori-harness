@@ -11,13 +11,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { getCoreRoot } from "../bundled-assets.ts";
-import { expandHookIncludes } from "../hook-includes.ts";
+import { getCoreRoot } from "../render/bundled-assets.ts";
+import { expandHookIncludes } from "../render/hook-includes.ts";
 import { acrossShells, type HookShell } from "./helpers/shells.ts";
 import { buildClaudeSettings } from "../../engines/claude/build-settings.ts";
 import { resolveHarnessPlan } from "../../engines/shared/harness-plan.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../../engines/shared/ephemeral-paths.ts";
-import type { NavoriConfig } from "../config.ts";
+import type { NavoriConfig } from "../config/config.ts";
 
 /**
  * Behavioral tests for core-assets/hooks/routing-watch.sh (spec 0020, R2/R3).

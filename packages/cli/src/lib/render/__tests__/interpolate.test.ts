@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { interpolate } from "../interpolate.ts";
-import type { NavoriConfig } from "../config.ts";
+import type { NavoriConfig } from "../../config/config.ts";
 
 const CONFIG = {
   name: "test",

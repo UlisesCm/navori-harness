@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { getCoreRoot } from "../bundled-assets.ts";
+import { getCoreRoot } from "../render/bundled-assets.ts";
 
 /**
  * #399: hosts like Claude Code inject the project CLAUDE.md into every

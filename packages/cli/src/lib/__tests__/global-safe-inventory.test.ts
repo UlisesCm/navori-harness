@@ -1,10 +1,14 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { getCoreRoot } from "../bundled-assets.ts";
-import { DEFAULT_GLOBAL_BLOCKS, defaultGlobalConfig } from "../global-config.ts";
-import { interpolate } from "../interpolate.ts";
-import { CORE_MANAGED_ASSETS, resolveAssetPath, type CoreManagedAsset } from "../render-plan.ts";
+import { getCoreRoot } from "../render/bundled-assets.ts";
+import { DEFAULT_GLOBAL_BLOCKS, defaultGlobalConfig } from "../config/global-config.ts";
+import { interpolate } from "../render/interpolate.ts";
+import {
+  CORE_MANAGED_ASSETS,
+  resolveAssetPath,
+  type CoreManagedAsset,
+} from "../render/render-plan.ts";
 import { globalRenderConfig } from "../../engines/claude/global-render.ts";
 import { CORE_AGENTS, CORE_SKILLS, WORKFLOW_SKILLS } from "../../engines/shared/harness-assets.ts";
 

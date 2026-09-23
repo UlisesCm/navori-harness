@@ -1,7 +1,7 @@
-import type { NavoriConfig } from "../../lib/config.ts";
-import { resolveCondition } from "../../lib/marker.ts";
-import { HARNESS_DEFAULTS } from "../../lib/schema.ts";
-import type { PresetExtraFile } from "../../lib/presets.ts";
+import type { NavoriConfig } from "../../lib/config/config.ts";
+import { resolveCondition } from "../../lib/render/marker.ts";
+import { HARNESS_DEFAULTS } from "../../lib/config/schema.ts";
+import type { PresetExtraFile } from "../../lib/config/presets.ts";
 import {
   ROSTER_AGENTS,
   ROSTER_CORE_SKILLS,

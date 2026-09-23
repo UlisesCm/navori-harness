@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { findStaleBundleSource } from "../bundled-assets.ts";
+import { findStaleBundleSource } from "../render/bundled-assets.ts";
 
 /**
  * Freshness guard for the bundled asset copy.

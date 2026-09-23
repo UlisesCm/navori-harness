@@ -4,7 +4,7 @@ import { performance } from "node:perf_hooks";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { runRender } from "./render.ts";
-import { brand, dim, color } from "../lib/style.ts";
+import { brand, dim, color } from "../lib/primitives/style.ts";
 
 /**
  * `bench` — spec 0003 §3.5.4. Runs render (in preview/dry-run mode, so it

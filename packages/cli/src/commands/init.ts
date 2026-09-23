@@ -2,9 +2,9 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { resolve, join, dirname, relative } from "node:path";
 import { existsSync, mkdirSync, chmodSync } from "node:fs";
-import { writeConfig } from "../lib/config.ts";
-import { isGitHubRepo } from "../lib/git.ts";
-import { writeFileAtomic } from "../lib/atomic.ts";
+import { writeConfig } from "../lib/config/config.ts";
+import { isGitHubRepo } from "../lib/primitives/git.ts";
+import { writeFileAtomic } from "../lib/primitives/atomic.ts";
 import {
   detectProject,
   isPlaceholderName,
@@ -12,7 +12,7 @@ import {
   type ClaudeInfraInventory,
   type PackageManager,
 } from "../lib/diagnose/detect.ts";
-import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
+import { listKnownPluginIds, loadPlugin } from "../lib/config/plugins.ts";
 import {
   createMigrationBackup,
   removeOriginals,
@@ -26,12 +26,12 @@ import {
   formatDetectionSummary,
   formatWorkspaceSummary,
 } from "./init-format.ts";
-import { color, dim, brand, kv } from "../lib/style.ts";
+import { color, dim, brand, kv } from "../lib/primitives/style.ts";
 import { t, type Lang } from "../lib/i18n.ts";
 import { loadPrompts, type LoadedPrompt } from "../engines/claude/prompts-loader.ts";
 import { scanMonorepoWorkspaces, type DetectedWorkspace } from "../lib/diagnose/scan.ts";
 import type { MonorepoWorkspace } from "../lib/workspace/monorepo.ts";
-import type { NavoriConfigInput, NavoriConfig } from "../lib/schema.ts";
+import type { NavoriConfigInput, NavoriConfig } from "../lib/config/schema.ts";
 import {
   buildRecommendedQualityGate,
   buildRecommendedProject,
@@ -39,12 +39,12 @@ import {
   buildFullProject,
   RECOMMENDED_MODELS,
   RECOMMENDED_EFFORT,
-} from "../lib/recommended.ts";
+} from "../lib/config/recommended.ts";
 import { scanMissingExternalTools } from "./doctor.ts";
 import {
   EXTERNAL_PROVIDER_SETUP_RECIPE_URL,
   PROVIDERS_WITH_SETUP_RECIPE,
-} from "../lib/external-providers.ts";
+} from "../lib/config/external-providers.ts";
 import { ensurePrettierIgnore } from "../engines/shared/prettierignore-harness.ts";
 
 /**
