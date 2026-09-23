@@ -156,10 +156,11 @@ describe("subagent-stop-handoff hook", () => {
   // PostToolUse on the `Agent` tool since #774: that is the event whose
   // `additionalContext` lands in the PARENT session, which is the only reader
   // that can act on a broken handoff.
-  const run = () =>
+  const run = (subagentType?: string) =>
     runHook("subagent-stop-handoff.sh", {
       hook_event_name: "PostToolUse",
       tool_name: "Agent",
+      ...(subagentType ? { tool_input: { subagent_type: subagentType } } : {}),
     });
   const writeProgressIn = (engineDir: string, name: string, body: string) => {
     mkdirSync(join(dir, engineDir, "progress"), { recursive: true });
@@ -239,6 +240,73 @@ describe("subagent-stop-handoff hook", () => {
   it("names the report by its path, so the message says which dir to open", () => {
     writeProgressIn(".codex", "impl_x.md", "   \n");
     expect(systemMessage(run().stdout)).toContain(".codex/progress/impl_x.md");
+  });
+
+  // Spec 0030 (#985), R10: identity read from `tool_input.subagent_type` —
+  // the Agent tool call's own parameter, present on this PARENT PostToolUse
+  // event regardless of nesting (confirmed against
+  // https://code.claude.com/docs/en/hooks.md: PreToolUse/PostToolUse payloads
+  // carry `tool_input` mirroring the tool's own parameters, and a real captured
+  // `Agent` tool_use — `cli.e2e.test.ts`'s audit fixture —
+  // records `input: { subagent_type: "implementer", ... }` under that exact
+  // shape). Covers: R2, R10
+  const VALID_JSON = JSON.stringify({
+    feature: "x",
+    status: "DONE",
+    worktree: "/tmp/w",
+    branch: "b",
+    commits: ["a1b2c3"],
+    filesTouched: ["f.ts"],
+    verification: { command: "bun check", exitCode: 0, summary: "ok" },
+    markdownRequests: [],
+  });
+
+  it("stays silent for a well-formed impl_<feature>.json from the implementer", () => {
+    writeProgress("impl_x.json", VALID_JSON);
+    expect(run("implementer").stdout.trim()).toBe("");
+  });
+
+  it("flags an impl_<feature>.json missing a required key from the implementer", () => {
+    const missingVerification = JSON.parse(VALID_JSON) as Record<string, unknown>;
+    delete missingVerification.verification;
+    writeProgress("impl_x.json", JSON.stringify(missingVerification));
+    const msg = systemMessage(run("implementer").stdout);
+    expect(msg).toContain("impl_x.json");
+    expect(msg).toContain("verification");
+  });
+
+  it("flags an impl_<feature>.json that does not parse from the implementer", () => {
+    writeProgress("impl_x.json", "{not json");
+    expect(systemMessage(run("implementer").stdout)).toContain("no parsea");
+  });
+
+  it("flags an impl_<feature>.json with an invalid status from the implementer", () => {
+    const badStatus = JSON.parse(VALID_JSON) as Record<string, unknown>;
+    badStatus.status = "IN_PROGRESS";
+    writeProgress("impl_x.json", JSON.stringify(badStatus));
+    expect(systemMessage(run("implementer").stdout)).toContain("status");
+  });
+
+  it("ignores a stray impl_<feature>.md when the returning agent is the implementer", () => {
+    // The implementer no longer produces `.md` (R1); a leftover from the old
+    // contract must not be demanded here, only the `.json` shape is.
+    writeProgress("impl_x.md", "# impl\nno terminal marker\n");
+    expect(run("implementer").stdout.trim()).toBe("");
+  });
+
+  it("flags an impl_<feature>.md without Status: from the scribe", () => {
+    writeProgress("impl_x.md", "# impl\nno terminal marker\n");
+    expect(systemMessage(run("scribe").stdout)).toContain("Status:");
+  });
+
+  it("ignores a stray impl_<feature>.json when the returning agent is the scribe", () => {
+    writeProgress("impl_x.json", "{not json");
+    expect(run("scribe").stdout.trim()).toBe("");
+  });
+
+  it("falls back to checking both shapes when subagent_type is absent", () => {
+    writeProgress("impl_x.json", "{not json");
+    expect(systemMessage(run().stdout)).toContain("impl_x.json");
   });
 });
 

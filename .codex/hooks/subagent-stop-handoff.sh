@@ -1,4 +1,4 @@
-# navori:managed start id="subagent-stop-handoff-base" hash="bf41497a" version="0.9.0" source="@navori/core"
+# navori:managed start id="subagent-stop-handoff-base" hash="33c66d45" version="0.9.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse(`Agent`|`Task`) lifecycle hook — handoff validator.
@@ -30,12 +30,27 @@
 #
 # DESIGN — advisory, never blocking. Emits `hookSpecificOutput.additionalContext`
 # for the orchestrator plus a `systemMessage` so the human sees it too; it NEVER
-# returns `decision: block`. It has no way to know WHICH subagent just
-# stopped (agent identity isn't reliably in scope for a shell hook), so it can't
-# demand a specific file — it only flags handoff files that already exist but
-# look broken:
-#   - empty / whitespace-only, OR
-#   - `impl_*.md` missing its terminal `Status:` marker, OR
+# returns `decision: block`.
+#
+# Since spec 0030 (#985, R10) it reads `tool_input.subagent_type` — the
+# Agent/Task tool call's OWN parameter, mirrored into every PreToolUse/PostToolUse
+# payload (https://code.claude.com/docs/en/hooks.md: "payload carries `tool_name`,
+# `tool_input`, `session_id`, `cwd`"). This is NOT the `agent_id`/`agent_type` pair
+# the same doc says is "present only when the hook fires inside a subagent call" —
+# that pair answers "am I running INSIDE a subagent", a question this hook (firing
+# on the PARENT's own PostToolUse(Agent|Task)) never needs to ask. `subagent_type`
+# is simply the argument the orchestrator passed to dispatch, so it is present on
+# this exact event regardless of nesting. So the hook now knows WHICH subagent
+# just returned and demands the matching contract:
+#   - `implementer` → `impl_*.json` (R2): missing, unparseable, a `status` other
+#     than `DONE`/`BLOCKED`, or any required key absent.
+#   - `scribe` → `impl_*.md` missing its terminal `Status:` marker.
+#   - anything else — another role, another engine, or a payload where the field
+#     is absent — falls back to checking BOTH shapes wherever a matching file
+#     exists. That is the identity-blind behavior this hook always had, kept as
+#     the safety net for what `subagent_type` doesn't cover.
+# It also always flags, regardless of identity:
+#   - empty / whitespace-only handoffs, OR
 #   - `review_*.md` missing a verdict (APPROVED / CHANGES_REQUESTED).
 # It never invents an expectation, so a legitimate report never trips it, and a
 # missing file is not flagged (a subagent may not produce a handoff at all).
@@ -425,6 +440,84 @@ is_blank() { ! grep -q '[^[:space:]]' "$1" 2>/dev/null; }
 problems=""
 note() { problems="${problems}${problems:+; }$1"; }
 
+# One dotted-path read out of `$payload` (already drained above). Same
+# jq-free node→sed cascade every other hook in this stack uses to stay off a
+# preinstalled-jq dependency — `_partials/extract-cmd.sh`'s `payload_field`,
+# minus its own `payload=$(cat)`: this script already read stdin once, at the
+# top, and a second `cat` here would read nothing.
+navori_field() {
+  if command -v node >/dev/null 2>&1; then
+    printf '%s' "$payload" | node -e 'let s="";const p=process.argv[1].split(".");process.stdin.on("data",c=>s+=c).on("end",()=>{try{let v=JSON.parse(s);for(const k of p)v=v?.[k];process.stdout.write(String(v??""))}catch{}})' "$1" 2>/dev/null && return 0
+  fi
+  printf '%s' "$payload" | sed -nE "s/.*\"${1##*.}\"[[:space:]]*:[[:space:]]*\"(([^\"\\\\]|\\\\.)*)\".*/\\1/p"
+}
+navori_subagent_type=$(navori_field tool_input.subagent_type)
+
+# R2's contract: `impl_<feature>.json` must parse and carry every required key
+# with a valid `status`. Validated with node (already required by navori) → a
+# grep-based key sweep when it is missing, same fail-open posture as the rest
+# of this file: no new dependency, and an unparseable environment still gets a
+# best-effort check instead of silence.
+navori_check_impl_json() {
+  f="$1"
+  if is_blank "$f"; then
+    note "$f vacío"
+    return
+  fi
+  if command -v node >/dev/null 2>&1; then
+    navori_json_verdict=$(node -e '
+      const fs = require("fs");
+      let data;
+      try {
+        data = JSON.parse(fs.readFileSync(process.argv[1], "utf-8"));
+      } catch {
+        process.stdout.write("parse");
+        process.exit(0);
+      }
+      const required = ["feature","status","worktree","branch","commits","filesTouched","verification","markdownRequests"];
+      const missing = required.filter((k) => !(k in data));
+      if (missing.length > 0) {
+        process.stdout.write("missing:" + missing.join(","));
+        process.exit(0);
+      }
+      if (data.status !== "DONE" && data.status !== "BLOCKED") {
+        process.stdout.write("status");
+        process.exit(0);
+      }
+      process.stdout.write("ok");
+    ' "$f" 2>/dev/null) || navori_json_verdict="parse"
+  else
+    navori_json_verdict="ok"
+    navori_json_missing=""
+    for navori_json_key in feature status worktree branch commits filesTouched verification markdownRequests; do
+      grep -q "\"$navori_json_key\"[[:space:]]*:" "$f" 2>/dev/null \
+        || navori_json_missing="${navori_json_missing}${navori_json_missing:+,}$navori_json_key"
+    done
+    if [ -n "$navori_json_missing" ]; then
+      navori_json_verdict="missing:$navori_json_missing"
+    elif ! grep -qE '"status"[[:space:]]*:[[:space:]]*"(DONE|BLOCKED)"' "$f" 2>/dev/null; then
+      navori_json_verdict="status"
+    fi
+  fi
+  case "$navori_json_verdict" in
+    ok) ;;
+    parse) note "$f no parsea como JSON" ;;
+    status) note "$f con 'status' inválido (no DONE/BLOCKED)" ;;
+    missing:*) note "$f sin clave '${navori_json_verdict#missing:}'" ;;
+    *) note "$f no parsea como JSON" ;;
+  esac
+}
+
+# R10's `scribe` half: same `Status:` check R5's `.md` handoff always had.
+navori_check_impl_md() {
+  f="$1"
+  if is_blank "$f"; then
+    note "$f vacío"
+  elif ! grep -qiE '^\*{0,2}status:?\*{0,2}' "$f" 2>/dev/null; then
+    note "$f sin línea 'Status:'"
+  fi
+}
+
 # Only handoffs touched inside this window are checked (48h in minutes).
 #
 # The hook fires as a subagent returns, so the handoff it exists to police is
@@ -456,15 +549,37 @@ HANDOFF_WINDOW_MIN=2880
 #
 # Reports are named by their PATH, not their basename: with more than one
 # progress dir in play, `impl_x.md` alone wouldn't say which one to open.
+#
+# Which shape gets checked is now gated on `$navori_subagent_type` (R10): the
+# `implementer` only ever produces `.json` under R2, the `scribe` only `.md`
+# under R5, and everyone else (or a payload the field never reached) falls back
+# to checking whichever of the two exists — the identity-blind behavior this
+# hook always had.
 for dir in "${dirs[@]}"; do
-  while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    if is_blank "$f"; then
-      note "$f vacío"
-    elif ! grep -qiE '^\*{0,2}status:?\*{0,2}' "$f" 2>/dev/null; then
-      note "$f sin línea 'Status:'"
-    fi
-  done < <(find "$dir" -maxdepth 1 -name 'impl_*.md' -mmin -"$HANDOFF_WINDOW_MIN" 2>/dev/null)
+  case "$navori_subagent_type" in
+    implementer)
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        navori_check_impl_json "$f"
+      done < <(find "$dir" -maxdepth 1 -name 'impl_*.json' -mmin -"$HANDOFF_WINDOW_MIN" 2>/dev/null)
+      ;;
+    scribe)
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        navori_check_impl_md "$f"
+      done < <(find "$dir" -maxdepth 1 -name 'impl_*.md' -mmin -"$HANDOFF_WINDOW_MIN" 2>/dev/null)
+      ;;
+    *)
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        navori_check_impl_json "$f"
+      done < <(find "$dir" -maxdepth 1 -name 'impl_*.json' -mmin -"$HANDOFF_WINDOW_MIN" 2>/dev/null)
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        navori_check_impl_md "$f"
+      done < <(find "$dir" -maxdepth 1 -name 'impl_*.md' -mmin -"$HANDOFF_WINDOW_MIN" 2>/dev/null)
+      ;;
+  esac
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     if is_blank "$f"; then
