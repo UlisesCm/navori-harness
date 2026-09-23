@@ -1110,7 +1110,8 @@ interface AddCmdStrings {
   unknownPlugin: (id: string, known: string) => string;
   alreadyEnabled: (id: string) => string;
   added: (id: string, path: string) => string;
-  doneRender: string;
+  renderCrashed: string;
+  renderFailedConfig: string;
   externalAlreadyInstalled: (name: string) => string;
   externalSkipped: (name: string) => string;
   doneInstallLater: string;
@@ -2168,17 +2169,18 @@ const CMD_ES: CmdStrings = {
     unknownPlugin: (id, known) => `Plugin desconocido '${id}'. Conocidos: ${known}`,
     alreadyEnabled: (id) => `'${id}' ya está habilitado en este config`,
     added: (id, path) => `Agregué '${id}' a ${path}`,
-    doneRender: "Listo — corre 'navori render --apply' para aplicar",
+    renderCrashed:
+      "El render falló tras registrar el plugin — quedó habilitado en el config. Corre 'navori render --apply'.",
+    renderFailedConfig: "El plugin quedó habilitado en el config pero el render falló.",
     externalAlreadyInstalled: (name) => `La herramienta externa '${name}' ya está instalada`,
     externalSkipped: (name) =>
       `La herramienta externa '${name}' no está instalada. Se pidió --skip-install.`,
-    doneInstallLater:
-      "Listo — instálala manualmente después; luego corre 'navori render --apply' para aplicar",
+    doneInstallLater: "Listo — instálala manualmente después.",
     noInstallCommand: (platform, name) =>
       `No hay comando de instalación para '${platform}'. Instala '${name}' manualmente.`,
     installDocsHint: (url) => `Instalación oficial: ${url}`,
     doneNoInstall: (name) =>
-      `El plugin quedó registrado, pero '${name}' NO se instaló. Instálala y corre 'navori render --apply' para aplicar`,
+      `El plugin quedó registrado, pero '${name}' NO se instaló. Instálala manualmente.`,
     done: "Listo",
     installPrompt: (name, command) => `¿Instalar '${name}'? Se ejecutará: ${command}`,
     postInstallPrompt: (name, command) =>
@@ -3428,16 +3430,18 @@ const CMD_EN: CmdStrings = {
     unknownPlugin: (id, known) => `Unknown plugin '${id}'. Known: ${known}`,
     alreadyEnabled: (id) => `'${id}' is already enabled in this config`,
     added: (id, path) => `Added '${id}' to ${path}`,
-    doneRender: "Done — run 'navori render --apply' to apply",
+    renderCrashed:
+      "Render failed after registering the plugin — it was left enabled in the config. Run 'navori render --apply'.",
+    renderFailedConfig: "The plugin was left enabled in the config but the render failed.",
     externalAlreadyInstalled: (name) => `External tool '${name}' is already installed`,
     externalSkipped: (name) =>
       `External tool '${name}' is not installed. --skip-install was requested.`,
-    doneInstallLater: "Done — install it manually later, then run 'navori render --apply' to apply",
+    doneInstallLater: "Done — install it manually later.",
     noInstallCommand: (platform, name) =>
       `No install command for platform '${platform}'. Install '${name}' manually.`,
     installDocsHint: (url) => `Official installation: ${url}`,
     doneNoInstall: (name) =>
-      `The plugin was registered, but '${name}' was NOT installed. Install it and run 'navori render --apply' to apply`,
+      `The plugin was registered, but '${name}' was NOT installed. Install it manually.`,
     done: "Done",
     installPrompt: (name, command) => `Install '${name}'? This will run: ${command}`,
     postInstallPrompt: (name, command) =>
