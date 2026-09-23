@@ -189,7 +189,6 @@
       "Bash(git remote get-url*)",
       "Bash(git merge-base*)",
       "Bash(git rev-list*)",
-      "Bash(git worktree list*)",
       "Bash(git -c core.quotepath=false diff*)",
       "Bash(git -c core.quotepath=false ls-files*)",
       "Bash(git add:*)",

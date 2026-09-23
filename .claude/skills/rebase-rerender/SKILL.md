@@ -16,13 +16,19 @@ right after it — this skill is only the sequence, not a copy of the why.
 
 ## Sequence
 
-1. **Conflict inside a managed block → never hand-edit it.** Take the
-   base's version of the conflicted block (`git checkout --ours` or
-   `--theirs`, whichever side is `main`, or resolve by discarding your local
-   edit) and let step 2 regenerate it. Editing it by hand changes its
-   content without updating its `hash` marker, which flags the block as
-   user-modified — `render --apply` then skips it forever, and only
-   `navori sync` can undo that drift.
+1. **Conflict inside a managed block → never hand-edit it.** Take `main`'s
+   version of the conflicted block and let step 2 regenerate the rest. Which
+   flag is `main`'s side depends on the operation, and the two are opposite:
+   - `git rebase origin/main` (replaying your commits onto `main`): `main`
+     is the upstream, so it's `--ours` — `git checkout --ours -- <path>`.
+   - `git merge origin/main` (merging `main` into your branch): `main` is
+     the incoming side, so it's `--theirs` — `git checkout --theirs --
+     <path>`.
+
+   Editing the block by hand instead changes its content without updating
+   its `hash` marker, which flags the block as user-modified — `render
+   --apply` then skips it forever, and only `navori sync` can undo that
+   drift.
 2. Re-render the mirror from the repo root:
 
    ```bash
