@@ -1969,3 +1969,65 @@ sigue sin registrar.
 
 **Gate**: verde en el Pass 2 del reviewer sobre el diff final de #898 — 246 archivos, 4395 tests,
 receipt firmado. Sin código editado después. CI de #898 en verde (2m13s).
+
+## 2026-09-22 20:40 orchestrator — tgrep respondía con el repo de anteayer: la auditoría que empezó como "se siente peor" y terminó en seis issues
+
+**Abierto**: issues #943, #944, #945, #946, #947, #948. Sin código editado, sin PR.
+
+**El encargo era una sensación y resultó ser un falso negativo.** Ulises reportó que tgrep y
+codegraph "pasaban de funcionar más o menos bien" a un resultado muy negativo tras una
+desinstalación y reinstalación limpia. No había bug de instalación: binarios correctos, plugins
+habilitados, permisos puestos, los dos bloques managed renderizados sin drift, y `navori doctor`
+cerrando en "Todo al día — sin acciones pendientes". Lo que fallaba era que `tgrep search` sobre un
+índice de disco es un snapshot congelado —el watcher y `--poll-interval` viven solo en `tgrep
+serve`— y devuelve `exit 1` sobre contenido que existe, indistinguible de una ausencia real.
+
+**La prueba que lo cerró.** Con el índice construido el 2026-09-21 14:04 y 29 commits de atraso:
+`tgrep search -F "oxfmt"` daba cero resultados mientras `oxfmt` vivía en `CLAUDE.md`,
+`CONTRIBUTING.md`, `package.json` y `bun.lock`; y `tgrep search -F "biome"` —el formateador
+retirado ese mismo día— sí devolvía hits. Falso negativo y falso positivo en la misma corrida, sin
+señal de error. Al levantar el server, el stale check cuantificó la deuda: `190 changed, 224 new,
+743 deleted`, y el falso negativo murió en 0.7 ms.
+
+**Es consecuencia diseñada, no accidente.** D09 y D10 de `search-v2.md` le prohíben a navori crear
+supervisores, arrancar servidores e indexar. v1 sí tenía `tgrep-session.sh` calentando el índice en
+cada arranque; #803 lo borró. El ciclo de vida quedó en el usuario y el fallo es silencioso, así
+que olvidarlo no se nota. El arreglo fue por fuera: un LaunchAgent local
+(`com.ulisescm.tgrep-serve.navori-harness`), que no viola D09/D10 porque no lo crea navori.
+
+**El precedente estaba dentro del repo.** `scanOtelReceiver` (#697) ya había separado "el agente
+está cargado" de "el receptor responde" —*loaded, dead, and silent*— mientras
+`scanMissingExternalTools` sigue preguntando solo `hasBinary`. Para tgrep es la misma brecha
+(*installed, stale, and silent*), y por eso #943 pide un scan hermano, no un parche al existente.
+
+**D19 ya tiene número y no es bueno.** El instrumento da **7.3%** (57 vías v2 contra 722 escapes)
+frente al umbral pre-registrado de 25%; harían falta 184 búsquedas consecutivas sin un solo escape
+para alcanzarlo antes del cierre. Es casi exactamente el 7.4% que v1 midió para doctrina sin guard.
+Pero el agregado esconde lo útil: codegraph 57→33 usos y domina, tgrep 112→4. La hipótesis de §9.5
+diagnosticó bien el costo de descubrimiento y lo corrigió solo para codegraph, dejando a tgrep en
+la condición que había señalado como causa. Funcionó donde se atacó, falló donde no — y eso es lo
+que #947 pide que la spec nueva no confunda con "la doctrina sin guard no sirve".
+
+**Lo que el ruteo no dice.** CodeGraph cubre 450 de 853 archivos versionados: `.md` (272), `.sh`
+(52), `.json` (47) y `.toml` (7) quedan fuera, verificado preguntándole al grafo por una cadena de
+`CLAUDE.md` y una función shell real. La regla manda las preguntas de arquitectura al proveedor
+estructural sin excepción por tipo de archivo, y en un repo cuya sustancia es prosa eso devuelve
+cero sin bandera de "fuera de cobertura" (#945). Y la celda que produjo el fallo —índice en disco,
+mutación, sin server— no existe en `runtime.test.mjs`: los tests que mutan levantan server y los
+que no tienen server no mutan (#946).
+
+**Dos líneas cerradas sin hallazgo, que es también resultado.** El `.gitignore` de `.tgrep/` y
+`.codegraph/` está bien implementado (`pluginEntries`, derivado de `enabled === true`); aquí va a
+mano solo porque `gitignoreHarness` es `off`. Y el minero está bien calibrado —clasifica `tgrep
+search` vía `shlex.split` y `codegraph_explore` como tool nativa, con test propio 9/9—, lo que
+refuta la memoria #3162.
+
+**Deuda declarada**: los 21 repos del workspace tienen índice de codegraph construido por v1.5.0
+bajo binario 1.6.0 (394 MB en total) y nada lo reporta; de los 4 repos con tgrep habilitado, solo
+este tiene índice y los otros tres corren en modo escaneo sin saberlo. El watchdog de codegraph
+(upstream #850) dispara en ráfagas correlacionadas entre repos distintos —36 ms de diferencia entre
+dos— lo que apunta a sleep/wake del sistema; no corrompe el índice y no se abrió issue por eso.
+
+**Gate**: no corrió, y no aplica — cero archivos del repo editados en todo el ciclo. El trabajo fue
+lectura, seis issues, un LaunchAgent fuera del repo y este cierre. `git status` limpio antes y
+después.
