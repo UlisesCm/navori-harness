@@ -13,10 +13,14 @@ import { isAbsolute, join } from "node:path";
  * root before and after the run, so the day someone forgets is the day the suite
  * goes red, not the day data disappears.
  *
- * Note the asymmetry that leaves: `NAVORI_BACKUP_ROOT` PREVENTS the write, this
- * guard only DETECTS it after the fact. What should trigger extending the
- * override to the rest of the root (a `NAVORI_HOME`) is not "the guard goes red
- * often" but the first bite on data that cannot be rebuilt.
+ * Since #954 the root it watches is NOT the developer's real one: the run gets
+ * an ephemeral `HOME` (`vitest.globalSetup.ts`), so `homedir()` here resolves to
+ * a throwaway tree. That closes the asymmetry this file used to list as debt —
+ * the real root is now PREVENTED from being written, like `NAVORI_BACKUP_ROOT`
+ * already did for backups — and it also closes the false positives, since no
+ * other process on the machine can reach the watched tree. What the guard
+ * detects is unchanged: a spec that forgets to mock `lib/home.ts` writes into
+ * the run's home and shows up in the diff exactly as before.
  *
  * Read-only on disk by construction: it never creates, modifies or removes
  * anything. Its one side effect is the stderr warning of `warnUnwatched`.
@@ -95,8 +99,11 @@ type Bounds = {
 };
 
 /**
- * The developer's real `~/.navori` — the suite must never touch it. `null` when
- * HOME is unusable, which disables the guard: there is nothing to protect.
+ * The `~/.navori` this process resolves — the run's ephemeral home since #954,
+ * which the suite must still never touch: anything that lands there is a module
+ * resolving a machine-global path that would have hit the developer's real root
+ * without the override. `null` when HOME is unusable, which disables the guard:
+ * there is nothing to protect.
  */
 export function realNavoriHome(): string | null {
   const home = homedir();
@@ -347,15 +354,14 @@ export function describeNavoriHomeLeak(
   if (created.length === 0 && modified.length === 0 && deleted.length === 0) return null;
 
   return [
-    `The test run touched the REAL machine-global store at ${root}.`,
-    `Tests must never read or write it: point the module under test at a throwaway`,
-    `directory — mock os.homedir() (registry, global-config, workspaces, migrations,`,
-    `workspace trash) or set NAVORI_BACKUP_ROOT, which vitest.setup.ts already does`,
-    `for every spec. Entry paths are relative to the root, so the fixture label or`,
-    `workspace name below names the spec that escaped isolation. Another repo's`,
-    `audit logs are filtered out, and so are appends to this repo's own — both are`,
-    `written by concurrent sessions, not by these tests. A concurrent navori run`,
-    `doing anything ELSE can still land here as a false positive.`,
+    `The test run resolved the machine-global store and wrote to it, at ${root}.`,
+    `That path is the run's ephemeral home (#954), so nothing but these tests can`,
+    `have written it — off the harness, the same code would have hit the developer's`,
+    `real ~/.navori. Point the module under test at a throwaway directory instead:`,
+    `mock os.homedir() (registry, global-config, workspaces, migrations, workspace`,
+    `trash) or set NAVORI_BACKUP_ROOT, which vitest.setup.ts already does for every`,
+    `spec. Entry paths are relative to the root, so the fixture label or workspace`,
+    `name below names the spec that escaped isolation.`,
     ...section("Created", created.sort()),
     ...section("MODIFIED", modified.sort()),
     ...section("DELETED", deleted.sort()),

@@ -34,8 +34,22 @@ function snapshotOf(entries: Record<string, string>): HomeSnapshot {
 }
 
 describe("realNavoriHome", () => {
-  it("points at the real ~/.navori root, not at a subdirectory", () => {
+  it("points at the run's ~/.navori root, not at a subdirectory", () => {
     expect(realNavoriHome()).toBe(join(homedir(), ".navori"));
+  });
+
+  /**
+   * #954 — the guard used to watch the developer's real `~/.navori`, a tree any
+   * other process on the machine writes to (a `navori render --apply` in another
+   * worktree was enough to fail a green run). `vitest.globalSetup.ts` now points
+   * HOME at a throwaway dir for the whole run, so the watched tree is one nobody
+   * else can reach. If this ever regresses, the guard goes back to being red for
+   * reasons that have nothing to do with the suite.
+   */
+  it("watches a throwaway home, unreachable by any other process", () => {
+    expect(process.env.HOME).toBe(homedir());
+    expect(homedir().startsWith(tmpdir())).toBe(true);
+    expect(realNavoriHome()?.startsWith(tmpdir())).toBe(true);
   });
 });
 
@@ -192,6 +206,45 @@ describe("describeNavoriHomeLeak", () => {
     expect(leak).toContain("Created 1 entry");
     expect(leak).toContain("backups/navori-engine-Xy7-2026-1-0");
     expect(leak).not.toContain("backups/mine-1"); // an untouched entry is never reported
+  });
+
+  /**
+   * Anti-regression for #954: moving the guard to an ephemeral home must not
+   * turn it into a guard that cannot fail. A spec that forgets its mock writes
+   * into the run's home, and that still has to be reported.
+   */
+  it("still reports a leak when the watched root is the run's own home", () => {
+    const runRoot = realNavoriHome();
+    expect(runRoot).not.toBeNull();
+    const leak = describeNavoriHomeLeak(
+      runRoot ?? "",
+      new Map(),
+      snapshotOf({ "registry.json": "12:100" }),
+      "navori-harness",
+    );
+    expect(leak).toContain("Created 1 entry");
+    expect(leak).toContain("registry.json");
+  });
+
+  /**
+   * #404 in one assertion, and the reason the tempting shortcut was rejected
+   * (audit of #954, option B): filtering `backups/` by repo label the way
+   * `isForeignAudit` filters audit logs. A backup written BY the suite carries
+   * the label of the FIXTURE it operated on (`backupRepoLabel()` derives it from
+   * the repo under navori, an e2e tmpdir), never `selfRepo` — so a "label !==
+   * selfRepo ⇒ neighbour" rule would have classified all ~1,200 backups of #404
+   * as someone else's and the guard would never have fired. If this case ever
+   * goes green-by-filter, the guard has been switched off.
+   */
+  it("reports a backup labelled after a FIXTURE, never treating it as a neighbour", () => {
+    const leak = describeNavoriHomeLeak(
+      root,
+      new Map(),
+      snapshotOf({ "backups/navori-e2e-Ab12-2026-09-22T20-57-36-999-p30304-1": "dir" }),
+      "navori-harness",
+    );
+    expect(leak).toContain("Created 1 entry");
+    expect(leak).toContain("backups/navori-e2e-Ab12-2026-09-22T20-57-36-999-p30304-1");
   });
 
   it("reports entries a run DELETED — the .trash flow removes for real", () => {
