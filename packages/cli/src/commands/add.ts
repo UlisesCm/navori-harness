@@ -14,7 +14,11 @@ import {
 } from "../lib/plugins.ts";
 import { hasBinary } from "../lib/which.ts";
 import { currentPlatform } from "../lib/platform.ts";
-import { listAvailableExternalProviders } from "../lib/external-providers.ts";
+import {
+  listAvailableExternalProviders,
+  EXTERNAL_PROVIDER_SETUP_RECIPE_URL,
+  PROVIDERS_WITH_SETUP_RECIPE,
+} from "../lib/external-providers.ts";
 import { InstallError } from "../lib/errors.ts";
 import { detectProject } from "../lib/diagnose/detect.ts";
 import { brand, dim, accent, color, sym } from "../lib/style.ts";
@@ -338,6 +342,14 @@ export const addCommand = defineCommand({
         return;
       }
       printRenderSummary(renderResult);
+
+      // #982 — codegraph/tgrep need a setup step (index init, MCP approval)
+      // beyond the binary itself; `--yes`/`--recommended` init never mentions
+      // it either, so this is the first (and often only) place a user learns
+      // it exists. Only on a fresh enable, not on every re-run of `add`.
+      if (PROVIDERS_WITH_SETUP_RECIPE.has(plugin.manifest.id)) {
+        p.log.info(ta.externalProviderSetupHint(EXTERNAL_PROVIDER_SETUP_RECIPE_URL));
+      }
     }
 
     // Handle external tool

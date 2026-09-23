@@ -318,6 +318,15 @@ describe("doctor --json — available external providers, not enabled (#981)", (
     expect(human.stdout).toContain("Proveedores externos disponibles, no habilitados");
     expect(human.stdout).toContain("habilítalo con 'navori add codegraph'");
   });
+
+  it("points at the setup recipe when codegraph/tgrep are available but not enabled (#982)", () => {
+    const repo = seedRepo();
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    const human = runCli(["doctor", "--cwd", repo]);
+    expect(human.status).toBe(0);
+    expect(human.stdout).toContain("docs/recipes/setup-proveedores-externos.md");
+  });
 });
 
 describe("doctor --json over a monorepo (#395)", () => {
