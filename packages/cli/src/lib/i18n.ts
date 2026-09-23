@@ -1113,6 +1113,13 @@ interface AddCmdStrings {
   installTimeout: (seconds: number) => string;
   commandKilled: (signal: string) => string;
   commandExited: (status: number | null) => string;
+  commandExitedWithStderr: (status: number | null, stderr: string) => string;
+  installedButUnreachable: (name: string, cause: string) => string;
+  causePnpmSetup: string;
+  causeNpmGlobalBin: string;
+  causeHomebrewPath: string;
+  causeLocalBin: string;
+  causeUnknownPath: string;
   suggestedPreset: (stack: string, preset: string, current: string) => string;
   suggestedEngram: string;
   nothingToSuggest: string;
@@ -2159,6 +2166,18 @@ const CMD_ES: CmdStrings = {
       `El comando de instalación agotó el tiempo después de ${seconds}s. Puede estar esperando entrada interactiva (ejecútalo en una TTY) o haberse colgado. Instala la herramienta manualmente y vuelve a correr navori con --skip-install.`,
     commandKilled: (signal) => `El comando terminó por la señal ${signal}`,
     commandExited: (status) => `El comando terminó con status ${status}`,
+    commandExitedWithStderr: (status, stderr) =>
+      `El comando terminó con status ${status}:\n${stderr}`,
+    installedButUnreachable: (name, cause) =>
+      `'${name}' se instaló (exit 0) pero el binario no quedó en el PATH — ${cause}`,
+    causePnpmSetup:
+      "el bin dir global de pnpm no está en tu PATH todavía. Corre 'pnpm setup' y reabre la terminal.",
+    causeNpmGlobalBin:
+      "el bin dir global de npm no está en tu PATH. Revisa 'npm config get prefix' y agrega su carpeta 'bin' al PATH.",
+    causeHomebrewPath:
+      "el PATH no incluye el bin de Homebrew que se usó (Apple Silicon: /opt/homebrew/bin, Intel: /usr/local/bin) — revisa tu shell profile.",
+    causeLocalBin: "$HOME/.local/bin no está en tu PATH — agrégalo a tu shell profile.",
+    causeUnknownPath: "revisa que el directorio de instalación esté en tu PATH.",
     suggestedPreset: (stack, preset, current) =>
       `Preset: detecté ${stack} → sugerido ${preset} (actual: ${current}) — cámbialo con 'navori configure' o edita navori.config.json.`,
     suggestedEngram: "Plugin engram: memoria persistente entre sesiones — 'navori add engram'.",
@@ -3393,6 +3412,17 @@ const CMD_EN: CmdStrings = {
       `Install command timed out after ${seconds}s. It may be waiting for interactive input (run it from a TTY) or be hung. Install the tool manually and re-run navori with --skip-install.`,
     commandKilled: (signal) => `Command killed by signal ${signal}`,
     commandExited: (status) => `Command exited with status ${status}`,
+    commandExitedWithStderr: (status, stderr) => `Command exited with status ${status}:\n${stderr}`,
+    installedButUnreachable: (name, cause) =>
+      `'${name}' installed (exit 0) but the binary isn't on PATH — ${cause}`,
+    causePnpmSetup:
+      "pnpm's global bin dir isn't on your PATH yet. Run 'pnpm setup' and reopen your terminal.",
+    causeNpmGlobalBin:
+      "npm's global bin dir isn't on your PATH. Check 'npm config get prefix' and add its 'bin' folder to PATH.",
+    causeHomebrewPath:
+      "PATH doesn't include the Homebrew bin that was used (Apple Silicon: /opt/homebrew/bin, Intel: /usr/local/bin) — check your shell profile.",
+    causeLocalBin: "$HOME/.local/bin isn't on your PATH — add it to your shell profile.",
+    causeUnknownPath: "check that the install directory is on your PATH.",
     suggestedPreset: (stack, preset, current) =>
       `Preset: detected ${stack} → suggested ${preset} (current: ${current}) — change it with 'navori configure' or edit navori.config.json.`,
     suggestedEngram: "Plugin engram: persistent memory across sessions — 'navori add engram'.",

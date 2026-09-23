@@ -50,11 +50,52 @@ function currentPlatform(): Platform {
  */
 const INSTALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 min — generous for brew install + downloads
 
-function runShellCommand(cmd: string, ta: ReturnType<typeof tc>["add"]): void {
+// Cap on the stderr we attach to InstallError (#960) — enough for the real
+// error line(s) from brew/npm/pnpm/curl without dumping a runaway build log
+// into the terminal.
+const STDERR_MAX_CHARS = 4000;
+
+/**
+ * Trim and cap captured stderr; `null` when there was nothing useful. Keeps
+ * the TAIL, not the head, when it needs to cut: the actionable line — npm's
+ * `EACCES` fix suggestion, brew's `Error:` after the download noise — is
+ * almost always the last thing printed, not the first.
+ */
+function trimStderr(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  return trimmed.length > STDERR_MAX_CHARS
+    ? `(start omitted) …\n${trimmed.slice(-STDERR_MAX_CHARS)}`
+    : trimmed;
+}
+
+/**
+ * #960 — stderr must be captured for `install` (so a failure carries the
+ * real message instead of just an exit code) but NEVER for `postInstall`:
+ * `gh`'s postInstall is `gh auth status || gh auth login`, which opens an
+ * interactive auth prompt, and the engram linux install script pipes
+ * through `curl`. Both need a real TTY on stdin/stdout/stderr — piping
+ * stderr there would silently swallow the prompt. So capture only replaces
+ * stderr (`pipe`); stdin AND stdout stay inherited either way — brew/npm/pnpm
+ * installs can take minutes and the user still needs to see that progress
+ * live, not just a spinner. When NOT capturing the whole triad stays
+ * "inherit" exactly as before.
+ */
+function runShellCommand(
+  cmd: string,
+  ta: ReturnType<typeof tc>["add"],
+  captureStderr: boolean,
+): void {
+  // `shell: true` is required here and pre-existing (see the SECURITY NOTES
+  // above `INSTALL_TIMEOUT_MS`): the command is validated plugin.json content,
+  // never user input, and is shown + confirmed before running.
+  // nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true
   const result = spawnSync(cmd, {
     shell: true,
-    stdio: "inherit",
+    stdio: captureStderr ? ["inherit", "inherit", "pipe"] : "inherit",
     timeout: INSTALL_TIMEOUT_MS,
+    encoding: "utf-8",
   });
   // spawnSync sets result.error with the killed signal when timeout fires
   if (result.error && (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {
@@ -64,8 +105,38 @@ function runShellCommand(cmd: string, ta: ReturnType<typeof tc>["add"]): void {
     throw new InstallError(ta.commandKilled(result.signal));
   }
   if (result.status !== 0) {
-    throw new InstallError(ta.commandExited(result.status));
+    const stderr = captureStderr ? trimStderr(result.stderr) : null;
+    throw new InstallError(
+      stderr ? ta.commandExitedWithStderr(result.status, stderr) : ta.commandExited(result.status),
+    );
   }
+}
+
+/**
+ * Best-effort cause for "the installer exited 0 but the binary isn't on
+ * PATH" (#960), inferred from the install command text since
+ * `PluginExternalTool` doesn't carry an installer kind. Covers the actual
+ * defaults in the plugin manifests today (pnpm/npm global bin dirs,
+ * Homebrew's arch-dependent prefix, engram's `$HOME/.local/bin`); falls
+ * back to a generic hint for anything else.
+ */
+function likelyPathCause(cmd: string, ta: ReturnType<typeof tc>["add"]): string {
+  if (/\bpnpm\s+add\s+-g\b/.test(cmd)) return ta.causePnpmSetup;
+  if (/\bnpm\s+install\s+-g\b/.test(cmd)) return ta.causeNpmGlobalBin;
+  if (/\bbrew\s+install\b/.test(cmd)) return ta.causeHomebrewPath;
+  if (/\$HOME\/\.local\/bin\b/.test(cmd)) return ta.causeLocalBin;
+  return ta.causeUnknownPath;
+}
+
+interface RunUnderSpinnerOptions {
+  /** Capture stderr instead of inheriting it (#960) — see runShellCommand. */
+  captureStderr: boolean;
+  /**
+   * After a successful run, reconfirm `tool.checkBinary` is actually on
+   * PATH (#960) — exit 0 from the installer doesn't mean reachable. Only
+   * meaningful for `install`; `postInstall` isn't about landing a binary.
+   */
+  verifyBinary?: boolean;
 }
 
 /**
@@ -78,11 +149,17 @@ function runUnderSpinner(
   startMessage: string,
   tool: PluginExternalTool,
   ta: ReturnType<typeof tc>["add"],
+  options: RunUnderSpinnerOptions,
 ): boolean {
   const spin = p.spinner();
   try {
     spin.start(startMessage);
-    runShellCommand(cmd, ta);
+    runShellCommand(cmd, ta, options.captureStderr);
+    if (options.verifyBinary && tool.checkBinary && !hasBinary(tool.checkBinary)) {
+      const cause = likelyPathCause(cmd, ta);
+      spin.stop(`${color.red("✗")} ${ta.installedButUnreachable(accent(tool.name), cause)}`, 1);
+      return false;
+    }
     spin.stop(`${color.green("✓")} ${ta.installed(accent(tool.name))}`);
     return true;
   } catch (err) {
@@ -115,7 +192,9 @@ async function offerPostInstall(
 
   if (p.isCancel(shouldRun) || !shouldRun) return false;
 
-  const ok = runUnderSpinner(tool.postInstall, ta.postInstall(dim(tool.postInstall)), tool, ta);
+  const ok = runUnderSpinner(tool.postInstall, ta.postInstall(dim(tool.postInstall)), tool, ta, {
+    captureStderr: false,
+  });
   return !ok;
 }
 
@@ -263,6 +342,7 @@ export const addCommand = defineCommand({
       ta.installing(accent(tool.name), dim(installCmd)),
       tool,
       ta,
+      { captureStderr: true, verifyBinary: true },
     );
     if (!installOk) {
       p.outro(dim(ta.registeredInstallFailed));
@@ -275,6 +355,7 @@ export const addCommand = defineCommand({
         ta.postInstall(dim(tool.postInstall)),
         tool,
         ta,
+        { captureStderr: false },
       );
       if (!postInstallOk) {
         p.outro(dim(ta.registeredInstallFailed));
