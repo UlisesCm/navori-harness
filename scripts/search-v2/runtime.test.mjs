@@ -370,6 +370,61 @@ describe("tgrep — T01-T03, T07-T11 (index lifecycle)", () => {
     }
   });
 
+  test("T03b — índice en disco tras mutación, sin server: caracteriza convergencia vs. congelamiento", async () => {
+    // Not one of the §8.3 contract rows (T01-T11): those deliberately avoid
+    // asserting disk-index freshness (docs/research/search-v2.md:538) so a
+    // fragile requirement doesn't couple the contract to a third-party
+    // implementation detail. This test exists precisely because that gap
+    // let a real regression (#943, 29 commits of drift) go unnoticed: it
+    // asserts on the *pair* (indexed vs. --no-index), not an absolute
+    // result, so it stays meaningful under either behavior while still
+    // failing the moment the behavior flips without anyone updating it.
+    await tgrepIndex(ws);
+    const newFile = join(ws.repo, "src", "disk-stale-check.ts");
+    await writeFile(newFile, `export const marker = '${NEW_FILE_MARKER}';\n`, "utf8");
+    try {
+      const indexed = await runOnce(
+        TGREP_BIN,
+        ["search", "-F", "-n", "--", NEW_FILE_MARKER, ws.repo],
+        { cwd: ws.repo, env: ws.env },
+      );
+      const noIndex = await runOnce(
+        TGREP_BIN,
+        ["search", "-F", "-n", "--no-index", "--", NEW_FILE_MARKER, ws.repo],
+        { cwd: ws.repo, env: ws.env },
+      );
+
+      const foundIndexed = indexed.code === 0 && /disk-stale-check\.ts/.test(indexed.stdout);
+      const foundNoIndex = noIndex.code === 0 && /disk-stale-check\.ts/.test(noIndex.stdout);
+
+      assert.equal(
+        foundNoIndex,
+        true,
+        `--no-index must always see the post-index file (T03 contract); got exit ${noIndex.code}\n${noIndex.stderr}`,
+      );
+
+      // Currently measured behavior (this repo, this tgrep version): the
+      // disk index is frozen at write time and does not pick up a mutation
+      // that happens after `tgrep index` without `tgrep serve` running.
+      // If tgrep starts refreshing the disk index on its own, `foundIndexed`
+      // flips to `true`, this assertion fails, and that failure is the
+      // signal to update it deliberately alongside the prose in issue #946
+      // and docs/research/search-v2.md:538 — not silently flip the assert.
+      assert.notEqual(
+        foundIndexed,
+        foundNoIndex,
+        foundIndexed
+          ? "This failure is NOT a bug in this test — it is the expected signal that tgrep's disk-index " +
+              "staleness behavior changed (it now picks up a post-`tgrep index` mutation without `tgrep serve` " +
+              "running, which was measured as frozen when this test was written). Update this assertion " +
+              "deliberately and review docs/research/search-v2.md:538 before touching it."
+          : "disk index is frozen relative to --no-index, as currently measured and documented",
+      );
+    } finally {
+      await rm(newFile, { force: true });
+    }
+  });
+
   test("T07 — literales exactos con -F --, incluyendo un patrón que empieza con '-'", async () => {
     for (const literal of ["serve", "a+b[0]", "--literal-v2"]) {
       const res = await runOnce(
