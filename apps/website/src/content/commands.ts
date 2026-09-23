@@ -61,7 +61,7 @@ const es: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "<plugin>",
-        desc: "Plugin a registrar: engram, codegraph, semgrep, jscpd, acli, gh.",
+        desc: "Plugin a registrar: engram, codegraph, tgrep, semgrep, jscpd, acli, gh.",
       },
       { flag: "--suggest", desc: "Detecta el stack y sugiere preset + plugins (no instala nada)." },
       { flag: "--yes", desc: "Sin prompts; instala la herramienta externa si hace falta." },
@@ -299,7 +299,10 @@ const es: Record<string, CommandDoc> = {
       "Desactiva un plugin y limpia lo que había dejado: bloques managed, sub-bloques inyectados y scripts.",
     usage: "navori remove <plugin> [--yes] [--cwd <dir>]",
     flags: [
-      { flag: "<plugin>", desc: "Id del plugin a quitar (semgrep, jscpd, codegraph, acli, gh)." },
+      {
+        flag: "<plugin>",
+        desc: "Id del plugin a quitar (semgrep, jscpd, codegraph, tgrep, acli, gh).",
+      },
       { flag: "--yes", desc: "Sin confirmación." },
       { flag: "--cwd <dir>", desc: "Directorio del repo (default: actual)." },
     ],
@@ -811,7 +814,7 @@ const en: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "<plugin>",
-        desc: "Plugin to register: engram, codegraph, semgrep, jscpd, acli, gh.",
+        desc: "Plugin to register: engram, codegraph, tgrep, semgrep, jscpd, acli, gh.",
       },
       {
         flag: "--suggest",
@@ -1052,7 +1055,10 @@ const en: Record<string, CommandDoc> = {
       "Disable a plugin and clean up what it left behind: managed blocks, injected sub-blocks and scripts.",
     usage: "navori remove <plugin> [--yes] [--cwd <dir>]",
     flags: [
-      { flag: "<plugin>", desc: "Plugin id to remove (semgrep, jscpd, codegraph, acli, gh)." },
+      {
+        flag: "<plugin>",
+        desc: "Plugin id to remove (semgrep, jscpd, codegraph, tgrep, acli, gh).",
+      },
       { flag: "--yes", desc: "Skip confirmation." },
       { flag: "--cwd <dir>", desc: "Repo directory (default: current)." },
     ],
