@@ -3,10 +3,10 @@ name: resolve-ticket
 description: Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial — the canonical 6-phase pipeline to process it with objective gates.
 metadata:
   type: reference
-  maxWords: 600
+  maxWords: 700
   # Compuesto (#683): ningún plugin extiende esta skill, así que los 50 sobre el
   # cap del asset son exactamente el margen de interpolación.
-  maxWordsComposed: 650
+  maxWordsComposed: 750
 ---
 
 # resolve-ticket — 6-phase pipeline
@@ -20,8 +20,8 @@ Agents and skills chained by objective gates: what one phase pays for in tokens 
 | 1 · Triage | you: `mem_search`, `cat progress/current.md`, `git status/log` | Trivial → skip the deeper phases; it still goes through `implementer`. If `progress/current.md` is not idle with ANOTHER ticket, ask; never two in parallel. |
 | 2 · AUDIT | `auditor` (ticket encargo) — ONE, or one per area, only when the orchestration table's disparadores fire | `audit_ticket_<ID>.md`: **verdict** (proceed / proceed-differently / split / doesn't apply / blocked), verified problem + size, assessment of the ticket's proposed fix. **Gate: only `proceed` and `proceed-differently` wait for the user's approval.** Any other verdict opens no work → it closes the cycle here, unattended, with its evidence. No trigger fires → straight to 4, the ticket's own text is the audit. |
 | 3 · Design | `solution-design` skill + ONE fresh-context `auditor` challenge | Only on an architectural signal (orchestration table) or a `proceed-differently` verdict. Produces `solution_<scope>.md` + `solution_review_<scope>.md`. **Gate: your verdict READY / CONCERNS / BLOCKED** — `CONCERNS` records the risk and moves on, only `BLOCKED` stops. No signal → straight to 4. |
-| 4 · Implementation | ONE `implementer` agent, `verify-before-done` inside it | Reads `audit_ticket_<ID>.md` (if 2 ran) → `solution_<scope>.md` (if 3 ran) → applicable skill. Produces `impl_<feature>.md` with fresh verification evidence at exit 0. **Gate: `{{qualityGate.fast}}` green in the turn.** No evidence → back here. |
-| 5 · Review | `reviewer` agent + `review-diff` skill | `review_<feature>.md`. Two-pass; Pass 1 fails → `CHANGES_REQUESTED`, back to 4. `APPROVED` → continue. |
+| 4 · Implementation | ONE `implementer` agent, `verify-before-done` inside it<!-- navori:if scribeOwnsMarkdown -->, then `scribe` when `markdownRequests` is non-empty<!-- /navori:if --> | Reads `audit_ticket_<ID>.md` (if 2 ran) → `solution_<scope>.md` (if 3 ran) → applicable skill. <!-- navori:if-not scribeOwnsMarkdown -->Produces `impl_<feature>.md` with fresh verification evidence at exit 0.<!-- /navori:if-not --><!-- navori:if scribeOwnsMarkdown -->Produces `impl_<feature>.json` with fresh verification evidence at exit 0 (R2); `scribe` renders `impl_<feature>.md` from it and applies any `markdownRequests` in its own commit (R5, R7).<!-- /navori:if --> **Gate: `{{qualityGate.fast}}` green in the turn.** No evidence → back here. |
+| 5 · Review | `reviewer` agent + `review-diff` skill | `review_<feature>.md`<!-- navori:if scribeOwnsMarkdown --> — the complete diff, including the `scribe`'s commit when it ran<!-- /navori:if -->. Two-pass; Pass 1 fails → `CHANGES_REQUESTED`, back to 4. `APPROVED` → continue. |
 | 6 · Publish | `publisher` agent | PR created and its URL to the user; a tracker comment only when the user asks for one — not a default step of the cycle. Then close the session per the closeout block. |
 
 ## Phase 2 fan-out
