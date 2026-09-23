@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -47,9 +47,32 @@ vi.mock("@clack/prompts", () => ({
   spinner: () => ({ start: () => undefined, message: () => undefined, stop: () => undefined }),
 }));
 
+// #974 — one test (render failure) needs a deterministic non-ok result;
+// every other test keeps exercising the real `runRender` pipeline, same as
+// the rest of this suite (see the header comment above): mocking it wholesale
+// would stop covering the actual .mcp.json/settings/managed-block wiring the
+// new tests below assert on.
+const renderControl = vi.hoisted(() => ({ forceFail: false }));
+vi.mock(import("../render.ts"), async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../render.ts")>();
+  return {
+    ...actual,
+    runRender: (...args: Parameters<typeof actual.runRender>) => {
+      if (renderControl.forceFail) {
+        return {
+          ok: false,
+          reason: "forced render failure for test",
+          language: "en",
+        } as ReturnType<typeof actual.runRender>;
+      }
+      return actual.runRender(...args);
+    },
+  };
+});
+
 const { addCommand } = await import("../add.ts");
 const { runCommand } = await import("citty");
-const { writeConfig } = await import("../../lib/config.ts");
+const { writeConfig, readConfig } = await import("../../lib/config.ts");
 
 let cwd: string;
 let originalPlatform: PropertyDescriptor | undefined;
@@ -104,6 +127,7 @@ afterEach(() => {
   // vitest process' OWN exit code: leaving it set would fail the whole run
   // with every test green.
   process.exitCode = undefined;
+  renderControl.forceFail = false;
 });
 
 describe("add — postInstall reachability (#953)", () => {
@@ -273,9 +297,14 @@ describe("add — install verification + stderr capture (#960)", () => {
  * #965 — when no install command exists for the platform, `add` used to print
  * "install it manually" (no destination) and then close with the plain success
  * outro, `Listo`. Three facts were lost at once: nothing was installed, the
- * plugin is nonetheless `enabled: true` in the config, and it still needs
+ * plugin is nonetheless `enabled: true` in the config, and it still needed
  * `navori render --apply` to materialize anything. A script had no way to tell
  * either — the exit code was 0.
+ *
+ * #974 closed the third fact: `add` now renders inline right after the config
+ * write, so these degraded exits no longer carry a "run render --apply"
+ * hint — that already happened by the time any of them fire. What must
+ * survive is the install-docs info and the exit code.
  *
  * `gh` on linux is the live instance of that cell (upstream documents Linux
  * per distro, so the manifest carries `installDocs`, not a command).
@@ -297,16 +326,16 @@ describe("add — degraded exits when nothing got installed (#965)", () => {
     expect(process.exitCode).toBe(1);
   });
 
-  it("no command for this platform — points at installDocs and keeps the render hint", async () => {
+  it("no command for this platform — points at installDocs, no stale render hint (#974)", async () => {
     setPlatform("linux");
     hasBinaryMock.mockReturnValue(false);
 
     await add("gh", "--yes");
 
     expect(texts()).toContain("https://github.com/cli/cli/blob/trunk/docs/install_linux.md");
-    // The hint every successful exit carries. Without it the plugin is enabled
-    // on paper and never materializes a file.
-    expect(outroText()).toContain("navori render --apply");
+    // The wiring already rendered by this point (#974) — telling the user to
+    // run it again would be stale, not just redundant.
+    expect(outroText()).not.toContain("navori render --apply");
   });
 
   it("--skip-install still exits 0 — the user asked for exactly this", async () => {
@@ -315,7 +344,7 @@ describe("add — degraded exits when nothing got installed (#965)", () => {
     await add("gh", "--skip-install");
 
     expect(process.exitCode).toBeUndefined();
-    expect(outroText()).toContain("navori render --apply");
+    expect(outroText()).not.toContain("navori render --apply");
   });
 
   it("the user declines the install — exits 0, but still says what is left to do", async () => {
@@ -326,7 +355,7 @@ describe("add — degraded exits when nothing got installed (#965)", () => {
 
     expect(spawnSyncMock).not.toHaveBeenCalled();
     expect(process.exitCode).toBeUndefined();
-    expect(outroText()).toContain("navori render --apply");
+    expect(outroText()).not.toContain("navori render --apply");
   });
 
   it("install ran and the binary never landed — exits non-zero", async () => {
@@ -348,5 +377,65 @@ describe("add — degraded exits when nothing got installed (#965)", () => {
 
     expect(spawnSyncMock).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
+  });
+});
+
+/**
+ * #974 — `add` used to write `plugins.<id>.enabled = true` and stop there,
+ * leaving `.mcp.json`, the `settings.json` permission and the managed block
+ * unmaterialized until someone remembered to run `navori render --apply` by
+ * hand. `add` now renders right after the config write (`remove.ts`'s
+ * already-proven contract), so enabling a plugin makes it actually usable in
+ * the same command.
+ */
+describe("add — renders the plugin's wiring on enable (#974)", () => {
+  /** `.mcp.json` at `cwd`, or null when render never wrote one. */
+  function readMcp(): { mcpServers?: Record<string, unknown> } | null {
+    const path = join(cwd, ".mcp.json");
+    return existsSync(path) ? JSON.parse(readFileSync(path, "utf-8")) : null;
+  }
+
+  function readSettings(): { permissions?: { allow?: string[] } } {
+    return JSON.parse(readFileSync(join(cwd, ".claude/settings.json"), "utf-8"));
+  }
+
+  it("enabling codegraph (an mcpServer plugin) writes the .mcp.json entry, the settings permission and the managed block", async () => {
+    hasBinaryMock.mockReturnValue(true); // binary already present — skip the install flow
+
+    await add("codegraph");
+
+    expect(readMcp()?.mcpServers?.codegraph).toBeDefined();
+    expect(readSettings().permissions?.allow).toContain("mcp__codegraph__codegraph_explore");
+    const claudeMd = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
+    expect(claudeMd).toContain('id="codegraph-search-v2"');
+  });
+
+  it("a render failure exits non-zero and leaves the config enabled (the same partial-failure contract as remove)", async () => {
+    hasBinaryMock.mockReturnValue(true);
+    renderControl.forceFail = true;
+
+    await add("codegraph");
+
+    expect(process.exitCode).toBe(1);
+    expect(readConfig(join(cwd, "navori.config.json")).plugins?.codegraph?.enabled).toBe(true);
+    // The render never actually ran to completion — nothing was written.
+    expect(existsSync(join(cwd, ".mcp.json"))).toBe(false);
+  });
+
+  it("an already-enabled plugin is left alone — no re-render (explicitly out of scope for #974)", async () => {
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "demo",
+      engines: ["claude"],
+      preset: "custom",
+      plugins: { codegraph: { enabled: true } },
+    });
+    hasBinaryMock.mockReturnValue(true);
+
+    await add("codegraph");
+
+    expect(logWarnMock).toHaveBeenCalledWith(expect.stringContaining("codegraph"));
+    // Nothing was ever rendered for this repo, so the wiring simply doesn't
+    // exist yet — proof that this run didn't trigger one either.
+    expect(existsSync(join(cwd, ".mcp.json"))).toBe(false);
   });
 });

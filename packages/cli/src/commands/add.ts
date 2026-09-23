@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { writeConfig, readConfig } from "../lib/config.ts";
+import { runRender, printRenderSummary } from "./render.ts";
 import {
   loadPlugin,
   PluginNotFoundError,
@@ -314,12 +315,34 @@ export const addCommand = defineCommand({
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
       writeConfig(configPath, { ...raw, plugins: updatedPlugins });
       p.log.success(ta.added(plugin.manifest.id, configPath));
+
+      // Render right away (#974) — same contract as `remove.ts`: the config
+      // write alone doesn't materialize the plugin's wiring (.mcp.json entry,
+      // settings permission, managed block), so without this a freshly
+      // enabled plugin sits inert until someone remembers to run
+      // `navori render --apply` by hand.
+      let renderResult: ReturnType<typeof runRender>;
+      try {
+        renderResult = runRender(cwd, false);
+      } catch (err) {
+        p.log.error(err instanceof Error ? err.message : String(err));
+        p.outro(ta.renderCrashed);
+        process.exitCode = 1;
+        return;
+      }
+      if (!renderResult.ok) {
+        p.log.error(renderResult.reason ?? tc(lang).render.renderFailed);
+        p.outro(ta.renderFailedConfig);
+        process.exitCode = 1;
+        return;
+      }
+      printRenderSummary(renderResult);
     }
 
     // Handle external tool
     const tool = plugin.manifest.externalTool;
     if (!tool) {
-      p.outro(ta.doneRender);
+      p.outro(ta.done);
       return;
     }
 
@@ -327,14 +350,15 @@ export const addCommand = defineCommand({
     if (installed) {
       p.log.success(ta.externalAlreadyInstalled(tool.name));
       const postInstallFailed = await offerPostInstall(tool, args, ta);
-      p.outro(postInstallFailed ? dim(ta.registeredInstallFailed) : ta.doneRender);
+      p.outro(postInstallFailed ? dim(ta.registeredInstallFailed) : ta.done);
       return;
     }
 
     // The branches below end with the plugin already `enabled: true` in the
-    // config (written above) and its binary still absent. All of them keep the
-    // `render --apply` hint the successful exits carry: without it the plugin
-    // is enabled on paper and never materializes a single file (#965).
+    // config and its wiring already rendered (both above) while its external
+    // binary is still absent. None of them need a "run render --apply" hint
+    // anymore (#974) — that already happened; they only need to tell the user
+    // how to get the binary installed.
     //
     // Exit code rule for them: ≠ 0 when the tool ended up unusable and nobody
     // asked for that; 0 when the user explicitly opted out. `--skip-install`
@@ -407,7 +431,7 @@ export const addCommand = defineCommand({
       }
     }
 
-    p.outro(ta.doneRender);
+    p.outro(ta.done);
   },
 });
 

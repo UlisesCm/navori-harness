@@ -30,8 +30,8 @@ const steps = [
     n: "04",
     title: "Re-render whenever you change something",
     body:
-      "Add plugins or bump the version. render previews by default; --apply writes. sync only touches managed blocks; your custom code is left alone.",
-    code: "# Add a plugin\n$ npx navori add codegraph\n$ npx navori render --apply\n\n# Upgrade to the latest version\n$ npx navori update\n$ npx navori@latest sync\n\n# Something drifted?\n$ npx navori doctor",
+      "add already renders in the same step. For everything else (hand-editing the config, switching presets), render previews by default; --apply writes. sync only touches managed blocks; your custom code is left alone.",
+    code: "# Add a plugin (renders on its own)\n$ npx navori add codegraph\n\n# Upgrade to the latest version\n$ npx navori update\n$ npx navori@latest sync\n\n# Something drifted?\n$ npx navori doctor",
   },
 ];
 

@@ -942,6 +942,81 @@ export const renderCommand = defineCommand({
 });
 
 /**
+ * Print a compact one-line summary of a SUCCESSFUL render (created/updated/
+ * conflict/removed/unchanged counts) plus the engine-tree file list and
+ * warnings. Shared by every command that renders inline right after writing
+ * `navori.config.json` (`init`, `add`) — extracted from `init.ts`'s former
+ * private `renderInline` (#974) once `add` became its second caller.
+ *
+ * Intentionally only the SUCCESS half: each caller's failure contract differs
+ * (`init` logs and moves on to the next step; `add`/`remove` signal a non-zero
+ * exit with their own localized copy), so callers run `runRender` and check
+ * `result.ok` themselves before calling this.
+ */
+export function printRenderSummary(result: ReturnType<typeof runRender>): void {
+  const counts = result.entries.reduce<Record<string, number>>((acc, e) => {
+    acc[e.status] = (acc[e.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const parts: string[] = [];
+  if (counts.created) parts.push(color.green(`${counts.created} created`));
+  if (counts.updated) parts.push(color.yellow(`${counts.updated} updated`));
+  if (counts["user-modified-skipped"])
+    parts.push(color.red(`${counts["user-modified-skipped"]} conflict`));
+  if (counts["removed-condition-false"])
+    parts.push(color.magenta(`${counts["removed-condition-false"]} removed`));
+  if (counts.unchanged) parts.push(dim(`${counts.unchanged} unchanged`));
+  const summary = parts.length > 0 ? ` ${dim("—")} ${parts.join(dim(", "))}` : "";
+  if (result.written) {
+    p.log.success(`Rendered ${result.filePath}${summary}`);
+  } else {
+    p.log.info(`No render needed${summary}`);
+  }
+
+  // Surface engine-tree results (agents/skills/settings/hooks + progress/).
+  // The header used to say ".claude/ written:" which was misleading because
+  // progress/ lives outside .claude/. "Files written" describes the union.
+  if (result.engineResult) {
+    const written = result.engineResult.written.filter((w) => w.path !== "CLAUDE.md");
+    if (written.length > 0) {
+      const lines = written
+        .slice(0, 12)
+        .map((w) => `  ${dim("+")} ${w.path}`)
+        .join("\n");
+      const more = written.length > 12 ? `\n  ${dim(`… +${written.length - 12} more`)}` : "";
+      p.log.message(`${dim("Files written:")}\n${lines}${more}`);
+    }
+    for (const s of result.engineResult.skipped) {
+      p.log.warn(`Skipped ${s.path}: ${s.reason}`);
+    }
+    // Engine-emitted warnings (e.g. quality-gate hook skipped because the
+    // fast gate isn't set). These would otherwise be invisible to anyone
+    // running `init --recommended` since the render output is the only
+    // signal the user sees.
+    for (const w of result.engineResult.warnings) {
+      p.log.warn(w);
+    }
+  }
+}
+
+/**
+ * Run the render flow and print its summary — for callers that don't need a
+ * process-exit-code contract on failure and just want to inform the user and
+ * move on (`init`; a failed render there logs and lets the wizard continue to
+ * the next step, e.g. `.prettierignore`). `add`/`remove` need a stricter
+ * contract (non-zero exit on failure) and call `runRender` + `printRenderSummary`
+ * directly instead of this wrapper.
+ */
+export function renderInline(cwd: string): void {
+  const result = runRender(cwd, false);
+  if (!result.ok) {
+    p.log.error(result.reason ?? "Render failed");
+    return;
+  }
+  printRenderSummary(result);
+}
+
+/**
  * True when a render result has ANY pending (or, when applying, written) change:
  * the Claude CLAUDE.md at the root or a workspace, OR a non-Claude engine file
  * (`AGENTS.md`, cursor/copilot/codex) at the root or a workspace. All three
