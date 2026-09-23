@@ -1,7 +1,10 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
-import { enabledMonorepoWorkspaces, type MonorepoRenderContext } from "../../lib/monorepo.ts";
+import {
+  enabledMonorepoWorkspaces,
+  type MonorepoRenderContext,
+} from "../../lib/workspace/monorepo.ts";
 import {
   loadEnabledPlugins,
   loadDisabledPlugins,
@@ -18,7 +21,11 @@ import {
   type UpdateAvailable,
 } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError } from "../../lib/presets.ts";
-import { LIBRARY_SKILLS, REMOVED_LIB_SKILLS, unknownLibraries } from "../../lib/library-skills.ts";
+import {
+  LIBRARY_SKILLS,
+  REMOVED_LIB_SKILLS,
+  unknownLibraries,
+} from "../../lib/assets/library-skills.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 // The authorship test every delete path in the product shares — see
 // lib/removable.ts. The skill prunes below pass their managed id so it answers
@@ -282,7 +289,7 @@ const CONTEXTO_MONOREPO_ID = "contexto-monorepo";
  * order contribution (#228): the engine-agnostic core no longer knows these ids —
  * `canonicalManagedOrder` receives them from here, so the render's reorder pass
  * places the computed blocks in this exact order. Exported so a follow-up can
- * hand the same list to doctor's order check (`lib/health.ts`).
+ * hand the same list to doctor's order check (`lib/diagnose/health.ts`).
  */
 export const CLAUDE_COMPUTED_BLOCK_IDS = [
   SKILLS_INDEX_ID,

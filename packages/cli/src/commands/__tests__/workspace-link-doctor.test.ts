@@ -16,7 +16,7 @@ const home = vi.hoisted(() => ({ dir: "" }));
 vi.mock(import("../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { scanWorkspaceLink } = await import("../doctor.ts");
-const { writeWorkspace } = await import("../../lib/workspace.ts");
+const { writeWorkspace } = await import("../../lib/workspace/workspace.ts");
 
 let repoDir: string;
 

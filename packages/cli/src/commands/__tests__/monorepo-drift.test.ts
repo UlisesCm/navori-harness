@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scanMonorepoDrift } from "../doctor.ts";
-import { scanManagedDrift } from "../../lib/health.ts";
+import { scanManagedDrift } from "../../lib/diagnose/health.ts";
 import type { NavoriConfig } from "../../lib/config.ts";
 
 /**

@@ -1,0 +1,156 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { scanPermissionMode } from "../health.ts";
+
+/**
+ * #579 — the harness knew one permission mode of six, and two of the other five
+ * change what it can do at all.
+ *
+ * `dontAsk` is the one that breaks outright: it auto-denies every call that
+ * would otherwise prompt, and navori's allow list grants `Read`/`Glob`/`Grep`
+ * and its MCP families but NOT `Edit`/`Write` — deliberately, because in every
+ * other mode the prompt on a write is the safety net worth keeping. Each choice
+ * is defensible alone; together the implement/review cycle cannot run, and the
+ * mode never asks, it denies in silence.
+ *
+ * So the check reports and never fixes: granting the write tools would change
+ * what `default` mode does in every repo, which is the user's call.
+ */
+
+let cwd: string;
+
+beforeEach(() => {
+  cwd = mkdtempSync(join(tmpdir(), "navori-permmode-"));
+  mkdirSync(join(cwd, ".claude"), { recursive: true });
+});
+
+afterEach(() => {
+  rmSync(cwd, { recursive: true, force: true });
+});
+
+function settings(file: string, body: Record<string, unknown>): void {
+  writeFileSync(join(cwd, ".claude", file), `${JSON.stringify(body, null, 2)}\n`, "utf-8");
+}
+
+const NAVORI_ALLOW = ["Read", "Glob", "Grep", "Bash(git status*)"];
+
+describe("a repo pinned to dontAsk cannot run the cycle (#579)", () => {
+  it("reports the mode, the file and the tools it is missing", () => {
+    settings("settings.json", {
+      permissions: { defaultMode: "dontAsk", allow: NAVORI_ALLOW },
+    });
+    expect(scanPermissionMode(cwd)).toEqual([
+      { mode: "dontAsk", path: join(".claude", "settings.json"), missing: ["Edit", "Write"] },
+    ]);
+  });
+
+  it("reads the key at the top level too", () => {
+    // Both shapes appear in the wild; missing one would make the check depend on
+    // which the user happened to write.
+    settings("settings.json", { defaultMode: "dontAsk", permissions: { allow: NAVORI_ALLOW } });
+    expect(scanPermissionMode(cwd)[0]?.mode).toBe("dontAsk");
+  });
+
+  it("catches it in settings.local.json, where it surprises exactly one developer", () => {
+    settings("settings.local.json", {
+      permissions: { defaultMode: "dontAsk", allow: NAVORI_ALLOW },
+    });
+    expect(scanPermissionMode(cwd)[0]?.path).toBe(join(".claude", "settings.local.json"));
+  });
+
+  it("stays quiet once the allow list can write", () => {
+    settings("settings.json", {
+      permissions: { defaultMode: "dontAsk", allow: [...NAVORI_ALLOW, "Edit", "Write"] },
+    });
+    expect(scanPermissionMode(cwd)).toEqual([]);
+  });
+
+  it("names only what is actually missing", () => {
+    settings("settings.json", {
+      permissions: { defaultMode: "dontAsk", allow: [...NAVORI_ALLOW, "Edit"] },
+    });
+    expect(scanPermissionMode(cwd)[0]?.missing).toEqual(["Write"]);
+  });
+});
+
+describe("every other mode is left alone (#579)", () => {
+  it.each(["default", "acceptEdits", "plan", "auto", "bypassPermissions"])(
+    "%s produces no finding",
+    (mode) => {
+      // These four navori supports, and bypassPermissions is the user's own
+      // decision about an isolated environment. None of them auto-denies a
+      // write, so the missing allow rule costs nothing there.
+      settings("settings.json", { permissions: { defaultMode: mode, allow: NAVORI_ALLOW } });
+      expect(scanPermissionMode(cwd)).toEqual([]);
+    },
+  );
+
+  it("says nothing when no mode is declared, which is the common case", () => {
+    settings("settings.json", { permissions: { allow: NAVORI_ALLOW } });
+    expect(scanPermissionMode(cwd)).toEqual([]);
+  });
+
+  it("leaves an unparseable settings file to the check that owns it", () => {
+    writeFileSync(join(cwd, ".claude", "settings.json"), "{ not json", "utf-8");
+    expect(scanPermissionMode(cwd)).toEqual([]);
+  });
+});
+
+/**
+ * The prose half: an agent that cannot see the mode plans as if it were in the
+ * one it knows. #813 pulled the full per-mode table OUT of the always-on
+ * managed block (it was reference lookup, not a standing order) into
+ * `docs/architecture.md`, which navori's own repo ships but does NOT render
+ * into every generated project. So the split is: the asset carries only the
+ * actionable one-liner + a pointer, and the full six-row table — missing one
+ * mode would say "this mode does not exist" — lives in architecture.md.
+ */
+describe("the harness names all six modes (#579, relocated by #813)", () => {
+  const HERE = resolve(fileURLToPath(import.meta.url), "..");
+  const ASSET = resolve(
+    HERE,
+    "..",
+    "..",
+    "..",
+    "..",
+    "..",
+    "core",
+    "core-assets",
+    "managed",
+    "operaciones-seguras.md",
+  );
+  const asset = readFileSync(ASSET, "utf-8");
+
+  const DOCS = resolve(HERE, "..", "..", "..", "..", "..", "..", "docs", "architecture.md");
+  const docs = readFileSync(DOCS, "utf-8");
+
+  it.each(["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"])(
+    "the reference table tells the agent what `%s` changes",
+    (mode) => {
+      expect(docs).toContain(`| \`${mode}\` |`);
+    },
+  );
+
+  it("points the always-on asset at the official permission-modes doc", () => {
+    expect(asset).toContain("https://code.claude.com/docs/en/permission-modes");
+  });
+
+  it("states which modes navori supports, so `dontAsk` is a decision and not a surprise", () => {
+    expect(asset).toContain("`dontAsk` isn't supported");
+  });
+
+  it("states that `deny` rules still block under bypassPermissions, per the official docs (#804)", () => {
+    // https://code.claude.com/docs/en/permission-modes: deny rules block in
+    // every mode including bypassPermissions; allow rules have no effect there.
+    const row = docs.split("\n").find((line) => line.includes("| `bypassPermissions` |")) ?? "";
+    expect(row).toContain("`deny` rules still block");
+    expect(row).toContain("exit 2");
+  });
+
+  it("keeps the always-on asset under the 2000 B budget (#813)", () => {
+    expect(Buffer.byteLength(asset, "utf-8")).toBeLessThanOrEqual(2000);
+  });
+});

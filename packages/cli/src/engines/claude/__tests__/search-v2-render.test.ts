@@ -17,7 +17,7 @@ import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/schema.ts";
 import { splitFrontmatter, getFrontmatterField } from "../../../lib/frontmatter.ts";
 import { readCliVersion } from "../../../lib/bundled-assets.ts";
 import { RETIRED_PLUGINS, RETIRED_PLUGIN_BLOCKS, KNOWN_PLUGINS } from "../../../lib/plugins.ts";
-import { countWords } from "../../../lib/skill-meta.ts";
+import { countWords } from "../../../lib/assets/skill-meta.ts";
 import { getCoreRoot, getPluginPath } from "../../../lib/bundled-assets.ts";
 import { writeConfig } from "../../../lib/config.ts";
 import { removeCommand } from "../../../commands/remove.ts";

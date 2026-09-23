@@ -147,7 +147,7 @@ y se tratan distinto a propósito.
 | `.claude/context/*.md` | navori | **No todavía** (#919) | `navori doctor` (reporta) |
 | `AGENTS.md` (engines prosa) | navori | **No** — se reporta contra el cap del host | `navori doctor` (aviso amarillo desde el 80 %) |
 
-Los techos viven en un solo lugar: `packages/cli/src/lib/doc-budgets.ts`. Está bajo `src/lib/` y no
+Los techos viven en un solo lugar: `packages/cli/src/lib/assets/doc-budgets.ts`. Está bajo `src/lib/` y no
 en un JSON bajo `scripts/` porque npm publica `["dist", "README.md"]`: `doctor` tiene que leer esos
 mismos números dentro del repo de un consumidor, y solo puede si van en el bundle. Política: cada
 techo carga **≥5 % de margen** sobre lo medido, y la subida se justifica en el cambio que la pide —

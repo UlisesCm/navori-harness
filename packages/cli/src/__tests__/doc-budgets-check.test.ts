@@ -24,12 +24,12 @@ import {
   countWords,
   managedBlockCeilings,
   simulateContextDelivery,
-} from "../lib/doc-budgets.ts";
+} from "../lib/assets/doc-budgets.ts";
 
 /**
  * #815 — `pnpm check:doc-budgets` → `packages/cli/scripts/check-doc-budgets.mjs`.
  *
- * The script reads its ceilings from `src/lib/doc-budgets.ts` (a path resolved
+ * The script reads its ceilings from `src/lib/assets/doc-budgets.ts` (a path resolved
  * relative to itself, #917) and shells out to `git ls-files` in the real repo
  * (there is no `--cwd`/`--repo` override, unlike `check-render.mjs`), so these
  * tests run it against a throwaway REPO whose layout mimics the pieces it
@@ -76,7 +76,7 @@ function seedRepo(
   dirs.push(repo);
 
   mkdirSync(join(repo, "packages/cli/scripts"), { recursive: true });
-  mkdirSync(join(repo, "packages/cli/src/lib"), { recursive: true });
+  mkdirSync(join(repo, "packages/cli/src/lib/assets"), { recursive: true });
   mkdirSync(join(repo, "packages/core/core-assets/managed"), { recursive: true });
 
   // The real script, copied verbatim so REPO_ROOT and its budgets-module import
@@ -84,7 +84,7 @@ function seedRepo(
   const scriptSrc = readFileSync(REAL_SCRIPT, "utf-8");
   writeFileSync(join(repo, "packages/cli/scripts/check-doc-budgets.mjs"), scriptSrc);
   writeFileSync(
-    join(repo, "packages/cli/src/lib/doc-budgets.ts"),
+    join(repo, "packages/cli/src/lib/assets/doc-budgets.ts"),
     [
       `export const DOC_BUDGETS: Readonly<Record<string, number>> = ${JSON.stringify(budgets, null, 2)};`,
       `export const COMPUTED_BLOCKS_WITHOUT_BUDGET = ${JSON.stringify(COMPUTED_BLOCKS_WITHOUT_BUDGET)} as const;`,
@@ -179,7 +179,7 @@ describe("check-doc-budgets (#815)", () => {
     expect(result.status).toBe(1);
     expect(result.combined).toContain("no longer exist");
     expect(result.combined).toContain("packages/core/core-assets/managed/ghost.md");
-    expect(result.combined).toContain("update packages/cli/src/lib/doc-budgets.ts");
+    expect(result.combined).toContain("update packages/cli/src/lib/assets/doc-budgets.ts");
   });
 
   it("fails when a managed .md exists but is missing from the manifest", () => {
@@ -245,7 +245,7 @@ describe("check-doc-budgets (#815)", () => {
     expect(result.status).toBe(1);
     expect(result.combined).toContain("missing from the manifest");
     expect(result.combined).toContain(PLUGIN_ASSET);
-    expect(result.combined).toContain("add it to packages/cli/src/lib/doc-budgets.ts");
+    expect(result.combined).toContain("add it to packages/cli/src/lib/assets/doc-budgets.ts");
   });
 
   it("fails when a preset stack.md is missing from the budgets module", () => {

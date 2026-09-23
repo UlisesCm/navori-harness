@@ -29,7 +29,7 @@ flowchart TD
 
     click CORE "../packages/core/core-assets" "Core assets"
     click PRESET "../packages/core/core-assets/presets" "Presets"
-    click WS "../packages/cli/src/lib/workspace.ts" "Workspace defaults"
+    click WS "../packages/cli/src/lib/workspace/workspace.ts" "Workspace defaults"
     click PROJ "../packages/cli/src/lib/schema.ts" "Config schema (Zod)"
     click ENGINE "../packages/cli/src/engines/claude/index.ts" "Claude engine"
 ```
@@ -150,8 +150,8 @@ Doc oficial: https://code.claude.com/docs/en/permission-modes
 | Settings deep-merge | [engines/claude/build-settings.ts](../packages/cli/src/engines/claude/build-settings.ts) |
 | Render de agents/skills/hooks | [engines/shared/render-managed-file.ts](../packages/cli/src/engines/shared/render-managed-file.ts) |
 | Presets / Plugins | [lib/presets.ts](../packages/cli/src/lib/presets.ts) · [lib/plugins.ts](../packages/cli/src/lib/plugins.ts) |
-| Health-check (doctor/status) | [lib/health.ts](../packages/cli/src/lib/health.ts) |
-| Detección de stack | [lib/detect.ts](../packages/cli/src/lib/detect.ts) |
+| Health-check (doctor/status) | [lib/diagnose/health.ts](../packages/cli/src/lib/diagnose/health.ts) |
+| Detección de stack | [lib/diagnose/detect.ts](../packages/cli/src/lib/diagnose/detect.ts) |
 | Comandos | [src/commands/](../packages/cli/src/commands) |
 | Assets bundleados | [core-assets/](../packages/core/core-assets) · [plugins/](../packages/plugins) |
 

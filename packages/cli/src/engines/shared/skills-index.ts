@@ -2,8 +2,8 @@ import { join } from "node:path";
 import type { NavoriConfig } from "../../lib/config.ts";
 import { sanitizeProjectValue } from "../../lib/interpolate.ts";
 import { loadPreset } from "../../lib/presets.ts";
-import { librarySkillById } from "../../lib/library-skills.ts";
-import { readSkillTrigger, resolveLocalSkillPath } from "../../lib/skill-meta.ts";
+import { librarySkillById } from "../../lib/assets/library-skills.ts";
+import { readSkillTrigger, resolveLocalSkillPath } from "../../lib/assets/skill-meta.ts";
 import { CORE_SKILLS, WORKFLOW_SKILLS, extraConditionMet } from "./harness-assets.ts";
 
 /**
@@ -31,7 +31,7 @@ import { CORE_SKILLS, WORKFLOW_SKILLS, extraConditionMet } from "./harness-asset
  * #908: `includeTrigger` defaults to `true` and is set to `false` only by the
  * `claude` engine's caller. Claude Code has its own always-on native skill
  * listing built from each skill's `description`/`when_to_use` frontmatter
- * (`SKILL_LISTING_CHAR_CAP`, `packages/cli/src/lib/skill-meta.ts:141`,
+ * (`SKILL_LISTING_CHAR_CAP`, `packages/cli/src/lib/assets/skill-meta.ts:141`,
  * https://code.claude.com/docs/en/skills) — it already tells the model WHEN to
  * use each of the 18 skills, so repeating the trigger in CLAUDE.md for that one
  * engine is pure duplication (measured: 395/2548 words of the file, #908

@@ -11,11 +11,15 @@ import {
   suggestTestsForNewCode,
   type ClaudeInfraInventory,
   type PackageManager,
-} from "../lib/detect.ts";
+} from "../lib/diagnose/detect.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
-import { createMigrationBackup, removeOriginals, type MigrationResult } from "../lib/migrate.ts";
-import { loadWorkspace, type WorkspaceConfig, WorkspaceError } from "../lib/workspace.ts";
-import { registerRepoSafe } from "../lib/registry.ts";
+import {
+  createMigrationBackup,
+  removeOriginals,
+  type MigrationResult,
+} from "../lib/diagnose/migrate.ts";
+import { loadWorkspace, type WorkspaceConfig, WorkspaceError } from "../lib/workspace/workspace.ts";
+import { registerRepoSafe } from "../lib/workspace/registry.ts";
 import { renderInline } from "./render.ts";
 import {
   formatInfraSummary,
@@ -25,8 +29,8 @@ import {
 import { color, dim, brand, kv } from "../lib/style.ts";
 import { t, type Lang } from "../lib/i18n.ts";
 import { loadPrompts, type LoadedPrompt } from "../engines/claude/prompts-loader.ts";
-import { scanMonorepoWorkspaces, type DetectedWorkspace } from "../lib/scan.ts";
-import type { MonorepoWorkspace } from "../lib/monorepo.ts";
+import { scanMonorepoWorkspaces, type DetectedWorkspace } from "../lib/diagnose/scan.ts";
+import type { MonorepoWorkspace } from "../lib/workspace/monorepo.ts";
 import type { NavoriConfigInput, NavoriConfig } from "../lib/schema.ts";
 import {
   buildRecommendedQualityGate,

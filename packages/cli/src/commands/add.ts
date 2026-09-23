@@ -15,7 +15,7 @@ import {
 import { hasBinary } from "../lib/which.ts";
 import { currentPlatform } from "../lib/platform.ts";
 import { InstallError } from "../lib/errors.ts";
-import { detectProject } from "../lib/detect.ts";
+import { detectProject } from "../lib/diagnose/detect.ts";
 import { brand, dim, accent, color, sym } from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
 

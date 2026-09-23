@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NavoriConfig } from "../../lib/config.ts";
 import { scanNameMismatch } from "../doctor.ts";
-import { detectProject } from "../../lib/detect.ts";
+import { detectProject } from "../../lib/diagnose/detect.ts";
 
 /**
  * #315: doctor warns when config.name doesn't match the repo directory (a

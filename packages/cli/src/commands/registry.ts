@@ -9,7 +9,7 @@ import {
   pruneRegistry,
   scanForRepos,
   registryPath,
-} from "../lib/registry.ts";
+} from "../lib/workspace/registry.ts";
 import { readConfig } from "../lib/config.ts";
 import { intFlagOrExit } from "../lib/args.ts";
 import { brand, dim, color, accent, sym } from "../lib/style.ts";

@@ -10,17 +10,17 @@ import {
   SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
   countWords,
   simulateContextDelivery,
-} from "../src/lib/doc-budgets.ts";
+} from "../src/lib/assets/doc-budgets.ts";
 
 /**
  * #815 — extends the word-cap primitive from `SKILL_TYPE_CAPS`
- * (`packages/cli/src/lib/skill-meta.ts`) to the prose that grows unchecked:
+ * (`packages/cli/src/lib/assets/skill-meta.ts`) to the prose that grows unchecked:
  * root `CLAUDE.md` and every managed block navori ships. All of them render
  * into a session, so an unbounded one grows by accretion — a session that
  * learns something appends, and none of them prune.
  *
  * #917 — the ceilings moved from `doc-budgets.manifest.json` to
- * `src/lib/doc-budgets.ts`, and `countWords` is now imported from there
+ * `src/lib/assets/doc-budgets.ts`, and `countWords` is now imported from there
  * instead of duplicated here. Two reasons, in order: npm publishes only
  * `["dist", "README.md"]`, so `doctor` could never read a manifest under
  * `scripts/` in a consumer repo; and the duplicate word counter was a
@@ -36,7 +36,7 @@ import {
  * Three fail modes:
  *  1. A budgeted file exceeds its ceiling.
  *  2. A budgeted file no longer exists — you cannot dodge the ceiling by
- *     renaming or deleting; update `src/lib/doc-budgets.ts` in the SAME change.
+ *     renaming or deleting; update `src/lib/assets/doc-budgets.ts` in the SAME change.
  *  3. A discovered managed `.md` is missing from `DOC_BUDGETS` entirely.
  *     Deliberate: an unbudgeted managed block is a ceiling nobody set, which
  *     is how a NEW block ships unchecked from day one. `CLAUDE.md` itself is
@@ -86,7 +86,7 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..", "..");
-const BUDGETS_MODULE = "packages/cli/src/lib/doc-budgets.ts";
+const BUDGETS_MODULE = "packages/cli/src/lib/assets/doc-budgets.ts";
 
 const budgetedPaths = new Set(Object.keys(DOC_BUDGETS));
 

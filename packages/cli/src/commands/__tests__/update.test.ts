@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readConfig, writeConfig } from "../../lib/config.ts";
-import { detectProject } from "../../lib/detect.ts";
+import { detectProject } from "../../lib/diagnose/detect.ts";
 import { runRender } from "../render.ts";
 import {
   aggregateRender,

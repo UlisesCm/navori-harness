@@ -1,0 +1,284 @@
+/**
+ * Skill output discipline — spec 0003 §3.2.1.
+ *
+ * Every generated SKILL.md declares a `type` under frontmatter's `metadata:`
+ * map (#810 — `type`/`maxWords`/`maxWordsComposed` are navori's own fields,
+ * not part of the host's documented SKILL.md contract, so they nest under the
+ * map the host reserves for tool-owned data instead of risking a silent
+ * collision with a future top-level field of the same name). Each type
+ * carries a word cap on its body so skills stay lean (tokens are spent every
+ * time a skill is loaded). A skill may raise its cap with an explicit
+ * `maxWords` override when the length is justified — the override is loud,
+ * not silent.
+ */
+
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { splitFrontmatter, getFrontmatterField, getFrontmatterMapField } from "../frontmatter.ts";
+
+/** File that marks a skill DIRECTORY (`.claude/skills/<id>/SKILL.md`). Shared so
+ * `resolveLocalSkillPath` and `claude-infra`'s `listSkillDirs` agree on the
+ * convention. */
+export const SKILL_DIR_ENTRY = "SKILL.md";
+
+/**
+ * Resolve where a project-local skill lives on disk. ONE shape is supported,
+ * because one shape is what the host loads: a skill DIRECTORY holding a
+ * `SKILL.md` (plus whatever `references/` tree it wants next to it). See
+ * `host-contracts.ts`, contract `skills-load-shape`.
+ *
+ * This comment used to claim navori also supported a flat single file, which
+ * #626 had already stopped being true one screen below — the exact shape of
+ * defect #647 is about, inside the file that defines the convention. Returns
+ * the repo-relative path when the directory form exists, or null.
+ *
+ * A skill id is a flat slug: any path separator or `..` traversal is rejected up
+ * front so a config-supplied id can never resolve outside `.claude/skills/`.
+ */
+export function resolveLocalSkillPath(cwd: string, id: string): string | null {
+  if (
+    id === "" ||
+    id !== id.trim() ||
+    /[\\/]/.test(id) ||
+    id.split(/[\\/]/).includes("..") ||
+    id.includes("..")
+  ) {
+    return null;
+  }
+  // DIRECTORY FORM ONLY (#626). A loose `<id>.md` in that skills root used to
+  // resolve here, and win over the directory — so navori read its description
+  // and published the skill in CLAUDE.md's index, advertising something Claude
+  // Code never loads. The host's table ("Choose where skills load") lists five
+  // locations and every one of them is `<skill-name>/SKILL.md`; the loose shape
+  // belongs to `.claude/commands/`, which is a different feature. Every
+  // comparable project agrees: gentle-ai's registry scans
+  // `<root>/<skill>/SKILL.md` ("the Agent Skills layout") and obra/superpowers
+  // ships zero loose `.md` in its skills root. `doctor` reports one so the user
+  // learns WHY their skill went quiet instead of just losing its row.
+  const dirRel = `.claude/skills/${id}/${SKILL_DIR_ENTRY}`;
+  if (existsSync(join(cwd, dirRel))) return dirRel;
+  return null;
+}
+
+export const SKILL_TYPE_CAPS = {
+  /** Dictates how the agent behaves (e.g. tdd-workflow). Keep it tight. */
+  behavior: 200,
+  /** Documents a pattern/stack (e.g. mantine-patterns). */
+  reference: 500,
+  /** Wraps an external tool (e.g. bun-runtime). */
+  tool: 300,
+} as const;
+
+export type SkillType = keyof typeof SKILL_TYPE_CAPS;
+
+export interface SkillMeta {
+  name: string | null;
+  description: string | null;
+  /**
+   * Claude Code's optional `when_to_use` field — none of navori's bundled
+   * skills set it (#823), but the host concatenates it to `description` for
+   * the listing shown to the model, so the length cap below has to cover it
+   * too, not just what navori happens to emit today.
+   */
+  whenToUse: string | null;
+  /** Declared `type`, or null when absent/unrecognized. */
+  type: SkillType | null;
+  /** Explicit cap override from frontmatter, or null. */
+  maxWords: number | null;
+  /**
+   * Ceiling for the COMPOSED file — the `SKILL.md` the agent actually loads,
+   * with every plugin extension appended and the project's values already
+   * interpolated (#683).
+   *
+   * A separate number from `maxWords` because they answer different questions.
+   * `maxWords` is the budget of the asset's AUTHOR: `locate-code` argues
+   * its 600 in a comment citing spec 0020 R4, and that reasoning should not
+   * evaporate because a plugin appended a rung. This one is what the SESSION
+   * pays, and it is the only number that describes what gets loaded.
+   *
+   * Null when the skill is never extended — there the composed file is the
+   * asset, so `maxWords` already measures the right artifact.
+   */
+  maxWordsComposed: number | null;
+}
+
+/** Split a SKILL.md into its frontmatter metadata and its body. */
+export function parseSkillFrontmatter(raw: string): { meta: SkillMeta; body: string } {
+  const { frontmatter, body } = splitFrontmatter(raw);
+  const get = (key: string): string | null => getFrontmatterField(frontmatter, key);
+  // navori's own fields nest under the host's `metadata:` map (#810) rather
+  // than living top-level.
+  const getMeta = (key: string): string | null =>
+    getFrontmatterMapField(frontmatter, "metadata", key);
+
+  const typeRaw = getMeta("type");
+  const type = typeRaw && typeRaw in SKILL_TYPE_CAPS ? (typeRaw as SkillType) : null;
+  const maxRaw = getMeta("maxWords");
+  const maxWords = maxRaw && /^\d+$/.test(maxRaw) ? Number(maxRaw) : null;
+  const composedRaw = getMeta("maxWordsComposed");
+  const maxWordsComposed = composedRaw && /^\d+$/.test(composedRaw) ? Number(composedRaw) : null;
+
+  return {
+    meta: {
+      name: get("name"),
+      description: get("description"),
+      whenToUse: get("when_to_use"),
+      type,
+      maxWords,
+      maxWordsComposed,
+    },
+    body,
+  };
+}
+
+/**
+ * Claude Code's official skill listing truncates past this many characters of
+ * `description` (+ `when_to_use`, when set) — see
+ * https://code.claude.com/docs/en/skills. A skill over the cap doesn't error;
+ * it silently loses its tail from the model's context, which is worse than an
+ * error because nothing signals it happened.
+ */
+export const SKILL_LISTING_CHAR_CAP = 1536;
+
+/** Combined length of `description` + `when_to_use`, the two fields Claude Code
+ * concatenates for the skill listing shown to the model. */
+export function skillListingChars(meta: SkillMeta): number {
+  return (meta.description?.length ?? 0) + (meta.whenToUse?.length ?? 0);
+}
+
+/** Count words in a skill body the way the cap check measures them. */
+export function countWords(body: string): number {
+  const trimmed = body.trim();
+  return trimmed === "" ? 0 : trimmed.split(/\s+/).length;
+}
+
+/**
+ * Resolve the effective word cap for a skill: the explicit `maxWords` override
+ * wins, else the per-type default. Returns null when no type is declared (the
+ * caller treats that as a violation — every skill must declare a type).
+ */
+/**
+ * The cap the RENDERED file answers to.
+ *
+ * Falls back to the asset's own cap, which is the right answer for a skill no
+ * plugin extends: there the composed file IS the asset. The fallback is what
+ * keeps this check covering every skill instead of only the ones someone
+ * remembered to annotate.
+ */
+export function skillComposedCap(meta: SkillMeta): number | null {
+  return meta.maxWordsComposed ?? skillWordCap(meta);
+}
+
+export function skillWordCap(meta: SkillMeta): number | null {
+  if (meta.maxWords !== null) return meta.maxWords;
+  if (meta.type !== null) return SKILL_TYPE_CAPS[meta.type];
+  return null;
+}
+
+/**
+ * Spec 0003 §3.2.2 — a skill `description` must carry an explicit activation
+ * trigger so Claude Code can load it on-demand instead of always-on. We accept
+ * the natural trigger verbs in both locales (es/en); the harness language is
+ * Spanish so "Aplica … / cuando / antes de" are the common forms.
+ */
+const TRIGGER_RE = /\b(aplica|us[aá]r?|use\s+(when|this)|para cuando|cuando|antes de)\b/i;
+
+export function hasTrigger(description: string | null): boolean {
+  return description !== null && TRIGGER_RE.test(description);
+}
+
+/** Max length of a one-line trigger in the skills index (H8). Keeps the
+ * always-on index lean — a full multi-sentence `description` would inflate the
+ * token floor. */
+const TRIGGER_MAX = 120;
+
+/** Shortest first clause a dash cut may produce. Below this the "trigger" is a
+ * label, not a condition — see `summarizeTrigger`. */
+const TRIGGER_MIN_CLAUSE = 25;
+
+/** Longest span a pair of dashes may enclose and still read as an aside rather
+ * than a real clause break. */
+const ASIDE_MAX = 40;
+
+/**
+ * Remove a parenthetical delimited by a PAIR of dashes, keeping the sentence
+ * that wraps it. In `dominio`'s description the dashes are parentheses, not a
+ * clause break — "Use when you discover — or need — a durable fact…" — so
+ * cutting at the first one rendered the index row as the useless "Use when you
+ * discover" (#372). Only a SHORT enclosed span is treated as an aside; a long
+ * one is a real clause and the cut in `summarizeTrigger` still applies.
+ */
+function dropDashAsides(text: string): string {
+  const sep = / [—–] /g;
+  // Separators pair up positionally (0-1, 2-3, …): each aside is opened by one
+  // dash and closed by the next. A trailing odd separator opens nothing — it's a
+  // plain clause break, left for `summarizeTrigger` to cut.
+  const pairs: Array<[open: number, close: number]> = [];
+  let pending: number | null = null;
+  for (const m of text.matchAll(sep)) {
+    if (pending === null) {
+      pending = m.index;
+    } else {
+      pairs.push([pending, m.index]);
+      pending = null;
+    }
+  }
+  let out = "";
+  let from = 0;
+  for (const [open, close] of pairs) {
+    if (close - open - 3 > ASIDE_MAX) continue;
+    out += text.slice(from, open) + " ";
+    from = close + 3;
+  }
+  return (out + text.slice(from)).replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Condense a skill `description` to a single-line activation trigger for the
+ * skills index (issue #166 H8). Engines without native autoload
+ * (Cursor/Copilot/AGENTS.md) rely on this "when to reach for it" line. Takes the
+ * first clause (up to the first sentence break or em-dash — the "when", not the
+ * full behavioral note) and caps the length. Returns null when there's no
+ * description to summarize.
+ */
+export function summarizeTrigger(description: string | null): string | null {
+  if (!description) return null;
+  const flat = dropDashAsides(description.replace(/\s+/g, " ").trim());
+  if (flat === "") return null;
+  let cut = flat.length;
+  for (const sep of [". ", "; "]) {
+    const at = flat.indexOf(sep);
+    if (at > 0 && at < cut) cut = at;
+  }
+  // A dash cut is accepted only when what precedes it is a usable trigger on
+  // its own. `dominio` reads "Use when you discover — or need — a durable
+  // fact…": the pair is spliced out above, but a lone dash after a 3-word lead
+  // ("Debugging — use when tsc explodes") would still cut down to a label
+  // nobody can route on, so the clause has to earn the cut (#372).
+  for (const sep of [" — ", " – "]) {
+    const at = flat.indexOf(sep);
+    if (at >= TRIGGER_MIN_CLAUSE && at < cut) cut = at;
+  }
+  let out = flat
+    .slice(0, cut)
+    .trim()
+    .replace(/[.;,]$/, "");
+  if (out.length > TRIGGER_MAX) out = `${out.slice(0, TRIGGER_MAX - 1).trimEnd()}…`;
+  return out === "" ? null : out;
+}
+
+/**
+ * Read a skill asset and return its one-line trigger (see `summarizeTrigger`).
+ * Returns null when the asset is unreadable or declares no `description`, so the
+ * index degrades to a bare name row. Used by both skills-index builders (Claude
+ * CLAUDE.md and the prose engines).
+ */
+export function readSkillTrigger(assetPath: string): string | null {
+  let raw: string;
+  try {
+    raw = readFileSync(assetPath, "utf-8");
+  } catch {
+    return null;
+  }
+  return summarizeTrigger(parseSkillFrontmatter(raw).meta.description);
+}

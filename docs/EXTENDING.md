@@ -53,7 +53,7 @@ Cuando el tema merece su propio archivo, este escalón es tuyo por completo.
 
 1. Crea `.claude/skills/<id>/SKILL.md`. La **forma directorio** es la que el host descubre, así
    que con esa estructura tu skill queda cargable desde el primer momento
-   (`packages/cli/src/lib/skill-meta.ts`, `resolveLocalSkillPath`).
+   (`packages/cli/src/lib/assets/skill-meta.ts`, `resolveLocalSkillPath`).
 2. Escribe el frontmatter con una `description` que declare **cuándo** usarla. Ese trigger es lo
    que hace que el host la cargue sola en el momento justo. El contrato completo —campos, tipos,
    caps— está en [`recipes/skill-authoring.md`](recipes/skill-authoring.md).

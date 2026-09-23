@@ -5,3 +5,9 @@
 
 # style: reformatea con oxfmt tras la migración de biome (#889)
 9f886f8dfb648c0fcccd334a42f0d52d8fd822f5
+
+# refactor(lib): reescribe imports tras mover módulos de lib (#894)
+02c283772b8d1694889091099e6c00ab6a1de6f7
+
+# style(lib): reformatea imports mas largos tras el movimiento (#894)
+5c5088294bb1f46169224d441386b8888c9707a9
