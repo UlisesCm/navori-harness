@@ -36,6 +36,10 @@ import { deepMerge } from "./deep-merge.ts";
  *      the managed fragment. Allowing them is equivalent to turning the
  *      permission system off, so that prompt is the correct friction. Tests pin
  *      every one of these decisions.
+ *      The base also blanks Claude Code's `attribution` (commit trailer, PR
+ *      footer, session link): artifacts carry no AI reference. A repo that wants
+ *      attribution back sets `attribution` in `.claude/settings.local.json`,
+ *      which outranks this shared file.
  *   1b. Defensive guard PreToolUse(Bash) hook — always registered, references
  *      `$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.sh`. The absolute
  *      `$CLAUDE_PROJECT_DIR` anchor (not a cwd-relative path) is what lets the

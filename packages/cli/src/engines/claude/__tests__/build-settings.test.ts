@@ -111,6 +111,14 @@ describe("buildClaudeSettings — base shape", () => {
     expect(deny).toContain("Bash(mkfs*)");
   });
 
+  it("hides every AI attribution Claude Code would add to commits and PRs", () => {
+    const s = buildClaudeSettings(MINIMAL_CONFIG, []);
+    expect(s.attribution).toEqual({ commit: "", pr: "", sessionUrl: false });
+    // The deprecated key would be ignored once `attribution` is set; shipping it
+    // too would only be noise.
+    expect(s).not.toHaveProperty("includeCoAuthoredBy");
+  });
+
   it("ships permissions.ask for destructive-but-sometimes-legit commands (human confirm)", () => {
     const s = buildClaudeSettings(MINIMAL_CONFIG, []);
     const ask = (s.permissions as { ask: string[] }).ask;
