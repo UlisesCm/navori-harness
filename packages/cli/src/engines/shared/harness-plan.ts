@@ -171,6 +171,16 @@ export function resolveHarnessPlan(
       assetPath: join(coreAssets, "hooks/implementer-no-markdown.sh"),
       managedId: "implementer-no-markdown-base",
     },
+    // #1003: the mechanical backstop for "a subagent does not background its
+    // own work" (`implementer.md:43`, `reviewer.md:79`,
+    // `verify-before-done.md`'s subagent row). Unconditional, like the guard
+    // above — it is a universal invariant, not a configurable feature, and
+    // gates on `agent_id` presence (any subagent), not one role.
+    {
+      id: "subagent-no-background",
+      assetPath: join(coreAssets, "hooks/subagent-no-background.sh"),
+      managedId: "subagent-no-background-base",
+    },
     {
       id: "session-start-context",
       assetPath: join(coreAssets, "hooks/session-start-context.sh"),
