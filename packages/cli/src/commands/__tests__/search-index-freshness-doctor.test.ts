@@ -21,8 +21,12 @@ vi.mock("node:child_process", () => ({
   execFileSync: (...args: unknown[]) => execFileSync(...args),
 }));
 
-const { scanTgrepFreshness, scanCodegraphDrift, parseTgrepStatusOutput } =
-  await import("../doctor.ts");
+const {
+  scanTgrepFreshness,
+  scanCodegraphDrift,
+  parseTgrepStatusOutput,
+  needsExternalProviderSetupHint,
+} = await import("../doctor.ts");
 
 function config(plugins: Record<string, { enabled: boolean }>): NavoriConfig {
   return { plugins } as unknown as NavoriConfig;
@@ -152,5 +156,45 @@ describe("scanCodegraphDrift", () => {
     hasBinary.mockReturnValue(false);
     expect(scanCodegraphDrift(cwd, config({ codegraph: { enabled: true } }))).toBeNull();
     expect(execFileSync).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #982 — pins every input explicitly instead of depending on whether
+ * codegraph/tgrep happen to be installed on the machine running the suite
+ * (a real e2e run of `doctor` can't control that deterministically).
+ */
+describe("needsExternalProviderSetupHint", () => {
+  it("is false when nothing is missing, stale, or available-not-enabled", () => {
+    expect(needsExternalProviderSetupHint([], [], null, null)).toBe(false);
+  });
+
+  it("is true when codegraph/tgrep's binary is enabled but missing", () => {
+    expect(needsExternalProviderSetupHint([{ pluginId: "codegraph" }], [], null, null)).toBe(true);
+  });
+
+  it("stays false for an unrelated plugin's missing binary (e.g. semgrep)", () => {
+    expect(needsExternalProviderSetupHint([{ pluginId: "semgrep" }], [], null, null)).toBe(false);
+  });
+
+  it("is true when codegraph/tgrep is available but never enabled", () => {
+    expect(needsExternalProviderSetupHint([], ["tgrep"], null, null)).toBe(true);
+  });
+
+  it("stays false for an unrelated available provider (e.g. jscpd)", () => {
+    expect(needsExternalProviderSetupHint([], ["jscpd"], null, null)).toBe(false);
+  });
+
+  it("is true when tgrep's index is stale", () => {
+    expect(needsExternalProviderSetupHint([], [], { age: "1d", rootPath: "/x" }, null)).toBe(true);
+  });
+
+  it("is true when codegraph's index has drifted", () => {
+    expect(
+      needsExternalProviderSetupHint([], [], null, {
+        builtWithVersion: "1.0",
+        currentVersion: "1.1",
+      }),
+    ).toBe(true);
   });
 });

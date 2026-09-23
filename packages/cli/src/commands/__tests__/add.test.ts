@@ -443,6 +443,54 @@ describe("add — renders the plugin's wiring on enable (#974)", () => {
   });
 });
 
+describe("add — points at the setup recipe for codegraph/tgrep (#982)", () => {
+  it("enabling codegraph prints the post-install setup recipe", async () => {
+    hasBinaryMock.mockReturnValue(true);
+
+    await add("codegraph");
+
+    expect(logInfoMock).toHaveBeenCalledWith(
+      expect.stringContaining("docs/recipes/setup-proveedores-externos.md"),
+    );
+  });
+
+  it("enabling tgrep prints the post-install setup recipe", async () => {
+    hasBinaryMock.mockReturnValue(true);
+
+    await add("tgrep");
+
+    expect(logInfoMock).toHaveBeenCalledWith(
+      expect.stringContaining("docs/recipes/setup-proveedores-externos.md"),
+    );
+  });
+
+  it("enabling a plugin outside the recipe's scope (gh) never mentions it", async () => {
+    hasBinaryMock.mockReturnValue(true);
+
+    await add("gh");
+
+    for (const call of logInfoMock.mock.calls) {
+      expect(String(call[0])).not.toContain("setup-proveedores-externos.md");
+    }
+  });
+
+  it("re-running add on an already-enabled codegraph does not repeat the hint", async () => {
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "demo",
+      engines: ["claude"],
+      preset: "custom",
+      plugins: { codegraph: { enabled: true } },
+    });
+    hasBinaryMock.mockReturnValue(true);
+
+    await add("codegraph");
+
+    for (const call of logInfoMock.mock.calls) {
+      expect(String(call[0])).not.toContain("setup-proveedores-externos.md");
+    }
+  });
+});
+
 /**
  * #981 — `add --suggest` used to only ever mention the preset and engram, so
  * `--yes`/`--recommended` init never taught a user that tgrep/codegraph/

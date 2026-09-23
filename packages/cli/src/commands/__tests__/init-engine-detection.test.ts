@@ -21,7 +21,11 @@ vi.mock("@clack/prompts", () => ({
 }));
 
 import * as p from "@clack/prompts";
-import { resolveDefaultEngines, warnIfClaudeMissing } from "../init.ts";
+import {
+  resolveDefaultEngines,
+  warnIfClaudeMissing,
+  fullWarningNeedsProviderSetupHint,
+} from "../init.ts";
 import { t } from "../../lib/i18n.ts";
 
 describe("resolveDefaultEngines", () => {
@@ -64,5 +68,38 @@ describe("warnIfClaudeMissing", () => {
     vi.mocked(p.log.warn).mockClear();
     warnIfClaudeMissing(["claude", "cursor"] as never, tr);
     expect(p.log.warn).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #982 — `init --full` only enables plugins and warns about missing binaries,
+ * it never installs (3.3 audit), so this predicate decides whether that
+ * warning also points at the codegraph/tgrep setup recipe. Pure predicate,
+ * no CLI invocation, so it doesn't depend on which binaries the test machine
+ * actually has installed.
+ */
+describe("fullWarningNeedsProviderSetupHint", () => {
+  it("is true when codegraph is among the missing binaries", () => {
+    expect(fullWarningNeedsProviderSetupHint([{ pluginId: "codegraph" }])).toBe(true);
+  });
+
+  it("is true when tgrep is among the missing binaries", () => {
+    expect(fullWarningNeedsProviderSetupHint([{ pluginId: "gh" }, { pluginId: "tgrep" }])).toBe(
+      true,
+    );
+  });
+
+  it("is false when the missing binaries are unrelated (semgrep, jscpd, gh)", () => {
+    expect(
+      fullWarningNeedsProviderSetupHint([
+        { pluginId: "semgrep" },
+        { pluginId: "jscpd" },
+        { pluginId: "gh" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("is false with no missing binaries", () => {
+    expect(fullWarningNeedsProviderSetupHint([])).toBe(false);
   });
 });
