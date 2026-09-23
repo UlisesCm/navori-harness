@@ -1,9 +1,5 @@
 # CLAUDE.md — navori
 
-## Idioma y rol
-- Chat: español MX. Código/JSDoc: inglés.
-- Rol: Tech Lead Senior. Antes de codear: ¿lo más simple? ¿legible en 6 meses? ¿mantiene el patrón existente? Simplicidad > cleverness.
-
 ## Qué es este proyecto
 Paquete npm (CLI) para replicar harness multi-agente + SDD en múltiples proyectos con soporte multi-engine (Claude Code, AGENTS.md universal, Cursor, Copilot).
 
@@ -12,27 +8,18 @@ Paquete npm (CLI) para replicar harness multi-agente + SDD en múltiples proyect
 > **Fuente de verdad de objetivo y dirección: [`docs/DIRECTION.md`](docs/DIRECTION.md).** Léela ANTES de proponer cambios de dirección o tocar navori — define metas, no-metas e invariantes que no se re-litigan sin una spec. Colaboradores humanos: `CONTRIBUTING.md`.
 
 ## Antes de hacer cualquier cosa
-1. `mem_search "navori"` para recuperar contexto de sesiones previas con Ulises.
-2. `git log --oneline -30` para entender el estado actual del trabajo.
-3. Confirmar qué tarea específica se está abordando.
+1. `mem_search "navori"` + `git log --oneline -30` para recuperar el contexto vigente.
+2. Confirmar qué tarea específica se está abordando.
 
 ## Contexto del usuario
-Ulises Ciprés. Tech Lead en Bonum. Tiene un harness multi-agente + SDD ya funcionando en `bonum-dashboard` (`/Users/ulisescm/Documents/dev/bonum/bonum-dashboard/.claude/`) que es la **referencia** de lo que `navori` debe poder generar.
-
-Otros repos Bonum donde también vive infraestructura similar (referencia):
-- `/Users/ulisescm/Documents/dev/bonum/bonum-webapp` — harness más maduro
-- `/Users/ulisescm/Documents/dev/bonum/bonum-nexus` — backend NestJS
-- Su `~/.claude/CLAUDE.md` global tiene el diccionario completo del workspace Bonum.
+Ulises Ciprés, Tech Lead en Bonum. La **referencia** de lo que `navori` debe poder generar son los harness ya funcionando en `bonum-dashboard` y `bonum-webapp` (el más maduro). Su `~/.claude/CLAUDE.md` global tiene el diccionario de rutas del workspace Bonum.
 
 ## Decisiones ya tomadas (no re-litigar sin razón nueva)
 - **Los invariantes de arquitectura viven en un solo lugar, no aquí**: capas en cascada, multi-engine, source of truth en `navori.config.json`, modelo híbrido de `sync` y plugins como bundles, con su porqué completo ([why](docs/DIRECTION.md)).
 
-## Próximos pasos
-Revisar engram + `git log` para el contexto vigente. Decisiones nuevas se documentan vía `mem_save`.
-
 ## Quality gate
-El comando vive en **un solo lugar**: `qualityGate.full` en `navori.config.json`. No lo copies a
-mano en otro sitio. Corre desde la raíz con `bun check`.
+El comando vive en **un solo lugar**: `qualityGate.full` en `navori.config.json` — no lo copies a
+mano. Corre desde la raíz con `bun check`.
 
 Dos trampas reales dentro de ese comando:
 - **`bun run format:check`** (oxfmt) corre en la raíz, no bajo `packages/cli` — es el paso que más se
@@ -43,22 +30,18 @@ Dos trampas reales dentro de ese comando:
 Por qué `jscpd`/`semgrep` están en el gate y cómo funcionan sus excepciones contra `ci.yml`:
 [why](CONTRIBUTING.md).
 
-**`navori` global vs. `receipt` (apaño temporal, #872)**: el `navori` global instalado es la
-versión publicada y no trae el subcomando `receipt` (self-hosted aquí desde la fase B de la spec
-0026). Para invocarlo en este repo usa el build local: `node packages/cli/dist/index.js receipt ...`
-(`bun run --filter navori build` si el `dist` está desactualizado). Retira esta nota cuando se publique
-una versión con `receipt`.
+**`navori` global vs. `receipt` (apaño temporal, #872)**: la versión publicada no trae `receipt`
+(self-hosted aquí desde la fase B de la spec 0026). Invócalo con el build local:
+`node packages/cli/dist/index.js receipt ...` (`bun run --filter navori build` si el `dist` está
+viejo). Retira esta nota cuando se publique una versión con `receipt`.
 
 ## Engram
-Protocolo global activo. En este repo:
-- `mem_save` proactivo tras decisiones de diseño/arquitectura.
-- `mem_search` al inicio si el mensaje del usuario referencia el proyecto.
-- `mem_session_summary` antes de cerrar.
+Protocolo global activo, sin excepciones locales: `mem_search` al inicio si el mensaje referencia
+el proyecto, `mem_save` tras cada decisión de diseño o arquitectura, `mem_session_summary` al cerrar.
 
 ## Convenciones generales
 - Commits: Conventional, español MX, atómicos.
 - **El harness se auto-hospeda en este repo** (commitea `.claude/` + `CLAUDE.md` + `navori.config.json`; excepción `/bonum`, donde va gitignored) ([why](docs/DIRECTION.md)). Fuera de control de versiones incluso aquí: `.claude/worktrees/` y `.claude/settings.local.json`.
-- Branch base: definir cuando se inicialice el repo git.
 
 <!-- navori:managed id="idioma-rol" hash="5d83b387" version="0.9.0" source="@navori/core" -->
 ## Idioma y rol

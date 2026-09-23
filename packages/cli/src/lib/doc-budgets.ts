@@ -32,9 +32,31 @@ export { countWords } from "./skill-meta.ts";
  * the change that makes it. Setting the exact number that passes is what let
  * `CLAUDE.md` erode to 2548/2550. The 18 static assets added in #917 were
  * measured, not estimated, and sit at ~10-14% headroom.
+ *
+ * WHAT THE ≥5% FLOOR ACTUALLY MEASURES (#955): it is a DRIFT DETECTOR, not a
+ * budget. Since a ceiling is set as `words × 1.05`, "headroom < 5%" is
+ * arithmetically the same statement as "this file grew since its last
+ * recalibration" — it does not measure distance to any external limit,
+ * because for `CLAUDE.md` there is none to measure against. The only
+ * externally anchored cap in this module is `CODEX_PROJECT_DOC_MAX_BYTES`
+ * (below), which is Codex's published `project_doc_max_bytes`, applies to
+ * `AGENTS.md`, and is in BYTES. Claude Code publishes no equivalent, so a
+ * raise here spends no real budget — which is exactly why raising cannot be
+ * the standing answer: the hard ceiling is the only brake on accretion this
+ * module has, and a ceiling that always yields stops braking.
+ *
+ * THEREFORE, THE RECALIBRATION RULE (#955): every recalibration leaves **≥10%**
+ * headroom (`ceiling = ceil(words × 1.10)`), and it is paid for by trimming
+ * prose in the same change, not by the raise alone. Recalibrating to exactly
+ * +5% is what put seven files one single word away from a red gate between
+ * #908 and #955; +10% is the margin that makes an ordinary prose PR survive
+ * without a budget PR behind it.
  */
 export const DOC_BUDGETS: Readonly<Record<string, number>> = {
-  "CLAUDE.md": 2423,
+  // #955 — recalibrated at ×1.10 (2200 → 10.0%). Lower than the previous
+  // 2423 because the raise was paid for by trimming this repo's own prose
+  // (536 → 427 words); the 12 managed blocks inside it are not editable here.
+  "CLAUDE.md": 2420,
   // #930 — the prose surface self-hosted at this repo's root. Like `CLAUDE.md`
   // above, it is a RENDERED file, not a source asset, so it matches no
   // `MANAGED_ASSET_PATHSPECS` glob and is listed here explicitly. Same ceiling
@@ -45,25 +67,26 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   "AGENTS.md": 4530, // 4128 → 9.7%
 
   // Core managed blocks — auto-discovered from `core-assets/managed/`.
-  "packages/core/core-assets/managed/arranque-sesion.md": 200,
-  "packages/core/core-assets/managed/cierre-sesion.md": 472,
+  // Entries recalibrated in #955 carry `// <measured> → <headroom>` at ×1.10.
+  "packages/core/core-assets/managed/arranque-sesion.md": 209, // 190 → 10.0%
+  "packages/core/core-assets/managed/cierre-sesion.md": 494, // 449 → 10.0%
   "packages/core/core-assets/managed/code-discovery-routing.md": 160,
   "packages/core/core-assets/managed/codex-cross-review.md": 180,
   "packages/core/core-assets/managed/formato-respuesta.md": 150,
   "packages/core/core-assets/managed/idioma-rol.md": 140,
-  "packages/core/core-assets/managed/intake-tickets.md": 240,
+  "packages/core/core-assets/managed/intake-tickets.md": 251, // 228 → 10.1%
   "packages/core/core-assets/managed/operaciones-seguras.md": 310,
-  "packages/core/core-assets/managed/orquestacion.md": 1012,
-  "packages/core/core-assets/managed/sdd.md": 199,
+  "packages/core/core-assets/managed/orquestacion.md": 1060, // 963 → 10.1%
+  "packages/core/core-assets/managed/sdd.md": 208, // 189 → 10.1%
   "packages/core/core-assets/managed/tipado-fuerte.md": 50,
 
   // Plugin managed blocks (#917). Measured / ceiling → headroom.
   "packages/plugins/acli/managed/acli-protocol.md": 80, // 70 → 14.3%
-  "packages/plugins/codegraph/managed/codegraph-search-v2.md": 105, // 93 → 12.9%
+  "packages/plugins/codegraph/managed/codegraph-search-v2.md": 105, // 91 → 15.4%
   "packages/plugins/gh/managed/gh-protocol.md": 120, // 107 → 12.1%
   "packages/plugins/jscpd/managed/jscpd-protocol.md": 90, // 80 → 12.5%
   "packages/plugins/semgrep/managed/semgrep-protocol.md": 105, // 93 → 12.9%
-  "packages/plugins/tgrep/managed/tgrep-search-v2.md": 110, // 104 → 5.5%
+  "packages/plugins/tgrep/managed/tgrep-search-v2.md": 115, // 104 → 10.6%
 
   // Preset `stack.md` blocks (#917). One renders per consumer, picked by preset.
   "packages/core/core-assets/presets/astro/managed/stack.md": 60, // 53 → 13.2%
