@@ -126,17 +126,15 @@ La resolución es **local → bundled**: si tienes un preset local con el mismo 
 | Plugin | Para qué | External tool |
 |---|---|---|
 | `engram` | Memoria persistente entre sesiones | `engram` binary |
+| `codegraph` | Descubrimiento estructural de código vía MCP | `codegraph` binary |
+| `tgrep` | Descubrimiento textual de código vía CLI indexado | `tgrep` binary |
 | `acli` | Leer tickets de Jira desde la terminal | `acli` |
 | `gh` | GitHub Issues, PRs y workflow runs | `gh` |
 | `jscpd` | Detección de duplicación en el diff | `jscpd` (opt-in) |
 | `semgrep` | Security gate local | `semgrep` (opt-in) |
 
-> **Retirados el 2026-09-15:** `codegraph` (grafo AST vía MCP) y `tgrep` (búsqueda de
-> contenido indexada por trigramas). Salieron del motor para reimplementarse con una
-> integración que los haga trabajar entre sí; mientras tanto la búsqueda de contenido son
-> las herramientas nativas `Grep`/`Glob`. Un repo que todavía los declare en su
-> `navori.config.json` los verá reportados como `unknown plugin id` por `doctor` hasta que
-> se quite la llave. Qué hacían y qué midieron:
+> `codegraph` y `tgrep` se retiraron brevemente el 2026-09-15 y se reintrodujeron el
+> 2026-09-16 (#838) con una integración que los hace trabajar entre sí — acta en
 > [`docs/research/tgrep-como-funcionaba.md`](https://github.com/UlisesCm/navori-harness/blob/main/docs/research/tgrep-como-funcionaba.md).
 
 Activar uno:
