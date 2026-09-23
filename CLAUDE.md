@@ -30,11 +30,6 @@ Dos trampas reales dentro de ese comando:
 Por qué `jscpd`/`semgrep` están en el gate y cómo funcionan sus excepciones contra `ci.yml`:
 [why](CONTRIBUTING.md).
 
-**`navori` global vs. `receipt` (apaño temporal, #872)**: la versión publicada no trae `receipt`
-(self-hosted aquí desde la fase B de la spec 0026). Invócalo con el build local:
-`node packages/cli/dist/index.js receipt ...` (`bun run --filter navori build` si el `dist` está
-viejo). Retira esta nota cuando se publique una versión con `receipt`.
-
 ## Engram
 Protocolo global activo, sin excepciones locales: `mem_search` al inicio si el mensaje referencia
 el proyecto, `mem_save` tras cada decisión de diseño o arquitectura, `mem_session_summary` al cerrar.

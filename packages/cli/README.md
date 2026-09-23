@@ -79,6 +79,7 @@ Y genera:
 | `doctor` | Audita el config + drift de cada managed block (CLAUDE.md **y AGENTS.md**), orden canónico, markers malformados, desincronización de monorepo y tools externas faltantes (`--strict` para CI) |
 | `status` | Snapshot rápido: config, plugins activos, conteo de drift y próximos pasos |
 | `audit` | Reporta cómo corrió el harness de verdad: atribución de tokens y huecos de adherencia en tus sesiones |
+| `receipt <sign\|check>` | Firma o verifica los bytes revisados antes de publicar un cambio (`navori receipt <sign\|check> --feature <id> [--target <ref>] [--dir <path>] [--json]`) |
 | `bench` | Corre `render` en dry-run N veces y reporta latencias (detecta regresiones locales) |
 | `workspace <sub>` | Gestiona workspaces cross-repo (`init`, `ls`, `show`, `rm`) |
 | `ticket <sub>` | Gestiona tickets-as-files en un workspace (`new`, `list`, `show`, `archive`, `delete`) |

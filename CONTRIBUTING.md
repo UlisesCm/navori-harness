@@ -39,7 +39,7 @@ Es lo que valida el job `quality` de CI; si no pasa, el PR falla:
 
 1. **`bun check` desde la raíz del monorepo.** Es un alias de `qualityGate.full` en
    `navori.config.json`, que es **el único lugar** donde vive el gate: de ahí salen los bloques
-   managed de `CLAUDE.md` y el comando que corre el `commit-pr-pilot`. No lo transcribas aquí ni
+   managed de `CLAUDE.md` y el comando que corre el `publisher`. No lo transcribas aquí ni
    en ningún otro archivo — una segunda copia es una copia que se desincroniza, y ya pasó
    (`repo-config-gate.test.ts` existe por eso; ver el detalle al final de esta sección).
 
