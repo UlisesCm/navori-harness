@@ -62,6 +62,7 @@ describe("roster-parity", () => {
         "security-invariants",
         "secure-by-design",
         "quality-attributes",
+        "author-skill",
         "scoped-gate",
       ],
       [...ROSTER_CORE_SKILLS, ...ROSTER_WORKFLOW_SKILLS],

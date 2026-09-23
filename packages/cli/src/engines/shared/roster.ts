@@ -78,6 +78,7 @@ export const ROSTER_WORKFLOW_SKILLS: ReadonlyArray<string> = [
   "dominio",
   "follow-up-prs",
   "quality-attributes",
+  "author-skill",
 ];
 
 /** The two adapters that place a managed marker, and so can retire one. */

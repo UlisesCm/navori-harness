@@ -2,7 +2,7 @@
 
 > El contrato de un archivo de skill: frontmatter, tipos, caps y triggers.
 > Implementa spec 0003 §3.2.1 (output discipline) y §3.2.2 (triggers).
-> Enforced por `packages/cli/src/lib/__tests__/skill-caps.test.ts` sobre los assets que
+> Enforced por `packages/cli/src/lib/assets/__tests__/skill-caps.test.ts` sobre los assets que
 > navori bundlea (core, presets, plugins).
 >
 > **Dónde va tu skill** —core, preset, plugin o project-local— es otra pregunta, y se
@@ -25,10 +25,11 @@ para las skills que navori renderiza y para las tuyas.
 ```yaml
 ---
 name: nextjs-app-router
-description: Reglas para Next.js App Router — Server vs Client Components. Aplica antes de tocar app/.
-type: reference
-# maxWords: 520           # opcional — override del cap del tipo
-# maxWordsComposed: 700   # opcional — techo del archivo YA compuesto (ver abajo)
+description: Use when touching app/ in Next.js App Router — Server vs Client Components. Not for data fetching (see nextjs-data-fetching).
+metadata:
+  type: reference
+  # maxWords: 520           # opcional — override del cap del tipo
+  # maxWordsComposed: 700   # opcional — techo del archivo YA compuesto (ver abajo)
 ---
 ```
 
@@ -36,9 +37,11 @@ type: reference
 |---|---|---|
 | `name` | sí | id de la skill (kebab-case). |
 | `description` | sí | una línea con **trigger de activación** (ver abajo). |
-| `type` | sí | `behavior` \| `reference` \| `tool`. |
-| `maxWords` | no | sube el cap del tipo cuando la longitud está justificada. |
-| `maxWordsComposed` | no | techo del archivo compuesto, cuando un plugin la extiende. |
+| `metadata.type` | sí | `behavior` \| `reference` \| `tool`. Va bajo `metadata:` (#810): un `type` en el nivel superior se lee como nulo. |
+| `metadata.maxWords` | no | sube el cap del tipo cuando la longitud está justificada. |
+| `metadata.maxWordsComposed` | no | techo del archivo compuesto, cuando un plugin la extiende. |
+
+Solo `name`, `description` y `metadata` son portables entre engines (Claude Code, Codex, DeepSeek); una clave propia de un engine no viaja. La `description` cabe en 500 caracteres —el corte más bajo de los tres— y cierra con un `Not for <skill vecina>` cuando hay una con la que se confunde.
 
 ## Caps por tipo
 
@@ -83,8 +86,11 @@ mayor retorno del archivo: incluye un verbo de activación y la skill se activa 
 Se aceptan los verbos comunes es/en (`Aplica`, `Usar`, `cuando`, `antes de`, `Use when/this`): los
 assets de navori se escriben en inglés, pero una skill tuya se escribe en tu idioma.
 
-El trigger también es lo que se imprime en el índice "Skills disponibles" de `CLAUDE.md` — se
-condensa a la primera cláusula y se corta a 120 caracteres, así que ponlo al principio.
+En los engines de prosa (`AGENTS.md`, Codex) el trigger también se imprime en el índice de
+skills, condensado a la primera cláusula y cortado a 120 caracteres, así que ponlo al principio.
+El índice de `CLAUDE.md` ya no lo imprime (#908): Claude Code lee la `description` completa de su
+listado nativo. Todo el "cuándo usarla" va en la `description`, no en una sección del body: el
+body solo se carga después de que la skill se activó.
 
 ## Piezas opcionales: fallback declarado
 
