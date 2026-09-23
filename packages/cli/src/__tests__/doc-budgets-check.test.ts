@@ -502,6 +502,22 @@ describe("doc-budgets module (#917)", () => {
   });
 
   /**
+   * #955 — `CLAUDE.md` was the ONE budgeted file with no blocking headroom
+   * check: `:418` covers every discovered managed asset and the test below
+   * covers `AGENTS.md`, but the rendered `CLAUDE.md` matches no
+   * `MANAGED_ASSET_PATHSPECS` glob, so only the non-blocking warning in
+   * `check-doc-budgets.mjs` ever looked at it — and it is the file that
+   * eroded. Same policy, same enforcement, no exemption.
+   */
+  it("gives the self-hosted CLAUDE.md a whole-file ceiling with ≥5% headroom", () => {
+    const ceiling = DOC_BUDGETS["CLAUDE.md"];
+    expect(ceiling, "CLAUDE.md has no ceiling").toBeDefined();
+    const words = countWords(readFileSync(join(REPO_ROOT, "CLAUDE.md"), "utf-8"));
+    expect(words).toBeGreaterThan(0);
+    expect((ceiling! - words) / words).toBeGreaterThanOrEqual(0.05);
+  });
+
+  /**
    * #930 — the defect the issue names literally: before this, `AGENTS.md` had
    * no whole-file ceiling at all in `DOC_BUDGETS`, so `check-doc-budgets.mjs`
    * never even looked at it. `"AGENTS.md"` must carry ≥5% headroom over this
