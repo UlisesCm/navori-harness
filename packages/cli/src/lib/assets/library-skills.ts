@@ -77,6 +77,10 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
   },
   { id: "mongoose", deps: ["mongoose", "@nestjs/mongoose"], label: "Mongoose ODM" },
   { id: "drizzle-orm", deps: ["drizzle-orm", "drizzle-kit"], label: "Drizzle ORM" },
+  // Driver-level, not ORM-level: the on-device failures (Metro shadowing a
+  // barrel, change listener off) hit a repo with expo-sqlite whether or not
+  // Drizzle sits on top, and never hit a Postgres repo that has Drizzle.
+  { id: "expo-sqlite", deps: ["expo-sqlite"], label: "Expo SQLite" },
   { id: "zod-validation", deps: ["zod"], label: "Zod validation" },
   { id: "winston-logging", deps: ["winston"], label: "Winston logging" },
   {
@@ -87,6 +91,16 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
   { id: "apollo-client", deps: ["@apollo/client"], label: "Apollo Client" },
   { id: "zustand", deps: ["zustand"], label: "Zustand" },
   { id: "tamagui", deps: ["tamagui", "@tamagui/core"], label: "Tamagui" },
+  { id: "nativewind", deps: ["nativewind"], label: "NativeWind" },
+  // React Native Reusables copies its components into the repo (shadcn model),
+  // so there is no `react-native-reusables` package to detect. Its runtime
+  // primitives are: `portal` is in the manual install, `slot` in `Text`, which
+  // every component uses.
+  {
+    id: "react-native-reusables",
+    deps: ["@rn-primitives/portal", "@rn-primitives/slot"],
+    label: "React Native Reusables",
+  },
   {
     id: "react-navigation",
     deps: ["@react-navigation/native"],

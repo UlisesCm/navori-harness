@@ -46,6 +46,19 @@ describe("detectLibrarySkills", () => {
     expect(detectLibrarySkills(["@testing-library/cypress"])).toEqual(["testing-library"]);
   });
 
+  it("detects the Expo UI-stack skills: local DB, NativeWind, React Native Reusables", () => {
+    expect(detectLibrarySkills(["expo-sqlite"])).toEqual(["expo-sqlite"]);
+    expect(detectLibrarySkills(["expo-sqlite", "drizzle-orm"])).toEqual([
+      "drizzle-orm",
+      "expo-sqlite",
+    ]);
+    expect(detectLibrarySkills(["nativewind"])).toEqual(["nativewind"]);
+    // RNR ships no package of its own — components are copied in — so its runtime
+    // primitives are the only dependency trace it leaves.
+    expect(detectLibrarySkills(["@rn-primitives/portal"])).toEqual(["react-native-reusables"]);
+    expect(detectLibrarySkills(["@rn-primitives/slot"])).toEqual(["react-native-reusables"]);
+  });
+
   it("matches any of a skill's alias deps", () => {
     expect(detectLibrarySkills(["@nestjs/mongoose"])).toEqual(["mongoose"]);
     expect(detectLibrarySkills(["winston"])).toEqual(["winston-logging"]);
