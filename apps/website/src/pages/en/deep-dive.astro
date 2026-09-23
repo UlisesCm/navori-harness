@@ -34,6 +34,14 @@ const agents = [
       "It covers three encargos: auditing a ticket (root cause, affected areas, a split plan) before implementing; auditing an area with no ticket involved (bugs, security holes, performance problems, architecture violations, uncovered edge cases) before refactoring it; or challenging a spec's design in fresh context. It never edits production code: it delivers a report or verdict on disk so the implementer doesn't start blind.",
   },
   {
+    role: "Architect",
+    tag: "design / read-only",
+    model: "opus",
+    body: "The one that proposes what to build and why, when a task carries an architectural signal.",
+    detail:
+      "It steps in when a task involves a shared abstraction, an ownership change, a contract between modules, a migration, or a hard-to-reverse decision. It never writes production code, never decides alone, and never asks the user: it leaves a design document on disk for the orchestrator to run through a challenge before deciding. It uses a capable model (opus) because its job is weighing tradeoffs, not executing.",
+  },
+  {
     role: "Implementer",
     tag: "writes",
     model: "sonnet",
@@ -57,6 +65,14 @@ const agents = [
     detail:
       "Once the work is approved, it writes the commit message in the repo's format (Conventional) and opens the PR with a title and description. It runs checks against git/gh before touching the network, and posts informational comments always with a draft first. A mechanical, scoped task: a lightweight model is enough.",
   },
+  {
+    role: "Scribe",
+    tag: "documentation",
+    model: "haiku",
+    body: "The only one that writes Markdown: it serializes already-verified evidence into the artifact at hand.",
+    detail:
+      "When the harness has `harness.scribeOwnsMarkdown` on, it's the only role that touches `.md` files: it turns another agent's structured evidence into its Markdown report, or drafts the prose a `markdownRequest` asks for, in its own separate commit. It doesn't investigate or invent claims — only what the evidence already supports.",
+  },
 ];
 
 const leadAgent = agents.find((a) => a.lead) ?? agents[0];
@@ -70,8 +86,8 @@ const modelColor: Record<string, string> = {
 const modelTiers = [
   {
     model: "haiku",
-    use: "Publish",
-    who: "publisher",
+    use: "Publish & document",
+    who: "publisher · scribe",
     note: "Fast and cheap for mechanical tasks.",
   },
   {
@@ -82,8 +98,8 @@ const modelTiers = [
   },
   {
     model: "opus",
-    use: "Decide",
-    who: "orchestrator",
+    use: "Decide & design",
+    who: "orchestrator · architect",
     note: "The muscle where judgment matters.",
   },
 ];

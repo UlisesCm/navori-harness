@@ -233,7 +233,7 @@ const es: Record<string, CommandDoc> = {
       },
       {
         flag: "init --apply",
-        desc: "Escribe lo que el preview mostró: el manifest ~/.navori/global.json y el plugin 'navori@skills-dir' en ~/.claude/skills/navori/ (8 agentes, 12 skills y el hook del baseline).",
+        desc: "Escribe lo que el preview mostró: el manifest ~/.navori/global.json y el plugin 'navori@skills-dir' en ~/.claude/skills/navori/ (8 agentes, 14 skills y el hook del baseline).",
       },
       {
         flag: "init --recommended",
@@ -268,11 +268,11 @@ const es: Record<string, CommandDoc> = {
     example: [
       {
         title: "Ver qué instalaría (no escribe nada)",
-        code: "$ navori global init --recommended\n  · plugin: ~/.claude/skills/navori (23 archivos)\n  · hook: ~/.claude/skills/navori/hooks/navori-global-baseline.sh\n  · settings: sin cambios (~/.claude/settings.json)\n  · Bloques del baseline: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\nPreview: no se escribió un solo byte. Corre 'navori global init --apply' para instalar.",
+        code: "$ navori global init --recommended\n  · plugin: ~/.claude/skills/navori (25 archivos)\n  · hook: ~/.claude/skills/navori/hooks/navori-global-baseline.sh\n  · settings: sin cambios (~/.claude/settings.json)\n  · Bloques del baseline: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\nPreview: no se escribió un solo byte. Corre 'navori global init --apply' para instalar.",
       },
       {
         title: "Instalar la capa global",
-        code: "$ navori global init --apply\n  · plugin: ~/.claude/skills/navori (23 archivos)\n  · Bloques del baseline: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\n✓ Harness global instalado en ~/.claude.",
+        code: "$ navori global init --apply\n  · plugin: ~/.claude/skills/navori (25 archivos)\n  · Bloques del baseline: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\n✓ Harness global instalado en ~/.claude.",
       },
       {
         title: "Auditar",
@@ -989,7 +989,7 @@ const en: Record<string, CommandDoc> = {
       },
       {
         flag: "init --apply",
-        desc: "Writes what the preview showed: the ~/.navori/global.json manifest and the 'navori@skills-dir' plugin under ~/.claude/skills/navori/ (8 agents, 12 skills and the baseline hook).",
+        desc: "Writes what the preview showed: the ~/.navori/global.json manifest and the 'navori@skills-dir' plugin under ~/.claude/skills/navori/ (8 agents, 14 skills and the baseline hook).",
       },
       {
         flag: "init --recommended",
@@ -1024,11 +1024,11 @@ const en: Record<string, CommandDoc> = {
     example: [
       {
         title: "See what it would install (writes nothing)",
-        code: "$ navori global init --recommended\n  · plugin: ~/.claude/skills/navori (23 files)\n  · hook: ~/.claude/skills/navori/hooks/navori-global-baseline.sh\n  · settings: unchanged (~/.claude/settings.json)\n  · Baseline blocks: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\nPreview: not a single byte was written. Run 'navori global init --apply' to install.",
+        code: "$ navori global init --recommended\n  · plugin: ~/.claude/skills/navori (25 files)\n  · hook: ~/.claude/skills/navori/hooks/navori-global-baseline.sh\n  · settings: unchanged (~/.claude/settings.json)\n  · Baseline blocks: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\nPreview: not a single byte was written. Run 'navori global init --apply' to install.",
       },
       {
         title: "Install the global layer",
-        code: "$ navori global init --apply\n  · plugin: ~/.claude/skills/navori (23 files)\n  · Baseline blocks: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\n✓ Global harness installed at ~/.claude.",
+        code: "$ navori global init --apply\n  · plugin: ~/.claude/skills/navori (25 files)\n  · Baseline blocks: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\n✓ Global harness installed at ~/.claude.",
       },
       {
         title: "Audit",

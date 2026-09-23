@@ -34,6 +34,14 @@ const agents = [
       "Cubre tres encargos: auditar un ticket (causa raíz, áreas afectadas, plan de partición) antes de implementar; auditar un área sin ticket de por medio (bugs, huecos de seguridad, rendimiento, violaciones de arquitectura, casos borde) antes de refactorizarla; o desafiar (\"challenge\") el diseño de una spec en contexto fresco. Nunca edita código de producción: entrega un reporte o veredicto en disco para que el implementer no arranque a ciegas.",
   },
   {
+    role: "Architect",
+    tag: "diseño / read-only",
+    model: "opus",
+    body: "El que propone qué construir y por qué, cuando la tarea trae una señal arquitectónica.",
+    detail:
+      "Entra cuando la tarea implica una abstracción compartida, un cambio de ownership, un contrato entre módulos, una migración o una decisión difícil de revertir. Nunca escribe código de producción, nunca decide por sí solo ni pregunta al usuario: deja un documento de diseño en disco para que el orchestrator lo someta a un challenge antes de decidir. Usa un modelo capaz (opus) porque su trabajo es sopesar tradeoffs, no ejecutar.",
+  },
+  {
     role: "Implementer",
     tag: "escribe",
     model: "sonnet",
@@ -57,6 +65,14 @@ const agents = [
     detail:
       "Cuando el trabajo está aprobado, escribe el mensaje de commit con el formato del repo (Conventional) y abre el PR con título y descripción. Corre chequeos contra git/gh antes de tocar la red, y publica comentarios informativos siempre con borrador previo. Tarea mecánica y acotada: un modelo ligero basta.",
   },
+  {
+    role: "Scribe",
+    tag: "documentación",
+    model: "haiku",
+    body: "El único que escribe Markdown: serializa evidencia ya verificada en el artefacto que toca.",
+    detail:
+      "Cuando el harness tiene activo `harness.scribeOwnsMarkdown`, es el único rol que toca archivos `.md`: convierte la evidencia estructurada de otro agente en su reporte Markdown, o redacta la prosa que un `markdownRequest` pide, en un commit propio y separado. No investiga ni inventa reclamos — solo lo que la evidencia ya sostiene.",
+  },
 ];
 
 const leadAgent = agents.find((a) => a.lead) ?? agents[0];
@@ -71,8 +87,8 @@ const modelColor: Record<string, string> = {
 const modelTiers = [
   {
     model: "haiku",
-    use: "Publicar",
-    who: "publisher",
+    use: "Publicar y documentar",
+    who: "publisher · scribe",
     note: "Rápido y barato para tareas mecánicas.",
   },
   {
@@ -83,8 +99,8 @@ const modelTiers = [
   },
   {
     model: "opus",
-    use: "Decidir",
-    who: "orchestrator",
+    use: "Decidir y diseñar",
+    who: "orchestrator · architect",
     note: "El músculo donde el criterio importa.",
   },
 ];
