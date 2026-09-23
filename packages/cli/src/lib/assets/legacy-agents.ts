@@ -1,4 +1,4 @@
-import type { NavoriConfig } from "./config.ts";
+import type { NavoriConfig } from "../config.ts";
 
 /**
  * Legacy agent filenames (hand-rolled harnesses that predate navori) mapped to

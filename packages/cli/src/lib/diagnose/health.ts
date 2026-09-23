@@ -5,25 +5,25 @@ import {
   PluginNotFoundError,
   PluginManifestError,
   RETIRED_PLUGINS,
-} from "./plugins.ts";
-import { navoriAuthorship } from "./removable.ts";
-import { RETIRED_AGENTS, RETIRED_SKILLS, RETIRED_HOOKS } from "../engines/shared/harness-assets.ts";
-import { readCliVersion } from "./bundled-assets.ts";
+} from "../plugins.ts";
+import { navoriAuthorship } from "../removable.ts";
+import { RETIRED_AGENTS, RETIRED_SKILLS, RETIRED_HOOKS } from "../../engines/shared/harness-assets.ts";
+import { readCliVersion } from "../bundled-assets.ts";
 import {
   computeManagedHash,
   extractManagedContent,
   locateManagedBlocks,
   proseLines,
   reorderManagedBlocks,
-} from "./marker.ts";
-import { computedBlockCeiling, countWords, managedBlockCeilings } from "./doc-budgets.ts";
-import { canonicalManagedOrder, EXCLUDABLE_BLOCK_IDS, CORE_BLOCK_IDS } from "./render-plan.ts";
-import { detectClaudeInfra } from "./claude-infra.ts";
-import { detectLegacyAgents, type LegacyAgent } from "./legacy-agents.ts";
-import { isDowngrade } from "./semver.ts";
-import type { NavoriConfig } from "./config.ts";
-import { effectiveConfigForWorkspace, enabledMonorepoWorkspaces } from "./monorepo.ts";
-import { tc, DEFAULT_LANG, type Lang } from "./i18n.ts";
+} from "../marker.ts";
+import { computedBlockCeiling, countWords, managedBlockCeilings } from "../assets/doc-budgets.ts";
+import { canonicalManagedOrder, EXCLUDABLE_BLOCK_IDS, CORE_BLOCK_IDS } from "../render-plan.ts";
+import { detectClaudeInfra } from "../assets/claude-infra.ts";
+import { detectLegacyAgents, type LegacyAgent } from "../assets/legacy-agents.ts";
+import { isDowngrade } from "../semver.ts";
+import type { NavoriConfig } from "../config.ts";
+import { effectiveConfigForWorkspace, enabledMonorepoWorkspaces } from "../workspace/monorepo.ts";
+import { tc, DEFAULT_LANG, type Lang } from "../i18n.ts";
 
 /**
  * Shared health-check logic for `doctor` (verbose) and `status` (concise) —

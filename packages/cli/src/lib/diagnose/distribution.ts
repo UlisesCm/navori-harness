@@ -38,9 +38,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { NavoriConfig } from "./config.ts";
+import type { NavoriConfig } from "../config.ts";
 import { engineOwnedPaths } from "./health.ts";
-import { readNavoriOwnership } from "./json-ownership.ts";
+import { readNavoriOwnership } from "../json-ownership.ts";
 
 /** The config file itself: rendered output does not own it, git still shares it. */
 const CONFIG_FILE = "navori.config.json";

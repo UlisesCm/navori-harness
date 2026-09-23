@@ -10,7 +10,7 @@ import {
   type RetiredKeyRename,
 } from "../lib/config.ts";
 import { createBackup } from "../lib/backup.ts";
-import { listRegistryRepos, registryPath } from "../lib/registry.ts";
+import { listRegistryRepos, registryPath } from "../lib/workspace/registry.ts";
 import { readConfigOrExit } from "../lib/cli-config.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
 import { EXCLUDABLE_BLOCK_IDS } from "../lib/render-plan.ts";

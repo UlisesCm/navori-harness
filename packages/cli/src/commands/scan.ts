@@ -8,8 +8,8 @@ import {
   diffWorkspaces,
   type DetectedWorkspace,
   type ScanDiff,
-} from "../lib/scan.ts";
-import type { MonorepoWorkspace } from "../lib/monorepo.ts";
+} from "../lib/diagnose/scan.ts";
+import type { MonorepoWorkspace } from "../lib/workspace/monorepo.ts";
 import { brand, dim, color, kv } from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
 

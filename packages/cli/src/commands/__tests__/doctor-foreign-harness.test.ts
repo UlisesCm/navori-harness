@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { foreignHarnessLines } from "../doctor.ts";
 import { tc } from "../../lib/i18n.ts";
-import type { ForeignConflict, ForeignHarnessReport } from "../../lib/foreign-harness.ts";
+import type { ForeignConflict, ForeignHarnessReport } from "../../lib/diagnose/foreign-harness.ts";
 
 /**
  * Spec 0014 (#555) — what the reader is actually told.

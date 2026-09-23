@@ -11,7 +11,7 @@ import {
   SKILL_TYPE_CAPS,
   SKILL_LISTING_CHAR_CAP,
 } from "../skill-meta.ts";
-import { parseAsset } from "../../engines/claude/parse-asset.ts";
+import { parseAsset } from "../../../engines/claude/parse-asset.ts";
 
 /**
  * Spec 0003 §3.2.1 — every bundled SKILL.md must declare a recognized `type`

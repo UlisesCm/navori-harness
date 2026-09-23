@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "nod
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { measureDocBudgetFile } from "../../lib/health.ts";
+import { measureDocBudgetFile } from "../../lib/diagnose/health.ts";
 
 /**
  * #917 — `render` warns about the startup budget ONLY on the crossing.

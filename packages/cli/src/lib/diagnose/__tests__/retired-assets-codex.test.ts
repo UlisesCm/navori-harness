@@ -13,8 +13,8 @@ import { join } from "node:path";
  * nothing here would otherwise run.
  */
 
-vi.mock(import("../../engines/shared/harness-assets.ts"), async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../engines/shared/harness-assets.ts")>();
+vi.mock(import("../../../engines/shared/harness-assets.ts"), async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../engines/shared/harness-assets.ts")>();
   return {
     ...actual,
     RETIRED_AGENTS: [
@@ -29,8 +29,8 @@ vi.mock(import("../../engines/shared/harness-assets.ts"), async (importOriginal)
 });
 
 const { scanRetiredAssets } = await import("../health.ts");
-const { injectManagedSection } = await import("../marker.ts");
-const { readCliVersion } = await import("../bundled-assets.ts");
+const { injectManagedSection } = await import("../../marker.ts");
+const { readCliVersion } = await import("../../bundled-assets.ts");
 
 let cwd: string;
 

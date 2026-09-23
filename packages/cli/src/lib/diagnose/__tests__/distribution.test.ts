@@ -3,11 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { NavoriConfigSchema, type NavoriConfig, type NavoriConfigInput } from "../schema.ts";
+import { NavoriConfigSchema, type NavoriConfig, type NavoriConfigInput } from "../../schema.ts";
 import { scanDistribution } from "../distribution.ts";
-import { distributionLines } from "../../commands/doctor.ts";
-import { distributionSummary } from "../../commands/status.ts";
-import { tc } from "../i18n.ts";
+import { distributionLines } from "../../../commands/doctor.ts";
+import { distributionSummary } from "../../../commands/status.ts";
+import { tc } from "../../i18n.ts";
 
 /**
  * Rendered output with its ANSI colour codes removed, for asserting on the

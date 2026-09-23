@@ -3,7 +3,7 @@ import { extname, join } from "node:path";
 import { readCliVersion } from "../../lib/bundled-assets.ts";
 import { commitWrites } from "./execute-plan.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "./ephemeral-paths.ts";
-import { ENGINE_OUTPUTS, engineOwnedPaths } from "../../lib/health.ts";
+import { ENGINE_OUTPUTS, engineOwnedPaths } from "../../lib/diagnose/health.ts";
 import { tc, type Lang } from "../../lib/i18n.ts";
 import {
   computeManagedHash,

@@ -1,7 +1,7 @@
 import { type Dirent, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
-import { getCoreRoot, getPluginAssetsRoot } from "./bundled-assets.ts";
-import { RETIRED_AGENTS, RETIRED_HOOKS, RETIRED_SKILLS } from "../engines/shared/roster.ts";
+import { getCoreRoot, getPluginAssetsRoot } from "../bundled-assets.ts";
+import { RETIRED_AGENTS, RETIRED_HOOKS, RETIRED_SKILLS } from "../../engines/shared/roster.ts";
 
 /**
  * One retired id found where it should not be: a shipped asset's content or

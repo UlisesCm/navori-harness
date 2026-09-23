@@ -14,11 +14,11 @@
  */
 import { existsSync, readFileSync, readdirSync, statSync, mkdirSync } from "node:fs";
 import { join, sep } from "node:path";
-import { writeFileAtomic } from "./atomic.ts";
+import { writeFileAtomic } from "../atomic.ts";
 import { workspaceDirectory, listWorkspaces, loadWorkspace, canonicalPath } from "./workspace.ts";
-import { splitFrontmatter, parseFrontmatterFields, getFrontmatterField } from "./frontmatter.ts";
-import { NavoriError } from "./errors.ts";
-import { tc, DEFAULT_LANG, type Lang } from "./i18n.ts";
+import { splitFrontmatter, parseFrontmatterFields, getFrontmatterField } from "../frontmatter.ts";
+import { NavoriError } from "../errors.ts";
+import { tc, DEFAULT_LANG, type Lang } from "../i18n.ts";
 
 const DOMINIO_DIRNAME = "dominio";
 const INDEX_NAME = "DOMINIO.md";

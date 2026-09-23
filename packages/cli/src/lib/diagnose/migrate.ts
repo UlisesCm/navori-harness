@@ -1,6 +1,6 @@
 import { mkdirSync, existsSync, copyFileSync, readdirSync, statSync, rmSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
-import { safeHomedir } from "./home.ts";
+import { safeHomedir } from "../home.ts";
 
 function migrationsRootLazy(): string {
   return join(safeHomedir(), ".navori", "migrations");

@@ -4,9 +4,9 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scanForeignHarness } from "../foreign-harness.ts";
-import { injectManagedSection } from "../marker.ts";
-import { readCliVersion } from "../bundled-assets.ts";
-import { NavoriConfigSchema, type NavoriConfig } from "../schema.ts";
+import { injectManagedSection } from "../../marker.ts";
+import { readCliVersion } from "../../bundled-assets.ts";
+import { NavoriConfigSchema, type NavoriConfig } from "../../schema.ts";
 
 /**
  * Spec 0014 (#555) — the harness that was already there when navori arrived.

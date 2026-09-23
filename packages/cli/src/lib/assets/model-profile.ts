@@ -1,5 +1,5 @@
-import type { NavoriConfig } from "./config.ts";
-import { CORE_AGENTS, isAgentEnabled } from "../engines/shared/harness-assets.ts";
+import type { NavoriConfig } from "../config.ts";
+import { CORE_AGENTS, isAgentEnabled } from "../../engines/shared/harness-assets.ts";
 
 /** Which per-agent tier(s) render frontmatter omits for this agent. */
 export type MissingTier = "model" | "effort";

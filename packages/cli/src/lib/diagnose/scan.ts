@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { detectProject } from "./detect.ts";
-import { collectWorkspacePatterns, expandPattern } from "./workspace-patterns.ts";
-import type { MonorepoWorkspace } from "./monorepo.ts";
-import type { ActiveMigration } from "./library-skills.ts";
+import { collectWorkspacePatterns, expandPattern } from "../workspace/workspace-patterns.ts";
+import type { MonorepoWorkspace } from "../workspace/monorepo.ts";
+import type { ActiveMigration } from "../assets/library-skills.ts";
 
 export interface DetectedWorkspace {
   /** Workspace package name (from package.json#name, normalized to kebab) or directory basename. */
@@ -63,7 +63,7 @@ export {
   collectWorkspacePatterns,
   parsePnpmWorkspaceYaml,
   expandPattern,
-} from "./workspace-patterns.ts";
+} from "../workspace/workspace-patterns.ts";
 
 // Glob expansion moved to workspace-patterns.ts (shared with detect.ts without
 // an import cycle); re-exported below for existing importers.

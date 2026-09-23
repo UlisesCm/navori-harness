@@ -17,17 +17,17 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { NavoriConfigSchema } from "../src/lib/schema.ts";
-import { WorkspaceConfigSchema } from "../src/lib/workspace.ts";
+import { WorkspaceConfigSchema } from "../src/lib/workspace/workspace.ts";
 import { PresetDefinitionSchema } from "../src/lib/presets.ts";
 import { CorePromptsFileSchema } from "../src/engines/claude/prompts-loader.ts";
 import { SCHEMA_BASE_URL } from "../src/lib/schema-url.ts";
-import { CLASSIFY_RULES, HARNESS_PROSE, SOURCE_EXT } from "../src/lib/source-classify.ts";
+import { CLASSIFY_RULES, HARNESS_PROSE, SOURCE_EXT } from "../src/lib/diagnose/source-classify.ts";
 import {
   roleAliasDecisions,
   skillAliasDecisions,
   roleAliases,
   skillAliases,
-} from "../src/lib/activation-aliases.ts";
+} from "../src/lib/assets/activation-aliases.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI_ROOT = resolve(HERE, ".."); // packages/cli

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
-import { getCoreRoot } from "../bundled-assets.ts";
+import { getCoreRoot } from "../../bundled-assets.ts";
 import { HOST_CONTRACTS, hostContract } from "../host-contracts.ts";
 
 /**

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { NavoriConfig } from "../../lib/config.ts";
-import { librarySkillById } from "../../lib/library-skills.ts";
+import { librarySkillById } from "../../lib/assets/library-skills.ts";
 import type { loadPreset } from "../../lib/presets.ts";
 import {
   CORE_AGENTS,

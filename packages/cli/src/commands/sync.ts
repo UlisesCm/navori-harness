@@ -11,7 +11,7 @@ import {
   buildMonorepoContext,
   enabledMonorepoWorkspaces,
   type MonorepoRenderContext,
-} from "../lib/monorepo.ts";
+} from "../lib/workspace/monorepo.ts";
 import { extractManagedContent } from "../lib/marker.ts";
 import { formatLineDiff } from "../lib/diff.ts";
 import {

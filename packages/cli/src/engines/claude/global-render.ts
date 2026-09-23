@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createBackup } from "../../lib/backup.ts";
-import { createMigrationSnapshot } from "../../lib/migrate.ts";
+import { createMigrationSnapshot } from "../../lib/diagnose/migrate.ts";
 import { readCliVersion } from "../../lib/bundled-assets.ts";
 import { safeHomedir } from "../../lib/home.ts";
 import {

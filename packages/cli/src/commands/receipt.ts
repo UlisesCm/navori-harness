@@ -1,5 +1,5 @@
 import { defineCommand } from "citty";
-import { checkReceipt, formatReceipt, signReceipt, type ReceiptOptions } from "../lib/receipt.ts";
+import { checkReceipt, formatReceipt, signReceipt, type ReceiptOptions } from "../lib/diagnose/receipt.ts";
 import { readConfig } from "../lib/config.ts";
 import { resolve } from "node:path";
 

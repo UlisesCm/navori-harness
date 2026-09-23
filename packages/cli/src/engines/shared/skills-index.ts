@@ -2,8 +2,8 @@ import { join } from "node:path";
 import type { NavoriConfig } from "../../lib/config.ts";
 import { sanitizeProjectValue } from "../../lib/interpolate.ts";
 import { loadPreset } from "../../lib/presets.ts";
-import { librarySkillById } from "../../lib/library-skills.ts";
-import { readSkillTrigger, resolveLocalSkillPath } from "../../lib/skill-meta.ts";
+import { librarySkillById } from "../../lib/assets/library-skills.ts";
+import { readSkillTrigger, resolveLocalSkillPath } from "../../lib/assets/skill-meta.ts";
 import { CORE_SKILLS, WORKFLOW_SKILLS, extraConditionMet } from "./harness-assets.ts";
 
 /**

@@ -15,38 +15,38 @@ import {
   SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
   simulateContextDelivery,
   type ContextDeliveryStatus,
-} from "../lib/doc-budgets.ts";
+} from "../lib/assets/doc-budgets.ts";
 import { isDowngrade } from "../lib/semver.ts";
-import { isPlaceholderName } from "../lib/detect.ts";
+import { isPlaceholderName } from "../lib/diagnose/detect.ts";
 import { loadPlugin, loadEnabledPlugins } from "../lib/plugins.ts";
-import { effectiveConfigForWorkspace, enabledMonorepoWorkspaces } from "../lib/monorepo.ts";
+import { effectiveConfigForWorkspace, enabledMonorepoWorkspaces } from "../lib/workspace/monorepo.ts";
 import { hasBinary } from "../lib/which.ts";
 import { currentPlatform } from "../lib/platform.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";
-import { resolveLocalSkillPath } from "../lib/skill-meta.ts";
-import { unknownLibraries } from "../lib/library-skills.ts";
+import { resolveLocalSkillPath } from "../lib/assets/skill-meta.ts";
+import { unknownLibraries } from "../lib/assets/library-skills.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
 import { scanGitignoreHarness } from "../engines/shared/gitignore-harness.ts";
 import { scanPrettierIgnore } from "../engines/shared/prettierignore-harness.ts";
 import { isLaunchdPlatform, launchAgentLoaded, probeReceiver } from "../lib/audit/launchd.ts";
 import { DEFAULT_PORT as OTEL_RECEIVER_PORT } from "../lib/audit/collect.ts";
-import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/scan.ts";
-import { loadWorkspace, canonicalPath } from "../lib/workspace.ts";
-import { scanWorkspaceDrift } from "../lib/workspace-drift.ts";
-import { scanForeignSkillIndexes } from "../lib/foreign-skill-index.ts";
-import { scanFlatSkills } from "../lib/flat-skills.ts";
-import { scanStaleHarness } from "../lib/stale-harness.ts";
+import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/diagnose/scan.ts";
+import { loadWorkspace, canonicalPath } from "../lib/workspace/workspace.ts";
+import { scanWorkspaceDrift } from "../lib/workspace/workspace-drift.ts";
+import { scanForeignSkillIndexes } from "../lib/assets/foreign-skill-index.ts";
+import { scanFlatSkills } from "../lib/assets/flat-skills.ts";
+import { scanStaleHarness } from "../lib/diagnose/stale-harness.ts";
 import { scanQualityGateReadiness } from "../lib/gate-readiness.ts";
-import { scanEmptyUserSections } from "../lib/skill-user-section.ts";
-import { scanTriggerlessLocalSkills } from "../lib/skill-triggers.ts";
+import { scanEmptyUserSections } from "../lib/assets/skill-user-section.ts";
+import { scanTriggerlessLocalSkills } from "../lib/assets/skill-triggers.ts";
 import { scanInterpolationArtifacts } from "../lib/interpolation-artifacts.ts";
-import { scanMissingModelProfile } from "../lib/model-profile.ts";
-import { scanDiskUsage, humanBytes } from "../lib/disk-usage.ts";
-import { scanNestedWorktrees } from "../lib/nested-worktrees.ts";
-import { scanGlobalScope, type ManagedPolicyKey } from "../lib/global-scope.ts";
-import { scanForeignHarness, type ForeignHarnessReport } from "../lib/foreign-harness.ts";
-import { scanDistribution, type DistributionReport } from "../lib/distribution.ts";
-import { scanPermissionMode, scanRetiredAssets } from "../lib/health.ts";
+import { scanMissingModelProfile } from "../lib/assets/model-profile.ts";
+import { scanDiskUsage, humanBytes } from "../lib/diagnose/disk-usage.ts";
+import { scanNestedWorktrees } from "../lib/workspace/nested-worktrees.ts";
+import { scanGlobalScope, type ManagedPolicyKey } from "../lib/workspace/global-scope.ts";
+import { scanForeignHarness, type ForeignHarnessReport } from "../lib/diagnose/foreign-harness.ts";
+import { scanDistribution, type DistributionReport } from "../lib/diagnose/distribution.ts";
+import { scanPermissionMode, scanRetiredAssets } from "../lib/diagnose/health.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -64,7 +64,7 @@ import {
   type ManagedBlockMeasure,
   type MissingPlugin,
   type DuplicateMarker,
-} from "../lib/health.ts";
+} from "../lib/diagnose/health.ts";
 import { check, dim as grey, color, sym, brand, kv, accent } from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
 

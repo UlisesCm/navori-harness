@@ -6,7 +6,7 @@ import { createBackup } from "../lib/backup.ts";
 import { readCliVersion } from "../lib/bundled-assets.ts";
 import { readConfigOrExit } from "../lib/cli-config.ts";
 import { injectManagedSection } from "../lib/marker.ts";
-import { listMarkers } from "../lib/health.ts";
+import { listMarkers } from "../lib/diagnose/health.ts";
 import { resolveLang, tc, DEFAULT_LANG } from "../lib/i18n.ts";
 import { accent, brand, dim } from "../lib/style.ts";
 

@@ -7,7 +7,7 @@ import {
   measureDocBudgetFile,
   scanOrphanedEngineOutputs,
   type OrphanedEngineOutput,
-} from "../lib/health.ts";
+} from "../lib/diagnose/health.ts";
 import { planOrphanRemoval, removeEmptyDirs, type OrphanRemovalPlan } from "../lib/removable.ts";
 import { createBackup, purgeOldBackups } from "../lib/backup.ts";
 import type { AssetPlanEntry, UpdateAvailable } from "../lib/render-plan.ts";
@@ -44,14 +44,14 @@ import {
   effectiveConfigForWorkspace,
   buildMonorepoContext,
   enabledMonorepoWorkspaces,
-} from "../lib/monorepo.ts";
+} from "../lib/workspace/monorepo.ts";
 import { benchStart, benchMark, benchReport } from "../lib/bench.ts";
 import {
   listRegistryRepos,
   pruneRegistry,
   refreshRepoName,
   registryPath,
-} from "../lib/registry.ts";
+} from "../lib/workspace/registry.ts";
 
 /** One path `render --prune` deliberately did NOT delete, with its reason. */
 export type KeptEngineOutput = OrphanRemovalPlan["keep"][number];

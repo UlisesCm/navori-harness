@@ -50,7 +50,7 @@ vi.mock("@clack/prompts", () => {
 // in lib/__tests__/migrate.test.ts. That file is the reason this mock is
 // legitimate, and #504 found it did not exist when the mock first cited it: a
 // mock justified by coverage nobody had written.
-vi.mock(import("../lib/migrate.ts"), () => ({
+vi.mock(import("../lib/diagnose/migrate.ts"), () => ({
   createMigrationBackup: vi.fn(() => ({
     path: "/fake/backup",
     movedPaths: ["CLAUDE.md", ".claude"],
@@ -59,7 +59,7 @@ vi.mock(import("../lib/migrate.ts"), () => ({
 }));
 
 import * as p from "@clack/prompts";
-import { createMigrationBackup, removeOriginals } from "../lib/migrate.ts";
+import { createMigrationBackup, removeOriginals } from "../lib/diagnose/migrate.ts";
 import { resolveConflictsInteractively, type TargetPlan } from "../commands/sync.ts";
 import {
   chooseAdoptionMode,
@@ -69,7 +69,7 @@ import {
   normalizeLang,
   type PreviewState,
 } from "../commands/init.ts";
-import type { ClaudeInfraInventory } from "../lib/claude-infra.ts";
+import type { ClaudeInfraInventory } from "../lib/assets/claude-infra.ts";
 import type { LoadedPrompt } from "../engines/claude/prompts-loader.ts";
 
 const CANCEL = clk.CANCEL;

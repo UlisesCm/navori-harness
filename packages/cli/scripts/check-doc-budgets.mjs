@@ -10,7 +10,7 @@ import {
   SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
   countWords,
   simulateContextDelivery,
-} from "../src/lib/doc-budgets.ts";
+} from "../src/lib/assets/doc-budgets.ts";
 
 /**
  * #815 — extends the word-cap primitive from `SKILL_TYPE_CAPS`

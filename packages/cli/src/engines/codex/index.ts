@@ -3,7 +3,7 @@ import { join, relative, resolve, sep } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 import { loadDisabledPlugins, loadEnabledPlugins, type LoadedPlugin } from "../../lib/plugins.ts";
-import { unknownLibraries } from "../../lib/library-skills.ts";
+import { unknownLibraries } from "../../lib/assets/library-skills.ts";
 import { loadPreset, PresetError } from "../../lib/presets.ts";
 import { tc, resolveLang } from "../../lib/i18n.ts";
 import { parseAsset } from "../claude/parse-asset.ts";

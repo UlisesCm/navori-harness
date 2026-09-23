@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import { safeHomedir } from "./home.ts";
+import { safeHomedir } from "../home.ts";
 import { canonicalPath } from "./workspace.ts";
-import { withFileLock } from "./lockfile.ts";
+import { withFileLock } from "../lockfile.ts";
 
 /**
  * Global machine-local registry of every repo that has navori installed

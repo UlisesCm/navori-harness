@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkReceipt, formatReceipt, signReceipt, type ReceiptOptions } from "../receipt.ts";
-import { resolveReceiptOptions } from "../../commands/receipt.ts";
+import { resolveReceiptOptions } from "../../../commands/receipt.ts";
 
 const workspaces: string[] = [];
 afterEach(() =>

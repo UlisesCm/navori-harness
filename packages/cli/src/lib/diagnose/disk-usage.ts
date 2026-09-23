@@ -15,7 +15,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { backupRoot } from "./backup.ts";
+import { backupRoot } from "../backup.ts";
 
 export type DiskUsageTarget = "backups" | "worktrees";
 

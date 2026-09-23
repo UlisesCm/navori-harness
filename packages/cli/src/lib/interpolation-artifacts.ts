@@ -22,7 +22,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { NavoriConfig } from "./config.ts";
-import { collectMarkerFiles } from "./health.ts";
+import { collectMarkerFiles } from "./diagnose/health.ts";
 import { DEFAULT_LANG, SUPPORTED_LANGS } from "./i18n.ts";
 import { placeholderFallback } from "./placeholders.ts";
 

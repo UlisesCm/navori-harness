@@ -6,7 +6,7 @@ import {
   CLASSIFY_RULES_PATH,
   serializeClassifyPartial,
   serializeClassifyRules,
-} from "../../../scripts/gen-schemas.mjs";
+} from "../../../../scripts/gen-schemas.mjs";
 import {
   CLASSIFY_RULES,
   classifyPath,

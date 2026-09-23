@@ -24,7 +24,7 @@ import {
   countWords,
   managedBlockCeilings,
   simulateContextDelivery,
-} from "../lib/doc-budgets.ts";
+} from "../lib/assets/doc-budgets.ts";
 
 /**
  * #815 — `pnpm check:doc-budgets` → `packages/cli/scripts/check-doc-budgets.mjs`.

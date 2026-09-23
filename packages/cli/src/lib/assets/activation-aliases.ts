@@ -1,4 +1,4 @@
-import { RETIRED_AGENTS, RETIRED_SKILLS, type Retired } from "../engines/shared/roster.ts";
+import { RETIRED_AGENTS, RETIRED_SKILLS, type Retired } from "../../engines/shared/roster.ts";
 
 /**
  * One retired-with-a-successor id's classification for

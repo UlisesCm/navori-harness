@@ -3,8 +3,8 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseSkillFrontmatter, countWords, skillComposedCap } from "../skill-meta.ts";
-import { listMarkers } from "../health.ts";
+import { parseSkillFrontmatter, countWords, skillComposedCap } from "../assets/skill-meta.ts";
+import { listMarkers } from "../diagnose/health.ts";
 import { extractManagedContent } from "../marker.ts";
 import { renderClaudeEngine } from "../../engines/claude/index.ts";
 import type { NavoriConfig } from "../../lib/config.ts";

@@ -12,7 +12,7 @@ import {
   CODEX_PROJECT_DOC_WARN_RATIO,
   MARKER_PAIR_WORDS,
   SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
-} from "../../lib/doc-budgets.ts";
+} from "../../lib/assets/doc-budgets.ts";
 
 /**
  * #917 phase 2 — `doctor` prices what a session of this repo pays before its

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { scanStaleHarness } from "../stale-harness.ts";
-import type { NavoriConfig } from "../config.ts";
+import type { NavoriConfig } from "../../config.ts";
 
 /**
  * Spec 0018 R6 — harness no render will ever refresh again.

@@ -1,14 +1,14 @@
 import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { join, basename } from "node:path";
 import { spawnSync } from "node:child_process";
-import { presetExists } from "./presets.ts";
-import { collectWorkspacePatterns } from "./workspace-patterns.ts";
+import { presetExists } from "../presets.ts";
+import { collectWorkspacePatterns } from "../workspace/workspace-patterns.ts";
 import {
   detectLibrarySkills,
   detectMigrations,
   migrationDepNames,
   type ActiveMigration,
-} from "./library-skills.ts";
+} from "../assets/library-skills.ts";
 import { countDepImports } from "./dep-usage.ts";
 
 export type PackageManager = "pnpm" | "npm" | "yarn" | "bun";
@@ -131,8 +131,8 @@ export interface QualityGateGuess {
 
 // Claude infra detection lives in its own module; re-export to keep the
 // public surface of detect.ts stable for callers.
-export { detectClaudeInfra, type ClaudeInfraInventory } from "./claude-infra.ts";
-import { detectClaudeInfra, type ClaudeInfraInventory } from "./claude-infra.ts";
+export { detectClaudeInfra, type ClaudeInfraInventory } from "../assets/claude-infra.ts";
+import { detectClaudeInfra, type ClaudeInfraInventory } from "../assets/claude-infra.ts";
 
 export interface DetectedProject {
   name: string | null;

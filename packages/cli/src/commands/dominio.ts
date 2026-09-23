@@ -3,7 +3,7 @@ import * as p from "@clack/prompts";
 import { readFileSync } from "node:fs";
 import { brand, check, color, dim as grey, sym } from "../lib/style.ts";
 import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
-import { loadWorkspace } from "../lib/workspace.ts";
+import { loadWorkspace } from "../lib/workspace/workspace.ts";
 import {
   ensureDominio,
   reindex,
@@ -12,7 +12,7 @@ import {
   validateDominio,
   resolveWorkspacesForCwd,
   type DominioEntry,
-} from "../lib/dominio.ts";
+} from "../lib/workspace/dominio.ts";
 
 /**
  * Resolve which workspace a subcommand targets: the explicit --workspace flag,

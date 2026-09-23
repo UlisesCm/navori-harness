@@ -9,7 +9,7 @@ import {
 import { CORE_AGENTS, CORE_SKILLS, WORKFLOW_SKILLS } from "../harness-assets.ts";
 import { AGENT_ROLE_KEYS } from "../../../lib/config.ts";
 import { AGENT_ROLES } from "../../../lib/plugins.ts";
-import { CANONICAL_HARNESS_KEY, LEGACY_AGENT_ALIASES } from "../../../lib/legacy-agents.ts";
+import { CANONICAL_HARNESS_KEY, LEGACY_AGENT_ALIASES } from "../../../lib/assets/legacy-agents.ts";
 import { RECOMMENDED_MODELS, RECOMMENDED_EFFORT } from "../../../lib/recommended.ts";
 import { tc } from "../../../lib/i18n.ts";
 

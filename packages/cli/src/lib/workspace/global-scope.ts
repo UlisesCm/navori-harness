@@ -4,7 +4,7 @@ import {
   PLUGIN_HOOK_SCRIPT_REL,
   globalPluginDir,
   pluginInstalled,
-} from "../engines/claude/global-plugin.ts";
+} from "../../engines/claude/global-plugin.ts";
 import {
   composeBaseline,
   generateHookScript,
@@ -13,10 +13,10 @@ import {
   readExistingSettings,
   readHookDrift,
   type HookDrift,
-} from "../engines/claude/global-render.ts";
-import { globalConfigExists, readGlobalConfig } from "./global-config.ts";
-import { listMarkers } from "./health.ts";
-import type { NavoriConfig } from "./config.ts";
+} from "../../engines/claude/global-render.ts";
+import { globalConfigExists, readGlobalConfig } from "../global-config.ts";
+import { listMarkers } from "../diagnose/health.ts";
+import type { NavoriConfig } from "../config.ts";
 
 /**
  * A plugin agent Claude Code will never load in this repo, because a

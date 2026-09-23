@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   ACTIVATION_ALIASES_PATH,
   serializeActivationAliases,
-} from "../../../scripts/gen-schemas.mjs";
+} from "../../../../scripts/gen-schemas.mjs";
 import {
   type AliasDecision,
   requireDecisions,
@@ -13,7 +13,7 @@ import {
   skillAliasDecisions,
   skillAliases,
 } from "../activation-aliases.ts";
-import { RETIRED_AGENTS, RETIRED_SKILLS, type Retired } from "../../engines/shared/roster.ts";
+import { RETIRED_AGENTS, RETIRED_SKILLS, type Retired } from "../../../engines/shared/roster.ts";
 
 /**
  * #869 — `mine-activation.py` used to hand-copy its continuity-alias

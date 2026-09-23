@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { listMarkers } from "../health.ts";
+import { listMarkers } from "../diagnose/health.ts";
 
 /**
  * Reads what the harness DECLARES, so the audit can compare it against what a

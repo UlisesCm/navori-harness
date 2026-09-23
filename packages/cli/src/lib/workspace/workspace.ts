@@ -10,12 +10,12 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { z } from "zod";
-import { writeFileAtomic } from "./atomic.ts";
-import { safeHomedir } from "./home.ts";
-import { withFileLock } from "./lockfile.ts";
-import { NavoriError } from "./errors.ts";
-import { schemaUrl } from "./schema-url.ts";
-import { safeRelPath } from "./zod-helpers.ts";
+import { writeFileAtomic } from "../atomic.ts";
+import { safeHomedir } from "../home.ts";
+import { withFileLock } from "../lockfile.ts";
+import { NavoriError } from "../errors.ts";
+import { schemaUrl } from "../schema-url.ts";
+import { safeRelPath } from "../zod-helpers.ts";
 
 function workspacesRootLazy(): string {
   return join(safeHomedir(), ".navori", "workspaces");

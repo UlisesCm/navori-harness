@@ -10,8 +10,8 @@ import {
   unarchiveTicket,
   deleteTicket,
   TicketError,
-} from "../lib/tickets.ts";
-import { loadWorkspace } from "../lib/workspace.ts";
+} from "../lib/workspace/tickets.ts";
+import { loadWorkspace } from "../lib/workspace/workspace.ts";
 import { brand, dim, accent, color, sym, kv } from "../lib/style.ts";
 import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
 
