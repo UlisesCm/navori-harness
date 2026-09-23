@@ -3,10 +3,10 @@ name: resolve-ticket
 description: Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial — the canonical 6-phase pipeline to process it with objective gates.
 metadata:
   type: reference
-  maxWords: 600
+  maxWords: 700
   # Compuesto (#683): ningún plugin extiende esta skill, así que los 50 sobre el
   # cap del asset son exactamente el margen de interpolación.
-  maxWordsComposed: 650
+  maxWordsComposed: 750
 ---
 
 <!-- navori:managed id="resolve-ticket" hash="a94c5607" version="0.9.0" source="@navori/core" fmkeys="name,description,metadata" -->

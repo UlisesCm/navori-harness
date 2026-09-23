@@ -3,7 +3,7 @@ name: verify-before-done
 description: Use when about to declare a task done â€” the Iron Law of task closure: no success claim without fresh evidence from the command that backs it. Applies to implementer, reviewer, publisher and any response that declares "done".
 metadata:
   type: behavior
-  maxWords: 600
+  maxWords: 650
 ---
 
 # Verify Before Done
@@ -54,7 +54,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the command that proves it â
 
 ## When invoked
 
-`implementer` before `done -> impl_<feature>.md`; `reviewer` before `APPROVED`; `publisher` in pre-flight; any agent before "done".
+`implementer` before `done -> impl_<feature>.<!-- navori:if-not scribeOwnsMarkdown -->md<!-- /navori:if-not --><!-- navori:if scribeOwnsMarkdown -->json<!-- /navori:if -->`; `reviewer` before `APPROVED`; `publisher` in pre-flight; any agent before "done".
 
 ## Closing
 

@@ -172,6 +172,19 @@ const HarnessSchema = z.object({
   // their asking. Opt-in via `harness.architect: true`; the default can flip
   // once usage data (design.md "Criterios pre-registrados" #2) supports it.
   architect: z.boolean().default(false),
+  // Spec 0030 (#985), R13: NOT a roster key — it gates the implementer→scribe
+  // markdown contract (R1–R10), not an agent's presence. Lives in
+  // `HarnessSchema` (not a new top-level section) because `conditionOrchestration`
+  // and `isAgentEnabled` already resolve `navori:if <key>` / explicit-vs-default
+  // against this schema's keys via `HARNESS_DEFAULTS`, and that is exactly the
+  // fallback semantics this flag needs. `AGENT_ROLE_KEYS` (config.ts) — the
+  // roster-parity source of truth checked by `roster-parity.test.ts` — is left
+  // untouched, so this key does NOT count as an agent anywhere that iterates
+  // the roster; `CONFIG_KEY_RULE.children.harness.keys` in config.ts adds it
+  // separately for the advisory typo diagnostics. Default `false`: same
+  // admission posture as spec 0031 R4 (new/expanded agent capability starts
+  // gated).
+  scribeOwnsMarkdown: z.boolean().default(false),
 });
 
 /**

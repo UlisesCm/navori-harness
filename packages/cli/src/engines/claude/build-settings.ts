@@ -45,6 +45,12 @@ import { deepMerge } from "./deep-merge.ts";
  *      `$CLAUDE_PROJECT_DIR` anchor (not a cwd-relative path) is what lets the
  *      hook resolve when the Bash cwd is a git worktree without its own
  *      `.claude/`. Exit 2 precedes permission rules.
+ *   1c. `implementer-no-markdown` PreToolUse(`Bash|Edit|Write|NotebookEdit`)
+ *      hook (spec 0030, R3/R4/R13) — registered only when
+ *      `harness.scribeOwnsMarkdown` is `true` (default `false`), exit 2.
+ *      Blocks the `implementer` (identified by the payload's `agent_type`)
+ *      from writing `.md`/`.mdx`; every other agent and the main thread pass
+ *      untouched.
  *   2. Quality-gate PreToolUse hook, only if `config.qualityGate.fast` is
  *      set. The hook entry references
  *      `$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh`
@@ -68,6 +74,7 @@ import { deepMerge } from "./deep-merge.ts";
 
 const QG_HOOK_DEST = ".claude/hooks/quality-gate-pre-commit.sh";
 const GUARD_HOOK_DEST = ".claude/hooks/guard-destructive.sh";
+const IMPLEMENTER_NO_MD_HOOK_DEST = ".claude/hooks/implementer-no-markdown.sh";
 const SESSION_START_HOOK_DEST = ".claude/hooks/session-start-context.sh";
 const MODEL_ADVISOR_HOOK_DEST = ".claude/hooks/model-advisor.sh";
 const AUDIT_TRIGGER_HOOK_DEST = ".claude/hooks/audit-mode-trigger.sh";
@@ -127,6 +134,38 @@ export function buildClaudeSettings(
       ],
     },
   });
+
+  // Spec 0030 (#985), R3/R4/R13: the mechanical half of "the implementer does
+  // not write Markdown" — registered only when `harness.scribeOwnsMarkdown`
+  // is `true` (default `false`, same admission gate as spec 0031 R7). Same
+  // posture as the guard above once it is on (this file, whether it blocks,
+  // is the decision — an implementer that never touches `.md` never trips
+  // it). Exit 2 precedes permission rules, same channel guard-destructive
+  // uses.
+  //
+  // Matcher is `Bash|Edit|Write|NotebookEdit`, deliberately NOT `MultiEdit`
+  // (retired tool name; #796's `hook-matcher-wiring.test.ts` derives coverage
+  // from what the script itself declares, so a token here with nothing behind
+  // it would fail there, not silently ship dead weight).
+  if (config.harness?.scribeOwnsMarkdown) {
+    settings = deepMerge(settings, {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: "Bash|Edit|Write|NotebookEdit",
+            hooks: [
+              {
+                type: "command",
+                command: `bash "$CLAUDE_PROJECT_DIR/${IMPLEMENTER_NO_MD_HOOK_DEST}"`,
+                timeout: 10,
+                statusMessage: "navori: implementer-no-markdown",
+              },
+            ],
+          },
+        ],
+      },
+    });
+  }
 
   // Spec 0028: all three registrations are advisory-only. The hook stores only
   // session scratch state and prints the documented user-visible systemMessage;

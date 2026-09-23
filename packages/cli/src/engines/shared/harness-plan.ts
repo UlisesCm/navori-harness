@@ -9,6 +9,7 @@ import {
   extraConditionMet,
   isAgentEnabled,
 } from "./harness-assets.ts";
+import type { RosterAgent } from "./roster.ts";
 
 /**
  * Provider-agnostic harness inventory (Spec 0007, Capa 1). Resolves WHICH
@@ -28,11 +29,13 @@ export interface PlannedAgent {
   managedId: string;
   /**
    * Key into config.models / config.effort for per-role assignment. Typed off
-   * `harness` — the agent-role key set, which is exactly what `harnessKey`
-   * feeds it. `keyof models` would also admit `codexMap`, a tier→model map
-   * that is not a role and cannot index `config.effort`.
+   * `RosterAgent["harnessKey"]` — the roster's own agent-role key space
+   * (spec 0030, R13: NOT `keyof NavoriConfig["harness"]` anymore, since that
+   * widened to include `scribeOwnsMarkdown`, a flag with no `models`/`effort`
+   * counterpart). `keyof models` would also admit `codexMap`, a tier→model
+   * map that is not a role and cannot index `config.effort`.
    */
-  modelKey?: keyof NonNullable<NavoriConfig["harness"]>;
+  modelKey?: RosterAgent["harnessKey"];
   /** Role sandbox from the catalog; providers that sandbox honor it (Codex). */
   sandbox?: "read-only" | "workspace-write";
 }
@@ -159,6 +162,14 @@ export function resolveHarnessPlan(
       id: "guard-destructive",
       assetPath: join(coreAssets, "hooks/guard-destructive.sh"),
       managedId: "guard-destructive-base",
+    },
+    // Spec 0030 (#985), R3/R4: the mechanical backstop for "the implementer
+    // does not write Markdown". Unconditional, like the guard above — it is
+    // scoped to a single role's payload, not a configurable feature.
+    {
+      id: "implementer-no-markdown",
+      assetPath: join(coreAssets, "hooks/implementer-no-markdown.sh"),
+      managedId: "implementer-no-markdown-base",
     },
     {
       id: "session-start-context",

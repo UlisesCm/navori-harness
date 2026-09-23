@@ -4,7 +4,7 @@ description: Do NOT invoke as a subagent, never and under no condition. Orchestr
 tools: Read, Glob, Grep, Bash, Agent, mcp__codegraph__*, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__engram__mem_context, mcp__engram__mem_save, mcp__engram__mem_session_summary, mcp__engram__mem_update
 model: opus
 effort: medium
-maxWords: 2850
+maxWords: 3050
 ---
 
 <!-- navori:managed id="orchestrator-base" hash="03408b65" version="0.9.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->

@@ -18,7 +18,7 @@ There used to be a ladder (inline for small changes, delegate for the rest). It 
 
 ### The mechanics
 
-- **1 focused `implementer`** with an explicit scope (no SDD state), then **1 fresh `reviewer`**. Serial — the reviewer depends on the implementer's output.
+- **1 focused `implementer`** with an explicit scope (no SDD state), then<!-- navori:if scribeOwnsMarkdown --> **1 `scribe`** when `impl_<feature>.json` carries `markdownRequests` (model per dispatch — the scribe's configured default for a handoff-only render, `sonnet` when a request touches the shipped diff, R8), then<!-- /navori:if --> **1 fresh `reviewer`**. Serial — the reviewer depends on the implementer's<!-- navori:if scribeOwnsMarkdown --> (and, when it ran, the scribe's)<!-- /navori:if --> output.
 - **Review AFTER implementing, never before.**
 - **Parallel `implementer`s only on disjoint files** (when in doubt, serial).
 - **`{{qualityGate.full}}` green** is the reviewer's Pass 2, over the diff that ships.

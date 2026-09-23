@@ -65,10 +65,11 @@ import type { NavoriConfig } from "../lib/config.ts";
  */
 
 /**
- * `qualityGate.fast` is set on purpose: the pre-commit gate is the one core
- * hook registered CONDITIONALLY, and a config that leaves it out would quietly
- * drop a gate hook from this file's scope — the kind of silent narrowing the
- * whole suite exists to catch.
+ * `qualityGate.fast` and `harness.scribeOwnsMarkdown` are set on purpose: the
+ * pre-commit gate and `implementer-no-markdown` (spec 0030, R13) are the core
+ * hooks registered CONDITIONALLY, and a config that leaves either out would
+ * quietly drop a hook from this file's scope — the kind of silent narrowing
+ * the whole suite exists to catch.
  */
 const MINIMAL_CONFIG = {
   name: "test",
@@ -79,6 +80,7 @@ const MINIMAL_CONFIG = {
   branchBase: "main",
   commits: "conventional-es",
   qualityGate: { fast: "pnpm lint" },
+  harness: { scribeOwnsMarkdown: true },
 } as unknown as NavoriConfig;
 
 /**

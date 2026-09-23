@@ -52,7 +52,23 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
       // Spec 0026 F review (2026-09-17): opt-in, not on-by-default like the
       // rest of the roster — see HARNESS_DEFAULTS's doc in schema.ts.
       architect: false,
+      // Spec 0030 (#985), R13: NOT a roster agent, gated off by default like
+      // `architect` — see HarnessSchema's doc in schema.ts.
+      scribeOwnsMarkdown: false,
     });
+  });
+
+  // Covers: R13
+  it("harness.scribeOwnsMarkdown defaults to false (via harness:{}) and accepts an explicit true", () => {
+    // `harness` itself is optional at the top level (see HARNESS_DEFAULTS's
+    // doc): an absent section parses to `undefined`, not per-field defaults —
+    // `harness:{}` is what exercises HarnessSchema's own default.
+    const off = NavoriConfigSchema.parse({ ...MINIMAL, harness: {} });
+    expect(off.harness?.scribeOwnsMarkdown).toBe(false);
+    const on = NavoriConfigSchema.parse({ ...MINIMAL, harness: { scribeOwnsMarkdown: true } });
+    expect(on.harness?.scribeOwnsMarkdown).toBe(true);
+    // Every roster agent keeps its own default when only this flag is set explicitly.
+    expect(on.harness?.implementer).toBe(true);
   });
 
   it("applies progress sub-defaults when progress:{} is given", () => {

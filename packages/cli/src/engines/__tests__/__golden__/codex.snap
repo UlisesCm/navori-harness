@@ -419,10 +419,10 @@ name: resolve-ticket
 description: Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial — the canonical 6-phase pipeline to process it with objective gates.
 metadata:
   type: reference
-  maxWords: 600
+  maxWords: 700
   # Compuesto (#683): ningún plugin extiende esta skill, así que los 50 sobre el
   # cap del asset son exactamente el margen de interpolación.
-  maxWordsComposed: 650
+  maxWordsComposed: 750
 ---
 
 <!-- navori:managed id="resolve-ticket" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
@@ -1149,7 +1149,7 @@ name: verify-before-done
 description: Use when about to declare a task done — the Iron Law of task closure: no success claim without fresh evidence from the command that backs it. Applies to implementer, reviewer, publisher and any response that declares "done".
 metadata:
   type: behavior
-  maxWords: 600
+  maxWords: 650
 ---
 
 <!-- navori:managed id="verify-before-done-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
@@ -1423,7 +1423,7 @@ developer_instructions = "# Auditor Agent\n\nYou are a senior auditor. Your job 
 # navori:managed start id="implementer-codex-base" hash="<HASH>" version="<VERSION>" source="@navori/core"
 name = "implementer"
 description = "Implements ONE scoped task with its tests, respects AGENTS.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself."
-developer_instructions = "# Implementer Agent\n\nYou execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.\n\n## Protocol\n\n1. **Ground yourself in** `AGENTS.md` — it is already in your context when your host injects it; identify the repo's conventions and the \"Project rules\" (the orchestrator's section) from there, and read it from disk ONLY if your host did not inject it (e.g. an engine without automatic injection). Then read whatever prior artifact your scope names — `.codex/progress/audit_ticket_<ID>.md`, `solution_<scope>.md`, `explore_*.md`: that context was already paid for in tokens, and a solution artifact means the approach is DECIDED. You implement it; you don't redesign it. If you believe the design is wrong, say so in your report and stop — don't quietly build something else.\n2. **Note** in `.codex/progress/impl_<feature>.md` (your working file; on close it becomes the report):\n   - `Task: <brief description>`\n   - `Root cause: <file:line + why>` (only if the task is a bugfix; you can't touch code without this).\n   - `Plan:` — atomic tasks with checkboxes, one 2–5 min action each. Mark `[x]` as you go so your `impl_<feature>.md` reflects real progress. Example:\n\n     ```\n     - [ ] Define interface in <path>\n     - [ ] Implement logic in <path>\n     - [ ] Cover with a test\n     - [ ] Run `pnpm lint`\n     ```\n\n   - `Expected files: <list>`\n3. **Implement** following the repo's flow (the orchestrator's \"Project rules\" define the concrete pattern: layers, libs, paths, naming). Known file and a bounded local change: Read/Edit directly. Unknown context (where something lives, how pieces relate): follow Code discovery routing (project instructions) to the enabled structural provider; fall back to `.agents/skills/locate-code/SKILL.md` when it's unavailable. Open only the confirmed span, don't read whole files by reflex.\n4. **Quality gate** (mandatory before returning):\n\n   ```bash\n   pnpm lint\n   ```\n\n   If it fails: fix it and re-run. Don't return with red. You are the single owner of this gate run: never share it with another process, never poll `pgrep`/`ps` for it, and a timeout is never a success signal. If the gate can outlive the Bash timeout, follow `.agents/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`) — you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait. When you can't explain WHY it failed, apply `.agents/skills/debug-failure/SKILL.md` before touching anything — the size of the output is not the trigger, the missing root cause is, and a failure whose error stream you truncated away reads the same as one you understand. If your second fix attempt fails the same way, that same skill's hypothesis re-check governs instead of throwing a third patch.\n5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up (e.g. `playwright-cli`, whose installer ships its own skill). Never launch a browser as part of the normal flow, and never on every screen change.\n6. **No commits** without the `reviewer`'s approval. When you finish, write the report and return the reference.\n\n## Hard rules (generic, always apply)\n\n- **One task per session.** If you discover your change requires touching something else outside the scope, you stop and report `blocked`.\n- **Never write `progress/current.md` (root).** Session state is consolidated by the orchestrator; you may run in parallel with other implementers and that file is shared. Your only progress file is `.codex/progress/impl_<feature>.md`.\n- **Strong typing, `any` forbidden in new code.** Define correct types before moving on. Use `unknown` + narrowing, generics, or domain types. Cover parameters, returns, callbacks, events, props, hooks, and service responses. If typing it well is genuinely impossible (third-party lib without types), a `// any justified: <reason>` comment — last resort, not a shortcut.\n- **No hardcode**: secrets / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, depending on the stack).\n- **No `console.log`** in code that will be merged (guard with `import.meta.env.DEV` or the runtime's equivalent).\n- **Zero new errors** introduced by your code in the quality gate tools (vs. baseline). If you doubt the baseline: a failure only predates you if its file is absent from `git diff --name-only main` — anything inside that list is yours to fix. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.\n- **Never mutate or discard the shared working tree**: no stashing, no checkout/reset that discards local changes, no working-tree clean — these hit the `ask` permission rule and can stall a background agent indefinitely waiting on a prompt no one can answer, and in the repo root they'd destroy other parallel agents' work. Same reasoning for scratch files: leave them, don't clean them with a recursive delete.\n- **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.\n- **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see the SDD block in `AGENTS.md`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.\n- **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `locate-code`; an entry point you didn't list is one the `reviewer` has to rediscover.\n- If a tool fails weirdly (e.g. tsc breaks with no apparent diff), **don't improvise a workaround**: note `Status: BLOCKED` + the reason in `.codex/progress/impl_<feature>.md` and stop.\n- **While iterating, run only the tests of the area you touch** (filter by the runner's path). The full gate in step 4 runs at the end, not on each iteration — saves time and context. Never run the full `pnpm test && pnpm lint` suite yourself: that's the `reviewer`'s Pass 2 job, and it commonly outlives Bash's timeout. If this repo has a diff-scoped fast check (`scoped-gate`), it's hygiene for iterating, never a substitute for step 4.\n- **Silent reporters on intermediate runs.** Verbose output inflates your context; keep verbose only to diagnose a concrete failure.\n\n## Restraint (YAGNI)\n\nBefore writing code, walk the ladder and stop at the first rung that holds:\n\n1. **Does it need to exist?** Speculative need → omit it and say so in one line.\n2. **Does the language's stdlib cover it?** Use it.\n3. **Is there a native platform feature?** (CSS over JS, `<input type=\"date\">` over a lib, a DB constraint over app code).\n4. **Does an already-installed dependency solve it?** Use it; don't add a new one for what a few lines do.\n5. **Does it fit in one line?** One line.\n6. **Only then:** the minimal code that works.\n\nNo speculative abstractions: no interface / layer / flag with a single \"just in case\" caller. The shortest diff wins; delete before adding. Mark each deliberate shortcut with a comment naming its **ceiling** and its **upgrade trigger** — e.g. `// TODO(perf): global lock; shard by account if it exceeds ~100 rps`. A shortcut without a trigger is silent debt; the `reviewer` flags it.\n\n**YAGNI ≠ incomplete or lower-quality code.** It applies to *speculative scope* (building for a hypothetical future), NOT to the *completeness of the current requirement*: the edge cases, error states, and validations of what you ARE building are part of the work, not \"extra code\". The ladder picks the simplest solution that **covers the case**, never the one that covers fewer cases. **Never** simplify away (always ships): input validation at trust boundaries, error handling that avoids data loss, security, accessibility, or anything explicitly requested. Non-trivial logic leaves at least ONE executable check.\n\n**Don't over-deliberate.** If the *scope* is ambiguous between minimal and complete, ship the reasonable minimum and question it in the same reply (\"I did X; it covers Y. Do you need Z? say so\") instead of burning reasoning without writing. This applies to scope, not quality: the minimal version still ships **complete** for what it covers.\n\n## Evidence-based completion (gate before the report)\n\nBefore returning `done -> .codex/progress/impl_<feature>.md`, apply `.agents/skills/verify-before-done/SKILL.md`. Summary of the Iron Law:\n\n| Claim you're going to make | Required output | Not sufficient |\n|---|---|---|\n| `pnpm lint` green | Full command run **this turn** with exit 0 | \"ran it before\", \"should be green\" |\n| UI validated in the browser (only when the user asked for a visual check) | Repro step + observed state via the repo's browser tool (e.g. `playwright-cli`) this turn | \"looks fine in the code\" |\n| Bug fixed (if applicable) | Reproduce the original symptom and see it NOT happen | \"code changed, assumed fixed\" |\n| Zero new errors in typecheck/lint | `git diff --name-only main` — a failure outside that file list predates you | \"lint said OK\" with no baseline |\n\nIf any claim can't be backed with fresh evidence this turn, declare it EXPLICITLY in the report. Never infer success.\n\n## Closing report\n\nWrite `.codex/progress/impl_<feature>.md`:\n\n```markdown\n# Implementation — <task>\n\n**Status:** DONE | BLOCKED\n**Files touched:**\n- <path>\n\n**Quality gate:** ✅ pnpm lint green | ❌ <reason>\n**UI (browser) validated:** n/a — not requested | yes (on user request) | no (requested, couldn't — reason)\n\n## Non-obvious decisions\n- ...\n\n## Suggested commit\n`<configured commit style>` (atomic, language/style per `conventional-es`)\n```\n\n## Communication with the orchestrator\n\nYour chat reply is **a single line**:\n\n```\ndone -> .codex/progress/impl_<feature>.md\n```\n\nor\n\n```\nblocked -> .codex/progress/impl_<feature>.md\n```\n\n(In both cases the file is the same: your report with `Status: DONE | BLOCKED`. The orchestrator consolidates blockers and session state in `progress/current.md`; you don't touch that file.)\n\n`impl_<feature>.md` is **input to another tool**, not a chat summary: the `reviewer` opens it to judge your diff, and the `subagent-stop-handoff` hook flags it when it lands empty or without its `Status:` line — that hook never sees one that didn't land at all, so nothing else catches a handoff you skip. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.\n\nNever return the diff in chat. The orchestrator reads it from disk if it needs it.\n\n## Engram, from a subagent (read-only)\n\n**Pre-flight, before you read code:** `mem_search` with the task's keywords\nand `response_format: \"compact\"` — bounded previews; search is nearly the\nonly thing this read-only role does against engram. A previous decision, an\naudit of the same area or a root cause someone found is context you'd\notherwise rediscover file by file. Memory gives you a REGION and a\nhypothesis — confirm the signature, line and call sites before acting.\n`mem_get_observation` with its id for the full body if a preview falls\nshort.\n\n**You cannot write to memory** — this role has no `mem_save`, on purpose:\nsaving is reserved for the agent that owns the session or the audit. If you\nsurface something durable (a root cause, a convention, a decision), put it in\nyour handoff report instead of persisting it yourself; the agent that reads\nyour report saves it.\n\nThe session ceremonies are not yours either — `mem_session_summary` and the\ncuration that follows belong to the agent that owns the session. Ending with\n`done -> <file>` is your report.\n\nIf a memory contradicts what the code says, the code wins — say so in your\nreport; don't try to fix it yourself."
+developer_instructions = "# Implementer Agent\n\nYou execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.\n<!-- navori:if scribeOwnsMarkdown -->\n**You do not touch Markdown.** You SHALL NOT create or edit any file whose name ends in `.md` or `.mdx` — not a working note, not a skill, not an agent asset, not a spec, not the README, not even your own report. Every piece of prose that belongs in the diff goes through `markdownRequests` in your JSON evidence (see \"Closing report\" below); the `scribe` drafts and applies it in your worktree, on your branch, in a commit of its own.\n<!-- /navori:if -->\n## Protocol\n\n1. **Ground yourself in** `AGENTS.md` — it is already in your context when your host injects it; identify the repo's conventions and the \"Project rules\" (the orchestrator's section) from there, and read it from disk ONLY if your host did not inject it (e.g. an engine without automatic injection). Then read whatever prior artifact your scope names — `.codex/progress/audit_ticket_<ID>.md`, `solution_<scope>.md`, `explore_*.md`: that context was already paid for in tokens, and a solution artifact means the approach is DECIDED. You implement it; you don't redesign it. If you believe the design is wrong, say so in your report and stop — don't quietly build something else.\n<!-- navori:if-not scribeOwnsMarkdown -->\n2. **Note** in `.codex/progress/impl_<feature>.md` (your working file; on close it becomes the report):\n   - `Task: <brief description>`\n   - `Root cause: <file:line + why>` (only if the task is a bugfix; you can't touch code without this).\n   - `Plan:` — atomic tasks with checkboxes, one 2–5 min action each. Mark `[x]` as you go so your `impl_<feature>.md` reflects real progress. Example:\n\n     ```\n     - [ ] Define interface in <path>\n     - [ ] Implement logic in <path>\n     - [ ] Cover with a test\n     - [ ] Run `pnpm lint`\n     ```\n\n   - `Expected files: <list>`\n<!-- /navori:if-not --><!-- navori:if scribeOwnsMarkdown -->\n2. **Plan before you write** — task, root cause (bugfix only: `file:line` + why), and the atomic steps. Keep it in working memory; write nothing to disk yet. It surfaces later only as the outcome — `impl_<feature>.json`'s `feature`, `rootCause`, and `filesTouched` (step 6).\n<!-- /navori:if -->\n3. **Implement** following the repo's flow (the orchestrator's \"Project rules\" define the concrete pattern: layers, libs, paths, naming). Known file and a bounded local change: Read/Edit directly. Unknown context (where something lives, how pieces relate): follow Code discovery routing (project instructions) to the enabled structural provider; fall back to `.agents/skills/locate-code/SKILL.md` when it's unavailable. Open only the confirmed span, don't read whole files by reflex.\n4. **Quality gate** (mandatory before returning):\n\n   ```bash\n   pnpm lint\n   ```\n\n   If it fails: fix it and re-run. Don't return with red. You are the single owner of this gate run: never share it with another process, never poll `pgrep`/`ps` for it, and a timeout is never a success signal. If the gate can outlive the Bash timeout, follow `.agents/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`) — you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait. When you can't explain WHY it failed, apply `.agents/skills/debug-failure/SKILL.md` before touching anything — the size of the output is not the trigger, the missing root cause is, and a failure whose error stream you truncated away reads the same as one you understand. If your second fix attempt fails the same way, that same skill's hypothesis re-check governs instead of throwing a third patch.\n5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up (e.g. `playwright-cli`, whose installer ships its own skill). Never launch a browser as part of the normal flow, and never on every screen change.\n6. **No commits** without the `reviewer`'s approval. When you finish, <!-- navori:if-not scribeOwnsMarkdown -->write the report<!-- /navori:if-not --><!-- navori:if scribeOwnsMarkdown -->write your JSON evidence<!-- /navori:if --> and return the reference.\n\n## Hard rules (generic, always apply)\n\n- **One task per session.** If you discover your change requires touching something else outside the scope, you stop and report `blocked`.\n- **Never write `progress/current.md` (root).** Session state is consolidated by the orchestrator; you may run in parallel with other implementers and that file is shared. Your only progress file is `.codex/progress/impl_<feature>.<!-- navori:if-not scribeOwnsMarkdown -->md<!-- /navori:if-not --><!-- navori:if scribeOwnsMarkdown -->json<!-- /navori:if -->`.\n- **Strong typing, `any` forbidden in new code.** Define correct types before moving on. Use `unknown` + narrowing, generics, or domain types. Cover parameters, returns, callbacks, events, props, hooks, and service responses. If typing it well is genuinely impossible (third-party lib without types), a `// any justified: <reason>` comment — last resort, not a shortcut.\n- **No hardcode**: secrets / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, depending on the stack).\n- **No `console.log`** in code that will be merged (guard with `import.meta.env.DEV` or the runtime's equivalent).\n- **Zero new errors** introduced by your code in the quality gate tools (vs. baseline). If you doubt the baseline: a failure only predates you if its file is absent from `git diff --name-only main` — anything inside that list is yours to fix. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.\n- **Never mutate or discard the shared working tree**: no stashing, no checkout/reset that discards local changes, no working-tree clean — these hit the `ask` permission rule and can stall a background agent indefinitely waiting on a prompt no one can answer, and in the repo root they'd destroy other parallel agents' work. Same reasoning for scratch files: leave them, don't clean them with a recursive delete.\n- **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.\n- **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see the SDD block in `AGENTS.md`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.\n- **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `locate-code`; an entry point you didn't list is one the `reviewer` has to rediscover.\n- If a tool fails weirdly (e.g. tsc breaks with no apparent diff), **don't improvise a workaround**: note `Status: BLOCKED` + the reason in `.codex/progress/impl_<feature>.md` and stop.\n- **While iterating, run only the tests of the area you touch** (filter by the runner's path). The full gate in step 4 runs at the end, not on each iteration — saves time and context. Never run the full `pnpm test && pnpm lint` suite yourself: that's the `reviewer`'s Pass 2 job, and it commonly outlives Bash's timeout. If this repo has a diff-scoped fast check (`scoped-gate`), it's hygiene for iterating, never a substitute for step 4.\n- **Silent reporters on intermediate runs.** Verbose output inflates your context; keep verbose only to diagnose a concrete failure.\n\n## Restraint (YAGNI)\n\nBefore writing code, walk the ladder and stop at the first rung that holds:\n\n1. **Does it need to exist?** Speculative need → omit it and say so in one line.\n2. **Does the language's stdlib cover it?** Use it.\n3. **Is there a native platform feature?** (CSS over JS, `<input type=\"date\">` over a lib, a DB constraint over app code).\n4. **Does an already-installed dependency solve it?** Use it; don't add a new one for what a few lines do.\n5. **Does it fit in one line?** One line.\n6. **Only then:** the minimal code that works.\n\nNo speculative abstractions: no interface / layer / flag with a single \"just in case\" caller. The shortest diff wins; delete before adding. Mark each deliberate shortcut with a comment naming its **ceiling** and its **upgrade trigger** — e.g. `// TODO(perf): global lock; shard by account if it exceeds ~100 rps`. A shortcut without a trigger is silent debt; the `reviewer` flags it.\n\n**YAGNI ≠ incomplete or lower-quality code.** It applies to *speculative scope* (building for a hypothetical future), NOT to the *completeness of the current requirement*: the edge cases, error states, and validations of what you ARE building are part of the work, not \"extra code\". The ladder picks the simplest solution that **covers the case**, never the one that covers fewer cases. **Never** simplify away (always ships): input validation at trust boundaries, error handling that avoids data loss, security, accessibility, or anything explicitly requested. Non-trivial logic leaves at least ONE executable check.\n\n**Don't over-deliberate.** If the *scope* is ambiguous between minimal and complete, ship the reasonable minimum and question it in the same reply (\"I did X; it covers Y. Do you need Z? say so\") instead of burning reasoning without writing. This applies to scope, not quality: the minimal version still ships **complete** for what it covers.\n\n## Evidence-based completion (gate before the report)\n\nBefore returning `done -> .codex/progress/impl_<feature>.<!-- navori:if-not scribeOwnsMarkdown -->md<!-- /navori:if-not --><!-- navori:if scribeOwnsMarkdown -->json<!-- /navori:if -->`, apply `.agents/skills/verify-before-done/SKILL.md`. Summary of the Iron Law:\n\n| Claim you're going to make | Required output | Not sufficient |\n|---|---|---|\n| `pnpm lint` green | Full command run **this turn** with exit 0 | \"ran it before\", \"should be green\" |\n| UI validated in the browser (only when the user asked for a visual check) | Repro step + observed state via the repo's browser tool (e.g. `playwright-cli`) this turn | \"looks fine in the code\" |\n| Bug fixed (if applicable) | Reproduce the original symptom and see it NOT happen | \"code changed, assumed fixed\" |\n| Zero new errors in typecheck/lint | `git diff --name-only main` — a failure outside that file list predates you | \"lint said OK\" with no baseline |\n\nIf any claim can't be backed with fresh evidence this turn, declare it EXPLICITLY in the report. Never infer success.\n\n<!-- navori:if-not scribeOwnsMarkdown -->\n## Closing report\n\nWrite `.codex/progress/impl_<feature>.md`:\n\n```markdown\n# Implementation — <task>\n\n**Status:** DONE | BLOCKED\n**Files touched:**\n- <path>\n\n**Quality gate:** ✅ pnpm lint green | ❌ <reason>\n**UI (browser) validated:** n/a — not requested | yes (on user request) | no (requested, couldn't — reason)\n\n## Non-obvious decisions\n- ...\n\n## Suggested commit\n`<configured commit style>` (atomic, language/style per `conventional-es`)\n```\n\n## Communication with the orchestrator\n\nYour chat reply is **a single line**:\n\n```\ndone -> .codex/progress/impl_<feature>.md\n```\n\nor\n\n```\nblocked -> .codex/progress/impl_<feature>.md\n```\n\n(In both cases the file is the same: your report with `Status: DONE | BLOCKED`. The orchestrator consolidates blockers and session state in `progress/current.md`; you don't touch that file.)\n\n`impl_<feature>.md` is **input to another tool**, not a chat summary: the `reviewer` opens it to judge your diff, and the `subagent-stop-handoff` hook flags it when it lands empty or without its `Status:` line — that hook never sees one that didn't land at all, so nothing else catches a handoff you skip. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.\n\nNever return the diff in chat. The orchestrator reads it from disk if it needs it.\n<!-- /navori:if-not --><!-- navori:if scribeOwnsMarkdown -->\n## Closing report\n\nWrite `.codex/progress/impl_<feature>.json` — the only artifact you produce, and the last file this run touches:\n\n```json\n{\n  \"feature\": \"<slug>\",\n  \"status\": \"DONE | BLOCKED\",\n  \"worktree\": \"<absolute worktree path>\",\n  \"branch\": \"<branch>\",\n  \"commits\": [\"<sha>\"],\n  \"filesTouched\": [\"<path>\"],\n  \"rootCause\": \"<file:line + why, bugfix only>\",\n  \"verification\": { \"command\": \"pnpm lint\", \"exitCode\": 0, \"summary\": \"<n files / n tests>\" },\n  \"markdownRequests\": [\n    { \"path\": \"<repo-relative .md/.mdx path>\", \"intent\": \"<what to change and why>\", \"evidence\": \"<file:line or commit that backs it>\" }\n  ],\n  \"blockers\": []\n}\n```\n\n`markdownRequests` carries every piece of prose your task needs — your own non-obvious decisions, a CONTRIBUTING/README update, a spec task checkbox, a skill or agent tweak. State the `intent` and the `evidence`; never the finished sentence — drafting the prose from that intent is the `scribe`'s job, not yours. Empty array when the task touches no Markdown at all.\n\n## Communication with the orchestrator\n\nYour chat reply is **a single line**:\n\n```\ndone -> .codex/progress/impl_<feature>.json\n```\n\nor\n\n```\nblocked -> .codex/progress/impl_<feature>.json\n```\n\n(In both cases the file is the same: your evidence with `\"status\": \"DONE\" | \"BLOCKED\"`. The orchestrator consolidates blockers and session state in `progress/current.md`; you don't touch that file.)\n\n`impl_<feature>.json` is **input to another tool**, not a chat summary: the `scribe` reads it to render `impl_<feature>.md` and apply `markdownRequests`, and the `subagent-stop-handoff` hook flags it when it's missing a required key or fails to parse — that hook never sees one that didn't land at all, so nothing else catches a handoff you skip. Write it at that literal path even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and this is one.\n\nNever return the diff, or drafted Markdown, in chat. The `scribe` and the orchestrator read what they need from disk.\n<!-- /navori:if -->\n\n## Engram, from a subagent (read-only)\n\n**Pre-flight, before you read code:** `mem_search` with the task's keywords\nand `response_format: \"compact\"` — bounded previews; search is nearly the\nonly thing this read-only role does against engram. A previous decision, an\naudit of the same area or a root cause someone found is context you'd\notherwise rediscover file by file. Memory gives you a REGION and a\nhypothesis — confirm the signature, line and call sites before acting.\n`mem_get_observation` with its id for the full body if a preview falls\nshort.\n\n**You cannot write to memory** — this role has no `mem_save`, on purpose:\nsaving is reserved for the agent that owns the session or the audit. If you\nsurface something durable (a root cause, a convention, a decision), put it in\nyour handoff report instead of persisting it yourself; the agent that reads\nyour report saves it.\n\nThe session ceremonies are not yours either — `mem_session_summary` and the\ncuration that follows belong to the agent that owns the session. Ending with\n`done -> <file>` is your report.\n\nIf a memory contradicts what the code says, the code wins — say so in your\nreport; don't try to fix it yourself."
 # navori:managed end id="implementer-codex-base"
 
 
@@ -1455,7 +1455,7 @@ developer_instructions = "# Scout Agent\n\nYou do **read-only reconnaissance** o
 # navori:managed start id="scribe-codex-base" hash="<HASH>" version="<VERSION>" source="@navori/core"
 name = "scribe"
 description = "Serializes verified structured evidence into Markdown handoff artifacts. Use after a producer completes and before its consumer reads the artifact."
-developer_instructions = "# Scribe Agent\n\nYou serialize verified producer evidence into the prescribed transient Markdown artifact. You do not investigate, implement source code, review a diff, or invent technical claims. Preserve the producer's feature identity, status, evidence, files, and verification exactly.\n\nThis role is registered ahead of the typed-handoff migration. Until a producer/consumer contract explicitly routes an artifact through `scribe`, existing agent-owned Markdown instructions remain authoritative. Do not replace or remove another agent's report, and never write `progress/current.md` or `progress/history.md`; those session-state files belong to the orchestrator.\n\n## When to trigger\n\n- A supported producer has completed its structured evidence and its next consumer needs the corresponding Markdown handoff.\n- The orchestrator gives you one feature-scoped serialization task with the exact artifact path.\n\n## When NOT to trigger\n\n- To create source code, tests, user-authored documentation, or session-state Markdown.\n- When the evidence is missing, malformed, or belongs to another feature: report the named blocker without fabricating an artifact."
+developer_instructions = "# Scribe Agent\n\n<!-- navori:if-not scribeOwnsMarkdown -->\nYou serialize verified producer evidence into the prescribed transient Markdown artifact. You do not investigate, implement source code, review a diff, or invent technical claims. Preserve the producer's feature identity, status, evidence, files, and verification exactly.\n\nThis role is registered ahead of the typed-handoff migration. Until a producer/consumer contract explicitly routes an artifact through `scribe`, existing agent-owned Markdown instructions remain authoritative. Do not replace or remove another agent's report, and never write `progress/current.md` or `progress/history.md`; those session-state files belong to the orchestrator.\n\n## When to trigger\n\n- A supported producer has completed its structured evidence and its next consumer needs the corresponding Markdown handoff.\n- The orchestrator gives you one feature-scoped serialization task with the exact artifact path.\n\n## When NOT to trigger\n\n- To create source code, tests, user-authored documentation, or session-state Markdown.\n- When the evidence is missing, malformed, or belongs to another feature: report the named blocker without fabricating an artifact.\n<!-- /navori:if-not --><!-- navori:if scribeOwnsMarkdown -->\nYou are the sole author of the Markdown that lands in the diff. Two jobs, in this order when both apply: **render** a producer's JSON evidence into its prescribed Markdown handoff (R5), and **draft** the prose any `markdownRequests` entry asks for (R7) — reading the repo as needed for accuracy, never taking a design decision the request doesn't state. Preserve the producer's feature identity, status, evidence, files and verification exactly; add no claim the evidence doesn't carry.\n\n## Render the handoff (R5, R6)\n\nThe `implementer` (or another JSON-handoff producer) leaves `.codex/progress/impl_<feature>.json`. Read it:\n\n- Missing, unparseable, or its `feature` doesn't match your dispatch → report `BLOCKED` in chat and create NO `.md` artifact (R6); the orchestrator does not chain to the `reviewer`.\n- Otherwise render `.codex/progress/impl_<feature>.md` from its fields (status, files touched, verification command/exit code/summary, non-obvious decisions if present), preserving the evidence without adding claims.\n\n## Apply markdownRequests (R7)\n\nFor every entry, draft the prose from its `intent` and `evidence` — read the surrounding file for tone and format, but never invent a decision the request doesn't state; an ambiguous intent is a blocker to report, not a guess to make. Apply it in the producer's own worktree and branch, touching ONLY the listed `path`s, and commit it yourself — a commit separate from the producer's.\n\n## When NOT to trigger\n\n- The evidence is missing, malformed, or belongs to another feature: report the named blocker without fabricating an artifact.\n- Never write `progress/current.md` or `progress/history.md`; those session-state files belong to the orchestrator.\n<!-- /navori:if -->"
 # navori:managed end id="scribe-codex-base"
 
 
@@ -3733,6 +3733,504 @@ fi
 #   fi
 
 exit 0
+
+
+===== FILE: .codex/hooks/implementer-no-markdown.sh [exec] =====
+# navori:managed start id="implementer-no-markdown-base" hash="<HASH>" version="<VERSION>" source="@navori/core"
+#!/usr/bin/env bash
+#
+# PreToolUse(Bash|Edit|Write|NotebookEdit) guard — the mechanical half of R1
+# (spec 0030, #985): the `implementer` does not write Markdown. Blocks a
+# `Write`/`Edit`/`NotebookEdit` whose target ends in `.md`/`.mdx`, and the Bash
+# write-verb forms of R4 (redirection, `tee`, `sed -i`/`perl -i`, `cp`/`mv` onto
+# a `.md`/`.mdx` path) — all with `exit 2`, the same channel `guard-destructive`
+# uses, evaluated BEFORE permission rules.
+#
+# WHY A HOOK AND NOT JUST THE CONTRACT (design.md): `implementer.md`'s own
+# prose already says not to touch `.md` (R1). #985's own failure mode is a
+# contract the agent follows by inertia — 520 `.md` writes since 2026-09-01,
+# with the prohibition already implied by the agent's job. Prose alone did not
+# hold; this is the mechanical backstop.
+#
+# WHO IT APPLIES TO. `agent_type` — read straight from the payload, not
+# `tool_input` — is the field Claude Code adds "present only when the hook
+# fires inside a subagent call" (https://code.claude.com/docs/en/hooks.md,
+# confirmed against this repo's own `model-advisor.sh`, which reads the same
+# field the same way). Absent → the main thread, never blocked. Any value other
+# than `implementer` (`scribe`, `reviewer`, `auditor`, `scout`, `publisher`) →
+# never blocked either: this rule is scoped to the one role R1 names.
+#
+# KNOWN, ACCEPTED LIMITATION — best-effort against inertia, NOT a sandbox
+# against a deliberate adversary (same posture as `guard-destructive.sh`'s own
+# header). The Bash rules read the command as TEXT, unsegmented: a `.md`
+# mention inside a commit message or a heredoc body can false-positive, and a
+# runner this hook does not enumerate — `python3 -c`, `node -e`, `dd`, `rsync`,
+# `git apply` — walks straight past it (R4's own wording: "not a sandbox
+# against evasion"). The contract in `implementer.md` is the rule; this catches
+# the slip, not the workaround.
+#
+# The managed block below is regenerated by `navori render` and must NOT be
+# edited by hand.
+set -euo pipefail
+
+# Command/field extraction (payload → $cmd, $payload). Shared body, single
+# source of truth.
+# Shared hook boilerplate — inlined into each hook at render time (see the
+# include directive in the source scripts + lib/hook-includes.ts). Single source
+# of truth for the sibling gate scripts; DO NOT copy this body back into a hook
+# by hand (that is the drift #225/#261 removed).
+#
+# PreToolUse(Bash) passes the tool input on stdin. Read one field out of it
+# WITHOUT hard-depending on jq (NOT preinstalled on macOS): try jq, then node
+# (Claude Code's own runtime), then a best-effort sed unwrap on the leaf key.
+# Nothing extracted → empty output, and each caller decides what that means (the
+# gate scripts scan defensively; guard-destructive waves the command through).
+#
+# $1 is a dotted path written HERE, never user input — the payload is the data.
+# Generic on purpose: `.cwd` feeds the worktree resolver of #454 through the
+# SAME hardened cascade instead of a second copy of it.
+#
+# The sed fallback reads a JSON string through its first unescaped quote. JSON
+# object member order is not a host contract: `command` can precede `cwd`, so a
+# greedy capture to the last quote would swallow the rest of the payload when
+# neither jq nor node is available.
+payload=$(cat)
+payload_field() {
+  if command -v jq >/dev/null 2>&1; then
+    printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
+  fi
+  if command -v node >/dev/null 2>&1; then
+    printf '%s' "$payload" | node -e 'let s="";const p=process.argv[1].split(".");process.stdin.on("data",c=>s+=c).on("end",()=>{try{let v=JSON.parse(s);for(const k of p)v=v?.[k];process.stdout.write(String(v??""))}catch{}})' "$1" 2>/dev/null && return 0
+  fi
+  printf '%s' "$payload" | sed -nE "s/.*\"${1##*.}\"[[:space:]]*:[[:space:]]*\"(([^\"\\]|\\.)*)\".*/\\1/p"
+}
+extract_cmd() {
+  payload_field tool_input.command
+}
+# NOT called here on purpose. `payload_field` may spawn a process, and
+# `routing-watch.sh` — which includes this partial and runs after EVERY tool call
+# in every session — never reads `cmd`. Each consumer that wants it calls
+# `extract_cmd` itself, at the point where it already knows it needs it.
+
+navori_audit_name="implementer-no-markdown"
+navori_audit_phase="PreToolUse"
+# Fallback no-ops, overwritten by the real definitions the include brings in.
+# FAIL-OPEN: an undefined function under `set -e` would be exit 127, and a
+# recorder that can kill the thing it observes is the one bug this partial may
+# never have.
+navori_audit_begin() { :; }
+navori_audit_log() { :; }
+# Shared audit repository resolver (#764) — inlined into every audit hook at
+# render time. A nested agent worktree lives below the repository's
+# `.claude/worktrees/` directory, but its basename is an ephemeral agent id.
+#
+# navori_audit_repo_from_cwd <cwd> — prints the stable parent repo name.
+# This only uses shell builtins before the existing `basename` call: audit hooks
+# run often, so discovering the Git common directory would add an avoidable fork
+# per invocation.
+navori_audit_repo_from_cwd() {
+  navori_audit_repo_cwd=$1
+  case "$navori_audit_repo_cwd" in
+    */.claude/worktrees | */.claude/worktrees/*)
+      navori_audit_repo_cwd=${navori_audit_repo_cwd%%/.claude/worktrees*}
+      ;;
+  esac
+  basename "$navori_audit_repo_cwd" 2>/dev/null
+}
+# Shared audit-mode event recorder — inlined into each managed hook at render
+# time (see the include directive in the source scripts + lib/hook-includes.ts).
+#
+# WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
+# INJECTS context. Every hook that runs and lets the action through is invisible,
+# so `navori audit` could never answer "did the gate run, and what did it cost?".
+# The transcript cannot be fixed — it is the host's format — so the harness
+# records its own execution instead, and the session log becomes the source of
+# truth for what the harness did.
+#
+# Expects `$payload` (the raw hook payload on stdin) to be in scope, and reads
+# `$navori_audit_t0` for the start instant. Both are set by `navori_audit_begin`.
+#
+# Every variable read here carries a `:-` default ON PURPOSE: most managed hooks
+# run under `set -euo pipefail`, where an unset variable ABORTS the hook. A
+# recorder that can abort the thing it observes is worse than no recorder, so the
+# partial must be safe to inline into `set -u` and `set +e` alike.
+#
+# FAIL-OPEN ABSOLUTE, and this matters more here than anywhere else: this code is
+# inlined into hooks whose own contract is to never break a session. Observation
+# must never become the reason an action fails, so every path returns 0 and
+# nothing is ever written to stdout — a stray byte there would be interpreted by
+# the host as hook output (context injection, or a block reason).
+
+# Start the clock — but only after establishing that anything will be recorded.
+#
+# THE COST OF BEING OFF is the number that matters here: this code is inlined
+# into hooks that fire on EVERY Bash call, and audit-mode is off for virtually
+# every session of every user. An earlier version ran `perl` plus two `jq`
+# invocations before it ever checked whether a log existed — three processes per
+# hook, four hooks per command, ~48 ms on every single shell call for a feature
+# nobody had turned on.
+#
+# So the gate is a pure-builtin one first: the per-repo audit directory only
+# exists once audit-mode has been activated in this repo at least once. No
+# subprocess, no parsing. Everything expensive lives behind it.
+navori_audit_begin() {
+  navori_audit_on=0
+
+  navori_audit_root=${NAVORI_AUDITS_ROOT:-}
+  if [ -z "$navori_audit_root" ]; then
+    [ -n "${HOME:-}" ] || return 0
+    navori_audit_root=$HOME/.navori/audits
+  fi
+
+  # The gate tests the audit ROOT, not the per-repo directory.
+  #
+  # Deriving the repo cheaply would mean `${CLAUDE_PROJECT_DIR##*/}` — and that
+  # is WRONG: the authoritative repo comes from the payload's `cwd`, and the two
+  # differ whenever a hook fires inside an agent worktree, since the hook process
+  # starts in the main repo (#454). A gate built on the wrong name would silently
+  # record nothing exactly where the harness runs its parallel work.
+  #
+  # The root alone is enough for what this gate is for: a user who has never
+  # activated audit-mode anywhere has no `~/.navori/audits`, so the common case
+  # costs one stat and zero processes. Someone who does use audit-mode pays the
+  # parsing — which is the cost of the feature they turned on.
+  [ -d "$navori_audit_root" ] || return 0
+
+  navori_audit_on=1
+  navori_audit_t0=$(navori_audit_now)
+}
+
+# Milliseconds since epoch, spending a process only when it has to.
+#
+# `$EPOCHREALTIME` is a BUILTIN in bash 5 and in zsh (with zsh/datetime, which
+# the harness's zsh path already has): no fork at all. Only a shell without it
+# pays for `perl`, and only a machine without perl degrades to whole seconds —
+# `date` has no portable millisecond format (GNU has %s%3N, BSD does not).
+navori_audit_now() {
+  if [ -n "${EPOCHREALTIME:-}" ]; then
+    # `1756... .123456` → milliseconds, with pure parameter expansion.
+    navori_audit_epoch=${EPOCHREALTIME/,/.}
+    printf '%s%s' "${navori_audit_epoch%%.*}" "$(printf '%.3s' "${navori_audit_epoch#*.}")"
+    return 0
+  fi
+  perl -MTime::HiRes=time -e 'printf "%.0f", time*1000' 2>/dev/null \
+    || printf '%s' $(( $(date +%s 2>/dev/null || echo 0) * 1000 ))
+}
+
+# navori_audit_log <verdict> [reason]
+#
+# `name`, `phase`, `tool` and `source` come from the caller's own variables,
+# which the render sets per hook — the partial never guesses which hook it is
+# inlined into.
+navori_audit_log() {
+  # The builtin-only gate from `navori_audit_begin`: when audit-mode was never
+  # activated in this repo, nothing below runs and no process is spawned.
+  [ "${navori_audit_on:-0}" = "1" ] || return 0
+  # No payload, no jq, no clock → nothing to record. Each of these is a normal
+  # state for a hook that bailed early, not an error worth surfacing.
+  [ -n "${payload:-}" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+
+  # ONE jq for every field, not one per field: this runs on each hook of each
+  # Bash call, and a fork is the most expensive thing in it. Newline-separated,
+  # read back positionally.
+  # The third field is the OWNER, and it is never empty: inside a subagent the
+  # host sends a real `agent_id`; on the main thread it sends none and the
+  # literal below names the orchestrator explicitly.
+  #
+  # It used to be `// ""`, and the empty case did not stay empty — it came out
+  # as the `cwd`. Command substitution strips trailing newlines, so an empty
+  # third field left `$navori_audit_fields` with only two lines; then
+  # `${rest#*<NL>}` found no newline in `"cwd"` and POSIX says a `#` pattern
+  # that does not match returns the string UNCHANGED. 41,581 of the park's
+  # 52,460 recorded owners (79%) were a filesystem path for that reason.
+  #
+  # The consumer's behaviour does not change — `ownerOf` looks the value up
+  # among the session's agents and sends anything that names nobody to the
+  # orchestrator, which is where a path already went — but the record stops
+  # claiming the repo directory is an agent. Old logs keep working through the
+  # same "names nobody" branch.
+  #
+  # The trailing "." is a sentinel, not data: with it the third field is always
+  # followed by a newline, so the `%%` below cannot fall into the same trap if
+  # a future field is ever empty.
+  #
+  # The owner is picked with an explicit "first non-empty string", NOT with
+  # `.agent_id // .subagent_id // "orchestrator"`. In jq only `null` and `false`
+  # are falsy, so a host that sends the key with an EMPTY string satisfies `//`
+  # and the chain yields `""` — the field then disappears from the record and
+  # `ownerOf` falls back to the time window, which is the guess this field
+  # exists to avoid. Caught by a test, not by review.
+  navori_audit_fields=$(printf '%s' "${payload:-}" | jq -r '[.session_id // "", .cwd // "", ([.agent_id, .subagent_id] | map(select(type == "string" and . != "")) | first) // "orchestrator", .tool_use_id // "", "."] | .[]' 2>/dev/null) || return 0
+  navori_audit_session=${navori_audit_fields%%
+*}
+  navori_audit_rest=${navori_audit_fields#*
+}
+  navori_audit_cwd=${navori_audit_rest%%
+*}
+  navori_audit_rest=${navori_audit_rest#*
+}
+  navori_audit_agent=${navori_audit_rest%%
+*}
+  navori_audit_rest=${navori_audit_rest#*
+}
+  navori_audit_tool_use_id=${navori_audit_rest%%
+*}
+  [ -n "$navori_audit_session" ] || return 0
+  # Same character class the CLI enforces (#503): the id composes a path, so
+  # anything path-shaped means the payload is not what we think it is.
+  case "$navori_audit_session" in
+    *[!A-Za-z0-9_-]*) return 0 ;;
+  esac
+
+  [ -n "$navori_audit_cwd" ] || navori_audit_cwd=$PWD
+  navori_audit_repo=$(navori_audit_repo_from_cwd "$navori_audit_cwd") || return 0
+  [ -n "$navori_audit_repo" ] || return 0
+
+  navori_audit_file=$navori_audit_root/$navori_audit_repo/session-$navori_audit_session.log
+
+  # The session may not be the marked one even in a repo that has been audited
+  # before. Also the writability check — a log that cannot be appended to is not
+  # an error, it is simply not recording.
+  if [ ! -f "$navori_audit_file" ]; then
+    # SPOOL for the phase that CANNOT have a log yet (#778).
+    #
+    # `navori audit --start` is what creates the session log, and it runs from
+    # the UserPromptSubmit hook — i.e. after the first prompt. Every SessionStart
+    # hook therefore fires BEFORE the file exists, and the check above threw its
+    # record away every single time: measured, `session-start-context` recorded 1
+    # of ~20 startups in this repo, and the only survivor was a resume onto an
+    # already-open log. "Did the session load the harness?" had no witness at all,
+    # which is exactly the question the recorder exists to answer.
+    #
+    # So those records go to a side file that `--start` absorbs. Two deliberate
+    # limits keep this from becoming a leak:
+    #
+    #   1. SessionStart ONLY. Every other phase runs after a prompt, so a missing
+    #      log there means the session is genuinely not marked — and spooling
+    #      those would write four lines per Bash call, for every session of every
+    #      repo, forever. That is thousands of writes to buy nothing.
+    #   2. Only where the repo's audit directory ALREADY exists, which means the
+    #      repo has been audited (or armed) at least once. `mkdir` is never run
+    #      from here: a repo that has never used audit-mode must stay at zero
+    #      files and zero forks, the same contract as the root gate above. The
+    #      cost is that the FIRST audited session of a repo still loses its
+    #      SessionStart records; every one after it has them.
+    #
+    # FAIL-OPEN, and here more than anywhere: this runs while a session is
+    # opening. Every failure path below returns 0 and writes nothing to stdout —
+    # a spool that could abort a hook would make observation the reason a session
+    # does not start, which is the one bug this partial may never have.
+    [ "${navori_audit_phase:-}" = "SessionStart" ] || return 0
+    [ -d "$navori_audit_root/$navori_audit_repo" ] || return 0
+    navori_audit_file=$navori_audit_root/$navori_audit_repo/pending-$navori_audit_session.jsonl
+    if [ ! -e "$navori_audit_file" ]; then
+      : >> "$navori_audit_file" 2>/dev/null || return 0
+    fi
+  fi
+  [ -w "$navori_audit_file" ] || return 0
+
+  # Volume valve, OFF by default.
+  #
+  # `PreToolUse(Bash)` chains four hooks, so every shell command leaves four
+  # lines and most are `skip` — a long session runs to thousands. Set
+  # NAVORI_AUDIT_SKIP_NOOPS=1 to drop the ones that did nothing.
+  #
+  # Default off on purpose: a `skip` is the ONLY evidence that a hook ran and
+  # decided it had no business acting, which is exactly what distinguishes it
+  # from a hook that never executed — the question that motivated recording
+  # hooks at all. The valve trades that away knowingly; it must not be the
+  # silent default.
+  if [ "${NAVORI_AUDIT_SKIP_NOOPS:-0}" = "1" ]; then
+    case "$1" in
+      skip|noop) return 0 ;;
+    esac
+  fi
+
+  navori_audit_end=$(navori_audit_now)
+  navori_audit_ms=$(( navori_audit_end - ${navori_audit_t0:-$navori_audit_end} ))
+  [ "$navori_audit_ms" -ge 0 ] 2>/dev/null || navori_audit_ms=0
+
+  # `tsMs` is the instant at the resolution the log actually needs (#685): the
+  # `ts` below truncates to the second, and 84% of a measured session's events
+  # share their second with another one. This value is already computed — the
+  # duration above is derived from it — so recording it costs nothing.
+  #
+  # Validated with the same `-ge 0` idiom as `ms`, and for the same reason: it
+  # is passed as `--argjson`, so a non-numeric value would make the whole `jq`
+  # fail and the event would vanish instead of merely losing a field.
+  [ "$navori_audit_end" -ge 0 ] 2>/dev/null || navori_audit_end=0
+
+  # `ts` is NOT stamped here, and that is the whole point of #696: it was a
+  # `date` fork per event — 46,850 of them across this store — for a string
+  # fully derivable from the `tsMs` above, which `$EPOCHREALTIME` already
+  # produced without spawning anything. The file's own cost doctrine (see
+  # `navori_audit_now`) says spend a process only when there is no other way;
+  # keeping this one made the comment lie four lines under the value that
+  # refutes it.
+  #
+  # Nothing downstream lost a field: `parse.ts` derives the ISO from `tsMs`
+  # when the record carries none, and logs written before this still have
+  # theirs. The lifecycle records — `start`, `stop`, `session-end` — keep a real
+  # `ts`, so a human reading the raw `.log` still has dated anchors; those are
+  # ~3 per session, not one per hook.
+  # `navori_audit_agent` came out of the same single jq above. It is what lets
+  # the report attribute a hook to a subagent WITHOUT guessing: with agents
+  # running in parallel their time windows overlap, so attribution by timestamp
+  # is the fallback, not the primary route.
+  #
+  # It is recorded, never trusted as an agent identity by itself (#560). What
+  # `.agent_id` means depends on the PHASE: on the tool phases it is stable —
+  # 485 events of one measured session carried 11 distinct ids, and the
+  # subagents' resolved to real transcripts — but on `SubagentStop` the host
+  # sends a fresh id per firing: 112 distinct ids for 117 firings, 102 of them
+  # matching nothing under `~/.claude`. So a consumer that resolves this field
+  # must treat "names nobody" as invalid data rather than as a different agent
+  # (`ownerOf` in `lib/audit/parse.ts` is where that rule lives).
+
+  printf '%s\n' "$(jq -cn \
+    --arg name "${navori_audit_name:-unknown}" \
+    --arg phase "${navori_audit_phase:-unknown}" \
+    --arg verdict "${1:-unknown}" \
+    --arg reason "${2:-}" \
+    --arg tool "${navori_audit_tool:-}" \
+    --arg src "${navori_audit_source:-core}" \
+    --arg agent "${navori_audit_agent:-}" \
+    --arg toolUseId "${navori_audit_tool_use_id:-}" \
+    --argjson ms "$navori_audit_ms" \
+    --argjson tsMs "$navori_audit_end" \
+    '{tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
+     + (if $tool   == "" then {} else {tool:$tool}       end)
+     + (if $reason == "" then {} else {reason:$reason}   end)
+     + (if $agent  == "" then {} else {agentId:$agent}   end)
+     + (if $toolUseId == "" then {} else {toolUseId:$toolUseId} end)' 2>/dev/null)" \
+    >> "$navori_audit_file" 2>/dev/null
+
+  return 0
+}
+navori_audit_begin
+
+navori_audit_verdict="allow"
+navori_audit_reason=""
+navori_audit_on_exit() {
+  navori_audit_log "$navori_audit_verdict" "$navori_audit_reason" || true
+  return 0
+}
+trap navori_audit_on_exit EXIT
+
+# THE CHEAP GATE. This fires on EVERY Bash/Edit/Write/NotebookEdit call from
+# EVERY agent (and the main thread); only the implementer is ever in scope.
+# Fork-free PRESENCE test before anything that spawns a process — same trade
+# `model-advisor.sh` makes for the identical field: the main thread carries no
+# `agent_type` key at all, so a plain substring test already proves absence
+# without a fork. A VALUE read (below) still follows for the subagent case,
+# because presence alone only proves "some subagent", not which one.
+case "$payload" in
+  *'"agent_type"'*) ;;
+  *)
+    navori_audit_verdict="skip"
+    navori_audit_reason="sin agent_type (hilo principal)"
+    exit 0
+    ;;
+esac
+
+navori_agent_type=$(payload_field agent_type)
+if [ "$navori_agent_type" != "implementer" ]; then
+  navori_audit_verdict="skip"
+  navori_audit_reason="no es el implementer"
+  exit 0
+fi
+
+navori_tool=$(payload_field tool_name)
+
+block() {
+  echo "[navori] BLOCKED by implementer-no-markdown: $1" >&2
+  # Both progress paths, never one alone: `placeHook` ships this byte-identical
+  # to Claude and Codex (#389), so a message hardcoding `.claude/progress`
+  # would misdirect a Codex implementer to a path that is not its own.
+  echo "[navori] the implementer does not write Markdown (spec 0030, R1). Put the change in \"markdownRequests\", inside .claude/progress/impl_<feature>.json (or .codex/progress/impl_<feature>.json under Codex) — the scribe applies it in this worktree." >&2
+  navori_audit_verdict="block"
+  navori_audit_reason="$1"
+  exit 2
+}
+
+# Case-insensitive `.md`/`.mdx`: macOS ships a case-insensitive filesystem, so
+# `NOTES.MD` writes the same file `notes.md` does.
+is_md_path() {
+  case "$1" in
+    *.[mM][dD] | *.[mM][dD][xX]) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+case "$navori_tool" in
+  Write | Edit)
+    navori_path=$(payload_field tool_input.file_path)
+    if is_md_path "$navori_path"; then
+      block "$navori_tool sobre '$navori_path'"
+    fi
+    navori_audit_verdict="allow"
+    navori_audit_reason="ruta no-md"
+    exit 0
+    ;;
+  NotebookEdit)
+    navori_path=$(payload_field tool_input.notebook_path)
+    if is_md_path "$navori_path"; then
+      block "NotebookEdit sobre '$navori_path'"
+    fi
+    navori_audit_verdict="allow"
+    navori_audit_reason="ruta no-md"
+    exit 0
+    ;;
+  Bash) ;;
+  *)
+    navori_audit_verdict="skip"
+    navori_audit_reason="tool_name no cubierto"
+    exit 0
+    ;;
+esac
+
+cmd=$(extract_cmd)
+if [ -z "$cmd" ]; then
+  navori_audit_verdict="skip"
+  navori_audit_reason="sin comando que inspeccionar"
+  exit 0
+fi
+
+# R4's write-verb forms, over the raw command text (best-effort, see header).
+# Case-insensitive throughout, same reasoning as `is_md_path` above.
+MD_EXT='\.(md|mdx)'
+
+# 1. Output redirection: `>`, `>>`, `>|` onto a `.md`/`.mdx` target.
+if printf '%s' "$cmd" | grep -qiE ">>?\\|?[[:space:]]*[^[:space:];&|]*${MD_EXT}([[:space:]]|;|&|\\||\$)"; then
+  block "redirección hacia un archivo .md/.mdx"
+fi
+
+# 2. `tee` (append or overwrite) onto a `.md`/`.mdx` target.
+if printf '%s' "$cmd" | grep -qiE "(^|[;&|[:space:]])tee([[:space:]]+-[a-zA-Z]+)*[[:space:]]+[^[:space:];&|]*${MD_EXT}([[:space:]]|;|&|\\||\$)"; then
+  block "'tee' hacia un archivo .md/.mdx"
+fi
+
+# 3. In-place rewrite: `sed -i`/`sed --in-place`, `perl -i`.
+if printf '%s' "$cmd" | grep -qiE "(^|[;&|[:space:]])sed[[:space:]]+(-[a-zA-Z]*i[a-zA-Z]*[^[:space:]]*|--in-place)([[:space:]]|=).*${MD_EXT}([[:space:]]|;|&|\\||\$)"; then
+  block "'sed -i' sobre un archivo .md/.mdx"
+fi
+if printf '%s' "$cmd" | grep -qiE "(^|[;&|[:space:]])perl[[:space:]]+-[a-zA-Z]*i[a-zA-Z]*[^[:space:]]*([[:space:]]|=).*${MD_EXT}([[:space:]]|;|&|\\||\$)"; then
+  block "'perl -i' sobre un archivo .md/.mdx"
+fi
+
+# 4. `cp`/`mv` onto a `.md`/`.mdx` target — the atomic-write idiom (write a
+# temp file, then move it onto the managed path). Anchored on the LAST operand
+# of the invocation (greedy `.*` before the final `[[:space:]]`), since that is
+# where `cp`/`mv` read their destination.
+if printf '%s' "$cmd" | grep -qiE "(^|[;&|[:space:]])(cp|mv)[[:space:]]+.*[[:space:]][^[:space:];&|]*${MD_EXT}([[:space:]]|;|&|\\||\$)"; then
+  block "'cp'/'mv' hacia un archivo .md/.mdx"
+fi
+
+navori_audit_verdict="allow"
+navori_audit_reason="comando no cubierto por R4"
+exit 0
+# navori:managed end id="implementer-no-markdown-base"
 
 
 ===== FILE: .codex/hooks/managed-drift-watch.sh [exec] =====
@@ -7674,12 +8172,27 @@ exit 0
 #
 # DESIGN — advisory, never blocking. Emits `hookSpecificOutput.additionalContext`
 # for the orchestrator plus a `systemMessage` so the human sees it too; it NEVER
-# returns `decision: block`. It has no way to know WHICH subagent just
-# stopped (agent identity isn't reliably in scope for a shell hook), so it can't
-# demand a specific file — it only flags handoff files that already exist but
-# look broken:
-#   - empty / whitespace-only, OR
-#   - `impl_*.md` missing its terminal `Status:` marker, OR
+# returns `decision: block`.
+#
+# Since spec 0030 (#985, R10) it reads `tool_input.subagent_type` — the
+# Agent/Task tool call's OWN parameter, mirrored into every PreToolUse/PostToolUse
+# payload (https://code.claude.com/docs/en/hooks.md: "payload carries `tool_name`,
+# `tool_input`, `session_id`, `cwd`"). This is NOT the `agent_id`/`agent_type` pair
+# the same doc says is "present only when the hook fires inside a subagent call" —
+# that pair answers "am I running INSIDE a subagent", a question this hook (firing
+# on the PARENT's own PostToolUse(Agent|Task)) never needs to ask. `subagent_type`
+# is simply the argument the orchestrator passed to dispatch, so it is present on
+# this exact event regardless of nesting. So the hook now knows WHICH subagent
+# just returned and demands the matching contract:
+#   - `implementer` → `impl_*.json` (R2): missing, unparseable, a `status` other
+#     than `DONE`/`BLOCKED`, or any required key absent.
+#   - `scribe` → `impl_*.md` missing its terminal `Status:` marker.
+#   - anything else — another role, another engine, or a payload where the field
+#     is absent — falls back to checking BOTH shapes wherever a matching file
+#     exists. That is the identity-blind behavior this hook always had, kept as
+#     the safety net for what `subagent_type` doesn't cover.
+# It also always flags, regardless of identity:
+#   - empty / whitespace-only handoffs, OR
 #   - `review_*.md` missing a verdict (APPROVED / CHANGES_REQUESTED).
 # It never invents an expectation, so a legitimate report never trips it, and a
 # missing file is not flagged (a subagent may not produce a handoff at all).
@@ -8069,6 +8582,84 @@ is_blank() { ! grep -q '[^[:space:]]' "$1" 2>/dev/null; }
 problems=""
 note() { problems="${problems}${problems:+; }$1"; }
 
+# One dotted-path read out of `$payload` (already drained above). Same
+# jq-free node→sed cascade every other hook in this stack uses to stay off a
+# preinstalled-jq dependency — `_partials/extract-cmd.sh`'s `payload_field`,
+# minus its own `payload=$(cat)`: this script already read stdin once, at the
+# top, and a second `cat` here would read nothing.
+navori_field() {
+  if command -v node >/dev/null 2>&1; then
+    printf '%s' "$payload" | node -e 'let s="";const p=process.argv[1].split(".");process.stdin.on("data",c=>s+=c).on("end",()=>{try{let v=JSON.parse(s);for(const k of p)v=v?.[k];process.stdout.write(String(v??""))}catch{}})' "$1" 2>/dev/null && return 0
+  fi
+  printf '%s' "$payload" | sed -nE "s/.*\"${1##*.}\"[[:space:]]*:[[:space:]]*\"(([^\"\\\\]|\\\\.)*)\".*/\\1/p"
+}
+navori_subagent_type=$(navori_field tool_input.subagent_type)
+
+# R2's contract: `impl_<feature>.json` must parse and carry every required key
+# with a valid `status`. Validated with node (already required by navori) → a
+# grep-based key sweep when it is missing, same fail-open posture as the rest
+# of this file: no new dependency, and an unparseable environment still gets a
+# best-effort check instead of silence.
+navori_check_impl_json() {
+  f="$1"
+  if is_blank "$f"; then
+    note "$f vacío"
+    return
+  fi
+  if command -v node >/dev/null 2>&1; then
+    navori_json_verdict=$(node -e '
+      const fs = require("fs");
+      let data;
+      try {
+        data = JSON.parse(fs.readFileSync(process.argv[1], "utf-8"));
+      } catch {
+        process.stdout.write("parse");
+        process.exit(0);
+      }
+      const required = ["feature","status","worktree","branch","commits","filesTouched","verification","markdownRequests"];
+      const missing = required.filter((k) => !(k in data));
+      if (missing.length > 0) {
+        process.stdout.write("missing:" + missing.join(","));
+        process.exit(0);
+      }
+      if (data.status !== "DONE" && data.status !== "BLOCKED") {
+        process.stdout.write("status");
+        process.exit(0);
+      }
+      process.stdout.write("ok");
+    ' "$f" 2>/dev/null) || navori_json_verdict="parse"
+  else
+    navori_json_verdict="ok"
+    navori_json_missing=""
+    for navori_json_key in feature status worktree branch commits filesTouched verification markdownRequests; do
+      grep -q "\"$navori_json_key\"[[:space:]]*:" "$f" 2>/dev/null \
+        || navori_json_missing="${navori_json_missing}${navori_json_missing:+,}$navori_json_key"
+    done
+    if [ -n "$navori_json_missing" ]; then
+      navori_json_verdict="missing:$navori_json_missing"
+    elif ! grep -qE '"status"[[:space:]]*:[[:space:]]*"(DONE|BLOCKED)"' "$f" 2>/dev/null; then
+      navori_json_verdict="status"
+    fi
+  fi
+  case "$navori_json_verdict" in
+    ok) ;;
+    parse) note "$f no parsea como JSON" ;;
+    status) note "$f con 'status' inválido (no DONE/BLOCKED)" ;;
+    missing:*) note "$f sin clave '${navori_json_verdict#missing:}'" ;;
+    *) note "$f no parsea como JSON" ;;
+  esac
+}
+
+# R10's `scribe` half: same `Status:` check R5's `.md` handoff always had.
+navori_check_impl_md() {
+  f="$1"
+  if is_blank "$f"; then
+    note "$f vacío"
+  elif ! grep -qiE '^\*{0,2}status:?\*{0,2}' "$f" 2>/dev/null; then
+    note "$f sin línea 'Status:'"
+  fi
+}
+
 # Only handoffs touched inside this window are checked (48h in minutes).
 #
 # The hook fires as a subagent returns, so the handoff it exists to police is
@@ -8100,15 +8691,37 @@ HANDOFF_WINDOW_MIN=2880
 #
 # Reports are named by their PATH, not their basename: with more than one
 # progress dir in play, `impl_x.md` alone wouldn't say which one to open.
+#
+# Which shape gets checked is now gated on `$navori_subagent_type` (R10): the
+# `implementer` only ever produces `.json` under R2, the `scribe` only `.md`
+# under R5, and everyone else (or a payload the field never reached) falls back
+# to checking whichever of the two exists — the identity-blind behavior this
+# hook always had.
 for dir in "${dirs[@]}"; do
-  while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    if is_blank "$f"; then
-      note "$f vacío"
-    elif ! grep -qiE '^\*{0,2}status:?\*{0,2}' "$f" 2>/dev/null; then
-      note "$f sin línea 'Status:'"
-    fi
-  done < <(find "$dir" -maxdepth 1 -name 'impl_*.md' -mmin -"$HANDOFF_WINDOW_MIN" 2>/dev/null)
+  case "$navori_subagent_type" in
+    implementer)
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        navori_check_impl_json "$f"
+      done < <(find "$dir" -maxdepth 1 -name 'impl_*.json' -mmin -"$HANDOFF_WINDOW_MIN" 2>/dev/null)
+      ;;
+    scribe)
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        navori_check_impl_md "$f"
+      done < <(find "$dir" -maxdepth 1 -name 'impl_*.md' -mmin -"$HANDOFF_WINDOW_MIN" 2>/dev/null)
+      ;;
+    *)
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        navori_check_impl_json "$f"
+      done < <(find "$dir" -maxdepth 1 -name 'impl_*.json' -mmin -"$HANDOFF_WINDOW_MIN" 2>/dev/null)
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        navori_check_impl_md "$f"
+      done < <(find "$dir" -maxdepth 1 -name 'impl_*.md' -mmin -"$HANDOFF_WINDOW_MIN" 2>/dev/null)
+      ;;
+  esac
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     if is_blank "$f"; then
@@ -8983,4 +9596,4 @@ To interact with GitHub (issues, PRs, repos) use **gh**:
 <!-- user: additional rules for Codex -->
 
 
-===== END: 36 files =====
+===== END: 37 files =====
