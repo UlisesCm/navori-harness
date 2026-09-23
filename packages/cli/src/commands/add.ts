@@ -9,6 +9,7 @@ import {
   PluginNotFoundError,
   PluginManifestError,
   listKnownPluginIds,
+  type PluginExternalTool,
 } from "../lib/plugins.ts";
 import { hasBinary } from "../lib/which.ts";
 import { InstallError } from "../lib/errors.ts";
@@ -65,6 +66,57 @@ function runShellCommand(cmd: string, ta: ReturnType<typeof tc>["add"]): void {
   if (result.status !== 0) {
     throw new InstallError(ta.commandExited(result.status));
   }
+}
+
+/**
+ * Run a shell command under the spinner, reusing the install/postInstall
+ * success+failure copy. Returns whether it succeeded, so callers decide what
+ * to do next (e.g. the install path chains postInstall only on success).
+ */
+function runUnderSpinner(
+  cmd: string,
+  startMessage: string,
+  tool: PluginExternalTool,
+  ta: ReturnType<typeof tc>["add"],
+): boolean {
+  const spin = p.spinner();
+  try {
+    spin.start(startMessage);
+    runShellCommand(cmd, ta);
+    spin.stop(`${color.green("✓")} ${ta.installed(accent(tool.name))}`);
+    return true;
+  } catch (err) {
+    spin.stop(`${color.red("✗")} ${ta.installFailed((err as Error).message)}`, 1);
+    return false;
+  }
+}
+
+/**
+ * Offer to run a plugin's postInstall independently of whether the binary
+ * itself needed installing (#953): "binary is on PATH" and "setup is done"
+ * are different facts — a preinstalled `gh` still needs `gh auth status`.
+ * No-op when the plugin declares no postInstall, so plugins without one see
+ * no new prompt.
+ */
+async function offerPostInstall(
+  tool: PluginExternalTool,
+  args: { yes?: boolean; "skip-install"?: boolean },
+  ta: ReturnType<typeof tc>["add"],
+): Promise<boolean> {
+  if (!tool.postInstall) return false;
+  if (args["skip-install"]) return false;
+
+  const shouldRun = args.yes
+    ? true
+    : await p.confirm({
+        message: ta.postInstallPrompt(tool.name, tool.postInstall),
+        initialValue: false,
+      });
+
+  if (p.isCancel(shouldRun) || !shouldRun) return false;
+
+  const ok = runUnderSpinner(tool.postInstall, ta.postInstall(dim(tool.postInstall)), tool, ta);
+  return !ok;
 }
 
 export const addCommand = defineCommand({
@@ -174,7 +226,8 @@ export const addCommand = defineCommand({
     const installed = tool.checkBinary ? hasBinary(tool.checkBinary) : true;
     if (installed) {
       p.log.success(ta.externalAlreadyInstalled(tool.name));
-      p.outro(ta.doneRender);
+      const postInstallFailed = await offerPostInstall(tool, args, ta);
+      p.outro(postInstallFailed ? dim(ta.registeredInstallFailed) : ta.doneRender);
       return;
     }
 
@@ -205,19 +258,28 @@ export const addCommand = defineCommand({
       return;
     }
 
-    const spin = p.spinner();
-    try {
-      spin.start(ta.installing(accent(tool.name), dim(installCmd)));
-      runShellCommand(installCmd, ta);
-      if (tool.postInstall) {
-        spin.message(ta.postInstall(dim(tool.postInstall)));
-        runShellCommand(tool.postInstall, ta);
-      }
-      spin.stop(`${color.green("✓")} ${ta.installed(accent(tool.name))}`);
-    } catch (err) {
-      spin.stop(`${color.red("✗")} ${ta.installFailed((err as Error).message)}`, 1);
+    const installOk = runUnderSpinner(
+      installCmd,
+      ta.installing(accent(tool.name), dim(installCmd)),
+      tool,
+      ta,
+    );
+    if (!installOk) {
       p.outro(dim(ta.registeredInstallFailed));
       return;
+    }
+
+    if (tool.postInstall) {
+      const postInstallOk = runUnderSpinner(
+        tool.postInstall,
+        ta.postInstall(dim(tool.postInstall)),
+        tool,
+        ta,
+      );
+      if (!postInstallOk) {
+        p.outro(dim(ta.registeredInstallFailed));
+        return;
+      }
     }
 
     p.outro(ta.doneRender);
