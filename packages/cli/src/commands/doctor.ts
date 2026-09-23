@@ -19,6 +19,7 @@ import {
 import { isDowngrade } from "../lib/semver.ts";
 import { isPlaceholderName } from "../lib/diagnose/detect.ts";
 import { loadPlugin, loadEnabledPlugins } from "../lib/plugins.ts";
+import { listAvailableExternalProviders } from "../lib/external-providers.ts";
 import {
   effectiveConfigForWorkspace,
   enabledMonorepoWorkspaces,
@@ -168,6 +169,11 @@ export const doctorCommand = defineCommand({
     const orderReport = scanManagedOrder(cwd, config, CLAUDE_COMPUTED_BLOCK_IDS);
     const malformedMarkers = scanMalformedMarkers(cwd, config);
     const missingExternalTools = scanMissingExternalTools(config);
+    // #981: distinct from `missingExternalTools` above — that one is about a
+    // plugin the repo already enabled whose binary is absent; this one is
+    // about a plugin never enabled at all, so the user never learns it
+    // exists. Purely informational (D10: doctor never mutates, never gates).
+    const availableExternalProviders = listAvailableExternalProviders(config, cwd);
     // #977: `.mcp.json` disagreeing with an enabled plugin's manifest — unlike
     // `missingExternalTools` above, this DOES gate `--strict` (see the scan's
     // own doc for the per-repo vs per-machine distinction).
@@ -324,6 +330,9 @@ export const doctorCommand = defineCommand({
       malformedMarkers,
       duplicateMarkers,
       missingExternalTools,
+      // #981: same non-gating, informational tier as `missingExternalTools`
+      // — never feeds `computeHealthVerdict` nor `--strict`.
+      availableExternalProviders,
       // #977: named distinctly from `missingExternalTools` (above) — that one
       // is per-machine and warn-only forever; this one is per-repo and feeds
       // `--strict`'s exit code below, without touching `ok`.
@@ -645,6 +654,20 @@ export const doctorCommand = defineCommand({
         return `  ${color.yellow(sym.update)} ${accent(t.pluginId)}  ${grey(td.externalToolRow(t.binary, how))}`;
       });
       p.log.warn(td.externalTools(missingExternalTools.length, lines.join("\n")));
+    }
+
+    // #981: a separate, info-level section — distinct from `missingExternalTools`
+    // above (a plugin the repo already asked for whose binary is absent). This
+    // one names plugins never enabled at all, so a `--yes`/`--recommended` init
+    // isn't the only chance to learn they exist. Never gates `--strict`, never
+    // touches `ok` (D10: doctor doesn't mutate anything, including the verdict).
+    if (availableExternalProviders.length > 0) {
+      const lines = availableExternalProviders.map(
+        (id) => `  ${color.cyan(sym.bullet)} ${accent(id)}  ${grey(td.availableProviderRow(id))}`,
+      );
+      p.log.info(
+        td.availableExternalProviders(availableExternalProviders.length, lines.join("\n")),
+      );
     }
 
     if (mcpCoherenceIssues.length > 0) {

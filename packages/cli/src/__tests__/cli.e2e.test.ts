@@ -669,22 +669,26 @@ describe("CLI e2e — happy paths", () => {
     expect(JSON.parse(st.stdout).ok).toBe(false);
   });
 
-  it("add --suggest recommends engram when not enabled (spec 0003 §3.5.2)", () => {
+  it("add --suggest recommends available external providers when none are enabled (#981)", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
-    // --yes (not --recommended) → engram is NOT enabled.
+    // --yes (not --recommended/--full) → engram is always-on (init.ts), but no
+    // external-tool plugin is ever enabled by this mode.
     runCli(["init", "--yes", "--no-render", "--cwd", repo]);
 
     const r = runCli(["add", "--suggest", "--cwd", repo]);
     expect(r.status).toBe(0);
-    expect(r.combined).toMatch(/engram/);
+    expect(r.combined).toMatch(/codegraph/);
   });
 
-  it("add --suggest is quiet when engram is already enabled", () => {
+  it("add --suggest is quiet once every plugin is enabled (spec 0003 §3.5.2)", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
-    // --recommended enables engram; empty tmp repo → no stack → preset stays custom.
-    runCli(["init", "--recommended", "--no-render", "--cwd", repo]);
+    // --full enables every bundled plugin, so no external provider is left to
+    // suggest — the only way to reach "nothing to suggest" now that #981 also
+    // lists them (--recommended alone leaves tgrep/codegraph/semgrep/jscpd/acli
+    // unsuggested).
+    runCli(["init", "--full", "--no-render", "--cwd", repo]);
 
     const r = runCli(["add", "--suggest", "--cwd", repo]);
     expect(r.status).toBe(0);
@@ -1431,10 +1435,11 @@ describe("CLI e2e — happy paths", () => {
     expect(status.combined).toContain("Next steps");
     expect(status.combined).not.toContain("Próximos pasos");
 
-    // --recommended enables engram + a clean repo → "Nothing to suggest".
+    // --recommended enables engram but no other external provider (#981) — the
+    // provider list itself is the language-bearing content here.
     const suggestions = runCli(["add", "--suggest", "--cwd", repo]);
-    expect(suggestions.combined).toContain("Nothing to suggest");
-    expect(suggestions.combined).not.toContain("Nada que sugerir");
+    expect(suggestions.combined).toContain("Available external provider");
+    expect(suggestions.combined).not.toContain("Proveedor externo disponible");
 
     const update = runCli(["update", "--dry-run", "--cwd", repo]);
     expect(update.combined).toMatch(/Up to date|Files that would be updated/);

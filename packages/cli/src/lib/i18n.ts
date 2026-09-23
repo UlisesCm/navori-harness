@@ -729,6 +729,11 @@ interface DoctorCmdStrings {
   externalToolRow: (binary: string, how: string) => string;
   externalToolFallbackHow: string;
   externalToolDocsHow: (url: string) => string;
+  /** #981 — external-tool plugins that exist but aren't enabled at all, as
+   *  opposed to `externalTools` above (enabled but the binary is missing).
+   *  Purely informational: never gates `--strict`, never flips `ok`. */
+  availableExternalProviders: (n: number, lines: string) => string;
+  availableProviderRow: (id: string) => string;
   /** #977 — `.mcp.json` disagreeing with an enabled plugin's manifest. Unlike
    *  `externalTools` above (per-machine, warn-only forever), this feeds
    *  `--strict`'s exit code: it's a fact about the committed repo. */
@@ -1147,6 +1152,7 @@ interface AddCmdStrings {
   causeUnknownPath: string;
   suggestedPreset: (stack: string, preset: string, current: string) => string;
   suggestedEngram: string;
+  suggestedProvider: (id: string) => string;
   nothingToSuggest: string;
   suggestionsTitle: string;
   suggestionsOutro: string;
@@ -1856,6 +1862,9 @@ const CMD_ES: CmdStrings = {
     externalToolRow: (binary, how) => `— falta '${binary}' en PATH; ${how}`,
     externalToolFallbackHow: "instala la herramienta y reinicia Claude Code",
     externalToolDocsHow: (url) => `instálala siguiendo ${url}`,
+    availableExternalProviders: (n, lines) =>
+      `Proveedores externos disponibles, no habilitados (${n}) — existen pero nadie los pidió:\n${lines}`,
+    availableProviderRow: (id) => `— habilítalo con 'navori add ${id}'`,
     mcpCoherence: (n, lines) =>
       `.mcp.json incoherente con el manifest del plugin (${n}) — este checkout quedó desalineado; ` +
       `corre 'navori render --apply' para regenerarlo:\n${lines}`,
@@ -2228,8 +2237,9 @@ const CMD_ES: CmdStrings = {
     suggestedPreset: (stack, preset, current) =>
       `Preset: detecté ${stack} → sugerido ${preset} (actual: ${current}) — cámbialo con 'navori configure' o edita navori.config.json.`,
     suggestedEngram: "Plugin engram: memoria persistente entre sesiones — 'navori add engram'.",
+    suggestedProvider: (id) => `Proveedor externo disponible: '${id}' — 'navori add ${id}'.`,
     nothingToSuggest:
-      "Nada que sugerir — el preset coincide con el stack y engram ya está habilitado.",
+      "Nada que sugerir — el preset coincide con el stack, engram ya está habilitado y no hay proveedores externos disponibles sin habilitar.",
     suggestionsTitle: "Sugerencias",
     suggestionsOutro: "Sugerencias, no aplicadas — corre 'navori add <id>' o 'navori configure'.",
   },
@@ -3126,6 +3136,9 @@ const CMD_EN: CmdStrings = {
     externalToolRow: (binary, how) => `— missing '${binary}' in PATH; ${how}`,
     externalToolFallbackHow: "install the tool and restart Claude Code",
     externalToolDocsHow: (url) => `install it following ${url}`,
+    availableExternalProviders: (n, lines) =>
+      `Available external providers, not enabled (${n}) — they exist but nobody asked for them:\n${lines}`,
+    availableProviderRow: (id) => `— enable it with 'navori add ${id}'`,
     mcpCoherence: (n, lines) =>
       `.mcp.json incoherent with the plugin's manifest (${n}) — this checkout drifted; ` +
       `run 'navori render --apply' to regenerate it:\n${lines}`,
@@ -3495,8 +3508,9 @@ const CMD_EN: CmdStrings = {
     suggestedPreset: (stack, preset, current) =>
       `Preset: detected ${stack} → suggested ${preset} (current: ${current}) — change it with 'navori configure' or edit navori.config.json.`,
     suggestedEngram: "Plugin engram: persistent memory across sessions — 'navori add engram'.",
+    suggestedProvider: (id) => `Available external provider: '${id}' — 'navori add ${id}'.`,
     nothingToSuggest:
-      "Nothing to suggest — the preset matches the stack and engram is already enabled.",
+      "Nothing to suggest — the preset matches the stack, engram is already enabled, and there's no available external provider left to enable.",
     suggestionsTitle: "Suggestions",
     suggestionsOutro:
       "Suggestions only, not applied — run 'navori add <id>' or 'navori configure'.",
