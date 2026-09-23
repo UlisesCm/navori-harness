@@ -250,7 +250,7 @@
       "Bash(jscpd:*)",
       "Bash(semgrep:*)",
       "Bash(tgrep search *)",
-      "Bash(tgrep status *)",
+      "Bash(tgrep status:*)",
       "Bash(tgrep --version)",
       "mcp__codegraph__codegraph_explore",
       "Bash(cd packages/cli)",

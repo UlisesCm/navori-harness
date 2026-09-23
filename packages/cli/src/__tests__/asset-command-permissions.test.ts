@@ -293,6 +293,10 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
     "git worktree prune",
     "the other half of the worktree cleanup the user must confirm — see `git worktree remove`",
   ],
+  [
+    "tgrep serve",
+    "named only to explain the freshness mechanism (a disk index refreshes under it); the same block already forbids agents from starting servers during ordinary discovery, so pre-approving it would contradict that rule",
+  ],
   ["navori configure", "writes navori.config.json — a config mutation stays behind the prompt"],
   ["navori dominio reindex", "rewrites DOMINIO.md in the workspace — a write, not a read"],
   [

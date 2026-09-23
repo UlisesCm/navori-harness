@@ -214,11 +214,11 @@ describe.each(COMBOS)("search v2 render matrix — combo $label", ({ codegraph, 
 
     if (tgrep) {
       expect(countOf("Bash(tgrep search *)")).toBe(1);
-      expect(countOf("Bash(tgrep status *)")).toBe(1);
+      expect(countOf("Bash(tgrep status:*)")).toBe(1);
       expect(countOf("Bash(tgrep --version)")).toBe(1);
     } else {
       expect(countOf("Bash(tgrep search *)")).toBe(0);
-      expect(countOf("Bash(tgrep status *)")).toBe(0);
+      expect(countOf("Bash(tgrep status:*)")).toBe(0);
       expect(countOf("Bash(tgrep --version)")).toBe(0);
     }
   });
