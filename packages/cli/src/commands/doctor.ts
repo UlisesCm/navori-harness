@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { basename, join, resolve, relative } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config.ts";
 import { resolveHarnessPlan } from "../engines/shared/harness-plan.ts";
-import { CLAUDE_COMPUTED_BLOCK_IDS } from "../engines/claude/index.ts";
+import { CLAUDE_COMPUTED_BLOCK_IDS, buildDesiredMcpServers } from "../engines/claude/index.ts";
 import { getCoreRoot, readCliVersion } from "../lib/bundled-assets.ts";
 import { isPlainObject } from "../engines/claude/coexist-settings.ts";
 import {
@@ -86,7 +86,8 @@ export const doctorCommand = defineCommand({
     json: { type: "boolean", description: "Output as JSON (pipeable)" },
     strict: {
       type: "boolean",
-      description: "Exit 1 when drift is detected (intended for CI gates)",
+      description:
+        "Exit 1 when drift or an incoherent .mcp.json is detected (intended for CI gates)",
     },
   },
   async run({ args }) {
@@ -164,6 +165,10 @@ export const doctorCommand = defineCommand({
     const orderReport = scanManagedOrder(cwd, config, CLAUDE_COMPUTED_BLOCK_IDS);
     const malformedMarkers = scanMalformedMarkers(cwd, config);
     const missingExternalTools = scanMissingExternalTools(config);
+    // #977: `.mcp.json` disagreeing with an enabled plugin's manifest — unlike
+    // `missingExternalTools` above, this DOES gate `--strict` (see the scan's
+    // own doc for the per-repo vs per-machine distinction).
+    const mcpCoherenceIssues = scanMcpCoherence(cwd, config);
     const missingOptionalTools = scanMissingOptionalTools();
     // #697: only asked of a repo that audits every session — see the scanner.
     const otelReceiver = await scanOtelReceiver(config);
@@ -316,6 +321,10 @@ export const doctorCommand = defineCommand({
       malformedMarkers,
       duplicateMarkers,
       missingExternalTools,
+      // #977: named distinctly from `missingExternalTools` (above) — that one
+      // is per-machine and warn-only forever; this one is per-repo and feeds
+      // `--strict`'s exit code below, without touching `ok`.
+      mcpCoherenceIssues,
       missingOptionalTools,
       otelReceiver,
       tgrepIndexFreshness,
@@ -383,7 +392,9 @@ export const doctorCommand = defineCommand({
       if (!verdict.ok) {
         process.exit(2);
       }
-      if (Boolean(args.strict) && drifts.length > 0) process.exit(1);
+      if (isStrictModeFailure(Boolean(args.strict), drifts, mcpCoherenceIssues)) {
+        process.exit(1);
+      }
       return;
     }
 
@@ -631,6 +642,19 @@ export const doctorCommand = defineCommand({
         return `  ${color.yellow(sym.update)} ${accent(t.pluginId)}  ${grey(td.externalToolRow(t.binary, how))}`;
       });
       p.log.warn(td.externalTools(missingExternalTools.length, lines.join("\n")));
+    }
+
+    if (mcpCoherenceIssues.length > 0) {
+      const lines = mcpCoherenceIssues.map((issue) => {
+        const detail =
+          issue.kind === "unparseable"
+            ? td.mcpCoherenceUnparseable(issue.detail)
+            : issue.kind === "missing-entry"
+              ? td.mcpCoherenceMissingEntry
+              : td.mcpCoherenceCommandMismatch(issue.expected, issue.actual);
+        return `  ${color.red(sym.fail)} ${accent(issue.pluginId)}  ${grey(detail)}`;
+      });
+      p.log.error(td.mcpCoherence(mcpCoherenceIssues.length, lines.join("\n")));
     }
 
     if (missingOptionalTools.length > 0) {
@@ -996,7 +1020,7 @@ export const doctorCommand = defineCommand({
     }
 
     const hasIssues = !verdict.ok;
-    const strictFail = Boolean(args.strict) && drifts.length > 0;
+    const strictFail = isStrictModeFailure(Boolean(args.strict), drifts, mcpCoherenceIssues);
     p.outro(
       hasIssues
         ? color.red(td.outroIssues)
@@ -1005,8 +1029,8 @@ export const doctorCommand = defineCommand({
           : color.green(td.outroOk),
     );
     // Exit codes for CI gates:
-    //   0 = clean (no issues, no drift in --strict)
-    //   1 = drift only, --strict mode
+    //   0 = clean (no issues, no drift/mcp incoherence in --strict)
+    //   1 = drift or .mcp.json incoherence only, --strict mode (#977)
     //   2 = hard issues (missing plugins, corrupted settings)
     if (hasIssues) process.exit(2);
     if (strictFail) process.exit(1);
@@ -1575,6 +1599,95 @@ export function scanMissingExternalTools(config: NavoriConfig): MissingExternalT
     }
   }
   return missing;
+}
+
+/**
+ * `--strict`'s failure predicate (#977): managed-block drift OR `.mcp.json`
+ * incoherence gate it — a missing external-tool binary (`missingExternalTools`)
+ * never does, because that is a fact about the developer's machine, not about
+ * this repo (see `scanMcpCoherence`'s own doc for the distinction). Extracted
+ * so the `--json` and text exit paths can't drift from each other about the
+ * same repo state; takes `{ length }` rather than full arrays so it stays
+ * agnostic to which report shape backs each side.
+ */
+export function isStrictModeFailure(
+  strict: boolean,
+  drifts: { length: number },
+  mcpCoherenceIssues: { length: number },
+): boolean {
+  return strict && (drifts.length > 0 || mcpCoherenceIssues.length > 0);
+}
+
+export type McpCoherenceIssue =
+  | { pluginId: string; kind: "unparseable"; detail: string }
+  | { pluginId: string; kind: "missing-entry" }
+  | { pluginId: string; kind: "command-mismatch"; expected: string; actual: string };
+
+/**
+ * `.mcp.json` is a file the repo COMMITS (spec 0017), unlike an absent binary
+ * (#977, H7 follow-up): if it exists but disagrees with what an enabled
+ * plugin's manifest declares, that is a fact about THIS checkout, not about
+ * the developer's machine — the exact distinction `missingExternalTools` does
+ * NOT draw (see its own scan above). So this one gets teeth in `--strict`
+ * while a missing binary never does (user decision, #977).
+ *
+ * Reuses `buildDesiredMcpServers` — the Claude engine's own source of what
+ * `.mcp.json` SHOULD contain — instead of re-deriving the expected shape from
+ * the manifest here, so this scan can't drift from what `render` actually
+ * writes.
+ *
+ * Only meaningful when the Claude engine is the one writing `.mcp.json`: a
+ * repo on agents-md/cursor/copilot never gets that file from navori, so an
+ * absent or unrelated `.mcp.json` there is not an incoherence to report.
+ *
+ * No `.mcp.json` on disk is treated like "nothing rendered yet" elsewhere in
+ * this file (see `readRenderedText`'s empty-short-circuit): a repo that never
+ * ran `render --apply` has nothing to compare against, so this returns no
+ * issues rather than flagging every enabled MCP plugin on a fresh checkout.
+ */
+export function scanMcpCoherence(cwd: string, config: NavoriConfig): McpCoherenceIssue[] {
+  if (!config.engines.includes("claude")) return [];
+
+  const enabledPlugins = loadEnabledPlugins(config.plugins).loaded;
+  const desired = buildDesiredMcpServers(enabledPlugins);
+  if (desired.size === 0) return [];
+
+  const path = join(cwd, ".mcp.json");
+  if (!existsSync(path)) return []; // never rendered yet — nothing to compare
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf-8"));
+  } catch (err) {
+    return [...desired.keys()].map((pluginId) => ({
+      pluginId,
+      kind: "unparseable",
+      detail: (err as Error).message,
+    }));
+  }
+  const servers = isPlainObject(parsed) ? parsed.mcpServers : undefined;
+  if (!isPlainObject(servers)) {
+    return [...desired.keys()].map((pluginId) => ({ pluginId, kind: "missing-entry" }));
+  }
+
+  const issues: McpCoherenceIssue[] = [];
+  for (const [pluginId, entry] of desired) {
+    const actual = servers[pluginId];
+    if (!isPlainObject(actual)) {
+      issues.push({ pluginId, kind: "missing-entry" });
+      continue;
+    }
+    const expectedCommand = entry.command;
+    if (actual.command !== expectedCommand) {
+      issues.push({
+        pluginId,
+        kind: "command-mismatch",
+        expected: String(expectedCommand),
+        actual: typeof actual.command === "string" ? actual.command : String(actual.command),
+      });
+    }
+  }
+  return issues;
 }
 
 export interface MissingOptionalTool {

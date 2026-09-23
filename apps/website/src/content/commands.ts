@@ -171,7 +171,10 @@ const es: Record<string, CommandDoc> = {
     usage: "navori doctor [--json] [--strict]",
     flags: [
       { flag: "--json", desc: "Output estructurado para CI (pipeable)." },
-      { flag: "--strict", desc: "Exit 1 cuando hay drift (intended for CI gates)." },
+      {
+        flag: "--strict",
+        desc: "Exit 1 cuando hay drift o .mcp.json incoherente con el manifest de un plugin (intended for CI gates).",
+      },
     ],
     example: [
       {
@@ -921,7 +924,10 @@ const en: Record<string, CommandDoc> = {
     usage: "navori doctor [--json] [--strict]",
     flags: [
       { flag: "--json", desc: "Structured output for CI (pipeable)." },
-      { flag: "--strict", desc: "Exit 1 when drift is detected (intended for CI gates)." },
+      {
+        flag: "--strict",
+        desc: "Exit 1 when drift or a .mcp.json incoherent with a plugin's manifest is detected (intended for CI gates).",
+      },
     ],
     example: [
       {
