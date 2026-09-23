@@ -105,7 +105,9 @@ describe("add — postInstall reachability (#953)", () => {
   });
 
   it("binary absent — installs, then runs postInstall, in that order", async () => {
-    hasBinaryMock.mockReturnValue(false);
+    // First call is the pre-install check (absent); second is the #960
+    // post-install verification, which now sees the binary landed.
+    hasBinaryMock.mockReturnValueOnce(false).mockReturnValue(true);
 
     await add("gh", "--yes");
 
@@ -147,5 +149,71 @@ describe("add — postInstall reachability (#953)", () => {
     await add("gh");
     expect(confirmMock).toHaveBeenCalledTimes(2);
     expect(spawnSyncMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * #960 — the install path used to declare success from the exit code alone
+ * and threw away stderr (`stdio: "inherit"`), so a failure only ever
+ * reached the user as "exited with status N". These tests pin: (1) a 0 exit
+ * with the binary still unreachable is NOT success, (2) a normal success
+ * still works once the binary lands, (3) a real failure carries the actual
+ * stderr, and (4) `postInstall` keeps `stdio: "inherit"` — capturing it
+ * would silently break interactive commands like `gh auth login`.
+ */
+describe("add — install verification + stderr capture (#960)", () => {
+  it("install exits 0 but the binary never lands on PATH — not declared a success, names the probable cause", async () => {
+    // Pre-install check: absent. Post-install verification: still absent.
+    hasBinaryMock.mockReturnValue(false);
+
+    await add("gh", "--yes");
+
+    // Only the install ran — a failed verification must not chain postInstall.
+    expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+    expect(spawnSyncMock.mock.calls[0]?.[0]).toBe("brew install gh");
+  });
+
+  it("install exits 0 and the binary lands on PATH — normal success, postInstall still runs", async () => {
+    hasBinaryMock.mockReturnValueOnce(false).mockReturnValue(true);
+
+    await add("gh", "--yes");
+
+    expect(spawnSyncMock).toHaveBeenCalledTimes(2);
+    expect(spawnSyncMock.mock.calls[0]?.[0]).toBe("brew install gh");
+    expect(spawnSyncMock.mock.calls[1]?.[0]).toBe("gh auth status || gh auth login");
+  });
+
+  it("install fails with stderr — the error carries the real message, not just the exit code", async () => {
+    hasBinaryMock.mockReturnValue(false);
+    spawnSyncMock.mockReturnValue({
+      status: 1,
+      signal: null,
+      error: undefined,
+      stderr: "brew: command not found: gh (formula removed)",
+    });
+
+    await add("gh", "--yes");
+
+    // The install command was invoked with stderr piped (captured) while
+    // stdin/stdout stay inherited — long installs (brew/npm/pnpm) must still
+    // show live progress, only stderr is captured for the error message.
+    expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+    const [, options] = spawnSyncMock.mock.calls[0] ?? [];
+    expect((options as { stdio?: unknown } | undefined)?.stdio).toEqual([
+      "inherit",
+      "inherit",
+      "pipe",
+    ]);
+  });
+
+  it("postInstall keeps stdio: inherit — capturing it would break gh auth login", async () => {
+    hasBinaryMock.mockReturnValue(true);
+
+    await add("gh");
+
+    expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+    expect(spawnSyncMock.mock.calls[0]?.[0]).toBe("gh auth status || gh auth login");
+    const [, options] = spawnSyncMock.mock.calls[0] ?? [];
+    expect((options as { stdio?: unknown } | undefined)?.stdio).toBe("inherit");
   });
 });
