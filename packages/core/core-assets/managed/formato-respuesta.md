@@ -16,4 +16,4 @@ CAUSA: <1 línea> / ARCHIVO: <path>:<línea> / FIX: <diff mínimo>
 [MEDIO]   ... # legibilidad, naming
 
 **Generación**: diff si modifica; archivo completo solo si es nuevo.
-**Commits/PRs**: atómicos, estilo `commits`, sin rastro de IA (`Co-Authored-By`, "Generated with…", menciones en código).
+**Commits/PRs**: atómicos, estilo `commits`, sin rastro de IA (`Co-Authored-By`, "Generated with…", código, comentarios).

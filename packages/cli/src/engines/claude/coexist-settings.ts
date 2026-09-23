@@ -16,6 +16,9 @@
  *   - permissions.deny / permissions.ask: the catastrophic / destructive-but-
  *             legit rules.
  *
+ * Deliberately NOT injected: `attribution`. It is a preference, not a defensive
+ * layer, so a user-owned file keeps it; the managed CLAUDE.md rule covers it.
+ *
  * Idempotency: navori records what it injected under
  * `$navori.{managedHooks,managedDeny,managedAsk}`. On every re-render those prior
  * entries are stripped first, then the current desired set is injected — so a
