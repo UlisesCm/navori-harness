@@ -152,6 +152,34 @@ saber qué se midió): ninguno hoy. `tgrep` y `codegraph` pasaron por esta tabla
 2026-09-15 y #838 (2026-09-16); su medición previa y por qué no cuenta como "bajo valor
 descartado" vive en [`docs/research/tgrep-como-funcionaba.md`](research/tgrep-como-funcionaba.md).
 
+## Criterio de admisión de agentes
+
+Un agente (del core o de un preset) es admisible **solo si garantiza al menos una**
+de estas tres cosas. Si no garantiza ninguna, es **prescindible** y se propone para retiro
+([Spec 0031](../specs/0031-admision-de-agentes/requirements.md)).
+
+- **Calidad:** un resultado verificablemente mejor que el que obtendría el hilo principal. Cuenta
+  la verificación independiente en contexto fresco, un tier de modelo que el orquestador no puede
+  fijarse a sí mismo, o un contexto especializado que el hilo principal no debe cargar.
+- **Velocidad:** menos tiempo total por fan-out paralelo sobre trabajo independiente.
+- **Tokens:** ahorro **neto** del arranque en frío (~25k tokens a precio de `cache_creation`,
+  medido en la Spec 0027). Cuenta sacar del contexto principal salida voluminosa que no se vuelve
+  a leer, o correr trabajo mecánico en un tier más barato.
+
+Reglas de aplicación:
+
+- **El orden de metas aplica entre ejes:** una ganancia en un eje no se paga con uno de mayor
+  prioridad (calidad > tokens > velocidad). Por ejemplo, implementers en paralelo que degradan
+  la calidad no se justifican por velocidad.
+- **Toda propuesta declara** la garantía que da y la señal con que se mide, su costo de arranque
+  contra lo que produce, y un criterio de retiro con plazo (por ejemplo, N días sin invocaciones
+  → `RETIRED_AGENTS`).
+- **Un agente nuevo sale apagado por default** hasta que su señal lo sostenga, como `architect`.
+- **Ampliar el trabajo de un agente existente** pasa por la misma prueba antes de implementarse,
+  con el arranque en frío de cada delegación contado en el eje de tokens.
+
+La skill local `author-agent` de este repo aplica el criterio al proponer o revisar un agente.
+
 ## Qué requiere discusión antes de cambiarse
 
 Estas son "decisiones ya tomadas — no re-litigar sin razón nueva". Cambiarlas exige una
@@ -161,6 +189,7 @@ Estas son "decisiones ya tomadas — no re-litigar sin razón nueva". Cambiarlas
 - La lista de No-metas (reabrir branding, plugin marketplace, LSP, etc. requiere justificación
   documentada de por qué cambió el contexto).
 - El orden de prioridad de metas: **calidad > tokens > velocidad**.
+- El criterio de admisión de agentes (Spec 0031).
 - El alcance lean de harness global y Dominio (Specs 0010/0011): ampliarlos a "voz",
   app-builder o review 4R está parqueado a propósito.
 - La forma de los assets managed (marcadores, `hash`/`version`, zona managed vs zona usuario):
