@@ -341,6 +341,32 @@ describe("PluginManifestSchema — externalTool.install platform keys (#965)", (
 });
 
 /**
+ * #978 — `externalTool.pinnedVersion` is the machine-readable counterpart to
+ * the version already pinned inside `install.*` strings. It must be an exact
+ * x.y.z semver: doctor compares it verbatim against a parsed `--version`
+ * output, so anything looser (a range, a `v` prefix) would never match.
+ */
+describe("PluginManifestSchema — externalTool.pinnedVersion (#978)", () => {
+  const withTool = (externalTool: Record<string, unknown>): { success: boolean } =>
+    PluginManifestSchema.safeParse({ ...MINIMAL, externalTool });
+
+  it("omitting pinnedVersion is legal — no known-compatible version declared", () => {
+    expect(withTool({ name: "t" }).success).toBe(true);
+  });
+
+  it("accepts an exact x.y.z semver", () => {
+    expect(withTool({ name: "t", pinnedVersion: "1.6.0" }).success).toBe(true);
+  });
+
+  it.each(["1.6", "v1.6.0", "1.6.0-beta", "^1.6.0", "1.6.0 "])(
+    "rejects %s — must be an exact x.y.z",
+    (pinnedVersion) => {
+      expect(withTool({ name: "t", pinnedVersion }).success).toBe(false);
+    },
+  );
+});
+
+/**
  * Covers: R13 — `mcpServer.alwaysLoad` (spec 0017 T7). The field exists because
  * of a measurement, not a preference: with an MCP server deferred, two full
  * sessions in this repo called its tools zero times; declaring `alwaysLoad`
@@ -442,4 +468,28 @@ describe("real plugin manifests — one sub-block per agent file, id and source 
       }
     },
   );
+});
+
+/**
+ * #978 — `install.*` strings pin an upstream version (`@1.6.0`) purely as an
+ * npm install argument; `pinnedVersion` is the same fact made machine-readable
+ * for `doctor`. The two are independent fields with no shared source, so
+ * nothing stops them drifting apart the day one is bumped and the other isn't
+ * — this catches exactly that.
+ */
+describe("real plugin manifests — install.* version pin matches externalTool.pinnedVersion (#978)", () => {
+  const pluginIds = listKnownPluginIds();
+
+  it.each(pluginIds)("%s — every @<semver> in install.* equals pinnedVersion", (pluginId) => {
+    const tool = loadPlugin(pluginId).manifest.externalTool;
+    if (!tool?.install) return;
+    for (const [platform, command] of Object.entries(tool.install)) {
+      const match = command?.match(/@(\d+\.\d+\.\d+)\b/);
+      if (!match) continue;
+      expect(
+        tool.pinnedVersion,
+        `${pluginId}.install.${platform} pins @${match[1]} but externalTool.pinnedVersion is ${tool.pinnedVersion ?? "unset"}`,
+      ).toBe(match[1]);
+    }
+  });
 });

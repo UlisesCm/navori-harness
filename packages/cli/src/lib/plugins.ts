@@ -70,6 +70,19 @@ const ExternalToolSchema = z.object({
    */
   installDocs: z.url().optional(),
   postInstall: z.string().optional(),
+  /**
+   * Exact upstream version this manifest's `env`/MCP config was calibrated
+   * against (e.g. codegraph's `CODEGRAPH_MCP_TOOLS` shape). Machine-readable
+   * counterpart to the version pinned inside `install.*` strings (#978) — an
+   * omitted field means no known-compatible version has been declared, not
+   * "any version is fine". `doctor` reads it to compare against the installed
+   * binary's `--version`, but strictly as a warning: a version mismatch is a
+   * fact about this machine, never a gate (same tier as a missing binary).
+   */
+  pinnedVersion: z
+    .string()
+    .regex(/^\d+\.\d+\.\d+$/, "pinnedVersion must be an exact x.y.z semver")
+    .optional(),
 });
 
 const McpServerSchema = z.object({
