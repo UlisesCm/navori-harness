@@ -72,7 +72,7 @@ describe("M03 — tgrep contract (search-v2.md §3.3)", () => {
   it("grants exactly search/status/--version, never a bare wildcard (D08)", () => {
     expect(tgrep.manifest.settingsFragment).toEqual({
       permissions: {
-        allow: ["Bash(tgrep search *)", "Bash(tgrep status *)", "Bash(tgrep --version)"],
+        allow: ["Bash(tgrep search *)", "Bash(tgrep status:*)", "Bash(tgrep --version)"],
       },
     });
   });

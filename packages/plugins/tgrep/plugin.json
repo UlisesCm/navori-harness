@@ -13,7 +13,7 @@
   },
   "settingsFragment": {
     "permissions": {
-      "allow": ["Bash(tgrep search *)", "Bash(tgrep status *)", "Bash(tgrep --version)"]
+      "allow": ["Bash(tgrep search *)", "Bash(tgrep status:*)", "Bash(tgrep --version)"]
     }
   },
   "invariants": ["tgrep search", "--no-index"]

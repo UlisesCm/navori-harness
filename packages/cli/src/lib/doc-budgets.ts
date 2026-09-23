@@ -63,7 +63,7 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   "packages/plugins/gh/managed/gh-protocol.md": 120, // 107 → 12.1%
   "packages/plugins/jscpd/managed/jscpd-protocol.md": 90, // 80 → 12.5%
   "packages/plugins/semgrep/managed/semgrep-protocol.md": 105, // 93 → 12.9%
-  "packages/plugins/tgrep/managed/tgrep-search-v2.md": 110, // 100 → 10.0%
+  "packages/plugins/tgrep/managed/tgrep-search-v2.md": 110, // 104 → 5.5%
 
   // Preset `stack.md` blocks (#917). One renders per consumer, picked by preset.
   "packages/core/core-assets/presets/astro/managed/stack.md": 60, // 53 → 13.2%

@@ -172,10 +172,10 @@ To interact with GitHub (issues, PRs, repos) use **gh**:
 `gh auth status` shows whether you're authenticated. If it fails, run `gh auth login`.
 <!-- /navori:managed id="gh-protocol" -->
 
-<!-- navori:managed id="tgrep-search-v2" hash="71340512" version="0.9.0" source="@navori/plugin-tgrep" -->
+<!-- navori:managed id="tgrep-search-v2" hash="0f13352d" version="0.9.0" source="@navori/plugin-tgrep" -->
 ### Textual provider: tgrep
 
-Use `tgrep search -n [flags] -- PATTERN ROOT`; without `-n` piped output has no line numbers. Prefer `-F` for literals. Scope by directory or `-t TYPE`; broad queries start with `-l`, then selected files and `-C 2`. Positive `-g` forces a scan. Use `--hidden` only for intended hidden paths. Missing index can fall back to scanning. For edits that must be visible now, use `--no-index`; status is not proof of freshness. Exit 1 means no matches, 2 means error. Preserve stderr. If unavailable, use native Grep. Do not install, start servers or reindex during ordinary discovery.
+Use `tgrep search -n [flags] -- PATTERN ROOT`; without `-n` piped output has no line numbers. Prefer `-F` for literals. Scope by directory or `-t TYPE`; broad queries start with `-l`, then selected files and `-C 2`. Positive `-g` forces a scan. Use `--hidden` only for intended hidden paths. A disk index refreshes only under `tgrep serve`; otherwise it silently misses changes since indexing. If `tgrep status` shows `Server: not running`, use `--no-index` or warn. Exit 1 means no matches, 2 means error. Preserve stderr. If unavailable, use native Grep. Do not install, start servers or reindex during ordinary discovery.
 <!-- /navori:managed id="tgrep-search-v2" -->
 
 <!-- navori:managed id="codegraph-search-v2" hash="733bfc60" version="0.9.0" source="@navori/plugin-codegraph" -->

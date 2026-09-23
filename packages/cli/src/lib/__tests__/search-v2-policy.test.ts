@@ -80,7 +80,8 @@ describe("the routing distinctions are stated where the policy actually lives", 
     const tgrep = read(pluginManaged("tgrep", "tgrep-search-v2.md"));
     expect(tgrep).toContain("### Textual provider: tgrep");
     expect(tgrep).toContain("tgrep search -n [flags] -- PATTERN ROOT");
-    expect(tgrep).toContain("status is not proof of freshness");
+    expect(tgrep).toContain("refreshes only under `tgrep serve`");
+    expect(tgrep).toContain("`tgrep status` shows `Server: not running`");
     expect(tgrep).toContain("Do not install, start servers or reindex during ordinary discovery.");
   });
 });
