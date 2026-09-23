@@ -31,7 +31,7 @@ const renderItem = ({ item }: { item: Row }) => <RowItem row={item} />;
 ## Animations and gestures
 
 - **Animate only `transform` and `opacity`** (GPU). Never `width/height/top/margin`: they recompute layout per frame. Collapse = `scaleY`, not `height`.
-- **Gestures on the UI thread** with Reanimated worklets (`useSharedValue`/`useAnimatedStyle`, `GestureDetector`), not `onPressIn/onPressOut` with a round-trip to the JS thread. `runOnJS` to jump to JS.
+- **Gestures on the UI thread** with Reanimated worklets (`useSharedValue`/`useAnimatedStyle`, `GestureDetector`), not `onPressIn/onPressOut` with a round-trip to the JS thread. To jump back to JS, `scheduleOnRN(fn, ...args)` from `react-native-worklets` (Reanimated 4 deprecates `runOnJS(fn)(args)`).
 - **Scroll with `useAnimatedScrollHandler`** + a shared value, never in `useState` (render thrashing).
 
 ## Images and misc
