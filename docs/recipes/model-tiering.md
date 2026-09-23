@@ -2,7 +2,7 @@
 
 > Cómo elegir valores para `{{models.<agent>}}` / `{{effort.<agent>}}`, los placeholders
 > que el render interpola en el frontmatter de cada `.claude/agents/*.md`.
-> Defaults en `packages/cli/src/lib/recommended.ts` (`RECOMMENDED_MODELS`,
+> Defaults en `packages/cli/src/lib/config/recommended.ts` (`RECOMMENDED_MODELS`,
 > `RECOMMENDED_EFFORT`), sembrados en `navori.config.json` por `init --recommended` /
 > `--full`. Enforced por `packages/cli/src/lib/__tests__/recommended.test.ts`.
 
@@ -19,18 +19,20 @@ más caro) — así que trabajo mecánico corre al mismo precio que trabajo de j
 
 ## Defaults recomendados
 
-Claves reales de `ModelsSchema`/`EffortSchema` (`packages/cli/src/lib/schema.ts`), que
+Claves reales de `ModelsSchema`/`EffortSchema` (`packages/cli/src/lib/config/schema.ts`), que
 coinciden con los ids de archivo en `core-assets/agents/` — el roster canónico vive en
 `engines/shared/roster.ts` (`ROSTER_AGENTS`).
 
 | Agente | `models.<agent>` | `effort.<agent>` | Por qué |
 |---|---|---|---|
 | `orchestrator` | `opus` | `xhigh` | Orquesta, define scope y arbitra `CHANGES_REQUESTED` — el único rol de juicio puro, no se abarata. |
+| `architect` | `opus` | `high` | Diseña con señal arquitectónica: lee mucho código y pesa tradeoffs antes de que nadie escriba código, mantiene el tier del orchestrator (spec 0026 F) en vez de bajar al de síntesis. |
 | `implementer` | `sonnet` | `medium` | Código desde una tarea ya acotada; sonnet rinde casi como opus en coding a una fracción del costo. |
 | `reviewer` | `sonnet` | `medium` | Revisa contra spec/quality gate — síntesis contra un contrato, no arquitectura desde cero. |
 | `scout` | `sonnet` | `medium` | Mapea y/o investiga con preguntas acotadas; redacta hallazgos, no solo lista archivos. |
 | `auditor` | `sonnet` | `medium` | Auditoría arquitectural (SOLID, seguridad, performance, edge cases) — más cerca de juicio que de síntesis; el propio `auditor.md` lo señala explícito. |
 | `publisher` | `haiku` | `low` | Redacta commit/PR/comentarios desde un diff ya aprobado — mecánico. |
+| `scribe` | `haiku` | `low` | Serializa evidencia ya verificada a Markdown — mecánico, igual que publisher. |
 
 ## Effort sigue la misma lógica
 
