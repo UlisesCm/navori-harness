@@ -29,9 +29,8 @@ vi.mock("@clack/prompts", () => {
   };
 });
 
-const { parseRuleList, pickGlobalBlocks, pickGlobalPermissions } = await import(
-  "../global-prompts.ts"
-);
+const { parseRuleList, pickGlobalBlocks, pickGlobalPermissions } =
+  await import("../global-prompts.ts");
 const { GLOBAL_SAFE_BLOCK_IDS } = await import("../../lib/render-plan.ts");
 const { DEFAULT_GLOBAL_BLOCKS } = await import("../../lib/global-config.ts");
 

@@ -21,9 +21,8 @@ const home = vi.hoisted(() => ({ dir: "" }));
 vi.mock("../../lib/home.ts", () => ({ safeHomedir: () => home.dir }));
 
 const { writeConfig } = await import("../../lib/config.ts");
-const { runRender, countRenderStatuses, resultHasPendingWrites, countSkippedFiles } = await import(
-  "../render.ts"
-);
+const { runRender, countRenderStatuses, resultHasPendingWrites, countSkippedFiles } =
+  await import("../render.ts");
 const { extractManagedContent } = await import("../../lib/marker.ts");
 const { renderCommand } = await import("../render.ts");
 const { runCommand } = await import("citty");

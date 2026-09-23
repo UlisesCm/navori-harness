@@ -1076,222 +1076,226 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
   // sequentially; raise the per-test timeout so a worst-case pair under CPU
   // contention doesn't hit the suite-wide 15s testTimeout before its own
   // `toBeLessThan(BUDGET_MS)` assertion gets to fail with a useful message.
-  describe("bounded work — the guard must never be killed mid-verdict (#511)", {
-    timeout: 20_000,
-  }, () => {
-    /**
-     * Comfortably under the hook's 10s timeout, with room for a slow CI box.
-     *
-     * #909 — raised from 5000: this is a WALL-CLOCK budget, so it also
-     * absorbs CPU contention from other suites running concurrently (the
-     * guard itself under `settings.json`'s real 10s timeout doesn't change).
-     * This does NOT touch the algorithmic-shape protection: the "scales
-     * LINEARLY, not quadratically" test below asserts a RATIO
-     * (`large.ms / small.ms`), which is invariant to machine speed and stays
-     * unchanged — a wider absolute budget only gives the many `toBeLessThan`
-     * assertions in this describe more room against noise, it does not make
-     * a quadratic regression pass.
-     */
-    const BUDGET_MS = 8000;
-    const segments = (n: number) =>
-      Array.from({ length: n }, (_, i) => `echo seg${i}`).join(" && ");
-    /** The hook's own ceilings, so a row can sit exactly ON one of them. */
-    const CMD_MAX = 131072;
-    const LINE_MAX = 4096;
-    /** `n` lines behind a heredoc opener — the shape that walks the per-line loop. */
-    const heredocLines = (n: number) =>
-      ["cat > /tmp/doc.md <<'EOF'", ...Array.from({ length: n }, () => "x")].join("\n");
-    /**
-     * `n` TOTAL lines, every one of them KEPT — the expensive arm of the same
-     * loop, and the only one the accumulator's shape shows up in. A `<<` that
-     * opens nothing (`echo "a << E"`) is what turns the loop on without turning
-     * eliding on, so each following line is appended instead of discarded.
-     * Padding each line to ~30 chars puts the shape on the byte ceiling too.
-     */
-    const keptLines = (n: number) =>
-      ['echo "a << E"', ...Array.from({ length: n - 1 }, () => `echo ${"x".repeat(25)}`)].join(
-        "\n",
-      );
+  describe(
+    "bounded work — the guard must never be killed mid-verdict (#511)",
+    {
+      timeout: 20_000,
+    },
+    () => {
+      /**
+       * Comfortably under the hook's 10s timeout, with room for a slow CI box.
+       *
+       * #909 — raised from 5000: this is a WALL-CLOCK budget, so it also
+       * absorbs CPU contention from other suites running concurrently (the
+       * guard itself under `settings.json`'s real 10s timeout doesn't change).
+       * This does NOT touch the algorithmic-shape protection: the "scales
+       * LINEARLY, not quadratically" test below asserts a RATIO
+       * (`large.ms / small.ms`), which is invariant to machine speed and stays
+       * unchanged — a wider absolute budget only gives the many `toBeLessThan`
+       * assertions in this describe more room against noise, it does not make
+       * a quadratic regression pass.
+       */
+      const BUDGET_MS = 8000;
+      const segments = (n: number) =>
+        Array.from({ length: n }, (_, i) => `echo seg${i}`).join(" && ");
+      /** The hook's own ceilings, so a row can sit exactly ON one of them. */
+      const CMD_MAX = 131072;
+      const LINE_MAX = 4096;
+      /** `n` lines behind a heredoc opener — the shape that walks the per-line loop. */
+      const heredocLines = (n: number) =>
+        ["cat > /tmp/doc.md <<'EOF'", ...Array.from({ length: n }, () => "x")].join("\n");
+      /**
+       * `n` TOTAL lines, every one of them KEPT — the expensive arm of the same
+       * loop, and the only one the accumulator's shape shows up in. A `<<` that
+       * opens nothing (`echo "a << E"`) is what turns the loop on without turning
+       * eliding on, so each following line is appended instead of discarded.
+       * Padding each line to ~30 chars puts the shape on the byte ceiling too.
+       */
+      const keptLines = (n: number) =>
+        ['echo "a << E"', ...Array.from({ length: n - 1 }, () => `echo ${"x".repeat(25)}`)].join(
+          "\n",
+        );
 
-    it("evaluates a 2000-segment command inside the time budget", () => {
-      const out = runGuardVerbose(segments(2000));
-      expect(out.status).toBe(0);
-      expect(out.ms).toBeLessThan(BUDGET_MS);
-    });
+      it("evaluates a 2000-segment command inside the time budget", () => {
+        const out = runGuardVerbose(segments(2000));
+        expect(out.status).toBe(0);
+        expect(out.ms).toBeLessThan(BUDGET_MS);
+      });
 
-    // The verdict half: the padding must not become a way to smuggle the
-    // payload past the rules. This is the audit's repro with a real command at
-    // the end — under the old quadratic passes it was never reached.
-    it("still BLOCKS the destructive tail of a 2000-segment command, in budget", () => {
-      const out = runGuardVerbose(`${segments(2000)} && rm -rf ~/`);
-      expect(out.status).toBe(2);
-      expect(out.stderr).toContain("BLOCKED by guard-destructive");
-      expect(out.ms).toBeLessThan(BUDGET_MS);
-    });
+      // The verdict half: the padding must not become a way to smuggle the
+      // payload past the rules. This is the audit's repro with a real command at
+      // the end — under the old quadratic passes it was never reached.
+      it("still BLOCKS the destructive tail of a 2000-segment command, in budget", () => {
+        const out = runGuardVerbose(`${segments(2000)} && rm -rf ~/`);
+        expect(out.status).toBe(2);
+        expect(out.stderr).toContain("BLOCKED by guard-destructive");
+        expect(out.ms).toBeLessThan(BUDGET_MS);
+      });
 
-    // #509 scans the WHOLE operand list, so the pathological input is no longer
-    // only "many segments" — it is also "one segment with a huge argv". The
-    // operand run is a token-delimited repetition (`([^<>&\s]+\s+)*`), i.e.
-    // unambiguous and linear; this is the row that would turn red if someone
-    // rewrote it into a backtracking shape.
-    it("evaluates a 2000-OPERAND `rm` inside the time budget, both verdicts (#509)", () => {
-      const operands = Array.from({ length: 2000 }, (_, i) => `d${i}`).join(" ");
-      const benign = runGuardVerbose(`rm -rf ${operands}`);
-      expect(benign.status).toBe(0);
-      expect(benign.ms).toBeLessThan(BUDGET_MS);
+      // #509 scans the WHOLE operand list, so the pathological input is no longer
+      // only "many segments" — it is also "one segment with a huge argv". The
+      // operand run is a token-delimited repetition (`([^<>&\s]+\s+)*`), i.e.
+      // unambiguous and linear; this is the row that would turn red if someone
+      // rewrote it into a backtracking shape.
+      it("evaluates a 2000-OPERAND `rm` inside the time budget, both verdicts (#509)", () => {
+        const operands = Array.from({ length: 2000 }, (_, i) => `d${i}`).join(" ");
+        const benign = runGuardVerbose(`rm -rf ${operands}`);
+        expect(benign.status).toBe(0);
+        expect(benign.ms).toBeLessThan(BUDGET_MS);
 
-      const destructive = runGuardVerbose(`rm -rf ${operands} ~/`);
-      expect(destructive.status).toBe(2);
-      expect(destructive.stderr).toContain("recursive rm");
-      expect(destructive.ms).toBeLessThan(BUDGET_MS);
-    });
+        const destructive = runGuardVerbose(`rm -rf ${operands} ~/`);
+        expect(destructive.status).toBe(2);
+        expect(destructive.stderr).toContain("recursive rm");
+        expect(destructive.ms).toBeLessThan(BUDGET_MS);
+      });
 
-    // Past the ceiling the answer is `block`, never `exit 0`: a guard that
-    // cannot evaluate a command has to deny it. Note the shape — the command
-    // below is completely harmless, and it is still denied, because the verdict
-    // is about the guard's ability to judge, not about the command.
-    it("BLOCKS an oversized command instead of waving it through", () => {
-      const oversized = `echo ${"x".repeat(CMD_MAX + 1000)}`;
-      const out = runGuardVerbose(oversized);
-      expect(out.status).toBe(2);
-      expect(out.stderr).toContain("too large to inspect");
-      expect(out.stderr).toContain("nothing in it was evaluated");
-      expect(out.ms).toBeLessThan(BUDGET_MS);
-      // The ceiling is a `block`, so bash and zsh must agree on it like they do
-      // on every other verdict (#391) — `${#cmd}` and `${cmd:0:n}` are the two
-      // expansions this path adds, and both are shell-portable.
-      expect(runGuard(oversized)).toBe(2);
-    });
+      // Past the ceiling the answer is `block`, never `exit 0`: a guard that
+      // cannot evaluate a command has to deny it. Note the shape — the command
+      // below is completely harmless, and it is still denied, because the verdict
+      // is about the guard's ability to judge, not about the command.
+      it("BLOCKS an oversized command instead of waving it through", () => {
+        const oversized = `echo ${"x".repeat(CMD_MAX + 1000)}`;
+        const out = runGuardVerbose(oversized);
+        expect(out.status).toBe(2);
+        expect(out.stderr).toContain("too large to inspect");
+        expect(out.stderr).toContain("nothing in it was evaluated");
+        expect(out.ms).toBeLessThan(BUDGET_MS);
+        // The ceiling is a `block`, so bash and zsh must agree on it like they do
+        // on every other verdict (#391) — `${#cmd}` and `${cmd:0:n}` are the two
+        // expansions this path adds, and both are shell-portable.
+        expect(runGuard(oversized)).toBe(2);
+      });
 
-    /**
-     * The LINE ceiling, and the reason it exists as a SEPARATE number.
-     *
-     * `CMD_MAX` bounds bytes; the cost was per LINE, so the two disagreed and
-     * the guard priced the wrong one. Measured on the pre-fix hook: 16k
-     * one-char lines — comfortably inside the 32768-byte ceiling of the day —
-     * cost 3.45s, 32k cost 13.2s and 64k cost 53.2s, i.e. the accumulator was
-     * QUADRATIC and 96-99% of the whole runtime. The two halves of the remedy
-     * are asserted separately below: the ceiling (this test) and the linearity
-     * that makes the ceiling affordable (the next one).
-     */
-    it("BLOCKS a command with more lines than it can walk", () => {
-      const out = runGuardVerbose(heredocLines(LINE_MAX));
-      expect(out.status).toBe(2);
-      expect(out.stderr).toContain("too many lines to inspect");
-      expect(out.stderr).toContain("nothing in it was evaluated");
-      expect(out.ms).toBeLessThan(BUDGET_MS);
-      // The `block` fires from INSIDE the `while … done <<< "$cmd"` loop, which
-      // must not run in a subshell in either shell — there `exit 2` would be
-      // swallowed and the command would sail through (#391).
-      expect(runGuard(heredocLines(LINE_MAX))).toBe(2);
-    });
+      /**
+       * The LINE ceiling, and the reason it exists as a SEPARATE number.
+       *
+       * `CMD_MAX` bounds bytes; the cost was per LINE, so the two disagreed and
+       * the guard priced the wrong one. Measured on the pre-fix hook: 16k
+       * one-char lines — comfortably inside the 32768-byte ceiling of the day —
+       * cost 3.45s, 32k cost 13.2s and 64k cost 53.2s, i.e. the accumulator was
+       * QUADRATIC and 96-99% of the whole runtime. The two halves of the remedy
+       * are asserted separately below: the ceiling (this test) and the linearity
+       * that makes the ceiling affordable (the next one).
+       */
+      it("BLOCKS a command with more lines than it can walk", () => {
+        const out = runGuardVerbose(heredocLines(LINE_MAX));
+        expect(out.status).toBe(2);
+        expect(out.stderr).toContain("too many lines to inspect");
+        expect(out.stderr).toContain("nothing in it was evaluated");
+        expect(out.ms).toBeLessThan(BUDGET_MS);
+        // The `block` fires from INSIDE the `while … done <<< "$cmd"` loop, which
+        // must not run in a subshell in either shell — there `exit 2` would be
+        // swallowed and the command would sail through (#391).
+        expect(runGuard(heredocLines(LINE_MAX))).toBe(2);
+      });
 
-    // The affordability half: sitting exactly ON the line ceiling, with every
-    // line kept AND the command on the byte ceiling, has to stay cheap — or the
-    // ceiling is set where the guard already lost.
-    it("evaluates a command at BOTH ceilings at once, inside the budget", () => {
-      const cmd = keptLines(LINE_MAX);
-      expect(cmd.split("\n").length).toBe(LINE_MAX);
-      expect(cmd.length).toBeGreaterThan(CMD_MAX / 2);
-      expect(cmd.length).toBeLessThanOrEqual(CMD_MAX);
-      const out = runGuardVerbose(cmd);
-      expect(out.status).toBe(0);
-      expect(out.ms).toBeLessThan(BUDGET_MS);
-    });
+      // The affordability half: sitting exactly ON the line ceiling, with every
+      // line kept AND the command on the byte ceiling, has to stay cheap — or the
+      // ceiling is set where the guard already lost.
+      it("evaluates a command at BOTH ceilings at once, inside the budget", () => {
+        const cmd = keptLines(LINE_MAX);
+        expect(cmd.split("\n").length).toBe(LINE_MAX);
+        expect(cmd.length).toBeGreaterThan(CMD_MAX / 2);
+        expect(cmd.length).toBeLessThanOrEqual(CMD_MAX);
+        const out = runGuardVerbose(cmd);
+        expect(out.status).toBe(0);
+        expect(out.ms).toBeLessThan(BUDGET_MS);
+      });
 
-    /**
-     * The SHAPE of the curve, which is the half a wall-clock budget cannot see.
-     *
-     * A ceiling makes a quadratic pass affordable at THIS ceiling on THIS
-     * machine — the accumulator costs 3.5s at LINE_MAX, under the 5s budget
-     * above — so a budget assertion alone lets the quadratic shape come back
-     * and only turns red on the slower box nobody runs the suite on. A RATIO
-     * has no such blind spot: machine speed cancels out.
-     *
-     * 8x the input. Linear predicts ~8x the time and measures 3.7x (fixed
-     * per-process start-up dilutes the small end); the quadratic accumulator
-     * predicts ~64x and measures 26.6x. The threshold sits between, with 2.2x
-     * of margin below it and 3.3x above.
-     */
-    it("scales LINEARLY with the number of lines, not quadratically", () => {
-      const small = runGuardVerbose(keptLines(LINE_MAX / 8));
-      const large = runGuardVerbose(keptLines(LINE_MAX));
-      expect(small.status).toBe(0);
-      expect(large.status).toBe(0);
-      expect(large.ms / Math.max(small.ms, 1)).toBeLessThan(8);
-      expect(large.ms).toBeLessThan(BUDGET_MS);
-    });
+      /**
+       * The SHAPE of the curve, which is the half a wall-clock budget cannot see.
+       *
+       * A ceiling makes a quadratic pass affordable at THIS ceiling on THIS
+       * machine — the accumulator costs 3.5s at LINE_MAX, under the 5s budget
+       * above — so a budget assertion alone lets the quadratic shape come back
+       * and only turns red on the slower box nobody runs the suite on. A RATIO
+       * has no such blind spot: machine speed cancels out.
+       *
+       * 8x the input. Linear predicts ~8x the time and measures 3.7x (fixed
+       * per-process start-up dilutes the small end); the quadratic accumulator
+       * predicts ~64x and measures 26.6x. The threshold sits between, with 2.2x
+       * of margin below it and 3.3x above.
+       */
+      it("scales LINEARLY with the number of lines, not quadratically", () => {
+        const small = runGuardVerbose(keptLines(LINE_MAX / 8));
+        const large = runGuardVerbose(keptLines(LINE_MAX));
+        expect(small.status).toBe(0);
+        expect(large.status).toBe(0);
+        expect(large.ms / Math.max(small.ms, 1)).toBeLessThan(8);
+        expect(large.ms).toBeLessThan(BUDGET_MS);
+      });
 
-    // The verdict half of the same shape: padding a command with lines must not
-    // become a way to smuggle the payload past the rules.
-    it("still BLOCKS a destructive command buried under thousands of lines", () => {
-      const out = runGuardVerbose(`${keptLines(LINE_MAX - 1)}\nrm -rf ~/`);
-      expect(out.status).toBe(2);
-      expect(out.stderr).toContain("recursive rm");
-      expect(out.ms).toBeLessThan(BUDGET_MS);
+      // The verdict half of the same shape: padding a command with lines must not
+      // become a way to smuggle the payload past the rules.
+      it("still BLOCKS a destructive command buried under thousands of lines", () => {
+        const out = runGuardVerbose(`${keptLines(LINE_MAX - 1)}\nrm -rf ~/`);
+        expect(out.status).toBe(2);
+        expect(out.stderr).toContain("recursive rm");
+        expect(out.ms).toBeLessThan(BUDGET_MS);
 
-      // …and the same payload one line PAST the ceiling is denied, not waved
-      // through. A guard that stops inspecting has to stop approving with it.
-      const past = runGuardVerbose(`${keptLines(LINE_MAX)}\nrm -rf ~/`);
-      expect(past.status).toBe(2);
-      expect(past.stderr).toContain("too many lines to inspect");
-    });
+        // …and the same payload one line PAST the ceiling is denied, not waved
+        // through. A guard that stops inspecting has to stop approving with it.
+        const past = runGuardVerbose(`${keptLines(LINE_MAX)}\nrm -rf ~/`);
+        expect(past.status).toBe(2);
+        expect(past.stderr).toContain("too many lines to inspect");
+      });
 
-    // The dimension the hook declares as NOT covered by a ceiling: line count
-    // with no `<<` anywhere. The per-line loop never runs there, so what is
-    // left is linear in bytes and CMD_MAX already prices it. Pinned because a
-    // future change that moves work back into a per-line loop would make this
-    // the unbounded case again, silently.
-    it("evaluates a heredoc-FREE command of 20k lines inside the budget", () => {
-      const out = runGuardVerbose(Array.from({ length: 20000 }, () => "x").join("\n"));
-      expect(out.status).toBe(0);
-      expect(out.ms).toBeLessThan(BUDGET_MS);
-    });
+      // The dimension the hook declares as NOT covered by a ceiling: line count
+      // with no `<<` anywhere. The per-line loop never runs there, so what is
+      // left is linear in bytes and CMD_MAX already prices it. Pinned because a
+      // future change that moves work back into a per-line loop would make this
+      // the unbounded case again, silently.
+      it("evaluates a heredoc-FREE command of 20k lines inside the budget", () => {
+        const out = runGuardVerbose(Array.from({ length: 20000 }, () => "x").join("\n"));
+        expect(out.status).toBe(0);
+        expect(out.ms).toBeLessThan(BUDGET_MS);
+      });
 
-    /**
-     * The decision the byte ceiling used to make backwards, pinned as a row.
-     *
-     * A 40k-char prose heredoc is ONE pass over ONE body line — 74ms of real
-     * work — and the 32768-byte ceiling denied it, while 16k one-char lines
-     * (3.45s) passed. Cheap work blocked, expensive work admitted. Now that the
-     * cost driver has its own ceiling, the byte ceiling can be what it should
-     * be: a bound on memory and on the linear passes, not a proxy for time.
-     * This is the exact shape #462 exists to allow — writing the document that
-     * describes a security fix.
-     */
-    it("ADMITS a 40k-char single-pass prose heredoc (it used to deny it)", () => {
-      const doc = `cat > /tmp/body.md <<'EOF'\n${"documentacion ".repeat(2900)}\nEOF`;
-      expect(doc.length).toBeGreaterThan(40000);
-      expect(doc.length).toBeLessThan(CMD_MAX);
-      const out = runGuardVerbose(doc);
-      expect(out.status).toBe(0);
-      expect(out.stderr).toBe("");
-      expect(out.ms).toBeLessThan(BUDGET_MS);
-    });
+      /**
+       * The decision the byte ceiling used to make backwards, pinned as a row.
+       *
+       * A 40k-char prose heredoc is ONE pass over ONE body line — 74ms of real
+       * work — and the 32768-byte ceiling denied it, while 16k one-char lines
+       * (3.45s) passed. Cheap work blocked, expensive work admitted. Now that the
+       * cost driver has its own ceiling, the byte ceiling can be what it should
+       * be: a bound on memory and on the linear passes, not a proxy for time.
+       * This is the exact shape #462 exists to allow — writing the document that
+       * describes a security fix.
+       */
+      it("ADMITS a 40k-char single-pass prose heredoc (it used to deny it)", () => {
+        const doc = `cat > /tmp/body.md <<'EOF'\n${"documentacion ".repeat(2900)}\nEOF`;
+        expect(doc.length).toBeGreaterThan(40000);
+        expect(doc.length).toBeLessThan(CMD_MAX);
+        const out = runGuardVerbose(doc);
+        expect(out.status).toBe(0);
+        expect(out.stderr).toBe("");
+        expect(out.ms).toBeLessThan(BUDGET_MS);
+      });
 
-    // The second ceiling: each `<<`-bearing line pays two `sed` and a `grep`,
-    // so thousands of them drain the budget without any single one being large.
-    it("BLOCKS a command with an absurd number of heredoc openers", () => {
-      const cmd = Array.from({ length: 400 }, (_, i) => `echo "a << E${i}"`).join("\n");
-      const out = runGuardVerbose(cmd);
-      expect(out.status).toBe(2);
-      expect(out.stderr).toContain("too many heredoc openers");
-      expect(out.ms).toBeLessThan(BUDGET_MS);
-      // This ceiling `block`s from INSIDE the `while … done <<< "$cmd"` loop,
-      // which must not run in a subshell in either shell — there the `exit 2`
-      // would be swallowed and the command would sail through.
-      expect(runGuard(cmd)).toBe(2);
-    });
+      // The second ceiling: each `<<`-bearing line pays two `sed` and a `grep`,
+      // so thousands of them drain the budget without any single one being large.
+      it("BLOCKS a command with an absurd number of heredoc openers", () => {
+        const cmd = Array.from({ length: 400 }, (_, i) => `echo "a << E${i}"`).join("\n");
+        const out = runGuardVerbose(cmd);
+        expect(out.status).toBe(2);
+        expect(out.stderr).toContain("too many heredoc openers");
+        expect(out.ms).toBeLessThan(BUDGET_MS);
+        // This ceiling `block`s from INSIDE the `while … done <<< "$cmd"` loop,
+        // which must not run in a subshell in either shell — there the `exit 2`
+        // would be swallowed and the command would sail through.
+        expect(runGuard(cmd)).toBe(2);
+      });
 
-    // ANTI-FALSE-GREEN for both ceilings: an ordinary command with a heredoc
-    // must stay under them, or the two tests above would pass simply because
-    // the guard blocks everything.
-    it("leaves ordinary commands — heredoc included — under both ceilings", () => {
-      const out = runGuardVerbose("cat > /tmp/body.md <<'EOF'\nun cuerpo de PR normal\nEOF");
-      expect(out.status).toBe(0);
-      expect(out.stderr).toBe("");
-    });
-  });
+      // ANTI-FALSE-GREEN for both ceilings: an ordinary command with a heredoc
+      // must stay under them, or the two tests above would pass simply because
+      // the guard blocks everything.
+      it("leaves ordinary commands — heredoc included — under both ceilings", () => {
+        const out = runGuardVerbose("cat > /tmp/body.md <<'EOF'\nun cuerpo de PR normal\nEOF");
+        expect(out.status).toBe(0);
+        expect(out.stderr).toBe("");
+      });
+    },
+  );
 
   /**
    * The fast path — a `case` over the command that returns 0 before the
