@@ -19,7 +19,10 @@ import {
 import { isDowngrade } from "../lib/semver.ts";
 import { isPlaceholderName } from "../lib/diagnose/detect.ts";
 import { loadPlugin, loadEnabledPlugins } from "../lib/plugins.ts";
-import { effectiveConfigForWorkspace, enabledMonorepoWorkspaces } from "../lib/workspace/monorepo.ts";
+import {
+  effectiveConfigForWorkspace,
+  enabledMonorepoWorkspaces,
+} from "../lib/workspace/monorepo.ts";
 import { hasBinary } from "../lib/which.ts";
 import { currentPlatform } from "../lib/platform.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/presets.ts";

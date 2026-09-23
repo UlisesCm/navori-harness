@@ -7,7 +7,11 @@ import {
   RETIRED_PLUGINS,
 } from "../plugins.ts";
 import { navoriAuthorship } from "../removable.ts";
-import { RETIRED_AGENTS, RETIRED_SKILLS, RETIRED_HOOKS } from "../../engines/shared/harness-assets.ts";
+import {
+  RETIRED_AGENTS,
+  RETIRED_SKILLS,
+  RETIRED_HOOKS,
+} from "../../engines/shared/harness-assets.ts";
 import { readCliVersion } from "../bundled-assets.ts";
 import {
   computeManagedHash,

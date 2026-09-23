@@ -1,7 +1,10 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config.ts";
-import { enabledMonorepoWorkspaces, type MonorepoRenderContext } from "../../lib/workspace/monorepo.ts";
+import {
+  enabledMonorepoWorkspaces,
+  type MonorepoRenderContext,
+} from "../../lib/workspace/monorepo.ts";
 import {
   loadEnabledPlugins,
   loadDisabledPlugins,
@@ -18,7 +21,11 @@ import {
   type UpdateAvailable,
 } from "../../lib/render-plan.ts";
 import { loadPreset, PresetError } from "../../lib/presets.ts";
-import { LIBRARY_SKILLS, REMOVED_LIB_SKILLS, unknownLibraries } from "../../lib/assets/library-skills.ts";
+import {
+  LIBRARY_SKILLS,
+  REMOVED_LIB_SKILLS,
+  unknownLibraries,
+} from "../../lib/assets/library-skills.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/bundled-assets.ts";
 // The authorship test every delete path in the product shares — see
 // lib/removable.ts. The skill prunes below pass their managed id so it answers

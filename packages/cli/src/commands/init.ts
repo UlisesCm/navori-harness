@@ -13,7 +13,11 @@ import {
   type PackageManager,
 } from "../lib/diagnose/detect.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/plugins.ts";
-import { createMigrationBackup, removeOriginals, type MigrationResult } from "../lib/diagnose/migrate.ts";
+import {
+  createMigrationBackup,
+  removeOriginals,
+  type MigrationResult,
+} from "../lib/diagnose/migrate.ts";
 import { loadWorkspace, type WorkspaceConfig, WorkspaceError } from "../lib/workspace/workspace.ts";
 import { registerRepoSafe } from "../lib/workspace/registry.ts";
 import { renderInline } from "./render.ts";
