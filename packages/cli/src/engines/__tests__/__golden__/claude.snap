@@ -221,7 +221,7 @@ If a memory contradicts the code, the code wins — fix the memory.
 name: implementer
 description: Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself.
 tools: Read, Write, Edit, Glob, Grep, Bash, mcp__engram__mem_search, mcp__engram__mem_get_observation
-maxWords: 1800
+maxWords: 2350
 ---
 
 <!-- navori:managed id="implementer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
@@ -387,7 +387,7 @@ report; don't try to fix it yourself.
 name: orchestrator
 description: Do NOT invoke as a subagent, never and under no condition. Orchestration playbook that the main agent EMBODIES (the "## Role: orchestrator" block, delivered to the session by the SessionStart hook); open it as a depth reference instead. Delegating it serializes the work and kills parallelism.
 tools: Read, Glob, Grep, Bash, Agent, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__engram__mem_context, mcp__engram__mem_save, mcp__engram__mem_session_summary, mcp__engram__mem_update
-maxWords: 2850
+maxWords: 3050
 ---
 
 <!-- navori:managed id="orchestrator-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
@@ -12184,10 +12184,10 @@ name: resolve-ticket
 description: Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial — the canonical 6-phase pipeline to process it with objective gates.
 metadata:
   type: reference
-  maxWords: 600
+  maxWords: 700
   # Compuesto (#683): ningún plugin extiende esta skill, así que los 50 sobre el
   # cap del asset son exactamente el margen de interpolación.
-  maxWordsComposed: 650
+  maxWordsComposed: 750
 ---
 
 <!-- navori:managed id="resolve-ticket" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
@@ -12914,7 +12914,7 @@ name: verify-before-done
 description: Use when about to declare a task done — the Iron Law of task closure: no success claim without fresh evidence from the command that backs it. Applies to implementer, reviewer, publisher and any response that declares "done".
 metadata:
   type: behavior
-  maxWords: 600
+  maxWords: 650
 ---
 
 <!-- navori:managed id="verify-before-done-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->

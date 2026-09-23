@@ -3,7 +3,7 @@ name: verify-before-done
 description: Use when about to declare a task done — the Iron Law of task closure: no success claim without fresh evidence from the command that backs it. Applies to implementer, reviewer, publisher and any response that declares "done".
 metadata:
   type: behavior
-  maxWords: 600
+  maxWords: 650
 ---
 
 <!-- navori:managed id="verify-before-done-base" hash="e7b2b1c6" version="0.9.0" source="@navori/core" fmkeys="name,description,metadata" -->
