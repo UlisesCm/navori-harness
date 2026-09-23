@@ -81,6 +81,43 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
   // barrel, change listener off) hit a repo with expo-sqlite whether or not
   // Drizzle sits on top, and never hit a Postgres repo that has Drizzle.
   { id: "expo-sqlite", deps: ["expo-sqlite"], label: "Expo SQLite" },
+  // Supabase splits by what the repo holds, not by one dependency: the client
+  // SDK marks app code, while schema, functions, and a self-hosted server leave
+  // no npm trace — only the folders the Supabase CLI and the Docker stack create.
+  // `supabase` (the CLI) counts as a client signal: a repo that pins it works
+  // against a Supabase project.
+  {
+    id: "supabase",
+    deps: ["@supabase/supabase-js", "@supabase/server", "supabase"],
+    label: "Supabase client & auth",
+  },
+  {
+    id: "supabase-postgres",
+    deps: [],
+    label: "Supabase Postgres & RLS",
+    paths: ["supabase/migrations", "supabase/schemas"],
+  },
+  {
+    id: "supabase-edge-functions",
+    deps: [],
+    label: "Supabase Edge Functions",
+    // `volumes/functions` is where a self-hosted server keeps them.
+    paths: ["supabase/functions", "volumes/functions"],
+  },
+  // The official Docker stack: Envoy is the gateway since self-hosted 0.8.0;
+  // `kong.yml` still marks installs from before it. Checked at the root, under
+  // `docker/` (a monorepo vendoring the stack), and under `supabase-project/`
+  // (the folder name the self-hosting guide uses).
+  {
+    id: "supabase-selfhost",
+    deps: [],
+    label: "Self-hosted Supabase",
+    paths: ["", "docker/", "supabase-project/"].flatMap((root) => [
+      `${root}volumes/api/envoy/lds.template.yaml`,
+      `${root}volumes/functions/main/index.ts`,
+      `${root}volumes/api/kong.yml`,
+    ]),
+  },
   { id: "zod-validation", deps: ["zod"], label: "Zod validation" },
   { id: "winston-logging", deps: ["winston"], label: "Winston logging" },
   {
