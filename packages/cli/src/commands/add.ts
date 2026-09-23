@@ -137,6 +137,16 @@ interface RunUnderSpinnerOptions {
    * meaningful for `install`; `postInstall` isn't about landing a binary.
    */
   verifyBinary?: boolean;
+  /**
+   * Skip the command entirely when `stdin` isn't a TTY (#967) — for
+   * `postInstall` only. `install` commands (brew/npm/pnpm) don't need a
+   * real terminal; `postInstall` commands (`gh auth login`, engram's
+   * installer) do. Warns with the exact command and returns `true`: a
+   * skip, not a failure — the caller (the fresh-install chain, which runs
+   * `postInstall` unconditionally right after a successful `install`)
+   * must not report `registeredInstallFailed` for an install that worked.
+   */
+  skipIfNoTty?: boolean;
 }
 
 /**
@@ -151,6 +161,12 @@ function runUnderSpinner(
   ta: ReturnType<typeof tc>["add"],
   options: RunUnderSpinnerOptions,
 ): boolean {
+  // `=== true`, not truthy — see the `offerPostInstall` guard below for why.
+  if (options.skipIfNoTty && process.stdin.isTTY !== true) {
+    p.log.warn(ta.postInstallNoTty(cmd));
+    return true;
+  }
+
   const spin = p.spinner();
   try {
     spin.start(startMessage);
@@ -182,6 +198,18 @@ async function offerPostInstall(
 ): Promise<boolean> {
   if (!tool.postInstall) return false;
   if (args["skip-install"]) return false;
+
+  // `=== true`, not truthy: without a TTY, `isTTY` is `undefined`, not `false`
+  // (https://nodejs.org/api/tty.html). `stdin`, not `stdout`: what's needed
+  // here is the ability to READ a prompt — the `postInstall` itself (e.g.
+  // `gh auth login`) is just as interactive as the `p.confirm` below, so
+  // this applies even with `--yes` (#967). Same predicate as
+  // `initIsInteractive` (global.ts:123); duplicated rather than extracted
+  // to avoid touching that file for a one-line check.
+  if (process.stdin.isTTY !== true) {
+    p.log.warn(ta.postInstallNoTty(tool.postInstall));
+    return false;
+  }
 
   const shouldRun = args.yes
     ? true
@@ -355,7 +383,7 @@ export const addCommand = defineCommand({
         ta.postInstall(dim(tool.postInstall)),
         tool,
         ta,
-        { captureStderr: false },
+        { captureStderr: false, skipIfNoTty: true },
       );
       if (!postInstallOk) {
         p.outro(dim(ta.registeredInstallFailed));

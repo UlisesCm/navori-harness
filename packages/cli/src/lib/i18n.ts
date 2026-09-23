@@ -1117,6 +1117,7 @@ interface AddCmdStrings {
   done: string;
   installPrompt: (name: string, command: string) => string;
   postInstallPrompt: (name: string, command: string) => string;
+  postInstallNoTty: (command: string) => string;
   externalNotInstalled: (name: string) => string;
   installing: (name: string, command: string) => string;
   postInstall: (command: string) => string;
@@ -2174,6 +2175,8 @@ const CMD_ES: CmdStrings = {
     installPrompt: (name, command) => `¿Instalar '${name}'? Se ejecutará: ${command}`,
     postInstallPrompt: (name, command) =>
       `'${name}' ya está instalado. ¿Correr su post-instalación? Se ejecutará: ${command}`,
+    postInstallNoTty: (command) =>
+      `La post-instalación requiere una terminal interactiva y no hay una disponible. No se ejecutó. Córrela manualmente: ${command}`,
     externalNotInstalled: (name) =>
       `La herramienta externa '${name}' no se instaló. Los hooks la omitirán sin ruido.`,
     installing: (name, command) => `Instalando ${name} — ${command}`,
@@ -3427,6 +3430,8 @@ const CMD_EN: CmdStrings = {
     installPrompt: (name, command) => `Install '${name}'? This will run: ${command}`,
     postInstallPrompt: (name, command) =>
       `'${name}' is already installed. Run its post-install step? This will run: ${command}`,
+    postInstallNoTty: (command) =>
+      `Post-install requires an interactive terminal and none is available. It was not run. Run it manually: ${command}`,
     externalNotInstalled: (name) =>
       `External tool '${name}' was not installed. Hooks will skip it silently.`,
     installing: (name, command) => `Installing ${name} — ${command}`,

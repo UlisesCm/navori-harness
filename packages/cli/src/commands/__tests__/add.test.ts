@@ -26,6 +26,7 @@ const spawnSyncMock = vi.hoisted(() => vi.fn());
 vi.mock("node:child_process", () => ({ spawnSync: spawnSyncMock }));
 
 const confirmMock = vi.hoisted(() => vi.fn());
+const logWarnMock = vi.hoisted(() => vi.fn());
 vi.mock("@clack/prompts", () => ({
   intro: () => undefined,
   outro: () => undefined,
@@ -34,7 +35,7 @@ vi.mock("@clack/prompts", () => ({
   log: {
     message: () => undefined,
     info: () => undefined,
-    warn: () => undefined,
+    warn: logWarnMock,
     error: () => undefined,
     success: () => undefined,
     step: () => undefined,
@@ -50,6 +51,7 @@ const { writeConfig } = await import("../../lib/config.ts");
 
 let cwd: string;
 let originalPlatform: PropertyDescriptor | undefined;
+let originalIsTTY: PropertyDescriptor | undefined;
 
 /** gh's manifest omits a linux installer; pin darwin so the install branch
  * (test 3) is deterministic across the CI matrix. */
@@ -70,6 +72,7 @@ beforeEach(() => {
   });
 
   hasBinaryMock.mockReset();
+  logWarnMock.mockReset();
   confirmMock.mockReset();
   confirmMock.mockResolvedValue(true);
   spawnSyncMock.mockReset();
@@ -77,11 +80,22 @@ beforeEach(() => {
 
   originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
   setPlatform("darwin");
+
+  // The runner's real stdin.isTTY varies between local and CI (#967) — pin it
+  // so postInstall tests exercise the TTY-present path by default. The
+  // no-TTY behavior gets its own dedicated test below.
+  originalIsTTY = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+  Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
 });
 
 afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
   if (originalPlatform) Object.defineProperty(process, "platform", originalPlatform);
+  if (originalIsTTY) {
+    Object.defineProperty(process.stdin, "isTTY", originalIsTTY);
+  } else {
+    Reflect.deleteProperty(process.stdin, "isTTY");
+  }
 });
 
 describe("add — postInstall reachability (#953)", () => {
@@ -149,6 +163,35 @@ describe("add — postInstall reachability (#953)", () => {
     await add("gh");
     expect(confirmMock).toHaveBeenCalledTimes(2);
     expect(spawnSyncMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("no TTY on stdin — postInstall is skipped with a warning naming the exact command, even with --yes (#967)", async () => {
+    hasBinaryMock.mockReturnValue(true);
+    Object.defineProperty(process.stdin, "isTTY", { value: undefined, configurable: true });
+
+    await add("gh", "--yes");
+
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(spawnSyncMock).not.toHaveBeenCalled();
+    expect(logWarnMock).toHaveBeenCalledWith(
+      expect.stringContaining("gh auth status || gh auth login"),
+    );
+  });
+
+  it("no TTY on stdin, binary absent — installs, then skips postInstall with a warning naming the command (#967)", async () => {
+    // Pre-install check: absent. Post-install verification: landed.
+    hasBinaryMock.mockReturnValueOnce(false).mockReturnValue(true);
+    Object.defineProperty(process.stdin, "isTTY", { value: undefined, configurable: true });
+
+    await add("gh", "--yes");
+
+    // The install itself doesn't need a TTY and must still run — only the
+    // chained postInstall is guarded.
+    expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+    expect(spawnSyncMock.mock.calls[0]?.[0]).toBe("brew install gh");
+    expect(logWarnMock).toHaveBeenCalledWith(
+      expect.stringContaining("gh auth status || gh auth login"),
+    );
   });
 });
 
