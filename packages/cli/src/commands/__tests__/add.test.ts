@@ -53,7 +53,7 @@ vi.mock("@clack/prompts", () => ({
 // would stop covering the actual .mcp.json/settings/managed-block wiring the
 // new tests below assert on.
 const renderControl = vi.hoisted(() => ({ forceFail: false }));
-vi.mock("../render.ts", async (importOriginal) => {
+vi.mock(import("../render.ts"), async (importOriginal) => {
   const actual = await importOriginal<typeof import("../render.ts")>();
   return {
     ...actual,
