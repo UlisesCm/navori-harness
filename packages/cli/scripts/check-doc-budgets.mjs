@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,7 +7,9 @@ import {
   COMPUTED_BLOCKS_WITHOUT_BUDGET,
   DOC_BUDGETS,
   MANAGED_ASSET_PATHSPECS,
+  SESSION_CONTEXT_DELIVERY_BUDGET_CHARS,
   countWords,
+  simulateContextDelivery,
 } from "../src/lib/doc-budgets.ts";
 
 /**
@@ -62,6 +64,14 @@ import {
  * erosion early (the actual #908 ask) without blocking work that didn't
  * cause it. Exceeding the cap outright stays a hard failure below,
  * unchanged.
+ *
+ * #919 — a separate, WARNING-ONLY block below simulates the SessionStart
+ * hook's delivery of `.claude/context/*.md` (see `simulateContextDelivery` in
+ * `doc-budgets.ts`) and names any file that would arrive as a pointer instead
+ * of its body. Deliberately not part of the pass/fail loop above: that budget
+ * is accumulated across files in delivery order, not a per-file ceiling, and
+ * this repo's own surface is already over it — a hard failure would turn
+ * every PR red from the day this ships.
  *
  * #930 — `AGENTS.md` (the prose surface `codex`/`agents-md` render) is now a
  * plain entry in `DOC_BUDGETS` too, exactly like `CLAUDE.md`: neither matches
@@ -150,6 +160,46 @@ if (lowHeadroom.length > 0) {
   for (const { rel, words, ceiling, margin } of lowHeadroom) {
     const pct = ((margin / words) * 100).toFixed(1);
     console.warn(`    ${rel}: ${words}/${ceiling} words (${pct}% headroom, < 5%)`);
+  }
+}
+
+// #919 — `.claude/context/` is delivered by the SessionStart hook under its
+// OWN budget (characters, accumulated across files IN DELIVERY ORDER, not a
+// per-file word ceiling — see `SESSION_CONTEXT_DELIVERY_BUDGET_CHARS`). This
+// repo's own surface already crosses it today (12681 bytes vs an 8000-char
+// budget), so this is a WARNING, never a failure — the same standard the
+// headroom check above uses, and for the same reason: a hard fail here would
+// turn every unrelated PR red from the first commit, over a mechanism that
+// already degrades safely to a pointer instead of losing content.
+//
+// Delivery order is the hook's plain alphabetical glob, which the numeric
+// filename prefix (`10-`, `20-`, …) turns into `ORCHESTRATOR_CONTEXT_ORDER`
+// (`engines/claude/index.ts`) — `readdirSync().sort()` reproduces it without
+// re-deriving that list by hand.
+const contextDir = resolve(REPO_ROOT, ".claude", "context");
+if (existsSync(contextDir)) {
+  const contextFiles = readdirSync(contextDir)
+    .filter((name) => name.endsWith(".md"))
+    .sort()
+    .map((name) => {
+      const rel = `.claude/context/${name}`;
+      return { path: rel, chars: readFileSync(resolve(REPO_ROOT, rel), "utf-8").length };
+    });
+  const delivery = simulateContextDelivery(contextFiles, SESSION_CONTEXT_DELIVERY_BUDGET_CHARS);
+  const pointers = delivery.filter((f) => f.delivered === "pointer");
+  if (pointers.length > 0) {
+    console.warn(
+      `⚠ .claude/context/: ${pointers.length} file(s) would deliver as a POINTER, not inline, at ` +
+        `session start (delivery budget ${SESSION_CONTEXT_DELIVERY_BUDGET_CHARS} chars, accumulated ` +
+        `across files in this order: ${contextFiles.map((f) => f.path).join(", ")}):`,
+    );
+    for (const f of pointers) {
+      console.warn(
+        `    ${f.path}: files ahead of it in delivery order already used ${f.ctxCharsBefore} chars ` +
+          `— the fix is almost never editing THIS file, it's trimming whichever one grew earlier ` +
+          `in the order above`,
+      );
+    }
   }
 }
 

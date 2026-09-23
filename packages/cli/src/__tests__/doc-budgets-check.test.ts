@@ -1,6 +1,14 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { spawnSync, execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -15,6 +23,7 @@ import {
   computedBlockCeiling,
   countWords,
   managedBlockCeilings,
+  simulateContextDelivery,
 } from "../lib/doc-budgets.ts";
 
 /**
@@ -83,6 +92,29 @@ function seedRepo(
       "export function countWords(body: string): number {",
       "  const trimmed = body.trim();",
       '  return trimmed === "" ? 0 : trimmed.split(/\\s+/).length;',
+      "}",
+      // #919 — mirrored inline rather than re-imported from the real module:
+      // this fixture already copies the SCRIPT verbatim (see the comment
+      // above this function), so this is the same strategy applied to its
+      // one other import — a drift here is caught by the tests below, not by
+      // trusting the copy.
+      `export const SESSION_CONTEXT_DELIVERY_BUDGET_CHARS = ${SESSION_CONTEXT_DELIVERY_BUDGET_CHARS};`,
+      "export function simulateContextDelivery(files: { path: string; chars: number }[], budgetChars: number) {",
+      "  let ctx = 0;",
+      "  const results = [];",
+      "  for (const file of files) {",
+      "    ctx += 1;",
+      "    const ctxCharsBefore = ctx;",
+      "    if (ctx + file.chars <= budgetChars) {",
+      '      results.push({ ...file, delivered: "inline", ctxCharsBefore });',
+      "      ctx += file.chars + 1;",
+      "    } else {",
+      "      const pointer = `[navori] '${file.path}' no cabe en el contexto de arranque (${file.chars} caracteres). LÉELO con Read antes de decidir cómo abordar la tarea: contiene doctrina que ninguna otra vía te entrega.`;",
+      '      results.push({ ...file, delivered: "pointer", ctxCharsBefore });',
+      "      ctx += pointer.length + 1;",
+      "    }",
+      "  }",
+      "  return results;",
       "}",
       "",
     ].join("\n"),
@@ -264,6 +296,82 @@ describe("check-doc-budgets (#815)", () => {
     expect(result.status).toBe(1);
     expect(result.combined).toContain("over their word ceiling");
     expect(result.combined).toContain("AGENTS.md: 5 words > 2 ceiling");
+  });
+
+  /**
+   * #919 — `.claude/context/` is delivered by the SessionStart hook under its
+   * OWN accumulated, in-order budget (`SESSION_CONTEXT_DELIVERY_BUDGET_CHARS`),
+   * not a per-file word ceiling. This is a WARNING, never a failure — this
+   * repo's own surface is already over the delivery budget today, so a hard
+   * fail here would turn the gate red from the day this ships.
+   */
+  it("warns when a .claude/context/ file would deliver as a pointer, still exits 0", () => {
+    const first = "a".repeat(7889); // fits alone: 1 (separator) + 7889 = 7890 <= 8000
+    const second = "b".repeat(189); // 7892 (separator after first) + 189 = 8081 > 8000
+    const repo = seedRepo(
+      { "CLAUDE.md": 10, "packages/core/core-assets/managed/foo.md": 10 },
+      {
+        ".claude/context/10-orquestacion.md": first,
+        ".claude/context/40-cierre-sesion.md": second,
+      },
+    );
+    const result = run([], repo);
+    expect(result.status).toBe(0);
+    expect(result.combined).toContain("would deliver as a POINTER");
+    expect(result.combined).toContain(".claude/context/40-cierre-sesion.md");
+    expect(result.combined).toContain("7892 chars");
+    // The file that fits stays unmentioned as a culprit — only the degraded
+    // one gets a line, and it names what came before it, not its own size.
+    expect(result.combined).not.toContain(".claude/context/10-orquestacion.md: files ahead");
+  });
+
+  it("stays silent about .claude/context/ when every file delivers inline", () => {
+    const repo = seedRepo(
+      { "CLAUDE.md": 10, "packages/core/core-assets/managed/foo.md": 10 },
+      { ".claude/context/10-orquestacion.md": "a".repeat(100) },
+    );
+    const result = run([], repo);
+    expect(result.status).toBe(0);
+    expect(result.combined).not.toContain("would deliver as a POINTER");
+  });
+
+  it("says nothing about .claude/context/ when the repo has no context dir", () => {
+    const repo = seedRepo({
+      "CLAUDE.md": 10,
+      "packages/core/core-assets/managed/foo.md": 10,
+    });
+    const result = run([], repo);
+    expect(result.status).toBe(0);
+    expect(result.combined).not.toContain(".claude/context/");
+  });
+
+  /**
+   * Confirms this repo's OWN `.claude/context/` is the live case the warning
+   * exists for (#919's audit measured it at 12681 bytes against an 8000-char
+   * budget) — this runs the REAL script against the REAL repo, not a
+   * synthetic fixture, so a fix that shrinks the surface below the budget is
+   * meant to flip this test green-without-the-warning, not break it: the
+   * assertion that must survive is "degrades without failing", not the
+   * specific file name.
+   */
+  it("warns about navori-harness's own .claude/context/ surface without failing the gate", () => {
+    const result = run([], REPO_ROOT);
+    expect(result.status).toBe(0);
+    const files = readdirSync(join(REPO_ROOT, ".claude", "context"))
+      .filter((name) => name.endsWith(".md"))
+      .sort()
+      .map((name) => ({
+        path: `.claude/context/${name}`,
+        chars: readFileSync(join(REPO_ROOT, ".claude", "context", name), "utf-8").length,
+      }));
+    const delivery = simulateContextDelivery(files, SESSION_CONTEXT_DELIVERY_BUDGET_CHARS);
+    const pointers = delivery.filter((f) => f.delivered === "pointer");
+    if (pointers.length > 0) {
+      expect(result.combined).toContain("would deliver as a POINTER");
+      for (const f of pointers) expect(result.combined).toContain(f.path);
+    } else {
+      expect(result.combined).not.toContain("would deliver as a POINTER");
+    }
   });
 
   it("passes when the self-hosted AGENTS.md is within its word ceiling", () => {

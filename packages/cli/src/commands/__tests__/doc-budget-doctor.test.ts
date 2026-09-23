@@ -351,8 +351,41 @@ describe("scanDocBudget (#917)", () => {
     expect(report.contextWords).toBe(1300);
     expect(report.contextChars).toBeGreaterThan(0);
     expect(report.contextDeliveryBudget).toBe(SESSION_CONTEXT_DELIVERY_BUDGET_CHARS);
+    // Both files fit comfortably under the delivery budget here — both inline.
+    expect(report.contextFiles.map((f) => f.delivered)).toEqual(["inline", "inline"]);
     // Reported, not capped: the context surface never moves the CLAUDE.md verdict.
     expect(report.overBy).toBe(0);
+  });
+
+  /**
+   * #919 — the accumulated-delivery decision `add_bounded` makes silently at
+   * runtime, reported per file. The second file degrades PURELY because of
+   * what the first one already spent, not because of its own size — that
+   * attribution is the whole point of `ctxCharsBefore`.
+   */
+  it("marks a file past the accumulated delivery budget as a pointer, attributed to what came before it", () => {
+    const cwd = tempRepo();
+    // 1500 words (7889 chars) fits alone; the second file's own 50 words
+    // (189 chars) would ALSO fit alone, but not once the first one's 7890
+    // running total (body + separator) is already queued ahead of it.
+    writeContext(cwd, "10-orquestacion.md", words(1500));
+    writeContext(cwd, "40-cierre-sesion.md", words(50));
+    const report = scanDocBudget(cwd, config())!;
+    const [first, second] = report.contextFiles;
+    expect(first!.delivered).toBe("inline");
+    expect(second!.delivered).toBe("pointer");
+    // The degraded file's OWN body (189 chars) is nowhere near the 8000
+    // budget — what pushed it past is entirely what `first` already queued.
+    expect(second!.ctxCharsBefore).toBeGreaterThan(
+      SESSION_CONTEXT_DELIVERY_BUDGET_CHARS - second!.chars,
+    );
+    const lines = docBudgetLines(report, tc("es").doctor);
+    expect(lines.some((l) => l.includes("40-cierre-sesion.md") && l.includes("PUNTERO"))).toBe(
+      true,
+    );
+    // Advisory only: a repo whose context surface is fully degraded still
+    // reports the same health verdict as one whose surface fits.
+    expect(computeHealthVerdict(cwd, config()).ok).toBe(true);
   });
 
   /**
