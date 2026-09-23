@@ -410,15 +410,16 @@ describe("tgrep — T01-T03, T07-T11 (index lifecycle)", () => {
       // flips to `true`, this assertion fails, and that failure is the
       // signal to update it deliberately alongside the prose in issue #946
       // and docs/research/search-v2.md:538 — not silently flip the assert.
+      // `foundNoIndex` is guaranteed `true` by the assertion above (it throws
+      // otherwise), so this assertion can only fail when `foundIndexed` is
+      // also `true` — the message below is the only reachable failure case.
       assert.notEqual(
         foundIndexed,
         foundNoIndex,
-        foundIndexed
-          ? "This failure is NOT a bug in this test — it is the expected signal that tgrep's disk-index " +
-              "staleness behavior changed (it now picks up a post-`tgrep index` mutation without `tgrep serve` " +
-              "running, which was measured as frozen when this test was written). Update this assertion " +
-              "deliberately and review docs/research/search-v2.md:538 before touching it."
-          : "disk index is frozen relative to --no-index, as currently measured and documented",
+        "This failure is NOT a bug in this test — it is the expected signal that tgrep's disk-index " +
+          "staleness behavior changed (it now picks up a post-`tgrep index` mutation without `tgrep serve` " +
+          "running, which was measured as frozen when this test was written). Update this assertion " +
+          "deliberately and review docs/research/search-v2.md:538 before touching it.",
       );
     } finally {
       await rm(newFile, { force: true });
