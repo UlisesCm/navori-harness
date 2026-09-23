@@ -735,6 +735,10 @@ interface DoctorCmdStrings {
   otelReceiverDead: (port: number) => string;
   otelReceiverAbsent: string;
   otelReceiverManual: string;
+  /** #943 — index freshness for the textual (tgrep) and structural (codegraph)
+   *  search providers. Informational only, never feeds the verdict. */
+  tgrepIndexStale: (age: string, rootPath: string) => string;
+  codegraphIndexDrift: (builtWithVersion: string, currentVersion: string) => string;
   /** #368 — the declared quality gate can't run on this machine. */
   gateNotRunnable: (n: number, lines: string) => string;
   gateMissingBinaryRow: (binary: string) => string;
@@ -1836,6 +1840,13 @@ const CMD_ES: CmdStrings = {
       `Este repo audita siempre pero el receptor de eventos OTel no tiene supervisor: si se cae o ` +
       `reinicias la máquina, las sesiones de ese rato pierden la tercera fuente sin aviso. ` +
       `Instálalo con 'navori global collect install'.`,
+    tgrepIndexStale: (age, rootPath) =>
+      `El índice de tgrep se actualizó hace ${age} y no hay servidor corriendo: ` +
+      `las búsquedas responden desde ese snapshot congelado, no desde el árbol actual. ` +
+      `Corre 'tgrep serve ${rootPath}' para mantenerlo al día.`,
+    codegraphIndexDrift: (builtWithVersion, currentVersion) =>
+      `El índice de codegraph fue construido con el motor ${builtWithVersion}, pero el binario ` +
+      `instalado es ${currentVersion}. Corre 'codegraph index' para reconstruirlo con el motor actual.`,
     gateNotRunnable: (n, lines) =>
       `Quality gate declarado pero no ejecutable (${n}) — el gate es lo que sostiene ` +
       `el cierre de cada tarea; si no corre, las fases que dependen de él quedan sin red:\n${lines}`,
@@ -3063,6 +3074,13 @@ const CMD_EN: CmdStrings = {
       `This repo audits every session but the OTel receiver has no supervisor: if it dies or the ` +
       `machine reboots, the sessions in between lose the third source with no warning. ` +
       `Install it with 'navori global collect install'.`,
+    tgrepIndexStale: (age, rootPath) =>
+      `The tgrep index was last updated ${age} ago and no server is running: ` +
+      `searches are answering from that frozen snapshot, not the current tree. ` +
+      `Run 'tgrep serve ${rootPath}' to keep it fresh.`,
+    codegraphIndexDrift: (builtWithVersion, currentVersion) =>
+      `The codegraph index was built with engine ${builtWithVersion}, but the installed binary ` +
+      `is ${currentVersion}. Run 'codegraph index' to rebuild it with the current engine.`,
     gateNotRunnable: (n, lines) =>
       `Quality gate declared but not runnable (${n}) — the gate is what closes every ` +
       `task; if it can't run, the phases that lean on it have no net:\n${lines}`,
