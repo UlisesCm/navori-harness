@@ -1490,16 +1490,16 @@ type McpPlan =
  * that a real plugin package declares. Taking a `LoadedPlugin[]` directly is the
  * only way to hold that branch to its contract.
  */
-export function planMcpRegistration(
-  cwd: string,
+/**
+ * Servers navori wants registered: one entry per enabled plugin declaring an
+ * `mcpServer`, in the exact shape `planMcpRegistration` writes to `.mcp.json`.
+ * Extracted so `doctor`'s coherence scan reads the SAME expected shape instead
+ * of re-deriving it from the manifest independently (#977) — a drift between
+ * the two would make doctor warn/pass on the wrong repos.
+ */
+export function buildDesiredMcpServers(
   enabledPlugins: LoadedPlugin[],
-  disabledPlugins: LoadedPlugin[],
-  config: NavoriConfig,
-  force: boolean,
-): McpPlan {
-  const path = join(cwd, ".mcp.json");
-
-  // Servers navori wants registered: enabled plugins declaring an mcpServer.
+): Map<string, Record<string, unknown>> {
   const desired = new Map<string, Record<string, unknown>>();
   for (const plugin of enabledPlugins) {
     const server = plugin.manifest.mcpServer;
@@ -1512,6 +1512,19 @@ export function planMcpRegistration(
     if (server.alwaysLoad) entry.alwaysLoad = true;
     desired.set(plugin.manifest.id, entry);
   }
+  return desired;
+}
+
+export function planMcpRegistration(
+  cwd: string,
+  enabledPlugins: LoadedPlugin[],
+  disabledPlugins: LoadedPlugin[],
+  config: NavoriConfig,
+  force: boolean,
+): McpPlan {
+  const path = join(cwd, ".mcp.json");
+
+  const desired = buildDesiredMcpServers(enabledPlugins);
 
   const existing = existsSync(path) ? readFileSync(path, "utf-8") : null;
   let base: Record<string, unknown> = {};

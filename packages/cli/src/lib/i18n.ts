@@ -729,6 +729,13 @@ interface DoctorCmdStrings {
   externalToolRow: (binary: string, how: string) => string;
   externalToolFallbackHow: string;
   externalToolDocsHow: (url: string) => string;
+  /** #977 — `.mcp.json` disagreeing with an enabled plugin's manifest. Unlike
+   *  `externalTools` above (per-machine, warn-only forever), this feeds
+   *  `--strict`'s exit code: it's a fact about the committed repo. */
+  mcpCoherence: (n: number, lines: string) => string;
+  mcpCoherenceUnparseable: (detail: string) => string;
+  mcpCoherenceMissingEntry: string;
+  mcpCoherenceCommandMismatch: (expected: string, actual: string) => string;
   optionalTools: (n: number, lines: string) => string;
   optionalToolRow: (binaries: string, how: string) => string;
   /** #697 — the OTel receiver, only asked about when the repo audits always. */
@@ -1849,6 +1856,13 @@ const CMD_ES: CmdStrings = {
     externalToolRow: (binary, how) => `— falta '${binary}' en PATH; ${how}`,
     externalToolFallbackHow: "instala la herramienta y reinicia Claude Code",
     externalToolDocsHow: (url) => `instálala siguiendo ${url}`,
+    mcpCoherence: (n, lines) =>
+      `.mcp.json incoherente con el manifest del plugin (${n}) — este checkout quedó desalineado; ` +
+      `corre 'navori render --apply' para regenerarlo:\n${lines}`,
+    mcpCoherenceUnparseable: (detail) => `— .mcp.json no parsea: ${detail}`,
+    mcpCoherenceMissingEntry: "— falta la entrada del plugin en .mcp.json",
+    mcpCoherenceCommandMismatch: (expected, actual) =>
+      `— command no coincide (esperado '${expected}', encontrado '${actual}')`,
     optionalTools: (n, lines) =>
       `Herramientas opcionales no instaladas (${n}) — el harness funciona con fallback, ` +
       `pero pierde precisión en estos flujos:\n${lines}`,
@@ -3112,6 +3126,13 @@ const CMD_EN: CmdStrings = {
     externalToolRow: (binary, how) => `— missing '${binary}' in PATH; ${how}`,
     externalToolFallbackHow: "install the tool and restart Claude Code",
     externalToolDocsHow: (url) => `install it following ${url}`,
+    mcpCoherence: (n, lines) =>
+      `.mcp.json incoherent with the plugin's manifest (${n}) — this checkout drifted; ` +
+      `run 'navori render --apply' to regenerate it:\n${lines}`,
+    mcpCoherenceUnparseable: (detail) => `— .mcp.json doesn't parse: ${detail}`,
+    mcpCoherenceMissingEntry: "— plugin entry missing from .mcp.json",
+    mcpCoherenceCommandMismatch: (expected, actual) =>
+      `— command mismatch (expected '${expected}', found '${actual}')`,
     optionalTools: (n, lines) =>
       `Optional tools not installed (${n}) — the harness keeps working with a fallback, ` +
       `but loses precision in these flows:\n${lines}`,
