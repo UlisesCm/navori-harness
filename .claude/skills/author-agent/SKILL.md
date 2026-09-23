@@ -1,6 +1,6 @@
 ---
 name: author-agent
-description: Use when proposing, expanding, writing, or reviewing a navori agent (core-assets/agents, a preset's extras.agents) or deciding whether an existing one should be retired. Applies Spec 0031's admission test — quality, speed, or net token savings, else expendable — and the per-engine contract for Claude Code, Codex, and DeepSeek. Not for skills.
+description: Use when proposing, expanding, writing, or reviewing a navori agent (core-assets/agents, a preset's extras.agents) or deciding whether an existing one should be retired. Applies Spec 0031's admission test — quality, speed, or net token savings, else expendable — and the per-engine contract for Claude Code, Codex, and DeepSeek. Not for skills (see author-skill).
 metadata:
   type: reference
 ---

@@ -167,7 +167,7 @@ Use `tgrep search -n [flags] -- PATTERN ROOT`; without `-n` piped output has no 
 Use `codegraph_explore` for structural discovery when available. Pass the current checkout's absolute `projectPath`; do not substitute another worktree's index. Treat fresh verbatim source in context as already read. Covers only its indexed languages (see codegraph status); docs, shell and config usually fall outside, so an empty result there is a gap, not absence. Never initialize an index during ordinary discovery. If unindexed or the provider fails, use scoped native exploration. Pass `maxFiles` to bound a large response. Do not call tgrep merely to confirm the same symbol.
 <!-- /navori:managed id="codegraph-search-v2" -->
 
-<!-- navori:managed id="skills-index" hash="e728f317" version="0.9.0" source="@navori/core" -->
+<!-- navori:managed id="skills-index" hash="0f4c345e" version="0.9.0" source="@navori/core" -->
 ## Skills disponibles
 
 Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/SKILL.md` — el directorio no es opcional: es la única forma que Claude Code descubre, también para las tuyas. El listado nativo del host entrega el "cuándo usar" de cada una.
@@ -192,6 +192,7 @@ Las `project-local` son tuyas — navori las indexa pero nunca toca su contenido
 - `citty` — library (detected)
 - `clack` — library (detected)
 - `playwright-cli` — project-local
+- `author-agent` — project-local
 <!-- /navori:managed id="skills-index" -->
 
 <!-- navori:managed id="contexto-proyecto" hash="b1ef1c95" version="0.9.0" source="@navori/core" -->
