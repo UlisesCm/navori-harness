@@ -484,7 +484,10 @@ def main(argv):
     print("D19 (spec 0026 §9.5) — vía v2 (tgrep search + codegraph_explore) contra escape")
     print("(Grep nativo + shell + git grep). Umbral pre-registrado: >= 25% en dos semanas de")
     print("dogfood tras habilitar los plugins; por debajo, D11 se reabre con una spec nueva.")
-    head2 = f"{'repo':30s} {'v2':>6s} {'escape':>7s} {'v2%':>7s} {'malform':>8s} {'no_disp':>8s}"
+    head2 = (
+        f"{'repo':30s} {'v2':>6s} {'|tgrep':>7s} {'|cgraph':>8s} {'escape':>7s} {'v2%':>7s} "
+        f"{'malform':>8s} {'no_disp':>8s}"
+    )
     print(head2)
     for repo in sorted(per_repo):
         c = per_repo[repo]
@@ -493,17 +496,21 @@ def main(argv):
         den = v2 + escape
         pct = (100 * v2 / den) if den else 0
         print(
-            f"{repo[:30]:30s} {v2:6d} {escape:7d} {pct:6.1f}% "
-            f"{c['malformado']:8d} {c['no_disponible']:8d}"
+            f"{repo[:30]:30s} {v2:6d} {c['tgrep-v2']:7d} {c['codegraph-v2']:8d} {escape:7d} "
+            f"{pct:6.1f}% {c['malformado']:8d} {c['no_disponible']:8d}"
         )
     grand_v2 = grand["tgrep-v2"] + grand["codegraph-v2"]
     grand_escape = sum(grand[k] for k in ESCAPE_ROUTES)
     grand_den = grand_v2 + grand_escape
     print(
-        f"{'TOTAL':30s} {grand_v2:6d} {grand_escape:7d} "
-        f"{(100 * grand_v2 / grand_den) if grand_den else 0:6.1f}% "
+        f"{'TOTAL':30s} {grand_v2:6d} {grand['tgrep-v2']:7d} {grand['codegraph-v2']:8d} "
+        f"{grand_escape:7d} {(100 * grand_v2 / grand_den) if grand_den else 0:6.1f}% "
         f"{grand['malformado']:8d} {grand['no_disponible']:8d}"
     )
+    print()
+    print("'|tgrep' y '|cgraph' desglosan 'v2' por proveedor (`tgrep search` CLI vs.")
+    print("`codegraph_explore` MCP): el agregado esconde cuál de los dos mueve la cifra, y ese")
+    print("desglose es evidencia central para D19 (#947) — antes había que importar el módulo a mano.")
     print()
     print("'malform' son líneas del transcript que no parsearon como JSON — no son cero por")
     print("construcción, son evidencia perdida; distinto de 'no_disp', una sesión auditada sin")

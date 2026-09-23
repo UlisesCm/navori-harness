@@ -31,6 +31,40 @@ const MINER = resolve(
 
 const hasPython = spawnSync("python3", ["--version"]).status === 0;
 
+/**
+ * One audited session with a single-day transcript, ready to feed `scan()`
+ * (or the CLI directly) via its env overrides. Shared by the fixtures below
+ * so each test states only what differs: the transcript content and day.
+ */
+function auditedFixture(
+  prefix: string,
+  sid: string,
+  day: string,
+  mainLines: Array<Record<string, unknown>>,
+): { root: string; env: NodeJS.ProcessEnv } {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  const audits = join(root, "audits", "demo");
+  const projects = join(root, "projects", "enc");
+  mkdirSync(audits, { recursive: true });
+  mkdirSync(projects, { recursive: true });
+  writeFileSync(
+    join(audits, `session-${sid}.log`),
+    `${JSON.stringify({ ts: `${day}T10:00:00Z`, event: "start", repo: "demo" })}\n`,
+  );
+  writeFileSync(
+    join(projects, `${sid}.jsonl`),
+    `${mainLines.map((l) => JSON.stringify(l)).join("\n")}\n`,
+  );
+  return {
+    root,
+    env: {
+      ...process.env,
+      NAVORI_AUDITS_ROOT: join(root, "audits"),
+      NAVORI_TRANSCRIPTS_ROOT: join(root, "projects"),
+    },
+  };
+}
+
 /** Classify one command through the real module. */
 function classify(command: string): Record<string, number> {
   const program = [
@@ -41,6 +75,18 @@ function classify(command: string): Record<string, number> {
   ].join("\n");
   const r = spawnSync("python3", ["-c", program, command], { encoding: "utf-8" });
   return JSON.parse(r.stdout || "{}") as Record<string, number>;
+}
+
+/** Run `scan()` (all repos, no `--desde`/`--hasta`) against a fixture's env. */
+function runScan(env: NodeJS.ProcessEnv): Record<string, Record<string, number>> {
+  const program = [
+    "import importlib.util, json",
+    `spec = importlib.util.spec_from_file_location('m', ${JSON.stringify(MINER)})`,
+    "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)",
+    "print(json.dumps({k: dict(v) for k, v in m.scan().items()}))",
+  ].join("\n");
+  const r = spawnSync("python3", ["-c", program], { encoding: "utf-8", env });
+  return JSON.parse(r.stdout || "{}") as Record<string, Record<string, number>>;
 }
 
 describe.runIf(hasPython)("mine-search-routing — las vías que nadie contaba (#720)", () => {
@@ -83,18 +129,7 @@ describe.runIf(hasPython)("mine-search-routing — las vías que nadie contaba (
     // El veredicto sale del PROPIO transcript: el bloqueo llega como
     // `tool_result` con `is_error` y el texto del hook. Exacto, sin cruzar
     // archivos ni correlacionar por reloj.
-    const root = mkdtempSync(join(tmpdir(), "navori-miner-"));
-    const audits = join(root, "audits", "demo");
-    const projects = join(root, "projects", "enc");
-    mkdirSync(audits, { recursive: true });
-    mkdirSync(projects, { recursive: true });
-    const sid = "sess-miner-1";
-    writeFileSync(
-      join(audits, `session-${sid}.log`),
-      `${JSON.stringify({ ts: "2026-09-12T10:00:00Z", event: "start", repo: "demo", cwd: "/x" })}\n`,
-    );
-
-    const lines = [
+    const { env } = auditedFixture("navori-miner-", "sess-miner-1", "2026-09-12", [
       {
         message: {
           content: [
@@ -123,27 +158,8 @@ describe.runIf(hasPython)("mine-search-routing — las vías que nadie contaba (
           ],
         },
       },
-    ];
-    writeFileSync(
-      join(projects, `${sid}.jsonl`),
-      `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`,
-    );
-
-    const program = [
-      "import importlib.util, json",
-      `spec = importlib.util.spec_from_file_location('m', ${JSON.stringify(MINER)})`,
-      "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)",
-      "print(json.dumps({k: dict(v) for k, v in m.scan().items()}))",
-    ].join("\n");
-    const r = spawnSync("python3", ["-c", program], {
-      encoding: "utf-8",
-      env: {
-        ...process.env,
-        NAVORI_AUDITS_ROOT: join(root, "audits"),
-        NAVORI_TRANSCRIPTS_ROOT: join(root, "projects"),
-      },
-    });
-    const out = JSON.parse(r.stdout || "{}") as Record<string, Record<string, number>>;
+    ]);
+    const out = runScan(env);
     expect(out.demo?.bloqueado).toBe(1);
     expect(out.demo?.shell).toBe(1);
   });
@@ -238,20 +254,10 @@ describe.runIf(hasPython)("mine-search-routing — D19: v2 contra escape (#838, 
     // El hilo principal repite los records del subagente marcados `isSidechain`
     // ADEMÁS de escribirlos en `<session>/subagents/agent-*.jsonl` — sin excluir
     // esa marca en el padre, una sola búsqueda del subagente cuenta dos veces.
-    const root = mkdtempSync(join(tmpdir(), "navori-miner-d19-"));
-    const audits = join(root, "audits", "demo");
-    const projects = join(root, "projects", "enc");
     const sid = "sess-d19-1";
-    const subDir = join(projects, sid, "subagents");
-    mkdirSync(audits, { recursive: true });
-    mkdirSync(subDir, { recursive: true });
-    writeFileSync(
-      join(audits, `session-${sid}.log`),
-      `${JSON.stringify({ ts: "2026-09-16T10:00:00Z", event: "start", repo: "demo" })}\n`,
-    );
     // Hilo principal: una búsqueda propia por Grep nativo, más la sidechain del
     // subagente repetida inline (no debe sumar).
-    const mainLines = [
+    const { root, env } = auditedFixture("navori-miner-d19-", sid, "2026-09-16", [
       { message: { content: [{ type: "tool_use", id: "m1", name: "Grep", input: {} }] } },
       {
         isSidechain: true,
@@ -266,11 +272,9 @@ describe.runIf(hasPython)("mine-search-routing — D19: v2 contra escape (#838, 
           ],
         },
       },
-    ];
-    writeFileSync(
-      join(projects, `${sid}.jsonl`),
-      `${mainLines.map((l) => JSON.stringify(l)).join("\n")}\n`,
-    );
+    ]);
+    const subDir = join(root, "projects", "enc", sid, "subagents");
+    mkdirSync(subDir, { recursive: true });
     // Subagente: la MISMA búsqueda tgrep, más una llamada a codegraph_explore.
     const subLines = [
       {
@@ -297,21 +301,7 @@ describe.runIf(hasPython)("mine-search-routing — D19: v2 contra escape (#838, 
       `${subLines.map((l) => JSON.stringify(l)).join("\n")}\n`,
     );
 
-    const program = [
-      "import importlib.util, json",
-      `spec = importlib.util.spec_from_file_location('m', ${JSON.stringify(MINER)})`,
-      "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)",
-      "print(json.dumps({k: dict(v) for k, v in m.scan().items()}))",
-    ].join("\n");
-    const r = spawnSync("python3", ["-c", program], {
-      encoding: "utf-8",
-      env: {
-        ...process.env,
-        NAVORI_AUDITS_ROOT: join(root, "audits"),
-        NAVORI_TRANSCRIPTS_ROOT: join(root, "projects"),
-      },
-    });
-    const out = JSON.parse(r.stdout || "{}") as Record<string, Record<string, number>>;
+    const out = runScan(env);
     // Exactos: una sola `tgrep-v2` (deduplicada), un `codegraph-v2`, un `nativo`.
     expect(out.demo?.["tgrep-v2"]).toBe(1);
     expect(out.demo?.["codegraph-v2"]).toBe(1);
@@ -343,25 +333,53 @@ describe.runIf(hasPython)("mine-search-routing — D19: v2 contra escape (#838, 
       `${JSON.stringify({ ts: "2026-09-16T11:00:00Z", event: "start", repo: "demo" })}\n`,
     );
 
-    const program = [
-      "import importlib.util, json",
-      `spec = importlib.util.spec_from_file_location('m', ${JSON.stringify(MINER)})`,
-      "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)",
-      "print(json.dumps({k: dict(v) for k, v in m.scan().items()}))",
-    ].join("\n");
-    const r = spawnSync("python3", ["-c", program], {
-      encoding: "utf-8",
-      env: {
-        ...process.env,
-        NAVORI_AUDITS_ROOT: join(root, "audits"),
-        NAVORI_TRANSCRIPTS_ROOT: join(root, "projects"),
-      },
+    const out = runScan({
+      ...process.env,
+      NAVORI_AUDITS_ROOT: join(root, "audits"),
+      NAVORI_TRANSCRIPTS_ROOT: join(root, "projects"),
     });
-    const out = JSON.parse(r.stdout || "{}") as Record<string, Record<string, number>>;
     expect(out.demo?.malformado).toBe(1);
     expect(out.demo?.no_disponible).toBe(1);
     // Ninguno de los dos se cuela en las categorías puntuadas.
     expect(out.demo?.["tgrep-v2"] ?? 0).toBe(0);
     expect(out.demo?.["codegraph-v2"] ?? 0).toBe(0);
+  });
+
+  it("imprime el desglose por proveedor de 'v2' (#947), no solo el agregado", () => {
+    // El agregado esconde el hallazgo: el issue #947 pide saber cuál de los dos
+    // proveedores mueve la cifra sin tener que importar el módulo a mano. Dos
+    // `tgrep search`, una `codegraph_explore`: desbalanceados a propósito, para
+    // que el test falle si el reporte solo suma el agregado.
+    const { env } = auditedFixture(
+      "navori-miner-d19-desglose-",
+      "sess-d19-desglose",
+      "2026-09-16",
+      [
+        {
+          message: {
+            content: [
+              {
+                type: "tool_use",
+                id: "t1",
+                name: "Bash",
+                input: { command: "tgrep search -n -F -- foo src" },
+              },
+              {
+                type: "tool_use",
+                id: "t2",
+                name: "Bash",
+                input: { command: "tgrep search -n -F -- bar src" },
+              },
+              { type: "tool_use", id: "t3", name: "mcp__codegraph__codegraph_explore", input: {} },
+            ],
+          },
+        },
+      ],
+    );
+    const r = spawnSync("python3", [MINER], { encoding: "utf-8", env });
+    const d19Section = (r.stdout || "").split("D19 (spec 0026")[1] ?? "";
+    const totalLine = d19Section.split("\n").find((l) => l.startsWith("TOTAL"));
+    // v2=3, |tgrep=2, |cgraph=1, escape=0, v2%=100.0
+    expect(totalLine).toMatch(/^TOTAL\s+3\s+2\s+1\s+0\s+100\.0%/);
   });
 });
