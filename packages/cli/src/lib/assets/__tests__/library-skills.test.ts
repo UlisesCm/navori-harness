@@ -59,6 +59,22 @@ describe("detectLibrarySkills", () => {
     expect(detectLibrarySkills(["@rn-primitives/slot"])).toEqual(["react-native-reusables"]);
   });
 
+  it.each([
+    "@tanstack/react-table",
+    "mantine-react-table",
+    "mantine-datatable",
+    "ag-grid-react",
+    "react-admin",
+    "@refinedev/core",
+  ])("detects admin dashboards by their data-table or admin kit (%s)", (dep) => {
+    expect(detectLibrarySkills([dep])).toEqual(["dashboard-patterns"]);
+  });
+
+  it("does not detect dashboards from a UI kit alone or from legacy antd", () => {
+    expect(detectLibrarySkills(["@mantine/core"])).toEqual([]);
+    expect(detectLibrarySkills(["antd"])).toEqual([]);
+  });
+
   it("matches any of a skill's alias deps", () => {
     expect(detectLibrarySkills(["@nestjs/mongoose"])).toEqual(["mongoose"]);
     expect(detectLibrarySkills(["winston"])).toEqual(["winston-logging"]);

@@ -108,6 +108,23 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
   },
   { id: "i18next", deps: ["i18next", "react-i18next"], label: "i18next" },
   { id: "bullmq", deps: ["bullmq"], label: "BullMQ jobs & queues" },
+  // No dependency marks "this is a dashboard", so this keys on data-table and
+  // admin kits. Plain UI kits (@mantine/core) are too broad a signal and stay
+  // out, and so does legacy antd. KNOWN GAP: a dashboard on a hand-rolled table
+  // over a UI kit (bonum-dashboard) matches none of these, and lib-skills have
+  // no manual opt-in yet — `update` rewrites `project.libraries` from detection.
+  {
+    id: "dashboard-patterns",
+    deps: [
+      "@tanstack/react-table",
+      "mantine-react-table",
+      "mantine-datatable",
+      "ag-grid-react",
+      "react-admin",
+      "@refinedev/core",
+    ],
+    label: "Admin dashboard patterns",
+  },
   // Testing tooling — cross-preset and presence-only like every other skill:
   // a declared+present runner/assertion lib earns its guidance regardless of preset.
   { id: "vitest", deps: ["vitest"], label: "Vitest" },
