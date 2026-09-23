@@ -13,6 +13,10 @@ import {
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
+import { listKnownPluginIds } from "../lib/plugins.ts";
+import { scanMissingExternalTools } from "../commands/doctor.ts";
+import type { NavoriConfig } from "../lib/config.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI = resolve(__dirname, "..", "..", "dist", "index.js");
@@ -2132,5 +2136,178 @@ describe("CLI e2e — global registry + render --all", () => {
     // --verbose lists the actual file path.
     const verbose = runCli(["render", "--all", "--verbose"], { HOME: fakeHome });
     expect(verbose.combined).toMatch(/\.claude\/agents\/orchestrator\.md/);
+  });
+});
+
+/**
+ * #989 — the axis between `--recommended` and `--full` is now documented as
+ * "harness complete without installing external software" vs "+ external
+ * providers and strict policy" (README.md, packages/cli/README.md,
+ * apps/website/src/content/commands.ts, this command's own --help). This
+ * suite is the regression test for that doc contract: it pins the 5 real
+ * differences the audit found (init.ts:265-360 as of #989) across plain
+ * `--yes`, `--recommended`, and `--full` so a future code change that drifts
+ * from the docs fails here first.
+ */
+describe("CLI e2e — init mode axis: --yes vs --recommended vs --full (#989)", () => {
+  const dirs: string[] = [];
+
+  beforeAll(() => {
+    if (!existsSync(CLI)) {
+      throw new Error(`CLI not built at ${CLI}. Run 'pnpm build' before tests.`);
+    }
+  });
+
+  afterEach(() => {
+    for (const d of dirs) {
+      try {
+        rmSync(d, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+    }
+    dirs.length = 0;
+  });
+
+  /** A repo outside any git tree (tmpdir root) never resolves a `remote.origin.url`. */
+  function tsRepo(): string {
+    const dir = makeTmpRepo({
+      "package.json": JSON.stringify({
+        name: "mode-axis",
+        devDependencies: { typescript: "^5.0.0", vitest: "^2.0.0" },
+      }),
+      "tsconfig.json": "{}",
+    });
+    return dir;
+  }
+
+  /** Same fixture, but a real git repo with an explicit `origin` remote so
+   * `isGitHubRepo`/`isNotGitHubRepo` is pinned instead of depending on the
+   * machine's ambient git config (never read: the fixture lives outside any
+   * repo by default, and here we set the remote explicitly both ways). */
+  function tsRepoWithRemote(url: string): string {
+    const dir = tsRepo();
+    execFileSync("git", ["-C", dir, "init", "-q"], { stdio: "ignore" });
+    execFileSync("git", ["-C", dir, "remote", "add", "origin", url], { stdio: "ignore" });
+    return dir;
+  }
+
+  function readConfigOf(repo: string): NavoriConfig {
+    return JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
+  }
+
+  it("difference 1/5 — plugins: --yes/--recommended (no GitHub remote) enable only engram; --recommended with a GitHub remote adds gh; --full enables every bundled plugin", () => {
+    const plain = tsRepo();
+    dirs.push(plain);
+    expect(runCli(["init", "--yes", "--no-render", "--cwd", plain]).status).toBe(0);
+    expect(Object.keys(readConfigOf(plain).plugins ?? {}).sort()).toEqual(["engram"]);
+
+    const recNoRemote = tsRepo();
+    dirs.push(recNoRemote);
+    expect(runCli(["init", "--recommended", "--no-render", "--cwd", recNoRemote]).status).toBe(0);
+    expect(Object.keys(readConfigOf(recNoRemote).plugins ?? {}).sort()).toEqual(["engram"]);
+
+    const recGithub = tsRepoWithRemote("git@github.com:acme/demo.git");
+    dirs.push(recGithub);
+    expect(runCli(["init", "--recommended", "--no-render", "--cwd", recGithub]).status).toBe(0);
+    expect(Object.keys(readConfigOf(recGithub).plugins ?? {}).sort()).toEqual(["engram", "gh"]);
+
+    const full = tsRepo();
+    dirs.push(full);
+    expect(runCli(["init", "--full", "--no-render", "--cwd", full]).status).toBe(0);
+    const fullPlugins = readConfigOf(full).plugins ?? {};
+    expect(Object.keys(fullPlugins).sort()).toEqual([...listKnownPluginIds()].sort());
+    for (const enabled of Object.values(fullPlugins)) {
+      expect((enabled as { enabled: boolean }).enabled).toBe(true);
+    }
+  });
+
+  it("difference 2/5 — project block: plain --yes never infers testRunner/testsForNewCode, --recommended infers them but leaves posture unset, --full forces the strict posture", () => {
+    // legacyPaths/criticalAreas are NOT part of this difference: the schema
+    // itself defaults them to [] once `project` is written at all (#529),
+    // so every mode ends up with the same empty arrays — asserting on them
+    // here would test the schema, not the --recommended/--full axis.
+    const plain = tsRepo();
+    dirs.push(plain);
+    expect(runCli(["init", "--yes", "--no-render", "--cwd", plain]).status).toBe(0);
+    const plainProject = readConfigOf(plain).project as Record<string, unknown> | undefined;
+    expect(plainProject?.testRunner).toBeUndefined();
+    expect(plainProject?.posture).toBeUndefined();
+
+    const recommended = tsRepo();
+    dirs.push(recommended);
+    expect(runCli(["init", "--recommended", "--no-render", "--cwd", recommended]).status).toBe(0);
+    const recProject = readConfigOf(recommended).project as Record<string, unknown>;
+    expect(recProject.testRunner).toBe("vitest");
+    expect(recProject.posture).toBeUndefined();
+    expect(recProject.reviewRigor).toBeUndefined();
+
+    const full = tsRepo();
+    dirs.push(full);
+    expect(runCli(["init", "--full", "--no-render", "--cwd", full]).status).toBe(0);
+    const fullProject = readConfigOf(full).project as Record<string, unknown>;
+    expect(fullProject.posture).toBe("production");
+    expect(fullProject.reviewRigor).toBe("strict");
+    expect(fullProject.testsForNewCode).toBe("always");
+  });
+
+  it("difference 3/5 — monorepo scan: --full populates workspaces[] without --scan-monorepo; --recommended alone leaves them empty", () => {
+    function seedMonorepo(): string {
+      const repo = makeTmpRepo({
+        "pnpm-workspace.yaml": "packages:\n  - 'apps/*'\n",
+        "package.json": JSON.stringify({ name: "demo-monorepo", private: true }),
+      });
+      const apps = join(repo, "apps", "backend");
+      mkdirSync(apps, { recursive: true });
+      writeFileSync(join(apps, "package.json"), JSON.stringify({ name: "backend" }));
+      return repo;
+    }
+
+    const recommended = seedMonorepo();
+    dirs.push(recommended);
+    expect(runCli(["init", "--recommended", "--no-render", "--cwd", recommended]).status).toBe(0);
+    expect(readConfigOf(recommended).monorepo?.workspaces).toEqual([]);
+
+    const full = seedMonorepo();
+    dirs.push(full);
+    expect(runCli(["init", "--full", "--no-render", "--cwd", full]).status).toBe(0);
+    expect(readConfigOf(full).monorepo?.workspaces).toHaveLength(1);
+  });
+
+  it("difference 4/5 — pre-commit hook: --full forces it without --pre-commit-hook; --recommended alone stays opt-in", () => {
+    const recommended = tsRepo();
+    dirs.push(recommended);
+    spawnSync("git", ["init"], { cwd: recommended, stdio: "ignore" });
+    expect(runCli(["init", "--recommended", "--no-render", "--cwd", recommended]).status).toBe(0);
+    expect(existsSync(join(recommended, ".git/hooks/pre-commit"))).toBe(false);
+
+    const full = tsRepo();
+    dirs.push(full);
+    spawnSync("git", ["init"], { cwd: full, stdio: "ignore" });
+    expect(runCli(["init", "--full", "--no-render", "--cwd", full]).status).toBe(0);
+    expect(existsSync(join(full, ".git/hooks/pre-commit"))).toBe(true);
+  });
+
+  it("difference 5/5 — missing-binary warning: only --full ever scans/warns about it; --recommended never mentions missing plugin binaries", () => {
+    const recommended = tsRepoWithRemote("git@github.com:acme/demo.git");
+    dirs.push(recommended);
+    const rec = runCli(["init", "--recommended", "--no-render", "--cwd", recommended]);
+    expect(rec.status).toBe(0);
+    expect(rec.combined).not.toMatch(/Faltan binarios|missing their binaries/);
+
+    const full = tsRepo();
+    dirs.push(full);
+    const fullResult = runCli(["init", "--full", "--no-render", "--cwd", full]);
+    expect(fullResult.status).toBe(0);
+    // Machine-independent: whether the warning fires depends on which binaries
+    // are actually installed on the box running the test, so derive the
+    // expectation from the same detector `init --full` itself calls (doctor's
+    // `scanMissingExternalTools`) instead of asserting a fixed outcome.
+    const missing = scanMissingExternalTools(readConfigOf(full));
+    if (missing.length > 0) {
+      expect(fullResult.combined).toMatch(/Faltan binarios|missing their binaries/);
+    } else {
+      expect(fullResult.combined).not.toMatch(/Faltan binarios|missing their binaries/);
+    }
   });
 });
