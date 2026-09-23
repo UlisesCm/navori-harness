@@ -1,4 +1,4 @@
-# navori:managed start id="worktree-reclaim-base" hash="146b45e1" version="0.9.0" source="@navori/core"
+# navori:managed start id="worktree-reclaim-base" hash="39ca0747" version="0.9.0" source="@navori/core"
 #!/usr/bin/env bash
 # navori — worktree reclaim (SessionEnd) — #527
 #
@@ -68,7 +68,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,

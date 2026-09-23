@@ -1,4 +1,4 @@
-# navori:managed start id="audit-mode-trigger-base" hash="ba439df5" version="0.9.0" source="@navori/core"
+# navori:managed start id="audit-mode-trigger-base" hash="7b4935ef" version="0.9.0" source="@navori/core"
 #!/usr/bin/env bash
 # navori — audit-mode prompt recorder (UserPromptSubmit)
 #
@@ -96,7 +96,7 @@ log_file=$audits_root/$repo/session-$session_id.log
 # Mid-session coverage is already modeled by the report (recorder horizon), so a
 # log that starts at prompt N is a smaller log, never a broken one.
 # Shared armed-audit consumption (#597, #599) — inlined into each consuming hook
-# at render time (see lib/hook-includes.ts). Single source of truth for the flag
+# at render time (see lib/render/hook-includes.ts). Single source of truth for the flag
 # protocol so the two consumers cannot drift apart:
 #
 #   · SessionStart  — arm BEFORE opening the session (original #597 flow).

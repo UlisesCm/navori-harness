@@ -1,4 +1,4 @@
-# navori:managed start id="qg-pre-commit-base" hash="6b4406d0" version="0.9.0" source="@navori/core"
+# navori:managed start id="qg-pre-commit-base" hash="3e0422d5" version="0.9.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Pre-commit / pre-push quality gate hook.
@@ -20,7 +20,7 @@ set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
 # Shared hook boilerplate — inlined into each hook at render time (see the
-# include directive in the source scripts + lib/hook-includes.ts). Single source
+# include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
 # by hand (that is the drift #225/#261 removed).
 #
@@ -86,7 +86,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,
@@ -391,7 +391,7 @@ trap navori_audit_on_exit EXIT
 # the same way.
 # Shared "the host cancelled this hook" recorder — inlined into the three gate
 # hooks at render time (see the include directive in the source scripts +
-# lib/hook-includes.ts).
+# lib/render/hook-includes.ts).
 #
 # WHY (#797): a `command` hook that reaches its host timeout is CANCELLED, and
 # bash still runs the EXIT trap on the way out with `$?` == 0 — the last
@@ -489,7 +489,7 @@ TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:sp
 # (fail-open to the slow path), and the inlined tests pin the pairing.
 TRIGGER_TOKENS='commit'
 # Shared gate detector — inlined into each hook at render time (see the include
-# directive in the source scripts + lib/hook-includes.ts). The caller MUST set
+# directive in the source scripts + lib/render/hook-includes.ts). The caller MUST set
 # $TRIGGER_RE (an ERE) before the include; it decides which git ops this hook
 # gates. Single source of truth for the FIX B/C wrapper-peeling logic; DO NOT
 # copy this body into a hook by hand.
@@ -611,7 +611,7 @@ is_scan_trigger() {
 # `navori_worktree` but resolves nothing until it is called, so a Bash call that
 # is not a commit still pays nothing for it.
 # Shared worktree resolver — inlined into each gate hook at render time (see the
-# include directive in the source scripts + lib/hook-includes.ts). Requires the
+# include directive in the source scripts + lib/render/hook-includes.ts). Requires the
 # `extract-cmd` partial to have run first ($payload and $cmd in scope).
 #
 # WHY (#454): settings.json invokes these hooks as

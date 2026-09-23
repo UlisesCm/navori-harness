@@ -1,5 +1,5 @@
 # Shared gate detector — inlined into each hook at render time (see the include
-# directive in the source scripts + lib/hook-includes.ts). The caller MUST set
+# directive in the source scripts + lib/render/hook-includes.ts). The caller MUST set
 # $TRIGGER_RE (an ERE) before the include; it decides which git ops this hook
 # gates. Single source of truth for the FIX B/C wrapper-peeling logic; DO NOT
 # copy this body into a hook by hand.

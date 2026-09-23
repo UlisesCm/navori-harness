@@ -1,5 +1,5 @@
 # Shared hook boilerplate — inlined into each hook at render time (see the
-# include directive in the source scripts + lib/hook-includes.ts). Single source
+# include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
 # by hand (that is the drift #225/#261 removed).
 #

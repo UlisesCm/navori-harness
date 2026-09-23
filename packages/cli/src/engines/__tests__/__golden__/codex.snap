@@ -1673,7 +1673,7 @@ log_file=$audits_root/$repo/session-$session_id.log
 # Mid-session coverage is already modeled by the report (recorder horizon), so a
 # log that starts at prompt N is a smaller log, never a broken one.
 # Shared armed-audit consumption (#597, #599) — inlined into each consuming hook
-# at render time (see lib/hook-includes.ts). Single source of truth for the flag
+# at render time (see lib/render/hook-includes.ts). Single source of truth for the flag
 # protocol so the two consumers cannot drift apart:
 #
 #   · SessionStart  — arm BEFORE opening the session (original #597 flow).
@@ -1785,7 +1785,7 @@ set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
 # Shared hook boilerplate — inlined into each hook at render time (see the
-# include directive in the source scripts + lib/hook-includes.ts). Single source
+# include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
 # by hand (that is the drift #225/#261 removed).
 #
@@ -1830,7 +1830,7 @@ extract_cmd() {
 TRIGGER_RE='^gh[[:space:]]+(pr|issue)[[:space:]]+comment([[:space:]]|$)|^gh[[:space:]]+pr[[:space:]]+review([[:space:]]|$)|^gh[[:space:]]+api([[:space:]]|$)|^acli[[:space:]]+jira[[:space:]]+workitem[[:space:]]+comment[[:space:]]+(create|update)([[:space:]]|$)'
 TRIGGER_TOKENS='comment review api'
 # Shared gate detector — inlined into each hook at render time (see the include
-# directive in the source scripts + lib/hook-includes.ts). The caller MUST set
+# directive in the source scripts + lib/render/hook-includes.ts). The caller MUST set
 # $TRIGGER_RE (an ERE) before the include; it decides which git ops this hook
 # gates. Single source of truth for the FIX B/C wrapper-peeling logic; DO NOT
 # copy this body into a hook by hand.
@@ -1980,7 +1980,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,
@@ -2602,7 +2602,7 @@ set -euo pipefail
 # A missing JSON parser used to make this guard wave every command through; the
 # shared extractor falls back to sed so it still inspects the command.
 # Shared hook boilerplate — inlined into each hook at render time (see the
-# include directive in the source scripts + lib/hook-includes.ts). Single source
+# include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
 # by hand (that is the drift #225/#261 removed).
 #
@@ -2668,7 +2668,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,
@@ -3776,7 +3776,7 @@ set -euo pipefail
 # Command/field extraction (payload → $cmd, $payload). Shared body, single
 # source of truth.
 # Shared hook boilerplate — inlined into each hook at render time (see the
-# include directive in the source scripts + lib/hook-includes.ts). Single source
+# include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
 # by hand (that is the drift #225/#261 removed).
 #
@@ -3838,7 +3838,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,
@@ -4256,7 +4256,7 @@ exit 0
 # WHY NOT `FileChanged`, which the same doc section recommends for exactly this
 # ("to run a hook when a specific file changes on disk, whatever wrote it").
 # The CONTRACT is not the reason, and this comment used to say it was: core can
-# register the event today. `lib/plugins.ts:91` admits four events, but that
+# register the event today. `lib/config/plugins.ts:91` admits four events, but that
 # enum is the schema for a PLUGIN MANIFEST and is used nowhere else —
 # `buildClaudeSettings` returns `Record<string, unknown>` and validates no event
 # name at all, which is how core already ships `SessionEnd` and
@@ -4398,7 +4398,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,
@@ -4745,12 +4745,12 @@ printf '%s\n' "$current" > "$stamp" 2>/dev/null || true
 
 # From here on the work is per-CHANGED-file only. `$(…)` strips the trailing
 # newline, which is what makes these hashes agree with `computeManagedHash`
-# (lib/marker.ts: sha1 over the body with trailing whitespace removed, first 8
+# (lib/render/marker.ts: sha1 over the body with trailing whitespace removed, first 8
 # hex); without it every hash differs and the hook cries wolf on healthy files.
 drift=""
 while IFS= read -r file; do
   [ -n "$file" ] || continue
-  # Both marker syntaxes (lib/marker.ts): HTML for markdown, `#` for scripts and
+  # Both marker syntaxes (lib/render/marker.ts): HTML for markdown, `#` for scripts and
   # TOML. Anchored at the start of the line so a block QUOTED inside prose —
   # this file's own header, a skill that documents the format — is not read as a
   # real marker.
@@ -4836,7 +4836,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,
@@ -5277,7 +5277,7 @@ set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
 # Shared hook boilerplate — inlined into each hook at render time (see the
-# include directive in the source scripts + lib/hook-includes.ts). Single source
+# include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
 # by hand (that is the drift #225/#261 removed).
 #
@@ -5324,7 +5324,7 @@ TRIGGER_RE='^gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$)'
 # the regex — a branch added there without its token here loses the shortcut.
 TRIGGER_TOKENS='create'
 # Shared gate detector — inlined into each hook at render time (see the include
-# directive in the source scripts + lib/hook-includes.ts). The caller MUST set
+# directive in the source scripts + lib/render/hook-includes.ts). The caller MUST set
 # $TRIGGER_RE (an ERE) before the include; it decides which git ops this hook
 # gates. Single source of truth for the FIX B/C wrapper-peeling logic; DO NOT
 # copy this body into a hook by hand.
@@ -5490,7 +5490,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,
@@ -5857,7 +5857,7 @@ set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
 # Shared hook boilerplate — inlined into each hook at render time (see the
-# include directive in the source scripts + lib/hook-includes.ts). Single source
+# include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
 # by hand (that is the drift #225/#261 removed).
 #
@@ -5923,7 +5923,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,
@@ -6228,7 +6228,7 @@ trap navori_audit_on_exit EXIT
 # the same way.
 # Shared "the host cancelled this hook" recorder — inlined into the three gate
 # hooks at render time (see the include directive in the source scripts +
-# lib/hook-includes.ts).
+# lib/render/hook-includes.ts).
 #
 # WHY (#797): a `command` hook that reaches its host timeout is CANCELLED, and
 # bash still runs the EXIT trap on the way out with `$?` == 0 — the last
@@ -6326,7 +6326,7 @@ TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:sp
 # (fail-open to the slow path), and the inlined tests pin the pairing.
 TRIGGER_TOKENS='commit'
 # Shared gate detector — inlined into each hook at render time (see the include
-# directive in the source scripts + lib/hook-includes.ts). The caller MUST set
+# directive in the source scripts + lib/render/hook-includes.ts). The caller MUST set
 # $TRIGGER_RE (an ERE) before the include; it decides which git ops this hook
 # gates. Single source of truth for the FIX B/C wrapper-peeling logic; DO NOT
 # copy this body into a hook by hand.
@@ -6448,7 +6448,7 @@ is_scan_trigger() {
 # `navori_worktree` but resolves nothing until it is called, so a Bash call that
 # is not a commit still pays nothing for it.
 # Shared worktree resolver — inlined into each gate hook at render time (see the
-# include directive in the source scripts + lib/hook-includes.ts). Requires the
+# include directive in the source scripts + lib/render/hook-includes.ts). Requires the
 # `extract-cmd` partial to have run first ($payload and $cmd in scope).
 #
 # WHY (#454): settings.json invokes these hooks as
@@ -6754,7 +6754,7 @@ set -uo pipefail
 # not care about must not pay to locate a stamp it will never open. The Bash
 # probe is that same argument one level down — see `navori_has_write_token`.
 # Shared hook boilerplate — inlined into each hook at render time (see the
-# include directive in the source scripts + lib/hook-includes.ts). Single source
+# include directive in the source scripts + lib/render/hook-includes.ts). Single source
 # of truth for the sibling gate scripts; DO NOT copy this body back into a hook
 # by hand (that is the drift #225/#261 removed).
 #
@@ -6826,7 +6826,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,
@@ -7517,7 +7517,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,
@@ -7834,7 +7834,7 @@ add_bounded() {
 # UserPromptSubmit recorder, which covers the RUNNING session); this hook covers
 # "armed before the session opened".
 # Shared armed-audit consumption (#597, #599) — inlined into each consuming hook
-# at render time (see lib/hook-includes.ts). Single source of truth for the flag
+# at render time (see lib/render/hook-includes.ts). Single source of truth for the flag
 # protocol so the two consumers cannot drift apart:
 #
 #   · SessionStart  — arm BEFORE opening the session (original #597 flow).
@@ -8269,7 +8269,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,
@@ -8865,7 +8865,7 @@ navori_audit_repo_from_cwd() {
   basename "$navori_audit_repo_cwd" 2>/dev/null
 }
 # Shared audit-mode event recorder — inlined into each managed hook at render
-# time (see the include directive in the source scripts + lib/hook-includes.ts).
+# time (see the include directive in the source scripts + lib/render/hook-includes.ts).
 #
 # WHY (spec 0013): a hook is only visible to the transcript when it BLOCKS or
 # INJECTS context. Every hook that runs and lets the action through is invisible,

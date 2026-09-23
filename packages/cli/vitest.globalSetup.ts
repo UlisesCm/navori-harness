@@ -105,7 +105,7 @@ async function withBuildLock(fn: () => void): Promise<void> {
  * 4. Snapshots that run-local `~/.navori` root and, on teardown, fails the run
  *    if any entry appeared, changed or disappeared (#424 — the other five
  *    machine-global directories have no env override, only per-spec mocks).
- *    A spec that forgets to mock `lib/home.ts` writes there and is caught
+ *    A spec that forgets to mock `lib/primitives/home.ts` writes there and is caught
  *    exactly as before; only the address of the tree changed.
  *    The repo under test is named so the guard can tell this repo's audit logs
  *    (a real leak) from another repo's (a concurrent session, #656).
