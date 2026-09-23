@@ -147,7 +147,7 @@ Never open the PR with the gate red.
    - **Body**: the repo's exact template (below). No empty sections.
 
 3. **Validate** before firing `gh`:
-   - Every body bullet backed by the diff or the implementer's report.
+   - Every body bullet backed by the diff or the implementer's report. **No handoff on disk** (`impl_<feature>.*`, `review_<feature>.md`) → draft from the diff and the issue only; drop any claim neither backs (#1001).
    - If you mention a file that is NOT in `--stat`, remove it.
    - No emojis. No AI attribution: no `Co-Authored-By` trailer for an AI, no "Generated with…" footer, no mention of Claude or any other AI tool in the title or body.
 

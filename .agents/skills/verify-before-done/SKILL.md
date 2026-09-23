@@ -6,7 +6,7 @@ metadata:
   maxWords: 650
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="5cdbdb5b" version="0.9.0" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="verify-before-done-base" hash="e721221c" version="0.9.0" source="@navori/core" fmkeys="name,description,metadata" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -25,7 +25,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the command that proves it â
 
 | Claim | Required output | Not sufficient |
 |---|---|---|
-| `cd packages/cli && bun lint` / `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` green | Full command run this turn, exit 0 | "ran it before", "should be green" |
+| `cd packages/cli && bun lint` / `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` green | Full command run this turn, exit 0 | "ran it before", "should be green" |
 | Zero new errors vs baseline | `git diff --name-only main` â€” a failure outside that list predates you | "lint said OK", no comparison |
 | UI validated in the browser (only if asked) | Observed state via the repo's browser tool this turn | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
