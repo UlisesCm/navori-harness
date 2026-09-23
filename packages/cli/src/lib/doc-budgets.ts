@@ -16,9 +16,9 @@
  * pattern as `scripts/gen-schemas.mjs`) and the shipped CLI.
  *
  * Being under `src/lib/` is what MAKES that possible, not what achieves it:
- * tsup bundles from `src/index.ts` and tree-shakes, so these ceilings land in
- * `dist/index.js` the moment phase 2's `doctor` imports them — which it now
- * does (`commands/doctor.ts`, `scanDocBudget`).
+ * tsdown bundles from `src/index.ts` and tree-shakes, so these ceilings land
+ * in `dist/index.js` the moment phase 2's `doctor` imports them — which it
+ * now does (`commands/doctor.ts`, `scanDocBudget`).
  */
 
 export { countWords } from "./skill-meta.ts";

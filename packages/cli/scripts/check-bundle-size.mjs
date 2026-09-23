@@ -7,12 +7,14 @@ import { dirname, resolve } from "node:path";
  *
  * Tracks dist/index.js as a regression tripwire, not an optimization target.
  * As of the bundle-footprint change the build minifies AND inlines every
- * runtime dependency (`noExternal` in tsup.config.ts), so dist/index.js now
- * carries zod + citty + clack + picocolors on purpose (~657KB). That's the
- * deliberate trade for a ~82% smaller install footprint (6.1MB → 1.1MB, zero
- * third-party node_modules). The limit sits above today's size with headroom
- * so it still catches a runaway dependency — a NEW heavy dep would push the
- * bundle past 800KB — without flagging normal first-party growth.
+ * runtime dependency (`deps.alwaysBundle` in tsdown.config.ts), so
+ * dist/index.js now
+ * carries zod + citty + clack + picocolors on purpose (~775KB, tsdown/rolldown
+ * as of #890). That's the deliberate trade for a ~82% smaller install
+ * footprint (6.1MB → 1.1MB, zero third-party node_modules). The limit sits
+ * above today's size with headroom so it still catches a runaway dependency
+ * — a NEW heavy dep would push the bundle past 1200KB — without flagging
+ * normal first-party growth.
  *
  * Raised 800 -> 900 when `audit` landed. Measured at that point: 792KB
  * without the feature, 816KB with it — the headroom this comment promises had
