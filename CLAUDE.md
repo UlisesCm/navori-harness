@@ -35,7 +35,7 @@ El comando vive en **un solo lugar**: `qualityGate.full` en `navori.config.json`
 mano en otro sitio. Corre desde la raíz con `bun check`.
 
 Dos trampas reales dentro de ese comando:
-- **`bun run format:check`** (biome) corre en la raíz, no bajo `packages/cli` — es el paso que más se
+- **`bun run format:check`** (oxfmt) corre en la raíz, no bajo `packages/cli` — es el paso que más se
   olvida. Se arregla con `bun run format`.
 - **`bun run test:coverage`, no `bun test`.** Solo la primera corre `check-coverage-floor.mjs`, que
   caza además una entrada obsoleta en `KNOWN_ZERO`.
