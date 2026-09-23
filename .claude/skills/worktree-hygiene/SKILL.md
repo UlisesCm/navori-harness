@@ -18,8 +18,8 @@ alone isn't enough to decide.
 
 ## Diagnosis, per worktree
 
-1. List worktrees with git's own `worktree list --porcelain` subcommand and
-   note any `locked` entry; a locked worktree is never a candidate, skip it.
+1. `git worktree list --porcelain` — note any `locked` entry; a locked
+   worktree is never a candidate, skip it.
 2. `git rev-parse --abbrev-ref HEAD` inside the worktree — if it prints
    `HEAD` (detached), there is no branch to query for an upstream or a PR.
    Don't guess: classify `ask` and move on to the next worktree. This
