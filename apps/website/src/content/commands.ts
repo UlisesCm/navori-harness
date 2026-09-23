@@ -20,13 +20,13 @@ const es: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "--full",
-        desc: "Modo máximo: --recommended + todos los plugins + pre-commit hook + scan-monorepo + project block estricto (posture/reviewRigor/testsForNewCode).",
+        desc: "--recommended + proveedores externos (tgrep, codegraph, semgrep, jscpd, acli) + pre-commit hook + scan-monorepo + project block estricto (posture/reviewRigor/testsForNewCode). Requiere instalar los binarios de esos proveedores.",
       },
       {
         flag: "--recommended",
-        desc: "Modo opinado: --yes + habilita plugins recomendados (engram, +gh si es repo GitHub).",
+        desc: "Modo opinado: --yes + harness completo sin instalar software externo (+gh si es repo GitHub; engram ya viene activo siempre).",
       },
-      { flag: "--yes, -y", desc: "Acepta todo lo detectado sin preguntar (CI-friendly)." },
+      { flag: "--yes", desc: "Acepta todo lo detectado sin preguntar (CI-friendly)." },
       { flag: "--lang <es|en>", desc: "Idioma del wizard. Default: es." },
       {
         flag: "--scan-monorepo",
@@ -773,13 +773,13 @@ const en: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "--full",
-        desc: "Maximal mode: --recommended + all plugins + pre-commit hook + monorepo scan + strict project block (posture/reviewRigor/testsForNewCode).",
+        desc: "--recommended + external providers (tgrep, codegraph, semgrep, jscpd, acli) + pre-commit hook + monorepo scan + strict project block (posture/reviewRigor/testsForNewCode). Requires installing those providers' binaries.",
       },
       {
         flag: "--recommended",
-        desc: "Opinionated mode: --yes + auto-enable recommended plugins (engram, +gh on GitHub repos).",
+        desc: "Opinionated mode: --yes + full harness without installing external software (+gh on GitHub repos; engram already ships always-on).",
       },
-      { flag: "--yes, -y", desc: "Accept everything detected without prompting (CI-friendly)." },
+      { flag: "--yes", desc: "Accept everything detected without prompting (CI-friendly)." },
       { flag: "--lang <es|en>", desc: "Wizard language. Default: es." },
       {
         flag: "--scan-monorepo",

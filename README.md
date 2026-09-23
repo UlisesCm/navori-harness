@@ -15,11 +15,16 @@
 
 ```bash
 npx navori init           # wizard con detección de stack
-# o, sin preguntas:
+# o, sin preguntas — harness completo sin instalar nada externo:
 npx navori init --recommended
-# o, instalación máxima (todos los plugins + pre-commit hook + project block estricto):
+# o, + proveedores externos (tgrep, codegraph, semgrep, jscpd, acli) y política estricta:
 npx navori init --full
 ```
+
+`--recommended` deja el harness completo funcionando con software que ya tienes (engram
+siempre activo, `+gh` si el repo tiene remote de GitHub) — nunca instala nada. `--full` suma
+proveedores externos (requieren instalar binarios propios) más una política estricta
+(`posture`/`reviewRigor`/`testsForNewCode`), scan de monorepo y pre-commit hook forzados.
 
 > 📦 npm: [`navori`](https://www.npmjs.com/package/navori) · 📖 Referencia completa del CLI: [`packages/cli/README.md`](./packages/cli/README.md)
 
@@ -68,7 +73,7 @@ ligero junto a Claude usa `["claude", "agents-md"]`; no hace falta un
 
 | Comando | Qué hace |
 |---|---|
-| `init` | Bootstrap con detección de stack + wizard (o `--recommended` sin preguntas, o `--full` para la instalación máxima) |
+| `init` | Bootstrap con detección de stack + wizard (o `--recommended` sin preguntas y sin instalar nada externo, o `--full` para sumar proveedores externos + política estricta) |
 | `update` | Re-detecta el repo, refresca el config y corre el engine completo — *bring me up to date* |
 | `render` | Genera los archivos nativos de cada engine configurado (preview por default; `--apply` escribe). `--all` renderea **todos** los repos del registro global de una — el rollout tras un bump de navori en un comando |
 | `registry` | Registro global de tus repos con navori (`ls` / `scan <dir>` / `add` / `remove` / `prune`). `init` y `update` te dan de alta solos; `scan` puebla lo que ya existía |

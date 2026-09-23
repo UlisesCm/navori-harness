@@ -10,6 +10,18 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-23 19:30 — orchestrator — Cierra el plan de proveedores externos (fases 0-3, 6 PRs)
+- Cambios: `add` renderiza inline (#976); `doctor` verifica `.mcp.json` y `--strict` falla solo por
+  eso (#979); `add --suggest`/`doctor` sugieren proveedores disponibles (#988); docs corrigen el
+  estado de codegraph/tgrep (#983); recipe `docs/recipes/setup-proveedores-externos.md` con puntero
+  desde add/doctor/init (#995); eje `--recommended` vs `--full` escrito y fijado con e2e (#996).
+  También #973 (#965) y rebase de #992 (conflicto de hash managed resuelto con render).
+- Quality gate: ✅ verde en el Pass 2 de cada reviewer y en CI de los 6 PRs.
+- Notas: 0.3 se partió — la versión del binario quedó en #978. Tres flakes locales bajo carga en
+  archivos fuera del diff (pasan aislados y en CI), sin issue aún. Desde #990/#991 nada lleva
+  atribución de IA.
+- Commit / PR: #976, #979, #983, #988, #995, #996
+
 ## 2026-09-23 08:55 — orchestrator — Plan de proveedores externos + bloque `navori add` honesto (4 PRs)
 
 - **Cambios**: `packages/cli/src/commands/add.ts`, `packages/cli/src/lib/which.ts`,

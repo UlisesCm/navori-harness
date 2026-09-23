@@ -19,7 +19,11 @@ import {
 import { isDowngrade } from "../lib/semver.ts";
 import { isPlaceholderName } from "../lib/diagnose/detect.ts";
 import { loadPlugin, loadEnabledPlugins } from "../lib/plugins.ts";
-import { listAvailableExternalProviders } from "../lib/external-providers.ts";
+import {
+  listAvailableExternalProviders,
+  EXTERNAL_PROVIDER_SETUP_RECIPE_URL,
+  PROVIDERS_WITH_SETUP_RECIPE,
+} from "../lib/external-providers.ts";
 import {
   effectiveConfigForWorkspace,
   enabledMonorepoWorkspaces,
@@ -719,6 +723,20 @@ export const doctorCommand = defineCommand({
           codegraphIndexDrift.currentVersion,
         ),
       );
+    }
+
+    // #982 — one hint, shown once, whenever codegraph/tgrep's reported state
+    // makes the post-install setup recipe relevant. Purely informational,
+    // like every check above it: never gates `--strict`, never touches `ok`.
+    if (
+      needsExternalProviderSetupHint(
+        missingExternalTools,
+        availableExternalProviders,
+        tgrepIndexFreshness,
+        codegraphIndexDrift,
+      )
+    ) {
+      p.log.info(td.externalProviderSetupHint(EXTERNAL_PROVIDER_SETUP_RECIPE_URL));
     }
 
     if (gateReadiness.length > 0) {
@@ -1583,6 +1601,27 @@ function scanMissingPresetFiles(
     if (!existsSync(abs)) missing.push({ id: e.id, path: relative(cwd, abs) });
   }
   return missing;
+}
+
+/**
+ * #982 — true when codegraph/tgrep's reported state (missing binary, stale
+ * index, or available-but-never-enabled) makes the post-install setup recipe
+ * relevant. Extracted as a pure predicate so tests can pin every input
+ * explicitly instead of depending on whether codegraph/tgrep happen to be
+ * installed on the machine running the suite.
+ */
+export function needsExternalProviderSetupHint(
+  missingExternalTools: readonly { pluginId: string }[],
+  availableExternalProviders: readonly string[],
+  tgrepIndexFreshness: unknown,
+  codegraphIndexDrift: unknown,
+): boolean {
+  return (
+    missingExternalTools.some((t) => PROVIDERS_WITH_SETUP_RECIPE.has(t.pluginId)) ||
+    availableExternalProviders.some((id) => PROVIDERS_WITH_SETUP_RECIPE.has(id)) ||
+    tgrepIndexFreshness != null ||
+    codegraphIndexDrift != null
+  );
 }
 
 interface MissingExternalTool {

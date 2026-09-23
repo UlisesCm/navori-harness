@@ -41,7 +41,24 @@ import {
   RECOMMENDED_EFFORT,
 } from "../lib/recommended.ts";
 import { scanMissingExternalTools } from "./doctor.ts";
+import {
+  EXTERNAL_PROVIDER_SETUP_RECIPE_URL,
+  PROVIDERS_WITH_SETUP_RECIPE,
+} from "../lib/external-providers.ts";
 import { ensurePrettierIgnore } from "../engines/shared/prettierignore-harness.ts";
+
+/**
+ * #982 — whether `--full`'s missing-binaries warning should also point at
+ * the codegraph/tgrep setup recipe: true only when at least one of the
+ * missing binaries belongs to a plugin the recipe covers. Extracted as a
+ * pure predicate (mirrors `needsExternalProviderSetupHint` in doctor.ts) so
+ * it's testable without depending on which binaries the test machine has.
+ */
+export function fullWarningNeedsProviderSetupHint(
+  missing: readonly { pluginId: string }[],
+): boolean {
+  return missing.some((m) => PROVIDERS_WITH_SETUP_RECIPE.has(m.pluginId));
+}
 
 type AdoptionMode = "fresh" | "coexist" | "replace";
 
@@ -120,12 +137,12 @@ export const initCommand = defineCommand({
     recommended: {
       type: "boolean",
       description:
-        "Opinionated mode: --yes + auto-enable recommended plugins (engram, +gh if GitHub repo)",
+        "Opinionated mode: --yes + full harness without installing external software (+gh if GitHub repo; engram already ships always-on)",
     },
     full: {
       type: "boolean",
       description:
-        "Maximal mode: --recommended + all plugins + pre-commit hook + monorepo scan + strict project block",
+        "--recommended + external providers (tgrep, codegraph, semgrep, jscpd, acli) + pre-commit hook + monorepo scan + strict project block",
     },
     lang: {
       type: "string",
@@ -356,6 +373,13 @@ export const initCommand = defineCommand({
         const missing = scanMissingExternalTools({ plugins: mergedPlugins } as NavoriConfig);
         if (missing.length > 0) {
           p.log.warn(tr.fullBinariesToInstall(missing.map((m) => m.binary).join(", ")));
+          // #982 — codegraph/tgrep need a setup step beyond the binary
+          // (index init, MCP approval); `--full` only enables and warns, it
+          // never installs (3.3), so this warning is the only `init` surface
+          // that can point at the recipe.
+          if (fullWarningNeedsProviderSetupHint(missing)) {
+            p.log.info(tr.externalProviderSetupHint(EXTERNAL_PROVIDER_SETUP_RECIPE_URL));
+          }
         }
       }
       // Surface gaps that the user can't see otherwise — autoYes skipped the

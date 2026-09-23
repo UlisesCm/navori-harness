@@ -169,6 +169,36 @@ describe("detectLibrarySkills — filesystem signals (paths)", () => {
     return dir;
   };
 
+  it("splits Supabase by what the repo holds: client deps, CLI folders, Docker stack", () => {
+    expect(detectLibrarySkills(["@supabase/supabase-js"])).toEqual(["supabase"]);
+    expect(detectLibrarySkills(["supabase"])).toEqual(["supabase"]);
+    const project = withDirs("supabase/migrations", "supabase/functions");
+    const server = withDirs("volumes/api/envoy/lds.template.yaml");
+    const legacyServer = withDirs("volumes/api/kong.yml");
+    const vendored = withDirs("docker/volumes/api/envoy/lds.template.yaml");
+    try {
+      expect(detectLibrarySkills(["@supabase/supabase-js"], project)).toEqual([
+        "supabase",
+        "supabase-postgres",
+        "supabase-edge-functions",
+      ]);
+      expect(detectLibrarySkills([], server)).toEqual(["supabase-selfhost"]);
+      expect(detectLibrarySkills([], legacyServer)).toEqual(["supabase-selfhost"]);
+      expect(detectLibrarySkills([], vendored)).toEqual(["supabase-selfhost"]);
+      const functionsHost = withDirs("volumes/functions/main/index.ts");
+      try {
+        expect(detectLibrarySkills([], functionsHost)).toEqual([
+          "supabase-edge-functions",
+          "supabase-selfhost",
+        ]);
+      } finally {
+        rmSync(functionsHost, { recursive: true });
+      }
+    } finally {
+      for (const d of [project, server, legacyServer, vendored]) rmSync(d, { recursive: true });
+    }
+  });
+
   it("activates a skill when its path signal exists in cwd", () => {
     const dir = withDirs(".maestro");
     try {

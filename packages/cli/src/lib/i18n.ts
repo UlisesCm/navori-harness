@@ -112,6 +112,11 @@ interface Strings {
   pluginsAlwaysOn: (list: string) => string;
   fullModeEnabled: string;
   fullBinariesToInstall: (list: string) => string;
+  /** #982 — appended to `fullBinariesToInstall` when codegraph/tgrep are
+   *  among the missing binaries: `--full` only enables them, it never
+   *  installs, so this is the only `init` surface that can point at the
+   *  post-install recipe. */
+  externalProviderSetupHint: (url: string) => string;
   presetGapNotice: (stack: string) => string;
   placeholderNameNotice: (name: string) => string;
 
@@ -265,6 +270,8 @@ const ES: Strings = {
     "Modo full: todos los plugins + pre-commit hook + scan-monorepo + project block estricto (posture/reviewRigor/testsForNewCode).",
   fullBinariesToInstall: (list) =>
     `Faltan binarios de plugins activados (los hooks de esos plugins no corren hasta instalarlos; 'navori doctor' los reporta como advertencia): ${list}`,
+  externalProviderSetupHint: (url) =>
+    `codegraph/tgrep necesitan un paso extra después de instalar el binario (índice + aprobación del MCP): ${url}`,
   presetGapNotice: (stack) =>
     `Detecté un proyecto '${stack}', pero todavía no hay un preset oficial para ese stack. ` +
     `Se instala el harness completo (agentes, gates, protocolo, SDD) y funciona desde ya; ` +
@@ -431,6 +438,8 @@ const EN: Strings = {
     "Full mode: all plugins + pre-commit hook + monorepo scan + strict project block (posture/reviewRigor/testsForNewCode).",
   fullBinariesToInstall: (list) =>
     `Enabled plugins are missing their binaries (their hooks won't run until installed; 'navori doctor' reports them as a warning): ${list}`,
+  externalProviderSetupHint: (url) =>
+    `codegraph/tgrep need an extra step after the binary lands (index + MCP approval): ${url}`,
   presetGapNotice: (stack) =>
     `Detected a '${stack}' project, but there's no official preset for that stack yet. ` +
     `The full harness installs (agents, gates, protocol, SDD) and works right away; ` +
@@ -752,6 +761,10 @@ interface DoctorCmdStrings {
    *  search providers. Informational only, never feeds the verdict. */
   tgrepIndexStale: (age: string, rootPath: string) => string;
   codegraphIndexDrift: (builtWithVersion: string, currentVersion: string) => string;
+  /** #982 — shown once when codegraph/tgrep's reported state (missing
+   *  binary, stale index, available-not-enabled) makes the setup recipe
+   *  relevant. Never gates `--strict`, purely informational like its siblings. */
+  externalProviderSetupHint: (url: string) => string;
   /** #368 — the declared quality gate can't run on this machine. */
   gateNotRunnable: (n: number, lines: string) => string;
   gateMissingBinaryRow: (binary: string) => string;
@@ -1129,6 +1142,9 @@ interface AddCmdStrings {
   doneInstallLater: string;
   noInstallCommand: (platform: string, name: string) => string;
   installDocsHint: (url: string) => string;
+  /** #982 — codegraph/tgrep need a post-install step (index init, MCP
+   *  approval) beyond having the binary on PATH; point at the recipe. */
+  externalProviderSetupHint: (url: string) => string;
   doneNoInstall: (name: string) => string;
   done: string;
   installPrompt: (name: string, command: string) => string;
@@ -1897,6 +1913,8 @@ const CMD_ES: CmdStrings = {
     codegraphIndexDrift: (builtWithVersion, currentVersion) =>
       `El índice de codegraph fue construido con el motor ${builtWithVersion}, pero el binario ` +
       `instalado es ${currentVersion}. Corre 'codegraph index' para reconstruirlo con el motor actual.`,
+    externalProviderSetupHint: (url) =>
+      `Guía de setup de codegraph/tgrep (índice + aprobación del MCP): ${url}`,
     gateNotRunnable: (n, lines) =>
       `Quality gate declarado pero no ejecutable (${n}) — el gate es lo que sostiene ` +
       `el cierre de cada tarea; si no corre, las fases que dependen de él quedan sin red:\n${lines}`,
@@ -2202,6 +2220,8 @@ const CMD_ES: CmdStrings = {
     noInstallCommand: (platform, name) =>
       `No hay comando de instalación para '${platform}'. Instala '${name}' manualmente.`,
     installDocsHint: (url) => `Instalación oficial: ${url}`,
+    externalProviderSetupHint: (url) =>
+      `Después de instalarlo, sigue la guía de setup (índice + aprobación del MCP): ${url}`,
     doneNoInstall: (name) =>
       `El plugin quedó registrado, pero '${name}' NO se instaló. Instálala manualmente.`,
     done: "Listo",
@@ -3171,6 +3191,8 @@ const CMD_EN: CmdStrings = {
     codegraphIndexDrift: (builtWithVersion, currentVersion) =>
       `The codegraph index was built with engine ${builtWithVersion}, but the installed binary ` +
       `is ${currentVersion}. Run 'codegraph index' to rebuild it with the current engine.`,
+    externalProviderSetupHint: (url) =>
+      `codegraph/tgrep setup recipe (index + MCP approval): ${url}`,
     gateNotRunnable: (n, lines) =>
       `Quality gate declared but not runnable (${n}) — the gate is what closes every ` +
       `task; if it can't run, the phases that lean on it have no net:\n${lines}`,
@@ -3474,6 +3496,8 @@ const CMD_EN: CmdStrings = {
     noInstallCommand: (platform, name) =>
       `No install command for platform '${platform}'. Install '${name}' manually.`,
     installDocsHint: (url) => `Official installation: ${url}`,
+    externalProviderSetupHint: (url) =>
+      `Once installed, follow the setup recipe (index + MCP approval): ${url}`,
     doneNoInstall: (name) =>
       `The plugin was registered, but '${name}' was NOT installed. Install it manually.`,
     done: "Done",
