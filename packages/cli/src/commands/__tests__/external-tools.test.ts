@@ -10,7 +10,7 @@ import type { NavoriConfig } from "../../lib/config.ts";
  */
 
 const hasBinary = vi.fn();
-vi.mock("../../lib/which.ts", () => ({ hasBinary: (n: string) => hasBinary(n) }));
+vi.mock(import("../../lib/which.ts"), () => ({ hasBinary: (n: string) => hasBinary(n) }));
 
 const { scanMissingExternalTools, scanMissingOptionalTools } = await import("../doctor.ts");
 const { loadPlugin, listKnownPluginIds, PLATFORMS } = await import("../../lib/plugins.ts");

@@ -12,7 +12,7 @@ import type { NavoriConfigInput } from "../../lib/schema.ts";
  */
 
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock("../../lib/home.ts", () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { writeConfig } = await import("../../lib/config.ts");
 const { runRender } = await import("../render.ts");

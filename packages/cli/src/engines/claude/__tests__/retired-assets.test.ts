@@ -17,7 +17,7 @@ import type { NavoriConfig } from "../../../lib/config.ts";
  * end to end, instead of asserting behavior nothing here would otherwise run.
  */
 
-vi.mock("../../shared/harness-assets.ts", async (importOriginal) => {
+vi.mock(import("../../shared/harness-assets.ts"), async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../shared/harness-assets.ts")>();
   return {
     ...actual,

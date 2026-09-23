@@ -19,7 +19,7 @@ import { basename, join } from "node:path";
  */
 
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock("../../lib/home.ts", () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { planAdoption, adoptCommand } = await import("../adopt.ts");
 const { runCommand } = await import("citty");

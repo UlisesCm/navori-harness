@@ -20,7 +20,7 @@ import { join } from "node:path";
  */
 
 const hasBinaryMock = vi.hoisted(() => vi.fn());
-vi.mock("../../lib/which.ts", () => ({ hasBinary: hasBinaryMock }));
+vi.mock(import("../../lib/which.ts"), () => ({ hasBinary: hasBinaryMock }));
 
 const spawnSyncMock = vi.hoisted(() => vi.fn());
 vi.mock("node:child_process", () => ({ spawnSync: spawnSyncMock }));

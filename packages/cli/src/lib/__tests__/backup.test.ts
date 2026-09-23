@@ -14,7 +14,7 @@ import { basename, join, resolve } from "node:path";
 // Isolate ~/.navori to a throwaway home so backups never touch the real home
 // dir and can't race other test files that also write to ~/.navori/backups.
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock("../home.ts", () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { createBackup, backupRoot, backupRepoLabel, backupIdRepoLabel, purgeOldBackups } =
   await import("../backup.ts");

@@ -16,7 +16,7 @@ import { NavoriConfigSchema, type NavoriConfig } from "../schema.ts";
  * these specs live in their own file.
  */
 const home = vi.hoisted(() => ({ dir: "", fail: false }));
-vi.mock("../home.ts", () => ({
+vi.mock(import("../home.ts"), () => ({
   safeHomedir: () => {
     if (home.fail) throw new Error("HOME env var is empty or not absolute");
     return home.dir;

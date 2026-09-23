@@ -26,7 +26,7 @@ import type { NavoriConfig } from "../../../lib/config.ts";
  * `~/.navori`.
  */
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock("../../../lib/home.ts", () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { renderClaudeEngine } = await import("../../claude/index.ts");
 

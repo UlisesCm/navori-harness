@@ -29,7 +29,7 @@ import { dirname, join, relative } from "node:path";
  * if a spec writes into the developer's real one.
  */
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock("../home.ts", () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { createMigrationBackup, migrationsRoot, removeOriginals } = await import("../migrate.ts");
 

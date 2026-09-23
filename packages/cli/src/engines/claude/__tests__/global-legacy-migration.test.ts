@@ -14,7 +14,7 @@ import { dirname, join, relative } from "node:path";
  * lives in its own file rather than alongside the rest of `global-render`.
  */
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock("../../../lib/home.ts", () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../../../lib/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
 const { composeBaseline, detectLegacyGlobalHook, generateHookScript, migrateLegacyGlobalHook } =
   await import("../global-render.ts");
