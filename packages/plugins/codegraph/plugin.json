@@ -9,6 +9,7 @@
   "externalTool": {
     "name": "codegraph",
     "checkBinary": "codegraph",
+    "pinnedVersion": "1.6.0",
     "install": {
       "darwin": "npm install -g @colbymchenry/codegraph@1.6.0",
       "linux": "npm install -g @colbymchenry/codegraph@1.6.0",

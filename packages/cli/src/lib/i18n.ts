@@ -738,6 +738,11 @@ interface DoctorCmdStrings {
   externalToolRow: (binary: string, how: string) => string;
   externalToolFallbackHow: string;
   externalToolDocsHow: (url: string) => string;
+  /** #978 — installed binary version doesn't match the manifest's
+   *  `externalTool.pinnedVersion`. Informational, like `externalTools`
+   *  above: never gates `--strict`, never flips `ok`. */
+  pinnedVersionDrift: (n: number, lines: string) => string;
+  pinnedVersionDriftRow: (installed: string, pinned: string, how: string) => string;
   /** #981 — external-tool plugins that exist but aren't enabled at all, as
    *  opposed to `externalTools` above (enabled but the binary is missing).
    *  Purely informational: never gates `--strict`, never flips `ok`. */
@@ -1878,6 +1883,11 @@ const CMD_ES: CmdStrings = {
     externalToolRow: (binary, how) => `— falta '${binary}' en PATH; ${how}`,
     externalToolFallbackHow: "instala la herramienta y reinicia Claude Code",
     externalToolDocsHow: (url) => `instálala siguiendo ${url}`,
+    pinnedVersionDrift: (n, lines) =>
+      `Binarios con versión distinta a la fijada en el manifest (${n}) — la config ` +
+      `(env/MCP) está calibrada contra esa versión exacta:\n${lines}`,
+    pinnedVersionDriftRow: (installed, pinned, how) =>
+      `— instalado ${installed}, el manifest fija ${pinned}; ${how}`,
     availableExternalProviders: (n, lines) =>
       `Proveedores externos disponibles, no habilitados (${n}) — existen pero nadie los pidió:\n${lines}`,
     availableProviderRow: (id) => `— habilítalo con 'navori add ${id}'`,
@@ -3156,6 +3166,11 @@ const CMD_EN: CmdStrings = {
     externalToolRow: (binary, how) => `— missing '${binary}' in PATH; ${how}`,
     externalToolFallbackHow: "install the tool and restart Claude Code",
     externalToolDocsHow: (url) => `install it following ${url}`,
+    pinnedVersionDrift: (n, lines) =>
+      `Binaries whose version differs from the manifest's pin (${n}) — its ` +
+      `config (env/MCP) is calibrated against that exact version:\n${lines}`,
+    pinnedVersionDriftRow: (installed, pinned, how) =>
+      `— installed ${installed}, manifest pins ${pinned}; ${how}`,
     availableExternalProviders: (n, lines) =>
       `Available external providers, not enabled (${n}) — they exist but nobody asked for them:\n${lines}`,
     availableProviderRow: (id) => `— enable it with 'navori add ${id}'`,

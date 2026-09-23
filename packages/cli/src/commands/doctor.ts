@@ -173,6 +173,9 @@ export const doctorCommand = defineCommand({
     const orderReport = scanManagedOrder(cwd, config, CLAUDE_COMPUTED_BLOCK_IDS);
     const malformedMarkers = scanMalformedMarkers(cwd, config);
     const missingExternalTools = scanMissingExternalTools(config);
+    // #978: per-machine binary version vs the manifest's declared pin — same
+    // informational tier as `missingExternalTools` above, never a gate.
+    const pinnedVersionDrift = scanPinnedVersionDrift(config);
     // #981: distinct from `missingExternalTools` above — that one is about a
     // plugin the repo already enabled whose binary is absent; this one is
     // about a plugin never enabled at all, so the user never learns it
@@ -334,6 +337,10 @@ export const doctorCommand = defineCommand({
       malformedMarkers,
       duplicateMarkers,
       missingExternalTools,
+      // #978: same non-gating, informational tier as `missingExternalTools`
+      // above — a binary present but on the wrong version, never fed into
+      // `computeHealthVerdict` or `--strict`.
+      pinnedVersionDrift,
       // #981: same non-gating, informational tier as `missingExternalTools`
       // — never feeds `computeHealthVerdict` nor `--strict`.
       availableExternalProviders,
@@ -658,6 +665,16 @@ export const doctorCommand = defineCommand({
         return `  ${color.yellow(sym.update)} ${accent(t.pluginId)}  ${grey(td.externalToolRow(t.binary, how))}`;
       });
       p.log.warn(td.externalTools(missingExternalTools.length, lines.join("\n")));
+    }
+
+    if (pinnedVersionDrift.length > 0) {
+      const lines = pinnedVersionDrift.map((d) => {
+        const how = d.install ?? td.externalToolFallbackHow;
+        return `  ${color.yellow(sym.update)} ${accent(d.pluginId)}  ${grey(
+          td.pinnedVersionDriftRow(d.installedVersion, d.pinnedVersion, how),
+        )}`;
+      });
+      p.log.warn(td.pinnedVersionDrift(pinnedVersionDrift.length, lines.join("\n")));
     }
 
     // #981: a separate, info-level section — distinct from `missingExternalTools`
@@ -1664,6 +1681,61 @@ export function scanMissingExternalTools(config: NavoriConfig): MissingExternalT
     }
   }
   return missing;
+}
+
+export interface PinnedVersionDrift {
+  pluginId: string;
+  binary: string;
+  installedVersion: string;
+  pinnedVersion: string;
+  install: string | null;
+}
+
+/**
+ * A manifest's `env`/MCP config (e.g. codegraph's `CODEGRAPH_MCP_TOOLS`) is
+ * calibrated against one specific upstream version, declared machine-readably
+ * in `externalTool.pinnedVersion` (#978). `doctor` cannot upgrade or downgrade
+ * anything (D10), so this only surfaces the fact — same tier as the missing
+ * binary above, never a gate. Enabled plugins only, and only those that
+ * declare a pin; the binary must already be present (absence is
+ * `missingExternalTools`'s job) and `--version` must parse, or this stays
+ * silent rather than guess.
+ */
+export function scanPinnedVersionDrift(config: NavoriConfig): PinnedVersionDrift[] {
+  const drifted: PinnedVersionDrift[] = [];
+  const platform = currentPlatform();
+  for (const [id, settings] of Object.entries(config.plugins ?? {})) {
+    if (settings.enabled !== true) continue;
+    try {
+      const tool = loadPlugin(id).manifest.externalTool;
+      if (!tool?.checkBinary || !tool.pinnedVersion) continue;
+      if (!hasBinary(tool.checkBinary)) continue;
+      let raw: string;
+      try {
+        raw = execFileSync(tool.checkBinary, ["--version"], {
+          encoding: "utf-8",
+          stdio: ["ignore", "pipe", "ignore"],
+          timeout: 5000, // best-effort external probe must not hang doctor (#268)
+        });
+      } catch {
+        continue; // binary present but --version failed — not this scan's job
+      }
+      const match = /\d+\.\d+\.\d+/.exec(raw);
+      if (!match) continue; // unparseable output — never guess
+      const installedVersion = match[0];
+      if (installedVersion === tool.pinnedVersion) continue;
+      drifted.push({
+        pluginId: id,
+        binary: tool.checkBinary,
+        installedVersion,
+        pinnedVersion: tool.pinnedVersion,
+        install: (platform ? tool.install?.[platform] : undefined) ?? null,
+      });
+    } catch {
+      // Missing / broken plugin is reported via missingPlugins.
+    }
+  }
+  return drifted;
 }
 
 /**
