@@ -415,12 +415,18 @@ describe("startReceiver (#0021)", () => {
     );
     expect(res.status).toBe(200);
 
-    const raw = readFileSync(sessionLogPath(REPO, "sess-prompt"), "utf-8");
-    expect(raw).not.toContain(secret);
-    expect(raw).not.toContain("0.42");
-    expect(raw).not.toContain("1200");
-
     const lines = linesOf("sess-prompt");
+    // The leak check reads PARSED values, never the raw file (#940). The log
+    // also carries `otel-start`, whose `tsMs` is a real-clock epoch, and a
+    // 13-digit epoch contains a short literal like "1200" by coincidence often
+    // enough to fail in bursts (1790120074318). `not.toContain` over an array
+    // compares whole elements, so a denied field only matches when it is
+    // really there.
+    const values = lines.flatMap((line) => Object.values(line).map(String));
+    expect(values).not.toContain(secret);
+    expect(values).not.toContain("0.42");
+    expect(values).not.toContain("1200");
+
     // The event is still recorded — R2 is one line per event — it just carries
     // nothing but the allowlisted fields.
     expect(lines[2]).toEqual({
