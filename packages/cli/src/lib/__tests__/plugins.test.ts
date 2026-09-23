@@ -309,6 +309,38 @@ describe("PluginManifestSchema — backward compat", () => {
 });
 
 /**
+ * #965 — `install` was `z.record(z.string(), z.string())`, so a key like
+ * `"macos"` validated and then never matched the lookup in `add`/`doctor`: a
+ * typo was indistinguishable from a deliberate hole. The fix must keep holes
+ * legal (some platforms genuinely have no single install command) while
+ * rejecting keys outside the matrix — which is `z.partialRecord`, not
+ * `z.record`: with an enum key, plain `z.record` is EXHAUSTIVE in zod 4 and
+ * would reject every bundled manifest.
+ */
+describe("PluginManifestSchema — externalTool.install platform keys (#965)", () => {
+  const withTool = (externalTool: Record<string, unknown>): { success: boolean } =>
+    PluginManifestSchema.safeParse({ ...MINIMAL, externalTool });
+
+  it("accepts a partial matrix — omitting a platform is legal", () => {
+    expect(withTool({ name: "t", install: { darwin: "brew install t" } }).success).toBe(true);
+  });
+
+  it("accepts the full matrix", () => {
+    const install = { darwin: "a", linux: "b", win32: "c" };
+    expect(withTool({ name: "t", install }).success).toBe(true);
+  });
+
+  it("rejects a key outside PLATFORMS — 'macos' used to validate and never match", () => {
+    expect(withTool({ name: "t", install: { macos: "brew install t" } }).success).toBe(false);
+  });
+
+  it("accepts installDocs as a URL and rejects anything that is not one", () => {
+    expect(withTool({ name: "t", installDocs: "https://example.com/install" }).success).toBe(true);
+    expect(withTool({ name: "t", installDocs: "run the installer" }).success).toBe(false);
+  });
+});
+
+/**
  * Covers: R13 — `mcpServer.alwaysLoad` (spec 0017 T7). The field exists because
  * of a measurement, not a preference: with an MCP server deferred, two full
  * sessions in this repo called its tools zero times; declaring `alwaysLoad`

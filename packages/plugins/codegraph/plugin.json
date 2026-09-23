@@ -13,7 +13,8 @@
       "darwin": "npm install -g @colbymchenry/codegraph@1.6.0",
       "linux": "npm install -g @colbymchenry/codegraph@1.6.0",
       "win32": "npm install -g @colbymchenry/codegraph@1.6.0"
-    }
+    },
+    "installDocs": "https://github.com/colbymchenry/codegraph"
   },
   "mcpServer": {
     "command": "codegraph",

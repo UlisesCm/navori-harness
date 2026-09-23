@@ -16,7 +16,8 @@
     "install": {
       "darwin": "brew install atlassian/acli/acli",
       "linux": "curl -fsSL https://acli.atlassian.com/install.sh | bash"
-    }
+    },
+    "installDocs": "https://developer.atlassian.com/cloud/acli/guides/install-windows/"
   },
   "settingsFragment": {
     "permissions": {

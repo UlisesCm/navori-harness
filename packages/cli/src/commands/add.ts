@@ -12,12 +12,11 @@ import {
   type PluginExternalTool,
 } from "../lib/plugins.ts";
 import { hasBinary } from "../lib/which.ts";
+import { currentPlatform } from "../lib/platform.ts";
 import { InstallError } from "../lib/errors.ts";
 import { detectProject } from "../lib/detect.ts";
 import { brand, dim, accent, color, sym } from "../lib/style.ts";
 import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
-
-type Platform = "darwin" | "linux" | "win32";
 
 /** Resolve the repo's locale for human output; DEFAULT_LANG when no config yet. */
 function langFor(configPath: string): Lang {
@@ -27,12 +26,6 @@ function langFor(configPath: string): Lang {
   } catch {
     return DEFAULT_LANG;
   }
-}
-
-function currentPlatform(): Platform {
-  if (process.platform === "darwin") return "darwin";
-  if (process.platform === "linux") return "linux";
-  return "win32";
 }
 
 /**
@@ -338,17 +331,33 @@ export const addCommand = defineCommand({
       return;
     }
 
+    // The branches below end with the plugin already `enabled: true` in the
+    // config (written above) and its binary still absent. All of them keep the
+    // `render --apply` hint the successful exits carry: without it the plugin
+    // is enabled on paper and never materializes a single file (#965).
+    //
+    // Exit code rule for them: ≠ 0 when the tool ended up unusable and nobody
+    // asked for that; 0 when the user explicitly opted out. `--skip-install`
+    // and declining the prompt are the opt-outs — `add` did exactly what it
+    // was told, so failing the shell there would make the flag unusable in
+    // scripts.
     if (args["skip-install"]) {
       p.log.warn(ta.externalSkipped(tool.name));
+      printInstallDocs(tool, ta);
       p.outro(ta.doneInstallLater);
       return;
     }
 
     const platform = currentPlatform();
-    const installCmd = tool.install?.[platform];
+    const installCmd = platform ? tool.install?.[platform] : undefined;
     if (!installCmd) {
-      p.log.warn(ta.noInstallCommand(platform, tool.name));
-      p.outro(ta.done);
+      p.log.warn(ta.noInstallCommand(platform ?? process.platform, tool.name));
+      printInstallDocs(tool, ta);
+      p.outro(dim(ta.doneNoInstall(tool.name)));
+      // Nothing was installed and the binary is still missing — `add` did not
+      // do what it was asked to. Exit code, not just prose, so a script can
+      // tell. `exitCode` rather than `exit()` so clack's outro still flushes.
+      process.exitCode = 1;
       return;
     }
 
@@ -361,7 +370,10 @@ export const addCommand = defineCommand({
 
     if (p.isCancel(shouldInstall) || !shouldInstall) {
       p.log.warn(ta.externalNotInstalled(tool.name));
-      p.outro(ta.done);
+      printInstallDocs(tool, ta);
+      // Exit 0 on purpose: the user saw the command and said no (or aborted
+      // the prompt). An honored explicit choice is not a command failure.
+      p.outro(ta.doneInstallLater);
       return;
     }
 
@@ -373,7 +385,11 @@ export const addCommand = defineCommand({
       { captureStderr: true, verifyBinary: true },
     );
     if (!installOk) {
+      printInstallDocs(tool, ta);
       p.outro(dim(ta.registeredInstallFailed));
+      // The install ran and the binary is still not on PATH (`verifyBinary`),
+      // which is the same end state as having no command at all.
+      process.exitCode = 1;
       return;
     }
 
@@ -394,6 +410,18 @@ export const addCommand = defineCommand({
     p.outro(ta.doneRender);
   },
 });
+
+/**
+ * Print the tool's official installation page when the manifest declares one.
+ *
+ * Every degraded exit of `add` used to tell the user to install the tool
+ * "manually" without naming a destination. `installDocs` is the honest answer
+ * for a platform upstream documents no single command for — inventing a command
+ * there would run shell on the user's machine (#965).
+ */
+function printInstallDocs(tool: PluginExternalTool, ta: ReturnType<typeof tc>["add"]): void {
+  if (tool.installDocs) p.log.info(ta.installDocsHint(tool.installDocs));
+}
 
 /**
  * Spec 0003 §3.5.2 — suggest (never install) based on the detected stack:

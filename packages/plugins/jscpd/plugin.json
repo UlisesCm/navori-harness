@@ -11,7 +11,8 @@
       "darwin": "pnpm add -g jscpd",
       "linux": "pnpm add -g jscpd",
       "win32": "pnpm add -g jscpd"
-    }
+    },
+    "installDocs": "https://github.com/kucherenko/jscpd"
   },
   "settingsFragment": {
     "permissions": {

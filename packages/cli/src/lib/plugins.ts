@@ -34,6 +34,15 @@ const ManagedEntrySchema = z.object({
   recommendedAgent: z.enum(AGENT_ROLES).optional(),
 });
 
+/**
+ * Platforms an `externalTool.install` matrix may declare a command for, and the
+ * only keys `add`/`doctor` ever look up. Exported so the platform helper, the
+ * commands and the completeness test all read one list instead of three copies.
+ */
+export const PLATFORMS = ["darwin", "linux", "win32"] as const;
+
+export type Platform = (typeof PLATFORMS)[number];
+
 const ExternalToolSchema = z.object({
   name: z.string().min(1),
   /** Binary name to look up in PATH. Safer than checkCommand because it
@@ -42,7 +51,24 @@ const ExternalToolSchema = z.object({
     .string()
     .regex(/^[a-zA-Z0-9_\-.]+$/, "binary name must be alphanumeric")
     .optional(),
-  install: z.record(z.string(), z.string()).optional(),
+  /**
+   * Install command per platform. `partialRecord`, not `record`: a manifest is
+   * allowed to omit a platform (that is a legitimate "no single command
+   * upstream documents here"), but a key outside `PLATFORMS` — `"macos"`, a
+   * typo — must fail at load time instead of silently never matching. Plain
+   * `z.record` with an enum key is EXHAUSTIVE in zod 4, which would reject
+   * every bundled manifest.
+   */
+  install: z.partialRecord(z.enum(PLATFORMS), z.string()).optional(),
+  /**
+   * Official installation page for the tool. The honest destination for a
+   * platform with no single install command, and the fallback every degraded
+   * path (`add` without a command, a failed install, `doctor`'s missing-tool
+   * row) points at instead of telling the user to "install it manually" with
+   * nowhere to go. A rotten URL degrades to a 404 the user sees; a made-up
+   * install command would run shell on their machine.
+   */
+  installDocs: z.url().optional(),
   postInstall: z.string().optional(),
 });
 

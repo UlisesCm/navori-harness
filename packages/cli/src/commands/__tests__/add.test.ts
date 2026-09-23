@@ -26,15 +26,17 @@ const spawnSyncMock = vi.hoisted(() => vi.fn());
 vi.mock("node:child_process", () => ({ spawnSync: spawnSyncMock }));
 
 const confirmMock = vi.hoisted(() => vi.fn());
+const outroMock = vi.hoisted(() => vi.fn());
+const logInfoMock = vi.hoisted(() => vi.fn());
 const logWarnMock = vi.hoisted(() => vi.fn());
 vi.mock("@clack/prompts", () => ({
   intro: () => undefined,
-  outro: () => undefined,
+  outro: outroMock,
   cancel: () => undefined,
   note: () => undefined,
   log: {
     message: () => undefined,
-    info: () => undefined,
+    info: logInfoMock,
     warn: logWarnMock,
     error: () => undefined,
     success: () => undefined,
@@ -72,6 +74,8 @@ beforeEach(() => {
   });
 
   hasBinaryMock.mockReset();
+  outroMock.mockReset();
+  logInfoMock.mockReset();
   logWarnMock.mockReset();
   confirmMock.mockReset();
   confirmMock.mockResolvedValue(true);
@@ -96,6 +100,10 @@ afterEach(() => {
   } else {
     Reflect.deleteProperty(process.stdin, "isTTY");
   }
+  // `add` now signals failure via `process.exitCode` (#965). That is the
+  // vitest process' OWN exit code: leaving it set would fail the whole run
+  // with every test green.
+  process.exitCode = undefined;
 });
 
 describe("add — postInstall reachability (#953)", () => {
@@ -258,5 +266,87 @@ describe("add — install verification + stderr capture (#960)", () => {
     expect(spawnSyncMock.mock.calls[0]?.[0]).toBe("gh auth status || gh auth login");
     const [, options] = spawnSyncMock.mock.calls[0] ?? [];
     expect((options as { stdio?: unknown } | undefined)?.stdio).toBe("inherit");
+  });
+});
+
+/**
+ * #965 — when no install command exists for the platform, `add` used to print
+ * "install it manually" (no destination) and then close with the plain success
+ * outro, `Listo`. Three facts were lost at once: nothing was installed, the
+ * plugin is nonetheless `enabled: true` in the config, and it still needs
+ * `navori render --apply` to materialize anything. A script had no way to tell
+ * either — the exit code was 0.
+ *
+ * `gh` on linux is the live instance of that cell (upstream documents Linux
+ * per distro, so the manifest carries `installDocs`, not a command).
+ */
+describe("add — degraded exits when nothing got installed (#965)", () => {
+  const texts = (): string =>
+    [...outroMock.mock.calls, ...logInfoMock.mock.calls, ...logWarnMock.mock.calls]
+      .map((call) => String(call[0]))
+      .join("\n");
+  const outroText = (): string => outroMock.mock.calls.map((call) => String(call[0])).join("\n");
+
+  it("no command for this platform — exits non-zero instead of closing on success", async () => {
+    setPlatform("linux");
+    hasBinaryMock.mockReturnValue(false);
+
+    await add("gh", "--yes");
+
+    expect(spawnSyncMock).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("no command for this platform — points at installDocs and keeps the render hint", async () => {
+    setPlatform("linux");
+    hasBinaryMock.mockReturnValue(false);
+
+    await add("gh", "--yes");
+
+    expect(texts()).toContain("https://github.com/cli/cli/blob/trunk/docs/install_linux.md");
+    // The hint every successful exit carries. Without it the plugin is enabled
+    // on paper and never materializes a file.
+    expect(outroText()).toContain("navori render --apply");
+  });
+
+  it("--skip-install still exits 0 — the user asked for exactly this", async () => {
+    hasBinaryMock.mockReturnValue(false);
+
+    await add("gh", "--skip-install");
+
+    expect(process.exitCode).toBeUndefined();
+    expect(outroText()).toContain("navori render --apply");
+  });
+
+  it("the user declines the install — exits 0, but still says what is left to do", async () => {
+    hasBinaryMock.mockReturnValue(false);
+    confirmMock.mockResolvedValue(false);
+
+    await add("gh");
+
+    expect(spawnSyncMock).not.toHaveBeenCalled();
+    expect(process.exitCode).toBeUndefined();
+    expect(outroText()).toContain("navori render --apply");
+  });
+
+  it("install ran and the binary never landed — exits non-zero", async () => {
+    hasBinaryMock.mockReturnValue(false);
+
+    await add("gh", "--yes");
+
+    expect(spawnSyncMock.mock.calls[0]?.[0]).toBe("brew install gh");
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("on a platform navori has no matrix for, it never runs another OS's command", async () => {
+    // Pre-#965 this folded into win32 and offered `winget install --id
+    // GitHub.cli` — through spawnSync(cmd, { shell: true }) — on FreeBSD.
+    setPlatform("freebsd");
+    hasBinaryMock.mockReturnValue(false);
+
+    await add("gh", "--yes");
+
+    expect(spawnSyncMock).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
   });
 });

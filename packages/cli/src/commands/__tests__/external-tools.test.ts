@@ -1,4 +1,4 @@
-import { assert, describe, it, expect, vi, beforeEach } from "vitest";
+import { assert, describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { NavoriConfig } from "../../lib/config.ts";
 
 /**
@@ -13,7 +13,8 @@ const hasBinary = vi.fn();
 vi.mock("../../lib/which.ts", () => ({ hasBinary: (n: string) => hasBinary(n) }));
 
 const { scanMissingExternalTools, scanMissingOptionalTools } = await import("../doctor.ts");
-const { loadPlugin } = await import("../../lib/plugins.ts");
+const { loadPlugin, listKnownPluginIds, PLATFORMS } = await import("../../lib/plugins.ts");
+const { currentPlatform } = await import("../../lib/platform.ts");
 
 function config(plugins: Record<string, { enabled: boolean }>): NavoriConfig {
   return { plugins } as unknown as NavoriConfig;
@@ -58,25 +59,81 @@ describe("scanMissingExternalTools", () => {
   });
 });
 
-describe("externalTool.install platform selection (#270 item 2)", () => {
-  // The shape under test is "a manifest may omit a platform", not any one
-  // plugin: `add.ts` must take the clean `noInstallCommand` path for the absent
-  // key instead of running prose written for another OS as a shell command
-  // (which is what errored on native Windows). `semgrep` is the bundled manifest
-  // that exercises the omission today; `gh` is the one that omits a different
-  // platform, so the pair also proves the check is not reading a constant.
-  it("semgrep declares darwin+linux installers but NOT win32", () => {
-    const install = loadPlugin("semgrep").manifest.externalTool?.install ?? {};
-    expect(install.darwin).toBeTruthy();
-    expect(install.linux).toBeTruthy();
-    expect(install.win32).toBeUndefined();
+/**
+ * #270 item 2 + #965. This block USED to assert the exact holes of `semgrep`
+ * (no win32) and `gh` (no linux) — i.e. it pinned two accidental gaps as if
+ * they were the contract, so filling a verified cell turned the suite red
+ * while six mute holes stayed green. Omitting a platform is still legal (for
+ * some cells upstream documents no single command, and inventing one would run
+ * shell on the user's machine), but it is only legal WITH a destination.
+ *
+ * The invariant, per plugin and per platform: there is an install command, or
+ * there is an `installDocs` URL. No plugin name and no command string is
+ * hardcoded here, so this keeps working as the matrix changes and fails the
+ * day someone lands a plugin with a silent hole.
+ */
+describe("externalTool install coverage invariant (#965)", () => {
+  const withExternalTool = listKnownPluginIds()
+    .map((id) => ({ id, tool: loadPlugin(id).manifest.externalTool }))
+    .filter((e): e is { id: string; tool: NonNullable<typeof e.tool> } => e.tool !== undefined);
+
+  it("there is at least one bundled plugin with an externalTool to check", () => {
+    expect(withExternalTool.length).toBeGreaterThan(0);
   });
 
-  it("gh declares darwin+win32 installers but NOT linux", () => {
-    const install = loadPlugin("gh").manifest.externalTool?.install ?? {};
-    expect(install.darwin).toBeTruthy();
-    expect(install.win32).toBeTruthy();
-    expect(install.linux).toBeUndefined();
+  it.each(PLATFORMS)("every externalTool is actionable on %s", (platform) => {
+    const mute = withExternalTool
+      .filter(({ tool }) => !tool.install?.[platform] && !tool.installDocs)
+      .map(({ id }) => id);
+    expect(mute).toEqual([]);
+  });
+
+  it("no manifest declares an install key outside PLATFORMS", () => {
+    for (const { id, tool } of withExternalTool) {
+      const keys = Object.keys(tool.install ?? {});
+      expect({ id, extra: keys.filter((k) => !PLATFORMS.includes(k as never)) }).toEqual({
+        id,
+        extra: [],
+      });
+    }
+  });
+});
+
+/**
+ * #965 — `add` folded every non-darwin/linux platform into `win32`, so on
+ * FreeBSD it offered `winget install --id GitHub.cli`: a command that cannot
+ * exist there, about to be run through `spawnSync(cmd, { shell: true })`.
+ * `doctor` meanwhile read `process.platform` raw, so the two commands
+ * disagreed about the same machine.
+ */
+describe("currentPlatform (#965)", () => {
+  const original = Object.getOwnPropertyDescriptor(process, "platform");
+  const setPlatform = (value: string): void => {
+    Object.defineProperty(process, "platform", { value, configurable: true });
+  };
+  afterEach(() => {
+    if (original) Object.defineProperty(process, "platform", original);
+  });
+
+  it.each(PLATFORMS)("returns %s unchanged", (platform) => {
+    setPlatform(platform);
+    expect(currentPlatform()).toBe(platform);
+  });
+
+  it.each(["freebsd", "openbsd", "sunos", "aix"])("returns null on %s, never win32", (platform) => {
+    setPlatform(platform);
+    expect(currentPlatform()).toBeNull();
+  });
+
+  it("agrees with what doctor resolves for the same machine", () => {
+    setPlatform("freebsd");
+    hasBinary.mockReturnValue(false);
+    const [tool] = scanMissingExternalTools(config({ engram: { enabled: true } }));
+    assert.isDefined(tool);
+    // No command is claimed for a platform navori has no matrix for — but the
+    // row is still actionable because the manifest carries installDocs.
+    expect(tool.install).toBeNull();
+    expect(tool.installDocs).toBeTruthy();
   });
 });
 

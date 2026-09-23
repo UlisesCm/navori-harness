@@ -102,7 +102,7 @@ Un `plugin.json` te da hasta seis piezas, y usas sólo las que necesites:
 
 | Pieza | Qué te da |
 |---|---|
-| `externalTool` | binario a verificar + comando de instalación por plataforma |
+| `externalTool` | binario a verificar + comando de instalación por plataforma (`darwin`/`linux`/`win32`; una clave fuera de esas tres falla al cargar) y `installDocs`, la URL oficial de instalación para la plataforma que no tenga comando |
 | `managed[]` | bloque(s) inyectados en `CLAUDE.md` |
 | `settingsFragment` | los permisos que tu herramienta necesita, ya puestos |
 | `scripts[]` | archivos copiados a `.claude/scripts/` |
