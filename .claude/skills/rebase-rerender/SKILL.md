@@ -18,12 +18,11 @@ right after it — this skill is only the sequence, not a copy of the why.
 
 1. **Conflict inside a managed block → never hand-edit it.** Take `main`'s
    version of the conflicted block and let step 2 regenerate the rest. Which
-   flag is `main`'s side depends on the operation, and the two are opposite:
-   - `git rebase origin/main` (replaying your commits onto `main`): `main`
-     is the upstream, so it's `--ours` — `git checkout --ours -- <path>`.
-   - `git merge origin/main` (merging `main` into your branch): `main` is
-     the incoming side, so it's `--theirs` — `git checkout --theirs --
-     <path>`.
+   side is `main`'s depends on the operation, and the two are opposite:
+   - Rebasing your branch onto `main` replays your commits on top of it, so
+     `main` is the upstream side: `git checkout --ours <path>`.
+   - Merging `main` into your branch brings it in as the incoming side:
+     `git checkout --theirs <path>`.
 
    Editing the block by hand instead changes its content without updating
    its `hash` marker, which flags the block as user-modified — `render
@@ -52,8 +51,8 @@ right after it — this skill is only the sequence, not a copy of the why.
    `packages/cli/src/engines/__tests__/__golden__/<engine>.snap`.) A change
    in that diff you can't explain from your rebase is a finding to
    investigate, not noise to accept with `-u` and move on.
-4. Run the quality gate (`bun check` from the root, or the scoped subset
-   relevant to your change) before continuing your task.
+4. Run the quality gate (`qualityGate.full` per `CLAUDE.md`, or the scoped
+   subset relevant to your change) before continuing your task.
 
 ## Checklist
 

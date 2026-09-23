@@ -312,10 +312,6 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
     "the same write as `navori render --apply` above, just invoked through the package-manager alias `rebase-rerender` documents — the prompt IS the gate for either spelling",
   ],
   [
-    "bun check",
-    "runs whatever `qualityGate.full` chains today, including steps that write (e.g. a golden-snapshot regen downstream); a prefix rule would pre-approve every future step folded into that alias, not just today's read-only ones",
-  ],
-  [
     "bun run test:golden",
     "regenerates the golden snapshot fixtures with `--update` — a write to tracked files, reviewed via the diff it produces, not silently pre-approved",
   ],
@@ -325,11 +321,7 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
   ],
   [
     "git checkout --theirs",
-    "the merge-side counterpart of `git checkout --ours` above — same reason, same prompt",
-  ],
-  [
-    "git worktree list",
-    "read-only, but this is a project-local skill's own convenience, not a core-asset need every navori consumer should carry pre-approved; the prompt is accepted here rather than widening `settings-base.json` for one repo's skill",
+    "the merge-side counterpart of `git checkout --ours` right above — same reason, same prompt",
   ],
 ];
 
