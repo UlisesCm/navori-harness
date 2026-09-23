@@ -8,8 +8,8 @@ corre con la cadena nueva.
 
 ## Lote 1 — mecánica (implementer)
 
-- [ ] **T1** (R2, R10) · implementer — Capturar un payload real de `PostToolUse(Agent)` y confirmar `tool_input.subagent_type`; después, validación de `impl_<feature>.json` en `subagent-stop-handoff.sh` al volver el implementer (existe, parsea, trae las claves de R2) y de `Status:` en `impl_<feature>.md` al volver el scribe · test: `hook-claims-vs-scripts.test.ts` con fixtures válido / sin clave / sin parsear / md sin `Status:`, con `// Covers: R2, R10`.
-- [ ] **T2** (R3, R4) · implementer — Hook `implementer-no-markdown.sh` y su registro en `build-settings.ts` (matcher `Bash|Edit|Write|NotebookEdit`, bloqueo con `exit 2`) · test: suite nueva del hook con deny por tool y por patrón de `Bash`, allow para hilo principal, `scribe` y archivos no-md; `hook-matcher-wiring.test.ts` con el matcher nuevo, con `// Covers: R3, R4`.
+- [x] **T1** (R2, R10) · implementer — Capturar un payload real de `PostToolUse(Agent)` y confirmar `tool_input.subagent_type`; después, validación de `impl_<feature>.json` en `subagent-stop-handoff.sh` al volver el implementer (existe, parsea, trae las claves de R2) y de `Status:` en `impl_<feature>.md` al volver el scribe · test: `hook-claims-vs-scripts.test.ts` con fixtures válido / sin clave / sin parsear / md sin `Status:`, con `// Covers: R2, R10`.
+- [x] **T2** (R3, R4) · implementer — Hook `implementer-no-markdown.sh` y su registro en `build-settings.ts` (matcher `Bash|Edit|Write|NotebookEdit`, bloqueo con `exit 2`) · test: suite nueva del hook con deny por tool y por patrón de `Bash`, allow para hilo principal, `scribe` y archivos no-md; `hook-matcher-wiring.test.ts` con el matcher nuevo, con `// Covers: R3, R4`.
 
 ## Lote 2 — contratos de prosa (implementer, excepción final)
 

@@ -160,6 +160,14 @@ export function resolveHarnessPlan(
       assetPath: join(coreAssets, "hooks/guard-destructive.sh"),
       managedId: "guard-destructive-base",
     },
+    // Spec 0030 (#985), R3/R4: the mechanical backstop for "the implementer
+    // does not write Markdown". Unconditional, like the guard above — it is
+    // scoped to a single role's payload, not a configurable feature.
+    {
+      id: "implementer-no-markdown",
+      assetPath: join(coreAssets, "hooks/implementer-no-markdown.sh"),
+      managedId: "implementer-no-markdown-base",
+    },
     {
       id: "session-start-context",
       assetPath: join(coreAssets, "hooks/session-start-context.sh"),

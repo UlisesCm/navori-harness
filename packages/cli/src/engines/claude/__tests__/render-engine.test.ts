@@ -499,7 +499,8 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   `secure-by-design`; #901 adds `scoped-gate`) + 6 workflow skills
     //   (resolve-ticket, solution-design, spec-bootstrap, dominio,
     //   follow-up-prs, and spec 0029 T2's `quality-attributes`) +
-    //   1 guard hook + 1 session-start hook + 1 PR routing hook (#705) +
+    //   1 guard hook + 1 implementer-no-markdown hook (spec 0030, R3/R4) +
+    //   1 session-start hook + 1 PR routing hook (#705) +
     //   1 comment-draft-confirm hook (spec 0026 E1) +
     //   1 lifecycle hook (subagent-stop; the PreCompact reminder was retired in
     //   #774 and its content moved into the session-start hook) + 1 qg hook +
@@ -512,17 +513,17 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   decision, the second PostToolUse hook) +
     //   4 blocks routed to .claude/context/ — the routing doctrine (#573) plus
     //   the two session ceremonies and the agents index (#572) + the
-    //   model-advisor hook (spec 0028) = 45.
+    //   model-advisor hook (spec 0028) = 46.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(45);
+    expect(first.inspected).toBe(46);
     // Written counts files actually emitted. engram-orchestrator-extension is a
     // sub-block injected into orchestrator.md, not a separate file. The
-    // arithmetic: 45 inspected − the 4 engram sub-blocks = 41 files actually
+    // arithmetic: 46 inspected − the 4 engram sub-blocks = 42 files actually
     // emitted (the base files + the .mcp.json + both audit-mode hooks + the
     // drift watcher + the worktree-reclaim hook + the routing watcher of spec
     // 0020 + the PR routing hook of #705 + the comment-draft-confirm hook of
-    // spec 0026 E1).
-    expect(first.written.length).toBe(41);
+    // spec 0026 E1 + the implementer-no-markdown hook of spec 0030).
+    expect(first.written.length).toBe(42);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -624,16 +625,17 @@ describe("renderClaudeEngine — dry-run", () => {
     // the .mcp.json engram registration (#212), both audit-mode hooks, the
     // managed-drift watcher (#530), the worktree-reclaim hook (#527), the
     // routing watcher (spec 0020), the PR routing hook (#705), the
-    // comment-draft-confirm hook (spec 0026 E1) and the orchestrator block
-    // routed to `.claude/context/` (#573). One less than before #774 retired
-    // the PreCompact reminder. 41, not 38: scribe expands the default roster to
+    // comment-draft-confirm hook (spec 0026 E1), the implementer-no-markdown
+    // hook (spec 0030, R3/R4) and the orchestrator block routed to
+    // `.claude/context/` (#573). One less than before #774 retired the
+    // PreCompact reminder. 42, not 38: scribe expands the default roster to
     // seven agents, while spec 0026 T14 merges debug-error +
     // loop-back-debug into one debug-failure, and spec 0029 T2 adds
     // `secure-by-design` (core) and `quality-attributes` (workflow), and #901
     // adds `scoped-gate` (core). `architect` (spec 0026 T19) defaults OFF
     // (phase F review, 2026-09-17) and CONFIG_FULL carries no explicit
     // `harness.architect: true`, so it stays at seven here.
-    expect(r.written).toHaveLength(41);
+    expect(r.written).toHaveLength(42);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
