@@ -35,6 +35,33 @@ Hechos verificados contra https://code.claude.com/docs/en/hooks.md (2026-09-23):
   corrige; T1 captura primero un payload real del evento para confirmar el campo antes de depender
   de él.
 
+## Admisión (spec 0031, R7)
+
+Ampliar al `scribe` es ampliar el trabajo de un agente existente, así que pasa R1–R3 de la spec
+0031 antes de encenderse. La declaración — covers R12:
+
+- **Garantía que reclama.** Dos, con la de tokens como principal:
+  - *Tokens netos*: el implementer deja de mantener Markdown durante toda su corrida (plan con
+    checkboxes, reporte reescrito tras cada rebase, prosa entregable) y el reporte de handoff corre
+    en el tier barato. Tiene que cubrir el arranque en frío de cada despacho del scribe (~25k tokens
+    según la enmienda de 0027), que se cuenta completo.
+  - *Calidad*: la prosa entregable la escribe un agente cuyo único trabajo es escribir, en un tier
+    que el orquestador fija por despacho (sonnet), a partir de un pedido con intención y evidencia.
+- **Señal.** Tokens totales de subagente por ciclo completo (implementer + scribe + reviewer), del
+  `usage` que el orquestador ve en cada notificación, en 3 ciclos reales con el flag encendido,
+  contra ciclos de tamaño comparable sin el flag. Referencia de hoy, sin flag: implementers de
+  268k–295k tokens en cambios medianos (#894 fase 1, lote 1 de esta spec). Calidad: hallazgos del
+  reviewer sobre prosa entregable en esos mismos ciclos.
+- **Costo contra producto.** Un despacho extra por ciclo (el scribe), con su arranque en frío,
+  contra el Markdown que el implementer deja de escribir y mantener.
+- **Criterio de retiro con plazo.** Si a los 14 días del merge los 3 ciclos medidos no muestran
+  ahorro neto de tokens ni menos hallazgos sobre prosa, el flag queda en `false`, la tabla de 0031
+  registra el resultado y #993 sigue con esa evidencia (R14). El código gateado se retira en ese
+  ticket.
+
+**Apagado por default.** Sigue el espíritu de R4 de 0031 aunque el scribe no sea agente nuevo:
+`harness.scribeOwnsMarkdown` en `false` deja el harness exactamente como estaba — R13.
+
 ## Components
 
 - `packages/core/core-assets/hooks/implementer-no-markdown.sh` (nuevo) — lee `agent_type`,
@@ -60,6 +87,15 @@ Hechos verificados contra https://code.claude.com/docs/en/hooks.md (2026-09-23):
 - `packages/core/core-assets/skills/resolve-ticket.md` y `packages/core/core-assets/skills/verify-before-done.md`
   — hoy dicen que el implementer produce `impl_<feature>.md`; pasan al `.json` + scribe — covers R9.
 - `specs/0027-scribe-agent/design.md` — enmienda con la medición — covers R11.
+- `packages/cli/src/lib/schema.ts` (`HarnessSchema`) — `scribeOwnsMarkdown: z.boolean().default(false)`
+  — covers R13.
+- Prosa condicional con `<!-- navori:if scribeOwnsMarkdown -->` / `<!-- navori:if-not ... -->`
+  (`conditionOrchestration` en `render-plan.ts`, que ya resuelve claves de `harness`). Si hoy solo se
+  aplica al bloque de orquestación, se extiende a los assets de agentes y skills que toca esta spec —
+  covers R13.
+- `build-settings.ts` — registra `implementer-no-markdown.sh` solo con el flag en `true` — covers R13.
+- `specs/0031-admision-de-agentes/design.md` — la fila de `scribe` en la tabla del roster apunta a
+  esta spec y, al cerrar T7, registra el resultado — covers R14.
 
 ## Decisions
 

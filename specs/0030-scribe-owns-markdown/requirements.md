@@ -8,6 +8,9 @@ existe en el roster desde la spec 0027 pero no tiene ningún contrato que lo inv
 invierte eso para el `implementer` (issue #985): no escribe ningún `.md`, y todo el Markdown pasa
 al `scribe`.
 
+La ampliación del `scribe` pasa por la prueba de admisión de la spec 0031 (R7): sale apagada
+detrás de un flag y se sostiene solo si su señal medida la justifica.
+
 ## Requirements (EARS)
 
 - **R1** — The `implementer` contract SHALL NOT instruct the agent to create or edit any file whose name ends in `.md` or `.mdx`, and SHALL state that prohibition explicitly.
@@ -21,3 +24,6 @@ al `scribe`.
 - **R9** — The orchestrator flow SHALL chain `implementer` → `scribe` → `reviewer` for changes that include Markdown, and `scribe` → `reviewer` for prose-only changes, with the `reviewer` judging the complete diff including the scribe's commit.
 - **R10** — WHEN an `Agent` call whose `tool_input.subagent_type` is `implementer` returns, the handoff hook SHALL flag an `impl_<feature>.json` that is missing, unparseable, or lacks a required key; and WHEN one whose `subagent_type` is `scribe` returns, it SHALL flag an `impl_<feature>.md` without its `Status:` line.
 - **R11** — The spec 0027 design SHALL carry an amendment that records this spec as superseding its withdrawal of R4/R7 for the `implementer`, with the measured cost that replaces the 2026-09-21 estimate.
+- **R12** — The spec SHALL declare, per spec 0031 R1–R3, the guarantee the expanded `scribe` gives (net tokens counting each delegation's cold start, and quality of shipped prose), the signal that measures it, its cost against its output, and a retirement criterion with a deadline.
+- **R13** — The behavior of R1–R10 SHALL be gated by `harness.scribeOwnsMarkdown`, default `false`: WHILE it is `false`, the rendered contracts and hooks SHALL behave as before this spec; WHEN it is `true`, R1–R10 apply.
+- **R14** — WHEN the retirement criterion of R12 is met, the flag SHALL stay `false` in this repo and the spec 0031 roster table SHALL record the result, so #993 proceeds with evidence.
