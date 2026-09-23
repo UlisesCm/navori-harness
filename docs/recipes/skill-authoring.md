@@ -56,7 +56,7 @@ vez que la skill se carga, así que se mantienen ajustadas.
 
 Si una skill excede su cap, el test falla. Para excederlo a propósito declara `maxWords: N` — el
 override es explícito, no silencioso, y **lleva escrita la razón en un comentario** junto al campo.
-Varios assets del core lo usan hoy; para verlos, `grep -rn '^maxWords:' packages/core/core-assets
+Varios assets del core lo usan hoy; para verlos, `grep -rn 'maxWords:' packages/core/core-assets
 packages/plugins`.
 
 ### `maxWordsComposed` — el archivo que la sesión realmente carga
@@ -86,7 +86,7 @@ mayor retorno del archivo: incluye un verbo de activación y la skill se activa 
 Se aceptan los verbos comunes es/en (`Aplica`, `Usar`, `cuando`, `antes de`, `Use when/this`): los
 assets de navori se escriben en inglés, pero una skill tuya se escribe en tu idioma.
 
-En los engines de prosa (`AGENTS.md`, Codex) el trigger también se imprime en el índice de
+En los engines de prosa (`AGENTS.md`, Codex, Cursor, Copilot) el trigger también se imprime en el índice de
 skills, condensado a la primera cláusula y cortado a 120 caracteres, así que ponlo al principio.
 El índice de `CLAUDE.md` ya no lo imprime (#908): Claude Code lee la `description` completa de su
 listado nativo. Todo el "cuándo usarla" va en la `description`, no en una sección del body: el
