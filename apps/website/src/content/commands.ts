@@ -70,7 +70,7 @@ const es: Record<string, CommandDoc> = {
     example: [
       {
         title: "Agregar engram",
-        code: "$ navori add engram\n✓ Added 'engram' to navori.config.json\nDone — run 'navori render --apply' to apply",
+        code: "$ navori add engram\n✓ Added 'engram' to navori.config.json\n✓ Rendered CLAUDE.md — 2 created, 1 updated\nDone",
       },
       {
         title: "Sugerencias por stack",
@@ -78,7 +78,7 @@ const es: Record<string, CommandDoc> = {
       },
     ],
     notes: [
-      "add solo modifica navori.config.json. Después corre 'navori render --apply' para aplicar.",
+      "add actualiza navori.config.json y renderiza el cableado del plugin (.mcp.json, permisos, bloques managed) en el mismo paso.",
     ],
   },
   preset: {
@@ -820,14 +820,16 @@ const en: Record<string, CommandDoc> = {
     example: [
       {
         title: "Add engram",
-        code: "$ navori add engram\n✓ Added 'engram' to navori.config.json\nDone — run 'navori render --apply' to apply",
+        code: "$ navori add engram\n✓ Added 'engram' to navori.config.json\n✓ Rendered CLAUDE.md — 2 created, 1 updated\nDone",
       },
       {
         title: "Stack suggestions",
         code: "$ navori add --suggest\nSuggestions:\n · Plugin engram: persistent memory across sessions — 'navori add engram'",
       },
     ],
-    notes: ["add only updates navori.config.json. Then run 'navori render --apply' to apply."],
+    notes: [
+      "add updates navori.config.json and renders the plugin's wiring (.mcp.json, permissions, managed blocks) in the same step.",
+    ],
   },
   preset: {
     id: "preset",
