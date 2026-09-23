@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 /**
  * #953 — "the binary is on PATH" and "the plugin's setup is done" are
@@ -452,7 +453,14 @@ describe("add — renders the plugin's wiring on enable (#974)", () => {
  * whether the repo "has a GitHub remote" without touching any real git state.
  */
 describe("add --suggest — available external providers (#981)", () => {
-  const noteText = (): string => noteMock.mock.calls.map((call) => String(call[0])).join("\n");
+  // `add.ts` colors the plugin id inline (`accent(id)`), which picocolors
+  // renders as real ANSI whenever `env.CI` is set (GitHub Actions exports
+  // `CI=1`) — splitting a literal like "navori add codegraph" across escape
+  // codes and breaking `toContain`. Stripped here so the assertions read the
+  // same locally and in CI, matching Node's own de-facto test convention
+  // rather than reaching for a third-party `strip-ansi`.
+  const noteText = (): string =>
+    stripVTControlCharacters(noteMock.mock.calls.map((call) => String(call[0])).join("\n"));
 
   it("lists disabled external-tool providers, naming the command to enable each", async () => {
     spawnSyncMock.mockReturnValue({ status: 1, signal: null, error: undefined }); // no git remote

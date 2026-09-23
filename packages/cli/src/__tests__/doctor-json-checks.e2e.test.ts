@@ -307,12 +307,16 @@ describe("doctor --json — available external providers, not enabled (#981)", (
 
     const human = runCli(["doctor", "--cwd", repo]);
     expect(human.status).toBe(0);
-    expect(human.stdout).toContain("codegraph");
     // Distinct wording from `missingExternalTools`'s "enabled but absent from
     // PATH" framing (`init --recommended` defaults to Spanish output) — this
-    // section is "exists, was never enabled".
+    // section is "exists, was never enabled". Asserted on its own header +
+    // row text, not on the ABSENCE of the sibling section: whether `engram`'s
+    // binary is on PATH is a fact about the machine running the test (CI
+    // lacks it, a dev box with the CLI globally installed may not), so that
+    // section can legitimately also be present here — it's simply not what
+    // this test is about.
     expect(human.stdout).toContain("Proveedores externos disponibles, no habilitados");
-    expect(human.stdout).not.toContain("Plugins habilitados con herramienta externa no instalada");
+    expect(human.stdout).toContain("habilítalo con 'navori add codegraph'");
   });
 });
 
