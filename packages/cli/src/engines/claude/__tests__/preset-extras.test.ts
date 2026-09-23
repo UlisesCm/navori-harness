@@ -96,9 +96,9 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // so it does not add to this count)
     // + 7 core skills (spec 0026 T14 merges debug-error + loop-back-debug into
     // one debug-failure; spec 0029 T2 adds `secure-by-design`; #901 adds
-    // `scoped-gate`) + 6 workflow skills (resolve-ticket, solution-design,
+    // `scoped-gate`) + 7 workflow skills (resolve-ticket, solution-design,
     // spec-bootstrap, dominio, follow-up-prs, and spec 0029 T2's
-    // `quality-attributes`) + 2 progress files + 2 medusa skills + 2 CLAUDE.md
+    // `quality-attributes`, plus `author-skill`) + 2 progress files + 2 medusa skills + 2 CLAUDE.md
     // managed blocks counted independently of the file + 1 guard hook +
     // 1 session-start hook + 1 lifecycle hook (subagent-stop; la de
     // PreCompact se retiro en #774) + 2 audit-mode hooks (trigger, close) +
@@ -112,7 +112,7 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // de fase F (2026-09-17). Un conteo a mano en cinco sitios es justo lo que
     // #703 dejo anotado como deuda; mientras siga a mano, la enumeracion tiene
     // que cerrar con el numero.
-    expect(r.inspected).toBe(42);
+    expect(r.inspected).toBe(43);
   });
 
   describe("bundled stack presets (B4)", () => {
