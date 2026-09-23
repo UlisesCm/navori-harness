@@ -282,7 +282,7 @@ const CONTEXTO_MONOREPO_ID = "contexto-monorepo";
  * order contribution (#228): the engine-agnostic core no longer knows these ids —
  * `canonicalManagedOrder` receives them from here, so the render's reorder pass
  * places the computed blocks in this exact order. Exported so a follow-up can
- * hand the same list to doctor's order check (`lib/health.ts`).
+ * hand the same list to doctor's order check (`lib/diagnose/health.ts`).
  */
 export const CLAUDE_COMPUTED_BLOCK_IDS = [
   SKILLS_INDEX_ID,

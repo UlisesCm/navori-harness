@@ -116,6 +116,7 @@ describe("the harness names all six modes (#579, relocated by #813)", () => {
     "..",
     "..",
     "..",
+    "..",
     "core",
     "core-assets",
     "managed",
@@ -123,7 +124,7 @@ describe("the harness names all six modes (#579, relocated by #813)", () => {
   );
   const asset = readFileSync(ASSET, "utf-8");
 
-  const DOCS = resolve(HERE, "..", "..", "..", "..", "..", "docs", "architecture.md");
+  const DOCS = resolve(HERE, "..", "..", "..", "..", "..", "..", "docs", "architecture.md");
   const docs = readFileSync(DOCS, "utf-8");
 
   it.each(["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"])(

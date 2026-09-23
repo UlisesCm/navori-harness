@@ -125,7 +125,7 @@ const FLAT_SHAPE_ALLOWED: readonly FlatMentionException[] = [
       "names it as legacy, next to the directory form it prefers",
   },
   {
-    file: "packages/cli/src/lib/claude-infra.ts",
+    file: "packages/cli/src/lib/assets/claude-infra.ts",
     reason:
       "foreign-harness DETECTION inventories what sits on disk, and a flat file is on disk " +
       "whether or not the host loads it — counting it is the point",

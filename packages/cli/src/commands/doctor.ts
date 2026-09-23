@@ -1389,7 +1389,7 @@ export interface NameMismatch {
  * `name` can both match the directory and validate.
  *
  * Deliberately the SAME transform `init` applies when it derives `name` from
- * the directory (`normalizeName` in lib/detect.ts) — so the value this suggests
+ * the directory (`normalizeName` in lib/diagnose/detect.ts) — so the value this suggests
  * is the value `init` would have written. It is kept here rather than imported
  * because that one takes `unknown` (user manifests) and strips an npm scope,
  * neither of which applies to a basename; `name-mismatch-doctor.test.ts` pins

@@ -26,7 +26,7 @@ import { parseAsset } from "../../../engines/claude/parse-asset.ts";
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
-const cliRoot = resolve(here, "..", "..", ".."); // packages/cli
+const cliRoot = resolve(here, "..", "..", "..", ".."); // packages/cli
 const coreAssets = resolve(cliRoot, "..", "core", "core-assets");
 const pluginsDir = resolve(cliRoot, "..", "plugins");
 

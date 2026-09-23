@@ -16,7 +16,7 @@ import {
 } from "../library-skills.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const coreAssets = resolve(here, "..", "..", "..", "..", "core", "core-assets");
+const coreAssets = resolve(here, "..", "..", "..", "..", "..", "core", "core-assets");
 
 describe("detectLibrarySkills", () => {
   it("returns the skill id when its dependency is present", () => {

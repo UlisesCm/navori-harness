@@ -366,7 +366,8 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "--disarm removes the `.armed` flag navori itself wrote under the audit root (#597). " +
       "Never a user file — the audit store is navori's own. (The armed flow's consumption " +
       "lives in the SessionStart hook, in shell, outside this inventory's reach.)",
-    "lib/tickets.ts": "deletes a ticket from navori's workspace store on an explicit command",
+    "lib/workspace/tickets.ts":
+      "deletes a ticket from navori's workspace store on an explicit command",
     "engines/claude/global-render.ts":
       "`navori global uninstall` removes navori's own global hook file — the whole point of " +
       "the command, so a marker gate would only make uninstalling fail",
@@ -377,11 +378,11 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "is never in reach",
 
     // ── Deletes the USER's files on purpose, after copying them. ──
-    "lib/migrate.ts":
+    "lib/diagnose/migrate.ts":
       "removeOriginals: the pre-navori harness the user chose to REPLACE, deleted only after " +
       "createMigrationBackup copied it and only in `replace` adoption mode. A marker gate would " +
       "defeat the feature — these files are the user's by definition",
-    "lib/workspace.ts":
+    "lib/workspace/workspace.ts":
       "drops the legacy `<name>.json` after copyFileSync put it in the new layout; best-effort",
   };
 
