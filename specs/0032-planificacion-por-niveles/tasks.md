@@ -74,10 +74,10 @@ agentes y skills, y al final encender y medir en este repo.
 
 ## Lote 4 — Encendido y medición
 
-- [ ] **T12** (R29, R31) — `navori.config.json` con `planTiers` (el default de core ya cubre el
+- [x] **T12** (R29, R31) — `navori.config.json` con `planTiers` (el default de core ya cubre el
   architect, sin `harness.architect` ni `effort.architect` en este repo); re-render; goldens ·
   test: `check:render` y el config verificado en `plan-tiers-contracts.test.ts`, con `// Covers:
   R29, R31`.
-- [ ] **T13** (R32) — El minero reporta niveles, clasificaciones erróneas y escalamientos por
+- [x] **T13** (R32) — El minero reporta niveles, clasificaciones erróneas y escalamientos por
   repo, llamando a `classify` · test: test del minero con un fixture por métrica, con `// Covers:
   R32`.

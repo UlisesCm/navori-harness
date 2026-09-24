@@ -174,7 +174,10 @@ Reglas de aplicación:
 - **Toda propuesta declara** la garantía que da y la señal con que se mide, su costo de arranque
   contra lo que produce, y un criterio de retiro con plazo (por ejemplo, N días sin invocaciones
   → `RETIRED_AGENTS`).
-- **Un agente nuevo sale apagado por default** hasta que su señal lo sostenga, como `architect`.
+- **Un agente nuevo sale apagado por default** hasta que su señal lo sostenga. Excepción: `architect`
+  (spec 0032 R35) — el usuario decidió habilitarlo siempre, sin flag, porque el nivel que lo activa
+  (2/3) lo decide `navori plan classify`, no el modelo, así que el costo queda acotado sin
+  necesidad de un interruptor aparte.
 - **Ampliar el trabajo de un agente existente** pasa por la misma prueba antes de implementarse,
   con el arranque en frío de cada delegación contado en el eje de tokens.
 

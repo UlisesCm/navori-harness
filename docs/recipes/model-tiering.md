@@ -26,7 +26,7 @@ coinciden con los ids de archivo en `core-assets/agents/` — el roster canónic
 | Agente | `models.<agent>` | `effort.<agent>` | Por qué |
 |---|---|---|---|
 | `orchestrator` | `opus` | `xhigh` | Orquesta, define scope y arbitra `CHANGES_REQUESTED` — el único rol de juicio puro, no se abarata. |
-| `architect` | `opus` | `high` | Diseña con señal arquitectónica: lee mucho código y pesa tradeoffs antes de que nadie escriba código, mantiene el tier del orchestrator (spec 0026 F) en vez de bajar al de síntesis. |
+| `architect` | `opus` | `xhigh` | Diseña en tareas de nivel 2/3 (`navori plan classify` decide el nivel, no el modelo): lee mucho código y pesa tradeoffs antes de que nadie escriba código, mantiene el tier del orchestrator (spec 0026 F) en vez de bajar al de síntesis. |
 | `implementer` | `sonnet` | `medium` | Código desde una tarea ya acotada; sonnet rinde casi como opus en coding a una fracción del costo. |
 | `reviewer` | `sonnet` | `medium` | Revisa contra spec/quality gate — síntesis contra un contrato, no arquitectura desde cero. |
 | `scout` | `sonnet` | `medium` | Mapea y/o investiga con preguntas acotadas; redacta hallazgos, no solo lista archivos. |
