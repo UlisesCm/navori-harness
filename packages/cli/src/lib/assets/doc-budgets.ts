@@ -67,10 +67,10 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // spec 0032 (#1011), lote 4/T12: turning this repo's own `harness.planTiers`
   // on (R31) renders the `planificacion` block and the always-on architect
   // paragraph into `AGENTS.md` for the first time here, landing at 4471 words
-  // — the previous ceiling (4560, set ahead of time by lote 2/3 estimating
-  // 4325) left only 2.0% headroom once the flag actually flipped. Recomputed
-  // for the real number: 4471 × 1.05 ≈ 4695, rounded up for margin → 5.1%.
-  "AGENTS.md": 4700,
+  // (`wc -w AGENTS.md`). Recalibrated per the #955 rule (≥10% headroom,
+  // `ceiling = ceil(words × 1.10)`), not the old ×1.05/#908 floor this line
+  // used before: ceil(4471 × 1.10) = 4919.
+  "AGENTS.md": 4919,
 
   // Core managed blocks — auto-discovered from `core-assets/managed/`.
   // Entries recalibrated in #955 carry `// <measured> → <headroom>` at ×1.10.
