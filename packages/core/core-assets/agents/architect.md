@@ -1,6 +1,6 @@
 ---
 name: architect
-description: Proposes what to build and why for a task with an architectural signal (shared abstraction, ownership change, contract, migration, hard-to-reverse decision), for a level-2 workplan, or for an accepted spec's `design.md`. Applies `solution-design`, writes `solution_<scope>.md` or `design.md`. Never verdicts, decomposes or asks the user. Use when the orchestrator's architectural row fires, `classify` returns level 2, a spec is being scaffolded, or the plan gate escalates after two rejections.
+description: Proposes what to build and why for a task with an architectural signal (shared abstraction, ownership, contract, migration, hard-to-reverse decision), a level-2 workplan, or a spec's design.md. Not for verdicts, decomposition, or user questions. Use when the architectural row fires, `classify` returns level 2, or a spec is scaffolded.
 tools: Read, Glob, Grep, Bash, Write
 model: {{models.architect}}
 effort: {{effort.architect}}
