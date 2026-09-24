@@ -8,10 +8,11 @@ import type { NavoriConfig } from "../../config/config.ts";
 /**
  * Spec 0018 R6 — harness no render will ever refresh again.
  *
- * Regression case, real and current: this very repo carries
- * `packages/cli/.claude/context/`, frozen at 0.6.5 since 2026-09-02. It is not
- * a declared workspace, so the render loop never visits it, and nothing on disk
- * admits that its content is months old.
+ * Regression case, real: this very repo carried
+ * `packages/cli/.claude/context/`, frozen at 0.6.5 since 2026-09-02, until it
+ * was deleted. It was not a declared workspace, so the render loop never
+ * visited it, and nothing on disk admitted that its content was months old —
+ * that gap is what motivated this scanner.
  */
 
 let cwd: string;
@@ -47,7 +48,8 @@ describe("scanStaleHarness — lo que ningún render vuelve a tocar (spec 0018 R
 
   it("reporta un .claude/ en un subdirectorio no declarado, con su versión más vieja", () => {
     // Covers: R6
-    // El caso de campo: `packages/cli/.claude/` en el propio repo de navori.
+    // El caso de campo que motivó el scanner: `packages/cli/.claude/` en el
+    // propio repo de navori (ya borrado).
     managed(".claude/agents/reviewer.md", "0.8.2");
     managed("packages/cli/.claude/context/x.md", "0.6.5");
     managed("packages/cli/.claude/context/y.md", "0.7.1");
