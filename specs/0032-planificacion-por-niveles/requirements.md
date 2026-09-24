@@ -151,7 +151,7 @@ deja rastro verificable:
 
 - **R30** — Todo lo anterior salvo los comandos DEBERÁ quedar detrás de `harness.planTiers`
   (default `false`); en `false`, los contratos renderizados DEBERÁN quedar byte a byte como antes,
-  salvo lo que cambia R33 (el `architect` siempre habilitado). Los comandos
+  salvo lo que cambian R26–R28 y R33 (el método y el alcance del `architect`, siempre habilitado). Los comandos
   `plan classify|render|update|check` existen con cualquier valor.
 - **R31** — Este repo DEBERÁ encender `harness.planTiers`.
 - **R32** — La medición DEBERÁ separarse por repo y reportar: porcentaje de tareas por nivel

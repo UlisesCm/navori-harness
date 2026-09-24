@@ -223,7 +223,10 @@ repo se marca provisional."
   vez del correcto, truncando la oración y dejando un `<!-- /navori:if-not -->` huérfano en el
   render. Es una corrección general de `render-plan.ts`, no específica del contenido de
   plan-tiers: relevante para cualquier asset de core que combine marcadores anidados del mismo
-  tipo en `core-assets` a futuro.
+  tipo en `core-assets` a futuro. Desde `bc8b3a5b`, un marcador desbalanceado (abridor sin cierre,
+  cierre sin abridor o de tipo distinto) hace fallar el render con `UnbalancedConditionMarkerError`,
+  que nombra el marcador y su posición; antes se tragaba el resto del archivo en silencio. Solo
+  corre sobre el asset fuente, nunca sobre un bloque ya renderizado del usuario.
 
 - **Plan desactualizado.** El orquestador olvida actualizar Progreso. Mitigación: el `reviewer`
   lee el workplan y lo contrasta con `acceptance`; un `A<n>` marcado `cumplido` sin evidencia es

@@ -92,6 +92,9 @@ implementer A (task 1) → reviewer A → implementer B (task 2) → reviewer B 
 ```
 
 Without "shall I proceed?" between each node.
+<!-- navori:if planTiers -->
+Planning tiers: the `planificacion` block decides the level; the `plan-simple` / `plan-advanced` skills carry the procedure.
+<!-- /navori:if -->
 
 ## Anti-broken-telephone rule
 
@@ -113,6 +116,9 @@ Expected files:
 - `.claude/progress/explore_<area>.md` — broad map (`scout`, map encargo)
 - `.claude/progress/research_<question>.md` — scoped question (`scout`, question encargo)
 - `.claude/progress/solution_<scope>.md` — the design pass's decision record (`solution-design` skill), plus `solution_review_<scope>.md` for its fresh-context challenge (`auditor`, challenge encargo)
+<!-- navori:if planTiers -->
+- `.claude/progress/workplan_<feature>.json` — the workplan source, written by you; `workplan_<feature>.md` is `navori plan render`'s output, and `workplan_<feature>.gate.jsonl` the gate's log
+<!-- /navori:if -->
 - <!-- navori:if-not scribeOwnsMarkdown -->`.claude/progress/impl_<feature>.md` — the `implementer`'s report (includes its `Status: DONE | BLOCKED`)<!-- /navori:if-not --><!-- navori:if scribeOwnsMarkdown -->`.claude/progress/impl_<feature>.json` — the `implementer`'s evidence (R2, includes `status` and `markdownRequests`); the `scribe` renders `.claude/progress/impl_<feature>.md` from it and applies `markdownRequests`<!-- /navori:if -->
 - `.claude/progress/review_<feature>.md` — the `reviewer`'s verdict
 - `.claude/progress/receipt.txt` — the `reviewer`'s content receipt on `APPROVED` (binds the diff to the reviewed bytes; consumed by `publisher`)
