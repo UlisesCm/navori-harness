@@ -3,6 +3,7 @@ import { relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { LOCKFILES } from "./detect.ts";
+import { isUnderProgressDir } from "../primitives/progress-dirs.ts";
 
 export type ReceiptStatus = "ok" | "findings" | "error";
 export type DriftKind = "changed" | "missing" | "reappeared";
@@ -35,8 +36,6 @@ export interface ReceiptOptions {
   /** `check` only: fall back to `receipt.consumed.txt` when `receipt.txt` is absent. */
   includeConsumed?: boolean;
 }
-
-const PROGRESS_DIRS = [".claude/progress/", ".codex/progress/", "progress/"];
 
 /** The gate/inputs half of R5's "evidence identity" (base+comando+inputs). The
  * tree half is already covered by the existing per-file blob lines in the
@@ -109,10 +108,6 @@ function validatePath(cwd: string, path: string): void {
     throw new Error(`path escapes repository: ${path}`);
 }
 
-function isProgress(path: string): boolean {
-  return PROGRESS_DIRS.some((prefix) => path.startsWith(prefix));
-}
-
 function liveBlob(cwd: string, path: string): string {
   const absolute = resolve(cwd, path);
   const stat = lstatSync(absolute);
@@ -183,7 +178,9 @@ function inspect(options: ReceiptOptions): { targetSha: string; headSha: string;
   const untracked = pathsFromNul(
     git(options.cwd, ["ls-files", "--others", "--exclude-standard", "-z"], true),
   );
-  const paths = [...new Set([...tracked, ...untracked])].filter((path) => !isProgress(path)).sort();
+  const paths = [...new Set([...tracked, ...untracked])]
+    .filter((path) => !isUnderProgressDir(path))
+    .sort();
   for (const path of paths) validatePath(options.cwd, path);
   return { targetSha, headSha, paths };
 }

@@ -75,7 +75,7 @@ Orden de los lotes:
 
 ## Lote D — Consumo de handoffs (F04, F05)
 
-- [ ] **T7** (R13, R14, R15, R16, R24) — `navori handoff check <feature> [--for scribe] [--json]`.
+- [x] **T7** (R13, R14, R15, R16, R24) — `navori handoff check <feature> [--for scribe] [--json]`.
   - Esquema zod único en `lib/handoff/schema.ts` (`REQUIRED_IMPL_KEYS` más `head` opcional) y
     comprobaciones en `lib/handoff/check.ts`.
   - El subcomando se registra en `commands/handoff.ts` y en `index.ts`.
@@ -85,7 +85,7 @@ Orden de los lotes:
       paths absolutos, con `..`, con symlink que escapa o bajo `progress/`.
     - Sin `head` da un warning.
     - Con el flag apagado valida el `.md`.
-- [ ] **T8** (R13, R17) — Instrucciones en la prosa y permiso.
+- [x] **T8** (R13, R17) — Instrucciones en la prosa y permiso.
   - `orquestacion` y `orchestrator` ejecutan `navori handoff check` antes de despachar al scribe o
     al reviewer.
   - `scribe` corre el preflight con `--for scribe` y la cadena solo avanza con `"status":"ok"`.

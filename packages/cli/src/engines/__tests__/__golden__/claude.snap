@@ -334,7 +334,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
 - **No hardcode**: secrets / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, depending on the stack).
 - **No `console.log`** in code that will be merged (guard with `import.meta.env.DEV` or the runtime's equivalent).
 - **Zero new errors** introduced by your code in the quality gate tools (vs. baseline) — classify per `verify-before-done`'s Failure attribution, never by diff location alone; see the evidence table below. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.
-- **Never mutate or discard the shared working tree**: no stashing, no checkout/reset that discards local changes, no working-tree clean — these hit the `ask` permission rule and can stall a background agent indefinitely, and in the repo root they'd destroy other parallel agents' work. Same reasoning for scratch files: leave them, don't clean them with a recursive delete.
+- **Never mutate or discard the shared working tree**: no stashing, no checkout/reset that discards local changes, no working-tree clean — these hit the `ask` permission rule and can stall a background agent indefinitely. Same reasoning for scratch files: leave them, don't clean them with a recursive delete.
 - **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.
 - **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see the SDD block in `CLAUDE.md`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.
 - **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `locate-code`; an entry point you didn't list is one the `reviewer` has to rediscover.
@@ -463,7 +463,7 @@ maxWords: 3050
 <!-- navori:managed id="orchestrator-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
 # Orchestrator Playbook (embodied by the main agent)
 
-> This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
+> This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session, not to a subagent: only the main agent can act on it. Below: extended detail and the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
 
 Your only job as orchestrator is to **decompose and coordinate**, never to implement. Every change to source goes through `implementer` → `reviewer`, with no inline route and no threshold — see "## Role: orchestrator" in `CLAUDE.md`.
 
@@ -554,7 +554,7 @@ When you launch subagents, the **literal path** of the file each one must write 
 done -> .claude/progress/<file>.md
 ```
 
-Those files are **input to the next step of the pipeline**, not chat summaries for a reader: the `reviewer` opens the `implementer`'s, the `publisher` opens the `reviewer`'s and its `receipt.txt`, and the `subagent-stop-handoff` hook flags one that lands empty or without its `Status:`/verdict line (that hook never sees one that didn't land at all — that check is yours). A host rule against writing report files does not reach them — it exempts files written as input to another tool, and these are exactly that. Say so in the encargo if a subagent hesitates.
+Those files are **input to the next step of the pipeline**, not chat summaries for a reader: the `reviewer` opens the `implementer`'s, the `publisher` opens the `reviewer`'s and its `receipt.txt`, and the `subagent-stop-handoff` hook flags one that lands empty or without its `Status:`/verdict line (that hook never sees one that didn't land at all — that check is yours). A host rule against writing report files does not reach them — it exempts files written as input to another tool, and these qualify. Say so if a subagent hesitates.
 
 **Re-verify only the load-bearing claims.** AFTER its `done -> file` lands — not while it runs, which duplicates work in flight — check the claims your decision actually rests on: each cited `file:line` exists and says what the report says, plus the diff it touched. Don't re-run its investigation; take the rest from the report.
 
@@ -1432,6 +1432,7 @@ There used to be a ladder (inline for small changes, delegate for the rest). It 
 
 ### The mechanics
 
+- **Before dispatching**, run `navori handoff check <feature> --dir .claude/progress --json`; continue only on `"status":"ok"`.
 - **1 focused `implementer`** with an explicit scope (no SDD state), then **1 fresh `reviewer`**. Serial — the reviewer depends on the implementer's output.
 - **Review AFTER implementing, never before.**
 - **Parallel `implementer`s only on disjoint files** (when in doubt, serial).
@@ -1458,7 +1459,7 @@ The write is delegated unconditionally; this table is about how much **reading**
 
 ### Analytical parallelism (the lever — mechanical, not optional)
 
-Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default, so parallelism has to be requested explicitly, in one message. **Independent** sub-tasks (no shared state, none depends on another's output) → same turn; serialize only on a real dependency (`implementer` → `reviewer`). Assign explicit scope before fanning out; synthesis is **never** delegated — when the `done -> file` reports return, you read the N files together and cross-check them yourself.
+Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default, so parallelism must be requested explicitly. **Independent** sub-tasks (no shared state, none depends on another's output) → same turn; serialize only on a real dependency (`implementer` → `reviewer`). Assign explicit scope before fanning out; synthesis is **never** delegated — when the `done -> file` reports return, you read the N files together and cross-check them yourself.
 
 ### When delegation is genuinely impossible
 
@@ -12099,6 +12100,7 @@ esac
       "Bash(navori status:*)",
       "Bash(navori audit:*)",
       "Bash(navori receipt:*)",
+      "Bash(navori handoff check:*)",
       "Bash(navori dominio list:*)",
       "Bash(navori dominio show:*)",
       "Bash(navori dominio doctor:*)",

@@ -7,10 +7,10 @@ effort: medium
 maxWords: 3050
 ---
 
-<!-- navori:managed id="orchestrator-base" hash="79a19165" version="0.10.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="orchestrator-base" hash="a447b29c" version="0.10.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Orchestrator Playbook (embodied by the main agent)
 
-> This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
+> This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session, not to a subagent: only the main agent can act on it. Below: extended detail and the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
 
 Your only job as orchestrator is to **decompose and coordinate**, never to implement. Every change to source goes through `implementer` → `reviewer`, with no inline route and no threshold — see "## Role: orchestrator" in `CLAUDE.md`.
 
@@ -36,7 +36,7 @@ One route removes the decision entirely. It is more expensive per change and tha
 | Very complex | Split into sub-tasks and re-apply the table |
 
 When you start a complex task with a prior audit, **hand the implementer the path to `.claude/progress/audit_ticket_<ID>.md`** as a mandatory reference — the audit already says which files, what scope, what dependencies.
-**The `scribe` leg.** The `implementer` writes no Markdown (R1); when its `impl_<feature>.json` carries a non-empty `markdownRequests`, chain `implementer` → `scribe` → `reviewer` — the `scribe` applies the requested prose in the producer's own worktree and branch, in a commit of its own, before the `reviewer` sees the diff. A prose-only change (no code) skips the `implementer` entirely: `scribe` → `reviewer`. Model is chosen PER DISPATCH, not by config default: pass `haiku` when the scribe is only rendering the handoff, and `model: sonnet` on that `Agent` call when any `markdownRequests` path belongs to the diff that ships (R8) — `models.scribe` stays on its cheap default for the common case.
+**The `scribe` leg.** The `implementer` writes no Markdown (R1); when its `impl_<feature>.json` carries a non-empty `markdownRequests`, chain `implementer` → `scribe` → `reviewer` — the `scribe` applies the requested prose in the producer's own worktree and branch, in a commit of its own, before the `reviewer` sees the diff. A prose-only change (no code) skips the `implementer` entirely: `scribe` → `reviewer`. Model is chosen PER DISPATCH, not by config default: pass `haiku` when the scribe is only rendering the handoff, and `model: sonnet` on that `Agent` call when any `markdownRequests` path belongs to the diff that ships (R8) — `models.scribe` stays on its cheap default for the common case. Before dispatching the `scribe` or the `reviewer`, run the handoff check the orchestration block names; dispatch only on `"status":"ok"`.
 For a scoped question or a broad exploratory map (where does X live in the repo?), use `scout`. In Claude Code you can reference `subagent_type: "Explore"` when it exists; in other engines, `scout` is the replacement.
 
 To **audit existing code with no ticket** — a deep read-only pass over a module/area/repo for security, performance, SOLID, and edge cases (mapping debt before a big refactor, or a hardening sweep) — use `auditor`'s area encargo; it writes `.claude/progress/audit_deep_<scope>.md` + a prioritized plan. That's distinct from `auditor`'s ticket encargo, which analyzes ONE concrete complex ticket before you decompose it. Both are read-only and never edit code (see the agent's own triggers).
@@ -101,7 +101,7 @@ When you launch subagents, the **literal path** of the file each one must write 
 done -> .claude/progress/<file>.md
 ```
 
-Those files are **input to the next step of the pipeline**, not chat summaries for a reader: the `reviewer` opens the `implementer`'s, the `publisher` opens the `reviewer`'s and its `receipt.txt`, and the `subagent-stop-handoff` hook flags one that lands empty or without its `Status:`/verdict line (that hook never sees one that didn't land at all — that check is yours). A host rule against writing report files does not reach them — it exempts files written as input to another tool, and these are exactly that. Say so in the encargo if a subagent hesitates.
+Those files are **input to the next step of the pipeline**, not chat summaries for a reader: the `reviewer` opens the `implementer`'s, the `publisher` opens the `reviewer`'s and its `receipt.txt`, and the `subagent-stop-handoff` hook flags one that lands empty or without its `Status:`/verdict line (that hook never sees one that didn't land at all — that check is yours). A host rule against writing report files does not reach them — it exempts files written as input to another tool, and these qualify. Say so if a subagent hesitates.
 
 **Re-verify only the load-bearing claims.** AFTER its `done -> file` lands — not while it runs, which duplicates work in flight — check the claims your decision actually rests on: each cited `file:line` exists and says what the report says, plus the diff it touched. Don't re-run its investigation; take the rest from the report.
 
