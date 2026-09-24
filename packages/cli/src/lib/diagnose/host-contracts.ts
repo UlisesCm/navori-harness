@@ -332,6 +332,31 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       "replaces the stale shell sentinel. Nothing enforces the host's side.",
   },
   {
+    id: "codex-skill-body-redirect",
+    claim:
+      "Codex, on activating a skill whose `SKILL.md` body redirects in prose to " +
+      "`.claude/skills/<id>/SKILL.md`, opens that file and follows its relative links — it " +
+      "does not require the skill to be self-contained under its own `.agents/skills/<id>/` " +
+      "directory.",
+    source:
+      "Measured 2026-09-24 with codex-cli 0.156.1: in a temp repo, `.agents/skills/probe/" +
+      "SKILL.md` was a managed pointer sharing `name`/`description` with the source, its body " +
+      "redirecting to `.claude/skills/probe/SKILL.md`, which linked `references/token.md` " +
+      "holding a unique token. `codex exec` listed the `probe` skill with the pointer's " +
+      '`description`. Asked "What is the navori probe verification code?", Codex ran, in ' +
+      "order, `cat .agents/skills/probe/SKILL.md`, `cat .claude/skills/probe/SKILL.md`, and " +
+      "`cat .claude/skills/probe/references/token.md`, then answered the exact token. PASS.",
+    provedBy:
+      "Spec 0033, D2 — the pointer design for local skills in Codex depends on this exact " +
+      "redirect behavior, which was unverified until the probe; the config-based alternative " +
+      "was discarded for the same class of unmeasured dependency, so this one had to be " +
+      "measured before the adapter shipped.",
+    enforcedBy:
+      "Nothing automated — this is a manual measurement, and no test in this repo runs Codex. " +
+      "A regression of this host behavior would only surface as a user report of a local " +
+      "skill Codex fails to discover.",
+  },
+  {
     id: "codex-model-advisor-payload",
     claim:
       "Codex SessionStart input includes the active `model`, and `/model` changes the " +

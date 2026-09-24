@@ -31,7 +31,7 @@ import {
 import { hasBinary } from "../lib/primitives/which.ts";
 import { currentPlatform } from "../lib/config/platform.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/config/presets.ts";
-import { resolveLocalSkillPath } from "../lib/assets/skill-meta.ts";
+import { classifyLocalSkills } from "../engines/codex/local-skill-pointer.ts";
 import { unknownLibraries } from "../lib/assets/library-skills.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
 import { scanGitignoreHarness } from "../engines/shared/gitignore-harness.ts";
@@ -544,15 +544,38 @@ export const doctorCommand = defineCommand({
 
     // Project-local skills declared in config must have a file on disk — navori
     // indexes them but never writes their content, so a missing one is dead
-    // weight in the index.
-    const missingLocalSkills = (config.project?.localSkills ?? []).filter(
-      (name) => resolveLocalSkillPath(cwd, name) === null,
+    // weight in the index. Spec 0033 D2 (R11/R12): the SAME classification the
+    // Codex adapter and `render` use, so "missing"/"foreign" mean one thing
+    // across the three consumers instead of drifting per call site.
+    const localSkillsRootCoreAssets = resolve(getCoreRoot(), "core-assets");
+    let localSkillsRootPreset: ReturnType<typeof loadPreset> = null;
+    if (config.preset && config.preset !== "custom") {
+      try {
+        localSkillsRootPreset = loadPreset(config.preset, cwd);
+      } catch {
+        localSkillsRootPreset = null; // a broken preset is surfaced elsewhere
+      }
+    }
+    const localSkillsRootPlanIds = new Set(
+      resolveHarnessPlan(config, localSkillsRootCoreAssets, localSkillsRootPreset).skills.map(
+        (s) => s.id,
+      ),
     );
-    if (missingLocalSkills.length > 0) {
-      const lines = missingLocalSkills.map(
+    const localSkillsClassification = classifyLocalSkills(
+      cwd,
+      config.project?.localSkills ?? [],
+      localSkillsRootPlanIds,
+    );
+    if (localSkillsClassification.missing.length > 0) {
+      const lines = localSkillsClassification.missing.map(
         (n) => `  ${color.red(sym.fail)} ${accent(n)}  ${grey(td.missingLocalSkillRow(n))}`,
       );
-      p.log.warn(td.missingLocalSkills(missingLocalSkills.length, lines.join("\n")));
+      p.log.warn(td.missingLocalSkills(localSkillsClassification.missing.length, lines.join("\n")));
+    }
+    if (localSkillsClassification.foreign.length > 0) {
+      for (const id of localSkillsClassification.foreign) {
+        p.log.warn(tc(lang).engine.localSkillForeignCodex(`.agents/skills/${id}/SKILL.md`));
+      }
     }
 
     // `project.libraries` ids this CLI's registry doesn't know: render skips

@@ -50,7 +50,7 @@ Orden de los lotes:
 
 ## Lote C — Skills locales en Codex (F03)
 
-- [ ] **T5** (R9) — Sonda manual contra Codex real.
+- [x] **T5** (R9) — Sonda manual contra Codex real.
   - Un `SKILL.md` puntero en `.agents/skills/<id>/` que remite a `.claude/skills/<id>/SKILL.md`.
     Se observa si Codex lo lista, lo carga y sigue la redirección y sus enlaces a `references/`.
   - El resultado queda en el contrato `codex-skill-body-redirect` de
@@ -59,7 +59,7 @@ Orden de los lotes:
     en vez del puntero. Pídele la sonda al usuario si no hay un binario de Codex disponible.
   - Test: el test existente de `host-contracts` valida que la nueva entrada esté bien formada,
     con `// Covers: R9`.
-- [ ] **T6** (R9, R10, R11, R12) — `classifyLocalSkills` y el puntero.
+- [x] **T6** (R9, R10, R11, R12) — `classifyLocalSkills` y el puntero.
   - `classifyLocalSkills` vive en `engines/codex/local-skill-pointer.ts` y reparte los ids en
     `emit`, `missing` y `foreign`.
   - El adapter de Codex emite, por `extraFiles`, solo los ids de `emit`, y su `orphanScans`

@@ -1041,6 +1041,9 @@ interface EngineCmdStrings {
   // Codex adapter
   pluginLoadFailedCodex: (id: string, reason: string) => string;
   codexTrustHint: string;
+  /** Spec 0033 R12: `.agents/skills/<id>/SKILL.md` exists but isn't navori's
+   *  pointer — kept intact, never written, never pruned. */
+  localSkillForeignCodex: (destRelPath: string) => string;
   /** R39/R41 (spec 0026 T10): a Codex orphan-scan match kept, with its reason
    *  — Codex's own version of the Claude engine's retired-asset report. */
   keptOrphanCodex: (path: string, reason: KeepReason) => string;
@@ -1048,6 +1051,11 @@ interface EngineCmdStrings {
   presetInvalid: (preset: string, detail: string) => string;
   // Prose-engine dispatch (render.ts)
   agentsMdRedundantWithCodex: string;
+  /** Spec 0033 R11: a `project.localSkills` id with no source under
+   *  `.claude/skills/<id>/` — reported by `render` no matter which engines are
+   *  configured (R9 scopes only the pointer DESTINATION to Codex), and pushed
+   *  exactly once per run regardless of how many engines are enabled. */
+  localSkillMissing: (id: string) => string;
   // Global baseline (Spec 0010)
   globalBaselineIntro: string;
 }
@@ -2496,6 +2504,9 @@ const CMD_ES: CmdStrings = {
     pluginSkillNotInjected: (id, pid, target) =>
       `skill '${id}' (de @navori/plugin-${pid}) no inyectado: target ${target} ausente (¿agente disabled en config.harness?)`,
     pluginLoadFailedCodex: (id, reason) => `Plugin '${id}' no pudo cargarse para Codex: ${reason}.`,
+    localSkillForeignCodex: (destRelPath) =>
+      `'${destRelPath}' no lo escribió navori; se conserva intacto. Bórralo para recibir el ` +
+      `puntero generado hacia .claude/skills/<id>/SKILL.md.`,
     keptOrphanCodex: (path, reason) =>
       `conservado ${path} — ` +
       (reason === "newer"
@@ -2508,6 +2519,9 @@ const CMD_ES: CmdStrings = {
     presetInvalid: (preset, detail) => `Preset '${preset}' inválido: ${detail}`,
     agentsMdRedundantWithCodex:
       "El engine 'agents-md' es redundante junto a 'codex'; Codex será el único dueño de AGENTS.md.",
+    localSkillMissing: (id) =>
+      `Skill project-local '${id}' declarada en project.localSkills, pero ausente de ` +
+      `.claude/skills/${id}/SKILL.md.`,
     globalBaselineIntro:
       "Lo siguiente es tu baseline navori de máquina (doctrina agnóstica al repo). " +
       "Un proyecto con su propio harness navori lo reemplaza.",
@@ -3784,6 +3798,9 @@ const CMD_EN: CmdStrings = {
       `skill '${id}' (from @navori/plugin-${pid}) not injected: target ${target} missing (agent disabled in config.harness?)`,
     pluginLoadFailedCodex: (id, reason) =>
       `Plugin '${id}' couldn't be loaded for Codex: ${reason}.`,
+    localSkillForeignCodex: (destRelPath) =>
+      `'${destRelPath}' wasn't written by navori; kept intact. Delete it to receive the ` +
+      `generated pointer to .claude/skills/<id>/SKILL.md.`,
     keptOrphanCodex: (path, reason) =>
       `kept ${path} — ` +
       (reason === "newer"
@@ -3796,6 +3813,9 @@ const CMD_EN: CmdStrings = {
     presetInvalid: (preset, detail) => `Preset '${preset}' invalid: ${detail}`,
     agentsMdRedundantWithCodex:
       "The 'agents-md' engine is redundant alongside 'codex'; Codex will be the sole owner of AGENTS.md.",
+    localSkillMissing: (id) =>
+      `Project-local skill '${id}' declared in project.localSkills, but absent from ` +
+      `.claude/skills/${id}/SKILL.md.`,
     globalBaselineIntro:
       "The following is your machine-wide navori baseline (repo-agnostic doctrine). " +
       "A project with its own navori harness supersedes it.",
