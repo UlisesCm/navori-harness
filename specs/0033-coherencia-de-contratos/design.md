@@ -281,7 +281,7 @@ y cargue `.agents/skills/<id>/SKILL.md`, que es el camino actual de toda skill d
    se registra en el `source` del contrato. Si pasa, el contrato deja de ser `unverified`.
 
 **Si la sonda falla → fallback.** Se genera una copia de `SKILL.md` con el mismo `managedId`, el
-mismo guard `foreign` y la misma poda. Los enlaces relativos de Markdown (`[x](references/y.md)`) y
+mismo guard `foreign` y la misma poda. Los enlaces relativos de Markdown (con destino `references/y.md`) y
 las rutas relativas entre backticks que resuelven a un archivo existente bajo la fuente se
 reescriben a `.claude/skills/<id>/references/y.md`. Evaluación de lo que rompe o cambia:
 
