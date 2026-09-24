@@ -9,6 +9,7 @@ import {
   loadEnabledPlugins,
   loadDisabledPlugins,
   RETIRED_PLUGINS,
+  RETIRED_PLUGIN_SUB_BLOCKS,
   type LoadedPlugin,
 } from "../../lib/config/plugins.ts";
 import {
@@ -1071,6 +1072,50 @@ export function renderClaudeEngine(
         // degradation for the edge case of an unreadable path.
       }
       removals.push({ path: assetPath, recursive });
+    }
+  }
+
+  // 8.5-ter. Strip orphaned `injectInto` sub-blocks of a LIVE plugin (#1013).
+  // Neither the enabled loop (8) nor the disabled loop (8.5) can reach these:
+  // both iterate `plugin.skillAssets` off the manifest's CURRENT `skills[]`
+  // list, so a sub-block a manifest no longer declares is invisible to both,
+  // and it would linger in every already-rendered agent/skill file forever.
+  // Config-INDEPENDENT like 8.5-bis: the registry entry is what needs
+  // stripping, not something conditioned on the plugin's enabled state.
+  //
+  // Deliberately does NOT call `removeSubBlock` (which also revokes the
+  // plugin's MCP tools grant via `withoutAgentMcpTools`, derived from its
+  // CURRENT manifest): the plugin here is alive and may still grant that same
+  // server's tools to the same target through an ACTIVE sub-block written by
+  // step 8 above (e.g. `codegraph-access-v2-implementer` also targets
+  // `implementer.md`) — reusing that removal would strip the live grant right
+  // after step 8 wrote it. This only strips the managed-section marker text.
+  for (const retired of Object.values(RETIRED_PLUGIN_SUB_BLOCKS)) {
+    for (const entry of retired.entries) {
+      const targetAbs = join(cwd, entry.targetPath);
+      const pendingEntry = pending.find((p) => p.path === targetAbs);
+      let currentContent: string;
+      if (pendingEntry) {
+        currentContent = pendingEntry.content;
+      } else if (existsSync(targetAbs)) {
+        currentContent = readFileSync(targetAbs, "utf-8");
+      } else {
+        continue; // target file gone — nothing to strip
+      }
+      const stripped = removeManagedSection(currentContent, entry.id, "html");
+      // `inspected` only counts a file this render actually acted on (like
+      // 8.5-bis's `existsSync` gate) — the target itself (an agent file, a
+      // skill) exists on virtually every render regardless of whether THIS
+      // retired id was ever there, so gating on the marker's presence instead
+      // is what keeps a repo with no codegraph/tgrep history from picking up
+      // a phantom "inspected" count.
+      if (stripped === currentContent) continue;
+      inspected += 1;
+      if (pendingEntry) {
+        pendingEntry.content = stripped;
+      } else {
+        pending.push({ path: targetAbs, content: stripped, status: "updated" });
+      }
     }
   }
 
