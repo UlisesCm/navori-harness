@@ -129,7 +129,7 @@ contra el diff (R21).
 - **El workplan vive en `.claude/progress/`** — es un handoff entre orquestador, `implementer` y
   `reviewer`, igual que `impl_*` y `review_*`, y ese directorio está en `.gitignore`. Lo que
   persiste del ciclo sigue siendo la entrada de `progress/history.md`; `progress/current.md` solo
-  apunta al workplan activo (R12) para no duplicar estado.
+  apunta al workplan activo (R36) para no duplicar estado.
 - **Criterio = comando + salida esperada** — tomado del ExecPlan de Codex. Un criterio sin comando
   no se puede verificar; por eso R15 lo rechaza en vez de advertirlo.
 - **Validador reusable en el CLI** — `navori plan check` corre igual en cualquier engine y el

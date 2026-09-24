@@ -45,13 +45,13 @@ agentes y skills, y al final encender y medir en este repo.
 
 ## Lote 3 — Contenido y agentes
 
-- [ ] **T9** (R22, R10, R12, R13, R14) — Skills `plan-simple` y `plan-advanced` · test: tests de
-  assets de skills, con `// Covers: R22, R10, R12, R13, R14`.
+- [ ] **T9** (R22, R10, R12, R13, R14, R36, R37) — Skills `plan-simple` y `plan-advanced` · test:
+  tests de assets de skills, con `// Covers: R22, R10, R12, R13, R14, R36, R37`.
 - [ ] **T10** (R20, R21) — Implementer (`acceptance`) y reviewer (evidencia, alcance, `classify`
   sobre el diff) · test: `agents-assets.test.ts`, con `// Covers: R20, R21`.
-- [ ] **T11** (R23, R24, R25, R26, R27, R28) — Architect, `solution-design`, `spec-bootstrap`,
-  `orchestrator.md`, `resolve-ticket.md` · test: `plan-tiers-contracts.test.ts`, con `// Covers:
-  R23, R24, R25, R26, R27, R28`.
+- [ ] **T11** (R23, R24, R25, R26, R27, R28, R36, R37) — Architect, `solution-design`,
+  `spec-bootstrap`, `orchestrator.md`, `resolve-ticket.md` · test:
+  `plan-tiers-contracts.test.ts`, con `// Covers: R23, R24, R25, R26, R27, R28, R36, R37`.
 
 ## Lote 4 — Encendido y medición
 

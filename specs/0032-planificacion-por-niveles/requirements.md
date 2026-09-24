@@ -83,6 +83,12 @@ deja rastro verificable:
 - **R15** — `navori plan check <feature>` DEBERÁ fallar con código distinto de cero y nombrar cada
   falla ante: las reglas del R13 original; un JSON que no cumpla el esquema; un nivel declarado
   menor que el que calcula `classify`. Con un plan válido DEBERÁ salir con cero.
+- **R36** — MIENTRAS se ejecute una tarea de nivel 1 o 2, el orquestador DEBERÁ registrar con
+  `navori plan update` el estado de cada `A<n>` y cada decisión al cerrar cada sub-tarea, y
+  `progress/current.md` DEBERÁ apuntar al workplan activo en lugar de copiar su contenido.
+- **R37** — SI durante la ejecución un cambio necesario queda fuera de los Archivos o del Fuera de
+  alcance aprobados, ENTONCES el orquestador DEBERÁ registrarlo como decisión y consultarlo con el
+  usuario antes de despacharlo.
 
 ### Gate y escalamiento
 
