@@ -117,6 +117,12 @@ interface Strings {
    *  installs, so this is the only `init` surface that can point at the
    *  post-install recipe. */
   externalProviderSetupHint: (url: string) => string;
+  /** #1023 — same warning as `fullBinariesToInstall`, but for every mode
+   *  outside `--full` (plain `--yes`, `--recommended`, and the interactive
+   *  wizard): those never got a missing-binary warning at all, so this one
+   *  carries the per-binary install command inline instead of relying on a
+   *  later `navori doctor` run nobody does in a headless init. */
+  binariesToInstall: (list: string) => string;
   presetGapNotice: (stack: string) => string;
   placeholderNameNotice: (name: string) => string;
 
@@ -272,6 +278,8 @@ const ES: Strings = {
     `Faltan binarios de plugins activados (los hooks de esos plugins no corren hasta instalarlos; 'navori doctor' los reporta como advertencia): ${list}`,
   externalProviderSetupHint: (url) =>
     `codegraph/tgrep necesitan un paso extra después de instalar el binario (índice + aprobación del MCP): ${url}`,
+  binariesToInstall: (list) =>
+    `Faltan binarios de plugins habilitados (sus hooks/MCP no van a funcionar hasta instalarlos; 'navori doctor' los reporta como advertencia): ${list}`,
   presetGapNotice: (stack) =>
     `Detecté un proyecto '${stack}', pero todavía no hay un preset oficial para ese stack. ` +
     `Se instala el harness completo (agentes, gates, protocolo, SDD) y funciona desde ya; ` +
@@ -440,6 +448,8 @@ const EN: Strings = {
     `Enabled plugins are missing their binaries (their hooks won't run until installed; 'navori doctor' reports them as a warning): ${list}`,
   externalProviderSetupHint: (url) =>
     `codegraph/tgrep need an extra step after the binary lands (index + MCP approval): ${url}`,
+  binariesToInstall: (list) =>
+    `Enabled plugins are missing their binaries (their hooks/MCP won't work until installed; 'navori doctor' reports them as a warning): ${list}`,
   presetGapNotice: (stack) =>
     `Detected a '${stack}' project, but there's no official preset for that stack yet. ` +
     `The full harness installs (agents, gates, protocol, SDD) and works right away; ` +
