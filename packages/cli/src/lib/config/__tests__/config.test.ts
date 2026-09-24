@@ -593,11 +593,13 @@ describe("retired agent keys fail with replacement and conflicting values", () =
     { key: "explorer", replacement: "scout" },
   ];
 
-  it("production registry names all five retired agent keys (spec 0026 T11)", () => {
+  it("production registry names all six retired agent/harness keys (spec 0026 T11, spec 0032 R33)", () => {
     // The roster rename landed in the SAME commit that removed the old keys
     // from the schema — `RETIRED_CONFIG_KEYS` is populated from here on, not
     // empty like it shipped in T9 (before the schema accepted the replacements).
+    // `architect` (spec 0032 R33) carries no `replacement` — it has none.
     expect([...RETIRED_CONFIG_KEYS].sort((a, b) => a.key.localeCompare(b.key))).toEqual([
+      { key: "architect", sections: ["harness"] },
       { key: "commitPrPilot", replacement: "publisher" },
       { key: "explorer", replacement: "scout" },
       { key: "leader", replacement: "orchestrator" },
@@ -652,6 +654,34 @@ describe("retired agent keys fail with replacement and conflicting values", () =
 
   it("does nothing when no retired key is present", () => {
     expect(() => checkRetiredConfigKeys({ harness: { implementer: true } }, SEED)).not.toThrow();
+  });
+
+  // Covers: R33
+  it("a key retired WITHOUT a replacement (spec 0032, harness.architect) says it no longer has effect", () => {
+    const seedWithArchitect: RetiredConfigKey[] = [...SEED, { key: "architect" }];
+    expect(() =>
+      checkRetiredConfigKeys({ harness: { architect: true } }, seedWithArchitect),
+    ).toThrowError(/harness\.architect está retirada y ya no tiene efecto — elimínala/);
+  });
+
+  it("readConfig rejects the production config carrying harness.architect (spec 0032, R33)", () => {
+    const dir = makeTmpDir();
+    const path = join(dir, "navori.config.json");
+    try {
+      writeFileSync(
+        path,
+        JSON.stringify({
+          name: "demo",
+          engines: ["claude"],
+          preset: "custom",
+          harness: { architect: true },
+        }),
+        "utf-8",
+      );
+      expect(() => readConfig(path)).toThrowError(ConfigError);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
   });
 
   it("readConfig rejects a config carrying a real retired key (spec 0026 T11)", () => {
@@ -776,6 +806,19 @@ describe("migrateRetiredConfigKeys — the repair path R40 lacked (#920)", () =>
     );
     expect(result.config.models).toEqual({ auditor: "sonnet" });
     expect(result.dropped).toEqual([{ from: "models.ticketAudit", to: "models.auditor" }]);
+    expect(result.renamed).toEqual([]);
+  });
+
+  // Covers: R33
+  it("removes a key retired WITHOUT a replacement (spec 0032, harness.architect)", () => {
+    const seedWithArchitect: RetiredConfigKey[] = [...SEED, { key: "architect" }];
+    const result = migrateRetiredConfigKeys(
+      { harness: { architect: true, implementer: true } },
+      {},
+      seedWithArchitect,
+    );
+    expect(result.config.harness).toEqual({ implementer: true });
+    expect(result.removed).toEqual([{ path: "harness.architect" }]);
     expect(result.renamed).toEqual([]);
   });
 

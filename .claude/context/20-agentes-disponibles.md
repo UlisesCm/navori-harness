@@ -1,4 +1,4 @@
-<!-- navori:managed id="agentes-disponibles" hash="1abc68f0" version="0.9.0" source="@navori/core" -->
+<!-- navori:managed id="agentes-disponibles" hash="94fe5dc5" version="0.9.0" source="@navori/core" -->
 ## Agentes disponibles
 
 Subagentes que puedes lanzar con la herramienta `Agent` (tú eres el orquestador; ve "## Role: orchestrator"). La investigación y la revisión son de solo lectura → paraleliza sin miedo.
@@ -9,4 +9,5 @@ Subagentes que puedes lanzar con la herramienta `Agent` (tú eres el orquestador
 - `auditor` — Auditoría de solo lectura con veredicto: área (seguridad, rendimiento, SOLID), ticket complejo o challenge de una propuesta, sin veredicto en el challenge. Úsalo cuando toque auditar un área o un ticket crítico, o antes de refactorizar sin ticket.
 - `publisher` — Escribe commits Conventional y abre el PR. Úsalo tras la aprobación del reviewer.
 - `scribe` — Serializa evidencia estructurada en artefactos Markdown de handoff. Úsalo después de que un productor termine y antes de que su consumidor lea el artefacto.
+- `architect` — Propone qué construir y por qué, aplicando `solution-design`; no emite veredicto ni descompone. Úsalo cuando se dispare la fila arquitectónica, antes de descomponer en tareas.
 <!-- /navori:managed id="agentes-disponibles" -->

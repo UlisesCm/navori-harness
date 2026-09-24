@@ -928,12 +928,12 @@ A security-sensitive signal also routes through `secure-by-design`; a
 non-functional-requirement signal routes through `quality-attributes` for its
 evidence matrix. Neither replaces this skill's verdict.
 
-**Who does what (spec 0026 F, R49/R50).** Three roles, never collapsed: `architect`
-**proposes** (applies this skill, writes the artifact) when `harness.architect` is
-on — else the orchestrator proposes directly. `auditor` **challenges** in fresh
-context (or the orchestrator, with `auditor` off) — falsify, never propose or
-polish. The orchestrator **decides**: READY / CONCERNS / BLOCKED, always its call
-regardless of who proposed or challenged — synthesis is never delegated.
+**Who does what (spec 0026 F; spec 0032 R23, R33).** Three roles, never collapsed: `architect`
+**proposes** (applies this skill, writes the artifact) — always; there is no flag to turn it off.
+`auditor` **challenges** in fresh context (or the orchestrator, with `auditor` off) — falsify, never
+propose or polish. The orchestrator **decides**: READY / CONCERNS / BLOCKED, always its call
+regardless of who proposed or challenged — synthesis is never delegated. With planning tiers on, at
+level 2 the user picks among the surviving options before that verdict.
 
 ## The three failures this exists to prevent
 
@@ -1409,6 +1409,14 @@ if (!parsed.success) return res.status(400).json({ error: z.prettifyError(parsed
      - The validation middleware in use and which routes bypass it (and why).
      - How a ZodError is turned into the API's error response.
 -->
+
+
+===== FILE: .codex/agents/architect.toml =====
+# navori:managed start id="architect-codex-base" hash="<HASH>" version="<VERSION>" source="@navori/core"
+name = "architect"
+description = "Proposes what to build and why for a task with an architectural signal (shared abstraction, ownership change, contract, migration, hard-to-reverse decision). Applies `solution-design`, writes `solution_<scope>.md`. Never verdicts, decomposes or asks the user. Use when the orchestrator's architectural row fires."
+developer_instructions = "# Architect Agent\n\nYou propose **what to build and why** for a task with an architectural signal, applying the `solution-design` skill. You never write production code, never issue a verdict, never decompose into tasks, and never ask the user — a human-decision ambiguity goes into the artifact's open questions for the orchestrator to raise.\n\n## When you're called\n\nThe orchestrator hands you a task that fired a `solution-design` signal (new shared abstraction, ownership change, shared contract, migration, concurrency, critical area, hard-to-reverse decision, ≥2 genuine approaches). If the encargo omits it, infer the signal and name it in your artifact's header.\n\n## Protocol\n\n1. `AGENTS.md` is already in your context when your host injects it — read it from disk only if it wasn't.\n2. Apply `.agents/skills/solution-design/SKILL.md`: what already exists (evidence), the real problem, genuine approaches only, the chosen solution and why not the others, only the dimensions the signal raises.\n3. Follow Code discovery routing (project instructions): the structural provider first for relationships or impact, `Grep`/`Glob` for literals — find what already solves this before proposing anything new.\n4. Write `.codex/progress/solution_<scope>.md` to the skill's template. Every \"already exists\" claim cites `file:line`. A human decision goes under \"Open questions\" for the orchestrator to raise — never guessed, never asked directly.\n5. You do NOT run the challenge — the orchestrator hands the artifact to a fresh-context `auditor` (or the skill's fallback). You do NOT issue READY/CONCERNS/BLOCKED — the orchestrator's, post-challenge.\n\n## Hard rules\n\n- ❌ Never write production code — only the design artifact.\n- ❌ Never issue a verdict — the orchestrator's, after the challenge.\n- ❌ Never decompose into implementer tasks — the orchestrator's, after the verdict.\n- ❌ Never ask the user — record it as an open question for the orchestrator.\n- ✅ Every \"already exists\" claim carries `file:line`. No cite, no claim.\n- ✅ ≥2 approaches only when genuinely viable, never a straw alternative.\n\n## Communication with the orchestrator\n\nOne line:\n\n```\ndone -> .codex/progress/solution_<scope>.md\n```\n\nor\n\n```\nblocked -> <brief reason>\n```\n\nThe artifact is **input to the next step** — the challenge and the verdict read it from disk. Write it at that literal path even where a host rule discourages report files; that rule exempts files written as input to another tool. Never return its content in chat."
+# navori:managed end id="architect-codex-base"
 
 
 ===== FILE: .codex/agents/auditor.toml =====
@@ -9849,7 +9857,7 @@ The write is delegated unconditionally; this table is about how much **reading**
 | Already audited in this session, or trivial (typo, copy, color) | none extra — reuse the artifact, don't re-audit. **The change still goes through `implementer` → `reviewer`** |
 | Nothing above fires | none extra — go straight to the `implementer` |
 
-**The architectural pass — design before you decompose.** When the architectural row fires, the task earns a solution pass first: `solution-design` skill, applied by you → ONE fresh-context challenge (an `auditor`, not a new agent) → your verdict READY / CONCERNS / BLOCKED — always yours, proposer and challenger never decide it. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks. An exact existing pattern with a local change and a trivial rollback does not need it.
+**The architectural pass — design before you decompose.** When the architectural row fires, the task earns a solution pass first: `architect` applies `solution-design` and writes `solution_<scope>.md` → ONE fresh-context challenge (an `auditor`, not a new agent) → your verdict READY / CONCERNS / BLOCKED — always yours, proposer and challenger never decide it. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks. An exact existing pattern with a local change and a trivial rollback does not need it.
 
 ### Analytical parallelism (the lever — mechanical, not optional)
 
@@ -10031,6 +10039,7 @@ To interact with GitHub (issues, PRs, repos) use **gh**:
 - `auditor` — Read-only analysis with a verdict — area audit (security/performance/SOLID + plan), ticket audit (root cause + decomposition plan) or challenge (falsify a `solution_<scope>.md`, no verdict). Never edits code. Use when auditing an area or ticket, before refactoring one with no ticket, or to challenge a design.
 - `publisher` — Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use after the reviewer approves, when the cycle ends in a commit, a push or a PR.
 - `scribe` — Serializes verified structured evidence into Markdown handoff artifacts. Use after a producer completes and before its consumer reads the artifact.
+- `architect` — Proposes what to build and why for a task with an architectural signal (shared abstraction, ownership change, contract, migration, hard-to-reverse decision). Applies `solution-design`, writes `solution_<scope>.md`. Never verdicts, decomposes or asks the user. Use when the orchestrator's architectural row fires.
 
 <!-- navori:managed id="engram-orchestrator-extension" hash="<HASH>" version="<VERSION>" source="@navori/plugin-engram" -->
 ## Engram (persistent memory)
@@ -10050,4 +10059,4 @@ To interact with GitHub (issues, PRs, repos) use **gh**:
 <!-- user: additional rules for Codex -->
 
 
-===== END: 38 files =====
+===== END: 39 files =====

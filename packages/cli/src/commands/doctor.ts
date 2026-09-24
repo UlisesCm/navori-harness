@@ -49,6 +49,7 @@ import { scanEmptyUserSections } from "../lib/assets/skill-user-section.ts";
 import { scanTriggerlessLocalSkills } from "../lib/assets/skill-triggers.ts";
 import { scanInterpolationArtifacts } from "../lib/render/interpolation-artifacts.ts";
 import { scanMissingModelProfile } from "../lib/assets/model-profile.ts";
+import { scanPlanTiersGateSupport } from "../lib/plan/gate-support.ts";
 import { scanDiskUsage, humanBytes } from "../lib/diagnose/disk-usage.ts";
 import { scanNestedWorktrees } from "../lib/workspace/nested-worktrees.ts";
 import { scanGlobalScope, type ManagedPolicyKey } from "../lib/workspace/global-scope.ts";
@@ -214,6 +215,9 @@ export const doctorCommand = defineCommand({
     // drops the line silently (by design), so this is the only place the gap
     // surfaces. Warning-level: an unset tier is a valid default.
     const missingModelProfile = scanMissingModelProfile(config);
+    // Spec 0032, R17: `harness.planTiers` gate degrades to reviewer-only
+    // verification where the engine cannot intercept subagent dispatch.
+    const planTiersGateSupport = scanPlanTiersGateSupport(config);
     // #393: the two directories that grow with no owner — ~/.navori/backups
     // (bounded only by prune-on-write) and .claude/worktrees (bounded by
     // nobody). Two `du`s so growth is visible before the disk fills; doctor
@@ -365,6 +369,7 @@ export const doctorCommand = defineCommand({
       // terminal ("… and N more"), and a machine consumer needs every row.
       interpolationArtifacts,
       missingModelProfile,
+      planTiersGateSupport,
       // `path` is absolute because that IS the remediation target, it is not
       // derivable (NAVORI_BACKUP_ROOT can move the store), and the human output
       // already prints the same string — so the JSON leaks nothing extra, and
@@ -812,6 +817,10 @@ export const doctorCommand = defineCommand({
           `  ${color.yellow(sym.update)} ${accent(m.agent)}  ${grey(td.missingModelProfileRow(m.missing.join(", ")))}`,
       );
       p.log.warn(td.missingModelProfile(missingModelProfile.length, lines.join("\n")));
+    }
+
+    if (planTiersGateSupport) {
+      p.log.warn(td.planTiersGateDegraded(planTiersGateSupport.unsupportedEngines.join(", ")));
     }
 
     if (diskUsage.length > 0) {

@@ -89,11 +89,10 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
         .map((w) => w.path)
         .sort(),
     ).toEqual([skRel("medusa-api-routes"), skRel("medusa-modules")]);
-    // BASE_CONFIG (no plugins) renders: CLAUDE.md + settings + 7 agents
-    // (orchestrator, implementer, reviewer, scout, auditor, publisher, scribe
-    // — `architect`, spec 0026 T19, defaults OFF as of the phase F
-    // review 2026-09-17 and BASE_CONFIG carries no `harness.architect: true`,
-    // so it does not add to this count)
+    // BASE_CONFIG (no plugins) renders: CLAUDE.md + settings + 8 agents
+    // (orchestrator, implementer, reviewer, scout, auditor, publisher, scribe,
+    // architect — spec 0032 R33 retired the `harness.architect` toggle, so it
+    // always renders now)
     // + 7 core skills (spec 0026 T14 merges debug-error + loop-back-debug into
     // one debug-failure; spec 0029 T2 adds `secure-by-design`; #901 adds
     // `scoped-gate`) + 7 workflow skills (resolve-ticket, solution-design,
@@ -107,13 +106,15 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // (#530) + 1 worktree-reclaim hook (#527) + 1 routing watcher (spec 0020)
     // + 1 PR routing hook (#705) + 1 comment-draft-confirm hook (spec 0026
     // E1) + 1 orchestrator block routed to `.claude/context/` (#573) + 2
-    // session ceremonies + 1 agents index, same channel (#572) = 45.
+    // session ceremonies + 1 agents index, same channel (#572) + 1
+    // `planificacion` context block inspected-but-not-written (`harness.planTiers`
+    // defaults `false`) = 47.
     //
-    // `architect` (spec 0026 T19) no suma aqui: default OFF desde la revision
-    // de fase F (2026-09-17). Un conteo a mano en cinco sitios es justo lo que
-    // #703 dejo anotado como deuda; mientras siga a mano, la enumeracion tiene
-    // que cerrar con el numero.
-    expect(r.inspected).toBe(45);
+    // `architect` (spec 0032 R33) ahora suma siempre — ya no hay flag que lo
+    // apague. Un conteo a mano en cinco sitios es justo lo que #703 dejo
+    // anotado como deuda; mientras siga a mano, la enumeracion tiene que
+    // cerrar con el numero.
+    expect(r.inspected).toBe(47);
   });
 
   describe("bundled stack presets (B4)", () => {

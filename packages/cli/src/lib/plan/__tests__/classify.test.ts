@@ -401,6 +401,7 @@ describe("classify — T0 calibration fixtures", () => {
 });
 
 describe("classify — unit behavior", () => {
+  // Covers: R9
   it("matches project.criticalPaths globs without requiring the declared flag (R9)", () => {
     const result = classify({
       files: ["src/payments/checkout.ts", "src/payments/gateway.ts"],

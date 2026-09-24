@@ -83,6 +83,7 @@ const QG_HOOK_DEST = ".claude/hooks/quality-gate-pre-commit.sh";
 const GUARD_HOOK_DEST = ".claude/hooks/guard-destructive.sh";
 const IMPLEMENTER_NO_MD_HOOK_DEST = ".claude/hooks/implementer-no-markdown.sh";
 const SUBAGENT_NO_BACKGROUND_HOOK_DEST = ".claude/hooks/subagent-no-background.sh";
+const PLAN_GATE_HOOK_DEST = ".claude/hooks/plan-gate.sh";
 const SESSION_START_HOOK_DEST = ".claude/hooks/session-start-context.sh";
 const MODEL_ADVISOR_HOOK_DEST = ".claude/hooks/model-advisor.sh";
 const AUDIT_TRIGGER_HOOK_DEST = ".claude/hooks/audit-mode-trigger.sh";
@@ -193,6 +194,32 @@ export function buildClaudeSettings(
                 command: `bash "$CLAUDE_PROJECT_DIR/${IMPLEMENTER_NO_MD_HOOK_DEST}"`,
                 timeout: 10,
                 statusMessage: "navori: implementer-no-markdown",
+              },
+            ],
+          },
+        ],
+      },
+    });
+  }
+
+  // Spec 0032 (#1011), R16/R30: the workplan gate — registered only when
+  // `harness.planTiers` is `true` (default `false`), like the scribeOwnsMarkdown
+  // hook above. Matcher `Agent` so it fires on every subagent dispatch; the
+  // TypeScript half (`lib/plan/gate.ts`) is what actually restricts itself to
+  // `subagent_type: "implementer"` — see that hook's own header for why the
+  // filtering isn't duplicated here. Exit 2 precedes permission rules.
+  if (config.harness?.planTiers) {
+    settings = deepMerge(settings, {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: "Agent",
+            hooks: [
+              {
+                type: "command",
+                command: `bash "$CLAUDE_PROJECT_DIR/${PLAN_GATE_HOOK_DEST}"`,
+                timeout: 10,
+                statusMessage: "navori: plan-gate",
               },
             ],
           },

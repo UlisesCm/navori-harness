@@ -48,14 +48,34 @@ export const AGENT_ROLE_KEYS = [
  * `commitPrPilot` → `publisher`. Same invariant `RETIRED_AGENTS` documents
  * (`engines/shared/roster.ts`): empty until the commit that stops accepting
  * the old key, never before.
+ *
+ * `replacement` is optional (spec 0032, R33): a key retired WITHOUT a
+ * successor — the agent it used to gate now always renders, so there is
+ * nothing left to rename onto. `harness.architect` is the first case.
+ *
+ * `sections` is optional too (spec 0032, R33) and restricts the retirement to
+ * a subset of `CONFIG_ROLE_SECTIONS` — absent means all three, the shape every
+ * rename above needs (the SAME key retires the same way in harness/models/
+ * effort). `harness.architect` needs the opposite: `architect` keeps meaning
+ * something in `models`/`effort` (R34 tunes the always-on agent's tier), so
+ * only `harness` retires it.
  */
-export type RetiredConfigKey = { readonly key: string; readonly replacement: string };
+export type RetiredConfigKey = {
+  readonly key: string;
+  readonly replacement?: string;
+  readonly sections?: ReadonlyArray<(typeof CONFIG_ROLE_SECTIONS)[number]>;
+};
 export const RETIRED_CONFIG_KEYS: ReadonlyArray<RetiredConfigKey> = [
   { key: "leader", replacement: "orchestrator" },
   { key: "researcher", replacement: "scout" },
   { key: "explorer", replacement: "scout" },
   { key: "ticketAudit", replacement: "auditor" },
   { key: "commitPrPilot", replacement: "publisher" },
+  // Spec 0032, R33: the architect agent now renders unconditionally — the
+  // toggle no longer has effect and there is no replacement key to migrate
+  // it onto. Scoped to `harness` only: `models.architect`/`effort.architect`
+  // still tune the always-on agent (R34).
+  { key: "architect", sections: ["harness"] },
 ];
 
 /** The three config sections that share `AGENT_ROLE_KEYS`' shape (R40). */
@@ -79,18 +99,25 @@ export function checkRetiredConfigKeys(
 ): void {
   if (retired.length === 0 || !isRecord(raw)) return;
   const byReplacement = new Map<string, Array<{ path: string; value: unknown }>>();
+  const withoutReplacement: string[] = [];
   for (const section of CONFIG_ROLE_SECTIONS) {
     const sectionValue = raw[section];
     if (!isRecord(sectionValue)) continue;
-    for (const { key, replacement } of retired) {
+    for (const { key, replacement, sections } of retired) {
+      if (sections && !sections.includes(section)) continue;
       if (!(key in sectionValue)) continue;
+      const path = `${section}.${key}`;
+      if (replacement === undefined) {
+        withoutReplacement.push(path);
+        continue;
+      }
       const replacementPath = `${section}.${replacement}`;
       const entries = byReplacement.get(replacementPath) ?? [];
-      entries.push({ path: `${section}.${key}`, value: sectionValue[key] });
+      entries.push({ path, value: sectionValue[key] });
       byReplacement.set(replacementPath, entries);
     }
   }
-  if (byReplacement.size === 0) return;
+  if (byReplacement.size === 0 && withoutReplacement.length === 0) return;
 
   // Localized off the RAW `language` key: this fires before the schema parses,
   // so there is no validated config to read it from yet.
@@ -107,6 +134,7 @@ export function checkRetiredConfigKeys(
     const values = entries.map((e) => `${e.path}=${JSON.stringify(e.value)}`).join(", ");
     return strings.retiredKeyAmbiguous(keys, replacementPath, values, note);
   });
+  for (const path of withoutReplacement) lines.push(strings.retiredKeyRemoved(path));
   throw new ConfigError(strings.retiredConfigKeys(lines.join("; ")));
 }
 
@@ -132,6 +160,8 @@ export type RetiredKeyMigration = {
   readonly dropped: ReadonlyArray<RetiredKeyRename>;
   /** Collisions left untouched: the caller must ask, never guess. */
   readonly decisions: ReadonlyArray<RetiredKeyDecision>;
+  /** Keys retired WITHOUT a replacement (R33): deleted outright, nothing to rename. */
+  readonly removed: ReadonlyArray<{ readonly path: string }>;
 };
 
 /**
@@ -164,7 +194,8 @@ export function migrateRetiredConfigKeys(
   const renamed: RetiredKeyRename[] = [];
   const dropped: RetiredKeyRename[] = [];
   const decisions: RetiredKeyDecision[] = [];
-  if (!isRecord(raw)) return { config: {}, renamed, dropped, decisions };
+  const removed: Array<{ path: string }> = [];
+  if (!isRecord(raw)) return { config: {}, renamed, dropped, decisions, removed };
 
   const config: Record<string, unknown> = { ...raw };
   for (const section of CONFIG_ROLE_SECTIONS) {
@@ -173,12 +204,19 @@ export function migrateRetiredConfigKeys(
 
     const next = { ...sectionValue };
     const byReplacement = new Map<string, Array<{ key: string; path: string; value: unknown }>>();
-    for (const { key, replacement } of retired) {
+    for (const { key, replacement, sections } of retired) {
+      if (sections && !sections.includes(section)) continue;
       if (!(key in next)) continue;
+      if (replacement === undefined) {
+        removed.push({ path: `${section}.${key}` });
+        delete next[key];
+        continue;
+      }
       const entries = byReplacement.get(replacement) ?? [];
       entries.push({ key, path: `${section}.${key}`, value: next[key] });
       byReplacement.set(replacement, entries);
     }
+    config[section] = next;
     if (byReplacement.size === 0) continue;
 
     for (const [replacement, entries] of byReplacement) {
@@ -212,7 +250,7 @@ export function migrateRetiredConfigKeys(
     config[section] = next;
   }
 
-  return { config, renamed, dropped, decisions };
+  return { config, renamed, dropped, decisions, removed };
 }
 
 const QUALITY_GATE_RULE: ConfigObjectRule = { keys: ["fast", "full"] };
@@ -259,10 +297,20 @@ const CONFIG_KEY_RULE: ConfigObjectRule = {
     hooks: { keys: ["verifyOnStop"] },
     audit: { keys: ["mode"] },
     sdd: { keys: ["enabled", "specsDir", "applyWhen", "doesNotApplyTo"] },
-    // `scribeOwnsMarkdown` (spec 0030, R13) is a harness FLAG, not a roster
-    // agent — added here directly instead of in `AGENT_ROLE_KEYS`, which
-    // `roster-parity.test.ts` checks 1:1 against the agent roster.
-    harness: { keys: [...AGENT_ROLE_KEYS, "scribeOwnsMarkdown"] },
+    // `scribeOwnsMarkdown`/`planTiers` (spec 0030 R13, spec 0032 R30) are harness
+    // FLAGS, not roster agents — added here directly instead of in
+    // `AGENT_ROLE_KEYS`, which `roster-parity.test.ts` checks 1:1 against the
+    // agent roster. `architect` is excluded here (spec 0032 R33): the agent
+    // now always renders, so `harness.architect` is a retired key, not a
+    // known one — `models.architect`/`effort.architect` still tune the
+    // always-on agent, so `architect` stays in `AGENT_ROLE_KEYS` for those.
+    harness: {
+      keys: [
+        ...AGENT_ROLE_KEYS.filter((k) => k !== "architect"),
+        "scribeOwnsMarkdown",
+        "planTiers",
+      ],
+    },
     models: {
       keys: [...AGENT_ROLE_KEYS, "codexMap"],
       children: { codexMap: { keys: ["opus", "sonnet", "haiku"] } },

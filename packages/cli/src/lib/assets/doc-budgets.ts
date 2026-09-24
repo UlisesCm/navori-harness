@@ -77,6 +77,14 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   "packages/core/core-assets/managed/intake-tickets.md": 251, // 228 → 10.1%
   "packages/core/core-assets/managed/operaciones-seguras.md": 310,
   "packages/core/core-assets/managed/orquestacion.md": 1060, // 963 → 10.1%
+  // Spec 0032 (#1011): own small ceiling (design.md "Components" targets
+  // ~250 words) — the level table and the gate rule only, condition
+  // `harness.planTiers`. Calibrated like every other entry here (measured ×
+  // 1.10, not a bare 250): a brand-new budget follows this file's own
+  // recalibration rule from day one instead of starting one policy violation
+  // away from red.
+  "packages/core/core-assets/managed/planificacion.md": 274, // 249 → 10.0%
+
   "packages/core/core-assets/managed/sdd.md": 208, // 189 → 10.1%
   "packages/core/core-assets/managed/tipado-fuerte.md": 50,
 

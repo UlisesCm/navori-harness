@@ -39,7 +39,7 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
   });
 
   // Covers: R1, R2, R3
-  it("applies harness sub-defaults when harness:{} is given (all agents on except architect)", () => {
+  it("applies harness sub-defaults when harness:{} is given (all agents on; architect has no toggle)", () => {
     const c = NavoriConfigSchema.parse({ ...MINIMAL, harness: {} });
     expect(c.harness).toEqual({
       orchestrator: true,
@@ -49,12 +49,12 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
       auditor: true,
       publisher: true,
       scribe: true,
-      // Spec 0026 F review (2026-09-17): opt-in, not on-by-default like the
-      // rest of the roster — see HARNESS_DEFAULTS's doc in schema.ts.
-      architect: false,
-      // Spec 0030 (#985), R13: NOT a roster agent, gated off by default like
-      // `architect` — see HarnessSchema's doc in schema.ts.
+      // Spec 0030 (#985), R13, and spec 0032 (#1011), R30: both gated off by
+      // default — see HarnessSchema's doc in schema.ts. `architect` (spec
+      // 0032 R33) no longer has a toggle here at all: the agent always
+      // renders now.
       scribeOwnsMarkdown: false,
+      planTiers: false,
     });
   });
 

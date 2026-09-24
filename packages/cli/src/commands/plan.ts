@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { classify, type ClassifyInput } from "../lib/plan/classify.ts";
 import { checkWorkplan, formatCheckResult } from "../lib/plan/check.ts";
+import { evaluatePlanGate } from "../lib/plan/gate.ts";
 import { applyWorkplanUpdate, renderWorkplan, type WorkplanUpdate } from "../lib/plan/render.ts";
 import { WorkplanSchema, type ProgressStatus, type Workplan } from "../lib/plan/schema.ts";
 import { writeFileAtomic } from "../lib/primitives/atomic.ts";
@@ -208,6 +209,30 @@ const checkSubCommand = defineCommand({
   },
 });
 
+const gateSubCommand = defineCommand({
+  meta: {
+    name: "gate",
+    description:
+      "PreToolUse(Agent) gate for harness.planTiers (R16/R17/R19) — reads the hook payload from stdin",
+  },
+  args: {},
+  run() {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(readFileSync(0, "utf8"));
+    } catch {
+      // Malformed or empty stdin — nothing to gate against; a hard-fail here
+      // would block every tool call the moment the payload shape changes.
+      return;
+    }
+    const result = evaluatePlanGate(raw);
+    if (result.decision === "deny") {
+      process.stderr.write(`[navori] BLOCKED by plan-gate: ${result.reason}\n`);
+      process.exitCode = 2;
+    }
+  },
+});
+
 export const planCommand = defineCommand({
   meta: { name: "plan", description: "Classify, render, update and check a level-1/2 workplan" },
   subCommands: {
@@ -215,5 +240,6 @@ export const planCommand = defineCommand({
     render: renderSubCommand,
     update: updateSubCommand,
     check: checkSubCommand,
+    gate: gateSubCommand,
   },
 });

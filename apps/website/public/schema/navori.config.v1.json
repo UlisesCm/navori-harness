@@ -196,11 +196,11 @@
           "default": true,
           "type": "boolean"
         },
-        "architect": {
+        "scribeOwnsMarkdown": {
           "default": false,
           "type": "boolean"
         },
-        "scribeOwnsMarkdown": {
+        "planTiers": {
           "default": false,
           "type": "boolean"
         }
@@ -213,8 +213,8 @@
         "auditor",
         "publisher",
         "scribe",
-        "architect",
-        "scribeOwnsMarkdown"
+        "scribeOwnsMarkdown",
+        "planTiers"
       ],
       "additionalProperties": false
     },

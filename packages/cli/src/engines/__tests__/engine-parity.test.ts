@@ -83,7 +83,8 @@ describe("engine inventory parity (claude ↔ codex)", () => {
       preset: "custom",
       branchBase: "main",
       qualityGate: { fast: "pnpm test", full: "pnpm test" },
-      harness: { architect: true },
+      // `architect` always renders since spec 0032 R33 retired its
+      // `harness.architect` toggle — no harness override needed here.
       models: { orchestrator: "opus", architect: "opus", scribe: "haiku" },
       effort: { orchestrator: "medium", architect: "high", scribe: "low" },
     });

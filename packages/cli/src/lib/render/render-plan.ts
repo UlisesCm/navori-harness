@@ -102,6 +102,21 @@ export interface CoreManagedAsset {
 }
 
 export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
+  // Spec 0032 (#1011), R6/R8/R22/R30: the level table and the gate rule,
+  // gated behind `harness.planTiers` (default `false` — R30 keeps every
+  // rendered repo byte-for-byte until it opts in). Ordered BEFORE
+  // `orquestacion` — both in this array and in the startup context slot
+  // (`engines/claude/index.ts` ORCHESTRATOR_CONTEXT_ORDER) — because the
+  // level decides whether the architectural pass in `orquestacion` even
+  // applies.
+  {
+    id: "planificacion",
+    relPath: "core-assets/managed/planificacion.md",
+    baseLanguage: "en",
+    rootOnly: true,
+    condition: "harness.planTiers",
+    audience: "orchestrator",
+  },
   {
     id: "orquestacion",
     relPath: "core-assets/managed/orquestacion.md",
@@ -249,6 +264,74 @@ export const EXCLUDABLE_BLOCK_IDS: readonly string[] = ["orquestacion", "sdd"] a
 // share this version; the `source=` attr still distinguishes provenance. (#79)
 const NAVORI_VERSION = readCliVersion();
 
+type ConditionMarkerKind = "if" | "if-not";
+
+/** A conditional marker or a plain span of text, in source order. */
+type ConditionToken =
+  | { kind: "text"; value: string }
+  | { kind: "open"; type: ConditionMarkerKind; key: string }
+  | { kind: "close"; type: ConditionMarkerKind };
+
+/** Matches an opener (`<!-- navori:if KEY -->` / `<!-- navori:if-not KEY -->`)
+ * or a closer (`<!-- /navori:if -->` / `<!-- /navori:if-not -->`) — one
+ * regex so both kinds tokenize in source order. */
+const CONDITION_TOKEN_RE = /<!-- navori:(if|if-not) ([\w]+) -->|<!-- \/navori:(if|if-not) -->/g;
+
+function tokenizeConditions(content: string): ConditionToken[] {
+  const tokens: ConditionToken[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  CONDITION_TOKEN_RE.lastIndex = 0;
+  while ((m = CONDITION_TOKEN_RE.exec(content)) !== null) {
+    if (m.index > last) tokens.push({ kind: "text", value: content.slice(last, m.index) });
+    if (m[1]) tokens.push({ kind: "open", type: m[1] as ConditionMarkerKind, key: m[2]! });
+    else tokens.push({ kind: "close", type: m[3] as ConditionMarkerKind });
+    last = CONDITION_TOKEN_RE.lastIndex;
+  }
+  if (last < content.length) tokens.push({ kind: "text", value: content.slice(last) });
+  return tokens;
+}
+
+/**
+ * Resolves a run of tokens starting at `pos.i`, in-place advancing `pos.i`.
+ * Stops at end of input OR at an unconsumed closer, which the FRAME THAT
+ * OPENED IT is the one that consumes (classic recursive-descent nesting).
+ *
+ * This is what makes nested markers of the SAME kind pair correctly — e.g.
+ * an `if-not` block inside another `if-not` block (`orquestacion.md`'s
+ * architectural-pass paragraph, spec 0032: `if-not planTiers` wraps a
+ * pre-existing `if`/`if-not auditor` pair). The two-pass global-regex
+ * approach this replaced matched each opener against the NEAREST closer of
+ * its own literal text regardless of nesting, which paired the outer
+ * `if-not` with the INNER closer and left the true outer closer as an
+ * orphaned, unresolved comment in the output.
+ */
+function resolveConditions(
+  tokens: ConditionToken[],
+  pos: { i: number },
+  enabled: (key: string) => boolean,
+): string {
+  const withoutMarkers = (body: string): string =>
+    body.startsWith("\n") && body.endsWith("\n") ? body.slice(1, -1) : body;
+
+  let out = "";
+  while (pos.i < tokens.length) {
+    const tok = tokens[pos.i]!;
+    if (tok.kind === "close") return out; // bubble up to the frame that opened it
+    pos.i++;
+    if (tok.kind === "text") {
+      out += tok.value;
+      continue;
+    }
+    const body = resolveConditions(tokens, pos, enabled);
+    const closer = tokens[pos.i];
+    if (closer?.kind === "close" && closer.type === tok.type) pos.i++;
+    const show = tok.type === "if" ? enabled(tok.key) : !enabled(tok.key);
+    if (show) out += withoutMarkers(body);
+  }
+  return out;
+}
+
 export function conditionOrchestration(content: string, config: NavoriConfig): string {
   const enabled = (key: string) => {
     if (key === "sdd") return config.sdd?.enabled !== false;
@@ -261,17 +344,7 @@ export function conditionOrchestration(content: string, config: NavoriConfig): s
     return HARNESS_DEFAULTS[key] ?? true;
   };
 
-  const withoutMarkers = (body: string) =>
-    body.startsWith("\n") && body.endsWith("\n") ? body.slice(1, -1) : body;
-
-  return content
-    .replace(/<!-- navori:if ([\w]+) -->([\s\S]*?)<!-- \/navori:if -->/g, (_match, key, body) =>
-      enabled(key) ? withoutMarkers(body) : "",
-    )
-    .replace(
-      /<!-- navori:if-not ([\w]+) -->([\s\S]*?)<!-- \/navori:if-not -->/g,
-      (_match, key, body) => (enabled(key) ? "" : withoutMarkers(body)),
-    );
+  return resolveConditions(tokenizeConditions(content), { i: 0 }, enabled);
 }
 
 export function resolveAssetPath(
