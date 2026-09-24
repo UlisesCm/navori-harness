@@ -34,10 +34,13 @@ describe("skills security and quality inventory", () => {
     expect(followUp).toContain("gh api --paginate");
     expect(followUp).toContain("external\ncheck without an Actions run id");
     expect(repositoryFile("packages/plugins/jscpd/skills/jscpd-review.md")).toContain(
-      "bun run jscpd:check",
+      "--threshold {{shq:jscpdThreshold}}",
     );
     expect(repositoryFile("packages/plugins/semgrep/skills/semgrep-review.md")).toContain(
-      "bun run semgrep:check",
+      "run semgrep over the diff",
+    );
+    expect(repositoryFile("packages/plugins/semgrep/skills/semgrep-review.md")).toContain(
+      "--config=p/default --error --metrics=off",
     );
   });
 

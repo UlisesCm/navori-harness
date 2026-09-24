@@ -7,18 +7,21 @@ metadata:
 
 ## Local security gate (semgrep)
 
-Before closing a relevant change (auth, RBAC, secrets, input validation), run
-the repository's canonical gate command:
+Before closing a relevant change (auth, RBAC, secrets, input validation),
+run semgrep over the diff, scoped to the changed `.ts`/`.tsx` files vs the
+base branch:
 
 ```
-bun run semgrep:check
+git diff --name-only --diff-filter=ACMRT {{branchBase}} -- '*.ts' '*.tsx' | xargs -r semgrep scan --config=p/default --error --metrics=off --baseline-commit {{branchBase}}
 ```
 
-The script diffs `{{branchBase}}...HEAD` and scans it with
-`--config=p/default --error --metrics=off` (deterministic, telemetry-off) —
-do not recreate that scoping or those flags with a manual `xargs` command.
+`--config=p/default` (not `auto`) keeps the ruleset static and telemetry off
+(`--metrics=off` is incompatible with `auto` on semgrep >=1.x); the
+`--baseline-commit` flag makes the scan fail only on findings this branch
+introduces, not on debt already on `{{branchBase}}`.
 - Custom rules: see `.semgrep.yml` at the repo root if it exists.
 - Silent skip if `semgrep` is not installed (don't block if the dev doesn't have it).
 
-The commit/push gate runs this for you (`PreToolUse`), so this text is the
-reasoning and the canonical command — not a second mechanism.
+In repos with the Claude Code hooks, the commit/push gate already runs this
+scan for you (`PreToolUse`) — the command above is for running it yourself
+before that point.

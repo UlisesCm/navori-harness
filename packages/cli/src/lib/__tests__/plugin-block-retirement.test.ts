@@ -61,7 +61,7 @@ describe("#614 — the reviewer-only blocks land in the skills, not in CLAUDE.md
     expect(reviewDiff).toContain("Code duplication (jscpd)");
     // The interpolation still happens in the new home — a `$BRANCH_BASE` here
     // would be a silent no-op scan (#273).
-    expect(reviewDiff).toContain("main...HEAD");
+    expect(reviewDiff).toContain("git diff --name-only --diff-filter=ACMRT main");
 
     const security = read(".claude/skills/security-invariants/SKILL.md");
     expect(security).toContain("Local security gate (semgrep)");
