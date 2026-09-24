@@ -39,7 +39,7 @@ Orden de los lotes:
 
 ## Lote B — Base declarada (F06)
 
-- [ ] **T4** (R18, R19) — Cambiar `origin/main` por `{{branchBase}}`.
+- [x] **T4** (R18, R19) — Cambiar `origin/main` por `{{branchBase}}`.
   - En la prosa: `architect` (sección Method) y `solution-design` (paso 1, con su `maxWords`
     ajustado).
   - En el snippet de `scoped-gate`: `{{shq:branchBase}}`, con fallback declarado en stderr y

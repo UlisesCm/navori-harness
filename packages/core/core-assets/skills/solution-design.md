@@ -7,7 +7,9 @@ metadata:
   # ciclo completo propose/challenge/verdict antes de spec 0029; el wiring
   # hacia `secure-by-design`/`quality-attributes` (R3/R4) que esa spec agrega
   # no cabía en los 3 palabras de margen que quedaban.
-  maxWords: 1090
+  # spec 0033 R19: +29 palabras exactas del fallback de origin/{{branchBase}}
+  # (fetch, ref no verificable, marca *unverified*) agregado al paso 1.
+  maxWords: 1119
 ---
 
 # solution-design — decide what to build, then try to break it
@@ -54,7 +56,9 @@ level 2 the user picks among the surviving options before that verdict.
    THAT is. Before any option, derive the decision drivers from the project's own
    rules; the ladder `existing pattern > small extension > new abstraction > new
    subsystem` is one driver, not the default winner. Verify every 'already exists'
-   claim against `origin/main`.
+   claim against `origin/{{branchBase}}` after `git fetch origin {{branchBase}}`; if the
+   fetch fails or the ref doesn't exist, name the ref you actually used — or mark the
+   claim *unverified* with the cause.
 2. **State the real problem** — the behavior that changes and who consumes it, not
    the symptom the ticket describes.
 3. **Approaches, only if ≥2 are genuine.** Never invent a straw alternative when

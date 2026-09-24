@@ -682,8 +682,6 @@ fixture declara skills locales, y `bun check:render` en este repo después de ca
   Ligar el receipt a un feature (por ejemplo, un receipt por feature) cambia el contrato de
   publicación y merece su propia spec.
 - **Cambiar privilegios de los roles analíticos** (F08). R23 solo los declara.
-- **`origin/main` en `presets/monorepo-turbopnpm/skills/turbo-workspaces.md`** (filtro de turbo).
-  No está en la lista de R18. Ver Observaciones.
 - **Adaptar al vocabulario de Codex el contenido de las skills locales** (rutas `.claude/…` dentro
   de su prosa). Es contenido del usuario, y navori no lo reescribe.
 - **F07 y las oportunidades condicionadas de la auditoría**, por decisión del usuario en
