@@ -304,6 +304,12 @@ const ProjectSchema = z
   .object({
     legacyPaths: z.array(z.string()).default([]),
     criticalAreas: z.array(z.string()).default([]),
+    /** Glob paths `navori plan classify` (R1, spec 0032) can match against a
+     * task's touched files to detect critical area from code instead of
+     * relying on it being declared (R9). Optional: DONDE it is absent, the
+     * signal falls back to whatever the workplan declares, and the reviewer
+     * checks that declaration against `criticalAreas` (prose) instead. */
+    criticalPaths: z.array(z.string()).default([]),
     /** @deprecated (#779). Detection may seed this value, but no rendered
      * instruction consumes it. `readConfig` warns so it is not mistaken for a
      * runtime policy. */

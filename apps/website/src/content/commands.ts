@@ -761,6 +761,37 @@ const es: Record<string, CommandDoc> = {
     ],
     notes: ["Solo publica cuando el JSON devuelve status ok."],
   },
+  plan: {
+    id: "plan",
+    title: "plan",
+    summary: "Clasifica la complejidad de una tarea y valida su workplan (spec 0032).",
+    usage:
+      "navori plan <classify|render|update|check> <feature> [--files <a,b,c>] [--dir <path>] [--json]",
+    flags: [
+      { flag: "--files <a,b,c>", desc: "Rutas relativas al repo tocadas por la tarea (classify)." },
+      {
+        flag: "--critical-area / --money-credentials-pii / --multi-repo / --new-external-dependency / --shared-contract / --data-schema-migration / --bug-without-root-cause",
+        desc: "Señales declaradas que classify no puede medir por sí solo.",
+      },
+      { flag: "--progress <A1>=<estado>", desc: "Cambia el estado de un criterio (update)." },
+      {
+        flag: "--decision <texto> --date <fecha>",
+        desc: "Agrega una decisión al workplan (update).",
+      },
+      { flag: "--dir <path>", desc: "Directorio de progreso; por defecto .claude/progress." },
+      { flag: "--json", desc: "Emite el contrato machine-readable." },
+    ],
+    example: [
+      {
+        title: "Clasificar y validar",
+        code: "navori plan classify checkout --files src/checkout.ts,src/checkout.test.ts --json\nnavori plan check checkout",
+      },
+    ],
+    notes: [
+      "`classify` es la única definición del nivel de una tarea (0-3); no reescribas sus umbrales en otro lugar.",
+      "`render` regenera workplan_<feature>.md desde el JSON de forma determinista — nunca lo edites a mano.",
+    ],
+  },
 };
 
 const en: Record<string, CommandDoc> = {
@@ -1518,6 +1549,37 @@ const en: Record<string, CommandDoc> = {
     ],
     notes: ["Publish only when JSON returns status ok."],
   },
+  plan: {
+    id: "plan",
+    title: "plan",
+    summary: "Classifies a task's complexity and validates its workplan (spec 0032).",
+    usage:
+      "navori plan <classify|render|update|check> <feature> [--files <a,b,c>] [--dir <path>] [--json]",
+    flags: [
+      { flag: "--files <a,b,c>", desc: "Repo-relative paths touched by the task (classify)." },
+      {
+        flag: "--critical-area / --money-credentials-pii / --multi-repo / --new-external-dependency / --shared-contract / --data-schema-migration / --bug-without-root-cause",
+        desc: "Declared signals classify cannot measure on its own.",
+      },
+      { flag: "--progress <A1>=<status>", desc: "Changes a criterion's status (update)." },
+      {
+        flag: "--decision <text> --date <date>",
+        desc: "Appends a decision to the workplan (update).",
+      },
+      { flag: "--dir <path>", desc: "Progress directory; defaults to .claude/progress." },
+      { flag: "--json", desc: "Emit the machine-readable contract." },
+    ],
+    example: [
+      {
+        title: "Classify and check",
+        code: "navori plan classify checkout --files src/checkout.ts,src/checkout.test.ts --json\nnavori plan check checkout",
+      },
+    ],
+    notes: [
+      "`classify` is the single definition of a task's level (0-3); don't rewrite its thresholds elsewhere.",
+      "`render` regenerates workplan_<feature>.md from the JSON deterministically — never hand-edit it.",
+    ],
+  },
 };
 
 export const commandDocs: Record<Lang, Record<string, CommandDoc>> = { es, en };
@@ -1545,4 +1607,5 @@ export const commandOrder = [
   "dominio",
   "global",
   "receipt",
+  "plan",
 ] as const;

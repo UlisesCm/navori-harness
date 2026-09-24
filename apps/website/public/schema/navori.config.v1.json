@@ -466,6 +466,13 @@
             "type": "string"
           }
         },
+        "criticalPaths": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "testRunner": {
           "type": "string"
         },
@@ -549,6 +556,7 @@
       "required": [
         "legacyPaths",
         "criticalAreas",
+        "criticalPaths",
         "testsExclude",
         "localSkills",
         "libraries",

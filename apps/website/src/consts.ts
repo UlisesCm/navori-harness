@@ -32,7 +32,7 @@ export const NPM_URL = "https://www.npmjs.com/package/navori";
  */
 export const INVENTORY = {
   /** Subcommands registered in `packages/cli/src/index.ts`. */
-  commands: 22,
+  commands: 23,
   /** Stack presets under `packages/core/core-assets/presets/`. */
   presets: 12,
   /** Plugin bundles under `packages/plugins/`. */
