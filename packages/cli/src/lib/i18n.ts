@@ -1416,6 +1416,8 @@ interface GlobalCmdStrings {
   collectDevBinaryWarn: (entry: string) => string;
   collectUninstalled: (path: string) => string;
   collectNothingInstalled: string;
+  /** launchd loaded the agent, but the receiver never answers its own healthz (loaded-but-dead). */
+  collectProbeFailed: (logDir: string) => string;
   uninstallSettingsUnreadable: (path: string) => string;
   /**
    * #497 — the machine-wide settings.json exists but cannot be merged into.
@@ -2681,6 +2683,9 @@ const CMD_ES: CmdStrings = {
       `Un 'pnpm build' lo reescribe y un repo movido lo deja colgando; para uso diario, instala navori global y reinstala el agente.`,
     collectUninstalled: (path) => `LaunchAgent descargado y borrado de ${path}`,
     collectNothingInstalled: "No había LaunchAgent del receptor que desinstalar.",
+    collectProbeFailed: (logDir) =>
+      `launchd dice que el agente cargó, pero el receptor no responde en /healthz. ` +
+      `Revisa los logs en ${logDir} (collect.out.log / collect.err.log).`,
     uninstallSettingsUnreadable: (path) =>
       `No se pudo parsear ${path}, así que quedó intacto: se borró el archivo del hook, ` +
       `pero su registro sigue en settings.json. Arregla el JSON y vuelve a correr 'navori global uninstall'.`,
@@ -3964,6 +3969,9 @@ const CMD_EN: CmdStrings = {
       `A 'pnpm build' rewrites it and a moved repo leaves it dangling; for daily use, install navori globally and reinstall the agent.`,
     collectUninstalled: (path) => `LaunchAgent unloaded and removed from ${path}`,
     collectNothingInstalled: "There was no receiver LaunchAgent to uninstall.",
+    collectProbeFailed: (logDir) =>
+      `launchd says the agent loaded, but the receiver isn't answering /healthz. ` +
+      `Check the logs under ${logDir} (collect.out.log / collect.err.log).`,
     uninstallSettingsUnreadable: (path) =>
       `Could not parse ${path}, so it was left untouched: the hook file is gone, but its ` +
       `registration is still in settings.json. Fix the JSON and run 'navori global uninstall' again.`,
