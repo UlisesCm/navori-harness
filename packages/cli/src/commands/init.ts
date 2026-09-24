@@ -27,7 +27,7 @@ import {
   formatWorkspaceSummary,
 } from "./init-format.ts";
 import { color, dim, brand, kv } from "../lib/primitives/style.ts";
-import { t, type Lang } from "../lib/i18n.ts";
+import { t, tc, type Lang } from "../lib/i18n.ts";
 import { loadPrompts, type LoadedPrompt } from "../engines/claude/prompts-loader.ts";
 import { scanMonorepoWorkspaces, type DetectedWorkspace } from "../lib/diagnose/scan.ts";
 import type { MonorepoWorkspace } from "../lib/workspace/monorepo.ts";
@@ -58,6 +58,66 @@ export function fullWarningNeedsProviderSetupHint(
   missing: readonly { pluginId: string }[],
 ): boolean {
   return missing.some((m) => PROVIDERS_WITH_SETUP_RECIPE.has(m.pluginId));
+}
+
+/**
+ * #1023 — an enabled plugin whose `externalTool.checkBinary` isn't on PATH
+ * used to only warn under `--full`; a plain `--yes`/`--recommended` init (or
+ * the interactive wizard) could leave an always-on plugin like engram
+ * registered in `.mcp.json` with a binary that never runs, silently. This
+ * scans once via `scanMissingExternalTools` (single source with `doctor`)
+ * and reports in every mode: `--full` keeps its original binary-name-only
+ * warning + the codegraph/tgrep setup-recipe hint (#982, output unchanged);
+ * every other mode gets a per-binary install command instead, since it's the
+ * only chance those users get before a headless session hits a broken MCP.
+ */
+function reportMissingBinaries(
+  plugins: Record<string, { enabled: boolean }>,
+  isFull: boolean,
+  tr: ReturnType<typeof t>,
+  lang: Lang,
+): void {
+  const missing = scanMissingExternalTools({ plugins } as NavoriConfig);
+  if (missing.length === 0) return;
+  if (isFull) {
+    p.log.warn(tr.fullBinariesToInstall(missing.map((m) => m.binary).join(", ")));
+    // #982 — codegraph/tgrep need a setup step beyond the binary (index init,
+    // MCP approval); `--full` only enables and warns, it never installs
+    // (3.3), so this warning is the only `init` surface that can point at
+    // the recipe.
+    if (fullWarningNeedsProviderSetupHint(missing)) {
+      p.log.info(tr.externalProviderSetupHint(EXTERNAL_PROVIDER_SETUP_RECIPE_URL));
+    }
+    return;
+  }
+  const td = tc(lang).doctor;
+  const list = missing.map((m) => `${m.binary} (${formatMissingBinaryHow(m, tr, td)})`).join(", ");
+  p.log.warn(tr.binariesToInstall(list));
+}
+
+/**
+ * The command a user runs to install a missing plugin binary. A single-line
+ * `install` (the common case — e.g. `brew install ...`) is cited whole,
+ * mirroring doctor's own `install` → `installDocs` → generic-fallback order
+ * (#965) so the two surfaces never disagree about how to phrase a missing
+ * tool. A MULTI-line `install` (e.g. engram's Linux release-download script:
+ * download, verify a checksum, `mv` into `~/.local/bin`) is never truncated —
+ * pasting only its first line (`set -euo pipefail`) installs nothing, which
+ * is exactly the broken-MCP-with-no-actionable-warning state #1023 reports.
+ * Points at `installDocs` instead when the manifest has one, else at
+ * `navori doctor`, which prints the install command in full (doctor.ts:685-696).
+ */
+export function formatMissingBinaryHow(
+  tool: { install: string | null; postInstall: string | null; installDocs: string | null },
+  tr: ReturnType<typeof t>,
+  td: ReturnType<typeof tc>["doctor"],
+): string {
+  if (tool.install && !tool.install.includes("\n")) {
+    return tool.postInstall ? `${tool.install} && ${tool.postInstall}` : tool.install;
+  }
+  if (tool.installDocs) return td.externalToolDocsHow(tool.installDocs);
+  if (tool.install) return tr.binariesMultilineInstallHint;
+  return td.externalToolFallbackHow;
 }
 
 type AdoptionMode = "fresh" | "coexist" | "replace";
@@ -365,23 +425,11 @@ export const initCommand = defineCommand({
         p.log.info(tr.qualityGateFallbackApplied(fallbackQg.fast));
       }
 
-      // --full enables plugins even when their external binary is absent. doctor
-      // surfaces those as a non-fatal yellow warning (they never flip its exit
-      // code), so name them up front — installing them lets the plugin's hooks
-      // actually run. Reuses doctor's own externalTool scan for accuracy.
-      if (isFull) {
-        const missing = scanMissingExternalTools({ plugins: mergedPlugins } as NavoriConfig);
-        if (missing.length > 0) {
-          p.log.warn(tr.fullBinariesToInstall(missing.map((m) => m.binary).join(", ")));
-          // #982 — codegraph/tgrep need a setup step beyond the binary
-          // (index init, MCP approval); `--full` only enables and warns, it
-          // never installs (3.3), so this warning is the only `init` surface
-          // that can point at the recipe.
-          if (fullWarningNeedsProviderSetupHint(missing)) {
-            p.log.info(tr.externalProviderSetupHint(EXTERNAL_PROVIDER_SETUP_RECIPE_URL));
-          }
-        }
-      }
+      // An enabled plugin (including always-on engram) whose external binary is
+      // absent gets flagged here, in every mode — doctor surfaces the same gap
+      // as a non-fatal yellow warning (never flips its exit code), but nobody
+      // runs doctor after a headless `--yes`/`--recommended` init (#1023).
+      reportMissingBinaries(mergedPlugins, isFull, tr, lang);
       // Surface gaps that the user can't see otherwise — autoYes skipped the
       // wizard so they never had a chance to fill these in. Without a
       // qualityGate the render emits `<not configured: qualityGate.fast>`
@@ -764,6 +812,11 @@ export const initCommand = defineCommand({
     // Self-register in the global registry (best-effort) so `render --all`
     // rolls future harness bumps into this repo.
     registerRepoSafe(cwd, name);
+
+    // #1023 — same missing-binary warning as the --yes/--recommended path
+    // above; the interactive wizard never enables --full (that flag forces
+    // autoYes), so this always takes the per-binary-install-command branch.
+    reportMissingBinaries(mergedPlugins, false, tr, lang);
 
     if (mode === "coexist") {
       p.outro(tr.doneExistingUntouched);
