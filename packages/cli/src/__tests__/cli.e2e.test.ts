@@ -2290,26 +2290,31 @@ describe("CLI e2e — init mode axis: --yes vs --recommended vs --full (#989)", 
     expect(existsSync(join(full, ".git/hooks/pre-commit"))).toBe(true);
   });
 
-  it("difference 5/5 — missing-binary warning: only --full ever scans/warns about it; --recommended never mentions missing plugin binaries", () => {
+  it("former difference 5/5, now parity (#1023) — missing-binary warning: --recommended and --full both warn exactly when a plugin binary is missing", () => {
     const recommended = tsRepoWithRemote("git@github.com:acme/demo.git");
     dirs.push(recommended);
     const rec = runCli(["init", "--recommended", "--no-render", "--cwd", recommended]);
     expect(rec.status).toBe(0);
-    expect(rec.combined).not.toMatch(/Faltan binarios|missing their binaries/);
 
     const full = tsRepo();
     dirs.push(full);
     const fullResult = runCli(["init", "--full", "--no-render", "--cwd", full]);
     expect(fullResult.status).toBe(0);
+
     // Machine-independent: whether the warning fires depends on which binaries
-    // are actually installed on the box running the test, so derive the
-    // expectation from the same detector `init --full` itself calls (doctor's
+    // are actually installed on the box running the test, so derive each
+    // expectation from the same detector init itself calls (doctor's
     // `scanMissingExternalTools`) instead of asserting a fixed outcome.
-    const missing = scanMissingExternalTools(readConfigOf(full));
-    if (missing.length > 0) {
-      expect(fullResult.combined).toMatch(/Faltan binarios|missing their binaries/);
-    } else {
-      expect(fullResult.combined).not.toMatch(/Faltan binarios|missing their binaries/);
+    for (const [repo, result] of [
+      [recommended, rec],
+      [full, fullResult],
+    ] as const) {
+      const warning = /Faltan binarios|missing their binaries/;
+      if (scanMissingExternalTools(readConfigOf(repo)).length > 0) {
+        expect(result.combined).toMatch(warning);
+      } else {
+        expect(result.combined).not.toMatch(warning);
+      }
     }
   });
 });
