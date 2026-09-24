@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="bdf721df" version="0.10.0" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="6b098fbf" version="0.10.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -1149,7 +1149,7 @@ managed_path="(CLAUDE\.md|AGENTS\.md|\.claude/settings\.json|\.codex/config\.tom
 if printf '%s' "$scan" | grep -qE "(^|[^>])>\|?[[:space:]]*(\./)?${managed_path}([[:space:]]|\$)" \
   || printf '%s' "$segments" | grep -qE "(^|[[:space:]])sed[[:space:]]+(-[a-zA-Z]*i[a-zA-Z]*[^[:space:]]*|--in-place)([[:space:]]|=).*${managed_path}" \
   || printf '%s' "$segments" | grep -qE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*(\./)?${managed_path}([[:space:]]|\$)"; then
-  block "shell rewrite of a navori-managed file — edit the source asset and run 'navori render --apply' (or 'navori sync'); a direct write invalidates the block hash and freezes it"
+  block "shell rewrite of a navori-managed file — edit the source asset and run 'navori render --apply' (or 'navori sync'); a direct write invalidates the block hash and freezes it. If the target is outside this project (e.g. a scratchpad), write it with '>' or 'tee' and an absolute path instead"
 fi
 # navori:managed end id="guard-destructive-base"
 
