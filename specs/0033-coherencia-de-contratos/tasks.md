@@ -98,17 +98,17 @@ Orden de los lotes:
 
 ## Lote E — Inventario de controles (backlog 5)
 
-- [ ] **T9** (R20, R23) — `controls` y `analyticWriteTools` en `ENGINE_CAPABILITIES`
+- [x] **T9** (R20, R23) — `controls` y `analyticWriteTools` en `ENGINE_CAPABILITIES`
   (`engines/shared/engine-capabilities.ts`).
   - Cada control lleva estado, razón y evidencia; `enforced` sin evidencia no compila.
   - Test: `engines/shared/__tests__/engine-capabilities.test.ts` (extendido), con
     `// Covers: R20, R23`.
-- [ ] **T10** (R21) — `lib/diagnose/control-gaps.ts` alimenta a `doctor` y a `i18n`.
+- [x] **T10** (R21) — `lib/diagnose/control-gaps.ts` alimenta a `doctor` y a `i18n`.
   - Se borra `lib/plan/gate-support.ts` y su test se migra conservando la cita a la spec 0032
     R17.
   - Un control no enforced sale como `info`; pasa a `warn` solo si el usuario encendió su flag.
   - Test: `lib/diagnose/__tests__/control-gaps.test.ts`, con `// Covers: R21`.
-- [ ] **T11** (R22, R23) — Contraste contra el render real.
+- [x] **T11** (R22, R23) — Contraste contra el render real.
   - Se renderizan los cinco engines en un directorio temporal, con todos los flags encendidos y
     una skill local.
   - Para cada engine y control, lo declarado debe coincidir con lo que se registró. Las tools de
@@ -119,10 +119,10 @@ Orden de los lotes:
 
 ## Cierre
 
-- [ ] **T12** — Versionar `docs/research/auditoria-profunda-agentes-skills-2026-09-23.md` en el PR
+- [x] **T12** — Versionar `docs/research/auditoria-profunda-agentes-skills-2026-09-23.md` en el PR
   de la spec, porque el issue y `requirements.md` lo citan.
   - Test: `bun run check:links` en verde.
-- [ ] **T13** — Trazabilidad.
+- [x] **T13** — Trazabilidad.
   - Cada `R1`–`R24` aparece en al menos un `// Covers:` y en una tarea de este archivo.
   - Test: `grep -rn "Covers:.*R<n>"` por cada id, con la salida en el receipt del reviewer del
     último lote.

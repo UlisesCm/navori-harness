@@ -416,7 +416,14 @@ corrige en el registro, nunca en el test):
 | `handoff-shape` | — | advisory (hook `subagent-stop-handoff`, `PostToolUse`, advisory por diseño) | advisory (contrato en prosa; hook no registrado) | unsupported |
 | `handoff-consumer` | — | advisory (`navori handoff check` invocado por prosa) | advisory (ídem) | unsupported |
 | `analytic-write-tools` | — | advisory (tools del frontmatter + instrucciones) | advisory (`sandbox_mode` `workspace-write` + instrucciones) | unsupported (no se renderizan agentes) |
-| `local-skill-discovery` | `project.localSkills` no vacío | enforced (raíz nativa `.claude/skills`) | enforced (evidencia: puntero en `.agents/skills`) | advisory (fila en el índice de skills del archivo de prosa) |
+| `local-skill-discovery` | `project.localSkills` no vacío | enforced (raíz nativa `.claude/skills`) | enforced (evidencia: puntero en `.agents/skills`) | unsupported (`buildSkillsSection`, `engines/shared/prose-harness.ts:58`, llama a `buildSkillRows(config, repoRoot, coreAssets)` sin el argumento `localSkills`; una skill de `project.localSkills` nunca llega al render de AGENTS.md/.cursor/.github) |
+
+**Nota sobre `local-skill-discovery` en los engines de prosa.** No es un estado `advisory` con
+huecos: es `unsupported`, igual que el resto de la columna. El render (`buildSkillsSection`) no
+tiene ninguna vía, ni siquiera por convención, para que una skill local llegue al índice del
+archivo de prosa. `engine-capabilities.ts` documenta la razón exacta y
+`control-inventory.test.ts` fija ese hueco con un test de regresión explícito, para que arreglarlo
+algún día pase por actualizar ese test a propósito, no por accidente.
 
 **Severidad en `doctor` (R21).** Si listara cada fila no `enforced` como warning, un repo
 solo-Claude vería tres warnings permanentes, y la regla de `skill-triggers.ts` advierte que
