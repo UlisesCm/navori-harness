@@ -12,8 +12,9 @@ import { EPHEMERAL_HARNESS_PATHS } from "../../engines/shared/ephemeral-paths.ts
  *
  *   1. `undeclared-workspace` — a `.claude/` living in a subdirectory the
  *      config does not declare as a monorepo workspace. The render loop only
- *      visits declared workspaces, so this tree is invisible to it. Real case
- *      in navori's own repo: `packages/cli/.claude/`, frozen at 0.6.5.
+ *      visits declared workspaces, so this tree is invisible to it. The case
+ *      that motivated this scanner: navori's own repo carried
+ *      `packages/cli/.claude/`, frozen at 0.6.5, until it was deleted.
  *
  *   2. `trimmed-workspace` — `.claude/scripts/` left inside a DECLARED
  *      workspace after `workspaceHarness: "minimal"` stopped writing it. The
