@@ -1,59 +1,64 @@
 # Planificación por niveles — Tasks
 
-Lotes en orden: el validador primero (no depende de ningún contrato), después el flag y los
-contratos que lo usan, al final el encendido en este repo.
+Lotes en orden: calibrar pesos con datos reales, luego el núcleo sin flag, después el flag con el
+gate y el bloque de orquestación (incluido el retiro de `harness.architect`), el contenido de
+agentes y skills, y al final encender y medir en este repo.
 
-## Lote 1 — Validador
+## Lote 0 — Calibración
 
-- [ ] **T1** (R12, R13, R14) — Parser y reglas del `workplan` en `packages/cli/src/lib/plan/`:
-  lee el encabezado de nivel y las secciones de `design.md` "Contracts", y devuelve la lista de
-  fallas de R13 (sección faltante por nivel, `A<n>` sin comando o sin salida esperada, ids
-  repetidos o no consecutivos, archivo inexistente sin `(nuevo)`, `[NEEDS CLARIFICATION]` abierto,
-  `solution_<scope>.md` inexistente en nivel 2). Lista vacía para un plan válido · test:
-  `packages/cli/src/lib/plan/__tests__/check.test.ts` con un fixture válido por nivel y uno
-  inválido por regla, con `// Covers: R12, R13, R14`.
-- [ ] **T2** (R12, R13, R14) — Comando `navori plan check <archivo>` en
-  `packages/cli/src/commands/plan.ts`, registrado en `subCommands` de `packages/cli/src/index.ts`:
-  imprime cada falla y sale con código 1, o sale con 0 si no hay fallas · test:
-  `packages/cli/src/commands/__tests__/plan.test.ts` (código de salida y mensajes sobre fixtures
-  en disco) con `// Covers: R12, R13, R14`.
+- [ ] **T0** (R2, R3, R4, R5) — Calibrar pesos con el usuario sobre 10 tareas reales (5 de Bonum,
+  5 de navori) antes de fijar `signals.ts` · test: fixtures de esas 10 tareas con su nivel
+  esperado en `lib/plan/__tests__/classify.test.ts`, con `// Covers: R2, R3, R4, R5`.
 
-## Lote 2 — Flag y bloque de orquestación
+## Lote 1 — Núcleo (sin flag)
 
-- [ ] **T3** (R23) — Flag `harness.planTiers` (default `false`) en
-  `packages/cli/src/lib/config/schema.ts`, con el render de `managed/orquestacion.md` condicionado
-  a él · test: `packages/cli/src/lib/config/__tests__/schema.test.ts` (default y parseo) y snapshot
-  golden del bloque con el flag en `false` idéntico al actual, con `// Covers: R23`.
-- [ ] **T4** (R1, R2, R3, R4, R5, R6, R15) — Sección de niveles en
-  `packages/core/core-assets/managed/orquestacion.md`, visible solo con el flag en `true`: la
-  tabla de cuatro niveles con su señal, la línea de nivel al usuario, subir sí y bajar no en área
-  crítica, nivel 0 sin artefacto, nivel 3 sin `workplan`, y `navori plan check` en verde antes de
-  pedir aprobación. Debe caber en `check:doc-budgets` · test:
-  `packages/cli/src/__tests__/plan-tiers-contracts.test.ts` (render con flag `true` contiene cada
-  regla) con `// Covers: R1, R2, R3, R4, R5, R6, R15`.
+- [ ] **T1** (R10, R13, R14) — Esquema zod del workplan en `lib/plan/schema.ts` · test:
+  `schema.test.ts`, con `// Covers: R10, R13, R14`.
+- [ ] **T2** (R1, R2, R3, R4, R5, R9) — `signals.ts` + `classify.ts` reusando `source-classify`;
+  campo `project.criticalPaths` · test: `classify.test.ts`, con `// Covers: R1, R2, R3, R4, R5,
+  R9`.
+- [ ] **T3** (R11, R12) — `render.ts` determinista y `update` · test: `render.test.ts` (snapshot,
+  mismos bytes dos veces), con `// Covers: R11, R12`.
+- [ ] **T4** (R15) — `check` (reglas del R13 original + esquema + nivel declarado menor que el
+  calculado) · test: `check.test.ts`, un fixture inválido por regla, con `// Covers: R15`.
+- [ ] **T5** (R1, R11, R12, R15) — `commands/plan.ts` con `classify|render|update|check` en
+  `subCommands` · test: `commands/__tests__/plan.test.ts`, con `// Covers: R1, R11, R12, R15`.
 
-## Lote 3 — Contratos de agentes
+## Lote 2 — Flag, gate y bloque
 
-- [ ] **T5** (R7, R8, R9, R10, R11, R16, R19, R20, R21) — `orchestrator.md` y `resolve-ticket.md`:
-  plantilla del `workplan` por nivel, actualización de Progreso y Decisiones por sub-tarea,
-  `progress/current.md` apuntando al `workplan`, consulta al usuario ante un desvío de alcance,
-  encargo al `implementer` con path y `A<n>`, orden `architect` → challenge → veredicto →
-  `workplan` con el flag de `architect` encendido y `solution-design` inline con el flag apagado;
-  `workplan_<feature>.md` en la lista de handoffs de `.claude/progress/`. `architect.md` aclara
-  que su salida alimenta el nivel 2 y que no escribe el plan · test:
-  `packages/cli/src/__tests__/plan-tiers-contracts.test.ts` con `// Covers: R7, R8, R9, R10, R11,
-  R16, R19, R20, R21`.
-- [ ] **T6** (R17, R18) — `implementer.md` reporta la clave `acceptance` (comando, código de
-  salida, extracto por `A<n>`) cuando el encargo trae criterios; `reviewer.md` emite
-  `CHANGES_REQUESTED` ante un `A<n>` sin evidencia o un archivo fuera de alcance sin entrada en
-  Decisiones · test: `packages/cli/src/lib/__tests__/agents-assets.test.ts` (contrato de handoff
-  de ambos) con `// Covers: R17, R18`.
+- [ ] **T6** (R30) — `harness.planTiers` en `schema.ts` y golden del bloque en `false` idéntico ·
+  test: snapshot golden, con `// Covers: R30`.
+- [ ] **T6b** (R33, R34, R35) — Retiro de la clave `harness.architect`: sale del esquema
+  (`lib/config/schema.ts`), entra en la lista de claves retiradas con su mensaje de migración
+  (`lib/config/config.ts`), se eliminan las ramas `navori:if architect` / `navori:if-not
+  architect` de los assets de core, y el default de core queda en modelo `opus` y `effort:
+  xhigh` (`lib/config/recommended.ts`) · test: el config con `harness.architect` produce el aviso
+  de clave retirada; el render de core no contiene `navori:if architect`; golden de Claude y
+  Codex con `architect` presente, con `// Covers: R33, R34, R35`.
+- [ ] **T7** (R16, R17, R19) — Hook `PreToolUse` sobre `Agent` (Claude) con conteo de rechazos;
+  aviso de `doctor` cuando el engine no lo soporta · test: `plan-gate.test.ts` (niega sin
+  workplan, deja pasar con plan válido o exención, exige nivel siguiente tras dos rechazos), con
+  `// Covers: R16, R17, R19`.
+- [ ] **T8** (R6, R7, R8, R18, R22) — Tabla de niveles y regla del gate en `orquestacion.md`
+  dentro del presupuesto · test: `plan-tiers-contracts.test.ts`, con `// Covers: R6, R7, R8, R18,
+  R22`.
 
-## Lote 4 — Encendido en este repo
+## Lote 3 — Contenido y agentes
 
-- [ ] **T7** (R22, R24) — `navori.config.json` con `harness.planTiers: true` y
-  `harness.architect: true`; re-render del harness (`navori render --apply`) y goldens
-  actualizados. La declaración de admisión del `architect` ya está en `design.md`, "Admisión del
-  architect" · test: `bun run check:render` en verde y
-  `packages/cli/src/__tests__/plan-tiers-contracts.test.ts` verifica que el config de este repo
-  enciende ambos flags, con `// Covers: R22, R24`.
+- [ ] **T9** (R22, R10, R12, R13, R14) — Skills `plan-simple` y `plan-advanced` · test: tests de
+  assets de skills, con `// Covers: R22, R10, R12, R13, R14`.
+- [ ] **T10** (R20, R21) — Implementer (`acceptance`) y reviewer (evidencia, alcance, `classify`
+  sobre el diff) · test: `agents-assets.test.ts`, con `// Covers: R20, R21`.
+- [ ] **T11** (R23, R24, R25, R26, R27, R28) — Architect, `solution-design`, `spec-bootstrap`,
+  `orchestrator.md`, `resolve-ticket.md` · test: `plan-tiers-contracts.test.ts`, con `// Covers:
+  R23, R24, R25, R26, R27, R28`.
+
+## Lote 4 — Encendido y medición
+
+- [ ] **T12** (R29, R31) — `navori.config.json` con `planTiers` (el default de core ya cubre el
+  architect, sin `harness.architect` ni `effort.architect` en este repo); re-render; goldens ·
+  test: `check:render` y el config verificado en `plan-tiers-contracts.test.ts`, con `// Covers:
+  R29, R31`.
+- [ ] **T13** (R32) — El minero reporta niveles, clasificaciones erróneas y escalamientos por
+  repo, llamando a `classify` · test: test del minero con un fixture por métrica, con `// Covers:
+  R32`.
