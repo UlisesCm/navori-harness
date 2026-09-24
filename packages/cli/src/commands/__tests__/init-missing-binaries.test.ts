@@ -5,8 +5,10 @@ import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
+import { formatMissingBinaryHow } from "../init.ts";
 import { loadPlugin } from "../../lib/config/plugins.ts";
 import { currentPlatform } from "../../lib/config/platform.ts";
+import { t, tc } from "../../lib/i18n.ts";
 
 /**
  * #1023 — `init --yes`/`init --recommended` used to only warn about a missing
@@ -73,12 +75,23 @@ function makeTmpRepo(): string {
   return dir;
 }
 
-// First line of engram's install command for this platform — install scripts
-// can be multi-line (e.g. the Linux release-download recipe), and init's
-// warning intentionally only surfaces the first line (see
-// `formatMissingBinaryHow` in init.ts).
-const engramInstall = loadPlugin("engram").manifest.externalTool?.install?.[currentPlatform()!];
-const engramInstallFirstLine = engramInstall?.split("\n")[0] ?? "";
+// `init` writes the wizard's default language (es, since these e2e runs
+// never pass --lang) — mirror that here so `expectedHow` matches what the
+// spawned CLI actually prints, whatever the host platform's install command
+// looks like (single-line `brew install ...` on darwin, or engram's
+// multi-line release-download script on linux).
+const engramTool = loadPlugin("engram").manifest.externalTool;
+const platform = currentPlatform();
+const engramInstallForHostPlatform = platform ? (engramTool?.install?.[platform] ?? null) : null;
+const expectedHow = formatMissingBinaryHow(
+  {
+    install: engramInstallForHostPlatform,
+    postInstall: engramTool?.postInstall ?? null,
+    installDocs: engramTool?.installDocs ?? null,
+  },
+  t("es"),
+  tc("es").doctor,
+);
 
 describe("init missing-binary warning (#1023)", () => {
   let dirs: string[] = [];
@@ -109,7 +122,7 @@ describe("init missing-binary warning (#1023)", () => {
 
     expect(r.status).toBe(0);
     expect(r.combined).toContain("engram");
-    expect(r.combined).toContain(engramInstallFirstLine);
+    expect(r.combined).toContain(expectedHow);
   });
 
   it("init --recommended with engram absent from PATH warns with the binary and its install command", () => {
@@ -123,7 +136,7 @@ describe("init missing-binary warning (#1023)", () => {
 
     expect(r.status).toBe(0);
     expect(r.combined).toContain("engram");
-    expect(r.combined).toContain(engramInstallFirstLine);
+    expect(r.combined).toContain(expectedHow);
   });
 
   it("init --yes with engram present on PATH emits no missing-binary warning", () => {
@@ -133,7 +146,7 @@ describe("init missing-binary warning (#1023)", () => {
     const r = runCli(["init", "--yes", "--no-render", "--cwd", repo], PATH_WITH_BINARIES);
 
     expect(r.status).toBe(0);
-    expect(r.combined).not.toContain(engramInstallFirstLine);
+    expect(r.combined).not.toContain(expectedHow);
   });
 
   it("init --recommended with engram present on PATH emits no missing-binary warning", () => {
@@ -143,6 +156,51 @@ describe("init missing-binary warning (#1023)", () => {
     const r = runCli(["init", "--recommended", "--no-render", "--cwd", repo], PATH_WITH_BINARIES);
 
     expect(r.status).toBe(0);
-    expect(r.combined).not.toContain(engramInstallFirstLine);
+    expect(r.combined).not.toContain(expectedHow);
+  });
+});
+
+/**
+ * #1023 review — a multi-line `install` script must never be truncated to
+ * its first line: for engram on Linux that line is `set -euo pipefail`,
+ * a shell directive with no download/verify/move logic, so pasting it
+ * installs nothing (the exact broken-MCP-with-no-actionable-warning state
+ * the ticket reports). Uses engram's real Linux manifest data directly
+ * (packages/plugins/engram/plugin.json) instead of spawning the CLI, so the
+ * assertion holds regardless of which OS runs the suite.
+ */
+describe("formatMissingBinaryHow — multi-line install (#1023 review)", () => {
+  const linuxInstall = engramTool?.install?.linux;
+
+  it("engram's linux install script is in fact multi-line (test premise)", () => {
+    expect(linuxInstall).toBeTruthy();
+    expect(linuxInstall).toContain("\n");
+  });
+
+  it("points at installDocs instead of truncating the script to its first line", () => {
+    const how = formatMissingBinaryHow(
+      {
+        install: linuxInstall ?? null,
+        postInstall: engramTool?.postInstall ?? null,
+        installDocs: engramTool?.installDocs ?? null,
+      },
+      t("es"),
+      tc("es").doctor,
+    );
+
+    expect(how).not.toContain("set -euo pipefail");
+    expect(engramTool?.installDocs).toBeTruthy();
+    expect(how).toContain(engramTool!.installDocs!);
+  });
+
+  it("falls back to the 'navori doctor' hint when there's no installDocs to point at", () => {
+    const how = formatMissingBinaryHow(
+      { install: linuxInstall ?? null, postInstall: null, installDocs: null },
+      t("es"),
+      tc("es").doctor,
+    );
+
+    expect(how).not.toContain("set -euo pipefail");
+    expect(how).toContain("navori doctor");
   });
 });

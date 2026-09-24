@@ -123,6 +123,12 @@ interface Strings {
    *  carries the per-binary install command inline instead of relying on a
    *  later `navori doctor` run nobody does in a headless init. */
   binariesToInstall: (list: string) => string;
+  /** #1023 review — a per-binary `install` command that spans multiple lines
+   *  (e.g. engram's Linux release-download script) can't be inlined into
+   *  `binariesToInstall`'s single-line list without truncating it into a
+   *  fragment that installs nothing (`set -euo pipefail` alone). Used only
+   *  when the tool has no `installDocs` to point at instead. */
+  binariesMultilineInstallHint: string;
   presetGapNotice: (stack: string) => string;
   placeholderNameNotice: (name: string) => string;
 
@@ -280,6 +286,8 @@ const ES: Strings = {
     `codegraph/tgrep necesitan un paso extra después de instalar el binario (índice + aprobación del MCP): ${url}`,
   binariesToInstall: (list) =>
     `Faltan binarios de plugins habilitados (sus hooks/MCP no van a funcionar hasta instalarlos; 'navori doctor' los reporta como advertencia): ${list}`,
+  binariesMultilineInstallHint:
+    "el comando de instalación tiene varios pasos — corre 'navori doctor' para verlo completo",
   presetGapNotice: (stack) =>
     `Detecté un proyecto '${stack}', pero todavía no hay un preset oficial para ese stack. ` +
     `Se instala el harness completo (agentes, gates, protocolo, SDD) y funciona desde ya; ` +
@@ -450,6 +458,8 @@ const EN: Strings = {
     `codegraph/tgrep need an extra step after the binary lands (index + MCP approval): ${url}`,
   binariesToInstall: (list) =>
     `Enabled plugins are missing their binaries (their hooks/MCP won't work until installed; 'navori doctor' reports them as a warning): ${list}`,
+  binariesMultilineInstallHint:
+    "the install command has several steps — run 'navori doctor' to see it in full",
   presetGapNotice: (stack) =>
     `Detected a '${stack}' project, but there's no official preset for that stack yet. ` +
     `The full harness installs (agents, gates, protocol, SDD) and works right away; ` +

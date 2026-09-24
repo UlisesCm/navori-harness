@@ -91,25 +91,32 @@ function reportMissingBinaries(
     return;
   }
   const td = tc(lang).doctor;
-  const list = missing.map((m) => `${m.binary} (${formatMissingBinaryHow(m, td)})`).join(", ");
+  const list = missing.map((m) => `${m.binary} (${formatMissingBinaryHow(m, tr, td)})`).join(", ");
   p.log.warn(tr.binariesToInstall(list));
 }
 
-/** Mirrors doctor's own install-command fallback (`install` → `installDocs` →
- *  generic fallback text, #965) so the two surfaces never disagree about how
- *  to phrase a missing tool. A multi-line `install` script (e.g. engram's
- *  Linux release-download recipe) is truncated to its first line — this
- *  warning is a single-line list, not the place to inline a whole script. */
-function formatMissingBinaryHow(
+/**
+ * The command a user runs to install a missing plugin binary. A single-line
+ * `install` (the common case — e.g. `brew install ...`) is cited whole,
+ * mirroring doctor's own `install` → `installDocs` → generic-fallback order
+ * (#965) so the two surfaces never disagree about how to phrase a missing
+ * tool. A MULTI-line `install` (e.g. engram's Linux release-download script:
+ * download, verify a checksum, `mv` into `~/.local/bin`) is never truncated —
+ * pasting only its first line (`set -euo pipefail`) installs nothing, which
+ * is exactly the broken-MCP-with-no-actionable-warning state #1023 reports.
+ * Points at `installDocs` instead when the manifest has one, else at
+ * `navori doctor`, which prints the install command in full (doctor.ts:685-696).
+ */
+export function formatMissingBinaryHow(
   tool: { install: string | null; postInstall: string | null; installDocs: string | null },
+  tr: ReturnType<typeof t>,
   td: ReturnType<typeof tc>["doctor"],
 ): string {
-  if (tool.install) {
-    const firstLine = tool.install.split("\n")[0]!;
-    const cmd = tool.install.includes("\n") ? `${firstLine} …` : firstLine;
-    return tool.postInstall ? `${cmd} && ${tool.postInstall}` : cmd;
+  if (tool.install && !tool.install.includes("\n")) {
+    return tool.postInstall ? `${tool.install} && ${tool.postInstall}` : tool.install;
   }
   if (tool.installDocs) return td.externalToolDocsHow(tool.installDocs);
+  if (tool.install) return tr.binariesMultilineInstallHint;
   return td.externalToolFallbackHow;
 }
 
