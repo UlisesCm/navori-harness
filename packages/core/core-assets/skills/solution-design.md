@@ -28,12 +28,12 @@ A security-sensitive signal also routes through `secure-by-design`; a
 non-functional-requirement signal routes through `quality-attributes` for its
 evidence matrix. Neither replaces this skill's verdict.
 
-**Who does what (spec 0026 F, R49/R50).** Three roles, never collapsed: `architect`
-**proposes** (applies this skill, writes the artifact) when `harness.architect` is
-on — else the orchestrator proposes directly. `auditor` **challenges** in fresh
-context (or the orchestrator, with `auditor` off) — falsify, never propose or
-polish. The orchestrator **decides**: READY / CONCERNS / BLOCKED, always its call
-regardless of who proposed or challenged — synthesis is never delegated.
+**Who does what (spec 0026 F; spec 0032 R23, R33).** Three roles, never collapsed: `architect`
+**proposes** (applies this skill, writes the artifact) — always; there is no flag to turn it off.
+`auditor` **challenges** in fresh context (or the orchestrator, with `auditor` off) — falsify, never
+propose or polish. The orchestrator **decides**: READY / CONCERNS / BLOCKED, always its call
+regardless of who proposed or challenged — synthesis is never delegated. With planning tiers on, at
+level 2 the user picks among the surviving options before that verdict.
 
 ## The three failures this exists to prevent
 

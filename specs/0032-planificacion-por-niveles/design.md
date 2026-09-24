@@ -48,9 +48,9 @@ secciones. Así hay un formato y un parser, no dos.
 ## Señales y pesos
 
 Pesos calibrados con el usuario en T0 (2026-09-23, #1011) contra 14 commits reales (8 de
-navori-harness, 6 de repos Bonum) con su nivel esperado acordado de antemano. 13/14 fixtures
-cuadran con estos pesos; el único desajuste (`dc5d73b0`) era un hueco en `source-classify.ts`, no
-un problema de pesos — ver "Testing strategy" y `lib/plan/__tests__/classify.test.ts`.
+navori-harness, 6 de repos Bonum) con su nivel esperado acordado de antemano. 14/14 fixtures
+cuadran con estos pesos tras `96d865ba`, que cuenta las skills project-local como prosa del
+harness — ver "Testing strategy" y `lib/plan/__tests__/classify.test.ts`.
 
 | Señal | Cómo se obtiene | Peso |
 |---|---|---|
