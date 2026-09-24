@@ -395,6 +395,15 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
     it.each(MANAGED_WRITE_VERDICTS)("$why: `$cmd` → $blocked", ({ cmd, blocked }) => {
       expect(runGuard(cmd)).toBe(blocked ? 2 : 0);
     });
+
+    // #1027 — the block message must point to an absolute-path redirect as the
+    // way out for files that live OUTSIDE the project (e.g. a scratchpad), since
+    // rule 6 gets no exception for that case (TOCTOU: outOfScope in the ticket).
+    it("blocks a relative redirect into a managed path and points to an absolute-path redirect", () => {
+      const { status, stderr } = runGuardVerbose("echo x > .claude/agents/implementer.md");
+      expect(status).toBe(2);
+      expect(stderr).toContain("absolute path");
+    });
   });
 
   /**
