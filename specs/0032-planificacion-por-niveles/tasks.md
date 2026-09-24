@@ -9,22 +9,28 @@ agentes y skills, y al final encender y medir en este repo.
 
 ## Lote 0 — Calibración
 
-- [ ] **T0** (R2, R3, R4, R5) — Calibrar pesos con el usuario sobre 10 tareas reales (5 de Bonum,
-  5 de navori) antes de fijar `signals.ts` · test: fixtures de esas 10 tareas con su nivel
-  esperado en `lib/plan/__tests__/classify.test.ts`, con `// Covers: R2, R3, R4, R5`.
+- [x] **T0** (R2, R3, R4, R5) — Calibrado con el usuario sobre 14 tareas reales (8 de navori, 6 de
+  Bonum) contra `signals.ts` (2026-09-23, #1011) · test: fixtures de esas 14 tareas con su nivel
+  esperado en `lib/plan/__tests__/classify.test.ts`, con `// Covers: R2, R3, R4, R5`. El único
+  desajuste (`dc5d73b0`, navori-harness) quedó resuelto: `classifyPath`
+  (`lib/diagnose/source-classify.ts`) ahora acepta un parámetro `localSkillIds` para reconocer las
+  skills project-local como fuente en vez de "generated". Los otros tres consumidores de
+  `CLASSIFY_RULES` — el hook `routing-watch.sh`, su partial `_partials/classify-source.sh` y
+  `scripts/py/source-classify.rules.json` — conservan la limitación original (no reciben
+  `localSkillIds`).
 
 ## Lote 1 — Núcleo (sin flag)
 
-- [ ] **T1** (R10, R13, R14) — Esquema zod del workplan en `lib/plan/schema.ts` · test:
+- [x] **T1** (R10, R13, R14) — Esquema zod del workplan en `lib/plan/schema.ts` · test:
   `schema.test.ts`, con `// Covers: R10, R13, R14`.
-- [ ] **T2** (R1, R2, R3, R4, R5, R9) — `signals.ts` + `classify.ts` reusando `source-classify`;
+- [x] **T2** (R1, R2, R3, R4, R5, R9) — `signals.ts` + `classify.ts` reusando `source-classify`;
   campo `project.criticalPaths` · test: `classify.test.ts`, con `// Covers: R1, R2, R3, R4, R5,
   R9`.
-- [ ] **T3** (R11, R12) — `render.ts` determinista y `update` · test: `render.test.ts` (snapshot,
+- [x] **T3** (R11, R12) — `render.ts` determinista y `update` · test: `render.test.ts` (snapshot,
   mismos bytes dos veces), con `// Covers: R11, R12`.
-- [ ] **T4** (R15) — `check` (reglas del R13 original + esquema + nivel declarado menor que el
+- [x] **T4** (R15) — `check` (reglas del R13 original + esquema + nivel declarado menor que el
   calculado) · test: `check.test.ts`, un fixture inválido por regla, con `// Covers: R15`.
-- [ ] **T5** (R1, R11, R12, R15) — `commands/plan.ts` con `classify|render|update|check` en
+- [x] **T5** (R1, R11, R12, R15) — `commands/plan.ts` con `classify|render|update|check` en
   `subCommands` · test: `commands/__tests__/plan.test.ts`, con `// Covers: R1, R11, R12, R15`.
 
 ## Lote 2 — Flag, gate y bloque

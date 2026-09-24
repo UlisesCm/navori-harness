@@ -47,14 +47,17 @@ secciones. Así hay un formato y un parser, no dos.
 
 ## Señales y pesos
 
-Pesos iniciales, a calibrar con el usuario en T0:
+Pesos calibrados con el usuario en T0 (2026-09-23, #1011) contra 14 commits reales (8 de
+navori-harness, 6 de repos Bonum) con su nivel esperado acordado de antemano. 13/14 fixtures
+cuadran con estos pesos; el único desajuste (`dc5d73b0`) era un hueco en `source-classify.ts`, no
+un problema de pesos — ver "Testing strategy" y `lib/plan/__tests__/classify.test.ts`.
 
 | Señal | Cómo se obtiene | Peso |
 |---|---|---|
 | Archivos no triviales (`source-classify`) | medido sobre Archivos | 1 → 0 · 2–3 → +2 · 4–7 → +3 · 8+ → +4 |
 | Directorios raíz distintos tocados | medido | 2 → +1 · 3+ → +2 |
 | Bug sin causa raíz confirmada | declarado | +2 |
-| Área crítica (`project.criticalPaths` o declarada) | medido o declarado | piso 2 |
+| Área crítica (`project.criticalPaths` o declarada) | medido o declarado | +3 (override de calibración: ya no es piso) |
 | Dinero, credenciales o PII | declarado | piso 2 |
 | Dos o más repos | declarado | piso 2 |
 | Dependencia externa nueva | medido (manifiestos) o declarado | piso 2 |
