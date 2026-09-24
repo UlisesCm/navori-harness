@@ -38,14 +38,10 @@ const MIN_LINKS_DISCOVERED = 70;
  * `target` are exactly what the offender list below would print.
  */
 const KNOWN_EXCEPTIONS = new Set([
-  // `docs/research/*-lessons.md` and `docs/research/ecc-lessons.md` quote OTHER
-  // repos verbatim (their README prose or their own file tree), inside
-  // backtick-wrapped inline code or a `>` blockquote. The link target is a path
-  // in THAT repo, or bare markdown-link syntax used as a literal example — never
-  // a path meant to resolve inside navori.
-  "docs/research/deepseek-harness-lessons.md -> docs/testing.md", // quoted from dsh's own AGENTS.md, dsh's own docs/testing.md
-  "docs/research/deepseek-harness-lessons.md -> implemented/process/2026-07-19-remove-generated-agent-note-index.md", // quoted from dsh's own repo
-  "docs/research/deepseek-harness-lessons.md -> .agents/notes/README.md#when-to-write-one", // quoted from dsh's own repo
+  // `docs/research/ponytail-lessons.md` quotes ponytail's own README verbatim
+  // inside a `>` blockquote (not a code span, so extractLinks still sees it).
+  // The link target is a path in THAT repo, not one meant to resolve inside
+  // navori.
   "docs/research/ponytail-lessons.md -> benchmarks/", // quoted from ponytail's own README, ponytail's own benchmarks/
 
   // Core-assets templates render into a DIFFERENT location than their source
@@ -58,15 +54,35 @@ const KNOWN_EXCEPTIONS = new Set([
 ]);
 
 /**
- * Markdown links `[text](target)`, skipping fenced code blocks and inline
- * code spans. Fences go first so a fence's own backtick run never gets
- * mistaken for a span delimiter; spans are stripped with a backreference so
- * `` `` `[a](b)` `` `` (double-backtick span) is removed as a unit rather
- * than matched by single backticks inside it.
+ * Strips fenced code blocks. A fence opens on a line with (optionally
+ * indented / blockquote-prefixed) 3+ backticks or tildes, and closes on a
+ * line with the same run length of the same character — matched via
+ * backreference so a 4-backtick fence isn't mismatched against a
+ * hardcoded 3-backtick assumption, which used to leave a stray backtick
+ * that then paired with an unrelated one hundreds of lines away.
  */
+function stripFences(markdown) {
+  return markdown.replace(/^[ \t>]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n[ \t>]*\1[`~]*[ \t]*$/gm, "");
+}
+
+/**
+ * Strips inline code spans (including multi-backtick spans like
+ * `` `` `x` `` ``) paragraph by paragraph, so a span can never swallow
+ * content across a blank line the way CommonMark itself forbids — this
+ * bounds the blast radius of a stray unmatched backtick to a single
+ * paragraph instead of the rest of the document.
+ */
+function stripCodeSpans(markdown) {
+  return markdown
+    .split(/\n[ \t]*\n/)
+    .map((paragraph) => paragraph.replace(/(`+)[\s\S]*?\1/g, ""))
+    .join("\n\n");
+}
+
+/** Markdown links `[text](target)`, skipping fenced code blocks and inline code spans. */
 function extractLinks(markdown) {
-  const withoutFences = markdown.replace(/```[\s\S]*?```/g, "");
-  const withoutCodeSpans = withoutFences.replace(/(`+)[\s\S]*?\1/g, "");
+  const withoutFences = stripFences(markdown);
+  const withoutCodeSpans = stripCodeSpans(withoutFences);
   const links = [];
   for (const match of withoutCodeSpans.matchAll(/\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
     links.push(match[1]);
