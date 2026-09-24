@@ -1,6 +1,6 @@
 {
   "name": "navori",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Multi-agent harness + SDD scaffolder for Claude Code and other AI engines",
   "type": "module",
   "bin": {
@@ -23,7 +23,7 @@
     "plugins": 7,
     "presets": 12,
     "coreAgents": 8,
-    "coreSkills": 14,
+    "coreSkills": 16,
     "librarySkills": 36
   },
   "license": "MIT",

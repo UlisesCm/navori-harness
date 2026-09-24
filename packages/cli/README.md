@@ -80,6 +80,7 @@ Y genera:
 | `status` | Snapshot rápido: config, plugins activos, conteo de drift y próximos pasos |
 | `audit` | Reporta cómo corrió el harness de verdad: atribución de tokens y huecos de adherencia en tus sesiones |
 | `receipt <sign\|check>` | Firma o verifica los bytes revisados antes de publicar un cambio (`navori receipt <sign\|check> --feature <id> [--target <ref>] [--dir <path>] [--json]`) |
+| `plan <sub>` | Planificación por niveles (`harness.planTiers`): `classify [--files\|--diff]` mide complejidad y nivel de una tarea, `render`/`update` mantienen el workplan Markdown en sync con su JSON, `check` valida su esquema y reglas, `gate` es el hook `PreToolUse(Agent)` que niega el despacho sin workplan válido |
 | `bench` | Corre `render` en dry-run N veces y reporta latencias (detecta regresiones locales) |
 | `workspace <sub>` | Gestiona workspaces cross-repo (`init`, `ls`, `show`, `rm`) |
 | `ticket <sub>` | Gestiona tickets-as-files en un workspace (`new`, `list`, `show`, `archive`, `delete`) |
@@ -145,6 +146,25 @@ Activar uno:
 navori add engram          # te ofrece instalar la tool externa si falta
 navori add engram --skip-install   # solo registra el plugin
 ```
+
+## Planificación por niveles (`harness.planTiers`)
+
+Con `harness.planTiers: true` en `navori.config.json`, `navori plan classify` mide la
+complejidad de una tarea (señales como dinero/credenciales/PII, dependencia nueva, migración de
+esquema, o tocar una ruta de `project.criticalPaths`) y la ubica en un nivel 0–3. El hook
+`PreToolUse(Agent)` (`navori plan gate`) niega el despacho de un subagente sin el workplan que su
+nivel exige, y escala la exigencia tras dos rechazos seguidos. `navori plan classify --diff`
+corre el mismo clasificador contra `git diff --name-only <base>...HEAD` para avisar cuando el
+trabajo se salió del nivel que el workplan declaró.
+
+`project.criticalPaths` (array de globs) es opcional: sin él, `classify` solo detecta el criterio
+"toca un área crítica" cuando se declara explícitamente con `--criticalArea`, en vez de inferirlo
+de los archivos tocados.
+
+El agente `architect` ya no tiene un flag `harness.architect` — renderiza siempre, con
+`models.architect`/`effort.architect` (`opus`/`xhigh` por default) ajustando su tier. Un config
+que todavía trae `harness.architect` falla con un aviso de clave retirada en vez de ignorarla en
+silencio; `navori configure migrate` la quita.
 
 ## Harness defensivo (read-only por default)
 

@@ -393,6 +393,7 @@ describe("CLI e2e — happy paths", () => {
     expect(config.project).toEqual({
       legacyPaths: [],
       criticalAreas: [],
+      criticalPaths: [],
       localSkills: [],
       libraries: ["vitest"],
       libraryMigrations: [],
@@ -485,6 +486,7 @@ describe("CLI e2e — happy paths", () => {
     expect(config.project).toEqual({
       legacyPaths: [],
       criticalAreas: [],
+      criticalPaths: [],
       localSkills: [],
       libraries: [],
       libraryMigrations: [],

@@ -111,7 +111,13 @@ export const RECOMMENDED_EFFORT = {
   auditor: "medium",
   publisher: "low",
   scribe: "low",
-  architect: "high",
+  // Spec 0032 (#1011), R34: the architect now always renders (no
+  // `harness.architect` flag), so this default is what every repo's
+  // `navori.config.json` gets. Raised from `high` to `xhigh`: a level-2/3
+  // design pass runs far less often than the mechanical roles above, so the
+  // cost of the top tier is acceptable there (design.md "Admisión del
+  // architect").
+  architect: "xhigh",
 } as const;
 
 /**

@@ -10,7 +10,7 @@ import { getCoreRoot } from "../render/bundled-assets.ts";
  * sentinel / non-empty parts.
  */
 
-const SKILL_IDS = ["verify-before-done", "debug-failure"] as const;
+const SKILL_IDS = ["verify-before-done", "debug-failure", "plan-simple", "plan-advanced"] as const;
 
 const SENTINEL = "<!-- navori:user-section -->";
 
@@ -81,5 +81,69 @@ describe("core skill assets — interpolation placeholders", () => {
 
   it("verify-before-done references branchBase (PR pre-flight)", () => {
     expect(readSkill("verify-before-done")).toContain("{{branchBase}}");
+  });
+});
+
+/**
+ * Spec 0032 lote 3 (#1011), T9 — `plan-simple`/`plan-advanced` carry the
+ * level-1/level-2 procedure the `planificacion` context block only points
+ * at (R22), plus the literal phrases `lote3_markdown.md` (sections A, B)
+ * requires verbatim.
+ *
+ * Covers: R22, R10, R12, R13, R14, R36, R37
+ */
+describe("plan-simple / plan-advanced — literal content contract (T9)", () => {
+  it("plan-simple's frontmatter description is the literal contract text", () => {
+    expect(readSkill("plan-simple")).toContain(
+      "description: Use when `navori plan classify` returns level 1 or the plan gate denies an " +
+        "implementer dispatch — writes the level-1 workplan JSON, renders and checks it, and " +
+        "keeps it current while the work runs. Not for level 2 (plan-advanced) or an accepted " +
+        "spec (spec-bootstrap).",
+    );
+  });
+
+  it("plan-simple names the workplan draft fields (R10, R13)", () => {
+    const body = readSkill("plan-simple");
+    expect(body).toContain(".claude/progress/workplan_<feature>.json");
+    expect(body).toContain('"new": true');
+  });
+
+  it("plan-simple carries the literal encargo/update/hand-render phrases (R36, R37)", () => {
+    const body = readSkill("plan-simple");
+    expect(body).toContain(
+      "Open every implementer encargo with `workplan: <feature>` and list the `A<n>` that sub-task covers.",
+    );
+    expect(body).toContain("When a sub-task closes, record it with `navori plan update`");
+    expect(body).toContain(
+      "Never write `workplan_<feature>.md` by hand — it is `navori plan render` output.",
+    );
+  });
+
+  it("plan-advanced's frontmatter description is the literal contract text", () => {
+    expect(readSkill("plan-advanced")).toContain(
+      "description: Use when `navori plan classify` returns level 2 (score ≥ 8 or a floor) or " +
+        "the plan gate escalates a feature after two rejections — runs the architect design, the " +
+        "auditor challenge and the user's choice before the level-2 workplan. Not for level 1 " +
+        "(plan-simple) or an accepted spec (spec-bootstrap).",
+    );
+  });
+
+  it("plan-advanced carries the literal user-choice and knowledge-destination phrases (R23, R26)", () => {
+    const body = readSkill("plan-advanced").replace(/\s+/g, " ");
+    expect(body).toContain(
+      "Present the surviving options to the user with the recommended one first and the " +
+        "challenge findings beside each; the user picks.",
+    );
+    expect(body).toContain(
+      "Knowledge destinations the architect proposes are proposals: write none without the " +
+        "user's approval, and a Dominio entry only on explicit approval.",
+    );
+  });
+
+  it("plan-advanced names the level-2 workplan's extra sections (R14)", () => {
+    const body = readSkill("plan-advanced");
+    expect(body).toContain("solution {path, verdict}");
+    expect(body).toMatch(/phases/i);
+    expect(body).toMatch(/risks? with (its |their )?rollback/i);
   });
 });

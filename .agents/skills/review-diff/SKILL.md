@@ -10,7 +10,7 @@ metadata:
   maxWordsComposed: 1450
 ---
 
-<!-- navori:managed id="review-diff-base" hash="769dfdb2" version="0.9.0" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="review-diff-base" hash="769dfdb2" version="0.10.0" source="@navori/core" fmkeys="name,description,metadata" -->
 # Code review — checklist for a diff
 
 Apply this checklist to a diff (staged, branch vs `main`, or a specific PR). The skeleton is stack-agnostic; the rules specific to your repo live in the user-section at the end.
@@ -128,7 +128,7 @@ Pay extra attention if the diff touches `render/sync/backup writes and deletes i
 - `verify-before-done`: the §9 quality gate is run this turn, not assumed from the implementer's report.
 <!-- /navori:managed id="review-diff-base" -->
 
-<!-- navori:managed id="jscpd-review-extension" hash="3ff63c52" version="0.9.0" source="@navori/plugin-jscpd" -->
+<!-- navori:managed id="jscpd-review-extension" hash="3ff63c52" version="0.10.0" source="@navori/plugin-jscpd" -->
 ## Code duplication (jscpd)
 
 Before approving a change, run the repository's canonical gate command:

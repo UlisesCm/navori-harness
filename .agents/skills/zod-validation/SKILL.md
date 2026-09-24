@@ -6,7 +6,7 @@ metadata:
   maxWords: 600
 ---
 
-<!-- navori:managed id="zod-validation" hash="e77d43b3" version="0.9.0" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="zod-validation" hash="e77d43b3" version="0.10.0" source="@navori/core" fmkeys="name,description,metadata" -->
 # Zod Validation — the canonical pattern
 
 One schema per resource (`<resource>.schema.ts`), a generic validate middleware, and the DTO from `z.infer`.

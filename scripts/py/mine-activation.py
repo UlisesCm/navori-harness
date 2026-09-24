@@ -495,8 +495,359 @@ def _selftest():
         print(f"OK selftest: subagent_type=architect conteo={count}")
 
 
+# ─── Fase 2 — planificación por niveles (spec 0032, R32) ────────────────────
+#
+# Por repo: total de tareas, conteo por nivel, porcentaje de nivel >= 1,
+# clasificaciones erróneas y escalamientos por rechazo. Una "tarea" es UN
+# despacho al `implementer`: la línea de apertura del encargo que el gate
+# exige (`workplan: <feature>` o `nivel-0: <path>`, R16) es la marca que este
+# script reconoce en el `tool_use` de `Agent`/`Task` del hilo principal — el
+# mismo contrato que `evaluatePlanGate` valida en vivo
+# (`packages/cli/src/lib/plan/gate.ts`).
+WORKPLAN_LINE_RX = re.compile(r"^workplan:\s*(\S+)")
+NIVEL0_LINE_RX = re.compile(r"^nivel-0:\s*(\S+)")
+PROGRESS_DIRNAME = ".claude/progress"
+
+
+def _read_workplan_level(root, feature):
+    """Nivel declarado, leído del JSON del workplan si SIGUE en disco.
+
+    Es un artefacto efímero y gitignored (`workplan_<feature>.json`): una
+    tarea posterior lo puede sobrescribir antes de que este script mine la
+    sesión. Ausente no es cero — es "no verificable", y se cuenta aparte
+    (`unverifiable`) en vez de sesgar el reparto por nivel.
+    """
+    path = os.path.join(root, PROGRESS_DIRNAME, f"workplan_{feature}.json")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, errors="replace") as fh:
+            return json.load(fh).get("level")
+    except Exception:
+        return None
+
+
+def _read_gate_log_rejections(root, feature):
+    """Rechazos `CHANGES_REQUESTED` distintos que el gate ya grabó para este
+    feature (`workplan_<feature>.gate.jsonl`, `recordAndCountRejections` en
+    `lib/plan/gate.ts`, R19). Cada línea es una entrada; basta con contarlas."""
+    path = os.path.join(root, PROGRESS_DIRNAME, f"workplan_{feature}.gate.jsonl")
+    if not os.path.isfile(path):
+        return 0
+    n = 0
+    with open(path, errors="replace") as fh:
+        for line in fh:
+            if line.strip():
+                n += 1
+    return n
+
+
+def run_classify_diff(root, feature, dirname=PROGRESS_DIRNAME):
+    """Invoca `navori plan classify <feature> --diff --json` de verdad — R32
+    llama a la única definición de nivel (R1) en vez de reimplementar los
+    pesos de `signals.ts` en Python. Devuelve el JSON parseado, o `None`
+    cuando `navori` no está en PATH, el comando falla, o el workplan ya
+    rotó fuera de disco: "no verificable", nunca un valor adivinado.
+
+    Nombre de módulo (no un método de clase) a propósito: los tests lo
+    reasignan como global, igual que `_selftest` ya reasigna `PROJECTS`/
+    `AUDITS` — no hay `unittest.mock` en este script.
+    """
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            [
+                "navori",
+                "plan",
+                "classify",
+                feature,
+                "--diff",
+                "origin/main",
+                "--json",
+                "--cwd",
+                root,
+                "--dir",
+                dirname,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    # 0 = no excede el nivel declarado, 1 = lo excede (R21): ambos son un
+    # veredicto válido. Cualquier otro código es un fallo del comando.
+    if proc.returncode not in (0, 1):
+        return None
+    try:
+        return json.loads(proc.stdout.strip().splitlines()[-1])
+    except Exception:
+        return None
+
+
+def mine_dispatches(session):
+    """Cada despacho al `implementer` en el hilo principal de la sesión.
+
+    Un despacho sin la línea de apertura del gate (`workplan:`/`nivel-0:`) no
+    es una tarea que `plan classify` pueda evaluar — pasa solo cuando el gate
+    está apagado o degradado (R17); se excluye en vez de adivinar su nivel.
+    """
+    path = load(session)
+    if not path:
+        return []
+    root = session_cwd(session)
+    dispatches = []
+    with open(path, errors="replace") as fh:
+        for line in fh:
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            if d.get("type") != "assistant":
+                continue
+            content = (d.get("message") or {}).get("content")
+            if not isinstance(content, list):
+                continue
+            for b in content:
+                if not isinstance(b, dict) or b.get("type") != "tool_use":
+                    continue
+                if b.get("name") not in ("Agent", "Task"):
+                    continue
+                inp = b.get("input") or {}
+                if canon_role(str(inp.get("subagent_type", ""))) != "implementer":
+                    continue
+                first_line = str(inp.get("prompt", "")).split("\n", 1)[0].strip()
+                m0 = NIVEL0_LINE_RX.match(first_line)
+                mw = WORKPLAN_LINE_RX.match(first_line)
+                if m0:
+                    dispatches.append(dict(session=session, root=root, feature=None,
+                                            declared_level=0))
+                elif mw:
+                    feature = mw.group(1)
+                    dispatches.append(dict(session=session, root=root, feature=feature,
+                                            declared_level=_read_workplan_level(root, feature)))
+    return dispatches
+
+
+def mine_plan_tiers(sessions):
+    """R32: por repo, total de tareas, conteo por nivel, % de nivel >= 1,
+    clasificaciones erróneas y escalamientos por rechazo.
+
+    Cruce de instrumento: una escalación grabada por el gate exige al menos
+    dos despachos previos del MISMO feature (R19 — dos `CHANGES_REQUESTED`
+    antes de exigir el nivel siguiente). Si el log de escalaciones tiene
+    rechazos para un feature del que esta lista de sesiones vio menos de dos
+    despachos, la lista está incompleta para ese repo: se reporta
+    `doubtful_instrument` en vez del porcentaje (Contracts, design.md).
+    """
+    by_repo = {}
+    for s in sessions:
+        path = load(s)
+        if not path:
+            continue
+        repo = os.path.basename(os.path.dirname(path)).split("-Docs-")[-1]
+        entry = by_repo.setdefault(repo, dict(tasks=[], dispatch_counts=Counter()))
+        for d in mine_dispatches(s):
+            entry["tasks"].append(d)
+            if d["feature"]:
+                entry["dispatch_counts"][d["feature"]] += 1
+
+    report = {}
+    for repo, entry in by_repo.items():
+        tasks = entry["tasks"]
+        total = len(tasks)
+        level_counts = Counter(t["declared_level"] for t in tasks
+                                if t["declared_level"] is not None)
+        unverifiable = sum(1 for t in tasks if t["declared_level"] is None)
+
+        escalations, misclassified, checked, doubtful = 0, 0, 0, False
+        seen = set()
+        for t in tasks:
+            feature, root = t["feature"], t["root"]
+            if not feature or feature in seen:
+                continue
+            seen.add(feature)
+            rejections = _read_gate_log_rejections(root, feature)
+            if rejections >= 2:
+                escalations += 1
+                if entry["dispatch_counts"][feature] < 2:
+                    doubtful = True
+            if t["declared_level"] is not None:
+                verdict = run_classify_diff(root, feature)
+                if verdict is not None:
+                    checked += 1
+                    if verdict.get("exceedsDeclared"):
+                        misclassified += 1
+
+        classifiable = total - unverifiable
+        pct_ge1 = None
+        if not doubtful and classifiable:
+            n_ge1 = sum(c for lvl, c in level_counts.items() if lvl >= 1)
+            pct_ge1 = 100 * n_ge1 / classifiable
+
+        sessions_for_repo = len({t["session"] for t in tasks})
+        report[repo] = dict(
+            total_tasks=total,
+            level_counts=dict(level_counts),
+            unverifiable=unverifiable,
+            pct_level_ge1=pct_ge1,
+            misclassified=misclassified,
+            checked=checked,
+            escalations=escalations,
+            doubtful_instrument=doubtful,
+            sessions=sessions_for_repo,
+            provisional=sessions_for_repo < 15,
+        )
+    return report
+
+
+def print_plan_tiers_report(report, out=sys.stdout):
+    out.write("\n" + "=" * 104 + "\n")
+    out.write("PLANIFICACIÓN POR NIVELES — por repo (R32)\n")
+    out.write("=" * 104 + "\n")
+    for repo in sorted(report):
+        r = report[repo]
+        prov = " (provisional: < 15 sesiones)" if r["provisional"] else ""
+        out.write(f"\n{repo}{prov}\n")
+        out.write(f"  tareas={r['total_tasks']} (no verificables={r['unverifiable']}) "
+                   f"sesiones={r['sessions']}\n")
+        out.write(f"  por nivel: {r['level_counts']}\n")
+        if r["doubtful_instrument"]:
+            out.write("  % nivel >= 1: instrumento en duda (escalaciones grabadas sin los "
+                       "despachos que las explican en esta lista de sesiones)\n")
+        elif r["pct_level_ge1"] is not None:
+            out.write(f"  % nivel >= 1: {r['pct_level_ge1']:.1f}%\n")
+        else:
+            out.write("  % nivel >= 1: sin tareas verificables\n")
+        out.write(f"  clasificaciones erróneas: {r['misclassified']}/{r['checked']} verificadas\n")
+        out.write(f"  escalamientos por rechazo: {r['escalations']}\n")
+
+
+def _selftest_plan_tiers():
+    """Un fixture por métrica de R32, cada uno en su propio directorio de
+    usar y tirar, ejerciendo `mine_plan_tiers` de verdad — no una copia
+    paralela del conteo."""
+    import tempfile
+
+    global PROJECTS, AUDITS, run_classify_diff
+
+    def _write_session(proj_dir, session, dispatches):
+        """`dispatches`: lista de líneas de apertura del encargo
+        (`"workplan: foo"` / `"nivel-0: a.ts"`), una por despacho."""
+        recs = []
+        for opening in dispatches:
+            recs.append({"type": "user", "message": {"content": f"despacha ({opening})"}})
+            recs.append({
+                "type": "assistant",
+                "message": {"content": [{
+                    "type": "tool_use", "name": "Agent",
+                    "input": {"subagent_type": "implementer", "prompt": f"{opening}\nresto"},
+                }]},
+            })
+        with open(os.path.join(proj_dir, f"{session}.jsonl"), "w") as fh:
+            for rec in recs:
+                fh.write(json.dumps(rec) + "\n")
+
+    def _fresh_repo(tmp, name):
+        proj_dir = os.path.join(PROJECTS, name)
+        os.makedirs(proj_dir, exist_ok=True)
+        return proj_dir
+
+    with tempfile.TemporaryDirectory() as tmp:
+        PROJECTS = os.path.join(tmp, "projects")
+        AUDITS = os.path.join(tmp, "audits")
+        os.makedirs(PROJECTS)
+        real_run_classify_diff = run_classify_diff
+        run_classify_diff = lambda root, feature, dirname=PROGRESS_DIRNAME: None  # noqa: E731
+
+        # Métrica 1: total_tasks — dos despachos, uno nivel 0, uno workplan.
+        proj = _fresh_repo(tmp, "fixture-total")
+        root = os.path.join(tmp, "repo-total")
+        os.makedirs(root, exist_ok=True)
+        audits_repo = os.path.join(AUDITS, "fixture-total")
+        os.makedirs(audits_repo, exist_ok=True)
+        with open(os.path.join(audits_repo, "session-s-total.log"), "w") as fh:
+            fh.write(json.dumps({"event": "start", "cwd": root}) + "\n")
+        _write_session(proj, "s-total", ["nivel-0: a.ts", "workplan: feat-a"])
+        report = mine_plan_tiers(["s-total"])
+        r = report["fixture-total"]
+        assert r["total_tasks"] == 2, f"total_tasks debió ser 2, salió {r['total_tasks']}"
+        assert r["unverifiable"] == 1, "feat-a sin workplan.json en disco debe contar no verificable"
+
+        # Métrica 2: conteo por nivel — con los workplans en disco.
+        proj = _fresh_repo(tmp, "fixture-levels")
+        root = os.path.join(tmp, "repo-levels")
+        os.makedirs(os.path.join(root, PROGRESS_DIRNAME), exist_ok=True)
+        for feature, level in [("f0", 0), ("f1", 1), ("f2", 2)]:
+            with open(os.path.join(root, PROGRESS_DIRNAME, f"workplan_{feature}.json"), "w") as fh:
+                json.dump({"level": level}, fh)
+        AUDITS_repo = os.path.join(AUDITS, "fixture-levels")
+        os.makedirs(AUDITS_repo, exist_ok=True)
+        with open(os.path.join(AUDITS_repo, "session-s-levels.log"), "w") as fh:
+            fh.write(json.dumps({"event": "start", "cwd": root}) + "\n")
+        _write_session(proj, "s-levels", ["workplan: f0", "workplan: f1", "workplan: f2"])
+        report = mine_plan_tiers(["s-levels"])
+        r = report["fixture-levels"]
+        assert r["level_counts"] == {0: 1, 1: 1, 2: 1}, r["level_counts"]
+
+        # Métrica 3: % nivel >= 1 — reusa el fixture de niveles: 2 de 3 son >= 1.
+        assert abs(r["pct_level_ge1"] - (200 / 3)) < 0.01, r["pct_level_ge1"]
+
+        # Métrica 4: clasificaciones erróneas — `run_classify_diff` fijo a
+        # "excede el nivel declarado" para exactamente un feature.
+        run_classify_diff = lambda root, feature, dirname=PROGRESS_DIRNAME: (
+            {"exceedsDeclared": True} if feature == "f1" else {"exceedsDeclared": False}
+        )
+        report = mine_plan_tiers(["s-levels"])
+        r = report["fixture-levels"]
+        assert r["misclassified"] == 1, f"misclassified debió ser 1, salió {r['misclassified']}"
+        assert r["checked"] == 3, r["checked"]
+        run_classify_diff = lambda root, feature, dirname=PROGRESS_DIRNAME: None  # noqa: E731
+
+        # Métrica 5: escalamientos por rechazo — dos despachos del mismo
+        # feature más dos rechazos grabados en su `.gate.jsonl`.
+        proj = _fresh_repo(tmp, "fixture-escalation")
+        root = os.path.join(tmp, "repo-escalation")
+        os.makedirs(os.path.join(root, PROGRESS_DIRNAME), exist_ok=True)
+        with open(os.path.join(root, PROGRESS_DIRNAME, "workplan_feat-b.gate.jsonl"), "w") as fh:
+            fh.write(json.dumps({"reviewHash": "h1", "verdict": "CHANGES_REQUESTED"}) + "\n")
+            fh.write(json.dumps({"reviewHash": "h2", "verdict": "CHANGES_REQUESTED"}) + "\n")
+        AUDITS_repo = os.path.join(AUDITS, "fixture-escalation")
+        os.makedirs(AUDITS_repo, exist_ok=True)
+        with open(os.path.join(AUDITS_repo, "session-s-escalation.log"), "w") as fh:
+            fh.write(json.dumps({"event": "start", "cwd": root}) + "\n")
+        _write_session(proj, "s-escalation", ["workplan: feat-b", "workplan: feat-b"])
+        report = mine_plan_tiers(["s-escalation"])
+        r = report["fixture-escalation"]
+        assert r["escalations"] == 1, f"escalations debió ser 1, salió {r['escalations']}"
+        assert r["doubtful_instrument"] is False, "dos despachos vistos explican la escalación"
+
+        # Métrica 6: instrumento en duda — misma escalación, pero la lista de
+        # sesiones solo trae UN despacho de `feat-b`: falta evidencia.
+        with open(os.path.join(AUDITS_repo, "session-s-escalation-solo.log"), "w") as fh:
+            fh.write(json.dumps({"event": "start", "cwd": root}) + "\n")
+        _write_session(proj, "s-escalation-solo", ["workplan: feat-b"])
+        report = mine_plan_tiers(["s-escalation-solo"])
+        r = report["fixture-escalation"]
+        assert r["doubtful_instrument"] is True, "un despacho no explica dos rechazos grabados"
+        assert r["pct_level_ge1"] is None, "en duda no debe reportar un porcentaje"
+
+        # Métrica 7: provisional — menos de 15 sesiones por repo.
+        assert r["provisional"] is True, "una sola sesión debe marcarse provisional"
+
+        run_classify_diff = real_run_classify_diff
+        print("OK selftest: mine_plan_tiers cubre las 7 métricas de R32")
+
+
 if len(sys.argv) > 1 and sys.argv[1] == "--selftest":
     _selftest()
+    _selftest_plan_tiers()
+    sys.exit(0)
+
+if len(sys.argv) > 2 and sys.argv[1] == "--plan-tiers":
+    plan_sessions = [s.strip() for s in open(sys.argv[2]) if s.strip()]
+    print_plan_tiers_report(mine_plan_tiers(plan_sessions))
     sys.exit(0)
 
 SESSIONS = [s.strip() for s in open(sys.argv[1]) if s.strip()]

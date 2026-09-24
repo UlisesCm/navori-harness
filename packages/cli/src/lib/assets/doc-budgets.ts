@@ -64,7 +64,13 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // measures the `navori-agents` BLOCK alone for `doctor`'s per-repo report;
   // this one measures the WHOLE file for navori's own hard gate. They differ
   // by the ~12 words of the seeded user-section outside the marker.
-  "AGENTS.md": 4530, // 4128 → 9.7%
+  // spec 0032 (#1011), lote 4/T12: turning this repo's own `harness.planTiers`
+  // on (R31) renders the `planificacion` block and the always-on architect
+  // paragraph into `AGENTS.md` for the first time here, landing at 4471 words
+  // (`wc -w AGENTS.md`). Recalibrated per the #955 rule (≥10% headroom,
+  // `ceiling = ceil(words × 1.10)`), not the old ×1.05/#908 floor this line
+  // used before: ceil(4471 × 1.10) = 4919.
+  "AGENTS.md": 4919,
 
   // Core managed blocks — auto-discovered from `core-assets/managed/`.
   // Entries recalibrated in #955 carry `// <measured> → <headroom>` at ×1.10.
@@ -77,6 +83,14 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   "packages/core/core-assets/managed/intake-tickets.md": 251, // 228 → 10.1%
   "packages/core/core-assets/managed/operaciones-seguras.md": 310,
   "packages/core/core-assets/managed/orquestacion.md": 1060, // 963 → 10.1%
+  // Spec 0032 (#1011): own small ceiling (design.md "Components" targets
+  // ~250 words) — the level table and the gate rule only, condition
+  // `harness.planTiers`. Calibrated like every other entry here (measured ×
+  // 1.10, not a bare 250): a brand-new budget follows this file's own
+  // recalibration rule from day one instead of starting one policy violation
+  // away from red.
+  "packages/core/core-assets/managed/planificacion.md": 274, // 249 → 10.0%
+
   "packages/core/core-assets/managed/sdd.md": 208, // 189 → 10.1%
   "packages/core/core-assets/managed/tipado-fuerte.md": 50,
 

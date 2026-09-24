@@ -58,26 +58,28 @@ describe("scanMissingModelProfile (#817)", () => {
       harnessKey: "scout",
       missing: ["model", "effort"],
     });
-    // The 7 core agents on by default (orchestrator included — it's rendered
-    // for Claude). `architect` (spec 0026 T19) defaults OFF as of the phase F
-    // review (2026-09-17) — it's exercised separately below.
+    // The 8 core agents on by default (orchestrator included — it's rendered
+    // for Claude; `architect` always renders too since spec 0032 R33 retired
+    // its `harness.architect` toggle).
     expect(issues.map((i) => i.agent).sort()).toEqual(
-      ["auditor", "implementer", "orchestrator", "publisher", "reviewer", "scout", "scribe"].sort(),
+      [
+        "architect",
+        "auditor",
+        "implementer",
+        "orchestrator",
+        "publisher",
+        "reviewer",
+        "scout",
+        "scribe",
+      ].sort(),
     );
   });
 
-  // Spec 0026 F review (2026-09-17): `harness.architect` defaults to `false`,
-  // so it must NOT appear in the default scan, and must appear once a repo
-  // opts in via `harness: { architect: true }` — same pattern already pinned
-  // for `auditor`'s opt-OUT case below, mirrored for architect's opt-IN case.
-  it("architect is absent from the default scan (off by default)", () => {
-    const issues = scanMissingModelProfile(config());
-    expect(issues.some((i) => i.agent === "architect")).toBe(false);
-  });
-
-  it("architect is flagged once the repo opts in via harness.architect", () => {
-    const cfg = config({ harness: { architect: true } as NavoriConfig["harness"] });
-    const architect = scanMissingModelProfile(cfg).find((i) => i.agent === "architect");
+  // Spec 0032 (#1011), R33: `harness.architect` is retired — the agent always
+  // renders, so it is flagged by default like every other core agent whose
+  // tiers are unset.
+  it("architect is flagged by default (no more harness.architect toggle)", () => {
+    const architect = scanMissingModelProfile(config()).find((i) => i.agent === "architect");
     expect(architect).toEqual({
       agent: "architect",
       harnessKey: "architect",

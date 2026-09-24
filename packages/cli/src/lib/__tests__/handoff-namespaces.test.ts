@@ -135,6 +135,14 @@ function declaredInLeader(): Set<string> {
       if (bullets.length > 0) break;
       continue;
     }
+    // A bare `<!-- navori:if[-not] ... -->` / `<!-- /navori:if -->` line gates
+    // a whole bullet (spec 0032, #1011: the `workplan_*` line only applies
+    // under `planTiers`) without breaking the contiguous list it renders
+    // into — the render strips these lines entirely, so the RENDERED file
+    // never has this gap. Only a marker occupying its OWN line is skipped;
+    // one inline inside a "- " bullet (the existing `scribeOwnsMarkdown`
+    // pattern) is unaffected, since that line still starts with "- ".
+    if (/^<!--\s*\/?navori:if(-not)?\b[^>]*-->\s*$/.test(line.trim())) continue;
     if (!line.startsWith("- ")) break;
     bullets.push(line);
   }

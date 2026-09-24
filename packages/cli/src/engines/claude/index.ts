@@ -168,22 +168,27 @@ const ORCHESTRATOR_CONTEXT_DIR = ".claude/context";
  *
  * A numeric prefix makes the glob produce the priority order by construction:
  * the hook stays dumb (its contract), and the order lives where the hook
- * already looks — the filesystem. Steps of 10 so a future block lands between
- * two without renaming the rest. Ids missing from this list sort last at 90:
- * a new audience block must claim its slot here deliberately.
+ * already looks — the filesystem. Explicit numbers (not array position) so a
+ * future block lands between two without renaming the rest — spec 0032 (R6,
+ * R8) used exactly that slot: `planificacion` claims `5`, ahead of
+ * `orquestacion`'s `10`, and none of the other three files' names change.
+ * Ids missing from this map sort last at 90: a new audience block must claim
+ * its slot here deliberately.
  */
-const ORCHESTRATOR_CONTEXT_ORDER: readonly string[] = [
-  "orquestacion",
-  "agentes-disponibles",
-  "arranque-sesion",
-  "cierre-sesion",
-];
+const ORCHESTRATOR_CONTEXT_ORDER: Readonly<Record<string, number>> = {
+  planificacion: 5,
+  orquestacion: 10,
+  "agentes-disponibles": 20,
+  "arranque-sesion": 30,
+  "cierre-sesion": 40,
+};
 
-/** `orquestacion` → `10-orquestacion.md`; unknown ids → `90-<id>.md`. */
+/** `orquestacion` → `10-orquestacion.md`; unknown ids → `90-<id>.md`. Zero-padded
+ * to 2 digits so the hook's plain alphabetical glob sorts numerically too —
+ * `planificacion`'s `05` would otherwise sort AFTER `10` as a bare string. */
 function orchestratorContextFileName(id: string): string {
-  const slot = ORCHESTRATOR_CONTEXT_ORDER.indexOf(id);
-  const prefix = slot === -1 ? 90 : (slot + 1) * 10;
-  return `${prefix}-${id}.md`;
+  const prefix = ORCHESTRATOR_CONTEXT_ORDER[id] ?? 90;
+  return `${String(prefix).padStart(2, "0")}-${id}.md`;
 }
 
 /**

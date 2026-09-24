@@ -558,6 +558,8 @@ interface CommonCmdStrings {
   retiredConfigKeys: (lines: string) => string;
   retiredKeyOne: (path: string, replacement: string, note: string) => string;
   retiredKeyAmbiguous: (paths: string, replacement: string, values: string, note: string) => string;
+  // spec 0032, R33: a retired key with no replacement — migration just deletes it.
+  retiredKeyRemoved: (path: string) => string;
   retiredEffortOrchestratorNote: string;
   // lib/marker.ts user-zone placeholder (emitted into a fresh CLAUDE.md).
   userSectionPlaceholder: string;
@@ -791,6 +793,10 @@ interface DoctorCmdStrings {
    *  session default. Advisory: an unset tier is a valid default. */
   missingModelProfile: (n: number, lines: string) => string;
   missingModelProfileRow: (missing: string) => string;
+  /** Spec 0032 R17 — `harness.planTiers` is on but a configured engine renders
+   *  no `PreToolUse(Agent)` gate; the workplan check degrades to the
+   *  reviewer's own `classify` pass (R21) for that engine's sessions. */
+  planTiersGateDegraded: (engines: string) => string;
   /** #393 — a growth directory (backups / agent worktrees) over its threshold. */
   diskUsage: (n: number, lines: string) => string;
   diskBackupsRow: (size: string) => string;
@@ -1244,6 +1250,8 @@ interface ConfigureCmdStrings {
   migratePlanHeader: string;
   migrateRenamedLine: (from: string, to: string) => string;
   migrateDroppedLine: (from: string, to: string) => string;
+  // spec 0032, R33: a retired key with no replacement — the migration deletes it.
+  migrateRemovedLine: (path: string) => string;
   migrateScoutPrompt: (target: string) => string;
   migrateDecisionPending: (targets: string) => string;
   migrateDecisionHint: string;
@@ -1612,6 +1620,7 @@ const CMD_ES: CmdStrings = {
     retiredKeyAmbiguous: (paths, replacement, values, note) =>
       `${paths} están retiradas y ambas mapean a ${replacement} — llevan valores distintos ` +
       `(${values}); elige uno y pon ${replacement} tú mismo, no se infiere${note}`,
+    retiredKeyRemoved: (path) => `${path} está retirada y ya no tiene efecto — elimínala`,
     retiredEffortOrchestratorNote:
       " (effort.orchestrator además fija el nivel de esfuerzo por defecto de la sesión)",
     userSectionPlaceholder:
@@ -1951,6 +1960,11 @@ const CMD_ES: CmdStrings = {
       `si buscabas el perfil de costo, declara 'models.<agente>' / ` +
       `'effort.<agente>' (ver RECOMMENDED_MODELS/RECOMMENDED_EFFORT):\n${lines}`,
     missingModelProfileRow: (missing) => `— falta: ${missing}`,
+    planTiersGateDegraded: (engines) =>
+      `harness.planTiers está activo pero ${engines} no renderiza el hook PreToolUse(Agent) ` +
+      `que despacha el gate — solo Claude Code lo hace. En esas sesiones el workplan solo ` +
+      `se verifica cuando el reviewer corre 'classify' sobre el diff (R21), no antes del ` +
+      `despacho del implementer.`,
     interpolationArtifacts: (n, lines) =>
       `Restos de interpolación en el árbol renderizado (${n}) — 'render' reescribe ` +
       `solo la zona managed, así que lo que cayó en la zona de usuario se queda ahí ` +
@@ -2344,6 +2358,7 @@ const CMD_ES: CmdStrings = {
     migratePlanHeader: "Cambios a aplicar en navori.config.json:",
     migrateRenamedLine: (from, to) => `${from} → ${to}`,
     migrateDroppedLine: (from, to) => `${from} se descarta (${to} ya está puesta)`,
+    migrateRemovedLine: (path) => `${path} se elimina (ya no tiene efecto)`,
     migrateScoutPrompt: (target) => `Dos claves retiradas mapean a ${target}. ¿Cuál valor gana?`,
     migrateDecisionPending: (targets) =>
       `Falta decidir el valor de: ${targets}. No se infiere (R40), así que no se escribió nada.`,
@@ -2900,6 +2915,7 @@ const CMD_EN: CmdStrings = {
     retiredKeyAmbiguous: (paths, replacement, values, note) =>
       `${paths} are retired and both map to ${replacement} — they carry different values ` +
       `(${values}); choose one and set ${replacement} yourself, it is not inferred${note}`,
+    retiredKeyRemoved: (path) => `${path} is retired and no longer has effect — remove it`,
     retiredEffortOrchestratorNote:
       " (effort.orchestrator also sets the session's default effort level)",
     userSectionPlaceholder:
@@ -3235,6 +3251,11 @@ const CMD_EN: CmdStrings = {
       `meant to set the cost profile, declare 'models.<agent>' / ` +
       `'effort.<agent>' (see RECOMMENDED_MODELS/RECOMMENDED_EFFORT):\n${lines}`,
     missingModelProfileRow: (missing) => `— missing: ${missing}`,
+    planTiersGateDegraded: (engines) =>
+      `harness.planTiers is on but ${engines} renders no PreToolUse(Agent) hook to dispatch ` +
+      `the gate — only Claude Code does. On those sessions the workplan is only checked ` +
+      `when the reviewer runs 'classify' over the diff (R21), not before the implementer ` +
+      `is dispatched.`,
     interpolationArtifacts: (n, lines) =>
       `Interpolation leftovers in the rendered tree (${n}) — 'render' only rewrites ` +
       `the managed zone, so whatever landed in the user zone stays there even after ` +
@@ -3623,6 +3644,7 @@ const CMD_EN: CmdStrings = {
     migratePlanHeader: "Changes to apply to navori.config.json:",
     migrateRenamedLine: (from, to) => `${from} → ${to}`,
     migrateDroppedLine: (from, to) => `${from} dropped (${to} is already set)`,
+    migrateRemovedLine: (path) => `${path} removed (no longer has effect)`,
     migrateScoutPrompt: (target) => `Two retired keys map to ${target}. Which value wins?`,
     migrateDecisionPending: (targets) =>
       `Still undecided: ${targets}. It is not inferred (R40), so nothing was written.`,

@@ -1,4 +1,5 @@
 import type { NavoriConfig } from "../config/config.ts";
+import { AGENT_ROLE_KEYS } from "../config/config.ts";
 
 /**
  * Legacy agent filenames (hand-rolled harnesses that predate navori) mapped to
@@ -21,13 +22,16 @@ export const LEGACY_AGENT_ALIASES: Readonly<Record<string, string>> = {
 };
 
 /**
- * Canonical agent id (kebab, = filename) → its `config.harness` key (camel).
- * Exported (spec 0026 T8, R42) so `roster-parity.test.ts` can verify it
- * against `engines/shared/roster.ts` without a second hand-copied mapping.
+ * Canonical agent id (kebab, = filename) → its role key (camel). Exported
+ * (spec 0026 T8, R42) so `roster-parity.test.ts` can verify it against
+ * `engines/shared/roster.ts` without a second hand-copied mapping.
+ *
+ * Typed against `AGENT_ROLE_KEYS` (the role-key space), not
+ * `keyof NavoriConfig["harness"]`: since spec 0032 R33 retired
+ * `harness.architect`, "architect" is a valid role key with no matching
+ * harness toggle — `detectLegacyAgents` below special-cases it.
  */
-export const CANONICAL_HARNESS_KEY: Readonly<
-  Record<string, keyof NonNullable<NavoriConfig["harness"]>>
-> = {
+export const CANONICAL_HARNESS_KEY: Readonly<Record<string, (typeof AGENT_ROLE_KEYS)[number]>> = {
   orchestrator: "orchestrator",
   implementer: "implementer",
   reviewer: "reviewer",
@@ -67,7 +71,8 @@ export function detectLegacyAgents(
     const key = CANONICAL_HARNESS_KEY[canonical];
     // No harness section → all agents default on. Otherwise honor the flag
     // (undefined is treated as enabled, matching isAgentEnabled in the engine).
-    const enabled = !harness || !key || harness[key] !== false;
+    // `architect` (spec 0032 R33) has no harness toggle anymore — always enabled.
+    const enabled = !harness || !key || key === "architect" || harness[key] !== false;
     if (enabled) out.push({ legacyName, canonical });
   }
   return out;

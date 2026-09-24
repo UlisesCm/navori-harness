@@ -1,4 +1,4 @@
-<!-- navori:managed id="cierre-sesion" hash="1e196b9d" version="0.9.0" source="@navori/core" -->
+<!-- navori:managed id="cierre-sesion" hash="1e196b9d" version="0.10.0" source="@navori/core" -->
 ## Session closeout
 
 Before closing the session:

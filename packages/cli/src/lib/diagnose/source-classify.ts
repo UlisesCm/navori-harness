@@ -210,10 +210,47 @@ export function toRepoRelative(filePath: string, repoRoot: string): string | nul
   return p.startsWith("/") ? null : p.replace(/^\.\//, "");
 }
 
-/** Clause (a), decided from the path alone. */
-export function classifyPath(filePath: string, repoRoot = ""): PathKind {
+/**
+ * `.claude/skills/<id>/` for an id declared in `project.localSkills`
+ * (`navori.config.json`) — the one path under `.claude/` that is NOT the
+ * rendered mirror `CLASSIFY_RULES`'s "generated" rule assumes. A project-local
+ * skill has no `core-assets`/`plugins` source to render from: the `SKILL.md`
+ * under `.claude/` IS the hand-authored asset, so it counts as clause (a)
+ * behavior instead.
+ */
+const LOCAL_SKILL_PATH = /^\.claude\/skills\/([^/]+)\//;
+
+/**
+ * True when `rel` is a project-local skill's own file, per `localSkillIds`.
+ *
+ * LIMITATION (out of scope for #1011's fix): only this TypeScript path knows
+ * about `localSkillIds`. The three other consumers of `CLASSIFY_RULES` —
+ * `routing-watch`'s hook, its `_partials/classify-source.sh` shell partial,
+ * and the generated `scripts/py/source-classify.rules.json` — still classify
+ * every `.claude/` path as "generated" and have no equivalent parameter.
+ */
+function isLocalSkillSource(rel: string, localSkillIds: ReadonlySet<string>): boolean {
+  if (localSkillIds.size === 0) return false;
+  const match = LOCAL_SKILL_PATH.exec(rel);
+  return match !== null && localSkillIds.has(match[1] as string);
+}
+
+/**
+ * Clause (a), decided from the path alone.
+ *
+ * @param localSkillIds - Ids from `project.localSkills` (`navori.config.json`).
+ * When provided, a path under `.claude/skills/<id>/` for a declared id counts
+ * as "source" instead of the default "generated" — see `isLocalSkillSource`'s
+ * limitation note for what this does NOT cover yet.
+ */
+export function classifyPath(
+  filePath: string,
+  repoRoot = "",
+  localSkillIds?: ReadonlySet<string>,
+): PathKind {
   const rel = toRepoRelative(filePath, repoRoot);
   if (rel === null) return "outside-repo";
+  if (localSkillIds && isLocalSkillSource(rel, localSkillIds)) return "source";
   for (const { kind, re } of CLASSIFY_RULES) if (re.test(rel)) return kind;
   if (HARNESS_PROSE.test(rel)) return "source";
   return SOURCE_EXT.test(rel) ? "source" : "docs";
@@ -241,13 +278,20 @@ export interface NonTrivialCount {
  * nothing; with none, a test suite is the change and counts as one file each.
  * Without that arm the rule would be dead on arrival in this repo, which asks
  * for a test with every fix — every bugfix would count two.
+ *
+ * @param localSkillIds - Forwarded to `classifyPath` as-is; see its own
+ * parameter doc for what it changes and its limitation.
  */
-export function countNonTrivial(paths: readonly string[], repoRoot = ""): NonTrivialCount {
+export function countNonTrivial(
+  paths: readonly string[],
+  repoRoot = "",
+  localSkillIds?: ReadonlySet<string>,
+): NonTrivialCount {
   const counted: string[] = [];
   const tests: string[] = [];
   const excluded: Record<string, string[]> = {};
   for (const p of paths) {
-    const kind = classifyPath(p, repoRoot);
+    const kind = classifyPath(p, repoRoot, localSkillIds);
     if (kind === "source") counted.push(p);
     else if (kind === "test") tests.push(p);
     else (excluded[kind] ??= []).push(p);

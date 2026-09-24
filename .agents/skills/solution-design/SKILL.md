@@ -10,7 +10,7 @@ metadata:
   maxWords: 1090
 ---
 
-<!-- navori:managed id="solution-design" hash="c3c2172e" version="0.9.0" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="solution-design" hash="c37472bd" version="0.10.0" source="@navori/core" fmkeys="name,description,metadata" -->
 # solution-design — decide what to build, then try to break it
 
 ## When to use this skill
@@ -29,31 +29,33 @@ A security-sensitive signal also routes through `secure-by-design`; a
 non-functional-requirement signal routes through `quality-attributes` for its
 evidence matrix. Neither replaces this skill's verdict.
 
-**Who does what (spec 0026 F, R49/R50).** Three roles, never collapsed: `architect`
-**proposes** (applies this skill, writes the artifact) when `harness.architect` is
-on — else the orchestrator proposes directly. `auditor` **challenges** in fresh
-context (or the orchestrator, with `auditor` off) — falsify, never propose or
-polish. The orchestrator **decides**: READY / CONCERNS / BLOCKED, always its call
-regardless of who proposed or challenged — synthesis is never delegated.
+**Who does what (spec 0026 F; spec 0032 R23, R33).** Three roles, never collapsed: `architect`
+**proposes** (applies this skill, writes the artifact) — always; there is no flag to turn it off.
+`auditor` **challenges** in fresh context (or the orchestrator, with `auditor` off) — falsify, never
+propose or polish. The orchestrator **decides**: READY / CONCERNS / BLOCKED, always its call
+regardless of who proposed or challenged — synthesis is never delegated. With planning tiers on, at
+level 2 the user picks among the surviving options before that verdict.
 
 ## The three failures this exists to prevent
 
 1. **Inheriting the proposed solution.** A ticket naming a library, pattern or
-   refactor already decided for you. Its diagnosis can be right and its remedy
+   refactor already decided for you. Its diagnosis can be right, its remedy
    wrong. If step 0 is "install what the ticket named", you skipped the design.
-2. **Listing costs without weighing them.** Naming three drawbacks and proceeding
-   anyway isn't analysis — a cost only counts against a concrete alternative.
+2. **Listing costs without weighing them.** Naming drawbacks and proceeding anyway
+   isn't analysis — a cost only counts against a concrete alternative.
 3. **Filing scope-breaking findings as notes.** Discovering that part of the
    request is dead code, already fixed, or unsolved by what was proposed is a
-   **verdict about scope**, not an open question at the bottom.
+   **verdict about scope**, not an open question.
 
 ## Process
 
 1. **What already exists — first, with evidence.** Before proposing anything, find
    what in the repo already solves this fully or partially: `file:line`, the
    existing pattern, the layer that owns it today. Ask what the smallest change to
-   THAT is. Prefer, unless documented evidence says otherwise:
-   `existing pattern > small extension > new abstraction > new subsystem`.
+   THAT is. Before any option, derive the decision drivers from the project's own
+   rules; the ladder `existing pattern > small extension > new abstraction > new
+   subsystem` is one driver, not the default winner. Verify every 'already exists'
+   claim against `origin/main`.
 2. **State the real problem** — the behavior that changes and who consumes it, not
    the symptom the ticket describes.
 3. **Approaches, only if ≥2 are genuine.** Never invent a straw alternative when
@@ -99,14 +101,13 @@ A `BLOCKED` must state four things: the blocking fact · why you cannot proceed
 without guessing · who resolves it · the minimum information needed. **If you
 cannot state all four, it is a CONCERN, not a blocker.**
 
-**A product fork is not automatically a blocker.** Tickets arrive written fast and
-half of them are ambiguous; if every ambiguity stops the work, this layer becomes
-the bottleneck it exists to remove. When you find a real fork, ask two questions:
-is one option defensible on the evidence you have, and is it cheap to reverse? If
-both, it is `CONCERNS` — take that option, write the recommendation and the
-discarded one explicitly ("going with B; if you meant A, say so"), and let the
-work start. `BLOCKED` is for when NO option is defensible without the missing
-fact, or when picking wrong is expensive to undo.
+**A product fork is not automatically a blocker.** Tickets arrive ambiguous;
+blocking on every one turns this layer into the bottleneck it exists to remove.
+On a real fork, ask: is one option defensible on the evidence, and cheap to
+reverse? If both, it is `CONCERNS` — take that option, write the recommendation
+and the discarded one explicitly ("going with B; if you meant A, say so"), and
+let the work start. `BLOCKED` is for when no option is defensible without the
+missing fact, or wrong picks are expensive to undo.
 
 Never blockers: naming preference, a hypothetical future abstraction, a minor
 optimization, an optional edge case, stylistic architecture taste.

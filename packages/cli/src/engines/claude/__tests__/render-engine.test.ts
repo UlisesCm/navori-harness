@@ -46,14 +46,6 @@ const CONFIG_HARNESS_FILTERED = {
   },
 } as unknown as NavoriConfig;
 
-// Spec 0026 F review (2026-09-17): `harness.architect` defaults to `false`,
-// so `CONFIG_FULL` (no explicit `harness` section) does NOT render it —
-// opting in needs an explicit `harness.architect: true`, exercised below.
-const CONFIG_WITH_ARCHITECT = {
-  ...CONFIG_FULL,
-  harness: { architect: true },
-} as unknown as NavoriConfig;
-
 let cwd: string;
 
 beforeEach(() => {
@@ -65,13 +57,16 @@ afterEach(() => {
 });
 
 describe("renderClaudeEngine — first render with full config", () => {
-  it("creates CLAUDE.md, .claude/settings.json, 7 agents, 2 skills, qg hook", () => {
+  it("creates CLAUDE.md, .claude/settings.json, 8 agents (architect always on), 2 skills, qg hook", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL);
 
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(true);
     expect(existsSync(join(cwd, ".claude/settings.json"))).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/scout.md"))).toBe(true);
+    // Spec 0032 (#1011), R33: `harness.architect` is retired — the agent
+    // always renders, with no opt-in needed.
+    expect(existsSync(join(cwd, ".claude/agents/architect.md"))).toBe(true);
     // Skills materialize in directory form (`<id>/SKILL.md`) — the shape Claude
     // Code auto-discovers; a flat `<id>.md` is inert (#166).
     expect(existsSync(join(cwd, ".claude/skills/verify-before-done/SKILL.md"))).toBe(true);
@@ -82,6 +77,7 @@ describe("renderClaudeEngine — first render with full config", () => {
 
     const agentPaths = r.written.filter((w) => w.path.startsWith(".claude/agents/"));
     expect(agentPaths.map((w) => w.path).sort()).toEqual([
+      ".claude/agents/architect.md",
       ".claude/agents/auditor.md",
       ".claude/agents/implementer.md",
       ".claude/agents/orchestrator.md",
@@ -94,37 +90,10 @@ describe("renderClaudeEngine — first render with full config", () => {
     expect(claudeMd?.status).toBe("created");
     const settings = r.written.find((w) => w.path === ".claude/settings.json");
     expect(settings?.status).toBe("created");
-    // Spec 0026 F review (2026-09-17): `harness.architect` defaults to false,
-    // so the default render carries the `navori:if-not architect` half of the
-    // architectural-pass doctrine (the orchestrator applies the skill itself).
-    // Spec 0019 routes the orchestration block to `.claude/context/`, not
-    // inline in CLAUDE.md.
-    const orquestacionBody = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
-    expect(orquestacionBody).toContain("`solution-design` skill, applied by you");
-    expect(orquestacionBody).not.toContain("`architect` applies `solution-design` and writes");
-  });
-
-  // Spec 0026 F review (2026-09-17): the opt-in branch. `architect` renders
-  // only once `harness.architect: true` is explicit — this is the
-  // `navori:if architect` half of the doctrine; the default-off render above
-  // is the `navori:if-not architect` half every fresh repo actually gets.
-  it("renders architect.md once harness.architect is explicitly enabled", () => {
-    const r = renderClaudeEngine(cwd, CONFIG_WITH_ARCHITECT);
-    expect(existsSync(join(cwd, ".claude/agents/architect.md"))).toBe(true);
-    const agentPaths = r.written
-      .filter((w) => w.path.startsWith(".claude/agents/"))
-      .map((w) => w.path)
-      .sort();
-    expect(agentPaths).toEqual([
-      ".claude/agents/architect.md",
-      ".claude/agents/auditor.md",
-      ".claude/agents/implementer.md",
-      ".claude/agents/orchestrator.md",
-      ".claude/agents/publisher.md",
-      ".claude/agents/reviewer.md",
-      ".claude/agents/scout.md",
-      ".claude/agents/scribe.md",
-    ]);
+    // Spec 0032 (#1011), R33: the architectural pass now always names
+    // `architect` as its proposer — there is no more `harness.architect`
+    // switch. Spec 0019 routes the orchestration block to `.claude/context/`,
+    // not inline in CLAUDE.md.
     const orquestacionBody = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
     expect(orquestacionBody).toContain("`architect` applies `solution-design` and writes");
   });
@@ -220,13 +189,14 @@ describe("renderClaudeEngine — config gates", () => {
     expect(r.warnings.some((w) => w.includes("config.qualityGate.fast"))).toBe(true);
   });
 
-  it("renders only agents enabled in config.harness", () => {
+  it("renders only agents enabled in config.harness (architect always on, spec 0032 R33)", () => {
     const r = renderClaudeEngine(cwd, CONFIG_HARNESS_FILTERED);
     const agents = r.written.filter((w) => w.path.startsWith(".claude/agents/"));
     expect(agents.map((a) => a.path)).toEqual([
       ".claude/agents/orchestrator.md",
       ".claude/agents/implementer.md",
       ".claude/agents/reviewer.md",
+      ".claude/agents/architect.md",
     ]);
     expect(existsSync(join(cwd, ".claude/agents/scout.md"))).toBe(false);
   });
@@ -490,15 +460,16 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     const first = renderClaudeEngine(cwd, CONFIG_FULL);
     // Inspected counts every managed asset processed:
     //   1 CLAUDE.md + 1 settings.json + 1 .mcp.json (engram declares an mcpServer,
-    //   #212) + 7 agents (orchestrator, implementer, reviewer, scout, auditor,
-    //   publisher, scribe — `architect`, spec 0026 T19, defaults OFF as of
-    //   the phase F review 2026-09-17 and CONFIG_FULL carries no explicit
-    //   `harness.architect: true`, so it does not add to this count; see the
-    //   opt-in test below) + 7 core skills (spec 0026 T14 merges debug-error +
+    //   #212) + 8 agents (orchestrator, implementer, reviewer, scout, auditor,
+    //   publisher, scribe, architect — spec 0032 R33 retired the
+    //   `harness.architect` toggle, so it always renders now) + 1 `planificacion`
+    //   context block inspected-but-not-written (`harness.planTiers` defaults
+    //   `false` — R30) + 7 core skills (spec 0026 T14 merges debug-error +
     //   loop-back-debug into one debug-failure; spec 0029 T2 adds
-    //   `secure-by-design`; #901 adds `scoped-gate`) + 7 workflow skills
+    //   `secure-by-design`; #901 adds `scoped-gate`) + 9 workflow skills
     //   (resolve-ticket, solution-design, spec-bootstrap, dominio,
-    //   follow-up-prs, spec 0029 T2's `quality-attributes`, and `author-skill`) +
+    //   follow-up-prs, spec 0029 T2's `quality-attributes`, `author-skill`,
+    //   and spec 0032's `plan-simple`/`plan-advanced`) +
     //   1 guard hook + 1 implementer-no-markdown hook (spec 0030, R3/R4) +
     //   1 subagent-no-background hook (#1003) +
     //   1 session-start hook + 1 PR routing hook (#705) +
@@ -514,18 +485,22 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   decision, the second PostToolUse hook) +
     //   4 blocks routed to .claude/context/ — the routing doctrine (#573) plus
     //   the two session ceremonies and the agents index (#572) + the
-    //   model-advisor hook (spec 0028) = 48.
+    //   model-advisor hook (spec 0028) = 50.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(48);
+    expect(first.inspected).toBe(52);
     // Written counts files actually emitted. engram-orchestrator-extension is a
-    // sub-block injected into orchestrator.md, not a separate file. The
-    // arithmetic: 48 inspected − the 4 engram sub-blocks = 44 files actually
-    // emitted (the base files + the .mcp.json + both audit-mode hooks + the
-    // drift watcher + the worktree-reclaim hook + the routing watcher of spec
-    // 0020 + the PR routing hook of #705 + the comment-draft-confirm hook of
-    // spec 0026 E1 + the implementer-no-markdown hook of spec 0030 + the
-    // subagent-no-background hook of #1003).
-    expect(first.written.length).toBe(44);
+    // sub-block injected into orchestrator.md, not a separate file, and the
+    // `planificacion` context block is inspected but not written (its
+    // condition, `harness.planTiers`, is off). The arithmetic: 52 inspected −
+    // the 4 engram sub-blocks − 1 planificacion (not written) = 47 files
+    // actually emitted (the base files + the .mcp.json + both audit-mode
+    // hooks + the drift watcher + the worktree-reclaim hook + the routing
+    // watcher of spec 0020 + the PR routing hook of #705 + the
+    // comment-draft-confirm hook of spec 0026 E1 + the implementer-no-markdown
+    // hook of spec 0030 + the subagent-no-background hook of #1003 + the
+    // architect agent that spec 0032 R33 always renders now + spec 0032's
+    // `plan-simple`/`plan-advanced` workflow skills).
+    expect(first.written.length).toBe(47);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -629,16 +604,15 @@ describe("renderClaudeEngine — dry-run", () => {
     // routing watcher (spec 0020), the PR routing hook (#705), the
     // comment-draft-confirm hook (spec 0026 E1), the implementer-no-markdown
     // hook (spec 0030, R3/R4), the subagent-no-background hook (#1003) and
-    // the orchestrator block routed to `.claude/context/` (#573). One less
-    // than before #774 retired the PreCompact reminder. 44, not 38: scribe
-    // expands the default roster to seven agents, while spec 0026 T14 merges
-    // debug-error + loop-back-debug into one debug-failure, and spec 0029 T2
-    // adds `secure-by-design` (core) and `quality-attributes` (workflow), and
-    // #901 adds `scoped-gate` (core), plus the `author-skill` workflow skill.
-    // `architect` (spec 0026 T19) defaults OFF (phase F review, 2026-09-17)
-    // and CONFIG_FULL carries no explicit `harness.architect: true`, so it
-    // stays at seven here.
-    expect(r.written).toHaveLength(44);
+    // the orchestrator block routed to `.claude/context/` (#573). 47, not 38:
+    // scribe expands the default roster to seven agents, while spec 0026 T14
+    // merges debug-error + loop-back-debug into one debug-failure, and spec
+    // 0029 T2 adds `secure-by-design` (core) and `quality-attributes`
+    // (workflow), and #901 adds `scoped-gate` (core), plus the `author-skill`
+    // workflow skill. Spec 0032 R33 retires the `harness.architect` toggle —
+    // `architect` always renders now, the eighth agent — and adds the
+    // `plan-simple`/`plan-advanced` workflow skills.
+    expect(r.written).toHaveLength(47);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);

@@ -415,11 +415,19 @@ describe("project.criticalAreas describes THIS product (#508.2)", () => {
 
 describe("this repo's models/effort tiers (spec 0027-scribe-agent T1)", () => {
   // Covers: R3
-  it("sets architect to opus/high and orchestrator to opus/medium", () => {
+  it("sets orchestrator to opus/medium", () => {
     const config = readConfig(CONFIG_PATH);
-    expect(config.models?.architect).toBe("opus");
-    expect(config.effort?.architect).toBe("high");
     expect(config.models?.orchestrator).toBe("opus");
     expect(config.effort?.orchestrator).toBe("medium");
+  });
+
+  // Spec 0032 (#1011), R29/R34: the architect renders unconditionally now, so
+  // this repo relies on core's default (opus/xhigh, `recommended.ts`) instead
+  // of overriding it — an explicit `models.architect`/`effort.architect` here
+  // would just repeat the default.
+  it("leaves models.architect and effort.architect unset — core's opus/xhigh default applies", () => {
+    const config = readConfig(CONFIG_PATH);
+    expect(config.models?.architect).toBeUndefined();
+    expect(config.effort?.architect).toBeUndefined();
   });
 });

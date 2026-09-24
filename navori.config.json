@@ -20,7 +20,8 @@
     "mode": "always"
   },
   "harness": {
-    "scribeOwnsMarkdown": true
+    "scribeOwnsMarkdown": true,
+    "planTiers": true
   },
   "models": {
     "orchestrator": "opus",
@@ -29,8 +30,7 @@
     "scout": "haiku",
     "auditor": "sonnet",
     "publisher": "haiku",
-    "scribe": "haiku",
-    "architect": "opus"
+    "scribe": "haiku"
   },
   "effort": {
     "orchestrator": "medium",
@@ -39,8 +39,7 @@
     "scout": "high",
     "auditor": "medium",
     "publisher": "low",
-    "scribe": "low",
-    "architect": "high"
+    "scribe": "low"
   },
   "plugins": {
     "engram": {

@@ -1,4 +1,5 @@
 import type { NavoriConfig } from "../../lib/config/config.ts";
+import { AGENT_ROLE_KEYS } from "../../lib/config/config.ts";
 import { resolveCondition } from "../../lib/render/marker.ts";
 import { HARNESS_DEFAULTS } from "../../lib/config/schema.ts";
 import type { PresetExtraFile } from "../../lib/config/presets.ts";
@@ -107,12 +108,18 @@ export const RETIRED_HOOKS: ReadonlyArray<Retired> = ROSTER_RETIRED_HOOKS;
  * wins; when it's unset (including when `config.harness` itself is entirely
  * absent — the common case), fall back to `HARNESS_DEFAULTS` rather than
  * assuming "unset" always means "enabled" (see `HARNESS_DEFAULTS`'s own
- * doc — that assumption broke the moment `architect` defaulted to `false`).
+ * doc — that assumption held only while `architect` still had a toggle here).
+ *
+ * `key` is typed against `AGENT_ROLE_KEYS` (every roster agent's role key),
+ * not `keyof NavoriConfig["harness"]`: spec 0032 R33 retired
+ * `harness.architect`, so `architect` is a valid role key with no matching
+ * harness field — it always renders now, handled by the early return below.
  */
 export function isAgentEnabled(
   config: NavoriConfig,
-  key: keyof NonNullable<NavoriConfig["harness"]>,
+  key: (typeof AGENT_ROLE_KEYS)[number],
 ): boolean {
+  if (key === "architect") return true;
   const explicit = config.harness?.[key];
   if (explicit !== undefined) return explicit;
   return HARNESS_DEFAULTS[key] ?? true;

@@ -166,12 +166,12 @@ const HarnessSchema = z.object({
   auditor: z.boolean().default(true),
   publisher: z.boolean().default(true),
   scribe: z.boolean().default(true),
-  // Spec 0026 F (R47): default OFF, unlike the rest of the roster. Reviewed
-  // in the phase F review (2026-09-17): enabling a 7th agent on every repo's
-  // next `navori update` would change everyone's harness surface without
-  // their asking. Opt-in via `harness.architect: true`; the default can flip
-  // once usage data (design.md "Criterios pre-registrados" #2) supports it.
-  architect: z.boolean().default(false),
+  // Spec 0032 (#1011), R33: `harness.architect` retired — the agent now
+  // renders unconditionally, like every other roster member. It used to
+  // default OFF here (spec 0026 F, R47); a config still carrying the key
+  // fails loud via `RETIRED_CONFIG_KEYS` (config.ts) instead of silently
+  // doing nothing. `models.architect`/`effort.architect` still tune the
+  // always-on agent (R34) — only the boolean gate is gone.
   // Spec 0030 (#985), R13: NOT a roster key — it gates the implementer→scribe
   // markdown contract (R1–R10), not an agent's presence. Lives in
   // `HarnessSchema` (not a new top-level section) because `conditionOrchestration`
@@ -185,6 +185,12 @@ const HarnessSchema = z.object({
   // admission posture as spec 0031 R4 (new/expanded agent capability starts
   // gated).
   scribeOwnsMarkdown: z.boolean().default(false),
+  // Spec 0032 (#1011), R30: gates the whole "planning by tiers" surface
+  // (workplan gate, `planificacion` managed block) behind an opt-in flag so
+  // existing repos' rendered contracts stay byte for byte until they turn it
+  // on. Same rollout shape as `scribeOwnsMarkdown` above — default `false`
+  // because it changes an always-on block across every rendered repo.
+  planTiers: z.boolean().default(false),
 });
 
 /**
@@ -304,6 +310,12 @@ const ProjectSchema = z
   .object({
     legacyPaths: z.array(z.string()).default([]),
     criticalAreas: z.array(z.string()).default([]),
+    /** Glob paths `navori plan classify` (R1, spec 0032) can match against a
+     * task's touched files to detect critical area from code instead of
+     * relying on it being declared (R9). Optional: DONDE it is absent, the
+     * signal falls back to whatever the workplan declares, and the reviewer
+     * checks that declaration against `criticalAreas` (prose) instead. */
+    criticalPaths: z.array(z.string()).default([]),
     /** @deprecated (#779). Detection may seed this value, but no rendered
      * instruction consumes it. `readConfig` warns so it is not mistaken for a
      * runtime policy. */

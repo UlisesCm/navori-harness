@@ -280,6 +280,16 @@ export function resolveHarnessPlan(
       managedId: "qg-pre-commit-base",
     });
   }
+  // Spec 0032 (#1011), R16/R30: the workplan gate only materializes once a
+  // repo opts into planning tiers — same admission posture as the QG hook
+  // above (a config-dependent feature ships only for the config that asked).
+  if (config.harness?.planTiers) {
+    hooks.push({
+      id: "plan-gate",
+      assetPath: join(coreAssets, "hooks/plan-gate.sh"),
+      managedId: "plan-gate-base",
+    });
+  }
   // Stop hook (verify-before-done reminder) is OPT-IN — noisy per-turn, so it
   // ships only when the repo asks for it. Same gating shape as the QG hook.
   if (config.hooks?.verifyOnStop) {

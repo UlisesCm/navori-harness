@@ -65,7 +65,25 @@ ligero junto a Claude usa `["claude", "agents-md"]`; no hace falta un
 
 **Modelo de sincronización** — los managed blocks llevan `hash`, `version` y `source`. `sync` reporta updates disponibles y avisa antes de pisar un bloque que editaste a mano; hay backups automáticos antes de cada write.
 
-**Perfil de modelos por agente** — cada agente se rendea con su `model` y `effort`: `orchestrator` (opus/xhigh) y `architect` (opus/high) para el juicio y el diseño, `implementer`/`reviewer`/`scout`/`auditor` (sonnet/medium) para la síntesis, `publisher`/`scribe` (haiku/low) para lo mecánico — el trabajo mecánico no corre al precio del de juicio. Sumado a la disciplina de output y a los gates de calidad afinados por evento (solo lo que corresponde, en paralelo), el harness cuesta menos por sesión. Ver [`docs/recipes/model-tiering.md`](./docs/recipes/model-tiering.md).
+**Perfil de modelos por agente** — cada agente se rendea con su `model` y `effort`: `orchestrator` (opus/xhigh) y `architect` (opus/xhigh) para el juicio y el diseño, `implementer`/`reviewer`/`scout`/`auditor` (sonnet/medium) para la síntesis, `publisher`/`scribe` (haiku/low) para lo mecánico — el trabajo mecánico no corre al precio del de juicio. Sumado a la disciplina de output y a los gates de calidad afinados por evento (solo lo que corresponde, en paralelo), el harness cuesta menos por sesión. Ver [`docs/recipes/model-tiering.md`](./docs/recipes/model-tiering.md).
+
+## Planificación por niveles
+
+`navori plan classify` mide la complejidad de una tarea (0–10) a partir de señales del repo
+(`project.criticalPaths`, dependencia nueva, migración de esquema, dinero/credenciales/PII, etc.)
+y la ubica en un nivel:
+
+| Nivel | Qué implica |
+|---|---|
+| 0 | Trivial — sin workplan, exención directa del gate. |
+| 1 | Estándar — workplan de `implementer`/`reviewer`, sin diseño previo. |
+| 2 | Con diseño — pasa primero por `architect` (`opus`/`xhigh`), que entrega un `solution_<scope>.md` con ≥3 caminos y una recomendación. |
+| 3 | Igual que el nivel 2, con alcance mayor (multi-repo, contrato compartido) — el mismo `architect` decide el diseño antes de que nadie escriba código. |
+
+Con `harness.planTiers: true`, un hook `PreToolUse` (`navori plan gate`) niega el despacho de un
+subagente sin workplan válido para su nivel; dos rechazos seguidos escalan la exigencia al nivel
+siguiente (más artefactos, no solo más intentos). `navori plan classify --diff` corre el mismo
+clasificador contra el diff real y avisa cuando el trabajo se salió del nivel declarado.
 
 **Coexistencia** — ¿ya tienes tu propio harness (tu orquestación / SDD)? `blocks.exclude` deja que navori conviva sin pisar tus bloques: opta por no renderear `orquestacion` / `sdd` con `navori configure blocks`, y el resto del harness sigue igual.
 

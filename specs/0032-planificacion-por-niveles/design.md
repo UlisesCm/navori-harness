@@ -4,20 +4,23 @@
 
 El plan se formaliza como **un artefacto con contrato más un validador determinista**, no como un
 agente nuevo. El orquestador sigue siendo dueño del plan; lo que cambia es que ese plan queda en
-un archivo con secciones fijas, criterios ejecutables y un estado que se actualiza durante la
-ejecución, y que un comando del CLI rechaza el plan que no cumple el formato.
+un JSON con esquema fijo, criterios ejecutables y un estado que se actualiza durante la ejecución,
+y que un comando del CLI rechaza el plan que no cumple el formato.
 
-Cuatro niveles, decididos por señales que ya existen en la tabla de `managed/orquestacion.md`:
+El plan es el default y saltarlo exige una exención que el código verifica; el control lo da un
+gate en el despacho, no la prosa.
 
-| Nivel | Señal | Artefacto | Quién |
-|---|---|---|---|
-| 0 · directo | un archivo, ninguna fila de la tabla | ninguno | orquestador |
-| 1 · plan simple | no es 0, sin fila arquitectónica | `workplan_<feature>.md` (R8) | orquestador |
-| 2 · plan avanzado | fila arquitectónica | `solution_<scope>.md` + challenge + `workplan` (R8, R9) | `architect` diseña, orquestador planea |
-| 3 · SDD | umbral del bloque SDD, aceptado | `specs/<feature>/tasks.md` | orquestador |
+Cuatro niveles, decididos por `navori plan classify` (R1) sobre las señales de "Señales y pesos":
 
-Los niveles 1 y 2 comparten archivo y validador; el nivel 2 solo exige más secciones. Así hay un
-formato y un parser, no dos.
+| Nivel | Señal | Artefacto | Quién | Requisito para despachar |
+|---|---|---|---|---|
+| 0 · directo | complejidad ≤ 3, ≤ 1 archivo no trivial, sin piso de R3 (R4) | ninguno | orquestador | exención de `classify` |
+| 1 · plan simple | default salvo nivel 0/2/3 (R4) | workplan JSON + render (R13) | orquestador | workplan con `plan check` |
+| 2 · plan avanzado | complejidad ≥ 8 o piso de R3 (R3, R5) | solution + challenge + workplan (R13, R14) | `architect` diseña, orquestador planea | solution + challenge + elección del usuario + workplan |
+| 3 · SDD | el usuario aceptó una spec (R5) | `specs/<feature>/tasks.md` | orquestador | `tasks.md` |
+
+Los niveles 1 y 2 comparten el mismo esquema JSON y el mismo validador; el nivel 2 solo exige más
+secciones. Así hay un formato y un parser, no dos.
 
 **Descartados:**
 
@@ -27,100 +30,172 @@ formato y un parser, no dos.
   frío sin sacar nada voluminoso del contexto principal (no hay tokens), y la verificación en
   contexto fresco ya la da el `auditor` en el challenge (la calidad no es nueva). ECC tiene un
   `planner`, pero su propio `/plan` corre inline por default.
-- **Gate duro por hook** (tipo plan mode de Claude Code o `plan-canvas` de ECC). Es el único
-  enforcement real, pero depende de un hook de Claude Code (rompe la paridad multi-engine) y toca
-  hooks, que es área crítica. Se pospone hasta que la señal de R10/R18 muestre planes saltados.
 - **`A<n>` → test obligatorio.** Es SDD sin nombre. gentle-ai quitó su matriz estricta escenario →
   test por el costo en ceremonia.
+- **Scribe para el workplan.** El arranque en frío de un subagente (~25k tokens) supera lo que
+  produce (~2k), la misma razón que retiró T2–T4 de la spec 0027; el render determinista (R11) lo
+  sustituye.
+
+**Adoptado:**
+
+- **Gate duro por hook.** Se adopta. La evidencia de este repo es que los avisos no cambian la
+  conducta y los bloqueos sí (Context). El gate va en el despacho del implementer, no en
+  Edit/Write, porque ahí se decide el trabajo; `PreToolUse` intercepta la herramienta `Agent` y ve
+  su `subagent_type` (<https://code.claude.com/docs/en/hooks>). En Codex navori solo registra
+  `PreToolUse` (`engines/codex/compat.ts:113`); donde no se pueda interceptar el despacho, aplica
+  R17.
+
+## Señales y pesos
+
+Pesos calibrados con el usuario en T0 (2026-09-23, #1011) contra 14 commits reales (8 de
+navori-harness, 6 de repos Bonum) con su nivel esperado acordado de antemano. 14/14 fixtures
+cuadran con estos pesos tras `96d865ba`, que cuenta las skills project-local como prosa del
+harness — ver "Testing strategy" y `lib/plan/__tests__/classify.test.ts`.
+
+| Señal | Cómo se obtiene | Peso |
+|---|---|---|
+| Archivos no triviales (`source-classify`) | medido sobre Archivos | 1 → 0 · 2–3 → +2 · 4–7 → +3 · 8+ → +4 |
+| Directorios raíz distintos tocados | medido | 2 → +1 · 3+ → +2 |
+| Bug sin causa raíz confirmada | declarado | +2 |
+| Área crítica (`project.criticalPaths` o declarada) | medido o declarado | +3 (override de calibración: ya no es piso) |
+| Dinero, credenciales o PII | declarado | piso 2 |
+| Dos o más repos | declarado | piso 2 |
+| Dependencia externa nueva | medido (manifiestos) o declarado | piso 2 |
+| Contrato compartido (API, DTO, schema, evento) | declarado | piso 2 |
+| Migración de datos o de esquema | declarado | piso 2 |
+
+Derivación: con piso → nivel ≥ 2; si no, ≤ 3 y ≤ 1 archivo no trivial → 0; ≥ 8 → 2; resto → 1.
+"Declarado" significa que lo escribe el orquestador en el JSON y el reviewer lo verifica después
+contra el diff (R21).
 
 ## Components
 
-- `packages/core/core-assets/managed/orquestacion.md` — sección nueva de niveles de planificación
-  dentro de "How much analysis does this task deserve", condicionada a `harness.planTiers` —
-  cubre R1–R6, R15, R23.
-- `packages/core/core-assets/agents/orchestrator.md` — cómo escribir y mantener el `workplan`,
-  la plantilla, la regla de desvíos, el orden `architect` → challenge → veredicto → `workplan`, y
-  la entrada `workplan_<feature>.md` en la lista de handoffs de `.claude/progress/` — cubre R7–R11,
-  R16, R19–R21.
-- `packages/core/core-assets/skills/resolve-ticket.md` — la fase 3 (Design) y la fase 4 leen y
-  referencian el `workplan` — cubre R16, R19, R20.
+- `packages/core/core-assets/managed/planificacion.md` — bloque managed nuevo, `condition:
+  harness.planTiers`, audiencia orquestador, techo propio de 274 palabras en `DOC_BUDGETS` (249
+  medidas × 1.10, misma convención de recalibración que el resto de `doc-budgets.ts` — un techo
+  literal de 250 deja solo 0.4% de holgura, por debajo del piso de 5% que exige
+  `doc-budgets-check.test.ts`), ordenado antes que `orquestacion` en el contexto de arranque;
+  contiene solo la tabla de niveles y la regla del gate — cubre R1, R4, R5, R6, R16, R22, R30.
+- `packages/core/core-assets/managed/orquestacion.md` — solo cambia el párrafo "The architectural
+  pass" (línea 53, 112 palabras): con R33 pierde sus ramas `navori:if architect`/`if-not
+  architect` y queda envuelto en `navori:if-not planTiers`, así que el archivo fuente no crece —
+  cubre R22, R33.
+- `packages/core/core-assets/agents/orchestrator.md` — presentación del nivel al usuario, orden
+  `architect` → challenge → elección del usuario → veredicto → workplan, rehacer el plan cuando
+  `classify` sube el nivel, y la entrada `workplan_<feature>.json`/`.md` en la lista de handoffs de
+  `.claude/progress/` — cubre R6, R7, R18, R19, R23, R24.
+- `packages/core/core-assets/skills/resolve-ticket.md` — las fases que despachan al implementer y
+  al `architect` referencian el workplan y el flujo de nivel 2 — cubre R20, R23, R24.
 - `packages/core/core-assets/agents/implementer.md` — lee los `A<n>` asignados y reporta
-  `acceptance` en `impl_<feature>.json` — cubre R17.
-- `packages/core/core-assets/agents/reviewer.md` — verifica `acceptance` y el alcance contra el
-  `workplan` — cubre R18.
-- `packages/core/core-assets/agents/architect.md` — aclara que su salida alimenta el plan de nivel 2
-  y que no lo escribe — cubre R21.
-- `packages/cli/src/commands/plan.ts` — comando `plan` con subcomando `check`, registrado en
-  `subCommands` de `packages/cli/src/index.ts` — cubre R12–R14.
-- `packages/cli/src/lib/plan/` — parser y reglas del `workplan`, sin dependencia del comando para
-  poder probarlos solos — cubre R12, R13.
-- `packages/cli/src/lib/config/schema.ts` — flag `harness.planTiers` (default `false`) — cubre R23.
-- `navori.config.json` — `harness.planTiers: true` y `harness.architect: true` — cubre R24.
-- Este `design.md`, sección "Admisión del architect" — cubre R22.
+  `acceptance` en `impl_<feature>.json` — cubre R20.
+- `packages/core/core-assets/agents/reviewer.md` — verifica `acceptance`, el alcance contra el
+  workplan y corre `classify` sobre el diff real — cubre R21.
+- `packages/core/core-assets/agents/architect.md` — no escribe el workplan ni descompone en
+  tareas, explora al menos tres peldaños y recomienda por encaje con el proyecto, y en nivel 3
+  produce el `design.md` de la spec — cubre R25, R26, R28.
+- `packages/core/core-assets/skills/solution-design.md` — deriva los criterios de decisión de las
+  reglas del proyecto antes de listar opciones y verifica contra `origin/main` lo que el diseño da
+  por existente — cubre R27.
+- `packages/core/core-assets/skills/spec-bootstrap.md` — referencia al architect para el
+  `design.md` de nivel 3 — cubre R28.
+- `packages/core/core-assets/skills/plan-simple.md` — procedimiento de nivel 1 (antes en el
+  bloque de orquestación) — cubre R10, R13, R22.
+- `packages/core/core-assets/skills/plan-advanced.md` — procedimiento de nivel 2 — cubre R10,
+  R14, R22.
+- `packages/cli/src/commands/plan.ts` — comando `plan` con subcomandos `classify`, `render`,
+  `update` y `check`, registrado en `subCommands` de `packages/cli/src/index.ts` — cubre R1, R11,
+  R12, R15.
+- `packages/cli/src/lib/plan/signals.ts` — pesos y umbrales de "Señales y pesos", único módulo
+  que los define — cubre R2.
+- `packages/cli/src/lib/plan/schema.ts` (zod) — esquema del workplan y `project.criticalPaths` —
+  cubre R9, R10.
+- `packages/cli/src/lib/plan/classify.ts` — calcula complejidad y nivel reusando
+  `source-classify` — cubre R1, R3, R4, R5.
+- `packages/cli/src/lib/plan/render.ts` — genera el `.md` desde el JSON de forma determinista —
+  cubre R11.
+- Hook `PreToolUse` sobre la herramienta `Agent` (Claude Code), con su test — cubre R16, R17,
+  R19.
+- `packages/cli/src/lib/config/schema.ts` — flag `harness.planTiers` (default `false`), el campo
+  `project.criticalPaths` y el retiro de la clave `harness.architect` — cubre R9, R30, R33.
+- `packages/cli/src/lib/config/config.ts` — mensaje de migración de la clave retirada
+  `harness.architect` — cubre R33. `RetiredConfigKey` gana `sections`, opcional, para acotar un
+  retiro a un subconjunto de `{harness, models, effort}` en vez de las tres a la vez: el retiro de
+  `architect` la saca solo de `harness` (`{ key: "architect", sections: ["harness"] }`) porque
+  `models.architect`/`effort.architect` siguen ajustando al agente ya siempre-activo. Sin
+  `sections`, la entrada retira la clave en las tres secciones por igual — una entrada de retiro
+  futura sin `sections` explícito repite este error si el caso no es "las tres a la vez": rompió el
+  proyecto default de `navori init` hasta que un e2e manual lo detectó, no la suite unitaria.
+- `packages/cli/src/lib/config/recommended.ts` — default de core para el architect (`opus`,
+  `effort: xhigh`) — cubre R34.
+- `render-plan.ts` / `HARNESS_DEFAULTS` — se quita `architect` de los defaults del harness —
+  cubre R33.
+- `packages/core/core-assets/managed/orquestacion.md` y los assets con `navori:if architect` /
+  `navori:if-not architect` — se eliminan esas ramas condicionales; el agente `architect` se
+  renderiza siempre — cubre R33.
+- `navori doctor` — reporta cuando el engine no permite interceptar el despacho — cubre R17.
+- `scripts/py/mine-activation.py` — el minero cruza su conteo de despachos con el log del hook
+  del gate antes de reportar niveles, clasificaciones erróneas y escalamientos por repo — cubre
+  R32.
+- `navori.config.json` — `harness.planTiers: true` — cubre R31. El architect ya viene siempre
+  habilitado con `opus`/`xhigh` por default (R34), sin flag que apagarlo.
+- Este `design.md`, sección "Admisión del architect" — cubre R29, R35.
 
 ## Decisions
 
-- **Nombre `workplan_<feature>.md`, no `plan_<scope>.md`** — el segundo ya es el plan priorizado
-  del encargo de área del `auditor` (`auditor.md`, "Communication with the orchestrator"). Reusarlo
-  mezclaría dos contratos en un nombre.
-- **El `workplan` vive en `.claude/progress/`** — es un handoff entre orquestador, `implementer` y
+- **Nombre `workplan_<feature>.json`/`.md`, no `plan_<scope>.md`** — el segundo ya es el plan
+  priorizado del encargo de área del `auditor` (`auditor.md`, "Communication with the
+  orchestrator"). Reusarlo mezclaría dos contratos en un nombre.
+- **El workplan vive en `.claude/progress/`** — es un handoff entre orquestador, `implementer` y
   `reviewer`, igual que `impl_*` y `review_*`, y ese directorio está en `.gitignore`. Lo que
   persiste del ciclo sigue siendo la entrada de `progress/history.md`; `progress/current.md` solo
-  apunta al `workplan` activo (R10) para no duplicar estado.
+  apunta al workplan activo (R36) para no duplicar estado.
 - **Criterio = comando + salida esperada** — tomado del ExecPlan de Codex. Un criterio sin comando
-  no se puede verificar; por eso R13 lo rechaza en vez de advertirlo.
-- **Validador en el CLI, no en un hook** — `navori plan check` corre igual en cualquier engine y
-  el `reviewer` lo puede re-ejecutar. Sigue el precedente de `navori receipt`, que ya es la pieza
-  determinista del ciclo. La disciplina de correrlo (R15) queda en el contrato del orquestador; el
-  `reviewer` la verifica de hecho porque R18 depende del `workplan`.
-- **El nivel lo deciden señales y el usuario solo puede subirlo** (R3, R4) — si el nivel
-  dependiera del juicio del orquestador, volvería el problema de origen. Bajar el nivel en área
-  crítica se niega porque esa fila existe precisamente para no saltarse el diseño.
-- **Nivel 0 = un archivo** — "cabe en una frase" (la guía de Claude Code) no es verificable; "un
-  archivo y ninguna fila de la tabla" sí lo es, con `git diff --stat` al final.
-- **El `architect` diseña y el orquestador planea** (R19, R21) — el contrato del `architect` ya
+  no se puede verificar; por eso R15 lo rechaza en vez de advertirlo.
+- **Validador reusable en el CLI** — `navori plan check` corre igual en cualquier engine y el
+  `reviewer` lo puede re-ejecutar. Sigue el precedente de `navori receipt`, que ya es la pieza
+  determinista del ciclo. Además, el gate por hook (R16) intercepta el despacho del `implementer`
+  en Claude Code; donde no se pueda interceptar, R17 degrada a la verificación del `reviewer`
+  (R21).
+- **El nivel lo deciden señales y el usuario solo puede subirlo** (R7) — si el nivel dependiera
+  del juicio del orquestador, volvería el problema de origen. Bajar el nivel cuando hay un piso de
+  R3 se niega porque ese piso existe precisamente para no saltarse el diseño.
+- **Nivel 0 = complejidad ≤ 3 y ≤ 1 archivo no trivial** (R4) — reemplaza el criterio anterior de
+  "un archivo" porque ahora `classify` (R1) da un número verificable con `source-classify`, no una
+  cuenta de archivos a mano.
+- **El `architect` diseña y el orquestador planea** (R23, R25) — el contrato del `architect` ya
   prohíbe descomponer y dar veredicto. Mantenerlo así deja al challenge entre el diseño y las
   tareas; si el `architect` planeara, nadie cuestionaría el diseño antes de convertirlo en trabajo.
-- **Flag `harness.planTiers` default `false`** — mismo rollout que `scribeOwnsMarkdown` (spec
-  0030): cambia el bloque always-on de todos los repos renderizados, así que entra apagado y se
-  enciende aquí primero.
+- **Flag `harness.planTiers` default `false`** (R30) — mismo rollout que `scribeOwnsMarkdown`
+  (spec 0030): cambia el bloque always-on de todos los repos renderizados, así que entra apagado y
+  se enciende aquí primero.
 
 ## Contracts
 
-**Formato del `workplan`** (lo que parsea `navori plan check`):
+**Esquema JSON del workplan** (fuente que valida `lib/plan/schema.ts`; `navori plan render`
+genera el Markdown de forma determinista — R11):
 
-```md
-# <feature> — Workplan
-
-**Nivel:** 1
-
-## Objetivo
-Una línea con el resultado observable.
-
-## Criterios de aceptación
-- **A1** — descripción · `bun test packages/cli/src/lib/plan/check.test.ts` → `0 fail`
-- **A2** — descripción · `node packages/cli/dist/index.js plan check x.md` → `exit 1`
-
-## Fuera de alcance
-- elemento
-
-## Archivos
-- `packages/cli/src/lib/plan/check.ts` (nuevo)
-- `packages/cli/src/index.ts`
-
-## Progreso
-- A1 — pendiente
-- A2 — pendiente
-
-## Decisiones
-- (vacío hasta el primer desvío)
+```json
+{
+  "feature": "string",
+  "level": "0 | 1 | 2 | 3",
+  "classification": { "score": "number", "level": "0 | 1 | 2 | 3", "signals": ["string"] },
+  "objective": "string",
+  "acceptance": [{ "id": "A1", "description": "string", "command": "string", "expected": "string" }],
+  "outOfScope": ["string"],
+  "files": [{ "path": "string", "new": "boolean" }],
+  "progress": { "A1": "pendiente | cumplido | bloqueado" },
+  "decisions": [{ "text": "string", "date": "string" }],
+  "solution": { "path": "string", "verdict": "READY | CONCERNS | BLOCKED" },
+  "phases": [{ "name": "string", "acceptance": ["A1"] }],
+  "risks": [{ "risk": "string", "rollback": "string" }]
+}
 ```
 
-Nivel 2 agrega `## Solución` (path a `solution_<scope>.md` + veredicto), `## Fases` (lotes con sus
-`A<n>`) y `## Riesgos y rollback`. El marcador de archivo nuevo es el sufijo literal `(nuevo)`.
+`solution`, `phases` y `risks` solo aplican a nivel 2 (R14). El Markdown que ve el usuario es
+siempre la salida de `plan render` (R11); ningún agente lo escribe a mano.
 
 **Clave `acceptance` en `impl_<feature>.json`** (opcional para el hook de handoff; obligatoria por
-contrato cuando el encargo trae `A<n>`):
+contrato cuando el encargo trae `A<n>` — R20):
 
 ```json
 "acceptance": [
@@ -131,27 +206,64 @@ contrato cuando el encargo trae `A<n>`):
 No se agrega a las claves requeridas de `subagent-stop-handoff.sh`: una tarea de nivel 0 no la
 lleva, y el hook no sabe el nivel.
 
+**Salida del minero** (`scripts/py/mine-activation.py`, R32): "Por repo: total de tareas, conteo
+por nivel, porcentaje de nivel ≥ 1, clasificaciones erróneas (nivel de `classify` sobre el diff
+mayor que el declarado) y escalamientos por rechazo. Antes de reportar, el minero cruza su conteo
+de despachos con el log del hook del gate; si difieren, reporta `instrumento en duda` en vez del
+porcentaje. Disparador de re-medición: cualquier número calculado con menos de 15 sesiones por
+repo se marca provisional."
+
 ## Failure modes
 
+- **Marcadores de condición anidados del mismo tipo.** `conditionOrchestration` (`render-plan.ts`)
+  pasó de dos reemplazos globales por regex (uno por tipo de marcador) a un tokenizer/parser
+  recursivo (`tokenizeConditions` + `resolveConditions`), porque `orquestacion.md` ahora anida un
+  `navori:if-not auditor` dentro del nuevo `navori:if-not planTiers` — mismo tipo de marcador
+  anidado en sí mismo, que la regex no greedy emparejaba con el cierre más cercano (el interno) en
+  vez del correcto, truncando la oración y dejando un `<!-- /navori:if-not -->` huérfano en el
+  render. Es una corrección general de `render-plan.ts`, no específica del contenido de
+  plan-tiers: relevante para cualquier asset de core que combine marcadores anidados del mismo
+  tipo en `core-assets` a futuro. Desde `bc8b3a5b`, un marcador desbalanceado (abridor sin cierre,
+  cierre sin abridor o de tipo distinto) hace fallar el render con `UnbalancedConditionMarkerError`,
+  que nombra el marcador y su posición; antes se tragaba el resto del archivo en silencio. Solo
+  corre sobre el asset fuente, nunca sobre un bloque ya renderizado del usuario.
+
 - **Plan desactualizado.** El orquestador olvida actualizar Progreso. Mitigación: el `reviewer`
-  lee el `workplan` y lo contrasta con `acceptance`; un `A<n>` marcado `cumplido` sin evidencia es
+  lee el workplan y lo contrasta con `acceptance`; un `A<n>` marcado `cumplido` sin evidencia es
   hallazgo.
 - **Criterios triviales.** Un `A<n>` como `` `true` → `exit 0` `` pasa el validador. El validador
   garantiza forma, no pertinencia; la pertinencia la juzga el usuario al aprobar y el `reviewer` al
   revisar.
-- **Presupuesto de documentos.** `check:doc-budgets` limita el tamaño de los bloques managed. La
-  sección nueva en `orquestacion.md` debe caber; si no cabe, la plantilla vive en
-  `orchestrator.md` y el bloque solo enlaza.
+- **Presupuestos de palabras medidos.** `orquestacion.md` 1007/1060, `solution-design.md`
+  1069/1090, `architect.md` 385/400, `reviewer.md` 2133/2200 (`check:doc-budgets`). Regla:
+  `orquestacion.md` reemplaza prosa en vez de sumar — el procedimiento de cada nivel va a las
+  skills nuevas (`plan-simple`, `plan-advanced`); subir `maxWords` solo se autoriza en
+  `architect.md`, con su razón documentada ahí.
+- **Subclasificación declarada.** Las señales declaradas pueden omitirse y la tarea quedar en un
+  nivel menor. No se detecta antes de implementar; lo detecta el reviewer con `classify` sobre el
+  diff real (R21). Como el reviewer va antes del commit final y del PR, el trabajo no se publica:
+  vuelve al orquestador, que rehace el plan al nivel correcto (R18) antes del siguiente despacho.
+  Riesgo aceptado: se paga un ciclo de implementación de más, no un cambio mal diseñado en `main`.
 
 ## Testing strategy
 
-- Parser y reglas (`lib/plan`): un fixture válido por nivel y uno inválido por cada regla de R13,
-  para que cada falla se pruebe aislada.
-- Comando (`commands/plan.ts`): código de salida y mensajes sobre fixtures en disco (R12–R14).
-- Render: con `harness.planTiers` en `false` el bloque de orquestación queda byte a byte igual que
-  antes (snapshot golden), y en `true` incluye la sección de niveles (R23).
-- Contratos de agentes: los tests de assets existentes (`agents-assets.test.ts`) cubren que
-  `implementer`, `reviewer`, `orchestrator` y `architect` mencionan lo que R16–R21 exigen.
+- Señales y clasificación (`lib/plan/signals.ts`, `classify.ts`): fixtures de las 10 tareas de T0
+  con su nivel esperado, y un fixture por piso de R3.
+- Esquema y render (`lib/plan/schema.ts`, `render.ts`): un fixture válido por nivel; snapshot del
+  render con la misma entrada dos veces para probar el mismo-bytes de R11.
+- Validador (`lib/plan/check`, expuesto por `commands/plan.ts`): código de salida y mensajes sobre
+  fixtures en disco, un fixture inválido por cada regla de R15.
+- Comando (`commands/plan.ts`): subcomandos `classify`, `render`, `update` y `check` en
+  `subCommands` (R1, R11, R12, R15).
+- Gate (`plan-gate.test.ts`): niega el despacho sin workplan válido, deja pasar con plan válido o
+  con exención de nivel 0, exige los artefactos del nivel siguiente tras dos rechazos (R16, R17,
+  R19).
+- Render del bloque: con `harness.planTiers` en `false` el bloque de orquestación queda byte a
+  byte igual que antes (snapshot golden); en `true` incluye solo la tabla de niveles y la regla
+  del gate (R22, R30).
+- Contratos de agentes y skills: los tests de assets existentes (`agents-assets.test.ts` y los de
+  skills) cubren que `implementer`, `reviewer`, `orchestrator`, `architect`, `solution-design`,
+  `plan-simple` y `plan-advanced` mencionan lo que R20, R21 y R23–R28 exigen.
 
 ## Admisión del architect (spec 0031 R3)
 
@@ -160,19 +272,26 @@ lleva, y el hook no sabe el nivel.
 - **Señal:** en los ciclos de nivel 2, cuántos `solution_<scope>.md` del `architect` terminan en
   veredicto READY o CONCERNS frente a BLOCKED, y cuántos hallazgos del `reviewer` de esos ciclos
   apuntan a un defecto de diseño.
-- **Costo:** un arranque en frío y una corrida `opus`/`high` por tarea de nivel 2, que son las
-  menos frecuentes. Produce el `solution_<scope>.md` que hoy escribe el orquestador en su propio
-  contexto.
-- **Retiro:** el criterio 2 de la spec 0026 ya vigente: 60 días sin ciclos → evaluar `architect`
-  para `RETIRED_AGENTS`. Si en ese plazo la señal no muestra diferencia frente a la pasada del
-  orquestador, `harness.architect` vuelve a `false` en este repo.
+- **Garantía y costo:** un arranque en frío y una corrida `opus`/`high` por tarea de nivel 2, que
+  son las menos frecuentes. Produce el `solution_<scope>.md` que hoy escribe el orquestador en su
+  propio contexto. Se agrega `effort` `xhigh` en este repo (costo sin cifra oficial; se mide en
+  las primeras 3–5 corridas).
+- **Retiro:** este criterio reemplaza el criterio 2 de la spec 0026, que mediría un agente
+  distinto del que esta spec deja. A los 60 días del release que incluya esta spec: 0 ciclos de
+  architect → evaluar `RETIRED_AGENTS`; si en los ciclos de nivel 2 la proporción de challenges
+  con BLOCKER no baja frente a los 9 `solution_*.md` hechos por el orquestador, se abre un issue
+  para rediseñar el architect o retirarlo por `RETIRED_AGENTS`; ya no existe un flag para
+  apagarlo.
+- **Excepción a la spec 0031 R4 (R35):** habilitar el architect siempre, sin flag, es una
+  excepción decidida por el usuario, con esta razón: "El costo queda acotado: el architect solo
+  corre en tareas de nivel 2 y 3, y ese nivel lo decide `classify`, no el modelo. La señal y el
+  criterio de retiro de R29 siguen vigentes."
 
 ## NOT in scope
 
-- **Gate duro por hook o firma.** Se reconsidera si, tras un mes con `planTiers` encendido, hay
-  ciclos de nivel 1 o 2 despachados sin `workplan` en verde.
-- **Actualización automática de Progreso.** La escribe el orquestador; automatizarla desde
-  `impl_*.json` es una mejora posterior con su propio ticket.
+- **Actualización automática de Progreso desde `impl_*.json`.** R36 la deja en manos del
+  orquestador con `navori plan update`; leerla del handoff del implementer es una mejora
+  posterior con su propio ticket.
 - **Soporte en engines sin CLI de navori disponible.** `navori plan check` requiere el binario,
   igual que `navori receipt`.
 
@@ -188,3 +307,9 @@ Investigación del 2026-09-23 sobre cómo otros harness formalizan la planificac
 | gentle-ai — <https://github.com/Gentleman-Programming/gentle-ai> (PR #4644, commit `62ce74b7`) | un solo archivo vivo por feature; sin artefacto para lo pequeño | aprobación implícita; verificación no bloqueante |
 | Claude Code — <https://code.claude.com/docs/en/best-practices>, <https://code.claude.com/docs/en/permission-modes> | saltar el plan en cambios mínimos | plan mode como gate (depende del engine) |
 | Kiro — <https://kiro.dev/docs/specs/> | nivel ligero frente a spec completa | — |
+| #691 (`dc0ca995`) y los 219 eventos | el umbral de la escalera anterior estaba en siete lugares que no coincidían; los avisos no cambiaron la conducta | — |
+| <https://code.claude.com/docs/en/memory> | "context, not enforced configuration" | — |
+| <https://code.claude.com/docs/en/hooks> | `PreToolUse` sobre la herramienta `Agent` | — |
+| <https://code.claude.com/docs/en/best-practices> | Stop hook anulado tras 8 bloqueos: por eso el gate no va en Stop | — |
+| gentle-ai `docs/intended-usage.md:54,120-124` | mismos umbrales 4+/2+ como prosa | no hay evidencia de que allá se cumplan |
+| spec 0027 | costo del scribe (~25k tokens de arranque frío contra ~2k producidos) | — |

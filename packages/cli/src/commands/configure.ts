@@ -485,6 +485,8 @@ export interface MigrateRepoResult {
   readonly renamed: ReadonlyArray<RetiredKeyRename>;
   readonly dropped: ReadonlyArray<RetiredKeyRename>;
   readonly decisions: ReadonlyArray<RetiredKeyDecision>;
+  /** Keys retired WITHOUT a replacement (spec 0032, R33) — deleted outright. */
+  readonly removed: ReadonlyArray<{ readonly path: string }>;
   /** Set only when the config was actually rewritten. */
   readonly backupPath?: string;
   readonly error?: string;
@@ -515,6 +517,7 @@ export function migrateRepoConfig(
     renamed: [],
     dropped: [],
     decisions: [],
+    removed: [],
     error,
   });
 
@@ -528,11 +531,16 @@ export function migrateRepoConfig(
   }
 
   const name = typeof raw.name === "string" ? raw.name : base.name;
-  const { config, renamed, dropped, decisions } = migrateRetiredConfigKeys(raw, opts.choices);
-  const common = { ...base, name, renamed, dropped, decisions } as const;
+  const { config, renamed, dropped, decisions, removed } = migrateRetiredConfigKeys(
+    raw,
+    opts.choices,
+  );
+  const common = { ...base, name, renamed, dropped, decisions, removed } as const;
 
   if (decisions.length > 0) return { ...common, status: "needs-decision" };
-  if (renamed.length === 0 && dropped.length === 0) return { ...common, status: "clean" };
+  if (renamed.length === 0 && dropped.length === 0 && removed.length === 0) {
+    return { ...common, status: "clean" };
+  }
   if (!opts.apply) return { ...common, status: "would-migrate" };
 
   try {
@@ -558,6 +566,7 @@ function planLines(result: MigrateRepoResult, tcfg: ConfigureStrings): string[] 
   return [
     ...result.renamed.map((r) => tcfg.migrateRenamedLine(r.from, r.to)),
     ...result.dropped.map((r) => tcfg.migrateDroppedLine(r.from, r.to)),
+    ...result.removed.map((r) => tcfg.migrateRemovedLine(r.path)),
   ];
 }
 
@@ -607,6 +616,7 @@ export function migrateAllRepos(opts: {
         renamed: [],
         dropped: [],
         decisions: [],
+        removed: [],
         error: (err as Error).message,
       };
     }
@@ -615,7 +625,7 @@ export function migrateAllRepos(opts: {
 
 /** One compact line per repo for the `--all` report. */
 function sweepLine(result: MigrateRepoResult): string {
-  const changes = result.renamed.length + result.dropped.length;
+  const changes = result.renamed.length + result.dropped.length + result.removed.length;
   switch (result.status) {
     case "clean":
       return `${result.name}: up-to-date`;
