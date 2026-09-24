@@ -86,7 +86,10 @@ describe("skills security and quality inventory", () => {
     }
     expect(references).toContain("security-best-practices");
     expect(references).toContain("security-threat-model");
-    expect(references).toContain("Harness CLI 0.9.0 assets");
+    const manifest = JSON.parse(repositoryFile("packages/cli/package.json")) as {
+      version: string;
+    };
+    expect(references).toContain(`Harness CLI ${manifest.version} assets`);
     expect(references).toContain("previous 0.8.7 entry is the audit baseline");
     expect(references).toContain("49f948faa9258a0c61caceaf225e179651397431");
     expect(references).not.toContain("openai/skills/tree/main");
