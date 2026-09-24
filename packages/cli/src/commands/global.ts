@@ -32,8 +32,10 @@ import {
 } from "../engines/claude/global-render.ts";
 import { pickGlobalBlocks, pickGlobalPermissions } from "./global-prompts.ts";
 import {
+  collectLogDir,
   installLaunchAgent,
   isLaunchdPlatform,
+  probeReceiver,
   uninstallLaunchAgent,
 } from "../lib/audit/launchd.ts";
 import {
@@ -479,6 +481,33 @@ const uninstallSubCommand = defineCommand({
   },
 });
 
+/** Attempts and spacing for `confirmReceiverUp` — a few seconds total, bounded. */
+const RECEIVER_PROBE_ATTEMPTS = 5;
+const RECEIVER_PROBE_DELAY_MS = 500;
+
+/**
+ * Confirms the receiver actually answers before `install` reports success.
+ *
+ * `launchctl bootstrap` succeeding only means launchd registered the job — a
+ * receiver that crash-loops on every restart (#1014's bug: launchd's cwd `/`
+ * made `--collect` reject the repo name before it ever opened the port) still
+ * reports `result.loaded === true`, because that flag comes from `launchctl`
+ * alone and never asks the process itself. `probeFn`/`delayFn` are injected so
+ * the retry loop is exercised in tests without a real network probe or a real
+ * sleep (`verify-before-done`: no real timers in unit tests).
+ */
+export async function confirmReceiverUp(
+  port: number,
+  probeFn: (port: number) => Promise<boolean> = probeReceiver,
+  delayFn: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<boolean> {
+  for (let attempt = 0; attempt < RECEIVER_PROBE_ATTEMPTS; attempt++) {
+    if (await probeFn(port)) return true;
+    if (attempt < RECEIVER_PROBE_ATTEMPTS - 1) await delayFn(RECEIVER_PROBE_DELAY_MS);
+  }
+  return false;
+}
+
 /**
  * `global collect` — the supervisor for the OTel receiver (#697).
  *
@@ -496,7 +525,7 @@ const collectInstallSubCommand = defineCommand({
     name: "install",
     description: "Install the launchd agent that keeps 'navori audit --collect' running (macOS)",
   },
-  run() {
+  async run() {
     p.intro(brand("global collect install"));
     const g = tc(resolveLang(readGlobalConfig()?.language)).global;
 
@@ -523,7 +552,16 @@ const collectInstallSubCommand = defineCommand({
       p.log.warn(g.collectLoadFailed(result.message));
       process.exit(1);
     }
-    p.outro(color.green(`${check} 127.0.0.1:${result.port}`));
+
+    // `result.loaded` only proves launchd registered the job (#1014): the
+    // loaded-but-dead case this issue is about needs the receiver's OWN
+    // health route asked directly, with a few seconds of bounded retries for
+    // the process to actually come up before reporting failure.
+    if (!(await confirmReceiverUp(result.port))) {
+      p.log.warn(g.collectProbeFailed(collectLogDir()));
+      process.exit(1);
+    }
+    p.outro(color.green(`${check(true)} 127.0.0.1:${result.port}`));
   },
 });
 

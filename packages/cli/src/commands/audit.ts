@@ -265,65 +265,19 @@ export const auditCommand = defineCommand({
   },
   async run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
-    const repo = repoFromCwd(cwd);
     const lang = reportLang(cwd);
     const isEs = lang === "es";
     const json = args.json === true;
 
     if (!json) p.intro(brand("audit"));
 
-    // Resolved once, before anything is written: every path this command
-    // produces hangs off it, so an unusable repo name fails here rather than
-    // three writes later.
-    const auditDir = auditPathOrExit(() => repoAuditDir(repo), json);
-
-    // --arm / --disarm (#597): activation WITHOUT passing through the model's
-    // attention. "Do it in audit mode" inside a task prompt loses to the task —
-    // measured in the field: the agent loaded resolve-ticket and started the
-    // pipeline, and the user had to interrupt to get `--start` run. Arming is
-    // explicit and happens OUTSIDE the session (a terminal command before
-    // opening it), so it does not resurrect the natural-language detection R3
-    // removed. The SessionStart hook consumes the flag and calls --start with
-    // the id only IT knows; consumption-first means the flag arms exactly ONE
-    // session, never "every session from now on".
-    if (args.arm === true) {
-      const armedFile = join(auditDir, ".armed");
-      mkdirSync(auditDir, { recursive: true });
-      if (existsSync(armedFile)) {
-        p.outro(
-          isEs
-            ? "ya estaba armado — arranca en el siguiente mensaje de una sesión abierta, o al abrir la próxima"
-            : "already armed — starts on the next message of an open session, or when the next one opens",
-        );
-        return;
-      }
-      writeFileSync(
-        armedFile,
-        `${JSON.stringify({ ts: new Date().toISOString(), cwd })}\n`,
-        "utf-8",
-      );
-      p.outro(
-        isEs
-          ? `${color.green("armado")} — audit-mode arrancará en tu SIGUIENTE mensaje si ya hay una sesión abierta en este repo, o al abrir la próxima (una sola sesión; 'navori audit --disarm' lo cancela)`
-          : `${color.green("armed")} — audit-mode starts on your NEXT message if a session is already open in this repo, or when the next one opens (one session only; 'navori audit --disarm' cancels)`,
-      );
-      return;
-    }
-    if (args.disarm === true) {
-      const armedFile = join(auditDir, ".armed");
-      if (existsSync(armedFile)) {
-        rmSync(armedFile);
-        p.outro(isEs ? "desarmado" : "disarmed");
-      } else {
-        p.outro(isEs ? "no había nada armado" : "nothing was armed");
-      }
-      return;
-    }
-
-    // --collect goes BEFORE every other flag because it does not produce a
-    // report: it holds the process open until the operator interrupts it, so
-    // nothing below would ever run. It is the receiver half of spec 0021 —
-    // navori PROVIDES it, the operator RUNS it (invariant 9).
+    // --collect is checked BEFORE the repo is resolved from cwd, and before
+    // anything below it. The receiver is global — one process serving every
+    // repo, routing each event by session id (`collect.ts`) — so it never
+    // needs `repo`, and under launchd the cwd is `/`: `repoFromCwd("/")`
+    // returns "" (an empty basename), which `repoAuditDir` rejects as
+    // `invalid-repo-name`. That used to run first and made every launchd
+    // start crash-loop before the receiver ever opened its port.
     if (args.collect === true) {
       let receiver: OtelReceiver;
       try {
@@ -381,6 +335,55 @@ export const auditCommand = defineCommand({
           ? `${stats.written} eventos de ${stats.sessions} sesión(es), ${stats.discarded} descartados`
           : `${stats.written} events from ${stats.sessions} session(s), ${stats.discarded} discarded`,
       );
+      return;
+    }
+
+    const repo = repoFromCwd(cwd);
+    // Resolved once, before anything is written: every path this command
+    // produces hangs off it, so an unusable repo name fails here rather than
+    // three writes later.
+    const auditDir = auditPathOrExit(() => repoAuditDir(repo), json);
+
+    // --arm / --disarm (#597): activation WITHOUT passing through the model's
+    // attention. "Do it in audit mode" inside a task prompt loses to the task —
+    // measured in the field: the agent loaded resolve-ticket and started the
+    // pipeline, and the user had to interrupt to get `--start` run. Arming is
+    // explicit and happens OUTSIDE the session (a terminal command before
+    // opening it), so it does not resurrect the natural-language detection R3
+    // removed. The SessionStart hook consumes the flag and calls --start with
+    // the id only IT knows; consumption-first means the flag arms exactly ONE
+    // session, never "every session from now on".
+    if (args.arm === true) {
+      const armedFile = join(auditDir, ".armed");
+      mkdirSync(auditDir, { recursive: true });
+      if (existsSync(armedFile)) {
+        p.outro(
+          isEs
+            ? "ya estaba armado — arranca en el siguiente mensaje de una sesión abierta, o al abrir la próxima"
+            : "already armed — starts on the next message of an open session, or when the next one opens",
+        );
+        return;
+      }
+      writeFileSync(
+        armedFile,
+        `${JSON.stringify({ ts: new Date().toISOString(), cwd })}\n`,
+        "utf-8",
+      );
+      p.outro(
+        isEs
+          ? `${color.green("armado")} — audit-mode arrancará en tu SIGUIENTE mensaje si ya hay una sesión abierta en este repo, o al abrir la próxima (una sola sesión; 'navori audit --disarm' lo cancela)`
+          : `${color.green("armed")} — audit-mode starts on your NEXT message if a session is already open in this repo, or when the next one opens (one session only; 'navori audit --disarm' cancels)`,
+      );
+      return;
+    }
+    if (args.disarm === true) {
+      const armedFile = join(auditDir, ".armed");
+      if (existsSync(armedFile)) {
+        rmSync(armedFile);
+        p.outro(isEs ? "desarmado" : "disarmed");
+      } else {
+        p.outro(isEs ? "no había nada armado" : "nothing was armed");
+      }
       return;
     }
 
