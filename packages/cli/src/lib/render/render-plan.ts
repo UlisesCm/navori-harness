@@ -292,10 +292,23 @@ function tokenizeConditions(content: string): ConditionToken[] {
   return tokens;
 }
 
+/** Thrown by {@link resolveConditions} on a malformed conditional-marker
+ * structure: an opener with no matching closer, a closer with no opener, or
+ * a closer whose kind doesn't match the innermost open marker. Names the
+ * marker and its token index so the failure points straight at the source
+ * asset instead of silently truncating it (#1011). */
+export class UnbalancedConditionMarkerError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnbalancedConditionMarkerError";
+  }
+}
+
 /**
  * Resolves a run of tokens starting at `pos.i`, in-place advancing `pos.i`.
- * Stops at end of input OR at an unconsumed closer, which the FRAME THAT
- * OPENED IT is the one that consumes (classic recursive-descent nesting).
+ * Stops at end of input OR at a closer matching the innermost open marker,
+ * which the FRAME THAT OPENED IT is the one that consumes (classic
+ * recursive-descent nesting).
  *
  * This is what makes nested markers of the SAME kind pair correctly — e.g.
  * an `if-not` block inside another `if-not` block (`orquestacion.md`'s
@@ -305,11 +318,17 @@ function tokenizeConditions(content: string): ConditionToken[] {
  * its own literal text regardless of nesting, which paired the outer
  * `if-not` with the INNER closer and left the true outer closer as an
  * orphaned, unresolved comment in the output.
+ *
+ * A malformed structure — an opener never closed, a closer with no matching
+ * opener, or a closer whose kind doesn't match the marker it's meant to
+ * close — throws {@link UnbalancedConditionMarkerError} instead of silently
+ * absorbing the rest of the file as body text (#1011).
  */
 function resolveConditions(
   tokens: ConditionToken[],
   pos: { i: number },
   enabled: (key: string) => boolean,
+  depth = 0,
 ): string {
   const withoutMarkers = (body: string): string =>
     body.startsWith("\n") && body.endsWith("\n") ? body.slice(1, -1) : body;
@@ -317,15 +336,39 @@ function resolveConditions(
   let out = "";
   while (pos.i < tokens.length) {
     const tok = tokens[pos.i]!;
-    if (tok.kind === "close") return out; // bubble up to the frame that opened it
+    if (tok.kind === "close") {
+      if (depth === 0) {
+        throw new UnbalancedConditionMarkerError(
+          `Unmatched closing marker <!-- /navori:${tok.type} --> at token index ${pos.i} has no opener`,
+        );
+      }
+      return out; // bubble up to the frame that opened it
+    }
     pos.i++;
     if (tok.kind === "text") {
       out += tok.value;
       continue;
     }
-    const body = resolveConditions(tokens, pos, enabled);
+    const openIndex = pos.i - 1;
+    const body = resolveConditions(tokens, pos, enabled, depth + 1);
     const closer = tokens[pos.i];
-    if (closer?.kind === "close" && closer.type === tok.type) pos.i++;
+    if (closer === undefined) {
+      throw new UnbalancedConditionMarkerError(
+        `Unclosed marker <!-- navori:${tok.type} ${tok.key} --> opened at token index ${openIndex} reaches end of input without a matching </navori:${tok.type}>`,
+      );
+    }
+    // `resolveConditions` above only ever returns at a `close` token or at
+    // end of input (handled above), so `closer.kind` is always `"close"`
+    // here — but its `type` may not match the opener's when kinds are
+    // nested/mixed incorrectly (e.g. `<!-- navori:if KEY -->` closed by
+    // `/navori:if-not`).
+    if (closer.kind !== "close" || closer.type !== tok.type) {
+      const closerLabel = closer.kind === "close" ? closer.type : "unknown";
+      throw new UnbalancedConditionMarkerError(
+        `Marker <!-- navori:${tok.type} ${tok.key} --> opened at token index ${openIndex} is closed by mismatched <!-- /navori:${closerLabel} --> at token index ${pos.i}`,
+      );
+    }
+    pos.i++;
     const show = tok.type === "if" ? enabled(tok.key) : !enabled(tok.key);
     if (show) out += withoutMarkers(body);
   }
