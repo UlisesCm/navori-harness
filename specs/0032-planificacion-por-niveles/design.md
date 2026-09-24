@@ -71,9 +71,11 @@ contra el diff (R21).
 ## Components
 
 - `packages/core/core-assets/managed/planificacion.md` — bloque managed nuevo, `condition:
-  harness.planTiers`, audiencia orquestador, techo propio de 250 palabras en `DOC_BUDGETS`,
-  ordenado antes que `orquestacion` en el contexto de arranque; contiene solo la tabla de niveles
-  y la regla del gate — cubre R1, R4, R5, R6, R16, R22, R30.
+  harness.planTiers`, audiencia orquestador, techo propio de 274 palabras en `DOC_BUDGETS` (249
+  medidas × 1.10, misma convención de recalibración que el resto de `doc-budgets.ts` — un techo
+  literal de 250 deja solo 0.4% de holgura, por debajo del piso de 5% que exige
+  `doc-budgets-check.test.ts`), ordenado antes que `orquestacion` en el contexto de arranque;
+  contiene solo la tabla de niveles y la regla del gate — cubre R1, R4, R5, R6, R16, R22, R30.
 - `packages/core/core-assets/managed/orquestacion.md` — solo cambia el párrafo "The architectural
   pass" (línea 53, 112 palabras): con R33 pierde sus ramas `navori:if architect`/`if-not
   architect` y queda envuelto en `navori:if-not planTiers`, así que el archivo fuente no crece —
@@ -116,7 +118,13 @@ contra el diff (R21).
 - `packages/cli/src/lib/config/schema.ts` — flag `harness.planTiers` (default `false`), el campo
   `project.criticalPaths` y el retiro de la clave `harness.architect` — cubre R9, R30, R33.
 - `packages/cli/src/lib/config/config.ts` — mensaje de migración de la clave retirada
-  `harness.architect` — cubre R33.
+  `harness.architect` — cubre R33. `RetiredConfigKey` gana `sections`, opcional, para acotar un
+  retiro a un subconjunto de `{harness, models, effort}` en vez de las tres a la vez: el retiro de
+  `architect` la saca solo de `harness` (`{ key: "architect", sections: ["harness"] }`) porque
+  `models.architect`/`effort.architect` siguen ajustando al agente ya siempre-activo. Sin
+  `sections`, la entrada retira la clave en las tres secciones por igual — una entrada de retiro
+  futura sin `sections` explícito repite este error si el caso no es "las tres a la vez": rompió el
+  proyecto default de `navori init` hasta que un e2e manual lo detectó, no la suite unitaria.
 - `packages/cli/src/lib/config/recommended.ts` — default de core para el architect (`opus`,
   `effort: xhigh`) — cubre R34.
 - `render-plan.ts` / `HARNESS_DEFAULTS` — se quita `architect` de los defaults del harness —
@@ -206,6 +214,16 @@ porcentaje. Disparador de re-medición: cualquier número calculado con menos de
 repo se marca provisional."
 
 ## Failure modes
+
+- **Marcadores de condición anidados del mismo tipo.** `conditionOrchestration` (`render-plan.ts`)
+  pasó de dos reemplazos globales por regex (uno por tipo de marcador) a un tokenizer/parser
+  recursivo (`tokenizeConditions` + `resolveConditions`), porque `orquestacion.md` ahora anida un
+  `navori:if-not auditor` dentro del nuevo `navori:if-not planTiers` — mismo tipo de marcador
+  anidado en sí mismo, que la regex no greedy emparejaba con el cierre más cercano (el interno) en
+  vez del correcto, truncando la oración y dejando un `<!-- /navori:if-not -->` huérfano en el
+  render. Es una corrección general de `render-plan.ts`, no específica del contenido de
+  plan-tiers: relevante para cualquier asset de core que combine marcadores anidados del mismo
+  tipo en `core-assets` a futuro.
 
 - **Plan desactualizado.** El orquestador olvida actualizar Progreso. Mitigación: el `reviewer`
   lee el workplan y lo contrasta con `acceptance`; un `A<n>` marcado `cumplido` sin evidencia es

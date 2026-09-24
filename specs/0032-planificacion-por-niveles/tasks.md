@@ -35,9 +35,9 @@ agentes y skills, y al final encender y medir en este repo.
 
 ## Lote 2 — Flag, gate y bloque
 
-- [ ] **T6** (R30) — `harness.planTiers` en `schema.ts` y golden del bloque en `false` idéntico ·
+- [x] **T6** (R30) — `harness.planTiers` en `schema.ts` y golden del bloque en `false` idéntico ·
   test: snapshot golden, con `// Covers: R30`.
-- [ ] **T6b** (R33, R34, R35) — Retiro de la clave `harness.architect`: sale del esquema
+- [x] **T6b** (R33, R34, R35) — Retiro de la clave `harness.architect`: sale del esquema
   (`lib/config/schema.ts`), entra en la lista de claves retiradas con su mensaje de migración
   (`lib/config/config.ts`), se eliminan las ramas `navori:if architect` / `navori:if-not
   architect` de los assets de core, y el default de core queda en modelo `opus` y `effort:
@@ -48,12 +48,12 @@ agentes y skills, y al final encender y medir en este repo.
   anterior: `orquestacion-doctrina.test.ts`, `engines/claude/__tests__/render-engine.test.ts`,
   `preset-extras.test.ts`, `model-profile.test.ts`, los goldens `claude.snap` y `codex.snap`, y la
   prosa de `skills/solution-design.md:32`.
-- [ ] **T7** (R16, R17, R19) — Hook `PreToolUse` sobre `Agent` (Claude) con conteo de rechazos;
+- [x] **T7** (R16, R17, R19) — Hook `PreToolUse` sobre `Agent` (Claude) con conteo de rechazos;
   aviso de `doctor` cuando el engine no lo soporta · test: `plan-gate.test.ts` (niega sin
   workplan, deja pasar con plan válido o exención, exige nivel siguiente tras dos rechazos, y
   niega un encargo sin la línea `workplan: <feature>` / `nivel-0: <ruta>`), con `// Covers: R16,
   R17, R19`.
-- [ ] **T8** (R6, R7, R8, R18, R22) — Bloque managed nuevo `managed/planificacion.md`
+- [x] **T8** (R6, R7, R8, R18, R22) — Bloque managed nuevo `managed/planificacion.md`
   (`condition: harness.planTiers`, techo propio de 250 palabras, ordenado antes que
   `orquestacion` en el contexto de arranque) con la tabla de niveles y la regla del gate; en
   `orquestacion.md` solo cambia el párrafo "The architectural pass" (pierde sus ramas `navori:if
