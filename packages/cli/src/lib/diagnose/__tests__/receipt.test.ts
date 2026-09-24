@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkReceipt, formatReceipt, signReceipt, type ReceiptOptions } from "../receipt.ts";
@@ -29,7 +29,13 @@ function fixture(): ReceiptOptions {
   git(cwd, "commit", "-m", "base");
   git(cwd, "remote", "add", "origin", remote);
   git(cwd, "push", "-u", "origin", "main");
-  return { cwd, feature: "receipt-test", target: "main", dir: ".claude/progress" };
+  return {
+    cwd,
+    feature: "receipt-test",
+    target: "main",
+    dir: ".claude/progress",
+    gate: "quality-gate-full",
+  };
 }
 
 describe("sign", () => {
@@ -267,5 +273,101 @@ describe("check", () => {
     const mode = checkReceipt(options);
     expect(mode.exitCode).toBe(2);
     expect(mode.result.status).toBe("findings");
+  });
+});
+
+describe("receipt v2 evidence identity", () => {
+  // Covers: R5, R7
+  it("stays fresh when origin/target advances but the diffed files don't change", () => {
+    const options = fixture();
+    writeFileSync(join(options.cwd, "base.txt"), "reviewed\n");
+    expect(signReceipt(options).exitCode).toBe(0);
+    // A rebase onto a new base with no unique local commits is a fast-forward:
+    // the tree it verified (the diffed files) doesn't change, only `base` does.
+    const peer = join(options.cwd, "..", "peer-rebase");
+    git(options.cwd, "clone", git(options.cwd, "remote", "get-url", "origin"), peer);
+    git(peer, "config", "user.email", "test@example.com");
+    git(peer, "config", "user.name", "Test");
+    writeFileSync(join(peer, "unrelated.txt"), "unrelated\n");
+    git(peer, "add", ".");
+    git(peer, "commit", "-m", "advance base");
+    git(peer, "push", "origin", "main");
+    git(options.cwd, "fetch", "origin", "main");
+    git(options.cwd, "merge", "--ff-only", "origin/main");
+    const checked = checkReceipt(options);
+    expect(checked.result.fresh).toBe(true);
+    expect(checked.result.stale).toEqual([]);
+    expect(checked.result.status).toBe("ok");
+  });
+
+  // Covers: R5, R7
+  it("marks gate stale when the configured gate command changes, without failing status", () => {
+    const options = fixture();
+    writeFileSync(join(options.cwd, "base.txt"), "reviewed\n");
+    expect(signReceipt(options).exitCode).toBe(0);
+    const checked = checkReceipt({ ...options, gate: "a different gate command" });
+    expect(checked.result.stale).toEqual(["gate"]);
+    expect(checked.result.fresh).toBe(false);
+    expect(checked.result.status).toBe("ok");
+    expect(checked.exitCode).toBe(0);
+  });
+
+  // Covers: R5, R7
+  it("marks inputs stale when a declared lockfile's content changes outside the diff", () => {
+    const options = fixture();
+    writeFileSync(join(options.cwd, "package-lock.json"), "{}\n");
+    git(options.cwd, "add", "package-lock.json");
+    git(options.cwd, "commit", "-m", "add lockfile");
+    git(options.cwd, "push", "origin", "main");
+    writeFileSync(join(options.cwd, "base.txt"), "reviewed\n");
+    expect(signReceipt(options).exitCode).toBe(0);
+    // A peer bumps the lockfile on the base; a fast-forward merge here keeps
+    // package-lock.json OUT of the diff against origin/main (both match) while
+    // its bytes on disk — the gate INPUT — are no longer what was signed.
+    const peer = join(options.cwd, "..", "peer-lockfile");
+    git(options.cwd, "clone", git(options.cwd, "remote", "get-url", "origin"), peer);
+    git(peer, "config", "user.email", "test@example.com");
+    git(peer, "config", "user.name", "Test");
+    writeFileSync(join(peer, "package-lock.json"), '{"changed":true}\n');
+    git(peer, "add", "package-lock.json");
+    git(peer, "commit", "-m", "bump lockfile");
+    git(peer, "push", "origin", "main");
+    git(options.cwd, "fetch", "origin", "main");
+    git(options.cwd, "merge", "--ff-only", "origin/main");
+    const checked = checkReceipt(options);
+    expect(checked.result.stale).toEqual(["inputs"]);
+    expect(checked.result.status).toBe("ok");
+    expect(checked.exitCode).toBe(0);
+  });
+
+  // Covers: R5, R7
+  it("treats a v1 header as stale format without failing status or exit code", () => {
+    const options = fixture();
+    writeFileSync(join(options.cwd, "base.txt"), "reviewed\n");
+    expect(signReceipt(options).exitCode).toBe(0);
+    const receiptFile = join(options.cwd, options.dir, "receipt.txt");
+    const body = readFileSync(receiptFile, "utf8").split("\n").slice(1).join("\n");
+    writeFileSync(receiptFile, `# navori-receipt v1 feature=${options.feature}\n${body}`);
+    const checked = checkReceipt(options);
+    expect(checked.result.stale).toEqual(["format"]);
+    expect(checked.result.fresh).toBe(false);
+    expect(checked.result.status).toBe("ok");
+    expect(checked.exitCode).toBe(0);
+  });
+
+  // Covers: R6
+  it("reads receipt.consumed.txt only with includeConsumed, and marks it consumed", () => {
+    const options = fixture();
+    writeFileSync(join(options.cwd, "base.txt"), "reviewed\n");
+    expect(signReceipt(options).exitCode).toBe(0);
+    const receiptFile = join(options.cwd, options.dir, "receipt.txt");
+    const consumedFile = join(options.cwd, options.dir, "receipt.consumed.txt");
+    renameSync(receiptFile, consumedFile);
+    const withoutFlag = checkReceipt(options);
+    expect(withoutFlag.result.status).toBe("error");
+    expect(withoutFlag.exitCode).toBe(1);
+    const withFlag = checkReceipt({ ...options, includeConsumed: true });
+    expect(withFlag.result.status).toBe("ok");
+    expect(withFlag.result.consumed).toBe(true);
   });
 });

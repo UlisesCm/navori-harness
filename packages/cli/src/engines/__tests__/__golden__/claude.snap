@@ -333,7 +333,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
 - **Strong typing, `any` forbidden in new code.** Define correct types before moving on. Use `unknown` + narrowing, generics, or domain types. Cover parameters, returns, callbacks, events, props, hooks, and service responses. If typing it well is genuinely impossible (third-party lib without types), a `// any justified: <reason>` comment — last resort, not a shortcut.
 - **No hardcode**: secrets / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, depending on the stack).
 - **No `console.log`** in code that will be merged (guard with `import.meta.env.DEV` or the runtime's equivalent).
-- **Zero new errors** introduced by your code in the quality gate tools (vs. baseline) — see the evidence table below for the predates-you check. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.
+- **Zero new errors** introduced by your code in the quality gate tools (vs. baseline) — classify per `verify-before-done`'s Failure attribution, never by diff location alone; see the evidence table below. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.
 - **Never mutate or discard the shared working tree**: no stashing, no checkout/reset that discards local changes, no working-tree clean — these hit the `ask` permission rule and can stall a background agent indefinitely, and in the repo root they'd destroy other parallel agents' work. Same reasoning for scratch files: leave them, don't clean them with a recursive delete.
 - **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.
 - **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see the SDD block in `CLAUDE.md`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.
@@ -368,9 +368,9 @@ Before returning `done -> .claude/progress/impl_<feature>.md`, apply `.claude/sk
 | `pnpm lint` green | Full command run **this turn** with exit 0 | "ran it before", "should be green" |
 | UI validated in the browser (only when the user asked for a visual check) | Repro step + observed state via the repo's browser tool (e.g. `playwright-cli`) this turn | "looks fine in the code" |
 | Bug fixed (if applicable) | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
-| Zero new errors in typecheck/lint | `git diff --name-only main` — a failure outside that file list predates you | "lint said OK" with no baseline |
+| Zero new errors in typecheck/lint | Classify per `verify-before-done`'s Failure attribution: state per failure, demonstrated over `main` | "lint said OK" with no baseline |
 
-If any claim can't be backed with fresh evidence this turn, declare it EXPLICITLY in the report. Never infer success.
+If any claim can't be backed with evidence you ran this turn, declare it EXPLICITLY in the report. Never infer success.
 
 ## Closing report
 
@@ -690,7 +690,7 @@ You own the **end of the cycle**: well-structured commits in the configured styl
 - Harness active and THIS feature's review — `.claude/progress/review_<feature>.md`, the single file the pre-flight below identifies by name — contains `CHANGES_REQUESTED` → no PR is created. Never scan the directory for it: a `CHANGES_REQUESTED` belonging to someone else's closed cycle must not abort your PR, exactly as another feature's `APPROVED` never unblocks it.
 - Quality gate red this turn.
 
-> **Two branches, one that decides:** `main` is the PR's target branch — the one `gh pr create --base` receives and the one every diff below is computed against. The fork point (the branch this one was branched from) is a separate setting the repo declares on its own; in most repos the two name the same branch and the distinction costs you nothing. Where they differ, the fork-point diff is NOT the PR's, so the target always wins and you never have to work out which of the two a given name refers to.
+> **Two branches, one that decides:** `main` is the PR's target branch — the one `gh pr create --base` receives and the one every diff below is computed against. The fork point (the branch this one was branched from) is a separate setting the repo declares on its own; in most repos the two name the same branch and the distinction costs you nothing. Where they differ, the fork-point diff is NOT the PR's, so the target always wins.
 
 ## Mandatory pre-flight
 
@@ -768,9 +768,9 @@ For every live-file `DRIFT`, the JSON provides the approved blob and the exact i
 
 The PR gate is the FULL one, `pnpm test && pnpm lint` — **not** the fast one, `pnpm lint`. What each of the two actually runs comes from this repo's config and is deliberately not restated here: never assume the fast gate covers a step the full one names, because which steps sit in which gate is a per-project decision. `full` must be green over the diff that ships. Two paths:
 
-- **Reviewed (the normal path):** the `reviewer` already ran `pnpm test && pnpm lint` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle) and you **don't edit code** — trust it, don't re-run. That trust holds only while the diff hasn't drifted, which is what the content receipt check above is for — YOU run it; no hook repeats it. The one mechanical backstop left on `git commit` is `quality-gate-pre-commit`, which re-runs `pnpm lint` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
-- **Declared inline (no reviewer):** there's no review evidence to trust — YOU run `pnpm test && pnpm lint` green in pre-flight before `gh pr create`. If it can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them — you won't be re-woken to read the result.
-- ▶️ **Re-run `pnpm test && pnpm lint` by hand** whenever the diff changed since the review (rebase/merge/follow-up edit) or there's no fresh evidence over the diff being committed — stale evidence doesn't count.
+- **Reviewed (the normal path):** the `reviewer` already ran `pnpm test && pnpm lint` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle). Trust that run and skip re-running it **only** when the `navori receipt check` above reports `"fresh":true` — that's the mechanical test, not "the diff looks unchanged". The one mechanical backstop left on `git commit` is `quality-gate-pre-commit`, which re-runs `pnpm lint` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
+- **`"fresh":false` (rebase, drift, or any other cause the receipt names):** there's no trustworthy evidence over the diff being committed — YOU run `pnpm test && pnpm lint` green yourself in pre-flight before `gh pr create`. If it can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them — you won't be re-woken to read the result.
+- **Declared inline (no reviewer):** there's no review evidence to trust either — run `pnpm test && pnpm lint` yourself, same as above.
 
 Never open the PR with the gate red.
 
@@ -786,7 +786,7 @@ Never open the PR with the gate red.
 5. `git add <files>` (prefer explicit over `git add -A`).
 6. `git commit -m "..."` with a HEREDOC for the body if applicable.
 7. Validate with `git status` that the commit landed.
-8. **Consume the receipt:** `rm -f .claude/progress/receipt.txt`. The approval is now frozen into the commit; leaving it armed could false-block a later feature that touches the same file.
+8. **Consume the receipt:** `mv -f .claude/progress/receipt.txt .claude/progress/receipt.consumed.txt`. The approval is now frozen into the commit; renaming it (instead of deleting it) keeps the evidence on disk without it being rearmed — a plain `check` never reads a consumed receipt again, only the opt-in flag documented in `cierre-sesion.md` does.
 
 ## PR flow
 
@@ -1153,7 +1153,7 @@ Write `.claude/progress/review_<feature>.md`:
 | Check | Status | Evidence |
 |---|---|---|
 | `pnpm test && pnpm lint` | [x] / [ ] | <output or exit code from this turn> |
-| Zero new errors vs baseline | [x] / [ ] | <failing paths cross-checked against `git diff --name-only origin/main`, this turn> |
+| Failure attribution | [x] / [ ] | <state per failure (per `verify-before-done`) + the run over `origin/main` that demonstrates it, this turn> |
 
 ### Conventions (CLAUDE.md + orchestrator's Project rules)
 - <repo-specific check>: [x] / [ ]
@@ -1188,7 +1188,7 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 - ❌ Never include as a blocker (in "Issues ≥80") a finding with confidence <80.
 - ✅ Apply `.claude/skills/verify-before-done/SKILL.md` before marking APPROVED: each `[x]` must be backed by evidence run this turn (not from the implementer's cached report).
 - ❌ Never approve with `pnpm test && pnpm lint` red.
-- ❌ Never approve if the new code **adds new errors or warnings** vs baseline.
+- ❌ Never approve a failure legitimately classified *introduced (demonstrated)* per `verify-before-done`'s Failure attribution, and never classify one *pre-existing* by diff location alone.
 - ❌ Never approve new code with explicit or implicit `any` without a valid `// any justified: <reason>`.
 - ❌ Don't block or escalate a screen change to a human for lack of browser validation — the default gate is the diff + tests; require a visual check only when the user explicitly asked for one.
 - ✅ On APPROVED, write the content receipt (`.claude/progress/receipt.txt`) so the commit is bound to the reviewed bytes.
@@ -1505,7 +1505,7 @@ On Claude, a `SessionStart` hook injects the live context — branch, recent com
 
 Before closing the session:
 
-1. **Quality gate**: pnpm test && pnpm lint — confirm it passes, **or cite this cycle's green run** (normally the reviewer's Pass-2; on a declared-inline change, the pilot's pre-flight) if no code was edited after it. Re-run only if code changed since that evidence (or document debt in `progress/current.md`).
+1. **Quality gate**: run `navori receipt check --feature <feature> --include-consumed --json`. `"status":"ok"` and `"fresh":true` → cite the receipt as evidence, no re-run needed. Any other result → run pnpm test && pnpm lint again (or document debt in `progress/current.md`).
 2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. **One redaction, every destination**: write that summary once and reuse the same text wherever else this closeout persists it (a memory store, for instance) — never write the same session up twice. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
 3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step.
 4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
@@ -12883,7 +12883,7 @@ metadata:
 <!-- navori:managed id="review-diff-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
 # Code review — checklist for a diff
 
-Apply this checklist to a diff (staged, branch vs `main`, or a specific PR). The skeleton is stack-agnostic; the rules specific to your repo live in the user-section at the end.
+Apply this checklist to a diff (staged, branch vs `main`, or a PR). The skeleton is stack-agnostic; repo-specific rules live in the user-section below.
 
 ## How to report
 
@@ -12901,7 +12901,7 @@ One line per finding, ordered CRITICAL → HIGH → MEDIUM:
 
 If it doesn't reach MEDIUM, don't report it. No "nitpick" or "consider also". (Maps to the `reviewer`: CRITICAL/HIGH = confidence ≥80, blocking; MEDIUM = informational observation 50-79.)
 
-**Three-part proof for HIGH or CRITICAL.** Every HIGH or CRITICAL finding names its `file:line`, the concrete failure scenario, and why no existing guard/check catches it. Missing any of the three downgrades it to MEDIUM, or drops it if it doesn't reach MEDIUM either. **Zero findings is a valid verdict** — it needs no excuse or padding to look thorough.
+**Three-part proof for HIGH or CRITICAL.** Every HIGH or CRITICAL finding names its `file:line`, the concrete failure scenario, and why no existing guard/check catches it. Missing any of the three downgrades it to MEDIUM, or drops it if it doesn't reach MEDIUM either. **Zero findings is a valid verdict** — it needs no excuse to look thorough.
 
 ## 0. Pre-pass (before reading line by line)
 
@@ -12958,7 +12958,7 @@ Mirror of the `implementer`'s YAGNI ladder: hunt for the code of **excess**.
 - A deliberate shortcut without its mark (ceiling + upgrade trigger) → MEDIUM: silent debt is worse than declared debt.
 - A function whose cognitive complexity exceeds the repo's threshold (piled-up nesting, branches, flags) → HIGH. Extract before it lands, not after the scanner complains.
 
-Rule: if removing the abstraction leaves the code **just as correct** and shorter, removing it is the finding.
+Rule: if removing the abstraction leaves the code **as correct** and shorter, removing it is the finding.
 
 **Don't confuse it with incompleteness.** Removing the handling of a real edge case, a validation or an error path is NOT simplifying — it's a bug, and it goes to §1-§4 (not here). This dimension attacks *excess structure*, never *missing coverage*. What the YAGNI ladder protects (trust boundaries, errors that prevent data loss, security, accessibility) is never over-engineering.
 
@@ -12973,7 +12973,7 @@ Rule: if removing the abstraction leaves the code **just as correct** and shorte
 ## 9. Quality gate (run this turn, not assumed)
 
 - `pnpm test && pnpm lint` passes → CRITICAL if it fails; this is the same gate the `reviewer` owns in Pass 2, never re-defined here.
-- Zero new errors/warnings vs baseline → HIGH if the diff adds them.
+- Failure attribution (per `verify-before-done`): a failure classified *introduced (demonstrated)* → HIGH; never classify one by diff location alone.
 
 ## 10. Commit and PR
 
@@ -13580,7 +13580,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the command that proves it �
 | Claim | Required output | Not sufficient |
 |---|---|---|
 | `pnpm lint` / `pnpm test && pnpm lint` green | Full command run this turn, exit 0 | "ran it before", "should be green" |
-| Zero new errors vs baseline | `git diff --name-only main` — a failure outside that list predates you | "lint said OK", no comparison |
+| Zero new errors vs baseline | Classify per **Failure attribution** below: state per failure, demonstrated over `main` | "outside the diff" / "inside the diff" alone |
 | UI validated in the browser (only if asked) | Observed state via the repo's browser tool this turn | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
 | PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status`, receipt `"status":"ok"` (prefer `navori receipt check …`; if the installed CLI lacks it, use the repository-built CLI); declared-inline change, your own run. No clean working tree required | "the branch has commits, we can create it" |
@@ -13589,10 +13589,13 @@ BEFORE claiming "done / ready / approved": IDENTIFY the command that proves it �
 | Gate outlives Bash timeout, main session | `run_in_background`, wait on completion or `Monitor`; `TaskStop` unneeded tasks first | Polling (`pgrep`, `ps \| grep`) — matches other sessions' waits too |
 | Gate outlives Bash timeout, subagent | Its `&&` steps one by one, foreground, under the timeout | Backgrounding — a subagent never gets re-woken, the run orphans |
 
-## Baseline attribution (triage, not proof of age)
+## Failure attribution
 
-- Diff file → **introduced**. Outside the diff, no comparable baseline → **origin not determined**; only evidence over the same command/range calls it pre-existing. No location → not measured.
-- Never `git stash` to measure it — empties the shared tree while another agent reads it. Never exempts a red gate or skips review.
+A failure has three possible states: **introduced (demonstrated)**, **pre-existing (demonstrated)**, or **origin not determined**. Location relative to `git diff --name-only main` (inside or outside the diff) only orients — it never proves origin.
+
+Only the **same command**, run over the comparable base and over the change, demonstrates a state: the two runs disagree → introduced (demonstrated); they agree → pre-existing (demonstrated); no comparable run exists → origin not determined.
+
+Never `git stash` to measure it — it empties the shared tree while another agent reads it. No location → not measured; never exempts a red gate or skips review.
 
 ## Red flags (STOP)
 

@@ -7,7 +7,7 @@ effort: low
 maxWords: 3800
 ---
 
-<!-- navori:managed id="publisher-base" hash="e4f2cfb3" version="0.10.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="publisher-base" hash="8b8e43ab" version="0.10.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Publisher Agent
 
 You own the **end of the cycle**: well-structured commits in the configured style and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
@@ -25,7 +25,7 @@ You own the **end of the cycle**: well-structured commits in the configured styl
 - Harness active and THIS feature's review — `.claude/progress/review_<feature>.md`, the single file the pre-flight below identifies by name — contains `CHANGES_REQUESTED` → no PR is created. Never scan the directory for it: a `CHANGES_REQUESTED` belonging to someone else's closed cycle must not abort your PR, exactly as another feature's `APPROVED` never unblocks it.
 - Quality gate red this turn.
 
-> **Two branches, one that decides:** `main` is the PR's target branch — the one `gh pr create --base` receives and the one every diff below is computed against. The fork point (the branch this one was branched from) is a separate setting the repo declares on its own; in most repos the two name the same branch and the distinction costs you nothing. Where they differ, the fork-point diff is NOT the PR's, so the target always wins and you never have to work out which of the two a given name refers to.
+> **Two branches, one that decides:** `main` is the PR's target branch — the one `gh pr create --base` receives and the one every diff below is computed against. The fork point (the branch this one was branched from) is a separate setting the repo declares on its own; in most repos the two name the same branch and the distinction costs you nothing. Where they differ, the fork-point diff is NOT the PR's, so the target always wins.
 
 ## Mandatory pre-flight
 
@@ -103,9 +103,9 @@ For every live-file `DRIFT`, the JSON provides the approved blob and the exact i
 
 The PR gate is the FULL one, `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` — **not** the fast one, `cd packages/cli && bun lint`. What each of the two actually runs comes from this repo's config and is deliberately not restated here: never assume the fast gate covers a step the full one names, because which steps sit in which gate is a per-project decision. `full` must be green over the diff that ships. Two paths:
 
-- **Reviewed (the normal path):** the `reviewer` already ran `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle) and you **don't edit code** — trust it, don't re-run. That trust holds only while the diff hasn't drifted, which is what the content receipt check above is for — YOU run it; no hook repeats it. The one mechanical backstop left on `git commit` is `quality-gate-pre-commit`, which re-runs `cd packages/cli && bun lint` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
-- **Declared inline (no reviewer):** there's no review evidence to trust — YOU run `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` green in pre-flight before `gh pr create`. If it can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them — you won't be re-woken to read the result.
-- ▶️ **Re-run `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` by hand** whenever the diff changed since the review (rebase/merge/follow-up edit) or there's no fresh evidence over the diff being committed — stale evidence doesn't count.
+- **Reviewed (the normal path):** the `reviewer` already ran `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle). Trust that run and skip re-running it **only** when the `navori receipt check` above reports `"fresh":true` — that's the mechanical test, not "the diff looks unchanged". The one mechanical backstop left on `git commit` is `quality-gate-pre-commit`, which re-runs `cd packages/cli && bun lint` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
+- **`"fresh":false` (rebase, drift, or any other cause the receipt names):** there's no trustworthy evidence over the diff being committed — YOU run `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` green yourself in pre-flight before `gh pr create`. If it can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them — you won't be re-woken to read the result.
+- **Declared inline (no reviewer):** there's no review evidence to trust either — run `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` yourself, same as above.
 
 Never open the PR with the gate red.
 
@@ -121,7 +121,7 @@ Never open the PR with the gate red.
 5. `git add <files>` (prefer explicit over `git add -A`).
 6. `git commit -m "..."` with a HEREDOC for the body if applicable.
 7. Validate with `git status` that the commit landed.
-8. **Consume the receipt:** `rm -f .claude/progress/receipt.txt`. The approval is now frozen into the commit; leaving it armed could false-block a later feature that touches the same file.
+8. **Consume the receipt:** `mv -f .claude/progress/receipt.txt .claude/progress/receipt.consumed.txt`. The approval is now frozen into the commit; renaming it (instead of deleting it) keeps the evidence on disk without it being rearmed — a plain `check` never reads a consumed receipt again, only the opt-in flag documented in `cierre-sesion.md` does.
 
 ## PR flow
 

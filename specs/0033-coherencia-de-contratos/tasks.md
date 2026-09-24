@@ -14,7 +14,7 @@ Orden de los lotes:
 
 ## Lote A — Evidencia: atribución y vigencia (F01, F02)
 
-- [ ] **T1** (R1, R2, R3, R4) — Tres estados de atribución.
+- [x] **T1** (R1, R2, R3, R4) — Tres estados de atribución.
   - `verify-before-done` define los tres estados, sin la fila "a failure outside that list
     predates you".
   - `implementer`, `reviewer` y `review-diff` citan esa definición sin repetirla ni asignar
@@ -22,7 +22,7 @@ Orden de los lotes:
   - Test: `lib/__tests__/failure-attribution.test.ts`, con `// Covers: R1, R2, R3, R4`. Incluye
     los patrones prohibidos en todo asset renderizable y las fixtures de consumidor no editado,
     preexistente en archivo editado y sin baseline.
-- [ ] **T2** (R5, R6, R7) — Receipt v2 en `lib/diagnose/receipt.ts`.
+- [x] **T2** (R5, R6, R7) — Receipt v2 en `lib/diagnose/receipt.ts`.
   - La cabecera guarda `base`, `gate` e `inputs`; `LOCKFILES` sale de `lib/diagnose/detect.ts`.
   - `check` devuelve `fresh` o `stale` con sus causas, sin cambiar `status` ni el exit code.
   - El publisher ya no borra el receipt consumido: lo renombra a `receipt.consumed.txt`, y
@@ -30,7 +30,7 @@ Orden de los lotes:
   - Test: `lib/diagnose/__tests__/receipt.test.ts`, con `// Covers: R5, R6, R7`. Cubre los
     casos sin cambios, drift, rebase sin cambios propios (sigue `fresh`), gate cambiado,
     lockfile cambiado, cabecera v1, y consumido con y sin flag.
-- [ ] **T3** (R6, R8) — Una sola regla de vigencia en la prosa.
+- [x] **T3** (R6, R8) — Una sola regla de vigencia en la prosa.
   - `verify-before-done` la define; `cierre-sesion`, `publisher`, `reviewer` e `implementer` la
     citan. "This turn" deja de ser el criterio.
   - `publisher` exige `"fresh":true` o corre el gate, y deja de pedir el gate completo tras un

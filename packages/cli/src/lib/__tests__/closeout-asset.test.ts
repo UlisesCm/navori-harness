@@ -29,11 +29,17 @@ describe("cierre-sesion.md — quality-gate step reuses cycle evidence (#398)", 
     expect(step1).toContain("{{qualityGate.full}}");
   });
 
-  it("offers the evidence-reuse clause in the same step as the gate", () => {
-    expect(step1).toMatch(/or cite this cycle's green run/);
-    // The clause must name both sources of authoritative evidence.
-    expect(step1).toMatch(/reviewer's Pass-2/);
-    expect(step1).toMatch(/pilot's pre-flight/);
+  // Covers: R6, R8
+  it("gates evidence reuse on a fresh receipt check in the same step as the gate", () => {
+    // R8 retired the "cite this cycle's green run" clause: the closeout no
+    // longer relies on human judgment about which prior run still applies.
+    // It now runs `navori receipt check --include-consumed` and reuses the
+    // evidence only when the receipt reports "fresh":true; any other result
+    // falls back to running {{qualityGate.full}} again in this same step.
+    expect(step1).toContain("navori receipt check");
+    expect(step1).toContain("--include-consumed");
+    expect(step1).toContain('"fresh":true');
+    expect(step1).toMatch(/"fresh":true[\s\S]*\{\{qualityGate\.full\}\}/);
   });
 
   it("does not mandate an unconditional run (old wording)", () => {
@@ -41,9 +47,6 @@ describe("cierre-sesion.md — quality-gate step reuses cycle evidence (#398)", 
     // with no alternative. "confirm it passes" may stay only if the reuse
     // clause follows it.
     expect(step1).not.toMatch(/confirm it passes \(or document debt/);
-    if (/confirm it passes/.test(step1)) {
-      expect(step1).toMatch(/confirm it passes.*or cite this cycle's green run/);
-    }
   });
 });
 

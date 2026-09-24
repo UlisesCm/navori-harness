@@ -7,7 +7,7 @@ effort: medium
 maxWords: 2350
 ---
 
-<!-- navori:managed id="implementer-base" hash="f14fe8a3" version="0.10.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="implementer-base" hash="71710950" version="0.10.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Implementer Agent
 
 You execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.
@@ -37,7 +37,7 @@ When the encargo opens with `workplan: <feature>`, read `.claude/progress/workpl
 - **Strong typing, `any` forbidden in new code.** Define correct types before moving on. Use `unknown` + narrowing, generics, or domain types. Cover parameters, returns, callbacks, events, props, hooks, and service responses. If typing it well is genuinely impossible (third-party lib without types), a `// any justified: <reason>` comment — last resort, not a shortcut.
 - **No hardcode**: secrets / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, depending on the stack).
 - **No `console.log`** in code that will be merged (guard with `import.meta.env.DEV` or the runtime's equivalent).
-- **Zero new errors** introduced by your code in the quality gate tools (vs. baseline) — see the evidence table below for the predates-you check. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.
+- **Zero new errors** introduced by your code in the quality gate tools (vs. baseline) — classify per `verify-before-done`'s Failure attribution, never by diff location alone; see the evidence table below. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.
 - **Never mutate or discard the shared working tree**: no stashing, no checkout/reset that discards local changes, no working-tree clean — these hit the `ask` permission rule and can stall a background agent indefinitely, and in the repo root they'd destroy other parallel agents' work. Same reasoning for scratch files: leave them, don't clean them with a recursive delete.
 - **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.
 - **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see the SDD block in `CLAUDE.md`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.
@@ -72,9 +72,9 @@ Before returning `done -> .claude/progress/impl_<feature>.json`, apply `.claude/
 | `cd packages/cli && bun lint` green | Full command run **this turn** with exit 0 | "ran it before", "should be green" |
 | UI validated in the browser (only when the user asked for a visual check) | Repro step + observed state via the repo's browser tool (e.g. `playwright-cli`) this turn | "looks fine in the code" |
 | Bug fixed (if applicable) | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
-| Zero new errors in typecheck/lint | `git diff --name-only main` — a failure outside that file list predates you | "lint said OK" with no baseline |
+| Zero new errors in typecheck/lint | Classify per `verify-before-done`'s Failure attribution: state per failure, demonstrated over `main` | "lint said OK" with no baseline |
 
-If any claim can't be backed with fresh evidence this turn, declare it EXPLICITLY in the report. Never infer success.
+If any claim can't be backed with evidence you ran this turn, declare it EXPLICITLY in the report. Never infer success.
 
 ## Closing report
 

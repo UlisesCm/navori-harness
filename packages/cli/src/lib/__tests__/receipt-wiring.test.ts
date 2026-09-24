@@ -42,4 +42,31 @@ describe("receipt wiring", () => {
     expect(row).toContain("navori receipt check");
     expect(row).toContain('"status":"ok"');
   });
+
+  // Covers: R6, R8
+  it("publisher requires fresh:true or runs the gate itself, and never reads a consumed receipt", () => {
+    const publisher = read("agents/publisher.md");
+    expect(publisher).toContain('"fresh":true');
+    expect(publisher).not.toContain("--include-consumed");
+    expect(publisher).not.toMatch(/re-run .*by hand whenever the diff changed/i);
+  });
+
+  // Covers: R6, R8
+  it("cierre-sesion checks the receipt with --include-consumed instead of citing the cycle", () => {
+    const cierre = read("managed/cierre-sesion.md");
+    expect(cierre).toContain("--include-consumed");
+    expect(cierre).not.toMatch(/cite this cycle's green run/i);
+  });
+
+  // Covers: R8
+  it("reviewer and implementer don't gate the vigencia of existing evidence on 'this turn'", () => {
+    const reviewer = read("agents/reviewer.md");
+    const implementer = read("agents/implementer.md");
+    // "this turn" still governs PRODUCING evidence (run the gate now); it must
+    // not be the criterion for whether existing evidence is still valid to
+    // CONSUME — that's R5's identity (base + gate command + inputs), owned by
+    // verify-before-done and cited here, not restated as "this turn".
+    expect(reviewer).not.toMatch(/fresh[\s\S]{0,30}this turn/i);
+    expect(implementer).not.toMatch(/fresh[\s\S]{0,30}this turn/i);
+  });
 });

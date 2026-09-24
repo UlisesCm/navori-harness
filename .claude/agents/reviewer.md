@@ -7,7 +7,7 @@ effort: low
 maxWords: 2200
 ---
 
-<!-- navori:managed id="reviewer-base" hash="59174bc0" version="0.10.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="reviewer-base" hash="4f9e811e" version="0.10.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Reviewer Agent
 
 You are a strict reviewer. Your only function is to **approve or reject**. You don't edit code.
@@ -148,7 +148,7 @@ Write `.claude/progress/review_<feature>.md`:
 | Check | Status | Evidence |
 |---|---|---|
 | `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` | [x] / [ ] | <output or exit code from this turn> |
-| Zero new errors vs baseline | [x] / [ ] | <failing paths cross-checked against `git diff --name-only origin/main`, this turn> |
+| Failure attribution | [x] / [ ] | <state per failure (per `verify-before-done`) + the run over `origin/main` that demonstrates it, this turn> |
 
 ### Conventions (CLAUDE.md + orchestrator's Project rules)
 - <repo-specific check>: [x] / [ ]
@@ -183,7 +183,7 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 - ❌ Never include as a blocker (in "Issues ≥80") a finding with confidence <80.
 - ✅ Apply `.claude/skills/verify-before-done/SKILL.md` before marking APPROVED: each `[x]` must be backed by evidence run this turn (not from the implementer's cached report).
 - ❌ Never approve with `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` red.
-- ❌ Never approve if the new code **adds new errors or warnings** vs baseline.
+- ❌ Never approve a failure legitimately classified *introduced (demonstrated)* per `verify-before-done`'s Failure attribution, and never classify one *pre-existing* by diff location alone.
 - ❌ Never approve new code with explicit or implicit `any` without a valid `// any justified: <reason>`.
 - ❌ Don't block or escalate a screen change to a human for lack of browser validation — the default gate is the diff + tests; require a visual check only when the user explicitly asked for one.
 - ✅ On APPROVED, write the content receipt (`.claude/progress/receipt.txt`) so the commit is bound to the reviewed bytes.
