@@ -1,5 +1,8 @@
 # Planificación por niveles — Tasks
 
+Un solo PR para el issue #1011 (regla del repo: un PR por issue). Cada lote termina en un commit
+con el gate completo en verde, para que el PR se pueda revisar lote por lote.
+
 Lotes en orden: calibrar pesos con datos reales, luego el núcleo sin flag, después el flag con el
 gate y el bloque de orquestación (incluido el retiro de `harness.architect`), el contenido de
 agentes y skills, y al final encender y medir en este repo.
@@ -34,14 +37,24 @@ agentes y skills, y al final encender y medir en este repo.
   architect` de los assets de core, y el default de core queda en modelo `opus` y `effort:
   xhigh` (`lib/config/recommended.ts`) · test: el config con `harness.architect` produce el aviso
   de clave retirada; el render de core no contiene `navori:if architect`; golden de Claude y
-  Codex con `architect` presente, con `// Covers: R33, R34, R35`.
+  Codex con `architect` presente, con `// Covers: R33, R34, R35`. `RetiredConfigKey` acepta una
+  clave sin reemplazo (R33 extendido); actualizar los tests que describen el comportamiento
+  anterior: `orquestacion-doctrina.test.ts`, `engines/claude/__tests__/render-engine.test.ts`,
+  `preset-extras.test.ts`, `model-profile.test.ts`, los goldens `claude.snap` y `codex.snap`, y la
+  prosa de `skills/solution-design.md:32`.
 - [ ] **T7** (R16, R17, R19) — Hook `PreToolUse` sobre `Agent` (Claude) con conteo de rechazos;
   aviso de `doctor` cuando el engine no lo soporta · test: `plan-gate.test.ts` (niega sin
-  workplan, deja pasar con plan válido o exención, exige nivel siguiente tras dos rechazos), con
-  `// Covers: R16, R17, R19`.
-- [ ] **T8** (R6, R7, R8, R18, R22) — Tabla de niveles y regla del gate en `orquestacion.md`
-  dentro del presupuesto · test: `plan-tiers-contracts.test.ts`, con `// Covers: R6, R7, R8, R18,
-  R22`.
+  workplan, deja pasar con plan válido o exención, exige nivel siguiente tras dos rechazos, y
+  niega un encargo sin la línea `workplan: <feature>` / `nivel-0: <ruta>`), con `// Covers: R16,
+  R17, R19`.
+- [ ] **T8** (R6, R7, R8, R18, R22) — Bloque managed nuevo `managed/planificacion.md`
+  (`condition: harness.planTiers`, techo propio de 250 palabras, ordenado antes que
+  `orquestacion` en el contexto de arranque) con la tabla de niveles y la regla del gate; en
+  `orquestacion.md` solo cambia el párrafo "The architectural pass" (pierde sus ramas `navori:if
+  architect`/`if-not architect` y queda envuelto en `navori:if-not planTiers`) · test:
+  `plan-tiers-contracts.test.ts` y un test que verifique que el bloque llega entero al contexto
+  inyectado (`hook_additional_context`), no solo que el hook lo imprime, con `// Covers: R6, R7,
+  R8, R18, R22`.
 
 ## Lote 3 — Contenido y agentes
 

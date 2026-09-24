@@ -67,9 +67,14 @@ contra el diff (R21).
 
 ## Components
 
-- `packages/core/core-assets/managed/orquestacion.md` — sección nueva de niveles de
-  planificación, contiene solo la tabla de niveles y la regla del gate, condicionada a
-  `harness.planTiers` — cubre R1, R4, R5, R6, R16, R22, R30.
+- `packages/core/core-assets/managed/planificacion.md` — bloque managed nuevo, `condition:
+  harness.planTiers`, audiencia orquestador, techo propio de 250 palabras en `DOC_BUDGETS`,
+  ordenado antes que `orquestacion` en el contexto de arranque; contiene solo la tabla de niveles
+  y la regla del gate — cubre R1, R4, R5, R6, R16, R22, R30.
+- `packages/core/core-assets/managed/orquestacion.md` — solo cambia el párrafo "The architectural
+  pass" (línea 53, 112 palabras): con R33 pierde sus ramas `navori:if architect`/`if-not
+  architect` y queda envuelto en `navori:if-not planTiers`, así que el archivo fuente no crece —
+  cubre R22, R33.
 - `packages/core/core-assets/agents/orchestrator.md` — presentación del nivel al usuario, orden
   `architect` → challenge → elección del usuario → veredicto → workplan, rehacer el plan cuando
   `classify` sube el nivel, y la entrada `workplan_<feature>.json`/`.md` en la lista de handoffs de
@@ -117,6 +122,9 @@ contra el diff (R21).
   `navori:if-not architect` — se eliminan esas ramas condicionales; el agente `architect` se
   renderiza siempre — cubre R33.
 - `navori doctor` — reporta cuando el engine no permite interceptar el despacho — cubre R17.
+- `scripts/py/mine-activation.py` — el minero cruza su conteo de despachos con el log del hook
+  del gate antes de reportar niveles, clasificaciones erróneas y escalamientos por repo — cubre
+  R32.
 - `navori.config.json` — `harness.planTiers: true` — cubre R31. El architect ya viene siempre
   habilitado con `opus`/`xhigh` por default (R34), sin flag que apagarlo.
 - Este `design.md`, sección "Admisión del architect" — cubre R29, R35.
@@ -187,6 +195,13 @@ contrato cuando el encargo trae `A<n>` — R20):
 No se agrega a las claves requeridas de `subagent-stop-handoff.sh`: una tarea de nivel 0 no la
 lleva, y el hook no sabe el nivel.
 
+**Salida del minero** (`scripts/py/mine-activation.py`, R32): "Por repo: total de tareas, conteo
+por nivel, porcentaje de nivel ≥ 1, clasificaciones erróneas (nivel de `classify` sobre el diff
+mayor que el declarado) y escalamientos por rechazo. Antes de reportar, el minero cruza su conteo
+de despachos con el log del hook del gate; si difieren, reporta `instrumento en duda` en vez del
+porcentaje. Disparador de re-medición: cualquier número calculado con menos de 15 sesiones por
+repo se marca provisional."
+
 ## Failure modes
 
 - **Plan desactualizado.** El orquestador olvida actualizar Progreso. Mitigación: el `reviewer`
@@ -200,6 +215,11 @@ lleva, y el hook no sabe el nivel.
   `orquestacion.md` reemplaza prosa en vez de sumar — el procedimiento de cada nivel va a las
   skills nuevas (`plan-simple`, `plan-advanced`); subir `maxWords` solo se autoriza en
   `architect.md`, con su razón documentada ahí.
+- **Subclasificación declarada.** Las señales declaradas pueden omitirse y la tarea quedar en un
+  nivel menor. No se detecta antes de implementar; lo detecta el reviewer con `classify` sobre el
+  diff real (R21). Como el reviewer va antes del commit final y del PR, el trabajo no se publica:
+  vuelve al orquestador, que rehace el plan al nivel correcto (R18) antes del siguiente despacho.
+  Riesgo aceptado: se paga un ciclo de implementación de más, no un cambio mal diseñado en `main`.
 
 ## Testing strategy
 
@@ -245,6 +265,9 @@ lleva, y el hook no sabe el nivel.
 
 ## NOT in scope
 
+- **Actualización automática de Progreso desde `impl_*.json`.** R36 la deja en manos del
+  orquestador con `navori plan update`; leerla del handoff del implementer es una mejora
+  posterior con su propio ticket.
 - **Soporte en engines sin CLI de navori disponible.** `navori plan check` requiere el binario,
   igual que `navori receipt`.
 

@@ -96,7 +96,10 @@ deja rastro verificable:
   `implementer`, un hook `PreToolUse` sobre la herramienta `Agent` DEBERÁ negar el lanzamiento
   salvo que el encargo nombre un feature cuyo workplan pase `plan check`, o una exención de nivel
   0 que `classify` confirme. El motivo de la negación DEBERÁ nombrar la skill a cargar y el
-  comando a correr.
+  comando a correr. El encargo DEBERÁ abrir con una línea `workplan: <feature>` o, para nivel 0,
+  `nivel-0: <ruta>`; el hook la lee de `tool_input.prompt`, campo documentado para la herramienta
+  `Agent` (<https://code.claude.com/docs/en/hooks>, sección Agent). Un encargo sin esa línea se
+  niega.
 - **R17** — DONDE el engine no permita interceptar el lanzamiento de subagentes, el gate DEBERÁ
   degradarse a la verificación del reviewer (R21) y `navori doctor` DEBERÁ reportarlo.
 - **R18** — CUANDO `plan check` o `plan update` calculen un nivel mayor que el declarado, el
@@ -118,10 +121,10 @@ deja rastro verificable:
 
 ### Contenido por nivel
 
-- **R22** — El bloque de orquestación DEBERÁ contener solo la tabla de niveles y la regla del
-  gate. El procedimiento de nivel 1 DEBERÁ vivir en la skill `plan-simple`, el de nivel 2 en
-  `plan-advanced` y el de nivel 3 en `spec-bootstrap`. El mecanismo que las activa es el motivo
-  del gate (R16), no la coincidencia de su descripción.
+- **R22** — El bloque `planificacion` DEBERÁ contener solo la tabla de niveles y la regla del
+  gate, dentro de su techo propio; el procedimiento de nivel 1 DEBERÁ vivir en la skill
+  `plan-simple`, el de nivel 2 en `plan-advanced` y el de nivel 3 en `spec-bootstrap`. El
+  mecanismo que las activa es el motivo del gate (R16), no la coincidencia de su descripción.
 
 ### El architect
 
@@ -160,7 +163,9 @@ deja rastro verificable:
 - **R33** — navori DEBERÁ retirar la clave `harness.architect`: sale del esquema, entra en la
   lista de claves retiradas con su mensaje de migración (el mecanismo que ya usa `config.ts` para
   claves retiradas), las ramas `navori:if architect` / `navori:if-not architect` se eliminan de
-  los assets de core y el agente `architect` se renderiza siempre, en todos los engines.
+  los assets de core y el agente `architect` se renderiza siempre. El mecanismo de claves
+  retiradas de `config.ts` DEBERÁ aceptar una clave sin reemplazo: su aviso dice que la clave ya
+  no tiene efecto y la migración la elimina.
 - **R34** — El default de core para el architect DEBERÁ ser modelo `opus` y `effort` `xhigh`
   (`lib/config/recommended.ts`); un proyecto puede bajarlo con `models.architect` /
   `effort.architect`.
