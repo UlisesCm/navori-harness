@@ -23,6 +23,15 @@ function splitList(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
+/** citty hands a single `--progress` as a string but a repeated `--progress`
+ * as an array — its declared arg type doesn't reflect that, so the value
+ * arrives here as `unknown` and gets normalized to a flat list either way. */
+function normalizeProgressList(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (Array.isArray(value)) return value.map((v) => String(v));
+  return [String(value)];
+}
+
 function jsonPath(cwd: string, dir: string, feature: string): string {
   return resolve(cwd, dir, `workplan_${feature}.json`);
 }
@@ -251,31 +260,40 @@ const updateSubCommand = defineCommand({
     const plan = readWorkplanOrExit(jsonPath(cwd, args.dir, args.feature));
     if (!plan) return;
 
-    let update: WorkplanUpdate;
-    if (args.progress) {
-      const [id, status] = args.progress.split("=") as [string, string];
-      if (!id || !status) {
-        process.stderr.write("--progress must look like A1=cumplido\n");
-        process.exitCode = 1;
-        return;
+    const progressEntries = normalizeProgressList(args.progress);
+    let updates: WorkplanUpdate[];
+    if (progressEntries.length > 0) {
+      updates = [];
+      for (const entry of progressEntries) {
+        const [id, status] = entry.split("=") as [string, string];
+        if (!id || !status) {
+          process.stderr.write("--progress must look like A1=cumplido\n");
+          process.exitCode = 1;
+          return;
+        }
+        updates.push({ kind: "progress", id, status: status as ProgressStatus });
       }
-      update = { kind: "progress", id, status: status as ProgressStatus };
     } else if (args.decision) {
       if (!args.date) {
         process.stderr.write("--decision requires --date\n");
         process.exitCode = 1;
         return;
       }
-      update = { kind: "decision", text: args.decision, date: args.date };
+      updates = [{ kind: "decision", text: args.decision, date: args.date }];
     } else {
       process.stderr.write("plan update requires --progress or --decision\n");
       process.exitCode = 1;
       return;
     }
 
-    let updated: Workplan;
+    // All-or-nothing: `applyWorkplanUpdate` returns a new Workplan without
+    // mutating its input, so a failure mid-loop leaves `plan` (and thus the
+    // file on disk) untouched.
+    let updated: Workplan = plan;
     try {
-      updated = applyWorkplanUpdate(plan, update);
+      for (const update of updates) {
+        updated = applyWorkplanUpdate(updated, update);
+      }
     } catch (cause: unknown) {
       process.stderr.write(`${cause instanceof Error ? cause.message : "update failed"}\n`);
       process.exitCode = 1;
