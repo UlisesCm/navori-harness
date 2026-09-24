@@ -91,6 +91,32 @@ describe("clause (a) — carries behavior, decided from the path", () => {
   }
 });
 
+describe("localSkillIds — una skill project-local no es el espejo renderizado (#1011)", () => {
+  // Covers: R1
+  it("un SKILL.md bajo .claude/skills/<id>/ con id declarado cuenta como source", () => {
+    const localSkillIds = new Set(["rebase-rerender"]);
+    expect(classifyPath(".claude/skills/rebase-rerender/SKILL.md", REPO, localSkillIds)).toBe(
+      "source",
+    );
+  });
+
+  it("sin localSkillIds, el mismo path sigue siendo el espejo renderizado", () => {
+    expect(classifyPath(".claude/skills/rebase-rerender/SKILL.md", REPO)).toBe("generated");
+  });
+
+  it("un id no declarado en localSkillIds no se beneficia de la excepción", () => {
+    const localSkillIds = new Set(["worktree-hygiene"]);
+    expect(classifyPath(".claude/skills/rebase-rerender/SKILL.md", REPO, localSkillIds)).toBe(
+      "generated",
+    );
+  });
+
+  it("otras rutas bajo .claude/ siguen siendo generated aunque localSkillIds no esté vacío", () => {
+    const localSkillIds = new Set(["rebase-rerender"]);
+    expect(classifyPath(".claude/agents/reviewer.md", REPO, localSkillIds)).toBe("generated");
+  });
+});
+
 describe("fuera del repo — un archivo que no llega a un diff no es del cambio", () => {
   it("una ruta absoluta bajo otro árbol es outside-repo", () => {
     // 13.4% de las escrituras que la definición anterior contaba como fuente

@@ -45,6 +45,11 @@ export interface ClassifyInput {
   criticalPaths?: readonly string[];
   /** Declared: a bug worked without a confirmed root cause. */
   bugWithoutRootCause?: boolean;
+  /** `project.localSkills` ids (`navori.config.json`) — forwarded to
+   * `countNonTrivial` so a project-local skill's `SKILL.md` counts as
+   * hand-authored source instead of the rendered `.claude/` mirror
+   * (#1011). */
+  localSkillIds?: readonly string[];
 }
 
 export interface ClassifyResult {
@@ -123,7 +128,8 @@ function rootDirsOf(files: readonly string[]): Set<string> {
 /** Computes complexity 0-10 and derives a level from "Señales y pesos"
  * (design.md), calibrated in #1011 (T0). */
 export function classify(input: ClassifyInput): ClassifyResult {
-  const nonTrivial = countNonTrivial(input.files, "");
+  const localSkillIds = input.localSkillIds ? new Set(input.localSkillIds) : undefined;
+  const nonTrivial = countNonTrivial(input.files, "", localSkillIds);
   const signals: string[] = [];
   let score = 0;
 

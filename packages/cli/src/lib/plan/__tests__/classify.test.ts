@@ -367,8 +367,6 @@ describe("classify — T0 calibration fixtures", () => {
   });
 
   /**
-   * KNOWN MISMATCH (#1011, T0) — reported as BLOCKED, not silently patched.
-   *
    * navori-harness `dc5d73b0` ("agrega skills project-local rebase-rerender y
    * worktree-hygiene", #1001) touches:
    *   .claude/skills/rebase-rerender/SKILL.md
@@ -377,29 +375,29 @@ describe("classify — T0 calibration fixtures", () => {
    *   navori.config.json
    *   packages/cli/src/__tests__/asset-command-permissions.test.ts
    *
-   * The user's expected level is 1 (two brand-new project-local skills, ~147
-   * lines of harness prose an agent obeys). `classifyPath` (source-classify.ts)
-   * treats every path under `.claude/` as "generated" — the rendered mirror of
-   * a core/plugin asset — which is correct for CORE skills but wrong here: a
-   * project-local skill (per this repo's own convention, see the "project-
-   * local" skills list in CLAUDE.md) has no `core-assets` source to render
-   * from; `.claude/skills/<id>/SKILL.md` IS the source.
+   * Was a KNOWN MISMATCH (#1011, T0, `it.todo`): `classifyPath` treated every
+   * path under `.claude/` as "generated" — correct for the rendered mirror of
+   * a core/plugin asset, wrong for a project-local skill, which has no
+   * `core-assets` source to render from (`.claude/skills/<id>/SKILL.md` IS the
+   * source). Fixed in #1011 by passing `localSkillIds` through to
+   * `countNonTrivial`, so both SKILL.md files now count as source and the
+   * ceiling (3) clears `LEVEL_ZERO_MAX_SCORE`.
    *
-   * With the SKILL.md files excluded, `countNonTrivial` only counts the
-   * fallback test file (ceiling = 1), so the score never exceeds
-   * LEVEL_ZERO_MAX_SCORE and R4's level-0 exemption fires: computed level 0,
-   * not the expected 1.
-   *
-   * Per the encargo: "no ajustes pesos por tu cuenta" — this is a gap in
-   * `source-classify.ts`'s path classification, not in these weights (moving
-   * this fixture would not fix the other 13). Left as `.todo` so the mismatch
-   * stays visible without failing the gate; resolving it is a `source-classify`
-   * change (recognizing project-local skill paths as source), out of this
-   * task's scope.
+   * Covers: R4
    */
-  it.todo(
-    "navori-harness dc5d73b0 -> expected level 1, computed level 0 (source-classify gap, see comment above)",
-  );
+  it("navori-harness dc5d73b0 -> level 1 (two project-local SKILL.md count as source)", () => {
+    const result = classify({
+      localSkillIds: ["rebase-rerender", "worktree-hygiene"],
+      files: [
+        ".claude/skills/rebase-rerender/SKILL.md",
+        ".claude/skills/worktree-hygiene/SKILL.md",
+        "CLAUDE.md",
+        "navori.config.json",
+        "packages/cli/src/__tests__/asset-command-permissions.test.ts",
+      ],
+    });
+    expect(result.level).toBe(1);
+  });
 });
 
 describe("classify — unit behavior", () => {

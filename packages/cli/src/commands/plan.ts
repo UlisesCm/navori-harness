@@ -91,18 +91,24 @@ const classifySubCommand = defineCommand({
   },
   run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
-    // `criticalPaths` is optional (R9): a repo without `navori.config.json` or
-    // without a `project` block simply falls back to the declared flag.
+    // `criticalPaths`/`localSkills` are optional (R9): a repo without
+    // `navori.config.json` or without a `project` block simply falls back to
+    // the declared flag / the default "generated" classification.
     let criticalPaths: string[] | undefined;
+    let localSkillIds: string[] | undefined;
     try {
-      criticalPaths = readConfig(resolve(cwd, "navori.config.json")).project?.criticalPaths;
+      const project = readConfig(resolve(cwd, "navori.config.json")).project;
+      criticalPaths = project?.criticalPaths;
+      localSkillIds = project?.localSkills;
     } catch {
       criticalPaths = undefined;
+      localSkillIds = undefined;
     }
     const input: ClassifyInput = {
       files: splitList(args.files),
       criticalArea: args.criticalArea,
       criticalPaths,
+      localSkillIds,
       moneyCredentialsPii: args.moneyCredentialsPii,
       multiRepo: args.multiRepo,
       newExternalDependency: args.newExternalDependency,
