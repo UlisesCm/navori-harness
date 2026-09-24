@@ -149,7 +149,7 @@ Write `.claude/progress/review_<feature>.md`:
 | Check | Status | Evidence |
 |---|---|---|
 | `{{qualityGate.full}}` | [x] / [ ] | <output or exit code from this turn> |
-| Zero new errors vs baseline | [x] / [ ] | <failing paths cross-checked against `git diff --name-only origin/{{prTarget}}`, this turn> |
+| Failure attribution | [x] / [ ] | <state per failure (per `verify-before-done`) + the run over `origin/{{prTarget}}` that demonstrates it, this turn> |
 
 ### Conventions (CLAUDE.md + orchestrator's Project rules)
 - <repo-specific check>: [x] / [ ]
@@ -184,7 +184,7 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 - ❌ Never include as a blocker (in "Issues ≥80") a finding with confidence <80.
 - ✅ Apply `.claude/skills/verify-before-done/SKILL.md` before marking APPROVED: each `[x]` must be backed by evidence run this turn (not from the implementer's cached report).
 - ❌ Never approve with `{{qualityGate.full}}` red.
-- ❌ Never approve if the new code **adds new errors or warnings** vs baseline.
+- ❌ Never approve a failure legitimately classified *introduced (demonstrated)* per `verify-before-done`'s Failure attribution, and never classify one *pre-existing* by diff location alone.
 - ❌ Never approve new code with explicit or implicit `any` without a valid `// any justified: <reason>`.
 - ❌ Don't block or escalate a screen change to a human for lack of browser validation — the default gate is the diff + tests; require a visual check only when the user explicitly asked for one.
 - ✅ On APPROVED, write the content receipt (`.claude/progress/receipt.txt`) so the commit is bound to the reviewed bytes.

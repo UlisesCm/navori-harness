@@ -67,6 +67,7 @@ function walk(dir: string, exts: readonly string[]): string[] {
 const rel = (path: string): string => relative(REPO_ROOT, path).split("\\").join("/");
 
 describe("host contracts registry (#647)", () => {
+  // Covers: R9
   it("every contract carries a claim, a source, the defect and who enforces it", () => {
     for (const contract of HOST_CONTRACTS) {
       const where = `contract '${contract.id}'`;

@@ -13,6 +13,7 @@ export function resolveReceiptOptions(args: {
   target?: string;
   dir?: string;
   cwd?: string;
+  includeConsumed?: boolean;
 }): ReceiptOptions {
   const cwd = resolve(args.cwd ?? process.cwd());
   const config = readConfig(resolve(cwd, "navori.config.json"));
@@ -21,11 +22,20 @@ export function resolveReceiptOptions(args: {
     feature: args.feature,
     target: args.target ?? config.prTarget ?? config.branchBase,
     dir: args.dir ?? ".claude/progress",
+    gate: config.qualityGate?.full ?? "",
+    includeConsumed: args.includeConsumed,
   };
 }
 function execute(
   action: "sign" | "check",
-  args: { feature: string; target?: string; dir?: string; cwd?: string; json?: boolean },
+  args: {
+    feature: string;
+    target?: string;
+    dir?: string;
+    cwd?: string;
+    json?: boolean;
+    includeConsumed?: boolean;
+  },
 ): void {
   const receipt =
     action === "sign"
@@ -53,8 +63,14 @@ export const receiptCommand = defineCommand({
     }),
     check: defineCommand({
       meta: { name: "check", description: "Check the current publish set against a receipt" },
-      args: shared,
-      run: ({ args }) => execute("check", args),
+      args: {
+        ...shared,
+        "include-consumed": {
+          type: "boolean" as const,
+          description: "Fall back to receipt.consumed.txt when receipt.txt is absent",
+        },
+      },
+      run: ({ args }) => execute("check", { ...args, includeConsumed: args["include-consumed"] }),
     }),
   },
 });

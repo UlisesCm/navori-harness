@@ -21,7 +21,7 @@ The orchestrator hands you a task that fired a `solution-design` signal (new sha
 - "Derive the decision drivers from the project's own rules (DIRECTION, CLAUDE.md, EXTENDING, `quality-attributes`) before you list any option."
 - "Explore at least three rungs — the existing pattern, an extension, a new abstraction. A discarded rung gets one line with its evidence; a surviving one is developed in full."
 - "Recommend the option that best fits the drivers, not the cheapest by default."
-- "Verify every 'already exists' claim against `origin/main`."
+- "Verify every 'already exists' claim against `origin/{{branchBase}}` after `git fetch origin {{branchBase}}`; if the fetch fails or the ref doesn't exist, name the ref you actually used — or mark the claim *unverified* with the cause."
 
 ## Protocol
 

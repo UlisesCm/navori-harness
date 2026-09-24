@@ -115,7 +115,7 @@ describe("harness.planTiers on — R6, R8, R22: the block reaches the injected c
  * not the raw asset, since R24 is exactly what the `planTiers` render toggle
  * changes).
  *
- * Covers: R10, R23, R24, R25, R26, R27, R28, R36, R37
+ * Covers: R10, R18, R23, R24, R25, R26, R27, R28, R36, R37
  */
 describe("architect/solution-design/spec-bootstrap/orchestrator — rendered plan-tiers contracts (T11)", () => {
   function render(cwd: string, planTiers: boolean): void {
@@ -139,7 +139,12 @@ describe("architect/solution-design/spec-bootstrap/orchestrator — rendered pla
       expect(architect).toContain(
         "Recommend the option that best fits the drivers, not the cheapest by default.",
       );
-      expect(architect).toContain("Verify every 'already exists' claim against `origin/main`.");
+      // Covers: R18
+      expect(architect).toContain(
+        "Verify every 'already exists' claim against `origin/main` after `git fetch origin main`; " +
+          "if the fetch fails or the ref doesn't exist, name the ref you actually used — or mark " +
+          "the claim *unverified* with the cause.",
+      );
       expect(architect).toContain("Decision drivers");
       expect(architect).toContain("Options");
       expect(architect).toContain("Recommendation");
@@ -158,7 +163,7 @@ describe("architect/solution-design/spec-bootstrap/orchestrator — rendered pla
     expect(architect).not.toMatch(/writes? the workplan/i);
   });
 
-  it("R27: solution-design's rendered Process derives decision drivers before the ladder and verifies existing claims against origin/main", () => {
+  it("R27: solution-design's rendered Process derives decision drivers before the ladder and verifies existing claims against the declared base", () => {
     const cwd = freshDir();
     render(cwd, true);
     const solutionDesign = readFileSync(
@@ -169,7 +174,12 @@ describe("architect/solution-design/spec-bootstrap/orchestrator — rendered pla
       "Before any option, derive the decision drivers from the project's own rules; the ladder " +
         "`existing pattern > small extension > new abstraction > new subsystem` is one driver, not the default winner.",
     );
-    expect(solutionDesign).toContain("Verify every 'already exists' claim against `origin/main`.");
+    // Covers: R18
+    expect(solutionDesign).toContain(
+      "Verify every 'already exists' claim against `origin/main` after `git fetch origin main`; " +
+        "if the fetch fails or the ref doesn't exist, name the ref you actually used — or mark the " +
+        "claim *unverified* with the cause.",
+    );
   });
 
   it("R28: spec-bootstrap's rendered Order has the architect apply solution-design for design.md", () => {

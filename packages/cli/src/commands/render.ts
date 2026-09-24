@@ -43,7 +43,14 @@ import {
   type RenderStatus,
 } from "../lib/primitives/style.ts";
 import { t, tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
-import { describeCoreProvenance, type CoreProvenance } from "../lib/render/bundled-assets.ts";
+import {
+  describeCoreProvenance,
+  getCoreRoot,
+  type CoreProvenance,
+} from "../lib/render/bundled-assets.ts";
+import { resolveHarnessPlan } from "../engines/shared/harness-plan.ts";
+import { loadPreset } from "../lib/config/presets.ts";
+import { classifyLocalSkills } from "../engines/codex/local-skill-pointer.ts";
 import {
   effectiveConfigForWorkspace,
   buildMonorepoContext,
@@ -240,6 +247,52 @@ export function renderNonClaudeEngines(
     }
   }
   return out;
+}
+
+/**
+ * Spec 0033 D2, R11 — name every `project.localSkills` id with no source under
+ * `.claude/skills/<id>/`, exactly once per render, no matter which engines are
+ * configured (a claude-only repo, a codex-only repo, or both together). R9
+ * scopes the pointer DESTINATION to Codex; this warning is not about a
+ * destination at all, so it can't live inside a single engine's own result
+ * without either missing a claude-only repo or double-reporting a claude+codex
+ * one — `render` is the one call site every configuration passes through.
+ *
+ * `plan.skills` is recomputed here (a third time, after Claude's and Codex's
+ * own) so an id already claimed by a plan/library skill of the same name is
+ * correctly excluded — same rule `classifyLocalSkills` applies everywhere
+ * else. A broken preset degrades to an empty plan (surfaced separately by
+ * whichever engine tried to load it) rather than throwing here.
+ */
+function reportMissingLocalSkills(
+  cwd: string,
+  config: NavoriConfig,
+  engineResult: ClaudeEngineResult | undefined,
+  extraEngines: EngineRenderSummary[],
+  lang: Lang,
+): void {
+  const localSkillIds = config.project?.localSkills ?? [];
+  if (localSkillIds.length === 0) return;
+  const coreAssets = resolve(getCoreRoot(), "core-assets");
+  let preset: ReturnType<typeof loadPreset> = null;
+  if (config.preset && config.preset !== "custom") {
+    try {
+      preset = loadPreset(config.preset, cwd);
+    } catch {
+      preset = null; // surfaced separately by the engine that also tries to load it
+    }
+  }
+  const planSkillIds = new Set(
+    resolveHarnessPlan(config, coreAssets, preset).skills.map((s) => s.id),
+  );
+  const { missing } = classifyLocalSkills(cwd, localSkillIds, planSkillIds);
+  if (missing.length === 0) return;
+
+  const target = engineResult ?? extraEngines[0];
+  if (!target) return; // no engine configured at all — nothing to attach the warning to
+  for (const id of missing) {
+    target.warnings.push(tc(lang).engine.localSkillMissing(id));
+  }
 }
 
 export interface RunRenderOptions {
@@ -555,6 +608,13 @@ export function runRender(
   }
 
   const extraEngines = renderNonClaudeEngines(cwd, config, engines, dryRun, { lang });
+
+  // Spec 0033 D2, R11: a `project.localSkills` id missing its source under
+  // `.claude/skills/<id>/` is named by `render` regardless of which engines
+  // are configured — R9 only scopes the pointer DESTINATION to Codex, not this
+  // warning. Reported exactly once per run, never once per engine, so a
+  // claude+codex repo doesn't see it twice.
+  reportMissingLocalSkills(cwd, config, engineResult, extraEngines, lang);
 
   // #313: reconcile the harness `.gitignore` once at the repo root (it's a
   // repo-level file, not per-engine). Returns null in mode "off" (untouched).

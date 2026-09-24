@@ -31,7 +31,7 @@ import {
 import { hasBinary } from "../lib/primitives/which.ts";
 import { currentPlatform } from "../lib/config/platform.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/config/presets.ts";
-import { resolveLocalSkillPath } from "../lib/assets/skill-meta.ts";
+import { classifyLocalSkills } from "../engines/codex/local-skill-pointer.ts";
 import { unknownLibraries } from "../lib/assets/library-skills.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
 import { scanGitignoreHarness } from "../engines/shared/gitignore-harness.ts";
@@ -49,7 +49,7 @@ import { scanEmptyUserSections } from "../lib/assets/skill-user-section.ts";
 import { scanTriggerlessLocalSkills } from "../lib/assets/skill-triggers.ts";
 import { scanInterpolationArtifacts } from "../lib/render/interpolation-artifacts.ts";
 import { scanMissingModelProfile } from "../lib/assets/model-profile.ts";
-import { scanPlanTiersGateSupport } from "../lib/plan/gate-support.ts";
+import { scanControlGaps } from "../lib/diagnose/control-gaps.ts";
 import { scanDiskUsage, humanBytes } from "../lib/diagnose/disk-usage.ts";
 import { scanNestedWorktrees } from "../lib/workspace/nested-worktrees.ts";
 import { scanGlobalScope, type ManagedPolicyKey } from "../lib/workspace/global-scope.ts";
@@ -215,9 +215,10 @@ export const doctorCommand = defineCommand({
     // drops the line silently (by design), so this is the only place the gap
     // surfaces. Warning-level: an unset tier is a valid default.
     const missingModelProfile = scanMissingModelProfile(config);
-    // Spec 0032, R17: `harness.planTiers` gate degrades to reviewer-only
-    // verification where the engine cannot intercept subagent dispatch.
-    const planTiersGateSupport = scanPlanTiersGateSupport(config);
+    // Spec 0033 D5, R21: one registry (`engine-capabilities.ts`) feeds every
+    // control's diagnostic, including the spec 0032 R17 planTiers-gate
+    // degradation this used to report on its own (`scanPlanTiersGateSupport`).
+    const controlGaps = scanControlGaps(config);
     // #393: the two directories that grow with no owner — ~/.navori/backups
     // (bounded only by prune-on-write) and .claude/worktrees (bounded by
     // nobody). Two `du`s so growth is visible before the disk fills; doctor
@@ -369,7 +370,7 @@ export const doctorCommand = defineCommand({
       // terminal ("… and N more"), and a machine consumer needs every row.
       interpolationArtifacts,
       missingModelProfile,
-      planTiersGateSupport,
+      controlGaps,
       // `path` is absolute because that IS the remediation target, it is not
       // derivable (NAVORI_BACKUP_ROOT can move the store), and the human output
       // already prints the same string — so the JSON leaks nothing extra, and
@@ -544,15 +545,38 @@ export const doctorCommand = defineCommand({
 
     // Project-local skills declared in config must have a file on disk — navori
     // indexes them but never writes their content, so a missing one is dead
-    // weight in the index.
-    const missingLocalSkills = (config.project?.localSkills ?? []).filter(
-      (name) => resolveLocalSkillPath(cwd, name) === null,
+    // weight in the index. Spec 0033 D2 (R11/R12): the SAME classification the
+    // Codex adapter and `render` use, so "missing"/"foreign" mean one thing
+    // across the three consumers instead of drifting per call site.
+    const localSkillsRootCoreAssets = resolve(getCoreRoot(), "core-assets");
+    let localSkillsRootPreset: ReturnType<typeof loadPreset> = null;
+    if (config.preset && config.preset !== "custom") {
+      try {
+        localSkillsRootPreset = loadPreset(config.preset, cwd);
+      } catch {
+        localSkillsRootPreset = null; // a broken preset is surfaced elsewhere
+      }
+    }
+    const localSkillsRootPlanIds = new Set(
+      resolveHarnessPlan(config, localSkillsRootCoreAssets, localSkillsRootPreset).skills.map(
+        (s) => s.id,
+      ),
     );
-    if (missingLocalSkills.length > 0) {
-      const lines = missingLocalSkills.map(
+    const localSkillsClassification = classifyLocalSkills(
+      cwd,
+      config.project?.localSkills ?? [],
+      localSkillsRootPlanIds,
+    );
+    if (localSkillsClassification.missing.length > 0) {
+      const lines = localSkillsClassification.missing.map(
         (n) => `  ${color.red(sym.fail)} ${accent(n)}  ${grey(td.missingLocalSkillRow(n))}`,
       );
-      p.log.warn(td.missingLocalSkills(missingLocalSkills.length, lines.join("\n")));
+      p.log.warn(td.missingLocalSkills(localSkillsClassification.missing.length, lines.join("\n")));
+    }
+    if (localSkillsClassification.foreign.length > 0) {
+      for (const id of localSkillsClassification.foreign) {
+        p.log.warn(tc(lang).engine.localSkillForeignCodex(`.agents/skills/${id}/SKILL.md`));
+      }
     }
 
     // `project.libraries` ids this CLI's registry doesn't know: render skips
@@ -819,8 +843,15 @@ export const doctorCommand = defineCommand({
       p.log.warn(td.missingModelProfile(missingModelProfile.length, lines.join("\n")));
     }
 
-    if (planTiersGateSupport) {
-      p.log.warn(td.planTiersGateDegraded(planTiersGateSupport.unsupportedEngines.join(", ")));
+    const controlGapRow = (g: (typeof controlGaps)[number]) =>
+      `  ${color.cyan(sym.bullet)} ${accent(`${g.engine} · ${g.control}`)}  ${grey(`${g.state} — ${g.reason}`)}`;
+    const infoGaps = controlGaps.filter((g) => g.severity === "info");
+    const warnGaps = controlGaps.filter((g) => g.severity === "warn");
+    if (infoGaps.length > 0) {
+      p.log.info(td.controlGaps(infoGaps.length, infoGaps.map(controlGapRow).join("\n")));
+    }
+    if (warnGaps.length > 0) {
+      p.log.warn(td.controlGapsWarn(warnGaps.length, warnGaps.map(controlGapRow).join("\n")));
     }
 
     if (diskUsage.length > 0) {

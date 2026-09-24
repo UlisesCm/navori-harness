@@ -801,6 +801,39 @@ const es: Record<string, CommandDoc> = {
       "`gate` no toma <feature>: lee el payload del hook PreToolUse(Agent) por stdin y niega el despacho del implementer bajo harness.planTiers sin un workplan válido o una exención de nivel 0.",
     ],
   },
+  handoff: {
+    id: "handoff",
+    title: "handoff",
+    summary:
+      "Valida el handoff del implementer antes de que el orquestador despache al siguiente rol.",
+    usage:
+      "navori handoff check <feature> [--for scribe] [--dir <path>] [--cwd <checkout>] [--json]",
+    flags: [
+      {
+        flag: "--for scribe",
+        desc: "Además de existencia/parseo/feature, exige que --cwd coincida con el worktree y la rama del handoff, y valida cada markdownRequests[].path. Sin esta flag valida solo lo que el orquestador necesita (existe, parsea, es del feature pedido).",
+      },
+      { flag: "--dir <path>", desc: "Directorio de progreso; por defecto .claude/progress." },
+      { flag: "--cwd <checkout>", desc: "Checkout a validar; por defecto el directorio actual." },
+      { flag: "--json", desc: "Emite el contrato machine-readable." },
+    ],
+    example: [
+      {
+        title: "Antes de despachar al scribe o al reviewer",
+        code: "navori handoff check checkout --json",
+      },
+      {
+        title: "Preflight del scribe antes de escribir o commitear",
+        code: "navori handoff check checkout --for scribe --cwd <checkout> --json",
+      },
+    ],
+    notes: [
+      "El JSON trae `status` (ok/findings/error), `failures` y `warnings` con un `check` nombrado por regla (exists/parse/feature/worktree/branch/path para las fallas; head/legacy-md para los avisos), y el `worktree`/`branch` que el handoff registró.",
+      "Exit codes como `receipt`: 0 ok, 2 findings (una comprobación falló), 1 error (git o I/O, nunca una falla de validación).",
+      "Sin `head` en el handoff el resultado sigue siendo `ok`, solo con un aviso — nunca bloquea.",
+      "Con `harness.scribeOwnsMarkdown: false` valida `impl_<feature>.md` en su lugar (existe, no está vacío, tiene una línea `Status:`), ligado al feature solo por el nombre del archivo.",
+    ],
+  },
 };
 
 const en: Record<string, CommandDoc> = {
@@ -1598,6 +1631,42 @@ const en: Record<string, CommandDoc> = {
       "`gate` takes no <feature>: it reads the PreToolUse(Agent) hook payload from stdin and denies dispatching the implementer under harness.planTiers without a valid workplan or a level-0 exemption.",
     ],
   },
+  handoff: {
+    id: "handoff",
+    title: "handoff",
+    summary:
+      "Validates the implementer's handoff before the orchestrator dispatches the next role.",
+    usage:
+      "navori handoff check <feature> [--for scribe] [--dir <path>] [--cwd <checkout>] [--json]",
+    flags: [
+      {
+        flag: "--for scribe",
+        desc: "Beyond exists/parse/feature, also requires --cwd to match the handoff's worktree and branch, and validates every markdownRequests[].path. Without this flag it only checks what the orchestrator needs (exists, parses, belongs to the requested feature).",
+      },
+      { flag: "--dir <path>", desc: "Progress directory; defaults to .claude/progress." },
+      {
+        flag: "--cwd <checkout>",
+        desc: "Checkout to validate; defaults to the current directory.",
+      },
+      { flag: "--json", desc: "Emit the machine-readable contract." },
+    ],
+    example: [
+      {
+        title: "Before dispatching the scribe or the reviewer",
+        code: "navori handoff check checkout --json",
+      },
+      {
+        title: "The scribe's preflight before writing or committing",
+        code: "navori handoff check checkout --for scribe --cwd <checkout> --json",
+      },
+    ],
+    notes: [
+      "The JSON carries `status` (ok/findings/error), `failures` and `warnings` with a `check` named after the rule (exists/parse/feature/worktree/branch/path for failures; head/legacy-md for warnings), and the `worktree`/`branch` the handoff registered.",
+      "Exit codes match `receipt`: 0 ok, 2 findings (a check failed), 1 error (git or I/O, never a validation failure).",
+      "A missing `head` in the handoff still returns `ok`, only with a warning — it never blocks.",
+      "With `harness.scribeOwnsMarkdown: false` it validates `impl_<feature>.md` instead (exists, not empty, has a `Status:` line), tied to the feature only by the file name.",
+    ],
+  },
 };
 
 export const commandDocs: Record<Lang, Record<string, CommandDoc>> = { es, en };
@@ -1626,4 +1695,5 @@ export const commandOrder = [
   "global",
   "receipt",
   "plan",
+  "handoff",
 ] as const;

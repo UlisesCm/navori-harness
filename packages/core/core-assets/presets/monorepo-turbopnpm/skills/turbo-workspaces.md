@@ -22,7 +22,7 @@ pnpm turbo run test --filter=./apps/storefront
 pnpm turbo run build --filter=@scope/backend...
 
 # Only what's affected by your diff vs a base
-pnpm turbo run test --filter='...[origin/main]'
+pnpm turbo run test --filter='...[origin/{{branchBase}}]'
 ```
 
 Rule: don't run the whole pipeline (`turbo run build`) if you only touched one app. Turbo caches, but log noise and startup time still cost. Leave the global run for CI.

@@ -793,10 +793,13 @@ interface DoctorCmdStrings {
    *  session default. Advisory: an unset tier is a valid default. */
   missingModelProfile: (n: number, lines: string) => string;
   missingModelProfileRow: (missing: string) => string;
-  /** Spec 0032 R17 — `harness.planTiers` is on but a configured engine renders
-   *  no `PreToolUse(Agent)` gate; the workplan check degrades to the
-   *  reviewer's own `classify` pass (R21) for that engine's sessions. */
-  planTiersGateDegraded: (engines: string) => string;
+  /** Spec 0033 D5, R21 — one non-`enforced` row per engine × control, sourced
+   *  from `engine-capabilities.ts` via `scanControlGaps`. Includes the spec
+   *  0032 R17 planTiers-gate degradation as the `plan-gate` control's row. */
+  controlGaps: (n: number, lines: string) => string;
+  /** Same shape, `warn`-severity: a control whose condition flag the user
+   *  turned on and that still isn't `enforced` for a configured engine. */
+  controlGapsWarn: (n: number, lines: string) => string;
   /** #393 — a growth directory (backups / agent worktrees) over its threshold. */
   diskUsage: (n: number, lines: string) => string;
   diskBackupsRow: (size: string) => string;
@@ -1041,6 +1044,9 @@ interface EngineCmdStrings {
   // Codex adapter
   pluginLoadFailedCodex: (id: string, reason: string) => string;
   codexTrustHint: string;
+  /** Spec 0033 R12: `.agents/skills/<id>/SKILL.md` exists but isn't navori's
+   *  pointer — kept intact, never written, never pruned. */
+  localSkillForeignCodex: (destRelPath: string) => string;
   /** R39/R41 (spec 0026 T10): a Codex orphan-scan match kept, with its reason
    *  — Codex's own version of the Claude engine's retired-asset report. */
   keptOrphanCodex: (path: string, reason: KeepReason) => string;
@@ -1048,6 +1054,11 @@ interface EngineCmdStrings {
   presetInvalid: (preset: string, detail: string) => string;
   // Prose-engine dispatch (render.ts)
   agentsMdRedundantWithCodex: string;
+  /** Spec 0033 R11: a `project.localSkills` id with no source under
+   *  `.claude/skills/<id>/` — reported by `render` no matter which engines are
+   *  configured (R9 scopes only the pointer DESTINATION to Codex), and pushed
+   *  exactly once per run regardless of how many engines are enabled. */
+  localSkillMissing: (id: string) => string;
   // Global baseline (Spec 0010)
   globalBaselineIntro: string;
 }
@@ -1962,11 +1973,12 @@ const CMD_ES: CmdStrings = {
       `si buscabas el perfil de costo, declara 'models.<agente>' / ` +
       `'effort.<agente>' (ver RECOMMENDED_MODELS/RECOMMENDED_EFFORT):\n${lines}`,
     missingModelProfileRow: (missing) => `— falta: ${missing}`,
-    planTiersGateDegraded: (engines) =>
-      `harness.planTiers está activo pero ${engines} no renderiza el hook PreToolUse(Agent) ` +
-      `que despacha el gate — solo Claude Code lo hace. En esas sesiones el workplan solo ` +
-      `se verifica cuando el reviewer corre 'classify' sobre el diff (R21), no antes del ` +
-      `despacho del implementer.`,
+    controlGaps: (n, lines) =>
+      `Controles del harness no enforced (${n}) — cada engine configurado declara su estado ` +
+      `en un único registro (engine-capabilities.ts); esto lista los que no bloquean:\n${lines}`,
+    controlGapsWarn: (n, lines) =>
+      `Controles con su flag activo pero no enforced (${n}) — activaste la condición y este ` +
+      `engine no la aplica:\n${lines}`,
     interpolationArtifacts: (n, lines) =>
       `Restos de interpolación en el árbol renderizado (${n}) — 'render' reescribe ` +
       `solo la zona managed, así que lo que cayó en la zona de usuario se queda ahí ` +
@@ -2496,6 +2508,9 @@ const CMD_ES: CmdStrings = {
     pluginSkillNotInjected: (id, pid, target) =>
       `skill '${id}' (de @navori/plugin-${pid}) no inyectado: target ${target} ausente (¿agente disabled en config.harness?)`,
     pluginLoadFailedCodex: (id, reason) => `Plugin '${id}' no pudo cargarse para Codex: ${reason}.`,
+    localSkillForeignCodex: (destRelPath) =>
+      `'${destRelPath}' no lo escribió navori; se conserva intacto. Bórralo para recibir el ` +
+      `puntero generado hacia .claude/skills/<id>/SKILL.md.`,
     keptOrphanCodex: (path, reason) =>
       `conservado ${path} — ` +
       (reason === "newer"
@@ -2508,6 +2523,9 @@ const CMD_ES: CmdStrings = {
     presetInvalid: (preset, detail) => `Preset '${preset}' inválido: ${detail}`,
     agentsMdRedundantWithCodex:
       "El engine 'agents-md' es redundante junto a 'codex'; Codex será el único dueño de AGENTS.md.",
+    localSkillMissing: (id) =>
+      `Skill project-local '${id}' declarada en project.localSkills, pero ausente de ` +
+      `.claude/skills/${id}/SKILL.md.`,
     globalBaselineIntro:
       "Lo siguiente es tu baseline navori de máquina (doctrina agnóstica al repo). " +
       "Un proyecto con su propio harness navori lo reemplaza.",
@@ -3256,11 +3274,12 @@ const CMD_EN: CmdStrings = {
       `meant to set the cost profile, declare 'models.<agent>' / ` +
       `'effort.<agent>' (see RECOMMENDED_MODELS/RECOMMENDED_EFFORT):\n${lines}`,
     missingModelProfileRow: (missing) => `— missing: ${missing}`,
-    planTiersGateDegraded: (engines) =>
-      `harness.planTiers is on but ${engines} renders no PreToolUse(Agent) hook to dispatch ` +
-      `the gate — only Claude Code does. On those sessions the workplan is only checked ` +
-      `when the reviewer runs 'classify' over the diff (R21), not before the implementer ` +
-      `is dispatched.`,
+    controlGaps: (n, lines) =>
+      `Harness controls not enforced (${n}) — each configured engine declares its state in ` +
+      `one registry (engine-capabilities.ts); these are the ones that don't block:\n${lines}`,
+    controlGapsWarn: (n, lines) =>
+      `Controls with their flag on but not enforced (${n}) — you turned the condition on and ` +
+      `this engine doesn't apply it:\n${lines}`,
     interpolationArtifacts: (n, lines) =>
       `Interpolation leftovers in the rendered tree (${n}) — 'render' only rewrites ` +
       `the managed zone, so whatever landed in the user zone stays there even after ` +
@@ -3784,6 +3803,9 @@ const CMD_EN: CmdStrings = {
       `skill '${id}' (from @navori/plugin-${pid}) not injected: target ${target} missing (agent disabled in config.harness?)`,
     pluginLoadFailedCodex: (id, reason) =>
       `Plugin '${id}' couldn't be loaded for Codex: ${reason}.`,
+    localSkillForeignCodex: (destRelPath) =>
+      `'${destRelPath}' wasn't written by navori; kept intact. Delete it to receive the ` +
+      `generated pointer to .claude/skills/<id>/SKILL.md.`,
     keptOrphanCodex: (path, reason) =>
       `kept ${path} — ` +
       (reason === "newer"
@@ -3796,6 +3818,9 @@ const CMD_EN: CmdStrings = {
     presetInvalid: (preset, detail) => `Preset '${preset}' invalid: ${detail}`,
     agentsMdRedundantWithCodex:
       "The 'agents-md' engine is redundant alongside 'codex'; Codex will be the sole owner of AGENTS.md.",
+    localSkillMissing: (id) =>
+      `Project-local skill '${id}' declared in project.localSkills, but absent from ` +
+      `.claude/skills/${id}/SKILL.md.`,
     globalBaselineIntro:
       "The following is your machine-wide navori baseline (repo-agnostic doctrine). " +
       "A project with its own navori harness supersedes it.",

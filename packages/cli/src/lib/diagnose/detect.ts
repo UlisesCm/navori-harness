@@ -513,6 +513,28 @@ function detectExistingEngines(cwd: string): string[] {
 // Package manager detection
 // ============================================================
 
+/**
+ * Lockfiles this CLI recognizes, in detection priority order. Shared between
+ * package-manager detection below and the receipt's evidence identity
+ * (`lib/diagnose/receipt.ts`, `evidenceIdentity`), so both read the exact same
+ * input set instead of drifting into two lists of "the lockfiles that matter".
+ */
+export const LOCKFILES = [
+  "pnpm-lock.yaml",
+  "bun.lockb",
+  "bun.lock",
+  "yarn.lock",
+  "package-lock.json",
+] as const;
+
+const LOCKFILE_MANAGER: Record<(typeof LOCKFILES)[number], PackageManager> = {
+  "pnpm-lock.yaml": "pnpm",
+  "bun.lockb": "bun",
+  "bun.lock": "bun",
+  "yarn.lock": "yarn",
+  "package-lock.json": "npm",
+};
+
 function detectPackageManager(cwd: string): PackageManager | null {
   // 1) "packageManager" field in package.json wins
   const pkg = readPackageJson(cwd);
@@ -521,20 +543,18 @@ function detectPackageManager(cwd: string): PackageManager | null {
     if (tool === "pnpm" || tool === "npm" || tool === "yarn" || tool === "bun") return tool;
   }
   // 2) Lockfile detection
-  if (existsSync(join(cwd, "pnpm-lock.yaml"))) return "pnpm";
-  if (existsSync(join(cwd, "bun.lockb")) || existsSync(join(cwd, "bun.lock"))) return "bun";
-  if (existsSync(join(cwd, "yarn.lock"))) return "yarn";
-  if (existsSync(join(cwd, "package-lock.json"))) return "npm";
+  for (const lockfile of LOCKFILES) {
+    if (existsSync(join(cwd, lockfile))) return LOCKFILE_MANAGER[lockfile];
+  }
   return null;
 }
 
 function detectPackageManagerSource(cwd: string): string {
   const pkg = readPackageJson(cwd);
   if (pkg?.packageManager) return "package.json";
-  if (existsSync(join(cwd, "pnpm-lock.yaml"))) return "pnpm-lock.yaml";
-  if (existsSync(join(cwd, "bun.lockb")) || existsSync(join(cwd, "bun.lock"))) return "bun.lock";
-  if (existsSync(join(cwd, "yarn.lock"))) return "yarn.lock";
-  if (existsSync(join(cwd, "package-lock.json"))) return "package-lock.json";
+  for (const lockfile of LOCKFILES) {
+    if (existsSync(join(cwd, lockfile))) return lockfile;
+  }
   return "unknown";
 }
 

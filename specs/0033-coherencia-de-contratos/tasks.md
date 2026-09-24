@@ -14,7 +14,7 @@ Orden de los lotes:
 
 ## Lote A — Evidencia: atribución y vigencia (F01, F02)
 
-- [ ] **T1** (R1, R2, R3, R4) — Tres estados de atribución.
+- [x] **T1** (R1, R2, R3, R4) — Tres estados de atribución.
   - `verify-before-done` define los tres estados, sin la fila "a failure outside that list
     predates you".
   - `implementer`, `reviewer` y `review-diff` citan esa definición sin repetirla ni asignar
@@ -22,7 +22,7 @@ Orden de los lotes:
   - Test: `lib/__tests__/failure-attribution.test.ts`, con `// Covers: R1, R2, R3, R4`. Incluye
     los patrones prohibidos en todo asset renderizable y las fixtures de consumidor no editado,
     preexistente en archivo editado y sin baseline.
-- [ ] **T2** (R5, R6, R7) — Receipt v2 en `lib/diagnose/receipt.ts`.
+- [x] **T2** (R5, R6, R7) — Receipt v2 en `lib/diagnose/receipt.ts`.
   - La cabecera guarda `base`, `gate` e `inputs`; `LOCKFILES` sale de `lib/diagnose/detect.ts`.
   - `check` devuelve `fresh` o `stale` con sus causas, sin cambiar `status` ni el exit code.
   - El publisher ya no borra el receipt consumido: lo renombra a `receipt.consumed.txt`, y
@@ -30,7 +30,7 @@ Orden de los lotes:
   - Test: `lib/diagnose/__tests__/receipt.test.ts`, con `// Covers: R5, R6, R7`. Cubre los
     casos sin cambios, drift, rebase sin cambios propios (sigue `fresh`), gate cambiado,
     lockfile cambiado, cabecera v1, y consumido con y sin flag.
-- [ ] **T3** (R6, R8) — Una sola regla de vigencia en la prosa.
+- [x] **T3** (R6, R8) — Una sola regla de vigencia en la prosa.
   - `verify-before-done` la define; `cierre-sesion`, `publisher`, `reviewer` e `implementer` la
     citan. "This turn" deja de ser el criterio.
   - `publisher` exige `"fresh":true` o corre el gate, y deja de pedir el gate completo tras un
@@ -39,7 +39,7 @@ Orden de los lotes:
 
 ## Lote B — Base declarada (F06)
 
-- [ ] **T4** (R18, R19) — Cambiar `origin/main` por `{{branchBase}}`.
+- [x] **T4** (R18, R19) — Cambiar `origin/main` por `{{branchBase}}`.
   - En la prosa: `architect` (sección Method) y `solution-design` (paso 1, con su `maxWords`
     ajustado).
   - En el snippet de `scoped-gate`: `{{shq:branchBase}}`, con fallback declarado en stderr y
@@ -50,7 +50,7 @@ Orden de los lotes:
 
 ## Lote C — Skills locales en Codex (F03)
 
-- [ ] **T5** (R9) — Sonda manual contra Codex real.
+- [x] **T5** (R9) — Sonda manual contra Codex real.
   - Un `SKILL.md` puntero en `.agents/skills/<id>/` que remite a `.claude/skills/<id>/SKILL.md`.
     Se observa si Codex lo lista, lo carga y sigue la redirección y sus enlaces a `references/`.
   - El resultado queda en el contrato `codex-skill-body-redirect` de
@@ -59,7 +59,7 @@ Orden de los lotes:
     en vez del puntero. Pídele la sonda al usuario si no hay un binario de Codex disponible.
   - Test: el test existente de `host-contracts` valida que la nueva entrada esté bien formada,
     con `// Covers: R9`.
-- [ ] **T6** (R9, R10, R11, R12) — `classifyLocalSkills` y el puntero.
+- [x] **T6** (R9, R10, R11, R12) — `classifyLocalSkills` y el puntero.
   - `classifyLocalSkills` vive en `engines/codex/local-skill-pointer.ts` y reparte los ids en
     `emit`, `missing` y `foreign`.
   - El adapter de Codex emite, por `extraFiles`, solo los ids de `emit`, y su `orphanScans`
@@ -75,7 +75,7 @@ Orden de los lotes:
 
 ## Lote D — Consumo de handoffs (F04, F05)
 
-- [ ] **T7** (R13, R14, R15, R16, R24) — `navori handoff check <feature> [--for scribe] [--json]`.
+- [x] **T7** (R13, R14, R15, R16, R24) — `navori handoff check <feature> [--for scribe] [--json]`.
   - Esquema zod único en `lib/handoff/schema.ts` (`REQUIRED_IMPL_KEYS` más `head` opcional) y
     comprobaciones en `lib/handoff/check.ts`.
   - El subcomando se registra en `commands/handoff.ts` y en `index.ts`.
@@ -85,7 +85,7 @@ Orden de los lotes:
       paths absolutos, con `..`, con symlink que escapa o bajo `progress/`.
     - Sin `head` da un warning.
     - Con el flag apagado valida el `.md`.
-- [ ] **T8** (R13, R17) — Instrucciones en la prosa y permiso.
+- [x] **T8** (R13, R17) — Instrucciones en la prosa y permiso.
   - `orquestacion` y `orchestrator` ejecutan `navori handoff check` antes de despachar al scribe o
     al reviewer.
   - `scribe` corre el preflight con `--for scribe` y la cadena solo avanza con `"status":"ok"`.
@@ -98,17 +98,17 @@ Orden de los lotes:
 
 ## Lote E — Inventario de controles (backlog 5)
 
-- [ ] **T9** (R20, R23) — `controls` y `analyticWriteTools` en `ENGINE_CAPABILITIES`
+- [x] **T9** (R20, R23) — `controls` y `analyticWriteTools` en `ENGINE_CAPABILITIES`
   (`engines/shared/engine-capabilities.ts`).
   - Cada control lleva estado, razón y evidencia; `enforced` sin evidencia no compila.
   - Test: `engines/shared/__tests__/engine-capabilities.test.ts` (extendido), con
     `// Covers: R20, R23`.
-- [ ] **T10** (R21) — `lib/diagnose/control-gaps.ts` alimenta a `doctor` y a `i18n`.
+- [x] **T10** (R21) — `lib/diagnose/control-gaps.ts` alimenta a `doctor` y a `i18n`.
   - Se borra `lib/plan/gate-support.ts` y su test se migra conservando la cita a la spec 0032
     R17.
   - Un control no enforced sale como `info`; pasa a `warn` solo si el usuario encendió su flag.
   - Test: `lib/diagnose/__tests__/control-gaps.test.ts`, con `// Covers: R21`.
-- [ ] **T11** (R22, R23) — Contraste contra el render real.
+- [x] **T11** (R22, R23) — Contraste contra el render real.
   - Se renderizan los cinco engines en un directorio temporal, con todos los flags encendidos y
     una skill local.
   - Para cada engine y control, lo declarado debe coincidir con lo que se registró. Las tools de
@@ -119,10 +119,10 @@ Orden de los lotes:
 
 ## Cierre
 
-- [ ] **T12** — Versionar `docs/research/auditoria-profunda-agentes-skills-2026-09-23.md` en el PR
+- [x] **T12** — Versionar `docs/research/auditoria-profunda-agentes-skills-2026-09-23.md` en el PR
   de la spec, porque el issue y `requirements.md` lo citan.
   - Test: `bun run check:links` en verde.
-- [ ] **T13** — Trazabilidad.
+- [x] **T13** — Trazabilidad.
   - Cada `R1`–`R24` aparece en al menos un `// Covers:` y en una tarea de este archivo.
   - Test: `grep -rn "Covers:.*R<n>"` por cada id, con la salida en el receipt del reviewer del
     último lote.

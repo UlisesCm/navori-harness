@@ -416,7 +416,14 @@ corrige en el registro, nunca en el test):
 | `handoff-shape` | — | advisory (hook `subagent-stop-handoff`, `PostToolUse`, advisory por diseño) | advisory (contrato en prosa; hook no registrado) | unsupported |
 | `handoff-consumer` | — | advisory (`navori handoff check` invocado por prosa) | advisory (ídem) | unsupported |
 | `analytic-write-tools` | — | advisory (tools del frontmatter + instrucciones) | advisory (`sandbox_mode` `workspace-write` + instrucciones) | unsupported (no se renderizan agentes) |
-| `local-skill-discovery` | `project.localSkills` no vacío | enforced (raíz nativa `.claude/skills`) | enforced (evidencia: puntero en `.agents/skills`) | advisory (fila en el índice de skills del archivo de prosa) |
+| `local-skill-discovery` | `project.localSkills` no vacío | enforced (raíz nativa `.claude/skills`) | enforced (evidencia: puntero en `.agents/skills`) | unsupported (`buildSkillsSection`, `engines/shared/prose-harness.ts:58`, llama a `buildSkillRows(config, repoRoot, coreAssets)` sin el argumento `localSkills`; una skill de `project.localSkills` nunca llega al render de AGENTS.md/.cursor/.github) |
+
+**Nota sobre `local-skill-discovery` en los engines de prosa.** No es un estado `advisory` con
+huecos: es `unsupported`, igual que el resto de la columna. El render (`buildSkillsSection`) no
+tiene ninguna vía, ni siquiera por convención, para que una skill local llegue al índice del
+archivo de prosa. `engine-capabilities.ts` documenta la razón exacta y
+`control-inventory.test.ts` fija ese hueco con un test de regresión explícito, para que arreglarlo
+algún día pase por actualizar ese test a propósito, no por accidente.
 
 **Severidad en `doctor` (R21).** Si listara cada fila no `enforced` como warning, un repo
 solo-Claude vería tres warnings permanentes, y la regla de `skill-triggers.ts` advierte que
@@ -682,8 +689,6 @@ fixture declara skills locales, y `bun check:render` en este repo después de ca
   Ligar el receipt a un feature (por ejemplo, un receipt por feature) cambia el contrato de
   publicación y merece su propia spec.
 - **Cambiar privilegios de los roles analíticos** (F08). R23 solo los declara.
-- **`origin/main` en `presets/monorepo-turbopnpm/skills/turbo-workspaces.md`** (filtro de turbo).
-  No está en la lista de R18. Ver Observaciones.
 - **Adaptar al vocabulario de Codex el contenido de las skills locales** (rutas `.claude/…` dentro
   de su prosa). Es contenido del usuario, y navori no lo reescribe.
 - **F07 y las oportunidades condicionadas de la auditoría**, por decisión del usuario en

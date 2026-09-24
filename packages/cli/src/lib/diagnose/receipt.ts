@@ -1,9 +1,16 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { LOCKFILES } from "./detect.ts";
+import { isUnderProgressDir } from "../primitives/progress-dirs.ts";
 
 export type ReceiptStatus = "ok" | "findings" | "error";
 export type DriftKind = "changed" | "missing" | "reappeared";
+/** R5/R7: which part of the identity (base + comando + inputs) no longer matches
+ * the signed receipt. "format" covers a receipt signed before v2 (no gate/inputs
+ * to compare at all) — see Migration in the design. */
+export type StaleReason = "gate" | "inputs" | "format";
 export interface ReceiptResult {
   formatVersion: 1;
   target: string;
@@ -12,6 +19,11 @@ export interface ReceiptResult {
   status: ReceiptStatus;
   uncovered: string[];
   drift: Array<{ path: string; blob: string | null; kind: DriftKind }>;
+  /** `stale.length === 0`. Never affects `status`/exit code — see D1. */
+  fresh: boolean;
+  stale: StaleReason[];
+  /** True only when `check` read `receipt.consumed.txt` via `includeConsumed`. */
+  consumed: boolean;
   error: string | null;
 }
 export interface ReceiptOptions {
@@ -19,9 +31,40 @@ export interface ReceiptOptions {
   feature: string;
   target: string;
   dir: string;
+  /** The resolved `qualityGate.full` command. Part of R5's evidence identity. */
+  gate: string;
+  /** `check` only: fall back to `receipt.consumed.txt` when `receipt.txt` is absent. */
+  includeConsumed?: boolean;
 }
 
-const PROGRESS_DIRS = [".claude/progress/", ".codex/progress/", "progress/"];
+/** The gate/inputs half of R5's "evidence identity" (base+comando+inputs). The
+ * tree half is already covered by the existing per-file blob lines in the
+ * receipt body; this is the ONLY place the other two are computed, so `sign`
+ * and `check` can never diverge on what counts as "the same evidence". */
+export interface EvidenceIdentity {
+  gate: string;
+  inputs: string;
+}
+
+function sha256(input: string | Buffer): string {
+  return createHash("sha256").update(input).digest("hex");
+}
+
+/** Ordered `<lockfile>\0<content sha256>\n` payload over every `LOCKFILES`
+ * entry present at the repo root. Empty (hash of `""`) when none are present. */
+function inputsPayload(cwd: string): string {
+  let payload = "";
+  for (const name of LOCKFILES) {
+    const path = resolve(cwd, name);
+    if (!existsSync(path)) continue;
+    payload += `${name}\0${sha256(readFileSync(path))}\n`;
+  }
+  return payload;
+}
+
+export function evidenceIdentity(cwd: string, gate: string): EvidenceIdentity {
+  return { gate: sha256(gate), inputs: sha256(inputsPayload(cwd)) };
+}
 
 function empty(options: ReceiptOptions, error: string): ReceiptResult {
   return {
@@ -32,6 +75,9 @@ function empty(options: ReceiptOptions, error: string): ReceiptResult {
     status: "error",
     uncovered: [],
     drift: [],
+    fresh: false,
+    stale: [],
+    consumed: false,
     error,
   };
 }
@@ -60,10 +106,6 @@ function validatePath(cwd: string, path: string): void {
   const rel = relative(cwd, absolute);
   if (rel.startsWith(`..${sep}`) || rel === "..")
     throw new Error(`path escapes repository: ${path}`);
-}
-
-function isProgress(path: string): boolean {
-  return PROGRESS_DIRS.some((prefix) => path.startsWith(prefix));
 }
 
 function liveBlob(cwd: string, path: string): string {
@@ -136,7 +178,9 @@ function inspect(options: ReceiptOptions): { targetSha: string; headSha: string;
   const untracked = pathsFromNul(
     git(options.cwd, ["ls-files", "--others", "--exclude-standard", "-z"], true),
   );
-  const paths = [...new Set([...tracked, ...untracked])].filter((path) => !isProgress(path)).sort();
+  const paths = [...new Set([...tracked, ...untracked])]
+    .filter((path) => !isUnderProgressDir(path))
+    .sort();
   for (const path of paths) validatePath(options.cwd, path);
   return { targetSha, headSha, paths };
 }
@@ -153,19 +197,25 @@ function success(
     status: "ok",
     uncovered: [],
     drift: [],
+    fresh: true,
+    stale: [],
+    consumed: false,
     error: null,
   };
 }
 
-function receiptPath(options: ReceiptOptions): string {
-  return resolve(options.cwd, options.dir, "receipt.txt");
+function receiptPath(options: ReceiptOptions, consumed = false): string {
+  return resolve(options.cwd, options.dir, consumed ? "receipt.consumed.txt" : "receipt.txt");
 }
 
 /** Signs exactly the working-tree content that differs from the remote target. */
 export function signReceipt(options: ReceiptOptions): { exitCode: number; result: ReceiptResult } {
   try {
     const state = inspect(options);
-    const lines = [`# navori-receipt v1 feature=${options.feature}`];
+    const identity = evidenceIdentity(options.cwd, options.gate);
+    const lines = [
+      `# navori-receipt v2 feature=${options.feature} base=${state.targetSha} gate=${identity.gate} inputs=${identity.inputs}`,
+    ];
     for (const path of state.paths) {
       const absolute = resolve(options.cwd, path);
       try {
@@ -191,24 +241,59 @@ export function signReceipt(options: ReceiptOptions): { exitCode: number; result
   }
 }
 
-function readReceipt(options: ReceiptOptions): Map<string, string> {
-  const destination = receiptPath(options);
-  if (!existsSync(destination)) throw new Error("receipt is absent");
+interface ReceiptHeader {
+  version: number;
+  feature: string;
+  base: string | null;
+  gate: string | null;
+  inputs: string | null;
+}
+
+const HEADER_RE = /^# navori-receipt v(\d+) feature=(\S+)(?: base=(\S+) gate=(\S+) inputs=(\S+))?$/;
+
+function parseHeader(line: string): ReceiptHeader {
+  const match = HEADER_RE.exec(line);
+  if (!match) throw new Error("receipt is malformed");
+  return {
+    version: Number(match[1]),
+    feature: match[2]!,
+    base: match[3] ?? null,
+    gate: match[4] ?? null,
+    inputs: match[5] ?? null,
+  };
+}
+
+function readReceiptFile(path: string): { header: ReceiptHeader; records: Map<string, string> } {
+  if (!existsSync(path)) throw new Error("receipt is absent");
+  const lines = readFileSync(path, "utf8").split("\n");
+  const header = parseHeader(lines[0] ?? "");
   const records = new Map<string, string>();
-  for (const line of readFileSync(destination, "utf8").split("\n")) {
+  for (const line of lines.slice(1)) {
     if (!line || line.startsWith("#")) continue;
     const match = /^(deleted|[0-9a-f]{40})  (.+)$/.exec(line);
     if (!match) throw new Error("receipt is malformed");
     records.set(match[2]!, match[1]!);
   }
-  return records;
+  return { header, records };
+}
+
+/** Picks `receipt.txt`, or `receipt.consumed.txt` when `includeConsumed` is set
+ * and the main receipt is absent. Without the flag, a consumed receipt reads as
+ * absent — it can never re-authorize a later commit (R6). */
+function resolveReceiptSource(options: ReceiptOptions): { path: string; consumed: boolean } {
+  const main = receiptPath(options);
+  if (existsSync(main)) return { path: main, consumed: false };
+  const archived = receiptPath(options, true);
+  if (options.includeConsumed && existsSync(archived)) return { path: archived, consumed: true };
+  throw new Error("receipt is absent");
 }
 
 /** Checks coverage and byte drift without mutating the signed receipt. */
 export function checkReceipt(options: ReceiptOptions): { exitCode: number; result: ReceiptResult } {
   try {
     const state = inspect(options);
-    const records = readReceipt(options);
+    const { path, consumed } = resolveReceiptSource(options);
+    const { header, records } = readReceiptFile(path);
     const uncovered = state.paths.filter((path) => !records.has(path));
     const drift: ReceiptResult["drift"] = [];
     for (const [path, blob] of records) {
@@ -219,9 +304,20 @@ export function checkReceipt(options: ReceiptOptions): { exitCode: number; resul
       } else if (!present) drift.push({ path, blob, kind: "missing" });
       else if (liveBlob(options.cwd, path) !== blob) drift.push({ path, blob, kind: "changed" });
     }
+    const stale: StaleReason[] = [];
+    if (header.version !== 2) {
+      stale.push("format");
+    } else {
+      const identity = evidenceIdentity(options.cwd, options.gate);
+      if (header.gate !== identity.gate) stale.push("gate");
+      if (header.inputs !== identity.inputs) stale.push("inputs");
+    }
     const result = success(options, state);
     result.uncovered = uncovered;
     result.drift = drift;
+    result.stale = stale;
+    result.fresh = stale.length === 0;
+    result.consumed = consumed;
     if (uncovered.length || drift.length) result.status = "findings";
     return { exitCode: result.status === "ok" ? 0 : 2, result };
   } catch (cause: unknown) {
@@ -240,6 +336,7 @@ export function formatReceipt(result: ReceiptResult): string {
       ({ path, kind, blob }) =>
         `DRIFT: ${path} (${kind})${blob ? `\ngit diff ${blob} ${path}` : ""}`,
     ),
+    ...(result.fresh ? [] : [`STALE: ${result.stale.join(", ")}`]),
   ];
   return findings.length ? findings.join("\n") : "OK";
 }

@@ -1,4 +1,4 @@
-<!-- navori:managed id="orquestacion" hash="561fc053" version="0.10.0" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="cc3dc57c" version="0.10.0" source="@navori/core" -->
 ## Role: orchestrator (every change goes through the harness)
 
 You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator role: you decompose, you coordinate, you synthesize — but you **NEVER delegate that role**: do not invoke `Agent(subagent_type: orchestrator)`. `.claude/agents/orchestrator.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
@@ -19,6 +19,7 @@ There used to be a ladder (inline for small changes, delegate for the rest). It 
 
 ### The mechanics
 
+- **Before dispatching**, run `navori handoff check <feature> --dir .claude/progress --json`; continue only on `"status":"ok"`.
 - **1 focused `implementer`** with an explicit scope (no SDD state), then **1 `scribe`** when `impl_<feature>.json` carries `markdownRequests` (model per dispatch — the scribe's configured default for a handoff-only render, `sonnet` when a request touches the shipped diff, R8), then **1 fresh `reviewer`**. Serial — the reviewer depends on the implementer's (and, when it ran, the scribe's) output.
 - **Review AFTER implementing, never before.**
 - **Parallel `implementer`s only on disjoint files** (when in doubt, serial).
@@ -45,7 +46,7 @@ The write is delegated unconditionally; this table is about how much **reading**
 
 ### Analytical parallelism (the lever — mechanical, not optional)
 
-Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default, so parallelism has to be requested explicitly, in one message. **Independent** sub-tasks (no shared state, none depends on another's output) → same turn; serialize only on a real dependency (`implementer` → `reviewer`). Assign explicit scope before fanning out; synthesis is **never** delegated — when the `done -> file` reports return, you read the N files together and cross-check them yourself.
+Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default, so parallelism must be requested explicitly. **Independent** sub-tasks (no shared state, none depends on another's output) → same turn; serialize only on a real dependency (`implementer` → `reviewer`). Assign explicit scope before fanning out; synthesis is **never** delegated — when the `done -> file` reports return, you read the N files together and cross-check them yourself.
 
 ### When delegation is genuinely impossible
 
