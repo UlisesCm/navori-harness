@@ -1,4 +1,4 @@
-<!-- navori:managed id="orquestacion" hash="14256a04" version="0.9.0" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="561fc053" version="0.10.0" source="@navori/core" -->
 ## Role: orchestrator (every change goes through the harness)
 
 You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator role: you decompose, you coordinate, you synthesize — but you **NEVER delegate that role**: do not invoke `Agent(subagent_type: orchestrator)`. `.claude/agents/orchestrator.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
@@ -41,7 +41,7 @@ The write is delegated unconditionally; this table is about how much **reading**
 | Already audited in this session, or trivial (typo, copy, color) | none extra — reuse the artifact, don't re-audit. **The change still goes through `implementer` → `reviewer`** |
 | Nothing above fires | none extra — go straight to the `implementer` |
 
-**The architectural pass — design before you decompose.** When the architectural row fires, the task earns a solution pass first: `architect` applies `solution-design` and writes `solution_<scope>.md` → ONE fresh-context challenge (an `auditor`, not a new agent) → your verdict READY / CONCERNS / BLOCKED — always yours, proposer and challenger never decide it. It runs BEFORE plan approval — never a licence to pause mid-execution; `CONCERNS` never blocks. An exact existing pattern with a local change and a trivial rollback does not need it.
+
 
 ### Analytical parallelism (the lever — mechanical, not optional)
 

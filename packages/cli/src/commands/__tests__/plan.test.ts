@@ -146,6 +146,35 @@ describe("navori plan classify --diff", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  /** Runs `classify --diff` in text mode (no `--json`) against a "demo"
+   * plan carrying the given signals, returning everything it printed. */
+  async function classifyDiffText(signals: string[]): Promise<string> {
+    gitRepoWithDiff(["src/a.ts"]);
+    writePlan("demo", {
+      ...validPlan,
+      level: 1,
+      classification: { score: 2, level: 1, signals },
+    });
+    const logs: string[] = [];
+    const spy = vi_spyConsole(logs);
+    await runCommand(planCommand, {
+      rawArgs: ["classify", "demo", "--diff", "main", "--cwd", cwd],
+    });
+    spy.restore();
+    return logs.join("");
+  }
+
+  it("names the exceedance explicitly in the text output, not just the exit code", async () => {
+    const text = await classifyDiffText(["floor:data-schema-migration"]);
+    expect(text).toContain("Exceeds declared level: yes");
+    expect(text).toContain("level 2 > 1");
+  });
+
+  it("says the diff stayed within the declared level in the text output", async () => {
+    const text = await classifyDiffText([]);
+    expect(text).toContain("Exceeds declared level: no");
+  });
+
   it("defaults the base to origin/main when --diff has no value", async () => {
     gitRepoWithDiff(["src/a.ts"]);
     execFileSync("git", ["branch", "origin/main", "main"], { cwd });

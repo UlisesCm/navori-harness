@@ -122,15 +122,21 @@ describe("skills security and quality inventory", () => {
   });
 
   // Covers: R8
-  it("keeps the release manifest, provenance, and rendered marker on 0.9.0", () => {
+  //
+  // Reads the expected version from `package.json` instead of a hardcoded
+  // literal: `docs/references/skills-security-quality.md` is Markdown, bumped
+  // by the scribe (`markdownRequests`, spec 0030's scribeOwnsMarkdown) in its
+  // own commit after this one, not by the implementer that bumps the manifest
+  // — a hardcoded literal here would need re-touching on every release twice,
+  // once wrong until the scribe's commit lands and once again after it does.
+  it("keeps the release manifest, provenance, and rendered marker in sync with the manifest version", () => {
     const manifest = JSON.parse(repositoryFile("packages/cli/package.json")) as {
       version: string;
     };
     const references = repositoryFile("docs/references/skills-security-quality.md");
     const agents = repositoryFile("AGENTS.md");
 
-    expect(manifest.version).toBe("0.9.0");
-    expect(references).toContain("Harness CLI 0.9.0 assets");
-    expect(agents).toContain('version="0.9.0"');
+    expect(references).toContain(`Harness CLI ${manifest.version} assets`);
+    expect(agents).toContain(`version="${manifest.version}"`);
   });
 });

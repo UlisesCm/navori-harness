@@ -22,7 +22,7 @@ metadata:
   maxWordsComposed: 750
 ---
 
-<!-- navori:managed id="spec-bootstrap" hash="a4566c1e" version="0.9.0" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="spec-bootstrap" hash="a4566c1e" version="0.10.0" source="@navori/core" fmkeys="name,description,metadata" -->
 # spec-bootstrap — kickoff of an SDD spec
 
 ## Before scaffolding — blocking precondition

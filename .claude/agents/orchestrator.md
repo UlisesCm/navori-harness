@@ -7,7 +7,7 @@ effort: medium
 maxWords: 3050
 ---
 
-<!-- navori:managed id="orchestrator-base" hash="d140a0d9" version="0.9.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="orchestrator-base" hash="79a19165" version="0.10.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
@@ -91,7 +91,7 @@ implementer A (task 1) → reviewer A → implementer B (task 2) → reviewer B 
 ```
 
 Without "shall I proceed?" between each node.
-
+Planning tiers: the `planificacion` block decides the level; the `plan-simple` / `plan-advanced` skills carry the procedure.
 
 ## Anti-broken-telephone rule
 
@@ -113,13 +113,13 @@ Expected files:
 - `.claude/progress/explore_<area>.md` — broad map (`scout`, map encargo)
 - `.claude/progress/research_<question>.md` — scoped question (`scout`, question encargo)
 - `.claude/progress/solution_<scope>.md` — the design pass's decision record (`solution-design` skill), plus `solution_review_<scope>.md` for its fresh-context challenge (`auditor`, challenge encargo)
-
+- `.claude/progress/workplan_<feature>.json` — the workplan source, written by you; `workplan_<feature>.md` is `navori plan render`'s output, and `workplan_<feature>.gate.jsonl` the gate's log
 - `.claude/progress/impl_<feature>.json` — the `implementer`'s evidence (R2, includes `status` and `markdownRequests`); the `scribe` renders `.claude/progress/impl_<feature>.md` from it and applies `markdownRequests`
 - `.claude/progress/review_<feature>.md` — the `reviewer`'s verdict
 - `.claude/progress/receipt.txt` — the `reviewer`'s content receipt on `APPROVED` (binds the diff to the reviewed bytes; consumed by `publisher`)
 - `.claude/progress/comment_<feature>.md` — the comment/review/ticket body `publisher` drafts before publishing it file-backed (comment contract)
 
-**Path separation (don't mix):** `.claude/progress/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`, `comment_*`) between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.json`, you record the blocker in `progress/current.md` along with the next step.
+**Path separation (don't mix):** `.claude/progress/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `workplan_*`, `impl_*`, `review_*`, `receipt.txt`, `comment_*`) between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.json`, you record the blocker in `progress/current.md` along with the next step.
 
 **Retirement:** `.claude/progress/` is gitignored — single-machine, not durable. No doc or argument may cite one of its files as evidence. Delete by hand anything older than **14 days**; nothing here is automated (no command/hook deletes on your behalf). Before deleting, promote whatever is still load-bearing (a decision reconstructable in six months) to `docs/` or engram via the `dominio` skill — otherwise it's lost for good. `progress/current.md` and `progress/history.md` (repo root, versioned) are a different, exempt directory.
 
@@ -168,13 +168,13 @@ Restates nothing already in "## Role: orchestrator" (edit source, write source, 
 If the task is a pure reading / conceptual question → answer directly, no subagents. Everything else that touches source goes through `implementer` → `reviewer` — see the top of this file: there is no size or path exception.
 <!-- /navori:managed id="orchestrator-base" -->
 
-<!-- navori:managed id="codegraph-access-v2-orchestrator" hash="5ac84549" version="0.9.0" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-access-v2-orchestrator" hash="5ac84549" version="0.10.0" source="@navori/plugin-codegraph" -->
 ### Structural discovery access
 
 Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Pass `maxFiles` to bound a large response. Continue with scoped native tools if unavailable.
 <!-- /navori:managed id="codegraph-access-v2-orchestrator" -->
 
-<!-- navori:managed id="codex-cross-review" hash="3b75baab" version="0.9.0" source="@navori/core" -->
+<!-- navori:managed id="codex-cross-review" hash="3b75baab" version="0.10.0" source="@navori/core" -->
 ## Cross-model review (Codex second opinion)
 
 This repo renders the `codex` engine, so a second opinion from a **different provider** is one command away. After your `reviewer` approves a non-trivial diff — or on any change touching a critical area — you MAY have Codex review the SAME diff against this repo's own standards (already rendered in `AGENTS.md` + `.codex/agents/reviewer.toml`):
@@ -191,7 +191,7 @@ CODEX_HOME=$(pwd)/.codex codex exec --sandbox read-only "revisa el diff origin/m
 Reach for it in `criticalAreas`, on high-blast-radius changes, or when the user asks for a cross-check — not on every trivial diff.
 <!-- /navori:managed id="codex-cross-review" -->
 
-<!-- navori:managed id="engram-orchestrator-extension" hash="35efaabd" version="0.9.0" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-orchestrator-extension" hash="35efaabd" version="0.10.0" source="@navori/plugin-engram" -->
 ## Engram (persistent memory)
 
 - **Session start:** engram's `SessionStart` hook covers `startup`/`clear`/`compact`, not `resume`. Where memory is already injected, `mem_context` only re-fetches it. Where it is NOT — a resumed session or a host with no startup hook (e.g. Codex) — that call IS the memory startup and it's the mandatory first step.

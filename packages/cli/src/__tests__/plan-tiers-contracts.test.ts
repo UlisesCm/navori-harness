@@ -292,3 +292,43 @@ describe("implementer/reviewer/resolve-ticket — rendered plan-tiers wiring (T1
     expect(resolveTicketOn).toContain("the encargo opens with `workplan: <feature>`");
   });
 });
+
+/**
+ * Spec 0032 lote 4 (#1011), T12 — this repo turns `harness.planTiers` on and
+ * relies on core's always-on architect default (no `harness.architect`,
+ * `models.architect` or `effort.architect` override left behind).
+ *
+ * Covers: R29, R31
+ */
+describe("this repo's navori.config.json — R29, R31", () => {
+  const REPO_CONFIG_PATH = join(import.meta.dirname, "..", "..", "..", "..", "navori.config.json");
+
+  it("R31: harness.planTiers is on", () => {
+    const config = JSON.parse(readFileSync(REPO_CONFIG_PATH, "utf-8")) as NavoriConfig;
+    expect(config.harness?.planTiers).toBe(true);
+  });
+
+  it("R29: no harness.architect, models.architect or effort.architect override — core's always-on default applies", () => {
+    const config = JSON.parse(readFileSync(REPO_CONFIG_PATH, "utf-8")) as NavoriConfig & {
+      harness?: { architect?: unknown };
+    };
+    expect(config.harness?.architect).toBeUndefined();
+    expect(config.models?.architect).toBeUndefined();
+    expect(config.effort?.architect).toBeUndefined();
+  });
+
+  it("R29: design.md registers the architect's admission per spec 0031 R3", () => {
+    const designPath = join(
+      import.meta.dirname,
+      "..",
+      "..",
+      "..",
+      "..",
+      "specs",
+      "0032-planificacion-por-niveles",
+      "design.md",
+    );
+    const design = readFileSync(designPath, "utf-8");
+    expect(design).toContain("Admisión del architect (spec 0031 R3)");
+  });
+});

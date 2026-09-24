@@ -64,7 +64,13 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // measures the `navori-agents` BLOCK alone for `doctor`'s per-repo report;
   // this one measures the WHOLE file for navori's own hard gate. They differ
   // by the ~12 words of the seeded user-section outside the marker.
-  "AGENTS.md": 4560, // spec 0032 (#1011): plan-simple/plan-advanced grew the skills index; 4325 → 5.4%
+  // spec 0032 (#1011), lote 4/T12: turning this repo's own `harness.planTiers`
+  // on (R31) renders the `planificacion` block and the always-on architect
+  // paragraph into `AGENTS.md` for the first time here, landing at 4471 words
+  // — the previous ceiling (4560, set ahead of time by lote 2/3 estimating
+  // 4325) left only 2.0% headroom once the flag actually flipped. Recomputed
+  // for the real number: 4471 × 1.05 ≈ 4695, rounded up for margin → 5.1%.
+  "AGENTS.md": 4700,
 
   // Core managed blocks — auto-discovered from `core-assets/managed/`.
   // Entries recalibrated in #955 carry `// <measured> → <headroom>` at ×1.10.

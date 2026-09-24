@@ -209,10 +209,18 @@ function classifyDiff(
   } else {
     process.stdout.write(
       `Diff vs ${base}: Complexity: ${result.score}/10 · Level: ${result.level} (declared: ${plan.level})\n` +
-        `Signals: ${result.signals.join(", ") || "(none)"}\n`,
+        `Signals: ${result.signals.join(", ") || "(none)"}\n` +
+        (exceedsDeclared
+          ? `Exceeds declared level: yes — the diff outgrew the workplan (level ${result.level} > ${plan.level}).\n`
+          : `Exceeds declared level: no.\n`),
     );
   }
-  if (exceedsDeclared) process.exitCode = 1;
+  // Always sets a definitive value (never leaves the exit code whatever a
+  // previous, unrelated command run in this same process left behind) — this
+  // command can run repeatedly in one process (tests, `plan gate`'s own
+  // subprocess reuse), and a stale `1` from an earlier invocation must not
+  // leak into a passing one.
+  process.exitCode = exceedsDeclared ? 1 : 0;
 }
 
 const renderSubCommand = defineCommand({
@@ -292,7 +300,10 @@ const checkSubCommand = defineCommand({
     const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
     const result = checkWorkplan(raw);
     process.stdout.write(`${args.json ? JSON.stringify(result) : formatCheckResult(result)}\n`);
-    if (!result.ok) process.exitCode = 2;
+    // Explicit on both branches — see `classifyDiff`'s comment on the same
+    // pattern: a stale non-zero code from an earlier command run in this
+    // same process must not leak into a passing `check`.
+    process.exitCode = result.ok ? 0 : 2;
   },
 });
 

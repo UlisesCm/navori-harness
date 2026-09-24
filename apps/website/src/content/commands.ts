@@ -766,9 +766,13 @@ const es: Record<string, CommandDoc> = {
     title: "plan",
     summary: "Clasifica la complejidad de una tarea y valida su workplan (spec 0032).",
     usage:
-      "navori plan <classify|render|update|check> <feature> [--files <a,b,c>] [--dir <path>] [--json]",
+      "navori plan <classify|render|update|check|gate> <feature> [--files <a,b,c> | --diff [<base>]] [--dir <path>] [--json]",
     flags: [
       { flag: "--files <a,b,c>", desc: "Rutas relativas al repo tocadas por la tarea (classify)." },
+      {
+        flag: "--diff [<base>]",
+        desc: "Clasifica el diff real (`git diff --name-only <base>...HEAD`, default origin/main) contra las señales declaradas del workplan (classify); falla si el diff supera el nivel declarado.",
+      },
       {
         flag: "--critical-area / --money-credentials-pii / --multi-repo / --new-external-dependency / --shared-contract / --data-schema-migration / --bug-without-root-cause",
         desc: "Señales declaradas que classify no puede medir por sí solo.",
@@ -786,10 +790,15 @@ const es: Record<string, CommandDoc> = {
         title: "Clasificar y validar",
         code: "navori plan classify checkout --files src/checkout.ts,src/checkout.test.ts --json\nnavori plan check checkout",
       },
+      {
+        title: "Verificar el diff real contra el nivel declarado",
+        code: "navori plan classify checkout --diff origin/main",
+      },
     ],
     notes: [
       "`classify` es la única definición del nivel de una tarea (0-3); no reescribas sus umbrales en otro lugar.",
       "`render` regenera workplan_<feature>.md desde el JSON de forma determinista — nunca lo edites a mano.",
+      "`gate` no toma <feature>: lee el payload del hook PreToolUse(Agent) por stdin y niega el despacho del implementer bajo harness.planTiers sin un workplan válido o una exención de nivel 0.",
     ],
   },
 };
@@ -1554,9 +1563,13 @@ const en: Record<string, CommandDoc> = {
     title: "plan",
     summary: "Classifies a task's complexity and validates its workplan (spec 0032).",
     usage:
-      "navori plan <classify|render|update|check> <feature> [--files <a,b,c>] [--dir <path>] [--json]",
+      "navori plan <classify|render|update|check|gate> <feature> [--files <a,b,c> | --diff [<base>]] [--dir <path>] [--json]",
     flags: [
       { flag: "--files <a,b,c>", desc: "Repo-relative paths touched by the task (classify)." },
+      {
+        flag: "--diff [<base>]",
+        desc: "Classifies the real diff (`git diff --name-only <base>...HEAD`, default origin/main) against the workplan's declared signals (classify); fails when the diff exceeds the declared level.",
+      },
       {
         flag: "--critical-area / --money-credentials-pii / --multi-repo / --new-external-dependency / --shared-contract / --data-schema-migration / --bug-without-root-cause",
         desc: "Declared signals classify cannot measure on its own.",
@@ -1574,10 +1587,15 @@ const en: Record<string, CommandDoc> = {
         title: "Classify and check",
         code: "navori plan classify checkout --files src/checkout.ts,src/checkout.test.ts --json\nnavori plan check checkout",
       },
+      {
+        title: "Check the real diff against the declared level",
+        code: "navori plan classify checkout --diff origin/main",
+      },
     ],
     notes: [
       "`classify` is the single definition of a task's level (0-3); don't rewrite its thresholds elsewhere.",
       "`render` regenerates workplan_<feature>.md from the JSON deterministically — never hand-edit it.",
+      "`gate` takes no <feature>: it reads the PreToolUse(Agent) hook payload from stdin and denies dispatching the implementer under harness.planTiers without a valid workplan or a level-0 exemption.",
     ],
   },
 };
