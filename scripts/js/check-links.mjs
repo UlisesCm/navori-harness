@@ -43,12 +43,9 @@ const KNOWN_EXCEPTIONS = new Set([
   // backtick-wrapped inline code or a `>` blockquote. The link target is a path
   // in THAT repo, or bare markdown-link syntax used as a literal example — never
   // a path meant to resolve inside navori.
-  "docs/research/awesome-harness-engineering.md -> URL", // literal syntax example: `- [Título](URL) — ...`
-  "docs/research/deepseek-harness-lessons.md -> …", // literal syntax example: `([rationale](…))`
   "docs/research/deepseek-harness-lessons.md -> docs/testing.md", // quoted from dsh's own AGENTS.md, dsh's own docs/testing.md
   "docs/research/deepseek-harness-lessons.md -> implemented/process/2026-07-19-remove-generated-agent-note-index.md", // quoted from dsh's own repo
   "docs/research/deepseek-harness-lessons.md -> .agents/notes/README.md#when-to-write-one", // quoted from dsh's own repo
-  "docs/research/ecc-lessons.md -> ruta", // literal syntax example: `[texto](ruta)`
   "docs/research/ponytail-lessons.md -> benchmarks/", // quoted from ponytail's own README, ponytail's own benchmarks/
 
   // Core-assets templates render into a DIFFERENT location than their source
@@ -60,11 +57,18 @@ const KNOWN_EXCEPTIONS = new Set([
   "packages/core/core-assets/agents/orchestrator.md -> ../../CLAUDE.md",
 ]);
 
-/** Markdown links `[text](target)`, skipping fenced code blocks. */
+/**
+ * Markdown links `[text](target)`, skipping fenced code blocks and inline
+ * code spans. Fences go first so a fence's own backtick run never gets
+ * mistaken for a span delimiter; spans are stripped with a backreference so
+ * `` `` `[a](b)` `` `` (double-backtick span) is removed as a unit rather
+ * than matched by single backticks inside it.
+ */
 function extractLinks(markdown) {
   const withoutFences = markdown.replace(/```[\s\S]*?```/g, "");
+  const withoutCodeSpans = withoutFences.replace(/(`+)[\s\S]*?\1/g, "");
   const links = [];
-  for (const match of withoutFences.matchAll(/\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+  for (const match of withoutCodeSpans.matchAll(/\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
     links.push(match[1]);
   }
   return links;
