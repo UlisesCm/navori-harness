@@ -19,12 +19,14 @@ import { readCliVersion } from "../../../lib/render/bundled-assets.ts";
 import {
   RETIRED_PLUGINS,
   RETIRED_PLUGIN_BLOCKS,
+  RETIRED_PLUGIN_SUB_BLOCKS,
   KNOWN_PLUGINS,
 } from "../../../lib/config/plugins.ts";
 import { countWords } from "../../../lib/assets/skill-meta.ts";
 import { getCoreRoot, getPluginPath } from "../../../lib/render/bundled-assets.ts";
 import { writeConfig } from "../../../lib/config/config.ts";
 import { removeCommand } from "../../../commands/remove.ts";
+import { effectiveConfigForWorkspace } from "../../../lib/workspace/monorepo.ts";
 
 // `removeCommand` prompts via @clack/prompts when `--yes` is absent; R08's
 // remove scenario always passes `--yes`, but `remove.ts` still calls
@@ -633,13 +635,62 @@ describe("R12 — a minimal workspace render doesn't duplicate root-only blocks 
 });
 
 describe("R13 — retired registries never purge the active v2 ids", () => {
-  it("neither codegraph nor tgrep is registered as a retired plugin or a retired block", () => {
+  it("neither codegraph nor tgrep is a fully retired plugin (they're alive, under new ids)", () => {
     expect("codegraph" in RETIRED_PLUGINS).toBe(false);
     expect("tgrep" in RETIRED_PLUGINS).toBe(false);
-    expect("codegraph" in RETIRED_PLUGIN_BLOCKS).toBe(false);
-    expect("tgrep" in RETIRED_PLUGIN_BLOCKS).toBe(false);
     expect(KNOWN_PLUGINS.codegraph).toBe("@navori/plugin-codegraph");
     expect(KNOWN_PLUGINS.tgrep).toBe("@navori/plugin-tgrep");
+  });
+
+  // #1013: the v0.8.7-era blocks (`codegraph-protocol`, `tgrep-protocol`, and
+  // their `injectInto` sub-blocks) ARE required to be registered — that's the
+  // only thing that lets render strip them from a repo rendered before #838.
+  // Prohibiting `RETIRED_PLUGIN_BLOCKS`/`RETIRED_PLUGIN_SUB_BLOCKS` here (the
+  // original R13) is what left those blocks unstrippable in the first place.
+  it("registers every pre-#838 block and sub-block against its plugin", () => {
+    expect(RETIRED_PLUGIN_BLOCKS.codegraph?.blockIds).toEqual(["codegraph-protocol"]);
+    expect(RETIRED_PLUGIN_BLOCKS.tgrep?.blockIds).toEqual(["tgrep-protocol"]);
+    const codegraphSubIds = RETIRED_PLUGIN_SUB_BLOCKS.codegraph?.entries.map((e) => e.id) ?? [];
+    const tgrepSubIds = RETIRED_PLUGIN_SUB_BLOCKS.tgrep?.entries.map((e) => e.id) ?? [];
+    expect(codegraphSubIds).toEqual(
+      expect.arrayContaining([
+        "codegraph-search-extension",
+        "codegraph-researcher-extension",
+        "codegraph-explorer-extension",
+        "codegraph-implementer-extension",
+        "codegraph-reviewer-extension",
+      ]),
+    );
+    expect(tgrepSubIds).toEqual(
+      expect.arrayContaining([
+        "tgrep-search-extension",
+        "tgrep-researcher-extension",
+        "tgrep-explorer-extension",
+        "tgrep-implementer-extension",
+        "tgrep-reviewer-extension",
+      ]),
+    );
+  });
+
+  it("never registers the active v2 ids as retired, in any of the three registries", () => {
+    const v2Ids = [
+      "codegraph-search-v2",
+      "tgrep-search-v2",
+      "codegraph-access-v2-orchestrator",
+      "codegraph-access-v2-implementer",
+      "codegraph-access-v2-reviewer",
+      "codegraph-access-v2-auditor",
+      "codegraph-access-v2-architect",
+    ];
+    const retiredBlockIds = Object.values(RETIRED_PLUGIN_BLOCKS).flatMap((r) => r.blockIds);
+    const retiredSubBlockIds = Object.values(RETIRED_PLUGIN_SUB_BLOCKS).flatMap((r) =>
+      r.entries.map((e) => e.id),
+    );
+    for (const id of v2Ids) {
+      expect(retiredBlockIds).not.toContain(id);
+      expect(retiredSubBlockIds).not.toContain(id);
+      expect(id in RETIRED_PLUGINS).toBe(false);
+    }
   });
 
   it("a genuinely retired plugin sharing a render with codegraph doesn't purge codegraph's block", () => {
@@ -656,6 +707,78 @@ describe("R13 — retired registries never purge the active v2 ids", () => {
       expect(md).not.toContain('id="cognitive-protocol"');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("#1013 — migration: a repo rendered before #838 loses the pre-#838 blocks", () => {
+  /** A CLAUDE.md as v0.8.7-era navori left it: `codegraph-protocol`/
+   *  `tgrep-protocol` present, in place. */
+  const legacyBlock = (id: string, source: string): string =>
+    `<!-- navori:managed id="${id}" hash="deadbeef" version="0.8.7" source="@navori/plugin-${source}" -->\n` +
+    `## Legacy ${id}\n\nstale body from before #838\n` +
+    `<!-- /navori:managed id="${id}" -->\n`;
+
+  it("strips codegraph-protocol/tgrep-protocol from the root CLAUDE.md, keeps the v2 ids", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "navori-1013-root-"));
+    try {
+      const cfg = baseConfig(pluginsFor({ codegraph: true, tgrep: true }));
+      renderClaudeEngine(cwd, cfg);
+      const rendered = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
+      writeFileSync(
+        join(cwd, "CLAUDE.md"),
+        `${rendered}\n${legacyBlock("codegraph-protocol", "codegraph")}\n${legacyBlock("tgrep-protocol", "tgrep")}`,
+      );
+      expect(readFileSync(join(cwd, "CLAUDE.md"), "utf-8")).toContain("codegraph-protocol");
+
+      renderClaudeEngine(cwd, cfg);
+
+      const after = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
+      expect(after).not.toContain("codegraph-protocol");
+      expect(after).not.toContain("tgrep-protocol");
+      expect(after).not.toContain("stale body from before #838");
+      expect(openBlockCount(after, "codegraph-search-v2")).toBe(1);
+      expect(openBlockCount(after, "tgrep-search-v2")).toBe(1);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("strips them from a monorepo workspace CLAUDE.md too, keeps the v2 ids", () => {
+    const root = mkdtempSync(join(tmpdir(), "navori-1013-ws-root-"));
+    try {
+      const config = NavoriConfigSchema.parse({
+        name: "search-v2-demo",
+        engines: ["claude"],
+        preset: "custom",
+        branchBase: "main",
+        qualityGate: { fast: "pnpm typecheck", full: "pnpm test" },
+        plugins: pluginsFor({ codegraph: true, tgrep: true }),
+        monorepo: { enabled: true, workspaces: [{ name: "svc", path: "apps/svc" }] },
+      });
+      const ws = config.monorepo!.workspaces[0]!;
+      const wsCwd = join(root, ws.path);
+      mkdirSync(wsCwd, { recursive: true });
+      const wsConfig = effectiveConfigForWorkspace(config, ws);
+
+      renderClaudeEngine(wsCwd, wsConfig, { repoRoot: root });
+      const rendered = readFileSync(join(wsCwd, "CLAUDE.md"), "utf-8");
+      writeFileSync(
+        join(wsCwd, "CLAUDE.md"),
+        `${rendered}\n${legacyBlock("codegraph-protocol", "codegraph")}\n${legacyBlock("tgrep-protocol", "tgrep")}`,
+      );
+      expect(readFileSync(join(wsCwd, "CLAUDE.md"), "utf-8")).toContain("tgrep-protocol");
+
+      renderClaudeEngine(wsCwd, wsConfig, { repoRoot: root });
+
+      const after = readFileSync(join(wsCwd, "CLAUDE.md"), "utf-8");
+      expect(after).not.toContain("codegraph-protocol");
+      expect(after).not.toContain("tgrep-protocol");
+      expect(after).not.toContain("stale body from before #838");
+      expect(openBlockCount(after, "codegraph-search-v2")).toBe(1);
+      expect(openBlockCount(after, "tgrep-search-v2")).toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

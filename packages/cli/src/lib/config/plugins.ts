@@ -335,6 +335,72 @@ export const RETIRED_PLUGIN_BLOCKS: Record<string, { retiredIn: string; blockIds
   // `core-assets/agents/{explorer,researcher}.md` instead, unconditionally,
   // matching how those two tools are already granted there.
   engram: { retiredIn: "#814", blockIds: ["engram-protocol"] },
+  // #803 retired `codegraph`/`tgrep` outright ("tabula rasa para reimplementarlos");
+  // #838 reintroduced both the next day under new v2 ids (`codegraph-search-v2`,
+  // `tgrep-search-v2`). Neither commit registered the old ids anywhere — #803
+  // because `RETIRED_PLUGINS` didn't apply (the reintroduction was already
+  // planned, not a permanent removal) and #838 because the plugin never
+  // "stopped declaring" a block from ITS OWN point of view, it just came back
+  // with a different one. The gap sat unclosed across both commits: a repo
+  // rendered before #803 keeps `codegraph-protocol`/`tgrep-protocol` forever,
+  // since the render only strips a block a LIVE plugin used to declare and no
+  // longer does (#1013).
+  codegraph: { retiredIn: "#838", blockIds: ["codegraph-protocol"] },
+  tgrep: { retiredIn: "#838", blockIds: ["tgrep-protocol"] },
+};
+
+/**
+ * `injectInto` sub-blocks a LIVE plugin used to append inside another file
+ * (an agent, a skill) and no longer does — the other half of the hole
+ * `RETIRED_PLUGIN_BLOCKS` closes for CLAUDE.md. Neither the enabled nor the
+ * disabled reconciliation loop in `engines/claude/index.ts` can reach these:
+ * both iterate `plugin.skillAssets` off the manifest's CURRENT `skills[]`
+ * list, so a sub-block the manifest no longer declares is invisible to both —
+ * exactly `RETIRED_PLUGIN_BLOCKS`'s rationale, one file down.
+ *
+ * Deliberately NOT a `LoadedPlugin`-shaped removal (`removeSubBlock` in
+ * `engines/claude/index.ts` takes a full plugin to also revoke the MCP tools
+ * grant it derives from the plugin's CURRENT manifest): the plugin here is
+ * still alive and may still grant that same server's tools to the same target
+ * file through an active sub-block (e.g. `codegraph-access-v2-implementer`
+ * also targets `implementer.md`). Reusing that removal would strip the live
+ * grant right after the enabled loop wrote it. This registry only strips the
+ * managed-section marker text (`removeManagedSection`) — never `tools:`.
+ *
+ * `entries[].targetPath` is repo-root-relative, matching `skill.injectInto`
+ * verbatim in the manifest version that declared it.
+ *
+ * #838 (see `RETIRED_PLUGIN_BLOCKS.codegraph`/`.tgrep` above): the v0.0.2
+ * manifests (pre-#838) declared these `skills[].injectInto` entries, none of
+ * which survived into the v2 manifests.
+ */
+export const RETIRED_PLUGIN_SUB_BLOCKS: Record<
+  string,
+  { retiredIn: string; entries: Array<{ id: string; targetPath: string }> }
+> = {
+  codegraph: {
+    retiredIn: "#838",
+    entries: [
+      {
+        id: "codegraph-search-extension",
+        targetPath: ".claude/skills/structural-search/SKILL.md",
+      },
+      { id: "codegraph-researcher-extension", targetPath: ".claude/agents/researcher.md" },
+      { id: "codegraph-explorer-extension", targetPath: ".claude/agents/explorer.md" },
+      { id: "codegraph-implementer-extension", targetPath: ".claude/agents/implementer.md" },
+      { id: "codegraph-reviewer-extension", targetPath: ".claude/agents/reviewer.md" },
+    ],
+  },
+  tgrep: {
+    retiredIn: "#838",
+    entries: [
+      { id: "tgrep-search-extension", targetPath: ".claude/skills/structural-search/SKILL.md" },
+      { id: "tgrep-researcher-extension", targetPath: ".claude/agents/researcher.md" },
+      { id: "tgrep-explorer-extension", targetPath: ".claude/agents/explorer.md" },
+      { id: "tgrep-implementer-extension", targetPath: ".claude/agents/implementer.md" },
+      { id: "tgrep-reviewer-extension", targetPath: ".claude/agents/reviewer.md" },
+    ],
+  },
 };
 
 export class PluginNotFoundError extends NavoriError {
