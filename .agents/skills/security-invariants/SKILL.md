@@ -72,24 +72,27 @@ This list is a manual substitute, not a replacement — where a scanner plugin i
 3. Cross-check with the **rules specific to your stack** (below): the concrete names of your guards, error codes and env prefixes live there — without that, the review only covers the universal layer.
 <!-- /navori:managed id="security-invariants-base" -->
 
-<!-- navori:managed id="semgrep-review-extension" hash="5ef278f1" version="0.10.0" source="@navori/plugin-semgrep" -->
+<!-- navori:managed id="semgrep-review-extension" hash="3e6d6595" version="0.10.0" source="@navori/plugin-semgrep" -->
 ## Local security gate (semgrep)
 
-Before closing a relevant change (auth, RBAC, secrets, input validation), run
-the repository's canonical gate command:
+Before closing a relevant change (auth, RBAC, secrets, input validation),
+run semgrep over the diff, scoped to the changed `.ts`/`.tsx` files vs the
+base branch:
 
 ```
-bun run semgrep:check
+git diff --name-only --diff-filter=ACMRT main -- '*.ts' '*.tsx' | xargs -r semgrep scan --config=p/default --error --metrics=off --baseline-commit main
 ```
 
-The script diffs `main...HEAD` and scans it with
-`--config=p/default --error --metrics=off` (deterministic, telemetry-off) —
-do not recreate that scoping or those flags with a manual `xargs` command.
+`--config=p/default` (not `auto`) keeps the ruleset static and telemetry off
+(`--metrics=off` is incompatible with `auto` on semgrep >=1.x); the
+`--baseline-commit` flag makes the scan fail only on findings this branch
+introduces, not on debt already on `main`.
 - Custom rules: see `.semgrep.yml` at the repo root if it exists.
 - Silent skip if `semgrep` is not installed (don't block if the dev doesn't have it).
 
-The commit/push gate runs this for you (`PreToolUse`), so this text is the
-reasoning and the canonical command — not a second mechanism.
+In repos with the Claude Code hooks, the commit/push gate already runs this
+scan for you (`PreToolUse`) — the command above is for running it yourself
+before that point.
 <!-- /navori:managed id="semgrep-review-extension" -->
 
 ## Your stack's security invariants

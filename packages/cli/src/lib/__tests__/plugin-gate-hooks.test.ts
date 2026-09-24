@@ -307,14 +307,16 @@ describe("plugin managed protocols — interpolated command doctrine", () => {
     expect(p).toContain("main...HEAD");
   });
 
-  it("semgrep protocol interpolates the base branch, not $BRANCH_BASE (#273)", () => {
-    const p = protocolOf("semgrep", "managed/semgrep-protocol.md");
+  // #614 moved this doctrine out of managed/semgrep-protocol.md (retired,
+  // #1025) into the skill the plugin still ships — same doctrine, new home.
+  it("semgrep skill interpolates the base branch, not $BRANCH_BASE (#273)", () => {
+    const p = protocolOf("semgrep", "skills/semgrep-review.md");
     expect(p).not.toContain("$BRANCH_BASE");
-    expect(p).toContain("main...HEAD");
+    expect(p).toContain("--baseline-commit main");
   });
 
-  it("semgrep protocol matches its gate script's flags (#278)", () => {
-    const p = protocolOf("semgrep", "managed/semgrep-protocol.md");
+  it("semgrep skill matches its gate script's flags (#278)", () => {
+    const p = protocolOf("semgrep", "skills/semgrep-review.md");
     expect(p).toContain("--config=p/default");
     expect(p).toContain("--metrics=off");
     // The old, telemetry-on, non-deterministic invocation is gone.
