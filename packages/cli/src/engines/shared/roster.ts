@@ -86,6 +86,11 @@ export const ROSTER_WORKFLOW_SKILLS: ReadonlyArray<string> = [
   "follow-up-prs",
   "quality-attributes",
   "author-skill",
+  // Spec 0032 (#1011): the level-1/level-2 workplan procedures. They render
+  // unconditionally (R22 — the gate that ACTIVATES them is `harness.planTiers`,
+  // not their own presence in the index).
+  "plan-simple",
+  "plan-advanced",
 ];
 
 /** The two adapters that place a managed marker, and so can retire one. */

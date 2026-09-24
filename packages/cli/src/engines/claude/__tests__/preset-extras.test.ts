@@ -95,9 +95,10 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // always renders now)
     // + 7 core skills (spec 0026 T14 merges debug-error + loop-back-debug into
     // one debug-failure; spec 0029 T2 adds `secure-by-design`; #901 adds
-    // `scoped-gate`) + 7 workflow skills (resolve-ticket, solution-design,
+    // `scoped-gate`) + 9 workflow skills (resolve-ticket, solution-design,
     // spec-bootstrap, dominio, follow-up-prs, and spec 0029 T2's
-    // `quality-attributes`, plus `author-skill`) + 2 progress files + 2 medusa skills + 2 CLAUDE.md
+    // `quality-attributes`, plus `author-skill`, plus spec 0032's
+    // `plan-simple`/`plan-advanced`) + 2 progress files + 2 medusa skills + 2 CLAUDE.md
     // managed blocks counted independently of the file + 1 guard hook +
     // 1 implementer-no-markdown hook (spec 0030, R3/R4) +
     // 1 subagent-no-background hook (#1003) + 1 session-start
@@ -108,13 +109,13 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // E1) + 1 orchestrator block routed to `.claude/context/` (#573) + 2
     // session ceremonies + 1 agents index, same channel (#572) + 1
     // `planificacion` context block inspected-but-not-written (`harness.planTiers`
-    // defaults `false`) = 47.
+    // defaults `false`) = 49.
     //
     // `architect` (spec 0032 R33) ahora suma siempre — ya no hay flag que lo
     // apague. Un conteo a mano en cinco sitios es justo lo que #703 dejo
     // anotado como deuda; mientras siga a mano, la enumeracion tiene que
     // cerrar con el numero.
-    expect(r.inspected).toBe(47);
+    expect(r.inspected).toBe(49);
   });
 
   describe("bundled stack presets (B4)", () => {

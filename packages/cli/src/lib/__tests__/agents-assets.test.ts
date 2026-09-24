@@ -168,6 +168,30 @@ describe("each agent declares its own handoff contract (#573)", () => {
   });
 });
 
+/**
+ * Spec 0032 lote 3 (#1011), T10 — the implementer's `acceptance` report and
+ * the reviewer's workplan-evidence rule, gated behind `<!-- navori:if
+ * planTiers -->` in the raw asset (the rendered on/off behavior is covered
+ * by `plan-tiers-contracts.test.ts`).
+ *
+ * Covers: R20, R21
+ */
+describe("implementer/reviewer — plan-tiers wiring is gated behind planTiers (T10)", () => {
+  it("R20: implementer's workplan/acceptance block is wrapped in the planTiers conditional", () => {
+    const body = readAgent("implementer");
+    expect(body).toMatch(
+      /<!-- navori:if planTiers -->\nWhen the encargo opens with `workplan: <feature>`, read `\.claude\/progress\/workplan_<feature>\.json`, run each assigned `A<n>` command and report it in `impl_<feature>\.json` under `acceptance` \(`id`, `command`, `exitCode`, `excerpt`\)\. A file outside the workplan's files is a blocker to report, not a change to make\.\n<!-- \/navori:if -->/,
+    );
+  });
+
+  it("R21: reviewer's workplan-evidence rule is wrapped in the planTiers conditional", () => {
+    const body = readAgent("reviewer");
+    expect(body).toMatch(
+      /<!-- navori:if planTiers -->\n- With a workplan: an assigned `A<n>` without evidence in `acceptance`, a file outside the workplan's files without a covering decision, or `navori plan classify <feature> --diff` returning a higher level than declared → `CHANGES_REQUESTED`\.\n<!-- \/navori:if -->/,
+    );
+  });
+});
+
 describe("core agent assets — interpolation placeholders", () => {
   it("at least one agent references qualityGate (proves wiring path exists)", () => {
     const anyRefs = AGENT_IDS.some((id) => readAgent(id).includes("{{qualityGate."));
@@ -310,24 +334,27 @@ describe("core agent assets — scout and auditor forbid universal negatives (#9
  * Spec 0026 T19 (R47, R48, R51) — `architect` proposes what to build and why
  * (`solution-design`'s method), but never issues the READY/CONCERNS/BLOCKED
  * verdict, never decomposes into implementer tasks, and stays within its own
- * 400-word ceiling (stricter than the generic word-cap check above, which
- * would pass at any budgeted number — this pins the actual number R51
- * names for this agent).
+ * word ceiling (stricter than the generic word-cap check above, which would
+ * pass at any budgeted number — this pins the actual number the agent's
+ * frontmatter names). Spec 0032 R26/R28 (#1011) raised the ceiling from 400
+ * to 660: the architect's method (decision drivers, three-rung exploration,
+ * durable-knowledge destination) and the level-3 `design.md` output both now
+ * live in this one asset, the single approved exception to "no raised caps".
  */
 // Covers: R47, R48, R51
-describe("architect never issues a verdict nor decomposes and stays under 400 words (spec 0026 T19)", () => {
+describe("architect never issues a verdict nor decomposes and stays under 660 words (spec 0026 T19, spec 0032 R26/R28)", () => {
   const raw = readAgent("architect");
   const parsed = parseAsset(raw);
   const idx = parsed.body.indexOf(SENTINEL);
   const managed = parsed.body.slice(0, idx);
 
-  it("declares a maxWords ceiling of 400", () => {
-    expect(parsed.frontmatter.maxWords).toBe("400");
+  it("declares a maxWords ceiling of 660", () => {
+    expect(parsed.frontmatter.maxWords).toBe("660");
   });
 
-  it("stays at or under 400 words in its managed body", () => {
+  it("stays at or under 660 words in its managed body", () => {
     const words = managed.trim().split(/\s+/).filter(Boolean).length;
-    expect(words).toBeLessThanOrEqual(400);
+    expect(words).toBeLessThanOrEqual(660);
   });
 
   it("never issues a verdict", () => {

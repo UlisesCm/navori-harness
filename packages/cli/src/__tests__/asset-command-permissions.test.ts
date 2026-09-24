@@ -327,6 +327,14 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
     "git worktree list",
     "read-only, but this is a project-local skill's own convenience, not a core-asset need every navori consumer should carry pre-approved; the prompt is accepted here rather than widening `settings-base.json` for one repo's skill",
   ],
+  [
+    "navori plan render",
+    "writes workplan_<feature>.md from its JSON source (R11) — a write, not a read; `navori plan classify`/`plan check` are pre-approved instead",
+  ],
+  [
+    "navori plan update",
+    "writes workplan_<feature>.json (progress/decisions) and re-renders its `.md` — a write, same reason as `navori plan render`",
+  ],
 ];
 
 function isExpectedPrompt(command: string): string | null {
@@ -450,8 +458,11 @@ describe("assets order only commands the settings pre-approve (#506)", () => {
     ).map(([prefix]) => prefix);
     expect(stale, `no asset orders these any more — delete them: ${stale.join(", ")}`).toEqual([]);
     // Raised 15 → 16 for #998: five distinct-risk entries from two new
-    // project-local skills, none a broadened existing prefix.
-    expect(EXPECTED_PROMPTS.length, "the exception list is growing into a filter").toBeLessThan(16);
+    // project-local skills, none a broadened existing prefix. Raised 16 → 18
+    // for #1011: `navori plan render`/`navori plan update` are the two write
+    // subcommands of `plan-simple`; `plan classify`/`plan check` are read-only
+    // and went into `settings-base.json`'s allowlist instead.
+    expect(EXPECTED_PROMPTS.length, "the exception list is growing into a filter").toBeLessThan(18);
     for (const [prefix, why] of EXPECTED_PROMPTS) {
       expect(why.length, `${prefix} needs a real reason, not a placeholder`).toBeGreaterThan(30);
     }

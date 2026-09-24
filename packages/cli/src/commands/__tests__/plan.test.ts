@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -77,6 +78,91 @@ describe("navori plan classify", () => {
     spy.restore();
     const parsed = JSON.parse(logs.join(""));
     expect(parsed.level).toBe(2);
+  });
+});
+
+/** Sets up a real git repo at `cwd` with a `main` base commit and, on top of
+ * it, a second commit touching `files` — the shape `plan classify --diff`
+ * needs, since it shells out to real `git diff --name-only`. */
+function gitRepoWithDiff(files: string[]): void {
+  const run = (...args: string[]): void => {
+    execFileSync("git", args, { cwd });
+  };
+  run("init", "-q", "-b", "main");
+  run("config", "user.email", "test@example.com");
+  run("config", "user.name", "test");
+  writeFileSync(join(cwd, "README.md"), "base\n");
+  run("add", "README.md");
+  run("commit", "-q", "-m", "base");
+  run("checkout", "-q", "-b", "feature");
+  for (const file of files) {
+    mkdirSync(join(cwd, ...file.split("/").slice(0, -1)), { recursive: true });
+    writeFileSync(join(cwd, file), "content\n");
+  }
+  run("add", "-A");
+  run("commit", "-q", "-m", "diff");
+}
+
+/** Covers: R21 */
+describe("navori plan classify --diff", () => {
+  it("classifies the real diff and exits 0 when it stays within the declared level", async () => {
+    gitRepoWithDiff(["src/a.ts"]);
+    writePlan("demo", {
+      ...validPlan,
+      level: 1,
+      classification: { score: 2, level: 1, signals: [] },
+    });
+    const logs: string[] = [];
+    const spy = vi_spyConsole(logs);
+    await runCommand(planCommand, {
+      rawArgs: ["classify", "demo", "--diff", "main", "--json", "--cwd", cwd],
+    });
+    spy.restore();
+    const parsed = JSON.parse(logs.join(""));
+    expect(parsed.files).toEqual(["src/a.ts"]);
+    expect(parsed.declaredLevel).toBe(1);
+    expect(parsed.exceedsDeclared).toBe(false);
+    expect(process.exitCode ?? 0).toBe(0);
+  });
+
+  it("exits non-zero when the diff's level exceeds the declared level", async () => {
+    gitRepoWithDiff(["src/a.ts"]);
+    writePlan("demo", {
+      ...validPlan,
+      level: 1,
+      // A declared floor (recovered via `declaredFlagsFromSignals`) forces
+      // level 2 regardless of how small the diff is.
+      classification: { score: 2, level: 1, signals: ["floor:data-schema-migration"] },
+    });
+    const logs: string[] = [];
+    const spy = vi_spyConsole(logs);
+    await runCommand(planCommand, {
+      rawArgs: ["classify", "demo", "--diff", "main", "--json", "--cwd", cwd],
+    });
+    spy.restore();
+    const parsed = JSON.parse(logs.join(""));
+    expect(parsed.level).toBe(2);
+    expect(parsed.exceedsDeclared).toBe(true);
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("defaults the base to origin/main when --diff has no value", async () => {
+    gitRepoWithDiff(["src/a.ts"]);
+    execFileSync("git", ["branch", "origin/main", "main"], { cwd });
+    writePlan("demo", validPlan);
+    await runCommand(planCommand, {
+      rawArgs: ["classify", "demo", "--diff", "--cwd", cwd],
+    });
+    // origin/main == main here, so the diff is empty and level stays declared.
+    expect(process.exitCode ?? 0).toBe(0);
+  });
+
+  it("fails when the feature has no workplan", async () => {
+    gitRepoWithDiff(["src/a.ts"]);
+    await runCommand(planCommand, {
+      rawArgs: ["classify", "absent", "--diff", "main", "--cwd", cwd],
+    });
+    expect(process.exitCode).toBe(1);
   });
 });
 

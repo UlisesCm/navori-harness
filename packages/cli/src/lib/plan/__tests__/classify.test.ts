@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classify } from "../classify.ts";
+import { classify, declaredFlagsFromSignals } from "../classify.ts";
 
 /**
  * T0 — calibration fixtures (#1011).
@@ -427,5 +427,52 @@ describe("classify — unit behavior", () => {
   it("a floor forces level 2 even with a trivial file set", () => {
     const result = classify({ files: ["src/index.ts"], dataSchemaMigration: true });
     expect(result.level).toBe(2);
+  });
+});
+
+/**
+ * `plan classify --diff` (R21) recovers the workplan's declared flags from
+ * `classify`'s own `signals` output — no independent parsing of the original
+ * `--floor` booleans, which the workplan schema never stores directly.
+ *
+ * Covers: R21
+ */
+describe("declaredFlagsFromSignals", () => {
+  it("recovers every floor from its marker string", () => {
+    const flags = declaredFlagsFromSignals([
+      "floor:money-credentials-pii",
+      "floor:multi-repo",
+      "floor:new-external-dependency",
+      "floor:shared-contract",
+      "floor:data-schema-migration",
+    ]);
+    expect(flags).toEqual({
+      moneyCredentialsPii: true,
+      multiRepo: true,
+      newExternalDependency: true,
+      sharedContract: true,
+      dataSchemaMigration: true,
+      criticalArea: false,
+      bugWithoutRootCause: false,
+    });
+  });
+
+  it("recovers the declared (not matched) critical-area and the bug-without-root-cause signal", () => {
+    const flags = declaredFlagsFromSignals([
+      "critical-area:declared(+3)",
+      "bug-without-root-cause(+2)",
+    ]);
+    expect(flags.criticalArea).toBe(true);
+    expect(flags.bugWithoutRootCause).toBe(true);
+  });
+
+  it("ignores a matched (not declared) critical-area signal — the diff's own files re-match it", () => {
+    const flags = declaredFlagsFromSignals(["critical-area:matched(+3)"]);
+    expect(flags.criticalArea).toBe(false);
+  });
+
+  it("returns every flag false for an empty signal list", () => {
+    const flags = declaredFlagsFromSignals([]);
+    expect(Object.values(flags).every((v) => v === false)).toBe(true);
   });
 });

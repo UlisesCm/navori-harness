@@ -4,9 +4,10 @@
  * R15).
  */
 import { defineCommand } from "citty";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { classify, type ClassifyInput } from "../lib/plan/classify.ts";
+import { classify, declaredFlagsFromSignals, type ClassifyInput } from "../lib/plan/classify.ts";
 import { checkWorkplan, formatCheckResult } from "../lib/plan/check.ts";
 import { evaluatePlanGate } from "../lib/plan/gate.ts";
 import { applyWorkplanUpdate, renderWorkplan, type WorkplanUpdate } from "../lib/plan/render.ts";
@@ -49,6 +50,34 @@ function readWorkplanOrExit(path: string): Workplan | undefined {
   }
 }
 
+/** `project.criticalPaths`/`project.localSkills` (R9), falling back to
+ * `undefined` for a repo without `navori.config.json` or without a `project`
+ * block — shared by `--files` and `--diff` classification so neither
+ * re-derives the read. */
+function readProjectClassifyContext(cwd: string): {
+  criticalPaths: string[] | undefined;
+  localSkillIds: string[] | undefined;
+} {
+  try {
+    const project = readConfig(resolve(cwd, "navori.config.json")).project;
+    return { criticalPaths: project?.criticalPaths, localSkillIds: project?.localSkills };
+  } catch {
+    return { criticalPaths: undefined, localSkillIds: undefined };
+  }
+}
+
+/** `git diff --name-only <base>...HEAD`'s touched files, repo-relative. */
+function diffFiles(cwd: string, base: string): string[] {
+  const out = execFileSync("git", ["diff", "--name-only", `${base}...HEAD`], {
+    cwd,
+    encoding: "utf8",
+  });
+  return out
+    .split("\n")
+    .map((f) => f.trim())
+    .filter(Boolean);
+}
+
 function writeWorkplanAndRender(cwd: string, dir: string, feature: string, plan: Workplan): void {
   mkdirSync(resolve(cwd, dir), { recursive: true });
   writeFileAtomic(jsonPath(cwd, dir, feature), `${JSON.stringify(plan, null, 2)}\n`);
@@ -69,6 +98,12 @@ const classifySubCommand = defineCommand({
     files: {
       type: "string",
       description: "Comma-separated repo-relative paths touched by the task",
+    },
+    diff: {
+      type: "string",
+      description:
+        "Classify `git diff --name-only <base>...HEAD` against the feature's workplan " +
+        "instead of --files; value is the base ref (default origin/main, R21)",
     },
     criticalArea: { type: "boolean", description: "Declared: touches a critical area" },
     moneyCredentialsPii: {
@@ -95,16 +130,16 @@ const classifySubCommand = defineCommand({
     // `criticalPaths`/`localSkills` are optional (R9): a repo without
     // `navori.config.json` or without a `project` block simply falls back to
     // the declared flag / the default "generated" classification.
-    let criticalPaths: string[] | undefined;
-    let localSkillIds: string[] | undefined;
-    try {
-      const project = readConfig(resolve(cwd, "navori.config.json")).project;
-      criticalPaths = project?.criticalPaths;
-      localSkillIds = project?.localSkills;
-    } catch {
-      criticalPaths = undefined;
-      localSkillIds = undefined;
+    const { criticalPaths, localSkillIds } = readProjectClassifyContext(cwd);
+
+    if (args.diff !== undefined) {
+      classifyDiff(cwd, args.dir, args.feature, args.diff || "origin/main", args.json ?? false, {
+        criticalPaths,
+        localSkillIds,
+      });
+      return;
     }
+
     const input: ClassifyInput = {
       files: splitList(args.files),
       criticalArea: args.criticalArea,
@@ -127,6 +162,58 @@ const classifySubCommand = defineCommand({
     );
   },
 });
+
+/**
+ * `navori plan classify <feature> --diff [<base>]` (R21) — classifies the
+ * REAL diff (`git diff --name-only <base>...HEAD`) with the feature's
+ * declared workplan signals (`declaredFlagsFromSignals`, no re-derivation of
+ * `signals.ts`'s weights) and exits non-zero when that comes back at a higher
+ * level than the workplan declared. The reviewer runs this exact command to
+ * catch a diff that outgrew its plan.
+ */
+function classifyDiff(
+  cwd: string,
+  dir: string,
+  feature: string,
+  base: string,
+  json: boolean,
+  project: { criticalPaths: string[] | undefined; localSkillIds: string[] | undefined },
+): void {
+  const plan = readWorkplanOrExit(jsonPath(cwd, dir, feature));
+  if (!plan) return;
+
+  let files: string[];
+  try {
+    files = diffFiles(cwd, base);
+  } catch (cause: unknown) {
+    process.stderr.write(
+      `git diff --name-only ${base}...HEAD failed: ${cause instanceof Error ? cause.message : String(cause)}\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const input: ClassifyInput = {
+    files,
+    criticalPaths: project.criticalPaths,
+    localSkillIds: project.localSkillIds,
+    ...declaredFlagsFromSignals(plan.classification.signals),
+  };
+  const result = classify(input);
+  const exceedsDeclared = result.level > plan.level;
+
+  if (json) {
+    process.stdout.write(
+      `${JSON.stringify({ ...result, base, files, declaredLevel: plan.level, exceedsDeclared })}\n`,
+    );
+  } else {
+    process.stdout.write(
+      `Diff vs ${base}: Complexity: ${result.score}/10 · Level: ${result.level} (declared: ${plan.level})\n` +
+        `Signals: ${result.signals.join(", ") || "(none)"}\n`,
+    );
+  }
+  if (exceedsDeclared) process.exitCode = 1;
+}
 
 const renderSubCommand = defineCommand({
   meta: { name: "render", description: "Render workplan_<feature>.md from its JSON source" },

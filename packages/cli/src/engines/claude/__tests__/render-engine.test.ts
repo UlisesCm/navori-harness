@@ -466,9 +466,10 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   context block inspected-but-not-written (`harness.planTiers` defaults
     //   `false` — R30) + 7 core skills (spec 0026 T14 merges debug-error +
     //   loop-back-debug into one debug-failure; spec 0029 T2 adds
-    //   `secure-by-design`; #901 adds `scoped-gate`) + 7 workflow skills
+    //   `secure-by-design`; #901 adds `scoped-gate`) + 9 workflow skills
     //   (resolve-ticket, solution-design, spec-bootstrap, dominio,
-    //   follow-up-prs, spec 0029 T2's `quality-attributes`, and `author-skill`) +
+    //   follow-up-prs, spec 0029 T2's `quality-attributes`, `author-skill`,
+    //   and spec 0032's `plan-simple`/`plan-advanced`) +
     //   1 guard hook + 1 implementer-no-markdown hook (spec 0030, R3/R4) +
     //   1 subagent-no-background hook (#1003) +
     //   1 session-start hook + 1 PR routing hook (#705) +
@@ -484,21 +485,22 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   decision, the second PostToolUse hook) +
     //   4 blocks routed to .claude/context/ — the routing doctrine (#573) plus
     //   the two session ceremonies and the agents index (#572) + the
-    //   model-advisor hook (spec 0028) = 48.
+    //   model-advisor hook (spec 0028) = 50.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(50);
+    expect(first.inspected).toBe(52);
     // Written counts files actually emitted. engram-orchestrator-extension is a
     // sub-block injected into orchestrator.md, not a separate file, and the
     // `planificacion` context block is inspected but not written (its
-    // condition, `harness.planTiers`, is off). The arithmetic: 50 inspected −
-    // the 4 engram sub-blocks − 1 planificacion (not written) = 45 files
+    // condition, `harness.planTiers`, is off). The arithmetic: 52 inspected −
+    // the 4 engram sub-blocks − 1 planificacion (not written) = 47 files
     // actually emitted (the base files + the .mcp.json + both audit-mode
     // hooks + the drift watcher + the worktree-reclaim hook + the routing
     // watcher of spec 0020 + the PR routing hook of #705 + the
     // comment-draft-confirm hook of spec 0026 E1 + the implementer-no-markdown
     // hook of spec 0030 + the subagent-no-background hook of #1003 + the
-    // architect agent that spec 0032 R33 always renders now).
-    expect(first.written.length).toBe(45);
+    // architect agent that spec 0032 R33 always renders now + spec 0032's
+    // `plan-simple`/`plan-advanced` workflow skills).
+    expect(first.written.length).toBe(47);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -602,14 +604,15 @@ describe("renderClaudeEngine — dry-run", () => {
     // routing watcher (spec 0020), the PR routing hook (#705), the
     // comment-draft-confirm hook (spec 0026 E1), the implementer-no-markdown
     // hook (spec 0030, R3/R4), the subagent-no-background hook (#1003) and
-    // the orchestrator block routed to `.claude/context/` (#573). 45, not 38:
+    // the orchestrator block routed to `.claude/context/` (#573). 47, not 38:
     // scribe expands the default roster to seven agents, while spec 0026 T14
     // merges debug-error + loop-back-debug into one debug-failure, and spec
     // 0029 T2 adds `secure-by-design` (core) and `quality-attributes`
     // (workflow), and #901 adds `scoped-gate` (core), plus the `author-skill`
     // workflow skill. Spec 0032 R33 retires the `harness.architect` toggle —
-    // `architect` always renders now, the eighth agent.
-    expect(r.written).toHaveLength(45);
+    // `architect` always renders now, the eighth agent — and adds the
+    // `plan-simple`/`plan-advanced` workflow skills.
+    expect(r.written).toHaveLength(47);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);

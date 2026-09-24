@@ -7,12 +7,12 @@ effort: medium
 maxWords: 3050
 ---
 
-<!-- navori:managed id="orchestrator-base" hash="c7f74c5a" version="0.9.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="orchestrator-base" hash="d140a0d9" version="0.9.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
 
-Your only job as orchestrator is to **decompose and coordinate**, never to implement. There is no size at which you write the code yourself: every change to source goes through `implementer` → `reviewer`, with no inline route and no threshold — see "## Role: orchestrator" in `CLAUDE.md`.
+Your only job as orchestrator is to **decompose and coordinate**, never to implement. Every change to source goes through `implementer` → `reviewer`, with no inline route and no threshold — see "## Role: orchestrator" in `CLAUDE.md`.
 
 **Why there is no ladder right now, and what has to be true to bring it back.** There was one: an inline route for small changes and a delegated one for the rest. Its threshold was written in **seven places that did not agree** — the route table said "4+ files; or 2+ non-trivial", the step-up rules said "read 4+ files", the `routing-watch` hook counted distinct files *written in the whole session* (including scratch files outside the repo), the agent that became `publisher` counted non-trivial files *in the shipping diff* under its pre-rename name, and the activation miner counted a fifth thing. So "is this inline?" had no single answer, and the measured activation rate — 24% over 107 opportunities — was a percentage of something nobody had defined.
 
@@ -92,6 +92,7 @@ implementer A (task 1) → reviewer A → implementer B (task 2) → reviewer B 
 
 Without "shall I proceed?" between each node.
 
+
 ## Anti-broken-telephone rule
 
 When you launch subagents, the **literal path** of the file each one must write is a fixed field of the encargo, not a recommendation. "Write a report" is prose and gets summarized on the way out; `.claude/progress/impl_auth.md` does not. You receive only:
@@ -112,6 +113,7 @@ Expected files:
 - `.claude/progress/explore_<area>.md` — broad map (`scout`, map encargo)
 - `.claude/progress/research_<question>.md` — scoped question (`scout`, question encargo)
 - `.claude/progress/solution_<scope>.md` — the design pass's decision record (`solution-design` skill), plus `solution_review_<scope>.md` for its fresh-context challenge (`auditor`, challenge encargo)
+
 - `.claude/progress/impl_<feature>.json` — the `implementer`'s evidence (R2, includes `status` and `markdownRequests`); the `scribe` renders `.claude/progress/impl_<feature>.md` from it and applies `markdownRequests`
 - `.claude/progress/review_<feature>.md` — the `reviewer`'s verdict
 - `.claude/progress/receipt.txt` — the `reviewer`'s content receipt on `APPROVED` (binds the diff to the reviewed bytes; consumed by `publisher`)

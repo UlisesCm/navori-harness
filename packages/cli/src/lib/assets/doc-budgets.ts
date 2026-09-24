@@ -64,7 +64,7 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // measures the `navori-agents` BLOCK alone for `doctor`'s per-repo report;
   // this one measures the WHOLE file for navori's own hard gate. They differ
   // by the ~12 words of the seeded user-section outside the marker.
-  "AGENTS.md": 4530, // 4128 → 9.7%
+  "AGENTS.md": 4560, // spec 0032 (#1011): plan-simple/plan-advanced grew the skills index; 4325 → 5.4%
 
   // Core managed blocks — auto-discovered from `core-assets/managed/`.
   // Entries recalibrated in #955 carry `// <measured> → <headroom>` at ×1.10.

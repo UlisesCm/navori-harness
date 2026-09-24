@@ -125,6 +125,40 @@ function rootDirsOf(files: readonly string[]): Set<string> {
   return new Set(files.map((file) => file.split("/").slice(0, 2).join("/")));
 }
 
+/** The subset of `ClassifyInput`'s declared (non-file-derived) flags —
+ * everything a workplan's stored `classification.signals` can carry. */
+export type DeclaredSignalFlags = Pick<
+  ClassifyInput,
+  | "moneyCredentialsPii"
+  | "multiRepo"
+  | "newExternalDependency"
+  | "sharedContract"
+  | "dataSchemaMigration"
+  | "criticalArea"
+  | "bugWithoutRootCause"
+>;
+
+/**
+ * Recovers the declared (non-file-derived) flags from a previous `classify`
+ * run's `signals` output (R21: `plan classify --diff` combines the workplan's
+ * declared signals with the real diff's files, without asking the caller to
+ * re-supply the original `--floor` flags or re-deriving the weight rules).
+ * Only reads back the exact marker strings `classify` itself writes above —
+ * no independent parsing logic to drift from them.
+ */
+export function declaredFlagsFromSignals(signals: readonly string[]): DeclaredSignalFlags {
+  const has = (needle: string): boolean => signals.some((s) => s.startsWith(needle));
+  return {
+    moneyCredentialsPii: has("floor:money-credentials-pii"),
+    multiRepo: has("floor:multi-repo"),
+    newExternalDependency: has("floor:new-external-dependency"),
+    sharedContract: has("floor:shared-contract"),
+    dataSchemaMigration: has("floor:data-schema-migration"),
+    criticalArea: has("critical-area:declared"),
+    bugWithoutRootCause: has("bug-without-root-cause"),
+  };
+}
+
 /** Computes complexity 0-10 and derives a level from "Señales y pesos"
  * (design.md), calibrated in #1011 (T0). */
 export function classify(input: ClassifyInput): ClassifyResult {

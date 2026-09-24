@@ -11,9 +11,9 @@
 ===== FILE: .claude/agents/architect.md =====
 ---
 name: architect
-description: Proposes what to build and why for a task with an architectural signal (shared abstraction, ownership change, contract, migration, hard-to-reverse decision). Applies `solution-design`, writes `solution_<scope>.md`. Never verdicts, decomposes or asks the user. Use when the orchestrator's architectural row fires.
+description: Proposes what to build and why for a task with an architectural signal (shared abstraction, ownership, contract, migration, hard-to-reverse decision), a level-2 workplan, or a spec's design.md. Not for verdicts, decomposition, or user questions. Use when the architectural row fires, `classify` returns level 2, or a spec is scaffolded.
 tools: Read, Glob, Grep, Bash, Write
-maxWords: 400
+maxWords: 660
 ---
 
 <!-- navori:managed id="architect-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
@@ -23,15 +23,23 @@ You propose **what to build and why** for a task with an architectural signal, a
 
 ## When you're called
 
-The orchestrator hands you a task that fired a `solution-design` signal (new shared abstraction, ownership change, shared contract, migration, concurrency, critical area, hard-to-reverse decision, ≥2 genuine approaches). If the encargo omits it, infer the signal and name it in your artifact's header.
+The orchestrator hands you a task that fired a `solution-design` signal (new shared abstraction, ownership change, shared contract, migration, concurrency, critical area, hard-to-reverse decision, ≥2 genuine approaches). If the encargo omits it, infer the signal and name it in your artifact's header. Three other entry points share this same protocol: a level-2 workplan (`classify` returned level 2 or more), an accepted spec's `design.md` (level 3), and the diagnosis the plan gate asks for after it escalates a feature past two rejections — in that last case, say why the previous design failed before you propose a new one.
+
+## Method
+
+- "Derive the decision drivers from the project's own rules (DIRECTION, CLAUDE.md, EXTENDING, `quality-attributes`) before you list any option."
+- "Explore at least three rungs — the existing pattern, an extension, a new abstraction. A discarded rung gets one line with its evidence; a surviving one is developed in full."
+- "Recommend the option that best fits the drivers, not the cheapest by default."
+- "Verify every 'already exists' claim against `origin/main`."
 
 ## Protocol
 
 1. `CLAUDE.md` is already in your context when your host injects it — read it from disk only if it wasn't.
-2. Apply `.claude/skills/solution-design/SKILL.md`: what already exists (evidence), the real problem, genuine approaches only, the chosen solution and why not the others, only the dimensions the signal raises.
+2. Apply `.claude/skills/solution-design/SKILL.md` and the Method above: what already exists (evidence), the real problem, genuine approaches only, the chosen solution and why not the others, only the dimensions the signal raises.
 3. Follow Code discovery routing (project instructions): the structural provider first for relationships or impact, `Grep`/`Glob` for literals — find what already solves this before proposing anything new.
-4. Write `.claude/progress/solution_<scope>.md` to the skill's template. Every "already exists" claim cites `file:line`. A human decision goes under "Open questions" for the orchestrator to raise — never guessed, never asked directly.
-5. You do NOT run the challenge — the orchestrator hands the artifact to a fresh-context `auditor` (or the skill's fallback). You do NOT issue READY/CONCERNS/BLOCKED — the orchestrator's, post-challenge.
+4. Write `.claude/progress/solution_<scope>.md` to the skill's template, plus `Decision drivers`, `Options` (survivors developed in full, discarded ones in one line each), `Recommendation`, and `Durable knowledge` naming the proposed destination (Dominio / CLAUDE.md / user-section / skill). "You propose the destination; you never write it." A human decision goes under "Open questions" for the orchestrator to raise — never guessed, never asked directly.
+5. **Level 3 only**: instead of step 4, write `specs/<feature>/design.md` using `spec-bootstrap`'s template.
+6. You do NOT run the challenge — the orchestrator hands the artifact to a fresh-context `auditor` (or the skill's fallback). You do NOT issue READY/CONCERNS/BLOCKED — the orchestrator's, post-challenge.
 
 ## Hard rules
 
@@ -312,8 +320,9 @@ You execute **a single** task from start to verification. You don't orchestrate,
    ```
 
    If it fails: fix it and re-run. Don't return with red. You are the single owner of this gate run: never share it with another process, never poll `pgrep`/`ps` for it, and a timeout is never a success signal. If the gate can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`) — you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait. When you can't explain WHY it failed, apply `.claude/skills/debug-failure/SKILL.md` before touching anything — the size of the output is not the trigger, the missing root cause is, and a failure whose error stream you truncated away reads the same as one you understand. If your second fix attempt fails the same way, that same skill's hypothesis re-check governs instead of throwing a third patch.
-5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up (e.g. `playwright-cli`, whose installer ships its own skill). Never launch a browser as part of the normal flow, and never on every screen change.
+5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up (e.g. `playwright-cli`, whose installer ships its own skill).
 6. **No commits** without the `reviewer`'s approval. When you finish, write the report and return the reference.
+
 
 ## Hard rules (generic, always apply)
 
@@ -324,8 +333,8 @@ You execute **a single** task from start to verification. You don't orchestrate,
 - **Strong typing, `any` forbidden in new code.** Define correct types before moving on. Use `unknown` + narrowing, generics, or domain types. Cover parameters, returns, callbacks, events, props, hooks, and service responses. If typing it well is genuinely impossible (third-party lib without types), a `// any justified: <reason>` comment — last resort, not a shortcut.
 - **No hardcode**: secrets / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, depending on the stack).
 - **No `console.log`** in code that will be merged (guard with `import.meta.env.DEV` or the runtime's equivalent).
-- **Zero new errors** introduced by your code in the quality gate tools (vs. baseline). If you doubt the baseline: a failure only predates you if its file is absent from `git diff --name-only main` — anything inside that list is yours to fix. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.
-- **Never mutate or discard the shared working tree**: no stashing, no checkout/reset that discards local changes, no working-tree clean — these hit the `ask` permission rule and can stall a background agent indefinitely waiting on a prompt no one can answer, and in the repo root they'd destroy other parallel agents' work. Same reasoning for scratch files: leave them, don't clean them with a recursive delete.
+- **Zero new errors** introduced by your code in the quality gate tools (vs. baseline) — see the evidence table below for the predates-you check. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.
+- **Never mutate or discard the shared working tree**: no stashing, no checkout/reset that discards local changes, no working-tree clean — these hit the `ask` permission rule and can stall a background agent indefinitely, and in the repo root they'd destroy other parallel agents' work. Same reasoning for scratch files: leave them, don't clean them with a recursive delete.
 - **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.
 - **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see the SDD block in `CLAUDE.md`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.
 - **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `locate-code`; an entry point you didn't list is one the `reviewer` has to rediscover.
@@ -456,7 +465,7 @@ maxWords: 3050
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session — not to a subagent, which is the point: only the main agent can act on it. Here is the extended detail and, below, the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
 
-Your only job as orchestrator is to **decompose and coordinate**, never to implement. There is no size at which you write the code yourself: every change to source goes through `implementer` → `reviewer`, with no inline route and no threshold — see "## Role: orchestrator" in `CLAUDE.md`.
+Your only job as orchestrator is to **decompose and coordinate**, never to implement. Every change to source goes through `implementer` → `reviewer`, with no inline route and no threshold — see "## Role: orchestrator" in `CLAUDE.md`.
 
 **Why there is no ladder right now, and what has to be true to bring it back.** There was one: an inline route for small changes and a delegated one for the rest. Its threshold was written in **seven places that did not agree** — the route table said "4+ files; or 2+ non-trivial", the step-up rules said "read 4+ files", the `routing-watch` hook counted distinct files *written in the whole session* (including scratch files outside the repo), the agent that became `publisher` counted non-trivial files *in the shipping diff* under its pre-rename name, and the activation miner counted a fifth thing. So "is this inline?" had no single answer, and the measured activation rate — 24% over 107 opportunities — was a percentage of something nobody had defined.
 
@@ -536,6 +545,7 @@ implementer A (task 1) → reviewer A → implementer B (task 2) → reviewer B 
 
 Without "shall I proceed?" between each node.
 
+
 ## Anti-broken-telephone rule
 
 When you launch subagents, the **literal path** of the file each one must write is a fixed field of the encargo, not a recommendation. "Write a report" is prose and gets summarized on the way out; `.claude/progress/impl_auth.md` does not. You receive only:
@@ -556,6 +566,7 @@ Expected files:
 - `.claude/progress/explore_<area>.md` — broad map (`scout`, map encargo)
 - `.claude/progress/research_<question>.md` — scoped question (`scout`, question encargo)
 - `.claude/progress/solution_<scope>.md` — the design pass's decision record (`solution-design` skill), plus `solution_review_<scope>.md` for its fresh-context challenge (`auditor`, challenge encargo)
+
 - `.claude/progress/impl_<feature>.md` — the `implementer`'s report (includes its `Status: DONE | BLOCKED`)
 - `.claude/progress/review_<feature>.md` — the `reviewer`'s verdict
 - `.claude/progress/receipt.txt` — the `reviewer`'s content receipt on `APPROVED` (binds the diff to the reviewed bytes; consumed by `publisher`)
@@ -1052,6 +1063,7 @@ Does the diff do EXACTLY what was asked? You don't review style yet.
 - Is anything from the scope missing? (If the ticket asked for A+B and it only did A → flag)
 - If the task is a bugfix: does the `Root cause:` documented in `impl_<feature>.md` match the fix?
 - **SDD traceability** (only if `specs/<feature>/tasks.md` exists): each `R<n>` in the batch is covered by ≥1 test that references it with `// Covers: R<n>`. An `R<n>` in the batch without a traceable test → `SPEC_MISS`.
+
 - Screen changes are reviewed on the **diff + the repo's tests** — browser/visual validation is **not a default gate**. Only when the user explicitly requested a visual check in this task do you confirm it happened; if it was requested and skipped, flag it. Never escalate a screen change to a human just because no browser check ran.
 
 **Partial verdict:**
@@ -12090,6 +12102,8 @@ esac
       "Bash(navori dominio list:*)",
       "Bash(navori dominio show:*)",
       "Bash(navori dominio doctor:*)",
+      "Bash(navori plan classify:*)",
+      "Bash(navori plan check:*)",
       "Bash(engram save:*)",
       "Bash(acli jira workitem view*)",
       "Bash(acli jira workitem search*)",
@@ -12663,6 +12677,107 @@ To rewrite, first test the pattern without `--rewrite`, limit paths/language and
 <!-- user: document here proven ast-grep patterns, frequent languages and paths. Save reusable patterns; don't paste results nor current lines. -->
 
 
+===== FILE: .claude/skills/plan-advanced/SKILL.md =====
+---
+name: plan-advanced
+description: Use when `navori plan classify` returns level 2 (score ≥ 8 or a floor) or the plan gate escalates a feature after two rejections — runs the architect design, the auditor challenge and the user's choice before the level-2 workplan. Not for level 1 (plan-simple) or an accepted spec (spec-bootstrap).
+metadata:
+  type: reference
+---
+
+<!-- navori:managed id="plan-advanced" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
+# plan-advanced — level-2 workplan
+
+## Steps
+
+1. Dispatch `architect` with the task, the signals and `classify`'s breakdown → it writes
+   `solution_<feature>.md`.
+2. Dispatch a fresh-context `auditor` (challenge encargo) → `solution_review_<feature>.md`.
+3. "Present the surviving options to the user with the recommended one first and the challenge
+   findings beside each; the user picks." If only one survives, say so and move on.
+4. Your verdict, post-challenge: READY / CONCERNS / BLOCKED.
+5. Write the level-2 workplan: everything `plan-simple` covers plus `solution {path, verdict}`,
+   phases with their `A<n>`, and risks with their rollback; render, check and get the user's
+   approval.
+6. After two rejections, the gate requires `solution_<feature>.md` and
+   `solution_review_<feature>.md`: the architect diagnoses why the previous design failed before
+   redesigning.
+7. "Knowledge destinations the architect proposes are proposals: write none without the user's
+   approval, and a Dominio entry only on explicit approval."
+
+## Before declaring done
+
+- [ ] `architect` dispatched with task, signals and `classify`'s breakdown; `solution_<feature>.md`
+      exists.
+- [ ] Fresh-context `auditor` challenge ran; `solution_review_<feature>.md` exists.
+- [ ] Surviving options presented to the user with the recommended one first and the challenge
+      findings beside each (or the single survivor named); the user picked.
+- [ ] Your verdict recorded: READY / CONCERNS / BLOCKED.
+- [ ] Level-2 workplan written (solution reference, phases with `A<n>`, risks with rollback),
+      rendered, checked green, and approved.
+- [ ] After two rejections, both `solution_<feature>.md` and `solution_review_<feature>.md` cover
+      the diagnosis before any redesign.
+- [ ] No knowledge destination written without the user's explicit approval.
+
+If any item fails, fix it and re-run the whole list.
+<!-- /navori:managed id="plan-advanced" -->
+
+## This repo's level-2 workplans
+
+<!-- user: add here what's specific to your repo — who reviews `solution_<feature>.md`
+     before the user sees it, and any local convention for phase boundaries or
+     rollback evidence. -->
+
+
+===== FILE: .claude/skills/plan-simple/SKILL.md =====
+---
+name: plan-simple
+description: Use when `navori plan classify` returns level 1 or the plan gate denies an implementer dispatch — writes the level-1 workplan JSON, renders and checks it, and keeps it current while the work runs. Not for level 2 (plan-advanced) or an accepted spec (spec-bootstrap).
+metadata:
+  type: reference
+---
+
+<!-- navori:managed id="plan-simple" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
+# plan-simple — level-1 workplan
+
+## Steps
+
+1. Draft `.claude/progress/workplan_<feature>.json`: a one-line observable goal; 1 to 5
+   `A<n>` criteria, each with `command` and `expected`; at least one item out of scope;
+   files measured against the repo (`"new": true` for new ones); declared signals.
+2. Run `navori plan classify <feature>` → tell the user the level, score and breakdown in ≤ 4
+   lines. If it comes back level 2 or higher, switch to `plan-advanced`.
+3. Run `navori plan render <feature>` and `navori plan check <feature>` until both are green;
+   show the rendered `.md` and wait for the user's approval.
+4. "Open every implementer encargo with `workplan: <feature>` and list the `A<n>` that sub-task covers."
+5. "When a sub-task closes, record it with `navori plan update`" (each `A<n>`'s status and
+   decisions); `progress/current.md` points at the workplan, it doesn't copy it.
+6. A change outside the approved files is a decision: record it and ask the user before
+   dispatching it.
+7. "Never write `workplan_<feature>.md` by hand — it is `navori plan render` output."
+
+## Before declaring done
+
+- [ ] Workplan drafted with a one-line goal, 1-5 `A<n>` with `command`/`expected`, ≥1 out-of-scope
+      item, measured files, declared signals.
+- [ ] `navori plan classify <feature>` ran and the level/score/breakdown went to the user in ≤ 4
+      lines; a level ≥ 2 result switched to `plan-advanced`.
+- [ ] `navori plan render` and `navori plan check` both green; the user approved the rendered `.md`.
+- [ ] Every implementer encargo opened with `workplan: <feature>` and its `A<n>` list.
+- [ ] Each closed sub-task recorded with `navori plan update`.
+- [ ] A file outside the approved scope was either recorded as a decision with the user's
+      go-ahead, or never dispatched.
+
+If any item fails, fix it and re-run the whole list.
+<!-- /navori:managed id="plan-simple" -->
+
+## This repo's level-1 workplans
+
+<!-- user: add here what's specific to your repo — where the `A<n>` commands
+     typically live (test runner, lint target), and any local convention for
+     naming out-of-scope items. -->
+
+
 ===== FILE: .claude/skills/quality-attributes/SKILL.md =====
 ---
 name: quality-attributes
@@ -12728,7 +12843,7 @@ Agents and skills chained by objective gates: what one phase pays for in tokens 
 |---|---|---|
 | 1 · Triage | you: `mem_search`, `cat progress/current.md`, `git status/log` | Trivial → skip the deeper phases; it still goes through `implementer`. If `progress/current.md` is not idle with ANOTHER ticket, ask; never two in parallel. |
 | 2 · AUDIT | `auditor` (ticket encargo) — ONE, or one per area, only when the orchestration table's disparadores fire | `audit_ticket_<ID>.md`: **verdict** (proceed / proceed-differently / split / doesn't apply / blocked), verified problem + size, assessment of the ticket's proposed fix. **Gate: only `proceed` and `proceed-differently` wait for the user's approval.** Any other verdict opens no work → it closes the cycle here, unattended, with its evidence. No trigger fires → straight to 4, the ticket's own text is the audit. |
-| 3 · Design | `solution-design` skill + ONE fresh-context `auditor` challenge | Only on an architectural signal (orchestration table) or a `proceed-differently` verdict. Produces `solution_<scope>.md` + `solution_review_<scope>.md`. **Gate: your verdict READY / CONCERNS / BLOCKED** — `CONCERNS` records the risk and moves on, only `BLOCKED` stops. No signal → straight to 4. |
+| 3 · Design | `solution-design` skill + ONE fresh-context `auditor` challenge | Only on an architectural signal (orchestration table), a `proceed-differently` verdict. Produces `solution_<scope>.md` + `solution_review_<scope>.md`. **Gate: your verdict READY / CONCERNS / BLOCKED** — `CONCERNS` records the risk and moves on, only `BLOCKED` stops. No signal → straight to 4. |
 | 4 · Implementation | ONE `implementer` agent, `verify-before-done` inside it | Reads `audit_ticket_<ID>.md` (if 2 ran) → `solution_<scope>.md` (if 3 ran) → applicable skill. Produces `impl_<feature>.md` with fresh verification evidence at exit 0. **Gate: `pnpm lint` green in the turn.** No evidence → back here. |
 | 5 · Review | `reviewer` agent + `review-diff` skill | `review_<feature>.md`. Two-pass; Pass 1 fails → `CHANGES_REQUESTED`, back to 4. `APPROVED` → continue. |
 | 6 · Publish | `publisher` agent | PR created and its URL to the user; a tracker comment only when the user asks for one — not a default step of the cycle. Then close the session per the closeout block. |
@@ -13230,21 +13345,23 @@ level 2 the user picks among the surviving options before that verdict.
 ## The three failures this exists to prevent
 
 1. **Inheriting the proposed solution.** A ticket naming a library, pattern or
-   refactor already decided for you. Its diagnosis can be right and its remedy
+   refactor already decided for you. Its diagnosis can be right, its remedy
    wrong. If step 0 is "install what the ticket named", you skipped the design.
-2. **Listing costs without weighing them.** Naming three drawbacks and proceeding
-   anyway isn't analysis — a cost only counts against a concrete alternative.
+2. **Listing costs without weighing them.** Naming drawbacks and proceeding anyway
+   isn't analysis — a cost only counts against a concrete alternative.
 3. **Filing scope-breaking findings as notes.** Discovering that part of the
    request is dead code, already fixed, or unsolved by what was proposed is a
-   **verdict about scope**, not an open question at the bottom.
+   **verdict about scope**, not an open question.
 
 ## Process
 
 1. **What already exists — first, with evidence.** Before proposing anything, find
    what in the repo already solves this fully or partially: `file:line`, the
    existing pattern, the layer that owns it today. Ask what the smallest change to
-   THAT is. Prefer, unless documented evidence says otherwise:
-   `existing pattern > small extension > new abstraction > new subsystem`.
+   THAT is. Before any option, derive the decision drivers from the project's own
+   rules; the ladder `existing pattern > small extension > new abstraction > new
+   subsystem` is one driver, not the default winner. Verify every 'already exists'
+   claim against `origin/main`.
 2. **State the real problem** — the behavior that changes and who consumes it, not
    the symptom the ticket describes.
 3. **Approaches, only if ≥2 are genuine.** Never invent a straw alternative when
@@ -13290,14 +13407,13 @@ A `BLOCKED` must state four things: the blocking fact · why you cannot proceed
 without guessing · who resolves it · the minimum information needed. **If you
 cannot state all four, it is a CONCERN, not a blocker.**
 
-**A product fork is not automatically a blocker.** Tickets arrive written fast and
-half of them are ambiguous; if every ambiguity stops the work, this layer becomes
-the bottleneck it exists to remove. When you find a real fork, ask two questions:
-is one option defensible on the evidence you have, and is it cheap to reverse? If
-both, it is `CONCERNS` — take that option, write the recommendation and the
-discarded one explicitly ("going with B; if you meant A, say so"), and let the
-work start. `BLOCKED` is for when NO option is defensible without the missing
-fact, or when picking wrong is expensive to undo.
+**A product fork is not automatically a blocker.** Tickets arrive ambiguous;
+blocking on every one turns this layer into the bottleneck it exists to remove.
+On a real fork, ask: is one option defensible on the evidence, and cheap to
+reverse? If both, it is `CONCERNS` — take that option, write the recommendation
+and the discarded one explicitly ("going with B; if you meant A, say so"), and
+let the work start. `BLOCKED` is for when no option is defensible without the
+missing fact, or wrong picks are expensive to undo.
 
 Never blockers: naming preference, a hypothetical future abstraction, a minor
 optimization, an optional edge case, stylistic architecture taste.
@@ -13375,7 +13491,7 @@ Produces `specs/<feature>/{requirements.md, design.md, tasks.md}` ready to imple
 ## Order
 
 1. **requirements.md first.** No clear requirements, no design. Derive from the ticket/request; each requirement is EARS with id `R<n>`.
-2. **design.md** — how to meet those `R<n>`: affected components, contracts, decisions and trade-offs. Reference the `R<n>` each decision satisfies. Design BEFORE decomposing: an architecture decision (e.g. a contract or a migration path) moves task boundaries, so tasks written first get rewritten.
+2. **design.md** — how to meet those `R<n>`: affected components, contracts, decisions and trade-offs. Reference the `R<n>` each decision satisfies. Design BEFORE decomposing: an architecture decision (e.g. a contract or a migration path) moves task boundaries, so tasks written first get rewritten. The `architect` writes `design.md`, applying `solution-design`.
 3. **tasks.md** — batches of 1-3 tasks; each task lists the `R<n>` it covers and its test(s).
 4. **`evals.md` — optional, rare.** Only when the feature ships a new **always-on layer** (context every session pays for), where prose can't prove behavior moved: `specs/<feature>/evals.md` tabulates RED (without the layer) / GREEN (with it) over ONE isolated variable — same ticket, same repo, same model — with named scenarios, each failure against its evidence, and inverted results kept exactly as they came out. The raw transcript dies with the session; the distilled table survives in git.
 
@@ -13866,6 +13982,8 @@ Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/S
 - `follow-up-prs` — navori (workflow)
 - `quality-attributes` — navori (workflow)
 - `author-skill` — navori (workflow)
+- `plan-simple` — navori (workflow)
+- `plan-advanced` — navori (workflow)
 - `zod-validation` — library (detected)
 - `vitest` — library (detected)
 <!-- /navori:managed id="skills-index" -->
@@ -13909,4 +14027,4 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 -->
 
 
-===== END: 49 files =====
+===== END: 51 files =====

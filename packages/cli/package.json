@@ -23,7 +23,7 @@
     "plugins": 7,
     "presets": 12,
     "coreAgents": 8,
-    "coreSkills": 14,
+    "coreSkills": 16,
     "librarySkills": 36
   },
   "license": "MIT",

@@ -43,7 +43,7 @@ describe("roster-parity", () => {
 
   // Covers: R29
   it("core skills are exactly the catalog", () => {
-    // R29 names ONE flat list of 10 ids — it doesn't distinguish core vs.
+    // R29 names ONE flat list of ids — it doesn't distinguish core vs.
     // workflow, that split is an internal marker-shape detail (`<id>-base` vs.
     // bare id, see roster.ts's `Retired` JSDoc). The union of the two roster
     // lists must equal it exactly.
@@ -64,6 +64,9 @@ describe("roster-parity", () => {
         "quality-attributes",
         "author-skill",
         "scoped-gate",
+        // Spec 0032 (#1011): level-1/level-2 workplan procedures.
+        "plan-simple",
+        "plan-advanced",
       ],
       [...ROSTER_CORE_SKILLS, ...ROSTER_WORKFLOW_SKILLS],
     );
