@@ -44,6 +44,21 @@ describe("i18n", () => {
     }
   });
 
+  it("interpolationArtifactUnresolvedRow distinguishes a derived token from a declarable config field (#1055)", () => {
+    for (const lang of SUPPORTED_LANGS) {
+      const dict = tc(lang).doctor;
+      const derived = dict.interpolationArtifactUnresolvedRow("jscpdThreshold");
+      const declarable = dict.interpolationArtifactUnresolvedRow("branchBase");
+      // jscpdThreshold is derived at render time — there's no schema field to
+      // "declare", so the advice must not tell the user to add one, and must
+      // differ from the generic "declare that field" message.
+      expect(derived).toContain("render");
+      expect(derived).not.toBe(declarable.replace("branchBase", "jscpdThreshold"));
+      // An arbitrary unresolved token still gets the original advice.
+      expect(declarable).toContain("navori.config.json");
+    }
+  });
+
   it("es strings actually differ from en (sanity: no leftover English)", () => {
     const es = t("es");
     const en = t("en");
