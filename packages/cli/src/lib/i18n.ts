@@ -153,6 +153,7 @@ interface Strings {
   wsLinkConfigSet: (name: string) => string;
   wsLinkConfigMismatch: (configWs: string, name: string) => string;
   workspaceNotFoundInit: (name: string) => string;
+  workspaceAmbiguous: (names: string[]) => string;
 
   // Note titles
   workspaceDefaultsTitle: (name: string) => string;
@@ -327,6 +328,9 @@ const ES: Strings = {
     `El workspace '${name}' no existe en esta máquina. Créalo con 'navori workspace init ${name}', ` +
     `o corre el init sin --workspace y después 'navori workspace link ${name}' para crearlo y ` +
     `registrar este repo.`,
+  workspaceAmbiguous: (names) =>
+    `Este repo ya está registrado en más de un workspace (${names.join(", ")}) — no puedo elegir ` +
+    `por ti. Pasa uno explícito con --workspace <name>.`,
 
   workspaceDefaultsTitle: (name) => `Defaults del workspace · ${name}`,
   detectedTitle: "Detectado en este repo",
@@ -499,6 +503,9 @@ const EN: Strings = {
     `Workspace '${name}' does not exist on this machine. Create it with 'navori workspace init ${name}', ` +
     `or run init without --workspace and then 'navori workspace link ${name}' to create it and ` +
     `register this repo.`,
+  workspaceAmbiguous: (names) =>
+    `This repo is already registered in more than one workspace (${names.join(", ")}) — can't pick ` +
+    `one for you. Pass one explicitly with --workspace <name>.`,
 
   workspaceDefaultsTitle: (name) => `Workspace defaults · ${name}`,
   detectedTitle: "Detected from this repo",

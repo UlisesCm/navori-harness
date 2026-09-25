@@ -278,6 +278,40 @@ export function linkRepoToWorkspace(
 }
 
 /**
+ * Reverse lookup: which workspace(s) already register `path` as one of their
+ * repos? Used by `init` to infer `--workspace` when it isn't passed
+ * explicitly (#1054). Compares via `canonicalPath` on both sides so symlinks
+ * and trailing slashes never cause a false miss/duplicate. Returns every
+ * matching workspace name (sorted, from `listWorkspaces()`'s order) — 0 means
+ * no match, 1 means an unambiguous inference, 2+ means the caller must ask
+ * instead of guessing.
+ *
+ * A corrupted/schema-invalid `workspace.json` belonging to some OTHER
+ * workspace must never crash this scan — `init` calls this unconditionally on
+ * every run without `--workspace`, so a stale manifest unrelated to the
+ * current repo would otherwise take down `init` everywhere (review #1054).
+ * Mirrors the per-entry resilience `workspace ls` already uses
+ * (`commands/workspace.ts`): catch `WorkspaceError` and skip that entry;
+ * anything else re-throws.
+ */
+export function findWorkspacesForPath(path: string): string[] {
+  const target = canonicalPath(path);
+  const matches: string[] = [];
+  for (const name of listWorkspaces()) {
+    let ws: WorkspaceConfig | null;
+    try {
+      ws = loadWorkspace(name);
+    } catch (err) {
+      if (err instanceof WorkspaceError) continue;
+      throw err;
+    }
+    if (!ws) continue;
+    if (ws.repos.some((r) => canonicalPath(r.path) === target)) matches.push(name);
+  }
+  return matches;
+}
+
+/**
  * Resolve a path from inside a workspace, e.g. "workspace://bonum/tickets/X.md".
  * Returns null if it cannot be resolved (workspace missing, bad scheme, etc.).
  */

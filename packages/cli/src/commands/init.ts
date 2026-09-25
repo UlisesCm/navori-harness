@@ -18,7 +18,12 @@ import {
   removeOriginals,
   type MigrationResult,
 } from "../lib/diagnose/migrate.ts";
-import { loadWorkspace, type WorkspaceConfig, WorkspaceError } from "../lib/workspace/workspace.ts";
+import {
+  loadWorkspace,
+  findWorkspacesForPath,
+  type WorkspaceConfig,
+  WorkspaceError,
+} from "../lib/workspace/workspace.ts";
 import { registerRepoSafe } from "../lib/workspace/registry.ts";
 import { renderInline } from "./render.ts";
 import {
@@ -278,6 +283,10 @@ export const initCommand = defineCommand({
 
     // Load workspace defaults (cascade: detection → workspace defaults → user overrides)
     let workspaceConfig: WorkspaceConfig | null = null;
+    // #1054 — set only when the workspace was inferred (not passed via
+    // --workspace), so the --yes write and the interactive prefill can tell
+    // "explicit" and "inferred" apart while still sharing the same cascade.
+    let inferredWorkspaceName: string | undefined;
     if (args.workspace) {
       try {
         workspaceConfig = loadWorkspace(args.workspace);
@@ -296,9 +305,32 @@ export const initCommand = defineCommand({
         formatWorkspaceSummary(workspaceConfig, lang),
         tr.workspaceDefaultsTitle(workspaceConfig.name),
       );
+    } else {
+      const matches = findWorkspacesForPath(cwd);
+      if (matches.length === 1) {
+        const [name] = matches;
+        try {
+          workspaceConfig = name ? loadWorkspace(name) : null;
+        } catch (err) {
+          if (err instanceof WorkspaceError) {
+            p.cancel(err.message);
+            process.exit(1);
+          }
+          throw err;
+        }
+        if (workspaceConfig && name) {
+          inferredWorkspaceName = name;
+          p.note(
+            formatWorkspaceSummary(workspaceConfig, lang),
+            tr.workspaceDefaultsTitle(workspaceConfig.name),
+          );
+        }
+      } else if (matches.length > 1) {
+        p.log.warn(tr.workspaceAmbiguous(matches));
+      }
     }
 
-    p.note(formatDetectionSummary(detected, lang), tr.detectedTitle);
+    p.note(formatDetectionSummary(detected, lang, inferredWorkspaceName), tr.detectedTitle);
 
     // Recognized stack without a preset on disk: name the gap honestly instead
     // of letting the baseline render look like the intended outcome. Fires in
@@ -397,7 +429,11 @@ export const initCommand = defineCommand({
 
       writeConfig(configPath, {
         name: detected.name,
-        ...(args.workspace ? { workspace: args.workspace } : {}),
+        ...(args.workspace
+          ? { workspace: args.workspace }
+          : inferredWorkspaceName
+            ? { workspace: inferredWorkspaceName }
+            : {}),
         engines: defaultEngines,
         preset: detected.suggestedPreset,
         language: defaultLanguage,
@@ -467,7 +503,8 @@ export const initCommand = defineCommand({
     let name = detected.name;
     let engines = defaultEngines;
     let branchBase = defaultBranchBase;
-    let workspace: string | undefined = args.workspace as string | undefined;
+    let workspace: string | undefined =
+      (args.workspace as string | undefined) ?? inferredWorkspaceName;
     let preset = detected.suggestedPreset;
     let qualityGate = detected.qualityGate;
     let language: "es" | "en" = defaultLanguage;
@@ -484,7 +521,12 @@ export const initCommand = defineCommand({
             value: "language",
             label: `${tr.labelLanguage} (${defaultLanguage} — ${tr.defaultParen})`,
           },
-          { value: "workspace", label: tr.labelWorkspace },
+          {
+            value: "workspace",
+            label: inferredWorkspaceName
+              ? `${tr.labelWorkspace} (${inferredWorkspaceName})`
+              : tr.labelWorkspace,
+          },
           { value: "engines", label: `${tr.labelEngines} (${defaultEngines.join(", ")})` },
           { value: "preset", label: `${tr.labelPreset} (${preset})` },
           { value: "branchBase", label: `${tr.labelBranchBase} (${defaultBranchBase})` },
@@ -531,11 +573,15 @@ export const initCommand = defineCommand({
       if (adjustments.includes("workspace")) {
         const value = await p.text({
           message: tr.workspaceOptional,
-          placeholder: tr.leaveEmpty,
+          placeholder: inferredWorkspaceName ?? tr.leaveEmpty,
+          defaultValue: inferredWorkspaceName ?? "",
         });
         if (p.isCancel(value)) return cancel(lang);
         const trimmed = (value as string).trim();
-        if (trimmed) workspace = trimmed;
+        // Clearing the prefilled field is how the user opts out of an
+        // inferred workspace — leave `workspace` unset rather than sticking
+        // with the earlier default.
+        workspace = trimmed || undefined;
       }
 
       if (adjustments.includes("engines")) {

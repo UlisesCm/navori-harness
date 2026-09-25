@@ -32,7 +32,17 @@ export function formatInfraSummary(infra: ClaudeInfraInventory, lang: Lang = "es
   return kv(rows);
 }
 
-export function formatDetectionSummary(d: DetectedProject, lang: Lang = "es"): string {
+/**
+ * Renders the "Detected from this repo" summary. `inferredWorkspace` is a
+ * name only, computed in init.ts by `findWorkspacesForPath` (#1054) —
+ * `DetectedProject` stays workspace-agnostic (it never reads ~/.navori), so
+ * this is an optional extra row rather than a new `DetectedProject` field.
+ */
+export function formatDetectionSummary(
+  d: DetectedProject,
+  lang: Lang = "es",
+  inferredWorkspace?: string,
+): string {
   const tr = t(lang);
   const rows: Array<[string, string]> = [];
   // `DetectedProject` types each value and its `sources` entry independently,
@@ -41,6 +51,9 @@ export function formatDetectionSummary(d: DetectedProject, lang: Lang = "es"): s
   // here, drop the provenance suffix when the source is missing: the value
   // still prints, just without "(from X)".
   const from = (source: string | null): string => (source ? `  ${grey(tr.from(source))}` : "");
+  if (inferredWorkspace) {
+    rows.push(["workspace", `${inferredWorkspace}${from("workspace")}`]);
+  }
   rows.push([
     "name",
     d.name ? `${color.cyan(d.name)}${from(d.sources.name)}` : grey(tr.notDetectedAsk),
