@@ -1,4 +1,4 @@
-# navori:managed start id="subagent-no-background-base" hash="e5fa6ecd" version="0.10.0" source="@navori/core"
+# navori:managed start id="subagent-no-background-base" hash="e5fa6ecd" version="0.10.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash|Monitor) guard — the mechanical half of the "no backgrounding

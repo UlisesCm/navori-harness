@@ -1,4 +1,4 @@
-# navori:managed start id="plan-gate-base" hash="06ba896f" version="0.10.0" source="@navori/core"
+# navori:managed start id="plan-gate-base" hash="06ba896f" version="0.10.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Agent) gate — spec 0032 (#1011), R16/R17/R19: while
