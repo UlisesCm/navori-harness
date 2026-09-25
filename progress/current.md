@@ -1,47 +1,62 @@
 idle
 
-Siguiente paso: tras mergear #1044, segundo plan en `navori-boilerplate` — borrar el harness viejo, adoptar navori (`init --scan-monorepo`) y crear el preset local con el bloque de stack + skills propias (tokens/tema + `check:ui`, contrato `@navori/backend`).
+Siguiente paso: `npm publish` de **navori 0.10.1** desde `packages/cli` (lo corre Ulises; el release
+#1049 ya está en `main` y el tag `v0.10.1` existe). Tras publicar, `check:assets` deja de avisar que
+`navori handoff` falta en la versión publicada.
 
-Último ciclo (2026-09-23): cerró el **plan de proveedores externos** completo (fases 0-3) y la segunda
-tanda de issues de la auditoría de search v2. Plan original (fuera del repo):
-`/Users/ulisescm/.claude/plans/por-ahora-solo-el-lovely-badger.md`. Reportes en `.claude/progress/`
-(gitignored): `audit_ticket_plan-*.md`, `impl_*.md`, `review_*.md`.
+Después: segundo plan en `navori-boilerplate` — borrar el harness viejo, adoptar navori
+(`init --scan-monorepo`) y crear el preset local con el bloque de stack + skills propias
+(tokens/tema + `check:ui`, contrato `@navori/backend`).
 
-## Plan de proveedores externos — cerrado
+Último ciclo (2026-09-24): release **0.10.1**. Reportes en `.claude/progress/` (gitignored) y en los
+worktrees de cada agente: `workplan_*.json`, `impl_*.json`, `review_*.md`, `audit_ticket_*.md`,
+`solution_1027.md`, `challenge_1027.md`.
 
-| Fase | Issues → PR |
+## Release 0.10.1 — cerrado
+
+| Issue | PR |
 |---|---|
-| 0 que deje de mentir | #943→#950, #944→#952, #977→#979 (`.mcp.json` coherente; `--strict` falla solo por eso) |
-| 1 `add` deja el plugin funcionando | #958, #962, #966, #967→#969, #965→#973, #974→#976 (`add` renderiza inline) |
-| 2 descubrimiento | #980→#983 (docs), #981→#988 (`add --suggest`/`doctor` sugieren proveedores), #982→#995 (recipe de setup) |
-| 3 `--recommended` vs `--full` | #989→#996 (eje escrito + e2e de los 5 diferenciales) |
+| #1025 bug 2 (invariante de semgrep) | #1032 (el Bug 1 lo resolvió #1029) |
+| #1023 init avisa binarios faltantes en todo modo | #1033 |
+| #1027 regla 6: sin excepción fuera del proyecto, solo mensaje accionable | #1036 |
+| #1037 `plan update` con `--progress` repetido | #1040 |
+| #1035 regla 6 case-insensitive (APFS) | #1041 |
+| #1018 el reporte de stop es la última acción del publisher | #1042 |
+| #1034 regla 6 bloquea rutas absolutas dentro del proyecto | #1043 |
+| #1028 cuerpo del PR solo con evidencia trazable | #1045 |
+| #1024 + #1039 estado efímero fuera de `git status` | #1047 |
+| docs y landing | #1048 |
+| release | #1049 |
 
-Decisiones de Ulises que no se re-litigan: D04 (`--recommended` no habilita tgrep/codegraph);
-un binario ausente nunca gatea `--strict` (hecho por máquina); sugerencias sin mecanismo de silencio
-en el primer corte; recipe solo en `docs/recipes/`, puntero por i18n (no campo de manifest).
+Decisiones de Ulises que no se re-litigan: #1027 sin excepción en la regla 6 (TOCTOU); `maxWords`
+de `publisher.md` no se sube (quedó en 3786/3800); `.claude/.gitignore` versionado y escrito en
+cualquier modo de `gitignoreHarness`; `.codex/.gitignore` solo con `progress/`; las entradas legacy
+`.managed-drift-stamp`/`.routing-watch/` se quedan en `EPHEMERAL_HARNESS_PATHS`.
 
 ## Abiertos
 
-- **#978** — versión del binario contra un pin en el manifest (diferido de 0.3; necesita campo nuevo).
-- **Flakes de la suite completa bajo carga** (sin issue): tres corridas locales fallaron con
-  AssertionError en archivos fuera del diff (`cli.e2e` doctor `--json` ok=false, `global-render`,
-  `audit` ×7); pasan aislados y en CI. No son timeouts: apunta a estado compartido entre suites
-  (HOME / `~/.navori`) bajo concurrencia. Vale auditoría + issue.
-- **#894** — fase 1 hecha (#986); el resto (`primitives/`) dependía de #970, ya cerrado (#975).
-- **#947** — D19, bloqueado por decisión hasta ~2026-09-30.
-- **#985, #993** — del ciclo paralelo (Spec 0031, admisión de agentes).
-- `postInstall` sin TTY (#969) sigue saliendo 0 en el escenario CI que #965 quería marcar —
-  tensión consciente, documentada en #973.
+- **#1025** — cerrar tras confirmar con `doctor` que #1029 resolvió todo el Bug 1.
+- **#1046** — unificar el estado efímero en un directorio neutral de engine (nivel 2, 0.11).
+- **Check mecánico del cuerpo del PR** (opción 3 de #1028) — sin issue; el publisher siguió
+  inventando datos incluso con la regla nueva. Propuesto, pendiente de decisión.
+- **Limitación de #1034**: `"$CLAUDE_PROJECT_DIR/"CLAUDE.md` (comilla cerrada tras la barra) no se
+  detecta; el reviewer sugiere quitar comillas antes de comparar. Sin issue.
+- **#1031, #1019, #1022** — internos del repo; fuera de 0.10.1.
+- **#978, #894, #947 (bloqueado ~2026-09-30), #985, #993** — del ciclo anterior.
+- **Flakes de la suite completa bajo carga** (sin issue): `render-provenance.test.ts` hizo timeout
+  una vez a 15 s; aislado pasa en 2 s.
 
 ## Gotchas operativos (siguen vigentes)
 
 - **Sincronizar en cada tick**: `main` avanza varias veces por hora (hay otra sesión en paralelo).
-  `receipt sign` se niega si la rama quedó detrás; tras rebasar sobre un commit que toca infra de
-  tests o mueve `lib/`, re-correr tests y revisar `vi.mock`.
-- **Escritores en paralelo → `isolation: "worktree"`**, rama cortada de `origin/main` (no de la base
-  del worktree). Tope: 2 implementers.
-- **Tests sensibles a CI**: picocolors emite ANSI con `CI=true` → `stripVTControlCharacters`; nada
-  de asserts que dependan de qué binarios tiene la máquina.
-- **Conflicto en un marcador managed** (`AGENTS.md`, hash): tomar cualquier lado y regenerar con
-  `bun run render:apply`, nunca a mano.
+  `receipt sign` y el reviewer se niegan si la rama quedó detrás: tras cada merge, rebasar las ramas
+  en vuelo antes de pedir review o firma.
+- **Escritores en paralelo → `isolation: "worktree"`**, rama cortada de `origin/main`. Tope: 2
+  implementers. No tocar el checkout principal si otra sesión tiene cambios ahí.
+- **Upgrade, no solo onboarding fresco**: un cambio a listas que generan bloques managed o
+  `.gitignore` se prueba desde la versión publicada (`npx navori@<última>` + CLI de la rama).
+- **Tests que dependen de binarios instalados**: correr también con el binario fuera del PATH.
+- **Cuerpo del PR**: revisarlo siempre antes de mergear, o pasarle al publisher un body-file ya
+  verificado para que lo publique tal cual.
+- **Conflicto en un marcador managed**: tomar cualquier lado y regenerar con `bun run render:apply`.
 - **Sin atribución de IA** en commits, PRs ni código (#990/#991).
