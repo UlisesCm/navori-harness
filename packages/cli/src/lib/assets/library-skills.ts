@@ -128,7 +128,9 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
   { id: "apollo-client", deps: ["@apollo/client"], label: "Apollo Client" },
   { id: "zustand", deps: ["zustand"], label: "Zustand" },
   { id: "tamagui", deps: ["tamagui", "@tamagui/core"], label: "Tamagui" },
-  { id: "nativewind", deps: ["nativewind"], label: "NativeWind" },
+  // Uniwind — not NativeWind (retired below): Tailwind-4 bindings for RN, own
+  // babel preset and CSS entry file, wraps components that don't forward `className`.
+  { id: "uniwind", deps: ["uniwind"], label: "Uniwind" },
   // React Native Reusables copies its components into the repo (shadcn model),
   // so there is no `react-native-reusables` package to detect. Its runtime
   // primitives are: `portal` is in the manual install, `slot` in `Text`, which
@@ -143,8 +145,31 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
     deps: ["@react-navigation/native"],
     label: "React Navigation",
   },
+  { id: "expo-router", deps: ["expo-router"], label: "expo-router" },
+  // EAS ships no npm package that marks an app as using it — the only trace is
+  // `eas.json` itself. The bare `expo` dep is NOT a signal: most Expo apps
+  // ship it without ever running an EAS build.
+  { id: "eas-release", deps: [], label: "EAS Build/Submit/Update", paths: ["eas.json"] },
   { id: "i18next", deps: ["i18next", "react-i18next"], label: "i18next" },
   { id: "bullmq", deps: ["bullmq"], label: "BullMQ jobs & queues" },
+  { id: "hono", deps: ["hono"], label: "Hono" },
+  { id: "better-auth", deps: ["better-auth"], label: "Better Auth" },
+  {
+    id: "react-email",
+    deps: ["@react-email/components", "resend"],
+    label: "React Email + Resend",
+  },
+  {
+    id: "tanstack-router",
+    deps: ["@tanstack/react-router"],
+    label: "TanStack Router",
+  },
+  {
+    id: "shadcn-base-ui",
+    deps: ["@base-ui/react", "shadcn"],
+    label: "shadcn/ui (Base UI)",
+  },
+  { id: "tailwind-v4", deps: ["tailwindcss"], label: "Tailwind CSS" },
   // No dependency marks "this is a dashboard", so this keys on data-table and
   // admin kits. Plain UI kits (@mantine/core) are too broad a signal and stay
   // out, and so does legacy antd. KNOWN GAP: a dashboard on a hand-rolled table
@@ -209,6 +234,11 @@ export const REMOVED_LIB_SKILLS: ReadonlyArray<string> = [
   // before the split carries `socketio` in `project.libraries`; `navori update`
   // re-detects the right side and this entry prunes the stale managed file.
   "socketio",
+  // Retired for the boilerplate's actual RN styling library, Uniwind — but NOT
+  // a successor: a different library (own babel preset, own config shape), not
+  // a rename. A repo still on NativeWind keeps working; it just stops earning
+  // guidance it isn't using.
+  "nativewind",
 ];
 
 /**

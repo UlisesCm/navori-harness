@@ -1,5 +1,7 @@
 idle
 
+Siguiente paso: tras mergear #1044, segundo plan en `navori-boilerplate` — borrar el harness viejo, adoptar navori (`init --scan-monorepo`) y crear el preset local con el bloque de stack + skills propias (tokens/tema + `check:ui`, contrato `@navori/backend`).
+
 Último ciclo (2026-09-23): cerró el **plan de proveedores externos** completo (fases 0-3) y la segunda
 tanda de issues de la auditoría de search v2. Plan original (fuera del repo):
 `/Users/ulisescm/.claude/plans/por-ahora-solo-el-lovely-badger.md`. Reportes en `.claude/progress/`
