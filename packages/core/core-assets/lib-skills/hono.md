@@ -7,9 +7,7 @@ metadata:
 
 # Hono — conventions
 
-## When to use this skill
-
-When touching the API app: adding a route, a middleware, validation, or wiring the typed client against it. Target version: Hono 4.13. On a different major, recheck the RPC-typing mechanics below before relying on them — they depend on TypeScript inference over the exact return type of the chain, which is the kind of thing a major bump can subtly change.
+Target version: Hono 4.13. On a different major, recheck the RPC-typing mechanics below — they depend on TypeScript inference over the exact return type of the chain, which a major bump can subtly change.
 
 ## The pattern
 
@@ -39,14 +37,6 @@ export type AppType = typeof app;
 - **`HTTPException` (from `hono/http-exception`) throws a typed HTTP error from deep in a handler/middleware** and surfaces with the right status through Hono's error handling — a plain `Error` loses the status code.
 - **Runtime adapters are not interchangeable.** Node: `@hono/node-server`'s `serve({ fetch: app.fetch, port })`. Workers: `export default { fetch(request, env) { return app.fetch(request, env) } }` — Workers has **no `process.env`**; config comes through `env`/`c.env`, validated (e.g. Zod) before the app is built.
 - **`hc<AppType>(baseURL)` from `hono/client`** gives a fully typed RPC client — only if `AppType` was exported from the chained app itself, not an intermediate variable.
-
-## Hard rules
-
-1. The app is built as one chained expression; no intermediate `app = app.x(...)` reassignment.
-2. Every route/middleware is typed against the shared `AppEnv`; no untyped `c.get`/`c.set`.
-3. Validated bodies are read with `c.req.valid(...)`, never `c.req.json()` alongside an active `zValidator`.
-4. `onError` never logs headers, tokens, or raw body content.
-5. Cloudflare-targeted code reads config from `env`/`c.env`, never `process.env`.
 
 ## Before declaring done
 

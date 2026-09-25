@@ -7,7 +7,7 @@ metadata:
 
 # EAS Build/Submit/Update
 
-Facts here follow this repo's own `eas.json` shape; EAS CLI flags move between minors, so confirm any command against `eas --help` / the EAS CLI's installed version before relying on it. Not every Expo project uses EAS — check `eas.json` exists before applying anything here.
+EAS CLI flags move between minors, so confirm any command against `eas --help` / the installed CLI version before relying on it. Not every Expo project uses EAS — check `eas.json` exists before applying anything here.
 
 ## `eas.json` shape
 
@@ -18,17 +18,17 @@ Facts here follow this repo's own `eas.json` shape; EAS CLI flags move between m
 ## Channels, branches, and runtime compatibility
 
 - A **channel** is what a built binary listens on for OTA updates; an **update** is published to a **branch**, and a channel maps to a branch (by default, same name). A build's `channel` decides which branch its installs pull from.
-- **runtimeVersion** is the real compatibility gate, not the channel name: an OTA update only reaches a binary whose `runtimeVersion` matches. Three policies — `appVersion` (from the app's version string), `nativeVersion` (from native version fields like `CFBundleVersion`/`versionCode`), `fingerprint` (a hash of the native project, with or without custom native code — a native-dependency change bumps it automatically, so a JS-only change stays compatible). No policy is the default; pick one explicitly.
+- **runtimeVersion** is the real compatibility gate, not the channel name: an OTA update only reaches a binary whose `runtimeVersion` matches. Three policies — `appVersion` (from the app's version string), `nativeVersion` (from native fields like `CFBundleVersion`/`versionCode`), `fingerprint` (a hash of the native project — a native-dependency change bumps it automatically, so a JS-only change stays compatible). No default; pick one explicitly.
 
 ## OTA update vs new native build
 
 - **Safe as an OTA update**: JS/TS changes, assets, most React Native code — anything that doesn't touch native modules, permissions, `app.json`/`app.config.ts` native fields, or the Expo SDK version.
-- **Needs a new native build**: a new/updated native module, a config plugin change, a permission, an SDK upgrade. Under `fingerprint` this is detected automatically; under `appVersion` or `nativeVersion` it's a manual call — get it wrong and the update either misses everyone (runtime mismatch) or crashes a binary that can't support it.
+- **Needs a new native build**: a new/updated native module, a config plugin change, a permission, an SDK upgrade. Under `fingerprint` this is automatic; under `appVersion`/`nativeVersion` it's a manual call — get it wrong and the update either misses everyone or crashes a binary that can't support it.
 
 ## Env vars, secrets, and source maps
 
-- Per-environment values are injected at build time via `eas.json`'s per-profile `env` block or EAS's environment-variable store, managed with `eas env:set`/`get`/`list`/`pull`/`push`/`delete`/`exec` — creating a variable goes through `env:set`, there is no `env:create`. Default environments: `development`, `preview`, `production`. Visibility per variable: plain text, sensitive, or secret (secret is never readable outside EAS's servers).
-- Source maps (e.g. Sentry) upload as a build/update step so stack traces resolve to real source — wire it into CI, not as a manual local step.
+- Per-environment values inject at build time via `eas.json`'s per-profile `env` block or EAS's environment-variable store, managed with `eas env:set`/`get`/`list`/`pull`/`push`/`delete`/`exec` — creating a variable goes through `env:set`, there is no `env:create`. Default environments: `development`, `preview`, `production`. Visibility: plain text, sensitive, or secret (secret never readable outside EAS's servers).
+- Source maps (e.g. Sentry) upload as a build/update step so stack traces resolve to real source — wire into CI, not a manual local step.
 
 ## Store submission basics
 

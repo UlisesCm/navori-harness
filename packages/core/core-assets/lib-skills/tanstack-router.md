@@ -7,9 +7,7 @@ metadata:
 
 # TanStack Router — conventions
 
-## When to use this skill
-
-When touching file-based routing: adding a route file, reading a param or search value, guarding a view, or navigating. Target version: TanStack Router 1.170 (React) with `@tanstack/router-plugin` (Vite). On a different major, check the changelog before applying — the `beforeLoad`/`loader` context shape has changed across majors. Not for React Router: that's a separate skill with a different API (loaders return redirects instead of throwing them, no generated route tree).
+Target version: TanStack Router 1.170 (React) with `@tanstack/router-plugin` (Vite). On a different major, check the changelog first — the `beforeLoad`/`loader` context shape has changed across majors. Not for React Router: separate skill, different API (loaders return redirects instead of throwing, no generated route tree).
 
 ## The pattern
 
@@ -49,14 +47,6 @@ function SessionDetailPage() {
 - **`Link to="/sessions/$id"` and `useNavigate()` are checked against the route tree at compile time.** A typo in `to` fails the build — the main payoff of file-based routing, but only if the route tree is up to date.
 - **`loader` + TanStack Query goes through router context, not a module-level `queryClient` import**: `createRouter({ routeTree, context: { queryClient } })`, then `loader: ({ context }) => context.queryClient.ensureQueryData(queryOptions)`. This dedupes with the component's `useQuery` for the same key. (Documented pattern from TanStack Router's "External Data Loading" guide — verify it fires as expected in your own routes.)
 - **Type registration is required for `Link`/`useNavigate` to type-check.** `main.tsx` needs `declare module '@tanstack/react-router' { interface Register { router: typeof router } }` after `createRouter({ routeTree })` — omit it and every route path degrades to a plain `string`.
-
-## Hard rules
-
-1. Never hand-edit `routeTree.gen.ts`; regenerate it by running dev/build.
-2. Auth/role guards live in `beforeLoad` and throw `redirect(...)`; they never return it or live in `loader`.
-3. Any route reading query params declares `validateSearch`; no manual `URLSearchParams` parsing in the component.
-4. Navigation via `<Link to="...">`/`useNavigate()`, never `window.location`.
-5. Route files stay thin: `component` points at a separate page component, not inline JSX with business logic.
 
 ## Before declaring done
 

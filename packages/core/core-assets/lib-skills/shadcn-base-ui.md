@@ -7,9 +7,7 @@ metadata:
 
 # shadcn/ui (Base UI flavor) — conventions
 
-## When to use this skill
-
-When adding a component with the shadcn CLI or editing one already copied into `src/components/ui/`. Target version: shadcn CLI 4.21 generating components on top of `@base-ui/react` 1.8. shadcn/ui ships in two flavors — Radix and Base UI — with different primitive APIs; **check `components.json` first**: `@base-ui/react` in dependencies/aliases means this skill applies, `@radix-ui/*` means the Radix flavor and these notes don't apply. On a different major of either package, recheck the API before applying — `render` vs `asChild` and the part names below are exactly the kind of thing that shifts across majors.
+Target version: shadcn CLI 4.21 generating components on top of `@base-ui/react` 1.8. shadcn/ui ships in two flavors — Radix and Base UI — with different primitive APIs; **check `components.json` first**: `@base-ui/react` in dependencies/aliases means this skill applies, `@radix-ui/*` means the Radix flavor and these notes don't apply. On a different major, recheck the API — `render` vs `asChild` and the part names below shift across majors.
 
 ## The pattern
 
@@ -44,14 +42,6 @@ function Button({ variant, size, className, ...props }: ButtonProps) {
 - **Open/closed state drives styling through data-attributes, not a boolean prop.** Base UI sets `data-open`/`data-closed`; the Tailwind convention is `data-open:animate-in data-closed:animate-out`, not `className={open ? 'a' : 'b'}`.
 - **`data-slot="..."` on every primitive wrapper is this codebase's own convention**, used as a styling hook (`group-data-[slot=...]`) and for tests — keep it when adding a new primitive.
 - **Never re-implement a modal/select/combobox with raw `div`s and manual `onKeyDown`.** Base UI primitives ship correct ARIA roles, focus trap, and keyboard nav out of the box; hand-rolling one silently drops that contract.
-
-## Hard rules
-
-1. Check `components.json` for `@base-ui/react` vs `@radix-ui/*` before writing or porting a component; the APIs are not interchangeable.
-2. Composition via `render`, never `asChild` — it doesn't exist on this flavor.
-3. Part props are typed via the primitive's own `*.Props` namespace, never hand-declared.
-4. `data-slot` is set on every new primitive wrapper.
-5. No raw-div reimplementation of a primitive that already exists in `components/ui/`.
 
 ## Before declaring done
 

@@ -19,11 +19,11 @@ Its failure mode is silence: a class Uniwind can't statically resolve at build t
 
 ## Tokens and dark mode
 
-Tokens are plain Tailwind 4 `@theme` custom properties. Uniwind's build-time extractor only recognizes per-theme overrides in one exact shape: a `:root` rule nested inside `@layer theme`, with the dark override nested as `&:where(.dark, .dark *) { ... }` — never a sibling top-level `.dark { ... }` rule, invisible to the extractor. Keep every themed token inside that single `@layer theme { :root { ...; &:where(.dark, .dark *) { ... } } }` block.
+Tokens are plain Tailwind 4 `@theme` custom properties. Uniwind's build-time extractor only recognizes one exact shape: a `:root` rule nested inside `@layer theme`, with the dark override nested as `&:where(.dark, .dark *) { ... }` — never a sibling top-level `.dark { ... }` rule, invisible to the extractor. Keep every themed token inside that single block.
 
 ## Gotchas that bite
 
-- **`className` does nothing on a third-party component.** Components that don't forward `className`/`style` as their own prop (e.g. `SafeAreaView`) need `withUniwind(Component)` (auto) or `withUniwind(Component, options)` (manual mapping for non-standard props), from `uniwind`'s root export.
+- **`className` does nothing on a third-party component.** Components that don't forward `className`/`style` (e.g. `SafeAreaView`) need `withUniwind(Component)` (auto) or `withUniwind(Component, options)` (manual mapping for non-standard props), from `uniwind`'s root export.
 - **Dark-mode override nested, never sibling** — the #1 cause of "dark mode looks light on mobile only."
 - **`Uniwind.setTheme('light' | 'dark' | 'system')`** switches theme imperatively; `useUniwind()` reads/reacts to it inside a component (e.g. syncing a navigation `ThemeProvider`).
 - **`useCSSVariable`/`useResolveClassNames`** resolve a token/classes to a style object for values consumed outside `className` (an SVG fill) — not a substitute for `className` on regular views.

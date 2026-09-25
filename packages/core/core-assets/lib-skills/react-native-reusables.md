@@ -1,6 +1,6 @@
 ---
 name: react-native-reusables
-description: Use when adding or editing UI components in an Expo app built on React Native Reusables (shadcn/ui for React Native) — the add/doctor CLI, the owned copies in components/ui, overlays and PortalHost, Text and Icon rules. Not for class/token styling (see nativewind).
+description: Use when adding or editing UI components in an Expo app built on React Native Reusables (shadcn/ui for React Native) — the add/doctor CLI, the owned copies in components/ui, overlays and PortalHost, Text and Icon rules. Not for class/token styling (see uniwind).
 metadata:
   type: reference
 ---

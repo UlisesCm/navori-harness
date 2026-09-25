@@ -7,7 +7,7 @@ metadata:
 
 # expo-router — file-based routing (Expo SDK 57)
 
-Written for expo-router ~57 on Expo SDK 57. Check `expo-router`'s version in `package.json` first; routing primitives are fairly stable across majors, but layout/typed-route APIs have moved before — verify against its changelog on a major bump.
+Written for expo-router ~57 on Expo SDK 57. Check the version in `package.json` first; layout/typed-route APIs have moved between majors before — verify against the changelog on a major bump.
 
 ## Wiring
 
@@ -20,22 +20,22 @@ Written for expo-router ~57 on Expo SDK 57. Check `expo-router`'s version in `pa
 - Every file under `app/` is a route; its path mirrors the file path (`app/settings/index.tsx` → `/settings`).
 - `_layout.tsx` wraps its directory (and nested layouts nest). Use it for a `Stack`/`Tabs` navigator, not for business logic.
 - A parenthesized segment (`app/(auth)/`) is a **group**: it organizes/nests layouts without adding a path segment.
-- Keep route files thin — read params, call a hook from `src/features/<feature>`, render. Business logic, data fetching, and validation live in `src/features`, not in `app/`.
+- Keep route files thin — read params, call a hook from `src/features/<feature>`, render. Logic, data fetching, validation live in `src/features`, not `app/`.
 
 ## Auth guards and redirects
 
 - `<Redirect href="..." />` renders nothing and navigates immediately — use it for an unconditional bounce (e.g. an unauthenticated root redirecting to `/(auth)/sign-in`).
-- `Stack.Protected` (also available on other layout navigators) conditionally mounts/unmounts a screen or group based on a `guard` boolean, without a full remount flash — prefer it over a `Redirect` inside every protected screen when the whole group shares one guard.
+- `Stack.Protected` (also on other layout navigators) conditionally mounts/unmounts a screen or group based on a `guard` boolean, without a remount flash — prefer it over a `Redirect` inside every protected screen when the whole group shares one guard.
 - Auth state itself is read from the app's own session hook (e.g. a Zustand store's `useSession()`), never re-derived inside a route file.
 
 ## Search params: local vs global
 
 - `useLocalSearchParams()` only updates while its route is focused — the default for reading a route's own params.
-- `useGlobalSearchParams()` updates on every navigation event, even for routes that aren't focused — use it sparingly (a screen that must react to a param change happening in a sibling route), since it re-renders more often.
+- `useGlobalSearchParams()` updates on every navigation event, even for routes that aren't focused — use it sparingly (a screen reacting to a param change in a sibling route), since it re-renders more often.
 
 ## Gotchas that bite
 
-- **A file in `app/` that isn't meant to be a route** (a shared component, a hook) still becomes routable unless it starts with `_` or lives outside `app/` — keep non-route files in `src/`.
+- **A non-route file in `app/`** (a shared component, a hook) still becomes routable unless it starts with `_` or lives outside `app/` — keep non-route files in `src/`.
 - **Typed routes require the generated types.** After adding/renaming a route, restart the dev server (`--clear` if it doesn't pick it up) so typed `href`s regenerate.
 - **Deep links need the scheme AND the route to exist** — a scheme without a matching `app/` path 404s at the router level even if the OS opens the app.
 
