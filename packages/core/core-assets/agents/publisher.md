@@ -44,7 +44,12 @@ git diff origin/{{prTarget}} --stat                   # REAL scope so far (two-d
 gh auth status                                        # gh authenticated
 ```
 
-Both are hard stops: a nonzero `behind` count blocks all downstream steps (the reviewer's signatures would become phantom deletions on a stale tree). The receipt must also report `"status":"ok"` before publishing.
+A nonzero `behind` count is a hard stop: do not construct a shipping diff,
+consume a receipt, commit, push, or create a PR. The reviewer would otherwise
+have signed target-only files as phantom deletions from this stale worktree.
+
+The later `receipt.txt` check is also a hard stop: it must report JSON
+`"status":"ok"` before this branch can publish.
 
 ### The shipping diff — the one set every count in this pre-flight comes from
 
@@ -57,34 +62,41 @@ shipping=$({ git -c core.quotepath=false diff --name-only "origin/{{prTarget}}";
 printf '%s\n' "$shipping"                             # read it: this is what ships
 ```
 
-- **`$shipping` does not survive the call.** Each Bash call starts a fresh shell, so re-run the assignment together with whatever reads it.
-- **Two dots + untracked files — NEVER `...HEAD`.** Three-dot lists only committed changes; your tree is uncommitted by design, so three-dot comes back empty and fails silently. Two-dot + `ls-files --others` matches what the reviewer signed.
-- **`progress/` dropped** — the same grep the receipt applies, so both sets line up 1:1. Deletions stay (recorded as `deleted`), so removed files can't ship unreviewed.
-- **`quotepath=false` on both** — matches the reviewer's signed paths exactly; git C-quotes non-ASCII by default, and a quoted path never matches the receipt.
+- **`$shipping` does not survive the call.** Each Bash call starts a fresh shell — no variable or function crosses over — so re-run the assignment in the same call as whatever reads it. That is a copy of four lines, not a second definition of the set.
+- **Two dots, plus the untracked files — NEVER `...HEAD`.** Three-dot lists only what is already *committed*, and your trigger is by construction an **uncommitted** tree: there is no clean-working-tree check in this pre-flight because the commit is yours to make, further down. Run against an uncommitted tree, a three-dot listing comes back EMPTY — the coverage check then finds nothing missing and the waiver's count reads zero, so both are granted on every diff. It fails silently, in the unsafe direction. Two-dot plus `ls-files --others` is the exact set the `reviewer` captured and signed.
+- **`progress/` is dropped**, the same grep the receipt applies, so the two sets line up 1:1 and a git-persisted session-state update never looks like an unreviewed file. Deletions DO stay in the set (the receipt records them as `deleted  <path>`), so a removed file can't ship unreviewed.
+- **`quotepath=false` on both listings**, exactly as the reviewer signed them: git C-quotes a non-ASCII path by default, and a quoted path never matches the receipt's line — the file would read as uncovered, or slip by unverified.
 
-If the harness is active, find `.claude/progress/review_<feature>.md` (the specific feature id from your brief; a glob `review_*.md` is invalid). Confirm its verdict is `APPROVED` and its scope names your feature. The verdict only counts if it covers the whole shipping diff: every touched file must appear in the reviewer's receipt (below). A missing, ambiguous, or mismatched review → abort and send to the reviewer for full coverage.
+If the harness is active, identify THIS feature's review: `.claude/progress/review_<feature>.md`, with `<feature>` the id you received in your brief. A broad glob (`review_*.md`) over all reviews is not valid — it's not enough that some review with `APPROVED` exists in the directory, it has to be this feature's.
+
+Open that specific file and confirm its verdict is `APPROVED` and that its scope/feature section names the same feature you're about to commit. The verdict only counts if the review **covers the whole shipping diff**: the reviewer's content receipt (below) is the authoritative list of the files it actually reviewed, so every file in the shipping diff above must appear there. A touched file the review never saw → the `APPROVED` doesn't cover the full change → it does NOT count as approved. Abort, don't create the PR, and send it back to the reviewer to cover the missing files. It's not enough to mention the difference and carry on. The coverage check is mechanical — see the receipt block.
 
 <!-- This file-coverage rule lives here only; the commit+PR flow has no second home to this agent (single owner of the PR flow). -->
 
-**Content receipt:** before committing, run the receipt command with the feature id. Continue only when JSON reports `"status":"ok"`. A missing `navori`, absent receipt, non-zero exit, malformed JSON, `ERROR`, `UNCOVERED`, or `DRIFT` blocks the commit and PR.
+
+An absent file, ambiguous (more than one candidate), or with a verdict/scope that doesn't match the current feature → does NOT count as approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
+
+**Content receipt: the diff must still match what was approved.** Before committing, run the receipt command with the feature id from `review_<feature>.md`. It owns coverage and drift detection; do not reproduce its algorithm in shell.
 
 ```bash
 navori receipt check --feature <feature> --target {{prTarget}} --dir .claude/progress --json
 ```
 
-For each `DRIFT`, the JSON provides the approved blob; inspect with `git diff <blob-sha> <file>`. Route drift from post-review edits to the reviewer for delta re-sign; unexplained drift or uncovered files go to full re-review. If the real PR base differs from `{{prTarget}}`, pass that base as `--target` to both commands.
+Continue only when the JSON has `"status":"ok"`. A missing `navori`, absent receipt, non-zero command, malformed JSON, `ERROR`, `UNCOVERED`, or `DRIFT` blocks the commit and PR.
+
+For every live-file `DRIFT`, the JSON provides the approved blob and the exact inspection command is `git diff <blob-sha> <file>` (`git cat-file -p <blob-sha>` prints its approved content). Route explained drift caused by a post-review edit to the reviewer for a **delta re-sign**; route unexplained drift or any uncovered file to a full re-review. If the real PR base differs from `{{prTarget}}`, pass that actual base as `--target` to both receipt commands.
 
 <!-- The orchestrator block states the rule (every change goes through implementer -> reviewer); this is where the PR side of it is enforced. -->
 
 **A review is required.** `## Role: orchestrator` routes every change to source through `implementer` → `reviewer`, with no inline route and no file-count threshold. So a diff that reaches you with no `review_<feature>.md`, or with one that is not `APPROVED` over this same content, is a deviation — **abort and send it to the `reviewer`**.
 
-**Exception: delegation genuinely impossible and DECLARED.** The orchestrator must name the reason (e.g., subagents forbidden, `Agent` tool unavailable). Then:
+**The one exception: delegation was genuinely impossible, and it was DECLARED.** The operator forbade subagents for the session, or the `Agent` tool was unavailable. The orchestrator must have said so explicitly, naming the reason. Then, and only then:
 
-- you do NOT abort for missing review;
-- you MUST run `{{qualityGate.full}}` green in pre-flight (see Gate below);
-- the PR body must state what was done inline and why. Undeclared inline changes are deviations, not shortcuts.
+- you do NOT abort for the missing review;
+- you MUST run `{{qualityGate.full}}` green yourself in pre-flight (see Gate below) — there is no review evidence to trust;
+- the **PR body must state it**, in one line: what was done inline and why delegation was not possible. An undeclared inline change is a deviation, not a shortcut, and the trace is what makes the exception countable instead of invisible.
 
-**No count, no judgement about diff content.** Prior file-count waivers were withdrawn; this rule has exactly two outcomes: APPROVED review, or declared impossibility.
+**No count, no judgement about the diff's content.** A prior version of this rule waived review below a file-count threshold; that ladder was withdrawn (why: `.claude/agents/orchestrator.md`) and has not returned. Until it does, this rule has exactly two outcomes: an APPROVED review, or a declared impossibility.
 
 ### Gate: `{{qualityGate.full}}` green before the PR
 
@@ -235,9 +247,9 @@ git show origin/{{prTarget}}:CLAUDE.md 2>/dev/null | wc -c   # before (0 if the 
 wc -c CLAUDE.md                                  # after
 ```
 
-- **It is a number, never a gate.** Nothing blocks on it; a non-deterministic check wired into the gate teaches everyone to ignore gates.
-- **Growth is not a veto.** State the delta AND what those bytes buy — payload removed, blocks retired, failure modes closed. Bytes up front to save multiples per session is a good trade. Delta without counterpart is half a measurement.
-- Silent when the diff leaves that file alone. "Δ 0" is noise.
+- **It is a number, never a gate.** Nothing blocks on it and no automatic limit judges it: a non-deterministic check wired into the gate only teaches everyone to ignore the gate. A ceiling, if the repo wants one, belongs in an explicit deterministic cap of its own — not in this line and not in the PR flow.
+- **Growth is not a veto.** State the delta AND its counterpart: what those bytes buy — payload they remove from every session, a duplicated block they retire, a failure mode they close. Bytes added up front to save a multiple of them per session is a good trade; the point is that the trade is on the record, not that the number stays small. A delta reported without its counterpart is half the measurement.
+- Silent when the diff leaves that file alone. A "Δ 0" bullet is noise, not rigor.
 
 ## Hard rules
 
