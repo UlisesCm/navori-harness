@@ -51,6 +51,7 @@ const es: Record<string, CommandDoc> = {
     notes: [
       "Si ya existe un .claude/ hecho a mano, init coexiste: solo agrega los bloques con marcadores managed.",
       "navori.config.json es la fuente de verdad. Commitealo al repo.",
+      "En cualquier modo (--yes, --recommended, --full o interactivo), init avisa si el binario de un plugin habilitado no está en el PATH y cómo instalarlo; nunca lo instala por ti.",
     ],
   },
   add: {
@@ -137,6 +138,7 @@ const es: Record<string, CommandDoc> = {
     notes: [
       "Preview por default: render no escribe sin --apply. Cero sorpresas en disco.",
       "Solo regenera el contenido entre marcadores managed. Lo que escribes fuera de ellos nunca se toca.",
+      "También escribe '.claude/.gitignore' (y '.codex/.gitignore' si codex está habilitado) con un bloque managed versionado que ignora el estado efímero del harness (progress/, worktrees/, settings.local.json) en cualquier modo de gitignoreHarness; no ignora nada que el engine necesite.",
     ],
   },
   sync: {
@@ -162,6 +164,7 @@ const es: Record<string, CommandDoc> = {
     notes: [
       "Si editaste un bloque managed a mano, sync lo detecta (hash drift) y NO lo pisa: lo resuelves tú.",
       "sync es el comando para upgrades de versión; render --apply es para regenerar.",
+      "Mantiene el '.claude/.gitignore' del harness (y '.codex/.gitignore' con codex habilitado) al día igual que cualquier otro bloque managed.",
     ],
   },
   doctor: {
@@ -254,7 +257,7 @@ const es: Record<string, CommandDoc> = {
       },
       {
         flag: "collect install",
-        desc: "Instala el LaunchAgent (macOS) que mantiene arriba 'navori audit --collect', el receptor de la tercera fuente de audit. Con KeepAlive y RunAtLoad: launchd lo revive si se cae y lo levanta al arrancar la máquina. navori escribe el plist; launchd lo ejecuta.",
+        desc: "Instala el LaunchAgent (macOS) que mantiene arriba 'navori audit --collect', el receptor de la tercera fuente de audit. Con KeepAlive y RunAtLoad: launchd lo revive si se cae y lo levanta al arrancar la máquina. navori escribe el plist; launchd lo ejecuta. Antes de reportar éxito confirma con reintentos acotados que el receptor responde de verdad, no solo que launchd registró el job.",
       },
       {
         flag: "collect uninstall",
@@ -777,7 +780,10 @@ const es: Record<string, CommandDoc> = {
         flag: "--critical-area / --money-credentials-pii / --multi-repo / --new-external-dependency / --shared-contract / --data-schema-migration / --bug-without-root-cause",
         desc: "Señales declaradas que classify no puede medir por sí solo.",
       },
-      { flag: "--progress <A1>=<estado>", desc: "Cambia el estado de un criterio (update)." },
+      {
+        flag: "--progress <A1>=<estado>",
+        desc: "Cambia el estado de un criterio (update); repetible (--progress A1=cumplido --progress A2=bloqueado) y se aplica todo o nada.",
+      },
       {
         flag: "--decision <texto> --date <fecha>",
         desc: "Agrega una decisión al workplan (update).",
@@ -877,6 +883,7 @@ const en: Record<string, CommandDoc> = {
     notes: [
       "If a hand-rolled .claude/ already exists, init coexists: it only adds blocks wrapped with managed markers.",
       "navori.config.json is the source of truth. Commit it to your repo.",
+      "In every mode (--yes, --recommended, --full or interactive), init warns when an enabled plugin's binary isn't on PATH and how to install it; it never installs it for you.",
     ],
   },
   add: {
@@ -966,6 +973,7 @@ const en: Record<string, CommandDoc> = {
     notes: [
       "Preview by default: render writes nothing without --apply. Zero surprises on disk.",
       "Only regenerates content between managed markers. Anything you write outside them is never touched.",
+      "Also writes '.claude/.gitignore' (and '.codex/.gitignore' when codex is enabled) with a versioned managed block that ignores the harness's ephemeral state (progress/, worktrees/, settings.local.json) under any gitignoreHarness mode; it never ignores anything the engine needs.",
     ],
   },
   sync: {
@@ -991,6 +999,7 @@ const en: Record<string, CommandDoc> = {
     notes: [
       "If you hand-edited a managed block, sync detects it (hash drift) and won't overwrite — you resolve it.",
       "sync is for version upgrades; render --apply is for regenerating.",
+      "Keeps the harness's '.claude/.gitignore' (and '.codex/.gitignore' with codex enabled) up to date, same as any other managed block.",
     ],
   },
   doctor: {
@@ -1083,7 +1092,7 @@ const en: Record<string, CommandDoc> = {
       },
       {
         flag: "collect install",
-        desc: "Installs the LaunchAgent (macOS) that keeps 'navori audit --collect' up — the receiver behind audit's third source. With KeepAlive and RunAtLoad: launchd revives it when it dies and starts it at login. navori writes the plist; launchd runs it.",
+        desc: "Installs the LaunchAgent (macOS) that keeps 'navori audit --collect' up — the receiver behind audit's third source. With KeepAlive and RunAtLoad: launchd revives it when it dies and starts it at login. navori writes the plist; launchd runs it. Before reporting success it confirms, with bounded retries, that the receiver actually answers — not just that launchd registered the job.",
       },
       {
         flag: "collect uninstall",
@@ -1607,7 +1616,10 @@ const en: Record<string, CommandDoc> = {
         flag: "--critical-area / --money-credentials-pii / --multi-repo / --new-external-dependency / --shared-contract / --data-schema-migration / --bug-without-root-cause",
         desc: "Declared signals classify cannot measure on its own.",
       },
-      { flag: "--progress <A1>=<status>", desc: "Changes a criterion's status (update)." },
+      {
+        flag: "--progress <A1>=<status>",
+        desc: "Changes a criterion's status (update); repeatable (--progress A1=cumplido --progress A2=bloqueado), applied all-or-nothing.",
+      },
       {
         flag: "--decision <text> --date <date>",
         desc: "Appends a decision to the workplan (update).",

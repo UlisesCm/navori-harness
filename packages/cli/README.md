@@ -36,12 +36,14 @@ npx navori init
 
 ```bash
 # Modo opinado: cero preguntas, harness completo sin instalar software externo
-# (engram siempre activo, +gh si el repo tiene remote de GitHub)
+# (engram siempre activo, +gh si el repo tiene remote de GitHub).
+# Avisa si falta el binario de algún plugin habilitado y cómo instalarlo.
 cd ~/tu-repo
 navori init --recommended
 
 # + proveedores externos (tgrep, codegraph, semgrep, jscpd, acli) + pre-commit hook +
-# scan-monorepo + project block estricto — requiere instalar los binarios de esos proveedores
+# scan-monorepo + project block estricto — requiere instalar los binarios de esos proveedores.
+# También avisa si falta algún binario y cómo instalarlo, sin instalarlo nunca.
 navori init --full
 
 # O wizard interactivo con detección de stack
@@ -174,6 +176,8 @@ El harness que genera `navori` trae permisos seguros desde el arranque, para que
 - **Lo destructivo pide confirmación** (`ask`): `rm -rf`, `git push --force`, `git reset --hard`, `git clean -f`, `chmod -R`, …
 - **Lo catastrófico se rechaza** (`deny`): `rm -rf /`, `sudo rm`, `mkfs`, …
 - Un hook `guard-destructive` actúa como backstop adicional.
+
+**Estado efímero fuera del árbol**: los dos hooks del harness (`managed-drift-watch.sh` y `routing-watch.sh`) escriben su estado en `<git-common-dir>/navori/` — fuera del árbol de trabajo, invisible a `git status`. Además, `render` y `sync` escriben un `.claude/.gitignore` versionado que ignora `progress/`, `worktrees/` y `settings.local.json`, impidiendo que esos paths aparezcan como untracked en `git status`. Si `codex` está habilitado, también genera `.codex/.gitignore` con solo entradas efímeras de ese directorio. Para repos actualizados, también ignora los archivos legacy `.claude/.managed-drift-stamp` y `.claude/.routing-watch/`. Nada que los engines necesiten se ignora.
 
 ## Workspace + tickets cross-repo
 
