@@ -840,6 +840,37 @@ const es: Record<string, CommandDoc> = {
       "Con `harness.scribeOwnsMarkdown: false` valida `impl_<feature>.md` en su lugar (existe, no está vacío, tiene una línea `Status:`), ligado al feature solo por el nombre del archivo.",
     ],
   },
+  master: {
+    id: "master",
+    title: "master",
+    summary:
+      "Plan maestro de proyecto: abre o completa la etapa activa y registra su modo (spec 0034).",
+    usage: "navori master <init [<slug>] | mode <template|en-curso>> [--cwd <path>]",
+    flags: [
+      {
+        flag: "<slug>",
+        desc: "Slug en kebab-case para la primera etapa (init); obligatorio solo cuando no hay ninguna etapa activa.",
+      },
+      {
+        flag: "<template|en-curso>",
+        desc: "Modo de la etapa (mode). Solo se puede fijar en fase 'context' y solo en la primera etapa — de la etapa 2 en adelante el modo queda registrado como 'en-curso' automáticamente.",
+      },
+      { flag: "--cwd <path>", desc: "Repo a operar; por defecto el directorio actual." },
+    ],
+    example: [
+      {
+        title: "Abrir la primera etapa",
+        code: "$ navori master init mvp\nEtapa 01-mvp · fase context\nSeñal: commits=3 primerCommit=2026-08-01 archivosCambiados=12 framework=next sugerido=template",
+      },
+      { title: "Registrar el modo tras revisar la señal", code: "navori master mode template" },
+    ],
+    notes: [
+      "init crea <sdd.specsDir>/_master/<NN>-<slug>/ con context/raw/ (con su propio .gitignore, fuera de git sin importar gitignoreHarness), context/md/ y plans/, enciende harness.masterPlan y aplica el render.",
+      "Con una etapa ya activa, init (con o sin slug) no crea otra: completa lo que le falte a la activa, reporta su etapa y fase, y sale con 1 si se pidió un slug.",
+      "Falla si sdd.enabled es false, nombrando la clave que hay que activar.",
+      "Esta página cubre solo los subcomandos del Lote A (init, mode); status, check, advance, part, template y close llegan con los lotes B y C de la spec 0034.",
+    ],
+  },
 };
 
 const en: Record<string, CommandDoc> = {
@@ -1679,6 +1710,40 @@ const en: Record<string, CommandDoc> = {
       "With `harness.scribeOwnsMarkdown: false` it validates `impl_<feature>.md` instead (exists, not empty, has a `Status:` line), tied to the feature only by the file name.",
     ],
   },
+  master: {
+    id: "master",
+    title: "master",
+    summary:
+      "Project master plan: opens or completes the active stage and registers its mode (spec 0034).",
+    usage: "navori master <init [<slug>] | mode <template|en-curso>> [--cwd <path>]",
+    flags: [
+      {
+        flag: "<slug>",
+        desc: "kebab-case slug for the first stage (init); required only when no stage is active.",
+      },
+      {
+        flag: "<template|en-curso>",
+        desc: "The stage's mode (mode). Can only be set in phase 'context' and only for the first stage — from stage 2 onward the mode is registered as 'en-curso' automatically.",
+      },
+      { flag: "--cwd <path>", desc: "Repo to operate on; defaults to the current directory." },
+    ],
+    example: [
+      {
+        title: "Open the first stage",
+        code: "$ navori master init mvp\nStage 01-mvp · phase context\nSignal: commits=3 firstCommit=2026-08-01 filesChanged=12 framework=next suggested=template",
+      },
+      {
+        title: "Register the mode after reviewing the signal",
+        code: "navori master mode template",
+      },
+    ],
+    notes: [
+      "init creates <sdd.specsDir>/_master/<NN>-<slug>/ with context/raw/ (its own .gitignore, out of git regardless of gitignoreHarness), context/md/ and plans/, turns on harness.masterPlan and applies the render.",
+      "With a stage already active, init (with or without a slug) does not create a second one: it completes whatever the active one is missing, reports its stage and phase, and exits 1 if a slug was passed.",
+      "Fails when sdd.enabled is false, naming the key to turn on.",
+      "This page covers only Lote A's subcommands (init, mode); status, check, advance, part, template and close ship with spec 0034's Lotes B and C.",
+    ],
+  },
 };
 
 export const commandDocs: Record<Lang, Record<string, CommandDoc>> = { es, en };
@@ -1708,4 +1773,5 @@ export const commandOrder = [
   "receipt",
   "plan",
   "handoff",
+  "master",
 ] as const;

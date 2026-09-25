@@ -19,7 +19,7 @@ Orden de los lotes:
 
 ## Lote A — Esquemas, etapas e `init`
 
-- [ ] **T1** (R6, R16, R48, R54, R59) — Esquemas y bandera.
+- [x] **T1** (R6, R16, R48, R54, R59) — Esquemas y bandera.
   - `lib/master/schema.ts`: `MasterIndexSchema`, `MasterStateSchema` y `PartsSchema` con
     `version: 1`, según "Contracts" de `design.md`. La fase `closed` reemplaza a `done`.
     `PartsSchema` valida ids `P<n>` únicos y consecutivos, `dependsOn` sin ciclos y solo hacia ids
@@ -33,7 +33,7 @@ Orden de los lotes:
     un ciclo en `dependsOn`, una parte `diferida` sin razón, un criterio sin método o con un
     detalle que no corresponde a su método, los cuatro estados de etapa y una versión
     desconocida. `lib/config/__tests__/schema.test.ts` fija el default `false`.
-- [ ] **T2** (R3, R5, R50, R52, R53, R54) — Registro de etapas.
+- [x] **T2** (R3, R5, R50, R52, R53, R54) — Registro de etapas.
   - `lib/master/stages.ts` según D11: lee y valida `index.json` (a lo sumo una etapa `activa`,
     carpetas y entradas en correspondencia, números crecientes), resuelve la etapa activa para
     todos los subcomandos, calcula `<NN>` como el número más alto registrado más uno (sin reusar
@@ -48,7 +48,7 @@ Orden de los lotes:
     sin entrada; una entrada cerrada sin carpeta; `dir` distinto de `number`/`slug`; `INDEX.md`
     igual byte a byte en dos corridas; y el fixture de cuatro etapas de la fila R52 de "Testing
     strategy".
-- [ ] **T3** (R3, R4, R5, R15, R16, R19) — `navori master init` y `mode`, con la señal de modo.
+- [x] **T3** (R3, R4, R5, R15, R16, R19) — `navori master init` y `mode`, con la señal de modo.
   - `lib/master/signal.ts`: número de commits, fecha del primer commit y archivos modificados
     después de él (desde `git`), más framework y librerías desde `detectProject(cwd).stack`. Sin
     git o sin código devuelve `null` en esos campos. Los umbrales de la sugerencia (`template`
@@ -298,3 +298,6 @@ Orden de los lotes:
   - Comentario en `ORCHESTRATOR_CONTEXT_ORDER` sobre el presupuesto de `SessionStart` agotado.
   - Regenerar los goldens de render. Con la bandera apagada, `settings.json` y `.claude/context/`
     quedan iguales byte a byte, salvo el hook de R43 y las dos skills nuevas.
+  - Ampliar el `CommandDoc` de `master` en `apps/website/src/content/commands.ts` con los
+    subcomandos que agregan los Lotes B y C (`status`, `check`, `advance`, `part`, `template`,
+    `close`): la entrada del Lote A solo documenta `init` y `mode`.
