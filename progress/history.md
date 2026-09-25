@@ -10,6 +10,20 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-24 23:30 — orchestrator — Release 0.10.1
+- Cambios: 10 PRs mergeados — #1032 (#1025 bug 2), #1033 (#1023), #1036 (#1027), #1040 (#1037),
+  #1041 (#1035), #1042 (#1018), #1043 (#1034), #1045 (#1028), #1047 (#1024 + #1039), #1048 (docs y
+  landing) — y el release #1049 (bump + re-render del espejo; tag `v0.10.1` creado por
+  `release-tag.yml`). Issues nuevos: #1034, #1035, #1037, #1039, #1046.
+- Quality gate: ✅ cada PR con `bun check` verde en su review y CI verde antes del merge; release
+  #1049 con receipt `ok` y `dist/index.js --version` → `0.10.1`.
+- Notas: #1027 escaló a nivel 2 y el diseño con excepción se descartó por TOCTOU. #1024 tenía una
+  regresión de upgrade (archivos legacy de hooks quedaban untracked en modo `"local"`) que la
+  revisión no cubrió; se encontró probando `npx navori@0.10.0` + la rama. El publisher metió datos
+  sin respaldo en casi todos los cuerpos de PR; se corrigieron a mano o con body-file verificado.
+  `npm publish` pendiente del usuario.
+- Commit / PR: #1032, #1033, #1036, #1040-#1043, #1045, #1047-#1049
+
 ## 2026-09-24 19:40 — orchestrator — Lib-skills del stack Expo/Vite/Hono; retira nativewind
 - Cambios: 9 lib-skills nuevas en `packages/core/core-assets/lib-skills/` (uniwind, expo-router,
   eas-release por `eas.json`, tanstack-router, shadcn-base-ui, tailwind-v4, hono, better-auth,
