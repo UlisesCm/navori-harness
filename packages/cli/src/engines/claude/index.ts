@@ -74,6 +74,7 @@ import {
 } from "../shared/execute-plan.ts";
 import { createClaudeAdapter } from "./adapter.ts";
 import { withAgentMcpTools, withoutAgentMcpTools } from "./agent-mcp-tools.ts";
+import { pluginExtraVars } from "../shared/plugin-extra-vars.ts";
 
 /**
  * Claude keeps its detailed skip prose (with the `navori sync` hint and the
@@ -974,7 +975,7 @@ export function renderClaudeEngine(
           managedId,
           config,
           meta: { source: `@navori/plugin-${plugin.manifest.id}`, version: NAVORI_VERSION },
-          extraVars: { jscpdThreshold: String(jscpdThresholdForPreset(config.preset)) },
+          extraVars: pluginExtraVars(config),
           treatAsFresh: legacy,
         }),
         cwd,
@@ -1834,7 +1835,9 @@ function applySubBlockInject(input: {
 
   const rawSkill = readFileSync(input.skill.absPath, "utf-8");
   const skillBody = stripFrontmatter(rawSkill);
-  const interpolated = interpolate(skillBody, input.config);
+  const interpolated = interpolate(skillBody, input.config, {
+    extraVars: pluginExtraVars(input.config),
+  });
 
   const subBlockSource = `@navori/plugin-${input.plugin.manifest.id}`;
   const result = injectManagedSection(
@@ -2018,21 +2021,6 @@ function applyCodexCrossReview(
  * hand edit exactly like a hook does.
  */
 /**
- * Presets whose repos are frontend UI codebases. Their JSX/TSX repeats by
- * nature (component boilerplate, Mantine props), so jscpd's duplication
- * threshold is relaxed to 10%. Every other preset (backends, workers) keeps
- * the stricter 5% default.
- */
-const FRONTEND_PRESETS = new Set([
-  "vite-react-ts",
-  "vite-react-ts-mantine",
-  "nextjs",
-  "astro",
-  "react-native-expo",
-]);
-
-/** jscpd duplication threshold (percent) for a preset — see FRONTEND_PRESETS. */
-/**
  * Managed id for a plugin script (#637). DERIVED, not declared: deriving it
  * means every plugin already installed gains a provable marker on the next
  * render, with no manifest edit and no burden on plugin authors — and an id
@@ -2047,10 +2035,6 @@ function pluginScriptManagedId(pluginId: string, dest: string): string {
     .replace(/^-+|-+$/g, "")
     .toLowerCase();
   return `${pluginId}-script-${slug}`;
-}
-
-function jscpdThresholdForPreset(preset: string): number {
-  return FRONTEND_PRESETS.has(preset) ? 10 : 5;
 }
 
 /**
@@ -2073,6 +2057,6 @@ function legacyPluginScriptContent(
 ): string {
   const raw = expandHookIncludes(readFileSync(script.src, "utf-8"));
   return interpolate(raw, config, {
-    extraVars: { jscpdThreshold: String(jscpdThresholdForPreset(config.preset)) },
+    extraVars: pluginExtraVars(config),
   });
 }

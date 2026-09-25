@@ -14,6 +14,18 @@ import type { KeepReason } from "./render/removable.ts";
 
 export type Lang = "es" | "en";
 
+/**
+ * Interpolation tokens that are DERIVED at render time (e.g.
+ * `pluginExtraVars`'s `jscpdThreshold`), not declared fields of
+ * `NavoriConfigSchema`. `interpolationArtifactUnresolvedRow`'s default advice
+ * — "declare that field in navori.config.json" — is misleading for these:
+ * there's no schema field to declare, and doing so anyway would silently
+ * shadow the derived value on the next render (`extraVars` wins over the
+ * config walk in `resolvePath`). Keep this list short; it's the "no place to
+ * declare it" exception, not the general case.
+ */
+const DERIVED_INTERPOLATION_TOKENS = new Set(["jscpdThreshold"]);
+
 interface Strings {
   // Wizard top-level
   pickLanguage: string;
@@ -2006,7 +2018,10 @@ const CMD_ES: CmdStrings = {
       `también lo regenera limpio, pero pierdes todo lo que hayas escrito en su zona ` +
       `de usuario:\n${lines}`,
     interpolationArtifactUnresolvedRow: (token) =>
-      `— '${token}' publicado en la prosa; declara ese campo en navori.config.json`,
+      DERIVED_INTERPOLATION_TOKENS.has(token)
+        ? `— '${token}' publicado en la prosa; no es un campo de navori.config.json, se ` +
+          `deriva en el render — vuelve a renderizar ('navori render --apply') o actualiza navori`
+        : `— '${token}' publicado en la prosa; declara ese campo en navori.config.json`,
     interpolationArtifactGateRow:
       "— prosa de 'quality gate sin configurar'; corre 'navori configure quality-gate' " +
       "y vuelve a renderizar",
@@ -3306,7 +3321,10 @@ const CMD_EN: CmdStrings = {
       `the interpolator is fixed. Edit those lines by hand; deleting the file also ` +
       `regenerates it clean, but you lose everything you wrote in its user zone:\n${lines}`,
     interpolationArtifactUnresolvedRow: (token) =>
-      `— '${token}' published in the prose; declare that field in navori.config.json`,
+      DERIVED_INTERPOLATION_TOKENS.has(token)
+        ? `— '${token}' published in the prose; it's not a navori.config.json field, it's ` +
+          `derived at render time — re-render ('navori render --apply') or update navori`
+        : `— '${token}' published in the prose; declare that field in navori.config.json`,
     interpolationArtifactGateRow:
       "— 'quality gate not configured' prose; run 'navori configure quality-gate' " +
       "and render again",

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/config/schema.ts";
 import { renderClaudeEngine } from "../index.ts";
 import { navoriAuthorship } from "../../../lib/render/removable.ts";
+import { pluginExtraVars } from "../../shared/plugin-extra-vars.ts";
 
 /**
  * #637 — a plugin script is no longer the one file navori cannot prove it wrote.
@@ -28,11 +29,11 @@ import { navoriAuthorship } from "../../../lib/render/removable.ts";
 
 let cwd: string;
 
-function config(): NavoriConfig {
+function config(preset = "custom"): NavoriConfig {
   return NavoriConfigSchema.parse({
     name: "scripts-demo",
     engines: ["claude"],
-    preset: "custom",
+    preset,
     branchBase: "main",
     qualityGate: { fast: "pnpm lint", full: "pnpm test" },
     plugins: { jscpd: { enabled: true } },
@@ -131,5 +132,30 @@ describe("scripts de plugin: marcador propio (#637)", () => {
     renderClaudeEngine(cwd, config());
     const second = renderClaudeEngine(cwd, config());
     expect(second.written.some((w) => w.path.endsWith("check-jscpd.sh"))).toBe(false);
+  });
+});
+
+describe("#1055: la extensión de skill inyectada recibe el mismo jscpdThreshold que el script", () => {
+  const reviewDiffSkill = (): string => join(cwd, ".claude/skills/review-diff/SKILL.md");
+
+  it.each([
+    ["vite-react-ts", "10"],
+    ["custom", "5"],
+  ])("preset '%s' publica el umbral %s, no el placeholder crudo", (preset, threshold) => {
+    renderClaudeEngine(cwd, config(preset));
+    const body = readFileSync(reviewDiffSkill(), "utf-8");
+    expect(body).not.toContain("<not configured: jscpdThreshold>");
+    expect(body).toContain(`--threshold '${threshold}'`);
+    expect(threshold).toBe(pluginExtraVars(config(preset)).jscpdThreshold);
+  });
+
+  it("el umbral coincide entre el script y la extensión inyectada para el mismo preset", () => {
+    renderClaudeEngine(cwd, config("vite-react-ts"));
+    const scriptBody = readFileSync(script(), "utf-8");
+    const skillBody = readFileSync(reviewDiffSkill(), "utf-8");
+    const scriptMatch = scriptBody.match(/threshold='(\d+)'/);
+    const skillMatch = skillBody.match(/--threshold '(\d+)'/);
+    expect(scriptMatch?.[1]).toBeDefined();
+    expect(scriptMatch?.[1]).toBe(skillMatch?.[1]);
   });
 });

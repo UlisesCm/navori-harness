@@ -601,3 +601,23 @@ describe("renderCodexEngine — manual-only skill sidecar (#823)", () => {
     expect(existsSync(join(cwd, ".agents/skills/manual-only-demo/SKILL.md"))).toBe(false);
   });
 });
+
+describe("renderCodexEngine — plugin skill extension receives extraVars (#1055)", () => {
+  it("injects the numeric jscpdThreshold into review-diff/SKILL.md, not the raw placeholder", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(
+      cwd,
+      config({ preset: "vite-react-ts", plugins: { jscpd: { enabled: true } } }),
+    );
+    const skill = readFileSync(join(cwd, ".agents/skills/review-diff/SKILL.md"), "utf-8");
+    expect(skill).not.toContain("<not configured: jscpdThreshold>");
+    expect(skill).toContain("--threshold '10'");
+  });
+
+  it("derives jscpdThreshold=5 for a non-frontend preset", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config({ plugins: { jscpd: { enabled: true } } }));
+    const skill = readFileSync(join(cwd, ".agents/skills/review-diff/SKILL.md"), "utf-8");
+    expect(skill).toContain("--threshold '5'");
+  });
+});

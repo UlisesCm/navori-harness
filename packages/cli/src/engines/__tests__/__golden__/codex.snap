@@ -699,7 +699,7 @@ Before approving a change, run `jscpd` over the changed `.ts`/`.tsx` files vs
 the base branch, at the project's configured threshold:
 
 ```
-git diff --name-only --diff-filter=ACMRT main -- '*.ts' '*.tsx' | xargs -r jscpd --min-tokens 100 --min-lines 10 --mode strict --threshold '<not configured: jscpdThreshold>'
+git diff --name-only --diff-filter=ACMRT main -- '*.ts' '*.tsx' | xargs -r jscpd --min-tokens 100 --min-lines 10 --mode strict --threshold '5'
 ```
 
 A literal `main` left unsubstituted here would be a silent no-op
