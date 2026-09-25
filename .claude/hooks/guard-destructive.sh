@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="205ffe04" version="0.10.0" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="ab29c269" version="0.10.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -1137,6 +1137,7 @@ fi
 #        this rule still surfaces. This rule is the seatbelt; that one is the net.
 managed_dir='\.claude/(agents|skills|hooks)|\.agents/skills|\.codex/(agents|hooks)|\.cursor/rules'
 managed_path="(CLAUDE\.md|AGENTS\.md|\.claude/settings\.json|\.codex/config\.toml|(${managed_dir})/[^[:space:];&|]+)"
+managed_rewrite_msg="shell rewrite of a navori-managed file — edit the source asset and run 'navori render --apply' (or 'navori sync'); a direct write invalidates the block hash and freezes it. If the target is outside this project (e.g. a scratchpad), write it with '>' or 'tee' and an absolute path instead"
 # The redirect check reads `scan`, NOT `segments`: the split rewrites every `|`
 # into a newline, so `>| CLAUDE.md` (forced clobber) would be torn in half and
 # the target would land in a segment of its own. Reading the unsplit copy is
@@ -1153,7 +1154,57 @@ managed_path="(CLAUDE\.md|AGENTS\.md|\.claude/settings\.json|\.codex/config\.tom
 if printf '%s' "$scan" | grep -qiE "(^|[^>])>\|?[[:space:]]*(\./)?${managed_path}([[:space:]]|\$)" \
   || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])sed[[:space:]]+(-[a-zA-Z]*i[a-zA-Z]*[^[:space:]]*|--in-place)([[:space:]]|=).*${managed_path}" \
   || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*(\./)?${managed_path}([[:space:]]|\$)"; then
-  block "shell rewrite of a navori-managed file — edit the source asset and run 'navori render --apply' (or 'navori sync'); a direct write invalidates the block hash and freezes it. If the target is outside this project (e.g. a scratchpad), write it with '>' or 'tee' and an absolute path instead"
+  block "$managed_rewrite_msg"
+fi
+
+# 6b (#1034). The `>`/`>|`/`tee` arms above only ever match a BARE or
+# `./`-relative managed path, by design — `sed -i`'s own arm is unanchored
+# (`.*managed_path`) so it already catches an absolute target as a side effect,
+# but `>`/`tee` never reach `managed_path` at all for an absolute one, in or out
+# of the project (confirmed empirically, challenge_1027.md CONCERN 1). #1027
+# proposed closing that by RESOLVING the target against the filesystem at
+# check-time (`cd -P`, symlink checks) to decide "inside vs outside" — rejected
+# (challenge_1027.md BLOCKER 1): an ordinary `rm <target> && ln -s <managed
+# file> <target> && tee <target>` in the SAME command swaps what the literal
+# path resolves to between the check and the write, so a filesystem check is
+# TOCTOU-defeated by construction, not by an adversarial trick.
+#
+# What stays textual and TOCTOU-proof: matching an absolute target whose
+# CHARACTERS start with this project's own path — no `cd`, no `pwd -P`, no
+# `[ -L ]`, so there is nothing for a same-command `rm`/`ln -s` to invalidate.
+# Two forms reach that:
+#   - the RESOLVED value of $CLAUDE_PROJECT_DIR, regex-escaped so a literal
+#     char in the path (this repo's own path has a space and a hyphen, "Dev -
+#     Docs") is never read as a metacharacter;
+#   - the UNRESOLVED variable text itself, `$CLAUDE_PROJECT_DIR` /
+#     `${CLAUDE_PROJECT_DIR}`, which an agent can compose into a redirect
+#     without ever expanding it (so this arm doesn't depend on the value).
+# Quoted and unquoted forms both matter, and NOT just as "the whole target is
+# quoted or it isn't": `"$CLAUDE_PROJECT_DIR"/CLAUDE.md` — quoting only the
+# variable expansion, then continuing unquoted — is ordinary POSIX style a
+# legitimate command uses unprompted, so the quote has to be optional AROUND
+# THE PREFIX TOKEN ITSELF (both the literal value and the `$VAR`/`${VAR}` text),
+# not only at the two ends of the whole match (#1034 round 2 review). A path
+# with a space in it (like this repo's) also HAS to be quoted somewhere to be
+# valid shell at all, so this isn't a cosmetic tolerance.
+# Absolute paths OUTSIDE the project (any other prefix) stay allowed on
+# purpose — the block message above offers exactly that escape (#1036), and a
+# sibling directory that merely shares the prefix (`<proj>-otro/CLAUDE.md`)
+# does not match either: the pattern requires a literal `/` (optionally
+# quoted) right after the project path, and a sibling has `-otro/…` there
+# instead.
+# Without `$CLAUDE_PROJECT_DIR` set, this arm is skipped entirely — same
+# behavior as before #1034 — rather than matching against an empty prefix.
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+  # Strip a trailing slash before escaping: `CLAUDE_PROJECT_DIR=/proj/` would
+  # otherwise need a doubled `//` to line up with `/${managed_path}` below and
+  # silently stop matching (round 2 review, informational note 1).
+  cpd_literal=$(printf '%s' "${CLAUDE_PROJECT_DIR%/}" | sed -E 's#[^a-zA-Z0-9_/ -]#\\&#g')
+  abs_managed_path="[\"']?(${cpd_literal}|\\\$\\{?CLAUDE_PROJECT_DIR\\}?)[\"']?/${managed_path}[\"']?"
+  if printf '%s' "$scan" | grep -qiE "(^|[^>])>\|?[[:space:]]*${abs_managed_path}([[:space:]]|\$)" \
+    || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*${abs_managed_path}([[:space:]]|\$)"; then
+    block "$managed_rewrite_msg"
+  fi
 fi
 # navori:managed end id="guard-destructive-base"
 
