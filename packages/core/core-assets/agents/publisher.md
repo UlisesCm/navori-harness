@@ -102,7 +102,7 @@ For every live-file `DRIFT`, the JSON provides the approved blob and the exact i
 
 The PR gate is the FULL one, `{{qualityGate.full}}`, not `{{qualityGate.fast}}`. Which steps sit where is a per-project decision; don't assume the fast gate covers all full steps. Three paths:
 
-- **Reviewed:** the reviewer ran `{{qualityGate.full}}` green in Pass 2 (see `review_<feature>.md`). Skip re-running **only** when `navori receipt check` reports `"fresh":true`. The `quality-gate-pre-commit` hook re-runs `fast` on `git commit` and blocks if it fails.
+- **Reviewed:** the reviewer ran `{{qualityGate.full}}` green in Pass 2 (see `review_<feature>.md`). Skip re-running **only** when `navori receipt check` reports `"fresh":true`. The `quality-gate-pre-commit` hook re-runs `fast` on `git commit` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
 - **`"fresh":false`:** no trustworthy evidence — YOU run `{{qualityGate.full}}` green in pre-flight before `gh pr create`. Follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row if it outlives the timeout.
 - **Declared inline (no reviewer):** no review evidence either — run `{{qualityGate.full}}` yourself.
 
