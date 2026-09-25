@@ -128,14 +128,14 @@ Pay extra attention if the diff touches `render/sync/backup writes and deletes i
 - `verify-before-done`: the §9 quality gate is run this turn, not assumed from the implementer's report.
 <!-- /navori:managed id="review-diff-base" -->
 
-<!-- navori:managed id="jscpd-review-extension" hash="3fbea815" version="0.10.1" source="@navori/plugin-jscpd" -->
+<!-- navori:managed id="jscpd-review-extension" hash="58adcff2" version="0.10.1" source="@navori/plugin-jscpd" -->
 ## Code duplication (jscpd)
 
 Before approving a change, run `jscpd` over the changed `.ts`/`.tsx` files vs
 the base branch, at the project's configured threshold:
 
 ```
-git diff --name-only --diff-filter=ACMRT main -- '*.ts' '*.tsx' | xargs -r jscpd --min-tokens 100 --min-lines 10 --mode strict --threshold '<not configured: jscpdThreshold>'
+git diff --name-only --diff-filter=ACMRT main -- '*.ts' '*.tsx' | xargs -r jscpd --min-tokens 100 --min-lines 10 --mode strict --threshold '5'
 ```
 
 A literal `main` left unsubstituted here would be a silent no-op
