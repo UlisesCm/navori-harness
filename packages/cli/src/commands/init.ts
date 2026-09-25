@@ -45,7 +45,7 @@ import {
   RECOMMENDED_MODELS,
   RECOMMENDED_EFFORT,
 } from "../lib/config/recommended.ts";
-import { scanMissingExternalTools } from "./doctor.ts";
+import { scanMissingExternalTools, scanExternalToolCapabilities } from "./doctor.ts";
 import {
   EXTERNAL_PROVIDER_SETUP_RECIPE_URL,
   PROVIDERS_WITH_SETUP_RECIPE,
@@ -98,6 +98,27 @@ function reportMissingBinaries(
   const td = tc(lang).doctor;
   const list = missing.map((m) => `${m.binary} (${formatMissingBinaryHow(m, tr, td)})`).join(", ");
   p.log.warn(tr.binariesToInstall(list));
+}
+
+/**
+ * #1060 — the sibling of `reportMissingBinaries` above for a binary that IS
+ * on PATH but doesn't support a capability its plugin's `externalTool`
+ * manifest declares (e.g. jscpd < 5.1.1 lacking `--baseline-from-ref`). Runs
+ * at the same call sites, in every mode: nobody runs `doctor` after a
+ * headless `--yes`/`--recommended`/`--full` init, and by the time the gate
+ * hook blocks a commit over this it's too late to have warned.
+ */
+function reportExternalToolCapabilityGaps(
+  plugins: Record<string, { enabled: boolean }>,
+  lang: Lang,
+): void {
+  const gaps = scanExternalToolCapabilities({ plugins } as NavoriConfig);
+  if (gaps.length === 0) return;
+  const td = tc(lang).doctor;
+  for (const g of gaps) {
+    const how = g.install ?? td.externalToolFallbackHow;
+    p.log.warn(td.externalToolCapabilityGapRow(g.binary, g.missing.join(", "), g.minVersion, how));
+  }
 }
 
 /**
@@ -466,6 +487,9 @@ export const initCommand = defineCommand({
       // as a non-fatal yellow warning (never flips its exit code), but nobody
       // runs doctor after a headless `--yes`/`--recommended` init (#1023).
       reportMissingBinaries(mergedPlugins, isFull, tr, lang);
+      // #1060: same "warn now, nobody runs doctor after this" reasoning as
+      // above, for a present binary too old to support what its plugin needs.
+      reportExternalToolCapabilityGaps(mergedPlugins, lang);
       // Surface gaps that the user can't see otherwise — autoYes skipped the
       // wizard so they never had a chance to fill these in. Without a
       // qualityGate the render emits `<not configured: qualityGate.fast>`
@@ -863,6 +887,8 @@ export const initCommand = defineCommand({
     // above; the interactive wizard never enables --full (that flag forces
     // autoYes), so this always takes the per-binary-install-command branch.
     reportMissingBinaries(mergedPlugins, false, tr, lang);
+    // #1060: same reasoning as the --yes/--recommended path above.
+    reportExternalToolCapabilityGaps(mergedPlugins, lang);
 
     if (mode === "coexist") {
       p.outro(tr.doneExistingUntouched);

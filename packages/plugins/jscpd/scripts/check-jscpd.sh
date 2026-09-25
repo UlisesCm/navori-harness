@@ -45,7 +45,10 @@ navori_audit_on_exit() {
   if [ "$navori_audit_code" -eq 0 ]; then
     navori_audit_log "allow" || true
   else
-    navori_audit_log "block" "el escaneo de jscpd no paso" || true
+    # `navori_jscpd_block_reason` names the actual cause (e.g. a jscpd binary
+    # that lacks the flags this hook needs) when the capability probe below
+    # sets it; otherwise the audit log falls back to the generic reason.
+    navori_audit_log "block" "${navori_jscpd_block_reason:-el escaneo de jscpd no paso}" || true
   fi
   return 0
 }
@@ -131,12 +134,10 @@ if [ -x "$tree/node_modules/.bin/jscpd" ]; then
   JSCPD_BIN="$tree/node_modules/.bin/jscpd"
 fi
 
-# branchBase / jscpdThreshold are shell-quoted at render time via the shq:
-# marker (#197/#249): hostile values in navori.config.json land here as inert
-# literals, never executable (this hook runs on every git commit via
-# PreToolUse(Bash)).
+# branchBase is shell-quoted at render time via the shq: marker (#197/#249):
+# hostile values in navori.config.json land here as inert literals, never
+# executable (this hook runs on every git commit via PreToolUse(Bash)).
 base={{shq:branchBase}}
-threshold={{shq:jscpdThreshold}}
 
 if ! navori_resolve_base; then
   echo "⊘ neither 'origin/$base' nor '$base' exists in $tree — skip jscpd" >&2
@@ -158,6 +159,32 @@ if [ ${#files[@]} -eq 0 ]; then
 fi
 
 echo "▶ jscpd: ${#files[@]} changed file(s) vs $base_ref in $tree" >&2
+
+# Capability probe (only reached when there are files to scan): jscpd added
+# `--baseline-from-ref`/`--fail-on-new-clones` in 5.1.1. A binary older than
+# that silently ignores or rejects the flags this hook depends on, and its
+# own `--version` self-report is not reliable enough to gate on (5.1.0
+# prints `cpd 5.0.16`) — so the question is asked directly, of the actual
+# binary, via `--help`.
+#
+# Captured to a variable and matched with `case`, never piped into `grep -q`:
+# under `set -o pipefail` a `grep -q` that finds its match early closes the
+# pipe, jscpd gets SIGPIPE, and the probe would misread a supported binary as
+# unsupported.
+navori_jscpd_help=$("$JSCPD_BIN" --help 2>&1 || true)
+navori_jscpd_has_baseline=0
+navori_jscpd_has_new_clones=0
+case "$navori_jscpd_help" in
+  *--baseline-from-ref*) navori_jscpd_has_baseline=1 ;;
+esac
+case "$navori_jscpd_help" in
+  *--fail-on-new-clones*) navori_jscpd_has_new_clones=1 ;;
+esac
+if [ "$navori_jscpd_has_baseline" -ne 1 ] || [ "$navori_jscpd_has_new_clones" -ne 1 ]; then
+  navori_jscpd_block_reason="jscpd binario sin --baseline-from-ref/--fail-on-new-clones (< 5.1.1)"
+  echo "✗ jscpd: $JSCPD_BIN lacks --baseline-from-ref/--fail-on-new-clones (needs jscpd >= 5.1.1) — upgrade it (global: pnpm add -g jscpd@^5.1.1 · repo-pinned: pnpm add -D jscpd@^5.1.1) — BLOCKED, this is not a duplication verdict" >&2
+  exit 2
+fi
 
 tmpdir=$(mktemp -d)
 # COMPOSED, not replaced: bash keeps exactly ONE EXIT trap, so a bare
@@ -182,28 +209,35 @@ scan_status=0
   --min-tokens 100 \
   --min-lines 10 \
   --mode strict \
-  --threshold "$threshold" \
+  --baseline-from-ref "$base_sha" \
+  --fail-on-new-clones 0 \
   --reporters console \
   --output "$tmpdir" \
-  "${files[@]}" >&2 || scan_status=$?
+  -- "${files[@]}" >&2 || scan_status=$?
 
 # PreToolUse EXIT CONTRACT (#510). Claude Code blocks a tool call ONLY on exit
 # 2; every other non-zero code is shown to the user and the call PROCEEDS. This
 # script used to END on the `jscpd` invocation, so `set -e` handed jscpd's own
-# code straight through — and jscpd maps "over threshold" to 1. The gate printed
-# a progress line and blocked exactly nothing.
+# code straight through — and jscpd maps "new clones" to 1. The gate printed a
+# progress line and blocked exactly nothing.
 #
-# TODO(fidelity): jscpd spends exit 1 on BOTH "over threshold" and an internal
+# The explicit `0` after `--fail-on-new-clones` and the `--` before the paths
+# are both load-bearing: the flag is `[<N>]`-greedy and swallows the first path
+# as its own value when either is missing, turning it into a jscpd usage error
+# (exit 2, read below as "not a verdict") — the gate would then silently stop
+# blocking new clones instead of announcing it.
+#
+# TODO(fidelity): jscpd spends exit 1 on BOTH "new clones" and an internal
 # crash, so a crash is read here as a duplication verdict and blocks. That is
 # the strict direction, and it is the ceiling of this mapping — split it if
 # jscpd ever gives the two outcomes distinct codes, or if a crash starts firing
 # often enough to teach people to route around the gate.
 if [ "$scan_status" -eq 0 ]; then
-  echo "✓ jscpd: ${#files[@]} file(s) scanned vs $base_ref — duplication under the ${threshold}% threshold" >&2
+  echo "✓ jscpd: ${#files[@]} file(s) scanned — no new clones vs $base_ref" >&2
   exit 0
 fi
 if [ "$scan_status" -eq 1 ]; then
-  echo "✗ jscpd: duplication over the ${threshold}% threshold — BLOCKED" >&2
+  echo "✗ jscpd: new clones vs $base_ref — BLOCKED" >&2
   exit 2
 fi
 echo "✗ jscpd: the run FAILED with exit $scan_status (not a duplication verdict) — nothing was validated" >&2

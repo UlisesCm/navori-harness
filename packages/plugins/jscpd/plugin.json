@@ -2,17 +2,22 @@
   "id": "jscpd",
   "name": "jscpd (code duplication detector)",
   "description": "Detección de duplicación de código en el diff vs branch base",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "managed": [],
   "externalTool": {
     "name": "jscpd",
     "checkBinary": "jscpd",
     "install": {
-      "darwin": "pnpm add -g jscpd",
-      "linux": "pnpm add -g jscpd",
-      "win32": "pnpm add -g jscpd"
+      "darwin": "pnpm add -g jscpd@^5.1.1",
+      "linux": "pnpm add -g jscpd@^5.1.1",
+      "win32": "pnpm add -g jscpd@^5.1.1"
     },
-    "installDocs": "https://github.com/kucherenko/jscpd"
+    "installDocs": "https://github.com/kucherenko/jscpd",
+    "capabilityProbe": {
+      "args": ["--help"],
+      "mustContain": ["--baseline-from-ref", "--fail-on-new-clones"],
+      "minVersion": "5.1.1"
+    }
   },
   "settingsFragment": {
     "permissions": {

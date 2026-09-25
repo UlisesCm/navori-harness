@@ -177,6 +177,9 @@ export const doctorCommand = defineCommand({
     // #978: per-machine binary version vs the manifest's declared pin — same
     // informational tier as `missingExternalTools` above, never a gate.
     const pinnedVersionDrift = scanPinnedVersionDrift(config);
+    // #1060: same informational tier — a present binary missing a specific
+    // CLI capability, never fed into `computeHealthVerdict` or `--strict`.
+    const externalToolCapabilityGaps = scanExternalToolCapabilities(config);
     // #981: distinct from `missingExternalTools` above — that one is about a
     // plugin the repo already enabled whose binary is absent; this one is
     // about a plugin never enabled at all, so the user never learns it
@@ -346,6 +349,10 @@ export const doctorCommand = defineCommand({
       // above — a binary present but on the wrong version, never fed into
       // `computeHealthVerdict` or `--strict`.
       pinnedVersionDrift,
+      // #1060: same non-gating, informational tier as `missingExternalTools`
+      // above — a present binary that fails a declared capability probe,
+      // never fed into `computeHealthVerdict` or `--strict`.
+      externalToolCapabilityGaps,
       // #981: same non-gating, informational tier as `missingExternalTools`
       // — never feeds `computeHealthVerdict` nor `--strict`.
       availableExternalProviders,
@@ -704,6 +711,18 @@ export const doctorCommand = defineCommand({
         )}`;
       });
       p.log.warn(td.pinnedVersionDrift(pinnedVersionDrift.length, lines.join("\n")));
+    }
+
+    if (externalToolCapabilityGaps.length > 0) {
+      const lines = externalToolCapabilityGaps.map((g) => {
+        const how = g.install ?? td.externalToolFallbackHow;
+        return `  ${color.yellow(sym.update)} ${accent(g.pluginId)}  ${grey(
+          td.externalToolCapabilityGapRow(g.binary, g.missing.join(", "), g.minVersion, how),
+        )}`;
+      });
+      p.log.warn(
+        td.externalToolCapabilityGaps(externalToolCapabilityGaps.length, lines.join("\n")),
+      );
     }
 
     // #981: a separate, info-level section — distinct from `missingExternalTools`
@@ -1776,6 +1795,64 @@ export function scanPinnedVersionDrift(config: NavoriConfig): PinnedVersionDrift
     }
   }
   return drifted;
+}
+
+export interface ExternalToolCapabilityGap {
+  pluginId: string;
+  binary: string;
+  /** `capabilityProbe.mustContain` entries absent from the probe's output. */
+  missing: string[];
+  /** Display-only; never compared against the installed version (see the
+   *  manifest field's own JSDoc in `lib/config/plugins.ts`). */
+  minVersion: string;
+  install: string | null;
+}
+
+/**
+ * #1060 — a manifest may declare `externalTool.capabilityProbe` for a binary
+ * whose CLI surface (not its `--version` self-report, unreliable per the
+ * field's own JSDoc) determines whether a gate can rely on it — jscpd's
+ * `check-jscpd.sh` needs `--baseline-from-ref`/`--fail-on-new-clones`, absent
+ * before 5.1.1. Same informational tier as `scanPinnedVersionDrift` above:
+ * enabled plugins only, binary must already be present (absence is
+ * `missingExternalTools`'s job), and a probe that throws stays silent rather
+ * than guess. Never feeds `computeHealthVerdict` or `--strict` — the hook
+ * itself is what blocks a commit over this; doctor only warns ahead of time.
+ */
+export function scanExternalToolCapabilities(config: NavoriConfig): ExternalToolCapabilityGap[] {
+  const gaps: ExternalToolCapabilityGap[] = [];
+  const platform = currentPlatform();
+  for (const [id, settings] of Object.entries(config.plugins ?? {})) {
+    if (settings.enabled !== true) continue;
+    try {
+      const tool = loadPlugin(id).manifest.externalTool;
+      const probe = tool?.capabilityProbe;
+      if (!tool?.checkBinary || !probe) continue;
+      if (!hasBinary(tool.checkBinary)) continue;
+      let out: string;
+      try {
+        out = execFileSync(tool.checkBinary, probe.args, {
+          encoding: "utf-8",
+          stdio: ["ignore", "pipe", "ignore"],
+          timeout: 5000, // best-effort external probe must not hang doctor (#268)
+        });
+      } catch {
+        continue; // binary present but the probe itself failed — never guess
+      }
+      const missing = probe.mustContain.filter((needle) => !out.includes(needle));
+      if (missing.length === 0) continue;
+      gaps.push({
+        pluginId: id,
+        binary: tool.checkBinary,
+        missing,
+        minVersion: probe.minVersion,
+        install: (platform ? tool.install?.[platform] : undefined) ?? null,
+      });
+    } catch {
+      // Missing / broken plugin is reported via missingPlugins.
+    }
+  }
+  return gaps;
 }
 
 /**
