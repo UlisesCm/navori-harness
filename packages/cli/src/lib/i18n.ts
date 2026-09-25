@@ -15,16 +15,23 @@ import type { KeepReason } from "./render/removable.ts";
 export type Lang = "es" | "en";
 
 /**
- * Interpolation tokens that are DERIVED at render time (e.g.
- * `pluginExtraVars`'s `jscpdThreshold`), not declared fields of
- * `NavoriConfigSchema`. `interpolationArtifactUnresolvedRow`'s default advice
- * — "declare that field in navori.config.json" — is misleading for these:
- * there's no schema field to declare, and doing so anyway would silently
- * shadow the derived value on the next render (`extraVars` wins over the
- * config walk in `resolvePath`). Keep this list short; it's the "no place to
- * declare it" exception, not the general case.
+ * Interpolation tokens that are DERIVED at render time via
+ * `pluginExtraVars`, not declared fields of `NavoriConfigSchema`.
+ * `interpolationArtifactUnresolvedRow`'s default advice — "declare that
+ * field in navori.config.json" — is misleading for these: there's no schema
+ * field to declare, and doing so anyway would silently shadow the derived
+ * value on the next render (`extraVars` wins over the config walk in
+ * `resolvePath`). Keep this list short; it's the "no place to declare it"
+ * exception, not the general case.
+ *
+ * #1060 retired its only member (`jscpdThreshold`, #1055/#1057) along with
+ * the gate's threshold-based scan. The set is legitimately empty until a
+ * future plugin needs a render-derived value again — `pluginExtraVars`'s own
+ * `extraVars` wiring stays for that day (#1057's "4 of 5 forgot" fix wasn't
+ * jscpd-specific). Exported so `i18n.test.ts` can exercise the branch this
+ * set drives without depending on a live producer.
  */
-const DERIVED_INTERPOLATION_TOKENS = new Set(["jscpdThreshold"]);
+export const DERIVED_INTERPOLATION_TOKENS: Set<string> = new Set([]);
 
 interface Strings {
   // Wizard top-level
@@ -784,6 +791,17 @@ interface DoctorCmdStrings {
    *  above: never gates `--strict`, never flips `ok`. */
   pinnedVersionDrift: (n: number, lines: string) => string;
   pinnedVersionDriftRow: (installed: string, pinned: string, how: string) => string;
+  /** #1060 — installed binary lacks a CLI capability the manifest's
+   *  `externalTool.capabilityProbe` declares (e.g. jscpd < 5.1.1 missing
+   *  `--baseline-from-ref`). Informational, like `pinnedVersionDrift` above:
+   *  never gates `--strict`, never flips `ok`. */
+  externalToolCapabilityGaps: (n: number, lines: string) => string;
+  externalToolCapabilityGapRow: (
+    binary: string,
+    missing: string,
+    minVersion: string,
+    how: string,
+  ) => string;
   /** #981 — external-tool plugins that exist but aren't enabled at all, as
    *  opposed to `externalTools` above (enabled but the binary is missing).
    *  Purely informational: never gates `--strict`, never flips `ok`. */
@@ -1949,6 +1967,12 @@ const CMD_ES: CmdStrings = {
       `(env/MCP) está calibrada contra esa versión exacta:\n${lines}`,
     pinnedVersionDriftRow: (installed, pinned, how) =>
       `— instalado ${installed}, el manifest fija ${pinned}; ${how}`,
+    externalToolCapabilityGaps: (n, lines) =>
+      `Binarios sin una capacidad que el manifest requiere (${n}) — la versión instalada no ` +
+      `soporta lo que su hook/script necesita; '--version' no es confiable, así que el manifest ` +
+      `declara la capacidad, no una versión a comparar:\n${lines}`,
+    externalToolCapabilityGapRow: (binary, missing, minVersion, how) =>
+      `— '${binary}' no soporta ${missing} (necesita >= ${minVersion}); ${how}`,
     availableExternalProviders: (n, lines) =>
       `Proveedores externos disponibles, no habilitados (${n}) — existen pero nadie los pidió:\n${lines}`,
     availableProviderRow: (id) => `— habilítalo con 'navori add ${id}'`,
@@ -3252,6 +3276,12 @@ const CMD_EN: CmdStrings = {
       `config (env/MCP) is calibrated against that exact version:\n${lines}`,
     pinnedVersionDriftRow: (installed, pinned, how) =>
       `— installed ${installed}, manifest pins ${pinned}; ${how}`,
+    externalToolCapabilityGaps: (n, lines) =>
+      `Binaries missing a capability the manifest requires (${n}) — the installed version ` +
+      `doesn't support what its hook/script needs; '--version' isn't reliable, so the manifest ` +
+      `declares the capability instead of a version to compare:\n${lines}`,
+    externalToolCapabilityGapRow: (binary, missing, minVersion, how) =>
+      `— '${binary}' doesn't support ${missing} (needs >= ${minVersion}); ${how}`,
     availableExternalProviders: (n, lines) =>
       `Available external providers, not enabled (${n}) — they exist but nobody asked for them:\n${lines}`,
     availableProviderRow: (id) => `— enable it with 'navori add ${id}'`,

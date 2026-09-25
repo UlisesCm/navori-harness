@@ -1,7 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { formatDowngradeWarning } from "../../commands/render.ts";
 import type { UpdateAvailable } from "../render/render-plan.ts";
-import { t, tc, resolveLang, DEFAULT_LANG, SUPPORTED_LANGS } from "../i18n.ts";
+import {
+  t,
+  tc,
+  resolveLang,
+  DEFAULT_LANG,
+  SUPPORTED_LANGS,
+  DERIVED_INTERPOLATION_TOKENS,
+} from "../i18n.ts";
 
 describe("i18n", () => {
   it("returns a dict for every supported lang", () => {
@@ -44,18 +51,40 @@ describe("i18n", () => {
     }
   });
 
-  it("interpolationArtifactUnresolvedRow distinguishes a derived token from a declarable config field (#1055)", () => {
+  it("#1060 retired jscpdThreshold as the derived-token exception — it now gets the generic advice", () => {
     for (const lang of SUPPORTED_LANGS) {
       const dict = tc(lang).doctor;
-      const derived = dict.interpolationArtifactUnresolvedRow("jscpdThreshold");
-      const declarable = dict.interpolationArtifactUnresolvedRow("branchBase");
-      // jscpdThreshold is derived at render time — there's no schema field to
-      // "declare", so the advice must not tell the user to add one, and must
-      // differ from the generic "declare that field" message.
-      expect(derived).toContain("render");
-      expect(derived).not.toBe(declarable.replace("branchBase", "jscpdThreshold"));
-      // An arbitrary unresolved token still gets the original advice.
-      expect(declarable).toContain("navori.config.json");
+      // #1060 removed the gate's threshold entirely (only new clones block
+      // now), so jscpdThreshold is no longer a derived-at-render-time token —
+      // an interpolation artifact carrying it gets the same generic advice
+      // as any other unresolved token.
+      expect(dict.interpolationArtifactUnresolvedRow("jscpdThreshold")).toContain(
+        "navori.config.json",
+      );
+    }
+  });
+
+  it("interpolationArtifactUnresolvedRow distinguishes a derived token from a declarable config field, when one is declared", () => {
+    // DERIVED_INTERPOLATION_TOKENS is legitimately empty since #1060 retired
+    // its only member — this exercises the branch itself, not a live
+    // producer, so a future plugin re-populating the set doesn't silently
+    // lose coverage.
+    DERIVED_INTERPOLATION_TOKENS.add("fakeDerivedToken");
+    try {
+      for (const lang of SUPPORTED_LANGS) {
+        const dict = tc(lang).doctor;
+        const derived = dict.interpolationArtifactUnresolvedRow("fakeDerivedToken");
+        const declarable = dict.interpolationArtifactUnresolvedRow("branchBase");
+        // A derived token's advice must not tell the user to declare a
+        // schema field that doesn't exist, and must differ from the generic
+        // "declare that field" message.
+        expect(derived).toContain("render");
+        expect(derived).not.toBe(declarable.replace("branchBase", "fakeDerivedToken"));
+        // An arbitrary unresolved token still gets the original advice.
+        expect(declarable).toContain("navori.config.json");
+      }
+    } finally {
+      DERIVED_INTERPOLATION_TOKENS.delete("fakeDerivedToken");
     }
   });
 

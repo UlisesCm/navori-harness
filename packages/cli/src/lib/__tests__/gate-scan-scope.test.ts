@@ -89,12 +89,20 @@ function gitIn(cwd: string, ...args: string[]): string {
  * A stub scanner that appends the *.ts arguments it was handed to `argsLog` and
  * exits `scanExit`. Both real tools take flags before the file list, so the stub
  * filters to the paths — what the assertions are about.
+ *
+ * Answers `--help` with both flags jscpd's capability probe checks for (#1060):
+ * only jscpd calls `--help`, but answering it here for both tools is harmless
+ * and keeps this one stub shared.
  */
 function installStub(binDir: string, name: string, argsLog: string, scanExit: number): void {
   const stub = join(binDir, name);
   writeFileSync(
     stub,
     `#!/usr/bin/env bash
+if [ "\${1:-}" = "--help" ]; then
+  printf '%s\\n' "--baseline-from-ref --fail-on-new-clones"
+  exit 0
+fi
 for a in "$@"; do case "$a" in *.ts|*.tsx) printf '%s\\n' "$a" >> ${JSON.stringify(argsLog)} ;; esac; done
 exit ${scanExit}
 `,
