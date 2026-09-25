@@ -432,6 +432,90 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
   });
 
   /**
+   * Rule 6b (#1034) — an absolute redirect/`tee` target INSIDE the project must
+   * be caught too, not just the bare/relative forms rule 6 already covers. The
+   * project path used here deliberately has a space AND a hyphen ("Dev - Docs")
+   * to pin the regex-escaping of `$CLAUDE_PROJECT_DIR`'s literal value — this
+   * repo's own real path has exactly that shape.
+   *
+   * Purely textual: no filesystem check, so this table alone doesn't prove
+   * TOCTOU-safety — that property comes from NOT resolving anything (see the
+   * comment above rule 6b in guard-destructive.sh and challenge_1027.md).
+   */
+  describe("rule 6b — absolute redirects into managed files (#1034)", () => {
+    const PROJ = "/Users/x/proj";
+    const PROJ_SPACED = "/Users/x/Dev - Docs/proj";
+    const PROJ_OUTSIDE = "/Users/x/other-repo";
+
+    const ROWS: ReadonlyArray<{
+      cmd: string;
+      cwd: string;
+      blocked: boolean;
+      why: string;
+    }> = [
+      {
+        cmd: `echo x > ${PROJ}/CLAUDE.md`,
+        cwd: PROJ,
+        blocked: true,
+        why: "absolute redirect, unquoted, project path without spaces",
+      },
+      {
+        cmd: `echo x > "${PROJ_SPACED}/CLAUDE.md"`,
+        cwd: PROJ_SPACED,
+        blocked: true,
+        why: "absolute redirect, quoted, project path WITH spaces (#1034)",
+      },
+      {
+        cmd: `cat foo | tee "$CLAUDE_PROJECT_DIR/.claude/agents/a.md"`,
+        cwd: PROJ_SPACED,
+        blocked: true,
+        why: "tee, unresolved $CLAUDE_PROJECT_DIR text, quoted",
+      },
+      {
+        cmd: "echo x >| ${CLAUDE_PROJECT_DIR}/AGENTS.md",
+        cwd: PROJ,
+        blocked: true,
+        why: "forced clobber, braced ${CLAUDE_PROJECT_DIR} text",
+      },
+      // Everything below stays legal.
+      {
+        cmd: `echo x > ${PROJ_OUTSIDE}/CLAUDE.md`,
+        cwd: PROJ,
+        blocked: false,
+        why: "absolute managed path OUTSIDE the project — #1036's own escape",
+      },
+      {
+        cmd: `cat foo | tee ${PROJ_OUTSIDE}/.claude/agents/a.md`,
+        cwd: PROJ,
+        blocked: false,
+        why: "tee, absolute managed path OUTSIDE the project",
+      },
+      {
+        cmd: `echo x > ${PROJ}-otro/CLAUDE.md`,
+        cwd: PROJ,
+        blocked: false,
+        why: "a sibling dir sharing the prefix is not the project (#1034)",
+      },
+      {
+        cmd: `echo x > ${PROJ}/.claude/progress/x.md`,
+        cwd: PROJ,
+        blocked: false,
+        why: "the handoff protocol stays allowed in absolute form too",
+      },
+    ];
+
+    it.each(ROWS)("$why: `$cmd` → $blocked", ({ cmd, cwd, blocked }) => {
+      expect(runGuard(cmd, { ...process.env, CLAUDE_PROJECT_DIR: cwd })).toBe(blocked ? 2 : 0);
+    });
+
+    it("without CLAUDE_PROJECT_DIR set, an absolute target is not blocked by rule 6b", () => {
+      const env = { ...process.env };
+      delete env.CLAUDE_PROJECT_DIR;
+      expect(runGuard(`echo x > ${PROJ}/CLAUDE.md`, env)).toBe(0);
+    });
+  });
+
+  /**
    * #462 — the guard is scoped to what the shell EXECUTES, never to the text a
    * command merely WRITES.
    *
