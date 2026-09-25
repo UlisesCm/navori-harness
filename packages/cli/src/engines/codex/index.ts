@@ -21,6 +21,7 @@ import {
 import { injectManagedSection, removeManagedSection } from "../../lib/render/marker.ts";
 import { buildHarnessProse, type ProseEngineResult } from "../shared/prose-harness.ts";
 import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
+import { pluginExtraVars } from "../shared/plugin-extra-vars.ts";
 import {
   resolveHarnessPlan,
   type PlannedAgent,
@@ -211,7 +212,9 @@ export function renderCodexEngine(
         continue;
       }
       const subBlock = adaptHarnessTextForCodex(
-        interpolate(stripFrontmatter(readFileSync(skill.absPath, "utf-8")), config),
+        interpolate(stripFrontmatter(readFileSync(skill.absPath, "utf-8")), config, {
+          extraVars: pluginExtraVars(config),
+        }),
         config,
       );
       const injected = injectManagedSection(
@@ -471,7 +474,9 @@ function buildAgentsMdRequest(
     for (const skill of plugin.skillAssets) {
       if (skill.injectInto !== ".claude/agents/orchestrator.md") continue;
       const subBlock = adaptHarnessTextForCodex(
-        interpolate(stripFrontmatter(readFileSync(skill.absPath, "utf-8")), ctx.config),
+        interpolate(stripFrontmatter(readFileSync(skill.absPath, "utf-8")), ctx.config, {
+          extraVars: pluginExtraVars(ctx.config),
+        }),
         ctx.config,
       );
       body = injectManagedSection(
@@ -508,14 +513,17 @@ function buildAgentToml(
     interpolate(parsed.frontmatter.description ?? source.id, config),
     config,
   );
-  let instructions = adaptHarnessTextForCodex(interpolate(parsed.managedBody, config), config);
+  let instructions = adaptHarnessTextForCodex(
+    interpolate(parsed.managedBody, config, { extraVars: pluginExtraVars(config) }),
+    config,
+  );
 
   for (const plugin of plugins) {
     for (const skill of plugin.skillAssets) {
       if (skill.injectInto !== `.claude/agents/${source.id}.md`) continue;
       const extension = parseAsset(readFileSync(skill.absPath, "utf-8"), "html");
       instructions += `\n\n${adaptHarnessTextForCodex(
-        interpolate(extension.managedBody, config),
+        interpolate(extension.managedBody, config, { extraVars: pluginExtraVars(config) }),
         config,
       )}`;
     }
