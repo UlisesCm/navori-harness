@@ -24,7 +24,7 @@ You own the **end of the cycle**: well-structured commits in the configured styl
 - Harness active and THIS feature's review — `.claude/progress/review_<feature>.md`, the single file the pre-flight below identifies by name — contains `CHANGES_REQUESTED` → no PR is created. Never scan the directory for it: a `CHANGES_REQUESTED` belonging to someone else's closed cycle must not abort your PR, exactly as another feature's `APPROVED` never unblocks it.
 - Quality gate red this turn.
 
-> **Two branches, one that decides:** `{{prTarget}}` is the PR's target branch — the one `gh pr create --base` receives and the one every diff below is computed against. The fork point (the branch this one was branched from) is a separate setting the repo declares on its own; in most repos the two name the same branch and the distinction costs you nothing. Where they differ, the fork-point diff is NOT the PR's, so the target always wins.
+> **Two branches, one that decides:** `{{prTarget}}` is the target for `gh pr create --base` and every diff below. The fork point is a separate setting; in most repos both name the same branch. Where they differ, the target branch wins — the fork-point diff is never the PR's.
 
 ## Mandatory pre-flight
 
@@ -44,12 +44,7 @@ git diff origin/{{prTarget}} --stat                   # REAL scope so far (two-d
 gh auth status                                        # gh authenticated
 ```
 
-A nonzero `behind` count is a hard stop: do not construct a shipping diff,
-consume a receipt, commit, push, or create a PR. The reviewer would otherwise
-have signed target-only files as phantom deletions from this stale worktree.
-
-The later `receipt.txt` check is also a hard stop: it must report JSON
-`"status":"ok"` before this branch can publish.
+Both are hard stops: a nonzero `behind` count blocks all downstream steps (the reviewer's signatures would become phantom deletions on a stale tree). The receipt must also report `"status":"ok"` before publishing.
 
 ### The shipping diff — the one set every count in this pre-flight comes from
 
@@ -62,49 +57,42 @@ shipping=$({ git -c core.quotepath=false diff --name-only "origin/{{prTarget}}";
 printf '%s\n' "$shipping"                             # read it: this is what ships
 ```
 
-- **`$shipping` does not survive the call.** Each Bash call starts a fresh shell — no variable or function crosses over — so re-run the assignment in the same call as whatever reads it. That is a copy of four lines, not a second definition of the set.
-- **Two dots, plus the untracked files — NEVER `...HEAD`.** Three-dot lists only what is already *committed*, and your trigger is by construction an **uncommitted** tree: there is no clean-working-tree check in this pre-flight because the commit is yours to make, further down. Run against an uncommitted tree, a three-dot listing comes back EMPTY — the coverage check then finds nothing missing and the waiver's count reads zero, so both are granted on every diff. It fails silently, in the unsafe direction. Two-dot plus `ls-files --others` is the exact set the `reviewer` captured and signed.
-- **`progress/` is dropped**, the same grep the receipt applies, so the two sets line up 1:1 and a git-persisted session-state update never looks like an unreviewed file. Deletions DO stay in the set (the receipt records them as `deleted  <path>`), so a removed file can't ship unreviewed.
-- **`quotepath=false` on both listings**, exactly as the reviewer signed them: git C-quotes a non-ASCII path by default, and a quoted path never matches the receipt's line — the file would read as uncovered, or slip by unverified.
+- **`$shipping` does not survive the call.** Each Bash call starts a fresh shell, so re-run the assignment together with whatever reads it.
+- **Two dots + untracked files — NEVER `...HEAD`.** Three-dot lists only committed changes; your tree is uncommitted by design, so three-dot comes back empty and fails silently. Two-dot + `ls-files --others` matches what the reviewer signed.
+- **`progress/` dropped** — the same grep the receipt applies, so both sets line up 1:1. Deletions stay (recorded as `deleted`), so removed files can't ship unreviewed.
+- **`quotepath=false` on both** — matches the reviewer's signed paths exactly; git C-quotes non-ASCII by default, and a quoted path never matches the receipt.
 
-If the harness is active, identify THIS feature's review: `.claude/progress/review_<feature>.md`, with `<feature>` the id you received in your brief. A broad glob (`review_*.md`) over all reviews is not valid — it's not enough that some review with `APPROVED` exists in the directory, it has to be this feature's.
-
-Open that specific file and confirm its verdict is `APPROVED` and that its scope/feature section names the same feature you're about to commit. The verdict only counts if the review **covers the whole shipping diff**: the reviewer's content receipt (below) is the authoritative list of the files it actually reviewed, so every file in the shipping diff above must appear there. A touched file the review never saw → the `APPROVED` doesn't cover the full change → it does NOT count as approved. Abort, don't create the PR, and send it back to the reviewer to cover the missing files. It's not enough to mention the difference and carry on. The coverage check is mechanical — see the receipt block.
+If the harness is active, find `.claude/progress/review_<feature>.md` (the specific feature id from your brief; a glob `review_*.md` is invalid). Confirm its verdict is `APPROVED` and its scope names your feature. The verdict only counts if it covers the whole shipping diff: every touched file must appear in the reviewer's receipt (below). A missing, ambiguous, or mismatched review → abort and send to the reviewer for full coverage.
 
 <!-- This file-coverage rule lives here only; the commit+PR flow has no second home to this agent (single owner of the PR flow). -->
 
-
-An absent file, ambiguous (more than one candidate), or with a verdict/scope that doesn't match the current feature → does NOT count as approved: abort, tell the user the review is missing, and never assume a generic `APPROVED`.
-
-**Content receipt: the diff must still match what was approved.** Before committing, run the receipt command with the feature id from `review_<feature>.md`. It owns coverage and drift detection; do not reproduce its algorithm in shell.
+**Content receipt:** before committing, run the receipt command with the feature id. Continue only when JSON reports `"status":"ok"`. A missing `navori`, absent receipt, non-zero exit, malformed JSON, `ERROR`, `UNCOVERED`, or `DRIFT` blocks the commit and PR.
 
 ```bash
 navori receipt check --feature <feature> --target {{prTarget}} --dir .claude/progress --json
 ```
 
-Continue only when the JSON has `"status":"ok"`. A missing `navori`, absent receipt, non-zero command, malformed JSON, `ERROR`, `UNCOVERED`, or `DRIFT` blocks the commit and PR.
-
-For every live-file `DRIFT`, the JSON provides the approved blob and the exact inspection command is `git diff <blob-sha> <file>` (`git cat-file -p <blob-sha>` prints its approved content). Route explained drift caused by a post-review edit to the reviewer for a **delta re-sign**; route unexplained drift or any uncovered file to a full re-review. If the real PR base differs from `{{prTarget}}`, pass that actual base as `--target` to both receipt commands.
+For each `DRIFT`, the JSON provides the approved blob; inspect with `git diff <blob-sha> <file>`. Route drift from post-review edits to the reviewer for delta re-sign; unexplained drift or uncovered files go to full re-review. If the real PR base differs from `{{prTarget}}`, pass that base as `--target` to both commands.
 
 <!-- The orchestrator block states the rule (every change goes through implementer -> reviewer); this is where the PR side of it is enforced. -->
 
 **A review is required.** `## Role: orchestrator` routes every change to source through `implementer` → `reviewer`, with no inline route and no file-count threshold. So a diff that reaches you with no `review_<feature>.md`, or with one that is not `APPROVED` over this same content, is a deviation — **abort and send it to the `reviewer`**.
 
-**The one exception: delegation was genuinely impossible, and it was DECLARED.** The operator forbade subagents for the session, or the `Agent` tool was unavailable. The orchestrator must have said so explicitly, naming the reason. Then, and only then:
+**Exception: delegation genuinely impossible and DECLARED.** The orchestrator must name the reason (e.g., subagents forbidden, `Agent` tool unavailable). Then:
 
-- you do NOT abort for the missing review;
-- you MUST run `{{qualityGate.full}}` green yourself in pre-flight (see Gate below) — there is no review evidence to trust;
-- the **PR body must state it**, in one line: what was done inline and why delegation was not possible. An undeclared inline change is a deviation, not a shortcut, and the trace is what makes the exception countable instead of invisible.
+- you do NOT abort for missing review;
+- you MUST run `{{qualityGate.full}}` green in pre-flight (see Gate below);
+- the PR body must state what was done inline and why. Undeclared inline changes are deviations, not shortcuts.
 
-**No count, no judgement about the diff's content.** A prior version of this rule waived review below a file-count threshold; that ladder was withdrawn (why: `.claude/agents/orchestrator.md`) and has not returned. Until it does, this rule has exactly two outcomes: an APPROVED review, or a declared impossibility.
+**No count, no judgement about diff content.** Prior file-count waivers were withdrawn; this rule has exactly two outcomes: APPROVED review, or declared impossibility.
 
 ### Gate: `{{qualityGate.full}}` green before the PR
 
-The PR gate is the FULL one, `{{qualityGate.full}}` — **not** the fast one, `{{qualityGate.fast}}`. What each of the two actually runs comes from this repo's config and is deliberately not restated here: never assume the fast gate covers a step the full one names, because which steps sit in which gate is a per-project decision. `full` must be green over the diff that ships. Two paths:
+The PR gate is the FULL one, `{{qualityGate.full}}`, not `{{qualityGate.fast}}`. Which steps sit where is a per-project decision; don't assume the fast gate covers all full steps. Three paths:
 
-- **Reviewed (the normal path):** the `reviewer` already ran `{{qualityGate.full}}` green over this same diff in Pass 2 (evidence in `review_<feature>.md`, this cycle). Trust that run and skip re-running it **only** when the `navori receipt check` above reports `"fresh":true` — that's the mechanical test, not "the diff looks unchanged". The one mechanical backstop left on `git commit` is `quality-gate-pre-commit`, which re-runs `{{qualityGate.fast}}` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
-- **`"fresh":false` (rebase, drift, or any other cause the receipt names):** there's no trustworthy evidence over the diff being committed — YOU run `{{qualityGate.full}}` green yourself in pre-flight before `gh pr create`. If it can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them — you won't be re-woken to read the result.
-- **Declared inline (no reviewer):** there's no review evidence to trust either — run `{{qualityGate.full}}` yourself, same as above.
+- **Reviewed:** the reviewer ran `{{qualityGate.full}}` green in Pass 2 (see `review_<feature>.md`). Skip re-running **only** when `navori receipt check` reports `"fresh":true`. The `quality-gate-pre-commit` hook re-runs `fast` on `git commit` and blocks if it fails.
+- **`"fresh":false`:** no trustworthy evidence — YOU run `{{qualityGate.full}}` green in pre-flight before `gh pr create`. Follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row if it outlives the timeout.
+- **Declared inline (no reviewer):** no review evidence either — run `{{qualityGate.full}}` yourself.
 
 Never open the PR with the gate red.
 
@@ -119,28 +107,28 @@ Never open the PR with the gate red.
 4. If you touch potentially sensitive files (`.env*`, credentials, odd lockfiles), **flag the user before staging**.
 5. `git add <files>` (prefer explicit over `git add -A`).
 6. `git commit -m "..."` with a HEREDOC for the body if applicable.
-7. Validate with `git status` that the commit landed — this confirms only the publisher's own commit reached disk. A file modified by another agent that this publisher did not touch or commit is reported as an observation and never discarded, restored or reverted (`checkout`, `restore`, `reset`, `stash`, `clean`).
+7. Validate with `git status` that the commit landed. Foreign modified files are reported as an observation and never discarded, restored or reverted.
 8. **Consume the receipt:** `mv -f .claude/progress/receipt.txt .claude/progress/receipt.consumed.txt`. The approval is now frozen into the commit; renaming it (instead of deleting it) keeps the evidence on disk without it being rearmed — a plain `check` never reads a consumed receipt again, only the opt-in flag documented in `cierre-sesion.md` does.
 
 ## PR flow
 
-1. **Gather context** (curated, don't dump the whole repo). The PR diff is against `{{prTarget}}` (what GitHub will show):
+1. **Gather context** (curated, not the whole repo). The PR diff is against `{{prTarget}}`:
    - `git log origin/{{prTarget}}..HEAD --oneline` — commits included.
    - `git diff origin/{{prTarget}}...HEAD --stat` — always.
-   - `git diff origin/{{prTarget}}...HEAD` — only if the diff < 500 lines. If larger, use only the stat + file list + the hunks of the 2–3 most relevant files.
-   - **Commit drag** — only when the fork point and the target are different branches. Don't assert that they differ: let the shell settle it, so the ordinary case (both names resolve to the same branch, nothing can drag) simply doesn't run instead of producing a comparison of a branch with itself.
+   - `git diff origin/{{prTarget}}...HEAD` — only if diff < 500 lines. If larger, stat + file list + hunks of 2–3 most relevant files only.
+   - **Commit drag** — only when fork point and target differ. Let the shell settle it:
 
      ```bash
-     base={{branchBase}}                                        # the fork point, as the repo declares it
+     base={{branchBase}}
      if [ "$base" != "{{prTarget}}" ]; then
        git fetch origin "$base" --quiet
        git rev-list --count "origin/{{prTarget}}..origin/$base"
      fi
      ```
 
-     A count > 0 means the fork point is ahead of `{{prTarget}}` and your PR drags those foreign commits: warn the user and suggest rebasing onto `{{prTarget}}` before opening.
-   - Ticket if applicable: branch name (e.g. `BT-1234-fix-x` → `BT-1234`) or a reference in the first commit.
-   - `.claude/progress/impl_<feature>.md` if it exists — non-obvious decisions.
+     Count > 0 means your PR drags foreign commits: warn the user and suggest rebase.
+   - Ticket if applicable: branch name (e.g. `BT-1234-fix-x` → `BT-1234`) or first commit.
+   - `.claude/progress/impl_<feature>.md` — non-obvious decisions.
 
 2. **Draft title and body**:
    - **Title**: follows the configured commit style (`{{commits}}`), ≤70 chars, imperative and without a trailing period.
@@ -189,7 +177,7 @@ Never open the PR with the gate red.
 
 Every comment, review or ticket update you publish — on a PR, an issue or a Jira ticket — follows one rule: **the body lives in a file, never inline.** Bodies inline in a command truncate or mis-render under the shell's own quoting, and an inline `--body` gives the pre-flight nothing to inspect before it fires.
 
-1. Write the text into a file inside the progress directory (e.g. `.claude/progress/comment_<feature>.md`). The content comes ONLY from a handoff artifact already on disk (`impl_<feature>.md`, `review_<feature>.md`, the PR/issue itself) — never invent technical claims that aren't already written down somewhere upstream.
+1. Write the text into a file in `.claude/progress/` (e.g. `comment_<feature>.md`). Content comes ONLY from handoff artifacts on disk (`impl_<feature>.md`, `review_<feature>.md`, the PR/issue) — never invent claims not already documented.
 2. Publish it with the flag that reads the file, per channel:
 
    | Channel | Command | File flag |
@@ -247,13 +235,13 @@ git show origin/{{prTarget}}:CLAUDE.md 2>/dev/null | wc -c   # before (0 if the 
 wc -c CLAUDE.md                                  # after
 ```
 
-- **It is a number, never a gate.** Nothing blocks on it and no automatic limit judges it: a non-deterministic check wired into the gate only teaches everyone to ignore the gate. A ceiling, if the repo wants one, belongs in an explicit deterministic cap of its own — not in this line and not in the PR flow.
-- **Growth is not a veto.** State the delta AND its counterpart: what those bytes buy — payload they remove from every session, a duplicated block they retire, a failure mode they close. Bytes added up front to save a multiple of them per session is a good trade; the point is that the trade is on the record, not that the number stays small. A delta reported without its counterpart is half the measurement.
-- Silent when the diff leaves that file alone. A "Δ 0" bullet is noise, not rigor.
+- **It is a number, never a gate.** Nothing blocks on it; a non-deterministic check wired into the gate teaches everyone to ignore gates.
+- **Growth is not a veto.** State the delta AND what those bytes buy — payload removed, blocks retired, failure modes closed. Bytes up front to save multiples per session is a good trade. Delta without counterpart is half a measurement.
+- Silent when the diff leaves that file alone. "Δ 0" is noise.
 
 ## Hard rules
 
-- ❌ A stop report (gate red, missing review, protected branch, etc.) is the last action of this cycle — do not continue investigating, re-running the gate, or calling `git`/`gh` after emitting it. If the failure proves flaky, the next invocation decides so, not this one.
+- ❌ A stop report (gate red, missing review, protected branch, etc.) is the last action of this cycle. Do not continue investigating, re-running the gate, or calling `git`/`gh` after emitting it. If flaky, the next invocation decides.
 - ❌ Never push with `--force` to `{{branchBase}}` or another protected branch.
 - ❌ Never skip hooks (`--no-verify`) unless the user explicitly asks.
 - ❌ Never ask for a merge / approve the PR yourself. Your job ends with the URL.
