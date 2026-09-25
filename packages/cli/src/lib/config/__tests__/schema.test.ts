@@ -55,7 +55,16 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
       // renders now.
       scribeOwnsMarkdown: false,
       planTiers: false,
+      masterPlan: false,
     });
+  });
+
+  it("harness.masterPlan defaults to false (via harness:{}) and accepts an explicit true", () => {
+    const off = NavoriConfigSchema.parse({ ...MINIMAL, harness: {} });
+    expect(off.harness?.masterPlan).toBe(false);
+    const on = NavoriConfigSchema.parse({ ...MINIMAL, harness: { masterPlan: true } });
+    expect(on.harness?.masterPlan).toBe(true);
+    expect(on.harness?.implementer).toBe(true);
   });
 
   // Covers: R13
