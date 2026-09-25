@@ -79,6 +79,70 @@ describe("navori plan classify", () => {
     const parsed = JSON.parse(logs.join(""));
     expect(parsed.level).toBe(2);
   });
+
+  /** Writes a workplan draft (pre-`classify`, no `level`/`classification`
+   * required) with the given `files`/`signals` for the "no --files" fallback
+   * tests below (#1067) — shared instead of repeated per test to avoid
+   * duplicating the fixture (jscpd). */
+  function writeDraft(files: string[], signals?: string[]): void {
+    mkdirSync(join(cwd, dir), { recursive: true });
+    writeFileSync(
+      join(cwd, dir, "workplan_demo.json"),
+      JSON.stringify({
+        feature: "demo",
+        objective: "Ship it",
+        files: files.map((path) => ({ path, new: false })),
+        ...(signals ? { classification: { signals } } : {}),
+      }),
+    );
+  }
+
+  /** Runs `classify demo --json [...extraArgs]` and returns the parsed
+   * result — shared by the draft-fallback tests. */
+  async function classifyDemoJson(extraArgs: string[]): Promise<{ level: number; score: number }> {
+    const logs: string[] = [];
+    const spy = vi_spyConsole(logs);
+    await runCommand(planCommand, {
+      rawArgs: ["classify", "demo", "--json", "--cwd", cwd, ...extraArgs],
+    });
+    spy.restore();
+    return JSON.parse(logs.join(""));
+  }
+
+  // Covers: #1067
+  it("falls back to the draft workplan's files when --files is omitted", async () => {
+    writeDraft(["src/a.ts", "src/b.ts", "src/c.ts"]);
+    const parsed = await classifyDemoJson([]);
+    expect(parsed.level).toBeGreaterThanOrEqual(1);
+    expect(typeof parsed.score).toBe("number");
+  });
+
+  // Covers: #1067
+  it("prefers an explicit --files over the draft workplan", async () => {
+    writeDraft(["src/a.ts", "src/b.ts", "src/c.ts"]);
+    const parsed = await classifyDemoJson(["--files", "src/only.ts"]);
+    expect(parsed.level).toBe(0);
+  });
+
+  // Covers: #1067
+  it("reuses the draft workplan's declared signals when --files is omitted", async () => {
+    writeDraft(["src/a.ts"], ["floor:data-schema-migration"]);
+    const parsed = await classifyDemoJson([]);
+    expect(parsed.level).toBe(2);
+  });
+
+  // Covers: #1067
+  it("fails with a clear message when the draft workplan is not readable JSON", async () => {
+    mkdirSync(join(cwd, dir), { recursive: true });
+    writeFileSync(join(cwd, dir, "workplan_demo.json"), "{not json");
+    const logs: string[] = [];
+    const spy = vi_spyConsole(logs);
+    await runCommand(planCommand, {
+      rawArgs: ["classify", "demo", "--cwd", cwd],
+    });
+    spy.restore();
+    expect(process.exitCode).toBe(1);
+  });
 });
 
 /** Sets up a real git repo at `cwd` with a `main` base commit and, on top of

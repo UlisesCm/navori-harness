@@ -40,6 +40,65 @@ function mdPath(cwd: string, dir: string, feature: string): string {
   return resolve(cwd, dir, `workplan_${feature}.md`);
 }
 
+/** A workplan draft's `files[].path` and, if well-formed, its
+ * `classification.signals` — read WITHOUT `WorkplanSchema`, since a draft
+ * written before `classify` ran has no `level`/`classification` yet and the
+ * full schema would reject it. */
+interface DraftClassifyContext {
+  files: string[];
+  signals: string[];
+}
+
+/** Best-effort read of `workplan_<feature>.json`'s draft shape for
+ * `classify` (#1067): when `--files` is omitted, the CLI falls back to the
+ * draft's declared files/signals instead of silently classifying an empty
+ * list. Returns `undefined` when no draft exists at `path` — the caller
+ * then keeps today's behavior. Throws when the file exists but isn't valid
+ * JSON or its `files` entries aren't a well-formed `{ path: string }[]`, so
+ * a broken draft fails loudly instead of returning a silent 0/10.
+ */
+function readDraftClassifyContext(path: string): DraftClassifyContext | undefined {
+  if (!existsSync(path)) return undefined;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch (cause: unknown) {
+    throw new Error(
+      `cannot read draft workplan ${path}: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+  }
+  if (typeof raw !== "object" || raw === null) {
+    throw new Error(`draft workplan ${path} is not a JSON object`);
+  }
+  const record = raw as Record<string, unknown>;
+  const rawFiles = record.files;
+  const files: string[] = [];
+  if (rawFiles !== undefined) {
+    if (!Array.isArray(rawFiles)) {
+      throw new Error(`draft workplan ${path}: "files" must be an array`);
+    }
+    for (const entry of rawFiles) {
+      if (
+        typeof entry !== "object" ||
+        entry === null ||
+        typeof (entry as { path?: unknown }).path !== "string"
+      ) {
+        throw new Error(`draft workplan ${path}: every "files" entry needs a string "path"`);
+      }
+      files.push((entry as { path: string }).path);
+    }
+  }
+  const rawSignals = (record.classification as { signals?: unknown } | undefined)?.signals;
+  const signals: string[] = [];
+  if (rawSignals !== undefined) {
+    if (!Array.isArray(rawSignals) || rawSignals.some((s) => typeof s !== "string")) {
+      throw new Error(`draft workplan ${path}: "classification.signals" must be a string array`);
+    }
+    signals.push(...(rawSignals as string[]));
+  }
+  return { files, signals };
+}
+
 function readWorkplan(path: string): Workplan {
   if (!existsSync(path)) throw new Error(`workplan not found: ${path}`);
   const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
@@ -149,17 +208,34 @@ const classifySubCommand = defineCommand({
       return;
     }
 
+    // No `--files`: fall back to the feature's draft workplan (files +
+    // declared signals) instead of silently classifying an empty list
+    // (#1067) — `--files` explicit always wins over the draft.
+    let draft: DraftClassifyContext | undefined;
+    if (args.files === undefined) {
+      try {
+        draft = readDraftClassifyContext(jsonPath(cwd, args.dir, args.feature));
+      } catch (cause: unknown) {
+        process.stderr.write(
+          `${cause instanceof Error ? cause.message : "invalid draft workplan"}\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+    }
+    const declaredFromDraft = draft ? declaredFlagsFromSignals(draft.signals) : {};
+
     const input: ClassifyInput = {
-      files: splitList(args.files),
-      criticalArea: args.criticalArea,
+      files: args.files !== undefined ? splitList(args.files) : (draft?.files ?? []),
+      criticalArea: args.criticalArea ?? declaredFromDraft.criticalArea,
       criticalPaths,
       localSkillIds,
-      moneyCredentialsPii: args.moneyCredentialsPii,
-      multiRepo: args.multiRepo,
-      newExternalDependency: args.newExternalDependency,
-      sharedContract: args.sharedContract,
-      dataSchemaMigration: args.dataSchemaMigration,
-      bugWithoutRootCause: args.bugWithoutRootCause,
+      moneyCredentialsPii: args.moneyCredentialsPii ?? declaredFromDraft.moneyCredentialsPii,
+      multiRepo: args.multiRepo ?? declaredFromDraft.multiRepo,
+      newExternalDependency: args.newExternalDependency ?? declaredFromDraft.newExternalDependency,
+      sharedContract: args.sharedContract ?? declaredFromDraft.sharedContract,
+      dataSchemaMigration: args.dataSchemaMigration ?? declaredFromDraft.dataSchemaMigration,
+      bugWithoutRootCause: args.bugWithoutRootCause ?? declaredFromDraft.bugWithoutRootCause,
     };
     const result = classify(input);
     if (args.json) {
