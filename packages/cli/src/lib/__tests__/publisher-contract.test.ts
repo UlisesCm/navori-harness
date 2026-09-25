@@ -67,3 +67,24 @@ describe("comment contract and channel sub-blocks", () => {
     expect(content).toMatch(/Never write to Jira/i);
   });
 });
+
+/**
+ * Issue #1018 — a publisher dispatched async kept acting (re-ran the gate,
+ * committed, pushed, opened the PR) after emitting a stop report, because
+ * `publisher.md` never says a stop report is the cycle's last action. Also
+ * pins that Commit flow step 7 never discards a foreign modified file.
+ */
+// Covers: #1018
+describe("stop report is final; foreign changes are never discarded", () => {
+  it("publisher.md declares a stop report as the cycle's last action — no further gate/git/gh after it", () => {
+    const body = readPublisher();
+    expect(body).toMatch(/last action of this cycle/i);
+    expect(body).toMatch(/next invocation/i);
+  });
+
+  it("publisher.md's Commit flow step 7 never discards, restores or reverts a foreign modified file", () => {
+    const body = readPublisher();
+    expect(body).toMatch(/reported as an observation/i);
+    expect(body).toMatch(/never discarded, restored or reverted/i);
+  });
+});
