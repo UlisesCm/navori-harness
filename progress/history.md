@@ -10,6 +10,19 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-24 19:40 — orchestrator — Lib-skills del stack Expo/Vite/Hono; retira nativewind
+- Cambios: 9 lib-skills nuevas en `packages/core/core-assets/lib-skills/` (uniwind, expo-router,
+  eas-release por `eas.json`, tanstack-router, shadcn-base-ui, tailwind-v4, hono, better-auth,
+  react-email) registradas en `library-skills.ts` con tests; `nativewind` a `REMOVED_LIB_SKILLS`
+  sin sucesor; conteos `consts.ts` 52→60 y `features.librarySkills` 36→44.
+- Quality gate: ✅ `bun check` verde en el Pass 2 del reviewer; receipt `ok`/fresh sobre 4e1d433d.
+- Notas: hechos contrastados contra docs oficiales y fuentes instaladas (Better Auth CLI es
+  `npx auth@latest`, `migrate` solo Kysely; `eas env:set`, no hay `env:create`). El tope real de
+  lib-skills es 500 palabras de cuerpo managed (`skill-caps.test`), no `wc -w`. `navori receipt sign`
+  falla con un symlink no rastreado en la raíz (`linkdir`, restos de #1027): candidato a issue.
+  Siguiente: preset local + skills propias del producto en navori-boilerplate.
+- Commit / PR: #1044
+
 ## 2026-09-23 21:00 — orchestrator — Spec 0032: planificación por niveles
 - Cambios: `specs/0032-planificacion-por-niveles/{requirements,design,tasks}.md`. Niveles 0-3
   decididos por las señales de la tabla de orquestación, `workplan_<feature>.md` con criterios
