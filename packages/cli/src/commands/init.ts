@@ -867,7 +867,9 @@ export async function chooseAdoptionMode(
     // Surface WHAT was detected (same summary the interactive flow shows below)
     // so the coexist decision isn't a black box — otherwise a user who believes
     // they cleaned the repo can't tell what triggered it (e.g. a leftover
-    // progress/ dir, which counts as infra even after .claude/CLAUDE.md are gone).
+    // AGENTS.md or settings.json, even after CLAUDE.md is gone). Note: progress/
+    // never triggers this on its own (see detectClaudeInfra's `present`) — it's
+    // still shown in the summary below when present is true for another reason.
     p.log.warn(tr.existingInfraYesMode);
     p.note(formatInfraSummary(infra, args.lang), tr.filesFoundTitle);
     return { mode: "coexist", pendingRemoval: null };

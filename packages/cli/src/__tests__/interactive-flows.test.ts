@@ -177,11 +177,21 @@ describe("init — chooseAdoptionMode (interactive adoption, #7)", () => {
     expect(p.note).toHaveBeenCalledWith(expect.stringContaining("CLAUDE.md"), expect.anything());
   });
 
-  it("--yes lists a leftover progress/ dir as the infra that triggered coexist", async () => {
-    const infra = { ...makeInfra(false), present: true, progressFiles: 2 };
+  it("--yes still lists a leftover progress/ dir in the summary when another signal triggers coexist", async () => {
+    // progressFiles alone never flips `present` (a navori-owned progress/ is
+    // create-if-missing, never overwritten by render — see claude-infra.ts),
+    // but the summary keeps showing it once coexist is triggered by real infra.
+    const infra = { ...makeInfra(true), progressFiles: 2 };
     const r = await chooseAdoptionMode("/x", infra, "app", { yes: true, lang: "es" });
     expect(r).toEqual({ mode: "coexist", pendingRemoval: null });
     expect(p.note).toHaveBeenCalledWith(expect.stringContaining("progress/"), expect.anything());
+  });
+
+  it("a leftover progress/ dir alone never triggers coexist — present stays false", async () => {
+    const infra = { ...makeInfra(false), progressFiles: 2 };
+    const r = await chooseAdoptionMode("/x", infra, "app", { yes: true, lang: "es" });
+    expect(r).toEqual({ mode: "fresh", pendingRemoval: null });
+    expect(p.select).not.toHaveBeenCalled();
   });
 
   it("selecting 'coexist' → 'coexist'", async () => {
