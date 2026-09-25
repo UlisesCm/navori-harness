@@ -1,11 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -113,6 +114,30 @@ function runHook(shell: HookShell, cwd: string, payload: Record<string, unknown>
   return { code: r.status ?? -1, stdout: r.stdout ?? "" };
 }
 
+/** `git init` a fresh repo, quietly — the hook needs `--git-common-dir` to
+ *  resolve its stamp (#1024), so every project dir below is a real repo
+ *  unless a test is specifically about the no-git case. */
+function gitInit(dir: string): void {
+  execFileSync("git", ["-C", dir, "init", "-q"], { stdio: "ignore" });
+}
+
+/** The absolute, resolved `--git-common-dir` for `dir` — what the hook itself
+ *  computes, used here to locate the stamp independently of the hook's own
+ *  logic. Realpath'd: macOS resolves a worktree's gitdir file to an absolute
+ *  path through `/tmp`'s `/private` symlink but leaves a plain repo's
+ *  relative `.git` alone, so the two forms need normalizing before comparing. */
+function gitCommonDir(dir: string): string {
+  const raw = execFileSync("git", ["-C", dir, "rev-parse", "--git-common-dir"], {
+    encoding: "utf-8",
+  }).trim();
+  return realpathSync(raw.startsWith("/") ? raw : join(dir, raw));
+}
+
+/** The stamp dir the hook writes to for `dir`'s repo — `<git-common-dir>/navori/routing-watch`. */
+function stampDirFor(dir: string): string {
+  return join(gitCommonDir(dir), "navori", "routing-watch");
+}
+
 /**
  * Play a whole sequence against a fresh project dir, under every available
  * shell, and assert the shells agree (#391). Returns the agreed run list.
@@ -121,6 +146,7 @@ function play(payloads: Array<Record<string, unknown>>): HookRun[] {
   return acrossShells((shell) => {
     const cwd = mkdtempSync(join(tmpdir(), "navori-routing-"));
     mkdirSync(join(cwd, ".claude"), { recursive: true });
+    gitInit(cwd);
     return payloads.map((p) => runHook(shell, cwd, p));
   });
 }
@@ -130,6 +156,7 @@ function play(payloads: Array<Record<string, unknown>>): HookRun[] {
 function freshProject(): string {
   const cwd = mkdtempSync(join(tmpdir(), "navori-routing-"));
   mkdirSync(join(cwd, ".claude"), { recursive: true });
+  gitInit(cwd);
   return cwd;
 }
 
@@ -325,17 +352,21 @@ describe.runIf(runsBash)("routing-watch.sh — and never becomes noise (spec 002
   // fixture would assert the opposite of what it sets up (containers run as
   // root; the CI runner does not).
   it.runIf(process.getuid?.() !== 0)("sale 0 aunque no pueda escribir el sello", () => {
-    // A read-only project dir: the hook cannot create its stamp. It must stay
-    // silent and exit 0 — a PostToolUse hook runs after tool calls all session
-    // long, so failing loudly there is worse than never warning.
+    // A read-only `.git`: the hook cannot `mkdir -p` its state dir there
+    // (#1024 moved it off `.claude/`, so a read-only `.claude/` no longer has
+    // anything to do with this). It must stay silent and exit 0 — a
+    // PostToolUse hook runs after tool calls all session long, so failing
+    // loudly there is worse than never warning.
     const runs = acrossShells((shell) => {
       const cwd = mkdtempSync(join(tmpdir(), "navori-routing-ro-"));
       mkdirSync(join(cwd, ".claude"), { recursive: true });
-      chmodSync(join(cwd, ".claude"), 0o500);
+      gitInit(cwd);
+      const gitDir = join(cwd, ".git");
+      chmodSync(gitDir, 0o500);
       const out = [edit("src/a.ts"), edit("src/b.ts"), edit("src/c.ts"), edit("src/d.ts")].map(
         (p) => runHook(shell, cwd, p),
       );
-      chmodSync(join(cwd, ".claude"), 0o700);
+      chmodSync(gitDir, 0o700);
       return out;
     });
 
@@ -379,22 +410,25 @@ describe("routing-watch — wiring (spec 0020)", () => {
     const plan = resolveHarnessPlan(MINIMAL_CONFIG, resolve(getCoreRoot(), "core-assets"), null);
     expect(plan.hooks.map((h) => h.id)).toContain("routing-watch");
 
-    // The stamp is machine-local per-session state: `.gitignore`, the render
-    // backup's exclusion and doctor's hygiene scan all read this one list.
-    expect(EPHEMERAL_HARNESS_PATHS).toContain(".claude/.routing-watch/");
+    // #1024: the stamp moved OFF `.claude/`, into `<git-common-dir>/navori/`
+    // (never git-visible, whatever the ignore state), so it no longer belongs
+    // in `EPHEMERAL_HARNESS_PATHS` — nothing under `.claude/` is left for
+    // `.gitignore`/the render backup/doctor's scan to protect here.
+    expect(EPHEMERAL_HARNESS_PATHS).not.toContain(".claude/.routing-watch/");
   });
 
   // Covers: R2
-  it.runIf(runsBash)("escribe el sello exactamente donde lo declara efímero", () => {
-    // The constant and the script are two files that must agree, and nothing
-    // else checks that they do: a rename in the hook would leave a stamp
-    // directory that git tracks and that the backup copies, in silence.
-    const declared = ".claude/.routing-watch/";
+  it.runIf(runsBash)("escribe el sello donde lo declara #1024: fuera de .claude/", () => {
+    // The hook and the test must agree independently on where the stamp
+    // lands — `stampDirFor` re-derives it via `git rev-parse`, never by
+    // reading the hook's own source.
     const cwd = mkdtempSync(join(tmpdir(), "navori-routing-stamp-"));
     mkdirSync(join(cwd, ".claude"), { recursive: true });
+    gitInit(cwd);
     runHook("bash", cwd, edit("src/a.ts"));
 
-    expect(existsSync(join(cwd, declared, SESSION))).toBe(true);
+    expect(existsSync(join(stampDirFor(cwd), SESSION))).toBe(true);
+    expect(existsSync(join(cwd, ".claude", ".routing-watch", SESSION))).toBe(false);
   });
 });
 
@@ -419,7 +453,7 @@ describe("edits made inside a subagent (the host fires hooks there too)", () => 
         expect(r.stdout).not.toContain("additionalContext"); // Covers: R3
       }
       // The stamp says what those edits proved: delegation happened.
-      const stamp = readFileSync(join(cwd, ".claude", ".routing-watch", SESSION), "utf-8");
+      const stamp = readFileSync(join(stampDirFor(cwd), SESSION), "utf-8");
       expect(stamp).toContain("#delegated");
       // ...so a later MAIN-thread burst does not notify either: this session
       // already delegated, which is exactly what the notice exists to cause.
@@ -436,7 +470,7 @@ describe("stamp hygiene (one file per session, forever, unless someone sweeps)",
   it.runIf(runsBash)("prunes stale sibling stamps when creating this session's", () => {
     acrossShells((shell) => {
       const cwd = freshProject();
-      const dir = join(cwd, ".claude", ".routing-watch");
+      const dir = stampDirFor(cwd);
       mkdirSync(dir, { recursive: true });
       const stale = join(dir, "sess-ancient");
       const recent = join(dir, "sess-recent");
@@ -538,7 +572,7 @@ describe("shell writes reach the threshold too (#722)", () => {
     for (const cmd of noise) expect(runHook("bash", cwd, bash(cmd)).stdout).toBe("");
     // Nothing reached the stamp: the probe runs BEFORE `session_id` is read, so
     // a shell command that writes nothing costs what a Read costs.
-    expect(existsSync(join(cwd, ".claude/.routing-watch", SESSION))).toBe(false);
+    expect(existsSync(join(stampDirFor(cwd), SESSION))).toBe(false);
   });
 
   it("no cuenta un `>` que solo existe en la SALIDA del comando (rung 2)", () => {
@@ -599,7 +633,7 @@ describe("shell writes reach the threshold too (#722)", () => {
     for (const cmd of ["cmd >&2", "cmd >& 2", "pnpm test >&2 | tail -5"]) {
       expect(runHook("bash", cwd, bash(cmd)).stdout).toBe("");
     }
-    expect(existsSync(join(cwd, ".claude/.routing-watch", SESSION))).toBe(false);
+    expect(existsSync(join(stampDirFor(cwd), SESSION))).toBe(false);
   });
 
   it("keeps the two filters that already applied to the native lane", () => {
@@ -613,5 +647,63 @@ describe("shell writes reach the threshold too (#722)", () => {
       bash("echo x > pnpm-lock.yaml"),
     ]);
     expect(runs.every((r) => r.stdout === "")).toBe(true);
+  });
+});
+
+/**
+ * #1024 — where the stamp lives. Both cases the workplan calls out: a
+ * worktree (`.git` is a FILE pointing at the main checkout) must resolve to
+ * the shared state dir, and running outside a git repo must degrade to
+ * "write nothing, exit 0" rather than fall back to `.claude/`.
+ */
+describe.runIf(runsBash)("routing-watch.sh — where the stamp lives (#1024)", () => {
+  it("writes the stamp under the shared .git when run inside an agent worktree", () => {
+    const main = freshProject();
+    execFileSync(
+      "git",
+      [
+        "-C",
+        main,
+        "-c",
+        "user.email=t@t.io",
+        "-c",
+        "user.name=t",
+        "commit",
+        "--allow-empty",
+        "-q",
+        "-m",
+        "init",
+      ],
+      { stdio: "ignore" },
+    );
+    const branch = "wt-1024";
+    const wtDir = join(main, ".claude", "worktrees", branch);
+    mkdirSync(join(main, ".claude", "worktrees"), { recursive: true });
+    execFileSync("git", ["-C", main, "worktree", "add", "-q", "-b", branch, wtDir], {
+      stdio: "ignore",
+    });
+    mkdirSync(join(wtDir, ".claude"), { recursive: true });
+
+    const r = runHook("bash", wtDir, edit("src/a.ts"));
+    expect(r.code).toBe(0);
+
+    // Same common dir the MAIN checkout resolves to — the stamp is shared,
+    // not duplicated per worktree.
+    expect(gitCommonDir(wtDir)).toBe(gitCommonDir(main));
+    expect(existsSync(join(stampDirFor(wtDir), SESSION))).toBe(true);
+    expect(existsSync(join(wtDir, ".claude", ".routing-watch", SESSION))).toBe(false);
+  });
+
+  it("outside a git repo: never counts, never notifies, writes no stamp", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "navori-routing-nogit-"));
+    mkdirSync(join(cwd, ".claude"), { recursive: true });
+
+    const runs = [edit("src/a.ts"), edit("src/b.ts"), edit("src/c.ts"), edit("src/d.ts")].map((p) =>
+      runHook("bash", cwd, p),
+    );
+    for (const r of runs) {
+      expect(r.code).toBe(0);
+      expect(r.stdout).toBe("");
+    }
   });
 });

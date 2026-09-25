@@ -72,11 +72,12 @@ set -uo pipefail
 #              right after that `case` ends the run before anything locates a
 #              stamp. Measured over the park, 53.8% of Bash calls — and Bash is
 #              80.4% of every tool call — so this is the dominant path.
-#   2 spawns — a session already `#delegated` or `#notified`: + `session_id`,
-#              which is what names the stamp, and the stamp check exits.
-#   4 spawns — an edit that actually counts: + `agent_id` (the subagent guard
+#   3 spawns — a session already `#delegated` or `#notified`: + `session_id`
+#              and `git rev-parse --git-common-dir` (#1024 — resolves where the
+#              stamp now lives, off `.claude/`), and the stamp check exits.
+#   5 spawns — an edit that actually counts: + `agent_id` (the subagent guard
 #              below) + the file path.
-#   5 spawns — a `Bash` whose PAYLOAD looked like a write but whose COMMAND is
+#   6 spawns — a `Bash` whose PAYLOAD looked like a write but whose COMMAND is
 #              not one: + `extract_cmd`, and the same probe re-applied to the
 #              command ends it one fork before the extraction pipeline.
 # The discard `case` therefore comes BEFORE `session_id`: a tool this hook does
@@ -210,7 +211,22 @@ fi
 sid=$(payload_field session_id | tr -cd 'A-Za-z0-9._-')
 [ -n "$sid" ] || sid="unknown-session"
 
-stamp_dir=".claude/.routing-watch"
+# #1024: the stamp dir used to live at `.claude/.routing-watch/`, written
+# unconditionally with no `gitignoreHarness` check — so under the default
+# `"off"` config an ordinary 4-file session dirtied the tree, with no
+# `.gitignore` involved to catch it. `--git-common-dir` resolves to the SHARED
+# `.git` even inside an agent worktree, where `.git` is a file pointing at the
+# main checkout — mirrors `managed-drift-watch.sh`'s identical fix. Outside a
+# git repo, or a corrupt/missing `.git`, there is nowhere safe to persist this
+# stamp: skip silently (fail-open, same discipline as every other exit here)
+# rather than fall back to `.claude/`.
+common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
+case "$common_dir" in
+  /*) ;;
+  *) common_dir="$PWD/$common_dir" ;;
+esac
+
+stamp_dir="$common_dir/navori/routing-watch"
 stamp="$stamp_dir/$sid"
 
 # Append a line unless it is already there. Silent on every failure: a stamp
