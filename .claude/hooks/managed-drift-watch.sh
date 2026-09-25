@@ -1,4 +1,4 @@
-# navori:managed start id="managed-drift-watch-base" hash="b1db6dd1" version="0.10.0" source="@navori/core"
+# navori:managed start id="managed-drift-watch-base" hash="60c7f97c" version="0.10.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse watcher for managed-block drift (#530), on every tool that can
@@ -458,7 +458,23 @@ trap navori_audit_on_exit EXIT
 
 cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
 
-stamp=".claude/.managed-drift-stamp"
+# #1024: the stamp used to live at `.claude/.managed-drift-stamp`, written
+# unconditionally with no `gitignoreHarness` check — so under the default
+# `"off"` config the FIRST tool call in every session dirtied the tree, with no
+# `.gitignore` involved to catch it. `--git-common-dir` resolves to the SHARED
+# `.git` even when this hook runs inside an agent worktree, where `.git` is a
+# file pointing at the main checkout (#454's same scope note applies here).
+# Outside a git repo, or a corrupt/missing `.git`, there is nowhere safe to
+# persist this stamp: skip silently rather than fall back to `.claude/` — this
+# is a detector, not a gate, so losing one session's drift check costs less
+# than reintroducing the untracked-file problem it exists to prevent.
+common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
+case "$common_dir" in
+  /*) ;;
+  *) common_dir="$PWD/$common_dir" ;;
+esac
+state_dir="$common_dir/navori"
+stamp="$state_dir/managed-drift-stamp"
 
 # sha1 tool, resolved once. `shasum` on macOS, `sha1sum` on most Linuxes; both
 # print `<hash>  <path>` for a file list, which is the format the stamp stores.
@@ -492,7 +508,7 @@ current=$(find $roots -type f -exec $sha {} + 2>/dev/null | sort || true)
 # current state as the baseline and say nothing. Reporting every block on the
 # first command would train the reader to ignore this hook by lunchtime.
 if [ ! -f "$stamp" ]; then
-  mkdir -p .claude 2>/dev/null || exit 0
+  mkdir -p "$state_dir" 2>/dev/null || exit 0
   printf '%s\n' "$current" > "$stamp" 2>/dev/null || true
   exit 0
 fi

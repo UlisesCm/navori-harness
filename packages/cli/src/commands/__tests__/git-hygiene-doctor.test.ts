@@ -9,6 +9,7 @@ import {
   type NavoriConfigInput,
 } from "../../lib/config/schema.ts";
 import { scanGitHygiene } from "../doctor.ts";
+import { renderNestedGitignore } from "../../engines/shared/nested-gitignore-harness.ts";
 
 /**
  * #325 — the harness ordered agents to write the SDD board into `specs/` while
@@ -134,11 +135,11 @@ describe("scanGitHygiene (#325)", () => {
    */
   it("flags an ephemeral path the index still tracks despite being ignored", () => {
     const cwd = tempRepo();
-    makeFile(cwd, ".claude/.managed-drift-stamp");
-    track(cwd, ".claude/.managed-drift-stamp");
-    gitignore(cwd, ".claude/.managed-drift-stamp");
+    makeFile(cwd, ".claude/settings.local.json");
+    track(cwd, ".claude/settings.local.json");
+    gitignore(cwd, ".claude/settings.local.json");
     const report = scanGitHygiene(cwd, config());
-    expect(report?.ephemeralTracked).toEqual([".claude/.managed-drift-stamp"]);
+    expect(report?.ephemeralTracked).toEqual([".claude/settings.local.json"]);
     // Being ignored is exactly why the other list stays empty: the two findings
     // are independent, and this pair needs the untrack, not a .gitignore edit.
     expect(report?.ephemeralNotIgnored).toEqual([]);
@@ -167,5 +168,55 @@ describe("scanGitHygiene (#325)", () => {
     makeDir(cwd, ".claude/progress");
     gitignore(cwd, ".claude/");
     expect(scanGitHygiene(cwd, config())?.ephemeralTracked).toEqual([]);
+  });
+});
+
+/**
+ * #1024/#1039 — the nested `.claude/.gitignore`. Unlike the root Cubo A block
+ * (`renderGitignore`, gated on `gitignoreHarness`), this one is unconditional:
+ * the two cases below are the ones the audit named as needing an explicit
+ * check, not just a code read — Bonum stays inert end to end, and doctor's
+ * `ephemeralNotIgnored` finding closes with zero doctor.ts changes, purely
+ * because git resolves the nested file on its own.
+ */
+describe("nested .claude/.gitignore (#1024/#1039)", () => {
+  it("stays inert under the Bonum shape: git status --porcelain shows nothing new", () => {
+    const cwd = tempRepo();
+    gitignore(cwd, ".claude/");
+    execFileSync("git", ["-C", cwd, "add", "-A"], { stdio: "ignore" });
+    execFileSync(
+      "git",
+      ["-C", cwd, "-c", "user.email=t@t.io", "-c", "user.name=t", "commit", "-q", "-m", "init"],
+      { stdio: "ignore" },
+    );
+
+    // First write: reports "created", the same bucket every brand-new managed
+    // asset uses — never "drift" (there is no prior block to mismatch).
+    const result = renderNestedGitignore(cwd, ".claude", { lang: "es" });
+    expect(result?.status).toBe("created");
+
+    const status = execFileSync("git", ["-C", cwd, "status", "--porcelain"], {
+      encoding: "utf-8",
+    });
+    expect(status.trim()).toBe("");
+  });
+
+  it("closes the already-onboarded gap doctor reports, with no doctor.ts change", () => {
+    const cwd = tempRepo();
+    makeDir(cwd, ".claude/progress");
+    makeDir(cwd, ".claude/worktrees");
+    // Before: the same gap `scanGitHygiene` already flags under the default
+    // `gitignoreHarness: "off"` config (no root Cubo A written).
+    expect(scanGitHygiene(cwd, config())?.ephemeralNotIgnored).toEqual([
+      ".claude/worktrees/",
+      ".claude/progress/",
+    ]);
+
+    renderNestedGitignore(cwd, ".claude", { lang: "es" });
+
+    // After: `scanGitHygiene` resolves nested `.gitignore` files by git's own
+    // precedence (`isIgnoredByGit`/`check-ignore`) — the gap closes without
+    // touching `gitignoreHarness` or doctor's own code.
+    expect(scanGitHygiene(cwd, config())?.ephemeralNotIgnored).toEqual([]);
   });
 });

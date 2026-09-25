@@ -28,6 +28,7 @@ import {
   renderGitignore,
   type GitignoreRenderResult,
 } from "../engines/shared/gitignore-harness.ts";
+import { renderNestedGitignore } from "../engines/shared/nested-gitignore-harness.ts";
 import {
   ensurePrettierIgnore,
   type PrettierIgnoreResult,
@@ -376,6 +377,13 @@ export function runRender(
   /** Harness `.gitignore` block reconciliation (#313). Absent when
    *  `gitignoreHarness` is `"off"` — navori doesn't touch `.gitignore` then. */
   gitignore?: GitignoreRenderResult | null;
+  /** Nested `.claude/.gitignore` block reconciliation (#1024/#1039).
+   *  Unconditional — unlike `gitignore`, not gated on `gitignoreHarness`. */
+  claudeGitignore?: GitignoreRenderResult | null;
+  /** Nested `.codex/.gitignore` block reconciliation (#1024/#1039). Null when
+   *  the codex engine isn't configured — navori never creates `.codex/` state
+   *  for an engine the repo doesn't run. */
+  codexGitignore?: GitignoreRenderResult | null;
   /** Harness `.prettierignore` block reconciliation (#523). Absent when the repo
    *  does not run prettier — navori installs no opinion about a tool it doesn't
    *  detect. */
@@ -620,6 +628,19 @@ export function runRender(
   // repo-level file, not per-engine). Returns null in mode "off" (untouched).
   const gitignore = renderGitignore(cwd, config, { dryRun, force: forceFlag, lang });
 
+  // #1024/#1039: nested, versioned `.gitignore` files, unconditional (every
+  // `gitignoreHarness` mode, including "off") — see nested-gitignore-harness.ts
+  // for why the root Cubo A alone leaves `.claude/progress/`, `worktrees/` and
+  // `settings.local.json` untracked by nothing under the default config.
+  const claudeGitignore = renderNestedGitignore(cwd, ".claude", {
+    dryRun,
+    force: forceFlag,
+    lang,
+  });
+  const codexGitignore = config.engines.includes("codex")
+    ? renderNestedGitignore(cwd, ".codex", { dryRun, force: forceFlag, lang })
+    : null;
+
   // #523 follow-up: reconcile the harness `.prettierignore` too, once at the
   // repo root. The prevention shipped wired into `init` alone, which reaches
   // repos onboarded AFTER it — never the already-onboarded ones, and the repo
@@ -698,6 +719,8 @@ export function runRender(
     keptEngineOutputs,
     prunedBackupPath,
     gitignore,
+    claudeGitignore,
+    codexGitignore,
     prettierignore,
   };
 }
@@ -911,6 +934,10 @@ export const renderCommand = defineCommand({
 
     if (result.gitignore) reportGitignore(result.gitignore, result.language);
 
+    if (result.claudeGitignore) reportGitignore(result.claudeGitignore, result.language);
+
+    if (result.codexGitignore) reportGitignore(result.codexGitignore, result.language);
+
     if (result.prettierignore) reportPrettierIgnore(result.prettierignore, result.language);
 
     // #312: orphaned outputs from disabled engines. With --prune the run reports
@@ -1102,6 +1129,10 @@ export function resultHasPendingWrites(result: ReturnType<typeof runRender>): bo
     result.workspaces.some((w) => w.extraEngines.some((e) => e.written.length > 0)) ||
     result.gitignore?.status === "created" ||
     result.gitignore?.status === "updated" ||
+    result.claudeGitignore?.status === "created" ||
+    result.claudeGitignore?.status === "updated" ||
+    result.codexGitignore?.status === "created" ||
+    result.codexGitignore?.status === "updated" ||
     result.prettierignore?.status === "created" ||
     result.prettierignore?.status === "updated"
   );
@@ -1127,6 +1158,8 @@ export function countSkippedFiles(result: ReturnType<typeof runRender>): number 
       0,
     ) +
     (result.gitignore?.status.endsWith("-skipped") ? 1 : 0) +
+    (result.claudeGitignore?.status.endsWith("-skipped") ? 1 : 0) +
+    (result.codexGitignore?.status.endsWith("-skipped") ? 1 : 0) +
     (result.prettierignore?.status.endsWith("-skipped") ? 1 : 0)
   );
 }
@@ -1196,6 +1229,13 @@ export function countRenderStatuses(result: ReturnType<typeof runRender>): Recor
   // to `countSkippedFiles`, like every other file-level skip.
   if (result.gitignore && !result.gitignore.status.endsWith("-skipped")) {
     bump(result.gitignore.status);
+  }
+  // Nested `.claude/.gitignore` / `.codex/.gitignore`, same terms.
+  if (result.claudeGitignore && !result.claudeGitignore.status.endsWith("-skipped")) {
+    bump(result.claudeGitignore.status);
+  }
+  if (result.codexGitignore && !result.codexGitignore.status.endsWith("-skipped")) {
+    bump(result.codexGitignore.status);
   }
   // ...and so is the harness `.prettierignore`, on the same terms.
   if (result.prettierignore && !result.prettierignore.status.endsWith("-skipped")) {
@@ -1290,6 +1330,24 @@ function buildRenderJson(
           path: result.gitignore.path,
           status: result.gitignore.status,
           backupPath: result.gitignore.backupPath ?? null,
+        }
+      : null,
+    // #1024/#1039: unconditional nested gitignores, same shape as `gitignore`
+    // above. `codexGitignore` is null both when nothing was written this run
+    // AND when the codex engine isn't configured — a consumer that needs to
+    // tell those apart already has `root.extraEngines`/`workspaces` to check.
+    claudeGitignore: result.claudeGitignore
+      ? {
+          path: result.claudeGitignore.path,
+          status: result.claudeGitignore.status,
+          backupPath: result.claudeGitignore.backupPath ?? null,
+        }
+      : null,
+    codexGitignore: result.codexGitignore
+      ? {
+          path: result.codexGitignore.path,
+          status: result.codexGitignore.status,
+          backupPath: result.codexGitignore.backupPath ?? null,
         }
       : null,
     // #523 follow-up. `entries` travels because it is the answer to "what is
