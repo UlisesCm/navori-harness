@@ -857,21 +857,30 @@ fi
 #   - the UNRESOLVED variable text itself, `$CLAUDE_PROJECT_DIR` /
 #     `${CLAUDE_PROJECT_DIR}`, which an agent can compose into a redirect
 #     without ever expanding it (so this arm doesn't depend on the value).
-# Quoted (`"$CLAUDE_PROJECT_DIR/CLAUDE.md"`) and unquoted forms both matter:
-# a path with a space in it (like this repo's) HAS to be quoted to be valid
-# shell, so the quote-optional wrapper below is load-bearing, not decorative.
+# Quoted and unquoted forms both matter, and NOT just as "the whole target is
+# quoted or it isn't": `"$CLAUDE_PROJECT_DIR"/CLAUDE.md` — quoting only the
+# variable expansion, then continuing unquoted — is ordinary POSIX style a
+# legitimate command uses unprompted, so the quote has to be optional AROUND
+# THE PREFIX TOKEN ITSELF (both the literal value and the `$VAR`/`${VAR}` text),
+# not only at the two ends of the whole match (#1034 round 2 review). A path
+# with a space in it (like this repo's) also HAS to be quoted somewhere to be
+# valid shell at all, so this isn't a cosmetic tolerance.
 # Absolute paths OUTSIDE the project (any other prefix) stay allowed on
 # purpose — the block message above offers exactly that escape (#1036), and a
 # sibling directory that merely shares the prefix (`<proj>-otro/CLAUDE.md`)
-# does not match either: the pattern requires a literal `/` right after the
-# project path, and a sibling has `-otro/…` there instead.
+# does not match either: the pattern requires a literal `/` (optionally
+# quoted) right after the project path, and a sibling has `-otro/…` there
+# instead.
 # Without `$CLAUDE_PROJECT_DIR` set, this arm is skipped entirely — same
 # behavior as before #1034 — rather than matching against an empty prefix.
 if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
-  cpd_literal=$(printf '%s' "$CLAUDE_PROJECT_DIR" | sed -E 's#[^a-zA-Z0-9_/ -]#\\&#g')
-  abs_managed_path="((${cpd_literal})|\\\$\\{?CLAUDE_PROJECT_DIR\\}?)/${managed_path}"
-  if printf '%s' "$scan" | grep -qiE "(^|[^>])>\|?[[:space:]]*[\"']?${abs_managed_path}[\"']?([[:space:]]|\$)" \
-    || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*[\"']?${abs_managed_path}[\"']?([[:space:]]|\$)"; then
+  # Strip a trailing slash before escaping: `CLAUDE_PROJECT_DIR=/proj/` would
+  # otherwise need a doubled `//` to line up with `/${managed_path}` below and
+  # silently stop matching (round 2 review, informational note 1).
+  cpd_literal=$(printf '%s' "${CLAUDE_PROJECT_DIR%/}" | sed -E 's#[^a-zA-Z0-9_/ -]#\\&#g')
+  abs_managed_path="[\"']?(${cpd_literal}|\\\$\\{?CLAUDE_PROJECT_DIR\\}?)[\"']?/${managed_path}[\"']?"
+  if printf '%s' "$scan" | grep -qiE "(^|[^>])>\|?[[:space:]]*${abs_managed_path}([[:space:]]|\$)" \
+    || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*${abs_managed_path}([[:space:]]|\$)"; then
     block "$managed_rewrite_msg"
   fi
 fi

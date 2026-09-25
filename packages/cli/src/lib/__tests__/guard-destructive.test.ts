@@ -477,6 +477,40 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
         blocked: true,
         why: "forced clobber, braced ${CLAUDE_PROJECT_DIR} text",
       },
+      // Round 2 (review score:92): quoting only the variable expansion and
+      // leaving the rest of the path unquoted is ordinary POSIX style, not an
+      // edge case — the quote must be optional AROUND THE PREFIX TOKEN, not
+      // just at the two ends of the whole match.
+      {
+        cmd: 'echo x > "$CLAUDE_PROJECT_DIR"/CLAUDE.md',
+        cwd: PROJ,
+        blocked: true,
+        why: "quoted $VAR + unquoted rest, redirect (#1034 round 2)",
+      },
+      {
+        cmd: 'cat foo | tee "$CLAUDE_PROJECT_DIR"/CLAUDE.md',
+        cwd: PROJ,
+        blocked: true,
+        why: "quoted $VAR + unquoted rest, tee (#1034 round 2)",
+      },
+      {
+        cmd: 'echo x > "${CLAUDE_PROJECT_DIR}"/CLAUDE.md',
+        cwd: PROJ,
+        blocked: true,
+        why: "quoted ${VAR} + unquoted rest, redirect (#1034 round 2)",
+      },
+      {
+        cmd: 'cat foo | tee "${CLAUDE_PROJECT_DIR}"/CLAUDE.md',
+        cwd: PROJ,
+        blocked: true,
+        why: "quoted ${VAR} + unquoted rest, tee (#1034 round 2)",
+      },
+      {
+        cmd: `echo x > "${PROJ}"/CLAUDE.md`,
+        cwd: PROJ,
+        blocked: true,
+        why: "quoted literal prefix + unquoted rest (#1034 round 2)",
+      },
       // Everything below stays legal.
       {
         cmd: `echo x > ${PROJ_OUTSIDE}/CLAUDE.md`,
@@ -512,6 +546,14 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
       const env = { ...process.env };
       delete env.CLAUDE_PROJECT_DIR;
       expect(runGuard(`echo x > ${PROJ}/CLAUDE.md`, env)).toBe(0);
+    });
+
+    // Round 2 (review score:60): a trailing slash on CLAUDE_PROJECT_DIR must
+    // not require a doubled `//` to keep matching.
+    it("blocks an absolute target when CLAUDE_PROJECT_DIR carries a trailing slash", () => {
+      expect(
+        runGuard(`echo x > ${PROJ}/CLAUDE.md`, { ...process.env, CLAUDE_PROJECT_DIR: `${PROJ}/` }),
+      ).toBe(2);
     });
   });
 
