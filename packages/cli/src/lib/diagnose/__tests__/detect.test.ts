@@ -823,6 +823,70 @@ describe("isPlaceholderName", () => {
   });
 });
 
+// #1052 — end to end: tailwind-v4 only activates when the declared tailwindcss
+// range resolves to major >= 4, all the way through detectProject.
+describe("detectProject — tailwind-v4 gated by resolved major (#1052)", () => {
+  const withDeps = (deps: Record<string, string>): string => {
+    const dir = makeTmp();
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "svc", dependencies: deps }));
+    return dir;
+  };
+
+  // Covers: A2
+  it("does NOT include tailwind-v4 for a Tailwind 3 repo", () => {
+    const dir = withDeps({ tailwindcss: "^3.3.5" });
+    try {
+      expect(detectProject(dir).libraries).not.toContain("tailwind-v4");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  // Covers: A2
+  it("includes tailwind-v4 for a Tailwind 4 repo", () => {
+    const dir = withDeps({ tailwindcss: "^4.0.0" });
+    try {
+      expect(detectProject(dir).libraries).toContain("tailwind-v4");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  // Covers: A2
+  it("includes tailwind-v4 (fail-open) when the range does not resolve (workspace:*)", () => {
+    const dir = withDeps({ tailwindcss: "workspace:*" });
+    try {
+      expect(detectProject(dir).libraries).toContain("tailwind-v4");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  // Covers: A2 — in a monorepo, gating is per-workspace: a workspace that
+  // declares >=4 (or an unresolvable range) earns tailwind-v4 for ITSELF,
+  // independent of what the root or sibling workspaces declare.
+  it("in a monorepo, a workspace declaring >=4 earns tailwind-v4 for itself", () => {
+    const dir = makeTmp();
+    try {
+      writeFileSync(join(dir, "pnpm-workspace.yaml"), "packages:\n  - 'apps/*'\n");
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "mono", dependencies: { tailwindcss: "^3.3.5" } }),
+      );
+      mkdirSync(join(dir, "apps/web"), { recursive: true });
+      writeFileSync(
+        join(dir, "apps/web/package.json"),
+        JSON.stringify({ name: "web", dependencies: { tailwindcss: "^4.0.0" } }),
+      );
+
+      expect(detectProject(dir).libraries).not.toContain("tailwind-v4");
+      expect(detectProject(join(dir, "apps/web")).libraries).toContain("tailwind-v4");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+});
+
 describe("detectProject — library skills are workspace-scoped in a monorepo (#80, anti-spray)", () => {
   it("keeps the root scan root-only — a workspace-only dep does NOT spray to the root", () => {
     const dir = makeTmp();
