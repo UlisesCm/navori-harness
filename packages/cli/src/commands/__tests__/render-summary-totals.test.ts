@@ -169,6 +169,8 @@ interface RenderPayload {
   workspaces: Scope[];
   extraEngines: Array<{ written: Array<{ path: string; status: string }> }>;
   gitignore: { status: string } | null;
+  claudeGitignore: { status: string } | null;
+  codexGitignore: { status: string } | null;
   summary: Counts;
 }
 
@@ -230,6 +232,14 @@ describe("the render summary counts what its listing enumerates (#519)", () => {
     }
     if (payload.gitignore && !payload.gitignore.status.endsWith("-skipped")) {
       bump(payload.gitignore.status);
+    }
+    // #1024/#1039: the nested `.claude/.gitignore` — unconditional, so it is
+    // present even in this fixture's default `gitignoreHarness: "off"`.
+    if (payload.claudeGitignore && !payload.claudeGitignore.status.endsWith("-skipped")) {
+      bump(payload.claudeGitignore.status);
+    }
+    if (payload.codexGitignore && !payload.codexGitignore.status.endsWith("-skipped")) {
+      bump(payload.codexGitignore.status);
     }
 
     // Anti-false-green: a payload with no engine files makes the equality below
