@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -46,17 +46,42 @@ describe("detectLibrarySkills", () => {
     expect(detectLibrarySkills(["@testing-library/cypress"])).toEqual(["testing-library"]);
   });
 
-  it("detects the Expo UI-stack skills: local DB, NativeWind, React Native Reusables", () => {
+  it("detects the Expo UI-stack skills: local DB, Uniwind, React Native Reusables", () => {
     expect(detectLibrarySkills(["expo-sqlite"])).toEqual(["expo-sqlite"]);
     expect(detectLibrarySkills(["expo-sqlite", "drizzle-orm"])).toEqual([
       "drizzle-orm",
       "expo-sqlite",
     ]);
-    expect(detectLibrarySkills(["nativewind"])).toEqual(["nativewind"]);
+    expect(detectLibrarySkills(["uniwind"])).toEqual(["uniwind"]);
     // RNR ships no package of its own — components are copied in — so its runtime
     // primitives are the only dependency trace it leaves.
     expect(detectLibrarySkills(["@rn-primitives/portal"])).toEqual(["react-native-reusables"]);
     expect(detectLibrarySkills(["@rn-primitives/slot"])).toEqual(["react-native-reusables"]);
+  });
+
+  // nativewind is retired (REMOVED_LIB_SKILLS) — Uniwind is the boilerplate's
+  // actual RN styling library, and a different one, not a rename.
+  it("no longer detects nativewind — it is retired", () => {
+    expect(detectLibrarySkills(["nativewind"])).toEqual([]);
+    expect(REMOVED_LIB_SKILLS).toContain("nativewind");
+  });
+
+  it("detects the Expo/EAS-stack skills: expo-router, eas-release", () => {
+    expect(detectLibrarySkills(["expo-router"])).toEqual(["expo-router"]);
+  });
+
+  it("detects the Hono/Better-Auth/React-Email backend-stack skills", () => {
+    expect(detectLibrarySkills(["hono"])).toEqual(["hono"]);
+    expect(detectLibrarySkills(["better-auth"])).toEqual(["better-auth"]);
+    expect(detectLibrarySkills(["@react-email/components"])).toEqual(["react-email"]);
+    expect(detectLibrarySkills(["resend"])).toEqual(["react-email"]);
+  });
+
+  it("detects the Vite/web-stack skills: TanStack Router, shadcn Base UI, Tailwind v4", () => {
+    expect(detectLibrarySkills(["@tanstack/react-router"])).toEqual(["tanstack-router"]);
+    expect(detectLibrarySkills(["@base-ui/react"])).toEqual(["shadcn-base-ui"]);
+    expect(detectLibrarySkills(["shadcn"])).toEqual(["shadcn-base-ui"]);
+    expect(detectLibrarySkills(["tailwindcss"])).toEqual(["tailwind-v4"]);
   });
 
   it.each([
@@ -212,6 +237,20 @@ describe("detectLibrarySkills — filesystem signals (paths)", () => {
     const dir = withDirs("src");
     try {
       expect(detectLibrarySkills([], dir)).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  // eas-release keys on `eas.json`, not the bare `expo` dep — most Expo apps
+  // ship `expo` without ever running an EAS build.
+  it("activates eas-release from eas.json, not from the bare expo dep", () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-libskills-"));
+    writeFileSync(join(dir, "eas.json"), "{}");
+    try {
+      expect(detectLibrarySkills([], dir)).toEqual(["eas-release"]);
+      expect(detectLibrarySkills(["expo"], dir)).toEqual(["eas-release"]);
+      expect(detectLibrarySkills(["expo"])).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true });
     }
