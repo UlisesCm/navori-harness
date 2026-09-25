@@ -36,15 +36,19 @@
  * not in this set — it legitimately holds versioned local presets, so it is not
  * "ephemeral state nobody would want back".
  *
- * Also deliberately NOT here (#1024): the drift watcher's stamp and the routing
- * watcher's per-session stamps. Both used to live at `.claude/.managed-drift-
- * stamp` and `.claude/.routing-watch/`, unconditionally created by their hooks
- * with no `gitignoreHarness` check at all — so under the default `"off"` config
- * every session dirtied the tree the moment either hook fired, with no
- * `.gitignore` involved to catch it. Both now write under
- * `$(git rev-parse --git-common-dir)/navori/` instead (`managed-drift-watch.sh`,
- * `routing-watch.sh`) — outside `.claude/` entirely, so git never sees them
- * regardless of any ignore file, and they have nothing left to protect here.
+ * `.claude/.managed-drift-stamp` / `.claude/.routing-watch/` are LEGACY entries
+ * (#1024 round 2). As of #1024 neither hook writes there anymore — both moved to
+ * `$(git rev-parse --git-common-dir)/navori/`, outside `.claude/` entirely — but
+ * a repo onboarded on navori ≤0.10.0 already has those files on disk, and the
+ * hooks never delete what they used to write (by design — a detector cleaning up
+ * after itself is a detector that can also clean up evidence). Removing the two
+ * entries here made rendering this branch UNTRACK them retroactively for every
+ * already-onboarded repo (`?? .claude/.managed-drift-stamp` reappearing in
+ * `git status`, reproduced against a `gitignoreHarness: "local"` fixture) — the
+ * exact regression #1024 exists to prevent, just triggered by the fix itself
+ * instead of the original bug. They stay here, in their original position (the
+ * hash-order note above applies), until a future release can safely assume no
+ * repo still has the pre-#1024 files on disk.
  */
 export const EPHEMERAL_HARNESS_PATHS: readonly string[] = [
   ".claude/settings.local.json",
@@ -53,4 +57,10 @@ export const EPHEMERAL_HARNESS_PATHS: readonly string[] = [
   // Appended, never inserted: the order above is the one already hashed into
   // every onboarded repo's `.gitignore` block (see the note on order).
   ".codex/progress/",
+  // #530, legacy (see the module doc above): neither hook writes here anymore,
+  // but a pre-#1024 repo's already-written stamp must stay ignored.
+  ".claude/.managed-drift-stamp",
+  // Spec 0020, legacy (see the module doc above): same reasoning, for the
+  // routing watcher's per-session stamps.
+  ".claude/.routing-watch/",
 ];

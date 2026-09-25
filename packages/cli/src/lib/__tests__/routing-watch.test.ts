@@ -410,11 +410,13 @@ describe("routing-watch — wiring (spec 0020)", () => {
     const plan = resolveHarnessPlan(MINIMAL_CONFIG, resolve(getCoreRoot(), "core-assets"), null);
     expect(plan.hooks.map((h) => h.id)).toContain("routing-watch");
 
-    // #1024: the stamp moved OFF `.claude/`, into `<git-common-dir>/navori/`
-    // (never git-visible, whatever the ignore state), so it no longer belongs
-    // in `EPHEMERAL_HARNESS_PATHS` — nothing under `.claude/` is left for
-    // `.gitignore`/the render backup/doctor's scan to protect here.
-    expect(EPHEMERAL_HARNESS_PATHS).not.toContain(".claude/.routing-watch/");
+    // #1024: the hook itself moved its stamp OFF `.claude/`, into
+    // `<git-common-dir>/navori/` (never git-visible, whatever the ignore
+    // state) — but the entry STAYS in `EPHEMERAL_HARNESS_PATHS` (round 2, #1024):
+    // a repo onboarded on navori <=0.10.0 already has the old stamp on disk,
+    // this hook never deletes it, and dropping the entry untracked those
+    // leftovers retroactively on every repo's next render. Legacy, not stale.
+    expect(EPHEMERAL_HARNESS_PATHS).toContain(".claude/.routing-watch/");
   });
 
   // Covers: R2

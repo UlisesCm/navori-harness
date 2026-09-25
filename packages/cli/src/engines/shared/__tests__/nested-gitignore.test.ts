@@ -25,6 +25,10 @@ describe("nestedGitignoreEntries — pure derivation", () => {
       "settings.local.json",
       "worktrees/",
       "progress/",
+      // Legacy (#1024 round 2): neither hook writes these anymore, but a repo
+      // onboarded on navori <=0.10.0 still has the files on disk.
+      ".managed-drift-stamp",
+      ".routing-watch/",
     ]);
   });
 
@@ -176,5 +180,93 @@ describe("render.ts wiring", () => {
     expect(result.codexGitignore?.status).toBe("created");
     const body = readFileSync(join(cwd, ".codex", ".gitignore"), "utf-8");
     expect(body).toContain("progress/");
+  });
+});
+
+/**
+ * #1024 round 2 — the regression the orchestrator reproduced: a repo onboarded
+ * on navori <=0.10.0 already has `.claude/.managed-drift-stamp` and
+ * `.claude/.routing-watch/<session>` on disk (the old hooks wrote them
+ * unconditionally, and neither hook ever deletes what it wrote). Removing
+ * those two entries from `EPHEMERAL_HARNESS_PATHS` — round 1's fix — made
+ * rendering this branch UNTRACK them retroactively: `git status` started
+ * reporting them as untracked, `git check-ignore` stopped matching. Both
+ * entries are back as LEGACY (see `ephemeral-paths.ts`'s module doc), so a
+ * render with pre-existing leftovers must leave them exactly as ignored as
+ * they were before the upgrade, in every `gitignoreHarness` mode.
+ */
+function seedLegacyLeftovers(cwd: string): void {
+  mkdirSync(join(cwd, ".claude", ".routing-watch"), { recursive: true });
+  writeFileSync(join(cwd, ".claude", ".managed-drift-stamp"), "deadbeef  CLAUDE.md\n");
+  writeFileSync(join(cwd, ".claude", ".routing-watch", "s1"), "path:/x.ts\n");
+}
+
+describe("upgrade regression: pre-existing legacy stamps stay ignored (#1024 round 2)", () => {
+  it("gitignoreHarness: 'off' — render does not untrack the leftovers", () => {
+    const upgraded = mkdtempSync(join(tmpdir(), "navori-legacy-off-"));
+    execFileSync("git", ["-C", upgraded, "init", "-q"], { stdio: "ignore" });
+    writeConfig(join(upgraded, "navori.config.json"), {
+      name: "legacy-off",
+      engines: ["claude"],
+      preset: "custom",
+      qualityGate: { fast: "pnpm lint", full: "pnpm test" },
+    });
+    seedLegacyLeftovers(upgraded);
+
+    const result = runRender(upgraded);
+    expect(result.ok).toBe(true);
+
+    const status = execFileSync("git", ["-C", upgraded, "status", "--porcelain"], {
+      encoding: "utf-8",
+    });
+    expect(status).not.toContain(".managed-drift-stamp");
+    expect(status).not.toContain(".routing-watch");
+  });
+
+  it("gitignoreHarness: 'local' — root cubo A keeps both legacy entries, no content drift, leftovers stay ignored", () => {
+    const upgraded = mkdtempSync(join(tmpdir(), "navori-legacy-local-"));
+    execFileSync("git", ["-C", upgraded, "init", "-q"], { stdio: "ignore" });
+    writeConfig(join(upgraded, "navori.config.json"), {
+      name: "legacy-local",
+      engines: ["claude"],
+      preset: "custom",
+      qualityGate: { fast: "pnpm lint", full: "pnpm test" },
+      gitignoreHarness: "local",
+    });
+    seedLegacyLeftovers(upgraded);
+
+    const result = runRender(upgraded);
+    expect(result.ok).toBe(true);
+    expect(result.gitignore?.status).toBe("created");
+
+    const rootBody = readFileSync(join(upgraded, ".gitignore"), "utf-8");
+    expect(rootBody).toContain(".claude/.managed-drift-stamp");
+    expect(rootBody).toContain(".claude/.routing-watch/");
+
+    const status = execFileSync("git", ["-C", upgraded, "status", "--porcelain"], {
+      encoding: "utf-8",
+    });
+    expect(status).not.toContain(".managed-drift-stamp");
+    expect(status).not.toContain(".routing-watch");
+  });
+
+  it("a second render on an already-onboarded 'local' repo is a no-op — no content drift on a version bump", () => {
+    const upgraded = mkdtempSync(join(tmpdir(), "navori-legacy-nodrift-"));
+    execFileSync("git", ["-C", upgraded, "init", "-q"], { stdio: "ignore" });
+    writeConfig(join(upgraded, "navori.config.json"), {
+      name: "legacy-nodrift",
+      engines: ["claude"],
+      preset: "custom",
+      qualityGate: { fast: "pnpm lint", full: "pnpm test" },
+      gitignoreHarness: "local",
+    });
+    seedLegacyLeftovers(upgraded);
+    runRender(upgraded);
+
+    const second = runRender(upgraded);
+    // Same entries, same order as before round 1 ever touched the list — the
+    // body hash is unchanged, so a version-only bump reports "unchanged", not
+    // "updated" (which would mean content drift, not just a version restamp).
+    expect(second.gitignore?.status).toBe("unchanged");
   });
 });
