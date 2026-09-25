@@ -126,6 +126,32 @@ describe("sign", () => {
     expect(result.result.status).toBe("error");
   });
 
+  // Covers: #1038
+  it("signs a new committed file that also has unstaged changes", () => {
+    const options = fixture();
+    writeFileSync(join(options.cwd, "b.ts"), "b\n");
+    git(options.cwd, "add", "b.ts");
+    git(options.cwd, "commit", "-m", "add b");
+    writeFileSync(join(options.cwd, "b.ts"), "b\nb2\n");
+    const signed = signReceipt(options);
+    expect(signed.exitCode).toBe(0);
+    expect(signed.result.status).toBe("ok");
+  });
+
+  // Covers: #1038
+  it("still rejects a staged chmod with no content change on a file that exists in origin", () => {
+    const options = fixture();
+    writeFileSync(join(options.cwd, "base.txt"), "same\n");
+    git(options.cwd, "add", "base.txt");
+    git(options.cwd, "commit", "-m", "content");
+    git(options.cwd, "push", "origin", "main");
+    execFileSync("chmod", ["+x", join(options.cwd, "base.txt")]);
+    git(options.cwd, "update-index", "--chmod=+x", "base.txt");
+    const result = signReceipt(options);
+    expect(result.exitCode).toBe(1);
+    expect(result.result.status).toBe("error");
+  });
+
   // Covers: R1, R3
   it("keeps UTF-8 and space paths, and records a tracked deletion", () => {
     const options = fixture();

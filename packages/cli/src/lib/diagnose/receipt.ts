@@ -158,7 +158,12 @@ function inspect(options: ReceiptOptions): { targetSha: string; headSha: string;
       throw new Error("unsupported non-regular git entry");
     if (!regular(newMode!) && !(status === "D" && newMode === "000000"))
       throw new Error("unsupported non-regular git entry");
-    if (oldMode !== newMode && oldBlob === newBlob) throw new Error("diff changes file mode only");
+    // An all-zero blob means "unhashed" (the working tree entry was never hashed against the
+    // target), not "identical content" — `git diff --raw` reports it that way for a new file
+    // that also has unstaged changes. Only real, equal hashes indicate a mode-only change.
+    const unhashed = (blob: string): boolean => /^0+$/.test(blob);
+    if (oldMode !== newMode && oldBlob === newBlob && !unhashed(newBlob!))
+      throw new Error("diff changes file mode only");
   }
   const tracked = pathsFromNul(
     git(
