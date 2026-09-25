@@ -88,3 +88,29 @@ describe("stop report is final; foreign changes are never discarded", () => {
     expect(body).toMatch(/never discarded, restored or reverted/i);
   });
 });
+
+/**
+ * Issue #1028 — the publisher drafted PR titles/bodies with claims no
+ * handoff backed (inferred paths, commands, counts or decisions), corrected
+ * by hand across 5 PRs. `## PR flow` step 3 (Validate) now pins every claim
+ * in the title AND body to the cycle's actual evidence: the handoffs on
+ * disk, `git log`/`git diff` against the base, or the spec — nothing else.
+ */
+// Covers: #1028
+describe("PR flow step 3 — every title/body claim traces to the cycle's evidence", () => {
+  it("publisher.md requires every claim in the title and body to trace to a handoff, git log/diff, or the spec", () => {
+    const body = readPublisher();
+    expect(body).toMatch(/every claim in the title and body/i);
+    expect(body).toMatch(/traces to the cycle's handoffs/i);
+    expect(body).toMatch(/git log/);
+    expect(body).toMatch(/git diff/);
+    expect(body).toMatch(/against the base/i);
+    expect(body).toMatch(/or the spec/i);
+  });
+
+  it("publisher.md forbids inferred paths, commands, counts or decisions and never fills a missing fact in", () => {
+    const body = readPublisher();
+    expect(body).toMatch(/no inferred path, command, count or decision/i);
+    expect(body).toMatch(/never filled in/i);
+  });
+});
