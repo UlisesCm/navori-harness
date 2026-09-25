@@ -228,6 +228,48 @@ describe("navori plan update", () => {
     expect(md).toContain("**A1** (cumplido)");
   });
 
+  it("applies two --progress flags in a single call (repeated citty flag)", async () => {
+    writePlan("demo", {
+      ...validPlan,
+      acceptance: [
+        ...validPlan.acceptance,
+        { id: "A2", description: "second gate", command: "bun test", expected: "pass" },
+      ],
+      progress: { A1: "pendiente", A2: "pendiente" },
+    });
+    await runCommand(planCommand, {
+      rawArgs: [
+        "update",
+        "demo",
+        "--progress",
+        "A1=cumplido",
+        "--progress",
+        "A2=cumplido",
+        "--cwd",
+        cwd,
+      ],
+    });
+    const updated: { progress: Record<string, string> } = JSON.parse(
+      readFileSync(join(cwd, dir, "workplan_demo.json"), "utf8"),
+    );
+    expect(updated.progress.A1).toBe("cumplido");
+    expect(updated.progress.A2).toBe("cumplido");
+  });
+
+  it("rejects a repeated --progress with one malformed entry, leaving the file unchanged", async () => {
+    writePlan("demo", validPlan);
+    const before = readFileSync(join(cwd, dir, "workplan_demo.json"), "utf8");
+    const logs: string[] = [];
+    const spy = vi_spyConsole(logs);
+    await runCommand(planCommand, {
+      rawArgs: ["update", "demo", "--progress", "A1=cumplido", "--progress", "bogus", "--cwd", cwd],
+    });
+    spy.restore();
+    expect(process.exitCode).toBe(1);
+    const after = readFileSync(join(cwd, dir, "workplan_demo.json"), "utf8");
+    expect(after).toBe(before);
+  });
+
   it("appends a decision", async () => {
     writePlan("demo", validPlan);
     await runCommand(planCommand, {
