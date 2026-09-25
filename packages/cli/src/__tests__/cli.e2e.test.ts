@@ -1489,6 +1489,20 @@ describe("CLI e2e — coexist mode", () => {
     const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
     expect(claudeMd).toBe("# CLAUDE.md a mano"); // untouched
   });
+
+  it("#1053 — a repo with only navori's own progress/ reaches fresh mode and renders under --full", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    mkdirSync(join(repo, "progress"), { recursive: true });
+    writeFileSync(join(repo, "progress", "current.md"), "# state", "utf-8");
+    writeFileSync(join(repo, "progress", "history.md"), "# history", "utf-8");
+
+    const r = runCli(["init", "--full", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(r.combined).not.toContain("coexist");
+    expect(existsSync(join(repo, "CLAUDE.md"))).toBe(true);
+    expect(existsSync(join(repo, ".claude"))).toBe(true);
+  });
 });
 
 describe("CLI e2e — monorepo init + scan (spec 0001 fase 3)", () => {

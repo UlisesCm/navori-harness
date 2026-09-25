@@ -97,6 +97,11 @@ export function detectClaudeInfra(cwd: string): ClaudeInfraInventory {
   const progressFiles = existsSync(join(cwd, "progress")) ? countFilesIn(join(cwd, "progress")) : 0;
   const specsDirs = existsSync(join(cwd, "specs")) ? countSubdirs(join(cwd, "specs")) : 0;
 
+  // progress/ is deliberately excluded from `present`: render bootstraps its
+  // files create-if-missing and never overwrites them (planBootstrapFile in
+  // engines/claude/index.ts), so an existing progress/ can never be clobbered
+  // by render — same category as hasNavoriConfig, which is also tracked but
+  // never counted here.
   const present =
     agentFiles.length > 0 ||
     skillFiles.length > 0 ||
@@ -106,7 +111,6 @@ export function detectClaudeInfra(cwd: string): ClaudeInfraInventory {
     hasAgentsMd ||
     hasCheckpointsMd ||
     hasFeatureList ||
-    progressFiles > 0 ||
     specsDirs > 0;
 
   return {
