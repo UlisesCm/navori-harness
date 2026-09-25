@@ -224,7 +224,11 @@ export function detectProject(cwd: string): DetectedProject {
   // tools that install no npm package (`.maestro/`, #331). Same scoping as the
   // deps above: the path is resolved against THIS package's directory, so in a
   // monorepo each workspace sees only its own signals.
-  const libraries = detectLibrarySkills([...libraryDeps], cwd);
+  // Raw declared ranges per dep name, for skills gated by `minMajor` (#1052).
+  // Node-only: `collectNodeDepVersions` reads straight off `pkg`, so a Python
+  // repo (pkg is null here) simply gets an empty map and no skill is gated.
+  const depVersions = collectNodeDepVersions(pkg);
+  const libraries = detectLibrarySkills([...libraryDeps], cwd, depVersions);
   const migrations = detectMigrations([...libraryDeps], counts);
   // The turbo+pnpm preset teaches pnpm-only workflows; only suggest it when the
   // repo actually uses pnpm. `pnpm-workspace.yaml` is a definitive pnpm signal
@@ -607,6 +611,24 @@ function collectNodeDeps(pkg: PackageJson | null): string[] {
     ...Object.keys(pkg.devDependencies ?? {}),
     ...Object.keys(pkg.peerDependencies ?? {}),
   ];
+}
+
+/**
+ * Raw declared range per dep name (e.g. `tailwindcss` → `"^3.3.5"`), for
+ * `detectLibrarySkills`' `minMajor` gate (#1052). Precedence mirrors
+ * `collectNodeDeps`'s dep-name order: `dependencies` wins over
+ * `devDependencies` over `peerDependencies` when the same name declares a
+ * different range in more than one section.
+ */
+function collectNodeDepVersions(pkg: PackageJson | null): Map<string, string> {
+  const versions = new Map<string, string>();
+  if (!pkg) return versions;
+  for (const name of collectNodeDeps(pkg)) {
+    const range =
+      pkg.dependencies?.[name] ?? pkg.devDependencies?.[name] ?? pkg.peerDependencies?.[name];
+    if (range !== undefined) versions.set(name, range);
+  }
+  return versions;
 }
 
 function pick(deps: ReadonlySet<string>, ...candidates: string[]): string | null {

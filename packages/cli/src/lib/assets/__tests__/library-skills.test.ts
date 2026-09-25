@@ -13,6 +13,7 @@ import {
   detectMigrations,
   migrationDepNames,
   unknownLibraries,
+  parseMajorVersion,
 } from "../library-skills.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -181,6 +182,71 @@ describe("detectLibrarySkills", () => {
     ]);
     // alertaciudadana_backend (bun): vitest + supertest.
     expect(detectLibrarySkills(["vitest", "supertest"])).toEqual(["vitest", "supertest"]);
+  });
+});
+
+// #1052 — parseMajorVersion is the dependency-free semver-major reader that
+// `minMajor` gating relies on (alternative B: no new runtime dependency).
+describe("parseMajorVersion", () => {
+  // Covers: A1
+  it("resolves the common range shapes to their leading major", () => {
+    expect(parseMajorVersion("^3.3.5")).toBe(3);
+    expect(parseMajorVersion("~3")).toBe(3);
+    expect(parseMajorVersion("3.x")).toBe(3);
+    expect(parseMajorVersion(">=3")).toBe(3);
+    expect(parseMajorVersion("^4.0.0")).toBe(4);
+  });
+
+  // Covers: A1
+  it("returns null for ranges with no resolvable major (fail-open cases)", () => {
+    expect(parseMajorVersion("workspace:*")).toBeNull();
+    expect(parseMajorVersion("catalog:")).toBeNull();
+    expect(parseMajorVersion("latest")).toBeNull();
+    expect(parseMajorVersion("*")).toBeNull();
+    expect(parseMajorVersion("git+https://github.com/tailwindlabs/tailwindcss.git")).toBeNull();
+  });
+});
+
+// #1052 — tailwind-v4 used to activate on ANY tailwindcss dep, guidance that is
+// actively wrong for a Tailwind 3 repo. `minMajor` gates it by the resolved
+// major of the matched dep's declared range, fail-open when unresolved.
+describe("detectLibrarySkills — minMajor gating (#1052)", () => {
+  // Covers: A1
+  it("does NOT activate tailwind-v4 when the declared range resolves to v3", () => {
+    expect(
+      detectLibrarySkills(["tailwindcss"], undefined, new Map([["tailwindcss", "^3.3.5"]])),
+    ).toEqual([]);
+    expect(
+      detectLibrarySkills(["tailwindcss"], undefined, new Map([["tailwindcss", "~3"]])),
+    ).toEqual([]);
+    expect(
+      detectLibrarySkills(["tailwindcss"], undefined, new Map([["tailwindcss", "3.x"]])),
+    ).toEqual([]);
+    expect(
+      detectLibrarySkills(["tailwindcss"], undefined, new Map([["tailwindcss", ">=3"]])),
+    ).toEqual([]);
+  });
+
+  // Covers: A1
+  it("activates tailwind-v4 when the declared range resolves to v4", () => {
+    expect(
+      detectLibrarySkills(["tailwindcss"], undefined, new Map([["tailwindcss", "^4.0.0"]])),
+    ).toEqual(["tailwind-v4"]);
+  });
+
+  // Covers: A1
+  it("activates tailwind-v4 (fail-open) when the range does not resolve", () => {
+    for (const range of ["workspace:*", "catalog:", "latest", "*", "git+https://x/y.git"]) {
+      expect(
+        detectLibrarySkills(["tailwindcss"], undefined, new Map([["tailwindcss", range]])),
+      ).toEqual(["tailwind-v4"]);
+    }
+  });
+
+  // Covers: A1
+  it("activates tailwind-v4 (fail-open) when depVersions has no entry for the matched dep", () => {
+    expect(detectLibrarySkills(["tailwindcss"], undefined, new Map())).toEqual(["tailwind-v4"]);
+    expect(detectLibrarySkills(["tailwindcss"])).toEqual(["tailwind-v4"]);
   });
 });
 

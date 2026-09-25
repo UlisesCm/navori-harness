@@ -43,6 +43,32 @@ export interface LibrarySkill {
    * for Docker / Terraform / GitHub Actions needs that resolved first.
    */
   paths?: ReadonlyArray<string>;
+  /**
+   * Lowest major version this skill's content applies to. When set, a matched
+   * dep whose declared range resolves to a LOWER major does not activate the
+   * skill — the narrow escape hatch for a skill whose id/content bakes in one
+   * major (#1052: `tailwind-v4` firing on a Tailwind 3 repo). Fail-open by
+   * design: a range `parseMajorVersion` cannot resolve (`workspace:*`,
+   * `catalog:`, `latest`, `*`, git URLs) still activates the skill — silence
+   * on an unreadable range is worse than an occasional false positive. Every
+   * other registry entry leaves this undefined and stays presence-only; this
+   * is NOT a general version-gating mechanism (see `detectLibrarySkills`).
+   */
+  minMajor?: number;
+}
+
+/**
+ * Extract the leading major version number from a declared dependency range,
+ * without a semver dependency (#1052 — alternative B, no new runtime dep).
+ * Handles the shapes the registry's `minMajor` needs to gate on: `^3.3.5`,
+ * `~3`, `3.x`, `>=3` all resolve to `3`; `^4.0.0` resolves to `4`. Returns
+ * `null` for anything that does not start with a recognized prefix followed
+ * by a digit — `workspace:*`, `catalog:`, `latest`, `*`, and git URLs all fall
+ * here, which callers treat as "unresolved" (fail-open, see `minMajor`).
+ */
+export function parseMajorVersion(range: string): number | null {
+  const match = /^(?:[\^~]|>=|<=|=)?\s*v?(\d+)/.exec(range.trim());
+  return match ? Number(match[1]) : null;
 }
 
 /**
@@ -169,7 +195,9 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
     deps: ["@base-ui/react", "shadcn"],
     label: "shadcn/ui (Base UI)",
   },
-  { id: "tailwind-v4", deps: ["tailwindcss"], label: "Tailwind CSS" },
+  // minMajor: 4 — the skill's content is v4-specific (CSS-first config); a
+  // resolved v3 range does not activate it (#1052). See `minMajor` JSDoc.
+  { id: "tailwind-v4", deps: ["tailwindcss"], label: "Tailwind CSS", minMajor: 4 },
   // No dependency marks "this is a dashboard", so this keys on data-table and
   // admin kits. Plain UI kits (@mantine/core) are too broad a signal and stay
   // out, and so does legacy antd. KNOWN GAP: a dashboard on a hand-rolled table
@@ -331,14 +359,32 @@ export function migrationDepNames(): string[] {
  * skill, regardless of how many files import it. Usage counts weigh migrations
  * (which side is the de-facto standard), not whether a lib is worth teaching —
  * a two-file mongoose backend still wants the mongoose skill (issue #92).
+ *
+ * `depVersions` is the raw declared range per dep name (e.g. `"^3.3.5"`), used
+ * ONLY to gate skills that declare `minMajor` (#1052). A matched dep with no
+ * entry in `depVersions`, or a range `parseMajorVersion` cannot resolve, still
+ * activates the skill (fail-open) — `minMajor` narrows false positives, it
+ * never adds a new false negative.
  */
-export function detectLibrarySkills(deps: ReadonlyArray<string>, cwd?: string): string[] {
+export function detectLibrarySkills(
+  deps: ReadonlyArray<string>,
+  cwd?: string,
+  depVersions?: ReadonlyMap<string, string>,
+): string[] {
   const present = new Set(deps);
   const hasPathSignal = (skill: LibrarySkill): boolean =>
     cwd !== undefined && (skill.paths?.some((p) => existsSync(join(cwd, p))) ?? false);
-  return LIBRARY_SKILLS.filter((s) => s.deps.some((d) => present.has(d)) || hasPathSignal(s)).map(
-    (s) => s.id,
-  );
+  const meetsMinMajor = (skill: LibrarySkill, matchedDep: string): boolean => {
+    if (skill.minMajor === undefined) return true;
+    const range = depVersions?.get(matchedDep);
+    if (range === undefined) return true;
+    const major = parseMajorVersion(range);
+    return major === null || major >= skill.minMajor;
+  };
+  return LIBRARY_SKILLS.filter((s) => {
+    const matchedDep = s.deps.find((d) => present.has(d));
+    return matchedDep !== undefined ? meetsMinMajor(s, matchedDep) : hasPathSignal(s);
+  }).map((s) => s.id);
 }
 
 /** Look up a library skill by id, or null when the id is unknown. */
