@@ -1,4 +1,4 @@
-<!-- navori:managed id="planificacion" hash="18d39797" version="0.10.0" source="@navori/core" -->
+<!-- navori:managed id="planificacion" hash="18d39797" version="0.10.1" source="@navori/core" -->
 ## Planning tiers — classified, never chosen
 
 Before planning, write the draft `.claude/progress/workplan_<feature>.json` (files, signals) and

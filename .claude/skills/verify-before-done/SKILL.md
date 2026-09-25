@@ -6,7 +6,7 @@ metadata:
   maxWords: 650
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="83c98082" version="0.10.0" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="verify-before-done-base" hash="83c98082" version="0.10.1" source="@navori/core" fmkeys="name,description,metadata" -->
 # Verify Before Done
 
 ## The Iron Law

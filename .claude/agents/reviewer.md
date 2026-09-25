@@ -7,7 +7,7 @@ effort: low
 maxWords: 2200
 ---
 
-<!-- navori:managed id="reviewer-base" hash="4f9e811e" version="0.10.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="reviewer-base" hash="4f9e811e" version="0.10.1" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Reviewer Agent
 
 You are a strict reviewer. Your only function is to **approve or reject**. You don't edit code.
@@ -193,7 +193,7 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 - ✅ Be concrete: cite `file:line`. No generic feedback.
 <!-- /navori:managed id="reviewer-base" -->
 
-<!-- navori:managed id="engram-reviewer-extension" hash="6a83d0ee" version="0.10.0" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-reviewer-extension" hash="6a83d0ee" version="0.10.1" source="@navori/plugin-engram" -->
 ## Engram, from a subagent (read-only)
 
 **Pre-flight, before you read code:** `mem_search` with the task's keywords
@@ -219,7 +219,7 @@ If a memory contradicts what the code says, the code wins — say so in your
 report; don't try to fix it yourself.
 <!-- /navori:managed id="engram-reviewer-extension" -->
 
-<!-- navori:managed id="codegraph-access-v2-reviewer" hash="5ac84549" version="0.10.0" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-access-v2-reviewer" hash="5ac84549" version="0.10.1" source="@navori/plugin-codegraph" -->
 ### Structural discovery access
 
 Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Pass `maxFiles` to bound a large response. Continue with scoped native tools if unavailable.

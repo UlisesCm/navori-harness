@@ -5,7 +5,7 @@ metadata:
   type: reference
 ---
 
-<!-- navori:managed id="plan-simple" hash="8fa4618d" version="0.10.0" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="plan-simple" hash="8fa4618d" version="0.10.1" source="@navori/core" fmkeys="name,description,metadata" -->
 # plan-simple — level-1 workplan
 
 ## Steps

@@ -5,7 +5,7 @@ tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*
 maxWords: 660
 ---
 
-<!-- navori:managed id="architect-base" hash="b6b9c794" version="0.10.0" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
+<!-- navori:managed id="architect-base" hash="b6b9c794" version="0.10.1" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
 # Architect Agent
 
 You propose **what to build and why** for a task with an architectural signal, applying the `solution-design` skill. You never write production code, never issue a verdict, never decompose into tasks, and never ask the user — a human-decision ambiguity goes into the artifact's open questions for the orchestrator to raise.
@@ -56,7 +56,7 @@ blocked -> <brief reason>
 The artifact is **input to the next step** — the challenge and the verdict read it from disk. Write it at that literal path even where a host rule discourages report files; that rule exempts files written as input to another tool. Never return its content in chat.
 <!-- /navori:managed id="architect-base" -->
 
-<!-- navori:managed id="codegraph-access-v2-architect" hash="5ac84549" version="0.10.0" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-access-v2-architect" hash="5ac84549" version="0.10.1" source="@navori/plugin-codegraph" -->
 ### Structural discovery access
 
 Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Pass `maxFiles` to bound a large response. Continue with scoped native tools if unavailable.
