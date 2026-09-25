@@ -824,9 +824,13 @@ managed_path="(CLAUDE\.md|AGENTS\.md|\.claude/settings\.json|\.codex/config\.tom
 # `-[a-zA-Z]*i[a-zA-Z]*[^[:space:]]*` accepts the backup-suffix spellings that
 # are the everyday form on both platforms: GNU `sed -i.bak`, BSD `sed -i ''`.
 # Missing them would have left the rule covering the tutorial spelling only.
-if printf '%s' "$scan" | grep -qE "(^|[^>])>\|?[[:space:]]*(\./)?${managed_path}([[:space:]]|\$)" \
-  || printf '%s' "$segments" | grep -qE "(^|[[:space:]])sed[[:space:]]+(-[a-zA-Z]*i[a-zA-Z]*[^[:space:]]*|--in-place)([[:space:]]|=).*${managed_path}" \
-  || printf '%s' "$segments" | grep -qE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*(\./)?${managed_path}([[:space:]]|\$)"; then
+# Case-INSENSITIVE (`-i`), same reasoning as the heredoc script-extension check
+# above (~line 319): APFS is case-insensitive by default, so `> .CLAUDE/AGENTS/a.md`
+# writes the same file as `.claude/agents/a.md` and must not slip past a
+# case-sensitive match.
+if printf '%s' "$scan" | grep -qiE "(^|[^>])>\|?[[:space:]]*(\./)?${managed_path}([[:space:]]|\$)" \
+  || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])sed[[:space:]]+(-[a-zA-Z]*i[a-zA-Z]*[^[:space:]]*|--in-place)([[:space:]]|=).*${managed_path}" \
+  || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*(\./)?${managed_path}([[:space:]]|\$)"; then
   block "shell rewrite of a navori-managed file — edit the source asset and run 'navori render --apply' (or 'navori sync'); a direct write invalidates the block hash and freezes it. If the target is outside this project (e.g. a scratchpad), write it with '>' or 'tee' and an absolute path instead"
 fi
 

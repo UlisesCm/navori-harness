@@ -364,6 +364,21 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
       why: "a skill is managed too",
     },
     { cmd: "echo x > .codex/agents/reviewer.toml", blocked: true, why: "codex agents too" },
+    {
+      cmd: "echo x > .CLAUDE/AGENTS/a.md",
+      blocked: true,
+      why: "APFS is case-insensitive — uppercase path is the same file (#1035)",
+    },
+    {
+      cmd: "cat foo | tee .Claude/Skills/x/SKILL.md",
+      blocked: true,
+      why: "tee overwrite, mixed case (#1035)",
+    },
+    {
+      cmd: "sed -i '' s/a/b/ claude.MD",
+      blocked: true,
+      why: "sed -i, uppercase extension (#1035)",
+    },
     // Everything below is daily, legitimate work.
     {
       cmd: "cat > .codex/progress/impl_foo.md",
@@ -371,6 +386,16 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
       why: "the handoff protocol, Codex half (#389)",
     },
     { cmd: "cat > .claude/progress/impl_foo.md", blocked: false, why: "the handoff protocol" },
+    {
+      cmd: "cat > .CLAUDE/PROGRESS/impl_foo.md",
+      blocked: false,
+      why: "the handoff protocol, any case (#1035)",
+    },
+    {
+      cmd: "echo x > .claude/WORKTREES/x",
+      blocked: false,
+      why: "machine-local, any case (#1035)",
+    },
     { cmd: "echo x >> CLAUDE.md", blocked: false, why: "append invalidates no hash" },
     { cmd: "cat foo | tee -a .claude/agents/notes.md", blocked: false, why: "tee -a appends" },
     {
