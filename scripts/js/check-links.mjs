@@ -59,10 +59,15 @@ const KNOWN_EXCEPTIONS = new Set([
  * line with the same run length of the same character — matched via
  * backreference so a 4-backtick fence isn't mismatched against a
  * hardcoded 3-backtick assumption, which used to leave a stray backtick
- * that then paired with an unrelated one hundreds of lines away.
+ * that then paired with an unrelated one hundreds of lines away. A fence
+ * that never closes is discarded through the end of the file, matching
+ * CommonMark: an unterminated code block still ends the document as code.
  */
 function stripFences(markdown) {
-  return markdown.replace(/^[ \t>]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n[ \t>]*\1[`~]*[ \t]*$/gm, "");
+  return markdown.replace(
+    /^[ \t>]*(`{3,}|~{3,})[^\n]*\n(?:[\s\S]*?\n[ \t>]*\1[`~]*[ \t]*$|[\s\S]*)/gm,
+    "",
+  );
 }
 
 /**
@@ -103,6 +108,7 @@ const files = execFileSync("git", ["ls-files", "*.md"], { cwd: REPO_ROOT, encodi
 
 let discovered = 0;
 const offenders = [];
+const usedExceptions = new Set();
 
 for (const file of files) {
   const abs = resolve(REPO_ROOT, file);
@@ -115,10 +121,15 @@ for (const file of files) {
     const resolved = resolve(dirname(abs), withoutFragment);
     if (existsSync(resolved)) continue;
     const key = `${file} -> ${rawTarget}`;
-    if (KNOWN_EXCEPTIONS.has(key)) continue;
+    if (KNOWN_EXCEPTIONS.has(key)) {
+      usedExceptions.add(key);
+      continue;
+    }
     offenders.push(key);
   }
 }
+
+const staleExceptions = [...KNOWN_EXCEPTIONS].filter((key) => !usedExceptions.has(key)).sort();
 
 if (discovered < MIN_LINKS_DISCOVERED) {
   console.error(
@@ -131,6 +142,13 @@ if (discovered < MIN_LINKS_DISCOVERED) {
 if (offenders.length > 0) {
   console.error(`✗ ${offenders.length} broken relative link(s) in tracked markdown:`);
   for (const offender of offenders) console.error(`    ${offender}`);
+  process.exit(1);
+}
+
+if (staleExceptions.length > 0) {
+  console.error(`✗ ${staleExceptions.length} stale KNOWN_EXCEPTIONS entry(ies) — link no longer broken:`);
+  for (const stale of staleExceptions) console.error(`    ${stale}`);
+  console.error(`  Good news, and the list has to record it: delete those entries.`);
   process.exit(1);
 }
 
