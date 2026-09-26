@@ -173,21 +173,30 @@ Un test recorre `core-assets/hooks/*.sh` y falla si un script registrado en Code
 ### D5 — Traducción de permisos a reglas de Codex (R9, R10)
 
 Fuente: `collectShellPermissionRules`, extraída de `buildSettings` para que los dos engines lean la
-misma lista (invariante de fuente única). Traducción de cada `Bash(<patrón>)`:
+misma lista (invariante de fuente única).
 
-- `allow`→`allow`, `ask`→`prompt`, `deny`→`forbidden`.
+**`allow` no se traduce.** En Codex, un comando que coincide con una regla `allow` corre **fuera
+del sandbox** (`core/src/exec_policy.rs`: `Decision::Allow` → `ExecApprovalRequirement::Skip {
+bypass_sandbox }`). En Claude, `allow` solo evita la pregunta. Traducir la lista sería una
+escalación de privilegios, que la revisión del Lote C encontró. Tampoco hace falta: con
+`sandbox_mode = "workspace-write"` y `approval_policy = "on-request"`, los comandos de esa lista
+(lecturas de git, `cat`, `jq`…) ya corren dentro del sandbox sin preguntar.
+
+Traducción de cada `Bash(<patrón>)` de `ask` y `deny`:
+
+- `ask`→`prompt`, `deny`→`forbidden`.
 - El patrón se parte en tokens por espacios. Un ` *` o `:*` al final significa "prefijo" y se quita.
-- Un `*` pegado al **último** token (`git tag -l*`, `git remote -v*`, `git push --force*`) se
-  traduce al token exacto sin el asterisco. Claude acepta además variantes como `--force-with-lease`;
-  Codex solo el token exacto.
-  - En `allow` eso es más estricto que Claude, así que es seguro: ese comando solo pedirá
-    aprobación más seguido.
-  - En `prompt` y `forbidden` es **menos** estricto. La regla se escribe igual, porque cubre el caso
-    principal, y se reporta como "acotada" en la advertencia. `guard-destructive` sigue cubriendo
-    esas variantes en tiempo de ejecución.
+- Un patrón sin comodín (Claude lo compara exacto) sale como prefijo, porque `prefix_rule` siempre
+  compara por prefijo. En `prompt` y `forbidden` eso es **más** estricto que Claude, así que es
+  seguro.
+- Un `*` pegado al **último** token (`git push --force*`, `rm -rf /*`) se traduce al token exacto
+  sin el asterisco (`git push --force`, `rm -rf /`). Claude acepta además variantes como
+  `--force-with-lease` o `/usr`; Codex solo el token exacto. Es menos estricto que Claude. La
+  regla se escribe igual, porque cubre el caso principal, y se reporta como "acotada".
+  `guard-destructive` sigue cubriendo esas variantes en tiempo de ejecución.
 - Si queda un comodín (`*`, `?`, `[`) en cualquier otra posición, la regla no cabe como prefijo y
-  se omite (R10). Ejemplo: `Bash(rm -rf /*)`.
-- Las reglas que no son `Bash(...)` (`Read`, `Glob`, `Agent(orchestrator)`) se omiten (R10).
+  se omite (R10).
+- Las reglas que no son `Bash(...)` (`Agent(orchestrator)`) se omiten (R10).
 
 El render emite **una sola advertencia agregada**, que no bloquea, con el conteo de reglas omitidas
 y acotadas por motivo. La lista completa sale en `navori render --json`, no una línea por regla.
@@ -330,8 +339,8 @@ migra `~/.codex/config.toml` automáticamente.
 - **R5 — sin `ask` bajo Codex:** el recorrido de scripts descrito en D4.
 - **R6/R7/R8 — controles aplicados:** `control-inventory.test.ts` deja de excluir a Codex y
   verifica evento y matcher de cada `enforced` en el `.codex/config.toml` renderizado.
-- **R9/R10 — reglas:** tabla de casos de traducción (prefijo, `*` pegado al último token en
-  `allow` y en `forbidden`, comodín interno, no-Bash) y un test
+- **R9/R10 — reglas:** tabla de casos de traducción (prefijo, patrón exacto, `*` pegado al último
+  token, comodín interno, no-Bash), que ningún `allow` salga en `navori.rules`, y un test
   de que la lista de `buildSettings` y la de `buildCodexRules` vienen de la misma función.
 - **R11/R12:** golden del TOML de un agente por tier; `project_doc_max_bytes` presente solo por
   encima de 32768.

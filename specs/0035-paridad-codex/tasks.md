@@ -52,7 +52,8 @@ Lotes en orden; cada lote cierra con el quality gate verde (`bun check`). Rutas 
   `engines/codex/build-rules.ts` (`buildCodexRules`) con la traducción de D5, más la regla
   `gh pr create → prompt`. Escribir `.codex/rules/navori.rules` como archivo managed, y emitir la
   advertencia agregada, que no bloquea, más la lista completa en `--json`.
-  · test: `engines/__tests__/codex-rules.test.ts`::"translates allow/ask/deny", "narrows a trailing
+  · test: `engines/__tests__/codex-rules.test.ts`::"translates ask/deny and never emits allow",
+  "an exact pattern becomes a prefix rule", "narrows a trailing
   glued asterisk and reports it", "drops inner wildcards and non-Bash rules",
   "settings.json and navori.rules share one source" · golden de `.claude/settings.json` sin cambios.
 - [ ] **T7** (R11, R12) — Nuevo `CODEX_MODEL_BY_CLAUDE_TIER` (D7) y `project_doc_max_bytes` según

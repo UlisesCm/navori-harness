@@ -85,8 +85,8 @@ Verificado contra `bb1470d5`, contra `codex-cli 0.157.0` y contra el código fue
 ### Permisos, modelos e instrucciones
 
 - **R9** — WHEN el engine `codex` renderiza, el sistema SHALL generar `.codex/rules/navori.rules`
-  que traduzca las reglas `allow`/`ask`/`deny` de comandos de terminal de la configuración de
-  permisos de navori a `prefix_rule` con `allow`/`prompt`/`forbidden`.
+  que traduzca las reglas `ask`/`deny` de comandos de terminal de la configuración de permisos de
+  navori a `prefix_rule` con `prompt`/`forbidden`, y SHALL NOT emitir reglas `allow`.
 - **R10** — IF una regla de permisos no es de terminal o no cabe como prefijo THEN el sistema
   SHALL omitirla de `.codex/rules/navori.rules` y listarla en las advertencias del render.
 - **R11** — WHERE `models.codexMap` no define un tier, el engine `codex` SHALL asignar
