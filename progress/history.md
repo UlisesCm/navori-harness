@@ -10,6 +10,15 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-25 21:54 — orchestrator — #1019: dist y coverage aislados entre corridas
+- Cambios: el lock de `dist/` ahora dura toda la suite Vitest y se limita al checkout; `test:coverage`
+  asigna un directorio único antes de iniciar Vitest y pasa el mismo reporte al coverage floor.
+  La revisión detectó y corrigió un lock huérfano si fallaba la escritura de `owner.json`.
+- Quality gate: ✅ gate completo local verde (5312 tests pasaron, 1 omitido); CI `quality` del PR verde.
+- Notas: un lock huérfano no se reclama por antigüedad; tras verificar que no queda una suite activa,
+  la limpieza es manual. El PR sigue abierto, no mergeado.
+- Commit / PR: `86c37376` / #1070 (`Closes #1019`).
+
 ## 2026-09-25 17:30 — orchestrator — Issues post-0.10.1: tailwind, workspace, receipt, links, jscpd, classify, architect
 - Cambios: 7 PRs — #1058 (#1052 `tailwind-v4` solo con tailwindcss >= 4), #1059 (#1054 `init` infiere el
   workspace), #1061 (#1038 blob sin hashear en `receipt`), #1062 (#1031 fences sin cerrar y excepciones
