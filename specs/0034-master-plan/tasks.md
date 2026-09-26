@@ -104,7 +104,7 @@ Orden de los lotes:
     válido; una cabecera `markitdown` sin versión rechazada; `advance` nunca salta; `mode` falla
     después de `context`; `Origen: 01-mvp/D3` validado contra el `DECISIONS.md` de esa etapa; y
     los casos de `check --stage` de la fila de cierre de "Testing strategy", incluido CRLF.
-- [ ] **T6** (R35, R60) — `navori master check --part P<n>`.
+- [x] **T6** (R35, R60) — `navori master check --part P<n>`.
   - Valida cada tarea del `tasks.md` de la parte: `Archivos`, `Interfaces` (cada una nombrada en
     `design.md`), `Patrón` (un archivo que existe), `Lectura`, `Librerías` (versión exacta, sin
     `^` ni `~`), `Done` (comando, resultado esperado y casos de test con nombre) y `Fuera de
@@ -115,7 +115,7 @@ Orden de los lotes:
   - Test: `lib/master/__tests__/check-part.test.ts`, con `// Covers: R35, R60`. Un fixture por
     campo faltante, uno con versión `^1.2.0`, uno con un criterio sin `R<n>`, uno con un `R<n>` que
     cita un criterio inexistente y uno válido.
-- [ ] **T7** (R55) — `navori master check --fit`.
+- [x] **T7** (R55) — `navori master check --fit`.
   - `lib/master/fit.ts`: cuenta los criterios V1–V7 de D9 sobre `DIGEST.md` y `CODEBASE.md`, con
     sus umbrales solo en este módulo, y lista J1–J3 como criterios de juicio. `--json` con la
     forma de "Contracts".
