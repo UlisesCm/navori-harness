@@ -1,0 +1,114 @@
+# Paridad Codex — Requirements
+
+**Status:** borrador · **Fecha:** 2026-09-25 · **Base revisada:** `bb1470d5` · **Issue:** #1071
+
+- **Objetivo del usuario (2026-09-25):** que un repo con el engine `codex` funcione igual que con
+  Claude, y que se instale con facilidad.
+- **Decisiones del usuario (2026-09-25):**
+  - La confianza del repo y la aprobación de hooks se resuelven con un comando opt-in que pide
+    confirmación explícita. No basta con solo detectarlas.
+  - Mapeo de modelos por defecto: opus→`gpt-6-sol`, sonnet→`gpt-6-sol`, haiku→`gpt-6-luna`.
+- **Reemplaza:** la decisión D5 de la spec 0033 en lo que toca a Codex. D5 declaró `advisory` los
+  controles de Codex porque sus hooks no se registraban. Esta spec los registra.
+
+## Context
+
+Verificado contra `bb1470d5`, contra `codex-cli 0.157.0` y contra el código fuente de
+`openai/codex` en `rust-v0.157.0`:
+
+- **Hooks sin registrar.** El engine Claude registra 16 hooks en `.claude/settings.json`
+  (`engines/claude/build-settings.ts`). El engine Codex copia los 16 scripts a `.codex/hooks/`,
+  pero `buildCodexConfigToml` (`engines/codex/build-config-toml.ts`) solo registra
+  `guard-destructive`, `model-advisor`, `comment-draft-confirm` y, con `qualityGate.fast`,
+  `quality-gate-pre-commit`. Los otros 12 están en disco y Codex nunca los ejecuta.
+- **Sin contexto de arranque.** Una sesión real de Codex en `monorepo-fullstack` respondió que no
+  recibió la rama, los commits recientes ni `progress/current.md`. En Claude eso lo entrega
+  `session-start-context.sh` en `SessionStart`.
+- **Codex 0.157 ya soporta lo necesario.** Tiene 12 eventos: `SessionStart`, `SessionEnd`,
+  `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, `Stop`, `SubagentStart`,
+  `SubagentStop`, `PreCompact`, `PostCompact` e `Interrupt`. Nombres de herramienta que ven los
+  hooks: `Bash`, `apply_patch` (acepta `Write`/`Edit` como alias del matcher), `spawn_agent`
+  (acepta `Agent`) y `mcp__<server>__<tool>`. Dentro de un subagente, los payloads traen
+  `agent_id` y `agent_type` desde 0.134.
+- **`ask` no existe en Codex.** Un hook que responde `permissionDecision: "ask"` cuenta como hook
+  fallido, y la llamada pasa. `pr-publisher-confirm.sh` responde `ask`, y registrarlo tal cual lo
+  haría inútil. `comment-draft-confirm.sh` ya lo documenta en su encabezado. Codex sí tiene un
+  equivalente para comandos de terminal: las reglas de `.codex/rules/*.rules`
+  (`prefix_rule(..., decision="allow" | "prompt" | "forbidden")`), que se cargan cuando el
+  proyecto es de confianza.
+- **Permisos aproximados.** Claude traduce `permissions.allow/ask/deny` a `.claude/settings.json`.
+  Codex hoy solo recibe `sandbox_mode = "workspace-write"` y `approval_policy = "on-request"`, y el
+  render lo advierte ("Permisos Codex son aproximados").
+- **Modelos desactualizados.** `CODEX_MODEL_BY_CLAUDE_TIER` (`engines/codex/index.ts`) fija
+  `gpt-5.6-sol`/`-terra`/`-luna`. El `models_cache.json` de Codex ya ofrece `gpt-6-sol`,
+  `gpt-6-luna` y `gpt-6-astra`.
+- **Instalación manual y en silencio.** Si el proyecto no tiene `trust_level = "trusted"` en
+  `~/.codex/config.toml`, Codex no carga nada de él: ni `.codex/` (config, hooks y reglas) ni
+  `AGENTS.md` (`core/src/agents_md.rs`, `load_project_instructions`). Cada hook necesita además
+  un `trusted_hash` en `[hooks.state."<clave>"]`. El hash cubre la definición del hook (evento,
+  matcher, comando, timeout, statusMessage) y no el contenido del script. Hoy el usuario lo
+  resuelve a mano en `/hooks`, y navori solo imprime `codexTrustHint`. Sin eso, los hooks no
+  corren y nada avisa. `codex app-server` expone `hooks/list`, que devuelve el `trustStatus` de cada
+  hook sin abrir la TUI.
+- **`AGENTS.md` cerca del tope.** Codex deja de leer instrucciones pasado `project_doc_max_bytes`
+  (32768 por defecto). El `AGENTS.md` de este repo mide 29207 bytes y el de `monorepo-fullstack`
+  26676.
+
+## Requirements (EARS)
+
+### Hooks y contexto
+
+- **R1** — WHEN el engine `codex` renderiza, el sistema SHALL registrar en `.codex/config.toml`
+  el hook `session-start-context` en `SessionStart` para los orígenes `startup`, `resume`,
+  `clear`, `compact` y `fork`.
+- **R2** — WHEN `session-start-context` corre bajo Codex, el sistema SHALL entregar como
+  `additionalContext` la rama, los commits recientes y `progress/current.md`, igual que bajo Claude.
+- **R3** — WHEN el engine `codex` renderiza, el sistema SHALL registrar cada hook que el engine
+  Claude registra, con el evento y el matcher equivalentes de Codex, salvo los que
+  `ENGINE_CAPABILITIES.codex` declare `unsupported` con su razón.
+- **R4** — WHEN un hook registrado para Codex corre, el script SHALL leer el payload de Codex
+  (`apply_patch`, `spawn_agent`, `agent_type`) y producir la misma decisión que produce con el
+  payload equivalente de Claude.
+- **R5** — IF un hook decide `ask` bajo Claude THEN el engine `codex` SHALL expresar esa decisión
+  con un mecanismo que Codex respeta, y SHALL NOT emitir `permissionDecision: "ask"`.
+- **R6** — WHEN el engine `codex` renderiza con `harness.planTiers` activo, el sistema SHALL
+  registrar `plan-gate` sobre `spawn_agent`, y `ENGINE_CAPABILITIES.codex` SHALL declarar
+  `plan-gate` como `enforced` con evidencia de tipo `hook`.
+- **R7** — WHEN el engine `codex` renderiza con `harness.scribeOwnsMarkdown` activo, el sistema
+  SHALL registrar `implementer-no-markdown` sobre `Bash` y `apply_patch`, y
+  `ENGINE_CAPABILITIES.codex` SHALL declarar `markdown-ownership` como `enforced` con evidencia de
+  tipo `hook`.
+- **R8** — WHEN `control-inventory.test.ts` corre, el sistema SHALL verificar que cada control de
+  Codex declarado `enforced` con evidencia `hook` esté registrado en `.codex/config.toml` con ese
+  evento y matcher.
+
+### Permisos, modelos e instrucciones
+
+- **R9** — WHEN el engine `codex` renderiza, el sistema SHALL generar `.codex/rules/navori.rules`
+  que traduzca las reglas `allow`/`ask`/`deny` de comandos de terminal de la configuración de
+  permisos de navori a `prefix_rule` con `allow`/`prompt`/`forbidden`.
+- **R10** — IF una regla de permisos no es de terminal o no cabe como prefijo THEN el sistema
+  SHALL omitirla de `.codex/rules/navori.rules` y listarla en las advertencias del render.
+- **R11** — WHERE `models.codexMap` no define un tier, el engine `codex` SHALL asignar
+  `gpt-6-sol` a opus, `gpt-6-sol` a sonnet y `gpt-6-luna` a haiku.
+- **R12** — WHEN el `AGENTS.md` renderizado supera los 32768 bytes, el sistema SHALL escribir en
+  `.codex/config.toml` un `project_doc_max_bytes` mayor o igual a su tamaño.
+
+### Instalación
+
+- **R13** — WHEN el usuario corre `navori codex trust` en un repo con el engine `codex`, el sistema
+  SHALL mostrar la ruta del proyecto y cada hook de navori (evento, matcher y comando) antes de
+  escribir nada.
+- **R14** — WHEN el usuario confirma de forma explícita, `navori codex trust` SHALL escribir en
+  `~/.codex/config.toml` la confianza del proyecto y el `trusted_hash` de cada hook de navori,
+  después de respaldar el archivo, sin tocar ninguna otra clave.
+- **R15** — IF el usuario no confirma, o la sesión no es interactiva y falta `--yes`, THEN
+  `navori codex trust` SHALL terminar sin escribir en `~/.codex/`.
+- **R16** — WHEN `navori doctor` corre en un repo con el engine `codex`, el sistema SHALL reportar,
+  sin escribir nada, si el proyecto es de confianza y el estado de cada hook de navori
+  (`Trusted`, `Modified` o `Untrusted`), y SHALL nombrar `navori codex trust` como el arreglo. Un
+  proyecto sin confianza SHALL reportarse aparte, indicando que Codex no carga ni `AGENTS.md`.
+- **R17** — WHEN `init`, `sync` o `render` terminan con el engine `codex` y el repo o algún hook no
+  está aprobado, el sistema SHALL indicar `navori codex trust` como el siguiente paso.
+- **R18** — IF la versión instalada de Codex es menor que la mínima que exigen los hooks
+  registrados THEN `navori doctor` y el render SHALL advertirlo con la versión mínima.
