@@ -37,7 +37,7 @@
     "dev": "tsdown -c tsdown.config.ts --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage && node scripts/check-coverage-floor.mjs",
+    "test:coverage": "node scripts/run-test-coverage.mjs",
     "test:golden": "vitest run golden-render-tree --update",
     "lint": "oxlint src",
     "typecheck": "tsc --noEmit --allowImportingTsExtensions",
