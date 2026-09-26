@@ -1,5 +1,6 @@
 import type { NavoriConfig } from "../../lib/config/config.ts";
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
+import { resolveCodexHooks } from "./hook-registrations.ts";
 
 function tomlString(value: string): string {
   return JSON.stringify(value);
@@ -32,60 +33,26 @@ export function buildCodexConfigToml(
   // root-only discovery (the nested config.toml just isn't loaded) — #279.
   const hookBase = `$(git rev-parse --show-toplevel)${wsSubpath ? `/${wsSubpath}` : ""}/.codex/hooks`;
 
-  lines.push(
-    "",
-    "[[hooks.PreToolUse]]",
-    'matcher = "^Bash$"',
-    "",
-    "[[hooks.PreToolUse.hooks]]",
-    'type = "command"',
-    `command = ${tomlString(`bash "${hookBase}/guard-destructive.sh"`)}`,
-    "timeout = 30",
-    'statusMessage = "Checking destructive command policy"',
-  );
-
-  // Spec 0028: Codex documents the active model at SessionStart but not active
-  // effort, therefore this advice intentionally covers only gpt-6-astra.
-  lines.push(
-    "",
-    "[[hooks.SessionStart]]",
-    "",
-    "[[hooks.SessionStart.hooks]]",
-    'type = "command"',
-    `command = ${tomlString(`bash "${hookBase}/model-advisor.sh" codex-session-start`)}`,
-    "timeout = 10",
-    'statusMessage = "navori: model advisor"',
-  );
-
-  // Spec 0026 E1 (R10, R13): registered unconditionally, like guard-destructive
-  // above and unlike the quality gate — no plugin/config toggle owns this one.
-  // The script itself decides `ask` vs `deny` by `$0` (`placeHook` does not
-  // transform Codex hook commands), so THIS registration only has to name the
-  // same file Claude runs; the deny behavior lives entirely in the hook body.
-  lines.push(
-    "",
-    "[[hooks.PreToolUse]]",
-    'matcher = "^Bash$"',
-    "",
-    "[[hooks.PreToolUse.hooks]]",
-    'type = "command"',
-    `command = ${tomlString(`bash "${hookBase}/comment-draft-confirm.sh"`)}`,
-    "timeout = 10",
-    'statusMessage = "Checking for an unconfirmed comment/review draft"',
-  );
-
-  if (config.qualityGate?.fast) {
+  // Spec 0035 D1/T1: `resolveCodexHooks` is the single source of what gets
+  // registered and in what order — see hook-registrations.ts's module doc for
+  // WHY the order (and therefore each block's `trusted_hash` index) must stay
+  // stable across re-renders. Each row becomes exactly one
+  // `[[hooks.<Event>]]` block with exactly one nested `.hooks[]` entry — the
+  // shape Codex's own `hooks/list` and `trusted_hash` keying assume.
+  for (const hook of resolveCodexHooks(config)) {
+    const command = `bash "${hookBase}/${hook.script}.sh"${hook.args ? ` ${hook.args}` : ""}`;
+    lines.push("", `[[hooks.${hook.event}]]`);
+    if (hook.matcher !== undefined) lines.push(`matcher = ${tomlString(hook.matcher)}`);
     lines.push(
       "",
-      "[[hooks.PreToolUse]]",
-      'matcher = "^Bash$"',
-      "",
-      "[[hooks.PreToolUse.hooks]]",
+      `[[hooks.${hook.event}.hooks]]`,
       'type = "command"',
-      `command = ${tomlString(`bash "${hookBase}/quality-gate-pre-commit.sh"`)}`,
-      "timeout = 600",
-      'statusMessage = "Running pre-commit quality gate"',
+      `command = ${tomlString(command)}`,
+      `timeout = ${hook.timeout}`,
     );
+    if (hook.statusMessage !== undefined) {
+      lines.push(`statusMessage = ${tomlString(hook.statusMessage)}`);
+    }
   }
 
   const warnings = [

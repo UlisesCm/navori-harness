@@ -32,6 +32,7 @@ import { hasBinary } from "../lib/primitives/which.ts";
 import { currentPlatform } from "../lib/config/platform.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/config/presets.ts";
 import { classifyLocalSkills } from "../engines/codex/local-skill-pointer.ts";
+import { minCodexVersion } from "../engines/codex/hook-registrations.ts";
 import { unknownLibraries } from "../lib/assets/library-skills.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
 import { NESTED_GITIGNORE_MANAGED_ID } from "../engines/shared/nested-gitignore-harness.ts";
@@ -2396,11 +2397,11 @@ function collectText(dir: string, parts: string[]): void {
   }
 }
 
-const MIN_CODEX_VERSION = "0.145.0";
-
-/** Whether a parsed Codex CLI version is below the minimum supported release. */
+/** Whether a parsed Codex CLI version is below the minimum the registration
+ *  table (spec 0035 D1/R18) requires — {@link minCodexVersion}, not a fixed
+ *  constant, so a new row raising the floor updates this automatically. */
 export function isCodexVersionTooOld(version: string): boolean {
-  return isDowngrade(MIN_CODEX_VERSION, version);
+  return isDowngrade(minCodexVersion(), version);
 }
 
 export interface CodexHealth {
@@ -2477,7 +2478,7 @@ export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth 
     });
     const found = raw.match(/\d+\.\d+\.\d+/)?.[0];
     if (found && isCodexVersionTooOld(found)) {
-      versionWarning = { found, min: MIN_CODEX_VERSION };
+      versionWarning = { found, min: minCodexVersion() };
     }
   } catch {
     // Codex not in PATH — nothing to check.

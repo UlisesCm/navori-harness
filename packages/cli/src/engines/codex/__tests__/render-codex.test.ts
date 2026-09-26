@@ -17,6 +17,8 @@ import {
 } from "../../../lib/config/schema.ts";
 import { renderCodexEngine } from "../index.ts";
 import { adaptHarnessTextForCodex } from "../compat.ts";
+import { resolveCodexHooks } from "../hook-registrations.ts";
+import { codexHookHash } from "../../../lib/codex/trust.ts";
 
 function tempRepo(): string {
   return mkdtempSync(join(tmpdir(), "navori-codex-"));
@@ -140,6 +142,58 @@ describe("renderCodexEngine", () => {
     expect(readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8")).not.toContain(
       "sandbox_mode",
     );
+  });
+
+  // Covers: R3, R18 — spec 0035 T1/D9. Golden values: the 4 real
+  // `trusted_hash` Codex 0.157 wrote for this repo's `.codex/config.toml`
+  // (see the workplan/encargo). A change to the four pre-existing
+  // registrations (command, matcher, timeout, statusMessage or their index)
+  // moves this hash and silently un-approves the hook in every repo that
+  // already ran `navori codex trust` — see hook-registrations.ts's ordering
+  // contract.
+  it("keeps the trusted_hash of the four pre-existing registrations", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config({ qualityGate: { fast: "pnpm test", full: "pnpm test" } }));
+    const hookBase = `$(git rev-parse --show-toplevel)/.codex/hooks`;
+    const commandFor = (hook: { script: string; args?: string }): string =>
+      `bash "${hookBase}/${hook.script}.sh"${hook.args ? ` ${hook.args}` : ""}`;
+
+    const resolved = resolveCodexHooks(
+      config({ qualityGate: { fast: "pnpm test", full: "pnpm test" } }),
+    );
+    const byScript = (script: string) => {
+      const hook = resolved.find((h) => h.script === script);
+      if (!hook) throw new Error(`missing resolved hook: ${script}`);
+      return hook;
+    };
+
+    expect(
+      codexHookHash(byScript("guard-destructive"), commandFor(byScript("guard-destructive"))),
+    ).toBe("sha256:9cbd61c21c0df4c1090ebbbd3d7e6d940843bd9043ed1ae8b8904cf12cef6ff5");
+    expect(
+      codexHookHash(
+        byScript("comment-draft-confirm"),
+        commandFor(byScript("comment-draft-confirm")),
+      ),
+    ).toBe("sha256:119086685199cae55d52a279dc2ff9bf426280651aefc7814d6cef21836469ee");
+    expect(
+      codexHookHash(
+        byScript("quality-gate-pre-commit"),
+        commandFor(byScript("quality-gate-pre-commit")),
+      ),
+    ).toBe("sha256:5c73b49f07866bd54d8676edae83f0c7e2ac69f020b7cb1ef92a61754fa9b377");
+    expect(codexHookHash(byScript("model-advisor"), commandFor(byScript("model-advisor")))).toBe(
+      "sha256:25446669b6ffb75c7f25a49d66273c95a9fb4445ed38ce0abb98b91a4fb548a9",
+    );
+  });
+
+  // Covers: R1, R2
+  it("registers session-start-context on SessionStart for all five sources", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+    expect(toml).toContain("session-start-context.sh");
+    expect(toml).toContain('matcher = "startup|resume|clear|compact|fork"');
   });
 
   // Covers: R10, R13

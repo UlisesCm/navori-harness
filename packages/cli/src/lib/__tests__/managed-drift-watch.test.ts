@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { getCoreRoot } from "../render/bundled-assets.ts";
+import { expandHookIncludes } from "../render/hook-includes.ts";
 import { computeManagedHash } from "../render/marker.ts";
 import { buildClaudeSettings } from "../../engines/claude/build-settings.ts";
 import type { NavoriConfig } from "../config/config.ts";
@@ -40,7 +41,17 @@ const MINIMAL_CONFIG = {
  */
 
 const runsBash = process.platform !== "win32";
-const hookPath = resolve(getCoreRoot(), "core-assets/hooks/managed-drift-watch.sh");
+// spec 0035 D2: the hook now ships `# navori:include` directives (hook-input,
+// extract-cmd) that `navori render` inlines. Expand them once here, same as
+// `guard-destructive.test.ts`, so the tests drive exactly what a rendered
+// hook runs — running the raw source left `nv_project_dir` undefined.
+const driftSource = resolve(getCoreRoot(), "core-assets/hooks/managed-drift-watch.sh");
+const hookPath = (() => {
+  const dir = mkdtempSync(join(tmpdir(), "navori-drift-src-"));
+  const p = join(dir, "managed-drift-watch.sh");
+  writeFileSync(p, expandHookIncludes(readFileSync(driftSource, "utf-8")));
+  return p;
+})();
 
 let cwd: string;
 

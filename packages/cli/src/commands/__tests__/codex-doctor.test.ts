@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { assert, describe, expect, it } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
 import { isCodexVersionTooOld, scanCodexHealth, buildEngineInventory } from "../doctor.ts";
+import { minCodexVersion } from "../../engines/codex/hook-registrations.ts";
 
 function tempRepo(): string {
   return mkdtempSync(join(tmpdir(), "navori-codex-doctor-"));
@@ -39,6 +40,17 @@ describe("scanCodexHealth (Spec 0007 M5)", () => {
     expect(isCodexVersionTooOld("0.144.9")).toBe(true);
     expect(isCodexVersionTooOld("0.145.0")).toBe(false);
     expect(isCodexVersionTooOld("0.154.0")).toBe(false);
+  });
+
+  // Covers: R18
+  it("derives the minimum Codex version from the registrations", () => {
+    // 0.145.0 is `audit-mode-close`'s minVersion (spec 0035 D1) — the max
+    // across every registered row today, computed from the table rather than
+    // hardcoded, so a future row raising the floor updates both this and
+    // `isCodexVersionTooOld` automatically.
+    expect(minCodexVersion()).toBe("0.145.0");
+    expect(isCodexVersionTooOld("0.144.9")).toBe(true);
+    expect(isCodexVersionTooOld("0.145.0")).toBe(false);
   });
 
   it("returns null when codex is not a configured engine", () => {

@@ -67,6 +67,12 @@ set -euo pipefail
 # recorder reads `session_id`/`cwd` out of it. Draining is still the point: an
 # undrained stdin can leave the host writing into a closed pipe.
 payload=$(cat 2>/dev/null) || payload=""
+# navori:include extract-cmd
+# Spec 0035 D2/D3: nv_engine decides whether the `.claude/context`/
+# `.codex/context` doctrine blocks below are emitted at all (D3: under Codex
+# that doctrine already ships whole inside AGENTS.md, so repeating it here
+# would spend the budget twice for nothing new).
+# navori:include hook-input
 
 navori_audit_name="session-start-context"
 navori_audit_phase="SessionStart"
@@ -228,18 +234,24 @@ fence_body() {
 # pattern unmatched, and under zsh that is a hard "no matches found" that kills
 # the hook mid-startup (#391). bash would hand the literal pattern to `cat`
 # instead — quieter, still wrong.
-if [ -n "${ZSH_VERSION:-}" ]; then setopt NULL_GLOB; else shopt -s nullglob; fi
-for ctxdir in ".claude/context" ".codex/context"; do
-  [ -d "$ctxdir" ] || continue
-  for f in "$ctxdir"/*.md; do
-    [ -f "$f" ] || continue
-    block=$(cat "$f" 2>/dev/null) || continue
-    [ -n "$block" ] || continue
-    add ""
-    add_bounded "$block" \
-      "[navori] '${f}' no cabe en el contexto de arranque (${#block} caracteres). LÉELO con Read antes de decidir cómo abordar la tarea: contiene doctrina que ninguna otra vía te entrega."
+# D3: Codex never sees this loop. `AGENTS.md` already carries this doctrine
+# in full (Codex has no `CLAUDE.md`-style always-on file it is separate from),
+# so repeating it here would spend `NAVORI_CTX_BUDGET` on a duplicate instead
+# of on the part only this hook can deliver — the live state below.
+if [ "$nv_engine" != codex ]; then
+  if [ -n "${ZSH_VERSION:-}" ]; then setopt NULL_GLOB; else shopt -s nullglob; fi
+  for ctxdir in ".claude/context" ".codex/context"; do
+    [ -d "$ctxdir" ] || continue
+    for f in "$ctxdir"/*.md; do
+      [ -f "$f" ] || continue
+      block=$(cat "$f" 2>/dev/null) || continue
+      [ -n "$block" ] || continue
+      add ""
+      add_bounded "$block" \
+        "[navori] '${f}' no cabe en el contexto de arranque (${#block} caracteres). LÉELO con Read antes de decidir cómo abordar la tarea: contiene doctrina que ninguna otra vía te entrega."
+    done
   done
-done
+fi
 
 # ─── Post-compaction reminder (#774), only on `source=compact`.
 #
