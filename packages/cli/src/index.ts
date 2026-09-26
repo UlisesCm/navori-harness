@@ -18,6 +18,7 @@ import { statusCommand } from "./commands/status.ts";
 import { benchCommand } from "./commands/bench.ts";
 import { registryCommand } from "./commands/registry.ts";
 import { globalCommand } from "./commands/global.ts";
+import { codexCommand } from "./commands/codex.ts";
 import { dominioCommand } from "./commands/dominio.ts";
 import { auditCommand } from "./commands/audit.ts";
 import { receiptCommand } from "./commands/receipt.ts";
@@ -51,6 +52,7 @@ const main = defineCommand({
     migrations: migrationsCommand,
     preset: presetCommand,
     global: globalCommand,
+    codex: codexCommand,
     dominio: dominioCommand,
     audit: auditCommand,
     receipt: receiptCommand,

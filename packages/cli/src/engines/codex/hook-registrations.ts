@@ -217,6 +217,19 @@ export interface ResolvedCodexHook {
 }
 
 /**
+ * The bash command `.codex/config.toml` registers for `hook`. Single source
+ * for the render (`buildCodexConfigToml`) and for trust (`codexHookHash`):
+ * Codex hashes this exact string, so any divergence would leave every hook
+ * `Modified` right after approval. `wsSubpath` is "" at the repo root and a
+ * POSIX subpath (e.g. "apps/backend") in a workspace, because
+ * `git rev-parse --show-toplevel` always resolves to the root (#279).
+ */
+export function codexHookCommand(hook: ResolvedCodexHook, wsSubpath = ""): string {
+  const hookBase = `$(git rev-parse --show-toplevel)${wsSubpath ? `/${wsSubpath}` : ""}/.codex/hooks`;
+  return `bash "${hookBase}/${hook.script}.sh"${hook.args ? ` ${hook.args}` : ""}`;
+}
+
+/**
  * The Codex hook groups to register for `config`, in stable render order
  * (table order — see the module doc's ordering contract).
  */

@@ -114,9 +114,10 @@ export function renderCodexEngine(
   const warnings = pluginsResult.missing.map(({ id, reason }) =>
     tc(lang).engine.pluginLoadFailedCodex(id, reason),
   );
-  if (!isWorkspace) {
-    warnings.push(tc(lang).engine.codexTrustHint);
-  }
+  // Spec 0035 D10/T10: the unconditional "review with /hooks" reminder moved
+  // to `renderNonClaudeEngines` (render.ts), which only prints it when
+  // `readCodexTrustState` finds something actually missing, and points at
+  // `navori codex trust` instead of the deprecated `/hooks` flow.
 
   const preset = loadActivePreset(config, repoRoot, warnings);
   const presetLoadedSafely =

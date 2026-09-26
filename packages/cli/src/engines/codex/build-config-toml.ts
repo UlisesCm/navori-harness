@@ -1,6 +1,6 @@
 import type { NavoriConfig } from "../../lib/config/config.ts";
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
-import { resolveCodexHooks } from "./hook-registrations.ts";
+import { codexHookCommand, resolveCodexHooks } from "./hook-registrations.ts";
 
 function tomlString(value: string): string {
   return JSON.stringify(value);
@@ -43,15 +43,9 @@ export function buildCodexConfigToml(
   lines.push("", "[features]", "hooks = true", "multi_agent = true");
 
   // The hooks are written relative to `cwd` (each workspace gets its own
-  // `.codex/hooks/`), but `git rev-parse --show-toplevel` always resolves to the
-  // repo root. In a monorepo workspace that mismatch pointed the command at the
-  // ROOT's hook, not the workspace's co-located one — running the wrong quality
-  // gate (or none). Interpolate the workspace subpath so the command targets the
-  // hook next to this config.toml. `wsSubpath` is "" at the root (unchanged) and
-  // e.g. "apps/backend" in a workspace. It's normalized to POSIX separators since
-  // this is a bash command. Correct under nested config discovery, inert under
-  // root-only discovery (the nested config.toml just isn't loaded) — #279.
-  const hookBase = `$(git rev-parse --show-toplevel)${wsSubpath ? `/${wsSubpath}` : ""}/.codex/hooks`;
+  // `.codex/hooks/`), so `codexHookCommand` interpolates the workspace subpath
+  // to target the hook next to this config.toml — #279. Correct under nested
+  // config discovery, inert under root-only discovery.
 
   // Spec 0035 D1/T1: `resolveCodexHooks` is the single source of what gets
   // registered and in what order — see hook-registrations.ts's module doc for
@@ -60,7 +54,7 @@ export function buildCodexConfigToml(
   // `[[hooks.<Event>]]` block with exactly one nested `.hooks[]` entry — the
   // shape Codex's own `hooks/list` and `trusted_hash` keying assume.
   for (const hook of resolveCodexHooks(config)) {
-    const command = `bash "${hookBase}/${hook.script}.sh"${hook.args ? ` ${hook.args}` : ""}`;
+    const command = codexHookCommand(hook, wsSubpath);
     lines.push("", `[[hooks.${hook.event}]]`);
     if (hook.matcher !== undefined) lines.push(`matcher = ${tomlString(hook.matcher)}`);
     lines.push(

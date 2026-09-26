@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, rmSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config/config.ts";
 import {
   measureDocBudgetFile,
@@ -20,6 +20,8 @@ import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
 import { renderCursorEngine } from "../engines/cursor/index.ts";
 import { renderCopilotEngine } from "../engines/copilot/index.ts";
 import { renderCodexEngine } from "../engines/codex/index.ts";
+import { resolveCodexHooks, minCodexVersion } from "../engines/codex/hook-registrations.ts";
+import { readCodexTrustState } from "../lib/codex/trust.ts";
 import type { ProseEngineResult } from "../engines/shared/prose-harness.ts";
 import { ENGINE_CAPABILITIES } from "../engines/shared/engine-capabilities.ts";
 import type { SkippedFile } from "../engines/shared/execute-plan.ts";
@@ -235,6 +237,7 @@ export function renderNonClaudeEngines(
     const render = PROSE_ENGINES[eng];
     if (render) {
       const r = render(cwd, config, { dryRun, repoRoot });
+      if (eng === "codex") appendCodexTrustHint(r.warnings, cwd, repoRoot, config, lang);
       out.push({ engine: eng, ...r });
     } else if (warnMissingAdapters) {
       // An engine declared in config but with no adapter yet — warn, never ignore.
@@ -248,6 +251,32 @@ export function renderNonClaudeEngines(
     }
   }
   return out;
+}
+
+/**
+ * Spec 0035 D10/R17 — the ONE next-step line for Codex trust, pushed onto
+ * `warnings` ONLY when `readCodexTrustState` finds the project untrusted or a
+ * hook not `Trusted`. Read-only (DIRECTION.md invariant 8): reads
+ * `~/.codex/config.toml`, never writes it — `navori codex trust` is the only
+ * writer. Shared by `render`, `sync` (`renderNonClaudeEngines` is its own
+ * codex dispatch too) and `init` (via `renderInline` → `runRender`), so all
+ * three surface the same hint without duplicating the check.
+ */
+function appendCodexTrustHint(
+  warnings: string[],
+  cwd: string,
+  repoRoot: string,
+  config: NavoriConfig,
+  lang: Lang,
+): void {
+  const hooks = resolveCodexHooks(config);
+  const wsSubpath = relative(resolve(repoRoot), resolve(cwd)).split(sep).join("/");
+  const configTomlPath = join(resolve(cwd), ".codex", "config.toml");
+  const state = readCodexTrustState(resolve(repoRoot), configTomlPath, hooks, { wsSubpath });
+  const somethingMissing = !state.projectTrusted || state.hooks.some((h) => h.status !== "Trusted");
+  if (somethingMissing) {
+    warnings.push(tc(lang).engine.codexTrustCommandHint(minCodexVersion()));
+  }
 }
 
 /**

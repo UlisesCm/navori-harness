@@ -32,7 +32,8 @@ import { hasBinary } from "../lib/primitives/which.ts";
 import { currentPlatform } from "../lib/config/platform.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/config/presets.ts";
 import { classifyLocalSkills } from "../engines/codex/local-skill-pointer.ts";
-import { minCodexVersion } from "../engines/codex/hook-registrations.ts";
+import { minCodexVersion, resolveCodexHooks } from "../engines/codex/hook-registrations.ts";
+import { readCodexTrustState, type CodexTrustState } from "../lib/codex/trust.ts";
 import { unknownLibraries } from "../lib/assets/library-skills.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
 import { NESTED_GITIGNORE_MANAGED_ID } from "../engines/shared/nested-gitignore-harness.ts";
@@ -971,8 +972,17 @@ export const doctorCommand = defineCommand({
           `  ${color.yellow(sym.update)} ${td.codexVersionWarning(codexHealth.versionWarning.found, codexHealth.versionWarning.min)}`,
         );
       }
-      if (codexHealth.hookTrustHint) {
-        cx.push(`  ${color.cyan(sym.bullet)} ${td.codexHookTrustHint}`);
+      // Spec 0035 D10/T10: the untrusted-project ERROR and the
+      // unapproved-hooks WARNING are mutually exclusive — an untrusted
+      // project is the more serious fact (Codex loads nothing at all), so it
+      // preempts the hook-count line rather than showing both.
+      if (!codexHealth.trust.projectTrusted) {
+        cx.push(`  ${color.red(sym.fail)} ${td.codexProjectUntrusted}`);
+      } else {
+        const unapproved = codexHealth.trust.hooks.filter((h) => h.status !== "Trusted").length;
+        if (unapproved > 0) {
+          cx.push(`  ${color.yellow(sym.update)} ${td.codexHooksUnapproved(unapproved)}`);
+        }
       }
       if (codexHealth.guardNotVersioned.length > 0) {
         cx.push(
@@ -1487,7 +1497,8 @@ export function computeHealthVerdict(cwd: string, config: NavoriConfig): HealthV
     missingPreset === null &&
     missingPresetFiles.length === 0 &&
     duplicateMarkers.length === 0 &&
-    codexHealth?.configMalformed !== true;
+    codexHealth?.configMalformed !== true &&
+    codexHealth?.trust.projectTrusted !== false;
   return {
     ok,
     missingPlugins,
@@ -2411,8 +2422,11 @@ export interface CodexHealth {
   hooksNotExecutable: string[];
   /** Codex CLI in PATH but older than the minimum supported version. */
   versionWarning: { found: string; min: string } | null;
-  /** Whether to remind the user Codex needs the hooks trusted (`/hooks`). */
-  hookTrustHint: boolean;
+  /** Spec 0035 D10/T10 — project-level and per-hook Codex trust, read-only
+   *  from `~/.codex/config.toml`. Replaces the old boolean `/hooks` reminder:
+   *  an untrusted project is an ERROR (`computeHealthVerdict` flips `ok`), a
+   *  trusted project with unapproved hooks is a WARNING with the count. */
+  trust: CodexTrustState;
   /**
    * Rendered hook scripts not tracked by git. An untracked hook is absent from
    * a git worktree checkout, so a Codex session launched inside a worktree
@@ -2495,11 +2509,22 @@ export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth 
     }
   }
 
+  // Spec 0035 D10/T10: read-only trust check, same computation `navori codex
+  // trust` uses to decide what to approve. `repoRoot` doubles as the
+  // `[projects."<repoRoot>"]` key — doctor, like render's next-step hint,
+  // assumes `cwd` (where navori.config.json lives) IS the git root, the same
+  // assumption `build-config-toml.ts`'s `hookBase` already makes.
+  const trust = readCodexTrustState(
+    resolve(cwd),
+    join(codexDir, "config.toml"),
+    resolveCodexHooks(config),
+  );
+
   return {
     configMalformed,
     hooksNotExecutable,
     versionWarning,
-    hookTrustHint: existsSync(hooksDir),
+    trust,
     guardNotVersioned,
   };
 }
