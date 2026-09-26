@@ -102,11 +102,11 @@ describe("engine inventory parity (claude ↔ codex)", () => {
 
       expect(claudeScribe).toContain("model: haiku");
       expect(claudeScribe).toContain("effort: low");
-      expect(codexScribe).toContain('model = "gpt-5.6-luna"');
+      expect(codexScribe).toContain('model = "gpt-6-luna"');
       expect(codexScribe).toContain('model_reasoning_effort = "low"');
       expect(claudeArchitect).toContain("model: opus");
       expect(claudeArchitect).toContain("effort: high");
-      expect(codexArchitect).toContain('model = "gpt-5.6-sol"');
+      expect(codexArchitect).toContain('model = "gpt-6-sol"');
       expect(codexArchitect).toContain('model_reasoning_effort = "high"');
     } finally {
       rmSync(claude, { recursive: true, force: true });

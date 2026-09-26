@@ -1103,6 +1103,10 @@ interface EngineCmdStrings {
   // Codex adapter
   pluginLoadFailedCodex: (id: string, reason: string) => string;
   codexTrustHint: string;
+  /** Spec 0035 D5/T6 (R9, R10) — one aggregated, non-blocking warning per
+   *  render with the `.codex/rules/navori.rules` translation counts; the full
+   *  per-rule list is `navori render --json` only. */
+  codexRulesSummary: (notBash: number, innerWildcard: number, narrowed: number) => string;
   /** Spec 0033 R12: `.agents/skills/<id>/SKILL.md` exists but isn't navori's
    *  pointer — kept intact, never written, never pruned. */
   localSkillForeignCodex: (destRelPath: string) => string;
@@ -2591,6 +2595,10 @@ const CMD_ES: CmdStrings = {
     codexTrustHint:
       "Requiere Codex CLI >= 0.145.0. Codex solo carga `.codex/` en repos confiables; revisa y autoriza " +
       "los hooks nuevos con `/hooks`.",
+    codexRulesSummary: (notBash, innerWildcard, narrowed) =>
+      `.codex/rules/navori.rules: ${notBash + innerWildcard} regla(s) omitida(s) ` +
+      `(${notBash} no-Bash, ${innerWildcard} con comodín interno) y ${narrowed} acotada(s) en ` +
+      "prompt/forbidden (comodín pegado al último token) — lista completa en 'navori render --json'.",
     presetNotFoundCodex: (preset) => `Preset '${preset}' no encontrado; Codex usará solo el core.`,
     presetInvalid: (preset, detail) => `Preset '${preset}' inválido: ${detail}`,
     agentsMdRedundantWithCodex:
@@ -3899,6 +3907,10 @@ const CMD_EN: CmdStrings = {
     codexTrustHint:
       "Requires Codex CLI >= 0.145.0. Codex only loads `.codex/` in trusted repos; review and authorize " +
       "the new hooks with `/hooks`.",
+    codexRulesSummary: (notBash, innerWildcard, narrowed) =>
+      `.codex/rules/navori.rules: ${notBash + innerWildcard} rule(s) dropped ` +
+      `(${notBash} non-Bash, ${innerWildcard} with an inner wildcard) and ${narrowed} narrowed on ` +
+      "prompt/forbidden (wildcard glued to the last token) — full list in 'navori render --json'.",
     presetNotFoundCodex: (preset) => `Preset '${preset}' not found; Codex will use the core only.`,
     presetInvalid: (preset, detail) => `Preset '${preset}' invalid: ${detail}`,
     agentsMdRedundantWithCodex:

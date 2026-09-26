@@ -35,6 +35,8 @@ import {
   type PlacementRequest,
 } from "../shared/execute-plan.ts";
 import { buildCodexConfigToml } from "./build-config-toml.ts";
+import { buildCodexRules } from "./build-rules.ts";
+import { collectShellPermissionRules } from "../shared/permission-rules.ts";
 import { adaptHarnessTextForCodex } from "./compat.ts";
 import {
   buildLocalSkillPointerContent,
@@ -46,10 +48,14 @@ import {
   type ClassifiedLocalSkills,
 } from "./local-skill-pointer.ts";
 
+// Spec 0035 D7 (R11), user decision 2026-09-25: opus and sonnet share the same
+// model and are told apart by `model_reasoning_effort` (already sourced from
+// `effort`, see buildAgentToml below) — Codex's `gpt-6-sol` covers both tiers.
+// `config.models.codexMap` still wins per tier, checked at each call site.
 const CODEX_MODEL_BY_CLAUDE_TIER = {
-  opus: "gpt-5.6-sol",
-  sonnet: "gpt-5.6-terra",
-  haiku: "gpt-5.6-luna",
+  opus: "gpt-6-sol",
+  sonnet: "gpt-6-sol",
+  haiku: "gpt-6-luna",
 } as const;
 
 const NAVORI_VERSION = readCliVersion();
@@ -122,8 +128,6 @@ export function renderCodexEngine(
   const wsSubpath = isWorkspace
     ? relative(resolve(repoRoot), resolve(cwd)).split(sep).join("/")
     : "";
-  const codexConfig = buildCodexConfigToml(config, plugins, wsSubpath);
-  warnings.push(...codexConfig.warnings);
 
   const plan = resolveHarnessPlan(config, coreAssets, preset);
   // Mirror of the Claude engine's unknown-library warning (audit v0.5.1 A1):
@@ -174,7 +178,14 @@ export function renderCodexEngine(
   }
 
   const ctx: AdapterCtx = { cwd, config, repoRoot, isWorkspace, coreAssets, preset, plugins };
-  const adapter = createCodexAdapter(codexConfig.body, localSkills);
+  // Spec 0035 T6/T7 (D5, D8): `.codex/config.toml` and `.codex/rules/navori.rules`
+  // are now built INSIDE `extraFiles`, after `AGENTS.md`'s planned body is known
+  // — `project_doc_max_bytes` needs its byte size (R12), and both need only
+  // `wsSubpath`/`localSkills`, already closed over here. `codexWarnings` is the
+  // channel back out: `extraFiles` runs deep inside `collectPlan`, so it can't
+  // push onto the outer `warnings` array directly.
+  const codexWarnings: string[] = [];
+  const adapter = createCodexAdapter(wsSubpath, localSkills, codexWarnings);
 
   // Split collect/commit so plugin skills that extend another skill (injectInto
   // a `.claude/skills/<id>/SKILL.md`, e.g. jscpd → review-diff) can be
@@ -185,6 +196,7 @@ export function renderCodexEngine(
     prune: presetLoadedSafely,
     lang,
   });
+  warnings.push(...codexWarnings);
   // R39/R41 (spec 0026 T10): Codex reports a kept orphan the same way Claude's
   // §8.7b–d retirement loops do — path + reason, plain text in `warnings`,
   // never silently skipped. Generic over every orphan scan (agents/skills/
@@ -290,8 +302,11 @@ export function renderCodexEngine(
  * agents/skills before calling extraFiles (it does, see `collectPlan`).
  */
 function createCodexAdapter(
-  configTomlBody: string,
+  wsSubpath: string,
   localSkills: ClassifiedLocalSkills,
+  /** Mutated in place — `extraFiles` runs inside `collectPlan`, so this is the
+   *  only channel back to the caller's `warnings` array (spec 0035 T6/T7). */
+  warningsSink: string[],
 ): EngineAdapter {
   const agentCatalog: Array<{ id: string; description: string }> = [];
   const manualOnlySkillIds: string[] = [];
@@ -369,14 +384,49 @@ function createCodexAdapter(
           commentStyle: "html",
         });
       }
+      // R12/D8: `project_doc_max_bytes` needs the PLANNED AGENTS.md size, not
+      // whatever is on disk — both files are written by this same render.
+      const agentsMdRequest = buildAgentsMdRequest(ctx, agentCatalog);
+      const agentsMdBytes = Buffer.byteLength(agentsMdRequest.body ?? "", "utf-8");
+
+      // R9/R10 (D5): translate the SAME permission source Claude writes into
+      // `.claude/settings.json` into `.codex/rules/navori.rules`.
+      const permissionRules = collectShellPermissionRules(ctx.config, ctx.plugins);
+      const codexRules = buildCodexRules(permissionRules);
+      const droppedNotBash = codexRules.dropped.filter((d) => d.reason === "not-bash").length;
+      const droppedWildcard = codexRules.dropped.filter(
+        (d) => d.reason === "inner-wildcard",
+      ).length;
+      if (codexRules.dropped.length > 0 || codexRules.narrowed.length > 0) {
+        warningsSink.push(
+          tc(resolveLang(ctx.config.language)).engine.codexRulesSummary(
+            droppedNotBash,
+            droppedWildcard,
+            codexRules.narrowed.length,
+          ),
+        );
+      }
+
+      const codexConfig = buildCodexConfigToml(ctx.config, ctx.plugins, wsSubpath, agentsMdBytes);
+      warningsSink.push(...codexConfig.warnings);
+
       return [
-        buildAgentsMdRequest(ctx, agentCatalog),
+        agentsMdRequest,
         {
-          body: configTomlBody,
+          body: codexConfig.body,
           destRelPath: ".codex/config.toml",
           managedId: "codex-config-base",
           commentStyle: "shell",
           firstRenderSeed: { header: "# Codex project config generated by navori.\n" },
+        },
+        {
+          body: codexRules.body,
+          destRelPath: ".codex/rules/navori.rules",
+          managedId: "codex-rules-base",
+          commentStyle: "shell",
+          firstRenderSeed: {
+            header: "# Codex terminal permission rules generated by navori.\n",
+          },
         },
         ...localSkillRequests,
         // #823: one `agents/openai.yaml` sidecar per manual-only skill — Codex's

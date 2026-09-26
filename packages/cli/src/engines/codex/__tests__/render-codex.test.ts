@@ -18,6 +18,7 @@ import {
 import { renderCodexEngine } from "../index.ts";
 import { adaptHarnessTextForCodex } from "../compat.ts";
 import { resolveCodexHooks } from "../hook-registrations.ts";
+import { buildCodexConfigToml } from "../build-config-toml.ts";
 import { codexHookHash } from "../../../lib/codex/trust.ts";
 
 function tempRepo(): string {
@@ -126,7 +127,8 @@ describe("renderCodexEngine", () => {
     expect(agentsMd).toContain("mem_context");
 
     const implementer = readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8");
-    expect(implementer).toContain('model = "gpt-5.6-terra"');
+    // Spec 0035 D7: sonnet → gpt-6-sol (shared with opus; effort tells them apart).
+    expect(implementer).toContain('model = "gpt-6-sol"');
     expect(implementer).toContain('model_reasoning_effort = "high"');
     expect(implementer).toContain("AGENTS.md");
     expect(implementer).not.toContain("CLAUDE.md");
@@ -320,7 +322,51 @@ describe("renderCodexEngine", () => {
     expect(implementer).toContain('model = "gpt-6-custom"');
     // haiku has no override → falls back to the built-in default.
     const reviewer = readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8");
-    expect(reviewer).toContain('model = "gpt-5.6-luna"');
+    expect(reviewer).toContain('model = "gpt-6-luna"');
+  });
+
+  // Covers: R11 — spec 0035 D7, user decision 2026-09-25.
+  it("maps tiers to gpt-6 unless codexMap overrides", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(
+      cwd,
+      config({ models: { orchestrator: "opus", implementer: "sonnet", reviewer: "haiku" } }),
+    );
+    // The orchestrator is embodied by the main thread (no orchestrator.toml);
+    // implementer/reviewer are the two rendered agents this fixture assigns a
+    // tier to.
+    expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8")).toContain(
+      'model = "gpt-6-sol"', // sonnet
+    );
+    expect(readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8")).toContain(
+      'model = "gpt-6-luna"', // haiku
+    );
+  });
+
+  // Covers: R12 — spec 0035 D8. `buildCodexConfigToml` is exercised directly:
+  // reliably pushing a REAL rendered AGENTS.md past 32768 bytes would need a
+  // giant fixture, and the boundary itself is what R12 is about.
+  describe("project_doc_max_bytes (D8)", () => {
+    it("stays absent when the planned AGENTS.md is at or under 32768 bytes", () => {
+      const atThreshold = buildCodexConfigToml(config(), [], "", 32768);
+      const underThreshold = buildCodexConfigToml(config(), [], "", 100);
+      expect(atThreshold.body).not.toContain("project_doc_max_bytes");
+      expect(underThreshold.body).not.toContain("project_doc_max_bytes");
+    });
+
+    it("writes the next power of two >= size + 8192 once the plan exceeds 32768 bytes", () => {
+      // 32769 + 8192 = 40961 → next power of two is 65536.
+      const overThreshold = buildCodexConfigToml(config(), [], "", 32769);
+      expect(overThreshold.body).toContain("project_doc_max_bytes = 65536");
+    });
+
+    it("the render itself omits it for this fixture's default-sized AGENTS.md", () => {
+      const cwd = tempRepo();
+      renderCodexEngine(cwd, config());
+      expect(readFileSync(join(cwd, ".codex/config.toml"), "utf-8")).not.toContain(
+        "project_doc_max_bytes",
+      );
+    });
   });
 
   it("is byte-idempotent and preserves user-owned config/guidance", () => {

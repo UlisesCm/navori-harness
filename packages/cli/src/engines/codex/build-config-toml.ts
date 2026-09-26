@@ -6,21 +6,41 @@ function tomlString(value: string): string {
   return JSON.stringify(value);
 }
 
+/** Codex's own default (`core/src/agents_md.rs`); the threshold D8's bump
+ *  compares against. */
+const DEFAULT_PROJECT_DOC_MAX_BYTES = 32768;
+/** Slack for nested `AGENTS.md` files Codex chains onto the project one (D8). */
+const PROJECT_DOC_MAX_BYTES_SLACK = 8192;
+
+/** The next power of two that is `>= n` — D8's growth rule for
+ *  `project_doc_max_bytes`, so the cap moves in coarse, predictable steps
+ *  instead of tracking the exact byte count on every render. */
+function nextPowerOfTwoAtLeast(n: number): number {
+  let p = 1;
+  while (p < n) p *= 2;
+  return p;
+}
+
 export function buildCodexConfigToml(
   config: NavoriConfig,
   plugins: readonly LoadedPlugin[],
   wsSubpath = "",
+  /** Byte size of the AGENTS.md this SAME render plans to write (D8) — not the
+   *  one on disk, since `AGENTS.md` and `config.toml` are written together. */
+  agentsMdBytes = 0,
 ): { body: string; warnings: string[] } {
   // Codex currently defaults both features on, but a full navori adapter must
   // stay deterministic when a user's global config disables either one.
-  const lines: string[] = [
-    'sandbox_mode = "workspace-write"',
-    'approval_policy = "on-request"',
-    "",
-    "[features]",
-    "hooks = true",
-    "multi_agent = true",
-  ];
+  const lines: string[] = ['sandbox_mode = "workspace-write"', 'approval_policy = "on-request"'];
+  // R12/D8: only written above Codex's own default — a render that stays under
+  // it must not pin a value that would silently diverge from a future Codex
+  // default.
+  if (agentsMdBytes > DEFAULT_PROJECT_DOC_MAX_BYTES) {
+    lines.push(
+      `project_doc_max_bytes = ${nextPowerOfTwoAtLeast(agentsMdBytes + PROJECT_DOC_MAX_BYTES_SLACK)}`,
+    );
+  }
+  lines.push("", "[features]", "hooks = true", "multi_agent = true");
 
   // The hooks are written relative to `cwd` (each workspace gets its own
   // `.codex/hooks/`), but `git rev-parse --show-toplevel` always resolves to the
@@ -56,8 +76,13 @@ export function buildCodexConfigToml(
   }
 
   const warnings = [
-    "Permisos Codex son aproximados: sandbox_mode/approval_policy no tienen " +
-      "paridad 1:1 con allow/ask/deny de Claude. guard-destructive conserva la defensa crítica.",
+    // Spec 0035 D5/T6 (R9): terminal (Bash) permissions now translate into
+    // `.codex/rules/navori.rules` (see build-rules.ts); only NON-terminal
+    // permissions (path read/write) have no Codex equivalent and stay
+    // approximated by sandbox_mode/approval_policy.
+    "Permisos Codex por ruta (lectura/escritura de archivos) son aproximados: sandbox_mode/" +
+      "approval_policy no tienen equivalente 1:1 con allow/ask/deny de Claude fuera de comandos " +
+      "de terminal. guard-destructive conserva la defensa crítica.",
   ];
   for (const plugin of plugins) {
     const server = plugin.manifest.mcpServer;
