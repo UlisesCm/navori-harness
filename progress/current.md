@@ -3,7 +3,8 @@ idle
 Siguiente paso: al migrar repos a la versión con #1066, actualizar jscpd a >= 5.1.1 en cada máquina
 (`pnpm add -g jscpd@^5.1.1`) antes de re-renderizar, o los commits con TS quedan bloqueados.
 
-Último ciclo (2026-09-25): 7 PRs post-0.10.1 (ver `progress/history.md`). Reportes en
+Último ciclo (2026-09-25): #1019 → PR #1070 abierto con CI verde (ver `progress/history.md`);
+antes, 7 PRs post-0.10.1. Reportes en
 `.claude/progress/` (gitignored).
 
 ## Abiertos
@@ -13,7 +14,7 @@ Siguiente paso: al migrar repos a la versión con #1066, actualizar jscpd a >= 5
 - **Desfase de `bun.lock`** (0.9.0 → 0.10.1) — sin issue; cada `bun install` lo ensucia. Un PR de
   `chore` lo resuelve.
 - **Check mecánico del cuerpo del PR** (opción 3 de #1028) — sin issue; pendiente de decisión.
-- **#1046** (nivel 2, 0.11), **#1022**, **#1019**, **#993**, **#985**, **#947** (bloqueado ~2026-09-30).
+- **#1046** (nivel 2, 0.11), **#1022**, **#993**, **#985**, **#947** (bloqueado ~2026-09-30).
 - **#1064/#1065** (spec 0034, master plan) — los lleva otra sesión.
 
 ## Gotchas operativos (siguen vigentes)
