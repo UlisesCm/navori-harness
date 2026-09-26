@@ -10,6 +10,7 @@ import { runMasterInit, MasterInitError } from "../init.ts";
 import { masterDirPath, indexJsonPath, indexMdPath } from "../stages.ts";
 import { masterCommand } from "../../../commands/master.ts";
 import type { MasterIndex } from "../schema.ts";
+import { createGitHelper, createCommitHelper, createSeedConfigHelper } from "./test-utils.ts";
 
 async function master(...argv: string[]): Promise<void> {
   await runCommand(masterCommand, { rawArgs: [...argv, "--cwd", cwd] });
@@ -20,23 +21,9 @@ async function master(...argv: string[]): Promise<void> {
 let cwd: string;
 const SPECS_DIR = "specs";
 
-function git(args: string[]): void {
-  execFileSync("git", args, { cwd, stdio: "ignore" });
-}
-
-function commit(message: string): void {
-  git(["add", "-A"]);
-  git(["-c", "user.email=t@t.com", "-c", "user.name=t", "commit", "-m", message]);
-}
-
-function seedConfig(overrides: Record<string, unknown> = {}): void {
-  writeConfig(join(cwd, "navori.config.json"), {
-    name: "demo",
-    engines: ["claude"],
-    preset: "custom",
-    ...overrides,
-  });
-}
+let git: (args: string[]) => void;
+let commit: (message: string) => void;
+let seedConfig: (overrides?: Record<string, unknown>) => void;
 
 function writeIndexRaw(index: MasterIndex): void {
   mkdirSync(masterDirPath(cwd, SPECS_DIR), { recursive: true });
@@ -57,6 +44,9 @@ function stagePaths(dir: string) {
 
 beforeEach(() => {
   cwd = mkdtempSync(join(tmpdir(), "navori-master-init-"));
+  git = createGitHelper(cwd);
+  commit = createCommitHelper(git);
+  seedConfig = createSeedConfigHelper(cwd);
   git(["init", "-q"]);
   seedConfig();
   commit("initial");

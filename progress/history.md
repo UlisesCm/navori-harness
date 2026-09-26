@@ -10,6 +10,19 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-25 19:30 — orchestrator — Spec 0034: Lote A y primera mitad del Lote B
+- Cambios: rama de integración `master-plan` creada desde `main`. Lote A (T1–T3: esquemas,
+  registro de etapas, `navori master init`/`mode`, docs de `master`) mergeado ahí como #1065.
+  Lote B T4–T5: plantillas es/en en `packages/core/core-assets/master-plan/`, `lib/master/markers.ts`
+  (marcadores por idioma), `templates.ts`, `checks.ts` con `check`/`advance`/`check --stage`,
+  enmiendas a `design.md` y `tasks.md`. Issue #1064 abierto para la implementación.
+- Quality gate: ✅ `bun check` verde en cada review; receipt `ok`/`fresh` contra `master-plan`.
+- Notas: el usuario decidió los marcadores por idioma y la rama `master-plan`. `markitdown
+  --version` verificado en el código de microsoft/markitdown. El review de B cazó un bypass de R50:
+  el encabezado `Integridad` fijo en español; ahora una tabla ausente también falla. El jscpd del
+  pre-commit bloqueó un clon de helpers de test (se extrajeron a `test-utils.ts`).
+- Commit / PR: #1065 (Lote A); Lote B T4–T5 en el PR de `feat/0034-lote-b`.
+
 ## 2026-09-24 23:30 — orchestrator — Release 0.10.1
 - Cambios: 10 PRs mergeados — #1032 (#1025 bug 2), #1033 (#1023), #1036 (#1027), #1040 (#1037),
   #1041 (#1035), #1042 (#1018), #1043 (#1034), #1045 (#1028), #1047 (#1024 + #1039), #1048 (docs y
