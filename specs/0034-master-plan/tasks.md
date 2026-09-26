@@ -74,7 +74,7 @@ Orden de los lotes:
 
 ## Lote B — Plantillas y comprobaciones
 
-- [ ] **T4** (R11, R12, R18, R21, R29, R30, R31, R42, R55, R59) — Plantillas y `navori master template`.
+- [x] **T4** (R11, R12, R18, R21, R29, R30, R31, R42, R55, R59) — Plantillas y `navori master template`.
   - `packages/core/core-assets/master-plan/{plan,master,decisions,intake,digest,tasks,issue}.md`
     en español, más la traducción en `master-plan/en/` con el fallback de `resolveAssetPath`.
   - La plantilla `plan` trae las 18 secciones de D3. La sección 3 ("Estado actual vs. objetivo")
@@ -88,7 +88,7 @@ Orden de los lotes:
     R42, R55, R59`. Los encabezados se leen del archivo (no hay lista literal en TS); `en-curso` exige
     la sección 3 y `template` no; `digest` trae sus ocho secciones; `issue --part` trae objetivo,
     alcance, fuera de alcance, dependencias, criterio de aceptación y la ruta de `MASTER.md`.
-- [ ] **T5** (R8, R10, R11, R12, R14, R16, R21, R22, R23, R29, R30, R31, R32, R50, R52) — `check`
+- [x] **T5** (R8, R10, R11, R12, R14, R16, R21, R22, R23, R29, R30, R31, R32, R50, R52) — `check`
   y `advance`.
   - `lib/master/checks.ts` implementa la tabla "Comprobaciones de `advance`" de `design.md`, más
     la comprobación de `context/raw/.gitignore` en toda fase y `check --stage <NN-slug>` para una
@@ -143,6 +143,9 @@ Orden de los lotes:
     commit y fecha puestos por navori. Falla con `harness.masterPlan: false`.
   - `settings-base.json`: `allow` gana `Bash(navori master status:*)`, `Bash(navori master
     check:*)` y `Bash(navori master template:*)`, y nada más de `navori master`.
+  - Conecta en `checks.ts` (T5) la comparación, todavía pendiente, de la región
+    `navori:master-parts` de `MASTER.md` y de `STATUS.md` contra el render de `status.ts` — T5 la
+    difirió porque `status.ts` no existía aún.
   - Test: `lib/master/__tests__/status.test.ts`, con `// Covers: R31, R36, R40, R44, R46, R47,
     R54, R61`, según la fila de `STATUS.md`/`INDEX.md` de "Testing strategy": los mismos bytes en dos
     corridas, el estado efectivo con `descartada` y `diferida`, la discrepancia, la parte activa,

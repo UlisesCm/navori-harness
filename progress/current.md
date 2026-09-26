@@ -1,14 +1,29 @@
 idle
 
-Siguiente paso: `npm publish` de **navori 0.10.1** desde `packages/cli` (lo corre Ulises; el release
-#1049 ya está en `main` y el tag `v0.10.1` existe). Tras publicar, `check:assets` deja de avisar que
-`navori handoff` falta en la versión publicada.
+Siguiente paso: **spec 0034 (plan maestro), Lote B segunda mitad — T6 (`check --part`) y T7
+(`check --fit`)**. Rama nueva desde `origin/master-plan`, después de mergear ahí el PR de T4–T5.
 
-Después: segundo plan en `navori-boilerplate` — borrar el harness viejo, adoptar navori
-(`init --scan-monorepo`) y crear el preset local con el bloque de stack + skills propias
-(tokens/tema + `check:ui`, contrato `@navori/backend`).
+## Spec 0034 — en curso (issue #1064)
 
-Último ciclo (2026-09-24): release **0.10.1**. Reportes en `.claude/progress/` (gitignored) y en los
+- Todos los PRs de la spec van a la rama de integración **`master-plan`**, no a `main`. Al terminar
+  la feature se abre un solo PR `master-plan` → `main` con `Closes #1064`. El reviewer mide
+  `behind` y firma el receipt con `--target master-plan`.
+- Lote A (T1–T3): mergeado en `master-plan` (#1065).
+- Lote B, T4–T5: PR a `master-plan` desde `feat/0034-lote-b`. T6–T7 pendientes.
+- Pendientes declarados: T8 conecta la comparación de `navori:master-parts`/`STATUS.md` que T5
+  difirió; `status`/`check` deben tratar como falla una etapa `activa` sin carpeta (ya cubierto en
+  `checks.ts`); test de R4 después de `close` en T9; `CODEBASE_HEADERS` en español con TODO(i18n);
+  no bloqueantes del review de B: regex de markitdown de 3 segmentos y el `includes` de
+  `checkQuestioned`.
+- Gotchas: el hook `jscpd` del pre-commit compara contra `origin/main` con cero clones nuevos, así
+  que todo lo de `master-plan` cuenta como nuevo (correr `bun run jscpd:check` antes de publicar).
+  `implementer-no-markdown` obliga a que las plantillas `.md` y las enmiendas de la spec pasen por
+  el scribe (pedirle que no haga commit).
+
+Pendiente del ciclo anterior: `npm publish` de **navori 0.10.1** desde `packages/cli` (lo corre
+Ulises). Después, segundo plan en `navori-boilerplate`.
+
+Último ciclo cerrado (2026-09-24): release **0.10.1**. Reportes en `.claude/progress/` (gitignored) y en los
 worktrees de cada agente: `workplan_*.json`, `impl_*.json`, `review_*.md`, `audit_ticket_*.md`,
 `solution_1027.md`, `challenge_1027.md`.
 

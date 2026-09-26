@@ -9,8 +9,25 @@ import { join, resolve } from "node:path";
 import { readConfig } from "../lib/config/config.ts";
 import { MasterInitError, runMasterInit } from "../lib/master/init.ts";
 import { activeStage, masterDirPath, readMasterIndex } from "../lib/master/stages.ts";
-import { MasterStateSchema, type MasterMode, type MasterState } from "../lib/master/schema.ts";
+import {
+  MasterStateSchema,
+  PartsSchema,
+  type MasterMode,
+  type MasterState,
+} from "../lib/master/schema.ts";
 import { writeFileAtomic } from "../lib/primitives/atomic.ts";
+import {
+  checkClosedStage,
+  MasterCheckSetupError,
+  runMasterAdvance,
+  runMasterCheck,
+} from "../lib/master/checks.ts";
+import {
+  printIssueTemplate,
+  printTemplate,
+  TEMPLATE_NAMES,
+  type TemplateName,
+} from "../lib/master/templates.ts";
 
 const MASTER_MODES: readonly MasterMode[] = ["template", "en-curso"];
 
@@ -101,10 +118,132 @@ const modeSubCommand = defineCommand({
   },
 });
 
+const templateSubCommand = defineCommand({
+  meta: { name: "template", description: "Print a master-plan template, or a filled issue (R42)" },
+  args: {
+    name: { type: "positional", required: true, description: TEMPLATE_NAMES.join(" | ") },
+    part: { type: "string", description: "P<n>: print 'issue' filled from parts.json" },
+    cwd: { type: "string", description: "Repo root" },
+  },
+  run({ args }) {
+    const cwd = resolve(args.cwd ?? process.cwd());
+    const name = args.name as string;
+    if (!TEMPLATE_NAMES.includes(name as TemplateName)) {
+      reportError(new Error(`plantilla desconocida "${name}": ${TEMPLATE_NAMES.join(", ")}`));
+      return;
+    }
+    try {
+      const config = readConfig(join(cwd, "navori.config.json"));
+      const specsDir = config.sdd?.specsDir ?? "specs";
+      if (args.part) {
+        if (name !== "issue") {
+          throw new Error("--part solo aplica a 'navori master template issue'");
+        }
+        const index = readMasterIndex(cwd, specsDir);
+        const stage = activeStage(index);
+        if (!stage) throw new Error("no hay etapa activa");
+        const partsPath = join(masterDirPath(cwd, specsDir), stage.dir, "parts.json");
+        if (!existsSync(partsPath)) throw new Error(`falta ${stage.dir}/parts.json`);
+        const raw: unknown = JSON.parse(readFileSync(partsPath, "utf8"));
+        const parsed = PartsSchema.parse(raw);
+        const part = parsed.parts.find((p) => p.id === args.part);
+        if (!part) throw new Error(`no existe la parte ${String(args.part)}`);
+        process.stdout.write(`${printIssueTemplate(part, stage.dir, specsDir, config.language)}\n`);
+        return;
+      }
+      const state = activeStageState(cwd, specsDir);
+      process.stdout.write(
+        printTemplate(name as TemplateName, config.language, state?.mode ?? null),
+      );
+    } catch (cause) {
+      reportError(cause);
+    }
+  },
+});
+
+function activeStageState(cwd: string, specsDir: string): MasterState | null {
+  const index = readMasterIndex(cwd, specsDir);
+  const stage = activeStage(index);
+  if (!stage) return null;
+  const path = join(masterDirPath(cwd, specsDir), stage.dir, "state.json");
+  if (!existsSync(path)) return null;
+  const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+  return MasterStateSchema.parse(raw);
+}
+
+const advanceSubCommand = defineCommand({
+  meta: { name: "advance", description: "Advance the active stage one phase (R8)" },
+  args: { cwd: { type: "string", description: "Repo root" } },
+  run({ args }) {
+    const cwd = resolve(args.cwd ?? process.cwd());
+    try {
+      const result = runMasterAdvance(cwd);
+      if (!result.advanced) {
+        for (const failure of result.failures) process.stderr.write(`[navori] ${failure}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      process.stdout.write(`${result.from} -> ${result.to}\n`);
+    } catch (cause) {
+      if (cause instanceof MasterCheckSetupError) {
+        reportError(cause);
+        return;
+      }
+      throw cause;
+    }
+  },
+});
+
+const checkSubCommand = defineCommand({
+  meta: {
+    name: "check",
+    description: "Validate the active stage, or a closed one with --stage (R50)",
+  },
+  args: {
+    stage: { type: "string", description: "NN-slug of a closed stage to validate" },
+    cwd: { type: "string", description: "Repo root" },
+  },
+  run({ args }) {
+    const cwd = resolve(args.cwd ?? process.cwd());
+    try {
+      if (args.stage) {
+        const config = readConfig(join(cwd, "navori.config.json"));
+        const specsDir = config.sdd?.specsDir ?? "specs";
+        const failures = checkClosedStage(cwd, specsDir, args.stage as string, config.language);
+        if (failures.length > 0) {
+          for (const failure of failures) process.stderr.write(`[navori] ${failure}\n`);
+          process.exitCode = 1;
+          return;
+        }
+        process.stdout.write(`${args.stage as string}: ok\n`);
+        return;
+      }
+      const result = runMasterCheck(cwd);
+      if (result.failures.length > 0) {
+        for (const failure of result.failures) process.stderr.write(`[navori] ${failure}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      process.stdout.write(
+        `fase ${result.phase}${result.nextPhase ? ` · lista para avanzar a ${result.nextPhase}` : ""}\n`,
+      );
+    } catch (cause) {
+      if (cause instanceof MasterCheckSetupError) {
+        reportError(cause);
+        return;
+      }
+      throw cause;
+    }
+  },
+});
+
 export const masterCommand = defineCommand({
   meta: { name: "master", description: "Master-plan project flow (spec 0034)" },
   subCommands: {
     init: initSubCommand,
     mode: modeSubCommand,
+    template: templateSubCommand,
+    check: checkSubCommand,
+    advance: advanceSubCommand,
   },
 });
