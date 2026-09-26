@@ -37,16 +37,27 @@ describe("scanControlGaps", () => {
     expect(scanControlGaps(cfg).some((g) => g.control === "plan-gate")).toBe(false);
   });
 
-  it("reports plan-gate as advisory and warn when planTiers is on and codex is configured", () => {
+  it("does not report plan-gate for codex (enforced there since spec 0035)", () => {
     const cfg = config({
       engines: ["claude", "codex"],
       harness: { planTiers: true } as NavoriConfig["harness"],
     });
     const gap = scanControlGaps(cfg).find((g) => g.control === "plan-gate" && g.engine === "codex");
-    expect(gap).toMatchObject({ state: "advisory", severity: "warn" });
+    expect(gap).toBeUndefined();
   });
 
-  it("reports plan-gate for every non-claude engine configured", () => {
+  it("reports plan-gate as advisory and warn when planTiers is on and agents-md is configured", () => {
+    const cfg = config({
+      engines: ["claude", "agents-md"],
+      harness: { planTiers: true } as NavoriConfig["harness"],
+    });
+    const gap = scanControlGaps(cfg).find(
+      (g) => g.control === "plan-gate" && g.engine === "agents-md",
+    );
+    expect(gap).toMatchObject({ state: "unsupported", severity: "warn" });
+  });
+
+  it("reports plan-gate for every non-claude, non-codex engine configured (codex is enforced since spec 0035)", () => {
     const cfg = config({
       engines: ["codex", "agents-md", "cursor"],
       harness: { planTiers: true } as NavoriConfig["harness"],
@@ -54,7 +65,7 @@ describe("scanControlGaps", () => {
     const engines = scanControlGaps(cfg)
       .filter((g) => g.control === "plan-gate")
       .map((g) => g.engine);
-    expect(engines).toEqual(["codex", "agents-md", "cursor"]);
+    expect(engines).toEqual(["agents-md", "cursor"]);
   });
 
   it("reports the unconditional advisory controls as info in a solo-Claude repo", () => {

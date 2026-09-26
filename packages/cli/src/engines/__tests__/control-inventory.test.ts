@@ -114,6 +114,31 @@ function claudeAnyHookNames(settings: ClaudeSettingsHooks, script: string): bool
   );
 }
 
+/**
+ * Spec 0035 T4/R8 — one `[[hooks.<event>]]` group followed by its sibling
+ * `[[hooks.<event>.hooks]]` block, the shape `buildCodexConfigToml` emits for
+ * every row `resolveCodexHooks` returns (see build-config-toml.ts). Captures
+ * the group's own `matcher` (absent when the row has none) and the nested
+ * block's `command`, so a match requires the exact event+matcher pair, not
+ * just the script appearing somewhere in the file.
+ */
+const CODEX_HOOK_GROUP_RE =
+  /\[\[hooks\.(\w+)\]\]\n(?:matcher = "((?:[^"\\]|\\.)*)"\n)?\n\[\[hooks\.\1\.hooks\]\]\n(?:[^\n]*\n)*?command = "((?:[^"\\]|\\.)*)"/g;
+
+/** Whether `.codex/config.toml`'s text registers `script` on `event` with
+ *  exactly `matcher` (R8). */
+function codexHookRegistered(
+  configToml: string,
+  event: string,
+  matcher: string,
+  script: string,
+): boolean {
+  for (const m of configToml.matchAll(CODEX_HOOK_GROUP_RE)) {
+    if (m[1] === event && (m[2] ?? "") === matcher && (m[3] ?? "").includes(script)) return true;
+  }
+  return false;
+}
+
 /** Checks a declared control's state against what `cwd`'s render produced. */
 function assertControlMatchesRender(cwd: string, engineId: EngineId, controlId: ControlId): void {
   const declaration = ENGINE_CAPABILITIES[engineId].controls[controlId];
@@ -171,9 +196,19 @@ function assertControlMatchesRender(cwd: string, engineId: EngineId, controlId: 
   }
 
   if (engineId === "codex") {
-    // No codex control declares hook evidence (D5: hooks are never registered
-    // in .codex/config.toml for these); nothing further to check here besides
-    // local-skill-discovery, handled above.
+    // Spec 0035 R6/R7/R8: `plan-gate` and `markdown-ownership` are `enforced`
+    // with hook evidence — verify the exact event/matcher landed in the
+    // rendered .codex/config.toml, not just that SOME hook did.
+    // Covers: R6, R7, R8
+    if (declaration.state === "enforced" && declaration.evidence.kind === "hook") {
+      const configToml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+      const evidence = declaration.evidence;
+      expect(
+        codexHookRegistered(configToml, evidence.event, evidence.matcher, evidence.script),
+        `${label}: declared enforced with hook evidence (${evidence.script}), not found registered ` +
+          `as ${evidence.event}(${evidence.matcher}) in .codex/config.toml`,
+      ).toBe(true);
+    }
     return;
   }
 
