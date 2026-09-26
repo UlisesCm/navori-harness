@@ -16,6 +16,8 @@ import {
   type MasterState,
 } from "../lib/master/schema.ts";
 import { writeFileAtomic } from "../lib/primitives/atomic.ts";
+import { checkPart } from "../lib/master/check-part.ts";
+import { checkFit } from "../lib/master/fit.ts";
 import {
   checkClosedStage,
   MasterCheckSetupError,
@@ -201,11 +203,40 @@ const checkSubCommand = defineCommand({
   },
   args: {
     stage: { type: "string", description: "NN-slug of a closed stage to validate" },
+    part: { type: "string", description: "P<n> of a linked part spec to validate" },
+    fit: { type: "boolean", description: "Count D9 fit criteria without making a decision" },
+    json: { type: "boolean", description: "Print machine-readable result for --fit" },
     cwd: { type: "string", description: "Repo root" },
   },
   run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     try {
+      if (
+        [Boolean(args.stage), Boolean(args.part), Boolean(args.fit)].filter(Boolean).length > 1 ||
+        (args.json && !args.fit)
+      ) {
+        throw new Error("--stage, --part and --fit are mutually exclusive; --json requires --fit");
+      }
+      if (args.part) {
+        const findings = checkPart(cwd, args.part as string);
+        for (const finding of findings) process.stderr.write(`[navori] ${finding}\n`);
+        if (findings.some((finding) => !finding.startsWith("warning:"))) process.exitCode = 1;
+        else process.stdout.write(`${args.part as string}: ok\n`);
+        return;
+      }
+      if (args.fit) {
+        const result = checkFit(cwd);
+        if (args.json) process.stdout.write(`${JSON.stringify(result)}\n`);
+        else {
+          for (const criterion of result.verifiable)
+            process.stdout.write(
+              `${criterion.id}: ${String(criterion.value)} / ${String(criterion.threshold)} ${criterion.pass ? "pass" : "fail"}\n`,
+            );
+          process.stdout.write("J1, J2, J3: juicio\n");
+        }
+        if (!result.allVerifiablePass) process.exitCode = 1;
+        return;
+      }
       if (args.stage) {
         const config = readConfig(join(cwd, "navori.config.json"));
         const specsDir = config.sdd?.specsDir ?? "specs";
