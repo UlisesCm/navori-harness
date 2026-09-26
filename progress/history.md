@@ -10,6 +10,24 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-25 17:30 — orchestrator — Issues post-0.10.1: tailwind, workspace, receipt, links, jscpd, classify, architect
+- Cambios: 7 PRs — #1058 (#1052 `tailwind-v4` solo con tailwindcss >= 4), #1059 (#1054 `init` infiere el
+  workspace), #1061 (#1038 blob sin hashear en `receipt`), #1062 (#1031 fences sin cerrar y excepciones
+  obsoletas en `check-links`), #1066 (#1060 jscpd bloquea solo clones nuevos y exige >= 5.1.1, nivel 2),
+  #1068 (#1067 `plan classify` lee el borrador) y el PR de #1063 (el `architect` escribe el borrador
+  primero y prueba con criterio). #1025 cerrado con repro en una copia de `services--calendar`.
+  Issues nuevos: #1060, #1067.
+- Quality gate: ✅ `bun check` verde en cada review; A8 de #1060 verificado a mano con jscpd 5.3.2.
+- Notas: #1060 es breaking: cada máquina con jscpd < 5.1.1 bloquea commits TS tras re-renderizar
+  (`pnpm add -g jscpd@^5.1.1`). El usuario eligió R1 (conservar `pluginExtraVars`). Un implementer que
+  solo produce `markdownRequests` pierde su `impl_*.json` cuando el worktree se borra solo (sin cambios
+  versionados), y el handoff queda apuntando a una ruta muerta; se recuperó reescribiéndolo en el
+  checkout principal. En prosa managed, medir contra el cap no basta: `doc-budgets-check.test.ts`
+  exige ≥5% de holgura y varios tests fijan literales. El publisher siguió inventando datos en el
+  cuerpo del PR; se resolvió pasándole un body-file verificado. `bun.lock` arrastra un desfase
+  0.9.0→0.10.1 que cada `bun install` ensucia.
+- Commit / PR: #1058, #1059, #1061, #1062, #1066, #1068, PR de #1063
+
 ## 2026-09-24 23:30 — orchestrator — Release 0.10.1
 - Cambios: 10 PRs mergeados — #1032 (#1025 bug 2), #1033 (#1023), #1036 (#1027), #1040 (#1037),
   #1041 (#1035), #1042 (#1018), #1043 (#1034), #1045 (#1028), #1047 (#1024 + #1039), #1048 (docs y

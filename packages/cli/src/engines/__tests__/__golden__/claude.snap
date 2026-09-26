@@ -30,14 +30,14 @@ The orchestrator hands you a task that fired a `solution-design` signal (new sha
 - "Derive the decision drivers from the project's own rules (DIRECTION, CLAUDE.md, EXTENDING, `quality-attributes`) before you list any option."
 - "Explore at least three rungs — the existing pattern, an extension, a new abstraction. A discarded rung gets one line with its evidence; a surviving one is developed in full."
 - "Recommend the option that best fits the drivers, not the cheapest by default."
-- "Verify every 'already exists' claim against `origin/main` after `git fetch origin main`; if the fetch fails or the ref doesn't exist, name the ref you actually used — or mark the claim *unverified* with the cause."
+- "Only verify empirically what would change the recommendation if false — documentation before a probe, never a full stack install; a probe like `npx <tool>@<version> --help` for a deciding flag still qualifies. Verify every 'already exists' claim against `origin/main` after `git fetch origin main`; if the fetch fails or the ref doesn't exist, name the ref you actually used — or mark the claim *unverified* with the cause."
 
 ## Protocol
 
 1. `CLAUDE.md` is already in your context when your host injects it — read it from disk only if it wasn't.
 2. Apply `.claude/skills/solution-design/SKILL.md` and the Method above: what already exists (evidence), the real problem, genuine approaches only, the chosen solution and why not the others, only the dimensions the signal raises.
 3. Follow Code discovery routing (project instructions): the structural provider first for relationships or impact, `Grep`/`Glob` for literals — find what already solves this before proposing anything new.
-4. Write `.claude/progress/solution_<scope>.md` to the skill's template, plus `Decision drivers`, `Options` (survivors developed in full, discarded ones in one line each), `Recommendation`, and `Durable knowledge` naming the proposed destination (Dominio / CLAUDE.md / user-section / skill). "You propose the destination; you never write it." A human decision goes under "Open questions" for the orchestrator to raise — never guessed, never asked directly.
+4. Write the first full draft of `.claude/progress/solution_<scope>.md` — the skill's template, plus `Decision drivers`, `Options` (survivors developed in full, discarded ones in one line each), `Recommendation`, and `Durable knowledge` naming the proposed destination (Dominio / CLAUDE.md / user-section / skill); mark whatever only a probe would confirm `UNVERIFIED — <why it would change the recommendation>`. "You propose the destination; you never write it." A human decision goes under "Open questions" for the orchestrator to raise — never guessed, never asked directly. Then verify each `UNVERIFIED` item per the Method, updating the artifact after each.
 5. **Level 3 only**: instead of step 4, write `specs/<feature>/design.md` using `spec-bootstrap`'s template.
 6. You do NOT run the challenge — the orchestrator hands the artifact to a fresh-context `auditor` (or the skill's fallback). You do NOT issue READY/CONCERNS/BLOCKED — the orchestrator's, post-challenge.
 
@@ -1438,6 +1438,7 @@ There used to be a ladder (inline for small changes, delegate for the rest). It 
 - **Review AFTER implementing, never before.**
 - **Parallel `implementer`s only on disjoint files** (when in doubt, serial).
 - **`pnpm test && pnpm lint` green** is the reviewer's Pass 2, over the diff that ships.
+- **A verification brief names the probe criterion**, never an open "verify X"; track a long agent by its on-disk artifact, not only `done ->`.
 
 ### How much analysis does this task deserve (signal → mechanism)
 
@@ -1460,15 +1461,15 @@ The write is delegated unconditionally; this table is about how much **reading**
 
 ### Analytical parallelism (the lever — mechanical, not optional)
 
-Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default, so parallelism must be requested explicitly. **Independent** sub-tasks (no shared state, none depends on another's output) → same turn; serialize only on a real dependency (`implementer` → `reviewer`). Assign explicit scope before fanning out; synthesis is **never** delegated — when the `done -> file` reports return, you read the N files together and cross-check them yourself.
+Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default; parallelism must be requested explicitly. **Independent** sub-tasks (no shared state, no output dependency) → same turn; serialize only on a real dependency (`implementer` → `reviewer`). Assign explicit scope before fanning out; synthesis is **never** delegated — read the N `done -> file` reports together and cross-check them.
 
 ### When delegation is genuinely impossible
 
-Rare, and it must leave a trace: the operator forbade subagents, or the `Agent` tool is unavailable. Then you do the work and **say so in your reply, naming the reason** — the `publisher` will require `pnpm test && pnpm lint` green from you in pre-flight, since there is no review to trust. An undeclared inline change is a deviation, not a shortcut.
+Rare, and it must leave a trace: the operator forbade subagents, or the `Agent` tool is unavailable. Then you do the work and **say why in your reply** — the `publisher` will require `pnpm test && pnpm lint` green from you in pre-flight, since there is no review to trust. An undeclared inline change is a deviation, not a shortcut.
 
 ### Where the depth lives (read it when the moment asks)
 
-The depth sits with whoever owns the moment — open it then: **`.claude/agents/orchestrator.md`** (how to decompose, frugal delegation, the anti-broken-telephone rule and which file each agent writes under `.claude/progress/`, continuous execution and the caps that end a loop, closing the cycle, second opinion, reclaiming a worktree) · **`.claude/skills/resolve-ticket/SKILL.md`** (a ticket arrived: the pipeline) · **`.claude/skills/solution-design/SKILL.md`** (an architectural signal fired: the design pass).
+The depth sits with whoever owns the moment — open it then: **`.claude/agents/orchestrator.md`** (decomposing, frugal delegation, anti-broken-telephone, per-agent output files, continuous execution and its caps, closing the cycle, second opinion, reclaiming a worktree) · **`.claude/skills/resolve-ticket/SKILL.md`** (a ticket: the pipeline) · **`.claude/skills/solution-design/SKILL.md`** (an architectural signal: the design pass).
 <!-- /navori:managed id="orquestacion" -->
 
 
