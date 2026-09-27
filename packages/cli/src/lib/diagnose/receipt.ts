@@ -1,9 +1,15 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { LOCKFILES } from "./detect.ts";
 import { isUnderProgressDir } from "../primitives/progress-dirs.ts";
+import {
+  ensureStateDirectory,
+  resolveStateRoot,
+  stateArtifactPath,
+  type StateRoot,
+} from "../primitives/state-root.ts";
 
 export type ReceiptStatus = "ok" | "findings" | "error";
 export type DriftKind = "changed" | "missing" | "reappeared";
@@ -83,6 +89,7 @@ function empty(options: ReceiptOptions, error: string): ReceiptResult {
 }
 
 function git(cwd: string, args: string[], nul = false): string {
+  if (!process.env.PATH) throw new Error("git failed: PATH is empty");
   const result = spawnSync(
     "git",
     ["-c", "core.fsmonitor=false", "-c", "core.quotepath=false", ...args],
@@ -209,13 +216,21 @@ function success(
   };
 }
 
-function receiptPath(options: ReceiptOptions, consumed = false): string {
-  return resolve(options.cwd, options.dir, consumed ? "receipt.consumed.txt" : "receipt.txt");
+function receiptRoot(options: ReceiptOptions): StateRoot {
+  const root = resolveStateRoot({ cwd: options.cwd, feature: options.feature, dir: options.dir });
+  ensureStateDirectory(root);
+  return root;
+}
+
+function receiptPath(root: StateRoot, consumed = false): string {
+  return stateArtifactPath(root, consumed ? "receipt.consumed.txt" : "receipt.txt");
 }
 
 /** Signs exactly the working-tree content that differs from the remote target. */
 export function signReceipt(options: ReceiptOptions): { exitCode: number; result: ReceiptResult } {
   try {
+    const root = receiptRoot(options);
+    options = { ...options, cwd: root.cwd, dir: root.dir };
     const state = inspect(options);
     const identity = evidenceIdentity(options.cwd, options.gate);
     const lines = [
@@ -232,10 +247,11 @@ export function signReceipt(options: ReceiptOptions): { exitCode: number; result
       }
     }
     const output = `${lines.join("\n")}\n`;
-    const destination = receiptPath(options);
-    mkdirSync(resolve(options.cwd, options.dir), { recursive: true });
-    const temporary = `${destination}.tmp-${process.pid}`;
-    writeFileSync(temporary, output, "utf8");
+    const destination = receiptPath(root);
+    const temporary = stateArtifactPath(root, `receipt.txt.tmp-${process.pid}`);
+    writeFileSync(temporary, output, { encoding: "utf8", flag: "wx" });
+    stateArtifactPath(root, `receipt.txt.tmp-${process.pid}`);
+    stateArtifactPath(root, "receipt.txt");
     renameSync(temporary, destination);
     return { exitCode: 0, result: success(options, state) };
   } catch (cause: unknown) {
@@ -285,10 +301,13 @@ function readReceiptFile(path: string): { header: ReceiptHeader; records: Map<st
 /** Picks `receipt.txt`, or `receipt.consumed.txt` when `includeConsumed` is set
  * and the main receipt is absent. Without the flag, a consumed receipt reads as
  * absent — it can never re-authorize a later commit (R6). */
-function resolveReceiptSource(options: ReceiptOptions): { path: string; consumed: boolean } {
-  const main = receiptPath(options);
+function resolveReceiptSource(
+  root: StateRoot,
+  options: ReceiptOptions,
+): { path: string; consumed: boolean } {
+  const main = receiptPath(root);
   if (existsSync(main)) return { path: main, consumed: false };
-  const archived = receiptPath(options, true);
+  const archived = receiptPath(root, true);
   if (options.includeConsumed && existsSync(archived)) return { path: archived, consumed: true };
   throw new Error("receipt is absent");
 }
@@ -296,9 +315,14 @@ function resolveReceiptSource(options: ReceiptOptions): { path: string; consumed
 /** Checks coverage and byte drift without mutating the signed receipt. */
 export function checkReceipt(options: ReceiptOptions): { exitCode: number; result: ReceiptResult } {
   try {
+    const root = receiptRoot(options);
+    options = { ...options, cwd: root.cwd, dir: root.dir };
     const state = inspect(options);
-    const { path, consumed } = resolveReceiptSource(options);
+    const { path, consumed } = resolveReceiptSource(root, options);
     const { header, records } = readReceiptFile(path);
+    if (header.feature !== options.feature) {
+      throw new Error(`receipt belongs to feature "${header.feature}", not "${options.feature}"`);
+    }
     const uncovered = state.paths.filter((path) => !records.has(path));
     const drift: ReceiptResult["drift"] = [];
     for (const [path, blob] of records) {

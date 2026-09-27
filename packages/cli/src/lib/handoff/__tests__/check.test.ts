@@ -1,7 +1,7 @@
 // Covers: R13, R14, R15, R16, R24
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkHandoff, handoffExitCode, type HandoffCheckResult } from "../check.ts";
@@ -19,7 +19,7 @@ function git(cwd: string, ...args: string[]): string {
 /** A throwaway git repo, used as both the `--cwd` checkout and the
  * `worktree` a handoff registers, unless a test says otherwise. */
 function repo(): string {
-  const root = mkdtempSync(join(tmpdir(), "navori-handoff-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "navori-handoff-")));
   workspaces.push(root);
   git(root, "init", "-b", "feat/demo");
   git(root, "config", "user.email", "test@example.com");
@@ -74,6 +74,24 @@ describe("checkHandoff — exists / parse / feature (R14, R15)", () => {
     expect(result.status).toBe("findings");
     expect(handoffExitCode(result)).toBe(2);
     expect(result.failures.map((f) => f.check)).toContain("exists");
+  });
+
+  // Covers: R6
+  it("rejects a symlinked impl artifact before reading outside the checkout", () => {
+    const cwd = repo();
+    const external = mkdtempSync(join(tmpdir(), "navori-handoff-external-"));
+    workspaces.push(external);
+    writeFileSync(join(external, "impl.json"), "{not json");
+    mkdirSync(join(cwd, ".claude/progress"), { recursive: true });
+    symlinkSync(join(external, "impl.json"), join(cwd, ".claude/progress/impl_demo.json"));
+    const result = checkHandoff({
+      cwd,
+      dir: ".claude/progress",
+      feature: "demo",
+      consumer: "orchestrator",
+    });
+    expect(result.status).toBe("error");
+    expect(result.failures[0]?.detail).toContain("escapes checkout");
   });
 
   it("fails 'parse' on invalid JSON", () => {

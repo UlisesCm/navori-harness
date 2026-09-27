@@ -1,6 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+  realpathSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCommand } from "citty";
@@ -10,7 +19,8 @@ let cwd: string;
 const dir = ".claude/progress";
 
 beforeEach(() => {
-  cwd = mkdtempSync(join(tmpdir(), "navori-plan-"));
+  cwd = realpathSync(mkdtempSync(join(tmpdir(), "navori-plan-")));
+  execFileSync("git", ["init", "-b", "main"], { cwd });
   process.exitCode = undefined;
 });
 
@@ -58,6 +68,20 @@ describe("navori plan classify", () => {
     const parsed = JSON.parse(logs.join(""));
     expect(parsed.level).toBeGreaterThanOrEqual(1);
     expect(typeof parsed.score).toBe("number");
+  });
+
+  // Covers: R6
+  it("rejects an ancestor-symlinked command cwd before it selects another checkout", async () => {
+    const other = realpathSync(mkdtempSync(join(tmpdir(), "navori-plan-other-")));
+    execFileSync("git", ["init", "-b", "main"], { cwd: other });
+    mkdirSync(join(other, "sub"));
+    symlinkSync(other, join(cwd, "alias"));
+    await expect(
+      runCommand(planCommand, {
+        rawArgs: ["classify", "demo", "--files", "src/a.ts", "--cwd", join(cwd, "alias", "sub")],
+      }),
+    ).rejects.toThrow("symlinked --cwd");
+    rmSync(other, { recursive: true, force: true });
   });
 
   it("forces level 2 when a floor flag is declared", async () => {
@@ -271,6 +295,20 @@ describe("navori plan render", () => {
     expect(second).toBe(first);
   });
 
+  // Covers: R6
+  it("rejects a preexisting render temporary symlink without writing outside the checkout", async () => {
+    writePlan("demo", validPlan);
+    const external = mkdtempSync(join(tmpdir(), "navori-plan-external-"));
+    const outside = join(external, "outside.md");
+    writeFileSync(outside, "unchanged\n");
+    symlinkSync(outside, join(cwd, dir, `.workplan_demo.md.tmp-${process.pid}`));
+    await expect(
+      runCommand(planCommand, { rawArgs: ["render", "demo", "--cwd", cwd] }),
+    ).rejects.toThrow("escapes checkout");
+    expect(readFileSync(outside, "utf8")).toBe("unchanged\n");
+    rmSync(external, { recursive: true, force: true });
+  });
+
   it("fails when the JSON does not match the schema", async () => {
     writePlan("broken", { feature: "broken" });
     await runCommand(planCommand, { rawArgs: ["render", "broken", "--cwd", cwd] });
@@ -290,6 +328,22 @@ describe("navori plan update", () => {
     expect(updated.progress.A1).toBe("cumplido");
     const md = readFileSync(join(cwd, dir, "workplan_demo.md"), "utf8");
     expect(md).toContain("**A1** (cumplido)");
+  });
+
+  // Covers: R6
+  it("rejects a preexisting update temporary symlink without writing outside the checkout", async () => {
+    writePlan("demo", validPlan);
+    const external = mkdtempSync(join(tmpdir(), "navori-plan-external-"));
+    const outside = join(external, "outside.json");
+    writeFileSync(outside, "unchanged\n");
+    symlinkSync(outside, join(cwd, dir, `.workplan_demo.json.tmp-${process.pid}`));
+    await expect(
+      runCommand(planCommand, {
+        rawArgs: ["update", "demo", "--progress", "A1=cumplido", "--cwd", cwd],
+      }),
+    ).rejects.toThrow("escapes checkout");
+    expect(readFileSync(outside, "utf8")).toBe("unchanged\n");
+    rmSync(external, { recursive: true, force: true });
   });
 
   it("applies two --progress flags in a single call (repeated citty flag)", async () => {

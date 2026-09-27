@@ -5,14 +5,19 @@
  */
 import { defineCommand } from "citty";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import {
+  resolveStateRoot,
+  stateArtifactPath,
+  type StateRoot,
+  writeStateFileAtomic,
+} from "../lib/primitives/state-root.ts";
 import { classify, declaredFlagsFromSignals, type ClassifyInput } from "../lib/plan/classify.ts";
 import { checkWorkplan, formatCheckResult } from "../lib/plan/check.ts";
 import { evaluatePlanGate } from "../lib/plan/gate.ts";
 import { applyWorkplanUpdate, renderWorkplan, type WorkplanUpdate } from "../lib/plan/render.ts";
 import { WorkplanSchema, type ProgressStatus, type Workplan } from "../lib/plan/schema.ts";
-import { writeFileAtomic } from "../lib/primitives/atomic.ts";
 import { readConfig } from "../lib/config/config.ts";
 
 function splitList(value: string | undefined): string[] {
@@ -32,12 +37,8 @@ function normalizeProgressList(value: unknown): string[] {
   return [String(value)];
 }
 
-function jsonPath(cwd: string, dir: string, feature: string): string {
-  return resolve(cwd, dir, `workplan_${feature}.json`);
-}
-
-function mdPath(cwd: string, dir: string, feature: string): string {
-  return resolve(cwd, dir, `workplan_${feature}.md`);
+function jsonPath(root: StateRoot, feature: string): string {
+  return stateArtifactPath(root, `workplan_${feature}.json`);
 }
 
 /** A workplan draft's `files[].path` and, if well-formed, its
@@ -146,15 +147,14 @@ function diffFiles(cwd: string, base: string): string[] {
     .filter(Boolean);
 }
 
-function writeWorkplanAndRender(cwd: string, dir: string, feature: string, plan: Workplan): void {
-  mkdirSync(resolve(cwd, dir), { recursive: true });
-  writeFileAtomic(jsonPath(cwd, dir, feature), `${JSON.stringify(plan, null, 2)}\n`);
-  writeFileAtomic(mdPath(cwd, dir, feature), renderWorkplan(plan));
+function writeWorkplanAndRender(root: StateRoot, feature: string, plan: Workplan): void {
+  writeStateFileAtomic(root, `workplan_${feature}.json`, `${JSON.stringify(plan, null, 2)}\n`);
+  writeStateFileAtomic(root, `workplan_${feature}.md`, renderWorkplan(plan));
 }
 
 const shared = {
   feature: { type: "positional" as const, required: true, description: "Feature slug" },
-  dir: { type: "string" as const, description: "Progress directory", default: ".claude/progress" },
+  dir: { type: "string" as const, description: "Progress directory" },
   cwd: { type: "string" as const, description: "Repo root" },
   json: { type: "boolean" as const, description: "Output as JSON" },
 };
@@ -194,14 +194,19 @@ const classifySubCommand = defineCommand({
     },
   },
   run({ args }) {
-    const cwd = resolve(args.cwd ?? process.cwd());
+    const root = resolveStateRoot({
+      cwd: args.cwd ?? process.cwd(),
+      feature: args.feature,
+      dir: args.dir,
+    });
+    const cwd = root.cwd;
     // `criticalPaths`/`localSkills` are optional (R9): a repo without
     // `navori.config.json` or without a `project` block simply falls back to
     // the declared flag / the default "generated" classification.
     const { criticalPaths, localSkillIds } = readProjectClassifyContext(cwd);
 
     if (args.diff !== undefined) {
-      classifyDiff(cwd, args.dir, args.feature, args.diff || "origin/main", args.json ?? false, {
+      classifyDiff(root, args.feature, args.diff || "origin/main", args.json ?? false, {
         criticalPaths,
         localSkillIds,
       });
@@ -214,7 +219,7 @@ const classifySubCommand = defineCommand({
     let draft: DraftClassifyContext | undefined;
     if (args.files === undefined) {
       try {
-        draft = readDraftClassifyContext(jsonPath(cwd, args.dir, args.feature));
+        draft = readDraftClassifyContext(jsonPath(root, args.feature));
       } catch (cause: unknown) {
         process.stderr.write(
           `${cause instanceof Error ? cause.message : "invalid draft workplan"}\n`,
@@ -257,14 +262,14 @@ const classifySubCommand = defineCommand({
  * catch a diff that outgrew its plan.
  */
 function classifyDiff(
-  cwd: string,
-  dir: string,
+  root: StateRoot,
   feature: string,
   base: string,
   json: boolean,
   project: { criticalPaths: string[] | undefined; localSkillIds: string[] | undefined },
 ): void {
-  const plan = readWorkplanOrExit(jsonPath(cwd, dir, feature));
+  const cwd = root.cwd;
+  const plan = readWorkplanOrExit(jsonPath(root, feature));
   if (!plan) return;
 
   let files: string[];
@@ -312,10 +317,14 @@ const renderSubCommand = defineCommand({
   meta: { name: "render", description: "Render workplan_<feature>.md from its JSON source" },
   args: shared,
   run({ args }) {
-    const cwd = resolve(args.cwd ?? process.cwd());
-    const plan = readWorkplanOrExit(jsonPath(cwd, args.dir, args.feature));
+    const root = resolveStateRoot({
+      cwd: args.cwd ?? process.cwd(),
+      feature: args.feature,
+      dir: args.dir,
+    });
+    const plan = readWorkplanOrExit(jsonPath(root, args.feature));
     if (!plan) return;
-    writeFileAtomic(mdPath(cwd, args.dir, args.feature), renderWorkplan(plan));
+    writeStateFileAtomic(root, `workplan_${args.feature}.md`, renderWorkplan(plan));
     if (args.json) process.stdout.write(`${JSON.stringify({ rendered: true })}\n`);
   },
 });
@@ -332,8 +341,12 @@ const updateSubCommand = defineCommand({
     date: { type: "string", description: "Decision date (ISO), required with --decision" },
   },
   run({ args }) {
-    const cwd = resolve(args.cwd ?? process.cwd());
-    const plan = readWorkplanOrExit(jsonPath(cwd, args.dir, args.feature));
+    const root = resolveStateRoot({
+      cwd: args.cwd ?? process.cwd(),
+      feature: args.feature,
+      dir: args.dir,
+    });
+    const plan = readWorkplanOrExit(jsonPath(root, args.feature));
     if (!plan) return;
 
     const progressEntries = normalizeProgressList(args.progress);
@@ -375,7 +388,7 @@ const updateSubCommand = defineCommand({
       process.exitCode = 1;
       return;
     }
-    writeWorkplanAndRender(cwd, args.dir, args.feature, updated);
+    writeWorkplanAndRender(root, args.feature, updated);
     if (args.json) process.stdout.write(`${JSON.stringify({ updated: true })}\n`);
   },
 });
@@ -384,8 +397,12 @@ const checkSubCommand = defineCommand({
   meta: { name: "check", description: "Validate a workplan against its schema and R15's rules" },
   args: shared,
   run({ args }) {
-    const cwd = resolve(args.cwd ?? process.cwd());
-    const path = jsonPath(cwd, args.dir, args.feature);
+    const root = resolveStateRoot({
+      cwd: args.cwd ?? process.cwd(),
+      feature: args.feature,
+      dir: args.dir,
+    });
+    const path = jsonPath(root, args.feature);
     if (!existsSync(path)) {
       process.stderr.write(`workplan not found: ${path}\n`);
       process.exitCode = 1;
