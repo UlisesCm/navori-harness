@@ -7,12 +7,8 @@
  * leaves `executing` — that only happens through `navori master close`
  * (a later lote).
  *
- * Scope note (reported in `impl_0034-lote-b.json`): the `mastered`/`executing`
- * row also asks to compare the `parts.json` region of `MASTER.md` against "its
- * render", and `check` (no `--stage`) is asked to compare `STATUS.md` against
- * its render (tasks.md T5). Both renders belong to `status.ts` (T8, Lote C),
- * which does not exist yet in this worktree — that comparison is deferred to
- * T8/T9 and is NOT implemented here; every other row of the table is.
+ * T8 completes the deferred T5 comparisons: the parts region of `MASTER.md`
+ * and `STATUS.md` must match the deterministic status renders.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -38,6 +34,12 @@ import {
 } from "./stages.ts";
 import { splitTemplateSections, templateHeaders, type TemplateSection } from "./templates.ts";
 import { masterMarkers, type MasterMarkers } from "./markers.ts";
+import {
+  masterPartsRegion,
+  readMasterStatus,
+  renderMasterParts,
+  renderStatusMd,
+} from "./status.ts";
 import type { AssetLanguage } from "../render/render-plan.ts";
 
 export type CheckFailure = string;
@@ -532,6 +534,10 @@ function checkMasterDocument(ctx: CheckContext): CheckFailure[] {
       failures.push(
         `${ctx.stage.dir}/parts.json no es válido: ${parsed.error.issues.map((i) => i.message).join("; ")}`,
       );
+    } else {
+      const expected = renderMasterParts(parsed.data.parts, ctx.state.mode);
+      if (masterPartsRegion(content) !== expected)
+        failures.push(`${ctx.stage.dir}/MASTER.md: navori:master-parts differs from parts.json`);
     }
   }
 
@@ -649,6 +655,14 @@ export function runMasterCheck(cwd: string, options: CheckOptions = {}): CheckRe
   const target = nextPhase(ctx.state.phase);
   const failures = [...checkRawGitignore(ctx), ...checkHistoryChain(ctx)];
   if (target) failures.push(...checksForTransition(ctx, target));
+  else if (ctx.state.phase === "executing") failures.push(...checkMasterDocument(ctx));
+  const statusPath = join(ctx.stagePath, "STATUS.md");
+  if (existsSync(statusPath)) {
+    if (readFileSync(statusPath, "utf8") !== renderStatusMd(readMasterStatus(cwd)))
+      failures.push(`${ctx.stage.dir}/STATUS.md differs from its render`);
+  } else if (["mastered", "executing"].includes(ctx.state.phase)) {
+    failures.push(`${ctx.stage.dir}: missing STATUS.md; run navori master status`);
+  }
   return { phase: ctx.state.phase, nextPhase: target, failures };
 }
 

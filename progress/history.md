@@ -10,6 +10,16 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-26 22:29 — orchestrator — Spec 0034: Lote B integrado, T8 conservada en worktree
+- Cambios: #1072 (T4–T5) y #1073 (T6–T7) mergeados en `master-plan`. T8 (`status`, `part`,
+  evidencia de aceptación y comparación de regiones) quedó sin commit en `feat/0034-lote-c`.
+- Quality gate: ✅ T8 pasó el gate completo en la cuarta revisión, con receipt `ok`/`fresh`
+  contra `master-plan` tras regenerar `claude.snap` y `.claude/settings.json`.
+- Notas: `progress/current.md` y `.claude/progress/review_0034-lote-c-t8-r4.md` conservan el
+  siguiente paso. Publicar T8 desde este worktree; no borrar el worktree ni limpiar sus cambios
+  antes de abrir el PR.
+- Commit / PR: #1072 (`2cd46598`), #1073 (`362bc877`); T8 pendiente de publicación.
+
 ## 2026-09-25 19:30 — orchestrator — Spec 0034: Lote A y primera mitad del Lote B
 - Cambios: rama de integración `master-plan` creada desde `main`. Lote A (T1–T3: esquemas,
   registro de etapas, `navori master init`/`mode`, docs de `master`) mergeado ahí como #1065.

@@ -19,7 +19,15 @@ import {
   runMasterCheck,
   type CheckContext,
 } from "../checks.ts";
-import type { MasterIndex, MasterState, Part, StageEntry } from "../schema.ts";
+import {
+  PartsSchema,
+  MASTER_PHASES,
+  type MasterIndex,
+  type MasterState,
+  type Part,
+  type StageEntry,
+} from "../schema.ts";
+import { renderMasterParts, writeMasterStatus } from "../status.ts";
 import { createGitHelper, createCommitHelper, createSeedConfigHelper } from "./test-utils.ts";
 
 let cwd: string;
@@ -254,6 +262,11 @@ function writeSinglePart(ctx: CheckContext): void {
       ],
     }),
   );
+}
+
+function renderedParts(ctx: CheckContext): string {
+  const raw: unknown = JSON.parse(readFileSync(join(ctx.stagePath, "parts.json"), "utf8"));
+  return renderMasterParts(PartsSchema.parse(raw).parts, ctx.state.mode);
 }
 
 describe("checkRawGitignore — every phase (R4)", () => {
@@ -644,16 +657,59 @@ describe("checksForTransition('mastered'/'executing') — R30-R33, R59", () => {
     const ctx = makeCtx({ stage: active, index: { version: 1, stages: [closed, active] } });
     seedParts(ctx);
     write(ctx, "DECISIONS.md", "Sin decisiones");
-    write(ctx, "MASTER.md", masterContent({ metadatos: "Origen: 01-mvp/D3" }));
+    write(
+      ctx,
+      "MASTER.md",
+      masterContent({
+        metadatos: "Origen: 01-mvp/D3",
+        entrega: `P1 con objetivo.\n\nOrigen: plan1 §15\n\n${renderedParts(ctx)}`,
+      }),
+    );
     expect(checksForTransition(ctx, "mastered")).toEqual([]);
   });
 
   it("passes a valid fixture, and 'executing' runs the same checks", () => {
     const ctx = makeCtx();
     seedParts(ctx);
-    write(ctx, "MASTER.md", masterContent());
+    write(
+      ctx,
+      "MASTER.md",
+      masterContent({ entrega: `P1 con objetivo.\n\nOrigen: plan1 §15\n\n${renderedParts(ctx)}` }),
+    );
     expect(checksForTransition(ctx, "mastered")).toEqual([]);
     expect(checksForTransition(ctx, "executing")).toEqual([]);
+  });
+
+  // Covers: R31, R36, R50
+  it("checks altered and missing master-parts during executing, not only on a transition", () => {
+    const ctx = makeCtx();
+    writeFileSync(indexJsonPath(cwd, SPECS_DIR), JSON.stringify(ctx.index));
+    write(
+      ctx,
+      "state.json",
+      JSON.stringify(
+        baseState({
+          phase: "executing",
+          mode: "template",
+          history: MASTER_PHASES.slice(0, 7).map((phase) => ({ phase, at: "2026-01-01" })),
+        }),
+      ),
+    );
+    write(ctx, "context/raw/.gitignore", "*\n!.gitignore\n");
+    seedParts(ctx);
+    const original = masterContent({
+      entrega: `P1 con objetivo.\n\nOrigen: plan1 §15\n\n${renderedParts(ctx)}`,
+    });
+    write(ctx, "MASTER.md", original);
+    writeMasterStatus(cwd);
+    const generated = readFileSync(join(ctx.stagePath, "MASTER.md"), "utf8");
+    expect(runMasterCheck(cwd, { templatesRoot }).failures).toEqual([]);
+    for (const replacement of ["altered", ""]) {
+      write(ctx, "MASTER.md", generated.replace(renderedParts(ctx), replacement));
+      expect(runMasterCheck(cwd, { templatesRoot }).failures).toContain(
+        `${ctx.stage.dir}/MASTER.md: navori:master-parts differs from parts.json`,
+      );
+    }
   });
 });
 
@@ -912,7 +968,13 @@ describe("markers resolve by repo language (coordinator decision, not a discrepa
   it("accepts English markers ('Source:'/'None') in an English-language stage", () => {
     const ctx = makeCtx({ language: "en" });
     seedPartsEn(ctx);
-    write(ctx, "MASTER.md", masterContentEn());
+    write(
+      ctx,
+      "MASTER.md",
+      masterContentEn({
+        entrega: `P1 with objective.\n\nSource: plan1 §15\n\n${renderedParts(ctx)}`,
+      }),
+    );
     expect(checksForTransition(ctx, "mastered")).toEqual([]);
   });
 
