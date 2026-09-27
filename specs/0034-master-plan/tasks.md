@@ -125,7 +125,7 @@ Orden de los lotes:
 
 ## Lote C — Avance, partes y cierre
 
-- [ ] **T8** (R31, R33, R36, R40, R44, R46, R47, R48, R54, R59, R61, R62) — `status`, `part` y
+- [x] **T8** (R31, R33, R36, R40, R44, R46, R47, R48, R54, R59, R61, R62) — `status`, `part` y
   evidencia de aceptación.
   - `lib/master/status.ts`: estado efectivo por las reglas de D2 y D12 (`hecho` exige tareas
     completas y evidencia de cada criterio; si no, `parcial` con los criterios pendientes en

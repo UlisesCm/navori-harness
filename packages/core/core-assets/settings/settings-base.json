@@ -86,6 +86,9 @@
       "Bash(navori dominio doctor:*)",
       "Bash(navori plan classify:*)",
       "Bash(navori plan check:*)",
+      "Bash(navori master status:*)",
+      "Bash(navori master check:*)",
+      "Bash(navori master template:*)",
       "Bash(engram save:*)"
     ],
     "ask": [

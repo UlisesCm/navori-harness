@@ -1,7 +1,11 @@
-idle
+En curso: **Spec 0034, Lote C T8** en el worktree `.claude/worktrees/spec-0034-master-plan`,
+rama `feat/0034-lote-c` (base `origin/master-plan` en `362bc877`). T8 está implementada y la
+cuarta revisión la aprobó con gate completo verde y receipt fresco contra `master-plan`.
 
-Siguiente paso: **spec 0034 (plan maestro), Lote B segunda mitad — T6 (`check --part`) y T7
-(`check --fit`)**. Rama nueva desde `origin/master-plan`, después de mergear ahí el PR de T4–T5.
+Siguiente paso: publicar T8 desde **este worktree** en un PR hacia `master-plan`, sin cerrar
+#1064 (el cierre corresponde al PR final `master-plan` → `main`). El snapshot `claude.snap` y el
+espejo `.claude/settings.json` ya están regenerados; no editarlos a mano. Después del merge,
+continuar T9–T10 del Lote C en rama nueva desde `origin/master-plan`.
 
 ## Spec 0034 — en curso (issue #1064)
 
@@ -9,7 +13,8 @@ Siguiente paso: **spec 0034 (plan maestro), Lote B segunda mitad — T6 (`check 
   la feature se abre un solo PR `master-plan` → `main` con `Closes #1064`. El reviewer mide
   `behind` y firma el receipt con `--target master-plan`.
 - Lote A (T1–T3): mergeado en `master-plan` (#1065).
-- Lote B, T4–T5: PR a `master-plan` desde `feat/0034-lote-b`. T6–T7 pendientes.
+- Lote B, T4–T5: PR #1072 mergeado en `master-plan` (`2cd46598`). T6–T7: PR #1073 mergeado
+  (`362bc877`). T8 está en curso; T9–T21 pendientes.
 - Pendientes declarados: T8 conecta la comparación de `navori:master-parts`/`STATUS.md` que T5
   difirió; `status`/`check` deben tratar como falla una etapa `activa` sin carpeta (ya cubierto en
   `checks.ts`); test de R4 después de `close` en T9; `CODEBASE_HEADERS` en español con TODO(i18n);

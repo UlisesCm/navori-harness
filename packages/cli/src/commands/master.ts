@@ -6,6 +6,8 @@
 import { defineCommand } from "citty";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { changeMasterPart } from "../lib/master/part.ts";
+import { readMasterStatus, statusLine, writeMasterStatus } from "../lib/master/status.ts";
 import { readConfig } from "../lib/config/config.ts";
 import { MasterInitError, runMasterInit } from "../lib/master/init.ts";
 import { activeStage, masterDirPath, readMasterIndex } from "../lib/master/stages.ts";
@@ -268,6 +270,69 @@ const checkSubCommand = defineCommand({
   },
 });
 
+const statusSubCommand = defineCommand({
+  meta: { name: "status", description: "Show or regenerate derived master-plan status" },
+  args: {
+    json: { type: "boolean", description: "Read-only JSON status" },
+    line: { type: "boolean", description: "Read-only SessionStart line" },
+    cwd: { type: "string", description: "Repo root" },
+  },
+  run({ args }) {
+    const cwd = resolve(args.cwd ?? process.cwd());
+    try {
+      if (args.json && args.line) throw new Error("--json and --line are mutually exclusive");
+      const status = args.json || args.line ? readMasterStatus(cwd) : writeMasterStatus(cwd);
+      if (args.json) process.stdout.write(`${JSON.stringify(status)}\n`);
+      else if (args.line) {
+        if (!status.stage) {
+          process.exitCode = 1;
+          return;
+        }
+        const config = readConfig(join(cwd, "navori.config.json"));
+        process.stdout.write(`${statusLine(status, config.sdd?.specsDir ?? "specs")}\n`);
+      } else
+        process.stdout.write(
+          `etapa ${status.stage?.dir ?? "ninguna"}: ${status.phase ?? "sin fase"}\n`,
+        );
+    } catch (cause) {
+      reportError(cause);
+    }
+  },
+});
+
+const partSubCommand = defineCommand({
+  meta: { name: "part", description: "Update a master-plan part or record acceptance evidence" },
+  args: {
+    id: { type: "positional", required: true, description: "P<n>" },
+    state: { type: "string", description: "Part state" },
+    reason: { type: "string", description: "Reason for discarded/deferred state" },
+    spec: { type: "string", description: "Existing linked spec directory" },
+    issue: { type: "string", description: "GitHub issue number" },
+    accept: { type: "string", description: "A<m> acceptance criterion" },
+    command: { type: "string", description: "Command run for test/comando evidence" },
+    result: { type: "string", description: "Observed result" },
+    "approved-by": { type: "string", description: "user for manual acceptance" },
+    cwd: { type: "string", description: "Repo root" },
+  },
+  run({ args }) {
+    try {
+      changeMasterPart(resolve(args.cwd ?? process.cwd()), args.id as string, {
+        state: args.state,
+        reason: args.reason,
+        spec: args.spec,
+        issue: args.issue,
+        accept: args.accept,
+        command: args.command,
+        result: args.result,
+        approvedBy: args["approved-by"],
+      });
+      process.stdout.write(`${args.id as string}: updated\n`);
+    } catch (cause) {
+      reportError(cause);
+    }
+  },
+});
+
 export const masterCommand = defineCommand({
   meta: { name: "master", description: "Master-plan project flow (spec 0034)" },
   subCommands: {
@@ -276,5 +341,7 @@ export const masterCommand = defineCommand({
     template: templateSubCommand,
     check: checkSubCommand,
     advance: advanceSubCommand,
+    status: statusSubCommand,
+    part: partSubCommand,
   },
 });
