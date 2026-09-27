@@ -4,9 +4,11 @@
 - Branch: `codex/1046-engine-neutral-state`
 - Estado: T1–T5 y T8 revisados y aprobados. T6–T7 esperan el merge de #1071; después inspeccionar
   el helper/parser real antes de implementar. T9 y el PR propio a `main` siguen pendientes.
-- Documentación T8: commit `adf65d01`. Todavía no existe PR #1046.
+- Documentación T8: commit `adf65d01`. Se abrirá un PR draft de #1046 en esta sesión, sin `Closes
+  #1046` hasta completar T6–T9.
 - Siguiente paso: esperar que #1071 se integre; reanudar T6–T7 en este worktree, completar T9,
-  correr revisión y gate final con receipt fresco, y abrir el PR de #1046 a `main`.
+  correr revisión y gate final con receipt fresco, actualizar el PR draft y solo entonces marcar
+  `Closes #1046`.
 - Evidencia previa de T8: reviewer APPROVED (291 archivos, 5340 tests), pero el receipt actual tiene
   drift del checkbox T8; no se considera gate fresco hasta revalidarlo.
 
