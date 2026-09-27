@@ -905,6 +905,8 @@ interface DoctorCmdStrings {
   gitHygieneEphemeralNotIgnored: (path: string) => string;
   /** An ephemeral agent path the index still tracks (#646). */
   gitHygieneEphemeralTracked: (path: string) => string;
+  gitHygienePresetsIgnored: string;
+  gitHygieneNestedStateUnprotected: string;
   /** Note title for the startup-surface budget section (#917). */
   docBudgetTitle: string;
   /** What a session pays: whole file, managed half vs its ceiling, user prose. */
@@ -2134,6 +2136,10 @@ const CMD_ES: CmdStrings = {
       `'${path}' no está ignorado — son artefactos efímeros de agentes; agrégalo al .gitignore (o usa gitignoreHarness)`,
     gitHygieneEphemeralTracked: (path) =>
       `'${path}' sigue trackeado por git — el .gitignore no destrackea lo que el índice ya tenía, así que el árbol queda sucio en cada sesión y el archivo se cuela en commits ajenos; destráckealo con 'git rm --cached' (agrega '-r' si es un directorio) y commitea`,
+    gitHygienePresetsIgnored:
+      "'.navori/presets/' está ignorado — una regla amplia de .navori/ oculta presets versionables; acota esa regla a '.navori/state/'",
+    gitHygieneNestedStateUnprotected:
+      "el bloque managed de '.navori/.gitignore' ya no protege 'state/' — revisa el bloque o corre 'navori render --apply --force'",
     docBudgetTitle: "Presupuesto de arranque (lo que cada sesión paga antes del primer prompt)",
     docBudgetSummary: (total, managed, ceiling, own) =>
       `CLAUDE.md: ${total} palabras — ${managed} managed contra un techo derivado de ${ceiling}, ` +
@@ -3443,6 +3449,10 @@ const CMD_EN: CmdStrings = {
       `'${path}' is not ignored — these are ephemeral agent artifacts; add it to .gitignore (or use gitignoreHarness)`,
     gitHygieneEphemeralTracked: (path) =>
       `'${path}' is still tracked by git — .gitignore never untracks what the index already held, so the tree is dirty every session and the file rides into unrelated commits; untrack it with 'git rm --cached' (add '-r' for a directory) and commit`,
+    gitHygienePresetsIgnored:
+      "'.navori/presets/' is ignored — a broad .navori/ rule hides versionable presets; narrow that rule to '.navori/state/'",
+    gitHygieneNestedStateUnprotected:
+      "the managed block in '.navori/.gitignore' no longer protects 'state/' — inspect the block or run 'navori render --apply --force'",
     docBudgetTitle: "Startup budget (what every session pays before its first prompt)",
     docBudgetSummary: (total, managed, ceiling, own) =>
       `CLAUDE.md: ${total} words — ${managed} managed against a derived ceiling of ${ceiling}, ` +

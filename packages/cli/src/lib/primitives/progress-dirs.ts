@@ -7,7 +7,12 @@
  * (`handoff/check.ts`, R16): a handoff writer that could point there could
  * overwrite another feature's handoff or the session state file itself.
  */
-export const PROGRESS_DIRS = [".claude/progress/", ".codex/progress/", "progress/"] as const;
+export const PROGRESS_DIRS = [
+  ".claude/progress/",
+  ".codex/progress/",
+  ".navori/state/",
+  "progress/",
+] as const;
 
 /** Whether a repo-relative path falls under any of `PROGRESS_DIRS`. */
 export function isUnderProgressDir(relativePath: string): boolean {

@@ -51,6 +51,8 @@ describe("renderClaudeEngine — backup excludes never-versioned state (#348)", 
     mkdirSync(join(cwd, ".claude/progress"), { recursive: true });
     writeFileSync(join(cwd, ".claude/progress/impl_x.md"), "handoff");
     writeFileSync(join(cwd, ".claude/settings.local.json"), '{"private":1}');
+    mkdirSync(join(cwd, ".navori/state/handoffs"), { recursive: true });
+    writeFileSync(join(cwd, ".navori/state/handoffs/receipt.txt"), "runtime");
 
     // A config change so the second render actually rewrites existing files and
     // therefore takes a backup.
@@ -64,6 +66,8 @@ describe("renderClaudeEngine — backup excludes never-versioned state (#348)", 
     expect(existsSync(join(backup, ".claude/worktrees"))).toBe(false);
     expect(existsSync(join(backup, ".claude/progress"))).toBe(false);
     expect(existsSync(join(backup, ".claude/settings.local.json"))).toBe(false);
+    // Covers: R8
+    expect(existsSync(join(backup, ".navori/state"))).toBe(false);
     // …while the versioned harness itself is still snapshotted.
     expect(existsSync(join(backup, ".claude/agents/orchestrator.md"))).toBe(true);
   });
