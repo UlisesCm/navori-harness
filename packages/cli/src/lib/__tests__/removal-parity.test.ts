@@ -356,6 +356,9 @@ describe("the inventory of delete paths is complete (#496)", () => {
 
     // ── Paths that are navori's OWN, not the user's content. ──
     "lib/primitives/atomic.ts": "removes the `.tmp` file it just wrote, when the rename fails",
+    "lib/primitives/state-root.ts":
+      "removes only its own exclusively created state temporary after a failed atomic write; " +
+      "an existing temporary (including a symlink) is never removed",
     "lib/audit/launchd.ts":
       "removes the LaunchAgent plist it wrote itself (~/Library/LaunchAgents), on an explicit " +
       "'global collect uninstall'. One fixed path composed from the label — never a user file, " +
@@ -553,7 +556,7 @@ describe("an orphan root that is itself a symlink (#496)", () => {
     const result = runRender(cwd, { dryRun: false, prune: true });
 
     expect(result.prunedEngineOutputs).toEqual([".codex/rules/shared.md"]);
-    expect(existsSync(join(cwd, ".codex"))).toBe(false);
+    expect(existsSync(join(cwd, ".codex/.gitignore"))).toBe(true);
   });
 });
 

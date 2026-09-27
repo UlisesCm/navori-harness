@@ -1,6 +1,7 @@
 // Covers: R13, R17
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { adaptHarnessTextForCodex } from "../../engines/codex/compat.ts";
@@ -19,6 +20,8 @@ import { REQUIRED_IMPL_KEYS } from "../handoff/schema.ts";
 
 const CORE_ASSETS = resolve(getCoreRoot(), "core-assets");
 const read = (rel: string): string => readFileSync(resolve(CORE_ASSETS, rel), "utf-8");
+const DOCS = fileURLToPath(new URL("../../../../../docs/", import.meta.url));
+const readDoc = (name: string): string => readFileSync(resolve(DOCS, name), "utf-8");
 
 function codexConfig(): NavoriConfig {
   return NavoriConfigSchema.parse({ name: "handoff-demo", engines: ["codex"], preset: "custom" });
@@ -98,5 +101,41 @@ describe("subagent-stop-handoff.sh stays advisory and in parity with REQUIRED_IM
       .map((k) => k.trim().replace(/^"|"$/g, ""))
       .filter(Boolean);
     expect(keys.sort()).toEqual([...REQUIRED_IMPL_KEYS].sort());
+  });
+});
+
+describe("Spec 0036 migration guidance", () => {
+  // Covers: R7, R10
+  it("distinguishes checkout-local runtime state from versioned project knowledge", () => {
+    const direction = readDoc("DIRECTION.md");
+    expect(direction).toContain(".navori/state/handoffs/");
+    expect(direction).toContain(".navori/state/hooks/");
+    expect(direction).toContain("progress/current.md");
+    expect(direction).toContain("progress/history.md");
+    expect(direction).toContain(".navori/presets/");
+  });
+
+  // Covers: R7, R10, R11
+  it("explains legacy handoffs, stamps, re-arming, and rollback without cleanup", () => {
+    const extending = readDoc("EXTENDING.md");
+    expect(extending).toContain(".claude/progress/");
+    expect(extending).toContain(".codex/progress/");
+    expect(extending).toContain(".navori/state/handoffs/");
+    expect(extending).toContain("<git-common-dir>/navori/");
+    expect(extending).toContain("--dir");
+    expect(extending).toMatch(/una versi[oó]n/i);
+    expect(extending).toMatch(/rearm/i);
+    expect(extending).toMatch(/rollback/i);
+    expect(extending).toMatch(/sin (copiar|mover|borrar)/i);
+  });
+
+  // Covers: R6
+  it("states the trusted-local-writer boundary and concurrent redirect risk", () => {
+    const extending = readDoc("EXTENDING.md");
+    expect(extending).toMatch(/escrit(or|ura) local confiable/i);
+    expect(extending).toMatch(/cambios concurrentes/i);
+    expect(extending).toMatch(/fuera del checkout/i);
+    expect(extending).toMatch(/no garantiza/i);
+    expect(extending).toMatch(/carrera|race/i);
   });
 });

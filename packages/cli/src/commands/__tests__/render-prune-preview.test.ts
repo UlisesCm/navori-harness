@@ -102,6 +102,10 @@ describe("render --prune can be previewed (#521)", () => {
     // THE property: same fixture, same plan. What the user approved is what ran.
     expect(preview.prunedEngineOutputs).toEqual(applied.prunedEngineOutputs);
     expect(preview.keptEngineOutputs).toEqual(applied.keptEngineOutputs);
+    // Covers: R7, R11 — preview/apply never plan or remove the legacy guard.
+    expect(preview.prunedEngineOutputs).not.toContain(".codex/.gitignore");
+    expect(applied.prunedEngineOutputs).not.toContain(".codex/.gitignore");
+    expect(existsSync(join(cwd, ".codex/.gitignore"))).toBe(true);
     // And the apply did carry it out, so the equality above is not two previews.
     expect(existsSync(join(cwd, ".codex/config.toml"))).toBe(false);
     expect(existsSync(join(cwd, "AGENTS.md"))).toBe(false);

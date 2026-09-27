@@ -6,6 +6,7 @@
  */
 import { defineCommand } from "citty";
 import { resolve } from "node:path";
+import { resolveStateRoot } from "../lib/primitives/state-root.ts";
 import { checkHandoff, handoffExitCode, type HandoffConsumer } from "../lib/handoff/check.ts";
 import { readConfig } from "../lib/config/config.ts";
 
@@ -28,7 +29,6 @@ const checkSubCommand = defineCommand({
     dir: {
       type: "string" as const,
       description: "Progress directory",
-      default: ".claude/progress",
     },
     cwd: {
       type: "string" as const,
@@ -37,7 +37,12 @@ const checkSubCommand = defineCommand({
     json: { type: "boolean" as const, description: "Output as JSON" },
   },
   run({ args }) {
-    const cwd = resolve(args.cwd ?? process.cwd());
+    const root = resolveStateRoot({
+      cwd: args.cwd ?? process.cwd(),
+      feature: args.feature,
+      dir: args.dir,
+    });
+    const cwd = root.cwd;
     // `harness.scribeOwnsMarkdown` defaults to `false` (schema.ts), which is
     // the legacy `.md`-only contract (R24) — the fallback below mirrors that
     // default rather than inventing a different one for a missing/unreadable
@@ -52,7 +57,7 @@ const checkSubCommand = defineCommand({
     }
     const result = checkHandoff({
       cwd,
-      dir: args.dir,
+      dir: root.dir,
       feature: args.feature,
       consumer: resolveConsumer(args.for),
       legacyMarkdown,

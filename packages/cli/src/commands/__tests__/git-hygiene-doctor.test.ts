@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -168,6 +168,32 @@ describe("scanGitHygiene (#325)", () => {
     makeDir(cwd, ".claude/progress");
     gitignore(cwd, ".claude/");
     expect(scanGitHygiene(cwd, config())?.ephemeralTracked).toEqual([]);
+  });
+
+  // Covers: R8
+  it("reports tracked and unignored neutral state independently", () => {
+    const cwd = tempRepo();
+    makeDir(cwd, ".navori/state");
+    track(cwd, ".navori/state");
+    const report = scanGitHygiene(cwd, config());
+    expect(report?.ephemeralTracked).toContain(".navori/state/");
+    expect(report?.ephemeralNotIgnored).toContain(".navori/state/");
+  });
+
+  // Covers: R8
+  it("reports broad ignores hiding versionable presets", () => {
+    const cwd = tempRepo();
+    gitignore(cwd, ".navori/");
+    expect(scanGitHygiene(cwd, config())?.presetsIgnored).toBe(true);
+  });
+
+  // Covers: R8
+  it("reports an edited nested block missing the state rule", () => {
+    const cwd = tempRepo();
+    renderNestedGitignore(cwd, ".navori", { lang: "es" });
+    const path = join(cwd, ".navori/.gitignore");
+    writeFileSync(path, readFileSync(path, "utf-8").replace("state/", "other/"));
+    expect(scanGitHygiene(cwd, config())?.nestedStateUnprotected).toBe(true);
   });
 });
 

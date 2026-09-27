@@ -34,6 +34,8 @@ import { loadPreset, presetExists, resolvePreset } from "../lib/config/presets.t
 import { classifyLocalSkills } from "../engines/codex/local-skill-pointer.ts";
 import { unknownLibraries } from "../lib/assets/library-skills.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
+import { NESTED_GITIGNORE_MANAGED_ID } from "../engines/shared/nested-gitignore-harness.ts";
+import { extractManagedContent } from "../lib/render/marker.ts";
 import { scanGitignoreHarness } from "../engines/shared/gitignore-harness.ts";
 import { scanPrettierIgnore } from "../engines/shared/prettierignore-harness.ts";
 import { isLaunchdPlatform, launchAgentLoaded, probeReceiver } from "../lib/audit/launchd.ts";
@@ -1008,6 +1010,12 @@ export const doctorCommand = defineCommand({
       }
       for (const path of gitHygiene.ephemeralTracked) {
         gh.push(`  ${color.yellow(sym.update)} ${td.gitHygieneEphemeralTracked(path)}`);
+      }
+      if (gitHygiene.presetsIgnored) {
+        gh.push(`  ${color.yellow(sym.update)} ${td.gitHygienePresetsIgnored}`);
+      }
+      if (gitHygiene.nestedStateUnprotected) {
+        gh.push(`  ${color.yellow(sym.update)} ${td.gitHygieneNestedStateUnprotected}`);
       }
       if (gh.length > 0) p.note(gh.join("\n"), td.gitHygieneTitle);
     }
@@ -2573,6 +2581,10 @@ export interface GitHygieneReport {
   ephemeralNotIgnored: string[];
   /** Ephemeral agent paths git still tracks — `.gitignore` never untracks. */
   ephemeralTracked: string[];
+  /** Presets are hidden by a broad user or stale managed ignore rule. */
+  presetsIgnored: boolean;
+  /** An edited nested block no longer names the state directory. */
+  nestedStateUnprotected: boolean;
 }
 
 /**
@@ -2626,7 +2638,21 @@ export function scanGitHygiene(cwd: string, config: NavoriConfig): GitHygieneRep
     gitTracksPath(cwd, trimSlash(rel)),
   );
 
-  return { specsIgnored, ephemeralNotIgnored, ephemeralTracked };
+  const nestedPath = join(cwd, ".navori", ".gitignore");
+  const nestedContent = existsSync(nestedPath)
+    ? extractManagedContent(readFileSync(nestedPath, "utf-8"), NESTED_GITIGNORE_MANAGED_ID, "shell")
+    : null;
+  const nestedStateUnprotected =
+    nestedContent !== null && !nestedContent.split("\n").includes("state/");
+  const presetsIgnored = isIgnoredByGit(cwd, ".navori/presets/navori-probe");
+
+  return {
+    specsIgnored,
+    ephemeralNotIgnored,
+    ephemeralTracked,
+    presetsIgnored,
+    nestedStateUnprotected,
+  };
 }
 
 /** Drop a trailing slash so a configured `specsDir` works with or without one. */
