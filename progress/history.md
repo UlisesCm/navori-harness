@@ -10,6 +10,17 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-26 22:36 — orchestrator — checkpoint #1046: estado efímero neutral
+- Cambios: checkpoint de #1046 en `progress/current.md`; T1–T5 y T8 están revisados/aprobados.
+  T6–T7 esperan el merge de #1071 para inspeccionar el helper/parser real; T9 y el PR propio a
+  `main` siguen pendientes. La documentación T8 está en `adf65d01`; no hay PR #1046.
+- Quality gate: ⚠️ el último reviewer de T8 aprobó con gate completo (291 archivos, 5340 tests), pero
+  el receipt actual tiene drift del checkbox T8; se revalidará en el siguiente ciclo y no se afirma
+  como evidencia fresca en este checkpoint.
+- Notas: cambios de Batch A/B y T8 continúan sin commit en el worktree indicado; no tocar el checkout
+  raíz que usa otra sesión.
+- Commit / PR: pendiente; checkpoint sin commit hasta verificar diff y gate de documentación.
+
 ## 2026-09-25 21:54 — orchestrator — #1019: dist y coverage aislados entre corridas
 - Cambios: el lock de `dist/` ahora dura toda la suite Vitest y se limita al checkout; `test:coverage`
   asigna un directorio único antes de iniciar Vitest y pasa el mismo reporte al coverage floor.
