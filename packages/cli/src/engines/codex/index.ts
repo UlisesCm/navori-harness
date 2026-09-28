@@ -49,15 +49,7 @@ import {
   type ClassifiedLocalSkills,
 } from "./local-skill-pointer.ts";
 
-// Spec 0035 D7 (R11), user decision 2026-09-25: opus and sonnet share the same
-// model and are told apart by `model_reasoning_effort` (already sourced from
-// `effort`, see buildAgentToml below) — Codex's `gpt-6-sol` covers both tiers.
-// `config.models.codexMap` still wins per tier, checked at each call site.
-const CODEX_MODEL_BY_CLAUDE_TIER = {
-  opus: "gpt-6-sol",
-  sonnet: "gpt-6-sol",
-  haiku: "gpt-6-luna",
-} as const;
+import { resolveCodexModel } from "../../lib/assets/model-profile.ts";
 
 const NAVORI_VERSION = readCliVersion();
 
@@ -648,8 +640,7 @@ function buildAgentToml(
   ];
   if (sandbox === "read-only") lines.push('sandbox_mode = "read-only"');
   if (modelTier) {
-    const codexModel =
-      config.models?.codexMap?.[modelTier] ?? CODEX_MODEL_BY_CLAUDE_TIER[modelTier];
+    const codexModel = resolveCodexModel(config, modelTier).model;
     lines.push(`model = ${JSON.stringify(codexModel)}`);
   }
   if (effort) lines.push(`model_reasoning_effort = ${JSON.stringify(effort)}`);

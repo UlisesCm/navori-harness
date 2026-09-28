@@ -488,6 +488,40 @@ describe("renderCodexEngine", () => {
     expect(reviewer).toContain('model = "gpt-6-luna"');
   });
 
+  // Covers: R12 — configured tier, mapped output and independent effort override.
+  it("renders per-agent model mapping and effort without forcing a root model", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(
+      cwd,
+      config({
+        models: {
+          orchestrator: "opus",
+          implementer: "sonnet",
+          reviewer: "haiku",
+          codexMap: { sonnet: "gpt-6-custom" },
+        },
+        effort: { implementer: "high", reviewer: "low" },
+      }),
+    );
+    const implementer = readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8");
+    expect(implementer).toContain('model = "gpt-6-custom"');
+    expect(implementer).toContain('model_reasoning_effort = "high"');
+    const reviewer = readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8");
+    expect(reviewer).toContain('model = "gpt-6-luna"');
+    expect(reviewer).toContain('model_reasoning_effort = "low"');
+    expect(readFileSync(join(cwd, ".codex/config.toml"), "utf-8")).not.toMatch(/^model\s*=/m);
+    expect(existsSync(join(cwd, ".codex/agents/orchestrator.toml"))).toBe(false);
+  });
+
+  // Covers: R12 — omission intentionally inherits host model and effort.
+  it("leaves architect model and effort unset when the role has no profile", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config({ models: { reviewer: "sonnet" }, effort: {} }));
+    const architect = readFileSync(join(cwd, ".codex/agents/architect.toml"), "utf-8");
+    expect(architect).not.toMatch(/^model\s*=/m);
+    expect(architect).not.toMatch(/^model_reasoning_effort\s*=/m);
+  });
+
   // Covers: R11 — spec 0035 D7, user decision 2026-09-25.
   it("maps tiers to gpt-6 unless codexMap overrides", () => {
     const cwd = tempRepo();

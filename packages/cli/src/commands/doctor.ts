@@ -71,7 +71,10 @@ import { scanQualityGateReadiness } from "../lib/config/gate-readiness.ts";
 import { scanEmptyUserSections } from "../lib/assets/skill-user-section.ts";
 import { scanTriggerlessLocalSkills } from "../lib/assets/skill-triggers.ts";
 import { scanInterpolationArtifacts } from "../lib/render/interpolation-artifacts.ts";
-import { scanMissingModelProfile } from "../lib/assets/model-profile.ts";
+import {
+  scanMissingModelProfile,
+  scanModelProfileProvenance,
+} from "../lib/assets/model-profile.ts";
 import { scanControlGaps } from "../lib/diagnose/control-gaps.ts";
 import { scanDiskUsage, humanBytes } from "../lib/diagnose/disk-usage.ts";
 import { scanNestedWorktrees } from "../lib/workspace/nested-worktrees.ts";
@@ -242,6 +245,7 @@ export const doctorCommand = defineCommand({
     // drops the line silently (by design), so this is the only place the gap
     // surfaces. Warning-level: an unset tier is a valid default.
     const missingModelProfile = scanMissingModelProfile(config);
+    const modelProfileProvenance = scanModelProfileProvenance(config);
     // Spec 0033 D5, R21: one registry (`engine-capabilities.ts`) feeds every
     // control's diagnostic, including the spec 0032 R17 planTiers-gate
     // degradation this used to report on its own (`scanPlanTiersGateSupport`).
@@ -404,6 +408,10 @@ export const doctorCommand = defineCommand({
       // terminal ("… and N more"), and a machine consumer needs every row.
       interpolationArtifacts,
       missingModelProfile,
+      // Projected core-subagent values, not observed rendered files or host
+      // execution. Claude's main-thread effortLevel and preset extras are out
+      // of this matrix; neither has a spawned role modelKey.
+      modelProfileProvenance,
       controlGaps,
       // `path` is absolute because that IS the remediation target, it is not
       // derivable (NAVORI_BACKUP_ROOT can move the store), and the human output
