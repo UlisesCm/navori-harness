@@ -35,7 +35,7 @@ navori_audit_begin
 # almost none, so the verdict comes from the exit code rather than from a call
 # per branch.
 navori_audit_on_exit() {
-  navori_audit_code=$?
+  navori_audit_code=${1:-$?}
   # A cancelled hook reaches this trap with `$?` == 0 (#797), so the exit code
   # below cannot tell "finished green" from "was killed mid-scan". The signal
   # handler can, and it already recorded the run.
@@ -43,12 +43,11 @@ navori_audit_on_exit() {
     return 0
   fi
   if [ "$navori_audit_code" -eq 0 ]; then
-    navori_audit_log "allow" || true
+    navori_audit_log "allow" "${navori_jscpd_reason:-jscpd: no scan result recorded}" || true
+  elif [ "$navori_audit_code" -eq 2 ]; then
+    navori_audit_log "block" "${navori_jscpd_reason:-jscpd: blocking outcome, not a confirmed duplication verdict}" || true
   else
-    # `navori_jscpd_block_reason` names the actual cause (e.g. a jscpd binary
-    # that lacks the flags this hook needs) when the capability probe below
-    # sets it; otherwise the audit log falls back to the generic reason.
-    navori_audit_log "block" "${navori_jscpd_block_reason:-el escaneo de jscpd no paso}" || true
+    navori_audit_log "allow" "${navori_jscpd_reason:-jscpd: scan not validated (hook error)}" || true
   fi
   return 0
 }
@@ -93,6 +92,7 @@ navori_scan_label="jscpd"
 # No command extracted (empty $cmd) → run unconditionally. A real command that
 # is NOT a git commit → skip. Anything else → fall through and scan.
 if [ -n "$cmd" ] && ! is_scan_trigger "$cmd"; then
+  navori_jscpd_reason="jscpd: skipped non-trigger command; no scan"
   exit 0
 fi
 
@@ -111,6 +111,7 @@ elif command -v jscpd >/dev/null 2>&1; then
   JSCPD_BIN="jscpd"
 fi
 if [ -z "$JSCPD_BIN" ]; then
+  navori_jscpd_reason="jscpd: skipped, scanner unavailable; no scan"
   echo "⊘ jscpd not available (neither pinned in the repo nor installed globally) — skip (install: pnpm add -D jscpd)" >&2
   exit 0
 fi
@@ -122,6 +123,7 @@ fi
 # `-- '*.ts' '*.tsx'` pathspec filters by extension without a pipe.
 tree=$(navori_worktree)
 if [ -z "$tree" ]; then
+  navori_jscpd_reason="jscpd: skipped, working tree unresolved; no scan"
   echo "⊘ jscpd: no git working tree resolved for this command — skip" >&2
   exit 0
 fi
@@ -140,11 +142,13 @@ fi
 base={{shq:branchBase}}
 
 if ! navori_resolve_base; then
+  navori_jscpd_reason="jscpd: skipped, baseline unresolved; no scan"
   echo "⊘ neither 'origin/$base' nor '$base' exists in $tree — skip jscpd" >&2
   exit 0
 fi
 
 if ! navori_collect_scan_files; then
+  navori_jscpd_reason="jscpd: changed-file listing failed; scan not validated"
   echo "✗ jscpd: listing the changed files FAILED (exit ${scan_files_status:-unknown}) in $tree — NOTHING was scanned" >&2
   echo "  this is not a duplication verdict: no file was compared against $base_ref" >&2
   exit 1
@@ -154,6 +158,7 @@ fi
 # produced it, so "there was nothing to scan" reads differently from "I scanned
 # and found nothing".
 if [ ${#files[@]} -eq 0 ]; then
+  navori_jscpd_reason="jscpd: skipped, zero changed TS/TSX files; no scan"
   echo "⊘ jscpd: 0 files to scan — no *.ts/*.tsx differ from $base_ref in $tree" >&2
   exit 0
 fi
@@ -181,7 +186,7 @@ case "$navori_jscpd_help" in
   *--fail-on-new-clones*) navori_jscpd_has_new_clones=1 ;;
 esac
 if [ "$navori_jscpd_has_baseline" -ne 1 ] || [ "$navori_jscpd_has_new_clones" -ne 1 ]; then
-  navori_jscpd_block_reason="jscpd binario sin --baseline-from-ref/--fail-on-new-clones (< 5.1.1)"
+  navori_jscpd_reason="jscpd: blocked, required flags unavailable; not a duplication verdict"
   echo "✗ jscpd: $JSCPD_BIN lacks --baseline-from-ref/--fail-on-new-clones (needs jscpd >= 5.1.1) — upgrade it (global: pnpm add -g jscpd@^5.1.1 · repo-pinned: pnpm add -D jscpd@^5.1.1) — BLOCKED, this is not a duplication verdict" >&2
   exit 2
 fi
@@ -192,7 +197,7 @@ tmpdir=$(mktemp -d)
 # above — and it does so precisely on the path where this hook does real work,
 # which is the one worth recording. The cleanup runs first so the temp dir goes
 # away even if the recorder were ever to hang.
-trap 'rm -rf "$tmpdir"; navori_audit_on_exit' EXIT
+trap 'navori_jscpd_exit=$?; rm -rf "$tmpdir" 2>/dev/null || true; navori_audit_on_exit "$navori_jscpd_exit"' EXIT
 
 # The host can kill this process at its hook timeout, before any trap records a
 # verdict. Persist a start marker first; audit correlates it with the terminal
@@ -228,17 +233,19 @@ scan_status=0
 # blocking new clones instead of announcing it.
 #
 # TODO(fidelity): jscpd spends exit 1 on BOTH "new clones" and an internal
-# crash, so a crash is read here as a duplication verdict and blocks. That is
-# the strict direction, and it is the ceiling of this mapping — split it if
-# jscpd ever gives the two outcomes distinct codes, or if a crash starts firing
-# often enough to teach people to route around the gate.
+# crash, so the outcome blocks conservatively but is NOT a confirmed clone
+# finding. Split the mapping if jscpd ever gives these distinct codes, or if
+# ambiguous failures become frequent enough to erode trust in the gate.
 if [ "$scan_status" -eq 0 ]; then
+  navori_jscpd_reason="jscpd: clean scan, no new clones"
   echo "✓ jscpd: ${#files[@]} file(s) scanned — no new clones vs $base_ref" >&2
   exit 0
 fi
 if [ "$scan_status" -eq 1 ]; then
-  echo "✗ jscpd: new clones vs $base_ref — BLOCKED" >&2
+  navori_jscpd_reason="jscpd: blocked ambiguous scanner exit 1 (new clones or internal failure); not confirmed clones"
+  echo "✗ jscpd: ambiguous exit 1 (new clones or internal failure) vs $base_ref — BLOCKED; not a confirmed duplication verdict" >&2
   exit 2
 fi
 echo "✗ jscpd: the run FAILED with exit $scan_status (not a duplication verdict) — nothing was validated" >&2
+navori_jscpd_reason="jscpd: scanner failed with exit $scan_status; scan not validated"
 exit 1

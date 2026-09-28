@@ -51,9 +51,11 @@ navori_audit_on_exit() {
     return 0
   fi
   if [ "$navori_audit_code" -eq 0 ]; then
-    navori_audit_log "allow" || true
+    navori_audit_log "allow" "${navori_semgrep_reason:-semgrep: no scan result recorded}" || true
+  elif [ "$navori_audit_code" -eq 2 ]; then
+    navori_audit_log "block" "${navori_semgrep_reason:-semgrep: blocking outcome}" || true
   else
-    navori_audit_log "block" "el escaneo de semgrep no paso" || true
+    navori_audit_log "allow" "${navori_semgrep_reason:-semgrep: scan not validated (hook error)}" || true
   fi
   return 0
 }
@@ -87,10 +89,12 @@ navori_scan_label="semgrep"
 # No command extracted (empty $cmd) → run unconditionally (defensive fallback). A
 # real command that is NOT a scanned op → skip. Anything else → scan.
 if [ -n "$cmd" ] && ! is_scan_trigger "$cmd"; then
+  navori_semgrep_reason="semgrep: skipped non-trigger command; no scan"
   exit 0
 fi
 
 if ! command -v semgrep >/dev/null 2>&1; then
+  navori_semgrep_reason="semgrep: skipped, scanner unavailable; no scan"
   echo "⊘ semgrep not installed locally — skip (install: brew install semgrep)" >&2
   exit 0
 fi
@@ -108,6 +112,7 @@ case "$script_path" in /*) ;; *) script_path="$PWD/$script_path" ;; esac
 # `-- '*.ts' '*.tsx'` pathspec filters by extension without a pipe.
 tree=$(navori_worktree)
 if [ -z "$tree" ]; then
+  navori_semgrep_reason="semgrep: skipped, working tree unresolved; no scan"
   echo "⊘ semgrep: no git working tree resolved for this command — skip" >&2
   exit 0
 fi
@@ -120,12 +125,14 @@ cd "$tree"
 base={{shq:branchBase}}
 
 if ! navori_resolve_base; then
+  navori_semgrep_reason="semgrep: skipped, baseline unresolved; no scan"
   echo "⊘ neither 'origin/$base' nor '$base' exists in $tree — skip semgrep" >&2
   exit 0
 fi
 base_short=$(git rev-parse --short "$base_sha" 2>/dev/null || printf '%s' "$base_sha")
 
 if ! navori_collect_scan_files; then
+  navori_semgrep_reason="semgrep: changed-file listing failed; scan not validated"
   echo "✗ semgrep: listing the changed files FAILED (exit ${scan_files_status:-unknown}) in $tree — NOTHING was scanned" >&2
   echo "  this is not a security verdict: no file was compared against $base_ref ($base_short)" >&2
   exit 1
@@ -136,6 +143,7 @@ fi
 # and found nothing". The two used to be indistinguishable, which is how a gate
 # that never ran passed for a whole day.
 if [ ${#files[@]} -eq 0 ]; then
+  navori_semgrep_reason="semgrep: skipped, zero changed TS/TSX files; no scan"
   echo "⊘ semgrep: 0 files to scan — no *.ts/*.tsx differ from $base_ref ($base_short) in $tree" >&2
   exit 0
 fi
@@ -229,6 +237,7 @@ if [ -n "$cache_key" ] && [ -f "$marker" ]; then
   if [ "$cached_key" = "$cache_key" ] && [ "$cached_ts" -gt 0 ] && [ "$age" -ge 0 ] &&
     [ "$age" -lt "$CACHE_TTL" ]; then
     echo "✓ semgrep: diff unchanged since last green scan — skip" >&2
+    navori_semgrep_reason="semgrep: reused unchanged green scan from cache; no fresh scan"
     exit 0
   fi
 fi
@@ -271,10 +280,13 @@ semgrep scan \
 # scanner is never read as a security verdict — and see the exit mapping at the
 # bottom, which is where that distinction becomes a decision.
 if [ "$scan_status" -gt 1 ]; then
+  navori_semgrep_reason="semgrep: scanner failed with exit $scan_status; scan not validated"
   echo "✗ semgrep: scan FAILED with exit $scan_status (not a findings verdict) — nothing was validated" >&2
 elif [ "$scan_status" -eq 1 ]; then
+  navori_semgrep_reason="semgrep: blocked new findings"
   echo "✗ semgrep: new findings vs $base_ref ($base_short) — BLOCKED" >&2
 else
+  navori_semgrep_reason="semgrep: clean scan, no new findings"
   echo "✓ semgrep: ${#files[@]} file(s) scanned vs $base_ref ($base_short) — no new findings" >&2
 fi
 
