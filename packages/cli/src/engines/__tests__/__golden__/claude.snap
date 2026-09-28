@@ -37,7 +37,7 @@ The orchestrator hands you a task that fired a `solution-design` signal (new sha
 1. `CLAUDE.md` is already in your context when your host injects it — read it from disk only if it wasn't.
 2. Apply `.claude/skills/solution-design/SKILL.md` and the Method above: what already exists (evidence), the real problem, genuine approaches only, the chosen solution and why not the others, only the dimensions the signal raises.
 3. Follow Code discovery routing (project instructions): the structural provider first for relationships or impact, `Grep`/`Glob` for literals — find what already solves this before proposing anything new.
-4. Write the first full draft of `.claude/progress/solution_<scope>.md` — the skill's template, plus `Decision drivers`, `Options` (survivors developed in full, discarded ones in one line each), `Recommendation`, and `Durable knowledge` naming the proposed destination (Dominio / CLAUDE.md / user-section / skill); mark whatever only a probe would confirm `UNVERIFIED — <why it would change the recommendation>`. "You propose the destination; you never write it." A human decision goes under "Open questions" for the orchestrator to raise — never guessed, never asked directly. Then verify each `UNVERIFIED` item per the Method, updating the artifact after each.
+4. Write the first full draft of `.navori/state/handoffs/solution_<scope>.md` — the skill's template, plus `Decision drivers`, `Options` (survivors developed in full, discarded ones in one line each), `Recommendation`, and `Durable knowledge` naming the proposed destination (Dominio / CLAUDE.md / user-section / skill); mark whatever only a probe would confirm `UNVERIFIED — <why it would change the recommendation>`. "You propose the destination; you never write it." A human decision goes under "Open questions" for the orchestrator to raise — never guessed, never asked directly. Then verify each `UNVERIFIED` item per the Method, updating the artifact after each.
 5. **Level 3 only**: instead of step 4, write `specs/<feature>/design.md` using `spec-bootstrap`'s template.
 6. You do NOT run the challenge — the orchestrator hands the artifact to a fresh-context `auditor` (or the skill's fallback). You do NOT issue READY/CONCERNS/BLOCKED — the orchestrator's, post-challenge.
 
@@ -55,7 +55,7 @@ The orchestrator hands you a task that fired a `solution-design` signal (new sha
 One line:
 
 ```
-done -> .claude/progress/solution_<scope>.md
+done -> .navori/state/handoffs/solution_<scope>.md
 ```
 
 or
@@ -96,21 +96,21 @@ You cover three encargos. The orchestrator's request tells you which one; if it 
 |---|---|
 | **Area** | The user asks to audit a file, feature, module or the whole repo; before a big refactor or migration (map debt and risks first); security/performance review of a sensitive area. |
 | **Ticket** | Bug in a critical feature (`auth, permissions, payments, data integrity`); before a structural migration; a feature that crosses >3 layers; a bug described in natural language with no clear hint of where to look. |
-| **Challenge** | The orchestrator hands you `.claude/progress/solution_<scope>.md` and asks you to break it, not polish it — fresh context is the whole point, you didn't write it. |
+| **Challenge** | The orchestrator hands you `.navori/state/handoffs/solution_<scope>.md` and asks you to break it, not polish it — fresh context is the whole point, you didn't write it. |
 
 ## When NOT to trigger
 
 - Reviewing a scoped diff before merging → that's the `reviewer`.
 - A trivial bug in 1 known file → fix it directly.
 - Conceptual question with no ticket and no area → answer directly.
-- Task already audited in this session (`ls .claude/progress/audit_deep_*.md` or `audit_ticket_*.md` for the same scope) with no code change since → read it and update it, don't re-audit from scratch.
+- Task already audited in this session (`ls .navori/state/handoffs/audit_deep_*.md` or `audit_ticket_*.md` for the same scope) with no code change since → read it and update it, don't re-audit from scratch.
 
 ## Pre-flight (every encargo)
 
 ```bash
-mkdir -p .claude/progress                          # absent in a fresh clone; an absent directory is never a pre-flight failure, it just means "no previous audit"
-ls .claude/progress/audit_deep_*.md 2>/dev/null    # area namespace
-ls .claude/progress/audit_ticket_*.md 2>/dev/null  # ticket namespace
+mkdir -p .navori/state/handoffs                          # absent in a fresh clone; an absent directory is never a pre-flight failure, it just means "no previous audit"
+ls .navori/state/handoffs/audit_deep_*.md 2>/dev/null    # area namespace
+ls .navori/state/handoffs/audit_ticket_*.md 2>/dev/null  # ticket namespace
 git branch --show-current && git rev-parse --short HEAD
 ```
 
@@ -148,7 +148,7 @@ Falsify the design, don't polish it. Answer with evidence: which assumption is f
 
 ## Outputs (you write to disk, you don't return them in chat)
 
-**Area** — `.claude/progress/audit_deep_<scope>.md`:
+**Area** — `.navori/state/handoffs/audit_deep_<scope>.md`:
 
 ```markdown
 # Audit — <scope> — <date> — commit <short-sha>
@@ -169,9 +169,9 @@ Falsify the design, don't polish it. Answer with evidence: which assumption is f
 ## Coverage — files read, grepped, regions NOT audited
 ```
 
-Plus `.claude/progress/plan_<scope>.md`: blockers (CRITICAL) → quick wins (low-effort HIGH/MEDIUM) → SDD features → cleanup (LOW), each with severity, files to touch, effort, originating finding. SDD drafts (optional, only when SDD is enabled) for CRITICAL/HIGH findings that are SDD-scope: `specs/<feature>/{requirements,tasks}.md.draft`.
+Plus `.navori/state/handoffs/plan_<scope>.md`: blockers (CRITICAL) → quick wins (low-effort HIGH/MEDIUM) → SDD features → cleanup (LOW), each with severity, files to touch, effort, originating finding. SDD drafts (optional, only when SDD is enabled) for CRITICAL/HIGH findings that are SDD-scope: `specs/<feature>/{requirements,tasks}.md.draft`.
 
-**Ticket** — `.claude/progress/audit_ticket_<ID>.md`:
+**Ticket** — `.navori/state/handoffs/audit_ticket_<ID>.md`:
 
 ```markdown
 # Audit — <ID> — <short title>
@@ -202,7 +202,7 @@ Plus `.claude/progress/plan_<scope>.md`: blockers (CRITICAL) → quick wins (low
 - Implementer 1: <scope> · Implementer 2: <scope> · Reviewer: <focus>
 ```
 
-**Challenge** — `.claude/progress/solution_review_<scope>.md`: each finding classified `BLOCKER | CONCERN | NOTE` with evidence, no verdict field.
+**Challenge** — `.navori/state/handoffs/solution_review_<scope>.md`: each finding classified `BLOCKER | CONCERN | NOTE` with evidence, no verdict field.
 
 ## Hard rules
 
@@ -222,13 +222,13 @@ Plus `.claude/progress/plan_<scope>.md`: blockers (CRITICAL) → quick wins (low
 One line:
 
 ```
-done -> .claude/progress/audit_deep_<scope>.md (+ .claude/progress/plan_<scope>.md)
+done -> .navori/state/handoffs/audit_deep_<scope>.md (+ .navori/state/handoffs/plan_<scope>.md)
 ```
 
 or
 
 ```
-done -> .claude/progress/audit_ticket_<ID>.md
+done -> .navori/state/handoffs/audit_ticket_<ID>.md
 ```
 
 (`audit_ticket_<ID-area>.md` when your scope was one area of a fan-out.)
@@ -236,7 +236,7 @@ done -> .claude/progress/audit_ticket_<ID>.md
 or
 
 ```
-done -> .claude/progress/solution_review_<scope>.md
+done -> .navori/state/handoffs/solution_review_<scope>.md
 ```
 
 Every report is **input to the next step of the pipeline**, not a chat summary: the orchestrator decomposes from an area plan or a ticket audit, and reads a challenge before deciding READY/CONCERNS/BLOCKED. Write them at their literal paths even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and these are.
@@ -298,8 +298,8 @@ You execute **a single** task from start to verification. You don't orchestrate,
 
 ## Protocol
 
-1. **Ground yourself in** `CLAUDE.md` — it is already in your context when your host injects it; identify the repo's conventions and the "Project rules" (the orchestrator's section) from there, and read it from disk ONLY if your host did not inject it (e.g. an engine without automatic injection). Then read whatever prior artifact your scope names — `.claude/progress/audit_ticket_<ID>.md`, `solution_<scope>.md`, `explore_*.md`: that context was already paid for in tokens, and a solution artifact means the approach is DECIDED. You implement it; you don't redesign it. If you believe the design is wrong, say so in your report and stop — don't quietly build something else.
-2. **Note** in `.claude/progress/impl_<feature>.md` (your working file; on close it becomes the report):
+1. **Ground yourself in** `CLAUDE.md` — it is already in your context when your host injects it; identify the repo's conventions and the "Project rules" (the orchestrator's section) from there, and read it from disk ONLY if your host did not inject it (e.g. an engine without automatic injection). Then read whatever prior artifact your scope names — `.navori/state/handoffs/audit_ticket_<ID>.md`, `solution_<scope>.md`, `explore_*.md`: that context was already paid for in tokens, and a solution artifact means the approach is DECIDED. You implement it; you don't redesign it. If you believe the design is wrong, say so in your report and stop — don't quietly build something else.
+2. **Note** in `.navori/state/handoffs/impl_<feature>.md` (your working file; on close it becomes the report):
    - `Task: <brief description>`
    - `Root cause: <file:line + why>` (only if the task is a bugfix; you can't touch code without this).
    - `Plan:` — atomic tasks with checkboxes, one 2–5 min action each. Mark `[x]` as you go so your `impl_<feature>.md` reflects real progress. Example:
@@ -329,7 +329,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
 - **One task per session.** If you discover your change requires touching something else outside the scope, you stop and report `blocked`.
 - **A guard, cap/threshold, test, or core asset blocks the requested in-scope change** → report `Status: BLOCKED` naming the guard, the possible exits, and the cost of each. Forbidden: raising the guard's threshold, rewriting content so it stops being detected, or touching core/harness assets outside your scope to route around it — the orchestrator decides the exit, not you.
 - **Self scope review before reporting**: `git diff --stat origin/main...HEAD` (plus the working tree, for what's still uncommitted) — every file outside the encargo's scope is either justified in the report or reverted before you close.
-- **Never write `progress/current.md` (root).** Session state is consolidated by the orchestrator; you may run in parallel with other implementers and that file is shared. Your only progress file is `.claude/progress/impl_<feature>.md`.
+- **Never write `progress/current.md` (root).** Session state is consolidated by the orchestrator; you may run in parallel with other implementers and that file is shared. Your only progress file is `.navori/state/handoffs/impl_<feature>.md`.
 - **Strong typing, `any` forbidden in new code.** Define correct types before moving on. Use `unknown` + narrowing, generics, or domain types. Cover parameters, returns, callbacks, events, props, hooks, and service responses. If typing it well is genuinely impossible (third-party lib without types), a `// any justified: <reason>` comment — last resort, not a shortcut.
 - **No hardcode**: secrets / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, depending on the stack).
 - **No `console.log`** in code that will be merged (guard with `import.meta.env.DEV` or the runtime's equivalent).
@@ -338,7 +338,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
 - **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.
 - **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see the SDD block in `CLAUDE.md`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.
 - **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `locate-code`; an entry point you didn't list is one the `reviewer` has to rediscover.
-- If a tool fails weirdly (e.g. tsc breaks with no apparent diff), **don't improvise a workaround**: note `Status: BLOCKED` + the reason in `.claude/progress/impl_<feature>.md` and stop.
+- If a tool fails weirdly (e.g. tsc breaks with no apparent diff), **don't improvise a workaround**: note `Status: BLOCKED` + the reason in `.navori/state/handoffs/impl_<feature>.md` and stop.
 - **While iterating, run only the tests of the area you touch** (filter by the runner's path). The full gate in step 4 runs at the end, not on each iteration — saves time and context. Never run the full `pnpm test && pnpm lint` suite yourself: that's the `reviewer`'s Pass 2 job, and it commonly outlives Bash's timeout. If this repo has a diff-scoped fast check (`scoped-gate`), it's hygiene for iterating, never a substitute for step 4.
 - **Silent reporters on intermediate runs.** Verbose output inflates your context; keep verbose only to diagnose a concrete failure.
 
@@ -361,7 +361,7 @@ No speculative abstractions: no interface / layer / flag with a single "just in 
 
 ## Evidence-based completion (gate before the report)
 
-Before returning `done -> .claude/progress/impl_<feature>.md`, apply `.claude/skills/verify-before-done/SKILL.md`. Summary of the Iron Law:
+Before returning `done -> .navori/state/handoffs/impl_<feature>.md`, apply `.claude/skills/verify-before-done/SKILL.md`. Summary of the Iron Law:
 
 | Claim you're going to make | Required output | Not sufficient |
 |---|---|---|
@@ -374,7 +374,7 @@ If any claim can't be backed with evidence you ran this turn, declare it EXPLICI
 
 ## Closing report
 
-Write `.claude/progress/impl_<feature>.md`:
+Write `.navori/state/handoffs/impl_<feature>.md`:
 
 ```markdown
 # Implementation — <task>
@@ -398,13 +398,13 @@ Write `.claude/progress/impl_<feature>.md`:
 Your chat reply is **a single line**:
 
 ```
-done -> .claude/progress/impl_<feature>.md
+done -> .navori/state/handoffs/impl_<feature>.md
 ```
 
 or
 
 ```
-blocked -> .claude/progress/impl_<feature>.md
+blocked -> .navori/state/handoffs/impl_<feature>.md
 ```
 
 (In both cases the file is the same: your report with `Status: DONE | BLOCKED`. The orchestrator consolidates blockers and session state in `progress/current.md`; you don't touch that file.)
@@ -477,7 +477,7 @@ One route removes the decision entirely. It is more expensive per change and tha
 2. The catalog of subagents and skills is in `CLAUDE.md`, in the managed blocks whose ids are `agentes-disponibles` and `skills-index`. Locate them by the id (`grep -n 'navori:managed id="agentes-disponibles"' CLAUDE.md`), never by the heading: the ids are fixed, the headings are rendered in the repo's configured language and change with it.
 3. Read `progress/current.md` (repo root) if it exists — the previous session's state.
 4. Identify the task's scope against the "Project rules" below (legacy paths, critical areas, repo conventions).
-5. **Did text from a ticket (Jira/Linear/GitHub/Slack) arrive?** If it matches your `auditor` agent's ticket-encargo triggers (bug in a critical feature, structural migration, feature that crosses >3 layers), invoke that agent first — it produces `.claude/progress/audit_ticket_<ID>.md` that guides all later decomposition. For trivial tickets (typo, copy, color), skip the audit. The single architectural design gate — when it fires, who proposes, who challenges, who decides — lives in "## Role: orchestrator" and the `solution-design` skill, not here.
+5. **Did text from a ticket (Jira/Linear/GitHub/Slack) arrive?** If it matches your `auditor` agent's ticket-encargo triggers (bug in a critical feature, structural migration, feature that crosses >3 layers), invoke that agent first — it produces `.navori/state/handoffs/audit_ticket_<ID>.md` that guides all later decomposition. For trivial tickets (typo, copy, color), skip the audit. The single architectural design gate — when it fires, who proposes, who challenges, who decides — lives in "## Role: orchestrator" and the `solution-design` skill, not here.
 
 ## How to decompose work
 
@@ -488,11 +488,11 @@ One route removes the decision entirely. It is more expensive per change and tha
 | Complex (structural migration, multi-layer refactor) | `auditor` (ticket encargo) → 2–3 `scout` in parallel → 1 `implementer` → 1 `reviewer` → `publisher` |
 | Very complex | Split into sub-tasks and re-apply the table |
 
-When you start a complex task with a prior audit, **hand the implementer the path to `.claude/progress/audit_ticket_<ID>.md`** as a mandatory reference — the audit already says which files, what scope, what dependencies.
+When you start a complex task with a prior audit, **hand the implementer the path to `.navori/state/handoffs/audit_ticket_<ID>.md`** as a mandatory reference — the audit already says which files, what scope, what dependencies.
 
 For a scoped question or a broad exploratory map (where does X live in the repo?), use `scout`. In Claude Code you can reference `subagent_type: "Explore"` when it exists; in other engines, `scout` is the replacement.
 
-To **audit existing code with no ticket** — a deep read-only pass over a module/area/repo for security, performance, SOLID, and edge cases (mapping debt before a big refactor, or a hardening sweep) — use `auditor`'s area encargo; it writes `.claude/progress/audit_deep_<scope>.md` + a prioritized plan. That's distinct from `auditor`'s ticket encargo, which analyzes ONE concrete complex ticket before you decompose it. Both are read-only and never edit code (see the agent's own triggers).
+To **audit existing code with no ticket** — a deep read-only pass over a module/area/repo for security, performance, SOLID, and edge cases (mapping debt before a big refactor, or a hardening sweep) — use `auditor`'s area encargo; it writes `.navori/state/handoffs/audit_deep_<scope>.md` + a prioritized plan. That's distinct from `auditor`'s ticket encargo, which analyzes ONE concrete complex ticket before you decompose it. Both are read-only and never edit code (see the agent's own triggers).
 
 ## How to launch in parallel (mechanics, not optional)
 
@@ -523,7 +523,7 @@ Fan-out is a lever, not a toll — so when you do delegate, hand the smallest en
 - **Peel off the mechanical first.** Copies, renames, scaffolding, JSON/string edits → send them to a low-tier agent in their own encargo; never bundle them into the `implementer`'s, where they inflate its context and its run without raising quality.
 - **One encargo = one unit.** A pre-existing bug the `implementer` hits outside its scope → it reports and stops there (a trivial one-liner is the exception); **you** decide whether to open a separate unit. Scope doesn't self-expand mid-run.
 - **Tier by sub-task, not by round.** A single fix round can mix tiers. Map: **low** → mechanical work (copies, renames, scaffolding, string/JSON edits, a one-line fix); **mid** → a scoped bugfix with a clear cause or a bounded feature; **high** → judgment work (design, security regex, ambiguous root-cause, removal semantics, critical areas).
-- **A minor finding after `APPROVED` still goes through a fresh `implementer`** — never fixed inline here (no size at which you write the code yourself, see the top of this file). The approval is byte-bound (`.claude/progress/receipt.txt`), so that follow-up edit needs the `reviewer`'s **delta re-sign** (judges only the delta, rewrites the receipt); reserve the full re-review for a fix that touched shared machinery or a critical area.
+- **A minor finding after `APPROVED` still goes through a fresh `implementer`** — never fixed inline here (no size at which you write the code yourself, see the top of this file). The approval is byte-bound (`.navori/state/handoffs/receipt.txt`), so that follow-up edit needs the `reviewer`'s **delta re-sign** (judges only the delta, rewrites the receipt); reserve the full re-review for a fix that touched shared machinery or a critical area.
 
 ## Continuous execution (don't pause between tasks)
 
@@ -535,7 +535,7 @@ Once the plan/scope is approved, execute ALL the sub-tasks without pausing to as
 
 **Caps, so a loop cannot pass for persistence.** 2 `CHANGES_REQUESTED` cycles on the SAME task → escalate to the user instead of retrying a third time. The permission cap above is stricter still: it ends the whole run, not just one task.
 
-Do NOT do "I'll do sub-task 1, shall I continue with 2?". The user asked you to execute the plan — execute it. Intermediate progress summaries between tasks burn their time. Exception: a significant milestone (a full layer finished) or a BLOCKED — those you do communicate.
+Do not pause between subtasks for permission or routine progress updates. Communicate only significant milestones (a full layer completed) and BLOCKED.
 
 Correct pattern:
 
@@ -548,10 +548,10 @@ Without "shall I proceed?" between each node.
 
 ## Anti-broken-telephone rule
 
-When you launch subagents, the **literal path** of the file each one must write is a fixed field of the encargo, not a recommendation. "Write a report" is prose and gets summarized on the way out; `.claude/progress/impl_auth.md` does not. You receive only:
+When you launch subagents, the **literal path** of the file each one must write is a fixed field of the encargo, not a recommendation. "Write a report" is prose and gets summarized on the way out; `.navori/state/handoffs/impl_auth.md` does not. You receive only:
 
 ```
-done -> .claude/progress/<file>.md
+done -> .navori/state/handoffs/<file>.md
 ```
 
 Those files are **input to the next step of the pipeline**, not chat summaries for a reader: the `reviewer` opens the `implementer`'s, the `publisher` opens the `reviewer`'s and its `receipt.txt`, and the `subagent-stop-handoff` hook flags one that lands empty or without its `Status:`/verdict line (that hook never sees one that didn't land at all — that check is yours). A host rule against writing report files does not reach them — it exempts files written as input to another tool, and these qualify. Say so if a subagent hesitates.
@@ -560,25 +560,25 @@ Those files are **input to the next step of the pipeline**, not chat summaries f
 
 Expected files:
 
-- `.claude/progress/audit_ticket_<TICKET-ID>.md` — deep analysis of one ticket (`auditor`, ticket encargo)
-- `.claude/progress/audit_deep_<scope>.md` — deep read-only audit of a module/area/repo with no ticket (`auditor`, area encargo)
-- `.claude/progress/plan_<scope>.md` — the `auditor`'s prioritized plan that accompanies a deep audit
-- `.claude/progress/explore_<area>.md` — broad map (`scout`, map encargo)
-- `.claude/progress/research_<question>.md` — scoped question (`scout`, question encargo)
-- `.claude/progress/solution_<scope>.md` — the design pass's decision record (`solution-design` skill), plus `solution_review_<scope>.md` for its fresh-context challenge (`auditor`, challenge encargo)
+- `.navori/state/handoffs/audit_ticket_<TICKET-ID>.md` — deep analysis of one ticket (`auditor`, ticket encargo)
+- `.navori/state/handoffs/audit_deep_<scope>.md` — deep read-only audit of a module/area/repo with no ticket (`auditor`, area encargo)
+- `.navori/state/handoffs/plan_<scope>.md` — the `auditor`'s prioritized plan that accompanies a deep audit
+- `.navori/state/handoffs/explore_<area>.md` — broad map (`scout`, map encargo)
+- `.navori/state/handoffs/research_<question>.md` — scoped question (`scout`, question encargo)
+- `.navori/state/handoffs/solution_<scope>.md` — the design pass's decision record (`solution-design` skill), plus `solution_review_<scope>.md` for its fresh-context challenge (`auditor`, challenge encargo)
 
-- `.claude/progress/impl_<feature>.md` — the `implementer`'s report (includes its `Status: DONE | BLOCKED`)
-- `.claude/progress/review_<feature>.md` — the `reviewer`'s verdict
-- `.claude/progress/receipt.txt` — the `reviewer`'s content receipt on `APPROVED` (binds the diff to the reviewed bytes; consumed by `publisher`)
-- `.claude/progress/comment_<feature>.md` — the comment/review/ticket body `publisher` drafts before publishing it file-backed (comment contract)
+- `.navori/state/handoffs/impl_<feature>.md` — the `implementer`'s report (includes its `Status: DONE | BLOCKED`)
+- `.navori/state/handoffs/review_<feature>.md` — the `reviewer`'s verdict
+- `.navori/state/handoffs/receipt.txt` — the `reviewer`'s content receipt on `APPROVED` (binds the diff to the reviewed bytes; consumed by `publisher`)
+- `.navori/state/handoffs/comment_<feature>.md` — the comment/review/ticket body `publisher` drafts before publishing it file-backed (comment contract)
 
-**Path separation (don't mix):** `.claude/progress/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`, `comment_*`) between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.md`, you record the blocker in `progress/current.md` along with the next step.
+**Path separation (don't mix):** `.navori/state/handoffs/` is ONLY for ephemeral agent handoffs (`audit_*`, `plan_*`, `explore_*`, `research_*`, `solution_*`, `solution_review_*`, `impl_*`, `review_*`, `receipt.txt`, `comment_*`) between agents. The **session state** (current task, plan, blockers) lives in `progress/current.md` (repo root, persists in git) and you consolidate it **YOU, only**: subagents never write it. When an `implementer` reports `blocked` in its `impl_<feature>.md`, you record the blocker in `progress/current.md` along with the next step.
 
-**Retirement:** `.claude/progress/` is gitignored — single-machine, not durable. No doc or argument may cite one of its files as evidence. Delete by hand anything older than **14 days**; nothing here is automated (no command/hook deletes on your behalf). Before deleting, promote whatever is still load-bearing (a decision reconstructable in six months) to `docs/` or engram via the `dominio` skill — otherwise it's lost for good. `progress/current.md` and `progress/history.md` (repo root, versioned) are a different, exempt directory.
+**Retirement:** `.navori/state/handoffs/` is gitignored — single-machine, not durable. No doc or argument may cite its files as evidence. Delete handoffs older than **14 days**; no command or hook does this. Former engine-specific progress roots remain read-only compatibility inputs during the migration; never write new handoffs there. Before deleting, promote load-bearing decisions to `docs/` or engram via `dominio`. Versioned `progress/current.md` and `progress/history.md` are exempt.
 
 ## Closing the cycle: create the PR
 
-When `.claude/progress/review_<feature>.md` contains `APPROVED`:
+When `.navori/state/handoffs/review_<feature>.md` contains `APPROVED`:
 
 1. **Before** invoking `publisher`: apply `cierre-sesion`'s History + Clear current steps now — that commit must land inside this PR, per that block's timing rule (and its no-PR exception).
 2. Invoke `publisher` to draft the title + body following the repo's format and open the PR.
@@ -686,7 +686,7 @@ You own the **end of the cycle**: well-structured commits in the configured styl
 
 - Working tree with uncommitted changes when the user only asked to "open the PR" → first commit or ask for permission.
 - You are on `main`, on the branch this one was forked from, or another protected branch → abort + ask for a branch.
-- Harness active and THIS feature's review — `.claude/progress/review_<feature>.md`, the single file the pre-flight below identifies by name — contains `CHANGES_REQUESTED` → no PR is created. Never scan the directory for it: a `CHANGES_REQUESTED` belonging to someone else's closed cycle must not abort your PR, exactly as another feature's `APPROVED` never unblocks it.
+- Harness active and THIS feature's review — `.navori/state/handoffs/review_<feature>.md`, the single file the pre-flight below identifies by name — contains `CHANGES_REQUESTED` → no PR is created. Never scan the directory for it: a `CHANGES_REQUESTED` belonging to someone else's closed cycle must not abort your PR, exactly as another feature's `APPROVED` never unblocks it.
 - Quality gate red this turn.
 
 > **Two branches, one that decides:** `main` is the target for `gh pr create --base` and every diff below. The fork point is a separate setting; in most repos both name the same branch. Where they differ, the target branch wins — the fork-point diff is never the PR's.
@@ -723,7 +723,7 @@ Coverage of the review and the receipt's fingerprints are two questions about th
 ```bash
 shipping=$({ git -c core.quotepath=false diff --name-only "origin/main"; \
              git -c core.quotepath=false ls-files --others --exclude-standard; } \
-           | sort -u | grep -vE '^(\.claude/progress/|progress/)')
+           | sort -u | grep -vE '^(\.navori/state/handoffs/|progress/)')
 printf '%s\n' "$shipping"                             # read it: this is what ships
 ```
 
@@ -732,7 +732,7 @@ printf '%s\n' "$shipping"                             # read it: this is what sh
 - **`progress/` is dropped**, the same grep the receipt applies, so the two sets line up 1:1 and a git-persisted session-state update never looks like an unreviewed file. Deletions DO stay in the set (the receipt records them as `deleted  <path>`), so a removed file can't ship unreviewed.
 - **`quotepath=false` on both listings**, exactly as the reviewer signed them: git C-quotes a non-ASCII path by default, and a quoted path never matches the receipt's line — the file would read as uncovered, or slip by unverified.
 
-If the harness is active, identify THIS feature's review: `.claude/progress/review_<feature>.md`, with `<feature>` the id you received in your brief. A broad glob (`review_*.md`) over all reviews is not valid — it's not enough that some review with `APPROVED` exists in the directory, it has to be this feature's.
+If the harness is active, identify THIS feature's review: `.navori/state/handoffs/review_<feature>.md`, with `<feature>` the id you received in your brief. A broad glob (`review_*.md`) over all reviews is not valid — it's not enough that some review with `APPROVED` exists in the directory, it has to be this feature's.
 
 Open that specific file and confirm its verdict is `APPROVED` and that its scope/feature section names the same feature you're about to commit. The verdict only counts if the review **covers the whole shipping diff**: the reviewer's content receipt (below) is the authoritative list of the files it actually reviewed, so every file in the shipping diff above must appear there. A touched file the review never saw → the `APPROVED` doesn't cover the full change → it does NOT count as approved. Abort, don't create the PR, and send it back to the reviewer to cover the missing files. It's not enough to mention the difference and carry on. The coverage check is mechanical — see the receipt block.
 
@@ -744,7 +744,7 @@ An absent file, ambiguous (more than one candidate), or with a verdict/scope tha
 **Content receipt: the diff must still match what was approved.** Before committing, run the receipt command with the feature id from `review_<feature>.md`. It owns coverage and drift detection; do not reproduce its algorithm in shell.
 
 ```bash
-navori receipt check --feature <feature> --target main --dir .claude/progress --json
+navori receipt check --feature <feature> --target main --dir .navori/state/handoffs --json
 ```
 
 Continue only when the JSON has `"status":"ok"`. A missing `navori`, absent receipt, non-zero command, malformed JSON, `ERROR`, `UNCOVERED`, or `DRIFT` blocks the commit and PR.
@@ -775,7 +775,7 @@ Never open the PR with the gate red.
 
 ## Commit flow (if there are uncommitted changes)
 
-1. Read `.claude/progress/impl_<feature>.md` to understand what changed and why.
+1. Read `.navori/state/handoffs/impl_<feature>.md` to understand what changed and why.
 2. Look at `git diff --stat` to confirm the scope.
 3. Draft an atomic commit message in the configured style (`conventional-es`).
    - When the configured style is Conventional, use a lowercase type and scope derived from the touched area.
@@ -785,7 +785,7 @@ Never open the PR with the gate red.
 5. `git add <files>` (prefer explicit over `git add -A`).
 6. `git commit -m "..."` with a HEREDOC for the body if applicable.
 7. Validate with `git status` that the commit landed. Foreign modified files are reported as an observation and never discarded, restored or reverted.
-8. **Consume the receipt:** `mv -f .claude/progress/receipt.txt .claude/progress/receipt.consumed.txt`. The approval is now frozen into the commit; renaming it (instead of deleting it) keeps the evidence on disk without it being rearmed — a plain `check` never reads a consumed receipt again, only the opt-in flag documented in `cierre-sesion.md` does.
+8. **Consume the receipt:** `mv -f .navori/state/handoffs/receipt.txt .navori/state/handoffs/receipt.consumed.txt`. The approval is now frozen into the commit; renaming it (instead of deleting it) keeps the evidence on disk without it being rearmed — a plain `check` never reads a consumed receipt again, only the opt-in flag documented in `cierre-sesion.md` does.
 
 ## PR flow
 
@@ -805,7 +805,7 @@ Never open the PR with the gate red.
 
      Count > 0 means your PR drags foreign commits: warn the user and suggest rebase.
    - Ticket if applicable: branch name (e.g. `BT-1234-fix-x` → `BT-1234`) or first commit.
-   - `.claude/progress/impl_<feature>.md` — non-obvious decisions.
+   - `.navori/state/handoffs/impl_<feature>.md` — non-obvious decisions.
 
 2. **Draft title and body**:
    - **Title**: follows the configured commit style (`conventional-es`), ≤70 chars, imperative and without a trailing period.
@@ -854,7 +854,7 @@ Never open the PR with the gate red.
 
 Every comment, review or ticket update you publish — on a PR, an issue or a Jira ticket — follows one rule: **the body lives in a file, never inline.** Bodies inline in a command truncate or mis-render under the shell's own quoting, and an inline `--body` gives the pre-flight nothing to inspect before it fires.
 
-1. Write the text into a file in `.claude/progress/` (e.g. `comment_<feature>.md`). Content comes ONLY from handoff artifacts on disk (`impl_<feature>.md`, `review_<feature>.md`, the PR/issue) — never invent claims not already documented.
+1. Write the text into a file in `.navori/state/handoffs/` (e.g. `comment_<feature>.md`). Content comes ONLY from handoff artifacts on disk (`impl_<feature>.md`, `review_<feature>.md`, the PR/issue) — never invent claims not already documented.
 2. Publish it with the flag that reads the file, per channel:
 
    | Channel | Command | File flag |
@@ -1021,7 +1021,7 @@ You are a strict reviewer. Your only function is to **approve or reject**. You d
 
 ### Setup (common to both passes)
 
-1. Ground yourself in `CLAUDE.md` — already in your context when your host injects it; read it from disk ONLY if your host did not inject it. Then read `.claude/progress/impl_<feature>.md`, `.claude/progress/audit_ticket_<ID>.md` and `.claude/progress/solution_<scope>.md` (whichever exist). When there IS a solution artifact, the diff is judged against the approach it records — an implementation that quietly took a different path is a `SPEC_MISS`, even if the code is good. You do NOT re-open the design itself: whether that approach was the right one was settled in its own phase; your question is whether the code did what was agreed.
+1. Ground yourself in `CLAUDE.md` — already in your context when your host injects it; read it from disk ONLY if your host did not inject it. Then read `.navori/state/handoffs/impl_<feature>.md`, `.navori/state/handoffs/audit_ticket_<ID>.md` and `.navori/state/handoffs/solution_<scope>.md` (whichever exist). When there IS a solution artifact, the diff is judged against the approach it records — an implementation that quietly took a different path is a `SPEC_MISS`, even if the code is good. You do NOT re-open the design itself: whether that approach was the right one was settled in its own phase; your question is whether the code did what was agreed.
 2. Identify modified files. Diff against `main` (the PR's target
    branch), **not** against the fork point: it's the EXACT diff GitHub will show and
    the one publisher reviews. In most repos the branch you forked from and
@@ -1050,7 +1050,7 @@ You are a strict reviewer. Your only function is to **approve or reject**. You d
    receipt. A target-only file would otherwise look like a deletion in this
    worktree and the receipt would sign that phantom deletion.
 
-3. **Re-review** (if there's already a `.claude/progress/review_<feature>.md` from a previous cycle): focus the *reading* on (a) that the issues listed there are resolved and (b) the files the `implementer` reports having touched in this cycle (`impl_<feature>.md`). Don't re-review from scratch the already-approved code that didn't change; the full quality gate is still run anyway — a change can break something outside the delta. If the previous verdict was already `APPROVED` and the diff only moved because of an edit made after it, that's the **delta re-sign** mode below, not this one.
+3. **Re-review** (if there's already a `.navori/state/handoffs/review_<feature>.md` from a previous cycle): focus the *reading* on (a) that the issues listed there are resolved and (b) the files the `implementer` reports having touched in this cycle (`impl_<feature>.md`). Don't re-review from scratch the already-approved code that didn't change; the full quality gate is still run anyway — a change can break something outside the delta. If the previous verdict was already `APPROVED` and the diff only moved because of an edit made after it, that's the **delta re-sign** mode below, not this one.
 4. Apply `.claude/skills/verify-before-done/SKILL.md` to every `[x]` that depends on evidence. The quality gate is run **this turn, in Pass 2** (not before: a `SPEC_MISS` in Pass 1 doesn't need it — don't spend the gate on a diff you're going to reject on spec). Don't assume from the implementer's cached report.
 5. When judging scope or an impact claim needs evidence beyond the diff itself, apply Code discovery routing (project instructions) before gathering it: occurrences from a text search don't demonstrate structural impact — confirm relationships and blast radius through the enabled structural provider, or scoped reading when it's unavailable.
 
@@ -1097,7 +1097,7 @@ Don't gate a screen change on browser validation by default. Only if the user ex
 Your APPROVED verdict is bound to the exact bytes you reviewed. Only after `APPROVED`, run the command below with the feature id from the implementer handoff. It owns the publish-set calculation and receipt format; do not reproduce either in shell.
 
 ```bash
-navori receipt sign --feature <feature> --target main --dir .claude/progress --json
+navori receipt sign --feature <feature> --target main --dir .navori/state/handoffs --json
 ```
 
 Continue only when its JSON has `"status":"ok"`. Any other output is an error: do not hand off a receipt. `CHANGES_REQUESTED` never signs.
@@ -1109,8 +1109,8 @@ A second mode, distinct from the re-review of item 3: you already signed this di
 1. **The previous `APPROVED` stands.** What didn't change isn't re-opened; you're extending a verdict, not replacing it.
 2. **Measure the delta, never eyeball it.** Per drifted file, the receipt line gives the approved sha: `git diff <blob-sha> <file>` is the exact change since the signature (`git cat-file -p <blob-sha>` for the full approved content). "It looks small" is not evidence.
 3. **Re-run `pnpm test && pnpm lint` anyway**, over the live bytes. The previous green expired the moment the bytes changed, and that evidence is what the pilot reuses.
-4. **Rewrite the receipt** over the final bytes with `navori receipt sign --feature <feature> --target main --dir .claude/progress --json`, and continue only on `"status":"ok"`. A delta re-sign that doesn't re-sign leaves the pilot blocked on the same drift.
-5. **Append** to the existing `.claude/progress/review_<feature>.md` — your own heading, observations continuing the original numbering — never overwrite it. The chain of what was approved when has to stay readable.
+4. **Rewrite the receipt** over the final bytes with `navori receipt sign --feature <feature> --target main --dir .navori/state/handoffs --json`, and continue only on `"status":"ok"`. A delta re-sign that doesn't re-sign leaves the pilot blocked on the same drift.
+5. **Append** to the existing `.navori/state/handoffs/review_<feature>.md` — your own heading, observations continuing the original numbering — never overwrite it. The chain of what was approved when has to stay readable.
 6. **Limit (anti-rubber-stamp):** this mode only covers a delta that stays inside the change that was suggested. If it alters logic beyond that hunk, touches shared machinery, or lands in `auth, permissions, payments, data integrity`, it is NOT a delta re-sign — do the full review. Same if the drift has no known author (a rebase, another session, a stray checkout): with no explanation there's no delta to bound.
 
 ### Confidence scoring per finding (Pass 2)
@@ -1127,13 +1127,13 @@ Each issue is scored 0-100. Only issues ≥80 block APPROVED. Issues 50-79 are l
 
 ## Verdict format
 
-Write `.claude/progress/review_<feature>.md`:
+Write `.navori/state/handoffs/review_<feature>.md`:
 
 ```markdown
 # Review — <task>
 
 **Final verdict:** APPROVED | CHANGES_REQUESTED
-**Content receipt:** `.claude/progress/receipt.txt` (written on APPROVED — binds the diff to the reviewed bytes)
+**Content receipt:** `.navori/state/handoffs/receipt.txt` (written on APPROVED — binds the diff to the reviewed bytes)
 
 ## Pass 1 — Spec compliance
 **Partial verdict:** SPEC_OK | SPEC_MISS
@@ -1171,13 +1171,13 @@ Write `.claude/progress/review_<feature>.md`:
 **A single line**:
 
 ```
-APPROVED -> .claude/progress/review_<feature>.md
+APPROVED -> .navori/state/handoffs/review_<feature>.md
 ```
 
 or
 
 ```
-CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
+CHANGES_REQUESTED -> .navori/state/handoffs/review_<feature>.md
 ```
 
 `review_<feature>.md` and `receipt.txt` are **input to another tool**, not chat summaries: the `publisher` reads the verdict and re-hashes the receipt before it commits, and the `subagent-stop-handoff` hook flags a `review_*.md` that lands empty or without a verdict (that hook never sees one that didn't land at all, and never looks at `receipt.txt`). Write them at those literal paths even where a host rule discourages writing report files — that rule exempts files written as input to another tool, and these are.
@@ -1191,7 +1191,7 @@ CHANGES_REQUESTED -> .claude/progress/review_<feature>.md
 - ❌ Never approve a failure legitimately classified *introduced (demonstrated)* per `verify-before-done`'s Failure attribution, and never classify one *pre-existing* by diff location alone.
 - ❌ Never approve new code with explicit or implicit `any` without a valid `// any justified: <reason>`.
 - ❌ Don't block or escalate a screen change to a human for lack of browser validation — the default gate is the diff + tests; require a visual check only when the user explicitly asked for one.
-- ✅ On APPROVED, write the content receipt (`.claude/progress/receipt.txt`) so the commit is bound to the reviewed bytes.
+- ✅ On APPROVED, write the content receipt (`.navori/state/handoffs/receipt.txt`) so the commit is bound to the reviewed bytes.
 - ❌ In SDD features (with `tasks.md`), never approve if some `R<n>` in the batch has no traceable test covering it.
 - ❌ You never edit the code. You only point out what fails and where.
 - ❌ Never run commands that discard or rewrite the shared working tree (stashing, checkout/reset that discards local changes, working-tree clean), and don't clean scratch dirs with a recursive delete — they hit the `ask` permission rule and stall the run indefinitely with no one to answer the prompt.
@@ -1248,8 +1248,8 @@ maxWords: 1050
 
 You do **read-only reconnaissance** over the repo, in one of two shapes the orchestrator hands you:
 
-- **Map** — a broad area or module: structure, key files, dependencies, entry points. Writes `.claude/progress/explore_<area>.md`.
-- **Question** — one scoped question, answered with cited evidence. Writes `.claude/progress/research_<question-slug>.md`.
+- **Map** — a broad area or module: structure, key files, dependencies, entry points. Writes `.navori/state/handoffs/explore_<area>.md`.
+- **Question** — one scoped question, answered with cited evidence. Writes `.navori/state/handoffs/research_<question-slug>.md`.
 
 You don't modify project files either way.
 
@@ -1281,7 +1281,7 @@ If the encargo doesn't say which shape, ask; don't guess. If it arrives ambiguou
 6. Identify reverse dependencies on a map: which external modules consume this one? That's the "blast radius" of changing it.
 7. Write the report:
 
-   **Question** — `.claude/progress/research_<question-slug>.md`:
+   **Question** — `.navori/state/handoffs/research_<question-slug>.md`:
 
    ```markdown
    # Research — <question>
@@ -1301,7 +1301,7 @@ If the encargo doesn't say which shape, ask; don't guess. If it arrives ambiguou
    - <repo ambiguities I discovered, optional>
    ```
 
-   **Map** — `.claude/progress/explore_<area>.md`:
+   **Map** — `.navori/state/handoffs/explore_<area>.md`:
 
    ```markdown
    # Exploration — <area>
@@ -1351,13 +1351,13 @@ If the encargo doesn't say which shape, ask; don't guess. If it arrives ambiguou
 One line:
 
 ```
-done -> .claude/progress/research_<slug>.md
+done -> .navori/state/handoffs/research_<slug>.md
 ```
 
 or
 
 ```
-done -> .claude/progress/explore_<area>.md
+done -> .navori/state/handoffs/explore_<area>.md
 ```
 
 or
@@ -1426,13 +1426,13 @@ There used to be a ladder (inline for small changes, delegate for the rest). It 
 |---|---|
 | change **source** — code, tests, config the program reads, or the harness prose an agent obeys | `implementer` → `reviewer`. Always. No file count, no triviality judgement |
 | **answer, explain, investigate, review, or plan** | you do it. Nothing is written, so there is nothing to review. Delegate only as a **lever for scale** (see the signal table) |
-| write an **ephemeral** file — `.claude/progress/*`, a scratch script, a throwaway probe | you do it. It ships nothing and reaches no diff |
+| write an **ephemeral** file — `.navori/state/handoffs/*`, a scratch script, a throwaway probe | you do it. It ships nothing and reaches no diff |
 | run commands, read files, inspect state | you do it |
 
 
 ### The mechanics
 
-- **Before dispatching**, run `navori handoff check <feature> --dir .claude/progress --json`; continue only on `"status":"ok"`.
+- **Before dispatching**, run `navori handoff check <feature> --dir .navori/state/handoffs --json`; continue only on `"status":"ok"`.
 - **1 focused `implementer`** with an explicit scope (no SDD state), then **1 fresh `reviewer`**. Serial — the reviewer depends on the implementer's output.
 - **Review AFTER implementing, never before.**
 - **Parallel `implementer`s only on disjoint files** (when in doubt, serial).
@@ -2699,14 +2699,13 @@ if [ "$nv_engine" = codex ]; then
   # monorepo; the project root is always the git toplevel from there. Falls
   # back to the raw cwd outside a git work tree rather than failing closed.
   nv_project_dir=$(git -C "${nv_cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || nv_project_dir=${nv_cwd:-.}
-  # Mirrors CODEX_MIRRORED_DIRS (engines/codex/compat.ts): where render WRITES
-  # ephemeral handoff/progress state under Codex, not an absolute path — the
-  # caller composes it with `nv_project_dir` when it needs one.
-  nv_progress_dir=".codex/progress"
 else
   nv_project_dir=${CLAUDE_PROJECT_DIR:-}
-  nv_progress_dir=".claude/progress"
 fi
+
+# Runtime handoffs have one engine-neutral home. The caller composes this
+# relative path with its checkout root; legacy roots remain readable only.
+nv_progress_dir=".navori/state/handoffs"
 
 # The Claude-equivalent tool name for the CURRENT PreToolUse/PostToolUse
 # payload (D2: apply_patch -> Edit, spawn_agent -> Agent, everything else
@@ -4052,14 +4051,13 @@ if [ "$nv_engine" = codex ]; then
   # monorepo; the project root is always the git toplevel from there. Falls
   # back to the raw cwd outside a git work tree rather than failing closed.
   nv_project_dir=$(git -C "${nv_cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || nv_project_dir=${nv_cwd:-.}
-  # Mirrors CODEX_MIRRORED_DIRS (engines/codex/compat.ts): where render WRITES
-  # ephemeral handoff/progress state under Codex, not an absolute path — the
-  # caller composes it with `nv_project_dir` when it needs one.
-  nv_progress_dir=".codex/progress"
 else
   nv_project_dir=${CLAUDE_PROJECT_DIR:-}
-  nv_progress_dir=".claude/progress"
 fi
+
+# Runtime handoffs have one engine-neutral home. The caller composes this
+# relative path with its checkout root; legacy roots remain readable only.
+nv_progress_dir=".navori/state/handoffs"
 
 # The Claude-equivalent tool name for the CURRENT PreToolUse/PostToolUse
 # payload (D2: apply_patch -> Edit, spawn_agent -> Agent, everything else
@@ -4748,14 +4746,13 @@ if [ "$nv_engine" = codex ]; then
   # monorepo; the project root is always the git toplevel from there. Falls
   # back to the raw cwd outside a git work tree rather than failing closed.
   nv_project_dir=$(git -C "${nv_cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || nv_project_dir=${nv_cwd:-.}
-  # Mirrors CODEX_MIRRORED_DIRS (engines/codex/compat.ts): where render WRITES
-  # ephemeral handoff/progress state under Codex, not an absolute path — the
-  # caller composes it with `nv_project_dir` when it needs one.
-  nv_progress_dir=".codex/progress"
 else
   nv_project_dir=${CLAUDE_PROJECT_DIR:-}
-  nv_progress_dir=".claude/progress"
 fi
+
+# Runtime handoffs have one engine-neutral home. The caller composes this
+# relative path with its checkout root; legacy roots remain readable only.
+nv_progress_dir=".navori/state/handoffs"
 
 # The Claude-equivalent tool name for the CURRENT PreToolUse/PostToolUse
 # payload (D2: apply_patch -> Edit, spawn_agent -> Agent, everything else
@@ -6424,14 +6421,13 @@ if [ "$nv_engine" = codex ]; then
   # monorepo; the project root is always the git toplevel from there. Falls
   # back to the raw cwd outside a git work tree rather than failing closed.
   nv_project_dir=$(git -C "${nv_cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || nv_project_dir=${nv_cwd:-.}
-  # Mirrors CODEX_MIRRORED_DIRS (engines/codex/compat.ts): where render WRITES
-  # ephemeral handoff/progress state under Codex, not an absolute path — the
-  # caller composes it with `nv_project_dir` when it needs one.
-  nv_progress_dir=".codex/progress"
 else
   nv_project_dir=${CLAUDE_PROJECT_DIR:-}
-  nv_progress_dir=".claude/progress"
 fi
+
+# Runtime handoffs have one engine-neutral home. The caller composes this
+# relative path with its checkout root; legacy roots remain readable only.
+nv_progress_dir=".navori/state/handoffs"
 
 # The Claude-equivalent tool name for the CURRENT PreToolUse/PostToolUse
 # payload (D2: apply_patch -> Edit, spawn_agent -> Agent, everything else
@@ -7435,14 +7431,13 @@ if [ "$nv_engine" = codex ]; then
   # monorepo; the project root is always the git toplevel from there. Falls
   # back to the raw cwd outside a git work tree rather than failing closed.
   nv_project_dir=$(git -C "${nv_cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || nv_project_dir=${nv_cwd:-.}
-  # Mirrors CODEX_MIRRORED_DIRS (engines/codex/compat.ts): where render WRITES
-  # ephemeral handoff/progress state under Codex, not an absolute path — the
-  # caller composes it with `nv_project_dir` when it needs one.
-  nv_progress_dir=".codex/progress"
 else
   nv_project_dir=${CLAUDE_PROJECT_DIR:-}
-  nv_progress_dir=".claude/progress"
 fi
+
+# Runtime handoffs have one engine-neutral home. The caller composes this
+# relative path with its checkout root; legacy roots remain readable only.
+nv_progress_dir=".navori/state/handoffs"
 
 # The Claude-equivalent tool name for the CURRENT PreToolUse/PostToolUse
 # payload (D2: apply_patch -> Edit, spawn_agent -> Agent, everything else
@@ -8302,14 +8297,13 @@ if [ "$nv_engine" = codex ]; then
   # monorepo; the project root is always the git toplevel from there. Falls
   # back to the raw cwd outside a git work tree rather than failing closed.
   nv_project_dir=$(git -C "${nv_cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || nv_project_dir=${nv_cwd:-.}
-  # Mirrors CODEX_MIRRORED_DIRS (engines/codex/compat.ts): where render WRITES
-  # ephemeral handoff/progress state under Codex, not an absolute path — the
-  # caller composes it with `nv_project_dir` when it needs one.
-  nv_progress_dir=".codex/progress"
 else
   nv_project_dir=${CLAUDE_PROJECT_DIR:-}
-  nv_progress_dir=".claude/progress"
 fi
+
+# Runtime handoffs have one engine-neutral home. The caller composes this
+# relative path with its checkout root; legacy roots remain readable only.
+nv_progress_dir=".navori/state/handoffs"
 
 # The Claude-equivalent tool name for the CURRENT PreToolUse/PostToolUse
 # payload (D2: apply_patch -> Edit, spawn_agent -> Agent, everything else
@@ -9574,15 +9568,156 @@ navori_audit_phase="PostToolUse"
 # audit-mode is on, and jq may not exist. Keyed by session AND repo so two
 # sessions never silence each other. In the OS temp dir, so nothing lands in the
 # user's tree and a reboot is a clean slate.
-navori_handoff_key="anon"
-case "$payload" in
-  *'"session_id"'*)
-    navori_handoff_key=${payload#*\"session_id\":}
-    navori_handoff_key=${navori_handoff_key# }
-    navori_handoff_key=${navori_handoff_key#\"}
-    navori_handoff_key=${navori_handoff_key%%\"*}
-    ;;
+# A raw, unexpanded asset must remain advisory rather than exiting 127.
+# Rendered includes replace these no-ops with the shared Spec 0035 adapter.
+payload_field() { :; }
+nv_subagent_type() { :; }
+# Shared hook boilerplate — inlined into each hook at render time (see the
+# include directive in the source scripts + lib/render/hook-includes.ts). Single source
+# of truth for the sibling gate scripts; DO NOT copy this body back into a hook
+# by hand (that is the drift #225/#261 removed).
+#
+# PreToolUse(Bash) passes the tool input on stdin. Read one field out of it
+# WITHOUT hard-depending on jq (NOT preinstalled on macOS): try jq, then node
+# (Claude Code's own runtime), then a best-effort sed unwrap on the leaf key.
+# Nothing extracted → empty output, and each caller decides what that means (the
+# gate scripts scan defensively; guard-destructive waves the command through).
+#
+# $1 is a dotted path written HERE, never user input — the payload is the data.
+# Generic on purpose: `.cwd` feeds the worktree resolver of #454 through the
+# SAME hardened cascade instead of a second copy of it.
+#
+# The sed fallback reads a JSON string through its first unescaped quote. JSON
+# object member order is not a host contract: `command` can precede `cwd`, so a
+# greedy capture to the last quote would swallow the rest of the payload when
+# neither jq nor node is available.
+# `${payload-$(cat)}` (unset test, not `:-`) rather than an unconditional
+# `payload=$(cat)`: a caller that already captured stdin itself (spec 0035 —
+# `managed-drift-watch.sh` needs the audit recorder's session_id/cwd even on
+# tool names this hook does not otherwise read) keeps that value, empty or
+# not, instead of this partial re-reading an already-drained pipe and
+# clobbering it with "".
+payload=${payload-$(cat)}
+payload_field() {
+  if command -v jq >/dev/null 2>&1; then
+    printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
+  fi
+  if command -v node >/dev/null 2>&1; then
+    printf '%s' "$payload" | node -e 'let s="";const p=process.argv[1].split(".");process.stdin.on("data",c=>s+=c).on("end",()=>{try{let v=JSON.parse(s);for(const k of p)v=v?.[k];process.stdout.write(String(v??""))}catch{}})' "$1" 2>/dev/null && return 0
+  fi
+  printf '%s' "$payload" | sed -nE "s/.*\"${1##*.}\"[[:space:]]*:[[:space:]]*\"(([^\"\\]|\\.)*)\".*/\\1/p"
+}
+extract_cmd() {
+  payload_field tool_input.command
+}
+# NOT called here on purpose. `payload_field` may spawn a process, and
+# `routing-watch.sh` — which includes this partial and runs after EVERY tool call
+# in every session — never reads `cmd`. Each consumer that wants it calls
+# `extract_cmd` itself, at the point where it already knows it needs it.
+# Spec 0035 D2 — the single payload adapter shared by every hook that needs an
+# engine-specific value. Inlined into each hook at render time (see the
+# include directive in the source scripts + lib/render/hook-includes.ts).
+# Single source of truth for the Claude/Codex normalization; DO NOT copy this
+# body back into a hook by hand or branch on the engine inside a hook — D2
+# rejected per-script `if codex …` branches (12 copies of the same logic,
+# each one a place to drift).
+#
+# `nv_engine` is decided by WHERE THE HOOK SCRIPT LIVES ON DISK, not by the
+# payload's shape (a `turn_id`/`apply_patch` sniff breaks the day Claude ships
+# a field with the same name — see design.md's "Descartado") and not by an
+# env var prefix on the registered command (that would change the `command`
+# string Codex hashes for `trusted_hash`, un-approving every hook a repo
+# already trusted — see hook-registrations.ts's module doc). The registered
+# command is always `bash ".../.codex/hooks/<script>.sh"` or
+# `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/<script>.sh"`. `$0` — not
+# `BASH_SOURCE`, which zsh (#391: hooks run under bash AND zsh) leaves unset
+# under `set -u` — is the path the invoking shell was given, and
+# `comment-draft-confirm.sh` already established this exact pattern.
+#
+# Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
+# `extract-cmd` in the same script whenever this partial's helpers are used —
+# `payload_field` is only CALLED here (inside functions), never at top level,
+# so include order between the two partials does not matter.
+case "$0" in
+  *".codex/hooks/"*) nv_engine=codex ;;
+  *) nv_engine=claude ;;
 esac
+
+if [ "$nv_engine" = codex ]; then
+  nv_cwd=$(payload_field cwd)
+  # `cwd` is the session's working dir, which may be a workspace subdir in a
+  # monorepo; the project root is always the git toplevel from there. Falls
+  # back to the raw cwd outside a git work tree rather than failing closed.
+  nv_project_dir=$(git -C "${nv_cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || nv_project_dir=${nv_cwd:-.}
+else
+  nv_project_dir=${CLAUDE_PROJECT_DIR:-}
+fi
+
+# Runtime handoffs have one engine-neutral home. The caller composes this
+# relative path with its checkout root; legacy roots remain readable only.
+nv_progress_dir=".navori/state/handoffs"
+
+# The Claude-equivalent tool name for the CURRENT PreToolUse/PostToolUse
+# payload (D2: apply_patch -> Edit, spawn_agent -> Agent, everything else
+# unchanged — `mcp__…` names and `Bash` already match on both engines).
+nv_tool() {
+  local raw
+  raw=$(payload_field tool_name)
+  if [ "$nv_engine" = codex ]; then
+    case "$raw" in
+      apply_patch) printf 'Edit' ;;
+      spawn_agent) printf 'Agent' ;;
+      *) printf '%s' "$raw" ;;
+    esac
+  else
+    printf '%s' "$raw"
+  fi
+}
+
+# Paths the current tool call touches, one per line (possibly none). Claude
+# carries them as `tool_input.file_path` / `tool_input.notebook_path`; Codex's
+# `apply_patch` has no such field — the whole patch is `tool_input.command`,
+# and the paths live in its `*** Add File:` / `*** Update File:` /
+# `*** Delete File:` / `*** Move to:` headers (codex-rs's apply_patch parser).
+nv_edited_paths() {
+  if [ "$nv_engine" = codex ]; then
+    payload_field tool_input.command | sed -nE \
+      's/^\*\*\* (Add File|Update File|Delete File|Move to): (.*)$/\2/p'
+  else
+    local fp nb
+    fp=$(payload_field tool_input.file_path)
+    nb=$(payload_field tool_input.notebook_path)
+    [ -n "$fp" ] && printf '%s\n' "$fp"
+    [ -n "$nb" ] && printf '%s\n' "$nb"
+  fi
+}
+
+# The subagent type of the current call. Claude: `tool_input.subagent_type`
+# (PreToolUse Agent/Task). Codex: `tool_input.agent_type` in PreToolUse
+# (spawn_agent), or the top-level `agent_type` Codex adds to SubagentStop.
+nv_subagent_type() {
+  if [ "$nv_engine" = codex ]; then
+    local t
+    t=$(payload_field tool_input.agent_type)
+    [ -n "$t" ] || t=$(payload_field agent_type)
+    printf '%s' "$t"
+  else
+    payload_field tool_input.subagent_type
+  fi
+}
+
+# Deliberately NO `nv_emit_context` helper here. `hook-output-contract.test.ts`
+# ("los partials no hablan con el host, solo escriben al log") holds every
+# `_partials/*.sh` file to zero host-output vocabulary — a partial is inlined
+# BEFORE the per-script, per-event output contract is known, so it must never
+# construct `hookSpecificOutput`/`systemMessage` itself. Every hook this spec
+# touches already builds its own JSON at its own call site (unchanged by D2);
+# a script whose Claude/Codex registrations differ in event name (D1: e.g.
+# `subagent-stop-handoff` is PostToolUse under Claude, SubagentStop under
+# Codex) is unaffected in practice — Codex does not honor `additionalContext`
+# on `SubagentStop` at all (codex-research.md), so `systemMessage` is what a
+# human sees there regardless of which literal `hookEventName` the JSON claims.
+navori_handoff_key=$(payload_field session_id)
 case "$navori_handoff_key" in
   "" | *[!A-Za-z0-9_-]*) navori_handoff_key="anon" ;;
 esac
@@ -9905,14 +10040,9 @@ navori_audit_on_exit() {
 trap navori_audit_on_exit EXIT
 
 
-# Resolve the progress dirs. `placeHook` copies this body VERBATIM for every
-# engine — it is never retargeted the way prose assets are (#389) — so the hook
-# has to know every engine's path itself or it silently no-ops there: under
-# Codex the handoff lives in `.codex/progress/` (what `compat.ts` rewrites
-# `.claude/progress/` into), and this loop used to stop at two names it would
-# never find. Bare `progress/` stays as the fallback for a repo that relocates
-# it. (Literals, not interpolated: `progress.dir` isn't exposed to the render
-# interpolator — same choice as session-start-context.sh.)
+# Resolve the neutral handoff root plus the two one-release legacy roots.
+# `placeHook` copies this body verbatim for every engine, so no engine-specific
+# retargeting is involved. Bare `progress/` remains a historical fallback.
 #
 # EVERY existing dir is scanned, not the first one found: a repo that renders
 # both engines has both, and picking one by probe order would make the hook
@@ -9920,7 +10050,7 @@ trap navori_audit_on_exit EXIT
 # string: word-splitting a `$dirs` string is a no-op under zsh, which is how the
 # receipt backstop silently stopped scanning (#344).
 dirs=()
-for d in ".claude/progress" ".codex/progress" "progress"; do
+for d in ".navori/state/handoffs" ".claude/progress" ".codex/progress" "progress"; do
   [ -d "$d" ] && dirs+=("$d")
 done
 [ ${#dirs[@]} -gt 0 ] || exit 0
@@ -9931,23 +10061,9 @@ is_blank() { ! grep -q '[^[:space:]]' "$1" 2>/dev/null; }
 problems=""
 note() { problems="${problems}${problems:+; }$1"; }
 
-# One dotted-path read out of `$payload` (already drained above). Same
-# jq-free node→sed cascade every other hook in this stack uses to stay off a
-# preinstalled-jq dependency — `_partials/extract-cmd.sh`'s `payload_field`,
-# minus its own `payload=$(cat)`: this script already read stdin once, at the
-# top, and a second `cat` here would read nothing.
-navori_field() {
-  if command -v node >/dev/null 2>&1; then
-    printf '%s' "$payload" | node -e 'let s="";const p=process.argv[1].split(".");process.stdin.on("data",c=>s+=c).on("end",()=>{try{let v=JSON.parse(s);for(const k of p)v=v?.[k];process.stdout.write(String(v??""))}catch{}})' "$1" 2>/dev/null && return 0
-  fi
-  printf '%s' "$payload" | sed -nE "s/.*\"${1##*.}\"[[:space:]]*:[[:space:]]*\"(([^\"\\\\]|\\\\.)*)\".*/\\1/p"
-}
-navori_subagent_type=$(navori_field tool_input.subagent_type)
-# Spec 0035 D1/D2: registered on Codex's SubagentStop (no `tool_input` there),
-# which carries the subagent's type at the TOP level instead — same field
-# name Claude uses when the hook fires INSIDE a subagent call (`agent_type`),
-# just not the shape this hook otherwise reads on its own PostToolUse event.
-[ -n "$navori_subagent_type" ] || navori_subagent_type=$(navori_field agent_type)
+# Spec 0035 D2 owns Claude/Codex subagent normalization and the single stdin
+# drain through extract-cmd; this hook must not grow a second payload parser.
+navori_subagent_type=$(nv_subagent_type)
 
 # R2's contract: `impl_<feature>.json` must parse and carry every required key
 # with a valid `status`. Validated with node (already required by navori) → a
@@ -10276,14 +10392,13 @@ if [ "$nv_engine" = codex ]; then
   # monorepo; the project root is always the git toplevel from there. Falls
   # back to the raw cwd outside a git work tree rather than failing closed.
   nv_project_dir=$(git -C "${nv_cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || nv_project_dir=${nv_cwd:-.}
-  # Mirrors CODEX_MIRRORED_DIRS (engines/codex/compat.ts): where render WRITES
-  # ephemeral handoff/progress state under Codex, not an absolute path — the
-  # caller composes it with `nv_project_dir` when it needs one.
-  nv_progress_dir=".codex/progress"
 else
   nv_project_dir=${CLAUDE_PROJECT_DIR:-}
-  nv_progress_dir=".claude/progress"
 fi
+
+# Runtime handoffs have one engine-neutral home. The caller composes this
+# relative path with its checkout root; legacy roots remain readable only.
+nv_progress_dir=".navori/state/handoffs"
 
 # The Claude-equivalent tool name for the CURRENT PreToolUse/PostToolUse
 # payload (D2: apply_patch -> Edit, spawn_agent -> Agent, everything else
@@ -13835,7 +13950,7 @@ metadata:
 
 ## Steps
 
-1. Draft `.claude/progress/workplan_<feature>.json`: a one-line observable goal; 1 to 5
+1. Draft `.navori/state/handoffs/workplan_<feature>.json`: a one-line observable goal; 1 to 5
    `A<n>` criteria, each with `command` and `expected`; at least one item out of scope;
    files measured against the repo (`"new": true` for new ones); declared signals.
 2. Run `navori plan classify <feature>` → tell the user the level, score and breakdown in ≤ 4
@@ -13930,7 +14045,7 @@ metadata:
 
 ## Pipeline
 
-Agents and skills chained by objective gates: what one phase pays for in tokens is written down for the next. Each phase writes to `.claude/progress/`; the gate is blocking. `scout` is used on demand inside any phase, not as a phase of its own.
+Agents and skills chained by objective gates: what one phase pays for in tokens is written down for the next. Each phase writes to `.navori/state/handoffs/`; the gate is blocking. `scout` is used on demand inside any phase, not as a phase of its own.
 
 | Phase | Who covers it | Artifact / Gate |
 |---|---|---|
@@ -14528,7 +14643,7 @@ missing fact, or wrong picks are expensive to undo.
 Never blockers: naming preference, a hypothetical future abstraction, a minor
 optimization, an optional edge case, stylistic architecture taste.
 
-## Artifact — `.claude/progress/solution_<scope>.md`
+## Artifact — `.navori/state/handoffs/solution_<scope>.md`
 
 ```markdown
 # Solution — <scope>

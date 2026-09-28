@@ -48,11 +48,9 @@ const NEVER_COMMIT_SENTINEL = "\u0000navori:never-commit\u0000";
 const CODEX_MIRRORED_DIRS: ReadonlyMap<string, string> = new Map([
   ["agents", ".codex/agents"],
   ["hooks", ".codex/hooks"],
-  // Ephemeral inter-agent handoffs stay in the engine dir, NOT in `progress/` —
-  // that root dir holds git-persisted SESSION STATE (`progress/current.md`), and
-  // collapsing the two would violate the harness's own "Path separation (don't
-  // mix)" rule. (#208)
-  ["progress", ".codex/progress"],
+  // Runtime handoffs use the engine-neutral `.navori/state/handoffs/` root.
+  // Do not translate legacy `.claude/progress/` citations into a different
+  // legacy root: they remain readable for one compatibility release.
   // Codex discovers skills from `.agents/skills`, outside its engine dir.
   ["skills", ".agents/skills"],
 ]);

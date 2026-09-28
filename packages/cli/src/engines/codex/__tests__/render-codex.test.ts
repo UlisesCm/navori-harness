@@ -16,6 +16,7 @@ import {
   type NavoriConfigInput,
 } from "../../../lib/config/schema.ts";
 import { renderCodexEngine } from "../index.ts";
+import { renderClaudeEngine } from "../../claude/index.ts";
 import { adaptHarnessTextForCodex } from "../compat.ts";
 import { resolveCodexHooks } from "../hook-registrations.ts";
 import { buildCodexConfigToml } from "../build-config-toml.ts";
@@ -152,10 +153,9 @@ describe("renderCodexEngine", () => {
     // that rule now and the line is gone, so the retarget must be total.
     expect(agentsMd).not.toContain("CLAUDE.md");
     expect(agentsMd).not.toContain(".claude/agents");
-    // #208: ephemeral inter-agent handoffs live in the engine dir, kept apart from
-    // the git-persisted session-state dir (`progress/current.md`).
-    expect(agentsMd).toContain(".codex/progress/");
-    expect(agentsMd).not.toContain(".claude/progress");
+    // Covers: R1, R9, R12 — both engines cite the same runtime root, separate
+    // from versioned `progress/current.md`.
+    expect(agentsMd).toContain(".navori/state/handoffs/");
     expect(existsSync(join(cwd, ".agents/skills/verify-before-done/SKILL.md"))).toBe(true);
     expect(existsSync(join(cwd, ".agents/skills/locate-code/SKILL.md"))).toBe(true);
     expect(existsSync(join(cwd, ".codex/agents/implementer.toml"))).toBe(true);
@@ -190,7 +190,7 @@ describe("renderCodexEngine", () => {
     expect(implementer).toContain('model_reasoning_effort = "high"');
     expect(implementer).toContain("AGENTS.md");
     expect(implementer).not.toContain("CLAUDE.md");
-    expect(implementer).not.toContain(".claude/progress");
+    expect(implementer).toContain(".navori/state/handoffs/");
     expect(existsSync(join(cwd, ".codex/agents/leader.toml"))).toBe(false);
     // #280: the auditor writes durable outputs, so a read-only override would
     // break its contract. No override is emitted: it inherits the project mode.
@@ -259,6 +259,29 @@ describe("renderCodexEngine", () => {
       "subagent-stop-handoff",
       "stop-verify-reminder",
     ]);
+  });
+
+  // Covers: R1, R9, R12
+  it("renders the same neutral handoff root and shared parser for both engines", () => {
+    const cwd = tempRepo();
+    const both = config({ engines: ["claude", "codex"] });
+    renderClaudeEngine(cwd, both);
+    renderCodexEngine(cwd, both);
+    const claude = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
+    const codex = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+    const claudeHook = readFileSync(join(cwd, ".claude/hooks/subagent-stop-handoff.sh"), "utf-8");
+    const codexHook = readFileSync(join(cwd, ".codex/hooks/subagent-stop-handoff.sh"), "utf-8");
+    for (const prose of [claude, codex]) {
+      expect(prose).toContain(".navori/state/handoffs/");
+    }
+    for (const hook of [claudeHook, codexHook]) {
+      expect(hook).toContain('".navori/state/handoffs"');
+      expect(hook.match(/payload=\$\{payload-\$\(cat\)\}/g)).toHaveLength(1);
+      expect(hook).not.toContain("navori_field() {");
+    }
+    expect(readFileSync(join(cwd, ".codex/config.toml"), "utf-8")).toContain(
+      "subagent-stop-handoff.sh",
+    );
   });
 
   // Covers: R1, R2
@@ -559,7 +582,7 @@ describe("adaptHarnessTextForCodex — the commit-hygiene shield (#209)", () => 
 
     expect(out).toContain("Never commit `.claude/` or `CLAUDE.md`");
     expect(out).toContain(".agents/skills/review-diff/SKILL.md");
-    expect(out).toContain(".codex/progress/review.md");
+    expect(out).toContain(".claude/progress/review.md");
     // The sentinel is an internal marker: it must be fully restored, never
     // emitted. A leaked U+0000 would make the OUTPUT binary to git/grep too.
     expect(out).not.toContain("\u0000");
@@ -609,7 +632,7 @@ describe("adaptHarnessTextForCodex — only mirrored dirs get retargeted (#428)"
     expect(out).toBe("Permissions live in `.claude/settings.json`.");
   });
 
-  it("still retargets every directory Codex does mirror", () => {
+  it("retargets mirrored directories without rewriting legacy progress", () => {
     const out = adaptHarnessTextForCodex(
       [
         "Run `.claude/hooks/guard-destructive.sh`.",
@@ -626,9 +649,9 @@ describe("adaptHarnessTextForCodex — only mirrored dirs get retargeted (#428)"
     // bare (slash-less) spelling used to fall through to `.codex/skills`.
     expect(out).toContain(".agents/skills");
     expect(out).not.toContain(".codex/skills");
-    expect(out).toContain(".codex/progress/impl_x.md");
+    expect(out).toContain(".claude/progress/impl_x.md");
     expect(out).toContain("if `.codex/` looks inconsistent");
-    expect(out).not.toContain(".claude/");
+    expect(out).not.toContain(".codex/progress/");
   });
 });
 

@@ -115,7 +115,7 @@ missing fact, or wrong picks are expensive to undo.
 Never blockers: naming preference, a hypothetical future abstraction, a minor
 optimization, an optional edge case, stylistic architecture taste.
 
-## Artifact — `.claude/progress/solution_<scope>.md`
+## Artifact — `.navori/state/handoffs/solution_<scope>.md`
 
 ```markdown
 # Solution — <scope>

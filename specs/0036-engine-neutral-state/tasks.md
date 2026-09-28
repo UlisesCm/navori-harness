@@ -58,17 +58,20 @@ uncommitted checkout.
   Leave old Git-common-dir stamps untouched and document the one-time re-arming of notices.
   - Test: `lib/__tests__/managed-drift-watch.test.ts` and
     `lib/__tests__/routing-watch.test.ts` cover two linked worktrees, identical session IDs,
-    unsafe/missing roots, and old-stamp preservation, with `// Covers: R2, R10`. Implementer verification: final-stamp symlink regressions were red before the fix; focused Vitest 42/42 passed after the fix; pending final reviewer.
-- [ ] **T7** (R1, R9, R12) — Change source assets and Codex adaptation to cite neutral
+    unsafe/missing roots, and old-stamp preservation, with `// Covers: R2, R10`. Implementer verification: final-stamp symlink regressions were red before the fix; focused Vitest 42/42 passed after the fix; reviewer APPROVED and commit `aca10a6e`.
+- [x] **T7** (R1, R9, R12) — Change source assets and Codex adaptation to cite neutral
   handoffs; remove only Codex's progress-path rewrite. Preserve engine vocabulary, hook
-  registration, and the landed Spec 0035 input parser. Move `lib/plan/gate.ts` and
-  `hooks/subagent-stop-handoff.sh` to the selected neutral/legacy feature root as appropriate.
-  Re-render managed outputs. **Gate:** record the Spec 0035 merge commit and inspect its real
-  helper/API first; if not merged, stop this batch instead of inventing a parallel helper.
+  registration, and reuse the shared input parser from Spec 0035 (merged as `165652c1`).
+  Move `lib/plan/gate.ts` and `hooks/subagent-stop-handoff.sh` to the selected neutral/legacy
+  feature root as appropriate. Re-render managed outputs. **Gate:** inspect the merged helper/API
+  before use; if it is unavailable, stop this batch instead of inventing a parallel helper.
   - Test: `lib/__tests__/handoff-wiring.test.ts`, `engines/codex/__tests__/render-codex.test.ts`,
-    `lib/plan/__tests__/gate.test.ts`, a handoff-hook test, and
+    `lib/plan/__tests__/plan-gate.test.ts`, a handoff-hook test, and
     `engines/__tests__/golden-render-tree.test.ts` assert Claude/Codex parity, rejection-log
     routing, neutral backstop scanning, and one input parse, with `// Covers: R1, R9, R12`.
+  - Verification: reviewer APPROVED (re-review 4); full AGENTS.md gate passed — 297 test files,
+    5415 tests passed, 1 skipped; format, links, render, assets, budgets, blame-ignore, jscpd,
+    semgrep, size, lint, typecheck, and `git diff --check` passed.
 - [x] **T8** (R6, R7, R10, R11) — Publish migration guidance in the existing user-facing docs:
   state ownership, the one-release read window, unchanged old stamps, re-arming, rollback, and
   versioned `progress/` versus versionable presets. State the trusted local-writer boundary and

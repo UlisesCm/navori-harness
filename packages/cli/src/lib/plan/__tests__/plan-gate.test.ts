@@ -210,6 +210,23 @@ describe("evaluatePlanGate — escalation after two rejections (R19)", () => {
     );
   }
 
+  // Covers: R1, R9
+  it("records rejection history in the selected neutral feature root", () => {
+    writeConfig(true);
+    const neutral = join(cwd, ".navori/state/handoffs");
+    mkdirSync(neutral, { recursive: true });
+    writeFileSync(join(neutral, "workplan_demo.json"), JSON.stringify(VALID_LEVEL1));
+    writeFileSync(
+      join(neutral, "review_demo.md"),
+      "# Review\n\n**Final verdict:** CHANGES_REQUESTED\n\nfix neutral\n",
+    );
+    expect(evaluatePlanGate(payload("implementer", "workplan: demo\nfix A1")).decision).toBe(
+      "allow",
+    );
+    expect(existsSync(join(neutral, "workplan_demo.gate.jsonl"))).toBe(true);
+    expect(existsSync(join(progressDir(), "workplan_demo.gate.jsonl"))).toBe(false);
+  });
+
   it("allows the first and second dispatch even with a CHANGES_REQUESTED on record", () => {
     writeConfig(true);
     writeWorkplan("demo", VALID_LEVEL1);

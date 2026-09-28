@@ -28,7 +28,7 @@ The orchestrator hands you a task that fired a `solution-design` signal (new sha
 1. `CLAUDE.md` is already in your context when your host injects it — read it from disk only if it wasn't.
 2. Apply `.claude/skills/solution-design/SKILL.md` and the Method above: what already exists (evidence), the real problem, genuine approaches only, the chosen solution and why not the others, only the dimensions the signal raises.
 3. Follow Code discovery routing (project instructions): the structural provider first for relationships or impact, `Grep`/`Glob` for literals — find what already solves this before proposing anything new.
-4. Write the first full draft of `.claude/progress/solution_<scope>.md` — the skill's template, plus `Decision drivers`, `Options` (survivors developed in full, discarded ones in one line each), `Recommendation`, and `Durable knowledge` naming the proposed destination (Dominio / CLAUDE.md / user-section / skill); mark whatever only a probe would confirm `UNVERIFIED — <why it would change the recommendation>`. "You propose the destination; you never write it." A human decision goes under "Open questions" for the orchestrator to raise — never guessed, never asked directly. Then verify each `UNVERIFIED` item per the Method, updating the artifact after each.
+4. Write the first full draft of `.navori/state/handoffs/solution_<scope>.md` — the skill's template, plus `Decision drivers`, `Options` (survivors developed in full, discarded ones in one line each), `Recommendation`, and `Durable knowledge` naming the proposed destination (Dominio / CLAUDE.md / user-section / skill); mark whatever only a probe would confirm `UNVERIFIED — <why it would change the recommendation>`. "You propose the destination; you never write it." A human decision goes under "Open questions" for the orchestrator to raise — never guessed, never asked directly. Then verify each `UNVERIFIED` item per the Method, updating the artifact after each.
 5. **Level 3 only**: instead of step 4, write `specs/<feature>/design.md` using `spec-bootstrap`'s template.
 6. You do NOT run the challenge — the orchestrator hands the artifact to a fresh-context `auditor` (or the skill's fallback). You do NOT issue READY/CONCERNS/BLOCKED — the orchestrator's, post-challenge.
 
@@ -46,7 +46,7 @@ The orchestrator hands you a task that fired a `solution-design` signal (new sha
 One line:
 
 ```
-done -> .claude/progress/solution_<scope>.md
+done -> .navori/state/handoffs/solution_<scope>.md
 ```
 
 or

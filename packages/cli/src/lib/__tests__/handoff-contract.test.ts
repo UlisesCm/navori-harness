@@ -47,7 +47,7 @@ const HOST_EXEMPTION = "files written as input to another tool";
 const CLOSING_LINE = /^(?:done|blocked|APPROVED|CHANGES_REQUESTED) -> (.+)$/gm;
 
 /** A full path under the handoff dir, placeholders and globs included. */
-const LITERAL_HANDOFF = /\.claude\/progress\/[\w<>*.+-]+\.(?:md|txt)/;
+const LITERAL_HANDOFF = /\.navori\/state\/handoffs\/[\w<>*.+-]+\.(?:md|txt)/;
 
 /** An artifact filename with no directory in front of it. */
 const BARE_ARTIFACT = /(?:^|[\s(])([\w<>*.+-]+\.(?:md|txt))/g;
@@ -65,7 +65,7 @@ function closingTargets(content: string): string[] {
  * contract and still leaves the orchestrator (and the hook) with no path.
  */
 function bareArtifacts(target: string): string[] {
-  const stripped = target.replaceAll(/\.claude\/progress\/[\w<>*.+-]+\.(?:md|txt)/g, " ");
+  const stripped = target.replaceAll(/\.navori\/state\/handoffs\/[\w<>*.+-]+\.(?:md|txt)/g, " ");
   return [...stripped.matchAll(BARE_ARTIFACT)].map(([, name]) => name ?? "");
 }
 
@@ -105,7 +105,7 @@ describe("handoff contract — the literal path survives in every writer (#500)"
 
   for (const [id, targets] of WRITERS) {
     describe(id, () => {
-      it("names its handoff by the full `.claude/progress/…` path", () => {
+      it("names its handoff by the full `.navori/state/handoffs/…` path", () => {
         const named = targets.filter((t) => LITERAL_HANDOFF.test(t));
         expect(
           named.length,
@@ -119,7 +119,7 @@ describe("handoff contract — the literal path survives in every writer (#500)"
         expect(
           bare,
           `${id}'s closing line names an artifact with no directory. Spell the ` +
-            "whole `.claude/progress/<file>` path: a bare filename reads like a contract " +
+            "whole `.navori/state/handoffs/<file>` path: a bare filename reads like a contract " +
             "and lands wherever the agent's cwd happens to be.",
         ).toEqual([]);
       });
@@ -146,7 +146,7 @@ describe("handoff contract — the delegating side ships the path (#500)", () =>
     (_label, path) => {
       const text = read(path);
       expect(text).toMatch(/\*\*literal path\*\*/);
-      expect(text).toContain(".claude/progress/");
+      expect(text).toContain(".navori/state/handoffs/");
       // Prose gets summarized on the way to the subagent; a path does not. The
       // asset has to say which one is required, or this degrades to advice.
       expect(text).toMatch(/summarized/i);
@@ -172,7 +172,8 @@ describe("the closing-line extractor reports a lost path (#500)", () => {
   });
 
   it("accepts the canonical form, including a second artifact spelled in full", () => {
-    const target = ".claude/progress/audit_deep_<scope>.md (+ .claude/progress/plan_<scope>.md)";
+    const target =
+      ".navori/state/handoffs/audit_deep_<scope>.md (+ .navori/state/handoffs/plan_<scope>.md)";
     expect(LITERAL_HANDOFF.test(target)).toBe(true);
     expect(bareArtifacts(target)).toEqual([]);
   });

@@ -1,4 +1,4 @@
-# navori:managed start id="managed-drift-watch-base" hash="9a769e6f" version="0.10.1" source="@navori/core"
+# navori:managed start id="managed-drift-watch-base" hash="6346cc43" version="0.10.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse watcher for managed-block drift (#530), on every tool that can
@@ -195,14 +195,13 @@ if [ "$nv_engine" = codex ]; then
   # monorepo; the project root is always the git toplevel from there. Falls
   # back to the raw cwd outside a git work tree rather than failing closed.
   nv_project_dir=$(git -C "${nv_cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || nv_project_dir=${nv_cwd:-.}
-  # Mirrors CODEX_MIRRORED_DIRS (engines/codex/compat.ts): where render WRITES
-  # ephemeral handoff/progress state under Codex, not an absolute path — the
-  # caller composes it with `nv_project_dir` when it needs one.
-  nv_progress_dir=".codex/progress"
 else
   nv_project_dir=${CLAUDE_PROJECT_DIR:-}
-  nv_progress_dir=".claude/progress"
 fi
+
+# Runtime handoffs have one engine-neutral home. The caller composes this
+# relative path with its checkout root; legacy roots remain readable only.
+nv_progress_dir=".navori/state/handoffs"
 
 # The Claude-equivalent tool name for the CURRENT PreToolUse/PostToolUse
 # payload (D2: apply_patch -> Edit, spawn_agent -> Agent, everything else
