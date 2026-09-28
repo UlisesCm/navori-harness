@@ -35,6 +35,7 @@ function tempRepo(): string {
 function proseSurfaces(cwd: string): string[] {
   return [
     join(cwd, "AGENTS.md"),
+    join(cwd, ".codex/orchestrator.md"),
     ...readdirSync(join(cwd, ".codex/agents")).map((f) => join(cwd, ".codex/agents", f)),
     ...readdirSync(join(cwd, ".agents/skills")).map((d) =>
       join(cwd, ".agents/skills", d, "SKILL.md"),
@@ -203,6 +204,46 @@ describe("renderCodexEngine", () => {
     expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8")).not.toContain(
       "sandbox_mode",
     );
+  });
+
+  // Covers: R7, R18, R23
+  it("renders the full orchestrator playbook as a managed reference, not an agent or always-on copy", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const referencePath = join(cwd, ".codex/orchestrator.md");
+    const reference = readFileSync(referencePath, "utf-8");
+    const alwaysOn = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+    const headings = [
+      "Startup protocol",
+      "How to decompose work",
+      "How to launch in parallel",
+      "Frugal delegation",
+      "Continuous execution",
+      "Anti-broken-telephone rule",
+      "Closing the cycle",
+      "Second opinion",
+      "Reclaim the worktree",
+    ];
+    for (const heading of headings) {
+      expect(reference).toContain(heading);
+    }
+    expect(reference).toContain('id="orchestrator-codex-base"');
+    expect(reference).toContain("(../AGENTS.md)");
+    expect(reference).not.toContain("(../../AGENTS.md)");
+    expect(reference).not.toContain("`.codex/orchestrator.md` is a depth reference");
+    expect(reference).not.toMatch(/^---\nname: orchestrator/m);
+    expect(reference).not.toContain("SessionStart` hook delivers");
+    expect(alwaysOn).toContain("`.codex/orchestrator.md` is a depth reference");
+    expect(alwaysOn).not.toContain("## Anti-broken-telephone rule");
+    expect(alwaysOn).toContain('id="engram-orchestrator-extension"');
+    expect(reference).not.toContain('id="engram-orchestrator-extension"');
+    expect(Buffer.byteLength(alwaysOn)).toBeLessThan(32_768);
+    expect(reference.trim().split(/\s+/).length).toBeLessThanOrEqual(3050);
+    expect(existsSync(join(cwd, ".codex/agents/orchestrator.toml"))).toBe(false);
+    const before = reference;
+    const rerender = renderCodexEngine(cwd, config());
+    expect(rerender.written).toEqual([]);
+    expect(readFileSync(referencePath, "utf-8")).toBe(before);
   });
 
   // Covers: R3, R18 — spec 0035 T1/D9. Golden values: the 4 real
@@ -707,7 +748,7 @@ describe("adaptHarnessTextForCodex — the vocabulary rules (#443)", () => {
     );
 
     expect(out).toBe(
-      "**NEVER delegate it**: do not invoke `spawn_agent(orchestrator)`. `AGENTS.md` is a depth reference.",
+      "**NEVER delegate it**: do not invoke `spawn_agent(orchestrator)`. `.codex/orchestrator.md` is a depth reference.",
     );
   });
 
