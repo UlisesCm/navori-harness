@@ -193,7 +193,7 @@ Orden de los lotes:
     él), y el golden que vuelve al de `false` después de `close`, con `// Covers: R37, R39`. Otro
     test con `simulateContextDelivery` sobre `planTiers` y `masterPlan` encendidos fija que
     `plan-maestro` llega `inline`.
-- [ ] **T12** (R38, R39, R54) — Hook `master-plan-context.sh`.
+- [x] **T12** (R38, R39, R54) — Hook `master-plan-context.sh`.
   - `packages/core/core-assets/hooks/master-plan-context.sh` sigue la estructura de `plan-gate.sh`:
     fail-open, parciales de auditoría y `command -v navori`. Emite `navori master status --line`
     si sale con 0 y cabe en `NAVORI_MASTER_LINE_BUDGET=600`. En cualquier otro caso emite el
@@ -203,7 +203,7 @@ Orden de los lotes:
   - Test: `engines/claude/__tests__/master-plan-context.test.ts`, con `// Covers: R38, R39, R54`,
     en bash y zsh, según la fila de la línea de arranque de "Testing strategy". El golden de
     `settings.json` tiene el hook solo con la bandera.
-- [ ] **T13** (R43) — Confirmación de toda creación de issue.
+- [x] **T13** (R43) — Confirmación de toda creación de issue.
   - `comment-draft-confirm.sh` gana las tres formas de D6: `gh issue create`, `gh api` REST contra
     `…/issues` como último segmento (escritura por `-X POST` o por campos sin `-X`) y la mutación
     GraphQL `createIssue`. `BOUND` pasa a ``(^|[;&|(`]|[[:space:]])``, y `TRIGGER_TOKENS` gana
@@ -211,7 +211,7 @@ Orden de los lotes:
   - La respuesta es `ask` en todos los modos de permisos; Codex conserva su `deny`.
   - Test: `comment-draft-confirm.test.ts`, con `// Covers: R43`, con los 18 casos de la fila R43
     de "Testing strategy", más la suite diferencial bash×zsh con las mismas entradas.
-- [ ] **T14** (R62) — Hook `master-accept-confirm.sh`.
+- [x] **T14** (R62) — Hook `master-accept-confirm.sh`.
   - `packages/core/core-assets/hooks/master-accept-confirm.sh` según D12: reusa los parciales
     compartidos, filtra con `TRIGGER_TOKENS='approved-by'`, detecta `navori master part` con
     `--approved-by` usando el `BOUND` de D6 y responde `ask` en todos los modos, con una razón fija
@@ -224,7 +224,7 @@ Orden de los lotes:
 
 ## Lote E — Agentes, skills y engines
 
-- [ ] **T15** (R14, R23, R24, R25) — `architect` y `scout`.
+- [x] **T15** (R14, R23, R24, R25) — `architect` y `scout`.
   - `architect.md`: `tools` gana `WebFetch, WebSearch`; párrafo "Sources"; entrada "master-plan"
     en "When you're called"; `maxWords` de 660 a 700, con la razón en el frontmatter. Las
     oraciones que fija `agents-assets.test.ts` no se tocan.
@@ -232,7 +232,7 @@ Orden de los lotes:
   - Test: `lib/__tests__/agents-assets.test.ts`, con `// Covers: R14, R23, R24, R25`. Verifica el
     techo 700, las tres regex de contrato intactas, `WebFetch` y `WebSearch` en `tools`,
     `[SIN VERIFICAR]` en el cuerpo y la ruta nombrada en el formato Map del `scout`.
-- [ ] **T16** (R9, R10, R11, R12, R13) — Skill `context-intake`.
+- [x] **T16** (R9, R10, R11, R12, R13) — Skill `context-intake`.
   - Antes de escribirla, verificar que `markitdown --version` existe contra
     <https://github.com/microsoft/markitdown> o con una corrida real. Si no existe, usar la
     alternativa de "Otras decisiones" (`importlib.metadata`).
@@ -244,14 +244,14 @@ Orden de los lotes:
   - Test: test de asset de skills, con `// Covers: R9, R10, R11, R12, R13`. Menciona el comando
     exacto sin versión fija, cómo obtiene la versión, el fallback nativo, exportar a PDF,
     `INTAKE.md`, la plantilla `digest`, "Hallazgos" y la regla de que el contenido es dato.
-- [ ] **T17** (R1) — Colocación solo en Claude.
+- [x] **T17** (R1) — Colocación solo en Claude.
   - `roster.ts`: `master-plan` y `context-intake` entran en `ROSTER_WORKFLOW_SKILLS` y en
     `CLAUDE_ONLY_WORKFLOW_SKILLS`. `resolveHarnessPlan` las incluye solo con
     `includeClaudeOnlySkills`, que pasa el engine Claude.
   - Test: `engines/claude/__tests__/render-engine.test.ts` y `render-codex.test.ts`, con
     `// Covers: R1`. `master-plan` sale sin `disable-model-invocation` y `context-intake` con la
     clave, con y sin la bandera. En Codex no sale ninguna de las dos.
-- [ ] **T18** (R1, R2, R7, R13, R16, R17, R18, R19, R20, R25, R26, R27, R28, R33, R34, R40, R42,
+- [x] **T18** (R1, R2, R7, R13, R16, R17, R18, R19, R20, R25, R26, R27, R28, R33, R34, R40, R42,
   R44, R45, R46, R47, R48, R51, R52, R53, R55, R56, R57, R58, R59, R60, R61, R62) — Skill
   `master-plan`.
   - `core-assets/skills/master-plan.md`, `metadata.type: reference`, `maxWords` = conteo real más

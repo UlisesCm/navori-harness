@@ -91,7 +91,15 @@ export const ROSTER_WORKFLOW_SKILLS: ReadonlyArray<string> = [
   // not their own presence in the index).
   "plan-simple",
   "plan-advanced",
+  "master-plan",
+  "context-intake",
 ];
+
+/** Workflow skills intentionally unavailable outside the Claude adapter. */
+export const CLAUDE_ONLY_WORKFLOW_SKILLS: ReadonlySet<string> = new Set([
+  "master-plan",
+  "context-intake",
+]);
 
 /** The two adapters that place a managed marker, and so can retire one. */
 export type RetiredAdapter = "claude" | "codex";

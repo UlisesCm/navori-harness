@@ -79,6 +79,18 @@ describe("global-render — target dir", () => {
   });
 });
 
+describe("global plugin — Claude-only master skills", () => {
+  // Covers: R1
+  it("includes both master skills in the global plugin", () => {
+    const config = defaultGlobalConfig("0.10.1");
+    const paths = planGlobalPlugin(config, composeBaseline(config), claudeDir).files.map(
+      (file) => file.relPath,
+    );
+    expect(paths).toContain("skills/master-plan/SKILL.md");
+    expect(paths).toContain("skills/context-intake/SKILL.md");
+  });
+});
+
 describe("global-render — composeBaseline", () => {
   it("stitches the audited baseline blocks with a (Spanish default) intro", () => {
     const body = composeBaseline(defaultGlobalConfig("0.5.0"));

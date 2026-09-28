@@ -9,7 +9,7 @@ import {
   extraConditionMet,
   isAgentEnabled,
 } from "./harness-assets.ts";
-import type { RosterAgent } from "./roster.ts";
+import { CLAUDE_ONLY_WORKFLOW_SKILLS, type RosterAgent } from "./roster.ts";
 
 /**
  * Provider-agnostic harness inventory (Spec 0007, Capa 1). Resolves WHICH
@@ -103,7 +103,7 @@ export function resolveHarnessPlan(
   config: NavoriConfig,
   coreAssets: string,
   preset: ReturnType<typeof loadPreset>,
-  options: { includeOrchestrator?: boolean } = {},
+  options: { includeOrchestrator?: boolean; includeClaudeOnlySkills?: boolean } = {},
 ): HarnessPlan {
   const agents: PlannedAgent[] = [];
   for (const agent of CORE_AGENTS) {
@@ -127,10 +127,14 @@ export function resolveHarnessPlan(
     });
   }
 
-  const workflowSkills =
+  const enabledWorkflowSkills =
     config.sdd?.enabled === false
       ? WORKFLOW_SKILLS.filter((id) => id !== "spec-bootstrap")
       : WORKFLOW_SKILLS;
+  const workflowSkills =
+    options.includeClaudeOnlySkills === true
+      ? enabledWorkflowSkills
+      : enabledWorkflowSkills.filter((id) => !CLAUDE_ONLY_WORKFLOW_SKILLS.has(id));
   const skills: PlannedSkill[] = [
     ...CORE_SKILLS.map((id) => ({
       id,
