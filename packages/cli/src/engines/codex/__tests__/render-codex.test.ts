@@ -271,18 +271,29 @@ describe("renderCodexEngine", () => {
   });
 
   // Covers: R6, R7, R8
-  it("omits deferred plan-gate while retaining the other Codex hooks", () => {
-    const cwd = tempRepo();
-    renderCodexEngine(cwd, config({ harness: { planTiers: true, scribeOwnsMarkdown: true } }));
-    const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
-    const hooks = resolveCodexHooks(
-      config({ harness: { planTiers: true, scribeOwnsMarkdown: true } }),
-    );
-    expect(hooks.some((entry) => entry.script === "plan-gate")).toBe(false);
-    expect(toml).not.toContain("plan-gate.sh");
-    for (const script of ["implementer-no-markdown", "routing-watch", "guard-destructive"]) {
-      expect(hooks.some((entry) => entry.script === script)).toBe(true);
-      expect(toml).toContain(`${script}.sh`);
+  it("keeps plan-gate advisory and existing PreToolUse trust positions in both scribe modes", () => {
+    for (const scribeOwnsMarkdown of [false, true]) {
+      const cwd = tempRepo();
+      const cfg = config({ harness: { planTiers: true, scribeOwnsMarkdown } });
+      renderCodexEngine(cwd, cfg);
+      const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+      const hooks = resolveCodexHooks(cfg);
+      expect(hooks.some((entry) => entry.script === "plan-gate")).toBe(false);
+      expect(toml).not.toContain("plan-gate.sh");
+      expect(
+        hooks.filter((entry) => entry.event === "PreToolUse").map((entry) => entry.script),
+      ).toEqual(
+        scribeOwnsMarkdown
+          ? [
+              "guard-destructive",
+              "comment-draft-confirm",
+              "quality-gate-pre-commit",
+              "implementer-no-markdown",
+            ]
+          : ["guard-destructive", "comment-draft-confirm", "quality-gate-pre-commit"],
+      );
+      expect(toml.includes("implementer-no-markdown.sh")).toBe(scribeOwnsMarkdown);
+      expect(toml).toContain("routing-watch.sh");
     }
   });
 

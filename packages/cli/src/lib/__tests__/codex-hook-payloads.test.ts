@@ -270,6 +270,25 @@ describe("plan-gate — same verdict for paired Claude and Codex payloads", () =
     );
   }
 
+  it("does not mistake the observed Codex 0.158.0 delegation shape for a typed implementer", () => {
+    writeConfig();
+    // Redacted live PreToolUse: collaborationspawn_agent supplied only these
+    // tool_input keys. The task name did not identify the child's agent role.
+    const observed = evaluatePlanGate({
+      cwd,
+      tool_name: "collaborationspawn_agent",
+      tool_input: { task_name: "implementer", message: "synthetic task" },
+    });
+    expect(observed.decision).toBe("allow");
+    expect(
+      evaluatePlanGate({
+        cwd,
+        tool_name: "collaborationspawn_agent",
+        tool_input: { agent_type: "implementer", message: "synthetic task" },
+      }).decision,
+    ).toBe("deny");
+  });
+
   // Covers: R4
   it("denies dispatch with no opening line under both payload shapes", () => {
     writeConfig();

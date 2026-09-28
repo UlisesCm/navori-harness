@@ -2177,3 +2177,32 @@ después.
 - El comando generado de cross-review ya no sustituye `CODEX_HOME` ni fuerza `--sandbox read-only`: usa autenticación y permisos efectivos del usuario/proyecto. El prompt pide inspeccionar sin editar archivos ni hacer commits, pero no promete aislamiento técnico.
 - La prosa aclara que `codex exec` raíz no activa `reviewer.toml` y que Full Access puede modificar archivos o usar red. Se actualizaron el asset, su prueba, el golden y el mirror administrado.
 - Reviewer R2 `APPROVED`; gate completo verde y receipt `1079` fresco en `.codex/progress`. Commit y PR a `main` pendientes al momento del registro.
+
+## 2026-09-28 10:40 Codex — #1082: documenta límite de plan-gate Codex
+## Goal
+Resolver #1082 sin afirmar enforcement de plan-gate que Codex no pueda demostrar.
+
+## Instructions
+El usuario aprobó workplan nivel 2 y probe real en checkout y HOME aislados; no tocar confianza/configuración global ni promover la capacidad sin smokes negativo y positivo concluyentes.
+
+## Discoveries
+- Codex CLI 0.158.0 emite PreToolUse para collaborationspawn_agent con message y task_name, pero sin rol tipado; task_name implementer produjo un hijo de rol default.
+- Un deny genérico vinculado al intento impidió crear el hijo; no permite aplicar selectivamente el contrato de workplan. El marcador sintético no fue legible, sin prueba de cifrado.
+- El CLI global de navori reportó drift falso del receipt; el CLI construido del checkout dio status ok y fresh true.
+
+## Accomplished
+- Probe aislado y evidencia redactada en .codex/progress/probe_1082.json; A1–A4 cumplidos.
+- Plan-gate Codex permanece sin registro y advisory; se precisó la razón en registro/capability, pruebas de payload e inventario, y docs/research/codex-plan-gate-1082.md.
+- Reviewer APPROVED; gate completo verde y receipt del checkout fresco. El PR a main se publica en este ciclo.
+
+## Next Steps
+- Dar seguimiento al PR hasta merge; reintentar enforcement sólo cuando Codex exponga rol tipado y apertura de workplan legible y pasen ambos smokes.
+- Reanudar #1046 en su worktree independiente cuando corresponda.
+
+## Relevant Files
+- packages/cli/src/engines/codex/hook-registrations.ts — razón de plan-gate unsupported.
+- packages/cli/src/engines/shared/engine-capabilities.ts — declaración advisory.
+- packages/cli/src/lib/__tests__/codex-hook-payloads.test.ts — fixture de payload observado.
+- packages/cli/src/engines/codex/__tests__/render-codex.test.ts — ausencia de registro.
+- packages/cli/src/engines/__tests__/control-inventory.test.ts — inventario honesto.
+- docs/research/codex-plan-gate-1082.md — evidencia y criterio de reintento.

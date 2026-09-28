@@ -385,9 +385,10 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       "plan-gate": {
         state: "advisory",
         reason:
-          "The workplan procedure remains in AGENTS.md, but Codex does not register " +
-          "plan-gate.sh: a live smoke created an implementer without a workplan despite " +
-          "PreToolUse registration. Enforcement is deferred until the host blocks that spawn.",
+          "The workplan procedure remains in AGENTS.md, but plan-gate.sh is not " +
+          "registered: Codex 0.158.0 sends collaborationspawn_agent through PreToolUse " +
+          "with message/task_name but no typed agent role or verifiably readable workplan " +
+          "opening. A blanket deny blocked child creation, not selective implementer gating.",
       },
       "markdown-ownership": {
         state: "enforced",

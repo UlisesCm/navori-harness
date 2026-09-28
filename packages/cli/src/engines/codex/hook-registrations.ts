@@ -102,8 +102,10 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
   {
     script: "plan-gate",
     unsupported:
-      "Codex delegation was observed bypassing PreToolUse even with the branch-built CLI; " +
-      "plan-gate enforcement is deferred until a live negative smoke blocks child creation.",
+      "Codex 0.158.0 sends delegation through PreToolUse as collaborationspawn_agent, " +
+      "but its tool_input exposes message/task_name without a typed agent role or a " +
+      "verifiably readable workplan opening. A blanket deny prevented child creation, " +
+      "but cannot selectively enforce the implementer plan-gate precondition.",
   },
   {
     script: "implementer-no-markdown",
