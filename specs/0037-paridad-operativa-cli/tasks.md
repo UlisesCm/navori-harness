@@ -1,6 +1,6 @@
 # Paridad operativa Claude / Codex CLI — Tasks
 
-**Estado:** T1 aprobado y completo; T2 pendiente. El usuario
+**Estado:** T1 y T2 aprobados y completos; 17 tareas pendientes. El usuario
 autorizó iniciar el Lote A (T1–T2) después de sincronizar `main`; esta autorización no cubre otros
 lotes, campañas live/pagadas, instalaciones, cambios de trust ni publicación.
 **Diseño:** [design.md](design.md), veredicto CONCERNS y resoluciones en [review.md](review.md).
@@ -33,7 +33,7 @@ lotes, campañas live/pagadas, instalaciones, cambios de trust ni publicación.
   `docs/research/codex-plan-gate-1082.md` — `Decision and upgrade criteria`.
   · salida: baseline versionado y dependencias confirmadas; no probe #1082 repetido.
 
-- [ ] **T2** (R1, R2, R3) — Ampliar `commands/doctor.ts` — `buildEngineInventory`/`scanCodexHealth`
+- [x] **T2** (R1, R2, R3) — Ampliar `commands/doctor.ts` — `buildEngineInventory`/`scanCodexHealth`
   con `provenance` y `engineEvidence` aditivos por engine/ubicación. Conservar inventario declarado,
   campos y exit codes existentes; distinguir ausencia de asset, permiso denegado y ejecución no
   observada. Mismo registro resuelto para hooks que render/trust, no suma ciega de manifests.
