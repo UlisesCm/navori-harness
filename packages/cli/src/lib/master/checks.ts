@@ -715,6 +715,12 @@ export function checkClosedStage(
   const stagePath = join(masterDirPath(cwd, specsDir), stageDir);
   if (!existsSync(stagePath)) return [`${stageDir}: no existe`];
   const failures: CheckFailure[] = [];
+  const entry = readMasterIndex(cwd, specsDir)?.stages.find(
+    (candidate) => candidate.dir === stageDir,
+  );
+  if (entry?.state === "convertida" && entry.spec && !existsSync(join(cwd, entry.spec))) {
+    failures.push(`${stageDir}: spec aún no creada: ${entry.spec}`);
+  }
 
   const gitignore = join(stagePath, "context", "raw", ".gitignore");
   if (!existsSync(gitignore)) {

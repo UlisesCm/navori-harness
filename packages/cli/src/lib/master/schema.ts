@@ -151,6 +151,7 @@ export const MasterStateSchema = z
     mode: z.enum(MASTER_MODES).nullable(),
     signal: SignalSchema,
     outcome: z.enum(["entregada", "convertida", "abandonada"]).nullable().default(null),
+    closedAt: z.string().regex(DATE, DATE_MESSAGE).optional(),
     abandonment: z.object({ reason: z.string().min(1), phase: z.enum(MASTER_PHASES) }).optional(),
     conversion: z.object({ spec: z.string().min(1), reason: z.string().min(1) }).optional(),
     history: z.array(HistoryEntrySchema).default([]),
