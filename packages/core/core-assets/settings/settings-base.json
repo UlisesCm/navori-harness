@@ -123,7 +123,13 @@
       "Bash(git stash drop*)",
       "Bash(git stash clear*)",
       "Bash(chmod -R *)",
-      "Bash(engram import *)"
+      "Bash(engram import *)",
+      "Bash(gh issue create:*)",
+      "Bash(navori master init:*)",
+      "Bash(navori master mode:*)",
+      "Bash(navori master advance:*)",
+      "Bash(navori master part:*)",
+      "Bash(navori master close:*)"
     ],
     "deny": [
       "Agent(orchestrator)",

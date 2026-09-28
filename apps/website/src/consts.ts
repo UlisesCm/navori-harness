@@ -42,9 +42,9 @@ export const INVENTORY = {
   /** Core agents under `packages/core/core-assets/agents/`. */
   agents: 8,
   /** Core skills + library skills — what a repo can end up with. */
-  skills: 60,
+  skills: 62,
   /** Hooks under `packages/core/core-assets/hooks/`. */
-  hooks: 16,
+  hooks: 18,
 } as const;
 
 /** Plugin ids, in the order the toolbox section presents them. */

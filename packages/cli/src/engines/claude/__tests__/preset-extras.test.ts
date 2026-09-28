@@ -109,13 +109,14 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
     // E1) + 1 orchestrator block routed to `.claude/context/` (#573) + 2
     // session ceremonies + 1 agents index, same channel (#572) + 1
     // `planificacion` context block inspected-but-not-written (`harness.planTiers`
-    // defaults `false`) = 49.
+    // defaults `false`) + 1 `plan-maestro` context block inspected-but-not-written
+    // (`harness.masterPlan` defaults `false`) + 2 Claude-only workflow skills = 52.
     //
     // `architect` (spec 0032 R33) ahora suma siempre — ya no hay flag que lo
     // apague. Un conteo a mano en cinco sitios es justo lo que #703 dejo
     // anotado como deuda; mientras siga a mano, la enumeracion tiene que
     // cerrar con el numero.
-    expect(r.inspected).toBe(49);
+    expect(r.inspected).toBe(52);
   });
 
   describe("bundled stack presets (B4)", () => {

@@ -9,7 +9,7 @@ import { buildSkillRows } from "../skills-index.ts";
 /**
  * C4: `buildSkillRows` is the single source of the "Available skills" rows,
  * shared by the Claude engine and the prose spine. It must (a) always list the
- * core + workflow skills, (b) append project-local rows only when the caller
+ * core + supported workflow skills, (b) append project-local rows only when the caller
  * passes them (prose engines pass none), and (c) dedup by id.
  */
 const coreAssets = resolve(getCoreRoot(), "core-assets");
@@ -17,6 +17,25 @@ const cfg = (over: Partial<NavoriConfig> = {}): NavoriConfig =>
   ({ name: "t", engines: ["claude"], preset: "custom", ...over }) as unknown as NavoriConfig;
 
 describe("buildSkillRows (shared skills index) — C4", () => {
+  // Covers: R1
+  it("lists Claude-only master skills only when requested by the Claude adapter", () => {
+    const defaultRows = buildSkillRows(cfg(), process.cwd(), coreAssets).join("\n");
+    expect(defaultRows).not.toContain("`master-plan`");
+    expect(defaultRows).not.toContain("`context-intake`");
+
+    const claudeRows = buildSkillRows(
+      cfg(),
+      process.cwd(),
+      coreAssets,
+      [],
+      process.cwd(),
+      false,
+      true,
+    ).join("\n");
+    expect(claudeRows).toContain("`master-plan`");
+    expect(claudeRows).toContain("`context-intake`");
+  });
+
   it("always lists the core + workflow skills", () => {
     const rows = buildSkillRows(cfg(), process.cwd(), coreAssets);
     expect(rows.some((r) => r.startsWith("- `verify-before-done` — navori"))).toBe(true);

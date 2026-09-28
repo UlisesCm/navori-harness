@@ -1,11 +1,11 @@
-# navori:managed start id="comment-draft-confirm-base" hash="b85dec09" version="0.10.1" source="@navori/core"
+# navori:managed start id="comment-draft-confirm-base" hash="ea897236" version="0.10.1" source="@navori/core"
 #!/usr/bin/env bash
 #
-# PreToolUse(Bash): a call that PUBLISHES a comment or review — `gh pr/issue
-# comment`, `gh pr review` with a body, `gh api` writing to a comments/reviews
-# endpoint or a GraphQL comment mutation, `acli jira workitem comment
-# create|update` — is raised to a user confirmation, with the draft's own text
-# shown in the reason (R10, R11).
+# PreToolUse(Bash): a call that PUBLISHES a comment/review or creates a GitHub
+# issue — `gh pr/issue comment`, `gh pr review` with a body, `gh issue create`,
+# `gh api` writing to comments/reviews/issues or a GraphQL mutation, or
+# `acli jira workitem comment create|update` — is raised to user confirmation,
+# with the draft's own text shown in the reason (R10, R11, R43).
 #
 # WHY (spec 0026 E1): a hook is the only layer that forces the human to look at
 # what is about to be posted publicly. `--body-file`/`-F` never show the
@@ -63,11 +63,11 @@ extract_cmd() {
 # Gate is broad on purpose: is-it-worth-a-fork, not is-it-the-exact-row. The
 # per-row classification below reads $cmd directly once we are already on the
 # slow path. $TRIGGER_TOKENS lists the literal substring EVERY branch needs —
-# any row's verb ("comment", "review") or `gh api`'s own name — so its absence
+# any row's verb ("comment", "review", "create") or `gh api`'s own name — so its absence
 # proves no row can match, the same argument `gate-trigger.sh` makes for its
 # own regex.
 TRIGGER_RE='^gh[[:space:]]+(pr|issue)[[:space:]]+comment([[:space:]]|$)|^gh[[:space:]]+pr[[:space:]]+review([[:space:]]|$)|^gh[[:space:]]+api([[:space:]]|$)|^acli[[:space:]]+jira[[:space:]]+workitem[[:space:]]+comment[[:space:]]+(create|update)([[:space:]]|$)'
-TRIGGER_TOKENS='comment review api'
+TRIGGER_TOKENS='comment review api create'
 # Shared gate detector — inlined into each hook at render time (see the include
 # directive in the source scripts + lib/render/hook-includes.ts). The caller MUST set
 # $TRIGGER_RE (an ERE) before the include; it decides which git ops this hook
@@ -492,7 +492,7 @@ navori_audit_log() {
 navori_audit_begin
 
 navori_audit_verdict="skip"
-navori_audit_reason="el comando no publica un comentario ni una review"
+navori_audit_reason="el comando no publica un comentario, una review ni un issue"
 navori_audit_on_exit() {
   navori_audit_log "$navori_audit_verdict" "$navori_audit_reason" || true
   return 0
@@ -513,13 +513,15 @@ trap navori_audit_on_exit EXIT
 # (`;`, `|`) — only a FILE PATH (never containing them in practice) is
 # extracted this way; an inline body is only ever detected as PRESENT, never
 # read for content (see "inline" branch below).
-BOUND='(^|[;&|]|[[:space:]])'
+BOUND='(^|[;&|(`]|[[:space:]])'
 
 nv_kind=""
 if printf '%s' "$cmd" | grep -qE "${BOUND}gh[[:space:]]+(pr|issue)[[:space:]]+comment([[:space:]]|\$)"; then
   nv_kind="gh-comment"
 elif printf '%s' "$cmd" | grep -qE "${BOUND}gh[[:space:]]+pr[[:space:]]+review([[:space:]]|\$)"; then
   nv_kind="gh-review"
+elif printf '%s' "$cmd" | grep -qE "${BOUND}gh[[:space:]]+issue[[:space:]]+create([[:space:]]|\$)"; then
+  nv_kind="gh-issue-create"
 elif printf '%s' "$cmd" | grep -qE "${BOUND}gh[[:space:]]+api([[:space:]]|\$)"; then
   nv_kind="gh-api"
 elif printf '%s' "$cmd" | grep -qE "${BOUND}acli[[:space:]]+jira[[:space:]]+workitem[[:space:]]+comment[[:space:]]+create([[:space:]]|\$)"; then
@@ -544,21 +546,35 @@ case "$nv_kind" in
     printf '%s' "$cmd" | grep -qE '(^|[[:space:]])(-b|--body|-F|--body-file)([[:space:]=]|$)' \
       || exit 0
     ;;
+  gh-issue-create)
+    nv_label="a GitHub issue"
+    ;;
   gh-api)
     if printf '%s' "$cmd" | grep -qE "${BOUND}graphql([[:space:]]|\$)"; then
       nv_label="a GitHub GraphQL comment/review mutation"
       # `query` only classifies the call; the six `add*` and the four
       # `update*` mutations are what makes it a write (R10, R11).
-      printf '%s' "$cmd" | grep -qE '(^|[^A-Za-z])add(Comment|DiscussionComment|PullRequestReview|PullRequestReviewComment|PullRequestReviewThread|PullRequestReviewThreadReply)([^A-Za-z]|$)|(^|[^A-Za-z])update(IssueComment|DiscussionComment|PullRequestReview|PullRequestReviewComment)([^A-Za-z]|$)' \
+      printf '%s' "$cmd" | grep -qE '(^|[^A-Za-z])(createIssue|add(Comment|DiscussionComment|PullRequestReview|PullRequestReviewComment|PullRequestReviewThread|PullRequestReviewThreadReply)|update(IssueComment|DiscussionComment|PullRequestReview|PullRequestReviewComment))([^A-Za-z]|$)' \
         || exit 0
+      if printf '%s' "$cmd" | grep -qE '(^|[^A-Za-z])createIssue([^A-Za-z]|$)'; then
+        nv_label="a GitHub issue"
+      fi
       nv_kind="gh-api-graphql"
     else
       nv_label="a GitHub API comment/review write"
       nv_writeish=0
-      printf '%s' "$cmd" | grep -qE '(-X|--method)[[:space:]=]+(POST|PATCH|PUT)' && nv_writeish=1
-      printf '%s' "$cmd" | grep -qE '(^|[[:space:]])(-f|-F|--input)([[:space:]=]|$)' && nv_writeish=1
+      nv_method=$(printf '%s' "$cmd" | grep -oE '(-X|--method)[[:space:]=]+(GET|POST|PATCH|PUT|DELETE)' | head -1) || true
+      printf '%s' "$nv_method" | grep -qE '(POST|PATCH|PUT)$' && nv_writeish=1
+      if [ -z "$nv_method" ]; then
+        printf '%s' "$cmd" | grep -qE '(^|[[:space:]])(-f|-F|--input)([[:space:]=]|$)' && nv_writeish=1
+      fi
       [ "$nv_writeish" = 1 ] || exit 0
-      printf '%s' "$cmd" | grep -qE '/(comments|reviews)([[:space:]/]|$)' || exit 0
+      if printf '%s' "$cmd" | grep -qE "/?repos/[^/[:space:]]+/[^/[:space:]]+/issues([[:space:]?\"']|$)"; then
+        printf '%s' "$nv_method" | grep -qE '(PATCH|PUT)$' && exit 0
+        nv_label="a GitHub issue"
+      else
+        printf '%s' "$cmd" | grep -qE '/(comments|reviews)([[:space:]/]|$)' || exit 0
+      fi
       nv_kind="gh-api-rest"
     fi
     ;;
@@ -702,7 +718,7 @@ nv_sniff_adf=0
 nv_force_adf=0
 
 case "$nv_kind" in
-  gh-comment | gh-review)
+  gh-comment | gh-review | gh-issue-create)
     nv_body_path=$(nv_flag_value "$cmd" '-F|--body-file')
     if [ -n "$nv_body_path" ] && [ "$nv_body_path" != "-" ]; then
       nv_body_source="file"
@@ -711,7 +727,7 @@ case "$nv_kind" in
     fi
     ;;
   gh-api-graphql)
-    nv_body_path=$(printf '%s' "$cmd" | grep -oE -- '-F[[:space:]]+body=@[^[:space:]]+' | head -1 | sed -E 's/^-F[[:space:]]+body=@//')
+    nv_body_path=$(printf '%s' "$cmd" | grep -oE -- '-F[[:space:]]+body=@[^[:space:]]+' | head -1 | sed -E 's/^-F[[:space:]]+body=@//') || true
     if [ -n "$nv_body_path" ]; then
       nv_body_source="file"
     elif printf '%s' "$cmd" | grep -qE -- '-f[[:space:]]+body=[^[:space:]]+'; then
@@ -729,7 +745,7 @@ case "$nv_kind" in
   gh-api-rest)
     nv_body_path=$(nv_flag_value "$cmd" '--input')
     if [ -z "$nv_body_path" ]; then
-      nv_body_path=$(printf '%s' "$cmd" | grep -oE -- '-F[[:space:]]+[A-Za-z0-9_]+=@[^[:space:]]+' | head -1 | sed -E 's/^-F[[:space:]]+[A-Za-z0-9_]+=@//')
+      nv_body_path=$(printf '%s' "$cmd" | grep -oE -- '-F[[:space:]]+[A-Za-z0-9_]+=@[^[:space:]]+' | head -1 | sed -E 's/^-F[[:space:]]+[A-Za-z0-9_]+=@//') || true
     fi
     if [ -n "$nv_body_path" ] && [ "$nv_body_path" != "-" ]; then
       nv_body_source="file"

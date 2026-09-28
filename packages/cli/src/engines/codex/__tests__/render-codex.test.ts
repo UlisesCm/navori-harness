@@ -54,6 +54,17 @@ function config(overrides: Partial<NavoriConfigInput> = {}): NavoriConfig {
 }
 
 describe("renderCodexEngine", () => {
+  // Covers: R1
+  it.each([false, true])("omits Claude-only master skills with masterPlan=%s", (enabled) => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config({ harness: { masterPlan: enabled } }));
+    expect(existsSync(join(cwd, ".agents/skills/master-plan/SKILL.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".agents/skills/context-intake/SKILL.md"))).toBe(false);
+    const index = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+    expect(index).not.toContain("- `master-plan` —");
+    expect(index).not.toContain("- `context-intake` —");
+  });
+
   // Covers: R3, R4, R5, R6, R7
   it("registers the Astra-only SessionStart advisor without changing agent profiles", () => {
     const cwd = tempRepo();
