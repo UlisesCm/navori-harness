@@ -30,7 +30,7 @@ export interface CodexHookRegistration {
   readonly statusMessage?: string;
   /** Minimum Codex version this event/matcher pair is known to fire on. */
   readonly minVersion: string;
-  /** Extra CLI argument appended after the script path (model-advisor only). */
+  /** Extra CLI argument appended after the script path. */
   readonly args?: string;
   /** Registered only when this returns true; always registered when absent. */
   readonly when?: (config: NavoriConfig) => boolean;
@@ -140,6 +140,7 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
     script: "subagent-stop-handoff",
     registration: {
       event: "SubagentStop",
+      args: "codex",
       timeout: 15,
       statusMessage: "navori: handoff check",
       minVersion: "0.133.0",
@@ -179,6 +180,7 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
     script: "stop-verify-reminder",
     registration: {
       event: "Stop",
+      args: "codex",
       timeout: 15,
       statusMessage: "navori: verify-before-done",
       minVersion: "0.129.0",

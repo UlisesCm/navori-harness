@@ -1,4 +1,4 @@
-# navori:managed start id="subagent-stop-handoff-base" hash="3dae6fa2" version="0.10.1" source="@navori/core"
+# navori:managed start id="subagent-stop-handoff-base" hash="3a74ba66" version="0.10.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse(`Agent`|`Task`) lifecycle hook — handoff validator.
@@ -633,8 +633,6 @@ if [ "$navori_handoff_prev" = "$problems" ]; then
   navori_audit_reason="$problems"
   exit 0
 fi
-printf '%s\n' "$problems" >"$navori_handoff_stamp" 2>/dev/null || true
-
 msg="navori: handoff(s) de subagente incompletos — ${problems}. Revisa que el reporte quedó bien escrito antes de consolidarlo."
 
 # BOTH channels, and they are not redundant: `additionalContext` is the one that
@@ -643,13 +641,21 @@ msg="navori: handoff(s) de subagente incompletos — ${problems}. Revisa que el 
 # because it asks for an action; before #774 it went out on the user channel
 # alone, so it asked the model for something the model never heard.
 #
-# Serialized safely: node (best escaping) → jq → give up (exit 0). `problems`
-# carries file paths from the repo, so neither branch may build the JSON by
-# hand.
+# Codex SubagentStop accepts systemMessage, not Claude's PostToolUse context.
+# A failed serializer must not stamp an undelivered warning as delivered.
+output=""
 if command -v node >/dev/null 2>&1; then
-  MSG="$msg" node -e 'process.stdout.write(JSON.stringify({systemMessage:process.env.MSG,hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:process.env.MSG}}))'
-elif command -v jq >/dev/null 2>&1; then
-  jq -n --arg m "$msg" '{systemMessage:$m,hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$m}}'
+  output=$(MSG="$msg" node -e 'const m=process.env.MSG;process.stdout.write(JSON.stringify(process.argv[1]==="codex"?{systemMessage:m}:{systemMessage:m,hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:m}}))' "${1:-}" 2>/dev/null) || output=""
+fi
+if [ -z "$output" ] && command -v jq >/dev/null 2>&1; then
+  if [ "${1:-}" = "codex" ]; then
+    output=$(jq -n --arg m "$msg" '{systemMessage:$m}' 2>/dev/null) || output=""
+  else
+    output=$(jq -n --arg m "$msg" '{systemMessage:$m,hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$m}}' 2>/dev/null) || output=""
+  fi
+fi
+if [ -n "$output" ] && printf '%s\n' "$output"; then
+  printf '%s\n' "$problems" >"$navori_handoff_stamp" 2>/dev/null || true
 fi
 navori_audit_verdict="dirty"
 navori_audit_reason="$problems"

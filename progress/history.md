@@ -2165,3 +2165,9 @@ después.
 - R20 genera `danger-full-access` con `on-request` y revisor `user`; los subagentes heredan el default. Las reglas y `guard-destructive` tienen cobertura acotada, no restituyen el aislamiento. Los repos existentes lo adoptan solo tras `render` o `sync` en un proyecto confiable; la política del host y los overrides explícitos prevalecen.
 - Upgrade aislado: una actualización con backup, seguida de una ejecución idempotente sin cambios. `codex doctor` confirmó en su check de sandbox acceso irrestricto por defecto y acceso restringido con override CLI; el doctor completo salió 1 por otros diagnósticos.
 - Reviewer aprobó el código R20 con gate completo verde (297 archivos, 5402 tests aprobados, 1 omitido). Falta refrescar revisión y receipt tras el checkbox T13, hacer commit y abrir PR a `main`. `progress/current.md` conserva el checkpoint independiente de #1046.
+
+## 2026-09-28 08:57 Codex — Corrige outputs de hooks Codex (#1078)
+
+- `Stop` y `SubagentStop` reciben JSON válido para Codex mediante argumento explícito `codex`; Claude conserva su contexto de agente. Un fallo de serialización ya no marca un aviso de handoff como entregado.
+- Se regeneraron los mirrors y golden snapshots de ambos engines. El smoke real de Codex 0.157.1 aceptó los hooks sin errores de parseo; no demuestra entrega del aviso al agente padre.
+- Reviewer R2 `APPROVED`; gate completo verde y receipt `1078` fresco en `.codex/progress`. El commit y PR a `main` siguen pendientes al momento de este registro.
