@@ -174,21 +174,20 @@ If the task is a pure reading / conceptual question → answer directly, no suba
 Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Pass `maxFiles` to bound a large response. Continue with scoped native tools if unavailable.
 <!-- /navori:managed id="codegraph-access-v2-orchestrator" -->
 
-<!-- navori:managed id="codex-cross-review" hash="3b75baab" version="0.10.1" source="@navori/core" -->
+<!-- navori:managed id="codex-cross-review" hash="3407b4bc" version="0.10.1" source="@navori/core" -->
 ## Cross-model review (Codex second opinion)
 
-This repo renders the `codex` engine, so a second opinion from a **different provider** is one command away. After your `reviewer` approves a non-trivial diff — or on any change touching a critical area — you MAY have Codex review the SAME diff against this repo's own standards (already rendered in `AGENTS.md` + `.codex/agents/reviewer.toml`):
+For a second opinion from a **different provider**, after `reviewer` approves a non-trivial diff—or for a critical-area change—you MAY ask Codex to review it against `AGENTS.md`:
 
 ```bash
-CODEX_HOME=$(pwd)/.codex codex exec --sandbox read-only "revisa el diff origin/main...HEAD según los estándares del repo"
+codex exec "revisa el diff origin/main...HEAD según los estándares del repo; inspecciona sin editar archivos ni hacer commits"
 ```
 
-- **Read-only:** Codex inspects, never edits or commits, and needs no approvals.
-- The verdict lands on **stdout**; progress noise goes to stderr.
-- Auth via `CODEX_API_KEY` or a prior `codex login`. Don't pass `--model` — Codex's default is correct.
-- **Advisory, not a gate:** a second lens on the diff. Weigh its findings against your `reviewer`'s and decide; it doesn't block the PR on its own.
+- Plain root `codex exec` does not select `.codex/agents/reviewer.toml`; its prompt is not a read-only boundary. Effective permissions and approvals depend on Codex configuration and host policy. Full Access can modify files and use the network; do not assume isolation or approvals.
+- Authentication uses normal (possibly custom) `CODEX_HOME`, `CODEX_API_KEY`, or prior `codex login`; no credentials are copied. Do not pin `--model`.
+- **Advisory, not a gate:** weigh findings against `reviewer`; they do not block the PR.
 
-Reach for it in `criticalAreas`, on high-blast-radius changes, or when the user asks for a cross-check — not on every trivial diff.
+Use for `criticalAreas`, high-blast-radius changes, or user-requested cross-checks—not trivial diffs.
 <!-- /navori:managed id="codex-cross-review" -->
 
 <!-- navori:managed id="engram-orchestrator-extension" hash="35efaabd" version="0.10.1" source="@navori/plugin-engram" -->

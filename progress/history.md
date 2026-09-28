@@ -2171,3 +2171,9 @@ después.
 - `Stop` y `SubagentStop` reciben JSON válido para Codex mediante argumento explícito `codex`; Claude conserva su contexto de agente. Un fallo de serialización ya no marca un aviso de handoff como entregado.
 - Se regeneraron los mirrors y golden snapshots de ambos engines. El smoke real de Codex 0.157.1 aceptó los hooks sin errores de parseo; no demuestra entrega del aviso al agente padre.
 - Reviewer R2 `APPROVED`; gate completo verde y receipt `1078` fresco en `.codex/progress`. El commit y PR a `main` siguen pendientes al momento de este registro.
+
+## 2026-09-28 09:38 Codex — Corrige la segunda opinión de Codex (#1079)
+
+- El comando generado de cross-review ya no sustituye `CODEX_HOME` ni fuerza `--sandbox read-only`: usa autenticación y permisos efectivos del usuario/proyecto. El prompt pide inspeccionar sin editar archivos ni hacer commits, pero no promete aislamiento técnico.
+- La prosa aclara que `codex exec` raíz no activa `reviewer.toml` y que Full Access puede modificar archivos o usar red. Se actualizaron el asset, su prueba, el golden y el mirror administrado.
+- Reviewer R2 `APPROVED`; gate completo verde y receipt `1079` fresco en `.codex/progress`. Commit y PR a `main` pendientes al momento del registro.
