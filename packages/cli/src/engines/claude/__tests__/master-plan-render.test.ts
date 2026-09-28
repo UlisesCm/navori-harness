@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
@@ -33,6 +33,41 @@ function contextFiles(cwd: string): string[] {
 }
 
 describe("master-plan managed context (spec 0034 T11)", () => {
+  // Covers: R39, R62
+  it("materializes both managed executable hooks but registers them only while enabled", () => {
+    const cwd = freshDir();
+    const active = { ...base, harness: { masterPlan: true } } as NavoriConfig;
+    const closed = { ...base, harness: { masterPlan: false } } as NavoriConfig;
+    const scripts = ["master-plan-context", "master-accept-confirm"];
+
+    renderClaudeEngine(cwd, active);
+    for (const script of scripts) {
+      const path = join(cwd, `.claude/hooks/${script}.sh`);
+      expect(existsSync(path)).toBe(true);
+      expect(statSync(path).mode & 0o111).not.toBe(0);
+      expect(readFileSync(path, "utf8")).toContain(`id="${script}-base"`);
+      expect(readFileSync(join(cwd, ".claude/settings.json"), "utf8")).toContain(`${script}.sh`);
+    }
+
+    renderClaudeEngine(cwd, closed);
+    const settings = readFileSync(join(cwd, ".claude/settings.json"), "utf8");
+    for (const script of scripts) {
+      expect(existsSync(join(cwd, `.claude/hooks/${script}.sh`))).toBe(true);
+      expect(settings).not.toContain(`${script}.sh`);
+    }
+  });
+
+  // Covers: R39, R62
+  it("does not materialize hooks in a minimal workspace render", () => {
+    const cwd = freshDir();
+    renderClaudeEngine(cwd, { ...base, harness: { masterPlan: true } } as NavoriConfig, {
+      harnessScope: "minimal",
+    });
+    expect(existsSync(join(cwd, ".claude/hooks/master-plan-context.sh"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude/hooks/master-accept-confirm.sh"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude/settings.json"))).toBe(false);
+  });
+
   // Covers: R37, R39
   it("matches the off → on → off render golden after close disables masterPlan", () => {
     const cwd = freshDir();

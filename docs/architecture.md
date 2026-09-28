@@ -102,7 +102,31 @@ flowchart LR
     click INSPECT "../packages/cli/src/commands/status.ts" "status / doctor / bench"
 ```
 
-## 4. El corazón: bloques managed
+## 4. Plan maestro — etapas numeradas y fases
+
+El plan maestro organiza el trabajo de un proyecto en etapas independientes, numeradas y con
+slug, por ejemplo `01-mvp` y `02-pagos`. Cada etapa tiene su propio registro bajo
+`specs/_master/`; el índice indica cuál está activa y las etapas cerradas quedan como registros de
+solo lectura.
+
+El flujo progresa por fases: `context` reúne el modo y los archivos de entrada; `transcribed`
+produce el inventario del código y su digest; `mapped` genera y evalúa planes; `planned` registra
+las decisiones; `questioned` consolida el `MASTER.md` y sus partes; `mastered` espera la orden para
+empezar; y `executing` da inicio a las partes como specs. `navori master check` valida la fase
+activa y `navori master advance` solo la mueve cuando cumple sus criterios.
+
+Una etapa puede terminar normalmente con `navori master close` tras la ejecución. Desde `context`
+hasta `questioned`, el usuario puede optar por `close --convert` para convertir el trabajo en una
+sola spec; antes de `mastered`, `close --abandon` registra su abandono. El cierre conserva el
+registro de la etapa y actualiza el estado del plan maestro.
+
+El estado mutable —etapa activa, fase, modo y estado o vínculos de cada parte— vive en JSON
+validable por esquema, para que el CLI pueda comprobar transiciones y generar el estado derivado.
+Los planes, las decisiones y el contenido del `MASTER.md` son prosa authored en Markdown: expresan
+criterio humano y se validan contra su estructura, no se parsean como fuente de estado. Los archivos
+de estado derivados, como `STATUS.md`, se renderizan.
+
+## 5. El corazón: bloques managed
 
 Todo el modelo gira alrededor de marcadores en los archivos generados. La
 regeneración es idempotente y nunca pisa lo que está fuera de los markers.
@@ -124,7 +148,7 @@ regeneración es idempotente y nunca pisa lo que está fuera de los markers.
 - **Fuera de los markers** → tuyo, intocable. Ese es el moat: regeneración
   idempotente sin destruir tu trabajo. Ver [marker.ts](../packages/cli/src/lib/render/marker.ts).
 
-## 5. Modos de permiso de Claude Code — tabla de referencia
+## 6. Modos de permiso de Claude Code — tabla de referencia
 
 Referencia de lookup (no una orden always-on): el bloque managed
 `operaciones-seguras` solo enlaza aquí. El modo lo fija el host, no el agente.

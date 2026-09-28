@@ -278,7 +278,7 @@ Orden de los lotes:
     la checklist de rigor; "solo GitHub"; `gh issue list --search`; `gh auth login`; la regla de
     que el agente nunca registra un `manual` sin la respuesta del usuario; y el mapeo
     `P<n>.A<m>` → `R<n>` en "Spec de una parte".
-- [ ] **T19** (R41) — Registro de controles.
+- [x] **T19** (R41) — Registro de controles.
   - `engine-capabilities.ts`: `ControlId` gana `"master-plan"` y `ControlCondition` gana
     `"masterPlan"`. Claude lo declara `enforced` con evidencia `hook`; los otros cuatro engines,
     `unsupported` con la razón de D7.
@@ -295,7 +295,7 @@ Orden de los lotes:
     corto de R46 con la etapa y `AskUserQuestion` antes de cualquier escritura. Control RED: la
     misma skill con `disable-model-invocation: true` no produce la llamada.
   - La tabla guarda los resultados como salieron, incluidos los invertidos.
-- [ ] **T21** — Documentación durable.
+- [x] **T21** — Documentación durable.
   - `docs/architecture.md`, sección nueva "Plan maestro": etapas, fases, cierre y por qué JSON +
     Markdown.
   - Comentario en `ORCHESTRATOR_CONTEXT_ORDER` sobre el presupuesto de `SessionStart` agotado.

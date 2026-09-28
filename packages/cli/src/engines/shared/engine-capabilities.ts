@@ -23,6 +23,7 @@ export interface UnsupportedSurface {
  */
 export type ControlId =
   | "plan-gate"
+  | "master-plan"
   | "markdown-ownership"
   | "handoff-shape"
   | "handoff-consumer"
@@ -30,7 +31,7 @@ export type ControlId =
   | "local-skill-discovery";
 
 /** The `navori.config.json` flag that turns a control's condition on, if any. */
-export type ControlCondition = "planTiers" | "scribeOwnsMarkdown" | "localSkills";
+export type ControlCondition = "planTiers" | "masterPlan" | "scribeOwnsMarkdown" | "localSkills";
 
 /**
  * What `control-inventory.test.ts` (R22) reads off the actual render to
@@ -79,6 +80,11 @@ export const CONTROL_DEFINITIONS: Readonly<Record<ControlId, ControlDefinition>>
     description: "Blocks dispatching a subagent whose task isn't covered by the workplan.",
     condition: "planTiers",
     hookScripts: ["plan-gate.sh"],
+  },
+  "master-plan": {
+    description: "Injects master-plan context when a Claude Code session starts.",
+    condition: "masterPlan",
+    hookScripts: ["master-plan-context.sh"],
   },
   "markdown-ownership": {
     description: "Blocks the implementer from writing Markdown when the scribe owns it.",
@@ -253,6 +259,10 @@ const PROSE_ANALYTIC_WRITE_TOOLS = sameForEveryRole([]);
  * `PROSE_ENGINE_UNSUPPORTED_SURFACES` above.
  */
 const PROSE_CONTROLS: Readonly<Record<ControlId, ControlDeclaration>> = Object.freeze({
+  "master-plan": {
+    state: "unsupported",
+    reason: "fase 2 de la spec 0034: la skill no se renderiza y no hay hook de arranque",
+  },
   "plan-gate": {
     state: "unsupported",
     reason:
@@ -299,6 +309,16 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
     ownsAgentsMd: false,
     unsupportedSurfaces: [],
     controls: {
+      "master-plan": {
+        state: "enforced",
+        reason: "harness.masterPlan registers the SessionStart hook (build-settings.ts).",
+        evidence: {
+          kind: "hook",
+          script: "master-plan-context.sh",
+          event: "SessionStart",
+          matcher: "startup|resume|clear|compact|fork",
+        },
+      },
       "plan-gate": {
         state: "enforced",
         reason: "harness.planTiers registers the PreToolUse(Agent) hook (build-settings.ts).",
@@ -368,6 +388,10 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       },
     ],
     controls: {
+      "master-plan": {
+        state: "unsupported",
+        reason: "fase 2 de la spec 0034: la skill no se renderiza y no hay hook de arranque",
+      },
       "plan-gate": {
         state: "advisory",
         reason:

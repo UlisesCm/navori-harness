@@ -843,9 +843,9 @@ const es: Record<string, CommandDoc> = {
   master: {
     id: "master",
     title: "master",
-    summary:
-      "Plan maestro de proyecto: abre o completa la etapa activa y registra su modo (spec 0034).",
-    usage: "navori master <init [<slug>] | mode <template|en-curso>> [--cwd <path>]",
+    summary: "Plan maestro de proyecto: gestiona etapas, fases, partes y cierre (spec 0034).",
+    usage:
+      "navori master <init|mode|status|check|advance|part|template|close> [opciones] [--cwd <path>]",
     flags: [
       {
         flag: "<slug>",
@@ -854,6 +854,30 @@ const es: Record<string, CommandDoc> = {
       {
         flag: "<template|en-curso>",
         desc: "Modo de la etapa (mode). Solo se puede fijar en fase 'context' y solo en la primera etapa — de la etapa 2 en adelante el modo queda registrado como 'en-curso' automáticamente.",
+      },
+      {
+        flag: "status [--json|--line]",
+        desc: "Muestra la etapa y fase actuales; sin opciones regenera STATUS.md. --json y --line son de solo lectura.",
+      },
+      {
+        flag: "check [--stage <NN-slug>|--part <P<n>>|--fit [--json]]",
+        desc: "Valida la salida de la fase activa, una etapa cerrada, una spec de parte o los criterios verificables para convertir a una sola spec.",
+      },
+      {
+        flag: "advance",
+        desc: "Valida la fase activa y avanza una fase cuando se cumplen sus requisitos.",
+      },
+      {
+        flag: "part <P<n>> [--state <estado>] [--reason <texto>] [--spec <ruta>] [--issue <n>]",
+        desc: "Actualiza una parte; --accept, --command, --result y --approved-by registran evidencia de aceptación.",
+      },
+      {
+        flag: "template <nombre> [--part <P<n>>]",
+        desc: "Imprime una plantilla; --part rellena la plantilla issue desde parts.json.",
+      },
+      {
+        flag: "close [--convert <ruta>|--abandon] [--reason <texto>]",
+        desc: "Cierra, convierte o abandona la etapa activa; las etapas cerradas son de solo lectura.",
       },
       { flag: "--cwd <path>", desc: "Repo a operar; por defecto el directorio actual." },
     ],
@@ -868,7 +892,7 @@ const es: Record<string, CommandDoc> = {
       "init crea <sdd.specsDir>/_master/<NN>-<slug>/ con context/raw/ (con su propio .gitignore, fuera de git sin importar gitignoreHarness), context/md/ y plans/, enciende harness.masterPlan y aplica el render.",
       "Con una etapa ya activa, init (con o sin slug) no crea otra: completa lo que le falte a la activa, reporta su etapa y fase, y sale con 1 si se pidió un slug.",
       "Falla si sdd.enabled es false, nombrando la clave que hay que activar.",
-      "Esta página cubre solo los subcomandos del Lote A (init, mode); status, check, advance, part, template y close llegan con los lotes B y C de la spec 0034.",
+      "check --stage inspecciona etapas cerradas; las operaciones que mutan estado solo actúan sobre la etapa activa.",
     ],
   },
 };
@@ -1713,9 +1737,9 @@ const en: Record<string, CommandDoc> = {
   master: {
     id: "master",
     title: "master",
-    summary:
-      "Project master plan: opens or completes the active stage and registers its mode (spec 0034).",
-    usage: "navori master <init [<slug>] | mode <template|en-curso>> [--cwd <path>]",
+    summary: "Project master plan: manages stages, phases, parts, and closure (spec 0034).",
+    usage:
+      "navori master <init|mode|status|check|advance|part|template|close> [options] [--cwd <path>]",
     flags: [
       {
         flag: "<slug>",
@@ -1724,6 +1748,30 @@ const en: Record<string, CommandDoc> = {
       {
         flag: "<template|en-curso>",
         desc: "The stage's mode (mode). Can only be set in phase 'context' and only for the first stage — from stage 2 onward the mode is registered as 'en-curso' automatically.",
+      },
+      {
+        flag: "status [--json|--line]",
+        desc: "Shows the current stage and phase; without options, regenerates STATUS.md. --json and --line are read-only.",
+      },
+      {
+        flag: "check [--stage <NN-slug>|--part <P<n>>|--fit [--json]]",
+        desc: "Validates the active phase exit, a closed stage, a part spec, or the verifiable single-spec fit criteria.",
+      },
+      {
+        flag: "advance",
+        desc: "Validates the active phase and advances when its requirements are met.",
+      },
+      {
+        flag: "part <P<n>> [--state <state>] [--reason <text>] [--spec <path>] [--issue <n>]",
+        desc: "Updates a part; --accept, --command, --result, and --approved-by record acceptance evidence.",
+      },
+      {
+        flag: "template <name> [--part <P<n>>]",
+        desc: "Prints a template; --part fills the issue template from parts.json.",
+      },
+      {
+        flag: "close [--convert <path>|--abandon] [--reason <text>]",
+        desc: "Closes, converts, or abandons the active stage; closed stages are read-only.",
       },
       { flag: "--cwd <path>", desc: "Repo to operate on; defaults to the current directory." },
     ],
@@ -1741,7 +1789,7 @@ const en: Record<string, CommandDoc> = {
       "init creates <sdd.specsDir>/_master/<NN>-<slug>/ with context/raw/ (its own .gitignore, out of git regardless of gitignoreHarness), context/md/ and plans/, turns on harness.masterPlan and applies the render.",
       "With a stage already active, init (with or without a slug) does not create a second one: it completes whatever the active one is missing, reports its stage and phase, and exits 1 if a slug was passed.",
       "Fails when sdd.enabled is false, naming the key to turn on.",
-      "This page covers only Lote A's subcommands (init, mode); status, check, advance, part, template and close ship with spec 0034's Lotes B and C.",
+      "check --stage inspects closed stages; state-changing operations act only on the active stage.",
     ],
   },
 };

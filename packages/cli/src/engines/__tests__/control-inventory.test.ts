@@ -61,7 +61,7 @@ function fullFlagsConfig(engineId: EngineId): NavoriConfig {
     engines: [engineId],
     preset: "custom",
     branchBase: "main",
-    harness: { planTiers: true, scribeOwnsMarkdown: true },
+    harness: { planTiers: true, masterPlan: true, scribeOwnsMarkdown: true },
     project: { localSkills: [LOCAL_SKILL_ID] },
   });
 }
@@ -155,6 +155,10 @@ function assertControlMatchesRender(cwd: string, engineId: EngineId, controlId: 
           claudeHookRegistered(settings, evidence.event, evidence.matcher, evidence.script),
           `${label}: declared with hook evidence (${evidence.script}), not found registered in settings.json`,
         ).toBe(true);
+        expect(
+          existsSync(join(cwd, `.claude/hooks/${evidence.script}`)),
+          `${label}: registered hook ${evidence.script} has no rendered executable`,
+        ).toBe(true);
       }
     } else if (declaration.state === "unsupported") {
       for (const script of definition.hookScripts) {
@@ -238,6 +242,17 @@ describe("control inventory vs. the actual render (spec 0033 D5)", () => {
     const settings = readClaudeSettings(cwd);
     expect(claudeAnyHookNames(settings, "plan-gate.sh")).toBe(false);
     expect(claudeAnyHookNames(settings, "implementer-no-markdown.sh")).toBe(false);
+    for (const script of ["master-plan-context.sh", "master-accept-confirm.sh"]) {
+      expect(existsSync(join(cwd, `.claude/hooks/${script}`))).toBe(true);
+      expect(claudeAnyHookNames(settings, script)).toBe(false);
+    }
+  });
+
+  it("codex: does not render Claude-only master-plan hooks", () => {
+    const cwd = freshDir("codex-master-plan");
+    renderCodexEngine(cwd, fullFlagsConfig("codex"));
+    expect(existsSync(join(cwd, ".codex/hooks/master-plan-context.sh"))).toBe(false);
+    expect(existsSync(join(cwd, ".codex/hooks/master-accept-confirm.sh"))).toBe(false);
   });
 });
 
