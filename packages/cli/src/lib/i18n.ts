@@ -883,7 +883,11 @@ interface DoctorCmdStrings {
   codexConfigMalformed: string;
   codexHookNotExecutable: (hook: string) => string;
   codexVersionWarning: (found: string, min: string) => string;
-  codexHookTrustHint: string;
+  /** Spec 0035 D10/R16 — project-level trust ERROR: Codex loads nothing from
+   *  the repo, not even AGENTS.md, until it's approved. */
+  codexProjectUntrusted: string;
+  /** Spec 0035 D10/R16 — project trusted but N hooks still unapproved (WARNING). */
+  codexHooksUnapproved: (n: number) => string;
   codexGuardNotVersioned: (guards: string) => string;
   /** Note title for the `.gitignore` harness-block health section. */
   gitignoreTitle: string;
@@ -1102,7 +1106,14 @@ interface EngineCmdStrings {
   pluginSkillNotInjected: (skillId: string, pluginId: string, target: string) => string;
   // Codex adapter
   pluginLoadFailedCodex: (id: string, reason: string) => string;
-  codexTrustHint: string;
+  /** Spec 0035 D10/R17 — printed by render/sync/init ONLY when
+   *  `readCodexTrustState` finds the project untrusted or a hook not
+   *  `Trusted`; replaces the old unconditional `codexTrustHint`. */
+  codexTrustCommandHint: (minVersion: string) => string;
+  /** Spec 0035 D5/T6 (R9, R10) — one aggregated, non-blocking warning per
+   *  render with the `.codex/rules/navori.rules` translation counts; the full
+   *  per-rule list is `navori render --json` only. */
+  codexRulesSummary: (notBash: number, innerWildcard: number, narrowed: number) => string;
   /** Spec 0033 R12: `.agents/skills/<id>/SKILL.md` exists but isn't navori's
    *  pointer — kept intact, never written, never pruned. */
   localSkillForeignCodex: (destRelPath: string) => string;
@@ -1669,6 +1680,25 @@ interface CmdStrings {
   remove: RemoveCmdStrings;
   adopt: AdoptCmdStrings;
   preset: PresetCmdStrings;
+  codex: CodexCmdStrings;
+}
+
+/** Spec 0035 T9 — `navori codex trust`. */
+interface CodexCmdStrings {
+  noCodexEngine: string;
+  tableTitle: (projectRoot: string) => string;
+  alreadyApproved: (approved: number, total: number) => string;
+  nothingToDo: string;
+  confirmPrompt: string;
+  nonInteractive: string;
+  aborted: string;
+  invalidResult: string;
+  changedMeanwhile: string;
+  written: (backupPath: string) => string;
+  done: string;
+  verificationSkipped: string;
+  verificationOk: string;
+  verificationFoundUntrusted: (n: number) => string;
 }
 
 const CMD_ES: CmdStrings = {
@@ -2113,8 +2143,10 @@ const CMD_ES: CmdStrings = {
       ".codex/config.toml: bloque managed desbalanceado (corre 'navori render --apply')",
     codexHookNotExecutable: (hook) => `${hook} sin bit ejecutable — Codex no lo dispara (chmod +x)`,
     codexVersionWarning: (found, min) => `codex ${found} < ${min} requerido`,
-    codexHookTrustHint:
-      "Codex solo dispara hooks en repos confiables: revísalos y autorízalos con '/hooks'",
+    codexProjectUntrusted:
+      "Este proyecto no es de confianza para Codex: no carga nada del repo, ni siquiera AGENTS.md — " +
+      "corre 'navori codex trust'",
+    codexHooksUnapproved: (n) => `${n} hook(s) de Codex sin aprobar — corre 'navori codex trust'`,
     codexGuardNotVersioned: (guards) =>
       `${guards} sin versionar en git — en una sesión Codex abierta dentro de un git worktree el guard no corre; versiona '.codex/hooks/' (o '.codex/')`,
     gitignoreTitle: ".gitignore",
@@ -2588,9 +2620,12 @@ const CMD_ES: CmdStrings = {
       (reason === "newer"
         ? "lo escribió una versión de navori más nueva que este CLI; no se revierte"
         : "no lleva marcador de navori (ajeno); nunca se borra sin probar que navori lo escribió"),
-    codexTrustHint:
-      "Requiere Codex CLI >= 0.145.0. Codex solo carga `.codex/` en repos confiables; revisa y autoriza " +
-      "los hooks nuevos con `/hooks`.",
+    codexTrustCommandHint: (minVersion) =>
+      `Requiere Codex CLI >= ${minVersion}. Corre 'navori codex trust' para revisar y aprobar los hooks.`,
+    codexRulesSummary: (notBash, innerWildcard, narrowed) =>
+      `.codex/rules/navori.rules: ${notBash + innerWildcard} regla(s) omitida(s) ` +
+      `(${notBash} no-Bash, ${innerWildcard} con comodín interno) y ${narrowed} acotada(s) en ` +
+      "prompt/forbidden (comodín pegado al último token) — lista completa en 'navori render --json'.",
     presetNotFoundCodex: (preset) => `Preset '${preset}' no encontrado; Codex usará solo el core.`,
     presetInvalid: (preset, detail) => `Preset '${preset}' inválido: ${detail}`,
     agentsMdRedundantWithCodex:
@@ -2986,6 +3021,25 @@ const CMD_ES: CmdStrings = {
         "cuando agregues los reales en `skills/` y los declares en el manifest.",
         "",
       ].join("\n"),
+  },
+  codex: {
+    noCodexEngine: "Ningún engine 'codex' configurado en la raíz ni en un workspace.",
+    tableTitle: (projectRoot) => `Hooks de Codex — ${projectRoot}`,
+    alreadyApproved: (approved, total) => `${approved}/${total} hook(s) ya aprobado(s).`,
+    nothingToDo: "Todo ya está aprobado — nada que escribir.",
+    confirmPrompt: "¿Aprobar estos hooks en ~/.codex/config.toml?",
+    nonInteractive:
+      "Sin TTY y sin --yes: no se escribe nada. Corre con --yes en modo no interactivo.",
+    aborted: "Abortado — no se escribió nada.",
+    invalidResult: "El resultado no valida como TOML — se abortó sin escribir.",
+    changedMeanwhile: "~/.codex/config.toml cambió desde la confirmación — se abortó sin escribir.",
+    written: (backupPath) => `Escrito. Backup previo: ${backupPath}`,
+    done: "navori codex trust — listo",
+    verificationSkipped:
+      "Verificación con 'codex app-server' omitida (binario ausente o sin respuesta).",
+    verificationOk: "Codex confirma que todos los hooks de navori quedaron aprobados.",
+    verificationFoundUntrusted: (n) =>
+      `Codex reporta ${n} hook(s) de navori aún sin aprobar tras la escritura.`,
   },
 };
 
@@ -3426,8 +3480,10 @@ const CMD_EN: CmdStrings = {
     codexHookNotExecutable: (hook) =>
       `${hook} missing executable bit — Codex won't fire it (chmod +x)`,
     codexVersionWarning: (found, min) => `codex ${found} < ${min} required`,
-    codexHookTrustHint:
-      "Codex only fires hooks in trusted repos: review them and authorize with '/hooks'",
+    codexProjectUntrusted:
+      "This project isn't trusted for Codex: it loads nothing from the repo, not even AGENTS.md — " +
+      "run 'navori codex trust'",
+    codexHooksUnapproved: (n) => `${n} Codex hook(s) unapproved — run 'navori codex trust'`,
     codexGuardNotVersioned: (guards) =>
       `${guards} not versioned in git — in a Codex session opened inside a git worktree the guard won't run; version '.codex/hooks/' (or '.codex/')`,
     gitignoreTitle: ".gitignore",
@@ -3896,9 +3952,12 @@ const CMD_EN: CmdStrings = {
       (reason === "newer"
         ? "written by a navori newer than this CLI; not rolled back"
         : "carries no navori marker (foreign); never deleted without proof navori wrote it"),
-    codexTrustHint:
-      "Requires Codex CLI >= 0.145.0. Codex only loads `.codex/` in trusted repos; review and authorize " +
-      "the new hooks with `/hooks`.",
+    codexTrustCommandHint: (minVersion) =>
+      `Requires Codex CLI >= ${minVersion}. Run 'navori codex trust' to review and approve the hooks.`,
+    codexRulesSummary: (notBash, innerWildcard, narrowed) =>
+      `.codex/rules/navori.rules: ${notBash + innerWildcard} rule(s) dropped ` +
+      `(${notBash} non-Bash, ${innerWildcard} with an inner wildcard) and ${narrowed} narrowed on ` +
+      "prompt/forbidden (wildcard glued to the last token) — full list in 'navori render --json'.",
     presetNotFoundCodex: (preset) => `Preset '${preset}' not found; Codex will use the core only.`,
     presetInvalid: (preset, detail) => `Preset '${preset}' invalid: ${detail}`,
     agentsMdRedundantWithCodex:
@@ -4289,6 +4348,26 @@ const CMD_EN: CmdStrings = {
         "when you add the real ones under `skills/` and declare them in the manifest.",
         "",
       ].join("\n"),
+  },
+  codex: {
+    noCodexEngine: "No 'codex' engine configured at the root or in any workspace.",
+    tableTitle: (projectRoot) => `Codex hooks — ${projectRoot}`,
+    alreadyApproved: (approved, total) => `${approved}/${total} hook(s) already approved.`,
+    nothingToDo: "Everything is already approved — nothing to write.",
+    confirmPrompt: "Approve these hooks in ~/.codex/config.toml?",
+    nonInteractive:
+      "No TTY and no --yes: nothing was written. Run with --yes in non-interactive mode.",
+    aborted: "Aborted — nothing was written.",
+    invalidResult: "The result doesn't validate as TOML — aborted without writing.",
+    changedMeanwhile:
+      "~/.codex/config.toml changed since the confirmation — aborted without writing.",
+    written: (backupPath) => `Written. Previous backup: ${backupPath}`,
+    done: "navori codex trust — done",
+    verificationSkipped:
+      "Verification with 'codex app-server' skipped (binary missing or no response).",
+    verificationOk: "Codex confirms every navori hook is now approved.",
+    verificationFoundUntrusted: (n) =>
+      `Codex reports ${n} navori hook(s) still unapproved after the write.`,
   },
 };
 

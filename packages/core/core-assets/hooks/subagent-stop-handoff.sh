@@ -165,6 +165,11 @@ navori_field() {
   printf '%s' "$payload" | sed -nE "s/.*\"${1##*.}\"[[:space:]]*:[[:space:]]*\"(([^\"\\\\]|\\\\.)*)\".*/\\1/p"
 }
 navori_subagent_type=$(navori_field tool_input.subagent_type)
+# Spec 0035 D1/D2: registered on Codex's SubagentStop (no `tool_input` there),
+# which carries the subagent's type at the TOP level instead — same field
+# name Claude uses when the hook fires INSIDE a subagent call (`agent_type`),
+# just not the shape this hook otherwise reads on its own PostToolUse event.
+[ -n "$navori_subagent_type" ] || navori_subagent_type=$(navori_field agent_type)
 
 # R2's contract: `impl_<feature>.json` must parse and carry every required key
 # with a valid `status`. Validated with node (already required by navori) → a

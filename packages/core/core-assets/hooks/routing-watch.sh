@@ -84,6 +84,10 @@ set -uo pipefail
 # not care about must not pay to locate a stamp it will never open. The Bash
 # probe is that same argument one level down — see `navori_has_write_token`.
 # navori:include extract-cmd
+# Spec 0035 D2: nv_tool()/nv_edited_paths() normalize Codex's `apply_patch`/
+# `spawn_agent` tool names and multi-file patches to the shapes this hook
+# already handles for Claude.
+# navori:include hook-input
 
 # R5 (spec 0020): the notice has to be COUNTABLE, not just visible. A hook is
 # invisible to the transcript unless it blocks or injects, and this one injects
@@ -107,7 +111,7 @@ navori_audit_log() { :; }
 # navori:include audit-log
 navori_audit_begin
 
-cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
+cd "${nv_project_dir:-.}" 2>/dev/null || exit 0
 
 # See the header for why this is still 4 and not 1. Changing this number changes when
 # the note fires and nothing else.
@@ -173,7 +177,7 @@ navori_has_write_token() {
   return 1
 }
 
-tool=$(payload_field tool_name)
+tool=$(nv_tool)
 [ -n "$tool" ] || exit 0
 navori_audit_tool=$tool
 
@@ -325,10 +329,11 @@ if [ "$tool" = "Bash" ]; then
       ;;
   esac
 else
-  files=$(payload_field tool_input.file_path)
-  # NotebookEdit has carried its target under `notebook_path` in some host
-  # versions; without this the tool would contribute nothing and never say so.
-  [ -n "$files" ] || files=$(payload_field tool_input.notebook_path)
+  # `nv_edited_paths` already covers `tool_input.file_path`/`.notebook_path`
+  # (Claude) and, under Codex's `apply_patch`, every path the patch's own
+  # `*** Add/Update/Delete File:`/`Move to:` headers name — the loop below
+  # already reads one path per line, so a multi-file patch is nothing new.
+  files=$(nv_edited_paths)
 fi
 [ -n "$files" ] || exit 0
 

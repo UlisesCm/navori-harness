@@ -115,6 +115,10 @@ COVERED_TOOLS='Bash Edit Write NotebookEdit'
 # PostToolUse delivers its payload on stdin; this hook never needed it and the
 # audit recorder does (session_id/cwd), so it is captured rather than ignored.
 payload=$(cat 2>/dev/null) || payload=""
+# navori:include extract-cmd
+# Spec 0035 D2: nv_project_dir is $CLAUDE_PROJECT_DIR under Claude (unchanged)
+# and the payload cwd's git toplevel under Codex.
+# navori:include hook-input
 
 navori_audit_name="managed-drift-watch"
 navori_audit_phase="PostToolUse"
@@ -169,7 +173,7 @@ navori_audit_on_exit() {
 }
 trap navori_audit_on_exit EXIT
 
-cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
+cd "${nv_project_dir:-.}" 2>/dev/null || exit 0
 
 # #1024: the stamp used to live at `.claude/.managed-drift-stamp`, written
 # unconditionally with no `gitignoreHarness` check — so under the default

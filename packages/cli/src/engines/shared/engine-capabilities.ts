@@ -1,4 +1,5 @@
 import { ENGINES } from "../../lib/config/schema.ts";
+import { CODEX_HOOK_REGISTRATIONS } from "../codex/hook-registrations.ts";
 
 /** A valid engine id — the same union `NavoriConfigSchema.engines` accepts. */
 export type EngineId = (typeof ENGINES)[number];
@@ -216,6 +217,18 @@ const PROSE_ENGINE_UNSUPPORTED_SURFACES: readonly UnsupportedSurface[] = [
 ];
 
 /**
+ * Spec 0035 D1 — `CODEX_HOOK_REGISTRATIONS` is the single source for which
+ * Claude hooks Codex has no usable equivalent for. Derived, not hand-copied,
+ * so the reason string in `ENGINE_CAPABILITIES.codex.unsupportedSurfaces`
+ * never drifts from the one `engine-parity.test.ts` checks against the table.
+ */
+const CODEX_HOOK_UNSUPPORTED_SURFACES: readonly UnsupportedSurface[] =
+  CODEX_HOOK_REGISTRATIONS.filter((row) => typeof row.unsupported === "string").map((row) => ({
+    surface: row.script,
+    reason: row.unsupported as string,
+  }));
+
+/**
  * Every analytic role declares the same `tools:`/sandbox today, so one shared
  * record covers all four — same rationale as `PROSE_ENGINE_UNSUPPORTED_
  * SURFACES` above. Literal values, not derived from the asset files: this
@@ -239,10 +252,10 @@ function sameForEveryRole(
  *  intersected with `WRITE_CAPABLE_TOOLS`, in the AGENT's own tools: order. */
 const CLAUDE_ANALYTIC_WRITE_TOOLS = sameForEveryRole(["Bash", "Write"]);
 
-/** codex: no per-role `sandbox_mode` line for any of the four (all `sandbox:
- *  "workspace-write"` in roster.ts), so the effective mode is `.codex/
- *  config.toml`'s default (`build-config-toml.ts`). */
-const CODEX_ANALYTIC_WRITE_TOOLS = sameForEveryRole(["sandbox:workspace-write"]);
+/** codex: no per-role `sandbox_mode` line for any of the four (roster's
+ *  `workspace-write` is omitted by the renderer), so the effective mode is
+ *  `.codex/config.toml`'s default (`build-config-toml.ts`). */
+const CODEX_ANALYTIC_WRITE_TOOLS = sameForEveryRole(["sandbox:danger-full-access"]);
 
 /** Prose engines render no agents at all. */
 const PROSE_ANALYTIC_WRITE_TOOLS = sameForEveryRole([]);
@@ -366,19 +379,28 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "writes .claude/scripts/); nothing under engines/codex/ emits a .codex/scripts/ " +
           "mirror (engines/codex/compat.ts, CODEX_MIRRORED_DIRS).",
       },
+      ...CODEX_HOOK_UNSUPPORTED_SURFACES,
     ],
     controls: {
       "plan-gate": {
         state: "advisory",
         reason:
-          "The asset is rendered without registering a hook in .codex/config.toml " +
-          "(build-config-toml.ts); the reviewer's own `classify` check verifies it after the fact.",
+          "The workplan procedure remains in AGENTS.md, but Codex does not register " +
+          "plan-gate.sh: a live smoke created an implementer without a workplan despite " +
+          "PreToolUse registration. Enforcement is deferred until the host blocks that spawn.",
       },
       "markdown-ownership": {
-        state: "advisory",
+        state: "enforced",
         reason:
-          "The contract is stated in prose (implementer.md, via AGENTS.md); .codex/config.toml " +
-          "registers no matching hook.",
+          "harness.scribeOwnsMarkdown registers PreToolUse(^(Bash|apply_patch)$) via " +
+          "CODEX_HOOK_REGISTRATIONS (hook-registrations.ts, build-config-toml.ts) — spec 0035 " +
+          "supersedes spec 0033 D5 for Codex.",
+        evidence: {
+          kind: "hook",
+          script: "implementer-no-markdown.sh",
+          event: "PreToolUse",
+          matcher: "^(Bash|apply_patch)$",
+        },
       },
       "handoff-shape": {
         state: "advisory",
@@ -394,8 +416,8 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       "analytic-write-tools": {
         state: "advisory",
         reason:
-          '`sandbox_mode = "workspace-write"` plus prose instructions; the sandbox itself allows ' +
-          "writes broadly.",
+          '`sandbox_mode = "danger-full-access"` plus prose instructions; no filesystem/network ' +
+          "sandbox restricts writes, so the role boundary is advisory.",
       },
       "local-skill-discovery": {
         state: "enforced",

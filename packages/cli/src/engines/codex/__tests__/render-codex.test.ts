@@ -17,6 +17,10 @@ import {
 } from "../../../lib/config/schema.ts";
 import { renderCodexEngine } from "../index.ts";
 import { adaptHarnessTextForCodex } from "../compat.ts";
+import { resolveCodexHooks } from "../hook-registrations.ts";
+import { buildCodexConfigToml } from "../build-config-toml.ts";
+import { codexHookHash } from "../../../lib/codex/trust.ts";
+import { PluginManifestSchema, type LoadedPlugin } from "../../../lib/config/plugins.ts";
 
 function tempRepo(): string {
   return mkdtempSync(join(tmpdir(), "navori-codex-"));
@@ -53,7 +57,57 @@ function config(overrides: Partial<NavoriConfigInput> = {}): NavoriConfig {
   });
 }
 
+function testPlugin(id: string, capabilities: Record<string, unknown>): LoadedPlugin {
+  return {
+    manifest: PluginManifestSchema.parse({
+      id,
+      name: id,
+      description: id,
+      version: "1.0.0",
+      ...capabilities,
+    }),
+    packageRoot: "",
+    managedAssets: [],
+    scriptAssets: [],
+    skillAssets: [],
+  };
+}
+
 describe("renderCodexEngine", () => {
+  // Covers: R20
+  it("warns that full access is not path isolation or universal approval", () => {
+    const result = buildCodexConfigToml(config(), []);
+
+    expect(result.warnings).toContainEqual(
+      expect.stringContaining("sin aislamiento de archivos ni red"),
+    );
+    expect(result.warnings).toContainEqual(expect.stringContaining("on-request/user no exige"));
+    expect(result.warnings).toContainEqual(expect.stringContaining("confianza del proyecto"));
+    expect(result.warnings).toContainEqual(expect.stringContaining("únicamente Bash"));
+    expect(result.warnings).toContainEqual(expect.stringContaining("apply_patch"));
+    expect(result.warnings).not.toContainEqual(
+      expect.stringContaining("guard-destructive conserva la defensa crítica"),
+    );
+  });
+
+  // Covers: R19
+  it("distinguishes CLI-only, MCP-only, and unconfigured plugins in Codex config", () => {
+    const cliOnly = testPlugin("cli-only", {
+      externalTool: { name: "Example", checkBinary: "example" },
+    });
+    const mcpOnly = testPlugin("mcp-only", { mcpServer: { command: "example-mcp", args: [] } });
+    const neither = testPlugin("neither", {});
+    const result = buildCodexConfigToml(config(), [cliOnly, mcpOnly, neither]);
+
+    expect(result.body).not.toContain('[mcp_servers."cli-only"]');
+    expect(result.body).toContain('[mcp_servers."mcp-only"]');
+    expect(result.body).toContain('command = "example-mcp"');
+    expect(result.body).not.toContain('[mcp_servers."neither"]');
+    expect(result.warnings).not.toContainEqual(expect.stringContaining("cli-only"));
+    expect(result.warnings).not.toContainEqual(expect.stringContaining("mcp-only"));
+    expect(result.warnings).toContainEqual(expect.stringContaining("Plugin 'neither'"));
+  });
+
   // Covers: R3, R4, R5, R6, R7
   it("registers the Astra-only SessionStart advisor without changing agent profiles", () => {
     const cwd = tempRepo();
@@ -108,6 +162,13 @@ describe("renderCodexEngine", () => {
     expect(existsSync(join(cwd, ".codex/hooks/guard-destructive.sh"))).toBe(true);
 
     const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+    // Covers: R20 — the project default applies to inherited agents, while
+    // approvals remain user-controlled rather than disabled or auto-reviewed.
+    expect(toml).toContain('sandbox_mode = "danger-full-access"');
+    expect(toml).toContain('approval_policy = "on-request"');
+    expect(toml).toContain('approvals_reviewer = "user"');
+    expect(toml).not.toContain('approval_policy = "never"');
+    expect(toml).not.toContain('approvals_reviewer = "auto_review"');
     expect(toml).not.toContain("[agents.");
     expect(toml).not.toContain("config_file");
     expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8")).toContain(
@@ -124,22 +185,92 @@ describe("renderCodexEngine", () => {
     expect(agentsMd).toContain("mem_context");
 
     const implementer = readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8");
-    expect(implementer).toContain('model = "gpt-5.6-terra"');
+    // Spec 0035 D7: sonnet → gpt-6-sol (shared with opus; effort tells them apart).
+    expect(implementer).toContain('model = "gpt-6-sol"');
     expect(implementer).toContain('model_reasoning_effort = "high"');
     expect(implementer).toContain("AGENTS.md");
     expect(implementer).not.toContain("CLAUDE.md");
     expect(implementer).not.toContain(".claude/progress");
     expect(existsSync(join(cwd, ".codex/agents/leader.toml"))).toBe(false);
-    // #280: the auditor is workspace-write like the reviewer/researcher/explorer/
-    // ticket-audit roles — it writes its durable outputs (audit_deep/plan/SDD drafts)
-    // to disk, so a read-only sandbox would break its contract. "never edits code" is
-    // enforced by its prose contract + tool set, not the sandbox → no override emitted.
+    // #280: the auditor writes durable outputs, so a read-only override would
+    // break its contract. No override is emitted: it inherits the project mode.
     expect(readFileSync(join(cwd, ".codex/agents/auditor.toml"), "utf-8")).not.toContain(
       "sandbox_mode",
     );
     expect(readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8")).not.toContain(
       "sandbox_mode",
     );
+    expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8")).not.toContain(
+      "sandbox_mode",
+    );
+  });
+
+  // Covers: R3, R18 — spec 0035 T1/D9. Golden values: the 4 real
+  // `trusted_hash` Codex 0.157 wrote for this repo's `.codex/config.toml`
+  // (see the workplan/encargo). A change to the four pre-existing
+  // registrations (command, matcher, timeout, statusMessage or their index)
+  // moves this hash and silently un-approves the hook in every repo that
+  // already ran `navori codex trust` — see hook-registrations.ts's ordering
+  // contract.
+  it("keeps the trusted_hash of the four pre-existing registrations", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config({ qualityGate: { fast: "pnpm test", full: "pnpm test" } }));
+    const hookBase = `$(git rev-parse --show-toplevel)/.codex/hooks`;
+    const commandFor = (hook: { script: string; args?: string }): string =>
+      `bash "${hookBase}/${hook.script}.sh"${hook.args ? ` ${hook.args}` : ""}`;
+
+    const resolved = resolveCodexHooks(
+      config({ qualityGate: { fast: "pnpm test", full: "pnpm test" } }),
+    );
+    const byScript = (script: string) => {
+      const hook = resolved.find((h) => h.script === script);
+      if (!hook) throw new Error(`missing resolved hook: ${script}`);
+      return hook;
+    };
+
+    expect(
+      codexHookHash(byScript("guard-destructive"), commandFor(byScript("guard-destructive"))),
+    ).toBe("sha256:9cbd61c21c0df4c1090ebbbd3d7e6d940843bd9043ed1ae8b8904cf12cef6ff5");
+    expect(
+      codexHookHash(
+        byScript("comment-draft-confirm"),
+        commandFor(byScript("comment-draft-confirm")),
+      ),
+    ).toBe("sha256:119086685199cae55d52a279dc2ff9bf426280651aefc7814d6cef21836469ee");
+    expect(
+      codexHookHash(
+        byScript("quality-gate-pre-commit"),
+        commandFor(byScript("quality-gate-pre-commit")),
+      ),
+    ).toBe("sha256:5c73b49f07866bd54d8676edae83f0c7e2ac69f020b7cb1ef92a61754fa9b377");
+    expect(codexHookHash(byScript("model-advisor"), commandFor(byScript("model-advisor")))).toBe(
+      "sha256:25446669b6ffb75c7f25a49d66273c95a9fb4445ed38ce0abb98b91a4fb548a9",
+    );
+  });
+
+  // Covers: R1, R2
+  it("registers session-start-context on SessionStart for all five sources", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+    expect(toml).toContain("session-start-context.sh");
+    expect(toml).toContain('matcher = "startup|resume|clear|compact|fork"');
+  });
+
+  // Covers: R6, R7, R8
+  it("omits deferred plan-gate while retaining the other Codex hooks", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config({ harness: { planTiers: true, scribeOwnsMarkdown: true } }));
+    const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+    const hooks = resolveCodexHooks(
+      config({ harness: { planTiers: true, scribeOwnsMarkdown: true } }),
+    );
+    expect(hooks.some((entry) => entry.script === "plan-gate")).toBe(false);
+    expect(toml).not.toContain("plan-gate.sh");
+    for (const script of ["implementer-no-markdown", "routing-watch", "guard-destructive"]) {
+      expect(hooks.some((entry) => entry.script === script)).toBe(true);
+      expect(toml).toContain(`${script}.sh`);
+    }
   });
 
   // Covers: R10, R13
@@ -266,7 +397,51 @@ describe("renderCodexEngine", () => {
     expect(implementer).toContain('model = "gpt-6-custom"');
     // haiku has no override → falls back to the built-in default.
     const reviewer = readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8");
-    expect(reviewer).toContain('model = "gpt-5.6-luna"');
+    expect(reviewer).toContain('model = "gpt-6-luna"');
+  });
+
+  // Covers: R11 — spec 0035 D7, user decision 2026-09-25.
+  it("maps tiers to gpt-6 unless codexMap overrides", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(
+      cwd,
+      config({ models: { orchestrator: "opus", implementer: "sonnet", reviewer: "haiku" } }),
+    );
+    // The orchestrator is embodied by the main thread (no orchestrator.toml);
+    // implementer/reviewer are the two rendered agents this fixture assigns a
+    // tier to.
+    expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8")).toContain(
+      'model = "gpt-6-sol"', // sonnet
+    );
+    expect(readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8")).toContain(
+      'model = "gpt-6-luna"', // haiku
+    );
+  });
+
+  // Covers: R12 — spec 0035 D8. `buildCodexConfigToml` is exercised directly:
+  // reliably pushing a REAL rendered AGENTS.md past 32768 bytes would need a
+  // giant fixture, and the boundary itself is what R12 is about.
+  describe("project_doc_max_bytes (D8)", () => {
+    it("stays absent when the planned AGENTS.md is at or under 32768 bytes", () => {
+      const atThreshold = buildCodexConfigToml(config(), [], "", 32768);
+      const underThreshold = buildCodexConfigToml(config(), [], "", 100);
+      expect(atThreshold.body).not.toContain("project_doc_max_bytes");
+      expect(underThreshold.body).not.toContain("project_doc_max_bytes");
+    });
+
+    it("writes the next power of two >= size + 8192 once the plan exceeds 32768 bytes", () => {
+      // 32769 + 8192 = 40961 → next power of two is 65536.
+      const overThreshold = buildCodexConfigToml(config(), [], "", 32769);
+      expect(overThreshold.body).toContain("project_doc_max_bytes = 65536");
+    });
+
+    it("the render itself omits it for this fixture's default-sized AGENTS.md", () => {
+      const cwd = tempRepo();
+      renderCodexEngine(cwd, config());
+      expect(readFileSync(join(cwd, ".codex/config.toml"), "utf-8")).not.toContain(
+        "project_doc_max_bytes",
+      );
+    });
   });
 
   it("is byte-idempotent and preserves user-owned config/guidance", () => {

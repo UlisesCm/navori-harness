@@ -1,10 +1,22 @@
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { assert, describe, expect, it } from "vitest";
+import { assert, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
-import { isCodexVersionTooOld, scanCodexHealth, buildEngineInventory } from "../doctor.ts";
+import { minCodexVersion, resolveCodexHooks } from "../../engines/codex/hook-registrations.ts";
+import { codexHookHash, codexHookKey } from "../../lib/codex/trust.ts";
+import { tc } from "../../lib/i18n.ts";
+
+// `scanCodexHealth` now reads `~/.codex/config.toml` (spec 0035 D10/T10) —
+// `safeHomedir` is mocked so every test in this file writes/reads a
+// throwaway fake home, never the developer's real `~/.codex` (critical-area
+// invariant: this test file must never touch it).
+const codexHome = vi.hoisted(() => ({ dir: "" }));
+vi.mock(import("../../lib/primitives/home.ts"), () => ({ safeHomedir: () => codexHome.dir }));
+
+const { isCodexVersionTooOld, scanCodexHealth, buildEngineInventory, computeHealthVerdict } =
+  await import("../doctor.ts");
 
 function tempRepo(): string {
   return mkdtempSync(join(tmpdir(), "navori-codex-doctor-"));
@@ -35,10 +47,28 @@ function config(overrides: Partial<NavoriConfig> = {}): NavoriConfig {
 }
 
 describe("scanCodexHealth (Spec 0007 M5)", () => {
+  beforeEach(() => {
+    codexHome.dir = mkdtempSync(join(tmpdir(), "navori-codex-doctor-home-"));
+  });
+  afterEach(() => {
+    rmSync(codexHome.dir, { recursive: true, force: true });
+  });
+
   it("compares Codex versions numerically instead of treating 0.154 as older than 0.145", () => {
     expect(isCodexVersionTooOld("0.144.9")).toBe(true);
     expect(isCodexVersionTooOld("0.145.0")).toBe(false);
     expect(isCodexVersionTooOld("0.154.0")).toBe(false);
+  });
+
+  // Covers: R18
+  it("derives the minimum Codex version from the registrations", () => {
+    // 0.145.0 is `audit-mode-close`'s minVersion (spec 0035 D1) — the max
+    // across every registered row today, computed from the table rather than
+    // hardcoded, so a future row raising the floor updates both this and
+    // `isCodexVersionTooOld` automatically.
+    expect(minCodexVersion()).toBe("0.145.0");
+    expect(isCodexVersionTooOld("0.144.9")).toBe(true);
+    expect(isCodexVersionTooOld("0.145.0")).toBe(false);
   });
 
   it("returns null when codex is not a configured engine", () => {
@@ -60,7 +90,59 @@ describe("scanCodexHealth (Spec 0007 M5)", () => {
     const health = scanCodexHealth(cwd, config());
     expect(health).not.toBeNull();
     expect(health?.hooksNotExecutable).toContain(".codex/hooks/guard-destructive.sh");
-    expect(health?.hookTrustHint).toBe(true);
+  });
+
+  // Covers: R16
+  it("untrusted project is an error that says AGENTS.md does not load", () => {
+    const cwd = tempRepo();
+    writeGuard(cwd);
+    // No ~/.codex/config.toml at all → the project is Untrusted.
+    const health = scanCodexHealth(cwd, config());
+    expect(health?.trust.projectTrusted).toBe(false);
+    expect(health?.trust.hooks.every((h) => h.status === "Untrusted")).toBe(true);
+    // Isolated from unrelated `missingInvariants` noise (plugins: {}) so this
+    // pins the codex-trust contribution to `ok` specifically.
+    expect(computeHealthVerdict(cwd, config({ plugins: {} })).ok).toBe(false);
+    expect(tc("es").doctor.codexProjectUntrusted).toContain("AGENTS.md");
+  });
+
+  // Covers: R16, R17
+  it("trusted project with unapproved hooks is a warning with the count, and does not flip ok", () => {
+    const cwd = tempRepo();
+    writeGuard(cwd);
+    mkdirSync(join(codexHome.dir, ".codex"), { recursive: true });
+    writeFileSync(
+      join(codexHome.dir, ".codex/config.toml"),
+      `[projects."${cwd}"]\ntrust_level = "trusted"\n`,
+    );
+    const health = scanCodexHealth(cwd, config());
+    expect(health?.trust.projectTrusted).toBe(true);
+    const unapproved = health?.trust.hooks.filter((h) => h.status !== "Trusted").length ?? 0;
+    expect(unapproved).toBeGreaterThan(0);
+    expect(computeHealthVerdict(cwd, config({ plugins: {} })).ok).toBe(true);
+  });
+
+  // Covers: R16 — cross-check that `readCodexTrustState` (via scanCodexHealth)
+  // reports Trusted when the SAME hash Codex itself would compute is stored,
+  // using the shared golden-hash builders (codexHookKey/codexHookHash).
+  it("reports a hook Trusted when its real Codex hash is on file", () => {
+    const cwd = tempRepo();
+    writeGuard(cwd);
+    const hooks = resolveCodexHooks(config());
+    const guardHook = hooks.find((h) => h.script === "guard-destructive");
+    assert.isDefined(guardHook);
+    const command = `bash "$(git rev-parse --show-toplevel)/.codex/hooks/guard-destructive.sh"`;
+    const hash = codexHookHash(guardHook, command);
+    const key = codexHookKey(join(cwd, ".codex/config.toml"), "PreToolUse", 0, 0);
+    mkdirSync(join(codexHome.dir, ".codex"), { recursive: true });
+    writeFileSync(
+      join(codexHome.dir, ".codex/config.toml"),
+      `[projects."${cwd}"]\ntrust_level = "trusted"\n\n[hooks.state."${key}"]\ntrusted_hash = "${hash}"\n`,
+    );
+    const health = scanCodexHealth(cwd, config());
+    expect(health?.trust.hooks.find((h) => h.script === "guard-destructive")?.status).toBe(
+      "Trusted",
+    );
   });
 
   it("flags an unbalanced managed block in config.toml", () => {

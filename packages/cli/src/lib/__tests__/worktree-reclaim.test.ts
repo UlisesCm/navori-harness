@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { getCoreRoot } from "../render/bundled-assets.ts";
+import { expandHookIncludes } from "../render/hook-includes.ts";
 
 /**
  * Behavioral tests for core-assets/hooks/worktree-reclaim.sh (#527).
@@ -27,7 +28,17 @@ import { getCoreRoot } from "../render/bundled-assets.ts";
  */
 
 const runsBash = process.platform !== "win32";
-const hookPath = resolve(getCoreRoot(), "core-assets/hooks/worktree-reclaim.sh");
+// spec 0035 D2/D6: the hook now ships `# navori:include` directives that
+// `navori render` inlines. Expand them once here, same as
+// `guard-destructive.test.ts`, so the tests drive exactly what a rendered
+// hook runs.
+const reclaimSource = resolve(getCoreRoot(), "core-assets/hooks/worktree-reclaim.sh");
+const hookPath = (() => {
+  const dir = mkdtempSync(join(tmpdir(), "navori-reclaim-src-"));
+  const p = join(dir, "worktree-reclaim.sh");
+  writeFileSync(p, expandHookIncludes(readFileSync(reclaimSource, "utf-8")));
+  return p;
+})();
 
 let root: string;
 let repo: string;

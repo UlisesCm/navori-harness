@@ -216,12 +216,14 @@ describe("i18n — command catalog (tc)", () => {
       expect(d.codexHookNotExecutable(".codex/hooks/guard.sh")).toContain(".codex/hooks/guard.sh");
       expect(d.codexVersionWarning("0.140.0", "0.145.0")).toContain("0.140.0");
       expect(d.codexVersionWarning("0.140.0", "0.145.0")).toContain("0.145.0");
-      expect(d.codexHookTrustHint).toContain("/hooks");
+      expect(d.codexProjectUntrusted).toContain("navori codex trust");
+      expect(d.codexHooksUnapproved(2)).toContain("2");
+      expect(d.codexHooksUnapproved(2)).toContain("navori codex trust");
       expect(d.codexGuardNotVersioned(".codex/hooks/")).toContain(".codex/hooks/");
     }
     // Locale actually differentiates the copy (not a shared fallback).
-    expect(tc("es").doctor.codexHookTrustHint).toContain("repos confiables");
-    expect(tc("en").doctor.codexHookTrustHint).toContain("trusted repos");
+    expect(tc("es").doctor.codexProjectUntrusted).toContain("no es de confianza");
+    expect(tc("en").doctor.codexProjectUntrusted).toContain("isn't trusted");
   });
 });
 

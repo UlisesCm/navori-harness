@@ -27,13 +27,17 @@ export interface PlanGateResult {
   reason?: string;
 }
 
-/** The subset of the `Agent` `PreToolUse` payload this gate reads
- * (https://code.claude.com/docs/en/hooks, section "Agent"). Every other field
- * Claude Code sends is ignored. */
+/**
+ * The subset of the `Agent`/`spawn_agent` `PreToolUse` payload this gate
+ * reads, for either engine (https://code.claude.com/docs/en/hooks, section
+ * "Agent"; spec 0035, codex-research.md: `spawn_agent`'s `tool_input` carries
+ * `agent_type` and `message` where Claude's carries `subagent_type` and
+ * `prompt`). Every other field either host sends is ignored.
+ */
 interface AgentHookPayload {
   cwd?: string;
   tool_input?: {
-    subagent_type?: string;
+    subagentType?: string;
     prompt?: string;
   };
 }
@@ -48,13 +52,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function parsePayload(raw: unknown): AgentHookPayload {
   if (!isRecord(raw)) return {};
   const toolInput = isRecord(raw.tool_input) ? raw.tool_input : undefined;
+  const codexAgentType =
+    typeof toolInput?.agent_type === "string" ? toolInput.agent_type : undefined;
   return {
     cwd: typeof raw.cwd === "string" ? raw.cwd : undefined,
     tool_input: toolInput
       ? {
-          subagent_type:
-            typeof toolInput.subagent_type === "string" ? toolInput.subagent_type : undefined,
-          prompt: typeof toolInput.prompt === "string" ? toolInput.prompt : undefined,
+          subagentType:
+            codexAgentType ??
+            (typeof toolInput.subagent_type === "string" ? toolInput.subagent_type : undefined),
+          prompt:
+            (typeof toolInput.message === "string" ? toolInput.message : undefined) ??
+            (typeof toolInput.prompt === "string" ? toolInput.prompt : undefined),
         }
       : undefined,
   };
@@ -212,7 +221,7 @@ function evaluateWorkplan(root: StateRoot, feature: string): PlanGateResult {
  */
 export function evaluatePlanGate(rawPayload: unknown): PlanGateResult {
   const payload = parsePayload(rawPayload);
-  if (payload.tool_input?.subagent_type !== "implementer") return ALLOW;
+  if (payload.tool_input?.subagentType !== "implementer") return ALLOW;
 
   const cwd = payload.cwd ?? process.cwd();
   let config: NavoriConfig;

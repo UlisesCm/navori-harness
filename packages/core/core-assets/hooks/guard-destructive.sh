@@ -31,6 +31,10 @@ set -euo pipefail
 # shared extractor falls back to sed so it still inspects the command.
 # navori:include extract-cmd
 cmd=$(extract_cmd)
+# Spec 0035 D2: nv_project_dir is $CLAUDE_PROJECT_DIR under Claude (byte-
+# identical to what this guard read before) and the git toplevel resolved
+# from the payload's `cwd` under Codex — see the absolute-prefix arm below.
+# navori:include hook-input
 
 navori_audit_name="guard-destructive"
 navori_audit_phase="PreToolUse"
@@ -871,14 +875,26 @@ fi
 # does not match either: the pattern requires a literal `/` (optionally
 # quoted) right after the project path, and a sibling has `-otro/…` there
 # instead.
-# Without `$CLAUDE_PROJECT_DIR` set, this arm is skipped entirely — same
+# Without a project dir resolved, this arm is skipped entirely — same
 # behavior as before #1034 — rather than matching against an empty prefix.
-if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
-  # Strip a trailing slash before escaping: `CLAUDE_PROJECT_DIR=/proj/` would
-  # otherwise need a doubled `//` to line up with `/${managed_path}` below and
-  # silently stop matching (round 2 review, informational note 1).
-  cpd_literal=$(printf '%s' "${CLAUDE_PROJECT_DIR%/}" | sed -E 's#[^a-zA-Z0-9_/ -]#\\&#g')
-  abs_managed_path="[\"']?(${cpd_literal}|\\\$\\{?CLAUDE_PROJECT_DIR\\}?)[\"']?/${managed_path}[\"']?"
+# Spec 0035 D2: `nv_project_dir` is `$CLAUDE_PROJECT_DIR` under Claude (same
+# value, same guard as before) and the payload's `cwd` resolved to its git
+# toplevel under Codex, so the SAME absolute-prefix protection now covers
+# both engines instead of only firing when Claude's env var happens to be set.
+if [ -n "${nv_project_dir:-}" ]; then
+  # Strip a trailing slash before escaping: a trailing `/` would otherwise
+  # need a doubled `//` to line up with `/${managed_path}` below and silently
+  # stop matching (round 2 review, informational note 1).
+  cpd_literal=$(printf '%s' "${nv_project_dir%/}" | sed -E 's#[^a-zA-Z0-9_/ -]#\\&#g')
+  if [ "$nv_engine" = codex ]; then
+    # The UNRESOLVED command substitution text itself — the exact form
+    # `.codex/config.toml` uses for every hook command (build-config-toml.ts)
+    # — which an agent can compose into a redirect without ever expanding it.
+    unresolved_prefix='\$\(git rev-parse --show-toplevel\)'
+  else
+    unresolved_prefix='\$\{?CLAUDE_PROJECT_DIR\}?'
+  fi
+  abs_managed_path="[\"']?(${cpd_literal}|${unresolved_prefix})[\"']?/${managed_path}[\"']?"
   if printf '%s' "$scan" | grep -qiE "(^|[^>])>\|?[[:space:]]*${abs_managed_path}([[:space:]]|\$)" \
     || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*${abs_managed_path}([[:space:]]|\$)"; then
     block "$managed_rewrite_msg"
