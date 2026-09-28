@@ -248,6 +248,19 @@ describe("renderCodexEngine", () => {
     );
   });
 
+  it("renders the Codex output discriminator only for Stop and SubagentStop advisories", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config({ hooks: { verifyOnStop: true } }));
+    const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+    expect(toml).toMatch(/subagent-stop-handoff\.sh\\" codex/);
+    expect(toml).toMatch(/stop-verify-reminder\.sh\\" codex/);
+    const hooks = resolveCodexHooks(config({ hooks: { verifyOnStop: true } }));
+    expect(hooks.filter((hook) => hook.args === "codex").map((hook) => hook.script)).toEqual([
+      "subagent-stop-handoff",
+      "stop-verify-reminder",
+    ]);
+  });
+
   // Covers: R1, R2
   it("registers session-start-context on SessionStart for all five sources", () => {
     const cwd = tempRepo();

@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   mkdtempSync,
   mkdirSync,
@@ -33,19 +33,27 @@ function installHook(script: string, destRel: string): string {
   return path;
 }
 
-function run(hookPath: string, cwd: string, input: unknown): { status: number; stderr: string } {
-  try {
-    execFileSync("bash", [hookPath], {
-      cwd,
-      input: JSON.stringify(input),
-      stdio: ["pipe", "pipe", "pipe"],
-      encoding: "utf-8",
-    });
-    return { status: 0, stderr: "" };
-  } catch (err) {
-    const e = err as { status?: number; stderr?: string };
-    return { status: e.status ?? -1, stderr: e.stderr ?? "" };
-  }
+function run(
+  hookPath: string,
+  cwd: string,
+  input: unknown,
+  args: string[] = [],
+  env: NodeJS.ProcessEnv = process.env,
+): { status: number; stderr: string; stdout: string } {
+  const result = spawnSync("bash", [hookPath, ...args], {
+    cwd,
+    input: JSON.stringify(input),
+    encoding: "utf-8",
+    env,
+  });
+  return { status: result.status ?? -1, stderr: result.stderr ?? "", stdout: result.stdout ?? "" };
+}
+
+function expectCodexAdvisory(stdout: string): void {
+  const output: unknown = JSON.parse(stdout);
+  expect(output).toEqual({ systemMessage: expect.any(String) });
+  // Stop/SubagentStop are closed Codex schemas: no hookSpecificOutput or block.
+  expect(Object.keys(output as Record<string, unknown>)).toEqual(["systemMessage"]);
 }
 
 let cwd: string;
@@ -157,13 +165,83 @@ describe("subagent-stop-handoff — same verdict for paired Claude and Codex pay
     const claude = run(hook, cwd, {
       tool_name: "Agent",
       tool_input: { subagent_type: "implementer" },
+      session_id: "claude1078",
     });
-    const codex = run(hook, cwd, { agent_type: "implementer" });
+    const codex = run(hook, cwd, { agent_type: "implementer", session_id: "codex1078" }, ["codex"]);
 
     // Advisory hook: it never exits non-zero. The shared verdict is whether it
     // flags the broken handoff in its output, not the exit code.
     expect(claude.status).toBe(0);
     expect(codex.status).toBe(0);
+    expectCodexAdvisory(codex.stdout);
+    expect(JSON.parse(claude.stdout)).toMatchObject({
+      hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: expect.any(String) },
+    });
+  });
+
+  it("does not stamp a failed emission and retries the same warning", () => {
+    const hook = installHook(
+      "subagent-stop-handoff",
+      "codex/.codex/hooks/subagent-stop-handoff.sh",
+    );
+    mkdirSync(join(cwd, ".codex/progress"), { recursive: true });
+    writeFileSync(join(cwd, ".codex/progress/impl_demo.json"), "{}");
+    const fakeBin = join(cwd, "fake-bin");
+    mkdirSync(fakeBin);
+    for (const binary of ["node", "jq"]) {
+      const path = join(fakeBin, binary);
+      writeFileSync(path, "#!/bin/sh\nexit 1\n");
+      chmodSync(path, 0o755);
+    }
+    const input = { agent_type: "implementer", session_id: "retry1078" };
+    const env = { ...process.env, TMPDIR: cwd, PATH: `${fakeBin}:${process.env.PATH ?? ""}` };
+    const failed = run(hook, cwd, input, ["codex"], env);
+    expect(failed.status).toBe(0);
+    expect(failed.stdout).toBe("");
+    const retried = run(hook, cwd, input, ["codex"], { ...env, PATH: process.env.PATH });
+    expect(retried.status).toBe(0);
+    expectCodexAdvisory(retried.stdout);
+    expect(run(hook, cwd, input, ["codex"], { ...env, PATH: process.env.PATH }).stdout).toBe("");
+  });
+
+  it("falls back to jq when node exists but fails", () => {
+    const hook = installHook(
+      "subagent-stop-handoff",
+      "codex/.codex/hooks/subagent-stop-handoff.sh",
+    );
+    mkdirSync(join(cwd, ".codex/progress"), { recursive: true });
+    writeFileSync(join(cwd, ".codex/progress/impl_demo.json"), "{}");
+    const fakeBin = join(cwd, "fake-bin");
+    mkdirSync(fakeBin);
+    writeFileSync(join(fakeBin, "node"), "#!/bin/sh\nexit 1\n");
+    chmodSync(join(fakeBin, "node"), 0o755);
+    const result = run(hook, cwd, { agent_type: "implementer", session_id: "jq1078" }, ["codex"], {
+      ...process.env,
+      TMPDIR: cwd,
+      PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+    });
+    expect(result.status).toBe(0);
+    expectCodexAdvisory(result.stdout);
+  });
+});
+
+describe("stop-verify-reminder — Codex event output", () => {
+  it("emits only the strict Stop advisory while preserving Claude context", () => {
+    const hook = installHook("stop-verify-reminder", "codex/.codex/hooks/stop-verify-reminder.sh");
+    execFileSync("git", ["config", "user.email", "test@example.invalid"], { cwd });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd });
+    writeFileSync(join(cwd, "tracked.txt"), "before\n");
+    execFileSync("git", ["add", "tracked.txt"], { cwd });
+    execFileSync("git", ["commit", "-qm", "seed"], { cwd });
+    writeFileSync(join(cwd, "tracked.txt"), "after\n");
+    const codex = run(hook, cwd, { hook_event_name: "Stop" }, ["codex"]);
+    const claude = run(hook, cwd, { hook_event_name: "Stop" });
+    expect(codex.status).toBe(0);
+    expectCodexAdvisory(codex.stdout);
+    expect(claude.status).toBe(0);
+    expect(JSON.parse(claude.stdout)).toMatchObject({
+      hookSpecificOutput: { hookEventName: "Stop", additionalContext: expect.any(String) },
+    });
   });
 });
 
