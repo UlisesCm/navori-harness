@@ -61,7 +61,7 @@ function fullFlagsConfig(engineId: EngineId): NavoriConfig {
     engines: [engineId],
     preset: "custom",
     branchBase: "main",
-    harness: { planTiers: true, scribeOwnsMarkdown: true },
+    harness: { planTiers: true, masterPlan: true, scribeOwnsMarkdown: true },
     project: { localSkills: [LOCAL_SKILL_ID] },
   });
 }
