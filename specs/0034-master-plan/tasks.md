@@ -183,7 +183,7 @@ Orden de los lotes:
 
 ## Lote D — Render y hooks
 
-- [ ] **T11** (R37, R39) — Bloque managed `plan-maestro`.
+- [x] **T11** (R37, R39) — Bloque managed `plan-maestro`.
   - `packages/core/core-assets/managed/plan-maestro.md` en inglés, unas 80 palabras, con el
     contenido del borrador de D5.
   - Entrada en `CORE_MANAGED_ASSETS` (`render-plan.ts`) con `condition: "harness.masterPlan"`,
