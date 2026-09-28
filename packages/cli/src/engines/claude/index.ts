@@ -176,6 +176,8 @@ const ORCHESTRATOR_CONTEXT_DIR = ".claude/context";
  * `orquestacion`'s `10`, and none of the other three files' names change.
  * Ids missing from this map sort last at 90: a new audience block must claim
  * its slot here deliberately.
+ * SessionStart's delivery budget is already exhausted: keep new always-on
+ * context minimal and position it explicitly before lower-priority blocks.
  */
 const ORCHESTRATOR_CONTEXT_ORDER: Readonly<Record<string, number>> = {
   planificacion: 5,

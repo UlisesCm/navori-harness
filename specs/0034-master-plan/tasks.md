@@ -295,7 +295,7 @@ Orden de los lotes:
     corto de R46 con la etapa y `AskUserQuestion` antes de cualquier escritura. Control RED: la
     misma skill con `disable-model-invocation: true` no produce la llamada.
   - La tabla guarda los resultados como salieron, incluidos los invertidos.
-- [ ] **T21** — Documentación durable.
+- [x] **T21** — Documentación durable.
   - `docs/architecture.md`, sección nueva "Plan maestro": etapas, fases, cierre y por qué JSON +
     Markdown.
   - Comentario en `ORCHESTRATOR_CONTEXT_ORDER` sobre el presupuesto de `SessionStart` agotado.
