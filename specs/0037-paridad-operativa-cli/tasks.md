@@ -1,6 +1,6 @@
 # Paridad operativa Claude / Codex CLI — Tasks
 
-**Estado:** T1 y T2 aprobados y completos; 17 tareas pendientes. El usuario
+**Estado:** T1, T2 y T4 aprobados y completos; 16 tareas pendientes. El usuario
 autorizó iniciar el Lote A (T1–T2) después de sincronizar `main`; esta autorización no cubre otros
 lotes, campañas live/pagadas, instalaciones, cambios de trust ni publicación.
 **Diseño:** [design.md](design.md), veredicto CONCERNS y resoluciones en [review.md](review.md).
@@ -51,7 +51,7 @@ lotes, campañas live/pagadas, instalaciones, cambios de trust ni publicación.
   prosa/declaración/registro coherentes y Claude sin cambios de decisión.
   · depende de: T1.
 
-- [ ] **T4** (R15, R18) — Corregir la fuente `managed/orquestacion.md` — `The mechanics` y
+- [x] **T4** (R15, R18) — Corregir la fuente `managed/orquestacion.md` — `The mechanics` y
   referencias dependientes: check de handoff antes de consumir producto existente, no antes del
   primer investigador/productor. Mantener plan precondition separada y usar el resolver de estado
   vigente. Regenerar espejos, no parchear únicamente AGENTS/CLAUDE generados.

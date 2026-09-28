@@ -1,12 +1,12 @@
 # Spec 0037 — Paridad operativa Claude / Codex CLI
 
-**Estado: spec completa; T1–T2 aprobados y completos, 17 tareas pendientes.** Fecha: 2026-09-28.
+**Estado: spec completa; T1, T2 y T4 aprobados y completos, 16 tareas pendientes.** Fecha: 2026-09-28.
 
 ## Contenido
 
 - [Requisitos](requirements.md): **23 requisitos EARS**, incluyendo lo que ya funciona y debe preservarse.
 - [Diseño](design.md): extensión de piezas existentes, decisiones, contratos, seguridad y migración.
-- [Tareas](tasks.md): **19 tareas en 8 lotes**; T1–T2 completas y 17 pendientes, con dependencias y trazabilidad R→T→V.
+- [Tareas](tasks.md): **19 tareas en 8 lotes**; T1, T2 y T4 completas y 16 pendientes, con dependencias y trazabilidad R→T→V.
 - [Validación](validation.md): **23 pruebas/casos y 9 escenarios live**, especificados, no ejecutados.
 - [Evidencia](evidence.md): auditoría, fortalezas, brechas y documentación oficial.
 - [Baseline T1](baseline.md): snapshot versionado de procedencia y dependencias; no certifica
@@ -29,9 +29,11 @@ aprobados. No hay nueva capa always-on, modelo impuesto ni orchestrator spawnabl
 
 La autorización histórica para redactar la spec incluyó una excepción puntual del preflight circular
 de handoff para **architect/auditor durante esa redacción**. No cambió la regla vigente ni fabricó
-un handoff; la corrección permanente está planificada en T4/R15, no implementada. Después, el usuario
-autorizó iniciar el Lote A (T1–T2) tras sincronizar `main`. T1 y T2 fueron aprobados en revisión
-fresca; esta autorización no se extiende a otros lotes.
+un handoff. T4 implementa y revisa la corrección de flujo: el primer productor no requiere un
+handoff inexistente; scribe/reviewer lo consumen solo tras un check exitoso. La precondición de
+planificación del implementer sigue independiente y obligatoria; no cambió el validador ni se afirma
+comportamiento runtime. Después, el usuario autorizó el Lote A (T1–T2) tras sincronizar `main`. T1,
+T2 y T4 fueron aprobados en revisión fresca; la autorización no se extiende a otros lotes.
 
 T1 registró el baseline y T2 implementó diagnóstico read-only de doctor. No se autorizan aquí campañas
 live/pagadas, instalaciones, cambios de trust, push ni PR; campañas live requieren autorización
@@ -54,11 +56,11 @@ separada de consumo y aislamiento. No se presentan como equivalencia demostrada 
   terminó con exit 0. El receipt `.codex/progress/receipt.txt` reportó `status: ok`, `fresh: true`,
   sin `uncovered` ni `drift`, con target `main` en `13106729`. El reviewer aclara que Semgrep/jscpd
   reportaron cero archivos TS cambiados, no un escaneo de estos Markdown.
-- La revisión fresca combinada de T1/T2 fue **APPROVED** (`SPEC_OK`, `QUALITY_OK`); el gate completo
-  pasó y el receipt reportó `status: ok`, `fresh: true`, sin `uncovered` ni `drift` para el publish
-  set revisado. Estas actualizaciones administrativas cambian README/tasks, por lo que ese receipt
-  anterior ya no es fresco para el contenido posterior; renovar revisión y firma antes de
-  publicar/cerrar. El receipt de contenido no certifica paridad runtime ni trust efectivo.
+- La revisión fresca combinada de T1/T2/T4 fue **APPROVED** (`SPEC_OK`, `QUALITY_OK`); el gate
+  completo pasó y el receipt reportó `status: ok`, `fresh: true`, sin `uncovered` ni `drift` para el
+  publish set revisado. Este cierre administrativo modifica README/tasks después de esa firma, por
+  lo que el receipt ya no es fresco para el contenido actual; renovar revisión y firma antes de
+  publicar/cerrar. Un receipt de contenido no certifica paridad runtime ni trust efectivo.
 - Solo como antecedente, el intento de redacción de la spec del 2026-09-28 reportó varios checks
   documentales verdes, `semgrep:check` detenido por `ca-certs: empty trust anchors` y receipt no
   disponible tras un fetch fallido por DNS. Ese gate parcial y ese fallo no describen el checkout
@@ -66,5 +68,6 @@ separada de consumo y aislamiento. No se presentan como equivalencia demostrada 
 
 El baseline de T1 está documentado en [baseline.md](baseline.md) sobre HEAD `13106729`, que incluye
 #1084. Véanse la [revisión fresca de T1](../../.codex/progress/review_spec0037_t1.md) y el receipt
-`.codex/progress/receipt.txt`; las campañas live y las tareas posteriores siguen pendientes.
+`.codex/progress/receipt.txt`. T4 fue aprobado en la [revisión fresca](../../.codex/progress/review_spec0037_t4_rereview.md);
+las campañas live y las 16 tareas restantes siguen pendientes.
 No se movió ni sobrescribió el checkpoint de Spec0036 perteneciente a otra sesión.
