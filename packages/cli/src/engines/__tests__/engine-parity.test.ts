@@ -28,6 +28,12 @@ const AGENT_KNOWN_DIFFS: ReadonlySet<string> = new Set(["orchestrator"]);
 /** Spec 0034 T17: the master-plan workflow currently has a Claude-only contract. */
 const CLAUDE_ONLY_SKILLS: ReadonlySet<string> = new Set(["context-intake", "master-plan"]);
 
+/** Spec 0034: Claude registers these hooks; Codex has no matching hook contract. */
+const CLAUDE_ONLY_HOOKS: ReadonlySet<string> = new Set([
+  "master-accept-confirm",
+  "master-plan-context",
+]);
+
 function parityConfig(): NavoriConfig {
   return NavoriConfigSchema.parse({
     name: "parity-demo",
@@ -169,11 +175,15 @@ describe("engine inventory parity (claude ↔ codex)", () => {
     expect(names(join(codexCwd, ".codex/agents"), stripToml)).not.toContain("orchestrator");
   });
 
-  it("emits the same hook set", () => {
+  it("emits the same shared hook set with exactly two Claude-only master-plan hooks", () => {
     const claudeHooks = names(join(claudeCwd, ".claude/hooks"), stripSh);
     const codexHooks = names(join(codexCwd, ".codex/hooks"), stripSh);
     // Same trap as the agent set: pin non-empty before comparing.
     expect(claudeHooks.length).toBeGreaterThan(0);
-    expect(codexHooks).toEqual(claudeHooks);
+    expect(claudeHooks.filter((hook) => CLAUDE_ONLY_HOOKS.has(hook))).toEqual(
+      [...CLAUDE_ONLY_HOOKS].sort(),
+    );
+    expect(codexHooks.filter((hook) => CLAUDE_ONLY_HOOKS.has(hook))).toEqual([]);
+    expect(codexHooks).toEqual(claudeHooks.filter((hook) => !CLAUDE_ONLY_HOOKS.has(hook)));
   });
 });

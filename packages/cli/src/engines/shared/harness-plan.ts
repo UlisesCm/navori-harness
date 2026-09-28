@@ -103,7 +103,11 @@ export function resolveHarnessPlan(
   config: NavoriConfig,
   coreAssets: string,
   preset: ReturnType<typeof loadPreset>,
-  options: { includeOrchestrator?: boolean; includeClaudeOnlySkills?: boolean } = {},
+  options: {
+    includeOrchestrator?: boolean;
+    includeClaudeOnlySkills?: boolean;
+    includeClaudeOnlyHooks?: boolean;
+  } = {},
 ): HarnessPlan {
   const agents: PlannedAgent[] = [];
   for (const agent of CORE_AGENTS) {
@@ -259,6 +263,20 @@ export function resolveHarnessPlan(
       managedId: "audit-mode-close-base",
     },
   ];
+  if (options.includeClaudeOnlyHooks === true) {
+    hooks.push(
+      {
+        id: "master-plan-context",
+        assetPath: join(coreAssets, "hooks/master-plan-context.sh"),
+        managedId: "master-plan-context-base",
+      },
+      {
+        id: "master-accept-confirm",
+        assetPath: join(coreAssets, "hooks/master-accept-confirm.sh"),
+        managedId: "master-accept-confirm-base",
+      },
+    );
+  }
   // Spec 0026 E1 (R10). Unconditional like the guard: the draft-confirm
   // covers ANY agent's Bash call that publishes a comment or review, and its
   // owner is the harness itself, not a configurable agent or plugin — so

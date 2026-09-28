@@ -843,6 +843,7 @@ export function renderClaudeEngine(
   const fullHarnessPlan = resolveHarnessPlan(config, coreAssets, preset, {
     includeOrchestrator: true,
     includeClaudeOnlySkills: true,
+    includeClaudeOnlyHooks: true,
   });
   // Under `minimal` only skills survive: they DO load in a workspace (lazily,
   // the first time Claude reads a file in that subdirectory), which is exactly

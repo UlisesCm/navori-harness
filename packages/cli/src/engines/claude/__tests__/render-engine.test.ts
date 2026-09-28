@@ -487,15 +487,16 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   decision, the second PostToolUse hook) +
     //   4 blocks routed to .claude/context/ — the routing doctrine (#573) plus
     //   the two session ceremonies and the agents index (#572) + the
-    //   model-advisor hook (spec 0028) = 55.
+    //   model-advisor hook (spec 0028) + 2 dormant Claude-only master-plan
+    //   hooks (spec 0034) = 57.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(55);
+    expect(first.inspected).toBe(57);
     // Written counts files actually emitted. engram-orchestrator-extension is a
     // sub-block injected into orchestrator.md, not a separate file, and the
     // `planificacion` and `plan-maestro` context blocks are inspected but not
     // written (their `harness.planTiers` and `harness.masterPlan` conditions
-    // are off). The arithmetic: 55 inspected − the 4 engram sub-blocks −
-    // 2 disabled context blocks = 49 files
+    // are off). The arithmetic: 57 inspected − the 4 engram sub-blocks −
+    // 2 disabled context blocks = 51 files
     // actually emitted (the base files + the .mcp.json + both audit-mode
     // hooks + the drift watcher + the worktree-reclaim hook + the routing
     // watcher of spec 0020 + the PR routing hook of #705 + the
@@ -503,7 +504,7 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     // hook of spec 0030 + the subagent-no-background hook of #1003 + the
     // architect agent that spec 0032 R33 always renders now + spec 0032's
     // `plan-simple`/`plan-advanced` and `master-plan`/`context-intake` workflow skills).
-    expect(first.written.length).toBe(49);
+    expect(first.written.length).toBe(51);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -607,15 +608,16 @@ describe("renderClaudeEngine — dry-run", () => {
     // routing watcher (spec 0020), the PR routing hook (#705), the
     // comment-draft-confirm hook (spec 0026 E1), the implementer-no-markdown
     // hook (spec 0030, R3/R4), the subagent-no-background hook (#1003) and
-    // the orchestrator block routed to `.claude/context/` (#573). 49, not 38:
+    // the orchestrator block routed to `.claude/context/` (#573). 51, not 38:
     // scribe expands the default roster to seven agents, while spec 0026 T14
     // merges debug-error + loop-back-debug into one debug-failure, and spec
     // 0029 T2 adds `secure-by-design` (core) and `quality-attributes`
     // (workflow), and #901 adds `scoped-gate` (core), plus the `author-skill`
     // workflow skill. Spec 0032 R33 retires the `harness.architect` toggle —
     // `architect` always renders now, the eighth agent — and adds the
-    // `plan-simple`/`plan-advanced` and `master-plan`/`context-intake` workflow skills.
-    expect(r.written).toHaveLength(49);
+    // `plan-simple`/`plan-advanced` and `master-plan`/`context-intake` workflow
+    // skills, plus the two dormant Claude-only master-plan hooks.
+    expect(r.written).toHaveLength(51);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
