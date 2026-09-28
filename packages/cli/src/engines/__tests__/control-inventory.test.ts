@@ -114,6 +114,31 @@ function claudeAnyHookNames(settings: ClaudeSettingsHooks, script: string): bool
   );
 }
 
+/**
+ * Spec 0035 T4/R8 — one `[[hooks.<event>]]` group followed by its sibling
+ * `[[hooks.<event>.hooks]]` block, the shape `buildCodexConfigToml` emits for
+ * every row `resolveCodexHooks` returns (see build-config-toml.ts). Captures
+ * the group's own `matcher` (absent when the row has none) and the nested
+ * block's `command`, so a match requires the exact event+matcher pair, not
+ * just the script appearing somewhere in the file.
+ */
+const CODEX_HOOK_GROUP_RE =
+  /\[\[hooks\.(\w+)\]\]\n(?:matcher = "((?:[^"\\]|\\.)*)"\n)?\n\[\[hooks\.\1\.hooks\]\]\n(?:[^\n]*\n)*?command = "((?:[^"\\]|\\.)*)"/g;
+
+/** Whether `.codex/config.toml`'s text registers `script` on `event` with
+ *  exactly `matcher` (R8). */
+function codexHookRegistered(
+  configToml: string,
+  event: string,
+  matcher: string,
+  script: string,
+): boolean {
+  for (const m of configToml.matchAll(CODEX_HOOK_GROUP_RE)) {
+    if (m[1] === event && (m[2] ?? "") === matcher && (m[3] ?? "").includes(script)) return true;
+  }
+  return false;
+}
+
 /** Checks a declared control's state against what `cwd`'s render produced. */
 function assertControlMatchesRender(cwd: string, engineId: EngineId, controlId: ControlId): void {
   const declaration = ENGINE_CAPABILITIES[engineId].controls[controlId];
@@ -175,9 +200,25 @@ function assertControlMatchesRender(cwd: string, engineId: EngineId, controlId: 
   }
 
   if (engineId === "codex") {
-    // No codex control declares hook evidence (D5: hooks are never registered
-    // in .codex/config.toml for these); nothing further to check here besides
-    // local-skill-discovery, handled above.
+    // Spec 0035 R7/R8: enforced controls require exact hook evidence.
+    // Covers: R6, R7, R8
+    if (declaration.state === "enforced" && declaration.evidence.kind === "hook") {
+      const configToml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+      const evidence = declaration.evidence;
+      expect(
+        codexHookRegistered(configToml, evidence.event, evidence.matcher, evidence.script),
+        `${label}: declared enforced with hook evidence (${evidence.script}), not found registered ` +
+          `as ${evidence.event}(${evidence.matcher}) in .codex/config.toml`,
+      ).toBe(true);
+    }
+    if (controlId === "plan-gate") {
+      const configToml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+      expect(declaration.state).toBe("advisory");
+      expect(declaration.reason).toContain("Codex 0.158.0");
+      expect(declaration.reason).toContain("no typed agent role");
+      expect(configToml).not.toContain("plan-gate.sh");
+      expect(configToml).toContain("implementer-no-markdown.sh");
+    }
     return;
   }
 
@@ -272,13 +313,18 @@ describe("analyticWriteTools vs. the actual render (spec 0033 D5, R23)", () => {
     }
   });
 
-  it("codex: the effective sandbox_mode for each role matches the declaration", () => {
+  // Covers: R20
+  it("codex: analytic roles inherit the declared full-access default", () => {
     const cwd = freshDir("codex-analytic-tools");
     seedLocalSkill(cwd);
     renderCodexEngine(cwd, fullFlagsConfig("codex"));
     const configToml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
-    const defaultSandbox =
-      configToml.match(/^sandbox_mode\s*=\s*"([^"]+)"/m)?.[1] ?? "workspace-write";
+    const defaultSandbox = configToml.match(/^sandbox_mode\s*=\s*"([^"]+)"/m)?.[1];
+    expect(defaultSandbox).toBe("danger-full-access");
+    expect(configToml).toContain('approval_policy = "on-request"');
+    expect(configToml).toContain('approvals_reviewer = "user"');
+    expect(configToml).not.toContain('approval_policy = "never"');
+    expect(configToml).not.toContain('approvals_reviewer = "auto_review"');
     for (const role of ANALYTIC_ROLES) {
       const agentToml = readFileSync(join(cwd, `.codex/agents/${role}.toml`), "utf-8");
       const roleSandbox = agentToml.match(/^sandbox_mode\s*=\s*"([^"]+)"/m)?.[1] ?? defaultSandbox;

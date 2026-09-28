@@ -32,9 +32,8 @@
  * `gitignoreHarness: "local"` the Codex receipt and every subagent handoff were
  * versionable — the exact omission #348 created this constant to prevent.
  *
- * Deliberately NOT here: `.navori/`. It belongs in the `.gitignore` cubo A but
- * not in this set — it legitimately holds versioned local presets, so it is not
- * "ephemeral state nobody would want back".
+ * Deliberately NOT here: the whole `.navori/` directory. Only `state/` is
+ * ephemeral; `.navori/presets/` remains versionable.
  *
  * `.claude/.managed-drift-stamp` / `.claude/.routing-watch/` are LEGACY entries
  * (#1024 round 2). As of #1024 neither hook writes there anymore — both moved to
@@ -63,4 +62,6 @@ export const EPHEMERAL_HARNESS_PATHS: readonly string[] = [
   // Spec 0020, legacy (see the module doc above): same reasoning, for the
   // routing watcher's per-session stamps.
   ".claude/.routing-watch/",
+  // Checkout-local engine-neutral runtime state; presets remain versionable.
+  ".navori/state/",
 ];

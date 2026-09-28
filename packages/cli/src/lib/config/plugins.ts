@@ -83,6 +83,28 @@ const ExternalToolSchema = z.object({
     .string()
     .regex(/^\d+\.\d+\.\d+$/, "pinnedVersion must be an exact x.y.z semver")
     .optional(),
+  /**
+   * Declares that this binary must support a specific CLI capability that
+   * `--version` cannot answer reliably (#1060: `jscpd@5.1.0 --version` prints
+   * `cpd 5.0.16`, a full minor off). `doctor` runs `checkBinary` with `args`
+   * and checks the captured stdout for every string in `mustContain`.
+   *
+   * `minVersion` is **display-only** — it appears in the doctor/init message
+   * so the user knows which floor to install, but it is NEVER compared
+   * against the binary's reported version. Unlike `pinnedVersion` (exact
+   * equality against `--version`), this field answers "does this binary
+   * support flag X", the actual question a gate that shells out to that
+   * flag needs answered.
+   */
+  capabilityProbe: z
+    .object({
+      args: z.array(z.string()).min(1),
+      mustContain: z.array(z.string()).min(1),
+      minVersion: z
+        .string()
+        .regex(/^\d+\.\d+\.\d+$/, "capabilityProbe.minVersion must be an exact x.y.z semver"),
+    })
+    .optional(),
 });
 
 const McpServerSchema = z.object({

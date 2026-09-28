@@ -82,15 +82,13 @@ navori_audit_phase="PostToolUse"
 # audit-mode is on, and jq may not exist. Keyed by session AND repo so two
 # sessions never silence each other. In the OS temp dir, so nothing lands in the
 # user's tree and a reboot is a clean slate.
-navori_handoff_key="anon"
-case "$payload" in
-  *'"session_id"'*)
-    navori_handoff_key=${payload#*\"session_id\":}
-    navori_handoff_key=${navori_handoff_key# }
-    navori_handoff_key=${navori_handoff_key#\"}
-    navori_handoff_key=${navori_handoff_key%%\"*}
-    ;;
-esac
+# A raw, unexpanded asset must remain advisory rather than exiting 127.
+# Rendered includes replace these no-ops with the shared Spec 0035 adapter.
+payload_field() { :; }
+nv_subagent_type() { :; }
+# navori:include extract-cmd
+# navori:include hook-input
+navori_handoff_key=$(payload_field session_id)
 case "$navori_handoff_key" in
   "" | *[!A-Za-z0-9_-]*) navori_handoff_key="anon" ;;
 esac
@@ -127,14 +125,9 @@ navori_audit_on_exit() {
 trap navori_audit_on_exit EXIT
 
 
-# Resolve the progress dirs. `placeHook` copies this body VERBATIM for every
-# engine — it is never retargeted the way prose assets are (#389) — so the hook
-# has to know every engine's path itself or it silently no-ops there: under
-# Codex the handoff lives in `.codex/progress/` (what `compat.ts` rewrites
-# `.claude/progress/` into), and this loop used to stop at two names it would
-# never find. Bare `progress/` stays as the fallback for a repo that relocates
-# it. (Literals, not interpolated: `progress.dir` isn't exposed to the render
-# interpolator — same choice as session-start-context.sh.)
+# Resolve the neutral handoff root plus the two one-release legacy roots.
+# `placeHook` copies this body verbatim for every engine, so no engine-specific
+# retargeting is involved. Bare `progress/` remains a historical fallback.
 #
 # EVERY existing dir is scanned, not the first one found: a repo that renders
 # both engines has both, and picking one by probe order would make the hook
@@ -142,7 +135,7 @@ trap navori_audit_on_exit EXIT
 # string: word-splitting a `$dirs` string is a no-op under zsh, which is how the
 # receipt backstop silently stopped scanning (#344).
 dirs=()
-for d in ".claude/progress" ".codex/progress" "progress"; do
+for d in ".navori/state/handoffs" ".claude/progress" ".codex/progress" "progress"; do
   [ -d "$d" ] && dirs+=("$d")
 done
 [ ${#dirs[@]} -gt 0 ] || exit 0
@@ -153,18 +146,9 @@ is_blank() { ! grep -q '[^[:space:]]' "$1" 2>/dev/null; }
 problems=""
 note() { problems="${problems}${problems:+; }$1"; }
 
-# One dotted-path read out of `$payload` (already drained above). Same
-# jq-free node→sed cascade every other hook in this stack uses to stay off a
-# preinstalled-jq dependency — `_partials/extract-cmd.sh`'s `payload_field`,
-# minus its own `payload=$(cat)`: this script already read stdin once, at the
-# top, and a second `cat` here would read nothing.
-navori_field() {
-  if command -v node >/dev/null 2>&1; then
-    printf '%s' "$payload" | node -e 'let s="";const p=process.argv[1].split(".");process.stdin.on("data",c=>s+=c).on("end",()=>{try{let v=JSON.parse(s);for(const k of p)v=v?.[k];process.stdout.write(String(v??""))}catch{}})' "$1" 2>/dev/null && return 0
-  fi
-  printf '%s' "$payload" | sed -nE "s/.*\"${1##*.}\"[[:space:]]*:[[:space:]]*\"(([^\"\\\\]|\\\\.)*)\".*/\\1/p"
-}
-navori_subagent_type=$(navori_field tool_input.subagent_type)
+# Spec 0035 D2 owns Claude/Codex subagent normalization and the single stdin
+# drain through extract-cmd; this hook must not grow a second payload parser.
+navori_subagent_type=$(nv_subagent_type)
 
 # R2's contract: `impl_<feature>.json` must parse and carry every required key
 # with a valid `status`. Validated with node (already required by navori) → a
@@ -341,8 +325,6 @@ if [ "$navori_handoff_prev" = "$problems" ]; then
   navori_audit_reason="$problems"
   exit 0
 fi
-printf '%s\n' "$problems" >"$navori_handoff_stamp" 2>/dev/null || true
-
 msg="navori: handoff(s) de subagente incompletos — ${problems}. Revisa que el reporte quedó bien escrito antes de consolidarlo."
 
 # BOTH channels, and they are not redundant: `additionalContext` is the one that
@@ -351,13 +333,21 @@ msg="navori: handoff(s) de subagente incompletos — ${problems}. Revisa que el 
 # because it asks for an action; before #774 it went out on the user channel
 # alone, so it asked the model for something the model never heard.
 #
-# Serialized safely: node (best escaping) → jq → give up (exit 0). `problems`
-# carries file paths from the repo, so neither branch may build the JSON by
-# hand.
+# Codex SubagentStop accepts systemMessage, not Claude's PostToolUse context.
+# A failed serializer must not stamp an undelivered warning as delivered.
+output=""
 if command -v node >/dev/null 2>&1; then
-  MSG="$msg" node -e 'process.stdout.write(JSON.stringify({systemMessage:process.env.MSG,hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:process.env.MSG}}))'
-elif command -v jq >/dev/null 2>&1; then
-  jq -n --arg m "$msg" '{systemMessage:$m,hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$m}}'
+  output=$(MSG="$msg" node -e 'const m=process.env.MSG;process.stdout.write(JSON.stringify(process.argv[1]==="codex"?{systemMessage:m}:{systemMessage:m,hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:m}}))' "${1:-}" 2>/dev/null) || output=""
+fi
+if [ -z "$output" ] && command -v jq >/dev/null 2>&1; then
+  if [ "${1:-}" = "codex" ]; then
+    output=$(jq -n --arg m "$msg" '{systemMessage:$m}' 2>/dev/null) || output=""
+  else
+    output=$(jq -n --arg m "$msg" '{systemMessage:$m,hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$m}}' 2>/dev/null) || output=""
+  fi
+fi
+if [ -n "$output" ] && printf '%s\n' "$output"; then
+  printf '%s\n' "$problems" >"$navori_handoff_stamp" 2>/dev/null || true
 fi
 navori_audit_verdict="dirty"
 navori_audit_reason="$problems"

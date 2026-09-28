@@ -20,6 +20,7 @@ set -euo pipefail
 # Command extraction (payload → $cmd). Shared body, single source of truth.
 # navori:include extract-cmd
 cmd=$(extract_cmd)
+# navori:include hook-input
 
 navori_audit_name="quality-gate-pre-commit"
 navori_audit_phase="PreToolUse"
@@ -144,11 +145,12 @@ if [ "$run_needed" = 1 ]; then
   # fails from a subdir) nor always the right repo (#454: it is the MAIN repo
   # even when the commit happens in an agent worktree, so the gate validated a
   # tree that did not hold the diff).
-  # $CLAUDE_PROJECT_DIR stays as a fallback for the no-git case; when nothing
-  # resolves the substitution is empty and `cd ""` is a no-op, so behavior
-  # outside a repo is unchanged.
+  # `nv_project_dir` stays as a fallback for the no-git case (spec 0035 D2:
+  # $CLAUDE_PROJECT_DIR under Claude, the payload cwd's git toplevel under
+  # Codex); when nothing resolves the substitution is empty and `cd ""` is a
+  # no-op, so behavior outside a repo is unchanged.
   gate_root=$(navori_worktree)
-  cd "${gate_root:-${CLAUDE_PROJECT_DIR:-}}" || exit 2
+  cd "${gate_root:-${nv_project_dir:-}}" || exit 2
   # qualityGate.fast is shell-quoted at render time via the shq: marker (#197).
   # The gate string is still `eval`'d by run_gate below (running the gate is the
   # feature), but quoting it here means a hostile qualityGate.fast survives as one

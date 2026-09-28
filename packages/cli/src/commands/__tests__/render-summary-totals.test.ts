@@ -171,6 +171,7 @@ interface RenderPayload {
   gitignore: { status: string } | null;
   claudeGitignore: { status: string } | null;
   codexGitignore: { status: string } | null;
+  navoriGitignore: { status: string } | null;
   summary: Counts;
 }
 
@@ -240,6 +241,9 @@ describe("the render summary counts what its listing enumerates (#519)", () => {
     }
     if (payload.codexGitignore && !payload.codexGitignore.status.endsWith("-skipped")) {
       bump(payload.codexGitignore.status);
+    }
+    if (payload.navoriGitignore && !payload.navoriGitignore.status.endsWith("-skipped")) {
+      bump(payload.navoriGitignore.status);
     }
 
     // Anti-false-green: a payload with no engine files makes the equality below

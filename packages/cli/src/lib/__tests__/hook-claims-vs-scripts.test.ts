@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { getCoreRoot, getPluginAssetsRoot } from "../render/bundled-assets.ts";
 import { buildClaudeSettings } from "../../engines/claude/build-settings.ts";
+import { CODEX_HOOK_REGISTRATIONS } from "../../engines/codex/hook-registrations.ts";
 import type { NavoriConfig } from "../config/config.ts";
 
 /**
@@ -423,5 +424,39 @@ describe("the cross-check fires on the claims that shipped before the fix", () =
     ],
   ])("accepts %s", (_label, text) => {
     expect(violations(collectClaims([{ file: "ok.md", text }]))).toEqual([]);
+  });
+});
+
+/**
+ * Spec 0035 D4/R5 — Codex drops `permissionDecision: "ask"` (marks the hook
+ * run failed and lets the call through), so a script registered for Codex
+ * that still emits a literal `"ask"` unconditionally would silently stop
+ * confirming anything under that engine. Necessary-condition check, same
+ * spirit as `CAPABILITIES` above: a script that emits `"ask"` at all must also
+ * branch on which engine it runs under (`nv_engine = codex`, or the `$0`
+ * pattern `hook-input.sh` derives it from — `comment-draft-confirm.sh`
+ * predates the shared partial and branches on `$0` directly) before choosing
+ * `"ask"`, so the Codex path can differ. `pr-publisher-confirm.sh` is the one
+ * script this would catch; it is simply never registered for Codex (D4,
+ * hook-registrations.ts), so it is excluded here by construction, not by
+ * exemption.
+ */
+describe("no Codex-registered hook emits ask (spec 0035 D4)", () => {
+  const ASK_LITERAL = /"ask"/;
+  const CODEX_BRANCH = /nv_engine"?\s*=\s*"?codex\b|\.codex\/hooks\//;
+
+  const codexRegisteredScripts = CODEX_HOOK_REGISTRATIONS.filter((row) =>
+    Boolean(row.registration),
+  ).map((row) => row.script);
+
+  it.each(codexRegisteredScripts)("%s: never emits ask unconditionally under Codex", (script) => {
+    // Covers: R5
+    const body = SCRIPTS.get(script) ?? "";
+    if (!ASK_LITERAL.test(body)) return; // never emits "ask" at all — nothing to guard
+    expect(
+      CODEX_BRANCH.test(body),
+      `${script}.sh can emit "ask" but has no branch for nv_engine=codex — Codex would drop ` +
+        "the decision and let the call through (D4).",
+    ).toBe(true);
   });
 });

@@ -33,8 +33,10 @@ function git(...args: string[]): void {
 
 /** Install the hook with placeholders resolved (branchBase = "main"). The
  * `{{shq:branchBase}}` marker is shell-quoted at render time (#197), so mirror
- * that here with `shellSingleQuote`. */
-function installHook(): string {
+ * that here with `shellSingleQuote`. `destRel`, when given, places the script
+ * under that relative path instead of the repo root — `nv_engine` (spec 0035
+ * D2) reads `$0`, so this is how a test drives the Codex arm. */
+function installHook(destRel = "hook.sh"): string {
   // Includes expanded first, then placeholders — the same order `render` uses,
   // and the reason it matters: a partial may itself carry `{{...}}`. Testing the
   // raw asset would exercise a script that exists nowhere, since
@@ -43,7 +45,8 @@ function installHook(): string {
     "{{shq:branchBase}}",
     shellSingleQuote("main"),
   );
-  const path = join(dir, "hook.sh");
+  const path = join(dir, destRel);
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, raw);
   chmodSync(path, 0o755);
   return path;
@@ -61,14 +64,19 @@ function runHook(source = "startup"): { status: number; stdout: string; ctx: str
  *  CONSUMES state on disk cannot let `acrossShells` replay it blind: the second
  *  shell would read the state the first one just spent and look like a
  *  portability divergence. Such a case re-seeds and drives the shells itself. */
-function runOnce(shell: HookShell, source: string): { status: number; stdout: string } {
+function runOnce(
+  shell: HookShell,
+  source: string,
+  hookPath: string = join(dir, "hook.sh"),
+  extraPayload: Record<string, unknown> = {},
+): { status: number; stdout: string } {
   // Ensure the shell/`git` (/usr/bin, /bin) and `node` (this runtime's dir, used
   // to build the JSON) resolve. Vitest's inherited PATH can be too thin to find
   // them, so build it explicitly — node's own dir first, then the standard bins.
   const nodeDir = dirname(process.execPath);
-  const s = spawnSync(shell, [join(dir, "hook.sh")], {
+  const s = spawnSync(shell, [hookPath], {
     cwd: dir,
-    input: JSON.stringify({ hook_event_name: "SessionStart", source }),
+    input: JSON.stringify({ hook_event_name: "SessionStart", source, ...extraPayload }),
     encoding: "utf-8",
     env: { ...process.env, PATH: `${nodeDir}:/usr/bin:/bin:${process.env.PATH ?? ""}` },
   });
@@ -333,5 +341,54 @@ describe("session-start context hook — aviso de worktrees conservados (#774)",
     const r = runHook("startup");
     expect(r.status).toBe(0);
     expect(r.stdout.trim()).toBe("");
+  });
+});
+
+/**
+ * Spec 0035 D2/D3, T3 (R1, R2). `nv_engine` reads `$0`, so installing the
+ * expanded hook under a `.codex/hooks/` path is what flips the branch under
+ * test — same mechanism a real Codex render uses.
+ */
+describe("session-start context hook — Codex payload (spec 0035 D3)", () => {
+  // Covers: R1, R2
+  it("codex payload yields additionalContext with branch, commits and progress", () => {
+    git("init", "-q", "-b", "feat/x");
+    git("config", "user.email", "t@t.co");
+    git("config", "user.name", "t");
+    writeFileSync(join(dir, "a.txt"), "a\n");
+    git("add", "a.txt");
+    git("commit", "-qm", "feat: primer commit");
+    mkdirSync(join(dir, "progress"), { recursive: true });
+    writeFileSync(join(dir, "progress", "current.md"), "Task: seguir con N1\n");
+
+    const hookPath = installHook(join(".codex", "hooks", "session-start-context.sh"));
+    const stdout = acrossShells(
+      (shell) => runOnce(shell, "startup", hookPath, { cwd: dir }).stdout,
+    );
+    const ctx = parseCtx(stdout);
+
+    expect(ctx).toContain("Branch: feat/x");
+    expect(ctx).toContain("feat: primer commit");
+    expect(ctx).toContain("Resume — progress/current.md");
+    expect(ctx).toContain("Task: seguir con N1");
+  });
+
+  it("never emits the `.claude/context`/`.codex/context` doctrine blocks (D3)", () => {
+    const ctxDir = join(dir, ".claude", "context");
+    mkdirSync(ctxDir, { recursive: true });
+    writeFileSync(join(ctxDir, "orchestrator.md"), "Doctrine only Claude needs repeated.\n");
+
+    const hookPath = installHook(join(".codex", "hooks", "session-start-context.sh"));
+    const stdout = acrossShells(
+      (shell) => runOnce(shell, "startup", hookPath, { cwd: dir }).stdout,
+    );
+    expect(parseCtx(stdout)).not.toContain("Doctrine only Claude needs repeated.");
+
+    // The SAME fixture, run through the Claude-path install, DOES inject it —
+    // proving the Codex arm above is the one suppressing it, not a fluke of
+    // the fixture (e.g. a missing dir).
+    installHook("hook.sh");
+    const claudeCtx = parseCtx(acrossShells((shell) => runOnce(shell, "startup").stdout));
+    expect(claudeCtx).toContain("Doctrine only Claude needs repeated.");
   });
 });

@@ -73,8 +73,8 @@ set -uo pipefail
 #              stamp. Measured over the park, 53.8% of Bash calls — and Bash is
 #              80.4% of every tool call — so this is the dominant path.
 #   3 spawns — a session already `#delegated` or `#notified`: + `session_id`
-#              and `git rev-parse --git-common-dir` (#1024 — resolves where the
-#              stamp now lives, off `.claude/`), and the stamp check exits.
+#              and checkout-root validation (Spec 0036), then the local stamp
+#              check exits.
 #   5 spawns — an edit that actually counts: + `agent_id` (the subagent guard
 #              below) + the file path.
 #   6 spawns — a `Bash` whose PAYLOAD looked like a write but whose COMMAND is
@@ -84,6 +84,10 @@ set -uo pipefail
 # not care about must not pay to locate a stamp it will never open. The Bash
 # probe is that same argument one level down — see `navori_has_write_token`.
 # navori:include extract-cmd
+# Spec 0035 D2: nv_tool()/nv_edited_paths() normalize Codex's `apply_patch`/
+# `spawn_agent` tool names and multi-file patches to the shapes this hook
+# already handles for Claude.
+# navori:include hook-input
 
 # R5 (spec 0020): the notice has to be COUNTABLE, not just visible. A hook is
 # invisible to the transcript unless it blocks or injects, and this one injects
@@ -107,7 +111,8 @@ navori_audit_log() { :; }
 # navori:include audit-log
 navori_audit_begin
 
-cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
+[ -n "${nv_project_dir:-}" ] || exit 0
+cd "$nv_project_dir" 2>/dev/null || exit 0
 
 # See the header for why this is still 4 and not 1. Changing this number changes when
 # the note fires and nothing else.
@@ -173,7 +178,7 @@ navori_has_write_token() {
   return 1
 }
 
-tool=$(payload_field tool_name)
+tool=$(nv_tool)
 [ -n "$tool" ] || exit 0
 navori_audit_tool=$tool
 
@@ -211,23 +216,24 @@ fi
 sid=$(payload_field session_id | tr -cd 'A-Za-z0-9._-')
 [ -n "$sid" ] || sid="unknown-session"
 
-# #1024: the stamp dir used to live at `.claude/.routing-watch/`, written
-# unconditionally with no `gitignoreHarness` check — so under the default
-# `"off"` config an ordinary 4-file session dirtied the tree, with no
-# `.gitignore` involved to catch it. `--git-common-dir` resolves to the SHARED
-# `.git` even inside an agent worktree, where `.git` is a file pointing at the
-# main checkout — mirrors `managed-drift-watch.sh`'s identical fix. Outside a
-# git repo, or a corrupt/missing `.git`, there is nowhere safe to persist this
-# stamp: skip silently (fail-open, same discipline as every other exit here)
-# rather than fall back to `.claude/`.
-common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
-case "$common_dir" in
-  /*) ;;
-  *) common_dir="$PWD/$common_dir" ;;
-esac
-
-stamp_dir="$common_dir/navori/routing-watch"
+# Spec 0036: each linked checkout owns its stamps. The old shared Git-dir
+# stamps remain untouched, so an existing session can receive one new notice
+# after upgrade. Missing roots and symlinked state paths skip silently: this
+# advisory must never create state outside its checkout or block the tool.
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+repo_root=$(cd "$repo_root" 2>/dev/null && pwd -P) || exit 0
+[ "$repo_root" = "$(pwd -P)" ] || exit 0
+for component in .navori .navori/state .navori/state/hooks .navori/state/hooks/routing-watch; do
+  [ ! -L "$component" ] || exit 0
+  if [ -e "$component" ]; then
+    [ -d "$component" ] || exit 0
+  else
+    mkdir "$component" 2>/dev/null || exit 0
+  fi
+done
+stamp_dir="$PWD/.navori/state/hooks/routing-watch"
 stamp="$stamp_dir/$sid"
+[ ! -L "$stamp" ] || exit 0
 
 # Append a line unless it is already there. Silent on every failure: a stamp
 # that cannot be written means no note, never an error.
@@ -325,10 +331,11 @@ if [ "$tool" = "Bash" ]; then
       ;;
   esac
 else
-  files=$(payload_field tool_input.file_path)
-  # NotebookEdit has carried its target under `notebook_path` in some host
-  # versions; without this the tool would contribute nothing and never say so.
-  [ -n "$files" ] || files=$(payload_field tool_input.notebook_path)
+  # `nv_edited_paths` already covers `tool_input.file_path`/`.notebook_path`
+  # (Claude) and, under Codex's `apply_patch`, every path the patch's own
+  # `*** Add/Update/Delete File:`/`Move to:` headers name — the loop below
+  # already reads one path per line, so a multi-file patch is nothing new.
+  files=$(nv_edited_paths)
 fi
 [ -n "$files" ] || exit 0
 

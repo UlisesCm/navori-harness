@@ -23,7 +23,7 @@ describe("receipt wiring", () => {
       expect(asset).toContain("navori receipt");
       expect(asset).toContain("--feature <feature>");
       expect(asset).toContain("--target {{prTarget}}");
-      expect(asset).toContain("--dir .claude/progress");
+      expect(asset).toContain("--dir .navori/state/handoffs");
       expect(asset).toContain("--json");
       expect(asset).toContain('"status":"ok"');
     }

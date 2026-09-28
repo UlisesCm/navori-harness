@@ -226,11 +226,12 @@ describe("C04 — Codex: no alwaysLoad, no untransformed .claude paths, generic 
     expect(toml).not.toContain("alwaysLoad");
   });
 
-  it("tgrep has no mcpServer, so Codex just warns instead of emitting a broken entry", () => {
+  // Covers: R19
+  it("tgrep stays CLI-only without a broken MCP entry or omitted-MCP warning", () => {
     const result = renderCodexEngine(cwd, baseConfig(["codex"], { tgrep: { enabled: true } }));
     const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
     expect(toml).not.toContain('mcp_servers."tgrep"');
-    expect(result.warnings.some((w) => w.includes("tgrep") && w.includes("mcpServer"))).toBe(true);
+    expect(result.warnings.some((w) => w.includes("tgrep") && w.includes("mcpServer"))).toBe(false);
   });
 
   it("the Codex-rendered AGENTS.md never carries an untransformed .claude path", () => {

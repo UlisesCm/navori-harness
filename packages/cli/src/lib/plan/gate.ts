@@ -8,6 +8,13 @@
  */
 import { existsSync, readFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  checkoutRoot,
+  ensureStateDirectory,
+  resolveStateRoot,
+  stateArtifactPath,
+  type StateRoot,
+} from "../primitives/state-root.ts";
 import { createHash } from "node:crypto";
 import { readConfig, type NavoriConfig } from "../config/config.ts";
 import { classify } from "./classify.ts";
@@ -20,13 +27,17 @@ export interface PlanGateResult {
   reason?: string;
 }
 
-/** The subset of the `Agent` `PreToolUse` payload this gate reads
- * (https://code.claude.com/docs/en/hooks, section "Agent"). Every other field
- * Claude Code sends is ignored. */
+/**
+ * The subset of the `Agent`/`spawn_agent` `PreToolUse` payload this gate
+ * reads, for either engine (https://code.claude.com/docs/en/hooks, section
+ * "Agent"; spec 0035, codex-research.md: `spawn_agent`'s `tool_input` carries
+ * `agent_type` and `message` where Claude's carries `subagent_type` and
+ * `prompt`). Every other field either host sends is ignored.
+ */
 interface AgentHookPayload {
   cwd?: string;
   tool_input?: {
-    subagent_type?: string;
+    subagentType?: string;
     prompt?: string;
   };
 }
@@ -41,13 +52,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function parsePayload(raw: unknown): AgentHookPayload {
   if (!isRecord(raw)) return {};
   const toolInput = isRecord(raw.tool_input) ? raw.tool_input : undefined;
+  const codexAgentType =
+    typeof toolInput?.agent_type === "string" ? toolInput.agent_type : undefined;
   return {
     cwd: typeof raw.cwd === "string" ? raw.cwd : undefined,
     tool_input: toolInput
       ? {
-          subagent_type:
-            typeof toolInput.subagent_type === "string" ? toolInput.subagent_type : undefined,
-          prompt: typeof toolInput.prompt === "string" ? toolInput.prompt : undefined,
+          subagentType:
+            codexAgentType ??
+            (typeof toolInput.subagent_type === "string" ? toolInput.subagent_type : undefined),
+          prompt:
+            (typeof toolInput.message === "string" ? toolInput.message : undefined) ??
+            (typeof toolInput.prompt === "string" ? toolInput.prompt : undefined),
         }
       : undefined,
   };
@@ -67,19 +83,15 @@ const NO_OPENING_LINE_REASON =
   "load skill `plan-simple` (level 1) or `plan-advanced` (level 2) and produce a " +
   "workplan, or confirm a level-0 exemption with `navori plan classify <feature>`.";
 
-function progressDir(cwd: string): string {
-  return join(cwd, ".claude/progress");
-}
-
 /**
  * R19: append a fresh `CHANGES_REQUESTED` verdict to the append-only gate log
  * and return how many DISTINCT rejections are on record. `review_<feature>.md`
  * is overwritten on every review cycle, so counting rejections requires this
  * side log instead of counting files.
  */
-function recordAndCountRejections(cwd: string, feature: string): number {
-  const reviewPath = join(progressDir(cwd), `review_${feature}.md`);
-  const logPath = join(progressDir(cwd), `workplan_${feature}.gate.jsonl`);
+function recordAndCountRejections(root: StateRoot, feature: string): number {
+  const reviewPath = stateArtifactPath(root, `review_${feature}.md`);
+  const logPath = stateArtifactPath(root, `workplan_${feature}.gate.jsonl`);
 
   const lines = existsSync(logPath)
     ? readFileSync(logPath, "utf-8")
@@ -104,6 +116,7 @@ function recordAndCountRejections(cwd: string, feature: string): number {
       if (!seenHashes.has(reviewHash)) {
         seenHashes.add(reviewHash);
         const entry = { ts: new Date().toISOString(), reviewHash, verdict: "CHANGES_REQUESTED" };
+        ensureStateDirectory(root);
         appendFileSync(logPath, `${JSON.stringify(entry)}\n`);
       }
     }
@@ -114,8 +127,12 @@ function recordAndCountRejections(cwd: string, feature: string): number {
 
 /** R19: after two recorded rejections, the third dispatch needs the next
  * level's artifacts — never a plain re-dispatch of the same level. */
-function evaluateEscalation(cwd: string, feature: string, level: number): PlanGateResult | null {
-  const rejections = recordAndCountRejections(cwd, feature);
+function evaluateEscalation(
+  root: StateRoot,
+  feature: string,
+  level: number,
+): PlanGateResult | null {
+  const rejections = recordAndCountRejections(root, feature);
   if (rejections < 2) return null;
 
   if (level >= 2) {
@@ -125,8 +142,8 @@ function evaluateEscalation(cwd: string, feature: string, level: number): PlanGa
     );
   }
 
-  const solutionPath = join(progressDir(cwd), `solution_${feature}.md`);
-  const solutionReviewPath = join(progressDir(cwd), `solution_review_${feature}.md`);
+  const solutionPath = stateArtifactPath(root, `solution_${feature}.md`);
+  const solutionReviewPath = stateArtifactPath(root, `solution_review_${feature}.md`);
   if (!existsSync(solutionPath) || !existsSync(solutionReviewPath)) {
     return deny(
       `feature "${feature}" has ${rejections} recorded CHANGES_REQUESTED — produce ` +
@@ -160,8 +177,8 @@ function evaluateNivel0(cwd: string, config: NavoriConfig, rawPath: string): Pla
   return ALLOW;
 }
 
-function evaluateWorkplan(cwd: string, feature: string): PlanGateResult {
-  const workplanPath = join(progressDir(cwd), `workplan_${feature}.json`);
+function evaluateWorkplan(root: StateRoot, feature: string): PlanGateResult {
+  const workplanPath = stateArtifactPath(root, `workplan_${feature}.json`);
   if (!existsSync(workplanPath)) {
     return deny(
       `no workplan at ${workplanPath} — write the draft and run \`navori plan render ${feature}\` ` +
@@ -192,7 +209,7 @@ function evaluateWorkplan(cwd: string, feature: string): PlanGateResult {
   }
 
   const level = (raw as Pick<Workplan, "level">).level;
-  return evaluateEscalation(cwd, feature, level) ?? ALLOW;
+  return evaluateEscalation(root, feature, level) ?? ALLOW;
 }
 
 /**
@@ -204,7 +221,7 @@ function evaluateWorkplan(cwd: string, feature: string): PlanGateResult {
  */
 export function evaluatePlanGate(rawPayload: unknown): PlanGateResult {
   const payload = parsePayload(rawPayload);
-  if (payload.tool_input?.subagent_type !== "implementer") return ALLOW;
+  if (payload.tool_input?.subagentType !== "implementer") return ALLOW;
 
   const cwd = payload.cwd ?? process.cwd();
   let config: NavoriConfig;
@@ -214,6 +231,11 @@ export function evaluatePlanGate(rawPayload: unknown): PlanGateResult {
     return ALLOW; // no config to read `harness.planTiers` from — nothing to gate
   }
   if (config.harness?.planTiers !== true) return ALLOW;
+  try {
+    checkoutRoot(cwd);
+  } catch (cause: unknown) {
+    return deny(cause instanceof Error ? cause.message : "unsafe checkout");
+  }
 
   const prompt = payload.tool_input.prompt ?? "";
   const firstLine = (prompt.split("\n")[0] ?? "").trim();
@@ -222,5 +244,12 @@ export function evaluatePlanGate(rawPayload: unknown): PlanGateResult {
 
   if (!workplanMatch && !nivel0Match) return deny(NO_OPENING_LINE_REASON);
   if (nivel0Match) return evaluateNivel0(cwd, config, nivel0Match[1]!);
-  return evaluateWorkplan(cwd, workplanMatch![1]!);
+  try {
+    return evaluateWorkplan(
+      resolveStateRoot({ cwd, feature: workplanMatch![1]! }),
+      workplanMatch![1]!,
+    );
+  } catch (cause: unknown) {
+    return deny(cause instanceof Error ? cause.message : "unsafe state root");
+  }
 }

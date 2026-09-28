@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, rmSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config/config.ts";
 import {
   measureDocBudgetFile,
@@ -20,6 +20,8 @@ import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
 import { renderCursorEngine } from "../engines/cursor/index.ts";
 import { renderCopilotEngine } from "../engines/copilot/index.ts";
 import { renderCodexEngine } from "../engines/codex/index.ts";
+import { resolveCodexHooks, minCodexVersion } from "../engines/codex/hook-registrations.ts";
+import { readCodexTrustState } from "../lib/codex/trust.ts";
 import type { ProseEngineResult } from "../engines/shared/prose-harness.ts";
 import { ENGINE_CAPABILITIES } from "../engines/shared/engine-capabilities.ts";
 import type { SkippedFile } from "../engines/shared/execute-plan.ts";
@@ -235,6 +237,7 @@ export function renderNonClaudeEngines(
     const render = PROSE_ENGINES[eng];
     if (render) {
       const r = render(cwd, config, { dryRun, repoRoot });
+      if (eng === "codex") appendCodexTrustHint(r.warnings, cwd, repoRoot, config, lang);
       out.push({ engine: eng, ...r });
     } else if (warnMissingAdapters) {
       // An engine declared in config but with no adapter yet — warn, never ignore.
@@ -248,6 +251,32 @@ export function renderNonClaudeEngines(
     }
   }
   return out;
+}
+
+/**
+ * Spec 0035 D10/R17 — the ONE next-step line for Codex trust, pushed onto
+ * `warnings` ONLY when `readCodexTrustState` finds the project untrusted or a
+ * hook not `Trusted`. Read-only (DIRECTION.md invariant 8): reads
+ * `~/.codex/config.toml`, never writes it — `navori codex trust` is the only
+ * writer. Shared by `render`, `sync` (`renderNonClaudeEngines` is its own
+ * codex dispatch too) and `init` (via `renderInline` → `runRender`), so all
+ * three surface the same hint without duplicating the check.
+ */
+function appendCodexTrustHint(
+  warnings: string[],
+  cwd: string,
+  repoRoot: string,
+  config: NavoriConfig,
+  lang: Lang,
+): void {
+  const hooks = resolveCodexHooks(config);
+  const wsSubpath = relative(resolve(repoRoot), resolve(cwd)).split(sep).join("/");
+  const configTomlPath = join(resolve(cwd), ".codex", "config.toml");
+  const state = readCodexTrustState(resolve(repoRoot), configTomlPath, hooks, { wsSubpath });
+  const somethingMissing = !state.projectTrusted || state.hooks.some((h) => h.status !== "Trusted");
+  if (somethingMissing) {
+    warnings.push(tc(lang).engine.codexTrustCommandHint(minCodexVersion()));
+  }
 }
 
 /**
@@ -380,9 +409,9 @@ export function runRender(
   /** Nested `.claude/.gitignore` block reconciliation (#1024/#1039).
    *  Unconditional — unlike `gitignore`, not gated on `gitignoreHarness`. */
   claudeGitignore?: GitignoreRenderResult | null;
-  /** Nested `.codex/.gitignore` block reconciliation (#1024/#1039). Null when
-   *  the codex engine isn't configured — navori never creates `.codex/` state
-   *  for an engine the repo doesn't run. */
+  /** Checkout-local runtime state is protected in every root-ignore mode. */
+  navoriGitignore?: GitignoreRenderResult | null;
+  /** Legacy Codex progress protection is unconditional, including Claude-only repos. */
   codexGitignore?: GitignoreRenderResult | null;
   /** Harness `.prettierignore` block reconciliation (#523). Absent when the repo
    *  does not run prettier — navori installs no opinion about a tool it doesn't
@@ -637,9 +666,16 @@ export function runRender(
     force: forceFlag,
     lang,
   });
-  const codexGitignore = config.engines.includes("codex")
-    ? renderNestedGitignore(cwd, ".codex", { dryRun, force: forceFlag, lang })
-    : null;
+  const codexGitignore = renderNestedGitignore(cwd, ".codex", {
+    dryRun,
+    force: forceFlag,
+    lang,
+  });
+  const navoriGitignore = renderNestedGitignore(cwd, ".navori", {
+    dryRun,
+    force: forceFlag,
+    lang,
+  });
 
   // #523 follow-up: reconcile the harness `.prettierignore` too, once at the
   // repo root. The prevention shipped wired into `init` alone, which reaches
@@ -677,7 +713,12 @@ export function runRender(
     // deletion. Preview now answers it before. Only the writes below stay
     // behind `!dryRun`.
     const plan = planOrphanRemoval(cwd, paths, EPHEMERAL_HARNESS_PATHS);
-    if (!dryRun && plan.remove.length > 0) {
+    // `.codex/.gitignore` is a required compatibility output even when the
+    // Codex engine is disabled: pruning it would expose legacy progress in
+    // Claude-only repos with root-ignore management off. Keep only this file,
+    // not the rest of the stale Codex tree.
+    const removable = plan.remove.filter((rel) => rel !== ".codex/.gitignore");
+    if (!dryRun && removable.length > 0) {
       // Back up before deleting so a mistaken prune is recoverable (same safety
       // net the prose engine uses for overwrites). The excludes are NOT optional:
       // an orphaned engine dir is exactly where the ephemerals live (`.codex/
@@ -686,17 +727,17 @@ export function runRender(
       // for the render backup; this second entry point had been missed (#373).
       // Second guard, on purpose: `planOrphanRemoval` already skips the same
       // paths, so this holds the #348 invariant even if that skip ever narrows.
-      const handle = createBackup(cwd, plan.remove, { exclude: [...EPHEMERAL_HARNESS_PATHS] });
+      const handle = createBackup(cwd, removable, { exclude: [...EPHEMERAL_HARNESS_PATHS] });
       if (handle.files.length > 0) {
         prunedBackupPath = handle.path;
         purgeOldBackups();
       }
       // Never recursive: the plan enumerated FILES, so a directory can only go
       // away through `removeEmptyDirs` — i.e. when nothing of the user's is left.
-      for (const rel of plan.remove) rmSync(resolve(cwd, rel), { force: true });
+      for (const rel of removable) rmSync(resolve(cwd, rel), { force: true });
       removeEmptyDirs(cwd, paths);
     }
-    prunedEngineOutputs = plan.remove;
+    prunedEngineOutputs = removable;
     keptEngineOutputs = plan.keep;
   }
 
@@ -721,6 +762,7 @@ export function runRender(
     gitignore,
     claudeGitignore,
     codexGitignore,
+    navoriGitignore,
     prettierignore,
   };
 }
@@ -937,6 +979,7 @@ export const renderCommand = defineCommand({
     if (result.claudeGitignore) reportGitignore(result.claudeGitignore, result.language);
 
     if (result.codexGitignore) reportGitignore(result.codexGitignore, result.language);
+    if (result.navoriGitignore) reportGitignore(result.navoriGitignore, result.language);
 
     if (result.prettierignore) reportPrettierIgnore(result.prettierignore, result.language);
 
@@ -1133,6 +1176,8 @@ export function resultHasPendingWrites(result: ReturnType<typeof runRender>): bo
     result.claudeGitignore?.status === "updated" ||
     result.codexGitignore?.status === "created" ||
     result.codexGitignore?.status === "updated" ||
+    result.navoriGitignore?.status === "created" ||
+    result.navoriGitignore?.status === "updated" ||
     result.prettierignore?.status === "created" ||
     result.prettierignore?.status === "updated"
   );
@@ -1160,6 +1205,7 @@ export function countSkippedFiles(result: ReturnType<typeof runRender>): number 
     (result.gitignore?.status.endsWith("-skipped") ? 1 : 0) +
     (result.claudeGitignore?.status.endsWith("-skipped") ? 1 : 0) +
     (result.codexGitignore?.status.endsWith("-skipped") ? 1 : 0) +
+    (result.navoriGitignore?.status.endsWith("-skipped") ? 1 : 0) +
     (result.prettierignore?.status.endsWith("-skipped") ? 1 : 0)
   );
 }
@@ -1236,6 +1282,9 @@ export function countRenderStatuses(result: ReturnType<typeof runRender>): Recor
   }
   if (result.codexGitignore && !result.codexGitignore.status.endsWith("-skipped")) {
     bump(result.codexGitignore.status);
+  }
+  if (result.navoriGitignore && !result.navoriGitignore.status.endsWith("-skipped")) {
+    bump(result.navoriGitignore.status);
   }
   // ...and so is the harness `.prettierignore`, on the same terms.
   if (result.prettierignore && !result.prettierignore.status.endsWith("-skipped")) {
@@ -1348,6 +1397,13 @@ function buildRenderJson(
           path: result.codexGitignore.path,
           status: result.codexGitignore.status,
           backupPath: result.codexGitignore.backupPath ?? null,
+        }
+      : null,
+    navoriGitignore: result.navoriGitignore
+      ? {
+          path: result.navoriGitignore.path,
+          status: result.navoriGitignore.status,
+          backupPath: result.navoriGitignore.backupPath ?? null,
         }
       : null,
     // #523 follow-up. `entries` travels because it is the answer to "what is

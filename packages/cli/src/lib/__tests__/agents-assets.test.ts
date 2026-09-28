@@ -180,7 +180,7 @@ describe("implementer/reviewer — plan-tiers wiring is gated behind planTiers (
   it("R20: implementer's workplan/acceptance block is wrapped in the planTiers conditional", () => {
     const body = readAgent("implementer");
     expect(body).toMatch(
-      /<!-- navori:if planTiers -->\nWhen the encargo opens with `workplan: <feature>`, read `\.claude\/progress\/workplan_<feature>\.json`, run each assigned `A<n>` command and report it in `impl_<feature>\.json` under `acceptance` \(`id`, `command`, `exitCode`, `excerpt`\)\. A file outside the workplan's files is a blocker to report, not a change to make\.\n<!-- \/navori:if -->/,
+      /<!-- navori:if planTiers -->\nWhen the encargo opens with `workplan: <feature>`, read `\.navori\/state\/handoffs\/workplan_<feature>\.json`, run each assigned `A<n>` command and report it in `impl_<feature>\.json` under `acceptance` \(`id`, `command`, `exitCode`, `excerpt`\)\. A file outside the workplan's files is a blocker to report, not a change to make\.\n<!-- \/navori:if -->/,
     );
   });
 
@@ -297,15 +297,15 @@ describe("core agent assets — no subagent declares the Agent tool (spec 0026 T
 describe("core agent assets — scout and auditor declare each brief with its output file (spec 0026 T12)", () => {
   it("scout declares both the map and the question output paths", () => {
     const body = readAgent("scout");
-    expect(body).toContain(".claude/progress/explore_<area>.md");
-    expect(body).toContain(".claude/progress/research_<question-slug>.md");
+    expect(body).toContain(".navori/state/handoffs/explore_<area>.md");
+    expect(body).toContain(".navori/state/handoffs/research_<question-slug>.md");
   });
 
   it("auditor declares the area, ticket and challenge output paths", () => {
     const body = readAgent("auditor");
-    expect(body).toContain(".claude/progress/audit_deep_<scope>.md");
-    expect(body).toContain(".claude/progress/audit_ticket_<ID>.md");
-    expect(body).toContain(".claude/progress/solution_review_<scope>.md");
+    expect(body).toContain(".navori/state/handoffs/audit_deep_<scope>.md");
+    expect(body).toContain(".navori/state/handoffs/audit_ticket_<ID>.md");
+    expect(body).toContain(".navori/state/handoffs/solution_review_<scope>.md");
   });
 });
 
@@ -373,7 +373,7 @@ describe("architect never issues a verdict nor decomposes and stays under 700 wo
 
   it("applies solution-design and writes solution_<scope>.md", () => {
     expect(managed).toContain("solution-design");
-    expect(managed).toContain(".claude/progress/solution_<scope>.md");
+    expect(managed).toContain(".navori/state/handoffs/solution_<scope>.md");
   });
 
   it("its description says what to build and why", () => {

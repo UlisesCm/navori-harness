@@ -148,9 +148,16 @@ function setupFixture(scanExit = 1): Fixture {
   const log = join(main, "invocations.log");
   for (const tool of ["semgrep", "jscpd"]) {
     const stub = join(binDir, tool);
+    // jscpd's capability probe (#1060) calls `--help` before scanning; answer
+    // it with both flags so it never intercepts the invocation these fixtures
+    // count. Harmless for semgrep, which never calls it.
+    const helpBranch =
+      tool === "jscpd"
+        ? `if [ "\${1:-}" = "--help" ]; then\n  printf '%s\\n' "--baseline-from-ref --fail-on-new-clones"\n  exit 0\nfi\n`
+        : "";
     writeFileSync(
       stub,
-      `#!/usr/bin/env bash\nprintf '%s %s\\n' ${JSON.stringify(tool)} "$*" >> ${JSON.stringify(log)}\nexit ${scanExit}\n`,
+      `#!/usr/bin/env bash\n${helpBranch}printf '%s %s\\n' ${JSON.stringify(tool)} "$*" >> ${JSON.stringify(log)}\nexit ${scanExit}\n`,
     );
     chmodSync(stub, 0o755);
   }

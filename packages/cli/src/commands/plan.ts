@@ -5,14 +5,19 @@
  */
 import { defineCommand } from "citty";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import {
+  resolveStateRoot,
+  stateArtifactPath,
+  type StateRoot,
+  writeStateFileAtomic,
+} from "../lib/primitives/state-root.ts";
 import { classify, declaredFlagsFromSignals, type ClassifyInput } from "../lib/plan/classify.ts";
 import { checkWorkplan, formatCheckResult } from "../lib/plan/check.ts";
 import { evaluatePlanGate } from "../lib/plan/gate.ts";
 import { applyWorkplanUpdate, renderWorkplan, type WorkplanUpdate } from "../lib/plan/render.ts";
 import { WorkplanSchema, type ProgressStatus, type Workplan } from "../lib/plan/schema.ts";
-import { writeFileAtomic } from "../lib/primitives/atomic.ts";
 import { readConfig } from "../lib/config/config.ts";
 
 function splitList(value: string | undefined): string[] {
@@ -32,12 +37,67 @@ function normalizeProgressList(value: unknown): string[] {
   return [String(value)];
 }
 
-function jsonPath(cwd: string, dir: string, feature: string): string {
-  return resolve(cwd, dir, `workplan_${feature}.json`);
+function jsonPath(root: StateRoot, feature: string): string {
+  return stateArtifactPath(root, `workplan_${feature}.json`);
 }
 
-function mdPath(cwd: string, dir: string, feature: string): string {
-  return resolve(cwd, dir, `workplan_${feature}.md`);
+/** A workplan draft's `files[].path` and, if well-formed, its
+ * `classification.signals` — read WITHOUT `WorkplanSchema`, since a draft
+ * written before `classify` ran has no `level`/`classification` yet and the
+ * full schema would reject it. */
+interface DraftClassifyContext {
+  files: string[];
+  signals: string[];
+}
+
+/** Best-effort read of `workplan_<feature>.json`'s draft shape for
+ * `classify` (#1067): when `--files` is omitted, the CLI falls back to the
+ * draft's declared files/signals instead of silently classifying an empty
+ * list. Returns `undefined` when no draft exists at `path` — the caller
+ * then keeps today's behavior. Throws when the file exists but isn't valid
+ * JSON or its `files` entries aren't a well-formed `{ path: string }[]`, so
+ * a broken draft fails loudly instead of returning a silent 0/10.
+ */
+function readDraftClassifyContext(path: string): DraftClassifyContext | undefined {
+  if (!existsSync(path)) return undefined;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch (cause: unknown) {
+    throw new Error(
+      `cannot read draft workplan ${path}: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+  }
+  if (typeof raw !== "object" || raw === null) {
+    throw new Error(`draft workplan ${path} is not a JSON object`);
+  }
+  const record = raw as Record<string, unknown>;
+  const rawFiles = record.files;
+  const files: string[] = [];
+  if (rawFiles !== undefined) {
+    if (!Array.isArray(rawFiles)) {
+      throw new Error(`draft workplan ${path}: "files" must be an array`);
+    }
+    for (const entry of rawFiles) {
+      if (
+        typeof entry !== "object" ||
+        entry === null ||
+        typeof (entry as { path?: unknown }).path !== "string"
+      ) {
+        throw new Error(`draft workplan ${path}: every "files" entry needs a string "path"`);
+      }
+      files.push((entry as { path: string }).path);
+    }
+  }
+  const rawSignals = (record.classification as { signals?: unknown } | undefined)?.signals;
+  const signals: string[] = [];
+  if (rawSignals !== undefined) {
+    if (!Array.isArray(rawSignals) || rawSignals.some((s) => typeof s !== "string")) {
+      throw new Error(`draft workplan ${path}: "classification.signals" must be a string array`);
+    }
+    signals.push(...(rawSignals as string[]));
+  }
+  return { files, signals };
 }
 
 function readWorkplan(path: string): Workplan {
@@ -87,15 +147,14 @@ function diffFiles(cwd: string, base: string): string[] {
     .filter(Boolean);
 }
 
-function writeWorkplanAndRender(cwd: string, dir: string, feature: string, plan: Workplan): void {
-  mkdirSync(resolve(cwd, dir), { recursive: true });
-  writeFileAtomic(jsonPath(cwd, dir, feature), `${JSON.stringify(plan, null, 2)}\n`);
-  writeFileAtomic(mdPath(cwd, dir, feature), renderWorkplan(plan));
+function writeWorkplanAndRender(root: StateRoot, feature: string, plan: Workplan): void {
+  writeStateFileAtomic(root, `workplan_${feature}.json`, `${JSON.stringify(plan, null, 2)}\n`);
+  writeStateFileAtomic(root, `workplan_${feature}.md`, renderWorkplan(plan));
 }
 
 const shared = {
   feature: { type: "positional" as const, required: true, description: "Feature slug" },
-  dir: { type: "string" as const, description: "Progress directory", default: ".claude/progress" },
+  dir: { type: "string" as const, description: "Progress directory" },
   cwd: { type: "string" as const, description: "Repo root" },
   json: { type: "boolean" as const, description: "Output as JSON" },
 };
@@ -135,31 +194,53 @@ const classifySubCommand = defineCommand({
     },
   },
   run({ args }) {
-    const cwd = resolve(args.cwd ?? process.cwd());
+    const root = resolveStateRoot({
+      cwd: args.cwd ?? process.cwd(),
+      feature: args.feature,
+      dir: args.dir,
+    });
+    const cwd = root.cwd;
     // `criticalPaths`/`localSkills` are optional (R9): a repo without
     // `navori.config.json` or without a `project` block simply falls back to
     // the declared flag / the default "generated" classification.
     const { criticalPaths, localSkillIds } = readProjectClassifyContext(cwd);
 
     if (args.diff !== undefined) {
-      classifyDiff(cwd, args.dir, args.feature, args.diff || "origin/main", args.json ?? false, {
+      classifyDiff(root, args.feature, args.diff || "origin/main", args.json ?? false, {
         criticalPaths,
         localSkillIds,
       });
       return;
     }
 
+    // No `--files`: fall back to the feature's draft workplan (files +
+    // declared signals) instead of silently classifying an empty list
+    // (#1067) — `--files` explicit always wins over the draft.
+    let draft: DraftClassifyContext | undefined;
+    if (args.files === undefined) {
+      try {
+        draft = readDraftClassifyContext(jsonPath(root, args.feature));
+      } catch (cause: unknown) {
+        process.stderr.write(
+          `${cause instanceof Error ? cause.message : "invalid draft workplan"}\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+    }
+    const declaredFromDraft = draft ? declaredFlagsFromSignals(draft.signals) : {};
+
     const input: ClassifyInput = {
-      files: splitList(args.files),
-      criticalArea: args.criticalArea,
+      files: args.files !== undefined ? splitList(args.files) : (draft?.files ?? []),
+      criticalArea: args.criticalArea ?? declaredFromDraft.criticalArea,
       criticalPaths,
       localSkillIds,
-      moneyCredentialsPii: args.moneyCredentialsPii,
-      multiRepo: args.multiRepo,
-      newExternalDependency: args.newExternalDependency,
-      sharedContract: args.sharedContract,
-      dataSchemaMigration: args.dataSchemaMigration,
-      bugWithoutRootCause: args.bugWithoutRootCause,
+      moneyCredentialsPii: args.moneyCredentialsPii ?? declaredFromDraft.moneyCredentialsPii,
+      multiRepo: args.multiRepo ?? declaredFromDraft.multiRepo,
+      newExternalDependency: args.newExternalDependency ?? declaredFromDraft.newExternalDependency,
+      sharedContract: args.sharedContract ?? declaredFromDraft.sharedContract,
+      dataSchemaMigration: args.dataSchemaMigration ?? declaredFromDraft.dataSchemaMigration,
+      bugWithoutRootCause: args.bugWithoutRootCause ?? declaredFromDraft.bugWithoutRootCause,
     };
     const result = classify(input);
     if (args.json) {
@@ -181,14 +262,14 @@ const classifySubCommand = defineCommand({
  * catch a diff that outgrew its plan.
  */
 function classifyDiff(
-  cwd: string,
-  dir: string,
+  root: StateRoot,
   feature: string,
   base: string,
   json: boolean,
   project: { criticalPaths: string[] | undefined; localSkillIds: string[] | undefined },
 ): void {
-  const plan = readWorkplanOrExit(jsonPath(cwd, dir, feature));
+  const cwd = root.cwd;
+  const plan = readWorkplanOrExit(jsonPath(root, feature));
   if (!plan) return;
 
   let files: string[];
@@ -236,10 +317,14 @@ const renderSubCommand = defineCommand({
   meta: { name: "render", description: "Render workplan_<feature>.md from its JSON source" },
   args: shared,
   run({ args }) {
-    const cwd = resolve(args.cwd ?? process.cwd());
-    const plan = readWorkplanOrExit(jsonPath(cwd, args.dir, args.feature));
+    const root = resolveStateRoot({
+      cwd: args.cwd ?? process.cwd(),
+      feature: args.feature,
+      dir: args.dir,
+    });
+    const plan = readWorkplanOrExit(jsonPath(root, args.feature));
     if (!plan) return;
-    writeFileAtomic(mdPath(cwd, args.dir, args.feature), renderWorkplan(plan));
+    writeStateFileAtomic(root, `workplan_${args.feature}.md`, renderWorkplan(plan));
     if (args.json) process.stdout.write(`${JSON.stringify({ rendered: true })}\n`);
   },
 });
@@ -256,8 +341,12 @@ const updateSubCommand = defineCommand({
     date: { type: "string", description: "Decision date (ISO), required with --decision" },
   },
   run({ args }) {
-    const cwd = resolve(args.cwd ?? process.cwd());
-    const plan = readWorkplanOrExit(jsonPath(cwd, args.dir, args.feature));
+    const root = resolveStateRoot({
+      cwd: args.cwd ?? process.cwd(),
+      feature: args.feature,
+      dir: args.dir,
+    });
+    const plan = readWorkplanOrExit(jsonPath(root, args.feature));
     if (!plan) return;
 
     const progressEntries = normalizeProgressList(args.progress);
@@ -299,7 +388,7 @@ const updateSubCommand = defineCommand({
       process.exitCode = 1;
       return;
     }
-    writeWorkplanAndRender(cwd, args.dir, args.feature, updated);
+    writeWorkplanAndRender(root, args.feature, updated);
     if (args.json) process.stdout.write(`${JSON.stringify({ updated: true })}\n`);
   },
 });
@@ -308,8 +397,12 @@ const checkSubCommand = defineCommand({
   meta: { name: "check", description: "Validate a workplan against its schema and R15's rules" },
   args: shared,
   run({ args }) {
-    const cwd = resolve(args.cwd ?? process.cwd());
-    const path = jsonPath(cwd, args.dir, args.feature);
+    const root = resolveStateRoot({
+      cwd: args.cwd ?? process.cwd(),
+      feature: args.feature,
+      dir: args.dir,
+    });
+    const path = jsonPath(root, args.feature);
     if (!existsSync(path)) {
       process.stderr.write(`workplan not found: ${path}\n`);
       process.exitCode = 1;

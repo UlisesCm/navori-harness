@@ -45,6 +45,14 @@ navori es **tool-for-self primero**: el criterio de toda feature es "¿esto me a
 (Ulises/Bonum) a trabajar mejor?", no "¿esto populariza el producto?". El MVP ya cubre el
 workflow real; lo que sigue **endurece lo que existe** antes que agregar superficie nueva.
 
+### Estado del harness
+
+El estado efímero de ejecución es local al checkout y neutral al engine: handoffs en
+`.navori/state/handoffs/` y stamps de hooks en `.navori/state/hooks/`. No se versiona.
+En cambio, `progress/current.md`, `progress/history.md` y `.navori/presets/` siguen siendo
+conocimiento versionable del proyecto. Esta separación no introduce configuración persistente
+oculta: `navori.config.json` sigue siendo la fuente de verdad del harness.
+
 ## Metas
 
 - **Reproducibilidad**: `render` reconstruye todo el harness desde `navori.config.json`. Cero

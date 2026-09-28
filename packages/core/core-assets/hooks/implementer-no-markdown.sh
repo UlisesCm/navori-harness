@@ -37,6 +37,10 @@ set -euo pipefail
 # Command/field extraction (payload → $cmd, $payload). Shared body, single
 # source of truth.
 # navori:include extract-cmd
+# Spec 0035 D2: nv_tool()/nv_edited_paths() normalize Codex's `apply_patch`
+# (one call can touch several files at once, unlike Claude's single-path
+# Write/Edit) to the same shape this script already handles.
+# navori:include hook-input
 
 navori_audit_name="implementer-no-markdown"
 navori_audit_phase="PreToolUse"
@@ -81,7 +85,7 @@ if [ "$navori_agent_type" != "implementer" ]; then
   exit 0
 fi
 
-navori_tool=$(payload_field tool_name)
+navori_tool=$(nv_tool)
 
 block() {
   echo "[navori] BLOCKED by implementer-no-markdown: $1" >&2
@@ -105,10 +109,17 @@ is_md_path() {
 
 case "$navori_tool" in
   Write | Edit)
-    navori_path=$(payload_field tool_input.file_path)
-    if is_md_path "$navori_path"; then
-      block "$navori_tool sobre '$navori_path'"
-    fi
+    # Codex's `apply_patch` can touch several files in ONE call (Add/Update/
+    # Delete/Move headers in the same patch); `nv_edited_paths` yields one per
+    # line, so every one of them is checked, not just the first.
+    while IFS= read -r navori_path; do
+      [ -n "$navori_path" ] || continue
+      if is_md_path "$navori_path"; then
+        block "$navori_tool sobre '$navori_path'"
+      fi
+    done <<EOF
+$(nv_edited_paths)
+EOF
     navori_audit_verdict="allow"
     navori_audit_reason="ruta no-md"
     exit 0

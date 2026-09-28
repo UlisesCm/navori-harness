@@ -66,7 +66,8 @@ describe("scanControlGaps", () => {
     expect(scanControlGaps(cfg).some((g) => g.control === "plan-gate")).toBe(false);
   });
 
-  it("reports plan-gate as advisory and warn when planTiers is on and codex is configured", () => {
+  // Covers: R4
+  it("reports plan-gate as advisory for codex until live enforcement is available", () => {
     const cfg = config({
       engines: ["claude", "codex"],
       harness: { planTiers: true } as NavoriConfig["harness"],
@@ -75,7 +76,19 @@ describe("scanControlGaps", () => {
     expect(gap).toMatchObject({ state: "advisory", severity: "warn" });
   });
 
-  it("reports plan-gate for every non-claude engine configured", () => {
+  it("reports plan-gate as advisory and warn when planTiers is on and agents-md is configured", () => {
+    const cfg = config({
+      engines: ["claude", "agents-md"],
+      harness: { planTiers: true } as NavoriConfig["harness"],
+    });
+    const gap = scanControlGaps(cfg).find(
+      (g) => g.control === "plan-gate" && g.engine === "agents-md",
+    );
+    expect(gap).toMatchObject({ state: "unsupported", severity: "warn" });
+  });
+
+  // Covers: R4
+  it("reports plan-gate for every configured non-claude engine", () => {
     const cfg = config({
       engines: ["codex", "agents-md", "cursor"],
       harness: { planTiers: true } as NavoriConfig["harness"],

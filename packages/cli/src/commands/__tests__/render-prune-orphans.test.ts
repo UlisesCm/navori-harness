@@ -113,9 +113,10 @@ describe("runRender — orphaned engine output pruning (#312)", () => {
     // Reported file by file — a directory is emptied, never removed sight unseen.
     expect(result.prunedEngineOutputs).toContain(".codex/config.toml");
     expect(existsSync(join(cwd, "AGENTS.md"))).toBe(false);
-    // The directory goes too once nothing of the user's is left in it; otherwise
-    // the orphan scan would report an empty `.codex` forever.
-    expect(existsSync(join(cwd, ".codex"))).toBe(false);
+    // Covers: R7, R11 — only the required compatibility ignore survives.
+    expect(result.prunedEngineOutputs).not.toContain(".codex/.gitignore");
+    expect(existsSync(join(cwd, ".codex/.gitignore"))).toBe(true);
+    expect(existsSync(join(cwd, ".codex/config.toml"))).toBe(false);
   });
 
   it("keeps AGENTS.md when agents-md is still a configured engine", () => {
