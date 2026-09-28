@@ -53,22 +53,25 @@ uncommitted checkout.
 
 ## Batch C — Hook ownership and generated contracts
 
-- [ ] **T6** (R2, R10) — Move managed-drift and routing-watch stamps to checkout-local
+- [x] **T6** (R2, R10) — Move managed-drift and routing-watch stamps to checkout-local
   `.navori/state/hooks/` while retaining session-ID sanitization and fail-safe detector behavior.
   Leave old Git-common-dir stamps untouched and document the one-time re-arming of notices.
   - Test: `lib/__tests__/managed-drift-watch.test.ts` and
     `lib/__tests__/routing-watch.test.ts` cover two linked worktrees, identical session IDs,
-    unsafe/missing roots, and old-stamp preservation, with `// Covers: R2, R10`.
-- [ ] **T7** (R1, R9, R12) — Change source assets and Codex adaptation to cite neutral
+    unsafe/missing roots, and old-stamp preservation, with `// Covers: R2, R10`. Implementer verification: final-stamp symlink regressions were red before the fix; focused Vitest 42/42 passed after the fix; reviewer APPROVED and commit `aca10a6e`.
+- [x] **T7** (R1, R9, R12) — Change source assets and Codex adaptation to cite neutral
   handoffs; remove only Codex's progress-path rewrite. Preserve engine vocabulary, hook
-  registration, and the landed Spec 0035 input parser. Move `lib/plan/gate.ts` and
-  `hooks/subagent-stop-handoff.sh` to the selected neutral/legacy feature root as appropriate.
-  Re-render managed outputs. **Gate:** record the Spec 0035 merge commit and inspect its real
-  helper/API first; if not merged, stop this batch instead of inventing a parallel helper.
+  registration, and reuse the shared input parser from Spec 0035 (merged as `165652c1`).
+  Move `lib/plan/gate.ts` and `hooks/subagent-stop-handoff.sh` to the selected neutral/legacy
+  feature root as appropriate. Re-render managed outputs. **Gate:** inspect the merged helper/API
+  before use; if it is unavailable, stop this batch instead of inventing a parallel helper.
   - Test: `lib/__tests__/handoff-wiring.test.ts`, `engines/codex/__tests__/render-codex.test.ts`,
-    `lib/plan/__tests__/gate.test.ts`, a handoff-hook test, and
+    `lib/plan/__tests__/plan-gate.test.ts`, a handoff-hook test, and
     `engines/__tests__/golden-render-tree.test.ts` assert Claude/Codex parity, rejection-log
     routing, neutral backstop scanning, and one input parse, with `// Covers: R1, R9, R12`.
+  - Verification: reviewer APPROVED (re-review 4); full AGENTS.md gate passed — 297 test files,
+    5415 tests passed, 1 skipped; format, links, render, assets, budgets, blame-ignore, jscpd,
+    semgrep, size, lint, typecheck, and `git diff --check` passed.
 - [x] **T8** (R6, R7, R10, R11) — Publish migration guidance in the existing user-facing docs:
   state ownership, the one-release read window, unchanged old stamps, re-arming, rollback, and
   versioned `progress/` versus versionable presets. State the trusted local-writer boundary and
@@ -79,8 +82,11 @@ uncommitted checkout.
 
 ## Closeout
 
-- [ ] **T9** (R1–R12) — Verify a `// Covers: R<n>` test for every requirement, run the full
+- [x] **T9** (R1–R12) — Verify a `// Covers: R<n>` test for every requirement, run the full
   project quality gate and reviewer Pass 2, then publish only after APPROVED and a fresh receipt.
   - Test: per-requirement annotation sweep over the tests named above and the full quality gate,
     with `// Covers: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12` in the final integration
     test rather than a prose-only assertion.
+  - Verified: annotation sweep covers R1–R12; real integration test is
+    `packages/cli/src/lib/__tests__/engine-neutral-state-integration.test.ts`; reviewer APPROVED
+    and the full project quality gate exited 0.

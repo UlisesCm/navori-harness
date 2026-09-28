@@ -132,7 +132,7 @@ describe("analysis cascade — one lookup instead of four blocks (#379 B)", () =
     // Deleted from the always-on block: "hand the implementer the path to the
     // audit". Both agents in that handoff still carry it.
     expect(read("agents/orchestrator.md")).toMatch(
-      /hand the implementer the path to \*{0,2}`?\.claude\/progress\/audit_ticket_<ID>\.md/i,
+      /hand the implementer the path to \*{0,2}`?\.navori\/state\/handoffs\/audit_ticket_<ID>\.md/i,
     );
     expect(read("agents/implementer.md")).toContain("audit_ticket_<ID>.md");
     // Deleted from the intake skill: rules whose canonical owner is another asset.

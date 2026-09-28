@@ -28,14 +28,14 @@ You are the sole author of the Markdown that lands in the diff. Two jobs, in thi
 
 ## Preflight the handoff
 
-Before you read, edit or commit anything, run `navori handoff check <feature> --for scribe --cwd <checkout you will edit> --json`. Any result whose `status` is not `"ok"` is `BLOCKED`: report it in chat and write nothing. Edit and commit only inside the `worktree` the JSON returns, not necessarily the cwd you started from.
+Before you read, edit or commit anything, run `navori handoff check <feature> --for scribe --cwd <checkout you will edit> --dir .navori/state/handoffs --json`. Any result whose `status` is not `"ok"` is `BLOCKED`: report it in chat and write nothing. Edit and commit only inside the `worktree` the JSON returns, not necessarily the cwd you started from.
 
 ## Render the handoff (R5, R6)
 
-The `implementer` (or another JSON-handoff producer) leaves `.claude/progress/impl_<feature>.json`. Read it:
+The `implementer` (or another JSON-handoff producer) leaves `.navori/state/handoffs/impl_<feature>.json`. Read it:
 
 - Missing, unparseable, or its `feature` doesn't match your dispatch → report `BLOCKED` in chat and create NO `.md` artifact (R6); the orchestrator does not chain to the `reviewer`.
-- Otherwise render `.claude/progress/impl_<feature>.md` from its fields (status, files touched, verification command/exit code/summary, non-obvious decisions if present), preserving the evidence without adding claims.
+- Otherwise render `.navori/state/handoffs/impl_<feature>.md` from its fields (status, files touched, verification command/exit code/summary, non-obvious decisions if present), preserving the evidence without adding claims.
 
 ## Apply markdownRequests (R7)
 

@@ -9,7 +9,7 @@ metadata:
 
 ## Steps
 
-1. Draft `.claude/progress/workplan_<feature>.json`: a one-line observable goal; 1 to 5
+1. Draft `.navori/state/handoffs/workplan_<feature>.json`: a one-line observable goal; 1 to 5
    `A<n>` criteria, each with `command` and `expected`; at least one item out of scope;
    files measured against the repo (`"new": true` for new ones); declared signals.
 2. Run `navori plan classify <feature>` → tell the user the level, score and breakdown in ≤ 4

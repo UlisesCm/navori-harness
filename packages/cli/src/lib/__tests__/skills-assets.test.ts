@@ -104,7 +104,7 @@ describe("plan-simple / plan-advanced — literal content contract (T9)", () => 
 
   it("plan-simple names the workplan draft fields (R10, R13)", () => {
     const body = readSkill("plan-simple");
-    expect(body).toContain(".claude/progress/workplan_<feature>.json");
+    expect(body).toContain(".navori/state/handoffs/workplan_<feature>.json");
     expect(body).toContain('"new": true');
   });
 

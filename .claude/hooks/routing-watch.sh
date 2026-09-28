@@ -1,4 +1,4 @@
-# navori:managed start id="routing-watch-base" hash="0485779b" version="0.10.1" source="@navori/core"
+# navori:managed start id="routing-watch-base" hash="d8ef382e" version="0.10.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse routing watcher (spec 0020).
@@ -74,8 +74,8 @@ set -uo pipefail
 #              stamp. Measured over the park, 53.8% of Bash calls — and Bash is
 #              80.4% of every tool call — so this is the dominant path.
 #   3 spawns — a session already `#delegated` or `#notified`: + `session_id`
-#              and `git rev-parse --git-common-dir` (#1024 — resolves where the
-#              stamp now lives, off `.claude/`), and the stamp check exits.
+#              and checkout-root validation (Spec 0036), then the local stamp
+#              check exits.
 #   5 spawns — an edit that actually counts: + `agent_id` (the subagent guard
 #              below) + the file path.
 #   6 spawns — a `Bash` whose PAYLOAD looked like a write but whose COMMAND is
@@ -164,14 +164,13 @@ if [ "$nv_engine" = codex ]; then
   # monorepo; the project root is always the git toplevel from there. Falls
   # back to the raw cwd outside a git work tree rather than failing closed.
   nv_project_dir=$(git -C "${nv_cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || nv_project_dir=${nv_cwd:-.}
-  # Mirrors CODEX_MIRRORED_DIRS (engines/codex/compat.ts): where render WRITES
-  # ephemeral handoff/progress state under Codex, not an absolute path — the
-  # caller composes it with `nv_project_dir` when it needs one.
-  nv_progress_dir=".codex/progress"
 else
   nv_project_dir=${CLAUDE_PROJECT_DIR:-}
-  nv_progress_dir=".claude/progress"
 fi
+
+# Runtime handoffs have one engine-neutral home. The caller composes this
+# relative path with its checkout root; legacy roots remain readable only.
+nv_progress_dir=".navori/state/handoffs"
 
 # The Claude-equivalent tool name for the CURRENT PreToolUse/PostToolUse
 # payload (D2: apply_patch -> Edit, spawn_agent -> Agent, everything else
@@ -542,7 +541,8 @@ navori_audit_log() {
 }
 navori_audit_begin
 
-cd "${nv_project_dir:-.}" 2>/dev/null || exit 0
+[ -n "${nv_project_dir:-}" ] || exit 0
+cd "$nv_project_dir" 2>/dev/null || exit 0
 
 # See the header for why this is still 4 and not 1. Changing this number changes when
 # the note fires and nothing else.
@@ -646,23 +646,24 @@ fi
 sid=$(payload_field session_id | tr -cd 'A-Za-z0-9._-')
 [ -n "$sid" ] || sid="unknown-session"
 
-# #1024: the stamp dir used to live at `.claude/.routing-watch/`, written
-# unconditionally with no `gitignoreHarness` check — so under the default
-# `"off"` config an ordinary 4-file session dirtied the tree, with no
-# `.gitignore` involved to catch it. `--git-common-dir` resolves to the SHARED
-# `.git` even inside an agent worktree, where `.git` is a file pointing at the
-# main checkout — mirrors `managed-drift-watch.sh`'s identical fix. Outside a
-# git repo, or a corrupt/missing `.git`, there is nowhere safe to persist this
-# stamp: skip silently (fail-open, same discipline as every other exit here)
-# rather than fall back to `.claude/`.
-common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
-case "$common_dir" in
-  /*) ;;
-  *) common_dir="$PWD/$common_dir" ;;
-esac
-
-stamp_dir="$common_dir/navori/routing-watch"
+# Spec 0036: each linked checkout owns its stamps. The old shared Git-dir
+# stamps remain untouched, so an existing session can receive one new notice
+# after upgrade. Missing roots and symlinked state paths skip silently: this
+# advisory must never create state outside its checkout or block the tool.
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+repo_root=$(cd "$repo_root" 2>/dev/null && pwd -P) || exit 0
+[ "$repo_root" = "$(pwd -P)" ] || exit 0
+for component in .navori .navori/state .navori/state/hooks .navori/state/hooks/routing-watch; do
+  [ ! -L "$component" ] || exit 0
+  if [ -e "$component" ]; then
+    [ -d "$component" ] || exit 0
+  else
+    mkdir "$component" 2>/dev/null || exit 0
+  fi
+done
+stamp_dir="$PWD/.navori/state/hooks/routing-watch"
 stamp="$stamp_dir/$sid"
+[ ! -L "$stamp" ] || exit 0
 
 # Append a line unless it is already there. Silent on every failure: a stamp
 # that cannot be written means no note, never an error.

@@ -1,4 +1,4 @@
-<!-- navori:managed id="orquestacion" hash="b9b955e8" version="0.10.1" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="49bcab7e" version="0.10.1" source="@navori/core" -->
 ## Role: orchestrator (every change goes through the harness)
 
 You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator role: you decompose, you coordinate, you synthesize — but you **NEVER delegate that role**: do not invoke `Agent(subagent_type: orchestrator)`. `.claude/agents/orchestrator.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
@@ -13,13 +13,13 @@ There used to be a ladder (inline for small changes, delegate for the rest). It 
 |---|---|
 | change **source** — code, tests, config the program reads, or the harness prose an agent obeys | `implementer` → `reviewer`. Always. No file count, no triviality judgement |
 | **answer, explain, investigate, review, or plan** | you do it. Nothing is written, so there is nothing to review. Delegate only as a **lever for scale** (see the signal table) |
-| write an **ephemeral** file — `.claude/progress/*`, a scratch script, a throwaway probe | you do it. It ships nothing and reaches no diff |
+| write an **ephemeral** file — `.navori/state/handoffs/*`, a scratch script, a throwaway probe | you do it. It ships nothing and reaches no diff |
 | run commands, read files, inspect state | you do it |
 
 
 ### The mechanics
 
-- **Before dispatching**, run `navori handoff check <feature> --dir .claude/progress --json`; continue only on `"status":"ok"`.
+- **Before dispatching**, run `navori handoff check <feature> --dir .navori/state/handoffs --json`; continue only on `"status":"ok"`.
 - **1 focused `implementer`** with an explicit scope (no SDD state), then **1 `scribe`** when `impl_<feature>.json` carries `markdownRequests` (model per dispatch — the scribe's configured default for a handoff-only render, `sonnet` when a request touches the shipped diff, R8), then **1 fresh `reviewer`**. Serial — the reviewer depends on the implementer's (and, when it ran, the scribe's) output.
 - **Review AFTER implementing, never before.**
 - **Parallel `implementer`s only on disjoint files** (when in doubt, serial).

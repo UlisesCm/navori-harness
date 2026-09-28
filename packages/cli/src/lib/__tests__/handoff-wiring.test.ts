@@ -30,9 +30,10 @@ function codexConfig(): NavoriConfig {
 describe("orquestacion.md orders the preflight before dispatch (R14, R17)", () => {
   const block = read("managed/orquestacion.md");
 
-  it("invokes navori handoff check with --dir .claude/progress and --json", () => {
+  // Covers: R1, R9, R12
+  it("invokes navori handoff check in the neutral root with --json", () => {
     expect(block).toContain("navori handoff check");
-    expect(block).toContain("--dir .claude/progress");
+    expect(block).toContain("--dir .navori/state/handoffs");
     expect(block).toContain("--json");
   });
 
@@ -40,11 +41,10 @@ describe("orquestacion.md orders the preflight before dispatch (R14, R17)", () =
     expect(block).toContain('"status":"ok"');
   });
 
-  it("retargets to .codex/progress in the Codex render, same pattern as receipt (R17)", () => {
+  it("keeps the neutral root in the Codex render (R17)", () => {
     const adapted = adaptHarnessTextForCodex(block, codexConfig());
     expect(adapted).toContain("navori handoff check");
-    expect(adapted).toContain("--dir .codex/progress");
-    expect(adapted).not.toContain(".claude/progress");
+    expect(adapted).toContain("--dir .navori/state/handoffs");
   });
 });
 
@@ -101,6 +101,15 @@ describe("subagent-stop-handoff.sh stays advisory and in parity with REQUIRED_IM
       .map((k) => k.trim().replace(/^"|"$/g, ""))
       .filter(Boolean);
     expect(keys.sort()).toEqual([...REQUIRED_IMPL_KEYS].sort());
+  });
+
+  // Covers: R9, R12
+  it("includes one shared input adapter and scans neutral handoffs", () => {
+    expect(hook).toContain("# navori:include extract-cmd");
+    expect(hook).toContain("# navori:include hook-input");
+    expect(hook).toContain("navori_subagent_type=$(nv_subagent_type)");
+    expect(hook).not.toContain("navori_field() {");
+    expect(hook).toContain('".navori/state/handoffs"');
   });
 });
 

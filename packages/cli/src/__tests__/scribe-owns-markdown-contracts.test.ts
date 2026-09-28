@@ -41,8 +41,8 @@ function renderedSkill(id: string, scribeOwnsMarkdown: boolean): string {
 describe("implementer.md — flag OFF keeps the current contract (R13)", () => {
   it("still instructs writing impl_<feature>.md and gives no JSON contract", () => {
     const off = renderedAgent("implementer", false);
-    expect(off).toContain("Write `.claude/progress/impl_<feature>.md`");
-    expect(off).toContain("done -> .claude/progress/impl_<feature>.md");
+    expect(off).toContain("Write `.navori/state/handoffs/impl_<feature>.md`");
+    expect(off).toContain("done -> .navori/state/handoffs/impl_<feature>.md");
     expect(off).not.toContain("impl_<feature>.json");
     expect(off).not.toContain("markdownRequests");
   });
@@ -54,14 +54,14 @@ describe("implementer.md — flag ON carries the R1/R2 contract", () => {
   // Covers: R1
   it("states the .md/.mdx prohibition explicitly and gives no instruction to write one", () => {
     expect(on).toMatch(/SHALL NOT create or edit any file whose name ends in `\.md` or `\.mdx`/);
-    expect(on).not.toContain("Write `.claude/progress/impl_<feature>.md`");
+    expect(on).not.toContain("Write `.navori/state/handoffs/impl_<feature>.md`");
     expect(on).not.toMatch(/Write.*impl_<feature>\.md/);
   });
 
   // Covers: R2
   it("writes impl_<feature>.json with every required key and returns its path", () => {
     expect(on).toContain("impl_<feature>.json");
-    expect(on).toContain("done -> .claude/progress/impl_<feature>.json");
+    expect(on).toContain("done -> .navori/state/handoffs/impl_<feature>.json");
     for (const key of [
       '"feature"',
       '"status"',

@@ -12,7 +12,7 @@ metadata:
   maxWords: 1119
 ---
 
-<!-- navori:managed id="solution-design" hash="8ed39a46" version="0.10.1" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="solution-design" hash="407ad8d9" version="0.10.1" source="@navori/core" fmkeys="name,description,metadata" -->
 # solution-design — decide what to build, then try to break it
 
 ## When to use this skill
@@ -116,7 +116,7 @@ missing fact, or wrong picks are expensive to undo.
 Never blockers: naming preference, a hypothetical future abstraction, a minor
 optimization, an optional edge case, stylistic architecture taste.
 
-## Artifact — `.claude/progress/solution_<scope>.md`
+## Artifact — `.navori/state/handoffs/solution_<scope>.md`
 
 ```markdown
 # Solution — <scope>

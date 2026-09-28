@@ -1,6 +1,6 @@
 ## Planning tiers — classified, never chosen
 
-Before planning, write the draft `.claude/progress/workplan_<feature>.json` (files, signals) and
+Before planning, write the draft `.navori/state/handoffs/workplan_<feature>.json` (files, signals) and
 run `navori plan classify <feature>`. The level comes from that command, never judgement.
 
 | Level | When | Before dispatching the `implementer` |
