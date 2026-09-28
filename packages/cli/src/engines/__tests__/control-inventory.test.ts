@@ -210,6 +210,8 @@ function assertControlMatchesRender(cwd: string, engineId: EngineId, controlId: 
     if (controlId === "plan-gate") {
       const configToml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
       expect(declaration.state).toBe("advisory");
+      expect(declaration.reason).toContain("Codex 0.158.0");
+      expect(declaration.reason).toContain("no typed agent role");
       expect(configToml).not.toContain("plan-gate.sh");
       expect(configToml).toContain("implementer-no-markdown.sh");
     }
