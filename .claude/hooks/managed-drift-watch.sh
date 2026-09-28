@@ -1,4 +1,4 @@
-# navori:managed start id="managed-drift-watch-base" hash="4ee7ab8e" version="0.10.1" source="@navori/core"
+# navori:managed start id="managed-drift-watch-base" hash="9a769e6f" version="0.10.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse watcher for managed-block drift (#530), on every tool that can
@@ -604,25 +604,28 @@ navori_audit_on_exit() {
 }
 trap navori_audit_on_exit EXIT
 
-cd "${nv_project_dir:-.}" 2>/dev/null || exit 0
+[ -n "${nv_project_dir:-}" ] || exit 0
+cd "$nv_project_dir" 2>/dev/null || exit 0
 
-# #1024: the stamp used to live at `.claude/.managed-drift-stamp`, written
-# unconditionally with no `gitignoreHarness` check — so under the default
-# `"off"` config the FIRST tool call in every session dirtied the tree, with no
-# `.gitignore` involved to catch it. `--git-common-dir` resolves to the SHARED
-# `.git` even when this hook runs inside an agent worktree, where `.git` is a
-# file pointing at the main checkout (#454's same scope note applies here).
-# Outside a git repo, or a corrupt/missing `.git`, there is nowhere safe to
-# persist this stamp: skip silently rather than fall back to `.claude/` — this
-# is a detector, not a gate, so losing one session's drift check costs less
-# than reintroducing the untracked-file problem it exists to prevent.
-common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
-case "$common_dir" in
-  /*) ;;
-  *) common_dir="$PWD/$common_dir" ;;
-esac
-state_dir="$common_dir/navori"
+# Spec 0036: stamps belong to the active checkout, not the shared Git dir.
+# Old stamps are deliberately left untouched. This re-arms the baseline once
+# after upgrade; a routing notice may likewise fire once more for a session.
+# A missing root, non-root cwd, or symlinked state component is unsafe: this
+# detector skips rather than following a path outside the checkout.
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+repo_root=$(cd "$repo_root" 2>/dev/null && pwd -P) || exit 0
+[ "$repo_root" = "$(pwd -P)" ] || exit 0
+state_dir="$PWD/.navori/state/hooks"
+for component in .navori .navori/state .navori/state/hooks; do
+  [ ! -L "$component" ] || exit 0
+  if [ -e "$component" ]; then
+    [ -d "$component" ] || exit 0
+  else
+    mkdir "$component" 2>/dev/null || exit 0
+  fi
+done
 stamp="$state_dir/managed-drift-stamp"
+[ ! -L "$stamp" ] || exit 0
 
 # sha1 tool, resolved once. `shasum` on macOS, `sha1sum` on most Linuxes; both
 # print `<hash>  <path>` for a file list, which is the format the stamp stores.

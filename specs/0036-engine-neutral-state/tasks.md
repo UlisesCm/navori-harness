@@ -53,12 +53,12 @@ uncommitted checkout.
 
 ## Batch C — Hook ownership and generated contracts
 
-- [ ] **T6** (R2, R10) — Move managed-drift and routing-watch stamps to checkout-local
+- [x] **T6** (R2, R10) — Move managed-drift and routing-watch stamps to checkout-local
   `.navori/state/hooks/` while retaining session-ID sanitization and fail-safe detector behavior.
   Leave old Git-common-dir stamps untouched and document the one-time re-arming of notices.
   - Test: `lib/__tests__/managed-drift-watch.test.ts` and
     `lib/__tests__/routing-watch.test.ts` cover two linked worktrees, identical session IDs,
-    unsafe/missing roots, and old-stamp preservation, with `// Covers: R2, R10`.
+    unsafe/missing roots, and old-stamp preservation, with `// Covers: R2, R10`. Implementer verification: final-stamp symlink regressions were red before the fix; focused Vitest 42/42 passed after the fix; pending final reviewer.
 - [ ] **T7** (R1, R9, R12) — Change source assets and Codex adaptation to cite neutral
   handoffs; remove only Codex's progress-path rewrite. Preserve engine vocabulary, hook
   registration, and the landed Spec 0035 input parser. Move `lib/plan/gate.ts` and
