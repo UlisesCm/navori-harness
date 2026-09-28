@@ -2241,19 +2241,20 @@ El usuario decidió conservar `scribe`, cerrar #985, corregir los dos goldens de
 Conservar en un PR parcial el avance aprobado de Spec 0037 sin presentar la spec como terminada.
 
 ## Instructions
-El usuario pidió guardar el avance y cerrar la sesión pronto. No afirmar que el PR ya se abrió ni elevar las conclusiones live de T9.
+El usuario pidió guardar el avance y cerrar la sesión pronto. PR parcial #1089 abierto a `main`; CI falló en `check:links` por handoffs/receipts ignorados. No elevar las conclusiones live de T9.
 
 ## Discoveries
 - La revisión combinada de T6/T12 quedó APPROVED con gate completo verde: 300 archivos de tests, 5,498 aprobados y 1 omitido.
 - T9/L03 sigue inconcluso; L04 no se ejecutó. T10/T11 dependen de evidencia verificable de T9; T15/T16 requieren autorización de campaña.
 - La branch contiene 13 commits locales sobre `origin/main`.
+- CI de #1089 detectó cuatro enlaces README a handoffs/receipts fuera de Git; la reparación queda pendiente de rerun y monitoreo.
 
 ## Accomplished
 - Se actualizaron README y tasks para registrar T1–T6, T8 y T12–T14 completos: 10/19; 9 pendientes.
-- Se registró el checkpoint de continuación y el plan de PR parcial; no se afirma PR abierto.
+- Se registró el checkpoint de continuación y el plan de reparación de enlaces/CI del PR #1089.
 
 ## Next Steps
-- Abrir el PR parcial y continuar T7.
+- Corregir los enlaces efímeros en README, rerun de CI y monitorear PR #1089; después continuar T7.
 - Retomar T9 solo con nueva evidencia diagnóstica/live aprobada; mantener T10/T11 dependientes y pedir autorización separada para T15/T16.
 
 ## Relevant Files

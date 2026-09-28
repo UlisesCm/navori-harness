@@ -57,37 +57,36 @@ equivalencia demostrada.
   exactos: [baseline.md](baseline.md), evidencia V01/V03/V14/V18.
 - T2 distingue procedencia del CLI/entrypoint y evidencia por engine/ubicación, sin alterar el
   inventario JSON existente ni inferir ejecución a partir de registro/trust. Sus 27 pruebas enfocadas
-  cubrieron procedencias, mismatches de registro, plugins ausentes y estados operativos. Lint y
-  typecheck pasaron; no se ejecutaron controles live. Véase la
-  [revisión fresca T2](../../.codex/progress/review_spec0037_t2_rereview.md).
+  cubrieron procedencias, mismatches de registro, plugins ausentes y estados operativos. Revisión
+  fresca APPROVED; lint, typecheck y gate completo pasaron. No se ejecutaron controles live. Véase
+  [tasks.md](tasks.md) para el estado de revisión por tarea.
 - La revisión fresca de T1 fue **APPROVED** (`SPEC_OK`, `QUALITY_OK`) y el gate completo del repo
-  terminó con exit 0. El receipt `.codex/progress/receipt.txt` reportó `status: ok`, `fresh: true`,
-  sin `uncovered` ni `drift`, con target `main` en `13106729`. El reviewer aclara que Semgrep/jscpd
-  reportaron cero archivos TS cambiados, no un escaneo de estos Markdown.
+  terminó con exit 0; la verificación reportó `status: ok`, `fresh: true`, sin `uncovered` ni
+  `drift`, con target `main` en `13106729`. El reviewer aclara que Semgrep/jscpd reportaron cero
+  archivos TS cambiados, no un escaneo de estos Markdown.
 - La revisión fresca combinada de T1/T2/T4 fue **APPROVED** (`SPEC_OK`, `QUALITY_OK`); el gate
-  completo pasó y el receipt reportó `status: ok`, `fresh: true`, sin `uncovered` ni `drift` para el
-  publish set revisado. Este cierre administrativo modifica README/tasks después de esa firma, por
-  lo que el receipt ya no es fresco para el contenido actual; renovar revisión y firma antes de
-  publicar/cerrar. Un receipt de contenido no certifica paridad runtime ni trust efectivo.
+  completo pasó y la verificación reportó `status: ok`, `fresh: true`, sin `uncovered` ni `drift`
+  para el publish set revisado. Ese resultado histórico no aplica al contenido administrativo
+  actualizado después; renovar revisión antes de publicar/cerrar. Una verificación de contenido no
+  certifica paridad runtime ni trust efectivo.
 - T3 fue **APPROVED** en revisión fresca y pasó el gate completo. Claude conserva plan-gate enforced
   por hook y Codex se mantiene advisory; no hubo campaña live y permanecen los criterios de
-  reapertura #1082. La firma era fresca para el publish set revisado, pero este cierre de README/tasks
-  la vuelve obsoleta; renovar antes de publicar/cerrar.
+  reapertura #1082. La revisión anterior no cubre los cambios administrativos posteriores; renovar
+  antes de publicar/cerrar.
 - Solo como antecedente, el intento de redacción de la spec del 2026-09-28 reportó varios checks
   documentales verdes, `semgrep:check` detenido por `ca-certs: empty trust anchors` y receipt no
   disponible tras un fetch fallido por DNS. Ese gate parcial y ese fallo no describen el checkout
   ni las verificaciones de T1; no se desactivó TLS para forzarlo.
 
 El baseline de T1 está documentado en [baseline.md](baseline.md) sobre HEAD `13106729`, que incluye
-#1084. Véanse la [revisión fresca de T1](../../.codex/progress/review_spec0037_t1.md) y el receipt
-`.codex/progress/receipt.txt`. T3 fue aprobado en la [revisión fresca](../../.codex/progress/review_spec0037_t3_rereview.md);
-las campañas live restantes y las 11 tareas pendientes permanecen sin completar.
+#1084. T1 y T3 fueron aprobados en revisión fresca; las campañas live restantes y las 9 tareas
+pendientes permanecen sin completar.
 
 T5 comparte el registro de scripts de plugins entre engines y materializa gates traducibles de
 Semgrep/jscpd en Codex con pruebas de fixtures; no afirma cobertura universal de comandos ni trust
 efectivo. T14 amplía pruebas de render/discovery de skills compartidas y políticas de invocación,
 sin sumar otra capa always-on. La revisión combinada T5/T14 fue **APPROVED** con gate completo;
-véase [review_spec0037_t5.md](../../.navori/state/handoffs/review_spec0037_t5.md).
+véase [tasks.md](tasks.md) para evidencia versionada por tarea.
 
 T8 materializó `.codex/orchestrator.md` como referencia managed opcional desde el playbook compartido,
 sin crear un perfil de agente ni sumar su contenido al contexto always-on salvo que se abra la
@@ -99,10 +98,10 @@ T13 añade a `doctor --json` ejes read-only para tgrep, CodeGraph y Engram: CLI/
 y frescura/resultado, y lectura/escritura. Los 35 tests dirigidos y el gate completo revisado no son
 campañas runtime: el resultado de búsqueda, la invocación MCP y las operaciones Engram siguen sin
 verificarse en vivo; L02/L08 permanecen pendientes. Doctor no instala herramientas, inicia
-servidores, reindexa ni escribe memoria. La revisión combinada T8/T13 fue **APPROVED** y el receipt
-`.codex/progress/receipt.txt` reportó `status: ok`, `fresh: true` en HEAD `785367f6` (commits
-`785367f6` T8 y `a88a7781` T13; gate completo: 298 archivos, 5,436 tests aprobados). Este receipt
-acredita el diff revisado, no campañas live ni trust efectivo.
+servidores, reindexa ni escribe memoria. La revisión combinada T8/T13 fue **APPROVED** y la
+verificación reportó `status: ok`, `fresh: true` en HEAD `785367f6` (commits `785367f6` T8 y
+`a88a7781` T13; gate completo: 298 archivos, 5,436 tests aprobados). Ese resultado acredita el diff
+revisado, no campañas live ni trust efectivo.
 En la campaña T9, L03 (selección de perfil y MCP) se intentó en un fixture desechable con
 autenticación existente y stub local, pero quedó inconcluso: un error de infraestructura terminó el
 proceso con exit 0 y no hubo observaciones útiles de selección efectiva de perfil o filtros MCP.
