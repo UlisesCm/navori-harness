@@ -213,8 +213,9 @@ export const doctorCommand = defineCommand({
     const otelReceiver = await scanOtelReceiver(config);
     // #943: informational, per-provider, only for plugins the config enables.
     // Two sibling scans, not one branching check — see each for why.
-    const tgrepIndexFreshness = scanTgrepFreshness(cwd, config);
-    const codegraphIndexDrift = scanCodegraphDrift(cwd, config);
+    const operationalTools = scanOperationalTools(cwd, config);
+    const tgrepIndexFreshness = operationalTools.tgrep?.staleIndex ?? null;
+    const codegraphIndexDrift = operationalTools.codegraph?.indexDrift ?? null;
     const monorepoDrift = scanMonorepoDrift(cwd, config);
     const workspaceLink = scanWorkspaceLink(cwd, config);
     // #368: the gate the whole pipeline leans on, checked statically — a gate
@@ -385,6 +386,7 @@ export const doctorCommand = defineCommand({
       otelReceiver,
       tgrepIndexFreshness,
       codegraphIndexDrift,
+      operationalTools,
       // The four warning-level checks below are serialized verbatim, in the
       // order the human output prints them: a CI pipeline (or an agent) reading
       // `--json` was blind to all of them, which defeats the purpose of #368 and
@@ -2048,6 +2050,201 @@ export interface TgrepIndexFreshness {
   age: string;
   /** Absolute path `tgrep serve` should be pointed at. */
   rootPath: string;
+}
+
+type OperationalStatus = "verified" | "unverified";
+
+interface OperationalObservation {
+  status: OperationalStatus;
+  reason?: string;
+}
+
+interface SearchOperationalDiagnostic {
+  cli: OperationalObservation;
+  mcp: OperationalObservation;
+  index: OperationalObservation & { state?: string };
+  result: OperationalObservation;
+  staleIndex?: TgrepIndexFreshness;
+  indexDrift?: CodegraphIndexDrift;
+}
+
+interface EngramOperationalDiagnostic {
+  cli: OperationalObservation;
+  mcp: OperationalObservation;
+  read: OperationalObservation;
+  write: OperationalObservation;
+}
+
+export interface OperationalToolDiagnostics {
+  tgrep: SearchOperationalDiagnostic | null;
+  codegraph: SearchOperationalDiagnostic | null;
+  engram: EngramOperationalDiagnostic | null;
+}
+
+export function probeFailureReason(error: unknown): string {
+  const value = typeof error === "object" && error !== null ? error : {};
+  const code = "code" in value && typeof value.code === "string" ? value.code : "";
+  const message = error instanceof Error ? error.message : "";
+  const stderr =
+    "stderr" in value && (typeof value.stderr === "string" || Buffer.isBuffer(value.stderr))
+      ? String(value.stderr)
+      : "";
+  const detail = `${code} ${message} ${stderr}`;
+  if (/CERT|SSL|TLS|SELF_SIGNED|UNABLE_TO_VERIFY/i.test(detail)) return "ca-or-tls-error";
+  if (/EACCES|EPERM|SQLITE_CANTOPEN|permission denied/i.test(detail)) return "permission-denied";
+  if (/ETIMEDOUT|timed out|timeout/i.test(detail)) return "timeout";
+  if (/ENETUNREACH|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|network unreachable/i.test(detail)) {
+    return "network-unreachable";
+  }
+  if (/invalid session|unknown session|session expired/i.test(detail)) return "invalid-session";
+  return "status-command-failed";
+}
+
+/** Read-only operational evidence. Status is not a result query or an MCP handshake. */
+export function scanOperationalTools(
+  cwd: string,
+  config: NavoriConfig,
+): OperationalToolDiagnostics {
+  let tgrep: SearchOperationalDiagnostic | null = null;
+  if (config.plugins?.tgrep?.enabled === true) {
+    const mcp = { status: "unverified", reason: "no-mcp-query" } as const;
+    const result = { status: "unverified", reason: "no-result-query" } as const;
+    if (!hasBinary("tgrep")) {
+      const absent = {
+        status: "unverified",
+        reason: "binary-missing",
+      } as const;
+      tgrep = { cli: absent, mcp, index: absent, result };
+    } else {
+      try {
+        const raw = execFileSync("tgrep", ["status", cwd], {
+          encoding: "utf-8",
+          stdio: ["ignore", "pipe", "pipe"],
+          timeout: 5000,
+        });
+        const parsed = parseTgrepStatusOutput(raw);
+        tgrep = {
+          cli: { status: "verified" },
+          mcp,
+          index:
+            parsed.kind === "unrecognized"
+              ? { status: "unverified", reason: "unrecognized-status-output" }
+              : { status: "verified", state: parsed.kind },
+          result,
+          ...(parsed.kind === "stale"
+            ? { staleIndex: { age: parsed.age, rootPath: parsed.rootPath } }
+            : {}),
+        };
+      } catch (error) {
+        const failed = {
+          status: "unverified",
+          reason: probeFailureReason(error),
+        } as const;
+        tgrep = { cli: failed, mcp, index: failed, result };
+      }
+    }
+  }
+
+  let codegraph: SearchOperationalDiagnostic | null = null;
+  if (config.plugins?.codegraph?.enabled === true) {
+    const mcp = { status: "unverified", reason: "no-mcp-query" } as const;
+    const result = { status: "unverified", reason: "no-result-query" } as const;
+    let indexState: "present" | "missing" | "unverified" = "present";
+    let indexReason = "index-inspection-failed";
+    try {
+      if (!statSync(join(cwd, ".codegraph")).isDirectory()) indexState = "unverified";
+    } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "ENOENT"
+      ) {
+        indexState = "missing";
+      } else {
+        indexState = "unverified";
+        indexReason = probeFailureReason(error);
+      }
+    }
+    if (!hasBinary("codegraph")) {
+      const absent = {
+        status: "unverified",
+        reason: "binary-missing",
+      } as const;
+      codegraph = { cli: absent, mcp, index: absent, result };
+    } else if (indexState === "missing") {
+      codegraph = {
+        cli: { status: "unverified", reason: "no-status-query" },
+        mcp,
+        index: { status: "verified", state: "no-index" },
+        result,
+      };
+    } else if (indexState === "unverified") {
+      codegraph = {
+        cli: { status: "unverified", reason: "no-status-query" },
+        mcp,
+        index: { status: "unverified", reason: indexReason },
+        result,
+      };
+    } else {
+      try {
+        const raw = execFileSync("codegraph", ["status", "--json", cwd], {
+          encoding: "utf-8",
+          stdio: ["ignore", "pipe", "pipe"],
+          timeout: 5000,
+        });
+        const parsed: unknown = JSON.parse(raw);
+        const status = isPlainObject(parsed) ? parsed : null;
+        const index = status && isPlainObject(status.index) ? status.index : null;
+        const valid =
+          typeof status?.version === "string" &&
+          index !== null &&
+          typeof index.builtWithVersion === "string" &&
+          typeof index.reindexRecommended === "boolean";
+        codegraph = {
+          cli: { status: "verified" },
+          mcp,
+          result,
+          index: valid
+            ? {
+                status: "verified",
+                state: index?.reindexRecommended === true ? "version-drift" : "present",
+              }
+            : { status: "unverified", reason: "unrecognized-status-output" },
+          ...(valid && index?.reindexRecommended === true
+            ? {
+                indexDrift: {
+                  builtWithVersion: index.builtWithVersion as string,
+                  currentVersion: status?.version as string,
+                },
+              }
+            : {}),
+        };
+      } catch (error) {
+        const failed = {
+          status: "unverified",
+          reason: probeFailureReason(error),
+        } as const;
+        codegraph = { cli: failed, mcp, index: failed, result };
+      }
+    }
+  }
+
+  const engram =
+    config.plugins?.engram?.enabled === true
+      ? {
+          cli: hasBinary("engram")
+            ? ({ status: "unverified", reason: "no-read-query" } as const)
+            : ({ status: "unverified", reason: "binary-missing" } as const),
+          mcp: { status: "unverified", reason: "no-mcp-handshake" } as const,
+          read: { status: "unverified", reason: "no-read-query" } as const,
+          write: {
+            status: "unverified",
+            reason: "runtime-identity-unavailable",
+          } as const,
+        }
+      : null;
+  return { tgrep, codegraph, engram };
 }
 
 /**

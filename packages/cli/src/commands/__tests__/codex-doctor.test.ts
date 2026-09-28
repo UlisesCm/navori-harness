@@ -26,7 +26,9 @@ import { tc } from "../../lib/i18n.ts";
 // throwaway fake home, never the developer's real `~/.codex` (critical-area
 // invariant: this test file must never touch it).
 const codexHome = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../lib/primitives/home.ts"), () => ({ safeHomedir: () => codexHome.dir }));
+vi.mock(import("../../lib/primitives/home.ts"), () => ({
+  safeHomedir: () => codexHome.dir,
+}));
 
 const {
   isCodexVersionTooOld,
@@ -36,6 +38,8 @@ const {
   buildDoctorProvenance,
   inspectPathCli,
   computeHealthVerdict,
+  scanOperationalTools,
+  probeFailureReason,
 } = await import("../doctor.ts");
 
 function tempRepo(): string {
@@ -211,6 +215,122 @@ describe("scanCodexHealth (Spec 0007 M5)", () => {
     });
     const health = scanCodexHealth(cwd, config());
     expect(health?.guardNotVersioned).toEqual([]);
+  });
+});
+
+describe("operational tool diagnostics (Spec 0037 T13)", () => {
+  const originalPath = process.env.PATH;
+  afterEach(() => {
+    process.env.PATH = originalPath;
+  });
+
+  // Covers: R3, R16, R19
+  it("does not promote status output into search results, MCP calls, or Engram memory access", () => {
+    const cwd = tempRepo();
+    const bin = join(cwd, "bin");
+    mkdirSync(bin);
+    for (const [name, output] of [
+      ["tgrep", `Index status for ${cwd}\n  Updated:    2h ago\n  Server:     not running\n`],
+      [
+        "codegraph",
+        '{"version":"1.6.0","index":{"builtWithVersion":"1.5.0","reindexRecommended":true}}',
+      ],
+      ["engram", ""],
+    ] as const) {
+      const path = join(bin, name);
+      writeFileSync(path, `#!/bin/sh\nprintf '%b' ${JSON.stringify(output)}\n`);
+      chmodSync(path, 0o755);
+    }
+    mkdirSync(join(cwd, ".codegraph"));
+    process.env.PATH = bin;
+    const report = scanOperationalTools(
+      cwd,
+      config({
+        plugins: {
+          tgrep: { enabled: true },
+          codegraph: { enabled: true },
+          engram: { enabled: true },
+        },
+      }),
+    );
+    expect(report.tgrep?.index).toEqual({ status: "verified", state: "stale" });
+    expect(report.tgrep?.staleIndex?.age).toBe("2h");
+    expect(report.codegraph?.index).toEqual({
+      status: "verified",
+      state: "version-drift",
+    });
+    expect(report.codegraph?.indexDrift?.currentVersion).toBe("1.6.0");
+    expect(report.tgrep?.result).toEqual({
+      status: "unverified",
+      reason: "no-result-query",
+    });
+    expect(report.codegraph?.mcp).toEqual({
+      status: "unverified",
+      reason: "no-mcp-query",
+    });
+    expect(report.engram?.read).toEqual({
+      status: "unverified",
+      reason: "no-read-query",
+    });
+    expect(report.engram?.write).toEqual({
+      status: "unverified",
+      reason: "runtime-identity-unavailable",
+    });
+  });
+
+  // Covers: R3, R16, R19
+  it("reports missing binaries without invoking tools or fabricating a runtime session", () => {
+    const cwd = tempRepo();
+    process.env.PATH = join(cwd, "empty-bin");
+    const report = scanOperationalTools(
+      cwd,
+      config({
+        plugins: {
+          tgrep: { enabled: true },
+          codegraph: { enabled: true },
+          engram: { enabled: true },
+        },
+      }),
+    );
+    expect(report.tgrep?.cli).toEqual({
+      status: "unverified",
+      reason: "binary-missing",
+    });
+    expect(report.codegraph?.cli).toEqual({
+      status: "unverified",
+      reason: "binary-missing",
+    });
+    expect(report.engram?.cli).toEqual({
+      status: "unverified",
+      reason: "binary-missing",
+    });
+    expect(report.engram?.write.status).toBe("unverified");
+  });
+
+  // Covers: R3, R16
+  it("classifies a failed read-only status probe without claiming a clean index", () => {
+    const cwd = tempRepo();
+    const bin = join(cwd, "bin");
+    mkdirSync(bin);
+    const path = join(bin, "tgrep");
+    writeFileSync(path, "#!/bin/sh\necho UNABLE_TO_VERIFY_LEAF_SIGNATURE >&2\nexit 1\n");
+    chmodSync(path, 0o755);
+    process.env.PATH = bin;
+    const report = scanOperationalTools(cwd, config({ plugins: { tgrep: { enabled: true } } }));
+    expect(report.tgrep?.cli).toEqual({ status: "unverified", reason: "ca-or-tls-error" });
+    expect(report.tgrep?.index).toEqual({ status: "unverified", reason: "ca-or-tls-error" });
+    expect(report.tgrep?.result.status).toBe("unverified");
+  });
+
+  // Covers: R3
+  it.each([
+    ["UNABLE_TO_VERIFY_LEAF_SIGNATURE", "ca-or-tls-error"],
+    ["SQLITE_CANTOPEN", "permission-denied"],
+    ["ETIMEDOUT", "timeout"],
+    ["ENETUNREACH", "network-unreachable"],
+    ["invalid session", "invalid-session"],
+  ])("classifies %s as %s without claiming a clean check", (code, reason) => {
+    expect(probeFailureReason({ code })).toBe(reason);
   });
 });
 
@@ -480,7 +600,9 @@ describe("doctor evidence (Spec 0037 V01-V03)", () => {
   // Covers: R2, R3
   it("exposes each enabled plugin hook absent from Codex materialization", () => {
     const cwd = tempRepo();
-    const cfg = config({ plugins: { semgrep: { enabled: true }, jscpd: { enabled: true } } });
+    const cfg = config({
+      plugins: { semgrep: { enabled: true }, jscpd: { enabled: true } },
+    });
     mkdirSync(join(cwd, ".codex"), { recursive: true });
     writeFileSync(join(cwd, ".codex/config.toml"), buildCodexConfigToml(cfg, []).body);
     const rows = buildEngineEvidence(cfg, cwd);
