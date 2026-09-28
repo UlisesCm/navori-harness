@@ -1,6 +1,6 @@
 # Paridad operativa Claude / Codex CLI — Tasks
 
-**Estado:** T1–T5, T8, T13 y T14 aprobados y completos; 8 de 19 tareas completas y 11 pendientes.
+**Estado:** T1–T6, T8, T12–T14 aprobados y completos; 10 de 19 tareas completas y 9 pendientes.
 T9 sigue pendiente: L03 se intentó y quedó inconcluso; L04 no se ejecutó ([registro](live-t9.md)).
 No es un pass. Las autorizaciones puntuales para estas tareas no cubren otras tareas, campañas
 live/pagadas, instalaciones, cambios de trust ni publicación.
@@ -75,13 +75,16 @@ live/pagadas, instalaciones, cambios de trust ni publicación.
   (299 archivos de tests, 5,447 tests aprobados, 1 omitido). No acredita paridad live ni trust
   efectivo.
 
-- [ ] **T6** (R5, R6) — Preservar decisiones #510 y mejorar fidelidad del resultado/terminal de
+- [x] **T6** (R5, R6) — Preservar decisiones #510 y mejorar fidelidad del resultado/terminal de
   ambos scanners. Capturar exit original antes de cleanup; no reportar block para error que permite,
   ni allow por cleanup exitoso tras findings; jscpd exit1 ambiguo no afirma clones confirmados.
   Conservar cache/base/includes y tratar timeout externo como inconcluso, sin watchdog nuevo.
   · pruebas: **V05, V06**, `lib/__tests__/plugin-gate-hooks.test.ts` — positivos, negativos,
   errores, ausencia, señales, terminal y sentinel; entradas pareadas Claude/Codex.
   · depende de: T5 para paridad del script materializado.
+  · evidencia revisada: commit `75f1130b`; reviewer combinado T6/T12 **APPROVED** y gate completo
+  (300 archivos de tests, 5,498 aprobados, 1 omitido). Errores/omisiones quedan explícitos en stderr
+  y el JSONL de auditoría; `allow` del host no significa scan validado.
 
 - [ ] **T7** (R18, R20) — Completar ciclo de actualización/retiro de plugins y revisión trust para
   los nuevos registros/scripts. Verificar contenido manual, backup fallido, antirollback,
@@ -141,12 +144,15 @@ live/pagadas, instalaciones, cambios de trust ni publicación.
 
 ## Lote F — Modelos, herramientas y skills verificables
 
-- [ ] **T12** (R12) — Informar procedencia explicit/mapped/inherited de modelo y effort sin
+- [x] **T12** (R12) — Informar procedencia explicit/mapped/inherited de modelo y effort sin
   convertir omisión de architect en error ni forzar modelo raíz por orchestrator. Conservar overrides
   y mapeo actual; preparar baseline architect/reviewer para T16 sin elegir modelos nuevos.
   · pruebas: **V12**, `model-profile.test.ts`/`render-codex.test.ts` — herencia, overrides,
   mapeo y ausencia de cambio global.
   · depende de: T1–T2.
+  · evidencia revisada: commit `0eec446e`; reviewer combinado T6/T12 **APPROVED** y gate completo
+  (300 archivos de tests, 5,498 aprobados, 1 omitido). `effectiveObserved` permanece `null` y
+  `wouldRender` es una proyección de configuración, no observación del host.
 
 - [x] **T13** (R3, R16, R19) — Completar diagnóstico operativo read-only de tgrep/CodeGraph/Engram
   reutilizando scans existentes: CLI vs MCP, índice/frescura vs resultado, lectura vs escritura

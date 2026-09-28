@@ -1,12 +1,12 @@
 # Spec 0037 — Paridad operativa Claude / Codex CLI
 
-**Estado: spec completa; 8 de 19 tareas aprobadas y completas (T1–T5, T8, T13 y T14), 11 pendientes.** Fecha: 2026-09-28.
+**Estado: avance parcial; 10 de 19 tareas aprobadas y completas (T1–T6, T8, T12–T14), 9 pendientes.** Fecha: 2026-09-28.
 
 ## Contenido
 
 - [Requisitos](requirements.md): **23 requisitos EARS**, incluyendo lo que ya funciona y debe preservarse.
 - [Diseño](design.md): extensión de piezas existentes, decisiones, contratos, seguridad y migración.
-- [Tareas](tasks.md): **19 tareas en 8 lotes**; ocho completas y 11 pendientes, con dependencias y trazabilidad R→T→V.
+- [Tareas](tasks.md): **19 tareas en 8 lotes**; diez completas y 9 pendientes, con dependencias y trazabilidad R→T→V.
 - [Validación](validation.md): **23 pruebas/casos y 9 escenarios live** especificados; T9/L03 se
   intentó y quedó inconcluso, L04 no se ejecutó y los demás escenarios live siguen pendientes.
 - [Evidencia](evidence.md): auditoría, fortalezas, brechas y documentación oficial.
@@ -111,3 +111,11 @@ demuestra paridad de perfiles, filtros MCP o routing/guards. Véanse [los result
 la campaña no cambió trust/configuración global, instaló componentes ni publicó.
 
 No se movió ni sobrescribió el checkpoint de Spec0036 perteneciente a otra sesión.
+
+T6 mejora la fidelidad de los resultados de Semgrep/jscpd, capturando el estado original antes de
+cleanup y distinguiendo errores/omisiones de una validación exitosa. T12 agrega procedencia del
+modelo/effort al diagnóstico JSON y reutiliza el resolver existente de Codex sin cambiar defaults;
+`effectiveObserved` no afirma una observación del host. La revisión combinada T6/T12 fue **APPROVED**
+y el gate completo pasó (300 archivos de tests, 5,498 aprobados, 1 omitido). Los commits locales son
+`75f1130b` (T6) y `0eec446e` (T12). El avance de la spec es parcial; no se afirma cierre ni
+publicación del PR.

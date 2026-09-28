@@ -1,7 +1,9 @@
-# Current — idle
+# Current — Spec 0037 partial close
 
-- #1046 / Spec 0036: T1–T9 completos en `codex/1046-neutral-state-finish`. T6 (`aca10a6e`)
-  y T7 (`30ecb6a0`) ya están commiteados; T9 y este cierre entran en el commit final del PR a
-  `main` con `Closes #1046`.
-- #985: cerrado; `scribe` se conserva por decisión del usuario. #993 no se modificó.
-- Siguiente paso: publicar el PR de #1046 y dar seguimiento a CI/reviews hasta el merge.
+- Branch `docs/spec-0037-paridad-operativa-cli`: 13 commits locales sobre `origin/main`; T1–T6,
+  T8 y T12–T14 completos (10/19). Review combinado T6/T12 APPROVED y gate completo verde.
+- Siguiente paso: publicar un PR parcial con el avance aprobado y dejar explícito que la spec sigue
+  abierta. Continuar con T7; T9 requiere nueva evidencia diagnóstica/live aprobada, T10/T11 dependen
+  de hechos verificables de T9, y T15/T16 requieren autorización separada de campaña.
+- T9/L03 sigue inconcluso y L04 no se ejecutó; no afirmar paridad de perfiles, filtros MCP ni
+  callbacks de hooks. No se ha abierto el PR.
