@@ -82,8 +82,11 @@ uncommitted checkout.
 
 ## Closeout
 
-- [ ] **T9** (R1–R12) — Verify a `// Covers: R<n>` test for every requirement, run the full
+- [x] **T9** (R1–R12) — Verify a `// Covers: R<n>` test for every requirement, run the full
   project quality gate and reviewer Pass 2, then publish only after APPROVED and a fresh receipt.
   - Test: per-requirement annotation sweep over the tests named above and the full quality gate,
     with `// Covers: R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12` in the final integration
     test rather than a prose-only assertion.
+  - Verified: annotation sweep covers R1–R12; real integration test is
+    `packages/cli/src/lib/__tests__/engine-neutral-state-integration.test.ts`; reviewer APPROVED
+    and the full project quality gate exited 0.

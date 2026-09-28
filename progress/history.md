@@ -2206,3 +2206,32 @@ El usuario aprobó workplan nivel 2 y probe real en checkout y HOME aislados; no
 - packages/cli/src/engines/codex/__tests__/render-codex.test.ts — ausencia de registro.
 - packages/cli/src/engines/__tests__/control-inventory.test.ts — inventario honesto.
 - docs/research/codex-plan-gate-1082.md — evidencia y criterio de reintento.
+
+## 2026-09-28 13:28 Codex — Completa Spec 0036 (#1046)
+
+## Goal
+Completar el estado efímero neutral de engine de #1046 / Spec 0036 y preparar un PR a `main` que cierre el issue al merge.
+
+## Instructions
+El usuario decidió conservar `scribe`, cerrar #985, corregir los dos goldens de T6 y ampliar T7 tras dos rechazos. Cada lote se notificó y se dejó en un commit antes de seguir.
+
+## Discoveries
+- El hook de handoff sin includes expandidos necesitaba fallbacks para no fallar con `payload_field: command not found`; el parser compartido de Spec 0035 se reutilizó en el render.
+- Los tests de contrato que aún exigían `.claude/progress` debían migrar con los assets sin debilitar la comprobación de namespaces ni la de citas entre engines.
+- El `handoff check` de este worktree requiere `--dir .codex/progress` para encontrar los handoffs preexistentes; el estado nuevo generado usa `.navori/state/handoffs/`.
+
+## Accomplished
+- #985 se cerró con `scribe` retenido; #993 permaneció abierto.
+- T6 quedó aprobado en `aca10a6e`: stamps locales por checkout, validación del symlink final y dos goldens actualizados.
+- T7 quedó aprobado en `30ecb6a0`: assets, hooks, pruebas y espejos Claude/Codex citan el handoff neutral; gate completo verde (297 archivos, 5415 tests aprobados, 1 omitido).
+- T9 agregó una prueba real de integración para R1–R12 y confirmó anotaciones por requisito; reviewer APPROVED y gate completo exit 0. La rama queda lista para el commit final y PR a `main` con `Closes #1046`.
+
+## Next Steps
+- Publicar el PR a `main` y dar seguimiento a CI/reviews hasta el merge de #1046.
+
+## Relevant Files
+- `specs/0036-engine-neutral-state/tasks.md` — T1–T9 completos.
+- `packages/core/core-assets/hooks/subagent-stop-handoff.sh` — parser compartido y escaneo neutral/legacy.
+- `packages/cli/src/engines/codex/compat.ts` — elimina solo la reescritura de progress.
+- `packages/cli/src/lib/__tests__/engine-neutral-state-integration.test.ts` — integración R1–R12.
+- `progress/current.md` — checkpoint vuelto a idle.
