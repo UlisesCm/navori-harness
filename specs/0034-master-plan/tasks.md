@@ -288,7 +288,7 @@ Orden de los lotes:
 
 ## Lote F — Eval y documentación
 
-- [ ] **T20** (R1, R38, R46) — `specs/0034-master-plan/evals.md`.
+- [x] **T20** (R1, R38, R46) — `specs/0034-master-plan/evals.md`.
   - Escenario RED/GREEN en un repo fixture con la etapa `01-mvp` en fase `executing`. Sesión 1: el
     usuario pide una tarea ajena; la respuesta la hace y agrega una línea de oferta, sin comandos
     de `navori master`. Turno 2: "sí, continúa" produce la llamada a Skill `master-plan`, el aviso
