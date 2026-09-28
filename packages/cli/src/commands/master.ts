@@ -7,6 +7,7 @@ import { defineCommand } from "citty";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { changeMasterPart } from "../lib/master/part.ts";
+import { runMasterClose } from "../lib/master/close.ts";
 import { readMasterStatus, statusLine, writeMasterStatus } from "../lib/master/status.ts";
 import { readConfig } from "../lib/config/config.ts";
 import { MasterInitError, runMasterInit } from "../lib/master/init.ts";
@@ -38,6 +39,13 @@ const MASTER_MODES: readonly MasterMode[] = ["template", "en-curso"];
 function reportError(cause: unknown): void {
   process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
   process.exitCode = 1;
+}
+
+function rejectMutationStage(stage: string | undefined): void {
+  if (stage)
+    throw new Error(
+      `--stage ${stage} es de solo lectura; use 'navori master check --stage ${stage}'`,
+    );
 }
 
 const initSubCommand = defineCommand({
@@ -110,11 +118,13 @@ const modeSubCommand = defineCommand({
   meta: { name: "mode", description: "Register the first stage's mode: template | en-curso (R16)" },
   args: {
     value: { type: "positional", required: true, description: "template | en-curso" },
+    stage: { type: "string", description: "Closed stages are read-only" },
     cwd: { type: "string", description: "Repo root" },
   },
   run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     try {
+      rejectMutationStage(args.stage);
       setMasterMode(cwd, args.value as string);
     } catch (cause) {
       reportError(cause);
@@ -177,10 +187,21 @@ function activeStageState(cwd: string, specsDir: string): MasterState | null {
 
 const advanceSubCommand = defineCommand({
   meta: { name: "advance", description: "Advance the active stage one phase (R8)" },
-  args: { cwd: { type: "string", description: "Repo root" } },
+  args: {
+    stage: { type: "string", description: "Closed stages are read-only" },
+    cwd: { type: "string", description: "Repo root" },
+  },
   run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     try {
+      if (args.stage) {
+        reportError(
+          new Error(
+            `--stage ${args.stage} es de solo lectura; use 'navori master check --stage ${args.stage}'`,
+          ),
+        );
+        return;
+      }
       const result = runMasterAdvance(cwd);
       if (!result.advanced) {
         for (const failure of result.failures) process.stderr.write(`[navori] ${failure}\n`);
@@ -312,10 +333,12 @@ const partSubCommand = defineCommand({
     command: { type: "string", description: "Command run for test/comando evidence" },
     result: { type: "string", description: "Observed result" },
     "approved-by": { type: "string", description: "user for manual acceptance" },
+    stage: { type: "string", description: "Closed stages are read-only" },
     cwd: { type: "string", description: "Repo root" },
   },
   run({ args }) {
     try {
+      rejectMutationStage(args.stage);
       changeMasterPart(resolve(args.cwd ?? process.cwd()), args.id as string, {
         state: args.state,
         reason: args.reason,
@@ -333,6 +356,39 @@ const partSubCommand = defineCommand({
   },
 });
 
+const closeSubCommand = defineCommand({
+  meta: {
+    name: "close",
+    description: "Close, convert or abandon the active stage (R47, R57, R58)",
+  },
+  args: {
+    convert: { type: "string", description: "Convert to an empty spec path under specsDir" },
+    abandon: { type: "boolean", description: "Abandon before mastered" },
+    reason: { type: "string", description: "Required reason for conversion or abandonment" },
+    stage: { type: "string", description: "Closed stages are read-only" },
+    cwd: { type: "string", description: "Repo root" },
+  },
+  run({ args }) {
+    try {
+      rejectMutationStage(args.stage);
+      const result = runMasterClose(resolve(args.cwd ?? process.cwd()), {
+        convert: args.convert,
+        abandon: args.abandon,
+        reason: args.reason,
+      });
+      process.stdout.write(
+        result.reconciled
+          ? "no hay etapa activa; se apagó harness.masterPlan\n"
+          : result.stage
+            ? `${result.stage}: ${result.outcome}\n`
+            : "no hay etapa activa; cierre ya completo\n",
+      );
+    } catch (cause) {
+      reportError(cause);
+    }
+  },
+});
+
 export const masterCommand = defineCommand({
   meta: { name: "master", description: "Master-plan project flow (spec 0034)" },
   subCommands: {
@@ -343,5 +399,6 @@ export const masterCommand = defineCommand({
     advance: advanceSubCommand,
     status: statusSubCommand,
     part: partSubCommand,
+    close: closeSubCommand,
   },
 });

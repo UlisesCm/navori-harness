@@ -155,7 +155,7 @@ Orden de los lotes:
     `lib/master/__tests__/part.test.ts`, con `// Covers: R33, R44, R48, R59, R61, R62`, cubre el
     issue duplicado, la spec inexistente, la razón obligatoria y cada validación de `--accept`
     (método equivocado, árbol sucio, `manual` con `--command`, bandera apagada).
-- [ ] **T9** (R47, R49, R50, R57, R58, R63) — `close`, `close --convert` y `close --abandon`.
+- [x] **T9** (R47, R49, R50, R57, R58, R63) — `close`, `close --convert` y `close --abandon`.
   - `lib/master/close.ts` con la secuencia reanudable de 6 pasos de D10: validar, escribir
     `CLOSURE.md` determinista (con "Integridad" y cada criterio con su método, evidencia, fecha,
     `commitsBehind` y `orphan`; los de partes `descartada` o `diferida`, como no verificados), pasar la etapa a `closed`, marcarla en
@@ -172,7 +172,7 @@ Orden de los lotes:
     ruta ocupada; `--abandon` en `mastered`, sin razón y combinado con `--convert`; y la misma
     lista de archivos antes y después de abandonar; los criterios en `CLOSURE.md` con evidencia y
     los de una parte `diferida` como no verificados.
-- [ ] **T10** (R4, R49, R50) — Fila de `doctor`.
+- [x] **T10** (R4, R49, R50) — Fila de `doctor`.
   - `lib/diagnose/master-plan.ts`: corre siempre que exista `<specsDir>/_master/index.json`, con la
     bandera encendida o no (cuarta excepción del principio 3). Da `warn`, nunca error, en los tres
     casos de Components: `index.json` inválido, `raw/.gitignore` faltante (nombra `navori master
