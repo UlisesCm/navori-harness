@@ -2,6 +2,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -18,6 +19,7 @@ import {
   resolveCodexHooks,
 } from "../../engines/codex/hook-registrations.ts";
 import { buildCodexConfigToml } from "../../engines/codex/build-config-toml.ts";
+import { renderCodexEngine } from "../../engines/codex/index.ts";
 import { codexHookHash, codexHookKey } from "../../lib/codex/trust.ts";
 import { tc } from "../../lib/i18n.ts";
 
@@ -616,5 +618,28 @@ describe("doctor evidence (Spec 0037 V01-V03)", () => {
       expect(hook.registered.status).toBe("missing");
       expect(hook.execution.status).toBe("not-run");
     }
+  });
+
+  // Covers: R4, R20
+  it("separates materialized, registered and trusted plugin hook evidence", () => {
+    const cwd = tempRepo();
+    const cfg = config({ plugins: { semgrep: { enabled: true } } });
+    renderCodexEngine(cwd, cfg);
+    const find = () =>
+      buildEngineEvidence(cfg, cwd).find(
+        (row) => row.engine === "codex" && row.id === "semgrep:PreToolUse:Bash",
+      );
+    expect(find()?.materialized.status).toBe("verified");
+    expect(find()?.registered.status).toBe("verified");
+    expect(find()?.trust.status).toBe("unverified");
+    const scriptPath = join(cwd, ".codex/scripts/check-semgrep.sh");
+    writeFileSync(
+      scriptPath,
+      readFileSync(scriptPath, "utf-8").replace("set -euo pipefail", "set -eu"),
+    );
+    expect(find()?.materialized.status).toBe("unverified");
+    expect(find()?.registered.status).toBe("verified");
+    rmSync(scriptPath);
+    expect(find()?.materialized.status).toBe("missing");
   });
 });

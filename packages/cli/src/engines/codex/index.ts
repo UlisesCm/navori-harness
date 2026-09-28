@@ -22,6 +22,7 @@ import { injectManagedSection, removeManagedSection } from "../../lib/render/mar
 import { buildHarnessProse, type ProseEngineResult } from "../shared/prose-harness.ts";
 import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
 import { pluginExtraVars } from "../shared/plugin-extra-vars.ts";
+import { pluginScriptCollisions, pluginScriptPlacements } from "../shared/plugin-scripts.ts";
 import {
   resolveHarnessPlan,
   type PlannedAgent,
@@ -411,6 +412,23 @@ function createCodexAdapter(
       const codexConfig = buildCodexConfigToml(ctx.config, ctx.plugins, wsSubpath, agentsMdBytes);
       warningsSink.push(...codexConfig.warnings);
 
+      const collisions = pluginScriptCollisions(ctx.plugins);
+      const pluginScripts: PlacementRequest[] = [];
+      for (const plugin of ctx.plugins) {
+        for (const script of pluginScriptPlacements(plugin, "codex")) {
+          if (collisions.has(script.dest)) continue;
+          pluginScripts.push({
+            assetPath: script.src,
+            destRelPath: script.destRelPath,
+            managedId: script.managedId,
+            meta: script.meta,
+            extraVars: pluginExtraVars(ctx.config),
+            commentStyle: "shell",
+            chmodExec: script.exec,
+          });
+        }
+      }
+
       return [
         agentsMdRequest,
         {
@@ -437,6 +455,7 @@ function createCodexAdapter(
           },
         },
         ...localSkillRequests,
+        ...pluginScripts,
         // #823: one `agents/openai.yaml` sidecar per manual-only skill — Codex's
         // native `allow_implicit_invocation: false`, shell-comment managed so it
         // gets the same backup/anti-downgrade/prune treatment as every other file.
@@ -496,6 +515,16 @@ function createCodexAdapter(
           dir: ".codex/hooks",
           match: () => true,
           desired: new Set(plan.hooks.map(({ id }) => `.codex/hooks/${id}.sh`)),
+          shape: "file",
+        },
+        {
+          dir: ".codex/scripts",
+          match: (name) => name.endsWith(".sh"),
+          desired: new Set(
+            ctx.plugins.flatMap((plugin) =>
+              plugin.scriptAssets.map((script) => `.codex/scripts/${script.dest}`),
+            ),
+          ),
           shape: "file",
         },
       ];

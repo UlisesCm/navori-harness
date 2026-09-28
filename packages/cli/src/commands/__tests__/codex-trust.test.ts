@@ -10,6 +10,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { renderCodexEngine } from "../../engines/codex/index.ts";
+import { NavoriConfigSchema } from "../../lib/config/schema.ts";
 
 /**
  * `navori codex trust` (spec 0035 T9) writes OUTSIDE the repo, to the
@@ -46,10 +48,9 @@ const p = await import("@clack/prompts");
 
 function writeRepo(): string {
   const cwd = mkdtempSync(join(tmpdir(), "navori-codex-trust-repo-"));
-  writeFileSync(
-    join(cwd, "navori.config.json"),
-    JSON.stringify({ name: "cx", engines: ["codex"], preset: "custom", branchBase: "main" }),
-  );
+  const input = { name: "cx", engines: ["codex"], preset: "custom", branchBase: "main" };
+  writeFileSync(join(cwd, "navori.config.json"), JSON.stringify(input));
+  renderCodexEngine(cwd, NavoriConfigSchema.parse(input));
   return cwd;
 }
 
@@ -84,6 +85,23 @@ function backupFileCount(): number {
 }
 
 describe("navori codex trust — safe writes to ~/.codex/config.toml (spec 0035 T9)", () => {
+  // Covers: R20
+  it("refuses trust when the project's hook command was edited", async () => {
+    const path = join(cwd, ".codex/config.toml");
+    writeFileSync(
+      path,
+      readFileSync(path, "utf-8").replace("guard-destructive.sh", "wrong-guard.sh"),
+    );
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit");
+    }) as never);
+    await expect(runCodexTrust(cwd, { yes: true, verify: noopVerify })).rejects.toThrow(
+      "process.exit",
+    );
+    expect(exit).toHaveBeenCalledWith(1);
+    exit.mockRestore();
+    expect(existsSync(homeConfigPath())).toBe(false);
+  });
   // Covers: R14, R15
   it("no confirmation writes nothing and makes no backup", async () => {
     Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });

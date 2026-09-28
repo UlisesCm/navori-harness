@@ -16,6 +16,10 @@ import { basename, delimiter, join, resolve, relative } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config/config.ts";
 import { resolveHarnessPlan } from "../engines/shared/harness-plan.ts";
+import { renderManagedFile } from "../engines/shared/render-managed-file.ts";
+import { pluginScriptManagedId } from "../engines/shared/plugin-scripts.ts";
+import { pluginExtraVars } from "../engines/shared/plugin-extra-vars.ts";
+import { navoriAuthorship } from "../lib/render/removable.ts";
 import { CLAUDE_COMPUTED_BLOCK_IDS, buildDesiredMcpServers } from "../engines/claude/index.ts";
 import { getCoreRoot, readCliVersion } from "../lib/render/bundled-assets.ts";
 import { isPlainObject } from "../engines/claude/coexist-settings.ts";
@@ -2733,7 +2737,7 @@ export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth 
   const trust = readCodexTrustState(
     resolve(cwd),
     join(codexDir, "config.toml"),
-    resolveCodexHooks(config),
+    resolveCodexHooks(config, loadEnabledPlugins(config.plugins).loaded),
   );
 
   return {
@@ -3628,7 +3632,7 @@ export function buildEngineEvidence(config: NavoriConfig, cwd: string): EngineEv
         engine === "claude" ? ".claude/settings.json" : ".codex/config.toml",
       );
       const registration = readRegistration(registrationPath, engine);
-      const resolvedHooks = engine === "codex" ? resolveCodexHooks(loc.config) : [];
+      const resolvedHooks = engine === "codex" ? resolveCodexHooks(loc.config, plugins) : [];
       // Trust is a separate observation. Its helper reads the same resolved hook set as render.
       const trust =
         engine === "codex" && registration.facts.status === "verified"
@@ -3641,7 +3645,8 @@ export function buildEngineEvidence(config: NavoriConfig, cwd: string): EngineEv
         id: string;
         contract: string;
         path: string;
-        pluginHook?: { command: string; timeout: number };
+        pluginHook?: { pluginId: string; ordinal: number; command: string; timeout: number };
+        pluginScript?: { pluginId: string; src: string; dest: string };
       }> = [
         ...plan.agents.map((a) => ({
           kind: "agent" as const,
@@ -3688,35 +3693,85 @@ export function buildEngineEvidence(config: NavoriConfig, cwd: string): EngineEv
             kind: "script" as const,
             id: script.dest,
             contract: "plugin script reference",
-            path: `.claude/scripts/${script.dest}`,
+            path: `.${engine}/scripts/${script.dest}`,
+            pluginScript: { pluginId: plugin.manifest.id, src: script.src, dest: script.dest },
           })),
         ),
         ...plugins.flatMap((plugin) =>
-          (plugin.manifest.hooks ?? []).map((hook) => ({
+          (plugin.manifest.hooks ?? []).map((hook, ordinal) => ({
             kind: "hook" as const,
             id: `${plugin.manifest.id}:${hook.event}:${hook.matcher ?? "*"}`,
             contract: "plugin hook registration",
             path: engine === "claude" ? ".claude/settings.json" : ".codex/config.toml",
-            pluginHook: { command: hook.command, timeout: hook.timeout },
+            pluginHook: {
+              pluginId: plugin.manifest.id,
+              ordinal,
+              command: hook.command,
+              timeout: hook.timeout,
+            },
           })),
         ),
       ];
+      const pluginScriptFacts = new Map<string, ObservedFact>();
       for (const asset of assets) {
         let materialized: ObservedFact =
-          engine === "codex" && asset.kind === "script"
-            ? {
-                status: "not-applicable" as const,
-                reason: "Codex does not materialize Claude plugin scripts",
-              }
-            : asset.kind === "hook" && asset.id.includes(":")
-              ? engine === "codex"
-                ? {
-                    status: "missing" as const,
-                    reason: "plugin hook has no Codex materialization",
-                    reference: registrationPath,
-                  }
-                : observeFile(registrationPath)
-              : observeFile(join(loc.cwd, asset.path));
+          asset.kind === "hook" && asset.id.includes(":")
+            ? engine === "codex"
+              ? (() => {
+                  const resolved = resolvedHooks.find(
+                    (hook) =>
+                      hook.pluginId === asset.pluginHook?.pluginId &&
+                      hook.pluginHookOrdinal === asset.pluginHook?.ordinal,
+                  );
+                  return resolved?.scriptPath
+                    ? (pluginScriptFacts.get(resolved.scriptPath) ??
+                        observeFile(join(loc.cwd, resolved.scriptPath)))
+                    : {
+                        status: "missing" as const,
+                        reason: "plugin hook has no Codex materialization",
+                        reference: registrationPath,
+                      };
+                })()
+              : observeFile(registrationPath)
+            : observeFile(join(loc.cwd, asset.path));
+        if (engine === "codex" && asset.pluginScript && materialized.status === "verified") {
+          try {
+            const content = readFileSync(join(loc.cwd, asset.path), "utf-8");
+            const check = renderManagedFile({
+              assetPath: asset.pluginScript.src,
+              existingContent: content,
+              managedId: pluginScriptManagedId(
+                asset.pluginScript.pluginId,
+                asset.pluginScript.dest,
+              ),
+              meta: {
+                source: `@navori/plugin-${asset.pluginScript.pluginId}`,
+                version: readCliVersion(),
+              },
+              config: loc.config,
+              extraVars: pluginExtraVars(loc.config),
+              commentStyle: "shell",
+            });
+            const authorship = navoriAuthorship(
+              join(loc.cwd, asset.path),
+              pluginScriptManagedId(asset.pluginScript.pluginId, asset.pluginScript.dest),
+            );
+            if (check.status !== "unchanged" || authorship !== "ours")
+              materialized = {
+                status: "unverified",
+                reason: `managed script ${authorship === "newer" ? "downgrade-skipped" : check.status}`,
+                reference: join(loc.cwd, asset.path),
+              };
+          } catch {
+            materialized = {
+              status: "unverified",
+              reason: "plugin script cannot be verified",
+              reference: join(loc.cwd, asset.path),
+            };
+          }
+        }
+        if (engine === "codex" && asset.pluginScript)
+          pluginScriptFacts.set(asset.path, materialized);
         if (asset.contract === "plugin managed extension" && materialized.status === "verified") {
           try {
             if (!readFileSync(join(loc.cwd, asset.path), "utf-8").includes(`id="${asset.id}"`)) {
@@ -3744,11 +3799,15 @@ export function buildEngineEvidence(config: NavoriConfig, cwd: string): EngineEv
         };
         if (asset.kind === "hook" || asset.kind === "script") {
           if (engine === "codex" && asset.kind === "script") {
-            registered = { status: "not-applicable", reason: "Claude-only script" };
+            registered = { status: "not-applicable", reason: "script invoked by plugin hook" };
           } else if (
             engine === "codex" &&
             asset.kind === "hook" &&
-            !resolvedHooks.some((h) => h.script === asset.id)
+            !resolvedHooks.some(
+              (h) =>
+                h.pluginId === asset.pluginHook?.pluginId &&
+                h.pluginHookOrdinal === asset.pluginHook?.ordinal,
+            )
           ) {
             registered = {
               status: asset.contract === "plugin hook registration" ? "missing" : "not-applicable",
@@ -3760,6 +3819,31 @@ export function buildEngineEvidence(config: NavoriConfig, cwd: string): EngineEv
             };
           } else if (registration.facts.status !== "verified") {
             registered = registration.facts;
+          } else if (engine === "codex" && asset.pluginHook) {
+            const resolved = resolvedHooks.find(
+              (hook) =>
+                hook.pluginId === asset.pluginHook?.pluginId &&
+                hook.pluginHookOrdinal === asset.pluginHook?.ordinal,
+            );
+            registered =
+              resolved &&
+              registration.codexHooks.some(
+                (observed) =>
+                  observed.event === resolved.event &&
+                  observed.matcher === resolved.matcher &&
+                  observed.command ===
+                    codexHookCommand(resolved, loc.path === "." ? "" : loc.path) &&
+                  observed.timeout === resolved.timeout &&
+                  observed.statusMessage === resolved.statusMessage &&
+                  observed.handlerType === "command" &&
+                  observed.handlerCount === 1,
+              )
+                ? { status: "verified", reference: registrationPath }
+                : {
+                    status: "missing",
+                    reason: "plugin hook registration absent or changed",
+                    reference: registrationPath,
+                  };
           } else if (asset.kind === "hook" && asset.id.includes(":")) {
             const [, event, matcher] = asset.id.split(":");
             registered = registration.claudeHooks.some(
@@ -3809,7 +3893,18 @@ export function buildEngineEvidence(config: NavoriConfig, cwd: string): EngineEv
                 };
           }
           if (engine === "codex" && trust && registered.status === "verified") {
-            const hookEntries = trust.hooks.filter((h) => h.script === asset.id);
+            const pluginIndex = asset.pluginHook
+              ? resolvedHooks.findIndex(
+                  (hook) =>
+                    hook.pluginId === asset.pluginHook?.pluginId &&
+                    hook.pluginHookOrdinal === asset.pluginHook?.ordinal,
+                )
+              : -1;
+            const hookEntries = asset.pluginHook
+              ? pluginIndex >= 0 && trust.hooks[pluginIndex]
+                ? [trust.hooks[pluginIndex]]
+                : []
+              : trust.hooks.filter((hook) => hook.script === asset.id);
             trustFact =
               hookEntries.length === 0
                 ? { status: "not-applicable", reason: "no registered Codex hook" }

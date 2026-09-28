@@ -97,6 +97,27 @@ reanudar implementación. Las observaciones locales anteriores no se atribuyen a
 
 ## Qué no constituye evidencia
 
+## T5 — Gates de calidad por engine
+
+El inventario de comandos implementado para las familias de hooks es acotado: Semgrep
+reconoce `git commit`, `git push` y `gh pr create`; jscpd reconoce únicamente `git commit`.
+La detección compartida acepta espacio inicial, wrappers simples (`(`, `\\`, `command`),
+prefijos `VAR=value`, opciones globales de Git y comandos compuestos separados por `&&`, `||`,
+`;`, `|` o nueva línea. No inspecciona dentro de `sh -c`, `eval` ni formas ofuscadas; es un
+detector de disparadores, no una frontera de seguridad ni una prueba de cobertura live.
+
+Los fixtures de T5 verifican que Codex renderiza sus propios scripts y registros de hooks,
+que el render dual deja intactos los bytes del script Claude, que deshabilitar el plugin quita
+las salidas Codex y que las formas de hook no traducibles se omiten con advertencia. También
+comprueban que el preflight de trust es de solo lectura: una configuración de proyecto distinta
+del render propuesto no coincide, y el render conserva contenido ajeno o de versión posterior.
+Estos resultados son fixtures sintéticos; no se ejecutó campaña live ni se afirma equivalencia
+operativa entre engines.
+
+La verificación registrada por T5 fue `cd packages/cli && bun lint` (exit 0): 150 pruebas
+dirigidas en siete suites, typecheck, formato y `check:render` pasaron. No se cambió trust global,
+no se instaló ni publicó nada y no se ejecutó ningún gate live.
+
 ### Aclaración del contrato de errores encontrada al diseñar
 
 `packages/plugins/semgrep/scripts/check-semgrep.sh` y
