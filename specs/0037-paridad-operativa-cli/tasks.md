@@ -1,6 +1,6 @@
 # Paridad operativa Claude / Codex CLI — Tasks
 
-**Estado:** T1, T2 y T4 aprobados y completos; 16 tareas pendientes. El usuario
+**Estado:** T1–T4 aprobados y completos; 15 tareas pendientes. El usuario
 autorizó iniciar el Lote A (T1–T2) después de sincronizar `main`; esta autorización no cubre otros
 lotes, campañas live/pagadas, instalaciones, cambios de trust ni publicación.
 **Diseño:** [design.md](design.md), veredicto CONCERNS y resoluciones en [review.md](review.md).
@@ -43,7 +43,7 @@ lotes, campañas live/pagadas, instalaciones, cambios de trust ni publicación.
 
 ## Lote B — Contratos de workflow veraces
 
-- [ ] **T3** (R13, R14, R21) — Condicionar prosa de planificación por engine en la fuente managed;
+- [x] **T3** (R13, R14, R21) — Condicionar prosa de planificación por engine en la fuente managed;
   Codex advisory sin promesa deny, Claude conserva enforcement. Reconciliar explicación de handoff
   en `ENGINE_CAPABILITIES` y pruebas de declaraciones. Mantener criterio de reapertura #1082,
   sin implementar gating selectivo ni volver a corregir su razón ya integrada.

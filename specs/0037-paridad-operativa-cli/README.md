@@ -1,12 +1,12 @@
 # Spec 0037 — Paridad operativa Claude / Codex CLI
 
-**Estado: spec completa; T1, T2 y T4 aprobados y completos, 16 tareas pendientes.** Fecha: 2026-09-28.
+**Estado: spec completa; T1–T4 aprobados y completos, 15 tareas pendientes.** Fecha: 2026-09-28.
 
 ## Contenido
 
 - [Requisitos](requirements.md): **23 requisitos EARS**, incluyendo lo que ya funciona y debe preservarse.
 - [Diseño](design.md): extensión de piezas existentes, decisiones, contratos, seguridad y migración.
-- [Tareas](tasks.md): **19 tareas en 8 lotes**; T1, T2 y T4 completas y 16 pendientes, con dependencias y trazabilidad R→T→V.
+- [Tareas](tasks.md): **19 tareas en 8 lotes**; T1–T4 completas y 15 pendientes, con dependencias y trazabilidad R→T→V.
 - [Validación](validation.md): **23 pruebas/casos y 9 escenarios live**, especificados, no ejecutados.
 - [Evidencia](evidence.md): auditoría, fortalezas, brechas y documentación oficial.
 - [Baseline T1](baseline.md): snapshot versionado de procedencia y dependencias; no certifica
@@ -21,9 +21,11 @@ acotados, sin certificar equivalencia runtime. Se incorporaron correcciones al c
 telemetría de scanners, herencia de herramientas y preservación de restricciones MCP.
 
 La traducción de permisos por rol no se habilita para casos sin evidencia de que preserve filtros
-heredados. Plan-gate Codex sigue advisory; #1082/#1084 son antecedentes integrados, no trabajo para
-repetir. Los errores de scanner conservan la política deliberada de Claude, sin contarlos como scans
-aprobados. No hay nueva capa always-on, modelo impuesto ni orchestrator spawnable.
+heredados. Claude plan-gate sigue enforced por hook; Codex plan-gate sigue advisory, sin promesa de
+deny selectivo. #1082/#1084 son antecedentes integrados, no trabajo para repetir; conserva los
+criterios de reapertura documentados. Los errores de scanner conservan la política deliberada de
+Claude, sin contarlos como scans aprobados. No hay nueva capa always-on, modelo impuesto ni
+orchestrator spawnable.
 
 ## Autorización y límites
 
@@ -32,14 +34,14 @@ de handoff para **architect/auditor durante esa redacción**. No cambió la regl
 un handoff. T4 implementa y revisa la corrección de flujo: el primer productor no requiere un
 handoff inexistente; scribe/reviewer lo consumen solo tras un check exitoso. La precondición de
 planificación del implementer sigue independiente y obligatoria; no cambió el validador ni se afirma
-comportamiento runtime. Después, el usuario autorizó el Lote A (T1–T2) tras sincronizar `main`. T1,
-T2 y T4 fueron aprobados en revisión fresca; la autorización no se extiende a otros lotes.
+comportamiento runtime. Después, el usuario autorizó el Lote A (T1–T2) tras sincronizar `main`. T1–T4
+fueron aprobados en revisión fresca; las tareas posteriores siguen sin estar autorizadas.
 
 T1 registró el baseline y T2 implementó diagnóstico read-only de doctor. No se autorizan aquí campañas
 live/pagadas, instalaciones, cambios de trust, push ni PR; campañas live requieren autorización
 separada de consumo y aislamiento. No se presentan como equivalencia demostrada resultados pendientes.
 
-## Verificación T1/T2 y estado histórico del gate
+## Verificación T1–T3 y estado histórico del gate
 
 - El checkout de T1 está en `HEAD=origin/main=131067295be01fa7b5410acea403b9702bae339c`, tras un
   `git fetch origin main --quiet` exitoso; `HEAD..origin/main` contiene cero commits. Este estado
@@ -61,6 +63,10 @@ separada de consumo y aislamiento. No se presentan como equivalencia demostrada 
   publish set revisado. Este cierre administrativo modifica README/tasks después de esa firma, por
   lo que el receipt ya no es fresco para el contenido actual; renovar revisión y firma antes de
   publicar/cerrar. Un receipt de contenido no certifica paridad runtime ni trust efectivo.
+- T3 fue **APPROVED** en revisión fresca y pasó el gate completo. Claude conserva plan-gate enforced
+  por hook y Codex se mantiene advisory; no hubo campaña live y permanecen los criterios de
+  reapertura #1082. La firma era fresca para el publish set revisado, pero este cierre de README/tasks
+  la vuelve obsoleta; renovar antes de publicar/cerrar.
 - Solo como antecedente, el intento de redacción de la spec del 2026-09-28 reportó varios checks
   documentales verdes, `semgrep:check` detenido por `ca-certs: empty trust anchors` y receipt no
   disponible tras un fetch fallido por DNS. Ese gate parcial y ese fallo no describen el checkout
@@ -68,6 +74,6 @@ separada de consumo y aislamiento. No se presentan como equivalencia demostrada 
 
 El baseline de T1 está documentado en [baseline.md](baseline.md) sobre HEAD `13106729`, que incluye
 #1084. Véanse la [revisión fresca de T1](../../.codex/progress/review_spec0037_t1.md) y el receipt
-`.codex/progress/receipt.txt`. T4 fue aprobado en la [revisión fresca](../../.codex/progress/review_spec0037_t4_rereview.md);
-las campañas live y las 16 tareas restantes siguen pendientes.
+`.codex/progress/receipt.txt`. T3 fue aprobado en la [revisión fresca](../../.codex/progress/review_spec0037_t3_rereview.md);
+las campañas live y las 15 tareas restantes siguen pendientes.
 No se movió ni sobrescribió el checkpoint de Spec0036 perteneciente a otra sesión.
