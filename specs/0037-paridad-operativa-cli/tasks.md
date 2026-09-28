@@ -1,8 +1,9 @@
 # Paridad operativa Claude / Codex CLI — Tasks
 
-**Estado:** T1–T4, T8 y T13 aprobados y completos; 13 tareas pendientes. Las autorizaciones
-puntuales para estas tareas no cubren otras tareas, campañas live/pagadas, instalaciones, cambios
-de trust ni publicación.
+**Estado:** T1–T5, T8, T13 y T14 aprobados y completos; 8 de 19 tareas completas y 11 pendientes.
+T9 sigue pendiente: L03 se intentó y quedó inconcluso; L04 no se ejecutó ([registro](live-t9.md)).
+No es un pass. Las autorizaciones puntuales para estas tareas no cubren otras tareas, campañas
+live/pagadas, instalaciones, cambios de trust ni publicación.
 **Diseño:** [design.md](design.md), veredicto CONCERNS y resoluciones en [review.md](review.md).
 
 ## Cómo ejecutar
@@ -61,7 +62,7 @@ de trust ni publicación.
 
 ## Lote C — Plugins Codex completos, sin alterar política Claude
 
-- [ ] **T5** (R4, R6, R20) — Compartir descriptor/identidad de scripts del adapter Claude y emitir
+- [x] **T5** (R4, R6, R20) — Compartir descriptor/identidad de scripts del adapter Claude y emitir
   placements `.codex/scripts` desde fuente de plugin. Integrar hooks Semgrep/jscpd en la misma
   resolución de config/trust; admitir solo forma traducible y advertir otras. Preservar orden core,
   includes, quoting, workspace, legacy Claude y plugins deshabilitados. Inventariar las familias
@@ -70,6 +71,9 @@ de trust ni publicación.
   managed/lifecycle — Codex-only sin `.claude`, dual sin duplicados, ruta con espacios/worktree,
   comando no traducible advertido, hash/config calculados desde el mismo registro.
   · depende de: T1; integrar inventario con T2 antes de aceptar el lote.
+  · evidencia revisada: commit `a3f05d2a`; review combinado T5/T14 **APPROVED** y gate completo
+  (299 archivos de tests, 5,447 tests aprobados, 1 omitido). No acredita paridad live ni trust
+  efectivo.
 
 - [ ] **T6** (R5, R6) — Preservar decisiones #510 y mejorar fidelidad del resultado/terminal de
   ambos scanners. Capturar exit original antes de cleanup; no reportar block para error que permite,
@@ -111,6 +115,9 @@ de trust ni publicación.
   · pruebas: **V08–V11, L03, L04**; esperado filtros: cero ampliaciones respecto a restricción
   heredada. Entregar registro de viabilidad por ruta/versión, no configuración global cambiada.
   · depende de: T1; precondición de T10/T11 donde requieren hechos del host.
+  · estado live: L03 quedó inconcluso por fallo de infraestructura al despachar el hijo y no aportó
+  evidencia utilizable de filtros MCP. L04 no se ejecutó; no se midieron callbacks de hooks. Véase
+  [live-t9.md](live-t9.md). T9 permanece pendiente; no se infiere pass ni paridad.
 
 - [ ] **T10** (R11, R18, R20) — Solo para casos representables y probados por T9, compartir
   derivación de grants MCP con distinción `tools` ausente/herencia frente a allowlist explícita;
@@ -152,12 +159,14 @@ de trust ni publicación.
   `status: ok`, `fresh: true`. `doctor --json` separa CLI/MCP, índice/resultado y lectura/escritura;
   35 pruebas dirigidas, lint y typecheck pasaron. Los fixtures no acreditan consultas live L02/L08.
 
-- [ ] **T14** (R17, R18) — Ampliar cobertura de render/discovery de skills compartidas y políticas
+- [x] **T14** (R17, R18) — Ampliar cobertura de render/discovery de skills compartidas y políticas
   de invocación, manteniendo source único y roots propios de cada host. Incluir explícita, implícita
   permitida y prohibida por metadata; no sumar otra capa always-on.
   · pruebas: **V17, V18**, `skill-trigger.test.ts`/`local-skills.test.ts`; **L07** en T15 verifica
   cumplimiento real y control negativo.
   · depende de: T1.
+  · evidencia revisada: commit `c9ebc10b`; review combinado T5/T14 **APPROVED** y gate completo
+  (299 archivos de tests, 5,447 tests aprobados, 1 omitido).
 
 ## Lote G — Campaña emparejada y decisiones con evidencia
 

@@ -1,13 +1,14 @@
 # Spec 0037 — Paridad operativa Claude / Codex CLI
 
-**Estado: spec completa; T1–T4, T8 y T13 aprobados y completos, 13 tareas pendientes.** Fecha: 2026-09-28.
+**Estado: spec completa; 8 de 19 tareas aprobadas y completas (T1–T5, T8, T13 y T14), 11 pendientes.** Fecha: 2026-09-28.
 
 ## Contenido
 
 - [Requisitos](requirements.md): **23 requisitos EARS**, incluyendo lo que ya funciona y debe preservarse.
 - [Diseño](design.md): extensión de piezas existentes, decisiones, contratos, seguridad y migración.
-- [Tareas](tasks.md): **19 tareas en 8 lotes**; seis completas y 13 pendientes, con dependencias y trazabilidad R→T→V.
-- [Validación](validation.md): **23 pruebas/casos y 9 escenarios live**, especificados, no ejecutados.
+- [Tareas](tasks.md): **19 tareas en 8 lotes**; ocho completas y 11 pendientes, con dependencias y trazabilidad R→T→V.
+- [Validación](validation.md): **23 pruebas/casos y 9 escenarios live** especificados; T9/L03 se
+  intentó y quedó inconcluso, L04 no se ejecutó y los demás escenarios live siguen pendientes.
 - [Evidencia](evidence.md): auditoría, fortalezas, brechas y documentación oficial.
 - [Baseline T1](baseline.md): snapshot versionado de procedencia y dependencias; no certifica
   receipt, trust, gate completo ni comportamiento live.
@@ -38,9 +39,13 @@ comportamiento runtime. Después, el usuario autorizó el Lote A (T1–T2) tras 
 T13 también se completaron con autorizaciones puntuales y revisión fresca. Esto no autoriza las otras
 tareas.
 
-T1 registró el baseline y T2 implementó diagnóstico read-only de doctor. No se autorizan aquí campañas
-live/pagadas, instalaciones, cambios de trust, push ni PR; campañas live requieren autorización
-separada de consumo y aislamiento. No se presentan como equivalencia demostrada resultados pendientes.
+T1 registró el baseline y T2 implementó diagnóstico read-only de doctor. T5 y T14 tienen commits
+locales revisados (`a3f05d2a` y `c9ebc10b`); la revisión combinada fue **APPROVED** y el gate completo
+pasó (299 archivos de tests, 5,447 tests aprobados y 1 omitido). Esto acredita las pruebas y el diff
+revisado, no paridad live ni trust efectivo. La única campaña live autorizada hasta ahora fue T9/L03-L04;
+su resultado es inconcluso y está descrito en [live-t9.md](live-t9.md). No se autorizan otras campañas
+live/pagadas, instalaciones, cambios de trust, push ni PR; no se presentan resultados pendientes como
+equivalencia demostrada.
 
 ## Verificación T1–T3 y estado histórico del gate
 
@@ -76,7 +81,13 @@ separada de consumo y aislamiento. No se presentan como equivalencia demostrada 
 El baseline de T1 está documentado en [baseline.md](baseline.md) sobre HEAD `13106729`, que incluye
 #1084. Véanse la [revisión fresca de T1](../../.codex/progress/review_spec0037_t1.md) y el receipt
 `.codex/progress/receipt.txt`. T3 fue aprobado en la [revisión fresca](../../.codex/progress/review_spec0037_t3_rereview.md);
-las campañas live y las 13 tareas restantes siguen pendientes.
+las campañas live restantes y las 11 tareas pendientes permanecen sin completar.
+
+T5 comparte el registro de scripts de plugins entre engines y materializa gates traducibles de
+Semgrep/jscpd en Codex con pruebas de fixtures; no afirma cobertura universal de comandos ni trust
+efectivo. T14 amplía pruebas de render/discovery de skills compartidas y políticas de invocación,
+sin sumar otra capa always-on. La revisión combinada T5/T14 fue **APPROVED** con gate completo;
+véase [review_spec0037_t5.md](../../.navori/state/handoffs/review_spec0037_t5.md).
 
 T8 materializó `.codex/orchestrator.md` como referencia managed opcional desde el playbook compartido,
 sin crear un perfil de agente ni sumar su contenido al contexto always-on salvo que se abra la
@@ -92,4 +103,11 @@ servidores, reindexa ni escribe memoria. La revisión combinada T8/T13 fue **APP
 `.codex/progress/receipt.txt` reportó `status: ok`, `fresh: true` en HEAD `785367f6` (commits
 `785367f6` T8 y `a88a7781` T13; gate completo: 298 archivos, 5,436 tests aprobados). Este receipt
 acredita el diff revisado, no campañas live ni trust efectivo.
+En la campaña T9, L03 (selección de perfil y MCP) se intentó en un fixture desechable con
+autenticación existente y stub local, pero quedó inconcluso: un error de infraestructura terminó el
+proceso con exit 0 y no hubo observaciones útiles de selección efectiva de perfil o filtros MCP.
+L04 no se ejecutó; por tanto, no hay evidencia sobre callbacks de hooks. T9 permanece pendiente y no
+demuestra paridad de perfiles, filtros MCP o routing/guards. Véanse [los resultados redactados](live-t9.md);
+la campaña no cambió trust/configuración global, instaló componentes ni publicó.
+
 No se movió ni sobrescribió el checkpoint de Spec0036 perteneciente a otra sesión.
