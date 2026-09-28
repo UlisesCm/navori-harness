@@ -101,14 +101,9 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
   },
   {
     script: "plan-gate",
-    registration: {
-      event: "PreToolUse",
-      matcher: "^spawn_agent$",
-      timeout: 10,
-      statusMessage: "navori: plan-gate",
-      minVersion: "0.135.0",
-      when: (config) => Boolean(config.harness?.planTiers),
-    },
+    unsupported:
+      "Codex delegation was observed bypassing PreToolUse even with the branch-built CLI; " +
+      "plan-gate enforcement is deferred until a live negative smoke blocks child creation.",
   },
   {
     script: "implementer-no-markdown",

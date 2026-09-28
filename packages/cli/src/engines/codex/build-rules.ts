@@ -17,11 +17,10 @@ import type { ShellPermissionRules } from "../shared/permission-rules.ts";
  * (`core/src/exec_policy.rs`: `Decision::Allow` →
  * `ExecApprovalRequirement::Skip { bypass_sandbox }`). Under Claude, `allow`
  * only skips the confirmation prompt — the two are not the same axis.
- * Translating the allow-list would be a privilege escalation, and it buys
- * nothing: with `sandbox_mode = "workspace-write"` and
- * `approval_policy = "on-request"` (this adapter's defaults), those commands
- * already run inside the sandbox without prompting. Allow entries are
- * therefore skipped by DESIGN, not by failure — they never reach
+ * Translating the allow-list could also bypass a prompt the active runtime
+ * would otherwise require. The adapter's `danger-full-access` default does
+ * not make an `allow` rule safe or restore the old workspace sandbox.
+ * Allow entries are skipped by DESIGN, not by failure — they never reach
  * `translatePattern` and never count toward `dropped`.
  *
  * Because matching is always-prefix, the only real translation decision left

@@ -1,8 +1,8 @@
 # Paridad Codex — Design
 
 **Base:** `bb1470d5` · **Requirements:** [requirements.md](requirements.md) · **Challenge:**
-[challenge.md](challenge.md) (hallazgos 1–5 incorporados) · **Reemplaza:** la decisión D5 de la spec
-0033 en lo que toca a Codex.
+[challenge.md](challenge.md) (hallazgos 1–5 incorporados). Codex plan-gate queda temporalmente
+fuera de alcance, según R6; el resto del diseño de paridad permanece.
 
 Los hechos de Codex que cita este documento se verificaron contra el código fuente de
 `openai/codex` en `rust-v0.157.0` (rutas bajo `codex-rs/`) y contra `codex-cli 0.157.0`.
@@ -16,7 +16,8 @@ evento equivalente para 13 de los 16 registros de Claude. La estrategia es:
 
 1. **Una tabla de registro por hook** (`CODEX_HOOK_REGISTRATIONS`) que sustituye el registro a
    mano de `buildCodexConfigToml`. Cada hook de Claude tiene una fila: evento y matcher de Codex, o
-   `unsupported` con razón. Un test cruza esa tabla contra el registro de Claude (R3).
+   `unsupported` con razón. Un test cruza esa tabla contra el registro de Claude (R3). Codex
+   `plan-gate` no se registra mientras siga diferido (R6).
 2. **Un solo adaptador de payload** en `_partials`, no ramas por script. El partial sabe que corre
    bajo Codex porque el script vive en `.codex/hooks/`, y normaliza lo que cambia (nombre de
    herramienta, rutas editadas por `apply_patch`, tipo de subagente, raíz del proyecto, carpeta de
@@ -55,13 +56,13 @@ evento equivalente para 13 de los 16 registros de Claude. La estrategia es:
   R6, R7, R12.
 - **`packages/core/core-assets/hooks/_partials/hook-input.sh`** (nuevo) — adaptador de payload.
   Define `nv_engine`, `nv_project_dir`, `nv_progress_dir`, `nv_tool` (nombre de Claude equivalente),
-  `nv_edited_paths` (rutas de `apply_patch` o `tool_input.file_path`), `nv_subagent_type` y
-  `nv_emit_context` (salida de `additionalContext` en el formato de cada engine). — R2, R4.
-- **Los 12 scripts que se registran de nuevo** (`session-start-context`, `plan-gate`,
-  `implementer-no-markdown`, `managed-drift-watch`, `routing-watch`, `audit-mode-trigger`,
-  `audit-mode-close`, `worktree-reclaim`, `subagent-stop-handoff`, `stop-verify-reminder`, más
-  `guard-destructive` y `quality-gate-pre-commit` por sus literales `.claude/`) — leen el payload y
-  las rutas solo a través de `hook-input.sh`. — R2, R4.
+  `nv_edited_paths` (rutas de `apply_patch` o `tool_input.file_path`) y `nv_subagent_type`.
+  El partial normaliza entrada; cada script conserva su contrato de salida. — R2, R4.
+- **Los hooks que requieren normalización específica de engine** (`guard-destructive`,
+  `quality-gate-pre-commit`, `implementer-no-markdown`, `managed-drift-watch`, `routing-watch` y
+  `worktree-reclaim`) — adoptan `hook-input.sh`. Los demás conservan su lectura de payload; su
+  comportamiento equivalente se cubre con pruebas de paridad y ciclo de vida. `plan-gate` queda
+  Claude-only mientras R6 siga diferido. — R2, R4.
 - **`engines/shared/permission-rules.ts`** (nuevo) — `collectShellPermissionRules(config, plugins)`:
   la lista `allow`/`ask`/`deny` ya fusionada que hoy arma `buildSettings`
   (`engines/claude/build-settings.ts`: `settings-base.json` + `derivedAllow` + preset y plugins).
@@ -72,8 +73,9 @@ evento equivalente para 13 de los 16 registros de Claude. La estrategia es:
   — R5, R9, R10.
 - **`engines/codex/index.ts`** (`CODEX_MODEL_BY_CLAUDE_TIER`) — nuevo mapeo por defecto;
   `models.codexMap` sigue ganando. — R11.
-- **`engines/shared/engine-capabilities.ts`** (`ENGINE_CAPABILITIES.codex`) — `plan-gate` y
-  `markdown-ownership` pasan a `enforced` con evidencia `hook`. `unsupportedSurfaces` suma las
+- **`engines/shared/engine-capabilities.ts`** (`ENGINE_CAPABILITIES.codex`) — solo
+  `markdown-ownership` pasa a `enforced` con evidencia `hook`; `plan-gate` no se declara `enforced`
+  mientras R6 siga diferido. `unsupportedSurfaces` suma las
   filas `unsupported` de la tabla de registro. — R6, R7, R8.
 - **`packages/cli/src/lib/codex/trust.ts`** (nuevo) — núcleo sin I/O de consola:
   `codexHookHash(group)` (algoritmo de Codex), `codexHookKey(configPath, event, groupIdx, handlerIdx)`,
@@ -99,7 +101,7 @@ evento equivalente para 13 de los 16 registros de Claude. La estrategia es:
 | `quality-gate-pre-commit` | PreToolUse `Bash`, si `qualityGate.fast` | igual | 0.129 | ya registrado |
 | `model-advisor` | SessionStart, PostModelSwitch, PreToolUse `.*` | SessionStart | 0.129 | ya registrado; Codex no tiene evento de cambio de modelo (spec 0028) |
 | `session-start-context` | SessionStart `startup\|resume\|clear\|compact\|fork` | igual | 0.133 | `fork` dispara desde 0.155; antes no ocurre |
-| `plan-gate` | PreToolUse `Agent`, si `planTiers` | PreToolUse `^spawn_agent$` | 0.135 | `spawn_agent` pasa por hooks desde 0.135 |
+| `plan-gate` | PreToolUse `Agent`, si `planTiers` | **No registrado (diferido)** | — | Codex 0.157.1 creó un implementer sin workplan en smoke con el CLI de esta rama; no se afirma enforcement ni paridad de nombres |
 | `implementer-no-markdown` | PreToolUse `Bash\|Edit\|Write\|NotebookEdit`, si `scribeOwnsMarkdown` | PreToolUse `^(Bash\|apply_patch)$` | 0.134 | necesita `agent_type` en el payload |
 | `managed-drift-watch` | PostToolUse `Bash\|Edit\|Write\|NotebookEdit` | PostToolUse `^(Bash\|apply_patch)$` | 0.129 | |
 | `routing-watch` | PostToolUse `Bash\|Edit\|Write\|NotebookEdit\|Agent\|Task` | PostToolUse `^(Bash\|apply_patch\|spawn_agent)$` | 0.135 | |
@@ -126,17 +128,19 @@ actuales para que ningún cambio futuro los mueva sin querer.
 
 El comando registrado en Codex no cambia de forma:
 `bash "$(git rev-parse --show-toplevel)/.codex/hooks/<script>.sh"`. El partial `hook-input.sh`
-fija `nv_engine=codex` cuando el directorio del script (`BASH_SOURCE`) termina en `.codex/hooks`, y
-`claude` en cualquier otro caso. Después resuelve:
+fija `nv_engine=codex` cuando `$0` contiene `.codex/hooks/`, y `claude` en cualquier otro caso.
+Usa `$0` porque `BASH_SOURCE` puede no estar definido bajo zsh con `set -u`. Después resuelve:
 
 | Función | Claude | Codex |
 |---|---|---|
 | `nv_project_dir` | `$CLAUDE_PROJECT_DIR` | `git -C "$cwd" rev-parse --show-toplevel`, con `cwd` del payload |
 | `nv_progress_dir` | `.claude/progress` | `.codex/progress` (el espejo de `CODEX_MIRRORED_DIRS`) |
-| `nv_tool` | `tool_name` | `apply_patch`→`Edit`, `spawn_agent`→`Agent`, resto igual |
+| `nv_tool` | `tool_name` | `apply_patch`→`Edit`, `spawn_agent`→`Agent`, resto igual; la normalización no implica registro o aplicación de plan-gate |
 | `nv_edited_paths` | `tool_input.file_path` / `notebook_path` | encabezados `*** Add File:`, `*** Update File:`, `*** Delete File:` y `*** Move to:` del parche |
 | `nv_subagent_type` | `tool_input.subagent_type` | `tool_input.agent_type` en PreToolUse; `agent_type` en SubagentStop |
-| `nv_emit_context` | salida que ya usa cada script | `{"hookSpecificOutput":{"hookEventName":…,"additionalContext":…}}` |
+
+El partial solo normaliza entrada; no construye salida del host. Cada script conserva su propio
+contrato de salida porque el evento Codex y su payload se conocen en el sitio de emisión.
 
 `CODEX_MIRRORED_DIRS` solo decide **dónde se escriben** los archivos en el render; no reescribe los
 literales `.claude/` dentro de los scripts. Por eso los 8 scripts con literales `.claude/` pasan a
@@ -177,10 +181,10 @@ misma lista (invariante de fuente única).
 
 **`allow` no se traduce.** En Codex, un comando que coincide con una regla `allow` corre **fuera
 del sandbox** (`core/src/exec_policy.rs`: `Decision::Allow` → `ExecApprovalRequirement::Skip {
-bypass_sandbox }`). En Claude, `allow` solo evita la pregunta. Traducir la lista sería una
-escalación de privilegios, que la revisión del Lote C encontró. Tampoco hace falta: con
-`sandbox_mode = "workspace-write"` y `approval_policy = "on-request"`, los comandos de esa lista
-(lecturas de git, `cat`, `jq`…) ya corren dentro del sandbox sin preguntar.
+bypass_sandbox }`). En Claude, `allow` solo evita la pregunta. Traducir la lista como regla Codex
+sería una escalación de privilegios. El default `danger-full-access` de D12 ya elimina la
+contención del sandbox; omitir `allow` evita además convertir una preferencia de no preguntar en
+una regla permanente que elude otros modos de sandbox activos por override.
 
 Traducción de cada `Bash(<patrón>)` de `ask` y `deny`:
 
@@ -280,6 +284,39 @@ de este repo, ni `AGENTS.md`", y lo marca como error. Si el proyecto es de confi
 sin aprobar, lo marca como advertencia y dice cuántos. `render`/`sync`/`init` imprimen una sola línea con ese comando si algo falta, y reemplazan
 el `codexTrustHint` genérico de hoy.
 
+### D11 — Capacidades CLI y MCP son distintas (R19)
+
+`externalTool` describe una herramienta de línea de comandos; no es una declaración de servidor
+MCP ni debe generar una entrada `mcp_servers` o una advertencia por MCP ausente. `mcpServer` sí se
+serializa en la tabla `mcp_servers` de Codex. Si el plugin no declara ninguna capacidad, el render
+advierte que se omitió. En este repo, `gh`, `jscpd`, `semgrep` y `tgrep` son herramientas CLI;
+Engram y CodeGraph también declaran `mcpServer` y se configuran como MCP. Estas capacidades no
+garantizan que Codex ejecute una CLI automáticamente: el agente puede usarla desde terminal si está
+disponible, mientras que MCP se conecta como servidor configurado.
+
+Los hooks automáticos de escáneres siguen diferidos. Antes de adaptarlos a Codex se requiere
+verificar el payload real que entrega el host y el ciclo de vida del script; la mera disponibilidad
+de un binario CLI no acredita esa integración.
+
+### D12 — Acceso completo como default del proyecto Codex (R20)
+
+El generador de `.codex/config.toml` emitirá `sandbox_mode = "danger-full-access"`,
+`approval_policy = "on-request"` y `approvals_reviewer = "user"` en la raíz. Los agentes estándar
+seguirán omitiendo `sandbox_mode` para heredar el modo efectivo del padre; cualquier perfil con un
+modo explícitamente más restrictivo se conserva, y las opciones de CLI/sesión/host prevalecen. El
+render aplica el cambio solo a archivos managed del checkout solicitado, con el backup normal; no
+reescribe `~/.codex/config.toml` ni otros repositorios. Un segundo render debe ser idempotente.
+
+Es una **capa de confianza**, no una promesa de aprobación por comando: `on-request`/`user` se
+conservan, pero sin sandbox no hay cruce de sandbox que fuerce prompt para operaciones ordinarias.
+Las reglas `prompt`/`forbidden` cubren solo sus patrones de terminal; `guard-destructive` solo
+inspecciona `Bash` por su matcher y no sustituye aislamiento para `apply_patch`, MCP ni otras vías.
+Los permisos por ruta no están confinados por sandbox en este modo y siguen siendo aproximados;
+el render debe advertirlo con claridad. El modo full access puede permitir leer/escribir fuera del
+repo y acceder a la red: ese riesgo residual es intencional. Proyecto no confiable, override del
+host/CLI o render omitido pueden impedir que el default generado sea el modo efectivo; no se debe
+afirmar adopción universal a partir de un archivo renderizado.
+
 ## Contracts
 
 - **`.codex/config.toml`:** los 4 registros actuales quedan idénticos y en el mismo índice. Los
@@ -288,12 +325,13 @@ el `codexTrustHint` genérico de hoy.
 - **`.codex/rules/navori.rules`:** archivo nuevo, managed completo por navori, con encabezado de
   marcador y versión como los demás archivos generados. Entra en el backup y en el anti-rollback
   igual que el resto del render.
-- **Scripts de hook:** bajo Claude, entrada y salida idénticas a hoy. Bajo Codex, misma decisión
-  para el payload equivalente.
+- **Scripts de hook:** bajo Claude, entrada y salida idénticas a hoy. Bajo Codex, los hooks que
+  permanecen en alcance conservan la decisión para el payload equivalente; plan-gate está excluido.
 - **`~/.codex/config.toml`:** navori solo escribe dos formas de tabla (`projects.<ruta>` y
   `hooks.state.<clave>`) y solo desde `navori codex trust` con confirmación.
-- **`ENGINE_CAPABILITIES.codex`:** `plan-gate` y `markdown-ownership` pasan a `enforced`. Esto
-  reemplaza la decisión D5 de la spec 0033 para Codex; los demás engines no cambian.
+- **`ENGINE_CAPABILITIES.codex`:** `markdown-ownership` puede declararse `enforced` con evidencia
+  `hook`; `plan-gate` no se registra ni se declara `enforced` mientras R6 esté diferido. Esta
+  limitación es específica de Codex; el control de Claude y los demás engines no cambian.
 
 ## Failure modes
 
@@ -306,7 +344,8 @@ el `codexTrustHint` genérico de hoy.
 - **`~/.codex/config.toml` modificado mientras corre `trust`.** Se relee justo antes de escribir;
   si cambió desde que se mostró la confirmación, se aborta sin escribir.
 - **Hook que falla bajo Codex por un payload inesperado.** Todos los hooks nuevos son fail-open
-  salvo `plan-gate` e `implementer-no-markdown`, que ya bloquean bajo Claude. Si el partial no puede
+  salvo `implementer-no-markdown`, que ya bloquea bajo Claude. Codex plan-gate no se registra
+  mientras R6 esté diferido. Si el partial no puede
   leer el payload, estos dos siguen la política que ya tienen para payloads ilegibles en Claude.
 - **Versión de Codex menor que la mínima.** Codex ignora eventos que no conoce o no los dispara.
   `doctor` y el render lo advierten con la versión mínima derivada (R18).
@@ -331,14 +370,15 @@ migra `~/.codex/config.toml` automáticamente.
 - **R3 — ningún hook se queda sin decidir:** para cada hook que registra `buildSettings`, existe
   una fila en `CODEX_HOOK_REGISTRATIONS`, registrada o `unsupported` con razón, y cada
   `unsupported` aparece en `ENGINE_CAPABILITIES.codex.unsupportedSurfaces`.
-- **R4 — mismo veredicto con los dos payloads:** fixtures pareados (Claude y Codex) para
-  `plan-gate`, `implementer-no-markdown`, `guard-destructive` y `subagent-stop-handoff`; el test
+- **R4 — mismo veredicto con los dos payloads:** fixtures pareados (Claude y Codex) para los hooks
+  en alcance `implementer-no-markdown`, `guard-destructive` y `subagent-stop-handoff`; el test
   corre el script con cada uno y compara decisión y código de salida.
 - **R1/R2 — contexto de arranque:** correr `session-start-context` con payload de Codex en un repo
   temporal y verificar JSON válido con rama, commits y `progress/current.md` en `additionalContext`.
 - **R5 — sin `ask` bajo Codex:** el recorrido de scripts descrito en D4.
-- **R6/R7/R8 — controles aplicados:** `control-inventory.test.ts` deja de excluir a Codex y
-  verifica evento y matcher de cada `enforced` en el `.codex/config.toml` renderizado.
+- **R6/R7/R8 — controles aplicados:** `control-inventory.test.ts` verifica evento y matcher de
+  cada control Codex `enforced` en `.codex/config.toml` y verifica que plan-gate no esté registrado
+  ni marcado `enforced`. La aplicación real de plan-gate queda fuera de este spec.
 - **R9/R10 — reglas:** tabla de casos de traducción (prefijo, patrón exacto, `*` pegado al último
   token, comodín interno, no-Bash), que ningún `allow` salga en `navori.rules`, y un test
   de que la lista de `buildSettings` y la de `buildCodexRules` vienen de la misma función.
@@ -350,9 +390,13 @@ migra `~/.codex/config.toml` automáticamente.
 - **R16/R17:** los tres estados (`Trusted`, `Modified`, `Untrusted`) y el proyecto sin confianza,
   con mensajes distintos para cada caso.
 - **R18:** versión mínima derivada de la tabla, y advertencia con Codex más viejo.
-- **Humo manual antes del PR final:** `navori codex trust` en `monorepo-fullstack` y una sesión real
-  de `codex exec` que confirme el contexto de arranque y que `plan-gate` bloquee un `spawn_agent` sin
-  workplan.
+- **Humo manual antes del PR final:** en un checkout aislado de `navori-harness`, validar el contexto
+  de arranque y el resto de funciones Codex en alcance con `navori sync`, `navori codex trust` y
+  `codex exec`. No probar ni afirmar enforcement de Codex plan-gate: el smoke de Codex 0.157.1 creó
+  un implementer sin workplan aun resolviendo `/private/tmp/navori-0035-bin/navori` al CLI de esta
+  rama. T11 exige documentar esta limitación, comprobar que los hooks restantes siguen disponibles
+  y registrar la evidencia observable de routing sin atribuirla a plan-gate. No se marca completo
+  hasta contar con evidencia de cierre para el alcance restante.
 
 ## NOT in scope
 
@@ -364,4 +408,7 @@ migra `~/.codex/config.toml` automáticamente.
   harness del repo.
 - **Aprobar sin confirmación** o con `--dangerously-bypass-hook-trust`.
 - **Permisos que no son de terminal** (lectura y escritura por ruta): Codex no tiene un mecanismo
-  equivalente; quedan en el sandbox (`workspace-write`).
+  equivalente a `allow`/`ask`/`deny` de Claude. Con D12 no están aislados por sandbox; la advertencia
+  del render debe decirlo y no insinuar confinamiento por ruta.
+- **Invocación automática de CLIs y hooks de escáner bajo Codex:** no se infiere de `externalTool`;
+  queda diferida hasta validar payload y ciclo de vida del host.

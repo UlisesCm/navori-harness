@@ -252,10 +252,10 @@ function sameForEveryRole(
  *  intersected with `WRITE_CAPABLE_TOOLS`, in the AGENT's own tools: order. */
 const CLAUDE_ANALYTIC_WRITE_TOOLS = sameForEveryRole(["Bash", "Write"]);
 
-/** codex: no per-role `sandbox_mode` line for any of the four (all `sandbox:
- *  "workspace-write"` in roster.ts), so the effective mode is `.codex/
- *  config.toml`'s default (`build-config-toml.ts`). */
-const CODEX_ANALYTIC_WRITE_TOOLS = sameForEveryRole(["sandbox:workspace-write"]);
+/** codex: no per-role `sandbox_mode` line for any of the four (roster's
+ *  `workspace-write` is omitted by the renderer), so the effective mode is
+ *  `.codex/config.toml`'s default (`build-config-toml.ts`). */
+const CODEX_ANALYTIC_WRITE_TOOLS = sameForEveryRole(["sandbox:danger-full-access"]);
 
 /** Prose engines render no agents at all. */
 const PROSE_ANALYTIC_WRITE_TOOLS = sameForEveryRole([]);
@@ -383,17 +383,11 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
     ],
     controls: {
       "plan-gate": {
-        state: "enforced",
+        state: "advisory",
         reason:
-          "harness.planTiers registers PreToolUse(^spawn_agent$) via CODEX_HOOK_REGISTRATIONS " +
-          "(hook-registrations.ts, build-config-toml.ts) — spec 0035 supersedes spec 0033 D5 " +
-          "for Codex.",
-        evidence: {
-          kind: "hook",
-          script: "plan-gate.sh",
-          event: "PreToolUse",
-          matcher: "^spawn_agent$",
-        },
+          "The workplan procedure remains in AGENTS.md, but Codex does not register " +
+          "plan-gate.sh: a live smoke created an implementer without a workplan despite " +
+          "PreToolUse registration. Enforcement is deferred until the host blocks that spawn.",
       },
       "markdown-ownership": {
         state: "enforced",
@@ -422,8 +416,8 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       "analytic-write-tools": {
         state: "advisory",
         reason:
-          '`sandbox_mode = "workspace-write"` plus prose instructions; the sandbox itself allows ' +
-          "writes broadly.",
+          '`sandbox_mode = "danger-full-access"` plus prose instructions; no filesystem/network ' +
+          "sandbox restricts writes, so the role boundary is advisory.",
       },
       "local-skill-discovery": {
         state: "enforced",

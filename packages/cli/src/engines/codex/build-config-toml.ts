@@ -31,7 +31,11 @@ export function buildCodexConfigToml(
 ): { body: string; warnings: string[] } {
   // Codex currently defaults both features on, but a full navori adapter must
   // stay deterministic when a user's global config disables either one.
-  const lines: string[] = ['sandbox_mode = "workspace-write"', 'approval_policy = "on-request"'];
+  const lines: string[] = [
+    'sandbox_mode = "danger-full-access"',
+    'approval_policy = "on-request"',
+    'approvals_reviewer = "user"',
+  ];
   // R12/D8: only written above Codex's own default — a render that stays under
   // it must not pin a value that would silently diverge from a future Codex
   // default.
@@ -72,18 +76,25 @@ export function buildCodexConfigToml(
   const warnings = [
     // Spec 0035 D5/T6 (R9): terminal (Bash) permissions now translate into
     // `.codex/rules/navori.rules` (see build-rules.ts); only NON-terminal
-    // permissions (path read/write) have no Codex equivalent and stay
-    // approximated by sandbox_mode/approval_policy.
-    "Permisos Codex por ruta (lectura/escritura de archivos) son aproximados: sandbox_mode/" +
-      "approval_policy no tienen equivalente 1:1 con allow/ask/deny de Claude fuera de comandos " +
-      "de terminal. guard-destructive conserva la defensa crítica.",
+    // permissions (path read/write) have no equivalent. Full access removes
+    // filesystem/network isolation; rules and hooks cover only their matchers.
+    "Codex usa danger-full-access por defecto: sin aislamiento de archivos ni red. " +
+      "on-request/user no exige aprobación para toda acción; verifica la política efectiva " +
+      "de la sesión (confianza del proyecto y overrides de CLI/host).",
+    "Permisos por ruta de Claude no tienen equivalente 1:1 en Codex: reglas ask/deny y hooks " +
+      "solo cubren sus matchers; guard-destructive intercepta únicamente Bash, no apply_patch " +
+      "ni escrituras por MCP/app.",
   ];
   for (const plugin of plugins) {
     const server = plugin.manifest.mcpServer;
     if (!server) {
-      warnings.push(
-        `Plugin '${plugin.manifest.id}' no declara mcpServer; se omitió de .codex/config.toml.`,
-      );
+      // CLI-only plugins are available through their externalTool binary;
+      // config.toml is only for MCP servers, not a plugin inventory.
+      if (!plugin.manifest.externalTool) {
+        warnings.push(
+          `Plugin '${plugin.manifest.id}' no declara mcpServer ni externalTool; se omitió de .codex/config.toml.`,
+        );
+      }
       continue;
     }
     lines.push(

@@ -2157,3 +2157,11 @@ dos— lo que apunta a sleep/wake del sistema; no corrompe el índice y no se ab
 **Gate**: no corrió, y no aplica — cero archivos del repo editados en todo el ciclo. El trabajo fue
 lectura, seis issues, un LaunchAgent fuera del repo y este cierre. `git status` limpio antes y
 después.
+
+## 2026-09-27 20:12 Codex — Spec 0035: paridad y default de permisos
+
+- La rama `spec/0035-paridad-codex` quedó sobre `origin/main`; T1–T13 están marcadas en la spec. Codex plan-gate permanece diferido por un smoke que permitió crear un implementer sin workplan.
+- T11 se probó en un checkout aislado: `sync` sin drift, `trust` y `doctor` con 12/12 hooks Trusted, contexto `SessionStart` recibido y aviso real de `routing-watch` tras cuatro archivos de prueba. El smoke no demuestra ejecución individual de todos los hooks.
+- R20 genera `danger-full-access` con `on-request` y revisor `user`; los subagentes heredan el default. Las reglas y `guard-destructive` tienen cobertura acotada, no restituyen el aislamiento. Los repos existentes lo adoptan solo tras `render` o `sync` en un proyecto confiable; la política del host y los overrides explícitos prevalecen.
+- Upgrade aislado: una actualización con backup, seguida de una ejecución idempotente sin cambios. `codex doctor` confirmó en su check de sandbox acceso irrestricto por defecto y acceso restringido con override CLI; el doctor completo salió 1 por otros diagnósticos.
+- Reviewer aprobó el código R20 con gate completo verde (297 archivos, 5402 tests aprobados, 1 omitido). Falta refrescar revisión y receipt tras el checkbox T13, hacer commit y abrir PR a `main`. `progress/current.md` conserva el checkpoint independiente de #1046.

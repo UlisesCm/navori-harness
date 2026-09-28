@@ -20,6 +20,7 @@ import { adaptHarnessTextForCodex } from "../compat.ts";
 import { resolveCodexHooks } from "../hook-registrations.ts";
 import { buildCodexConfigToml } from "../build-config-toml.ts";
 import { codexHookHash } from "../../../lib/codex/trust.ts";
+import { PluginManifestSchema, type LoadedPlugin } from "../../../lib/config/plugins.ts";
 
 function tempRepo(): string {
   return mkdtempSync(join(tmpdir(), "navori-codex-"));
@@ -56,7 +57,57 @@ function config(overrides: Partial<NavoriConfigInput> = {}): NavoriConfig {
   });
 }
 
+function testPlugin(id: string, capabilities: Record<string, unknown>): LoadedPlugin {
+  return {
+    manifest: PluginManifestSchema.parse({
+      id,
+      name: id,
+      description: id,
+      version: "1.0.0",
+      ...capabilities,
+    }),
+    packageRoot: "",
+    managedAssets: [],
+    scriptAssets: [],
+    skillAssets: [],
+  };
+}
+
 describe("renderCodexEngine", () => {
+  // Covers: R20
+  it("warns that full access is not path isolation or universal approval", () => {
+    const result = buildCodexConfigToml(config(), []);
+
+    expect(result.warnings).toContainEqual(
+      expect.stringContaining("sin aislamiento de archivos ni red"),
+    );
+    expect(result.warnings).toContainEqual(expect.stringContaining("on-request/user no exige"));
+    expect(result.warnings).toContainEqual(expect.stringContaining("confianza del proyecto"));
+    expect(result.warnings).toContainEqual(expect.stringContaining("únicamente Bash"));
+    expect(result.warnings).toContainEqual(expect.stringContaining("apply_patch"));
+    expect(result.warnings).not.toContainEqual(
+      expect.stringContaining("guard-destructive conserva la defensa crítica"),
+    );
+  });
+
+  // Covers: R19
+  it("distinguishes CLI-only, MCP-only, and unconfigured plugins in Codex config", () => {
+    const cliOnly = testPlugin("cli-only", {
+      externalTool: { name: "Example", checkBinary: "example" },
+    });
+    const mcpOnly = testPlugin("mcp-only", { mcpServer: { command: "example-mcp", args: [] } });
+    const neither = testPlugin("neither", {});
+    const result = buildCodexConfigToml(config(), [cliOnly, mcpOnly, neither]);
+
+    expect(result.body).not.toContain('[mcp_servers."cli-only"]');
+    expect(result.body).toContain('[mcp_servers."mcp-only"]');
+    expect(result.body).toContain('command = "example-mcp"');
+    expect(result.body).not.toContain('[mcp_servers."neither"]');
+    expect(result.warnings).not.toContainEqual(expect.stringContaining("cli-only"));
+    expect(result.warnings).not.toContainEqual(expect.stringContaining("mcp-only"));
+    expect(result.warnings).toContainEqual(expect.stringContaining("Plugin 'neither'"));
+  });
+
   // Covers: R3, R4, R5, R6, R7
   it("registers the Astra-only SessionStart advisor without changing agent profiles", () => {
     const cwd = tempRepo();
@@ -111,6 +162,13 @@ describe("renderCodexEngine", () => {
     expect(existsSync(join(cwd, ".codex/hooks/guard-destructive.sh"))).toBe(true);
 
     const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+    // Covers: R20 — the project default applies to inherited agents, while
+    // approvals remain user-controlled rather than disabled or auto-reviewed.
+    expect(toml).toContain('sandbox_mode = "danger-full-access"');
+    expect(toml).toContain('approval_policy = "on-request"');
+    expect(toml).toContain('approvals_reviewer = "user"');
+    expect(toml).not.toContain('approval_policy = "never"');
+    expect(toml).not.toContain('approvals_reviewer = "auto_review"');
     expect(toml).not.toContain("[agents.");
     expect(toml).not.toContain("config_file");
     expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8")).toContain(
@@ -134,14 +192,15 @@ describe("renderCodexEngine", () => {
     expect(implementer).not.toContain("CLAUDE.md");
     expect(implementer).not.toContain(".claude/progress");
     expect(existsSync(join(cwd, ".codex/agents/leader.toml"))).toBe(false);
-    // #280: the auditor is workspace-write like the reviewer/researcher/explorer/
-    // ticket-audit roles — it writes its durable outputs (audit_deep/plan/SDD drafts)
-    // to disk, so a read-only sandbox would break its contract. "never edits code" is
-    // enforced by its prose contract + tool set, not the sandbox → no override emitted.
+    // #280: the auditor writes durable outputs, so a read-only override would
+    // break its contract. No override is emitted: it inherits the project mode.
     expect(readFileSync(join(cwd, ".codex/agents/auditor.toml"), "utf-8")).not.toContain(
       "sandbox_mode",
     );
     expect(readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8")).not.toContain(
+      "sandbox_mode",
+    );
+    expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8")).not.toContain(
       "sandbox_mode",
     );
   });
@@ -196,6 +255,22 @@ describe("renderCodexEngine", () => {
     const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
     expect(toml).toContain("session-start-context.sh");
     expect(toml).toContain('matcher = "startup|resume|clear|compact|fork"');
+  });
+
+  // Covers: R6, R7, R8
+  it("omits deferred plan-gate while retaining the other Codex hooks", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config({ harness: { planTiers: true, scribeOwnsMarkdown: true } }));
+    const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+    const hooks = resolveCodexHooks(
+      config({ harness: { planTiers: true, scribeOwnsMarkdown: true } }),
+    );
+    expect(hooks.some((entry) => entry.script === "plan-gate")).toBe(false);
+    expect(toml).not.toContain("plan-gate.sh");
+    for (const script of ["implementer-no-markdown", "routing-watch", "guard-destructive"]) {
+      expect(hooks.some((entry) => entry.script === script)).toBe(true);
+      expect(toml).toContain(`${script}.sh`);
+    }
   });
 
   // Covers: R10, R13
