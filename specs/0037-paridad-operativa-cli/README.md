@@ -1,12 +1,12 @@
 # Spec 0037 — Paridad operativa Claude / Codex CLI
 
-**Estado: spec completa; T1–T4 aprobados y completos, 15 tareas pendientes.** Fecha: 2026-09-28.
+**Estado: spec completa; T1–T4, T8 y T13 aprobados y completos, 13 tareas pendientes.** Fecha: 2026-09-28.
 
 ## Contenido
 
 - [Requisitos](requirements.md): **23 requisitos EARS**, incluyendo lo que ya funciona y debe preservarse.
 - [Diseño](design.md): extensión de piezas existentes, decisiones, contratos, seguridad y migración.
-- [Tareas](tasks.md): **19 tareas en 8 lotes**; T1–T4 completas y 15 pendientes, con dependencias y trazabilidad R→T→V.
+- [Tareas](tasks.md): **19 tareas en 8 lotes**; seis completas y 13 pendientes, con dependencias y trazabilidad R→T→V.
 - [Validación](validation.md): **23 pruebas/casos y 9 escenarios live**, especificados, no ejecutados.
 - [Evidencia](evidence.md): auditoría, fortalezas, brechas y documentación oficial.
 - [Baseline T1](baseline.md): snapshot versionado de procedencia y dependencias; no certifica
@@ -34,8 +34,9 @@ de handoff para **architect/auditor durante esa redacción**. No cambió la regl
 un handoff. T4 implementa y revisa la corrección de flujo: el primer productor no requiere un
 handoff inexistente; scribe/reviewer lo consumen solo tras un check exitoso. La precondición de
 planificación del implementer sigue independiente y obligatoria; no cambió el validador ni se afirma
-comportamiento runtime. Después, el usuario autorizó el Lote A (T1–T2) tras sincronizar `main`. T1–T4
-fueron aprobados en revisión fresca; las tareas posteriores siguen sin estar autorizadas.
+comportamiento runtime. Después, el usuario autorizó el Lote A (T1–T2) tras sincronizar `main`; T8 y
+T13 también se completaron con autorizaciones puntuales y revisión fresca. Esto no autoriza las otras
+tareas.
 
 T1 registró el baseline y T2 implementó diagnóstico read-only de doctor. No se autorizan aquí campañas
 live/pagadas, instalaciones, cambios de trust, push ni PR; campañas live requieren autorización
@@ -75,5 +76,20 @@ separada de consumo y aislamiento. No se presentan como equivalencia demostrada 
 El baseline de T1 está documentado en [baseline.md](baseline.md) sobre HEAD `13106729`, que incluye
 #1084. Véanse la [revisión fresca de T1](../../.codex/progress/review_spec0037_t1.md) y el receipt
 `.codex/progress/receipt.txt`. T3 fue aprobado en la [revisión fresca](../../.codex/progress/review_spec0037_t3_rereview.md);
-las campañas live y las 15 tareas restantes siguen pendientes.
+las campañas live y las 13 tareas restantes siguen pendientes.
+
+T8 materializó `.codex/orchestrator.md` como referencia managed opcional desde el playbook compartido,
+sin crear un perfil de agente ni sumar su contenido al contexto always-on salvo que se abra la
+referencia. En el fixture medido, el contexto always-on cambió de 24,084 a 24,110 bytes; la referencia
+mide 18,492 bytes y el contexto compuesto al abrirla mide 42,602 bytes. Son tamaños de render del
+fixture, no mediciones de tokens, latencia o costo.
+
+T13 añade a `doctor --json` ejes read-only para tgrep, CodeGraph y Engram: CLI/MCP, estado de índice
+y frescura/resultado, y lectura/escritura. Los 35 tests dirigidos y el gate completo revisado no son
+campañas runtime: el resultado de búsqueda, la invocación MCP y las operaciones Engram siguen sin
+verificarse en vivo; L02/L08 permanecen pendientes. Doctor no instala herramientas, inicia
+servidores, reindexa ni escribe memoria. La revisión combinada T8/T13 fue **APPROVED** y el receipt
+`.codex/progress/receipt.txt` reportó `status: ok`, `fresh: true` en HEAD `785367f6` (commits
+`785367f6` T8 y `a88a7781` T13; gate completo: 298 archivos, 5,436 tests aprobados). Este receipt
+acredita el diff revisado, no campañas live ni trust efectivo.
 No se movió ni sobrescribió el checkpoint de Spec0036 perteneciente a otra sesión.

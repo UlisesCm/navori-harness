@@ -1,8 +1,8 @@
 # Paridad operativa Claude / Codex CLI — Tasks
 
-**Estado:** T1–T4 aprobados y completos; 15 tareas pendientes. El usuario
-autorizó iniciar el Lote A (T1–T2) después de sincronizar `main`; esta autorización no cubre otros
-lotes, campañas live/pagadas, instalaciones, cambios de trust ni publicación.
+**Estado:** T1–T4, T8 y T13 aprobados y completos; 13 tareas pendientes. Las autorizaciones
+puntuales para estas tareas no cubren otras tareas, campañas live/pagadas, instalaciones, cambios
+de trust ni publicación.
 **Diseño:** [design.md](design.md), veredicto CONCERNS y resoluciones en [review.md](review.md).
 
 ## Cómo ejecutar
@@ -89,7 +89,7 @@ lotes, campañas live/pagadas, instalaciones, cambios de trust ni publicación.
 
 ## Lote D — Profundidad de orquestación sin costo always-on duplicado
 
-- [ ] **T8** (R7, R18, R23) — Materializar `.codex/orchestrator.md` como referencia managed desde
+- [x] **T8** (R7, R18, R23) — Materializar `.codex/orchestrator.md` como referencia managed desde
   el playbook fuente existente, fuera de `.codex/agents`. Adaptar enlaces/condicionales y conservar
   todas las secciones y extensiones según D4; no nuevo perfil, skill ni modelo del principal.
   Medir antes/después de bytes always-on y contexto compuesto.
@@ -97,6 +97,9 @@ lotes, campañas live/pagadas, instalaciones, cambios de trust ni publicación.
   `skill-caps-composed.test.ts`, `check:doc-budgets` — contenido semántico navegable, sin self-link,
   duplicación ni pérdida de caps; Claude conserva referencia/user-section.
   · depende de: T1; coordinar fuente de orquestación con T4 antes de regenerar.
+  · evidencia revisada: commit `785367f6`; reviewer combinado T8/T13 **APPROVED**, receipt
+  `status: ok`, `fresh: true`. Fixture: bytes always-on 24,084→24,110; referencia opcional
+  18,492 bytes; abrirla compone 42,602 bytes. Son medidas del fixture, no tokens, latencia ni costo.
 
 ## Lote E — Roles y permisos: viabilidad antes de emitir garantías
 
@@ -138,13 +141,16 @@ lotes, campañas live/pagadas, instalaciones, cambios de trust ni publicación.
   mapeo y ausencia de cambio global.
   · depende de: T1–T2.
 
-- [ ] **T13** (R3, R16, R19) — Completar diagnóstico operativo read-only de tgrep/CodeGraph/Engram
+- [x] **T13** (R3, R16, R19) — Completar diagnóstico operativo read-only de tgrep/CodeGraph/Engram
   reutilizando scans existentes: CLI vs MCP, índice/frescura vs resultado, lectura vs escritura
   con identidad runtime. Reportar CA/permisos/sesión inválida como no verificado; no instalar,
   iniciar servidores, reindexar, crear sesiones Engram ni escribir memoria de producción.
   · pruebas: **V03, V16, V19**, fixtures en `codex-doctor.test.ts`; **L02/L08** completan la
   evidencia real bajo autorización, sin reinterpretar fixture como consulta live.
   · depende de: T2.
+  · evidencia revisada: commit `a88a7781`; reviewer combinado T8/T13 **APPROVED**, receipt
+  `status: ok`, `fresh: true`. `doctor --json` separa CLI/MCP, índice/resultado y lectura/escritura;
+  35 pruebas dirigidas, lint y typecheck pasaron. Los fixtures no acreditan consultas live L02/L08.
 
 - [ ] **T14** (R17, R18) — Ampliar cobertura de render/discovery de skills compartidas y políticas
   de invocación, manteniendo source único y roots propios de cada host. Incluir explícita, implícita
