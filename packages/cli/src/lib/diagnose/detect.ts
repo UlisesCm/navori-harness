@@ -340,6 +340,128 @@ function readPackageJson(cwd: string): PackageJson | null {
   }
 }
 
+/** Lowercased distribution name of a PEP 508 / requirements line; drops extras, specifiers, markers, URLs. */
+function pythonReqName(spec: string): string | null {
+  const m = spec.trim().match(/^([a-zA-Z0-9][a-zA-Z0-9_.-]*)/);
+  return m?.[1] ? m[1].toLowerCase() : null;
+}
+
+/**
+ * Quoted strings sitting directly inside the TOML array that opens at `start`
+ * (index just after `[`). Skips comments and inline tables (`{include-group = ...}`),
+ * and is bracket-aware so `"fastapi[standard]>=0.1"` does not end the array.
+ */
+function tomlArrayStrings(text: string, start: number): string[] {
+  const out: string[] = [];
+  let depth = 1;
+  for (let i = start; i < text.length && depth > 0; i++) {
+    const c = text[i];
+    if (c === "#") {
+      while (i < text.length && text[i] !== "\n") i++;
+    } else if (c === '"' || c === "'") {
+      const end = text.indexOf(c, i + 1);
+      if (end === -1) break;
+      if (depth === 1) out.push(text.slice(i + 1, end));
+      i = end;
+    } else if (c === "{") {
+      let braces = 1;
+      for (i++; i < text.length && braces > 0; i++) {
+        if (text[i] === "{") braces++;
+        else if (text[i] === "}") braces--;
+        else if (text[i] === '"' || text[i] === "'") i = Math.max(text.indexOf(text[i]!, i + 1), i);
+      }
+      i--;
+    } else if (c === "[") depth++;
+    else if (c === "]") depth--;
+  }
+  return out;
+}
+
+/** Names from every `key = [ "dep", ... ]` array in a TOML section body (optional-dependencies, dependency-groups). */
+function tomlArrayGroupDeps(body: string): string[] {
+  const deps: string[] = [];
+  for (const m of body.matchAll(/^\s*[\w."'-]+\s*=\s*\[/gm)) {
+    for (const item of tomlArrayStrings(body, m.index + m[0].length)) {
+      const name = pythonReqName(item);
+      if (name) deps.push(name);
+    }
+  }
+  return deps;
+}
+
+/** Split a TOML document into `header -> body` (array-of-tables `[[x]]` are ignored). */
+function tomlSections(content: string): Map<string, string> {
+  const sections = new Map<string, string>();
+  let header: string | null = null;
+  let buf: string[] = [];
+  const flush = (): void => {
+    if (header !== null) sections.set(header, (sections.get(header) ?? "") + buf.join("\n"));
+  };
+  for (const line of content.split("\n")) {
+    const h = line.match(/^\s*\[([^[\]]+)\]\s*(?:#.*)?$/);
+    if (h?.[1]) {
+      flush();
+      header = h[1].trim();
+      buf = [];
+    } else buf.push(line);
+  }
+  flush();
+  return sections;
+}
+
+/** `name = "spec"` / `name = { ... }` lines of a poetry-style dependency table. */
+function tomlKeyDeps(body: string): string[] {
+  const deps: string[] = [];
+  for (const line of body.split("\n")) {
+    const m = line.match(/^\s*([a-zA-Z0-9_\-.]+)\s*=/);
+    if (m?.[1] && m[1] !== "python") deps.push(m[1].toLowerCase());
+  }
+  return deps;
+}
+
+/** Dependency names in a pip requirements file; skips comments, options (`-r`, `-e`) and blanks. */
+function parseRequirementsFile(path: string): string[] {
+  const deps: string[] = [];
+  for (const line of readFileSync(path, "utf-8").split("\n")) {
+    const t = line.trim();
+    if (!t || t.startsWith("#") || t.startsWith("-")) continue;
+    const name = pythonReqName(t);
+    if (name) deps.push(name);
+  }
+  return deps;
+}
+
+/**
+ * Deps from the non-base requirements files: `requirements-*.txt` (dev, test, …)
+ * and `requirements/*.txt`. The base `requirements.txt` is read by the fallback.
+ */
+function readExtraRequirements(cwd: string): { found: boolean; deps: string[] } {
+  const files: string[] = [];
+  try {
+    for (const f of readdirSync(cwd)) {
+      if (/^requirements-.+\.txt$/.test(f)) files.push(join(cwd, f));
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    for (const f of readdirSync(join(cwd, "requirements"))) {
+      if (f.endsWith(".txt")) files.push(join(cwd, "requirements", f));
+    }
+  } catch {
+    /* no requirements/ dir */
+  }
+  const deps: string[] = [];
+  for (const f of files) {
+    try {
+      deps.push(...parseRequirementsFile(f));
+    } catch {
+      /* unreadable — skip */
+    }
+  }
+  return { found: files.length > 0, deps };
+}
+
 function readPyproject(cwd: string): { name: string | null; deps: string[] } | null {
   const path = join(cwd, "pyproject.toml");
   if (!existsSync(path)) return null;
@@ -347,28 +469,30 @@ function readPyproject(cwd: string): { name: string | null; deps: string[] } | n
     const content = readFileSync(path, "utf-8");
     const nameMatch = content.match(/^\s*name\s*=\s*"([^"]+)"/m);
     const deps: string[] = [];
-    // Naive: list dependency names from [tool.poetry.dependencies] or [project.dependencies]
-    const depBlock = content.match(/\[(?:tool\.poetry\.)?dependencies\]([\s\S]*?)(?:\n\[|$)/);
-    if (depBlock?.[1]) {
-      for (const line of depBlock[1].split("\n")) {
-        const m = line.match(/^\s*([a-zA-Z0-9_\-.]+)\s*=/);
-        if (m?.[1] && m[1] !== "python") deps.push(m[1].toLowerCase());
+    const sections = tomlSections(content);
+    for (const [header, body] of sections) {
+      if (header === "dependencies" || header === "tool.poetry.dependencies") {
+        deps.push(...tomlKeyDeps(body));
+      } else if (
+        header === "tool.poetry.dev-dependencies" ||
+        /^tool\.poetry\.group\.[^.]+\.dependencies$/.test(header)
+      ) {
+        deps.push(...tomlKeyDeps(body));
+      } else if (header === "project.optional-dependencies" || header === "dependency-groups") {
+        deps.push(...tomlArrayGroupDeps(body));
+      } else if (header === "project") {
+        // PEP 621 `dependencies = [...]`, scoped to [project] so optional groups never leak in.
+        const m = body.match(/^\s*dependencies\s*=\s*\[/m);
+        if (m?.index !== undefined) {
+          for (const item of tomlArrayStrings(body, m.index + m[0].length)) {
+            const name = pythonReqName(item);
+            if (name) deps.push(name);
+          }
+        }
       }
     }
-    // Also pull from [project] dependencies = ["foo>=1", ...]
-    const projectDeps = content.match(/dependencies\s*=\s*\[([\s\S]*?)\]/);
-    if (projectDeps?.[1]) {
-      const items = projectDeps[1].match(/"([^"]+)"/g) ?? [];
-      for (const item of items) {
-        const pkgName = item
-          .slice(1, -1)
-          .split(/[<>=~!]/)[0]
-          ?.trim()
-          .toLowerCase();
-        if (pkgName) deps.push(pkgName);
-      }
-    }
-    return { name: nameMatch?.[1] ?? null, deps };
+    deps.push(...readExtraRequirements(cwd).deps);
+    return { name: nameMatch?.[1] ?? null, deps: Array.from(new Set(deps)) };
   } catch {
     return null;
   }
@@ -393,8 +517,8 @@ function readPythonFallback(cwd: string): { name: string | null; deps: string[] 
       for (const line of readFileSync(reqPath, "utf-8").split("\n")) {
         const t = line.trim();
         if (!t || t.startsWith("#") || t.startsWith("-")) continue;
-        const m = t.match(/^([a-zA-Z0-9_.-]+)/);
-        if (m?.[1]) deps.push(m[1].toLowerCase());
+        const name = pythonReqName(t);
+        if (name) deps.push(name);
       }
     } catch {
       /* unreadable — still a signal */
@@ -405,10 +529,13 @@ function readPythonFallback(cwd: string): { name: string | null; deps: string[] 
   if (existsSync(pipfilePath)) {
     hasSignal = true;
     try {
-      const block = readFileSync(pipfilePath, "utf-8").match(/\[packages\]([\s\S]*?)(?:\n\[|$)/);
-      for (const line of block?.[1]?.split("\n") ?? []) {
-        const m = line.match(/^\s*"?([a-zA-Z0-9_.-]+)"?\s*=/);
-        if (m?.[1]) deps.push(m[1].toLowerCase());
+      const pipfile = readFileSync(pipfilePath, "utf-8");
+      for (const table of ["packages", "dev-packages"]) {
+        const block = pipfile.match(new RegExp(`\\[${table}\\]([\\s\\S]*?)(?:\\n\\[|$)`));
+        for (const line of block?.[1]?.split("\n") ?? []) {
+          const m = line.match(/^\s*"?([a-zA-Z0-9_.-]+)"?\s*=/);
+          if (m?.[1]) deps.push(m[1].toLowerCase());
+        }
       }
     } catch {
       /* unreadable — still a signal */
@@ -432,6 +559,12 @@ function readPythonFallback(cwd: string): { name: string | null; deps: string[] 
       /* unreadable — still a signal */
     }
   }
+
+  // requirements-dev.txt etc. only add deps/signal here, and this fallback runs
+  // solely when there is no package.json — a JS repo is never made Python by them.
+  const extra = readExtraRequirements(cwd);
+  if (extra.found) hasSignal = true;
+  deps.push(...extra.deps);
 
   // Last resort: loose .py files in the root (e.g. report.py) with no manifest.
   if (!hasSignal) {

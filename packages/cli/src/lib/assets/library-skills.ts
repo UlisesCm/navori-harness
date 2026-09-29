@@ -221,6 +221,9 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
   // a declared+present runner/assertion lib earns its guidance regardless of preset.
   { id: "vitest", deps: ["vitest"], label: "Vitest" },
   { id: "jest", deps: ["jest", "jest-expo"], label: "Jest" },
+  // Python ecosystem: detected from requirements*/pyproject/Pipfile dep names.
+  { id: "fastapi", deps: ["fastapi"], label: "FastAPI + Pydantic" },
+  { id: "pytest", deps: ["pytest"], label: "pytest" },
   {
     id: "testing-library",
     deps: [
