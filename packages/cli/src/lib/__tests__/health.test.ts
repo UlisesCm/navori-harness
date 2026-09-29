@@ -1197,7 +1197,7 @@ describe("scanRetiredAssets — reports retired files with successor (spec 0026 
     mkdirSync(join(cwd, ".claude/hooks"), { recursive: true });
     writeFileSync(
       join(cwd, ".claude/hooks", `${RETIRED_HOOK.id}.sh`),
-      `# navori:managed start id="${markerId}" hash="deadbeef" version="${readCliVersion()}" source="@navori/core"\n` +
+      `# navori:managed start id="${markerId}" hash="${computeManagedHash("#!/usr/bin/env bash\nexit 0\n")}" version="${readCliVersion()}" source="@navori/core"\n` +
         `#!/usr/bin/env bash\nexit 0\n` +
         `# navori:managed end id="${markerId}"\n`,
       "utf-8",
@@ -1270,7 +1270,7 @@ describe("scanRetiredAssets — reports retired files with successor (spec 0026 
     mkdirSync(join(cwd, ".codex/hooks"), { recursive: true });
     writeFileSync(
       hookPath,
-      `# navori:managed start id="${hookMarker}" hash="deadbeef" version="${readCliVersion()}" source="@navori/core"\n` +
+      `# navori:managed start id="${hookMarker}" hash="${computeManagedHash("#!/usr/bin/env bash\nexit 0\n")}" version="${readCliVersion()}" source="@navori/core"\n` +
         `#!/usr/bin/env bash\nexit 0\n` +
         `# navori:managed end id="${hookMarker}"\n`,
       "utf-8",

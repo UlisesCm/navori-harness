@@ -46,7 +46,7 @@ const { renderCodexEngine } = await import("../../engines/codex/index.ts");
 const { renderClaudeEngine } = await import("../../engines/claude/index.ts");
 const { runRender } = await import("../../commands/render.ts");
 const { writeConfig } = await import("../config/config.ts");
-const { injectManagedSection } = await import("../render/marker.ts");
+const { injectManagedSection, computeManagedHash } = await import("../render/marker.ts");
 const { readCliVersion } = await import("../render/bundled-assets.ts");
 const { isRemovableNavoriFile } = await import("../render/removable.ts");
 
@@ -711,9 +711,10 @@ describe("the criterion reads the JSON notation of the marker too (#538)", () =>
  */
 describe("the criterion reads the SHELL notation of the marker too (#774)", () => {
   function shellFile(id: string, version: string): string {
+    const body = "#!/usr/bin/env bash\nexit 0\n";
     return (
-      `# navori:managed start id="${id}" hash="deadbeef" version="${version}" source="@navori/core"\n` +
-      `#!/usr/bin/env bash\nexit 0\n` +
+      `# navori:managed start id="${id}" hash="${computeManagedHash(body)}" version="${version}" source="@navori/core"\n` +
+      body +
       `# navori:managed end id="${id}"\n`
     );
   }

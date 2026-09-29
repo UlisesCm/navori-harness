@@ -133,6 +133,63 @@ describe("scripts de plugin: marcador propio (#637)", () => {
     const second = renderClaudeEngine(cwd, config());
     expect(second.written.some((w) => w.path.endsWith("check-jscpd.sh"))).toBe(false);
   });
+
+  // Covers: R20
+  it("preserves an edited plugin script on disable across repeated renders", () => {
+    renderClaudeEngine(cwd, config());
+    const edited = readFileSync(script(), "utf-8").replace(
+      "#!/usr/bin/env bash",
+      "#!/usr/bin/env bash\n# user-owned edit",
+    );
+    writeFileSync(script(), edited);
+    const disabled = NavoriConfigSchema.parse({
+      ...config(),
+      plugins: { jscpd: { enabled: false } },
+    });
+
+    const first = renderClaudeEngine(cwd, disabled);
+    expect(readFileSync(script(), "utf-8")).toBe(edited);
+    expect(first.written.some((entry) => entry.path.endsWith("check-jscpd.sh"))).toBe(false);
+    const second = renderClaudeEngine(cwd, disabled);
+    expect(readFileSync(script(), "utf-8")).toBe(edited);
+    expect(second.written.some((entry) => entry.path.endsWith("check-jscpd.sh"))).toBe(false);
+  });
+
+  // Covers: R20
+  it("does not retire a script carrying a newer managed version", () => {
+    renderClaudeEngine(cwd, config());
+    const newer = readFileSync(script(), "utf-8").replace(/version="[^"]+"/, 'version="999.0.0"');
+    writeFileSync(script(), newer);
+    const disabled = NavoriConfigSchema.parse({
+      ...config(),
+      plugins: { jscpd: { enabled: false } },
+    });
+    renderClaudeEngine(cwd, disabled);
+    expect(readFileSync(script(), "utf-8")).toBe(newer);
+  });
+
+  // Covers: R20
+  it("warns when a preserved script may remain active in settings that could not be updated", () => {
+    renderClaudeEngine(cwd, config());
+    const edited = readFileSync(script(), "utf-8").replace(
+      "#!/usr/bin/env bash",
+      "#!/usr/bin/env bash\n# user-owned edit",
+    );
+    writeFileSync(script(), edited);
+    const settingsPath = join(cwd, ".claude/settings.json");
+    const settings = readFileSync(settingsPath, "utf-8");
+    writeFileSync(settingsPath, settings.slice(0, -2));
+    const disabled = NavoriConfigSchema.parse({
+      ...config(),
+      plugins: { jscpd: { enabled: false } },
+    });
+
+    const result = renderClaudeEngine(cwd, disabled);
+    expect(readFileSync(script(), "utf-8")).toBe(edited);
+    expect(result.warnings).toContainEqual(
+      expect.stringContaining("ALERTA: .claude/scripts/check-jscpd.sh"),
+    );
+  });
 });
 
 describe("#1060: la extensión de skill inyectada ya no publica jscpdThreshold (retirado)", () => {

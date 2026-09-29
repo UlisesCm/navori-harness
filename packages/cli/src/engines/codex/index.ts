@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
+import { parse as parseToml } from "smol-toml";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config/config.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/render/bundled-assets.ts";
 import {
@@ -18,7 +19,11 @@ import {
   splitFrontmatter,
   stripFrontmatter,
 } from "../../lib/render/frontmatter.ts";
-import { injectManagedSection, removeManagedSection } from "../../lib/render/marker.ts";
+import {
+  extractManagedContent,
+  injectManagedSection,
+  removeManagedSection,
+} from "../../lib/render/marker.ts";
 import { buildHarnessProse, type ProseEngineResult } from "../shared/prose-harness.ts";
 import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
 import { pluginExtraVars } from "../shared/plugin-extra-vars.ts";
@@ -36,6 +41,7 @@ import {
   type PlacementRequest,
 } from "../shared/execute-plan.ts";
 import { buildCodexConfigToml } from "./build-config-toml.ts";
+import { codexHookCommand, resolvePluginCodexHooks } from "./hook-registrations.ts";
 import { buildCodexRules } from "./build-rules.ts";
 import { collectShellPermissionRules } from "../shared/permission-rules.ts";
 import { adaptHarnessTextForCodex } from "./compat.ts";
@@ -191,6 +197,29 @@ export function renderCodexEngine(
     lang,
   });
   warnings.push(...codexWarnings);
+  for (const write of pending) {
+    if (!write.relPath.startsWith(".codex/scripts/") || write.status !== "updated") continue;
+    const old = readFileSync(write.path, "utf-8");
+    const oldBody = extractManagedContent(old, scriptManagedId(old), "shell");
+    const newBody = extractManagedContent(write.content, scriptManagedId(write.content), "shell");
+    if (oldBody !== null && newBody !== null && oldBody !== newBody) {
+      warnings.push(tc(lang).engine.codexPluginScriptChanged(write.relPath));
+    }
+  }
+  if (skipped.some((item) => item.path === ".codex/config.toml")) {
+    const configPath = join(cwd, ".codex/config.toml");
+    if (existsSync(configPath)) {
+      const configText = readFileSync(configPath, "utf-8");
+      const registered = projectHookCommands(configText);
+      for (const hook of resolvePluginCodexHooks(loadDisabledPlugins(config.plugins).loaded)
+        .hooks) {
+        const command = codexHookCommand(hook, wsSubpath);
+        if (registered.has(command) || configText.includes(command)) {
+          warnings.push(tc(lang).engine.codexResidualPluginHook(hook.scriptPath ?? hook.script));
+        }
+      }
+    }
+  }
   // R39/R41 (spec 0026 T10): Codex reports a kept orphan the same way Claude's
   // §8.7b–d retirement loops do — path + reason, plain text in `warnings`,
   // never silently skipped. Generic over every orphan scan (agents/skills/
@@ -286,6 +315,43 @@ export function renderCodexEngine(
     warnings: isWorkspace ? [] : warnings,
     backupPath,
   };
+}
+
+/** Read only executable command handlers, not comments or incidental TOML text. */
+function projectHookCommands(content: string): Set<string> {
+  try {
+    const parsed: unknown = parseToml(content);
+    if (typeof parsed !== "object" || parsed === null || !("hooks" in parsed)) return new Set();
+    const groups = parsed.hooks;
+    if (typeof groups !== "object" || groups === null) return new Set();
+    const commands = new Set<string>();
+    for (const entries of Object.values(groups)) {
+      if (!Array.isArray(entries)) continue;
+      for (const entry of entries) {
+        if (typeof entry !== "object" || entry === null || !("hooks" in entry)) continue;
+        if (!Array.isArray(entry.hooks)) continue;
+        for (const handler of entry.hooks) {
+          if (
+            typeof handler === "object" &&
+            handler !== null &&
+            "type" in handler &&
+            handler.type === "command" &&
+            "command" in handler &&
+            typeof handler.command === "string"
+          )
+            commands.add(handler.command);
+        }
+      }
+    }
+    return commands;
+  } catch {
+    return new Set();
+  }
+}
+
+/** The generated script's opening marker carries its unique managed id. */
+function scriptManagedId(content: string): string {
+  return content.match(/^# navori:managed start id="([^"]+)"/m)?.[1] ?? "";
 }
 
 /**

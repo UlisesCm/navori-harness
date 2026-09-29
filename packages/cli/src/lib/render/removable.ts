@@ -3,6 +3,13 @@ import { join } from "node:path";
 import { readCliVersion } from "./bundled-assets.ts";
 import { readNavoriOwnership } from "../primitives/json-ownership.ts";
 import { isDowngrade } from "../primitives/semver.ts";
+import {
+  computeManagedHash,
+  extractManagedContent,
+  locateManagedBlocks,
+  readMarkerAttrs,
+  type CommentStyle,
+} from "./marker.ts";
 
 /** Read once per process, like the `CORE_META` constant this criterion was
  *  extracted from: `readCliVersion()` re-reads package.json on every call and a
@@ -53,7 +60,11 @@ export function isRemovableNavoriFile(path: string, markerId?: string): boolean 
  * Collapsing the two is how the prune came to report a file navori had generated
  * whole under "left untouched what navori did not write" (#538).
  */
-export function navoriAuthorship(path: string, markerId?: string): NavoriAuthorship {
+export function navoriAuthorship(
+  path: string,
+  markerId?: string,
+  opts?: { verifyHash?: boolean },
+): NavoriAuthorship {
   let stats;
   try {
     // `lstat`, never `stat`/`existsSync`: both resolve the link, so a symlink
@@ -73,11 +84,26 @@ export function navoriAuthorship(path: string, markerId?: string): NavoriAuthors
   }
   const writer = writerVersion(content, markerId);
   if (writer === null) return "foreign";
-  return isDowngrade(writer, CLI_VERSION) ? "newer" : "ours";
+  if (isDowngrade(writer, CLI_VERSION)) return "newer";
+  if (opts?.verifyHash && content.includes("navori:managed")) {
+    const style: CommentStyle = content.includes("# navori:managed start") ? "shell" : "html";
+    // Opt-in narrowing (`verifyHash`): a block whose stored hash no longer matches
+    // its body was edited by hand. Off by default because legacy/hand-built
+    // markers carry placeholder hashes (`hash="x"`, `deadbeef`) that every other
+    // delete path has always treated as ours. Surroundings (header, shebang,
+    // frontmatter) and blocks without a stored hash are never judged here.
+    for (const block of locateManagedBlocks(content, style)) {
+      if (markerId !== undefined && block.id !== markerId) continue;
+      const stored = readMarkerAttrs(content, block.id, style)?.existingHash;
+      const body = extractManagedContent(content, block.id, style);
+      if (stored && body !== null && computeManagedHash(body) !== stored) return "modified";
+    }
+  }
+  return "ours";
 }
 
 /** The three answers `navoriAuthorship` can give. Only `ours` may be deleted. */
-export type NavoriAuthorship = "ours" | "newer" | "foreign";
+export type NavoriAuthorship = "ours" | "newer" | "foreign" | "modified";
 
 /**
  * The navori release that wrote this content, or null when nothing in it claims
@@ -154,7 +180,7 @@ function openingTagFor(content: string, id: string): string | null {
  *  unlink it", `ephemeral` means "machine-local state we never version". The
  *  user acts differently on each, and a run that called them all `foreign` told
  *  them navori had not written a file it had generated whole (#538). */
-export type KeepReason = "foreign" | "newer" | "ephemeral" | "symlink";
+export type KeepReason = "foreign" | "newer" | "modified" | "ephemeral" | "symlink";
 
 /** What a prune may and may not touch, decided file by file. */
 export interface OrphanRemovalPlan {
@@ -238,7 +264,7 @@ export function planOrphanRemoval(
     if (stats.isFile()) {
       const authorship = navoriAuthorship(join(cwd, rel));
       if (authorship === "ours") plan.remove.push(rel);
-      else keep(rel, authorship === "newer" ? "newer" : "foreign");
+      else keep(rel, authorship);
       return;
     }
     if (!stats.isDirectory() || depth > MAX_DEPTH) {
