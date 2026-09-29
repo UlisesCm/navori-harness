@@ -11,7 +11,7 @@ A **producer** publishes to an exchange; a **consumer** (usually another service
 
 ## When to use this skill
 
-Creating a publisher or consumer, touching ack logic, or debugging lost, looping or stuck-unacked messages.
+Creating a publisher or consumer, touching ack logic, or debugging lost, looping or unacked messages.
 
 ## The pattern
 
@@ -56,13 +56,15 @@ conn.on("close", () => {
 ch.on("error", (err) => logger.error({ err }, "amqp channel error"));
 ```
 
+`amqplib/callback_api` follows the same rules (prefetch, explicit ack/nack, dead-letter exchange, the `closing` flag) with node-style callbacks instead of promises.
+
 ## Hard rules
 
 1. **Durable topology, persistent messages.** `durable: true` on exchanges and queues, `persistent: true` on publish.
 2. **`prefetch(n)` before `consume`,** or the broker floods the consumer.
 3. **Explicit `ack`/`nack`, exactly once.** A double-ack or ack on a closed channel closes it with `PRECONDITION_FAILED`.
 4. **Poison messages go to a dead-letter exchange** (`x-dead-letter-exchange`, optionally `x-dead-letter-routing-key`) declared on the queue; never `nack` with `requeue=true` in a loop.
-5. **Idempotent consumers.** Delivery is at-least-once; processing twice must not duplicate effects.
+5. **Idempotent consumers.** Delivery is at-least-once; reprocessing must not duplicate effects.
 6. **Handle `error` and `close`.** Reconnect with backoff only from the connection `close` handler and only when `closing` is unset, then re-assert topology and re-consume. Unroutable publishes are confirmed then dropped unless `mandatory` is set.
 7. **Graceful shutdown.** On `SIGTERM`/`SIGINT` set `closing = true`, `channel.cancel(consumerTag)`, wait for in-flight handlers, then close channel and connection.
 
@@ -76,7 +78,7 @@ ch.on("error", (err) => logger.error({ err }, "amqp channel error"));
 
 ## Testing a consumer
 
-Unit-test the handler as a pure function. Test the wiring against a real broker (e.g. a RabbitMQ testcontainer), not a mocked amqplib.
+Unit-test the pure handler. Test the wiring against a real broker (a RabbitMQ testcontainer), not a mock.
 
 The inter-service queue contract (who publishes/consumes what, names, payloads) belongs in the workspace Dominio, not here.
 
