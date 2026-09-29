@@ -1,8 +1,6 @@
 # Paridad operativa Claude / Codex CLI — Tasks
 
-**Estado:** T1–T6, T8, T12–T14 completos; 10 de 19 tareas completas y 9 pendientes. T7 está en
-revisión: su última implementación corrigió la regresión de autoría con `verifyHash` opt-in en las
-rutas de scripts de plugin; revisión fresca y quality gate completo pendientes.
+**Estado:** T1–T8, T12–T14 completos; 11 de 19 tareas completas y 8 pendientes.
 T9 sigue pendiente: L03 se intentó y quedó inconcluso; L04 no se ejecutó ([registro](live-t9.md)).
 No es un pass. Las autorizaciones puntuales para estas tareas no cubren otras tareas, campañas
 live/pagadas, instalaciones, cambios de trust ni publicación.
@@ -88,16 +86,15 @@ live/pagadas, instalaciones, cambios de trust ni publicación.
   (300 archivos de tests, 5,498 aprobados, 1 omitido). Errores/omisiones quedan explícitos en stderr
   y el JSONL de auditoría; `allow` del host no significa scan validado.
 
-- [ ] **T7** (R18, R20) — Completar ciclo de actualización/retiro de plugins y revisión trust para
+- [x] **T7** (R18, R20) — Completar ciclo de actualización/retiro de plugins y revisión trust para
   los nuevos registros/scripts. Verificar contenido manual, backup fallido, antirollback,
   configuración ajena intacta e idempotencia; no aceptar trust automáticamente ni copiar scripts
   desde el árbol Claude. Registrar cambios de índices/hashes cuando se agrega/quita plugin.
   · pruebas: **V18, V20**, `plugin-scripts-managed.test.ts`, `plugin-lifecycle.test.ts`,
   `commands/__tests__/codex-trust.test.ts` — upgrade desde release/base conservada y segunda render.
   · depende de: T5–T6.
-  · evidencia de implementación: A1 5 archivos/152 pruebas, A2 2/19, A3 2/19; `bun typecheck` y
-  `bun lint` verdes. `test:coverage` completo pasó en tiempo del implementer (316 archivos, 5,786
-  pruebas); revisión fresca pendiente y sin veredicto APPROVED; no acredita paridad live.
+  · evidencia revisada: commit `9c8cc3c5`; reviewer fresco **APPROVED** con gate completo verde;
+  `test:coverage` del implementer: 316 archivos de tests, 5,786 pruebas; no acredita paridad live.
 
 ## Lote D — Profundidad de orquestación sin costo always-on duplicado
 

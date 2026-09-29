@@ -144,4 +144,16 @@ Las pruebas dirigidas cubren la paridad de retiro Codex/Claude y las advertencia
 Claude (A3: 2 archivos, 19 pruebas). `bun typecheck` y `bun lint` pasaron. Las pruebas respaldan la
 preservación de archivos modificados y ajenos, la revisión de bytes de scripts y las señales del
 doctor; no se modificó ningún home real de Codex ni se afirma paridad live de Codex. El quality gate
-completo del repositorio y la revisión fresca siguen pendientes.
+completo del repositorio pasó y la revisión fresca resultó APPROVED (commit `9c8cc3c5`). El
+`test:coverage` del implementer registró 316 archivos de tests y 5,786 pruebas. La verificación de hash es opt-in (`verifyHash`) y solo se usa en las rutas
+de scripts de plugin.
+
+### Limitaciones residuales aceptadas por el reviewer
+
+- `render --prune`, `health` y `doctor` no verifican hash: un bloque editado a mano ahí se sigue
+  borrando, igual que en main.
+- Un script sin hash guardado, o editado fuera del bloque, cuenta como propio.
+- El orphan scan de plugins en execute-plan ahora conserva archivos con hash real no coincidente
+  (más estricto que main).
+- Observación menor, no bloqueante: los avisos "kept … file" en `engines/claude/index.ts` no usan i18n.
+
