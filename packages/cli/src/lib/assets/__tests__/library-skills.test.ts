@@ -115,12 +115,19 @@ describe("detectLibrarySkills", () => {
     expect(detectLibrarySkills(["tamagui"])).toEqual(["tamagui"]);
     expect(detectLibrarySkills(["@tamagui/core"])).toEqual(["tamagui"]);
     expect(detectLibrarySkills(["bullmq"])).toEqual(["bullmq"]);
+    expect(detectLibrarySkills(["amqplib"])).toEqual(["amqplib"]);
     // The React SPA stack (issue #92).
     expect(detectLibrarySkills(["react-router-dom"])).toEqual(["react-router"]);
     expect(detectLibrarySkills(["react-router"])).toEqual(["react-router"]);
     expect(detectLibrarySkills(["axios"])).toEqual(["axios"]);
     expect(detectLibrarySkills(["@mantine/form"])).toEqual(["mantine-form"]);
     expect(detectLibrarySkills(["mantine-form-zod-resolver"])).toEqual(["mantine-form"]);
+  });
+
+  // #1092: detection is exact-name; a types-only package is not the runtime lib.
+  it("detects amqplib next to bullmq in registry order, but not from @types/amqplib alone", () => {
+    expect(detectLibrarySkills(["amqplib", "bullmq"])).toEqual(["bullmq", "amqplib"]);
+    expect(detectLibrarySkills(["@types/amqplib"])).toEqual([]);
   });
 
   it("is additive — a repo can match several skills at once (no exclusivity)", () => {
