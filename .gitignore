@@ -55,3 +55,7 @@ coverage-*/
 # Local textual-search index for the tgrep provider (see "Textual provider:
 # tgrep" in CLAUDE.md) — machine-local cache, rebuilt on demand.
 .tgrep/
+
+# Browser scratch (snapshots, logs) that the playwright-cli tool creates in
+# whatever cwd it runs from — machine-local, hence unanchored.
+.playwright-cli/

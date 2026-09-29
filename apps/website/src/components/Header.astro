@@ -22,22 +22,22 @@ const altHref = localizedPath(altLang, "/");
   <div class="container-prose flex h-14 items-center justify-between">
     <Logo />
 
-    <nav class="flex items-center gap-1 text-sm">
+    <nav class="flex items-center gap-0 sm:gap-1 text-[13px] sm:text-sm">
       <a
         href={localizedPath(lang, "/deep-dive")}
-        class="px-3 py-2 rounded-md hover:text-sky-700 dark:hover:text-sky-300 transition-colors"
+        class="whitespace-nowrap px-1 sm:px-3 py-2 rounded-md hover:text-sky-700 dark:hover:text-sky-300 transition-colors"
       >
         {t("nav.deepdive")}
       </a>
       <a
         href={localizedPath(lang, "/docs/init")}
-        class="px-3 py-2 rounded-md hover:text-sky-700 dark:hover:text-sky-300 transition-colors"
+        class="whitespace-nowrap px-1 sm:px-3 py-2 rounded-md hover:text-sky-700 dark:hover:text-sky-300 transition-colors"
       >
         {t("nav.docs")}
       </a>
       <a
         href={localizedPath(lang, "/quickstart")}
-        class="px-3 py-2 rounded-md hover:text-sky-700 dark:hover:text-sky-300 transition-colors"
+        class="whitespace-nowrap px-1 sm:px-3 py-2 rounded-md hover:text-sky-700 dark:hover:text-sky-300 transition-colors"
       >
         {t("nav.quickstart")}
       </a>
@@ -66,7 +66,7 @@ const altHref = localizedPath(altLang, "/");
 
       <button
         type="button"
-        class="ml-1 inline-flex items-center justify-center h-9 w-9 rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+        class="ml-0 sm:ml-1 inline-flex items-center justify-center h-9 w-9 rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
         aria-label="Toggle theme"
         data-theme-toggle
       >
@@ -101,7 +101,7 @@ const altHref = localizedPath(altLang, "/");
 
       <a
         href={altHref}
-        class="ml-1 inline-flex items-center justify-center h-9 px-3 rounded-md text-xs font-medium uppercase tracking-wider hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+        class="ml-0 sm:ml-1 inline-flex items-center justify-center h-9 px-2 sm:px-3 rounded-md text-xs font-medium uppercase tracking-wider hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
         aria-label={`Switch language to ${t("lang.switchTo")}`}
       >
         {altLang.toUpperCase()}

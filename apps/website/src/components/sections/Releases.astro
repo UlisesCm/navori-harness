@@ -1,0 +1,79 @@
+---
+import SectionHeader from "../SectionHeader.astro";
+import { useTranslations, localizedPath } from "../../i18n/utils";
+import type { Lang } from "../../i18n/ui";
+import { RELEASES } from "../../content/releases";
+
+interface Props {
+  lang: Lang;
+  /** Home shows the latest few; the full page passes no limit. */
+  limit?: number;
+  /** Render the section title as the page's h1 (full pages only). */
+  asPage?: boolean;
+}
+const { lang, limit, asPage } = Astro.props;
+const t = useTranslations(lang);
+const entries = limit ? RELEASES.slice(0, limit) : RELEASES;
+const fullPage = localizedPath(lang, lang === "es" ? "/versiones" : "/releases");
+const dateFmt = new Intl.DateTimeFormat(lang === "es" ? "es-MX" : "en-US", {
+  dateStyle: "long",
+  timeZone: "UTC",
+});
+---
+
+<section class="py-24 sm:py-28 border-t" style="border-color: var(--color-border-soft);">
+  <div class="container-narrow">
+    <SectionHeader eyebrow={t("releases.eyebrow")} title={t("releases.title")} subtitle={t("releases.subtitle")} as={asPage ? "h1" : "h2"} />
+
+    <ol class="mt-12 space-y-6">
+      {
+        entries.map((r) => (
+          <li
+            class="rounded-xl border p-5 sm:p-7"
+            style="border-color: var(--color-border-soft);"
+          >
+            <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+              <span class="font-mono text-sm font-medium text-violet-700 dark:text-violet-300">v{r.minor}</span>
+              <time class="text-xs text-slate-500 dark:text-slate-400" datetime={r.date}>
+                {dateFmt.format(new Date(r.date))}
+              </time>
+            </div>
+            <h3 class="mt-2 text-lg sm:text-xl font-semibold tracking-tight">{r.headline[lang]}</h3>
+            <ul class="mt-4 space-y-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+              {r.bullets.map((b) => (
+                <li class="flex gap-3">
+                  <span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-500" aria-hidden="true" />
+                  <span class="min-w-0">{b[lang]}</span>
+                </li>
+              ))}
+            </ul>
+            {r.patches && r.patches.length > 0 && (
+              <div class="mt-5 border-t pt-4" style="border-color: var(--color-border-soft);">
+                <h4 class="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                  {t("releases.patches")}
+                </h4>
+                <ul class="mt-2 space-y-2 text-sm text-slate-600 dark:text-slate-400">
+                  {r.patches.map((p) => (
+                    <li>
+                      <span class="font-mono text-xs">v{p.version}</span> — {p.note[lang]}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </li>
+        ))
+      }
+    </ol>
+
+    {
+      limit && (
+        <div class="mt-10 text-center">
+          <a class="text-sm font-medium text-sky-700 hover:underline dark:text-sky-300" href={fullPage}>
+            {t("releases.all")} →
+          </a>
+        </div>
+      )
+    }
+  </div>
+</section>

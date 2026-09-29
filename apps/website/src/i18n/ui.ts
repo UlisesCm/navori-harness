@@ -293,6 +293,15 @@ export const ui = {
     "quickstart.step3.body":
       "Edita el config, corre 'render --apply' y commitea. Todo idempotente.",
 
+    "releases.eyebrow": "Novedades",
+    "releases.title": "Qué cambió, versión por versión",
+    "releases.subtitle": "Lo que ganas al actualizar, en lenguaje llano.",
+    "releases.all": "Ver todas las versiones",
+    "releases.patches": "Parches destacados",
+    "releases.pageTitle": "Versiones",
+    "releases.pageDescription": "Historial de versiones de navori, explicado para quien lo usa.",
+    "nav.releases": "Versiones",
+
     "faq.eyebrow": "Preguntas frecuentes",
     "faq.title": "Lo que probablemente te estás preguntando",
     "faq.q1": "¿Y si ya tengo un .claude/ que armé a mano?",
@@ -583,6 +592,15 @@ export const ui = {
       "Answer a few prompts and get navori.config.json plus the rendered harness.",
     "quickstart.step3.title": "Render whenever you change something",
     "quickstart.step3.body": "Edit the config, run render --apply, commit. Fully idempotent.",
+
+    "releases.eyebrow": "What's new",
+    "releases.title": "What changed, version by version",
+    "releases.subtitle": "What you gain by upgrading, in plain language.",
+    "releases.all": "See all versions",
+    "releases.patches": "Notable patches",
+    "releases.pageTitle": "Releases",
+    "releases.pageDescription": "navori release history, explained for the people who use it.",
+    "nav.releases": "Releases",
 
     "faq.eyebrow": "FAQ",
     "faq.title": "What you're probably wondering",

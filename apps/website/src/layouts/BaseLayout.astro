@@ -14,9 +14,11 @@ interface Props {
   pathname?: string;
   /** Share image, relative to the site base. Defaults to the per-language OG card. */
   image?: string;
+  /** Path of this page in the OTHER language, when the slug differs (e.g. /versiones ↔ /releases). */
+  altSlug?: string;
 }
 
-const { lang, title, description, pathname = Astro.url.pathname, image } = Astro.props;
+const { lang, title, description, pathname = Astro.url.pathname, image, altSlug } = Astro.props;
 const t = useTranslations(lang);
 const altLang = alternateLang(lang);
 
@@ -32,7 +34,9 @@ const baseTrimmed = import.meta.env.BASE_URL.replace(/\/$/, "");
 const pathnameNoBase =
   baseTrimmed && pathname.startsWith(baseTrimmed) ? pathname.slice(baseTrimmed.length) : pathname;
 const altPath = pathnameNoBase.replace(/^\/en(?=\/|$)/, "") || "/";
-const altHref = new URL(localizedPath(altLang, altPath), siteOrigin).toString();
+const altHref = new URL(localizedPath(altLang, altSlug ?? altPath), siteOrigin).toString();
+// x-default is the Spanish page: this one when lang is es, otherwise its counterpart.
+const esPath = lang === "es" ? altPath : (altSlug ?? altPath);
 
 // The site declared `summary_large_image` with no image behind it, so every
 // share rendered an empty card. `scripts/gen-og.mjs` builds these.
@@ -89,7 +93,7 @@ const jsonLd = {
     <link rel="canonical" href={canonicalUrl} />
     <link rel="alternate" hreflang={altLang} href={altHref} />
     <link rel="alternate" hreflang={lang} href={canonicalUrl} />
-    <link rel="alternate" hreflang="x-default" href={new URL(localizedPath("es", altPath), siteOrigin).toString()} />
+    <link rel="alternate" hreflang="x-default" href={new URL(localizedPath("es", esPath), siteOrigin).toString()} />
 
     {/* Agent-readable index of the site, per the emerging llms.txt convention. */}
     <link rel="alternate" type="text/markdown" href={llmsUrl} title="llms.txt" />
