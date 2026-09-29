@@ -7,103 +7,85 @@ metadata:
 
 # amqplib — RabbitMQ messaging
 
-With amqplib a **producer** publishes to an exchange and a **consumer** (usually another process or service) consumes from a queue. They share only the exchange, queue and routing-key names. Both amqplib 0.10.x and 2.x are in use across repos; everything here is version-neutral.
+A **producer** publishes to an exchange; a **consumer** (usually another service) consumes from a queue, sharing only names.
 
 ## When to use this skill
 
-When creating a new publisher or consumer, touching channel or ack logic, or debugging messages that are lost, redelivered in a loop, or stuck unacked.
+Creating a publisher or consumer, touching ack logic, or debugging lost, looping or stuck-unacked messages.
 
 ## The pattern
 
 ```ts
 import amqp from "amqplib";
 
+let closing = false; // set true at the start of graceful shutdown
 const conn = await amqp.connect(process.env.AMQP_URL!);
 
-// Consumer: a plain channel, prefetch BEFORE consume, explicit ack/nack.
+// Consumer: prefetch BEFORE consume, explicit ack/nack.
 const ch = await conn.createChannel();
 await ch.assertExchange("<exchange-name>", "topic", { durable: true });
-await ch.assertQueue("<queue-name>", { durable: true });
+await ch.assertExchange("<dlx-name>", "topic", { durable: true });
+await ch.assertQueue("<queue-name>", {
+  durable: true,
+  arguments: { "x-dead-letter-exchange": "<dlx-name>" }, // nack(requeue=false) dead-letters here
+});
 await ch.bindQueue("<queue-name>", "<exchange-name>", "<routing-key>");
 await ch.prefetch(10);
 const { consumerTag } = await ch.consume("<queue-name>", async (msg) => {
-  if (!msg) return; // consumer cancelled by the broker
+  if (!msg) return; // cancelled by the broker
   try {
     await handleMessage(JSON.parse(msg.content.toString())); // pure function
     ch.ack(msg);
   } catch {
-    ch.nack(msg, false, false); // requeue=false -> dead-letter, no infinite loop
+    ch.nack(msg, false, false); // no requeue loop
   }
 });
 
-// Publisher: a confirm channel, persistent messages, await the confirm.
+// Publisher: confirm channel, persistent messages, await the confirm.
 const pub = await conn.createConfirmChannel();
-await pub.assertExchange("<exchange-name>", "topic", { durable: true });
 pub.publish("<exchange-name>", "<routing-key>", Buffer.from(JSON.stringify(payload)), {
   persistent: true,
 });
 await pub.waitForConfirms();
 
-// Reconnection: handle 'error' and 'close', then retry with exponential backoff,
-// re-asserting the topology and re-consuming after each reconnect.
+// Reconnect from ONE place: the connection 'close' handler, only if unexpected.
 conn.on("error", (err) => logger.error({ err }, "amqp connection error"));
-conn.on("close", () => scheduleReconnect()); // exponential backoff
-ch.on("error", (err) => logger.error({ err }, "amqp channel error"));
-ch.on("close", () => scheduleReconnect());
-```
-
-Callback API (`amqplib/callback_api`, used by `notifications--server`): same concepts, node-style callbacks. Check `err` in every callback.
-
-```ts
-import amqp from "amqplib/callback_api";
-
-amqp.connect(url, (err, conn) => {
-  if (err) return handleError(err);
-  conn.createChannel((err, ch) => {
-    if (err) return handleError(err);
-    ch.assertQueue("<queue-name>", { durable: true });
-    ch.prefetch(10);
-    ch.consume("<queue-name>", (msg) => {
-      if (!msg) return;
-      // ...handle, then ch.ack(msg) or ch.nack(msg, false, false)
-    });
-  });
+conn.on("close", () => {
+  if (!closing) scheduleReconnect(); // backoff, re-assert topology, re-consume
 });
+ch.on("error", (err) => logger.error({ err }, "amqp channel error"));
 ```
 
 ## Hard rules
 
-1. **Durable topology + persistent messages.** `durable: true` on exchanges and queues and `persistent: true` on publish; otherwise a broker restart loses them.
-2. **`prefetch(n)` before `consume`.** Without it the broker floods the consumer with unacked messages.
-3. **Explicit `ack`/`nack`, exactly once.** Never ack twice and never ack on a closed channel: a double-ack closes the channel with `PRECONDITION_FAILED`.
-4. **Poison messages go to a dead-letter exchange** (`x-dead-letter-exchange`, optionally `x-dead-letter-routing-key`), not to `nack` with `requeue=true` in an infinite loop.
-5. **Idempotent consumers.** Delivery is at-least-once and redelivery happens; a message processed twice must not duplicate effects.
-6. **Handle connection/channel `error` and `close`** with reconnection and backoff, and re-assert topology and re-consume after reconnecting. Publishers use a `ConfirmChannel` and await confirms for messages that must not be lost.
-7. **Graceful shutdown.** On `SIGTERM`/`SIGINT`: `channel.cancel(consumerTag)`, wait for in-flight handlers to finish, then close the channel, then close the connection.
+1. **Durable topology, persistent messages.** `durable: true` on exchanges and queues, `persistent: true` on publish.
+2. **`prefetch(n)` before `consume`,** or the broker floods the consumer.
+3. **Explicit `ack`/`nack`, exactly once.** A double-ack or ack on a closed channel closes it with `PRECONDITION_FAILED`.
+4. **Poison messages go to a dead-letter exchange** (`x-dead-letter-exchange`, optionally `x-dead-letter-routing-key`) declared on the queue; never `nack` with `requeue=true` in a loop.
+5. **Idempotent consumers.** Delivery is at-least-once; processing twice must not duplicate effects.
+6. **Handle `error` and `close`.** Reconnect with backoff only from the connection `close` handler and only when `closing` is unset, then re-assert topology and re-consume. Unroutable publishes are confirmed then dropped unless `mandatory` is set.
+7. **Graceful shutdown.** On `SIGTERM`/`SIGINT` set `closing = true`, `channel.cancel(consumerTag)`, wait for in-flight handlers, then close channel and connection.
 
 ## Gotchas that bite
 
-- **An unhandled `error` event** on a connection or channel crashes the process. Always attach handlers.
-- **A channel closes on any channel-level error.** Recreate the channel object; never reuse it.
-- **Re-asserting a queue with different arguments** fails with `PRECONDITION_FAILED`. Changing arguments means a new queue or a deliberate migration.
+- **An unhandled `error` event** crashes the process.
+- **A channel closes on any channel-level error.** Recreate it; never reuse it.
+- **Re-asserting a queue with different arguments** fails with `PRECONDITION_FAILED`.
 - **Unacked messages are redelivered** when the channel closes.
-- **One channel per consumer/publisher role**, not shared across unrelated concerns.
+- **One channel per role.**
 
 ## Testing a consumer
 
-Extract the handler as a pure function and unit-test that. Test the wiring with an integration test against a real broker (e.g. a RabbitMQ testcontainer) rather than mocking amqplib.
+Unit-test the handler as a pure function. Test the wiring against a real broker (e.g. a RabbitMQ testcontainer), not a mocked amqplib.
 
-The inter-service queue contract (who publishes/consumes what, exchange/queue/routing-key names, payload schemas) belongs in the workspace Dominio, not in this skill.
+The inter-service queue contract (who publishes/consumes what, names, payloads) belongs in the workspace Dominio, not here.
 
 ## Before declaring done
 
-- Exchanges/queues are durable and messages are persistent.
-- `prefetch` is set before `consume`.
-- Every path acks or nacks exactly once.
-- Dead-letter is configured for poison messages.
-- The consumer is idempotent.
-- `error`/`close` handlers reconnect with backoff.
-- Graceful shutdown is implemented.
+- Topology durable, messages persistent, `prefetch` before `consume`.
+- Every path acks or nacks exactly once; dead-letter configured.
+- Consumer idempotent.
+- Reconnect only on unexpected connection `close`; graceful shutdown implemented.
 - `{{qualityGate.fast}}` green.
 
 <!-- navori:user-section -->
