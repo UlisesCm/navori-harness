@@ -92,7 +92,7 @@ export const CONTROL_DEFINITIONS: Readonly<Record<ControlId, ControlDefinition>>
   },
   "handoff-consumer": {
     description:
-      "Validates a handoff (`navori handoff check`) before the orchestrator or scribe act on it.",
+      "Validates an existing implementation handoff before dispatching its scribe or reviewer consumer.",
     hookScripts: [],
   },
   "analytic-write-tools": {
@@ -344,7 +344,7 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       "handoff-consumer": {
         state: "advisory",
         reason:
-          "`navori handoff check` is invoked by prose (orquestacion.md, scribe.md), not by a hook.",
+          "Orchestration prose calls `navori handoff check` before scribe/reviewer consume an existing impl handoff; no hook enforces it.",
       },
       "analytic-write-tools": {
         state: "advisory",
@@ -412,7 +412,7 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       "handoff-consumer": {
         state: "advisory",
         reason:
-          "`navori handoff check` is invoked by prose (orquestacion.md, scribe.md), not by a hook.",
+          "Orchestration prose calls `navori handoff check` before scribe/reviewer consume an existing impl handoff; no hook enforces it.",
       },
       "analytic-write-tools": {
         state: "advisory",

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { pluginScriptPlacements } from "../shared/plugin-scripts.ts";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config/config.ts";
 import {
   enabledMonorepoWorkspaces,
@@ -933,7 +934,7 @@ export function renderClaudeEngine(
   // `minimal`: every hook that invokes them resolves `$CLAUDE_PROJECT_DIR`, so
   // only the root's copy is ever executed (0018 R2).
   for (const plugin of minimalHarness ? [] : enabledPlugins) {
-    for (const script of plugin.scriptAssets) {
+    for (const script of pluginScriptPlacements(plugin, "claude")) {
       inspected += 1;
       // #637: through the SAME managed-file path every other generated file
       // uses, so the script carries a marker and navori can prove it wrote it.
@@ -947,8 +948,8 @@ export function renderClaudeEngine(
       // the 28 references to these files in the assets invokes them as
       // `bash <file>`, never directly. A shebang-aware renderer would change
       // the bytes of every managed file in the park to fix nothing.
-      const managedId = pluginScriptManagedId(plugin.manifest.id, script.dest);
-      const destRelPath = `.claude/scripts/${script.dest}`;
+      const managedId = script.managedId;
+      const destRelPath = script.destRelPath;
       const destAbs = join(cwd, destRelPath);
       const onDisk = existsSync(destAbs) ? readFileSync(destAbs, "utf-8") : null;
       // MIGRATION. A script written before #637 has no marker, and the normal
@@ -974,7 +975,7 @@ export function renderClaudeEngine(
           destRelPath,
           managedId,
           config,
-          meta: { source: `@navori/plugin-${plugin.manifest.id}`, version: NAVORI_VERSION },
+          meta: script.meta,
           extraVars: pluginExtraVars(config),
           treatAsFresh: legacy,
         }),
@@ -2028,15 +2029,6 @@ function applyCodexCrossReview(
  *
  * `jscpd` + `check-jscpd.sh` → `jscpd-script-check-jscpd`.
  */
-function pluginScriptManagedId(pluginId: string, dest: string): string {
-  const slug = dest
-    .replace(/\.[^.]+$/, "")
-    .replace(/[^a-zA-Z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .toLowerCase();
-  return `${pluginId}-script-${slug}`;
-}
-
 /**
  * Exactly what the pre-#637 renderer wrote for this script: interpolated, with
  * the shell partials inlined, and no marker.

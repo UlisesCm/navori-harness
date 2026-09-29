@@ -63,6 +63,31 @@ function writeHandoff(cwd: string, dir: string, feature: string, data: unknown):
 }
 
 describe("checkHandoff — exists / parse / feature (R14, R15)", () => {
+  // Covers: R15, R18
+  it("rejects a missing or invalid producer handoff for consumers, then accepts a valid one", () => {
+    const cwd = repo();
+    const options = { cwd, dir: ".codex/progress", feature: "demo" };
+    for (const consumer of ["orchestrator", "scribe"] as const) {
+      const missing = checkHandoff({ ...options, consumer });
+      expect(missing.status).toBe("findings");
+      expect(missing.failures.map((failure) => failure.check)).toContain("exists");
+    }
+
+    writeHandoff(cwd, options.dir, options.feature, { feature: "demo" });
+    for (const consumer of ["orchestrator", "scribe"] as const) {
+      const invalid = checkHandoff({ ...options, consumer });
+      expect(invalid.status).toBe("findings");
+      expect(invalid.failures.map((failure) => failure.check)).toContain("parse");
+    }
+
+    writeHandoff(cwd, options.dir, options.feature, validHandoff(cwd));
+    for (const consumer of ["orchestrator", "scribe"] as const) {
+      const valid = checkHandoff({ ...options, consumer });
+      expect(valid.status).toBe("ok");
+      expect(handoffExitCode(valid)).toBe(0);
+    }
+  });
+
   it("fails 'exists' when impl_<feature>.json is absent", () => {
     const cwd = repo();
     const result = checkHandoff({

@@ -22,6 +22,7 @@ import { injectManagedSection, removeManagedSection } from "../../lib/render/mar
 import { buildHarnessProse, type ProseEngineResult } from "../shared/prose-harness.ts";
 import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
 import { pluginExtraVars } from "../shared/plugin-extra-vars.ts";
+import { pluginScriptCollisions, pluginScriptPlacements } from "../shared/plugin-scripts.ts";
 import {
   resolveHarnessPlan,
   type PlannedAgent,
@@ -48,15 +49,7 @@ import {
   type ClassifiedLocalSkills,
 } from "./local-skill-pointer.ts";
 
-// Spec 0035 D7 (R11), user decision 2026-09-25: opus and sonnet share the same
-// model and are told apart by `model_reasoning_effort` (already sourced from
-// `effort`, see buildAgentToml below) — Codex's `gpt-6-sol` covers both tiers.
-// `config.models.codexMap` still wins per tier, checked at each call site.
-const CODEX_MODEL_BY_CLAUDE_TIER = {
-  opus: "gpt-6-sol",
-  sonnet: "gpt-6-sol",
-  haiku: "gpt-6-luna",
-} as const;
+import { resolveCodexModel } from "../../lib/assets/model-profile.ts";
 
 const NAVORI_VERSION = readCliVersion();
 
@@ -411,8 +404,32 @@ function createCodexAdapter(
       const codexConfig = buildCodexConfigToml(ctx.config, ctx.plugins, wsSubpath, agentsMdBytes);
       warningsSink.push(...codexConfig.warnings);
 
+      const collisions = pluginScriptCollisions(ctx.plugins);
+      const pluginScripts: PlacementRequest[] = [];
+      for (const plugin of ctx.plugins) {
+        for (const script of pluginScriptPlacements(plugin, "codex")) {
+          if (collisions.has(script.dest)) continue;
+          pluginScripts.push({
+            assetPath: script.src,
+            destRelPath: script.destRelPath,
+            managedId: script.managedId,
+            meta: script.meta,
+            extraVars: pluginExtraVars(ctx.config),
+            commentStyle: "shell",
+            chmodExec: script.exec,
+          });
+        }
+      }
+
       return [
         agentsMdRequest,
+        {
+          assetPath: join(ctx.coreAssets, "agents/orchestrator.md"),
+          transform: (content) => adaptOrchestratorPlaybookForCodex(content, ctx.config),
+          destRelPath: ".codex/orchestrator.md",
+          managedId: "orchestrator-codex-base",
+          commentStyle: "html",
+        },
         {
           body: codexConfig.body,
           destRelPath: ".codex/config.toml",
@@ -430,6 +447,7 @@ function createCodexAdapter(
           },
         },
         ...localSkillRequests,
+        ...pluginScripts,
         // #823: one `agents/openai.yaml` sidecar per manual-only skill — Codex's
         // native `allow_implicit_invocation: false`, shell-comment managed so it
         // gets the same backup/anti-downgrade/prune treatment as every other file.
@@ -491,9 +509,41 @@ function createCodexAdapter(
           desired: new Set(plan.hooks.map(({ id }) => `.codex/hooks/${id}.sh`)),
           shape: "file",
         },
+        {
+          dir: ".codex/scripts",
+          match: (name) => name.endsWith(".sh"),
+          desired: new Set(
+            ctx.plugins.flatMap((plugin) =>
+              plugin.scriptAssets.map((script) => `.codex/scripts/${script.dest}`),
+            ),
+          ),
+          shape: "file",
+        },
       ];
     },
   };
+}
+
+/** Keep one playbook source while removing Claude-only navigation from its Codex reference. */
+function adaptOrchestratorPlaybookForCodex(content: string, config: NavoriConfig): string {
+  return adaptHarnessTextForCodex(stripFrontmatter(content), config)
+    .replaceAll("(../../AGENTS.md)", "(../AGENTS.md)")
+    .replaceAll(
+      "which the `SessionStart` hook delivers to the session, not to a subagent:",
+      "which `AGENTS.md` supplies to the main thread:",
+    )
+    .replace(
+      /^2\. The catalog of subagents and skills is in .*$/m,
+      "2. The catalog of subagents and skills is in `AGENTS.md`, inside its managed `navori-agents` block; read the rendered headings there, not a Claude-only block id.",
+    )
+    .replaceAll(
+      'In Claude Code you can reference `subagent_type: "Explore"` when it exists; in other engines, `scout` is the replacement.',
+      "Use the `scout` role for this scope.",
+    )
+    .replaceAll(
+      "The command lives in a cross-review sub-block that navori injects into THIS file, and only in that case. Scroll to the end: no such sub-block below means this repo renders Claude only and the option does not apply here. (Never re-derive this from a `grep` for the sub-block's id — you are reading the file that would match.)",
+      "The optional cross-review guidance lives in `AGENTS.md`, not in this reference. Its absence here does not establish whether another engine is configured.",
+    );
 }
 
 function buildAgentsMdRequest(
@@ -590,8 +640,7 @@ function buildAgentToml(
   ];
   if (sandbox === "read-only") lines.push('sandbox_mode = "read-only"');
   if (modelTier) {
-    const codexModel =
-      config.models?.codexMap?.[modelTier] ?? CODEX_MODEL_BY_CLAUDE_TIER[modelTier];
+    const codexModel = resolveCodexModel(config, modelTier).model;
     lines.push(`model = ${JSON.stringify(codexModel)}`);
   }
   if (effort) lines.push(`model_reasoning_effort = ${JSON.stringify(effort)}`);

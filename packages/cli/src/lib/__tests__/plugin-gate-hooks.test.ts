@@ -7,6 +7,8 @@ import {
   writeFileSync,
   chmodSync,
   existsSync,
+  mkdirSync,
+  unlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -17,7 +19,7 @@ import { buildClaudeSettings } from "../../engines/claude/build-settings.ts";
 import { buildCodexConfigToml } from "../../engines/codex/build-config-toml.ts";
 import type { NavoriConfig } from "../config/config.ts";
 import type { LoadedPlugin } from "../config/plugins.ts";
-import { acrossShells } from "./helpers/shells.ts";
+import { acrossShells, HOOK_SHELLS, type HookShell } from "./helpers/shells.ts";
 
 /**
  * Render a plugin script exactly as `navori render` does: inline the shared
@@ -373,6 +375,335 @@ describe.runIf(runsBash)("plugin gate hooks — untrusted branchBase stays inert
       expect(status).toBe(0);
     });
   }
+});
+
+/** Covers: R5, R6 (spec 0037) — the host decision and audit reason are separate scanner evidence. */
+describe.runIf(runsBash)("plugin gate hooks — rendered scanner outcome fidelity", () => {
+  type AuditEvent = { verdict: string; reason?: string };
+
+  /** Isolate Git history, fake scanner, and audit log for one host/shell case. */
+  function fixture(id: "jscpd" | "semgrep") {
+    const root = mkdtempSync(join(tmpdir(), `navori-scanner-${id}-`));
+    const bin = join(root, "bin");
+    mkdirSync(bin);
+    const auditRoot = join(root, "audits");
+    const repo = join(root, "repo");
+    mkdirSync(repo);
+    mkdirSync(join(auditRoot, "repo"), { recursive: true });
+    const log = join(auditRoot, "repo", "session-spec0037.log");
+    writeFileSync(log, "");
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
+    writeFileSync(join(repo, "changed.ts"), "export const before = 1;\n");
+    execFileSync("git", ["add", "changed.ts"], { cwd: repo });
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-qm",
+        "fixture baseline",
+      ],
+      { cwd: repo },
+    );
+    execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: repo });
+    writeFileSync(join(repo, "changed.ts"), "export const localOnly = 1;\n");
+    execFileSync("git", ["add", "changed.ts"], { cwd: repo });
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-qm",
+        "fixture local main ahead of origin",
+      ],
+      { cwd: repo },
+    );
+    writeFileSync(join(repo, "changed.ts"), "export const after = 2;\n");
+    writeFileSync(join(repo, "new.tsx"), "export const New = () => null;\n");
+    const scanner = join(bin, id);
+    writeFileSync(
+      scanner,
+      `#!/bin/sh
+if [ "\${1:-}" = "--help" ]; then
+  if [ -n "\${SCAN_NO_FLAGS:-}" ]; then echo 'old scanner'; else echo '--baseline-from-ref --fail-on-new-clones'; fi
+  exit 0
+fi
+printf '%s\\n' "$@" > "$SCAN_ARGS"
+if [ -n "\${SCAN_SIGNAL:-}" ]; then kill -s "$SCAN_SIGNAL" "$PPID"; exit 0; fi
+exit "$SCAN_EXIT"
+`,
+    );
+    chmodSync(scanner, 0o755);
+    const args = join(root, "args");
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH ?? ""}`,
+      NAVORI_AUDITS_ROOT: auditRoot,
+      SCAN_ARGS: args,
+      SCAN_EXIT: "0",
+    };
+    return { root, repo, log, env, args };
+  }
+
+  function run(script: string, f: ReturnType<typeof fixture>, scanExit: number, shell: HookShell) {
+    writeFileSync(f.log, "");
+    const result = spawnSync(resolveBin(shell), [script], {
+      cwd: f.repo,
+      env: { ...f.env, SCAN_EXIT: String(scanExit) },
+      encoding: "utf-8",
+      input: JSON.stringify({
+        session_id: "spec0037",
+        tool_use_id: "scan",
+        cwd: f.repo,
+        tool_input: { command: "git commit -m fixture" },
+      }),
+    });
+    const events = readFileSync(f.log, "utf-8")
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as AuditEvent);
+    return { status: result.status, signal: result.signal, stderr: result.stderr, events };
+  }
+
+  for (const { id, rel } of PLUGINS) {
+    it.each(
+      ["source", "claude", "codex"].flatMap((placement) =>
+        HOOK_SHELLS.map((shell) => [placement, shell] as const),
+      ),
+    )(`${id} %s/%s: clean, ambiguous/finding and error`, (placement, shell) => {
+      const f = fixture(id);
+      const script =
+        placement === "source"
+          ? join(f.root, "hook.sh")
+          : resolve(`../../.${placement}/scripts/check-${id}.sh`);
+      if (placement === "source") {
+        writeFileSync(script, renderScript(id, rel));
+        chmodSync(script, 0o755);
+      }
+      // Covers: R5, R6 — every rendered host shares the same exit and audit contract.
+      const clean = run(script, f, 0, shell);
+      expect(clean.status).toBe(0);
+      expect(clean.events.map((event) => event.verdict)).toEqual(["gate-started", "allow"]);
+      expect(clean.events.at(-1)?.reason).toMatch(/clean scan/);
+      const args = readFileSync(f.args, "utf-8");
+      expect(args).toContain("new.tsx");
+      expect(args).toContain("changed.ts");
+      expect(args).toContain(
+        execFileSync("git", ["rev-parse", "origin/main"], {
+          cwd: f.repo,
+          encoding: "utf-8",
+        }).trim(),
+      );
+      expect(args).not.toContain(
+        execFileSync("git", ["rev-parse", "main"], {
+          cwd: f.repo,
+          encoding: "utf-8",
+        }).trim(),
+      );
+      if (id === "jscpd") expect(args).toMatch(/--\n(?:changed\.ts|new\.tsx)/);
+
+      if (id === "semgrep") {
+        const cached = run(script, f, 0, shell);
+        expect(cached.status).toBe(0);
+        expect(cached.events).toEqual([
+          expect.objectContaining({
+            verdict: "allow",
+            reason: expect.stringContaining("reused unchanged green scan"),
+          }),
+        ]);
+        // A changed fingerprint must invalidate the previous green cache marker.
+        writeFileSync(join(f.repo, "changed.ts"), "export const after = 3;\n");
+      }
+      const marker =
+        id === "semgrep"
+          ? join(
+              execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
+                cwd: f.repo,
+                encoding: "utf-8",
+              }).trim(),
+              "navori-semgrep-ok",
+            )
+          : "";
+      const markerBeforeError = marker ? readFileSync(marker, "utf-8") : "";
+      const blocked = run(script, f, 1, shell);
+      expect(blocked.status).toBe(2);
+      expect(blocked.events.at(-1)?.verdict).toBe("block");
+      if (id === "jscpd") {
+        expect(blocked.stderr).toMatch(/ambiguous exit 1/);
+        expect(blocked.events.at(-1)?.reason).toContain("not confirmed clones");
+      }
+
+      const error = run(script, f, 3, shell);
+      expect(error.status).toBe(1);
+      expect(error.stderr).toMatch(/nothing was validated/);
+      expect(error.events.at(-1)).toMatchObject({ verdict: "allow" });
+      expect(error.events.at(-1)?.reason).toMatch(/not validated/);
+      if (id === "semgrep") {
+        expect(readFileSync(marker, "utf-8")).toBe(markerBeforeError);
+      }
+
+      unlinkSync(join(f.repo, "new.tsx"));
+      writeFileSync(join(f.repo, "changed.ts"), "export const before = 1;\n");
+      const skipped = run(script, f, 0, shell);
+      expect(skipped.status).toBe(0);
+      expect(skipped.events.at(-1)).toMatchObject({
+        verdict: "allow",
+        reason: expect.stringContaining("zero changed"),
+      });
+      expect(skipped.events.some((event) => event.verdict === "gate-started")).toBe(false);
+    });
+
+    it.each(
+      ["source", "codex"].flatMap((placement) =>
+        HOOK_SHELLS.map((shell) => [placement, shell] as const),
+      ),
+    )(`${id} %s/%s: missing scanner and baseline are explicit skips`, (placement, shell) => {
+      const f = fixture(id);
+      const script =
+        placement === "source"
+          ? join(f.root, "hook.sh")
+          : resolve(`../../.codex/scripts/check-${id}.sh`);
+      if (placement === "source") {
+        writeFileSync(script, renderScript(id, rel));
+        chmodSync(script, 0o755);
+      }
+      execFileSync("git", ["branch", "-m", "topic"], { cwd: f.repo });
+      execFileSync("git", ["update-ref", "-d", "refs/remotes/origin/main"], { cwd: f.repo });
+      const noBase = run(script, f, 0, shell);
+      expect(noBase.status).toBe(0);
+      expect(noBase.events.at(-1)).toMatchObject({
+        verdict: "allow",
+        reason: expect.stringContaining("baseline unresolved"),
+      });
+      expect(noBase.events.some((event) => event.verdict === "gate-started")).toBe(false);
+
+      const restricted = join(f.root, "restricted");
+      mkdirSync(restricted);
+      for (const tool of [
+        "bash",
+        "cat",
+        "grep",
+        "sed",
+        "node",
+        "dirname",
+        "git",
+        "jq",
+        "basename",
+        "perl",
+        "date",
+        "mktemp",
+        "rm",
+      ]) {
+        symlinkSync(resolveBin(tool), join(restricted, tool));
+      }
+      f.env.PATH = restricted;
+      const missing = run(script, f, 0, shell);
+      expect(missing.status).toBe(0);
+      expect(missing.events.at(-1)).toMatchObject({
+        verdict: "allow",
+        reason: expect.stringContaining("scanner unavailable"),
+      });
+      expect(missing.events.some((event) => event.verdict === "gate-started")).toBe(false);
+    });
+
+    it.each(
+      ["source", "codex"].flatMap((placement) =>
+        HOOK_SHELLS.map((shell) => [placement, shell] as const),
+      ),
+    )(`${id} %s/%s: handled signal has no false terminal`, (placement, shell) => {
+      const f = fixture(id);
+      const script =
+        placement === "source"
+          ? join(f.root, "hook.sh")
+          : resolve(`../../.codex/scripts/check-${id}.sh`);
+      if (placement === "source") {
+        writeFileSync(script, renderScript(id, rel));
+        chmodSync(script, 0o755);
+      }
+      f.env.SCAN_SIGNAL = "TERM";
+      const killed = run(script, f, 0, shell);
+      expect(killed.events.map((event) => event.verdict)).toEqual(["gate-started", "gate-killed"]);
+      expect(killed.status).not.toBe(0);
+    });
+
+    it.each(
+      ["source", "codex"].flatMap((placement) =>
+        HOOK_SHELLS.map((shell) => [placement, shell] as const),
+      ),
+    )(`${id} %s/%s: SIGKILL preserves only start witness`, (placement, shell) => {
+      const f = fixture(id);
+      const script =
+        placement === "source"
+          ? join(f.root, "hook.sh")
+          : resolve(`../../.codex/scripts/check-${id}.sh`);
+      if (placement === "source") {
+        writeFileSync(script, renderScript(id, rel));
+        chmodSync(script, 0o755);
+      }
+      f.env.SCAN_SIGNAL = "KILL";
+      const killed = run(script, f, 0, shell);
+      expect(killed.events.map((event) => event.verdict)).toEqual(["gate-started"]);
+      expect(killed.status).not.toBe(0);
+    });
+  }
+
+  it.each(
+    ["source", "codex"].flatMap((placement) =>
+      HOOK_SHELLS.map((shell) => [placement, shell] as const),
+    ),
+  )("jscpd %s/%s: cleanup failure cannot alter scanner decision", (placement, shell) => {
+    const f = fixture("jscpd");
+    const script =
+      placement === "source"
+        ? join(f.root, "hook.sh")
+        : resolve("../../.codex/scripts/check-jscpd.sh");
+    if (placement === "source") {
+      writeFileSync(script, renderScript("jscpd", "scripts/check-jscpd.sh"));
+      chmodSync(script, 0o755);
+    }
+    const fakeRm = join(f.root, "bin", "rm");
+    writeFileSync(fakeRm, "#!/bin/sh\nexit 1\n");
+    chmodSync(fakeRm, 0o755);
+    const blocked = run(script, f, 1, shell);
+    expect(blocked.status).toBe(2);
+    expect(blocked.events.at(-1)?.verdict).toBe("block");
+    const clean = run(script, f, 0, shell);
+    expect(clean.status).toBe(0);
+    expect(clean.events.at(-1)?.verdict).toBe("allow");
+    expect(clean.events.at(-1)?.reason).toMatch(/clean scan/);
+  });
+
+  it.each(
+    ["source", "codex"].flatMap((placement) =>
+      HOOK_SHELLS.map((shell) => [placement, shell] as const),
+    ),
+  )("jscpd %s/%s: unsupported flags block without claiming clones", (placement, shell) => {
+    const f = fixture("jscpd");
+    const script =
+      placement === "source"
+        ? join(f.root, "hook.sh")
+        : resolve("../../.codex/scripts/check-jscpd.sh");
+    if (placement === "source") {
+      writeFileSync(script, renderScript("jscpd", "scripts/check-jscpd.sh"));
+      chmodSync(script, 0o755);
+    }
+    f.env.SCAN_NO_FLAGS = "1";
+    const result = run(script, f, 0, shell);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("not a duplication verdict");
+    expect(result.events.at(-1)).toMatchObject({
+      verdict: "block",
+      reason: expect.stringContaining("required flags unavailable"),
+    });
+    expect(result.events.some((event) => event.verdict === "gate-started")).toBe(false);
+  });
 });
 
 /**

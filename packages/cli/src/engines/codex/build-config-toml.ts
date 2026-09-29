@@ -1,6 +1,10 @@
 import type { NavoriConfig } from "../../lib/config/config.ts";
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
-import { codexHookCommand, resolveCodexHooks } from "./hook-registrations.ts";
+import {
+  codexHookCommand,
+  resolveCodexHooks,
+  resolvePluginCodexHooks,
+} from "./hook-registrations.ts";
 
 function tomlString(value: string): string {
   return JSON.stringify(value);
@@ -57,7 +61,7 @@ export function buildCodexConfigToml(
   // stable across re-renders. Each row becomes exactly one
   // `[[hooks.<Event>]]` block with exactly one nested `.hooks[]` entry — the
   // shape Codex's own `hooks/list` and `trusted_hash` keying assume.
-  for (const hook of resolveCodexHooks(config)) {
+  for (const hook of resolveCodexHooks(config, plugins)) {
     const command = codexHookCommand(hook, wsSubpath);
     lines.push("", `[[hooks.${hook.event}]]`);
     if (hook.matcher !== undefined) lines.push(`matcher = ${tomlString(hook.matcher)}`);
@@ -74,6 +78,7 @@ export function buildCodexConfigToml(
   }
 
   const warnings = [
+    ...resolvePluginCodexHooks(plugins).warnings,
     // Spec 0035 D5/T6 (R9): terminal (Bash) permissions now translate into
     // `.codex/rules/navori.rules` (see build-rules.ts); only NON-terminal
     // permissions (path read/write) have no equivalent. Full access removes

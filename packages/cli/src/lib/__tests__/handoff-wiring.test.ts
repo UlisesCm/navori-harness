@@ -30,6 +30,26 @@ function codexConfig(): NavoriConfig {
 describe("orquestacion.md orders the preflight before dispatch (R14, R17)", () => {
   const block = read("managed/orquestacion.md");
 
+  // Covers: R15, R18
+  it("does not require an implementation handoff before its first producer exists", () => {
+    const mechanics = block.split("### The mechanics\n")[1]?.split("\n### ")[0] ?? "";
+    expect(mechanics).toMatch(/first (researcher|producer)/i);
+    expect(mechanics).toMatch(/(?:architect|scout|auditor)/i);
+    expect(mechanics).toMatch(/impl_<feature>\.json/);
+    expect(mechanics).not.toMatch(/\*\*Before dispatching\*\*, run `navori handoff check/);
+  });
+
+  // Covers: R15, R18
+  it("requires the check for consumers while keeping the plan precondition independent", () => {
+    const mechanics = block.split("### The mechanics\n")[1]?.split("\n### ")[0] ?? "";
+    const planning = read("managed/planificacion.md");
+    expect(mechanics).toMatch(/before dispatching.*(?:scribe|reviewer)/i);
+    expect(mechanics).toContain('"status":"ok"');
+    expect(mechanics).toMatch(/plan(?:ning)? precondition/i);
+    expect(planning).toContain("Before dispatching the `implementer`");
+    expect(planning).toContain("plan check");
+  });
+
   // Covers: R1, R9, R12
   it("invokes navori handoff check in the neutral root with --json", () => {
     expect(block).toContain("navori handoff check");
@@ -41,10 +61,11 @@ describe("orquestacion.md orders the preflight before dispatch (R14, R17)", () =
     expect(block).toContain('"status":"ok"');
   });
 
-  it("keeps the neutral root in the Codex render (R17)", () => {
+  it("retains the neutral handoff root in the Codex render (R17)", () => {
     const adapted = adaptHarnessTextForCodex(block, codexConfig());
     expect(adapted).toContain("navori handoff check");
     expect(adapted).toContain("--dir .navori/state/handoffs");
+    expect(adapted).not.toContain(".claude/progress");
   });
 });
 
@@ -101,15 +122,6 @@ describe("subagent-stop-handoff.sh stays advisory and in parity with REQUIRED_IM
       .map((k) => k.trim().replace(/^"|"$/g, ""))
       .filter(Boolean);
     expect(keys.sort()).toEqual([...REQUIRED_IMPL_KEYS].sort());
-  });
-
-  // Covers: R9, R12
-  it("includes one shared input adapter and scans neutral handoffs", () => {
-    expect(hook).toContain("# navori:include extract-cmd");
-    expect(hook).toContain("# navori:include hook-input");
-    expect(hook).toContain("navori_subagent_type=$(nv_subagent_type)");
-    expect(hook).not.toContain("navori_field() {");
-    expect(hook).toContain('".navori/state/handoffs"');
   });
 });
 

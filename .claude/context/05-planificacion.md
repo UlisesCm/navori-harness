@@ -1,4 +1,4 @@
-<!-- navori:managed id="planificacion" hash="6abb3348" version="0.10.1" source="@navori/core" -->
+<!-- navori:managed id="planificacion" hash="7f18ad34" version="0.10.1" source="@navori/core" -->
 ## Planning tiers — classified, never chosen
 
 Before planning, write the draft `.navori/state/handoffs/workplan_<feature>.json` (files, signals) and
@@ -13,8 +13,9 @@ run `navori plan classify <feature>`. The level comes from that command, never j
 
 - Tell the user the level, score and breakdown in ≤ 4 lines. The user may raise the level; refuse
   to lower it when a floor applies, naming it.
-- A hook denies dispatching without the opening line and a green plan; its reason names the
-  skill and command — produce what it asks, don't work around it.
+- Both engines retain the applicable user approval in the tier flow above.
+- Claude Code plan-gate hook denies nonconforming implementer dispatch (missing opening line/green plan).
+- Codex plan-gate is advisory (no selective deny); reopen per #1082's versioned criteria.
 - The level rises with evidence: replan when `plan check`/`update` compute a higher level, and
   say so in one line. Two `CHANGES_REQUESTED` require the next level's artifacts; at level 2 or
   3, escalate to the user.

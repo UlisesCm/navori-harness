@@ -1,10 +1,25 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { assert, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
-import { minCodexVersion, resolveCodexHooks } from "../../engines/codex/hook-registrations.ts";
+import {
+  codexHookCommand,
+  minCodexVersion,
+  resolveCodexHooks,
+} from "../../engines/codex/hook-registrations.ts";
+import { buildCodexConfigToml } from "../../engines/codex/build-config-toml.ts";
+import { renderCodexEngine } from "../../engines/codex/index.ts";
 import { codexHookHash, codexHookKey } from "../../lib/codex/trust.ts";
 import { tc } from "../../lib/i18n.ts";
 
@@ -13,10 +28,21 @@ import { tc } from "../../lib/i18n.ts";
 // throwaway fake home, never the developer's real `~/.codex` (critical-area
 // invariant: this test file must never touch it).
 const codexHome = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../../lib/primitives/home.ts"), () => ({ safeHomedir: () => codexHome.dir }));
+vi.mock(import("../../lib/primitives/home.ts"), () => ({
+  safeHomedir: () => codexHome.dir,
+}));
 
-const { isCodexVersionTooOld, scanCodexHealth, buildEngineInventory, computeHealthVerdict } =
-  await import("../doctor.ts");
+const {
+  isCodexVersionTooOld,
+  scanCodexHealth,
+  buildEngineInventory,
+  buildEngineEvidence,
+  buildDoctorProvenance,
+  inspectPathCli,
+  computeHealthVerdict,
+  scanOperationalTools,
+  probeFailureReason,
+} = await import("../doctor.ts");
 
 function tempRepo(): string {
   return mkdtempSync(join(tmpdir(), "navori-codex-doctor-"));
@@ -194,6 +220,122 @@ describe("scanCodexHealth (Spec 0007 M5)", () => {
   });
 });
 
+describe("operational tool diagnostics (Spec 0037 T13)", () => {
+  const originalPath = process.env.PATH;
+  afterEach(() => {
+    process.env.PATH = originalPath;
+  });
+
+  // Covers: R3, R16, R19
+  it("does not promote status output into search results, MCP calls, or Engram memory access", () => {
+    const cwd = tempRepo();
+    const bin = join(cwd, "bin");
+    mkdirSync(bin);
+    for (const [name, output] of [
+      ["tgrep", `Index status for ${cwd}\n  Updated:    2h ago\n  Server:     not running\n`],
+      [
+        "codegraph",
+        '{"version":"1.6.0","index":{"builtWithVersion":"1.5.0","reindexRecommended":true}}',
+      ],
+      ["engram", ""],
+    ] as const) {
+      const path = join(bin, name);
+      writeFileSync(path, `#!/bin/sh\nprintf '%b' ${JSON.stringify(output)}\n`);
+      chmodSync(path, 0o755);
+    }
+    mkdirSync(join(cwd, ".codegraph"));
+    process.env.PATH = bin;
+    const report = scanOperationalTools(
+      cwd,
+      config({
+        plugins: {
+          tgrep: { enabled: true },
+          codegraph: { enabled: true },
+          engram: { enabled: true },
+        },
+      }),
+    );
+    expect(report.tgrep?.index).toEqual({ status: "verified", state: "stale" });
+    expect(report.tgrep?.staleIndex?.age).toBe("2h");
+    expect(report.codegraph?.index).toEqual({
+      status: "verified",
+      state: "version-drift",
+    });
+    expect(report.codegraph?.indexDrift?.currentVersion).toBe("1.6.0");
+    expect(report.tgrep?.result).toEqual({
+      status: "unverified",
+      reason: "no-result-query",
+    });
+    expect(report.codegraph?.mcp).toEqual({
+      status: "unverified",
+      reason: "no-mcp-query",
+    });
+    expect(report.engram?.read).toEqual({
+      status: "unverified",
+      reason: "no-read-query",
+    });
+    expect(report.engram?.write).toEqual({
+      status: "unverified",
+      reason: "runtime-identity-unavailable",
+    });
+  });
+
+  // Covers: R3, R16, R19
+  it("reports missing binaries without invoking tools or fabricating a runtime session", () => {
+    const cwd = tempRepo();
+    process.env.PATH = join(cwd, "empty-bin");
+    const report = scanOperationalTools(
+      cwd,
+      config({
+        plugins: {
+          tgrep: { enabled: true },
+          codegraph: { enabled: true },
+          engram: { enabled: true },
+        },
+      }),
+    );
+    expect(report.tgrep?.cli).toEqual({
+      status: "unverified",
+      reason: "binary-missing",
+    });
+    expect(report.codegraph?.cli).toEqual({
+      status: "unverified",
+      reason: "binary-missing",
+    });
+    expect(report.engram?.cli).toEqual({
+      status: "unverified",
+      reason: "binary-missing",
+    });
+    expect(report.engram?.write.status).toBe("unverified");
+  });
+
+  // Covers: R3, R16
+  it("classifies a failed read-only status probe without claiming a clean index", () => {
+    const cwd = tempRepo();
+    const bin = join(cwd, "bin");
+    mkdirSync(bin);
+    const path = join(bin, "tgrep");
+    writeFileSync(path, "#!/bin/sh\necho UNABLE_TO_VERIFY_LEAF_SIGNATURE >&2\nexit 1\n");
+    chmodSync(path, 0o755);
+    process.env.PATH = bin;
+    const report = scanOperationalTools(cwd, config({ plugins: { tgrep: { enabled: true } } }));
+    expect(report.tgrep?.cli).toEqual({ status: "unverified", reason: "ca-or-tls-error" });
+    expect(report.tgrep?.index).toEqual({ status: "unverified", reason: "ca-or-tls-error" });
+    expect(report.tgrep?.result.status).toBe("unverified");
+  });
+
+  // Covers: R3
+  it.each([
+    ["UNABLE_TO_VERIFY_LEAF_SIGNATURE", "ca-or-tls-error"],
+    ["SQLITE_CANTOPEN", "permission-denied"],
+    ["ETIMEDOUT", "timeout"],
+    ["ENETUNREACH", "network-unreachable"],
+    ["invalid session", "invalid-session"],
+  ])("classifies %s as %s without claiming a clean check", (code, reason) => {
+    expect(probeFailureReason({ code })).toBe(reason);
+  });
+});
+
 describe("buildEngineInventory (Spec 0007 M8)", () => {
   it("lists agents/skills/hooks per disk engine; claude includes orchestrator, codex omits it", () => {
     const cwd = tempRepo();
@@ -289,5 +431,215 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
     assert.isDefined(claude);
     // The workspace dir doesn't exist → its extras must NOT be counted.
     expect(claude.skills).not.toContain("nestjs-modules");
+  });
+});
+
+describe("doctor evidence (Spec 0037 V01-V03)", () => {
+  beforeEach(() => {
+    codexHome.dir = mkdtempSync(join(tmpdir(), "navori-codex-evidence-home-"));
+  });
+  afterEach(() => {
+    rmSync(codexHome.dir, { recursive: true, force: true });
+  });
+
+  // Covers: R1
+  it("identifies different entrypoint content even when the declared release is unchanged", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "navori doctor spaced path "));
+    const one = join(cwd, "first.js");
+    const two = join(cwd, "second.js");
+    const link = join(cwd, "linked cli.js");
+    writeFileSync(one, "first build");
+    writeFileSync(two, "second build");
+    symlinkSync(one, link);
+    const first = buildDoctorProvenance(cwd, one);
+    const second = buildDoctorProvenance(cwd, two);
+    const viaLink = buildDoctorProvenance(cwd, link);
+    expect(first.cliVersion).toBe(second.cliVersion);
+    expect(first.entrypointSha256).not.toBe(second.entrypointSha256);
+    expect(first.resolvedCli).toBe(realpathSync(one));
+    expect(viaLink.invokedCli).toBe(link);
+    expect(viaLink.resolvedCli).toBe(realpathSync(one));
+    expect(viaLink.entrypointSha256).toBe(first.entrypointSha256);
+    expect(first.checkoutSha).toBeNull();
+    expect(first.checkoutReason).toBeDefined();
+    const inaccessible = buildDoctorProvenance(cwd, join(cwd, "not-installed.js"));
+    expect(inaccessible.entrypointSha256).toBeNull();
+    expect(inaccessible.entrypointReason).toBeDefined();
+  });
+
+  // Covers: R1, R3
+  it("separates PATH permission, certificate, timeout, network and absent binary causes", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "navori doctor cli failures "));
+    const binary = join(cwd, "codex");
+    const script = (body: string): void => {
+      writeFileSync(binary, `#!/bin/sh\n${body}\n`);
+      chmodSync(binary, 0o755);
+    };
+    script('echo "certificate verify failed" >&2; exit 1');
+    expect(inspectPathCli("codex", cwd)).toMatchObject({
+      status: "unverified",
+      version: null,
+      reason: "version probe certificate failure",
+    });
+    script('echo "ENETUNREACH" >&2; exit 1');
+    expect(inspectPathCli("codex", cwd)).toMatchObject({
+      status: "unverified",
+      version: null,
+      reason: "version probe network failure",
+    });
+    script("sleep 1");
+    expect(inspectPathCli("codex", cwd, 20)).toMatchObject({
+      status: "unverified",
+      version: null,
+      reason: "version probe timeout",
+    });
+    chmodSync(binary, 0o600);
+    expect(inspectPathCli("codex", cwd)).toMatchObject({
+      status: "unverified",
+      version: null,
+      reason: "permission denied",
+    });
+    expect(inspectPathCli("codex", join(cwd, "missing-dependency"))).toMatchObject({
+      status: "missing",
+      version: null,
+      reason: "binary absent from PATH",
+    });
+  });
+
+  // Covers: R2, R3
+  it("keeps declaration, materialization, registration, trust and execution separate", () => {
+    const cwd = tempRepo();
+    mkdirSync(join(cwd, ".codex"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".codex/config.toml"),
+      buildCodexConfigToml(config({ plugins: {} }), []).body,
+    );
+    const rows = buildEngineEvidence(config({ plugins: {} }), cwd);
+    const guard = rows.find(
+      (row) => row.engine === "codex" && row.kind === "hook" && row.id === "guard-destructive",
+    );
+    assert.isDefined(guard);
+    expect(guard.declared.status).toBe("verified");
+    expect(guard.materialized.status).toBe("missing");
+    expect(guard.registered.status).toBe("verified");
+    expect(guard.trust.status).toBe("unverified");
+    expect(guard.execution.status).toBe("not-run");
+    expect(JSON.parse(JSON.stringify(rows))).toEqual(rows);
+  });
+
+  // Covers: R2, R3
+  it("does not hide a missing workspace asset behind the root inventory", () => {
+    const cwd = tempRepo();
+    mkdirSync(join(cwd, ".codex/hooks"), { recursive: true });
+    writeFileSync(join(cwd, ".codex/hooks/guard-destructive.sh"), "#!/bin/sh\n");
+    mkdirSync(join(cwd, "apps/api"), { recursive: true });
+    const cfg = config({
+      plugins: {},
+      monorepo: {
+        enabled: true,
+        workspaces: [{ name: "api", path: "apps/api", preset: "custom" }],
+        workspaceHarness: "full",
+      },
+    });
+    const guards = buildEngineEvidence(cfg, cwd).filter(
+      (row) => row.kind === "hook" && row.id === "guard-destructive",
+    );
+    expect(guards.map((row) => [row.location, row.materialized.status])).toEqual([
+      [".", "verified"],
+      ["apps/api", "missing"],
+    ]);
+  });
+
+  // Covers: R2, R3
+  it("marks a malformed registration as unverified rather than clean", () => {
+    const cwd = tempRepo();
+    mkdirSync(join(cwd, ".codex"), { recursive: true });
+    writeFileSync(join(cwd, ".codex/config.toml"), "[[hooks.PreToolUse]\n");
+    const guard = buildEngineEvidence(config({ plugins: {} }), cwd).find(
+      (row) => row.engine === "codex" && row.kind === "hook" && row.id === "guard-destructive",
+    );
+    assert.isDefined(guard);
+    expect(guard.registered.status).toBe("unverified");
+    expect(guard.registered.reason).toBeDefined();
+    expect(guard.trust.status).toBe("unverified");
+    expect(guard.execution.status).toBe("not-run");
+  });
+
+  // Covers: R2
+  it("does not verify a guard command moved to a wrong event or matcher", () => {
+    const cwd = tempRepo();
+    mkdirSync(join(cwd, ".codex"), { recursive: true });
+    const cfg = config({ plugins: {} });
+    const guard = resolveCodexHooks(cfg).find((hook) => hook.script === "guard-destructive");
+    assert.isDefined(guard);
+    const command = codexHookCommand(guard);
+    const wrongEvent = `[[hooks.PostToolUse]]\nmatcher = "^Bash$"\n[[hooks.PostToolUse.hooks]]\ntype = "command"\ncommand = ${JSON.stringify(command)}\ntimeout = ${guard.timeout}\nstatusMessage = ${JSON.stringify(guard.statusMessage)}\n`;
+    const path = join(cwd, ".codex/config.toml");
+    writeFileSync(path, wrongEvent);
+    const findGuard = () =>
+      buildEngineEvidence(cfg, cwd).find(
+        (row) => row.id === "guard-destructive" && row.engine === "codex",
+      );
+    expect(findGuard()?.registered.status).toBe("missing");
+    writeFileSync(
+      path,
+      wrongEvent.replaceAll("PostToolUse", "PreToolUse").replace("^Bash$", "^Other$"),
+    );
+    expect(findGuard()?.registered.status).toBe("missing");
+    const correctEvent = wrongEvent.replaceAll("PostToolUse", "PreToolUse");
+    writeFileSync(
+      path,
+      correctEvent.replace(`timeout = ${guard.timeout}`, `timeout = ${guard.timeout + 1}`),
+    );
+    expect(findGuard()?.registered.status).toBe("missing");
+    writeFileSync(
+      path,
+      `${correctEvent}[[hooks.PreToolUse.hooks]]\ntype = "command"\ncommand = "echo duplicate"\ntimeout = 10\n`,
+    );
+    expect(findGuard()?.registered.status).toBe("missing");
+  });
+
+  // Covers: R2, R3
+  it("exposes each enabled plugin hook absent from Codex materialization", () => {
+    const cwd = tempRepo();
+    const cfg = config({
+      plugins: { semgrep: { enabled: true }, jscpd: { enabled: true } },
+    });
+    mkdirSync(join(cwd, ".codex"), { recursive: true });
+    writeFileSync(join(cwd, ".codex/config.toml"), buildCodexConfigToml(cfg, []).body);
+    const rows = buildEngineEvidence(cfg, cwd);
+    for (const plugin of ["semgrep", "jscpd"]) {
+      const hook = rows.find(
+        (row) => row.engine === "codex" && row.id === `${plugin}:PreToolUse:Bash`,
+      );
+      assert.isDefined(hook);
+      expect(hook.declared.status).toBe("verified");
+      expect(hook.materialized.status).toBe("missing");
+      expect(hook.registered.status).toBe("missing");
+      expect(hook.execution.status).toBe("not-run");
+    }
+  });
+
+  // Covers: R4, R20
+  it("separates materialized, registered and trusted plugin hook evidence", () => {
+    const cwd = tempRepo();
+    const cfg = config({ plugins: { semgrep: { enabled: true } } });
+    renderCodexEngine(cwd, cfg);
+    const find = () =>
+      buildEngineEvidence(cfg, cwd).find(
+        (row) => row.engine === "codex" && row.id === "semgrep:PreToolUse:Bash",
+      );
+    expect(find()?.materialized.status).toBe("verified");
+    expect(find()?.registered.status).toBe("verified");
+    expect(find()?.trust.status).toBe("unverified");
+    const scriptPath = join(cwd, ".codex/scripts/check-semgrep.sh");
+    writeFileSync(
+      scriptPath,
+      readFileSync(scriptPath, "utf-8").replace("set -euo pipefail", "set -eu"),
+    );
+    expect(find()?.materialized.status).toBe("unverified");
+    expect(find()?.registered.status).toBe("verified");
+    rmSync(scriptPath);
+    expect(find()?.materialized.status).toBe("missing");
   });
 });

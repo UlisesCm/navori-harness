@@ -6,7 +6,7 @@ metadata:
   maxWords: 650
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="15b04a0a" version="0.10.1" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="verify-before-done-base" hash="96a48a3c" version="0.10.1" source="@navori/core" fmkeys="name,description,metadata" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -46,7 +46,7 @@ Never `git stash` to measure it — it empties the shared tree while another age
 ## Red flags (STOP)
 
 - About to write "done"/"ready"/"should work", or `git commit`/`APPROVED` without a fresh `cd packages/cli && bun lint` run and a full diff read. "Just this once" — NO.
-- Trusting a subagent's report without verifying its **load-bearing claims** (cited `file:line`s plus the diff it touched) — scope defined ONCE in `AGENTS.md` § Anti-broken-telephone, never a full re-read of an already-validated diff.
+- Trusting a subagent's report without verifying its **load-bearing claims** (cited `file:line`s plus the diff it touched) — scope defined ONCE in `.codex/orchestrator.md` § Anti-broken-telephone, never a full re-read of an already-validated diff.
 
 ## Rationalization prevention
 

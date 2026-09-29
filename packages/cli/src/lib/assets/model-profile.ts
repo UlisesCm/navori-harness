@@ -12,6 +12,85 @@ export interface MissingModelProfile {
   missing: MissingTier[];
 }
 
+/** The configured tier is not evidence of a host-resolved model identity. */
+export type ProfileOrigin = "explicit" | "mapped" | "inherited";
+
+export interface ProfileValue {
+  configured: string | null;
+  origin: ProfileOrigin;
+  /** Config projection only; doctor does not inspect rendered files here. */
+  wouldRender: string | null;
+  /** Static doctor cannot observe the model/effort actually used by the host. */
+  effectiveObserved: null;
+  mapping?: "configured" | "built-in";
+}
+
+/** One renderable core subagent; main-thread orchestrator and preset extras are excluded. */
+export interface ModelProfileProvenance {
+  engine: "claude" | "codex";
+  agent: string;
+  model: ProfileValue;
+  effort: ProfileValue;
+}
+
+// Shared by the Codex renderer and doctor. Tier names describe routing, not
+// equivalent quality across hosts (Spec 0037 R12).
+const CODEX_MODEL_BY_CLAUDE_TIER = {
+  opus: "gpt-6-sol",
+  sonnet: "gpt-6-sol",
+  haiku: "gpt-6-luna",
+} as const;
+
+/** Resolve a configured tier; an omitted tier remains host-inherited. */
+export function resolveCodexModel(
+  config: NavoriConfig,
+  tier: keyof typeof CODEX_MODEL_BY_CLAUDE_TIER,
+): { model: string; mapping: "configured" | "built-in" } {
+  const configured = config.models?.codexMap?.[tier];
+  return configured !== undefined
+    ? { model: configured, mapping: "configured" }
+    : { model: CODEX_MODEL_BY_CLAUDE_TIER[tier], mapping: "built-in" };
+}
+
+/** Project core-subagent profiles without guessing host inheritance or file state. */
+export function scanModelProfileProvenance(config: NavoriConfig): ModelProfileProvenance[] {
+  const rows: ModelProfileProvenance[] = [];
+  for (const engine of config.engines) {
+    if (engine !== "claude" && engine !== "codex") continue;
+    for (const agent of CORE_AGENTS) {
+      // The main thread embodies orchestrator; there is no spawned agent model.
+      // Claude's effort.orchestrator may seed settings.json effortLevel (except
+      // max), but that root setting belongs to T16's separate evaluation.
+      if (agent.id === "orchestrator" || !isAgentEnabled(config, agent.harnessKey)) continue;
+      const tier = config.models?.[agent.harnessKey];
+      const configuredEffort = config.effort?.[agent.harnessKey];
+      const mapped = engine === "codex" && tier ? resolveCodexModel(config, tier) : null;
+      rows.push({
+        engine,
+        agent: agent.id,
+        model: tier
+          ? {
+              configured: tier,
+              origin: mapped ? "mapped" : "explicit",
+              wouldRender: mapped?.model ?? tier,
+              effectiveObserved: null,
+              ...(mapped ? { mapping: mapped.mapping } : {}),
+            }
+          : { configured: null, origin: "inherited", wouldRender: null, effectiveObserved: null },
+        effort: configuredEffort
+          ? {
+              configured: configuredEffort,
+              origin: "explicit",
+              wouldRender: configuredEffort,
+              effectiveObserved: null,
+            }
+          : { configured: null, origin: "inherited", wouldRender: null, effectiveObserved: null },
+      });
+    }
+  }
+  return rows;
+}
+
 /**
  * Core agents whose source template declares `model: {{models.<agent>}}` /
  * `effort: {{effort.<agent>}}` (issue #817) but whose tier is unset in
@@ -25,7 +104,8 @@ export interface MissingModelProfile {
  * deliberate, but it also means nothing in the rendered file signals the gap —
  * a repo that MEANT to set a cost-aware profile (see `RECOMMENDED_MODELS` /
  * `RECOMMENDED_EFFORT` in `recommended.ts`) and forgot has no way to notice.
- * This scan is that signal. Advisory only: it never flips `doctor`'s `ok`,
+ * This scan is the human advisory signal; `scanModelProfileProvenance` adds
+ * machine-readable provenance. Advisory only: it never flips `doctor`'s `ok`,
  * the same treatment as the sibling `gateReadiness` / `emptyUserSections`
  * checks — an unset tier is a valid default, not a hard failure.
  */

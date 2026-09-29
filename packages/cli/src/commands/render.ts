@@ -3,6 +3,7 @@ import * as p from "@clack/prompts";
 import { existsSync, rmSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config/config.ts";
+import { loadEnabledPlugins } from "../lib/config/plugins.ts";
 import {
   measureDocBudgetFile,
   scanOrphanedEngineOutputs,
@@ -269,7 +270,7 @@ function appendCodexTrustHint(
   config: NavoriConfig,
   lang: Lang,
 ): void {
-  const hooks = resolveCodexHooks(config);
+  const hooks = resolveCodexHooks(config, loadEnabledPlugins(config.plugins).loaded);
   const wsSubpath = relative(resolve(repoRoot), resolve(cwd)).split(sep).join("/");
   const configTomlPath = join(resolve(cwd), ".codex", "config.toml");
   const state = readCodexTrustState(resolve(repoRoot), configTomlPath, hooks, { wsSubpath });
