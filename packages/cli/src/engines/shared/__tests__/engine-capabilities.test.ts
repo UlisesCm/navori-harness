@@ -14,6 +14,7 @@ const FAKE_ENGINE_CAPABILITIES: EngineCapabilities = {
   ownsAgentsMd: false,
   unsupportedSurfaces: [],
   controls: {
+    "master-plan": { state: "unsupported", reason: "fake" },
     "plan-gate": { state: "unsupported", reason: "fake" },
     "markdown-ownership": { state: "unsupported", reason: "fake" },
     "handoff-shape": { state: "unsupported", reason: "fake" },
@@ -55,6 +56,38 @@ describe("ENGINE_CAPABILITIES ↔ ENGINES", () => {
 
   it("declares full parity engines with an explicit empty list, not a missing field", () => {
     expect(ENGINE_CAPABILITIES.claude.unsupportedSurfaces).toEqual([]);
+  });
+});
+
+/** Covers: R41 */
+describe("master-plan control", () => {
+  it.each(ENGINES)("declares master-plan for %s", (engine) => {
+    const declaration = ENGINE_CAPABILITIES[engine].controls["master-plan"];
+    expect(declaration).toBeDefined();
+    if (engine === "claude") {
+      expect(declaration).toEqual({
+        state: "enforced",
+        reason: expect.any(String),
+        evidence: {
+          kind: "hook",
+          script: "master-plan-context.sh",
+          event: "SessionStart",
+          matcher: "startup|resume|clear|compact|fork",
+        },
+      });
+    } else {
+      expect(declaration).toEqual({
+        state: "unsupported",
+        reason: "fase 2 de la spec 0034: la skill no se renderiza y no hay hook de arranque",
+      });
+    }
+  });
+
+  it("is conditioned on harness.masterPlan", () => {
+    expect(CONTROL_DEFINITIONS["master-plan"]).toMatchObject({
+      condition: "masterPlan",
+      hookScripts: ["master-plan-context.sh"],
+    });
   });
 });
 

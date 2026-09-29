@@ -83,6 +83,7 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   "packages/core/core-assets/managed/intake-tickets.md": 251, // 228 → 10.1%
   "packages/core/core-assets/managed/operaciones-seguras.md": 310,
   "packages/core/core-assets/managed/orquestacion.md": 1060, // 963 → 10.1%
+  "packages/core/core-assets/managed/plan-maestro.md": 90,
   // Spec 0032 (#1011): own small ceiling (design.md "Components" targets
   // ~250 words) — the level table and the gate rule only, condition
   // `harness.planTiers`. Calibrated like every other entry here (measured ×

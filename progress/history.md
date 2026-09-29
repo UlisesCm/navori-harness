@@ -23,6 +23,16 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: checkpoint previo `7be1f5bc`; PR draft [#1074](https://github.com/UlisesCm/navori-harness/pull/1074)
   abierto contra `main`; commits `24a96619`, `7f19026b` y `ce5398ce`.
 
+## 2026-09-26 22:29 — orchestrator — Spec 0034: Lote B integrado, T8 conservada en worktree
+- Cambios: #1072 (T4–T5) y #1073 (T6–T7) mergeados en `master-plan`. T8 (`status`, `part`,
+  evidencia de aceptación y comparación de regiones) quedó sin commit en `feat/0034-lote-c`.
+- Quality gate: ✅ T8 pasó el gate completo en la cuarta revisión, con receipt `ok`/`fresh`
+  contra `master-plan` tras regenerar `claude.snap` y `.claude/settings.json`.
+- Notas: `progress/current.md` y `.claude/progress/review_0034-lote-c-t8-r4.md` conservan el
+  siguiente paso. Publicar T8 desde este worktree; no borrar el worktree ni limpiar sus cambios
+  antes de abrir el PR.
+- Commit / PR: #1072 (`2cd46598`), #1073 (`362bc877`); T8 pendiente de publicación.
+
 ## 2026-09-25 21:54 — orchestrator — #1019: dist y coverage aislados entre corridas
 - Cambios: el lock de `dist/` ahora dura toda la suite Vitest y se limita al checkout; `test:coverage`
   asigna un directorio único antes de iniciar Vitest y pasa el mismo reporte al coverage floor.
@@ -31,6 +41,19 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Notas: un lock huérfano no se reclama por antigüedad; tras verificar que no queda una suite activa,
   la limpieza es manual. El PR sigue abierto, no mergeado.
 - Commit / PR: `86c37376` / #1070 (`Closes #1019`).
+
+## 2026-09-25 19:30 — orchestrator — Spec 0034: Lote A y primera mitad del Lote B
+- Cambios: rama de integración `master-plan` creada desde `main`. Lote A (T1–T3: esquemas,
+  registro de etapas, `navori master init`/`mode`, docs de `master`) mergeado ahí como #1065.
+  Lote B T4–T5: plantillas es/en en `packages/core/core-assets/master-plan/`, `lib/master/markers.ts`
+  (marcadores por idioma), `templates.ts`, `checks.ts` con `check`/`advance`/`check --stage`,
+  enmiendas a `design.md` y `tasks.md`. Issue #1064 abierto para la implementación.
+- Quality gate: ✅ `bun check` verde en cada review; receipt `ok`/`fresh` contra `master-plan`.
+- Notas: el usuario decidió los marcadores por idioma y la rama `master-plan`. `markitdown
+  --version` verificado en el código de microsoft/markitdown. El review de B cazó un bypass de R50:
+  el encabezado `Integridad` fijo en español; ahora una tabla ausente también falla. El jscpd del
+  pre-commit bloqueó un clon de helpers de test (se extrajeron a `test-utils.ts`).
+- Commit / PR: #1065 (Lote A); Lote B T4–T5 en el PR de `feat/0034-lote-b`.
 
 ## 2026-09-25 17:30 — orchestrator — Issues post-0.10.1: tailwind, workspace, receipt, links, jscpd, classify, architect
 - Cambios: 7 PRs — #1058 (#1052 `tailwind-v4` solo con tailwindcss >= 4), #1059 (#1054 `init` infiere el

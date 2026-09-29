@@ -67,6 +67,8 @@ describe("roster-parity", () => {
         // Spec 0032 (#1011): level-1/level-2 workplan procedures.
         "plan-simple",
         "plan-advanced",
+        "master-plan",
+        "context-intake",
       ],
       [...ROSTER_CORE_SKILLS, ...ROSTER_WORKFLOW_SKILLS],
     );

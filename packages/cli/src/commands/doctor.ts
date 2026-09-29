@@ -77,6 +77,7 @@ import {
 } from "../lib/assets/model-profile.ts";
 import { scanControlGaps } from "../lib/diagnose/control-gaps.ts";
 import { scanDiskUsage, humanBytes } from "../lib/diagnose/disk-usage.ts";
+import { scanMasterPlan } from "../lib/diagnose/master-plan.ts";
 import { scanNestedWorktrees } from "../lib/workspace/nested-worktrees.ts";
 import { scanGlobalScope, type ManagedPolicyKey } from "../lib/workspace/global-scope.ts";
 import { scanForeignHarness, type ForeignHarnessReport } from "../lib/diagnose/foreign-harness.ts";
@@ -255,6 +256,10 @@ export const doctorCommand = defineCommand({
     // nobody). Two `du`s so growth is visible before the disk fills; doctor
     // reports and suggests the cleanup command, it never deletes.
     const diskUsage = scanDiskUsage(cwd);
+    // Spec 0034 D8: registry health remains visible after `close` turns the
+    // feature flag off, because closed stages can retain confidential raw input.
+    // This is advisory only; a warning must not block the repair command.
+    const masterPlan = scanMasterPlan(cwd, config);
     // #522: the twin of the size check, and the one that actually costs work.
     // Agent worktrees are full checkouts nested in the repo, so an eslint run
     // started inside one resolves the parent repo's config too and dies with
@@ -418,6 +423,7 @@ export const doctorCommand = defineCommand({
       // already prints the same string — so the JSON leaks nothing extra, and
       // this payload already carries an absolute `configPath`.
       diskUsage,
+      masterPlan,
       // Same reason `diskUsage` is here (#479): a check only a human can read
       // is invisible to the CI job and to the agent parsing the report — and
       // this one explains why that agent's own commit is failing.
@@ -919,6 +925,28 @@ export const doctorCommand = defineCommand({
         return `  ${color.yellow(sym.update)} ${accent(issue.path)}  ${grey(row)}`;
       });
       p.log.warn(td.diskUsage(diskUsage.length, lines.join("\n")));
+    }
+
+    if (masterPlan.length > 0) {
+      const lines = masterPlan.map((issue) => {
+        switch (issue.kind) {
+          case "invalid-index":
+            return `  ${color.yellow(sym.update)} ${accent("_master/index.json")}  ${grey(td.masterPlanInvalidIndexRow(issue.detail))}`;
+          case "missing-raw-gitignore":
+            return `  ${color.yellow(sym.update)} ${accent(issue.path)}  ${grey(
+              issue.repair === "init"
+                ? td.masterPlanMissingRawGitignoreActiveRow
+                : td.masterPlanMissingRawGitignoreClosedRow(issue.path),
+            )}`;
+          case "flag-registry-desync":
+            return `  ${color.yellow(sym.update)} ${accent("harness.masterPlan")}  ${grey(
+              issue.repair === "close"
+                ? td.masterPlanFlagEnabledWithoutActiveRow
+                : td.masterPlanFlagDisabledWithActiveRow,
+            )}`;
+        }
+      });
+      p.log.warn(td.masterPlan(masterPlan.length, lines.join("\n")));
     }
 
     if (nestedWorktrees) {
@@ -3319,6 +3347,7 @@ export function buildEngineInventory(
     for (const engine of diskEngines) {
       const plan = resolveHarnessPlan(loc.config, coreAssets, preset, {
         includeOrchestrator: engine === "claude",
+        includeClaudeOnlyHooks: engine === "claude",
       });
       const bucket = acc[engine]!;
       for (const a of plan.agents) bucket.agents.add(a.id);

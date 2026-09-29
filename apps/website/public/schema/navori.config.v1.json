@@ -203,6 +203,10 @@
         "planTiers": {
           "default": false,
           "type": "boolean"
+        },
+        "masterPlan": {
+          "default": false,
+          "type": "boolean"
         }
       },
       "required": [
@@ -214,7 +218,8 @@
         "publisher",
         "scribe",
         "scribeOwnsMarkdown",
-        "planTiers"
+        "planTiers",
+        "masterPlan"
       ],
       "additionalProperties": false
     },

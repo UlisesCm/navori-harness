@@ -229,6 +229,92 @@ describe.runIf(runsBash && hasJq)("comment-draft-confirm.sh — una fila por pay
   });
 });
 
+describe.runIf(runsBash && hasJq)("comment-draft-confirm.sh — R43 issue creation", () => {
+  const issue = "gh issue create --title x --body draft";
+  const gql =
+    "gh api graphql -f query='mutation{createIssue(input:{repositoryId:\"x\"}){issue{id}}}'";
+
+  // Covers: R43
+  it.each([
+    ["asks on gh issue create (main thread)", issue, {}, "ask"],
+    ["asks on gh issue create from a subagent", issue, { agent_id: "agent-1" }, "ask"],
+    [
+      "asks on gh issue create under bypassPermissions",
+      issue,
+      { permission_mode: "bypassPermissions" },
+      "ask",
+    ],
+    ["asks on gh issue create under dontAsk", issue, { permission_mode: "dontAsk" }, "ask"],
+    ["asks on gh api repos/o/r/issues -f title=x", "gh api repos/o/r/issues -f title=x", {}, "ask"],
+    [
+      "asks on gh api repos/{owner}/{repo}/issues --input body.json",
+      "gh api 'repos/{owner}/{repo}/issues' --input body.json",
+      {},
+      "ask",
+    ],
+    ["asks on gh api -X POST /repos/o/r/issues", "gh api -X POST /repos/o/r/issues", {}, "ask"],
+    [
+      "ignores gh api -X GET repos/o/r/issues",
+      "gh api -X GET repos/o/r/issues -f title=x",
+      {},
+      "none",
+    ],
+    [
+      "ignores gh api -X PATCH repos/o/r/issues/12",
+      "gh api -X PATCH repos/o/r/issues/12",
+      {},
+      "none",
+    ],
+    [
+      "keeps gh api repos/o/r/issues/12/comments on the comment row",
+      "gh api -X POST repos/o/r/issues/12/comments",
+      {},
+      "ask",
+    ],
+    ["asks on gh api graphql createIssue", gql, {}, "ask"],
+    ["asks on chained cd x && gh issue create", `cd x && ${issue}`, {}, "ask"],
+    [
+      "asks on chained true; gh api repos/o/r/issues -f title=x",
+      "true; gh api repos/o/r/issues -f title=x",
+      {},
+      "ask",
+    ],
+    ["asks on subshell (gh issue create …)", `(${issue})`, {}, "ask"],
+    ["asks on command substitution $(gh api graphql … createIssue …)", `$(${gql})`, {}, "ask"],
+    ["ignores gh issue list", "gh issue list", {}, "none"],
+    ["ignores gh issue view", "gh issue view 12", {}, "none"],
+  ] as const)("%s", (_name, command, extra, expected) => {
+    const result = run({ ...bash(command), ...extra });
+    expect(result.code).toBe(0);
+    if (expected === "none") {
+      expect(result.stdout.trim()).toBe("");
+    } else {
+      const verdict = verdictOf(result);
+      expect(verdict.decision).toBe("ask");
+      if (command.includes("/comments")) expect(verdict.reason).toContain("comment/review");
+      else expect(verdict.reason).toContain("GitHub issue");
+    }
+  });
+
+  // Covers: R43
+  it("shows --body-file content for gh issue create", () => {
+    const file = writeBody("issue draft preview");
+    const verdict = verdictOf(run(bash(`gh issue create --title x --body-file ${file}`)));
+    expect(verdict.decision).toBe("ask");
+    expect(verdict.reason).toContain("issue draft preview");
+    expect(verdict.reason).toContain(file);
+  });
+
+  // Covers: R43
+  it("denies on gh issue create under .codex/hooks", () => {
+    const codexPath = writeHook(
+      mkdtempSync(join(tmpdir(), "navori-cdc-issue-codex-")),
+      ".codex/hooks/comment-draft-confirm.sh",
+    );
+    expect(verdictOf(runHookAt(codexPath, "bash", bash(issue))).decision).toBe("deny");
+  });
+});
+
 describe.runIf(runsBash && hasJq)("comment-draft-confirm.sh — R11 (forma del cuerpo)", () => {
   // Covers: R11
   it("cuerpo en línea con `;`, `|` y saltos de línea — la razón no lo re-muestra", () => {

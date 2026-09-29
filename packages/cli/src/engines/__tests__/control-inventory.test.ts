@@ -61,7 +61,7 @@ function fullFlagsConfig(engineId: EngineId): NavoriConfig {
     engines: [engineId],
     preset: "custom",
     branchBase: "main",
-    harness: { planTiers: true, scribeOwnsMarkdown: true },
+    harness: { planTiers: true, masterPlan: true, scribeOwnsMarkdown: true },
     project: { localSkills: [LOCAL_SKILL_ID] },
   });
 }
@@ -180,6 +180,10 @@ function assertControlMatchesRender(cwd: string, engineId: EngineId, controlId: 
           claudeHookRegistered(settings, evidence.event, evidence.matcher, evidence.script),
           `${label}: declared with hook evidence (${evidence.script}), not found registered in settings.json`,
         ).toBe(true);
+        expect(
+          existsSync(join(cwd, `.claude/hooks/${evidence.script}`)),
+          `${label}: registered hook ${evidence.script} has no rendered executable`,
+        ).toBe(true);
       }
     } else if (declaration.state === "unsupported") {
       for (const script of definition.hookScripts) {
@@ -279,6 +283,43 @@ describe("control inventory vs. the actual render (spec 0033 D5)", () => {
     const settings = readClaudeSettings(cwd);
     expect(claudeAnyHookNames(settings, "plan-gate.sh")).toBe(false);
     expect(claudeAnyHookNames(settings, "implementer-no-markdown.sh")).toBe(false);
+    for (const script of ["master-plan-context.sh", "master-accept-confirm.sh"]) {
+      expect(existsSync(join(cwd, `.claude/hooks/${script}`))).toBe(true);
+      expect(claudeAnyHookNames(settings, script)).toBe(false);
+    }
+  });
+
+  it("codex: does not render Claude-only master-plan hooks", () => {
+    const cwd = freshDir("codex-master-plan");
+    renderCodexEngine(cwd, fullFlagsConfig("codex"));
+    expect(existsSync(join(cwd, ".codex/hooks/master-plan-context.sh"))).toBe(false);
+    expect(existsSync(join(cwd, ".codex/hooks/master-accept-confirm.sh"))).toBe(false);
+  });
+
+  // Covers: R13, R14, R21
+  it("qualifies the plan gate by engine without promoting Codex's advisory control", () => {
+    const claudeDir = freshDir("claude-plan-claim");
+    const codexDir = freshDir("codex-plan-claim");
+    renderClaudeEngine(claudeDir, fullFlagsConfig("claude"));
+    renderCodexEngine(codexDir, fullFlagsConfig("codex"));
+
+    const claudePlan = readFileSync(
+      join(claudeDir, ".claude/context/05-planificacion.md"),
+      "utf-8",
+    );
+    const codexPlan = readFileSync(join(codexDir, "AGENTS.md"), "utf-8");
+    const claudeSettings = readClaudeSettings(claudeDir);
+    const codexConfig = readFileSync(join(codexDir, ".codex/config.toml"), "utf-8");
+
+    expect(claudePlan).toMatch(/Claude Code[^\n]*plan-gate[^\n]*hook/i);
+    expect(claudePlan).not.toContain("A hook denies dispatching");
+    expect(claudeHookRegistered(claudeSettings, "PreToolUse", "Agent", "plan-gate.sh")).toBe(true);
+
+    expect(codexPlan).toMatch(/Codex[^\n]*plan-gate[^\n]*advisory/i);
+    expect(codexPlan).not.toContain("A hook denies dispatching");
+    expect(codexConfig).not.toContain("plan-gate.sh");
+    expect(ENGINE_CAPABILITIES.codex.controls["plan-gate"].state).toBe("advisory");
+    expect(ENGINE_CAPABILITIES.claude.controls["plan-gate"].state).toBe("enforced");
   });
 
   // Covers: R13, R14, R21

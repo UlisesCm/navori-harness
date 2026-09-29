@@ -24,6 +24,7 @@ import { auditCommand } from "./commands/audit.ts";
 import { receiptCommand } from "./commands/receipt.ts";
 import { planCommand } from "./commands/plan.ts";
 import { handoffCommand } from "./commands/handoff.ts";
+import { masterCommand } from "./commands/master.ts";
 import { readCliVersion } from "./lib/render/bundled-assets.ts";
 
 const main = defineCommand({
@@ -58,6 +59,7 @@ const main = defineCommand({
     receipt: receiptCommand,
     plan: planCommand,
     handoff: handoffCommand,
+    master: masterCommand,
   },
 });
 

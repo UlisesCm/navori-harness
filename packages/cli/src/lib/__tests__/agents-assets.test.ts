@@ -339,22 +339,23 @@ describe("core agent assets — scout and auditor forbid universal negatives (#9
  * frontmatter names). Spec 0032 R26/R28 (#1011) raised the ceiling from 400
  * to 660: the architect's method (decision drivers, three-rung exploration,
  * durable-knowledge destination) and the level-3 `design.md` output both now
- * live in this one asset, the single approved exception to "no raised caps".
+ * live in this one asset. Spec 0034 T15 (R14/R23/R24/R25) raises that ceiling
+ * to 700 so the same contract can cover master-plan artifacts and sources.
  */
-// Covers: R47, R48, R51
-describe("architect never issues a verdict nor decomposes and stays under 660 words (spec 0026 T19, spec 0032 R26/R28)", () => {
+// Covers: R14, R23, R24, R25, R47, R48, R51
+describe("architect never issues a verdict nor decomposes and stays under 700 words (spec 0026 T19, spec 0032 R26/R28, spec 0034 T15)", () => {
   const raw = readAgent("architect");
   const parsed = parseAsset(raw);
   const idx = parsed.body.indexOf(SENTINEL);
   const managed = parsed.body.slice(0, idx);
 
-  it("declares a maxWords ceiling of 660", () => {
-    expect(parsed.frontmatter.maxWords).toBe("660");
+  it("declares a maxWords ceiling of 700", () => {
+    expect(parsed.frontmatter.maxWords).toBe("700");
   });
 
-  it("stays at or under 660 words in its managed body", () => {
+  it("stays at or under 700 words in its managed body", () => {
     const words = managed.trim().split(/\s+/).filter(Boolean).length;
-    expect(words).toBeLessThanOrEqual(660);
+    expect(words).toBeLessThanOrEqual(700);
   });
 
   it("never issues a verdict", () => {
@@ -377,5 +378,23 @@ describe("architect never issues a verdict nor decomposes and stays under 660 wo
 
   it("its description says what to build and why", () => {
     expect(parsed.frontmatter.description).toMatch(/what to build and why/i);
+  });
+
+  it("uses web sources for expiring facts and writes master-plan artifacts", () => {
+    const tools = (parsed.frontmatter.tools ?? "").split(",").map((tool) => tool.trim());
+    expect(tools).toContain("WebFetch");
+    expect(tools).toContain("WebSearch");
+    expect(managed).toContain("[SIN VERIFICAR]");
+    expect(managed).toContain("<etapa>/plans/plan<n>.md");
+    expect(managed).toMatch(/documentaci[oó]n oficial/i);
+    expect(managed).toMatch(/fecha de consulta/i);
+  });
+});
+
+// Covers: R14
+describe("scout master-plan map contract (spec 0034 T15)", () => {
+  it("writes the named master-plan codebase map", () => {
+    const body = readAgent("scout");
+    expect(body).toContain("context/CODEBASE.md");
   });
 });

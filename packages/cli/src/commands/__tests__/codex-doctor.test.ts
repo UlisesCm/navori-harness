@@ -346,10 +346,33 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
     assert.isDefined(codex);
     expect(claude.agents).toContain("orchestrator");
     expect(codex.agents).not.toContain("orchestrator");
-    // Same skills + hooks set for both (parity).
+    // Skills remain shared; the two master-plan hook assets are Claude-only.
     expect(codex.skills).toEqual(claude.skills);
-    expect(codex.hooks).toEqual(claude.hooks);
+    expect(claude.hooks.filter((hook) => !hook.startsWith("master-"))).toEqual(codex.hooks);
+    expect(claude.hooks).toContain("master-plan-context");
+    expect(claude.hooks).toContain("master-accept-confirm");
+    expect(codex.hooks).not.toContain("master-plan-context");
+    expect(codex.hooks).not.toContain("master-accept-confirm");
     expect(claude.hooks).toContain("guard-destructive");
+  });
+
+  it("reports dormant Claude hooks with masterPlan off and the same assets with it on", () => {
+    const cwd = tempRepo();
+    for (const masterPlan of [false, true]) {
+      const { claude, codex } = buildEngineInventory(
+        NavoriConfigSchema.parse({
+          ...config({ engines: ["claude", "codex"] }),
+          harness: { masterPlan },
+        }),
+        cwd,
+      );
+      assert.isDefined(claude);
+      assert.isDefined(codex);
+      expect(claude.hooks).toContain("master-plan-context");
+      expect(claude.hooks).toContain("master-accept-confirm");
+      expect(codex.hooks).not.toContain("master-plan-context");
+      expect(codex.hooks).not.toContain("master-accept-confirm");
+    }
   });
 
   it("omits prose engines", () => {

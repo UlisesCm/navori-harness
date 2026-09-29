@@ -177,9 +177,12 @@ const ORCHESTRATOR_CONTEXT_DIR = ".claude/context";
  * `orquestacion`'s `10`, and none of the other three files' names change.
  * Ids missing from this map sort last at 90: a new audience block must claim
  * its slot here deliberately.
+ * SessionStart's delivery budget is already exhausted: keep new always-on
+ * context minimal and position it explicitly before lower-priority blocks.
  */
 const ORCHESTRATOR_CONTEXT_ORDER: Readonly<Record<string, number>> = {
   planificacion: 5,
+  "plan-maestro": 7,
   orquestacion: 10,
   "agentes-disponibles": 20,
   "arranque-sesion": 30,
@@ -232,7 +235,7 @@ function buildSkillsIndexBody(
 ): string | null {
   // #908: no trigger — the host's native skill listing already tells the
   // model when to use each one (see buildSkillRows' docblock).
-  const rows = buildSkillRows(config, repoRoot, coreAssets, localSkills, cwd, false);
+  const rows = buildSkillRows(config, repoRoot, coreAssets, localSkills, cwd, false, true);
   if (rows.length === 0) return null;
   const t = tc(lang).blocks.skillsIndex;
   // The project-local note only makes sense when the repo actually declares
@@ -840,6 +843,8 @@ export function renderClaudeEngine(
   const preset = loadActivePreset(config, repoRoot, warnings);
   const fullHarnessPlan = resolveHarnessPlan(config, coreAssets, preset, {
     includeOrchestrator: true,
+    includeClaudeOnlySkills: true,
+    includeClaudeOnlyHooks: true,
   });
   // Under `minimal` only skills survive: they DO load in a workspace (lazily,
   // the first time Claude reads a file in that subdirectory), which is exactly

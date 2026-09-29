@@ -834,6 +834,12 @@ interface DoctorCmdStrings {
   gateMissingBinaryRow: (binary: string) => string;
   gateMissingScriptRow: (script: string) => string;
   gateMissingDepsRow: (dir: string) => string;
+  masterPlan: (n: number, lines: string) => string;
+  masterPlanInvalidIndexRow: (detail: string) => string;
+  masterPlanMissingRawGitignoreActiveRow: string;
+  masterPlanMissingRawGitignoreClosedRow: (path: string) => string;
+  masterPlanFlagEnabledWithoutActiveRow: string;
+  masterPlanFlagDisabledWithActiveRow: string;
   /** #369 — an installed skill whose user-section is still the template. */
   emptyUserSections: (n: number, lines: string) => string;
   emptyUserSectionRow: (path: string) => string;
@@ -2050,6 +2056,17 @@ const CMD_ES: CmdStrings = {
       `— el script '${script}' no existe en el package.json de ese directorio`,
     gateMissingDepsRow: (dir) =>
       `— sin node_modules en '${dir}'; instala dependencias antes de apoyarte en el gate`,
+    masterPlan: (n, lines) =>
+      `Plan maestro inconsistente (${n}) — corrige el estado antes de continuar:\n${lines}`,
+    masterPlanInvalidIndexRow: (detail) => `— index.json inválido: ${detail}`,
+    masterPlanMissingRawGitignoreActiveRow:
+      "— falta el aislamiento de raw/; corre 'navori master init' para recrearlo",
+    masterPlanMissingRawGitignoreClosedRow: (path) =>
+      `— la etapa está cerrada y es de solo lectura; corre 'git checkout -- ${path}' para restaurarlo`,
+    masterPlanFlagEnabledWithoutActiveRow:
+      "— bandera encendida sin etapa activa; corre 'navori master close' para completar el cierre",
+    masterPlanFlagDisabledWithActiveRow:
+      "— etapa activa con bandera apagada; corre 'navori master init' para completar la apertura",
     emptyUserSections: (n, lines) =>
       `Skills instaladas con su user-section sin llenar (${n}) — cuestan una lectura ` +
       `y solo cubren la capa universal; lo específico de tu stack va en esa sección:\n${lines}`,
@@ -3387,6 +3404,17 @@ const CMD_EN: CmdStrings = {
       `— script '${script}' is not in that directory's package.json`,
     gateMissingDepsRow: (dir) =>
       `— no node_modules in '${dir}'; install dependencies before relying on the gate`,
+    masterPlan: (n, lines) =>
+      `Master plan inconsistent (${n}) — repair its state before continuing:\n${lines}`,
+    masterPlanInvalidIndexRow: (detail) => `— invalid index.json: ${detail}`,
+    masterPlanMissingRawGitignoreActiveRow:
+      "— raw/ isolation is missing; run 'navori master init' to recreate it",
+    masterPlanMissingRawGitignoreClosedRow: (path) =>
+      `— the stage is closed and read-only; run 'git checkout -- ${path}' to restore it`,
+    masterPlanFlagEnabledWithoutActiveRow:
+      "— flag enabled with no active stage; run 'navori master close' to finish closing",
+    masterPlanFlagDisabledWithActiveRow:
+      "— active stage with flag disabled; run 'navori master init' to finish opening",
     emptyUserSections: (n, lines) =>
       `Installed skills with an unfilled user-section (${n}) — they cost a read and ` +
       `only cover the universal layer; your stack's rules belong in that section:\n${lines}`,

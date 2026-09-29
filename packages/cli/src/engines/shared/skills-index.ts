@@ -5,6 +5,7 @@ import { loadPreset } from "../../lib/config/presets.ts";
 import { librarySkillById } from "../../lib/assets/library-skills.ts";
 import { readSkillTrigger, resolveLocalSkillPath } from "../../lib/assets/skill-meta.ts";
 import { CORE_SKILLS, WORKFLOW_SKILLS, extraConditionMet } from "./harness-assets.ts";
+import { CLAUDE_ONLY_WORKFLOW_SKILLS } from "./roster.ts";
 
 /**
  * Build the `- <id> — <tag> · <trigger>` rows for the "Available skills" index,
@@ -12,7 +13,7 @@ import { CORE_SKILLS, WORKFLOW_SKILLS, extraConditionMet } from "./harness-asset
  * drifted — the prose one skipped ALL conditional preset skills and never
  * listed project-local ones). One source of the row set now:
  *
- *   - core + workflow skills (always),
+ *   - core + supported workflow skills (Claude-only ids require opt-in),
  *   - preset skills whose `condition` is met against the config
  *     (`extraConditionMet` — deterministic from config, so the prose engines can
  *     include them too, not just Claude),
@@ -64,6 +65,8 @@ export function buildSkillRows(
   /** Emit the `· <trigger>` suffix for managed rows. `false` only for the
    * `claude` engine — see the docblock above for why. */
   includeTrigger: boolean = true,
+  /** Only the Claude adapter renders these skills; prose adapters omit their rows. */
+  includeClaudeOnlySkills: boolean = false,
 ): string[] {
   const rows: string[] = [];
   const listed = new Set<string>();
@@ -77,6 +80,7 @@ export function buildSkillRows(
     listed.add(id);
   }
   for (const id of WORKFLOW_SKILLS) {
+    if (!includeClaudeOnlySkills && CLAUDE_ONLY_WORKFLOW_SKILLS.has(id)) continue;
     rows.push(row(id, "navori (workflow)", join(coreAssets, `skills/${id}.md`)));
     listed.add(id);
   }
