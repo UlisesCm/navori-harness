@@ -1,10 +1,9 @@
-# Current — Spec 0037 partial close
+# Current — idle
 
-- Branch `docs/spec-0037-paridad-operativa-cli`: 13 commits locales sobre `origin/main`; T1–T6,
-  T8 y T12–T14 completos (10/19). Review combinado T6/T12 APPROVED y gate completo verde.
-- PR parcial #1089 a `main` abierto con el avance aprobado; la CI falló en `check:links` por rutas a
-  handoffs/receipts ignorados. Siguiente paso: corregir esas rutas, rerun de CI y monitorear checks.
-- Después, continuar con T7; T9 requiere nueva evidencia diagnóstica/live aprobada, T10/T11 dependen
-  de hechos verificables de T9, y T15/T16 requieren autorización separada de campaña.
-- T9/L03 sigue inconcluso y L04 no se ejecutó; no afirmar paridad de perfiles, filtros MCP ni
-  callbacks de hooks. El PR abierto no cambia ese resultado.
+- Sin trabajo en curso. El PR #1110 (#1093, lib-skills de Python) queda abierto con CI verde,
+  pendiente de merge.
+- Siguiente paso propuesto: release 0.11.0 (#1100). Requiere la entrada 0.11 en
+  `apps/website/src/content/releases.ts` antes del bump (paso 1 de `README.md` § Releases); el test
+  `landing-inventory.test.ts` falla si el minor actual del CLI no tiene entrada.
+- Mientras no salga 0.11.0, el `navori` global (0.10.1) hace que `plan-gate.sh` busque el workplan
+  en `.claude/progress/`: copiarlo ahí (y al worktree en uso) antes de despachar un implementer.

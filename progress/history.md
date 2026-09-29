@@ -2284,3 +2284,45 @@ El usuario pidió guardar el avance y cerrar la sesión pronto. PR parcial #1089
 - `specs/0037-paridad-operativa-cli/tasks.md` — tablero 10/19 con evidencia de T6/T12.
 - `specs/0037-paridad-operativa-cli/README.md` — estado y límites de la entrega parcial.
 - `progress/current.md` — checkpoint para la siguiente sesión.
+
+## 2026-09-29 17:26 Claude — Lote de issues: gate de pre-commit, lib-skills y sección de versiones
+
+## Goal
+Sincronizar con `main` y resolver los issues abiertos del repo.
+
+## Instructions
+El usuario pidió avanzar issue por issue y, al final, no abrir trabajo nuevo y guardar. Cada ticket
+pasó por implementer → reviewer → publisher en su propio worktree; PRs a `main`.
+
+## Discoveries
+- `plan-gate.sh` usa el `navori` global (0.10.1), que busca el workplan en `.claude/progress/`; el
+  fix (#1074) está en `main` sin publicar. Workaround: copiar el workplan a esa ruta.
+- Una lib-skill nueva exige ≤500 palabras (`skill-caps.test.ts`) y subir
+  `features.librarySkills` (`packages/cli/package.json`) e `INVENTORY.skills`
+  (`apps/website/src/consts.ts`).
+- `render`/`sync` no re-detectan librerías; por eso los presets declaran ahora las lib-skills que
+  implican (`libraries`), para no retirar un archivo al mover una skill de preset a lib-skill.
+- `gh pr create` sin `--head` toma la rama del cwd: #1108 se abrió desde una rama ya mergeada y se
+  cerró; el PR correcto fue #1109.
+- La verificación móvil con `playwright-cli --device` reporta un viewport de 462px; hay que usar
+  `resize 375 812`. Dos implementers en paralelo corrieron `pkill -f vitest`; los encargos ahora lo
+  prohíben.
+
+## Accomplished
+- #1095 → PR #1101 (mergeado): los gates de pre-commit no corren el del repo ancla en commits a
+  otro repositorio; los heredocs con `cat` no cuentan como trigger.
+- #1092 → PR #1105 (mergeado): lib-skill `amqplib`.
+- #1094 → PR #1107 (mergeado): `mantine-ui-patterns` pasa a lib-skill con el mismo id; campo
+  `libraries` en presets.
+- #1102 → PR #1109 (mergeado): sección de versiones del landing, más la coma de los títulos, el
+  header en móvil y `.playwright-cli/` en `.gitignore`.
+- #1093 → PR #1110 (abierto, CI verde): lib-skills `fastapi` y `pytest`; la detección de Python lee
+  dependencias de desarrollo.
+- Issues nuevos: #1097, #1098, #1099, #1100, #1102, #1103, #1104, #1106. Descripción, homepage y
+  topics del repo en GitHub.
+
+## Next Steps
+- Mergear #1110 y preparar el release 0.11.0 (#1100).
+
+## Gate
+- Cada PR pasó `bun check` en su review y `quality` en CI; #1110 verde en `8674b540`.
