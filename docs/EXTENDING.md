@@ -99,6 +99,8 @@ hizo el trabajo difícil. Añadir un *"Usar cuando…"* la pone a funcionar.
 el id de uno oficial gana: es la vía limpia para adaptar un preset incluido a como trabaja tu
 equipo, sin tocar el paquete.
 
+El JSON del preset puede declarar `libraries: [<id de lib-skill>]`: las lib-skills que siempre implica, unidas con `project.libraries` al renderizar. Los ids que el registro del CLI no conoce se descartan con una advertencia, y el `id` del manifest debe coincidir con el nombre del archivo o el preset no carga.
+
 Es el escalón indicado cuando el conocimiento es del **stack** y lo vas a querer igual en el
 siguiente repo que lo use. Escríbelo una vez, cóbralo en todos.
 
