@@ -1,6 +1,6 @@
 # Paridad operativa Claude / Codex CLI — Tasks
 
-**Estado:** T1–T10, T12–T14 completos; 13 de 19 tareas completas y 6 pendientes; T11 sigue.
+**Estado:** T1–T14 completos; 14 de 19 tareas completas y 5 pendientes (T15–T19).
 T9 entrega un registro de viabilidad con casos bloqueados visibles ([registro](live-t9.md)); T10
 cierra como limitación documentada. No es un pass global. Las autorizaciones puntuales para estas tareas no cubren otras tareas, campañas
 live/pagadas, instalaciones, cambios de trust ni publicación.
@@ -120,7 +120,7 @@ live/pagadas, instalaciones, cambios de trust ni publicación.
   · pruebas: **V08–V11, L03, L04**; esperado filtros: cero ampliaciones respecto a restricción
   heredada. Entregar registro de viabilidad por ruta/versión, no configuración global cambiada.
   · depende de: T1; precondición de T10/T11 donde requieren hechos del host.
-  · estado live: evidencia revisada pendiente de reviewer. La corrida 2 observó L03 (roles 7/7 por
+  · estado live: evidencia revisada: reviewer fresco **APPROVED** (docs commit `795264fe`). La corrida 2 observó L03 (roles 7/7 por
   metadata, cero ampliaciones frente al padre en capa de sesión) y L04 (cuatro eventos por separado);
   capa proyecto bloqueada, capa usuario no ejecutada, sin pass de esas capas. Incidente de trust
   registrado en [live-t9.md](live-t9.md).
@@ -140,13 +140,18 @@ live/pagadas, instalaciones, cambios de trust ni publicación.
   R11 permanece brecha visible, no cumplida.
   · depende de: T9.
 
-- [ ] **T11** (R8, R9, R10) — Ajustar normalizador/matchers únicamente con eventos realmente
+- [x] **T11** (R8, R9, R10) — Ajustar normalizador/matchers únicamente con eventos realmente
   observados por T9. Mantener nombre crudo/evento/rol desconocido y documentar ruta soportada de
   dispatch o fallback genérico explícito, sin atribuirle grants/modelos/guards del perfil.
   Markdown-ownership no se certifica con hijo default; desconocido nunca se convierte en implementer.
   · pruebas: **V08–V10**, `codex-hook-payloads.test.ts`/`control-inventory.test.ts` — fixtures
   redactados por evento y negativos de rol; correlación con L03/L04.
   · depende de: T9; si un evento no se observa, omitir adaptación y dejar limitación visible.
+  · estado: evidencia revisada: commit `ad285f77`; reviewer fresco **APPROVED** con gate completo
+  verde (test:coverage: 316 archivos, 5,794 pruebas). Opción A: fixtures redactados de payloads
+  Codex 0.158.0 observados en T9 corrida 2 (hooks stub) y negativos de rol; normalizador, matchers y
+  trust sin cambios. El alias `collaborationspawn_agent` en routing-watch queda como limitación
+  visible e insumo de T17; plan-gate sigue advisory. Ver [evidence.md](evidence.md).
 
 ## Lote F — Modelos, herramientas y skills verificables
 

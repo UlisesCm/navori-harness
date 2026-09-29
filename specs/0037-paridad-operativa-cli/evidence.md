@@ -181,3 +181,19 @@ El bloque `mcp_servers` de un rol Codex 0.158.0 se ignora (no estrecha, no ampl�
 servidores) y uno parcial descarta el rol completo. No hay representación segura de restricción MCP
 por perfil, por lo que no se habilita traducción. **R11 queda como brecha visible, no cumplida**; solo
 se observó la herencia del filtro del padre. No se implementó código ni V18/V20 nuevos en esta tarea.
+
+
+## T11 — Fixtures de payloads observados y negativos de rol (R8–R10)
+
+Commit `ad285f77`, reviewer fresco APPROVED. Opción A elegida por el usuario: solo pruebas.
+
+- **Cubre:** fixtures redactados de payloads Codex 0.158.0 observados en T9 corrida 2 (hooks stub)
+  y negativos de rol (hijo default y rol desconocido no se convierten en implementer). Normalizador,
+  matchers y trust sin cambios.
+- **Omitido por falta de evidencia:** campos de Post `collaborationspawn_agent`, forma de
+  `collaborationwait_agent` más allá de `tool_name`, y nombre de la clave del call-id.
+- **Opciones rechazadas:** B/B' (tocar normalizador/matchers) por churn de trust, que pasaría a
+  `Modified`, y porque no hay consumidor alcanzable que use `nv_subagent_type` como alcance.
+- **Limitación visible:** alias `collaborationspawn_agent` en routing-watch; plan-gate sigue advisory.
+- **Deuda para T17:** `engine-capabilities.ts` ~411-415, razón "no typed agent role", no distingue
+  spawn default de explícito.
