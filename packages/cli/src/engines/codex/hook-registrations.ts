@@ -104,10 +104,12 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
   {
     script: "plan-gate",
     unsupported:
-      "Codex 0.158.0 sends delegation through PreToolUse as collaborationspawn_agent, " +
-      "but its tool_input exposes message/task_name without a typed agent role or a " +
-      "verifiably readable workplan opening. A blanket deny prevented child creation, " +
-      "but cannot selectively enforce the implementer plan-gate precondition.",
+      "Codex 0.158.0 sends delegation through PreToolUse as collaborationspawn_agent. " +
+      "A default spawn (message/task_name only) has no typed agent role; an explicit " +
+      "agent_type spawn exposes the typed role in Pre (observed in T9 corrida 2), " +
+      "recorded only as a reopening input for L06/T17. The workplan opening is still not " +
+      "verifiably readable and a blanket deny prevented child creation, so this hook " +
+      "stays advisory with no registration.",
   },
   {
     script: "implementer-no-markdown",
