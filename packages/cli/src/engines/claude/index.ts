@@ -22,7 +22,12 @@ import {
   conditionOrchestration,
   type UpdateAvailable,
 } from "../../lib/render/render-plan.ts";
-import { loadPreset, PresetError } from "../../lib/config/presets.ts";
+import {
+  droppedLibrariesWarnings,
+  isPresetLoaded,
+  loadPreset,
+  PresetError,
+} from "../../lib/config/presets.ts";
 import {
   LIBRARY_SKILLS,
   REMOVED_LIB_SKILLS,
@@ -1171,9 +1176,18 @@ export function renderClaudeEngine(
   // binary — it stays in config.libraries) is never deleted; and basename == the
   // managed id by construction, so the marker check is exact. REMOVED ids aren't
   // in this registry — §8.6 owns those.
-  const selectedLibs = new Set(config.project?.libraries ?? []);
+  //
+  // Preset-implied libraries (#1094): render never re-detects, so a stale
+  // `project.libraries` must not retire a skill the preset still ships. Any id
+  // in THIS render's plan is kept (same precedent as §8.8), and retirement is
+  // frozen while the declared preset failed to load — its implied ids are then
+  // unknown, and Codex prunes under the same `isPresetLoaded` gate.
+  const selectedLibs = new Set([
+    ...(config.project?.libraries ?? []),
+    ...harnessPlan.skills.map((s) => s.id),
+  ]);
   const localSkillIds = new Set(config.project?.localSkills ?? []);
-  for (const { id } of LIBRARY_SKILLS) {
+  for (const { id } of isPresetLoaded(config, preset) ? LIBRARY_SKILLS : []) {
     if (selectedLibs.has(id)) continue; // currently selected — keep
     if (localSkillIds.has(id)) continue; // user reclaimed the id as a local skill — keep
     // Sweep both shapes: the legacy FLAT `<id>.md` and the current DIRECTORY
@@ -1463,6 +1477,7 @@ function loadActivePreset(
         `Workspace will render with the core baseline only.`,
     );
   }
+  warnings.push(...droppedLibrariesWarnings(loaded));
   return loaded;
 }
 

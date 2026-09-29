@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,8 +8,13 @@ import {
   presetExists,
   PresetError,
   PresetDefinitionSchema,
+  droppedLibrariesWarnings,
+  effectiveLibraries,
+  isPresetLoaded,
 } from "../presets.ts";
+import type { NavoriConfig } from "../schema.ts";
 import * as bundled from "../../render/bundled-assets.ts";
+import { getCoreRoot } from "../../render/bundled-assets.ts";
 
 let fakeCoreRoot: string;
 let repoRoot: string;
@@ -149,5 +154,73 @@ describe("presetExists — bundled only (drives the detector's gap)", () => {
 
   it("'custom' always counts as existing", () => {
     expect(presetExists("custom")).toBe(true);
+  });
+});
+
+describe("preset `libraries` (#1094)", () => {
+  // Covers: A4
+  it("defaults to [] and keeps known ids", () => {
+    writeBundled("plain", { id: "plain", displayName: "Plain" });
+    expect(loadPreset("plain", repoRoot)!.def.libraries).toEqual([]);
+    writeBundled("lib", {
+      id: "lib",
+      displayName: "Lib",
+      libraries: ["mantine-ui-patterns"],
+    });
+    const p = loadPreset("lib", repoRoot)!;
+    expect(p.def.libraries).toEqual(["mantine-ui-patterns"]);
+    expect(p.droppedLibraries).toEqual([]);
+  });
+
+  // Covers: A4 — lenient parse: unknown ids are dropped and reported, not fatal.
+  it("drops unknown ids and reports them", () => {
+    writeLocal("lenient", {
+      id: "lenient",
+      displayName: "Lenient",
+      libraries: ["mantine-ui-patterns", "nope"],
+    });
+    const p = loadPreset("lenient", repoRoot)!;
+    expect(p.def.libraries).toEqual(["mantine-ui-patterns"]);
+    expect(p.droppedLibraries).toEqual(["nope"]);
+    expect(droppedLibrariesWarnings(p)[0]).toContain("'nope'");
+  });
+
+  // Covers: A4 — C1: a manifest whose id differs from the requested one is loud.
+  it("throws PresetError when def.id differs from the requested id", () => {
+    writeLocal("wanted", { id: "other", displayName: "Other" });
+    expect(() => loadPreset("wanted", repoRoot)).toThrow(PresetError);
+  });
+
+  // Covers: A4 — every bundled preset's libraries exist in the registry.
+  it("every core preset declares only registered libraries", () => {
+    vi.restoreAllMocks();
+    const dir = join(getCoreRoot(), "core-assets/presets");
+    for (const f of readdirSync(dir).filter((n) => n.endsWith(".json"))) {
+      const p = loadPreset(f.replace(/\.json$/, ""), repoRoot)!;
+      expect(p.droppedLibraries, f).toEqual([]);
+    }
+  });
+
+  // Covers: A4
+  it("effectiveLibraries unions detected + preset ids; isPresetLoaded gates", () => {
+    const cfg = (o: Record<string, unknown>) => o as unknown as NavoriConfig;
+    writeBundled("lib", {
+      id: "lib",
+      displayName: "Lib",
+      libraries: ["mantine-ui-patterns", "zod-validation"],
+    });
+    const p = loadPreset("lib", repoRoot)!;
+    expect(
+      effectiveLibraries(
+        cfg({ preset: "lib", project: { libraries: ["zod-validation", "vitest"] } }),
+        p,
+      ),
+    ).toEqual(["zod-validation", "vitest", "mantine-ui-patterns"]);
+    expect(effectiveLibraries(cfg({ project: { libraries: ["vitest"] } }), null)).toEqual([
+      "vitest",
+    ]);
+    expect(isPresetLoaded(cfg({ preset: "lib" }), p)).toBe(true);
+    expect(isPresetLoaded(cfg({ preset: "lib" }), null)).toBe(false);
+    expect(isPresetLoaded(cfg({ preset: "custom" }), null)).toBe(true);
   });
 });

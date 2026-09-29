@@ -96,6 +96,7 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
     label: "TanStack Query",
   },
   { id: "react-hook-form", deps: ["react-hook-form"], label: "React Hook Form" },
+  { id: "mantine-ui-patterns", deps: ["@mantine/core"], label: "Mantine UI" },
   {
     id: "mantine-form",
     deps: ["@mantine/form", "mantine-form-zod-resolver"],

@@ -9,7 +9,12 @@ import {
   type LoadedPlugin,
 } from "../../lib/config/plugins.ts";
 import { unknownLibraries } from "../../lib/assets/library-skills.ts";
-import { loadPreset, PresetError } from "../../lib/config/presets.ts";
+import {
+  droppedLibrariesWarnings,
+  isPresetLoaded,
+  loadPreset,
+  PresetError,
+} from "../../lib/config/presets.ts";
 import { tc, resolveLang } from "../../lib/i18n.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
 import { interpolate } from "../../lib/render/interpolate.ts";
@@ -119,8 +124,7 @@ export function renderCodexEngine(
   // `navori codex trust` instead of the deprecated `/hooks` flow.
 
   const preset = loadActivePreset(config, repoRoot, warnings);
-  const presetLoadedSafely =
-    !config.preset || config.preset === "custom" || config.preset === preset?.def.id;
+  const presetLoadedSafely = isPresetLoaded(config, preset);
 
   // Subpath from the repo root to this render's cwd ("" at the root, e.g.
   // "apps/backend" in a workspace), normalized to POSIX for the bash hook command
@@ -724,6 +728,7 @@ function loadActivePreset(
     const preset = loadPreset(config.preset, repoRoot);
     if (!preset)
       warnings.push(tc(resolveLang(config.language)).engine.presetNotFoundCodex(config.preset));
+    warnings.push(...droppedLibrariesWarnings(preset));
     return preset;
   } catch (error) {
     if (error instanceof PresetError) {

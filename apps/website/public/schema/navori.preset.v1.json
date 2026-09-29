@@ -156,6 +156,14 @@
         "type": "string",
         "minLength": 1
       }
+    },
+    "libraries": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     }
   },
   "required": [
@@ -163,7 +171,8 @@
     "displayName",
     "extends",
     "extras",
-    "invariants"
+    "invariants",
+    "libraries"
   ],
   "additionalProperties": false
 }
