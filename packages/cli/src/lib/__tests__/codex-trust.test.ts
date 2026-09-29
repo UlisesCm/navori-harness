@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -11,9 +11,11 @@ import {
   type CodexTrustState,
 } from "../codex/trust.ts";
 import {
+  codexHookCommand,
   resolveCodexHooks,
   type ResolvedCodexHook,
 } from "../../engines/codex/hook-registrations.ts";
+import { loadEnabledPlugins } from "../config/plugins.ts";
 import { NavoriConfigSchema, type NavoriConfig } from "../config/schema.ts";
 
 function config(overrides: Partial<NavoriConfig> = {}): NavoriConfig {
@@ -132,6 +134,80 @@ describe("readCodexTrustState — classifies Trusted, Modified and Untrusted", (
     );
     expect(state.projectTrusted).toBe(false);
     expect(state.hooks[0]?.status).toBe("Untrusted");
+  });
+});
+
+describe("Codex plugin trust transitions (spec 0037 T7)", () => {
+  // Covers: R20
+  it("distinguishes added, removed and replaced hooks without deleting stale positional rows", () => {
+    const root = "/tmp/navori-plugin-trust";
+    const configPath = `${root}/.codex/config.toml`;
+    const withPlugins = (jscpd: boolean, semgrep: boolean): ResolvedCodexHook[] => {
+      const cfg = config({
+        plugins: { jscpd: { enabled: jscpd }, semgrep: { enabled: semgrep } },
+      });
+      return resolveCodexHooks(cfg, loadEnabledPlugins(cfg.plugins).loaded);
+    };
+    const baseline = withPlugins(true, false);
+    const baselineState = readCodexTrustState(root, configPath, baseline, {
+      codexHomeConfigPath: writeTempHome(""),
+    });
+    const approvedPlugin = baselineState.hooks.find((entry) => entry.script === "check-jscpd.sh");
+    expect(approvedPlugin).toBeDefined();
+    const homeText = [
+      `[projects."${root}"]`,
+      'trust_level = "trusted"',
+      "",
+      `[hooks.state."${approvedPlugin!.key}"]`,
+      `trusted_hash = "${approvedPlugin!.expectedHash}"`,
+      "",
+    ].join("\n");
+    const homePath = writeTempHome(homeText);
+    const read = (hooks: ResolvedCodexHook[]) =>
+      readCodexTrustState(root, configPath, hooks, { codexHomeConfigPath: homePath });
+
+    expect(read(baseline).hooks.find((entry) => entry.script === "check-jscpd.sh")?.status).toBe(
+      "Trusted",
+    );
+    const added = read(withPlugins(true, true));
+    expect(added.hooks.find((entry) => entry.script === "check-semgrep.sh")?.status).toBe(
+      "Untrusted",
+    );
+    const removed = read(withPlugins(false, false));
+    expect(removed.hooks.some((entry) => entry.key === approvedPlugin!.key)).toBe(false);
+    // The home row still exists; render/inspection cannot infer ownership of a positional row.
+    expect(readFileSync(homePath, "utf-8")).toBe(homeText);
+    const replaced = read(withPlugins(false, true)).hooks.find(
+      (entry) => entry.script === "check-semgrep.sh",
+    );
+    expect(replaced?.key).toBe(approvedPlugin!.key);
+    expect(replaced?.status).toBe("Modified");
+
+    const identicalRegistration: ResolvedCodexHook[] = baseline.map((hook) =>
+      hook.pluginId === "jscpd" ? { ...hook, pluginId: "different-plugin" } : hook,
+    );
+    expect(
+      read(identicalRegistration).hooks.find((entry) => entry.script === "check-jscpd.sh")?.status,
+    ).toBe("Trusted"); // Codex hashes registrations, not plugin identity.
+  });
+
+  // Covers: R20
+  it("does not include script bytes in Codex's registration hash", () => {
+    const hook: ResolvedCodexHook = {
+      script: "check-semgrep.sh",
+      scriptPath: ".codex/scripts/check-semgrep.sh",
+      pluginId: "semgrep",
+      event: "PreToolUse",
+      matcher: "^Bash$",
+      timeout: 600,
+    };
+    const command = codexHookCommand(hook);
+    const scriptPath = writeTempHome("#!/usr/bin/env bash\necho before\n");
+    const before = codexHookHash(hook, command);
+    writeFileSync(scriptPath, "#!/usr/bin/env bash\necho after\n");
+    expect(readFileSync(scriptPath, "utf-8")).toContain("after");
+    expect(codexHookHash(hook, command)).toBe(before);
+    // A script update cannot be inferred from this host hash: the render warning is separate.
   });
 });
 

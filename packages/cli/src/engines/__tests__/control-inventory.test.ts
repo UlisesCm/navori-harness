@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
 import { renderAgentsMdEngine } from "../agents-md/index.ts";
 import { renderClaudeEngine } from "../claude/index.ts";
+import { CODEX_HOOK_REGISTRATIONS } from "../codex/hook-registrations.ts";
 import { renderCodexEngine } from "../codex/index.ts";
 import { renderCopilotEngine } from "../copilot/index.ts";
 import { renderCursorEngine } from "../cursor/index.ts";
@@ -320,6 +321,17 @@ describe("control inventory vs. the actual render (spec 0033 D5)", () => {
     expect(codexConfig).not.toContain("plan-gate.sh");
     expect(ENGINE_CAPABILITIES.codex.controls["plan-gate"].state).toBe("advisory");
     expect(ENGINE_CAPABILITIES.claude.controls["plan-gate"].state).toBe("enforced");
+  });
+
+  // Covers: R10
+  it("keeps plan-gate unregistered in Codex and the routing-watch matcher unchanged", () => {
+    const row = CODEX_HOOK_REGISTRATIONS.find((r) => r.script === "plan-gate");
+    expect(row?.registration).toBeUndefined();
+    expect(row?.unsupported).toContain("explicit agent_type spawn exposes the typed role in Pre");
+    expect(row?.unsupported).toContain("stays advisory");
+    const routing = CODEX_HOOK_REGISTRATIONS.find((r) => r.script === "routing-watch");
+    expect(routing?.registration?.event).toBe("PostToolUse");
+    expect(routing?.registration?.matcher).toBe("^(Bash|apply_patch|spawn_agent)$");
   });
 });
 

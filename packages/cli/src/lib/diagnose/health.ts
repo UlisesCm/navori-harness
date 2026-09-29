@@ -571,7 +571,7 @@ export interface RetiredAssetOnDisk {
   successor: string | null;
   /** Why `render --apply` would keep it instead of pruning it — absent when
    *  navori still owns it (the next `render --apply` removes it). */
-  reason?: "foreign" | "newer";
+  reason?: "foreign" | "newer" | "modified";
 }
 
 /**

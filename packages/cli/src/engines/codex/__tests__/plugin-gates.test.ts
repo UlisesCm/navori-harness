@@ -8,7 +8,7 @@ import {
   PluginManifestSchema,
   type LoadedPlugin,
 } from "../../../lib/config/plugins.ts";
-import { projectCodexHooksMatch } from "../../../lib/codex/trust.ts";
+import { codexHookHash, projectCodexHooksMatch } from "../../../lib/codex/trust.ts";
 import { renderCodexEngine } from "../index.ts";
 import { renderClaudeEngine } from "../../claude/index.ts";
 import { buildCodexConfigToml } from "../build-config-toml.ts";
@@ -158,5 +158,62 @@ describe("Codex plugin gates", () => {
       }),
     );
     expect(readFileSync(newerPath, "utf-8")).toContain('version="999.0.0"');
+  });
+
+  // Covers: R20
+  it("keeps an edited retired script and warns when edited config still registers it", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const scriptPath = join(cwd, ".codex/scripts/check-semgrep.sh");
+    const configPath = join(cwd, ".codex/config.toml");
+    const script = readFileSync(scriptPath, "utf-8").replace(
+      "extract_cmd()",
+      "extract_cmd() # user",
+    );
+    const toml = readFileSync(configPath, "utf-8").replace(
+      "# navori:managed end",
+      "# user edit\n# navori:managed end",
+    );
+    writeFileSync(scriptPath, script);
+    writeFileSync(configPath, toml);
+    const retired = renderCodexEngine(cwd, config(["codex"], false));
+    expect(readFileSync(scriptPath, "utf-8")).toBe(script);
+    expect(readFileSync(configPath, "utf-8")).toBe(toml);
+    expect(retired.warnings).toContainEqual(
+      expect.stringContaining("check-semgrep.sh — archivo managed editado"),
+    );
+    expect(retired.warnings).toContainEqual(
+      expect.stringContaining("ALERTA: .codex/scripts/check-semgrep.sh"),
+    );
+    expect(retired.skipped).toContainEqual(
+      expect.objectContaining({ path: ".codex/config.toml", status: "user-modified-skipped" }),
+    );
+  });
+
+  // Covers: R20
+  it("requests trust review when script bytes change but registration hash does not", () => {
+    const cwd = tempRepo();
+    const first = config();
+    renderCodexEngine(cwd, first);
+    const before = readFileSync(join(cwd, ".codex/scripts/check-semgrep.sh"), "utf-8");
+    const hook = resolveCodexHooks(first, loadEnabledPlugins(first.plugins).loaded).find(
+      (item) => item.pluginId === "semgrep",
+    );
+    expect(hook).toBeDefined();
+    const registrationHash = codexHookHash(hook!, codexHookCommand(hook!));
+    const next = NavoriConfigSchema.parse({ ...first, branchBase: "develop" });
+    const updated = renderCodexEngine(cwd, next);
+    const after = readFileSync(join(cwd, ".codex/scripts/check-semgrep.sh"), "utf-8");
+    const nextHook = resolveCodexHooks(next, loadEnabledPlugins(next.plugins).loaded).find(
+      (item) => item.pluginId === "semgrep",
+    );
+    expect(nextHook).toBeDefined();
+    expect(codexHookHash(nextHook!, codexHookCommand(nextHook!))).toBe(registrationHash);
+    expect(after).not.toBe(before);
+    expect(updated.warnings).toContainEqual(
+      expect.stringContaining(
+        "REVISAR TRUST: cambió el contenido de .codex/scripts/check-semgrep.sh",
+      ),
+    );
   });
 });

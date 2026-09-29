@@ -740,7 +740,7 @@ interface DoctorCmdStrings {
   orphanedEngineOutputsTitle: (n: number) => string;
   orphanedEngineOutputRow: (engine: string) => string;
   retiredAssetsTitle: (n: number) => string;
-  retiredAssetRow: (successor: string | null, reason?: "foreign" | "newer") => string;
+  retiredAssetRow: (successor: string | null, reason?: "foreign" | "newer" | "modified") => string;
   missingPresetFiles: (preset: string, n: number, lines: string) => string;
   missingPresetFileRow: (path: string) => string;
   missingLocalSkills: (n: number, lines: string) => string;
@@ -1126,6 +1126,9 @@ interface EngineCmdStrings {
   /** R39/R41 (spec 0026 T10): a Codex orphan-scan match kept, with its reason
    *  — Codex's own version of the Claude engine's retired-asset report. */
   keptOrphanCodex: (path: string, reason: KeepReason) => string;
+  codexResidualPluginHook: (path: string) => string;
+  claudeResidualPluginHook: (path: string) => string;
+  codexPluginScriptChanged: (path: string) => string;
   presetNotFoundCodex: (preset: string) => string;
   presetInvalid: (preset: string, detail: string) => string;
   // Prose-engine dispatch (render.ts)
@@ -1798,6 +1801,8 @@ const CMD_ES: CmdStrings = {
           // NOT `foreign`: navori sí lo escribió, sólo que una versión más nueva
           // que este CLI. Decir "no lo escribimos nosotros" era mentira (#538).
           return "lo escribió una navori más nueva que tu CLI: no lo degradamos; actualiza con 'npm i -g navori@latest'";
+        case "modified":
+          return "archivo managed editado: se conserva para no perder cambios del usuario";
         // No `default`: a new reason must fail to compile in BOTH locales
         // instead of silently rendering as "we did not write it".
         case "foreign":
@@ -1925,11 +1930,11 @@ const CMD_ES: CmdStrings = {
       `— del engine '${engine}' (no está en engines); el prune solo borra lo que lleve marcador de navori`,
     retiredAssetsTitle: (n) =>
       `Archivos de ids retirados en disco · ${n} ('navori render --apply' borra los que sean de ` +
-      `navori; los ajenos o de una versión más nueva se conservan)`,
+      `navori; los ajenos, editados o de una versión más nueva se conservan)`,
     retiredAssetRow: (successor, reason) =>
       `— sucesor: ${successor ?? "ninguno"}` +
       (reason
-        ? ` (se conserva: ${reason === "newer" ? "escrito por una versión más nueva" : "ajeno, sin marcador de navori"})`
+        ? ` (se conserva: ${reason === "newer" ? "escrito por una versión más nueva" : reason === "modified" ? "archivo managed editado" : "ajeno, sin marcador de navori"})`
         : " (se borra en el próximo 'render --apply')"),
     missingPresetFiles: (preset, n, lines) =>
       `Extras del preset '${preset}' sin archivo (${n}) — el render ` +
@@ -2636,7 +2641,15 @@ const CMD_ES: CmdStrings = {
       `conservado ${path} — ` +
       (reason === "newer"
         ? "lo escribió una versión de navori más nueva que este CLI; no se revierte"
-        : "no lleva marcador de navori (ajeno); nunca se borra sin probar que navori lo escribió"),
+        : reason === "modified"
+          ? "archivo managed editado; se conserva para no perder cambios"
+          : "no lleva marcador de navori (ajeno); nunca se borra sin probar que navori lo escribió"),
+    codexResidualPluginHook: (path) =>
+      `ALERTA: ${path} conserva un registro de plugin deshabilitado en .codex/config.toml; el hook puede seguir activo y no es confiable. Revisa el archivo y el script manualmente.`,
+    claudeResidualPluginHook: (path) =>
+      `ALERTA: ${path} puede seguir registrado en .claude/settings.json, que no se pudo actualizar; el hook puede seguir activo y no es confiable. Revisa ambos archivos manualmente.`,
+    codexPluginScriptChanged: (path) =>
+      `REVISAR TRUST: cambió el contenido de ${path}; el hash del registro Codex no cubre el script. Revisa el script antes de ejecutar o aprobar el hook.`,
     codexTrustCommandHint: (minVersion) =>
       `Requiere Codex CLI >= ${minVersion}. Corre 'navori codex trust' para revisar y aprobar los hooks.`,
     codexRulesSummary: (notBash, innerWildcard, narrowed) =>
@@ -3147,6 +3160,8 @@ const CMD_EN: CmdStrings = {
           // See the es-MX twin: navori DID write it, just a newer one than this
           // CLI, so `foreign`'s "we did not write it" was false (#538).
           return "written by a navori newer than your CLI: we do not roll it back; update with 'npm i -g navori@latest'";
+        case "modified":
+          return "user-edited managed file: kept to avoid losing changes";
         case "foreign":
           // See the es-MX twin: states the FACT (no marker), not the inference
           // (it is yours). A JSON written by an older navori, from before it
@@ -3271,11 +3286,11 @@ const CMD_EN: CmdStrings = {
       `— from disabled engine '${engine}' (not in engines); the prune only deletes what carries navori's marker`,
     retiredAssetsTitle: (n) =>
       `Retired-id files still on disk · ${n} ('navori render --apply' deletes the ones navori ` +
-      `wrote; foreign ones or ones from a newer version are kept)`,
+      `wrote; foreign, modified or newer-version ones are kept)`,
     retiredAssetRow: (successor, reason) =>
       `— successor: ${successor ?? "none"}` +
       (reason
-        ? ` (kept: ${reason === "newer" ? "written by a newer version" : "foreign, no navori marker"})`
+        ? ` (kept: ${reason === "newer" ? "written by a newer version" : reason === "modified" ? "user-edited managed file" : "foreign, no navori marker"})`
         : " (removed on the next 'render --apply')"),
     missingPresetFiles: (preset, n, lines) =>
       `Extras of preset '${preset}' with no file (${n}) — render ` +
@@ -3979,7 +3994,15 @@ const CMD_EN: CmdStrings = {
       `kept ${path} — ` +
       (reason === "newer"
         ? "written by a navori newer than this CLI; not rolled back"
-        : "carries no navori marker (foreign); never deleted without proof navori wrote it"),
+        : reason === "modified"
+          ? "user-edited managed file; kept to avoid losing changes"
+          : "carries no navori marker (foreign); never deleted without proof navori wrote it"),
+    codexResidualPluginHook: (path) =>
+      `WARNING: ${path} retains a disabled plugin registration in .codex/config.toml; the hook may remain active and is untrusted. Review the config and script manually.`,
+    claudeResidualPluginHook: (path) =>
+      `WARNING: ${path} may remain registered in .claude/settings.json, which could not be updated; the hook may remain active and is untrusted. Review both files manually.`,
+    codexPluginScriptChanged: (path) =>
+      `TRUST REVIEW: ${path} content changed; the Codex registration hash does not cover script bytes. Review the script before running or approving the hook.`,
     codexTrustCommandHint: (minVersion) =>
       `Requires Codex CLI >= ${minVersion}. Run 'navori codex trust' to review and approve the hooks.`,
     codexRulesSummary: (notBash, innerWildcard, narrowed) =>

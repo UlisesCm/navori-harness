@@ -245,6 +245,139 @@ describe("stop-verify-reminder — Codex event output", () => {
   });
 });
 
+/**
+ * Spec 0037 T11 (R8, R9, R10) — redacted per-event fixtures from T9 corrida 2
+ * (Codex 0.158.0, stub hooks under a per-invocation hook-trust bypass). Only the
+ * fields that record lists are encoded: no Post `collaborationspawn_agent` fields
+ * and no `collaborationwait_agent` shape beyond its tool name. `cwd` is the one
+ * addition the shared adapter needs to resolve the project root.
+ */
+describe("Codex 0.158.0 observed payloads (T9 corrida 2) through the shared hook partials", () => {
+  const CHILD_ID = "agent-redacted-1";
+
+  function childPre(agentType: string, tool: "Bash" | "apply_patch", target: string): unknown {
+    const toolInput =
+      tool === "apply_patch"
+        ? { command: `*** Add File: ${target}\n+synthetic\n` }
+        : { command: `echo synthetic > ${target}` };
+    return {
+      hook_event_name: "PreToolUse",
+      agent_type: agentType,
+      agent_id: CHILD_ID,
+      tool_name: tool,
+      tool_input: toolInput,
+      cwd,
+    };
+  }
+
+  /** Runs the REAL adapter partials (`nv_tool`, `nv_subagent_type`) under a Codex-path script. */
+  function probe(input: unknown): { tool: string; type: string } {
+    const dir = mkdtempSync(join(tmpdir(), "navori-codex-probe-"));
+    const path = join(dir, "codex/.codex/hooks/probe.sh");
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(
+      path,
+      expandHookIncludes(
+        "#!/usr/bin/env bash\n# navori:include extract-cmd\n# navori:include hook-input\n" +
+          'printf "%s|%s" "$(nv_tool)" "$(nv_subagent_type)"\n',
+      ),
+    );
+    const out = run(path, cwd, input).stdout;
+    rmSync(dir, { recursive: true, force: true });
+    const [tool = "", type = ""] = out.split("|");
+    return { tool, type };
+  }
+
+  // Covers: R8, R9
+  it.each(["Bash", "apply_patch"] as const)(
+    "denies a child with top-level agent_type implementer writing .md via %s",
+    (tool) => {
+      const hook = installHook(
+        "implementer-no-markdown",
+        "codex/.codex/hooks/implementer-no-markdown.sh",
+      );
+      expect(run(hook, cwd, childPre("implementer", tool, "notes/impl.md")).status).toBe(2);
+    },
+  );
+
+  // Covers: R8, R9
+  it.each(["Bash", "apply_patch"] as const)(
+    "allows scribe and the observed default child writing .md via %s",
+    (tool) => {
+      const hook = installHook(
+        "implementer-no-markdown",
+        "codex/.codex/hooks/implementer-no-markdown.sh",
+      );
+      expect(run(hook, cwd, childPre("scribe", tool, "notes/scribe.md")).status).toBe(0);
+      // "default" is what a child spawned without agent_type reports: never an implementer.
+      expect(run(hook, cwd, childPre("default", tool, "notes/default.md")).status).toBe(0);
+    },
+  );
+
+  // Covers: R9
+  it("does not derive a role from task_name alone", () => {
+    const hook = installHook(
+      "implementer-no-markdown",
+      "codex/.codex/hooks/implementer-no-markdown.sh",
+    );
+    const noRole = {
+      hook_event_name: "PreToolUse",
+      tool_name: "apply_patch",
+      tool_input: { command: "*** Add File: notes/x.md\n+synthetic\n", task_name: "implementer" },
+      cwd,
+    };
+    expect(run(hook, cwd, noRole).status).toBe(0);
+    expect(
+      probe({
+        tool_name: "collaborationspawn_agent",
+        tool_input: { task_name: "implementer", message: "synthetic task" },
+        cwd,
+      }).type,
+    ).toBe("");
+  });
+
+  // Covers: R9, R10
+  it("keeps unobserved collaboration tool names raw and exposes the typed role only when passed", () => {
+    const spawn = (toolInput: Record<string, string>) =>
+      probe({
+        hook_event_name: "PreToolUse",
+        tool_name: "collaborationspawn_agent",
+        tool_input: toolInput,
+        cwd,
+      });
+    expect(spawn({ message: "synthetic task", task_name: "probe" })).toEqual({
+      tool: "collaborationspawn_agent",
+      type: "",
+    });
+    expect(spawn({ agent_type: "implementer", message: "synthetic task" }).type).toBe(
+      "implementer",
+    );
+    expect(probe({ tool_name: "collaborationwait_agent", cwd }).tool).toBe(
+      "collaborationwait_agent",
+    );
+  });
+
+  // Covers: R9, R10
+  it("reads top-level agent_type from SubagentStart and SubagentStop as recorded", () => {
+    const start = {
+      hook_event_name: "SubagentStart",
+      agent_type: "implementer",
+      agent_id: CHILD_ID,
+      cwd,
+    };
+    const stop = {
+      ...start,
+      hook_event_name: "SubagentStop",
+      agent_transcript_path: "/redacted/transcript",
+      last_assistant_message: "synthetic",
+      stop_hook_active: false,
+    };
+    expect(probe(start).type).toBe("implementer");
+    expect(probe(stop).type).toBe("implementer");
+    expect(probe({ ...start, agent_type: "default" }).type).toBe("default");
+  });
+});
+
 const VALID_LEVEL1: Workplan = {
   feature: "demo",
   level: 1,

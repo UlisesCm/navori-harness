@@ -6,6 +6,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -192,5 +193,47 @@ describe("navori codex trust — safe writes to ~/.codex/config.toml (spec 0035 
     const written = readFileSync(homeConfigPath(), "utf-8");
     expect(written).toContain("# pre-existing");
     expect(written).toContain(`[projects."`);
+  });
+
+  // Covers: R14, R20
+  it("preserves foreign TOML through the full trust command", async () => {
+    const original = [
+      "# user-owned preamble",
+      '[projects."/other/project"]',
+      'trust_level = "untrusted"',
+      "",
+      "[user_extensions]",
+      'custom = "keep exactly"',
+      "",
+    ].join("\n");
+    mkdirSync(join(home.dir, ".codex"), { recursive: true });
+    writeFileSync(homeConfigPath(), original);
+
+    await runCodexTrust(cwd, { yes: true, verify: noopVerify });
+    const written = readFileSync(homeConfigPath(), "utf-8");
+    expect(written.startsWith(original)).toBe(true);
+    expect(written).toContain(cwd);
+    expect(backupFileCount()).toBeGreaterThan(0);
+  });
+
+  // Covers: R14, R20
+  it("leaves fake-home bytes and mode unchanged when the backup cannot be created", async () => {
+    const original = "# must survive failed backup\n";
+    mkdirSync(join(home.dir, ".codex"), { recursive: true });
+    writeFileSync(homeConfigPath(), original, { mode: 0o600 });
+    const blockedBackupRoot = join(home.dir, "backup-is-a-file");
+    writeFileSync(blockedBackupRoot, "not a directory");
+    const priorRoot = process.env.NAVORI_BACKUP_ROOT;
+    process.env.NAVORI_BACKUP_ROOT = blockedBackupRoot;
+    try {
+      await expect(runCodexTrust(cwd, { yes: true, verify: noopVerify })).rejects.toThrow();
+      expect(readFileSync(homeConfigPath(), "utf-8")).toBe(original);
+      expect(statSync(homeConfigPath()).mode & 0o777).toBe(0o600);
+      expect(readdirSync(join(home.dir, ".codex"))).toEqual(["config.toml"]);
+      expect(vi.mocked(p.log.success)).not.toHaveBeenCalled();
+    } finally {
+      if (priorRoot === undefined) delete process.env.NAVORI_BACKUP_ROOT;
+      else process.env.NAVORI_BACKUP_ROOT = priorRoot;
+    }
   });
 });

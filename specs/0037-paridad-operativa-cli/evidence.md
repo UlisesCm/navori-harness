@@ -135,3 +135,65 @@ Un `ok:true`, archivo presente, contador de perfiles, hook Trusted, alias sinté
 completo no demuestra ejecución efectiva. Un bloqueo de sandbox en esta sesión no demuestra un
 fallo en Warp. La versión de un modelo no mide calidad. El contenido de un scratch o una memoria
 no sustituye fuente/versiones y un registro redactado reproducible para aceptar implementación.
+
+## T7 — Retiro seguro y revisión de trust
+
+Las pruebas dirigidas cubren la paridad de retiro Codex/Claude y las advertencias de hooks residuales
+(A1: 5 archivos, 152 pruebas); trust, fallo de backup y TOML ajeno en un home falso aislado (A2:
+2 archivos, 19 pruebas); y migración desde antes de T5, idempotencia y preservación al retirar en
+Claude (A3: 2 archivos, 19 pruebas). `bun typecheck` y `bun lint` pasaron. Las pruebas respaldan la
+preservación de archivos modificados y ajenos, la revisión de bytes de scripts y las señales del
+doctor; no se modificó ningún home real de Codex ni se afirma paridad live de Codex. El quality gate
+completo del repositorio pasó y la revisión fresca resultó APPROVED (commit `9c8cc3c5`). El
+`test:coverage` del implementer registró 316 archivos de tests y 5,786 pruebas. La verificación de hash es opt-in (`verifyHash`) y solo se usa en las rutas
+de scripts de plugin.
+
+### Limitaciones residuales aceptadas por el reviewer
+
+- `render --prune`, `health` y `doctor` no verifican hash: un bloque editado a mano ahí se sigue
+  borrando, igual que en main.
+- Un script sin hash guardado, o editado fuera del bloque, cuenta como propio.
+- El orphan scan de plugins en execute-plan ahora conserva archivos con hash real no coincidente
+  (más estricto que main).
+- Observación menor, no bloqueante: los avisos "kept … file" en `engines/claude/index.ts` no usan i18n.
+
+
+## T9 — Corrida 2 de viabilidad live (R8–R11)
+
+Registro: [live-t9.md](live-t9.md), Codex 0.158.0, 8 invocaciones sin `--ephemeral`. La hipótesis
+`--ephemeral` quedó confirmada. Es un registro de viabilidad por ruta/versión, no un pass global.
+
+- **R8 (L03):** roles del roster real 7/7 por metadata; challenge 6/7 (reviewer certificado solo
+  por metadata). Hijo default con `task_name "implementer"` no recibe el rol.
+- **R9 (L04):** `PreToolUse`, `PostToolUse`, `SubagentStart` y `SubagentStop` observados por
+  separado con `agent_type` top-level; un deny en Pre no produce Post.
+- **R10 (L04):** `.md` del implementer denegado, del scribe permitido; default no normalizado.
+- **R11 (MCP):** cero ampliaciones frente a `disabled_tools`, `enabled_tools` y servidor deshabilitado
+  del padre en capa de sesión. Capa proyecto bloqueada (requiere trust persistido); capa usuario no
+  ejecutada.
+- **Incidente:** el CLI persistió `trust_level = "trusted"` para el fixture en la config global de
+  Codex durante la invocación 8, contra la prohibición de la campaña; limpieza pendiente del usuario.
+  La invocación 8 pudo correr bajo trust persistido.
+
+## T10 — Limitación documentada sin traducción habilitada (R11)
+
+El bloque `mcp_servers` de un rol Codex 0.158.0 se ignora (no estrecha, no amplía, no añade
+servidores) y uno parcial descarta el rol completo. No hay representación segura de restricción MCP
+por perfil, por lo que no se habilita traducción. **R11 queda como brecha visible, no cumplida**; solo
+se observó la herencia del filtro del padre. No se implementó código ni V18/V20 nuevos en esta tarea.
+
+
+## T11 — Fixtures de payloads observados y negativos de rol (R8–R10)
+
+Commit `ad285f77`, reviewer fresco APPROVED. Opción A elegida por el usuario: solo pruebas.
+
+- **Cubre:** fixtures redactados de payloads Codex 0.158.0 observados en T9 corrida 2 (hooks stub)
+  y negativos de rol (hijo default y rol desconocido no se convierten en implementer). Normalizador,
+  matchers y trust sin cambios.
+- **Omitido por falta de evidencia:** campos de Post `collaborationspawn_agent`, forma de
+  `collaborationwait_agent` más allá de `tool_name`, y nombre de la clave del call-id.
+- **Opciones rechazadas:** B/B' (tocar normalizador/matchers) por churn de trust, que pasaría a
+  `Modified`, y porque no hay consumidor alcanzable que use `nv_subagent_type` como alcance.
+- **Limitación visible:** alias `collaborationspawn_agent` en routing-watch; plan-gate sigue advisory.
+- **Deuda para T17:** `engine-capabilities.ts` ~411-415, razón "no typed agent role", no distingue
+  spawn default de explícito.

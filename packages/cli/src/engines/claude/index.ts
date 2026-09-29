@@ -1039,18 +1039,24 @@ export function renderClaudeEngine(
       inspected += 1;
       removeSubBlock({ cwd, plugin, skill, pending });
     }
-    // Marker-free by construction, so `isRemovableNavoriFile` does NOT gate this
-    // one (it would never match and the cleanup would silently stop working): a
-    // plugin script is copied verbatim from the plugin package and interpolated,
-    // and a shell script carries no managed block. What stands in for the marker
-    // is provenance, not a guess: `script.dest` comes from the plugin's OWN
-    // manifest, so `.claude/scripts/<dest>` is a path navori created for that
-    // plugin and nothing else writes. commitWrites backs it up before deleting.
+    // Plugin scripts now carry managed markers. Keep hand edits and newer
+    // versions rather than deleting solely because a manifest names the path.
     for (const script of plugin.scriptAssets) {
       const destPath = join(cwd, ".claude/scripts", script.dest);
       if (existsSync(destPath)) {
         inspected += 1;
-        removals.push({ path: destPath });
+        // `foreign` = marker-free leftover from before scripts carried markers
+        // (#314): still ours to purge. Only an edited or newer script is kept.
+        const authorship = navoriAuthorship(destPath, undefined, { verifyHash: true });
+        if (authorship === "ours" || authorship === "foreign") removals.push({ path: destPath });
+        else {
+          warnings.push(`kept ${relative(cwd, destPath)} — ${authorship} file`);
+          if (
+            settingsResult.kind === "skip" &&
+            readFileSync(settingsResult.path, "utf-8").includes(script.dest)
+          )
+            warnings.push(tc(lang).engine.claudeResidualPluginHook(relative(cwd, destPath)));
+        }
       }
     }
   }
@@ -1078,7 +1084,14 @@ export function renderClaudeEngine(
         // path swallows: the dir is left in place rather than half-deleted. Safe
         // degradation for the edge case of an unreadable path.
       }
-      removals.push({ path: assetPath, recursive });
+      const authorship = recursive
+        ? "ours"
+        : navoriAuthorship(assetPath, undefined, { verifyHash: true });
+      if (authorship === "ours" || authorship === "foreign") {
+        removals.push({ path: assetPath, recursive });
+      } else {
+        warnings.push(`kept ${relative(cwd, assetPath)} — ${authorship} file`);
+      }
     }
   }
 

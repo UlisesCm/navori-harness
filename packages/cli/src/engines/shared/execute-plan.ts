@@ -253,7 +253,7 @@ function collectRequest(
   if (req.assetPath !== undefined) {
     const existing = existsSync(path) ? readFileSync(path, "utf-8") : null;
     if (existing !== null && req.meta?.source.startsWith("@navori/plugin-")) {
-      const authorship = navoriAuthorship(path, req.managedId);
+      const authorship = navoriAuthorship(path, req.managedId, { verifyHash: true });
       if (authorship !== "ours") {
         const status = authorship === "newer" ? "downgrade-skipped" : "user-modified-skipped";
         skipped.push({
@@ -322,8 +322,14 @@ function collectRequest(
  * skills/hooks/agents, extended here to Codex's per-render orphan scan, which
  * covers agents/skills/hooks uniformly rather than per retired-id registry).
  */
-function pushKept(kept: KeptOrphan[], cwd: string, absPath: string, markerId?: string): void {
-  const authorship = navoriAuthorship(absPath, markerId);
+function pushKept(
+  kept: KeptOrphan[],
+  cwd: string,
+  absPath: string,
+  markerId?: string,
+  verifyHash?: boolean,
+): void {
+  const authorship = navoriAuthorship(absPath, markerId, { verifyHash });
   if (authorship === "ours") return;
   kept.push({ path: relative(cwd, absPath), reason: authorship });
 }
@@ -342,10 +348,12 @@ function collectOrphans(
         const relPath = `${scan.dir}/${entry.name}`;
         const absPath = join(dirAbs, entry.name);
         if (scan.desired.has(relPath)) continue;
-        if (isRemovableNavoriFile(absPath)) {
+        // Flat orphan files (scripts, hooks, agents): a hand-edited managed block
+        // is kept, not deleted (`verifyHash`).
+        if (navoriAuthorship(absPath, undefined, { verifyHash: true }) === "ours") {
           removals.push({ path: absPath });
         } else {
-          pushKept(kept, cwd, absPath);
+          pushKept(kept, cwd, absPath, undefined, true);
         }
         continue;
       }
