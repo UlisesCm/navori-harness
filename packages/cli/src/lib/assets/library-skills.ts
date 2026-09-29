@@ -178,6 +178,7 @@ export const LIBRARY_SKILLS: ReadonlyArray<LibrarySkill> = [
   { id: "eas-release", deps: [], label: "EAS Build/Submit/Update", paths: ["eas.json"] },
   { id: "i18next", deps: ["i18next", "react-i18next"], label: "i18next" },
   { id: "bullmq", deps: ["bullmq"], label: "BullMQ jobs & queues" },
+  { id: "amqplib", deps: ["amqplib"], label: "amqplib (RabbitMQ)" },
   { id: "hono", deps: ["hono"], label: "Hono" },
   { id: "better-auth", deps: ["better-auth"], label: "Better Auth" },
   {
