@@ -44,6 +44,8 @@ const P = {
   consts: resolve(REPO_ROOT, "apps", "website", "src", "consts.ts"),
   groups: resolve(REPO_ROOT, "apps", "website", "src", "content", "command-groups.ts"),
   commands: resolve(REPO_ROOT, "apps", "website", "src", "content", "commands.ts"),
+  releases: resolve(REPO_ROOT, "apps", "website", "src", "content", "releases.ts"),
+  cliPackage: resolve(REPO_ROOT, "packages", "cli", "package.json"),
 };
 
 /** Directory entries that are real assets, not the JSON sidecars beside them. */
@@ -203,5 +205,54 @@ describe("landing inventory", () => {
     // every registered command has a page; this proves the reverse direction,
     // so the count can't be right against one and wrong against the other.
     expect(documentedCommands().sort()).toEqual(registeredCommands());
+  });
+  describe("release notes", () => {
+    const FIX = "Edit apps/website/src/content/releases.ts";
+    const source = readFileSync(P.releases, "utf8");
+    // Parsed like the rest of this file: releases.ts lives in the Astro app.
+    const minors = [...source.matchAll(/^\s{4}minor: "(\d+\.\d+)",/gm)].flatMap((m) =>
+      m[1] ? [m[1]] : [],
+    );
+    const num = (minor: string): number[] => minor.split(".").map(Number);
+
+    it("has an entry for the CLI's current minor", () => {
+      const version = (JSON.parse(readFileSync(P.cliPackage, "utf8")) as { version: string })
+        .version;
+      const [major, minor] = version.split(".");
+      expect(
+        minors,
+        `packages/cli/package.json is at ${version} but releases.ts has no "${major}.${minor}" ` +
+          `entry. ${FIX}: add the minor's headline and bullets (es + en) before bumping.`,
+      ).toContain(`${major}.${minor}`);
+    });
+
+    it("lists entries strictly newest first", () => {
+      const sorted = [...minors].sort((a, b) => {
+        const [am = 0, an = 0] = num(a);
+        const [bm = 0, bn = 0] = num(b);
+        return bm - am || bn - an;
+      });
+      expect(
+        minors,
+        `releases.ts entries must be unique and newest first (expected ${sorted.join(", ")}). ${FIX}.`,
+      ).toEqual(sorted);
+      expect(new Set(minors).size, `releases.ts repeats a minor. ${FIX}.`).toBe(minors.length);
+    });
+
+    it("gives every entry Spanish and English text", () => {
+      // Every `es:`/`en:` pair is a LocalizedText: the two counts must match
+      // and no value may be empty.
+      const es = [...source.matchAll(/^\s+es: "(.*)",$/gm)];
+      const en = [...source.matchAll(/^\s+en: "(.*)",$/gm)];
+      expect(
+        es.length,
+        `releases.ts has ${es.length} es strings but ${en.length} en strings. ${FIX}.`,
+      ).toBe(en.length);
+      const empty = [...es, ...en].filter((m) => (m[1] ?? "").trim() === "");
+      expect(empty, `releases.ts has empty es/en text. ${FIX}.`).toEqual([]);
+      expect(es.length, `releases.ts has no localized text. ${FIX}.`).toBeGreaterThanOrEqual(
+        minors.length * 4,
+      );
+    });
   });
 });
