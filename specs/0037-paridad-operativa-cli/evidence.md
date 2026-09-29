@@ -157,3 +157,27 @@ de scripts de plugin.
   (más estricto que main).
 - Observación menor, no bloqueante: los avisos "kept … file" en `engines/claude/index.ts` no usan i18n.
 
+
+## T9 — Corrida 2 de viabilidad live (R8–R11)
+
+Registro: [live-t9.md](live-t9.md), Codex 0.158.0, 8 invocaciones sin `--ephemeral`. La hipótesis
+`--ephemeral` quedó confirmada. Es un registro de viabilidad por ruta/versión, no un pass global.
+
+- **R8 (L03):** roles del roster real 7/7 por metadata; challenge 6/7 (reviewer certificado solo
+  por metadata). Hijo default con `task_name "implementer"` no recibe el rol.
+- **R9 (L04):** `PreToolUse`, `PostToolUse`, `SubagentStart` y `SubagentStop` observados por
+  separado con `agent_type` top-level; un deny en Pre no produce Post.
+- **R10 (L04):** `.md` del implementer denegado, del scribe permitido; default no normalizado.
+- **R11 (MCP):** cero ampliaciones frente a `disabled_tools`, `enabled_tools` y servidor deshabilitado
+  del padre en capa de sesión. Capa proyecto bloqueada (requiere trust persistido); capa usuario no
+  ejecutada.
+- **Incidente:** el CLI persistió `trust_level = "trusted"` para el fixture en la config global de
+  Codex durante la invocación 8, contra la prohibición de la campaña; limpieza pendiente del usuario.
+  La invocación 8 pudo correr bajo trust persistido.
+
+## T10 — Limitación documentada sin traducción habilitada (R11)
+
+El bloque `mcp_servers` de un rol Codex 0.158.0 se ignora (no estrecha, no amplía, no añade
+servidores) y uno parcial descarta el rol completo. No hay representación segura de restricción MCP
+por perfil, por lo que no se habilita traducción. **R11 queda como brecha visible, no cumplida**; solo
+se observó la herencia del filtro del padre. No se implementó código ni V18/V20 nuevos en esta tarea.

@@ -1,8 +1,8 @@
 # Paridad operativa Claude / Codex CLI — Tasks
 
-**Estado:** T1–T8, T12–T14 completos; 11 de 19 tareas completas y 8 pendientes.
-T9 sigue pendiente: L03 se intentó y quedó inconcluso; L04 no se ejecutó ([registro](live-t9.md)).
-No es un pass. Las autorizaciones puntuales para estas tareas no cubren otras tareas, campañas
+**Estado:** T1–T10, T12–T14 completos; 13 de 19 tareas completas y 6 pendientes; T11 sigue.
+T9 entrega un registro de viabilidad con casos bloqueados visibles ([registro](live-t9.md)); T10
+cierra como limitación documentada. No es un pass global. Las autorizaciones puntuales para estas tareas no cubren otras tareas, campañas
 live/pagadas, instalaciones, cambios de trust ni publicación.
 **Diseño:** [design.md](design.md), veredicto CONCERNS y resoluciones en [review.md](review.md).
 
@@ -112,7 +112,7 @@ live/pagadas, instalaciones, cambios de trust ni publicación.
 
 ## Lote E — Roles y permisos: viabilidad antes de emitir garantías
 
-- [ ] **T9** (R8, R9, R10, R11) — Con autorización separada de campaña, verificar selección real
+- [x] **T9** (R8, R9, R10, R11) — Con autorización separada de campaña, verificar selección real
   de perfiles y composición de filtros MCP en runtime CLI fijado. Ejecutar L03/L04 con stub y
   metadata, incluidos hijo default, allowlist padre/usuario más estrecha, disabled_tools y servidor
   deshabilitado. Separar nombres por evento, no extrapolar PreToolUse a PostToolUse. Sin autorización
@@ -120,11 +120,12 @@ live/pagadas, instalaciones, cambios de trust ni publicación.
   · pruebas: **V08–V11, L03, L04**; esperado filtros: cero ampliaciones respecto a restricción
   heredada. Entregar registro de viabilidad por ruta/versión, no configuración global cambiada.
   · depende de: T1; precondición de T10/T11 donde requieren hechos del host.
-  · estado live: L03 quedó inconcluso por fallo de infraestructura al despachar el hijo y no aportó
-  evidencia utilizable de filtros MCP. L04 no se ejecutó; no se midieron callbacks de hooks. Véase
-  [live-t9.md](live-t9.md). T9 permanece pendiente; no se infiere pass ni paridad.
+  · estado live: evidencia revisada pendiente de reviewer. La corrida 2 observó L03 (roles 7/7 por
+  metadata, cero ampliaciones frente al padre en capa de sesión) y L04 (cuatro eventos por separado);
+  capa proyecto bloqueada, capa usuario no ejecutada, sin pass de esas capas. Incidente de trust
+  registrado en [live-t9.md](live-t9.md).
 
-- [ ] **T10** (R11, R18, R20) — Solo para casos representables y probados por T9, compartir
+- [x] **T10** (R11, R18, R20) — Solo para casos representables y probados por T9, compartir
   derivación de grants MCP con distinción `tools` ausente/herencia frente a allowlist explícita;
   emitir configuración por perfil sin ampliar filtros heredados ni tocar servidores ajenos.
   Conservar escritura legítima de informes y full-access vigente. Si T9 demuestra falta de
@@ -134,6 +135,9 @@ live/pagadas, instalaciones, cambios de trust ni publicación.
   · pruebas: **V11, V18, V20**, nuevo `engines/codex/__tests__/role-mcp-policy.test.ts` —
   campo ausente, allowlist sin grant, wildcard, filtro más estrecho y config usuario intacta;
   registro live T9 sustenta los casos habilitados.
+  · estado: cerrada como limitación documentada sin traducción habilitada. T9 corrida 2 mostró que
+  `mcp_servers` en el TOML del rol no estrecha ni amplía y que un bloque parcial invalida el rol;
+  R11 permanece brecha visible, no cumplida.
   · depende de: T9.
 
 - [ ] **T11** (R8, R9, R10) — Ajustar normalizador/matchers únicamente con eventos realmente
