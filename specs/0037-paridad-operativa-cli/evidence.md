@@ -135,3 +135,13 @@ Un `ok:true`, archivo presente, contador de perfiles, hook Trusted, alias sinté
 completo no demuestra ejecución efectiva. Un bloqueo de sandbox en esta sesión no demuestra un
 fallo en Warp. La versión de un modelo no mide calidad. El contenido de un scratch o una memoria
 no sustituye fuente/versiones y un registro redactado reproducible para aceptar implementación.
+
+## T7 — Retiro seguro y revisión de trust
+
+Las pruebas dirigidas cubren la paridad de retiro Codex/Claude y las advertencias de hooks residuales
+(A1: 5 archivos, 152 pruebas); trust, fallo de backup y TOML ajeno en un home falso aislado (A2:
+2 archivos, 19 pruebas); y migración desde antes de T5, idempotencia y preservación al retirar en
+Claude (A3: 2 archivos, 19 pruebas). `bun typecheck` y `bun lint` pasaron. Las pruebas respaldan la
+preservación de archivos modificados y ajenos, la revisión de bytes de scripts y las señales del
+doctor; no se modificó ningún home real de Codex ni se afirma paridad live de Codex. El quality gate
+completo del repositorio y la revisión fresca siguen pendientes.

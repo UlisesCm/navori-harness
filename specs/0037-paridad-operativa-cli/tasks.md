@@ -1,6 +1,8 @@
 # Paridad operativa Claude / Codex CLI — Tasks
 
-**Estado:** T1–T6, T8, T12–T14 aprobados y completos; 10 de 19 tareas completas y 9 pendientes.
+**Estado:** T1–T6, T8, T12–T14 completos; 10 de 19 tareas completas y 9 pendientes. T7 está en
+revisión: su última implementación corrigió la regresión de autoría con `verifyHash` opt-in en las
+rutas de scripts de plugin; revisión fresca y quality gate completo pendientes.
 T9 sigue pendiente: L03 se intentó y quedó inconcluso; L04 no se ejecutó ([registro](live-t9.md)).
 No es un pass. Las autorizaciones puntuales para estas tareas no cubren otras tareas, campañas
 live/pagadas, instalaciones, cambios de trust ni publicación.
@@ -93,6 +95,9 @@ live/pagadas, instalaciones, cambios de trust ni publicación.
   · pruebas: **V18, V20**, `plugin-scripts-managed.test.ts`, `plugin-lifecycle.test.ts`,
   `commands/__tests__/codex-trust.test.ts` — upgrade desde release/base conservada y segunda render.
   · depende de: T5–T6.
+  · evidencia de implementación: A1 5 archivos/152 pruebas, A2 2/19, A3 2/19; `bun typecheck` y
+  `bun lint` verdes. `test:coverage` completo pasó en tiempo del implementer (316 archivos, 5,786
+  pruebas); revisión fresca pendiente y sin veredicto APPROVED; no acredita paridad live.
 
 ## Lote D — Profundidad de orquestación sin costo always-on duplicado
 
