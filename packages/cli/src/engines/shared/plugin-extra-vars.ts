@@ -1,33 +1,21 @@
 import type { NavoriConfig } from "../../lib/config/config.ts";
 
 /**
- * Presets whose frontend-heavy codebases (JSX/TSX, generated component
- * boilerplate) tolerate more incidental duplication before jscpd's
- * duplication threshold is relaxed to 10%. Every other preset (backends,
- * workers) keeps the stricter 5% default.
- */
-const FRONTEND_PRESETS = new Set([
-  "vite-react-ts",
-  "vite-react-ts-mantine",
-  "nextjs",
-  "astro",
-  "react-native-expo",
-]);
-
-/** jscpd duplication threshold (percent) for a preset — see FRONTEND_PRESETS. */
-function jscpdThresholdForPreset(preset: string): number {
-  return FRONTEND_PRESETS.has(preset) ? 10 : 5;
-}
-
-/**
  * `extraVars` every plugin asset render needs, computed once and reused by
  * both scripts and skill-extension renders across every engine (#1055). A
- * plugin value derived from config (not a declared schema field, e.g.
- * jscpdThreshold) has no other channel into `interpolate` — `resolvePath`
- * only walks `NavoriConfig` itself for declared fields, so a derived value
- * MUST arrive through `extraVars` or every render call site has to know how
- * to compute it independently (and, before this, four of five forgot to).
+ * plugin value derived from config (not a declared schema field) has no
+ * other channel into `interpolate` — `resolvePath` only walks `NavoriConfig`
+ * itself for declared fields, so a derived value MUST arrive through
+ * `extraVars` or every render call site has to know how to compute it
+ * independently (and, before this, four of five forgot to).
+ *
+ * No plugin currently needs a derived value here (jscpd's own
+ * `jscpdThreshold` was retired with #1060, since the gate now blocks on new
+ * clones rather than on a duplication percentage). The function — and the
+ * six render call sites that call it — stays wired on purpose: it is the
+ * single seam future plugins use for this, and removing it would reproduce
+ * the "four of five forgot" bug #1057 just fixed the day before this ticket.
  */
-export function pluginExtraVars(config: NavoriConfig): Record<string, string> {
-  return { jscpdThreshold: String(jscpdThresholdForPreset(config.preset)) };
+export function pluginExtraVars(_config: NavoriConfig): Record<string, string> {
+  return {};
 }

@@ -307,9 +307,11 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
     expect(script).toContain('git rev-parse --verify --quiet "$base^{commit}"');
     expect(script).not.toContain("{{branchBase}}");
     expect(script).not.toContain("{{shq:branchBase}}");
-    // {{shq:jscpdThreshold}} → threshold='5' for a non-frontend preset ("custom")
-    expect(script).toContain("threshold='5'");
-    expect(script).toContain('--threshold "$threshold"');
+    // jscpdThreshold was retired (#1060): the gate blocks on new clones vs
+    // $base_sha, not on a duplication percentage.
+    expect(script).toContain('--baseline-from-ref "$base_sha"');
+    expect(script).toContain("--fail-on-new-clones 0");
+    expect(script).not.toContain("--threshold");
     expect(script).not.toContain("{{jscpdThreshold}}");
 
     const settings = JSON.parse(readFileSync(join(cwd, ".claude/settings.json"), "utf-8"));
@@ -321,18 +323,6 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
       .find((h: { command: string }) => h.command.includes("check-jscpd.sh"));
     expect(jscpdHook?.command).toContain(".claude/scripts/check-jscpd.sh");
     expect(jscpdHook?.timeout).toBe(600);
-  });
-
-  it("uses a 10% jscpd threshold for frontend presets", () => {
-    const cfg = {
-      ...CONFIG_FULL,
-      preset: "vite-react-ts-mantine",
-      plugins: { jscpd: { enabled: true } },
-    } as unknown as NavoriConfig;
-    renderClaudeEngine(cwd, cfg);
-
-    const script = readFileSync(join(cwd, ".claude/scripts/check-jscpd.sh"), "utf-8");
-    expect(script).toContain("threshold='10'");
   });
 
   it("renders both jscpd and semgrep scripts when both plugins enabled", () => {
@@ -1096,14 +1086,15 @@ describe("renderClaudeEngine — Codex cross-model review advisory (#168)", () =
     const leader = readFileSync(join(cwd, ".claude/agents/orchestrator.md"), "utf-8");
     expect(leader).toContain('navori:managed id="codex-cross-review"');
     expect(leader).toContain("Cross-model review (Codex second opinion)");
-    // The short prompt reuses `.codex/` and read-only sandbox; `{{prTarget}}` resolved.
-    expect(leader).toContain("CODEX_HOME=$(pwd)/.codex codex exec --sandbox read-only");
-    expect(leader).toContain("origin/develop...HEAD");
-    // No `--model` pin on the exec command — Codex's default is intentional.
-    const cmdLine = leader
-      .split("\n")
-      .find((l) => l.startsWith("CODEX_HOME=$(pwd)/.codex codex exec"));
+    // The command inherits Codex's user state and effective permissions.
+    const cmdLine = leader.split("\n").find((line) => line.startsWith("codex exec "));
     expect(cmdLine).toBeDefined();
+    expect(cmdLine).toContain("origin/develop...HEAD");
+    expect(cmdLine).toMatch(/sin (editar|modificar) archivos/i);
+    expect(cmdLine).toMatch(/(sin|ni) (hacer |crear )?commits/i);
+    expect(cmdLine).not.toContain("CODEX_HOME=");
+    expect(cmdLine).not.toContain("--sandbox");
+    // No `--model` pin on the exec command — Codex's default is intentional.
     expect(cmdLine).not.toContain("--model");
   });
 

@@ -120,9 +120,20 @@ function setupFixture(scanExit: number): Fixture {
   const log = join(dir, "invocations.log");
   for (const tool of GATES) {
     const stub = join(binDir, tool);
+    // jscpd's capability probe (#1060) calls `--help` before it ever scans;
+    // answer it with both flags so the probe never intercepts the scan this
+    // fixture is actually testing. Harmless for semgrep, which never calls it.
+    const helpBranch =
+      tool === "jscpd"
+        ? `if [ "\${1:-}" = "--help" ]; then\n` +
+          `  printf '%s\\n' "--baseline-from-ref --fail-on-new-clones"\n` +
+          `  exit 0\n` +
+          `fi\n`
+        : "";
     writeFileSync(
       stub,
       `#!/usr/bin/env bash\n` +
+        helpBranch +
         `printf '%s %s\\n' ${JSON.stringify(tool)} "$*" >> ${JSON.stringify(log)}\n` +
         `printf '%s\\n' ${JSON.stringify(FINDING_LINE)}\n` +
         `exit ${scanExit}\n`,
@@ -291,3 +302,91 @@ describe.runIf(runsBash)("gate hooks — a failed `git diff` is not an empty dif
     });
   }
 });
+
+/**
+ * #1060 — jscpd's capability probe. `--baseline-from-ref`/`--fail-on-new-clones`
+ * only exist from jscpd 5.1.1 on; a binary that lacks them must BLOCK with an
+ * actionable message, never be misread as a duplication verdict.
+ *
+ * A single-file jscpd fixture, independent of `setupFixture` above: the stub's
+ * `--help` output (not its scan exit code) is what each case varies.
+ */
+function setupJscpdCapabilityFixture(helpOutput: string, hasFiles = true): Fixture {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-1060-cap-")));
+  writeFileSync(join(dir, "a.ts"), "export const a = 1;\n");
+  git(dir, "init", "-q");
+  git(dir, "add", "a.ts");
+  git(dir, "commit", "-q", "--no-verify", "-m", "base");
+  git(dir, "branch", "-M", "main");
+  const baseSha = git(dir, "rev-parse", "main").trim();
+  const baseShort = git(dir, "rev-parse", "--short", baseSha).trim();
+  if (hasFiles) writeFileSync(join(dir, "a.ts"), "export const a = 2;\n");
+
+  const binDir = join(dir, "fakebin");
+  mkdirSync(binDir);
+  const log = join(dir, "invocations.log");
+  const stub = join(binDir, "jscpd");
+  writeFileSync(
+    stub,
+    `#!/usr/bin/env bash\n` +
+      `if [ "\${1:-}" = "--help" ]; then\n` +
+      `  printf '%s\\n' ${JSON.stringify(helpOutput)}\n` +
+      `  exit 0\n` +
+      `fi\n` +
+      `printf '%s %s\\n' "jscpd" "$*" >> ${JSON.stringify(log)}\n` +
+      `printf '%s\\n' ${JSON.stringify(FINDING_LINE)}\n` +
+      `exit 0\n`,
+  );
+  chmodSync(stub, 0o755);
+
+  const hooks = { jscpd: join(dir, "jscpd-hook.sh") } as Record<GateId, string>;
+  writeFileSync(hooks.jscpd, renderGate("jscpd"));
+  chmodSync(hooks.jscpd, 0o755);
+  return { dir, binDir, log, hooks, baseSha, baseShort };
+}
+
+describe.runIf(runsBash)(
+  "jscpd capability probe — binary without the new flags BLOCKS (#1060)",
+  () => {
+    it("a --help without either flag blocks with the upgrade message, 0 scans", () => {
+      const out = acrossShells((shell) => {
+        const fx = setupJscpdCapabilityFixture("Usage: jscpd [options] <path>");
+        return runGate(fx, shell, "jscpd");
+      });
+
+      expect(out.status).toBe(BLOCKS);
+      expect(out.stderr).toContain("upgrade");
+      expect(out.stderr).toContain("5.1.1");
+      expect(out.stderr).not.toContain(FINDING_LINE);
+      expect(out.scans).toBe(0);
+    });
+
+    it("with 0 TS files to scan, an old binary does not block (never reached)", () => {
+      const out = acrossShells((shell) => {
+        const fx = setupJscpdCapabilityFixture("Usage: jscpd [options] <path>", false);
+        git(fx.dir, "checkout", "-q", "--", "a.ts");
+        return runGate(fx, shell, "jscpd");
+      });
+
+      expect(out.status).toBe(CLEAN);
+      expect(out.scans).toBe(0);
+    });
+
+    it("a long --help that DOES contain both flags does not block (no SIGPIPE false negative)", () => {
+      const longHelp =
+        "Usage: jscpd [options]\n" +
+        Array.from(
+          { length: 200 },
+          (_, i) => `  --some-unrelated-flag-${i} <value>  description text`,
+        ).join("\n") +
+        "\n  --baseline-from-ref <ref>\n  --fail-on-new-clones [<N>]\n";
+      const out = acrossShells((shell) => {
+        const fx = setupJscpdCapabilityFixture(longHelp);
+        return runGate(fx, shell, "jscpd");
+      });
+
+      expect(out.status).toBe(CLEAN);
+      expect(out.scans).toBe(1);
+    });
+  },
+);

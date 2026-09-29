@@ -38,6 +38,11 @@
 set +e
 
 payload=$(cat 2>/dev/null)
+# navori:include extract-cmd
+# Spec 0035 D2/D6: nv_project_dir is the Codex-aware fallback below ($PWD is
+# already correct when the payload's own `.cwd` resolves, which is the common
+# case on both engines).
+# navori:include hook-input
 
 navori_audit_name="worktree-reclaim"
 navori_audit_phase="SessionEnd"
@@ -72,7 +77,7 @@ cwd=""
 if [ -n "$payload" ] && command -v jq >/dev/null 2>&1; then
   cwd=$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null)
 fi
-[ -n "$cwd" ] || cwd=${CLAUDE_PROJECT_DIR:-$PWD}
+[ -n "$cwd" ] || cwd=${nv_project_dir:-$PWD}
 cd "$cwd" 2>/dev/null || exit 0
 # PHYSICAL path, symlinks resolved. `git worktree list` always prints the real
 # path, while the payload's `cwd` carries whatever the caller had — and on macOS

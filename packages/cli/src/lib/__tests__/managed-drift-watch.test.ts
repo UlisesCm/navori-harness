@@ -7,10 +7,12 @@ import {
   readFileSync,
   existsSync,
   realpathSync,
+  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { getCoreRoot } from "../render/bundled-assets.ts";
+import { expandHookIncludes } from "../render/hook-includes.ts";
 import { computeManagedHash } from "../render/marker.ts";
 import { buildClaudeSettings } from "../../engines/claude/build-settings.ts";
 import type { NavoriConfig } from "../config/config.ts";
@@ -40,20 +42,29 @@ const MINIMAL_CONFIG = {
  */
 
 const runsBash = process.platform !== "win32";
-const hookPath = resolve(getCoreRoot(), "core-assets/hooks/managed-drift-watch.sh");
+// spec 0035 D2: the hook now ships `# navori:include` directives (hook-input,
+// extract-cmd) that `navori render` inlines. Expand them once here, same as
+// `guard-destructive.test.ts`, so the tests drive exactly what a rendered
+// hook runs — running the raw source left `nv_project_dir` undefined.
+const driftSource = resolve(getCoreRoot(), "core-assets/hooks/managed-drift-watch.sh");
+const hookPath = (() => {
+  const dir = mkdtempSync(join(tmpdir(), "navori-drift-src-"));
+  const p = join(dir, "managed-drift-watch.sh");
+  writeFileSync(p, expandHookIncludes(readFileSync(driftSource, "utf-8")));
+  return p;
+})();
 
 let cwd: string;
 
-/** `git init` a fresh repo, quietly — the hook needs `--git-common-dir` to
- *  resolve (#1024), so every project dir below is a real repo unless a test
+/** `git init` a fresh repo, quietly — the hook validates its checkout root,
+ *  so every project dir below is a real repo unless a test
  *  is specifically about the no-git case. */
 function gitInit(dir: string): void {
   execFileSync("git", ["-C", dir, "init", "-q"], { stdio: "ignore" });
 }
 
-/** The absolute, resolved `--git-common-dir` for `dir` — what the hook itself
- *  computes, used here to locate the stamp independently of the hook's own
- *  logic (never assert against a copy of the thing under test). */
+/** The legacy shared Git dir, used only to assert old stamps remain untouched
+ *  and linked worktrees share metadata despite isolated stamps. */
 function gitCommonDir(dir: string): string {
   const raw = execFileSync("git", ["-C", dir, "rev-parse", "--git-common-dir"], {
     encoding: "utf-8",
@@ -114,9 +125,9 @@ describe.runIf(runsBash)("managed-drift-watch.sh (#530)", () => {
   it("says nothing on its first run — it adopts the current state as baseline", () => {
     writeManagedClaudeMd("Managed body.");
     expect(runHook().code).toBe(0);
-    // #1024: the stamp lives under the shared `.git`, never `.claude/` — see
+    // The stamp lives in checkout-local state, never `.claude/` — see
     // the dedicated describe block below for the worktree/no-git cases.
-    expect(existsSync(join(gitCommonDir(cwd), "navori", "managed-drift-stamp"))).toBe(true);
+    expect(existsSync(join(cwd, ".navori", "state", "hooks", "managed-drift-stamp"))).toBe(true);
     expect(existsSync(join(cwd, ".claude", ".managed-drift-stamp"))).toBe(false);
   });
 
@@ -278,14 +289,11 @@ describe.runIf(runsBash)("managed-drift-watch.sh (#530)", () => {
 });
 
 /**
- * #1024 — where the stamp lives. Both cases the workplan calls out explicitly:
- * a worktree (where `.git` is a FILE pointing at the main checkout) must
- * resolve to the shared state dir, and running outside a git repo at all must
- * degrade to "write nothing, exit 0, no new stderr" rather than fall back to
- * `.claude/` — the exact untracked-file shape #1024 exists to close.
+ * Spec 0036 — linked worktrees must have isolated stamps, and an unavailable
+ * checkout must degrade to "write nothing, exit 0, no new stderr".
  */
 describe.runIf(runsBash)("managed-drift-watch.sh — where the stamp lives (#1024)", () => {
-  it("writes the stamp under the shared .git when run inside an agent worktree", () => {
+  it("writes an isolated stamp inside an agent worktree", () => {
     const branch = "wt-1024";
     const wtDir = join(cwd, ".claude", "worktrees", branch);
     mkdirSync(join(cwd, ".claude", "worktrees"), { recursive: true });
@@ -309,19 +317,32 @@ describe.runIf(runsBash)("managed-drift-watch.sh — where the stamp lives (#102
     execFileSync("git", ["-C", cwd, "worktree", "add", "-q", "-b", branch, wtDir], {
       stdio: "ignore",
     });
+    // Covers: R2, R10
+    const otherDir = join(cwd, ".claude", "worktrees", "wt-1046-other");
+    execFileSync("git", ["-C", cwd, "worktree", "add", "-q", "-b", "wt-1046-other", otherDir], {
+      stdio: "ignore",
+    });
     writeFileSync(
       join(wtDir, "CLAUDE.md"),
       `<!-- navori:managed id="demo" hash="${computeManagedHash("Managed body.")}" version="9.9.9" source="@navori/core" -->\nManaged body.\n<!-- /navori:managed id="demo" -->\n`,
       "utf-8",
     );
+    writeFileSync(join(otherDir, "CLAUDE.md"), readFileSync(join(wtDir, "CLAUDE.md"), "utf-8"));
 
     const result = runHook(undefined, wtDir);
     expect(result.code).toBe(0);
 
-    // Same common dir the MAIN checkout resolves to — the stamp is shared, not
-    // duplicated per worktree.
+    // Linked worktrees share a Git dir, but must not share detector state.
     expect(gitCommonDir(wtDir)).toBe(gitCommonDir(cwd));
-    expect(existsSync(join(gitCommonDir(wtDir), "navori", "managed-drift-stamp"))).toBe(true);
+    expect(existsSync(join(cwd, ".navori", "state", "hooks", "managed-drift-stamp"))).toBe(false);
+    expect(existsSync(join(wtDir, ".navori", "state", "hooks", "managed-drift-stamp"))).toBe(true);
+    expect(existsSync(join(otherDir, ".navori", "state", "hooks", "managed-drift-stamp"))).toBe(
+      false,
+    );
+    expect(runHook(undefined, otherDir).code).toBe(0);
+    expect(existsSync(join(otherDir, ".navori", "state", "hooks", "managed-drift-stamp"))).toBe(
+      true,
+    );
     // Nothing was ever written under the worktree's own `.claude/`.
     expect(existsSync(join(wtDir, ".claude", ".managed-drift-stamp"))).toBe(false);
   });
@@ -339,5 +360,36 @@ describe.runIf(runsBash)("managed-drift-watch.sh — where the stamp lives (#102
     expect(result.code).toBe(0);
     expect(result.stderr).toBe("");
     expect(existsSync(join(noGitDir, ".claude", ".managed-drift-stamp"))).toBe(false);
+  });
+
+  // Covers: R10
+  it("leaves the old shared stamp untouched and skips unsafe or missing roots", () => {
+    const legacy = join(gitCommonDir(cwd), "navori", "managed-drift-stamp");
+    mkdirSync(join(gitCommonDir(cwd), "navori"), { recursive: true });
+    writeFileSync(legacy, "legacy-stamp\n");
+    writeManagedClaudeMd("Managed body.");
+    expect(runHook().code).toBe(0);
+    expect(readFileSync(legacy, "utf-8")).toBe("legacy-stamp\n");
+
+    const unsafe = mkdtempSync(join(tmpdir(), "navori-drift-unsafe-"));
+    const anotherRepo = mkdtempSync(join(tmpdir(), "navori-drift-symlink-"));
+    gitInit(anotherRepo);
+    symlinkSync(unsafe, join(anotherRepo, ".navori"));
+    expect(runHook(undefined, anotherRepo)).toEqual({ code: 0, stderr: "" });
+    expect(existsSync(join(unsafe, "state"))).toBe(false);
+    expect(runHook(undefined, "")).toEqual({ code: 0, stderr: "" });
+  });
+
+  // Covers: R10
+  it("does not follow a final stamp symlink outside the checkout", () => {
+    writeManagedClaudeMd("Managed body.");
+    const outside = join(mkdtempSync(join(tmpdir(), "navori-drift-target-")), "target");
+    writeFileSync(outside, "outside-content\n");
+    const stateDir = join(cwd, ".navori", "state", "hooks");
+    mkdirSync(stateDir, { recursive: true });
+    symlinkSync(outside, join(stateDir, "managed-drift-stamp"));
+
+    expect(runHook()).toEqual({ code: 0, stderr: "" });
+    expect(readFileSync(outside, "utf-8")).toBe("outside-content\n");
   });
 });

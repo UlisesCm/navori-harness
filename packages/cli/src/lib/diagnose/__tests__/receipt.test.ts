@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+  realpathSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkReceipt, formatReceipt, signReceipt, type ReceiptOptions } from "../receipt.ts";
@@ -15,7 +24,7 @@ function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 }
 function fixture(): ReceiptOptions {
-  const root = mkdtempSync(join(tmpdir(), "navori-receipt-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "navori-receipt-")));
   workspaces.push(root);
   const remote = join(root, "remote.git");
   const cwd = join(root, "repo");
@@ -81,6 +90,23 @@ describe("sign", () => {
     expect(receipt).toContain("new file.ts");
     expect(receipt).toContain("untracked.ts");
     expect(receipt).not.toContain("impl.md");
+  });
+
+  // Covers: R6
+  it("rejects a preexisting receipt temp symlink without writing outside the checkout", () => {
+    const options = fixture();
+    writeFileSync(join(options.cwd, "base.txt"), "reviewed\n");
+    const external = mkdtempSync(join(tmpdir(), "navori-receipt-external-"));
+    workspaces.push(external);
+    const outside = join(external, "outside.txt");
+    writeFileSync(outside, "unchanged\n");
+    const temporary = join(options.cwd, options.dir, `receipt.txt.tmp-${process.pid}`);
+    mkdirSync(join(options.cwd, options.dir), { recursive: true });
+    symlinkSync(outside, temporary);
+    const signed = signReceipt(options);
+    expect(signed.exitCode).toBe(1);
+    expect(signed.result.error).toContain("escapes checkout");
+    expect(readFileSync(outside, "utf8")).toBe("unchanged\n");
   });
 
   // Covers: R1, R3
@@ -379,6 +405,60 @@ describe("receipt v2 evidence identity", () => {
     expect(checked.result.fresh).toBe(false);
     expect(checked.result.status).toBe("ok");
     expect(checked.exitCode).toBe(0);
+  });
+
+  // Covers: R6
+  it("rejects symlinked active and consumed receipts before reading outside the checkout", () => {
+    const options = fixture();
+    const external = mkdtempSync(join(tmpdir(), "navori-receipt-external-"));
+    workspaces.push(external);
+    const outside = join(external, "receipt.txt");
+    writeFileSync(outside, "outside receipt\n");
+    mkdirSync(join(options.cwd, options.dir), { recursive: true });
+    symlinkSync(outside, join(options.cwd, options.dir, "receipt.txt"));
+    const active = checkReceipt(options);
+    expect(active.exitCode).toBe(1);
+    expect(active.result.error).toContain("escapes checkout");
+    rmSync(join(options.cwd, options.dir, "receipt.txt"));
+    symlinkSync(outside, join(options.cwd, options.dir, "receipt.consumed.txt"));
+    const consumed = checkReceipt({ ...options, includeConsumed: true });
+    expect(consumed.exitCode).toBe(1);
+    expect(consumed.result.error).toContain("escapes checkout");
+    expect(readFileSync(outside, "utf8")).toBe("outside receipt\n");
+  });
+
+  // Covers: R5
+  it("rejects an active receipt for a different feature even with explicit --dir", () => {
+    const options = fixture();
+    writeFileSync(join(options.cwd, "base.txt"), "reviewed\n");
+    expect(signReceipt(options).exitCode).toBe(0);
+    const receiptFile = join(options.cwd, options.dir, "receipt.txt");
+    const content = readFileSync(receiptFile, "utf8").replace(
+      `feature=${options.feature}`,
+      "feature=other",
+    );
+    writeFileSync(receiptFile, content);
+    const checked = checkReceipt({ ...options, dir: ".claude/progress" });
+    expect(checked.exitCode).toBe(1);
+    expect(checked.result.error).toContain('belongs to feature "other"');
+  });
+
+  // Covers: R5
+  it("rejects a consumed receipt for a different feature even with explicit --dir", () => {
+    const options = fixture();
+    writeFileSync(join(options.cwd, "base.txt"), "reviewed\n");
+    expect(signReceipt(options).exitCode).toBe(0);
+    const receiptFile = join(options.cwd, options.dir, "receipt.txt");
+    const consumedFile = join(options.cwd, options.dir, "receipt.consumed.txt");
+    renameSync(receiptFile, consumedFile);
+    const content = readFileSync(consumedFile, "utf8").replace(
+      `feature=${options.feature}`,
+      "feature=other",
+    );
+    writeFileSync(consumedFile, content);
+    const checked = checkReceipt({ ...options, dir: ".claude/progress", includeConsumed: true });
+    expect(checked.exitCode).toBe(1);
+    expect(checked.result.error).toContain('belongs to feature "other"');
   });
 
   // Covers: R6

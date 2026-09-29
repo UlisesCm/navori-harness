@@ -12,12 +12,12 @@ function config(preset: string): NavoriConfig {
   });
 }
 
-describe("pluginExtraVars (#1055)", () => {
-  it("derives jscpdThreshold=10 for a frontend preset", () => {
-    expect(pluginExtraVars(config("vite-react-ts"))).toEqual({ jscpdThreshold: "10" });
+describe("pluginExtraVars (#1055, retired jscpdThreshold in #1060)", () => {
+  it("returns an empty set — no plugin currently needs a derived extraVar", () => {
+    expect(pluginExtraVars(config("vite-react-ts"))).toEqual({});
   });
 
-  it("derives jscpdThreshold=5 for a non-frontend preset", () => {
-    expect(pluginExtraVars(config("custom"))).toEqual({ jscpdThreshold: "5" });
+  it("stays empty regardless of preset — the mechanism, not a jscpd-specific value", () => {
+    expect(pluginExtraVars(config("custom"))).toEqual({});
   });
 });

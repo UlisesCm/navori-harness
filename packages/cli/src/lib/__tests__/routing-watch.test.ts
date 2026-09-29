@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -114,16 +115,15 @@ function runHook(shell: HookShell, cwd: string, payload: Record<string, unknown>
   return { code: r.status ?? -1, stdout: r.stdout ?? "" };
 }
 
-/** `git init` a fresh repo, quietly — the hook needs `--git-common-dir` to
- *  resolve its stamp (#1024), so every project dir below is a real repo
+/** `git init` a fresh repo, quietly — the hook validates its checkout root,
+ *  so every project dir below is a real repo
  *  unless a test is specifically about the no-git case. */
 function gitInit(dir: string): void {
   execFileSync("git", ["-C", dir, "init", "-q"], { stdio: "ignore" });
 }
 
-/** The absolute, resolved `--git-common-dir` for `dir` — what the hook itself
- *  computes, used here to locate the stamp independently of the hook's own
- *  logic. Realpath'd: macOS resolves a worktree's gitdir file to an absolute
+/** The legacy shared Git dir, used to assert old stamps remain untouched.
+ *  Realpath'd: macOS resolves a worktree's gitdir file to an absolute
  *  path through `/tmp`'s `/private` symlink but leaves a plain repo's
  *  relative `.git` alone, so the two forms need normalizing before comparing. */
 function gitCommonDir(dir: string): string {
@@ -133,9 +133,9 @@ function gitCommonDir(dir: string): string {
   return realpathSync(raw.startsWith("/") ? raw : join(dir, raw));
 }
 
-/** The stamp dir the hook writes to for `dir`'s repo — `<git-common-dir>/navori/routing-watch`. */
+/** The checkout-local stamp dir for a repository. */
 function stampDirFor(dir: string): string {
-  return join(gitCommonDir(dir), "navori", "routing-watch");
+  return join(dir, ".navori", "state", "hooks", "routing-watch");
 }
 
 /**
@@ -352,21 +352,21 @@ describe.runIf(runsBash)("routing-watch.sh — and never becomes noise (spec 002
   // fixture would assert the opposite of what it sets up (containers run as
   // root; the CI runner does not).
   it.runIf(process.getuid?.() !== 0)("sale 0 aunque no pueda escribir el sello", () => {
-    // A read-only `.git`: the hook cannot `mkdir -p` its state dir there
-    // (#1024 moved it off `.claude/`, so a read-only `.claude/` no longer has
-    // anything to do with this). It must stay silent and exit 0 — a
+    // A read-only checkout-local hook state dir cannot hold the stamp.
+    // It must stay silent and exit 0 — a
     // PostToolUse hook runs after tool calls all session long, so failing
     // loudly there is worse than never warning.
     const runs = acrossShells((shell) => {
       const cwd = mkdtempSync(join(tmpdir(), "navori-routing-ro-"));
       mkdirSync(join(cwd, ".claude"), { recursive: true });
       gitInit(cwd);
-      const gitDir = join(cwd, ".git");
-      chmodSync(gitDir, 0o500);
+      const stateDir = join(cwd, ".navori", "state", "hooks");
+      mkdirSync(stateDir, { recursive: true });
+      chmodSync(stateDir, 0o500);
       const out = [edit("src/a.ts"), edit("src/b.ts"), edit("src/c.ts"), edit("src/d.ts")].map(
         (p) => runHook(shell, cwd, p),
       );
-      chmodSync(gitDir, 0o700);
+      chmodSync(stateDir, 0o700);
       return out;
     });
 
@@ -410,9 +410,9 @@ describe("routing-watch — wiring (spec 0020)", () => {
     const plan = resolveHarnessPlan(MINIMAL_CONFIG, resolve(getCoreRoot(), "core-assets"), null);
     expect(plan.hooks.map((h) => h.id)).toContain("routing-watch");
 
-    // #1024: the hook itself moved its stamp OFF `.claude/`, into
-    // `<git-common-dir>/navori/` (never git-visible, whatever the ignore
-    // state) — but the entry STAYS in `EPHEMERAL_HARNESS_PATHS` (round 2, #1024):
+    // The stamp moved from `.claude/` to the Git common dir, then to
+    // checkout-local `.navori/state/hooks/`. The legacy entry stays in
+    // `EPHEMERAL_HARNESS_PATHS` (round 2, #1024):
     // a repo onboarded on navori <=0.10.0 already has the old stamp on disk,
     // this hook never deletes it, and dropping the entry untracked those
     // leftovers retroactively on every repo's next render. Legacy, not stale.
@@ -653,13 +653,11 @@ describe("shell writes reach the threshold too (#722)", () => {
 });
 
 /**
- * #1024 — where the stamp lives. Both cases the workplan calls out: a
- * worktree (`.git` is a FILE pointing at the main checkout) must resolve to
- * the shared state dir, and running outside a git repo must degrade to
- * "write nothing, exit 0" rather than fall back to `.claude/`.
+ * Spec 0036 — linked worktrees keep independent stamps, and an unavailable
+ * checkout degrades to "write nothing, exit 0".
  */
 describe.runIf(runsBash)("routing-watch.sh — where the stamp lives (#1024)", () => {
-  it("writes the stamp under the shared .git when run inside an agent worktree", () => {
+  it("writes an isolated stamp inside an agent worktree", () => {
     const main = freshProject();
     execFileSync(
       "git",
@@ -689,10 +687,18 @@ describe.runIf(runsBash)("routing-watch.sh — where the stamp lives (#1024)", (
     const r = runHook("bash", wtDir, edit("src/a.ts"));
     expect(r.code).toBe(0);
 
-    // Same common dir the MAIN checkout resolves to — the stamp is shared,
-    // not duplicated per worktree.
+    // Covers: R2, R10
+    // Linked worktrees share a Git dir, but must not share detector state.
     expect(gitCommonDir(wtDir)).toBe(gitCommonDir(main));
     expect(existsSync(join(stampDirFor(wtDir), SESSION))).toBe(true);
+    expect(existsSync(join(stampDirFor(main), SESSION))).toBe(false);
+    const otherDir = join(main, ".claude", "worktrees", "wt-1046-other");
+    execFileSync("git", ["-C", main, "worktree", "add", "-q", "-b", "wt-1046-other", otherDir], {
+      stdio: "ignore",
+    });
+    expect(existsSync(join(stampDirFor(otherDir), SESSION))).toBe(false);
+    expect(runHook("bash", otherDir, edit("src/a.ts")).code).toBe(0);
+    expect(readFileSync(join(stampDirFor(otherDir), SESSION), "utf-8")).toBe("path:src/a.ts\n");
     expect(existsSync(join(wtDir, ".claude", ".routing-watch", SESSION))).toBe(false);
   });
 
@@ -707,5 +713,46 @@ describe.runIf(runsBash)("routing-watch.sh — where the stamp lives (#1024)", (
       expect(r.code).toBe(0);
       expect(r.stdout).toBe("");
     }
+  });
+
+  // Covers: R10
+  it("preserves old stamps, sanitizes IDs, and skips unsafe or missing roots", () => {
+    const main = freshProject();
+    const legacyDir = join(gitCommonDir(main), "navori", "routing-watch");
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(join(legacyDir, SESSION), "#notified\n");
+    const rearmed = ["a", "b", "c", "d"].map((file) =>
+      runHook("bash", main, edit(`src/${file}.ts`)),
+    );
+    expect(notices(rearmed)).toHaveLength(1);
+    const payload = { ...edit("src/a.ts"), session_id: "sess/unsafe:id" };
+    expect(runHook("bash", main, payload).code).toBe(0);
+    expect(existsSync(join(stampDirFor(main), "sessunsafeid"))).toBe(true);
+    expect(readFileSync(join(legacyDir, SESSION), "utf-8")).toBe("#notified\n");
+
+    const unsafe = mkdtempSync(join(tmpdir(), "navori-routing-unsafe-"));
+    const anotherRepo = freshProject();
+    symlinkSync(unsafe, join(anotherRepo, ".navori"));
+    for (const file of ["a", "b", "c", "d"]) {
+      const result = runHook("bash", anotherRepo, edit(`src/${file}.ts`));
+      expect(result).toEqual({ code: 0, stdout: "" });
+    }
+    expect(existsSync(join(unsafe, "state"))).toBe(false);
+    expect(runHook("bash", "", edit("src/a.ts"))).toEqual({ code: 0, stdout: "" });
+  });
+
+  // Covers: R10
+  it("does not follow a final session-stamp symlink outside the checkout", () => {
+    const main = freshProject();
+    const outside = join(mkdtempSync(join(tmpdir(), "navori-routing-target-")), "target");
+    writeFileSync(outside, "outside-content\n");
+    const stateDir = stampDirFor(main);
+    mkdirSync(stateDir, { recursive: true });
+    symlinkSync(outside, join(stateDir, SESSION));
+
+    for (const file of ["a", "b", "c", "d"]) {
+      expect(runHook("bash", main, edit(`src/${file}.ts`))).toEqual({ code: 0, stdout: "" });
+    }
+    expect(readFileSync(outside, "utf-8")).toBe("outside-content\n");
   });
 });

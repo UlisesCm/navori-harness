@@ -1,5 +1,15 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  realpathSync,
+} from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { evaluatePlanGate } from "../gate.ts";
@@ -59,7 +69,8 @@ function payload(subagentType: string, prompt: string): unknown {
 }
 
 beforeEach(() => {
-  cwd = mkdtempSync(join(tmpdir(), "navori-plan-gate-"));
+  cwd = realpathSync(mkdtempSync(join(tmpdir(), "navori-plan-gate-")));
+  execFileSync("git", ["init", "-b", "main"], { cwd });
 });
 
 afterEach(() => {
@@ -82,6 +93,56 @@ describe("evaluatePlanGate — off switch and scope", () => {
   it("allows when there is no navori.config.json to read planTiers from", () => {
     const result = evaluatePlanGate(payload("implementer", "do the thing"));
     expect(result.decision).toBe("allow");
+  });
+});
+
+describe("evaluatePlanGate — enabled checkout validation (R6)", () => {
+  // Covers: R6
+  it("denies nivel-0 from non-Git and symlinked cwd values when planTiers is enabled", () => {
+    const nonGit = realpathSync(mkdtempSync(join(tmpdir(), "navori-plan-gate-nongit-")));
+    writeFileSync(
+      join(nonGit, "navori.config.json"),
+      JSON.stringify({
+        name: "gate-demo",
+        engines: ["claude"],
+        preset: "custom",
+        harness: { planTiers: true },
+      }),
+    );
+    const nonGitResult = evaluatePlanGate({
+      cwd: nonGit,
+      tool_input: { subagent_type: "implementer", prompt: "nivel-0: README.md" },
+    });
+    expect(nonGitResult.decision).toBe("deny");
+    const alias = join(cwd, "alias");
+    symlinkSync(cwd, alias);
+    writeConfig(true);
+    const aliasResult = evaluatePlanGate({
+      cwd: alias,
+      tool_input: { subagent_type: "implementer", prompt: "nivel-0: README.md" },
+    });
+    expect(aliasResult.decision).toBe("deny");
+    rmSync(nonGit, { recursive: true, force: true });
+  });
+
+  // Covers: R6
+  it("keeps nivel-0 allowed from a non-Git cwd when planTiers is disabled", () => {
+    const nonGit = realpathSync(mkdtempSync(join(tmpdir(), "navori-plan-gate-off-")));
+    writeFileSync(
+      join(nonGit, "navori.config.json"),
+      JSON.stringify({
+        name: "gate-demo",
+        engines: ["claude"],
+        preset: "custom",
+        harness: { planTiers: false },
+      }),
+    );
+    const result = evaluatePlanGate({
+      cwd: nonGit,
+      tool_input: { subagent_type: "implementer", prompt: "nivel-0: README.md" },
+    });
+    expect(result.decision).toBe("allow");
+    rmSync(nonGit, { recursive: true, force: true });
   });
 });
 
@@ -148,6 +209,23 @@ describe("evaluatePlanGate — escalation after two rejections (R19)", () => {
       `# Review\n\n**Final verdict:** CHANGES_REQUESTED\n\nfix the thing\n`,
     );
   }
+
+  // Covers: R1, R9
+  it("records rejection history in the selected neutral feature root", () => {
+    writeConfig(true);
+    const neutral = join(cwd, ".navori/state/handoffs");
+    mkdirSync(neutral, { recursive: true });
+    writeFileSync(join(neutral, "workplan_demo.json"), JSON.stringify(VALID_LEVEL1));
+    writeFileSync(
+      join(neutral, "review_demo.md"),
+      "# Review\n\n**Final verdict:** CHANGES_REQUESTED\n\nfix neutral\n",
+    );
+    expect(evaluatePlanGate(payload("implementer", "workplan: demo\nfix A1")).decision).toBe(
+      "allow",
+    );
+    expect(existsSync(join(neutral, "workplan_demo.gate.jsonl"))).toBe(true);
+    expect(existsSync(join(progressDir(), "workplan_demo.gate.jsonl"))).toBe(false);
+  });
 
   it("allows the first and second dispatch even with a CHANGES_REQUESTED on record", () => {
     writeConfig(true);

@@ -151,14 +151,18 @@ const TOOL_MATCHED_EVENTS = ["PreToolUse", "PostToolUse"] as const;
 /**
  * The tool names a hook script is written to act on, read off the script itself.
  *
- * Finds the variable the script fills from `payload_field tool_name`, then
- * collects the literal labels of every `case "$<var>" in` branch, dropping the
- * catch-all `*)` (which is the discard, not an accepted tool). A script that
- * never reads `tool_name` returns an empty set: it makes no claim about tools,
- * so its matcher cannot contradict it.
+ * Finds the variable the script fills from `payload_field tool_name` — or,
+ * since spec 0035 D2, from `nv_tool` (`_partials/hook-input.sh`'s engine-aware
+ * wrapper around the same field) — then collects the literal labels of every
+ * `case "$<var>" in` branch, dropping the catch-all `*)` (which is the
+ * discard, not an accepted tool). A script that reads neither returns an
+ * empty set: it makes no claim about tools, so its matcher cannot contradict
+ * it.
  */
 function acceptedTools(script: string): Set<string> {
-  const varName = /(\w+)=\$\(payload_field tool_name\)/.exec(script)?.[1];
+  const varName =
+    /(\w+)=\$\(payload_field tool_name\)/.exec(script)?.[1] ??
+    /(\w+)=\$\(nv_tool\)/.exec(script)?.[1];
   const tools = new Set<string>();
   if (!varName) return tools;
 

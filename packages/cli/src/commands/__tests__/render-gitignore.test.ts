@@ -76,7 +76,8 @@ describe("runRender — harness .gitignore (#313)", () => {
     const content = readFileSync(join(cwd, ".gitignore"), "utf-8");
     expect(content).toContain("node_modules/");
     expect(content).toContain("dist/");
-    expect(content).toContain(".navori/");
+    expect(content).toContain(".navori/state/");
+    expect(content).not.toMatch(/^\.navori\/$/m);
   });
 
   // Covers: R7
@@ -85,7 +86,10 @@ describe("runRender — harness .gitignore (#313)", () => {
     runRender(cwd, { dryRun: false });
     // Tamper with the block body (a line inside the managed markers).
     const path = join(cwd, ".gitignore");
-    const tampered = readFileSync(path, "utf-8").replace(".navori/", ".navori/\nhand-edited-line");
+    const tampered = readFileSync(path, "utf-8").replace(
+      ".navori/state/",
+      ".navori/state/\nhand-edited-line",
+    );
     writeFileSync(path, tampered);
 
     const skipped = runRender(cwd, { dryRun: false });

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
 import { renderClaudeEngine } from "../claude/index.ts";
 import { renderCodexEngine } from "../codex/index.ts";
+import { CODEX_HOOK_REGISTRATIONS } from "../codex/hook-registrations.ts";
 
 /**
  * Inventory-parity guard between the Claude and Codex engines (Spec 0007 M1).
@@ -110,11 +111,11 @@ describe("engine inventory parity (claude ↔ codex)", () => {
 
       expect(claudeScribe).toContain("model: haiku");
       expect(claudeScribe).toContain("effort: low");
-      expect(codexScribe).toContain('model = "gpt-5.6-luna"');
+      expect(codexScribe).toContain('model = "gpt-6-luna"');
       expect(codexScribe).toContain('model_reasoning_effort = "low"');
       expect(claudeArchitect).toContain("model: opus");
       expect(claudeArchitect).toContain("effort: high");
-      expect(codexArchitect).toContain('model = "gpt-5.6-sol"');
+      expect(codexArchitect).toContain('model = "gpt-6-sol"');
       expect(codexArchitect).toContain('model_reasoning_effort = "high"');
     } finally {
       rmSync(claude, { recursive: true, force: true });
@@ -185,5 +186,24 @@ describe("engine inventory parity (claude ↔ codex)", () => {
     );
     expect(codexHooks.filter((hook) => CLAUDE_ONLY_HOOKS.has(hook))).toEqual([]);
     expect(codexHooks).toEqual(claudeHooks.filter((hook) => !CLAUDE_ONLY_HOOKS.has(hook)));
+  });
+
+  // Covers: R3, R18
+  it("every Claude hook is registered for Codex or declared unsupported", () => {
+    // Both engines copy the same hook scripts to disk (asserted above); this
+    // checks REGISTRATION, spec 0035's actual gap — a script Codex copies but
+    // never wires into `.codex/config.toml` is dead weight, not parity.
+    const claudeHooks = names(join(claudeCwd, ".claude/hooks"), stripSh);
+    const tableScripts = new Set(CODEX_HOOK_REGISTRATIONS.map((row) => row.script));
+    for (const script of claudeHooks) {
+      expect(tableScripts.has(script)).toBe(true);
+    }
+    for (const row of CODEX_HOOK_REGISTRATIONS) {
+      // The union type guarantees exactly one of the two is set; this just
+      // makes the "declared unsupported with a reason" half of R3 explicit.
+      const decided = Boolean(row.registration) !== Boolean(row.unsupported);
+      expect(decided).toBe(true);
+      if (row.unsupported) expect(row.unsupported.length).toBeGreaterThan(0);
+    }
   });
 });

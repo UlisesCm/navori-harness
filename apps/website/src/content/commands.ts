@@ -222,6 +222,28 @@ const es: Record<string, CommandDoc> = {
     ],
     notes: ["Complementa NAVORI_BENCH=1, que instrumenta los tiempos de una sola corrida."],
   },
+  codex: {
+    id: "codex",
+    title: "codex",
+    summary:
+      "Aprueba los hooks de Codex del proyecto en ~/.codex/config.toml. Codex no carga nada del repo (ni siquiera AGENTS.md) hasta que el proyecto es de confianza.",
+    usage: "navori codex trust [--yes] [--cwd <dir>]",
+    flags: [
+      { flag: "--yes", desc: "Aprueba sin pedir confirmación (uso no interactivo)." },
+      { flag: "--cwd <dir>", desc: "Directorio del repo. Default: cwd." },
+    ],
+    example: [
+      {
+        title: "Aprobar",
+        code: "$ navori codex trust\nHooks de Codex — /repo\n  .\n    ⇡ PreToolUse (^Bash$) — guard-destructive [Untrusted]\n? ¿Aprobar estos hooks en ~/.codex/config.toml? Sí\n✓ Escrito. Backup previo: ~/.navori/backups/codex-config-...\n",
+      },
+    ],
+    notes: [
+      "Muestra la tabla de hooks (evento, matcher, estado) y pide confirmación antes de escribir; sin TTY hace falta --yes.",
+      "Respalda ~/.codex/config.toml antes de editarlo y valida el resultado como TOML antes de escribir; si el archivo cambió desde que se mostró la confirmación, aborta sin escribir.",
+      "Cubre la raíz y cada workspace de un monorepo con el engine 'codex' habilitado. 'navori doctor' detecta sin escribir si falta correrlo.",
+    ],
+  },
   global: {
     id: "global",
     title: "global",
@@ -1112,6 +1134,28 @@ const en: Record<string, CommandDoc> = {
     ],
     notes: ["Complements NAVORI_BENCH=1, which instruments the timings of a single run."],
   },
+  codex: {
+    id: "codex",
+    title: "codex",
+    summary:
+      "Approves the project's Codex hooks in ~/.codex/config.toml. Codex loads nothing from the repo (not even AGENTS.md) until the project is trusted.",
+    usage: "navori codex trust [--yes] [--cwd <dir>]",
+    flags: [
+      { flag: "--yes", desc: "Approve without a confirmation prompt (non-interactive use)." },
+      { flag: "--cwd <dir>", desc: "Repo directory. Default: cwd." },
+    ],
+    example: [
+      {
+        title: "Approve",
+        code: "$ navori codex trust\nCodex hooks — /repo\n  .\n    ⇡ PreToolUse (^Bash$) — guard-destructive [Untrusted]\n? Approve these hooks in ~/.codex/config.toml? Yes\n✓ Written. Previous backup: ~/.navori/backups/codex-config-...\n",
+      },
+    ],
+    notes: [
+      "Shows the hook table (event, matcher, status) and asks for confirmation before writing; no TTY needs --yes.",
+      "Backs up ~/.codex/config.toml before editing it and validates the result as TOML before writing; aborts without writing if the file changed since the confirmation was shown.",
+      "Covers the root and every monorepo workspace with the 'codex' engine enabled. 'navori doctor' detects, without writing, when this is still needed.",
+    ],
+  },
   global: {
     id: "global",
     title: "global",
@@ -1810,6 +1854,7 @@ export const commandOrder = [
   "doctor",
   "status",
   "bench",
+  "codex",
   "audit",
   "backup",
   "migrations",

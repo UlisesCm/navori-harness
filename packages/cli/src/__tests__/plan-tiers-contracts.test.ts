@@ -222,7 +222,7 @@ describe("architect/solution-design/spec-bootstrap/orchestrator — rendered pla
     render(on, true);
     const orchestratorOn = readFileSync(join(on, ".claude/agents/orchestrator.md"), "utf-8");
     expect(orchestratorOn).toContain(
-      "`.claude/progress/workplan_<feature>.json` — the workplan source, written by you; " +
+      "`.navori/state/handoffs/workplan_<feature>.json` — the workplan source, written by you; " +
         "`workplan_<feature>.md` is `navori plan render`'s output, and `workplan_<feature>.gate.jsonl` the gate's log",
     );
     expect(orchestratorOn).toContain(
@@ -255,7 +255,7 @@ describe("implementer/reviewer/resolve-ticket — rendered plan-tiers wiring (T1
     const implementerOn = readFileSync(join(on, ".claude/agents/implementer.md"), "utf-8");
     expect(implementerOn).toContain(
       "When the encargo opens with `workplan: <feature>`, read " +
-        "`.claude/progress/workplan_<feature>.json`, run each assigned `A<n>` command and report " +
+        "`.navori/state/handoffs/workplan_<feature>.json`, run each assigned `A<n>` command and report " +
         "it in `impl_<feature>.json` under `acceptance` (`id`, `command`, `exitCode`, `excerpt`). " +
         "A file outside the workplan's files is a blocker to report, not a change to make.",
     );

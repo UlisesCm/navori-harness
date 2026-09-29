@@ -135,27 +135,22 @@ describe("scripts de plugin: marcador propio (#637)", () => {
   });
 });
 
-describe("#1055: la extensión de skill inyectada recibe el mismo jscpdThreshold que el script", () => {
+describe("#1060: la extensión de skill inyectada ya no publica jscpdThreshold (retirado)", () => {
   const reviewDiffSkill = (): string => join(cwd, ".claude/skills/review-diff/SKILL.md");
 
-  it.each([
-    ["vite-react-ts", "10"],
-    ["custom", "5"],
-  ])("preset '%s' publica el umbral %s, no el placeholder crudo", (preset, threshold) => {
-    renderClaudeEngine(cwd, config(preset));
-    const body = readFileSync(reviewDiffSkill(), "utf-8");
-    expect(body).not.toContain("<not configured: jscpdThreshold>");
-    expect(body).toContain(`--threshold '${threshold}'`);
-    expect(threshold).toBe(pluginExtraVars(config(preset)).jscpdThreshold);
-  });
+  it.each(["vite-react-ts", "custom"])(
+    "preset '%s': sin placeholder crudo y sin --threshold (el gate bloquea por clones nuevos)",
+    (preset) => {
+      renderClaudeEngine(cwd, config(preset));
+      const body = readFileSync(reviewDiffSkill(), "utf-8");
+      expect(body).not.toContain("<not configured: jscpdThreshold>");
+      expect(body).not.toContain("--threshold");
+      expect(body).toContain("--baseline-from-ref");
+      expect(body).toContain("--fail-on-new-clones 0");
+    },
+  );
 
-  it("el umbral coincide entre el script y la extensión inyectada para el mismo preset", () => {
-    renderClaudeEngine(cwd, config("vite-react-ts"));
-    const scriptBody = readFileSync(script(), "utf-8");
-    const skillBody = readFileSync(reviewDiffSkill(), "utf-8");
-    const scriptMatch = scriptBody.match(/threshold='(\d+)'/);
-    const skillMatch = skillBody.match(/--threshold '(\d+)'/);
-    expect(scriptMatch?.[1]).toBeDefined();
-    expect(scriptMatch?.[1]).toBe(skillMatch?.[1]);
+  it("pluginExtraVars sigue cableado pero no aporta ningún valor de jscpd", () => {
+    expect(pluginExtraVars(config("vite-react-ts"))).toEqual({});
   });
 });

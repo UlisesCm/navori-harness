@@ -367,6 +367,67 @@ describe("PluginManifestSchema — externalTool.pinnedVersion (#978)", () => {
 });
 
 /**
+ * #1060 — `externalTool.capabilityProbe` declares a CLI capability check for
+ * a binary whose `--version` self-report can't be trusted (jscpd@5.1.0
+ * reports `cpd 5.0.16`). `args`/`mustContain` must be non-empty — an empty
+ * probe or an empty expectation list would silently never flag a gap — and
+ * `minVersion` must be an exact x.y.z, same shape as `pinnedVersion`, even
+ * though it's display-only and never compared.
+ */
+describe("PluginManifestSchema — externalTool.capabilityProbe (#1060)", () => {
+  const withTool = (externalTool: Record<string, unknown>): { success: boolean } =>
+    PluginManifestSchema.safeParse({ ...MINIMAL, externalTool });
+
+  it("omitting capabilityProbe is legal — no capability requirement declared", () => {
+    expect(withTool({ name: "t" }).success).toBe(true);
+  });
+
+  it("accepts a well-formed probe", () => {
+    const result = withTool({
+      name: "t",
+      capabilityProbe: { args: ["--help"], mustContain: ["--flag"], minVersion: "5.1.1" },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an empty args array", () => {
+    expect(
+      withTool({
+        name: "t",
+        capabilityProbe: { args: [], mustContain: ["--flag"], minVersion: "5.1.1" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an empty mustContain array", () => {
+    expect(
+      withTool({
+        name: "t",
+        capabilityProbe: { args: ["--help"], mustContain: [], minVersion: "5.1.1" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each(["5.1", "v5.1.1", "5.1.1-beta", "^5.1.1"])(
+    "rejects minVersion %s — must be an exact x.y.z",
+    (minVersion) => {
+      expect(
+        withTool({
+          name: "t",
+          capabilityProbe: { args: ["--help"], mustContain: ["x"], minVersion },
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  it("the bundled jscpd manifest loads with a valid capabilityProbe", () => {
+    const tool = loadPlugin("jscpd").manifest.externalTool;
+    expect(tool?.capabilityProbe?.mustContain.length).toBeGreaterThan(0);
+    expect(tool?.capabilityProbe?.minVersion).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+/**
  * Covers: R13 — `mcpServer.alwaysLoad` (spec 0017 T7). The field exists because
  * of a measurement, not a preference: with an MCP server deferred, two full
  * sessions in this repo called its tools zero times; declaring `alwaysLoad`
@@ -476,20 +537,31 @@ describe("real plugin manifests — one sub-block per agent file, id and source 
  * for `doctor`. The two are independent fields with no shared source, so
  * nothing stops them drifting apart the day one is bumped and the other isn't
  * — this catches exactly that.
+ *
+ * #1060 — a manifest declaring `capabilityProbe` instead of `pinnedVersion`
+ * (jscpd: `--version` is unreliable, see the field's own JSDoc) pins the same
+ * floor via `capabilityProbe.minVersion`. Either field is an acceptable match
+ * for the `@<semver>` in `install.*` — a manifest is never expected to
+ * declare both for the same binary.
  */
-describe("real plugin manifests — install.* version pin matches externalTool.pinnedVersion (#978)", () => {
+describe("real plugin manifests — install.* version pin matches externalTool.pinnedVersion or capabilityProbe.minVersion (#978, #1060)", () => {
   const pluginIds = listKnownPluginIds();
 
-  it.each(pluginIds)("%s — every @<semver> in install.* equals pinnedVersion", (pluginId) => {
-    const tool = loadPlugin(pluginId).manifest.externalTool;
-    if (!tool?.install) return;
-    for (const [platform, command] of Object.entries(tool.install)) {
-      const match = command?.match(/@(\d+\.\d+\.\d+)\b/);
-      if (!match) continue;
-      expect(
-        tool.pinnedVersion,
-        `${pluginId}.install.${platform} pins @${match[1]} but externalTool.pinnedVersion is ${tool.pinnedVersion ?? "unset"}`,
-      ).toBe(match[1]);
-    }
-  });
+  it.each(pluginIds)(
+    "%s — every @<semver> in install.* equals pinnedVersion or capabilityProbe.minVersion",
+    (pluginId) => {
+      const tool = loadPlugin(pluginId).manifest.externalTool;
+      if (!tool?.install) return;
+      const declaredFloor = tool.pinnedVersion ?? tool.capabilityProbe?.minVersion;
+      for (const [platform, command] of Object.entries(tool.install)) {
+        const match = command?.match(/@(\d+\.\d+\.\d+)\b/);
+        if (!match) continue;
+        expect(
+          declaredFloor,
+          `${pluginId}.install.${platform} pins @${match[1]} but neither externalTool.pinnedVersion ` +
+            `nor capabilityProbe.minVersion is set to it (got ${declaredFloor ?? "unset"})`,
+        ).toBe(match[1]);
+      }
+    },
+  );
 });

@@ -1,4 +1,4 @@
-<!-- navori:managed id="orquestacion" hash="cc3dc57c" version="0.10.1" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="49bcab7e" version="0.10.1" source="@navori/core" -->
 ## Role: orchestrator (every change goes through the harness)
 
 You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator role: you decompose, you coordinate, you synthesize — but you **NEVER delegate that role**: do not invoke `Agent(subagent_type: orchestrator)`. `.claude/agents/orchestrator.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
@@ -13,17 +13,18 @@ There used to be a ladder (inline for small changes, delegate for the rest). It 
 |---|---|
 | change **source** — code, tests, config the program reads, or the harness prose an agent obeys | `implementer` → `reviewer`. Always. No file count, no triviality judgement |
 | **answer, explain, investigate, review, or plan** | you do it. Nothing is written, so there is nothing to review. Delegate only as a **lever for scale** (see the signal table) |
-| write an **ephemeral** file — `.claude/progress/*`, a scratch script, a throwaway probe | you do it. It ships nothing and reaches no diff |
+| write an **ephemeral** file — `.navori/state/handoffs/*`, a scratch script, a throwaway probe | you do it. It ships nothing and reaches no diff |
 | run commands, read files, inspect state | you do it |
 
 
 ### The mechanics
 
-- **Before dispatching**, run `navori handoff check <feature> --dir .claude/progress --json`; continue only on `"status":"ok"`.
+- **Before dispatching**, run `navori handoff check <feature> --dir .navori/state/handoffs --json`; continue only on `"status":"ok"`.
 - **1 focused `implementer`** with an explicit scope (no SDD state), then **1 `scribe`** when `impl_<feature>.json` carries `markdownRequests` (model per dispatch — the scribe's configured default for a handoff-only render, `sonnet` when a request touches the shipped diff, R8), then **1 fresh `reviewer`**. Serial — the reviewer depends on the implementer's (and, when it ran, the scribe's) output.
 - **Review AFTER implementing, never before.**
 - **Parallel `implementer`s only on disjoint files** (when in doubt, serial).
 - **`bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` green** is the reviewer's Pass 2, over the diff that ships.
+- **A verification brief names the probe criterion**, never an open "verify X"; track a long agent by its on-disk artifact, not only `done ->`.
 
 ### How much analysis does this task deserve (signal → mechanism)
 
@@ -46,13 +47,13 @@ The write is delegated unconditionally; this table is about how much **reading**
 
 ### Analytical parallelism (the lever — mechanical, not optional)
 
-Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default, so parallelism must be requested explicitly. **Independent** sub-tasks (no shared state, none depends on another's output) → same turn; serialize only on a real dependency (`implementer` → `reviewer`). Assign explicit scope before fanning out; synthesis is **never** delegated — when the `done -> file` reports return, you read the N files together and cross-check them yourself.
+Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default; parallelism must be requested explicitly. **Independent** sub-tasks (no shared state, no output dependency) → same turn; serialize only on a real dependency (`implementer` → `reviewer`). Assign explicit scope before fanning out; synthesis is **never** delegated — read the N `done -> file` reports together and cross-check them.
 
 ### When delegation is genuinely impossible
 
-Rare, and it must leave a trace: the operator forbade subagents, or the `Agent` tool is unavailable. Then you do the work and **say so in your reply, naming the reason** — the `publisher` will require `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` green from you in pre-flight, since there is no review to trust. An undeclared inline change is a deviation, not a shortcut.
+Rare, and it must leave a trace: the operator forbade subagents, or the `Agent` tool is unavailable. Then you do the work and **say why in your reply** — the `publisher` will require `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` green from you in pre-flight, since there is no review to trust. An undeclared inline change is a deviation, not a shortcut.
 
 ### Where the depth lives (read it when the moment asks)
 
-The depth sits with whoever owns the moment — open it then: **`.claude/agents/orchestrator.md`** (how to decompose, frugal delegation, the anti-broken-telephone rule and which file each agent writes under `.claude/progress/`, continuous execution and the caps that end a loop, closing the cycle, second opinion, reclaiming a worktree) · **`.claude/skills/resolve-ticket/SKILL.md`** (a ticket arrived: the pipeline) · **`.claude/skills/solution-design/SKILL.md`** (an architectural signal fired: the design pass).
+The depth sits with whoever owns the moment — open it then: **`.claude/agents/orchestrator.md`** (decomposing, frugal delegation, anti-broken-telephone, per-agent output files, continuous execution and its caps, closing the cycle, second opinion, reclaiming a worktree) · **`.claude/skills/resolve-ticket/SKILL.md`** (a ticket: the pipeline) · **`.claude/skills/solution-design/SKILL.md`** (an architectural signal: the design pass).
 <!-- /navori:managed id="orquestacion" -->

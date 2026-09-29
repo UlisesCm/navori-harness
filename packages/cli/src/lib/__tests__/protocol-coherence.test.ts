@@ -145,19 +145,19 @@ describe("R1 → PR boundary — defined once, by the agent that applies it (M6)
   });
 });
 
-describe(".claude/progress/ is created, never assumed (F9)", () => {
+describe("the neutral handoff root is created, never assumed (F9)", () => {
   // Covers: R6, R7, R8, R9
   it("delegates receipt directory creation to the receipt command", () => {
     const reviewer = read("agents/reviewer.md");
     expect(reviewer).toContain("navori receipt sign");
-    expect(reviewer).toContain("--dir .claude/progress");
-    expect(reviewer).not.toContain("> .claude/progress/receipt.txt");
+    expect(reviewer).toContain("--dir .navori/state/handoffs");
+    expect(reviewer).not.toContain("> .navori/state/handoffs/receipt.txt");
   });
 
   it("the audit pre-flights tolerate an absent directory", () => {
     const agent = read("agents/auditor.md");
     expect(agent, "agents/auditor.md pre-flight assumes the dir exists").toContain(
-      "mkdir -p .claude/progress",
+      "mkdir -p .navori/state/handoffs",
     );
     expect(agent).toMatch(/never a pre-flight failure/i);
   });

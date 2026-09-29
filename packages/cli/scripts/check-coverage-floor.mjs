@@ -26,11 +26,9 @@ import { fileURLToPath } from "node:url";
  *
  * Usage: node scripts/check-coverage-floor.mjs   (after `vitest run --coverage`)
  *
- * NAVORI_COVERAGE_DIR: same fallback as vitest.config.ts's `coverage.reportsDirectory`
- * ("coverage" by default). Both processes run in the same `&&` chain
- * (package.json's `test:coverage`), so a shell that exports the var before that
- * command isolates a concurrent local run of the gate without touching CI or the
- * default path (#909).
+ * NAVORI_COVERAGE_DIR: the coverage wrapper assigns one temporary directory before
+ * Vitest loads its config and passes the identical value here. An explicit value
+ * is caller-owned and is preserved for inspection.
  */
 
 const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");

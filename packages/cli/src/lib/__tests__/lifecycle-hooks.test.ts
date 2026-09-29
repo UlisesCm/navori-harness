@@ -168,6 +168,16 @@ describe("subagent-stop-handoff hook", () => {
   };
   const writeProgress = (name: string, body: string) => writeProgressIn(".claude", name, body);
 
+  // Covers: R1, R9, R12
+  it("inspects neutral handoffs without losing legacy backstop coverage", () => {
+    mkdirSync(join(dir, ".navori/state/handoffs"), { recursive: true });
+    writeFileSync(join(dir, ".navori/state/handoffs/impl_neutral.md"), "   \n");
+    writeProgressIn(".codex", "review_legacy.md", "# review\nno verdict here\n");
+    const message = systemMessage(run().stdout);
+    expect(message).toContain(".navori/state/handoffs/impl_neutral.md");
+    expect(message).toContain(".codex/progress/review_legacy.md");
+  });
+
   it("stays silent when there is no progress dir", () => {
     const r = run();
     expect(r.status).toBe(0);

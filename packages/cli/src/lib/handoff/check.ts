@@ -15,6 +15,7 @@ import { dirname, extname, isAbsolute, normalize, relative, resolve, sep } from 
 import { spawnSync } from "node:child_process";
 import { ImplHandoffSchema, type MarkdownRequest } from "./schema.ts";
 import { isUnderProgressDir } from "../primitives/progress-dirs.ts";
+import { FEATURE_SLUG, resolveStateRoot, stateArtifactPath } from "../primitives/state-root.ts";
 
 export type HandoffConsumer = "orchestrator" | "scribe";
 export type HandoffStatus = "ok" | "findings" | "error";
@@ -51,11 +52,6 @@ export interface HandoffCheckOptions {
    * only by the file name; R16 (worktree/branch/path) does not apply. */
   legacyMarkdown?: boolean;
 }
-
-/** `^[a-z0-9][a-z0-9._-]*$` — the same slug shape a feature/branch name
- * follows elsewhere in the CLI. Rejected before it ever forms a path, so a
- * hostile feature argument (`../../etc`) never reaches `resolve`. */
-const FEATURE_SLUG = /^[a-z0-9][a-z0-9._-]*$/;
 
 function empty(feature: string, consumer: HandoffConsumer): HandoffCheckResult {
   return {
@@ -125,7 +121,8 @@ function checkLegacyMarkdown(options: HandoffCheckOptions): HandoffCheckResult {
     detail:
       "harness.scribeOwnsMarkdown is off; checked impl_<feature>.md instead of the JSON handoff",
   });
-  const path = resolve(options.cwd, options.dir, `impl_${options.feature}.md`);
+  const root = resolveStateRoot({ cwd: options.cwd, feature: options.feature, dir: options.dir });
+  const path = stateArtifactPath(root, `impl_${options.feature}.md`);
   if (!existsSync(path)) {
     result.failures.push({ check: "exists", detail: `${path} not found` });
   } else {
@@ -158,10 +155,12 @@ export function checkHandoff(options: HandoffCheckOptions): HandoffCheckResult {
       return result;
     }
 
+    const root = resolveStateRoot({ cwd: options.cwd, feature: options.feature, dir: options.dir });
+    options = { ...options, cwd: root.cwd, dir: root.dir };
     if (options.legacyMarkdown) return checkLegacyMarkdown(options);
 
     const result = empty(options.feature, options.consumer);
-    const path = resolve(options.cwd, options.dir, `impl_${options.feature}.json`);
+    const path = stateArtifactPath(root, `impl_${options.feature}.json`);
     if (!existsSync(path)) {
       result.failures.push({ check: "exists", detail: `${path} not found` });
       result.status = "findings";

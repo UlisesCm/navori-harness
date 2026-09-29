@@ -1,4 +1,4 @@
-# navori:managed start id="pr-publisher-confirm-base" hash="e4b94f8a" version="0.10.1" source="@navori/core"
+# navori:managed start id="pr-publisher-confirm-base" hash="ee57ed0c" version="0.10.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash): a `gh pr create` that did NOT come from the
@@ -39,7 +39,13 @@ set -euo pipefail
 # object member order is not a host contract: `command` can precede `cwd`, so a
 # greedy capture to the last quote would swallow the rest of the payload when
 # neither jq nor node is available.
-payload=$(cat)
+# `${payload-$(cat)}` (unset test, not `:-`) rather than an unconditional
+# `payload=$(cat)`: a caller that already captured stdin itself (spec 0035 —
+# `managed-drift-watch.sh` needs the audit recorder's session_id/cwd even on
+# tool names this hook does not otherwise read) keeps that value, empty or
+# not, instead of this partial re-reading an already-drained pipe and
+# clobbering it with "".
+payload=${payload-$(cat)}
 payload_field() {
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0

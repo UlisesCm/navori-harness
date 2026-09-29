@@ -7,6 +7,7 @@ import {
 } from "../lib/diagnose/receipt.ts";
 import { readConfig } from "../lib/config/config.ts";
 import { resolve } from "node:path";
+import { resolveStateRoot } from "../lib/primitives/state-root.ts";
 
 export function resolveReceiptOptions(args: {
   feature: string;
@@ -15,13 +16,18 @@ export function resolveReceiptOptions(args: {
   cwd?: string;
   includeConsumed?: boolean;
 }): ReceiptOptions {
-  const cwd = resolve(args.cwd ?? process.cwd());
+  const root = resolveStateRoot({
+    cwd: args.cwd ?? process.cwd(),
+    feature: args.feature,
+    dir: args.dir,
+  });
+  const cwd = root.cwd;
   const config = readConfig(resolve(cwd, "navori.config.json"));
   return {
     cwd,
     feature: args.feature,
     target: args.target ?? config.prTarget ?? config.branchBase,
-    dir: args.dir ?? ".claude/progress",
+    dir: root.dir,
     gate: config.qualityGate?.full ?? "",
     includeConsumed: args.includeConsumed,
   };

@@ -10,6 +10,19 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-09-26 22:36 — orchestrator — checkpoint #1046: estado efímero neutral
+- Cambios: checkpoint de #1046 en `progress/current.md`; T1–T5 y T8 están revisados/aprobados.
+  T6–T7 esperan el merge de #1071 para inspeccionar el helper/parser real; T9 sigue pendiente. La
+  documentación T8 está en `adf65d01`. Se abrió el PR draft [#1074](https://github.com/UlisesCm/navori-harness/pull/1074)
+  contra `main`, con commits `24a96619`, `7f19026b` y `ce5398ce`, sin `Closes #1046` hasta completar
+  T6–T9; CI está en progreso.
+- Quality gate: ⚠️ el último reviewer de T8 aprobó con gate completo (291 archivos, 5340 tests), pero
+  el receipt actual tiene drift del checkbox T8; se revalidará en el siguiente ciclo y no se afirma
+  como evidencia fresca en este checkpoint.
+- Notas: no tocar el checkout raíz que usa otra sesión.
+- Commit / PR: checkpoint previo `7be1f5bc`; PR draft [#1074](https://github.com/UlisesCm/navori-harness/pull/1074)
+  abierto contra `main`; commits `24a96619`, `7f19026b` y `ce5398ce`.
+
 ## 2026-09-26 22:29 — orchestrator — Spec 0034: Lote B integrado, T8 conservada en worktree
 - Cambios: #1072 (T4–T5) y #1073 (T6–T7) mergeados en `master-plan`. T8 (`status`, `part`,
   evidencia de aceptación y comparación de regiones) quedó sin commit en `feat/0034-lote-c`.
@@ -19,6 +32,15 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
   siguiente paso. Publicar T8 desde este worktree; no borrar el worktree ni limpiar sus cambios
   antes de abrir el PR.
 - Commit / PR: #1072 (`2cd46598`), #1073 (`362bc877`); T8 pendiente de publicación.
+
+## 2026-09-25 21:54 — orchestrator — #1019: dist y coverage aislados entre corridas
+- Cambios: el lock de `dist/` ahora dura toda la suite Vitest y se limita al checkout; `test:coverage`
+  asigna un directorio único antes de iniciar Vitest y pasa el mismo reporte al coverage floor.
+  La revisión detectó y corrigió un lock huérfano si fallaba la escritura de `owner.json`.
+- Quality gate: ✅ gate completo local verde (5312 tests pasaron, 1 omitido); CI `quality` del PR verde.
+- Notas: un lock huérfano no se reclama por antigüedad; tras verificar que no queda una suite activa,
+  la limpieza es manual. El PR sigue abierto, no mergeado.
+- Commit / PR: `86c37376` / #1070 (`Closes #1019`).
 
 ## 2026-09-25 19:30 — orchestrator — Spec 0034: Lote A y primera mitad del Lote B
 - Cambios: rama de integración `master-plan` creada desde `main`. Lote A (T1–T3: esquemas,
@@ -32,6 +54,24 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
   el encabezado `Integridad` fijo en español; ahora una tabla ausente también falla. El jscpd del
   pre-commit bloqueó un clon de helpers de test (se extrajeron a `test-utils.ts`).
 - Commit / PR: #1065 (Lote A); Lote B T4–T5 en el PR de `feat/0034-lote-b`.
+
+## 2026-09-25 17:30 — orchestrator — Issues post-0.10.1: tailwind, workspace, receipt, links, jscpd, classify, architect
+- Cambios: 7 PRs — #1058 (#1052 `tailwind-v4` solo con tailwindcss >= 4), #1059 (#1054 `init` infiere el
+  workspace), #1061 (#1038 blob sin hashear en `receipt`), #1062 (#1031 fences sin cerrar y excepciones
+  obsoletas en `check-links`), #1066 (#1060 jscpd bloquea solo clones nuevos y exige >= 5.1.1, nivel 2),
+  #1068 (#1067 `plan classify` lee el borrador) y el PR de #1063 (el `architect` escribe el borrador
+  primero y prueba con criterio). #1025 cerrado con repro en una copia de `services--calendar`.
+  Issues nuevos: #1060, #1067.
+- Quality gate: ✅ `bun check` verde en cada review; A8 de #1060 verificado a mano con jscpd 5.3.2.
+- Notas: #1060 es breaking: cada máquina con jscpd < 5.1.1 bloquea commits TS tras re-renderizar
+  (`pnpm add -g jscpd@^5.1.1`). El usuario eligió R1 (conservar `pluginExtraVars`). Un implementer que
+  solo produce `markdownRequests` pierde su `impl_*.json` cuando el worktree se borra solo (sin cambios
+  versionados), y el handoff queda apuntando a una ruta muerta; se recuperó reescribiéndolo en el
+  checkout principal. En prosa managed, medir contra el cap no basta: `doc-budgets-check.test.ts`
+  exige ≥5% de holgura y varios tests fijan literales. El publisher siguió inventando datos en el
+  cuerpo del PR; se resolvió pasándole un body-file verificado. `bun.lock` arrastra un desfase
+  0.9.0→0.10.1 que cada `bun install` ensucia.
+- Commit / PR: #1058, #1059, #1061, #1062, #1066, #1068, PR de #1063
 
 ## 2026-09-24 23:30 — orchestrator — Release 0.10.1
 - Cambios: 10 PRs mergeados — #1032 (#1025 bug 2), #1033 (#1023), #1036 (#1027), #1040 (#1037),
@@ -2140,3 +2180,81 @@ dos— lo que apunta a sleep/wake del sistema; no corrompe el índice y no se ab
 **Gate**: no corrió, y no aplica — cero archivos del repo editados en todo el ciclo. El trabajo fue
 lectura, seis issues, un LaunchAgent fuera del repo y este cierre. `git status` limpio antes y
 después.
+
+## 2026-09-27 20:12 Codex — Spec 0035: paridad y default de permisos
+
+- La rama `spec/0035-paridad-codex` quedó sobre `origin/main`; T1–T13 están marcadas en la spec. Codex plan-gate permanece diferido por un smoke que permitió crear un implementer sin workplan.
+- T11 se probó en un checkout aislado: `sync` sin drift, `trust` y `doctor` con 12/12 hooks Trusted, contexto `SessionStart` recibido y aviso real de `routing-watch` tras cuatro archivos de prueba. El smoke no demuestra ejecución individual de todos los hooks.
+- R20 genera `danger-full-access` con `on-request` y revisor `user`; los subagentes heredan el default. Las reglas y `guard-destructive` tienen cobertura acotada, no restituyen el aislamiento. Los repos existentes lo adoptan solo tras `render` o `sync` en un proyecto confiable; la política del host y los overrides explícitos prevalecen.
+- Upgrade aislado: una actualización con backup, seguida de una ejecución idempotente sin cambios. `codex doctor` confirmó en su check de sandbox acceso irrestricto por defecto y acceso restringido con override CLI; el doctor completo salió 1 por otros diagnósticos.
+- Reviewer aprobó el código R20 con gate completo verde (297 archivos, 5402 tests aprobados, 1 omitido). Falta refrescar revisión y receipt tras el checkbox T13, hacer commit y abrir PR a `main`. `progress/current.md` conserva el checkpoint independiente de #1046.
+
+## 2026-09-28 08:57 Codex — Corrige outputs de hooks Codex (#1078)
+
+- `Stop` y `SubagentStop` reciben JSON válido para Codex mediante argumento explícito `codex`; Claude conserva su contexto de agente. Un fallo de serialización ya no marca un aviso de handoff como entregado.
+- Se regeneraron los mirrors y golden snapshots de ambos engines. El smoke real de Codex 0.157.1 aceptó los hooks sin errores de parseo; no demuestra entrega del aviso al agente padre.
+- Reviewer R2 `APPROVED`; gate completo verde y receipt `1078` fresco en `.codex/progress`. El commit y PR a `main` siguen pendientes al momento de este registro.
+
+## 2026-09-28 09:38 Codex — Corrige la segunda opinión de Codex (#1079)
+
+- El comando generado de cross-review ya no sustituye `CODEX_HOME` ni fuerza `--sandbox read-only`: usa autenticación y permisos efectivos del usuario/proyecto. El prompt pide inspeccionar sin editar archivos ni hacer commits, pero no promete aislamiento técnico.
+- La prosa aclara que `codex exec` raíz no activa `reviewer.toml` y que Full Access puede modificar archivos o usar red. Se actualizaron el asset, su prueba, el golden y el mirror administrado.
+- Reviewer R2 `APPROVED`; gate completo verde y receipt `1079` fresco en `.codex/progress`. Commit y PR a `main` pendientes al momento del registro.
+
+## 2026-09-28 10:40 Codex — #1082: documenta límite de plan-gate Codex
+## Goal
+Resolver #1082 sin afirmar enforcement de plan-gate que Codex no pueda demostrar.
+
+## Instructions
+El usuario aprobó workplan nivel 2 y probe real en checkout y HOME aislados; no tocar confianza/configuración global ni promover la capacidad sin smokes negativo y positivo concluyentes.
+
+## Discoveries
+- Codex CLI 0.158.0 emite PreToolUse para collaborationspawn_agent con message y task_name, pero sin rol tipado; task_name implementer produjo un hijo de rol default.
+- Un deny genérico vinculado al intento impidió crear el hijo; no permite aplicar selectivamente el contrato de workplan. El marcador sintético no fue legible, sin prueba de cifrado.
+- El CLI global de navori reportó drift falso del receipt; el CLI construido del checkout dio status ok y fresh true.
+
+## Accomplished
+- Probe aislado y evidencia redactada en .codex/progress/probe_1082.json; A1–A4 cumplidos.
+- Plan-gate Codex permanece sin registro y advisory; se precisó la razón en registro/capability, pruebas de payload e inventario, y docs/research/codex-plan-gate-1082.md.
+- Reviewer APPROVED; gate completo verde y receipt del checkout fresco. El PR a main se publica en este ciclo.
+
+## Next Steps
+- Dar seguimiento al PR hasta merge; reintentar enforcement sólo cuando Codex exponga rol tipado y apertura de workplan legible y pasen ambos smokes.
+- Reanudar #1046 en su worktree independiente cuando corresponda.
+
+## Relevant Files
+- packages/cli/src/engines/codex/hook-registrations.ts — razón de plan-gate unsupported.
+- packages/cli/src/engines/shared/engine-capabilities.ts — declaración advisory.
+- packages/cli/src/lib/__tests__/codex-hook-payloads.test.ts — fixture de payload observado.
+- packages/cli/src/engines/codex/__tests__/render-codex.test.ts — ausencia de registro.
+- packages/cli/src/engines/__tests__/control-inventory.test.ts — inventario honesto.
+- docs/research/codex-plan-gate-1082.md — evidencia y criterio de reintento.
+
+## 2026-09-28 13:28 Codex — Completa Spec 0036 (#1046)
+
+## Goal
+Completar el estado efímero neutral de engine de #1046 / Spec 0036 y preparar un PR a `main` que cierre el issue al merge.
+
+## Instructions
+El usuario decidió conservar `scribe`, cerrar #985, corregir los dos goldens de T6 y ampliar T7 tras dos rechazos. Cada lote se notificó y se dejó en un commit antes de seguir.
+
+## Discoveries
+- El hook de handoff sin includes expandidos necesitaba fallbacks para no fallar con `payload_field: command not found`; el parser compartido de Spec 0035 se reutilizó en el render.
+- Los tests de contrato que aún exigían `.claude/progress` debían migrar con los assets sin debilitar la comprobación de namespaces ni la de citas entre engines.
+- El `handoff check` de este worktree requiere `--dir .codex/progress` para encontrar los handoffs preexistentes; el estado nuevo generado usa `.navori/state/handoffs/`.
+
+## Accomplished
+- #985 se cerró con `scribe` retenido; #993 permaneció abierto.
+- T6 quedó aprobado en `aca10a6e`: stamps locales por checkout, validación del symlink final y dos goldens actualizados.
+- T7 quedó aprobado en `30ecb6a0`: assets, hooks, pruebas y espejos Claude/Codex citan el handoff neutral; gate completo verde (297 archivos, 5415 tests aprobados, 1 omitido).
+- T9 agregó una prueba real de integración para R1–R12 y confirmó anotaciones por requisito; reviewer APPROVED y gate completo exit 0. La rama queda lista para el commit final y PR a `main` con `Closes #1046`.
+
+## Next Steps
+- Publicar el PR a `main` y dar seguimiento a CI/reviews hasta el merge de #1046.
+
+## Relevant Files
+- `specs/0036-engine-neutral-state/tasks.md` — T1–T9 completos.
+- `packages/core/core-assets/hooks/subagent-stop-handoff.sh` — parser compartido y escaneo neutral/legacy.
+- `packages/cli/src/engines/codex/compat.ts` — elimina solo la reescritura de progress.
+- `packages/cli/src/lib/__tests__/engine-neutral-state-integration.test.ts` — integración R1–R12.
+- `progress/current.md` — checkpoint vuelto a idle.

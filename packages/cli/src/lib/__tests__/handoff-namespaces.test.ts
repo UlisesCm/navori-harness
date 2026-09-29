@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 
 /**
- * Coherence guard (#409): `.claude/progress/` is declared as a CLOSED set in two
+ * Coherence guard (#409): `.navori/state/handoffs/` is declared as a CLOSED set in two
  * canonical lists, and the harness kept producing artifacts outside it.
  *
  *   - `agents/orchestrator.md` § Path separation — "ONLY for ephemeral agent
@@ -30,10 +30,10 @@ import { getCoreRoot } from "../render/bundled-assets.ts";
  *
  * The assets name their artifacts in more than one shape, so three forms are
  * recognized (see the regexes below):
- *   1. canonical full path — `.claude/progress/solution_<scope>.md`
- *   2. glob under the path — `.claude/progress/audit_deep_*.md`
+ *   1. canonical full path — `.navori/state/handoffs/solution_<scope>.md`
+ *   2. glob under the path — `.navori/state/handoffs/audit_deep_*.md`
  *   3. bare filename in backticks — `impl_<feature>.md`, `review_*.md`
- *   4. literal file under the path with no placeholder — `.claude/progress/receipt.txt`
+ *   4. literal file under the path with no placeholder — `.navori/state/handoffs/receipt.txt`
  *
  * Deliberately NOT covered (a namespace mentioned ONLY this way slips through):
  *   - a bare filename with neither backticks nor the folder prefix, e.g. inside
@@ -59,11 +59,12 @@ const PRODUCER_DIRS = ["skills", "agents"] as const;
  * The namespace capture is greedy across underscores on purpose:
  * `audit_ticket_<ID>.md` yields `audit_ticket`, not `audit`.
  */
-const PATH_FORM = /\.claude\/progress\/([a-z][a-z0-9]*(?:_[a-z0-9]+)*)_(?:<[^>\n]+>|\*)\.md/g;
+const PATH_FORM =
+  /\.navori\/state\/handoffs\/([a-z][a-z0-9]*(?:_[a-z0-9]+)*)_(?:<[^>\n]+>|\*)\.md/g;
 /** Form 3 — bare filename delimited by backticks (inline code). */
 const BARE_FORM = /`([a-z][a-z0-9]*(?:_[a-z0-9]+)*)_(?:<[^>`\n]+>|\*)\.md`/g;
 /** Form 4 — literal file with no placeholder; the whole filename IS the namespace. */
-const LITERAL_FORM = /\.claude\/progress\/([a-z][a-z0-9_]*\.(?:md|txt))\b/g;
+const LITERAL_FORM = /\.navori\/state\/handoffs\/([a-z][a-z0-9_]*\.(?:md|txt))\b/g;
 
 const read = (rel: string): string => readFileSync(resolve(CORE_ASSETS, rel), "utf-8");
 
@@ -171,7 +172,7 @@ function report(missing: string[], where: string, howTo: string): string {
     .join("; ");
   return (
     `undeclared handoff namespace(s): ${detail}. ` +
-    `${where} declares .claude/progress/ as "ONLY for" a closed set, so an artifact outside it ` +
+    `${where} declares .navori/state/handoffs/ as "ONLY for" a closed set, so an artifact outside it ` +
     "is treated as a stray scratch file (ignored when synthesizing, or deleted at session closeout). " +
     `Fix in ${where}: ${howTo}`
   );
@@ -218,7 +219,7 @@ describe("handoff namespaces — producers vs. the canonical lists (#409)", () =
       report(
         missing,
         LEADER,
-        'add a bullet `- `.claude/progress/<namespace>_<placeholder>.md` — <what writes it>` to the "Expected files:" list.',
+        'add a bullet `- `.navori/state/handoffs/<namespace>_<placeholder>.md` — <what writes it>` to the "Expected files:" list.',
       ),
     ).toEqual([]);
   });

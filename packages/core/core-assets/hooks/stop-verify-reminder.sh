@@ -79,14 +79,21 @@ fi
 
 msg="navori: cambios sin commitear en el árbol. Antes de dar la tarea por terminada, corre el quality gate (evidencia fresca este turno) y haz commit — verify-before-done (P4)."
 
-# Emit the advisory on both channels at once (see "TWO CHANNELS" above).
-# node (Claude Code's own runtime) → jq → give up silently. Neither field is a
-# decision, so this stays non-blocking by contract.
+# Codex Stop accepts the common systemMessage, but not Claude's model-facing
+# hookSpecificOutput. The explicit command argument selects its event contract.
+# Capture output first so a failed formatter cannot emit partial JSON.
+output=""
 if command -v node >/dev/null 2>&1; then
-  MSG="$msg" node -e 'process.stdout.write(JSON.stringify({systemMessage:process.env.MSG,hookSpecificOutput:{hookEventName:"Stop",additionalContext:process.env.MSG}}))'
-elif command -v jq >/dev/null 2>&1; then
-  jq -n --arg m "$msg" '{systemMessage:$m,hookSpecificOutput:{hookEventName:"Stop",additionalContext:$m}}'
+  output=$(MSG="$msg" node -e 'const m=process.env.MSG;process.stdout.write(JSON.stringify(process.argv[1]==="codex"?{systemMessage:m}:{systemMessage:m,hookSpecificOutput:{hookEventName:"Stop",additionalContext:m}}))' "${1:-}" 2>/dev/null) || output=""
 fi
+if [ -z "$output" ] && command -v jq >/dev/null 2>&1; then
+  if [ "${1:-}" = "codex" ]; then
+    output=$(jq -n --arg m "$msg" '{systemMessage:$m}' 2>/dev/null) || output=""
+  else
+    output=$(jq -n --arg m "$msg" '{systemMessage:$m,hookSpecificOutput:{hookEventName:"Stop",additionalContext:$m}}' 2>/dev/null) || output=""
+  fi
+fi
+[ -z "$output" ] || printf '%s\n' "$output" || true
 navori_audit_verdict="inject"
 navori_audit_reason="cambios sin commitear"
 exit 0

@@ -36,6 +36,11 @@ describe("nestedGitignoreEntries — pure derivation", () => {
     expect(nestedGitignoreEntries(".codex")).toEqual(["progress/"]);
   });
 
+  // Covers: R7, R8, R11
+  it("protects only neutral state under .navori", () => {
+    expect(nestedGitignoreEntries(".navori")).toEqual(["state/"]);
+  });
+
   it("never lists anything a claude/codex engine needs to function", () => {
     const entries = [...nestedGitignoreEntries(".claude"), ...nestedGitignoreEntries(".codex")];
     for (const owned of ["agents/", "hooks/", "skills/", "settings.json", "config.toml"]) {
@@ -138,6 +143,30 @@ describe("renderNestedGitignore", () => {
  * exists only when the codex engine is configured.
  */
 describe("render.ts wiring", () => {
+  // Covers: R7, R8, R11
+  it.each(["local", "full"] as const)("keeps presets versionable in %s mode", (mode) => {
+    cwd = tempRepo();
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "presets-versionable",
+      engines: ["claude"],
+      preset: "custom",
+      qualityGate: { fast: "pnpm lint", full: "pnpm test" },
+      gitignoreHarness: mode,
+    });
+    const result = runRender(cwd);
+    expect(result.ok).toBe(true);
+    mkdirSync(join(cwd, ".navori", "presets"), { recursive: true });
+    writeFileSync(join(cwd, ".navori", "presets", "team.json"), "{}\n");
+    expect(() =>
+      execFileSync("git", ["-C", cwd, "add", ".navori/presets/team.json"], { stdio: "ignore" }),
+    ).not.toThrow();
+    expect(
+      execFileSync("git", ["-C", cwd, "ls-files", ".navori/presets/team.json"], {
+        encoding: "utf-8",
+      }).trim(),
+    ).toBe(".navori/presets/team.json");
+  });
+
   it("writes .claude/.gitignore even under gitignoreHarness: 'off' (the default)", () => {
     cwd = mkdtempSync(join(tmpdir(), "navori-nested-render-"));
     writeConfig(join(cwd, "navori.config.json"), {
@@ -154,8 +183,10 @@ describe("render.ts wiring", () => {
     expect(result.gitignore).toBeNull();
   });
 
-  it("does not write .codex/.gitignore when codex isn't configured", () => {
+  // Covers: R7, R11
+  it("protects both legacy roots and neutral state in Claude-only off mode", () => {
     cwd = mkdtempSync(join(tmpdir(), "navori-nested-render-"));
+    execFileSync("git", ["-C", cwd, "init", "-q"], { stdio: "ignore" });
     writeConfig(join(cwd, "navori.config.json"), {
       name: "no-codex",
       engines: ["claude"],
@@ -164,7 +195,14 @@ describe("render.ts wiring", () => {
     });
 
     const result = runRender(cwd);
-    expect(result.codexGitignore).toBeNull();
+    expect(result.codexGitignore?.status).toBe("created");
+    expect(result.navoriGitignore?.status).toBe("created");
+    for (const rel of [".claude/progress/x", ".codex/progress/x", ".navori/state/x"]) {
+      const ignored = execFileSync("git", ["-C", cwd, "check-ignore", "-v", "--no-index", rel], {
+        encoding: "utf-8",
+      });
+      expect(ignored).toContain(rel);
+    }
   });
 
   it("writes .codex/.gitignore when codex is configured", () => {

@@ -31,6 +31,27 @@ Empieza arriba y baja sólo cuando el escalón anterior se te quede corto.
 Cada escalón está pensado para que el de abajo casi nunca haga falta. Si dudas entre dos, el de
 arriba gana: siempre puedes promoverlo después, y promover es más fácil que retirar.
 
+## Migración del estado efímero
+
+El runtime guarda handoffs en `.navori/state/handoffs/` y estado de hooks en
+`.navori/state/hooks/`, ambos locales al checkout y no versionables. Durante **una versión**,
+los handoffs existentes en `.claude/progress/` y `.codex/progress/` siguen siendo legibles; una
+continuación explícita con `--dir` conserva esa ubicación. Al terminar la ventana, navori no hará
+limpieza automática: sin copiar, mover ni borrar estado antiguo o nuevo. Para rollback, usa la versión
+anterior del CLI y selecciona explícitamente el directorio con `--dir` cuando sea necesario.
+
+Los stamps anteriores en `<git-common-dir>/navori/` también quedan intactos. Cada checkout inicia
+un baseline de detector propio, así que una notificación puede **rearmarse** una vez después de la
+actualización. Esto no es una limpieza ni una migración de esos stamps. El directorio versionado
+`progress/` —incluidos `progress/current.md` y `progress/history.md`— y los presets en
+`.navori/presets/` conservan su semántica y pueden versionarse; no forman parte del estado efímero.
+
+La validación de rutas protege contra traversal y symlinks observables, bajo el supuesto de un
+**escritor local confiable**. No es una contención race-proof: **cambios concurrentes** maliciosos
+en directorios del checkout pueden redirigir lecturas o escrituras **fuera del checkout** entre
+validación y uso. Las comprobaciones estáticas reducen la ventana, pero **no garantizan** evitar
+esa **carrera**. El CLI no limpia ni repara esos paths.
+
 ---
 
 ## 1. user-section — el default, y casi siempre la mejor jugada
@@ -102,7 +123,7 @@ Un `plugin.json` te da hasta seis piezas, y usas sólo las que necesites:
 
 | Pieza | Qué te da |
 |---|---|
-| `externalTool` | binario a verificar + comando de instalación por plataforma (`darwin`/`linux`/`win32`; una clave fuera de esas tres falla al cargar) y `installDocs`, la URL oficial de instalación para la plataforma que no tenga comando |
+| `externalTool` | binario a verificar + comando de instalación por plataforma (`darwin`/`linux`/`win32`; una clave fuera de esas tres falla al cargar) y `installDocs`, la URL oficial de instalación para la plataforma que no tenga comando. Opcional: `capabilityProbe` (`{args, mustContain, minVersion}`) declara que el binario debe soportar una flag que `--version` no reporta con fiabilidad (`jscpd@5.1.0 --version` imprime `cpd 5.0.16`, un minor entero de diferencia); `doctor`/`init` corren `args` y avisan si `mustContain` no aparece en la salida. A diferencia de `pinnedVersion` (exige igualdad exacta contra `--version`), `minVersion` es solo informativo — aparece en el mensaje pero nunca se compara contra la versión instalada |
 | `managed[]` | bloque(s) inyectados en `CLAUDE.md` |
 | `settingsFragment` | los permisos que tu herramienta necesita, ya puestos |
 | `scripts[]` | archivos copiados a `.claude/scripts/` |

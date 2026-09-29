@@ -234,9 +234,11 @@ describe("quality-gate hook — runs from the repo root (#309)", () => {
     const hook = readFileSync(installHook("pnpm run typecheck"), "utf-8");
     // #454 replaced the `$CLAUDE_PROJECT_DIR`-first form: the root now comes
     // from the tree the COMMIT acts on (which is still the project root in the
-    // ordinary case), with $CLAUDE_PROJECT_DIR kept as the no-git fallback.
+    // ordinary case), with `nv_project_dir` kept as the no-git fallback (spec
+    // 0035 D2: `$CLAUDE_PROJECT_DIR` under Claude, unchanged; the payload
+    // cwd's git toplevel under Codex).
     expect(hook).toContain("gate_root=$(navori_worktree)");
-    expect(hook).toContain('cd "${gate_root:-${CLAUDE_PROJECT_DIR:-}}" || exit 2');
+    expect(hook).toContain('cd "${gate_root:-${nv_project_dir:-}}" || exit 2');
   });
 
   it("resolves a root-relative gate even when invoked from a subdir", () => {
