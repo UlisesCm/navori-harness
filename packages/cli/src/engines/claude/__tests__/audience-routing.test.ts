@@ -68,6 +68,7 @@ describe("a block addressed to the orchestrator leaves CLAUDE.md (#573)", () => 
       "arranque-sesion",
       "cierre-sesion",
       "orquestacion",
+      "plan-maestro",
       // Spec 0032 (#1011): the level table and the gate rule — same audience
       // and channel as `orquestacion`, condition-gated on `harness.planTiers`.
       "planificacion",

@@ -29,6 +29,35 @@ describe("scanControlGaps", () => {
     expect(gaps.some((g) => g.control === "plan-gate")).toBe(false);
   });
 
+  // Covers: R41
+  it("does not report master-plan when harness.masterPlan is off", () => {
+    const gaps = scanControlGaps(
+      config({
+        engines: ["claude", "codex", "agents-md", "cursor", "copilot"],
+      }),
+    );
+    expect(gaps.some((gap) => gap.control === "master-plan")).toBe(false);
+  });
+
+  // Covers: R41
+  it("reports master-plan as unsupported and warn for Codex when enabled", () => {
+    const gaps = scanControlGaps(
+      config({
+        engines: ["claude", "codex"],
+        harness: { masterPlan: true } as NavoriConfig["harness"],
+      }),
+    );
+    expect(gaps.filter((gap) => gap.control === "master-plan")).toEqual([
+      {
+        engine: "codex",
+        control: "master-plan",
+        state: "unsupported",
+        reason: "fase 2 de la spec 0034: la skill no se renderiza y no hay hook de arranque",
+        severity: "warn",
+      },
+    ]);
+  });
+
   it("does not report plan-gate when only claude is configured (enforced there)", () => {
     const cfg = config({
       engines: ["claude"],

@@ -85,6 +85,8 @@ const GUARD_HOOK_DEST = ".claude/hooks/guard-destructive.sh";
 const IMPLEMENTER_NO_MD_HOOK_DEST = ".claude/hooks/implementer-no-markdown.sh";
 const SUBAGENT_NO_BACKGROUND_HOOK_DEST = ".claude/hooks/subagent-no-background.sh";
 const PLAN_GATE_HOOK_DEST = ".claude/hooks/plan-gate.sh";
+const MASTER_PLAN_CONTEXT_HOOK_DEST = ".claude/hooks/master-plan-context.sh";
+const MASTER_ACCEPT_CONFIRM_HOOK_DEST = ".claude/hooks/master-accept-confirm.sh";
 const SESSION_START_HOOK_DEST = ".claude/hooks/session-start-context.sh";
 const MODEL_ADVISOR_HOOK_DEST = ".claude/hooks/model-advisor.sh";
 const AUDIT_TRIGGER_HOOK_DEST = ".claude/hooks/audit-mode-trigger.sh";
@@ -273,6 +275,41 @@ export function buildClaudeSettings(
       ],
     },
   });
+
+  // Keep dynamic master-plan progress separate from the bounded general
+  // SessionStart context. An off flag must not register this hook (R39).
+  if (config.harness?.masterPlan) {
+    settings = deepMerge(settings, {
+      hooks: {
+        SessionStart: [
+          {
+            matcher: "startup|resume|clear|compact|fork",
+            hooks: [
+              {
+                type: "command",
+                command: `bash "$CLAUDE_PROJECT_DIR/${MASTER_PLAN_CONTEXT_HOOK_DEST}"`,
+                timeout: 10,
+                statusMessage: "navori: master-plan context",
+              },
+            ],
+          },
+        ],
+        PreToolUse: [
+          {
+            matcher: "Bash",
+            hooks: [
+              {
+                type: "command",
+                command: `bash "$CLAUDE_PROJECT_DIR/${MASTER_ACCEPT_CONFIRM_HOOK_DEST}"`,
+                timeout: 10,
+                statusMessage: "navori: master acceptance confirmation",
+              },
+            ],
+          },
+        ],
+      },
+    });
+  }
 
   // Spec 0026 E1 (R10): a comment/review-publishing Bash call is raised to
   // `ask`, no matter which agent (or no agent — the main thread) issues it.

@@ -191,6 +191,14 @@ const HarnessSchema = z.object({
   // on. Same rollout shape as `scribeOwnsMarkdown` above — default `false`
   // because it changes an always-on block across every rendered repo.
   planTiers: z.boolean().default(false),
+  // Spec 0034 (#1050), R37/R39: gates the master-plan flow (`navori master`,
+  // the `master-plan`/`context-intake` skills' effects, the `plan-maestro`
+  // managed block and its SessionStart hook). Default `false`: principle 3 of
+  // design.md — zero behavior change with the flag off, except the three
+  // incondicional exceptions the requirements name explicitly (R1, R24, R43)
+  // and `doctor`'s scan over `_master/index.json` (D8), none of which read
+  // this key.
+  masterPlan: z.boolean().default(false),
 });
 
 /**

@@ -9,8 +9,8 @@ import { CODEX_HOOK_REGISTRATIONS } from "../codex/hook-registrations.ts";
 
 /**
  * Inventory-parity guard between the Claude and Codex engines (Spec 0007 M1).
- * Both engines must materialize the SAME semantic set of agents, skills and
- * hooks for a given config — only destinations may differ. An asset wired into
+ * Both engines must materialize the SAME semantic set of agents, shared skills
+ * and hooks for a given config — except explicit engine-only assets. An asset wired into
  * one engine but forgotten in the other fails here, not in production repos
  * after a rollout.
  *
@@ -25,6 +25,15 @@ import { CODEX_HOOK_REGISTRATIONS } from "../codex/hook-registrations.ts";
  * spawnable orchestrator agent (see resolveHarnessPlan's includeOrchestrator
  * option in engines/shared/harness-plan.ts). */
 const AGENT_KNOWN_DIFFS: ReadonlySet<string> = new Set(["orchestrator"]);
+
+/** Spec 0034 T17: the master-plan workflow currently has a Claude-only contract. */
+const CLAUDE_ONLY_SKILLS: ReadonlySet<string> = new Set(["context-intake", "master-plan"]);
+
+/** Spec 0034: Claude registers these hooks; Codex has no matching hook contract. */
+const CLAUDE_ONLY_HOOKS: ReadonlySet<string> = new Set([
+  "master-accept-confirm",
+  "master-plan-context",
+]);
 
 function parityConfig(): NavoriConfig {
   return NavoriConfigSchema.parse({
@@ -114,15 +123,21 @@ describe("engine inventory parity (claude ↔ codex)", () => {
     }
   });
 
-  it("emits the same skill set", () => {
+  // Covers: R1
+  it("emits the same shared skill set and only the known Claude-only skills", () => {
     // Both engines materialize skills as `<id>/SKILL.md` directories now, so
     // read directory names on both sides (a flat `<id>.md` would NOT count).
     const claudeSkills = names(join(claudeCwd, ".claude/skills"), asDir);
     const codexSkills = names(join(codexCwd, ".agents/skills"), asDir);
     expect(claudeSkills.length).toBeGreaterThan(0);
-    expect(codexSkills).toEqual(claudeSkills);
+    expect(codexSkills).toEqual(claudeSkills.filter((id) => !CLAUDE_ONLY_SKILLS.has(id)));
+    for (const id of CLAUDE_ONLY_SKILLS) {
+      expect(claudeSkills).toContain(id);
+      expect(codexSkills).not.toContain(id);
+    }
   });
 
+  // Covers: R1
   it("materializes every skill in the DISCOVERABLE `<id>/SKILL.md` directory form (C1/C2)", () => {
     const claudeDir = join(claudeCwd, ".claude/skills");
     const codexDir = join(codexCwd, ".agents/skills");
@@ -133,8 +148,8 @@ describe("engine inventory parity (claude ↔ codex)", () => {
       // `<id>.md` must NOT coexist (it would make the model see the skill twice).
       expect(isSkillDir(claudeDir, id)).toBe(true);
       expect(existsSync(join(claudeDir, `${id}.md`))).toBe(false);
-      // Codex uses the same shape under `.agents/skills/`.
-      expect(isSkillDir(codexDir, id)).toBe(true);
+      // Codex uses the same shape for shared skills only.
+      expect(isSkillDir(codexDir, id)).toBe(!CLAUDE_ONLY_SKILLS.has(id));
     }
   });
 
@@ -161,12 +176,16 @@ describe("engine inventory parity (claude ↔ codex)", () => {
     expect(names(join(codexCwd, ".codex/agents"), stripToml)).not.toContain("orchestrator");
   });
 
-  it("emits the same hook set", () => {
+  it("emits the same shared hook set with exactly two Claude-only master-plan hooks", () => {
     const claudeHooks = names(join(claudeCwd, ".claude/hooks"), stripSh);
     const codexHooks = names(join(codexCwd, ".codex/hooks"), stripSh);
     // Same trap as the agent set: pin non-empty before comparing.
     expect(claudeHooks.length).toBeGreaterThan(0);
-    expect(codexHooks).toEqual(claudeHooks);
+    expect(claudeHooks.filter((hook) => CLAUDE_ONLY_HOOKS.has(hook))).toEqual(
+      [...CLAUDE_ONLY_HOOKS].sort(),
+    );
+    expect(codexHooks.filter((hook) => CLAUDE_ONLY_HOOKS.has(hook))).toEqual([]);
+    expect(codexHooks).toEqual(claudeHooks.filter((hook) => !CLAUDE_ONLY_HOOKS.has(hook)));
   });
 
   // Covers: R3, R18

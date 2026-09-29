@@ -274,6 +274,9 @@
       "Bash(navori dominio doctor:*)",
       "Bash(navori plan classify:*)",
       "Bash(navori plan check:*)",
+      "Bash(navori master status:*)",
+      "Bash(navori master check:*)",
+      "Bash(navori master template:*)",
       "Bash(engram save:*)",
       "mcp__engram__*",
       "Bash(gh auth status*)",
@@ -348,7 +351,13 @@
       "Bash(git stash drop*)",
       "Bash(git stash clear*)",
       "Bash(chmod -R *)",
-      "Bash(engram import *)"
+      "Bash(engram import *)",
+      "Bash(gh issue create:*)",
+      "Bash(navori master init:*)",
+      "Bash(navori master mode:*)",
+      "Bash(navori master advance:*)",
+      "Bash(navori master part:*)",
+      "Bash(navori master close:*)"
     ],
     "deny": [
       "Agent(orchestrator)",

@@ -118,6 +118,14 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     audience: "orchestrator",
   },
   {
+    id: "plan-maestro",
+    relPath: "core-assets/managed/plan-maestro.md",
+    baseLanguage: "en",
+    rootOnly: true,
+    condition: "harness.masterPlan",
+    audience: "orchestrator",
+  },
+  {
     id: "orquestacion",
     relPath: "core-assets/managed/orquestacion.md",
     baseLanguage: "en",

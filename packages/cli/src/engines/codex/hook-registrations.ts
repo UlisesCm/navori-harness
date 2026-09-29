@@ -205,6 +205,19 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
       "Codex has no `Monitor` tool, and unified_exec strips background-execution fields " +
       "from the PreToolUse payload, so no hook can distinguish a backgrounded command (D1).",
   },
+  {
+    // Spec 0034 ships the master plan for Claude first; Codex is phase 2 (#1088).
+    script: "master-accept-confirm",
+    unsupported:
+      "The master plan is Claude-only until its Codex phase (spec 0034, #1088); " +
+      "Codex hooks also cannot emit the `ask` this confirmation needs (D4).",
+  },
+  {
+    script: "master-plan-context",
+    unsupported:
+      "The master plan is Claude-only until its Codex phase (spec 0034, #1088), " +
+      "so Codex renders no master-plan skill for this context to point at.",
+  },
 ];
 
 /** One Codex hook ready to serialize into `.codex/config.toml`. */

@@ -297,6 +297,10 @@ describe("buildClaudeSettings — dependent PR routing (#769)", () => {
  */
 function permissionMatches(pattern: string, command: string): boolean {
   const body = pattern.startsWith("Bash(") ? pattern.slice(5, -1) : pattern;
+  if (body.endsWith(":*")) {
+    const base = body.slice(0, -2);
+    return command === base || command.startsWith(`${base} `);
+  }
   const literals = body.split("*");
   const head = literals.shift() ?? "";
   // No `*` at all: the entry is an exact literal and nothing extends it.
@@ -366,8 +370,8 @@ describe("buildClaudeSettings — recursive-rm permissions are a derived cross p
 
   /**
    * The matching model, written down as a table instead of left implicit inside
-   * the matcher. Three shapes exhaust what an entry can look like (exact,
-   * trailing `*`, inner `*`), and the last rows are the ones a regex
+   * the matcher. Four shapes exhaust what an entry can look like (exact,
+   * trailing `*`, trailing `:*`, inner `*`), and the last rows are the ones a regex
    * translation gets wrong when an escape is missed or when the head and tail
    * anchors are allowed to overlap.
    */
@@ -408,6 +412,25 @@ describe("buildClaudeSettings — recursive-rm permissions are a derived cross p
       command: "rm -rfv node_modules",
       matches: false,
     },
+    // TRAILING `:*` matches a command boundary, not a longer command name.
+    {
+      shape: "trailing :*",
+      pattern: "Bash(navori master init:*)",
+      command: "navori master init",
+      matches: true,
+    },
+    {
+      shape: "trailing :*",
+      pattern: "Bash(navori master init:*)",
+      command: "navori master init demo",
+      matches: true,
+    },
+    {
+      shape: "trailing :*",
+      pattern: "Bash(navori master init:*)",
+      command: "navori master initx",
+      matches: false,
+    },
     // INNER `*` — no entry uses this shape today; pinned so the model stays
     // defined the day one does.
     { shape: "inner *", pattern: "Bash(rm -r * /etc)", command: "rm -r -f /etc", matches: true },
@@ -434,14 +457,18 @@ describe("buildClaudeSettings — recursive-rm permissions are a derived cross p
     expect(observed).toEqual([...MATCHING_SEMANTICS]);
   });
 
-  // The model treats `:` as ordinary text, while Claude Code's `Bash(cmd:*)`
-  // spelling means "cmd plus any arguments" and covers the bare `cmd` too. That
-  // simplification is sound only while no ask/deny entry uses the form, so it is
-  // ASSERTED, not assumed: the day one appears this fails and the model has to
-  // grow the rule, instead of the checks below quietly under-matching.
-  it("is only ever fed ask/deny entries that avoid the `:` argument form", () => {
+  // Keep the `:*` model bounded to the six intentionally prompted commands.
+  it("recognizes only the intended `:*` ask entries, never a deny entry", () => {
     const { ask, deny } = permissions();
-    expect([...ask, ...deny].filter((entry) => entry.includes(":"))).toEqual([]);
+    expect(ask.filter((entry) => entry.includes(":"))).toEqual([
+      "Bash(gh issue create:*)",
+      "Bash(navori master init:*)",
+      "Bash(navori master mode:*)",
+      "Bash(navori master advance:*)",
+      "Bash(navori master part:*)",
+      "Bash(navori master close:*)",
+    ]);
+    expect(deny.filter((entry) => entry.includes(":"))).toEqual([]);
   });
 
   it("denies the FULL product of {flag spelling} × {sensitive target}", () => {
@@ -1122,18 +1149,6 @@ describe("buildClaudeSettings — the PR flow's `git push` is pre-approved, a fo
       deny: string[];
     };
 
-  /**
-   * The widest reading of an allow entry. `permissionMatches` treats `:` as
-   * ordinary text, while Claude Code's `Bash(cmd:*)` spelling means "cmd plus
-   * any arguments" — so a `Bash(git push:*)` entry would look like it matched
-   * nothing and the negative control would pass by construction. Collapsing the
-   * `:*` form into a raw `*` prefix first is what makes the naive fix FAIL here
-   * instead of shipping.
-   */
-  function preApproves(rule: string, command: string): boolean {
-    return permissionMatches(rule.replace(/:\*\)$/, "*)"), command);
-  }
-
   /** Every spelling of "rewrite what the remote already has". */
   const FORCE_PUSHES = [
     "git push --force",
@@ -1146,20 +1161,23 @@ describe("buildClaudeSettings — the PR flow's `git push` is pre-approved, a fo
 
   it("pre-approves exactly the publish command the PR flow orders", () => {
     expect(permissions().allow).toContain("Bash(git push -u origin HEAD)");
-    expect(preApproves("Bash(git push -u origin HEAD)", "git push -u origin HEAD")).toBe(true);
+    expect(permissionMatches("Bash(git push -u origin HEAD)", "git push -u origin HEAD")).toBe(
+      true,
+    );
   });
 
   it("judges by the widest reading — otherwise the naive fix would pass unnoticed", () => {
-    // Anti-false-green: this pins that the `:*` widening actually happens. Drop
-    // it and the negative control below turns into a test that cannot fail.
-    expect(preApproves("Bash(git push:*)", "git push --force origin main")).toBe(true);
-    expect(permissionMatches("Bash(git push:*)", "git push --force origin main")).toBe(false);
+    // Anti-false-green: the same matcher used below must recognize `:*`.
+    expect(permissionMatches("Bash(git push:*)", "git push --force origin main")).toBe(true);
+    expect(permissionMatches("Bash(git push:*)", "git pushx --force origin main")).toBe(false);
   });
 
   it("never pre-approves a force push, under the widest reading of every allow rule", () => {
     const allow = permissions().allow;
     const offenders = FORCE_PUSHES.flatMap((command) =>
-      allow.filter((rule) => preApproves(rule, command)).map((rule) => `${rule} → "${command}"`),
+      allow
+        .filter((rule) => permissionMatches(rule, command))
+        .map((rule) => `${rule} → "${command}"`),
     );
     expect(
       offenders,

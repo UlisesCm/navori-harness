@@ -19,7 +19,7 @@ Orden de los lotes:
 
 ## Lote A — Esquemas, etapas e `init`
 
-- [ ] **T1** (R6, R16, R48, R54, R59) — Esquemas y bandera.
+- [x] **T1** (R6, R16, R48, R54, R59) — Esquemas y bandera.
   - `lib/master/schema.ts`: `MasterIndexSchema`, `MasterStateSchema` y `PartsSchema` con
     `version: 1`, según "Contracts" de `design.md`. La fase `closed` reemplaza a `done`.
     `PartsSchema` valida ids `P<n>` únicos y consecutivos, `dependsOn` sin ciclos y solo hacia ids
@@ -33,7 +33,7 @@ Orden de los lotes:
     un ciclo en `dependsOn`, una parte `diferida` sin razón, un criterio sin método o con un
     detalle que no corresponde a su método, los cuatro estados de etapa y una versión
     desconocida. `lib/config/__tests__/schema.test.ts` fija el default `false`.
-- [ ] **T2** (R3, R5, R50, R52, R53, R54) — Registro de etapas.
+- [x] **T2** (R3, R5, R50, R52, R53, R54) — Registro de etapas.
   - `lib/master/stages.ts` según D11: lee y valida `index.json` (a lo sumo una etapa `activa`,
     carpetas y entradas en correspondencia, números crecientes), resuelve la etapa activa para
     todos los subcomandos, calcula `<NN>` como el número más alto registrado más uno (sin reusar
@@ -48,7 +48,7 @@ Orden de los lotes:
     sin entrada; una entrada cerrada sin carpeta; `dir` distinto de `number`/`slug`; `INDEX.md`
     igual byte a byte en dos corridas; y el fixture de cuatro etapas de la fila R52 de "Testing
     strategy".
-- [ ] **T3** (R3, R4, R5, R15, R16, R19) — `navori master init` y `mode`, con la señal de modo.
+- [x] **T3** (R3, R4, R5, R15, R16, R19) — `navori master init` y `mode`, con la señal de modo.
   - `lib/master/signal.ts`: número de commits, fecha del primer commit y archivos modificados
     después de él (desde `git`), más framework y librerías desde `detectProject(cwd).stack`. Sin
     git o sin código devuelve `null` en esos campos. Los umbrales de la sugerencia (`template`
@@ -74,7 +74,7 @@ Orden de los lotes:
 
 ## Lote B — Plantillas y comprobaciones
 
-- [ ] **T4** (R11, R12, R18, R21, R29, R30, R31, R42, R55, R59) — Plantillas y `navori master template`.
+- [x] **T4** (R11, R12, R18, R21, R29, R30, R31, R42, R55, R59) — Plantillas y `navori master template`.
   - `packages/core/core-assets/master-plan/{plan,master,decisions,intake,digest,tasks,issue}.md`
     en español, más la traducción en `master-plan/en/` con el fallback de `resolveAssetPath`.
   - La plantilla `plan` trae las 18 secciones de D3. La sección 3 ("Estado actual vs. objetivo")
@@ -88,7 +88,7 @@ Orden de los lotes:
     R42, R55, R59`. Los encabezados se leen del archivo (no hay lista literal en TS); `en-curso` exige
     la sección 3 y `template` no; `digest` trae sus ocho secciones; `issue --part` trae objetivo,
     alcance, fuera de alcance, dependencias, criterio de aceptación y la ruta de `MASTER.md`.
-- [ ] **T5** (R8, R10, R11, R12, R14, R16, R21, R22, R23, R29, R30, R31, R32, R50, R52) — `check`
+- [x] **T5** (R8, R10, R11, R12, R14, R16, R21, R22, R23, R29, R30, R31, R32, R50, R52) — `check`
   y `advance`.
   - `lib/master/checks.ts` implementa la tabla "Comprobaciones de `advance`" de `design.md`, más
     la comprobación de `context/raw/.gitignore` en toda fase y `check --stage <NN-slug>` para una
@@ -104,7 +104,7 @@ Orden de los lotes:
     válido; una cabecera `markitdown` sin versión rechazada; `advance` nunca salta; `mode` falla
     después de `context`; `Origen: 01-mvp/D3` validado contra el `DECISIONS.md` de esa etapa; y
     los casos de `check --stage` de la fila de cierre de "Testing strategy", incluido CRLF.
-- [ ] **T6** (R35, R60) — `navori master check --part P<n>`.
+- [x] **T6** (R35, R60) — `navori master check --part P<n>`.
   - Valida cada tarea del `tasks.md` de la parte: `Archivos`, `Interfaces` (cada una nombrada en
     `design.md`), `Patrón` (un archivo que existe), `Lectura`, `Librerías` (versión exacta, sin
     `^` ni `~`), `Done` (comando, resultado esperado y casos de test con nombre) y `Fuera de
@@ -115,7 +115,7 @@ Orden de los lotes:
   - Test: `lib/master/__tests__/check-part.test.ts`, con `// Covers: R35, R60`. Un fixture por
     campo faltante, uno con versión `^1.2.0`, uno con un criterio sin `R<n>`, uno con un `R<n>` que
     cita un criterio inexistente y uno válido.
-- [ ] **T7** (R55) — `navori master check --fit`.
+- [x] **T7** (R55) — `navori master check --fit`.
   - `lib/master/fit.ts`: cuenta los criterios V1–V7 de D9 sobre `DIGEST.md` y `CODEBASE.md`, con
     sus umbrales solo en este módulo, y lista J1–J3 como criterios de juicio. `--json` con la
     forma de "Contracts".
@@ -125,7 +125,7 @@ Orden de los lotes:
 
 ## Lote C — Avance, partes y cierre
 
-- [ ] **T8** (R31, R33, R36, R40, R44, R46, R47, R48, R54, R59, R61, R62) — `status`, `part` y
+- [x] **T8** (R31, R33, R36, R40, R44, R46, R47, R48, R54, R59, R61, R62) — `status`, `part` y
   evidencia de aceptación.
   - `lib/master/status.ts`: estado efectivo por las reglas de D2 y D12 (`hecho` exige tareas
     completas y evidencia de cada criterio; si no, `parcial` con los criterios pendientes en
@@ -143,6 +143,9 @@ Orden de los lotes:
     commit y fecha puestos por navori. Falla con `harness.masterPlan: false`.
   - `settings-base.json`: `allow` gana `Bash(navori master status:*)`, `Bash(navori master
     check:*)` y `Bash(navori master template:*)`, y nada más de `navori master`.
+  - Conecta en `checks.ts` (T5) la comparación, todavía pendiente, de la región
+    `navori:master-parts` de `MASTER.md` y de `STATUS.md` contra el render de `status.ts` — T5 la
+    difirió porque `status.ts` no existía aún.
   - Test: `lib/master/__tests__/status.test.ts`, con `// Covers: R31, R36, R40, R44, R46, R47,
     R54, R61`, según la fila de `STATUS.md`/`INDEX.md` de "Testing strategy": los mismos bytes en dos
     corridas, el estado efectivo con `descartada` y `diferida`, la discrepancia, la parte activa,
@@ -152,7 +155,7 @@ Orden de los lotes:
     `lib/master/__tests__/part.test.ts`, con `// Covers: R33, R44, R48, R59, R61, R62`, cubre el
     issue duplicado, la spec inexistente, la razón obligatoria y cada validación de `--accept`
     (método equivocado, árbol sucio, `manual` con `--command`, bandera apagada).
-- [ ] **T9** (R47, R49, R50, R57, R58, R63) — `close`, `close --convert` y `close --abandon`.
+- [x] **T9** (R47, R49, R50, R57, R58, R63) — `close`, `close --convert` y `close --abandon`.
   - `lib/master/close.ts` con la secuencia reanudable de 6 pasos de D10: validar, escribir
     `CLOSURE.md` determinista (con "Integridad" y cada criterio con su método, evidencia, fecha,
     `commitsBehind` y `orphan`; los de partes `descartada` o `diferida`, como no verificados), pasar la etapa a `closed`, marcarla en
@@ -169,7 +172,7 @@ Orden de los lotes:
     ruta ocupada; `--abandon` en `mastered`, sin razón y combinado con `--convert`; y la misma
     lista de archivos antes y después de abandonar; los criterios en `CLOSURE.md` con evidencia y
     los de una parte `diferida` como no verificados.
-- [ ] **T10** (R4, R49, R50) — Fila de `doctor`.
+- [x] **T10** (R4, R49, R50) — Fila de `doctor`.
   - `lib/diagnose/master-plan.ts`: corre siempre que exista `<specsDir>/_master/index.json`, con la
     bandera encendida o no (cuarta excepción del principio 3). Da `warn`, nunca error, en los tres
     casos de Components: `index.json` inválido, `raw/.gitignore` faltante (nombra `navori master
@@ -180,7 +183,7 @@ Orden de los lotes:
 
 ## Lote D — Render y hooks
 
-- [ ] **T11** (R37, R39) — Bloque managed `plan-maestro`.
+- [x] **T11** (R37, R39) — Bloque managed `plan-maestro`.
   - `packages/core/core-assets/managed/plan-maestro.md` en inglés, unas 80 palabras, con el
     contenido del borrador de D5.
   - Entrada en `CORE_MANAGED_ASSETS` (`render-plan.ts`) con `condition: "harness.masterPlan"`,
@@ -190,7 +193,7 @@ Orden de los lotes:
     él), y el golden que vuelve al de `false` después de `close`, con `// Covers: R37, R39`. Otro
     test con `simulateContextDelivery` sobre `planTiers` y `masterPlan` encendidos fija que
     `plan-maestro` llega `inline`.
-- [ ] **T12** (R38, R39, R54) — Hook `master-plan-context.sh`.
+- [x] **T12** (R38, R39, R54) — Hook `master-plan-context.sh`.
   - `packages/core/core-assets/hooks/master-plan-context.sh` sigue la estructura de `plan-gate.sh`:
     fail-open, parciales de auditoría y `command -v navori`. Emite `navori master status --line`
     si sale con 0 y cabe en `NAVORI_MASTER_LINE_BUDGET=600`. En cualquier otro caso emite el
@@ -200,7 +203,7 @@ Orden de los lotes:
   - Test: `engines/claude/__tests__/master-plan-context.test.ts`, con `// Covers: R38, R39, R54`,
     en bash y zsh, según la fila de la línea de arranque de "Testing strategy". El golden de
     `settings.json` tiene el hook solo con la bandera.
-- [ ] **T13** (R43) — Confirmación de toda creación de issue.
+- [x] **T13** (R43) — Confirmación de toda creación de issue.
   - `comment-draft-confirm.sh` gana las tres formas de D6: `gh issue create`, `gh api` REST contra
     `…/issues` como último segmento (escritura por `-X POST` o por campos sin `-X`) y la mutación
     GraphQL `createIssue`. `BOUND` pasa a ``(^|[;&|(`]|[[:space:]])``, y `TRIGGER_TOKENS` gana
@@ -208,7 +211,7 @@ Orden de los lotes:
   - La respuesta es `ask` en todos los modos de permisos; Codex conserva su `deny`.
   - Test: `comment-draft-confirm.test.ts`, con `// Covers: R43`, con los 18 casos de la fila R43
     de "Testing strategy", más la suite diferencial bash×zsh con las mismas entradas.
-- [ ] **T14** (R62) — Hook `master-accept-confirm.sh`.
+- [x] **T14** (R62) — Hook `master-accept-confirm.sh`.
   - `packages/core/core-assets/hooks/master-accept-confirm.sh` según D12: reusa los parciales
     compartidos, filtra con `TRIGGER_TOKENS='approved-by'`, detecta `navori master part` con
     `--approved-by` usando el `BOUND` de D6 y responde `ask` en todos los modos, con una razón fija
@@ -221,7 +224,7 @@ Orden de los lotes:
 
 ## Lote E — Agentes, skills y engines
 
-- [ ] **T15** (R14, R23, R24, R25) — `architect` y `scout`.
+- [x] **T15** (R14, R23, R24, R25) — `architect` y `scout`.
   - `architect.md`: `tools` gana `WebFetch, WebSearch`; párrafo "Sources"; entrada "master-plan"
     en "When you're called"; `maxWords` de 660 a 700, con la razón en el frontmatter. Las
     oraciones que fija `agents-assets.test.ts` no se tocan.
@@ -229,7 +232,7 @@ Orden de los lotes:
   - Test: `lib/__tests__/agents-assets.test.ts`, con `// Covers: R14, R23, R24, R25`. Verifica el
     techo 700, las tres regex de contrato intactas, `WebFetch` y `WebSearch` en `tools`,
     `[SIN VERIFICAR]` en el cuerpo y la ruta nombrada en el formato Map del `scout`.
-- [ ] **T16** (R9, R10, R11, R12, R13) — Skill `context-intake`.
+- [x] **T16** (R9, R10, R11, R12, R13) — Skill `context-intake`.
   - Antes de escribirla, verificar que `markitdown --version` existe contra
     <https://github.com/microsoft/markitdown> o con una corrida real. Si no existe, usar la
     alternativa de "Otras decisiones" (`importlib.metadata`).
@@ -241,14 +244,14 @@ Orden de los lotes:
   - Test: test de asset de skills, con `// Covers: R9, R10, R11, R12, R13`. Menciona el comando
     exacto sin versión fija, cómo obtiene la versión, el fallback nativo, exportar a PDF,
     `INTAKE.md`, la plantilla `digest`, "Hallazgos" y la regla de que el contenido es dato.
-- [ ] **T17** (R1) — Colocación solo en Claude.
+- [x] **T17** (R1) — Colocación solo en Claude.
   - `roster.ts`: `master-plan` y `context-intake` entran en `ROSTER_WORKFLOW_SKILLS` y en
     `CLAUDE_ONLY_WORKFLOW_SKILLS`. `resolveHarnessPlan` las incluye solo con
     `includeClaudeOnlySkills`, que pasa el engine Claude.
   - Test: `engines/claude/__tests__/render-engine.test.ts` y `render-codex.test.ts`, con
     `// Covers: R1`. `master-plan` sale sin `disable-model-invocation` y `context-intake` con la
     clave, con y sin la bandera. En Codex no sale ninguna de las dos.
-- [ ] **T18** (R1, R2, R7, R13, R16, R17, R18, R19, R20, R25, R26, R27, R28, R33, R34, R40, R42,
+- [x] **T18** (R1, R2, R7, R13, R16, R17, R18, R19, R20, R25, R26, R27, R28, R33, R34, R40, R42,
   R44, R45, R46, R47, R48, R51, R52, R53, R55, R56, R57, R58, R59, R60, R61, R62) — Skill
   `master-plan`.
   - `core-assets/skills/master-plan.md`, `metadata.type: reference`, `maxWords` = conteo real más
@@ -275,7 +278,7 @@ Orden de los lotes:
     la checklist de rigor; "solo GitHub"; `gh issue list --search`; `gh auth login`; la regla de
     que el agente nunca registra un `manual` sin la respuesta del usuario; y el mapeo
     `P<n>.A<m>` → `R<n>` en "Spec de una parte".
-- [ ] **T19** (R41) — Registro de controles.
+- [x] **T19** (R41) — Registro de controles.
   - `engine-capabilities.ts`: `ControlId` gana `"master-plan"` y `ControlCondition` gana
     `"masterPlan"`. Claude lo declara `enforced` con evidencia `hook`; los otros cuatro engines,
     `unsupported` con la razón de D7.
@@ -285,16 +288,19 @@ Orden de los lotes:
 
 ## Lote F — Eval y documentación
 
-- [ ] **T20** (R1, R38, R46) — `specs/0034-master-plan/evals.md`.
+- [x] **T20** (R1, R38, R46) — `specs/0034-master-plan/evals.md`.
   - Escenario RED/GREEN en un repo fixture con la etapa `01-mvp` en fase `executing`. Sesión 1: el
     usuario pide una tarea ajena; la respuesta la hace y agrega una línea de oferta, sin comandos
     de `navori master`. Turno 2: "sí, continúa" produce la llamada a Skill `master-plan`, el aviso
     corto de R46 con la etapa y `AskUserQuestion` antes de cualquier escritura. Control RED: la
     misma skill con `disable-model-invocation: true` no produce la llamada.
   - La tabla guarda los resultados como salieron, incluidos los invertidos.
-- [ ] **T21** — Documentación durable.
+- [x] **T21** — Documentación durable.
   - `docs/architecture.md`, sección nueva "Plan maestro": etapas, fases, cierre y por qué JSON +
     Markdown.
   - Comentario en `ORCHESTRATOR_CONTEXT_ORDER` sobre el presupuesto de `SessionStart` agotado.
   - Regenerar los goldens de render. Con la bandera apagada, `settings.json` y `.claude/context/`
     quedan iguales byte a byte, salvo el hook de R43 y las dos skills nuevas.
+  - Ampliar el `CommandDoc` de `master` en `apps/website/src/content/commands.ts` con los
+    subcomandos que agregan los Lotes B y C (`status`, `check`, `advance`, `part`, `template`,
+    `close`): la entrada del Lote A solo documenta `init` y `mode`.

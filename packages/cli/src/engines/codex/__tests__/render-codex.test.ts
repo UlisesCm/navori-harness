@@ -76,6 +76,17 @@ function testPlugin(id: string, capabilities: Record<string, unknown>): LoadedPl
 }
 
 describe("renderCodexEngine", () => {
+  // Covers: R1
+  it.each([false, true])("omits Claude-only master skills with masterPlan=%s", (enabled) => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config({ harness: { masterPlan: enabled } }));
+    expect(existsSync(join(cwd, ".agents/skills/master-plan/SKILL.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".agents/skills/context-intake/SKILL.md"))).toBe(false);
+    const index = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+    expect(index).not.toContain("- `master-plan` —");
+    expect(index).not.toContain("- `context-intake` —");
+  });
+
   // Covers: R20
   it("warns that full access is not path isolation or universal approval", () => {
     const result = buildCodexConfigToml(config(), []);

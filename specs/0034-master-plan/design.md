@@ -403,6 +403,32 @@ skill la defina. Son unas 120 palabras y el encargo del `architect` la cita por 
 `maxWords` de `master-plan.md`: se fija con el conteo real al implementar, más 10%, con su
 razón en el comentario del frontmatter (el precedente de `spec-bootstrap`).
 
+**Marcadores de prosa, por idioma.** Los literales que `checks.ts` valida en la prosa escrita por
+el `architect` u orquestador (`Origen:`, `Ninguna`/`Ninguno`, `[SUPUESTO]`, `[SIN VERIFICAR]`, los
+cuatro campos de `DECISIONS.md`, `Sin decisiones`, `No aplica:`, `consultado`, `Fuente:` y las tres
+columnas de `INTAKE.md`) son por idioma, igual que las plantillas mismas. Viven en un solo mapa,
+`lib/master/markers.ts` (`MasterMarkers`), que `checks.ts` resuelve con `ctx.language` — el mismo
+valor con el que `templates.ts` elige qué archivo de plantilla leer; los dos módulos nunca pueden
+discrepar sobre el idioma de una etapa.
+
+| es | en |
+|---|---|
+| `Origen:` | `Source:` |
+| `Ninguna` (Preguntas abiertas) | `None` |
+| `Ninguno` (DIGEST.md) | `None` |
+| `[SUPUESTO]` | `[ASSUMED]` |
+| `[SIN VERIFICAR]` | `[UNVERIFIED]` |
+| `Pregunta:` | `Question:` |
+| `Elegida:` | `Chosen:` |
+| `Descartadas:` | `Discarded:` |
+| `Fecha:` | `Date:` |
+| `Sin decisiones` | `No decisions` |
+| `No aplica:` | `Not applicable:` |
+| `consultado` | `consulted` |
+| `Fuente:` | `Source:` |
+| `Archivo` / `Método` / `Resultado` (columnas de `INTAKE.md`) | `File` / `Method` / `Result` |
+| `Integridad` (CLOSURE.md) | `Integrity` |
+
 **Invocación de `master-plan` (R1, decisión del usuario).** `master-plan` no lleva
 `disable-model-invocation`. Con esa clave, el host no deja que el modelo la invoque de ninguna
 forma, y la descripción ni siquiera entra al contexto (<https://code.claude.com/docs/en/skills>,
@@ -856,9 +882,10 @@ en `STATUS.md` y en `CLOSURE.md`.
 - **Versión de `markitdown` sin fijar, pero registrada** (R11, decisión del usuario). Al empezar
   la transcripción, `context-intake` obtiene la versión una vez con `uvx --from 'markitdown[all]'
   markitdown --version` y la escribe en la cabecera de cada `.md` convertido con `markitdown` y en
-  `INTAKE.md`. La flag `--version` del CLI de `markitdown` está `[SIN VERIFICAR]`; T1 la
-  confirma contra <https://github.com/microsoft/markitdown>. Si no existe, la alternativa es
-  `importlib.metadata.version("markitdown")` corrida en el mismo entorno efímero de `uv`.
+  `INTAKE.md`. La flag `--version` del CLI de `markitdown` existe y produce `markitdown <versión>`
+  (argparse `action="version"`, `version=f"%(prog)s {__version__}"` —
+  <https://github.com/microsoft/markitdown/blob/main/packages/markitdown/src/markitdown/__main__.py>,
+  verificado 2026-09-25). No hace falta la alternativa de `importlib.metadata`.
 
 ## Contracts
 
@@ -1274,8 +1301,10 @@ principal (eje tokens).
   defecto (`mvp` para la primera etapa), la segunda pregunta desaparece.
 - **[resuelta] Lectura de "recibir" en R52.** R52 se enmendó el 2026-09-24 para decir
   exactamente lo que hace D11.
-- **[repo] `markitdown --version`** existe como flag del CLI: se verifica en T1 (Otras
-  decisiones). Si no existe, se usa la alternativa ya descrita; el diseño no cambia.
+- **[resuelta] `markitdown --version`** existe como flag del CLI (argparse `action="version"`),
+  verificado contra
+  <https://github.com/microsoft/markitdown/blob/main/packages/markitdown/src/markitdown/__main__.py>
+  el 2026-09-25; ya no hace falta la alternativa de `importlib.metadata`.
 
 ## Cobertura R<n> → componente
 

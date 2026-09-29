@@ -47,6 +47,7 @@ export const COMMAND_GROUPS: readonly CommandGroup[] = [
       "receipt",
       "plan",
       "handoff",
+      "master",
     ],
   },
   {
