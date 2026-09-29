@@ -2,12 +2,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { getCoreRoot } from "../../../lib/render/bundled-assets.ts";
 import {
   NavoriConfigSchema,
   type NavoriConfig,
   type NavoriConfigInput,
 } from "../../../lib/config/schema.ts";
 import { renderCodexEngine } from "../index.ts";
+import { renderClaudeEngine } from "../../claude/index.ts";
 
 /**
  * Spec 0033 D2 (R9-R12), end to end through `renderCodexEngine`: a
@@ -66,17 +68,72 @@ describe("renderCodexEngine — local skills (spec 0033 D2)", () => {
     expect(result.written.some((w) => w.path === ".agents/skills/probe/SKILL.md")).toBe(true);
   });
 
-  // Covers: R9
-  it("emits the openai.yaml sidecar when the source declares disable-model-invocation", () => {
-    writeSource(
+  // Covers: R9, R17
+  it.each(["", "disable-model-invocation: false\n"])(
+    "omits the implicit-invocation opt-out when source metadata is %j",
+    (extraFrontmatter: string) => {
+      const sourcePath = writeSource(
+        "available",
+        "Use when the host discovers this skill by description.",
+        extraFrontmatter,
+      );
+      const before = readFileSync(sourcePath, "utf-8");
+
+      renderCodexEngine(cwd, config({ project: { localSkills: ["available"] } }));
+
+      const pointer = readFileSync(join(cwd, ".agents/skills/available/SKILL.md"), "utf-8");
+      expect(pointer).toContain("name: available");
+      expect(pointer).toContain("Use when the host discovers this skill by description.");
+      expect(pointer).toContain(".claude/skills/available/SKILL.md");
+      expect(existsSync(join(cwd, ".agents/skills/available/agents/openai.yaml"))).toBe(false);
+      expect(readFileSync(sourcePath, "utf-8")).toBe(before);
+    },
+  );
+
+  // Covers: R9, R17
+  it("keeps the explicit skill pointer while rendering the implicit-invocation prohibition", () => {
+    const sourcePath = writeSource(
       "manual-only",
       "Use only via explicit invocation.",
       "disable-model-invocation: true\n",
     );
+    const before = readFileSync(sourcePath, "utf-8");
 
     renderCodexEngine(cwd, config({ project: { localSkills: ["manual-only"] } }));
 
-    expect(existsSync(join(cwd, ".agents/skills/manual-only/agents/openai.yaml"))).toBe(true);
+    const pointer = readFileSync(join(cwd, ".agents/skills/manual-only/SKILL.md"), "utf-8");
+    const sidecar = readFileSync(
+      join(cwd, ".agents/skills/manual-only/agents/openai.yaml"),
+      "utf-8",
+    );
+    expect(pointer).toContain("name: manual-only");
+    expect(pointer).toContain(".claude/skills/manual-only/SKILL.md");
+    expect(pointer).not.toContain("disable-model-invocation");
+    expect(sidecar).toContain("policy:\n  allow_implicit_invocation: false");
+    expect(readFileSync(sourcePath, "utf-8")).toBe(before);
+  });
+
+  // Covers: R17
+  it("removes a stale prohibition when the source drops manual-only metadata", () => {
+    const cfg = config({ project: { localSkills: ["toggle"] } });
+    writeSource(
+      "toggle",
+      "Use when toggling invocation policy.",
+      "disable-model-invocation: true\n",
+    );
+    renderCodexEngine(cwd, cfg);
+    const pointerPath = join(cwd, ".agents/skills/toggle/SKILL.md");
+    const sidecarPath = join(cwd, ".agents/skills/toggle/agents/openai.yaml");
+    expect(existsSync(pointerPath)).toBe(true);
+    expect(existsSync(sidecarPath)).toBe(true);
+
+    const sourcePath = writeSource("toggle", "Use when toggling invocation policy.");
+    const before = readFileSync(sourcePath, "utf-8");
+    renderCodexEngine(cwd, cfg);
+
+    expect(existsSync(sidecarPath)).toBe(false);
+    expect(readFileSync(pointerPath, "utf-8")).toContain(".claude/skills/toggle/SKILL.md");
+    expect(readFileSync(sourcePath, "utf-8")).toBe(before);
   });
 
   // Covers: R10
@@ -135,5 +192,36 @@ describe("renderCodexEngine — local skills (spec 0033 D2)", () => {
     const second = renderCodexEngine(cwd, config());
     expect(existsSync(join(cwd, ".agents/skills/retiring/SKILL.md"))).toBe(false);
     expect(second.backupPath).not.toBeNull();
+  });
+});
+
+describe("shared skill source across native engine roots", () => {
+  // Covers: R17, R18
+  it("renders one core asset into each host's skill root without changing its source", () => {
+    const sourcePath = join(getCoreRoot(), "core-assets/skills/verify-before-done.md");
+    const before = readFileSync(sourcePath, "utf-8");
+    const sourceDescription = before.match(/^description: (.+)$/m)?.[1];
+    expect(sourceDescription).toBeDefined();
+    const cfg = config({ engines: ["claude", "codex"] });
+
+    renderClaudeEngine(cwd, cfg);
+    renderCodexEngine(cwd, cfg);
+
+    const claudeSkill = readFileSync(
+      join(cwd, ".claude/skills/verify-before-done/SKILL.md"),
+      "utf-8",
+    );
+    const codexSkill = readFileSync(
+      join(cwd, ".agents/skills/verify-before-done/SKILL.md"),
+      "utf-8",
+    );
+    expect(claudeSkill).toContain("name: verify-before-done");
+    expect(codexSkill).toContain("name: verify-before-done");
+    expect(claudeSkill).toContain(`description: ${sourceDescription}`);
+    expect(codexSkill).toContain(`description: ${sourceDescription}`);
+    expect(existsSync(join(cwd, ".agents/skills/verify-before-done/agents/openai.yaml"))).toBe(
+      false,
+    );
+    expect(readFileSync(sourcePath, "utf-8")).toBe(before);
   });
 });

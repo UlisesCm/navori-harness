@@ -1,4 +1,6 @@
 import type { NavoriConfig } from "../../lib/config/config.ts";
+import type { LoadedPlugin } from "../../lib/config/plugins.ts";
+import { pluginScriptCollisions } from "../shared/plugin-scripts.ts";
 import { compareSemver } from "../../lib/primitives/semver.ts";
 
 /**
@@ -226,6 +228,14 @@ export interface ResolvedCodexHook {
   readonly timeout: number;
   readonly statusMessage?: string;
   readonly args?: string;
+  readonly pluginId?: string;
+  readonly pluginHookOrdinal?: number;
+  readonly scriptPath?: string;
+}
+
+/** Escape literal path bytes inside the double-quoted Bash command. */
+function bashDoubleQuotedLiteral(value: string): string {
+  return value.replace(/[\\"$`]/g, "\\$&");
 }
 
 /**
@@ -237,15 +247,63 @@ export interface ResolvedCodexHook {
  * `git rev-parse --show-toplevel` always resolves to the root (#279).
  */
 export function codexHookCommand(hook: ResolvedCodexHook, wsSubpath = ""): string {
-  const hookBase = `$(git rev-parse --show-toplevel)${wsSubpath ? `/${wsSubpath}` : ""}/.codex/hooks`;
-  return `bash "${hookBase}/${hook.script}.sh"${hook.args ? ` ${hook.args}` : ""}`;
+  const suffix = `${wsSubpath ? `/${wsSubpath}` : ""}/${hook.scriptPath ?? `.codex/hooks/${hook.script}.sh`}`;
+  return `bash "$(git rev-parse --show-toplevel)${bashDoubleQuotedLiteral(suffix)}"${hook.args ? ` ${hook.args}` : ""}`;
+}
+
+/** Exact, fail-closed translation of the bundled plugin hook grammar. */
+export function resolvePluginCodexHooks(plugins: readonly LoadedPlugin[]): {
+  hooks: ResolvedCodexHook[];
+  warnings: string[];
+} {
+  const hooks: ResolvedCodexHook[] = [];
+  const warnings: string[] = [];
+  const collisions = pluginScriptCollisions(plugins);
+  for (const dest of collisions)
+    warnings.push(
+      `Destino .codex/scripts/${dest} declarado varias veces; scripts y hooks omitidos.`,
+    );
+  for (const plugin of [...plugins].sort((a, b) => a.manifest.id.localeCompare(b.manifest.id))) {
+    for (const [ordinal, hook] of (plugin.manifest.hooks ?? []).entries()) {
+      const match = /^bash "\$CLAUDE_PROJECT_DIR\/\.claude\/scripts\/([^"\n]+)"$/.exec(
+        hook.command,
+      );
+      const dest = match?.[1];
+      const script = plugin.scriptAssets.find((item) => item.dest === dest);
+      if (
+        hook.event !== "PreToolUse" ||
+        hook.matcher !== "Bash" ||
+        !script ||
+        collisions.has(script.dest)
+      ) {
+        warnings.push(
+          `Plugin '${plugin.manifest.id}' hook ${ordinal}: forma no traducible para Codex; registro omitido.`,
+        );
+        continue;
+      }
+      hooks.push({
+        script: script.dest,
+        scriptPath: `.codex/scripts/${script.dest}`,
+        pluginId: plugin.manifest.id,
+        pluginHookOrdinal: ordinal,
+        event: "PreToolUse",
+        matcher: "^Bash$",
+        timeout: hook.timeout ?? 600,
+        statusMessage: hook.statusMessage,
+      });
+    }
+  }
+  return { hooks, warnings };
 }
 
 /**
  * The Codex hook groups to register for `config`, in stable render order
  * (table order — see the module doc's ordering contract).
  */
-export function resolveCodexHooks(config: NavoriConfig): ResolvedCodexHook[] {
+export function resolveCodexHooks(
+  config: NavoriConfig,
+  plugins: readonly LoadedPlugin[] = [],
+): ResolvedCodexHook[] {
   const resolved: ResolvedCodexHook[] = [];
   for (const row of CODEX_HOOK_REGISTRATIONS) {
     if (!row.registration) continue;
@@ -253,7 +311,7 @@ export function resolveCodexHooks(config: NavoriConfig): ResolvedCodexHook[] {
     const { when: _when, minVersion: _minVersion, ...rest } = row.registration;
     resolved.push({ script: row.script, ...rest });
   }
-  return resolved;
+  return [...resolved, ...resolvePluginCodexHooks(plugins).hooks];
 }
 
 /**

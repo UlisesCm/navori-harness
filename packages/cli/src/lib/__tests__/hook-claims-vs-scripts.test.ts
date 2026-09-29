@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { getCoreRoot, getPluginAssetsRoot } from "../render/bundled-assets.ts";
 import { buildClaudeSettings } from "../../engines/claude/build-settings.ts";
 import { CODEX_HOOK_REGISTRATIONS } from "../../engines/codex/hook-registrations.ts";
+import { ENGINE_CAPABILITIES } from "../../engines/shared/engine-capabilities.ts";
 import type { NavoriConfig } from "../config/config.ts";
 
 /**
@@ -261,6 +262,22 @@ function collectClaims(assets: readonly AssetFile[]): Claim[] {
 }
 
 const CLAIMS = collectClaims(proseAssets());
+
+// Covers: R13, R14, R21
+it("the shared planning claim distinguishes Claude's hook from Codex's advisory procedure", () => {
+  const planning = readFileSync(
+    resolve(getCoreRoot(), "core-assets/managed/planificacion.md"),
+    "utf-8",
+  );
+  expect(planning).toMatch(/Claude Code[^\n]*plan-gate[^\n]*hook/i);
+  expect(planning).toMatch(/Codex[^\n]*plan-gate[^\n]*advisory/i);
+  expect(planning).not.toContain("A hook denies dispatching");
+  expect(ENGINE_CAPABILITIES.claude.controls["plan-gate"].state).toBe("enforced");
+  expect(ENGINE_CAPABILITIES.codex.controls["plan-gate"].state).toBe("advisory");
+  expect(
+    CODEX_HOOK_REGISTRATIONS.some((row) => row.script === "plan-gate.sh" && row.registration),
+  ).toBe(false);
+});
 
 function hasMechanism(hookId: string, capability: Capability): boolean {
   return capability.mechanism.test(SCRIPTS.get(hookId) ?? "");

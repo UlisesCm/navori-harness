@@ -136,7 +136,7 @@ export function adaptHarnessTextForCodex(content: string, _config: NavoriConfig)
   // `codex/index.ts`'s `placeSkill`, the one call site that actually places a
   // skill's frontmatter.
   const retargeted = content
-    .replaceAll(".claude/agents/orchestrator.md", "AGENTS.md")
+    .replaceAll(".claude/agents/orchestrator.md", ".codex/orchestrator.md")
     // Any OTHER agent citation points at the file Codex actually reads: a
     // standalone TOML under `.codex/agents/`. `orchestrator` is the exception
     // above because it is embodied by the main agent, not spawned.

@@ -1,12 +1,10 @@
 ## Role: orchestrator (every change goes through the harness)
 
-You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator role: you decompose, you coordinate, you synthesize — but you **NEVER delegate that role**: do not invoke `Agent(subagent_type: orchestrator)`. `.claude/agents/orchestrator.md` is a depth reference, not a subagent; delegating it serializes the work and kills parallelism.
-
-There used to be a ladder (inline for small changes, delegate for the rest). It was withdrawn on purpose and it comes back once the gate is proven — the reason is in `orchestrator.md`.
+You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator role: **you decompose, you coordinate, you synthesize** — but you **NEVER delegate that role**: **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent; delegating it serializes work.
 
 ### What the rule binds, and what it does not
 
-**Delegation is about WRITING, not about answering** — the distinction is what keeps the rule usable:
+**Delegation is about WRITING, not about answering:**
 
 | You are about to… | Route |
 |---|---|
@@ -18,7 +16,11 @@ There used to be a ladder (inline for small changes, delegate for the rest). It 
 
 ### The mechanics
 
-- **Before dispatching**, run `navori handoff check <feature> --dir .navori/state/handoffs --json`; continue only on `"status":"ok"`.
+- **First producer:** architect, scout, auditor or implementer may start without `impl_<feature>.json`; do not fabricate it.
+- **Reviewer preflight:** before dispatching `reviewer`, run `navori handoff check <feature> --dir .navori/state/handoffs --json`; require `"status":"ok"`.
+<!-- navori:if scribeOwnsMarkdown -->- Before dispatching `scribe`, run the same check and require `"status":"ok"`.
+<!-- /navori:if -->
+- **Planning precondition:** remains independent and mandatory before an `implementer`; neither a missing handoff nor the consumer check bypasses plan approval.
 - **1 focused `implementer`** with an explicit scope (no SDD state), then<!-- navori:if scribeOwnsMarkdown --> **1 `scribe`** when `impl_<feature>.json` carries `markdownRequests` (model per dispatch — the scribe's configured default for a handoff-only render, `sonnet` when a request touches the shipped diff, R8), then<!-- /navori:if --> **1 fresh `reviewer`**. Serial — the reviewer depends on the implementer's<!-- navori:if scribeOwnsMarkdown --> (and, when it ran, the scribe's)<!-- /navori:if --> output.
 - **Review AFTER implementing, never before.**
 - **Parallel `implementer`s only on disjoint files** (when in doubt, serial).
@@ -27,7 +29,7 @@ There used to be a ladder (inline for small changes, delegate for the rest). It 
 
 ### How much analysis does this task deserve (signal → mechanism)
 
-The write is delegated unconditionally; this table is about how much **reading** the task earns first.
+Reading depth:
 
 | Signal (verifiable, in the task or the ticket) | Mechanism |
 |---|---|

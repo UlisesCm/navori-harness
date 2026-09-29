@@ -149,6 +149,79 @@ export function defaultCodexHomeConfigPath(): string {
   return join(safeHomedir(), ".codex", "config.toml");
 }
 
+/** Fail closed when the project TOML no longer contains the proposed positional hooks. */
+export function projectCodexHooksMatch(
+  configTomlPath: string,
+  hooks: readonly ResolvedCodexHook[],
+  wsSubpath = "",
+): boolean {
+  if (!existsSync(configTomlPath)) return false;
+  try {
+    const parsed: unknown = parseToml(readFileSync(configTomlPath, "utf-8"));
+    if (typeof parsed !== "object" || parsed === null || !("hooks" in parsed)) return false;
+    const groups = parsed.hooks;
+    if (typeof groups !== "object" || groups === null) return false;
+    const actual: Array<{
+      event: string;
+      matcher?: string;
+      command: string;
+      timeout: number;
+      statusMessage?: string;
+    }> = [];
+    for (const [event, entries] of Object.entries(groups)) {
+      if (!Array.isArray(entries)) return false;
+      for (const entry of entries) {
+        if (
+          typeof entry !== "object" ||
+          entry === null ||
+          !Array.isArray(entry.hooks) ||
+          entry.hooks.length !== 1
+        )
+          return false;
+        const handler: unknown = entry.hooks[0];
+        if (
+          typeof handler !== "object" ||
+          handler === null ||
+          !("command" in handler) ||
+          !("timeout" in handler)
+        )
+          return false;
+        if (
+          !("type" in handler) ||
+          handler.type !== "command" ||
+          typeof handler.command !== "string" ||
+          typeof handler.timeout !== "number"
+        )
+          return false;
+        actual.push({
+          event,
+          matcher: typeof entry.matcher === "string" ? entry.matcher : undefined,
+          command: handler.command,
+          timeout: handler.timeout,
+          statusMessage:
+            "statusMessage" in handler && typeof handler.statusMessage === "string"
+              ? handler.statusMessage
+              : undefined,
+        });
+      }
+    }
+    const expected = [...new Set(hooks.map((hook) => hook.event))].flatMap((event) =>
+      hooks
+        .filter((hook) => hook.event === event)
+        .map((hook) => ({
+          event: hook.event,
+          matcher: hook.matcher,
+          command: codexHookCommand(hook, wsSubpath),
+          timeout: hook.timeout,
+          statusMessage: hook.statusMessage,
+        })),
+    );
+    return JSON.stringify(actual) === JSON.stringify(expected);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * D10 — compares what `resolveCodexHooks` would register against
  * `~/.codex/config.toml`, hashing exactly like Codex does (`codexHookHash`).

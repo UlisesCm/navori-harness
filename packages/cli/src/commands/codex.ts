@@ -14,10 +14,12 @@ import { dirname, join, resolve, sep } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config/config.ts";
 import { tc, resolveLang } from "../lib/i18n.ts";
 import { resolveCodexHooks } from "../engines/codex/hook-registrations.ts";
+import { loadEnabledPlugins } from "../lib/config/plugins.ts";
 import {
   defaultCodexHomeConfigPath,
   isValidToml,
   planTrustEdit,
+  projectCodexHooksMatch,
   readCodexTrustState,
   type CodexTrustState,
 } from "../lib/codex/trust.ts";
@@ -77,7 +79,7 @@ function trustStateFor(
   codexHomeConfigPath: string,
 ): CodexTrustState {
   const configTomlPath = join(target.cwd, ".codex", "config.toml");
-  const hooks = resolveCodexHooks(target.config);
+  const hooks = resolveCodexHooks(target.config, loadEnabledPlugins(target.config.plugins).loaded);
   return readCodexTrustState(gitRoot, configTomlPath, hooks, {
     codexHomeConfigPath,
     wsSubpath: target.wsSubpath,
@@ -228,6 +230,19 @@ export async function runCodexTrust(
 
   const gitRoot = gitRootOf(cwd);
   const codexHomeConfigPath = defaultCodexHomeConfigPath();
+  for (const target of targets) {
+    const configPath = join(target.cwd, ".codex", "config.toml");
+    const hooks = resolveCodexHooks(
+      target.config,
+      loadEnabledPlugins(target.config.plugins).loaded,
+    );
+    if (!projectCodexHooksMatch(configPath, hooks, target.wsSubpath)) {
+      p.cancel(
+        `Los hooks de ${configPath} difieren del render propuesto; ejecuta navori render antes de aprobar trust.`,
+      );
+      process.exit(1);
+    }
+  }
   const states = targets.map((target) => ({
     target,
     state: trustStateFor(gitRoot, target, codexHomeConfigPath),
@@ -282,6 +297,19 @@ export async function runCodexTrust(
   if (current !== shownText) {
     p.cancel(tx.changedMeanwhile);
     process.exit(1);
+  }
+  for (const { target } of states) {
+    const configPath = join(target.cwd, ".codex", "config.toml");
+    const hooks = resolveCodexHooks(
+      target.config,
+      loadEnabledPlugins(target.config.plugins).loaded,
+    );
+    if (!projectCodexHooksMatch(configPath, hooks, target.wsSubpath)) {
+      p.cancel(
+        `Los hooks de ${configPath} cambiaron durante la confirmación; ejecuta navori render antes de aprobar trust.`,
+      );
+      process.exit(1);
+    }
   }
 
   let text = current;

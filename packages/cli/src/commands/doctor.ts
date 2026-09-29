@@ -1,10 +1,25 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { existsSync, readFileSync, readdirSync, statSync, type Dirent } from "node:fs";
+import {
+  accessSync,
+  constants,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  type Dirent,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
-import { basename, join, resolve, relative } from "node:path";
+import { createHash } from "node:crypto";
+import { basename, delimiter, join, resolve, relative } from "node:path";
+import { parse as parseToml } from "smol-toml";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config/config.ts";
 import { resolveHarnessPlan } from "../engines/shared/harness-plan.ts";
+import { renderManagedFile } from "../engines/shared/render-managed-file.ts";
+import { pluginScriptManagedId } from "../engines/shared/plugin-scripts.ts";
+import { pluginExtraVars } from "../engines/shared/plugin-extra-vars.ts";
+import { navoriAuthorship } from "../lib/render/removable.ts";
 import { CLAUDE_COMPUTED_BLOCK_IDS, buildDesiredMcpServers } from "../engines/claude/index.ts";
 import { getCoreRoot, readCliVersion } from "../lib/render/bundled-assets.ts";
 import { isPlainObject } from "../engines/claude/coexist-settings.ts";
@@ -32,7 +47,11 @@ import { hasBinary } from "../lib/primitives/which.ts";
 import { currentPlatform } from "../lib/config/platform.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/config/presets.ts";
 import { classifyLocalSkills } from "../engines/codex/local-skill-pointer.ts";
-import { minCodexVersion, resolveCodexHooks } from "../engines/codex/hook-registrations.ts";
+import {
+  codexHookCommand,
+  minCodexVersion,
+  resolveCodexHooks,
+} from "../engines/codex/hook-registrations.ts";
 import { readCodexTrustState, type CodexTrustState } from "../lib/codex/trust.ts";
 import { unknownLibraries } from "../lib/assets/library-skills.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
@@ -52,7 +71,10 @@ import { scanQualityGateReadiness } from "../lib/config/gate-readiness.ts";
 import { scanEmptyUserSections } from "../lib/assets/skill-user-section.ts";
 import { scanTriggerlessLocalSkills } from "../lib/assets/skill-triggers.ts";
 import { scanInterpolationArtifacts } from "../lib/render/interpolation-artifacts.ts";
-import { scanMissingModelProfile } from "../lib/assets/model-profile.ts";
+import {
+  scanMissingModelProfile,
+  scanModelProfileProvenance,
+} from "../lib/assets/model-profile.ts";
 import { scanControlGaps } from "../lib/diagnose/control-gaps.ts";
 import { scanDiskUsage, humanBytes } from "../lib/diagnose/disk-usage.ts";
 import { scanMasterPlan } from "../lib/diagnose/master-plan.ts";
@@ -199,8 +221,9 @@ export const doctorCommand = defineCommand({
     const otelReceiver = await scanOtelReceiver(config);
     // #943: informational, per-provider, only for plugins the config enables.
     // Two sibling scans, not one branching check — see each for why.
-    const tgrepIndexFreshness = scanTgrepFreshness(cwd, config);
-    const codegraphIndexDrift = scanCodegraphDrift(cwd, config);
+    const operationalTools = scanOperationalTools(cwd, config);
+    const tgrepIndexFreshness = operationalTools.tgrep?.staleIndex ?? null;
+    const codegraphIndexDrift = operationalTools.codegraph?.indexDrift ?? null;
     const monorepoDrift = scanMonorepoDrift(cwd, config);
     const workspaceLink = scanWorkspaceLink(cwd, config);
     // #368: the gate the whole pipeline leans on, checked statically — a gate
@@ -223,6 +246,7 @@ export const doctorCommand = defineCommand({
     // drops the line silently (by design), so this is the only place the gap
     // surfaces. Warning-level: an unset tier is a valid default.
     const missingModelProfile = scanMissingModelProfile(config);
+    const modelProfileProvenance = scanModelProfileProvenance(config);
     // Spec 0033 D5, R21: one registry (`engine-capabilities.ts`) feeds every
     // control's diagnostic, including the spec 0032 R17 planTiers-gate
     // degradation this used to report on its own (`scanPlanTiersGateSupport`).
@@ -299,6 +323,8 @@ export const doctorCommand = defineCommand({
     // read-only — reporting is the whole contract, navori never touches these.
     const staleHarness = scanStaleHarness(cwd, config);
     const engineInventory = buildEngineInventory(config, cwd);
+    const provenance = buildDoctorProvenance(cwd);
+    const engineEvidence = buildEngineEvidence(config, cwd);
     // #547: real clashes between the machine-global harness (`navori global`)
     // and this repo's. Null — and therefore invisible — when no global layer is
     // installed, which is Spec 0010's zero-footprint invariant applied to the
@@ -373,6 +399,7 @@ export const doctorCommand = defineCommand({
       otelReceiver,
       tgrepIndexFreshness,
       codegraphIndexDrift,
+      operationalTools,
       // The four warning-level checks below are serialized verbatim, in the
       // order the human output prints them: a CI pipeline (or an agent) reading
       // `--json` was blind to all of them, which defeats the purpose of #368 and
@@ -386,6 +413,10 @@ export const doctorCommand = defineCommand({
       // terminal ("… and N more"), and a machine consumer needs every row.
       interpolationArtifacts,
       missingModelProfile,
+      // Projected core-subagent values, not observed rendered files or host
+      // execution. Claude's main-thread effortLevel and preset extras are out
+      // of this matrix; neither has a spawned role modelKey.
+      modelProfileProvenance,
       controlGaps,
       // `path` is absolute because that IS the remediation target, it is not
       // derivable (NAVORI_BACKUP_ROOT can move the store), and the human output
@@ -427,6 +458,8 @@ export const doctorCommand = defineCommand({
       foreignSkillIndexes,
       globalScope,
       engineInventory,
+      provenance,
+      engineEvidence,
     };
 
     if (args.json) {
@@ -2059,6 +2092,201 @@ export interface TgrepIndexFreshness {
   rootPath: string;
 }
 
+type OperationalStatus = "verified" | "unverified";
+
+interface OperationalObservation {
+  status: OperationalStatus;
+  reason?: string;
+}
+
+interface SearchOperationalDiagnostic {
+  cli: OperationalObservation;
+  mcp: OperationalObservation;
+  index: OperationalObservation & { state?: string };
+  result: OperationalObservation;
+  staleIndex?: TgrepIndexFreshness;
+  indexDrift?: CodegraphIndexDrift;
+}
+
+interface EngramOperationalDiagnostic {
+  cli: OperationalObservation;
+  mcp: OperationalObservation;
+  read: OperationalObservation;
+  write: OperationalObservation;
+}
+
+export interface OperationalToolDiagnostics {
+  tgrep: SearchOperationalDiagnostic | null;
+  codegraph: SearchOperationalDiagnostic | null;
+  engram: EngramOperationalDiagnostic | null;
+}
+
+export function probeFailureReason(error: unknown): string {
+  const value = typeof error === "object" && error !== null ? error : {};
+  const code = "code" in value && typeof value.code === "string" ? value.code : "";
+  const message = error instanceof Error ? error.message : "";
+  const stderr =
+    "stderr" in value && (typeof value.stderr === "string" || Buffer.isBuffer(value.stderr))
+      ? String(value.stderr)
+      : "";
+  const detail = `${code} ${message} ${stderr}`;
+  if (/CERT|SSL|TLS|SELF_SIGNED|UNABLE_TO_VERIFY/i.test(detail)) return "ca-or-tls-error";
+  if (/EACCES|EPERM|SQLITE_CANTOPEN|permission denied/i.test(detail)) return "permission-denied";
+  if (/ETIMEDOUT|timed out|timeout/i.test(detail)) return "timeout";
+  if (/ENETUNREACH|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|network unreachable/i.test(detail)) {
+    return "network-unreachable";
+  }
+  if (/invalid session|unknown session|session expired/i.test(detail)) return "invalid-session";
+  return "status-command-failed";
+}
+
+/** Read-only operational evidence. Status is not a result query or an MCP handshake. */
+export function scanOperationalTools(
+  cwd: string,
+  config: NavoriConfig,
+): OperationalToolDiagnostics {
+  let tgrep: SearchOperationalDiagnostic | null = null;
+  if (config.plugins?.tgrep?.enabled === true) {
+    const mcp = { status: "unverified", reason: "no-mcp-query" } as const;
+    const result = { status: "unverified", reason: "no-result-query" } as const;
+    if (!hasBinary("tgrep")) {
+      const absent = {
+        status: "unverified",
+        reason: "binary-missing",
+      } as const;
+      tgrep = { cli: absent, mcp, index: absent, result };
+    } else {
+      try {
+        const raw = execFileSync("tgrep", ["status", cwd], {
+          encoding: "utf-8",
+          stdio: ["ignore", "pipe", "pipe"],
+          timeout: 5000,
+        });
+        const parsed = parseTgrepStatusOutput(raw);
+        tgrep = {
+          cli: { status: "verified" },
+          mcp,
+          index:
+            parsed.kind === "unrecognized"
+              ? { status: "unverified", reason: "unrecognized-status-output" }
+              : { status: "verified", state: parsed.kind },
+          result,
+          ...(parsed.kind === "stale"
+            ? { staleIndex: { age: parsed.age, rootPath: parsed.rootPath } }
+            : {}),
+        };
+      } catch (error) {
+        const failed = {
+          status: "unverified",
+          reason: probeFailureReason(error),
+        } as const;
+        tgrep = { cli: failed, mcp, index: failed, result };
+      }
+    }
+  }
+
+  let codegraph: SearchOperationalDiagnostic | null = null;
+  if (config.plugins?.codegraph?.enabled === true) {
+    const mcp = { status: "unverified", reason: "no-mcp-query" } as const;
+    const result = { status: "unverified", reason: "no-result-query" } as const;
+    let indexState: "present" | "missing" | "unverified" = "present";
+    let indexReason = "index-inspection-failed";
+    try {
+      if (!statSync(join(cwd, ".codegraph")).isDirectory()) indexState = "unverified";
+    } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "ENOENT"
+      ) {
+        indexState = "missing";
+      } else {
+        indexState = "unverified";
+        indexReason = probeFailureReason(error);
+      }
+    }
+    if (!hasBinary("codegraph")) {
+      const absent = {
+        status: "unverified",
+        reason: "binary-missing",
+      } as const;
+      codegraph = { cli: absent, mcp, index: absent, result };
+    } else if (indexState === "missing") {
+      codegraph = {
+        cli: { status: "unverified", reason: "no-status-query" },
+        mcp,
+        index: { status: "verified", state: "no-index" },
+        result,
+      };
+    } else if (indexState === "unverified") {
+      codegraph = {
+        cli: { status: "unverified", reason: "no-status-query" },
+        mcp,
+        index: { status: "unverified", reason: indexReason },
+        result,
+      };
+    } else {
+      try {
+        const raw = execFileSync("codegraph", ["status", "--json", cwd], {
+          encoding: "utf-8",
+          stdio: ["ignore", "pipe", "pipe"],
+          timeout: 5000,
+        });
+        const parsed: unknown = JSON.parse(raw);
+        const status = isPlainObject(parsed) ? parsed : null;
+        const index = status && isPlainObject(status.index) ? status.index : null;
+        const valid =
+          typeof status?.version === "string" &&
+          index !== null &&
+          typeof index.builtWithVersion === "string" &&
+          typeof index.reindexRecommended === "boolean";
+        codegraph = {
+          cli: { status: "verified" },
+          mcp,
+          result,
+          index: valid
+            ? {
+                status: "verified",
+                state: index?.reindexRecommended === true ? "version-drift" : "present",
+              }
+            : { status: "unverified", reason: "unrecognized-status-output" },
+          ...(valid && index?.reindexRecommended === true
+            ? {
+                indexDrift: {
+                  builtWithVersion: index.builtWithVersion as string,
+                  currentVersion: status?.version as string,
+                },
+              }
+            : {}),
+        };
+      } catch (error) {
+        const failed = {
+          status: "unverified",
+          reason: probeFailureReason(error),
+        } as const;
+        codegraph = { cli: failed, mcp, index: failed, result };
+      }
+    }
+  }
+
+  const engram =
+    config.plugins?.engram?.enabled === true
+      ? {
+          cli: hasBinary("engram")
+            ? ({ status: "unverified", reason: "no-read-query" } as const)
+            : ({ status: "unverified", reason: "binary-missing" } as const),
+          mcp: { status: "unverified", reason: "no-mcp-handshake" } as const,
+          read: { status: "unverified", reason: "no-read-query" } as const,
+          write: {
+            status: "unverified",
+            reason: "runtime-identity-unavailable",
+          } as const,
+        }
+      : null;
+  return { tgrep, codegraph, engram };
+}
+
 /**
  * #943 — an index exists and no server is keeping it warm: the exact case
  * that makes `tgrep search` answer from a frozen snapshot instead of erroring
@@ -2545,7 +2773,7 @@ export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth 
   const trust = readCodexTrustState(
     resolve(cwd),
     join(codexDir, "config.toml"),
-    resolveCodexHooks(config),
+    resolveCodexHooks(config, loadEnabledPlugins(config.plugins).loaded),
   );
 
   return {
@@ -3142,4 +3370,630 @@ export function buildEngineInventory(
     };
   }
   return out;
+}
+
+export interface ObservedFact {
+  status: "verified" | "missing" | "unverified" | "not-applicable";
+  reason?: string;
+  reference?: string;
+}
+
+export interface EngineEvidenceRow {
+  engine: "claude" | "codex";
+  location: string;
+  kind: "agent" | "skill" | "hook" | "script";
+  id: string;
+  contract: string;
+  declared: ObservedFact;
+  materialized: ObservedFact;
+  registered: ObservedFact;
+  trust: ObservedFact;
+  execution: {
+    status: "pass" | "fail" | "blocked" | "not-run" | "not-supported";
+    reason: string;
+    reference?: string;
+    version?: string;
+    scenario?: string;
+  };
+}
+
+export interface DoctorProvenance {
+  cwd: string;
+  checkoutSha: string | null;
+  checkoutReason?: string;
+  invokedCli: string | null;
+  resolvedCli: string | null;
+  cliReason?: string;
+  cliVersion: string;
+  entrypointSha256: string | null;
+  entrypointReason?: string;
+  pathCli: CliPathObservation;
+  engineClis: Record<"claude" | "codex", CliPathObservation>;
+  host: { platform: string; arch: string; node: string; bun: string | null };
+}
+
+export interface CliPathObservation {
+  status: "verified" | "missing" | "unverified";
+  invoked: string | null;
+  resolved: string | null;
+  version: string | null;
+  reason?: string;
+}
+
+export function inspectPathCli(
+  name: "navori" | "claude" | "codex",
+  pathEnv = process.env.PATH ?? "",
+  timeoutMs = 5000,
+): CliPathObservation {
+  for (const dir of pathEnv.split(delimiter).filter(Boolean)) {
+    const candidate = join(dir, name);
+    try {
+      if (!statSync(candidate).isFile()) continue;
+      accessSync(candidate, constants.X_OK);
+      const resolved = realpathSync(candidate);
+      try {
+        const version = execFileSync(candidate, ["--version"], {
+          encoding: "utf-8",
+          stdio: ["ignore", "pipe", "pipe"],
+          timeout: timeoutMs,
+        }).trim();
+        return { status: "verified", invoked: candidate, resolved, version };
+      } catch (error) {
+        const failure = error as NodeJS.ErrnoException & { stderr?: Buffer | string };
+        const stderr = String(failure.stderr ?? "");
+        const reason =
+          failure.code === "ETIMEDOUT"
+            ? "version probe timeout"
+            : /cert|certificate|tls|ssl/i.test(stderr)
+              ? "version probe certificate failure"
+              : /network|en(et|host|net)|econn|dns/i.test(stderr)
+                ? "version probe network failure"
+                : failure.code === "ENOENT"
+                  ? "version probe dependency absent"
+                  : `version probe failed${failure.code ? `: ${failure.code}` : ""}`;
+        return { status: "unverified", invoked: candidate, resolved, version: null, reason };
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EACCES") {
+        return {
+          status: "unverified",
+          invoked: candidate,
+          resolved: null,
+          version: null,
+          reason: "permission denied",
+        };
+      }
+    }
+  }
+  return {
+    status: "missing",
+    invoked: null,
+    resolved: null,
+    version: null,
+    reason: "binary absent from PATH",
+  };
+}
+
+/** Identify the running entrypoint, not an unrelated `navori` found in PATH. */
+export function buildDoctorProvenance(cwd: string, invokedCli = process.argv[1]): DoctorProvenance {
+  let checkoutSha: string | null = null;
+  let checkoutReason: string | undefined;
+  try {
+    checkoutSha = execFileSync("git", ["-C", cwd, "rev-parse", "HEAD"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5000,
+    }).trim();
+  } catch {
+    checkoutReason = "git HEAD unavailable";
+  }
+  let resolvedCli: string | null = null;
+  let entrypointSha256: string | null = null;
+  let cliReason: string | undefined;
+  let entrypointReason: string | undefined;
+  if (invokedCli) {
+    try {
+      resolvedCli = realpathSync(invokedCli);
+      entrypointSha256 = createHash("sha256").update(readFileSync(resolvedCli)).digest("hex");
+    } catch (error) {
+      cliReason = error instanceof Error ? error.message : "entrypoint resolution failed";
+      entrypointReason = cliReason;
+    }
+  } else {
+    cliReason = "running entrypoint not supplied by host";
+    entrypointReason = cliReason;
+  }
+  return {
+    cwd,
+    checkoutSha,
+    ...(checkoutReason ? { checkoutReason } : {}),
+    invokedCli: invokedCli ?? null,
+    resolvedCli,
+    ...(cliReason ? { cliReason } : {}),
+    cliVersion: readCliVersion(),
+    entrypointSha256,
+    ...(entrypointReason ? { entrypointReason } : {}),
+    pathCli: inspectPathCli("navori"),
+    engineClis: { claude: inspectPathCli("claude"), codex: inspectPathCli("codex") },
+    host: {
+      platform: process.platform,
+      arch: process.arch,
+      node: process.version,
+      bun: process.versions.bun ?? null,
+    },
+  };
+}
+
+function observeFile(path: string): ObservedFact {
+  try {
+    const stat = statSync(path);
+    if (stat.isFile()) accessSync(path, constants.R_OK);
+    return stat.isFile()
+      ? { status: "verified", reference: path }
+      : { status: "missing", reason: "expected a file", reference: path };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === "ENOENT"
+      ? { status: "missing", reason: "file absent", reference: path }
+      : { status: "unverified", reason: code ?? "file inspection failed", reference: path };
+  }
+}
+
+function readRegistration(
+  path: string,
+  engine: "claude" | "codex",
+): {
+  facts: ObservedFact;
+  refs: Set<string>;
+  claudeHooks: Array<{
+    event: string;
+    matcher: string;
+    command: string;
+    timeout: number;
+  }>;
+  codexHooks: Array<{
+    event: string;
+    matcher?: string;
+    command: string;
+    timeout: number;
+    statusMessage?: string;
+    handlerCount: number;
+    handlerType: string;
+  }>;
+} {
+  const file = observeFile(path);
+  if (file.status !== "verified")
+    return { facts: file, refs: new Set(), claudeHooks: [], codexHooks: [] };
+  try {
+    const body = readFileSync(path, "utf-8");
+    const parsed: unknown = engine === "claude" ? JSON.parse(body) : parseToml(body);
+    const refs = new Set<string>();
+    const claudeHooks: ReturnType<typeof readRegistration>["claudeHooks"] = [];
+    const codexHooks: ReturnType<typeof readRegistration>["codexHooks"] = [];
+    if (engine === "claude") {
+      if (isPlainObject(parsed)) {
+        collectHookScriptRefs(parsed.hooks, refs);
+        if (isPlainObject(parsed.hooks)) {
+          for (const [event, groups] of Object.entries(parsed.hooks)) {
+            if (!Array.isArray(groups)) continue;
+            for (const group of groups) {
+              if (!isPlainObject(group) || !Array.isArray(group.hooks) || group.hooks.length === 0)
+                continue;
+              const matcher = typeof group.matcher === "string" ? group.matcher : "*";
+              for (const hook of group.hooks) {
+                if (
+                  isPlainObject(hook) &&
+                  typeof hook.command === "string" &&
+                  typeof hook.timeout === "number"
+                ) {
+                  claudeHooks.push({
+                    event,
+                    matcher,
+                    command: hook.command,
+                    timeout: hook.timeout,
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    } else if (isPlainObject(parsed) && isPlainObject(parsed.hooks)) {
+      for (const [event, groups] of Object.entries(parsed.hooks)) {
+        if (!Array.isArray(groups)) continue;
+        for (const group of groups) {
+          if (!isPlainObject(group) || !Array.isArray(group.hooks)) continue;
+          for (const hook of group.hooks) {
+            if (!isPlainObject(hook) || typeof hook.command !== "string") continue;
+            refs.add(hook.command);
+            if (typeof hook.timeout !== "number" || typeof hook.type !== "string") continue;
+            codexHooks.push({
+              event,
+              ...(typeof group.matcher === "string" ? { matcher: group.matcher } : {}),
+              command: hook.command,
+              timeout: hook.timeout,
+              ...(typeof hook.statusMessage === "string"
+                ? { statusMessage: hook.statusMessage }
+                : {}),
+              handlerCount: group.hooks.length,
+              handlerType: hook.type,
+            });
+          }
+        }
+      }
+    }
+    return { facts: { status: "verified", reference: path }, refs, claudeHooks, codexHooks };
+  } catch (error) {
+    return {
+      facts: {
+        status: "unverified",
+        reason: error instanceof Error ? error.message : "registration parse failed",
+        reference: path,
+      },
+      refs: new Set(),
+      claudeHooks: [],
+      codexHooks: [],
+    };
+  }
+}
+
+/** Read-only, per-location observations; never promotes a declaration into runtime evidence. */
+export function buildEngineEvidence(config: NavoriConfig, cwd: string): EngineEvidenceRow[] {
+  const coreAssets = resolve(getCoreRoot(), "core-assets");
+  const locations: Array<{ cwd: string; config: NavoriConfig; path: string }> = [
+    { cwd, config, path: "." },
+    ...enabledMonorepoWorkspaces(config).map((ws) => ({
+      cwd: resolve(cwd, ws.path),
+      config: effectiveConfigForWorkspace(config, ws),
+      path: ws.path,
+    })),
+  ];
+  const rows: EngineEvidenceRow[] = [];
+  for (const loc of locations) {
+    let preset: ReturnType<typeof loadPreset> = null;
+    if (loc.config.preset && loc.config.preset !== "custom") {
+      try {
+        preset = loadPreset(loc.config.preset, loc.cwd);
+      } catch {
+        // The existing preset diagnostic owns this failure; core assets remain observable.
+      }
+    }
+    const plugins = loadEnabledPlugins(loc.config.plugins).loaded;
+    for (const engine of loc.config.engines) {
+      if (engine !== "claude" && engine !== "codex") continue;
+      const plan = resolveHarnessPlan(loc.config, coreAssets, preset, {
+        includeOrchestrator: engine === "claude",
+      });
+      const registrationPath = join(
+        loc.cwd,
+        engine === "claude" ? ".claude/settings.json" : ".codex/config.toml",
+      );
+      const registration = readRegistration(registrationPath, engine);
+      const resolvedHooks = engine === "codex" ? resolveCodexHooks(loc.config, plugins) : [];
+      // Trust is a separate observation. Its helper reads the same resolved hook set as render.
+      const trust =
+        engine === "codex" && registration.facts.status === "verified"
+          ? readCodexTrustState(resolve(loc.cwd), registrationPath, resolvedHooks, {
+              wsSubpath: loc.path === "." ? "" : loc.path,
+            })
+          : null;
+      const assets: Array<{
+        kind: EngineEvidenceRow["kind"];
+        id: string;
+        contract: string;
+        path: string;
+        pluginHook?: { pluginId: string; ordinal: number; command: string; timeout: number };
+        pluginScript?: { pluginId: string; src: string; dest: string };
+      }> = [
+        ...plan.agents.map((a) => ({
+          kind: "agent" as const,
+          id: a.id,
+          contract: "agent discovery",
+          path: engine === "claude" ? `.claude/agents/${a.id}.md` : `.codex/agents/${a.id}.toml`,
+        })),
+        ...plan.skills.map((s) => ({
+          kind: "skill" as const,
+          id: s.id,
+          contract: "skill discovery",
+          path:
+            engine === "claude"
+              ? `.claude/skills/${s.id}/SKILL.md`
+              : `.agents/skills/${s.id}/SKILL.md`,
+        })),
+        ...plan.hooks.map((h) => ({
+          kind: "hook" as const,
+          id: h.id,
+          contract: "hook registration",
+          path: engine === "claude" ? `.claude/hooks/${h.id}.sh` : `.codex/hooks/${h.id}.sh`,
+        })),
+        ...plugins.flatMap((plugin) =>
+          plugin.skillAssets.map((skill) => ({
+            kind: "skill" as const,
+            id: skill.id,
+            contract: skill.injectInto ? "plugin managed extension" : "plugin skill discovery",
+            path: skill.injectInto
+              ? engine === "claude"
+                ? skill.injectInto
+                : skill.injectInto === ".claude/agents/orchestrator.md"
+                  ? "AGENTS.md"
+                  : skill.injectInto
+                      .replace(".claude/agents/", ".codex/agents/")
+                      .replace(/\.md$/, ".toml")
+                      .replace(".claude/skills/", ".agents/skills/")
+              : engine === "claude"
+                ? `.claude/skills/${skill.id}/SKILL.md`
+                : `.agents/skills/${skill.id}/SKILL.md`,
+          })),
+        ),
+        ...plugins.flatMap((plugin) =>
+          plugin.scriptAssets.map((script) => ({
+            kind: "script" as const,
+            id: script.dest,
+            contract: "plugin script reference",
+            path: `.${engine}/scripts/${script.dest}`,
+            pluginScript: { pluginId: plugin.manifest.id, src: script.src, dest: script.dest },
+          })),
+        ),
+        ...plugins.flatMap((plugin) =>
+          (plugin.manifest.hooks ?? []).map((hook, ordinal) => ({
+            kind: "hook" as const,
+            id: `${plugin.manifest.id}:${hook.event}:${hook.matcher ?? "*"}`,
+            contract: "plugin hook registration",
+            path: engine === "claude" ? ".claude/settings.json" : ".codex/config.toml",
+            pluginHook: {
+              pluginId: plugin.manifest.id,
+              ordinal,
+              command: hook.command,
+              timeout: hook.timeout,
+            },
+          })),
+        ),
+      ];
+      const pluginScriptFacts = new Map<string, ObservedFact>();
+      for (const asset of assets) {
+        let materialized: ObservedFact =
+          asset.kind === "hook" && asset.id.includes(":")
+            ? engine === "codex"
+              ? (() => {
+                  const resolved = resolvedHooks.find(
+                    (hook) =>
+                      hook.pluginId === asset.pluginHook?.pluginId &&
+                      hook.pluginHookOrdinal === asset.pluginHook?.ordinal,
+                  );
+                  return resolved?.scriptPath
+                    ? (pluginScriptFacts.get(resolved.scriptPath) ??
+                        observeFile(join(loc.cwd, resolved.scriptPath)))
+                    : {
+                        status: "missing" as const,
+                        reason: "plugin hook has no Codex materialization",
+                        reference: registrationPath,
+                      };
+                })()
+              : observeFile(registrationPath)
+            : observeFile(join(loc.cwd, asset.path));
+        if (engine === "codex" && asset.pluginScript && materialized.status === "verified") {
+          try {
+            const content = readFileSync(join(loc.cwd, asset.path), "utf-8");
+            const check = renderManagedFile({
+              assetPath: asset.pluginScript.src,
+              existingContent: content,
+              managedId: pluginScriptManagedId(
+                asset.pluginScript.pluginId,
+                asset.pluginScript.dest,
+              ),
+              meta: {
+                source: `@navori/plugin-${asset.pluginScript.pluginId}`,
+                version: readCliVersion(),
+              },
+              config: loc.config,
+              extraVars: pluginExtraVars(loc.config),
+              commentStyle: "shell",
+            });
+            const authorship = navoriAuthorship(
+              join(loc.cwd, asset.path),
+              pluginScriptManagedId(asset.pluginScript.pluginId, asset.pluginScript.dest),
+            );
+            if (check.status !== "unchanged" || authorship !== "ours")
+              materialized = {
+                status: "unverified",
+                reason: `managed script ${authorship === "newer" ? "downgrade-skipped" : check.status}`,
+                reference: join(loc.cwd, asset.path),
+              };
+          } catch {
+            materialized = {
+              status: "unverified",
+              reason: "plugin script cannot be verified",
+              reference: join(loc.cwd, asset.path),
+            };
+          }
+        }
+        if (engine === "codex" && asset.pluginScript)
+          pluginScriptFacts.set(asset.path, materialized);
+        if (asset.contract === "plugin managed extension" && materialized.status === "verified") {
+          try {
+            if (!readFileSync(join(loc.cwd, asset.path), "utf-8").includes(`id="${asset.id}"`)) {
+              materialized = {
+                status: "missing",
+                reason: "managed extension absent",
+                reference: join(loc.cwd, asset.path),
+              };
+            }
+          } catch (error) {
+            materialized = {
+              status: "unverified",
+              reason: (error as NodeJS.ErrnoException).code ?? "extension unreadable",
+              reference: join(loc.cwd, asset.path),
+            };
+          }
+        }
+        let registered: ObservedFact = {
+          status: "not-applicable",
+          reason: "asset uses host discovery",
+        };
+        let trustFact: ObservedFact = {
+          status: "not-applicable",
+          reason: "no per-asset trust store",
+        };
+        if (asset.kind === "hook" || asset.kind === "script") {
+          if (engine === "codex" && asset.kind === "script") {
+            registered = { status: "not-applicable", reason: "script invoked by plugin hook" };
+          } else if (
+            engine === "codex" &&
+            asset.kind === "hook" &&
+            !resolvedHooks.some(
+              (h) =>
+                h.pluginId === asset.pluginHook?.pluginId &&
+                h.pluginHookOrdinal === asset.pluginHook?.ordinal,
+            )
+          ) {
+            registered = {
+              status: asset.contract === "plugin hook registration" ? "missing" : "not-applicable",
+              reason:
+                asset.contract === "plugin hook registration"
+                  ? "plugin hook has no Codex registration"
+                  : "no Codex registration declared",
+              reference: registrationPath,
+            };
+          } else if (registration.facts.status !== "verified") {
+            registered = registration.facts;
+          } else if (engine === "codex" && asset.pluginHook) {
+            const resolved = resolvedHooks.find(
+              (hook) =>
+                hook.pluginId === asset.pluginHook?.pluginId &&
+                hook.pluginHookOrdinal === asset.pluginHook?.ordinal,
+            );
+            registered =
+              resolved &&
+              registration.codexHooks.some(
+                (observed) =>
+                  observed.event === resolved.event &&
+                  observed.matcher === resolved.matcher &&
+                  observed.command ===
+                    codexHookCommand(resolved, loc.path === "." ? "" : loc.path) &&
+                  observed.timeout === resolved.timeout &&
+                  observed.statusMessage === resolved.statusMessage &&
+                  observed.handlerType === "command" &&
+                  observed.handlerCount === 1,
+              )
+                ? { status: "verified", reference: registrationPath }
+                : {
+                    status: "missing",
+                    reason: "plugin hook registration absent or changed",
+                    reference: registrationPath,
+                  };
+          } else if (asset.kind === "hook" && asset.id.includes(":")) {
+            const [, event, matcher] = asset.id.split(":");
+            registered = registration.claudeHooks.some(
+              (hook) =>
+                hook.event === event &&
+                hook.matcher === matcher &&
+                hook.command === asset.pluginHook?.command &&
+                hook.timeout === asset.pluginHook.timeout,
+            )
+              ? { status: "verified", reference: registrationPath }
+              : {
+                  status: "missing",
+                  reason: "hook event/matcher absent",
+                  reference: registrationPath,
+                };
+          } else {
+            const matched =
+              engine === "codex"
+                ? resolvedHooks
+                    .filter((h) => h.script === asset.id)
+                    .every((h) =>
+                      registration.codexHooks.some(
+                        (observed) =>
+                          observed.event === h.event &&
+                          observed.matcher === h.matcher &&
+                          observed.command ===
+                            codexHookCommand(h, loc.path === "." ? "" : loc.path) &&
+                          observed.timeout === h.timeout &&
+                          observed.statusMessage === h.statusMessage &&
+                          observed.handlerType === "command" &&
+                          observed.handlerCount === 1,
+                      ),
+                    )
+                : [...registration.refs].some((ref) =>
+                    ref.includes(
+                      asset.kind === "script"
+                        ? `.claude/scripts/${asset.id}`
+                        : `.claude/hooks/${asset.id}.sh`,
+                    ),
+                  );
+            registered = matched
+              ? { status: "verified", reference: registrationPath }
+              : {
+                  status: "missing",
+                  reason: "resolved registration absent or changed",
+                  reference: registrationPath,
+                };
+          }
+          if (engine === "codex" && trust && registered.status === "verified") {
+            const pluginIndex = asset.pluginHook
+              ? resolvedHooks.findIndex(
+                  (hook) =>
+                    hook.pluginId === asset.pluginHook?.pluginId &&
+                    hook.pluginHookOrdinal === asset.pluginHook?.ordinal,
+                )
+              : -1;
+            const hookEntries = asset.pluginHook
+              ? pluginIndex >= 0 && trust.hooks[pluginIndex]
+                ? [trust.hooks[pluginIndex]]
+                : []
+              : trust.hooks.filter((hook) => hook.script === asset.id);
+            trustFact =
+              hookEntries.length === 0
+                ? { status: "not-applicable", reason: "no registered Codex hook" }
+                : !trust.projectTrusted
+                  ? {
+                      status: "unverified",
+                      reason: "project not trusted",
+                      reference: trust.configTomlPath,
+                    }
+                  : hookEntries.every((h) => h.status === "Trusted")
+                    ? { status: "verified", reference: trust.configTomlPath }
+                    : {
+                        status: "unverified",
+                        reason: "hook approval absent or modified",
+                        reference: trust.configTomlPath,
+                      };
+          } else if (engine === "codex" && registered.status !== "not-applicable") {
+            trustFact = {
+              status: "unverified",
+              reason: "registration not verified",
+              reference: registrationPath,
+            };
+          }
+        } else if (engine === "codex") {
+          trustFact = trust
+            ? trust.projectTrusted
+              ? { status: "verified", reference: trust.configTomlPath }
+              : {
+                  status: "unverified",
+                  reason: "project not trusted",
+                  reference: trust.configTomlPath,
+                }
+            : {
+                status: "unverified",
+                reason: "project trust not inspected",
+                reference: registrationPath,
+              };
+        }
+        rows.push({
+          engine,
+          location: loc.path,
+          kind: asset.kind,
+          id: asset.id,
+          contract: asset.contract,
+          declared: { status: "verified", reference: "resolved harness plan / enabled plugin" },
+          materialized,
+          registered,
+          trust: trustFact,
+          execution: { status: "not-run", reason: "doctor does not execute host controls" },
+        });
+      }
+    }
+  }
+  return rows;
 }

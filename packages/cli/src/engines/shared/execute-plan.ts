@@ -5,7 +5,7 @@ import { writeFileAtomic } from "../../lib/primitives/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/render/backup.ts";
 import { RenderWriteError } from "../../lib/primitives/errors.ts";
 import { readCliVersion } from "../../lib/render/bundled-assets.ts";
-import { injectManagedSection } from "../../lib/render/marker.ts";
+import { injectManagedSection, readMarkerAttrs } from "../../lib/render/marker.ts";
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
 import type { loadPreset } from "../../lib/config/presets.ts";
 import type { RenderStatus } from "../../lib/primitives/style.ts";
@@ -41,6 +41,9 @@ export interface PlacementRequest {
   managedId: string;
   commentStyle: "html" | "shell";
   chmodExec?: boolean;
+  /** Plugin provenance and derived interpolation values, when not a core asset. */
+  meta?: { source: string; version: string };
+  extraVars?: Record<string, string>;
   /** Written around the managed block only the FIRST time the file is created. */
   firstRenderSeed?: { header?: string; trailer?: string };
   /**
@@ -249,12 +252,30 @@ function collectRequest(
 
   if (req.assetPath !== undefined) {
     const existing = existsSync(path) ? readFileSync(path, "utf-8") : null;
+    if (existing !== null && req.meta?.source.startsWith("@navori/plugin-")) {
+      const authorship = navoriAuthorship(path, req.managedId);
+      if (authorship !== "ours") {
+        const status = authorship === "newer" ? "downgrade-skipped" : "user-modified-skipped";
+        skipped.push({
+          path: req.destRelPath,
+          reason: skipReason(
+            status,
+            req.destRelPath,
+            readMarkerAttrs(existing, req.managedId, req.commentStyle)?.existingVersion ??
+              undefined,
+          ),
+          status,
+        });
+        return;
+      }
+    }
     const result = renderManagedFile({
       assetPath: req.assetPath,
       existingContent: existing,
       managedId: req.managedId,
-      meta: CORE_META,
+      meta: req.meta ?? CORE_META,
       config: ctx.config,
+      extraVars: req.extraVars,
       commentStyle: req.commentStyle,
       transform: req.transform,
     });
@@ -270,7 +291,7 @@ function collectRequest(
       existing,
       req.managedId,
       req.body ?? "",
-      CORE_META,
+      req.meta ?? CORE_META,
       req.commentStyle,
     );
     content = result.output;
