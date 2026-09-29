@@ -126,6 +126,13 @@ describe("detectLibrarySkills", () => {
   });
 
   // #1092: detection is exact-name; a types-only package is not the runtime lib.
+  it("detects fastapi and pytest from Python dependency names", () => {
+    expect(detectLibrarySkills(["fastapi"])).toEqual(["fastapi"]);
+    expect(detectLibrarySkills(["pytest"])).toEqual(["pytest"]);
+    expect(detectLibrarySkills(["fastapi", "pydantic", "pytest-asyncio"])).toEqual(["fastapi"]);
+    expect(detectLibrarySkills(["fastapi", "pytest"])).toEqual(["fastapi", "pytest"]);
+  });
+
   it("detects amqplib next to bullmq in registry order, but not from @types/amqplib alone", () => {
     expect(detectLibrarySkills(["amqplib", "bullmq"])).toEqual(["bullmq", "amqplib"]);
     expect(detectLibrarySkills(["@types/amqplib"])).toEqual([]);

@@ -219,6 +219,157 @@ describe("detectProject — Python without pyproject.toml (#70)", () => {
     }
   });
 
+  describe("detectProject — Python dev dependencies", () => {
+    function withDir(setup: (dir: string) => void): ReturnType<typeof detectProject> {
+      const dir = makeTmp();
+      try {
+        setup(dir);
+        return detectProject(dir);
+      } finally {
+        rmSync(dir, { recursive: true });
+      }
+    }
+
+    it("reports-server-bonum shape: fastapi detected, no pytest without a test dep", () => {
+      const d = withDir((dir) =>
+        writeFileSync(
+          join(dir, "requirements.txt"),
+          "fastapi[standard]==0.110 ; python_version >= '3.9'\npydantic>=2\nmotor\nuvicorn\n",
+        ),
+      );
+      expect(d.stack.language).toBe("python");
+      expect(d.libraries).toContain("fastapi");
+      expect(d.libraries).not.toContain("pytest");
+    });
+
+    it("detects pytest from requirements-dev.txt next to requirements.txt", () => {
+      const d = withDir((dir) => {
+        writeFileSync(join(dir, "requirements.txt"), "fastapi\npydantic\nmotor\n");
+        writeFileSync(join(dir, "requirements-dev.txt"), "-r requirements.txt\nPytest>=8\n");
+      });
+      expect(d.libraries).toEqual(expect.arrayContaining(["fastapi", "pytest"]));
+    });
+
+    it("reads requirements/*.txt and requirements-*.txt", () => {
+      const d = withDir((dir) => {
+        mkdirSync(join(dir, "requirements"));
+        writeFileSync(join(dir, "requirements", "test.txt"), "pytest~=8.0  # runner\n");
+        writeFileSync(join(dir, "requirements-prod.txt"), "fastapi\n");
+      });
+      expect(d.libraries).toEqual(expect.arrayContaining(["fastapi", "pytest"]));
+    });
+
+    it("reads pyproject optional-dependencies with extras in every group", () => {
+      const d = withDir((dir) =>
+        writeFileSync(
+          join(dir, "pyproject.toml"),
+          `[project]
+name = "svc"
+dependencies = [
+  "fastapi[standard]>=0.110",
+  "pydantic>=2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff"]
+docs = ["mkdocs"]
+`,
+        ),
+      );
+      expect(d.stack.deps).toEqual(
+        expect.arrayContaining(["fastapi", "pydantic", "pytest", "ruff", "mkdocs"]),
+      );
+      expect(d.libraries).toEqual(expect.arrayContaining(["fastapi", "pytest"]));
+    });
+
+    it("does not let optional groups leak into or break [project] dependencies", () => {
+      const d = withDir((dir) =>
+        writeFileSync(
+          join(dir, "pyproject.toml"),
+          `[project]
+name = "svc"
+dependencies = ["httpx"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+`,
+        ),
+      );
+      expect(d.stack.deps).toEqual(expect.arrayContaining(["httpx", "pytest"]));
+      expect(d.libraries).not.toContain("fastapi");
+    });
+
+    it("reads PEP 735 [dependency-groups], skipping include-group tables", () => {
+      const d = withDir((dir) =>
+        writeFileSync(
+          join(dir, "pyproject.toml"),
+          `[project]
+name = "svc"
+
+[dependency-groups]
+test = ["pytest>=8", "pytest-cov"]
+dev = [{include-group = "test"}, "ruff"]
+`,
+        ),
+      );
+      expect(d.stack.deps).toEqual(expect.arrayContaining(["pytest", "pytest-cov", "ruff"]));
+      expect(d.stack.deps).not.toContain("test");
+    });
+
+    it("reads poetry group and legacy dev-dependencies tables", () => {
+      const groups = withDir((dir) =>
+        writeFileSync(
+          join(dir, "pyproject.toml"),
+          `[tool.poetry]
+name = "svc"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.110"
+
+[tool.poetry.group.test.dependencies]
+pytest = "^8"
+`,
+        ),
+      );
+      expect(groups.libraries).toEqual(expect.arrayContaining(["fastapi", "pytest"]));
+      const legacy = withDir((dir) =>
+        writeFileSync(
+          join(dir, "pyproject.toml"),
+          `[tool.poetry]
+name = "svc"
+
+[tool.poetry.dev-dependencies]
+pytest = "^8"
+`,
+        ),
+      );
+      expect(legacy.libraries).toContain("pytest");
+    });
+
+    it("reads Pipfile [dev-packages]", () => {
+      const d = withDir((dir) =>
+        writeFileSync(
+          join(dir, "Pipfile"),
+          '[packages]\nfastapi = "*"\n\n[dev-packages]\npytest = "*"\n',
+        ),
+      );
+      expect(d.libraries).toEqual(expect.arrayContaining(["fastapi", "pytest"]));
+    });
+
+    it("does NOT classify a JS repo as Python because of requirements-dev.txt", () => {
+      const d = withDir((dir) => {
+        writeFileSync(
+          join(dir, "package.json"),
+          JSON.stringify({ name: "web", dependencies: { react: "^18" } }),
+        );
+        writeFileSync(join(dir, "requirements-dev.txt"), "pytest\n");
+      });
+      expect(d.stack.language).not.toBe("python");
+      expect(d.libraries).not.toContain("pytest");
+    });
+  });
+
   it("falls back to directory name when no manifest exists", () => {
     const parent = makeTmp();
     const target = join(parent, "my-Repo-Name");
