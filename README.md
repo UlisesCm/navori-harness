@@ -167,23 +167,26 @@ una segunda copia es una copia que se desincroniza.
 
 ## Releases
 
-Releases manuales, **en este orden**. Desde 0.8.2 el commit del paso 3 va **por PR a
+Releases manuales, **en este orden**. Desde 0.8.2 el commit del paso 4 va **por PR a
 `main`**, no en push directo: el README documentaba el release directo y en la misma
 línea advertía que así no hay PR donde verlo antes — o sea, CI no valida el árbol del
 release hasta que ya aterrizó.
 
-1. Bump de la versión en `packages/cli/package.json`.
-2. **Re-render obligatorio del espejo** (no es opcional ni un detalle):
+1. Escribe la entrada de versiones del minor (titular + 3–5 bullets, en español e inglés) en
+   `apps/website/src/content/releases.ts`. Si el minor actual del CLI no tiene entrada, falla el
+   bloque "release notes" de `landing-inventory.test.ts`.
+2. Bump de la versión en `packages/cli/package.json`.
+3. **Re-render obligatorio del espejo** (no es opcional ni un detalle):
    ```bash
    bun run --filter navori build && node packages/cli/dist/index.js render --apply
    ```
-   El marcador de cada bloque managed estampa la versión del CLI, así que el bump del paso 1
+   El marcador de cada bloque managed estampa la versión del CLI, así que el bump del paso 2
    desfasa el espejo renderizado de este repo **entero**: medido en 0.6.0 → 0.6.1, **30 archivos**
    entre `.claude/` y `CLAUDE.md`. Saltarte este paso deja el tag puesto sobre un árbol
    inconsistente y pone en rojo el primer CI de `main` posterior al release (`bun run check:render`,
    #421). Yendo por PR eso se ve antes de aterrizar; era justo el punto ciego del push directo.
-3. Commit `chore(release): navori vX.Y.Z` — incluye el bump **y** el re-render del paso 2.
-4. Tag `vX.Y.Z` — **automático desde 0.8.6**. `release-tag.yml` se dispara cuando
+4. Commit `chore(release): navori vX.Y.Z` — incluye el bump **y** el re-render del paso 3.
+5. Tag `vX.Y.Z` — **automático desde 0.8.6**. `release-tag.yml` se dispara cuando
    `packages/cli/package.json` cambia en `main`, y crea y pushea el tag anotado sobre ese
    commit si no existe ya. Es idempotente, así que re-correrlo no hace nada.
 
@@ -193,9 +196,9 @@ release hasta que ya aterrizó.
    lo deja validando contra el anterior — sigue diciendo "existe en v0.8.3" para un parque
    que ya va en 0.8.4, y no falla nada.
 
-   Si hace falta a mano: `git tag -a vX.Y.Z <commit del paso 3> && git push origin vX.Y.Z`.
+   Si hace falta a mano: `git tag -a vX.Y.Z <commit del paso 4> && git push origin vX.Y.Z`.
    El tag apunta al commit `chore(release)`, como `v0.8.2` → `285fa51` y `v0.8.3` → `6f32a00`.
-5. `npm publish` desde `packages/cli`.
+6. `npm publish` desde `packages/cli`.
 
 El footer del website imprime la versión importando el `package.json` del CLI
 (`apps/website/src/components/Footer.astro`), y `deploy-website.yml` vigila ese archivo en
