@@ -248,3 +248,26 @@ describe("buildSkillRows — project-local trigger (#327)", () => {
     expect(rows).toContain("- `workspace-only` — project-local · Use when touching this app only");
   });
 });
+
+describe("buildSkillRows — preset-implied libraries (#1094)", () => {
+  // Covers: A4
+  it("labels a preset-implied id by its preset and a detected one as detected", () => {
+    const stale = buildSkillRows(
+      cfg({ preset: "vite-react-ts-mantine", project: { libraries: [] } } as never),
+      process.cwd(),
+      coreAssets,
+    ).join("\n");
+    expect(stale).toContain("`mantine-ui-patterns` — library (preset `vite-react-ts-mantine`)");
+
+    const detected = buildSkillRows(
+      cfg({
+        preset: "vite-react-ts-mantine",
+        project: { libraries: ["mantine-ui-patterns"] },
+      } as never),
+      process.cwd(),
+      coreAssets,
+    ).join("\n");
+    expect(detected).toContain("`mantine-ui-patterns` — library (detected)");
+    expect(detected.match(/`mantine-ui-patterns`/g)).toHaveLength(1);
+  });
+});

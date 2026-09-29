@@ -5,6 +5,10 @@ import { basename, join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
 import { computeManagedHash } from "../../../lib/render/marker.ts";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
+import {
+  effectiveConfigForWorkspace,
+  enabledMonorepoWorkspaces,
+} from "../../../lib/workspace/monorepo.ts";
 
 /** Skills materialize in directory form (`<id>/SKILL.md`) — the shape Claude
  * Code auto-discovers (#166). Absolute path and repo-relative path helpers. */
@@ -138,6 +142,9 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
       },
       {
         id: "vite-react-ts-mantine",
+        // mantine-ui-patterns is a library skill (#1094), injected via the
+        // detected `@mantine/core` dep -> project.libraries.
+        project: { libraries: ["mantine-ui-patterns"] },
         skills: [".claude/skills/mantine-ui-patterns.md", ".claude/skills/new-feature.md"],
       },
       {
@@ -479,5 +486,123 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
         expect(existsSync(reclaimed)).toBe(true);
       });
     });
+  });
+});
+
+describe("mantine-ui-patterns preset -> library-skill transition (#1094)", () => {
+  const configFor = (preset: string, libraries: string[]) =>
+    ({
+      ...BASE_CONFIG,
+      preset,
+      project: { libraries },
+    }) as unknown as NavoriConfig;
+
+  /** A skill file as an older navori (preset extra) rendered it, plus user text. */
+  const writePresetEraSkill = (userTail: string): string => {
+    const p = skFile(cwd, "mantine-ui-patterns");
+    mkdirSync(join(cwd, ".claude/skills/mantine-ui-patterns"), { recursive: true });
+    const oldBody = "OLD preset-era mantine body";
+    writeFileSync(
+      p,
+      [
+        "---",
+        "name: mantine-ui-patterns",
+        "---",
+        "",
+        `<!-- navori:managed id="mantine-ui-patterns" hash="${computeManagedHash(oldBody)}" version="0.0.1" source="@navori/core" -->`,
+        oldBody,
+        '<!-- /navori:managed id="mantine-ui-patterns" -->',
+        userTail,
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    return p;
+  };
+
+  // Covers: A2 — same path, kept (not retired), user section preserved.
+  it("vite-react-ts-mantine + @mantine/core keeps the skill at the same path with the user section", () => {
+    const p = writePresetEraSkill("## Our rules\n\n- Never use inline styles here.");
+    const r = renderClaudeEngine(cwd, configFor("vite-react-ts-mantine", ["mantine-ui-patterns"]));
+
+    expect(existsSync(p)).toBe(true);
+    const content = readFileSync(p, "utf-8");
+    expect(content).toContain("Never use inline styles here.");
+    expect(content).not.toContain("OLD preset-era mantine body");
+    // Ownership is marker-only and unchanged: same id, same source.
+    expect(content).toMatch(/navori:managed id="mantine-ui-patterns" [^>]*source="@navori\/core"/);
+    expect(
+      r.written.some(
+        (w) => w.path.includes("mantine-ui-patterns") && w.status === "removed-condition-false",
+      ),
+    ).toBe(false);
+    expect(r.warnings.filter((w) => w.includes("mantine-ui-patterns"))).toEqual([]);
+  });
+
+  // Covers: A2 — the skill is no longer preset-exclusive.
+  it("another preset + @mantine/core now receives the skill", () => {
+    renderClaudeEngine(cwd, configFor("nextjs", ["mantine-ui-patterns"]));
+    expect(existsSync(skFile(cwd, "mantine-ui-patterns"))).toBe(true);
+  });
+
+  // Covers: A4 — inverted: the preset implies the skill, so a stale/empty
+  // project.libraries (no @mantine/core detected) must NOT retire it.
+  it("vite-react-ts-mantine with libraries [] keeps the skill (preset implies it)", () => {
+    const p = writePresetEraSkill("## Our rules\n\n- keep me");
+    const r = renderClaudeEngine(cwd, configFor("vite-react-ts-mantine", []));
+    expect(existsSync(p)).toBe(true);
+    expect(readFileSync(p, "utf-8")).toContain("keep me");
+    expect(r.written.some((w) => w.status === "removed-condition-false")).toBe(false);
+  });
+
+  // Covers: A2/A4 — switching away from the preset retires it via §8.7.
+  it("switching to a preset without the lib retires the navori-owned skill", () => {
+    const p = writePresetEraSkill("");
+    const r = renderClaudeEngine(cwd, configFor("vite-react-ts", []));
+    expect(existsSync(p)).toBe(false);
+    expect(r.written.some((w) => w.path.includes("mantine-ui-patterns"))).toBe(true);
+  });
+
+  // Covers: A4 — C1: a declared preset that fails to load freezes retirement.
+  it("a declared preset that is not found does not retire library skills", () => {
+    const p = writePresetEraSkill("");
+    renderClaudeEngine(cwd, configFor("ghost-preset", []));
+    expect(existsSync(p)).toBe(true);
+  });
+
+  it("a user-authored file (no navori marker) at that path survives retirement", () => {
+    const p = skFile(cwd, "mantine-ui-patterns");
+    mkdirSync(join(cwd, ".claude/skills/mantine-ui-patterns"), { recursive: true });
+    writeFileSync(p, "# my own mantine notes\n", "utf-8");
+    renderClaudeEngine(cwd, configFor("vite-react-ts-mantine", []));
+    expect(readFileSync(p, "utf-8")).toContain("my own mantine notes");
+  });
+});
+
+describe("preset-implied library skills in a monorepo (#1094)", () => {
+  // Covers: A4 — each workspace resolves ITS preset; no workspace.libraries needed.
+  it("only the workspace whose preset implies the skill receives it", () => {
+    const root = {
+      ...BASE_CONFIG,
+      monorepo: {
+        enabled: true,
+        tool: "pnpm",
+        workspaces: [
+          { name: "web", path: "apps/web", preset: "vite-react-ts-mantine" },
+          { name: "api", path: "apps/api", preset: "vite-react-ts" },
+        ],
+      },
+    } as unknown as NavoriConfig;
+    const [web, api] = enabledMonorepoWorkspaces(root);
+    for (const ws of [web!, api!]) {
+      const wsCwd = join(cwd, ws.path);
+      mkdirSync(wsCwd, { recursive: true });
+      renderClaudeEngine(wsCwd, effectiveConfigForWorkspace(root, ws), {
+        repoRoot: cwd,
+        harnessScope: "minimal",
+      });
+    }
+    expect(existsSync(skFile(join(cwd, "apps/web"), "mantine-ui-patterns"))).toBe(true);
+    expect(existsSync(skFile(join(cwd, "apps/api"), "mantine-ui-patterns"))).toBe(false);
   });
 });

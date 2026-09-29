@@ -97,7 +97,8 @@ describe("detectLibrarySkills", () => {
   });
 
   it("does not detect dashboards from a UI kit alone or from legacy antd", () => {
-    expect(detectLibrarySkills(["@mantine/core"])).toEqual([]);
+    // @mantine/core activates mantine-ui-patterns (#1094), never dashboard-patterns.
+    expect(detectLibrarySkills(["@mantine/core"])).toEqual(["mantine-ui-patterns"]);
     expect(detectLibrarySkills(["antd"])).toEqual([]);
   });
 

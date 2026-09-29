@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import type { NavoriConfig } from "../../lib/config/config.ts";
 import { librarySkillById } from "../../lib/assets/library-skills.ts";
-import type { loadPreset } from "../../lib/config/presets.ts";
+import { effectiveLibraries, type loadPreset } from "../../lib/config/presets.ts";
 import {
   CORE_AGENTS,
   CORE_SKILLS,
@@ -159,7 +159,7 @@ export function resolveHarnessPlan(
     seen.add(id);
     skills.push({ id, assetPath: join(preset!.assetRoot, extra.relPath), managedId: extra.id });
   }
-  for (const id of config.project?.libraries ?? []) {
+  for (const id of effectiveLibraries(config, preset)) {
     if (seen.has(id) || !librarySkillById(id)) continue;
     seen.add(id);
     skills.push({ id, assetPath: join(coreAssets, `lib-skills/${id}.md`), managedId: id });

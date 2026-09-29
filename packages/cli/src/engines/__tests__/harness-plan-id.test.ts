@@ -40,7 +40,7 @@ function presetWithNestedExtras(): LoadedPreset {
       ],
     },
   });
-  return { def, assetRoot: "/fake/assets", source: "local" };
+  return { def, assetRoot: "/fake/assets", source: "local", droppedLibraries: [] };
 }
 
 describe("resolveHarnessPlan — preset extra id derivation", () => {

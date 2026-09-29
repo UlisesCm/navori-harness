@@ -4,6 +4,8 @@ import { z } from "zod";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { safeRelPath } from "../primitives/zod-helpers.ts";
 import { NavoriError } from "../primitives/errors.ts";
+import { librarySkillById } from "../assets/library-skills.ts";
+import type { NavoriConfig } from "./schema.ts";
 
 /**
  * Preset definition — describes EXTRA managed assets a stack-specific preset
@@ -62,6 +64,13 @@ export const PresetDefinitionSchema = z.object({
    * `navori doctor` fails when any disappears. Spec 0003 §3.1.1.
    */
   invariants: z.array(z.string().min(1)).default([]),
+  /**
+   * Lib-skill ids this preset always implies, unioned with `project.libraries`
+   * at render (#1094). Parsed leniently: an id this CLI's registry doesn't know
+   * is dropped at load (with a warning), never a hard failure, so a preset
+   * written for a newer CLI still loads.
+   */
+  libraries: z.array(z.string().min(1)).default([]),
 });
 
 export type PresetDefinition = z.infer<typeof PresetDefinitionSchema>;
@@ -94,6 +103,8 @@ export interface LoadedPreset {
   def: PresetDefinition;
   assetRoot: string;
   source: "local" | "bundled";
+  /** `def.libraries` ids dropped at load because the registry doesn't know them. */
+  droppedLibraries: string[];
 }
 
 /**
@@ -173,5 +184,36 @@ export function loadPreset(id: string, repoRoot: string): LoadedPreset | null {
   if (!result.success) {
     throw new PresetError(`Validation failed for preset '${id}'`, result.error.issues);
   }
-  return { def: result.data, assetRoot: resolved.assetRoot, source: resolved.source };
+  const def = result.data;
+  // A preset file is named after its id: a mismatch is a loud error, not a
+  // silent freeze of retirement (isPresetLoaded compares the two).
+  if (def.id !== id) {
+    throw new PresetError(`Preset file for '${id}' declares id '${def.id}'`);
+  }
+  const droppedLibraries = def.libraries.filter((lib) => !librarySkillById(lib));
+  def.libraries = def.libraries.filter((lib) => librarySkillById(lib));
+  return { def, assetRoot: resolved.assetRoot, source: resolved.source, droppedLibraries };
+}
+
+/** Warnings for `loaded.droppedLibraries` (empty when none). Shared by both engines. */
+export function droppedLibrariesWarnings(loaded: LoadedPreset | null): string[] {
+  return (loaded?.droppedLibraries ?? []).map(
+    (lib) =>
+      `preset '${loaded!.def.id}' declares library '${lib}', unknown to this CLI's registry; skipped.`,
+  );
+}
+
+/**
+ * Effective lib-skill ids for a render: `config.project.libraries` (detected,
+ * order kept) followed by the ids the LOADED preset implies, de-duplicated. A
+ * preset that failed to load contributes nothing, so callers that delete must
+ * also check `isPresetLoaded`.
+ */
+export function effectiveLibraries(config: NavoriConfig, preset: LoadedPreset | null): string[] {
+  return [...new Set([...(config.project?.libraries ?? []), ...(preset?.def.libraries ?? [])])];
+}
+
+/** True when config.preset is absent/custom or the loaded preset is the declared one. */
+export function isPresetLoaded(config: NavoriConfig, preset: LoadedPreset | null): boolean {
+  return !config.preset || config.preset === "custom" || config.preset === preset?.def.id;
 }

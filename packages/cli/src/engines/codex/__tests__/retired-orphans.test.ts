@@ -143,3 +143,21 @@ describe("collectOrphans (shared) via Codex — shape 'skill-nested-file': agent
     expect(result.warnings.some((w) => w.includes("openai.yaml"))).toBe(true);
   });
 });
+
+describe("Codex — preset-implied library skill (#1094)", () => {
+  const cfg = (preset: string, libraries: string[]): NavoriConfig =>
+    ({ ...CONFIG, preset, project: { libraries } }) as unknown as NavoriConfig;
+  const skill = (): string => join(cwd, ".agents/skills/mantine-ui-patterns/SKILL.md");
+
+  // Covers: A2, A4
+  it("keeps the skill with stale libraries [] under vite-react-ts-mantine, retires it on a preset switch", () => {
+    renderCodexEngine(cwd, cfg("vite-react-ts-mantine", ["mantine-ui-patterns"]));
+    expect(existsSync(skill())).toBe(true);
+
+    renderCodexEngine(cwd, cfg("vite-react-ts-mantine", []));
+    expect(existsSync(skill())).toBe(true);
+
+    renderCodexEngine(cwd, cfg("vite-react-ts", []));
+    expect(existsSync(skill())).toBe(false);
+  });
+});

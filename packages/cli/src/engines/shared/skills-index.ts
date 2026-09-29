@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import type { NavoriConfig } from "../../lib/config/config.ts";
 import { sanitizeProjectValue } from "../../lib/render/interpolate.ts";
-import { loadPreset } from "../../lib/config/presets.ts";
+import { effectiveLibraries, loadPreset, type LoadedPreset } from "../../lib/config/presets.ts";
 import { librarySkillById } from "../../lib/assets/library-skills.ts";
 import { readSkillTrigger, resolveLocalSkillPath } from "../../lib/assets/skill-meta.ts";
 import { CORE_SKILLS, WORKFLOW_SKILLS, extraConditionMet } from "./harness-assets.ts";
@@ -84,9 +84,11 @@ export function buildSkillRows(
     rows.push(row(id, "navori (workflow)", join(coreAssets, `skills/${id}.md`)));
     listed.add(id);
   }
+  let loadedPreset: LoadedPreset | null = null;
   if (config.preset && config.preset !== "custom") {
     try {
       const loaded = loadPreset(config.preset, repoRoot);
+      loadedPreset = loaded;
       for (const e of loaded?.def.extras.skills ?? []) {
         if (!extraConditionMet(e, config)) continue;
         // #653: the id, never `basename(destRelPath)`. The skill's destination
@@ -107,9 +109,15 @@ export function buildSkillRows(
       // Preset problems are surfaced elsewhere; the index degrades gracefully.
     }
   }
-  for (const id of config.project?.libraries ?? []) {
+  const detected = new Set(config.project?.libraries ?? []);
+  for (const id of effectiveLibraries(config, loadedPreset)) {
     if (listed.has(id) || !librarySkillById(id)) continue;
-    rows.push(row(id, "library (detected)", join(coreAssets, `lib-skills/${id}.md`)));
+    // Preset-implied ids (#1094) say where they come from; `config.preset` is
+    // untrusted, so sanitize it like the preset rows above (#264).
+    const origin = detected.has(id)
+      ? "library (detected)"
+      : `library (preset \`${sanitizeProjectValue(config.preset ?? "")}\`)`;
+    rows.push(row(id, origin, join(coreAssets, `lib-skills/${id}.md`)));
     listed.add(id);
   }
   for (const name of localSkills) {
