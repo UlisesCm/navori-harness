@@ -1,0 +1,17 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import Releases from "../../components/sections/Releases.astro";
+import { useTranslations } from "../../i18n/utils";
+
+const lang = "en" as const;
+const t = useTranslations(lang);
+---
+
+<BaseLayout
+  lang={lang}
+  title={t("releases.pageTitle")}
+  description={t("releases.pageDescription")}
+  altSlug="/versiones"
+>
+  <Releases lang={lang} asPage />
+</BaseLayout>
