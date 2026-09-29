@@ -65,6 +65,8 @@ TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:sp
 # a branch added there without its token here silently loses the shortcut
 # (fail-open to the slow path), and the inlined tests pin the pairing.
 TRIGGER_TOKENS='commit'
+# Heredoc bodies fed to `cat` are data, not commands (#1095).
+TRIGGER_STRIP_HEREDOC_BODIES=1
 # navori:include gate-trigger
 
 # Resolution of the working tree the commit acts on (#454). Shared body.
@@ -94,6 +96,17 @@ navori_scan_label="jscpd"
 if [ -n "$cmd" ] && ! is_scan_trigger "$cmd"; then
   navori_jscpd_reason="jscpd: skipped non-trigger command; no scan"
   exit 0
+fi
+
+# A commit that provably lands in ANOTHER repository (#1095) has nothing of its
+# diff in this tree; ambiguous shapes keep scanning (fail closed, #454).
+if [ -n "$cmd" ]; then
+  navori_commit_landing "$cmd"
+  if [ "$navori_landing" = foreign ]; then
+    navori_jscpd_reason="jscpd: skipped, commit lands in another repository; no scan"
+    echo "⊘ jscpd: the commit lands in another repository ($navori_landing_root), not the one this session is anchored in — this repository's scan does not apply; skip" >&2
+    exit 0
+  fi
 fi
 
 # Resolve jscpd: prefer the repo-pinned binary (node_modules/.bin) over a global

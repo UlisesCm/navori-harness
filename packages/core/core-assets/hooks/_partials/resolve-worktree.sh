@@ -148,3 +148,190 @@ navori_worktree() {
   fi
   navori_first_tree "$named" "$payload_cwd" "$PWD" || true
 }
+
+# ─── Where does the commit LAND? (#1095) ────────────────────────────────────────
+# `navori_worktree` above answers "which tree do I scan"; this answers "is the
+# commit even for the repository this gate protects". A commit that provably
+# lands in ANOTHER repository (`cd <other> && git commit`, `git -C <other>
+# commit`) must not be gated against the anchor's tree: that tree holds none of
+# the diff. Classification is a POSITIVE grammar with a deny-list of ambiguity —
+# `foreign` only when every step to the commit has a certain cwd effect and the
+# resolved repository really differs; the commit message is never read (#454:
+# `git commit -m "use git -C <other>"` lands in the anchor). Anything unsure is
+# `ambiguous`, which callers treat exactly like `same-repo`: run the gate.
+#
+# Requires the `gate-trigger` partial (navori_count_triggers, $TRIGGER_RE) and
+# `extract-cmd` (payload_field). Always returns 0 and sets, without a subshell:
+#   navori_landing       same-repo | foreign | ambiguous
+#   navori_landing_root  landing toplevel (foreign only)
+# "foreign" means different from BOTH the payload-cwd repository and the
+# repository of $CLAUDE_PROJECT_DIR (the one the hook belongs to): a session
+# anchored in repo B that commits into the hook's own repo must still be gated.
+# Codex exposes no equivalent env var in these hooks (`nv_project_dir` is derived
+# from the payload cwd, hook-input.sh), so there the comparison degrades to
+# payload-cwd-only.
+navori_commit_re='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)'
+
+# Reads one shell token off the front of $1 into `navori_tok` / `navori_rest`.
+# Returns 1 for anything the shell would expand or that is malformed, so the
+# caller falls back to `ambiguous`.
+navori_take_token() {
+  local s="$1" nl=$'\n'
+  navori_tok=""; navori_rest=""
+  s="${s#"${s%%[![:space:]]*}"}"
+  case "$s" in
+    \'*)
+      s="${s#\'}"
+      case "$s" in *\'*) ;; *) return 1 ;; esac
+      navori_tok="${s%%\'*}"; navori_rest="${s#*\'}"
+      case "$navori_rest" in ""|[[:space:]]*) ;; *) return 1 ;; esac
+      ;;
+    \"*)
+      s="${s#\"}"
+      case "$s" in *\"*) ;; *) return 1 ;; esac
+      navori_tok="${s%%\"*}"; navori_rest="${s#*\"}"
+      case "$navori_rest" in ""|[[:space:]]*) ;; *) return 1 ;; esac
+      ;;
+    *)
+      navori_tok="${s%%[[:space:]]*}"; navori_rest="${s#"$navori_tok"}"
+      case "$navori_tok" in
+        *';'*|*'|'*|*'&'*|*'<'*|*'>'*|*'('*|*')'*|*"'"*|*'"'*) return 1 ;;
+      esac
+      ;;
+  esac
+  case "$navori_tok" in
+    ""|'~'*|*'$'*|*'`'*|*'\'*|*'*'*|*'?'*|*'['*|*'{'*|*"$nl"*) return 1 ;;
+  esac
+  return 0
+}
+
+navori_commit_landing() {
+  local c rest seg first tailtxt p arg dir base pcwd top sub id_l id_a id_h
+  local cd_dir="" c_dir="" found=0 more=1 cdcount=0 nc=0 rel=0 nl=$'\n'
+  navori_landing="ambiguous"; navori_landing_root=""
+
+  # A single gated op only: a second commit (or, in semgrep, a push) makes the
+  # landing repo of "the" commit undefined.
+  navori_count_triggers "$1" 0
+  [ "$navori_trigger_hits" = 1 ] || return 0
+
+  navori_strip_heredoc_bodies "$1"
+  c="$navori_heredoc_stripped"
+  c="${c//\\$'\n'/ }"
+
+  # Walk the `&&` chain up to the commit segment; every earlier segment must be a
+  # single `cd <literal>` (at most one) or a neutral `git …` that cannot move the
+  # shell's cwd or env.
+  rest="$c"
+  while [ "$more" = 1 ]; do
+    case "$rest" in
+      *'&&'*) seg="${rest%%&&*}"; rest="${rest#*&&}" ;;
+      *) seg="$rest"; rest=""; more=0 ;;
+    esac
+    seg="${seg#"${seg%%[![:space:]]*}"}"
+    first="${seg%%"$nl"*}"
+    case "$first" in
+      git[[:space:]]*)
+        if printf '%s' "$first" | grep -qE "$navori_commit_re"; then found=1; break; fi
+        ;;
+    esac
+    case "$seg" in *"$nl"*) return 0 ;; esac
+    seg="${seg%"${seg##*[![:space:]]}"}"
+    case "$seg" in
+      cd[[:space:]]*)
+        [ "$cdcount" = 0 ] || return 0
+        cdcount=1
+        navori_take_token "${seg#cd}" || return 0
+        case "$navori_rest" in *[![:space:]]*) return 0 ;; esac
+        cd_dir="$navori_tok"
+        case "$cd_dir" in -*) return 0 ;; esac
+        ;;
+      git[[:space:]]*)
+        case "$seg" in
+          *';'*|*'|'*|*'&'*|*'<'*|*'>'*|*'('*|*')'*|*'$'*|*'`'*) return 0 ;;
+        esac
+        ;;
+      *) return 0 ;;
+    esac
+  done
+  [ "$found" = 1 ] || return 0
+
+  # The commit segment's own global options, positionally. Text after `commit`
+  # (the message) is never read.
+  p="${first#git}"
+  while :; do
+    navori_take_token "$p" || return 0
+    arg="$navori_tok"; p="$navori_rest"
+    case "$arg" in
+      commit) break ;;
+      -C)
+        [ "$nc" = 0 ] || return 0
+        nc=1
+        navori_take_token "$p" || return 0
+        c_dir="$navori_tok"; p="$navori_rest"
+        ;;
+      -c) navori_take_token "$p" || return 0; p="$navori_rest" ;;
+      --no-pager|-p|--paginate|-P|--no-optional-locks|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-replace-objects) ;;
+      *) return 0 ;;
+    esac
+  done
+
+  # Anything that runs AFTER the commit and could re-enter git, cd or a shell
+  # (a second, uncounted commit landing elsewhere) makes the verdict unsafe.
+  tailtxt="${seg#"$first"}$nl$rest"
+  case "$first" in *';'*|*'|'*|*'&'*) tailtxt="${first#*[;|&]}$nl$tailtxt" ;; esac
+  if navori_mentions_shellish "$tailtxt"; then return 0; fi
+
+  if [ -z "$cd_dir" ] && [ -z "$c_dir" ]; then
+    navori_landing="same-repo"; return 0
+  fi
+
+  pcwd=$(payload_field cwd)
+  base="$pcwd"
+  [ -d "$base" ] || base="$PWD"
+  dir="$base"
+  if [ -n "$cd_dir" ]; then
+    case "$cd_dir" in
+      /*) dir="$cd_dir" ;;
+      *)
+        rel=1; dir="$base/$cd_dir"
+        # A non-empty CDPATH can make `cd <relative>` land somewhere else.
+        [ -z "${CDPATH:-}" ] || return 0
+        ;;
+    esac
+  fi
+  if [ -n "$c_dir" ]; then
+    case "$c_dir" in
+      /*) dir="$c_dir"; rel=0 ;;
+      *) rel=1; dir="$dir/$c_dir" ;;
+    esac
+  fi
+  # `..` in a relative path resolves logically in the shell but physically in
+  # the kernel; they differ when the base itself sits behind a symlink.
+  if [ "$rel" = 1 ]; then
+    case "$cd_dir$nl$c_dir" in
+      *'..'*) [ "$(cd "$base" 2>/dev/null && pwd -P)" = "$base" ] || return 0 ;;
+    esac
+  fi
+
+  [ -d "$dir" ] || return 0
+  top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || return 0
+  [ -n "$top" ] || return 0
+  # A submodule target is deliberately not `foreign` (its commit is part of the
+  # superproject's work): the anchor's gate runs.
+  sub=$(git -C "$dir" rev-parse --show-superproject-working-tree 2>/dev/null) || return 0
+  [ -z "$sub" ] || return 0
+  id_l=$(navori_repo_id "$dir" || true)
+  id_a=$(navori_repo_id "$base" || true)
+  [ -n "$id_l" ] && [ -n "$id_a" ] || return 0
+  id_h=""
+  if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+    id_h=$(navori_repo_id "$CLAUDE_PROJECT_DIR" || true)
+  fi
+  if [ "$id_l" = "$id_a" ] || { [ -n "$id_h" ] && [ "$id_l" = "$id_h" ]; }; then
+    navori_landing="same-repo"
+  else
+    navori_landing="foreign"; navori_landing_root="$top"
+  fi
+  return 0
+}
