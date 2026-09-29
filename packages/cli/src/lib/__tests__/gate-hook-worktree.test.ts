@@ -7,9 +7,10 @@ import {
   chmodSync,
   readFileSync,
   realpathSync,
+  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { getPluginPath, getCoreRoot } from "../render/bundled-assets.ts";
 import { interpolate } from "../render/interpolate.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
@@ -629,3 +630,163 @@ describe.runIf(runsBash)("semgrep gate — fails on NEW findings, not inherited 
     expect(out.scans).toBe(2);
   });
 });
+
+/**
+ * #1095 — a commit that provably lands in ANOTHER repository is not what the
+ * anchor's gate protects: its tree holds none of the diff, so the gate ran for
+ * nothing (and blocked for nothing). Those pass with a stderr warning. Everything
+ * the parser cannot prove — and every #454 shape — keeps running the gate.
+ */
+const GATES: readonly HookId[] = ["quality-gate", "semgrep", "jscpd"];
+
+/** Did the hook run its gate/scan (true) or stand down as `foreign` (false)? */
+function landingRun(
+  shell: HookShell,
+  id: HookId,
+  build: (fx: Fixture, foreign: string) => { command: string; payloadCwd: string },
+): { run: HookRun; scans: number; skipped: boolean } {
+  const fx = setupFixture(1);
+  const { command, payloadCwd } = build(fx, addForeignRepo(fx));
+  const run = normalize(fx, runHook(fx, shell, id, command, payloadCwd));
+  return {
+    run,
+    scans: invocations(fx).length,
+    skipped: run.stderr.includes("lands in another repository"),
+  };
+}
+
+describe.runIf(runsBash)(
+  "gate hooks — a commit landing in another repo is not gated (#1095)",
+  () => {
+    const foreignShapes: Array<[string, (fx: Fixture, f: string) => string]> = [
+      ["cd <F> && git commit", (_fx, f) => `cd '${f}' && git commit -m x`],
+      ["git -C <F> commit", (_fx, f) => `git -C '${f}' commit -m x`],
+      ["cd <F> && git add && git commit", (_fx, f) => `cd '${f}' && git add -A && git commit -m x`],
+      ["git -c k=v -C <F> commit", (_fx, f) => `git -c commit.gpgsign=false -C '${f}' commit -m x`],
+      ["relative cd", (_fx, f) => `cd ../${basename(f)} && git commit -m x`],
+      [
+        "multi-line message heredoc",
+        (_fx, f) => `cd '${f}' && git commit -m "$(cat <<'EOF'\nmessage line\nEOF\n)"`,
+      ],
+    ];
+
+    for (const id of GATES) {
+      for (const [name, build] of foreignShapes) {
+        it(`${id}: passes with a warning on \`${name}\``, () => {
+          const out = acrossShells((shell) =>
+            landingRun(shell, id, (fx, f) => ({ command: build(fx, f), payloadCwd: fx.main })),
+          );
+          expect(out.run.status).toBe(0);
+          expect(out.scans).toBe(0);
+          expect(out.skipped).toBe(true);
+          expect(out.run.stderr).toContain("another repository (<FOREIGN>)");
+          expect(out.run.stderr).not.toContain("running quality-gate fast");
+        });
+      }
+    }
+
+    it("records the foreign skip reason in the quality gate's audit trail", () => {
+      const out = acrossShells((shell) =>
+        landingRun(shell, "quality-gate", (fx, f) => ({
+          command: `cd '${f}' && git commit -m x`,
+          payloadCwd: fx.main,
+        })),
+      );
+      expect(out.run.stderr).toContain("quality-gate NOT run");
+    });
+
+    // Every shape below must still RUN the gate: either it lands in the anchor
+    // (same-repo) or the parser cannot prove where it lands (ambiguous).
+    const stillGated: Array<[string, (fx: Fixture, f: string) => string]> = [
+      ["GIT_DIR= prefix", (_fx, f) => `GIT_DIR='${f}/.git' git commit -m x`],
+      ["subshell", (_fx, f) => `(cd '${f}' && git commit -m x)`],
+      ["pushd", (_fx, f) => `pushd '${f}' && git commit -m x`],
+      ["$VAR path", () => `cd "$HOME/x" && git commit -m x`],
+      ["tilde path", () => `cd ~/x && git commit -m x`],
+      ["cd <F> && git -C <MAIN> commit", (fx, f) => `cd '${f}' && git -C '${fx.main}' commit -m x`],
+      [
+        "two commits in different repos",
+        (fx, f) => `cd '${f}' && git commit -m a && cd '${fx.main}' && git commit -m b`,
+      ],
+      [
+        "second commit hidden behind env",
+        (fx, f) => `cd '${f}' && git commit -m a && (cd '${fx.main}' && env git commit -m b)`,
+      ],
+      ["`;`-joined cd", (_fx, f) => `cd '${f}' ; git commit -m x`],
+      ["cd and commit on separate lines", (_fx, f) => `cd '${f}'\ngit commit -m x`],
+      ["a non-cd step between", (_fx, f) => `cd '${f}' && bun test && git commit -m x`],
+      ["--git-dir", (_fx, f) => `git --git-dir='${f}/.git' commit -m x`],
+      ["--work-tree", (_fx, f) => `git --work-tree='${f}' commit -m x`],
+      ["cd || true", (_fx, f) => `cd '${f}' || true && git commit -m x`],
+      ["missing directory", (_fx, f) => `cd '${f}/missing' && git commit -m x`],
+      ["non-repo directory", () => `cd '/' && git commit -m x`],
+      ["message quoting git -C", (_fx, f) => `git commit -m "use git -C ${f} everywhere"`],
+    ];
+
+    for (const id of GATES) {
+      for (const [name, build] of stillGated) {
+        it(`${id}: still gates \`${name}\``, () => {
+          const out = acrossShells((shell) =>
+            landingRun(shell, id, (fx, f) => ({ command: build(fx, f), payloadCwd: fx.main })),
+          );
+          expect(out.skipped).toBe(false);
+          // A gate that ran either blocked (2) or announced itself; a hook that
+          // stood down silently would be exit 0 with neither.
+          if (id === "quality-gate") expect(out.run.stderr).toContain("running quality-gate fast");
+        });
+      }
+    }
+
+    it("still gates a submodule target (ambiguous by decision)", () => {
+      const out = acrossShells((shell) => {
+        const fx = setupFixture(1);
+        const sub = addSubmodule(fx);
+        const run = normalize(
+          fx,
+          runHook(fx, shell, "quality-gate", `cd '${sub}' && git commit -m x`, fx.main),
+        );
+        return { run, skipped: run.stderr.includes("lands in another repository") };
+      });
+      expect(out.skipped).toBe(false);
+      expect(out.run.stderr).toContain("running quality-gate fast");
+    });
+
+    // F1: the hook's OWN repo is `$CLAUDE_PROJECT_DIR`. A session anchored in a
+    // foreign repo that commits into it must still be gated.
+    it("still gates a commit into the hook's own repo from a foreign-anchored session", () => {
+      const out = acrossShells((shell) =>
+        landingRun(shell, "quality-gate", (fx, f) => ({
+          command: `cd '${fx.main}' && git commit -m x`,
+          payloadCwd: f,
+        })),
+      );
+      expect(out.skipped).toBe(false);
+      expect(out.run.stderr).toContain("running quality-gate fast");
+    });
+
+    // F4: `..` resolved through a symlinked base differs between the shell and the
+    // kernel, so the classification must not trust it.
+    it("treats `..` behind a symlinked cwd as ambiguous", () => {
+      const out = acrossShells((shell) =>
+        landingRun(shell, "quality-gate", (fx, f) => {
+          const link = join(realpathSync(mkdtempSync(join(tmpdir(), "navori-1095-link-"))), "l");
+          symlinkSync(fx.main, link);
+          return { command: `cd ../${basename(f)} && git commit -m x`, payloadCwd: link };
+        }),
+      );
+      expect(out.skipped).toBe(false);
+    });
+
+    // Documented ceiling: a second gated op (semgrep also gates `git push`) makes
+    // "the" landing repo undefined, so the scan runs.
+    it("semgrep still scans `cd <F> && git commit && git push`", () => {
+      const out = acrossShells((shell) =>
+        landingRun(shell, "semgrep", (fx, f) => ({
+          command: `cd '${f}' && git commit -m x && git push`,
+          payloadCwd: fx.main,
+        })),
+      );
+      expect(out.skipped).toBe(false);
+    });
+  },
+);

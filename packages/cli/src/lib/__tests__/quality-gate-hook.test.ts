@@ -171,6 +171,26 @@ describe("quality-gate hook — declared runner present", () => {
     expect(r.stderr).toContain("running quality-gate fast");
   });
 
+  // #1095: a `git commit` line inside a `cat` heredoc body is text, not a command.
+  it("does NOT run the gate for a `git commit` line inside a `gh … <<'EOF'` body", () => {
+    fakeBin("pnpm", 0);
+    const cmd = "gh issue create --title t --body \"$(cat <<'EOF'\ngit commit -m x\nEOF\n)\"";
+    const r = runHook(installHook("pnpm run typecheck"), cmd);
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toContain("running quality-gate fast");
+  });
+
+  it("still runs the gate for `git commit -F - <<EOF` and for a shell-fed heredoc", () => {
+    fakeBin("pnpm", 0);
+    const hook = installHook("pnpm run typecheck");
+    expect(runHook(hook, "git commit -F - <<'EOF'\nmsg\nEOF").stderr).toContain(
+      "running quality-gate fast",
+    );
+    expect(runHook(hook, "bash <<'EOF'\ngit commit -m x\nEOF").stderr).toContain(
+      "running quality-gate fast",
+    );
+  });
+
   it('does NOT trigger on a quoted `echo "git commit"` (not a real invocation)', () => {
     fakeBin("pnpm", 0);
     const r = runHook(installHook("pnpm run typecheck"), 'echo "git commit"');

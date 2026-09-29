@@ -46,6 +46,7 @@ navori_audit_begin
 # different from that of a run that looked at the command and moved on (single
 # digits). Collapsing both into `allow` would make the timing unreadable.
 navori_audit_ran_gate=0
+navori_audit_skip_reason="el comando no es un commit"
 navori_audit_on_exit() {
   navori_audit_code=$?
   # A cancelled hook reaches this trap with `$?` == 0 (#797), so the exit code
@@ -60,7 +61,7 @@ navori_audit_on_exit() {
   elif [ "$navori_audit_ran_gate" -eq 1 ]; then
     navori_audit_log "allow" "gate ejecutado y verde" || true
   else
-    navori_audit_log "skip" "el comando no es un commit" || true
+    navori_audit_log "skip" "$navori_audit_skip_reason" || true
   fi
   return 0
 }
@@ -115,6 +116,8 @@ TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:sp
 # a branch added there without its token here silently loses the shortcut
 # (fail-open to the slow path), and the inlined tests pin the pairing.
 TRIGGER_TOKENS='commit'
+# Heredoc bodies fed to `cat` are data, not commands (#1095).
+TRIGGER_STRIP_HEREDOC_BODIES=1
 # navori:include gate-trigger
 
 # Resolution of the working tree the commit acts on (#454). Shared body; defines
@@ -136,6 +139,18 @@ if [ -z "$cmd" ]; then
   run_needed=1
 elif is_scan_trigger "$cmd"; then
   run_needed=1
+fi
+
+# A commit that provably lands in ANOTHER repository (#1095) is not this gate's
+# business: its tree holds none of the diff. Ambiguous shapes fall through and
+# run the gate (fail closed, #454). The empty-$cmd path above never gets here.
+if [ "$run_needed" = 1 ] && [ -n "$cmd" ]; then
+  navori_commit_landing "$cmd"
+  if [ "$navori_landing" = foreign ]; then
+    navori_audit_skip_reason="el commit va a otro repositorio; el gate de este repo no aplica"
+    echo "[navori] quality-gate NOT run: this commit lands in another repository ($navori_landing_root), not the one this session is anchored in. That repository's own gate is not run from here." >&2
+    exit 0
+  fi
 fi
 
 if [ "$run_needed" = 1 ]; then
