@@ -151,7 +151,14 @@ export function readMasterStatus(cwd: string): MasterStatus {
   // Delivery must not skip the UX decision (a stage closed from `mastered`/`ux`
   // never ran the ux -> executing gate); legacy `executing` stages with no
   // decision only get the presence-consistency check.
-  const uxCtx = { stagePath, stage: { dir: stage.dir }, state };
+  const uxCtx = {
+    cwd,
+    specsDir,
+    language: config.language,
+    stagePath,
+    stage: { dir: stage.dir },
+    state,
+  };
   if (state.phase === "mastered" || state.phase === "ux") blockers.push(...checkUxDecision(uxCtx));
   if (state.phase === "mastered" || state.phase === "ux" || state.phase === "executing")
     blockers.push(...checkUxArtifacts(uxCtx));

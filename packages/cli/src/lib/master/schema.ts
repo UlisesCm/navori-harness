@@ -394,3 +394,203 @@ export const PartsSchema = z
   });
 
 export type PartsDocument = z.infer<typeof PartsSchema>;
+
+// --- ux.json (UX contract consumed by navori-heron) -----------------------
+
+/** Surface ids that would be ambiguous with other ID families (`RN-1`, `UX-1`, ...). */
+const RESERVED_SURFACES = ["RN", "RF", "RNF", "UX", "ACT", "SCR", "PT", "API"];
+const SURFACE_PART = "[A-Z]{2,}(?:_[A-Z]+)*";
+
+/** ID shape per UX entity kind. Language-neutral: shared by UX.md and ux.json. */
+export const UX_ID_PATTERNS = {
+  surfaces: new RegExp(`^${SURFACE_PART}$`),
+  actors: /^ACT-[A-Z0-9]+(?:-[A-Z0-9]+)*$/,
+  journeys: /^J\d{2,}$/,
+  flows: /^F\d{2,}$/,
+  screens: new RegExp(`^SCR-(${SURFACE_PART})-\\d{2,}$`),
+  components: /^C\d{2,}$/,
+  patterns: /^PT\d{2,}$/,
+  "ux-requirements": /^UX-\d+$/,
+} as const;
+export type UxEntityKind = keyof typeof UX_ID_PATTERNS;
+
+const REF_PATTERN = /^(?:(?:RN|RF|RNF|UX)-\d+|P\d+(?:\.A\d+)?|(?:\d{2}-[a-z0-9-]+\/)?D\d+)$/;
+
+const idOf = (kind: UxEntityKind) =>
+  z.string().regex(UX_ID_PATTERNS[kind], `must be a valid ${kind} id`);
+const SURFACE = idOf("surfaces").refine((v) => !RESERVED_SURFACES.includes(v), "reserved id");
+const ACTOR = idOf("actors");
+const JOURNEY = idOf("journeys");
+const FLOW = idOf("flows");
+const SCREEN = idOf("screens");
+const COMPONENT = idOf("components");
+const PATTERN = idOf("patterns");
+const UX_REQ = idOf("ux-requirements");
+const REF = z.string().regex(REF_PATTERN, "must be RN-/RF-/RNF-/UX-<n>, P<n> or D<n>");
+const text = z.string().min(1);
+const list = <T extends z.ZodType>(item: T) => z.array(item).default([]);
+
+const UxScreenSchema = z.strictObject({
+  id: SCREEN,
+  name: text,
+  surface: SURFACE,
+  actors: z.array(ACTOR).min(1),
+  purpose: text,
+  requirements: z.array(REF).min(1),
+  journeys: list(JOURNEY),
+  flows: list(FLOW),
+  information: list(text),
+  actions: list(
+    z.strictObject({ label: text, priority: z.enum(["primary", "secondary", "destructive"]) }),
+  ),
+  states: z.array(text).min(1),
+  conditions: list(text),
+  navigation: z
+    .strictObject({ from: list(SCREEN), to: list(SCREEN) })
+    .default({ from: [], to: [] }),
+  permissions: list(ACTOR),
+  events: list(text),
+});
+
+/** `ux.json`. Strict: unknown keys (`color`, `font`, ...) are rejected so visual
+ * decisions cannot be smuggled in; `masterStage` equality is checked in `ux.ts`. */
+export const UxContractSchema = z
+  .strictObject({
+    schemaVersion: versionField("ux.json"),
+    masterStage: text,
+    surfaces: z.array(
+      z.strictObject({
+        id: SURFACE,
+        name: text,
+        actors: list(ACTOR),
+        purpose: text,
+        capabilities: list(text),
+        constraints: list(text),
+        requirements: list(REF),
+      }),
+    ),
+    actors: z.array(
+      z.strictObject({
+        id: ACTOR,
+        name: text,
+        goal: text,
+        capabilities: list(text),
+        constraints: list(text),
+        surfaces: list(SURFACE),
+        forbiddenActions: list(text),
+        relations: list(text),
+      }),
+    ),
+    journeys: z.array(
+      z.strictObject({
+        id: JOURNEY,
+        name: text,
+        actor: ACTOR,
+        goal: text,
+        trigger: text,
+        initialState: text,
+        expectedResult: text,
+        flows: z.array(FLOW).min(1),
+        requirements: list(REF),
+        exceptions: list(text),
+      }),
+    ),
+    flows: z.array(
+      z.strictObject({
+        id: FLOW,
+        name: text,
+        actor: ACTOR,
+        purpose: text,
+        trigger: text,
+        preconditions: list(text),
+        steps: z.array(text).min(1),
+        decisions: list(text),
+        alternateStates: list(text),
+        errors: list(text),
+        result: text,
+        screens: z.array(SCREEN).min(1),
+        requirements: list(REF),
+      }),
+    ),
+    screens: z.array(UxScreenSchema),
+    functionalComponents: z.array(
+      z.strictObject({
+        id: COMPONENT,
+        name: text,
+        responsibility: text,
+        information: list(text),
+        actions: list(text),
+        states: list(text),
+        screens: z.array(SCREEN).min(1),
+        variations: list(text),
+      }),
+    ),
+    patterns: z.array(
+      z.strictObject({
+        id: PATTERN,
+        name: text,
+        purpose: text,
+        screens: z.array(SCREEN).min(1),
+        states: list(text),
+        rules: list(text),
+        requirements: list(REF),
+      }),
+    ),
+    uxRequirements: z.array(
+      z.strictObject({ id: UX_REQ, statement: text, derivedFrom: z.array(REF).min(1) }),
+    ),
+    traceability: z.array(
+      z.strictObject({
+        requirement: REF,
+        journeys: list(JOURNEY),
+        flows: list(FLOW),
+        screens: list(SCREEN),
+        patterns: list(PATTERN),
+      }),
+    ),
+  })
+  .superRefine((doc, ctx) => {
+    const fail = (path: (string | number)[], message: string): void => {
+      ctx.addIssue({ code: "custom", message, path });
+    };
+    const declared = {
+      surfaces: new Set(doc.surfaces.map((x) => x.id)),
+      flows: new Set(doc.flows.map((x) => x.id)),
+      screens: new Set(doc.screens.map((x) => x.id)),
+    };
+    const kinds = {
+      surfaces: doc.surfaces,
+      actors: doc.actors,
+      journeys: doc.journeys,
+      flows: doc.flows,
+      screens: doc.screens,
+      functionalComponents: doc.functionalComponents,
+      patterns: doc.patterns,
+      uxRequirements: doc.uxRequirements,
+    };
+    for (const [kind, items] of Object.entries(kinds)) {
+      const seen = new Set<string>();
+      items.forEach((item, i) => {
+        if (seen.has(item.id)) fail([kind, i, "id"], `duplicate id ${item.id}`);
+        seen.add(item.id);
+      });
+    }
+    doc.screens.forEach((screen, i) => {
+      if (UX_ID_PATTERNS.screens.exec(screen.id)?.[1] !== screen.surface)
+        fail(["screens", i, "surface"], `${screen.id} does not embed surface ${screen.surface}`);
+      if (!declared.surfaces.has(screen.surface))
+        fail(["screens", i, "surface"], `undeclared surface ${screen.surface}`);
+    });
+    doc.journeys.forEach((journey, i) =>
+      journey.flows.forEach((id) => {
+        if (!declared.flows.has(id)) fail(["journeys", i, "flows"], `undeclared flow ${id}`);
+      }),
+    );
+    doc.flows.forEach((flow, i) =>
+      flow.screens.forEach((id) => {
+        if (!declared.screens.has(id)) fail(["flows", i, "screens"], `undeclared screen ${id}`);
+      }),
+    );
+  });
+
+export type UxContract = z.infer<typeof UxContractSchema>;

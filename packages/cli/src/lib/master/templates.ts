@@ -30,6 +30,7 @@ export const TEMPLATE_NAMES = [
   "digest",
   "tasks",
   "issue",
+  "ux",
 ] as const;
 export type TemplateName = (typeof TEMPLATE_NAMES)[number];
 
@@ -41,14 +42,19 @@ export interface TemplateOptions {
 /** A `## <heading>` section of a template, plus its optional `only-mode`
  * restriction (`<!-- only-mode: template|en-curso|desde-cero -->` as the section's first
  * line): the plan template's "Estado actual vs. objetivo" section exists only
- * in `en-curso` mode (R18, design.md D3). */
+ * in `en-curso` mode (R18, design.md D3). The `ux` template also tags each
+ * section with `<!-- ux-kind: <kind> -->` so `ux.ts` maps sections to ID kinds
+ * without hardcoding localized headings. */
 export interface TemplateSection {
   heading: string;
   onlyMode: MasterMode | null;
+  /** `ux-kind` marker value (only the `ux` template carries it). */
+  kind: string | null;
   body: string;
 }
 
 const ONLY_MODE_MARKER = /^<!--\s*only-mode:\s*(template|en-curso|desde-cero)\s*-->\s*\n?/;
+const UX_KIND_MARKER = /^<!--\s*ux-kind:\s*([a-z-]+)\s*-->\s*\n?/;
 
 /**
  * Resolves the absolute path of `<name>.md`, applying the language fallback
@@ -101,7 +107,13 @@ export function splitTemplateSections(content: string): TemplateSection[] {
       onlyMode = marker[1] as MasterMode;
       body = body.slice(marker[0].length);
     }
-    sections.push({ heading, onlyMode, body: body.trim() });
+    let kind: string | null = null;
+    const kindMarker = UX_KIND_MARKER.exec(body);
+    if (kindMarker) {
+      kind = kindMarker[1]!;
+      body = body.slice(kindMarker[0].length);
+    }
+    sections.push({ heading, onlyMode, kind, body: body.trim() });
   };
 
   for (const line of lines) {

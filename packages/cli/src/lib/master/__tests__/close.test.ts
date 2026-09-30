@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSeedConfigHelper } from "./test-utils.ts";
+import { createSeedConfigHelper, seedUxSources, validUxJson, validUxMd } from "./test-utils.ts";
 import { runMasterClose } from "../close.ts";
 import { checkClosedStage } from "../checks.ts";
 import { readConfig } from "../../config/config.ts";
@@ -470,8 +470,9 @@ describe("status and close — the UX gate cannot be skipped (B1)", () => {
 
   it("delivers from ux with a consistent decision and hashes UX.md/ux.json only when present", () => {
     seed("ux", "hecho", "md-json");
-    writeFileSync(join(stage(), "UX.md"), "# UX\n");
-    writeFileSync(join(stage(), "ux.json"), "{}");
+    writeFileSync(join(stage(), "UX.md"), validUxMd("es"));
+    writeFileSync(join(stage(), "ux.json"), JSON.stringify(validUxJson("01-mvp")));
+    seedUxSources(stage());
     expect(runMasterClose(cwd).outcome).toBe("entregada");
     const closure = read("CLOSURE.md");
     expect(closure).toContain("| UX.md |");
