@@ -34,16 +34,54 @@
 # edited by hand.
 set -uo pipefail
 
+# The payload is captured (not streamed) because two readers need it: the audit
+# recorder below reads `session_id`/`cwd` from it, and `navori plan gate` gets
+# the same bytes re-piped unchanged. A pipe cannot be replayed, so one read.
+payload=$(cat 2>/dev/null) || payload=""
+
+navori_audit_name="plan-gate"
+navori_audit_phase="PreToolUse"
+navori_audit_tool="Agent"
+# Fallback no-ops, overwritten by the real definitions the include brings in.
+# FAIL-OPEN for the recorder: an undefined function here must never turn a raw,
+# un-rendered copy of this asset into exit 127 — which is neither contractual
+# code of this gate.
+navori_audit_begin() { :; }
+navori_audit_log() { :; }
+# navori:include audit-repo
+# navori:include audit-log
+navori_audit_begin
+
+# The verdict is resolved in a trap, like `guard-destructive`: every exit below
+# (missing binary, allow, deny, outdated build) is recorded without a call per
+# branch, and the exit code itself stays untouched.
+navori_audit_verdict="allow"
+navori_audit_reason=""
+navori_audit_on_exit() {
+  navori_audit_log "$navori_audit_verdict" "$navori_audit_reason" || true
+  return 0
+}
+trap navori_audit_on_exit EXIT
+
 if ! command -v navori >/dev/null 2>&1; then
+  navori_audit_verdict="block"
+  navori_audit_reason="binary missing from PATH"
   echo "[navori] BLOCKED by plan-gate: navori is not installed or not on PATH — install it before dispatching a planned implementer." >&2
   exit 2
 fi
 
-navori plan gate
+printf '%s' "$payload" | navori plan gate
 navori_exit=$?
 case "$navori_exit" in
-  0 | 2) exit "$navori_exit" ;;
+  0) exit 0 ;;
+  2)
+    navori_audit_verdict="block"
+    navori_audit_reason="plan gate denied the dispatch"
+    exit 2
+    ;;
   *)
+    navori_audit_verdict="block"
+    navori_audit_reason="plan subcommand unavailable, exit $navori_exit"
     echo "[navori] BLOCKED by plan-gate: this navori build has no working 'plan' subcommand (exit $navori_exit) — update navori (or run 'navori render --apply' after updating) before dispatching a planned implementer." >&2
     exit 2
     ;;

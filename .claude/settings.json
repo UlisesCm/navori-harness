@@ -84,17 +84,6 @@
             "statusMessage": "navori: plan-gate"
           }
         ]
-      },
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/model-advisor.sh\" claude-pre-tool-use",
-            "timeout": 10,
-            "statusMessage": "navori: model advisor"
-          }
-        ]
       }
     ],
     "SessionStart": [
@@ -126,6 +115,18 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/model-advisor.sh\" claude-post-model-switch",
+            "timeout": 10,
+            "statusMessage": "navori: model advisor"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/model-advisor.sh\" claude-stop",
             "timeout": 10,
             "statusMessage": "navori: model advisor"
           }

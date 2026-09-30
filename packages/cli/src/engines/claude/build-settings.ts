@@ -232,7 +232,8 @@ export function buildClaudeSettings(
   }
 
   // Spec 0028: all three registrations are advisory-only. The hook stores only
-  // session scratch state and prints the documented user-visible systemMessage;
+  // session scratch state and prints the documented user-visible systemMessage
+  // (on `Stop` that field never continues the turn, unlike `additionalContext`);
   // `/model` remains the user's explicit model/effort selector.
   settings = deepMerge(settings, {
     hooks: {
@@ -260,13 +261,14 @@ export function buildClaudeSettings(
           ],
         },
       ],
-      PreToolUse: [
+      // Spec 0039 R27: `Stop` instead of `PreToolUse(.*)`. It costs no hook on any
+      // Bash call, and the notice still arrives, at the end of the first turn.
+      Stop: [
         {
-          matcher: ".*",
           hooks: [
             {
               type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${MODEL_ADVISOR_HOOK_DEST}" claude-pre-tool-use`,
+              command: `bash "$CLAUDE_PROJECT_DIR/${MODEL_ADVISOR_HOOK_DEST}" claude-stop`,
               timeout: 10,
               statusMessage: "navori: model advisor",
             },

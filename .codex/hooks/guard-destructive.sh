@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="8d8655cb" version="0.11.0" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="c6363b62" version="0.11.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -1171,8 +1171,24 @@ rm_tmp='/private(/tmp)?|/tmp'         # scratch root: the root itself, never a c
 # rule read `rm -rf "/"` as "root, then a character that is not the end of the
 # segment" and returned 0. `rm_quote` appears on BOTH sides of the target below.
 rm_end="/?${rm_quote}([[:space:]]|\$)"  # optional trailing `/`, closing quote, end
+#    A VARIABLE target blocks only with a RECURSIVE flag (spec 0039 R23/R24): a
+#    plain `rm -f "$TMPDIR/x"` deletes one file and is everyday cleanup, while
+#    `rm -rf "$X"` can erase a tree. `rm_rec` is `rm_kill` narrowed to r/R (the
+#    long `--recursive` was already rewritten to `-r`, combined `-rf`/`-fr` match
+#    the class). Root, home and tmp keep the broader r/R/f flag run, unchanged.
+rm_rec='-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+'
+rm_run_rec="(^|[[:space:]])rm[[:space:]]+(${rm_arg})*${rm_rec}(${rm_arg})*"
+# GNU `rm` also accepts options AFTER the operands, so the recursive flag may
+# follow the variable (`rm -f $X -r`, `rm $X -rf`). `--` is not special-cased:
+# a `-r` token after it is treated as recursive too, the safe side (`rm -f --
+# -r $X` blocks, as it did before).
+rm_run_post="(^|[[:space:]])rm[[:space:]]+(${rm_arg})*${rm_quote}${rm_var}[^<>&[:space:]]*[[:space:]]+(${rm_arg})*-[a-zA-Z]*[rR][a-zA-Z]*([[:space:]]|\$)"
 if printf '%s' "$segments_rm" \
-  | grep -qE "${rm_run}${rm_quote}(${rm_var}|(${rm_home}|${rm_root}|${rm_tmp})${rm_end})"; then
+  | grep -qE "${rm_run}${rm_quote}((${rm_home}|${rm_root}|${rm_tmp})${rm_end})" \
+  || printf '%s' "$segments_rm" \
+  | grep -qE "${rm_run_rec}${rm_quote}${rm_var}" \
+  || printf '%s' "$segments_rm" \
+  | grep -qE "${rm_run_post}"; then
   block "recursive rm over a variable / root / home"
 fi
 

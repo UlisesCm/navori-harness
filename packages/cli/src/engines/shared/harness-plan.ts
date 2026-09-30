@@ -76,8 +76,12 @@ export interface PlannedHook {
  *
  * The bar for an entry is the hook's OWN code proving the inertness, not an
  * opinion about its purpose:
- *   - `model-advisor` — `model-advisor.sh:46` exits 0 unconditionally when the
- *     payload carries `agent_id` or `agent_type`. It cannot do anything there.
+ *   - `model-advisor` — it exits 0 unconditionally when the payload carries
+ *     `agent_id` or `agent_type` (the substring guard right after its audit
+ *     trap). It cannot do anything there. Since spec 0039 (R27) it rides `Stop`,
+ *     `SessionStart` and `PostModelSwitch` instead of `PreToolUse(.*)`; the
+ *     declaration stays because `Stop` still fires for `--agent` sessions and
+ *     the audit keeps reading it for the firings recorded before the move.
  *
  * Deliberately NOT here, with the reason, because the tempting cases are the
  * ones that produce false findings:

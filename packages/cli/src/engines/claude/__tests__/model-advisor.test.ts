@@ -87,7 +87,7 @@ describe("Claude model advisor", () => {
     expect(existsSync(join(session.scratchpad_dir, "navori-model-advisor.json"))).toBe(true);
     expect(existsSync(join(cwd, ".claude", ".model-advisor"))).toBe(false);
 
-    const output = runHook(cwd, "claude-pre-tool-use", {
+    const output = runHook(cwd, "claude-stop", {
       session_id: "session_123",
       cwd,
       scratchpad_dir: session.scratchpad_dir,
@@ -96,7 +96,7 @@ describe("Claude model advisor", () => {
     expect(output).toContain("Modelo recomendado disponible");
     expect(output).toContain("eficiencia de tokens");
     expect(output).toContain("`/model`");
-    expect(runHook(cwd, "claude-pre-tool-use", { ...session, effort: { level: "high" } })).toBe("");
+    expect(runHook(cwd, "claude-stop", { ...session, effort: { level: "high" } })).toBe("");
   });
 
   // Covers: R2, R5
@@ -110,13 +110,13 @@ describe("Claude model advisor", () => {
       scratchpad_dir: mkdtempSync(join(tmpdir(), "navori-model-advisor-state-")),
     };
     runHook(cwd, "claude-session-start", session);
-    expect(runHook(cwd, "claude-pre-tool-use", { ...session, effort: { level: "low" } })).toContain(
+    expect(runHook(cwd, "claude-stop", { ...session, effort: { level: "low" } })).toContain(
       "claude-fable-5",
     );
 
     runHook(cwd, "claude-session-start", { ...session, session_id: "session_789" });
     expect(
-      runHook(cwd, "claude-pre-tool-use", {
+      runHook(cwd, "claude-stop", {
         ...session,
         session_id: "session_789",
         agent_id: "subagent_1",
@@ -137,16 +137,16 @@ describe("Claude model advisor", () => {
       effort: { level: "high" },
     };
 
+    expect(runHook(cwd, "claude-stop", { ...session, agent_id: "subagent_1" }, { pathEntry })).toBe(
+      "",
+    );
     expect(
-      runHook(cwd, "claude-pre-tool-use", { ...session, agent_id: "subagent_1" }, { pathEntry }),
-    ).toBe("");
-    expect(
-      runHook(cwd, "claude-pre-tool-use", { ...session, agent_type: "implementer" }, { pathEntry }),
+      runHook(cwd, "claude-stop", { ...session, agent_type: "implementer" }, { pathEntry }),
     ).toBe("");
     expect(existsSync(marker)).toBe(false);
 
     // The decoy proves a negative, so pin that a main-thread firing still reaches it.
-    expect(runHook(cwd, "claude-pre-tool-use", session, { pathEntry })).toBe("");
+    expect(runHook(cwd, "claude-stop", session, { pathEntry })).toBe("");
     expect(existsSync(marker)).toBe(true);
   });
 
@@ -170,7 +170,7 @@ describe("Claude model advisor", () => {
         scratchpad_dir,
       });
 
-      const output = runHook(cwd, "claude-pre-tool-use", {
+      const output = runHook(cwd, "claude-stop", {
         session_id: "tuple_session",
         cwd,
         scratchpad_dir,
@@ -191,10 +191,10 @@ describe("Claude model advisor", () => {
     // Opus at a low tier can never advise, so the shell answers alone — the
     // poll this fixes paid a `node` spawn per tool call for exactly this case.
     for (const level of ["low", "medium"]) {
-      expect(runHook(cwd, "claude-pre-tool-use", { ...payload, effort: { level } })).toBe("");
-      expect(
-        runHook(cwd, "claude-pre-tool-use", { ...payload, effort: { level } }, { pathEntry }),
-      ).toBe("");
+      expect(runHook(cwd, "claude-stop", { ...payload, effort: { level } })).toBe("");
+      expect(runHook(cwd, "claude-stop", { ...payload, effort: { level } }, { pathEntry })).toBe(
+        "",
+      );
     }
     expect(existsSync(marker)).toBe(false);
 
@@ -210,7 +210,7 @@ describe("Claude model advisor", () => {
     expect(
       runHook(
         sonnet.cwd,
-        "claude-pre-tool-use",
+        "claude-stop",
         {
           session_id: "settled_sonnet",
           cwd: sonnet.cwd,
@@ -229,12 +229,10 @@ describe("Claude model advisor", () => {
     const payload = { session_id: "raised", cwd, scratchpad_dir: scratchpadDir };
     runHook(cwd, "claude-session-start", { ...payload, model: "claude-opus-4-6" });
 
-    expect(runHook(cwd, "claude-pre-tool-use", { ...payload, effort: { level: "medium" } })).toBe(
-      "",
+    expect(runHook(cwd, "claude-stop", { ...payload, effort: { level: "medium" } })).toBe("");
+    expect(runHook(cwd, "claude-stop", { ...payload, effort: { level: "high" } })).toContain(
+      "Modelo recomendado disponible",
     );
-    expect(
-      runHook(cwd, "claude-pre-tool-use", { ...payload, effort: { level: "high" } }),
-    ).toContain("Modelo recomendado disponible");
     // Advised: from here the shell can settle every remaining firing.
     expect(sentinel(scratchpadDir, "skip")).toBe(true);
     expect(sentinel(scratchpadDir, "effort-gated")).toBe(false);
@@ -251,13 +249,37 @@ describe("Claude model advisor", () => {
     expect(
       runHook(
         cwd,
-        "claude-pre-tool-use",
+        "claude-stop",
         { ...payload, effort: { level: "high" } },
         {
           effort: null,
         },
       ),
     ).toContain("Modelo recomendado disponible");
+  });
+
+  // Covers: R27
+  it("reads effort from $CLAUDE_EFFORT when the Stop payload omits the field", () => {
+    const { cwd, scratchpadDir } = session();
+    const payload = { session_id: "env_only", cwd, scratchpad_dir: scratchpadDir };
+    runHook(cwd, "claude-session-start", { ...payload, model: "claude-opus-4-6" });
+
+    // No `effort` in the payload, `CLAUDE_EFFORT=high` in the environment.
+    const output = runHook(cwd, "claude-stop", payload, { effort: "high" });
+    expect(output.match(/Modelo recomendado disponible/g)).toHaveLength(1);
+    expect(runHook(cwd, "claude-stop", payload, { effort: "high" })).toBe("");
+  });
+
+  // Covers: R27
+  it("advises exactly once for effort.level high on Opus at Stop", () => {
+    const { cwd, scratchpadDir } = session();
+    const payload = { session_id: "stop_once", cwd, scratchpad_dir: scratchpadDir };
+    runHook(cwd, "claude-session-start", { ...payload, model: "claude-opus-4-6" });
+    const first = runHook(cwd, "claude-stop", { ...payload, effort: { level: "high" } });
+    expect(first.match(/Modelo recomendado disponible/g)).toHaveLength(1);
+    // A user-visible notice only: Stop's `additionalContext` would continue the turn.
+    expect(JSON.parse(first)).toEqual({ systemMessage: expect.any(String) });
+    expect(runHook(cwd, "claude-stop", { ...payload, effort: { level: "high" } })).toBe("");
   });
 
   // Covers: R2, R9
@@ -268,7 +290,7 @@ describe("Claude model advisor", () => {
 
     expect(sentinel(scratchpadDir, "skip")).toBe(false);
     expect(sentinel(scratchpadDir, "effort-gated")).toBe(false);
-    expect(runHook(cwd, "claude-pre-tool-use", { ...payload, effort: { level: "low" } })).toContain(
+    expect(runHook(cwd, "claude-stop", { ...payload, effort: { level: "low" } })).toContain(
       "claude-fable-5",
     );
   });
@@ -283,9 +305,9 @@ describe("Claude model advisor", () => {
     runHook(cwd, "claude-post-model-switch", { ...payload, to_model: "claude-opus-4-6" });
     expect(sentinel(scratchpadDir, "skip")).toBe(false);
     expect(sentinel(scratchpadDir, "effort-gated")).toBe(true);
-    expect(
-      runHook(cwd, "claude-pre-tool-use", { ...payload, effort: { level: "high" } }),
-    ).toContain("Modelo recomendado disponible");
+    expect(runHook(cwd, "claude-stop", { ...payload, effort: { level: "high" } })).toContain(
+      "Modelo recomendado disponible",
+    );
   });
 
   // Covers: R1, R5
@@ -300,7 +322,7 @@ describe("Claude model advisor", () => {
       }),
     ).toBe("");
     expect(
-      runHook(cwd, "claude-pre-tool-use", {
+      runHook(cwd, "claude-stop", {
         session_id: "missing_scratchpad",
         cwd,
         effort: { level: "high" },
@@ -323,10 +345,16 @@ describe("Claude model advisor", () => {
         .some((hook) => hook.command.includes("claude-post-model-switch")),
     ).toBe(true);
     expect(
+      (hooks.Stop ?? [])
+        .flatMap((entry) => entry.hooks)
+        .some((hook) => hook.command.includes("claude-stop")),
+    ).toBe(true);
+    // Covers: R27 — no universal PreToolUse matcher is left for the advisor.
+    expect(
       (hooks.PreToolUse ?? [])
         .flatMap((entry) => entry.hooks)
-        .some((hook) => hook.command.includes("claude-pre-tool-use")),
-    ).toBe(true);
+        .some((hook) => hook.command.includes("model-advisor")),
+    ).toBe(false);
     expect(settings.effortLevel).toBeUndefined();
   });
 });

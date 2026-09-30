@@ -144,7 +144,16 @@ done
 is_blank() { ! grep -q '[^[:space:]]' "$1" 2>/dev/null; }
 
 problems=""
-note() { problems="${problems}${problems:+; }$1"; }
+# Spec 0039 R26: the stamp identifies a report by (path, content), not by the
+# problem text alone. `navori_fingerprint` accumulates one POSIX `cksum` of each
+# flagged file (`$f`, set by every caller before `note`), so the SAME handoff
+# reported twice is one warning, while a rewrite that still has the same problem
+# is news and warns again. `cksum` reads the file once, no fork beyond itself.
+navori_fingerprint=""
+note() {
+  problems="${problems}${problems:+; }$1"
+  navori_fingerprint="${navori_fingerprint}$(cksum <"${f:-/dev/null}" 2>/dev/null | tr ' ' '-');"
+}
 
 # Spec 0035 D2 owns Claude/Codex subagent normalization and the single stdin
 # drain through extract-cmd; this hook must not grow a second payload parser.
@@ -320,7 +329,8 @@ fi
 navori_handoff_prev=""
 { IFS= read -r navori_handoff_prev <"$navori_handoff_stamp"; } 2>/dev/null ||
   navori_handoff_prev=""
-if [ "$navori_handoff_prev" = "$problems" ]; then
+navori_handoff_sig="${problems}|${navori_fingerprint}"
+if [ "$navori_handoff_prev" = "$navori_handoff_sig" ]; then
   navori_audit_verdict="repeat"
   navori_audit_reason="$problems"
   exit 0
@@ -347,7 +357,7 @@ if [ -z "$output" ] && command -v jq >/dev/null 2>&1; then
   fi
 fi
 if [ -n "$output" ] && printf '%s\n' "$output"; then
-  printf '%s\n' "$problems" >"$navori_handoff_stamp" 2>/dev/null || true
+  printf '%s\n' "$navori_handoff_sig" >"$navori_handoff_stamp" 2>/dev/null || true
 fi
 navori_audit_verdict="dirty"
 navori_audit_reason="$problems"

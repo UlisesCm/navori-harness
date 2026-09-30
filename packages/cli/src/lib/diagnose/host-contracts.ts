@@ -265,17 +265,24 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
   {
     id: "claude-model-advisor-payload",
     claim:
-      "Claude Code SessionStart may include `model`, PreToolUse includes `effort.level`, " +
-      "and PostModelSwitch includes `to_model`; `systemMessage` is user-visible.",
+      "Claude Code SessionStart may include `model`, Stop includes `effort.level` (like " +
+      "every event that fires within a tool-use context) and `scratchpad_dir`, and " +
+      "PostModelSwitch includes `to_model`; `systemMessage` is user-visible and, unlike " +
+      "Stop's `additionalContext`, does not continue the turn.",
     source:
       "https://code.claude.com/docs/en/hooks — the Hooks reference documents the " +
-      "SessionStart, PreToolUse, PostModelSwitch payload fields and user-visible systemMessage output.",
+      "SessionStart, Stop, PostModelSwitch payload fields, the universal `systemMessage` " +
+      '("Warning message shown to the user") and, for Stop, that `additionalContext` ' +
+      '"continues the conversation". `effort` is "Present for events that fire within a ' +
+      'tool-use context, such as PreToolUse, PostToolUse, Stop, and SubagentStop".',
     provedBy:
       "Spec 0028 — model advice must depend only on host fields documented for the event " +
-      "that owns them, not inferred session state.",
+      "that owns them, not inferred session state. Spec 0039 R27 moved the trigger from " +
+      "PreToolUse(.*) to Stop so no hook runs on every Bash call for it.",
     enforcedBy:
-      "model-advisor.test.ts pins the supported tuple policy; rendered-hook tests pin " +
-      "the event registrations and no automatic switch output.",
+      "model-advisor.test.ts pins the supported tuple policy in `claude-stop` mode, " +
+      "including the `$CLAUDE_EFFORT` fallback when the payload omits `effort`; " +
+      "rendered-hook tests pin the event registrations and no automatic switch output.",
   },
   {
     id: "claude-effort-env",
