@@ -144,6 +144,30 @@ describe("collectOrphans (shared) via Codex — shape 'skill-nested-file': agent
   });
 });
 
+describe("Codex — project.extraLibraries (#1104)", () => {
+  const cfg = (project: Record<string, unknown>): NavoriConfig =>
+    ({ ...CONFIG, project }) as unknown as NavoriConfig;
+  const skill = (): string => join(cwd, ".agents/skills/zod-validation/SKILL.md");
+
+  // Covers: A2
+  it("materializes an extra and the prune does not retire it; dropping it does", () => {
+    renderCodexEngine(cwd, cfg({ libraries: ["zod-validation"] }));
+    expect(existsSync(skill())).toBe(true);
+
+    renderCodexEngine(cwd, cfg({ libraries: [], extraLibraries: ["zod-validation"] }));
+    expect(existsSync(skill())).toBe(true);
+
+    renderCodexEngine(cwd, cfg({ libraries: [], extraLibraries: [] }));
+    expect(existsSync(skill())).toBe(false);
+  });
+
+  // Covers: A2
+  it("warns about an unknown extra id", () => {
+    const r = renderCodexEngine(cwd, cfg({ libraries: [], extraLibraries: ["ghost-lib"] }));
+    expect(r.warnings.some((w) => w.includes("ghost-lib"))).toBe(true);
+  });
+});
+
 describe("Codex — preset-implied library skill (#1094)", () => {
   const cfg = (preset: string, libraries: string[]): NavoriConfig =>
     ({ ...CONFIG, preset, project: { libraries } }) as unknown as NavoriConfig;

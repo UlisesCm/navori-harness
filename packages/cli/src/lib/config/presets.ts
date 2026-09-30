@@ -205,12 +205,19 @@ export function droppedLibrariesWarnings(loaded: LoadedPreset | null): string[] 
 
 /**
  * Effective lib-skill ids for a render: `config.project.libraries` (detected,
- * order kept) followed by the ids the LOADED preset implies, de-duplicated. A
+ * order kept), then the user's `project.extraLibraries` (#1104), then the ids the
+ * LOADED preset implies, de-duplicated. A
  * preset that failed to load contributes nothing, so callers that delete must
  * also check `isPresetLoaded`.
  */
 export function effectiveLibraries(config: NavoriConfig, preset: LoadedPreset | null): string[] {
-  return [...new Set([...(config.project?.libraries ?? []), ...(preset?.def.libraries ?? [])])];
+  return [
+    ...new Set([
+      ...(config.project?.libraries ?? []),
+      ...(config.project?.extraLibraries ?? []),
+      ...(preset?.def.libraries ?? []),
+    ]),
+  ];
 }
 
 /** True when config.preset is absent/custom or the loaded preset is the declared one. */

@@ -101,6 +101,8 @@ equipo, sin tocar el paquete.
 
 El JSON del preset puede declarar `libraries: [<id de lib-skill>]`: las lib-skills que siempre implica, unidas con `project.libraries` al renderizar. Los ids que el registro del CLI no conoce se descartan con una advertencia, y el `id` del manifest debe coincidir con el nombre del archivo o el preset no carga.
 
+Si solo quieres sumar lib-skills a *este* repo, sin preset, declara `project.extraLibraries: [<id de lib-skill>]` (y `extraLibraries` dentro de un workspace para ese workspace). Son ids tuyos: `update` nunca los toca, y se unen con los detectados y los del preset al renderizar. El valor de la raíz **no** se filtra a los workspaces: cada uno declara los suyos. Un id que el registro no conoce avisa en `render` y en `doctor`. Quitar una lib detectada o de preset por esta vía no está soportado.
+
 Es el escalón indicado cuando el conocimiento es del **stack** y lo vas a querer igual en el
 siguiente repo que lo use. Escríbelo una vez, cóbralo en todos.
 

@@ -606,3 +606,30 @@ describe("preset-implied library skills in a monorepo (#1094)", () => {
     expect(existsSync(skFile(join(cwd, "apps/api"), "mantine-ui-patterns"))).toBe(false);
   });
 });
+
+describe("fastapi-python preset (#1103)", () => {
+  const configFor = (libraries: string[]) =>
+    ({
+      ...BASE_CONFIG,
+      preset: "fastapi-python",
+      project: { libraries },
+    }) as unknown as NavoriConfig;
+
+  // Covers: A1 — stack block rendered; fastapi skill implied by the preset itself.
+  it("renders its stack block and materializes the fastapi skill without detected libraries", () => {
+    const r = renderClaudeEngine(cwd, configFor([]));
+    expect(r.warnings.find((w) => w.includes("fastapi-python") && w.includes("not found"))).toBe(
+      undefined,
+    );
+    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf-8")).toContain('id="stack-fastapi-python"');
+    expect(existsSync(skFile(cwd, "fastapi"))).toBe(true);
+  });
+
+  // Covers: A1 — pytest only when the dependency was detected.
+  it("adds the pytest skill only when pytest is in project.libraries", () => {
+    renderClaudeEngine(cwd, configFor([]));
+    expect(existsSync(skFile(cwd, "pytest"))).toBe(false);
+    renderClaudeEngine(cwd, configFor(["pytest"]));
+    expect(existsSync(skFile(cwd, "pytest"))).toBe(true);
+  });
+});

@@ -181,14 +181,14 @@ const VARIANTS = [
     svgFile: "og.svg",
     taglineA: "El harness multi-agente",
     taglineB: "para cualquier repo.",
-    stats: ["21 comandos", "12 presets", "7 plugins", "5 engines"],
+    stats: ["21 comandos", "13 presets", "7 plugins", "5 engines"],
   },
   {
     file: "og-en.png",
     svgFile: "og-en.svg",
     taglineA: "The multi-agent harness",
     taglineB: "for any repo.",
-    stats: ["21 commands", "12 presets", "7 plugins", "5 engines"],
+    stats: ["21 commands", "13 presets", "7 plugins", "5 engines"],
   },
 ];
 
