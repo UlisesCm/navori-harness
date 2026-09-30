@@ -100,9 +100,7 @@ describe("detectProject — Python without pyproject.toml (#70)", () => {
       const d = detectProject(dir);
       expect(d.stack.language).toBe("python");
       expect(d.stack.framework).toBe("fastapi");
-      // navori ships no python preset, so the candidate gaps down to the custom
-      // baseline — but the ruff/pytest quality gate (the real win) still fires.
-      expect(d.suggestedPreset).toBe("custom");
+      expect(d.suggestedPreset).toBe("fastapi-python");
       expect(d.qualityGate).toEqual({ fast: "ruff check .", full: "ruff check . && pytest" });
     } finally {
       rmSync(dir, { recursive: true });

@@ -108,6 +108,7 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   "packages/core/core-assets/presets/bun-keystone/managed/stack.md": 255, // 229 → 11.4%
   "packages/core/core-assets/presets/express/managed/stack.md": 160, // 145 → 10.3%
   "packages/core/core-assets/presets/express-mongoose/managed/stack.md": 175, // 155 → 12.9%
+  "packages/core/core-assets/presets/fastapi-python/managed/stack.md": 165, // 150 → 10%
   "packages/core/core-assets/presets/medusa/managed/stack.md": 70, // 63 → 11.1%
   "packages/core/core-assets/presets/monorepo-turbopnpm/managed/stack.md": 220, // 200 → 10.0%
   "packages/core/core-assets/presets/nestjs/managed/stack.md": 72, // 64 → 12.5%

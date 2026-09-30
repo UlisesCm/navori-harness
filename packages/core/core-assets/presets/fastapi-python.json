@@ -1,0 +1,19 @@
+{
+  "$schema": "https://ulisescm.github.io/navori-harness/schema/navori.preset.v1.json",
+  "id": "fastapi-python",
+  "displayName": "FastAPI backend (Python)",
+  "extends": "core",
+  "libraries": ["fastapi"],
+  "extras": {
+    "managed": [
+      {
+        "id": "stack-fastapi-python",
+        "relPath": "presets/fastapi-python/managed/stack.md"
+      }
+    ],
+    "agents": [],
+    "skills": [],
+    "hooks": []
+  },
+  "invariants": ["router-schema-service", "pydantic-at-boundary"]
+}

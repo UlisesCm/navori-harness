@@ -110,6 +110,7 @@ Un preset aporta skills y reglas específicas del stack además del core. El `in
 | `nestjs` | NestJS (backend) |
 | `express` | Express (backend, agnóstico de DB) |
 | `express-mongoose` | Express + Mongoose (backend) |
+| `fastapi-python` | FastAPI (backend, Python) |
 | `bun-keystone` | Keystone 6 + Prisma (backend, Bun) |
 | `background-worker` | Worker de fondo (jobs + colas: agenda / bullmq / amqplib) |
 | `medusa` | Medusa.js v2 (backend) |
