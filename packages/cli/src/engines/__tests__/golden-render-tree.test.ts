@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
+import { splitFrontmatter } from "../../lib/render/frontmatter.ts";
 import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
 import { renderAgentsMdEngine } from "../agents-md/index.ts";
 import { renderClaudeEngine } from "../claude/index.ts";
@@ -223,6 +224,25 @@ function serializeTree(cwd: string, engineId: string): string {
   return parts.join("\n");
 }
 
+/**
+ * Lint-style YAML guard, no parser dependency: a top-level frontmatter line
+ * whose value is a PLAIN scalar holding `: ` / ` #` / a trailing `:` is invalid
+ * YAML. The renderer must have quoted it.
+ */
+function unsafePlainScalarLines(cwd: string): string[] {
+  const bad: string[] = [];
+  for (const file of listFiles(cwd)) {
+    if (!/\.(md|mdc)$/.test(file)) continue;
+    const { frontmatter } = splitFrontmatter(readFileSync(join(cwd, file), "utf-8"));
+    for (const line of frontmatter.split(/\r?\n/)) {
+      const m = line.match(/^[A-Za-z_][\w.-]*:[ \t]+(\S.*)$/);
+      if (!m || /^['"[{|>&*!%@`]/.test(m[1]!)) continue;
+      if (/: | #|:$/.test(m[1]!)) bad.push(`${file}: ${line}`);
+    }
+  }
+  return bad;
+}
+
 const tempDirs: string[] = [];
 
 afterAll(() => {
@@ -238,6 +258,8 @@ describe("golden render tree, per engine (#394)", () => {
       const cwd = mkdtempSync(join(tmpdir(), `navori-golden-${engineCase.id}-`));
       tempDirs.push(cwd);
       engineCase.render(cwd, goldenConfig(engineCase.engines));
+
+      expect(unsafePlainScalarLines(cwd)).toEqual([]);
 
       const serialized = serializeTree(cwd, engineCase.id);
       const goldenPath = join(GOLDEN_DIR, `${engineCase.id}.snap`);

@@ -5,6 +5,7 @@ import {
   getFrontmatterField,
   getFrontmatterMapField,
   formatFrontmatterField,
+  formatFrontmatterFieldRaw,
   stripFrontmatter,
   removeFrontmatterField,
 } from "../frontmatter.ts";
@@ -39,6 +40,15 @@ describe("frontmatter (spec 0003 §3.4.3, issue #11)", () => {
     const fm = "name: foo\ntype: behavior";
     expect(getFrontmatterField(fm, "type")).toBe("behavior");
     expect(getFrontmatterField(fm, "missing")).toBeNull();
+  });
+
+  it("unquotes inline scalars so YAML-safe descriptions feed trigger indexes cleanly", () => {
+    const fm = [
+      "single: 'Use when task closure: needs proof'",
+      'double: "Use when impact: \\"quoted\\" route"',
+    ].join("\n");
+    expect(getFrontmatterField(fm, "single")).toBe("Use when task closure: needs proof");
+    expect(getFrontmatterField(fm, "double")).toBe('Use when impact: "quoted" route');
   });
 
   it("strips frontmatter and trims the body", () => {
@@ -189,5 +199,49 @@ describe("removeFrontmatterField — drop one key, keep everything else (#823)",
   it("returns the input unchanged when there is no frontmatter", () => {
     const raw = "# just a body\n";
     expect(removeFrontmatterField(raw, "disable-model-invocation")).toBe(raw);
+  });
+
+  it("single-quotes an inline plain scalar containing `: `", () => {
+    expect(formatFrontmatterField("description", "Use when: X")).toBe("description: 'Use when: X'");
+  });
+
+  it("single-quotes a plain scalar with ` #` or a trailing colon", () => {
+    expect(formatFrontmatterField("d", "a #b")).toBe("d: 'a #b'");
+    expect(formatFrontmatterField("d", "ends:")).toBe("d: 'ends:'");
+  });
+
+  it("doubles an internal single quote when quoting", () => {
+    expect(formatFrontmatterField("d", "it's: ok")).toBe("d: 'it''s: ok'");
+  });
+
+  it("leaves already-quoted, flow and block-indicator values untouched", () => {
+    for (const v of [
+      "'a: b'",
+      '"a: b"',
+      "[a: b]",
+      "{a: b}",
+      "|",
+      ">- x: y",
+      "&x a: b",
+      "!t a: b",
+    ]) {
+      expect(formatFrontmatterField("d", v)).toBe(`d: ${v}`);
+    }
+  });
+
+  it("leaves a safe plain scalar and a `metadata:` block untouched", () => {
+    expect(formatFrontmatterField("d", "a:b c#d")).toBe("d: a:b c#d");
+    expect(formatFrontmatterField("metadata", "\n  type: a: b")).toBe("metadata:\n  type: a: b");
+  });
+
+  it("is idempotent across format and parse (no double quoting)", () => {
+    const once = formatFrontmatterField("description", "Use when: it's #1");
+    const reparsed = parseFrontmatterFields(once);
+    expect(formatFrontmatterField("description", reparsed.description!)).toBe(once);
+  });
+
+  it("the raw variant never adds quotes", () => {
+    expect(formatFrontmatterFieldRaw("d", "Use when: X")).toBe("d: Use when: X");
+    expect(formatFrontmatterFieldRaw("metadata", "\n  a: b")).toBe("metadata:\n  a: b");
   });
 });

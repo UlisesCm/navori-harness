@@ -1,6 +1,6 @@
 ---
 name: orchestrator
-description: Do NOT invoke as a subagent, never and under no condition. Orchestration playbook that the main agent EMBODIES (the "## Role: orchestrator" block, delivered to the session by the SessionStart hook); open it as a depth reference instead. Delegating it serializes the work and kills parallelism.
+description: 'Do NOT invoke as a subagent, never and under no condition. Orchestration playbook that the main agent EMBODIES (the "## Role: orchestrator" block, delivered to the session by the SessionStart hook); open it as a depth reference instead. Delegating it serializes the work and kills parallelism.'
 tools: Read, Glob, Grep, Bash, Agent, mcp__codegraph__*, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__engram__mem_context, mcp__engram__mem_save, mcp__engram__mem_session_summary, mcp__engram__mem_update
 model: opus
 effort: medium

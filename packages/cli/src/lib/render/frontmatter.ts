@@ -107,7 +107,35 @@ export function parseFrontmatterFields(frontmatter: string): Record<string, stri
 export function getFrontmatterField(frontmatter: string, key: string): string | null {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const line = frontmatter.match(new RegExp(`^${escaped}:[ \\t]*([^\\r\\n]*)`, "m"));
-  return line ? line[1]!.trim() : null;
+  return line ? unquoteInlineScalar(line[1]!.trim()) : null;
+}
+
+function unquoteInlineScalar(value: string): string {
+  if (value.length < 2) return value;
+  if (value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1).replace(/''/g, "'");
+  }
+  if (value.startsWith('"') && value.endsWith('"')) {
+    return value
+      .slice(1, -1)
+      .replace(/\\(["\\/bfnrt])/g, (_match: string, escaped: string): string => {
+        switch (escaped) {
+          case "b":
+            return "\b";
+          case "f":
+            return "\f";
+          case "n":
+            return "\n";
+          case "r":
+            return "\r";
+          case "t":
+            return "\t";
+          default:
+            return escaped;
+        }
+      });
+  }
+  return value;
 }
 
 /**
@@ -118,7 +146,30 @@ export function getFrontmatterField(frontmatter: string, key: string): string | 
  * onto one line with the key.
  */
 export function formatFrontmatterField(key: string, value: string): string {
+  return formatFrontmatterFieldRaw(key, quoteIfUnsafePlain(value));
+}
+
+/**
+ * Same as `formatFrontmatterField` but never adds quotes: the value is written
+ * exactly as held. For intermediate serialize→interpolate→parse rounds, where
+ * wrapping quotes would leak into the parsed value; the final write quotes.
+ */
+export function formatFrontmatterFieldRaw(key: string, value: string): string {
   return value.startsWith("\n") ? `${key}:${value}` : `${key}: ${value}`;
+}
+
+// First chars that make a scalar non-plain (quote, flow, block, anchor, alias,
+// tag, directive, reserved) — such values are left exactly as authored.
+const NON_PLAIN_START = /^['"[{|>&*!%@`]/;
+// A plain scalar breaks YAML when it holds `: `, ` #`, or ends in `:`.
+const UNSAFE_PLAIN = /: | #|:$/;
+
+/** Single-quote an inline plain scalar that YAML would misparse; else unchanged. */
+function quoteIfUnsafePlain(value: string): string {
+  if (value.startsWith("\n") || NON_PLAIN_START.test(value) || !UNSAFE_PLAIN.test(value)) {
+    return value;
+  }
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 /** Strip the frontmatter and return the trimmed body. */

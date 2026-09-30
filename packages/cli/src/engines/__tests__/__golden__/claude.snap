@@ -461,7 +461,7 @@ report; don't try to fix it yourself.
 ===== FILE: .claude/agents/orchestrator.md =====
 ---
 name: orchestrator
-description: Do NOT invoke as a subagent, never and under no condition. Orchestration playbook that the main agent EMBODIES (the "## Role: orchestrator" block, delivered to the session by the SessionStart hook); open it as a depth reference instead. Delegating it serializes the work and kills parallelism.
+description: 'Do NOT invoke as a subagent, never and under no condition. Orchestration playbook that the main agent EMBODIES (the "## Role: orchestrator" block, delivered to the session by the SessionStart hook); open it as a depth reference instead. Delegating it serializes the work and kills parallelism.'
 tools: Read, Glob, Grep, Bash, Agent, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__engram__mem_context, mcp__engram__mem_save, mcp__engram__mem_session_summary, mcp__engram__mem_update
 maxWords: 3050
 ---
@@ -16410,7 +16410,7 @@ job** — hand it the thread and the text; this skill never posts one.
 ===== FILE: .claude/skills/locate-code/SKILL.md =====
 ---
 name: locate-code
-description: Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site) — bounded reading, a native-search fallback, and ast-grep for AST shapes. Not the entry point for relationships or impact: that's Code discovery routing's structural provider.
+description: "Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site) — bounded reading, a native-search fallback, and ast-grep for AST shapes. Not the entry point for relationships or impact: that's Code discovery routing's structural provider."
 metadata:
   type: reference
   # 600 y no 500 (spec 0020, R4): recibió el reparto shell/nativo y la medición de los
@@ -17474,7 +17474,7 @@ raises them (an empty section is noise, not rigor):
 ===== FILE: .claude/skills/verify-before-done/SKILL.md =====
 ---
 name: verify-before-done
-description: Use when about to declare a task done — the Iron Law of task closure: no success claim without fresh evidence from the command that backs it. Applies to implementer, reviewer, publisher and any response that declares "done".
+description: 'Use when about to declare a task done — the Iron Law of task closure: no success claim without fresh evidence from the command that backs it. Applies to implementer, reviewer, publisher and any response that declares "done".'
 metadata:
   type: behavior
   maxWords: 650

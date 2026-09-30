@@ -1,6 +1,6 @@
 ---
 name: locate-code
-description: Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site) — bounded reading, a native-search fallback, and ast-grep for AST shapes. Not the entry point for relationships or impact: that's Code discovery routing's structural provider.
+description: "Use when locating something in code before reading it (a symbol, syntactic shape, structural relation, refactor site) — bounded reading, a native-search fallback, and ast-grep for AST shapes. Not the entry point for relationships or impact: that's Code discovery routing's structural provider."
 metadata:
   type: reference
   # 600 y no 500 (spec 0020, R4): recibió el reparto shell/nativo y la medición de los
