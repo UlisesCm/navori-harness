@@ -34,7 +34,7 @@ export const INVENTORY = {
   /** Subcommands registered in `packages/cli/src/index.ts`. */
   commands: 26,
   /** Stack presets under `packages/core/core-assets/presets/`. */
-  presets: 12,
+  presets: 13,
   /** Plugin bundles under `packages/plugins/`. */
   plugins: 7,
   /** Engine adapters under `packages/cli/src/engines/`. */
