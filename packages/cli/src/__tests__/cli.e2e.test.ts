@@ -1493,7 +1493,11 @@ describe("CLI e2e — coexist mode", () => {
       /<!-- navori:managed[\s\S]*?<!-- \/navori:managed[^>]*-->\n?/g,
       "",
     );
-    expect(outsideBlocks).toContain(original.trim());
+    // The renderer appends its managed blocks after the user's text, each with
+    // blank-line separators that stay behind once the blocks are stripped. The
+    // user's bytes must be an exact prefix; only newlines may follow.
+    expect(outsideBlocks.startsWith(original)).toBe(true);
+    expect(outsideBlocks.slice(original.length)).toMatch(/^\n*$/);
   });
 
   it("#1111 — a foreign .claude/agents/foo.md keeps coexist and generates nothing", () => {
