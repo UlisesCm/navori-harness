@@ -1,4 +1,4 @@
-# navori:managed start id="qg-pre-commit-base" hash="a2b3b2bd" version="0.10.1" source="@navori/core"
+# navori:managed start id="qg-pre-commit-base" hash="a2b3b2bd" version="0.11.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Pre-commit / pre-push quality gate hook.

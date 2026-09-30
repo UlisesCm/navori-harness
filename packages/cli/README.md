@@ -82,12 +82,15 @@ Y genera:
 | `status` | Snapshot rápido: config, plugins activos, conteo de drift y próximos pasos |
 | `audit` | Reporta cómo corrió el harness de verdad: atribución de tokens y huecos de adherencia en tus sesiones |
 | `receipt <sign\|check>` | Firma o verifica los bytes revisados antes de publicar un cambio (`navori receipt <sign\|check> --feature <id> [--target <ref>] [--dir <path>] [--json]`) |
+| `handoff <check>` | Valida el handoff del implementer (`impl_<feature>.json`) antes de despachar al siguiente agente (`navori handoff check <feature> [--for scribe] [--dir <path>] [--cwd <checkout>] [--json]`) |
 | `plan <sub>` | Planificación por niveles (`harness.planTiers`): `classify [--files\|--diff]` mide complejidad y nivel de una tarea, `render`/`update` mantienen el workplan Markdown en sync con su JSON, `check` valida su esquema y reglas, `gate` es el hook `PreToolUse(Agent)` que niega el despacho sin workplan válido |
+| `master <sub>` | Flujo guiado del plan maestro por etapas (`init`, `mode`, `template`, `check`, `advance`, `status`, `part`, `close`) |
 | `bench` | Corre `render` en dry-run N veces y reporta latencias (detecta regresiones locales) |
 | `workspace <sub>` | Gestiona workspaces cross-repo (`init`, `ls`, `show`, `rm`) |
 | `ticket <sub>` | Gestiona tickets-as-files en un workspace (`new`, `list`, `show`, `archive`, `delete`) |
 | `dominio <sub>` | Base de conocimiento durable del workspace (`init`, `list`, `show`, `reindex`, `doctor`, `inject`) |
 | `global <sub>` | Harness base por máquina en `~/.claude` (`init`, `render`, `doctor`, `uninstall`) — opt-in explícito y aditivo |
+| `codex <sub>` | Comandos específicos de Codex; hoy `trust` aprueba los hooks del proyecto en `~/.codex/config.toml` |
 | `backup <sub>` | Lista y restaura backups de `~/.navori/backups/` |
 | `migrations <sub>` | Lista y restaura migraciones de `~/.navori/migrations/` |
 

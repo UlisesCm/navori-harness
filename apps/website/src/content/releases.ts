@@ -33,6 +33,36 @@ export interface ReleaseEntry {
 
 export const RELEASES: readonly ReleaseEntry[] = [
   {
+    minor: "0.11",
+    date: "2026-09-29",
+    headline: {
+      es: "Estado del harness por checkout y un master plan guiado",
+      en: "Per-checkout harness state and a guided master plan",
+    },
+    bullets: [
+      {
+        es: "El estado efímero del harness vive por checkout y sin atarse a un engine, en .navori/state/handoffs/. plan gate, plan check y receipt check buscan ahí los workplans y recibos, con el .claude/progress/ anterior como lectura de respaldo. Es una migración que conviene notar.",
+        en: "Ephemeral harness state now lives per checkout and engine-neutral under .navori/state/handoffs/. plan gate, plan check and receipt check look there for workplans and receipts, with the old .claude/progress/ as a read fallback. It is a migration worth noticing.",
+      },
+      {
+        es: "Codex avanza hacia la paridad operativa, aunque todavía parcial: permisos por defecto, salida de hooks validada, permisos de revisión cruzada y un plan-gate que aconseja en Codex.",
+        en: "Codex moves toward operational parity, though still partial: default permissions, validated hook output, cross-review permissions and an advisory plan-gate on Codex.",
+      },
+      {
+        es: "Nueva skill master-plan: guía un plan maestro por etapas para trabajo grande, con una spec propia.",
+        en: "New master-plan skill: it guides a staged master plan for large work, backed by its own spec.",
+      },
+      {
+        es: "Nuevas skills de librerías: amqplib para RabbitMQ, los patrones de Mantine en cualquier repo con @mantine/core, y fastapi y pytest para repos Python, con detección de dependencias de desarrollo de Python.",
+        en: "New library skills: amqplib for RabbitMQ, Mantine patterns for any repo with @mantine/core, and fastapi and pytest for Python repos, with Python dev-dependency detection.",
+      },
+      {
+        es: "Los gates de pre-commit, semgrep y jscpd ya no corren el gate del repo ancla sobre commits que caen en otro repositorio, e init infiere el workspace cuando uno ya registra el repo. Además, jscpd bloquea solo clones nuevos y hay arreglos en check-links, recibos, activación de tailwind-v4, variables extra de plugins y la convivencia en init.",
+        en: "The pre-commit, semgrep and jscpd gates no longer run the anchor repo's gate on commits that land in another repository, and init infers the workspace when one already registers the repo. Also, jscpd blocks only new clones, with fixes to check-links, receipts, tailwind-v4 activation, plugin extra variables and init coexistence.",
+      },
+    ],
+  },
+  {
     minor: "0.10",
     date: "2026-09-23",
     headline: {
