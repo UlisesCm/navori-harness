@@ -39,7 +39,7 @@ export interface TemplateOptions {
 }
 
 /** A `## <heading>` section of a template, plus its optional `only-mode`
- * restriction (`<!-- only-mode: template|en-curso -->` as the section's first
+ * restriction (`<!-- only-mode: template|en-curso|desde-cero -->` as the section's first
  * line): the plan template's "Estado actual vs. objetivo" section exists only
  * in `en-curso` mode (R18, design.md D3). */
 export interface TemplateSection {
@@ -48,7 +48,7 @@ export interface TemplateSection {
   body: string;
 }
 
-const ONLY_MODE_MARKER = /^<!--\s*only-mode:\s*(template|en-curso)\s*-->\s*\n?/;
+const ONLY_MODE_MARKER = /^<!--\s*only-mode:\s*(template|en-curso|desde-cero)\s*-->\s*\n?/;
 
 /**
  * Resolves the absolute path of `<name>.md`, applying the language fallback

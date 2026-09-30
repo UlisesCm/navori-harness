@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { runCommand } from "citty";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -203,6 +203,16 @@ describe("runMasterInit — second stage registers en-curso (R16)", () => {
   });
 });
 
+describe("navori master init — context guidance", () => {
+  it("prints the repo-relative raw/ path when the phase is context", async () => {
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    await master("init", "mvp");
+    const out = write.mock.calls.map((c) => String(c[0])).join("");
+    write.mockRestore();
+    expect(out).toContain("specs/_master/01-mvp/context/raw/");
+  });
+});
+
 describe("navori master mode (R16, commands/master.ts)", () => {
   function stateOf(dir: string): { phase: string; mode: string | null } {
     const raw = JSON.parse(
@@ -217,6 +227,25 @@ describe("navori master mode (R16, commands/master.ts)", () => {
     await master("mode", "template");
     expect(process.exitCode).toBeFalsy();
     expect(stateOf("01-mvp").mode).toBe("template");
+  });
+
+  it("registers desde-cero for the first stage", async () => {
+    runMasterInit(cwd, "mvp");
+    process.exitCode = undefined;
+    await master("mode", "desde-cero");
+    expect(process.exitCode).toBeFalsy();
+    expect(stateOf("01-mvp").mode).toBe("desde-cero");
+  });
+
+  it("names all three modes in the invalid-mode error", async () => {
+    runMasterInit(cwd, "mvp");
+    process.exitCode = undefined;
+    const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await master("mode", "not-a-mode");
+    const out = write.mock.calls.map((c) => String(c[0])).join("");
+    write.mockRestore();
+    expect(out).toContain('"desde-cero"');
+    process.exitCode = undefined;
   });
 
   it("rejects an invalid mode value", async () => {

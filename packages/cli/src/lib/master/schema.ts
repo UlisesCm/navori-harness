@@ -126,7 +126,7 @@ export const MASTER_PHASES = [
 ] as const;
 export type MasterPhase = (typeof MASTER_PHASES)[number];
 
-const MASTER_MODES = ["template", "en-curso"] as const;
+export const MASTER_MODES = ["template", "en-curso", "desde-cero"] as const;
 export type MasterMode = (typeof MASTER_MODES)[number];
 
 const SignalSchema = z.object({

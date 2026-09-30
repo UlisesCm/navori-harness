@@ -26,6 +26,8 @@ function commit(message: string): void {
   git(["-c", "user.email=t@t.com", "-c", "user.name=t", "commit", "-m", message]);
 }
 
+const WITH_STACK = JSON.stringify({ name: "x", dependencies: { react: "^18.0.0" } });
+
 describe("computeSignal", () => {
   it("returns null git fields and does not throw for a repo without git", () => {
     writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "x" }));
@@ -33,12 +35,30 @@ describe("computeSignal", () => {
     expect(signal.commits).toBeNull();
     expect(signal.firstCommit).toBeNull();
     expect(signal.filesChangedSinceFirst).toBeNull();
-    expect(signal.suggested).toBe("template");
+    expect(signal.suggested).toBe("desde-cero");
+  });
+
+  it("suggests template without git when a stack is detected", () => {
+    writeFileSync(join(cwd, "package.json"), WITH_STACK);
+    expect(computeSignal(cwd).suggested).toBe("template");
+  });
+
+  it("suggests desde-cero for an empty directory without git", () => {
+    const signal = computeSignal(cwd);
+    expect(signal.commits).toBeNull();
+    expect(signal.suggested).toBe("desde-cero");
+  });
+
+  it("suggests desde-cero for a git repo with a commit but no stack", () => {
+    git(["init", "-q"]);
+    writeFileSync(join(cwd, "README.md"), "# empty");
+    commit("initial");
+    expect(computeSignal(cwd).suggested).toBe("desde-cero");
   });
 
   it("reports one commit and zero files changed since it", () => {
     git(["init", "-q"]);
-    writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "x" }));
+    writeFileSync(join(cwd, "package.json"), WITH_STACK);
     commit("initial");
     const signal = computeSignal(cwd);
     expect(signal.commits).toBe(1);
@@ -49,7 +69,7 @@ describe("computeSignal", () => {
 
   it("suggests en-curso for a repo with real history past the thresholds", () => {
     git(["init", "-q"]);
-    writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "x" }));
+    writeFileSync(join(cwd, "package.json"), WITH_STACK);
     commit("initial");
     for (let i = 0; i < 25; i++) {
       writeFileSync(join(cwd, `file-${i}.txt`), `content ${i}`);

@@ -70,6 +70,14 @@ describe("splitTemplateSections — parsing", () => {
     expect(gated.body).toContain("Solo en modo en-curso.");
   });
 
+  it("accepts desde-cero in the only-mode marker", () => {
+    const sections = splitTemplateSections(
+      "## A\n<!-- only-mode: desde-cero -->\nsolo\n\n## B\ntodos\n",
+    );
+    expect(sections.find((s) => s.heading === "A")!.onlyMode).toBe("desde-cero");
+    expect(sections.find((s) => s.heading === "B")!.onlyMode).toBeNull();
+  });
+
   it("leaves unconditional sections with onlyMode null", () => {
     const sections = splitTemplateSections(PLAN_FIXTURE);
     expect(sections.find((s) => s.heading === "Metadatos")!.onlyMode).toBeNull();

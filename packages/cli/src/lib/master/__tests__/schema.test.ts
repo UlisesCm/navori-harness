@@ -69,6 +69,44 @@ describe("MasterStateSchema — phases (R6)", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it.each(["template", "en-curso", "desde-cero"])("accepts mode %s and round-trips it", (mode) => {
+    const input = {
+      version: 1,
+      phase: "context",
+      mode,
+      signal: {
+        commits: null,
+        firstCommit: null,
+        filesChangedSinceFirst: null,
+        framework: null,
+        libraries: [],
+        suggested: mode,
+      },
+      history: [],
+    };
+    const parsed = MasterStateSchema.parse(input);
+    expect(parsed.mode).toBe(mode);
+    expect(parsed.signal.suggested).toBe(mode);
+  });
+
+  it("rejects an unknown mode", () => {
+    const parsed = MasterStateSchema.safeParse({
+      version: 1,
+      phase: "context",
+      mode: "otro",
+      signal: {
+        commits: null,
+        firstCommit: null,
+        filesChangedSinceFirst: null,
+        framework: null,
+        libraries: [],
+        suggested: "template",
+      },
+      history: [],
+    });
+    expect(parsed.success).toBe(false);
+  });
+
   it("fails with a message naming the version this navori supports on an unknown version", () => {
     const parsed = MasterStateSchema.safeParse({
       version: 2,

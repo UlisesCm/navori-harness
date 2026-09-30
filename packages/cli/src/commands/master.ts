@@ -11,8 +11,14 @@ import { runMasterClose } from "../lib/master/close.ts";
 import { readMasterStatus, statusLine, writeMasterStatus } from "../lib/master/status.ts";
 import { readConfig } from "../lib/config/config.ts";
 import { MasterInitError, runMasterInit } from "../lib/master/init.ts";
-import { activeStage, masterDirPath, readMasterIndex } from "../lib/master/stages.ts";
 import {
+  activeStage,
+  MASTER_DIR_NAME,
+  masterDirPath,
+  readMasterIndex,
+} from "../lib/master/stages.ts";
+import {
+  MASTER_MODES,
   MasterStateSchema,
   PartsSchema,
   type MasterMode,
@@ -33,8 +39,6 @@ import {
   TEMPLATE_NAMES,
   type TemplateName,
 } from "../lib/master/templates.ts";
-
-const MASTER_MODES: readonly MasterMode[] = ["template", "en-curso"];
 
 function reportError(cause: unknown): void {
   process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
@@ -70,6 +74,13 @@ const initSubCommand = defineCommand({
           `archivosCambiados=${signal.filesChangedSinceFirst ?? "?"} framework=${signal.framework ?? "ninguno"} ` +
           `sugerido=${signal.suggested}\n`,
       );
+      if (result.phase === "context") {
+        const specsDir = readConfig(join(cwd, "navori.config.json")).sdd?.specsDir ?? "specs";
+        process.stdout.write(
+          `Contexto: deja tus archivos (documentos PDF/Word/Excel, imágenes o texto) en ` +
+            `${specsDir}/${MASTER_DIR_NAME}/${result.stage.dir}/context/raw/\n`,
+        );
+      }
       if (result.requestedSlugIgnored) process.exitCode = 1;
     } catch (cause) {
       if (cause instanceof MasterInitError) {
@@ -87,8 +98,10 @@ const initSubCommand = defineCommand({
  * changing it mid-flow would invalidate the plans already read against it.
  */
 function setMasterMode(cwd: string, value: string): void {
-  if (!MASTER_MODES.includes(value as MasterMode)) {
-    throw new Error(`invalid mode "${value}": expected "template" or "en-curso"`);
+  if (!(MASTER_MODES as readonly string[]).includes(value)) {
+    throw new Error(
+      `invalid mode "${value}": expected ${MASTER_MODES.map((m) => `"${m}"`).join(", ")}`,
+    );
   }
   const configPath = resolve(cwd, "navori.config.json");
   const config = readConfig(configPath);
@@ -115,9 +128,12 @@ function setMasterMode(cwd: string, value: string): void {
 }
 
 const modeSubCommand = defineCommand({
-  meta: { name: "mode", description: "Register the first stage's mode: template | en-curso (R16)" },
+  meta: {
+    name: "mode",
+    description: "Register the first stage's mode: template | en-curso | desde-cero (R16)",
+  },
   args: {
-    value: { type: "positional", required: true, description: "template | en-curso" },
+    value: { type: "positional", required: true, description: "template | en-curso | desde-cero" },
     stage: { type: "string", description: "Closed stages are read-only" },
     cwd: { type: "string", description: "Repo root" },
   },

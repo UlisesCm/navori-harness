@@ -68,12 +68,16 @@ export function computeSignal(cwd: string): MasterSignal {
     filesChangedSinceFirst = diffOut === null || diffOut === "" ? 0 : diffOut.split("\n").length;
   }
 
+  // No stack detected (no git or empty repo included) means nothing exists to
+  // constrain the plan: the stack is an open decision.
   const suggested: MasterMode =
-    commits === null || filesChangedSinceFirst === null
-      ? "template"
-      : commits <= TEMPLATE_MAX_COMMITS && filesChangedSinceFirst <= TEMPLATE_MAX_FILES_CHANGED
+    framework === null && libraries.length === 0
+      ? "desde-cero"
+      : commits === null || filesChangedSinceFirst === null
         ? "template"
-        : "en-curso";
+        : commits <= TEMPLATE_MAX_COMMITS && filesChangedSinceFirst <= TEMPLATE_MAX_FILES_CHANGED
+          ? "template"
+          : "en-curso";
 
   return { commits, firstCommit, filesChangedSinceFirst, framework, libraries, suggested };
 }
