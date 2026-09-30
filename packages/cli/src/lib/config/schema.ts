@@ -103,6 +103,10 @@ const MonorepoWorkspaceSchema = z.object({
    * DERIVED like the root `project.libraries` (#345): `refreshWorkspaceScopes`
    * re-scans each workspace on `update` and rewrites this array. */
   libraries: z.array(z.string()).optional(),
+  /** User-owned library-skill ids for THIS workspace only (#1104). Never touched
+   * by `refreshWorkspaceScopes`, and the root's `project.extraLibraries` does NOT
+   * reach workspaces (same anti-spray rule as `libraries`). */
+  extraLibraries: z.array(z.string().min(1)).optional(),
   /** Active dependency migrations detected in THIS workspace's own deps. Scoped
    * per workspace for the same reason as `libraries` — a mid-migration rule
    * belongs only to the app whose package.json ships both sides of the pair. */
@@ -382,6 +386,14 @@ const ProjectSchema = z
      * detection mechanism (the way `paths` extended `deps` in #331) instead of
      * hand-editing this array. */
     libraries: z.array(z.string()).default([]),
+    /** User-owned library-skill ids added on top of the detected ones (#1104).
+     * The escape hatch for a lib with no detectable signal: unlike `libraries`
+     * (DERIVED, replaced on `update`), `init`/`update` never touch this array (optional, no
+     * default, so it is not written into configs that don't use it).
+     * Unioned with `libraries` and the preset's ids by `effectiveLibraries`. An id
+     * the registry doesn't know is NOT a schema error (the registry depends on the
+     * CLI version); render and doctor warn about it instead. */
+    extraLibraries: z.array(z.string().min(1)).optional(),
     /** Active dependency migrations (legacy + successor both present in deps).
      * Each renders a "prefer the new, freeze the legacy" rule in the project-
      * context block. Detected from deps (lib/library-skills.ts MIGRATION_PAIRS)

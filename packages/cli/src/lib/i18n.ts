@@ -2623,10 +2623,10 @@ const CMD_ES: CmdStrings = {
       "La asignación de modelo por agente (config.models) no aplica fuera de Claude Code; se omitió.",
     libraryRemovedFromRegistry: (id, successors) =>
       successors.length > 0
-        ? `project.libraries: '${id}' fue retirada del registro (ahora: ${successors.join(", ")}) y su skill se elimina de disco. Corre 'navori update' para re-detectar las sucesoras.`
-        : `project.libraries: '${id}' fue retirada del registro y su skill se elimina de disco. Corre 'navori update' para limpiar la selección.`,
+        ? `project.libraries/extraLibraries: '${id}' fue retirada del registro (ahora: ${successors.join(", ")}) y su skill se elimina de disco. Corre 'navori update' para re-detectar las sucesoras.`
+        : `project.libraries/extraLibraries: '${id}' fue retirada del registro y su skill se elimina de disco. Corre 'navori update' para limpiar la selección.`,
     libraryUnknownInRegistry: (id) =>
-      `project.libraries: '${id}' no existe en el registro de esta versión del CLI; se omite. Corre 'navori update' para re-detectar librerías.`,
+      `project.libraries/extraLibraries: '${id}' no existe en el registro de esta versión del CLI; se omite. Corre 'navori update' para re-detectar librerías.`,
     managedBlocksOutOfOrder:
       "CLAUDE.md: los bloques managed están fuera del orden canónico, pero hay texto tuyo intercalado " +
       "entre bloques, así que no los reordené. Mueve ese texto arriba del primer bloque managed o abajo " +
@@ -3982,10 +3982,10 @@ const CMD_EN: CmdStrings = {
       "Per-agent model assignment (config.models) doesn't apply outside Claude Code; omitted.",
     libraryRemovedFromRegistry: (id, successors) =>
       successors.length > 0
-        ? `project.libraries: '${id}' was retired from the registry (now: ${successors.join(", ")}) and its skill is removed from disk. Run 'navori update' to re-detect the successors.`
-        : `project.libraries: '${id}' was retired from the registry and its skill is removed from disk. Run 'navori update' to clean the selection.`,
+        ? `project.libraries/extraLibraries: '${id}' was retired from the registry (now: ${successors.join(", ")}) and its skill is removed from disk. Run 'navori update' to re-detect the successors.`
+        : `project.libraries/extraLibraries: '${id}' was retired from the registry and its skill is removed from disk. Run 'navori update' to clean the selection.`,
     libraryUnknownInRegistry: (id) =>
-      `project.libraries: '${id}' is unknown to this CLI version's registry; skipped. Run 'navori update' to re-detect libraries.`,
+      `project.libraries/extraLibraries: '${id}' is unknown to this CLI version's registry; skipped. Run 'navori update' to re-detect libraries.`,
     managedBlocksOutOfOrder:
       "CLAUDE.md: the managed blocks are out of canonical order, but there's text of yours interleaved " +
       "between blocks, so I didn't reorder them. Move that text above the first managed block or below " +

@@ -54,6 +54,7 @@ export function buildMonorepoContext(
  *   - `preset`            → swaps the preset name used in template interpolation
  *   - `qualityGate`       → swaps the qg commands → drives the pre-commit hook
  *   - `libraries`         → scopes library skills to the workspace's own deps
+ *   - `extraLibraries`    → user-owned extra library skills for this workspace only
  *   - `libraryMigrations` → scopes migration rules to the workspace's own deps
  *
  * Library skills + migrations are ALWAYS scoped to the workspace, never
@@ -81,6 +82,8 @@ export function effectiveConfigForWorkspace(
   }
   const project = { ...(merged.project ?? {}) } as NonNullable<NavoriConfig["project"]>;
   project.libraries = workspace.libraries ?? [];
+  // User-owned extras are scoped like `libraries`: the root's never leak (#1104).
+  project.extraLibraries = workspace.extraLibraries ?? [];
   project.libraryMigrations = workspace.libraryMigrations ?? [];
   merged.project = project;
   return merged;

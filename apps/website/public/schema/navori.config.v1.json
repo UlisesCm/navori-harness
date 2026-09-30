@@ -530,6 +530,13 @@
             "type": "string"
           }
         },
+        "extraLibraries": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "libraryMigrations": {
           "default": [],
           "type": "array",
@@ -626,6 +633,13 @@
                 "type": "array",
                 "items": {
                   "type": "string"
+                }
+              },
+              "extraLibraries": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
                 }
               },
               "libraryMigrations": {
