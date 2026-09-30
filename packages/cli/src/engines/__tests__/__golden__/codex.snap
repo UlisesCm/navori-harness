@@ -12183,6 +12183,11 @@ prefix_rule(
 )
 
 prefix_rule(
+    pattern = ["navori", "master", "ux"],
+    decision = "prompt",
+)
+
+prefix_rule(
     pattern = ["navori", "master", "advance"],
     decision = "prompt",
 )
