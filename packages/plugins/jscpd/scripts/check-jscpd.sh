@@ -104,7 +104,7 @@ if [ -n "$cmd" ]; then
   navori_commit_landing "$cmd"
   if [ "$navori_landing" = foreign ]; then
     navori_jscpd_reason="jscpd: skipped, commit lands in another repository; no scan"
-    echo "⊘ jscpd: the commit lands in another repository ($navori_landing_root), not the one this session is anchored in — this repository's scan does not apply; skip" >&2
+    echo "⊘ jscpd: the commit lands in another repository ($navori_landing_root), not the one this hook protects — this repository's scan does not apply; skip" >&2
     exit 0
   fi
 fi

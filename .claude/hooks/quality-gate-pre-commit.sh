@@ -1,4 +1,4 @@
-# navori:managed start id="qg-pre-commit-base" hash="a2b3b2bd" version="0.11.0" source="@navori/core"
+# navori:managed start id="qg-pre-commit-base" hash="093fcb93" version="0.11.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Pre-commit / pre-push quality gate hook.
@@ -910,6 +910,47 @@ navori_first_tree() {
   return 1
 }
 
+# Hook's own path, captured HERE at the partial's top level (every consumer inlines
+# it at script top level). NEVER read `$0` inside a `navori_*` function: zsh sets it
+# to the function's name there (FUNCTION_ARGZERO). Used only as a string, never
+# resolved. A relative path is anchored on the hook's cwd, where the shell found it.
+navori_hook_path="$0"
+case "$navori_hook_path" in /*) ;; *) navori_hook_path="$PWD/$navori_hook_path" ;; esac
+navori_home_id=""
+navori_home_done=0
+
+# HOME repository (#1099): the repo this hook protects, as a repo id in
+# `navori_home_id` (empty = unknown). Known only if ALL hold:
+#   - `CLAUDE_PROJECT_DIR` is non-empty;
+#   - the hook's own path is exactly `${CLAUDE_PROJECT_DIR%/}/.claude/hooks/<file>`
+#     or `.../.claude/scripts/<file>` (how settings.json registers it). A bare
+#     prefix is not enough: a leaked variable plus a hook of a repo NESTED under it
+#     would make the outer repo "home" and skip every gate of the inner one. `.codex/`
+#     never qualifies, so a Codex hook is always home-unknown;
+#   - that directory resolves to a repo id.
+# Any doubt means unknown, and unknown never produces `foreign` without a `cd`/`-C`
+# in the command. Memoised: the callers pay the git fork once. Sets a global (no
+# subshell); declares locals once at the top (zsh prints a re-declared `local`).
+navori_home_resolve() {
+  local cpd rest file
+  [ "$navori_home_done" = 0 ] || return 0
+  navori_home_done=1
+  cpd="${CLAUDE_PROJECT_DIR:-}"
+  [ -n "$cpd" ] || return 0
+  cpd="${cpd%/}"
+  case "$navori_hook_path" in
+    "$cpd"/*) rest="${navori_hook_path#"$cpd"/}" ;;
+    *) return 0 ;;
+  esac
+  case "$rest" in
+    .claude/hooks/*|.claude/scripts/*) file="${rest#.claude/*/}" ;;
+    *) return 0 ;;
+  esac
+  case "$file" in ""|.|..|*/*) return 0 ;; esac
+  navori_home_id=$(navori_repo_id "$CLAUDE_PROJECT_DIR" || true)
+  return 0
+}
+
 # Resolution, most specific first:
 #   1. the directory the command names (`git -C` / a leading `cd`), ONLY when it
 #      belongs to the same repository as the anchor (see the constraint below);
@@ -946,7 +987,9 @@ navori_worktree() {
   # different repository and a submodule (its own git dir under
   # `<main>/.git/modules/`) do not, and fall through to the payload cwd — the
   # stricter direction. An unresolvable anchor drops candidate 1 for the same
-  # reason: nothing to check it against.
+  # reason: nothing to check it against — unless the named dir IS the hook's home
+  # repo (#1099: the session sits in another repo but the command names the
+  # protected one), which only ever moves the scan toward the protected repo.
   # Ceiling: two linked worktrees of the SAME repository are indistinguishable
   # this way, so naming a sibling worktree still beats the payload cwd. Both are
   # trees of the repo being protected, so the scan stays inside it. Walk the
@@ -955,7 +998,8 @@ navori_worktree() {
   if [ -n "$named" ]; then
     anchor_repo=$(navori_repo_id "$anchor" || true)
     named_repo=$(navori_repo_id "$named" || true)
-    if [ -z "$anchor_repo" ] || [ "$named_repo" != "$anchor_repo" ]; then
+    navori_home_resolve
+    if [ -z "$named_repo" ] || { [ "$named_repo" != "$anchor_repo" ] && [ "$named_repo" != "$navori_home_id" ]; }; then
       named=""
     fi
   fi
@@ -977,13 +1021,21 @@ navori_worktree() {
 # `extract-cmd` (payload_field). Always returns 0 and sets, without a subshell:
 #   navori_landing       same-repo | foreign | ambiguous
 #   navori_landing_root  landing toplevel (foreign only)
-# "foreign" means different from BOTH the payload-cwd repository and the
-# repository of $CLAUDE_PROJECT_DIR (the one the hook belongs to): a session
-# anchored in repo B that commits into the hook's own repo must still be gated.
-# Codex exposes no equivalent env var in these hooks (`nv_project_dir` is derived
-# from the payload cwd, hook-input.sh), so there the comparison degrades to
-# payload-cwd-only.
-navori_commit_re='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)'
+# "foreign" means the command's landing repo differs from the repository this hook
+# protects (#1099). With no `cd`/`-C` the landing dir IS the payload cwd, so a
+# session anchored in another repo is foreign too. The protected repo is the HOME
+# id (`navori_home_resolve`); when home is unknown the comparison degrades to the
+# #1095 rule (payload-cwd repo, widened by the raw `CLAUDE_PROJECT_DIR` repo, which
+# can only turn `foreign` into `same-repo`) and a command without `cd`/`-C` is
+# `same-repo` with no fork. "commit" below means the one gated op.
+#
+# The gated op (#1098) is whatever the caller's $TRIGGER_RE counts: `git commit`
+# for QG and jscpd, plus `git push` and `gh pr create` for semgrep. The walk
+# matches that same regex, so there is no second copy to drift. `gh pr create`
+# lands in the cwd's repo unless it names another one (`-R`/`--repo`/`GH_REPO`),
+# which is `ambiguous` (the scan runs).
+# Ceiling (#1115): several gated ops in one call (`git commit && git push`)
+# stay `ambiguous`.
 
 # Reads one shell token off the front of $1 into `navori_tok` / `navori_rest`.
 # Returns 1 for anything the shell would expand or that is malformed, so the
@@ -1020,7 +1072,7 @@ navori_take_token() {
 
 navori_commit_landing() {
   local c rest seg first tailtxt p arg dir base pcwd top sub id_l id_a id_h
-  local cd_dir="" c_dir="" found=0 more=1 cdcount=0 nc=0 rel=0 nl=$'\n'
+  local cd_dir="" c_dir="" found=0 more=1 cdcount=0 nc=0 rel=0 isgh=0 nl=$'\n'
   navori_landing="ambiguous"; navori_landing_root=""
 
   # A single gated op only: a second commit (or, in semgrep, a push) makes the
@@ -1044,8 +1096,8 @@ navori_commit_landing() {
     seg="${seg#"${seg%%[![:space:]]*}"}"
     first="${seg%%"$nl"*}"
     case "$first" in
-      git[[:space:]]*)
-        if printf '%s' "$first" | grep -qE "$navori_commit_re"; then found=1; break; fi
+      git[[:space:]]*|gh[[:space:]]*)
+        if printf '%s' "$first" | grep -qE "$TRIGGER_RE"; then found=1; break; fi
         ;;
     esac
     case "$seg" in *"$nl"*) return 0 ;; esac
@@ -1069,14 +1121,29 @@ navori_commit_landing() {
   done
   [ "$found" = 1 ] || return 0
 
-  # The commit segment's own global options, positionally. Text after `commit`
-  # (the message) is never read.
-  p="${first#git}"
-  while :; do
+  case "$first" in
+  gh[[:space:]]*)
+    # `gh pr create`: no global -C, so it lands where the cwd (or the `cd`) is —
+    # unless it names another repo, which the parser will not follow. Any `-R` or
+    # `--repo` anywhere in the segment (message text included) reads as ambiguous.
+    p="${first#gh}"
+    navori_take_token "$p" || return 0
+    [ "$navori_tok" = pr ] || return 0
+    navori_take_token "$navori_rest" || return 0
+    [ "$navori_tok" = create ] || return 0
+    case "$seg" in *'-R'*|*'--repo'*) return 0 ;; esac
+    [ -z "${GH_REPO:-}" ] || return 0
+    isgh=1
+    ;;
+  *) p="${first#git}" ;;
+  esac
+  # The gated segment's own git global options, positionally. Text after
+  # `commit`/`push` (the message) is never read; a gh segment was validated above.
+  while [ "$isgh" = 0 ]; do
     navori_take_token "$p" || return 0
     arg="$navori_tok"; p="$navori_rest"
     case "$arg" in
-      commit) break ;;
+      commit|push) break ;;
       -C)
         [ "$nc" = 0 ] || return 0
         nc=1
@@ -1095,8 +1162,13 @@ navori_commit_landing() {
   case "$first" in *';'*|*'|'*|*'&'*) tailtxt="${first#*[;|&]}$nl$tailtxt" ;; esac
   if navori_mentions_shellish "$tailtxt"; then return 0; fi
 
+  # No cd/-C: the landing dir is the payload cwd. Without a PROVEN home there is
+  # nothing to compare it with, so today's answer (and zero forks) stands.
   if [ -z "$cd_dir" ] && [ -z "$c_dir" ]; then
-    navori_landing="same-repo"; return 0
+    navori_home_resolve
+    if [ -z "$navori_home_id" ]; then navori_landing="same-repo"; return 0; fi
+  else
+    navori_home_resolve
   fi
 
   pcwd=$(payload_field cwd)
@@ -1130,13 +1202,24 @@ navori_commit_landing() {
   [ -d "$dir" ] || return 0
   top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || return 0
   [ -n "$top" ] || return 0
-  # A submodule target is deliberately not `foreign` (its commit is part of the
-  # superproject's work): the anchor's gate runs.
+  # A submodule target (or cwd) is deliberately not `foreign` (its commit is part
+  # of the superproject's work): the anchor's gate runs.
   sub=$(git -C "$dir" rev-parse --show-superproject-working-tree 2>/dev/null) || return 0
   [ -z "$sub" ] || return 0
   id_l=$(navori_repo_id "$dir" || true)
+  [ -n "$id_l" ] || return 0
+  if [ -n "$navori_home_id" ]; then
+    # Proven home: the one definition of foreign.
+    if [ "$id_l" = "$navori_home_id" ]; then
+      navori_landing="same-repo"
+    else
+      navori_landing="foreign"; navori_landing_root="$top"
+    fi
+    return 0
+  fi
+  # Home unknown: the #1095 rule.
   id_a=$(navori_repo_id "$base" || true)
-  [ -n "$id_l" ] && [ -n "$id_a" ] || return 0
+  [ -n "$id_a" ] || return 0
   id_h=""
   if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
     id_h=$(navori_repo_id "$CLAUDE_PROJECT_DIR" || true)
@@ -1172,7 +1255,7 @@ if [ "$run_needed" = 1 ] && [ -n "$cmd" ]; then
   navori_commit_landing "$cmd"
   if [ "$navori_landing" = foreign ]; then
     navori_audit_skip_reason="el commit va a otro repositorio; el gate de este repo no aplica"
-    echo "[navori] quality-gate NOT run: this commit lands in another repository ($navori_landing_root), not the one this session is anchored in. That repository's own gate is not run from here." >&2
+    echo "[navori] quality-gate NOT run: this commit lands in another repository ($navori_landing_root), not the one this hook protects. That repository's own gate is not run from here." >&2
     exit 0
   fi
 fi

@@ -100,8 +100,8 @@ fi
 if [ -n "$cmd" ]; then
   navori_commit_landing "$cmd"
   if [ "$navori_landing" = foreign ]; then
-    navori_semgrep_reason="semgrep: skipped, commit lands in another repository; no scan"
-    echo "⊘ semgrep: the commit lands in another repository ($navori_landing_root), not the one this session is anchored in — this repository's scan does not apply; skip" >&2
+    navori_semgrep_reason="semgrep: skipped, command lands in another repository; no scan"
+    echo "⊘ semgrep: the command lands in another repository ($navori_landing_root), not the one this hook protects — this repository's scan does not apply; skip" >&2
     exit 0
   fi
 fi

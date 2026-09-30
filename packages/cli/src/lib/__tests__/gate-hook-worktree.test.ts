@@ -790,3 +790,285 @@ describe.runIf(runsBash)(
     });
   },
 );
+
+/**
+ * #1099 — the hook's HOME repo is the one it is installed in
+ * (`$CLAUDE_PROJECT_DIR/.claude/{hooks,scripts}/<file>`, exact shape). A session
+ * whose cwd sits in ANOTHER repo must not run the anchor's gate over that tree,
+ * with or without a `cd`. Unlike the suites above, these hooks are installed at
+ * the path settings.json registers them at, because the home check is about the
+ * hook's own path.
+ */
+interface HomeCase {
+  command: string;
+  payloadCwd: string;
+  /** `null` = `CLAUDE_PROJECT_DIR` unset. Defaults to the main repo. */
+  cpd?: string | null;
+  /** Repo/dir the hook is installed under. Defaults to the main repo. */
+  hookRoot?: string;
+  /** Extra hook env (e.g. `GH_REPO`). */
+  env?: Record<string, string>;
+}
+
+/** An independent repository NESTED inside `fx.main` (a gitignored clone). */
+function addNestedRepo(fx: Fixture): string {
+  const nested = join(fx.main, "nested");
+  mkdirSync(nested);
+  writeFileSync(join(nested, "n.ts"), "export const n = 1;\n");
+  git(nested, "init", "-q");
+  git(nested, "add", "n.ts");
+  git(nested, "commit", "-q", "--no-verify", "-m", "base");
+  git(nested, "branch", "-M", "main");
+  return nested;
+}
+
+/** Copy the rendered hook to `<root>/.claude/{hooks|scripts}/<id>.sh`. */
+function installHook(fx: Fixture, id: HookId, root: string): string {
+  const dir = join(root, ".claude", id === "quality-gate" ? "hooks" : "scripts");
+  mkdirSync(dir, { recursive: true });
+  const p = join(dir, `${id}.sh`);
+  writeFileSync(p, readFileSync(fx.hooks[id], "utf-8"));
+  chmodSync(p, 0o755);
+  return p;
+}
+
+function homeRun(
+  shell: HookShell,
+  id: HookId,
+  build: (fx: Fixture, foreign: string) => HomeCase,
+): { run: HookRun; scans: number; skipped: boolean } {
+  const fx = setupFixture(1);
+  const c = build(fx, addForeignRepo(fx));
+  const hook = installHook(fx, id, c.hookRoot ?? fx.main);
+  const cpd = c.cpd === undefined ? fx.main : c.cpd;
+  const env: Record<string, string> = { PATH: `${fx.binDir}:${BASE_PATH}`, ...c.env };
+  if (cpd !== null) env.CLAUDE_PROJECT_DIR = cpd;
+  const r = spawnSync(shell, [hook], {
+    cwd: fx.main,
+    input: JSON.stringify({ cwd: c.payloadCwd, tool_input: { command: c.command } }),
+    encoding: "utf-8",
+    env,
+  });
+  const run = normalize(fx, { status: r.status, stderr: r.stderr, stdout: r.stdout });
+  // The foreign/nested repos have their own base SHA, which `scrub` does not know.
+  run.stderr = run.stderr.replace(/\([0-9a-f]{7,40}\)/g, "(<SHA>)");
+  return {
+    run,
+    scans: invocations(fx).length,
+    skipped: run.stderr.includes("lands in another repository"),
+  };
+}
+
+describe.runIf(runsBash)(
+  "gate hooks — a session anchored in another repo is not gated (#1099)",
+  () => {
+    for (const id of GATES) {
+      for (const [name, build] of [
+        ["plain commit", (_fx: Fixture, _f: string) => "git commit -m x"],
+        ["cd to the cwd itself", (_fx: Fixture, f: string) => `cd '${f}' && git commit -m x`],
+      ] as const) {
+        it(`${id}: skips \`${name}\` when the cwd is another repo`, () => {
+          const out = acrossShells((shell) =>
+            homeRun(shell, id, (fx, f) => ({ command: build(fx, f), payloadCwd: f })),
+          );
+          expect(out.run.status).toBe(0);
+          expect(out.scans).toBe(0);
+          expect(out.skipped).toBe(true);
+          expect(out.run.stderr).toContain("another repository (<FOREIGN>)");
+          expect(out.run.stderr).toContain("not the one this hook protects");
+          // zsh prints a re-declared `local` to stdout; the hook's stdout stays empty.
+          expect(out.run.stdout).toBe("");
+        });
+      }
+
+      it(`${id}: skips when CLAUDE_PROJECT_DIR carries a trailing slash`, () => {
+        const out = acrossShells((shell) =>
+          homeRun(shell, id, (fx, f) => ({
+            command: "git commit -m x",
+            payloadCwd: f,
+            cpd: `${fx.main}/`,
+          })),
+        );
+        expect(out.skipped).toBe(true);
+      });
+
+      it(`${id}: still gates a commit from a linked worktree of the home repo`, () => {
+        const out = acrossShells((shell) =>
+          homeRun(shell, id, (fx) => ({ command: "git commit -m x", payloadCwd: fx.worktree })),
+        );
+        expect(out.skipped).toBe(false);
+        if (id === "quality-gate") expect(out.run.stderr).toContain("running quality-gate fast");
+        else expect(out.scans).toBe(1);
+      });
+
+      // Home unknown -> the gate runs (fail-safe), whatever the reason.
+      const unknownHome: Array<[string, (fx: Fixture, f: string) => HomeCase]> = [
+        [
+          "CLAUDE_PROJECT_DIR unset",
+          (_fx, f) => ({ command: "git commit -m x", payloadCwd: f, cpd: null }),
+        ],
+        [
+          "CLAUDE_PROJECT_DIR not a git repo",
+          (_fx, f) => {
+            const plain = realpathSync(mkdtempSync(join(tmpdir(), "navori-1099-plain-")));
+            return { command: "git commit -m x", payloadCwd: f, cpd: plain, hookRoot: plain };
+          },
+        ],
+        [
+          "leaked CLAUDE_PROJECT_DIR, hook outside it",
+          (_fx, f) => ({ command: "git commit -m x", payloadCwd: f, hookRoot: f }),
+        ],
+        [
+          "leaked CLAUDE_PROJECT_DIR, hook of a repo nested under it",
+          (fx) => {
+            const nested = addNestedRepo(fx);
+            return { command: "git commit -m x", payloadCwd: nested, hookRoot: nested };
+          },
+        ],
+        [
+          "cwd inside a submodule of home",
+          (fx) => ({ command: "git commit -m x", payloadCwd: addSubmodule(fx) }),
+        ],
+      ];
+      for (const [name, build] of unknownHome) {
+        it(`${id}: still gates when home is not proven (${name})`, () => {
+          const out = acrossShells((shell) => homeRun(shell, id, build));
+          expect(out.skipped).toBe(false);
+          if (id === "quality-gate") expect(out.run.stderr).toContain("running quality-gate fast");
+        });
+      }
+    }
+
+    // Related variant: cwd in F, the command names HOME. The scan must follow the
+    // command to home's tree, not stay in F's.
+    it("semgrep scans HOME's tree for `cd <home> && git commit` from a foreign cwd", () => {
+      const out = acrossShells((shell) =>
+        homeRun(shell, "semgrep", (fx, f) => {
+          dirtyMain(fx);
+          return { command: `cd '${fx.main}' && git commit -m x`, payloadCwd: f };
+        }),
+      );
+      expect(out.skipped).toBe(false);
+      expect(out.scans).toBe(1);
+      expect(out.run.stderr).toContain("in <MAIN>");
+    });
+
+    it("quality gate still runs for `cd <home> && git commit` from a foreign cwd", () => {
+      const out = acrossShells((shell) =>
+        homeRun(shell, "quality-gate", (fx, f) => ({
+          command: `cd '${fx.main}' && git commit -m x`,
+          payloadCwd: f,
+        })),
+      );
+      expect(out.skipped).toBe(false);
+      expect(out.run.stderr).toContain("running quality-gate fast");
+    });
+  },
+);
+
+/**
+ * #1098 — semgrep also gates `git push` and `gh pr create`. The landing walk now
+ * matches the caller's `$TRIGGER_RE`, so those verbs classify like a commit:
+ * `foreign` only when the cd/-C target is provably another repo. Only semgrep
+ * triggers on them; QG and jscpd are commit-only.
+ */
+describe.runIf(runsBash)(
+  "gate hooks — push and `gh pr create` landing in another repo are not scanned (#1098)",
+  () => {
+    const foreignVerbs: Array<[string, (f: string) => string]> = [
+      ["cd <F> && git push", (f) => `cd '${f}' && git push`],
+      ["git -C <F> push", (f) => `git -C '${f}' push`],
+      ["cd <F> && gh pr create", (f) => `cd '${f}' && gh pr create --title t`],
+    ];
+    for (const [name, build] of foreignVerbs) {
+      it(`semgrep: skips \`${name}\``, () => {
+        const out = acrossShells((shell) =>
+          homeRun(shell, "semgrep", (fx, f) => ({ command: build(f), payloadCwd: fx.worktree })),
+        );
+        expect(out.run.status).toBe(0);
+        expect(out.scans).toBe(0);
+        expect(out.skipped).toBe(true);
+        expect(out.run.stderr).toContain("the command lands in another repository (<FOREIGN>)");
+      });
+    }
+
+    it("semgrep: skips a bare `git push` / `gh pr create` from a foreign cwd", () => {
+      for (const command of ["git push", "gh pr create --fill"]) {
+        const out = acrossShells((shell) =>
+          homeRun(shell, "semgrep", (_fx, f) => ({ command, payloadCwd: f })),
+        );
+        expect(out.scans).toBe(0);
+        expect(out.skipped).toBe(true);
+      }
+    });
+
+    const stillScanned: Array<[string, (fx: Fixture, f: string) => HomeCase]> = [
+      ["git push in the home repo", (fx) => ({ command: "git push", payloadCwd: fx.worktree })],
+      [
+        "gh pr create in the home repo",
+        (fx) => ({ command: "gh pr create --title t", payloadCwd: fx.worktree }),
+      ],
+      [
+        "--repo",
+        (fx, f) => ({ command: `cd '${f}' && gh pr create --repo o/r`, payloadCwd: fx.worktree }),
+      ],
+      [
+        "--repo=",
+        (fx, f) => ({ command: `cd '${f}' && gh pr create --repo=o/r`, payloadCwd: fx.worktree }),
+      ],
+      ["-R", (fx, f) => ({ command: `cd '${f}' && gh pr create -R o/r`, payloadCwd: fx.worktree })],
+      [
+        "-Ro/r",
+        (fx, f) => ({ command: `cd '${f}' && gh pr create -Ro/r`, payloadCwd: fx.worktree }),
+      ],
+      [
+        "GH_REPO in the hook env",
+        (fx, f) => ({
+          command: `cd '${f}' && gh pr create --title t`,
+          payloadCwd: fx.worktree,
+          env: { GH_REPO: "o/r" },
+        }),
+      ],
+      [
+        "push from a submodule",
+        (fx) => ({ command: `cd '${addSubmodule(fx)}' && git push`, payloadCwd: fx.worktree }),
+      ],
+      [
+        "push with an unparsable global option",
+        (fx, f) => ({ command: `git --git-dir='${f}/.git' push`, payloadCwd: fx.worktree }),
+      ],
+    ];
+    for (const [name, build] of stillScanned) {
+      it(`semgrep: still scans (${name})`, () => {
+        const out = acrossShells((shell) => homeRun(shell, "semgrep", build));
+        expect(out.skipped).toBe(false);
+        expect(out.scans).toBe(1);
+      });
+    }
+
+    // Ceiling, pinned to TODAY's behavior (#1115): several gated ops in one call
+    // make the landing repo undefined, so the scan runs even when the whole chain
+    // lands in a foreign repo. It flips only if #1115 (multi-op landing) ships;
+    // update these rows then, deliberately.
+    it("semgrep: still scans `cd <F> && git commit && git push` (ceiling, #1115)", () => {
+      const out = acrossShells((shell) =>
+        homeRun(shell, "semgrep", (fx, f) => ({
+          command: `cd '${f}' && git commit -m x && git push`,
+          payloadCwd: fx.worktree,
+        })),
+      );
+      expect(out.skipped).toBe(false);
+      expect(out.scans).toBe(1);
+    });
+
+    it("semgrep: still runs for `git commit && git push` from a foreign cwd (ceiling, #1115)", () => {
+      const out = acrossShells((shell) =>
+        homeRun(shell, "semgrep", (_fx, f) => ({
+          command: "git commit -m x && git push",
+          payloadCwd: f,
+        })),
+      );
+      expect(out.skipped).toBe(false);
+    });
+  },
+);
