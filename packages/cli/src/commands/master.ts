@@ -19,10 +19,12 @@ import {
 } from "../lib/master/stages.ts";
 import {
   MASTER_MODES,
+  MASTER_UX_CHOICES,
   MasterStateSchema,
   PartsSchema,
   type MasterMode,
   type MasterState,
+  type MasterUxChoice,
 } from "../lib/master/schema.ts";
 import { writeFileAtomic } from "../lib/primitives/atomic.ts";
 import { checkPart } from "../lib/master/check-part.ts";
@@ -126,6 +128,57 @@ function setMasterMode(cwd: string, value: string): void {
   const updated: MasterState = { ...state, mode: value as MasterMode };
   writeFileAtomic(statePath, `${JSON.stringify(updated, null, 2)}\n`);
 }
+
+/**
+ * Records the UX decision of the active stage. Only valid in phase `ux` (no
+ * late opt-in once `executing`); regenerates STATUS.md in the same operation so
+ * `navori master check` does not report a stale render.
+ */
+function setMasterUx(cwd: string, value: string): void {
+  if (!(MASTER_UX_CHOICES as readonly string[]).includes(value)) {
+    throw new Error(
+      `invalid ux choice "${value}": expected ${MASTER_UX_CHOICES.map((m) => `"${m}"`).join(", ")}`,
+    );
+  }
+  const config = readConfig(resolve(cwd, "navori.config.json"));
+  const specsDir = config.sdd?.specsDir ?? "specs";
+  const active = activeStage(readMasterIndex(cwd, specsDir));
+  if (!active) {
+    throw new Error("no active stage: run 'navori master init <slug>' first");
+  }
+  const statePath = join(masterDirPath(cwd, specsDir), active.dir, "state.json");
+  if (!existsSync(statePath)) {
+    throw new Error(`state.json not found for stage ${active.dir}`);
+  }
+  const state = MasterStateSchema.parse(JSON.parse(readFileSync(statePath, "utf8")) as unknown);
+  if (state.phase !== "ux") {
+    throw new Error(`ux can only be set in phase 'ux' (current phase: '${state.phase}')`);
+  }
+  const updated: MasterState = { ...state, ux: value as MasterUxChoice };
+  writeFileAtomic(statePath, `${JSON.stringify(updated, null, 2)}\n`);
+  writeMasterStatus(cwd);
+}
+
+const uxSubCommand = defineCommand({
+  meta: {
+    name: "ux",
+    description: "Record the UX contract decision in phase ux: none | md | md-json",
+  },
+  args: {
+    value: { type: "positional", required: true, description: "none | md | md-json" },
+    stage: { type: "string", description: "Closed stages are read-only" },
+    cwd: { type: "string", description: "Repo root" },
+  },
+  run({ args }) {
+    const cwd = resolve(args.cwd ?? process.cwd());
+    try {
+      rejectMutationStage(args.stage);
+      setMasterUx(cwd, args.value as string);
+    } catch (cause) {
+      reportError(cause);
+    }
+  },
+});
 
 const modeSubCommand = defineCommand({
   meta: {
@@ -410,6 +463,7 @@ export const masterCommand = defineCommand({
   subCommands: {
     init: initSubCommand,
     mode: modeSubCommand,
+    ux: uxSubCommand,
     template: templateSubCommand,
     check: checkSubCommand,
     advance: advanceSubCommand,

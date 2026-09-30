@@ -184,7 +184,14 @@ function renderClosure(
     "| Archivo | SHA-256 |",
     "|---|---|",
   );
-  for (const file of ["MASTER.md", "DECISIONS.md", "parts.json", "state.json"]) {
+  for (const file of [
+    "MASTER.md",
+    "DECISIONS.md",
+    "UX.md",
+    "ux.json",
+    "parts.json",
+    "state.json",
+  ]) {
     const path = join(stagePath, file);
     if (existsSync(path))
       lines.push(
@@ -235,7 +242,7 @@ export function runMasterClose(cwd: string, options: CloseOptions = {}): CloseRe
       state.phase,
     );
     if (outcome === "entregada") {
-      if (state.phase !== "mastered" && state.phase !== "executing")
+      if (state.phase !== "mastered" && state.phase !== "ux" && state.phase !== "executing")
         throw new Error(`no se puede entregar en fase ${state.phase}`);
       const status = readMasterStatus(cwd);
       if (!status.closable)

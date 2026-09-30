@@ -2,6 +2,38 @@ import { describe, it, expect } from "vitest";
 import { MasterIndexSchema, MasterStateSchema, PartsSchema } from "../schema.ts";
 
 // Covers: R6, R16, R48, R54, R59
+describe("MasterStateSchema — ux decision (phase ux)", () => {
+  const base = {
+    version: 1,
+    phase: "ux",
+    mode: null,
+    signal: {
+      commits: null,
+      firstCommit: null,
+      filesChangedSinceFirst: null,
+      framework: null,
+      libraries: [],
+      suggested: "template",
+    },
+    outcome: null,
+    history: [],
+  };
+
+  it("round-trips a legacy state.json (no ux) without adding keys", () => {
+    const legacy = { ...base, phase: "executing" };
+    const parsed = MasterStateSchema.parse(legacy);
+    expect(JSON.stringify(parsed, null, 2)).toBe(JSON.stringify(legacy, null, 2));
+    expect("ux" in parsed).toBe(false);
+  });
+
+  it("accepts none | md | md-json and rejects anything else", () => {
+    for (const ux of ["none", "md", "md-json"]) {
+      expect(MasterStateSchema.parse({ ...base, ux }).ux).toBe(ux);
+    }
+    expect(MasterStateSchema.safeParse({ ...base, ux: "json" }).success).toBe(false);
+  });
+});
+
 describe("MasterStateSchema — phases (R6)", () => {
   it("accepts every declared phase, including 'closed' replacing 'done'", () => {
     const phases = [
@@ -11,6 +43,7 @@ describe("MasterStateSchema — phases (R6)", () => {
       "planned",
       "questioned",
       "mastered",
+      "ux",
       "executing",
       "closed",
     ];

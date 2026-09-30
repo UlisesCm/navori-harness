@@ -40,6 +40,7 @@ import {
   renderMasterParts,
   renderStatusMd,
 } from "./status.ts";
+import { checkUxArtifacts, checkUxDecision } from "./ux.ts";
 import type { AssetLanguage } from "../render/render-plan.ts";
 
 export type CheckFailure = string;
@@ -157,7 +158,13 @@ export function checkHistoryChain(ctx: CheckContext): CheckFailure[] {
   for (let i = 1; i < history.length; i++) {
     const prevIdx = MASTER_PHASES.indexOf(history[i - 1]!.phase);
     const currIdx = MASTER_PHASES.indexOf(history[i]!.phase);
-    if (currIdx !== prevIdx + 1) {
+    // Legacy stages went mastered -> executing before phase `ux` existed; that
+    // is the only tolerated skip, and only while no UX decision is recorded.
+    const legacySkip =
+      history[i - 1]!.phase === "mastered" &&
+      history[i]!.phase === "executing" &&
+      ctx.state.ux === undefined;
+    if (currIdx !== prevIdx + 1 && !legacySkip) {
       return [
         `${ctx.stage.dir}: state.json.history salta de '${history[i - 1]!.phase}' a '${history[i]!.phase}'`,
       ];
@@ -588,8 +595,10 @@ export function checksForTransition(ctx: CheckContext, target: MasterPhase): Che
     case "questioned":
       return checkQuestioned(ctx);
     case "mastered":
-    case "executing":
+    case "ux":
       return checkMasterDocument(ctx);
+    case "executing":
+      return [...checkUxDecision(ctx), ...checkUxArtifacts(ctx), ...checkMasterDocument(ctx)];
     case "context":
     case "closed":
       return [`no hay comprobación mecánica para avanzar a '${target}'`];
@@ -655,12 +664,14 @@ export function runMasterCheck(cwd: string, options: CheckOptions = {}): CheckRe
   const target = nextPhase(ctx.state.phase);
   const failures = [...checkRawGitignore(ctx), ...checkHistoryChain(ctx)];
   if (target) failures.push(...checksForTransition(ctx, target));
-  else if (ctx.state.phase === "executing") failures.push(...checkMasterDocument(ctx));
+  else if (ctx.state.phase === "executing") {
+    failures.push(...checkUxArtifacts(ctx), ...checkMasterDocument(ctx));
+  }
   const statusPath = join(ctx.stagePath, "STATUS.md");
   if (existsSync(statusPath)) {
     if (readFileSync(statusPath, "utf8") !== renderStatusMd(readMasterStatus(cwd)))
       failures.push(`${ctx.stage.dir}/STATUS.md differs from its render`);
-  } else if (["mastered", "executing"].includes(ctx.state.phase)) {
+  } else if (["mastered", "ux", "executing"].includes(ctx.state.phase)) {
     failures.push(`${ctx.stage.dir}: missing STATUS.md; run navori master status`);
   }
   return { phase: ctx.state.phase, nextPhase: target, failures };

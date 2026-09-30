@@ -300,6 +300,48 @@ describe("checkHistoryChain — consecutive phases only", () => {
     expect(checkHistoryChain(ctx).length).toBeGreaterThan(0);
   });
 
+  it("tolerates mastered -> executing only when no UX decision is recorded (legacy)", () => {
+    const history = [
+      ...MASTER_PHASES.slice(0, 6).map((phase) => ({ phase, at: "2026-01-01" })),
+      { phase: "executing" as const, at: "2026-01-02" },
+    ];
+    expect(checkHistoryChain(makeCtx({ state: baseState({ history }) }))).toEqual([]);
+    expect(checkHistoryChain(makeCtx({ state: baseState({ history, ux: "none" }) })).length).toBe(
+      1,
+    );
+  });
+
+  it("still fails every other skip, including questioned -> ux and mastered -> closed", () => {
+    for (const [from, to] of [
+      ["questioned", "ux"],
+      ["planned", "executing"],
+      ["mastered", "closed"],
+      ["ux", "closed"],
+    ] as const) {
+      const ctx = makeCtx({
+        state: baseState({
+          history: [
+            ...MASTER_PHASES.slice(0, MASTER_PHASES.indexOf(from) + 1).map((phase) => ({
+              phase,
+              at: "2026-01-01",
+            })),
+            { phase: to, at: "2026-01-02" },
+          ],
+        }),
+      });
+      expect(checkHistoryChain(ctx).length, `${from} -> ${to}`).toBe(1);
+    }
+  });
+
+  it("passes on a consecutive chain through ux", () => {
+    const ctx = makeCtx({
+      state: baseState({
+        history: MASTER_PHASES.slice(0, 8).map((phase) => ({ phase, at: "2026-01-01" })),
+      }),
+    });
+    expect(checkHistoryChain(ctx)).toEqual([]);
+  });
+
   it("passes on a consecutive chain", () => {
     const ctx = makeCtx({
       state: baseState({
@@ -668,8 +710,8 @@ describe("checksForTransition('mastered'/'executing') — R30-R33, R59", () => {
     expect(checksForTransition(ctx, "mastered")).toEqual([]);
   });
 
-  it("passes a valid fixture, and 'executing' runs the same checks", () => {
-    const ctx = makeCtx();
+  it("passes a valid fixture; 'ux' runs the master-document checks, 'executing' adds the UX gate", () => {
+    const ctx = makeCtx({ state: baseState({ phase: "ux", ux: "none" }) });
     seedParts(ctx);
     write(
       ctx,
@@ -677,7 +719,22 @@ describe("checksForTransition('mastered'/'executing') — R30-R33, R59", () => {
       masterContent({ entrega: `P1 con objetivo.\n\nOrigen: plan1 §15\n\n${renderedParts(ctx)}` }),
     );
     expect(checksForTransition(ctx, "mastered")).toEqual([]);
+    expect(checksForTransition(ctx, "ux")).toEqual([]);
     expect(checksForTransition(ctx, "executing")).toEqual([]);
+  });
+
+  it("advance mastered -> ux runs the master-document checks; ux -> executing needs the decision", () => {
+    const ctx = makeCtx({ state: baseState({ phase: "mastered" }) });
+    expect(checksForTransition(ctx, "ux").length).toBeGreaterThan(0);
+    seedParts(ctx);
+    write(
+      ctx,
+      "MASTER.md",
+      masterContent({ entrega: `P1 con objetivo.\n\nOrigen: plan1 §15\n\n${renderedParts(ctx)}` }),
+    );
+    expect(checksForTransition(ctx, "ux")).toEqual([]);
+    const noDecision = makeCtx({ state: baseState({ phase: "ux" }) });
+    expect(checksForTransition(noDecision, "executing").join("\n")).toContain("navori master ux");
   });
 
   // Covers: R31, R36, R50

@@ -1,7 +1,15 @@
-// Covers: R47, R49, R50, R57, R58, R63
+// Covers: R47, R49, R50, R57, R58, R63, A1, A2 (master_plan_ux)
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSeedConfigHelper } from "./test-utils.ts";
@@ -10,8 +18,8 @@ import { checkClosedStage } from "../checks.ts";
 import { readConfig } from "../../config/config.ts";
 import { runRender } from "../../../commands/render.ts";
 import { changeMasterPart } from "../part.ts";
-import { runMasterAdvance } from "../checks.ts";
-import { writeMasterStatus } from "../status.ts";
+import { runMasterAdvance, runMasterCheck } from "../checks.ts";
+import { readMasterStatus, renderStatusMd, writeMasterStatus } from "../status.ts";
 import { masterCommand } from "../../../commands/master.ts";
 import { runCommand } from "citty";
 
@@ -46,7 +54,7 @@ const part = (state: "hecho" | "parcial" | "diferida") => ({
   ],
 });
 
-function seed(phase: string, state: "hecho" | "parcial" | "diferida" = "hecho"): void {
+function seed(phase: string, state: "hecho" | "parcial" | "diferida" = "hecho", ux?: string): void {
   createSeedConfigHelper(cwd)({ harness: { masterPlan: true }, language: "es" });
   mkdirSync(join(stage(), "context", "raw"), { recursive: true });
   writeFileSync(join(stage(), "context", "raw", ".gitignore"), "*\n");
@@ -83,6 +91,7 @@ function seed(phase: string, state: "hecho" | "parcial" | "diferida" = "hecho"):
       },
       outcome: null,
       history: [{ phase, at: "2026-01-01" }],
+      ...(ux ? { ux } : {}),
     }),
   );
   writeFileSync(join(stage(), "parts.json"), JSON.stringify({ version: 1, parts: [part(state)] }));
@@ -166,13 +175,13 @@ describe("master close", () => {
 
   // Covers: R49
   it("renders byte-identical closures from two independent copies of the same input", () => {
-    seed("mastered", "hecho");
+    seed("executing", "hecho");
     runMasterClose(cwd);
     const first = read("CLOSURE.md");
     const firstCwd = cwd;
     freshFixture();
     try {
-      seed("mastered", "hecho");
+      seed("executing", "hecho");
       runMasterClose(cwd);
       expect(read("CLOSURE.md")).toBe(first);
     } finally {
@@ -182,7 +191,7 @@ describe("master close", () => {
 
   // Covers: R49
   it.each([1, 2, 3, 4, 5, 6])("resumes after step %i", (cut) => {
-    seed("mastered");
+    seed("executing");
     expect(() =>
       runMasterClose(cwd, {
         afterStep: (step) => {
@@ -199,7 +208,7 @@ describe("master close", () => {
 
   // Covers: R49
   it("repairs only step six when the index has no active stage", () => {
-    seed("mastered");
+    seed("executing");
     expect(() =>
       runMasterClose(cwd, {
         afterStep: (step) => {
@@ -217,7 +226,7 @@ describe("master close", () => {
 
   // Covers: R49
   it("keeps the recovery signal if render fails after registry closure", () => {
-    seed("mastered");
+    seed("executing");
     vi.mocked(runRender).mockImplementationOnce(
       () => ({ ok: false, reason: "render failed" }) as ReturnType<typeof runRender>,
     );
@@ -282,7 +291,7 @@ describe("master close", () => {
 
   // Covers: R50
   it("rejects every mutator on a closed stage, including explicit --stage", async () => {
-    seed("mastered");
+    seed("executing");
     runMasterClose(cwd);
     const state = read("state.json");
     const parts = read("parts.json");
@@ -391,5 +400,118 @@ describe("master close", () => {
       /navori master close/,
     );
     expect(read("state.json")).toBe(before);
+  });
+});
+
+describe("navori master ux", () => {
+  it("records the choice in phase ux and regenerates STATUS.md in the same operation", async () => {
+    seed("ux");
+    const result = await invoke(["ux", "none"]);
+    expect(result.exitCode).toBeUndefined();
+    expect(JSON.parse(read("state.json")).ux).toBe("none");
+    expect(read("STATUS.md")).toBe(renderStatusMd(readMasterStatus(cwd)));
+    expect(read("STATUS.md")).toContain("UX: none");
+    expect(runMasterCheck(cwd).failures).not.toContain("01-mvp/STATUS.md differs from its render");
+  });
+
+  it("re-choosing in phase ux overwrites the decision", async () => {
+    seed("ux", "hecho", "none");
+    await invoke(["ux", "md"]);
+    expect(JSON.parse(read("state.json")).ux).toBe("md");
+  });
+
+  it("rejects outside phase ux (including executing) without writing", async () => {
+    for (const phase of ["mastered", "executing"]) {
+      seed(phase);
+      const before = read("state.json");
+      const result = await invoke(["ux", "md"]);
+      expect(result.exitCode).toBe(1);
+      expect(result.error).toContain("phase 'ux'");
+      expect(read("state.json")).toBe(before);
+      expect(existsSync(join(stage(), "STATUS.md"))).toBe(false);
+    }
+  });
+
+  it("rejects invalid values and --stage", async () => {
+    seed("ux");
+    expect((await invoke(["ux", "json"])).exitCode).toBe(1);
+    const staged = await invoke(["ux", "md", "--stage", "01-mvp"]);
+    expect(staged.exitCode).toBe(1);
+    expect(staged.error).toContain("solo lectura");
+    expect(JSON.parse(read("state.json")).ux).toBeUndefined();
+  });
+});
+
+describe("status and close — the UX gate cannot be skipped (B1)", () => {
+  it("blocks delivery from mastered and ux without a decision, and closable reflects it", () => {
+    for (const phase of ["mastered", "ux"]) {
+      seed(phase);
+      const status = readMasterStatus(cwd);
+      expect(status.closable).toBe(false);
+      expect(status.blockers.join("\n")).toContain("navori master ux");
+      const before = read("state.json");
+      expect(() => runMasterClose(cwd)).toThrow(/navori master ux/);
+      expect(read("state.json")).toBe(before);
+    }
+  });
+
+  it("blocks delivery from ux when artifacts contradict the decision", () => {
+    seed("ux", "hecho", "md");
+    expect(() => runMasterClose(cwd)).toThrow(/falta UX\.md/);
+    writeFileSync(join(stage(), "UX.md"), "# UX\n");
+    writeFileSync(join(stage(), "ux.json"), "{}");
+    expect(() => runMasterClose(cwd)).toThrow(/existe ux\.json/);
+  });
+
+  it("delivers from mastered once a decision is recorded", () => {
+    seed("mastered", "hecho", "none");
+    expect(runMasterClose(cwd).outcome).toBe("entregada");
+  });
+
+  it("delivers from ux with a consistent decision and hashes UX.md/ux.json only when present", () => {
+    seed("ux", "hecho", "md-json");
+    writeFileSync(join(stage(), "UX.md"), "# UX\n");
+    writeFileSync(join(stage(), "ux.json"), "{}");
+    expect(runMasterClose(cwd).outcome).toBe("entregada");
+    const closure = read("CLOSURE.md");
+    expect(closure).toContain("| UX.md |");
+    expect(closure).toContain("| ux.json |");
+  });
+
+  it("omits UX rows from the integrity table when the choice is none", () => {
+    seed("ux", "hecho", "none");
+    runMasterClose(cwd);
+    expect(read("CLOSURE.md")).not.toContain("UX.md");
+  });
+
+  it("a legacy executing stage with no decision closes unchanged", () => {
+    seed("executing");
+    expect(readMasterStatus(cwd).closable).toBe(true);
+    expect(runMasterClose(cwd).outcome).toBe("entregada");
+  });
+
+  it("a legacy executing stage with inconsistent UX files is blocked by presence only", () => {
+    seed("executing");
+    writeFileSync(join(stage(), "ux.json"), "{}");
+    expect(() => runMasterClose(cwd)).toThrow(/ux\.json existe sin UX\.md/);
+  });
+});
+
+describe("STATUS.md compat", () => {
+  it("renders no UX line for a legacy stage and exposes ux in --json-shaped status only when set", () => {
+    seed("executing");
+    const legacy = readMasterStatus(cwd);
+    expect("ux" in legacy).toBe(false);
+    expect(renderStatusMd(legacy)).not.toContain("UX:");
+    seed("ux", "hecho", "md-json");
+    const status = readMasterStatus(cwd);
+    expect(status.ux).toBe("md-json");
+    expect(status.nextPhase).toBe("executing");
+    expect(renderStatusMd(status)).toContain("UX: md-json");
+  });
+
+  it("mastered's next phase is ux", () => {
+    seed("mastered");
+    expect(readMasterStatus(cwd).nextPhase).toBe("ux");
   });
 });

@@ -121,10 +121,16 @@ export const MASTER_PHASES = [
   "planned",
   "questioned",
   "mastered",
+  "ux",
   "executing",
   "closed",
 ] as const;
 export type MasterPhase = (typeof MASTER_PHASES)[number];
+
+/** UX contract decision recorded by `navori master ux` (phase `ux`). Optional
+ * in `state.json` so legacy stages round-trip byte-identical. */
+export const MASTER_UX_CHOICES = ["none", "md", "md-json"] as const;
+export type MasterUxChoice = (typeof MASTER_UX_CHOICES)[number];
 
 export const MASTER_MODES = ["template", "en-curso", "desde-cero"] as const;
 export type MasterMode = (typeof MASTER_MODES)[number];
@@ -155,6 +161,7 @@ export const MasterStateSchema = z
     abandonment: z.object({ reason: z.string().min(1), phase: z.enum(MASTER_PHASES) }).optional(),
     conversion: z.object({ spec: z.string().min(1), reason: z.string().min(1) }).optional(),
     history: z.array(HistoryEntrySchema).default([]),
+    ux: z.enum(MASTER_UX_CHOICES).optional(),
   })
   .superRefine((state, ctx) => {
     if (state.outcome === "convertida" && !state.conversion) {
