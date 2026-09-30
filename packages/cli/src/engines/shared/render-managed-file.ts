@@ -67,6 +67,13 @@ export interface RenderManagedFileResult {
   content: string;
   status: InjectResult["status"];
   details?: InjectResult["details"];
+  /**
+   * Set when the destination already existed WITHOUT a navori marker for this
+   * id and the asset declares frontmatter (#1114): navori adopts the file by
+   * name. `overwrittenKeys` = asset frontmatter keys already present in the
+   * destination, i.e. the ones the merge replaces.
+   */
+  collision?: { overwrittenKeys: string[] };
 }
 
 export function renderManagedFile(input: RenderManagedFileInput): RenderManagedFileResult {
@@ -237,7 +244,17 @@ function rerender(
         : "updated"
       : inject.status;
 
-  return { content, status, details: inject.details };
+  const collides =
+    Object.keys(assetFm).length > 0 &&
+    readMarkerAttrs(restOfDest, managedId, commentStyle) === null;
+  return {
+    content,
+    status,
+    details: inject.details,
+    ...(collides && {
+      collision: { overwrittenKeys: Object.keys(assetFm).filter((k) => k in destFm) },
+    }),
+  };
 }
 
 function serializeFrontmatter(fm: Record<string, string>): string {

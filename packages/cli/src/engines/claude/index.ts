@@ -71,6 +71,7 @@ import { buildSkillRows } from "../shared/skills-index.ts";
 import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
 import {
   collectPlan,
+  collisionWarnings,
   commitWrites,
   type AdapterCtx,
   type PendingRemoval,
@@ -886,6 +887,7 @@ export function renderClaudeEngine(
     pending.push({ path: p.path, content: p.content, status: p.status, chmodExec: p.chmodExec });
   }
   for (const s of sharedPlan.skipped) skipped.push(s);
+  const collisions = sharedPlan.collisions;
   inspected += harnessPlan.agents.length + harnessPlan.skills.length + harnessPlan.hooks.length;
   if (!config.qualityGate?.fast) {
     warnings.push(tc(lang).engine.qualityGateHookSkipped);
@@ -1330,6 +1332,8 @@ export function renderClaudeEngine(
     lang,
   });
   benchMark("write");
+  // #1114: after commitWrites so the backup path is known (null in a dry run).
+  warnings.push(...collisionWarnings(collisions, backupPath, lang));
   return {
     written,
     skipped,
