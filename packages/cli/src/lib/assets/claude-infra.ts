@@ -5,6 +5,13 @@ import { SKILL_DIR_ENTRY } from "./skill-meta.ts";
 export interface ClaudeInfraInventory {
   /** Has anything Claude-related at all (any of the fields below is truthy). */
   present: boolean;
+  /**
+   * Content render never produces or safely merges: agents, skills, specs/,
+   * CHECKPOINTS.md or feature_list.json. CLAUDE.md, AGENTS.md and
+   * .claude/settings*.json alone are NOT foreign — render merges them
+   * preserving the user's content (#1111). `present` is unaffected.
+   */
+  foreignHarness: boolean;
   agentFiles: string[];
   skillFiles: string[];
   hasSettings: boolean;
@@ -113,8 +120,16 @@ export function detectClaudeInfra(cwd: string): ClaudeInfraInventory {
     hasFeatureList ||
     specsDirs > 0;
 
+  const foreignHarness =
+    agentFiles.length > 0 ||
+    skillFiles.length > 0 ||
+    hasCheckpointsMd ||
+    hasFeatureList ||
+    specsDirs > 0;
+
   return {
     present,
+    foreignHarness,
     agentFiles,
     skillFiles,
     hasSettings,

@@ -57,3 +57,58 @@ describe("detectClaudeInfra — progress/ vs specs/ (#1053)", () => {
     expect(infra.present).toBe(true);
   });
 });
+
+describe("detectClaudeInfra — foreignHarness (#1111)", () => {
+  let repo: string;
+
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("CLAUDE.md only → present but not foreign", () => {
+    repo = mkdtempSync(join(tmpdir(), "navori-infra-"));
+    writeFileSync(join(repo, "CLAUDE.md"), "# mine");
+
+    const infra = detectClaudeInfra(repo);
+
+    expect(infra.present).toBe(true);
+    expect(infra.foreignHarness).toBe(false);
+  });
+
+  it("AGENTS.md only → present but not foreign", () => {
+    repo = mkdtempSync(join(tmpdir(), "navori-infra-"));
+    writeFileSync(join(repo, "AGENTS.md"), "# mine");
+
+    const infra = detectClaudeInfra(repo);
+
+    expect(infra.present).toBe(true);
+    expect(infra.foreignHarness).toBe(false);
+  });
+
+  it(".claude/settings.json only → present but not foreign", () => {
+    repo = mkdtempSync(join(tmpdir(), "navori-infra-"));
+    mkdirSync(join(repo, ".claude"));
+    writeFileSync(join(repo, ".claude", "settings.json"), "{}");
+
+    const infra = detectClaudeInfra(repo);
+
+    expect(infra.present).toBe(true);
+    expect(infra.foreignHarness).toBe(false);
+  });
+
+  it("an agent file → foreign", () => {
+    repo = mkdtempSync(join(tmpdir(), "navori-infra-"));
+    mkdirSync(join(repo, ".claude", "agents"), { recursive: true });
+    writeFileSync(join(repo, ".claude", "agents", "foo.md"), "# foo");
+
+    expect(detectClaudeInfra(repo).foreignHarness).toBe(true);
+  });
+
+  it("a skill dir → foreign", () => {
+    repo = mkdtempSync(join(tmpdir(), "navori-infra-"));
+    mkdirSync(join(repo, ".claude", "skills", "bar"), { recursive: true });
+    writeFileSync(join(repo, ".claude", "skills", "bar", "SKILL.md"), "# bar");
+
+    expect(detectClaudeInfra(repo).foreignHarness).toBe(true);
+  });
+});

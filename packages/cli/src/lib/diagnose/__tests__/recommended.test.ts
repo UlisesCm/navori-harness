@@ -39,6 +39,7 @@ function makeDetected(overrides: Partial<DetectedProject> = {}): DetectedProject
     // produce.
     claudeInfra: {
       present: false,
+      foreignHarness: false,
       agentFiles: [],
       skillFiles: [],
       hasSettings: false,

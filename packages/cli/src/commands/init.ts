@@ -934,6 +934,13 @@ export async function chooseAdoptionMode(
 
   const tr = t(args.lang);
 
+  // #1111 — only CLAUDE.md / AGENTS.md / settings: render merges these
+  // preserving the user's content, so there is nothing to ask about.
+  if (!infra.foreignHarness) {
+    p.log.info(tr.existingInfraMerge);
+    return { mode: "fresh", pendingRemoval: null };
+  }
+
   if (args.yes) {
     // --yes implies coexist for safety: never replaces user infra silently.
     // Surface WHAT was detected (same summary the interactive flow shows below)
