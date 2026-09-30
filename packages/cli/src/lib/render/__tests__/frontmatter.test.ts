@@ -41,6 +41,15 @@ describe("frontmatter (spec 0003 §3.4.3, issue #11)", () => {
     expect(getFrontmatterField(fm, "missing")).toBeNull();
   });
 
+  it("unquotes inline scalars so YAML-safe descriptions feed trigger indexes cleanly", () => {
+    const fm = [
+      "single: 'Use when task closure: needs proof'",
+      'double: "Use when impact: \\"quoted\\" route"',
+    ].join("\n");
+    expect(getFrontmatterField(fm, "single")).toBe("Use when task closure: needs proof");
+    expect(getFrontmatterField(fm, "double")).toBe('Use when impact: "quoted" route');
+  });
+
   it("strips frontmatter and trims the body", () => {
     expect(stripFrontmatter(WITH_FM)).toBe("# Body\n\ntext");
     expect(stripFrontmatter("no fm here\n")).toBe("no fm here");

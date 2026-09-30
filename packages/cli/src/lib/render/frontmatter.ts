@@ -107,7 +107,35 @@ export function parseFrontmatterFields(frontmatter: string): Record<string, stri
 export function getFrontmatterField(frontmatter: string, key: string): string | null {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const line = frontmatter.match(new RegExp(`^${escaped}:[ \\t]*([^\\r\\n]*)`, "m"));
-  return line ? line[1]!.trim() : null;
+  return line ? unquoteInlineScalar(line[1]!.trim()) : null;
+}
+
+function unquoteInlineScalar(value: string): string {
+  if (value.length < 2) return value;
+  if (value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1).replace(/''/g, "'");
+  }
+  if (value.startsWith('"') && value.endsWith('"')) {
+    return value
+      .slice(1, -1)
+      .replace(/\\(["\\/bfnrt])/g, (_match: string, escaped: string): string => {
+        switch (escaped) {
+          case "b":
+            return "\b";
+          case "f":
+            return "\f";
+          case "n":
+            return "\n";
+          case "r":
+            return "\r";
+          case "t":
+            return "\t";
+          default:
+            return escaped;
+        }
+      });
+  }
+  return value;
 }
 
 /**
