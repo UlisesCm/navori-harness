@@ -1,14 +1,14 @@
 # Skills security and quality references
 
-Last reviewed: 2026-09-20. This is a provenance record, not a copy of a
+Last reviewed: 2026-09-29. This is a provenance record, not a copy of a
 standard or a default installation authorization.
 
 ## Closed skill inventory
 
 | Skill set | Supported dependency/version | Official source | Trigger | Validation evidence |
 |---|---|---|---|---|
-| Core: `verify-before-done`, `debug-failure`, `review-diff`, `security-invariants`, `locate-code` | Harness CLI 0.10.1 assets; bump the row with each release | https://github.com/ulisescm/navori-harness | Their frontmatter description | Asset caps, roster and render tests |
-| Workflow: `resolve-ticket`, `solution-design`, `spec-bootstrap`, `dominio`, `follow-up-prs` | Harness CLI 0.10.1 assets; bump the row with each release | https://github.com/ulisescm/navori-harness | Their frontmatter description | Asset caps, roster and render tests |
+| Core: `verify-before-done`, `debug-failure`, `review-diff`, `security-invariants`, `locate-code` | Harness CLI 0.11.0 assets; bump the row with each release | https://github.com/ulisescm/navori-harness | Their frontmatter description | Asset caps, roster and render tests |
+| Workflow: `resolve-ticket`, `solution-design`, `spec-bootstrap`, `dominio`, `follow-up-prs` | Harness CLI 0.11.0 assets; bump the row with each release | https://github.com/ulisescm/navori-harness | Their frontmatter description | Asset caps, roster and render tests |
 | `zod-validation` | Zod 4.4.3 | https://zod.dev | Trust-boundary validation | Locked package + snippet regression |
 | `vitest` | Vitest 5.0.1 | https://vitest.dev | Vitest tests | Locked package + snippet regression |
 | `citty` | Citty 0.1.6 | https://github.com/unjs/citty | Citty CLI changes | Locked declaration regression |

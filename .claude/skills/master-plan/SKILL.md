@@ -7,7 +7,7 @@ metadata:
   maxWords: 1987
 ---
 
-<!-- navori:managed id="master-plan" hash="ae9e03b3" version="0.10.1" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="master-plan" hash="ae9e03b3" version="0.11.0" source="@navori/core" fmkeys="name,description,metadata" -->
 # Plan maestro de proyecto
 
 ## Candado: pedido explícito
