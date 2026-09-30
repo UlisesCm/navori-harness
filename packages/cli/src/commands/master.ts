@@ -11,12 +11,20 @@ import { runMasterClose } from "../lib/master/close.ts";
 import { readMasterStatus, statusLine, writeMasterStatus } from "../lib/master/status.ts";
 import { readConfig } from "../lib/config/config.ts";
 import { MasterInitError, runMasterInit } from "../lib/master/init.ts";
-import { activeStage, masterDirPath, readMasterIndex } from "../lib/master/stages.ts";
 import {
+  activeStage,
+  MASTER_DIR_NAME,
+  masterDirPath,
+  readMasterIndex,
+} from "../lib/master/stages.ts";
+import {
+  MASTER_MODES,
+  MASTER_UX_CHOICES,
   MasterStateSchema,
   PartsSchema,
   type MasterMode,
   type MasterState,
+  type MasterUxChoice,
 } from "../lib/master/schema.ts";
 import { writeFileAtomic } from "../lib/primitives/atomic.ts";
 import { checkPart } from "../lib/master/check-part.ts";
@@ -33,8 +41,6 @@ import {
   TEMPLATE_NAMES,
   type TemplateName,
 } from "../lib/master/templates.ts";
-
-const MASTER_MODES: readonly MasterMode[] = ["template", "en-curso"];
 
 function reportError(cause: unknown): void {
   process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
@@ -70,6 +76,13 @@ const initSubCommand = defineCommand({
           `archivosCambiados=${signal.filesChangedSinceFirst ?? "?"} framework=${signal.framework ?? "ninguno"} ` +
           `sugerido=${signal.suggested}\n`,
       );
+      if (result.phase === "context") {
+        const specsDir = readConfig(join(cwd, "navori.config.json")).sdd?.specsDir ?? "specs";
+        process.stdout.write(
+          `Contexto: deja tus archivos (documentos PDF/Word/Excel, imágenes o texto) en ` +
+            `${specsDir}/${MASTER_DIR_NAME}/${result.stage.dir}/context/raw/\n`,
+        );
+      }
       if (result.requestedSlugIgnored) process.exitCode = 1;
     } catch (cause) {
       if (cause instanceof MasterInitError) {
@@ -87,8 +100,10 @@ const initSubCommand = defineCommand({
  * changing it mid-flow would invalidate the plans already read against it.
  */
 function setMasterMode(cwd: string, value: string): void {
-  if (!MASTER_MODES.includes(value as MasterMode)) {
-    throw new Error(`invalid mode "${value}": expected "template" or "en-curso"`);
+  if (!(MASTER_MODES as readonly string[]).includes(value)) {
+    throw new Error(
+      `invalid mode "${value}": expected ${MASTER_MODES.map((m) => `"${m}"`).join(", ")}`,
+    );
   }
   const configPath = resolve(cwd, "navori.config.json");
   const config = readConfig(configPath);
@@ -114,10 +129,64 @@ function setMasterMode(cwd: string, value: string): void {
   writeFileAtomic(statePath, `${JSON.stringify(updated, null, 2)}\n`);
 }
 
-const modeSubCommand = defineCommand({
-  meta: { name: "mode", description: "Register the first stage's mode: template | en-curso (R16)" },
+/**
+ * Records the UX decision of the active stage. Only valid in phase `ux` (no
+ * late opt-in once `executing`); regenerates STATUS.md in the same operation so
+ * `navori master check` does not report a stale render.
+ */
+function setMasterUx(cwd: string, value: string): void {
+  if (!(MASTER_UX_CHOICES as readonly string[]).includes(value)) {
+    throw new Error(
+      `invalid ux choice "${value}": expected ${MASTER_UX_CHOICES.map((m) => `"${m}"`).join(", ")}`,
+    );
+  }
+  const config = readConfig(resolve(cwd, "navori.config.json"));
+  const specsDir = config.sdd?.specsDir ?? "specs";
+  const active = activeStage(readMasterIndex(cwd, specsDir));
+  if (!active) {
+    throw new Error("no active stage: run 'navori master init <slug>' first");
+  }
+  const statePath = join(masterDirPath(cwd, specsDir), active.dir, "state.json");
+  if (!existsSync(statePath)) {
+    throw new Error(`state.json not found for stage ${active.dir}`);
+  }
+  const state = MasterStateSchema.parse(JSON.parse(readFileSync(statePath, "utf8")) as unknown);
+  if (state.phase !== "ux") {
+    throw new Error(`ux can only be set in phase 'ux' (current phase: '${state.phase}')`);
+  }
+  const updated: MasterState = { ...state, ux: value as MasterUxChoice };
+  writeFileAtomic(statePath, `${JSON.stringify(updated, null, 2)}\n`);
+  writeMasterStatus(cwd);
+}
+
+const uxSubCommand = defineCommand({
+  meta: {
+    name: "ux",
+    description: "Record the UX contract decision in phase ux: none | md | md-json",
+  },
   args: {
-    value: { type: "positional", required: true, description: "template | en-curso" },
+    value: { type: "positional", required: true, description: "none | md | md-json" },
+    stage: { type: "string", description: "Closed stages are read-only" },
+    cwd: { type: "string", description: "Repo root" },
+  },
+  run({ args }) {
+    const cwd = resolve(args.cwd ?? process.cwd());
+    try {
+      rejectMutationStage(args.stage);
+      setMasterUx(cwd, args.value as string);
+    } catch (cause) {
+      reportError(cause);
+    }
+  },
+});
+
+const modeSubCommand = defineCommand({
+  meta: {
+    name: "mode",
+    description: "Register the first stage's mode: template | en-curso | desde-cero (R16)",
+  },
+  args: {
+    value: { type: "positional", required: true, description: "template | en-curso | desde-cero" },
     stage: { type: "string", description: "Closed stages are read-only" },
     cwd: { type: "string", description: "Repo root" },
   },
@@ -394,6 +463,7 @@ export const masterCommand = defineCommand({
   subCommands: {
     init: initSubCommand,
     mode: modeSubCommand,
+    ux: uxSubCommand,
     template: templateSubCommand,
     check: checkSubCommand,
     advance: advanceSubCommand,

@@ -11,9 +11,11 @@ import {
   PartsSchema,
   type MasterIndex,
   type MasterPhase,
+  type MasterUxChoice,
   type Part,
   type PartState,
 } from "./schema.ts";
+import { checkUxArtifacts, checkUxDecision } from "./ux.ts";
 import {
   activeStage,
   contextForArchitects,
@@ -48,6 +50,8 @@ export interface MasterStatus {
   phase: MasterPhase | null;
   nextPhase: MasterPhase | null;
   mode: string | null;
+  /** Only present once the UX decision is recorded (`navori master ux`). */
+  ux?: MasterUxChoice;
   activePart: string | null;
   parts: EffectivePart[];
   discrepancies: string[];
@@ -144,6 +148,20 @@ export function readMasterStatus(cwd: string): MasterStatus {
     : [];
   const discrepancies: string[] = [];
   const blockers: string[] = [];
+  // Delivery must not skip the UX decision (a stage closed from `mastered`/`ux`
+  // never ran the ux -> executing gate); legacy `executing` stages with no
+  // decision only get the presence-consistency check.
+  const uxCtx = {
+    cwd,
+    specsDir,
+    language: config.language,
+    stagePath,
+    stage: { dir: stage.dir },
+    state,
+  };
+  if (state.phase === "mastered" || state.phase === "ux") blockers.push(...checkUxDecision(uxCtx));
+  if (state.phase === "mastered" || state.phase === "ux" || state.phase === "executing")
+    blockers.push(...checkUxArtifacts(uxCtx));
   const mapped = parts.map((part): EffectivePart => {
     const spec = part.spec ? safeSpec(cwd, specsDir, part.spec) : null;
     const { done, total } = taskCounts(spec);
@@ -217,6 +235,7 @@ export function readMasterStatus(cwd: string): MasterStatus {
         ? null
         : (MASTER_PHASES[phaseIndex + 1] ?? null),
     mode: state.mode,
+    ...(state.ux ? { ux: state.ux } : {}),
     activePart: active?.id ?? null,
     parts: mapped,
     discrepancies,
@@ -234,6 +253,7 @@ export function renderStatusMd(status: MasterStatus): string {
     `# Estado de etapa ${status.stage?.dir ?? "ninguna"}`,
     "",
     `Fase: ${status.phase ?? "ninguna"}`,
+    ...(status.ux ? [`UX: ${status.ux}`] : []),
     `Parte activa: ${status.activePart ?? "ninguna"}`,
     `Cerrable: ${status.closable ? "sí" : "no"}`,
     "",

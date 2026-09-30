@@ -355,6 +355,7 @@
       "Bash(gh issue create:*)",
       "Bash(navori master init:*)",
       "Bash(navori master mode:*)",
+      "Bash(navori master ux:*)",
       "Bash(navori master advance:*)",
       "Bash(navori master part:*)",
       "Bash(navori master close:*)"

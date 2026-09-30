@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  readTemplateFile,
   resolveTemplatePath,
   splitTemplateSections,
   templateHeaders,
@@ -11,6 +12,8 @@ import {
   printIssueTemplate,
 } from "../templates.ts";
 import type { Part } from "../schema.ts";
+import { UX_SECTION_KINDS } from "../ux.ts";
+import { writeUxTemplateFixture } from "./test-utils.ts";
 
 let root: string;
 
@@ -68,6 +71,14 @@ describe("splitTemplateSections — parsing", () => {
     expect(gated.onlyMode).toBe("en-curso");
     expect(gated.body).not.toContain("only-mode");
     expect(gated.body).toContain("Solo en modo en-curso.");
+  });
+
+  it("accepts desde-cero in the only-mode marker", () => {
+    const sections = splitTemplateSections(
+      "## A\n<!-- only-mode: desde-cero -->\nsolo\n\n## B\ntodos\n",
+    );
+    expect(sections.find((s) => s.heading === "A")!.onlyMode).toBe("desde-cero");
+    expect(sections.find((s) => s.heading === "B")!.onlyMode).toBeNull();
   });
 
   it("leaves unconditional sections with onlyMode null", () => {
@@ -277,5 +288,41 @@ describe("printIssueTemplate — filled from parts.json (R42)", () => {
     expect(out).toContain("None");
     expect(out).not.toContain("Ninguno");
     expect(out).not.toContain("Ninguna");
+  });
+});
+
+describe("ux template (master_plan_ux A3)", () => {
+  const kindsOf = (language: "es" | "en", options?: { root: string }): string[] =>
+    splitTemplateSections(readTemplateFile("ux", language, options)).map((s) => s.kind ?? "");
+
+  // Covers: A3 — marker typos in either language fail here, not silently in `check`.
+  it("bundled es and en templates expose the same ux-kind set, all required kinds", () => {
+    const es = kindsOf("es");
+    expect([...es].sort()).toEqual([...UX_SECTION_KINDS].sort());
+    expect([...kindsOf("en")].sort()).toEqual([...es].sort());
+  });
+
+  it("puts the checklist before the Heron handoff, which ends the document", () => {
+    for (const language of ["es", "en"] as const) {
+      const kinds = kindsOf(language);
+      expect(kinds.at(-1)).toBe("heron-handoff");
+      expect(kinds.indexOf("checklist")).toBe(kinds.length - 2);
+    }
+  });
+
+  it("`navori master template ux` prints the sections in es and en without the markers", () => {
+    for (const language of ["es", "en"] as const) {
+      const printed = printTemplate("ux", language);
+      expect(printed).toContain("Heron MUST preserve");
+      expect(printed).not.toContain("ux-kind");
+      expect(printed.match(/^## /gm)).toHaveLength(UX_SECTION_KINDS.length);
+    }
+  });
+
+  it("falls back to the es template when en/ux.md is missing", () => {
+    writeUxTemplateFixture(root);
+    rmSync(join(root, "core-assets", "master-plan", "en", "ux.md"));
+    expect(resolveTemplatePath("ux", "en", { root }).fallback).toBe(true);
+    expect(printTemplate("ux", "en", null, { root })).toContain("## Sec surfaces");
   });
 });

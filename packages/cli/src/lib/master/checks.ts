@@ -40,9 +40,16 @@ import {
   renderMasterParts,
   renderStatusMd,
 } from "./status.ts";
+import { checkUxArtifacts, checkUxDecision } from "./ux.ts";
+import {
+  DECISION_HEADING,
+  checkDecisionCitations,
+  validateSections,
+  type CheckFailure,
+} from "./check-helpers.ts";
 import type { AssetLanguage } from "../render/render-plan.ts";
 
-export type CheckFailure = string;
+export type { CheckFailure };
 
 export interface CheckContext {
   cwd: string;
@@ -157,7 +164,13 @@ export function checkHistoryChain(ctx: CheckContext): CheckFailure[] {
   for (let i = 1; i < history.length; i++) {
     const prevIdx = MASTER_PHASES.indexOf(history[i - 1]!.phase);
     const currIdx = MASTER_PHASES.indexOf(history[i]!.phase);
-    if (currIdx !== prevIdx + 1) {
+    // Legacy stages went mastered -> executing before phase `ux` existed; that
+    // is the only tolerated skip, and only while no UX decision is recorded.
+    const legacySkip =
+      history[i - 1]!.phase === "mastered" &&
+      history[i]!.phase === "executing" &&
+      ctx.state.ux === undefined;
+    if (currIdx !== prevIdx + 1 && !legacySkip) {
       return [
         `${ctx.stage.dir}: state.json.history salta de '${history[i - 1]!.phase}' a '${history[i]!.phase}'`,
       ];
@@ -171,45 +184,6 @@ export function checkHistoryChain(ctx: CheckContext): CheckFailure[] {
 function readStageFile(ctx: CheckContext, relPath: string): string | null {
   const path = join(ctx.stagePath, relPath);
   return existsSync(path) ? readFileSync(path, "utf8") : null;
-}
-
-/** Validates that `content` has every heading in `expected`, each with a
- * non-empty body (a body that is exactly `<noAplica marker> <razón>` counts as
- * non-empty on purpose — R21). `noAplica` is the language-resolved marker
- * (`No aplica:` / `Not applicable:`), never a hardcoded literal. */
-function validateSections(
-  content: string,
-  expected: readonly string[],
-  label: string,
-  noAplica: string,
-): CheckFailure[] {
-  const sections = new Map(splitTemplateSections(content).map((s) => [s.heading, s] as const));
-  const failures: CheckFailure[] = [];
-  for (const heading of expected) {
-    const section = sections.get(heading);
-    if (!section) {
-      failures.push(`${label}: falta la sección "## ${heading}"`);
-      continue;
-    }
-    if (section.body.trim().length === 0) {
-      failures.push(`${label}: la sección "## ${heading}" está vacía`);
-      continue;
-    }
-    // Plain string search, not a dynamic RegExp built from `noAplica` — the
-    // marker is a fixed, non-attacker-controlled literal from `markers.ts`,
-    // but semgrep's detect-non-literal-regexp rule flags any `new RegExp(var)`
-    // regardless, so this stays literal-free by design.
-    const noAplicaLine = section.body
-      .split("\n")
-      .find((line) => line.trimStart().startsWith(noAplica));
-    if (
-      noAplicaLine &&
-      noAplicaLine.slice(noAplicaLine.indexOf(noAplica) + noAplica.length).trim().length === 0
-    ) {
-      failures.push(`${label}: "## ${heading}" dice "${noAplica}" sin razón`);
-    }
-  }
-  return failures;
 }
 
 interface MarkdownTable {
@@ -419,8 +393,6 @@ function checkPlanned(ctx: CheckContext): CheckFailure[] {
   return failures;
 }
 
-const DECISION_HEADING = /^D(\d+)$/;
-
 function checkDecisionsFile(
   content: string,
   label: string,
@@ -541,35 +513,7 @@ function checkMasterDocument(ctx: CheckContext): CheckFailure[] {
     }
   }
 
-  const decisionIdsCited = new Set<string>();
-  for (const match of content.matchAll(/(?:\b(\d{2}-[a-z0-9-]+)\/)?\bD(\d+)\b/g)) {
-    decisionIdsCited.add(match[1] ? `${match[1]}/D${match[2]}` : `D${match[2]}`);
-  }
-  const localDecisions = readStageFile(ctx, "DECISIONS.md") ?? "";
-  const localIds = new Set(
-    splitTemplateSections(localDecisions)
-      .filter((s) => DECISION_HEADING.test(s.heading))
-      .map((s) => s.heading),
-  );
-  for (const cited of decisionIdsCited) {
-    if (!cited.includes("/")) {
-      if (!localIds.has(cited))
-        failures.push(`${label}: cita ${cited}, que no existe en DECISIONS.md`);
-      continue;
-    }
-    const [stageDir, id] = cited.split("/");
-    const otherDecisions = join(masterDirPath(ctx.cwd, ctx.specsDir), stageDir!, "DECISIONS.md");
-    if (!existsSync(otherDecisions)) {
-      failures.push(`${label}: cita ${cited}, y ${stageDir}/DECISIONS.md no existe`);
-      continue;
-    }
-    const otherIds = new Set(
-      splitTemplateSections(readFileSync(otherDecisions, "utf8"))
-        .filter((s) => DECISION_HEADING.test(s.heading))
-        .map((s) => s.heading),
-    );
-    if (!otherIds.has(id!)) failures.push(`${label}: cita ${cited}, que no existe`);
-  }
+  failures.push(...checkDecisionCitations(content, label, ctx));
 
   return failures;
 }
@@ -588,8 +532,10 @@ export function checksForTransition(ctx: CheckContext, target: MasterPhase): Che
     case "questioned":
       return checkQuestioned(ctx);
     case "mastered":
-    case "executing":
+    case "ux":
       return checkMasterDocument(ctx);
+    case "executing":
+      return [...checkUxDecision(ctx), ...checkUxArtifacts(ctx), ...checkMasterDocument(ctx)];
     case "context":
     case "closed":
       return [`no hay comprobación mecánica para avanzar a '${target}'`];
@@ -655,12 +601,14 @@ export function runMasterCheck(cwd: string, options: CheckOptions = {}): CheckRe
   const target = nextPhase(ctx.state.phase);
   const failures = [...checkRawGitignore(ctx), ...checkHistoryChain(ctx)];
   if (target) failures.push(...checksForTransition(ctx, target));
-  else if (ctx.state.phase === "executing") failures.push(...checkMasterDocument(ctx));
+  else if (ctx.state.phase === "executing") {
+    failures.push(...checkUxArtifacts(ctx), ...checkMasterDocument(ctx));
+  }
   const statusPath = join(ctx.stagePath, "STATUS.md");
   if (existsSync(statusPath)) {
     if (readFileSync(statusPath, "utf8") !== renderStatusMd(readMasterStatus(cwd)))
       failures.push(`${ctx.stage.dir}/STATUS.md differs from its render`);
-  } else if (["mastered", "executing"].includes(ctx.state.phase)) {
+  } else if (["mastered", "ux", "executing"].includes(ctx.state.phase)) {
     failures.push(`${ctx.stage.dir}: missing STATUS.md; run navori master status`);
   }
   return { phase: ctx.state.phase, nextPhase: target, failures };

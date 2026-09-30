@@ -208,7 +208,9 @@ describe("master-plan — workflow contract (T18)", () => {
     expect(startup).toMatch(
       /despu[eé]s de confirmar[^.]*navori master init <slug>[^.]*primera[^.]*(?:posterior|siguiente)/i,
     );
-    expect(startup).toMatch(/primera[^\n]*pregunta[^\n]*modo `template` o `en-curso`/i);
+    expect(startup).toMatch(
+      /primera[^\n]*pregunta[^\n]*modo `desde-cero`, `template` o `en-curso`/i,
+    );
     expect(startup).toMatch(/etapas posteriores[^\n]*`en-curso` sin preguntar/i);
   });
 
