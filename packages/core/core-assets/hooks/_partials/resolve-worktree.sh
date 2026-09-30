@@ -97,6 +97,47 @@ navori_first_tree() {
   return 1
 }
 
+# Hook's own path, captured HERE at the partial's top level (every consumer inlines
+# it at script top level). NEVER read `$0` inside a `navori_*` function: zsh sets it
+# to the function's name there (FUNCTION_ARGZERO). Used only as a string, never
+# resolved. A relative path is anchored on the hook's cwd, where the shell found it.
+navori_hook_path="$0"
+case "$navori_hook_path" in /*) ;; *) navori_hook_path="$PWD/$navori_hook_path" ;; esac
+navori_home_id=""
+navori_home_done=0
+
+# HOME repository (#1099): the repo this hook protects, as a repo id in
+# `navori_home_id` (empty = unknown). Known only if ALL hold:
+#   - `CLAUDE_PROJECT_DIR` is non-empty;
+#   - the hook's own path is exactly `${CLAUDE_PROJECT_DIR%/}/.claude/hooks/<file>`
+#     or `.../.claude/scripts/<file>` (how settings.json registers it). A bare
+#     prefix is not enough: a leaked variable plus a hook of a repo NESTED under it
+#     would make the outer repo "home" and skip every gate of the inner one. `.codex/`
+#     never qualifies, so a Codex hook is always home-unknown;
+#   - that directory resolves to a repo id.
+# Any doubt means unknown, and unknown never produces `foreign` without a `cd`/`-C`
+# in the command. Memoised: the callers pay the git fork once. Sets a global (no
+# subshell); declares locals once at the top (zsh prints a re-declared `local`).
+navori_home_resolve() {
+  local cpd rest file
+  [ "$navori_home_done" = 0 ] || return 0
+  navori_home_done=1
+  cpd="${CLAUDE_PROJECT_DIR:-}"
+  [ -n "$cpd" ] || return 0
+  cpd="${cpd%/}"
+  case "$navori_hook_path" in
+    "$cpd"/*) rest="${navori_hook_path#"$cpd"/}" ;;
+    *) return 0 ;;
+  esac
+  case "$rest" in
+    .claude/hooks/*|.claude/scripts/*) file="${rest#.claude/*/}" ;;
+    *) return 0 ;;
+  esac
+  case "$file" in ""|.|..|*/*) return 0 ;; esac
+  navori_home_id=$(navori_repo_id "$CLAUDE_PROJECT_DIR" || true)
+  return 0
+}
+
 # Resolution, most specific first:
 #   1. the directory the command names (`git -C` / a leading `cd`), ONLY when it
 #      belongs to the same repository as the anchor (see the constraint below);
@@ -133,7 +174,9 @@ navori_worktree() {
   # different repository and a submodule (its own git dir under
   # `<main>/.git/modules/`) do not, and fall through to the payload cwd — the
   # stricter direction. An unresolvable anchor drops candidate 1 for the same
-  # reason: nothing to check it against.
+  # reason: nothing to check it against — unless the named dir IS the hook's home
+  # repo (#1099: the session sits in another repo but the command names the
+  # protected one), which only ever moves the scan toward the protected repo.
   # Ceiling: two linked worktrees of the SAME repository are indistinguishable
   # this way, so naming a sibling worktree still beats the payload cwd. Both are
   # trees of the repo being protected, so the scan stays inside it. Walk the
@@ -142,7 +185,8 @@ navori_worktree() {
   if [ -n "$named" ]; then
     anchor_repo=$(navori_repo_id "$anchor" || true)
     named_repo=$(navori_repo_id "$named" || true)
-    if [ -z "$anchor_repo" ] || [ "$named_repo" != "$anchor_repo" ]; then
+    navori_home_resolve
+    if [ -z "$named_repo" ] || { [ "$named_repo" != "$anchor_repo" ] && [ "$named_repo" != "$navori_home_id" ]; }; then
       named=""
     fi
   fi
@@ -164,12 +208,13 @@ navori_worktree() {
 # `extract-cmd` (payload_field). Always returns 0 and sets, without a subshell:
 #   navori_landing       same-repo | foreign | ambiguous
 #   navori_landing_root  landing toplevel (foreign only)
-# "foreign" means different from BOTH the payload-cwd repository and the
-# repository of $CLAUDE_PROJECT_DIR (the one the hook belongs to): a session
-# anchored in repo B that commits into the hook's own repo must still be gated.
-# Codex exposes no equivalent env var in these hooks (`nv_project_dir` is derived
-# from the payload cwd, hook-input.sh), so there the comparison degrades to
-# payload-cwd-only.
+# "foreign" means the command's landing repo differs from the repository this hook
+# protects (#1099). With no `cd`/`-C` the landing dir IS the payload cwd, so a
+# session anchored in another repo is foreign too. The protected repo is the HOME
+# id (`navori_home_resolve`); when home is unknown the comparison degrades to the
+# #1095 rule (payload-cwd repo, widened by the raw `CLAUDE_PROJECT_DIR` repo, which
+# can only turn `foreign` into `same-repo`) and a command without `cd`/`-C` is
+# `same-repo` with no fork. "commit" below means the one gated op.
 navori_commit_re='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)'
 
 # Reads one shell token off the front of $1 into `navori_tok` / `navori_rest`.
@@ -282,8 +327,13 @@ navori_commit_landing() {
   case "$first" in *';'*|*'|'*|*'&'*) tailtxt="${first#*[;|&]}$nl$tailtxt" ;; esac
   if navori_mentions_shellish "$tailtxt"; then return 0; fi
 
+  # No cd/-C: the landing dir is the payload cwd. Without a PROVEN home there is
+  # nothing to compare it with, so today's answer (and zero forks) stands.
   if [ -z "$cd_dir" ] && [ -z "$c_dir" ]; then
-    navori_landing="same-repo"; return 0
+    navori_home_resolve
+    if [ -z "$navori_home_id" ]; then navori_landing="same-repo"; return 0; fi
+  else
+    navori_home_resolve
   fi
 
   pcwd=$(payload_field cwd)
@@ -317,13 +367,24 @@ navori_commit_landing() {
   [ -d "$dir" ] || return 0
   top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || return 0
   [ -n "$top" ] || return 0
-  # A submodule target is deliberately not `foreign` (its commit is part of the
-  # superproject's work): the anchor's gate runs.
+  # A submodule target (or cwd) is deliberately not `foreign` (its commit is part
+  # of the superproject's work): the anchor's gate runs.
   sub=$(git -C "$dir" rev-parse --show-superproject-working-tree 2>/dev/null) || return 0
   [ -z "$sub" ] || return 0
   id_l=$(navori_repo_id "$dir" || true)
+  [ -n "$id_l" ] || return 0
+  if [ -n "$navori_home_id" ]; then
+    # Proven home: the one definition of foreign.
+    if [ "$id_l" = "$navori_home_id" ]; then
+      navori_landing="same-repo"
+    else
+      navori_landing="foreign"; navori_landing_root="$top"
+    fi
+    return 0
+  fi
+  # Home unknown: the #1095 rule.
   id_a=$(navori_repo_id "$base" || true)
-  [ -n "$id_l" ] && [ -n "$id_a" ] || return 0
+  [ -n "$id_a" ] || return 0
   id_h=""
   if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
     id_h=$(navori_repo_id "$CLAUDE_PROJECT_DIR" || true)

@@ -148,7 +148,7 @@ if [ "$run_needed" = 1 ] && [ -n "$cmd" ]; then
   navori_commit_landing "$cmd"
   if [ "$navori_landing" = foreign ]; then
     navori_audit_skip_reason="el commit va a otro repositorio; el gate de este repo no aplica"
-    echo "[navori] quality-gate NOT run: this commit lands in another repository ($navori_landing_root), not the one this session is anchored in. That repository's own gate is not run from here." >&2
+    echo "[navori] quality-gate NOT run: this commit lands in another repository ($navori_landing_root), not the one this hook protects. That repository's own gate is not run from here." >&2
     exit 0
   fi
 fi
