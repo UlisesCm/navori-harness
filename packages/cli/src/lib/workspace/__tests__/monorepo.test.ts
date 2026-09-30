@@ -45,6 +45,24 @@ describe("effectiveConfigForWorkspace", () => {
     expect(eff.preset).toBe("monorepo-turbopnpm");
   });
 
+  // Covers: A3
+  it("never leaks the root's project.extraLibraries to a workspace (#1104)", () => {
+    const root = {
+      ...ROOT_CONFIG,
+      project: { libraries: [], extraLibraries: ["dashboard-patterns"] },
+    } as unknown as NavoriConfig;
+    const plain = effectiveConfigForWorkspace(root, { name: "backend", path: "apps/backend" });
+    expect(plain.project?.extraLibraries).toEqual([]);
+  });
+
+  // Covers: A3
+  it("applies a workspace's own extraLibraries only to that workspace (#1104)", () => {
+    const ws = { name: "backend", path: "apps/backend", extraLibraries: ["zod-validation"] };
+    const eff = effectiveConfigForWorkspace(ROOT_CONFIG, ws);
+    expect(eff.project?.extraLibraries).toEqual(["zod-validation"]);
+    expect(ROOT_CONFIG.project?.extraLibraries ?? []).toEqual([]);
+  });
+
   it("strips monorepo from the effective config so nested renders don't recurse", () => {
     const ws = { name: "backend", path: "apps/backend" };
     const eff = effectiveConfigForWorkspace(ROOT_CONFIG, ws);

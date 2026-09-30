@@ -862,7 +862,10 @@ export function renderClaudeEngine(
   // the plan AND its managed skill is pruned from disk below (§8.6) — a repo
   // upgraded without `navori update` would lose its guidance with zero signal
   // (audit v0.5.1 A1, the socketio split). Warn loudly instead.
-  for (const lib of unknownLibraries(config.project?.libraries)) {
+  for (const lib of unknownLibraries([
+    ...(config.project?.libraries ?? []),
+    ...(config.project?.extraLibraries ?? []),
+  ])) {
     warnings.push(
       lib.removed
         ? tc(lang).engine.libraryRemovedFromRegistry(lib.id, lib.successors)
@@ -1186,6 +1189,7 @@ export function renderClaudeEngine(
   // unknown, and Codex prunes under the same `isPresetLoaded` gate.
   const selectedLibs = new Set([
     ...(config.project?.libraries ?? []),
+    ...(config.project?.extraLibraries ?? []),
     ...harnessPlan.skills.map((s) => s.id),
   ]);
   const localSkillIds = new Set(config.project?.localSkills ?? []);

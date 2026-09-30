@@ -110,13 +110,16 @@ export function buildSkillRows(
     }
   }
   const detected = new Set(config.project?.libraries ?? []);
+  const extra = new Set(config.project?.extraLibraries ?? []);
   for (const id of effectiveLibraries(config, loadedPreset)) {
     if (listed.has(id) || !librarySkillById(id)) continue;
     // Preset-implied ids (#1094) say where they come from; `config.preset` is
     // untrusted, so sanitize it like the preset rows above (#264).
     const origin = detected.has(id)
       ? "library (detected)"
-      : `library (preset \`${sanitizeProjectValue(config.preset ?? "")}\`)`;
+      : extra.has(id)
+        ? "library (extra)"
+        : `library (preset \`${sanitizeProjectValue(config.preset ?? "")}\`)`;
     rows.push(row(id, origin, join(coreAssets, `lib-skills/${id}.md`)));
     listed.add(id);
   }

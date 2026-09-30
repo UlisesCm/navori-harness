@@ -333,6 +333,7 @@ const CONFIG_KEY_RULE: ConfigObjectRule = {
         "localSkills",
         "foreignHarness",
         "libraries",
+        "extraLibraries",
         "libraryMigrations",
         "codeLanguage",
       ],
@@ -350,7 +351,15 @@ const CONFIG_KEY_RULE: ConfigObjectRule = {
         workspaces: {
           keys: [],
           arrayItems: {
-            keys: ["name", "path", "preset", "qualityGate", "libraries", "libraryMigrations"],
+            keys: [
+              "name",
+              "path",
+              "preset",
+              "qualityGate",
+              "libraries",
+              "extraLibraries",
+              "libraryMigrations",
+            ],
             children: {
               qualityGate: QUALITY_GATE_RULE,
               libraryMigrations: {

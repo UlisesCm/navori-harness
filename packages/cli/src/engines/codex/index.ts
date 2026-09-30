@@ -137,7 +137,10 @@ export function renderCodexEngine(
   const plan = resolveHarnessPlan(config, coreAssets, preset);
   // Mirror of the Claude engine's unknown-library warning (audit v0.5.1 A1):
   // an id the plan skipped silently would lose its guidance without signal.
-  for (const lib of unknownLibraries(config.project?.libraries)) {
+  for (const lib of unknownLibraries([
+    ...(config.project?.libraries ?? []),
+    ...(config.project?.extraLibraries ?? []),
+  ])) {
     warnings.push(
       lib.removed
         ? tc(lang).engine.libraryRemovedFromRegistry(lib.id, lib.successors)

@@ -75,8 +75,53 @@ describe("refreshWorkspaceScopes — re-home per-workspace library skills (#80 m
     expect(refreshWorkspaceScopes(raw, cwd)).toBe(false);
   });
 
+  // Covers: A3
+  it("leaves a workspace's user-owned extraLibraries untouched (#1104)", () => {
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), `packages:\n  - 'apps/*'\n`);
+    writePkg("apps/api", { name: "api", dependencies: { mongoose: "^8" } });
+    const raw: Record<string, unknown> = {
+      monorepo: {
+        enabled: true,
+        tool: "pnpm",
+        workspaces: [{ name: "api", path: "apps/api", extraLibraries: ["zod-validation"] }],
+      },
+    };
+
+    refreshWorkspaceScopes(raw, cwd);
+
+    const ws = (raw.monorepo as { workspaces: Array<Record<string, unknown>> }).workspaces[0]!;
+    expect(ws.libraries).toEqual(["mongoose"]);
+    expect(ws.extraLibraries).toEqual(["zod-validation"]);
+  });
+
   it("returns false for a non-monorepo config", () => {
     expect(refreshWorkspaceScopes({ project: { libraries: ["zod-validation"] } }, cwd)).toBe(false);
+  });
+});
+
+// Covers: A1
+describe("project.extraLibraries — user-owned, survives update (#1104)", () => {
+  it("diffConfig/applyDiffs replace detected libraries but keep extraLibraries", () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "demo", dependencies: { mongoose: "^8" } }),
+    );
+    const configPath = join(cwd, "navori.config.json");
+    writeConfig(configPath, {
+      name: "demo",
+      engines: ["claude"],
+      preset: "custom",
+      project: { libraries: ["mongoose", "stale-id"], extraLibraries: ["dashboard-patterns"] },
+    });
+    const detected = detectProject(cwd);
+    const diffs = diffConfig(readConfig(configPath), detected);
+    expect(diffs.some((d) => d.field.includes("extraLibraries"))).toBe(false);
+
+    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+    applyDiffs(raw, detected, diffs);
+    const project = raw.project as { libraries: string[]; extraLibraries: string[] };
+    expect(project.libraries).toEqual(["mongoose"]);
+    expect(project.extraLibraries).toEqual(["dashboard-patterns"]);
   });
 });
 

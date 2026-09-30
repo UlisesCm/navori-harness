@@ -201,6 +201,29 @@ describe("preset `libraries` (#1094)", () => {
     }
   });
 
+  // Covers: A1
+  it("effectiveLibraries unions detected + extra + preset, deduped (#1104)", () => {
+    writeBundled("lib", {
+      id: "lib",
+      displayName: "Lib",
+      libraries: ["mantine-ui-patterns", "vitest"],
+    });
+    const p = loadPreset("lib", repoRoot)!;
+    const cfg = {
+      preset: "lib",
+      project: {
+        libraries: ["zod-validation"],
+        extraLibraries: ["vitest", "zod-validation", "citty"],
+      },
+    } as unknown as NavoriConfig;
+    expect(effectiveLibraries(cfg, p)).toEqual([
+      "zod-validation",
+      "vitest",
+      "citty",
+      "mantine-ui-patterns",
+    ]);
+  });
+
   // Covers: A4
   it("effectiveLibraries unions detected + preset ids; isPresetLoaded gates", () => {
     const cfg = (o: Record<string, unknown>) => o as unknown as NavoriConfig;
