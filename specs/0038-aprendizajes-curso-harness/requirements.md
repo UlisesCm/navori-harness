@@ -1,6 +1,6 @@
 # Aprendizajes del curso de harness engineering — Requirements
 
-**Fecha:** 2026-09-30 · **Estado:** especificación; implementación no autorizada todavía.
+**Fecha:** 2026-09-30 · **Estado:** absorbida por la [spec 0039](../0039-claude-first/requirements.md); no se implementa por separado.
 **Base del checkout:** `cb32c6c5b309d0a9fe71584aa3748fcb5db03843`.
 **Evidencia:** [evidence.md](evidence.md) — curso, código de navori y documentación oficial de
 Claude Code y Codex, con fuentes y contradicciones.
