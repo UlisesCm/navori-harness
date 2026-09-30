@@ -197,9 +197,10 @@ de navori lo que no tenga de forma nativa, y cada unidad declara su soporte por 
 - **R44** — WHEN el hilo principal supera un umbral configurable de tokens de contexto al cerrar
   un ciclo (tras un despacho del `publisher`), the system SHALL inyectar un aviso aditivo. El aviso
   propone `/compact` o `/clear`, con el resumen de sesión ya guardado.
-- **R45** — WHERE una regla managed aplica solo al trabajo sobre ciertos archivos, the Claude
-  renderer SHALL emitirla como regla nativa con alcance por ruta en lugar de bloque always-on, y
-  los demás engines SHALL seguir recibiéndola como hoy.
+- **R45** — *Retirado tras el challenge (B3).* Las reglas nativas con alcance por ruta solo se
+  cargan cuando Claude lee un archivo que coincide, así que un agente que crea un archivo nuevo no
+  las tendría en contexto. El ahorro estimado era de unos 60 tokens por sesión. Por la prioridad
+  calidad > tokens, los bloques managed se quedan always-on.
 
 ### I — Medición en `navori audit`
 
@@ -279,8 +280,10 @@ mineros ad hoc para cada una de las que aquí se piden.
   oportunidades (`mine-activation.py`). La activación SHALL publicarse junto con el porcentaje de
   ediciones del hilo principal, porque su heurística cuenta como oportunidad todo turno delegado.
 - **R68** — WHEN el usuario ejecuta `navori audit` con una opción de instantánea, the system SHALL
-  guardar el reporte de rango en un archivo versionable bajo `docs/research/`, fuera de la
-  rotación de logs.
+  guardar el reporte de rango bajo la raíz de audit (`~/.navori/audits/`), fuera de la rotación de
+  logs y con un formato de instantánea versionado aparte del esquema del reporte. Copiarla al repo
+  SHALL requerir una ruta explícita del usuario, y una instantánea de varios repos SHALL no
+  escribirse dentro de ningún repo.
 - **R69** — WHEN el usuario ejecuta `navori audit` con una instantánea previa como referencia,
   the system SHALL mostrar la diferencia por métrica entre esa instantánea y el rango actual. Esa
   comparación es la que usan R30, R34 y R43.
