@@ -257,9 +257,88 @@ navori_take_token() {
   return 0
 }
 
+# Where does ONE gated op land? Takes the op's `cd` target and `-C` target (either
+# may be empty) and sets, without a subshell:
+#   navori_op_kind  same | foreign | "" (unproven)
+#   navori_op_top   landing toplevel (foreign only)
+# Every unproven path returns with the empty kind.
+navori_op_landing() {
+  local cd_dir="$1" c_dir="$2" pcwd base dir rel=0 top sub id_l id_a id_h nl=$'\n'
+  navori_op_kind=""; navori_op_top=""
+
+  # No cd/-C: the landing dir is the payload cwd. Without a PROVEN home there is
+  # nothing to compare it with, so today's answer (and zero forks) stands.
+  if [ -z "$cd_dir" ] && [ -z "$c_dir" ]; then
+    navori_home_resolve
+    if [ -z "$navori_home_id" ]; then navori_op_kind="same"; return 0; fi
+  else
+    navori_home_resolve
+  fi
+
+  pcwd=$(payload_field cwd)
+  base="$pcwd"
+  [ -d "$base" ] || base="$PWD"
+  dir="$base"
+  if [ -n "$cd_dir" ]; then
+    case "$cd_dir" in
+      /*) dir="$cd_dir" ;;
+      *)
+        rel=1; dir="$base/$cd_dir"
+        # A non-empty CDPATH can make `cd <relative>` land somewhere else.
+        [ -z "${CDPATH:-}" ] || return 0
+        ;;
+    esac
+  fi
+  if [ -n "$c_dir" ]; then
+    case "$c_dir" in
+      /*) dir="$c_dir"; rel=0 ;;
+      *) rel=1; dir="$dir/$c_dir" ;;
+    esac
+  fi
+  # `..` in a relative path resolves logically in the shell but physically in
+  # the kernel; they differ when the base itself sits behind a symlink.
+  if [ "$rel" = 1 ]; then
+    case "$cd_dir$nl$c_dir" in
+      *'..'*) [ "$(cd "$base" 2>/dev/null && pwd -P)" = "$base" ] || return 0 ;;
+    esac
+  fi
+
+  [ -d "$dir" ] || return 0
+  top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || return 0
+  [ -n "$top" ] || return 0
+  # A submodule target (or cwd) is deliberately not `foreign` (its commit is part
+  # of the superproject's work): the anchor's gate runs.
+  sub=$(git -C "$dir" rev-parse --show-superproject-working-tree 2>/dev/null) || return 0
+  [ -z "$sub" ] || return 0
+  id_l=$(navori_repo_id "$dir" || true)
+  [ -n "$id_l" ] || return 0
+  if [ -n "$navori_home_id" ]; then
+    # Proven home: the one definition of foreign.
+    if [ "$id_l" = "$navori_home_id" ]; then
+      navori_op_kind="same"
+    else
+      navori_op_kind="foreign"; navori_op_top="$top"
+    fi
+    return 0
+  fi
+  # Home unknown: the #1095 rule.
+  id_a=$(navori_repo_id "$base" || true)
+  [ -n "$id_a" ] || return 0
+  id_h=""
+  if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+    id_h=$(navori_repo_id "$CLAUDE_PROJECT_DIR" || true)
+  fi
+  if [ "$id_l" = "$id_a" ] || { [ -n "$id_h" ] && [ "$id_l" = "$id_h" ]; }; then
+    navori_op_kind="same"
+  else
+    navori_op_kind="foreign"; navori_op_top="$top"
+  fi
+  return 0
+}
+
 navori_commit_landing() {
-  local c rest seg first tailtxt p arg dir base pcwd top sub id_l id_a id_h
-  local cd_dir="" c_dir="" found=0 more=1 cdcount=0 nc=0 rel=0 isgh=0 nl=$'\n'
+  local c rest seg first tailtxt p arg
+  local cd_dir="" c_dir="" found=0 more=1 cdcount=0 nc=0 isgh=0 nl=$'\n'
   navori_landing="ambiguous"; navori_landing_root=""
 
   # A single gated op only: a second commit (or, in semgrep, a push) makes the
@@ -349,72 +428,10 @@ navori_commit_landing() {
   case "$first" in *';'*|*'|'*|*'&'*) tailtxt="${first#*[;|&]}$nl$tailtxt" ;; esac
   if navori_mentions_shellish "$tailtxt"; then return 0; fi
 
-  # No cd/-C: the landing dir is the payload cwd. Without a PROVEN home there is
-  # nothing to compare it with, so today's answer (and zero forks) stands.
-  if [ -z "$cd_dir" ] && [ -z "$c_dir" ]; then
-    navori_home_resolve
-    if [ -z "$navori_home_id" ]; then navori_landing="same-repo"; return 0; fi
-  else
-    navori_home_resolve
-  fi
-
-  pcwd=$(payload_field cwd)
-  base="$pcwd"
-  [ -d "$base" ] || base="$PWD"
-  dir="$base"
-  if [ -n "$cd_dir" ]; then
-    case "$cd_dir" in
-      /*) dir="$cd_dir" ;;
-      *)
-        rel=1; dir="$base/$cd_dir"
-        # A non-empty CDPATH can make `cd <relative>` land somewhere else.
-        [ -z "${CDPATH:-}" ] || return 0
-        ;;
-    esac
-  fi
-  if [ -n "$c_dir" ]; then
-    case "$c_dir" in
-      /*) dir="$c_dir"; rel=0 ;;
-      *) rel=1; dir="$dir/$c_dir" ;;
-    esac
-  fi
-  # `..` in a relative path resolves logically in the shell but physically in
-  # the kernel; they differ when the base itself sits behind a symlink.
-  if [ "$rel" = 1 ]; then
-    case "$cd_dir$nl$c_dir" in
-      *'..'*) [ "$(cd "$base" 2>/dev/null && pwd -P)" = "$base" ] || return 0 ;;
-    esac
-  fi
-
-  [ -d "$dir" ] || return 0
-  top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || return 0
-  [ -n "$top" ] || return 0
-  # A submodule target (or cwd) is deliberately not `foreign` (its commit is part
-  # of the superproject's work): the anchor's gate runs.
-  sub=$(git -C "$dir" rev-parse --show-superproject-working-tree 2>/dev/null) || return 0
-  [ -z "$sub" ] || return 0
-  id_l=$(navori_repo_id "$dir" || true)
-  [ -n "$id_l" ] || return 0
-  if [ -n "$navori_home_id" ]; then
-    # Proven home: the one definition of foreign.
-    if [ "$id_l" = "$navori_home_id" ]; then
-      navori_landing="same-repo"
-    else
-      navori_landing="foreign"; navori_landing_root="$top"
-    fi
-    return 0
-  fi
-  # Home unknown: the #1095 rule.
-  id_a=$(navori_repo_id "$base" || true)
-  [ -n "$id_a" ] || return 0
-  id_h=""
-  if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
-    id_h=$(navori_repo_id "$CLAUDE_PROJECT_DIR" || true)
-  fi
-  if [ "$id_l" = "$id_a" ] || { [ -n "$id_h" ] && [ "$id_l" = "$id_h" ]; }; then
-    navori_landing="same-repo"
-  else
-    navori_landing="foreign"; navori_landing_root="$top"
-  fi
+  navori_op_landing "$cd_dir" "$c_dir"
+  case "$navori_op_kind" in
+    same) navori_landing="same-repo" ;;
+    foreign) navori_landing="foreign"; navori_landing_root="$navori_op_top" ;;
+  esac
   return 0
 }
