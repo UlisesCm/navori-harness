@@ -114,6 +114,13 @@ describe.runIf(runsBash)("plugin gate hooks — segment-based git commit/push de
         expect(r.stderr).toContain("installed");
       });
 
+      // #1115: a chained `commit && push` (no repo context, same-repo) still gates.
+      it("triggers on the chain `git commit && git push`", () => {
+        const r = runHook(scriptPath, "git commit -m x && git push");
+        expect(r.status).toBe(0);
+        expect(r.stderr).toContain("installed");
+      });
+
       // Push gating: only semgrep (the security backstop) gates a push; the
       // commit-only hooks skip it — the content was already gated at commit.
       it(`${id === "semgrep" ? "gates" : "skips"} \`echo done; git push\` (push)`, () => {

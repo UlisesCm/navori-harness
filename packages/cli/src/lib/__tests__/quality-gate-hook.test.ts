@@ -147,6 +147,17 @@ describe("quality-gate hook — declared runner present", () => {
     expect(r.stderr).not.toContain("running quality-gate fast");
   });
 
+  // #1115: with no repo context (same-repo) a chained tail never skips the gate.
+  it.each(["git commit -m x && git push", "git commit -m x && git status"])(
+    "runs the gate on the chain `%s`",
+    (command) => {
+      fakeBin("pnpm", 0);
+      const r = runHook(installHook("pnpm run typecheck"), command);
+      expect(r.status).toBe(0);
+      expect(r.stderr).toContain("running quality-gate fast");
+    },
+  );
+
   it("runs the gate past an env-var prefix `FOO=bar git commit`", () => {
     fakeBin("pnpm", 0);
     const r = runHook(installHook("pnpm run typecheck"), "FOO=bar git commit -m x");
