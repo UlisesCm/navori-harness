@@ -12,7 +12,11 @@ import { interpolate } from "../../lib/render/interpolate.ts";
 import type { FallbackScope } from "../../lib/render/placeholders.ts";
 import { expandHookIncludes } from "../../lib/render/hook-includes.ts";
 import { mergeFrontmatter } from "../claude/frontmatter-merge.ts";
-import { parseFrontmatterFields, formatFrontmatterField } from "../../lib/render/frontmatter.ts";
+import {
+  parseFrontmatterFields,
+  formatFrontmatterField,
+  formatFrontmatterFieldRaw,
+} from "../../lib/render/frontmatter.ts";
 import { conditionOrchestration } from "../../lib/render/render-plan.ts";
 
 /**
@@ -155,7 +159,7 @@ function interpolateFrontmatter(
 ): Record<string, string> {
   if (Object.keys(fm).length === 0) return {};
   const serialized = Object.entries(fm)
-    .map(([k, v]) => formatFrontmatterField(k, v))
+    .map(([k, v]) => formatFrontmatterFieldRaw(k, v))
     .join("\n");
   const interp = interpolate(serialized, config, {
     extraVars,
