@@ -1476,18 +1476,40 @@ describe("CLI e2e — coexist mode", () => {
     dirs = [];
   });
 
-  it("--yes forces coexist when existing Claude infra detected, never touching files", () => {
-    const repo = makeTmpRepo({
-      "CLAUDE.md": "# CLAUDE.md a mano",
-    });
+  it("#1111 — --yes on a CLAUDE.md-only repo renders the harness and keeps the user's text", () => {
+    const original = "# CLAUDE.md a mano\n\nMis reglas propias.\n";
+    const repo = makeTmpRepo({ "CLAUDE.md": original });
     dirs.push(repo);
+
+    const r = runCli(["init", "--yes", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    expect(r.combined).not.toContain("coexist");
+
+    expect(existsSync(join(repo, ".claude"))).toBe(true);
+    expect(readFileSync(join(repo, ".mcp.json"), "utf-8")).toContain("engram");
+
+    const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
+    const outsideBlocks = claudeMd.replace(
+      /<!-- navori:managed[\s\S]*?<!-- \/navori:managed[^>]*-->\n?/g,
+      "",
+    );
+    expect(outsideBlocks).toContain(original.trim());
+  });
+
+  it("#1111 — a foreign .claude/agents/foo.md keeps coexist and generates nothing", () => {
+    const repo = makeTmpRepo({ "CLAUDE.md": "# CLAUDE.md a mano" });
+    dirs.push(repo);
+    mkdirSync(join(repo, ".claude", "agents"), { recursive: true });
+    writeFileSync(join(repo, ".claude", "agents", "foo.md"), "# foo", "utf-8");
 
     const r = runCli(["init", "--yes", "--cwd", repo]);
     expect(r.status).toBe(0);
     expect(r.combined).toContain("coexist");
 
-    const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
-    expect(claudeMd).toBe("# CLAUDE.md a mano"); // untouched
+    expect(readFileSync(join(repo, "CLAUDE.md"), "utf-8")).toBe("# CLAUDE.md a mano");
+    expect(existsSync(join(repo, ".mcp.json"))).toBe(false);
+    expect(readdirSync(join(repo, ".claude"))).toEqual(["agents"]);
+    expect(readdirSync(join(repo, ".claude", "agents"))).toEqual(["foo.md"]);
   });
 
   it("#1053 — a repo with only navori's own progress/ reaches fresh mode and renders under --full", () => {

@@ -146,9 +146,10 @@ describe("sync — resolveConflictsInteractively (interactive conflict resolutio
 });
 
 describe("init — chooseAdoptionMode (interactive adoption, #7)", () => {
-  function makeInfra(present: boolean): ClaudeInfraInventory {
+  function makeInfra(present: boolean, foreignHarness = present): ClaudeInfraInventory {
     return {
       present,
+      foreignHarness,
       agentFiles: [],
       skillFiles: [],
       hasSettings: false,
@@ -167,6 +168,30 @@ describe("init — chooseAdoptionMode (interactive adoption, #7)", () => {
     const r = await chooseAdoptionMode("/x", makeInfra(false), "app", { lang: "es" });
     expect(r).toEqual({ mode: "fresh", pendingRemoval: null });
     expect(p.select).not.toHaveBeenCalled();
+  });
+
+  it("#1111 — CLAUDE.md-only with --yes → 'fresh', merge info, no picker", async () => {
+    const r = await chooseAdoptionMode("/x", makeInfra(true, false), "app", {
+      yes: true,
+      lang: "es",
+    });
+    expect(r).toEqual({ mode: "fresh", pendingRemoval: null });
+    expect(p.select).not.toHaveBeenCalled();
+    expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining("fusionar"));
+  });
+
+  it("#1111 — CLAUDE.md-only interactive → 'fresh', no select prompt", async () => {
+    const r = await chooseAdoptionMode("/x", makeInfra(true, false), "app", { lang: "es" });
+    expect(r).toEqual({ mode: "fresh", pendingRemoval: null });
+    expect(p.select).not.toHaveBeenCalled();
+  });
+
+  it("#1111 — foreign agents interactive keep the coexist/replace picker", async () => {
+    queueAnswers("coexist");
+    const infra = { ...makeInfra(true, true), agentFiles: ["foo.md"] };
+    const r = await chooseAdoptionMode("/x", infra, "app", { lang: "es" });
+    expect(r).toEqual({ mode: "coexist", pendingRemoval: null });
+    expect(p.select).toHaveBeenCalled();
   });
 
   it("--yes with existing infra → 'coexist' (never replaces silently)", async () => {

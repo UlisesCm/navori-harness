@@ -100,6 +100,7 @@ interface Strings {
 
   // Adoption mode
   existingInfraYesMode: string;
+  existingInfraMerge: string;
   existingInfraDetected: string;
   howToAdopt: string;
   coexistLabel: string;
@@ -262,6 +263,8 @@ const ES: Strings = {
   claudeEngineMissingWarning:
     "Los engines elegidos no incluyen 'claude' — el harness no va a cargar en sesiones de Claude Code (CLAUDE.md/.claude/ no se generan). Agrega 'claude' a los engines si vas a usar Claude Code.",
 
+  existingInfraMerge:
+    "Detecté CLAUDE.md, AGENTS.md o settings propios — navori los va a fusionar y tu contenido se conserva",
   existingInfraYesMode: "Detecté infraestructura Claude — uso modo 'coexist' (seguro)",
   existingInfraDetected: "Detecté infraestructura Claude:",
   howToAdopt: "¿Cómo quieres adoptar navori?",
@@ -438,6 +441,8 @@ const EN: Strings = {
   claudeEngineMissingWarning:
     "Selected engines don't include 'claude' — the harness will not load in Claude Code sessions (CLAUDE.md/.claude/ won't be generated). Add 'claude' to engines if you plan to use Claude Code.",
 
+  existingInfraMerge:
+    "Found your own CLAUDE.md, AGENTS.md or settings — navori will merge into them and your content is preserved",
   existingInfraYesMode: "Existing Claude infrastructure detected — using 'coexist' mode (safe)",
   existingInfraDetected: "Existing Claude infrastructure detected:",
   howToAdopt: "How do you want to adopt navori?",
