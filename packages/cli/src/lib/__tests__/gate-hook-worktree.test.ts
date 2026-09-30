@@ -777,16 +777,17 @@ describe.runIf(runsBash)(
       expect(out.skipped).toBe(false);
     });
 
-    // Documented ceiling: a second gated op (semgrep also gates `git push`) makes
-    // "the" landing repo undefined, so the scan runs.
-    it("semgrep still scans `cd <F> && git commit && git push`", () => {
+    // #1115: every gated op of the chain (semgrep also gates `git push`) resolves
+    // to the same foreign repo, so the scan stands down.
+    it("semgrep skips `cd <F> && git commit && git push` (#1115)", () => {
       const out = acrossShells((shell) =>
         landingRun(shell, "semgrep", (fx, f) => ({
           command: `cd '${f}' && git commit -m x && git push`,
           payloadCwd: fx.main,
         })),
       );
-      expect(out.skipped).toBe(false);
+      expect(out.scans).toBe(0);
+      expect(out.skipped).toBe(true);
     });
   },
 );
@@ -1046,29 +1047,247 @@ describe.runIf(runsBash)(
       });
     }
 
-    // Ceiling, pinned to TODAY's behavior (#1115): several gated ops in one call
-    // make the landing repo undefined, so the scan runs even when the whole chain
-    // lands in a foreign repo. It flips only if #1115 (multi-op landing) ships;
-    // update these rows then, deliberately.
-    it("semgrep: still scans `cd <F> && git commit && git push` (ceiling, #1115)", () => {
+    // #1115: a chain of gated ops lands where ALL of them land. These two were the
+    // pinned ceiling of #1098; they flip because the walk now sees every op.
+    it("semgrep: skips `cd <F> && git commit && git push` (#1115)", () => {
       const out = acrossShells((shell) =>
         homeRun(shell, "semgrep", (fx, f) => ({
           command: `cd '${f}' && git commit -m x && git push`,
           payloadCwd: fx.worktree,
         })),
       );
-      expect(out.skipped).toBe(false);
-      expect(out.scans).toBe(1);
+      expect(out.skipped).toBe(true);
+      expect(out.scans).toBe(0);
     });
 
-    it("semgrep: still runs for `git commit && git push` from a foreign cwd (ceiling, #1115)", () => {
+    it("semgrep: skips `git commit && git push` from a foreign cwd (#1115)", () => {
       const out = acrossShells((shell) =>
         homeRun(shell, "semgrep", (_fx, f) => ({
           command: "git commit -m x && git push",
           payloadCwd: f,
         })),
       );
-      expect(out.skipped).toBe(false);
+      expect(out.run.status).toBe(0);
+      expect(out.scans).toBe(0);
+      expect(out.skipped).toBe(true);
     });
   },
 );
+
+/**
+ * #1115 — a chain of gated ops (`git commit && git push`, `&& git status`) is
+ * `foreign` only when EVERY gated op provably lands in the same foreign repo and
+ * the walk saw every op the counter did. Anything that could touch the home repo
+ * (another `-C`, a `cd`, an env export, a shell, an alias, an uncounted git form)
+ * keeps the gate running. `skips` lists the gates that stand down; the rest run.
+ */
+describe.runIf(runsBash)("gate hooks — chained gated ops landing in another repo (#1115)", () => {
+  const NONE: readonly HookId[] = [];
+  const SEMGREP: readonly HookId[] = ["semgrep"];
+  const NOT_SEMGREP: readonly HookId[] = ["quality-gate", "jscpd"];
+  interface ChainRow {
+    name: string;
+    skips: readonly HookId[];
+    build: (fx: Fixture, f: string) => HomeCase;
+  }
+  /** A second independent repo (the fixture's `foreign` slot is left untouched). */
+  const otherRepo = (fx: Fixture): string => addForeignRepo({ ...fx });
+  /** A linked worktree of `repo`. */
+  const linkedWorktree = (repo: string): string => {
+    const wt = join(realpathSync(mkdtempSync(join(tmpdir(), "navori-1115-wt-"))), "wt");
+    git(repo, "worktree", "add", "-q", "-b", "other", wt, "main");
+    return wt;
+  };
+  /** A symlink called `name` (may hold a space) pointing at `target`. */
+  const linkAs = (name: string, target: string): string => {
+    const link = join(realpathSync(mkdtempSync(join(tmpdir(), "navori-1115-ln-"))), name);
+    symlinkSync(target, link);
+    return link;
+  };
+  const inF = (command: (fx: Fixture, f: string) => string, skips: readonly HookId[]) => ({
+    skips,
+    build: (fx: Fixture, f: string): HomeCase => ({ command: command(fx, f), payloadCwd: f }),
+  });
+  const inMain = (command: (fx: Fixture, f: string) => string, skips: readonly HookId[]) => ({
+    skips,
+    build: (fx: Fixture, f: string): HomeCase => ({
+      command: command(fx, f),
+      payloadCwd: fx.main,
+    }),
+  });
+
+  const heredocMsg = `git add -A && git commit -m "$(cat <<'EOF'\nmessage line\nEOF\n)" && git push`;
+  /** Tails after `git commit -m x && `: uncounted or state-changing, so the gate runs. */
+  const hostileTails: Array<[string, (fx: Fixture) => string]> = [
+    ["quoted path with a space", (fx) => `git -C "${linkAs("M dir", fx.main)}" commit -m y`],
+    ["quoted -c value with a space", () => `git -c user.name="A B" commit -m y`],
+    ["alias ci", () => "git ci -m y"],
+    ["alias ci with -C M", (fx) => `git -C '${fx.main}' ci -m y`],
+    ["rebase -x", (fx) => `git rebase -x 'git -C ${fx.main} commit --allow-empty -m y' HEAD`],
+    ["submodule foreach", (fx) => `git submodule foreach 'git -C ${fx.main} commit -m y'`],
+    ["tab-separated -c", () => "git\t-c\tcore.pager=touch\tlog -1"],
+    ["-c alias injection", () => "git -c alias.x='!git commit' x"],
+    ["log --exec-path", () => "git log --exec-path"],
+    ["status --config-env", () => "git status --config-env=core.pager=X"],
+    ["-C M push", (fx) => `git -C '${fx.main}' push`],
+    ["--git-dir M push", (fx) => `git --git-dir='${fx.main}/.git' push`],
+    ["--work-tree M push", (fx) => `git --work-tree='${fx.main}' push`],
+    [
+      "export GIT_DIR then commit",
+      (fx) => `export GIT_DIR='${linkAs("gd", join(fx.main, ".git"))}' && git commit -m y`,
+    ],
+    [
+      "export GIT_DIR GIT_WORK_TREE then commit",
+      (fx) =>
+        `export GIT_DIR='${linkAs("gd", join(fx.main, ".git"))}' GIT_WORK_TREE='${linkAs("mm", fx.main)}' && git commit -m y`,
+    ],
+    [
+      "export GIT_DIR then push",
+      (fx) => `export GIT_DIR='${linkAs("gd", join(fx.main, ".git"))}' && git push`,
+    ],
+    ["bash -c", () => "bash -c 'git push'"],
+    ["sh -c", () => "sh -c 'git push'"],
+    ["subshell cd", (fx) => `(cd '${fx.main}' && git push)`],
+    ["env git", () => "env git push"],
+    ["eval", () => "eval 'git push'"],
+    ["xargs", () => "xargs git push"],
+    ["VAR= prefix", () => "VAR=1 git push"],
+    ["command git", () => "command git push"],
+    ["brace group", () => "{ git push; }"],
+    ["newline then push", () => "git push\ngit push"],
+    ["gh pr create -R", () => "gh pr create -R o/r"],
+  ];
+
+  const rows: ChainRow[] = [
+    // Foreign: every gated op lands in the one foreign repo.
+    { name: "commit && push from F", ...inF(() => "git commit -m x && git push", GATES) },
+    { name: "commit && status from F", ...inF(() => "git commit -m x && git status", GATES) },
+    {
+      name: "add && commit && push from F",
+      ...inF(() => "git add -A && git commit -m x && git push", GATES),
+    },
+    { name: "heredoc message && push from F", ...inF(() => heredocMsg, GATES) },
+    {
+      name: "commit && push -u from F",
+      ...inF(() => "git commit -m x && git push -u origin HEAD", GATES),
+    },
+    { name: "commit && echo done from F", ...inF(() => "git commit -m x && echo done", GATES) },
+    {
+      name: "cd F && commit && log",
+      ...inMain((_fx, f) => `cd '${f}' && git commit -m x && git log --oneline -1`, GATES),
+    },
+    {
+      name: "cd F && commit && commit",
+      ...inMain((_fx, f) => `cd '${f}' && git commit -m a && git commit -m b`, GATES),
+    },
+    {
+      name: "cd F && commit && push && gh pr create",
+      ...inMain(
+        (_fx, f) => `cd '${f}' && git commit -m x && git push && gh pr create --fill`,
+        SEMGREP,
+      ),
+    },
+    {
+      name: "-C F commit && -C F push",
+      ...inMain((_fx, f) => `git -C '${f}' commit -m x && git -C '${f}' push`, SEMGREP),
+    },
+    {
+      name: "relative -C F commit && -C F push",
+      ...inMain(
+        (_fx, f) => `git -C ../${basename(f)} commit -m x && git -C ../${basename(f)} push`,
+        SEMGREP,
+      ),
+    },
+    // Push is not QG/jscpd's op: only the commit's landing matters to them.
+    {
+      name: "-C F commit && push from home",
+      ...inMain((_fx, f) => `git -C '${f}' commit -m x && git push`, NOT_SEMGREP),
+    },
+    // Mixed or unprovable landings: every gate runs.
+    {
+      name: "commit && -C M push from F",
+      ...inF((fx) => `git commit -m x && git -C '${fx.main}' push`, NONE),
+    },
+    {
+      name: "-C F commit && -C F2 push",
+      ...inMain((fx, f) => `git -C '${f}' commit -m x && git -C '${otherRepo(fx)}' push`, NONE),
+    },
+    {
+      name: "cd F && commit && -C F2 commit",
+      ...inMain(
+        (fx, f) => `cd '${f}' && git commit -m a && git -C '${otherRepo(fx)}' commit -m b`,
+        NONE,
+      ),
+    },
+    {
+      name: "cd F && commit && cd M && push",
+      ...inMain((fx, f) => `cd '${f}' && git commit -m x && cd '${fx.main}' && git push`, NONE),
+    },
+    {
+      name: "commit && cd F && push",
+      ...inMain((_fx, f) => `git commit -m x && cd '${f}' && git push`, NONE),
+    },
+    {
+      name: "commit && push; commit",
+      ...inF(() => "git commit -m x && git push; git commit -m y", NONE),
+    },
+    {
+      name: "commit && push || push",
+      ...inF(() => "git commit -m x && git push || git push", NONE),
+    },
+    {
+      name: "message text with && -C M push",
+      ...inF((fx) => `git commit -m "a && git -C '${fx.main}' push here"`, NONE),
+    },
+    {
+      name: "two worktrees of F, -C tail",
+      ...inMain(
+        (_fx, f) => `git -C '${f}' commit -m x && git -C '${linkedWorktree(f)}' push`,
+        NONE,
+      ),
+    },
+    {
+      name: "two worktrees of F, two commits",
+      ...inMain(
+        (_fx, f) => `git -C '${f}' commit -m a && git -C '${linkedWorktree(f)}' commit -m b`,
+        NONE,
+      ),
+    },
+    {
+      name: "submodule chain",
+      ...inMain((fx) => `cd '${addSubmodule(fx)}' && git commit -m x && git push`, NONE),
+    },
+    {
+      name: "--git-dir head",
+      ...inMain((_fx, f) => `git --git-dir='${f}/.git' commit -m x && git push`, NONE),
+    },
+    { name: "commit && push in home", ...inMain(() => "git commit -m x && git push", NONE) },
+    {
+      name: "commit && push in a home worktree",
+      skips: NONE,
+      build: (fx) => ({ command: "git commit -m x && git push", payloadCwd: fx.worktree }),
+    },
+    ...hostileTails.map(([name, tail]): ChainRow => ({
+      name: `commit && ${name} from F`,
+      ...inF((fx) => `git commit -m x && ${tail(fx)}`, NONE),
+    })),
+  ];
+
+  for (const id of GATES) {
+    for (const row of rows) {
+      const stands = row.skips.includes(id);
+      it(`${id}: ${stands ? "skips" : "still gates"} \`${row.name}\``, () => {
+        const out = acrossShells((shell) => homeRun(shell, id, row.build));
+        expect(out.skipped).toBe(stands);
+        if (stands) {
+          // No stdout leak under either shell (a redeclared `local` prints in zsh).
+          expect(out.run.stdout).toBe("");
+          expect(out.run.status).toBe(0);
+          expect(out.scans).toBe(0);
+        } else if (id === "quality-gate") {
+          expect(out.run.stderr).toContain("running quality-gate fast");
+        }
+      });
+    }
+  }
+});
