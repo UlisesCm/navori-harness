@@ -4062,8 +4062,24 @@ rm_tmp='/private(/tmp)?|/tmp'         # scratch root: the root itself, never a c
 # rule read `rm -rf "/"` as "root, then a character that is not the end of the
 # segment" and returned 0. `rm_quote` appears on BOTH sides of the target below.
 rm_end="/?${rm_quote}([[:space:]]|\$)"  # optional trailing `/`, closing quote, end
+#    A VARIABLE target blocks only with a RECURSIVE flag (spec 0039 R23/R24): a
+#    plain `rm -f "$TMPDIR/x"` deletes one file and is everyday cleanup, while
+#    `rm -rf "$X"` can erase a tree. `rm_rec` is `rm_kill` narrowed to r/R (the
+#    long `--recursive` was already rewritten to `-r`, combined `-rf`/`-fr` match
+#    the class). Root, home and tmp keep the broader r/R/f flag run, unchanged.
+rm_rec='-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+'
+rm_run_rec="(^|[[:space:]])rm[[:space:]]+(${rm_arg})*${rm_rec}(${rm_arg})*"
+# GNU `rm` also accepts options AFTER the operands, so the recursive flag may
+# follow the variable (`rm -f $X -r`, `rm $X -rf`). `--` is not special-cased:
+# a `-r` token after it is treated as recursive too, the safe side (`rm -f --
+# -r $X` blocks, as it did before).
+rm_run_post="(^|[[:space:]])rm[[:space:]]+(${rm_arg})*${rm_quote}${rm_var}[^<>&[:space:]]*[[:space:]]+(${rm_arg})*-[a-zA-Z]*[rR][a-zA-Z]*([[:space:]]|\$)"
 if printf '%s' "$segments_rm" \
-  | grep -qE "${rm_run}${rm_quote}(${rm_var}|(${rm_home}|${rm_root}|${rm_tmp})${rm_end})"; then
+  | grep -qE "${rm_run}${rm_quote}((${rm_home}|${rm_root}|${rm_tmp})${rm_end})" \
+  || printf '%s' "$segments_rm" \
+  | grep -qE "${rm_run_rec}${rm_quote}${rm_var}" \
+  || printf '%s' "$segments_rm" \
+  | grep -qE "${rm_run_post}"; then
   block "recursive rm over a variable / root / home"
 fi
 
@@ -5596,7 +5612,7 @@ mode=${1:-}
 case "$mode" in
   claude-session-start|codex-session-start) navori_audit_phase="SessionStart" ;;
   claude-post-model-switch) navori_audit_phase="PostModelSwitch" ;;
-  claude-pre-tool-use) navori_audit_phase="PreToolUse" ;;
+  claude-stop) navori_audit_phase="Stop" ;;
   *) navori_audit_phase="unknown" ;;
 esac
 navori_audit_name="model-advisor"
@@ -5897,22 +5913,24 @@ navori_audit_on_exit() {
 }
 trap navori_audit_on_exit EXIT
 
-# Tool events fire inside every subagent too, and a subagent firing can only
-# reach the `agent_id || agent_type` exit below, so its `node` spawn is pure
-# waste. Discard it here with a fork-free substring test: the same condition,
-# `agent_type` included, so a session started with `--agent` keeps behaving as
-# before. It sits after the trap so audit mode still records the firing.
+# `Stop` fires for the main agent, but a session started with `--agent` carries
+# `agent_type`, and any payload with `agent_id` belongs to a subagent: neither
+# can advise, so their `node` spawn is pure waste. Discard it here with a
+# fork-free substring test. It sits after the trap so audit mode still records
+# the firing.
 case "$payload" in *'"agent_id"'* | *'"agent_type"'*) exit 0 ;; esac
 
-# Second layer of the same guard, for main-thread tool events. The only decision
-# input that can change mid-session is the effort, and Claude hands it to the
-# shell for free in `$CLAUDE_EFFORT`; there is no `$CLAUDE_MODEL`, so the model
-# keeps coming from the session state that `node` writes once per lifecycle
-# event. That asymmetry is what lets the shell answer alone: the same `node` run
-# leaves a sentinel naming what is already settled, and a non-candidate tuple
-# stops paying a spawn per tool call while `medium` -> `high` stays detectable.
+# Second layer of the same guard, for the main-thread `Stop` event (spec 0039
+# R27: it used to ride `PreToolUse(.*)`, a spawn per tool call; now it runs once
+# per finished turn). The only decision input that can change mid-session is the
+# effort, and Claude hands it to the shell for free in `$CLAUDE_EFFORT`; there
+# is no `$CLAUDE_MODEL`, so the model keeps coming from the session state that
+# `node` writes once per lifecycle event. That asymmetry is what lets the shell
+# answer alone: the same `node` run leaves a sentinel naming what is already
+# settled, and a non-candidate tuple stops paying a spawn per turn while
+# `medium` -> `high` stays detectable.
 # See `claude-effort-env` and `claude-no-model-env` in host-contracts.ts.
-if [ "$mode" = "claude-pre-tool-use" ]; then
+if [ "$mode" = "claude-stop" ]; then
   # Parameter expansion only: no fork, and no dependency on optional `jq`.
   # A payload without the key leaves the path empty and falls through to `node`.
   navori_scratchpad=""
@@ -6023,10 +6041,15 @@ if (mode === "claude-session-start" || mode === "claude-post-model-switch") {
   process.exit(0);
 }
 
-if (mode !== "claude-pre-tool-use") process.exit(0);
+if (mode !== "claude-stop") process.exit(0);
 const state = readState();
 if (!state || state.notified) process.exit(0);
-const effort = payload.effort && typeof payload.effort.level === "string" ? payload.effort.level : null;
+// `Stop` carries `effort.level` when the model has an effort parameter; the
+// host exports the same level as `$CLAUDE_EFFORT`, which covers a payload
+// without the field.
+const envEffort = process.env.CLAUDE_EFFORT || null;
+const effort =
+  payload.effort && typeof payload.effort.level === "string" ? payload.effort.level : envEffort;
 const isFable = state.model === "claude-fable-5";
 const isHighOpus = /opus/i.test(state.model) && ["high", "xhigh", "max"].includes(effort);
 if (!isFable && !isHighOpus) process.exit(0);
@@ -10916,7 +10939,16 @@ done
 is_blank() { ! grep -q '[^[:space:]]' "$1" 2>/dev/null; }
 
 problems=""
-note() { problems="${problems}${problems:+; }$1"; }
+# Spec 0039 R26: the stamp identifies a report by (path, content), not by the
+# problem text alone. `navori_fingerprint` accumulates one POSIX `cksum` of each
+# flagged file (`$f`, set by every caller before `note`), so the SAME handoff
+# reported twice is one warning, while a rewrite that still has the same problem
+# is news and warns again. `cksum` reads the file once, no fork beyond itself.
+navori_fingerprint=""
+note() {
+  problems="${problems}${problems:+; }$1"
+  navori_fingerprint="${navori_fingerprint}$(cksum <"${f:-/dev/null}" 2>/dev/null | tr ' ' '-');"
+}
 
 # Spec 0035 D2 owns Claude/Codex subagent normalization and the single stdin
 # drain through extract-cmd; this hook must not grow a second payload parser.
@@ -11092,7 +11124,8 @@ fi
 navori_handoff_prev=""
 { IFS= read -r navori_handoff_prev <"$navori_handoff_stamp"; } 2>/dev/null ||
   navori_handoff_prev=""
-if [ "$navori_handoff_prev" = "$problems" ]; then
+navori_handoff_sig="${problems}|${navori_fingerprint}"
+if [ "$navori_handoff_prev" = "$navori_handoff_sig" ]; then
   navori_audit_verdict="repeat"
   navori_audit_reason="$problems"
   exit 0
@@ -11119,7 +11152,7 @@ if [ -z "$output" ] && command -v jq >/dev/null 2>&1; then
   fi
 fi
 if [ -n "$output" ] && printf '%s\n' "$output"; then
-  printf '%s\n' "$problems" >"$navori_handoff_stamp" 2>/dev/null || true
+  printf '%s\n' "$navori_handoff_sig" >"$navori_handoff_stamp" 2>/dev/null || true
 fi
 navori_audit_verdict="dirty"
 navori_audit_reason="$problems"

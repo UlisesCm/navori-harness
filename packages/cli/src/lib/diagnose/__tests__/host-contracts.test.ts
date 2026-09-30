@@ -81,6 +81,14 @@ describe("host contracts registry (#647)", () => {
     }
   });
 
+  // Covers: R27
+  it("the model-advisor contract names Stop, not PreToolUse, as the effort source", () => {
+    const c = HOST_CONTRACTS.find((x) => x.id === "claude-model-advisor-payload");
+    expect(c?.claim).toContain("Stop includes `effort.level`");
+    expect(c?.claim).not.toContain("PreToolUse");
+    expect(c?.enforcedBy).toContain("claude-stop");
+  });
+
   it("ids are unique and resolvable", () => {
     const ids = HOST_CONTRACTS.map((c) => c.id);
     expect(new Set(ids).size).toBe(ids.length);

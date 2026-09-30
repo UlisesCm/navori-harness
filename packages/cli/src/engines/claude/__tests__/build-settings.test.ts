@@ -236,9 +236,14 @@ describe("buildClaudeSettings — base shape", () => {
     expect(JSON.stringify(s)).not.toContain("precompact-session-summary");
   });
 
-  it("does NOT register the Stop hook unless config.hooks.verifyOnStop is set", () => {
+  // Covers: R27
+  it("does NOT register the Stop verify hook unless config.hooks.verifyOnStop is set", () => {
     const s = buildClaudeSettings(MINIMAL_CONFIG, []);
-    expect((s.hooks as { Stop?: unknown }).Stop).toBeUndefined();
+    const stop = (s.hooks as { Stop?: Array<{ hooks: Array<{ command: string }> }> }).Stop ?? [];
+    const commands = stop.flatMap((b) => b.hooks.map((h) => h.command));
+    expect(commands.some((c) => c.includes("stop-verify-reminder.sh"))).toBe(false);
+    // model-advisor rides Stop regardless of verifyOnStop (spec 0039 R27).
+    expect(commands.some((c) => c.includes("model-advisor.sh"))).toBe(true);
   });
 
   it("registers the Stop verify-before-done hook when config.hooks.verifyOnStop is true", () => {
