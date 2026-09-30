@@ -10,8 +10,7 @@ instalados.
 `01f3ac97` = `HEAD`. Anclas = archivo + símbolo, id de bloque managed o encabezado. Rutas
 `commands/`, `lib/` y `engines/` son relativas a `packages/cli/src/`; `core-assets/` a
 `packages/core/`.
-**Absorbe** el diseño de la 0038 (`specs/0038-aprendizajes-curso-harness/design.md`, en el checkout
-principal) y su challenge. Sus decisiones D1–D11 se conservan para B, C, D e I (R46–R47) con los
+**Absorbe** el diseño de la 0038 ([`specs/0038-aprendizajes-curso-harness/design.md`](../0038-aprendizajes-curso-harness/design.md)) y su challenge. Sus decisiones D1–D11 se conservan para B, C, D e I (R46–R47) con los
 R-ids renumerados; los únicos cambios son los que exige R28 (D5). **R45 está retirado** en
 requirements.md (B3) y no tiene componente.
 
