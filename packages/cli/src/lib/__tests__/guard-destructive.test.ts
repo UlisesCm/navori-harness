@@ -290,6 +290,24 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
     { cmd: "rm -rf $PATH", blocked: true, why: "variable indirection" },
     { cmd: 'rm -rf "$BUILD_DIR"', blocked: true, why: "quoted variable" },
     { cmd: "PATH=/; rm -rf $PATH", blocked: true, why: "variable indirection, compound" },
+    // Covers: R23, R24 — a variable target needs a recursive flag to block.
+    { cmd: 'rm -f "$TMPDIR/x"', blocked: false, why: "R23, -f on one variable file" },
+    { cmd: 'rm --force "$X"', blocked: false, why: "R23, --force without recursion" },
+    { cmd: 'rm -f "$X"/*', blocked: false, why: "R23, -f over a variable glob" },
+    { cmd: "rm -f $HOME/*", blocked: false, why: "R23, -f over $HOME glob" },
+    { cmd: 'rm -rf "$SCRATCH"', blocked: true, why: "R24, -rf on a variable" },
+    { cmd: "rm -fr $X", blocked: true, why: "R24, -fr on a variable" },
+    { cmd: "rm -r $X", blocked: true, why: "R24, -r on a variable" },
+    { cmd: "rm --recursive $X", blocked: true, why: "R24, --recursive on a variable" },
+    { cmd: "rm -f /etc/x", blocked: true, why: "R24, system root is unchanged by -f" },
+    // Covers: R24 — GNU rm takes options after operands; the flag may trail the variable.
+    { cmd: "rm -f $X -r", blocked: true, why: "R24, -r after the variable" },
+    { cmd: "rm -f $X -R", blocked: true, why: "R24, -R after the variable" },
+    { cmd: 'rm -f "$X" --recursive', blocked: true, why: "R24, --recursive after quoted variable" },
+    { cmd: "rm -f $X/sub -r", blocked: true, why: "R24, -r after a variable subpath" },
+    { cmd: "rm $X -rf", blocked: true, why: "R24, combined cluster after the variable" },
+    { cmd: "rm -f -- -r $X", blocked: true, why: "R24, -r token after `--` stays blocked" },
+    { cmd: "rm -f $X -- y", blocked: false, why: "R23, no recursive option anywhere" },
     // #655 — `git rm --cached` rewrites the INDEX and deletes nothing. It is
     // also the fix `doctor` prescribes for an ephemeral that stayed tracked
     // (#646), so blocking it made the harness refuse its own advice the moment
@@ -880,12 +898,26 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
       expect(EVERYDAY.length).toBeGreaterThan(1);
     });
 
+    // Covers: R23, R24 — a VARIABLE target blocks only with a recursive flag; a
+    // force-only spelling (`-f`, `--force`) over a variable is everyday cleanup.
+    const isForceOnly = (flags: string): boolean =>
+      !/(^|\s)(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)(\s|$)/.test(flags);
     const BLOCKED = RM_FLAGS.flatMap(({ flags, why }) =>
-      SENSITIVE.map((target) => ({ cmd: `rm ${flags} ${target}`, why })),
+      SENSITIVE.filter((t) => !(t.includes("$") && isForceOnly(flags))).map((target) => ({
+        cmd: `rm ${flags} ${target}`,
+        why,
+      })),
     );
     it.each(BLOCKED)("blocks `$cmd` ($why)", ({ cmd }) => {
       expect(runGuard(cmd)).toBe(2);
     });
+
+    it.each(RM_FLAGS.filter(({ flags }) => isForceOnly(flags)))(
+      "allows force-only `rm $flags` over a variable (R23)",
+      ({ flags }) => {
+        expect(runGuard(`rm ${flags} "$BUILD_DIR"`)).toBe(0);
+      },
+    );
 
     const ALLOWED = RM_FLAGS.flatMap(({ flags, why }) =>
       EVERYDAY.map((target) => ({ cmd: `rm ${flags} ${target}`, why })),
