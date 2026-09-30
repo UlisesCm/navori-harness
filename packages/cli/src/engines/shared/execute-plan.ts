@@ -138,6 +138,31 @@ export interface SkippedFile {
   status?: SkipStatus;
 }
 
+/**
+ * A core agent/skill file that already existed without a navori marker and was
+ * adopted by name (#1114). Surfaced as a warning by the engines (dry run and
+ * apply); the backup path is only known after `commitWrites`.
+ */
+export interface CollisionNotice {
+  relPath: string;
+  overwrittenKeys: string[];
+}
+
+/** Localized collision warnings; `backupPath` is null in a dry run. */
+export function collisionWarnings(
+  collisions: readonly CollisionNotice[],
+  backupPath: string | null,
+  lang: Lang,
+): string[] {
+  return collisions.map((c) =>
+    tc(lang).engine.markerlessCollision(
+      c.relPath,
+      c.overwrittenKeys,
+      backupPath === null ? null : join(backupPath, c.relPath),
+    ),
+  );
+}
+
 export interface PendingWrite {
   path: string;
   relPath: string;
@@ -169,11 +194,14 @@ export function collectPlan(
   skipped: ExecuteResult["skipped"];
   /** Orphan-scan matches that were NOT removed, with why (spec 0026 T10). */
   kept: KeptOrphan[];
+  /** Marker-less existing core agent/skill files navori will adopt (#1114). */
+  collisions: CollisionNotice[];
 } {
   const prune = options.prune !== false;
   const skipReason = options.skipReason ?? makeDefaultSkipReason(options.lang ?? DEFAULT_LANG);
   const pending: PendingWrite[] = [];
   const skipped: ExecuteResult["skipped"] = [];
+  const collisions: CollisionNotice[] = [];
 
   const requests: PlacementRequest[] = [];
   for (const agent of plan.agents) {
@@ -192,13 +220,13 @@ export function collectPlan(
   // agents/skills (e.g. Codex's AGENTS.md agent catalog) see the full set.
   requests.push(...adapter.extraFiles(ctx));
 
-  for (const req of requests) collectRequest(req, ctx, pending, skipped, skipReason);
+  for (const req of requests) collectRequest(req, ctx, pending, skipped, skipReason, collisions);
 
   const { removals, kept } = prune
     ? collectOrphans(adapter.orphanScans(plan, ctx), ctx.cwd)
     : { removals: [], kept: [] };
 
-  return { pending, removals, skipped, kept };
+  return { pending, removals, skipped, kept, collisions };
 }
 
 export function executePlan(
@@ -244,6 +272,7 @@ function collectRequest(
   pending: PendingWrite[],
   skipped: ExecuteResult["skipped"],
   skipReason: SkipReason,
+  collisions: CollisionNotice[],
 ): void {
   const path = join(ctx.cwd, req.destRelPath);
   let content: string;
@@ -281,6 +310,13 @@ function collectRequest(
     });
     content = result.content;
     status = result.status;
+    // Core assets only: the plugin path above already refuses foreign files.
+    if (result.collision && !req.meta?.source.startsWith("@navori/plugin-")) {
+      collisions.push({
+        relPath: req.destRelPath,
+        overwrittenKeys: result.collision.overwrittenKeys,
+      });
+    }
     // marker.ts reports "no version attribute" as null; the skip-reason
     // formatters take undefined for the same "unknown version" case.
     existingVersion = result.details?.existingVersion ?? undefined;

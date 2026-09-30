@@ -40,6 +40,7 @@ import {
 } from "../shared/harness-plan.ts";
 import {
   collectPlan,
+  collisionWarnings,
   commitWrites,
   type AdapterCtx,
   type EngineAdapter,
@@ -196,7 +197,7 @@ export function renderCodexEngine(
   // appended as a managed sub-block BEFORE the single write — mirroring the
   // Claude adapter, but into Codex's `.agents/skills/<id>/SKILL.md` and adapted
   // to Codex's vocabulary. (skill→agent injectInto is handled in buildAgentToml.)
-  const { pending, removals, skipped, kept } = collectPlan(plan, adapter, ctx, {
+  const { pending, removals, skipped, kept, collisions } = collectPlan(plan, adapter, ctx, {
     prune: presetLoadedSafely,
     lang,
   });
@@ -312,6 +313,8 @@ export function renderCodexEngine(
     engineLabel: adapter.label ?? adapter.id,
     lang,
   });
+  // #1114: after commitWrites so the backup path is known (null in a dry run).
+  warnings.push(...collisionWarnings(collisions, backupPath, lang));
 
   return {
     written,

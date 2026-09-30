@@ -1131,6 +1131,10 @@ interface EngineCmdStrings {
   /** R39/R41 (spec 0026 T10): a Codex orphan-scan match kept, with its reason
    *  — Codex's own version of the Claude engine's retired-asset report. */
   keptOrphanCodex: (path: string, reason: KeepReason) => string;
+  /** #1114: navori adopts an existing agent/skill file that carries no navori
+   *  marker; `keys` = frontmatter keys it overwrites, `backup` = the copy taken
+   *  (null in a dry run). */
+  markerlessCollision: (path: string, keys: readonly string[], backup: string | null) => string;
   codexResidualPluginHook: (path: string) => string;
   claudeResidualPluginHook: (path: string) => string;
   codexPluginScriptChanged: (path: string) => string;
@@ -2642,6 +2646,13 @@ const CMD_ES: CmdStrings = {
     localSkillForeignCodex: (destRelPath) =>
       `'${destRelPath}' no lo escribió navori; se conserva intacto. Bórralo para recibir el ` +
       `puntero generado hacia .claude/skills/<id>/SKILL.md.`,
+    markerlessCollision: (path, keys, backup) =>
+      `${path} ya existía sin marcador de navori: navori lo adopta por nombre. ` +
+      (keys.length > 0
+        ? `Sobrescribe las keys de frontmatter: ${keys.join(", ")}. `
+        : "No sobrescribe keys de frontmatter existentes. ") +
+      "Tu cuerpo y las keys ajenas se conservan." +
+      (backup === null ? "" : ` Respaldo del original: ${backup}`),
     keptOrphanCodex: (path, reason) =>
       `conservado ${path} — ` +
       (reason === "newer"
@@ -3995,6 +4006,13 @@ const CMD_EN: CmdStrings = {
     localSkillForeignCodex: (destRelPath) =>
       `'${destRelPath}' wasn't written by navori; kept intact. Delete it to receive the ` +
       `generated pointer to .claude/skills/<id>/SKILL.md.`,
+    markerlessCollision: (path, keys, backup) =>
+      `${path} already existed without a navori marker: navori adopts it by name. ` +
+      (keys.length > 0
+        ? `It overwrites the frontmatter keys: ${keys.join(", ")}. `
+        : "It overwrites no existing frontmatter keys. ") +
+      "Your body and unrelated keys are preserved." +
+      (backup === null ? "" : ` Original backed up at: ${backup}`),
     keptOrphanCodex: (path, reason) =>
       `kept ${path} — ` +
       (reason === "newer"
