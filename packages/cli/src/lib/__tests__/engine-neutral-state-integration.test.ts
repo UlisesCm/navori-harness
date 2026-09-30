@@ -168,6 +168,14 @@ describe("Spec 0036 engine-neutral state integration", () => {
     expect(readFileSync(join(main, ".codex/progress/impl_old.json"), "utf8")).toBe("{}\n");
     expect(readFileSync(oldStamp, "utf8")).toBe("#notified\n");
 
+    // The receipt signs every path that differs from origin/main and spawns git per
+    // path. Land the rendered tree first so only the README edit below is signed: the
+    // receipt assertions (status, feature mismatch, consumed) don't depend on the
+    // rendered files, and this cut the sign/check phase from ~3.4s to well under 1s
+    // (#1106: 4 checkReceipt + 1 signReceipt spawned git for every rendered file).
+    git(main, "add", "-A");
+    git(main, "commit", "-m", "rendered tree");
+    git(main, "push", "origin", "main");
     writeFileSync(join(main, "README"), "changed\n");
     const receipt = signReceipt({
       cwd: main,

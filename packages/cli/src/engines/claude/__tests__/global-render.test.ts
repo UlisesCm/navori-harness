@@ -913,10 +913,21 @@ describe("global-render — probeGate executes the hook (#543)", () => {
   });
 
   it("leaves no probe directories behind", () => {
-    const before = readdirSync(tmpdir()).filter((n) => n.startsWith("navori-gate-")).length;
-    probeGate(installHook().path);
-    const after = readdirSync(tmpdir()).filter((n) => n.startsWith("navori-gate-")).length;
-    expect(after).toBe(before);
+    // Count inside a private TMPDIR: the shared os tmpdir also receives
+    // `navori-gate-*` dirs from any concurrent gate/worktree, so a before/after
+    // count there flaked under load (#1106).
+    const hook = installHook().path;
+    const privateTmp = mkdtempSync(join(tmpdir(), "navori-probe-count-"));
+    const savedTmp = process.env.TMPDIR;
+    process.env.TMPDIR = privateTmp;
+    try {
+      probeGate(hook);
+      expect(readdirSync(privateTmp).filter((n) => n.startsWith("navori-gate-"))).toEqual([]);
+    } finally {
+      if (savedTmp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = savedTmp;
+      rmSync(privateTmp, { recursive: true, force: true });
+    }
   });
 });
 
