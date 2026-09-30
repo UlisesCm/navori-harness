@@ -8813,8 +8813,16 @@ fi
 if [ "$run_needed" = 1 ] && [ -n "$cmd" ]; then
   navori_commit_landing "$cmd"
   if [ "$navori_landing" = foreign ]; then
-    navori_audit_skip_reason="el commit va a otro repositorio; el gate de este repo no aplica"
+    navori_audit_skip_reason="el commit va a otro repositorio ($navori_landing_root); el gate de este repo no aplica"
     echo "[navori] quality-gate NOT run: this commit lands in another repository ($navori_landing_root), not the one this hook protects. That repository's own gate is not run from here." >&2
+    # Detect, never run: the destination's config is data. File existence plus a
+    # jq type check only; without jq (or on invalid JSON) this degrades to the
+    # message above, never to a failure.
+    if [ -f "$navori_landing_root/navori.config.json" ] && command -v jq >/dev/null 2>&1 \
+      && jq -e '(.qualityGate.fast | type) == "string" and (.qualityGate.fast | length) > 0' "$navori_landing_root/navori.config.json" >/dev/null 2>&1; then
+      navori_audit_skip_reason="el commit va a otro repositorio ($navori_landing_root); su qualityGate.fast propio NO se ejecuto"
+      echo "[navori] The destination repository declares its own qualityGate.fast in navori.config.json; it was NOT executed. Run it there before relying on this commit." >&2
+    fi
     exit 0
   fi
 fi

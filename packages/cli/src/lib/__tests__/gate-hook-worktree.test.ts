@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   mkdtempSync,
   mkdirSync,
+  existsSync,
   writeFileSync,
   chmodSync,
   readFileSync,
@@ -693,6 +694,89 @@ describe.runIf(runsBash)(
         })),
       );
       expect(out.run.stderr).toContain("quality-gate NOT run");
+    });
+
+    // #1097 — the skip names the destination and says whether ITS gate exists.
+    // The destination's config is data: detected, never executed.
+    const hasJq = spawnSync("jq", ["--version"], { env: { PATH: BASE_PATH } }).status === 0;
+
+    /** Foreign commit with `configText` (or no config) in the destination; returns
+     * stderr, the audit `skip` reason and whether the sentinel file was created. */
+    function foreignGateRun(
+      shell: HookShell,
+      configText: string | null,
+    ): { status: number | null; stderr: string; reason: string; sentinel: boolean } {
+      const fx = setupFixture(1);
+      const f = addForeignRepo(fx);
+      if (configText !== null) writeFileSync(join(f, "navori.config.json"), configText);
+      const auditsRoot = realpathSync(mkdtempSync(join(tmpdir(), "navori-1097-audits-")));
+      const repoDir = join(auditsRoot, basename(fx.main));
+      mkdirSync(repoDir);
+      const log = join(repoDir, "session-s1.log");
+      writeFileSync(log, `${JSON.stringify({ event: "start" })}\n`);
+      const r = spawnSync(shell, [fx.hooks["quality-gate"]], {
+        cwd: fx.main,
+        input: JSON.stringify({
+          session_id: "s1",
+          cwd: fx.main,
+          tool_input: { command: `cd '${f}' && git commit -m x` },
+        }),
+        encoding: "utf-8",
+        env: {
+          PATH: `${fx.binDir}:${BASE_PATH}`,
+          CLAUDE_PROJECT_DIR: fx.main,
+          NAVORI_AUDITS_ROOT: auditsRoot,
+        },
+      });
+      const events = readFileSync(log, "utf-8")
+        .split("\n")
+        .filter(Boolean)
+        .map((l) => JSON.parse(l) as { verdict?: string; reason?: string });
+      const skip = events.find((e) => e.verdict === "skip");
+      return {
+        status: r.status,
+        stderr: scrub(fx, r.stderr),
+        reason: scrub(fx, skip?.reason ?? ""),
+        sentinel: existsSync(join(f, "SENTINEL")) || existsSync(join(fx.main, "SENTINEL")),
+      };
+    }
+
+    it.runIf(hasJq)("names the destination and says its own gate was NOT run", () => {
+      const out = acrossShells((shell) =>
+        foreignGateRun(shell, JSON.stringify({ qualityGate: { fast: "bun lint" } })),
+      );
+      expect(out.status).toBe(0);
+      expect(out.reason).toContain("<FOREIGN>");
+      expect(out.reason).toContain("qualityGate.fast propio NO se ejecuto");
+      expect(out.stderr).toContain("declares its own qualityGate.fast");
+      expect(out.stderr).toContain("NOT executed");
+    });
+
+    it.runIf(hasJq)("names the destination only when it has no config", () => {
+      const out = acrossShells((shell) => foreignGateRun(shell, null));
+      expect(out.status).toBe(0);
+      expect(out.reason).toContain("<FOREIGN>");
+      expect(out.reason).not.toContain("qualityGate.fast");
+      expect(out.stderr).not.toContain("declares its own");
+    });
+
+    it.runIf(hasJq)("degrades on an invalid or gate-less destination config", () => {
+      for (const cfg of ["{ not json", "{}", JSON.stringify({ qualityGate: { fast: 5 } })]) {
+        const out = acrossShells((shell) => foreignGateRun(shell, cfg));
+        expect(out.status).toBe(0);
+        expect(out.reason).toContain("<FOREIGN>");
+        expect(out.stderr).not.toContain("declares its own");
+      }
+    });
+
+    it.runIf(hasJq)("never executes a destination fast containing `;` or `$()`", () => {
+      const fast = "touch SENTINEL; $(touch SENTINEL) && `touch SENTINEL`";
+      const out = acrossShells((shell) =>
+        foreignGateRun(shell, JSON.stringify({ qualityGate: { fast } })),
+      );
+      expect(out.status).toBe(0);
+      expect(out.sentinel).toBe(false);
+      expect(out.stderr).toContain("NOT executed");
     });
 
     // Every shape below must still RUN the gate: either it lands in the anchor
