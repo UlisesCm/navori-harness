@@ -215,7 +215,14 @@ navori_worktree() {
 # #1095 rule (payload-cwd repo, widened by the raw `CLAUDE_PROJECT_DIR` repo, which
 # can only turn `foreign` into `same-repo`) and a command without `cd`/`-C` is
 # `same-repo` with no fork. "commit" below means the one gated op.
-navori_commit_re='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)'
+#
+# The gated op (#1098) is whatever the caller's $TRIGGER_RE counts: `git commit`
+# for QG and jscpd, plus `git push` and `gh pr create` for semgrep. The walk
+# matches that same regex, so there is no second copy to drift. `gh pr create`
+# lands in the cwd's repo unless it names another one (`-R`/`--repo`/`GH_REPO`),
+# which is `ambiguous` (the scan runs).
+# Ceiling (#1115): several gated ops in one call (`git commit && git push`)
+# stay `ambiguous`.
 
 # Reads one shell token off the front of $1 into `navori_tok` / `navori_rest`.
 # Returns 1 for anything the shell would expand or that is malformed, so the
@@ -252,7 +259,7 @@ navori_take_token() {
 
 navori_commit_landing() {
   local c rest seg first tailtxt p arg dir base pcwd top sub id_l id_a id_h
-  local cd_dir="" c_dir="" found=0 more=1 cdcount=0 nc=0 rel=0 nl=$'\n'
+  local cd_dir="" c_dir="" found=0 more=1 cdcount=0 nc=0 rel=0 isgh=0 nl=$'\n'
   navori_landing="ambiguous"; navori_landing_root=""
 
   # A single gated op only: a second commit (or, in semgrep, a push) makes the
@@ -276,8 +283,8 @@ navori_commit_landing() {
     seg="${seg#"${seg%%[![:space:]]*}"}"
     first="${seg%%"$nl"*}"
     case "$first" in
-      git[[:space:]]*)
-        if printf '%s' "$first" | grep -qE "$navori_commit_re"; then found=1; break; fi
+      git[[:space:]]*|gh[[:space:]]*)
+        if printf '%s' "$first" | grep -qE "$TRIGGER_RE"; then found=1; break; fi
         ;;
     esac
     case "$seg" in *"$nl"*) return 0 ;; esac
@@ -301,14 +308,29 @@ navori_commit_landing() {
   done
   [ "$found" = 1 ] || return 0
 
-  # The commit segment's own global options, positionally. Text after `commit`
-  # (the message) is never read.
-  p="${first#git}"
-  while :; do
+  case "$first" in
+  gh[[:space:]]*)
+    # `gh pr create`: no global -C, so it lands where the cwd (or the `cd`) is —
+    # unless it names another repo, which the parser will not follow. Any `-R` or
+    # `--repo` anywhere in the segment (message text included) reads as ambiguous.
+    p="${first#gh}"
+    navori_take_token "$p" || return 0
+    [ "$navori_tok" = pr ] || return 0
+    navori_take_token "$navori_rest" || return 0
+    [ "$navori_tok" = create ] || return 0
+    case "$seg" in *'-R'*|*'--repo'*) return 0 ;; esac
+    [ -z "${GH_REPO:-}" ] || return 0
+    isgh=1
+    ;;
+  *) p="${first#git}" ;;
+  esac
+  # The gated segment's own git global options, positionally. Text after
+  # `commit`/`push` (the message) is never read; a gh segment was validated above.
+  while [ "$isgh" = 0 ]; do
     navori_take_token "$p" || return 0
     arg="$navori_tok"; p="$navori_rest"
     case "$arg" in
-      commit) break ;;
+      commit|push) break ;;
       -C)
         [ "$nc" = 0 ] || return 0
         nc=1
