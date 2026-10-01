@@ -138,6 +138,10 @@ skill project-local → preset local → plugin → core) — ahí el bloque alw
 es el escalón más caro y último, no el primero. Los dos ejes no se mezclan: uno decide
 qué mecanismo usar, el otro dónde vive el conocimiento una vez elegido el mecanismo.
 
+Claude primero, nativo primero: una unidad se queda solo si el host no entrega ya esa
+capacidad, y la matriz tipada es la fuente de esa decisión, no la prosa. La tabla
+generada vive en [`native-overlap.md`](native-overlap.md).
+
 Para un servidor MCP en particular, gana su slot solo si se cumplen **las dos**
 condiciones: (1) **universal** — aplica a prácticamente cualquier sesión, no a un caso
 de nicho; (2) **MCP le gana a un CLI/API envuelto en skill** — el trabajo necesita algo
