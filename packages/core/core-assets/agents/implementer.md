@@ -4,7 +4,7 @@ description: Implements ONE scoped task with its tests, respects CLAUDE.md conve
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: {{models.implementer}}
 effort: {{effort.implementer}}
-maxWords: 2391
+maxWords: 2433
 ---
 
 # Implementer Agent
@@ -155,9 +155,12 @@ Write `.navori/state/handoffs/impl_<feature>.json` — the only artifact you pro
   "markdownRequests": [
     { "path": "<repo-relative .md/.mdx path>", "intent": "<what to change and why>", "evidence": "<file:line or commit that backs it>" }
   ],
+  "doubts": [],
   "blockers": []
 }
 ```
+
+`doubts` is optional: declare one `{ "file": "<path>", "reason": "<why you are unsure>" }` entry per spot where you are unsure the change is right, so the reviewer answers it.
 
 `markdownRequests` carries every piece of prose your task needs — your own non-obvious decisions, a CONTRIBUTING/README update, a spec task checkbox, a skill or agent tweak. State the `intent` and the `evidence`; never the finished sentence — drafting the prose from that intent is the `scribe`'s job, not yours. Empty array when the task touches no Markdown at all.
 
