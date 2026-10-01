@@ -1767,6 +1767,85 @@ export function mineSearchRouting(sessions: readonly MinedSession[]): SearchCoun
   return counts;
 }
 
+// ─── codegraph projectPath vs. session cwd (spec 0039 R32, over R64's data) ──
+
+/** Calls to `codegraph_explore` and the ones whose `projectPath` is not the cwd. */
+export interface CodegraphPathStats {
+  calls: number;
+  mismatched: number;
+  /** Distinct offending paths, capped: the evidence, never a command. */
+  paths: string[];
+}
+
+const MAX_MISMATCH_PATHS = 3;
+
+const trimSlash = (p: string): string => (p.length > 1 ? p.replace(/\/+$/, "") : p);
+
+/**
+ * A `codegraph_explore` call is a mismatch when it passes a `projectPath` that
+ * is not the working directory of the record that issued it. Strict equality
+ * on purpose: another worktree nests INSIDE the repo root, so "is inside cwd"
+ * would hide exactly the case this exists to catch. A call without
+ * `projectPath` is not a mismatch (the server defaults to its own root), and a
+ * record without a cwd falls back to the session's.
+ */
+export function mineCodegraphProjectPaths(sessions: readonly MinedSession[]): CodegraphPathStats {
+  const stats: CodegraphPathStats = { calls: 0, mismatched: 0, paths: [] };
+  for (const s of sessions) {
+    if (!s.transcript || !existsSync(s.transcript)) continue;
+    const files = [s.transcript, ...subagentTranscripts(s.transcript, s.sessionId)];
+    for (const [i, file] of files.entries()) {
+      for (const entry of readJsonl(file) ?? []) {
+        // Same dedupe rule as scanSearchTranscript: the host repeats sidechain
+        // records on the main thread AND under `subagents/`.
+        if (!isJson(entry) || (i === 0 && entry.isSidechain)) continue;
+        const msg = entry.message;
+        if (!isJson(msg) || !Array.isArray(msg.content)) continue;
+        const cwd = typeof entry.cwd === "string" ? entry.cwd : (s.cwd ?? null);
+        for (const block of msg.content as unknown[]) {
+          if (!isJson(block) || block.type !== "tool_use" || block.name !== CODEGRAPH_TOOL)
+            continue;
+          stats.calls++;
+          const target = isJson(block.input) ? block.input.projectPath : undefined;
+          if (typeof target !== "string" || cwd === null) continue;
+          if (trimSlash(target) === trimSlash(cwd)) continue;
+          stats.mismatched++;
+          if (stats.paths.length < MAX_MISMATCH_PATHS && !stats.paths.includes(target)) {
+            stats.paths.push(target);
+          }
+        }
+      }
+    }
+  }
+  return stats;
+}
+
+/** The `codegraph-projectpath-mismatch` signal; empty when every call matched. */
+export function codegraphProjectPathMismatch(stats: CodegraphPathStats, lang: Lang): Signal[] {
+  if (stats.mismatched === 0) return [];
+  return [
+    {
+      kind: "codegraph-projectpath-mismatch",
+      severity: "warn",
+      summary: pick(
+        lang,
+        `${stats.mismatched} de ${stats.calls} llamadas a codegraph usaron un projectPath distinto del cwd`,
+        `${stats.mismatched} of ${stats.calls} codegraph calls used a projectPath different from the cwd`,
+      ),
+      evidence: pick(
+        lang,
+        `Consultan el índice de otro checkout (p. ej. otro worktree): ${stats.paths.join(", ")}.`,
+        `They query another checkout's index (e.g. another worktree): ${stats.paths.join(", ")}.`,
+      ),
+    },
+  ];
+}
+
+/** Flat metrics of the projectPath check, next to the search routing ones. */
+export function flattenCodegraphPaths(stats: CodegraphPathStats): Record<string, number> {
+  return { "codegraph.calls": stats.calls, "codegraph.projectpath.mismatch": stats.mismatched };
+}
+
 function pct(part: number, total: number): number | null {
   return total === 0 ? null : Math.round((1000 * part) / total) / 10;
 }

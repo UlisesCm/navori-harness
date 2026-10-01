@@ -30,6 +30,8 @@ import {
   flattenSearchRouting,
   mineActivation,
   mineSearchRouting,
+  mineCodegraphProjectPaths,
+  flattenCodegraphPaths,
 } from "../lib/audit/signals.ts";
 import type { HarnessCatalog } from "../lib/audit/harness.ts";
 import {
@@ -740,6 +742,7 @@ export const auditCommand = defineCommand({
       extraMetrics: {
         ...(coverageRows.length > 0 ? coverageMetrics(coverageRows) : {}),
         ...flattenSearchRouting(mineSearchRouting(mined)),
+        ...flattenCodegraphPaths(mineCodegraphProjectPaths(mined)),
         ...flattenActivation(mineActivation(mined)),
       },
       repos: audited?.repos.map((r) => ({ repo: r.repo, audited: r.audited, host: r.host })),

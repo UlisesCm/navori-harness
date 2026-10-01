@@ -78,6 +78,7 @@ import {
 import { scanControlGaps } from "../lib/diagnose/control-gaps.ts";
 import { scanDiskUsage, humanBytes } from "../lib/diagnose/disk-usage.ts";
 import { scanMasterPlan } from "../lib/diagnose/master-plan.ts";
+import { codegraphWiringFindings, scanCodegraphWiring } from "../lib/diagnose/codegraph-wiring.ts";
 import { scanNestedWorktrees } from "../lib/workspace/nested-worktrees.ts";
 import { scanGlobalScope, type ManagedPolicyKey } from "../lib/workspace/global-scope.ts";
 import { scanForeignHarness, type ForeignHarnessReport } from "../lib/diagnose/foreign-harness.ts";
@@ -260,6 +261,8 @@ export const doctorCommand = defineCommand({
     // feature flag off, because closed stages can retain confidential raw input.
     // This is advisory only; a warning must not block the repair command.
     const masterPlan = scanMasterPlan(cwd, config);
+    // Spec 0039 R32: informative only (never feeds the verdict); a missing binary is not an error.
+    const codegraphWiring = scanCodegraphWiring(cwd, config);
     // #522: the twin of the size check, and the one that actually costs work.
     // Agent worktrees are full checkouts nested in the repo, so an eslint run
     // started inside one resolves the parent repo's config too and dies with
@@ -424,6 +427,7 @@ export const doctorCommand = defineCommand({
       // this payload already carries an absolute `configPath`.
       diskUsage,
       masterPlan,
+      codegraphWiring,
       // Same reason `diskUsage` is here (#479): a check only a human can read
       // is invisible to the CI job and to the agent parsing the report — and
       // this one explains why that agent's own commit is failing.
@@ -950,6 +954,24 @@ export const doctorCommand = defineCommand({
         }
       });
       p.log.warn(td.masterPlan(masterPlan.length, lines.join("\n")));
+    }
+
+    const codegraphFindings = codegraphWiring ? codegraphWiringFindings(codegraphWiring) : [];
+    if (codegraphFindings.length > 0) {
+      const lines = codegraphFindings.map((f) => {
+        const row =
+          f.kind === "index"
+            ? td.codegraphIndexRow(
+                f.state.kind === "stale" ? `stale (${f.state.reason})` : f.state.kind,
+              )
+            : f.kind === "no-grant"
+              ? td.codegraphNoGrantRow
+              : f.kind === "ungranted-agents"
+                ? td.codegraphUngrantedRow(f.agents.join(", "))
+                : td.codegraphProjectPathRuleRow;
+        return `  ${color.yellow(sym.update)} ${accent("codegraph")}  ${grey(row)}`;
+      });
+      p.log.warn(td.codegraphWiring(codegraphFindings.length, lines.join("\n")));
     }
 
     if (nestedWorktrees) {
