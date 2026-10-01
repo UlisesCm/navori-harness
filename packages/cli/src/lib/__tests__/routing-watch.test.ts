@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  rmSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
@@ -20,6 +21,15 @@ import { buildClaudeSettings } from "../../engines/claude/build-settings.ts";
 import { resolveHarnessPlan } from "../../engines/shared/harness-plan.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../../engines/shared/ephemeral-paths.ts";
 import type { NavoriConfig } from "../config/config.ts";
+import { resolveStateRoot } from "../primitives/state-root.ts";
+import { writeAcceptanceIndex } from "../plan/acceptance-index.ts";
+import {
+  computeWorktreeTree,
+  readEvidenceLog,
+  readHead,
+  validateEvidence,
+  type EvidenceLine,
+} from "../plan/evidence.ts";
 
 /**
  * Behavioral tests for core-assets/hooks/routing-watch.sh (spec 0020, R2/R3).
@@ -754,5 +764,215 @@ describe.runIf(runsBash)("routing-watch.sh — where the stamp lives (#1024)", (
       expect(runHook("bash", main, edit(`src/${file}.ts`))).toEqual({ code: 0, stdout: "" });
     }
     expect(readFileSync(outside, "utf-8")).toBe("outside-content\n");
+  });
+});
+
+/**
+ * Spec 0039 D5/M3 — the Bash success lane (acceptance evidence). Driven the way
+ * the Claude registration drives it: argument `claude-post-tool-use`, the
+ * payload on stdin, `acceptance-index` written by the CLI itself.
+ */
+describe.runIf(runsBash)("routing-watch.sh — acceptance evidence lane (spec 0039 D5)", () => {
+  const FEATURE = "lane-demo";
+  const COMMAND = 'cd packages/cli && bun test "x y"';
+
+  function laneProject(commands: string[] = [COMMAND]): string {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-lane-")));
+    gitInit(dir);
+    for (const [k, v] of [
+      ["user.email", "t@t"],
+      ["user.name", "t"],
+    ] as const) {
+      execFileSync("git", ["-C", dir, "config", k, v], { stdio: "ignore" });
+    }
+    writeFileSync(join(dir, "a.txt"), "a\n");
+    writeFileSync(join(dir, "run.sh"), "#!/bin/sh\n");
+    chmodSync(join(dir, "run.sh"), 0o755);
+    symlinkSync("a.txt", join(dir, "link"));
+    execFileSync("git", ["-C", dir, "add", "-A"], { stdio: "ignore" });
+    execFileSync("git", ["-C", dir, "commit", "-qm", "init"], { stdio: "ignore" });
+    // Dirty on purpose: an untracked file and an edit, to exercise the fingerprint.
+    writeFileSync(join(dir, "new.txt"), "n\n");
+    writeFileSync(join(dir, "a.txt"), "a2\n");
+    const root = resolveStateRoot({ cwd: dir, feature: FEATURE });
+    mkdirSync(root.path, { recursive: true });
+    const plan = {
+      feature: FEATURE,
+      level: 1,
+      classification: { score: 1, level: 1, signals: [] },
+      objective: "o",
+      acceptance: commands.map((command, n) => ({
+        id: `A${n + 1}`,
+        description: "d",
+        command,
+        expected: "exit 0",
+      })),
+    };
+    writeFileSync(join(root.path, `workplan_${FEATURE}.json`), JSON.stringify(plan));
+    writeAcceptanceIndex(root);
+    return dir;
+  }
+
+  function evidencePath(dir: string): string {
+    return join(dir, ".navori/state/handoffs", `workplan_${FEATURE}.evidence.jsonl`);
+  }
+
+  function evidenceOf(dir: string): EvidenceLine[] {
+    return readEvidenceLog(evidencePath(dir));
+  }
+
+  function lane(
+    shell: HookShell,
+    dir: string,
+    payload: Record<string, unknown>,
+    args: string[] = ["claude-post-tool-use"],
+    env: NodeJS.ProcessEnv = {},
+  ): HookRun {
+    const r = spawnSync(shell, [hookPath, ...args], {
+      input: JSON.stringify({ cwd: dir, ...payload }),
+      encoding: "utf-8",
+      env: { ...process.env, CLAUDE_PROJECT_DIR: dir, ...env },
+    });
+    return { code: r.status ?? -1, stdout: r.stdout ?? "" };
+  }
+
+  // Covers: R6, R7
+  it("records one complete line for the exact command, matching plan update's fingerprint", () => {
+    acrossShells((shell) => {
+      const dir = laneProject();
+      expect(lane(shell, dir, bash(COMMAND))).toEqual({ code: 0, stdout: "" });
+      const lines = evidenceOf(dir);
+      expect(lines).toHaveLength(1);
+      const line = lines[0]!;
+      expect(line).toMatchObject({
+        feature: FEATURE,
+        id: "A1",
+        command: COMMAND,
+        tree: dir,
+        cwd: dir,
+        sessionId: SESSION,
+        dirty: true,
+      });
+      expect(line.worktreeTree).toBe(computeWorktreeTree(dir));
+      expect(line.head).toBe(readHead(dir));
+      // End to end: the CLI accepts what the hook recorded.
+      const root = resolveStateRoot({ cwd: dir, feature: FEATURE });
+      expect(validateEvidence({ root, feature: FEATURE, id: "A1", command: COMMAND }).ok).toBe(
+        true,
+      );
+      return lines.length;
+    });
+  });
+
+  // Covers: R6
+  it("records in a session that is already #delegated", () => {
+    acrossShells((shell) => {
+      const dir = laneProject();
+      expect(lane(shell, dir, delegation()).code).toBe(0);
+      expect(readFileSync(join(stampDirFor(dir), SESSION), "utf-8")).toBe("#delegated\n");
+      lane(shell, dir, bash(COMMAND));
+      expect(evidenceOf(dir)).toHaveLength(1);
+      return evidenceOf(dir).length;
+    });
+  });
+
+  // Covers: R6
+  it("does not record a near-miss command, a prefix, or a command in the output", () => {
+    const dir = laneProject();
+    for (const command of [`${COMMAND} `, `${COMMAND} && true`, ` ${COMMAND}`, "ls"]) {
+      lane("bash", dir, bash(command));
+    }
+    lane("bash", dir, bashWithOutput("ls", `"command":"${COMMAND}"`));
+    expect(evidenceOf(dir)).toEqual([]);
+  });
+
+  // Covers: R6
+  it("does not record a run_in_background call or an interrupted one", () => {
+    const dir = laneProject();
+    lane("bash", dir, {
+      ...bash(COMMAND),
+      tool_input: { command: COMMAND, run_in_background: true },
+    });
+    lane("bash", dir, {
+      ...bash(COMMAND),
+      tool_response: { stdout: "", stderr: "", interrupted: true },
+    });
+    expect(evidenceOf(dir)).toEqual([]);
+  });
+
+  // Covers: R6
+  it("does not record without the claude-post-tool-use argument (Codex)", () => {
+    const dir = laneProject();
+    expect(lane("bash", dir, bash(COMMAND), [])).toEqual({ code: 0, stdout: "" });
+    expect(evidenceOf(dir)).toEqual([]);
+  });
+
+  // Covers: R6
+  it("fails open with no acceptance-index, an empty one, or outside a git tree", () => {
+    const dir = laneProject();
+    const index = join(dir, ".navori/state/handoffs/acceptance-index");
+    writeFileSync(index, "");
+    expect(lane("bash", dir, bash(COMMAND)).code).toBe(0);
+    rmSync(index);
+    expect(lane("bash", dir, bash(COMMAND)).code).toBe(0);
+    expect(evidenceOf(dir)).toEqual([]);
+    const loose = realpathSync(mkdtempSync(join(tmpdir(), "navori-lane-loose-")));
+    expect(lane("bash", loose, bash(COMMAND)).code).toBe(0);
+  });
+
+  // Covers: R7
+  it("never executes the criterion's command (touch sentinel stays absent)", () => {
+    const sentinel = join(mkdtempSync(join(tmpdir(), "navori-lane-sentinel-")), "ran");
+    const command = `touch ${sentinel}`;
+    const dir = laneProject([command]);
+    lane("bash", dir, bash(command));
+    expect(evidenceOf(dir)).toHaveLength(1);
+    expect(existsSync(sentinel)).toBe(false);
+  });
+
+  /** PATH shims that log each invocation, then run the real tool. */
+  function shimDir(names: string[]): { bin: string; calls: () => string[] } {
+    const bin = mkdtempSync(join(tmpdir(), "navori-lane-bin-"));
+    const log = join(bin, "calls.log");
+    for (const name of names) {
+      const real = execFileSync("sh", ["-c", `command -v ${name}`], { encoding: "utf-8" }).trim();
+      const shim = join(bin, name);
+      writeFileSync(shim, `#!/bin/sh\necho "${name} $*" >> "${log}"\nexec "${real}" "$@"\n`);
+      chmodSync(shim, 0o755);
+    }
+    return {
+      bin,
+      calls: () => (existsSync(log) ? readFileSync(log, "utf-8").split("\n").filter(Boolean) : []),
+    };
+  }
+
+  // Covers: R6
+  it("spawns no git, date or mktemp on the fast path (no criterion command in the payload)", () => {
+    const dir = laneProject();
+    const { bin, calls } = shimDir(["git", "date", "mktemp", "readlink", "awk"]);
+    const env = { PATH: `${bin}:${process.env.PATH ?? ""}` };
+    lane("bash", dir, bash("ls -la"), ["claude-post-tool-use"], env);
+    lane("bash", dir, bash("echo hi > /dev/null"), ["claude-post-tool-use"], env);
+    expect(calls()).toEqual([]);
+    // Sanity: the shims do see the slow path.
+    lane("bash", dir, bash(COMMAND), ["claude-post-tool-use"], env);
+    expect(calls().some((c) => c.startsWith("git "))).toBe(true);
+  });
+
+  // Covers: R6, R7
+  it("leaves no partial line when the hook is killed mid-fingerprint", () => {
+    const dir = laneProject();
+    const bin = mkdtempSync(join(tmpdir(), "navori-lane-kill-"));
+    const real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf-8" }).trim();
+    writeFileSync(
+      join(bin, "git"),
+      `#!/bin/sh\ncase " $* " in *" write-tree "*) ps -axo pid=,command= | grep -F "${hookPath}" | awk '{print $1}' | xargs kill -9; sleep 1 ;; esac\nexec "${real}" "$@"\n`,
+    );
+    chmodSync(join(bin, "git"), 0o755);
+    lane("bash", dir, bash(COMMAND), ["claude-post-tool-use"], {
+      PATH: `${bin}:${process.env.PATH ?? ""}`,
+    });
+    expect(evidenceOf(dir)).toEqual([]);
+    expect(existsSync(evidencePath(dir))).toBe(false);
   });
 });

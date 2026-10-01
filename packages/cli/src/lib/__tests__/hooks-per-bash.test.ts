@@ -128,6 +128,9 @@ const coexistSettings = mergeCoexistSettings(
 /**
  * Pinned after T16 (model-advisor left `PreToolUse(.*)`). Measured on these
  * fixtures, not on this repo's own config, which also enables engram/codegraph/etc.
+ * T21 (D5): unchanged on purpose — the success-lane evidence recorder runs INSIDE
+ * `routing-watch`, which already ran on every Bash success, so `bPost` stays 2.
+ * T23's `bash-outcome-watch` on `PostToolUseFailure` is what will move `bPostFail`.
  */
 const EXPECTED = { bPre: 5, bPost: 2, bPostFail: 0 };
 
@@ -151,6 +154,16 @@ describe("hooks per Bash call (R28)", () => {
   // Covers: R28
   it("coexist merging neither drops nor duplicates a Bash hook", () => {
     expect(paths(coexistSettings, COMMANDS.plain)).toEqual(paths(defaultSettings, COMMANDS.plain));
+  });
+
+  // Covers: R6, R7, R28
+  it("the evidence lane rides routing-watch (no new PostToolUse hook, timeout 30, Claude-only arg)", () => {
+    const post = (defaultSettings.hooks?.PostToolUse ?? []).flatMap((e) => e.hooks);
+    expect(post.some((h) => h.command.includes("bash-outcome"))).toBe(false);
+    const watch = post.filter((h) => h.command.includes("routing-watch.sh"));
+    expect(watch).toHaveLength(1);
+    expect(watch[0]).toMatchObject({ timeout: 30 });
+    expect(watch[0]!.command.endsWith(" claude-post-tool-use")).toBe(true);
   });
 
   // Covers: R28

@@ -492,8 +492,10 @@ export function buildClaudeSettings(
           hooks: [
             {
               type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${ROUTING_WATCH_HOOK_DEST}"`,
-              timeout: 10,
+              command: `bash "$CLAUDE_PROJECT_DIR/${ROUTING_WATCH_HOOK_DEST}" claude-post-tool-use`,
+              // 30, not 10: the Bash success lane fingerprints the tree
+              // (spec 0039 D5). Free on the normal path; it only bounds a hang.
+              timeout: 30,
               statusMessage: "navori: routing check",
             },
           ],

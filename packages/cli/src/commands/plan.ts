@@ -17,6 +17,7 @@ import { classify, declaredFlagsFromSignals, type ClassifyInput } from "../lib/p
 import { checkWorkplan, formatCheckResult } from "../lib/plan/check.ts";
 import { evaluatePlanGate } from "../lib/plan/gate.ts";
 import { applyWorkplanUpdate, renderWorkplan, type WorkplanUpdate } from "../lib/plan/render.ts";
+import { writeAcceptanceIndex } from "../lib/plan/acceptance-index.ts";
 import { validateEvidence } from "../lib/plan/evidence.ts";
 import {
   WorkplanSchema,
@@ -156,6 +157,7 @@ function diffFiles(cwd: string, base: string): string[] {
 function writeWorkplanAndRender(root: StateRoot, feature: string, plan: Workplan): void {
   writeStateFileAtomic(root, `workplan_${feature}.json`, `${JSON.stringify(plan, null, 2)}\n`);
   writeStateFileAtomic(root, `workplan_${feature}.md`, renderWorkplan(plan));
+  writeAcceptanceIndex(root);
 }
 
 /** Spec 0039 R10 (0038 D3): evidence is required only inside a Claude Code
