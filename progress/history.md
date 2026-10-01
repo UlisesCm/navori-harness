@@ -10,6 +10,17 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-10-01 03:40 — orchestrator — spec 0039 Claude first: tasks y fases F0a, F0b, F1, F2, F3 (lote 1), F8 y F9
+- Cambios: `tasks.md` de la 0039 (#1130) y borrador 0038 absorbido; T1 verificación y pre-registro (#1131);
+  F2 hooks (#1132); F0b lotes 1–3 de `navori audit` (#1133, #1134, #1138); F1 matriz de solapamiento (#1135);
+  T39 engram vs memoria nativa (#1136); F9 primer uso del master plan (#1137); F3 lote 1 evidencia de
+  criterios (#1139, draft).
+- Quality gate: ✅ cada PR cerró con review APPROVED, recibo firmado y `bun check` verde.
+- Notas: #1139 no se mergea hasta T21 (hook de evidencia). Hallazgos sin abrir: los writers de `lib/audit`
+  siguen symlinks (incluidos directorios intermedios); ningún hook pasa `--host codex`; el hook
+  implementer-no-markdown no detecta ediciones de `.md` por script; `mem_judge` concentra el costo de engram.
+- Commit / PR: #1130–#1139.
+
 ## 2026-09-26 22:36 — orchestrator — checkpoint #1046: estado efímero neutral
 - Cambios: checkpoint de #1046 en `progress/current.md`; T1–T5 y T8 están revisados/aprobados.
   T6–T7 esperan el merge de #1071 para inspeccionar el helper/parser real; T9 sigue pendiente. La
