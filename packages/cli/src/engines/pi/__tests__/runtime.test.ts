@@ -32,9 +32,10 @@ const config = NavoriConfigSchema.parse({
   engines: ["pi"],
   branchBase: "main",
   qualityGate: { fast: "bun test", full: "bun test" },
+  harness: { scribeOwnsMarkdown: true },
 });
 
-function project(): { cwd: string; agentDir: string; home: string } {
+function project(compiled: boolean = false): { cwd: string; agentDir: string; home: string } {
   // Keep the fixture below the declared Pi dev dependency, without artificial module symlinks.
   const root = mkdtempSync(resolve(import.meta.dirname, "../../../../.pi-runtime-smoke-"));
   dirs.push(root);
@@ -44,7 +45,17 @@ function project(): { cwd: string; agentDir: string; home: string } {
   mkdirSync(cwd);
   mkdirSync(agentDir);
   mkdirSync(home);
-  renderPiEngine(cwd, config);
+  if (compiled) {
+    writeFileSync(join(cwd, "navori.config.json"), JSON.stringify(config));
+    const rendered = spawnSync(
+      process.execPath,
+      [resolve(import.meta.dirname, "../../../../dist/index.js"), "render", "--apply"],
+      { cwd, encoding: "utf8", timeout: 15_000 },
+    );
+    expect(rendered.status, rendered.stderr + rendered.stdout).toBe(0);
+  } else {
+    renderPiEngine(cwd, config);
+  }
   return { cwd, agentDir, home };
 }
 
@@ -105,63 +116,59 @@ describe("Pi 0.87.1 credential-free runtime", () => {
   });
 
   // Covers: R9
-  it("loads the rendered extension in the real SDK and registers its subagent tool", async () => {
-    const { cwd, agentDir } = project();
-    renderPiEngine(
-      cwd,
-      NavoriConfigSchema.parse({
-        ...config,
-        harness: { ...config.harness, scribeOwnsMarkdown: true },
-      }),
-    );
-    const denied = new DefaultResourceLoader({ cwd, agentDir });
-    await denied.reload({ resolveProjectTrust: async () => false });
-    expect(denied.getExtensions().extensions).toEqual([]);
-    const loader = new DefaultResourceLoader({ cwd, agentDir });
-    await loader.reload({ resolveProjectTrust: async () => true });
-    // Covers: R3, R9
-    expect(loader.getSkills().skills.map((skill) => skill.name)).toContain("verify-before-done");
-    expect(loader.getExtensions().errors).toEqual([]);
-    expect(loader.getExtensions().extensions.map((extension) => extension.path)).toContain(
-      join(cwd, ".pi/extensions/navori.ts"),
-    );
-    const runtime = await ModelRuntime.create({
-      authPath: join(agentDir, "auth.json"),
-      modelsPath: join(agentDir, "models.json"),
-    });
-    const { session } = await createAgentSession({
-      cwd,
-      agentDir,
-      resourceLoader: loader,
-      modelRuntime: runtime,
-      sessionManager: SessionManager.inMemory(cwd),
-      settingsManager: SettingsManager.inMemory({}),
-      noTools: "all",
-    });
-    expect(
-      session.extensionRunner?.getAllRegisteredTools().map((tool) => tool.definition.name),
-    ).toContain("navori_subagent");
-    // Covers: R7, R9 — this is real SDK event dispatch; trust=true above is a loader seam.
-    const previousRole = process.env.NAVORI_PI_CHILD_ROLE;
-    process.env.NAVORI_PI_CHILD_ROLE = "implementer";
-    try {
-      const blocked = await session.extensionRunner?.emitToolCall({
-        type: "tool_call",
-        toolName: "write",
-        toolCallId: "markdown",
-        input: { path: "README.md" },
+  it.each([false, true])(
+    "loads the rendered extension in the real SDK and registers its subagent tool (compiled=%s)",
+    async (compiled: boolean) => {
+      const { cwd, agentDir } = project(compiled);
+      const denied = new DefaultResourceLoader({ cwd, agentDir });
+      await denied.reload({ resolveProjectTrust: async () => false });
+      expect(denied.getExtensions().extensions).toEqual([]);
+      const loader = new DefaultResourceLoader({ cwd, agentDir });
+      await loader.reload({ resolveProjectTrust: async () => true });
+      // Covers: R3, R9
+      expect(loader.getSkills().skills.map((skill) => skill.name)).toContain("verify-before-done");
+      expect(loader.getExtensions().errors).toEqual([]);
+      expect(loader.getExtensions().extensions.map((extension) => extension.path)).toContain(
+        join(cwd, ".pi/extensions/navori.ts"),
+      );
+      const runtime = await ModelRuntime.create({
+        authPath: join(agentDir, "auth.json"),
+        modelsPath: join(agentDir, "models.json"),
       });
-      const allowed = await session.extensionRunner?.emitToolCall({
-        type: "tool_call",
-        toolName: "write",
-        toolCallId: "typescript",
-        input: { path: "src/index.ts" },
+      const { session } = await createAgentSession({
+        cwd,
+        agentDir,
+        resourceLoader: loader,
+        modelRuntime: runtime,
+        sessionManager: SessionManager.inMemory(cwd),
+        settingsManager: SettingsManager.inMemory({}),
+        noTools: "all",
       });
-      expect(blocked).toMatchObject({ block: true });
-      expect(allowed).toBeUndefined();
-    } finally {
-      if (previousRole === undefined) delete process.env.NAVORI_PI_CHILD_ROLE;
-      else process.env.NAVORI_PI_CHILD_ROLE = previousRole;
-    }
-  });
+      expect(
+        session.extensionRunner?.getAllRegisteredTools().map((tool) => tool.definition.name),
+      ).toContain("navori_subagent");
+      // Covers: R7, R9 — this is real SDK event dispatch; trust=true above is a loader seam.
+      const previousRole = process.env.NAVORI_PI_CHILD_ROLE;
+      process.env.NAVORI_PI_CHILD_ROLE = "implementer";
+      try {
+        const blocked = await session.extensionRunner?.emitToolCall({
+          type: "tool_call",
+          toolName: "write",
+          toolCallId: "markdown",
+          input: { path: "README.md" },
+        });
+        const allowed = await session.extensionRunner?.emitToolCall({
+          type: "tool_call",
+          toolName: "write",
+          toolCallId: "typescript",
+          input: { path: "src/index.ts" },
+        });
+        expect(blocked).toMatchObject({ block: true });
+        expect(allowed).toBeUndefined();
+      } finally {
+        if (previousRole === undefined) delete process.env.NAVORI_PI_CHILD_ROLE;
+        else process.env.NAVORI_PI_CHILD_ROLE = previousRole;
+      }
+    },
+  );
 });

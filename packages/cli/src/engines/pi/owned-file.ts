@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as nodeModule from "node:module";
 
@@ -23,11 +24,23 @@ export function serializePiSource(source: string): string {
 export function ownsPiSource(content: string): boolean {
   const match = /^\/\/ navori:managed-file id="pi-extension" hash="([a-f0-9]{64})"\n/.exec(content);
   if (match === null || match[1] !== digest(content.slice(match[0].length))) return false;
-  // Pi requires Node 22.19+, while other engines still support older Node.
-  if (typeof nodeModule.stripTypeScriptTypes !== "function") return false;
   try {
-    nodeModule.stripTypeScriptTypes(content);
-    return true;
+    if (typeof nodeModule.stripTypeScriptTypes === "function") {
+      nodeModule.stripTypeScriptTypes(content);
+      return true;
+    }
+    // Bun lacks this Node API. Parse in Node without importing or executing the payload.
+    if (Buffer.byteLength(content, "utf8") > 1_048_576) return false;
+    const result = spawnSync(
+      "node",
+      [
+        "--input-type=commonjs",
+        "--eval",
+        'require("node:module").stripTypeScriptTypes(require("node:fs").readFileSync(0, "utf8"));',
+      ],
+      { input: content, timeout: 5_000, maxBuffer: 1_048_576, windowsHide: true },
+    );
+    return !result.error && result.status === 0;
   } catch {
     return false;
   }
