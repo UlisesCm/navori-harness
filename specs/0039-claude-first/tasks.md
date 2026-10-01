@@ -240,15 +240,16 @@ Lote 3 (sujeto al gate de T2):
 
 ## F9 — Master plan
 
-- [ ] **T41** (R52, R53, R54) — `status --json` vacío con exit 0; `closeBlockers` extraído de
+- [x] **T41** (R52, R53, R54) — `status --json` vacío con exit 0; `closeBlockers` extraído de
   `runMasterClose` y reusado; `runMasterInit` escribe `STATUS.md`; `sin parte activa`. · test:
   `lib/master/__tests__/status.test.ts` con `// Covers: R52, R53, R54`.
+  · nota: `STATUS.md` sigue escribiendo 'Parte activa: ninguna'; R54 solo cubre la línea de estado.
 - [ ] **T42** (R55, R58, R70) — `advance`, `close` y `part --accept` llaman `appendCliEvent`;
   `master-accept-confirm.sh` cubre `--approved-by` (`=` o espacio) y `close` en sus tres formas,
   vía `navori`, `npx`, `bunx`, `pnpm exec`/`dlx` o `…/navori`, con tokens `approved-by|navori
   master` (m14). · test: `master-accept-confirm.test.ts` (`git push origin master` y
   `master status` → nada) con `// Covers: R55, R58, R70`.
-- [ ] **T43** (R56, R59, R60) — Prosa de `master-plan.md` (`sdd.enabled: false`, variantes de
+- [x] **T43** (R56, R59, R60) — Prosa de `master-plan.md` (`sdd.enabled: false`, variantes de
   confirmación, `maxWords` declarado); `master-first-use.test.ts` con el escenario completo y el
   chequeo de cobertura de comandos del skill; master-plan sigue Codex `unsupported`. · test: el
   escenario, `skills-assets.test.ts` y `control-inventory.test.ts` con
