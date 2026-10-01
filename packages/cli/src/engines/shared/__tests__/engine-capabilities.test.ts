@@ -21,6 +21,7 @@ const FAKE_ENGINE_CAPABILITIES: EngineCapabilities = {
     "handoff-consumer": { state: "unsupported", reason: "fake" },
     "analytic-write-tools": { state: "unsupported", reason: "fake" },
     "local-skill-discovery": { state: "unsupported", reason: "fake" },
+    "acceptance-evidence": { state: "unsupported", reason: "fake" },
   },
   analyticWriteTools: { auditor: [], scout: [], reviewer: [], architect: [] },
 };

@@ -389,3 +389,14 @@ describe("analyticWriteTools vs. the actual render (spec 0033 D5, R23)", () => {
     expect(existsSync(join(cwd, ".codex/skills/master-plan/SKILL.md"))).toBe(false);
   });
 });
+
+// Covers: R10
+describe("acceptance-evidence control", () => {
+  it("is advisory for Claude and unsupported for Codex and prose engines", () => {
+    expect(ENGINE_CAPABILITIES.claude.controls["acceptance-evidence"].state).toBe("advisory");
+    for (const id of ["codex", "agents-md", "cursor", "copilot"] as const) {
+      expect(ENGINE_CAPABILITIES[id].controls["acceptance-evidence"].state).toBe("unsupported");
+    }
+    expect(CONTROL_DEFINITIONS["acceptance-evidence"].hookScripts).toEqual([]);
+  });
+});
