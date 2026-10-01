@@ -13,7 +13,7 @@ Las tareas marcadas *carry-over* aplican la tarea citada de
 - Pre-registros confirmados: R34 (≥ 15% de la mediana de contexto con corrección ≥ la textual),
   R43 (−10% por lanzamiento con n ≥ 100) y el disparador de reversión de R41.
 - Supuestos que siguen el design: R58 cuenta `master close` en sus tres formas; el default de R44
-  sale de la instantánea de T9 (hoy 175,000).
+  sale de la instantánea de T9 (hoy 150,000 según T9).
 
 ## F0a — Verificación
 
@@ -71,11 +71,11 @@ Lote 3:
   log de la sesión de `CLAUDE_CODE_SESSION_ID`; sin variable o sin log, no escribe (fail-open). Además, el `start` del log de audit registra `host` (`claude`/`codex`) para que R71 reconozca sesiones Codex reales.
   · test: `lib/audit/__tests__/cli-event.test.ts` con `// Covers: R55, R70`.
   · nota: el writer de `host` es `navori audit --start <id> --host claude|codex`; ningún caller pasa `--host codex` todavía (no existe hook de inicio de sesión Codex), así que R71 queda listo del lado del lector pero sin sesiones Codex marcadas en la práctica.
-- [ ] **T9** (R43) — Instantánea base `navori audit --snapshot claude-first-base`: cache read
+- [x] **T9** (R43) — Instantánea base `navori audit --snapshot claude-first-base`: cache read
   mediano por sesión y por lanzamiento de `implementer`, `hooks.perBashCall` y tamaños de
   resultado de R33, cada uno con su n. Cifras y default de R44 (mediana del pico redondeada a 25k)
   en el doc de T1. · test: `snapshot.test.ts` verifica que la instantánea trae las tres métricas de
-  R43 con n, con `// Covers: R43`.
+  R43 con n, con `// Covers: R43`. · nota: cifras en "Línea base (T9)" de `docs/research/claude-first-verificacion.md`; el default de R44 pasa de 175,000 a 150,000.
 
 ## F1 — Matriz
 

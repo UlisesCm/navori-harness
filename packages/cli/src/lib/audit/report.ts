@@ -1106,6 +1106,8 @@ interface AgentStat {
   fetch: number;
   search: number;
   contextPeaks: number[];
+  /** Cache read of each run (R43 baseline); one entry per launch. */
+  cacheReads: number[];
   /** Null when no session could measure compactions (main thread only). */
   compactions: number | null;
 }
@@ -1133,6 +1135,8 @@ interface HookStat {
 interface RangeStats {
   sessions: { total: number; transcript: number; codex: number };
   agents: Map<string, AgentStat>;
+  /** Cache read of each whole session (orchestrator + its agents), R43. */
+  sessionCacheReads: number[];
   tools: Map<string, ToolStat>;
   hooks: {
     byHook: Map<string, HookStat>;
@@ -1156,6 +1160,7 @@ function emptyAgentStat(): AgentStat {
     fetch: 0,
     search: 0,
     contextPeaks: [],
+    cacheReads: [],
     compactions: null,
   };
 }
@@ -1171,6 +1176,7 @@ function addAgentRun(stat: AgentStat, run: Run): void {
   stat.search += run.toolCounts.WebSearch ?? 0;
   if (typeof run.turns === "number") stat.turns.push(run.turns);
   if (typeof run.contextPeak === "number") stat.contextPeaks.push(run.contextPeak);
+  stat.cacheReads.push(run.tokens.cacheRead);
 }
 
 /**
@@ -1294,6 +1300,9 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
       codex: sessions.filter((s) => s.host === "codex").length,
     },
     agents,
+    sessionCacheReads: withTranscript.map(
+      (s) => s.orchestrator.tokens.cacheRead + s.agents.reduce((n, a) => n + a.tokens.cacheRead, 0),
+    ),
     tools,
     hooks: {
       byHook,
@@ -1330,9 +1339,12 @@ function flattenRangeMetrics(stats: RangeStats): Record<string, number | null> {
     m[`${p}.turns.p90`] = quantile(a.turns, 0.9);
     m[`${p}.web.fetch`] = a.fetch;
     m[`${p}.web.search`] = a.search;
+    m[`${p}.cacheRead.p50`] = quantile(a.cacheReads, 0.5);
+    m[`${p}.cacheRead.n`] = a.cacheReads.length;
     if (name === MAIN_THREAD) {
       m[`${p}.contextPeak.p50`] = quantile(a.contextPeaks, 0.5);
       m[`${p}.contextPeak.p90`] = quantile(a.contextPeaks, 0.9);
+      m[`${p}.contextPeak.n`] = a.contextPeaks.length;
       m[`${p}.compactions`] = a.compactions;
     } else {
       m[`${p}.turnLimitHits`] = a.limitMeasured > 0 ? a.turnLimitHits : null;
@@ -1345,7 +1357,10 @@ function flattenRangeMetrics(stats: RangeStats): Record<string, number | null> {
     m[`${p}.callsAgents`] = t.callsAgents;
     m[`${p}.resultBytes.p50`] = quantile(t.resultBytes, 0.5);
     m[`${p}.resultBytes.p90`] = quantile(t.resultBytes, 0.9);
+    m[`${p}.resultBytes.n`] = t.resultBytes.length;
   }
+  m["session.cacheRead.p50"] = quantile(stats.sessionCacheReads, 0.5);
+  m["session.cacheRead.n"] = stats.sessionCacheReads.length;
   // The main thread's share of Edit/Write. It is published beside the
   // activation rate (R67) because activation counts as an opportunity every
   // turn in which an agent was used, so alone it overstates delegation.
