@@ -80,25 +80,29 @@ Lote 3:
 
 Lote 1:
 
-- [ ] **T10** (R2, R3, R57) — `engines/shared/native-overlap.ts`: `OVERLAP_ROWS` (agentes,
+- [x] **T10** (R2, R3, R57) — `engines/shared/native-overlap.ts`: `OVERLAP_ROWS` (agentes,
   skills, hooks, bloques managed, plugins y los flujos de R57), `OverlapRowSchema.superRefine` de
   D2. · test: `engines/shared/__tests__/native-overlap.test.ts` (refine sobre todas las filas;
   exactamente una fila por unidad del roster, plan, managed, plugins y flujos) con
   `// Covers: R2, R3, R57`.
-- [ ] **T11** (R4) — `filterInventory` y `nativeEmissionsFor`; `buildClaudeSettings(config,
+- [x] **T11** (R4) — `filterInventory` y `nativeEmissionsFor`; `buildClaudeSettings(config,
   inventory)` registra solo desde el inventario filtrado (B1); mismo filtro en `global-plugin.ts`
   y en la resolución de `engines/codex/hook-registrations.ts`. · test:
   `render-native-overlap.test.ts` con una fila fixture `native` (ausente del plan y de
   `settings.json` en Claude, presente en Codex y agents-md) con `// Covers: R4`.
+  · nota: `buildClaudeSettings` conserva la firma dual `FilteredInventory | LoadedPlugin[]` por ~60 llamadas de test sin migrar.
+  · nota: Codex no filtra al escribir archivos (solo `resolveCodexHooks`); sin efecto mientras no haya filas nativas en Codex.
+  · nota: ids de hooks, bloques managed y plugins van hardcodeados en la matriz, vigilados por el test de cobertura de `native-overlap.test.ts`.
 
 Lote 2:
 
-- [ ] **T12** (R5) — §8.7e en `engines/claude/index.ts`; `isRemovableNavoriFile(…,
+- [x] **T12** (R5) — §8.7e en `engines/claude/index.ts`; `isRemovableNavoriFile(…,
   { requirePristine })`; `removeManagedSectionGuarded` en `lib/render/marker.ts`;
   `reportKeptRetired` con `newer` y `modified` (D3). · test: mismo archivo que T11 (versión mayor,
   hash distinto, texto fuera del marcador y ruta en `pending` → se conserva; backup existe) y
   `removal-parity.test.ts` sin vías nuevas, con `// Covers: R5`.
-- [ ] **T13** (R1, R2) — `docs/native-overlap.md` generada con URL y fecha por fila, fijada por
+  · nota: un bloque dentro de `CLAUDE.md` solo se poda en corridas donde ese archivo no se reescribe.
+- [x] **T13** (R1, R2) — `docs/native-overlap.md` generada con URL y fecha por fila, fijada por
   golden; párrafo "Claude primero, nativo primero" en `docs/DIRECTION.md` § `Criterio de admisión
   por superficie`. · test: `direction-claude-first.test.ts` y golden de la doc con
   `// Covers: R1, R2`.
