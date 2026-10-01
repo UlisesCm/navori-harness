@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { HarnessCatalog } from "../harness.ts";
 import type { AgentRun, HookEvent, SessionAudit } from "../model.ts";
 import { emptyPermissionDecisions, emptyTokens, emptyToolErrors } from "../model.ts";
-import { detectSignals, hookMisfires } from "../signals.ts";
+import { detectSignals, hookMisfires, unusedManagedCandidates } from "../signals.ts";
 import { buildReport } from "../report.ts";
 
 function agent(over: Partial<AgentRun> = {}): AgentRun {
@@ -1302,5 +1302,38 @@ describe("signal: hook-misfire (#924)", () => {
     // reads as noise, and the per-agent card already prints its own list.
     expect(report.rangeSignals.map((s) => s.kind)).toContain("hook-misfire");
     expect(report.signals.map((s) => s.kind)).not.toContain("hook-misfire");
+  });
+});
+
+describe("unusedManagedCandidates (R47)", () => {
+  const input = {
+    sessionsConsidered: 12,
+    managedSkills: ["solution-design", "zod-validation"],
+    usedSkills: new Set(["solution-design"]),
+    managedAgents: ["auditor", "reviewer"],
+    usedAgents: new Set(["reviewer"]),
+  };
+
+  // Covers: R47
+  it("names managed skills and agents without use, with the sessions considered", () => {
+    const [sig] = unusedManagedCandidates(input, "en");
+    expect(sig?.kind).toBe("unused-managed-candidates");
+    expect(sig?.summary).toContain("12 sessions");
+    expect(sig?.evidence).toBe("skills (1): zod-validation · agents (1): auditor");
+  });
+
+  // Covers: R47
+  it("emits nothing when everything managed was used or no session was considered", () => {
+    expect(unusedManagedCandidates({ ...input, sessionsConsidered: 0 }, "en")).toEqual([]);
+    expect(
+      unusedManagedCandidates(
+        {
+          ...input,
+          usedSkills: new Set(input.managedSkills),
+          usedAgents: new Set(input.managedAgents),
+        },
+        "en",
+      ),
+    ).toEqual([]);
   });
 });

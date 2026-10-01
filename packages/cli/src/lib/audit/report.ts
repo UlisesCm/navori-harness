@@ -12,7 +12,14 @@ import {
   emptyTokens,
   recorderWindow,
 } from "./model.ts";
-import { harnessRegime, hookMisfires, reviewerGateLifecycle, type Lang } from "./signals.ts";
+import { redactExample } from "./parse.ts";
+import {
+  harnessRegime,
+  hookMisfires,
+  reviewerGateLifecycle,
+  unusedManagedCandidates,
+  type Lang,
+} from "./signals.ts";
 
 /**
  * Renders a parsed audit into its two derived artifacts.
@@ -1071,6 +1078,467 @@ function skillRangeSection(report: AuditReport, lang: Lang): string[] {
   ];
 }
 
+/** Nearest-rank quantile; `null` for no data — unavailable, never zero. */
+function quantile(values: number[], q: number): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.max(0, Math.ceil(q * sorted.length) - 1)] ?? null;
+}
+
+/** The orchestrator's row in `byAgentType` and in every `agent.*` key. */
+const MAIN_THREAD = "main-thread";
+
+/** Examples kept per blocking rule (R66). */
+const EXAMPLES_PER_RULE = 3;
+/** A rule's reason becomes part of a metric key: cut so it stays a label. */
+const RULE_KEY_MAX = 80;
+
+type Run = AgentRun | SessionAudit["orchestrator"];
+
+interface AgentStat {
+  sessions: number;
+  launches: number;
+  turns: number[];
+  /** Runs whose transcript could say whether the limit was hit. */
+  limitMeasured: number;
+  turnLimitHits: number;
+  fetch: number;
+  search: number;
+  contextPeaks: number[];
+  /** Null when no session could measure compactions (main thread only). */
+  compactions: number | null;
+}
+
+interface ToolStat {
+  calls: number;
+  callsMain: number;
+  callsAgents: number;
+  resultBytes: number[];
+}
+
+interface RuleStat {
+  count: number;
+  examples: string[];
+}
+
+interface HookStat {
+  fires: number;
+  ms: number;
+  blocks: Map<string, RuleStat>;
+}
+
+/** Every range aggregate, structured: `rangeMetrics` flattens it and the range
+ *  sections render it, so neither recomputes what the other shows. */
+interface RangeStats {
+  sessions: { total: number; transcript: number; codex: number };
+  agents: Map<string, AgentStat>;
+  tools: Map<string, ToolStat>;
+  hooks: {
+    byHook: Map<string, HookStat>;
+    fires: number;
+    ms: number;
+    bashCalls: number;
+    perBashCall: number | null;
+    perBashCallP90: number | null;
+  };
+  /** name → verdict → count, over hook events and CLI events alike (R70). */
+  mechanism: Map<string, Map<string, number>>;
+}
+
+function emptyAgentStat(): AgentStat {
+  return {
+    sessions: 0,
+    launches: 0,
+    turns: [],
+    limitMeasured: 0,
+    turnLimitHits: 0,
+    fetch: 0,
+    search: 0,
+    contextPeaks: [],
+    compactions: null,
+  };
+}
+
+function getOrSet<K, V>(map: Map<K, V>, key: K, make: () => V): V {
+  const cur = map.get(key) ?? make();
+  map.set(key, cur);
+  return cur;
+}
+
+function addAgentRun(stat: AgentStat, run: Run): void {
+  stat.fetch += run.toolCounts.WebFetch ?? 0;
+  stat.search += run.toolCounts.WebSearch ?? 0;
+  if (typeof run.turns === "number") stat.turns.push(run.turns);
+  if (typeof run.contextPeak === "number") stat.contextPeaks.push(run.contextPeak);
+}
+
+/**
+ * Computes every range aggregate ONCE (spec 0039 D10).
+ *
+ * Sessions without a transcript (Codex, R71) contribute their hooks and
+ * mechanism verdicts and NOTHING else: adding their empty tool counts or turn
+ * lists would turn "unavailable" into "zero", which is the misreading R71
+ * forbids.
+ */
+function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[]): RangeStats {
+  const withTranscript = sessions.filter((s) => s.unavailable !== "transcript");
+  const agents = new Map<string, AgentStat>();
+  const tools = new Map<string, ToolStat>();
+  const tool = (name: string): ToolStat =>
+    getOrSet(tools, name, () => ({ calls: 0, callsMain: 0, callsAgents: 0, resultBytes: [] }));
+
+  // Every declared agent has a row, including the ones that never ran (R46).
+  for (const name of declaredAgents) getOrSet(agents, name, emptyAgentStat);
+
+  if (withTranscript.length > 0) {
+    const main = getOrSet(agents, MAIN_THREAD, emptyAgentStat);
+    main.sessions = withTranscript.length;
+    main.launches = withTranscript.length;
+    for (const s of withTranscript) {
+      addAgentRun(main, s.orchestrator);
+      if (typeof s.orchestrator.compactions === "number") {
+        main.compactions = (main.compactions ?? 0) + s.orchestrator.compactions;
+      }
+    }
+  }
+
+  for (const s of withTranscript) {
+    const seen = new Set<string>();
+    for (const a of s.agents) {
+      const stat = getOrSet(agents, a.agentType, emptyAgentStat);
+      stat.launches += 1;
+      if (!seen.has(a.agentType)) {
+        seen.add(a.agentType);
+        stat.sessions += 1;
+      }
+      addAgentRun(stat, a);
+      if (typeof a.turnLimitHit === "boolean") {
+        stat.limitMeasured += 1;
+        if (a.turnLimitHit) stat.turnLimitHits += 1;
+      }
+    }
+    const runs: Array<{ run: Run; main: boolean }> = [
+      { run: s.orchestrator, main: true },
+      ...s.agents.map((run) => ({ run, main: false })),
+    ];
+    for (const { run, main } of runs) {
+      for (const [name, n] of Object.entries(run.toolCounts)) {
+        const t = tool(name);
+        t.calls += n;
+        if (main) t.callsMain += n;
+        else t.callsAgents += n;
+      }
+      for (const [name, sizes] of Object.entries(run.toolResultBytes ?? {})) {
+        tool(name).resultBytes.push(...sizes);
+      }
+    }
+  }
+
+  const byHook = new Map<string, HookStat>();
+  const mechanism = new Map<string, Map<string, number>>();
+  const count = (name: string, verdict: string): void => {
+    const row = getOrSet(mechanism, name, () => new Map<string, number>());
+    row.set(verdict, (row.get(verdict) ?? 0) + 1);
+  };
+  const perBash = new Map<string, Set<string>>();
+  let fires = 0;
+  let ms = 0;
+
+  for (const s of sessions) {
+    const runs: Run[] = [s.orchestrator, ...s.agents];
+    for (const run of runs) {
+      for (const e of run.hookEvents) {
+        // `gate-started` is the first half of one execution, not a second fire
+        // and not an outcome: it is neither counted nor tabulated.
+        if (e.verdict === "gate-started") continue;
+        count(e.name, e.verdict);
+        const hook = getOrSet(byHook, e.name, () => ({
+          fires: 0,
+          ms: 0,
+          blocks: new Map<string, RuleStat>(),
+        }));
+        hook.fires += 1;
+        hook.ms += e.ms;
+        fires += 1;
+        ms += e.ms;
+        if (e.tool === "Bash" && e.toolUseId) {
+          getOrSet(perBash, `${s.sessionId}\u0000${e.toolUseId}`, () => new Set<string>()).add(
+            `${e.name}\u0000${e.phase}`,
+          );
+        }
+        if (e.verdict === "block") {
+          const rule = getOrSet(
+            hook.blocks,
+            (e.reason ?? "(no reason)").slice(0, RULE_KEY_MAX),
+            () => ({ count: 0, examples: [] }),
+          );
+          rule.count += 1;
+          const command = e.toolUseId ? run.blockedCommands?.[e.toolUseId] : undefined;
+          // Redacted again on the way out: a model built by a different writer
+          // must not be able to carry a raw command into the report.
+          if (command && rule.examples.length < EXAMPLES_PER_RULE) {
+            rule.examples.push(redactExample(command));
+          }
+        }
+      }
+    }
+    for (const e of s.cliEvents ?? []) count(e.name, e.verdict);
+  }
+
+  const perCall = [...perBash.values()].map((set) => set.size);
+  return {
+    sessions: {
+      total: sessions.length,
+      transcript: withTranscript.length,
+      codex: sessions.filter((s) => s.host === "codex").length,
+    },
+    agents,
+    tools,
+    hooks: {
+      byHook,
+      fires,
+      ms,
+      bashCalls: perBash.size,
+      perBashCall:
+        perCall.length === 0
+          ? null
+          : Math.round((perCall.reduce((a, b) => a + b, 0) / perCall.length) * 100) / 100,
+      perBashCallP90: quantile(perCall, 0.9),
+    },
+    mechanism,
+  };
+}
+
+/**
+ * Flattens the range aggregates into `rangeMetrics` (D10). `null` marks a value
+ * no session could measure — a range of only Codex sessions has no
+ * `agent.main-thread.turns.p90`, and publishing 0 would be a false number.
+ * Blocked-command examples are deliberately absent: free text never goes here.
+ */
+function flattenRangeMetrics(stats: RangeStats): Record<string, number | null> {
+  const m: Record<string, number | null> = {
+    "sessions.total": stats.sessions.total,
+    "sessions.transcript": stats.sessions.transcript,
+    "sessions.codex": stats.sessions.codex,
+  };
+  for (const [name, a] of stats.agents) {
+    const p = `agent.${name}`;
+    m[`${p}.sessions`] = a.sessions;
+    m[`${p}.launches`] = a.launches;
+    m[`${p}.turns.p50`] = quantile(a.turns, 0.5);
+    m[`${p}.turns.p90`] = quantile(a.turns, 0.9);
+    m[`${p}.web.fetch`] = a.fetch;
+    m[`${p}.web.search`] = a.search;
+    if (name === MAIN_THREAD) {
+      m[`${p}.contextPeak.p50`] = quantile(a.contextPeaks, 0.5);
+      m[`${p}.contextPeak.p90`] = quantile(a.contextPeaks, 0.9);
+      m[`${p}.compactions`] = a.compactions;
+    } else {
+      m[`${p}.turnLimitHits`] = a.limitMeasured > 0 ? a.turnLimitHits : null;
+    }
+  }
+  for (const [name, t] of stats.tools) {
+    const p = `tool.${name}`;
+    m[`${p}.calls`] = t.calls;
+    m[`${p}.callsMain`] = t.callsMain;
+    m[`${p}.callsAgents`] = t.callsAgents;
+    m[`${p}.resultBytes.p50`] = quantile(t.resultBytes, 0.5);
+    m[`${p}.resultBytes.p90`] = quantile(t.resultBytes, 0.9);
+  }
+  m["hooks.fires"] = stats.hooks.fires;
+  m["hooks.ms"] = stats.hooks.ms;
+  m["hooks.bashCalls"] = stats.hooks.bashCalls;
+  m["hooks.perBashCall"] = stats.hooks.perBashCall;
+  m["hooks.perBashCall.p90"] = stats.hooks.perBashCallP90;
+  for (const [name, h] of stats.hooks.byHook) {
+    m[`hook.${name}.fires`] = h.fires;
+    m[`hook.${name}.ms`] = h.ms;
+    let blocks = 0;
+    for (const [reason, rule] of h.blocks) {
+      m[`hook.${name}.blocks.${reason}`] = rule.count;
+      blocks += rule.count;
+    }
+    m[`hook.${name}.blocks`] = blocks;
+  }
+  for (const [name, row] of stats.mechanism) {
+    for (const [verdict, n] of row) m[`mechanism.${name}.${verdict}`] = n;
+  }
+  return m;
+}
+
+/** Declared agent names recovered from `rangeMetrics`, in published order. */
+function agentNamesOf(metrics: Record<string, number | null>): string[] {
+  return Object.keys(metrics)
+    .map((key) => /^agent\.(.+)\.sessions$/.exec(key)?.[1])
+    .filter((n): n is string => n !== undefined && n !== MAIN_THREAD);
+}
+
+/** `n/d` = not available (no transcript measured it), which is not 0. */
+function metric(v: number | null | undefined): string {
+  return v === null || v === undefined ? "n/d" : String(v);
+}
+
+function rangeTable(header: string[], rows: string[][]): string[] {
+  return [
+    `| ${header.join(" | ")} |`,
+    `|${header.map((_, i) => (i === 0 ? "---" : "---:")).join("|")}|`,
+    ...rows.map((r) => `| ${r.join(" | ")} |`),
+  ];
+}
+
+/** Agents per session, zeros included, plus turns, limit hits and web calls
+ *  (R46, R48, R49, R65). */
+function agentRangeSection(report: AuditReport, lang: Lang): string[] {
+  const m = report.rangeMetrics;
+  const names = [MAIN_THREAD, ...agentNamesOf(m)].filter((n) => `agent.${n}.sessions` in m);
+  if (names.length === 0) return [];
+  const rows = names.map((n) => {
+    const p = `agent.${n}`;
+    return [
+      `\`${n}\``,
+      metric(m[`${p}.sessions`]),
+      metric(m[`${p}.launches`]),
+      `${metric(m[`${p}.turns.p50`])} / ${metric(m[`${p}.turns.p90`])}`,
+      n === MAIN_THREAD
+        ? `${metric(m[`${p}.contextPeak.p90`])} · ${metric(m[`${p}.compactions`])}`
+        : metric(m[`${p}.turnLimitHits`]),
+      `${metric(m[`${p}.web.fetch`])} / ${metric(m[`${p}.web.search`])}`,
+    ];
+  });
+  return [
+    "",
+    "---",
+    "",
+    `## ${t(lang, "Agentes en el rango", "Agents over the range")}`,
+    "",
+    t(
+      lang,
+      "Sesiones en que se lanzó cada agente declarado (los ceros cuentan). Turnos p50 / p90 por lanzamiento; para el hilo principal, pico de contexto p90 · compactaciones; para los agentes, lanzamientos cortados por el límite de turnos. `n/d` = ningún transcript lo midió.",
+      "Sessions in which each declared agent was launched (zeros count). Turns p50 / p90 per launch; for the main thread, context peak p90 · compactions; for agents, launches cut by the turn limit. `n/d` = no transcript measured it.",
+    ),
+    "",
+    ...rangeTable(
+      [
+        t(lang, "agente", "agent"),
+        t(lang, "sesiones", "sessions"),
+        t(lang, "lanzamientos", "launches"),
+        t(lang, "turnos", "turns"),
+        t(lang, "contexto · límite", "context · limit"),
+        "WebFetch / WebSearch",
+      ],
+      rows,
+    ),
+  ];
+}
+
+/** Hooks over the range: fires, verdicts, summed time, hooks per Bash call, and
+ *  the rules that blocked with redacted examples (R63, R66). */
+function hookRangeSection(stats: RangeStats, lang: Lang): string[] {
+  const hooks = stats.hooks;
+  if (hooks.byHook.size === 0) return [];
+  const verdicts = (name: string): string =>
+    [...(stats.mechanism.get(name) ?? [])].map(([v, n]) => `${v} ${n}`).join(" · ");
+  const rows = [...hooks.byHook]
+    .sort((a, b) => b[1].fires - a[1].fires || a[0].localeCompare(b[0]))
+    .map(([name, h]) => [`\`${name}\``, String(h.fires), verdicts(name), msLabel(h.ms)]);
+
+  const out = [
+    "",
+    "---",
+    "",
+    `## ${t(lang, "Hooks en el rango", "Hooks over the range")}`,
+    "",
+    t(
+      lang,
+      `Hooks por llamada Bash: **${metric(hooks.perBashCall)}** (p90 ${metric(hooks.perBashCallP90)}, sobre ${hooks.bashCalls} llamadas con \`toolUseId\`). El tiempo es la suma de lo que midió cada hook, no reloj.`,
+      `Hooks per Bash call: **${metric(hooks.perBashCall)}** (p90 ${metric(hooks.perBashCallP90)}, over ${hooks.bashCalls} calls with a \`toolUseId\`). Time is the sum of what each hook measured, not wall clock.`,
+    ),
+    "",
+    ...rangeTable(
+      [
+        "hook",
+        t(lang, "disparos", "fires"),
+        t(lang, "veredictos", "verdicts"),
+        t(lang, "tiempo", "time"),
+      ],
+      rows,
+    ),
+  ];
+
+  const blocking = [...hooks.byHook].filter(([, h]) => h.blocks.size > 0);
+  if (blocking.length > 0) {
+    out.push("", `### ${t(lang, "Bloqueos por regla", "Blocks per rule")}`, "");
+    for (const [name, h] of blocking) {
+      for (const [reason, rule] of h.blocks) {
+        out.push(`- \`${name}\` · ${reason} — ${rule.count}`);
+        for (const ex of rule.examples) out.push(`  - \`${ex.replaceAll("`", "'")}\``);
+      }
+    }
+  }
+  return out;
+}
+
+/** Calls and result size per tool, split main thread vs subagents (R64). */
+function toolRangeSection(stats: RangeStats, lang: Lang): string[] {
+  if (stats.tools.size === 0) return [];
+  const rows = [...stats.tools]
+    .sort((a, b) => b[1].calls - a[1].calls || a[0].localeCompare(b[0]))
+    .map(([name, tl]) => [
+      `\`${name}\``,
+      String(tl.calls),
+      `${tl.callsMain} / ${tl.callsAgents}`,
+      `${metric(quantile(tl.resultBytes, 0.5))} / ${metric(quantile(tl.resultBytes, 0.9))}`,
+    ]);
+  return [
+    "",
+    "---",
+    "",
+    `## ${t(lang, "Herramientas en el rango", "Tools over the range")}`,
+    "",
+    ...rangeTable(
+      [
+        t(lang, "herramienta", "tool"),
+        t(lang, "llamadas", "calls"),
+        t(lang, "principal / subagentes", "main / subagents"),
+        t(lang, "resultado bytes p50 / p90", "result bytes p50 / p90"),
+      ],
+      rows,
+    ),
+  ];
+}
+
+/**
+ * The frame of R70: any `name × verdict` pair the harness recorded, from hooks
+ * and from CLI events, tabulated without knowing the mechanism in advance. A
+ * later phase adds its mechanism's names and a fixture — never a counter.
+ */
+function mechanismSection(stats: RangeStats, lang: Lang): string[] {
+  if (stats.mechanism.size === 0) return [];
+  const verdicts = [...new Set([...stats.mechanism.values()].flatMap((r) => [...r.keys()]))].sort();
+  const rows = [...stats.mechanism]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([name, row]) => [`\`${name}\``, ...verdicts.map((v) => String(row.get(v) ?? 0))]);
+  return [
+    "",
+    "---",
+    "",
+    `## ${t(lang, "Mecanismos: nombre × veredicto", "Mechanisms: name × verdict")}`,
+    "",
+    ...rangeTable([t(lang, "mecanismo", "mechanism"), ...verdicts], rows),
+  ];
+}
+
+/** The four range sections, in print order. */
+function rangeSections(report: AuditReport, lang: Lang): string[] {
+  const stats = rangeStats(report.sessions, agentNamesOf(report.rangeMetrics));
+  return [
+    ...agentRangeSection(report, lang),
+    ...hookRangeSection(stats, lang),
+    ...toolRangeSection(stats, lang),
+    ...mechanismSection(stats, lang),
+  ];
+}
+
 export function renderMarkdown(report: AuditReport, lang: Lang): string {
   const out: string[] = [];
   out.push(`# ${t(lang, "Auditoría del harness", "Harness audit")} — ${report.repo}`);
@@ -1089,6 +1557,7 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
   // measured predated the plugin.
   out.push(...rangeSignalSection(report, lang));
   out.push(...skillRangeSection(report, lang));
+  out.push(...rangeSections(report, lang));
 
   for (const s of report.sessions) {
     out.push("", "---", "");
@@ -1111,6 +1580,17 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
         `${t(lang, "permisos", "permissions")} ${modes || "—"}` +
         (s.prs.length > 0 ? ` · PRs ${s.prs.join(", ")}` : ""),
     );
+
+    if (s.unavailable === "transcript") {
+      out.push(
+        "",
+        t(
+          lang,
+          "**Sesión de Codex.** Solo hay log de audit: los hooks y veredictos son reales, y tokens, turnos, herramientas y contexto no están disponibles (no son cero).",
+          "**Codex session.** Only the audit log exists: hooks and verdicts are real, while tokens, turns, tools and context are unavailable (not zero).",
+        ),
+      );
+    }
 
     if (stillRunning(s, report.generatedAt)) {
       out.push(
@@ -1479,6 +1959,9 @@ export function buildReport(
     /** Language the range findings are written in. Defaults to English, like
      *  every other machine-facing default here; the caller passes the repo's. */
     lang?: Lang;
+    /** Declared agents that carry a navori managed marker (R47). Read by the
+     *  caller, like `harnessVersion`: this module does no filesystem work. */
+    managedAgents?: string[];
   },
 ): AuditReport {
   const byAgentType: AuditReport["totals"]["byAgentType"] = {};
@@ -1487,14 +1970,39 @@ export function buildReport(
   let startupTokens = 0;
   let agents = 0;
 
+  const newRow = (): AuditReport["totals"]["byAgentType"][string] => ({
+    count: 0,
+    sessions: 0,
+    tokens: emptyTokens(),
+    webFetch: 0,
+    webSearch: 0,
+  });
   for (const s of sessions) {
     tokens = addTokens(tokens, sessionTokens(s));
     startupTokens += s.orchestrator.startupTokens;
+    // The main thread is a row like any other (R48) — except for a session with
+    // no transcript, whose tokens are unavailable rather than zero.
+    if (s.unavailable !== "transcript") {
+      const main = (byAgentType[MAIN_THREAD] ??= newRow());
+      main.count += 1;
+      main.sessions += 1;
+      main.tokens = addTokens(main.tokens, s.orchestrator.tokens);
+      main.webFetch += s.orchestrator.toolCounts.WebFetch ?? 0;
+      main.webSearch += s.orchestrator.toolCounts.WebSearch ?? 0;
+    }
+    const typesSeen = new Set<string>();
     for (const a of s.agents) {
       agents++;
       startupTokens += a.startupTokens;
-      const cur = byAgentType[a.agentType] ?? { count: 0, tokens: emptyTokens() };
-      byAgentType[a.agentType] = { count: cur.count + 1, tokens: addTokens(cur.tokens, a.tokens) };
+      const cur = (byAgentType[a.agentType] ??= newRow());
+      cur.count += 1;
+      if (!typesSeen.has(a.agentType)) {
+        typesSeen.add(a.agentType);
+        cur.sessions += 1;
+      }
+      cur.tokens = addTokens(cur.tokens, a.tokens);
+      cur.webFetch += a.toolCounts.WebFetch ?? 0;
+      cur.webSearch += a.toolCounts.WebSearch ?? 0;
       if (a.model) byModel[a.model] = (byModel[a.model] ?? 0) + 1;
     }
   }
@@ -1527,8 +2035,27 @@ export function buildReport(
     .filter(Boolean)
     .sort();
 
+  const skillTally = tallySkills(sessions, opts.catalog.skills);
+  const stats = rangeStats(
+    sessions,
+    opts.catalog.agents.map((a) => a.name),
+  );
+  const usedAgents = new Set(
+    [...stats.agents].filter(([, a]) => a.sessions > 0).map(([name]) => name),
+  );
+  const candidates = unusedManagedCandidates(
+    {
+      sessionsConsidered: stats.sessions.transcript,
+      managedSkills: opts.catalog.managedSkills ?? [],
+      usedSkills: new Set(skillTally.filter((r) => r.invoked + r.inherited > 0).map((r) => r.slug)),
+      managedAgents: opts.managedAgents ?? [],
+      usedAgents,
+    },
+    opts.lang ?? "en",
+  );
+
   return {
-    schemaVersion: 9,
+    schemaVersion: 10,
     generatedBy: `navori@${opts.version}`,
     generatedAt: (opts.now ?? new Date()).toISOString(),
     repo: opts.repo,
@@ -1544,7 +2071,7 @@ export function buildReport(
       tokens,
       startupTokens,
       byAgentType,
-      skills: tallySkills(sessions, opts.catalog.skills),
+      skills: skillTally,
       byModel,
       agentDurationMs: sessions.reduce(
         (sum, sess) => sum + sess.agents.reduce((n, a) => n + a.durationMs, 0),
@@ -1567,7 +2094,10 @@ export function buildReport(
       // Range-level because one session's handful of firings reads as noise —
       // the 80% share only exists across the range.
       ...hookMisfires(sessions, opts.lang ?? "en"),
+      // R47: managed skills and agents nobody used, with the N they rest on.
+      ...candidates,
     ],
     orphanSessions: opts.orphanSessions ?? [],
+    rangeMetrics: flattenRangeMetrics(stats),
   };
 }

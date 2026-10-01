@@ -550,13 +550,15 @@ describe("hooks del host vs conteo de subagentes (#693)", () => {
 
 describe("schema (#0013)", () => {
   // Covers: R17
-  it("declares schemaVersion 9", () => {
+  it("declares schemaVersion 10", () => {
     const report = buildReport([session([])], {
       repo: "demo",
       version: "0.6.5",
       catalog: CATALOG,
     });
-    expect(report.schemaVersion).toBe(9);
+    expect(report.schemaVersion).toBe(10);
+    // The bump to 10 adds `rangeMetrics`; older shapes lose nothing.
+    expect(report.rangeMetrics["sessions.total"]).toBe(1);
     // Same contract for the bump to 8 (#778): `rangeSignals` is a scope the
     // payload never carried, so a consumer must be able to tell it exists
     // rather than read its absence as "the range has no caveat".
@@ -1305,5 +1307,120 @@ describe("peaje por evento de hooks concurrentes (#924)", () => {
     // the reader to skim the next line. (The block's footnote names the figure
     // in prose either way, hence the colon: what must be absent is the ROW.)
     expect(out).not.toContain("peaje por evento:");
+  });
+});
+
+describe("range sections (spec 0039 F0b)", () => {
+  const hookEvent = (over: Partial<HookEvent> = {}): HookEvent => ({
+    ts: "2026-08-25T10:00:00Z",
+    name: "guard-destructive",
+    phase: "PreToolUse",
+    verdict: "allow",
+    ms: 10,
+    source: "core",
+    tool: "Bash",
+    ...over,
+  });
+
+  function range(
+    agents: AgentRun[],
+    over: Partial<SessionAudit> = {},
+    managedAgents: string[] = [],
+  ) {
+    const s = session(agents, over);
+    const report = buildReport([s], {
+      repo: "demo",
+      version: "0.11.0",
+      catalog: CATALOG,
+      managedAgents,
+      lang: "en",
+    });
+    return { report, md: renderMarkdown(report, "en") };
+  }
+
+  // Covers: R46
+  it("lists every declared agent with its session count, zeros included", () => {
+    const { report, md } = range([agent({ agentType: "implementer" })]);
+    expect(report.rangeMetrics["agent.implementer.sessions"]).toBe(1);
+    expect(report.rangeMetrics["agent.researcher.sessions"]).toBe(0);
+    expect(report.rangeMetrics["agent.claude.sessions"]).toBe(0);
+    expect(md).toContain("## Agents over the range");
+    expect(md).toContain("| `researcher` | 0 | 0 |");
+  });
+
+  // Covers: R47
+  it("flags an unused managed agent as a candidate with the sessions it rests on, never an own one", () => {
+    const { report } = range([agent({ agentType: "implementer" })], {}, [
+      "researcher",
+      "implementer",
+    ]);
+    const candidate = report.rangeSignals.find((x) => x.kind === "unused-managed-candidates");
+    expect(candidate?.summary).toContain("1 sessions");
+    expect(candidate?.evidence).toContain("researcher");
+    // `claude` is declared and unused but not managed: the user's to judge.
+    expect(candidate?.evidence).not.toContain("claude");
+    expect(candidate?.evidence).not.toContain("implementer");
+  });
+
+  // Covers: R63
+  it("groups hooks per Bash call by toolUseId and sums fires and time per hook", () => {
+    const events = [
+      hookEvent({ toolUseId: "t1", name: "guard-destructive", ms: 10 }),
+      hookEvent({ toolUseId: "t1", name: "routing-watch", ms: 5 }),
+      hookEvent({ toolUseId: "t1", name: "routing-watch", phase: "PostToolUse", ms: 5 }),
+      hookEvent({ toolUseId: "t2", name: "guard-destructive", ms: 30 }),
+      // Not a Bash call: never part of the per-call figure.
+      hookEvent({ toolUseId: "t3", tool: "Read", name: "guard-destructive" }),
+    ];
+    const { report, md } = range([agent({ hookEvents: events })]);
+    const m = report.rangeMetrics;
+    expect(m["hooks.bashCalls"]).toBe(2);
+    // t1 ran three distinct hook executions, t2 one: mean 2.
+    expect(m["hooks.perBashCall"]).toBe(2);
+    expect(m["hooks.perBashCall.p90"]).toBe(3);
+    expect(m["hook.guard-destructive.fires"]).toBe(3);
+    expect(m["hook.guard-destructive.ms"]).toBe(10 + 30 + 10);
+    expect(md).toContain("Hooks per Bash call: **2**");
+  });
+
+  // Covers: R66
+  it("groups blocks per rule with at most 3 examples, redacted and cut to 160", () => {
+    const secret = "ghp_abcdefghijklmnop1234";
+    const blocked: Record<string, string> = {};
+    const events: HookEvent[] = [];
+    for (let i = 0; i < 5; i++) {
+      blocked[`t${i}`] = `git push https://x:${secret}@host/r --token ${secret} ${"y".repeat(400)}`;
+      events.push(
+        hookEvent({ toolUseId: `t${i}`, verdict: "block", reason: "rule 4: force push" }),
+      );
+    }
+    const { report, md } = range([agent({ hookEvents: events, blockedCommands: blocked })]);
+    expect(report.rangeMetrics["hook.guard-destructive.blocks"]).toBe(5);
+    expect(report.rangeMetrics["hook.guard-destructive.blocks.rule 4: force push"]).toBe(5);
+    const examples = md.split("\n").filter((l) => l.startsWith("  - `git push"));
+    expect(examples).toHaveLength(3);
+    expect(md).not.toContain(secret);
+    for (const line of examples) expect(line.length).toBeLessThanOrEqual(160 + 8);
+    // Free text never reaches the flat metrics.
+    expect(JSON.stringify(report.rangeMetrics)).not.toContain("git push");
+  });
+
+  // Covers: R70
+  it("tabulates any name x verdict from hooks and CLI events", () => {
+    const { report, md } = range(
+      [agent({ hookEvents: [hookEvent({ name: "fixture-hook", verdict: "advise" })] })],
+      {
+        cliEvents: [
+          { tsMs: 1, event: "cli", name: "fixture-cli", verdict: "reject", reason: "r" },
+          { tsMs: 2, event: "cli", name: "fixture-cli", verdict: "reject" },
+          { tsMs: 3, event: "cli", name: "fixture-cli", verdict: "accept" },
+        ],
+      },
+    );
+    expect(report.rangeMetrics["mechanism.fixture-cli.reject"]).toBe(2);
+    expect(report.rangeMetrics["mechanism.fixture-cli.accept"]).toBe(1);
+    expect(report.rangeMetrics["mechanism.fixture-hook.advise"]).toBe(1);
+    expect(md).toContain("## Mechanisms: name × verdict");
+    expect(md).toContain("| `fixture-cli` | 1 | 0 | 2 |");
   });
 });

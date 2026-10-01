@@ -1587,3 +1587,86 @@ describe("classifier-exempt commands (#730)", () => {
     expect(s.orchestrator.classifierExemptBashByMode).toEqual({ auto: 1, plan: 1 });
   });
 });
+
+describe("parse: range measures (spec 0039)", () => {
+  function transcript(lines: unknown[]): string {
+    const dir = mkdtempSync(join(tmpdir(), "navori-range-parse-"));
+    const file = join(dir, "session.jsonl");
+    writeFileSync(file, lines.map((line) => JSON.stringify(line)).join("\n"), "utf-8");
+    return file;
+  }
+
+  // Covers: R66
+  it("keeps only the redacted, 160-char command of a Bash call a hook blocked", () => {
+    const s = parseSession(
+      transcript([
+        {
+          type: "assistant",
+          message: {
+            id: "m1",
+            content: [
+              {
+                type: "tool_use",
+                id: "t1",
+                name: "Bash",
+                input: {
+                  command: `curl -H "Authorization: Bearer abcdefgh12345678" sk-abcdef123456 ${"z".repeat(300)}`,
+                },
+              },
+              { type: "tool_use", id: "t2", name: "Bash", input: { command: "ls" } },
+            ],
+          },
+        },
+        {
+          type: "user",
+          message: {
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "t1",
+                is_error: true,
+                content: "BLOCKED by guard: x",
+              },
+              { type: "tool_result", tool_use_id: "t2", content: "ok" },
+            ],
+          },
+        },
+      ]),
+    );
+    const blocked = s.orchestrator.blockedCommands ?? {};
+    expect(Object.keys(blocked)).toEqual(["t1"]);
+    expect(blocked.t1).not.toContain("abcdefgh12345678");
+    expect(blocked.t1).not.toContain("sk-abcdef123456");
+    expect(blocked.t1?.length).toBeLessThanOrEqual(160);
+  });
+
+  // Covers: R70
+  it("reads CLI events from the session log and leaves logs without them alone", () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-cli-events-"));
+    const file = join(dir, "session-s1.log");
+    writeFileSync(
+      file,
+      [
+        {
+          ts: "2026-08-25T10:05:00Z",
+          event: "cli",
+          tsMs: 5,
+          name: "fixture-cli",
+          verdict: "reject",
+          reason: "r",
+        },
+        { event: "cli", name: "no-tsms", verdict: "x" },
+      ]
+        .map((e) => JSON.stringify(e))
+        .join("\n"),
+      "utf-8",
+    );
+    const s = parseSession(FIXTURE);
+    attachHookEvents(s, file);
+    expect(s.cliEvents).toEqual([
+      { tsMs: 5, event: "cli", name: "fixture-cli", verdict: "reject", reason: "r" },
+    ]);
+    // The malformed one is counted, never half-read.
+    expect(s.parseErrors).toBe(2);
+  });
+});

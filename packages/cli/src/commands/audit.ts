@@ -14,7 +14,8 @@ import {
 import { join, resolve } from "node:path";
 import { readHarnessCatalog, renderedHarnessVersion } from "../lib/audit/harness.ts";
 import { findMarkedSessions, resolveTranscript } from "../lib/audit/discovery.ts";
-import { attachHookEvents, parseSession } from "../lib/audit/parse.ts";
+import { attachHookEvents, parseCodexSession, parseSession } from "../lib/audit/parse.ts";
+import { listMarkers } from "../lib/diagnose/health.ts";
 import { detectSignals, type Lang } from "../lib/audit/signals.ts";
 import { buildReport, renderJson, renderMarkdown, weightedTokens } from "../lib/audit/report.ts";
 import {
@@ -60,6 +61,18 @@ function reportLang(cwd: string): Lang {
     }
   }
   return resolveLang(readGlobalConfig()?.language) as Lang;
+}
+
+/**
+ * Declared agents whose file carries a navori managed marker (R47) — the same
+ * witness of provenance `readHarnessCatalog` uses for skills, since a name proves
+ * nothing. Read here, not in the pure report module.
+ */
+function managedAgentNames(cwd: string, agents: Array<{ name: string }>): string[] {
+  return agents
+    .filter((a) => listMarkers(join(cwd, ".claude", "agents", `${a.name}.md`)).length > 0)
+    .map((a) => a.name)
+    .sort();
 }
 
 /**
@@ -510,6 +523,13 @@ export const auditCommand = defineCommand({
     const missing: string[] = [];
     for (const m of marked) {
       if (!m.transcript) {
+        // A Codex session has no transcript by design (R71): it is reported from
+        // its log, not listed as an orphan.
+        const codex = parseCodexSession(m.sessionId, m.logFile);
+        if (codex) {
+          parsed.push(codex);
+          continue;
+        }
         missing.push(m.sessionId.slice(0, 8));
         continue;
       }
@@ -545,6 +565,7 @@ export const auditCommand = defineCommand({
       // #675: the human note already printed these; `--json` could not see them
       // at all, which is the half a CI or an agent reads.
       orphanSessions: missing,
+      managedAgents: managedAgentNames(cwd, catalog.agents),
       // #778: the harness ON DISK now, against which every session's own stamp
       // is judged. Read here — the same `cwd` `--start` stamps from — so the
       // report module stays pure over parsed sessions.

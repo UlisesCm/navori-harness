@@ -17,7 +17,7 @@ Las tareas marcadas *carry-over* aplican la tarea citada de
 
 ## F0a — Verificación
 
-- [ ] **T1** (R3, R34, R43) — `docs/research/claude-first-verificacion.md`: cada capacidad de
+- [x] **T1** (R3, R34, R43) — `docs/research/claude-first-verificacion.md`: cada capacidad de
   [evidence.md](evidence.md) con URL oficial, fecha, versión de CC y cita; las filas sin
   verificar quedan `complementa`. Pre-registro de R34, R43 (con la banda de ruido entre dos
   ventanas base, m10) y del disparador de R41, en un commit anterior a cualquier medición.
@@ -33,13 +33,17 @@ Las tareas marcadas *carry-over* aplican la tarea citada de
 
 Lote 1:
 
-- [ ] **T3** (R48, R49, R64, R65, R71) — `lib/audit/parse.ts` y `model.ts`: `AgentRun` con
+- [x] **T3** (R48, R49, R64, R65, R71) — `lib/audit/parse.ts` y `model.ts`: `AgentRun` con
   `turns` (dedupe por `message.id`), `turnLimitHit`, `toolResultBytes`, `contextPeak`,
   `compactions`; `schemaVersion: 10`, `rangeMetrics`, `byAgentType[*].sessions`, fila
   `main-thread`, web por agente; sesión Codex con `null` y `unavailable: "transcript"`.
   · test: `lib/audit/__tests__/range-metrics.test.ts` con fixtures (sesión Codex incluida) con
   `// Covers: R48, R49, R64, R65, R71`.
-- [ ] **T4** (R46, R47, R63, R66, R70) — `lib/audit/report.ts`: `agentRangeSection` con ceros,
+  · nota: `turnLimitHit` y `compactions` detectan formas de transcript no verificadas
+  (`error_max_turns`/`max_turns`, `compact_boundary`/`isCompactSummary`); T2 las confirma. Ninguna
+  escritura marca aún `host: "codex"` en el `start` del log de audit, así que las sesiones Codex
+  reales siguen como huérfanas hasta que T8 lo agregue.
+- [x] **T4** (R46, R47, R63, R66, R70) — `lib/audit/report.ts`: `agentRangeSection` con ceros,
   candidatos managed sin uso con N sesiones, hooks por rango (`hooks.perBashCall` por
   `toolUseId`), bloqueos por regla con ≤ 3 ejemplos truncados a 160 y redactados, y el **marco**
   `mechanismSection` (`name × verdict` de hooks y eventos CLI, nombres fixture).
@@ -64,7 +68,7 @@ Lote 2:
 Lote 3:
 
 - [ ] **T8** (R55, R70) — `lib/audit/cli-event.ts`: `appendCliEvent(cwd, { name, verdict })` al
-  log de la sesión de `CLAUDE_CODE_SESSION_ID`; sin variable o sin log, no escribe (fail-open).
+  log de la sesión de `CLAUDE_CODE_SESSION_ID`; sin variable o sin log, no escribe (fail-open). Además, el `start` del log de audit registra `host` (`claude`/`codex`) para que R71 reconozca sesiones Codex reales.
   · test: `lib/audit/__tests__/cli-event.test.ts` con `// Covers: R55, R70`.
 - [ ] **T9** (R43) — Instantánea base `navori audit --snapshot claude-first-base`: cache read
   mediano por sesión y por lanzamiento de `implementer`, `hooks.perBashCall` y tamaños de
@@ -103,21 +107,21 @@ Lote 2:
 
 Lote 1:
 
-- [ ] **T14** (R23, R24) — `guard-destructive.sh` regla 3 (`rm_kill`): variable como destino
+- [x] **T14** (R23, R24) — `guard-destructive.sh` regla 3 (`rm_kill`): variable como destino
   exige `-r`, `-R` o `--recursive`. · test: `guard-destructive.test.ts` con los casos de design.md
   § Testing strategy (incluida la frontera `rm -f "$X"/*`, m3) con `// Covers: R23, R24`.
-- [ ] **T15** (R25, R26) — `plan-gate.sh` con `# navori:include audit-log` y trap de veredicto;
+- [x] **T15** (R25, R26) — `plan-gate.sh` con `# navori:include audit-log` y trap de veredicto;
   `subagent-stop-handoff.sh` con stamp por (ruta, hash). · test:
   `hook-audit-instrumentation.test.ts` con `plan-gate`; mismo handoff dos veces → 1 aviso;
   contenido cambiado → aviso, con `// Covers: R25, R26`.
 
 Lote 2:
 
-- [ ] **T16** (R27) — `model-advisor.sh` en modo `claude-stop`, registrado en `Stop`;
+- [x] **T16** (R27) — `model-advisor.sh` en modo `claude-stop`, registrado en `Stop`;
   `host-contracts.ts` (`claude-model-advisor-payload`) y JSDoc de `MAIN_THREAD_ONLY_HOOKS`.
   · test: `model-advisor.test.ts` (`effort.level: high` en Opus → 1 aviso; sin campo y con
   `CLAUDE_EFFORT=high` → 1 aviso) con `// Covers: R27`.
-- [ ] **T17** (R28) — `lib/__tests__/hooks-per-bash.test.ts`: cuenta `B_pre`/`B_post` por camino
+- [x] **T17** (R28) — `lib/__tests__/hooks-per-bash.test.ts`: cuenta `B_pre`/`B_post` por camino
   sobre dos fixtures (default con tgrep y coexist) evaluando cada `if`. Fija la cuenta de
   después de T16; T21, T23 y T28 actualizan lo esperado según D5. · test: el propio, con
   `// Covers: R28`.

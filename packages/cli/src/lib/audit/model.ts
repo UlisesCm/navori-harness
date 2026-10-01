@@ -119,6 +119,24 @@ export interface AgentRun {
   verdict: "APPROVED" | "CHANGES_REQUESTED" | null;
   /** Native file writes observed in this run's Claude transcript. */
   observedArtifactWrites?: ObservedArtifactWrite[];
+  /**
+   * Assistant turns: UNIQUE `message.id`s, never transcript lines (streaming
+   * re-emits one line per content block, so lines over-count roughly 2x).
+   * Optional on this and the next four fields because v9 reports and logs
+   * written before spec 0039 do not carry them; readers treat absence as "not
+   * measured", never as zero.
+   */
+  turns?: number;
+  /** The transcript carries the host's turn-limit stop (`maxTurns`). UNVERIFIED
+   *  record shape until the F0a probe (R41); false when no such record exists. */
+  turnLimitHit?: boolean;
+  /** tool name → result size in bytes, one entry per call (R64). */
+  toolResultBytes?: Record<string, number[]>;
+  /** Largest context any one message sent: input + cache read + cache creation. */
+  contextPeak?: number;
+  /** `tool_use_id` → the Bash command whose call a hook BLOCKED, already
+   *  redacted and cut to 160 chars (R66). Never holds any other command. */
+  blockedCommands?: Record<string, string>;
 }
 
 /** A safe projection of a native Claude file-write request.
@@ -310,6 +328,31 @@ export interface InjectedContext {
   count: number;
   /** Characters of injected context, summed over those injections. */
   chars: number;
+}
+
+/** An orchestrator block with nothing observed: the base a session built from
+ *  something other than a transcript starts from. */
+export function emptyOrchestrator(): SessionAudit["orchestrator"] {
+  return {
+    tokens: emptyTokens(),
+    startupTokens: 0,
+    models: {},
+    shellReads: 0,
+    shellWrites: 0,
+    toolCounts: {},
+    toolCountsByMode: {},
+    classifierExemptBashByMode: {},
+    skillsRead: [],
+    skills: [],
+    skillsDiscarded: 0,
+    skillAttributionRecords: 0,
+    mcpCalls: {},
+    mcpInjectedContext: {},
+    hookEvents: [],
+    frictionEvents: 0,
+    toolErrors: emptyToolErrors(),
+    repeatedCommands: {},
+  };
 }
 
 /** One audited session: the orchestrator plus every subagent it spawned. */
@@ -508,6 +551,17 @@ export interface SessionAudit {
     frictionEvents: number;
     toolErrors: ToolErrors;
     repeatedCommands: Record<string, number>;
+    /**
+     * Transcript-only measures (spec 0039 R64, R65, R71). `undefined` = the
+     * report predates them; `null` = the session has no transcript (Codex), so
+     * the value is UNAVAILABLE and must never be read as zero.
+     */
+    turns?: number | null;
+    contextPeak?: number | null;
+    /** `compact_boundary` records (falling back to `isCompactSummary`). */
+    compactions?: number | null;
+    toolResultBytes?: Record<string, number[]> | null;
+    blockedCommands?: Record<string, string>;
   };
   agents: AgentRun[];
   signals: Signal[];
@@ -565,10 +619,29 @@ export interface SessionAudit {
    * no native artifact writes.
    */
   observedArtifactWrites?: ObservedArtifactWrite[];
+  /**
+   * Which host produced the session. Absent = Claude (every log before 0039).
+   * A Codex session comes from its audit log alone: hooks and verdicts are
+   * real, everything the transcript would add is `null` (R71).
+   */
+  host?: "claude" | "codex";
+  /** Set when a whole source is missing: `"transcript"` for a Codex session. */
+  unavailable?: "transcript";
+  /** CLI mechanism verdicts recorded in the session log (R70 frame). */
+  cliEvents?: CliEvent[];
   /** Unparseable or unknown lines, counted instead of thrown. */
   parseErrors: number;
   /** Total lines seen, so `parseErrors` can be read as a ratio. */
   linesRead: number;
+}
+
+/** A verdict a navori CLI command recorded in the session log (R70). */
+export interface CliEvent {
+  tsMs: number;
+  event: "cli";
+  name: string;
+  verdict: string;
+  reason?: string;
 }
 
 /**
@@ -847,8 +920,11 @@ export interface AuditReport {
    *  session did X" from "these totals mix harness versions".
    *  Bumped to 9 with `observedArtifactWrites`, a safe native Write/Edit
    *  observation that distinguishes an unavailable source from zero writes.
+   *  Bumped to 10 with `rangeMetrics` (spec 0039 D10): every range aggregate
+   *  published flat and computed once, plus `byAgentType[*].sessions` and the
+   *  `main-thread` row. v9 reports keep parsing: nothing was removed.
    *  A reader can tell the shapes apart by this number alone. */
-  schemaVersion: 9;
+  schemaVersion: 10;
   generatedBy: string;
   /**
    * When this report was built, ISO-8601.
@@ -869,7 +945,12 @@ export interface AuditReport {
     agents: number;
     tokens: TokenTotals;
     startupTokens: number;
-    byAgentType: Record<string, { count: number; tokens: TokenTotals }>;
+    /** One row per agent type plus `main-thread`. `count` is launches; `sessions`
+     *  is the distinct sessions that launched one (R48). */
+    byAgentType: Record<
+      string,
+      { count: number; sessions: number; tokens: TokenTotals; webFetch: number; webSearch: number }
+    >;
     byModel: Record<string, number>;
     /** Sum of every subagent's own duration. */
     agentDurationMs: number;
@@ -910,4 +991,12 @@ export interface AuditReport {
    * sessions has to be able to subtract them.
    */
   orphanSessions: string[];
+  /**
+   * Every range aggregate, flat and computed once in `buildReport` (spec 0039
+   * D10): `hooks.perBashCall`, `agent.implementer.turns.p90`,
+   * `tool.codegraph_explore.resultBytes.p50`. `null` means UNAVAILABLE (no
+   * transcript contributed), never zero. Free text (blocked commands) never
+   * lands here.
+   */
+  rangeMetrics: Record<string, number | null>;
 }
