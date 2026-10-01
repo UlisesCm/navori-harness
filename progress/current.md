@@ -1,6 +1,6 @@
 # Current — Spec 0039 Claude first (18/44 mergeadas o en PR normal)
 
-- Abiertos: #1138 (T8, PR normal), #1139 (T18–T20, **draft**: no mergear hasta T21) y T36 (PR abierto, maxTurns 160 en Claude implementer).
+- Abiertos: #1138 (T8, PR normal), #1139 (T18–T20, **draft**: no mergear hasta T21) y T36 (#1148, maxTurns 160 en Claude implementer).
 - Siguiente paso: F3 lote 2 (T21 hook de evidencia con `fingerprintTree`, T22 prosa) en la rama de
   #1139; luego T9 (instantánea base con `navori audit --snapshot`).
 - Bloqueado: T2 (sondas live) espera autorización explícita del usuario; de T2 dependen T23, T24, T37
