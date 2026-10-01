@@ -23,6 +23,7 @@ import {
   renderIndexMd,
   stageDirName,
 } from "./stages.ts";
+import { writeMasterStatus } from "./status.ts";
 import { computeSignal, type MasterSignal } from "./signal.ts";
 import {
   MasterStateSchema,
@@ -190,6 +191,9 @@ export function runMasterInit(cwd: string, slug: string | undefined): MasterInit
     });
     runRender(cwd);
   }
+
+  // STATUS.md exists from the start: INDEX.md already links to it (R54).
+  writeMasterStatus(cwd);
 
   const stateRaw: unknown = JSON.parse(readFileSync(paths.stateJson, "utf8"));
   const state = MasterStateSchema.parse(stateRaw);
