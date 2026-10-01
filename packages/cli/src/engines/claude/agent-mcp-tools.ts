@@ -1,4 +1,8 @@
-import { splitFrontmatter, getFrontmatterField } from "../../lib/render/frontmatter.ts";
+import {
+  splitFrontmatter,
+  getFrontmatterField,
+  splitToolList,
+} from "../../lib/render/frontmatter.ts";
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
 
 /**
@@ -146,10 +150,8 @@ function rewriteAgentTools(
   // narrowing could take away either.
   if (declared === null) return content;
 
-  const have = declared
-    .split(",")
-    .map((t) => t.trim())
-    .filter((t) => t !== "");
+  // Parenthesis-aware: `Agent(scout, scribe)` is one entry, not two.
+  const have = splitToolList(declared).filter((t) => t !== "");
   const result = next(have, tools);
   if (result === null) return content;
 

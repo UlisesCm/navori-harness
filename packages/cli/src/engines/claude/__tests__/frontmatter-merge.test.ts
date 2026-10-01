@@ -53,4 +53,22 @@ describe("mergeFrontmatter", () => {
       expect(merged["disable-model-invocation"]).toBe("true");
     });
   });
+
+  // Covers: R36, R37
+  it("round-trips a parenthesised tool entry without rewriting the line", () => {
+    const tools = "Read, Glob, Agent(scout, scribe), Write";
+    const { merged, serialized } = mergeFrontmatter({ tools }, { tools }, null);
+    expect(merged.tools).toBe(tools);
+    expect(serialized).toContain(`tools: ${tools}`);
+  });
+
+  // Covers: R36, R37
+  it("keeps plugin mcp__ grants next to a parenthesised entry", () => {
+    const { merged } = mergeFrontmatter(
+      { tools: "Read, Agent(scout, scribe)" },
+      { tools: "Read, Agent(scout, scribe), mcp__engram__*" },
+      null,
+    );
+    expect(merged.tools).toBe("Read, Agent(scout, scribe), mcp__engram__*");
+  });
 });

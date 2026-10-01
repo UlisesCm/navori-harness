@@ -14,7 +14,7 @@
  * can plug it back into the destination file without an extra pass.
  */
 
-import { formatFrontmatterField } from "../../lib/render/frontmatter.ts";
+import { formatFrontmatterField, splitToolList } from "../../lib/render/frontmatter.ts";
 
 export interface MergeFrontmatterResult {
   merged: Record<string, string>;
@@ -42,11 +42,11 @@ export function mergeFrontmatter(
   // strip was computed and silently thrown away). Asset wins for the native
   // list; dest-only `mcp__*` entries survive.
   if (assetFm.tools !== undefined && destFm.tools !== undefined) {
-    const assetList = assetFm.tools.split(",").map((t) => t.trim());
-    const grants = destFm.tools
-      .split(",")
-      .map((t) => t.trim())
-      .filter((t) => t.startsWith("mcp__") && !assetList.includes(t));
+    // Parenthesis-aware split: `Agent(scout, scribe)` must survive as one entry.
+    const assetList = splitToolList(assetFm.tools);
+    const grants = splitToolList(destFm.tools).filter(
+      (t) => t.startsWith("mcp__") && !assetList.includes(t),
+    );
     if (grants.length > 0) merged.tools = [...assetList, ...grants].join(", ");
   }
   return {
