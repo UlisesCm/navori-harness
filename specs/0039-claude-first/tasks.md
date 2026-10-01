@@ -208,7 +208,7 @@ Lote 3 (sujeto al gate de T2):
 
 ## F6 — Agentes
 
-- [ ] **T33** (R36, R37) — `architect.md` con `Agent(scout, scribe)`; split de `tools:` que
+- [x] **T33** (R36, R37) — `architect.md` con `Agent(scout, scribe)`; split de `tools:` que
   respeta paréntesis en `rewriteAgentTools` y `mergeFrontmatter`; fila de despacho anidado;
   fallback en `orquestacion.md`. · test: `frontmatter-merge.test.ts` (ida y vuelta sin
   reescritura) y `agents-assets.test.ts` con `// Covers: R36, R37`.
