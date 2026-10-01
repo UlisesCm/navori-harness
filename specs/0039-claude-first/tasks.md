@@ -134,13 +134,13 @@ Lote 2:
 
 Lote 1 (carry-over 0038 Lote 1):
 
-- [ ] **T18** (R7, R8, R9) — *carry-over 0038 T1*: `WorkplanSchema.evidence`,
+- [x] **T18** (R7, R8, R9) — *carry-over 0038 T1*: `WorkplanSchema.evidence`,
   `lib/plan/evidence.ts` y rechazo ERROR / WHY / FIX de `updateSubCommand`, sin ejecutar el
-  `command`. El WHY "no run recorded" trae un FIX que menciona repos grandes (D5). Cada rechazo
-  llama `appendCliEvent` (R70).
-- [ ] **T19** (R11) — *carry-over 0038 T2*: `renderAcceptance` y `checkWorkplan` distinguen con y
+  `command`. El WHY "no run recorded" trae un FIX que menciona repos grandes (D5).
+  · nota: la huella no usa `git add`; cada llamada a git lleva `-c core.fsmonitor=false -c core.hooksPath=/dev/null` para que `plan update` nunca ejecute código configurado en el repo. Archivos de `ls-files --cached --others --exclude-standard`, excluyendo `.navori/state`, `.claude/progress`, `.codex/progress` y `.claude/worktrees`; blobs con `hash-object --no-filters` (modo 100755 si hay algún bit de ejecución, si no 100644; symlink = hash del destino con modo 120000; gitlinks y directorios se omiten); índice scratch `.git/navori-fp-index` con `read-tree --empty` + `update-index --index-info -z` + `write-tree`. T21 debe reutilizar el mismo helper (`fingerprintTree` en `lib/plan/evidence.ts`).
+- [x] **T19** (R11) — *carry-over 0038 T2*: `renderAcceptance` y `checkWorkplan` distinguen con y
   sin evidencia; `CheckResult.warnings` aditivo, `ok` intacto.
-- [ ] **T20** (R10) — *carry-over 0038 T3*: regla de engine con `CLAUDE_CODE_CHILD_SESSION`;
+- [x] **T20** (R10) — *carry-over 0038 T3*: regla de engine con `CLAUDE_CODE_CHILD_SESSION`;
   control `acceptance-evidence` (Claude `advisory`, Codex y prosa `unsupported`).
 
 Lote 2:
@@ -153,6 +153,7 @@ Lote 2:
   registra; `run_in_background` → no; sin argumento → no; kill simulado → sin línea parcial;
   centinela `touch` ausente; shims de PATH en la ruta rápida) con `// Covers: R6, R7`; T17
   actualizado.
+  · nota: el PR de F3 lote 1 queda en draft hasta que T21 entre: sin el hook, `plan update` rechaza `cumplido` en Claude.
 - [ ] **T22** (R6, R12) — *carry-over 0038 T5*: prosa de `plan-simple.md`, `plan-advanced.md`,
   `implementer.md` y `reviewer.md` Pass 1 (`plan check --json`, cada `cumplido` sin evidencia es
   hallazgo). El tope `maxWords` final lo fija T27.
@@ -166,7 +167,7 @@ Lote 3 (sujeto al gate de T2):
 - [ ] **T24** (R16, R70) — *carry-over 0038 T10*: fila `unsupported` en
   `CODEX_HOOK_REGISTRATIONS` y control `repeat-failure-advice`; nombres de evidencia, rechazo y
   atasco en `mechanismSection`. · test: `control-inventory.test.ts`, pinned-hash de Codex sin
-  cambio y fixture de mecanismos con `// Covers: R16, R70`.
+  cambio y fixture de mecanismos con `// Covers: R16, R70`. Incluye el evento CLI de cada rechazo de `plan update`.
 
 ## F4 — Reviewer
 
