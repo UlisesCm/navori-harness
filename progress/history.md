@@ -10,6 +10,19 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-10-01 14:49 pi — setup de Pi en Navori con render Bun y runtime compilado
+- Objetivo: dejar un PR contra `main` con el setup de Pi de este repo, sin avanzar la Spec 0039.
+- Cambios: Pi habilitado en `navori.config.json`; extensión, manifiesto y tres roles en `.pi/`;
+  validación de sintaxis bajo Bun con Node acotado; chequeo de versiones autocontenido con binding
+  estable ante minificación; regresión del CLI compilado con el SDK real de Pi.
+- Hallazgos: Bun no expone `stripTypeScriptTypes`; serializar funciones separadas con
+  `Function.toString()` dejaba referencias inválidas al minificar el CLI. El lock temporal de
+  Vitest se limpió con autorización del usuario y sin proceso activo de este checkout.
+- Quality gate: `bun check` verde, 339 archivos de pruebas, 6572 aprobadas y 1 omitida;
+  render compilado sin cambios pendientes. Recibo de publicación: feature `pi_render_bun`.
+- Revisión: reviewer independiente, APPROVED sin CRÍTICO/ALTO.
+- Siguiente paso: publicar desde `fix/pi-render-bun` y revisar CI; OAuth queda para smoke manual
+  del usuario. No se tocaron credenciales, configuración global de Pi ni archivos de la Spec 0039.
 ## 2026-10-01 03:40 — orchestrator — spec 0039 Claude first: tasks y fases F0a, F0b, F1, F2, F3 (lote 1), F8 y F9
 - Cambios: `tasks.md` de la 0039 (#1130) y borrador 0038 absorbido; T1 verificación y pre-registro (#1131);
   F2 hooks (#1132); F0b lotes 1–3 de `navori audit` (#1133, #1134, #1138); F1 matriz de solapamiento (#1135);
