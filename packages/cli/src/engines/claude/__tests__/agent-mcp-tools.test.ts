@@ -70,6 +70,14 @@ describe("withAgentMcpTools", () => {
     expect(out).toContain("tools: Read, Glob, Grep, mcp__engram__*");
   });
 
+  // Covers: R36, R37
+  it("keeps Agent(scout, scribe) as one entry and does not duplicate it", () => {
+    const once = withAgentMcpTools(agentFile("Read, Agent(scout, scribe)"), engram, AGENT);
+    expect(once).toContain("tools: Read, Agent(scout, scribe), mcp__engram__*");
+    expect(withAgentMcpTools(once, engram, AGENT)).toBe(once);
+    expect(withoutAgentMcpTools(once, engram, AGENT)).toBe(agentFile("Read, Agent(scout, scribe)"));
+  });
+
   it("leaves a skill target untouched — skills have no allowlist", () => {
     const content = agentFile("Read");
     const target = ".claude/skills/locate-code/SKILL.md";

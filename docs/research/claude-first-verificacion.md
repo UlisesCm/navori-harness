@@ -211,7 +211,33 @@ se cambian después de ver datos. Cambiarlos exige un commit nuevo que lo diga y
 
 ## Línea base (T9)
 
-_Pendiente._
+Instantánea `claude-first-base`, generada con `navori audit --snapshot claude-first-base`.
+
+- **Alcance:** solo navori-harness, navori@0.11.0, rango 2026-09-21..2026-10-01, 95 sesiones y 745
+  agentes.
+- **Mediana:** es la mediana inferior (`quantile`), no el promedio de los dos centrales.
+- **Ubicación:** la instantánea vive bajo la raíz de auditoría
+  (`~/.navori/audits/navori-harness/ranges/2026-09-21--2026-10-01/snapshot-claude-first-base.json`),
+  nunca en el repo.
+
+| Métrica | p50 | p90 | n |
+| --- | --- | --- | --- |
+| Cache read por sesión | 8,181,176 | — | 95 |
+| Cache read por lanzamiento de `implementer` | 3,394,101 | — | 175 |
+| `hooks.perBashCall` | 4.88 | 6 | 24,254 llamadas Bash |
+| Pico de contexto del hilo principal | 139,764 | 328,574 | 95 |
+
+Bytes de resultado (R33):
+
+| Herramienta | p50 | p90 | n |
+| --- | --- | --- | --- |
+| `codegraph_explore` | 22,249 | 25,101 | 142 |
+| `Read` | 3,788 | 16,802 | 3,439 |
+| `Bash` | 502 | 4,483 | 21,067 |
+| `Grep` | 171 | 171 | 1 |
+
+**Default de R44 derivado:** la mediana del pico de contexto (139,764) redondeada a 25k da
+**150,000**, que reemplaza al 175,000 provisional.
 
 ## Resultados de sondas (T2)
 

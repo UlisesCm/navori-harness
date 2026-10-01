@@ -845,6 +845,12 @@ interface DoctorCmdStrings {
   masterPlanMissingRawGitignoreClosedRow: (path: string) => string;
   masterPlanFlagEnabledWithoutActiveRow: string;
   masterPlanFlagDisabledWithActiveRow: string;
+  /** Spec 0039 R32 — codegraph wiring findings (index, grants, projectPath rule). */
+  codegraphWiring: (n: number, lines: string) => string;
+  codegraphIndexRow: (state: string) => string;
+  codegraphNoGrantRow: string;
+  codegraphUngrantedRow: (agents: string) => string;
+  codegraphProjectPathRuleRow: string;
   /** #369 — an installed skill whose user-section is still the template. */
   emptyUserSections: (n: number, lines: string) => string;
   emptyUserSectionRow: (path: string) => string;
@@ -2081,6 +2087,14 @@ const CMD_ES: CmdStrings = {
       "— bandera encendida sin etapa activa; corre 'navori master close' para completar el cierre",
     masterPlanFlagDisabledWithActiveRow:
       "— etapa activa con bandera apagada; corre 'navori master init' para completar la apertura",
+    codegraphWiring: (n, lines) =>
+      `Cableado de codegraph incompleto (${n}) — mídelo solo cuando esté completo:\n${lines}`,
+    codegraphIndexRow: (state) =>
+      `— índice: ${state}; corre 'codegraph init' o 'codegraph sync' tú mismo`,
+    codegraphNoGrantRow: "— ningún agente tiene mcp__codegraph__codegraph_explore en sus tools",
+    codegraphUngrantedRow: (agents) => `— sin permiso para llamar a codegraph: ${agents}`,
+    codegraphProjectPathRuleRow:
+      "— el bloque de enrutamiento inyectado no menciona la regla de projectPath",
     emptyUserSections: (n, lines) =>
       `Skills instaladas con su user-section sin llenar (${n}) — cuestan una lectura ` +
       `y solo cubren la capa universal; lo específico de tu stack va en esa sección:\n${lines}`,
@@ -3446,6 +3460,13 @@ const CMD_EN: CmdStrings = {
       "— flag enabled with no active stage; run 'navori master close' to finish closing",
     masterPlanFlagDisabledWithActiveRow:
       "— active stage with flag disabled; run 'navori master init' to finish opening",
+    codegraphWiring: (n, lines) =>
+      `Codegraph wiring incomplete (${n}) — measure it only once it is complete:\n${lines}`,
+    codegraphIndexRow: (state) =>
+      `— index: ${state}; run 'codegraph init' or 'codegraph sync' yourself`,
+    codegraphNoGrantRow: "— no agent carries mcp__codegraph__codegraph_explore in its tools",
+    codegraphUngrantedRow: (agents) => `— no permission to call codegraph: ${agents}`,
+    codegraphProjectPathRuleRow: "— the injected routing block does not state the projectPath rule",
     emptyUserSections: (n, lines) =>
       `Installed skills with an unfilled user-section (${n}) — they cost a read and ` +
       `only cover the universal layer; your stack's rules belong in that section:\n${lines}`,

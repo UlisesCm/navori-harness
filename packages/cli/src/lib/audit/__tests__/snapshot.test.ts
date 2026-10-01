@@ -16,7 +16,7 @@ import {
   writeSnapshot,
   type RangeSnapshot,
 } from "../snapshot.ts";
-import { session } from "./lifecycle-fixtures.ts";
+import { agent, session } from "./lifecycle-fixtures.ts";
 
 const CATALOG: HarnessCatalog = {
   agents: [{ name: "implementer", tools: null, hasMcp: true }],
@@ -120,6 +120,50 @@ describe("snapshot: format and privacy (R68)", () => {
     expect(text).not.toContain("alpha-repo");
     expect(text).not.toContain("beta-repo");
     expect(JSON.parse(text).scope).toBe("all");
+  });
+});
+
+describe("snapshot: the R43 baselines", () => {
+  // Covers: R43
+  it("freezes cache read per session and per implementer launch, and hooks.perBashCall, each with its n", () => {
+    const tok = (cacheRead: number) => ({
+      input: 0,
+      output: 0,
+      cacheRead,
+      cacheCreation: 0,
+      thinking: 0,
+    });
+    const s1 = session({
+      sessionId: "s1",
+      agents: [
+        agent({ agentId: "a1", agentType: "implementer", tokens: tok(100) }),
+        agent({ agentId: "a2", agentType: "implementer", tokens: tok(300) }),
+      ],
+    });
+    s1.orchestrator.tokens = tok(1000);
+    const s2 = session({ sessionId: "s2" });
+    s2.orchestrator.tokens = tok(500);
+    s2.orchestrator.hookEvents = [
+      {
+        ts: "2026-09-14T10:00:00.000Z",
+        name: "guard",
+        phase: "PreToolUse",
+        verdict: "allow",
+        ms: 1,
+        source: "core",
+        tool: "Bash",
+        toolUseId: "b1",
+      },
+    ];
+    const r = buildReport([s1, s2], { repo: "r", version: "0.11.0", catalog: CATALOG });
+    const m = buildSnapshot(r, "repo").rangeMetrics;
+    // Sessions: 1000+100+300 = 1400 and 500 -> lower median 500, n 2.
+    expect(m["session.cacheRead.p50"]).toBe(500);
+    expect(m["session.cacheRead.n"]).toBe(2);
+    expect(m["agent.implementer.cacheRead.p50"]).toBe(100);
+    expect(m["agent.implementer.cacheRead.n"]).toBe(2);
+    expect(m["hooks.perBashCall"]).toBe(1);
+    expect(m["hooks.bashCalls"]).toBe(1);
   });
 });
 

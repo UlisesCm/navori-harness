@@ -349,6 +349,11 @@ describe("architect never issues a verdict nor decomposes and stays under 700 wo
   const idx = parsed.body.indexOf(SENTINEL);
   const managed = parsed.body.slice(0, idx);
 
+  // Covers: R36, R37
+  it("can dispatch scout and scribe through a parenthesised Agent entry", () => {
+    expect(parsed.frontmatter.tools).toContain("Agent(scout, scribe)");
+  });
+
   it("declares a maxWords ceiling of 700", () => {
     expect(parsed.frontmatter.maxWords).toBe("700");
   });

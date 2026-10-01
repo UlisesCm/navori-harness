@@ -13,7 +13,7 @@ Las tareas marcadas *carry-over* aplican la tarea citada de
 - Pre-registros confirmados: R34 (≥ 15% de la mediana de contexto con corrección ≥ la textual),
   R43 (−10% por lanzamiento con n ≥ 100) y el disparador de reversión de R41.
 - Supuestos que siguen el design: R58 cuenta `master close` en sus tres formas; el default de R44
-  sale de la instantánea de T9 (hoy 175,000).
+  sale de la instantánea de T9 (hoy 150,000 según T9).
 
 ## F0a — Verificación
 
@@ -42,7 +42,7 @@ Lote 1:
   · nota: `turnLimitHit` y `compactions` detectan formas de transcript no verificadas
   (`error_max_turns`/`max_turns`, `compact_boundary`/`isCompactSummary`); T2 las confirma. Ninguna
   escritura marca aún `host: "codex"` en el `start` del log de audit, así que las sesiones Codex
-  reales siguen como huérfanas hasta que T8 lo agregue.
+  reales siguen como huérfanas hasta que un hook de sesión Codex llame `--host codex` (ver T8).
 - [x] **T4** (R46, R47, R63, R66, R70) — `lib/audit/report.ts`: `agentRangeSection` con ceros,
   candidatos managed sin uso con N sesiones, hooks por rango (`hooks.perBashCall` por
   `toolUseId`), bloqueos por regla con ≤ 3 ejemplos truncados a 160 y redactados, y el **marco**
@@ -67,14 +67,15 @@ Lote 2:
 
 Lote 3:
 
-- [ ] **T8** (R55, R70) — `lib/audit/cli-event.ts`: `appendCliEvent(cwd, { name, verdict })` al
+- [x] **T8** (R55, R70) — `lib/audit/cli-event.ts`: `appendCliEvent(cwd, { name, verdict })` al
   log de la sesión de `CLAUDE_CODE_SESSION_ID`; sin variable o sin log, no escribe (fail-open). Además, el `start` del log de audit registra `host` (`claude`/`codex`) para que R71 reconozca sesiones Codex reales.
   · test: `lib/audit/__tests__/cli-event.test.ts` con `// Covers: R55, R70`.
-- [ ] **T9** (R43) — Instantánea base `navori audit --snapshot claude-first-base`: cache read
+  · nota: el writer de `host` es `navori audit --start <id> --host claude|codex`; ningún caller pasa `--host codex` todavía (no existe hook de inicio de sesión Codex), así que R71 queda listo del lado del lector pero sin sesiones Codex marcadas en la práctica.
+- [x] **T9** (R43) — Instantánea base `navori audit --snapshot claude-first-base`: cache read
   mediano por sesión y por lanzamiento de `implementer`, `hooks.perBashCall` y tamaños de
   resultado de R33, cada uno con su n. Cifras y default de R44 (mediana del pico redondeada a 25k)
   en el doc de T1. · test: `snapshot.test.ts` verifica que la instantánea trae las tres métricas de
-  R43 con n, con `// Covers: R43`.
+  R43 con n, con `// Covers: R43`. · nota: cifras en "Línea base (T9)" de `docs/research/claude-first-verificacion.md`; el default de R44 pasa de 175,000 a 150,000.
 
 ## F1 — Matriz
 
@@ -195,9 +196,10 @@ Lote 3 (sujeto al gate de T2):
 
 ## F5b — codegraph
 
-- [ ] **T30** (R32) — `lib/diagnose/codegraph-wiring.ts` en `navori doctor` (índice fresco,
+- [x] **T30** (R32) — `lib/diagnose/codegraph-wiring.ts` en `navori doctor` (índice fresco,
   agentes con grant, regla `projectPath`) y señal `codegraph-projectpath-mismatch` sobre R64.
   · test: `codegraph-wiring.test.ts` con `// Covers: R32`.
+  · nota: la señal está expuesta como métricas en `navori audit` (`codegraph.calls`, `codegraph.projectpath.mismatch` via `extraMetrics`), no en `report.signals` porque los transcript miners corren fuera de `buildReport`.
 - [ ] **T31** (R33, R34) — Medición con `claude -p`, **con autorización del usuario** (costo):
   ≥ 12 tareas, brazos textual, `maxFiles: 4` y `maxFiles: 12`, métricas de `navori audit`.
   Resultado en `docs/research/codegraph-costo-neto.md`, cuyo commit es posterior al del
@@ -208,7 +210,7 @@ Lote 3 (sujeto al gate de T2):
 
 ## F6 — Agentes
 
-- [ ] **T33** (R36, R37) — `architect.md` con `Agent(scout, scribe)`; split de `tools:` que
+- [x] **T33** (R36, R37) — `architect.md` con `Agent(scout, scribe)`; split de `tools:` que
   respeta paréntesis en `rewriteAgentTools` y `mergeFrontmatter`; fila de despacho anidado;
   fallback en `orquestacion.md`. · test: `frontmatter-merge.test.ts` (ida y vuelta sin
   reescritura) y `agents-assets.test.ts` con `// Covers: R36, R37`.
@@ -246,11 +248,12 @@ Lote 3 (sujeto al gate de T2):
   `runMasterClose` y reusado; `runMasterInit` escribe `STATUS.md`; `sin parte activa`. · test:
   `lib/master/__tests__/status.test.ts` con `// Covers: R52, R53, R54`.
   · nota: `STATUS.md` sigue escribiendo 'Parte activa: ninguna'; R54 solo cubre la línea de estado.
-- [ ] **T42** (R55, R58, R70) — `advance`, `close` y `part --accept` llaman `appendCliEvent`;
+- [x] **T42** (R55, R58, R70) — `advance`, `close` y `part --accept` llaman `appendCliEvent`;
   `master-accept-confirm.sh` cubre `--approved-by` (`=` o espacio) y `close` en sus tres formas,
   vía `navori`, `npx`, `bunx`, `pnpm exec`/`dlx` o `…/navori`, con tokens `approved-by|navori
   master` (m14). · test: `master-accept-confirm.test.ts` (`git push origin master` y
   `master status` → nada) con `// Covers: R55, R58, R70`.
+  · nota: eventos emitidos desde la capa de comandos (commands/master.ts): `master-advance` (allow|block), `master-part-accept` y `master-close`; lib/master/close.ts y part.ts sin cambios.
 - [x] **T43** (R56, R59, R60) — Prosa de `master-plan.md` (`sdd.enabled: false`, variantes de
   confirmación, `maxWords` declarado); `master-first-use.test.ts` con el escenario completo y el
   chequeo de cobertura de comandos del skill; master-plan sigue Codex `unsupported`. · test: el

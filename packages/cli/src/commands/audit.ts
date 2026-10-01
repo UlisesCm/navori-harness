@@ -30,6 +30,8 @@ import {
   flattenSearchRouting,
   mineActivation,
   mineSearchRouting,
+  mineCodegraphProjectPaths,
+  flattenCodegraphPaths,
 } from "../lib/audit/signals.ts";
 import type { HarnessCatalog } from "../lib/audit/harness.ts";
 import {
@@ -299,6 +301,11 @@ export const auditCommand = defineCommand({
     json: { type: "boolean", description: "Print the JSON report to stdout without writing files" },
     out: { type: "string", description: "Override the output directory" },
     start: { type: "string", description: "Mark a session id as audited (used by the hook flow)" },
+    host: {
+      type: "string",
+      description:
+        "With --start: the host that runs the session ('claude' or 'codex'), stamped on the start record. The caller states it; it is never inferred. Omitted = Claude (every log before spec 0039).",
+    },
     stop: {
       type: "string",
       description: "Seal a session's log by id, unique prefix, or 'latest', and report on it",
@@ -531,6 +538,18 @@ export const auditCommand = defineCommand({
 
     const startId = args.start;
     if (typeof startId === "string" && startId) {
+      // The host is declared by the caller (a hook knows which engine it runs
+      // in), never inferred from the environment: a wrong guess would file a
+      // Claude session as Codex and drop its transcript metrics (R71).
+      const hostArg = typeof args.host === "string" ? args.host : undefined;
+      if (hostArg !== undefined && hostArg !== "claude" && hostArg !== "codex") {
+        const message = isEs
+          ? `--host acepta 'claude' o 'codex', recibí '${hostArg}'.`
+          : `--host accepts 'claude' or 'codex', got '${hostArg}'.`;
+        if (json) console.log(JSON.stringify({ ok: false, error: "invalid-host", message }));
+        else p.cancel(message);
+        process.exit(2);
+      }
       const logFile = auditPathOrExit(() => sessionLogPath(repo, startId), json);
       mkdirSync(auditDir, { recursive: true });
       if (existsSync(logFile)) {
@@ -551,6 +570,7 @@ export const auditCommand = defineCommand({
           cwd,
           repo,
           sessionId: startId,
+          ...(hostArg ? { host: hostArg } : {}),
           navoriRendered: renderedHarnessVersion(cwd),
           navoriCli: readCliVersion(),
         })}\n`,
@@ -573,7 +593,8 @@ export const auditCommand = defineCommand({
       // on the hook flow — but the margin is one second, and refusing to mark a
       // session because a file is late would be a worse trade than one line of
       // noise.
-      if (!resolveTranscript(startId, cwd)) {
+      // Codex keeps no Claude transcript, so its absence is not a typo signal.
+      if (hostArg !== "codex" && !resolveTranscript(startId, cwd)) {
         p.log.warn(
           isEs
             ? `No encontré transcript para '${startId}'. Si la sesión acabó de abrir puede que aún no exista; si fue un typo, este log nunca va a producir reporte y hay que borrarlo a mano: ${logFile}`
@@ -721,6 +742,7 @@ export const auditCommand = defineCommand({
       extraMetrics: {
         ...(coverageRows.length > 0 ? coverageMetrics(coverageRows) : {}),
         ...flattenSearchRouting(mineSearchRouting(mined)),
+        ...flattenCodegraphPaths(mineCodegraphProjectPaths(mined)),
         ...flattenActivation(mineActivation(mined)),
       },
       repos: audited?.repos.map((r) => ({ repo: r.repo, audited: r.audited, host: r.host })),

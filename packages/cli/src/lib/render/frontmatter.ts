@@ -231,3 +231,26 @@ export function removeFrontmatterField(raw: string, key: string): string {
     .join("\n");
   return `---\n${rebuilt}\n---\n${body}`;
 }
+
+/**
+ * Split a `tools:` value into entries on top-level commas only. A comma inside
+ * parentheses belongs to the entry (`Agent(scout, scribe)` is ONE tool), so a
+ * plain `split(",")` would shred it and a re-join would rewrite the line.
+ * Entries are trimmed; empty ones are kept (callers filter when they care).
+ */
+export function splitToolList(value: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    else if (ch === "," && depth === 0) {
+      out.push(value.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  out.push(value.slice(start).trim());
+  return out;
+}
