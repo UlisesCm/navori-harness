@@ -246,11 +246,12 @@ Lote 3 (sujeto al gate de T2):
   `runMasterClose` y reusado; `runMasterInit` escribe `STATUS.md`; `sin parte activa`. · test:
   `lib/master/__tests__/status.test.ts` con `// Covers: R52, R53, R54`.
   · nota: `STATUS.md` sigue escribiendo 'Parte activa: ninguna'; R54 solo cubre la línea de estado.
-- [ ] **T42** (R55, R58, R70) — `advance`, `close` y `part --accept` llaman `appendCliEvent`;
+- [x] **T42** (R55, R58, R70) — `advance`, `close` y `part --accept` llaman `appendCliEvent`;
   `master-accept-confirm.sh` cubre `--approved-by` (`=` o espacio) y `close` en sus tres formas,
   vía `navori`, `npx`, `bunx`, `pnpm exec`/`dlx` o `…/navori`, con tokens `approved-by|navori
   master` (m14). · test: `master-accept-confirm.test.ts` (`git push origin master` y
   `master status` → nada) con `// Covers: R55, R58, R70`.
+  · nota: eventos emitidos desde la capa de comandos (commands/master.ts): `master-advance` (allow|block), `master-part-accept` y `master-close`; lib/master/close.ts y part.ts sin cambios.
 - [x] **T43** (R56, R59, R60) — Prosa de `master-plan.md` (`sdd.enabled: false`, variantes de
   confirmación, `maxWords` declarado); `master-first-use.test.ts` con el escenario completo y el
   chequeo de cobertura de comandos del skill; master-plan sigue Codex `unsupported`. · test: el
