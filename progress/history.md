@@ -2295,3 +2295,35 @@ El usuario pidió guardar el avance y cerrar la sesión pronto. PR parcial #1089
 - `specs/0037-paridad-operativa-cli/tasks.md` — tablero 10/19 con evidencia de T6/T12.
 - `specs/0037-paridad-operativa-cli/README.md` — estado y límites de la entrega parcial.
 - `progress/current.md` — checkpoint para la siguiente sesión.
+
+## 2026-10-01 13:19 Codex — Implementa soporte Pi de Spec 0040
+
+## Goal
+Habilitar Navori en Pi con OAuth ChatGPT nativo, subagentes, controles y MCP, mediante Spec 0040 y PR a main.
+
+## Instructions
+OAuth Plus/Pro nativo; no manejo de credenciales ni instalación de extensiones externas. Usuario aprobó SDD, scope de registros/inventarios y revalidación tras cambios concurrentes de main.
+
+## Discoveries
+- Ownership digest exige validación sintáctica TS/frontmatter; symlinks colgantes deben rechazarse con lstat.
+- Tool ceilings son capacidades del modelo, no sandbox OS. Trust estricto del padre precede lectura/gates/spawn; hijos bounded y cancelables.
+- Pi 0.87.1 requiere Node 22.19+; VERSION importada y SDK real se verifican sin OAuth. Core skills nativas; localSkills migration y acceptance-evidence no soportados.
+- Rebase agregó acceptance-evidence al contrato; registro exhaustivo y removal inventory requieren entradas Pi explícitas.
+
+## Accomplished
+- T1–T7 implementadas con trazabilidad R1–R10, documentación y smoke real Pi aislado.
+- Commit e8bc7c90 publicado en PR #1146 a main: https://github.com/UlisesCm/navori-harness/pull/1146; CI quality pendiente al abrir.
+- Reviewer APPROVED sobre a7dcefbd; full gate exit0 y receipt pi_engine status ok/fresh true sin drift.
+- Último gate implementer: 339 archivos, 6567 pruebas aprobadas y 1 omitida; reviewer confirmó gate completo fresco.
+
+## Next Steps
+- Vigilar CI del PR #1146; smoke manual /login openai-codex y modelo disponible queda al usuario.
+- Conservar contexto independiente de Spec 0039, no cerrado por esta entrega.
+
+## Relevant Files
+- packages/cli/src/engines/pi/ — renderer y extensión standalone con trust/subagentes/tests.
+- packages/cli/src/engines/shared/ — capacidades y commits seguros.
+- packages/cli/src/lib/__tests__/removal-parity.test.ts — criterio Pi owned vs edited.
+- docs/pi.md y specs/0040-pi-engine/ — setup, límites y trazabilidad.
+- apps/website y config/schema.ts — registros públicos opt-in.
+- packages/cli/package.json y bun.lock — Pi 0.87.1 para runtime smoke.

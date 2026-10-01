@@ -19,11 +19,13 @@ import type { NavoriConfig } from "../config/config.ts";
  * PARITY between the delete paths — the test that keeps #496's whole CLASS of
  * bug from coming back.
  *
- * navori deletes a file the user already had from exactly three places:
+ * The original three paths that can delete a file the user already had are:
  *   A. `commitWrites` (engines/shared/execute-plan.ts) — a stale managed file.
  *   B. `render --prune` (commands/render.ts) — an orphaned engine's output.
  *   C. the Claude engine's skill prunes (engines/claude/index.ts §8.6–8.8) —
  *      a library skill navori no longer renders, in flat or directory form.
+ * Pi adds a fourth, narrowly scoped path: an obsolete `.pi/agents/<role>.md`
+ * is removed only when ownsPiAgent validates its exact canonical content.
  *
  * The three shipped with three different criteria: A demanded navori's marker;
  * B deleted whatever a static per-engine path map named, recursively, without
@@ -44,6 +46,7 @@ vi.mock(import("../primitives/home.ts"), () => ({ safeHomedir: () => home.dir })
 
 const { renderCodexEngine } = await import("../../engines/codex/index.ts");
 const { renderClaudeEngine } = await import("../../engines/claude/index.ts");
+const { renderPiEngine } = await import("../../engines/pi/index.ts");
 const { runRender } = await import("../../commands/render.ts");
 const { writeConfig } = await import("../config/config.ts");
 const { injectManagedSection, computeManagedHash } = await import("../render/marker.ts");
@@ -67,6 +70,11 @@ const CLAUDE_CONFIG = {
   ...CODEX_CONFIG,
   engines: ["claude"],
   project: { libraries: [] },
+} as unknown as NavoriConfig;
+
+const PI_CONFIG = {
+  ...CODEX_CONFIG,
+  engines: ["pi"],
 } as unknown as NavoriConfig;
 
 type FixtureName = "navori" | "foreign" | "fromTheFuture";
@@ -254,6 +262,36 @@ describe("a skill file written by a NEWER navori survives the Claude prune", () 
   });
 });
 
+describe("Pi's owned-agent orphan removal", () => {
+  // Covers: R6
+  it("removes an owned retired role and preserves a user-modified role", () => {
+    const withoutScout = {
+      ...PI_CONFIG,
+      harness: { scout: false },
+    } as unknown as NavoriConfig;
+
+    const ownedRepo = newRepo();
+    renderPiEngine(ownedRepo, PI_CONFIG);
+    const ownedScout = join(ownedRepo, ".pi/agents/scout.md");
+    expect(existsSync(ownedScout)).toBe(true);
+    renderPiEngine(ownedRepo, withoutScout);
+    expect(existsSync(ownedScout)).toBe(false);
+
+    const editedRepo = newRepo();
+    renderPiEngine(editedRepo, PI_CONFIG);
+    const editedScout = join(editedRepo, ".pi/agents/scout.md");
+    const userEdit = `${readFileSync(editedScout, "utf-8")}user note\n`;
+    writeFileSync(editedScout, userEdit);
+    const result = renderPiEngine(editedRepo, withoutScout);
+    expect(readFileSync(editedScout, "utf-8")).toBe(userEdit);
+    expect(result.skipped).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: ".pi/agents/scout.md", status: "user-modified-skipped" }),
+      ]),
+    );
+  });
+});
+
 /**
  * The behavioural half above proves the two paths agree TODAY. This half proves
  * they agree BY CONSTRUCTION — a third delete path, or one caller re-inlining a
@@ -351,6 +389,10 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "Its other two removals (disabled-plugin scripts §8.5, retired-plugin assets §8.5-bis) " +
       "are marker-FREE by construction: a shell script carries no managed block, and the path " +
       "comes from the plugin's own manifest, so navori is its only writer",
+    "engines/pi/index.ts":
+      "retired .pi/agents/<role>.md only when it is a regular non-symlink file, its role " +
+      "is in Navori's fixed allowlist but no longer desired, and ownsPiAgent validates " +
+      "the exact canonical content and digest; an edited or foreign role is preserved",
     "lib/render/removable.ts":
       "the criterion itself, plus removeEmptyDirs (rmdirSync refuses non-empty)",
 

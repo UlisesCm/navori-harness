@@ -236,7 +236,7 @@ const FLOWS: ReadonlyArray<{ id: string; note: string; codex: EngineSupport }> =
 ];
 
 function support(claude: EngineSupport, codex: EngineSupport, prose: EngineSupport): Support {
-  return { claude, codex, "agents-md": prose, cursor: prose, copilot: prose };
+  return { claude, codex, pi: "unsupported", "agents-md": prose, cursor: prose, copilot: prose };
 }
 
 function complementa(unit: OverlapUnit, engines: Support, note: string): OverlapRow {
