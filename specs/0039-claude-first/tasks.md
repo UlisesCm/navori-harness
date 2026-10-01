@@ -224,8 +224,8 @@ Lote 3 (sujeto al gate de T2):
 
 ## F7 — Tokens
 
-- [ ] **T36** (R41) — `implementer.md` con `maxTurns: 160`; `frontmatter-merge.ts` descarta la
-  clave en Codex. · test: frontmatter Claude con el valor, agente Codex sin la clave, con
+- [x] **T36** (R41) — `implementer.md` con `maxTurns: 160`; Codex no emite la clave porque
+  `buildAgentToml` arma el TOML con una lista explícita de claves. · test: frontmatter Claude con el valor, agente Codex sin la clave, con
   `// Covers: R41`.
 - [ ] **T37** (R42) — Carril de parcial en `subagent-stop-handoff.sh` con la fixture de T2; sin
   fallback por `impl_*.json` ausente (M6); doctrina `SendMessage` en `orquestacion.md`. · test:
