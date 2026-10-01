@@ -151,6 +151,15 @@ describe("master-plan — workflow contract (T18)", () => {
     expect(frontmatter.name).toBe("master-plan");
   });
 
+  // Covers: R56
+  it("covers sdd.enabled false, confirmation variants and declares why it exceeds the cap", () => {
+    expect(body).toMatch(/`sdd\.enabled` es `false`[\s\S]*no lo ejecutes[\s\S]*AskUserQuestion/);
+    expect(body).toMatch(/“sí”, “dale”, “continúa”/);
+    expect(body).toMatch(/primer uso/i);
+    expect(master).toMatch(/^  # Excede el tope de 500[^\n]*sdd\.enabled[^\n]*$/m);
+    expect(parseSkillFrontmatter(master).meta.maxWords).toBeGreaterThan(500);
+  });
+
   it("puts the explicit-request lock first and does not treat SessionStart as consent", () => {
     const headings = body.match(/^## .+$/gm) ?? [];
     expect(headings[0]).toMatch(/candado|pedido expl[ií]cito/i);

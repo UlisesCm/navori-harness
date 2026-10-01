@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createSeedConfigHelper } from "./test-utils.ts";
 import {
+  closeBlockers,
   readMasterStatus,
   renderMasterParts,
   renderStatusMd,
@@ -200,7 +201,49 @@ describe("master status", () => {
     );
     expect(readMasterStatus(cwd).stage).toBeNull();
     rmSync(path);
-    expect(() => readMasterStatus(cwd)).toThrow("no index.json");
+    // Covers: R52
+    const empty = readMasterStatus(cwd);
+    expect(empty.stage).toBeNull();
+    expect(empty.lastClosed).toBeNull();
+    expect(empty.parts).toEqual([]);
+    expect(() => writeMasterStatus(cwd)).toThrow("no index.json");
+  });
+
+  // Covers: R53
+  it("never reports allDone or closable for a plan without parts", () => {
+    writeFileSync(
+      join(cwd, "specs/_master/01-mvp/parts.json"),
+      JSON.stringify({ version: 1, parts: [] }),
+    );
+    const status = readMasterStatus(cwd);
+    expect(status.allDone).toBe(false);
+    expect(status.closable).toBe(false);
+  });
+
+  // Covers: R53
+  it("closeBlockers names the phase, the empty plan and unfinished parts", () => {
+    expect(closeBlockers({ phase: "context" }, [])).toEqual([
+      "no se puede entregar en fase context",
+    ]);
+    expect(closeBlockers({ phase: "executing" }, [])).toHaveLength(1);
+    expect(
+      closeBlockers({ phase: "executing" }, [
+        { id: "P1", effective: "hecho" },
+        { id: "P2", effective: "parcial" },
+        { id: "P3", effective: "diferida" },
+      ]),
+    ).toEqual(["P2: parcial"]);
+  });
+
+  // Covers: R54
+  it("says 'sin parte activa' once, without a quoted 'ninguna' title", () => {
+    writeFileSync(
+      join(cwd, "specs/_master/01-mvp/parts.json"),
+      JSON.stringify({ version: 1, parts: [] }),
+    );
+    const line = statusLine(readMasterStatus(cwd), "specs");
+    expect(line).toContain("sin parte activa");
+    expect(line).not.toContain("ninguna");
   });
 
   // Covers: R36, R54

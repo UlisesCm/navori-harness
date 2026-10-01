@@ -22,7 +22,7 @@ import {
   readMasterIndex,
   renderIndexMd,
 } from "./stages.ts";
-import { readMasterStatus, writeMasterStatus, type MasterStatus } from "./status.ts";
+import { closeBlockers, readMasterStatus, writeMasterStatus, type MasterStatus } from "./status.ts";
 
 export interface CloseOptions {
   convert?: string;
@@ -242,9 +242,9 @@ export function runMasterClose(cwd: string, options: CloseOptions = {}): CloseRe
       state.phase,
     );
     if (outcome === "entregada") {
-      if (state.phase !== "mastered" && state.phase !== "ux" && state.phase !== "executing")
-        throw new Error(`no se puede entregar en fase ${state.phase}`);
       const status = readMasterStatus(cwd);
+      const blocked = closeBlockers(state, status.parts);
+      if (blocked.length > 0) throw new Error(blocked.join("\n"));
       if (!status.closable)
         throw new Error(`no se puede cerrar; blockers:\n${status.blockers.join("\n")}`);
     } else {

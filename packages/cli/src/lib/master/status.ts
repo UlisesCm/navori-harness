@@ -11,6 +11,7 @@ import {
   PartsSchema,
   type MasterIndex,
   type MasterPhase,
+  type MasterState,
   type MasterUxChoice,
   type Part,
   type PartState,
@@ -113,17 +114,37 @@ function evidenceAge(cwd: string, commit: string): { behind: number | null; orph
   return { behind: count === null ? null : Number(count), orphan: false };
 }
 
+const DELIVERABLE_PHASES: readonly MasterPhase[] = ["mastered", "ux", "executing"];
+
+/**
+ * Reasons a stage cannot be delivered regardless of per-part detail: wrong
+ * phase, no parts at all, or a part that is neither done nor dispositioned.
+ * Shared by `runMasterClose` and `readMasterStatus` so `closable` never offers
+ * a close the command then rejects (R53).
+ */
+export function closeBlockers(
+  state: Pick<MasterState, "phase">,
+  parts: readonly Pick<EffectivePart, "id" | "effective">[],
+): string[] {
+  if (!DELIVERABLE_PHASES.includes(state.phase))
+    return [`no se puede entregar en fase ${state.phase}`];
+  if (parts.length === 0) return ["no se puede entregar sin partes"];
+  return parts
+    .filter((p) => !["hecho", "descartada", "diferida"].includes(p.effective))
+    .map((p) => `${p.id}: ${p.effective}`);
+}
+
 /** Derive effective progress from JSON and linked task checkboxes; no writes. */
 export function readMasterStatus(cwd: string): MasterStatus {
   const config = readConfig(join(cwd, "navori.config.json"));
   const specsDir = config.sdd?.specsDir ?? "specs";
   const index = readMasterIndex(cwd, specsDir);
-  if (!index) throw new Error("no index.json: run 'navori master init <slug>' first");
-  const closed = lastClosedStage(index);
+  const closed = index ? lastClosedStage(index) : null;
   const lastClosed = closed
     ? { number: closed.number, slug: closed.slug, state: closed.state, closedAt: closed.closedAt }
     : null;
-  const stage = activeStage(index);
+  // First use is a normal case (R52): no index.json means an empty status, not an error.
+  const stage = index ? activeStage(index) : null;
   const empty: MasterStatus = {
     stage: null,
     phase: null,
@@ -239,11 +260,12 @@ export function readMasterStatus(cwd: string): MasterStatus {
     activePart: active?.id ?? null,
     parts: mapped,
     discrepancies,
-    allDone: mapped.every((p) => p.effective === "hecho"),
-    closable: blockers.length === 0,
+    allDone: mapped.length > 0 && mapped.every((p) => p.effective === "hecho"),
+    closable:
+      mapped.length > 0 && blockers.length === 0 && closeBlockers(state, mapped).length === 0,
     blockers,
     lastClosed,
-    ...(stage.number >= 2 ? { architectContext: contextForArchitects(index) } : {}),
+    ...(stage.number >= 2 ? { architectContext: contextForArchitects(index as MasterIndex) } : {}),
   };
 }
 
@@ -330,7 +352,8 @@ export function writeMasterStatus(cwd: string): MasterStatus {
   const status = readMasterStatus(cwd);
   const config = readConfig(join(cwd, "navori.config.json"));
   const specsDir = config.sdd?.specsDir ?? "specs";
-  const index = readMasterIndex(cwd, specsDir) as MasterIndex;
+  const index = readMasterIndex(cwd, specsDir);
+  if (!index) throw new Error("no index.json: run 'navori master init <slug>' first");
   if (status.stage) {
     const stagePath = join(masterDirPath(cwd, specsDir), status.stage.dir);
     const partsPath = join(stagePath, "parts.json");
@@ -369,11 +392,11 @@ export function writeMasterStatus(cwd: string): MasterStatus {
 export function statusLine(status: MasterStatus, specsDir: string): string {
   if (!status.stage) return "Plan maestro — sin etapa activa.";
   const part = status.parts.find((p) => p.id === status.activePart);
-  const clean = [...(part?.title ?? "ninguna")]
+  const clean = [...(part?.title ?? "")]
     .map((char) => (char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 ? " " : char))
     .join("")
     .replace(/\s+/g, " ")
     .trim();
   const shortTitle = [...clean].slice(0, 60).join("").replace(/"/g, "'");
-  return `Plan maestro — etapa ${status.stage.dir}: parte activa ${part?.id ?? "ninguna"} "${shortTitle}" · ${part?.tasksDone ?? 0}/${part?.tasksTotal ?? 0} tareas · ${specsDir}/_master/${status.stage.dir}/STATUS.md. En tu primera respuesta de la sesión, ofrece continuar con el plan maestro en una sola línea, sin interrumpir lo que el usuario pidió.`;
+  return `Plan maestro — etapa ${status.stage.dir}: ${part ? `parte activa ${part.id} "${shortTitle}"` : "sin parte activa"} · ${part?.tasksDone ?? 0}/${part?.tasksTotal ?? 0} tareas · ${specsDir}/_master/${status.stage.dir}/STATUS.md. En tu primera respuesta de la sesión, ofrece continuar con el plan maestro en una sola línea, sin interrumpir lo que el usuario pidió.`;
 }

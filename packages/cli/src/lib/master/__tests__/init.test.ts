@@ -77,6 +77,12 @@ describe("runMasterInit — first stage (R3)", () => {
     expect(config.harness?.masterPlan).toBe(true);
   });
 
+  // Covers: R54
+  it("writes STATUS.md, which INDEX.md already links to", () => {
+    runMasterInit(cwd, "mvp");
+    expect(existsSync(join(masterDirPath(cwd, SPECS_DIR), "01-mvp", "STATUS.md"))).toBe(true);
+  });
+
   it("git check-ignore is positive for context/raw/ with gitignoreHarness: off", () => {
     runMasterInit(cwd, "mvp");
     const out = execFileSync(

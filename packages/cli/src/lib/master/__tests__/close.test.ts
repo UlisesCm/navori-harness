@@ -455,6 +455,17 @@ describe("status and close — the UX gate cannot be skipped (B1)", () => {
     }
   });
 
+  // Covers: R53
+  it("rejects delivery from an early phase or with no parts, matching closable", () => {
+    seed("context");
+    expect(readMasterStatus(cwd).closable).toBe(false);
+    expect(() => runMasterClose(cwd)).toThrow("no se puede entregar en fase context");
+    seed("executing");
+    writeFileSync(join(stage(), "parts.json"), JSON.stringify({ version: 1, parts: [] }));
+    expect(readMasterStatus(cwd).closable).toBe(false);
+    expect(() => runMasterClose(cwd)).toThrow("sin partes");
+  });
+
   it("blocks delivery from ux when artifacts contradict the decision", () => {
     seed("ux", "hecho", "md");
     expect(() => runMasterClose(cwd)).toThrow(/falta UX\.md/);

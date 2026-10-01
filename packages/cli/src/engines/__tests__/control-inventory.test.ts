@@ -379,4 +379,13 @@ describe("analyticWriteTools vs. the actual render (spec 0033 D5, R23)", () => {
       }
     }
   });
+
+  // Covers: R60
+  it("codex keeps master-plan unsupported: no skill and no master hooks are rendered", () => {
+    expect(ENGINE_CAPABILITIES.codex.controls["master-plan"].state).toBe("unsupported");
+    const cwd = freshDir("codex-master-plan-unsupported");
+    renderCodexEngine(cwd, fullFlagsConfig("codex"));
+    expect(existsSync(join(cwd, ".agents/skills/master-plan/SKILL.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".codex/skills/master-plan/SKILL.md"))).toBe(false);
+  });
 });
