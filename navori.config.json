@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "engines": [
     "claude",
-    "codex"
+    "codex",
+    "pi"
   ],
   "preset": "custom",
   "language": "es",

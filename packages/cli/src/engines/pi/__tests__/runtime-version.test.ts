@@ -2,9 +2,19 @@ import { describe, expect, it } from "vitest";
 import { runInNewContext } from "node:vm";
 import { stripTypeScriptTypes } from "node:module";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
-import { assertSupportedPiRuntime } from "../runtime-version.ts";
+import { assertSupportedPiRuntime, renderPiRuntimeVersionSource } from "../runtime-version.ts";
 
 describe("Pi runtime version floor", () => {
+  it("embeds a self-contained check with a stable binding and version diagnostics", () => {
+    const check: unknown = runInNewContext(
+      stripTypeScriptTypes(renderPiRuntimeVersionSource()) + "\nassertSupportedPiRuntime;",
+    );
+    if (typeof check !== "function") throw new Error("Missing standalone runtime check");
+    expect(() => check("0.87.1", "22.19.0")).not.toThrow();
+    expect(() => check("0.87.0", "22.19.0")).toThrow(/requires.*0\.87\.1/);
+    expect(() => check("0.87.1", "22.18.9")).toThrow(/requires Node\.js 22\.19\.0/);
+  });
+
   // Covers: R10
   it("accepts the pinned Pi and Node baselines and later stable versions", () => {
     expect(() => assertSupportedPiRuntime("0.87.1", "22.19.0")).not.toThrow();
