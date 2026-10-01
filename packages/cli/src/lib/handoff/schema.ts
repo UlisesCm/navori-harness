@@ -32,6 +32,12 @@ export const MarkdownRequestSchema = z.object({
   evidence: z.string().min(1),
 });
 
+/** A spot the implementer is unsure about, for the reviewer to answer (R18). */
+export const DoubtSchema = z.object({
+  file: z.string().min(1),
+  reason: z.string().min(1),
+});
+
 export const VerificationSchema = z
   .object({
     command: z.string().min(1),
@@ -63,8 +69,11 @@ export const ImplHandoffSchema = z
     blockers: z.array(z.string()).default([]),
     head: z.string().regex(GIT_SHA, "head must be a 40-hex git sha").optional(),
     acceptance: z.array(z.unknown()).optional(),
+    // Optional and outside REQUIRED_IMPL_KEYS: the reviewer answers each one (R18/R19).
+    doubts: z.array(DoubtSchema).optional(),
   })
   .passthrough();
 
 export type ImplHandoff = z.infer<typeof ImplHandoffSchema>;
+export type Doubt = z.infer<typeof DoubtSchema>;
 export type MarkdownRequest = z.infer<typeof MarkdownRequestSchema>;

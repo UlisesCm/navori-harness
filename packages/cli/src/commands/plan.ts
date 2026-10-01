@@ -17,7 +17,14 @@ import { classify, declaredFlagsFromSignals, type ClassifyInput } from "../lib/p
 import { checkWorkplan, formatCheckResult } from "../lib/plan/check.ts";
 import { evaluatePlanGate } from "../lib/plan/gate.ts";
 import { applyWorkplanUpdate, renderWorkplan, type WorkplanUpdate } from "../lib/plan/render.ts";
-import { WorkplanSchema, type ProgressStatus, type Workplan } from "../lib/plan/schema.ts";
+import { writeAcceptanceIndex } from "../lib/plan/acceptance-index.ts";
+import { validateEvidence } from "../lib/plan/evidence.ts";
+import {
+  WorkplanSchema,
+  type AcceptanceEvidence,
+  type ProgressStatus,
+  type Workplan,
+} from "../lib/plan/schema.ts";
 import { readConfig } from "../lib/config/config.ts";
 
 function splitList(value: string | undefined): string[] {
@@ -150,6 +157,61 @@ function diffFiles(cwd: string, base: string): string[] {
 function writeWorkplanAndRender(root: StateRoot, feature: string, plan: Workplan): void {
   writeStateFileAtomic(root, `workplan_${feature}.json`, `${JSON.stringify(plan, null, 2)}\n`);
   writeStateFileAtomic(root, `workplan_${feature}.md`, renderWorkplan(plan));
+  writeAcceptanceIndex(root);
+}
+
+/** Spec 0039 R10 (0038 D3): evidence is required only inside a Claude Code
+ * child session (the env var Claude Code sets for its Bash/hook subprocesses)
+ * of a repo that renders the `claude` engine. Anywhere else (Codex, a human
+ * terminal, prose engines) there is no verifiable success signal. */
+function evidenceRequired(cwd: string): boolean {
+  if (process.env.CLAUDE_CODE_CHILD_SESSION !== "1") return false;
+  try {
+    return readConfig(resolve(cwd, "navori.config.json")).engines.includes("claude");
+  } catch {
+    return false;
+  }
+}
+
+/** `worktree` declared by the feature's `impl_<feature>.json`, if readable. */
+function readImplWorktree(root: StateRoot, feature: string): string | undefined {
+  try {
+    const path = stateArtifactPath(root, `impl_${feature}.json`);
+    if (!existsSync(path)) return undefined;
+    const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+    const worktree = (raw as { worktree?: unknown } | null)?.worktree;
+    return typeof worktree === "string" && worktree ? worktree : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Reports a rejected `cumplido` (R9): ERROR / WHY / FIX on stderr, or the
+ * structured form with `--json`; always exit 1 and nothing written. */
+function rejectCumplido(
+  id: string,
+  command: string,
+  verdict: { why: string; fix: string },
+  json: boolean,
+): void {
+  if (json) {
+    process.stdout.write(
+      `${JSON.stringify({
+        updated: false,
+        id,
+        error: {
+          what: `${id} not marked cumplido — no valid evidence`,
+          why: verdict.why,
+          fix: verdict.fix,
+          command,
+        },
+      })}\n`,
+    );
+  }
+  process.stderr.write(
+    `ERROR: ${id} not marked cumplido — no valid evidence\nWHY:   ${verdict.why}\nFIX:   ${verdict.fix}\n`,
+  );
+  process.exitCode = 1;
 }
 
 const shared = {
@@ -388,6 +450,42 @@ const updateSubCommand = defineCommand({
       process.exitCode = 1;
       return;
     }
+
+    // Evidence gate (R8, R9): compares the host's recorded run with the
+    // criterion; never executes the criterion's `command` (R7). Validated for
+    // every `cumplido` before anything is written (all-or-nothing).
+    const required = evidenceRequired(root.cwd);
+    const evidence: Record<string, AcceptanceEvidence> = { ...plan.evidence };
+    for (const update of updates) {
+      if (update.kind !== "progress") continue;
+      if (update.status !== "cumplido") {
+        delete evidence[update.id];
+        continue;
+      }
+      const criterion = plan.acceptance.find((a) => a.id === update.id);
+      if (!criterion) continue;
+      if (!required) {
+        evidence[update.id] = { kind: "unevidenced", reason: "engine-without-signal" };
+        process.stderr.write(
+          `WARNING: ${update.id} marked cumplido without evidence — this engine/session ` +
+            `exposes no verifiable Bash success signal\n`,
+        );
+        continue;
+      }
+      const verdict = validateEvidence({
+        root,
+        feature: args.feature,
+        id: update.id,
+        command: criterion.command,
+        implWorktree: readImplWorktree(root, args.feature),
+      });
+      if (!verdict.ok) {
+        rejectCumplido(update.id, criterion.command, verdict, args.json ?? false);
+        return;
+      }
+      evidence[update.id] = verdict.evidence;
+    }
+    if (Object.keys(evidence).length > 0 || plan.evidence) updated = { ...updated, evidence };
     writeWorkplanAndRender(root, args.feature, updated);
     if (args.json) process.stdout.write(`${JSON.stringify({ updated: true })}\n`);
   },

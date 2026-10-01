@@ -1,4 +1,4 @@
-// Covers: R13, R14, R15, R16, R24
+// Covers: R13, R14, R15, R16, R18, R24
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "node:fs";
@@ -40,6 +40,7 @@ interface HandoffFixture {
   verification: { command: string; exitCode: number; summary: string };
   markdownRequests: Array<{ path: string; intent: string; evidence: string }>;
   head?: string;
+  doubts?: unknown;
 }
 
 function validHandoff(cwd: string, overrides: Partial<HandoffFixture> = {}): HandoffFixture {
@@ -405,5 +406,40 @@ describe("REQUIRED_IMPL_KEYS", () => {
         "markdownRequests",
       ].sort(),
     );
+  });
+});
+
+describe("checkHandoff — doubts (R18)", () => {
+  const check = (cwd: string) =>
+    checkHandoff({ cwd, dir: ".claude/progress", feature: "demo", consumer: "orchestrator" });
+
+  // Covers: R18
+  it("accepts a handoff without doubts and one with well-formed doubts", () => {
+    const cwd = repo();
+    writeHandoff(cwd, ".claude/progress", "demo", validHandoff(cwd));
+    expect(check(cwd).status).toBe("ok");
+    writeHandoff(
+      cwd,
+      ".claude/progress",
+      "demo",
+      validHandoff(cwd, { doubts: [{ file: "src/a.ts", reason: "unsure about the null path" }] }),
+    );
+    expect(check(cwd).status).toBe("ok");
+  });
+
+  // Covers: R18
+  it("rejects a doubt missing file or reason", () => {
+    for (const doubts of [[{ file: "src/a.ts" }], [{ reason: "why" }], "nope"]) {
+      const cwd = repo();
+      writeHandoff(cwd, ".claude/progress", "demo", validHandoff(cwd, { doubts }));
+      const result = check(cwd);
+      expect(result.status).toBe("findings");
+      expect(result.failures.map((f) => f.check)).toContain("parse");
+    }
+  });
+
+  // Covers: R18
+  it("does not list doubts among the required keys", () => {
+    expect([...REQUIRED_IMPL_KEYS]).not.toContain("doubts");
   });
 });

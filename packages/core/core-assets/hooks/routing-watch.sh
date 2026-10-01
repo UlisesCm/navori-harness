@@ -88,6 +88,8 @@ set -uo pipefail
 # `spawn_agent` tool names and multi-file patches to the shapes this hook
 # already handles for Claude.
 # navori:include hook-input
+# Spec 0039 D5/M3: the Bash success lane (acceptance evidence). Functions only.
+# navori:include bash-outcome
 
 # R5 (spec 0020): the notice has to be COUNTABLE, not just visible. A hook is
 # invisible to the transcript unless it blocks or injects, and this one injects
@@ -199,6 +201,17 @@ case "$tool" in
   Bash) ;;
   *) exit 0 ;;
 esac
+
+# Spec 0039 D5/M3: the acceptance-evidence lane. It sits right after `Bash` is
+# confirmed and BEFORE the write probe and the stamp, so it also runs in a session
+# that is already `#delegated` (every implementer's). Only under the Claude
+# registration's `claude-post-tool-use` argument: Codex does not pass it, and
+# there PostToolUse fires on failure too, so the event is no success signal. It
+# is fail-open, fast-exits with builtins when no pending criterion's command is
+# in the payload, and writes one complete line with a single `printf >>` or none.
+if [ "$tool" = "Bash" ] && [ "${1:-}" = "claude-post-tool-use" ]; then
+  navori_bash_success_lane
+fi
 
 # Rung 1 of the Bash lane, and the earliest point at which it can end. No write
 # token anywhere in the payload means no redirect, no `tee` and no `sed -i`, so

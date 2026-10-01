@@ -12,15 +12,40 @@ function heading(text: string): string {
   return `## ${text}`;
 }
 
-function renderAcceptance(
-  acceptance: readonly AcceptanceCriterion[],
-  progress: Workplan["progress"],
-): string {
-  return acceptance
+/** The four cases of 0038 D4 for a `cumplido` criterion. */
+export type EvidenceCase = "recorded" | "unevidenced-accepted" | "none" | "stale";
+
+/** Classifies a criterion's `cumplido` against `plan.evidence` (spec 0039 R11). */
+export function evidenceCase(plan: Workplan, criterion: AcceptanceCriterion): EvidenceCase {
+  const ev = plan.evidence?.[criterion.id];
+  if (ev === undefined) return "none";
+  if (ev.kind === "unevidenced") return "unevidenced-accepted";
+  return ev.command === criterion.command ? "recorded" : "stale";
+}
+
+function statusLabel(plan: Workplan, criterion: AcceptanceCriterion): string {
+  const status: ProgressStatus = plan.progress[criterion.id] ?? "pendiente";
+  if (status !== "cumplido") return status;
+  const ev = plan.evidence?.[criterion.id];
+  switch (evidenceCase(plan, criterion)) {
+    case "recorded":
+      return ev?.kind === "recorded"
+        ? `cumplido · ${ev.head.slice(0, 7)} · ${ev.ranAt}`
+        : "cumplido";
+    case "unevidenced-accepted":
+      return "cumplido, sin evidencia: engine sin señal";
+    case "stale":
+      return "cumplido, evidencia de otro comando";
+    case "none":
+      return "cumplido, sin evidencia";
+  }
+}
+
+function renderAcceptance(plan: Workplan): string {
+  return plan.acceptance
     .map((a) => {
-      const status: ProgressStatus = progress[a.id] ?? "pendiente";
       return [
-        `- **${a.id}** (${status}) — ${a.description}`,
+        `- **${a.id}** (${statusLabel(plan, a)}) — ${a.description}`,
         `  - command: \`${a.command}\``,
         `  - expected: ${a.expected}`,
       ].join("\n");
@@ -72,7 +97,7 @@ export function renderWorkplan(plan: Workplan): string {
     plan.objective,
     "",
     heading("Criterios"),
-    renderAcceptance(plan.acceptance, plan.progress),
+    renderAcceptance(plan),
     "",
     heading("Fuera de alcance"),
     renderList(plan.outOfScope),

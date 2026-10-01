@@ -4,7 +4,7 @@ description: Implements ONE scoped task with its tests, respects CLAUDE.md conve
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: {{models.implementer}}
 effort: {{effort.implementer}}
-maxWords: 2350
+maxWords: 2433
 ---
 
 # Implementer Agent
@@ -44,7 +44,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
 5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up (e.g. `playwright-cli`, whose installer ships its own skill).
 6. **No commits** without the `reviewer`'s approval. When you finish, <!-- navori:if-not scribeOwnsMarkdown -->write the report<!-- /navori:if-not --><!-- navori:if scribeOwnsMarkdown -->write your JSON evidence<!-- /navori:if --> and return the reference.
 <!-- navori:if planTiers -->
-When the encargo opens with `workplan: <feature>`, read `.navori/state/handoffs/workplan_<feature>.json`, run each assigned `A<n>` command and report it in `impl_<feature>.json` under `acceptance` (`id`, `command`, `exitCode`, `excerpt`). A file outside the workplan's files is a blocker to report, not a change to make.
+When the encargo opens with `workplan: <feature>`, read `.navori/state/handoffs/workplan_<feature>.json`, run each assigned `A<n>` `command` exactly as written (same string, foreground, no rewrites), then mark progress and report it in `impl_<feature>.json` under `acceptance` (`id`, `command`, `exitCode`, `excerpt`). The routing-watch hook records acceptance evidence only when the host itself ran that exact command; `navori plan update <feature> --progress A<n>=cumplido` is rejected without it and never runs the command for you. A file outside the workplan's files is a blocker to report, not a change to make.
 <!-- /navori:if -->
 
 ## Hard rules (generic, always apply)
@@ -155,9 +155,12 @@ Write `.navori/state/handoffs/impl_<feature>.json` — the only artifact you pro
   "markdownRequests": [
     { "path": "<repo-relative .md/.mdx path>", "intent": "<what to change and why>", "evidence": "<file:line or commit that backs it>" }
   ],
+  "doubts": [],
   "blockers": []
 }
 ```
+
+`doubts` is optional: declare one `{ "file": "<path>", "reason": "<why you are unsure>" }` entry per spot where you are unsure the change is right, so the reviewer answers it.
 
 `markdownRequests` carries every piece of prose your task needs — your own non-obvious decisions, a CONTRIBUTING/README update, a spec task checkbox, a skill or agent tweak. State the `intent` and the `evidence`; never the finished sentence — drafting the prose from that intent is the `scribe`'s job, not yours. Empty array when the task touches no Markdown at all.
 

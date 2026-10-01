@@ -29,7 +29,8 @@ export type ControlId =
   | "handoff-shape"
   | "handoff-consumer"
   | "analytic-write-tools"
-  | "local-skill-discovery";
+  | "local-skill-discovery"
+  | "acceptance-evidence";
 
 /** The `navori.config.json` flag that turns a control's condition on, if any. */
 export type ControlCondition = "planTiers" | "masterPlan" | "scribeOwnsMarkdown" | "localSkills";
@@ -109,6 +110,11 @@ export const CONTROL_DEFINITIONS: Readonly<Record<ControlId, ControlDefinition>>
   "local-skill-discovery": {
     description: "Makes a `project.localSkills` id discoverable by this engine's host.",
     condition: "localSkills",
+    hookScripts: [],
+  },
+  "acceptance-evidence": {
+    description:
+      "Requires recorded host evidence of a criterion's run before `navori plan update` accepts `cumplido`.",
     hookScripts: [],
   },
 });
@@ -313,6 +319,10 @@ const PROSE_CONTROLS: Readonly<Record<ControlId, ControlDeclaration>> = Object.f
       "buildSkillsSection (prose-harness.ts) never passes project.localSkills to " +
       "buildSkillRows, so the id never reaches the rendered file.",
   },
+  "acceptance-evidence": {
+    state: "unsupported",
+    reason: "Prose engines render no hooks, so no Bash run is ever recorded as evidence.",
+  },
 });
 
 export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>> = Object.freeze({
@@ -376,6 +386,13 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         state: "enforced",
         reason: "`.claude/skills/<id>/` is Claude Code's native skill root.",
         evidence: { kind: "native-skill-root" },
+      },
+      "acceptance-evidence": {
+        state: "advisory",
+        reason:
+          "`plan update` requires recorded evidence inside a Claude Code child session " +
+          "(CLAUDE_CODE_CHILD_SESSION=1); an agent can still bypass it (spec 0039 D5). " +
+          "The recording hook ships separately.",
       },
     },
     analyticWriteTools: CLAUDE_ANALYTIC_WRITE_TOOLS,
@@ -448,6 +465,12 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         state: "enforced",
         reason: "The generated pointer at .agents/skills/<id>/SKILL.md (classifyLocalSkills).",
         evidence: { kind: "local-skill-pointer" },
+      },
+      "acceptance-evidence": {
+        state: "unsupported",
+        reason:
+          "No verifiable Bash success signal: PostToolUse fires on exit != 0 too, so `plan update` " +
+          "accepts cumplido as unevidenced (spec 0039 R10).",
       },
     },
     analyticWriteTools: CODEX_ANALYTIC_WRITE_TOOLS,

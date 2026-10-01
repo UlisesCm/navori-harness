@@ -180,15 +180,68 @@ describe("implementer/reviewer — plan-tiers wiring is gated behind planTiers (
   it("R20: implementer's workplan/acceptance block is wrapped in the planTiers conditional", () => {
     const body = readAgent("implementer");
     expect(body).toMatch(
-      /<!-- navori:if planTiers -->\nWhen the encargo opens with `workplan: <feature>`, read `\.navori\/state\/handoffs\/workplan_<feature>\.json`, run each assigned `A<n>` command and report it in `impl_<feature>\.json` under `acceptance` \(`id`, `command`, `exitCode`, `excerpt`\)\. A file outside the workplan's files is a blocker to report, not a change to make\.\n<!-- \/navori:if -->/,
+      /<!-- navori:if planTiers -->\nWhen the encargo opens with `workplan: <feature>`, read `\.navori\/state\/handoffs\/workplan_<feature>\.json`, run each assigned `A<n>` `command` exactly as written \(same string, foreground, no rewrites\), then mark progress and report it in `impl_<feature>\.json` under `acceptance` \(`id`, `command`, `exitCode`, `excerpt`\)\. The routing-watch hook records acceptance evidence only when the host itself ran that exact command; `navori plan update <feature> --progress A<n>=cumplido` is rejected without it and never runs the command for you\. A file outside the workplan's files is a blocker to report, not a change to make\.\n<!-- \/navori:if -->/,
     );
   });
 
   it("R21: reviewer's workplan-evidence rule is wrapped in the planTiers conditional", () => {
     const body = readAgent("reviewer");
     expect(body).toMatch(
-      /<!-- navori:if planTiers -->\n- With a workplan: an assigned `A<n>` without evidence in `acceptance`, a file outside the workplan's files without a covering decision, or `navori plan classify <feature> --diff` returning a higher level than declared → `CHANGES_REQUESTED`\.\n<!-- \/navori:if -->/,
+      /<!-- navori:if planTiers -->\n- With a workplan: an assigned `A<n>` without evidence in `acceptance`, a file outside the workplan's files without a covering decision, or `navori plan classify <feature> --diff` returning a higher level than declared → `CHANGES_REQUESTED`\.\n- With a workplan: run `navori plan check <feature> --json`; every `A<n>` marked `cumplido` without recorded evidence \(the routing-watch hook records it only when the host ran the exact `command`\) is a finding → `CHANGES_REQUESTED`\.\n<!-- \/navori:if -->/,
     );
+  });
+});
+
+/**
+ * Spec 0039 T25/T27 — implementer `doubts`, reviewer `Implementer doubts`
+ * and `Coverage` sections, and the measured `maxWords` ceilings.
+ */
+describe("implementer/reviewer — doubts and coverage prose (T25, T27)", () => {
+  // Covers: R18, R19
+  it("implementer's handoff template carries an empty doubts list and says when to declare one", () => {
+    const body = readAgent("implementer");
+    expect(body).toContain('"doubts": []');
+    expect(body).toMatch(/`doubts`[^\n]*(unsure|uncertain|doubt)/i);
+  });
+
+  // Covers: R19
+  it("reviewer reads doubts in Setup and answers each in an `Implementer doubts` section", () => {
+    const body = readAgent("reviewer");
+    expect(body).toMatch(/Setup[\s\S]*`doubts`/);
+    expect(body).toContain("### Implementer doubts");
+    expect(body).toMatch(/resolved \| issue/);
+    expect(body).toMatch(/`doubts`[\s\S]*in addition to the diff/);
+  });
+
+  // Covers: R20
+  it("reviewer's `Coverage` table has one row per review-diff section 1-9 and is required on a clean APPROVED", () => {
+    const body = readAgent("reviewer");
+    expect(body).toContain("### Coverage");
+    const section = body.slice(body.indexOf("### Coverage"));
+    for (const name of [
+      "Types and contracts",
+      "Data layer",
+      "Error handling",
+      "Security",
+      "No hardcode",
+      "Naming and structure",
+      "Over-engineering",
+      "Dead code",
+      "Quality gate",
+    ]) {
+      expect(section, `Coverage table lacks a row for "${name}"`).toContain(name);
+    }
+    expect(section).toMatch(/n\/a/);
+    expect(body).toMatch(/APPROVED[^\n]*(≥ ?80|>= ?80)[^\n]*Coverage|Coverage[^\n]*APPROVED/);
+  });
+
+  // Covers: R22
+  it.each(["implementer", "reviewer"])("%s maxWords is its measured count plus 10", (id) => {
+    const parsed = parseAsset(readAgent(id));
+    const cap = Number(parsed.frontmatter.maxWords);
+    const managed = parsed.body.slice(0, parsed.body.indexOf(SENTINEL));
+    const words = managed.trim().split(/\s+/).filter(Boolean).length;
+    expect(cap).toBe(words + 10);
   });
 });
 
