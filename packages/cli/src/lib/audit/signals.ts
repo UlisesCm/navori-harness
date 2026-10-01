@@ -1390,3 +1390,51 @@ export function hookMisfires(sessions: SessionAudit[], lang: Lang): Signal[] {
       };
     });
 }
+
+/**
+ * Managed skills and agents nobody used across the range, each with the number
+ * of sessions the verdict rests on (R47).
+ *
+ * Only what navori SHIPS is a candidate: the marker is the witness, so a skill
+ * or agent the user wrote never appears — the decision to drop it is theirs, not
+ * a finding. "Candidate" is the word on purpose: zero use over N sessions is a
+ * reason to look, and N is what lets the reader judge whether it is a reason.
+ *
+ * Sessions without a transcript (Codex) are excluded from N by the caller: they
+ * carry no skill or agent evidence, so counting them would dilute the measure.
+ */
+export function unusedManagedCandidates(
+  input: {
+    sessionsConsidered: number;
+    managedSkills: readonly string[];
+    usedSkills: ReadonlySet<string>;
+    managedAgents: readonly string[];
+    usedAgents: ReadonlySet<string>;
+  },
+  lang: Lang,
+): Signal[] {
+  if (input.sessionsConsidered === 0) return [];
+  const skills = input.managedSkills.filter((s) => !input.usedSkills.has(s));
+  const agents = input.managedAgents.filter((a) => !input.usedAgents.has(a));
+  const total = skills.length + agents.length;
+  if (total === 0) return [];
+
+  const parts = [
+    skills.length > 0 ? `skills (${skills.length}): ${skills.join(", ")}` : "",
+    agents.length > 0
+      ? `${pick(lang, "agentes", "agents")} (${agents.length}): ${agents.join(", ")}`
+      : "",
+  ].filter(Boolean);
+  return [
+    {
+      kind: "unused-managed-candidates",
+      severity: "info",
+      summary: pick(
+        lang,
+        `${total} skills o agentes managed sin uso en ${input.sessionsConsidered} sesiones: candidatos a revisión`,
+        `${total} managed skills or agents unused over ${input.sessionsConsidered} sessions: review candidates`,
+      ),
+      evidence: parts.join(" · "),
+    },
+  ];
+}
