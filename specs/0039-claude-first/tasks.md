@@ -51,19 +51,19 @@ Lote 1:
 
 Lote 2:
 
-- [ ] **T5** (R61, R62) — `lib/audit/discovery.ts`: todos los repos de `~/.navori/audits/` con
+- [x] **T5** (R61, R62) — `lib/audit/discovery.ts`: todos los repos de `~/.navori/audits/` con
   fila por repo; denominador de cobertura con el slug del repo más sus `--claude-worktrees-*`;
   colisión de basenames como advertencia. · test: `lib/audit/__tests__/discovery.test.ts` con
   `// Covers: R61, R62`.
-- [ ] **T6** (R68, R69) — `lib/audit/snapshot.ts` y `commands/audit.ts` (`--all-repos`,
+- [x] **T6** (R68, R69) — `lib/audit/snapshot.ts` y `commands/audit.ts` (`--all-repos`,
   `--snapshot`, `--copy-to`, `--compare`) según D10. · test: `snapshot.test.ts` (bajo la raíz de
   audit por defecto; `--copy-to` existente → error; `--all-repos` con ruta dentro de un repo →
   error; sin texto de comando ni basename de repo; métrica faltante → `n/a`) con
   `// Covers: R68, R69`.
-- [ ] **T7** (R67) — Ports de `mine-search-routing.py` y `mine-activation.py` a
+- [x] **T7** (R67) — Ports de `mine-search-routing.py` y `mine-activation.py` a
   `lib/audit/signals.ts`; activación junto al % de ediciones del hilo principal. Los scripts
   Python se borran en el mismo PR al pasar la paridad. · test: `routing-parity.test.ts` contra las
-  cifras fijadas de los scripts con `// Covers: R67`.
+  cifras fijadas de los scripts con `// Covers: R67`. · nota: mine-activation.py se conserva hasta portar su fase 2 (plan tiers, spec 0032 R32), la tabla por sesión y los ejemplos
 
 Lote 3:
 

@@ -922,7 +922,9 @@ export interface AuditReport {
    *  observation that distinguishes an unavailable source from zero writes.
    *  Bumped to 10 with `rangeMetrics` (spec 0039 D10): every range aggregate
    *  published flat and computed once, plus `byAgentType[*].sessions` and the
-   *  `main-thread` row. v9 reports keep parsing: nothing was removed.
+   *  `main-thread` row. v9 reports keep parsing: nothing was removed. The same
+   *  version also carries the optional `repos` rows of an `--all-repos` report
+   *  (R61): absent from a single-repo report, so a reader needs no new version.
    *  A reader can tell the shapes apart by this number alone. */
   schemaVersion: 10;
   generatedBy: string;
@@ -999,4 +1001,20 @@ export interface AuditReport {
    * lands here.
    */
   rangeMetrics: Record<string, number | null>;
+  /**
+   * One row per audited repo, present only in an `--all-repos` report (R61):
+   * sessions with an audit log in the period against the host's sessions for
+   * that project, worktrees included (R62). Repo names live HERE and never in
+   * `rangeMetrics`, which is what a snapshot is made of.
+   */
+  repos?: RepoRow[];
+}
+
+/** A repo's row in an `--all-repos` report. */
+export interface RepoRow {
+  repo: string;
+  /** Sessions with an audit log in the period. */
+  audited: number;
+  /** Host sessions in the period; null when no project root is known. */
+  host: number | null;
 }

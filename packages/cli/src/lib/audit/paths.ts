@@ -86,9 +86,49 @@ function findProjectRoot(startDir: string): string | undefined {
  *    basename of the cwd itself.
  */
 export function repoFromCwd(cwd: string): string {
+  return basename(projectRootFromCwd(cwd));
+}
+
+/**
+ * The absolute project root `repoFromCwd` names by basename: the directory the
+ * audit store attributes a session to. Discovery needs the PATH, not just the
+ * name, to derive the host's transcript slug for the coverage denominator
+ * (R62) and to tell two repos that share a basename apart.
+ */
+export function projectRootFromCwd(cwd: string): string {
   const cleanCwd = resolve(cwd.replace(/[/\\]\.claude[/\\]worktrees(?:[/\\].*)?$/, ""));
-  const projectRoot = findProjectRoot(cleanCwd);
-  return basename(projectRoot ?? cleanCwd);
+  return findProjectRoot(cleanCwd) ?? cleanCwd;
+}
+
+/**
+ * Directory under the audit root that holds artifacts spanning every repo
+ * (`--all-repos` snapshots). It is not a repo: it never carries a session log,
+ * so discovery — which lists a repo only when it does — ignores it, and no
+ * repo name appears in its path.
+ */
+export const ALL_REPOS_DIR = "_all-repos";
+
+/** A snapshot name is one path segment: it names a file under the audit root. */
+const SNAPSHOT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/**
+ * Where a range snapshot lives: `<range report dir>/snapshot-<name>.json`.
+ *
+ * `repo` is the audited repo, or `null` for an `--all-repos` snapshot, which
+ * lands under `_all-repos/` so that no repo name is written next to it. Both go
+ * through `rangeReportDir`, so the "every write lands under the audit root"
+ * contract of `commands/audit.ts` holds; the name is validated HERE because
+ * this is the function that turns user input into a file name (#503).
+ */
+export function snapshotPath(repo: string | null, name: string, from: string, to: string): string {
+  if (!SNAPSHOT_NAME_RE.test(name) || name.includes("..")) {
+    throw new NavoriError(
+      "invalid-snapshot-name",
+      `Invalid snapshot name '${name}': start with a letter or digit and use only letters, digits, '.', '_' and '-'. ` +
+        `It names a file under the audit root.`,
+    );
+  }
+  return join(rangeReportDir(repo ?? ALL_REPOS_DIR, from, to), `snapshot-${name}.json`);
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   type AuditReport,
   type HookEvent,
   type InjectedContext,
+  type RepoRow,
   type SessionAudit,
   type SkillSource,
   type SkillTally,
@@ -1345,6 +1346,15 @@ function flattenRangeMetrics(stats: RangeStats): Record<string, number | null> {
     m[`${p}.resultBytes.p50`] = quantile(t.resultBytes, 0.5);
     m[`${p}.resultBytes.p90`] = quantile(t.resultBytes, 0.9);
   }
+  // The main thread's share of Edit/Write. It is published beside the
+  // activation rate (R67) because activation counts as an opportunity every
+  // turn in which an agent was used, so alone it overstates delegation.
+  const editTools = ["Edit", "Write"].map((n) => stats.tools.get(n));
+  const edits = editTools.reduce((n, t) => n + (t?.calls ?? 0), 0);
+  const editsMain = editTools.reduce((n, t) => n + (t?.callsMain ?? 0), 0);
+  m["edits.calls"] = edits;
+  m["edits.callsMain"] = editsMain;
+  m["edits.mainPct"] = edits === 0 ? null : Math.round((1000 * editsMain) / edits) / 10;
   m["hooks.fires"] = stats.hooks.fires;
   m["hooks.ms"] = stats.hooks.ms;
   m["hooks.bashCalls"] = stats.hooks.bashCalls;
@@ -1528,10 +1538,108 @@ function mechanismSection(stats: RangeStats, lang: Lang): string[] {
   ];
 }
 
-/** The four range sections, in print order. */
+/** Coverage of the period (R62) and, for `--all-repos`, one row per repo (R61). */
+function coverageSection(report: AuditReport, lang: Lang): string[] {
+  const m = report.rangeMetrics;
+  if (!("coverage.sessions.audited" in m) && !report.repos) return [];
+  const out = ["", "---", "", `## ${t(lang, "Cobertura", "Coverage")}`, ""];
+  out.push(
+    t(
+      lang,
+      `Sesiones con log de audit contra sesiones del host en el periodo: **${metric(m["coverage.sessions.audited"])} / ${metric(m["coverage.sessions.host"])}** (${metric(m["coverage.pct"])}%). El denominador incluye los worktrees de agente del repo. \`n/d\` = no hay raíz de proyecto conocida donde buscar.`,
+      `Sessions with an audit log against host sessions in the period: **${metric(m["coverage.sessions.audited"])} / ${metric(m["coverage.sessions.host"])}** (${metric(m["coverage.pct"])}%). The denominator includes the repo's agent worktrees. \`n/d\` = no known project root to look under.`,
+    ),
+  );
+  if (report.repos) {
+    out.push(
+      "",
+      ...rangeTable(
+        [
+          "repo",
+          t(lang, "sesiones auditadas", "audited sessions"),
+          t(lang, "sesiones del host", "host sessions"),
+          t(lang, "cobertura", "coverage"),
+        ],
+        report.repos.map((r) => [
+          `\`${r.repo}\``,
+          String(r.audited),
+          metric(r.host),
+          r.host ? `${Math.round((1000 * r.audited) / r.host) / 10}%` : "n/d",
+        ]),
+      ),
+    );
+  }
+  return out;
+}
+
+/** Activation on opportunities beside the main thread's share of edits, and
+ *  where the searches went (R67). */
+function activationSection(report: AuditReport, lang: Lang): string[] {
+  const m = report.rangeMetrics;
+  const out: string[] = [];
+  if ("activation.total.opportunities" in m) {
+    const triggers = [
+      ...new Set(Object.keys(m).map((k) => /^activation\.([^.]+)\.opportunities$/.exec(k)?.[1])),
+    ].filter((id): id is string => id !== undefined && id !== "total");
+    out.push(
+      "",
+      "---",
+      "",
+      `## ${t(lang, "Activación sobre oportunidades", "Activation over opportunities")}`,
+      "",
+      t(
+        lang,
+        `Ediciones (Edit/Write) hechas por el hilo principal: **${metric(m["edits.mainPct"])}%** (${metric(m["edits.callsMain"])} de ${metric(m["edits.calls"])}). Se publica junto a la activación porque la heurística cuenta como oportunidad todo turno en que se usó el agente: sola, sobrestima la delegación.`,
+        `Edit/Write calls made by the main thread: **${metric(m["edits.mainPct"])}%** (${metric(m["edits.callsMain"])} of ${metric(m["edits.calls"])}). Published beside activation because the heuristic counts every turn in which the agent was used as an opportunity: alone, it overstates delegation.`,
+      ),
+      "",
+      ...rangeTable(
+        [
+          t(lang, "disparador", "trigger"),
+          t(lang, "oportunidades", "opportunities"),
+          t(lang, "activadas", "hits"),
+          "%",
+        ],
+        [...triggers, "total"].map((id) => [
+          `\`${id}\``,
+          metric(m[`activation.${id}.opportunities`]),
+          metric(m[`activation.${id}.hits`]),
+          metric(m[`activation.${id}.pct`]),
+        ]),
+      ),
+    );
+  }
+  if ("search.wrapper" in m) {
+    const routes = Object.keys(m)
+      .filter((k) => k.startsWith("search.") && !k.endsWith(".pct"))
+      .map((k) => k.slice("search.".length));
+    out.push(
+      "",
+      "---",
+      "",
+      `## ${t(lang, "Ruteo de búsqueda", "Search routing")}`,
+      "",
+      t(
+        lang,
+        `Wrapper + nativo sobre búsquedas reales: **${metric(m["search.good.pct"])}%**. Vía v2 (tgrep + codegraph) contra escape: **${metric(m["search.v2.pct"])}%**. Los filtros (\`… | grep\`) y las extracciones de un archivo conocido se reportan aparte y no entran al cociente.`,
+        `Wrapper + native over real searches: **${metric(m["search.good.pct"])}%**. v2 route (tgrep + codegraph) against escape: **${metric(m["search.v2.pct"])}%**. Filters (\`… | grep\`) and extractions from a known file are reported apart and stay out of the quotient.`,
+      ),
+      "",
+      ...rangeTable(
+        [t(lang, "ruta", "route"), t(lang, "búsquedas", "searches")],
+        routes.map((r) => [`\`${r}\``, metric(m[`search.${r}`])]),
+      ),
+    );
+  }
+  return out;
+}
+
+/** The range sections, in print order. */
 function rangeSections(report: AuditReport, lang: Lang): string[] {
   const stats = rangeStats(report.sessions, agentNamesOf(report.rangeMetrics));
   return [
+    ...coverageSection(report, lang),
+    ...activationSection(report, lang),
     ...agentRangeSection(report, lang),
     ...hookRangeSection(stats, lang),
     ...toolRangeSection(stats, lang),
@@ -1962,6 +2070,14 @@ export function buildReport(
     /** Declared agents that carry a navori managed marker (R47). Read by the
      *  caller, like `harnessVersion`: this module does no filesystem work. */
     managedAgents?: string[];
+    /**
+     * Metrics computed OUTSIDE the parsed sessions — coverage, search routing,
+     * activation — merged into `rangeMetrics`. They need the filesystem or the
+     * raw transcripts, which this module does not touch.
+     */
+    extraMetrics?: Record<string, number | null>;
+    /** One row per audited repo, for an `--all-repos` report (R61). */
+    repos?: RepoRow[];
   },
 ): AuditReport {
   const byAgentType: AuditReport["totals"]["byAgentType"] = {};
@@ -2098,6 +2214,7 @@ export function buildReport(
       ...candidates,
     ],
     orphanSessions: opts.orphanSessions ?? [],
-    rangeMetrics: flattenRangeMetrics(stats),
+    rangeMetrics: { ...flattenRangeMetrics(stats), ...opts.extraMetrics },
+    ...(opts.repos ? { repos: opts.repos } : {}),
   };
 }

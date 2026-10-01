@@ -13,19 +13,45 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { readHarnessCatalog, renderedHarnessVersion } from "../lib/audit/harness.ts";
-import { findMarkedSessions, resolveTranscript } from "../lib/audit/discovery.ts";
+import {
+  type MarkedSession,
+  coverageMetrics,
+  findMarkedSessions,
+  listAuditedRepos,
+  repoCoverage,
+  resolveTranscript,
+} from "../lib/audit/discovery.ts";
 import { attachHookEvents, parseCodexSession, parseSession } from "../lib/audit/parse.ts";
 import { listMarkers } from "../lib/diagnose/health.ts";
-import { detectSignals, type Lang } from "../lib/audit/signals.ts";
+import {
+  type Lang,
+  detectSignals,
+  flattenActivation,
+  flattenSearchRouting,
+  mineActivation,
+  mineSearchRouting,
+} from "../lib/audit/signals.ts";
+import type { HarnessCatalog } from "../lib/audit/harness.ts";
+import {
+  buildSnapshot,
+  compareSnapshots,
+  copySnapshotTo,
+  readSnapshot,
+  renderComparison,
+  writeSnapshot,
+} from "../lib/audit/snapshot.ts";
 import { buildReport, renderJson, renderMarkdown, weightedTokens } from "../lib/audit/report.ts";
 import {
+  ALL_REPOS_DIR,
   auditsRoot,
   pendingSpoolPath,
+  projectRootFromCwd,
   rangeReportDir,
   repoAuditDir,
   repoFromCwd,
   sessionLogPath,
   sessionReportDir,
+  snapshotPath,
   PENDING_SPOOL_RE,
 } from "../lib/audit/paths.ts";
 import { startReceiver, type OtelReceiver } from "../lib/audit/collect.ts";
@@ -84,7 +110,7 @@ function managedAgentNames(cwd: string, agents: Array<{ name: string }>): string
  * path that had already escaped). Same pattern as `readConfigOrExit` /
  * `intFlagOrExit`: clean message, exit 1, no trace.
  */
-function auditPathOrExit(build: () => string, json: boolean): string {
+function auditPathOrExit<T = string>(build: () => T, json: boolean): T {
   try {
     return build();
   } catch (err) {
@@ -243,6 +269,22 @@ function resolveStopTarget(
   process.exit(2);
 }
 
+/**
+ * One catalog for a range that spans repos: the current repo's, widened with
+ * the agents and skills every other audited repo declares, so an agent that
+ * ran in another repo is not reported as undeclared. Managed skills are
+ * dropped — "managed and unused" only has a meaning inside one repo.
+ */
+function mergeCatalogs(base: HarnessCatalog, others: HarnessCatalog[]): HarnessCatalog {
+  const agents = new Map(base.agents.map((a) => [a.name, a]));
+  const skills = new Set(base.skills);
+  for (const c of others) {
+    for (const a of c.agents) if (!agents.has(a.name)) agents.set(a.name, a);
+    for (const sk of c.skills) skills.add(sk);
+  }
+  return { ...base, agents: [...agents.values()], skills: [...skills], managedSkills: [] };
+}
+
 export const auditCommand = defineCommand({
   meta: {
     name: "audit",
@@ -269,6 +311,26 @@ export const auditCommand = defineCommand({
     disarm: {
       type: "boolean",
       description: "Remove a pending --arm flag without starting anything",
+    },
+    "all-repos": {
+      type: "boolean",
+      description:
+        "Aggregate the sessions of every repo under the audit root into one range report, with a row and a coverage figure per repo",
+    },
+    snapshot: {
+      type: "string",
+      description:
+        "Save the range metrics as a versioned snapshot under the audit root, under this name",
+    },
+    "copy-to": {
+      type: "string",
+      description:
+        "Also copy the snapshot to this explicit path (relative paths resolve from the git toplevel; never overwrites). Requires --snapshot",
+    },
+    compare: {
+      type: "string",
+      description:
+        "Print the per-metric difference between this snapshot file and the current range",
     },
     collect: {
       type: "boolean",
@@ -350,6 +412,61 @@ export const auditCommand = defineCommand({
       );
       return;
     }
+
+    const allRepos = args["all-repos"] === true;
+    const snapshotName = args.snapshot;
+    const copyTo = args["copy-to"];
+    const comparePath = args.compare;
+    const flagError = (code: string, es: string, en: string): never => {
+      if (json) console.log(JSON.stringify({ ok: false, error: code }));
+      else p.cancel(isEs ? es : en);
+      return process.exit(2);
+    };
+    for (const [flag, value] of [
+      ["--snapshot", snapshotName],
+      ["--copy-to", copyTo],
+      ["--compare", comparePath],
+    ] as const) {
+      if (value === "") {
+        flagError(
+          "missing-flag-value",
+          `La bandera ${flag} necesita un valor.`,
+          `The ${flag} flag needs a value.`,
+        );
+      }
+    }
+    if (copyTo && !snapshotName) {
+      flagError(
+        "copy-to-needs-snapshot",
+        "--copy-to copia la instantánea: pásala con --snapshot <nombre>.",
+        "--copy-to copies the snapshot: pass --snapshot <name> too.",
+      );
+    }
+    if (json && (snapshotName || comparePath)) {
+      flagError(
+        "json-with-snapshot",
+        "--json no escribe archivos: no se combina con --snapshot ni --compare.",
+        "--json writes no files: it does not combine with --snapshot or --compare.",
+      );
+    }
+    if (
+      allRepos &&
+      (args.session ||
+        args.start !== undefined ||
+        args.stop !== undefined ||
+        args.arm === true ||
+        args.disarm === true)
+    ) {
+      flagError(
+        "all-repos-conflict",
+        "--all-repos solo genera el reporte de rango: no se combina con --session, --start, --stop, --arm ni --disarm.",
+        "--all-repos only builds the range report: it does not combine with --session, --start, --stop, --arm or --disarm.",
+      );
+    }
+    // Read before anything is generated: a bad path should cost nothing.
+    const baseSnapshot = comparePath
+      ? auditPathOrExit(() => readSnapshot(resolve(cwd, comparePath)), json)
+      : undefined;
 
     const repo = repoFromCwd(cwd);
     // Resolved once, before anything is written: every path this command
@@ -502,25 +619,46 @@ export const auditCommand = defineCommand({
     }
 
     const days = args.days === undefined ? undefined : Number(args.days);
-    const marked = findMarkedSessions(repo, {
+    const periodFilters = {
       days: Number.isFinite(days) ? days : undefined,
       since: args.since,
       until: args.until,
-      session: args.session,
-    });
+    };
+    const filters = { ...periodFilters, session: args.session };
+    // Which repo each marked session belongs to matters only for `--all-repos`,
+    // where it picks the catalog the session is judged against.
+    const audited = allRepos ? listAuditedRepos(periodFilters) : undefined;
+    const marked: MarkedSession[] = audited
+      ? audited.repos.flatMap((r) => findMarkedSessions(r.repo, periodFilters))
+      : findMarkedSessions(repo, filters);
+    const scopeLabel = allRepos ? "--all-repos" : repo;
+    if (!json) for (const w of audited?.warnings ?? []) p.log.warn(w);
 
     if (marked.length === 0) {
       const msg = isEs
-        ? `No hay sesiones marcadas con audit-mode para '${repo}'. Actívalo con 'navori audit --start <id-de-sesión>'.`
-        : `No sessions marked with audit-mode for '${repo}'. Activate it with 'navori audit --start <session-id>'.`;
-      if (json) console.log(JSON.stringify({ ok: false, error: "no-marked-sessions", repo }));
+        ? `No hay sesiones marcadas con audit-mode para '${scopeLabel}'. Actívalo con 'navori audit --start <id-de-sesión>'.`
+        : `No sessions marked with audit-mode for '${scopeLabel}'. Activate it with 'navori audit --start <session-id>'.`;
+      if (json)
+        console.log(JSON.stringify({ ok: false, error: "no-marked-sessions", repo: scopeLabel }));
       else p.cancel(msg);
       process.exit(2);
     }
 
     const catalog = readHarnessCatalog(cwd);
+    // `--all-repos`: each session is judged against the harness of ITS repo
+    // (read once per root); a root that no longer exists falls back to this one.
+    const catalogs = new Map<string, HarnessCatalog>();
+    const catalogOf = (m: MarkedSession): HarnessCatalog => {
+      if (!allRepos || !m.cwd) return catalog;
+      const root = projectRootFromCwd(m.cwd);
+      if (!existsSync(root)) return catalog;
+      const known = catalogs.get(root) ?? readHarnessCatalog(root);
+      catalogs.set(root, known);
+      return known;
+    };
     const parsed = [];
     const missing: string[] = [];
+    const missingIds = new Set<string>();
     for (const m of marked) {
       if (!m.transcript) {
         // A Codex session has no transcript by design (R71): it is reported from
@@ -531,6 +669,7 @@ export const auditCommand = defineCommand({
           continue;
         }
         missing.push(m.sessionId.slice(0, 8));
+        missingIds.add(m.sessionId);
         continue;
       }
       const session = parseSession(m.transcript);
@@ -538,7 +677,7 @@ export const auditCommand = defineCommand({
       // session log, not the transcript, because a hook that runs and lets the
       // action through is invisible to the transcript by construction.
       attachHookEvents(session, m.logFile);
-      session.signals = detectSignals(session, catalog, lang);
+      session.signals = detectSignals(session, catalogOf(m), lang);
       parsed.push(session);
     }
 
@@ -558,14 +697,39 @@ export const auditCommand = defineCommand({
       process.exit(2);
     }
 
+    // The two miners read the raw transcripts (the command text they classify
+    // never leaves them) and a Codex session has none by design, so only
+    // sessions that HAVE a transcript, or should have, are mined.
+    const mined = marked
+      .filter((m) => m.transcript || missingIds.has(m.sessionId))
+      .map((m) => ({ sessionId: m.sessionId, transcript: m.transcript, cwd: m.cwd }));
+    // Coverage has no meaning for a single session: its denominator is a period.
+    const coverageRows = audited
+      ? audited.repos
+      : args.session
+        ? []
+        : [repoCoverage(repo, periodFilters).row];
+    if (!audited && !args.session && !json) {
+      const { warning } = repoCoverage(repo, periodFilters);
+      if (warning) p.log.warn(warning);
+    }
+
     const report = buildReport(parsed, {
-      repo,
+      repo: allRepos ? "all-repos" : repo,
       version: readCliVersion(),
-      catalog,
+      catalog: audited ? mergeCatalogs(catalog, [...catalogs.values()]) : catalog,
+      extraMetrics: {
+        ...(coverageRows.length > 0 ? coverageMetrics(coverageRows) : {}),
+        ...flattenSearchRouting(mineSearchRouting(mined)),
+        ...flattenActivation(mineActivation(mined)),
+      },
+      repos: audited?.repos.map((r) => ({ repo: r.repo, audited: r.audited, host: r.host })),
       // #675: the human note already printed these; `--json` could not see them
       // at all, which is the half a CI or an agent reads.
       orphanSessions: missing,
-      managedAgents: managedAgentNames(cwd, catalog.agents),
+      // Unused-managed candidates are relative to ONE repo's managed set; across
+      // repos they would call a skill idle that another repo's sessions used.
+      managedAgents: allRepos ? [] : managedAgentNames(cwd, catalog.agents),
       // #778: the harness ON DISK now, against which every session's own stamp
       // is judged. Read here — the same `cwd` `--start` stamps from — so the
       // report module stays pure over parsed sessions.
@@ -585,14 +749,14 @@ export const auditCommand = defineCommand({
     //
     // `--out` still wins verbatim: it is an escape hatch for scripting, and
     // imposing the layout on an explicit destination would defeat it.
-    const single = parsed.length === 1 ? parsed[0] : undefined;
+    const single = !allRepos && parsed.length === 1 ? parsed[0] : undefined;
     const outDir = args.out
       ? resolve(args.out)
       : auditPathOrExit(
           () =>
             single
               ? sessionReportDir(repo, single.startedAt.slice(0, 10), single.sessionId)
-              : rangeReportDir(repo, report.range.from, report.range.to),
+              : rangeReportDir(allRepos ? ALL_REPOS_DIR : repo, report.range.from, report.range.to),
           json,
         );
     mkdirSync(outDir, { recursive: true });
@@ -630,6 +794,39 @@ export const auditCommand = defineCommand({
           )
           .join("\n")}\n`,
         "utf-8",
+      );
+    }
+
+    // R68/R69. The snapshot is built from the report in memory, so `--compare`
+    // works with or without `--snapshot`, and what is compared is exactly what
+    // would be saved (reason keys already dropped).
+    const snapshot = buildSnapshot(report, allRepos ? "all" : "repo");
+    if (typeof snapshotName === "string" && snapshotName) {
+      const target = auditPathOrExit(
+        () =>
+          snapshotPath(allRepos ? null : repo, snapshotName, report.range.from, report.range.to),
+        json,
+      );
+      auditPathOrExit(() => writeSnapshot(target, snapshot), json);
+      p.log.success(`${isEs ? "Instantánea" : "Snapshot"} ${dim(target)}`);
+      if (typeof copyTo === "string" && copyTo) {
+        const copied = auditPathOrExit(
+          () =>
+            copySnapshotTo(target, copyTo, {
+              cwd,
+              scope: snapshot.scope,
+              repoRoots: audited ? audited.repos.flatMap((r) => r.roots) : [],
+            }),
+          json,
+        );
+        p.log.success(`${isEs ? "Copiada a" : "Copied to"} ${dim(copied)}`);
+      }
+    }
+    if (baseSnapshot) {
+      p.log.message(
+        renderComparison(compareSnapshots(baseSnapshot, snapshot), baseSnapshot, snapshot).join(
+          "\n",
+        ),
       );
     }
 
