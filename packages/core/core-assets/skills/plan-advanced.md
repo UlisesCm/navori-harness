@@ -17,7 +17,7 @@ metadata:
 4. Your verdict, post-challenge: READY / CONCERNS / BLOCKED.
 5. Write the level-2 workplan: everything `plan-simple` covers plus `solution {path, verdict}`,
    phases with their `A<n>`, and risks with their rollback; render, check and get the user's
-   approval.
+   approval. As in `plan-simple`, an `A<n>` reaches `cumplido` only with evidence the routing-watch hook recorded because the host ran its exact `command`.
 6. After two rejections, the gate requires `solution_<feature>.md` and
    `solution_review_<feature>.md`: the architect diagnoses why the previous design failed before
    redesigning.

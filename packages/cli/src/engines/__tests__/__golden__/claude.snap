@@ -296,7 +296,7 @@ If a memory contradicts the code, the code wins — fix the memory.
 name: implementer
 description: Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself.
 tools: Read, Write, Edit, Glob, Grep, Bash, mcp__engram__mem_search, mcp__engram__mem_get_observation
-maxWords: 2350
+maxWords: 2391
 ---
 
 <!-- navori:managed id="implementer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
@@ -1017,7 +1017,7 @@ The body always comes from a file, never inline:
 name: reviewer
 description: Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes.
 tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation
-maxWords: 2200
+maxWords: 2220
 ---
 
 <!-- navori:managed id="reviewer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
@@ -16823,7 +16823,7 @@ metadata:
 4. Your verdict, post-challenge: READY / CONCERNS / BLOCKED.
 5. Write the level-2 workplan: everything `plan-simple` covers plus `solution {path, verdict}`,
    phases with their `A<n>`, and risks with their rollback; render, check and get the user's
-   approval.
+   approval. As in `plan-simple`, an `A<n>` reaches `cumplido` only with evidence the routing-watch hook recorded because the host ran its exact `command`.
 6. After two rejections, the gate requires `solution_<feature>.md` and
    `solution_review_<feature>.md`: the architect diagnoses why the previous design failed before
    redesigning.
@@ -16876,7 +16876,7 @@ metadata:
    show the rendered `.md` and wait for the user's approval.
 4. "Open every implementer encargo with `workplan: <feature>` and list the `A<n>` that sub-task covers."
 5. "When a sub-task closes, record it with `navori plan update`" (each `A<n>`'s status and
-   decisions); `progress/current.md` points at the workplan, it doesn't copy it.
+   decisions); `progress/current.md` points at the workplan, it doesn't copy it. `--progress A<n>=cumplido` is accepted only with acceptance evidence, which the routing-watch hook records when the host itself ran the exact `command` of that `A<n>`; the update never runs it. Run the command as written, then mark.
 6. A change outside the approved files is a decision: record it and ask the user before
    dispatching it.
 7. "Never write `workplan_<feature>.md` by hand — it is `navori plan render` output."
@@ -16889,7 +16889,7 @@ metadata:
       lines; a level ≥ 2 result switched to `plan-advanced`.
 - [ ] `navori plan render` and `navori plan check` both green; the user approved the rendered `.md`.
 - [ ] Every implementer encargo opened with `workplan: <feature>` and its `A<n>` list.
-- [ ] Each closed sub-task recorded with `navori plan update`.
+- [ ] Each closed sub-task recorded with `navori plan update`, `cumplido` only after the host ran the exact `A<n>` command.
 - [ ] A file outside the approved scope was either recorded as a decision with the user's
       go-ahead, or never dispatched.
 

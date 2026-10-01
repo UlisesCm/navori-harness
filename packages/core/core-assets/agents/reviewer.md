@@ -4,7 +4,7 @@ description: Strict reviewer — approves or rejects a diff against CLAUDE.md an
 tools: Read, Glob, Grep, Bash, Write
 model: {{models.reviewer}}
 effort: {{effort.reviewer}}
-maxWords: 2200
+maxWords: 2220
 ---
 
 # Reviewer Agent
@@ -59,6 +59,7 @@ Does the diff do EXACTLY what was asked? You don't review style yet.
 - **SDD traceability** (only if `{{sdd.specsDir}}/<feature>/tasks.md` exists): each `R<n>` in the batch is covered by ≥1 test that references it with `// Covers: R<n>`. An `R<n>` in the batch without a traceable test → `SPEC_MISS`.
 <!-- navori:if planTiers -->
 - With a workplan: an assigned `A<n>` without evidence in `acceptance`, a file outside the workplan's files without a covering decision, or `navori plan classify <feature> --diff` returning a higher level than declared → `CHANGES_REQUESTED`.
+- With a workplan: run `navori plan check <feature> --json`; every `A<n>` marked `cumplido` without recorded evidence (the routing-watch hook records it only when the host ran the exact `command`) is a finding → `CHANGES_REQUESTED`.
 <!-- /navori:if -->
 - Screen changes are reviewed on the **diff + the repo's tests** — browser/visual validation is **not a default gate**. Only when the user explicitly requested a visual check in this task do you confirm it happened; if it was requested and skipped, flag it. Never escalate a screen change to a human just because no browser check ran.
 

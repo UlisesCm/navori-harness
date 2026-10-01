@@ -180,14 +180,14 @@ describe("implementer/reviewer — plan-tiers wiring is gated behind planTiers (
   it("R20: implementer's workplan/acceptance block is wrapped in the planTiers conditional", () => {
     const body = readAgent("implementer");
     expect(body).toMatch(
-      /<!-- navori:if planTiers -->\nWhen the encargo opens with `workplan: <feature>`, read `\.navori\/state\/handoffs\/workplan_<feature>\.json`, run each assigned `A<n>` command and report it in `impl_<feature>\.json` under `acceptance` \(`id`, `command`, `exitCode`, `excerpt`\)\. A file outside the workplan's files is a blocker to report, not a change to make\.\n<!-- \/navori:if -->/,
+      /<!-- navori:if planTiers -->\nWhen the encargo opens with `workplan: <feature>`, read `\.navori\/state\/handoffs\/workplan_<feature>\.json`, run each assigned `A<n>` `command` exactly as written \(same string, foreground, no rewrites\), then mark progress and report it in `impl_<feature>\.json` under `acceptance` \(`id`, `command`, `exitCode`, `excerpt`\)\. The routing-watch hook records acceptance evidence only when the host itself ran that exact command; `navori plan update <feature> --progress A<n>=cumplido` is rejected without it and never runs the command for you\. A file outside the workplan's files is a blocker to report, not a change to make\.\n<!-- \/navori:if -->/,
     );
   });
 
   it("R21: reviewer's workplan-evidence rule is wrapped in the planTiers conditional", () => {
     const body = readAgent("reviewer");
     expect(body).toMatch(
-      /<!-- navori:if planTiers -->\n- With a workplan: an assigned `A<n>` without evidence in `acceptance`, a file outside the workplan's files without a covering decision, or `navori plan classify <feature> --diff` returning a higher level than declared → `CHANGES_REQUESTED`\.\n<!-- \/navori:if -->/,
+      /<!-- navori:if planTiers -->\n- With a workplan: an assigned `A<n>` without evidence in `acceptance`, a file outside the workplan's files without a covering decision, or `navori plan classify <feature> --diff` returning a higher level than declared → `CHANGES_REQUESTED`\.\n- With a workplan: run `navori plan check <feature> --json`; every `A<n>` marked `cumplido` without recorded evidence \(the routing-watch hook records it only when the host ran the exact `command`\) is a finding → `CHANGES_REQUESTED`\.\n<!-- \/navori:if -->/,
     );
   });
 });

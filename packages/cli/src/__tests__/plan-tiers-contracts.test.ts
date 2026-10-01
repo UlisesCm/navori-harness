@@ -255,9 +255,12 @@ describe("implementer/reviewer/resolve-ticket — rendered plan-tiers wiring (T1
     const implementerOn = readFileSync(join(on, ".claude/agents/implementer.md"), "utf-8");
     expect(implementerOn).toContain(
       "When the encargo opens with `workplan: <feature>`, read " +
-        "`.navori/state/handoffs/workplan_<feature>.json`, run each assigned `A<n>` command and report " +
-        "it in `impl_<feature>.json` under `acceptance` (`id`, `command`, `exitCode`, `excerpt`). " +
-        "A file outside the workplan's files is a blocker to report, not a change to make.",
+        "`.navori/state/handoffs/workplan_<feature>.json`, run each assigned `A<n>` `command` exactly as " +
+        "written (same string, foreground, no rewrites), then mark progress and report it in " +
+        "`impl_<feature>.json` under `acceptance` (`id`, `command`, `exitCode`, `excerpt`). " +
+        "The routing-watch hook records acceptance evidence only when the host itself ran that exact " +
+        "command; `navori plan update <feature> --progress A<n>=cumplido` is rejected without it and " +
+        "never runs the command for you. A file outside the workplan's files is a blocker to report, not a change to make.",
     );
   });
 
