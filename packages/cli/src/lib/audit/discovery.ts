@@ -1,6 +1,12 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { encodeCwdToSlug, repoAuditDir, transcriptsRoot } from "./paths.ts";
+import {
+  auditsRoot,
+  encodeCwdToSlug,
+  projectRootFromCwd,
+  repoAuditDir,
+  transcriptsRoot,
+} from "./paths.ts";
 
 /**
  * Finds which sessions to audit, and where their transcripts live.
@@ -156,4 +162,153 @@ export function findMarkedSessions(
     return sessions.filter((s) => s.sessionId.startsWith(prefix));
   }
   return sessions.filter((s) => withinRange(s.markedAt, filters));
+}
+
+/** One audited repo: how much of the host's activity its audit log covers. */
+export interface RepoCoverage {
+  /** Directory name under the audit root (the repo's basename). */
+  repo: string;
+  /** Distinct project roots the session logs of this directory recorded. */
+  roots: string[];
+  /** Sessions with an audit log in the period. */
+  audited: number;
+  /** Host sessions in the period, or null when no root is known to look under. */
+  host: number | null;
+}
+
+export interface AuditedRepos {
+  repos: RepoCoverage[];
+  /** Basename collisions and any other caveat on the rows. */
+  warnings: string[];
+}
+
+/**
+ * Transcript directories that belong to one project root: its own slug plus the
+ * slugs of its agent worktrees. Claude Code stores a worktree session under
+ * `<slug>--claude-worktrees-<name>` (`/.claude` encodes to `--claude`), so a
+ * denominator built from the repo slug alone would drop every delegated session
+ * and read as a coverage better than it is (R62).
+ */
+function hostSlugDirs(root: string, transcripts: string): string[] {
+  if (!existsSync(transcripts)) return [];
+  const slug = encodeCwdToSlug(root);
+  const worktreePrefix = `${slug}--claude-worktrees-`;
+  return readdirSync(transcripts)
+    .filter((d) => d === slug || d.startsWith(worktreePrefix))
+    .map((d) => join(transcripts, d));
+}
+
+/**
+ * Host sessions of the given project roots inside the period: the `*.jsonl`
+ * files (sessions; subagent transcripts live in nested directories and do not
+ * count) whose last-modified day passes the filters. The mtime is the last
+ * activity of the session, so one that crossed midnight lands on its last day —
+ * acceptable for a denominator, and the only timestamp that costs no file read.
+ */
+export function countHostSessions(
+  roots: readonly string[],
+  filters: DiscoveryFilters = {},
+): number {
+  const transcripts = transcriptsRoot();
+  const seen = new Set<string>();
+  for (const root of roots) {
+    for (const dir of hostSlugDirs(root, transcripts)) {
+      for (const file of readdirSync(dir)) {
+        if (!file.endsWith(".jsonl")) continue;
+        const path = join(dir, file);
+        try {
+          if (!withinRange(new Date(statSync(path).mtimeMs).toISOString(), filters)) continue;
+        } catch {
+          continue;
+        }
+        seen.add(path);
+      }
+    }
+  }
+  return seen.size;
+}
+
+/** Distinct project roots recorded by a set of session logs. */
+function rootsOf(sessions: readonly MarkedSession[]): string[] {
+  const roots = new Set<string>();
+  for (const s of sessions) if (s.cwd) roots.add(projectRootFromCwd(s.cwd));
+  return [...roots].sort();
+}
+
+/**
+ * The coverage row of ONE audit directory, plus the collision warning when two
+ * different project roots were recorded under its basename: the store merged two
+ * repos, and every figure of that row mixes them. Reported, not guessed at.
+ */
+export function repoCoverage(
+  repo: string,
+  filters: DiscoveryFilters = {},
+): { row: RepoCoverage; warning: string | null } {
+  const sessions = findMarkedSessions(repo);
+  const roots = rootsOf(sessions);
+  return {
+    row: {
+      repo,
+      roots,
+      audited: sessions.filter((m) => withinRange(m.markedAt, filters)).length,
+      host: roots.length === 0 ? null : countHostSessions(roots, filters),
+    },
+    warning:
+      roots.length > 1
+        ? `basename collision: '${repo}' holds sessions of ${roots.length} different project roots (${roots.join(", ")}); its row mixes them`
+        : null,
+  };
+}
+
+/**
+ * Every repo under the audit root, one row each (R61), with its coverage: the
+ * sessions that have an audit log against the host's sessions for the same
+ * project in the same period (R62).
+ *
+ * A directory is a repo only if it holds at least one session log, which keeps
+ * `_all-repos/` (snapshots) and stray folders out.
+ */
+export function listAuditedRepos(filters: DiscoveryFilters = {}): AuditedRepos {
+  const root = auditsRoot();
+  const repos: RepoCoverage[] = [];
+  const warnings: string[] = [];
+  if (!existsSync(root)) return { repos, warnings };
+
+  for (const repo of readdirSync(root).sort()) {
+    const dir = join(root, repo);
+    try {
+      if (!statSync(dir).isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    if (!readdirSync(dir).some((f) => f.startsWith("session-") && f.endsWith(".log"))) continue;
+    const { row, warning } = repoCoverage(repo, filters);
+    repos.push(row);
+    if (warning) warnings.push(warning);
+  }
+  return { repos, warnings };
+}
+
+/**
+ * Coverage of the period as flat range metrics (R62): audited sessions against
+ * the host's, summed over `rows`. Rows with no known root have no denominator
+ * and are left out of BOTH sides, so a repo the host cannot be looked up for
+ * does not read as a gap in coverage. `null` when no row has one.
+ */
+export function coverageMetrics(rows: readonly RepoCoverage[]): Record<string, number | null> {
+  const measurable = rows.filter((r) => r.host !== null);
+  if (measurable.length === 0) {
+    return {
+      "coverage.sessions.audited": null,
+      "coverage.sessions.host": null,
+      "coverage.pct": null,
+    };
+  }
+  const audited = measurable.reduce((n, r) => n + r.audited, 0);
+  const host = measurable.reduce((n, r) => n + (r.host ?? 0), 0);
+  return {
+    "coverage.sessions.audited": audited,
+    "coverage.sessions.host": host,
+    "coverage.pct": host === 0 ? null : Math.round((1000 * audited) / host) / 10,
+  };
 }
