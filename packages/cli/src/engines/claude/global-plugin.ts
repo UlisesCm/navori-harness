@@ -6,6 +6,7 @@ import type { NavoriConfig } from "../../lib/config/schema.ts";
 import type { GlobalConfig } from "../../lib/config/global-config.ts";
 import { CORE_SOURCE_ID } from "../../lib/render/render-plan.ts";
 import { resolveHarnessPlan } from "../shared/harness-plan.ts";
+import { filterInventory } from "../shared/native-overlap.ts";
 import { renderManagedFile } from "../shared/render-managed-file.ts";
 import {
   GLOBAL_HOOK_BASENAME,
@@ -148,10 +149,18 @@ export function planGlobalPlugin(
   const coreAssets = resolve(getCoreRoot(), "core-assets");
   // `preset` is null on purpose: a preset is a repo's choice, read from its
   // `navori.config.json` — the scope this plugin exists to serve has none.
-  const harness = resolveHarnessPlan(renderConfig, coreAssets, null, {
-    includeOrchestrator: true,
-    includeClaudeOnlySkills: true,
-  });
+  // Same filter as the repo render (spec 0039 D1, m5): a unit native on Claude
+  // is not shipped to the machine-wide plugin either. No repo plugins here.
+  const harness = filterInventory(
+    {
+      plan: resolveHarnessPlan(renderConfig, coreAssets, null, {
+        includeOrchestrator: true,
+        includeClaudeOnlySkills: true,
+      }),
+      plugins: [],
+    },
+    "claude",
+  ).plan;
 
   const files: GlobalPluginFile[] = [
     { relPath: PLUGIN_MANIFEST_REL, content: manifest(version) },

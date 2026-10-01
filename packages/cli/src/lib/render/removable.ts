@@ -1,6 +1,7 @@
 import { lstatSync, readFileSync, readdirSync, rmdirSync } from "node:fs";
 import { join } from "node:path";
 import { readCliVersion } from "./bundled-assets.ts";
+import { parseFrontmatterFields, splitFrontmatter } from "./frontmatter.ts";
 import { readNavoriOwnership } from "../primitives/json-ownership.ts";
 import { isDowngrade } from "../primitives/semver.ts";
 import {
@@ -15,6 +16,14 @@ import {
  *  extracted from: `readCliVersion()` re-reads package.json on every call and a
  *  prune asks the question once per file. */
 const CLI_VERSION = readCliVersion();
+
+/**
+ * `requirePristine.expected` is the unit as navori renders it fresh; see
+ * `hasUserWrittenText`.
+ */
+export interface PristineOpts {
+  requirePristine?: { expected: string };
+}
 
 /**
  * THE authorship test: may navori delete this file?
@@ -46,8 +55,23 @@ const CLI_VERSION = readCliVersion();
  * The version guard is not decoration: a file a NEWER navori wrote is not ours
  * to delete (same anti-rollback rule render applies to managed blocks, #79).
  */
-export function isRemovableNavoriFile(path: string, markerId?: string): boolean {
-  return navoriAuthorship(path, markerId) === "ours";
+export function isRemovableNavoriFile(
+  path: string,
+  markerId?: string,
+  opts?: PristineOpts,
+): boolean {
+  // `requirePristine` (spec 0039 D3, R5) is for retiring a unit the host now
+  // ships natively: the file goes only if its hash verifies AND nothing the user
+  // wrote sits outside the block. It adds NO delete path — same criterion, narrower.
+  return (
+    navoriAuthorship(
+      path,
+      markerId,
+      opts?.requirePristine
+        ? { verifyHash: true, requirePristine: opts.requirePristine }
+        : undefined,
+    ) === "ours"
+  );
 }
 
 /**
@@ -63,7 +87,7 @@ export function isRemovableNavoriFile(path: string, markerId?: string): boolean 
 export function navoriAuthorship(
   path: string,
   markerId?: string,
-  opts?: { verifyHash?: boolean },
+  opts?: { verifyHash?: boolean; requirePristine?: { expected: string } },
 ): NavoriAuthorship {
   let stats;
   try {
@@ -99,7 +123,58 @@ export function navoriAuthorship(
       if (stored && body !== null && computeManagedHash(body) !== stored) return "modified";
     }
   }
+  if (opts?.requirePristine && hasUserWrittenText(content, opts.requirePristine.expected)) {
+    return "modified";
+  }
   return "ours";
+}
+
+const BLOCK_TOKEN = "@@navori-block@@";
+
+/** Frontmatter fields and the text around the managed blocks, both normalized for comparison. */
+function outsideTheBlocks(content: string): { fields: string; text: string } {
+  const style: CommentStyle = content.includes("# navori:managed start") ? "shell" : "html";
+  const { frontmatter, body } = splitFrontmatter(content);
+  let text = body;
+  for (const block of [...locateManagedBlocks(body, style)].sort(
+    (a, b) => b.openStart - a.openStart,
+  )) {
+    text = `${text.slice(0, block.openStart)}\n${BLOCK_TOKEN}\n${text.slice(block.closeEnd)}`;
+  }
+  const fields = parseFrontmatterFields(frontmatter);
+  // `mcp__*` entries in `tools` are granted per repo by a plugin pass after the
+  // asset is rendered (`withAgentMcpTools`), so they are navori's, not the user's.
+  if (fields.tools !== undefined) {
+    fields.tools = fields.tools
+      .split(",")
+      .map((t) => t.trim())
+      .filter((t) => !t.startsWith("mcp__"))
+      .join(", ");
+  }
+  return {
+    fields: JSON.stringify(Object.entries(fields).sort(([a], [b]) => a.localeCompare(b))),
+    text: text
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter((line, i, all) => line !== "" || (i > 0 && all[i - 1] !== ""))
+      .join("\n")
+      .replace(new RegExp(`(\\n*${BLOCK_TOKEN}\\n*)+`, "g"), `\n${BLOCK_TOKEN}\n`)
+      .trim(),
+  };
+}
+
+/**
+ * True when `content` differs from `expected` anywhere OUTSIDE its managed
+ * blocks: a frontmatter key or value, or any line around the blocks. `expected`
+ * is what navori itself renders for the unit (a fresh `renderManagedFile`), so
+ * the frontmatter, shebang and empty user-section scaffold it writes compare
+ * equal and everything else — including a heading or comment the user added —
+ * does not. Block bodies are not compared here: the hash check does that.
+ */
+function hasUserWrittenText(content: string, expected: string): boolean {
+  const actual = outsideTheBlocks(content);
+  const wanted = outsideTheBlocks(expected);
+  return actual.fields !== wanted.fields || actual.text !== wanted.text;
 }
 
 /** The three answers `navoriAuthorship` can give. Only `ours` may be deleted. */

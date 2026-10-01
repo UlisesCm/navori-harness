@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pluginScriptPlacements } from "../shared/plugin-scripts.ts";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config/config.ts";
 import {
@@ -37,10 +37,15 @@ import { getCoreRoot, readCliVersion } from "../../lib/render/bundled-assets.ts"
 // The authorship test every delete path in the product shares — see
 // lib/removable.ts. The skill prunes below pass their managed id so it answers
 // "did navori write this file AS that block?" (#496).
-import { isRemovableNavoriFile, navoriAuthorship } from "../../lib/render/removable.ts";
+import {
+  isRemovableNavoriFile,
+  navoriAuthorship,
+  type PristineOpts,
+} from "../../lib/render/removable.ts";
 import {
   injectManagedSection,
   removeManagedSection,
+  removeManagedSectionGuarded,
   reorderManagedBlocks,
   splitUserSection,
   emitUserSection,
@@ -66,7 +71,13 @@ import {
   extraConditionMet,
   isAgentEnabled,
 } from "../shared/harness-assets.ts";
-import { resolveHarnessPlan } from "../shared/harness-plan.ts";
+import { resolveHarnessPlan, type HarnessPlan } from "../shared/harness-plan.ts";
+import {
+  OVERLAP_ROWS,
+  filterInventory,
+  type FilteredInventory,
+  type OverlapRow,
+} from "../shared/native-overlap.ts";
 import { buildSkillRows } from "../shared/skills-index.ts";
 import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
 import {
@@ -790,13 +801,26 @@ export function renderClaudeEngine(
   // Load enabled plugins once and thread the result through the steps that
   // need it (settings, scripts, skill injects). Was loaded twice before — once
   // here via planSettings and again for scripts/skills (issue #10).
-  const enabledPlugins = loadEnabledPlugins(config.plugins).loaded;
+  const preset = loadActivePreset(config, repoRoot, warnings);
+  const fullHarnessPlan = resolveHarnessPlan(config, coreAssets, preset, {
+    includeOrchestrator: true,
+    includeClaudeOnlySkills: true,
+    includeClaudeOnlyHooks: true,
+  });
+  // Spec 0039 D1/B1: the ONE filtered inventory. Everything below that writes a
+  // file or registers a hook reads it, so a unit the matrix marks native on
+  // Claude loses its file and its registration together.
+  const inventory = filterInventory(
+    { plan: fullHarnessPlan, plugins: loadEnabledPlugins(config.plugins).loaded },
+    "claude",
+  );
+  const enabledPlugins = inventory.plugins;
 
   // 2. .claude/settings.json — skipped under `minimal`: Claude Code's settings
   // precedence has no nested level, so a workspace copy is never read (0018 R2).
   const settingsResult = minimalHarness
     ? ({ kind: "noop" } as const)
-    : planSettings(cwd, config, enabledPlugins, force);
+    : planSettings(cwd, config, inventory, force);
   if (!minimalHarness) inspected += 1;
   if (settingsResult.kind === "skip") {
     skipped.push({ path: relative(cwd, settingsResult.path), reason: settingsResult.reason });
@@ -846,18 +870,12 @@ export function renderClaudeEngine(
   // `pending`. Claude-only work (CLAUDE.md above; settings/bootstrap/scripts/
   // injectInto/preset-hooks/reconciliation below) shares that pending and one
   // commitWrites. `includeOrchestrator` because Claude DOES emit orchestrator.md.
-  const preset = loadActivePreset(config, repoRoot, warnings);
-  const fullHarnessPlan = resolveHarnessPlan(config, coreAssets, preset, {
-    includeOrchestrator: true,
-    includeClaudeOnlySkills: true,
-    includeClaudeOnlyHooks: true,
-  });
   // Under `minimal` only skills survive: they DO load in a workspace (lazily,
   // the first time Claude reads a file in that subdirectory), which is exactly
   // the behavior a monorepo wants. Agents and hooks do not (0018 R2).
   const harnessPlan = minimalHarness
-    ? { ...fullHarnessPlan, agents: [], hooks: [] }
-    : fullHarnessPlan;
+    ? { ...inventory.plan, agents: [], hooks: [] }
+    : inventory.plan;
   // A `project.libraries` id this registry doesn't know is silently skipped by
   // the plan AND its managed skill is pruned from disk below (§8.6) — a repo
   // upgraded without `navori update` would lose its guidance with zero signal
@@ -1300,6 +1318,18 @@ export function renderClaudeEngine(
     );
   }
 
+  // 8.7e. Units the host now ships natively (spec 0039 D3, R5).
+  planNativeRetirements({
+    cwd,
+    config,
+    rows: OVERLAP_ROWS,
+    plan: fullHarnessPlan,
+    pending,
+    removals,
+    warnings,
+    claudeMdPath,
+  });
+
   // 8.8. Migrate legacy FLAT skill files to the DIRECTORY form. navori now writes
   // every Claude skill as `.claude/skills/<id>/SKILL.md` (the shape Claude Code
   // auto-discovers); a repo onboarded before this change still carries the stale
@@ -1374,9 +1404,14 @@ export function renderClaudeEngine(
  * newer CLI clears it; a deletion of content the running CLI cannot reproduce is
  * not reversible from the repo. Same call render makes for managed blocks (#79).
  */
-function planFlatSkillRemoval(cwd: string, id: string, markerId: string): PendingRemoval | null {
+function planFlatSkillRemoval(
+  cwd: string,
+  id: string,
+  markerId: string,
+  pristine?: PristineOpts["requirePristine"],
+): PendingRemoval | null {
   const flat = join(cwd, ".claude/skills", `${id}.md`);
-  if (!isRemovableNavoriFile(flat, markerId)) return null;
+  if (!isRemovableNavoriFile(flat, markerId, { requirePristine: pristine })) return null;
   return { path: flat };
 }
 
@@ -1390,9 +1425,16 @@ function planFlatSkillRemoval(cwd: string, id: string, markerId: string): Pendin
  * `<id>.sh` survives. Returns null when there is nothing (safe) to remove.
  * (#774)
  */
-function planRetiredHookRemoval(cwd: string, id: string, markerId: string): PendingRemoval | null {
+function planRetiredHookRemoval(
+  cwd: string,
+  id: string,
+  markerId: string,
+  pristine?: PristineOpts["requirePristine"],
+): PendingRemoval | null {
   const hookPath = join(cwd, ".claude/hooks", `${id}.sh`);
-  return isRemovableNavoriFile(hookPath, markerId) ? { path: hookPath } : null;
+  return isRemovableNavoriFile(hookPath, markerId, { requirePristine: pristine })
+    ? { path: hookPath }
+    : null;
 }
 
 /**
@@ -1402,9 +1444,112 @@ function planRetiredHookRemoval(cwd: string, id: string, markerId: string): Pend
  * (`retired.markerIdByAdapter.claude`), not assumed — a user's own
  * `<id>.md` at the same path is never touched.
  */
-function planRetiredAgentRemoval(cwd: string, id: string, markerId: string): PendingRemoval | null {
+function planRetiredAgentRemoval(
+  cwd: string,
+  id: string,
+  markerId: string,
+  pristine?: PristineOpts["requirePristine"],
+): PendingRemoval | null {
   const agentPath = join(cwd, ".claude/agents", `${id}.md`);
-  return isRemovableNavoriFile(agentPath, markerId) ? { path: agentPath } : null;
+  return isRemovableNavoriFile(agentPath, markerId, { requirePristine: pristine })
+    ? { path: agentPath }
+    : null;
+}
+
+/**
+ * §8.7e — retire from an installed repo every unit the matrix marks `native` on
+ * Claude (spec 0039 D3, R5). Nothing is deleted here: it queues `removals` (and
+ * a rewritten `CLAUDE.md` for in-file blocks), and the single `commitWrites`
+ * backs them up and applies them.
+ *
+ *  - A path already in `pending` this run is skipped (m6): this run wrote it.
+ *  - Whole files (hook, skill, agent) go through the §8.7 planners with
+ *    `requirePristine`: a newer navori's file, a hand-edited one, or one with
+ *    user text outside the block is kept and reported.
+ *  - Managed blocks go through `removeManagedSectionGuarded`: newer or edited
+ *    blocks are kept and reported.
+ */
+export function planNativeRetirements(input: {
+  cwd: string;
+  config: NavoriConfig;
+  rows: readonly OverlapRow[];
+  plan: HarnessPlan;
+  pending: Array<{ path: string; content: string; status: RenderStatus; chmodExec?: boolean }>;
+  removals: PendingRemoval[];
+  warnings: string[];
+  claudeMdPath: string;
+}): void {
+  const { cwd, plan, pending, removals, warnings, claudeMdPath } = input;
+  const queued = (path: string): boolean =>
+    pending.some((item) => item.path === path || path.startsWith(`${item.path}${sep}`)) ||
+    removals.some((item) => item.path === path);
+  const retired = (id: string): { id: string; successor: null } => ({ id, successor: null });
+  const queue = (candidates: readonly (PendingRemoval | null)[]): void => {
+    for (const removal of candidates) {
+      if (removal && !queued(removal.path)) removals.push(removal);
+    }
+  };
+  // What navori itself writes for the unit: pristine means "nothing outside the
+  // blocks differs from this", so a user-added frontmatter key, heading or
+  // comment is caught without a second list of what navori emits.
+  const pristineFor = (
+    unit: { assetPath: string; managedId: string },
+    commentStyle: "html" | "shell",
+  ): { expected: string } => ({
+    expected: renderManagedFile({
+      assetPath: unit.assetPath,
+      existingContent: null,
+      managedId: unit.managedId,
+      meta: { source: "@navori/core", version: readCliVersion() },
+      config: input.config,
+      commentStyle,
+    }).content,
+  });
+
+  for (const row of input.rows) {
+    if (row.engines.claude !== "native") continue;
+    const { kind, id } = row.unit;
+    if (kind === "hook") {
+      const unit = plan.hooks.find((h) => h.id === id);
+      const path = join(cwd, ".claude/hooks", `${id}.sh`);
+      if (!unit || queued(path)) continue;
+      const pristine = pristineFor(unit, "shell");
+      queue([planRetiredHookRemoval(cwd, id, unit.managedId, pristine)]);
+      reportKeptRetired(warnings, cwd, [path], unit.managedId, retired(id), pristine);
+    } else if (kind === "agent") {
+      const unit = plan.agents.find((a) => a.id === id);
+      const path = join(cwd, ".claude/agents", `${id}.md`);
+      if (!unit || queued(path)) continue;
+      const pristine = pristineFor(unit, "html");
+      queue([planRetiredAgentRemoval(cwd, id, unit.managedId, pristine)]);
+      reportKeptRetired(warnings, cwd, [path], unit.managedId, retired(id), pristine);
+    } else if (kind === "skill") {
+      const unit = plan.skills.find((s) => s.id === id);
+      const paths = [
+        join(cwd, ".claude/skills", `${id}.md`),
+        join(cwd, ".claude/skills", id, "SKILL.md"),
+      ];
+      if (!unit || paths.some(queued)) continue;
+      const pristine = pristineFor(unit, "html");
+      queue([
+        planFlatSkillRemoval(cwd, id, unit.managedId, pristine),
+        planDirSkillRemoval(cwd, id, unit.managedId, pristine),
+      ]);
+      reportKeptRetired(warnings, cwd, paths, unit.managedId, retired(id), pristine);
+    } else if (kind === "managed-block") {
+      if (queued(claudeMdPath) || !existsSync(claudeMdPath)) continue;
+      const current = readFileSync(claudeMdPath, "utf-8");
+      const result = removeManagedSectionGuarded(current, id);
+      if ("kept" in result) {
+        warnings.push(
+          `kept managed block "${id}" in ${relative(cwd, claudeMdPath)} — native on Claude, ` +
+            `${result.kept} block, not navori's to remove`,
+        );
+      } else if (result.content !== current) {
+        pending.push({ path: claudeMdPath, content: result.content, status: "updated" });
+      }
+    }
+  }
 }
 
 /**
@@ -1421,10 +1566,15 @@ function reportKeptRetired(
   candidatePaths: readonly string[],
   markerId: string,
   retired: { readonly id: string; readonly successor: string | null },
+  pristine?: PristineOpts["requirePristine"],
 ): void {
   for (const path of candidatePaths) {
     if (!existsSync(path)) continue;
-    const authorship = navoriAuthorship(path, markerId);
+    const authorship = navoriAuthorship(
+      path,
+      markerId,
+      pristine ? { verifyHash: true, requirePristine: pristine } : undefined,
+    );
     if (authorship === "ours") continue;
     const successor = retired.successor ?? "none";
     warnings.push(
@@ -1443,10 +1593,15 @@ function reportKeptRetired(
  * three delete paths cannot drift apart. Returns null when there's nothing
  * (safe) to remove. (#166)
  */
-function planDirSkillRemoval(cwd: string, id: string, markerId: string): PendingRemoval | null {
+function planDirSkillRemoval(
+  cwd: string,
+  id: string,
+  markerId: string,
+  pristine?: PristineOpts["requirePristine"],
+): PendingRemoval | null {
   const skillDir = join(cwd, ".claude/skills", id);
   const skillPath = join(skillDir, "SKILL.md");
-  if (!isRemovableNavoriFile(skillPath, markerId)) return null;
+  if (!isRemovableNavoriFile(skillPath, markerId, { requirePristine: pristine })) return null;
   let children: string[];
   try {
     children = readdirSync(skillDir);
@@ -1497,11 +1652,11 @@ type SettingsPlan =
 function planSettings(
   cwd: string,
   config: NavoriConfig,
-  plugins: LoadedPlugin[],
+  inventory: FilteredInventory,
   force = false,
 ): SettingsPlan {
   const path = join(cwd, ".claude/settings.json");
-  const newSettings = buildClaudeSettings(config, plugins);
+  const newSettings = buildClaudeSettings(config, inventory);
   const newJson = JSON.stringify(newSettings, null, 2) + "\n";
 
   if (!existsSync(path)) {

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { isDowngrade } from "../primitives/semver.ts";
+import { readCliVersion } from "./bundled-assets.ts";
 import { tc, SUPPORTED_LANGS, DEFAULT_LANG, type Lang } from "../i18n.ts";
 
 /**
@@ -478,6 +479,31 @@ export function removeManagedSection(
   let endCut = match.closeEnd;
   if (existing[endCut] === "\n") endCut++;
   return existing.slice(0, match.openStart) + existing.slice(endCut);
+}
+
+/**
+ * `removeManagedSection` that refuses what is not navori's to remove (spec 0039
+ * D3, R5): a block stamped by a NEWER navori than this CLI (`version` ahead),
+ * with no `version` at all, or whose body no longer hashes to its stored hash (edited by hand), is kept
+ * and the reason returned so the caller can report it. An absent block is a
+ * no-op: the unchanged content comes back.
+ */
+export function removeManagedSectionGuarded(
+  existing: string,
+  id: string,
+  commentStyle: CommentStyle = "html",
+): { content: string } | { kept: "newer" | "modified" } {
+  const attrs = readMarkerAttrs(existing, id, commentStyle);
+  if (!attrs) return { content: existing };
+  // No `version` means nothing says navori wrote it: same verdict the whole-file
+  // path gives (`foreign`), reported here as "modified".
+  if (!attrs.existingVersion) return { kept: "modified" };
+  if (isDowngrade(attrs.existingVersion, readCliVersion())) return { kept: "newer" };
+  const body = extractManagedContent(existing, id, commentStyle);
+  if (attrs.existingHash && body !== null && computeManagedHash(body) !== attrs.existingHash) {
+    return { kept: "modified" };
+  }
+  return { content: removeManagedSection(existing, id, commentStyle) };
 }
 
 /**

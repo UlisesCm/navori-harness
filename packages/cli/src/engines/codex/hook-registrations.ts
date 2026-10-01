@@ -1,5 +1,6 @@
 import type { NavoriConfig } from "../../lib/config/config.ts";
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
+import { OVERLAP_ROWS, isNativeOn, type OverlapRow } from "../shared/native-overlap.ts";
 import { pluginScriptCollisions } from "../shared/plugin-scripts.ts";
 import { compareSemver } from "../../lib/primitives/semver.ts";
 
@@ -305,15 +306,22 @@ export function resolvePluginCodexHooks(plugins: readonly LoadedPlugin[]): {
 export function resolveCodexHooks(
   config: NavoriConfig,
   plugins: readonly LoadedPlugin[] = [],
+  overlapRows: readonly OverlapRow[] = OVERLAP_ROWS,
 ): ResolvedCodexHook[] {
   const resolved: ResolvedCodexHook[] = [];
+  // Spec 0039 D1: same predicate `filterInventory` uses, so a hook (or plugin)
+  // the matrix marks native on Codex is neither written nor registered.
+  const livePlugins = plugins.filter(
+    (plugin) => !isNativeOn("codex", "plugin", plugin.manifest.id, overlapRows),
+  );
   for (const row of CODEX_HOOK_REGISTRATIONS) {
     if (!row.registration) continue;
+    if (isNativeOn("codex", "hook", row.script, overlapRows)) continue;
     if (row.registration.when && !row.registration.when(config)) continue;
     const { when: _when, minVersion: _minVersion, ...rest } = row.registration;
     resolved.push({ script: row.script, ...rest });
   }
-  return [...resolved, ...resolvePluginCodexHooks(plugins).hooks];
+  return [...resolved, ...resolvePluginCodexHooks(livePlugins).hooks];
 }
 
 /**
