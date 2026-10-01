@@ -2,6 +2,7 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import {
   type AgentRun,
+  type CliEvent,
   type HookEvent,
   type InjectedContext,
   type PermissionDecisions,
@@ -14,6 +15,7 @@ import {
   AUTOMATIC_PERMISSION_SOURCES,
   HUMAN_PERMISSION_SOURCES,
   addTokens,
+  emptyOrchestrator,
   emptyPermissionDecisions,
   emptyTokens,
   emptyToolErrors,
@@ -204,6 +206,133 @@ function toolUses(lines: Rec[]): Rec[] {
     }
   }
   return out;
+}
+
+/** Longest blocked-command example kept (R66): enough to recognise the rule's
+ *  false positive, short enough that a pasted payload cannot ride along. */
+const EXAMPLE_MAX_CHARS = 160;
+
+/** Shapes of secrets a shell command can carry. Replaced BEFORE truncation, so a
+ *  secret cut in half by the limit cannot survive as a recognisable prefix. */
+const SECRET_REDACTIONS: Array<[RegExp, string]> = [
+  [/\b(?:gh[opsu]|github_pat)_[A-Za-z0-9_]{8,}/g, "[redacted]"],
+  [/\bsk-[A-Za-z0-9_-]{8,}/g, "[redacted]"],
+  [/\bAKIA[0-9A-Z]{12,}/g, "[redacted]"],
+  [/\bxox[abposr]-[A-Za-z0-9-]{8,}/g, "[redacted]"],
+  [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, "$1 [redacted]"],
+  [/:\/\/[^\s/:@]+:[^\s/@]+@/g, "://[redacted]@"],
+  [
+    /((?:api[_-]?key|token|passw(?:or)?d|secret|authorization)["']?\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)/gi,
+    "$1[redacted]",
+  ],
+  [/(--(?:api[_-]?key|token|passw(?:or)?d|secret)[= ])\S+/gi, "$1[redacted]"],
+  [/\b(?=[A-Za-z_-]*\d)[A-Za-z0-9_-]{40,}\b/g, "[redacted]"],
+];
+
+/**
+ * A transcript command made safe to print as an example (R66): secrets and
+ * tokens replaced, whitespace collapsed, cut to 160 characters.
+ *
+ * It removes what it recognises and nothing more — it is a floor, not a
+ * guarantee — which is why the result only ever reaches the rendered range
+ * section and never `rangeMetrics` or a snapshot.
+ */
+export function redactExample(command: string): string {
+  let out = command.replace(/\s+/g, " ").trim();
+  for (const [re, to] of SECRET_REDACTIONS) out = out.replace(re, to);
+  return out.length > EXAMPLE_MAX_CHARS ? `${out.slice(0, EXAMPLE_MAX_CHARS - 1)}…` : out;
+}
+
+/** Assistant messages deduplicated by `message.id` (last line wins, as in
+ *  `sumTokens`); a line with no id counts as its own message. */
+function uniqueAssistantMessages(lines: Rec[]): Rec[] {
+  const byId = new Map<string, Rec>();
+  const anonymous: Rec[] = [];
+  for (const l of lines) {
+    if (str(l.type) !== "assistant") continue;
+    const id = str(path(l, "message", "id"));
+    if (id) byId.set(id, l);
+    else anonymous.push(l);
+  }
+  return [...anonymous, ...byId.values()];
+}
+
+/** Largest single-message context in one transcript (R65). */
+function contextPeakOf(lines: Rec[]): number {
+  let peak = 0;
+  for (const l of uniqueAssistantMessages(lines)) {
+    const u = usageOf(l);
+    peak = Math.max(peak, u.input + u.cacheRead + u.cacheCreation);
+  }
+  return peak;
+}
+
+/**
+ * Compactions in a main-thread transcript (R65). UNVERIFIED shape (F0a probe
+ * pending): the host's `compact_boundary` system record is preferred, and the
+ * `isCompactSummary` user line is the fallback so one of them being absent does
+ * not read as "never compacted". Both present counts the boundaries only.
+ */
+function countCompactions(lines: Rec[]): number {
+  const boundaries = lines.filter((l) => str(l.subtype) === "compact_boundary").length;
+  if (boundaries > 0) return boundaries;
+  return lines.filter((l) => l.isCompactSummary === true).length;
+}
+
+/** The host's turn-limit stop, when the transcript carries one. UNVERIFIED
+ *  shape (F0a probe, R41): a false here is "no record", not proof of no limit. */
+function hitTurnLimit(lines: Rec[]): boolean {
+  return lines.some(
+    (l) =>
+      str(l.subtype) === "error_max_turns" ||
+      str(path(l, "message", "stop_reason")) === "max_turns",
+  );
+}
+
+/** Size in bytes of one `tool_result` payload. */
+function resultBytes(content: unknown): number {
+  if (typeof content === "string") return Buffer.byteLength(content);
+  const parts = arr(content);
+  if (parts.length > 0 && parts.every((b) => isRec(b) && typeof b.text === "string")) {
+    return parts.reduce<number>((n, b) => n + Buffer.byteLength(str((b as Rec).text) ?? ""), 0);
+  }
+  return Buffer.byteLength(JSON.stringify(content ?? ""));
+}
+
+/**
+ * What each tool call RETURNED, in one pass over the results: the size per tool
+ * (R64, the figure R33 needs for `codegraph_explore`) and, for Bash calls a hook
+ * blocked, the redacted command (R66).
+ */
+function toolResultFacts(
+  lines: Rec[],
+  uses: Rec[],
+): { toolResultBytes: Record<string, number[]>; blockedCommands: Record<string, string> } {
+  const byId = new Map<string, Rec>();
+  for (const u of uses) {
+    const id = str(u.id);
+    if (id) byId.set(id, u);
+  }
+  const toolResultBytes: Record<string, number[]> = {};
+  const blockedCommands: Record<string, string> = {};
+  for (const l of lines) {
+    if (str(l.type) !== "user") continue;
+    for (const block of arr(path(l, "message", "content"))) {
+      if (!isRec(block) || str(block.type) !== "tool_result") continue;
+      const id = str(block.tool_use_id);
+      const use = id ? byId.get(id) : undefined;
+      const name = (use ? str(use.name) : null) ?? "(unknown)";
+      (toolResultBytes[name] ??= []).push(resultBytes(block.content));
+      if (block.is_error !== true || !id || name !== "Bash") continue;
+      const text =
+        typeof block.content === "string" ? block.content : JSON.stringify(block.content);
+      const command = use ? str(path(use, "input", "command")) : null;
+      if (command && classifyToolError(text) === "harnessBlock") {
+        blockedCommands[id] = redactExample(command);
+      }
+    }
+  }
+  return { toolResultBytes, blockedCommands };
 }
 
 const SECRET_PATH_PATTERN =
@@ -1015,6 +1144,7 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
 
   const skills = collectSkills(uses, lines);
   const cwd = str(lines.find((l) => str(l.cwd))?.cwd);
+  const facts = toolResultFacts(lines, uses);
   return {
     agentId,
     agentType,
@@ -1044,7 +1174,91 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
     classifierExemptBash: countClassifierExemptBash(uses),
     verdict: findVerdict(lines),
     observedArtifactWrites: observedArtifactWrites(lines, cwd, agentId),
+    turns: uniqueAssistantMessages(lines).length,
+    turnLimitHit: hitTurnLimit(lines),
+    toolResultBytes: facts.toolResultBytes,
+    contextPeak: contextPeakOf(lines),
+    blockedCommands: facts.blockedCommands,
   };
+}
+
+/**
+ * A session known only from its audit log: no transcript resolves for it, and
+ * its `start` record says it ran under Codex (R71).
+ *
+ * Hooks and verdicts are real — `attachHookEvents` fills them — and every
+ * figure the transcript would have supplied is `null`, with
+ * `unavailable: "transcript"`: the session is reported, never omitted and never
+ * counted as zero. Returns null when the log does not declare `host: "codex"`,
+ * so a Claude session whose transcript was pruned stays an orphan.
+ */
+export function parseCodexSession(sessionId: string, logFile: string): SessionAudit | null {
+  let raw: string;
+  try {
+    raw = readFileSync(logFile, "utf-8");
+  } catch {
+    return null;
+  }
+  let start: Rec | null = null;
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (isRec(parsed) && str(parsed.event) === "start") {
+        start = parsed;
+        break;
+      }
+    } catch {
+      // A malformed line is skipped: the `start` record may come later.
+    }
+  }
+  if (!start || str(start.host) !== "codex") return null;
+
+  const startedAt = str(start.ts) ?? "";
+  const session: SessionAudit = {
+    sessionId,
+    startedAt,
+    endedAt: startedAt,
+    wallClockMs: 0,
+    initialPrompt: "",
+    prompts: { typed: 0, queued: 0, queuedSystem: 0 },
+    gitBranch: null,
+    cwd: str(start.cwd),
+    ccVersions: [],
+    navori: { rendered: null, cli: null },
+    navoriAtStop: null,
+    sealed: false,
+    endReason: null,
+    permissionModes: {},
+    prs: [],
+    orchestrator: {
+      ...emptyOrchestrator(),
+      // No transcript: unavailable, which is not zero (R71).
+      turns: null,
+      contextPeak: null,
+      compactions: null,
+      toolResultBytes: null,
+    },
+    agents: [],
+    signals: [],
+    hookLogFrom: null,
+    otelFrom: null,
+    permissions: emptyPermissionDecisions(),
+    toolErrorTypes: {},
+    hostSkills: [],
+    host: "codex",
+    unavailable: "transcript",
+    parseErrors: 0,
+    linesRead: 0,
+  };
+  attachHookEvents(session, logFile);
+  // Codex payloads carry no agent id on tool phases, so every event landed on the
+  // orchestrator; the window is the log's own first and last instant.
+  const stamps = session.orchestrator.hookEvents.map((e) => e.ts).filter(Boolean);
+  const last = stamps.reduce((a, b) => (b > a ? b : a), startedAt);
+  session.endedAt = last;
+  session.wallClockMs = durationMs(startedAt, last);
+  return session;
 }
 
 /** Fills `overlapsWith` by comparing agent windows pairwise. */
@@ -1155,6 +1369,7 @@ export function parseSession(mainJsonl: string): SessionAudit {
   const skills = collectSkills(uses, lines);
   const byMode = countByMode(lines);
   const cwd = str(lines.find((l) => str(l.cwd))?.cwd);
+  const facts = toolResultFacts(lines, uses);
   return {
     sessionId,
     startedAt: first,
@@ -1195,6 +1410,11 @@ export function parseSession(mainJsonl: string): SessionAudit {
       hookEvents: [],
       ...errorFields(lines),
       repeatedCommands: repeatedCommands(uses),
+      turns: uniqueAssistantMessages(lines).length,
+      contextPeak: contextPeakOf(lines),
+      compactions: countCompactions(lines),
+      toolResultBytes: facts.toolResultBytes,
+      blockedCommands: facts.blockedCommands,
     },
     agents,
     signals: [],
@@ -1330,6 +1550,21 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
     if (str(rec.event) === "api_request") {
       const skill = str(rec.skill);
       if (skill) hostSkills.push({ skill, agent: str(rec.agent) });
+      continue;
+    }
+    // A verdict a navori CLI command recorded (R70 frame). Only READ here: the
+    // writer is a later task, so a log without any simply yields no rows.
+    if (str(rec.event) === "cli") {
+      const cliName = str(rec.name);
+      const cliVerdict = str(rec.verdict);
+      if (!cliName || !cliVerdict || typeof rec.tsMs !== "number") {
+        session.parseErrors++;
+        continue;
+      }
+      const cli: CliEvent = { tsMs: rec.tsMs, event: "cli", name: cliName, verdict: cliVerdict };
+      const cliReason = str(rec.reason);
+      if (cliReason) cli.reason = cliReason;
+      (session.cliEvents ??= []).push(cli);
       continue;
     }
     if (str(rec.event) !== "hook") continue;
