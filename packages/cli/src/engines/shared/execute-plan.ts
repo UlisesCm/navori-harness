@@ -509,6 +509,7 @@ export function commitWrites(input: {
       pending.sort((a, b) => Number(writeLast(a)) - Number(writeLast(b)));
     }
     let current = "";
+    const completed: string[] = [];
     try {
       for (const item of pending) {
         current = item.path;
@@ -521,19 +522,25 @@ export function commitWrites(input: {
             // Best effort on filesystems without executable bits.
           }
         }
+        completed.push(relative(cwd, item.path));
       }
       if (!input.removalsBestEffort) {
         for (const removal of removals) {
           current = removal.path;
           rmSync(removal.path, { recursive: removal.recursive === true, force: true });
+          completed.push(relative(cwd, removal.path));
         }
       }
     } catch (error) {
       const strings = tc(input.lang ?? DEFAULT_LANG).engine;
       const hint = backupPath ? strings.backupAvailableAt(backupPath) : "";
       const detail = error instanceof Error ? error.message : String(error);
+      const unfinished = [
+        ...pending.map((item) => item.relPath),
+        ...removals.map((item) => relative(cwd, item.path)),
+      ].filter((path) => !completed.includes(path));
       throw new RenderWriteError(
-        `${strings.renderFailedWriting(input.engineLabel, current, detail)}.${hint}`,
+        `${strings.renderFailedWriting(input.engineLabel, current, detail)}. Completed: ${completed.join(", ") || "none"}; unfinished: ${unfinished.join(", ") || "none"}.${hint}`,
         backupPath,
       );
     }

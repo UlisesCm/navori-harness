@@ -55,6 +55,7 @@ const FIXTURE: OverlapRow = {
   engines: {
     claude: "native",
     codex: "emit",
+    pi: "unsupported",
     "agents-md": "emit",
     cursor: "emit",
     copilot: "emit",

@@ -38,7 +38,7 @@ export const INVENTORY = {
   /** Plugin bundles under `packages/plugins/`. */
   plugins: 7,
   /** Engine adapters under `packages/cli/src/engines/`. */
-  engines: 5,
+  engines: 6,
   /** Core agents under `packages/core/core-assets/agents/`. */
   agents: 8,
   /** Core skills + library skills — what a repo can end up with. */
@@ -59,4 +59,4 @@ export const PLUGIN_IDS = [
 ] as const;
 
 /** Engine ids, matching the directory names under `src/engines/`. */
-export const ENGINE_IDS = ["claude", "codex", "agents-md", "cursor", "copilot"] as const;
+export const ENGINE_IDS = ["claude", "codex", "agents-md", "cursor", "copilot", "pi"] as const;

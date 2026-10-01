@@ -30,7 +30,8 @@
           "agents-md",
           "cursor",
           "copilot",
-          "codex"
+          "codex",
+          "pi"
         ]
       }
     },

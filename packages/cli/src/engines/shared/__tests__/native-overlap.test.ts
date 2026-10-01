@@ -47,7 +47,14 @@ function nativeRow(overrides: Partial<OverlapRow> = {}): OverlapRow {
       verifiedAt: "2026-09-30",
     },
     verdict: "reemplazar-por-nativo",
-    engines: { claude: "native", codex: "emit", "agents-md": "n/a", cursor: "n/a", copilot: "n/a" },
+    engines: {
+      claude: "native",
+      codex: "emit",
+      pi: "unsupported",
+      "agents-md": "n/a",
+      cursor: "n/a",
+      copilot: "n/a",
+    },
     nativeEmission: { kind: "none", detail: "fixture" },
     note: "fixture",
     ...overrides,
@@ -112,6 +119,7 @@ describe("OverlapRowSchema (D2)", () => {
         engines: {
           claude: "emit",
           codex: "emit",
+          pi: "unsupported",
           "agents-md": "n/a",
           cursor: "n/a",
           copilot: "n/a",

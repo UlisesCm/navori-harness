@@ -48,7 +48,8 @@ export type RenderEvidence =
       readonly matcher: string;
     }
   | { readonly kind: "native-skill-root" }
-  | { readonly kind: "local-skill-pointer" };
+  | { readonly kind: "local-skill-pointer" }
+  | { readonly kind: "extension-tool"; readonly path: string; readonly tool: string };
 
 /**
  * One control's declared state for one engine. `enforced` requires `evidence`
@@ -474,6 +475,80 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       },
     },
     analyticWriteTools: CODEX_ANALYTIC_WRITE_TOOLS,
+  },
+  pi: {
+    id: "pi",
+    label: "Pi Coding Agent",
+    ownsAgentsMd: false,
+    unsupportedSurfaces: [
+      {
+        surface: "claude-hook-parity",
+        reason:
+          "Pi does not run Claude/Codex hook scripts; only mapped project-extension controls apply.",
+      },
+      {
+        surface: "additional-analytic-roles",
+        reason: "Pi project extension currently supports scout, implementer, and reviewer only.",
+      },
+    ],
+    controls: {
+      "plan-gate": {
+        state: "enforced",
+        reason:
+          "When harness.planTiers is on, the trusted Pi project extension gates only navori_subagent implementer calls; direct Pi shell/tool calls bypass it.",
+        evidence: {
+          kind: "extension-tool",
+          path: ".pi/extensions/navori.ts",
+          tool: "navori_subagent",
+        },
+      },
+      "master-plan": {
+        state: "advisory",
+        reason:
+          "When harness.masterPlan is on, Pi before_agent_start appends a bounded status line; this is context, not a permission boundary.",
+      },
+      "markdown-ownership": {
+        state: "advisory",
+        reason:
+          "When harness.scribeOwnsMarkdown is on, Pi blocks direct edit/write Markdown in implementer children; bash and ambient process writes bypass it.",
+      },
+      "handoff-shape": {
+        state: "unsupported",
+        reason:
+          "Pi has no persisted impl handoff stop validator; child result does not prove the canonical file exists.",
+      },
+      "handoff-consumer": {
+        state: "enforced",
+        reason:
+          "The trusted Pi project extension checks explicit-feature reviewer navori_subagent calls only; direct shell/tool calls bypass it.",
+        evidence: {
+          kind: "extension-tool",
+          path: ".pi/extensions/navori.ts",
+          tool: "navori_subagent",
+        },
+      },
+      "analytic-write-tools": {
+        state: "advisory",
+        reason:
+          "Pi role tool allowlists are model-visible capabilities, not OS/filesystem/network sandboxes; scout and reviewer retain write.",
+      },
+      "local-skill-discovery": {
+        state: "unsupported",
+        reason:
+          "Pi reads trusted .agents/skills natively, but the Pi renderer does not yet project project.localSkills from .claude/skills into that root.",
+      },
+      "acceptance-evidence": {
+        state: "unsupported",
+        reason:
+          "Pi does not record verifiable child Bash results for acceptance criteria, so plan update cannot require host evidence before cumplido.",
+      },
+    },
+    analyticWriteTools: {
+      auditor: [],
+      scout: ["write"],
+      reviewer: ["bash", "write"],
+      architect: [],
+    },
   },
   "agents-md": {
     id: "agents-md",

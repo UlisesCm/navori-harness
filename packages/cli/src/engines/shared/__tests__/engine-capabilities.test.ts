@@ -76,6 +76,11 @@ describe("master-plan control", () => {
           matcher: "startup|resume|clear|compact|fork",
         },
       });
+    } else if (engine === "pi") {
+      expect(declaration).toMatchObject({
+        state: "advisory",
+        reason: expect.stringContaining("before_agent_start"),
+      });
     } else {
       expect(declaration).toEqual({
         state: "unsupported",
@@ -88,6 +93,32 @@ describe("master-plan control", () => {
     expect(CONTROL_DEFINITIONS["master-plan"]).toMatchObject({
       condition: "masterPlan",
       hookScripts: ["master-plan-context.sh"],
+    });
+  });
+});
+
+/** Covers: R3 */
+describe("Pi control boundaries", () => {
+  it("names an extension-tool boundary for enforced dispatch controls", () => {
+    for (const id of ["plan-gate", "handoff-consumer"] as const) {
+      expect(ENGINE_CAPABILITIES.pi.controls[id]).toMatchObject({
+        state: "enforced",
+        reason: expect.stringContaining("bypass"),
+        evidence: {
+          kind: "extension-tool",
+          path: ".pi/extensions/navori.ts",
+          tool: "navori_subagent",
+        },
+      });
+    }
+    expect(ENGINE_CAPABILITIES.pi.controls["handoff-shape"].state).toBe("unsupported");
+    expect(ENGINE_CAPABILITIES.pi.controls["local-skill-discovery"].state).toBe("unsupported");
+  });
+
+  it("does not claim acceptance evidence without a Pi child Bash recorder", () => {
+    expect(ENGINE_CAPABILITIES.pi.controls["acceptance-evidence"]).toMatchObject({
+      state: "unsupported",
+      reason: expect.stringContaining("does not record verifiable child Bash results"),
     });
   });
 });

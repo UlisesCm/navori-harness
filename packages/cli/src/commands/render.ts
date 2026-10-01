@@ -21,6 +21,7 @@ import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
 import { renderCursorEngine } from "../engines/cursor/index.ts";
 import { renderCopilotEngine } from "../engines/copilot/index.ts";
 import { renderCodexEngine } from "../engines/codex/index.ts";
+import { renderPiEngine } from "../engines/pi/index.ts";
 import { resolveCodexHooks, minCodexVersion } from "../engines/codex/hook-registrations.ts";
 import { readCodexTrustState } from "../lib/codex/trust.ts";
 import type { ProseEngineResult } from "../engines/shared/prose-harness.ts";
@@ -211,6 +212,7 @@ export function renderNonClaudeEngines(
     cursor: (c, cfg, o) => renderCursorEngine(c, cfg, o),
     copilot: (c, cfg, o) => renderCopilotEngine(c, cfg, o),
     codex: (c, cfg, o) => renderCodexEngine(c, cfg, o),
+    pi: (c, cfg, o) => renderPiEngine(c, cfg, o),
   };
 
   const out: EngineRenderSummary[] = [];
