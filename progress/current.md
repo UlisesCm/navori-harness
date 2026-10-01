@@ -1,10 +1,8 @@
-# Current — Spec 0037 partial close
+# Current — Spec 0039 Claude first (18/44 mergeadas o en PR normal)
 
-- Branch `docs/spec-0037-paridad-operativa-cli`: 13 commits locales sobre `origin/main`; T1–T6,
-  T8 y T12–T14 completos (10/19). Review combinado T6/T12 APPROVED y gate completo verde.
-- PR parcial #1089 a `main` abierto con el avance aprobado; la CI falló en `check:links` por rutas a
-  handoffs/receipts ignorados. Siguiente paso: corregir esas rutas, rerun de CI y monitorear checks.
-- Después, continuar con T7; T9 requiere nueva evidencia diagnóstica/live aprobada, T10/T11 dependen
-  de hechos verificables de T9, y T15/T16 requieren autorización separada de campaña.
-- T9/L03 sigue inconcluso y L04 no se ejecutó; no afirmar paridad de perfiles, filtros MCP ni
-  callbacks de hooks. El PR abierto no cambia ese resultado.
+- Abiertos: #1138 (T8, PR normal) y #1139 (T18–T20, **draft**: no mergear hasta T21).
+- Siguiente paso: F3 lote 2 (T21 hook de evidencia con `fingerprintTree`, T22 prosa) en la rama de
+  #1139; luego T9 (instantánea base con `navori audit --snapshot`).
+- Bloqueado: T2 (sondas live) espera autorización explícita del usuario; de T2 dependen T23, T24, T37
+  y la corrección de R36 (`Agent(a, b)` se ignora dentro de un subagente) y R42 (`async_launched`).
+- Pendiente sin abrir: T40, T42, F5a, F5b, F6, F7, T25–T27, cierre T44.

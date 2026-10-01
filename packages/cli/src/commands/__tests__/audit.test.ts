@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseCodexSession } from "../../lib/audit/parse.ts";
 
 /**
  * `audit` declares a hard contract in its own header: "every write lands under
@@ -251,6 +252,28 @@ describe("audit --start: the SessionStart spool (#778)", () => {
     const res = runAudit(["--start", "../../outside/evil"]);
     expect(res.status).not.toBe(0);
     expect(existsSync(join(sandbox, "nested", "store", "outside", "evil.jsonl"))).toBe(false);
+  });
+});
+
+describe("audit --start: host (R71)", () => {
+  // Covers: R71
+  it("stamps host on the start record and parseCodexSession recognises the log", () => {
+    expect(runAudit(["--start", "cx-1", "--host", "codex"]).status).toBe(0);
+    const logFile = join(auditDir, "session-cx-1.log");
+    expect(JSON.parse(readFileSync(logFile, "utf-8").trim().split("\n")[0] ?? "")).toMatchObject({
+      event: "start",
+      host: "codex",
+    });
+    expect(parseCodexSession("cx-1", logFile)?.unavailable).toBe("transcript");
+  });
+
+  // Covers: R71
+  it("a Claude start stays an orphan for parseCodexSession, and an unknown host is rejected", () => {
+    runAudit(["--start", "cl-1", "--host", "claude"]);
+    expect(parseCodexSession("cl-1", join(auditDir, "session-cl-1.log"))).toBeNull();
+    const bad = runAudit(["--start", "bad-1", "--host", "gemini"]);
+    expect(bad.status).toBe(2);
+    expect(existsSync(join(auditDir, "session-bad-1.log"))).toBe(false);
   });
 });
 

@@ -42,7 +42,7 @@ Lote 1:
   · nota: `turnLimitHit` y `compactions` detectan formas de transcript no verificadas
   (`error_max_turns`/`max_turns`, `compact_boundary`/`isCompactSummary`); T2 las confirma. Ninguna
   escritura marca aún `host: "codex"` en el `start` del log de audit, así que las sesiones Codex
-  reales siguen como huérfanas hasta que T8 lo agregue.
+  reales siguen como huérfanas hasta que un hook de sesión Codex llame `--host codex` (ver T8).
 - [x] **T4** (R46, R47, R63, R66, R70) — `lib/audit/report.ts`: `agentRangeSection` con ceros,
   candidatos managed sin uso con N sesiones, hooks por rango (`hooks.perBashCall` por
   `toolUseId`), bloqueos por regla con ≤ 3 ejemplos truncados a 160 y redactados, y el **marco**
@@ -67,9 +67,10 @@ Lote 2:
 
 Lote 3:
 
-- [ ] **T8** (R55, R70) — `lib/audit/cli-event.ts`: `appendCliEvent(cwd, { name, verdict })` al
+- [x] **T8** (R55, R70) — `lib/audit/cli-event.ts`: `appendCliEvent(cwd, { name, verdict })` al
   log de la sesión de `CLAUDE_CODE_SESSION_ID`; sin variable o sin log, no escribe (fail-open). Además, el `start` del log de audit registra `host` (`claude`/`codex`) para que R71 reconozca sesiones Codex reales.
   · test: `lib/audit/__tests__/cli-event.test.ts` con `// Covers: R55, R70`.
+  · nota: el writer de `host` es `navori audit --start <id> --host claude|codex`; ningún caller pasa `--host codex` todavía (no existe hook de inicio de sesión Codex), así que R71 queda listo del lado del lector pero sin sesiones Codex marcadas en la práctica.
 - [ ] **T9** (R43) — Instantánea base `navori audit --snapshot claude-first-base`: cache read
   mediano por sesión y por lanzamiento de `implementer`, `hooks.perBashCall` y tamaños de
   resultado de R33, cada uno con su n. Cifras y default de R44 (mediana del pico redondeada a 25k)
