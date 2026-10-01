@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCommand } from "citty";
 import { planCommand } from "../plan.ts";
+import { computeWorktreeTree, readHead } from "../../lib/plan/evidence.ts";
 
 let cwd: string;
 const dir = ".claude/progress";
@@ -327,7 +328,7 @@ describe("navori plan update", () => {
     );
     expect(updated.progress.A1).toBe("cumplido");
     const md = readFileSync(join(cwd, dir, "workplan_demo.md"), "utf8");
-    expect(md).toContain("**A1** (cumplido)");
+    expect(md).toContain("**A1** (cumplido, sin evidencia: engine sin señal)");
   });
 
   // Covers: R6
@@ -407,6 +408,165 @@ describe("navori plan update", () => {
     );
     expect(updated.decisions).toHaveLength(1);
     expect(updated.decisions[0]?.text).toBe("Escalated to level 2");
+  });
+});
+
+// Covers: R7, R8, R9, R10
+describe("navori plan update — evidence gate", () => {
+  const sentinel = () => join(cwd, "sentinel-ran");
+  const command = () => `touch ${sentinel()}`;
+  let savedEnv: string | undefined;
+
+  beforeEach(() => {
+    savedEnv = process.env.CLAUDE_CODE_CHILD_SESSION;
+    writeFileSync(
+      join(cwd, "navori.config.json"),
+      JSON.stringify({ name: "ev", engines: ["claude"], preset: "custom" }),
+    );
+    writePlan("demo", {
+      ...validPlan,
+      acceptance: [{ ...validPlan.acceptance[0], command: command() }],
+    });
+  });
+
+  afterEach(() => {
+    if (savedEnv === undefined) delete process.env.CLAUDE_CODE_CHILD_SESSION;
+    else process.env.CLAUDE_CODE_CHILD_SESSION = savedEnv;
+  });
+
+  function recordRun(overrides: Record<string, unknown> = {}): void {
+    const line = {
+      ts: "2026-09-30T10:00:00Z",
+      feature: "demo",
+      id: "A1",
+      command: command(),
+      tree: cwd,
+      cwd,
+      head: readHead(cwd),
+      worktreeTree: computeWorktreeTree(cwd),
+      dirty: true,
+      ...overrides,
+    };
+    writeFileSync(join(cwd, dir, "workplan_demo.evidence.jsonl"), `${JSON.stringify(line)}\n`);
+  }
+
+  async function update(): Promise<{ stdout: string; stderr: string }> {
+    const out: string[] = [];
+    const err: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      err.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    const spy = vi_spyConsole(out);
+    try {
+      await runCommand(planCommand, {
+        rawArgs: ["update", "demo", "--progress", "A1=cumplido", "--json", "--cwd", cwd],
+      });
+    } finally {
+      spy.restore();
+      process.stderr.write = origErr;
+    }
+    return { stdout: out.join(""), stderr: err.join("") };
+  }
+
+  const planBytes = () => readFileSync(join(cwd, dir, "workplan_demo.json"), "utf8");
+
+  it("rejects with no recorded run: exit 1, JSON byte-identical, ERROR/WHY/FIX with the exact command", async () => {
+    process.env.CLAUDE_CODE_CHILD_SESSION = "1";
+    const before = planBytes();
+    const { stdout, stderr } = await update();
+    expect(process.exitCode).toBe(1);
+    expect(planBytes()).toBe(before);
+    expect(stderr).toContain("ERROR: A1 not marked cumplido");
+    expect(stderr).toContain("WHY:   no run recorded");
+    expect(stderr).toContain("FIX:");
+    expect(stderr).toContain(command());
+    expect(stderr).toContain("large repos");
+    expect(JSON.parse(stdout)).toMatchObject({ updated: false, id: "A1" });
+    expect(existsSync(sentinel())).toBe(false);
+  });
+
+  it("writes cumplido with the recorded evidence when the run is valid", async () => {
+    process.env.CLAUDE_CODE_CHILD_SESSION = "1";
+    recordRun();
+    await update();
+    expect(process.exitCode ?? 0).toBe(0);
+    const written = JSON.parse(planBytes());
+    expect(written.progress.A1).toBe("cumplido");
+    expect(written.evidence.A1).toMatchObject({ kind: "recorded", command: command() });
+    expect(readFileSync(join(cwd, dir, "workplan_demo.md"), "utf8")).toContain("cumplido ·");
+    expect(existsSync(sentinel())).toBe(false);
+  });
+
+  it("rejects a moved HEAD, an edited command, a subdirectory run and a foreign worktree", async () => {
+    process.env.CLAUDE_CODE_CHILD_SESSION = "1";
+    const before = planBytes();
+    const other = realpathSync(mkdtempSync(join(tmpdir(), "navori-plan-other-")));
+    mkdirSync(join(cwd, "sub"));
+    try {
+      execFileSync("git", ["init", "-b", "main"], { cwd: other });
+      const cases: Array<Record<string, unknown>> = [
+        { head: "deadbeef" },
+        { command: "something else" },
+        { cwd: join(cwd, "sub") },
+        { tree: other, cwd: other },
+      ];
+      for (const overrides of cases) {
+        process.exitCode = undefined;
+        recordRun(overrides);
+        await update();
+        expect(process.exitCode).toBe(1);
+        expect(planBytes()).toBe(before);
+      }
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
+    expect(existsSync(sentinel())).toBe(false);
+  });
+
+  // Covers: R7
+  it("never runs core.fsmonitor or a clean filter, accepted or rejected", async () => {
+    process.env.CLAUDE_CODE_CHILD_SESSION = "1";
+    writeFileSync(join(cwd, ".gitattributes"), "f.txt filter=x\n");
+    writeFileSync(join(cwd, "f.txt"), "content\n");
+    execFileSync("git", ["config", "core.fsmonitor", `touch ${join(cwd, "FSM_RAN")}; echo`], {
+      cwd,
+    });
+    execFileSync("git", ["config", "filter.x.clean", `touch ${join(cwd, "FILTER_RAN")}; cat`], {
+      cwd,
+    });
+    recordRun();
+    await update();
+    expect(process.exitCode ?? 0).toBe(0);
+    process.exitCode = undefined;
+    writeFileSync(join(cwd, "f.txt"), "edited\n");
+    await update();
+    expect(process.exitCode).toBe(1);
+    expect(existsSync(join(cwd, "FSM_RAN"))).toBe(false);
+    expect(existsSync(join(cwd, "FILTER_RAN"))).toBe(false);
+  });
+
+  it("accepts cumplido as unevidenced, with a WARNING, outside a Claude Code child session", async () => {
+    delete process.env.CLAUDE_CODE_CHILD_SESSION;
+    const { stderr } = await update();
+    expect(process.exitCode ?? 0).toBe(0);
+    expect(stderr).toContain("WARNING: A1 marked cumplido without evidence");
+    expect(JSON.parse(planBytes()).evidence.A1).toEqual({
+      kind: "unevidenced",
+      reason: "engine-without-signal",
+    });
+  });
+
+  it("does not require evidence when claude is not in config.engines", async () => {
+    process.env.CLAUDE_CODE_CHILD_SESSION = "1";
+    writeFileSync(
+      join(cwd, "navori.config.json"),
+      JSON.stringify({ name: "ev", engines: ["codex"], preset: "custom" }),
+    );
+    await update();
+    expect(process.exitCode ?? 0).toBe(0);
+    expect(JSON.parse(planBytes()).evidence.A1.kind).toBe("unevidenced");
   });
 });
 

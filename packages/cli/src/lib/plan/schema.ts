@@ -38,6 +38,30 @@ export const FileEntrySchema = z.object({
 
 export const ProgressStatusSchema = z.enum(["pendiente", "cumplido", "bloqueado"]);
 
+/** Evidence recorded by the host's Bash hook for a `cumplido` criterion
+ * (spec 0039 R6, R8): which command ran, where, and on which tree state. */
+export const RecordedEvidenceSchema = z.object({
+  kind: z.literal("recorded"),
+  command: z.string().min(1),
+  ranAt: z.string().min(1),
+  tree: z.string().min(1),
+  head: z.string(),
+  worktreeTree: z.string().min(1),
+  dirty: z.boolean(),
+});
+
+/** `cumplido` accepted without evidence because the engine exposes no
+ * verifiable Bash success signal (R10). */
+export const UnevidencedAcceptanceSchema = z.object({
+  kind: z.literal("unevidenced"),
+  reason: z.literal("engine-without-signal"),
+});
+
+export const AcceptanceEvidenceSchema = z.discriminatedUnion("kind", [
+  RecordedEvidenceSchema,
+  UnevidencedAcceptanceSchema,
+]);
+
 export const DecisionSchema = z.object({
   text: z.string().min(1),
   date: z.string().min(1),
@@ -73,6 +97,9 @@ export const WorkplanSchema = z.object({
    * not here — the schema alone cannot see across sibling fields cheaply
    * with a plain `z.record`. */
   progress: z.record(z.string().regex(ACCEPTANCE_ID), ProgressStatusSchema).default({}),
+  /** Keyed by `A<n>`; absent for a criterion marked `cumplido` before the
+   * evidence gate existed (those stay valid, reported as "sin evidencia"). */
+  evidence: z.record(z.string().regex(ACCEPTANCE_ID), AcceptanceEvidenceSchema).optional(),
   decisions: z.array(DecisionSchema).default([]),
   solution: SolutionSchema.optional(),
   phases: z.array(PhaseSchema).optional(),
@@ -82,4 +109,7 @@ export const WorkplanSchema = z.object({
 export type PlanLevel = (typeof PLAN_LEVELS)[number];
 export type Workplan = z.infer<typeof WorkplanSchema>;
 export type AcceptanceCriterion = z.infer<typeof AcceptanceCriterionSchema>;
+export type RecordedEvidence = z.infer<typeof RecordedEvidenceSchema>;
+export type UnevidencedAcceptance = z.infer<typeof UnevidencedAcceptanceSchema>;
+export type AcceptanceEvidence = z.infer<typeof AcceptanceEvidenceSchema>;
 export type ProgressStatus = z.infer<typeof ProgressStatusSchema>;
