@@ -2312,11 +2312,12 @@ OAuth Plus/Pro nativo; no manejo de credenciales ni instalación de extensiones 
 
 ## Accomplished
 - T1–T7 implementadas con trazabilidad R1–R10, documentación y smoke real Pi aislado.
+- Commit e8bc7c90 publicado en PR #1146 a main: https://github.com/UlisesCm/navori-harness/pull/1146; CI quality pendiente al abrir.
 - Reviewer APPROVED sobre a7dcefbd; full gate exit0 y receipt pi_engine status ok/fresh true sin drift.
 - Último gate implementer: 339 archivos, 6567 pruebas aprobadas y 1 omitida; reviewer confirmó gate completo fresco.
 
 ## Next Steps
-- Publicar commit/PR aprobado a main y vigilar CI; smoke manual /login openai-codex y modelo disponible queda al usuario.
+- Vigilar CI del PR #1146; smoke manual /login openai-codex y modelo disponible queda al usuario.
 - Conservar contexto independiente de Spec 0039, no cerrado por esta entrega.
 
 ## Relevant Files

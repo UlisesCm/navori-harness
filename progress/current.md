@@ -10,6 +10,6 @@
 ## Spec 0040 Pi — implementación aprobada
 
 - T1–T7 completas; revisión APPROVED y receipt `pi_engine` fresco sobre `a7dcefbd`.
-- Gate completo verde; siguiente paso operativo: publicar PR a `main` y monitorear CI.
+- PR #1146 abierto a `main`; gate completo verde. Siguiente paso: monitorear CI del PR.
 - Smoke manual con OAuth ChatGPT queda al usuario: `docs/pi.md`. No se probó su cuenta.
 - El contexto independiente de Spec 0039 arriba se conserva; no se cierra con esta entrega.
