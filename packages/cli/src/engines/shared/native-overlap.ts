@@ -228,6 +228,11 @@ const FLOWS: ReadonlyArray<{ id: string; note: string; codex: EngineSupport }> =
     note: "Orchestrated agent flows versus native workflows; unverified, kept.",
     codex: "n/a",
   },
+  {
+    id: "nested-agent-dispatch",
+    note: "An agent dispatching subagents (`Agent(scout, scribe)` in `architect`); Claude Code allows it, Codex and CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1 do not, so orquestacion.md falls back to the orchestrator running scout before and scribe after.",
+    codex: "unsupported",
+  },
 ];
 
 function support(claude: EngineSupport, codex: EngineSupport, prose: EngineSupport): Support {

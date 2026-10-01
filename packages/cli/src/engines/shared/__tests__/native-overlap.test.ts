@@ -170,7 +170,12 @@ describe("OVERLAP_ROWS coverage (one row per distributed unit)", () => {
       .map((f) => f.slice(0, -3)),
   );
   add("plugin", listBundledPluginIds());
-  add("flow", ["master-plan-vs-plan-mode", "native-task-list", "native-workflows"]);
+  add("flow", [
+    "master-plan-vs-plan-mode",
+    "native-task-list",
+    "native-workflows",
+    "nested-agent-dispatch",
+  ]);
 
   // Covers: R2, R3, R57
   it("has exactly one row for every unit and no extras", () => {
@@ -185,12 +190,20 @@ describe("OVERLAP_ROWS coverage (one row per distributed unit)", () => {
     expect({ duplicated, missing, extra }).toEqual({ duplicated: [], missing: [], extra: [] });
   });
 
-  // Covers: R57
-  it("carries the three R57 flow rows", () => {
+  // Covers: R57, R36, R37
+  it("carries the R57 flow rows plus the nested-dispatch row", () => {
     const flows = OVERLAP_ROWS.filter((row) => row.unit.kind === "flow").map((r) => r.unit.id);
     expect(flows.sort()).toEqual(
-      ["master-plan-vs-plan-mode", "native-task-list", "native-workflows"].sort(),
+      [
+        "master-plan-vs-plan-mode",
+        "native-task-list",
+        "native-workflows",
+        "nested-agent-dispatch",
+      ].sort(),
     );
+    const nested = OVERLAP_ROWS.find((r) => r.unit.id === "nested-agent-dispatch");
+    expect(nested?.engines.claude).toBe("emit");
+    expect(nested?.engines.codex).toBe("unsupported");
   });
 
   // Covers: R2

@@ -73,3 +73,4 @@ Una fila por unidad que navori distribuye. `complementa` significa que ninguna c
 | flow | `master-plan-vs-plan-mode` | complementa | emit | unsupported | — | — |
 | flow | `native-task-list` | complementa | emit | n/a | — | — |
 | flow | `native-workflows` | complementa | emit | n/a | — | — |
+| flow | `nested-agent-dispatch` | complementa | emit | unsupported | — | — |
