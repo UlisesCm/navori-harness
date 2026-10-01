@@ -157,6 +157,54 @@ describe.runIf(runsBash)("master-accept-confirm.sh", () => {
     expectAsk(payload("$(navori master part P2 --accept A3 --approved-by user)"));
   });
 
+  // Covers: R58
+  it.each([
+    "navori master part P2 --accept A3 --approved-by=user",
+    "navori master part P2 --approved-by user --accept A3",
+    "npx navori master part P2 --accept A3 --approved-by user",
+    "npx --yes navori master part P2 --accept A3 --approved-by=user",
+    "bunx navori master part P2 --accept A3 --approved-by user",
+    "pnpm exec navori master part P2 --accept A3 --approved-by user",
+    "pnpm dlx navori master part P2 --accept A3 --approved-by user",
+    "./node_modules/.bin/navori master part P2 --accept A3 --approved-by user",
+    "/usr/local/bin/navori master part P2 --accept A3 --approved-by=user",
+    "navori master close",
+    "navori master close --abandon --reason x",
+    "navori master close --convert specs/0001-x --reason x",
+    "npx navori master close",
+    "bunx navori master close --abandon --reason x",
+    "pnpm exec navori master close",
+    "pnpm dlx navori master close --abandon --reason x",
+    "/opt/bin/navori master close",
+    "cd x && navori master close",
+    "(navori master close)",
+    "x=$(navori master close)",
+    "echo $(navori master close)",
+    "navori master close>/dev/null",
+    "navori master close;true",
+    "navori master close|cat",
+    "npx navori@latest master close",
+    "npx -y navori@latest master close",
+    "npx navori@1.2 master close --abandon --reason x",
+    "bunx navori@latest master close",
+    "bunx navori@1.2.3 master part P2 --accept A3 --approved-by user",
+    "npx -y navori@latest master part P2 --accept A3 --approved-by=user",
+  ])("asks on %s", (command) => {
+    expectAsk(payload(command));
+  });
+
+  // Covers: R58
+  it.each([
+    "git push origin master",
+    "navori master status",
+    "navori master advance",
+    "navori master check --part P2",
+    "echo navori master closet",
+    'echo "navori master close"',
+  ])("stays silent on %s", (command) => {
+    expect(run(payload(command)).stdout.trim()).toBe("");
+  });
+
   // Covers: R62
   it("emits the fixed reason without jq or node", () => {
     expectAsk(payload("navori master part P2 --accept A3 --approved-by user"), {
