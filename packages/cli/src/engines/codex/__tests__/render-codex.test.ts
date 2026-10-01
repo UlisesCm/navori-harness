@@ -204,6 +204,8 @@ describe("renderCodexEngine", () => {
     expect(implementer).toContain("AGENTS.md");
     expect(implementer).not.toContain("CLAUDE.md");
     expect(implementer).toContain(".navori/state/handoffs/");
+    // Covers: R41 — `maxTurns` is Claude-only; the Codex TOML is built from an explicit key list.
+    expect(implementer).not.toMatch(/maxTurns|max_turns/i);
     expect(existsSync(join(cwd, ".codex/agents/leader.toml"))).toBe(false);
     // #280: the auditor writes durable outputs, so a read-only override would
     // break its contract. No override is emitted: it inherits the project mode.

@@ -4,10 +4,11 @@ description: Implements ONE scoped task with its tests, respects CLAUDE.md conve
 tools: Read, Write, Edit, Glob, Grep, Bash, mcp__codegraph__*, mcp__engram__mem_search, mcp__engram__mem_get_observation
 model: sonnet
 effort: medium
+maxTurns: 160
 maxWords: 2433
 ---
 
-<!-- navori:managed id="implementer-base" hash="9225dc1e" version="0.11.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="implementer-base" hash="9225dc1e" version="0.11.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxTurns,maxWords" -->
 # Implementer Agent
 
 You execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.

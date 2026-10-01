@@ -296,10 +296,11 @@ If a memory contradicts the code, the code wins — fix the memory.
 name: implementer
 description: Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself.
 tools: Read, Write, Edit, Glob, Grep, Bash, mcp__engram__mem_search, mcp__engram__mem_get_observation
+maxTurns: 160
 maxWords: 2433
 ---
 
-<!-- navori:managed id="implementer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
+<!-- navori:managed id="implementer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxTurns,maxWords" -->
 # Implementer Agent
 
 You execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.

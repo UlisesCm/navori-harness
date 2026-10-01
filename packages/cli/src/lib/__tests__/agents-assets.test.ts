@@ -245,6 +245,13 @@ describe("implementer/reviewer — doubts and coverage prose (T25, T27)", () => 
   });
 });
 
+// Covers: R41
+describe("implementer — native turn cap (T36)", () => {
+  it("declares maxTurns: 160 in its frontmatter", () => {
+    expect(parseAsset(readAgent("implementer")).frontmatter.maxTurns).toBe("160");
+  });
+});
+
 describe("core agent assets — interpolation placeholders", () => {
   it("at least one agent references qualityGate (proves wiring path exists)", () => {
     const anyRefs = AGENT_IDS.some((id) => readAgent(id).includes("{{qualityGate."));

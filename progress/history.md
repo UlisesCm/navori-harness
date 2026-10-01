@@ -10,6 +10,13 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-10-01 15:13 — publisher — Spec 0039 T36: maxTurns 160 en implementer de Claude
+
+- Cambios: `packages/core/core-assets/agents/implementer.md` (maxTurns 160 para Claude), `.claude/agents/implementer.md` (render sin drift), golden snapshot y test coverage (`packages/cli/src/engines/__tests__/__golden__/claude.snap`, `packages/cli/src/engines/codex/__tests__/render-codex.test.ts`, `packages/cli/src/lib/__tests__/agents-assets.test.ts`), specs/0039-claude-first/{design.md, tasks.md}.
+- Quality gate: ✅ bun check completo verde (format, links, render, assets, doc-budgets, blame-ignore, jscpd 0 clones, semgrep 0 findings, bundle 1.05MB/1.2MB, test coverage 6568 tests, lint, typecheck).
+- Notas: reviewer aprobó con scoped review (1117 tests, typecheck, format clean, render sin drift) pero sin ejecutar gate completo ni firmar receipt — se corrió gate aquí en pre-flight. R41 (maxTurns: 160) aplica solo a Claude; Codex no emite la clave. El grado de turns disponible en implementer directamente impacta el tiempo de investigación code-first; 160 abre 2–3 rondas adicionales de búsqueda. Decisión de Ulises tras revisar la distribución de bloqueadores en spec 0039.
+- Commit / PR: #1148.
+
 ## 2026-10-01 14:49 pi — setup de Pi en Navori con render Bun y runtime compilado
 - Objetivo: dejar un PR contra `main` con el setup de Pi de este repo, sin avanzar la Spec 0039.
 - Cambios: Pi habilitado en `navori.config.json`; extensión, manifiesto y tres roles en `.pi/`;
@@ -23,6 +30,7 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Revisión: reviewer independiente, APPROVED sin CRÍTICO/ALTO.
 - Siguiente paso: publicar desde `fix/pi-render-bun` y revisar CI; OAuth queda para smoke manual
   del usuario. No se tocaron credenciales, configuración global de Pi ni archivos de la Spec 0039.
+
 ## 2026-10-01 03:40 — orchestrator — spec 0039 Claude first: tasks y fases F0a, F0b, F1, F2, F3 (lote 1), F8 y F9
 - Cambios: `tasks.md` de la 0039 (#1130) y borrador 0038 absorbido; T1 verificación y pre-registro (#1131);
   F2 hooks (#1132); F0b lotes 1–3 de `navori audit` (#1133, #1134, #1138); F1 matriz de solapamiento (#1135);
