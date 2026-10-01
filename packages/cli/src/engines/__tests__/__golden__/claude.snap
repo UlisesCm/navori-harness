@@ -15905,6 +15905,7 @@ esac
       "Bash(navori audit:*)",
       "Bash(navori receipt:*)",
       "Bash(navori handoff check:*)",
+      "Bash(navori handoff log-review:*)",
       "Bash(navori dominio list:*)",
       "Bash(navori dominio show:*)",
       "Bash(navori dominio doctor:*)",
