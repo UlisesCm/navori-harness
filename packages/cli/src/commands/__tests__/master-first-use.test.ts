@@ -1,15 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { runCommand } from "citty";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { repoFromCwd, sessionLogPath } from "../../lib/audit/paths.ts";
 import { getCoreRoot } from "../../lib/render/bundled-assets.ts";
 import { masterCommand } from "../master.ts";
 import { createCommitHelper, createGitHelper } from "../../lib/master/__tests__/test-utils.ts";
 
 /**
  * Executable first-use scenario for the master-plan skill (spec 0039 D11).
- * Covers: R52, R53, R54, R59
+ * Covers: R52, R53, R54, R55, R59, R70
  */
 
 interface RunResult {
@@ -206,6 +207,80 @@ describe("master-plan first use — executable scenario (R59)", () => {
     await ok(converted, "init", "mvp");
     await ok(converted, "close", "--convert", "specs/one-shot", "--reason", "single delivery");
     expect(readJson(stageFile(converted, "state.json")).outcome).toBe("convertida");
+  }, 120_000);
+});
+
+describe("master commands record CLI audit events (R55, R70)", () => {
+  const saved = {
+    root: process.env.NAVORI_AUDITS_ROOT,
+    session: process.env.CLAUDE_CODE_SESSION_ID,
+  };
+
+  afterEach(() => {
+    for (const [key, value] of [
+      ["NAVORI_AUDITS_ROOT", saved.root],
+      ["CLAUDE_CODE_SESSION_ID", saved.session],
+    ] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  /** Points the audit root at a temp dir and creates the session log for `cwd`. */
+  function startAudit(cwd: string): string {
+    const root = mkdtempSync(join(tmpdir(), "navori-master-audit-"));
+    temps.push(root);
+    process.env.NAVORI_AUDITS_ROOT = root;
+    process.env.CLAUDE_CODE_SESSION_ID = "master-events";
+    const log = sessionLogPath(repoFromCwd(cwd), "master-events");
+    mkdirSync(dirname(log), { recursive: true });
+    writeFileSync(log, `${JSON.stringify({ event: "start" })}\n`);
+    return log;
+  }
+
+  function cliEvents(log: string): Array<{ name: string; verdict: string }> {
+    return readFileSync(log, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { event: string; name: string; verdict: string })
+      .filter((record) => record.event === "cli");
+  }
+
+  // Covers: R55, R70
+  it("records advance (block), part --accept and close", async () => {
+    const cwd = freshRepo();
+    const log = startAudit(cwd);
+    await ok(cwd, "init", "mvp");
+
+    expect((await master(cwd, "advance")).exitCode).toBe(1);
+
+    writeFileSync(
+      stageFile(cwd, "parts.json"),
+      `${JSON.stringify({ version: 1, parts: [PART] }, null, 2)}\n`,
+    );
+    setPhase(cwd, "executing");
+    createCommitHelper(createGitHelper(cwd))("plan");
+    await ok(cwd, "part", "P1", "--accept", "A1", "--command", "echo ok", "--result", "ok");
+    await ok(cwd, "part", "P1", "--accept", "A2", "--approved-by", "user");
+    await ok(cwd, "part", "P1", "--state", "hecho");
+    await ok(cwd, "close");
+
+    expect(cliEvents(log)).toEqual([
+      expect.objectContaining({ name: "master-advance", verdict: "block" }),
+      expect.objectContaining({ name: "master-part-accept", verdict: "allow" }),
+      expect.objectContaining({ name: "master-part-accept", verdict: "allow" }),
+      expect.objectContaining({ name: "master-close", verdict: "allow" }),
+    ]);
+  }, 120_000);
+
+  // Covers: R55
+  it("writes nothing without a session id (fail-open)", async () => {
+    const cwd = freshRepo();
+    const log = startAudit(cwd);
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    await ok(cwd, "init", "mvp");
+    await ok(cwd, "close", "--abandon", "--reason", "no longer needed");
+    expect(cliEvents(log)).toEqual([]);
   }, 120_000);
 });
 
