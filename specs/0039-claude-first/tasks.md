@@ -145,7 +145,7 @@ Lote 1 (carry-over 0038 Lote 1):
 
 Lote 2:
 
-- [ ] **T21** (R6, R7) — *carry-over 0038 T4 con D5*: `lib/plan/acceptance-index.ts` reescrito en
+- [x] **T21** (R6, R7) — *carry-over 0038 T4 con D5*: `lib/plan/acceptance-index.ts` reescrito en
   `writeWorkplanAndRender`; `_partials/bash-outcome.sh`; carril de éxito en `routing-watch.sh`
   justo después de confirmar `Bash` (M3), solo con `claude-post-tool-use`, sin
   `run_in_background`, una línea con un solo `printf >>`; `timeout` de 10 a 30. Sin hook nuevo en
@@ -154,6 +154,7 @@ Lote 2:
   centinela `touch` ausente; shims de PATH en la ruta rápida) con `// Covers: R6, R7`; T17
   actualizado.
   · nota: el PR de F3 lote 1 queda en draft hasta que T21 entre: sin el hook, `plan update` rechaza `cumplido` en Claude.
+  · nota (implementación): `acceptance-index` escanea los directorios de estado neutral, legacy y explícitos, y se escribe en el neutral; el hook compara contra el valor JSON exacto del comando; la huella del árbol se porta a shell (`_partials/bash-outcome.sh`) y difiere de `fingerprintTree` solo en la prueba del bit de ejecución (`[ -x ]` vs `mode & 0o111`); el registro de `routing-watch` ahora pasa `claude-post-tool-use` y `timeout` 30; los conteos de `hooks-per-bash` no cambian (`bPost` sigue en 2).
 - [ ] **T22** (R6, R12) — *carry-over 0038 T5*: prosa de `plan-simple.md`, `plan-advanced.md`,
   `implementer.md` y `reviewer.md` Pass 1 (`plan check --json`, cada `cumplido` sin evidencia es
   hallazgo). El tope `maxWords` final lo fija T27.
