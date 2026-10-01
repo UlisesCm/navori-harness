@@ -294,3 +294,13 @@ describe("evaluatePlanGate — escalation after two rejections (R19)", () => {
     expect(lines).toHaveLength(1);
   });
 });
+
+describe("evaluatePlanGate — cumplido without evidence (R11)", () => {
+  // Covers: R11
+  it("still allows a workplan whose cumplido criterion has no evidence", () => {
+    writeConfig(true);
+    writeWorkplan("demo", { ...VALID_LEVEL1, progress: { A1: "cumplido" } });
+    const result = evaluatePlanGate(payload("implementer", "workplan: demo\nfix A1"));
+    expect(result.decision).toBe("allow");
+  });
+});

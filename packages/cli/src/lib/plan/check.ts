@@ -3,6 +3,7 @@
  * later, the reviewer (R21) call. Fails loudly and names each violation
  * instead of guessing at a fix (R15).
  */
+import { evidenceCase } from "./render.ts";
 import { WorkplanSchema, type Workplan } from "./schema.ts";
 
 export interface CheckFinding {
@@ -15,6 +16,9 @@ export interface CheckFinding {
 export interface CheckResult {
   ok: boolean;
   findings: CheckFinding[];
+  /** Non-blocking notes (spec 0039 R11): never change `ok`. Additive, so
+   * consumers that only read `ok`/`findings` are unaffected. */
+  warnings: CheckFinding[];
 }
 
 function checkStructural(plan: Workplan): CheckFinding[] {
@@ -72,6 +76,39 @@ function checkStructural(plan: Workplan): CheckFinding[] {
   return findings;
 }
 
+/** 0038 D4: a `cumplido` criterion without recorded evidence for its current
+ * command is reported as a warning, never as a failure (`ok` stays intact so
+ * old workplans keep passing plan-gate). */
+function checkEvidence(plan: Workplan): CheckFinding[] {
+  const warnings: CheckFinding[] = [];
+  for (const criterion of plan.acceptance) {
+    if (plan.progress[criterion.id] !== "cumplido") continue;
+    switch (evidenceCase(plan, criterion)) {
+      case "recorded":
+        break;
+      case "unevidenced-accepted":
+        warnings.push({
+          rule: "progress-unevidenced-accepted",
+          message: `${criterion.id} is cumplido without evidence (engine without a Bash success signal)`,
+        });
+        break;
+      case "none":
+        warnings.push({
+          rule: "progress-unevidenced",
+          message: `${criterion.id} is cumplido with no recorded evidence`,
+        });
+        break;
+      case "stale":
+        warnings.push({
+          rule: "progress-evidence-stale",
+          message: `${criterion.id} is cumplido but its evidence is for a different command`,
+        });
+        break;
+    }
+  }
+  return warnings;
+}
+
 /** R15's third rule: the declared level cannot be lower than what `classify`
  * computed when the workplan was created — `classification.level` IS that
  * computed value, embedded at creation time (schema.ts's `Classification`). */
@@ -97,15 +134,16 @@ export function checkWorkplan(raw: unknown): CheckResult {
       rule: "schema",
       message: `${issue.path.join(".") || "(root)"}: ${issue.message}`,
     }));
-    return { ok: false, findings };
+    return { ok: false, findings, warnings: [] };
   }
 
   const findings = [...checkStructural(parsed.data), ...checkLevel(parsed.data)];
-  return { ok: findings.length === 0, findings };
+  return { ok: findings.length === 0, findings, warnings: checkEvidence(parsed.data) };
 }
 
 /** One line per finding, for CLI output. */
 export function formatCheckResult(result: CheckResult): string {
-  if (result.ok) return "OK";
-  return result.findings.map((f) => `${f.rule}: ${f.message}`).join("\n");
+  const warnings = result.warnings.map((w) => `warning ${w.rule}: ${w.message}`);
+  const body = result.ok ? ["OK"] : result.findings.map((f) => `${f.rule}: ${f.message}`);
+  return [...body, ...warnings].join("\n");
 }

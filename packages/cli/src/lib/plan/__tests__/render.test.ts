@@ -96,3 +96,52 @@ describe("applyWorkplanUpdate", () => {
     expect(renderWorkplan(updated)).toBe(rendered);
   });
 });
+
+// Covers: R11
+describe("renderWorkplan — evidence cases (0038 D4)", () => {
+  const done: Workplan = { ...level1, progress: { A1: "cumplido" } };
+
+  it("shows head and time for recorded evidence of the current command", () => {
+    const md = renderWorkplan({
+      ...done,
+      evidence: {
+        A1: {
+          kind: "recorded",
+          command: "bun test classify.test.ts",
+          ranAt: "2026-09-30T10:00:00Z",
+          tree: "/t",
+          head: "abcdef1234567",
+          worktreeTree: "w",
+          dirty: false,
+        },
+      },
+    });
+    expect(md).toContain("**A1** (cumplido · abcdef1 · 2026-09-30T10:00:00Z)");
+  });
+
+  it("distinguishes unevidenced-accepted, none and stale", () => {
+    expect(
+      renderWorkplan({
+        ...done,
+        evidence: { A1: { kind: "unevidenced", reason: "engine-without-signal" } },
+      }),
+    ).toContain("(cumplido, sin evidencia: engine sin señal)");
+    expect(renderWorkplan(done)).toContain("(cumplido, sin evidencia)");
+    expect(
+      renderWorkplan({
+        ...done,
+        evidence: {
+          A1: {
+            kind: "recorded",
+            command: "other",
+            ranAt: "t",
+            tree: "/t",
+            head: "abc",
+            worktreeTree: "w",
+            dirty: false,
+          },
+        },
+      }),
+    ).toContain("(cumplido, evidencia de otro comando)");
+  });
+});

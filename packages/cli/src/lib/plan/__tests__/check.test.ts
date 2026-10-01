@@ -97,3 +97,43 @@ describe("checkWorkplan", () => {
     expect(result.findings.some((f) => f.rule === "phase-unknown-id")).toBe(true);
   });
 });
+
+// Covers: R11
+describe("checkWorkplan — evidence warnings", () => {
+  const done = { ...validLevel1, progress: { A1: "cumplido" as const } };
+
+  it("warns without changing ok for cumplido with no evidence", () => {
+    const result = checkWorkplan(done);
+    expect(result.ok).toBe(true);
+    expect(result.warnings.map((w) => w.rule)).toEqual(["progress-unevidenced"]);
+    expect(formatCheckResult(result)).toContain("warning progress-unevidenced");
+  });
+
+  it("warns on unevidenced-accepted and stale, none on recorded", () => {
+    expect(
+      checkWorkplan({
+        ...done,
+        evidence: { A1: { kind: "unevidenced", reason: "engine-without-signal" } },
+      }).warnings.map((w) => w.rule),
+    ).toEqual(["progress-unevidenced-accepted"]);
+    const recorded = (command: string) => ({
+      kind: "recorded" as const,
+      command,
+      ranAt: "t",
+      tree: "/t",
+      head: "abc",
+      worktreeTree: "w",
+      dirty: false,
+    });
+    expect(
+      checkWorkplan({ ...done, evidence: { A1: recorded("other") } }).warnings.map((w) => w.rule),
+    ).toEqual(["progress-evidence-stale"]);
+    expect(
+      checkWorkplan({ ...done, evidence: { A1: recorded("bun test classify.test.ts") } }).warnings,
+    ).toEqual([]);
+  });
+
+  it("does not warn for a pendiente criterion", () => {
+    expect(checkWorkplan(validLevel1).warnings).toEqual([]);
+  });
+});
