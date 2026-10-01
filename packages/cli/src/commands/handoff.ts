@@ -8,6 +8,7 @@ import { defineCommand } from "citty";
 import { resolve } from "node:path";
 import { resolveStateRoot } from "../lib/primitives/state-root.ts";
 import { checkHandoff, handoffExitCode, type HandoffConsumer } from "../lib/handoff/check.ts";
+import { logReview } from "../lib/handoff/review-schema.ts";
 import { readConfig } from "../lib/config/config.ts";
 
 function resolveConsumer(value: string | undefined): HandoffConsumer {
@@ -76,9 +77,37 @@ function formatResult(result: ReturnType<typeof checkHandoff>): string {
   return lines.join("\n") || "OK";
 }
 
+const logReviewSubCommand = defineCommand({
+  meta: {
+    name: "log-review",
+    description:
+      "Validate review_<feature>.json and append findings with score >= 50 to findings.jsonl (deduped)",
+  },
+  args: {
+    feature: { type: "positional" as const, required: true, description: "Feature slug" },
+    dir: { type: "string" as const, description: "Progress directory" },
+    cwd: { type: "string" as const, description: "Checkout to operate on" },
+    json: { type: "boolean" as const, description: "Output as JSON" },
+  },
+  run({ args }) {
+    const result = logReview({
+      cwd: args.cwd ?? process.cwd(),
+      feature: args.feature,
+      dir: args.dir,
+    });
+    const text =
+      result.status === "error"
+        ? result.message
+        : `${result.status === "duplicate" ? "DUPLICATE" : "OK"}: ${result.appended} finding(s) appended`;
+    process.stdout.write(`${args.json ? JSON.stringify(result) : text}\n`);
+    process.exitCode = result.status === "error" ? 1 : 0;
+  },
+});
+
 export const handoffCommand = defineCommand({
   meta: { name: "handoff", description: "Validate the implementer's handoff before dispatch" },
   subCommands: {
     check: checkSubCommand,
+    "log-review": logReviewSubCommand,
   },
 });
