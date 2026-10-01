@@ -6,6 +6,7 @@
 import { defineCommand } from "citty";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { appendCliEvent } from "../lib/audit/cli-event.ts";
 import { changeMasterPart } from "../lib/master/part.ts";
 import { runMasterClose } from "../lib/master/close.ts";
 import { readMasterStatus, statusLine, writeMasterStatus } from "../lib/master/status.ts";
@@ -274,9 +275,11 @@ const advanceSubCommand = defineCommand({
       const result = runMasterAdvance(cwd);
       if (!result.advanced) {
         for (const failure of result.failures) process.stderr.write(`[navori] ${failure}\n`);
+        appendCliEvent(cwd, { name: "master-advance", verdict: "block" });
         process.exitCode = 1;
         return;
       }
+      appendCliEvent(cwd, { name: "master-advance", verdict: "allow" });
       process.stdout.write(`${result.from} -> ${result.to}\n`);
     } catch (cause) {
       if (cause instanceof MasterCheckSetupError) {
@@ -408,7 +411,8 @@ const partSubCommand = defineCommand({
   run({ args }) {
     try {
       rejectMutationStage(args.stage);
-      changeMasterPart(resolve(args.cwd ?? process.cwd()), args.id as string, {
+      const cwd = resolve(args.cwd ?? process.cwd());
+      changeMasterPart(cwd, args.id as string, {
         state: args.state,
         reason: args.reason,
         spec: args.spec,
@@ -418,6 +422,7 @@ const partSubCommand = defineCommand({
         result: args.result,
         approvedBy: args["approved-by"],
       });
+      if (args.accept) appendCliEvent(cwd, { name: "master-part-accept", verdict: "allow" });
       process.stdout.write(`${args.id as string}: updated\n`);
     } catch (cause) {
       reportError(cause);
@@ -440,11 +445,13 @@ const closeSubCommand = defineCommand({
   run({ args }) {
     try {
       rejectMutationStage(args.stage);
-      const result = runMasterClose(resolve(args.cwd ?? process.cwd()), {
+      const cwd = resolve(args.cwd ?? process.cwd());
+      const result = runMasterClose(cwd, {
         convert: args.convert,
         abandon: args.abandon,
         reason: args.reason,
       });
+      appendCliEvent(cwd, { name: "master-close", verdict: "allow" });
       process.stdout.write(
         result.reconciled
           ? "no hay etapa activa; se apagó harness.masterPlan\n"
