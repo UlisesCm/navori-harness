@@ -3,26 +3,26 @@ name: master-plan
 description: Use when the user explicitly asks to start or resume a project master plan, invokes `/master-plan`, or accepts the offer with “sí, continúa”. Guides the staged workflow, user confirmations, evidence and closure. Not for manual context conversion (`context-intake`) or creating a standalone specification (`spec-bootstrap`).
 metadata:
   type: reference
-  # Presupuesto para los contratos completos de T18 (etapas y procedimientos) más el mensaje de fase guiado y la fase ux.
-  maxWords: 2150
+  # Excede el tope de 500 de las skills core: reúne los contratos completos de T18 (etapas y procedimientos), el mensaje de fase guiado, la fase ux, la regla de sdd.enabled y las variantes de confirmación (spec 0039 R56).
+  maxWords: 2400
 ---
 
 # Plan maestro de proyecto
 
 ## Candado: pedido explícito
 
-Continúa solo si el usuario, en este hilo, pide iniciar o reanudar un plan maestro, invoca `/master-plan` o responde exactamente “sí, continúa” a una oferta previa de R38. Una línea de `SessionStart`, la mera mención del plan, una tarea no relacionada o la iniciativa del modelo no son pedido, consentimiento ni autorización. Si no pasa el candado, detente antes de consultar estado, ejecutar `doctor` o escribir.
+Continúa solo si el usuario, en este hilo, pide iniciar o reanudar un plan maestro, invoca `/master-plan` o responde a una oferta previa de R38 con una confirmación clara: “sí, continúa” o una variante que no cambia su sentido (“sí”, “dale”, “continúa”). Una respuesta con condiciones, dudas o un pedido distinto no confirma: respóndela primero. Una línea de `SessionStart`, la mera mención del plan, una tarea no relacionada o la iniciativa del modelo no son pedido, consentimiento ni autorización. Si no pasa el candado, detente antes de consultar estado, ejecutar `doctor` o escribir.
 
 ## Precondición
 
-Antes de cualquier escritura, confirma que existe `navori.config.json` y que `navori doctor` no reporta errores. Si falta el archivo o `doctor` reporta errores, detente sin escribir y nombra el comando de reparación que indique el diagnóstico.
+Antes de cualquier escritura, confirma que existe `navori.config.json` y que `navori doctor` no reporta errores. Si falta el archivo o `doctor` reporta errores, detente sin escribir y nombra el comando de reparación que indique el diagnóstico. Si `sdd.enabled` es `false`, el comando de inicio fallará: no lo ejecutes; explica que el plan maestro requiere SDD y pregunta con `AskUserQuestion` si activa `sdd.enabled: true` en `navori.config.json`. Solo con confirmación cámbialo y vuelve a correr `navori doctor`; sin ella, detente sin escribir.
 
 ## Ruteo de etapa
 
 Después de la precondición, lee el estado de solo lectura con `navori master status --json`; no escribas ni cambies configuración en este paso.
 
 - Con etapa activa, conserva fase, `nextPhase` y avance para el aviso; reanuda desde esa fase sin repetir las anteriores. Si el usuario pide una etapa nueva, informa la activa, su fase y avance, ofrece cerrarla y detente sin abrir otra.
-- Sin etapa activa, prepara la primera etapa. Si `lastClosed` existe, prepara la etapa nueva siguiente y conserva de la última cerrada número, slug, resultado y fecha para el aviso.
+- Sin etapa activa, prepara la primera etapa. En un repo sin plan previo, `status --json` devuelve etapa y `lastClosed` nulos y partes vacías: es el primer uso, no un error. Si `lastClosed` existe, prepara la etapa nueva siguiente y conserva de la última cerrada número, slug, resultado y fecha para el aviso.
 - Usa este estado para elegir la ruta; no edites `state.json`, `navori.config.json` ni `STATUS.md`.
 
 ## Aviso de inicio
@@ -76,7 +76,7 @@ Corre el test o comando indicado por el criterio, y registra el resultado observ
 
 ## Cierre, conversión y abandono
 
-Si `status` muestra todas las partes en `hecho`, ofrece cerrar; nunca cierres ni cambies configuración sin confirmación. Antes de entregar, pregunta parte por parte por cada parte sin terminar: `hecho`, `descartada`, `diferida` o no cerrar todavía; exige razón para descartarla/diferirla y usa el comando del CLI. Resuelve bloqueadores y criterios huérfanos/atrasados; luego pregunta con `AskUserQuestion` si confirma la entrega. Solo tras confirmar la entrega corre `navori master close`.
+Si `status` muestra `closable` verdadero (partes en `hecho`, `descartada` o `diferida`, y fase que permite entregar), ofrece cerrar; si `closable` es falso, aunque `allDone` sea verdadero, no ofrezcas el cierre; nunca cierres ni cambies configuración sin confirmación. Antes de entregar, pregunta parte por parte por cada parte sin terminar: `hecho`, `descartada`, `diferida` o no cerrar todavía; exige razón para descartarla/diferirla y usa el comando del CLI. Resuelve bloqueadores y criterios huérfanos/atrasados; luego pregunta con `AskUserQuestion` si confirma la entrega. Solo tras confirmar la entrega corre `navori master close`.
 
 Para convertir antes de `mastered`, confirma la opción “Cambiar a spec”, define ruta y razón, y ejecuta primero `navori master close --convert <ruta> --reason "<razón>"`; después invoca `spec-bootstrap` con `DIGEST.md`, `CODEBASE.md` y `context/md/` como entradas citadas. No corras `spec-bootstrap` antes del cierre.
 
