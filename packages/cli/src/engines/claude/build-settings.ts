@@ -4,6 +4,8 @@ import type { NavoriConfig } from "../../lib/config/config.ts";
 import type { LoadedPlugin, PluginHookEntry } from "../../lib/config/plugins.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/render/bundled-assets.ts";
 import { interpolate } from "../../lib/render/interpolate.ts";
+import { resolveHarnessPlan } from "../shared/harness-plan.ts";
+import { filterInventory, type FilteredInventory } from "../shared/native-overlap.ts";
 import { collectShellPermissionRules } from "../shared/permission-rules.ts";
 import { deepMerge } from "./deep-merge.ts";
 
@@ -100,10 +102,26 @@ const WORKTREE_RECLAIM_HOOK_DEST = ".claude/hooks/worktree-reclaim.sh";
 const STOP_HOOK_DEST = ".claude/hooks/stop-verify-reminder.sh";
 const SETTINGS_BASE_REL = "core-assets/settings/settings-base.json";
 
+/**
+ * Build `.claude/settings.json` from `config` and the FILTERED inventory
+ * (spec 0039 D1/B1): a core hook is registered only if its id is in
+ * `inventory.plan.hooks`, and plugin settings/hooks come only from
+ * `inventory.plugins`. The adapter passes the same inventory it wrote files
+ * from, so a unit filtered out as native loses its file and its registration
+ * together.
+ *
+ * Passing a bare `LoadedPlugin[]` is the pre-0039 form kept for existing
+ * callers (tests): the inventory is derived from `config` with the full Claude
+ * plan, so the conditions below alone decide. TODO(spec-0039): migrate those
+ * ~60 call sites and drop the array form once nobody passes it.
+ */
 export function buildClaudeSettings(
   config: NavoriConfig,
-  plugins: LoadedPlugin[],
+  inventoryOrPlugins: FilteredInventory | LoadedPlugin[],
 ): Record<string, unknown> {
+  const { plan, plugins } = Array.isArray(inventoryOrPlugins)
+    ? legacyInventory(config, inventoryOrPlugins)
+    : inventoryOrPlugins;
   const basePath = resolve(getCoreRoot(), SETTINGS_BASE_REL);
   const baseRaw = readFileSync(basePath, "utf-8");
   const baseInterp = interpolate(baseRaw, config, {
@@ -659,6 +677,8 @@ export function buildClaudeSettings(
     });
   }
 
+  settings = dropUnregisteredCoreHooks(settings, new Set(plan.hooks.map((hook) => hook.id)));
+
   for (const plugin of plugins) {
     const fragment = plugin.manifest.settingsFragment;
     if (fragment && typeof fragment === "object" && !Array.isArray(fragment)) {
@@ -695,6 +715,52 @@ export function buildClaudeSettings(
   // sees a single bucket per matcher — same intent as pluginHooksToClaudeShape,
   // now across all layers.
   return coalesceHookMatchers(settings);
+}
+
+/** Inventory for callers that only have plugins: the full Claude plan for `config`, filtered. */
+function legacyInventory(config: NavoriConfig, plugins: LoadedPlugin[]): FilteredInventory {
+  const plan = resolveHarnessPlan(config, resolve(getCoreRoot(), "core-assets"), null, {
+    includeOrchestrator: true,
+    includeClaudeOnlySkills: true,
+    includeClaudeOnlyHooks: true,
+  });
+  return filterInventory({ plan, plugins }, "claude");
+}
+
+const CORE_HOOK_COMMAND = /\.claude\/hooks\/([a-z0-9-]+)\.sh/;
+
+/**
+ * Remove every core-hook registration whose id is not in `registered` (the
+ * filtered inventory's hook ids). Core hooks live at `.claude/hooks/<id>.sh`;
+ * plugin hooks live under `.claude/scripts/` and are never touched here. Done
+ * as one pass over the finished core registrations, so a hook with several
+ * events (model-advisor) cannot be half-removed.
+ */
+function dropUnregisteredCoreHooks(
+  settings: Record<string, unknown>,
+  registered: ReadonlySet<string>,
+): Record<string, unknown> {
+  const hooks = settings.hooks;
+  if (typeof hooks !== "object" || hooks === null || Array.isArray(hooks)) return settings;
+  const kept: Record<string, unknown> = {};
+  for (const [event, entries] of Object.entries(hooks as Record<string, unknown>)) {
+    if (!Array.isArray(entries)) {
+      kept[event] = entries;
+      continue;
+    }
+    const groups = entries.flatMap((entry: unknown) => {
+      const inner = (entry as { hooks?: unknown } | null)?.hooks;
+      if (!Array.isArray(inner)) return [entry];
+      const live = inner.filter((hook: unknown) => {
+        const command = (hook as { command?: unknown } | null)?.command;
+        const id = typeof command === "string" ? CORE_HOOK_COMMAND.exec(command)?.[1] : undefined;
+        return id === undefined || registered.has(id);
+      });
+      return live.length === 0 ? [] : [{ ...(entry as object), hooks: live }];
+    });
+    if (groups.length > 0) kept[event] = groups;
+  }
+  return { ...settings, hooks: kept };
 }
 
 /**
