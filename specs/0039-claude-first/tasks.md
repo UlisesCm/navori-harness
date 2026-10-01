@@ -173,11 +173,11 @@ Lote 3 (sujeto al gate de T2):
 
 ## F4 — Reviewer
 
-- [ ] **T25** (R18, R19, R20) — *carry-over 0038 T6*: `ImplHandoffSchema.doubts`, `Closing
+- [x] **T25** (R18, R19, R20) — *carry-over 0038 T6*: `ImplHandoffSchema.doubts`, `Closing
   report` del implementer y sección `Coverage` del reviewer.
 - [ ] **T26** (R21) — *carry-over 0038 T7*: `lib/handoff/review-schema.ts`, `navori handoff
   log-review` con dedupe por hash y allow en `settings-base.json`.
-- [ ] **T27** (R22) — `maxWords` de `reviewer` e `implementer` = conteo medido tras T22 y T25
+- [x] **T27** (R22) — `maxWords` de `reviewer` e `implementer` = conteo medido tras T22 y T25
   + 10. · test: `agents-assets.test.ts` con `// Covers: R22`.
 
 ## F5a — Guard de búsqueda
