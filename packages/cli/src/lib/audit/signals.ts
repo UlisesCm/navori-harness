@@ -1,3 +1,5 @@
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { type HarnessCatalog, barredMcpTokens } from "./harness.ts";
 import type { AgentRun, GateExecution, SessionAudit, Signal } from "./model.ts";
 import { GATE_HOOK_NAMES, correlateGateExecutions, gateHandle, recorderWindow } from "./model.ts";
@@ -5,6 +7,8 @@ import { compareSemver } from "../primitives/semver.ts";
 import { RETIRED_AGENTS } from "../../engines/shared/roster.ts";
 import { MAIN_THREAD_ONLY_HOOKS } from "../../engines/shared/harness-plan.ts";
 import { ORCHESTRATOR_OWNER } from "./parse.ts";
+import { roleAliases, skillAliases } from "../assets/activation-aliases.ts";
+import { countNonTrivial } from "../diagnose/source-classify.ts";
 
 /**
  * Findings, as pure functions over one parsed session plus the harness it ran
@@ -1437,4 +1441,620 @@ export function unusedManagedCandidates(
       evidence: parts.join(" · "),
     },
   ];
+}
+
+// ─── Search routing and activation on opportunities (spec 0039 R67) ─────────
+//
+// Ports of `mine-search-routing.py` and `mine-activation.py`, the first deleted
+// with this change, the second kept in `scripts/py/` until its phase 2 is ported. Both read the host's raw
+// transcripts, not the parsed `SessionAudit`: what they classify is the Bash
+// command text, which the parsed model deliberately never keeps. The text is
+// consumed here and only COUNTS leave — never a command, never an example.
+//
+// Parity with the scripts is pinned in `routing-parity.test.ts`. Differences
+// that were left on purpose are named where they occur.
+
+type Json = Record<string, unknown>;
+
+function isJson(v: unknown): v is Json {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Python's `str(x.get(k, dflt))` for the shapes a transcript can carry. */
+function pyStr(v: unknown, dflt: string): string {
+  if (v === undefined) return dflt;
+  if (v === null) return "None";
+  return typeof v === "string" ? v : String(v);
+}
+
+/** Every non-empty line of a JSONL file as parsed JSON, `null` for a line that
+ *  does not parse. A missing or unreadable file yields `undefined`. */
+function readJsonl(path: string): Array<unknown> | undefined {
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf-8");
+  } catch {
+    return undefined;
+  }
+  const out: unknown[] = [];
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      out.push(JSON.parse(line));
+    } catch {
+      out.push(null);
+    }
+  }
+  return out;
+}
+
+/**
+ * Python's `shlex.split` (POSIX mode, no comments): quotes group, a backslash
+ * escapes the next character (inside double quotes only `"` and `\`), and an
+ * unterminated quote or trailing backslash throws — the caller falls back to a
+ * whitespace split, exactly as the script does.
+ */
+export function shlexSplit(input: string): string[] {
+  const tokens: string[] = [];
+  let cur = "";
+  let inToken = false;
+  let i = 0;
+  while (i < input.length) {
+    const ch = input[i] as string;
+    if (/\s/.test(ch)) {
+      if (inToken) {
+        tokens.push(cur);
+        cur = "";
+        inToken = false;
+      }
+      i++;
+    } else if (ch === "'") {
+      const end = input.indexOf("'", i + 1);
+      if (end === -1) throw new Error("No closing quotation");
+      cur += input.slice(i + 1, end);
+      inToken = true;
+      i = end + 1;
+    } else if (ch === '"') {
+      inToken = true;
+      i++;
+      for (;;) {
+        if (i >= input.length) throw new Error("No closing quotation");
+        const c = input[i] as string;
+        if (c === '"') {
+          i++;
+          break;
+        }
+        if (c === "\\") {
+          const next = input[i + 1];
+          if (next === undefined) throw new Error("No closing quotation");
+          cur += next === '"' || next === "\\" ? next : `\\${next}`;
+          i += 2;
+        } else {
+          cur += c;
+          i++;
+        }
+      }
+    } else if (ch === "\\") {
+      const next = input[i + 1];
+      if (next === undefined) throw new Error("No escaped character");
+      cur += next;
+      inToken = true;
+      i += 2;
+    } else {
+      cur += ch;
+      inToken = true;
+      i++;
+    }
+  }
+  if (inToken) tokens.push(cur);
+  return tokens;
+}
+
+const SEARCH_WRAPPER = "tgrep-search.sh";
+const SEARCH_VERBS: readonly string[] = ["grep", "egrep", "fgrep", "rg"];
+const CODEGRAPH_TOOL = "mcp__codegraph__codegraph_explore";
+const SEARCH_SPLIT = /(\|\||\||&&|;|\n)/;
+const REDIR = /^([0-9]?>>?|&>|<|[0-9]?>&)/;
+const REDIR_BARE = /^([0-9]?>>?|&>|<|[0-9]?>&[0-9]?)$/;
+
+/** Routes that enter the #661 quotient: `(wrapper + nativo) / total`. */
+const SCORED_ROUTES = ["wrapper", "nativo", "shell"] as const;
+/** The v2 routes against their escape denominator (search-v2 §9.5, D19). */
+const V2_ROUTES = ["tgrep-v2", "codegraph-v2"] as const;
+const ESCAPE_ROUTES = ["nativo", "shell", "git-grep"] as const;
+
+/** Every counter `mineSearchRouting` publishes, zeros included. */
+export const SEARCH_ROUTES = [
+  "wrapper",
+  "nativo",
+  "shell",
+  "filtro",
+  "extraccion",
+  "git-grep",
+  "indirecta",
+  "tgrep-v2",
+  "codegraph-v2",
+  "bloqueado",
+  "malformado",
+  "no_disponible",
+] as const;
+
+export type SearchCounts = Record<string, number>;
+
+function bump(counts: SearchCounts, key: string, by = 1): void {
+  counts[key] = (counts[key] ?? 0) + by;
+}
+
+/**
+ * The route of ONE shell segment that invokes grep/rg, or null when it does
+ * not. `pipedInto` is what separates filtering from searching: `grep -n foo`
+ * is an extraction from stdin after a pipe and a repo search at line start.
+ */
+export function classifySearchSegment(seg: string, pipedInto: boolean): string | null {
+  let toks: string[];
+  try {
+    toks = shlexSplit(seg);
+  } catch {
+    // Unbalanced quotes: a strange command must be counted badly, not vanish.
+    toks = seg.split(/\s+/).filter(Boolean);
+  }
+  const head = toks[0];
+  if (head === undefined) return null;
+
+  if (head === "tgrep") return toks[1] === "search" ? "tgrep-v2" : null;
+
+  if (head === "git") {
+    let i = 1;
+    while (i < toks.length && (toks[i] as string).startsWith("-")) {
+      const hasValue =
+        !(toks[i] as string).includes("=") &&
+        i + 1 < toks.length &&
+        !(toks[i + 1] as string).startsWith("-");
+      i += hasValue ? 2 : 1;
+    }
+    return i < toks.length && toks[i] === "grep" ? "git-grep" : null;
+  }
+
+  if (head === "xargs" || head === "find") {
+    return toks.slice(1).some((t) => SEARCH_VERBS.includes(t)) ? "indirecta" : null;
+  }
+
+  if (!SEARCH_VERBS.includes(head)) return null;
+  if (pipedInto) return "filtro";
+
+  const flags: string[] = [];
+  const operands: string[] = [];
+  let skipNext = false;
+  for (const t of toks.slice(1)) {
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
+    if (REDIR.test(t)) {
+      skipNext = REDIR_BARE.test(t);
+      continue;
+    }
+    (t.startsWith("-") ? flags : operands).push(t);
+  }
+  const recursive =
+    head === "rg" || flags.some((f) => /^-[a-zA-Z]*[rR]/.test(f) || f === "--recursive");
+  const targets = operands.length > 1 ? operands.slice(1) : [];
+  const dirTarget = targets.some(
+    (t) =>
+      t.endsWith("/") || t === "." || t === ".." || (t.includes("/") && !/\.[A-Za-z0-9]+$/.test(t)),
+  );
+  if (recursive || dirTarget || targets.length === 0) return "shell";
+  return "extraccion";
+}
+
+/** Every grep/rg invocation of one Bash command, by route. Counts per SEGMENT:
+ *  `a && grep -rn x && grep -rn y` is two searches. */
+export function classifySearchCommand(command: string): SearchCounts {
+  const out: SearchCounts = {};
+  if (command.includes(SEARCH_WRAPPER)) {
+    out.wrapper = 1;
+    return out;
+  }
+  // A line continuation does not separate commands; unjoined, it splits a
+  // quoted pattern in half and the tail reads as a targetless recursive search.
+  const joined = command.replace(/\\\n/g, " ");
+  let piped = false;
+  for (const part of joined.split(SEARCH_SPLIT)) {
+    if (part === "|") {
+      piped = true;
+      continue;
+    }
+    if (part === "||" || part === "&&" || part === ";" || part === "\n") {
+      piped = false;
+      continue;
+    }
+    const route = classifySearchSegment(part.trim(), piped);
+    if (route) bump(out, route);
+  }
+  return out;
+}
+
+/** Subagent transcripts of ONE session: `<project>/<session>/subagents/agent-*.jsonl`. */
+function subagentTranscripts(mainPath: string, sessionId: string): string[] {
+  const dir = join(dirname(mainPath), sessionId, "subagents");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f.startsWith("agent-") && f.endsWith(".jsonl"))
+    .sort()
+    .map((f) => join(dir, f));
+}
+
+/**
+ * Counts the searches of ONE transcript (main thread or subagent).
+ *
+ * `skipSidechain` drops `isSidechain` records on the main thread: the host
+ * repeats them there AND writes them under `subagents/`, so counting both
+ * passes would double every subagent search.
+ *
+ * Two passes, as in the script: a command the guard blocked never RAN but its
+ * `tool_use` is in the transcript, so it would count as `shell` while its retry
+ * counted again. The verdict is read from the transcript itself (`tool_result`
+ * with `is_error` and the guard's text).
+ */
+function scanSearchTranscript(path: string, counts: SearchCounts, skipSidechain: boolean): void {
+  const pending = new Map<unknown, string>();
+  const blocked = new Set<unknown>();
+  for (const entry of readJsonl(path) ?? []) {
+    if (entry === null) {
+      bump(counts, "malformado");
+      continue;
+    }
+    if (!isJson(entry)) continue;
+    if (skipSidechain && entry.isSidechain) continue;
+    const msg = entry.message;
+    if (!isJson(msg) || !Array.isArray(msg.content)) continue;
+    for (const block of msg.content as unknown[]) {
+      if (!isJson(block)) continue;
+      if (block.type === "tool_use") {
+        if (block.name === "Grep") bump(counts, "nativo");
+        else if (block.name === CODEGRAPH_TOOL) bump(counts, "codegraph-v2");
+        else if (block.name === "Bash") {
+          const command = isJson(block.input) ? block.input.command : undefined;
+          if (typeof command === "string") pending.set(block.id, command);
+        }
+      } else if (block.type === "tool_result") {
+        // BOTH conditions: content that merely QUOTES the string (a guard file
+        // read in-session) would otherwise count reads as blocks.
+        if (!block.is_error) continue;
+        if ((JSON.stringify(block.content) ?? "").includes("BLOCKED by guard-")) {
+          blocked.add(block.tool_use_id);
+        }
+      }
+    }
+  }
+  for (const [id, command] of pending) {
+    if (blocked.has(id)) {
+      bump(counts, "bloqueado");
+      continue;
+    }
+    for (const [route, n] of Object.entries(classifySearchCommand(command))) bump(counts, route, n);
+  }
+}
+
+/** A marked session as the miners need it: its id and where its transcript is. */
+export interface MinedSession {
+  sessionId: string;
+  /** Resolved transcript, or null when it could not be located. */
+  transcript: string | null;
+  /** Working directory recorded when audit-mode was armed. */
+  cwd?: string | null;
+}
+
+/**
+ * Search routing over a set of audited sessions (R67, `mine-search-routing.py`).
+ *
+ * A session without a transcript counts as `no_disponible`, which is NOT a
+ * zero: a rotated transcript and a session with no searches must not read the
+ * same. Only counts are returned.
+ */
+export function mineSearchRouting(sessions: readonly MinedSession[]): SearchCounts {
+  const counts: SearchCounts = {};
+  for (const s of sessions) {
+    if (!s.transcript || !existsSync(s.transcript)) {
+      bump(counts, "no_disponible");
+      continue;
+    }
+    scanSearchTranscript(s.transcript, counts, true);
+    for (const sub of subagentTranscripts(s.transcript, s.sessionId)) {
+      scanSearchTranscript(sub, counts, false);
+    }
+  }
+  return counts;
+}
+
+function pct(part: number, total: number): number | null {
+  return total === 0 ? null : Math.round((1000 * part) / total) / 10;
+}
+
+/** Flat metrics of the routing counts: every route, plus the two quotients. */
+export function flattenSearchRouting(counts: SearchCounts): Record<string, number | null> {
+  const m: Record<string, number | null> = {};
+  for (const route of SEARCH_ROUTES) m[`search.${route}`] = counts[route] ?? 0;
+  const c = (k: string): number => counts[k] ?? 0;
+  // `good%` = (wrapper + nativo) / scored, the figure #661 measures. Pipes and
+  // extractions stay OUT: a pipe can never become the wrapper, so counting it
+  // would set an unreachable ceiling.
+  m["search.good.pct"] = pct(
+    c("wrapper") + c("nativo"),
+    SCORED_ROUTES.reduce((n, k) => n + c(k), 0),
+  );
+  const v2 = V2_ROUTES.reduce((n, k) => n + c(k), 0);
+  m["search.v2.pct"] = pct(v2, v2 + ESCAPE_ROUTES.reduce((n, k) => n + c(k), 0));
+  return m;
+}
+
+// ── Activation on opportunities (`mine-activation.py`, phase 1) ─────────────
+
+/** Triggers in the script's order. `label` is the script's own name for it. */
+export const ACTIVATION_TRIGGERS = [
+  { id: "implementer", label: "implementer" },
+  { id: "verify-before-done", label: "verify-before-done" },
+  { id: "debug-error", label: "debug-error" },
+  { id: "pr-review", label: "pr → review-diff/pilot" },
+  { id: "reviewer", label: "reviewer" },
+  { id: "loop-back-debug", label: "loop-back-debug" },
+] as const;
+
+const VERIFY_CMD =
+  /\b(pnpm|npm|yarn|bun)\s+(run\s+)?(test|lint|typecheck|type-check|build|check)|\bvitest\b|\bjest\b|\btsc\b|\bpytest\b|\bruff\b|\beslint\b|\bbiome\b|test:coverage|gh pr checks|gh run/i;
+// Python's `\b` is Unicode-aware, and after `✅` (a non-word character) it only
+// matches before a word character — a quirk kept so the figures stay identical.
+const DONE_CLAIM =
+  /(^|\s)(?:(?:listo|hecho|terminado|completado|queda listo|todo (?:en )?verde)(?![\p{L}\p{N}_])|✅(?=[\p{L}\p{N}_]))/iu;
+const ERROR_LINE = /(error TS\d+|^\s*Error:|\bFAIL\b|error\[E\d+\]|Traceback)/m;
+const PR_CMD = /(?:^|&&\s*|;\s*)gh pr create/;
+const COMMIT_CMD = /git commit/;
+const CD_PREFIX = /^\s*cd\s+("[^"]*"|\S+)\s*&&\s*/;
+const HOOK_BLOCK = /PreToolUse:|PostToolUse:|hook error/;
+const DENIED = /requested permissions|user doesn't want|denied|rejected/i;
+
+interface ActTool {
+  name: string;
+  input: Json;
+  error: boolean;
+  out: string;
+}
+interface ActTurn {
+  user: string;
+  tools: ActTool[];
+  assistant: string[];
+}
+
+function textOf(msg: Json): string {
+  const c = msg.content;
+  if (typeof c === "string") return c;
+  if (!Array.isArray(c)) return "";
+  return (c as unknown[])
+    .filter((b): b is Json => isJson(b) && b.type === "text")
+    .map((b) => (typeof b.text === "string" ? b.text : ""))
+    .join("\n");
+}
+
+/** Main-thread turns of one transcript; each tool call carries its `is_error`. */
+function parseActivationTurns(path: string): ActTurn[] {
+  const turns: ActTurn[] = [];
+  let cur: ActTurn | null = null;
+  const pending = new Map<unknown, ActTool>();
+  for (const d of readJsonl(path) ?? []) {
+    if (!isJson(d) || d.isSidechain) continue;
+    const msg: Json = isJson(d.message) ? d.message : {};
+    const c = msg.content;
+    if (d.type === "user") {
+      const blocks = Array.isArray(c) ? (c as unknown[]) : [];
+      const results = blocks.filter((b): b is Json => isJson(b) && b.type === "tool_result");
+      if (results.length > 0) {
+        for (const b of results) {
+          const tu = pending.get(b.tool_use_id);
+          if (!tu) continue;
+          tu.error = Boolean(b.is_error);
+          // Truncated only when it is not a string, as in the script.
+          tu.out =
+            typeof b.content === "string"
+              ? b.content
+              : (JSON.stringify(b.content) ?? "null").slice(0, 8000);
+        }
+        continue;
+      }
+      const txt = textOf(msg);
+      if (txt.trim()) {
+        cur = { user: txt, tools: [], assistant: [] };
+        turns.push(cur);
+      }
+    } else if (d.type === "assistant" && cur !== null && Array.isArray(c)) {
+      for (const b of c as unknown[]) {
+        if (!isJson(b)) continue;
+        if (b.type === "tool_use") {
+          const rec: ActTool = {
+            name: pyStr(b.name, "None"),
+            input: isJson(b.input) ? b.input : {},
+            error: false,
+            out: "",
+          };
+          cur.tools.push(rec);
+          pending.set(b.id, rec);
+        } else if (b.type === "text") {
+          cur.assistant.push(typeof b.text === "string" ? b.text : "");
+        }
+      }
+    }
+  }
+  return turns;
+}
+
+function isDebuggable(x: ActTool): boolean {
+  if (!x.error) return false;
+  if (HOOK_BLOCK.test(x.out.slice(0, 200)) || DENIED.test(x.out.slice(0, 300))) return false;
+  return VERIFY_CMD.test(pyStr(x.input.command, "")) || ERROR_LINE.test(x.out);
+}
+
+/** Command signature: the leading `cd … &&` dropped, first four tokens. */
+function commandSig(cmd: string): string {
+  return cmd.replace(CD_PREFIX, "").split(/\s+/).filter(Boolean).slice(0, 4).join(" ");
+}
+
+/** Activation counts for a range. Only counts — no command, no example. */
+export interface ActivationStats {
+  /** Sessions whose transcript was analysed / located nowhere. */
+  sessions: number;
+  unavailable: number;
+  opp: Record<string, number>;
+  hit: Record<string, number>;
+  /** Skill/Agent invocations the user did not name (`auto`) vs named (`asked`). */
+  auto: Record<string, number>;
+  asked: Record<string, number>;
+  /** Sessions with >= 3 opportunities, bucketed by their own activation rate. */
+  buckets: Record<"0%" | "1-24%" | "25-74%" | "75-100%", number>;
+  graded: number;
+}
+
+const MIN_OPP = 3;
+
+/**
+ * Activation over opportunities (R67, `mine-activation.py`).
+ *
+ * Every figure is APPROXIMATE by construction, and the script says so: an
+ * opportunity is a heuristic over the main thread, and any turn in which the
+ * agent was used counts as one (`got` implies opportunity). That is why the
+ * activation rate is never published alone — `flattenRangeMetrics` puts the
+ * main thread's share of Edit/Write next to it.
+ *
+ * Not ported, deliberately: the script's phase 2 (plan tiers, spec 0032 R32),
+ * the per-session table, `attributionSkill` inheritance inside subagents (the
+ * report's skill tally already reads it) and the examples list, which carried
+ * command text.
+ */
+export function mineActivation(sessions: readonly MinedSession[]): ActivationStats {
+  const roles = roleAliases();
+  const skills = skillAliases();
+  const canonRole = (n: string): string => roles[n] ?? n;
+  const canonSkill = (n: string): string => skills[n] ?? n;
+  const stats: ActivationStats = {
+    sessions: 0,
+    unavailable: 0,
+    opp: {},
+    hit: {},
+    auto: {},
+    asked: {},
+    buckets: { "0%": 0, "1-24%": 0, "25-74%": 0, "75-100%": 0 },
+    graded: 0,
+  };
+
+  for (const s of sessions) {
+    if (!s.transcript || !existsSync(s.transcript)) {
+      stats.unavailable += 1;
+      continue;
+    }
+    stats.sessions += 1;
+    const turns = parseActivationTurns(s.transcript);
+    const root = s.cwd ?? "";
+    const opp: Record<string, number> = {};
+    const hit: Record<string, number> = {};
+    const failedOnce = new Set<string>();
+
+    for (const t of turns) {
+      const u = t.user.toLowerCase();
+      const cmds = t.tools
+        .filter((x) => x.name === "Bash")
+        .map((x) => pyStr(x.input.command, ""))
+        .join(" ; ");
+      const usedSkill = new Set(
+        t.tools.filter((x) => x.name === "Skill").map((x) => canonSkill(pyStr(x.input.skill, ""))),
+      );
+      const usedAgent = new Set(
+        t.tools
+          .filter((x) => x.name === "Agent" || x.name === "Task")
+          .map((x) => canonRole(pyStr(x.input.subagent_type, ""))),
+      );
+      for (const x of t.tools) {
+        if (x.name === "Skill") {
+          const n = canonSkill(pyStr(x.input.skill, "?"));
+          bump(u.includes(n) ? stats.asked : stats.auto, n);
+        } else if (x.name === "Agent" || x.name === "Task") {
+          const n = canonRole(pyStr(x.input.subagent_type, "?"));
+          bump(u.includes(n) ? stats.asked : stats.auto, n);
+        }
+      }
+
+      const mark = (id: string, cond: boolean, agent?: string, skill?: string): void => {
+        // `got` implies opportunity: when work is delegated it happens in the
+        // sidechain and `cond` (which looks at the main thread) is blind to it.
+        const got =
+          (agent !== undefined && usedAgent.has(agent)) ||
+          (skill !== undefined && usedSkill.has(skill));
+        if (!cond && !got) return;
+        bump(opp, id);
+        if (got) bump(hit, id);
+      };
+
+      const written = t.tools
+        .filter((x) => (x.name === "Edit" || x.name === "Write") && x.input.file_path)
+        .map((x) => pyStr(x.input.file_path, ""));
+      const touched = new Set(countNonTrivial(written, root).counted);
+      mark("implementer", touched.size >= 2, "implementer");
+
+      const final = t.assistant.join("\n").slice(-1500);
+      mark(
+        "verify-before-done",
+        touched.size > 0 && DONE_CLAIM.test(final) && !VERIFY_CMD.test(cmds),
+        undefined,
+        "verify-before-done",
+      );
+      mark("debug-error", t.tools.some(isDebuggable), undefined, "debug-failure");
+      mark("pr-review", PR_CMD.test(cmds), "publisher", "review-diff");
+      mark("reviewer", touched.size > 0 && COMMIT_CMD.test(cmds), "reviewer");
+
+      for (const x of t.tools) {
+        if (x.name !== "Bash" || !x.error) continue;
+        const k = commandSig(pyStr(x.input.command, ""));
+        if (k.length < 6) continue;
+        if (failedOnce.has(k)) mark("loop-back-debug", true, undefined, "debug-failure");
+        failedOnce.add(k);
+      }
+    }
+
+    for (const [id, n] of Object.entries(opp)) bump(stats.opp, id, n);
+    for (const [id, n] of Object.entries(hit)) bump(stats.hit, id, n);
+    const o = Object.values(opp).reduce((a, b) => a + b, 0);
+    const h = Object.values(hit).reduce((a, b) => a + b, 0);
+    if (o >= MIN_OPP) {
+      stats.graded += 1;
+      const rate = (100 * h) / o;
+      stats.buckets[rate === 0 ? "0%" : rate < 25 ? "1-24%" : rate < 75 ? "25-74%" : "75-100%"] +=
+        1;
+    }
+  }
+  return stats;
+}
+
+/** Flat metrics of the activation stats. The rate is floored to a whole
+ *  percent, as the script prints it. */
+export function flattenActivation(stats: ActivationStats): Record<string, number | null> {
+  const m: Record<string, number | null> = {
+    "activation.sessions": stats.sessions,
+    "activation.sessions.unavailable": stats.unavailable,
+    "activation.sessions.graded": stats.graded,
+  };
+  let to = 0;
+  let th = 0;
+  for (const { id } of ACTIVATION_TRIGGERS) {
+    const o = stats.opp[id] ?? 0;
+    const h = stats.hit[id] ?? 0;
+    to += o;
+    th += h;
+    m[`activation.${id}.opportunities`] = o;
+    m[`activation.${id}.hits`] = h;
+    m[`activation.${id}.pct`] = o === 0 ? null : Math.floor((100 * h) / o);
+  }
+  m["activation.total.opportunities"] = to;
+  m["activation.total.hits"] = th;
+  m["activation.total.pct"] = to === 0 ? null : Math.floor((100 * th) / to);
+  for (const [bucket, n] of Object.entries(stats.buckets)) m[`activation.bucket.${bucket}`] = n;
+  for (const [name, n] of Object.entries(stats.auto)) m[`activation.invoked.auto.${name}`] = n;
+  for (const [name, n] of Object.entries(stats.asked)) m[`activation.invoked.asked.${name}`] = n;
+  return m;
 }

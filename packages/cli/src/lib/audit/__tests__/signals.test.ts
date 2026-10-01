@@ -1,9 +1,19 @@
 import { describe, it, expect } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { agent as runOf, session as sessionOf } from "./lifecycle-fixtures.ts";
 import type { HarnessCatalog } from "../harness.ts";
 import type { AgentRun, HookEvent, SessionAudit } from "../model.ts";
 import { emptyPermissionDecisions, emptyTokens, emptyToolErrors } from "../model.ts";
-import { detectSignals, hookMisfires, unusedManagedCandidates } from "../signals.ts";
-import { buildReport } from "../report.ts";
+import {
+  detectSignals,
+  flattenActivation,
+  hookMisfires,
+  mineActivation,
+  unusedManagedCandidates,
+} from "../signals.ts";
+import { buildReport, renderMarkdown } from "../report.ts";
 
 function agent(over: Partial<AgentRun> = {}): AgentRun {
   return {
@@ -1335,5 +1345,94 @@ describe("unusedManagedCandidates (R47)", () => {
         "en",
       ),
     ).toEqual([]);
+  });
+});
+
+describe("activation published beside the main thread's share of edits", () => {
+  const CATALOG: HarnessCatalog = {
+    agents: [],
+    skills: [],
+    managedSkills: [],
+    sections: [],
+    claudeMdTokens: 0,
+    mcpFamilies: [],
+  };
+
+  // Covers: R67
+  it("publishes the main-thread Edit/Write share, and renders it in the activation section", () => {
+    const sess = sessionOf({
+      agents: [runOf({ agentType: "implementer", toolCounts: { Edit: 6, Write: 2 } })],
+    });
+    sess.orchestrator.toolCounts = { Edit: 2 };
+    const dir = mkdtempSync(join(tmpdir(), "navori-act-"));
+    try {
+      const file = join(dir, "t.jsonl");
+      writeFileSync(
+        file,
+        [
+          { type: "user", message: { content: "implementa x" } },
+          {
+            type: "assistant",
+            message: {
+              content: [
+                {
+                  type: "tool_use",
+                  id: "1",
+                  name: "Agent",
+                  input: { subagent_type: "implementer" },
+                },
+              ],
+            },
+          },
+        ]
+          .map((r) => JSON.stringify(r))
+          .join("\n"),
+        "utf-8",
+      );
+      const activation = flattenActivation(
+        mineActivation([{ sessionId: "s1", transcript: file, cwd: "/tmp/repo" }]),
+      );
+      const r = buildReport([sess], {
+        repo: "demo",
+        version: "0.11.0",
+        catalog: CATALOG,
+        extraMetrics: activation,
+      });
+      expect(r.rangeMetrics["edits.calls"]).toBe(10);
+      expect(r.rangeMetrics["edits.callsMain"]).toBe(2);
+      expect(r.rangeMetrics["edits.mainPct"]).toBe(20);
+      // The delegated turn counts as an opportunity AND as a hit: 100% on 1.
+      expect(r.rangeMetrics["activation.implementer.pct"]).toBe(100);
+      const md = renderMarkdown(r, "en");
+      expect(md).toContain("Activation over opportunities");
+      expect(md).toContain("**20%** (2 of 10)");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Covers: R67
+  it("leaves the share unavailable, not zero, when no Edit/Write ran", () => {
+    const r = buildReport([sessionOf()], { repo: "demo", version: "0.11.0", catalog: CATALOG });
+    expect(r.rangeMetrics["edits.calls"]).toBe(0);
+    expect(r.rangeMetrics["edits.mainPct"]).toBeNull();
+  });
+
+  // Covers: R67
+  it("floors the rate and leaves an empty trigger null", () => {
+    const m = flattenActivation({
+      sessions: 3,
+      unavailable: 0,
+      opp: { implementer: 3 },
+      hit: { implementer: 1 },
+      auto: {},
+      asked: {},
+      buckets: { "0%": 1, "1-24%": 0, "25-74%": 2, "75-100%": 0 },
+      graded: 3,
+    });
+    expect(m["activation.implementer.pct"]).toBe(33);
+    expect(m["activation.reviewer.pct"]).toBeNull();
+    expect(m["activation.total.pct"]).toBe(33);
+    expect(m["activation.bucket.25-74%"]).toBe(2);
   });
 });
