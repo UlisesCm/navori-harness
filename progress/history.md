@@ -2390,3 +2390,38 @@ Usuario aprobó las siete decisiones de T32 y repetir la suite completa con time
 - packages/cli/src/lib/config/recommended.ts — exclusión explícita de codegraph en full.
 - packages/cli/src/commands/doctor.ts — aviso informativo sin migración.
 - specs/0039-claude-first/ — decisiones y trazabilidad de T32/T45.
+
+## 2026-10-02 10:30 Codex — Valida T32 y publica T45 de la spec 0039
+
+## Goal
+Continuar la spec 0039 con T45 y T32.
+
+## Instructions
+Usuario aprobó las siete decisiones de T32, agregar dos expectativas e2e al alcance y la corrección de formato tras la segunda revisión rechazada. Autorizó suite completa con timeout de 60 s, sin omitir tests ni cambiar umbrales o configuración versionada.
+
+## Discoveries
+- El límite real de turnos está en el Agent tool_result del padre; la correlación por agentId evita atribuirlo a otra herramienta o corrida.
+- Codegraph permanece opt-in; T32 cambia los defaults de nuevas instalaciones full, no las configs ni los grants existentes.
+- Dos e2e aún suponían que full activaba todos los plugins; se actualizaron para probar la exclusión y la sugerencia de codegraph, conservando el caso quiet después del opt-in.
+- Un lock dist huérfano se retiró únicamente tras diagnóstico y aprobación. Los timeouts locales de 15 s se superaron con la ejecución completa de 60 s autorizada.
+
+## Accomplished
+- T45 publicada en PR #1160 a main, commit 556182f3; review APPROVED, receipt fresco y CI quality verde.
+- T32 implementada y validada en feat/spec-0039-t32: lista explícita, fila evaluada, aviso informativo en doctor/JSON, docs y assets coherentes; sin migrar configs.
+- Gate completo de T32 verde: 343 archivos, 6726 tests aprobados, 1 omitido existente; piso de cobertura de 113 módulos, lint y typecheck verdes. Render idempotente.
+- Estado de la spec: 38/45 mergeadas; T45 y T32 son dos entregas adicionales, no merges todavía.
+
+## Next Steps
+- Integrar T45 y T32 después de CI; si T45 se mergea primero, rebasar T32 y reconciliar progress antes de su merge.
+- Continuar T34 después de T32; T23/T24 y T37; T44 al final.
+- Desactivar codegraph en este repo mediante PR separado, conforme a la aprobación.
+- Checkout principal sigue en main atrasado con cambio local de Pi conservado; no sincronizarlo ni descartar su cambio sin resolver ese estado.
+- Worktrees T45/T32 se conservan; retirar únicamente cuando estén limpios, publicados y el usuario lo confirme.
+
+## Relevant Files
+- packages/cli/src/lib/audit/parse.ts — correlación de límite real de turnos.
+- packages/cli/src/lib/config/recommended.ts — codegraph excluido de full, sin dependencia runtime de la matriz.
+- packages/cli/src/commands/doctor.ts — aviso informativo y JSON sin afectar strict.
+- packages/cli/src/__tests__/cli.e2e.test.ts — dos expectativas alineadas al opt-in.
+- packages/plugins/codegraph/ — retirada del consejo no respaldado de maxFiles.
+- specs/0039-claude-first/ — R34 enmendado y trazabilidad de T32/T45.

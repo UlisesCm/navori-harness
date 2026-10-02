@@ -35,7 +35,12 @@ function makeTmpRepo(name = "test-app"): string {
   return dir;
 }
 
-function writeWorkspaceManifest(home: string, name: string, repoPath: string): void {
+function writeWorkspaceManifest(
+  home: string,
+  name: string,
+  repoPath: string,
+  plugins?: Record<string, { enabled: boolean }>,
+): void {
   const dir = join(home, ".navori", "workspaces", name);
   mkdirSync(dir, { recursive: true });
   writeFileSync(
@@ -43,7 +48,7 @@ function writeWorkspaceManifest(home: string, name: string, repoPath: string): v
     JSON.stringify({
       name,
       ticketsDir: "tickets",
-      defaults: {},
+      defaults: plugins ? { plugins } : {},
       repos: [{ name: "repo", path: repoPath }],
     }),
     "utf-8",
@@ -112,6 +117,31 @@ describe("init workspace inference — e2e (#1054)", () => {
 
     expect(r.status).toBe(0);
     expect(readConfig(repo).workspace).toBe("auto-ws");
+  });
+
+  // Covers: R34
+  it("init --full leaves codegraph opt-in while retaining other bundled defaults", () => {
+    const home = mkdtempSync(join(tmpdir(), "navori-e2e-ws-home-"));
+    const repo = makeTmpRepo();
+    dirs.push(home, repo);
+    const result = runCli(["init", "--full", "--no-render", "--cwd", repo], home);
+    expect(result.status).toBe(0);
+    const plugins = readConfig(repo).plugins as Record<string, { enabled: boolean }>;
+    expect(plugins.codegraph).toBeUndefined();
+    expect(plugins.tgrep).toEqual({ enabled: true });
+    expect(plugins.engram).toEqual({ enabled: true });
+  });
+
+  // Covers: R34
+  it.each([true, false])("init --full preserves workspace codegraph enabled=%s", (enabled) => {
+    const home = mkdtempSync(join(tmpdir(), "navori-e2e-ws-home-"));
+    const repo = makeTmpRepo();
+    dirs.push(home, repo);
+    writeWorkspaceManifest(home, "policy-ws", repo, { codegraph: { enabled } });
+    const result = runCli(["init", "--full", "--no-render", "--cwd", repo], home);
+    expect(result.status).toBe(0);
+    const plugins = readConfig(repo).plugins as Record<string, { enabled: boolean }>;
+    expect(plugins.codegraph).toEqual({ enabled });
   });
 
   // Covers: A2 (2+ matches — warn, write nothing)

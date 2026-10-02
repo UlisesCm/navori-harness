@@ -20,7 +20,7 @@ const es: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "--full",
-        desc: "--recommended + proveedores externos (tgrep, codegraph, semgrep, jscpd, acli) + pre-commit hook + scan-monorepo + project block estricto (posture/reviewRigor/testsForNewCode). Requiere instalar los binarios de esos proveedores.",
+        desc: "--recommended + proveedores externos por defecto (tgrep, semgrep, jscpd, acli; codegraph opt-in) + pre-commit hook + scan-monorepo + project block estricto (posture/reviewRigor/testsForNewCode). Requiere instalar los binarios de esos proveedores.",
       },
       {
         flag: "--recommended",
@@ -929,7 +929,7 @@ const en: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "--full",
-        desc: "--recommended + external providers (tgrep, codegraph, semgrep, jscpd, acli) + pre-commit hook + monorepo scan + strict project block (posture/reviewRigor/testsForNewCode). Requires installing those providers' binaries.",
+        desc: "--recommended + default external providers (tgrep, semgrep, jscpd, acli; codegraph opt-in) + pre-commit hook + monorepo scan + strict project block (posture/reviewRigor/testsForNewCode). Requires installing those providers' binaries.",
       },
       {
         flag: "--recommended",

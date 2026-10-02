@@ -41,7 +41,7 @@ npx navori init
 cd ~/tu-repo
 navori init --recommended
 
-# + proveedores externos (tgrep, codegraph, semgrep, jscpd, acli) + pre-commit hook +
+# + proveedores externos (tgrep, semgrep, jscpd, acli) + pre-commit hook +
 # scan-monorepo + project block estricto — requiere instalar los binarios de esos proveedores.
 # También avisa si falta algún binario y cómo instalarlo, sin instalarlo nunca.
 navori init --full
@@ -154,7 +154,7 @@ La resolución es **local → bundled**: si tienes un preset local con el mismo 
 | Plugin | Para qué | External tool |
 |---|---|---|
 | `engram` | Memoria persistente entre sesiones | `engram` binary |
-| `codegraph` | Descubrimiento estructural de código vía MCP | `codegraph` binary |
+| `codegraph` | Descubrimiento estructural de código vía MCP; opt-in explícito (no incluido en `--full`) | `codegraph` binary |
 | `tgrep` | Descubrimiento textual de código vía CLI indexado | `tgrep` binary |
 | `acli` | Leer tickets de Jira desde la terminal | `acli` |
 | `gh` | GitHub Issues, PRs y workflow runs | `gh` |

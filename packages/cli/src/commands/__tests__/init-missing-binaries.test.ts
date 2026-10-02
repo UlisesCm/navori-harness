@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeAll, afterEach, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -112,6 +120,24 @@ describe("init missing-binary warning (#1023)", () => {
       }
     }
     dirs = [];
+  });
+
+  // Covers: R34
+  it("new --full installs do not warn about codegraph as a default dependency", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    const result = runCli(["init", "--full", "--no-render", "--cwd", repo], PATH_WITHOUT_BINARIES);
+    expect(result.status).toBe(0);
+    const config = JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8")) as {
+      plugins?: Record<string, { enabled: boolean }>;
+    };
+    expect(config.plugins?.codegraph).toBeUndefined();
+    const missingBinariesLine = result.combined
+      .split("\n")
+      .find((line) => line.includes("Faltan binarios de plugins activados"));
+    expect(missingBinariesLine).toBeDefined();
+    expect(missingBinariesLine).not.toContain("codegraph");
+    expect(result.combined).toContain("tgrep");
   });
 
   it("init --yes with engram absent from PATH warns with the binary and its install command", () => {

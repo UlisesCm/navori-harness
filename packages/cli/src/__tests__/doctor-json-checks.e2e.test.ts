@@ -78,6 +78,7 @@ function seedRunnableRepo(dir: string, name: string, extra: Record<string, unkno
  *  the internal types the command happens to build it from. */
 interface DoctorReport {
   ok: boolean;
+  codegraphDefaultPolicy: { verdict: string; evidence: string } | null;
   gateReadiness: Array<{ gate: string; detail: string; reason: string }>;
   emptyUserSections: Array<{ id: string; path: string }>;
   interpolationArtifacts: Array<{ path: string; line: number; token: string; reason: string }>;
@@ -141,6 +142,38 @@ describe("doctor --json — warning-level checks", () => {
     dirs.push(dir);
     return dir;
   }
+
+  // Covers: R34, R35
+  it("reports enabled codegraph as information without changing config or strict health", () => {
+    const repo = seedRepo();
+    expect(runCli(["init", "--recommended", "--cwd", repo]).status).toBe(0);
+    const configPath = join(repo, "navori.config.json");
+    expect(doctorJson(repo).codegraphDefaultPolicy).toBeNull();
+    const config = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+    config.plugins = { codegraph: { enabled: true } };
+    writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+    expect(runCli(["render", "--apply", "--cwd", repo]).status).toBe(0);
+    const before = readFileSync(configPath, "utf-8");
+    const report = doctorJson(repo);
+    expect(report.codegraphDefaultPolicy).toEqual({
+      verdict: "quitar-del-default",
+      evidence: "docs/research/codegraph-costo-neto.md",
+    });
+    expect(readFileSync(configPath, "utf-8")).toBe(before);
+    const human = runCli(["doctor", "--cwd", repo]);
+    expect(human.stdout + human.stderr).toContain("docs/research/codegraph-costo-neto.md");
+    expect(runCli(["doctor", "--strict", "--cwd", repo]).status).toBe(0);
+    config.language = "en";
+    writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+    const english = runCli(["doctor", "--cwd", repo]);
+    expect(english.stdout + english.stderr).toContain("Codegraph is no longer enabled");
+    config.language = "es";
+    writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+    expect(doctorJson(repo).codegraphDefaultPolicy).toEqual(report.codegraphDefaultPolicy);
+    config.plugins = { codegraph: { enabled: false } };
+    writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+    expect(doctorJson(repo).codegraphDefaultPolicy).toBeNull();
+  });
 
   it("gateReadiness: a declared gate whose binary is not on PATH (#368)", () => {
     const repo = seedRepo();

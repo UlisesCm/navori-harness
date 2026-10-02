@@ -263,6 +263,13 @@ export const doctorCommand = defineCommand({
     const masterPlan = scanMasterPlan(cwd, config);
     // Spec 0039 R32: informative only (never feeds the verdict); a missing binary is not an error.
     const codegraphWiring = scanCodegraphWiring(cwd, config);
+    const codegraphDefaultPolicy =
+      config.plugins?.codegraph?.enabled === true
+        ? {
+            verdict: "quitar-del-default",
+            evidence: "docs/research/codegraph-costo-neto.md",
+          }
+        : null;
     // #522: the twin of the size check, and the one that actually costs work.
     // Agent worktrees are full checkouts nested in the repo, so an eslint run
     // started inside one resolves the parent repo's config too and dies with
@@ -428,6 +435,7 @@ export const doctorCommand = defineCommand({
       diskUsage,
       masterPlan,
       codegraphWiring,
+      codegraphDefaultPolicy,
       // Same reason `diskUsage` is here (#479): a check only a human can read
       // is invisible to the CI job and to the agent parsing the report — and
       // this one explains why that agent's own commit is failing.
@@ -972,6 +980,9 @@ export const doctorCommand = defineCommand({
         return `  ${color.yellow(sym.update)} ${accent("codegraph")}  ${grey(row)}`;
       });
       p.log.warn(td.codegraphWiring(codegraphFindings.length, lines.join("\n")));
+    }
+    if (codegraphDefaultPolicy) {
+      p.log.info(td.codegraphDefaultPolicy(codegraphDefaultPolicy.evidence));
     }
 
     if (nestedWorktrees) {

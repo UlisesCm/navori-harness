@@ -65,12 +65,12 @@ Una fila por unidad que navori distribuye. `complementa` significa que ninguna c
 | managed-block | `sdd` | complementa | emit | emit | — | — |
 | managed-block | `tipado-fuerte` | complementa | emit | emit | — | — |
 | plugin | `acli` | complementa | emit | emit | — | — |
-| plugin | `codegraph` | complementa | emit | emit | — | — |
 | plugin | `gh` | complementa | emit | emit | — | — |
 | plugin | `jscpd` | complementa | emit | emit | — | — |
 | plugin | `semgrep` | complementa | emit | emit | — | — |
 | plugin | `tgrep` | complementa | emit | emit | — | — |
 | plugin | `engram` | complementa | emit | emit | https://code.claude.com/docs/en/memory | 2026-09-30 |
+| plugin | `codegraph` | complementa | emit | emit | — | — |
 | flow | `master-plan-vs-plan-mode` | complementa | emit | unsupported | — | — |
 | flow | `native-task-list` | complementa | emit | n/a | — | — |
 | flow | `native-workflows` | complementa | emit | n/a | — | — |

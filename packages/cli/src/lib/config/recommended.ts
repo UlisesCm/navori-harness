@@ -121,9 +121,9 @@ export const RECOMMENDED_EFFORT = {
 } as const;
 
 /**
- * Enable every known plugin for `init --full`. Unlike `--recommended` (which is
+ * Enable default plugins for `init --full`. Unlike `--recommended` (which is
  * conservative and only adds `gh` when there's a GitHub remote), full mode turns
- * on all plugins in navori.config.json — including the ones that need an external
+ * on bundled plugins except measured opt-ins — including ones that need an external
  * binary (jscpd/semgrep/gh/acli). A missing binary is surfaced by
  * `doctor` as a non-fatal yellow warning (never flips its exit code); that's the
  * accepted trade-off for a maximal install.
@@ -132,10 +132,12 @@ export const RECOMMENDED_EFFORT = {
  * only enables plugins actually shipped in this install — never a stale static-map
  * id that would render as a missing plugin and fail `doctor --strict`.
  */
+export const FULL_PLUGIN_EXCLUSIONS: ReadonlySet<string> = new Set(["codegraph"]);
+
 export function buildFullPlugins(pluginIds: string[]): Record<string, { enabled: boolean }> {
   const result: Record<string, { enabled: boolean }> = {};
   for (const id of pluginIds) {
-    result[id] = { enabled: true };
+    if (!FULL_PLUGIN_EXCLUSIONS.has(id)) result[id] = { enabled: true };
   }
   return result;
 }

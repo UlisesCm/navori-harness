@@ -273,7 +273,14 @@ referencia.
 
 **Criterio (R34),** pre-registrado en F0a y verificable por la fecha del commit: codegraph conserva
 el default solo si algún brazo baja ≥ 15% la mediana de contexto con corrección ≥ la textual. Si
-no, `quitar-del-default`. **Veredicto (R35):** fila de la matriz.
+no, `quitar-del-default`. **Veredicto T31/R35:** la medición no superó el umbral; codegraph queda
+fuera de los defaults de nuevas instalaciones `navori init --full`, pero sigue como opt-in. No se
+migran ni modifican configuraciones existentes: los usuarios que ya lo habilitaron conservan el
+bloque y grants actuales, incluido el grant nominal de `scout` (precedente cubierto por
+`mcp-capability-wiring.test.ts`). `navori doctor` comunica la política como información separada,
+sin warning ni impacto en strict mode; también se expone en JSON. No se cambia la configuración
+automáticamente. La evaluación de la matriz informa la decisión, pero no gobierna el runtime ni
+los defaults.
 
 ### D8 — Agentes (R36–R40)
 
@@ -285,7 +292,8 @@ parten `tools:` por comas: se cambia a un split que respeta paréntesis, con tes
 (m4). Dentro del architect, `plan-gate` y los hooks de `Agent` disparan con `agent_id`: se documenta
 que es esperado. **R37.** En Codex o con `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1`, la fila lo
 registra y `orquestacion.md` pone `scout` antes y `scribe` después. **R38.** Bash da tgrep por
-allow; `codegraph_explore` entra por `withAgentMcpTools` mientras R35 no lo quite. **R39.** `scout`
+allow; `codegraph_explore` entra por `withAgentMcpTools` cuando el plugin está habilitado. R35
+decide su inclusión en nuevos defaults y no revoca el acceso opt-in. **R39.** `scout`
 gana `WebFetch, WebSearch`. Garantía: tokens y calidad. Señal: R49. Retiro: 0 llamadas web de
 `scout` en 30 días con `general-purpose` web > 0. **R40.** `general-purpose-confirm.sh`, calcado de
 `pr-publisher-confirm`: `PreToolUse` `Agent` con `if: Agent(general-purpose)`, `permissionDecision:
@@ -545,4 +553,3 @@ corregir "PostToolUse no trae identificador de agente" y documentar el carril
 `claude-post-tool-use`. **`evidence.md`:** "lo sustituye R16" debe decir R67; la ruta correcta es
 `lib/assets/retired-names.ts`. **Skill local `author-agent`:** la ampliación de `scout` (R39) aplica
 el criterio de admisión con la señal R49.
-

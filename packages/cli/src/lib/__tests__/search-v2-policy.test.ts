@@ -76,6 +76,18 @@ describe("the routing distinctions are stated where the policy actually lives", 
     expect(codegraph).toContain("Never initialize an index during ordinary discovery.");
   });
 
+  // Covers: R34
+  it("codegraph assets do not promise maxFiles bounds unsupported by T31", () => {
+    const block = read(pluginManaged("codegraph", "codegraph-search-v2.md"));
+    const skill = read(join(getPluginPath("codegraph"), "skills", "codegraph-access-v2.md"));
+    for (const asset of [block, skill]) {
+      expect(asset).not.toContain("Pass `maxFiles` to bound a large response.");
+    }
+    expect(block).toContain("projectPath");
+    expect(block).toContain("If unindexed or the provider fails, use scoped native exploration.");
+    expect(skill).toContain("Continue with scoped native tools if unavailable.");
+  });
+
   it("tgrep block: textual provider, index-freshness caveat, never a bare wildcard flag", () => {
     const tgrep = read(pluginManaged("tgrep", "tgrep-search-v2.md"));
     expect(tgrep).toContain("### Textual provider: tgrep");

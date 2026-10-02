@@ -1,11 +1,17 @@
 # Recipe — setup de codegraph y tgrep después de instalarlos
 
 > Qué hacer después de `navori add codegraph` / `navori add tgrep` (o de que
-> `navori init --full` los habilite) para que el MCP y el índice realmente
+> `navori init --full` habilite tgrep; codegraph requiere opt-in explícito) para que el MCP y el índice realmente
 > respondan. Destilado de `docs/research/search-v2.md` §6.1, sin el protocolo
 > interno de dogfood (branch, SHA base, git hooks) que ese doc también cubre.
 
 ## Cuándo aplica
+
+Codegraph está disponible como opt-in y ya no forma parte de los defaults de nuevas
+instalaciones `navori init --full`, tras la evaluación T31. Las configuraciones existentes que
+lo tienen habilitado no se modifican. Para desactivarlo en una configuración propia, establece
+`enabled: false` y ejecuta `navori sync`; no borres la clave, porque una clave ausente no equivale
+a un plugin deshabilitado.
 
 Solo a los 2 plugins que traen binario propio + índice: `codegraph` (servidor
 MCP, `packages/plugins/codegraph`) y `tgrep` (CLI + servidor,

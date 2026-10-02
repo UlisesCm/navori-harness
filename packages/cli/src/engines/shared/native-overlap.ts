@@ -91,6 +91,14 @@ export const OverlapRowSchema = z
     const fail = (message: string, path: (string | number)[]): void => {
       ctx.addIssue({ code: "custom", message, path });
     };
+    if (
+      row.evaluation?.kind === "codegraph" &&
+      !["conservar", "conservar-con-maxFiles", "quitar-del-default"].includes(
+        row.evaluation.verdict,
+      )
+    ) {
+      fail("invalid codegraph evaluation verdict", ["evaluation", "verdict"]);
+    }
     if (row.verdict === "complementa") return;
 
     // Syntactic check only (m11): that the page backs the capability is the
@@ -271,6 +279,19 @@ const ENGRAM_ROW: OverlapRow = {
   note: "Bundled plugin; native memory covers part of it, so the evaluation is recortar while the overlap verdict stays complementa.",
 };
 
+const CODEGRAPH_ROW: OverlapRow = {
+  unit: { kind: "plugin", id: "codegraph" },
+  native: null,
+  verdict: "complementa",
+  engines: support("emit", "emit", "emit"),
+  evaluation: {
+    kind: "codegraph",
+    verdict: "quitar-del-default",
+    evidence: "docs/research/codegraph-costo-neto.md",
+  },
+  note: "Bundled opt-in plugin; T31 found no net context saving on the measured Claude discovery workload.",
+};
+
 /**
  * One row per distributed unit: roster agents and skills, plan hooks, managed
  * blocks, bundled plugins and the R57 flows. `native-overlap.test.ts` fails when
@@ -306,7 +327,7 @@ export const OVERLAP_ROWS: readonly OverlapRow[] = [
       "Prose contract; no verified native equivalent.",
     ),
   ),
-  ...PLUGIN_IDS.filter((id) => id !== "engram").map((id) =>
+  ...PLUGIN_IDS.filter((id) => id !== "engram" && id !== "codegraph").map((id) =>
     complementa(
       { kind: "plugin", id },
       support("emit", "emit", "emit"),
@@ -314,6 +335,7 @@ export const OVERLAP_ROWS: readonly OverlapRow[] = [
     ),
   ),
   ENGRAM_ROW,
+  CODEGRAPH_ROW,
   ...FLOWS.map(({ id, note, codex }) =>
     complementa({ kind: "flow", id }, support("emit", codex, "n/a"), note),
   ),
