@@ -1,0 +1,15 @@
+{
+  "_probe": "T2/4 `echo SID=$CLAUDE_CODE_SESSION_ID` inside the Bash tool",
+  "bash_stdout_sid_equals_hook_session_id": true,
+  "hook_subprocess_env": "CLAUDE_CODE_SESSION_ID=<uuid> CLAUDE_EFFORT=low",
+  "tool_input": {
+    "command": "echo SID=$CLAUDE_CODE_SESSION_ID; echo EFF=$CLAUDE_EFFORT"
+  },
+  "tool_response": {
+    "stdout": "SID=<uuid>\nEFF=low",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false
+  }
+}

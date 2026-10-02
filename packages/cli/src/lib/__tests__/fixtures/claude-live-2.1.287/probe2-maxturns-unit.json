@@ -1,0 +1,29 @@
+{
+  "_probe": "T2/2 cappedpar (maxTurns: 3) asked for 5 batches of 3 parallel Bash calls; capped after 3 assistant messages = 9 tool calls",
+  "assistant_messages_by_id": [
+    {
+      "message_id": "msg_011C……",
+      "tool_calls": [
+        "echo b1-1",
+        "echo b1-2",
+        "echo b1-3"
+      ]
+    },
+    {
+      "message_id": "msg_011C……",
+      "tool_calls": [
+        "echo b2-1",
+        "echo b2-2",
+        "echo b2-3"
+      ]
+    },
+    {
+      "message_id": "msg_011C……",
+      "tool_calls": [
+        "echo b3-1",
+        "echo b3-2",
+        "echo b3-3"
+      ]
+    }
+  ]
+}

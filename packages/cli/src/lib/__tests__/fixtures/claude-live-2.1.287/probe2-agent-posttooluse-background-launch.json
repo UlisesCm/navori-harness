@@ -1,0 +1,30 @@
+{
+  "_probe": "T2/2 background Agent launch (no final content, no partial mark)",
+  "payload": {
+    "session_id": "<session_id>",
+    "transcript_path": "~/.claude/projects/<project-slug>/<uuid>.jsonl",
+    "cwd": "<scratch>/t2/repo",
+    "prompt_id": "<prompt_id>",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Agent",
+    "tool_input": {
+      "description": "5 batches of parallel bash commands",
+      "prompt": "Do 5 batches, one batch per assistant message. Each batch = 3 parallel Bash calls in ONE message. Batch k runs: echo bK-1, echo bK-2, echo bK-3 (K=1..5). After batch 5 reply ALL-DONE.",
+      "subagent_type": "cappedpar",
+      "run_in_background": true
+    },
+    "tool_response": {
+      "isAsync": true,
+      "status": "async_launched",
+      "agentId": "<agent_id>",
+      "description": "5 batches of parallel bash commands",
+      "resolvedModel": "claude-haiku-4-5-20251001",
+      "prompt": "Do 5 batches, one batch per assistant message. Each batch = 3 parallel Bash calls in ONE message. Batch k runs: echo bK-1, echo bK-2, echo bK-3 (K=1..5). After batch 5 reply ALL-DONE.",
+      "outputFile": "<tmp>/<project-slug>/<uuid>/tasks/<agent_id>.output",
+      "canReadOutputFile": true
+    },
+    "tool_use_id": "<tool_use_id>",
+    "duration_ms": 98
+  }
+}

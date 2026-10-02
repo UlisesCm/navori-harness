@@ -1,0 +1,98 @@
+{
+  "_probe": "T2/7 `claude -p /compact --resume` on CC 2.1.287 (haiku)",
+  "transcript_compact_boundary": {
+    "parentUuid": null,
+    "logicalParentUuid": "<uuid>",
+    "isSidechain": false,
+    "type": "system",
+    "subtype": "compact_boundary",
+    "content": "Conversation compacted",
+    "isMeta": false,
+    "timestamp": "2026-10-02T02:41:45.796Z",
+    "uuid": "<uuid>",
+    "level": "info",
+    "compactMetadata": {
+      "trigger": "manual",
+      "preTokens": 25117,
+      "durationMs": 11722,
+      "postTokens": 4490,
+      "cumulativeDroppedTokens": 20627
+    },
+    "userType": "external",
+    "entrypoint": "sdk-cli",
+    "cwd": "<scratch>/t2/repo",
+    "sessionId": "<session_id>",
+    "version": "2.1.287",
+    "gitBranch": "main",
+    "slug": "<slug>"
+  },
+  "transcript_compact_summary": {
+    "parentUuid": "<uuid>",
+    "isSidechain": false,
+    "promptId": "<prompt_id>",
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": "This session is being continued from a previous conversation that ran out of context. The summary below covers the earli…"
+    },
+    "isVisibleInTranscriptOnly": true,
+    "isCompactSummary": true,
+    "uuid": "<uuid>",
+    "timestamp": "2026-10-02T02:41:45.793Z",
+    "turnPosition": {
+      "promptIndex": 0,
+      "turnIndex": 1
+    },
+    "userType": "external",
+    "entrypoint": "sdk-cli",
+    "cwd": "<scratch>/t2/repo",
+    "sessionId": "<session_id>",
+    "version": "2.1.287",
+    "gitBranch": "main",
+    "slug": "<slug>"
+  },
+  "hook_payloads": {
+    "PreCompact": {
+      "session_id": "<session_id>",
+      "transcript_path": "~/.claude/projects/<project-slug>/<uuid>.jsonl",
+      "cwd": "<scratch>/t2/repo",
+      "prompt_id": "<prompt_id>",
+      "hook_event_name": "PreCompact",
+      "trigger": "manual",
+      "custom_instructions": null
+    },
+    "PostCompact": {
+      "session_id": "<session_id>",
+      "transcript_path": "~/.claude/projects/<project-slug>/<uuid>.jsonl",
+      "cwd": "<scratch>/t2/repo",
+      "prompt_id": "<prompt_id>",
+      "hook_event_name": "PostCompact",
+      "trigger": "manual",
+      "compact_summary": "<analysis>\nThis conversation is extremely brief with minimal content to summarize. Let me analyze the sequence of events…"
+    },
+    "SubagentStop": {
+      "session_id": "<session_id>",
+      "transcript_path": "~/.claude/projects/<project-slug>/<uuid>.jsonl",
+      "cwd": "<scratch>/t2/repo",
+      "prompt_id": "<prompt_id>",
+      "permission_mode": "default",
+      "agent_id": "<agent_id>",
+      "agent_type": "",
+      "hook_event_name": "SubagentStop",
+      "stop_hook_active": false,
+      "agent_transcript_path": "~/.claude/projects/<project-slug>/<uuid>/subagents/agent-<agent_id>.jsonl",
+      "last_assistant_message": "<analysis>\nThis conversation is extremely brief with minimal content to summarize. Let me analyze the sequence of events…",
+      "background_tasks": [],
+      "session_crons": []
+    },
+    "SessionStart(source=compact)": {
+      "session_id": "<session_id>",
+      "transcript_path": "~/.claude/projects/<project-slug>/<uuid>.jsonl",
+      "cwd": "<scratch>/t2/repo",
+      "prompt_id": "<prompt_id>",
+      "hook_event_name": "SessionStart",
+      "source": "compact",
+      "model": "claude-haiku-4-5-20251001"
+    }
+  }
+}

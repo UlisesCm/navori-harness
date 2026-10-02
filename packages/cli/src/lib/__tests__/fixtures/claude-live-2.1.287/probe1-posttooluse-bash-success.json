@@ -1,0 +1,27 @@
+{
+  "_probe": "T2/1 contrast: PostToolUse Bash exit 0 (tool_response.stdout/stderr split)",
+  "payload": {
+    "session_id": "<session_id>",
+    "transcript_path": "~/.claude/projects/<project-slug>/<uuid>.jsonl",
+    "cwd": "<scratch>/t2/repo",
+    "prompt_id": "<prompt_id>",
+    "permission_mode": "bypassPermissions",
+    "effort": {
+      "level": "low"
+    },
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo SID=$CLAUDE_CODE_SESSION_ID; echo EFF=$CLAUDE_EFFORT"
+    },
+    "tool_response": {
+      "stdout": "SID=<uuid>\nEFF=low",
+      "stderr": "",
+      "interrupted": false,
+      "isImage": false,
+      "noOutputExpected": false
+    },
+    "tool_use_id": "<tool_use_id>",
+    "duration_ms": 7328
+  }
+}

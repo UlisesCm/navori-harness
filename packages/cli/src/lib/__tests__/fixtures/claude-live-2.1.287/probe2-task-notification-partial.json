@@ -1,0 +1,33 @@
+{
+  "_probe": "T2/2 background partial: transcript record of the task-notification (user message)",
+  "record": {
+    "parentUuid": "<uuid>",
+    "isSidechain": false,
+    "promptId": "<prompt_id>",
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": "<task-notification>\n<task-id><agent_id></task-id>\n<tool-use-id><tool_use_id></tool-use-id>\n<output-file><tmp>/<project-slug>/<uuid>/tasks/<agent_id>.output</output-file>\n<status>completed</status>\n<summary>Agent \"5 batches of parallel bash commands\" stopped at its 3-turn limit (partial result; SendMessage to task-id to continue)</summary>\n<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>\n<result>NOTE: this agent stopped at its 3-turn limit before finishing. It was still calling tools and had produced no report. Send the agent a message (SendMessage) to let it continue from where it stopped.\n</result>\n<usage><subagent_tokens>6797</subagent_tokens><tool_uses>9</tool_uses><duration_ms>20395</duration_ms></usage>\n</task-notification>"
+    },
+    "uuid": "<uuid>",
+    "timestamp": "2026-10-02T02:34:21.251Z",
+    "permissionMode": "bypassPermissions",
+    "origin": {
+      "kind": "task-notification",
+      "producer": "session-task"
+    },
+    "promptSource": "system",
+    "turnOrigin": "task_notification",
+    "turnPosition": {
+      "promptIndex": 0,
+      "turnIndex": 2
+    },
+    "queueSkipAttachments": true,
+    "userType": "external",
+    "entrypoint": "sdk-cli",
+    "cwd": "<scratch>/t2/repo",
+    "sessionId": "<session_id>",
+    "version": "2.1.287",
+    "gitBranch": "main"
+  }
+}

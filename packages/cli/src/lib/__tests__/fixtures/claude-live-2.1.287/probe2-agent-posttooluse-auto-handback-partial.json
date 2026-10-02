@@ -1,0 +1,90 @@
+{
+  "_probe": "T2/2 foreground Agent hits maxTurns: 3 in auto mode (SubagentHandback)",
+  "payload": {
+    "session_id": "<session_id>",
+    "transcript_path": "~/.claude/projects/<project-slug>/<uuid>.jsonl",
+    "cwd": "<scratch>/t2/repo",
+    "prompt_id": "<prompt_id>",
+    "permission_mode": "auto",
+    "effort": {
+      "level": "low"
+    },
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Agent",
+    "tool_input": {
+      "description": "Run capped agent",
+      "prompt": "Run these 6 Bash commands one at a time, one per message: echo s1; echo s2; echo s3; echo s4; echo s5; echo s6. Then deliver ALL-DONE as your final report.",
+      "subagent_type": "capped",
+      "run_in_background": false
+    },
+    "tool_response": {
+      "status": "completed",
+      "prompt": "Run these 6 Bash commands one at a time, one per message: echo s1; echo s2; echo s3; echo s4; echo s5; echo s6. Then deliver ALL-DONE as your final report.",
+      "agentId": "<agent_id>",
+      "agentType": "capped",
+      "handback": "withheld",
+      "harnessNoteCount": 2,
+      "harnessTailCount": 0,
+      "harnessSectionHash": "<hash>",
+      "content": [
+        {
+          "type": "text",
+          "text": "NOTE: this agent stopped at its 3-turn limit before finishing. It was still calling tools and had produced no report. Send the agent a message (SendMessage) to let it continue from where it stopped.\n"
+        },
+        {
+          "type": "text",
+          "text": "The subagent ended without delivering a report through SubagentHandback, so no report was delivered. Its unsent text is not shown. Send the agent a message (SendMessage) to ask it to deliver its report.\n"
+        }
+      ],
+      "resolvedModel": "claude-haiku-4-5-20251001",
+      "totalDurationMs": 15178,
+      "totalTokens": 9343,
+      "totalToolUseCount": 3,
+      "usage": {
+        "output_tokens_details": {
+          "thinking_tokens": 17
+        },
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 181,
+        "cache_read_input_tokens": 9061,
+        "output_tokens": 93,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 181
+        },
+        "inference_geo": "not_available",
+        "iterations": [
+          {
+            "input_tokens": 8,
+            "output_tokens": 93,
+            "cache_read_input_tokens": 9061,
+            "cache_creation_input_tokens": 181,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 181,
+              "ephemeral_1h_input_tokens": 0
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "toolStats": {
+        "readCount": 0,
+        "searchCount": 0,
+        "bashCount": 3,
+        "editFileCount": 0,
+        "linesAdded": 0,
+        "linesRemoved": 0,
+        "otherToolCount": 0
+      }
+    },
+    "tool_use_id": "<tool_use_id>",
+    "duration_ms": 16717
+  }
+}
