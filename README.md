@@ -150,8 +150,9 @@ Requiere **Node ≥ 22** y **bun 1.4.2**.
 bun install
 bun run build                 # build de todos los paquetes
 
-bun check                     # quality gate completo (lo mismo que valida CI)
-bun hooks:install             # instala el pre-push versionado que corre ese mismo gate
+bun check                     # quality gate completo (lo que valida CI en PRs a main)
+bun check:fast                # pasada rápida: format, jscpd, semgrep, lint, typecheck
+bun hooks:install             # instala el pre-commit: check:fast + tests relacionados
 
 # probar el binario local sin publicar:
 node packages/cli/dist/index.js init --cwd /ruta/a/un/repo

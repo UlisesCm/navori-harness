@@ -1,8 +1,11 @@
 name: CI
 
+# Two tiers: `main` (pushes and PRs targeting it) runs the full `quality`
+# job; everything else — `develop` and PRs into it — runs `fast`, the same
+# pass as the versioned pre-commit hook (`check:fast` + related tests).
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
 
 # Cancel a PR's in-flight run when a newer commit is pushed — no point burning
@@ -19,6 +22,7 @@ env:
 
 jobs:
   quality:
+    if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -148,3 +152,53 @@ jobs:
       # instrumentation costs seconds.
       - name: Test + coverage gate
         run: bun run --filter navori test:coverage
+
+  # The pre-commit pass, in CI. jscpd and semgrep are not repo dependencies,
+  # and both scan scripts exit 0 with `⊘ not installed` when the tool is
+  # absent — so they are installed at a pinned version and `--version` fails
+  # the step if either is missing, instead of letting the scan read green over
+  # nothing (the false green #777 describes).
+  fast:
+    if: github.ref != 'refs/heads/main' && github.base_ref != 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The scans and `test:related` diff against a base ref; they need
+          # its history.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install scanners
+        run: |
+          pipx install semgrep==1.176.0
+          npm install -g jscpd@5.3.2
+          semgrep --version
+          jscpd --version
+
+      - name: Fast gate
+        run: bun run check:fast
+
+      # A PR diffs against its target; a push to `develop` against the commit
+      # it replaced.
+      - name: Related tests
+        env:
+          BASE_REF: ${{ github.base_ref && format('origin/{0}', github.base_ref) || github.event.before }}
+        run: bun run test:related --base "$BASE_REF"
