@@ -56,6 +56,7 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
       scribeOwnsMarkdown: false,
       planTiers: false,
       masterPlan: false,
+      compactAdviceTokens: 175000,
     });
   });
 
@@ -65,6 +66,21 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
     const on = NavoriConfigSchema.parse({ ...MINIMAL, harness: { masterPlan: true } });
     expect(on.harness?.masterPlan).toBe(true);
     expect(on.harness?.implementer).toBe(true);
+  });
+
+  // Covers: R44, R70
+  it("harness.compactAdviceTokens defaults to 175000 and accepts an integer >= 0", () => {
+    const def = NavoriConfigSchema.parse({ ...MINIMAL, harness: {} });
+    expect(def.harness?.compactAdviceTokens).toBe(175000);
+    for (const v of [0, 1, 150000]) {
+      const c = NavoriConfigSchema.parse({ ...MINIMAL, harness: { compactAdviceTokens: v } });
+      expect(c.harness?.compactAdviceTokens).toBe(v);
+    }
+    for (const bad of [-1, 1.5, "175000"]) {
+      expect(
+        NavoriConfigSchema.safeParse({ ...MINIMAL, harness: { compactAdviceTokens: bad } }).success,
+      ).toBe(false);
+    }
   });
 
   // Covers: R13

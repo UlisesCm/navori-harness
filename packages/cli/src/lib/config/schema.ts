@@ -162,6 +162,9 @@ const SddSchema = z.object({
   doesNotApplyTo: z.array(z.string()).default([]),
 });
 
+/** Default `harness.compactAdviceTokens` (spec 0039 R44); also the render-time fallback when `harness` is absent. */
+export const DEFAULT_COMPACT_ADVICE_TOKENS = 175000;
+
 const HarnessSchema = z.object({
   orchestrator: z.boolean().default(true),
   implementer: z.boolean().default(true),
@@ -203,6 +206,12 @@ const HarnessSchema = z.object({
   // and `doctor`'s scan over `_master/index.json` (D8), none of which read
   // this key.
   masterPlan: z.boolean().default(false),
+  // Spec 0039 (R44): context-token threshold above which `subagent-stop-handoff`
+  // advises saving the summary and running /compact or /clear after a
+  // `publisher` dispatch. A number, NOT a flag: it is interpolated into the hook
+  // with `{{shq:harness.compactAdviceTokens}}` and kept out of `HARNESS_DEFAULTS`
+  // (booleans only). `0` turns the advice off.
+  compactAdviceTokens: z.number().int().min(0).default(DEFAULT_COMPACT_ADVICE_TOKENS),
 });
 
 /**
@@ -222,7 +231,11 @@ const HarnessSchema = z.object({
  * silently ignoring the schema default. Both call sites now consult this map
  * instead of assuming "unset" always means "enabled".
  */
-export const HARNESS_DEFAULTS: Readonly<Record<string, boolean>> = HarnessSchema.parse({});
+export const HARNESS_DEFAULTS: Readonly<Record<string, boolean>> = (() => {
+  // The numeric `compactAdviceTokens` is not a flag; flags are what this map answers.
+  const { compactAdviceTokens: _threshold, ...flags } = HarnessSchema.parse({});
+  return flags;
+})();
 
 const ModelsSchema = z.object({
   orchestrator: z.enum(MODELS).optional(),

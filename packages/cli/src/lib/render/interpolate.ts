@@ -1,4 +1,5 @@
 import type { NavoriConfig } from "../config/config.ts";
+import { DEFAULT_COMPACT_ADVICE_TOKENS } from "../config/schema.ts";
 import { resolveLang } from "../i18n.ts";
 import { placeholderFallback, type FallbackScope } from "./placeholders.ts";
 import { shellSingleQuote } from "../primitives/shell-escape.ts";
@@ -104,7 +105,14 @@ export function interpolate(
   config: NavoriConfig,
   options: InterpolateOptions = {},
 ): string {
-  const extra = options.extraVars ?? {};
+  // `harness` is optional, so a numeric harness default has no config path to
+  // resolve from; without this the hook renders `<not configured: …>` (R44).
+  const extra = {
+    "harness.compactAdviceTokens": String(
+      config.harness?.compactAdviceTokens ?? DEFAULT_COMPACT_ADVICE_TOKENS,
+    ),
+    ...options.extraVars,
+  };
   const scope = options.fallbackScope ?? "repo";
   if (!options.omitUnresolvedKeyLines) {
     return interpolateRaw(content, config, extra, scope);
