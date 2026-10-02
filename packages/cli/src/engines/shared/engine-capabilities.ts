@@ -30,7 +30,8 @@ export type ControlId =
   | "handoff-consumer"
   | "analytic-write-tools"
   | "local-skill-discovery"
-  | "acceptance-evidence";
+  | "acceptance-evidence"
+  | "compact-advice";
 
 /** The `navori.config.json` flag that turns a control's condition on, if any. */
 export type ControlCondition = "planTiers" | "masterPlan" | "scribeOwnsMarkdown" | "localSkills";
@@ -116,6 +117,11 @@ export const CONTROL_DEFINITIONS: Readonly<Record<ControlId, ControlDefinition>>
   "acceptance-evidence": {
     description:
       "Requires recorded host evidence of a criterion's run before `navori plan update` accepts `cumplido`.",
+    hookScripts: [],
+  },
+  "compact-advice": {
+    description:
+      "Advises saving the session summary and using /compact or /clear when the main thread's context passes `harness.compactAdviceTokens` after a publisher dispatch.",
     hookScripts: [],
   },
 });
@@ -324,6 +330,10 @@ const PROSE_CONTROLS: Readonly<Record<ControlId, ControlDeclaration>> = Object.f
     state: "unsupported",
     reason: "Prose engines render no hooks, so no Bash run is ever recorded as evidence.",
   },
+  "compact-advice": {
+    state: "unsupported",
+    reason: "Prose engines render no hooks, so no context-size advice is ever injected.",
+  },
 });
 
 export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>> = Object.freeze({
@@ -394,6 +404,19 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "`plan update` requires recorded evidence inside a Claude Code child session " +
           "(CLAUDE_CODE_CHILD_SESSION=1); an agent can still bypass it (spec 0039 D5). " +
           "The recording hook ships separately.",
+      },
+      "compact-advice": {
+        state: "advisory",
+        reason:
+          "subagent-stop-handoff.sh adds a once-per-session note after a publisher dispatch when " +
+          "the main thread's last transcript usage passes harness.compactAdviceTokens (spec 0039 R44); " +
+          "it advises, never blocks.",
+        evidence: {
+          kind: "hook",
+          script: "subagent-stop-handoff.sh",
+          event: "PostToolUse",
+          matcher: "Agent|Task",
+        },
       },
     },
     analyticWriteTools: CLAUDE_ANALYTIC_WRITE_TOOLS,
@@ -480,6 +503,12 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "No verifiable Bash success signal: PostToolUse fires on exit != 0 too, so `plan update` " +
           "accepts cumplido as unevidenced (spec 0039 R10).",
       },
+      "compact-advice": {
+        state: "unsupported",
+        reason:
+          "Codex SubagentStop has no PostToolUse context channel and its transcript is not the " +
+          "Claude usage format, so the lane is Claude-only (spec 0039 R44).",
+      },
     },
     analyticWriteTools: CODEX_ANALYTIC_WRITE_TOOLS,
   },
@@ -548,6 +577,11 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         state: "unsupported",
         reason:
           "Pi does not record verifiable child Bash results for acceptance criteria, so plan update cannot require host evidence before cumplido.",
+      },
+      "compact-advice": {
+        state: "unsupported",
+        reason:
+          "Pi runs no navori hook scripts, so no context-size advice is injected after a publisher dispatch.",
       },
     },
     analyticWriteTools: {

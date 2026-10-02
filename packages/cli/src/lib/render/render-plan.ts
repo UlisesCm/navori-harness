@@ -391,7 +391,7 @@ export function conditionOrchestration(content: string, config: NavoriConfig): s
     // always means "enabled" — see that export's doc for why the old blanket
     // `!== false` broke the moment `architect` defaulted to `false`.
     const explicit = config.harness?.[key as keyof NonNullable<NavoriConfig["harness"]>];
-    if (explicit !== undefined) return explicit;
+    if (typeof explicit === "boolean") return explicit;
     return HARNESS_DEFAULTS[key] ?? true;
   };
 

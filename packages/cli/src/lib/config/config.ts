@@ -310,6 +310,7 @@ const CONFIG_KEY_RULE: ConfigObjectRule = {
         "scribeOwnsMarkdown",
         "planTiers",
         "masterPlan",
+        "compactAdviceTokens",
       ],
     },
     models: {

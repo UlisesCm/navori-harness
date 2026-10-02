@@ -230,7 +230,7 @@ Lote 3 (sujeto al gate de T2):
 - [ ] **T37** (R42) — Carril de parcial en `subagent-stop-handoff.sh` con la fixture de T2; sin
   fallback por `impl_*.json` ausente (M6); doctrina `SendMessage` en `orquestacion.md`. · test:
   fixture → aviso; handoff ausente sin marca → sin aviso, con `// Covers: R42`.
-- [ ] **T38** (R44, R70) — Carril de compactación (modo Claude, hilo principal, despacho de
+- [x] **T38** (R44, R70) — Carril de compactación (modo Claude, hilo principal, despacho de
   `publisher`, última línea completa con `usage` en la cola de 256 KB);
   `harness.compactAdviceTokens` en `lib/config/schema.ts`; control `compact-advice`. · test:
   casos de design.md § Testing strategy y `schema.test.ts` con `// Covers: R44, R70`.
