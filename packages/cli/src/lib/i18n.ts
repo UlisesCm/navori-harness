@@ -579,6 +579,22 @@ export function resolveLang(value: unknown): Lang {
   return value === "es" || value === "en" ? value : DEFAULT_LANG;
 }
 
+/** Localized advisory for an already cached CLI release; never changes stdout. */
+export function updateNoticeText(
+  lang: Lang,
+  current: string,
+  latest: string,
+  command: string,
+): string {
+  const page =
+    lang === "es"
+      ? "https://ulisescm.github.io/navori-harness/versiones/"
+      : "https://ulisescm.github.io/navori-harness/en/releases/";
+  return lang === "es"
+    ? `navori ${latest} disponible (actual: ${current}). Actualiza con: ${command}\nVersiones: ${page}\nDespués ejecuta: navori render --apply\n`
+    : `navori ${latest} available (current: ${current}). Update with: ${command}\nReleases: ${page}\nThen run: navori render --apply\n`;
+}
+
 /* ------------------------------------------------------------------------- *
  * Command output catalog
  *

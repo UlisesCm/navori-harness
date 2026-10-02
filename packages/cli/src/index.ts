@@ -26,6 +26,11 @@ import { planCommand } from "./commands/plan.ts";
 import { handoffCommand } from "./commands/handoff.ts";
 import { masterCommand } from "./commands/master.ts";
 import { readCliVersion } from "./lib/render/bundled-assets.ts";
+import {
+  runUpdateNotice,
+  runUpdateNoticeWorker,
+  UPDATE_NOTICE_WORKER_ARG,
+} from "./lib/primitives/update-notice.ts";
 
 const main = defineCommand({
   meta: {
@@ -63,4 +68,11 @@ const main = defineCommand({
   },
 });
 
-runMain(main);
+if (process.argv[2] === UPDATE_NOTICE_WORKER_ARG) {
+  void runUpdateNoticeWorker(process.argv[3]).finally(() => {
+    process.exitCode = 0;
+  });
+} else {
+  runUpdateNotice(readCliVersion(), process.argv.slice(2));
+  runMain(main);
+}

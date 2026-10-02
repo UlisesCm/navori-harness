@@ -63,6 +63,24 @@ Y genera:
 - `CLAUDE.md` con managed blocks que el CLI mantiene sincronizados
 - `.claude/` con agentes, skills, hooks y settings
 
+### Aviso opcional de actualización
+
+En comandos interactivos, navori puede avisar si detecta una versión más nueva. La
+consulta al registro de npm se ejecuta en segundo plano y no bloquea el comando;
+por eso, la primera ejecución solo inicia la actualización de la caché y el aviso
+puede aparecer en una ejecución posterior. Se limita a una consulta y un aviso
+cada 24 horas. No se muestra en CI, en modo JSON ni en comandos de ayuda o versión.
+
+Para desactivarlo, define `NAVORI_NO_UPDATE_NOTIFIER=1`. El aviso recomienda el
+comando de actualización según el instalador detectado, con `npx` como alternativa.
+No instala ni actualiza automáticamente y tampoco ejecuta `render`: después de
+actualizar navori, corre `navori render --apply` para aplicar los cambios a tu
+harness.
+
+Si un cierre abrupto deja bloqueado el aviso, detén primero todos los procesos
+`navori`. Después elimina únicamente `~/.navori/update-notice/lock`; conserva los
+archivos de caché y reserva de ese directorio.
+
 ## Comandos
 
 | Comando | Qué hace |
