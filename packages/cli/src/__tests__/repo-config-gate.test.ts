@@ -414,12 +414,12 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
 /**
  * The fast tier: what runs before every commit and on `dev`.
  *
- * Locally the pre-commit runs `check:fast` plus the tests related to the
- * staged files; CI's `fast` job runs the same pair for `dev` and PRs into
- * it. The full gate stays on `main`. The pass must be a strict subset of
+ * Locally the pre-commit runs `check:fast`; CI's `fast` job runs format, lint
+ * and typecheck for `dev` and PRs into it. Neither runs tests: those run only
+ * on `main` (`quality`). The pass must be a strict subset of
  * `qualityGate.full`, or `dev` would block on a check `main` never runs.
  */
-describe("pre-commit and CI's dev tier run the same fast pass", () => {
+describe("pre-commit and CI's dev tier run no tests", () => {
   const rootPkg = JSON.parse(
     readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8"),
   ) as RootPackageJson;
@@ -436,18 +436,21 @@ describe("pre-commit and CI's dev tier run the same fast pass", () => {
     expect([...fast].filter((c) => !full.has(c))).toEqual([]);
   });
 
-  it("the versioned pre-commit runs check:fast and the related tests", () => {
+  it("the versioned pre-commit runs check:fast and no tests", () => {
     const hook = readFileSync(PRE_COMMIT_HOOK, "utf-8");
     expect(hook).toContain("bun run check:fast");
-    expect(hook).toContain("bun run test:related");
+    expect(hook).not.toMatch(/test:coverage|bun test|bun run test/);
     expect(hook).toContain("NAVORI_PRE_COMMIT_RUNNING");
   });
 
-  it("CI's fast job runs the same pass, with the scanners installed", () => {
-    expect([...ciChecks("fast")]).toEqual(expect.arrayContaining(["check:fast", "test:related"]));
-    const body = jobBody("fast");
-    expect(body).toContain("semgrep --version");
-    expect(body).toContain("jscpd --version");
+  it("CI's fast job runs only format, lint and typecheck, no tests", () => {
+    const checks = [...ciChecks("fast")].filter((c) => c !== "install");
+    expect(checks.sort()).toEqual(["format:check", "lint", "typecheck"]);
+    expect(jobBody("fast")).not.toMatch(/\btest\b/);
+  });
+
+  it("the quality job still runs the tests with coverage", () => {
+    expect([...ciChecks("quality")]).toContain("test:coverage");
   });
 
   it("main runs the full job and everything else the fast one", () => {

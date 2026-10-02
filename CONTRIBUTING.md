@@ -37,12 +37,11 @@ nadie tenga que aprobar nada a mano.
 
 Hay dos niveles:
 
-- **Rápido** — el pre-commit versionado (`bun hooks:install`) y el job `fast` de CI, que corre en
-  `dev` y en los PRs hacia `dev`. Ambos corren `bun check:fast` (format, jscpd, semgrep,
-  lint, typecheck) más `bun test:related`: solo los tests que dependen de los archivos de
-  `packages/cli/src` cambiados (staged en local; contra la base del PR en CI).
+- **Rápido** — el pre-commit versionado (`bun hooks:install`) corre `bun check:fast` (format,
+  jscpd, semgrep, lint, typecheck), sin tests. El job `fast` de CI, que corre en `dev` y en los
+  PRs hacia `dev`, corre solo format check, lint y typecheck, sin tests ni scanners.
 - **Completo** — `bun check`, abajo. Es lo que valida el job `quality` de CI en los PRs hacia
-  `main` y en los pushes a `main`; si no pasa, el PR falla:
+  `main` y en los pushes a `main`; si no pasa, el PR falla. Es el único nivel que corre tests y cobertura:
 
 1. **`bun check` desde la raíz del monorepo.** Es un alias de `qualityGate.full` en
    `navori.config.json`, que es **el único lugar** donde vive el gate: de ahí salen los bloques
@@ -212,6 +211,6 @@ el reporte omite esa línea cuando `engines` no incluye `claude`.
 ## Commits y PRs
 
 - Commits: Conventional, español MX, atómicos (`feat|fix|chore|docs(scope): mensaje`).
-- Cada ticket en branch nueva con PR hacia `dev` (gate rápido en CI). `dev` entra a
+- Cada ticket en branch nueva con PR hacia `dev` (format, lint y typecheck en CI, sin tests). `dev` entra a
   `main` por PR, y ese PR debe pasar el gate completo.
 - No commitees el harness local (`CLAUDE.md`, `.claude/`) de un repo `/bonum`.
