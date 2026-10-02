@@ -97,6 +97,7 @@ const AUDIT_CLOSE_HOOK_DEST = ".claude/hooks/audit-mode-close.sh";
 const SUBAGENT_STOP_HOOK_DEST = ".claude/hooks/subagent-stop-handoff.sh";
 const MANAGED_DRIFT_HOOK_DEST = ".claude/hooks/managed-drift-watch.sh";
 const ROUTING_WATCH_HOOK_DEST = ".claude/hooks/routing-watch.sh";
+const BASH_OUTCOME_WATCH_HOOK_DEST = ".claude/hooks/bash-outcome-watch.sh";
 const PR_PUBLISHER_HOOK_DEST = ".claude/hooks/pr-publisher-confirm.sh";
 const GENERAL_PURPOSE_HOOK_DEST = ".claude/hooks/general-purpose-confirm.sh";
 const COMMENT_DRAFT_HOOK_DEST = ".claude/hooks/comment-draft-confirm.sh";
@@ -475,6 +476,24 @@ export function buildClaudeSettings(
               command: `bash "$CLAUDE_PROJECT_DIR/${MANAGED_DRIFT_HOOK_DEST}"`,
               timeout: 10,
               statusMessage: "navori: managed-block drift",
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  settings = deepMerge(settings, {
+    hooks: {
+      PostToolUseFailure: [
+        {
+          matcher: "Bash",
+          hooks: [
+            {
+              type: "command",
+              command: `bash "$CLAUDE_PROJECT_DIR/${BASH_OUTCOME_WATCH_HOOK_DEST}"`,
+              timeout: 10,
+              statusMessage: "navori: repeat failure advice",
             },
           ],
         },

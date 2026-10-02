@@ -31,6 +31,7 @@ export type ControlId =
   | "analytic-write-tools"
   | "local-skill-discovery"
   | "acceptance-evidence"
+  | "repeat-failure-advice"
   | "compact-advice"
   | "general-purpose-confirm";
 
@@ -119,6 +120,10 @@ export const CONTROL_DEFINITIONS: Readonly<Record<ControlId, ControlDefinition>>
     description:
       "Requires recorded host evidence of a criterion's run before `navori plan update` accepts `cumplido`.",
     hookScripts: [],
+  },
+  "repeat-failure-advice": {
+    description: "Advises a change of approach after the same Bash failure repeats three times.",
+    hookScripts: ["bash-outcome-watch.sh"],
   },
   "compact-advice": {
     description:
@@ -336,6 +341,10 @@ const PROSE_CONTROLS: Readonly<Record<ControlId, ControlDeclaration>> = Object.f
     state: "unsupported",
     reason: "Prose engines render no hooks, so no Bash run is ever recorded as evidence.",
   },
+  "repeat-failure-advice": {
+    state: "unsupported",
+    reason: "Prose engines render no Bash failure hooks.",
+  },
   "compact-advice": {
     state: "unsupported",
     reason: "Prose engines render no hooks, so no context-size advice is ever injected.",
@@ -414,6 +423,16 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "`plan update` requires recorded evidence inside a Claude Code child session " +
           "(CLAUDE_CODE_CHILD_SESSION=1); an agent can still bypass it (spec 0039 D5). " +
           "The recording hook ships separately.",
+      },
+      "repeat-failure-advice": {
+        state: "advisory",
+        reason: "PostToolUseFailure(Bash) injects advice after three identical failures.",
+        evidence: {
+          kind: "hook",
+          script: "bash-outcome-watch.sh",
+          event: "PostToolUseFailure",
+          matcher: "Bash",
+        },
       },
       "compact-advice": {
         state: "advisory",
@@ -526,6 +545,11 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "No verifiable Bash success signal: PostToolUse fires on exit != 0 too, so `plan update` " +
           "accepts cumplido as unevidenced (spec 0039 R10).",
       },
+      "repeat-failure-advice": {
+        state: "unsupported",
+        reason:
+          "Codex does not expose a verified separate Bash failure signal; registration is unsupported.",
+      },
       "compact-advice": {
         state: "unsupported",
         reason:
@@ -606,6 +630,10 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         state: "unsupported",
         reason:
           "Pi does not record verifiable child Bash results for acceptance criteria, so plan update cannot require host evidence before cumplido.",
+      },
+      "repeat-failure-advice": {
+        state: "unsupported",
+        reason: "Pi renders no Bash failure hooks.",
       },
       "compact-advice": {
         state: "unsupported",

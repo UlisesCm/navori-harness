@@ -40,6 +40,7 @@ Una fila por unidad que navori distribuye. `complementa` significa que ninguna c
 | hook | `subagent-stop-handoff` | complementa | emit | emit | — | — |
 | hook | `managed-drift-watch` | complementa | emit | emit | — | — |
 | hook | `routing-watch` | complementa | emit | emit | — | — |
+| hook | `bash-outcome-watch` | complementa | emit | unsupported | — | — |
 | hook | `worktree-reclaim` | complementa | emit | emit | — | — |
 | hook | `audit-mode-trigger` | complementa | emit | emit | — | — |
 | hook | `audit-mode-close` | complementa | emit | emit | — | — |

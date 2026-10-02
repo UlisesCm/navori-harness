@@ -157,6 +157,10 @@ const CONTRACT: Readonly<Record<string, EventContract>> = {
       updatedToolOutput: CITE.rewrite,
     },
   },
+  PostToolUseFailure: {
+    topLevel: { ...UNIVERSAL, ...DECISION },
+    hookSpecificOutput: { ...EVENT_NAME, additionalContext: CITE.additionalContextEvents },
+  },
   Stop: {
     topLevel: { ...UNIVERSAL, ...DECISION },
     hookSpecificOutput: { ...EVENT_NAME, additionalContext: CITE.stopAdditionalContext },

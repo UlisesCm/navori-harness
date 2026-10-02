@@ -162,11 +162,11 @@ Lote 2:
 
 Lote 3 (sujeto al gate de T2):
 
-- [ ] **T23** (R13, R14, R15) — *carry-over 0038 T9*: `bash-outcome-watch.sh` solo en
+- [x] **T23** (R13, R14, R15) — *carry-over 0038 T9*: `bash-outcome-watch.sh` solo en
   `PostToolUseFailure(Bash)`; el reset en éxito va en el carril de T21. · test:
   `bash-outcome-watch.test.ts` con la fixture live de T2 con `// Covers: R13, R14, R15`; T17
   actualizado (fallo = base).
-- [ ] **T24** (R16, R70) — *carry-over 0038 T10*: fila `unsupported` en
+- [x] **T24** (R16, R70) — *carry-over 0038 T10*: fila `unsupported` en
   `CODEX_HOOK_REGISTRATIONS` y control `repeat-failure-advice`; nombres de evidencia, rechazo y
   atasco en `mechanismSection`. · test: `control-inventory.test.ts`, pinned-hash de Codex sin
   cambio y fixture de mecanismos con `// Covers: R16, R70`. Incluye el evento CLI de cada rechazo de `plan update`.

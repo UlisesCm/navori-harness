@@ -144,6 +144,11 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
     },
   },
   {
+    script: "bash-outcome-watch",
+    unsupported:
+      "Codex PostToolUse does not distinguish Bash success from failure, so the repeated-failure state cannot be updated without false positives.",
+  },
+  {
     script: "subagent-stop-handoff",
     registration: {
       event: "SubagentStop",

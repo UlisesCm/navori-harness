@@ -26,6 +26,7 @@ import {
   type Workplan,
 } from "../lib/plan/schema.ts";
 import { readConfig } from "../lib/config/config.ts";
+import { appendCliEvent } from "../lib/audit/cli-event.ts";
 
 function splitList(value: string | undefined): string[] {
   if (!value) return [];
@@ -189,11 +190,13 @@ function readImplWorktree(root: StateRoot, feature: string): string | undefined 
 /** Reports a rejected `cumplido` (R9): ERROR / WHY / FIX on stderr, or the
  * structured form with `--json`; always exit 1 and nothing written. */
 function rejectCumplido(
+  cwd: string,
   id: string,
   command: string,
   verdict: { why: string; fix: string },
   json: boolean,
 ): void {
+  appendCliEvent(cwd, { name: "plan-update-evidence", verdict: "block" });
   if (json) {
     process.stdout.write(
       `${JSON.stringify({
@@ -480,7 +483,7 @@ const updateSubCommand = defineCommand({
         implWorktree: readImplWorktree(root, args.feature),
       });
       if (!verdict.ok) {
-        rejectCumplido(update.id, criterion.command, verdict, args.json ?? false);
+        rejectCumplido(root.cwd, update.id, criterion.command, verdict, args.json ?? false);
         return;
       }
       evidence[update.id] = verdict.evidence;

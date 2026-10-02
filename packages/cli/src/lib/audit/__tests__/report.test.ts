@@ -1423,4 +1423,16 @@ describe("range sections (spec 0039 F0b)", () => {
     expect(md).toContain("## Mechanisms: name × verdict");
     expect(md).toContain("| `fixture-cli` | 1 | 0 | 2 |");
   });
+
+  // Covers: R70
+  it("counts evidence rejection and repeat-failure advice as separate mechanisms", () => {
+    const { report, md } = range(
+      [agent({ hookEvents: [hookEvent({ name: "bash-outcome-watch", verdict: "advise" })] })],
+      { cliEvents: [{ tsMs: 1, event: "cli", name: "plan-update-evidence", verdict: "block" }] },
+    );
+    expect(report.rangeMetrics["mechanism.bash-outcome-watch.advise"]).toBe(1);
+    expect(report.rangeMetrics["mechanism.plan-update-evidence.block"]).toBe(1);
+    expect(md).toContain("`bash-outcome-watch`");
+    expect(md).toContain("`plan-update-evidence`");
+  });
 });
