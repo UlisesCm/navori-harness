@@ -243,6 +243,11 @@ export function resolveHarnessPlan(
       assetPath: join(coreAssets, "hooks/routing-watch.sh"),
       managedId: "routing-watch-base",
     },
+    {
+      id: "bash-outcome-watch",
+      assetPath: join(coreAssets, "hooks/bash-outcome-watch.sh"),
+      managedId: "bash-outcome-watch-base",
+    },
     // #527: SessionEnd sweep for agent worktrees. Cleanup that depended on an
     // agent remembering to report a `worktree:` line left 27 of them (~2.6 GB)
     // behind; this one runs whether or not anybody remembered.

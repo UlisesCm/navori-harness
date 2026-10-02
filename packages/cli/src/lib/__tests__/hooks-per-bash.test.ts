@@ -140,7 +140,7 @@ const coexistSettings = mergeCoexistSettings(
  * `routing-watch`, which already ran on every Bash success, so `bPost` stays 2.
  * T23's `bash-outcome-watch` on `PostToolUseFailure` is what will move `bPostFail`.
  */
-const EXPECTED = { bPre: 5, bPost: 2, bPostFail: 0 };
+const EXPECTED = { bPre: 5, bPost: 2, bPostFail: 1 };
 
 /**
  * R43 base for the blocked path, derived explicitly. The `claude-first-base` snapshot (T9,

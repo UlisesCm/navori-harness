@@ -478,15 +478,16 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     //   4 blocks routed to .claude/context/ — the routing doctrine (#573) plus
     //   the two session ceremonies and the agents index (#572) + the
     //   model-advisor hook (spec 0028) + 2 dormant Claude-only master-plan
-    //   hooks (spec 0034) + 1 general-purpose-confirm hook (spec 0039 T35) = 58.
+    //   hooks (spec 0034) + 1 general-purpose-confirm hook (spec 0039 T35) +
+    //   1 Bash outcome watcher (spec 0039 T23) = 59.
     //   The SDD managed block renders into CLAUDE.md (already counted as 1 file).
-    expect(first.inspected).toBe(58);
+    expect(first.inspected).toBe(59);
     // Written counts files actually emitted. engram-orchestrator-extension is a
     // sub-block injected into orchestrator.md, not a separate file, and the
     // `planificacion` and `plan-maestro` context blocks are inspected but not
     // written (their `harness.planTiers` and `harness.masterPlan` conditions
-    // are off). The arithmetic: 57 inspected − the 4 engram sub-blocks −
-    // 2 disabled context blocks = 51 files
+    // are off). The arithmetic: 59 inspected − the 4 engram sub-blocks −
+    // 2 disabled context blocks = 53 files
     // actually emitted (the base files + the .mcp.json + both audit-mode
     // hooks + the drift watcher + the worktree-reclaim hook + the routing
     // watcher of spec 0020 + the PR routing hook of #705 + the
@@ -494,7 +495,7 @@ describe("renderClaudeEngine — inspected counter + unchanged surface (P0-fix U
     // hook of spec 0030 + the subagent-no-background hook of #1003 + the
     // architect agent that spec 0032 R33 always renders now + spec 0032's
     // `plan-simple`/`plan-advanced` and `master-plan`/`context-intake` workflow skills).
-    expect(first.written.length).toBe(52);
+    expect(first.written.length).toBe(53);
 
     const second = renderClaudeEngine(cwd, CONFIG_FULL);
     expect(second.written.length).toBe(0);
@@ -607,8 +608,9 @@ describe("renderClaudeEngine — dry-run", () => {
     // `architect` always renders now, the eighth agent — and adds the
     // `plan-simple`/`plan-advanced` and `master-plan`/`context-intake` workflow
     // skills, plus the two dormant Claude-only master-plan hooks and the
-    // general-purpose-confirm hook (spec 0039 T35) (52).
-    expect(r.written).toHaveLength(52);
+    // general-purpose-confirm hook (spec 0039 T35) and the Bash outcome
+    // watcher (spec 0039 T23) (53).
+    expect(r.written).toHaveLength(53);
     expect(r.written.every((w) => w.status === "created")).toBe(true);
     expect(existsSync(join(cwd, ".claude/agents/orchestrator.md"))).toBe(false);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
