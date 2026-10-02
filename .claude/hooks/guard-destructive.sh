@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="3838f006" version="0.11.0" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="3838f006" version="0.11.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -1352,7 +1352,7 @@ if [ -n "${nv_project_dir:-}" ]; then
 fi
 # navori:managed end id="guard-destructive-base"
 
-# navori:managed start id="tgrep-search-lane" hash="e54ecae5" version="0.11.0" source="@navori/plugin-tgrep"
+# navori:managed start id="tgrep-search-lane" hash="e54ecae5" version="0.11.1" source="@navori/plugin-tgrep"
 # tgrep search lane (spec 0039 D6): content search through the shell is routed
 # to `tgrep search`. Runs after every destructive rule; the subshell isolates
 # the script, so only its exit code 42 (block) or 43 (fail-open) is acted on.
