@@ -1,4 +1,4 @@
-# navori:managed start id="qg-pre-commit-base" hash="2f271b56" version="0.11.1" source="@navori/core"
+# navori:managed start id="qg-pre-commit-base" hash="7456cd47" version="0.11.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Pre-commit / pre-push quality gate hook.
@@ -445,6 +445,9 @@ navori_audit_log() {
   # must treat "names nobody" as invalid data rather than as a different agent
   # (`ownerOf` in `lib/audit/parse.ts` is where that rule lives).
 
+  # Optional third argument `kind` (hard | ask | advisory): how binding the
+  # outcome was. Additive: callers that pass nothing keep today's records, and
+  # readers treat a missing `kind` as unclassified.
   printf '%s\n' "$(jq -cn \
     --arg name "${navori_audit_name:-unknown}" \
     --arg phase "${navori_audit_phase:-unknown}" \
@@ -454,13 +457,15 @@ navori_audit_log() {
     --arg src "${navori_audit_source:-core}" \
     --arg agent "${navori_audit_agent:-}" \
     --arg toolUseId "${navori_audit_tool_use_id:-}" \
+    --arg kind "${3:-}" \
     --argjson ms "$navori_audit_ms" \
     --argjson tsMs "$navori_audit_end" \
     '{tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)
-     + (if $toolUseId == "" then {} else {toolUseId:$toolUseId} end)' 2>/dev/null)" \
+     + (if $toolUseId == "" then {} else {toolUseId:$toolUseId} end)
+     + (if $kind == "" then {} else {kind:$kind} end)' 2>/dev/null)" \
     >> "$navori_audit_file" 2>/dev/null
 
   return 0
@@ -504,6 +509,9 @@ navori_audit_ran_gate=0
 navori_audit_skip_reason="el comando no es un commit"
 # Set when the gate had NO verdict (runner missing) and the user was asked (#1117).
 navori_audit_ask_reason=""
+# Set right before each deliberate `exit 2`, so every block path records its own
+# cause (#1117). Empty means the exit came from somewhere unforeseen.
+navori_audit_block_reason=""
 navori_audit_on_exit() {
   navori_audit_code=$?
   # A cancelled hook reaches this trap with `$?` == 0 (#797), so the exit code
@@ -514,9 +522,9 @@ navori_audit_on_exit() {
     return 0
   fi
   if [ "$navori_audit_code" -ne 0 ]; then
-    navori_audit_log "block" "el quality gate no paso o no pudo correr" || true
+    navori_audit_log "block" "${navori_audit_block_reason:-el quality gate no paso o no pudo correr}" hard || true
   elif [ -n "$navori_audit_ask_reason" ]; then
-    navori_audit_log "ask" "$navori_audit_ask_reason" || true
+    navori_audit_log "ask" "$navori_audit_ask_reason" ask || true
   elif [ "$navori_audit_ran_gate" -eq 1 ]; then
     navori_audit_log "allow" "gate ejecutado y verde" || true
   else
@@ -614,6 +622,7 @@ run_gate() {
   navori_audit_log "gate-started" "inicio del quality gate" || true
   echo "[navori] running quality-gate fast: $1" >&2
   eval "$1" || {
+    navori_audit_block_reason="quality gate en rojo: '$1' fallo, commit abortado"
     echo "[navori] quality-gate fast failed. Commit aborted." >&2
     exit 2
   }
@@ -1392,7 +1401,10 @@ if [ "$run_needed" = 1 ]; then
   # Codex); when nothing resolves the substitution is empty and `cd ""` is a
   # no-op, so behavior outside a repo is unchanged.
   gate_root=$(navori_worktree)
-  cd "${gate_root:-${nv_project_dir:-}}" || exit 2
+  cd "${gate_root:-${nv_project_dir:-}}" || {
+    navori_audit_block_reason="no se pudo entrar al arbol del commit '${gate_root:-${nv_project_dir:-}}'; el gate no corrio"
+    exit 2
+  }
   # qualityGate.fast is shell-quoted at render time via the shq: marker (#197).
   # The gate string is still `eval`'d by run_gate below (running the gate is the
   # feature), but quoting it here means a hostile qualityGate.fast survives as one
@@ -1419,6 +1431,7 @@ if [ "$run_needed" = 1 ]; then
       # The explicit engine test is the static proof (hook-claims-vs-scripts) that
       # the Codex path differs; `navori_can_ask` re-checks it with the payload.
       if [ "$nv_engine" = codex ] || ! navori_can_ask; then
+        navori_audit_block_reason="quality gate sin veredicto y sin forma de preguntar: '$gate_bin' no esta en PATH, commit bloqueado"
         echo "[navori] Commit BLOCKED to avoid skipping the gate silently. Install '$gate_bin', or if you really want to skip it run the commit yourself outside the agent." >&2
         exit 2
       fi

@@ -61,11 +61,11 @@ navori_audit_on_exit() {
     return 0
   fi
   if [ "$navori_audit_code" -eq 0 ]; then
-    navori_audit_log "${navori_jscpd_verdict:-allow}" "${navori_jscpd_reason:-jscpd: no scan result recorded}" || true
+    navori_audit_log "${navori_jscpd_verdict:-allow}" "${navori_jscpd_reason:-jscpd: no scan result recorded}" "$([ "${navori_jscpd_verdict:-allow}" = ask ] && echo ask)" || true
   elif [ "$navori_audit_code" -eq 2 ]; then
-    navori_audit_log "block" "${navori_jscpd_reason:-jscpd: blocking outcome, not a confirmed duplication verdict}" || true
+    navori_audit_log "block" "${navori_jscpd_reason:-jscpd: blocking outcome, not a confirmed duplication verdict}" hard || true
   else
-    navori_audit_log "allow" "${navori_jscpd_reason:-jscpd: scan not validated (hook error)}" || true
+    navori_audit_log "allow" "${navori_jscpd_reason:-jscpd: scan not validated (hook error)}" advisory || true
   fi
   return 0
 }

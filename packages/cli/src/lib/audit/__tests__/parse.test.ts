@@ -1142,6 +1142,18 @@ describe("parse: hook attribution", () => {
     expect(s.orchestrator.hookEvents[0]?.toolUseId).toBe("toolu_gate_timeout");
   });
 
+  // Covers: A2
+  it("lee kind cuando existe y un registro viejo sin kind sigue parseando", () => {
+    const s = session([]);
+    attachHookEvents(
+      s,
+      log([hook({ kind: "hard" }), hook({ kind: "bogus" }), hook({ toolUseId: "t" })]),
+    );
+    const kinds = s.orchestrator.hookEvents.map((e) => e.kind);
+    expect(kinds).toEqual(["hard", undefined, undefined]);
+    expect(s.parseErrors).toBe(0);
+  });
+
   it("el ts del propio registro gana, para que un log viejo se lea igual (#696)", () => {
     const s = session([]);
     // Logs written before #696 are already on disk in every repo that ever ran
