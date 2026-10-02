@@ -27,6 +27,8 @@ export interface DistLockOptions {
   pollMs?: number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  /** Receives the one-time "waiting on a held lock" notice. Defaults to stderr. */
+  warn?: (message: string) => void;
   /** Test-only filesystem seam for acquisition-failure coverage. */
   fileSystem?: DistLockFileSystem;
 }
@@ -80,6 +82,8 @@ export async function acquireDistLock(options: DistLockOptions): Promise<DistLoc
   const deadline = now() + waitMs;
   const token = randomUUID();
   const fileSystem = options.fileSystem ?? nodeFileSystem;
+  const warn = options.warn ?? ((message: string) => void process.stderr.write(`${message}\n`));
+  let warned = false;
 
   for (;;) {
     let acquiredDirectory = false;
@@ -108,6 +112,15 @@ export async function acquireDistLock(options: DistLockOptions): Promise<DistLoc
             "Do not remove it while a Vitest suite for this checkout is active; after verifying no owner remains, remove it and retry.",
         );
       }
+      if (!warned) {
+        warned = true;
+        const owner = readOwner(lockPath, fileSystem);
+        const ownerHint = owner ? ` Current owner: ${owner.packageRoot}.` : "";
+        warn(
+          `vitest globalSetup: waiting for the dist/ suite lock at ${lockPath}.${ownerHint} ` +
+            "Do not remove it while a Vitest suite for this checkout is active; after verifying no owner remains, remove it.",
+        );
+      }
       await sleep(pollMs);
     }
   }
@@ -120,4 +133,31 @@ export async function acquireDistLock(options: DistLockOptions): Promise<DistLoc
       if (readOwner(lockPath, fileSystem)?.token === token) fileSystem.remove(lockPath);
     },
   };
+}
+
+/** The slice of `process` the exit release needs; an EventEmitter satisfies it in tests. */
+export interface ExitEmitter {
+  once(event: "exit", listener: () => void): unknown;
+  off(event: "exit", listener: () => void): unknown;
+}
+
+/**
+ * Arms a one-shot `exit` listener that releases the lock, and returns a
+ * function that disarms it.
+ *
+ * Vitest's SIGINT/SIGTERM handler calls `process.exit()` without running
+ * globalSetup teardown, which would orphan the lock. `exit` listeners run
+ * synchronously on that path, and `release()` is token-checked, so this never
+ * removes another owner's lock.
+ */
+export function releaseOnProcessExit(handle: DistLockHandle, target: ExitEmitter = process): () => void {
+  const onExit = (): void => {
+    try {
+      handle.release();
+    } catch {
+      // Exiting anyway; a failed cleanup must not mask the exit.
+    }
+  };
+  target.once("exit", onExit);
+  return () => void target.off("exit", onExit);
 }
