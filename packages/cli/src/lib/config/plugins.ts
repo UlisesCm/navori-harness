@@ -189,6 +189,21 @@ const ScriptEntrySchema = z.object({
   exec: z.boolean().default(true),
 });
 
+/**
+ * A managed shell sub-block a plugin adds to an existing core hook, inside the
+ * hook's `# navori:user-section` extension point (spec 0039 D6). It runs in the
+ * same process as the hook, so it adds no hook registration. Claude only: the
+ * target is a `.claude/hooks/*.sh` mirror; other engines ignore it.
+ */
+const HookExtensionSchema = z.object({
+  /** Managed sub-block id; the render strips it by this id when the plugin is disabled. */
+  id: z.string().min(1),
+  /** Target hook, relative to the repo root (`.claude/hooks/<name>.sh`). */
+  target: safeRelPath,
+  /** Path relative to the plugin package root of the sub-block body. */
+  file: safeRelPath,
+});
+
 const SkillEntrySchema = z.object({
   id: z.string().min(1),
   file: safeRelPath,
@@ -240,6 +255,7 @@ export const PluginManifestSchema = z.object({
   settingsFragment: z.record(z.string(), z.unknown()).optional(),
   hooks: z.array(HookEntrySchema).optional(),
   scripts: z.array(ScriptEntrySchema).optional(),
+  hookExtensions: z.array(HookExtensionSchema).optional(),
   skills: z.array(SkillEntrySchema).optional(),
   prompts: z.array(PromptEntrySchema).optional(),
   /**
@@ -255,6 +271,7 @@ export type PluginManagedEntry = z.infer<typeof ManagedEntrySchema>;
 export type PluginExternalTool = z.infer<typeof ExternalToolSchema>;
 export type PluginHookEntry = z.infer<typeof HookEntrySchema>;
 export type PluginScriptEntry = z.infer<typeof ScriptEntrySchema>;
+export type PluginHookExtensionEntry = z.infer<typeof HookExtensionSchema>;
 export type PluginSkillEntry = z.infer<typeof SkillEntrySchema>;
 export type PluginPromptEntry = z.infer<typeof PromptEntrySchema>;
 
@@ -267,6 +284,8 @@ export interface LoadedPlugin {
   managedAssets: Array<{ id: string; absPath: string }>;
   /** Resolved absolute paths for each script entry (source side). */
   scriptAssets: Array<{ src: string; dest: string; exec: boolean }>;
+  /** Resolved hook sub-blocks (spec 0039 D6). Absent when the plugin declares none. */
+  hookExtensionAssets?: Array<{ id: string; target: string; absPath: string }>;
   /** Resolved absolute paths for each skill entry (source side). */
   skillAssets: Array<{
     id: string;
@@ -515,6 +534,12 @@ export function loadPlugin(pluginId: string): LoadedPlugin {
     exec: entry.exec,
   }));
 
+  const hookExtensionAssets = (manifest.hookExtensions ?? []).map((entry) => ({
+    id: entry.id,
+    target: entry.target,
+    absPath: containAgainstRoot(entry.file, "hookExtensions.file"),
+  }));
+
   const skillAssets = (manifest.skills ?? []).map((entry) => ({
     id: entry.id,
     absPath: containAgainstRoot(entry.file, "skills.file"),
@@ -523,7 +548,7 @@ export function loadPlugin(pluginId: string): LoadedPlugin {
     mcpTools: entry.mcpTools,
   }));
 
-  return { manifest, packageRoot, managedAssets, scriptAssets, skillAssets };
+  return { manifest, packageRoot, managedAssets, scriptAssets, hookExtensionAssets, skillAssets };
 }
 
 /**

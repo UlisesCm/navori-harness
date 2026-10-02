@@ -417,6 +417,13 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "writes .claude/scripts/); nothing under engines/codex/ emits a .codex/scripts/ " +
           "mirror (engines/codex/compat.ts, CODEX_MIRRORED_DIRS).",
       },
+      {
+        surface: "plugin-hook-extensions",
+        reason:
+          "A plugin's hookExtensions sub-block (spec 0039 D6, the tgrep search lane) is injected " +
+          "only into the Claude `.claude/hooks/*.sh` mirror (engines/claude/index.ts, " +
+          "applyHookExtension); the Codex hook copies carry none.",
+      },
       ...CODEX_HOOK_UNSUPPORTED_SURFACES,
     ],
     controls: {
