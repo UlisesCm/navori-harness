@@ -103,6 +103,51 @@ describe("implementer-no-markdown hook — allow (#985 R3, R4)", () => {
   });
 });
 
+// Regression: #1129. Interpreter command strings are inspected, never executed.
+describe("implementer-no-markdown hook — interpreter writes", () => {
+  it.each([
+    "python3 - <<'EOF'\np = 'notes.md'\nopen(p, 'w').write('x')\nEOF",
+    `python -c "open('notes.md', 'a').write('x')"`,
+    `python3 -c "from pathlib import Path; Path('NOTES.MDX').write_text('x')"`,
+    `node -e "require('fs').writeFileSync('notes.md', 'x')"`,
+    `node - <<'EOF'\nrequire('fs').appendFileSync('notes.mdx', 'x')\nEOF`,
+    `ruby -e "File.write('notes.md', 'x')"`,
+    `ruby -e "File.open('notes.md', 'w') { |f| f.write('x') }"`,
+    `perl -e 'open(my $f, ">", "notes.md"); print $f "x";'`,
+    `deno eval "Deno.writeTextFileSync('notes.md', 'x')"`,
+    `bun -e "Bun.write('notes.md', 'x')"`,
+    `/usr/bin/python3 -c "open('notes.md', mode='w').write('x')"`,
+  ])("blocks an interpreter write: %s", (command: string): void => {
+    const result = runHook(bash(command));
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("markdownRequests");
+  });
+
+  it.each([
+    `python3 -c "print(open('notes.md').read())"`,
+    `python3 -c "print(open('notes.md', 'r').read())"`,
+    `python3 -c "from pathlib import Path; print(Path('notes.md').read_text())"`,
+    `node -e "console.log(require('fs').readFileSync('notes.md', 'utf8'))"`,
+    `ruby -e "puts File.read('notes.md')"`,
+    `perl -e 'open(my $f, "<", "notes.md"); print <$f>;'`,
+    `deno eval "console.log(Deno.readTextFileSync('notes.md'))"`,
+    `bun -e "console.log(await Bun.file('notes.md').text())"`,
+    `python3 -c "open('notes.ts', 'w').write('x')"`,
+    `node -e "require('fs').writeFileSync('notes.ts', 'x')"`,
+  ])("allows a read or non-Markdown write: %s", (command: string): void => {
+    expect(runHook(bash(command)).status).toBe(0);
+  });
+
+  it.each(["scribe", "reviewer", "scout"])(
+    "does not restrict interpreter writes by %s",
+    (role: string): void => {
+      expect(
+        runHook(bash(`node -e "require('fs').writeFileSync('notes.md', 'x')"`, role)).status,
+      ).toBe(0);
+    },
+  );
+});
+
 // Covers: R3
 describe("implementer-no-markdown hook — block per tool (#985 R3)", () => {
   it("blocks Write onto a .md path", () => {
