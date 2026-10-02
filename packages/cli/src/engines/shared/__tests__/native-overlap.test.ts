@@ -75,6 +75,22 @@ describe("OverlapRowSchema (D2)", () => {
     expect(OVERLAP_ROWS.filter((row) => row.verdict !== "complementa")).toEqual([]);
   });
 
+  // Covers: R51
+  it("has a single engram row: recortar evaluation, existing evidence, allowlisted native URL", () => {
+    const rows = OVERLAP_ROWS.filter((r) => r.unit.kind === "plugin" && r.unit.id === "engram");
+    expect(rows).toHaveLength(1);
+    const [row] = rows;
+    expect(OverlapRowSchema.safeParse(row).success).toBe(true);
+    expect(row?.verdict).toBe("complementa");
+    expect(row?.evaluation?.kind).toBe("engram");
+    expect(row?.evaluation?.verdict).toBe("recortar");
+    const evidence = row?.evaluation?.evidence ?? "";
+    expect(() => readFileSync(resolve(coreAssets, "../../../", evidence), "utf-8")).not.toThrow();
+    const url = new URL(row?.native?.url ?? "");
+    expect(url.protocol).toBe("https:");
+    expect(NATIVE_URL_ALLOWLIST.has(url.hostname)).toBe(true);
+  });
+
   // Covers: R3
   it("accepts a well-formed reemplazar-por-nativo row", () => {
     expect(OverlapRowSchema.safeParse(nativeRow()).success).toBe(true);
