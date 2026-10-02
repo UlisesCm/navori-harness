@@ -442,6 +442,8 @@ if [ "\${1:-}" = "--help" ]; then
   exit 0
 fi
 printf '%s\\n' "$@" > "$SCAN_ARGS"
+# Reproduces jscpd --baseline-from-ref: it checks the base out via a detached worktree.
+if [ -n "\${SCAN_WORKTREE:-}" ]; then git worktree add -q --detach "$SCAN_WORKTREE" origin/main || exit 9; fi
 if [ -n "\${SCAN_SIGNAL:-}" ]; then kill -s "$SCAN_SIGNAL" "$PPID"; exit 0; fi
 exit "$SCAN_EXIT"
 `,
@@ -710,6 +712,48 @@ exit "$SCAN_EXIT"
       reason: expect.stringContaining("required flags unavailable"),
     });
     expect(result.events.some((event) => event.verdict === "gate-started")).toBe(false);
+  });
+
+  // Covers: A4 — inside a `git commit` hook GIT_INDEX_FILE is the commit's index; the
+  // scanner's own `git worktree add` must never inherit it and overwrite it.
+  it("jscpd never lets its baseline checkout write the caller's GIT_INDEX_FILE", () => {
+    const f = fixture("jscpd");
+    const script = join(f.root, "hook.sh");
+    writeFileSync(script, renderScript("jscpd", "scripts/check-jscpd.sh"));
+    chmodSync(script, 0o755);
+    execFileSync("git", ["add", "-A"], { cwd: f.repo });
+    const gitDir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
+      cwd: f.repo,
+      encoding: "utf-8",
+    }).trim();
+    const indexCopy = join(f.root, "commit-index");
+    writeFileSync(indexCopy, readFileSync(join(gitDir, "index")));
+    const staged = () =>
+      execFileSync("git", ["ls-files", "-s"], {
+        cwd: f.repo,
+        encoding: "utf-8",
+        env: { ...process.env, GIT_INDEX_FILE: indexCopy },
+      });
+    const before = staged();
+    const result = spawnSync(resolveBin("bash"), [script], {
+      cwd: f.repo,
+      env: {
+        ...f.env,
+        GIT_INDEX_FILE: indexCopy,
+        GIT_DIR: gitDir,
+        SCAN_WORKTREE: join(f.root, "baseline-checkout"),
+      },
+      encoding: "utf-8",
+      input: JSON.stringify({
+        session_id: "spec0037",
+        tool_use_id: "scan",
+        cwd: f.repo,
+        tool_input: { command: "git commit -m fixture" },
+      }),
+    });
+    expect(result.status).toBe(0);
+    expect(existsSync(join(f.root, "baseline-checkout", "changed.ts"))).toBe(true);
+    expect(staged()).toBe(before);
   });
 });
 

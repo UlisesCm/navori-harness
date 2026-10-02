@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { relative, resolve } from "node:path";
+import { withoutRepoGitEnv } from "./git-env.mjs";
 
 /**
  * Runs only the CLI tests related to the changed files (`vitest related`).
@@ -45,10 +46,12 @@ if (targets.length === 0) {
   process.exit(0);
 }
 
+// Our own `git diff --cached` above needs the inherited env (it reads the
+// commit's index); Vitest does not, and its fixtures must not reach this repo.
 console.log(`▶ test:related: ${targets.length} changed file(s)`);
 const result = spawnSync(
   "bun",
   ["x", "vitest", "related", "--run", "--passWithNoTests", ...targets],
-  { cwd: cliRoot, stdio: "inherit" },
+  { cwd: cliRoot, stdio: "inherit", env: withoutRepoGitEnv(process.env) },
 );
 process.exit(result.status ?? 1);
