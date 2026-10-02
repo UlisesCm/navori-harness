@@ -45,7 +45,8 @@ function run(opts: {
   mode?: "codex";
   threshold?: number;
   runs?: number;
-}): { text: string | undefined; second: string | undefined } {
+  payload?: Record<string, unknown>;
+}): { text: string | undefined; context: string | undefined; second: string | undefined } {
   const config = {
     harness: opts.threshold === undefined ? undefined : { compactAdviceTokens: opts.threshold },
   } as unknown as NavoriConfig;
@@ -63,12 +64,13 @@ function run(opts: {
     transcript_path: transcript,
     tool_input: { subagent_type: opts.subagentType ?? "publisher" },
     ...(opts.agentId ? { agent_id: opts.agentId } : {}),
+    ...opts.payload,
   };
   const nodeDir = dirname(process.execPath);
   return acrossShells((shell) => {
     const tmp = join(dir, `tmp-${shell}`);
     mkdirSync(tmp, { recursive: true });
-    const exec = (): string | undefined => {
+    const exec = (): { text: string | undefined; context: string | undefined } => {
       const r = spawnSync(shell, [script, ...(opts.mode ? [opts.mode] : [])], {
         cwd: dir,
         input: JSON.stringify(payload),
@@ -80,11 +82,22 @@ function run(opts: {
         },
       });
       expect(r.status).toBe(0);
-      if (!r.stdout.trim()) return undefined;
-      return (JSON.parse(r.stdout) as { systemMessage?: string }).systemMessage;
+      if (!r.stdout.trim()) return { text: undefined, context: undefined };
+      const parsed = JSON.parse(r.stdout) as {
+        systemMessage?: string;
+        hookSpecificOutput?: { hookEventName?: string; additionalContext?: string };
+      };
+      expect(parsed).not.toHaveProperty("decision");
+      if (opts.mode !== "codex") {
+        expect(parsed.hookSpecificOutput?.hookEventName).toBe("PostToolUse");
+      }
+      return {
+        text: parsed.systemMessage,
+        context: parsed.hookSpecificOutput?.additionalContext,
+      };
     };
-    const text = exec();
-    return { text, second: exec() };
+    const first = exec();
+    return { ...first, second: exec().text };
   });
 }
 
@@ -135,5 +148,57 @@ describe("subagent-stop-handoff compaction lane", () => {
     const big = `${usageLine(1, 175000, 0)}\n`;
     expect(run({ transcript: big }).text).toContain("175001");
     expect(run({ transcript: `${usageLine(0, 175000, 0)}\n` }).text).toBeUndefined();
+  });
+});
+
+describe("subagent-stop-handoff partial lane", () => {
+  const fixture = JSON.parse(
+    readFileSync(
+      join(
+        getCoreRoot(),
+        "../cli/src/lib/__tests__/fixtures/claude-live-2.1.287/probe2-agent-posttooluse-foreground-partial.json",
+      ),
+      "utf-8",
+    ),
+  ) as { payload: Record<string, unknown> };
+
+  // Covers: R42
+  it("warns on the live foreground turn-limit marker through both parent channels", () => {
+    const result = run({ transcript: "", payload: fixture.payload, subagentType: "capped" });
+    expect(result.text).toContain("handoff PARCIAL de capped");
+    expect(result.context).toBe(result.text);
+    expect(result.second).toContain("handoff PARCIAL");
+  });
+
+  // Covers: R42
+  it("does not infer a partial from an absent handoff without the marker", () => {
+    const result = run({ transcript: "", subagentType: "implementer" });
+    expect(result.text).toBeUndefined();
+    expect(result.context).toBeUndefined();
+  });
+
+  // Covers: R42
+  it("ignores a marker outside the foreground Agent response and in Codex mode", () => {
+    const payload = fixture.payload;
+    expect(
+      run({
+        transcript: "",
+        payload: {
+          ...payload,
+          tool_response: {},
+          tool_input: { prompt: "stopped at its 3-turn limit" },
+        },
+      }).text,
+    ).toBeUndefined();
+    expect(
+      run({
+        transcript: "",
+        payload: {
+          ...payload,
+          tool_input: { ...(payload.tool_input as object), run_in_background: true },
+        },
+      }).text,
+    ).toBeUndefined();
+    expect(run({ transcript: "", payload, mode: "codex" }).text).toBeUndefined();
   });
 });

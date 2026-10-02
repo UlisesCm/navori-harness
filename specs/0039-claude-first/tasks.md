@@ -233,7 +233,7 @@ Lote 3 (sujeto al gate de T2):
   (`stopped at its N-turn limit`) en el `Agent tool_result` del padre con el `AgentRun` correspondiente;
   sin correlación con el tool-result padre no se puede probar la ausencia del límite. · test: fixture de T2
   con `// Covers: R41, R42`.
-- [ ] **T37** (R42) — Carril de parcial en `subagent-stop-handoff.sh` con la fixture de T2: detecta
+- [x] **T37** (R42) — Carril de parcial en `subagent-stop-handoff.sh` con la fixture de T2: detecta
   la marca por su texto (`stopped at its N-turn limit`) en el `tool_response` del
   `PostToolUse(Agent)` en foreground del padre; sin fallback por `impl_*.json` ausente (M6). Los
   agentes en background o reanudados con `SendMessage` no son detectables (`SubagentStop` no se

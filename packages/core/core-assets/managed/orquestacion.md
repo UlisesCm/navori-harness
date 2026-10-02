@@ -27,6 +27,10 @@ You are the main agent. **Every change to source goes through `implementer` → 
 - **`{{qualityGate.full}}` green** is the reviewer's Pass 2, over the diff that ships.
 - **A verification brief names the probe criterion**, never an open "verify X"; track long agents by their on-disk artifact.
 
+### Claude agent turn limits
+
+Continue foreground `Agent` at cap via `SendMessage` to preserve state; fresh, bounded redispatch only for remaining work needing another agent. Claude Code 2.1.287 exposes no `PostToolUse(Agent)` cap marker for background or resumed agents; `SubagentStop` does not fire at cap. Missing markers or handoffs do not prove a cap.
+
 ### How much analysis does this task deserve (signal → mechanism)
 
 Reading depth:

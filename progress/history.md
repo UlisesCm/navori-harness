@@ -2425,3 +2425,40 @@ Usuario aprobó las siete decisiones de T32, agregar dos expectativas e2e al alc
 - packages/cli/src/__tests__/cli.e2e.test.ts — dos expectativas alineadas al opt-in.
 - packages/plugins/codegraph/ — retirada del consejo no respaldado de maxFiles.
 - specs/0039-claude-first/ — R34 enmendado y trazabilidad de T32/T45.
+
+## 2026-10-02 12:45 Codex — Spec 0039 T37 y T23/T24 hacia dev
+
+## Goal
+Continuar Spec 0039 y publicar sus cambios hacia dev.
+
+## Instructions
+- Base y destino de todas las ramas y PRs: dev.
+- Gate local rápido y tests relacionados; sin suite completa local.
+- Compactar solo la nota T37; no subir el límite de palabras.
+
+## Discoveries
+- T2 pasa R17: error trae código y salida disponible; T23/T24 pueden implementarse.
+- Las firmas de fallo usan código y cabeza normalizada; no la cola truncada.
+- T37 solo detecta el marcador real de Agent foreground; no infiere parciales por handoff ausente.
+- PR #1166 integrado en dev como 38081d74; aísla Git en el pre-commit y jscpd. No repetir commits con el hook anterior.
+
+## Accomplished
+- T37 implementada, documentada y APPROVED en feat/spec-0039-t37-dev desde 38081d74. Nota de 1059/1060 palabras, render/fast/docbudgets y pruebas enfocadas verdes; receipt fresco target dev.
+- T23/T24 implementadas y APPROVED con 259 tests dirigidos: aviso al tercer fallo, reset en éxito, state bounded, Codex unsupported y eventos audit.
+- Cambios antiguos preservados: worktrees T37 y T23/T24 intactos; versiones nuevas integran dev sin stash/reset.
+- T34 sigue conservada en worktree original; falta recuperar publicación desde dev limpio.
+
+## Next Steps
+- Publicar T37 y refrescar/publicar T23/T24 desde dev con nueva firma de receipt.
+- Recuperar publicación T34; luego T44, comparación contra instantánea T9.
+- No borrar worktrees ni ramas de otras sesiones.
+
+## Relevant Files
+- packages/core/core-assets/hooks/subagent-stop-handoff.sh — marcador real de parcial.
+- packages/core/core-assets/managed/orquestacion.md — continuidad SendMessage y limitaciones del host.
+- packages/core/core-assets/hooks/bash-outcome-watch.sh — advisory de fallos repetidos.
+- packages/core/core-assets/hooks/_partials/bash-outcome.sh — estado y reset compartido.
+- packages/cli/src/commands/plan.ts — eventos audit de rechazos.
+- packages/cli/src/engines/shared/engine-capabilities.ts — control repeat-failure-advice.
+- docs/native-overlap.md — matriz actualizada.
+- specs/0039-claude-first/tasks.md — T23/T24/T37 implementadas.

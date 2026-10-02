@@ -1,4 +1,4 @@
-<!-- navori:managed id="orquestacion" hash="f5bb54eb" version="0.11.0" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="825f4d38" version="0.11.0" source="@navori/core" -->
 ## Role: orchestrator (every change goes through the harness)
 
 You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator role: **you decompose, you coordinate, you synthesize** — but you **NEVER delegate that role**: **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent; delegating it serializes work.
@@ -27,6 +27,10 @@ You are the main agent. **Every change to source goes through `implementer` → 
 - **Parallel `implementer`s only on disjoint files.**
 - **`bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` green** is the reviewer's Pass 2, over the diff that ships.
 - **A verification brief names the probe criterion**, never an open "verify X"; track long agents by their on-disk artifact.
+
+### Claude agent turn limits
+
+Continue foreground `Agent` at cap via `SendMessage` to preserve state; fresh, bounded redispatch only for remaining work needing another agent. Claude Code 2.1.287 exposes no `PostToolUse(Agent)` cap marker for background or resumed agents; `SubagentStop` does not fire at cap. Missing markers or handoffs do not prove a cap.
 
 ### How much analysis does this task deserve (signal → mechanism)
 
