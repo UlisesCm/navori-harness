@@ -61,6 +61,16 @@ export const RELEASES: readonly ReleaseEntry[] = [
         en: "The pre-commit, semgrep and jscpd gates no longer run the anchor repo's gate on commits that land in another repository, and init infers the workspace when one already registers the repo. Also, jscpd blocks only new clones, with fixes to check-links, receipts, tailwind-v4 activation, plugin extra variables and init coexistence.",
       },
     ],
+    patches: [
+      {
+        version: "0.11.1",
+        date: "2026-10-02",
+        note: {
+          es: "Claude first: el harness deja de emitir lo que Claude Code ya trae de forma nativa, navori audit mide rangos y compara instantáneas, y llegan un guard de ruteo de búsqueda, confirmación cuando un gate no puede dar veredicto, soporte para Pi y un aviso diario de versión nueva.",
+          en: "Claude first: the harness stops emitting what Claude Code already ships natively, navori audit measures ranges and compares snapshots, and there is a search-routing guard, confirmation when a gate cannot reach a verdict, Pi support and a daily new-version notice.",
+        },
+      },
+    ],
   },
   {
     minor: "0.10",
