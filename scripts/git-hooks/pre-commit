@@ -17,5 +17,14 @@ cd "$ROOT"
 
 echo "▶ pre-commit: running check:fast + related tests…"
 export NAVORI_PRE_COMMIT_RUNNING=1
-bun run check:fast
+# check:fast spawns jscpd, whose --baseline-from-ref runs `git worktree add`; with
+# the commit's GIT_INDEX_FILE inherited it would overwrite the commit's index.
+# test:related below keeps the inherited env: it reads the staged files.
+env \
+  -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_CONFIG -u GIT_CONFIG_PARAMETERS \
+  -u GIT_CONFIG_COUNT -u GIT_OBJECT_DIRECTORY -u GIT_DIR -u GIT_WORK_TREE \
+  -u GIT_IMPLICIT_WORK_TREE -u GIT_GRAFT_FILE -u GIT_INDEX_FILE \
+  -u GIT_NO_REPLACE_OBJECTS -u GIT_REPLACE_REF_BASE -u GIT_PREFIX \
+  -u GIT_SHALLOW_FILE -u GIT_COMMON_DIR \
+  bun run check:fast
 exec bun run test:related
