@@ -227,10 +227,10 @@ Lote 3 (sujeto al gate de T2):
 - [x] **T36** (R41) — `implementer.md` con `maxTurns: 160`; Codex no emite la clave porque
   `buildAgentToml` arma el TOML con una lista explícita de claves. · test: frontmatter Claude con el valor, agente Codex sin la clave, con
   `// Covers: R41`.
-- [ ] **T45** (R41, R42) — `lib/audit/parse.ts` `hitTurnLimit` reconoce la señal real de 2.1.287 (el
-  texto `stopped at its N-turn limit` en el tool_result del Agent) en lugar de las formas
-  inexistentes `error_max_turns`/`stop_reason: max_turns`; sin esto `turnLimitHits` siempre es 0 y el
-  disparador de reversión de R41 no puede activarse. · test: fixture de T2 con `// Covers: R41, R42`.
+- [x] **T45** (R41, R42) — `lib/audit/parse.ts` `cappedAgentIds` correlaciona la señal real de 2.1.287
+  (`stopped at its N-turn limit`) en el `Agent tool_result` del padre con el `AgentRun` correspondiente;
+  sin correlación con el tool-result padre no se puede probar la ausencia del límite. · test: fixture de T2
+  con `// Covers: R41, R42`.
 - [ ] **T37** (R42) — Carril de parcial en `subagent-stop-handoff.sh` con la fixture de T2: detecta
   la marca por su texto (`stopped at its N-turn limit`) en el `tool_response` del
   `PostToolUse(Agent)` en foreground del padre; sin fallback por `impl_*.json` ausente (M6). Los

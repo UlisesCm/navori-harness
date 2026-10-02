@@ -279,14 +279,37 @@ function countCompactions(lines: Rec[]): number {
   return lines.filter((l) => l.isCompactSummary === true).length;
 }
 
-/** The host's turn-limit stop, when the transcript carries one. UNVERIFIED
- *  shape (F0a probe, R41): a false here is "no record", not proof of no limit. */
-function hitTurnLimit(lines: Rec[]): boolean {
-  return lines.some(
-    (l) =>
-      str(l.subtype) === "error_max_turns" ||
-      str(path(l, "message", "stop_reason")) === "max_turns",
+/** Foreground Agent caps are reported in the parent's matching tool result (R41, R42). */
+function cappedAgentIds(lines: Rec[], uses: Rec[]): Set<string> {
+  const agentUses = new Set(
+    uses
+      .filter((use) => str(use.name) === "Agent")
+      .map((use) => str(use.id))
+      .filter((id): id is string => id !== null),
   );
+  const capped = new Set<string>();
+  for (const line of lines) {
+    if (str(line.type) !== "user") continue;
+    const agentId = str(path(line, "toolUseResult", "agentId"));
+    if (!agentId) continue;
+    for (const block of arr(path(line, "message", "content"))) {
+      if (
+        !isRec(block) ||
+        str(block.type) !== "tool_result" ||
+        !agentUses.has(str(block.tool_use_id) ?? "")
+      )
+        continue;
+      const content =
+        typeof block.content === "string"
+          ? block.content
+          : arr(block.content)
+              .filter((part): part is Rec => isRec(part) && str(part.type) === "text")
+              .map((part) => str(part.text) ?? "")
+              .join("\n");
+      if (/\bstopped at its [1-9]\d*-turn limit\b/.test(content)) capped.add(agentId);
+    }
+  }
+  return capped;
 }
 
 /** Size in bytes of one `tool_result` payload. */
@@ -1175,7 +1198,8 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
     verdict: findVerdict(lines),
     observedArtifactWrites: observedArtifactWrites(lines, cwd, agentId),
     turns: uniqueAssistantMessages(lines).length,
-    turnLimitHit: hitTurnLimit(lines),
+    // The marker lives in the parent's Agent tool_result, not this transcript.
+    turnLimitHit: false,
     toolResultBytes: facts.toolResultBytes,
     contextPeak: contextPeakOf(lines),
     blockedCommands: facts.blockedCommands,
@@ -1365,6 +1389,9 @@ export function parseSession(mainJsonl: string): SessionAudit {
       a.agentType = spawnTypes.shift() ?? "unknown";
     }
   }
+
+  const capped = cappedAgentIds(lines, uses);
+  for (const a of agents) a.turnLimitHit = capped.has(a.agentId);
 
   const skills = collectSkills(uses, lines);
   const byMode = countByMode(lines);
