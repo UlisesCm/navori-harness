@@ -22,7 +22,7 @@ Las tareas marcadas *carry-over* aplican la tarea citada de
   verificar quedan `complementa`. Pre-registro de R34, R43 (con la banda de ruido entre dos
   ventanas base, m10) y del disparador de R41, en un commit anterior a cualquier medición.
   · test: artefacto; `bun run check:links` verde.
-- [ ] **T2** (R17) — Sondas live en un repo scratch, **con autorización del usuario**: payload de
+- [x] **T2** (R17) — Sondas live en un repo scratch, **con autorización del usuario**: payload de
   `PostToolUseFailure`; forma de la marca parcial y unidad de conteo de `maxTurns` (agente con
   `maxTurns: 3`); `effort` en `Stop`; `CLAUDE_CODE_SESSION_ID` en Bash; `Agent(<nombre>)` como
   `if` y `ask` dentro de un subagente; flags de `tgrep search`/`status` y de `codegraph status`;
@@ -227,8 +227,15 @@ Lote 3 (sujeto al gate de T2):
 - [x] **T36** (R41) — `implementer.md` con `maxTurns: 160`; Codex no emite la clave porque
   `buildAgentToml` arma el TOML con una lista explícita de claves. · test: frontmatter Claude con el valor, agente Codex sin la clave, con
   `// Covers: R41`.
-- [ ] **T37** (R42) — Carril de parcial en `subagent-stop-handoff.sh` con la fixture de T2; sin
-  fallback por `impl_*.json` ausente (M6); doctrina `SendMessage` en `orquestacion.md`. · test:
+- [ ] **T45** (R41, R42) — `lib/audit/parse.ts` `hitTurnLimit` reconoce la señal real de 2.1.287 (el
+  texto `stopped at its N-turn limit` en el tool_result del Agent) en lugar de las formas
+  inexistentes `error_max_turns`/`stop_reason: max_turns`; sin esto `turnLimitHits` siempre es 0 y el
+  disparador de reversión de R41 no puede activarse. · test: fixture de T2 con `// Covers: R41, R42`.
+- [ ] **T37** (R42) — Carril de parcial en `subagent-stop-handoff.sh` con la fixture de T2: detecta
+  la marca por su texto (`stopped at its N-turn limit`) en el `tool_response` del
+  `PostToolUse(Agent)` en foreground del padre; sin fallback por `impl_*.json` ausente (M6). Los
+  agentes en background o reanudados con `SendMessage` no son detectables (`SubagentStop` no se
+  dispara al tope) y ese límite se documenta; doctrina `SendMessage` en `orquestacion.md`. · test:
   fixture → aviso; handoff ausente sin marca → sin aviso, con `// Covers: R42`.
 - [x] **T38** (R44, R70) — Carril de compactación (modo Claude, hilo principal, despacho de
   `publisher`, última línea completa con `usage` en la cola de 256 KB);
@@ -300,8 +307,8 @@ Lote 3 (sujeto al gate de T2):
 | R38 | T32, T34 |
 | R39 | T34 |
 | R40 | T35 |
-| R41 | T36 |
-| R42 | T37 |
+| R41 | T36, T45 |
+| R42 | T37, T45 |
 | R43 | T1, T9, T44 |
 | R44 | T38 |
 | R45 | retirado (B3) |
