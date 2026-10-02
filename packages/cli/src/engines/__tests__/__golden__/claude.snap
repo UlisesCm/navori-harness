@@ -9117,6 +9117,31 @@ navori_audit_log() {
   return 0
 }
 navori_audit_begin
+# Can this gate hand a no-verdict outcome to the user instead of blocking?
+# Inlined at render time (see lib/render/hook-includes.ts). Decides only; the
+# JSON that speaks to the host stays in each script (partials never carry host
+# output vocabulary — hook-output-contract.test.ts).
+#
+# WHY (#1117): when the TOOL failed (scanner missing a flag, declared runner not
+# on PATH) the gate has no verdict, and "run it yourself outside the agent" is a
+# dead end. Claude Code's PreToolUse can ask the human; that is the right exit.
+#
+# Returns 0 only when ALL hold; any doubt is "no", and "no" is today's block:
+#   - the script is not a Codex copy (Codex drops `permissionDecision`, so an
+#     ask there would let the call PROCEED unasked). Decided by WHERE THE SCRIPT
+#     LIVES, the same rule as the hook-input partial; hooks live in `.codex/hooks/`,
+#     plugin scripts in `.codex/scripts/`.
+#   - the payload is a real PreToolUse hook call. A git hook or the CLI
+#     (`</dev/null`) has no payload, so there is nobody to ask.
+#   - jq exists to build the reason JSON safely; without it, block.
+# Needs `payload`/`payload_field` from the extract-cmd partial.
+navori_can_ask() {
+  case "$0" in
+    *".codex/hooks/"* | *".codex/scripts/"*) return 1 ;;
+  esac
+  command -v jq >/dev/null 2>&1 || return 1
+  [ "$(payload_field hook_event_name)" = "PreToolUse" ]
+}
 
 # This hook fires on EVERY Bash call and does real work on almost none of them,
 # so its verdict is derived from the exit code in a trap rather than from a call
@@ -9128,6 +9153,8 @@ navori_audit_begin
 # digits). Collapsing both into `allow` would make the timing unreadable.
 navori_audit_ran_gate=0
 navori_audit_skip_reason="el comando no es un commit"
+# Set when the gate had NO verdict (runner missing) and the user was asked (#1117).
+navori_audit_ask_reason=""
 navori_audit_on_exit() {
   navori_audit_code=$?
   # A cancelled hook reaches this trap with `$?` == 0 (#797), so the exit code
@@ -9139,6 +9166,8 @@ navori_audit_on_exit() {
   fi
   if [ "$navori_audit_code" -ne 0 ]; then
     navori_audit_log "block" "el quality gate no paso o no pudo correr" || true
+  elif [ -n "$navori_audit_ask_reason" ]; then
+    navori_audit_log "ask" "$navori_audit_ask_reason" || true
   elif [ "$navori_audit_ran_gate" -eq 1 ]; then
     navori_audit_log "allow" "gate ejecutado y verde" || true
   else
@@ -10035,8 +10064,18 @@ if [ "$run_needed" = 1 ]; then
       run_gate "$detected_pm ${gate#* }"
     else
       echo "[navori] quality-gate NOT run: '$gate_bin' is not on PATH and no alternative package manager was detected that could run it." >&2
-      echo "[navori] Commit BLOCKED to avoid skipping the gate silently. Install '$gate_bin', or if you really want to skip it run the commit yourself outside the agent." >&2
-      exit 2
+      # No verdict, the TOOL is missing (#1117). Under a Claude PreToolUse hook
+      # the user decides; anywhere else (Codex drops `ask`, no payload) the
+      # commit stays BLOCKED rather than skipping the gate silently (#88).
+      # The explicit engine test is the static proof (hook-claims-vs-scripts) that
+      # the Codex path differs; `navori_can_ask` re-checks it with the payload.
+      if [ "$nv_engine" = codex ] || ! navori_can_ask; then
+        echo "[navori] Commit BLOCKED to avoid skipping the gate silently. Install '$gate_bin', or if you really want to skip it run the commit yourself outside the agent." >&2
+        exit 2
+      fi
+      navori_audit_ask_reason="quality gate sin veredicto: '$gate_bin' no esta en PATH y no hay gestor alterno"
+      jq -cn --arg reason "[navori] The quality gate did not run: '$gate_bin' (from qualityGate.fast) is not on PATH and no lockfile-detected package manager could run it, so there is no verdict. Approve to commit WITHOUT the quality gate, or deny and install '$gate_bin'." '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$reason}}'
+      exit 0
     fi
   fi
 fi
@@ -14506,6 +14545,48 @@ navori_audit_log() {
   return 0
 }
 navori_audit_begin
+# Can this gate hand a no-verdict outcome to the user instead of blocking?
+# Inlined at render time (see lib/render/hook-includes.ts). Decides only; the
+# JSON that speaks to the host stays in each script (partials never carry host
+# output vocabulary — hook-output-contract.test.ts).
+#
+# WHY (#1117): when the TOOL failed (scanner missing a flag, declared runner not
+# on PATH) the gate has no verdict, and "run it yourself outside the agent" is a
+# dead end. Claude Code's PreToolUse can ask the human; that is the right exit.
+#
+# Returns 0 only when ALL hold; any doubt is "no", and "no" is today's block:
+#   - the script is not a Codex copy (Codex drops `permissionDecision`, so an
+#     ask there would let the call PROCEED unasked). Decided by WHERE THE SCRIPT
+#     LIVES, the same rule as the hook-input partial; hooks live in `.codex/hooks/`,
+#     plugin scripts in `.codex/scripts/`.
+#   - the payload is a real PreToolUse hook call. A git hook or the CLI
+#     (`</dev/null`) has no payload, so there is nobody to ask.
+#   - jq exists to build the reason JSON safely; without it, block.
+# Needs `payload`/`payload_field` from the extract-cmd partial.
+navori_can_ask() {
+  case "$0" in
+    *".codex/hooks/"* | *".codex/scripts/"*) return 1 ;;
+  esac
+  command -v jq >/dev/null 2>&1 || return 1
+  [ "$(payload_field hook_event_name)" = "PreToolUse" ]
+}
+
+# No-verdict exit (#1117): the TOOL failed, so there is no duplication verdict
+# to enforce. `navori_jscpd_no_verdict <audit reason> <stderr text> <ask reason>`
+# asks the user under a Claude PreToolUse hook (exit 0 + `ask`, recorded as
+# `ask`); everywhere else — Codex, git hook, CLI — it blocks with exit 2 as
+# before. A real verdict (new clones) never comes through here.
+navori_jscpd_verdict=""
+navori_jscpd_no_verdict() {
+  navori_jscpd_reason="$1"
+  echo "$2" >&2
+  if navori_can_ask; then
+    navori_jscpd_verdict="ask"
+    jq -cn --arg reason "$3" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$reason}}'
+    exit 0
+  fi
+  exit 2
+}
 
 # Same shape as quality-gate-pre-commit: fires on every Bash call, works on
 # almost none, so the verdict comes from the exit code rather than from a call
@@ -14519,7 +14600,7 @@ navori_audit_on_exit() {
     return 0
   fi
   if [ "$navori_audit_code" -eq 0 ]; then
-    navori_audit_log "allow" "${navori_jscpd_reason:-jscpd: no scan result recorded}" || true
+    navori_audit_log "${navori_jscpd_verdict:-allow}" "${navori_jscpd_reason:-jscpd: no scan result recorded}" || true
   elif [ "$navori_audit_code" -eq 2 ]; then
     navori_audit_log "block" "${navori_jscpd_reason:-jscpd: blocking outcome, not a confirmed duplication verdict}" || true
   else
@@ -15547,9 +15628,10 @@ case "$navori_jscpd_help" in
   *--fail-on-new-clones*) navori_jscpd_has_new_clones=1 ;;
 esac
 if [ "$navori_jscpd_has_baseline" -ne 1 ] || [ "$navori_jscpd_has_new_clones" -ne 1 ]; then
-  navori_jscpd_reason="jscpd: blocked, required flags unavailable; not a duplication verdict"
-  echo "✗ jscpd: $JSCPD_BIN lacks --baseline-from-ref/--fail-on-new-clones (needs jscpd >= 5.1.1) — upgrade it (global: pnpm add -g jscpd@^5.1.1 · repo-pinned: pnpm add -D jscpd@^5.1.1) — BLOCKED, this is not a duplication verdict" >&2
-  exit 2
+  navori_jscpd_no_verdict \
+    "jscpd: required flags unavailable; not a duplication verdict" \
+    "✗ jscpd: $JSCPD_BIN lacks --baseline-from-ref/--fail-on-new-clones (needs jscpd >= 5.1.1) — upgrade it (global: pnpm add -g jscpd@^5.1.1 · repo-pinned: pnpm add -D jscpd@^5.1.1) — BLOCKED, this is not a duplication verdict" \
+    "[navori] jscpd could not check this commit for duplication: $JSCPD_BIN lacks --baseline-from-ref/--fail-on-new-clones (needs jscpd >= 5.1.1). This is not a duplication verdict. Approve to commit WITHOUT the duplication check, or deny and upgrade jscpd (global: pnpm add -g jscpd@^5.1.1 · repo-pinned: pnpm add -D jscpd@^5.1.1)."
 fi
 
 tmpdir=$(mktemp -d)
@@ -15591,7 +15673,7 @@ env \
   --mode strict \
   --baseline-from-ref "$base_sha" \
   --fail-on-new-clones 0 \
-  --reporters console \
+  --reporters console,json \
   --output "$tmpdir" \
   -- "${files[@]}" >&2 || scan_status=$?
 
@@ -15607,19 +15689,47 @@ env \
 # (exit 2, read below as "not a verdict") — the gate would then silently stop
 # blocking new clones instead of announcing it.
 #
-# TODO(fidelity): jscpd spends exit 1 on BOTH "new clones" and an internal
-# crash, so the outcome blocks conservatively but is NOT a confirmed clone
-# finding. Split the mapping if jscpd ever gives these distinct codes, or if
-# ambiguous failures become frequent enough to erode trust in the gate.
+# jscpd spends exit 1 on BOTH "new clones" and an internal crash; the json
+# report disambiguates them (see the exit 1 branch below).
 if [ "$scan_status" -eq 0 ]; then
   navori_jscpd_reason="jscpd: clean scan, no new clones"
   echo "✓ jscpd: ${#files[@]} file(s) scanned — no new clones vs $base_ref" >&2
   exit 0
 fi
 if [ "$scan_status" -eq 1 ]; then
-  navori_jscpd_reason="jscpd: blocked ambiguous scanner exit 1 (new clones or internal failure); not confirmed clones"
-  echo "✗ jscpd: ambiguous exit 1 (new clones or internal failure) vs $base_ref — BLOCKED; not a confirmed duplication verdict" >&2
-  exit 2
+  # jscpd spends exit 1 on BOTH "new clones" and a crash (#1117), but the json
+  # reporter tells them apart: a finished scan writes the report with
+  # `statistics.total.newClones`; a crash (bad ref, internal error) writes none.
+  # Real clones stay a hard block — never an approvable prompt. Only exit 1 with
+  # NO clone evidence (no readable report, or newClones 0) is a no-verdict.
+  # Fail closed: a report that EXISTS but cannot be read (corrupt, field missing,
+  # no jq) cannot rule out new clones, so it blocks. Ask needs NO report at all
+  # (a crash) or an explicit newClones of 0.
+  navori_jscpd_new=""
+  if [ -f "$tmpdir/jscpd-report.json" ]; then
+    if command -v jq >/dev/null 2>&1; then
+      navori_jscpd_new=$(jq -r '.statistics.total.newClones // empty' "$tmpdir/jscpd-report.json" 2>/dev/null || true)
+    fi
+    case "$navori_jscpd_new" in
+      '' | *[!0-9]*)
+        navori_jscpd_reason="jscpd: report unreadable; cannot rule out new clones"
+        echo "✗ jscpd: exit 1 and the report is unreadable (corrupt, field missing, or no jq) vs $base_ref — BLOCKED; cannot rule out new clones" >&2
+        exit 2
+        ;;
+    esac
+  fi
+  case "$navori_jscpd_new" in
+    '' | 0) ;;
+    *)
+      navori_jscpd_reason="jscpd: $navori_jscpd_new new clone(s) vs $base_ref; confirmed duplication verdict"
+      echo "✗ jscpd: $navori_jscpd_new new clone(s) vs $base_ref — BLOCKED" >&2
+      exit 2
+      ;;
+  esac
+  navori_jscpd_no_verdict \
+    "jscpd: exit 1 with no clone evidence in the report (internal failure?); not confirmed clones" \
+    "✗ jscpd: exit 1 with no new-clone evidence vs $base_ref — BLOCKED; not a confirmed duplication verdict" \
+    "[navori] jscpd exited 1 vs $base_ref but its report shows no new clones (or no report was written), so it most likely failed internally and there is no duplication verdict. Approve to commit anyway, or deny and run the scan (bun run jscpd:check) to see what happened."
 fi
 echo "✗ jscpd: the run FAILED with exit $scan_status (not a duplication verdict) — nothing was validated" >&2
 navori_jscpd_reason="jscpd: scanner failed with exit $scan_status; scan not validated"
