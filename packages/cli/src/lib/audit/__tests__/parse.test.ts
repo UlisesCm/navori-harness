@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { join } from "node:path";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import {
@@ -393,6 +393,70 @@ describe("parse: subagents", () => {
 
   it("marks non-overlapping windows as non-parallel", () => {
     for (const a of s.agents) expect(a.overlapsWith).toEqual([]);
+  });
+});
+
+describe("parse: native agent turn limit (R41, R42)", () => {
+  const probe = JSON.parse(
+    readFileSync(
+      fileURLToPath(
+        new URL(
+          "../../__tests__/fixtures/claude-live-2.1.287/probe2-agent-tool-result-transcript-record.json",
+          import.meta.url,
+        ),
+      ),
+      "utf-8",
+    ),
+  ) as { record: Record<string, unknown> };
+
+  function sessionWith(result: Record<string, unknown>, toolName = "Agent"): SessionAudit {
+    const dir = mkdtempSync(join(tmpdir(), "navori-turn-limit-"));
+    const file = join(dir, "session.jsonl");
+    const subagents = join(dir, "session", "subagents");
+    mkdirSync(subagents, { recursive: true });
+    writeFileSync(
+      join(subagents, "agent-<agent_id>.jsonl"),
+      `${JSON.stringify({ type: "assistant", agentId: "<agent_id>", message: { content: [] } })}\n`,
+    );
+    writeFileSync(
+      file,
+      [
+        {
+          type: "assistant",
+          message: { content: [{ type: "tool_use", id: "<tool_use_id>", name: toolName }] },
+        },
+        result,
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n"),
+    );
+    return parseSession(file);
+  }
+
+  // Covers: R41, R42
+  it("attributes the literal 2.1.287 Agent result to the matching run", () => {
+    const session = sessionWith(probe.record);
+    expect(session.agents.find((agent) => agent.agentId === "<agent_id>")?.turnLimitHit).toBe(true);
+  });
+
+  // Covers: R41, R42
+  it("ignores a non-Agent tool result carrying the same text", () => {
+    expect(sessionWith(probe.record, "Bash").agents[0]?.turnLimitHit).toBe(false);
+  });
+
+  // Covers: R41, R42
+  it("does not attribute a cap to a different Agent run", () => {
+    const result = structuredClone(probe.record);
+    (result.toolUseResult as Record<string, unknown>).agentId = "other-agent";
+    expect(sessionWith(result).agents[0]?.turnLimitHit).toBe(false);
+  });
+
+  // Covers: R41, R42
+  it("ignores the cap phrase in ordinary user text", () => {
+    expect(
+      sessionWith({ type: "user", message: { content: "stopped at its 3-turn limit" } }).agents[0]
+        ?.turnLimitHit,
+    ).toBe(false);
   });
 });
 
