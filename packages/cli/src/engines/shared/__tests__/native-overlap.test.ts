@@ -91,6 +91,70 @@ describe("OverlapRowSchema (D2)", () => {
     expect(NATIVE_URL_ALLOWLIST.has(url.hostname)).toBe(true);
   });
 
+  // Covers: R34, R35
+  it("has one informational codegraph row backed by T31 evidence", () => {
+    const rows = OVERLAP_ROWS.filter(
+      (row) => row.unit.kind === "plugin" && row.unit.id === "codegraph",
+    );
+    expect(rows).toHaveLength(1);
+    const [row] = rows;
+    expect(row?.native).toBeNull();
+    expect(row?.verdict).toBe("complementa");
+    expect(row?.evaluation).toEqual({
+      kind: "codegraph",
+      verdict: "quitar-del-default",
+      evidence: "docs/research/codegraph-costo-neto.md",
+    });
+    expect(() =>
+      readFileSync(resolve(coreAssets, "../../../", row?.evaluation?.evidence ?? ""), "utf-8"),
+    ).not.toThrow();
+    expect(row?.engines).toEqual({
+      claude: "emit",
+      codex: "emit",
+      pi: "unsupported",
+      "agents-md": "emit",
+      cursor: "emit",
+      copilot: "emit",
+    });
+  });
+
+  // Covers: R35
+  it("validates codegraph evaluations even when the overlap verdict complements", () => {
+    const row = OVERLAP_ROWS.find(
+      (candidate) => candidate.unit.kind === "plugin" && candidate.unit.id === "codegraph",
+    );
+    expect(row).toBeDefined();
+    for (const verdict of ["conservar", "conservar-con-maxFiles", "quitar-del-default"]) {
+      expect(
+        OverlapRowSchema.safeParse({
+          ...row,
+          evaluation: {
+            kind: "codegraph",
+            verdict,
+            evidence: "docs/research/codegraph-costo-neto.md",
+          },
+        }).success,
+      ).toBe(true);
+    }
+    expect(
+      OverlapRowSchema.safeParse({
+        ...row,
+        evaluation: {
+          kind: "codegraph",
+          verdict: "typo",
+          evidence: "docs/research/codegraph-costo-neto.md",
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      OverlapRowSchema.safeParse(
+        OVERLAP_ROWS.find(
+          (candidate) => candidate.unit.kind === "plugin" && candidate.unit.id === "engram",
+        ),
+      ).success,
+    ).toBe(true);
+  });
+
   // Covers: R3
   it("accepts a well-formed reemplazar-por-nativo row", () => {
     expect(OverlapRowSchema.safeParse(nativeRow()).success).toBe(true);

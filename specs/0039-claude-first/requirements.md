@@ -165,8 +165,11 @@ de navori lo que no tenga de forma nativa, y cada unidad declara su soporte por 
   `grep` o `tgrep` más `Read`, sobre las mismas tareas de descubrimiento. Mide tokens de contexto
   acumulados, turnos hasta la respuesta y corrección, con al menos dos valores de `maxFiles`.
 - **R34** — The system SHALL registrar un criterio de decisión antes de la medición de R33. IF el
-  ahorro neto no supera ese criterio THEN `codegraph` SHALL salir del default y quedar como plugin
-  opt-in sin bloque always-on.
+  ahorro neto no supera ese criterio THEN `codegraph` SHALL quedar fuera de los defaults de nuevas
+  instalaciones `navori init --full` y seguir disponible como plugin opt-in. La medición T31 no
+  autoriza una migración automática: las configuraciones existentes con codegraph habilitado
+  conservan sus bloques y grants actuales. El grant nominal de `scout` es un precedente aceptado;
+  este requisito no afirma que no exista ningún grant sin opt-in.
 - **R35** — WHEN la medición de R33 concluye, the system SHALL registrar el veredicto
   (`conservar` / `conservar-con-maxFiles` / `quitar-del-default`) como fila de la matriz de R2.
 
@@ -176,8 +179,9 @@ de navori lo que no tenga de forma nativa, y cada unidad declara su soporte por 
   despachar `scout` para investigación acotada y `scribe` para serializar artefactos Markdown.
 - **R37** — IF el host no permite despacho anidado THEN the system SHALL registrarlo en la matriz
   de R2 y cubrir el flujo desde el orquestador: `scout` antes del `architect`, y `scribe` después.
-- **R38** — The `architect` SHALL tener acceso a `tgrep search` y a `codegraph_explore` con las
-  mismas reglas de ruteo que el resto de los agentes, sujeto al veredicto de R35.
+- **R38** — The `architect` SHALL tener acceso a `tgrep search` y, cuando codegraph esté habilitado
+  como opt-in, a `codegraph_explore` con las mismas reglas de ruteo que el resto de los agentes.
+  El veredicto R35 decide si codegraph integra nuevos defaults, no revoca el acceso opt-in.
 - **R39** — The `scout` SHALL tener `WebFetch` y `WebSearch` entre sus herramientas.
 - **R40** — WHEN el orquestador despacha `general-purpose` para una tarea de solo lectura o de
   investigación web, the system SHALL pedir confirmación indicando que `scout` cubre ese caso,

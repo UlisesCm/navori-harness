@@ -204,9 +204,11 @@ Lote 3 (sujeto al gate de T2):
   ≥ 12 tareas, brazos textual, `maxFiles: 4` y `maxFiles: 12`, métricas de `navori audit`.
   Resultado en `docs/research/codegraph-costo-neto.md`, cuyo commit es posterior al del
   pre-registro de T1.
-- [ ] **T32** (R35, R38) — Veredicto como fila de la matriz con `evaluation.evidence` hacia T31;
-  si es `quitar-del-default`, codegraph pasa a plugin opt-in. · test: refine de T10 con
-  `// Covers: R35`.
+- [x] **T32** (R34, R35, R38) — Veredicto T31 como fila de la matriz con `evaluation.evidence`;
+  `quitar-del-default` excluye codegraph de nuevos defaults `init --full`, sin migrar instalaciones
+  existentes; conserva opt-in y grants actuales, y documenta la política en doctor/docs. · tests:
+  refine y matriz `// Covers: R35`; lista de exclusión ligada a evaluación y pruebas de init/doctor
+  `// Covers: R34, R35`. Implementación entregada; su cierre queda sujeto a review y gate.
 
 ## F6 — Agentes
 

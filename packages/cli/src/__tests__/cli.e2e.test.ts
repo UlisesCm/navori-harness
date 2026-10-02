@@ -687,14 +687,17 @@ describe("CLI e2e — happy paths", () => {
     expect(r.combined).toMatch(/codegraph/);
   });
 
-  it("add --suggest is quiet once every plugin is enabled (spec 0003 §3.5.2)", () => {
+  // Covers: R34
+  it("add --suggest offers codegraph after --full, then is quiet after opt-in (spec 0003 §3.5.2)", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
-    // --full enables every bundled plugin, so no external provider is left to
-    // suggest — the only way to reach "nothing to suggest" now that #981 also
-    // lists them (--recommended alone leaves tgrep/codegraph/semgrep/jscpd/acli
-    // unsuggested).
-    runCli(["init", "--full", "--no-render", "--cwd", repo]);
+    expect(runCli(["init", "--full", "--no-render", "--cwd", repo]).status).toBe(0);
+
+    const available = runCli(["add", "--suggest", "--cwd", repo]);
+    expect(available.status).toBe(0);
+    expect(available.combined).toContain("codegraph");
+
+    expect(runCli(["add", "codegraph", "--skip-install", "--cwd", repo]).status).toBe(0);
 
     const r = runCli(["add", "--suggest", "--cwd", repo]);
     expect(r.status).toBe(0);
@@ -2238,7 +2241,8 @@ describe("CLI e2e — init mode axis: --yes vs --recommended vs --full (#989)", 
     return JSON.parse(readFileSync(join(repo, "navori.config.json"), "utf-8"));
   }
 
-  it("difference 1/5 — plugins: --yes/--recommended (no GitHub remote) enable only engram; --recommended with a GitHub remote adds gh; --full enables every bundled plugin", () => {
+  // Covers: R34
+  it("difference 1/5 — plugins: --yes/--recommended enable engram and conditional gh; --full excludes opt-in codegraph", () => {
     const plain = tsRepo();
     dirs.push(plain);
     expect(runCli(["init", "--yes", "--no-render", "--cwd", plain]).status).toBe(0);
@@ -2258,7 +2262,12 @@ describe("CLI e2e — init mode axis: --yes vs --recommended vs --full (#989)", 
     dirs.push(full);
     expect(runCli(["init", "--full", "--no-render", "--cwd", full]).status).toBe(0);
     const fullPlugins = readConfigOf(full).plugins ?? {};
-    expect(Object.keys(fullPlugins).sort()).toEqual([...listKnownPluginIds()].sort());
+    const bundled = listKnownPluginIds();
+    expect(bundled).toContain("codegraph");
+    expect(Object.keys(fullPlugins).sort()).toEqual(
+      bundled.filter((id) => id !== "codegraph").sort(),
+    );
+    expect(fullPlugins).not.toHaveProperty("codegraph");
     for (const enabled of Object.values(fullPlugins)) {
       expect((enabled as { enabled: boolean }).enabled).toBe(true);
     }

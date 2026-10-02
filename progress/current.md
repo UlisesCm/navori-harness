@@ -1,15 +1,17 @@
-# Current — Spec 0039 Claude first (39/45 con T35)
+# Current — Spec 0039 Claude first (38/45 mergeadas; T45 y T32 validadas)
 
 - Mergeadas esta jornada: #1149 fix Pi, #1151 T40, #1152 T28, #1153 T38, #1154 T29, #1155 T2
   (fixtures + enmiendas T37/T45/R42), #1156 T31 doc (`quitar-del-default`).
-- Abierto: el PR de T35 (`general-purpose-confirm`, sin `if` por nombre).
-- Siguiente paso: T32 (codegraph fuera del default). Diseño y challenge en
-  `.navori/state/handoffs/{solution,challenge}_spec0039_t32.md`, con 7 preguntas al usuario.
-  Propuesta: opción A + enmendar R34, no tocar el scout, mantener los `enabled:true` existentes con
-  aviso en doctor, lista fija en `recommended.ts`, quitar "pass maxFiles", apagar codegraph en este
-  repo en un PR aparte. Después T34.
-- Desbloqueadas por T2: T23, T24, T37 y T45. T45 corrige `parse.ts:287` `hitTurnLimit`, que busca
-  formas inexistentes.
+- T35 mergeada en #1157.
+- T45 publicada en PR #1160; review APPROVED, receipt fresco y CI quality verde.
+- T32: siete decisiones aprobadas e implementadas; gate completo verde con 6726 tests y el piso
+  de cobertura intacto. Exclusión de `init --full`, opt-in/grants actuales preservados, aviso
+  informativo en doctor/JSON y retirada del consejo de maxFiles; sin migración de configs.
+- Siguiente paso: integrar T45 y T32 después de CI. Si T45 se mergea primero, rebasar T32 y
+  reconciliar progress antes de su merge. Después T34.
+- Pendientes: T23, T24, T34, T37 y T44. La desactivación de codegraph en este repo va en PR separado.
+- Worktrees T45/T32 conservados; retirar solo con confirmación del usuario, limpios y publicados.
+- Checkout principal: main atrasado y cambio local de Pi conservado; no se modificó ni sincronizó.
 - Cierre: T44.
 - Deuda o gotchas:
   - Con carga alta en el host, `test:coverage` falla por timeouts de 15s en `cli.e2e`,

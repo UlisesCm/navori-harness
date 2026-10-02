@@ -302,7 +302,7 @@ const ES: Strings = {
   recPluginsEnabled: (list) => `Plugins recomendados activados: ${list}`,
   pluginsAlwaysOn: (list) => `Incluidos siempre con navori: ${list} (no hace falta elegirlos)`,
   fullModeEnabled:
-    "Modo full: todos los plugins + pre-commit hook + scan-monorepo + project block estricto (posture/reviewRigor/testsForNewCode).",
+    "Modo full: plugins por defecto (codegraph es opt-in) + pre-commit hook + scan-monorepo + project block estricto (posture/reviewRigor/testsForNewCode).",
   fullBinariesToInstall: (list) =>
     `Faltan binarios de plugins activados (los hooks de esos plugins no corren hasta instalarlos; 'navori doctor' los reporta como advertencia): ${list}`,
   externalProviderSetupHint: (url) =>
@@ -479,7 +479,7 @@ const EN: Strings = {
   recPluginsEnabled: (list) => `Recommended plugins enabled: ${list}`,
   pluginsAlwaysOn: (list) => `Always included with navori: ${list} (no need to pick them)`,
   fullModeEnabled:
-    "Full mode: all plugins + pre-commit hook + monorepo scan + strict project block (posture/reviewRigor/testsForNewCode).",
+    "Full mode: default plugins (codegraph is opt-in) + pre-commit hook + monorepo scan + strict project block (posture/reviewRigor/testsForNewCode).",
   fullBinariesToInstall: (list) =>
     `Enabled plugins are missing their binaries (their hooks won't run until installed; 'navori doctor' reports them as a warning): ${list}`,
   externalProviderSetupHint: (url) =>
@@ -863,6 +863,7 @@ interface DoctorCmdStrings {
   masterPlanFlagDisabledWithActiveRow: string;
   /** Spec 0039 R32 — codegraph wiring findings (index, grants, projectPath rule). */
   codegraphWiring: (n: number, lines: string) => string;
+  codegraphDefaultPolicy: (evidence: string) => string;
   codegraphIndexRow: (state: string) => string;
   codegraphNoGrantRow: string;
   codegraphUngrantedRow: (agents: string) => string;
@@ -2105,6 +2106,8 @@ const CMD_ES: CmdStrings = {
       "— etapa activa con bandera apagada; corre 'navori master init' para completar la apertura",
     codegraphWiring: (n, lines) =>
       `Cableado de codegraph incompleto (${n}) — mídelo solo cuando esté completo:\n${lines}`,
+    codegraphDefaultPolicy: (evidence) =>
+      `Codegraph ya no se activa en instalaciones nuevas con --full tras T31. Tu configuración actual no cambió; es opt-in. Evidencia: ${evidence}`,
     codegraphIndexRow: (state) =>
       `— índice: ${state}; corre 'codegraph init' o 'codegraph sync' tú mismo`,
     codegraphNoGrantRow: "— ningún agente tiene mcp__codegraph__codegraph_explore en sus tools",
@@ -3478,6 +3481,8 @@ const CMD_EN: CmdStrings = {
       "— active stage with flag disabled; run 'navori master init' to finish opening",
     codegraphWiring: (n, lines) =>
       `Codegraph wiring incomplete (${n}) — measure it only once it is complete:\n${lines}`,
+    codegraphDefaultPolicy: (evidence) =>
+      `Codegraph is no longer enabled by new --full installs after T31. Your current configuration is unchanged; it is opt-in. Evidence: ${evidence}`,
     codegraphIndexRow: (state) =>
       `— index: ${state}; run 'codegraph init' or 'codegraph sync' yourself`,
     codegraphNoGrantRow: "— no agent carries mcp__codegraph__codegraph_explore in its tools",

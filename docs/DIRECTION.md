@@ -306,3 +306,11 @@ Reglas del patrón:
 - `docs/audit-2026-07.md` — auditoría del harness generado y del CLI.
 - `CLAUDE.md` (raíz) — instrucciones vivas del repo (secciones "Qué es este proyecto",
   "Decisiones ya tomadas", "Quality gate").
+### Codegraph queda como opt-in en instalaciones nuevas
+
+La medición T31 de la Spec 0039 concluyó `quitar-del-default`: codegraph no alcanza el umbral
+pre-registrado para el workload de descubrimiento Claude medido. Por eso `navori init --full` ya
+no lo habilita por defecto; sigue disponible mediante opt-in explícito. Las configuraciones
+existentes permanecen intactas y `navori doctor` informa la política. Esto no demuestra ahorros
+universales para otros repositorios, motores o cargas de subagentes. Evidencia y límites:
+[`codegraph-costo-neto.md`](./research/codegraph-costo-neto.md).

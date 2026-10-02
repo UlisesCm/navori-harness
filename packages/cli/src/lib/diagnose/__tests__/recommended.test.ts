@@ -3,6 +3,7 @@ import {
   buildRecommendedQualityGate,
   buildRecommendedProject,
   buildFullPlugins,
+  FULL_PLUGIN_EXCLUSIONS,
   buildFullProject,
   RECOMMENDED_MODELS,
   RECOMMENDED_EFFORT,
@@ -10,6 +11,7 @@ import {
 import { KNOWN_PLUGINS } from "../../config/plugins.ts";
 import { ROSTER_AGENTS } from "../../../engines/shared/roster.ts";
 import type { DetectedProject } from "../detect.ts";
+import { OVERLAP_ROWS } from "../../../engines/shared/native-overlap.ts";
 
 function makeDetected(overrides: Partial<DetectedProject> = {}): DetectedProject {
   return {
@@ -175,13 +177,21 @@ describe("buildRecommendedProject", () => {
 });
 
 describe("buildFullPlugins", () => {
-  it("enables every id it is given", () => {
+  // Covers: R34, R35
+  it("excludes only the measured codegraph opt-in from full defaults", () => {
     const ids = Object.keys(KNOWN_PLUGINS);
     const result = buildFullPlugins(ids);
-    expect(Object.keys(result).sort()).toEqual([...ids].sort());
-    for (const id of ids) {
+    const excluded = OVERLAP_ROWS.filter(
+      (row) => row.unit.kind === "plugin" && row.evaluation?.verdict === "quitar-del-default",
+    ).map((row) => row.unit.id);
+    expect(excluded).toEqual(["codegraph"]);
+    expect([...FULL_PLUGIN_EXCLUSIONS]).toEqual(excluded);
+    expect(ids).toContain("codegraph");
+    expect(Object.keys(result).sort()).toEqual(ids.filter((id) => id !== "codegraph").sort());
+    for (const id of ids.filter((id) => id !== "codegraph")) {
       expect(result[id]).toEqual({ enabled: true });
     }
+    expect(result.codegraph).toBeUndefined();
   });
 
   it("enables the binary-dependent plugins (jscpd/semgrep/gh/acli) unconditionally", () => {
@@ -192,8 +202,8 @@ describe("buildFullPlugins", () => {
   });
 
   it("only enables the ids passed in (bundled-aware caller decides the set)", () => {
-    const result = buildFullPlugins(["engram", "gh"]);
-    expect(Object.keys(result).sort()).toEqual(["engram", "gh"]);
+    const result = buildFullPlugins(["engram", "gh", "unknown-plugin"]);
+    expect(Object.keys(result).sort()).toEqual(["engram", "gh", "unknown-plugin"]);
   });
 
   it("returns an empty set for an empty id list", () => {

@@ -228,7 +228,7 @@ export const initCommand = defineCommand({
     full: {
       type: "boolean",
       description:
-        "--recommended + external providers (tgrep, codegraph, semgrep, jscpd, acli) + pre-commit hook + monorepo scan + strict project block",
+        "--recommended + default external providers (tgrep, semgrep, jscpd, acli; codegraph opt-in) + pre-commit hook + monorepo scan + strict project block",
     },
     lang: {
       type: "string",
@@ -388,10 +388,9 @@ export const initCommand = defineCommand({
         process.exit(1);
       }
       const wsPlugins = wsDefaults?.plugins ?? {};
-      // --full turns on every *bundled* plugin (listKnownPluginIds, not the
-      // static map, so we never enable an id that isn't shipped and would fail
-      // doctor --strict); --recommended adds only the context-aware extras (gh
-      // when GitHub). engram is always-on regardless.
+      // --full uses bundled inventory (not a stale static map), then excludes
+      // measured opt-ins such as codegraph; --recommended adds only the
+      // context-aware extras (gh when GitHub). engram is always-on regardless.
       const extraPlugins = isFull
         ? buildFullPlugins(listKnownPluginIds())
         : isRecommended
@@ -405,7 +404,7 @@ export const initCommand = defineCommand({
 
       p.log.info(tr.pluginsAlwaysOn(Object.keys(ALWAYS_ON_PLUGINS).join(", ")));
       if (isFull) {
-        // The full-mode banner already says "all plugins"; listing them again
+        // The full-mode banner already describes default plugins; listing them again
         // (and re-announcing always-on engram) would be redundant/contradictory.
         p.log.info(tr.fullModeEnabled);
       } else if (isRecommended && Object.keys(extraPlugins).length > 0) {
