@@ -1,7 +1,7 @@
 ---
 name: scout
 description: Read-only reconnaissance — maps a broad area or answers one scoped question, with cited evidence. Does not modify code. Use when a sub-question is worth running in parallel, or a lookup is worth isolating from the coordinator's own context — not a proxy for a Code discovery routing call the coordinator can make itself this turn.
-tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__codegraph__codegraph_explore
+tools: Read, Glob, Grep, Bash, Write, WebFetch, WebSearch, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__codegraph__codegraph_explore
 model: {{models.scout}}
 effort: {{effort.scout}}
 maxWords: 1050

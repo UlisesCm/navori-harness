@@ -55,9 +55,8 @@ vi.mock("@clack/prompts", () => ({
 /**
  * search-v2.md §7 P2 — routing, agents and render.
  *
- * Spec 0026 T12: `codegraph`'s manifest now ships 4 `skills[]` entries (down
- * from 5 — `ticket-audit` merged into `auditor`, which already had its own
- * entry). `orchestrator`, `implementer`, `reviewer` and `auditor` receive the
+ * Spec 0026 T12: `codegraph`'s manifest dropped `ticket-audit` (merged into
+ * `auditor`). `orchestrator`, `implementer`, `reviewer`, `auditor`, and `architect` receive the
  * generated `mcp__codegraph__*` family grant via `injectInto`/
  * `withAgentMcpTools`. `scout` already carries
  * `mcp__codegraph__codegraph_explore` BY NAME in its own source (see
@@ -66,7 +65,7 @@ vi.mock("@clack/prompts", () => ({
  * `mcp-capability-wiring.test.ts` (#575/#761) pins.
  */
 
-const ROLE_AGENTS = ["orchestrator", "implementer", "reviewer", "auditor"] as const;
+const ROLE_AGENTS = ["orchestrator", "implementer", "reviewer", "auditor", "architect"] as const;
 
 function baseConfig(plugins: Record<string, { enabled: boolean }> = {}): NavoriConfig {
   return NavoriConfigSchema.parse({
@@ -259,7 +258,8 @@ describe.each(COMBOS)("search v2 render matrix — combo $label", ({ codegraph, 
     expect(settings.permissions.ask).toContain("Bash(custom-risky-thing)");
   });
 
-  it("R04 — the four enabled roles get the CodeGraph grant iff enabled; scout keeps the by-name tool untouched", () => {
+  // Covers: R38
+  it("R04 — the five enabled roles get the CodeGraph grant iff enabled; scout keeps the by-name tool untouched", () => {
     renderClaudeEngine(cwd, cfg());
 
     for (const role of ROLE_AGENTS) {
@@ -276,6 +276,10 @@ describe.each(COMBOS)("search v2 render matrix — combo $label", ({ codegraph, 
         expect(content).not.toContain(`codegraph-access-v2-${role}`);
       }
     }
+
+    const architectTools = agentTools(readFileSync(agentPath(cwd, "architect"), "utf-8"));
+    expect(architectTools).toContain("Bash");
+    if (tgrep) expect(readSettings(cwd).permissions.allow).toContain("Bash(tgrep search *)");
 
     // scout is never an injectInto target: its exact-name tool lives in
     // source, unconditionally, and never widens to the family.
