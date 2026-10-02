@@ -47,6 +47,7 @@ Una fila por unidad que navori distribuye. `complementa` significa que ninguna c
 | hook | `master-accept-confirm` | complementa | emit | unsupported | — | — |
 | hook | `comment-draft-confirm` | complementa | emit | emit | — | — |
 | hook | `pr-publisher-confirm` | complementa | emit | unsupported | — | — |
+| hook | `general-purpose-confirm` | complementa | emit | unsupported | — | — |
 | hook | `quality-gate-pre-commit` | complementa | emit | emit | — | — |
 | hook | `plan-gate` | complementa | emit | unsupported | — | — |
 | hook | `stop-verify-reminder` | complementa | emit | emit | — | — |

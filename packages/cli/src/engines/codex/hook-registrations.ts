@@ -216,6 +216,13 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
       "Codex hooks also cannot emit the `ask` this confirmation needs (D4).",
   },
   {
+    // Spec 0039 R40: Claude-only, like the other `ask` confirmations.
+    script: "general-purpose-confirm",
+    unsupported:
+      "Codex hooks cannot emit `ask` (permissionDecision is dropped and the call proceeds), " +
+      "and Codex has no typed `general-purpose` subagent to confirm (spec 0039 R40).",
+  },
+  {
     script: "master-plan-context",
     unsupported:
       "The master plan is Claude-only until its Codex phase (spec 0034, #1088), " +

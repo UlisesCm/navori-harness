@@ -299,6 +299,15 @@ export function resolveHarnessPlan(
       managedId: "pr-publisher-confirm-base",
     });
   }
+  // Spec 0039 R40: names the scout, so it travels with that agent. Codex copies
+  // the script and declares it unsupported, like `pr-publisher-confirm`.
+  if (isAgentEnabled(config, "scout")) {
+    hooks.push({
+      id: "general-purpose-confirm",
+      assetPath: join(coreAssets, "hooks/general-purpose-confirm.sh"),
+      managedId: "general-purpose-confirm-base",
+    });
+  }
   if (config.qualityGate?.fast) {
     hooks.push({
       id: "quality-gate-pre-commit",

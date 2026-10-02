@@ -82,6 +82,12 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/plan-gate.sh\"",
             "timeout": 10,
             "statusMessage": "navori: plan-gate"
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/general-purpose-confirm.sh\"",
+            "timeout": 10,
+            "statusMessage": "navori: general-purpose-confirm"
           }
         ]
       }

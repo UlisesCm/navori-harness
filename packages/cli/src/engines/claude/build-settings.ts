@@ -4,6 +4,7 @@ import type { NavoriConfig } from "../../lib/config/config.ts";
 import type { LoadedPlugin, PluginHookEntry } from "../../lib/config/plugins.ts";
 import { getCoreRoot, readCliVersion } from "../../lib/render/bundled-assets.ts";
 import { interpolate } from "../../lib/render/interpolate.ts";
+import { isAgentEnabled } from "../shared/harness-assets.ts";
 import { resolveHarnessPlan } from "../shared/harness-plan.ts";
 import { filterInventory, type FilteredInventory } from "../shared/native-overlap.ts";
 import { collectShellPermissionRules } from "../shared/permission-rules.ts";
@@ -97,6 +98,7 @@ const SUBAGENT_STOP_HOOK_DEST = ".claude/hooks/subagent-stop-handoff.sh";
 const MANAGED_DRIFT_HOOK_DEST = ".claude/hooks/managed-drift-watch.sh";
 const ROUTING_WATCH_HOOK_DEST = ".claude/hooks/routing-watch.sh";
 const PR_PUBLISHER_HOOK_DEST = ".claude/hooks/pr-publisher-confirm.sh";
+const GENERAL_PURPOSE_HOOK_DEST = ".claude/hooks/general-purpose-confirm.sh";
 const COMMENT_DRAFT_HOOK_DEST = ".claude/hooks/comment-draft-confirm.sh";
 const WORKTREE_RECLAIM_HOOK_DEST = ".claude/hooks/worktree-reclaim.sh";
 const STOP_HOOK_DEST = ".claude/hooks/stop-verify-reminder.sh";
@@ -368,6 +370,31 @@ export function buildClaudeSettings(
                 command: `bash "$CLAUDE_PROJECT_DIR/${PR_PUBLISHER_HOOK_DEST}"`,
                 timeout: 10,
                 statusMessage: "navori: pr-publisher-confirm",
+              },
+            ],
+          },
+        ],
+      },
+    });
+  }
+
+  // Spec 0039 R40: dispatching `general-purpose` is raised to `ask` naming the
+  // `scout`, so it only exists while the scout does (same dependency as the PR
+  // routing hook above). No `if`: `Agent(<name>)` if-conditions don't match by
+  // name in Claude Code 2.1.287 (only `Agent(*)`/`Agent`/`Task` do), so the hook
+  // would never fire; the script filters `tool_input.subagent_type` itself.
+  if (isAgentEnabled(config, "scout")) {
+    settings = deepMerge(settings, {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: "Agent",
+            hooks: [
+              {
+                type: "command",
+                command: `bash "$CLAUDE_PROJECT_DIR/${GENERAL_PURPOSE_HOOK_DEST}"`,
+                timeout: 10,
+                statusMessage: "navori: general-purpose-confirm",
               },
             ],
           },

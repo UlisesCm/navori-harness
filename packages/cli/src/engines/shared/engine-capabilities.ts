@@ -31,7 +31,8 @@ export type ControlId =
   | "analytic-write-tools"
   | "local-skill-discovery"
   | "acceptance-evidence"
-  | "compact-advice";
+  | "compact-advice"
+  | "general-purpose-confirm";
 
 /** The `navori.config.json` flag that turns a control's condition on, if any. */
 export type ControlCondition = "planTiers" | "masterPlan" | "scribeOwnsMarkdown" | "localSkills";
@@ -123,6 +124,11 @@ export const CONTROL_DEFINITIONS: Readonly<Record<ControlId, ControlDefinition>>
     description:
       "Advises saving the session summary and using /compact or /clear when the main thread's context passes `harness.compactAdviceTokens` after a publisher dispatch.",
     hookScripts: [],
+  },
+  "general-purpose-confirm": {
+    description:
+      "Asks for confirmation before dispatching `general-purpose`, naming the scout as the read-only alternative.",
+    hookScripts: ["general-purpose-confirm.sh"],
   },
 });
 
@@ -334,6 +340,10 @@ const PROSE_CONTROLS: Readonly<Record<ControlId, ControlDeclaration>> = Object.f
     state: "unsupported",
     reason: "Prose engines render no hooks, so no context-size advice is ever injected.",
   },
+  "general-purpose-confirm": {
+    state: "unsupported",
+    reason: "Prose engines render no hooks (unsupportedSurfaces: defensive-hooks).",
+  },
 });
 
 export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>> = Object.freeze({
@@ -416,6 +426,19 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           script: "subagent-stop-handoff.sh",
           event: "PostToolUse",
           matcher: "Agent|Task",
+        },
+      },
+      "general-purpose-confirm": {
+        state: "enforced",
+        reason:
+          "The PreToolUse(Agent) hook (no `if`: `Agent(<name>)` doesn't match by name in 2.1.287, " +
+          "the script filters subagent_type) is registered while the scout is enabled " +
+          "(build-settings.ts); it asks, it never blocks (spec 0039 R40).",
+        evidence: {
+          kind: "hook",
+          script: "general-purpose-confirm.sh",
+          event: "PreToolUse",
+          matcher: "Agent",
         },
       },
     },
@@ -509,6 +532,12 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "Codex SubagentStop has no PostToolUse context channel and its transcript is not the " +
           "Claude usage format, so the lane is Claude-only (spec 0039 R44).",
       },
+      "general-purpose-confirm": {
+        state: "unsupported",
+        reason:
+          "Codex hooks cannot emit `ask` and it has no typed `general-purpose` subagent; " +
+          "general-purpose-confirm is an unsupported row in CODEX_HOOK_REGISTRATIONS (spec 0039 R40).",
+      },
     },
     analyticWriteTools: CODEX_ANALYTIC_WRITE_TOOLS,
   },
@@ -582,6 +611,11 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         state: "unsupported",
         reason:
           "Pi runs no navori hook scripts, so no context-size advice is injected after a publisher dispatch.",
+      },
+      "general-purpose-confirm": {
+        state: "unsupported",
+        reason:
+          "Pi runs no Claude hook scripts and its navori_subagent roster has no general-purpose role to confirm.",
       },
     },
     analyticWriteTools: {
