@@ -1,0 +1,15 @@
+{
+  "_probe": "T2/3 Stop with haiku (no effort support): no `effort` key",
+  "payload": {
+    "session_id": "<session_id>",
+    "transcript_path": "~/.claude/projects/<project-slug>/<uuid>.jsonl",
+    "cwd": "<scratch>/t2/repo",
+    "prompt_id": "<prompt_id>",
+    "permission_mode": "default",
+    "hook_event_name": "Stop",
+    "stop_hook_active": false,
+    "last_assistant_message": "I'm unable to run these commands as specified. The Bash tool has security checks that are blocking both:\n\n1. The first command is blocked due to variable expansion that cannot be pre-verified\n2. The second command is blocked because it contains operations (`ls /nonexistent-t2` and `exit 3`) that require approval\n\nThe tool's security layer is preventing execution of these exact commands. If you'd like me to proceed, you would need to approve the tool use when prompted, or you could modify the commands to avoid these security checks.",
+    "background_tasks": [],
+    "session_crons": []
+  }
+}

@@ -187,8 +187,11 @@ de navori lo que no tenga de forma nativa, y cada unidad declara su soporte por 
 
 - **R41** — The system SHALL declarar en el `implementer` un límite nativo de turnos, con un valor
   derivado de la distribución medida.
-- **R42** — WHEN un subagente termina por alcanzar su límite de turnos, the orchestrator SHALL
-  recibir el handoff marcado como parcial, y `subagent-stop-handoff` SHALL señalarlo como tal.
+- **R42** — WHEN un subagente en foreground termina por alcanzar su límite de turnos, the
+  orchestrator SHALL recibir el handoff marcado como parcial, y `subagent-stop-handoff` SHALL
+  detectar la marca por su texto (`stopped at its N-turn limit`) en el `PostToolUse(Agent)` y
+  señalarlo como tal. Quedan excluidos los agentes en background o reanudados con `SendMessage`:
+  en 2.1.287 `SubagentStop` no se dispara al tope y la marca no llega al hook (T2).
 - **R43** — The system SHALL registrar, antes de implementar H, una línea base y un criterio de
   éxito, medidos con el mismo minero y el mismo `audit.mode`:
   - la mediana de cache read por sesión;

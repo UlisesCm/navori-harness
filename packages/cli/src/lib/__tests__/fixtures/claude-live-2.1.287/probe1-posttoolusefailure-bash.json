@@ -1,0 +1,22 @@
+{
+  "_probe": "T2/1 PostToolUseFailure Bash exit 3, sonnet --effort low, CC 2.1.287",
+  "payload": {
+    "session_id": "<session_id>",
+    "transcript_path": "~/.claude/projects/<project-slug>/<uuid>.jsonl",
+    "cwd": "<scratch>/t2/repo",
+    "prompt_id": "<prompt_id>",
+    "permission_mode": "bypassPermissions",
+    "effort": {
+      "level": "low"
+    },
+    "hook_event_name": "PostToolUseFailure",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo to-stdout-MARKER; echo to-stderr-MARKER >&2; ls /nonexistent-t2; exit 3"
+    },
+    "tool_use_id": "<tool_use_id>",
+    "error": "Exit code 3\nto-stdout-MARKER\nto-stderr-MARKER\nls: /nonexistent-t2: No such file or directory",
+    "is_interrupt": false,
+    "duration_ms": 395
+  }
+}

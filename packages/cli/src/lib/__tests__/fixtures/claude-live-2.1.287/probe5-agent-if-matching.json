@@ -1,0 +1,22 @@
+{
+  "_probe": "T2/5 PreToolUse matcher Agent, one handler per `if`; dispatched capped then cappedpar from the main thread",
+  "if_conditions_configured": [
+    "Agent(capped)",
+    "Agent(capped*)",
+    "Agent(*)",
+    "Agent",
+    "Task(capped)",
+    "Task",
+    "<none>"
+  ],
+  "tags_log": [
+    "IF_Agent(*) Agent capped main",
+    "IF_Agent Agent capped main",
+    "IF_Task Agent capped main",
+    "NO_IF Agent capped main",
+    "IF_Agent(*) Agent cappedpar main",
+    "NO_IF Agent cappedpar main",
+    "IF_Agent Agent cappedpar main",
+    "IF_Task Agent cappedpar main"
+  ]
+}

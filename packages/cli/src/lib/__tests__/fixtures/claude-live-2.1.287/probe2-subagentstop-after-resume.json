@@ -1,0 +1,26 @@
+{
+  "_probe": "T2/2 the only SubagentStop of the foreground run: fired at the final normal end after two SendMessage resumes; none fired at either cap hit",
+  "payload": {
+    "session_id": "<session_id>",
+    "transcript_path": "~/.claude/projects/<project-slug>/<uuid>.jsonl",
+    "cwd": "<scratch>/t2/repo",
+    "prompt_id": "<prompt_id>",
+    "permission_mode": "bypassPermissions",
+    "agent_id": "<agent_id>",
+    "agent_type": "capped",
+    "hook_event_name": "SubagentStop",
+    "stop_hook_active": false,
+    "agent_transcript_path": "~/.claude/projects/<project-slug>/<uuid>/subagents/agent-<agent_id>.jsonl",
+    "last_assistant_message": "ALL-DONE",
+    "background_tasks": [
+      {
+        "id": "<agent_id>",
+        "type": "subagent",
+        "status": "running",
+        "description": "Run 8 bash commands in sequence",
+        "agent_type": "capped"
+      }
+    ],
+    "session_crons": []
+  }
+}

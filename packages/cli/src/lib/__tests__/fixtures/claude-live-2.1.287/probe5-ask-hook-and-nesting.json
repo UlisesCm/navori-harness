@@ -1,0 +1,62 @@
+{
+  "_probe": "T2/5 -p, default mode, --allowedTools Bash Agent; PreToolUse hook returns permissionDecision ask for `echo ASKME*`; nester has tools: Bash, Agent(cappedpar)",
+  "subagent_pretooluse_payload": {
+    "session_id": "<session_id>",
+    "transcript_path": "~/.claude/projects/<project-slug>/<uuid>.jsonl",
+    "cwd": "<scratch>/t2/repo",
+    "prompt_id": "<prompt_id>",
+    "permission_mode": "default",
+    "agent_id": "<agent_id>",
+    "agent_type": "nester",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo ASKME-sub",
+      "description": "Run echo command with text ASKME-sub"
+    },
+    "tool_use_id": "<tool_use_id>"
+  },
+  "error_tool_results_main_and_subagent": [
+    {
+      "type": "tool_result",
+      "content": "t2 ask probe",
+      "is_error": true,
+      "tool_use_id": "<tool_use_id>"
+    },
+    {
+      "type": "tool_result",
+      "content": "t2 ask probe",
+      "is_error": true,
+      "tool_use_id": "<tool_use_id>"
+    }
+  ],
+  "posttooluse_bash_for_askme": "none (command never ran, no PermissionDenied hook fired)",
+  "subagent_meta_files": [
+    {
+      "agentType": "nester",
+      "description": "Nester subagent test",
+      "toolUseId": "<tool_use_id>",
+      "spawnDepth": 1,
+      "requestShape": "foreground",
+      "requestNonInteractive": true
+    },
+    {
+      "agentType": "capped",
+      "description": "Test capped subagent",
+      "toolUseId": "<tool_use_id>",
+      "parentAgentId": "<agent_id>",
+      "spawnDepth": 2,
+      "requestShape": "foreground",
+      "requestNonInteractive": true
+    },
+    {
+      "agentType": "cappedpar",
+      "description": "Test cappedpar subagent",
+      "toolUseId": "<tool_use_id>",
+      "parentAgentId": "<agent_id>",
+      "spawnDepth": 2,
+      "requestShape": "foreground",
+      "requestNonInteractive": true
+    }
+  ]
+}

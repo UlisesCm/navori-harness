@@ -17,6 +17,8 @@
   - `verificada`: la doc lo dice explícitamente.
   - `sin verificar`: la doc no lo dice, o lo dice de otro modo.
   - `requiere sonda live (T2)`: solo una captura real lo resuelve.
+  - `verificada (sonda T2)` / `refutada (sonda T2)`: la sonda live de T2 lo confirmó o lo desmintió
+    (host 2.1.287). Una fila `refutada` solo admite `complementa`.
 - **Veredicto permitido:** una fila que no esté `verificada` solo admite `complementa` (R3).
   Una fila `verificada` admite cualquier veredicto, sujeto al refine de D2 y a la revisión humana
   del PR. Que la capacidad exista no decide el veredicto.
@@ -35,8 +37,8 @@ URL: https://code.claude.com/docs/en/sub-agents
 | `model` en el agente | — | "`model` … `sonnet`, `opus`, `haiku`, `fable`, a full model ID … or `inherit`" | verificada | cualquiera |
 | `effort` en el agente | — | "`effort` … Effort level when this subagent is active. Overrides the session effort level." | verificada | cualquiera |
 | `maxTurns` en el agente | ≥ 2.1.246 (marca parcial) | "Maximum number of agentic turns before the subagent stops. When the subagent reaches the limit, Claude Code returns its output marked as partial" | verificada | cualquiera |
-| Unidad de conteo de `maxTurns` | — | La doc dice "agentic turns" y no define si son mensajes, rondas de herramienta o llamadas paralelas | requiere sonda live (T2) | `complementa` |
-| Forma de la marca parcial en el `tool_response` de `Agent` | ≥ 2.1.246 | "Claude Code marks the returned output as partial". La tabla de campos de `tool_response` de `Agent` en `/hooks` no lista ningún campo de parcial | requiere sonda live (T2) | `complementa` |
+| Unidad de conteo de `maxTurns` | — | La doc dice "agentic turns" y no define si son mensajes, rondas de herramienta o llamadas paralelas · Sonda T2: "cappedpar … 3 `message.id` con 3 `tool_use` cada uno = 9 llamadas"; cuenta mensajes del asistente, no llamadas (`packages/cli/src/lib/__tests__/fixtures/claude-live-2.1.287/probe2-maxturns-unit.json`) | verificada (sonda T2) | cualquiera |
+| Forma de la marca parcial en el `tool_response` de `Agent` | ≥ 2.1.246 | "Claude Code marks the returned output as partial". La tabla de campos de `tool_response` de `Agent` en `/hooks` no lista ningún campo de parcial · Sonda T2: "status": "completed" y la marca es solo texto: "NOTE: this agent stopped at its 3-turn limit before finishing." (`packages/cli/src/lib/__tests__/fixtures/claude-live-2.1.287/probe2-agent-posttooluse-foreground-partial.json`) | verificada (sonda T2) | cualquiera |
 | `skills` precargadas | — | "The full skill content is injected, not only the description." | verificada | cualquiera |
 | `background` | — | "Set to `true` to keep this subagent in the background even when Claude asks to run it in the foreground." | verificada | cualquiera |
 | `omitClaudeMd` | ≥ 2.1.271 | "launch this subagent without the user, project, and local CLAUDE.md files … Requires Claude Code v2.1.271 or later" | verificada | cualquiera |
@@ -50,7 +52,7 @@ https://code.claude.com/docs/en/env-vars (esta última solo para `CLAUDE_CODE_MA
 |---|---|---|---|---|
 | Despacho desde un subagente, hasta tres capas | ≥ 2.1.219 (default 3) | "By default, a subagent can spawn subagents of its own, up to three layers below the main conversation." | verificada | cualquiera |
 | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` | ≥ 2.1.219 | "Number of subagent layers allowed below the main conversation (default: 3) … set `1` to turn nesting off." | verificada | cualquiera |
-| `Agent(a, b)` en `tools` **de un subagente** como allowlist | — | "In a subagent definition, listing `Agent` in `tools` lets that subagent spawn subagents of its own … but any type list inside the parentheses is ignored." | sin verificar (la doc lo contradice; ver § Contradicciones) | `complementa` |
+| `Agent(a, b)` en `tools` **de un subagente** como allowlist | — | "In a subagent definition, listing `Agent` in `tools` lets that subagent spawn subagents of its own … but any type list inside the parentheses is ignored." · Sonda T2: `nester` (`tools: Bash, Agent(cappedpar)`) despachó `cappedpar` y también `capped`, que no estaba en su lista (`packages/cli/src/lib/__tests__/fixtures/claude-live-2.1.287/probe5-ask-hook-and-nesting.json`) | verificada (sonda T2; la lista se ignora, ver § Contradicciones) | cualquiera |
 
 ### Hooks
 
@@ -62,18 +64,18 @@ https://code.claude.com/docs/en/env-vars.
 | Condición `if` en el handler | — | "The hook command only runs if the tool call matches the pattern." `if` "Only evaluated on tool events"; en otros eventos, "a hook with `if` set never runs" | verificada | cualquiera |
 | `if` revisa subcomandos de Bash | — | "`"Bash(git *)"` runs when any subcommand of the Bash input matches `git *`". Salvedad: "Because the `if` filter is best-effort, use the permission system … to enforce a hard allow or deny." | verificada | cualquiera |
 | `if` admite una sola regla | — | "The `if` field holds exactly one permission rule. There is no `&&`, `\|\|`, or list syntax" | verificada | cualquiera |
-| `Agent(<nombre>)` como valor de `if` | — | `if` usa sintaxis de regla de permiso y `/permissions` documenta `Agent(my-custom-agent)`; ninguna página muestra la combinación | requiere sonda live (T2) | `complementa` |
+| `Agent(<nombre>)` como valor de `if` | — | `if` usa sintaxis de regla de permiso y `/permissions` documenta `Agent(my-custom-agent)`; ninguna página muestra la combinación · Sonda T2: `Agent(capped)`, `Agent(capped*)` y `Task(capped)` no disparan el hook; `Agent(*)`, `Agent` y `Task` sí (`packages/cli/src/lib/__tests__/fixtures/claude-live-2.1.287/probe5-agent-if-matching.json`) | refutada (sonda T2) | `complementa` |
 | `PostToolUse` solo en éxito | — | "`PostToolUse` \| After a tool call succeeds" | verificada | cualquiera |
-| `PostToolUseFailure` y sus campos | — | Recibe "the same `tool_name` and `tool_input` fields as PostToolUse, along with error information": `error`, `is_interrupt`, `duration_ms`. Bash: "a first line `Exit code N`, then any output the command produced". No lista `tool_response` | verificada (campos de la doc); payload real en T2 | cualquiera |
-| `effort` en el input de `Stop` | — | "Present for events that fire within a tool-use context, such as `PreToolUse`, `PostToolUse`, `Stop`, and `SubagentStop`, when the current model supports the effort parameter." | verificada (doc); payload real en T2 | cualquiera |
+| `PostToolUseFailure` y sus campos | — | Recibe "the same `tool_name` and `tool_input` fields as PostToolUse, along with error information": `error`, `is_interrupt`, `duration_ms`. Bash: "a first line `Exit code N`, then any output the command produced". No lista `tool_response` · Sonda T2: "error": "Exit code 3\nto-stdout-MARKER\nto-stderr-MARKER\nls: /nonexistent-t2: No such file or directory"; sin `tool_response` (`packages/cli/src/lib/__tests__/fixtures/claude-live-2.1.287/probe1-posttoolusefailure-bash.json`) | verificada (doc y sonda T2) | cualquiera |
+| `effort` en el input de `Stop` | — | "Present for events that fire within a tool-use context, such as `PreToolUse`, `PostToolUse`, `Stop`, and `SubagentStop`, when the current model supports the effort parameter." · Sonda T2: "effort": {"level": "low"} con sonnet `--effort low`; la clave no aparece con haiku (`packages/cli/src/lib/__tests__/fixtures/claude-live-2.1.287/probe3-stop-effort-sonnet-low.json`) | verificada (doc y sonda T2) | cualquiera |
 | `$CLAUDE_EFFORT` en hooks y Bash | — | "Set automatically in Bash tool subprocesses and hook commands to the effort level" (env-vars) | verificada | cualquiera |
 | Evento `SubagentStop` | — | "SubagentStop hooks receive `stop_hook_active`, `agent_id`, `agent_type`, `agent_transcript_path`, and `last_assistant_message`." | verificada | cualquiera |
 | Tope de continuaciones en `Stop`/`SubagentStop` | — | "`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` \| Maximum number of consecutive times a Stop or SubagentStop hook may block … (default: 8)" (env-vars) | verificada | cualquiera |
 | Tope de `additionalContext` | — | "capped at 10,000 characters". Si se excede, "Claude Code writes the text to a file … with a preview of up to the first 2,000 characters" | verificada | cualquiera |
 | `tool_response` de `PostToolUse(Agent)` | ≥ 2.1.198 (background por default) | `status` es "`"completed"` for foreground subagents, `"async_launched"` for background subagents"; en background "`tool_response` carries no usage fields" | verificada | cualquiera |
-| `CLAUDE_CODE_SESSION_ID` en el subproceso Bash | — | "Set automatically to the current session ID in Bash and PowerShell tool subprocesses, hook command subprocesses … this matches the `session_id` field in the hook JSON input" (env-vars) | verificada (doc); captura en T2 | cualquiera |
-| `ask` de un hook `PreToolUse` dentro de un subagente | — | La doc solo cubre los prompts de permiso: "When a background subagent reaches a tool call that needs permission, Claude Code surfaces the prompt in your main session" (sub-agents). No dice nada del `ask` de un hook | requiere sonda live (T2) | `complementa` |
-| Registro de compactación en el transcript | — | Existen `PreCompact`/`PostCompact` y `SessionStart` con `source: "compact"`. La doc no describe qué entrada deja la compactación en el `.jsonl` | requiere sonda live (T2) | `complementa` |
+| `CLAUDE_CODE_SESSION_ID` en el subproceso Bash | — | "Set automatically to the current session ID in Bash and PowerShell tool subprocesses, hook command subprocesses … this matches the `session_id` field in the hook JSON input" (env-vars) · Sonda T2: `echo SID=$CLAUDE_CODE_SESSION_ID` en Bash dio el mismo valor que `session_id` del hook (`packages/cli/src/lib/__tests__/fixtures/claude-live-2.1.287/probe4-bash-env-session-id.json`) | verificada (doc y sonda T2) | cualquiera |
+| `ask` de un hook `PreToolUse` dentro de un subagente | — | La doc solo cubre los prompts de permiso: "When a background subagent reaches a tool call that needs permission, Claude Code surfaces the prompt in your main session" (sub-agents). No dice nada del `ask` de un hook · Sonda T2: `ask` se comporta como `deny` en `-p`: `tool_result` con `is_error: true` y el comando no corre, en hilo principal y en subagente (`packages/cli/src/lib/__tests__/fixtures/claude-live-2.1.287/probe5-ask-hook-and-nesting.json`) | verificada (sonda T2) | cualquiera |
+| Registro de compactación en el transcript | — | Existen `PreCompact`/`PostCompact` y `SessionStart` con `source: "compact"`. La doc no describe qué entrada deja la compactación en el `.jsonl` · Sonda T2: "type": "system", "subtype": "compact_boundary" y un mensaje `user` con "isCompactSummary": true (`packages/cli/src/lib/__tests__/fixtures/claude-live-2.1.287/probe7-compaction.json`) | verificada (sonda T2) | cualquiera |
 
 ### Memoria y reglas
 
@@ -105,12 +107,13 @@ URLs por fila.
 ### Resumen
 
 - 39 filas en total.
-- 33 `verificada`. Cuatro de ellas (campos de `PostToolUseFailure`, `effort` en `Stop`,
-  `CLAUDE_CODE_SESSION_ID` en Bash y `tool_response` de `Agent`) se confirman además con una captura
-  en T2.
-- 1 `sin verificar`: `Agent(a, b)` en un subagente, que la doc contradice.
-- 5 `requiere sonda live (T2)`. Las flags de `tgrep` y `codegraph` no tienen página oficial y solo
-  figuran en § Sondas pendientes.
+- Tras T2, 38 `verificada` (en cualquiera de sus variantes). Cuatro se confirman además con una
+  captura live (campos de `PostToolUseFailure`, `effort` en `Stop`, `CLAUDE_CODE_SESSION_ID` en Bash
+  y `tool_response` de `Agent`), cuatro filas pasaron de `requiere sonda live (T2)` a `verificada` y `Agent(a, b)` pasó de
+  `sin verificar` a `verificada (sonda T2)`: la lista se ignora, como dice la doc.
+- 1 `refutada (sonda T2)`: `Agent(<nombre>)` como `if`.
+- Las flags de `tgrep` y `codegraph` no tienen página oficial; sus resultados están en
+  § Resultados de las sondas (T2).
 
 ## Contradicciones con design.md
 
@@ -239,6 +242,46 @@ Bytes de resultado (R33):
 **Default de R44 derivado:** la mediana del pico de contexto (139,764) redondeada a 25k da
 **150,000**, que reemplaza al 175,000 provisional.
 
-## Resultados de sondas (T2)
+## Resultados de las sondas (T2)
 
-_Pendiente._
+Host Claude Code **2.1.287**, `claude -p`, repo scratch. Costo total aproximado: **USD 0.47** (10
+sesiones, ocho con haiku y dos con sonnet `--effort low`). Fixtures redactadas en
+`packages/cli/src/lib/__tests__/fixtures/claude-live-2.1.287/`.
+
+1. **`PostToolUseFailure` (gate de R17): pasa.** `error` trae `Exit code N` y después stdout y
+   stderr intercalados; no hay `tool_response`. Con salida grande (~10 KB) el host trunca en el
+   medio (`... [20012 characters truncated] ...`) y la cola real se pierde. **T23 y T24 proceden**:
+   la firma sale del código de salida más la cabeza normalizada, no de la cola.
+2. **Unidad de `maxTurns`:** cuenta mensajes del asistente (`message.id` deduplicado), no llamadas
+   a herramientas; un lote de 3 llamadas paralelas cuenta como un turno. Coincide con la medición
+   de T3/T9, así que el **`maxTurns: 160` de T36 se mantiene**. Tras `SendMessage` el contador se
+   reinicia.
+3. **Marca parcial (R42):** no hay campo estructurado; `status` es `"completed"` y la marca es
+   texto (`stopped at its N-turn limit`).
+   - Solo es visible en el `tool_response` de `PostToolUse(Agent)` en foreground.
+   - **`SubagentStop` no se dispara al alcanzar el tope.**
+   - En background y en agentes reanudados con `SendMessage` el hook no la ve: llega solo al
+     orquestador, como task-notification.
+   - El transcript del subagente no marca nada, así que `error_max_turns`/`max_turns` siempre dan
+     `false` en 2.1.287 (consecuencia para T3 y T45).
+4. **`Agent(<nombre>)` como `if`: no matchea por nombre.** Solo disparan `Agent(*)`, `Agent`, `Task` o
+   sin `if`. R40: el hook corre en cada `Agent` y filtra `subagent_type` en el script.
+5. **`ask` de un hook en `-p` actúa como `deny`,** igual en el hilo principal y en el subagente.
+   Sin verificar: sesión interactiva.
+6. **`Agent(a, b)` dentro de un subagente se ignora:** el anidado se permite y la lista de nombres no
+   restringe destinos (`nester` con `Agent(cappedpar)` despachó también `capped`). R36 aplica y R37
+   no se activa.
+7. **`effort` en `Stop`** llega como objeto `{level}` (`.effort.level`); con haiku la clave no
+   aparece. Respaldo: `$CLAUDE_EFFORT` o "desconocido".
+8. **`CLAUDE_CODE_SESSION_ID`** está presente en el env de Bash y coincide con `session_id`.
+9. **`tgrep status` no tiene `--json`;** D6 parsea el texto `Server: not running`.
+10. **`codegraph status --json` sale con exit 0 aun sin índice** (`{"initialized":false,…}`): R32 y
+    `navori doctor` deciden por `.initialized`, no por el exit code.
+11. **Compactación:** el transcript registra `subtype: compact_boundary` más un mensaje con
+    `isCompactSummary`; R65 cuenta solo `compact_boundary` (sumar ambos duplica). La compactación
+    dispara además un `SubagentStop` con `agent_type: ""`, que todo hook de `SubagentStop` debe
+    ignorar.
+
+Fixtures por sonda: `probe1*` (PostToolUseFailure), `probe2-maxturns-unit`, `probe2-*` (marca
+parcial y task-notification), `probe3-*` (effort), `probe4-*` (session id), `probe5-*` (`if`, `ask`,
+anidado), `probe6-*` (tgrep, codegraph) y `probe7-compaction`.

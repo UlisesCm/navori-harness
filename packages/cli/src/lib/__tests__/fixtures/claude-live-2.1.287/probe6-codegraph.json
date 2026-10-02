@@ -1,0 +1,39 @@
+{
+  "_probe": "T2/6 codegraph CLI",
+  "version": {
+    "cmd": "codegraph --version",
+    "exit": 0,
+    "stdout": "1.6.0\n",
+    "stderr": ""
+  },
+  "status_help": {
+    "cmd": "codegraph status --help",
+    "exit": 0,
+    "stdout": "Usage: codegraph status [options] [path]\n\nShow index status and statistics\n\nOptions:\n  -j, --json  Output as JSON\n  -h, --help  display help for command\n",
+    "stderr": ""
+  },
+  "status": {
+    "cmd": "codegraph status",
+    "exit": 0,
+    "stdout": "\nCodeGraph Status\n\nProject: ~/Documents/dev-docs/navori-harness\n\nIndex Statistics:\n  Files:     598\n  Nodes:     9,097\n  Edges:     36,530\n  DB Size:   67.00 MB\n  Backend:   node:sqlite — built-in (full WAL)\n  Journal:   wal\n\nNodes by Kind:\n  import          3,399\n  function        2,466\n  constant        1,618\n  file            595\n  interface       442\n  variable        225\n  type_alias      203\n  property        60\n  component       33\n  method          25\n  class           19\n  route           12\n\nFiles by Language:\n  typescript      542\n  astro           33\n  javascript      16\n  python          4\n  yaml            3\n\n✓ Index is up to date\n\n⚠ Index was built by v1.5.0; re-index to pick up this engine's improvements.\nℹ Run \"codegraph index\" (full rebuild) or \"codegraph sync\"\n\n",
+    "stderr": ""
+  },
+  "status_json": {
+    "cmd": "codegraph status --json",
+    "exit": 0,
+    "stdout": "{\"initialized\":true,\"version\":\"1.6.0\",\"projectPath\":\"~/Documents/dev-docs/navori-harness\",\"indexPath\":\"~/Documents/dev-docs/navori-harness/.codegraph\",\"lastIndexed\":\"2026-10-01T19:02:32.059Z\",\"fileCount\":598,\"nodeCount\":9097,\"edgeCount\":36530,\"dbSizeBytes\":70250496,\"walSizeBytes\":0,\"backend\":\"node-sqlite\",\"journalMode\":\"wal\",\"nodesByKind\":{\"class\":19,\"component\":33,\"constant\":1618,\"file\":595,\"function\":2466,\"import\":3399,\"interface\":442,\"method\":25,\"property\":60,\"route\":12,\"type_alias\":203,\"variable\":225},\"languages\":[\"astro\",\"javascript\",\"python\",\"typescript\",\"yaml\"],\"pendingChanges\":{\"added\":0,\"modified\":0,\"removed\":0},\"worktreeMismatch\":null,\"index\":{\"builtWithVersion\":\"1.5.0\",\"builtWithExtractionVersion\":24,\"currentExtractionVersion\":25,\"reindexRecommended\":true,\"state\":\"complete\",\"pendingRefs\":0}}\n",
+    "stderr": ""
+  },
+  "status_uninitialized": {
+    "cmd": "codegraph status",
+    "exit": 0,
+    "stdout": "\nCodeGraph Status\n\nℹ Project: <scratch>/t2/repo\n⚠ Not initialized\nℹ Run \"codegraph init\" to initialize\n",
+    "stderr": ""
+  },
+  "status_json_uninitialized": {
+    "cmd": "codegraph status --json",
+    "exit": 0,
+    "stdout": "{\"initialized\":false,\"version\":\"1.6.0\",\"projectPath\":\"<scratch>/t2/repo\",\"indexPath\":\"<scratch>/t2/repo/.codegraph\",\"lastIndexed\":null}\n",
+    "stderr": ""
+  }
+}

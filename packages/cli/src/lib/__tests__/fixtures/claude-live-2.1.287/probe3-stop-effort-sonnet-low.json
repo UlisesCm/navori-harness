@@ -1,0 +1,19 @@
+{
+  "_probe": "T2/3 Stop with sonnet --effort low",
+  "hook_env": "CLAUDE_CODE_SESSION_ID=<uuid> CLAUDE_EFFORT=low",
+  "payload": {
+    "session_id": "<session_id>",
+    "transcript_path": "~/.claude/projects/<project-slug>/<uuid>.jsonl",
+    "cwd": "<scratch>/t2/repo",
+    "prompt_id": "<prompt_id>",
+    "permission_mode": "bypassPermissions",
+    "effort": {
+      "level": "low"
+    },
+    "hook_event_name": "Stop",
+    "stop_hook_active": false,
+    "last_assistant_message": "DONE",
+    "background_tasks": [],
+    "session_crons": []
+  }
+}
