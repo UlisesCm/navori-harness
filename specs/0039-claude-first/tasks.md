@@ -237,9 +237,9 @@ Lote 3 (sujeto al gate de T2):
 
 ## F8 — Memoria
 
-- [ ] **T39** (R50) — `docs/research/engram-vs-memoria-nativa.md` con las cinco comparaciones y
+- [x] **T39** (R50) — `docs/research/engram-vs-memoria-nativa.md` con las cinco comparaciones y
   evidencia de sesiones reales (solo lectura).
-- [ ] **T40** (R51) — Fila de engram en la matriz con su veredicto. · test: refine de T10 con
+- [x] **T40** (R51) — Fila de engram en la matriz con su veredicto. · test: refine de T10 con
   `// Covers: R51`.
 
 ## F9 — Master plan

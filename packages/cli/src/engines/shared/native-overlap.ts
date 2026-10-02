@@ -244,6 +244,32 @@ function complementa(unit: OverlapUnit, engines: Support, note: string): Overlap
 }
 
 /**
+ * Engram's dedicated row (spec 0039 T40, R51), instead of the generic plugin
+ * row. Overlap verdict stays `complementa`: `recortar` (the evaluation verdict,
+ * a user decision backed by `docs/research/engram-vs-memoria-nativa.md`) is not
+ * `reemplazar-por-nativo`, so nothing is dropped from the inventory; it only
+ * records which engram parts are to be trimmed because Claude Code's `/memory`
+ * covers them. Native URL and date come from that doc (Claude Code 2.1.286).
+ */
+const ENGRAM_ROW: OverlapRow = {
+  unit: { kind: "plugin", id: "engram" },
+  native: {
+    capability: "Claude Code auto memory and /memory",
+    url: "https://code.claude.com/docs/en/memory",
+    verifiedAt: "2026-09-30",
+    ccVersion: "2.1.286",
+  },
+  verdict: "complementa",
+  engines: support("emit", "emit", "emit"),
+  evaluation: {
+    kind: "engram",
+    verdict: "recortar",
+    evidence: "docs/research/engram-vs-memoria-nativa.md",
+  },
+  note: "Bundled plugin; native memory covers part of it, so the evaluation is recortar while the overlap verdict stays complementa.",
+};
+
+/**
  * One row per distributed unit: roster agents and skills, plan hooks, managed
  * blocks, bundled plugins and the R57 flows. `native-overlap.test.ts` fails when
  * a unit has no row or two rows. Library skills and preset extras are NOT units
@@ -278,13 +304,14 @@ export const OVERLAP_ROWS: readonly OverlapRow[] = [
       "Prose contract; no verified native equivalent.",
     ),
   ),
-  ...PLUGIN_IDS.map((id) =>
+  ...PLUGIN_IDS.filter((id) => id !== "engram").map((id) =>
     complementa(
       { kind: "plugin", id },
       support("emit", "emit", "emit"),
       "Bundled plugin; no verified native equivalent.",
     ),
   ),
+  ENGRAM_ROW,
   ...FLOWS.map(({ id, note, codex }) =>
     complementa({ kind: "flow", id }, support("emit", codex, "n/a"), note),
   ),
