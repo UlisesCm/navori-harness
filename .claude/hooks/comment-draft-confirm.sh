@@ -1,4 +1,4 @@
-# navori:managed start id="comment-draft-confirm-base" hash="a3ccc105" version="0.11.0" source="@navori/core"
+# navori:managed start id="comment-draft-confirm-base" hash="7b9505a8" version="0.11.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash): a call that PUBLISHES a comment/review or creates a GitHub
@@ -564,6 +564,9 @@ navori_audit_log() {
   # must treat "names nobody" as invalid data rather than as a different agent
   # (`ownerOf` in `lib/audit/parse.ts` is where that rule lives).
 
+  # Optional third argument `kind` (hard | ask | advisory): how binding the
+  # outcome was. Additive: callers that pass nothing keep today's records, and
+  # readers treat a missing `kind` as unclassified.
   printf '%s\n' "$(jq -cn \
     --arg name "${navori_audit_name:-unknown}" \
     --arg phase "${navori_audit_phase:-unknown}" \
@@ -573,13 +576,15 @@ navori_audit_log() {
     --arg src "${navori_audit_source:-core}" \
     --arg agent "${navori_audit_agent:-}" \
     --arg toolUseId "${navori_audit_tool_use_id:-}" \
+    --arg kind "${3:-}" \
     --argjson ms "$navori_audit_ms" \
     --argjson tsMs "$navori_audit_end" \
     '{tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)
-     + (if $toolUseId == "" then {} else {toolUseId:$toolUseId} end)' 2>/dev/null)" \
+     + (if $toolUseId == "" then {} else {toolUseId:$toolUseId} end)
+     + (if $kind == "" then {} else {kind:$kind} end)' 2>/dev/null)" \
     >> "$navori_audit_file" 2>/dev/null
 
   return 0

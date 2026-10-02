@@ -53,9 +53,9 @@ navori_audit_on_exit() {
   if [ "$navori_audit_code" -eq 0 ]; then
     navori_audit_log "allow" "${navori_semgrep_reason:-semgrep: no scan result recorded}" || true
   elif [ "$navori_audit_code" -eq 2 ]; then
-    navori_audit_log "block" "${navori_semgrep_reason:-semgrep: blocking outcome}" || true
+    navori_audit_log "block" "${navori_semgrep_reason:-semgrep: blocking outcome}" hard || true
   else
-    navori_audit_log "allow" "${navori_semgrep_reason:-semgrep: scan not validated (hook error)}" || true
+    navori_audit_log "allow" "${navori_semgrep_reason:-semgrep: scan not validated (hook error)}" advisory || true
   fi
   return 0
 }

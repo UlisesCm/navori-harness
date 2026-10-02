@@ -414,7 +414,7 @@ interface AskRun {
   stdout: string;
   stderr: string;
   /** Audit events written by the run. */
-  events: { verdict?: string; reason?: string }[];
+  events: { verdict?: string; reason?: string; kind?: string }[];
 }
 
 /**
@@ -450,7 +450,7 @@ function runAsk(
   const events = readFileSync(log, "utf-8")
     .split("\n")
     .filter(Boolean)
-    .map((l) => JSON.parse(l) as { verdict?: string; reason?: string });
+    .map((l) => JSON.parse(l) as { verdict?: string; reason?: string; kind?: string });
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "", events };
 }
 
@@ -700,6 +700,39 @@ describe.runIf(runsBash && hasJq)("quality-gate runner missing asks under Claude
     const out = runAsk("bash", fx.dir, fx.binDir, fx.script, "hook.sh", HOOK_PAYLOAD(fx.dir));
     expect(out.events.find((e) => e.verdict === "ask")?.reason).toContain("'pnpm' no esta en PATH");
     expect(out.events.some((e) => e.verdict === "block")).toBe(false);
+  });
+
+  // Covers: A1, A2
+  it("the ask record carries kind=ask", () => {
+    const fx = qgFixture("missing");
+    const out = runAsk("bash", fx.dir, fx.binDir, fx.script, "hook.sh", HOOK_PAYLOAD(fx.dir));
+    expect(out.events.find((e) => e.verdict === "ask")?.kind).toBe("ask");
+  });
+
+  // Covers: A1, A2
+  it("a red gate records its own block reason with kind=hard", () => {
+    const fx = qgFixture("red");
+    const out = runAsk("bash", fx.dir, fx.binDir, fx.script, "hook.sh", HOOK_PAYLOAD(fx.dir));
+    const block = out.events.find((e) => e.verdict === "block");
+    expect(block?.reason).toContain("quality gate en rojo");
+    expect(block?.kind).toBe("hard");
+  });
+
+  // Covers: A1, A2
+  it("a missing runner outside an ask-capable context records a distinct block reason", () => {
+    const fx = qgFixture("missing");
+    const out = runAsk(
+      "bash",
+      fx.dir,
+      fx.binDir,
+      fx.script,
+      ".codex/hooks/qg.sh",
+      HOOK_PAYLOAD(fx.dir),
+    );
+    const block = out.events.find((e) => e.verdict === "block");
+    expect(block?.reason).toContain("sin veredicto y sin forma de preguntar");
+    expect(block?.reason).not.toContain("en rojo");
+    expect(block?.kind).toBe("hard");
   });
 
   // Covers: A2

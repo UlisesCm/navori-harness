@@ -1122,6 +1122,8 @@ interface ToolStat {
 interface RuleStat {
   count: number;
   examples: string[];
+  /** From the first event of the rule that carried one. */
+  kind?: string;
 }
 
 interface HookStat {
@@ -1280,6 +1282,7 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
             () => ({ count: 0, examples: [] }),
           );
           rule.count += 1;
+          if (e.kind && !rule.kind) rule.kind = e.kind;
           const command = e.toolUseId ? run.blockedCommands?.[e.toolUseId] : undefined;
           // Redacted again on the way out: a model built by a different writer
           // must not be able to carry a raw command into the report.
@@ -1495,7 +1498,7 @@ function hookRangeSection(stats: RangeStats, lang: Lang): string[] {
     out.push("", `### ${t(lang, "Bloqueos por regla", "Blocks per rule")}`, "");
     for (const [name, h] of blocking) {
       for (const [reason, rule] of h.blocks) {
-        out.push(`- \`${name}\` · ${reason} — ${rule.count}`);
+        out.push(`- \`${name}\` · ${reason} — ${rule.count}${rule.kind ? ` [${rule.kind}]` : ""}`);
         for (const ex of rule.examples) out.push(`  - \`${ex.replaceAll("`", "'")}\``);
       }
     }
