@@ -407,6 +407,8 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "and never a directory",
     "lib/render/backup.ts": "prunes navori's own backup store (~/.navori/backups) by age and size",
     "lib/primitives/lockfile.ts": "removes its own lock file",
+    "lib/primitives/update-notice.ts":
+      "releases only its exclusively acquired empty update-notice lock directory with nonrecursive rmdirSync",
     "lib/config/global-config.ts": "deletes ~/.navori/global.json on an explicit command",
     "commands/audit.ts":
       "--disarm removes the `.armed` flag navori itself wrote under the audit root (#597). " +

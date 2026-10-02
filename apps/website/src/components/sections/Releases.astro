@@ -29,6 +29,7 @@ const dateFmt = new Intl.DateTimeFormat(lang === "es" ? "es-MX" : "en-US", {
       {
         entries.map((r) => (
           <li
+            id={`v${r.minor}.0`}
             class="rounded-xl border p-5 sm:p-7"
             style="border-color: var(--color-border-soft);"
           >
@@ -54,7 +55,7 @@ const dateFmt = new Intl.DateTimeFormat(lang === "es" ? "es-MX" : "en-US", {
                 </h4>
                 <ul class="mt-2 space-y-2 text-sm text-slate-600 dark:text-slate-400">
                   {r.patches.map((p) => (
-                    <li>
+                    <li id={`v${p.version}`}>
                       <span class="font-mono text-xs">v{p.version}</span> — {p.note[lang]}
                     </li>
                   ))}
