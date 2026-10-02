@@ -15,7 +15,7 @@ import { join, resolve } from "node:path";
 import { getCoreRoot, getPluginPath } from "../render/bundled-assets.ts";
 import { interpolate } from "../render/interpolate.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
-import { buildClaudeSettings } from "../../engines/claude/build-settings.ts";
+import { buildClaudeSettings, claudeHookCommand } from "../../engines/claude/build-settings.ts";
 import { buildCodexConfigToml } from "../../engines/codex/build-config-toml.ts";
 import type { NavoriConfig } from "../config/config.ts";
 import type { LoadedPlugin } from "../config/plugins.ts";
@@ -442,6 +442,8 @@ if [ "\${1:-}" = "--help" ]; then
   exit 0
 fi
 printf '%s\\n' "$@" > "$SCAN_ARGS"
+# Reproduces jscpd --baseline-from-ref: it checks the base out via a detached worktree.
+if [ -n "\${SCAN_WORKTREE:-}" ]; then git worktree add -q --detach "$SCAN_WORKTREE" origin/main || exit 9; fi
 if [ -n "\${SCAN_SIGNAL:-}" ]; then kill -s "$SCAN_SIGNAL" "$PPID"; exit 0; fi
 exit "$SCAN_EXIT"
 `,
@@ -543,7 +545,7 @@ exit "$SCAN_EXIT"
       expect(blocked.status).toBe(2);
       expect(blocked.events.at(-1)?.verdict).toBe("block");
       if (id === "jscpd") {
-        expect(blocked.stderr).toMatch(/ambiguous exit 1/);
+        expect(blocked.stderr).toMatch(/exit 1 with no new-clone evidence/);
         expect(blocked.events.at(-1)?.reason).toContain("not confirmed clones");
       }
 
@@ -711,6 +713,48 @@ exit "$SCAN_EXIT"
     });
     expect(result.events.some((event) => event.verdict === "gate-started")).toBe(false);
   });
+
+  // Covers: A4 — inside a `git commit` hook GIT_INDEX_FILE is the commit's index; the
+  // scanner's own `git worktree add` must never inherit it and overwrite it.
+  it("jscpd never lets its baseline checkout write the caller's GIT_INDEX_FILE", () => {
+    const f = fixture("jscpd");
+    const script = join(f.root, "hook.sh");
+    writeFileSync(script, renderScript("jscpd", "scripts/check-jscpd.sh"));
+    chmodSync(script, 0o755);
+    execFileSync("git", ["add", "-A"], { cwd: f.repo });
+    const gitDir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
+      cwd: f.repo,
+      encoding: "utf-8",
+    }).trim();
+    const indexCopy = join(f.root, "commit-index");
+    writeFileSync(indexCopy, readFileSync(join(gitDir, "index")));
+    const staged = () =>
+      execFileSync("git", ["ls-files", "-s"], {
+        cwd: f.repo,
+        encoding: "utf-8",
+        env: { ...process.env, GIT_INDEX_FILE: indexCopy },
+      });
+    const before = staged();
+    const result = spawnSync(resolveBin("bash"), [script], {
+      cwd: f.repo,
+      env: {
+        ...f.env,
+        GIT_INDEX_FILE: indexCopy,
+        GIT_DIR: gitDir,
+        SCAN_WORKTREE: join(f.root, "baseline-checkout"),
+      },
+      encoding: "utf-8",
+      input: JSON.stringify({
+        session_id: "spec0037",
+        tool_use_id: "scan",
+        cwd: f.repo,
+        tool_input: { command: "git commit -m fixture" },
+      }),
+    });
+    expect(result.status).toBe(0);
+    expect(existsSync(join(f.root, "baseline-checkout", "changed.ts"))).toBe(true);
+    expect(staged()).toBe(before);
+  });
 });
 
 /**
@@ -733,6 +777,11 @@ describe("plugin hooks — SessionStart (spec 0017)", () => {
   } as unknown as NavoriConfig;
 
   const PLUGIN_COMMAND = 'bash "$CLAUDE_PROJECT_DIR/.claude/scripts/session-fixture.sh"';
+  // What settings.json registers for it: the same script behind the parse check.
+  const REGISTERED_PLUGIN_COMMAND = claudeHookCommand(
+    "SessionStart",
+    ".claude/scripts/session-fixture.sh",
+  );
 
   const sessionPlugin: LoadedPlugin = {
     manifest: {
@@ -768,7 +817,7 @@ describe("plugin hooks — SessionStart (spec 0017)", () => {
     const buckets = sessionBuckets([sessionPlugin]);
     const commands = buckets.flatMap((b) => b.hooks.map((h) => h.command));
     expect(commands.some((c) => c.includes("session-start-context.sh"))).toBe(true);
-    expect(commands).toContain(PLUGIN_COMMAND);
+    expect(commands).toContain(REGISTERED_PLUGIN_COMMAND);
 
     // Separate buckets, not one merged blob: the core hook keeps its lifecycle
     // matcher, and the plugin's matcher-less entry neither inherits nor erases it.
@@ -779,7 +828,7 @@ describe("plugin hooks — SessionStart (spec 0017)", () => {
     const pluginBucket = buckets.find((b) => b.matcher === undefined);
     expect(pluginBucket?.hooks.map((h) => h.command)).toEqual([
       expect.stringContaining("model-advisor.sh"),
-      PLUGIN_COMMAND,
+      REGISTERED_PLUGIN_COMMAND,
     ]);
   });
 

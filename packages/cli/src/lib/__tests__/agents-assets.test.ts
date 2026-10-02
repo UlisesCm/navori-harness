@@ -463,3 +463,14 @@ describe("scout master-plan map contract (spec 0034 T15)", () => {
     expect(body).toContain("context/CODEBASE.md");
   });
 });
+
+// Covers: R39
+describe("scout web research tools (spec 0039 T34)", () => {
+  it("allows WebFetch and WebSearch for scoped web research", () => {
+    const tools = (parseAsset(readAgent("scout")).frontmatter.tools ?? "")
+      .split(",")
+      .map((tool) => tool.trim());
+    expect(tools).toContain("WebFetch");
+    expect(tools).toContain("WebSearch");
+  });
+});

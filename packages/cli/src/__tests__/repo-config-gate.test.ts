@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { readConfig } from "../lib/config/config.ts";
 import { DEFAULT_LANG } from "../lib/i18n.ts";
@@ -42,6 +42,13 @@ const CI_WORKFLOW = resolve(REPO_ROOT, ".github", "workflows", "ci.yml");
 const CONFIG_PATH = resolve(REPO_ROOT, "navori.config.json");
 const PRE_COMMIT_HOOK = resolve(REPO_ROOT, "scripts", "git-hooks", "pre-commit");
 const HOOK_INSTALLER = resolve(REPO_ROOT, "scripts", "js", "install-git-hooks.mjs");
+// Loaded by path: the script lives outside this package's tsconfig `rootDir`.
+const { REPO_LOCAL_GIT_VARS, withoutRepoGitEnv } = (await import(
+  pathToFileURL(resolve(REPO_ROOT, "scripts", "js", "git-env.mjs")).href
+)) as {
+  REPO_LOCAL_GIT_VARS: string[];
+  withoutRepoGitEnv: (env: NodeJS.ProcessEnv) => NodeJS.ProcessEnv;
+};
 
 interface RootPackageJson {
   scripts?: Record<string, string>;
@@ -125,11 +132,30 @@ const EXEMPT_FROM_CI = new Map<string, string>([
   ],
 ]);
 
+/**
+ * Env for child git/installer calls: a commit from a linked worktree exports
+ * `GIT_DIR`/`GIT_INDEX_FILE` into the hook, and `cwd` does not override them.
+ * `inject` simulates that leak for the regression.
+ */
+function cleanGitEnv(inject: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  return { ...withoutRepoGitEnv(process.env), ...inject };
+}
+
+/**
+ * The hook-fixture flow: `git init` + the installer, both under the scrubbed
+ * env. Takes no env on purpose, so the leak regression exercises the real scrub.
+ */
+function initAndInstallHook(repo: string): void {
+  execFileSync("git", ["init", "-q"], { cwd: repo, env: cleanGitEnv() });
+  execFileSync(process.execPath, [HOOK_INSTALLER], { cwd: repo, env: cleanGitEnv() });
+}
+
 /** Absolute path of a hook in `repo`'s git dir. */
-function hookTarget(repo: string, name: string): string {
+function hookTarget(repo: string, name: string, env: NodeJS.ProcessEnv = cleanGitEnv()): string {
   const path = execFileSync("git", ["rev-parse", "--git-path", `hooks/${name}`], {
     cwd: repo,
     encoding: "utf-8",
+    env,
   }).trim();
   return resolve(repo, path);
 }
@@ -281,10 +307,10 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
   it("installs the tracked pre-commit hook and drops the old navori pre-push", () => {
     const repo = mkdtempSync(resolve(tmpdir(), "navori-pre-commit-"));
     try {
-      execFileSync("git", ["init", "-q"], { cwd: repo });
+      execFileSync("git", ["init", "-q"], { cwd: repo, env: cleanGitEnv() });
       const legacy = hookTarget(repo, "pre-push");
       writeFileSync(legacy, "#!/usr/bin/env bash\n# navori pre-push gate\nexec bun check\n");
-      execFileSync(process.execPath, [HOOK_INSTALLER], { cwd: repo });
+      execFileSync(process.execPath, [HOOK_INSTALLER], { cwd: repo, env: cleanGitEnv() });
       const target = hookTarget(repo, "pre-commit");
 
       expect(readFileSync(target, "utf-8")).toBe(readFileSync(PRE_COMMIT_HOOK, "utf-8"));
@@ -295,16 +321,79 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
     }
   });
 
+  // Covers: fix/precommit-git-env — inherited GIT_DIR/GIT_INDEX_FILE must not
+  // reach the parent repo (core.bare flipped, real .git/hooks overwritten).
+  it("withoutRepoGitEnv drops every repo-local git var and keeps the rest", () => {
+    const leaked = Object.fromEntries(REPO_LOCAL_GIT_VARS.map((v) => [v, "/x"]));
+    const clean = withoutRepoGitEnv({
+      ...leaked,
+      GIT_CONFIG_KEY_0: "a",
+      GIT_CONFIG_VALUE_0: "b",
+      KEEP_ME: "1",
+    });
+    expect(clean).toEqual({ KEEP_ME: "1" });
+  });
+
+  // Covers: fix/precommit-git-env
+  it("REPO_LOCAL_GIT_VARS covers everything `git rev-parse --local-env-vars` reports", () => {
+    const reported = execFileSync("git", ["rev-parse", "--local-env-vars"], {
+      encoding: "utf-8",
+      env: cleanGitEnv(),
+    })
+      .split("\n")
+      .filter(Boolean);
+    expect(REPO_LOCAL_GIT_VARS).toEqual(expect.arrayContaining(reported));
+  });
+
+  // Covers: fix/precommit-git-env
+  it("a leaked GIT_DIR/GIT_INDEX_FILE cannot make the fixture flow touch the parent repo", () => {
+    const parent = mkdtempSync(resolve(tmpdir(), "navori-parent-"));
+    const repo = mkdtempSync(resolve(tmpdir(), "navori-pre-commit-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: parent, env: cleanGitEnv() });
+      const parentGit = resolve(parent, ".git");
+      const parentHooks = resolve(parentGit, "hooks");
+      const before = readdirSync(parentHooks).sort();
+      // Leak into the process env, as a hook run does; the fixture flow must
+      // scrub it by itself (this fails if it stops using cleanGitEnv()).
+      const saved = { GIT_DIR: process.env.GIT_DIR, GIT_INDEX_FILE: process.env.GIT_INDEX_FILE };
+      process.env.GIT_DIR = parentGit;
+      process.env.GIT_INDEX_FILE = resolve(parentGit, "index");
+      try {
+        initAndInstallHook(repo);
+      } finally {
+        for (const [k, v] of Object.entries(saved)) {
+          if (v === undefined) delete process.env[k];
+          else process.env[k] = v;
+        }
+      }
+
+      const bare = execFileSync("git", ["config", "core.bare"], {
+        cwd: parent,
+        encoding: "utf-8",
+        env: cleanGitEnv(),
+      }).trim();
+      expect(bare).toBe("false");
+      expect(readdirSync(parentHooks).sort()).toEqual(before);
+      expect(existsSync(resolve(parentHooks, "pre-commit"))).toBe(false);
+      expect(existsSync(hookTarget(repo, "pre-commit"))).toBe(true);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
   it("refuses to overwrite a non-navori pre-commit hook and keeps a custom pre-push", () => {
     const repo = mkdtempSync(resolve(tmpdir(), "navori-pre-commit-"));
     try {
-      execFileSync("git", ["init", "-q"], { cwd: repo });
+      execFileSync("git", ["init", "-q"], { cwd: repo, env: cleanGitEnv() });
       const target = hookTarget(repo, "pre-commit");
       writeFileSync(target, "#!/usr/bin/env bash\necho custom\n");
 
       const result = spawnSync(process.execPath, [HOOK_INSTALLER], {
         cwd: repo,
         encoding: "utf-8",
+        env: cleanGitEnv(),
       });
 
       expect(result.status).not.toBe(0);
@@ -314,7 +403,7 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
       rmSync(target);
       const prePush = hookTarget(repo, "pre-push");
       writeFileSync(prePush, "#!/usr/bin/env bash\necho mine\n");
-      execFileSync(process.execPath, [HOOK_INSTALLER], { cwd: repo });
+      execFileSync(process.execPath, [HOOK_INSTALLER], { cwd: repo, env: cleanGitEnv() });
       expect(readFileSync(prePush, "utf-8")).toContain("echo mine");
     } finally {
       rmSync(repo, { recursive: true, force: true });
@@ -325,12 +414,12 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
 /**
  * The fast tier: what runs before every commit and on `dev`.
  *
- * Locally the pre-commit runs `check:fast` plus the tests related to the
- * staged files; CI's `fast` job runs the same pair for `dev` and PRs into
- * it. The full gate stays on `main`. The pass must be a strict subset of
+ * Locally the pre-commit runs `check:fast`; CI's `fast` job runs format, lint
+ * and typecheck for `dev` and PRs into it. Neither runs tests: those run only
+ * on `main` (`quality`). The pass must be a strict subset of
  * `qualityGate.full`, or `dev` would block on a check `main` never runs.
  */
-describe("pre-commit and CI's dev tier run the same fast pass", () => {
+describe("pre-commit and CI's dev tier run no tests", () => {
   const rootPkg = JSON.parse(
     readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8"),
   ) as RootPackageJson;
@@ -347,18 +436,21 @@ describe("pre-commit and CI's dev tier run the same fast pass", () => {
     expect([...fast].filter((c) => !full.has(c))).toEqual([]);
   });
 
-  it("the versioned pre-commit runs check:fast and the related tests", () => {
+  it("the versioned pre-commit runs check:fast and no tests", () => {
     const hook = readFileSync(PRE_COMMIT_HOOK, "utf-8");
     expect(hook).toContain("bun run check:fast");
-    expect(hook).toContain("bun run test:related");
+    expect(hook).not.toMatch(/test:coverage|bun test|bun run test/);
     expect(hook).toContain("NAVORI_PRE_COMMIT_RUNNING");
   });
 
-  it("CI's fast job runs the same pass, with the scanners installed", () => {
-    expect([...ciChecks("fast")]).toEqual(expect.arrayContaining(["check:fast", "test:related"]));
-    const body = jobBody("fast");
-    expect(body).toContain("semgrep --version");
-    expect(body).toContain("jscpd --version");
+  it("CI's fast job runs only format, lint and typecheck, no tests", () => {
+    const checks = [...ciChecks("fast")].filter((c) => c !== "install");
+    expect(checks.sort()).toEqual(["format:check", "lint", "typecheck"]);
+    expect(jobBody("fast")).not.toMatch(/\btest\b/);
+  });
+
+  it("the quality job still runs the tests with coverage", () => {
+    expect([...ciChecks("quality")]).toContain("test:coverage");
   });
 
   it("main runs the full job and everything else the fast one", () => {

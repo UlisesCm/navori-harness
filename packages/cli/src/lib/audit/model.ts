@@ -312,7 +312,13 @@ export interface HookEvent {
   agentId?: string;
   /** Correlates records produced by hooks for the same host tool invocation. */
   toolUseId?: string;
+  /** How binding the outcome was; absent on records from older writers. */
+  kind?: HookKind;
 }
+
+/** `hard` = a verdict/guard blocked; `ask` = the user was asked; `advisory` =
+ *  proceeded with a warning. */
+export type HookKind = "hard" | "ask" | "advisory";
 
 /**
  * Context an MCP server's `SessionStart` hook pushed into the session, unasked.

@@ -1,24 +1,28 @@
-# Current — Spec 0039 Claude first (39/45 mergeadas; T32 en PR #1161)
+# Current — Spec 0039 T44 measurement pending
 
-- Mergeadas esta jornada: #1149 fix Pi, #1151 T40, #1152 T28, #1153 T38, #1154 T29, #1155 T2
-  (fixtures + enmiendas T37/T45/R42), #1156 T31 doc (`quitar-del-default`).
-- T35 mergeada en #1157.
-- T45 mergeada en PR #1160 a main (`ef2f2e75`); CI quality verde.
-- T32: siete decisiones aprobadas e implementadas; gate completo verde con 6726 tests y el piso
-  de cobertura intacto. Exclusión de `init --full`, opt-in/grants actuales preservados, aviso
-  informativo en doctor/JSON y retirada del consejo de maxFiles; sin migración de configs.
-- PR #1161: CI anterior verde; integración de main en curso, resolviendo únicamente los dos
-  archivos de progress y conservando ambos registros. Verificación fresca pendiente antes de push.
-- Siguiente paso: publicar la integración en #1161 y esperar CI antes de mergear T32. Después T34.
-- Pendientes: T23, T24, T34, T37 y T44. La desactivación de codegraph en este repo va en PR separado.
-- Worktrees T45/T32 conservados; retirar solo con confirmación del usuario, limpios y publicados.
-- Checkout principal: main atrasado y cambio local de Pi conservado; no se modificó ni sincronizó.
-- Cierre: T44.
-- Deuda o gotchas:
-  - Con carga alta en el host, `test:coverage` falla por timeouts de 15s en `cli.e2e`,
-    `doctor-json-checks.e2e`, `pi/runtime`, `engine-neutral-state-integration`,
-    `gate-hook-worktree` y el test de escalado lineal de `guard-destructive`. El piso de cobertura
-    se verificó con `--testTimeout=60000`.
-  - En `claude -p`, un `ask` actúa como deny: `general-purpose` queda bloqueado en headless.
+## Goal
+Ejecutar T44 de Spec 0039 con comparación T9 y criterios de cierre intactos.
 
-Pi: #1146 y #1147 mergeados; sin pendientes en este archivo.
+## Instructions
+- Base y PRs hacia dev, sincronizada antes del trabajo; gate local rápido, cobertura completa solo main CI.
+- No declarar éxito ni activar una ventana sin evidencia.
+
+## Discoveries
+- Comparación 2026-10-02: 8 sesiones y 22 lanzamientos de implementer; cache read p50 por lanzamiento 3,394,101 a 657,376; hooks por Bash 4.88 a 5.16. La muestra está debajo de n>=100 y mezcla versiones.
+- Las ocho sesiones comenzaron antes del merge final de 0039; no hay sesión Claude fresca post-activación verificada. R41 aún no inicia. Metadata no certifica audit.mode/minero idénticos; ruido pendiente.
+
+## Accomplished
+- PRs #1172 y #1173 confirmadas mergeadas: 44/45 tareas integradas.
+- Comparación real audit --compare ejecutada y documentada sin alterar el preregistro ni marcar T44 completa.
+- Checkpoint APPROVED y receipt dev ok/fresh; fast, links, budgets, lint y pruebas enfocadas verdes.
+
+## Next Steps
+- Publicar y mergear el checkpoint T44.
+- Renderizar/cargar el harness completo de dev en una sesión Claude fresca verificable y registrar su timestamp como inicio R41.
+- Reunir ventana post-activación comparable con n>=100 implementer y ruido de dos bases; entonces reevaluar T44. No descartar trabajo ni cambiar root main por sesiones concurrentes.
+
+## Relevant Files
+- docs/research/claude-first-verificacion.md — tabla preliminar, límites y ventana prospectiva.
+- specs/0039-claude-first/tasks.md — T44 permanece pendiente.
+- progress/current.md — próximos pasos de medición.
+- progress/history.md — registro de este checkpoint.

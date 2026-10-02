@@ -22,6 +22,7 @@ const FAKE_ENGINE_CAPABILITIES: EngineCapabilities = {
     "analytic-write-tools": { state: "unsupported", reason: "fake" },
     "local-skill-discovery": { state: "unsupported", reason: "fake" },
     "acceptance-evidence": { state: "unsupported", reason: "fake" },
+    "repeat-failure-advice": { state: "unsupported", reason: "fake" },
     "compact-advice": { state: "unsupported", reason: "fake" },
     "general-purpose-confirm": { state: "unsupported", reason: "fake" },
   },

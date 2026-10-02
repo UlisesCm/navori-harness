@@ -168,6 +168,7 @@ const CODEX_UNREGISTERED_HOOKS: ReadonlySet<string> = new Set([
   "master-accept-confirm",
   "master-plan-context",
   "general-purpose-confirm",
+  "bash-outcome-watch",
 ]);
 
 /** Every hook `resolveHarnessPlan` can emit, with every optional input switched on. */
@@ -180,6 +181,7 @@ const HOOK_IDS: readonly string[] = [
   "subagent-stop-handoff",
   "managed-drift-watch",
   "routing-watch",
+  "bash-outcome-watch",
   "worktree-reclaim",
   "audit-mode-trigger",
   "audit-mode-close",

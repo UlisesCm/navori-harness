@@ -140,7 +140,7 @@ const coexistSettings = mergeCoexistSettings(
  * `routing-watch`, which already ran on every Bash success, so `bPost` stays 2.
  * T23's `bash-outcome-watch` on `PostToolUseFailure` is what will move `bPostFail`.
  */
-const EXPECTED = { bPre: 5, bPost: 2, bPostFail: 0 };
+const EXPECTED = { bPre: 5, bPost: 2, bPostFail: 1 };
 
 /**
  * R43 base for the blocked path, derived explicitly. The `claude-first-base` snapshot (T9,
@@ -180,7 +180,7 @@ describe("hooks per Bash call (R28)", () => {
     const watch = post.filter((h) => h.command.includes("routing-watch.sh"));
     expect(watch).toHaveLength(1);
     expect(watch[0]).toMatchObject({ timeout: 30 });
-    expect(watch[0]!.command.endsWith(" claude-post-tool-use")).toBe(true);
+    expect(watch[0]!.command).toContain('exec bash "$f" claude-post-tool-use;');
   });
 
   // Covers: R28

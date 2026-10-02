@@ -2425,3 +2425,124 @@ Usuario aprobó las siete decisiones de T32, agregar dos expectativas e2e al alc
 - packages/cli/src/__tests__/cli.e2e.test.ts — dos expectativas alineadas al opt-in.
 - packages/plugins/codegraph/ — retirada del consejo no respaldado de maxFiles.
 - specs/0039-claude-first/ — R34 enmendado y trazabilidad de T32/T45.
+
+## 2026-10-02 12:45 Codex — Spec 0039 T37 y T23/T24 hacia dev
+
+## Goal
+Continuar Spec 0039 y publicar sus cambios hacia dev.
+
+## Instructions
+- Base y destino de todas las ramas y PRs: dev.
+- Gate local rápido y tests relacionados; sin suite completa local.
+- Compactar solo la nota T37; no subir el límite de palabras.
+
+## Discoveries
+- T2 pasa R17: error trae código y salida disponible; T23/T24 pueden implementarse.
+- Las firmas de fallo usan código y cabeza normalizada; no la cola truncada.
+- T37 solo detecta el marcador real de Agent foreground; no infiere parciales por handoff ausente.
+- PR #1166 integrado en dev como 38081d74; aísla Git en el pre-commit y jscpd. No repetir commits con el hook anterior.
+
+## Accomplished
+- T37 implementada, documentada y APPROVED en feat/spec-0039-t37-dev desde 38081d74. Nota de 1059/1060 palabras, render/fast/docbudgets y pruebas enfocadas verdes; receipt fresco target dev.
+- T23/T24 implementadas y APPROVED con 259 tests dirigidos: aviso al tercer fallo, reset en éxito, state bounded, Codex unsupported y eventos audit.
+- Cambios antiguos preservados: worktrees T37 y T23/T24 intactos; versiones nuevas integran dev sin stash/reset.
+- T34 sigue conservada en worktree original; falta recuperar publicación desde dev limpio.
+
+## Next Steps
+- Publicar T37 y refrescar/publicar T23/T24 desde dev con nueva firma de receipt.
+- Recuperar publicación T34; luego T44, comparación contra instantánea T9.
+- No borrar worktrees ni ramas de otras sesiones.
+
+## Relevant Files
+- packages/core/core-assets/hooks/subagent-stop-handoff.sh — marcador real de parcial.
+- packages/core/core-assets/managed/orquestacion.md — continuidad SendMessage y limitaciones del host.
+- packages/core/core-assets/hooks/bash-outcome-watch.sh — advisory de fallos repetidos.
+- packages/core/core-assets/hooks/_partials/bash-outcome.sh — estado y reset compartido.
+- packages/cli/src/commands/plan.ts — eventos audit de rechazos.
+- packages/cli/src/engines/shared/engine-capabilities.ts — control repeat-failure-advice.
+- docs/native-overlap.md — matriz actualizada.
+- specs/0039-claude-first/tasks.md — T23/T24/T37 implementadas.
+
+## 2026-10-02 14:30 Codex — Corrige prerequisite zsh del CI rápido en PR #1170
+
+## Goal
+Corregir el CI del PR #1170 (issue #1143) antes de continuar Spec 0039.
+
+## Instructions
+- Sincronizar dev antes de cada nuevo trabajo; PRs hacia dev.
+- Mantener 0039 conservado sin publicar mientras se corrige este PR.
+
+## Discoveries
+- El job fast de Ubuntu no instalaba zsh; quality sí. Tres pruebas de master-plan-context devolvían status null por ejecutable ausente (ENOENT reproducido).
+
+## Accomplished
+- Instalación y verificación de zsh agregadas al job fast, sin omitir pruebas.
+- Revisión APPROVED; check:fast, lint y 13/13 pruebas enfocadas verdes. Receipt contra dev45429b8: status ok, fresh true.
+
+## Next Steps
+- Publicar la corrección en el PR #1170 y comprobar CI de Ubuntu.
+- Después retomar T34 y T23/T24 en worktrees sincronizados con dev45429b8; serialización Markdown y revisión final pendientes. T37 ya mergeada; T44 después.
+- Conservar worktrees y checkout raíz por sesiones concurrentes.
+
+## Relevant Files
+- .github/workflows/ci.yml — prerequisite zsh del job fast.
+- progress/current.md — próximo paso explícito.
+- progress/history.md — evidencia de esta corrección.
+
+## 2026-10-02 15:00 Codex — Publica pendientes de Spec 0039 hacia dev
+
+## Goal
+Publicar los pendientes implementados de Spec 0039 hacia dev y preparar T44.
+
+## Instructions
+- Sincronizar dev antes de cada trabajo; PRs hacia dev.
+- Gate local rápido; cobertura completa solo en CI de main (#1171).
+
+## Discoveries
+- Dev3f069fd7 incluye #1169 de presupuesto, #1170 corregido y #1171 de gates. La integración fue fast-forward sin perder cambios.
+- T44 exige comparar con la instantánea T9 usando mismo minero/audit.mode; éxito de cache read necesita n >=100 lanzamientos por ventana y banda de ruido de dos ventanas base. No inferir éxito por muestras menores.
+
+## Accomplished
+- T37 mergeada en #1167; PR1170 corregido y mergeado, CI rápido verde.
+- T34 aprobada sobre dev3f069fd7: siete rutas, scout WebFetch/WebSearch, notas author-agent, Pi intacto, 145 pruebas y fast/render/budgets verdes, receipt ok/fresh.
+- T23/T24 implementadas y serializadas sobre la misma base: 392 pruebas enfocadas verdes; revisión final en curso.
+
+## Next Steps
+- Publicar T34 y finalizar revisión/publicación T23/T24. Esperar integración antes de T44.
+- Medir T44 sin alterar criterios registrados; conservar worktrees por sesiones concurrentes.
+
+## Relevant Files
+- packages/core/core-assets/agents/scout.md — acceso web acotado.
+- .claude/skills/author-agent/SKILL.md — admisión/retiro y excepción architect.
+- packages/core/core-assets/hooks/bash-outcome-watch.sh — advisory de fallos.
+- docs/native-overlap.md — matriz generada.
+- specs/0039-claude-first/tasks.md — tareas.
+
+## 2026-10-02 15:30 Codex — Registra comparación preliminar T44 sin inferir éxito
+
+## Goal
+Ejecutar T44 de Spec 0039 con comparación T9 y criterios de cierre intactos.
+
+## Instructions
+- Base y PRs hacia dev, sincronizada antes del trabajo; gate local rápido, cobertura completa solo main CI.
+- No declarar éxito ni activar una ventana sin evidencia.
+
+## Discoveries
+- Comparación 2026-10-02: 8 sesiones y 22 lanzamientos de implementer; cache read p50 por lanzamiento 3,394,101 a 657,376; hooks por Bash 4.88 a 5.16. La muestra está debajo de n>=100 y mezcla versiones.
+- Las ocho sesiones comenzaron antes del merge final de 0039; no hay sesión Claude fresca post-activación verificada. R41 aún no inicia. Metadata no certifica audit.mode/minero idénticos; ruido pendiente.
+
+## Accomplished
+- PRs #1172 y #1173 confirmadas mergeadas: 44/45 tareas integradas.
+- Comparación real audit --compare ejecutada y documentada sin alterar el preregistro ni marcar T44 completa.
+- Checkpoint APPROVED y receipt dev ok/fresh; fast, links, budgets, lint y pruebas enfocadas verdes.
+
+## Next Steps
+- Publicar y mergear el checkpoint T44.
+- Renderizar/cargar el harness completo de dev en una sesión Claude fresca verificable y registrar su timestamp como inicio R41.
+- Reunir ventana post-activación comparable con n>=100 implementer y ruido de dos bases; entonces reevaluar T44. No descartar trabajo ni cambiar root main por sesiones concurrentes.
+
+## Relevant Files
+- docs/research/claude-first-verificacion.md — tabla preliminar, límites y ventana prospectiva.
+- specs/0039-claude-first/tasks.md — T44 permanece pendiente.
+- progress/current.md — próximos pasos de medición.
+- progress/history.md — registro de este checkpoint.

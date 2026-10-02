@@ -1,4 +1,4 @@
-# navori:managed start id="subagent-stop-handoff-base" hash="662fd5e5" version="0.11.0" source="@navori/core"
+# navori:managed start id="subagent-stop-handoff-base" hash="b7feff38" version="0.11.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse(`Agent`|`Task`) lifecycle hook — handoff validator.
@@ -522,6 +522,9 @@ navori_audit_log() {
   # must treat "names nobody" as invalid data rather than as a different agent
   # (`ownerOf` in `lib/audit/parse.ts` is where that rule lives).
 
+  # Optional third argument `kind` (hard | ask | advisory): how binding the
+  # outcome was. Additive: callers that pass nothing keep today's records, and
+  # readers treat a missing `kind` as unclassified.
   printf '%s\n' "$(jq -cn \
     --arg name "${navori_audit_name:-unknown}" \
     --arg phase "${navori_audit_phase:-unknown}" \
@@ -531,13 +534,15 @@ navori_audit_log() {
     --arg src "${navori_audit_source:-core}" \
     --arg agent "${navori_audit_agent:-}" \
     --arg toolUseId "${navori_audit_tool_use_id:-}" \
+    --arg kind "${3:-}" \
     --argjson ms "$navori_audit_ms" \
     --argjson tsMs "$navori_audit_end" \
     '{tsMs:$tsMs,event:"hook",name:$name,phase:$phase,verdict:$verdict,ms:$ms,source:$src}
      + (if $tool   == "" then {} else {tool:$tool}       end)
      + (if $reason == "" then {} else {reason:$reason}   end)
      + (if $agent  == "" then {} else {agentId:$agent}   end)
-     + (if $toolUseId == "" then {} else {toolUseId:$toolUseId} end)' 2>/dev/null)" \
+     + (if $toolUseId == "" then {} else {toolUseId:$toolUseId} end)
+     + (if $kind == "" then {} else {kind:$kind} end)' 2>/dev/null)" \
     >> "$navori_audit_file" 2>/dev/null
 
   return 0
@@ -591,6 +596,28 @@ note() {
 # Spec 0035 D2 owns Claude/Codex subagent normalization and the single stdin
 # drain through extract-cmd; this hook must not grow a second payload parser.
 navori_subagent_type=$(nv_subagent_type)
+
+# Spec 0039 R42: only the parent's foreground PostToolUse(Agent) response
+# carries the host's turn-limit marker. A missing handoff is not evidence of
+# truncation, and background/SendMessage completions do not reach this event.
+navori_partial_msg=""
+if [ "${1:-}" != "codex" ] && [ "${nv_engine:-claude}" != "codex" ] &&
+  [ -z "$(payload_field agent_id)" ] &&
+  [[ "$payload" == *"stopped at its "* ]] && command -v node >/dev/null 2>&1; then
+  navori_partial_found=$(printf '%s' "$payload" | node -e '
+    let event;
+    try { event = JSON.parse(require("fs").readFileSync(0, "utf8")); } catch { process.exit(0); }
+    if (event.hook_event_name !== "PostToolUse" || event.tool_name !== "Agent" ||
+        event.tool_input?.run_in_background === true) process.exit(0);
+    const content = event.tool_response?.content;
+    if (Array.isArray(content) && content.some((item) =>
+      item?.type === "text" && typeof item.text === "string" &&
+      /\bstopped at its \d+-turn limit\b/.test(item.text))) process.stdout.write("yes");
+  ' 2>/dev/null) || navori_partial_found=""
+  if [ "$navori_partial_found" = "yes" ]; then
+    navori_partial_msg="navori: handoff PARCIAL de ${navori_subagent_type:-subagente} — alcanzó su límite de turnos. Continúa con SendMessage para conservar su estado; usa un redespacho fresco solo si el trabajo restante está acotado."
+  fi
+fi
 
 # Spec 0039 R44 — compaction advice lane. Claude mode only (Codex has no
 # PostToolUse context channel), main thread only (`agent_id` is present just
@@ -805,12 +832,21 @@ navori_emit() {
   [ -n "$out" ] && printf '%s\n' "$out"
 }
 # Emits the compaction advice alone and marks the session as advised.
-navori_emit_compact() {
-  [ -n "$navori_compact_msg" ] || return 0
-  if navori_emit "$navori_compact_msg"; then
-    printf '1\n' >"$navori_compact_mark" 2>/dev/null || true
-    navori_audit_verdict="compact-advice"
-    navori_audit_reason="$navori_compact_total"
+navori_emit_advice() {
+  local advice="$navori_partial_msg"
+  if [ -n "$navori_compact_msg" ]; then
+    advice="${advice}${advice:+ }${navori_compact_msg}"
+  fi
+  [ -n "$advice" ] || return 0
+  if navori_emit "$advice"; then
+    if [ -n "$navori_compact_msg" ]; then
+      printf '1\n' >"$navori_compact_mark" 2>/dev/null || true
+      navori_audit_verdict="compact-advice"
+      navori_audit_reason="$navori_compact_total"
+    elif [ -n "$navori_partial_msg" ]; then
+      navori_audit_verdict="partial"
+      navori_audit_reason="$navori_subagent_type"
+    fi
   fi
   return 0
 }
@@ -822,7 +858,7 @@ if [ -z "$problems" ]; then
   # and no delete inside a hook that runs in the user's repo.
   : >"$navori_handoff_stamp" 2>/dev/null || true
   navori_audit_verdict="clean"
-  navori_emit_compact
+  navori_emit_advice
   exit 0
 fi
 
@@ -850,10 +886,13 @@ navori_handoff_sig="${problems}|${navori_fingerprint}"
 if [ "$navori_handoff_prev" = "$navori_handoff_sig" ]; then
   navori_audit_verdict="repeat"
   navori_audit_reason="$problems"
-  navori_emit_compact
+  navori_emit_advice
   exit 0
 fi
 msg="navori: handoff(s) de subagente incompletos — ${problems}. Revisa que el reporte quedó bien escrito antes de consolidarlo."
+if [ -n "$navori_partial_msg" ]; then
+  msg="${msg} ${navori_partial_msg}"
+fi
 if [ -n "$navori_compact_msg" ]; then
   msg="${msg} ${navori_compact_msg}"
 fi

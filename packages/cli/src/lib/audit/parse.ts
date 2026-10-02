@@ -1628,6 +1628,9 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
     if (agentId) event.agentId = agentId;
     const toolUseId = str(rec.toolUseId);
     if (toolUseId) event.toolUseId = toolUseId;
+    // Optional and additive: an unknown value is dropped, never a parse error.
+    const kind = str(rec.kind);
+    if (kind === "hard" || kind === "ask" || kind === "advisory") event.kind = kind;
     if (tsMs !== null) event.tsMs = tsMs;
     events.push(event);
   }

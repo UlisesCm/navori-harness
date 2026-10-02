@@ -210,6 +210,7 @@ esac
 # is fail-open, fast-exits with builtins when no pending criterion's command is
 # in the payload, and writes one complete line with a single `printf >>` or none.
 if [ "$tool" = "Bash" ] && [ "${1:-}" = "claude-post-tool-use" ]; then
+  navori_bash_failure_state reset
   navori_bash_success_lane
 fi
 

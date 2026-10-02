@@ -1,4 +1,4 @@
-# navori:managed start id="tgrep-script-guard-search-routing" hash="35276308" version="0.11.0" source="@navori/plugin-tgrep"
+# navori:managed start id="tgrep-script-guard-search-routing" hash="35276308" version="0.11.1" source="@navori/plugin-tgrep"
 #!/usr/bin/env bash
 # Search-routing lane for the tgrep plugin (spec 0039 D6, R29-R31).
 #

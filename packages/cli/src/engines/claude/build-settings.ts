@@ -97,12 +97,51 @@ const AUDIT_CLOSE_HOOK_DEST = ".claude/hooks/audit-mode-close.sh";
 const SUBAGENT_STOP_HOOK_DEST = ".claude/hooks/subagent-stop-handoff.sh";
 const MANAGED_DRIFT_HOOK_DEST = ".claude/hooks/managed-drift-watch.sh";
 const ROUTING_WATCH_HOOK_DEST = ".claude/hooks/routing-watch.sh";
+const BASH_OUTCOME_WATCH_HOOK_DEST = ".claude/hooks/bash-outcome-watch.sh";
 const PR_PUBLISHER_HOOK_DEST = ".claude/hooks/pr-publisher-confirm.sh";
 const GENERAL_PURPOSE_HOOK_DEST = ".claude/hooks/general-purpose-confirm.sh";
 const COMMENT_DRAFT_HOOK_DEST = ".claude/hooks/comment-draft-confirm.sh";
 const WORKTREE_RECLAIM_HOOK_DEST = ".claude/hooks/worktree-reclaim.sh";
 const STOP_HOOK_DEST = ".claude/hooks/stop-verify-reminder.sh";
 const SETTINGS_BASE_REL = "core-assets/settings/settings-base.json";
+
+/**
+ * The command `settings.json` registers for a hook script: parse-check it with
+ * `bash -n`, then `exec` it exactly as `bash "<path>" <args>` did before, so
+ * `$0`, stdin and the exit code reach the script unchanged.
+ *
+ * Why the check: a script bash cannot parse — a merge or rebase that leaves
+ * conflict markers in `.claude/hooks/`, the self-hosted case — makes bash exit
+ * 2, and exit 2 is Claude Code's BLOCK signal. Every PreToolUse hook then
+ * blocks Bash/Edit/Write, so the agent cannot even run the `git rebase --abort`
+ * that would fix it, and a Stop hook exiting 2 forces the turn to continue,
+ * which loops the session. The fallback depends on the event:
+ *   - PreToolUse: `ask` with the reason — fail-safe (a broken guard never waves
+ *     a command through) without bricking the session; the human approves the
+ *     repair. Same posture as #1117's "no verdict → ask".
+ *   - Every other event: a stderr notice and exit 1, a non-blocking error.
+ *
+ * The parse check costs ~3ms on the largest hook (guard-destructive, ~1.4k
+ * lines). The command is POSIX sh, and zsh-safe (#391).
+ */
+export function claudeHookCommand(event: string, scriptRel: string, args?: string): string {
+  const run = `f="$CLAUDE_PROJECT_DIR/${scriptRel}"; bash -n "$f" 2>/dev/null && exec bash "$f"${args ? ` ${args}` : ""}; `;
+  const reason = `navori: ${scriptRel} cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply`;
+  if (event === "PreToolUse") {
+    const decision = JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "ask",
+        permissionDecisionReason: reason,
+      },
+    });
+    return `${run}printf '%s\\n' '${decision}'`;
+  }
+  return `${run}echo '${reason}' >&2; exit 1`;
+}
+
+/** `bash "$CLAUDE_PROJECT_DIR/<path>" [args]`, the plugin manifest's command shape. */
+const PLAIN_HOOK_COMMAND_RE = /^bash "\$CLAUDE_PROJECT_DIR\/([^"\n]+)"(?: ([^\n]+))?$/;
 
 /**
  * Build `.claude/settings.json` from `config` and the FILTERED inventory
@@ -157,7 +196,7 @@ export function buildClaudeSettings(
           hooks: [
             {
               type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${GUARD_HOOK_DEST}"`,
+              command: claudeHookCommand("PreToolUse", GUARD_HOOK_DEST),
               timeout: 10,
               statusMessage: "navori: guard-destructive",
             },
@@ -183,7 +222,7 @@ export function buildClaudeSettings(
           hooks: [
             {
               type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${SUBAGENT_NO_BACKGROUND_HOOK_DEST}"`,
+              command: claudeHookCommand("PreToolUse", SUBAGENT_NO_BACKGROUND_HOOK_DEST),
               timeout: 10,
               statusMessage: "navori: subagent-no-background",
             },
@@ -214,7 +253,7 @@ export function buildClaudeSettings(
             hooks: [
               {
                 type: "command",
-                command: `bash "$CLAUDE_PROJECT_DIR/${IMPLEMENTER_NO_MD_HOOK_DEST}"`,
+                command: claudeHookCommand("PreToolUse", IMPLEMENTER_NO_MD_HOOK_DEST),
                 timeout: 10,
                 statusMessage: "navori: implementer-no-markdown",
               },
@@ -240,7 +279,7 @@ export function buildClaudeSettings(
             hooks: [
               {
                 type: "command",
-                command: `bash "$CLAUDE_PROJECT_DIR/${PLAN_GATE_HOOK_DEST}"`,
+                command: claudeHookCommand("PreToolUse", PLAN_GATE_HOOK_DEST),
                 timeout: 10,
                 statusMessage: "navori: plan-gate",
               },
@@ -262,7 +301,11 @@ export function buildClaudeSettings(
           hooks: [
             {
               type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${MODEL_ADVISOR_HOOK_DEST}" claude-session-start`,
+              command: claudeHookCommand(
+                "SessionStart",
+                MODEL_ADVISOR_HOOK_DEST,
+                "claude-session-start",
+              ),
               timeout: 10,
               statusMessage: "navori: model advisor",
             },
@@ -274,7 +317,11 @@ export function buildClaudeSettings(
           hooks: [
             {
               type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${MODEL_ADVISOR_HOOK_DEST}" claude-post-model-switch`,
+              command: claudeHookCommand(
+                "PostModelSwitch",
+                MODEL_ADVISOR_HOOK_DEST,
+                "claude-post-model-switch",
+              ),
               timeout: 10,
               statusMessage: "navori: model advisor",
             },
@@ -288,7 +335,7 @@ export function buildClaudeSettings(
           hooks: [
             {
               type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${MODEL_ADVISOR_HOOK_DEST}" claude-stop`,
+              command: claudeHookCommand("Stop", MODEL_ADVISOR_HOOK_DEST, "claude-stop"),
               timeout: 10,
               statusMessage: "navori: model advisor",
             },
@@ -309,7 +356,7 @@ export function buildClaudeSettings(
             hooks: [
               {
                 type: "command",
-                command: `bash "$CLAUDE_PROJECT_DIR/${MASTER_PLAN_CONTEXT_HOOK_DEST}"`,
+                command: claudeHookCommand("SessionStart", MASTER_PLAN_CONTEXT_HOOK_DEST),
                 timeout: 10,
                 statusMessage: "navori: master-plan context",
               },
@@ -322,7 +369,7 @@ export function buildClaudeSettings(
             hooks: [
               {
                 type: "command",
-                command: `bash "$CLAUDE_PROJECT_DIR/${MASTER_ACCEPT_CONFIRM_HOOK_DEST}"`,
+                command: claudeHookCommand("PreToolUse", MASTER_ACCEPT_CONFIRM_HOOK_DEST),
                 timeout: 10,
                 statusMessage: "navori: master acceptance confirmation",
               },
@@ -346,7 +393,7 @@ export function buildClaudeSettings(
           hooks: [
             {
               type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${COMMENT_DRAFT_HOOK_DEST}"`,
+              command: claudeHookCommand("PreToolUse", COMMENT_DRAFT_HOOK_DEST),
               timeout: 10,
               statusMessage: "navori: comment-draft-confirm",
             },
@@ -367,7 +414,7 @@ export function buildClaudeSettings(
             hooks: [
               {
                 type: "command",
-                command: `bash "$CLAUDE_PROJECT_DIR/${PR_PUBLISHER_HOOK_DEST}"`,
+                command: claudeHookCommand("PreToolUse", PR_PUBLISHER_HOOK_DEST),
                 timeout: 10,
                 statusMessage: "navori: pr-publisher-confirm",
               },
@@ -392,7 +439,7 @@ export function buildClaudeSettings(
             hooks: [
               {
                 type: "command",
-                command: `bash "$CLAUDE_PROJECT_DIR/${GENERAL_PURPOSE_HOOK_DEST}"`,
+                command: claudeHookCommand("PreToolUse", GENERAL_PURPOSE_HOOK_DEST),
                 timeout: 10,
                 statusMessage: "navori: general-purpose-confirm",
               },
@@ -472,9 +519,27 @@ export function buildClaudeSettings(
           hooks: [
             {
               type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${MANAGED_DRIFT_HOOK_DEST}"`,
+              command: claudeHookCommand("PostToolUse", MANAGED_DRIFT_HOOK_DEST),
               timeout: 10,
               statusMessage: "navori: managed-block drift",
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  settings = deepMerge(settings, {
+    hooks: {
+      PostToolUseFailure: [
+        {
+          matcher: "Bash",
+          hooks: [
+            {
+              type: "command",
+              command: claudeHookCommand("PostToolUseFailure", BASH_OUTCOME_WATCH_HOOK_DEST),
+              timeout: 10,
+              statusMessage: "navori: repeat failure advice",
             },
           ],
         },
@@ -519,7 +584,11 @@ export function buildClaudeSettings(
           hooks: [
             {
               type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${ROUTING_WATCH_HOOK_DEST}" claude-post-tool-use`,
+              command: claudeHookCommand(
+                "PostToolUse",
+                ROUTING_WATCH_HOOK_DEST,
+                "claude-post-tool-use",
+              ),
               // 30, not 10: the Bash success lane fingerprints the tree
               // (spec 0039 D5). Free on the normal path; it only bounds a hang.
               timeout: 30,
@@ -540,7 +609,7 @@ export function buildClaudeSettings(
             hooks: [
               {
                 type: "command",
-                command: `bash "$CLAUDE_PROJECT_DIR/${QG_HOOK_DEST}"`,
+                command: claudeHookCommand("PreToolUse", QG_HOOK_DEST),
                 // Command hooks fail open when Claude kills them on timeout.
                 // 600s is Claude's documented default and leaves 3.8× the
                 // slowest measured fast gate (158s) before it can bypass us.
@@ -576,7 +645,7 @@ export function buildClaudeSettings(
           hooks: [
             {
               type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${SESSION_START_HOOK_DEST}"`,
+              command: claudeHookCommand("SessionStart", SESSION_START_HOOK_DEST),
               timeout: 15,
               statusMessage: "navori: session context",
             },
@@ -601,7 +670,7 @@ export function buildClaudeSettings(
           hooks: [
             {
               type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${AUDIT_TRIGGER_HOOK_DEST}"`,
+              command: claudeHookCommand("UserPromptSubmit", AUDIT_TRIGGER_HOOK_DEST),
               timeout: 10,
               statusMessage: "navori: audit-mode",
             },
@@ -613,7 +682,7 @@ export function buildClaudeSettings(
           hooks: [
             {
               type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${AUDIT_CLOSE_HOOK_DEST}"`,
+              command: claudeHookCommand("SessionEnd", AUDIT_CLOSE_HOOK_DEST),
               timeout: 10,
               statusMessage: "navori: audit-mode close",
             },
@@ -632,7 +701,7 @@ export function buildClaudeSettings(
             // on it and does not get 10 extra seconds of its own.
             {
               type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${WORKTREE_RECLAIM_HOOK_DEST}"`,
+              command: claudeHookCommand("SessionEnd", WORKTREE_RECLAIM_HOOK_DEST),
               timeout: 30,
               statusMessage: "navori: reclaim worktrees",
             },
@@ -675,7 +744,7 @@ export function buildClaudeSettings(
           hooks: [
             {
               type: "command",
-              command: `bash "$CLAUDE_PROJECT_DIR/${SUBAGENT_STOP_HOOK_DEST}"`,
+              command: claudeHookCommand("PostToolUse", SUBAGENT_STOP_HOOK_DEST),
               timeout: 15,
               statusMessage: "navori: handoff check",
             },
@@ -695,7 +764,7 @@ export function buildClaudeSettings(
             hooks: [
               {
                 type: "command",
-                command: `bash "$CLAUDE_PROJECT_DIR/${STOP_HOOK_DEST}"`,
+                command: claudeHookCommand("Stop", STOP_HOOK_DEST),
                 timeout: 15,
                 statusMessage: "navori: verify-before-done",
               },
@@ -850,7 +919,12 @@ function pluginHooksToClaudeShape(
     Array<{ matcher?: string; hooks: Array<Record<string, unknown>> }>
   > = {};
   for (const h of entries) {
-    const inner: Record<string, unknown> = { type: "command", command: h.command };
+    // A plugin script is rendered into the repo like a core hook, so it can be
+    // left unparseable by the same conflict; any other command shape is the
+    // plugin's own and passes through verbatim.
+    const plain = PLAIN_HOOK_COMMAND_RE.exec(h.command);
+    const command = plain ? claudeHookCommand(h.event, plain[1]!, plain[2]) : h.command;
+    const inner: Record<string, unknown> = { type: "command", command };
     if (h.timeout !== undefined) inner.timeout = h.timeout;
     if (h.statusMessage !== undefined) inner.statusMessage = h.statusMessage;
 

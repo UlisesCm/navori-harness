@@ -19,6 +19,8 @@ It must guarantee at least one of these, or it is expendable:
 
 A gain on one axis can't cost a higher-priority one (quality > tokens > speed). The proposal names its guarantee, the signal that measures it, its start-up cost against its output, and a retirement deadline. New agents ship off by default. Expanding an existing agent's job passes the same test, counting each delegation's cold start.
 
+T34 expands `scout` with scoped web research under the same admission test. Its guarantee is lower context/token cost and research quality; R49 is the measurement signal. Retire web access if `scout` makes zero web calls over 30 days while `general-purpose` web calls remain above zero.
+
 ## 2. Per-engine contract
 
 | | Claude Code | Codex | DeepSeek |
@@ -33,7 +35,7 @@ Write the navori asset once; the render maps it. Codex drops `tools`: its postur
 
 - Frontmatter: `name`, `description`, `tools`, `model: {{models.<id>}}`, `effort: {{effort.<id>}}`, `maxWords`.
 - Description ≤340 characters and in the "Use proactively / when / after / before" family (`agent-descriptions.test.ts`).
-- Tools: least privilege, and never `Agent` — navori policy (Spec 0026 R21), though Claude Code itself allows nesting.
+- Tools: least privilege. `Agent` is disallowed except for the architect's explicitly scoped `Agent(scout, scribe)` delegation; this is the shipped exception, not a general grant. Claude Code itself allows nesting.
 - Body: objective, inputs, output contract (its handoff file), tools and sources, boundaries.
 - Tier by the work: mechanical → cheapest tier and low effort; judgment → top tier.
 

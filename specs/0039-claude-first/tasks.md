@@ -162,11 +162,11 @@ Lote 2:
 
 Lote 3 (sujeto al gate de T2):
 
-- [ ] **T23** (R13, R14, R15) — *carry-over 0038 T9*: `bash-outcome-watch.sh` solo en
+- [x] **T23** (R13, R14, R15) — *carry-over 0038 T9*: `bash-outcome-watch.sh` solo en
   `PostToolUseFailure(Bash)`; el reset en éxito va en el carril de T21. · test:
   `bash-outcome-watch.test.ts` con la fixture live de T2 con `// Covers: R13, R14, R15`; T17
   actualizado (fallo = base).
-- [ ] **T24** (R16, R70) — *carry-over 0038 T10*: fila `unsupported` en
+- [x] **T24** (R16, R70) — *carry-over 0038 T10*: fila `unsupported` en
   `CODEX_HOOK_REGISTRATIONS` y control `repeat-failure-advice`; nombres de evidencia, rechazo y
   atasco en `mechanismSection`. · test: `control-inventory.test.ts`, pinned-hash de Codex sin
   cambio y fixture de mecanismos con `// Covers: R16, R70`. Incluye el evento CLI de cada rechazo de `plan update`.
@@ -216,7 +216,7 @@ Lote 3 (sujeto al gate de T2):
   respeta paréntesis en `rewriteAgentTools` y `mergeFrontmatter`; fila de despacho anidado;
   fallback en `orquestacion.md`. · test: `frontmatter-merge.test.ts` (ida y vuelta sin
   reescritura) y `agents-assets.test.ts` con `// Covers: R36, R37`.
-- [ ] **T34** (R38, R39) — `scout` con `WebFetch, WebSearch`; acceso del `architect` a tgrep y
+- [x] **T34** (R38, R39) — `scout` con `WebFetch, WebSearch`; acceso del `architect` a tgrep y
   codegraph según T32; nota en la skill local `author-agent`. · test: `agents-assets.test.ts`
   con `// Covers: R38, R39`.
 - [x] **T35** (R40, R70) — `general-purpose-confirm.sh` calcado de `pr-publisher-confirm`,
@@ -233,7 +233,7 @@ Lote 3 (sujeto al gate de T2):
   (`stopped at its N-turn limit`) en el `Agent tool_result` del padre con el `AgentRun` correspondiente;
   sin correlación con el tool-result padre no se puede probar la ausencia del límite. · test: fixture de T2
   con `// Covers: R41, R42`.
-- [ ] **T37** (R42) — Carril de parcial en `subagent-stop-handoff.sh` con la fixture de T2: detecta
+- [x] **T37** (R42) — Carril de parcial en `subagent-stop-handoff.sh` con la fixture de T2: detecta
   la marca por su texto (`stopped at its N-turn limit`) en el `tool_response` del
   `PostToolUse(Agent)` en foreground del padre; sin fallback por `impl_*.json` ausente (M6). Los
   agentes en background o reanudados con `SendMessage` no son detectables (`SubagentStop` no se

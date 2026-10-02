@@ -30,6 +30,24 @@ navori_audit_log() { :; }
 # navori:include audit-repo
 # navori:include audit-log
 navori_audit_begin
+# navori:include gate-ask
+
+# No-verdict exit (#1117): the TOOL failed, so there is no duplication verdict
+# to enforce. `navori_jscpd_no_verdict <audit reason> <stderr text> <ask reason>`
+# asks the user under a Claude PreToolUse hook (exit 0 + `ask`, recorded as
+# `ask`); everywhere else — Codex, git hook, CLI — it blocks with exit 2 as
+# before. A real verdict (new clones) never comes through here.
+navori_jscpd_verdict=""
+navori_jscpd_no_verdict() {
+  navori_jscpd_reason="$1"
+  echo "$2" >&2
+  if navori_can_ask; then
+    navori_jscpd_verdict="ask"
+    jq -cn --arg reason "$3" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$reason}}'
+    exit 0
+  fi
+  exit 2
+}
 
 # Same shape as quality-gate-pre-commit: fires on every Bash call, works on
 # almost none, so the verdict comes from the exit code rather than from a call
@@ -43,11 +61,11 @@ navori_audit_on_exit() {
     return 0
   fi
   if [ "$navori_audit_code" -eq 0 ]; then
-    navori_audit_log "allow" "${navori_jscpd_reason:-jscpd: no scan result recorded}" || true
+    navori_audit_log "${navori_jscpd_verdict:-allow}" "${navori_jscpd_reason:-jscpd: no scan result recorded}" "$([ "${navori_jscpd_verdict:-allow}" = ask ] && echo ask)" || true
   elif [ "$navori_audit_code" -eq 2 ]; then
-    navori_audit_log "block" "${navori_jscpd_reason:-jscpd: blocking outcome, not a confirmed duplication verdict}" || true
+    navori_audit_log "block" "${navori_jscpd_reason:-jscpd: blocking outcome, not a confirmed duplication verdict}" hard || true
   else
-    navori_audit_log "allow" "${navori_jscpd_reason:-jscpd: scan not validated (hook error)}" || true
+    navori_audit_log "allow" "${navori_jscpd_reason:-jscpd: scan not validated (hook error)}" advisory || true
   fi
   return 0
 }
@@ -199,9 +217,10 @@ case "$navori_jscpd_help" in
   *--fail-on-new-clones*) navori_jscpd_has_new_clones=1 ;;
 esac
 if [ "$navori_jscpd_has_baseline" -ne 1 ] || [ "$navori_jscpd_has_new_clones" -ne 1 ]; then
-  navori_jscpd_reason="jscpd: blocked, required flags unavailable; not a duplication verdict"
-  echo "✗ jscpd: $JSCPD_BIN lacks --baseline-from-ref/--fail-on-new-clones (needs jscpd >= 5.1.1) — upgrade it (global: pnpm add -g jscpd@^5.1.1 · repo-pinned: pnpm add -D jscpd@^5.1.1) — BLOCKED, this is not a duplication verdict" >&2
-  exit 2
+  navori_jscpd_no_verdict \
+    "jscpd: required flags unavailable; not a duplication verdict" \
+    "✗ jscpd: $JSCPD_BIN lacks --baseline-from-ref/--fail-on-new-clones (needs jscpd >= 5.1.1) — upgrade it (global: pnpm add -g jscpd@^5.1.1 · repo-pinned: pnpm add -D jscpd@^5.1.1) — BLOCKED, this is not a duplication verdict" \
+    "[navori] jscpd could not check this commit for duplication: $JSCPD_BIN lacks --baseline-from-ref/--fail-on-new-clones (needs jscpd >= 5.1.1). This is not a duplication verdict. Approve to commit WITHOUT the duplication check, or deny and upgrade jscpd (global: pnpm add -g jscpd@^5.1.1 · repo-pinned: pnpm add -D jscpd@^5.1.1)."
 fi
 
 tmpdir=$(mktemp -d)
@@ -222,14 +241,28 @@ navori_audit_log "gate-started" "inicio del escaneo de jscpd" || true
 # `>&2` is not cosmetic (#510): a PreToolUse hook shows the user its stderr and
 # swallows its stdout, so the console reporter's clone table — the whole point
 # of the gate — used to be written where nobody could read it.
+#
+# `env -u` strips the repo-local Git variables first. When this runs inside a
+# `git commit` hook, GIT_INDEX_FILE/GIT_DIR point at the commit's own index, and
+# jscpd's `--baseline-from-ref` runs `git worktree add --detach <tmp> <sha>`
+# internally: inheriting them makes that checkout write the BASE tree into the
+# commit's index, so the commit lands as the base. We already `cd "$tree"`, so
+# Git rediscovers the repository by itself. Mirrors `git rev-parse
+# --local-env-vars`.
 scan_status=0
-"$JSCPD_BIN" \
+env \
+  -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_CONFIG -u GIT_CONFIG_PARAMETERS \
+  -u GIT_CONFIG_COUNT -u GIT_OBJECT_DIRECTORY -u GIT_DIR -u GIT_WORK_TREE \
+  -u GIT_IMPLICIT_WORK_TREE -u GIT_GRAFT_FILE -u GIT_INDEX_FILE \
+  -u GIT_NO_REPLACE_OBJECTS -u GIT_REPLACE_REF_BASE -u GIT_PREFIX \
+  -u GIT_SHALLOW_FILE -u GIT_COMMON_DIR \
+  "$JSCPD_BIN" \
   --min-tokens 100 \
   --min-lines 10 \
   --mode strict \
   --baseline-from-ref "$base_sha" \
   --fail-on-new-clones 0 \
-  --reporters console \
+  --reporters console,json \
   --output "$tmpdir" \
   -- "${files[@]}" >&2 || scan_status=$?
 
@@ -245,19 +278,47 @@ scan_status=0
 # (exit 2, read below as "not a verdict") — the gate would then silently stop
 # blocking new clones instead of announcing it.
 #
-# TODO(fidelity): jscpd spends exit 1 on BOTH "new clones" and an internal
-# crash, so the outcome blocks conservatively but is NOT a confirmed clone
-# finding. Split the mapping if jscpd ever gives these distinct codes, or if
-# ambiguous failures become frequent enough to erode trust in the gate.
+# jscpd spends exit 1 on BOTH "new clones" and an internal crash; the json
+# report disambiguates them (see the exit 1 branch below).
 if [ "$scan_status" -eq 0 ]; then
   navori_jscpd_reason="jscpd: clean scan, no new clones"
   echo "✓ jscpd: ${#files[@]} file(s) scanned — no new clones vs $base_ref" >&2
   exit 0
 fi
 if [ "$scan_status" -eq 1 ]; then
-  navori_jscpd_reason="jscpd: blocked ambiguous scanner exit 1 (new clones or internal failure); not confirmed clones"
-  echo "✗ jscpd: ambiguous exit 1 (new clones or internal failure) vs $base_ref — BLOCKED; not a confirmed duplication verdict" >&2
-  exit 2
+  # jscpd spends exit 1 on BOTH "new clones" and a crash (#1117), but the json
+  # reporter tells them apart: a finished scan writes the report with
+  # `statistics.total.newClones`; a crash (bad ref, internal error) writes none.
+  # Real clones stay a hard block — never an approvable prompt. Only exit 1 with
+  # NO clone evidence (no readable report, or newClones 0) is a no-verdict.
+  # Fail closed: a report that EXISTS but cannot be read (corrupt, field missing,
+  # no jq) cannot rule out new clones, so it blocks. Ask needs NO report at all
+  # (a crash) or an explicit newClones of 0.
+  navori_jscpd_new=""
+  if [ -f "$tmpdir/jscpd-report.json" ]; then
+    if command -v jq >/dev/null 2>&1; then
+      navori_jscpd_new=$(jq -r '.statistics.total.newClones // empty' "$tmpdir/jscpd-report.json" 2>/dev/null || true)
+    fi
+    case "$navori_jscpd_new" in
+      '' | *[!0-9]*)
+        navori_jscpd_reason="jscpd: report unreadable; cannot rule out new clones"
+        echo "✗ jscpd: exit 1 and the report is unreadable (corrupt, field missing, or no jq) vs $base_ref — BLOCKED; cannot rule out new clones" >&2
+        exit 2
+        ;;
+    esac
+  fi
+  case "$navori_jscpd_new" in
+    '' | 0) ;;
+    *)
+      navori_jscpd_reason="jscpd: $navori_jscpd_new new clone(s) vs $base_ref; confirmed duplication verdict"
+      echo "✗ jscpd: $navori_jscpd_new new clone(s) vs $base_ref — BLOCKED" >&2
+      exit 2
+      ;;
+  esac
+  navori_jscpd_no_verdict \
+    "jscpd: exit 1 with no clone evidence in the report (internal failure?); not confirmed clones" \
+    "✗ jscpd: exit 1 with no new-clone evidence vs $base_ref — BLOCKED; not a confirmed duplication verdict" \
+    "[navori] jscpd exited 1 vs $base_ref but its report shows no new clones (or no report was written), so it most likely failed internally and there is no duplication verdict. Approve to commit anyway, or deny and run the scan (bun run jscpd:check) to see what happened."
 fi
 echo "✗ jscpd: the run FAILED with exit $scan_status (not a duplication verdict) — nothing was validated" >&2
 navori_jscpd_reason="jscpd: scanner failed with exit $scan_status; scan not validated"

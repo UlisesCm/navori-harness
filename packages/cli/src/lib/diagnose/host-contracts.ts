@@ -99,7 +99,7 @@ export const HOST_CONTRACTS: readonly HostContract[] = [
       "Every hook command runs against `$CLAUDE_PROJECT_DIR`, which resolves to the repo " +
       "root — so a hook script placed inside a workspace never runs.",
     source:
-      'navori registers every hook as `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/<x>.sh"` ' +
+      'navori registers every hook against `"$CLAUDE_PROJECT_DIR/.claude/hooks/<x>.sh"` ' +
       "(`build-settings.ts`), and the host resolves that variable to the project root.",
     provedBy:
       "Spec 0018, with proof on disk: `managed-drift-watch` writes a stamp on every " +
