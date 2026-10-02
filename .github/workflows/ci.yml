@@ -193,6 +193,13 @@ jobs:
           semgrep --version
           jscpd --version
 
+      # Related tests include the bash and zsh hook cases; match the quality job.
+      - name: Install zsh
+        run: |
+          sudo apt-get update || echo "::warning::apt-get update reported a failing source; continuing"
+          sudo apt-get install -y zsh
+          zsh --version
+
       - name: Fast gate
         run: bun run check:fast
 

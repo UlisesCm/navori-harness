@@ -1,8 +1,27 @@
-# Current — Spec 0039, publicación hacia dev
+# Current — PR #1170 CI correction
 
-- T37 APPROVED en feat/spec-0039-t37-dev, receipt fresco sobre dev 38081d74.
-- T23/T24 APPROVED (259 tests); refresh desde dev y receipt nuevo pendientes.
-- T34 conservada; pendiente refrescar/publicar desde dev sin importar el índice alterado.
-- Siguiente paso: publicar estos cambios; después T44 contra T9.
-- Gate local rápido y pruebas dirigidas; no suite completa local.
-- PR #1166 integrado en dev; pre-commit Git aislado.
+Publicar corrección zsh y comprobar CI Ubuntu antes de retomar Spec 0039.
+
+## Goal
+Corregir el CI del PR #1170 (issue #1143) antes de continuar Spec 0039.
+
+## Instructions
+- Sincronizar dev antes de cada nuevo trabajo; PRs hacia dev.
+- Mantener 0039 conservado sin publicar mientras se corrige este PR.
+
+## Discoveries
+- El job fast de Ubuntu no instalaba zsh; quality sí. Tres pruebas de master-plan-context devolvían status null por ejecutable ausente (ENOENT reproducido).
+
+## Accomplished
+- Instalación y verificación de zsh agregadas al job fast, sin omitir pruebas.
+- Revisión APPROVED; check:fast, lint y 13/13 pruebas enfocadas verdes. Receipt contra dev45429b8: status ok, fresh true.
+
+## Next Steps
+- Publicar la corrección en el PR #1170 y comprobar CI de Ubuntu.
+- Después retomar T34 y T23/T24 en worktrees sincronizados con dev45429b8; serialización Markdown y revisión final pendientes. T37 ya mergeada; T44 después.
+- Conservar worktrees y checkout raíz por sesiones concurrentes.
+
+## Relevant Files
+- .github/workflows/ci.yml — prerequisite zsh del job fast.
+- progress/current.md — próximo paso explícito.
+- progress/history.md — evidencia de esta corrección.
