@@ -5,7 +5,7 @@ import { relative, resolve } from "node:path";
  * Runs only the CLI tests related to the changed files (`vitest related`).
  *
  * Without arguments it reads the staged files (the pre-commit pass); with
- * `--base <ref>` it reads `git diff <ref>...HEAD` (the `develop` CI pass).
+ * `--base <ref>` it reads `git diff <ref>...HEAD` (the `dev` CI pass).
  * Anything outside `packages/cli/src` has no Vitest graph to follow, so it is
  * left to the full gate that PRs to `main` run.
  */
@@ -24,7 +24,7 @@ function changedFiles(argv) {
   const base = baseIndex === -1 ? undefined : argv[baseIndex + 1];
   if (baseIndex !== -1 && !base) throw new Error("--base needs a ref");
   // A push that creates the branch reports an all-zero `before`: nothing to
-  // diff against, so fall back to the branch `develop` is cut from.
+  // diff against, so fall back to the branch `dev` is cut from.
   if (base && /^0+$/.test(base)) return diffNames("origin/main...HEAD");
   return base ? diffNames(`${base}...HEAD`) : diffNames("--cached");
 }

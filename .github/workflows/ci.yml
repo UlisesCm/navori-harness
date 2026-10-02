@@ -1,11 +1,11 @@
 name: CI
 
 # Two tiers: `main` (pushes and PRs targeting it) runs the full `quality`
-# job; everything else — `develop` and PRs into it — runs `fast`, the same
+# job; everything else — `dev` and PRs into it — runs `fast`, the same
 # pass as the versioned pre-commit hook (`check:fast` + related tests).
 on:
   push:
-    branches: [main, develop]
+    branches: [main, dev]
   pull_request:
 
 # Cancel a PR's in-flight run when a newer commit is pushed — no point burning
@@ -196,7 +196,7 @@ jobs:
       - name: Fast gate
         run: bun run check:fast
 
-      # A PR diffs against its target; a push to `develop` against the commit
+      # A PR diffs against its target; a push to `dev` against the commit
       # it replaced.
       - name: Related tests
         env:
