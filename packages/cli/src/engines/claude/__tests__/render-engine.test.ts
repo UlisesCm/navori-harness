@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
+import { claudeHookCommand } from "../build-settings.ts";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
 
 const CONFIG_FULL = {
@@ -229,7 +230,9 @@ describe("renderClaudeEngine — settings.json coexist injection (DT-2 / #69)", 
     const commands = (settings.hooks.PreToolUse as Array<{ hooks: Array<{ command: string }> }>)
       .flatMap((e) => e.hooks)
       .map((h) => h.command);
-    expect(commands).toContain('bash "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.sh"');
+    expect(commands).toContain(
+      claudeHookCommand("PreToolUse", ".claude/hooks/guard-destructive.sh"),
+    );
     // deny/ask defensive rules injected.
     expect(settings.permissions.deny).toContain("Bash(rm -rf /)");
     // navori tracks what it injected but does NOT claim ownership.
