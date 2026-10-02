@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { runInNewContext } from "node:vm";
 import { stripTypeScriptTypes } from "node:module";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
-import { assertSupportedPiRuntime, renderPiRuntimeVersionSource } from "../runtime-version.ts";
+import {
+  assertSupportedPiRuntime,
+  renderPiRuntimeVersionSource,
+  serializeAnonymousFunction,
+} from "../runtime-version.ts";
 
 describe("Pi runtime version floor", () => {
   it("embeds a self-contained check with a stable binding and version diagnostics", () => {
@@ -13,6 +17,21 @@ describe("Pi runtime version floor", () => {
     expect(() => check("0.87.1", "22.19.0")).not.toThrow();
     expect(() => check("0.87.0", "22.19.0")).toThrow(/requires.*0\.87\.1/);
     expect(() => check("0.87.1", "22.18.9")).toThrow(/requires Node\.js 22\.19\.0/);
+  });
+
+  it("serializes independently of the function identifier", () => {
+    expect(renderPiRuntimeVersionSource()).not.toMatch(/function\s+[\w$]+\s*\(\s*minPiVersion/);
+    const renamed = (name: string): string =>
+      `function ${name}(a,b){return function(c){return a+b+c}}`;
+    const strip = (name: string): string =>
+      serializeAnonymousFunction(
+        runInNewContext(`(${renamed(name)})`) as (...args: never[]) => unknown,
+      );
+    expect(strip("JT")).toBe(strip("YT"));
+    expect(strip("$a_1")).toBe(strip("JT"));
+    const check: unknown = runInNewContext(`(${strip("JT")})(1,2)(3)`);
+    expect(check).toBe(6);
+    expect(() => serializeAnonymousFunction(() => 1)).toThrow(/plain function/);
   });
 
   // Covers: R10

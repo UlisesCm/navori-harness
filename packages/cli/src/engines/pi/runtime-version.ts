@@ -41,10 +41,24 @@ function createRuntimeCheck(minPiVersion: string, minNodeVersion: string): Runti
   };
 }
 
+/**
+ * Serialize a function as an anonymous function expression. Bundler minifiers
+ * assign the identifier, which changes with unrelated code and would drift the
+ * rendered output; arrow/async forms are rejected rather than mis-serialized.
+ */
+export function serializeAnonymousFunction(fn: (...args: never[]) => unknown): string {
+  const source = fn.toString();
+  const anonymous = source.replace(/^function\s*[\w$]*\s*\(/, "function(");
+  if (!anonymous.startsWith("function(")) {
+    throw new Error("Expected a plain function declaration to serialize");
+  }
+  return anonymous;
+}
+
 /** Embed a stable binding to the same self-contained check after bundling. */
 export function renderPiRuntimeVersionSource(): string {
   return (
-    `const assertSupportedPiRuntime = (${createRuntimeCheck.toString()})` +
+    `const assertSupportedPiRuntime = (${serializeAnonymousFunction(createRuntimeCheck)})` +
     `(${JSON.stringify(MIN_PI_VERSION)}, ${JSON.stringify(MIN_NODE_VERSION)});\n`
   );
 }
