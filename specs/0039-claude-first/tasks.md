@@ -200,7 +200,7 @@ Lote 3 (sujeto al gate de T2):
   agentes con grant, regla `projectPath`) y señal `codegraph-projectpath-mismatch` sobre R64.
   · test: `codegraph-wiring.test.ts` con `// Covers: R32`.
   · nota: la señal está expuesta como métricas en `navori audit` (`codegraph.calls`, `codegraph.projectpath.mismatch` via `extraMetrics`), no en `report.signals` porque los transcript miners corren fuera de `buildReport`.
-- [ ] **T31** (R33, R34) — Medición con `claude -p`, **con autorización del usuario** (costo):
+- [x] **T31** (R33, R34) — Medición con `claude -p`, **con autorización del usuario** (costo):
   ≥ 12 tareas, brazos textual, `maxFiles: 4` y `maxFiles: 12`, métricas de `navori audit`.
   Resultado en `docs/research/codegraph-costo-neto.md`, cuyo commit es posterior al del
   pre-registro de T1.
