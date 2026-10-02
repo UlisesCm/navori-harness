@@ -242,6 +242,46 @@ Bytes de resultado (R33):
 **Default de R44 derivado:** la mediana del pico de contexto (139,764) redondeada a 25k da
 **150,000**, que reemplaza al 175,000 provisional.
 
+## Comparación preliminar T44 — ventana 2026-10-02
+
+Esta lectura es descriptiva, no un veredicto de éxito. Se generó comparando la instantánea T9
+con el reporte diario del repositorio:
+
+```sh
+node packages/cli/dist/index.js audit --cwd /Users/ulisescm/Documents/dev-docs/navori-harness --since 2026-10-02 --until 2026-10-02 --compare /Users/ulisescm/.navori/audits/navori-harness/ranges/2026-09-21--2026-10-01/snapshot-claude-first-base.json
+```
+
+El reporte está en
+`~/.navori/audits/navori-harness/ranges/2026-10-02--2026-10-02/report.json`.
+Ambas ventanas indican `navori@0.11.0`; la base contiene 95 sesiones y la actual 8.
+
+| Métrica | T9 (base) | 2026-10-02 | Diferencia observada |
+| --- | ---: | ---: | ---: |
+| Cache read p50 por sesión | 8,181,176 (n=95) | 2,541,900 (n=8) | −68.9% |
+| Cache read p50 por lanzamiento de `implementer` | 3,394,101 (n=175) | 657,376 (n=22) | −80.6% |
+| `hooks.perBashCall` (llamadas Bash; p90) | 4.88 (24,254; p90=6) | 5.16 (2,484; p90=6) | +0.28 (+5.7%) |
+
+La subida agregada de hooks no demuestra una regresión posterior a la activación de R28: las ocho
+sesiones actuales comenzaron antes del merge final de dev, registrado a las
+`2026-10-02T21:16:47Z`; es una ventana de despliegue mixto. Además, el checkout runtime raíz sigue
+en `main` (`42fae5b4`). Como evidencia de mecanismo, las pruebas estáticas R28 pasan con los conteos
+actuales `bPre=5`, `bPost=2`, `bPostFail=1`: la ruta exitosa añade una llamada menos que antes de
+T16, la fallida conserva el conteo, y la ruta bloqueada es como máximo una llamada menor que la
+base. Esto no sustituye una ventana de ejecución posterior a la activación.
+
+**R43 sigue inconcluso.** Los 22 lanzamientos actuales de `implementer` están por debajo del mínimo
+pre-registrado de 100. No hay una ventana post-activación verificada ni una comparación válida de
+ruido. Aunque el snapshot y el reporte exponen `generatedBy: navori@0.11.0` y
+`sessions.transcript`, no incluyen metadatos `audit.mode` ni del minero para certificar de forma
+independiente que ambos periodos usaron el mismo modo y minero. No se infiere éxito de la reducción
+observada.
+
+La ventana prospectiva de R41 **aún no está activa**: su inicio será la marca de tiempo de la primera
+sesión Claude fresca y verificada después de que el harness completo mergeado a dev se haya renderizado
+y cargado realmente. No se retrotrae al merge. La medición posterior deberá registrar parciales,
+re-despachos que vuelven a alcanzar el límite y `CHANGES_REQUESTED` posteriores a parciales para
+aplicar, sin alterar, los disparadores pre-registrados de >25% y >10%.
+
 ## Resultados de las sondas (T2)
 
 Host Claude Code **2.1.287**, `claude -p`, repo scratch. Costo total aproximado: **USD 0.47** (10

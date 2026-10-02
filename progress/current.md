@@ -1,28 +1,28 @@
-# Current — Spec 0039 publication
+# Current — Spec 0039 T44 measurement pending
 
 ## Goal
-Publicar los pendientes implementados de Spec 0039 hacia dev y preparar T44.
+Ejecutar T44 de Spec 0039 con comparación T9 y criterios de cierre intactos.
 
 ## Instructions
-- Sincronizar dev antes de cada trabajo; PRs hacia dev.
-- Gate local rápido; cobertura completa solo en CI de main (#1171).
+- Base y PRs hacia dev, sincronizada antes del trabajo; gate local rápido, cobertura completa solo main CI.
+- No declarar éxito ni activar una ventana sin evidencia.
 
 ## Discoveries
-- Dev3f069fd7 incluye #1169 de presupuesto, #1170 corregido y #1171 de gates. La integración fue fast-forward sin perder cambios.
-- T44 exige comparar con la instantánea T9 usando mismo minero/audit.mode; éxito de cache read necesita n >=100 lanzamientos por ventana y banda de ruido de dos ventanas base. No inferir éxito por muestras menores.
+- Comparación 2026-10-02: 8 sesiones y 22 lanzamientos de implementer; cache read p50 por lanzamiento 3,394,101 a 657,376; hooks por Bash 4.88 a 5.16. La muestra está debajo de n>=100 y mezcla versiones.
+- Las ocho sesiones comenzaron antes del merge final de 0039; no hay sesión Claude fresca post-activación verificada. R41 aún no inicia. Metadata no certifica audit.mode/minero idénticos; ruido pendiente.
 
 ## Accomplished
-- T37 mergeada en #1167; PR1170 corregido y mergeado, CI rápido verde.
-- T34 aprobada sobre dev3f069fd7: siete rutas, scout WebFetch/WebSearch, notas author-agent, Pi intacto, 145 pruebas y fast/render/budgets verdes, receipt ok/fresh.
-- T23/T24 implementadas y serializadas sobre la misma base: 392 pruebas enfocadas verdes; revisión final en curso.
+- PRs #1172 y #1173 confirmadas mergeadas: 44/45 tareas integradas.
+- Comparación real audit --compare ejecutada y documentada sin alterar el preregistro ni marcar T44 completa.
+- Checkpoint APPROVED y receipt dev ok/fresh; fast, links, budgets, lint y pruebas enfocadas verdes.
 
 ## Next Steps
-- Publicar T34 y finalizar revisión/publicación T23/T24. Esperar integración antes de T44.
-- Medir T44 sin alterar criterios registrados; conservar worktrees por sesiones concurrentes.
+- Publicar y mergear el checkpoint T44.
+- Renderizar/cargar el harness completo de dev en una sesión Claude fresca verificable y registrar su timestamp como inicio R41.
+- Reunir ventana post-activación comparable con n>=100 implementer y ruido de dos bases; entonces reevaluar T44. No descartar trabajo ni cambiar root main por sesiones concurrentes.
 
 ## Relevant Files
-- packages/core/core-assets/agents/scout.md — acceso web acotado.
-- .claude/skills/author-agent/SKILL.md — admisión/retiro y excepción architect.
-- packages/core/core-assets/hooks/bash-outcome-watch.sh — advisory de fallos.
-- docs/native-overlap.md — matriz generada.
-- specs/0039-claude-first/tasks.md — tareas.
+- docs/research/claude-first-verificacion.md — tabla preliminar, límites y ventana prospectiva.
+- specs/0039-claude-first/tasks.md — T44 permanece pendiente.
+- progress/current.md — próximos pasos de medición.
+- progress/history.md — registro de este checkpoint.
