@@ -1047,6 +1047,25 @@ export function renderClaudeEngine(
     }
   }
 
+  // 8.3. Plugin hook extensions (spec 0039 D6): a managed shell sub-block the
+  // plugin adds to an existing core hook mirror, so it runs inside that hook's
+  // process and registers no hook of its own. Claude only.
+  for (const plugin of enabledPlugins) {
+    for (const extension of plugin.hookExtensionAssets ?? []) {
+      inspected += 1;
+      applyHookExtension({
+        cwd,
+        plugin,
+        extension,
+        config,
+        pending,
+        skipped,
+        updatesAvailable: claudeMdPlan.updatesAvailable,
+        downgrades: claudeMdPlan.downgrades,
+      });
+    }
+  }
+
   // 8.4. Codex cross-model review advisory (I3/N3, #168). When this repo renders
   // the `codex` engine, the Claude orchestrator gets a managed sub-block in
   // orchestrator.md telling it a second opinion from a DIFFERENT provider is one
@@ -1066,6 +1085,10 @@ export function renderClaudeEngine(
       if (!skill.injectInto) continue;
       inspected += 1;
       removeSubBlock({ cwd, plugin, skill, pending });
+    }
+    for (const extension of plugin.hookExtensionAssets ?? []) {
+      inspected += 1;
+      removeHookExtension({ cwd, extension, pending });
     }
     // Plugin scripts now carry managed markers. Keep hand edits and newer
     // versions rather than deleting solely because a manifest names the path.
@@ -2116,6 +2139,108 @@ function applySubBlockInject(input: {
     content: finalContent,
     status: result.status,
   });
+}
+
+type PendingWrites = Array<{
+  path: string;
+  content: string;
+  status: RenderStatus;
+  chmodExec?: boolean;
+}>;
+
+/**
+ * Inject a plugin's hook extension (`hookExtensions[]`, spec 0039 D6) as a
+ * shell-style managed sub-block in its target hook mirror. The block lands right
+ * after the hook's base block, ahead of the `# navori:user-section` marker and
+ * its trailing `exit 0`, so it runs after every rule the base block carries. A
+ * missing target (hook not rendered) is a no-op: there is nothing to extend.
+ */
+function applyHookExtension(input: {
+  cwd: string;
+  plugin: LoadedPlugin;
+  extension: NonNullable<LoadedPlugin["hookExtensionAssets"]>[number];
+  config: NavoriConfig;
+  pending: PendingWrites;
+  skipped: SkippedFile[];
+  updatesAvailable: UpdateAvailable[];
+  downgrades: UpdateAvailable[];
+}): void {
+  const targetAbs = join(input.cwd, input.extension.target);
+  const pendingEntry = input.pending.find((p) => p.path === targetAbs);
+  let currentContent: string;
+  if (pendingEntry) currentContent = pendingEntry.content;
+  else if (existsSync(targetAbs)) currentContent = readFileSync(targetAbs, "utf-8");
+  else return;
+
+  const source = `@navori/plugin-${input.plugin.manifest.id}`;
+  const lang = resolveLang(input.config.language);
+  const result = injectManagedSection(
+    currentContent,
+    input.extension.id,
+    readFileSync(input.extension.absPath, "utf-8"),
+    { source, version: NAVORI_VERSION },
+    "shell",
+  );
+  classifyVersionDrift(
+    result,
+    input.extension.id,
+    source,
+    NAVORI_VERSION,
+    input.updatesAvailable,
+    input.downgrades,
+  );
+  if (result.status === "user-modified-skipped") {
+    input.skipped.push({
+      path: relative(input.cwd, targetAbs),
+      reason: tc(lang).engine.subBlockEditedByHand(input.extension.id, input.plugin.manifest.id),
+      status: "user-modified-skipped",
+    });
+    return;
+  }
+  if (result.status === "downgrade-skipped") {
+    input.skipped.push({
+      path: relative(input.cwd, targetAbs),
+      reason: tc(lang).engine.subBlockFromNewerNavori(
+        input.extension.id,
+        result.details?.existingVersion ?? undefined,
+      ),
+      status: "downgrade-skipped",
+    });
+    return;
+  }
+  if (result.output === currentContent) return;
+  if (pendingEntry) {
+    pendingEntry.content = result.output;
+    return;
+  }
+  input.pending.push({
+    path: targetAbs,
+    content: result.output,
+    status: result.status === "unchanged" ? "updated" : result.status,
+    chmodExec: true,
+  });
+}
+
+/** Inverse of {@link applyHookExtension}: strip the sub-block when its plugin is disabled. */
+function removeHookExtension(input: {
+  cwd: string;
+  extension: NonNullable<LoadedPlugin["hookExtensionAssets"]>[number];
+  pending: PendingWrites;
+}): void {
+  const targetAbs = join(input.cwd, input.extension.target);
+  const pendingEntry = input.pending.find((p) => p.path === targetAbs);
+  let currentContent: string;
+  if (pendingEntry) currentContent = pendingEntry.content;
+  else if (existsSync(targetAbs)) currentContent = readFileSync(targetAbs, "utf-8");
+  else return;
+
+  const stripped = removeManagedSection(currentContent, input.extension.id, "shell");
+  if (stripped === currentContent) return;
+  if (pendingEntry) {
+    pendingEntry.content = stripped;
+    return;
+  }
+  input.pending.push({ path: targetAbs, content: stripped, status: "updated", chmodExec: true });
 }
 
 /**

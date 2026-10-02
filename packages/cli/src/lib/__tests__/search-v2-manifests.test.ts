@@ -61,10 +61,17 @@ describe("M02 — CodeGraph mcpServer/settingsFragment contract (search-v2.md §
 });
 
 describe("M03 — tgrep contract (search-v2.md §3.3)", () => {
-  it("has no MCP, hooks, scripts, skills or postInstall", () => {
+  // Covers: R29
+  it("has no MCP, registered hooks, skills or postInstall; its only script is the search lane", () => {
     expect(tgrep.manifest.mcpServer).toBeUndefined();
     expect(tgrep.manifest.hooks).toBeUndefined();
-    expect(tgrep.manifest.scripts).toBeUndefined();
+    // The lane is sourced by guard-destructive (hookExtensions), so it adds no registration.
+    expect(tgrep.manifest.scripts?.map((script) => script.dest)).toEqual([
+      "guard-search-routing.sh",
+    ]);
+    expect(tgrep.manifest.hookExtensions?.map((ext) => ext.target)).toEqual([
+      ".claude/hooks/guard-destructive.sh",
+    ]);
     expect(tgrep.manifest.skills).toBeUndefined();
     expect(tgrep.manifest.externalTool?.postInstall).toBeUndefined();
   });

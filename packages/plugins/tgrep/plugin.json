@@ -20,5 +20,15 @@
       "allow": ["Bash(tgrep search *)", "Bash(tgrep status:*)", "Bash(tgrep --version)"]
     }
   },
+  "scripts": [
+    { "src": "scripts/guard-search-routing.sh", "dest": "guard-search-routing.sh", "exec": true }
+  ],
+  "hookExtensions": [
+    {
+      "id": "tgrep-search-lane",
+      "target": ".claude/hooks/guard-destructive.sh",
+      "file": "managed/guard-destructive-search-lane.sh"
+    }
+  ],
   "invariants": ["tgrep search", "--no-index"]
 }

@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="c6363b62" version="0.11.0" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="3838f006" version="0.11.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -828,6 +828,10 @@ if [ "${#cmd}" -le "$FAST_MAX" ]; then
   _fast=${_fast//"${_nl}"/}
   case "$_fast" in
     *commit*|*push*|*rm*|*sed*|*tee*|*'/dev/'*|*'>'*|*':('*) ;;
+    # Search verbs: not destructive, but the user section below is where a plugin
+    # lane (tgrep's search routing, spec 0039 D6) inspects them, and this early exit
+    # would never let it run. `rg` needs a word edge: `*rg*` would match `merge`.
+    *grep*|*rg\ *|*rg) ;;
     *)
       navori_audit_verdict="skip"
       navori_audit_reason="no rule token in the command"
@@ -1347,6 +1351,27 @@ if [ -n "${nv_project_dir:-}" ]; then
   fi
 fi
 # navori:managed end id="guard-destructive-base"
+
+# navori:managed start id="tgrep-search-lane" hash="e54ecae5" version="0.11.0" source="@navori/plugin-tgrep"
+# tgrep search lane (spec 0039 D6): content search through the shell is routed
+# to `tgrep search`. Runs after every destructive rule; the subshell isolates
+# the script, so only its exit code 42 (block) or 43 (fail-open) is acted on.
+case "$cmd" in
+  *grep*|*rg*)
+    navori_search_rc=0
+    ( . "${CLAUDE_PROJECT_DIR:-.}/.claude/scripts/guard-search-routing.sh" ) || navori_search_rc=$?
+    if [ "$navori_search_rc" -eq 42 ]; then
+      navori_audit_verdict="block"
+      navori_audit_reason="content search routed to the index"
+      exit 2
+    fi
+    if [ "$navori_search_rc" -eq 43 ]; then
+      navori_audit_verdict="fail-open"
+      navori_audit_reason="search index unavailable"
+    fi
+    ;;
+esac
+# navori:managed end id="tgrep-search-lane"
 
 # user: add extra guards here. `$cmd` already holds the full command (compound
 # commands included) and `block "<reason>"` aborts with exit 2.

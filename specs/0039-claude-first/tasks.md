@@ -182,7 +182,7 @@ Lote 3 (sujeto al gate de T2):
 
 ## F5a — Guard de búsqueda
 
-- [ ] **T28** (R29, R30, R31) — `packages/plugins/tgrep/scripts/guard-search-routing.sh`
+- [x] **T28** (R29, R30, R31) — `packages/plugins/tgrep/scripts/guard-search-routing.sh`
   restaurado de `7c6930dc^` con los cambios de D6 (remedio `tgrep search -n`, `--no-index` con
   el servidor apagado, `fail-open`, ROOT fuera del repo, `rg --files`/`--version`/`--help`, sin
   `git grep`, sin codegraph); `plugin.json` `scripts` + `hookExtensions`; `lib/config/plugins.ts`;
