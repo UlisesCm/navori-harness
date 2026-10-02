@@ -159,6 +159,7 @@ const CODEX_UNREGISTERED_HOOKS: ReadonlySet<string> = new Set([
   "subagent-no-background",
   "master-accept-confirm",
   "master-plan-context",
+  "general-purpose-confirm",
 ]);
 
 /** Every hook `resolveHarnessPlan` can emit, with every optional input switched on. */
@@ -178,6 +179,7 @@ const HOOK_IDS: readonly string[] = [
   "master-accept-confirm",
   "comment-draft-confirm",
   "pr-publisher-confirm",
+  "general-purpose-confirm",
   "quality-gate-pre-commit",
   "plan-gate",
   "stop-verify-reminder",

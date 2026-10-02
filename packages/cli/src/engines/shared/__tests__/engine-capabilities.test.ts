@@ -23,6 +23,7 @@ const FAKE_ENGINE_CAPABILITIES: EngineCapabilities = {
     "local-skill-discovery": { state: "unsupported", reason: "fake" },
     "acceptance-evidence": { state: "unsupported", reason: "fake" },
     "compact-advice": { state: "unsupported", reason: "fake" },
+    "general-purpose-confirm": { state: "unsupported", reason: "fake" },
   },
   analyticWriteTools: { auditor: [], scout: [], reviewer: [], architect: [] },
 };
@@ -58,6 +59,25 @@ describe("ENGINE_CAPABILITIES ↔ ENGINES", () => {
 
   it("declares full parity engines with an explicit empty list, not a missing field", () => {
     expect(ENGINE_CAPABILITIES.claude.unsupportedSurfaces).toEqual([]);
+  });
+});
+
+// Covers: R40, R70
+describe("general-purpose-confirm control", () => {
+  it("is enforced on Claude by the PreToolUse(Agent) hook and unsupported elsewhere", () => {
+    const claude = ENGINE_CAPABILITIES.claude.controls["general-purpose-confirm"];
+    expect(claude.state).toBe("enforced");
+    expect(claude.state === "enforced" && claude.evidence).toEqual({
+      kind: "hook",
+      script: "general-purpose-confirm.sh",
+      event: "PreToolUse",
+      matcher: "Agent",
+    });
+    for (const engine of ENGINES.filter((e) => e !== "claude")) {
+      expect(ENGINE_CAPABILITIES[engine].controls["general-purpose-confirm"].state).toBe(
+        "unsupported",
+      );
+    }
   });
 });
 

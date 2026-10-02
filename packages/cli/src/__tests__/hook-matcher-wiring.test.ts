@@ -131,6 +131,10 @@ const CLAIMLESS_HOOKS = new Map<string, string>([
     "decide por la FORMA del comando (`tool_input.command`), no por la herramienta: un payload de Edit/Write ni siquiera trae campo `command`, así que ampliar su matcher no le daría nada que analizar — `Bash` en PreToolUse es la registración correcta y completa",
   ],
   [
+    "general-purpose-confirm.sh",
+    "decide por `tool_input.subagent_type`, no por la herramienta: su registración `PreToolUse(Agent)` es el claim completo (spec 0039 R40) y no lleva `if`: `Agent(<name>)` no matchea por nombre en 2.1.287, así que el script filtra `subagent_type`",
+  ],
+  [
     "subagent-stop-handoff.sh",
     "su matcher `Agent|Task` es el claim: valida el handoff DESPUÉS de que un subagente termina (#774), y las herramientas de escritura no terminan subagentes — entregárselas lo haría correr miles de veces sin nada que validar",
   ],

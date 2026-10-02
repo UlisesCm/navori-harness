@@ -217,7 +217,7 @@ Lote 3 (sujeto al gate de T2):
 - [ ] **T34** (R38, R39) — `scout` con `WebFetch, WebSearch`; acceso del `architect` a tgrep y
   codegraph según T32; nota en la skill local `author-agent`. · test: `agents-assets.test.ts`
   con `// Covers: R38, R39`.
-- [ ] **T35** (R40, R70) — `general-purpose-confirm.sh` calcado de `pr-publisher-confirm`,
+- [x] **T35** (R40, R70) — `general-purpose-confirm.sh` calcado de `pr-publisher-confirm`,
   `PreToolUse` `Agent` con `if: Agent(general-purpose)` y `ask` con razón; control y mecanismo.
   · test: hook (`general-purpose` → `ask`; `scout` → nada) y `claude.snap` con `if`, con
   `// Covers: R40, R70`.
