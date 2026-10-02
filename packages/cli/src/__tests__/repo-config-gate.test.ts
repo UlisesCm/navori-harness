@@ -1,5 +1,13 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -32,7 +40,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..", "..", "..");
 const CI_WORKFLOW = resolve(REPO_ROOT, ".github", "workflows", "ci.yml");
 const CONFIG_PATH = resolve(REPO_ROOT, "navori.config.json");
-const PRE_PUSH_HOOK = resolve(REPO_ROOT, "scripts", "git-hooks", "pre-push");
+const PRE_COMMIT_HOOK = resolve(REPO_ROOT, "scripts", "git-hooks", "pre-commit");
 const HOOK_INSTALLER = resolve(REPO_ROOT, "scripts", "js", "install-git-hooks.mjs");
 
 interface RootPackageJson {
@@ -117,8 +125,14 @@ const EXEMPT_FROM_CI = new Map<string, string>([
   ],
 ]);
 
-/** The versioned pre-push delegates to bun check, so no gate step is exempt. */
-const EXEMPT_FROM_PRE_PUSH = new Map<string, string>();
+/** Absolute path of a hook in `repo`'s git dir. */
+function hookTarget(repo: string, name: string): string {
+  const path = execFileSync("git", ["rev-parse", "--git-path", `hooks/${name}`], {
+    cwd: repo,
+    encoding: "utf-8",
+  }).trim();
+  return resolve(repo, path);
+}
 
 /** Checks in `required` that `covered` lacks and no exemption excuses. */
 function uncovered(
@@ -151,19 +165,19 @@ function checkKey(match: RegExpMatchArray): string {
 // generic over every package manager it could ever see here.
 const BUN_INVOCATION = /\bbun\s+(?:run\s+(?:--filter\s+(\S+)\s+)?)?([a-z][\w:.-]*)/g;
 
-/** The `quality:` job's body, sliced out of the workflow by indentation. */
-function qualityJobBody(): string {
+/** A job's body, sliced out of the workflow by indentation. */
+function jobBody(job: string): string {
   const yaml = readFileSync(CI_WORKFLOW, "utf-8");
-  const start = yaml.indexOf("\n  quality:\n");
-  expect(start, "ci.yml no longer declares a `quality:` job").toBeGreaterThan(-1);
+  const start = yaml.indexOf(`\n  ${job}:\n`);
+  expect(start, `ci.yml no longer declares a \`${job}:\` job`).toBeGreaterThan(-1);
   const rest = yaml.slice(start + 1);
   const next = rest.slice(1).search(/\n {2}[a-z][\w-]*:\n/);
   return next === -1 ? rest : rest.slice(0, next + 1);
 }
 
-/** Every check the quality job invokes, as `checkKey` identities. */
-function ciChecks(): Set<string> {
-  const runs = [...qualityJobBody().matchAll(/^\s*run: (.+)$/gm)].flatMap((m) => m[1] ?? []);
+/** Every check a CI job invokes (the full `quality` one by default), as `checkKey` identities. */
+function ciChecks(job = "quality"): Set<string> {
+  const runs = [...jobBody(job).matchAll(/^\s*run: (.+)$/gm)].flatMap((m) => m[1] ?? []);
   const checks = new Set<string>();
   for (const run of runs) {
     for (const m of run.matchAll(BUN_INVOCATION)) checks.add(checkKey(m));
@@ -264,50 +278,29 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
     expect(rootPkg.scripts?.check).toBe(declaredGate);
   });
 
-  it("the versioned pre-push runs every non-exempt gate step (#777)", () => {
-    const hook = readFileSync(PRE_PUSH_HOOK, "utf-8");
-    const rootPkg = JSON.parse(
-      readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8"),
-    ) as RootPackageJson;
-    const prePush = gateChecks(rootPkg.scripts?.check ?? "");
-
-    expect(hook).toContain("exec bun check");
-    expect(hook).toContain("NAVORI_PRE_PUSH_RUNNING");
-    expect(
-      uncovered(gate, prePush, EXEMPT_FROM_PRE_PUSH),
-      "add every missing qualityGate.full step to the versioned pre-push, or document its exemption",
-    ).toEqual([]);
-    expect(EXEMPT_FROM_PRE_PUSH).toEqual(new Map());
-  });
-
-  it("installs the tracked pre-push hook", () => {
-    const repo = mkdtempSync(resolve(tmpdir(), "navori-pre-push-"));
+  it("installs the tracked pre-commit hook and drops the old navori pre-push", () => {
+    const repo = mkdtempSync(resolve(tmpdir(), "navori-pre-commit-"));
     try {
       execFileSync("git", ["init", "-q"], { cwd: repo });
+      const legacy = hookTarget(repo, "pre-push");
+      writeFileSync(legacy, "#!/usr/bin/env bash\n# navori pre-push gate\nexec bun check\n");
       execFileSync(process.execPath, [HOOK_INSTALLER], { cwd: repo });
-      const target = execFileSync("git", ["rev-parse", "--git-path", "hooks/pre-push"], {
-        cwd: repo,
-        encoding: "utf-8",
-      }).trim();
+      const target = hookTarget(repo, "pre-commit");
 
-      expect(readFileSync(resolve(repo, target), "utf-8")).toBe(
-        readFileSync(PRE_PUSH_HOOK, "utf-8"),
-      );
-      expect(statSync(resolve(repo, target)).mode & 0o111).not.toBe(0);
+      expect(readFileSync(target, "utf-8")).toBe(readFileSync(PRE_COMMIT_HOOK, "utf-8"));
+      expect(statSync(target).mode & 0o111).not.toBe(0);
+      expect(existsSync(legacy)).toBe(false);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
   });
 
-  it("refuses to overwrite a non-navori pre-push hook", () => {
-    const repo = mkdtempSync(resolve(tmpdir(), "navori-pre-push-"));
+  it("refuses to overwrite a non-navori pre-commit hook and keeps a custom pre-push", () => {
+    const repo = mkdtempSync(resolve(tmpdir(), "navori-pre-commit-"));
     try {
       execFileSync("git", ["init", "-q"], { cwd: repo });
-      const target = execFileSync("git", ["rev-parse", "--git-path", "hooks/pre-push"], {
-        cwd: repo,
-        encoding: "utf-8",
-      }).trim();
-      writeFileSync(resolve(repo, target), "#!/usr/bin/env bash\necho custom\n");
+      const target = hookTarget(repo, "pre-commit");
+      writeFileSync(target, "#!/usr/bin/env bash\necho custom\n");
 
       const result = spawnSync(process.execPath, [HOOK_INSTALLER], {
         cwd: repo,
@@ -316,10 +309,61 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
 
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain("Refusing to overwrite non-navori hook");
-      expect(readFileSync(resolve(repo, target), "utf-8")).toContain("echo custom");
+      expect(readFileSync(target, "utf-8")).toContain("echo custom");
+
+      rmSync(target);
+      const prePush = hookTarget(repo, "pre-push");
+      writeFileSync(prePush, "#!/usr/bin/env bash\necho mine\n");
+      execFileSync(process.execPath, [HOOK_INSTALLER], { cwd: repo });
+      expect(readFileSync(prePush, "utf-8")).toContain("echo mine");
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * The fast tier: what runs before every commit and on `develop`.
+ *
+ * Locally the pre-commit runs `check:fast` plus the tests related to the
+ * staged files; CI's `fast` job runs the same pair for `develop` and PRs into
+ * it. The full gate stays on `main`. The pass must be a strict subset of
+ * `qualityGate.full`, or `develop` would block on a check `main` never runs.
+ */
+describe("pre-commit and CI's develop tier run the same fast pass", () => {
+  const rootPkg = JSON.parse(
+    readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8"),
+  ) as RootPackageJson;
+  const fast = gateChecks(rootPkg.scripts?.["check:fast"] ?? "");
+  const full = gateChecks(readConfig(CONFIG_PATH).qualityGate?.full ?? "");
+
+  it("check:fast runs the scans, lint, format and typecheck (anti-false-green)", () => {
+    expect([...fast].sort()).toEqual(
+      ["format:check", "jscpd:check", "lint", "semgrep:check", "typecheck"].sort(),
+    );
+  });
+
+  it("every check:fast step is also part of qualityGate.full", () => {
+    expect([...fast].filter((c) => !full.has(c))).toEqual([]);
+  });
+
+  it("the versioned pre-commit runs check:fast and the related tests", () => {
+    const hook = readFileSync(PRE_COMMIT_HOOK, "utf-8");
+    expect(hook).toContain("bun run check:fast");
+    expect(hook).toContain("bun run test:related");
+    expect(hook).toContain("NAVORI_PRE_COMMIT_RUNNING");
+  });
+
+  it("CI's fast job runs the same pass, with the scanners installed", () => {
+    expect([...ciChecks("fast")]).toEqual(expect.arrayContaining(["check:fast", "test:related"]));
+    const body = jobBody("fast");
+    expect(body).toContain("semgrep --version");
+    expect(body).toContain("jscpd --version");
+  });
+
+  it("main runs the full job and everything else the fast one", () => {
+    expect(jobBody("quality")).toContain("github.base_ref == 'main'");
+    expect(jobBody("fast")).toContain("github.base_ref != 'main'");
   });
 });
 

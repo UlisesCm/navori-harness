@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# navori pre-commit gate — the fast local pass.
+#
+# Runs `check:fast` (format, jscpd, semgrep, lint, typecheck) plus only the
+# tests related to the staged files. The full gate (`bun check`, coverage
+# included) runs in CI on PRs to `main`; CI on `develop` runs this same pass.
+set -euo pipefail
+
+# `bun check` exercises Git commits in its fixtures. A nested hook invocation
+# must not recursively restart the gate from inside that gate.
+if [[ "${NAVORI_PRE_COMMIT_RUNNING:-}" == "1" ]]; then
+  exit 0
+fi
+
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+
+echo "▶ pre-commit: running check:fast + related tests…"
+export NAVORI_PRE_COMMIT_RUNNING=1
+bun run check:fast
+exec bun run test:related
