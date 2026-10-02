@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describeNavoriHomeLeak, realNavoriHome, snapshotNavoriHome } from "./vitest.homeGuard.ts";
-import { acquireDistLock, type DistLockHandle } from "./vitest.distLock.ts";
+import { acquireDistLock, releaseOnProcessExit, type DistLockHandle } from "./vitest.distLock.ts";
 
 const pkgRoot = dirname(fileURLToPath(import.meta.url));
 
@@ -17,11 +17,14 @@ const pkgRoot = dirname(fileURLToPath(import.meta.url));
  */
 export default async function setup(): Promise<() => void> {
   let lock: DistLockHandle | undefined;
+  let disarmExitRelease: (() => void) | undefined;
   let runRoot: string | undefined;
   let runHome: string | undefined;
 
   try {
     lock = await acquireDistLock({ packageRoot: pkgRoot });
+    // Vitest exits on SIGINT/SIGTERM without running this teardown (#1159).
+    disarmExitRelease = releaseOnProcessExit(lock);
     const result = spawnSync("bun", ["run", "build"], {
       cwd: pkgRoot,
       stdio: "inherit",
@@ -61,6 +64,7 @@ export default async function setup(): Promise<() => void> {
         );
         process.exitCode = 1;
       } finally {
+        disarmExitRelease?.();
         lock?.release();
       }
     };
@@ -69,6 +73,7 @@ export default async function setup(): Promise<() => void> {
       if (runRoot) rmSync(runRoot, { recursive: true, force: true });
       if (runHome) rmSync(runHome, { recursive: true, force: true });
     } finally {
+      disarmExitRelease?.();
       lock?.release();
     }
     throw error;
