@@ -126,6 +126,29 @@ describe("implementer-no-markdown — same verdict for paired Claude and Codex p
     expect(codex.status).toBe(2);
   });
 
+  it.each([
+    { command: `python3 - <<'EOF'\nopen('notes.md', 'w').write('x')\nEOF`, expected: 2 },
+    { command: `node -e "require('fs').writeFileSync('notes.mdx', 'x')"`, expected: 2 },
+    { command: `python3 -c "print(open('notes.md', 'r').read())"`, expected: 0 },
+  ])(
+    "inspects interpreter commands under both engines: $command",
+    ({ command, expected }: { command: string; expected: number }): void => {
+      for (const engine of ["claude", "codex"]) {
+        const hook = installHook(
+          "implementer-no-markdown",
+          `${engine}/.${engine}/hooks/implementer-no-markdown.sh`,
+        );
+        const result = run(hook, cwd, {
+          agent_type: "implementer",
+          tool_name: "Bash",
+          tool_input: { command },
+          ...(engine === "codex" ? { cwd } : {}),
+        });
+        expect(result.status).toBe(expected);
+      }
+    },
+  );
+
   it("allows the implementer writing a .ts file under both engines", () => {
     const claudeHook = installHook(
       "implementer-no-markdown",
