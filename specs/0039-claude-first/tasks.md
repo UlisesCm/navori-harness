@@ -190,7 +190,7 @@ Lote 3 (sujeto al gate de T2):
   `removeSubBlock` al deshabilitar tgrep. · test: suite portada más los casos de design.md §
   Testing strategy (error de sintaxis → pasa y la suite destructiva sigue verde) con
   `// Covers: R29, R30, R31`.
-- [ ] **T29** (R28, R70) — T17 con el camino bloqueado ≤ base − 1; nombre del mecanismo de
+- [x] **T29** (R28, R70) — T17 con el camino bloqueado ≤ base − 1; nombre del mecanismo de
   redirección; diff revisado de `claude.snap`. · test: `hooks-per-bash.test.ts` con
   `// Covers: R28, R70`.
 

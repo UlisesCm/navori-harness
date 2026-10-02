@@ -25,6 +25,14 @@ import { NavoriConfigSchema, type NavoriConfig } from "../config/schema.ts";
  * lane in `routing-watch`, `bash-outcome-watch` on `PostToolUseFailure`) and F5a
  * (search guard lane inside `guard-destructive`) are each expected to be net 0 or
  * negative on the success path. A positive delta on either path violates R28.
+ *
+ * T29 (R28, R70) — blocked-search path. The redirection mechanism is the
+ * guard-search-routing lane SOURCED INSIDE `guard-destructive` (tgrep plugin managed
+ * block `guard-destructive-search-lane`, spec 0039 D6): it exits 2 at PreToolUse, so no
+ * PostToolUse hook runs, and it adds NO hook registration. T28 left `EXPECTED`
+ * unchanged for that reason (its only `claude.snap` change is a case arm inside the
+ * existing guard script). T38 only adds a lane inside `subagent-stop-handoff`, a
+ * SubagentStop hook, not a Bash hook, so it does not move any number either.
  */
 
 /** A Bash command that no `if` should be able to single out. */
@@ -134,6 +142,15 @@ const coexistSettings = mergeCoexistSettings(
  */
 const EXPECTED = { bPre: 5, bPost: 2, bPostFail: 0 };
 
+/**
+ * R43 base for the blocked path, derived explicitly. The `claude-first-base` snapshot (T9,
+ * `hooks.perBashCall` p50 4.88) is an observed median on this repo's own config and is not
+ * comparable to the fixtures here, so the base is the per-path count BEFORE T16: the
+ * current `bPre` plus `model-advisor`, which sat on `PreToolUse(.*)` and so ran on every
+ * Bash call. D5 table: a blocked call costs `B_pre − 1` against that base.
+ */
+const BASE_B_PRE = EXPECTED.bPre + 1;
+
 describe("hooks per Bash call (R28)", () => {
   describe.each([
     ["default with tgrep", defaultSettings],
@@ -170,5 +187,29 @@ describe("hooks per Bash call (R28)", () => {
   it("model-advisor no longer rides any PreToolUse registration", () => {
     const pre = (defaultSettings.hooks?.PreToolUse ?? []).flatMap((e) => e.hooks);
     expect(pre.some((h) => h.command.includes("model-advisor"))).toBe(false);
+  });
+
+  describe("blocked search path (R28, R70)", () => {
+    // A blocked call stops at PreToolUse (exit 2): only B_pre hooks ever run.
+    const blockedTotal = (settings: Settings, command: string) => paths(settings, command).bPre;
+
+    // Covers: R28, R70
+    it.each([
+      ["default with tgrep", defaultSettings],
+      ["coexist", coexistSettings],
+    ] as const)("%s: a blocked search costs at most base - 1 hooks", (_name, settings) => {
+      for (const command of ["rg TODO src/", COMMANDS.search]) {
+        expect(blockedTotal(settings, command)).toBeLessThanOrEqual(BASE_B_PRE - 1);
+        // ...and strictly fewer than the same command succeeding.
+        expect(blockedTotal(settings, command)).toBeLessThan(paths(settings, command).success);
+      }
+    });
+
+    // Covers: R28, R70
+    it("the redirection is a lane inside guard-destructive, not a registration", () => {
+      const pre = (defaultSettings.hooks?.PreToolUse ?? []).flatMap((e) => e.hooks);
+      expect(pre.some((h) => h.command.includes("guard-search-routing"))).toBe(false);
+      expect(pre.filter((h) => h.command.includes("guard-destructive.sh"))).toHaveLength(1);
+    });
   });
 });
