@@ -323,14 +323,14 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
 });
 
 /**
- * The fast tier: what runs before every commit and on `develop`.
+ * The fast tier: what runs before every commit and on `dev`.
  *
  * Locally the pre-commit runs `check:fast` plus the tests related to the
- * staged files; CI's `fast` job runs the same pair for `develop` and PRs into
+ * staged files; CI's `fast` job runs the same pair for `dev` and PRs into
  * it. The full gate stays on `main`. The pass must be a strict subset of
- * `qualityGate.full`, or `develop` would block on a check `main` never runs.
+ * `qualityGate.full`, or `dev` would block on a check `main` never runs.
  */
-describe("pre-commit and CI's develop tier run the same fast pass", () => {
+describe("pre-commit and CI's dev tier run the same fast pass", () => {
   const rootPkg = JSON.parse(
     readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8"),
   ) as RootPackageJson;

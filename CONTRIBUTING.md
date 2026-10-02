@@ -38,7 +38,7 @@ nadie tenga que aprobar nada a mano.
 Hay dos niveles:
 
 - **Rápido** — el pre-commit versionado (`bun hooks:install`) y el job `fast` de CI, que corre en
-  `develop` y en los PRs hacia `develop`. Ambos corren `bun check:fast` (format, jscpd, semgrep,
+  `dev` y en los PRs hacia `dev`. Ambos corren `bun check:fast` (format, jscpd, semgrep,
   lint, typecheck) más `bun test:related`: solo los tests que dependen de los archivos de
   `packages/cli/src` cambiados (staged en local; contra la base del PR en CI).
 - **Completo** — `bun check`, abajo. Es lo que valida el job `quality` de CI en los PRs hacia
@@ -212,6 +212,6 @@ el reporte omite esa línea cuando `engines` no incluye `claude`.
 ## Commits y PRs
 
 - Commits: Conventional, español MX, atómicos (`feat|fix|chore|docs(scope): mensaje`).
-- Cada ticket en branch nueva con PR hacia `develop` (gate rápido en CI). `develop` entra a
+- Cada ticket en branch nueva con PR hacia `dev` (gate rápido en CI). `dev` entra a
   `main` por PR, y ese PR debe pasar el gate completo.
 - No commitees el harness local (`CLAUDE.md`, `.claude/`) de un repo `/bonum`.
