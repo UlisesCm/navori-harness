@@ -3,7 +3,7 @@
 #
 # Runs `check:fast` (format, jscpd, semgrep, lint, typecheck) plus only the
 # tests related to the staged files. The full gate (`bun check`, coverage
-# included) runs in CI on PRs to `main`; CI on `develop` runs this same pass.
+# included) runs in CI on PRs to `main`; CI on `dev` runs this same pass.
 set -euo pipefail
 
 # `bun check` exercises Git commits in its fixtures. A nested hook invocation
