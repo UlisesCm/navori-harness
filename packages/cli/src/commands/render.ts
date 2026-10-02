@@ -1297,6 +1297,20 @@ export function countRenderStatuses(result: ReturnType<typeof runRender>): Recor
 }
 
 /**
+ * How many files/blocks a render would still write or delete: every status of
+ * `countRenderStatuses` except `unchanged` and the refusals (`*-skipped`, which
+ * render leaves alone and reports on their own channel). `status` runs a dry
+ * render and shows this so `drift: 0` can't coexist with a render that would
+ * create or remove files (#1143).
+ */
+export function countPendingRenderChanges(result: ReturnType<typeof runRender>): number {
+  return Object.entries(countRenderStatuses(result)).reduce(
+    (n, [status, c]) => (status === "unchanged" || status.endsWith("-skipped") ? n : n + c),
+    0,
+  );
+}
+
+/**
  * Machine-readable render result. Keys are stable English (never localized) so
  * CI/automation can parse the same shape regardless of `config.language`.
  * Status tokens come straight from the render plan (created/updated/…).

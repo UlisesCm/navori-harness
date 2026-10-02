@@ -6,6 +6,7 @@ import { readConfig, ConfigError, type NavoriConfig } from "../lib/config/config
 import { scanManagedDrift, suggestNextSteps } from "../lib/diagnose/health.ts";
 import { scanDistribution, type DistributionReport } from "../lib/diagnose/distribution.ts";
 import { computeHealthVerdict } from "./doctor.ts";
+import { runRender, countPendingRenderChanges } from "./render.ts";
 import { brand, dim as grey, color, sym, kv, accent } from "../lib/primitives/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
 import { readNavoriOwnership } from "../lib/primitives/json-ownership.ts";
@@ -65,6 +66,23 @@ export function distributionSummary(
   return parts.join(" · ");
 }
 
+/**
+ * Files/blocks a `navori render` would still write or delete, from a dry-run of
+ * the same engine (writes nothing). `drift` only sees markers already on disk,
+ * so it reads 0 while render would create or retire dozens of files (#1143).
+ * `null` when unknown: never rendered (no CLAUDE.md), render refused the repo,
+ * or the dry run threw — status degrades instead of crashing.
+ */
+export function computeRenderPending(cwd: string, claudeMdExists: boolean): number | null {
+  if (!claudeMdExists) return null;
+  try {
+    const result = runRender(cwd, { dryRun: true });
+    return result.ok ? countPendingRenderChanges(result) : null;
+  } catch {
+    return null;
+  }
+}
+
 export const statusCommand = defineCommand({
   meta: {
     name: "status",
@@ -115,6 +133,7 @@ export const statusCommand = defineCommand({
     // view, so it says HOW MANY and defers the sentence to `doctor` — but it
     // says it at all, which is the whole point: this is the command people run.
     const distribution = scanDistribution(cwd, config);
+    const renderPending = computeRenderPending(cwd, claudeMdExists);
     const enabledPlugins = Object.entries(config.plugins ?? {})
       .filter(([, v]) => v.enabled === true)
       .map(([k]) => k);
@@ -134,11 +153,15 @@ export const statusCommand = defineCommand({
             enabledPlugins,
             claudeMdExists,
             drift: drifts.length,
+            renderPending,
             distribution,
             missingPlugins: missingPlugins.map((m) => m.id),
             // Machine-readable contract: the prose stays stable in English so a
             // consumer never has to branch on config.language.
-            nextSteps: suggestNextSteps({ claudeMdExists, missingPlugins, drifts }, "en"),
+            nextSteps: suggestNextSteps(
+              { claudeMdExists, missingPlugins, drifts, renderPending },
+              "en",
+            ),
           },
           null,
           2,
@@ -152,7 +175,10 @@ export const statusCommand = defineCommand({
 
     const lang = resolveLang(config.language);
     const ts = tc(lang).status;
-    const nextSteps = suggestNextSteps({ claudeMdExists, missingPlugins, drifts }, lang);
+    const nextSteps = suggestNextSteps(
+      { claudeMdExists, missingPlugins, drifts, renderPending },
+      lang,
+    );
 
     p.intro(brand("status"));
     p.note(
@@ -165,6 +191,16 @@ export const statusCommand = defineCommand({
         ["plugins", enabledPlugins.length > 0 ? enabledPlugins.join(", ") : grey(ts.none)],
         ["CLAUDE.md", claudeMdExists ? color.green(ts.present) : color.red(ts.missing)],
         ["drift", drifts.length > 0 ? color.yellow(`${drifts.length}`) : color.green("0")],
+        ...(renderPending !== null
+          ? ([
+              [
+                "render pending",
+                renderPending > 0
+                  ? color.yellow(ts.renderPendingRow(renderPending))
+                  : color.green("0"),
+              ],
+            ] as Array<[string, string]>)
+          : []),
         // Absent — not "0" — when there is nothing to say, so a repo that does
         // not version its harness gains no row at all (#778).
         ...(distribution

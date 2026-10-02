@@ -1437,6 +1437,9 @@ interface StatusCmdStrings {
   nextInterleaved: (lead: string) => string;
   nextInterleavedLead: (id: string, pos: number, total: number) => string;
   nextLegacyAgents: (count: number, names: string) => string;
+  nextRenderPending: (count: number) => string;
+  /** The `render pending` row value (#1143). */
+  renderPendingRow: (count: number) => string;
   allCurrent: string;
   none: string;
   present: string;
@@ -2620,6 +2623,9 @@ const CMD_ES: CmdStrings = {
       ` (p.ej. '${id}' está en posición ${pos} de ${total} y debería ir 1º)`,
     nextLegacyAgents: (count, names) =>
       `Archiva o borra ${count} agente(s) legacy (${names}); navori ya provee sus equivalentes canónicos.`,
+    nextRenderPending: (count) =>
+      `Un render cambiaría ${count} archivo(s)/bloque(s): corre 'navori render' para previsualizar y 'navori render --apply' para aplicar.`,
+    renderPendingRow: (count) => `${count} por escribir/borrar (ver 'navori render')`,
     allCurrent: "Todo al día — sin acciones pendientes.",
     none: "(ninguno)",
     present: "presente",
@@ -3988,6 +3994,9 @@ const CMD_EN: CmdStrings = {
       ` (e.g. '${id}' is at position ${pos} of ${total} and should be 1st)`,
     nextLegacyAgents: (count, names) =>
       `Archive or delete ${count} legacy agent(s) (${names}); navori already provides their canonical replacements.`,
+    nextRenderPending: (count) =>
+      `A render would change ${count} file(s)/block(s): run 'navori render' to preview and 'navori render --apply' to apply.`,
+    renderPendingRow: (count) => `${count} to write/remove (see 'navori render')`,
     allCurrent: "Everything is up to date — no pending actions.",
     none: "(none)",
     present: "present",

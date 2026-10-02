@@ -1218,6 +1218,8 @@ export interface HealthState {
   orderReport?: OrderReport | null;
   /** Legacy agent files superseded by a canonical navori agent, if any. */
   legacyAgents?: LegacyAgent[];
+  /** Files/blocks a dry-run render would still write or delete; null/absent when unknown (#1143). */
+  renderPending?: number | null;
 }
 
 /**
@@ -1257,6 +1259,9 @@ export function suggestNextSteps(state: HealthState, lang: Lang = DEFAULT_LANG):
   if (state.legacyAgents && state.legacyAgents.length > 0) {
     const names = state.legacyAgents.map((l) => l.legacyName).join(", ");
     steps.push(ts.nextLegacyAgents(state.legacyAgents.length, names));
+  }
+  if (state.renderPending && state.renderPending > 0) {
+    steps.push(ts.nextRenderPending(state.renderPending));
   }
   if (steps.length === 0) {
     steps.push(ts.allCurrent);
