@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { getCoreRoot } from "../../../lib/render/bundled-assets.ts";
 import { expandHookIncludes } from "../../../lib/render/hook-includes.ts";
 import { acrossShells, type HookShell } from "../../../lib/__tests__/helpers/shells.ts";
-import { buildClaudeSettings } from "../build-settings.ts";
+import { buildClaudeSettings, claudeHookCommand } from "../build-settings.ts";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
 
 const runsBash = process.platform !== "win32";
@@ -242,10 +242,10 @@ describe("master-accept-confirm wiring", () => {
     );
 
     expect(hookCommands(enabled)).toContain(
-      'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/master-accept-confirm.sh"',
+      claudeHookCommand("PreToolUse", ".claude/hooks/master-accept-confirm.sh"),
     );
     expect(hookCommands(disabled)).not.toContain(
-      'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/master-accept-confirm.sh"',
+      claudeHookCommand("PreToolUse", ".claude/hooks/master-accept-confirm.sh"),
     );
   });
 });

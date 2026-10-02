@@ -15,7 +15,7 @@ import { join, resolve } from "node:path";
 import { getCoreRoot, getPluginPath } from "../render/bundled-assets.ts";
 import { interpolate } from "../render/interpolate.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
-import { buildClaudeSettings } from "../../engines/claude/build-settings.ts";
+import { buildClaudeSettings, claudeHookCommand } from "../../engines/claude/build-settings.ts";
 import { buildCodexConfigToml } from "../../engines/codex/build-config-toml.ts";
 import type { NavoriConfig } from "../config/config.ts";
 import type { LoadedPlugin } from "../config/plugins.ts";
@@ -777,6 +777,11 @@ describe("plugin hooks — SessionStart (spec 0017)", () => {
   } as unknown as NavoriConfig;
 
   const PLUGIN_COMMAND = 'bash "$CLAUDE_PROJECT_DIR/.claude/scripts/session-fixture.sh"';
+  // What settings.json registers for it: the same script behind the parse check.
+  const REGISTERED_PLUGIN_COMMAND = claudeHookCommand(
+    "SessionStart",
+    ".claude/scripts/session-fixture.sh",
+  );
 
   const sessionPlugin: LoadedPlugin = {
     manifest: {
@@ -812,7 +817,7 @@ describe("plugin hooks — SessionStart (spec 0017)", () => {
     const buckets = sessionBuckets([sessionPlugin]);
     const commands = buckets.flatMap((b) => b.hooks.map((h) => h.command));
     expect(commands.some((c) => c.includes("session-start-context.sh"))).toBe(true);
-    expect(commands).toContain(PLUGIN_COMMAND);
+    expect(commands).toContain(REGISTERED_PLUGIN_COMMAND);
 
     // Separate buckets, not one merged blob: the core hook keeps its lifecycle
     // matcher, and the plugin's matcher-less entry neither inherits nor erases it.
@@ -823,7 +828,7 @@ describe("plugin hooks — SessionStart (spec 0017)", () => {
     const pluginBucket = buckets.find((b) => b.matcher === undefined);
     expect(pluginBucket?.hooks.map((h) => h.command)).toEqual([
       expect.stringContaining("model-advisor.sh"),
-      PLUGIN_COMMAND,
+      REGISTERED_PLUGIN_COMMAND,
     ]);
   });
 

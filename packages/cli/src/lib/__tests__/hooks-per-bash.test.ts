@@ -180,7 +180,7 @@ describe("hooks per Bash call (R28)", () => {
     const watch = post.filter((h) => h.command.includes("routing-watch.sh"));
     expect(watch).toHaveLength(1);
     expect(watch[0]).toMatchObject({ timeout: 30 });
-    expect(watch[0]!.command.endsWith(" claude-post-tool-use")).toBe(true);
+    expect(watch[0]!.command).toContain('exec bash "$f" claude-post-tool-use;');
   });
 
   // Covers: R28

@@ -16,37 +16,37 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"navori: .claude/hooks/guard-destructive.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply\"}}'",
             "timeout": 10,
             "statusMessage": "navori: guard-destructive"
           },
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/comment-draft-confirm.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/comment-draft-confirm.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"navori: .claude/hooks/comment-draft-confirm.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply\"}}'",
             "timeout": 10,
             "statusMessage": "navori: comment-draft-confirm"
           },
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pr-publisher-confirm.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/pr-publisher-confirm.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"navori: .claude/hooks/pr-publisher-confirm.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply\"}}'",
             "timeout": 10,
             "statusMessage": "navori: pr-publisher-confirm"
           },
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"navori: .claude/hooks/quality-gate-pre-commit.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply\"}}'",
             "timeout": 600,
             "statusMessage": "navori: quality-gate fast"
           },
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/scripts/check-jscpd.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/scripts/check-jscpd.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"navori: .claude/scripts/check-jscpd.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply\"}}'",
             "timeout": 600,
             "statusMessage": "navori/jscpd: dup check"
           },
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/scripts/check-semgrep.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/scripts/check-semgrep.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"navori: .claude/scripts/check-semgrep.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply\"}}'",
             "timeout": 600,
             "statusMessage": "navori/semgrep: security scan"
           }
@@ -57,7 +57,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/subagent-no-background.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/subagent-no-background.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"navori: .claude/hooks/subagent-no-background.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply\"}}'",
             "timeout": 10,
             "statusMessage": "navori: subagent-no-background"
           }
@@ -68,7 +68,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/implementer-no-markdown.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/implementer-no-markdown.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"navori: .claude/hooks/implementer-no-markdown.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply\"}}'",
             "timeout": 10,
             "statusMessage": "navori: implementer-no-markdown"
           }
@@ -79,13 +79,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/plan-gate.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/plan-gate.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"navori: .claude/hooks/plan-gate.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply\"}}'",
             "timeout": 10,
             "statusMessage": "navori: plan-gate"
           },
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/general-purpose-confirm.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/general-purpose-confirm.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"navori: .claude/hooks/general-purpose-confirm.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply\"}}'",
             "timeout": 10,
             "statusMessage": "navori: general-purpose-confirm"
           }
@@ -97,7 +97,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/model-advisor.sh\" claude-session-start",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/model-advisor.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\" claude-session-start; echo 'navori: .claude/hooks/model-advisor.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1",
             "timeout": 10,
             "statusMessage": "navori: model advisor"
           }
@@ -108,7 +108,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-context.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-context.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; echo 'navori: .claude/hooks/session-start-context.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1",
             "timeout": 15,
             "statusMessage": "navori: session context"
           }
@@ -120,7 +120,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/model-advisor.sh\" claude-post-model-switch",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/model-advisor.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\" claude-post-model-switch; echo 'navori: .claude/hooks/model-advisor.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1",
             "timeout": 10,
             "statusMessage": "navori: model advisor"
           }
@@ -132,7 +132,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/model-advisor.sh\" claude-stop",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/model-advisor.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\" claude-stop; echo 'navori: .claude/hooks/model-advisor.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1",
             "timeout": 10,
             "statusMessage": "navori: model advisor"
           }
@@ -145,7 +145,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/managed-drift-watch.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/managed-drift-watch.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; echo 'navori: .claude/hooks/managed-drift-watch.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1",
             "timeout": 10,
             "statusMessage": "navori: managed-block drift"
           }
@@ -156,7 +156,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/routing-watch.sh\" claude-post-tool-use",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/routing-watch.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\" claude-post-tool-use; echo 'navori: .claude/hooks/routing-watch.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1",
             "timeout": 30,
             "statusMessage": "navori: routing check"
           }
@@ -167,7 +167,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/subagent-stop-handoff.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/subagent-stop-handoff.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; echo 'navori: .claude/hooks/subagent-stop-handoff.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1",
             "timeout": 15,
             "statusMessage": "navori: handoff check"
           }
@@ -180,7 +180,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/bash-outcome-watch.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/bash-outcome-watch.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; echo 'navori: .claude/hooks/bash-outcome-watch.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1",
             "timeout": 10,
             "statusMessage": "navori: repeat failure advice"
           }
@@ -192,7 +192,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/audit-mode-trigger.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/audit-mode-trigger.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; echo 'navori: .claude/hooks/audit-mode-trigger.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1",
             "timeout": 10,
             "statusMessage": "navori: audit-mode"
           }
@@ -204,13 +204,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/audit-mode-close.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/audit-mode-close.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; echo 'navori: .claude/hooks/audit-mode-close.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1",
             "timeout": 10,
             "statusMessage": "navori: audit-mode close"
           },
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/worktree-reclaim.sh\"",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/worktree-reclaim.sh\"; bash -n \"$f\" 2>/dev/null && exec bash \"$f\"; echo 'navori: .claude/hooks/worktree-reclaim.sh cannot be parsed (merge/rebase conflict?): abort or resolve it, then navori render --apply' >&2; exit 1",
             "timeout": 30,
             "statusMessage": "navori: reclaim worktrees"
           }
