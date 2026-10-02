@@ -1,27 +1,28 @@
-# Current — PR #1170 CI correction
-
-Publicar corrección zsh y comprobar CI Ubuntu antes de retomar Spec 0039.
+# Current — Spec 0039 publication
 
 ## Goal
-Corregir el CI del PR #1170 (issue #1143) antes de continuar Spec 0039.
+Publicar los pendientes implementados de Spec 0039 hacia dev y preparar T44.
 
 ## Instructions
-- Sincronizar dev antes de cada nuevo trabajo; PRs hacia dev.
-- Mantener 0039 conservado sin publicar mientras se corrige este PR.
+- Sincronizar dev antes de cada trabajo; PRs hacia dev.
+- Gate local rápido; cobertura completa solo en CI de main (#1171).
 
 ## Discoveries
-- El job fast de Ubuntu no instalaba zsh; quality sí. Tres pruebas de master-plan-context devolvían status null por ejecutable ausente (ENOENT reproducido).
+- Dev3f069fd7 incluye #1169 de presupuesto, #1170 corregido y #1171 de gates. La integración fue fast-forward sin perder cambios.
+- T44 exige comparar con la instantánea T9 usando mismo minero/audit.mode; éxito de cache read necesita n >=100 lanzamientos por ventana y banda de ruido de dos ventanas base. No inferir éxito por muestras menores.
 
 ## Accomplished
-- Instalación y verificación de zsh agregadas al job fast, sin omitir pruebas.
-- Revisión APPROVED; check:fast, lint y 13/13 pruebas enfocadas verdes. Receipt contra dev45429b8: status ok, fresh true.
+- T37 mergeada en #1167; PR1170 corregido y mergeado, CI rápido verde.
+- T34 aprobada sobre dev3f069fd7: siete rutas, scout WebFetch/WebSearch, notas author-agent, Pi intacto, 145 pruebas y fast/render/budgets verdes, receipt ok/fresh.
+- T23/T24 implementadas y serializadas sobre la misma base: 392 pruebas enfocadas verdes; revisión final en curso.
 
 ## Next Steps
-- Publicar la corrección en el PR #1170 y comprobar CI de Ubuntu.
-- Después retomar T34 y T23/T24 en worktrees sincronizados con dev45429b8; serialización Markdown y revisión final pendientes. T37 ya mergeada; T44 después.
-- Conservar worktrees y checkout raíz por sesiones concurrentes.
+- Publicar T34 y finalizar revisión/publicación T23/T24. Esperar integración antes de T44.
+- Medir T44 sin alterar criterios registrados; conservar worktrees por sesiones concurrentes.
 
 ## Relevant Files
-- .github/workflows/ci.yml — prerequisite zsh del job fast.
-- progress/current.md — próximo paso explícito.
-- progress/history.md — evidencia de esta corrección.
+- packages/core/core-assets/agents/scout.md — acceso web acotado.
+- .claude/skills/author-agent/SKILL.md — admisión/retiro y excepción architect.
+- packages/core/core-assets/hooks/bash-outcome-watch.sh — advisory de fallos.
+- docs/native-overlap.md — matriz generada.
+- specs/0039-claude-first/tasks.md — tareas.
