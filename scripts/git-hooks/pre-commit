@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # navori pre-commit gate — the fast local pass.
 #
-# Runs `check:fast` (format, jscpd, semgrep, lint, typecheck) plus only the
-# tests related to the staged files. The full gate (`bun check`, coverage
-# included) runs in CI on PRs to `main`; CI on `dev` runs this same pass.
+# Runs `check:fast` (format, jscpd, semgrep, lint, typecheck) and NO tests.
+# Tests run only in CI on `main` (`bun check`, coverage included); CI on `dev`
+# runs just format, lint and typecheck.
 set -euo pipefail
 
 # `bun check` exercises Git commits in its fixtures. A nested hook invocation
@@ -15,11 +15,10 @@ fi
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
 
-echo "▶ pre-commit: running check:fast + related tests…"
+echo "▶ pre-commit: running check:fast (no tests)…"
 export NAVORI_PRE_COMMIT_RUNNING=1
 # check:fast spawns jscpd, whose --baseline-from-ref runs `git worktree add`; with
 # the commit's GIT_INDEX_FILE inherited it would overwrite the commit's index.
-# test:related below keeps the inherited env: it reads the staged files.
 env \
   -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_CONFIG -u GIT_CONFIG_PARAMETERS \
   -u GIT_CONFIG_COUNT -u GIT_OBJECT_DIRECTORY -u GIT_DIR -u GIT_WORK_TREE \
@@ -27,4 +26,3 @@ env \
   -u GIT_NO_REPLACE_OBJECTS -u GIT_REPLACE_REF_BASE -u GIT_PREFIX \
   -u GIT_SHALLOW_FILE -u GIT_COMMON_DIR \
   bun run check:fast
-exec bun run test:related
