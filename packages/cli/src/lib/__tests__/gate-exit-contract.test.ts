@@ -8,14 +8,16 @@ import {
   readFileSync,
   existsSync,
   realpathSync,
+  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { getPluginPath } from "../render/bundled-assets.ts";
+import { basename, join, resolve } from "node:path";
+import { getCoreRoot, getPluginPath } from "../render/bundled-assets.ts";
+import { shellSingleQuote } from "../primitives/shell-escape.ts";
 import { interpolate } from "../render/interpolate.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
 import type { NavoriConfig } from "../config/config.ts";
-import { acrossShells, type HookShell } from "./helpers/shells.ts";
+import { acrossShells, HOOK_SHELLS, type HookShell } from "./helpers/shells.ts";
 
 /**
  * #510 — what a gate hook EXITS WITH is its verdict, and `PreToolUse` reads
@@ -390,3 +392,353 @@ describe.runIf(runsBash)(
     });
   },
 );
+
+/**
+ * #1117 — a gate whose TOOL failed has no verdict. Under a Claude PreToolUse
+ * hook the user is asked (exit 0 + `permissionDecision: "ask"`); Codex drops
+ * that field, and a git hook / CLI has nobody to ask, so both keep blocking.
+ * Real verdicts (red gate, semgrep findings) stay hard blocks everywhere.
+ */
+const hasJq = spawnSync("jq", ["--version"], { env: { PATH: BASE_PATH } }).status === 0;
+const HOOK_PAYLOAD = (cwd: string, command = "git commit -m x"): string =>
+  JSON.stringify({
+    session_id: "s1",
+    cwd,
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command },
+  });
+
+interface AskRun {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  /** Audit events written by the run. */
+  events: { verdict?: string; reason?: string }[];
+}
+
+/**
+ * Run `script` (copied to `relPath` under the fixture, so `.codex/` placement
+ * can be simulated) with `input` on stdin and a throwaway audit root.
+ */
+function runAsk(
+  shell: HookShell,
+  dir: string,
+  binDir: string,
+  script: string,
+  relPath: string,
+  input: string,
+): AskRun {
+  const target = join(dir, relPath);
+  mkdirSync(resolve(target, ".."), { recursive: true });
+  writeFileSync(target, readFileSync(script, "utf-8"));
+  chmodSync(target, 0o755);
+  const auditsRoot = realpathSync(mkdtempSync(join(tmpdir(), "navori-1117-audits-")));
+  mkdirSync(join(auditsRoot, basename(dir)));
+  const log = join(auditsRoot, basename(dir), "session-s1.log");
+  writeFileSync(log, `${JSON.stringify({ event: "start" })}\n`);
+  const r = spawnSync(shell, [target], {
+    cwd: dir,
+    input,
+    encoding: "utf-8",
+    env: {
+      PATH: `${binDir}:${BASE_PATH}`,
+      CLAUDE_PROJECT_DIR: dir,
+      NAVORI_AUDITS_ROOT: auditsRoot,
+    },
+  });
+  const events = readFileSync(log, "utf-8")
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as { verdict?: string; reason?: string });
+  return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "", events };
+}
+
+/** Parse the single ask decision a hook printed on stdout. */
+function askDecision(stdout: string): { decision: string; reason: string; event: string } {
+  const out = JSON.parse(stdout) as {
+    hookSpecificOutput: {
+      hookEventName: string;
+      permissionDecision: string;
+      permissionDecisionReason: string;
+    };
+  };
+  return {
+    decision: out.hookSpecificOutput.permissionDecision,
+    reason: out.hookSpecificOutput.permissionDecisionReason,
+    event: out.hookSpecificOutput.hookEventName,
+  };
+}
+
+describe.runIf(runsBash && hasJq)("jscpd no-verdict cases ask under Claude (#1117)", () => {
+  /** Old binary: lacks the flags → no verdict. */
+  const noFlags = (shell: HookShell, relPath: string, input?: (dir: string) => string) => {
+    const fx = setupJscpdCapabilityFixture("Usage: jscpd [options] <path>");
+    return runAsk(
+      shell,
+      fx.dir,
+      fx.binDir,
+      fx.hooks.jscpd,
+      relPath,
+      input ? input(fx.dir) : HOOK_PAYLOAD(fx.dir),
+    );
+  };
+
+  // Covers: A1
+  it("missing flags + Claude hook payload → ask JSON, exit 0, reason names the cause", () => {
+    for (const shell of HOOK_SHELLS) {
+      const out = noFlags(shell, "hook.sh");
+      expect(out.status).toBe(CLEAN);
+      const d = askDecision(out.stdout);
+      expect(d.decision).toBe("ask");
+      expect(d.event).toBe("PreToolUse");
+      expect(d.reason).toContain("--baseline-from-ref");
+      expect(d.reason).toContain("5.1.1");
+      expect(d.reason).not.toContain("outside the agent");
+    }
+  });
+
+  // Covers: A3
+  it("records the ask outcome in the audit log with its reason", () => {
+    const out = noFlags("bash", "hook.sh");
+    const ask = out.events.find((e) => e.verdict === "ask");
+    expect(ask?.reason).toContain("required flags unavailable");
+    expect(out.events.some((e) => e.verdict === "block")).toBe(false);
+  });
+
+  /**
+   * Exit-1 jscpd stub shaped like the real binary (samples captured from jscpd
+   * 5.3.2): a finished scan with clones writes `jscpd-report.json` under
+   * `--output` with `statistics.total.newClones`; a crash writes nothing.
+   */
+  const exit1Fixture = (newClones: number | null | "corrupt"): Fixture => {
+    const fx = setupFixture(1);
+    const stub = join(fx.binDir, "jscpd");
+    const report =
+      newClones === null
+        ? ""
+        : `out=""; prev=""; for a in "$@"; do [ "$prev" = "--output" ] && out="$a"; prev="$a"; done\n` +
+          `printf '%s' '${newClones === "corrupt" ? "{not json" : `{"statistics":{"total":{"newClones":${newClones}}}}`}' > "$out/jscpd-report.json"\n`;
+    writeFileSync(
+      stub,
+      `#!/usr/bin/env bash\n` +
+        `if [ "\${1:-}" = "--help" ]; then printf '%s\\n' "--baseline-from-ref --fail-on-new-clones"; exit 0; fi\n` +
+        report +
+        `exit 1\n`,
+    );
+    chmodSync(stub, 0o755);
+    return fx;
+  };
+
+  // Covers: A1
+  it("exit 1 with a report showing NEW CLONES stays a hard block (exit 2) under a Claude payload", () => {
+    const fx = exit1Fixture(2);
+    const out = runAsk("bash", fx.dir, fx.binDir, fx.hooks.jscpd, "hook.sh", HOOK_PAYLOAD(fx.dir));
+    expect(out.status).toBe(BLOCKS);
+    expect(out.stdout).not.toContain("permissionDecision");
+    expect(out.events.find((e) => e.verdict === "block")?.reason).toContain("2 new clone(s)");
+    expect(out.events.some((e) => e.verdict === "ask")).toBe(false);
+  });
+
+  // Covers: A1
+  it("exit 1 with a report that EXISTS but is corrupt fails closed (exit 2, block) under a Claude payload", () => {
+    const fx = exit1Fixture("corrupt");
+    const out = runAsk("bash", fx.dir, fx.binDir, fx.hooks.jscpd, "hook.sh", HOOK_PAYLOAD(fx.dir));
+    expect(out.status).toBe(BLOCKS);
+    expect(out.stdout).not.toContain("permissionDecision");
+    expect(out.events.find((e) => e.verdict === "block")?.reason).toContain(
+      "cannot rule out new clones",
+    );
+  });
+
+  // Covers: A1
+  it("exit 1 with a report but no jq stays exit 2 under a Claude payload", () => {
+    const fx = exit1Fixture(0);
+    // PATH without jq: shim only the tools the hook needs.
+    const lean = join(fx.dir, "leanbin");
+    mkdirSync(lean);
+    for (const t of [
+      "bash",
+      "git",
+      "sed",
+      "cat",
+      "mktemp",
+      "rm",
+      "env",
+      "date",
+      "head",
+      "tr",
+      "dirname",
+      "basename",
+      "grep",
+      "uname",
+      "perl",
+      "node",
+    ]) {
+      try {
+        symlinkSync(realBin(t), join(lean, t));
+      } catch {
+        /* tool absent on this host */
+      }
+    }
+    symlinkSync(join(fx.binDir, "jscpd"), join(lean, "jscpd"));
+    const target = join(fx.dir, "hook-nojq.sh");
+    writeFileSync(target, readFileSync(fx.hooks.jscpd, "utf-8"));
+    const r = spawnSync("bash", [target], {
+      cwd: fx.dir,
+      input: HOOK_PAYLOAD(fx.dir),
+      encoding: "utf-8",
+      env: { PATH: lean, CLAUDE_PROJECT_DIR: fx.dir },
+    });
+    expect(r.status).toBe(BLOCKS);
+    expect(r.stdout).not.toContain("permissionDecision");
+    expect(r.stderr).toContain("report is unreadable");
+  });
+
+  // Covers: A1
+  it("exit 1 with NO report (crash) + Claude hook payload → ask, audited as ask", () => {
+    const fx = exit1Fixture(null);
+    const out = runAsk("bash", fx.dir, fx.binDir, fx.hooks.jscpd, "hook.sh", HOOK_PAYLOAD(fx.dir));
+    expect(out.status).toBe(CLEAN);
+    const d = askDecision(out.stdout);
+    expect(d.decision).toBe("ask");
+    expect(d.reason).toContain("no duplication verdict");
+    expect(d.reason).not.toContain("outside the agent");
+    expect(out.events.find((e) => e.verdict === "ask")?.reason).toContain("no clone evidence");
+  });
+
+  // Covers: A1
+  it("exit 1 with no report and no hook payload keeps today's exit 2", () => {
+    const fx = exit1Fixture(null);
+    const out = runAsk("bash", fx.dir, fx.binDir, fx.hooks.jscpd, "hook.sh", "");
+    expect(out.status).toBe(BLOCKS);
+    expect(out.stdout).toBe("");
+  });
+
+  // Covers: A1
+  it("Codex copy (.codex/scripts) keeps blocking with exit 2 and prints no ask", () => {
+    const out = noFlags("bash", ".codex/scripts/check-jscpd.sh");
+    expect(out.status).toBe(BLOCKS);
+    expect(out.stdout).not.toContain("permissionDecision");
+    expect(out.stderr).toContain("5.1.1");
+    expect(out.events.some((e) => e.verdict === "block")).toBe(true);
+  });
+
+  // Covers: A1
+  it("no hook payload (git hook / CLI, stdin empty) keeps today's exit 2", () => {
+    const out = noFlags("bash", "hook.sh", () => "");
+    expect(out.status).toBe(BLOCKS);
+    expect(out.stdout).toBe("");
+  });
+
+  // Covers: A1
+  it("a payload without hook_event_name (not a recognised hook call) keeps blocking", () => {
+    const out = noFlags("bash", "hook.sh", (dir) =>
+      JSON.stringify({ session_id: "s1", cwd: dir, tool_input: { command: "git commit -m x" } }),
+    );
+    expect(out.status).toBe(BLOCKS);
+    expect(out.stdout).toBe("");
+  });
+
+  // Covers: A1
+  it("a real semgrep verdict (findings) stays exit 2 under a Claude hook payload", () => {
+    const fx = setupFixture(1);
+    const out = runAsk(
+      "bash",
+      fx.dir,
+      fx.binDir,
+      fx.hooks.semgrep,
+      "hook.sh",
+      HOOK_PAYLOAD(fx.dir),
+    );
+    expect(out.status).toBe(BLOCKS);
+    expect(out.stdout).not.toContain("permissionDecision");
+  });
+});
+
+describe.runIf(runsBash && hasJq)("quality-gate runner missing asks under Claude (#1117)", () => {
+  const HOOK_SRC = resolve(getCoreRoot(), "core-assets/hooks/quality-gate-pre-commit.sh");
+
+  /** A non-git dir, a gate whose runner is absent from PATH or present-but-red. */
+  function qgFixture(runner: "missing" | "red"): { dir: string; binDir: string; script: string } {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-1117-qg-")));
+    const binDir = join(dir, "fakebin");
+    mkdirSync(binDir);
+    if (runner === "red") {
+      const stub = join(binDir, "pnpm");
+      writeFileSync(stub, "#!/usr/bin/env bash\nexit 1\n");
+      chmodSync(stub, 0o755);
+    }
+    const script = join(dir, "src-hook.sh");
+    writeFileSync(
+      script,
+      expandHookIncludes(readFileSync(HOOK_SRC, "utf-8")).replace(
+        "{{shq:qualityGate.fast}}",
+        shellSingleQuote("pnpm run typecheck"),
+      ),
+    );
+    return { dir, binDir, script };
+  }
+
+  // Covers: A2
+  it("runner not on PATH + Claude hook payload → ask JSON, exit 0, no 'outside the agent'", () => {
+    for (const shell of HOOK_SHELLS) {
+      const fx = qgFixture("missing");
+      const out = runAsk(shell, fx.dir, fx.binDir, fx.script, "hook.sh", HOOK_PAYLOAD(fx.dir));
+      expect(out.status).toBe(CLEAN);
+      const d = askDecision(out.stdout);
+      expect(d.decision).toBe("ask");
+      expect(d.reason).toContain("'pnpm'");
+      expect(d.reason).toContain("no verdict");
+      expect(d.reason).not.toContain("outside the agent");
+    }
+  });
+
+  // Covers: A3
+  it("records the ask outcome in the audit log with its reason", () => {
+    const fx = qgFixture("missing");
+    const out = runAsk("bash", fx.dir, fx.binDir, fx.script, "hook.sh", HOOK_PAYLOAD(fx.dir));
+    expect(out.events.find((e) => e.verdict === "ask")?.reason).toContain("'pnpm' no esta en PATH");
+    expect(out.events.some((e) => e.verdict === "block")).toBe(false);
+  });
+
+  // Covers: A2
+  it("a red gate stays exit 2 under a Claude hook payload", () => {
+    const fx = qgFixture("red");
+    const out = runAsk("bash", fx.dir, fx.binDir, fx.script, "hook.sh", HOOK_PAYLOAD(fx.dir));
+    expect(out.status).toBe(BLOCKS);
+    expect(out.stdout).not.toContain("permissionDecision");
+  });
+
+  // Covers: A2
+  it("Codex copy (.codex/hooks) keeps exit 2 with the original block message", () => {
+    const fx = qgFixture("missing");
+    const out = runAsk(
+      "bash",
+      fx.dir,
+      fx.binDir,
+      fx.script,
+      ".codex/hooks/qg.sh",
+      HOOK_PAYLOAD(fx.dir),
+    );
+    expect(out.status).toBe(BLOCKS);
+    expect(out.stdout).not.toContain("permissionDecision");
+    expect(out.stderr).toContain("Commit BLOCKED");
+    expect(out.events.some((e) => e.verdict === "block")).toBe(true);
+  });
+
+  // Covers: A2
+  it("a payload with no hook_event_name keeps exit 2", () => {
+    const fx = qgFixture("missing");
+    const out = runAsk(
+      "bash",
+      fx.dir,
+      fx.binDir,
+      fx.script,
+      "hook.sh",
+      JSON.stringify({ session_id: "s1", cwd: fx.dir, tool_input: { command: "git commit -m x" } }),
+    );
+    expect(out.status).toBe(BLOCKS);
+    expect(out.stdout).toBe("");
+  });
+});

@@ -545,7 +545,7 @@ exit "$SCAN_EXIT"
       expect(blocked.status).toBe(2);
       expect(blocked.events.at(-1)?.verdict).toBe("block");
       if (id === "jscpd") {
-        expect(blocked.stderr).toMatch(/ambiguous exit 1/);
+        expect(blocked.stderr).toMatch(/exit 1 with no new-clone evidence/);
         expect(blocked.events.at(-1)?.reason).toContain("not confirmed clones");
       }
 
