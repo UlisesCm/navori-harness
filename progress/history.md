@@ -10,6 +10,17 @@ Entradas más recientes arriba. Formato sugerido (no obligatorio):
 - Commit / PR: <hash / URL>
 -->
 
+## 2026-10-01 22:30 — orchestrator — spec 0039: T2, T28, T29, T31, T35, T38, T40 y fix Pi
+
+- Cambios: mergeadas #1149 fix Pi, #1151 T40, #1152 T28, #1153 T38, #1154 T29, #1155 T2 (fixtures + enmiendas T37/T45/R42), #1156 T31 doc (`quitar-del-default`); T35 (`general-purpose-confirm`) en PR.
+- Quality gate: ✅ cada PR cerró con review APPROVED y recibo firmado. Bajo carga del host, la cobertura se verificó con timeout de 60s y se comprobó el piso, como consta en cada PR.
+- Notas:
+  - Worktrees perdidos: el usuario los borró a mano; se recrearon y se rehicieron los diffs.
+  - Queda prohibido `pkill -f vitest` global.
+  - El clasificador del modo auto bloqueó quitar el `if` en T35; el usuario lo autorizó explícitamente.
+  - Hallazgos de T2: `Agent(<name>)` como `if` no filtra; la marca parcial es solo texto; `ask`=deny en `-p`.
+  - Costo: T31 $7.26; T2 ~$0.47.
+
 ## 2026-10-01 15:13 — publisher — Spec 0039 T36: maxTurns 160 en implementer de Claude
 
 - Cambios: `packages/core/core-assets/agents/implementer.md` (maxTurns 160 para Claude), `.claude/agents/implementer.md` (render sin drift), golden snapshot y test coverage (`packages/cli/src/engines/__tests__/__golden__/claude.snap`, `packages/cli/src/engines/codex/__tests__/render-codex.test.ts`, `packages/cli/src/lib/__tests__/agents-assets.test.ts`), specs/0039-claude-first/{design.md, tasks.md}.
