@@ -2360,6 +2360,37 @@ OAuth Plus/Pro nativo; no manejo de credenciales ni instalación de extensiones 
 - apps/website y config/schema.ts — registros públicos opt-in.
 - packages/cli/package.json y bun.lock — Pi 0.87.1 para runtime smoke.
 
+## 2026-10-02 10:02 Codex — Valida T45 y avanza T32 de la spec 0039
+
+## Goal
+Continuar la spec 0039 con T45 y T32.
+
+## Instructions
+Usuario aprobó las siete decisiones de T32 y repetir la suite completa con timeout de 60 s, conservando todos los tests y los pisos de cobertura; sin cambiar configuración versionada.
+
+## Discoveries
+- El límite de turnos de Claude Code 2.1.287 está en el Agent tool_result del padre; se correlaciona por agentId, no por campos inexistentes del transcript hijo.
+- El primer gate quedó bloqueado por un lock dist huérfano; se retiró únicamente su ruta después del diagnóstico y la aprobación.
+- La suite con timeout de 15 s tuvo tres timeouts; la repetición completa autorizada de 60 s pasó con el mismo piso de cobertura.
+
+## Accomplished
+- T45 implementada y trazada con la fixture live: 103 tests dirigidos, lint y typecheck verdes.
+- Gate de T45: nueve checks previos verdes y suite completa con cobertura, piso de 113 módulos, lint y typecheck exit 0 mediante equivalencia autorizada.
+- T32 implementada y documentada; 107 tests dirigidos verdes y segundo render idempotente. Revisión de especificación conforme; gate completo en curso.
+
+## Next Steps
+- Cerrar revisión y publicar T45; cerrar el gate y publicar T32.
+- Continuar T34 después de T32; T23/T24 y T37; T44 al final.
+- Desactivar codegraph en este repo mediante PR separado, según aprobación; preservar el cambio local de Pi en el checkout principal.
+- No borrar los worktrees T45/T32 mientras estén en uso.
+
+## Relevant Files
+- packages/cli/src/lib/audit/parse.ts — correlación de límite de turnos de T45.
+- packages/cli/src/lib/audit/__tests__/parse.test.ts — fixture real y controles negativos.
+- packages/cli/src/lib/config/recommended.ts — exclusión explícita de codegraph en full.
+- packages/cli/src/commands/doctor.ts — aviso informativo sin migración.
+- specs/0039-claude-first/ — decisiones y trazabilidad de T32/T45.
+
 ## 2026-10-02 10:30 Codex — Valida T32 y publica T45 de la spec 0039
 
 ## Goal
