@@ -44,6 +44,19 @@ corriendo N veces por sesión (ej. un `scout` por sub-mapa en un fan-out). El
 es el agente principal — no se spawnea como subagente, así que no hay otro punto
 donde fijar su tier.
 
+## Codex
+
+Los tiers de Claude (`opus`/`sonnet`/`haiku`) se traducen con `models.codexMap`. Por defecto
+usan familias: `opus` y `sonnet` → `sol`, `haiku` → `luna` (existe también `astra`).
+
+- Cada familia se resuelve en cada render a la versión más alta del catálogo local de Codex,
+  `<CODEX_HOME>/models_cache.json` (por ejemplo `gpt-6.1-sol`).
+- Un ID completo (`gpt-6-sol`) queda fijo (pin).
+- Sin catálogo se conserva el modelo ya renderizado de la misma familia, que nunca se degrada;
+  si no hay, se usa el fallback (`gpt-6-sol`, `gpt-6-luna`, `gpt-6-astra`) con warning.
+- `navori doctor` avisa cuando hay una versión más nueva en la familia.
+- Pi resuelve igual, con el prefijo `openai-codex/`.
+
 ## No definas todo en el tier top
 
 El costo se multiplica por invocación, no por sesión: poner cada agente en

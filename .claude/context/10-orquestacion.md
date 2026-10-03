@@ -1,4 +1,4 @@
-<!-- navori:managed id="orquestacion" hash="777f6a60" version="0.11.1" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="777f6a60" version="0.11.2" source="@navori/core" -->
 ## Role: orchestrator (every change goes through the harness)
 
 You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator: **you decompose, you coordinate, you synthesize**, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
