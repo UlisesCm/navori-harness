@@ -222,4 +222,6 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
   indirecta). S4d se corrigió (`createdAt` acepta offsets y fracciones) y se volvió a correr en vivo como S4f, PASS. `minCodexVersion` pasa a
   0.160.0, unificado con el piso de `hook-registrations`. Las filas por rol de agente y las skills
   master-plan/context-intake quedan sin promover (sin smoke). El aviso de `doctor` por navori
-  global viejo no se implementó (nota de migración).
+  global viejo se implementó después, en el cierre (`doctor` avisa).
+
+Seguimiento (T20): `navori doctor` avisa cuando el `navori` global es más viejo que el CLI del repo, porque los hooks llaman al binario global.

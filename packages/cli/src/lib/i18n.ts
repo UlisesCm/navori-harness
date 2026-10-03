@@ -929,6 +929,8 @@ interface DoctorCmdStrings {
   codexWorktreeHookUnapproved: (hook: string, path: string) => string;
   /** Spec 0041 T17/R27/D14 — installed Codex is newer than the last verified version. */
   codexVersionUnverified: (found: string, verified: string) => string;
+  /** Spec 0041 T20 follow-up — the global `navori` the hooks call is older than this CLI. */
+  globalCliStale: (global: string, current: string) => string;
   /** Spec 0041 T17 — the worktree trust scan failed (git or IO); degraded, never fatal. */
   codexWorktreeScanFailed: (reason: string) => string;
   /** Spec 0041 R32 — a rendered agent model is older than what its family resolves to now. */
@@ -2232,6 +2234,8 @@ const CMD_ES: CmdStrings = {
       `hook '${hook}' sin aprobar en el worktree ${path} — corre 'cd ${path} && navori codex trust'`,
     codexVersionUnverified: (found, verified) =>
       `codex ${found} > ${verified} (última versión verificada) — re-verifica los guards antes de confiar en ellos`,
+    globalCliStale: (global, current) =>
+      `el 'navori' global del PATH es ${global}, más viejo que este CLI (${current}) y los hooks renderizados lo ejecutan: correrían lógica vieja sin avisar — actualiza con 'npm i -g navori@${current}'`,
     codexWorktreeScanFailed: (reason) =>
       `no se pudo revisar la confianza de los worktrees de Codex (${reason})`,
     codexModelStale: (agent, rendered, current) =>
@@ -3621,6 +3625,8 @@ const CMD_EN: CmdStrings = {
       `hook '${hook}' unapproved in worktree ${path} — run 'cd ${path} && navori codex trust'`,
     codexVersionUnverified: (found, verified) =>
       `codex ${found} > ${verified} (last verified version) — re-verify the guards before relying on them`,
+    globalCliStale: (global, current) =>
+      `the global 'navori' on PATH is ${global}, older than this CLI (${current}) and the rendered hooks run it: they would silently run old logic — update with 'npm i -g navori@${current}'`,
     codexWorktreeScanFailed: (reason) => `could not check Codex trust across worktrees (${reason})`,
     codexModelStale: (agent, rendered, current) =>
       `agent '${agent}' renders model ${rendered}, but its family now resolves to ${current} — run 'navori render --apply'`,

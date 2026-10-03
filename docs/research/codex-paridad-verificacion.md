@@ -228,8 +228,8 @@ Todas las corridas: Codex CLI **0.160.0**, fecha **2026-10-03**. Los prompts fue
 
 - **Migración (plan-gate):** el hook llama al binario `navori` global (0.11.1 se publicó durante
   los smokes). La ruta de archivo de despacho de V2 requiere un release de navori que la
-  contenga; los smokes V2 usaron un shim en el PATH hacia el CLI de la rama. `doctor` aún no
-  avisa de esto.
+  contenga; los smokes V2 usaron un shim en el PATH hacia el CLI de la rama. Ahora
+  `doctor` detecta un `navori` global más viejo que el CLI del repo.
 - **Sin índice de tgrep** el guard deja pasar (exit 43).
 - **V6a no se corrió:** el toggle `unified_exec` por agente no hizo falta tras V6b.
 - **MCP globales:** las sondas cargan los MCP globales del usuario; engram guardó 2-3 resúmenes
