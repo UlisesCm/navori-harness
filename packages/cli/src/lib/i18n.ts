@@ -931,6 +931,8 @@ interface DoctorCmdStrings {
   codexVersionUnverified: (found: string, verified: string) => string;
   /** Spec 0041 T17 — the worktree trust scan failed (git or IO); degraded, never fatal. */
   codexWorktreeScanFailed: (reason: string) => string;
+  /** Spec 0041 R32 — a rendered agent model is older than what its family resolves to now. */
+  codexModelStale: (agent: string, rendered: string, current: string) => string;
   /** Note title for the `.gitignore` harness-block health section. */
   gitignoreTitle: string;
   /** The managed block is absent (file missing or block removed). */
@@ -1148,6 +1150,8 @@ interface EngineCmdStrings {
   pluginSkillNotInjected: (skillId: string, pluginId: string, target: string) => string;
   // Codex adapter
   pluginLoadFailedCodex: (id: string, reason: string) => string;
+  /** Spec 0041 R32 — a model family had no match in the local Codex catalog; render used the last-known id. */
+  codexModelFamilyFallback: (family: string, fallback: string) => string;
   /** Spec 0035 D10/R17 — printed by render/sync/init ONLY when
    *  `readCodexTrustState` finds the project untrusted or a hook not
    *  `Trusted`; replaces the old unconditional `codexTrustHint`. */
@@ -2230,6 +2234,8 @@ const CMD_ES: CmdStrings = {
       `codex ${found} > ${verified} (última versión verificada) — re-verifica los guards antes de confiar en ellos`,
     codexWorktreeScanFailed: (reason) =>
       `no se pudo revisar la confianza de los worktrees de Codex (${reason})`,
+    codexModelStale: (agent, rendered, current) =>
+      `el agente '${agent}' renderiza el modelo ${rendered}, pero su familia ya resuelve a ${current} — corre 'navori render --apply'`,
     codexGuardNotVersioned: (guards) =>
       `${guards} sin versionar en git — en una sesión Codex abierta dentro de un git worktree el guard no corre; versiona '.codex/hooks/' (o '.codex/')`,
     gitignoreTitle: ".gitignore",
@@ -2698,6 +2704,8 @@ const CMD_ES: CmdStrings = {
     pluginSkillNotInjected: (id, pid, target) =>
       `skill '${id}' (de @navori/plugin-${pid}) no inyectado: target ${target} ausente (¿agente disabled en config.harness?)`,
     pluginLoadFailedCodex: (id, reason) => `Plugin '${id}' no pudo cargarse para Codex: ${reason}.`,
+    codexModelFamilyFallback: (family, fallback) =>
+      `la familia de modelos Codex '${family}' no está en el catálogo local; se renderizó el último ID conocido '${fallback}'.`,
     localSkillForeignCodex: (destRelPath) =>
       `'${destRelPath}' no lo escribió navori; se conserva intacto. Bórralo para recibir el ` +
       `puntero generado hacia .claude/skills/<id>/SKILL.md.`,
@@ -3614,6 +3622,8 @@ const CMD_EN: CmdStrings = {
     codexVersionUnverified: (found, verified) =>
       `codex ${found} > ${verified} (last verified version) — re-verify the guards before relying on them`,
     codexWorktreeScanFailed: (reason) => `could not check Codex trust across worktrees (${reason})`,
+    codexModelStale: (agent, rendered, current) =>
+      `agent '${agent}' renders model ${rendered}, but its family now resolves to ${current} — run 'navori render --apply'`,
     codexGuardNotVersioned: (guards) =>
       `${guards} not versioned in git — in a Codex session opened inside a git worktree the guard won't run; version '.codex/hooks/' (or '.codex/')`,
     gitignoreTitle: ".gitignore",
@@ -4077,6 +4087,8 @@ const CMD_EN: CmdStrings = {
       `skill '${id}' (from @navori/plugin-${pid}) not injected: target ${target} missing (agent disabled in config.harness?)`,
     pluginLoadFailedCodex: (id, reason) =>
       `Plugin '${id}' couldn't be loaded for Codex: ${reason}.`,
+    codexModelFamilyFallback: (family, fallback) =>
+      `Codex model family '${family}' is not in the local catalog; rendered the last-known id '${fallback}'.`,
     localSkillForeignCodex: (destRelPath) =>
       `'${destRelPath}' wasn't written by navori; kept intact. Delete it to receive the ` +
       `generated pointer to .claude/skills/<id>/SKILL.md.`,
