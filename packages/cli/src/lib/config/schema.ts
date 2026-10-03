@@ -246,14 +246,30 @@ const ModelsSchema = z.object({
   publisher: z.enum(MODELS).optional(),
   scribe: z.enum(MODELS).optional(),
   architect: z.enum(MODELS).optional(),
-  // Codex maps each Claude tier to a concrete model id. Override the built-in
-  // gpt-5.6-* map here when OpenAI renames faster than a navori release ships
-  // (Spec 0007 M3). A missing tier falls back to the built-in default.
+  // Codex maps each Claude tier to a model FAMILY (`sol`, `luna`, `astra`: the
+  // highest-version model of that family in the local Codex catalog) or to a
+  // full model id (a pin, rendered verbatim). Spec 0007 M3, spec 0041 R32. A
+  // missing tier falls back to the built-in family default.
   codexMap: z
     .object({
-      opus: z.string().optional(),
-      sonnet: z.string().optional(),
-      haiku: z.string().optional(),
+      opus: z
+        .string()
+        .describe(
+          "Codex model family (sol, luna, astra: highest-version model in the local Codex catalog) or a full model id (pinned verbatim)",
+        )
+        .optional(),
+      sonnet: z
+        .string()
+        .describe(
+          "Codex model family (sol, luna, astra: highest-version model in the local Codex catalog) or a full model id (pinned verbatim)",
+        )
+        .optional(),
+      haiku: z
+        .string()
+        .describe(
+          "Codex model family (sol, luna, astra: highest-version model in the local Codex catalog) or a full model id (pinned verbatim)",
+        )
+        .optional(),
     })
     .optional(),
 });
