@@ -6,6 +6,7 @@ import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.t
 import { renderClaudeEngine } from "../claude/index.ts";
 import { renderCodexEngine } from "../codex/index.ts";
 import { CODEX_HOOK_REGISTRATIONS } from "../codex/hook-registrations.ts";
+import { CODEX_PARITY } from "../shared/codex-parity.ts";
 
 /**
  * Inventory-parity guard between the Claude and Codex engines (Spec 0007 M1).
@@ -189,7 +190,7 @@ describe("engine inventory parity (claude ↔ codex)", () => {
     // table's `unsupported` rows are absent (and `implementer-no-markdown` is
     // conditional on `scribeOwnsMarkdown`, off in this fixture).
     const notInstalled = new Set([
-      ...CODEX_HOOK_REGISTRATIONS.filter((row) => row.unsupported !== undefined).map(
+      ...CODEX_HOOK_REGISTRATIONS.filter((row) => row.registration === undefined).map(
         (row) => row.script,
       ),
       "implementer-no-markdown",
@@ -210,11 +211,14 @@ describe("engine inventory parity (claude ↔ codex)", () => {
       expect(tableScripts.has(script)).toBe(true);
     }
     for (const row of CODEX_HOOK_REGISTRATIONS) {
-      // The union type guarantees exactly one of the two is set; this just
-      // makes the "declared unsupported with a reason" half of R3 explicit.
-      const decided = Boolean(row.registration) !== Boolean(row.unsupported);
-      expect(decided).toBe(true);
-      if (row.unsupported) expect(row.unsupported.length).toBeGreaterThan(0);
+      // A hook Codex does not register is declared `limite-codex` in the parity
+      // table, with a non-empty reason (R3); a registered one never is.
+      const parity = CODEX_PARITY[`hook:${row.script}`];
+      expect(parity, `hook:${row.script}`).toBeDefined();
+      expect(parity?.state === "limite-codex").toBe(row.registration === undefined);
+      if (parity?.state === "limite-codex") {
+        expect(parity.containment?.length ?? 0).toBeGreaterThan(0);
+      }
     }
   });
 });
