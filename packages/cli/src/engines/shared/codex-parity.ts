@@ -429,12 +429,15 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
         "the main Codex thread embodies the role (AGENTS.md and .codex/orchestrator.md); no spawnable orchestrator agent is emitted",
       ),
     ],
+    // Spec 0041 T8 (D5): `role-guard` on `apply_patch` replaces Claude's `tools:`
+    // allowlist. Bash keeps Claude-equal containment (none by path). The live
+    // smoke that would make the rows `enforcing` is T20, so the flag stays off.
     ...["reviewer", "scout", "auditor", "publisher", "architect"].map(
       (id): [string, CodexParity] => [
         `agent:${id}`,
-        limite(
-          SOURCES.hooksSchema,
-          "role boundary is advisory today: sandbox_mode danger-full-access plus prose, no tools allowlist; the role-guard hook that would keep it to artifact paths is not registered yet",
+        equivalente(
+          "role-guard on PreToolUse apply_patch limits the role to the prefixes of RosterAgent.writes instead of a tools allowlist",
+          "Bash writes are not contained by path, same as Claude; a `default` or unknown child gets only the handoff and temp paths",
         ),
       ],
     ),
@@ -547,6 +550,13 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
       ),
     ],
     [
+      "hook:role-guard",
+      equivalente(
+        "Codex-only PreToolUse hook: apply_patch is contained per role by RosterAgent.writes, and spawn_agent from a subagent is denied (spec 0041 D5/D13)",
+        "Claude restricts roles with `tools:`, so the hook is not rendered there; the live smoke that promotes the row is T20",
+      ),
+    ],
+    [
       "hook:master-plan-context",
       equivalente(
         "SessionStart hook registered when harness.masterPlan is on; its stdout reaches the session as context (spec 0041 R21)",
@@ -590,9 +600,9 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
     ],
     [
       "flow:nested-agent-dispatch",
-      limite(
-        SOURCES.specPlan,
-        "F17: under multi-agent V2 a subagent receives spawn tools and max_depth is ignored; the orchestrator falls back to running scout before and scribe after, and depth 1 is not enforced until probe V5",
+      equivalente(
+        "the orchestrator runs scout before and scribe after; role-guard denies spawn_agent from any subagent (spec 0041 D13), which keeps depth 1 under V1 and V2 (F17)",
+        "the deny fires on PreToolUse of the spawn tool, so it holds only where that hook payload carries the caller's agent_type; the live probe that would make it enforcing is T20",
       ),
     ],
     // Permission rules.

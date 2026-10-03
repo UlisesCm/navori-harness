@@ -239,6 +239,22 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
       late: true,
     },
   },
+  {
+    // Spec 0041 D5/D13, R6/R17: Codex-only (`HOOK_ENGINES`). One group, two
+    // branches: `apply_patch` role containment and the subagent spawn deny. Late
+    // and unconditional, and the LAST late row: the master-plan groups before it
+    // are already published (#1187), so none of their indexes may shift. The `spawn_agent$` alternative is unanchored
+    // on purpose: V2 flattens the namespace into the tool name.
+    script: "role-guard",
+    registration: {
+      event: "PreToolUse",
+      matcher: "^apply_patch$|spawn_agent$",
+      timeout: 10,
+      statusMessage: "navori: role-guard",
+      minVersion: "0.134.0",
+      late: true,
+    },
+  },
 ];
 
 /** One Codex hook ready to serialize into `.codex/config.toml`. */
