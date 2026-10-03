@@ -19,8 +19,12 @@ import { compareSemver } from "../../lib/primitives/semver.ts";
  * probe task that verifies it; this file never promotes on assumption.
  */
 
-/** Id of a dated live verification (`V1`..`Vn`) in {@link CODEX_VERIFICATIONS}. */
-export type VerificationId = `V${number}`;
+/**
+ * Id of a dated live verification in {@link CODEX_VERIFICATIONS}: `V<n>` for a
+ * T7 probe, `S<n>` for a T20 smoke. Each id is also a `## V<n>` / `## S<n>`
+ * section of the research doc `codex-paridad-verificacion`.
+ */
+export type VerificationId = `V${number}` | `S${number}`;
 
 /** Codex release every row of this lote was consulted against (`codex-cli`). */
 const CODEX_VERSION = "0.160.0";
@@ -48,8 +52,8 @@ const SourceSchema = z.object({
 });
 
 const VerificationIdSchema = z.custom<VerificationId>(
-  (value) => typeof value === "string" && /^V\d+$/.test(value),
-  "verification id must look like V<n>",
+  (value) => typeof value === "string" && /^[VS]\d+$/.test(value),
+  "verification id must look like V<n> or S<n>",
 );
 
 /**
@@ -101,12 +105,6 @@ export interface CodexVerification {
   /** Required when a referencing row is `enforcing` (R25). */
   readonly smoke?: "pass" | "fail";
 }
-
-/**
- * Dated live verifications. Empty on purpose until the probe tasks (T7, T20)
- * run: no row may claim a probe-backed guarantee before one exists.
- */
-export const CODEX_VERIFICATIONS: Readonly<Record<string, CodexVerification>> = {};
 
 /**
  * Hook scripts Codex never registers although their guarantee holds there
@@ -200,9 +198,9 @@ export function codexParityIssues(
  * Highest Codex version at which an `igual`/`equivalente` row was verified
  * (R4), or `0.0.0` when none was. A `limite-codex` row, a row without a
  * verification and a failed probe do not count: only a passing probe proves the
- * guarantee exists at that version. Distinct from `hook-registrations.ts`'s
- * `minCodexVersion`, which is the floor the registered hook table needs and is
- * what `doctor` reads until the version-warning task (T17) switches over.
+ * guarantee exists at that version. `hook-registrations.ts`'s `minCodexVersion`
+ * (the one `doctor` and `render` read) is the max of this and the floor the
+ * registered hook table needs.
  */
 export function minCodexVersion(
   parity: Readonly<Record<string, CodexParity>> = CODEX_PARITY,
@@ -241,6 +239,20 @@ const equivalente = (mechanism: string, difference?: string): CodexParity => ({
   enforcing: false,
 });
 
+/**
+ * Attaches a live verification to an `igual`/`equivalente` row. `enforcing` is
+ * set only when asked for, and {@link codexParityIssues} then requires the
+ * verification's smoke to be `pass` (R25).
+ */
+const verified = (
+  row: CodexParity,
+  verification: VerificationId,
+  enforcing: boolean,
+): CodexParity => {
+  if (row.state === "limite-codex") throw new Error("a limite-codex row has no verification");
+  return { ...row, verification, enforcing };
+};
+
 const limite = (url: string, containment?: string): CodexParity => ({
   state: "limite-codex",
   source: { url, codexVersion: CODEX_VERSION, verifiedAt: CONSULTED_AT },
@@ -260,6 +272,123 @@ const SOURCES = {
   specPlan: `${SRC}/core/src/tools/spec_plan.rs`,
   spawnV2: `${SRC}/core/src/tools/handlers/multi_agents_v2/spawn.rs`,
 } as const;
+
+const PROBED_AT = "2026-10-03";
+
+type Evidence = Pick<CodexVerification, "capability" | "url"> &
+  Partial<Pick<CodexVerification, "probe" | "multiAgent" | "smoke">>;
+
+/** A verification run on {@link CODEX_VERSION} on {@link PROBED_AT}; the probe passed unless said otherwise. */
+const ran = ({ probe = "pass", ...rest }: Evidence): CodexVerification => ({
+  codexVersion: CODEX_VERSION,
+  verifiedAt: PROBED_AT,
+  probe,
+  ...rest,
+});
+
+/**
+ * Dated live verifications, run on `codex-cli` 0.160.0: spec 0041 T7 probes
+ * (`V<n>`) and T20 smokes (`S<n>`). The evidence of each id is the matching
+ * `## V<n>` / `## S<n>` section of the research doc `codex-paridad-verificacion`;
+ * `url` is the official source the verified row already cites. A row may be
+ * `enforcing` only through a verification whose `smoke` is `pass`; the `V<n>`
+ * probes carry no smoke (they shaped the design, no row's enforcement rests on
+ * one alone). Rows without an entry here were not run and stay unpromoted.
+ */
+export const CODEX_VERIFICATIONS: Readonly<Record<string, CodexVerification>> = {
+  V1: ran({
+    capability:
+      "prefix_rule prompt: asks in the main thread, runs with no prompt inside a spawned subagent",
+    url: SOURCES.execPolicyReadme,
+    probe: "fail",
+  }),
+  V2: ran({
+    capability:
+      "PreToolUse/PostToolUse(Bash) payload carries top-level agent_type and agent_id inside a subagent",
+    url: SOURCES.hooksDoc,
+  }),
+  V3: ran({
+    capability:
+      "spawn_agent hook payload: v1 exposes agent_type and a readable message; v2 flattens the tool name to spawn_agent and encrypts the message",
+    url: SOURCES.spawnV2,
+    multiAgent: ["v1", "v2"],
+  }),
+  V4: ran({
+    capability:
+      "the rollout holds the current Bash call's item_completed record (with exit_code) when PostToolUse fires",
+    url: SOURCES.hooksDoc,
+  }),
+  V5: ran({
+    capability:
+      "a subagent can spawn a grandchild under v2 (depth 2); under v1 it has no spawn tool",
+    url: SOURCES.spawnV2,
+    multiAgent: ["v1", "v2"],
+  }),
+  V6: ran({
+    capability:
+      "no run_in_background field and no Monitor tool exist in Codex; a shell `&` leaves no runtime marker",
+    url: SOURCES.execCommand,
+  }),
+  V7: ran({
+    capability: "the model id is a top-level field of the PreToolUse/PostToolUse payloads",
+    url: SOURCES.hooksDoc,
+  }),
+  V10: ran({
+    capability: "spawn_agent with an unknown agent_type (orchestrator) fails as unknown",
+    url: SOURCES.spawnV2,
+  }),
+  S1: ran({
+    capability: "role-guard denies a scout apply_patch outside its handoff and specs prefixes",
+    url: SOURCES.hooksDoc,
+    smoke: "pass",
+  }),
+  S2: ran({
+    capability:
+      "role-guard denies spawn_agent from a subagent under v2; under v1 the child has no spawn tool (V5)",
+    url: SOURCES.spawnV2,
+    multiAgent: ["v1", "v2"],
+    smoke: "pass",
+  }),
+  S3: ran({
+    capability:
+      "plan-gate under v1, the v1 half of the S4 pair: denies a spawn without the opening line, allows `nivel-0:`",
+    url: SOURCES.spawnV2,
+    smoke: "pass",
+  }),
+  S4: ran({
+    capability:
+      "plan-gate under v1 (S3) and v2 (deny, allow through the dispatch file). The model-written dispatch (S4d) was rejected for its +00:00 offset: fixed in the same task and re-smoked live (S4f, PASS): the model wrote its own dispatch, the spawn was allowed and the dispatch consumed",
+    url: SOURCES.spawnV2,
+    multiAgent: ["v1", "v2"],
+    smoke: "pass",
+  }),
+  S5: ran({
+    capability:
+      "the tgrep lane of guard-destructive blocks a recursive `grep -rn` through the shell when a tgrep index exists",
+    url: SOURCES.hooksDoc,
+    smoke: "pass",
+  }),
+  S7: ran({
+    capability: "pr-publisher-confirm denies `gh pr create` in the main thread",
+    url: SOURCES.hooksDoc,
+    smoke: "pass",
+  }),
+  S8: ran({
+    capability: "bash-outcome-watch advises after three consecutive failing Bash calls",
+    url: SOURCES.hooksDoc,
+    smoke: "pass",
+  }),
+  S9: ran({
+    capability: "general-purpose-confirm denies a general-purpose spawn_agent",
+    url: SOURCES.hooksDoc,
+    smoke: "pass",
+  }),
+  S10: ran({
+    capability:
+      "master-plan-context SessionStart output reaches the session; indirect: the model offered to continue specs/_master/INDEX.md, the hook itself was not smoked",
+    url: SOURCES.hooksDoc,
+  }),
+};
 
 const igualUnits = (kind: string, ids: readonly string[]): Array<[string, CodexParity]> =>
   ids.map((id) => [codexParityKey(kind, id), igual()]);
@@ -442,8 +571,9 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
       ),
     ],
     // Spec 0041 T8 (D5): `role-guard` on `apply_patch` replaces Claude's `tools:`
-    // allowlist. Bash keeps Claude-equal containment (none by path). The live
-    // smoke that would make the rows `enforcing` is T20, so the flag stays off.
+    // allowlist. Bash keeps Claude-equal containment (none by path). The T20
+    // smoke (S1) exercised the hook on `scout` only, not these per-role rows, so
+    // the flag stays off; the hook itself is enforcing (hook:role-guard).
     ...["reviewer", "scout", "auditor", "publisher", "architect"].map(
       (id): [string, CodexParity] => [
         `agent:${id}`,
@@ -473,8 +603,8 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
       "plan-advanced",
     ]),
     // Spec 0041 R20 (T15): both skills are emitted to `.agents/skills/` now. The
-    // user confirmation is a chat question that ends the turn (D11); the live
-    // smoke that would make it `enforcing` is T20, so the flag stays off.
+    // user confirmation is a chat question that ends the turn (D11); no T20
+    // smoke exercised the skill, so the flag stays off.
     ...["master-plan", "context-intake"].map((id): [string, CodexParity] => [
       `skill:${id}`,
       equivalente(
@@ -513,23 +643,35 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
     ],
     [
       "hook:plan-gate",
-      equivalente(
-        "PreToolUse(spawn_agent$) gates only implementer, role from tool_input.agent_type; with an encrypted message (probe V2) the opening line is read from the orchestrator's dispatch_<feature>.json (spec 0041 R9)",
-        "the dispatch file has a 10 min TTL and exactly one fresh file may exist; the live smoke that promotes the row is T20",
+      verified(
+        equivalente(
+          "PreToolUse(spawn_agent$) gates only implementer, role from tool_input.agent_type; with an encrypted message (probe V3) the opening line is read from the orchestrator's dispatch_<feature>.json (spec 0041 R9)",
+          "the dispatch file has a 10 min TTL and exactly one fresh file may exist. The hook shells out to the globally installed `navori` CLI, so the v2 dispatch path needs a navori release that contains it (S4 ran with a PATH shim to the branch build); smoked live under v1 and v2 (S3, S4)",
+        ),
+        "S4",
+        true,
       ),
     ],
     [
       "hook:bash-outcome-watch",
-      equivalente(
-        "bash-outcome lane inside routing-watch on PostToolUse(Bash): the exit code is read from the rollout item_completed record whose item.id is the tool_use_id (probe V4, spec 0041 R11), reusing the bash-outcome partial",
-        "reads only exit_code from the bounded rollout tail and stays silent when the record is missing; the live smoke that promotes the row is T20",
+      verified(
+        equivalente(
+          "bash-outcome lane inside routing-watch on PostToolUse(Bash): the exit code is read from the rollout item_completed record whose item.id is the tool_use_id (probe V4, spec 0041 R11), reusing the bash-outcome partial",
+          "reads only exit_code from the bounded rollout tail and stays silent when the record is missing; smoked live (S8)",
+        ),
+        "S8",
+        true,
       ),
     ],
     [
       "hook:pr-publisher-confirm",
-      equivalente(
-        "deny-as-confirmation: the Codex copy of the hook denies `gh pr create` instead of asking, also inside the publisher subagent where a prompt rule is silent (probe V1, spec 0041 R10)",
-        "Codex hooks cannot emit `ask`, so the user runs the command themselves after reviewing it; the live smoke that promotes the row is T20",
+      verified(
+        equivalente(
+          "deny-as-confirmation: the Codex copy of the hook denies `gh pr create` instead of asking, also inside the publisher subagent where a prompt rule is silent (probe V1, spec 0041 R10)",
+          "Codex hooks cannot emit `ask`, so the user runs the command themselves after reviewing it; smoked live in the main thread (S7), the subagent path rests on hooks firing there (V2)",
+        ),
+        "S7",
+        true,
       ),
     ],
     [
@@ -549,23 +691,35 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
     ],
     [
       "hook:general-purpose-confirm",
-      equivalente(
-        "deny-as-confirmation on PreToolUse(spawn_agent$) when agent_type is general-purpose (spec 0041 R10)",
-        "Codex hooks cannot emit `ask`; the denial points at the scout and the live smoke that promotes the row is T20",
+      verified(
+        equivalente(
+          "deny-as-confirmation on PreToolUse(spawn_agent$) when agent_type is general-purpose (spec 0041 R10)",
+          "Codex hooks cannot emit `ask`; the denial points at the scout; smoked live (S9)",
+        ),
+        "S9",
+        true,
       ),
     ],
     [
       "hook:role-guard",
-      equivalente(
-        "Codex-only PreToolUse hook: apply_patch is contained per role by RosterAgent.writes, and spawn_agent from a subagent is denied (spec 0041 D5/D13)",
-        "Claude restricts roles with `tools:`, so the hook is not rendered there; the live smoke that promotes the row is T20",
+      verified(
+        equivalente(
+          "Codex-only PreToolUse hook: apply_patch is contained per role by RosterAgent.writes, and spawn_agent from a subagent is denied (spec 0041 D5/D13)",
+          "Claude restricts roles with `tools:`, so the hook is not rendered there; smoked live (S1 apply_patch, S2 spawn)",
+        ),
+        "S1",
+        true,
       ),
     ],
     [
       "hook:master-plan-context",
-      equivalente(
-        "SessionStart hook registered when harness.masterPlan is on; its stdout reaches the session as context (spec 0041 R21)",
-        "advisory context, not a permission boundary",
+      verified(
+        equivalente(
+          "SessionStart hook registered when harness.masterPlan is on; its stdout reaches the session as context (spec 0041 R21)",
+          "advisory context, not a permission boundary. Not enforcing: the evidence is indirect (S10), the model offered to continue the master plan but the hook was not smoked on its own",
+        ),
+        "S10",
+        false,
       ),
     ],
     // Managed blocks: prose contracts, no host dependency.
@@ -589,9 +743,13 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
     ...igualUnits("plugin-script", ["jscpd/check-jscpd.sh", "semgrep/check-semgrep.sh"]),
     [
       "plugin-script:tgrep/guard-search-routing.sh",
-      limite(
-        SOURCES.hooksDoc,
-        "the tgrep hookExtension is injected into the Codex guard-destructive copy and sources this script from .codex/scripts (spec 0041 R29); the blocking path is unit-tested, the live Codex smoke that promotes it is T20",
+      verified(
+        equivalente(
+          "the tgrep hookExtension is injected into the Codex guard-destructive copy and sources this script from .codex/scripts (spec 0041 R29)",
+          "smoked live (S5): a recursive `grep -rn` through the shell is blocked when a tgrep index exists; without an index the lane fails open by design (exit 43)",
+        ),
+        "S5",
+        true,
       ),
     ],
     // Flows.
@@ -605,9 +763,13 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
     ],
     [
       "flow:nested-agent-dispatch",
-      equivalente(
-        "the orchestrator runs scout before and scribe after; role-guard denies spawn_agent from any subagent (spec 0041 D13), which keeps depth 1 under V1 and V2 (F17)",
-        "the deny fires on PreToolUse of the spawn tool, so it holds only where that hook payload carries the caller's agent_type; the live probe that would make it enforcing is T20",
+      verified(
+        equivalente(
+          "the orchestrator runs scout before and scribe after; role-guard denies spawn_agent from any subagent (spec 0041 D13), which keeps depth 1 under V1 and V2 (F17)",
+          "the deny fires on PreToolUse of the spawn tool, so it holds only where that hook payload carries the caller's agent_type (V2); smoked live under v2 (S2), under v1 the child has no spawn tool (V5)",
+        ),
+        "S2",
+        true,
       ),
     ],
     // Permission rules.

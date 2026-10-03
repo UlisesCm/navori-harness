@@ -1,5 +1,6 @@
 import type { NavoriConfig } from "../../lib/config/config.ts";
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
+import { minCodexVersion as minVerifiedCodexVersion } from "../shared/codex-parity.ts";
 import { OVERLAP_ROWS, isNativeOn, type OverlapRow } from "../shared/native-overlap.ts";
 import { pluginScriptCollisions } from "../shared/plugin-scripts.ts";
 import { compareSemver } from "../../lib/primitives/semver.ts";
@@ -394,14 +395,17 @@ export function resolveCodexHooks(
 }
 
 /**
- * Minimum Codex version required by the registration table (R18) — the max
- * `minVersion` across every row Codex actually registers (unsupported rows
- * don't count; they're never written to `.codex/config.toml`). Static: a
- * feature toggle being off doesn't lower the floor a rendered `config.toml`
- * with that toggle later ON would need, so this deliberately ignores `when`.
+ * Minimum Codex version for a rendered harness: the max of the registration
+ * table floor (R18) and the highest version the parity table was live-verified
+ * at (spec 0041 R4, T20), so `doctor` and `render` read ONE floor. The table
+ * floor is the max `minVersion` across every row Codex actually registers
+ * (unsupported rows don't count; they're never written to `.codex/config.toml`).
+ * Static: a feature toggle being off doesn't lower the floor a rendered
+ * `config.toml` with that toggle later ON would need, so this deliberately
+ * ignores `when`.
  */
 export function minCodexVersion(): string {
-  let max = "0.0.0";
+  let max = minVerifiedCodexVersion();
   for (const row of CODEX_HOOK_REGISTRATIONS) {
     if (!row.registration) continue;
     if ((compareSemver(row.registration.minVersion, max) ?? 0) > 0) {

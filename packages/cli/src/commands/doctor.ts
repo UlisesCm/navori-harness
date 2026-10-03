@@ -2733,11 +2733,9 @@ export function isCodexVersionTooOld(version: string): boolean {
 /**
  * Newest Codex version the parity table was verified against: the max of every
  * passing live probe and every `limite-codex` source (consulted at a concrete
- * release). `null` when the table carries none. Distinct from
- * {@link minCodexVersion} (hook-registrations): that is the floor the rendered
- * hooks need and is what `doctor` still reads as the minimum — the parity
- * module's same-named function is "highest probe-verified" (`0.0.0` until T20),
- * a different quantity, so the two are deliberately not unified.
+ * release). `null` when the table carries none. Different from
+ * {@link minCodexVersion}, the floor: that is the highest version a passing
+ * probe needed, this is the newest one anything was consulted at.
  */
 export function lastVerifiedCodexVersion(): string | null {
   let max: string | null = null;

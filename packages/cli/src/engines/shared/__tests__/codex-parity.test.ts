@@ -1,8 +1,12 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   CODEX_PARITY,
   CODEX_VERIFICATIONS,
   CodexParitySchema,
+  codexParityIssues,
   codexSourceIssue,
   minCodexVersion,
   type CodexParity,
@@ -80,12 +84,61 @@ describe("the real CODEX_PARITY table", () => {
     }
   });
 
-  // Covers: R1
-  it("claims no probe-backed guarantee before a verification exists", () => {
-    expect(Object.keys(CODEX_VERIFICATIONS)).toEqual([]);
+  // Covers: R22, R25
+  it("promotes exactly the rows a passing smoke backs", () => {
+    const enforcing = Object.entries(CODEX_PARITY)
+      .filter(([, row]) => row.state !== "limite-codex" && row.enforcing)
+      .map(([key]) => key)
+      .sort();
+    expect(enforcing).toEqual([
+      "flow:nested-agent-dispatch",
+      "hook:bash-outcome-watch",
+      "hook:general-purpose-confirm",
+      "hook:plan-gate",
+      "hook:pr-publisher-confirm",
+      "hook:role-guard",
+      "plugin-script:tgrep/guard-search-routing.sh",
+    ]);
     for (const [key, row] of Object.entries(CODEX_PARITY)) {
-      if (row.state !== "limite-codex") expect(row.enforcing, key).toBe(false);
+      if (row.state === "limite-codex") continue;
+      expect(codexParityIssues(row), key).toEqual([]);
+      if (row.enforcing) {
+        expect(CODEX_VERIFICATIONS[row.verification ?? ""]?.smoke, key).toBe("pass");
+      }
     }
+  });
+
+  // Covers: R22
+  it("keeps master-plan-context unpromoted: its evidence is indirect", () => {
+    const row = CODEX_PARITY["hook:master-plan-context"];
+    expect(row?.state === "equivalente" && row.enforcing).toBe(false);
+    expect(row?.state === "equivalente" && row.verification).toBe("S10");
+    expect(CODEX_VERIFICATIONS.S10?.smoke).toBeUndefined();
+  });
+
+  // Covers: R22, R9
+  it("every verification is dated, versioned, officially sourced; spawn ones cover v1 and v2", () => {
+    for (const [id, v] of Object.entries(CODEX_VERIFICATIONS)) {
+      expect(id, id).toMatch(/^[VS]\d+$/);
+      expect(v.codexVersion, id).toBe("0.160.0");
+      expect(v.verifiedAt, id).toBe("2026-10-03");
+      expect(codexSourceIssue(v.url, v.codexVersion), id).toBeNull();
+      if (v.multiAgent !== undefined) expect(v.multiAgent, id).toEqual(["v1", "v2"]);
+    }
+    expect(CODEX_VERIFICATIONS.S4?.multiAgent).toEqual(["v1", "v2"]);
+  });
+
+  // Covers: R22
+  it("the research doc has one section per verification id", () => {
+    const doc = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../../../../docs/research/codex-paridad-verificacion.md",
+    );
+    // The doc is written by the scribe from the implementer's markdownRequests;
+    // until it exists there is nothing to compare against.
+    if (!existsSync(doc)) return;
+    const anchors = [...readFileSync(doc, "utf-8").matchAll(/^## ([VS]\d+)\b/gm)].map((m) => m[1]);
+    expect(anchors.sort()).toEqual(Object.keys(CODEX_VERIFICATIONS).sort());
   });
 });
 

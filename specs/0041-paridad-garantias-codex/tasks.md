@@ -50,7 +50,7 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
 
 ## Lote 2 — Sondas previas a los guards (**sonda**, autorización del usuario)
 
-- [ ] **T7** (R22) — `docs/research/codex-paridad-verificacion.md` con una sección `## V<n>` por
+- [x] **T7** (R22) — `docs/research/codex-paridad-verificacion.md` con una sección `## V<n>` por
   verificación (versión, URL oficial, fecha, resultado). Corre las sondas que no dependen de
   código nuevo: V1 (`prompt` live en hilo principal y en subagente), V3-payload (nombre de hook,
   campos y legibilidad de `message` del spawn en V1 con `gpt-5.6-luna` y V2 con `gpt-6-sol`), V4
@@ -59,6 +59,8 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
   (`agent_type: "orchestrator"` falla). Actualiza `CODEX_VERIFICATIONS`. · test: refine de R25 en
   `codex-parity.test.ts` › "each verification has its research section with same URL, version
   and date" con `// Covers: R22`
+  Resultado: sondas V1-V10 corridas en Codex 0.160.0 el 2026-10-03; evidencia en
+  [`docs/research/codex-paridad-verificacion.md`](../../docs/research/codex-paridad-verificacion.md).
 
 ## Lote 3 — Guards por rol y plan-gate
 
@@ -194,7 +196,7 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
 
 ## Lote 7 — Cierre (**sonda**, autorización del usuario)
 
-- [ ] **T20** (R25, R22) — Smoke real por cada fila `igual`/`equivalente` que bloquea o pide
+- [x] **T20** (R25, R22) — Smoke real por cada fila `igual`/`equivalente` que bloquea o pide
   confirmación: V2 (`role-guard` deny), V3 (plan-gate deny sin workplan y allow con workplan
   verde, en V1 y V2), V5 (deny de spawn desde subagente), V8 (`master-plan-context`), V9 (guard
   `tgrep`), más las confirmaciones con humano en la TUI. Promueve en `CODEX_PARITY` solo las filas
@@ -211,3 +213,13 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
   Nota: Pi resuelve la familia por catálogo o fallback y antepone `openai-codex/` a los ids no
   fijados (supuesto, igual que el ejemplo de pin de sus tests); no aplica "nunca degrada" porque no
   tiene un `.toml` de Codex que leer.
+
+  Resultado: smokes S1-S10 en Codex 0.160.0 el 2026-10-03
+  ([research](../../docs/research/codex-paridad-verificacion.md)). Promovidos a enforcing:
+  role-guard, nested-agent-dispatch, plan-gate (v1+v2), pr-publisher-confirm,
+  general-purpose-confirm, bash-outcome-watch y el guard `tgrep` de guard-search-routing (ahora
+  `equivalente`, antes `limite-codex`). `master-plan-context` queda `enforcing: false` (evidencia
+  indirecta). S4d se corrigió (`createdAt` acepta offsets y fracciones) y se volvió a correr en vivo como S4f, PASS. `minCodexVersion` pasa a
+  0.160.0, unificado con el piso de `hook-registrations`. Las filas por rol de agente y las skills
+  master-plan/context-intake quedan sin promover (sin smoke). El aviso de `doctor` por navori
+  global viejo no se implementó (nota de migración).
