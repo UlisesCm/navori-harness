@@ -923,6 +923,14 @@ interface DoctorCmdStrings {
   /** Spec 0035 D10/R16 — project trusted but N hooks still unapproved (WARNING). */
   codexHooksUnapproved: (n: number) => string;
   codexGuardNotVersioned: (guards: string) => string;
+  /** Spec 0041 R23 — Codex trust state unreadable (invalid CODEX_HOME); degraded warning. */
+  codexTrustUnreadable: string;
+  /** Spec 0041 T17/R4 — a linked worktree whose `.codex/` hook is not approved. */
+  codexWorktreeHookUnapproved: (hook: string, path: string) => string;
+  /** Spec 0041 T17/R27/D14 — installed Codex is newer than the last verified version. */
+  codexVersionUnverified: (found: string, verified: string) => string;
+  /** Spec 0041 T17 — the worktree trust scan failed (git or IO); degraded, never fatal. */
+  codexWorktreeScanFailed: (reason: string) => string;
   /** Note title for the `.gitignore` harness-block health section. */
   gitignoreTitle: string;
   /** The managed block is absent (file missing or block removed). */
@@ -2214,6 +2222,14 @@ const CMD_ES: CmdStrings = {
       "Este proyecto no es de confianza para Codex: no carga nada del repo, ni siquiera AGENTS.md — " +
       "corre 'navori codex trust'",
     codexHooksUnapproved: (n) => `${n} hook(s) de Codex sin aprobar — corre 'navori codex trust'`,
+    codexTrustUnreadable:
+      "No se pudo leer el estado de confianza de Codex: CODEX_HOME debe ser una ruta absoluta — corrígela o desactívala",
+    codexWorktreeHookUnapproved: (hook, path) =>
+      `hook '${hook}' sin aprobar en el worktree ${path} — corre 'cd ${path} && navori codex trust'`,
+    codexVersionUnverified: (found, verified) =>
+      `codex ${found} > ${verified} (última versión verificada) — re-verifica los guards antes de confiar en ellos`,
+    codexWorktreeScanFailed: (reason) =>
+      `no se pudo revisar la confianza de los worktrees de Codex (${reason})`,
     codexGuardNotVersioned: (guards) =>
       `${guards} sin versionar en git — en una sesión Codex abierta dentro de un git worktree el guard no corre; versiona '.codex/hooks/' (o '.codex/')`,
     gitignoreTitle: ".gitignore",
@@ -3591,6 +3607,13 @@ const CMD_EN: CmdStrings = {
       "This project isn't trusted for Codex: it loads nothing from the repo, not even AGENTS.md — " +
       "run 'navori codex trust'",
     codexHooksUnapproved: (n) => `${n} Codex hook(s) unapproved — run 'navori codex trust'`,
+    codexTrustUnreadable:
+      "Could not read Codex trust state: CODEX_HOME must be an absolute path — fix or unset it",
+    codexWorktreeHookUnapproved: (hook, path) =>
+      `hook '${hook}' unapproved in worktree ${path} — run 'cd ${path} && navori codex trust'`,
+    codexVersionUnverified: (found, verified) =>
+      `codex ${found} > ${verified} (last verified version) — re-verify the guards before relying on them`,
+    codexWorktreeScanFailed: (reason) => `could not check Codex trust across worktrees (${reason})`,
     codexGuardNotVersioned: (guards) =>
       `${guards} not versioned in git — in a Codex session opened inside a git worktree the guard won't run; version '.codex/hooks/' (or '.codex/')`,
     gitignoreTitle: ".gitignore",
