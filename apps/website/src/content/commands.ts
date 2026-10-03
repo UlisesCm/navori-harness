@@ -190,6 +190,7 @@ const es: Record<string, CommandDoc> = {
       "Valida invariants: substrings load-bearing que deben sobrevivir en el output (exit 2 si faltan).",
       "El estado de confianza de Codex se lee de $CODEX_HOME/config.toml si CODEX_HOME está definido, y de ~/.codex/config.toml si no; un valor relativo se rechaza.",
       "Con el engine codex habilitado, también revisa cada git worktree del repo que tenga .codex/config.toml: advierte con el hook, la ruta y 'cd <ruta> && navori codex trust' si falta aprobarlo. Advierte además si el codex instalado es más nuevo que la última versión verificada. Si git o el disco fallan, degrada a un aviso.",
+      "Si algún hook renderizado llama a 'navori', advierte cuando el 'navori' global del PATH es más viejo que el CLI que corre doctor (ejecutaría lógica vieja); nunca cambia ok.",
     ],
   },
   status: {

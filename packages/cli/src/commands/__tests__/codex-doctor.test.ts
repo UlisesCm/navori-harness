@@ -43,6 +43,7 @@ const {
   computeHealthVerdict,
   scanOperationalTools,
   probeFailureReason,
+  scanStaleGlobalCli,
 } = await import("../doctor.ts");
 
 function tempRepo(): string {
@@ -829,5 +830,66 @@ describe("doctor evidence (Spec 0037 V01-V03)", () => {
     expect(find()?.registered.status).toBe("verified");
     rmSync(scriptPath);
     expect(find()?.materialized.status).toBe("missing");
+  });
+});
+
+describe("scanStaleGlobalCli (spec 0041 T20 follow-up)", () => {
+  let repo: string;
+  beforeEach(() => {
+    repo = tempRepo();
+    mkdirSync(join(repo, ".claude/hooks"), { recursive: true });
+    writeFileSync(
+      join(repo, ".claude/hooks/plan-gate.sh"),
+      "#!/bin/sh\n# navori is only mentioned here\nnavori plan-gate --check\n",
+    );
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+  });
+  const claude = (): NavoriConfig => config({ engines: ["claude"] });
+
+  // Covers: R9
+  it("warns when the global navori is older than the running CLI", () => {
+    expect(scanStaleGlobalCli(repo, claude(), () => "navori 0.11.1\n", "0.12.0")).toEqual({
+      global: "0.11.1",
+      current: "0.12.0",
+    });
+    const msg = tc("en").doctor.globalCliStale("0.11.1", "0.12.0");
+    expect(msg).toContain("0.11.1");
+    expect(msg).toContain("0.12.0");
+    expect(msg).toContain("npm i -g navori@0.12.0");
+    expect(tc("es").doctor.globalCliStale("0.11.1", "0.12.0")).toContain("0.12.0");
+  });
+
+  // Covers: R9
+  it("stays silent when the global navori is equal or newer", () => {
+    expect(scanStaleGlobalCli(repo, claude(), () => "0.12.0", "0.12.0")).toBeNull();
+    expect(scanStaleGlobalCli(repo, claude(), () => "0.13.0", "0.12.0")).toBeNull();
+  });
+
+  // Covers: R9
+  it("stays silent when the binary is absent or times out", () => {
+    const absent = (): string => {
+      throw Object.assign(new Error("spawn navori ENOENT"), { code: "ENOENT" });
+    };
+    const timeout = (): string => {
+      throw Object.assign(new Error("spawnSync navori ETIMEDOUT"), { code: "ETIMEDOUT" });
+    };
+    expect(scanStaleGlobalCli(repo, claude(), absent, "0.12.0")).toBeNull();
+    expect(scanStaleGlobalCli(repo, claude(), timeout, "0.12.0")).toBeNull();
+  });
+
+  // Covers: R9
+  it("stays silent on garbage output", () => {
+    expect(scanStaleGlobalCli(repo, claude(), () => "command not found", "0.12.0")).toBeNull();
+    expect(scanStaleGlobalCli(repo, claude(), () => "", "0.12.0")).toBeNull();
+  });
+
+  // Covers: R9
+  it("does not probe when no rendered hook calls navori", () => {
+    writeFileSync(join(repo, ".claude/hooks/plan-gate.sh"), "#!/bin/sh\n# navori\nexit 0\n");
+    const run = vi.fn(() => "0.1.0");
+    expect(scanStaleGlobalCli(repo, claude(), run, "0.12.0")).toBeNull();
+    expect(run).not.toHaveBeenCalled();
   });
 });

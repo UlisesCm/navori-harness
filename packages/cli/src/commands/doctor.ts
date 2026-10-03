@@ -1112,6 +1112,12 @@ export const doctorCommand = defineCommand({
       if (cx.length > 0) p.note(cx.join("\n"), "Codex");
     }
 
+    // Spec 0041 T20 follow-up: advisory only, never flips `ok` or `--strict`.
+    const staleGlobalCli = scanStaleGlobalCli(cwd, config);
+    if (staleGlobalCli) {
+      p.log.warn(td.globalCliStale(staleGlobalCli.global, staleGlobalCli.current));
+    }
+
     // #313: harness `.gitignore` drift. Advisory (yellow) — never
     // flips the verdict; `render --apply` reconciles it. Absent in mode "off".
     if (gitignoreHealth && (gitignoreHealth.missing || gitignoreHealth.drift)) {
@@ -2942,6 +2948,79 @@ export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth 
     guardNotVersioned,
     staleModels: scanStaleCodexModels(cwd, config),
   };
+}
+
+/** Runs `navori --version` from PATH; throws when absent, slow or failing. */
+function runGlobalNavoriVersion(): string {
+  return execFileSync("navori", ["--version"], {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "ignore"],
+    timeout: 3000, // best-effort external probe must not hang doctor (#268)
+  });
+}
+
+/** Hook script dirs the Claude and Codex engines render. */
+const HOOK_SCRIPT_DIRS = [".claude/hooks", ".claude/scripts", ".codex/hooks"] as const;
+
+/** True when any rendered hook script shells out to `navori <subcommand>`. */
+function renderedHooksCallNavori(cwd: string): boolean {
+  for (const dir of HOOK_SCRIPT_DIRS) {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(join(cwd, dir), { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      if (!e.isFile() || !e.name.endsWith(".sh")) continue;
+      try {
+        const body = readFileSync(join(cwd, dir, e.name), "utf-8");
+        const code = body.split("\n").filter((l) => !/^\s*#/.test(l));
+        if (code.some((l) => /(^|[\s;|&(`"'])navori\s+[a-z]/.test(l))) return true;
+      } catch {
+        // Unreadable script — skip rather than guess.
+      }
+    }
+  }
+  return false;
+}
+
+export interface StaleGlobalCli {
+  /** Version reported by the `navori` found on PATH. */
+  global: string;
+  /** Version of the CLI running doctor (the reference). */
+  current: string;
+}
+
+/**
+ * Spec 0041 T20 follow-up: rendered hooks call the `navori` on PATH, so a global
+ * install older than the CLI running doctor silently executes old logic (e.g.
+ * no V2 dispatch path). Advisory only — never feeds `ok` or `--strict`.
+ *
+ * The reference is the running CLI's own version (always readable) rather than
+ * the newest `version="…"` marker stamp, which would need parsing every managed
+ * surface. Returns null — never throws — when no hook calls `navori`, the
+ * binary is absent, the probe times out, or its output is not a semver.
+ *
+ * @param run - Injectable `navori --version` runner (tests never spawn the real one).
+ */
+export function scanStaleGlobalCli(
+  cwd: string,
+  config: NavoriConfig,
+  run: () => string = runGlobalNavoriVersion,
+  current: string = readCliVersion(),
+): StaleGlobalCli | null {
+  if (!config.engines.includes("claude") && !config.engines.includes("codex")) return null;
+  if (!renderedHooksCallNavori(cwd)) return null;
+  let raw: string;
+  try {
+    raw = run();
+  } catch {
+    return null; // missing binary or timeout: nothing to compare
+  }
+  const global = typeof raw === "string" ? raw.match(/\d+\.\d+\.\d+/)?.[0] : undefined;
+  if (!global || compareSemver(global, current) !== -1) return null;
+  return { global, current };
 }
 
 /** True when `cwd` sits inside a git work tree (linked worktrees included). */
