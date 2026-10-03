@@ -140,12 +140,17 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
   promoción a enforcing queda en T20; (e) `buildEngineEvidence` de `doctor.ts` sigue planeando sin
   `engine`, para que la evidencia de Claude no gane hallazgos de hooks sin registrar con
   `masterPlan` apagado.
-- [ ] **T16** (R29) — Extensión `tgrep` neutral al engine: la línea de `guard-destructive` hace
+- [x] **T16** (R29) — Extensión `tgrep` neutral al engine: la línea de `guard-destructive` hace
   `source` relativo a su propio directorio y `guard-search-routing.sh` resuelve la raíz con
   `nv_project_dir`; `applyHookExtension` sube al spine compartido y Codex lo aplica sobre
   `.codex/hooks/`. · test: `guard-destructive` Codex con `tgrep` bloquea `grep -r` (exit 2) y no
   contiene `CLAUDE_PROJECT_DIR` ni `.claude/scripts`; test Claude existente sigue verde con
   `// Covers: R29`
+  Nota: la lane hace `source` con una ruta relativa a su propio directorio de hooks;
+  `applyHookExtension` vive en el spine compartido; Codex instala
+  `.codex/scripts/guard-search-routing.sh` solo con tgrep activado; la fila sigue `limite-codex`
+  hasta T20; con tgrep activado el hash de `guard-destructive` cambia y hay que correr de nuevo
+  `navori codex trust`.
 
 ## Lote 6 — CLI
 

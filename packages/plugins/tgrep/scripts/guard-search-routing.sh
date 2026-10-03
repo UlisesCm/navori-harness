@@ -2,7 +2,7 @@
 # Search-routing lane for the tgrep plugin (spec 0039 D6, R29-R31).
 #
 # SOURCED, never executed: `guard-destructive.sh` runs it in a subshell,
-# `( . .claude/scripts/guard-search-routing.sh )`, from a managed sub-block placed
+# `( . "$(dirname "$0")/../scripts/guard-search-routing.sh" )`, from a managed sub-block placed
 # after every destructive rule. `$cmd` is already parsed and in scope. The
 # subshell isolates this file: a syntax error, an unset variable or a crash here
 # exits with something other than 42 and the command is allowed.
@@ -22,7 +22,9 @@
 # known file, a ROOT outside the repo, a heredoc body, a command over 20k
 # characters, `rg --files`/`--version`/`--help`, anything it cannot parse.
 # `git grep` is NOT matched (D6 drops that rule).
-navori_repo_root="${CLAUDE_PROJECT_DIR:-$PWD}"
+# `nv_project_dir` is the hook's engine-neutral project root ($CLAUDE_PROJECT_DIR
+# under Claude, the git toplevel under Codex); `$PWD` covers a bare invocation.
+navori_repo_root="${nv_project_dir:-$PWD}"
 
 if [ -z "${cmd:-}" ]; then exit 0; fi
 
