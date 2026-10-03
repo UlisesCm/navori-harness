@@ -1,4 +1,4 @@
-# navori:managed start id="pr-publisher-confirm-base" hash="a894699f" version="0.11.1" source="@navori/core"
+# navori:managed start id="pr-publisher-confirm-base" hash="a894699f" version="0.11.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash): a `gh pr create` that did NOT come from the

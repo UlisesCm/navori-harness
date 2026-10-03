@@ -8,7 +8,7 @@ maxTurns: 160
 maxWords: 2448
 ---
 
-<!-- navori:managed id="implementer-base" hash="9225dc1e" version="0.11.1" source="@navori/core" fmkeys="name,description,tools,model,effort,maxTurns,maxWords" -->
+<!-- navori:managed id="implementer-base" hash="9225dc1e" version="0.11.2" source="@navori/core" fmkeys="name,description,tools,model,effort,maxTurns,maxWords" -->
 # Implementer Agent
 
 You execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.
@@ -125,7 +125,7 @@ blocked -> .navori/state/handoffs/impl_<feature>.json
 Never return the diff, or drafted Markdown, in chat. The `scribe` and the orchestrator read what they need from disk.
 <!-- /navori:managed id="implementer-base" -->
 
-<!-- navori:managed id="engram-implementer-extension" hash="6a83d0ee" version="0.11.1" source="@navori/plugin-engram" -->
+<!-- navori:managed id="engram-implementer-extension" hash="6a83d0ee" version="0.11.2" source="@navori/plugin-engram" -->
 ## Engram, from a subagent (read-only)
 
 **Pre-flight, before you read code:** `mem_search` with the task's keywords
@@ -151,7 +151,7 @@ If a memory contradicts what the code says, the code wins — say so in your
 report; don't try to fix it yourself.
 <!-- /navori:managed id="engram-implementer-extension" -->
 
-<!-- navori:managed id="codegraph-access-v2-implementer" hash="41084677" version="0.11.1" source="@navori/plugin-codegraph" -->
+<!-- navori:managed id="codegraph-access-v2-implementer" hash="41084677" version="0.11.2" source="@navori/plugin-codegraph" -->
 ### Structural discovery access
 
 Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Continue with scoped native tools if unavailable.

@@ -1,4 +1,4 @@
-# navori:managed start id="general-purpose-confirm-base" hash="6ce20c3b" version="0.11.1" source="@navori/core"
+# navori:managed start id="general-purpose-confirm-base" hash="6ce20c3b" version="0.11.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Agent|spawn_agent): dispatching `general-purpose` is raised to a user
