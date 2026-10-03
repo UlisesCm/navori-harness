@@ -415,6 +415,66 @@ describe("renderCodexEngine", () => {
     }
   });
 
+  /**
+   * Spec 0041 R18/R19. A Claude-only tool name or Claude Code version in the
+   * Codex render sends the agent to a tool it does not have. Prose spans that
+   * only make sense on Claude are wrapped in `navori:if-not onCodex` in the
+   * source assets; this sweep fails, naming the file and the managed block, when
+   * one slips through. Hook scripts are not prose, but their `[navori]` message
+   * lines are shown to the agent, so those are scanned too, with a per-entry
+   * allowlist (file + reason) instead of a wildcard.
+   */
+  // Covers: R18, R19
+  it("no Claude-only tool leaks into Codex surfaces", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+
+    const forbidden: ReadonlyArray<readonly [name: string, re: RegExp]> = [
+      ["SendMessage", /SendMessage/],
+      ["TaskCreate", /TaskCreate/],
+      ["TaskList", /TaskList/],
+      ["TaskStop", /TaskStop/],
+      ["ToolSearch", /ToolSearch/],
+      ["`Skill`", /`Skill`/],
+      ["AskUserQuestion", /AskUserQuestion/],
+      ["`Monitor`", /`Monitor`/],
+      ["run_in_background", /run_in_background/],
+      ["Claude Code <version>", /Claude Code \d/],
+    ];
+    const markerRe = /navori:managed(?: start)? id="([^"]+)"/;
+    const leaks: Array<{ file: string; block: string; term: string; line: string }> = [];
+
+    for (const file of proseSurfaces(cwd)) {
+      let block = "(outside any managed block)";
+      for (const line of readFileSync(file, "utf-8").split("\n")) {
+        block = markerRe.exec(line)?.[1] ?? block;
+        for (const [term, re] of forbidden) {
+          if (re.test(line)) {
+            leaks.push({ file: file.slice(cwd.length + 1), block, term, line: line.slice(0, 120) });
+          }
+        }
+      }
+    }
+
+    // Hook `[navori]` messages. Add an entry ONLY with the file and the reason
+    // it is safe on Codex; there is no wildcard.
+    const hookMessageAllowlist: ReadonlyArray<{ file: string; term: string; reason: string }> = [];
+    const hooksDir = join(cwd, ".codex/hooks");
+    for (const name of existsSync(hooksDir) ? readdirSync(hooksDir) : []) {
+      const rel = `.codex/hooks/${name}`;
+      for (const line of readFileSync(join(hooksDir, name), "utf-8").split("\n")) {
+        if (!line.includes("[navori]")) continue;
+        for (const [term, re] of forbidden) {
+          if (!re.test(line)) continue;
+          if (hookMessageAllowlist.some((a) => a.file === rel && a.term === term)) continue;
+          leaks.push({ file: rel, block: "[navori] hook message", term, line: line.slice(0, 120) });
+        }
+      }
+    }
+
+    expect(leaks).toEqual([]);
+  });
+
   it("appends an orchestrator-targeted plugin skill to AGENTS.md as a managed sub-block (#277)", () => {
     // engram's `engram-orchestrator-extension` injects into
     // `.claude/agents/orchestrator.md`. Codex embodies the orchestrator in the

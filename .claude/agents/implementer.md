@@ -5,7 +5,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash, mcp__codegraph__*, mcp__engram__mem_
 model: sonnet
 effort: medium
 maxTurns: 160
-maxWords: 2433
+maxWords: 2448
 ---
 
 <!-- navori:managed id="implementer-base" hash="9225dc1e" version="0.11.1" source="@navori/core" fmkeys="name,description,tools,model,effort,maxTurns,maxWords" -->
