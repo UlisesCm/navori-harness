@@ -154,19 +154,27 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
 
 ## Lote 6 — CLI
 
-- [ ] **T17** (R4, R27) — `scanCodexHealth` en `commands/doctor.ts` recorre
+- [x] **T17** (R4, R27) — `scanCodexHealth` en `commands/doctor.ts` recorre
   `git worktree list --porcelain`, corre `readCodexTrustState` por cada worktree con
   `.codex/config.toml` y advierte con hook, ruta y `cd <ruta> && navori codex trust`; advierte si
   la versión instalada es menor que `minCodexVersion()` o mayor que la última verificada. · test:
   `codex-doctor.test.ts` › worktree sin aprobar → advertencia con hook, ruta y comando; versión
   menor y mayor con `// Covers: R4, R27`
-- [ ] **T18** (R24) — `parseCodexSession` en `lib/audit/parse.ts` y descubrimiento en
+  Nota: `doctor` recorre los worktrees con `.codex/config.toml` y avisa por cada hook sin aprobar,
+  con el comando que lo arregla; la versión mínima "too old" sigue en 0.145.0; "última verificada"
+  se deriva de las fuentes de paridad (hoy 0.160.0); los dos `minCodexVersion` no se unificaron
+  porque miden cosas distintas.
+- [x] **T18** (R24) — `parseCodexSession` en `lib/audit/parse.ts` y descubrimiento en
   `discovery.ts` (ruta registrada o `codexHome()/sessions/**/rollout-*-<sessionId>.jsonl`), con
   adaptador aislado; engine identificado en el reporte. · test: `lib/audit/__tests__/` › rollout
   de fixture sanitizado de 0.160.0 → sesión Codex; ilegible → `unavailable` con `// Covers: R24`
-- [ ] **T19** (R16) — Test de simetría de modelos por rol (D16, H12). · test:
+  Nota: `parseCodexSession` usa un adaptador que solo lee metadatos (tipos, nombres de herramienta,
+  timestamps, versión y modelo), nunca contenido; los tokens de Codex quedan `unavailable` hasta
+  confirmar si son por turno o acumulados.
+- [x] **T19** (R16) — Test de simetría de modelos por rol (D16, H12). · test:
   `engine-parity.test.ts` › "`model:` in Claude iff `model` in Codex, per role" con
   `// Covers: R16`
+  Nota: test de simetría de `model` por rol en `engine-parity.test.ts`.
 
 ## Lote 7 — Cierre (**sonda**, autorización del usuario)
 
