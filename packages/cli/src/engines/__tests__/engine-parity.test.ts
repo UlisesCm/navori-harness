@@ -218,4 +218,42 @@ describe("engine inventory parity (claude ↔ codex)", () => {
       }
     }
   });
+
+  // Covers: R16
+  it("`model:` in Claude iff `model` in Codex, per role", () => {
+    const hasClaudeModel = (md: string): boolean => /^model:\s*\S/m.test(md);
+    const hasCodexModel = (toml: string): boolean => /^model\s*=\s*"[^"]+"/m.test(toml);
+    const configs: Array<[string, NavoriConfig]> = [
+      ["defaults", parityConfig()],
+      [
+        "partial models",
+        NavoriConfigSchema.parse({
+          name: "model-symmetry",
+          engines: ["claude", "codex"],
+          preset: "custom",
+          branchBase: "main",
+          qualityGate: { fast: "pnpm test", full: "pnpm test" },
+          models: { scribe: "haiku", architect: "opus" },
+        }),
+      ],
+    ];
+    for (const [label, config] of configs) {
+      const claude = mkdtempSync(join(tmpdir(), "navori-model-claude-"));
+      const codex = mkdtempSync(join(tmpdir(), "navori-model-codex-"));
+      try {
+        renderClaudeEngine(claude, config);
+        renderCodexEngine(codex, config);
+        const roles = names(join(codex, ".codex/agents"), stripToml);
+        expect(roles.length, label).toBeGreaterThan(0);
+        for (const role of roles) {
+          const md = readFileSync(join(claude, `.claude/agents/${role}.md`), "utf-8");
+          const toml = readFileSync(join(codex, `.codex/agents/${role}.toml`), "utf-8");
+          expect(hasCodexModel(toml), `${label}: ${role}`).toBe(hasClaudeModel(md));
+        }
+      } finally {
+        rmSync(claude, { recursive: true, force: true });
+        rmSync(codex, { recursive: true, force: true });
+      }
+    }
+  });
 });

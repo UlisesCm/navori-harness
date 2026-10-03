@@ -189,6 +189,7 @@ const es: Record<string, CommandDoc> = {
       "Corre doctor en CI con --strict para fallar el build si hay drift no resuelto.",
       "Valida invariants: substrings load-bearing que deben sobrevivir en el output (exit 2 si faltan).",
       "El estado de confianza de Codex se lee de $CODEX_HOME/config.toml si CODEX_HOME está definido, y de ~/.codex/config.toml si no; un valor relativo se rechaza.",
+      "Con el engine codex habilitado, también revisa cada git worktree del repo que tenga .codex/config.toml: advierte con el hook, la ruta y 'cd <ruta> && navori codex trust' si falta aprobarlo. Advierte además si el codex instalado es más nuevo que la última versión verificada. Si git o el disco fallan, degrada a un aviso.",
     ],
   },
   status: {
@@ -1103,6 +1104,7 @@ const en: Record<string, CommandDoc> = {
       "Run doctor in CI with --strict to fail the build on unresolved drift.",
       "Validates invariants: load-bearing substrings that must survive in the output (exit 2 if missing).",
       "Codex trust state is read from $CODEX_HOME/config.toml if CODEX_HOME is set, and from ~/.codex/config.toml otherwise; a relative value is rejected.",
+      "With the codex engine enabled it also checks every git worktree of the repo that has .codex/config.toml: it warns with the hook, the path and 'cd <path> && navori codex trust' when approval is missing. It also warns when the installed codex is newer than the last verified version. If git or the disk fails, it degrades to a warning.",
     ],
   },
   status: {

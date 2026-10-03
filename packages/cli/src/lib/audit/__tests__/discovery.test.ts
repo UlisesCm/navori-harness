@@ -6,6 +6,7 @@ import {
   coverageMetrics,
   countHostSessions,
   findMarkedSessions,
+  resolveCodexRollout,
   listAuditedRepos,
 } from "../discovery.ts";
 import { encodeCwdToSlug, auditsRoot, sessionLogPath } from "../paths.ts";
@@ -285,5 +286,67 @@ describe("discovery: every audited repo, with coverage (R61, R62)", () => {
     expect(repos.find((r) => r.repo === "headless")?.host).toBeNull();
     expect(coverageMetrics(repos)["coverage.pct"]).toBe(100);
     expect(coverageMetrics(repos.filter((r) => r.repo === "headless"))["coverage.pct"]).toBeNull();
+  });
+});
+
+describe("discovery: Codex rollouts (spec 0041 T18)", () => {
+  const SID = "01a10108-38f8-7470-ae6a-fbec838f6c4c";
+  let home: string;
+  const prevHome = process.env.CODEX_HOME;
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), "navori-codex-home-"));
+    process.env.CODEX_HOME = home;
+  });
+  afterEach(() => {
+    if (prevHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = prevHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  function rollout(): string {
+    const dir = join(home, "sessions", "2026", "10", "03");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `rollout-2026-10-03T03-11-18-${SID}.jsonl`);
+    writeFileSync(file, "{}\n");
+    return file;
+  }
+
+  // Covers: R24
+  it("finds the rollout under codexHome()/sessions by session id", () => {
+    const file = rollout();
+    expect(resolveCodexRollout(SID)).toBe(file);
+    expect(resolveCodexRollout("ffffffff-0000-0000-0000-000000000000")).toBeNull();
+  });
+
+  // Covers: R24
+  it("prefers the recorded path and degrades to null on a bad CODEX_HOME", () => {
+    const file = rollout();
+    expect(resolveCodexRollout(SID, file)).toBe(file);
+    process.env.CODEX_HOME = "relative/home";
+    expect(resolveCodexRollout(SID)).toBeNull();
+  });
+
+  // Covers: R24
+  it("keeps a Codex session's recorded rollout out of the Claude transcript slot", () => {
+    const file = rollout();
+    const dir = join(root, REPO);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `session-${SID}.log`),
+      [
+        JSON.stringify({
+          ts: "2026-10-03T03:11:17.000Z",
+          event: "start",
+          host: "codex",
+          cwd: "/w",
+        }),
+        JSON.stringify({ event: "prompt", transcript: file }),
+      ].join("\n") + "\n",
+    );
+    const [m] = findMarkedSessions(REPO);
+    expect(m?.host).toBe("codex");
+    expect(m?.transcript).toBeNull();
+    expect(m?.rollout).toBe(file);
   });
 });

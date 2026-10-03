@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { assert, describe, it, expect } from "vitest";
 import { join } from "node:path";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,6 +10,7 @@ import {
   isReadLaneCommand,
   isWriteLaneCommand,
   parseAgentRun,
+  parseCodexSession,
   parseSession,
   readJsonl,
   sumTokens,
@@ -1744,5 +1745,116 @@ describe("parse: range measures (spec 0039)", () => {
     ]);
     // The malformed one is counted, never half-read.
     expect(s.parseErrors).toBe(2);
+  });
+});
+
+describe("parse: Codex rollout adapter (spec 0041 T18)", () => {
+  const SECRET = "SYNTHETIC-SECRET-do-not-leak-7f3a";
+  const SID = "01a10108-38f8-7470-ae6a-fbec838f6c4c";
+
+  /** Synthetic, 0.160.0-shaped rollout (key names only match a real one). */
+  function rolloutLines(): string[] {
+    const rec = (timestamp: string, type: string, payload: Record<string, unknown>, ordinal = 0) =>
+      JSON.stringify({ ordinal, timestamp, type, payload });
+    return [
+      rec("2026-10-03T03:11:18.000Z", "session_meta", {
+        id: SID,
+        session_id: SID,
+        cli_version: "0.160.0",
+        cwd: "/work/repo",
+        base_instructions: SECRET,
+      }),
+      rec("2026-10-03T03:11:19.000Z", "event_msg", { type: "task_started", turn_id: "t1" }),
+      rec("2026-10-03T03:11:19.500Z", "turn_context", { model: "gpt-5.5", cwd: "/work/repo" }),
+      rec("2026-10-03T03:11:20.000Z", "response_item", {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: SECRET }],
+      }),
+      rec("2026-10-03T03:11:21.000Z", "response_item", {
+        type: "custom_tool_call",
+        name: "exec",
+        call_id: "c1",
+        input: `echo ${SECRET}`,
+      }),
+      rec("2026-10-03T03:11:22.000Z", "response_item", {
+        type: "custom_tool_call_output",
+        call_id: "c1",
+        output: SECRET,
+      }),
+      rec("2026-10-03T03:11:23.000Z", "response_item", {
+        type: "function_call",
+        name: "send_message",
+        call_id: "c2",
+        arguments: JSON.stringify({ message: SECRET }),
+      }),
+      rec("2026-10-03T03:11:24.000Z", "event_msg", { type: "task_complete", turn_id: "t1" }),
+    ];
+  }
+
+  function fixture(rollout: string | null): { log: string; rollout: string | null } {
+    const dir = mkdtempSync(join(tmpdir(), "navori-codex-rollout-"));
+    const log = join(dir, `session-${SID}.log`);
+    writeFileSync(
+      log,
+      `${JSON.stringify({ ts: "2026-10-03T03:11:17.000Z", event: "start", host: "codex", cwd: "/work/repo" })}\n`,
+    );
+    if (rollout === null) return { log, rollout: null };
+    const file = join(dir, `rollout-2026-10-03T03-11-18-${SID}.jsonl`);
+    writeFileSync(file, rollout);
+    return { log, rollout: file };
+  }
+
+  // Covers: R24
+  it("parses a 0.160.0-shaped rollout into a Codex session identified by engine", () => {
+    const { log, rollout } = fixture(`${rolloutLines().join("\n")}\n`);
+    const session = parseCodexSession(SID, log, rollout);
+    expect(session?.host).toBe("codex");
+    expect(session?.rollout).toMatchObject({
+      status: "parsed",
+      cliVersion: "0.160.0",
+      turns: 1,
+      toolCalls: { exec: 1, send_message: 1 },
+      models: { "gpt-5.5": 1 },
+    });
+    expect(session?.orchestrator.turns).toBe(1);
+    expect(session?.unavailable).toBe("transcript");
+  });
+
+  // Covers: R24
+  it("never lets raw message, tool input or output text reach the session or the report", () => {
+    const { log, rollout } = fixture(`${rolloutLines().join("\n")}\n`);
+    const session = parseCodexSession(SID, log, rollout);
+    assert(session);
+    expect(JSON.stringify(session)).not.toContain(SECRET);
+    const catalog = { agents: [], skills: [], hooks: [] } as unknown as HarnessCatalog;
+    const report = buildReport([session], { repo: "r", version: "0", catalog });
+    for (const lang of ["es", "en"] as const) {
+      const md = renderMarkdown(report, lang);
+      expect(md).not.toContain(SECRET);
+      expect(md).toContain("Codex 0.160.0");
+    }
+  });
+
+  // Covers: R24
+  it("reports the rollout as unavailable, without throwing, when missing or unreadable", () => {
+    const none = fixture(null);
+    expect(parseCodexSession(SID, none.log, null)?.rollout).toEqual({
+      status: "unavailable",
+      reason: "missing",
+    });
+    expect(parseCodexSession(SID, none.log, "/nonexistent/rollout.jsonl")?.rollout).toEqual({
+      status: "unavailable",
+      reason: "missing",
+    });
+    const dirAsFile = fixture(null);
+    expect(parseCodexSession(SID, dirAsFile.log, join(dirAsFile.log, ".."))?.rollout).toEqual({
+      status: "unavailable",
+      reason: "unreadable",
+    });
+    const garbage = fixture(`not json ${SECRET}\n{broken\n`);
+    const parsed = parseCodexSession(SID, garbage.log, garbage.rollout);
+    expect(parsed?.rollout).toEqual({ status: "unavailable", reason: "unreadable" });
+    expect(JSON.stringify(parsed)).not.toContain(SECRET);
   });
 });

@@ -34,6 +34,7 @@ vi.mock(import("../../lib/primitives/home.ts"), () => ({
 
 const {
   isCodexVersionTooOld,
+  isCodexVersionUnverified,
   scanCodexHealth,
   buildEngineInventory,
   buildEngineEvidence,
@@ -217,6 +218,126 @@ describe("scanCodexHealth (Spec 0007 M5)", () => {
     });
     const health = scanCodexHealth(cwd, config());
     expect(health?.guardNotVersioned).toEqual([]);
+  });
+
+  describe("worktree trust and version range (spec 0041 T17)", () => {
+    const originalPath = process.env.PATH;
+    afterEach(() => {
+      process.env.PATH = originalPath;
+    });
+
+    function git(cwd: string, ...args: string[]): void {
+      execFileSync("git", ["-C", cwd, "-c", "user.email=t@t.t", "-c", "user.name=t", ...args], {
+        stdio: "ignore",
+      });
+    }
+
+    function stubCodex(cwd: string, version: string): void {
+      const bin = join(cwd, "stub-bin");
+      mkdirSync(bin, { recursive: true });
+      const path = join(bin, "codex");
+      writeFileSync(path, `#!/bin/sh\necho "codex-cli ${version}"\n`);
+      chmodSync(path, 0o755);
+      process.env.PATH = `${bin}:${originalPath}`;
+    }
+
+    // Covers: R4
+    it("warns with hook, path and command for a worktree whose hooks are not approved", () => {
+      const cwd = realpathSync(tempRepo());
+      gitInit(cwd);
+      writeGuard(cwd);
+      git(cwd, "commit", "--allow-empty", "-q", "-m", "init");
+      const wt = join(realpathSync(tempRepo()), "wt");
+      git(cwd, "worktree", "add", "-q", wt);
+      mkdirSync(join(wt, ".codex"), { recursive: true });
+      writeFileSync(join(wt, ".codex/config.toml"), "# rendered\n");
+      const health = scanCodexHealth(cwd, config());
+      expect(health?.worktreeScanError).toBeNull();
+      expect(health?.worktreeHooksUnapproved).toContainEqual({
+        hook: "guard-destructive",
+        path: wt,
+      });
+      expect(tc("en").doctor.codexWorktreeHookUnapproved("guard-destructive", wt)).toContain(
+        `cd ${wt} && navori codex trust`,
+      );
+    });
+
+    // Covers: R4
+    it("ignores worktrees without .codex/config.toml and outside git reports nothing", () => {
+      const cwd = realpathSync(tempRepo());
+      gitInit(cwd);
+      writeGuard(cwd);
+      git(cwd, "commit", "--allow-empty", "-q", "-m", "init");
+      git(cwd, "worktree", "add", "-q", join(realpathSync(tempRepo()), "wt"));
+      expect(scanCodexHealth(cwd, config())?.worktreeHooksUnapproved).toEqual([]);
+      const plain = tempRepo();
+      writeGuard(plain);
+      const h = scanCodexHealth(plain, config());
+      expect(h?.worktreeHooksUnapproved).toEqual([]);
+      expect(h?.worktreeScanError).toBeNull();
+    });
+
+    // Covers: R4
+    it("degrades to a warning instead of throwing when the worktree scan fails", () => {
+      const cwd = realpathSync(tempRepo());
+      gitInit(cwd);
+      writeGuard(cwd);
+      git(cwd, "commit", "--allow-empty", "-q", "-m", "init");
+      // A git shim that answers `rev-parse` but fails `worktree list`.
+      const realGit = execFileSync("which", ["git"], { encoding: "utf-8" }).trim();
+      const bin = join(cwd, "git-shim");
+      mkdirSync(bin);
+      const shim = join(bin, "git");
+      writeFileSync(
+        shim,
+        `#!/bin/sh\ncase "$*" in *"worktree list"*) exit 128;; esac\nexec ${realGit} "$@"\n`,
+      );
+      chmodSync(shim, 0o755);
+      process.env.PATH = `${bin}:${originalPath}`;
+      const health = scanCodexHealth(cwd, config());
+      expect(health?.worktreeScanError).toEqual(expect.any(String));
+      expect(health?.worktreeHooksUnapproved).toEqual([]);
+    });
+
+    // Covers: R23, R27
+    it("degrades a relative CODEX_HOME to a warning naming the variable instead of throwing", () => {
+      const cwd = tempRepo();
+      writeGuard(cwd);
+      const prev = process.env.CODEX_HOME;
+      process.env.CODEX_HOME = "relative/path";
+      try {
+        const health = scanCodexHealth(cwd, config());
+        expect(health?.trustReadError).toContain("CODEX_HOME");
+        expect(computeHealthVerdict(cwd, config({ plugins: {} })).ok).toBe(true);
+        expect(tc("en").doctor.codexTrustUnreadable).toContain("CODEX_HOME must be an absolute");
+        expect(tc("es").doctor.codexTrustUnreadable).toContain("CODEX_HOME debe ser");
+      } finally {
+        if (prev === undefined) delete process.env.CODEX_HOME;
+        else process.env.CODEX_HOME = prev;
+      }
+    });
+
+    // Covers: R27
+    it("warns when the installed Codex is older than the minimum", () => {
+      const cwd = tempRepo();
+      writeGuard(cwd);
+      stubCodex(cwd, "0.100.0");
+      const health = scanCodexHealth(cwd, config());
+      expect(health?.versionWarning).toEqual({ found: "0.100.0", min: minCodexVersion() });
+      expect(health?.versionUnverified).toBeNull();
+    });
+
+    // Covers: R27
+    it("warns when the installed Codex is newer than the last verified version, not at it", () => {
+      const cwd = tempRepo();
+      writeGuard(cwd);
+      stubCodex(cwd, "9.0.0");
+      const ahead = scanCodexHealth(cwd, config());
+      expect(ahead?.versionUnverified).toEqual({ found: "9.0.0", verified: "0.160.0" });
+      expect(ahead?.versionWarning).toBeNull();
+      expect(isCodexVersionUnverified("0.160.0")).toBe(false);
+      expect(isCodexVersionUnverified("0.160.1")).toBe(true);
+    });
   });
 });
 

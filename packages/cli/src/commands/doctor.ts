@@ -31,7 +31,8 @@ import {
   simulateContextDelivery,
   type ContextDeliveryStatus,
 } from "../lib/assets/doc-budgets.ts";
-import { isDowngrade } from "../lib/primitives/semver.ts";
+import { compareSemver, isDowngrade } from "../lib/primitives/semver.ts";
+import { CODEX_PARITY, CODEX_VERIFICATIONS } from "../engines/shared/codex-parity.ts";
 import { isPlaceholderName } from "../lib/diagnose/detect.ts";
 import { loadPlugin, loadEnabledPlugins } from "../lib/config/plugins.ts";
 import {
@@ -1069,11 +1070,26 @@ export const doctorCommand = defineCommand({
           `  ${color.yellow(sym.update)} ${td.codexVersionWarning(codexHealth.versionWarning.found, codexHealth.versionWarning.min)}`,
         );
       }
+      if (codexHealth.versionUnverified) {
+        cx.push(
+          `  ${color.yellow(sym.update)} ${td.codexVersionUnverified(codexHealth.versionUnverified.found, codexHealth.versionUnverified.verified)}`,
+        );
+      }
+      for (const w of codexHealth.worktreeHooksUnapproved) {
+        cx.push(`  ${color.yellow(sym.update)} ${td.codexWorktreeHookUnapproved(w.hook, w.path)}`);
+      }
+      if (codexHealth.worktreeScanError !== null) {
+        cx.push(
+          `  ${color.yellow(sym.update)} ${td.codexWorktreeScanFailed(codexHealth.worktreeScanError)}`,
+        );
+      }
       // Spec 0035 D10/T10: the untrusted-project ERROR and the
       // unapproved-hooks WARNING are mutually exclusive — an untrusted
       // project is the more serious fact (Codex loads nothing at all), so it
       // preempts the hook-count line rather than showing both.
-      if (!codexHealth.trust.projectTrusted) {
+      if (codexHealth.trustReadError !== null) {
+        cx.push(`  ${color.yellow(sym.update)} ${td.codexTrustUnreadable}`);
+      } else if (!codexHealth.trust.projectTrusted) {
         cx.push(`  ${color.red(sym.fail)} ${td.codexProjectUntrusted}`);
       } else {
         const unapproved = codexHealth.trust.hooks.filter((h) => h.status !== "Trusted").length;
@@ -2707,6 +2723,72 @@ export function isCodexVersionTooOld(version: string): boolean {
   return isDowngrade(minCodexVersion(), version);
 }
 
+/**
+ * Newest Codex version the parity table was verified against: the max of every
+ * passing live probe and every `limite-codex` source (consulted at a concrete
+ * release). `null` when the table carries none. Distinct from
+ * {@link minCodexVersion} (hook-registrations): that is the floor the rendered
+ * hooks need and is what `doctor` still reads as the minimum — the parity
+ * module's same-named function is "highest probe-verified" (`0.0.0` until T20),
+ * a different quantity, so the two are deliberately not unified.
+ */
+export function lastVerifiedCodexVersion(): string | null {
+  let max: string | null = null;
+  const consider = (v: string): void => {
+    if (max === null || (compareSemver(v, max) ?? 0) > 0) max = v;
+  };
+  for (const row of Object.values(CODEX_PARITY)) {
+    if (row.state === "limite-codex") consider(row.source.codexVersion);
+  }
+  for (const v of Object.values(CODEX_VERIFICATIONS)) {
+    if (v.probe === "pass") consider(v.codexVersion);
+  }
+  return max;
+}
+
+/** Whether `version` is strictly newer than the last verified Codex version (D14). */
+export function isCodexVersionUnverified(
+  version: string,
+  verified: string | null = lastVerifiedCodexVersion(),
+): boolean {
+  return verified !== null && compareSemver(version, verified) === 1;
+}
+
+/**
+ * Hooks not approved in the OTHER git worktrees of `cwd` (spec 0041 T17, R4).
+ * Never throws: any git or IO failure becomes `error`. Outside a git work tree
+ * there are no worktrees, so nothing to report.
+ */
+function scanWorktreeTrust(
+  cwd: string,
+  hooks: ReturnType<typeof resolveCodexHooks>,
+): { unapproved: Array<{ hook: string; path: string }>; error: string | null } {
+  const unapproved: Array<{ hook: string; path: string }> = [];
+  try {
+    if (!isGitWorkTree(cwd)) return { unapproved, error: null };
+    const out = execFileSync("git", ["-C", cwd, "worktree", "list", "--porcelain"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5000,
+    });
+    const self = realpathSync(resolve(cwd));
+    for (const line of out.split("\n")) {
+      if (!line.startsWith("worktree ")) continue;
+      const path = line.slice("worktree ".length);
+      if (path === self || path === resolve(cwd)) continue;
+      const tomlPath = join(path, ".codex", "config.toml");
+      if (!existsSync(tomlPath)) continue;
+      const state = readCodexTrustState(path, tomlPath, hooks);
+      for (const h of state.hooks) {
+        if (h.status !== "Trusted") unapproved.push({ hook: h.script, path });
+      }
+    }
+    return { unapproved, error: null };
+  } catch (err) {
+    return { unapproved, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export interface CodexHealth {
   /** `.codex/config.toml` has an unbalanced/malformed navori managed block. */
   configMalformed: boolean;
@@ -2719,6 +2801,16 @@ export interface CodexHealth {
    *  an untrusted project is an ERROR (`computeHealthVerdict` flips `ok`), a
    *  trusted project with unapproved hooks is a WARNING with the count. */
   trust: CodexTrustState;
+  /** Installed Codex is newer than the last verified version (D14): re-verify. */
+  versionUnverified: { found: string; verified: string } | null;
+  /** Spec 0041 T17/R4 — hooks not approved in OTHER worktrees of this repo
+   *  (the current checkout is covered by `trust`). One entry per hook. */
+  worktreeHooksUnapproved: Array<{ hook: string; path: string }>;
+  /** Set when reading `~/.codex/config.toml` failed (e.g. a relative `CODEX_HOME`):
+   *  `trust` is then an empty placeholder that must not be read as a verdict. */
+  trustReadError: string | null;
+  /** Set when the worktree scan failed (git or IO): degraded, never thrown. */
+  worktreeScanError: string | null;
   /**
    * Rendered hook scripts not tracked by git. An untracked hook is absent from
    * a git worktree checkout, so a Codex session launched inside a worktree
@@ -2776,6 +2868,7 @@ export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth 
 
   // (c) codex --version (best effort; absent binary is not an error).
   let versionWarning: CodexHealth["versionWarning"] = null;
+  let versionUnverified: CodexHealth["versionUnverified"] = null;
   try {
     const raw = execFileSync("codex", ["--version"], {
       encoding: "utf-8",
@@ -2785,6 +2878,10 @@ export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth 
     const found = raw.match(/\d+\.\d+\.\d+/)?.[0];
     if (found && isCodexVersionTooOld(found)) {
       versionWarning = { found, min: minCodexVersion() };
+    }
+    const verified = lastVerifiedCodexVersion();
+    if (found && verified !== null && isCodexVersionUnverified(found, verified)) {
+      versionUnverified = { found, verified };
     }
   } catch {
     // Codex not in PATH — nothing to check.
@@ -2806,17 +2903,35 @@ export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth 
   // `[projects."<repoRoot>"]` key — doctor, like render's next-step hint,
   // assumes `cwd` (where navori.config.json lives) IS the git root, the same
   // assumption `build-config-toml.ts`'s `hookBase` already makes.
-  const trust = readCodexTrustState(
-    resolve(cwd),
-    join(codexDir, "config.toml"),
-    resolveCodexHooks(config, loadEnabledPlugins(config.plugins).loaded),
-  );
+  const resolvedHooks = resolveCodexHooks(config, loadEnabledPlugins(config.plugins).loaded);
+  // Never throws: a bad `CODEX_HOME` (`codexHome()` refuses a relative one)
+  // degrades to a warning. `navori codex trust` writes, so it still fails hard.
+  let trust: CodexTrustState = {
+    configTomlPath: join(codexDir, "config.toml"),
+    projectRoot: resolve(cwd),
+    projectTrusted: true, // placeholder: unknown, must not flip the verdict
+    hooks: [],
+  };
+  let trustReadError: string | null = null;
+  try {
+    trust = readCodexTrustState(resolve(cwd), join(codexDir, "config.toml"), resolvedHooks);
+  } catch (err) {
+    trustReadError = err instanceof Error ? err.message : String(err);
+  }
+  const worktrees =
+    trustReadError === null
+      ? scanWorktreeTrust(cwd, resolvedHooks)
+      : { unapproved: [], error: null };
 
   return {
     configMalformed,
     hooksNotExecutable,
     versionWarning,
+    versionUnverified,
     trust,
+    trustReadError,
+    worktreeHooksUnapproved: worktrees.unapproved,
+    worktreeScanError: worktrees.error,
     guardNotVersioned,
   };
 }
