@@ -94,5 +94,5 @@ raises them (an empty section is noise, not rigor):
 - **Zero unresolved placeholders.** Don't leave `<...>`; an unknown value is a question for the user, not a hole. Same rule inside a task: "TBD", "implement later" or "similar to T<n>" describe nothing — name the observable behavior and the evidence expected. That is NOT a licence to dictate the code line by line; the implementer keeps its judgment.
 - **Cite a stable anchor, not a line number:** `file` + symbol name, heading, or managed-block id — never `file:line`. Lines drift before implementation; a stale one skips real sites.
 - **Every `R<n>` ends in ≥1 task and ≥1 test.** A requirement with no task or test isn't traceable → it doesn't enter the spec.
-- **Tracking lives in `tasks.md`, not in `TaskCreate`.** See the SDD block.
+- **Tracking lives in `tasks.md`, not in <!-- navori:if-not onCodex -->`TaskCreate`<!-- /navori:if-not --><!-- navori:if onCodex -->a parallel task list<!-- /navori:if -->.** See the SDD block.
 - **Self-review before closing the scaffolding:** is each `R<n>` a single testable action? does each task point to real `R<n>`? does the design cover all the `R<n>`? If something fails, fix it before handing the spec off.

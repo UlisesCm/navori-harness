@@ -28,7 +28,7 @@ You are the main agent. **Every change to source goes through `implementer` → 
 
 ### Claude agent turn limits
 
-Continue a foreground `Agent` at cap via `SendMessage`; fresh bounded redispatch only for remaining work needing another agent. Claude Code 2.1.287 has no `PostToolUse(Agent)` cap marker for background/resumed agents, and `SubagentStop` does not fire at cap. Missing markers or handoffs do not prove a cap.
+Continue a foreground `Agent` at cap via `SendMessage`; fresh bounded redispatch only for remaining work needing another agent. <!-- navori:if-not onCodex -->Claude Code 2.1.287 has no `PostToolUse(Agent)` cap marker for background/resumed agents, and `SubagentStop` does not fire at cap. <!-- /navori:if-not -->Missing markers or handoffs do not prove a cap.
 
 ### How much analysis does this task deserve (signal → mechanism)
 
@@ -65,7 +65,7 @@ Emit **ALL `Agent` calls in a SINGLE turn** — Claude serializes by default. **
 
 ### Nested dispatch unavailable
 
-Without nested dispatch (Codex, `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1`), run `scout` before `architect`.<!-- navori:if scribeOwnsMarkdown --> Run `scribe` after.<!-- /navori:if -->
+Without nested dispatch (Codex<!-- navori:if-not onCodex -->, `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1`<!-- /navori:if-not -->), run `scout` before `architect`.<!-- navori:if scribeOwnsMarkdown --> Run `scribe` after.<!-- /navori:if -->
 
 ### When delegation is genuinely impossible
 

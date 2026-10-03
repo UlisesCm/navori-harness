@@ -297,7 +297,7 @@ name: implementer
 description: Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself.
 tools: Read, Write, Edit, Glob, Grep, Bash, mcp__engram__mem_search, mcp__engram__mem_get_observation
 maxTurns: 160
-maxWords: 2433
+maxWords: 2448
 ---
 
 <!-- navori:managed id="implementer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxTurns,maxWords" -->
@@ -1018,7 +1018,7 @@ The body always comes from a file, never inline:
 name: reviewer
 description: Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes.
 tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation
-maxWords: 2372
+maxWords: 2387
 ---
 
 <!-- navori:managed id="reviewer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
@@ -19289,7 +19289,7 @@ name: verify-before-done
 description: 'Use when about to declare a task done — the Iron Law of task closure: no success claim without fresh evidence from the command that backs it. Applies to implementer, reviewer, publisher and any response that declares "done".'
 metadata:
   type: behavior
-  maxWords: 650
+  maxWords: 663
 ---
 
 <!-- navori:managed id="verify-before-done-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
