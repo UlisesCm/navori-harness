@@ -100,6 +100,41 @@ describe.runIf(runsBash)("general-purpose-confirm.sh", () => {
   });
 });
 
+/** The same rendered script, placed where Codex installs it (`$0` selects the branch). */
+function runCodex(payload: Record<string, unknown>): HookRun {
+  const dir = mkdtempSync(join(tmpdir(), "navori-gp-codex-"));
+  mkdirSync(join(dir, ".codex/hooks"), { recursive: true });
+  const p = join(dir, ".codex/hooks/general-purpose-confirm.sh");
+  writeFileSync(p, readFileSync(hookPath, "utf-8"));
+  chmodSync(p, 0o755);
+  const r = spawnSync("bash", [p], { input: JSON.stringify(payload), encoding: "utf-8", cwd: dir });
+  return { code: r.status ?? -1, stdout: r.stdout ?? "" };
+}
+
+describe.runIf(runsBash)("general-purpose-confirm.sh — Codex copy (spec 0041 R10)", () => {
+  const spawn = (agentType: string): Record<string, unknown> => ({
+    tool_name: "spawn_agent",
+    tool_input: { agent_type: agentType, message: "x" },
+  });
+
+  // Covers: R10
+  it("denies general-purpose as a confirmation, never ask and never allow", () => {
+    const r = runCodex(spawn("general-purpose"));
+    expect(r.code).toBe(0);
+    const decision = JSON.parse(r.stdout).hookSpecificOutput.permissionDecision;
+    expect(decision).toBe("deny");
+    expect(r.stdout).not.toContain('"ask"');
+    expect(r.stdout).not.toContain('"allow"');
+  });
+
+  // Covers: R10
+  it("stays silent for any other agent_type", () => {
+    const r = runCodex(spawn("scout"));
+    expect(r.code).toBe(0);
+    expect(r.stdout.trim()).toBe("");
+  });
+});
+
 const MINIMAL_CONFIG = {
   name: "test",
   engines: ["claude"],

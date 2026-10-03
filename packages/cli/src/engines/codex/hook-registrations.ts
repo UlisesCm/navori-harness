@@ -197,11 +197,6 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
     },
   },
   {
-    // D4: Codex hooks can't emit `ask` — the confirmation moves to a
-    // `.codex/rules/navori.rules` `prompt` rule instead (spec 0035 Lote C).
-    script: "pr-publisher-confirm",
-  },
-  {
     script: "subagent-no-background",
   },
   {
@@ -218,10 +213,6 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
       when: (config) => Boolean(config.harness?.masterPlan),
       late: true,
     },
-  },
-  {
-    // Spec 0039 R40: Claude-only, like the other `ask` confirmations.
-    script: "general-purpose-confirm",
   },
   {
     // Spec 0041 R21: same SessionStart channel `session-start-context` uses.
@@ -266,6 +257,32 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
       statusMessage: "navori: plan-gate",
       minVersion: "0.134.0",
       when: (config) => Boolean(config.harness?.planTiers),
+      late: true,
+    },
+  {
+    // Spec 0041 R10: a `prompt` rule does not confirm inside subagents (probe
+    // V1), so the publisher's `gh pr create` is confirmed by deny-as-confirmation
+    // (`case "$0"` inside the script). Never `ask`, never an approving handler.
+    script: "pr-publisher-confirm",
+    registration: {
+      event: "PreToolUse",
+      matcher: "^Bash$",
+      timeout: 10,
+      statusMessage: "navori: pr-publisher-confirm",
+      minVersion: "0.129.0",
+      late: true,
+    },
+  },
+  {
+    // Spec 0041 R10: same deny-as-confirmation. `spawn_agent$` is unanchored (V2
+    // flattens the namespace into the tool name).
+    script: "general-purpose-confirm",
+    registration: {
+      event: "PreToolUse",
+      matcher: "spawn_agent$",
+      timeout: 10,
+      statusMessage: "navori: general-purpose-confirm",
+      minVersion: "0.134.0",
       late: true,
     },
   },

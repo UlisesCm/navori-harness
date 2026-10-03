@@ -95,6 +95,22 @@ is_scan_trigger "$cmd" || exit 0
 # It names SOME subagent, not specifically the publisher — a `scout` opening a
 # PR would pass. That is deliberate: this is a routing nudge, not a security
 # boundary, and the detector cannot see through `sh -c` either.
+#
+# CODEX (spec 0041 R10): Codex hooks cannot emit `ask` and a `.codex/rules`
+# `prompt` rule only confirms on the main thread — it is silent inside the
+# publisher subagent (live probe V1) — so the Codex copy denies instead:
+# deny-as-confirmation, decided by `$0` like `comment-draft-confirm.sh`. It runs
+# BEFORE the subagent allow, because the publisher is exactly where the
+# unconfirmed `gh pr create` happens. Fixed by construction: no jq needed.
+case "$0" in
+  *".codex/hooks/"*)
+    navori_audit_verdict="deny"
+    navori_audit_reason="gh pr create requires user confirmation (Codex)"
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[navori] this `gh pr create` opens a PR and Codex hooks cannot prompt. Show the user the title and body, and let them confirm and run the command themselves."}}'
+    exit 0
+    ;;
+esac
+
 navori_pr_agent=$(payload_field agent_id)
 [ -n "$navori_pr_agent" ] || navori_pr_agent=$(payload_field subagent_id)
 if [ -n "$navori_pr_agent" ]; then
