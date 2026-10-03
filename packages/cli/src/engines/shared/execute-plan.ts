@@ -76,6 +76,14 @@ export interface OrphanScan {
   shape: "file" | "skill-dir" | "skill-nested-file";
   /** Path from the skill dir to the nested file. Required when shape is "skill-nested-file". */
   nestedRelPath?: string;
+  /**
+   * Opt-in (spec 0041 R13): for a `"file"` orphan, the unit as navori renders it
+   * fresh, or null when unknown. When non-null the orphan is deleted only if
+   * nothing the user wrote sits outside its managed blocks (`requirePristine`);
+   * otherwise it is kept and reported. Unset = the scan's previous behavior,
+   * so engines that do not set it are unaffected.
+   */
+  expected?: (relPath: string) => string | null;
 }
 
 export interface AdapterCtx {
@@ -364,8 +372,12 @@ function pushKept(
   absPath: string,
   markerId?: string,
   verifyHash?: boolean,
+  expected?: string | null,
 ): void {
-  const authorship = navoriAuthorship(absPath, markerId, { verifyHash });
+  const authorship = navoriAuthorship(absPath, markerId, {
+    verifyHash,
+    ...(expected != null ? { requirePristine: { expected } } : {}),
+  });
   if (authorship === "ours") return;
   kept.push({ path: relative(cwd, absPath), reason: authorship });
 }
@@ -386,10 +398,12 @@ function collectOrphans(
         if (scan.desired.has(relPath)) continue;
         // Flat orphan files (scripts, hooks, agents): a hand-edited managed block
         // is kept, not deleted (`verifyHash`).
-        if (navoriAuthorship(absPath, undefined, { verifyHash: true }) === "ours") {
+        const expected = scan.expected?.(relPath);
+        const pristine = expected != null ? { requirePristine: { expected } } : {};
+        if (navoriAuthorship(absPath, undefined, { verifyHash: true, ...pristine }) === "ours") {
           removals.push({ path: absPath });
         } else {
-          pushKept(kept, cwd, absPath, undefined, true);
+          pushKept(kept, cwd, absPath, undefined, true, expected);
         }
         continue;
       }

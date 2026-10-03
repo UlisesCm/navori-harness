@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseToml } from "smol-toml";
-import { safeHomedir } from "../primitives/home.ts";
+import { codexHome } from "./home.ts";
 import {
   codexHookCommand,
   type ResolvedCodexHook,
@@ -146,7 +146,7 @@ function readCodexHomeConfig(path: string): ParsedCodexHomeConfig | null {
 
 /** Default location of Codex's machine-global trust store. */
 export function defaultCodexHomeConfigPath(): string {
-  return join(safeHomedir(), ".codex", "config.toml");
+  return join(codexHome(), "config.toml");
 }
 
 /** Fail closed when the project TOML no longer contains the proposed positional hooks. */

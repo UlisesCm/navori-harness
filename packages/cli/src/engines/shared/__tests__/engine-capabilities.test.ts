@@ -1,4 +1,9 @@
 import { describe, it, expect } from "vitest";
+import { existsSync, mkdtempSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
+import { renderCodexEngine } from "../../codex/index.ts";
 import { ENGINES } from "../../../lib/config/schema.ts";
 import {
   ENGINE_CAPABILITIES,
@@ -219,5 +224,73 @@ describe("analyticWriteTools (spec 0033 D5, R23)", () => {
         expect(ENGINE_CAPABILITIES[id].analyticWriteTools[role]).toEqual([]);
       }
     }
+  });
+});
+
+// Covers: R30
+describe("unsupportedSurfaces.renderedPaths", () => {
+  /** Glob match where `*` stands for any run of characters inside ONE path segment. */
+  const matchesGlob = (glob: string, path: string): boolean => {
+    const want = glob.split("/");
+    const got = path.split("/");
+    return (
+      want.length === got.length &&
+      want.every((segment, i) => {
+        const [first = "", ...rest] = segment.split("*");
+        const actual = got[i] ?? "";
+        if (rest.length === 0) return actual === segment;
+        const last = rest.pop() ?? "";
+        return (
+          actual.length >= first.length + last.length &&
+          actual.startsWith(first) &&
+          actual.endsWith(last) &&
+          rest.every((mid) => actual.includes(mid))
+        );
+      })
+    );
+  };
+
+  function walk(root: string, rel = ""): string[] {
+    const abs = join(root, rel);
+    if (!existsSync(abs)) return [];
+    return readdirSync(abs, { withFileTypes: true }).flatMap((entry) => {
+      const next = rel === "" ? entry.name : `${rel}/${entry.name}`;
+      return entry.isDirectory() ? walk(root, next) : [next];
+    });
+  }
+
+  it("fails if a Codex surface declared unsupported has rendered files", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "navori-caps-"));
+    const cfg = NavoriConfigSchema.parse({
+      name: "caps",
+      engines: ["codex"],
+      preset: "custom",
+      branchBase: "main",
+      qualityGate: { fast: "pnpm test", full: "pnpm test" },
+      harness: { planTiers: true, scribeOwnsMarkdown: true, masterPlan: true },
+      hooks: { verifyOnStop: true },
+      plugins: {
+        engram: { enabled: true },
+        jscpd: { enabled: true },
+        semgrep: { enabled: true },
+        tgrep: { enabled: true },
+      },
+    });
+    renderCodexEngine(cwd, cfg);
+    const files = walk(cwd);
+    for (const surface of ENGINE_CAPABILITIES.codex.unsupportedSurfaces) {
+      for (const glob of surface.renderedPaths ?? []) {
+        const hits = files.filter((f) => matchesGlob(glob, f));
+        expect(hits, `surface '${surface.surface}' is unsupported but rendered ${hits}`).toEqual(
+          [],
+        );
+      }
+    }
+  });
+
+  it("no longer lists engine-scripts: Codex installs registered plugin scripts", () => {
+    expect(
+      ENGINE_CAPABILITIES.codex.unsupportedSurfaces.some((s) => s.surface === "engine-scripts"),
+    ).toBe(false);
   });
 });

@@ -15,7 +15,8 @@ import {
   type NavoriConfig,
   type NavoriConfigInput,
 } from "../../../lib/config/schema.ts";
-import { renderCodexEngine } from "../index.ts";
+import { codexInstalledScripts, renderCodexEngine } from "../index.ts";
+import { loadEnabledPlugins } from "../../../lib/config/plugins.ts";
 import { renderClaudeEngine } from "../../claude/index.ts";
 import { adaptHarnessTextForCodex } from "../compat.ts";
 import { resolveCodexHooks } from "../hook-registrations.ts";
@@ -925,5 +926,59 @@ describe("renderCodexEngine — plugin skill extension, jscpdThreshold retired (
     expect(skill).not.toContain("--threshold");
     expect(skill).toContain("--baseline-from-ref");
     expect(skill).toContain("--fail-on-new-clones 0");
+  });
+});
+
+describe("renderCodexEngine — navori:if conditions in agent TOMLs (spec 0041 T1)", () => {
+  // Covers: R28
+  it.each([false, true])(
+    "no .codex/agents/*.toml carries a condition marker (scribeOwnsMarkdown=%s)",
+    (scribeOwnsMarkdown) => {
+      const cwd = tempRepo();
+      renderCodexEngine(cwd, config({ harness: { planTiers: true, scribeOwnsMarkdown } }));
+      for (const file of readdirSync(join(cwd, ".codex/agents"))) {
+        const toml = readFileSync(join(cwd, ".codex/agents", file), "utf-8");
+        expect(toml.includes("navori:if"), `agent ${file} still has a navori:if marker`).toBe(
+          false,
+        );
+      }
+      const implementer = readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8");
+      expect(implementer.includes("write your JSON evidence")).toBe(scribeOwnsMarkdown);
+    },
+  );
+});
+
+describe("renderCodexEngine — installed scripts follow registration (spec 0041 T2)", () => {
+  function listed(cwd: string, dir: string): string[] {
+    const abs = join(cwd, dir);
+    return existsSync(abs) ? readdirSync(abs).map((f) => `${dir}/${f}`) : [];
+  }
+
+  // Covers: R13, R30
+  it("installs exactly codexInstalledScripts under .codex/hooks and .codex/scripts", () => {
+    const cwd = tempRepo();
+    const cfg = config({
+      harness: { planTiers: true, scribeOwnsMarkdown: true, masterPlan: true },
+      plugins: {
+        engram: { enabled: true },
+        jscpd: { enabled: true },
+        semgrep: { enabled: true },
+        tgrep: { enabled: true },
+      },
+    });
+    renderCodexEngine(cwd, cfg);
+    const expected = codexInstalledScripts(cfg, loadEnabledPlugins(cfg.plugins).loaded);
+    const actual = [...listed(cwd, ".codex/hooks"), ...listed(cwd, ".codex/scripts")];
+    expect(new Set(actual)).toEqual(new Set(expected));
+    for (const gone of [
+      ".codex/hooks/plan-gate.sh",
+      ".codex/hooks/pr-publisher-confirm.sh",
+      ".codex/hooks/general-purpose-confirm.sh",
+      ".codex/hooks/bash-outcome-watch.sh",
+      ".codex/hooks/subagent-no-background.sh",
+      ".codex/scripts/guard-search-routing.sh",
+    ])
+      expect(actual).not.toContain(gone);
+    expect(actual).toContain(".codex/scripts/check-jscpd.sh");
   });
 });

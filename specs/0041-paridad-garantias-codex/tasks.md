@@ -8,18 +8,20 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
 
 ## Lote 0 — Defectos actuales del render Codex (sin sondas)
 
-- [ ] **T1** (R28) — `buildAgentToml` en `engines/codex/index.ts` resuelve las condiciones con
+- [x] **T1** (R28) — `buildAgentToml` en `engines/codex/index.ts` resuelve las condiciones con
   `engine: "codex"` antes de emitir; ningún `.codex/agents/*.toml` conserva `navori:if`. · test:
   `engines/__tests__/render-codex.test.ts` › "no agent toml keeps navori:if markers" (nombra el
   agente) con `// Covers: R28`
-- [ ] **T2** (R13, R30) — `codexInstalledScripts(config, plugins)` gobierna `placeHook` y la poda
+- [x] **T2** (R13, R30) — `codexInstalledScripts(config, plugins)` gobierna `placeHook` y la poda
   de `.codex/hooks/` y `.codex/scripts/`; la poda usa `isRemovableNavoriFile` con
   `requirePristine` y reporta lo conservado (`keptOrphanCodex`). `engine-scripts` sale de
   `unsupportedSurfaces` (H10) y `UnsupportedSurface` gana `renderedPaths`. · test:
   `render-codex.test.ts` › "installed scripts equal registered set", "edited orphan is kept and
   reported", "pristine orphan is pruned with backup", y `engine-capabilities.test.ts` › "no
   unsupported surface has rendered files" con `// Covers: R13, R30`
-- [ ] **T3** (R23) — `lib/codex/home.ts` con `codexHome()` (`$CODEX_HOME` o `~/.codex`), usado por
+  Nota: la poda conserva y reporta un huérfano con texto fuera de su bloque managed
+  (`requirePristine` vía `expected` en `execute-plan.ts`).
+- [x] **T3** (R23) — `lib/codex/home.ts` con `codexHome()` (`$CODEX_HOME` o `~/.codex`), usado por
   `lib/codex/trust.ts`, `commands/codex.ts` y `commands/doctor.ts`. · test:
   `lib/__tests__/codex-trust.test.ts` › "uses CODEX_HOME when set" y "falls back to ~/.codex" con
   `// Covers: R23`
