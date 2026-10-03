@@ -52,6 +52,7 @@ const FIXTURE: OverlapRow = {
     verifiedAt: "2026-09-30",
   },
   verdict: "reemplazar-por-nativo",
+  codexParity: { state: "igual", enforcing: false },
   engines: {
     claude: "native",
     codex: "emit",
