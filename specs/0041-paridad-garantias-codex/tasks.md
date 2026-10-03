@@ -107,7 +107,7 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
 
 ## Lote 5 — Prosa, master-plan y tgrep
 
-- [ ] **T14** (R18, R19) — `conditionOrchestration(content, config, engine)` reconoce `onCodex` y
+- [x] **T14** (R18, R19) — `conditionOrchestration(content, config, engine)` reconoce `onCodex` y
   `computeRenderPlan` lo aplica a todos los bloques core; `CODEX_VOCABULARY` agrega
   `SendMessage` → `send_input` y `/master-plan` → `$master-plan`; spans `if-not onCodex` en
   `orquestacion`, `sdd`, skills `spec-bootstrap`/`debug-failure`/`verify-before-done`/`master-plan`
@@ -115,6 +115,12 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
   into Codex surfaces" (nombra archivo y bloque; incluye mensajes `[navori]` de hooks registrados
   con allowlist motivado); golden de `cursor`/`copilot`/`agents-md`/Pi sin cambio con
   `// Covers: R18, R19`
+  Notas de implementación: (a) la regla `/master-plan` → `$master-plan` de `CODEX_VOCABULARY`
+  se difiere a T15: ninguna prosa emitida la contiene hasta que la skill se emite, y
+  `vocabulary-alive.test.ts` falla ante una regla muerta; (b) `conditionOrchestration` se aplica
+  ahora a todo bloque core, agente y skill mediante el argumento `engine` (default claude);
+  (c) la allowlist de mensajes `[navori]` de hooks queda vacía: ningún mensaje de hook
+  registrado en Codex coincidió.
 - [ ] **T15** (R20, R21) — `resolveHarnessPlan` con `engine?: EngineId` en lugar de
   `includeClaudeOnly*`; `WORKFLOW_SKILL_ENGINES` y `HOOK_ENGINES` en `roster.ts`;
   `master-plan`/`context-intake` en `.agents/skills/` con `agents/openai.yaml`;
