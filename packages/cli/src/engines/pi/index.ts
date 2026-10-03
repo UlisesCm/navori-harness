@@ -1,4 +1,5 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
+import { conditionOrchestration } from "../../lib/render/render-plan.ts";
 import { join, resolve } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config/config.ts";
 import { getCoreRoot } from "../../lib/render/bundled-assets.ts";
@@ -97,7 +98,11 @@ export function renderPiEngine(
   for (const agent of roles) {
     const parsed = parseAsset(readFileSync(agent.assetPath, "utf-8"), "html");
     const description = interpolate(parsed.frontmatter.description ?? agent.id, config);
-    const instructions = interpolate(parsed.managedBody, config);
+    // Resolve `navori:if` markers like every other engine; `onCodex` is false here.
+    const instructions = interpolate(
+      conditionOrchestration(parsed.managedBody, config, "pi"),
+      config,
+    );
     const tier = agent.modelKey ? config.models?.[agent.modelKey] : undefined;
     const model = tier ? config.models?.codexMap?.[tier] : undefined;
     if (tier && !model) {

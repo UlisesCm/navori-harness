@@ -113,3 +113,32 @@ describe("resolveConditions — malformed markers throw", () => {
     expect(() => conditionOrchestration(content, config(true))).toThrow(/mismatched/);
   });
 });
+
+describe("conditionOrchestration — reserved key onCodex", () => {
+  const content =
+    "a<!-- navori:if-not onCodex -->claude<!-- /navori:if-not -->" +
+    "<!-- navori:if onCodex -->codex<!-- /navori:if -->z";
+
+  // Covers: R18, R19
+  it("renders the if-not span and drops the if span by default and for claude", () => {
+    expect(conditionOrchestration(content, config(false))).toBe("aclaudez");
+    expect(conditionOrchestration(content, config(false), "claude")).toBe("aclaudez");
+    expect(conditionOrchestration(content, config(false), "cursor")).toBe("aclaudez");
+  });
+
+  // Covers: R18, R19
+  it("renders the if span and drops the if-not span only for codex", () => {
+    expect(conditionOrchestration(content, config(false), "codex")).toBe("acodexz");
+  });
+
+  // Covers: R18, R19
+  it("never reads onCodex from the config", () => {
+    const withKey = NavoriConfigSchema.parse({
+      name: "condition-tokens-demo",
+      engines: ["claude"],
+      preset: "custom",
+      harness: { onCodex: true },
+    });
+    expect(conditionOrchestration(content, withKey)).toBe("aclaudez");
+  });
+});

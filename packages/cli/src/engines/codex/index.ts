@@ -684,6 +684,7 @@ function freshRender(request: PlacementRequest, config: NavoriConfig): string | 
     extraVars: request.extraVars,
     commentStyle: request.commentStyle,
     transform: request.transform,
+    engine: "codex",
   }).content;
 }
 
@@ -716,6 +717,7 @@ function buildAgentsMdRequest(
   const baseBody = buildHarnessProse(ctx.config, ctx.repoRoot, ctx.isWorkspace, {
     includeOrchestration: true,
     includePluginBlocks: true,
+    engine: "codex",
   });
   // Same localized "## Available agents" prose as the Claude engine (#289), but
   // without the orchestrator intro — AGENTS.md IS the catalog Codex reads, so it
@@ -787,7 +789,7 @@ function buildAgentToml(
     config,
   );
   let instructions = adaptHarnessTextForCodex(
-    interpolate(conditionOrchestration(parsed.managedBody, config), config, {
+    interpolate(conditionOrchestration(parsed.managedBody, config, "codex"), config, {
       extraVars: pluginExtraVars(config),
     }),
     config,
@@ -798,7 +800,7 @@ function buildAgentToml(
       if (skill.injectInto !== `.claude/agents/${source.id}.md`) continue;
       const extension = parseAsset(readFileSync(skill.absPath, "utf-8"), "html");
       instructions += `\n\n${adaptHarnessTextForCodex(
-        interpolate(conditionOrchestration(extension.managedBody, config), config, {
+        interpolate(conditionOrchestration(extension.managedBody, config, "codex"), config, {
           extraVars: pluginExtraVars(config),
         }),
         config,

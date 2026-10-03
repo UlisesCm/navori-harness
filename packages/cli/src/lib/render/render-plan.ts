@@ -383,8 +383,24 @@ function resolveConditions(
   return out;
 }
 
-export function conditionOrchestration(content: string, config: NavoriConfig): string {
+/**
+ * Resolves `navori:if` / `navori:if-not` markers in `content`.
+ *
+ * `engine` names the engine the text is rendered for and defaults to
+ * `"claude"`, so every caller that does not pass it (Claude, the prose-only
+ * engines) keeps its output byte-for-byte. The reserved key `onCodex` is true
+ * only when `engine === "codex"`; it never reads `config`, so a config key of
+ * the same name has no effect. Spans wrapped in `if-not onCodex` therefore
+ * render everywhere except Codex, and `if onCodex` spans only on Codex.
+ */
+export function conditionOrchestration(
+  content: string,
+  config: NavoriConfig,
+  /** Engine id being rendered; only `"codex"` makes the reserved key `onCodex` true. */
+  engine: string = "claude",
+): string {
   const enabled = (key: string) => {
+    if (key === "onCodex") return engine === "codex";
     if (key === "sdd") return config.sdd?.enabled !== false;
     // Explicit value wins; unset (including an entirely absent `harness`
     // section) falls back to HARNESS_DEFAULTS rather than assuming "unset"
@@ -502,6 +518,8 @@ export function computeRenderPlan(
     skipIds?: ReadonlySet<string>;
     forceIds?: ReadonlySet<string>;
     omitRootOnly?: boolean;
+    /** Engine being rendered for; forwarded to `conditionOrchestration` (default `"claude"`). */
+    engine?: string;
   } = {},
 ): RenderPlan {
   // Fill in render-only derived values (prTarget, project.typedLanguage) so
@@ -584,8 +602,7 @@ export function computeRenderPlan(
     const resolved = resolveAssetPath(asset, language);
     if (resolved.fallback) languageFallbacks.push(asset.id);
     const rawContent = readFileSync(resolved.path, "utf-8");
-    const conditionedContent =
-      asset.id === "orquestacion" ? conditionOrchestration(rawContent, config) : rawContent;
+    const conditionedContent = conditionOrchestration(rawContent, config, options.engine);
     const content = interpolate(conditionedContent, config);
     if (asset.audience === "orchestrator") {
       // Not part of the always-on file. Stripping it from `working` is what

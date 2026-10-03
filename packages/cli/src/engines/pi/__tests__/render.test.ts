@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -127,6 +128,27 @@ describe("Pi render base", () => {
     expect(a).toBe(b);
     expect(ownsPiManifest(a)).toBe(true);
     expect(ownsPiManifest(a.replace('"id": "pi-runtime"', '"id": "someone-else"'))).toBe(false);
+  });
+
+  // Covers: R18
+  it("resolves navori:if markers in every rendered Pi agent", () => {
+    const dir = freshDir();
+    // `scribeOwnsMarkdown` on, so the agents carry the conditional spans that used to stay raw.
+    renderNonClaudeEngines(
+      dir,
+      NavoriConfigSchema.parse({ ...config, harness: { scribeOwnsMarkdown: true } }),
+      ["pi"],
+      false,
+    );
+    const names = readdirSync(join(dir, ".pi/agents")).filter((f) => f.endsWith(".md"));
+    expect(names.length).toBeGreaterThan(2);
+    for (const name of names) {
+      const body = readFileSync(join(dir, ".pi/agents", name), "utf-8");
+      expect({ file: `.pi/agents/${name}`, raw: body.includes("navori:if") }).toEqual({
+        file: `.pi/agents/${name}`,
+        raw: false,
+      });
+    }
   });
 
   // Covers: R6

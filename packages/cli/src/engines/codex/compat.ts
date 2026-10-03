@@ -98,6 +98,13 @@ export const CODEX_VOCABULARY: ReadonlyArray<readonly [from: string, to: string]
   // `orquestacion.md`), so a single entry covers it; a real slash→`$` mechanism
   // is not worth building for one citation.
   ["/spec-bootstrap", "$spec-bootstrap"],
+  // Spec 0041 R18: `SendMessage` is Claude's tool for continuing a running
+  // subagent; Codex continues one with `send_input`. Prose that a term swap
+  // cannot fix sits in an `if-not onCodex` span in the source asset instead.
+  // The `/master-plan` -> `$master-plan` rule joins with T15: until the skill
+  // is emitted for Codex no prose reaches this adapter with it, and a rule that
+  // matches nothing fails `vocabulary-alive.test.ts`.
+  ["`SendMessage`", "`send_input`"],
 ];
 
 /**

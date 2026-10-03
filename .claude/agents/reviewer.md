@@ -4,7 +4,7 @@ description: Strict reviewer — approves or rejects a diff against CLAUDE.md an
 tools: Read, Glob, Grep, Bash, Write, mcp__codegraph__*, mcp__engram__mem_search, mcp__engram__mem_get_observation
 model: sonnet
 effort: low
-maxWords: 2372
+maxWords: 2387
 ---
 
 <!-- navori:managed id="reviewer-base" hash="6ac98ac7" version="0.11.1" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
