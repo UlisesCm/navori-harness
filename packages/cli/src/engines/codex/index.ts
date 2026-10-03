@@ -49,6 +49,11 @@ import {
   type EngineAdapter,
   type PlacementRequest,
 } from "../shared/execute-plan.ts";
+import {
+  applyHookExtension,
+  hookExtensionTarget,
+  removeHookExtension,
+} from "../shared/hook-extension.ts";
 import { buildCodexConfigToml } from "./build-config-toml.ts";
 import {
   codexHookCommand,
@@ -314,6 +319,35 @@ export function renderCodexEngine(
     }
   }
 
+  // Spec 0041 R29: plugin hook extensions (the tgrep search lane) ride inside the
+  // Codex copy of the hook they extend, so no hook of their own is registered.
+  // The extension body is engine-neutral; only the hook path moves.
+  for (const plugin of plugins) {
+    for (const extension of plugin.hookExtensionAssets ?? []) {
+      const target = hookExtensionTarget(extension.target, "codex");
+      if (target === null) continue;
+      applyHookExtension({
+        cwd,
+        plugin,
+        extension,
+        target,
+        config,
+        pending,
+        skipped,
+        updatesAvailable: [],
+        downgrades: [],
+        withRelPath: true,
+      });
+    }
+  }
+  for (const plugin of loadDisabledPlugins(config.plugins).loaded) {
+    for (const extension of plugin.hookExtensionAssets ?? []) {
+      const target = hookExtensionTarget(extension.target, "codex");
+      if (target === null) continue;
+      removeHookExtension({ cwd, extension, target, pending, withRelPath: true });
+    }
+  }
+
   const { written, backupPath } = commitWrites({
     pending,
     removals,
@@ -337,22 +371,32 @@ export function renderCodexEngine(
 /**
  * Spec 0041 D15 (R13, R30): the ONE set of repo-relative script paths Codex
  * installs under `.codex/hooks/` and `.codex/scripts/`. A script lands only if
- * a registered hook (core row or plugin hook) runs it. Shell partials
- * (`# navori:include`) are inlined at render time, so no extra file backs a
- * registered script; no registered script `source`s another file. A script no
- * hook invokes (unsupported rows, plugin scripts with no Codex registration,
- * e.g. the tgrep guard that only the Claude hook extension sources) is not
- * installed, and a previously installed one is retired by the orphan scan.
+ * a registered hook (core row or plugin hook) runs it, or a hook extension that
+ * rides inside an installed hook sources it (R29: the tgrep guard under
+ * `guard-destructive`). Shell partials (`# navori:include`) are inlined at
+ * render time, so no extra file backs a registered script. A script nothing
+ * runs (unsupported rows, plugin scripts with no registration and no extension
+ * host) is not installed, and a previously installed one is retired by the
+ * orphan scan.
  */
 export function codexInstalledScripts(
   config: NavoriConfig,
   plugins: readonly LoadedPlugin[],
 ): ReadonlySet<string> {
-  return new Set(
+  const installed = new Set(
     resolveCodexHooks(config, plugins).map(
       (hook) => hook.scriptPath ?? `.codex/hooks/${hook.script}.sh`,
     ),
   );
+  for (const plugin of plugins) {
+    const hosted = (plugin.hookExtensionAssets ?? []).some((extension) => {
+      const target = hookExtensionTarget(extension.target, "codex");
+      return target !== null && installed.has(target);
+    });
+    if (!hosted) continue;
+    for (const script of plugin.scriptAssets) installed.add(`.codex/scripts/${script.dest}`);
+  }
+  return installed;
 }
 
 /** Read only executable command handlers, not comments or incidental TOML text. */

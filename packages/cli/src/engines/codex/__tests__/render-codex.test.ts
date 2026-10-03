@@ -6,7 +6,7 @@ import {
   readdirSync,
   writeFileSync,
 } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -1036,10 +1036,83 @@ describe("renderCodexEngine — installed scripts follow registration (spec 0041
       ".codex/hooks/general-purpose-confirm.sh",
       ".codex/hooks/bash-outcome-watch.sh",
       ".codex/hooks/subagent-no-background.sh",
-      ".codex/scripts/guard-search-routing.sh",
     ])
       expect(actual).not.toContain(gone);
     expect(actual).toContain(".codex/scripts/check-jscpd.sh");
+    // R29: the guard is installed because the hook extension sources it.
+    expect(actual).toContain(".codex/scripts/guard-search-routing.sh");
+  });
+});
+
+describe("renderCodexEngine — tgrep search lane (spec 0041 T16)", () => {
+  const tgrepOn = { plugins: { engram: { enabled: true }, tgrep: { enabled: true } } };
+  const hookPath = ".codex/hooks/guard-destructive.sh";
+  const scriptPath = ".codex/scripts/guard-search-routing.sh";
+
+  /** Run the rendered Codex hook with a stub `tgrep` that reports a live index. */
+  function runCodexGuard(cwd: string, command: string): { status: number | null; stderr: string } {
+    const bin = join(cwd, "bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(
+      join(bin, "tgrep"),
+      "#!/bin/sh\nprintf 'Index status for /x\\n  Server:     running\\n'\n",
+      {
+        mode: 0o755,
+      },
+    );
+    const r = spawnSync("bash", [join(cwd, hookPath)], {
+      input: JSON.stringify({ cwd, tool_name: "Bash", tool_input: { command } }),
+      env: { ...process.env, PATH: `${bin}:/usr/bin:/bin` },
+      cwd,
+      encoding: "utf-8",
+    });
+    return { status: r.status, stderr: r.stderr };
+  }
+
+  // Covers: R29
+  it("blocks a recursive shell grep with exit 2 and carries no Claude path", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config(tgrepOn));
+    execFileSync("git", ["init", "-q"], { cwd });
+    const hook = readFileSync(join(cwd, hookPath), "utf-8");
+    expect(hook).toContain('navori:managed start id="tgrep-search-lane"');
+    // The base hook mentions CLAUDE_PROJECT_DIR in comments and its Claude arm;
+    // the lane is what must stay engine-neutral.
+    const lane = hook.slice(
+      hook.indexOf('navori:managed start id="tgrep-search-lane"'),
+      hook.indexOf('navori:managed end id="tgrep-search-lane"'),
+    );
+    expect(lane).toContain("guard-search-routing.sh");
+    expect(lane).not.toContain("CLAUDE_PROJECT_DIR");
+    expect(lane).not.toContain(".claude/scripts");
+    expect(existsSync(join(cwd, scriptPath))).toBe(true);
+    expect(readFileSync(join(cwd, scriptPath), "utf-8")).not.toContain("${CLAUDE_PROJECT_DIR");
+
+    const blocked = runCodexGuard(cwd, 'grep -rn "foo" src/');
+    expect(blocked.status).toBe(2);
+    expect(blocked.stderr).toContain("BLOCKED by guard-search-routing");
+    // Output filtering stays allowed, exactly as under Claude.
+    expect(runCodexGuard(cwd, "cat f.txt | grep foo").status).toBe(0);
+  });
+
+  // Covers: R29
+  it("installs neither the lane nor the script with tgrep off, and strips them when it turns off", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    expect(readFileSync(join(cwd, hookPath), "utf-8")).not.toContain("tgrep-search-lane");
+    expect(existsSync(join(cwd, scriptPath))).toBe(false);
+
+    renderCodexEngine(cwd, config(tgrepOn));
+    expect(readFileSync(join(cwd, hookPath), "utf-8")).toContain("tgrep-search-lane");
+    renderCodexEngine(cwd, config(tgrepOn));
+    expect(existsSync(join(cwd, scriptPath))).toBe(true);
+
+    renderCodexEngine(
+      cwd,
+      config({ plugins: { engram: { enabled: true }, tgrep: { enabled: false } } }),
+    );
+    expect(readFileSync(join(cwd, hookPath), "utf-8")).not.toContain("tgrep-search-lane");
+    expect(existsSync(join(cwd, scriptPath))).toBe(false);
   });
 });
 
