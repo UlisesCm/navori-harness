@@ -506,10 +506,15 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       "plan-gate": {
         state: "advisory",
         reason:
-          "The workplan procedure remains in AGENTS.md, but plan-gate.sh is not " +
-          "registered: Codex 0.158.0 sends collaborationspawn_agent through PreToolUse " +
-          "with message/task_name but no typed agent role or verifiably readable workplan " +
-          "opening. A blanket deny blocked child creation, not selective implementer gating.",
+          "harness.planTiers registers PreToolUse(spawn_agent$) as the last late row; only implementer is gated, " +
+          "with the role from tool_input.agent_type and, when the message is encrypted (probe V2), the opening " +
+          "line from the orchestrator's dispatch_<feature>.json (spec 0041 R9); advisory until the live smoke (T20).",
+        evidence: {
+          kind: "hook",
+          script: "plan-gate.sh",
+          event: "PreToolUse",
+          matcher: "spawn_agent$",
+        },
       },
       "markdown-ownership": {
         state: "enforced",
@@ -564,10 +569,16 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "Claude usage format, so the lane is Claude-only (spec 0039 R44).",
       },
       "general-purpose-confirm": {
-        state: "unsupported",
+        state: "advisory",
         reason:
-          "Codex hooks cannot emit `ask` and it has no typed `general-purpose` subagent; " +
-          "general-purpose-confirm is an unsupported row in CODEX_HOOK_REGISTRATIONS (spec 0039 R40).",
+          "PreToolUse(spawn_agent$) denies a general-purpose spawn as a confirmation, since Codex hooks " +
+          "cannot emit `ask` (spec 0041 R10); advisory until the live smoke (T20).",
+        evidence: {
+          kind: "hook",
+          script: "general-purpose-confirm.sh",
+          event: "PreToolUse",
+          matcher: "spawn_agent$",
+        },
       },
     },
     analyticWriteTools: CODEX_ANALYTIC_WRITE_TOOLS,

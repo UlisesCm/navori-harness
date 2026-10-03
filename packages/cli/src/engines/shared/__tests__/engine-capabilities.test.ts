@@ -70,7 +70,7 @@ describe("ENGINE_CAPABILITIES ↔ ENGINES", () => {
 
 // Covers: R40, R70
 describe("general-purpose-confirm control", () => {
-  it("is enforced on Claude by the PreToolUse(Agent) hook and unsupported elsewhere", () => {
+  it("is enforced on Claude by the PreToolUse(Agent) hook, advisory on Codex and unsupported elsewhere", () => {
     const claude = ENGINE_CAPABILITIES.claude.controls["general-purpose-confirm"];
     expect(claude.state).toBe("enforced");
     expect(claude.state === "enforced" && claude.evidence).toEqual({
@@ -79,7 +79,9 @@ describe("general-purpose-confirm control", () => {
       event: "PreToolUse",
       matcher: "Agent",
     });
-    for (const engine of ENGINES.filter((e) => e !== "claude")) {
+    // Covers: R10
+    expect(ENGINE_CAPABILITIES.codex.controls["general-purpose-confirm"].state).toBe("advisory");
+    for (const engine of ENGINES.filter((e) => e !== "claude" && e !== "codex")) {
       expect(ENGINE_CAPABILITIES[engine].controls["general-purpose-confirm"].state).toBe(
         "unsupported",
       );

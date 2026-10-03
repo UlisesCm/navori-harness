@@ -82,7 +82,9 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   "packages/core/core-assets/managed/idioma-rol.md": 140,
   "packages/core/core-assets/managed/intake-tickets.md": 251, // 228 → 10.1%
   "packages/core/core-assets/managed/operaciones-seguras.md": 310,
-  "packages/core/core-assets/managed/orquestacion.md": 1060, // 963 → 10.1%
+  // 1030 words → 5.3% headroom. The extra prose is Codex-only (inline `onCodex` span);
+  // Claude's startup context is unchanged.
+  "packages/core/core-assets/managed/orquestacion.md": 1085,
   "packages/core/core-assets/managed/plan-maestro.md": 90,
   // Spec 0032 (#1011): own small ceiling (design.md "Components" targets
   // ~250 words) — the level table and the gate rule only, condition

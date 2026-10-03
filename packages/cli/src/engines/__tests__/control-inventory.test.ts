@@ -216,9 +216,8 @@ function assertControlMatchesRender(cwd: string, engineId: EngineId, controlId: 
     if (controlId === "plan-gate") {
       const configToml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
       expect(declaration.state).toBe("advisory");
-      expect(declaration.reason).toContain("Codex 0.158.0");
-      expect(declaration.reason).toContain("no typed agent role");
-      expect(configToml).not.toContain("plan-gate.sh");
+      expect(declaration.reason).toContain("dispatch_<feature>.json");
+      expect(configToml).toContain("plan-gate.sh");
       expect(configToml).toContain("implementer-no-markdown.sh");
     }
     return;
@@ -320,19 +319,17 @@ describe("control inventory vs. the actual render (spec 0033 D5)", () => {
 
     expect(codexPlan).toMatch(/Codex[^\n]*plan-gate[^\n]*advisory/i);
     expect(codexPlan).not.toContain("A hook denies dispatching");
-    expect(codexConfig).not.toContain("plan-gate.sh");
+    expect(codexConfig).toContain("plan-gate.sh");
     expect(ENGINE_CAPABILITIES.codex.controls["plan-gate"].state).toBe("advisory");
     expect(ENGINE_CAPABILITIES.claude.controls["plan-gate"].state).toBe("enforced");
   });
 
-  // Covers: R10
-  it("keeps plan-gate unregistered in Codex and the routing-watch matcher unchanged", () => {
+  // Covers: R9, R10
+  it("registers plan-gate in Codex (spawn_agent$) and keeps the routing-watch matcher unchanged", () => {
     const row = CODEX_HOOK_REGISTRATIONS.find((r) => r.script === "plan-gate");
-    expect(row?.registration).toBeUndefined();
-    const parity = CODEX_PARITY["hook:plan-gate"];
-    const why = parity?.state === "limite-codex" ? parity.containment : undefined;
-    expect(why).toContain("explicit agent_type spawn exposes the typed role in Pre");
-    expect(why).toContain("stays advisory");
+    expect(row?.registration?.matcher).toBe("spawn_agent$");
+    expect(row?.registration?.late).toBe(true);
+    expect(CODEX_PARITY["hook:plan-gate"]?.state).toBe("equivalente");
     const routing = CODEX_HOOK_REGISTRATIONS.find((r) => r.script === "routing-watch");
     expect(routing?.registration?.event).toBe("PostToolUse");
     expect(routing?.registration?.matcher).toBe("^(Bash|apply_patch|spawn_agent)$");
