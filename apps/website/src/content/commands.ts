@@ -188,6 +188,7 @@ const es: Record<string, CommandDoc> = {
     notes: [
       "Corre doctor en CI con --strict para fallar el build si hay drift no resuelto.",
       "Valida invariants: substrings load-bearing que deben sobrevivir en el output (exit 2 si faltan).",
+      "El estado de confianza de Codex se lee de $CODEX_HOME/config.toml si CODEX_HOME está definido, y de ~/.codex/config.toml si no; un valor relativo se rechaza.",
     ],
   },
   status: {
@@ -242,6 +243,7 @@ const es: Record<string, CommandDoc> = {
       "Muestra la tabla de hooks (evento, matcher, estado) y pide confirmación antes de escribir; sin TTY hace falta --yes.",
       "Respalda ~/.codex/config.toml antes de editarlo y valida el resultado como TOML antes de escribir; si el archivo cambió desde que se mostró la confirmación, aborta sin escribir.",
       "Cubre la raíz y cada workspace de un monorepo con el engine 'codex' habilitado. 'navori doctor' detecta sin escribir si falta correrlo.",
+      "Si CODEX_HOME está definido, usa $CODEX_HOME/config.toml en lugar de ~/.codex/config.toml; un valor relativo se rechaza.",
     ],
   },
   global: {
@@ -1100,6 +1102,7 @@ const en: Record<string, CommandDoc> = {
     notes: [
       "Run doctor in CI with --strict to fail the build on unresolved drift.",
       "Validates invariants: load-bearing substrings that must survive in the output (exit 2 if missing).",
+      "Codex trust state is read from $CODEX_HOME/config.toml if CODEX_HOME is set, and from ~/.codex/config.toml otherwise; a relative value is rejected.",
     ],
   },
   status: {
@@ -1154,6 +1157,7 @@ const en: Record<string, CommandDoc> = {
       "Shows the hook table (event, matcher, status) and asks for confirmation before writing; no TTY needs --yes.",
       "Backs up ~/.codex/config.toml before editing it and validates the result as TOML before writing; aborts without writing if the file changed since the confirmation was shown.",
       "Covers the root and every monorepo workspace with the 'codex' engine enabled. 'navori doctor' detects, without writing, when this is still needed.",
+      "If CODEX_HOME is set, it uses $CODEX_HOME/config.toml instead of ~/.codex/config.toml; a relative value is rejected.",
     ],
   },
   global: {

@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { codexHome } from "../codex/home.ts";
 import {
   codexHookHash,
+  defaultCodexHomeConfigPath,
   codexHookKey,
   isValidToml,
   planTrustEdit,
@@ -333,3 +335,41 @@ function writeTempHome(text: string): string {
   writeFileSync(path, text, "utf-8");
   return path;
 }
+
+describe("codexHome / defaultCodexHomeConfigPath (spec 0041 R23)", () => {
+  const saved = process.env.CODEX_HOME;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = saved;
+  });
+
+  // Covers: R23
+  it("uses $CODEX_HOME/config.toml when CODEX_HOME is set", () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-codex-home-"));
+    process.env.CODEX_HOME = dir;
+    expect(codexHome()).toBe(dir);
+    expect(defaultCodexHomeConfigPath()).toBe(join(dir, "config.toml"));
+  });
+
+  // Covers: R23
+  it("falls back to ~/.codex/config.toml when CODEX_HOME is unset or empty", () => {
+    delete process.env.CODEX_HOME;
+    expect(defaultCodexHomeConfigPath()).toBe(join(homedir(), ".codex", "config.toml"));
+    process.env.CODEX_HOME = "";
+    expect(defaultCodexHomeConfigPath()).toBe(join(homedir(), ".codex", "config.toml"));
+  });
+
+  // Covers: R23
+  it("readCodexTrustState reads the CODEX_HOME store by default", () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-codex-home-"));
+    writeFileSync(join(dir, "config.toml"), '[projects."/x"]\ntrust_level = "trusted"\n', "utf-8");
+    process.env.CODEX_HOME = dir;
+    expect(readCodexTrustState("/x", "/x/.codex/config.toml", []).projectTrusted).toBe(true);
+  });
+
+  // Covers: R23
+  it("refuses a relative CODEX_HOME instead of resolving it against the cwd", () => {
+    process.env.CODEX_HOME = "relative/dir";
+    expect(() => codexHome()).toThrow(/absolute/);
+  });
+});
