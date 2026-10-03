@@ -121,13 +121,25 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
   ahora a todo bloque core, agente y skill mediante el argumento `engine` (default claude);
   (c) la allowlist de mensajes `[navori]` de hooks queda vacía: ningún mensaje de hook
   registrado en Codex coincidió.
-- [ ] **T15** (R20, R21) — `resolveHarnessPlan` con `engine?: EngineId` en lugar de
+- [x] **T15** (R20, R21) — `resolveHarnessPlan` con `engine?: EngineId` en lugar de
   `includeClaudeOnly*`; `WORKFLOW_SKILL_ENGINES` y `HOOK_ENGINES` en `roster.ts`;
   `master-plan`/`context-intake` en `.agents/skills/` con `agents/openai.yaml`;
   `master-plan-context` registrado en Codex con `when: masterPlan` y `nv_project_dir`;
   `master-accept-confirm` por deny-como-confirmación (D11). · test: `render-codex.test.ts` ›
   "masterPlan registers master-plan-context and emits both skills"; render de engines de prosa
   no las emite con `// Covers: R20, R21`
+  Notas de implementación: (a) ambos hooks de master-plan llevan una rama `case` sobre `$0` (patrón
+  de `comment-draft-confirm`): `master-accept-confirm` deniega bajo `.codex/hooks/` y
+  `master-plan-context` toma el toplevel de git en lugar de `CLAUDE_PROJECT_DIR`; `claude.snap`
+  cambia solo en esos dos scripts; no se usó el parcial `nv_project_dir`; (b) las filas de registro
+  llevan `late: true` y `resolveCodexHooks` las emite después de los hooks de plugin (D8); (c) las
+  skills de master-plan no reciben `agents/openai.yaml`: ese sidecar es solo la política manual-only
+  (`allow_implicit_invocation: false`) y desactivaría la oferta "sí, continúa"; (d) las filas de
+  paridad pasaron de `limite-codex` a `equivalente` con `enforcing: false`, porque
+  `native-overlap.test.ts` y `engine-parity.test.ts` exigen registrado => no `limite-codex`; la
+  promoción a enforcing queda en T20; (e) `buildEngineEvidence` de `doctor.ts` sigue planeando sin
+  `engine`, para que la evidencia de Claude no gane hallazgos de hooks sin registrar con
+  `masterPlan` apagado.
 - [ ] **T16** (R29) — Extensión `tgrep` neutral al engine: la línea de `guard-destructive` hace
   `source` relativo a su propio directorio y `guard-search-routing.sh` resuelve la raíz con
   `nv_project_dir`; `applyHookExtension` sube al spine compartido y Codex lo aplica sobre

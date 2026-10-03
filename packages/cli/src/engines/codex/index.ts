@@ -141,7 +141,7 @@ export function renderCodexEngine(
     ? relative(resolve(repoRoot), resolve(cwd)).split(sep).join("/")
     : "";
 
-  const plan = resolveHarnessPlan(config, coreAssets, preset);
+  const plan = resolveHarnessPlan(config, coreAssets, preset, { engine: "codex" });
   // Mirror of the Claude engine's unknown-library warning (audit v0.5.1 A1):
   // an id the plan skipped silently would lose its guidance without signal.
   for (const lib of unknownLibraries([

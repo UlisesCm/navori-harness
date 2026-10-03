@@ -95,11 +95,33 @@ export const ROSTER_WORKFLOW_SKILLS: ReadonlyArray<string> = [
   "context-intake",
 ];
 
-/** Workflow skills intentionally unavailable outside the Claude adapter. */
-export const CLAUDE_ONLY_WORKFLOW_SKILLS: ReadonlySet<string> = new Set([
-  "master-plan",
-  "context-intake",
-]);
+/**
+ * Per-engine scope of the units that are NOT universal (spec 0041 D11, R20/R21).
+ * A unit absent from both tables ships to every engine; a unit present ships
+ * only to the engines it lists. Engine ids are plain strings so this module
+ * stays free of the capability registry (no import cycle); `engine-parity`
+ * and `native-overlap` tests pin the ids against `ENGINES`.
+ */
+export const WORKFLOW_SKILL_ENGINES: Readonly<Record<string, readonly string[]>> = {
+  "master-plan": ["claude", "codex"],
+  "context-intake": ["claude", "codex"],
+};
+
+/** Hooks scoped to a subset of engines; same contract as {@link WORKFLOW_SKILL_ENGINES}. */
+export const HOOK_ENGINES: Readonly<Record<string, readonly string[]>> = {
+  "master-plan-context": ["claude", "codex"],
+  "master-accept-confirm": ["claude", "codex"],
+};
+
+/**
+ * Whether a unit with this `scope` (an entry of {@link WORKFLOW_SKILL_ENGINES}
+ * or {@link HOOK_ENGINES}, `undefined` when the unit is universal) ships to
+ * `engine`. With no `engine` only universal units qualify, which is what the
+ * engine-agnostic callers (Pi, `render`, plain doctor) always got.
+ */
+export function inEngineScope(scope: readonly string[] | undefined, engine?: string): boolean {
+  return scope === undefined || (engine !== undefined && scope.includes(engine));
+}
 
 /** The two adapters that place a managed marker, and so can retire one. */
 export type RetiredAdapter = "claude" | "codex";

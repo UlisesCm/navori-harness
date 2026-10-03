@@ -457,11 +457,14 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
       "plan-simple",
       "plan-advanced",
     ]),
+    // Spec 0041 R20 (T15): both skills are emitted to `.agents/skills/` now. The
+    // user confirmation is a chat question that ends the turn (D11); the live
+    // smoke that would make it `enforcing` is T20, so the flag stays off.
     ...["master-plan", "context-intake"].map((id): [string, CodexParity] => [
       `skill:${id}`,
-      limite(
-        SOURCES.features,
-        "not rendered for Codex yet (spec 0034 phase 2, spec 0041 R20); request_user_input is behind an UnderDevelopment feature in Default mode (F14)",
+      equivalente(
+        "Skill emitted to .agents/skills; confirmations are numbered chat options that end the turn",
+        "no AskUserQuestion: request_user_input is behind an UnderDevelopment feature in Default mode (F14)",
       ),
     ]),
     // Hooks. Order matches CODEX_HOOK_REGISTRATIONS for the unregistered ones, so
@@ -530,10 +533,9 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
     ],
     [
       "hook:master-accept-confirm",
-      limite(
-        SOURCES.hooksDoc,
-        "The master plan is Claude-only until its Codex phase (spec 0034, #1088); " +
-          "Codex hooks also cannot emit the `ask` this confirmation needs (D4).",
+      equivalente(
+        "deny-as-confirmation: the Codex copy of the hook denies instead of asking (the comment-draft-confirm pattern, spec 0041 D11)",
+        "Codex hooks cannot emit `ask`, so the user runs the command themselves after reviewing it",
       ),
     ],
     [
@@ -546,10 +548,9 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
     ],
     [
       "hook:master-plan-context",
-      limite(
-        SOURCES.hooksDoc,
-        "The master plan is Claude-only until its Codex phase (spec 0034, #1088), " +
-          "so Codex renders no master-plan skill for this context to point at.",
+      equivalente(
+        "SessionStart hook registered when harness.masterPlan is on; its stdout reaches the session as context (spec 0041 R21)",
+        "advisory context, not a permission boundary",
       ),
     ],
     // Managed blocks: prose contracts, no host dependency.

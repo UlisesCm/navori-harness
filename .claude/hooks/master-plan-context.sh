@@ -1,4 +1,4 @@
-# navori:managed start id="master-plan-context-base" hash="5baeeebb" version="0.11.1" source="@navori/core"
+# navori:managed start id="master-plan-context-base" hash="bccd97b6" version="0.11.1" source="@navori/core"
 #!/usr/bin/env bash
 # SessionStart master-plan status. Advisory and fail-open: no startup failure
 # may block the user's unrelated request. Render fills the specsDir placeholder.
@@ -313,7 +313,13 @@ trap navori_audit_on_exit EXIT
 
 specs_dir='specs'
 NAVORI_MASTER_LINE_BUDGET=600
-project_dir=${CLAUDE_PROJECT_DIR:-$PWD}
+# Codex sets no CLAUDE_PROJECT_DIR: the root is the git toplevel of the hook's
+# directory; `$0` tells the copies apart (spec 0041 R21, same pattern as
+# `comment-draft-confirm.sh`).
+case "$0" in
+  *".codex/hooks/"*) project_dir=$(git rev-parse --show-toplevel 2>/dev/null) || project_dir=$PWD ;;
+  *) project_dir=${CLAUDE_PROJECT_DIR:-$PWD} ;;
+esac
 index_path=$project_dir/$specs_dir/_master/INDEX.md
 offer='En tu primera respuesta de la sesión, ofrece continuar con el plan maestro en una sola línea, sin interrumpir lo que el usuario pidió.'
 

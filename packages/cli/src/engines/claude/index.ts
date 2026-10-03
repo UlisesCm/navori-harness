@@ -252,7 +252,7 @@ function buildSkillsIndexBody(
 ): string | null {
   // #908: no trigger — the host's native skill listing already tells the
   // model when to use each one (see buildSkillRows' docblock).
-  const rows = buildSkillRows(config, repoRoot, coreAssets, localSkills, cwd, false, true);
+  const rows = buildSkillRows(config, repoRoot, coreAssets, localSkills, cwd, false, "claude");
   if (rows.length === 0) return null;
   const t = tc(lang).blocks.skillsIndex;
   // The project-local note only makes sense when the repo actually declares
@@ -804,8 +804,7 @@ export function renderClaudeEngine(
   const preset = loadActivePreset(config, repoRoot, warnings);
   const fullHarnessPlan = resolveHarnessPlan(config, coreAssets, preset, {
     includeOrchestrator: true,
-    includeClaudeOnlySkills: true,
-    includeClaudeOnlyHooks: true,
+    engine: "claude",
   });
   // Spec 0039 D1/B1: the ONE filtered inventory. Everything below that writes a
   // file or registers a hook reads it, so a unit the matrix marks native on

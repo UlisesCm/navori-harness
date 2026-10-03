@@ -504,8 +504,11 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
     ],
     controls: {
       "master-plan": {
-        state: "unsupported",
-        reason: "fase 2 de la spec 0034: la skill no se renderiza y no hay hook de arranque",
+        state: "advisory",
+        reason:
+          "harness.masterPlan registers the SessionStart hook in .codex/config.toml and the " +
+          "skills reach .agents/skills; the context is advisory and the live smoke that would " +
+          "make it enforced is spec 0041 T20.",
       },
       "plan-gate": {
         state: "advisory",

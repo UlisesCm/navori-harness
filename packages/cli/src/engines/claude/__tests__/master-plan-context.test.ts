@@ -102,3 +102,31 @@ for (const shell of ["bash", "zsh"]) {
     });
   });
 }
+
+// Covers: R21 — the Codex copy has no CLAUDE_PROJECT_DIR and finds the repo root from git.
+describe("master-plan SessionStart installed for Codex", () => {
+  it("resolves the repo root from a subdirectory without CLAUDE_PROJECT_DIR", () => {
+    const f = fixture();
+    const hooks = join(f.dir, ".codex/hooks");
+    mkdirSync(hooks, { recursive: true });
+    const script = join(hooks, "master-plan-context.sh");
+    writeFileSync(script, readFileSync(f.script, "utf8"));
+    mkdirSync(join(f.dir, "specs/_master"), { recursive: true });
+    writeFileSync(
+      join(f.dir, "specs/_master/INDEX.md"),
+      "Etapa activa: specs/_master/01-mvp/STATUS.md\n",
+    );
+    mkdirSync(join(f.dir, "sub"));
+    spawnSync("git", ["init", "-q"], { cwd: f.dir });
+    const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${f.bin}:/usr/bin:/bin` };
+    delete env.CLAUDE_PROJECT_DIR;
+    const result = spawnSync("bash", [script], {
+      cwd: join(f.dir, "sub"),
+      input: "{}",
+      encoding: "utf8",
+      env,
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("specs/_master/01-mvp/STATUS.md");
+  });
+});

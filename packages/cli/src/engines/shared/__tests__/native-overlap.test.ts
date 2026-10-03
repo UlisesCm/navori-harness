@@ -386,8 +386,7 @@ describe("OVERLAP_ROWS coverage (one row per distributed unit)", () => {
     "hook",
     resolveHarnessPlan(FULL_CONFIG, coreAssets, null, {
       includeOrchestrator: true,
-      includeClaudeOnlySkills: true,
-      includeClaudeOnlyHooks: true,
+      engine: "claude",
     }).hooks.map((h) => h.id),
   );
   add(

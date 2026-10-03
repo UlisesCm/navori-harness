@@ -5,7 +5,7 @@ import { effectiveLibraries, loadPreset, type LoadedPreset } from "../../lib/con
 import { librarySkillById } from "../../lib/assets/library-skills.ts";
 import { readSkillTrigger, resolveLocalSkillPath } from "../../lib/assets/skill-meta.ts";
 import { CORE_SKILLS, WORKFLOW_SKILLS, extraConditionMet } from "./harness-assets.ts";
-import { CLAUDE_ONLY_WORKFLOW_SKILLS } from "./roster.ts";
+import { WORKFLOW_SKILL_ENGINES, inEngineScope } from "./roster.ts";
 
 /**
  * Build the `- <id> — <tag> · <trigger>` rows for the "Available skills" index,
@@ -65,8 +65,8 @@ export function buildSkillRows(
   /** Emit the `· <trigger>` suffix for managed rows. `false` only for the
    * `claude` engine — see the docblock above for why. */
   includeTrigger: boolean = true,
-  /** Only the Claude adapter renders these skills; prose adapters omit their rows. */
-  includeClaudeOnlySkills: boolean = false,
+  /** Engine the index is for; engine-scoped skills (`WORKFLOW_SKILL_ENGINES`) list only there. */
+  engine?: string,
 ): string[] {
   const rows: string[] = [];
   const listed = new Set<string>();
@@ -80,7 +80,7 @@ export function buildSkillRows(
     listed.add(id);
   }
   for (const id of WORKFLOW_SKILLS) {
-    if (!includeClaudeOnlySkills && CLAUDE_ONLY_WORKFLOW_SKILLS.has(id)) continue;
+    if (!inEngineScope(WORKFLOW_SKILL_ENGINES[id], engine)) continue;
     rows.push(row(id, "navori (workflow)", join(coreAssets, `skills/${id}.md`)));
     listed.add(id);
   }

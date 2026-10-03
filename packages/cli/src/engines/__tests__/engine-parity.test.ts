@@ -27,11 +27,13 @@ import { CODEX_PARITY } from "../shared/codex-parity.ts";
  * option in engines/shared/harness-plan.ts). */
 const AGENT_KNOWN_DIFFS: ReadonlySet<string> = new Set(["orchestrator"]);
 
-/** Spec 0034 T17: the master-plan workflow currently has a Claude-only contract. */
-const CLAUDE_ONLY_SKILLS: ReadonlySet<string> = new Set(["context-intake", "master-plan"]);
-
-/** Spec 0034: Claude registers these hooks; Codex has no matching hook contract. */
-const CLAUDE_ONLY_HOOKS: ReadonlySet<string> = new Set([
+/**
+ * Spec 0041 T15: the master-plan hooks are scoped to claude and codex, but Codex
+ * installs a script only when a registration runs it, and both registrations are
+ * conditional on `harness.masterPlan` (off in this fixture, like
+ * `implementer-no-markdown`).
+ */
+const MASTER_PLAN_HOOKS: ReadonlySet<string> = new Set([
   "master-accept-confirm",
   "master-plan-context",
 ]);
@@ -125,17 +127,14 @@ describe("engine inventory parity (claude ↔ codex)", () => {
   });
 
   // Covers: R1
-  it("emits the same shared skill set and only the known Claude-only skills", () => {
+  it("emits the same skill set, master-plan skills included", () => {
     // Both engines materialize skills as `<id>/SKILL.md` directories now, so
     // read directory names on both sides (a flat `<id>.md` would NOT count).
     const claudeSkills = names(join(claudeCwd, ".claude/skills"), asDir);
     const codexSkills = names(join(codexCwd, ".agents/skills"), asDir);
     expect(claudeSkills.length).toBeGreaterThan(0);
-    expect(codexSkills).toEqual(claudeSkills.filter((id) => !CLAUDE_ONLY_SKILLS.has(id)));
-    for (const id of CLAUDE_ONLY_SKILLS) {
-      expect(claudeSkills).toContain(id);
-      expect(codexSkills).not.toContain(id);
-    }
+    expect(codexSkills).toEqual(claudeSkills);
+    for (const id of ["context-intake", "master-plan"]) expect(codexSkills).toContain(id);
   });
 
   // Covers: R1
@@ -149,8 +148,7 @@ describe("engine inventory parity (claude ↔ codex)", () => {
       // `<id>.md` must NOT coexist (it would make the model see the skill twice).
       expect(isSkillDir(claudeDir, id)).toBe(true);
       expect(existsSync(join(claudeDir, `${id}.md`))).toBe(false);
-      // Codex uses the same shape for shared skills only.
-      expect(isSkillDir(codexDir, id)).toBe(!CLAUDE_ONLY_SKILLS.has(id));
+      expect(isSkillDir(codexDir, id)).toBe(true);
     }
   });
 
@@ -177,15 +175,15 @@ describe("engine inventory parity (claude ↔ codex)", () => {
     expect(names(join(codexCwd, ".codex/agents"), stripToml)).not.toContain("orchestrator");
   });
 
-  it("emits the same shared hook set with exactly two Claude-only master-plan hooks", () => {
+  it("emits the same shared hook set; the two master-plan hooks wait for harness.masterPlan on Codex", () => {
     const claudeHooks = names(join(claudeCwd, ".claude/hooks"), stripSh);
     const codexHooks = names(join(codexCwd, ".codex/hooks"), stripSh);
     // Same trap as the agent set: pin non-empty before comparing.
     expect(claudeHooks.length).toBeGreaterThan(0);
-    expect(claudeHooks.filter((hook) => CLAUDE_ONLY_HOOKS.has(hook))).toEqual(
-      [...CLAUDE_ONLY_HOOKS].sort(),
+    expect(claudeHooks.filter((hook) => MASTER_PLAN_HOOKS.has(hook))).toEqual(
+      [...MASTER_PLAN_HOOKS].sort(),
     );
-    expect(codexHooks.filter((hook) => CLAUDE_ONLY_HOOKS.has(hook))).toEqual([]);
+    expect(codexHooks.filter((hook) => MASTER_PLAN_HOOKS.has(hook))).toEqual([]);
     // Spec 0041 R13/R30: Codex installs only scripts a registration runs, so the
     // table's `unsupported` rows are absent (and `implementer-no-markdown` is
     // conditional on `scribeOwnsMarkdown`, off in this fixture).
@@ -194,10 +192,9 @@ describe("engine inventory parity (claude ↔ codex)", () => {
         (row) => row.script,
       ),
       "implementer-no-markdown",
+      ...MASTER_PLAN_HOOKS,
     ]);
-    expect(codexHooks).toEqual(
-      claudeHooks.filter((hook) => !CLAUDE_ONLY_HOOKS.has(hook) && !notInstalled.has(hook)),
-    );
+    expect(codexHooks).toEqual(claudeHooks.filter((hook) => !notInstalled.has(hook)));
   });
 
   // Covers: R3, R18

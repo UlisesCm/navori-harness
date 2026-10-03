@@ -3383,7 +3383,7 @@ export function buildEngineInventory(
     for (const engine of diskEngines) {
       const plan = resolveHarnessPlan(loc.config, coreAssets, preset, {
         includeOrchestrator: engine === "claude",
-        includeClaudeOnlyHooks: engine === "claude",
+        engine,
       });
       const bucket = acc[engine]!;
       for (const a of plan.agents) bucket.agents.add(a.id);
