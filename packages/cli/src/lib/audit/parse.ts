@@ -2,6 +2,7 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import {
   type AgentRun,
+  type CodexRolloutFacts,
   type CliEvent,
   type HookEvent,
   type InjectedContext,
@@ -1207,6 +1208,80 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
 }
 
 /**
+ * Isolated adapter for a Codex rollout (`rollout-*-<id>.jsonl`, spec 0041 R24).
+ *
+ * The rollout format is not a documented interface (design F13), and its lines
+ * hold the user's prompts, code and tool output — so this is the ONLY code that
+ * reads one, and it reads by key: record `type`, `payload.type`, tool `name`,
+ * timestamps and the model/version identifiers. No text field (message
+ * `content`, tool `input`/`arguments`/`output`, reasoning) is ever read, copied
+ * or returned. Returns `unavailable` — never throws — when the file is absent or
+ * unreadable.
+ */
+function readCodexRollout(
+  rolloutFile: string | null | undefined,
+): NonNullable<SessionAudit["rollout"]> {
+  if (!rolloutFile) return { status: "unavailable", reason: "missing" };
+  let raw: string;
+  try {
+    raw = readFileSync(rolloutFile, "utf-8");
+  } catch {
+    return { status: "unavailable", reason: existsSync(rolloutFile) ? "unreadable" : "missing" };
+  }
+  const facts: CodexRolloutFacts = {
+    status: "parsed",
+    cliVersion: null,
+    turns: 0,
+    toolCalls: {},
+    models: {},
+    firstTs: null,
+    lastTs: null,
+    parseErrors: 0,
+  };
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    let rec: unknown;
+    try {
+      rec = JSON.parse(line);
+    } catch {
+      facts.parseErrors++;
+      continue;
+    }
+    if (!isRec(rec)) {
+      facts.parseErrors++;
+      continue;
+    }
+    const ts = str(rec.timestamp);
+    if (ts) {
+      if (facts.firstTs === null || ts < facts.firstTs) facts.firstTs = ts;
+      if (facts.lastTs === null || ts > facts.lastTs) facts.lastTs = ts;
+    }
+    const payload = isRec(rec.payload) ? rec.payload : null;
+    if (!payload) continue;
+    const type = str(rec.type);
+    const inner = str(payload.type);
+    if (type === "session_meta") {
+      facts.cliVersion ??= str(payload.cli_version);
+    } else if (type === "turn_context") {
+      const model = str(payload.model);
+      if (model) facts.models[model] = (facts.models[model] ?? 0) + 1;
+    } else if (type === "event_msg" && inner === "task_started") {
+      facts.turns++;
+    } else if (
+      type === "response_item" &&
+      (inner === "function_call" || inner === "custom_tool_call")
+    ) {
+      const name = str(payload.name);
+      if (name) facts.toolCalls[name] = (facts.toolCalls[name] ?? 0) + 1;
+    }
+  }
+  // A file with lines but nothing parseable is not a rollout we can speak for.
+  if (facts.parseErrors > 0 && facts.firstTs === null)
+    return { status: "unavailable", reason: "unreadable" };
+  return facts;
+}
+
+/**
  * A session known only from its audit log: no transcript resolves for it, and
  * its `start` record says it ran under Codex (R71).
  *
@@ -1216,7 +1291,11 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
  * counted as zero. Returns null when the log does not declare `host: "codex"`,
  * so a Claude session whose transcript was pruned stays an orphan.
  */
-export function parseCodexSession(sessionId: string, logFile: string): SessionAudit | null {
+export function parseCodexSession(
+  sessionId: string,
+  logFile: string,
+  rolloutFile?: string | null,
+): SessionAudit | null {
   let raw: string;
   try {
     raw = readFileSync(logFile, "utf-8");
@@ -1272,6 +1351,7 @@ export function parseCodexSession(sessionId: string, logFile: string): SessionAu
     hostSkills: [],
     host: "codex",
     unavailable: "transcript",
+    rollout: readCodexRollout(rolloutFile),
     parseErrors: 0,
     linesRead: 0,
   };
@@ -1282,6 +1362,13 @@ export function parseCodexSession(sessionId: string, logFile: string): SessionAu
   const last = stamps.reduce((a, b) => (b > a ? b : a), startedAt);
   session.endedAt = last;
   session.wallClockMs = durationMs(startedAt, last);
+  if (session.rollout?.status === "parsed") {
+    // Only counts the rollout states outright; tokens and context stay
+    // unavailable (the rollout's usage records are not mapped onto the model).
+    session.orchestrator.turns = session.rollout.turns;
+    session.orchestrator.toolCounts = { ...session.rollout.toolCalls };
+    session.orchestrator.models = { ...session.rollout.models };
+  }
   return session;
 }
 

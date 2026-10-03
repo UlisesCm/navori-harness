@@ -1716,6 +1716,30 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
           "**Codex session.** Only the audit log exists: hooks and verdicts are real, while tokens, turns, tools and context are unavailable (not zero).",
         ),
       );
+      const ro = s.rollout;
+      if (ro?.status === "parsed") {
+        const tools = Object.entries(ro.toolCalls)
+          .sort((a, b) => b[1] - a[1])
+          .map(([name, n]) => `${name}:${n}`)
+          .join(" ");
+        out.push(
+          "",
+          t(
+            lang,
+            `Motor: Codex ${ro.cliVersion ?? "—"} · rollout: ${ro.turns} turnos · herramientas ${tools || "—"}. Tokens y contexto siguen sin estar disponibles.`,
+            `Engine: Codex ${ro.cliVersion ?? "—"} · rollout: ${ro.turns} turns · tools ${tools || "—"}. Tokens and context remain unavailable.`,
+          ),
+        );
+      } else {
+        out.push(
+          "",
+          t(
+            lang,
+            "Motor: Codex · rollout no disponible (no se encontró o no se pudo leer).",
+            "Engine: Codex · rollout unavailable (not found or unreadable).",
+          ),
+        );
+      }
     }
 
     if (stillRunning(s, report.generatedAt)) {
