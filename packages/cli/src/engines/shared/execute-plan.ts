@@ -228,7 +228,8 @@ export function collectPlan(
   // agents/skills (e.g. Codex's AGENTS.md agent catalog) see the full set.
   requests.push(...adapter.extraFiles(ctx));
 
-  for (const req of requests) collectRequest(req, ctx, pending, skipped, skipReason, collisions);
+  for (const req of requests)
+    collectRequest(req, ctx, pending, skipped, skipReason, collisions, adapter.id);
 
   const { removals, kept } = prune
     ? collectOrphans(adapter.orphanScans(plan, ctx), ctx.cwd)
@@ -281,6 +282,7 @@ function collectRequest(
   skipped: ExecuteResult["skipped"],
   skipReason: SkipReason,
   collisions: CollisionNotice[],
+  engine: string,
 ): void {
   const path = join(ctx.cwd, req.destRelPath);
   let content: string;
@@ -315,6 +317,7 @@ function collectRequest(
       extraVars: req.extraVars,
       commentStyle: req.commentStyle,
       transform: req.transform,
+      engine,
     });
     content = result.content;
     status = result.status;

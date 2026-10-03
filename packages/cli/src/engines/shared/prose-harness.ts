@@ -82,12 +82,20 @@ export function buildHarnessProse(
   config: NavoriConfig,
   repoRoot: string,
   isWorkspace: boolean,
-  options: { includeOrchestration?: boolean; includePluginBlocks?: boolean } = {},
+  options: {
+    includeOrchestration?: boolean;
+    includePluginBlocks?: boolean;
+    /** Engine the prose is for (default `"claude"`); resolves the `onCodex` condition key. */
+    engine?: string;
+  } = {},
 ): string {
   // Workspace renders omit root-only blocks — same semantics as the Claude
   // engine (#70): the tools that read these files merge/inherit the root file,
   // so re-emitting the global blocks per workspace just duplicates context.
-  const plan = computeRenderPlan("", config, repoRoot, { omitRootOnly: isWorkspace });
+  const plan = computeRenderPlan("", config, repoRoot, {
+    omitRootOnly: isWorkspace,
+    engine: options.engine,
+  });
   // Keep core rule blocks + the active preset's stack block (its source is the
   // preset id). Plugin-contributed blocks (engram, etc.) are Claude-specific and
   // dropped — other tools don't have that infra. The "orquestacion" block is
