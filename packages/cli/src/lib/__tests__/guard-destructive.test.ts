@@ -1604,4 +1604,42 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
       expect(runGuard("ls", restrictedEnv)).toBe(0);
     });
   });
+
+  // Covers: R14, R15, R26
+  describe("with a Codex PreToolUse payload (narrowed prefix rules, spec 0041 D4)", () => {
+    // `buildCodexRules` narrows `Bash(rm -rf /*)` to the literal prefix
+    // `["rm","-rf","/"]`, so `rm -rf /etc` and friends fall through the Codex
+    // rule. These are the variants the registered hook must still block, driven
+    // with the payload shape Codex sends (`tool_name: "Bash"`, `tool_input.command`,
+    // plus the session fields Claude does not send).
+    const codexPayload = (command: string): string =>
+      JSON.stringify({
+        session_id: "s",
+        turn_id: "t",
+        transcript_path: null,
+        cwd: "/tmp/repo",
+        hook_event_name: "PreToolUse",
+        model: "gpt-6-sol",
+        tool_name: "Bash",
+        tool_use_id: "call_1",
+        tool_input: { command },
+      });
+    const runCodex = (command: string): number =>
+      spawnSync(resolveBin("bash"), [guardPath], { input: codexPayload(command) }).status ?? -1;
+
+    it.each([
+      ["rm -rf /etc", "root/system target the `/` prefix rule misses"],
+      ["rm -R ~/x", "home subpath the `~/` prefix rule misses"],
+      ["rm -rf --no-preserve-root /", "no-preserve-root interleaved after the flags"],
+      ["rm --no-preserve-root -rf /", "no-preserve-root before the flags"],
+      ["rm -fr $HOME/projects", "home variable subpath"],
+      ["rm --recursive --force /usr", "long flags on a system path"],
+    ])("blocks `%s` (%s)", (command) => {
+      expect(runCodex(command)).toBe(2);
+    });
+
+    it("still lets a harmless rm through", () => {
+      expect(runCodex("rm -rf ./build")).toBe(0);
+    });
+  });
 });

@@ -6,6 +6,7 @@ import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.t
 import { renderAgentsMdEngine } from "../agents-md/index.ts";
 import { renderClaudeEngine } from "../claude/index.ts";
 import { CODEX_HOOK_REGISTRATIONS } from "../codex/hook-registrations.ts";
+import { CODEX_PARITY } from "../shared/codex-parity.ts";
 import { renderCodexEngine } from "../codex/index.ts";
 import { renderCopilotEngine } from "../copilot/index.ts";
 import { renderCursorEngine } from "../cursor/index.ts";
@@ -327,8 +328,10 @@ describe("control inventory vs. the actual render (spec 0033 D5)", () => {
   it("keeps plan-gate unregistered in Codex and the routing-watch matcher unchanged", () => {
     const row = CODEX_HOOK_REGISTRATIONS.find((r) => r.script === "plan-gate");
     expect(row?.registration).toBeUndefined();
-    expect(row?.unsupported).toContain("explicit agent_type spawn exposes the typed role in Pre");
-    expect(row?.unsupported).toContain("stays advisory");
+    const parity = CODEX_PARITY["hook:plan-gate"];
+    const why = parity?.state === "limite-codex" ? parity.containment : undefined;
+    expect(why).toContain("explicit agent_type spawn exposes the typed role in Pre");
+    expect(why).toContain("stays advisory");
     const routing = CODEX_HOOK_REGISTRATIONS.find((r) => r.script === "routing-watch");
     expect(routing?.registration?.event).toBe("PostToolUse");
     expect(routing?.registration?.matcher).toBe("^(Bash|apply_patch|spawn_agent)$");
@@ -338,7 +341,9 @@ describe("control inventory vs. the actual render (spec 0033 D5)", () => {
   it("declares repeat-failure advice for Claude and unsupported for Codex", () => {
     const row = CODEX_HOOK_REGISTRATIONS.find((r) => r.script === "bash-outcome-watch");
     expect(row?.registration).toBeUndefined();
-    expect(row?.unsupported).toContain("does not distinguish Bash success from failure");
+    const parity = CODEX_PARITY["hook:bash-outcome-watch"];
+    const why = parity?.state === "limite-codex" ? parity.containment : undefined;
+    expect(why).toContain("does not distinguish Bash success from failure");
     expect(ENGINE_CAPABILITIES.claude.controls["repeat-failure-advice"].state).toBe("advisory");
     expect(ENGINE_CAPABILITIES.codex.controls["repeat-failure-advice"].state).toBe("unsupported");
   });
