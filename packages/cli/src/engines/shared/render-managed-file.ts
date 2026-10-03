@@ -65,6 +65,8 @@ export interface RenderManagedFileInput {
    * body and user template come out adapted from a single pass (#364).
    */
   transform?: (text: string) => string;
+  /** Engine being rendered for; resolves the reserved `onCodex` condition key (default `"claude"`). */
+  engine?: string;
 }
 
 export interface RenderManagedFileResult {
@@ -93,7 +95,7 @@ export function renderManagedFile(input: RenderManagedFileInput): RenderManagedF
   // so an asset that carries a condition behaves the same regardless of which
   // engine renders it. A no-op for every asset without a marker (the regex
   // simply finds nothing to replace).
-  const raw = conditionOrchestration(transformed, input.config);
+  const raw = conditionOrchestration(transformed, input.config, input.engine);
   const asset = parseAsset(raw, commentStyle);
 
   const scope = input.fallbackScope;

@@ -92,7 +92,11 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // away from red.
   "packages/core/core-assets/managed/planificacion.md": 274, // 249 → 10.0%
 
-  "packages/core/core-assets/managed/sdd.md": 208, // 189 → 10.1%
+  // Spec 0041 T14: the source carries both engine branches (`if-not onCodex` /
+  // `if onCodex`), so it measures more than any single render; the text
+  // rendered for Claude did not change. Raised just enough to recover the 5%
+  // headroom floor (208 measured → 219).
+  "packages/core/core-assets/managed/sdd.md": 219, // 208 → 5.3%
   "packages/core/core-assets/managed/tipado-fuerte.md": 50,
 
   // Plugin managed blocks (#917). Measured / ceiling → headroom.

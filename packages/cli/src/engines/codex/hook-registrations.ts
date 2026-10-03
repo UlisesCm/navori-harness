@@ -8,10 +8,10 @@ import { compareSemver } from "../../lib/primitives/semver.ts";
  * Spec 0035 D1 — the single table that decides which Claude hook scripts
  * Codex registers, with what event/matcher, and which ones it can't. Replaces
  * the hand-written registration blocks `build-config-toml.ts` used to own
- * directly: every row here is either `registration` (Codex has an equivalent)
- * or `unsupported` (with the reason `ENGINE_CAPABILITIES.codex.
- * unsupportedSurfaces` names), never both, never neither — enforced by the
- * union type below.
+ * directly: every row here either carries a `registration` (Codex has an
+ * equivalent) or has none, and then its `hook:<script>` row in `CODEX_PARITY`
+ * is `limite-codex` with the reason `ENGINE_CAPABILITIES.codex.
+ * unsupportedSurfaces` names — `native-overlap.test.ts` keeps the two in step.
  *
  * ORDER IS PART OF THE CONTRACT. Codex's `trusted_hash` approval key
  * (`event:groupIndex:handlerIndex`) is positional: the index of a
@@ -43,8 +43,10 @@ export interface CodexHookRow {
   /** Hook script id, without extension — matches `<id>.sh` on both engines. */
   readonly script: string;
   readonly registration?: CodexHookRegistration;
-  /** Set when Codex has no usable equivalent; `registration` is absent. */
-  readonly unsupported?: string;
+  /**
+   * Absent when Codex has no usable equivalent. Why not lives in the hook's
+   * `limite-codex` row of `CODEX_PARITY`, not here: one reason, one place.
+   */
 }
 
 export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
@@ -104,13 +106,6 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
   },
   {
     script: "plan-gate",
-    unsupported:
-      "Codex 0.158.0 sends delegation through PreToolUse as collaborationspawn_agent. " +
-      "A default spawn (message/task_name only) has no typed agent role; an explicit " +
-      "agent_type spawn exposes the typed role in Pre (observed in T9 corrida 2), " +
-      "recorded only as a reopening input for L06/T17. The workplan opening is still not " +
-      "verifiably readable and a blanket deny prevented child creation, so this hook " +
-      "stays advisory with no registration.",
   },
   {
     script: "implementer-no-markdown",
@@ -145,8 +140,6 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
   },
   {
     script: "bash-outcome-watch",
-    unsupported:
-      "Codex PostToolUse does not distinguish Bash success from failure, so the repeated-failure state cannot be updated without false positives.",
   },
   {
     script: "subagent-stop-handoff",
@@ -203,35 +196,20 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
     // D4: Codex hooks can't emit `ask` — the confirmation moves to a
     // `.codex/rules/navori.rules` `prompt` rule instead (spec 0035 Lote C).
     script: "pr-publisher-confirm",
-    unsupported:
-      "Codex hooks cannot emit `ask` (permissionDecision is dropped and the call proceeds); " +
-      "the confirmation moves to a `.codex/rules/navori.rules` prompt rule (D4, Lote C).",
   },
   {
     script: "subagent-no-background",
-    unsupported:
-      "Codex has no `Monitor` tool, and unified_exec strips background-execution fields " +
-      "from the PreToolUse payload, so no hook can distinguish a backgrounded command (D1).",
   },
   {
     // Spec 0034 ships the master plan for Claude first; Codex is phase 2 (#1088).
     script: "master-accept-confirm",
-    unsupported:
-      "The master plan is Claude-only until its Codex phase (spec 0034, #1088); " +
-      "Codex hooks also cannot emit the `ask` this confirmation needs (D4).",
   },
   {
     // Spec 0039 R40: Claude-only, like the other `ask` confirmations.
     script: "general-purpose-confirm",
-    unsupported:
-      "Codex hooks cannot emit `ask` (permissionDecision is dropped and the call proceeds), " +
-      "and Codex has no typed `general-purpose` subagent to confirm (spec 0039 R40).",
   },
   {
     script: "master-plan-context",
-    unsupported:
-      "The master plan is Claude-only until its Codex phase (spec 0034, #1088), " +
-      "so Codex renders no master-plan skill for this context to point at.",
   },
 ];
 

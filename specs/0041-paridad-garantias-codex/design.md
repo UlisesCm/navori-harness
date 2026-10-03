@@ -278,6 +278,11 @@ Las URLs de source son `github.com/openai/codex/blob/rust-v0.160.0/codex-rs/<rut
   así que `buildCodexRules` puede enumerar variantes conocidas (`["git","push",["--force",
   "--force-with-lease","--force-if-includes"]]`, `["mkfs.ext4", …]` como primer token). La fila
   sigue `limite-codex` porque el resto (tokens desconocidos) no se cubre.
+- **Nota de implementación (T4–T6) — desviaciones de D1, D3 y D4.**
+  - `verification` solo se exige cuando `enforcing` es `true`. Hasta T7/T20 todas las filas tienen
+    `enforcing: false`, así que `minCodexVersion` devuelve `0.0.0`.
+  - Los ids de las filas `permission-rule` son `class:<id>`, `dropped:<pattern>` y
+    `narrowed:<pattern>`.
 - **D5 — `role-guard` solo en `apply_patch`, solo en Codex (R6, V3).**
   - Las rutas de `apply_patch` son estructuradas (`nv_edited_paths`), así que no hace falta
     heurística de texto.

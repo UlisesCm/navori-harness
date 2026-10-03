@@ -28,7 +28,7 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
 
 ## Lote 1 — Contrato de paridad
 
-- [ ] **T4** (R1, R2, R3, R4) — `engines/shared/codex-parity.ts` con `CodexParitySchema`,
+- [x] **T4** (R1, R2, R3, R4) — `engines/shared/codex-parity.ts` con `CodexParitySchema`,
   `CODEX_PARITY`, `CODEX_VERIFICATIONS` y `minCodexVersion()` (D1, D2); `OverlapRowSchema` exige
   `codexParity`; `UnitKind` gana `permission-rule` y `plugin-script`; `CodexHookRow` pierde
   `unsupported` y `CODEX_HOOK_UNSUPPORTED_SURFACES` se deriva de la paridad. Clasificación inicial
@@ -37,14 +37,14 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
   for every unit" extendido (R3), refine "limite-codex requires official URL, version and date"
   (R2), "registered hook without igual/equivalente row fails"; `codex-parity.test.ts` ›
   `minCodexVersion` igual/menor/ignora `limite-codex` (R4) con `// Covers: R1, R2, R3, R4`
-- [ ] **T5** (R14, R15, R26) — Filas `permission-rule` para cada patrón `ask`/`deny` no Bash, cada
+- [x] **T5** (R14, R15, R26) — Filas `permission-rule` para cada patrón `ask`/`deny` no Bash, cada
   `dropped` y cada `narrowed` de `buildCodexRules`, agrupadas en `NARROWED_PATTERN_FAMILIES` (D3,
   D4); `allow-not-translated` como `limite-codex` con F8. · test: `native-overlap.test.ts` ›
   "every narrowed pattern belongs to a family"; `codex-rules.test.ts` › "never emits allow" y "no
   PermissionRequest registration"; `lib/__tests__/guard-destructive.test.ts` › payload Codex por
   cada variante que el prefijo no cubre (`rm -rf /etc`, `rm -R ~/x`, `--no-preserve-root`) con
   `// Covers: R14, R15, R26`
-- [ ] **T6** (R5) — `renderOverlapDoc` agrega las columnas *Paridad Codex · Mecanismo · Fuente ·
+- [x] **T6** (R5) — `renderOverlapDoc` agrega las columnas *Paridad Codex · Mecanismo · Fuente ·
   Codex · Verificada*; `docs/native-overlap.md` regenerado. · test: `native-overlap.test.ts` ›
   doc byte a byte con `// Covers: R5`
 
@@ -107,7 +107,7 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
 
 ## Lote 5 — Prosa, master-plan y tgrep
 
-- [ ] **T14** (R18, R19) — `conditionOrchestration(content, config, engine)` reconoce `onCodex` y
+- [x] **T14** (R18, R19) — `conditionOrchestration(content, config, engine)` reconoce `onCodex` y
   `computeRenderPlan` lo aplica a todos los bloques core; `CODEX_VOCABULARY` agrega
   `SendMessage` → `send_input` y `/master-plan` → `$master-plan`; spans `if-not onCodex` en
   `orquestacion`, `sdd`, skills `spec-bootstrap`/`debug-failure`/`verify-before-done`/`master-plan`
@@ -115,6 +115,12 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
   into Codex surfaces" (nombra archivo y bloque; incluye mensajes `[navori]` de hooks registrados
   con allowlist motivado); golden de `cursor`/`copilot`/`agents-md`/Pi sin cambio con
   `// Covers: R18, R19`
+  Notas de implementación: (a) la regla `/master-plan` → `$master-plan` de `CODEX_VOCABULARY`
+  se difiere a T15: ninguna prosa emitida la contiene hasta que la skill se emite, y
+  `vocabulary-alive.test.ts` falla ante una regla muerta; (b) `conditionOrchestration` se aplica
+  ahora a todo bloque core, agente y skill mediante el argumento `engine` (default claude);
+  (c) la allowlist de mensajes `[navori]` de hooks queda vacía: ningún mensaje de hook
+  registrado en Codex coincidió.
 - [ ] **T15** (R20, R21) — `resolveHarnessPlan` con `engine?: EngineId` en lugar de
   `includeClaudeOnly*`; `WORKFLOW_SKILL_ENGINES` y `HOOK_ENGINES` en `roster.ts`;
   `master-plan`/`context-intake` en `.agents/skills/` con `agents/openai.yaml`;

@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-reviewer" hash="b3131812891088dc4a84f22366fcf0c3f504381a9ef2064919d13697cd954a48"
+# navori:managed-file id="pi-agent-reviewer" hash="3c17a91b4cd4e0549038fb07117feee4d365c22014cf0f2ac5b1e44b7682e510"
 name: "reviewer"
 description: "Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes."
 tools: ["read","grep","find","ls","bash","write"]
@@ -54,10 +54,8 @@ Does the diff do EXACTLY what was asked? You don't review style yet.
 - Is anything from the scope missing? (If the ticket asked for A+B and it only did A → flag)
 - If the task is a bugfix: does the `Root cause:` documented in `impl_<feature>.md` match the fix?
 - **SDD traceability** (only if `specs/<feature>/tasks.md` exists): each `R<n>` in the batch is covered by ≥1 test that references it with `// Covers: R<n>`. An `R<n>` in the batch without a traceable test → `SPEC_MISS`.
-<!-- navori:if planTiers -->
 - With a workplan: an assigned `A<n>` without evidence in `acceptance`, a file outside the workplan's files without a covering decision, or `navori plan classify <feature> --diff` returning a higher level than declared → `CHANGES_REQUESTED`.
 - With a workplan: run `navori plan check <feature> --json`; every `A<n>` marked `cumplido` without recorded evidence (the routing-watch hook records it only when the host ran the exact `command`) is a finding → `CHANGES_REQUESTED`.
-<!-- /navori:if -->
 - Screen changes are reviewed on the **diff + the repo's tests** — browser/visual validation is **not a default gate**. Only when the user explicitly requested a visual check in this task do you confirm it happened; if it was requested and skipped, flag it. Never escalate a screen change to a human just because no browser check ran.
 
 **Partial verdict:**
