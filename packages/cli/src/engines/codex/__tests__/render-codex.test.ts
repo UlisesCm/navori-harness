@@ -611,6 +611,52 @@ describe("renderCodexEngine", () => {
     expect(reviewer).toContain('model = "gpt-6-luna"');
   });
 
+  // Covers: R32 — a family in codexMap resolves at render time; without a
+  // catalog the declared fallback is used and one warning names it.
+  it("renders the fallback id and warns once when the catalog lacks the family", () => {
+    const cwd = tempRepo();
+    const result = renderCodexEngine(
+      cwd,
+      config({
+        models: {
+          implementer: "sonnet",
+          reviewer: "sonnet",
+          scribe: "haiku",
+          codexMap: { sonnet: "astra" },
+        },
+      }),
+    );
+    expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8")).toContain(
+      'model = "gpt-6-astra"',
+    );
+    const warns = result.warnings.filter((w) => w.includes("'astra'"));
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain("gpt-6-astra");
+  });
+
+  // Covers: R32 — render must not depend on the machine's catalog: a previously
+  // rendered newer same-family model survives a render without a catalog.
+  it("keeps a previously rendered newer same-family model when no catalog is readable", () => {
+    const cwd = tempRepo();
+    const cfg = config({ models: { implementer: "sonnet", reviewer: "haiku" } });
+    mkdirSync(join(cwd, ".codex/agents"), { recursive: true });
+    writeFileSync(join(cwd, ".codex/agents/implementer.toml"), 'model = "gpt-6.1-sol"\n');
+    const result = renderCodexEngine(cwd, cfg);
+    expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8")).toContain(
+      'model = "gpt-6.1-sol"',
+    );
+    // No previous file: the declared fallback.
+    expect(readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8")).toContain(
+      'model = "gpt-6-luna"',
+    );
+    expect(result.warnings.some((w) => w.includes("gpt-6.1-sol"))).toBe(false);
+    // Idempotent: a second render keeps it.
+    renderCodexEngine(cwd, cfg);
+    expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8")).toContain(
+      'model = "gpt-6.1-sol"',
+    );
+  });
+
   // Covers: R12 — configured tier, mapped output and independent effort override.
   it("renders per-agent model mapping and effort without forcing a root model", () => {
     const cwd = tempRepo();

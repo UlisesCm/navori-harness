@@ -74,7 +74,7 @@ import {
   type ClassifiedLocalSkills,
 } from "./local-skill-pointer.ts";
 
-import { resolveCodexModel } from "../../lib/assets/model-profile.ts";
+import { readRenderedCodexModel, resolveCodexModel } from "../../lib/assets/model-profile.ts";
 
 const NAVORI_VERSION = readCliVersion();
 
@@ -462,7 +462,13 @@ function createCodexAdapter(
     label: "Codex",
 
     placeAgent(agent, ctx): PlacementRequest {
-      const { body, description } = buildAgentToml(agent, ctx.config, ctx.plugins);
+      const { body, description } = buildAgentToml(
+        agent,
+        ctx.config,
+        ctx.plugins,
+        warningsSink,
+        ctx.cwd,
+      );
       agentCatalog.push({ id: agent.id, description });
       // Codex auto-discovers standalone project agents from `.codex/agents/`;
       // config.toml does not need one registration table per file.
@@ -832,6 +838,8 @@ function buildAgentToml(
   source: PlannedAgent,
   config: NavoriConfig,
   plugins: readonly LoadedPlugin[],
+  warningsSink: string[],
+  cwd: string,
 ): { body: string; description: string } {
   const raw = readFileSync(source.assetPath, "utf-8");
   const parsed = parseAsset(raw, "html");
@@ -869,8 +877,20 @@ function buildAgentToml(
   ];
   if (sandbox === "read-only") lines.push('sandbox_mode = "read-only"');
   if (modelTier) {
-    const codexModel = resolveCodexModel(config, modelTier).model;
-    lines.push(`model = ${JSON.stringify(codexModel)}`);
+    const choice = resolveCodexModel(
+      config,
+      modelTier,
+      undefined,
+      readRenderedCodexModel(cwd, source.id),
+    );
+    if (choice.source === "fallback") {
+      const warning = tc(resolveLang(config.language)).engine.codexModelFamilyFallback(
+        choice.family ?? choice.model,
+        choice.model,
+      );
+      if (!warningsSink.includes(warning)) warningsSink.push(warning);
+    }
+    lines.push(`model = ${JSON.stringify(choice.model)}`);
   }
   if (effort) lines.push(`model_reasoning_effort = ${JSON.stringify(effort)}`);
 

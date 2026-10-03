@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import type { NavoriConfig } from "../../config/config.ts";
 import {
@@ -155,6 +158,7 @@ describe("model profile provenance (Spec 0037 R12)", () => {
       wouldRender: "gpt-6-custom",
       effectiveObserved: null,
       mapping: "configured",
+      source: "pin",
     });
     expect(rows.find((row) => row.agent === "reviewer")?.model).toEqual({
       configured: "haiku",
@@ -162,6 +166,7 @@ describe("model profile provenance (Spec 0037 R12)", () => {
       wouldRender: "gpt-6-luna",
       effectiveObserved: null,
       mapping: "built-in",
+      source: "fallback",
     });
     expect(rows.find((row) => row.agent === "reviewer")?.effort).toEqual({
       configured: "low",
@@ -172,6 +177,40 @@ describe("model profile provenance (Spec 0037 R12)", () => {
     expect(resolveCodexModel(cfg, "sonnet")).toEqual({
       model: "gpt-6-custom",
       mapping: "configured",
+      source: "pin",
+    });
+  });
+
+  // Covers: R32
+  it("resolves built-in and configured families against an injected catalog", () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-mp-catalog-"));
+    const path = join(dir, "models_cache.json");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        models: ["gpt-6-sol", "gpt-6.1-sol", "gpt-5.6-luna", "gpt-6-astra"].map((slug) => ({
+          slug,
+        })),
+      }),
+    );
+    const cfg = config({ models: { codexMap: { haiku: "astra" } } });
+    expect(resolveCodexModel(cfg, "opus", path)).toEqual({
+      model: "gpt-6.1-sol",
+      mapping: "built-in",
+      source: "family",
+    });
+    expect(resolveCodexModel(cfg, "haiku", path)).toMatchObject({
+      model: "gpt-6-astra",
+      mapping: "configured",
+      source: "family",
+    });
+    // luna resolves to the only catalog entry, an older version: no fallback needed.
+    expect(resolveCodexModel(config(), "haiku", path).model).toBe("gpt-5.6-luna");
+    // No catalog: last-known fallback, never throws.
+    expect(resolveCodexModel(config(), "haiku", null)).toMatchObject({
+      model: "gpt-6-luna",
+      source: "fallback",
+      family: "luna",
     });
   });
 

@@ -202,3 +202,12 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
   `docs/native-overlap.md` y los goldens declarados en la tabla de impacto. · test: refine de
   `enforcing` en `codex-parity.test.ts` › "row without V or smoke pass cannot be igual/equivalente";
   "spawn verification requires v1 and v2" con `// Covers: R25, R22`
+- [x] **T21** (R32) — Modelos de Codex por familia: resolución desde el catálogo local con pin,
+  fallback que nunca degrada + warning, aviso de `doctor` por modelo desactualizado y resolución de
+  familias en Pi; esquema regenerado. · test: `lib/codex/__tests__/model-catalog.test.ts`,
+  `lib/assets/__tests__/model-profile.test.ts`, `engines/codex/__tests__/render-codex.test.ts`,
+  `engines/pi/__tests__/subagent.test.ts` y `commands/__tests__/codex-doctor.test.ts` con
+  `// Covers: R32`
+  Nota: Pi resuelve la familia por catálogo o fallback y antepone `openai-codex/` a los ids no
+  fijados (supuesto, igual que el ejemplo de pin de sus tests); no aplica "nunca degrada" porque no
+  tiene un `.toml` de Codex que leer.

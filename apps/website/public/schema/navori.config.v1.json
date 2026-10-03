@@ -302,13 +302,16 @@
           "type": "object",
           "properties": {
             "opus": {
-              "type": "string"
+              "type": "string",
+              "description": "Codex model family (sol, luna, astra: highest-version model in the local Codex catalog) or a full model id (pinned verbatim)"
             },
             "sonnet": {
-              "type": "string"
+              "type": "string",
+              "description": "Codex model family (sol, luna, astra: highest-version model in the local Codex catalog) or a full model id (pinned verbatim)"
             },
             "haiku": {
-              "type": "string"
+              "type": "string",
+              "description": "Codex model family (sol, luna, astra: highest-version model in the local Codex catalog) or a full model id (pinned verbatim)"
             }
           },
           "additionalProperties": false

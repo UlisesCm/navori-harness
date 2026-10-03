@@ -28,6 +28,8 @@ equivalente nombrado—, o queda declarada como límite de Codex con fuente ofic
   roles de solo lectura la da un hook por `agent_type`, no el sandbox.
 - **D3** — `master-plan` y `context-intake` (#1088) entran al alcance en Codex, adaptados a sus
   primitivas.
+- **D4** (2026-10-03) — Los modelos de Codex se piden por familia, como el alias `opus` de Claude:
+  `models.codexMap` acepta una familia (`sol`, `luna`, `astra`) o un id completo (pin).
 
 ## Hallazgos verificados (base de los requisitos)
 
@@ -171,6 +173,24 @@ equivalente nombrado—, o queda declarada como límite de Codex con fuente ofic
 - **R30** — The Codex engine SHALL declarar como no soportadas solo superficies que no renderiza;
   IF una superficie declarada no soportada tiene archivos renderizados THEN the test suite SHALL
   fallar.
+
+### J — Modelos de Codex por familia
+
+- **R32** — WHEN `models.codexMap` nombra una familia (`sol`, `luna`, `astra`), the Codex engine
+  SHALL renderizar el modelo de mayor versión de esa familia en el catálogo local de Codex
+  (`<codexHome()>/models_cache.json`), comparando versiones de forma numérica (6.1 > 6 > 5.6).
+  WHEN nombra un id completo, SHALL renderizarlo tal cual (pin). IF el catálogo falta, es ilegible,
+  está mal formado o no tiene la familia, THEN the engine SHALL conservar el modelo ya renderizado
+  en el `.codex/agents/<id>.toml` de ese agente cuando es de la misma familia y su versión es >= la
+  del fallback (nunca degrada); y en cualquier otro caso (sin archivo previo, otra familia, más
+  antiguo o pin) SHALL renderizar el último id conocido (`sol` `gpt-6-sol`, `luna` `gpt-6-luna`,
+  `astra` `gpt-6-astra`) y emitir un warning de render que nombre la familia y el fallback. La
+  resolución SHALL nunca lanzar. Los defaults integrados son familias (`opus` → `sol`, `sonnet` →
+  `sol`, `haiku` → `luna`). WHEN el engine Codex está activo, `navori doctor` SHALL advertir —con
+  agente, id renderizado, id más nuevo y `navori render --apply`— si el modelo de un
+  `.codex/agents/*.toml` difiere de la resolución actual de su familia, y SHALL callar si son
+  iguales o es un pin. The Pi engine SHALL resolver las familias de `codexMap` igual (catálogo o
+  fallback). El render de Claude no cambia.
 
 ## NOT in scope
 

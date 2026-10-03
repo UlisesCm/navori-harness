@@ -16,6 +16,7 @@ import {
 } from "../shared/execute-plan.ts";
 import type { ProseEngineResult } from "../shared/prose-harness.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
+import { resolveCodexModel } from "../../lib/assets/model-profile.ts";
 import { interpolate } from "../../lib/render/interpolate.ts";
 import {
   ownsPiAgent,
@@ -104,8 +105,18 @@ export function renderPiEngine(
       config,
     );
     const tier = agent.modelKey ? config.models?.[agent.modelKey] : undefined;
-    const model = tier ? config.models?.codexMap?.[tier] : undefined;
-    if (tier && !model) {
+    // codexMap values may be a Codex family (resolved against the local catalog)
+    // or a full id (verbatim). The never-downgrade rule is Codex-specific (it
+    // reads a rendered .codex toml), so Pi resolves catalog-or-fallback only.
+    const mapped = tier ? config.models?.codexMap?.[tier] : undefined;
+    const resolved = tier && mapped ? resolveCodexModel(config, tier) : undefined;
+    const model =
+      resolved === undefined
+        ? undefined
+        : resolved.source === "pin"
+          ? resolved.model
+          : `openai-codex/${resolved.model}`;
+    if (tier && !mapped) {
       warnings.push(
         `Pi role ${agent.id} has a model tier but no concrete codexMap.${tier}; inheriting the selected Pi model.`,
       );

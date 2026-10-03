@@ -75,6 +75,8 @@ import { scanInterpolationArtifacts } from "../lib/render/interpolation-artifact
 import {
   scanMissingModelProfile,
   scanModelProfileProvenance,
+  scanStaleCodexModels,
+  type StaleCodexModel,
 } from "../lib/assets/model-profile.ts";
 import { scanControlGaps } from "../lib/diagnose/control-gaps.ts";
 import { scanDiskUsage, humanBytes } from "../lib/diagnose/disk-usage.ts";
@@ -1100,6 +1102,11 @@ export const doctorCommand = defineCommand({
       if (codexHealth.guardNotVersioned.length > 0) {
         cx.push(
           `  ${color.yellow(sym.update)} ${td.codexGuardNotVersioned(codexHealth.guardNotVersioned.join(", "))}`,
+        );
+      }
+      for (const m of codexHealth.staleModels) {
+        cx.push(
+          `  ${color.yellow(sym.update)} ${td.codexModelStale(m.agent, m.rendered, m.current)}`,
         );
       }
       if (cx.length > 0) p.note(cx.join("\n"), "Codex");
@@ -2818,6 +2825,8 @@ export interface CodexHealth {
    * never fires. Empty outside a git work tree (no worktrees ⇒ no exposure).
    */
   guardNotVersioned: string[];
+  /** Spec 0041 R32 — rendered agent models older than their family's current resolution. */
+  staleModels: StaleCodexModel[];
 }
 
 /**
@@ -2933,6 +2942,7 @@ export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth 
     worktreeHooksUnapproved: worktrees.unapproved,
     worktreeScanError: worktrees.error,
     guardNotVersioned,
+    staleModels: scanStaleCodexModels(cwd, config),
   };
 }
 
