@@ -15,6 +15,13 @@ export interface UnsupportedSurface {
   readonly surface: string;
   /** Why this engine can't or doesn't render that surface. */
   readonly reason: string;
+  /**
+   * Repo-relative globs (`*` = one path segment) where the surface would
+   * leave files if the engine rendered it. A test fails when a render writes
+   * a file matching one — "unsupported" must mean nothing is installed
+   * (spec 0041 R30). Omitted for surfaces with no file footprint.
+   */
+  readonly renderedPaths?: readonly string[];
 }
 
 /**
@@ -256,6 +263,7 @@ const CODEX_HOOK_UNSUPPORTED_SURFACES: readonly UnsupportedSurface[] =
   CODEX_HOOK_REGISTRATIONS.filter((row) => typeof row.unsupported === "string").map((row) => ({
     surface: row.script,
     reason: row.unsupported as string,
+    renderedPaths: [`.codex/hooks/${row.script}.sh`],
   }));
 
 /**
@@ -474,13 +482,7 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "The Codex engine deliberately emits no spawnable orchestrator agent — the main " +
           "Codex thread embodies the orchestrator role instead (engines/__tests__/engine-parity.test.ts, " +
           "AGENT_KNOWN_DIFFS; engines/shared/harness-plan.ts, resolveHarnessPlan's includeOrchestrator).",
-      },
-      {
-        surface: "engine-scripts",
-        reason:
-          "Only the Claude engine copies plugin scripts to disk (engines/claude/index.ts " +
-          "writes .claude/scripts/); nothing under engines/codex/ emits a .codex/scripts/ " +
-          "mirror (engines/codex/compat.ts, CODEX_MIRRORED_DIRS).",
+        renderedPaths: [".codex/agents/orchestrator.toml"],
       },
       {
         surface: "plugin-hook-extensions",

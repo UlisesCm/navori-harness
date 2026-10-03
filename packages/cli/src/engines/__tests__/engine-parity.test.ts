@@ -185,7 +185,18 @@ describe("engine inventory parity (claude ↔ codex)", () => {
       [...CLAUDE_ONLY_HOOKS].sort(),
     );
     expect(codexHooks.filter((hook) => CLAUDE_ONLY_HOOKS.has(hook))).toEqual([]);
-    expect(codexHooks).toEqual(claudeHooks.filter((hook) => !CLAUDE_ONLY_HOOKS.has(hook)));
+    // Spec 0041 R13/R30: Codex installs only scripts a registration runs, so the
+    // table's `unsupported` rows are absent (and `implementer-no-markdown` is
+    // conditional on `scribeOwnsMarkdown`, off in this fixture).
+    const notInstalled = new Set([
+      ...CODEX_HOOK_REGISTRATIONS.filter((row) => row.unsupported !== undefined).map(
+        (row) => row.script,
+      ),
+      "implementer-no-markdown",
+    ]);
+    expect(codexHooks).toEqual(
+      claudeHooks.filter((hook) => !CLAUDE_ONLY_HOOKS.has(hook) && !notInstalled.has(hook)),
+    );
   });
 
   // Covers: R3, R18

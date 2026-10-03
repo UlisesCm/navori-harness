@@ -1,9 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderCodexEngine } from "../index.ts";
 import { readCliVersion } from "../../../lib/render/bundled-assets.ts";
+import { getCoreRoot } from "../../../lib/render/bundled-assets.ts";
+import { renderManagedFile } from "../../shared/render-managed-file.ts";
 import { injectManagedSection } from "../../../lib/render/marker.ts";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
 
@@ -183,5 +193,63 @@ describe("Codex — preset-implied library skill (#1094)", () => {
 
     renderCodexEngine(cwd, cfg("vite-react-ts", []));
     expect(existsSync(skill())).toBe(false);
+  });
+});
+
+describe("Codex — scripts that stopped being installed (spec 0041 T2, R13/R30)", () => {
+  const hook = (): string => join(cwd, ".codex/hooks/plan-gate.sh");
+  const stale = (version: string): string =>
+    injectManagedSection("#!/usr/bin/env bash\n", "plan-gate", "exit 0\n", {
+      version,
+      source: "@navori/core",
+    }).output;
+  /** plan-gate exactly as navori renders it fresh — what a pristine install holds. */
+  const pristine = (): string =>
+    renderManagedFile({
+      assetPath: join(getCoreRoot(), "core-assets/hooks/plan-gate.sh"),
+      existingContent: null,
+      managedId: "plan-gate-base",
+      meta: { source: "@navori/core", version: readCliVersion() },
+      config: CONFIG,
+    }).content;
+
+  // Covers: R13, R30
+  it("prunes a pristine unregistered hook and keeps a backup of it", () => {
+    mkdirSync(join(cwd, ".codex/hooks"), { recursive: true });
+    writeFileSync(hook(), pristine(), "utf-8");
+
+    const result = renderCodexEngine(cwd, CONFIG);
+
+    expect(existsSync(hook())).toBe(false);
+    expect(result.backupPath).not.toBeNull();
+    const copies = readdirSync(result.backupPath as string, {
+      recursive: true,
+      encoding: "utf-8",
+    }).filter((f) => f.endsWith("plan-gate.sh"));
+    expect(copies.length).toBeGreaterThan(0);
+  });
+
+  // Covers: R13, R30
+  it("keeps an edited unregistered hook and reports it", () => {
+    mkdirSync(join(cwd, ".codex/hooks"), { recursive: true });
+    const edited = stale(readCliVersion()).replace("exit 0", "exit 1 # mine");
+    writeFileSync(hook(), edited, "utf-8");
+
+    const result = renderCodexEngine(cwd, CONFIG);
+
+    expect(readFileSync(hook(), "utf-8")).toBe(edited);
+    expect(result.warnings.some((w) => w.includes(".codex/hooks/plan-gate.sh"))).toBe(true);
+  });
+
+  // Covers: R13
+  it("keeps an unregistered hook with user text outside the managed block, and reports it", () => {
+    mkdirSync(join(cwd, ".codex/hooks"), { recursive: true });
+    const withNotes = `${pristine()}\n# mis notas, fuera del bloque\n`;
+    writeFileSync(hook(), withNotes, "utf-8");
+
+    const result = renderCodexEngine(cwd, CONFIG);
+
+    expect(readFileSync(hook(), "utf-8")).toBe(withNotes);
+    expect(result.warnings.some((w) => w.includes(".codex/hooks/plan-gate.sh"))).toBe(true);
   });
 });

@@ -17,7 +17,9 @@ import {
 } from "../../lib/config/presets.ts";
 import { tc, resolveLang } from "../../lib/i18n.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
+import { renderManagedFile } from "../shared/render-managed-file.ts";
 import { interpolate } from "../../lib/render/interpolate.ts";
+import { conditionOrchestration } from "../../lib/render/render-plan.ts";
 import {
   getFrontmatterField,
   removeFrontmatterField,
@@ -36,6 +38,7 @@ import { pluginScriptCollisions, pluginScriptPlacements } from "../shared/plugin
 import {
   resolveHarnessPlan,
   type PlannedAgent,
+  type PlannedHook,
   type PlannedSkill,
 } from "../shared/harness-plan.ts";
 import {
@@ -47,7 +50,11 @@ import {
   type PlacementRequest,
 } from "../shared/execute-plan.ts";
 import { buildCodexConfigToml } from "./build-config-toml.ts";
-import { codexHookCommand, resolvePluginCodexHooks } from "./hook-registrations.ts";
+import {
+  codexHookCommand,
+  resolveCodexHooks,
+  resolvePluginCodexHooks,
+} from "./hook-registrations.ts";
 import { buildCodexRules } from "./build-rules.ts";
 import { collectShellPermissionRules } from "../shared/permission-rules.ts";
 import { adaptHarnessTextForCodex } from "./compat.ts";
@@ -327,6 +334,27 @@ export function renderCodexEngine(
   };
 }
 
+/**
+ * Spec 0041 D15 (R13, R30): the ONE set of repo-relative script paths Codex
+ * installs under `.codex/hooks/` and `.codex/scripts/`. A script lands only if
+ * a registered hook (core row or plugin hook) runs it. Shell partials
+ * (`# navori:include`) are inlined at render time, so no extra file backs a
+ * registered script; no registered script `source`s another file. A script no
+ * hook invokes (unsupported rows, plugin scripts with no Codex registration,
+ * e.g. the tgrep guard that only the Claude hook extension sources) is not
+ * installed, and a previously installed one is retired by the orphan scan.
+ */
+export function codexInstalledScripts(
+  config: NavoriConfig,
+  plugins: readonly LoadedPlugin[],
+): ReadonlySet<string> {
+  return new Set(
+    resolveCodexHooks(config, plugins).map(
+      (hook) => hook.scriptPath ?? `.codex/hooks/${hook.script}.sh`,
+    ),
+  );
+}
+
 /** Read only executable command handlers, not comments or incidental TOML text. */
 function projectHookCommands(content: string): Set<string> {
   try {
@@ -380,6 +408,9 @@ function createCodexAdapter(
 ): EngineAdapter {
   const agentCatalog: Array<{ id: string; description: string }> = [];
   const manualOnlySkillIds: string[] = [];
+  let installed: ReadonlySet<string> | null = null;
+  const installedScripts = (ctx: AdapterCtx): ReadonlySet<string> =>
+    (installed ??= codexInstalledScripts(ctx.config, ctx.plugins));
 
   return {
     id: "codex",
@@ -424,14 +455,9 @@ function createCodexAdapter(
       };
     },
 
-    placeHook(hook): PlacementRequest {
-      return {
-        assetPath: hook.assetPath,
-        destRelPath: `.codex/hooks/${hook.id}.sh`,
-        managedId: hook.managedId,
-        commentStyle: "shell",
-        chmodExec: true,
-      };
+    placeHook(hook, ctx): PlacementRequest | null {
+      const request = hookRequest(hook);
+      return installedScripts(ctx).has(request.destRelPath) ? request : null;
     },
 
     extraFiles(ctx): PlacementRequest[] {
@@ -485,6 +511,7 @@ function createCodexAdapter(
       for (const plugin of ctx.plugins) {
         for (const script of pluginScriptPlacements(plugin, "codex")) {
           if (collisions.has(script.dest)) continue;
+          if (!installedScripts(ctx).has(script.destRelPath)) continue;
           pluginScripts.push({
             assetPath: script.src,
             destRelPath: script.destRelPath,
@@ -582,22 +609,82 @@ function createCodexAdapter(
         {
           dir: ".codex/hooks",
           match: () => true,
-          desired: new Set(plan.hooks.map(({ id }) => `.codex/hooks/${id}.sh`)),
+          desired: new Set(
+            [...installedScripts(ctx)].filter((rel) => rel.startsWith(".codex/hooks/")),
+          ),
           shape: "file",
+          expected: (rel) => {
+            // A hook the config no longer plans (e.g. planTiers turned off) is
+            // not in `plan.hooks`; its core asset still tells what pristine was.
+            const id = rel.slice(".codex/hooks/".length, -".sh".length);
+            const hook: PlannedHook = plan.hooks.find((h) => h.id === id) ?? {
+              id,
+              assetPath: join(ctx.coreAssets, `hooks/${id}.sh`),
+              managedId: `${id}-base`,
+            };
+            return existsSync(hook.assetPath) ? freshRender(hookRequest(hook), ctx.config) : null;
+          },
         },
         {
           dir: ".codex/scripts",
           match: (name) => name.endsWith(".sh"),
           desired: new Set(
-            ctx.plugins.flatMap((plugin) =>
-              plugin.scriptAssets.map((script) => `.codex/scripts/${script.dest}`),
-            ),
+            [...installedScripts(ctx)].filter((rel) => rel.startsWith(".codex/scripts/")),
           ),
           shape: "file",
+          expected: (rel) => {
+            for (const plugin of ctx.plugins) {
+              const script = pluginScriptPlacements(plugin, "codex").find(
+                (item) => item.destRelPath === rel,
+              );
+              if (!script) continue;
+              return freshRender(
+                {
+                  assetPath: script.src,
+                  destRelPath: script.destRelPath,
+                  managedId: script.managedId,
+                  meta: script.meta,
+                  extraVars: pluginExtraVars(ctx.config),
+                  commentStyle: "shell",
+                },
+                ctx.config,
+              );
+            }
+            return null;
+          },
         },
       ];
     },
   };
+}
+
+/** The Codex placement of a core hook script (installed only if registered). */
+function hookRequest(hook: PlannedHook): PlacementRequest {
+  return {
+    assetPath: hook.assetPath,
+    destRelPath: `.codex/hooks/${hook.id}.sh`,
+    managedId: hook.managedId,
+    commentStyle: "shell",
+    chmodExec: true,
+  };
+}
+
+/**
+ * The file as navori renders it fresh (no existing content), for the orphan
+ * scan's `requirePristine` comparison; null when the request has no asset.
+ */
+function freshRender(request: PlacementRequest, config: NavoriConfig): string | null {
+  if (request.assetPath === undefined) return null;
+  return renderManagedFile({
+    assetPath: request.assetPath,
+    existingContent: null,
+    managedId: request.managedId,
+    meta: request.meta ?? { source: "@navori/core", version: NAVORI_VERSION },
+    config,
+    extraVars: request.extraVars,
+    commentStyle: request.commentStyle,
+    transform: request.transform,
+  }).content;
 }
 
 /** Keep one playbook source while removing Claude-only navigation from its Codex reference. */
@@ -679,6 +766,15 @@ function buildAgentsMdRequest(
   };
 }
 
+/**
+ * Builds one `.codex/agents/<id>.toml`. The agent asset (and any plugin
+ * extension injected into it) is run through `conditionOrchestration` BEFORE
+ * interpolation: unlike `renderManagedFile`, which resolves `navori:if` /
+ * `navori:if-not` for every Markdown asset, this function reads the asset
+ * itself, so without the call the TOML carried both branches of each
+ * condition (e.g. the report and the JSON-evidence instructions) plus the raw
+ * markers (spec 0041 R28). An unbalanced marker throws, as on every engine.
+ */
 function buildAgentToml(
   source: PlannedAgent,
   config: NavoriConfig,
@@ -691,7 +787,9 @@ function buildAgentToml(
     config,
   );
   let instructions = adaptHarnessTextForCodex(
-    interpolate(parsed.managedBody, config, { extraVars: pluginExtraVars(config) }),
+    interpolate(conditionOrchestration(parsed.managedBody, config), config, {
+      extraVars: pluginExtraVars(config),
+    }),
     config,
   );
 
@@ -700,7 +798,9 @@ function buildAgentToml(
       if (skill.injectInto !== `.claude/agents/${source.id}.md`) continue;
       const extension = parseAsset(readFileSync(skill.absPath, "utf-8"), "html");
       instructions += `\n\n${adaptHarnessTextForCodex(
-        interpolate(extension.managedBody, config, { extraVars: pluginExtraVars(config) }),
+        interpolate(conditionOrchestration(extension.managedBody, config), config, {
+          extraVars: pluginExtraVars(config),
+        }),
         config,
       )}`;
     }
