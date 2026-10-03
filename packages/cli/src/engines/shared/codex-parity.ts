@@ -340,7 +340,7 @@ export const NARROWED_PATTERN_FAMILIES: readonly NarrowedPatternFamily[] = [
     patterns: ["Bash(git push --force*)"],
     parity: limite(
       SOURCES.execPolicyReadme,
-      "F9: a prefix_rule has no glob inside a token. The prefix covers --force, -f has its own rule and guard-destructive blocks a forced push to the base branch; --force-with-lease and --force-if-includes off the base branch are not covered",
+      "F9: a prefix_rule has no glob inside a token. The prefix covers --force, -f has its own rule and guard-destructive blocks a forced push to the base branch; --force-with-lease and --force-if-includes off the base branch are not covered. The prompt solo confirma en el hilo principal (sonda V1)",
     ),
   },
   {
@@ -356,7 +356,7 @@ export const NARROWED_PATTERN_FAMILIES: readonly NarrowedPatternFamily[] = [
     ],
     parity: limite(
       SOURCES.execPolicyReadme,
-      "F9: the prefix covers the exact option; glued variants (-fd, -fx) are covered by nothing",
+      "F9: the prefix covers the exact option; glued variants (-fd, -fx) are covered by nothing. The prompt solo confirma en el hilo principal (sonda V1)",
     ),
   },
   {
@@ -372,7 +372,7 @@ const permissionRuleEntries = (): Array<[string, CodexParity]> => [
     codexParityKey("permission-rule", "class:bash-ask"),
     limite(
       SOURCES.execPolicy,
-      "ask is translated to a prefix_rule prompt (F6); its live behaviour in the main thread and in a subagent is unverified until probe V1",
+      "ask is translated to a prefix_rule prompt (F6); solo confirma en el hilo principal (sonda V1): inside a subagent the call runs with no prompt",
     ),
   ],
   [
@@ -501,14 +501,9 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
     ],
     [
       "hook:plan-gate",
-      limite(
-        SOURCES.hooksDoc,
-        "Codex 0.158.0 sends delegation through PreToolUse as collaborationspawn_agent. " +
-          "A default spawn (message/task_name only) has no typed agent role; an explicit " +
-          "agent_type spawn exposes the typed role in Pre (observed in T9 corrida 2), " +
-          "recorded only as a reopening input for L06/T17. The workplan opening is still not " +
-          "verifiably readable and a blanket deny prevented child creation, so this hook " +
-          "stays advisory with no registration.",
+      equivalente(
+        "PreToolUse(spawn_agent$) gates only implementer, role from tool_input.agent_type; with an encrypted message (probe V2) the opening line is read from the orchestrator's dispatch_<feature>.json (spec 0041 R9)",
+        "the dispatch file has a 10 min TTL and exactly one fresh file may exist; the live smoke that promotes the row is T20",
       ),
     ],
     [
@@ -520,10 +515,9 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
     ],
     [
       "hook:pr-publisher-confirm",
-      limite(
-        SOURCES.hooksDoc,
-        "Codex hooks cannot emit `ask` (permissionDecision is dropped and the call proceeds); " +
-          "the confirmation moves to a `.codex/rules/navori.rules` prompt rule (D4, Lote C).",
+      equivalente(
+        "deny-as-confirmation: the Codex copy of the hook denies `gh pr create` instead of asking, also inside the publisher subagent where a prompt rule is silent (probe V1, spec 0041 R10)",
+        "Codex hooks cannot emit `ask`, so the user runs the command themselves after reviewing it; the live smoke that promotes the row is T20",
       ),
     ],
     [
@@ -543,10 +537,9 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
     ],
     [
       "hook:general-purpose-confirm",
-      limite(
-        SOURCES.hooksDoc,
-        "Codex hooks cannot emit `ask` (permissionDecision is dropped and the call proceeds), " +
-          "and Codex has no typed `general-purpose` subagent to confirm (spec 0039 R40).",
+      equivalente(
+        "deny-as-confirmation on PreToolUse(spawn_agent$) when agent_type is general-purpose (spec 0041 R10)",
+        "Codex hooks cannot emit `ask`; the denial points at the scout and the live smoke that promotes the row is T20",
       ),
     ],
     [

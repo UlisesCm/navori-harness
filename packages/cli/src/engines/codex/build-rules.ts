@@ -73,12 +73,13 @@ interface Translated {
   readonly narrowed: boolean;
 }
 
-/** D4 (R5): what `pr-publisher-confirm` used to ask under Claude — Codex hooks
- *  can't emit `ask`, so the confirmation moves here as a standing rule. */
+/** D4 (R5): the main-thread confirmation for a PR. It only confirms on the main
+ *  thread (probe V1: a `prompt` rule is silent inside subagents), so the Codex
+ *  `pr-publisher-confirm` hook denies as the confirmation there (spec 0041 R10). */
 const GH_PR_CREATE_RULE = {
   tokens: ["gh", "pr", "create"] as const,
   decision: "prompt" as const,
-  justification: "Confirma antes de publicar un PR (reemplaza pr-publisher-confirm).",
+  justification: "Confirma antes de publicar un PR (complementa pr-publisher-confirm).",
 };
 
 const BASH_RE = /^Bash\((.*)\)$/;

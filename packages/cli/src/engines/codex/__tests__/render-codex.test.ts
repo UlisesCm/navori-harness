@@ -349,19 +349,18 @@ describe("renderCodexEngine", () => {
     expect(toml).toContain('matcher = "startup|resume|clear|compact|fork"');
   });
 
-  // Covers: R6, R7, R8
-  it("keeps plan-gate advisory and existing PreToolUse trust positions in both scribe modes", () => {
+  // Covers: R6, R7, R8, R9
+  it("registers plan-gate as the last late row and keeps existing PreToolUse trust positions in both scribe modes", () => {
     for (const scribeOwnsMarkdown of [false, true]) {
       const cwd = tempRepo();
       const cfg = config({ harness: { planTiers: true, scribeOwnsMarkdown } });
       renderCodexEngine(cwd, cfg);
       const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
       const hooks = resolveCodexHooks(cfg);
-      expect(hooks.some((entry) => entry.script === "plan-gate")).toBe(false);
-      expect(toml).not.toContain("plan-gate.sh");
-      expect(
-        hooks.filter((entry) => entry.event === "PreToolUse").map((entry) => entry.script),
-      ).toEqual(
+      expect(hooks.some((entry) => entry.script === "plan-gate")).toBe(true);
+      expect(toml).toContain("plan-gate.sh");
+      const preTool = hooks.filter((entry) => entry.event === "PreToolUse");
+      expect(preTool.map((entry) => entry.script)).toEqual(
         scribeOwnsMarkdown
           ? [
               "guard-destructive",
@@ -369,12 +368,41 @@ describe("renderCodexEngine", () => {
               "quality-gate-pre-commit",
               "implementer-no-markdown",
               "role-guard",
+              "pr-publisher-confirm",
+              "general-purpose-confirm",
+              "plan-gate",
             ]
-          : ["guard-destructive", "comment-draft-confirm", "quality-gate-pre-commit", "role-guard"],
+          : [
+              "guard-destructive",
+              "comment-draft-confirm",
+              "quality-gate-pre-commit",
+              "role-guard",
+              "pr-publisher-confirm",
+              "general-purpose-confirm",
+              "plan-gate",
+            ],
       );
+      expect(preTool.at(-1)?.matcher).toBe("spawn_agent$");
       expect(toml.includes("implementer-no-markdown.sh")).toBe(scribeOwnsMarkdown);
       expect(toml).toContain("routing-watch.sh");
     }
+  });
+
+  // Covers: R9
+  it("does not register plan-gate without harness.planTiers", () => {
+    const cfg = config({ harness: { planTiers: false } });
+    expect(resolveCodexHooks(cfg).some((entry) => entry.script === "plan-gate")).toBe(false);
+  });
+
+  // Covers: R10 — publication and general-purpose confirmations are PreToolUse
+  // hooks (deny-as-confirmation), never a PermissionRequest registration.
+  it("registers the two confirmations as PreToolUse and no PermissionRequest hook", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+    expect(toml).toContain("pr-publisher-confirm.sh");
+    expect(toml).toContain("general-purpose-confirm.sh");
+    expect(toml).not.toContain("PermissionRequest");
   });
 
   // Covers: R10, R13
@@ -1032,9 +1060,6 @@ describe("renderCodexEngine — installed scripts follow registration (spec 0041
     const actual = [...listed(cwd, ".codex/hooks"), ...listed(cwd, ".codex/scripts")];
     expect(new Set(actual)).toEqual(new Set(expected));
     for (const gone of [
-      ".codex/hooks/plan-gate.sh",
-      ".codex/hooks/pr-publisher-confirm.sh",
-      ".codex/hooks/general-purpose-confirm.sh",
       ".codex/hooks/bash-outcome-watch.sh",
       ".codex/hooks/subagent-no-background.sh",
     ])
@@ -1164,6 +1189,13 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
   // Covers: R21 — D8: a registered group's `event:index` is its position among
   // the other groups of the same event, so the tail may only grow.
   it("keeps every already-published group index when masterPlan is switched on", () => {
+    // Spec 0041 R9/R10: role-guard and the rows after it are the new tail.
+    const LATE_TAIL = [
+      "role-guard",
+      "pr-publisher-confirm",
+      "general-purpose-confirm",
+      "plan-gate",
+    ];
     const base = config(withPlugins);
     const on = config({ ...withPlugins, harness: { masterPlan: true } });
     const plugins = loadEnabledPlugins(base.plugins).loaded;
@@ -1171,7 +1203,9 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
       const byEvent = new Map<string, string[]>();
       // The baseline is dev's table: `role-guard` is the new tail and may follow the
       // master-plan groups, so it is left out of the published-prefix comparison.
-      for (const hook of resolveCodexHooks(cfg, plugins).filter((h) => h.script !== "role-guard")) {
+      for (const hook of resolveCodexHooks(cfg, plugins).filter(
+        (h) => !LATE_TAIL.includes(h.script),
+      )) {
         byEvent.set(hook.event, [...(byEvent.get(hook.event) ?? []), hook.script]);
       }
       return byEvent;
@@ -1209,7 +1243,7 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
       "comment-draft-confirm",
       "quality-gate-pre-commit",
     ]);
-    expect(scripts.at(-1)).toBe("role-guard");
+    expect(scripts.at(-3)).toBe("role-guard");
     expect(scripts.indexOf("role-guard")).toBeGreaterThan(scripts.indexOf("check-jscpd.sh"));
     expect(preTool.find((hook) => hook.script === "role-guard")?.matcher).toBe(
       "^apply_patch$|spawn_agent$",
@@ -1219,7 +1253,12 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
     const on = resolveCodexHooks(config({ ...withPlugins, harness: { masterPlan: true } }), plugins)
       .filter((hook) => hook.event === "PreToolUse")
       .map((hook) => hook.script);
-    expect(on.slice(-2)).toEqual(["master-accept-confirm", "role-guard"]);
+    expect(on.slice(-4)).toEqual([
+      "master-accept-confirm",
+      "role-guard",
+      "pr-publisher-confirm",
+      "general-purpose-confirm",
+    ]);
     const withMaster = resolveCodexHooks(
       config({ ...withPlugins, harness: { masterPlan: true } }),
       plugins,
@@ -1230,7 +1269,11 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
     // Same positions as dev: master-accept-confirm directly after the plugin groups,
     // master-plan-context last in SessionStart; role-guard only appends.
     expect(indexOf(withMaster, "PreToolUse", "master-accept-confirm")).toBe(
-      without.filter((hook) => hook.event === "PreToolUse" && hook.script !== "role-guard").length,
+      without.filter(
+        (hook) =>
+          hook.event === "PreToolUse" &&
+          !["role-guard", "pr-publisher-confirm", "general-purpose-confirm"].includes(hook.script),
+      ).length,
     );
     expect(withMaster.filter((hook) => hook.event === "SessionStart").at(-1)?.script).toBe(
       "master-plan-context",
