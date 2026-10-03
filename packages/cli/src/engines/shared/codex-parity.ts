@@ -576,7 +576,7 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
       "plugin-script:tgrep/guard-search-routing.sh",
       limite(
         SOURCES.hooksDoc,
-        "the tgrep hookExtension that calls it is injected only into the Claude hook mirror; Codex copies carry none (spec 0041 R29 pending)",
+        "the tgrep hookExtension is injected into the Codex guard-destructive copy and sources this script from .codex/scripts (spec 0041 R29); the blocking path is unit-tested, the live Codex smoke that promotes it is T20",
       ),
     ],
     // Flows.

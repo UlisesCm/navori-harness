@@ -493,13 +493,6 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "AGENT_KNOWN_DIFFS; engines/shared/harness-plan.ts, resolveHarnessPlan's includeOrchestrator).",
         renderedPaths: [".codex/agents/orchestrator.toml"],
       },
-      {
-        surface: "plugin-hook-extensions",
-        reason:
-          "A plugin's hookExtensions sub-block (spec 0039 D6, the tgrep search lane) is injected " +
-          "only into the Claude `.claude/hooks/*.sh` mirror (engines/claude/index.ts, " +
-          "applyHookExtension); the Codex hook copies carry none.",
-      },
       ...CODEX_HOOK_UNSUPPORTED_SURFACES,
     ],
     controls: {
