@@ -150,6 +150,19 @@ afterEach(() => {
 });
 
 describe("Pi subagent resources", () => {
+  // Covers: R32
+  it("resolves a codexMap family instead of emitting the bare family name", () => {
+    const dir = freshDir();
+    const family = NavoriConfigSchema.parse({
+      ...config,
+      models: { scout: "haiku", codexMap: { haiku: "luna" } },
+    });
+    renderPiEngine(dir, family);
+    const scout = readFileSync(join(dir, ".pi/agents/scout.md"), "utf8");
+    expect(scout).toContain('model: "openai-codex/gpt-6-luna"'); // no catalog: fallback
+    expect(scout).not.toContain('model: "luna"');
+  });
+
   // Covers: R2, R8
   it("renders owned roles with descriptions, instructions, concrete model and explicit tools", () => {
     const dir = freshDir();
