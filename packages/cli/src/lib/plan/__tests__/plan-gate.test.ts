@@ -362,6 +362,25 @@ describe("evaluatePlanGate — Codex spawn_agent payloads (spec 0041 R9)", () =>
   });
 
   // Covers: R9
+  it("V2: accepts the offset and fractional createdAt the Codex orchestrator writes (smoke S4d)", () => {
+    writeConfig(true);
+    writeWorkplan("demo", VALID_LEVEL1);
+    const file = writeDispatch("demo", { createdAt: "2026-10-03T20:27:54.004865+00:00" });
+    const now = Date.parse("2026-10-03T20:28:30.000Z");
+    expect(evaluatePlanGate(codex("implementer", FERNET), now).decision).toBe("allow");
+    expect(existsSync(file)).toBe(false);
+  });
+
+  // Covers: R9
+  it("V2: a dispatch with a non-ISO createdAt is still malformed", () => {
+    writeConfig(true);
+    writeDispatch("demo", { createdAt: "yesterday" });
+    const result = evaluatePlanGate(codex("implementer", FERNET), NOW);
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("malformed");
+  });
+
+  // Covers: R9
   it("V2: a dispatch for a feature without a valid workplan is denied and kept", () => {
     writeConfig(true);
     const file = writeDispatch("demo");

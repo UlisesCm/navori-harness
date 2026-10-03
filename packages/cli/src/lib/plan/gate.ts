@@ -100,8 +100,12 @@ export const DispatchSchema = z.object({
   feature: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/),
   /** The encargo's first line: `workplan: <feature>` or `nivel-0: <path>`. */
   opening: z.string().min(1),
-  /** ISO-8601 timestamp; the file is stale `DISPATCH_TTL_MS` after it. */
-  createdAt: z.string().datetime(),
+  /**
+   * ISO-8601 timestamp; the file is stale `DISPATCH_TTL_MS` after it. Offsets and
+   * fractional seconds are accepted because the Codex orchestrator writes its own
+   * file (smoke S4d: `2026-10-03T20:27:54.004865+00:00`), not only `...Z`.
+   */
+  createdAt: z.string().datetime({ offset: true }),
 });
 export type Dispatch = z.infer<typeof DispatchSchema>;
 
