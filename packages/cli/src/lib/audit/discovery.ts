@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, type Dirent } from "node:fs";
 import { basename, join } from "node:path";
+import { codexHome } from "../codex/home.ts";
 import {
   auditsRoot,
   encodeCwdToSlug,
@@ -27,6 +28,10 @@ export interface MarkedSession {
   markedAt: string;
   /** Resolved transcript path, or null when it could not be located. */
   transcript: string | null;
+  /** Host that recorded the `start` event; `"codex"` sessions have no Claude transcript. */
+  host: "claude" | "codex";
+  /** Codex rollout path (spec 0041 R24), `null` for Claude sessions or when not found. */
+  rollout: string | null;
 }
 
 export interface DiscoveryFilters {
@@ -42,6 +47,7 @@ interface LogHeader {
   markedAt: string;
   /** Transcript path as reported by the hook payload, when the log has one. */
   transcript: string | null;
+  host: "claude" | "codex";
 }
 
 /**
@@ -58,6 +64,7 @@ function readHeader(logFile: string): LogHeader {
   let markedAt = "";
   let transcript: string | null = null;
   let seenHeader = false;
+  let host: LogHeader["host"] = "claude";
   try {
     const raw = readFileSync(logFile, "utf-8");
     for (const line of raw.split("\n")) {
@@ -69,6 +76,7 @@ function readHeader(logFile: string): LogHeader {
         if (!seenHeader) {
           cwd = typeof rec.cwd === "string" ? rec.cwd : null;
           markedAt = typeof rec.ts === "string" ? rec.ts : "";
+          if (rec.host === "codex") host = "codex";
           seenHeader = true;
         }
         if (!transcript && typeof rec.transcript === "string" && rec.transcript) {
@@ -82,7 +90,7 @@ function readHeader(logFile: string): LogHeader {
   } catch {
     // Unreadable log: treat as headerless rather than failing discovery.
   }
-  return { cwd, markedAt, transcript };
+  return { cwd, markedAt, transcript, host };
 }
 
 /**
@@ -116,6 +124,47 @@ export function resolveTranscript(
   return null;
 }
 
+/** Depth-bounded walk: `sessions/YYYY/MM/DD/` is three levels; one spare. */
+const ROLLOUT_MAX_DEPTH = 5;
+
+function findRolloutIn(dir: string, suffix: string, depth: number): string | null {
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const e of entries) {
+    if (e.isFile() && e.name.startsWith("rollout-") && e.name.endsWith(suffix)) {
+      return join(dir, e.name);
+    }
+  }
+  if (depth >= ROLLOUT_MAX_DEPTH) return null;
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    const hit = findRolloutIn(join(dir, e.name), suffix, depth + 1);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
+ * Locates a Codex session's rollout (spec 0041 R24): the path the hook payload
+ * recorded when it still exists, else `codexHome()/sessions/**` matching
+ * `rollout-*-<sessionId>.jsonl`. Never throws — a bad `CODEX_HOME` or an
+ * unreadable tree is "not found".
+ */
+export function resolveCodexRollout(sessionId: string, recorded?: string | null): string | null {
+  if (recorded && existsSync(recorded)) return recorded;
+  try {
+    const root = join(codexHome(), "sessions");
+    if (!existsSync(root)) return null;
+    return findRolloutIn(root, `-${sessionId}.jsonl`, 0);
+  } catch {
+    return null;
+  }
+}
+
 function withinRange(markedAt: string, filters: DiscoveryFilters): boolean {
   if (!markedAt) return true;
   const day = markedAt.slice(0, 10);
@@ -144,13 +193,18 @@ export function findMarkedSessions(
       .replace(/^session-/, "")
       .replace(/\.log$/, "");
     const logFile = join(dir, file);
-    const { cwd, markedAt, transcript } = readHeader(logFile);
+    const { cwd, markedAt, transcript, host } = readHeader(logFile);
+    // A Codex hook payload's `transcript_path` is the rollout, not a Claude
+    // transcript: it must never reach `parseSession`.
+    const isCodex = host === "codex";
     sessions.push({
       sessionId,
       logFile,
       cwd,
       markedAt,
-      transcript: resolveTranscript(sessionId, cwd, transcript),
+      host,
+      transcript: isCodex ? null : resolveTranscript(sessionId, cwd, transcript),
+      rollout: isCodex ? resolveCodexRollout(sessionId, transcript) : null,
     });
   }
 
