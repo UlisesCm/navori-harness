@@ -81,21 +81,20 @@ describe("scanCodexHealth (Spec 0007 M5)", () => {
     rmSync(codexHome.dir, { recursive: true, force: true });
   });
 
-  it("compares Codex versions numerically instead of treating 0.154 as older than 0.145", () => {
-    expect(isCodexVersionTooOld("0.144.9")).toBe(true);
-    expect(isCodexVersionTooOld("0.145.0")).toBe(false);
-    expect(isCodexVersionTooOld("0.154.0")).toBe(false);
+  it("compares Codex versions numerically instead of treating 0.160 as older than 0.16", () => {
+    expect(isCodexVersionTooOld("0.159.9")).toBe(true);
+    expect(isCodexVersionTooOld("0.160.0")).toBe(false);
+    expect(isCodexVersionTooOld("0.170.0")).toBe(false);
   });
 
   // Covers: R18
   it("derives the minimum Codex version from the registrations", () => {
-    // 0.145.0 is `audit-mode-close`'s minVersion (spec 0035 D1) — the max
-    // across every registered row today, computed from the table rather than
-    // hardcoded, so a future row raising the floor updates both this and
-    // `isCodexVersionTooOld` automatically.
-    expect(minCodexVersion()).toBe("0.145.0");
-    expect(isCodexVersionTooOld("0.144.9")).toBe(true);
-    expect(isCodexVersionTooOld("0.145.0")).toBe(false);
+    // 0.160.0 is the version the live probes and smokes passed on (spec 0041
+    // T20), which outranks the table's own floor (0.145.0, `audit-mode-close`,
+    // spec 0035 D1): one floor, computed rather than hardcoded.
+    expect(minCodexVersion()).toBe("0.160.0");
+    expect(isCodexVersionTooOld("0.159.9")).toBe(true);
+    expect(isCodexVersionTooOld("0.160.0")).toBe(false);
   });
 
   it("returns null when codex is not a configured engine", () => {
