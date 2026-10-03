@@ -62,7 +62,7 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
 
 ## Lote 3 — Guards por rol y plan-gate
 
-- [ ] **T8** (R6, R7, R8) — `RosterAgent.writes` en `roster.ts` como fuente única (D6);
+- [x] **T8** (R6, R7, R8) — `RosterAgent.writes` en `roster.ts` como fuente única (D6);
   `engines/shared/role-policy.ts` (`buildRolePolicyShell`); `core-assets/hooks/role-guard.sh`
   sobre `^apply_patch$`, registrado solo en Codex en `lateRegistrations` (D5, D8). Partial
   `hook-input.sh`: `nv_spawn_target_type`, `nv_event_agent_type`, `nv_is_spawn_tool` (H16). ·
@@ -71,12 +71,19 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
   `implementer`/`scribe` permitidos; fragmento renderizado = `buildRolePolicyShell` sin prefijos
   literales en el asset; `.claude/hooks/role-guard.sh` ausente en el render Claude con
   `// Covers: R6, R7, R8`
-- [ ] **T9** (R17, R31) — Rama `spawn_agent$` de `role-guard` que deniega cuando el que llama es un
+  Notas: `role-guard` solo en Codex, registrado al final de las filas tardías, después de
+  master-plan, sin mover índices publicados. Las rutas por rol salen de `RosterAgent.writes`.
+  Sin `jq` ni `node`, el guard deja pasar (decisión documentada). Las filas siguen
+  `enforcing: false` hasta T20.
+- [x] **T9** (R17, R31) — Rama `spawn_agent$` de `role-guard` que deniega cuando el que llama es un
   subagente (D13, OQ1); `config.toml` sin `[agents]` ni `multi_agent_v2`; prosa `orquestacion` sin
   `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` para Codex (M4). · test: `render-codex.test.ts` ›
   "config has no agents table nor multi_agent_v2"; `role-guard.test.ts` › "spawn from a subagent
   is denied naming the caller role", "spawn from main thread is allowed" con
   `// Covers: R17, R31`
+  Notas: el spawn hecho por un subagente se deniega (R31). Evidencia de la sonda en vivo con
+  Codex 0.160.0: bajo V2 un subagente sí despachaba un nieto, y el nombre del spawn llega
+  aplanado (`spawn_agent$`). Las filas siguen `enforcing: false` hasta T20.
 - [ ] **T10** (R9) — `lib/plan/gate.ts` `parsePayload` reconoce V1 (`agent_type`, `message`) y V2
   (`agent_type?`, `task_name`, `message`); forma sin rol legible deniega; registro de `plan-gate`
   en `spawn_agent$` con `when: planTiers`. Si T7/V3 mostró `message` ilegible en V2: lectura de
