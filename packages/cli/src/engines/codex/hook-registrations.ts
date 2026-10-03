@@ -259,6 +259,7 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
       when: (config) => Boolean(config.harness?.planTiers),
       late: true,
     },
+  },
   {
     // Spec 0041 R10: a `prompt` rule does not confirm inside subagents (probe
     // V1), so the publisher's `gh pr create` is confirmed by deny-as-confirmation

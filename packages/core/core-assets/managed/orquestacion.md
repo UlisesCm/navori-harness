@@ -28,7 +28,7 @@ You are the main agent. **Every change to source goes through `implementer` → 
 
 ### Claude agent turn limits
 
-Continue a foreground `Agent` at cap via `SendMessage`; fresh bounded redispatch only for remaining work needing another agent. <!-- navori:if-not onCodex -->Claude Code 2.1.287 has no `PostToolUse(Agent)` cap marker for background/resumed agents, and `SubagentStop` does not fire at cap. <!-- /navori:if-not -->Missing markers or handoffs do not prove a cap.
+Continue a foreground `Agent` at cap via `SendMessage`; fresh bounded redispatch only for remaining work needing another agent. <!-- navori:if-not onCodex -->Claude Code 2.1.287 has no `PostToolUse(Agent)` cap marker for background/resumed agents, and `SubagentStop` does not fire at cap. <!-- /navori:if-not -->Missing markers or handoffs do not prove a cap.<!-- navori:if onCodex --> Codex: with `harness.planTiers`, write `.navori/state/handoffs/dispatch_<feature>.json` (`feature`, `opening`, `createdAt`) before spawning `implementer` (spawn `message` is encrypted); one fresh file (TTL 10 min) per spawn, consumed on use. `gh pr create` and `general-purpose` are denied as confirmation: the user runs or confirms.<!-- /navori:if -->
 
 ### How much analysis does this task deserve (signal → mechanism)
 

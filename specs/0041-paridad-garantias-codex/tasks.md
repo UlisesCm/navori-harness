@@ -84,21 +84,25 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
   Notas: el spawn hecho por un subagente se deniega (R31). Evidencia de la sonda en vivo con
   Codex 0.160.0: bajo V2 un subagente sí despachaba un nieto, y el nombre del spawn llega
   aplanado (`spawn_agent$`). Las filas siguen `enforcing: false` hasta T20.
-- [ ] **T10** (R9) — `lib/plan/gate.ts` `parsePayload` reconoce V1 (`agent_type`, `message`) y V2
+- [x] **T10** (R9) — `lib/plan/gate.ts` `parsePayload` reconoce V1 (`agent_type`, `message`) y V2
   (`agent_type?`, `task_name`, `message`); forma sin rol legible deniega; registro de `plan-gate`
   en `spawn_agent$` con `when: planTiers`. Si T7/V3 mostró `message` ilegible en V2: lectura de
   `.navori/state/handoffs/dispatch_<feature>.json` (OQ2). · test:
   `lib/plan/__tests__/plan-gate.test.ts` › V1, V2 con `agent_type`, V2 sin `agent_type` con
   `task_name: "implementer"`, forma desconocida, `message` ilegible; `nv_spawn_target_type` nunca
   devuelve el tipo del que llama con `// Covers: R9`
+  Nota: se usa el dispatch file porque bajo V2 el `message` llega cifrado (sonda V3); en Codex los
+  implementers se despachan de uno en uno; filas `enforcing: false` hasta T20.
 
 ## Lote 4 — Confirmaciones y vigilancia
 
-- [ ] **T11** (R10) — `general-purpose-confirm.sh` con rama Codex de deny-como-confirmación (D12);
+- [x] **T11** (R10) — `general-purpose-confirm.sh` con rama Codex de deny-como-confirmación (D12);
   la confirmación de publicación por regla `prompt` de `.codex/rules` (sin handler
   `PermissionRequest`). Filas a `equivalente` solo con V1/V3 en verde. · test:
   `lib/__tests__/general-purpose-confirm.test.ts` › payload Codex sin confirmar → deny, confirmado
   → allow; `codex-rules.test.ts` › "publish commands are prompt rules" con `// Covers: R10`
+  Nota: deny-como-confirmación porque la regla `prompt` no confirma dentro de subagentes (sonda V1);
+  en Codex `gh pr create` lo corre el usuario; filas `enforcing: false` hasta T20.
 - [ ] **T12** (R11) — Línea `bash-outcome` dentro de `routing-watch.sh` para Codex, reutilizando el
   partial `bash-outcome.sh` y leyendo el exit code del rollout (D10); matcher de `routing-watch`
   ve los spawns V2 (H17). Si T7/V4 mostró que el rollout llega tarde, la fila queda
