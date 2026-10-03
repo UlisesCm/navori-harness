@@ -21,3 +21,11 @@ if (runRoot) {
 } else {
   process.env.NAVORI_BACKUP_ROOT = mkdtempSync(join(tmpdir(), "navori-test-backups-"));
 }
+
+/**
+ * Codex model families resolve against `<CODEX_HOME>/models_cache.json` (spec
+ * 0041 R32). Drop an inherited override so no spec reads a developer's real
+ * catalog; the ephemeral HOME from globalSetup then yields no catalog and every
+ * render falls back to the declared last-known ids.
+ */
+delete process.env.CODEX_HOME;
