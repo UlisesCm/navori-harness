@@ -21,7 +21,13 @@ trap navori_audit_on_exit EXIT
 
 specs_dir={{shq:sdd.specsDir}}
 NAVORI_MASTER_LINE_BUDGET=600
-project_dir=${CLAUDE_PROJECT_DIR:-$PWD}
+# Codex sets no CLAUDE_PROJECT_DIR: the root is the git toplevel of the hook's
+# directory; `$0` tells the copies apart (spec 0041 R21, same pattern as
+# `comment-draft-confirm.sh`).
+case "$0" in
+  *".codex/hooks/"*) project_dir=$(git rev-parse --show-toplevel 2>/dev/null) || project_dir=$PWD ;;
+  *) project_dir=${CLAUDE_PROJECT_DIR:-$PWD} ;;
+esac
 index_path=$project_dir/$specs_dir/_master/INDEX.md
 offer='En tu primera respuesta de la sesión, ofrece continuar con el plan maestro en una sola línea, sin interrumpir lo que el usuario pidió.'
 

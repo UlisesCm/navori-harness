@@ -77,15 +77,15 @@ function testPlugin(id: string, capabilities: Record<string, unknown>): LoadedPl
 }
 
 describe("renderCodexEngine", () => {
-  // Covers: R1
-  it.each([false, true])("omits Claude-only master skills with masterPlan=%s", (enabled) => {
+  // Covers: R20
+  it.each([false, true])("ships the master skills to Codex with masterPlan=%s", (enabled) => {
     const cwd = tempRepo();
     renderCodexEngine(cwd, config({ harness: { masterPlan: enabled } }));
-    expect(existsSync(join(cwd, ".agents/skills/master-plan/SKILL.md"))).toBe(false);
-    expect(existsSync(join(cwd, ".agents/skills/context-intake/SKILL.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".agents/skills/master-plan/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".agents/skills/context-intake/SKILL.md"))).toBe(true);
     const index = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
-    expect(index).not.toContain("- `master-plan` —");
-    expect(index).not.toContain("- `context-intake` —");
+    expect(index).toContain("- `master-plan` —");
+    expect(index).toContain("- `context-intake` —");
   });
 
   // Covers: R20
@@ -1040,5 +1040,84 @@ describe("renderCodexEngine — installed scripts follow registration (spec 0041
     ])
       expect(actual).not.toContain(gone);
     expect(actual).toContain(".codex/scripts/check-jscpd.sh");
+  });
+});
+
+describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
+  const withPlugins = {
+    plugins: {
+      engram: { enabled: true },
+      jscpd: { enabled: true },
+      semgrep: { enabled: true },
+    },
+  } as const;
+
+  // Covers: R20, R21
+  it("masterPlan registers master-plan-context and emits both skills", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config({ harness: { masterPlan: true } }));
+    for (const id of ["master-plan", "context-intake"])
+      expect(existsSync(join(cwd, `.agents/skills/${id}/SKILL.md`))).toBe(true);
+    const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+    expect(toml).toContain(".codex/hooks/master-plan-context.sh");
+    expect(existsSync(join(cwd, ".codex/hooks/master-plan-context.sh"))).toBe(true);
+    // The shared script carries the Codex branch (decided by `$0`).
+    const script = readFileSync(join(cwd, ".codex/hooks/master-plan-context.sh"), "utf-8");
+    expect(script).toContain('*".codex/hooks/"*) project_dir=$(git rev-parse --show-toplevel');
+  });
+
+  // Covers: R20, R21
+  it("without masterPlan neither hook is registered or installed, but the skills still ship", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+    expect(toml).not.toContain("master-plan-context");
+    expect(toml).not.toContain("master-accept-confirm");
+    expect(existsSync(join(cwd, ".codex/hooks/master-plan-context.sh"))).toBe(false);
+    expect(existsSync(join(cwd, ".agents/skills/master-plan/SKILL.md"))).toBe(true);
+  });
+
+  // Covers: R20
+  it("master-accept-confirm carries its Codex deny branch and never allows", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config({ harness: { masterPlan: true } }));
+    const script = readFileSync(join(cwd, ".codex/hooks/master-accept-confirm.sh"), "utf-8");
+    expect(script).toContain('*".codex/hooks/"*)');
+    expect(script).toContain('"permissionDecision":"deny"');
+    expect(script).not.toContain('"permissionDecision":"allow"');
+  });
+
+  // Covers: R21 — D8: a registered group's `event:index` is its position among
+  // the other groups of the same event, so the tail may only grow.
+  it("keeps every already-published group index when masterPlan is switched on", () => {
+    const base = config(withPlugins);
+    const on = config({ ...withPlugins, harness: { masterPlan: true } });
+    const plugins = loadEnabledPlugins(base.plugins).loaded;
+    const slots = (cfg: NavoriConfig): Map<string, string[]> => {
+      const byEvent = new Map<string, string[]>();
+      for (const hook of resolveCodexHooks(cfg, plugins)) {
+        byEvent.set(hook.event, [...(byEvent.get(hook.event) ?? []), hook.script]);
+      }
+      return byEvent;
+    };
+    const before = slots(base);
+    const after = slots(on);
+    for (const [event, scripts] of before) {
+      expect(after.get(event)?.slice(0, scripts.length), event).toEqual(scripts);
+    }
+    expect(before.get("PreToolUse")).toContain("check-jscpd.sh");
+    expect(after.get("PreToolUse")?.at(-1)).toBe("master-accept-confirm");
+    expect(after.get("SessionStart")?.at(-1)).toBe("master-plan-context");
+    // Pinned: the indexes Codex trust already approved.
+    expect(before.get("SessionStart")).toEqual([
+      "model-advisor",
+      "session-start-context",
+      "worktree-reclaim",
+    ]);
+    expect(before.get("PreToolUse")?.slice(0, 3)).toEqual([
+      "guard-destructive",
+      "comment-draft-confirm",
+      "quality-gate-pre-commit",
+    ]);
   });
 });

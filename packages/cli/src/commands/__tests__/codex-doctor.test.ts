@@ -346,17 +346,17 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
     assert.isDefined(codex);
     expect(claude.agents).toContain("orchestrator");
     expect(codex.agents).not.toContain("orchestrator");
-    // Skills remain shared; the two master-plan hook assets are Claude-only.
+    // Skills remain shared; the master-plan skills and hooks are scoped to claude and codex.
     expect(codex.skills).toEqual(claude.skills);
-    expect(claude.hooks.filter((hook) => !hook.startsWith("master-"))).toEqual(codex.hooks);
+    expect(codex.hooks).toEqual(claude.hooks);
     expect(claude.hooks).toContain("master-plan-context");
     expect(claude.hooks).toContain("master-accept-confirm");
-    expect(codex.hooks).not.toContain("master-plan-context");
-    expect(codex.hooks).not.toContain("master-accept-confirm");
+    expect(codex.hooks).toContain("master-plan-context");
+    expect(codex.hooks).toContain("master-accept-confirm");
     expect(claude.hooks).toContain("guard-destructive");
   });
 
-  it("reports dormant Claude hooks with masterPlan off and the same assets with it on", () => {
+  it("reports dormant master-plan hooks with masterPlan off and the same assets with it on", () => {
     const cwd = tempRepo();
     for (const masterPlan of [false, true]) {
       const { claude, codex } = buildEngineInventory(
@@ -370,8 +370,8 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
       assert.isDefined(codex);
       expect(claude.hooks).toContain("master-plan-context");
       expect(claude.hooks).toContain("master-accept-confirm");
-      expect(codex.hooks).not.toContain("master-plan-context");
-      expect(codex.hooks).not.toContain("master-accept-confirm");
+      expect(codex.hooks).toContain("master-plan-context");
+      expect(codex.hooks).toContain("master-accept-confirm");
     }
   });
 

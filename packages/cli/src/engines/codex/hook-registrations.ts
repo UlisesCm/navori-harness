@@ -37,6 +37,13 @@ export interface CodexHookRegistration {
   readonly args?: string;
   /** Registered only when this returns true; always registered when absent. */
   readonly when?: (config: NavoriConfig) => boolean;
+  /**
+   * Emitted AFTER the plugin hook groups (spec 0041 D8). Plugin hooks are
+   * PreToolUse groups numbered by position, so a core row that lands between
+   * the core rows and the plugin ones would renumber every already-approved
+   * plugin hook and silently un-trust it. A late row is a new group at the tail.
+   */
+  readonly late?: true;
 }
 
 export interface CodexHookRow {
@@ -201,15 +208,36 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
     script: "subagent-no-background",
   },
   {
-    // Spec 0034 ships the master plan for Claude first; Codex is phase 2 (#1088).
+    // Spec 0041 D11: Codex hooks cannot emit `ask`, so the Codex copy of the
+    // script denies instead (deny-as-confirmation, like `comment-draft-confirm`),
+    // decided by `$0` inside the script. Never `ask`, never an allow.
     script: "master-accept-confirm",
+    registration: {
+      event: "PreToolUse",
+      matcher: "^Bash$",
+      timeout: 10,
+      statusMessage: "navori: master acceptance confirmation",
+      minVersion: "0.129.0",
+      when: (config) => Boolean(config.harness?.masterPlan),
+      late: true,
+    },
   },
   {
     // Spec 0039 R40: Claude-only, like the other `ask` confirmations.
     script: "general-purpose-confirm",
   },
   {
+    // Spec 0041 R21: same SessionStart channel `session-start-context` uses.
     script: "master-plan-context",
+    registration: {
+      event: "SessionStart",
+      matcher: "startup|resume|clear|compact|fork",
+      timeout: 10,
+      statusMessage: "navori: master-plan context",
+      minVersion: "0.133.0",
+      when: (config) => Boolean(config.harness?.masterPlan),
+      late: true,
+    },
   },
 ];
 
@@ -291,7 +319,8 @@ export function resolvePluginCodexHooks(plugins: readonly LoadedPlugin[]): {
 
 /**
  * The Codex hook groups to register for `config`, in stable render order
- * (table order — see the module doc's ordering contract).
+ * (table order — see the module doc's ordering contract), then the plugin
+ * hooks, then the `late` rows (spec 0041 D8).
  */
 export function resolveCodexHooks(
   config: NavoriConfig,
@@ -299,6 +328,7 @@ export function resolveCodexHooks(
   overlapRows: readonly OverlapRow[] = OVERLAP_ROWS,
 ): ResolvedCodexHook[] {
   const resolved: ResolvedCodexHook[] = [];
+  const late: ResolvedCodexHook[] = [];
   // Spec 0039 D1: same predicate `filterInventory` uses, so a hook (or plugin)
   // the matrix marks native on Codex is neither written nor registered.
   const livePlugins = plugins.filter(
@@ -308,10 +338,10 @@ export function resolveCodexHooks(
     if (!row.registration) continue;
     if (isNativeOn("codex", "hook", row.script, overlapRows)) continue;
     if (row.registration.when && !row.registration.when(config)) continue;
-    const { when: _when, minVersion: _minVersion, ...rest } = row.registration;
-    resolved.push({ script: row.script, ...rest });
+    const { when: _when, minVersion: _minVersion, late: isLate, ...rest } = row.registration;
+    (isLate ? late : resolved).push({ script: row.script, ...rest });
   }
-  return [...resolved, ...resolvePluginCodexHooks(livePlugins).hooks];
+  return [...resolved, ...resolvePluginCodexHooks(livePlugins).hooks, ...late];
 }
 
 /**
