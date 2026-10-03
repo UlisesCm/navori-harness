@@ -7177,9 +7177,21 @@ is_scan_trigger "$cmd" || exit 0
 
 # Fixed by construction: no repository content reaches JSON, so this still
 # works when jq and node are unavailable.
-navori_audit_verdict="ask"
-navori_audit_reason="manual approval or stage close"
-printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[navori] this records that you approved a manual criterion. Confirm only if you reviewed it."}}'
+# Codex parses `permissionDecision` but drops `"ask"` (the call proceeds), so
+# the Codex copy denies instead: deny-as-confirmation, decided by `$0` like
+# `comment-draft-confirm.sh` (spec 0041 D11). Never an allow.
+case "$0" in
+  *".codex/hooks/"*)
+    navori_audit_verdict="deny"
+    navori_audit_reason="manual approval or stage close"
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[navori] this records that the user approved a manual criterion, and Codex hooks cannot prompt. Show the user what it approves and let them confirm and run the command themselves."}}'
+    ;;
+  *)
+    navori_audit_verdict="ask"
+    navori_audit_reason="manual approval or stage close"
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[navori] this records that you approved a manual criterion. Confirm only if you reviewed it."}}'
+    ;;
+esac
 # navori:managed end id="master-accept-confirm-base"
 
 
@@ -7499,7 +7511,13 @@ trap navori_audit_on_exit EXIT
 
 specs_dir='specs'
 NAVORI_MASTER_LINE_BUDGET=600
-project_dir=${CLAUDE_PROJECT_DIR:-$PWD}
+# Codex sets no CLAUDE_PROJECT_DIR: the root is the git toplevel of the hook's
+# directory; `$0` tells the copies apart (spec 0041 R21, same pattern as
+# `comment-draft-confirm.sh`).
+case "$0" in
+  *".codex/hooks/"*) project_dir=$(git rev-parse --show-toplevel 2>/dev/null) || project_dir=$PWD ;;
+  *) project_dir=${CLAUDE_PROJECT_DIR:-$PWD} ;;
+esac
 index_path=$project_dir/$specs_dir/_master/INDEX.md
 offer='En tu primera respuesta de la sesión, ofrece continuar con el plan maestro en una sola línea, sin interrumpir lo que el usuario pidió.'
 
@@ -18295,8 +18313,8 @@ name: master-plan
 description: Use when the user explicitly asks to start or resume a project master plan, invokes `/master-plan`, or accepts the offer with “sí, continúa”. Guides the staged workflow, user confirmations, evidence and closure. Not for manual context conversion (`context-intake`) or creating a standalone specification (`spec-bootstrap`).
 metadata:
   type: reference
-  # Excede el tope de 500 de las skills core: reúne los contratos completos de T18 (etapas y procedimientos), el mensaje de fase guiado, la fase ux, la regla de sdd.enabled y las variantes de confirmación (spec 0039 R56).
-  maxWords: 2400
+  # Excede el tope de 500 de las skills core: reúne los contratos completos de T18 (etapas y procedimientos), el mensaje de fase guiado, la fase ux, la regla de sdd.enabled y las variantes de confirmación (spec 0039 R56). Sube a 2500: los 13 tramos inline onCodex (marcadores más texto alterno de Codex) suman ~150 palabras al render (2453 medidas) (spec 0041 R20).
+  maxWords: 2500
 ---
 
 <!-- navori:managed id="master-plan" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->

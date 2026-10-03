@@ -67,8 +67,7 @@ const FIXTURE: OverlapRow = {
 
 const plan = resolveHarnessPlan(CONFIG, resolve(getCoreRoot(), "core-assets"), null, {
   includeOrchestrator: true,
-  includeClaudeOnlySkills: true,
-  includeClaudeOnlyHooks: true,
+  engine: "claude",
 });
 const inventory = { plan, plugins: [] };
 

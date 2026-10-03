@@ -291,11 +291,12 @@ describe("control inventory vs. the actual render (spec 0033 D5)", () => {
     }
   });
 
-  it("codex: does not render Claude-only master-plan hooks", () => {
+  // Covers: R20, R21
+  it("codex: renders both master-plan hooks when harness.masterPlan is on", () => {
     const cwd = freshDir("codex-master-plan");
     renderCodexEngine(cwd, fullFlagsConfig("codex"));
-    expect(existsSync(join(cwd, ".codex/hooks/master-plan-context.sh"))).toBe(false);
-    expect(existsSync(join(cwd, ".codex/hooks/master-accept-confirm.sh"))).toBe(false);
+    expect(existsSync(join(cwd, ".codex/hooks/master-plan-context.sh"))).toBe(true);
+    expect(existsSync(join(cwd, ".codex/hooks/master-accept-confirm.sh"))).toBe(true);
   });
 
   // Covers: R13, R14, R21
@@ -394,13 +395,13 @@ describe("analyticWriteTools vs. the actual render (spec 0033 D5, R23)", () => {
     }
   });
 
-  // Covers: R60
-  it("codex keeps master-plan unsupported: no skill and no master hooks are rendered", () => {
-    expect(ENGINE_CAPABILITIES.codex.controls["master-plan"].state).toBe("unsupported");
-    const cwd = freshDir("codex-master-plan-unsupported");
+  // Covers: R20, R21, R60
+  it("codex declares master-plan advisory until its smoke (T20): the skill and the hook are rendered", () => {
+    expect(ENGINE_CAPABILITIES.codex.controls["master-plan"].state).toBe("advisory");
+    const cwd = freshDir("codex-master-plan-advisory");
     renderCodexEngine(cwd, fullFlagsConfig("codex"));
-    expect(existsSync(join(cwd, ".agents/skills/master-plan/SKILL.md"))).toBe(false);
-    expect(existsSync(join(cwd, ".codex/skills/master-plan/SKILL.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".agents/skills/master-plan/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".codex/hooks/master-plan-context.sh"))).toBe(true);
   });
 });
 

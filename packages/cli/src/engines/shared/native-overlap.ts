@@ -15,7 +15,8 @@ import {
 } from "./codex-parity.ts";
 import type { HarnessPlan } from "./harness-plan.ts";
 import {
-  CLAUDE_ONLY_WORKFLOW_SKILLS,
+  WORKFLOW_SKILL_ENGINES,
+  inEngineScope,
   RETIRED_AGENTS,
   RETIRED_HOOKS,
   RETIRED_SKILLS,
@@ -376,7 +377,11 @@ export const OVERLAP_ROWS: readonly OverlapRow[] = [
   ...[...ROSTER_CORE_SKILLS, ...ROSTER_WORKFLOW_SKILLS].map((id) =>
     complementa(
       { kind: "skill", id },
-      support("emit", CLAUDE_ONLY_WORKFLOW_SKILLS.has(id) ? "unsupported" : "emit", "n/a"),
+      support(
+        "emit",
+        inEngineScope(WORKFLOW_SKILL_ENGINES[id], "codex") ? "emit" : "unsupported",
+        "n/a",
+      ),
       "No verified native equivalent; emitted everywhere the engine has skills.",
     ),
   ),

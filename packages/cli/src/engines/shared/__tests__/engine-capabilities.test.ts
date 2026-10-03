@@ -108,6 +108,12 @@ describe("master-plan control", () => {
         state: "advisory",
         reason: expect.stringContaining("before_agent_start"),
       });
+    } else if (engine === "codex") {
+      // Spec 0041 T15: skills and SessionStart hook reach Codex; advisory until T20's smoke.
+      expect(declaration).toMatchObject({
+        state: "advisory",
+        reason: expect.stringContaining("SessionStart"),
+      });
     } else {
       expect(declaration).toEqual({
         state: "unsupported",
