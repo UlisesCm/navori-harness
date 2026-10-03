@@ -397,6 +397,18 @@ Las URLs de source son `github.com/openai/codex/blob/rust-v0.160.0/codex-rs/<rut
   `additionalContext` en Codex está **UNVERIFIED (V7)**; si no lo acepta, el aviso va por
   `systemMessage` y la fila lo dice.
 
+- **D-modelos — Familias de modelo en Codex (R32).** Decisión del usuario (2026-10-03):
+  `codexMap` toma una familia o un id completo, igual que el alias `opus` de Claude. Una familia es
+  cualquier palabra simple en minúsculas; todo lo demás es un pin. El catálogo es
+  `<codexHome()>/models_cache.json`; la suite borra `CODEX_HOME` en `vitest.setup.ts` y corre bajo
+  un `HOME` efímero, así que los goldens usan el fallback. Regla de no degradar: si el catálogo
+  falta, el render conserva el modelo ya renderizado cuando es de la misma familia y no es más
+  antiguo que el fallback. Existe porque `check:render` corre en CI sin catálogo y el `.toml`
+  versionado (`gpt-6.1-sol`) debe quedar igual; así el render no depende de la máquina. `doctor`
+  pasa el id renderizado como el previo para no dar falsos avisos. Pi resuelve familias por catálogo
+  o fallback, antepone `openai-codex/` a los ids no fijados y NO aplica la regla (no tiene `.toml`
+  de Codex que leer).
+
 ## Contracts
 
 ```ts
