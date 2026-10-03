@@ -1,6 +1,6 @@
 # Paridad de garantías en Codex — Requirements
 
-**Fecha:** 2026-10-02 · **Estado:** especificación; implementación no autorizada todavía.
+**Fecha:** 2026-10-02 · **Estado:** implementada (2026-10-03). PRs #1182–#1196; verificación en [codex-paridad-verificacion](../../docs/research/codex-paridad-verificacion.md).
 **Base del checkout:** `origin/dev` (`6f5f4742`).
 **Evidencia:** gap analysis del 2026-10-02 en `.navori/state/handoffs/scout_0041_{hooks,agents,context,codex_native,debt}.md`,
 contrastado por el orquestador contra el repo (ver "Hallazgos verificados").

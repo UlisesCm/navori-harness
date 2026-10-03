@@ -223,3 +223,5 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
   0.160.0, unificado con el piso de `hook-registrations`. Las filas por rol de agente y las skills
   master-plan/context-intake quedan sin promover (sin smoke). El aviso de `doctor` por navori
   global viejo no se implementó (nota de migración).
+
+Seguimiento (T20): `navori doctor` avisa cuando el `navori` global es más viejo que el CLI del repo, porque los hooks llaman al binario global.
