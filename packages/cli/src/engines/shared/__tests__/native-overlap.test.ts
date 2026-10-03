@@ -382,13 +382,18 @@ describe("OVERLAP_ROWS coverage (one row per distributed unit)", () => {
     ROSTER_AGENTS.map((a) => a.id),
   );
   add("skill", [...ROSTER_CORE_SKILLS, ...ROSTER_WORKFLOW_SKILLS]);
-  add(
-    "hook",
-    resolveHarnessPlan(FULL_CONFIG, coreAssets, null, {
-      includeOrchestrator: true,
-      engine: "claude",
-    }).hooks.map((h) => h.id),
-  );
+  // Spec 0041 D5: engine-scoped hooks (`role-guard`, Codex only) are in the
+  // inventory too, so it is the union over both engines.
+  add("hook", [
+    ...new Set(
+      ["claude", "codex"].flatMap((engine) =>
+        resolveHarnessPlan(FULL_CONFIG, coreAssets, null, {
+          includeOrchestrator: true,
+          engine,
+        }).hooks.map((h) => h.id),
+      ),
+    ),
+  ]);
   add(
     "managed-block",
     readdirSync(join(coreAssets, "managed"))

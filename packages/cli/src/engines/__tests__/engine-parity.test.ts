@@ -194,7 +194,12 @@ describe("engine inventory parity (claude ↔ codex)", () => {
       "implementer-no-markdown",
       ...MASTER_PLAN_HOOKS,
     ]);
-    expect(codexHooks).toEqual(claudeHooks.filter((hook) => !notInstalled.has(hook)));
+    // Spec 0041 D5: `role-guard` is Codex-only, so it is the one Codex hook with no Claude copy.
+    expect(claudeHooks).not.toContain("role-guard");
+    expect(codexHooks).toContain("role-guard");
+    expect(codexHooks.filter((hook) => hook !== "role-guard")).toEqual(
+      claudeHooks.filter((hook) => !notInstalled.has(hook)),
+    );
   });
 
   // Covers: R3, R18

@@ -15,6 +15,7 @@ import {
 } from "./codex-parity.ts";
 import type { HarnessPlan } from "./harness-plan.ts";
 import {
+  HOOK_ENGINES,
   WORKFLOW_SKILL_ENGINES,
   inEngineScope,
   RETIRED_AGENTS,
@@ -211,6 +212,7 @@ const HOOK_IDS: readonly string[] = [
   "audit-mode-close",
   "master-plan-context",
   "master-accept-confirm",
+  "role-guard",
   "comment-draft-confirm",
   "pr-publisher-confirm",
   "general-purpose-confirm",
@@ -389,7 +391,8 @@ export const OVERLAP_ROWS: readonly OverlapRow[] = [
     complementa(
       { kind: "hook", id },
       support(
-        "emit",
+        // Spec 0041 D5: `role-guard` is scoped to Codex, so Claude never gets it.
+        inEngineScope(HOOK_ENGINES[id], "claude") ? "emit" : "unsupported",
         parityOf({ kind: "hook", id }).state === "limite-codex" ? "unsupported" : "emit",
         "n/a",
       ),

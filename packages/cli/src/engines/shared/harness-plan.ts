@@ -275,7 +275,7 @@ export function resolveHarnessPlan(
       managedId: "audit-mode-close-base",
     },
   ];
-  for (const id of ["master-plan-context", "master-accept-confirm"]) {
+  for (const id of ["master-plan-context", "master-accept-confirm", "role-guard"]) {
     if (!inEngineScope(HOOK_ENGINES[id], options.engine)) continue;
     hooks.push({
       id,
