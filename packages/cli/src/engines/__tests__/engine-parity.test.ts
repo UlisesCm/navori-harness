@@ -6,7 +6,7 @@ import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.t
 import { renderClaudeEngine } from "../claude/index.ts";
 import { renderCodexEngine } from "../codex/index.ts";
 import { CODEX_HOOK_REGISTRATIONS } from "../codex/hook-registrations.ts";
-import { CODEX_PARITY } from "../shared/codex-parity.ts";
+import { CODEX_HOOKS_WITHOUT_REGISTRATION, CODEX_PARITY } from "../shared/codex-parity.ts";
 
 /**
  * Inventory-parity guard between the Claude and Codex engines (Spec 0007 M1).
@@ -217,7 +217,11 @@ describe("engine inventory parity (claude ↔ codex)", () => {
       // table, with a non-empty reason (R3); a registered one never is.
       const parity = CODEX_PARITY[`hook:${row.script}`];
       expect(parity, `hook:${row.script}`).toBeDefined();
-      expect(parity?.state === "limite-codex").toBe(row.registration === undefined);
+      // T12/T13: two equivalente rows have no registered script of their own.
+      const noScript = row.registration === undefined;
+      expect(
+        parity?.state === "limite-codex" || CODEX_HOOKS_WITHOUT_REGISTRATION.includes(row.script),
+      ).toBe(noScript);
       if (parity?.state === "limite-codex") {
         expect(parity.containment?.length ?? 0).toBeGreaterThan(0);
       }

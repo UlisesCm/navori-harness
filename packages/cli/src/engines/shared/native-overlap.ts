@@ -9,6 +9,7 @@ import {
   DROPPED_PERMISSION_PATTERNS,
   NARROWED_PATTERN_FAMILIES,
   PERMISSION_RULE_CLASS_IDS,
+  CODEX_HOOKS_WITHOUT_REGISTRATION,
   codexParityIssues,
   codexParityKey,
   type CodexParity,
@@ -393,7 +394,10 @@ export const OVERLAP_ROWS: readonly OverlapRow[] = [
       support(
         // Spec 0041 D5: `role-guard` is scoped to Codex, so Claude never gets it.
         inEngineScope(HOOK_ENGINES[id], "claude") ? "emit" : "unsupported",
-        parityOf({ kind: "hook", id }).state === "limite-codex" ? "unsupported" : "emit",
+        parityOf({ kind: "hook", id }).state === "limite-codex" ||
+          CODEX_HOOKS_WITHOUT_REGISTRATION.includes(id)
+          ? "unsupported"
+          : "emit",
         "n/a",
       ),
       "No verified native equivalent; registered where the engine can.",

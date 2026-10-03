@@ -1,5 +1,5 @@
 import { ENGINES } from "../../lib/config/schema.ts";
-import { CODEX_PARITY } from "./codex-parity.ts";
+import { CODEX_HOOKS_WITHOUT_REGISTRATION, CODEX_PARITY } from "./codex-parity.ts";
 
 /** A valid engine id — the same union `NavoriConfigSchema.engines` accepts. */
 export type EngineId = (typeof ENGINES)[number];
@@ -264,11 +264,18 @@ const PROSE_ENGINE_UNSUPPORTED_SURFACES: readonly UnsupportedSurface[] = [
 const CODEX_HOOK_UNSUPPORTED_SURFACES: readonly UnsupportedSurface[] = Object.entries(
   CODEX_PARITY,
 ).flatMap(([key, row]) =>
-  key.startsWith("hook:") && row.state === "limite-codex"
+  key.startsWith("hook:") &&
+  (row.state === "limite-codex" ||
+    CODEX_HOOKS_WITHOUT_REGISTRATION.includes(key.slice("hook:".length)))
     ? [
         {
           surface: key.slice("hook:".length),
-          reason: row.containment ?? `Codex limit documented at ${row.source.url}`,
+          reason:
+            row.state === "limite-codex"
+              ? (row.containment ?? `Codex limit documented at ${row.source.url}`)
+              : row.state === "equivalente"
+                ? (row.difference ?? row.mechanism)
+                : "Codex registers no script for this hook",
           renderedPaths: [`.codex/hooks/${key.slice("hook:".length)}.sh`],
         },
       ]
@@ -558,9 +565,15 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "accepts cumplido as unevidenced (spec 0039 R10).",
       },
       "repeat-failure-advice": {
-        state: "unsupported",
+        state: "advisory",
         reason:
-          "Codex does not expose a verified separate Bash failure signal; registration is unsupported.",
+          "A lane inside routing-watch reads the exit code of the call from the rollout item_completed record (probe V4, spec 0041 R11) and gives the same advice after three identical failures; silent when the record is missing.",
+        evidence: {
+          kind: "hook",
+          script: "routing-watch.sh",
+          event: "PostToolUse",
+          matcher: "^(Bash|apply_patch|spawn_agent)$",
+        },
       },
       "compact-advice": {
         state: "unsupported",
