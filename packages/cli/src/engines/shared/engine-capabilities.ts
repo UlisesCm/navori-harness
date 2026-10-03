@@ -1,5 +1,5 @@
 import { ENGINES } from "../../lib/config/schema.ts";
-import { CODEX_HOOK_REGISTRATIONS } from "../codex/hook-registrations.ts";
+import { CODEX_PARITY } from "./codex-parity.ts";
 
 /** A valid engine id — the same union `NavoriConfigSchema.engines` accepts. */
 export type EngineId = (typeof ENGINES)[number];
@@ -254,17 +254,26 @@ const PROSE_ENGINE_UNSUPPORTED_SURFACES: readonly UnsupportedSurface[] = [
 ];
 
 /**
- * Spec 0035 D1 — `CODEX_HOOK_REGISTRATIONS` is the single source for which
- * Claude hooks Codex has no usable equivalent for. Derived, not hand-copied,
- * so the reason string in `ENGINE_CAPABILITIES.codex.unsupportedSurfaces`
- * never drifts from the one `engine-parity.test.ts` checks against the table.
+ * Spec 0041 D1 — `CODEX_PARITY` is the single source for which Claude hooks
+ * Codex has no usable equivalent for: every `hook:<script>` row in `limite-codex`
+ * state is an unsupported surface, with the row's containment text (or, failing
+ * that, its official source) as the reason. Derived, not hand-copied, so this
+ * list never drifts from what `native-overlap.test.ts` checks against the
+ * registration table; the table's insertion order is the surface order.
  */
-const CODEX_HOOK_UNSUPPORTED_SURFACES: readonly UnsupportedSurface[] =
-  CODEX_HOOK_REGISTRATIONS.filter((row) => typeof row.unsupported === "string").map((row) => ({
-    surface: row.script,
-    reason: row.unsupported as string,
-    renderedPaths: [`.codex/hooks/${row.script}.sh`],
-  }));
+const CODEX_HOOK_UNSUPPORTED_SURFACES: readonly UnsupportedSurface[] = Object.entries(
+  CODEX_PARITY,
+).flatMap(([key, row]) =>
+  key.startsWith("hook:") && row.state === "limite-codex"
+    ? [
+        {
+          surface: key.slice("hook:".length),
+          reason: row.containment ?? `Codex limit documented at ${row.source.url}`,
+          renderedPaths: [`.codex/hooks/${key.slice("hook:".length)}.sh`],
+        },
+      ]
+    : [],
+);
 
 /**
  * Every analytic role declares the same `tools:`/sandbox today, so one shared
