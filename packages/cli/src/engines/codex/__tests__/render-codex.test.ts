@@ -368,8 +368,9 @@ describe("renderCodexEngine", () => {
               "comment-draft-confirm",
               "quality-gate-pre-commit",
               "implementer-no-markdown",
+              "role-guard",
             ]
-          : ["guard-destructive", "comment-draft-confirm", "quality-gate-pre-commit"],
+          : ["guard-destructive", "comment-draft-confirm", "quality-gate-pre-commit", "role-guard"],
       );
       expect(toml.includes("implementer-no-markdown.sh")).toBe(scribeOwnsMarkdown);
       expect(toml).toContain("routing-watch.sh");
@@ -1168,7 +1169,9 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
     const plugins = loadEnabledPlugins(base.plugins).loaded;
     const slots = (cfg: NavoriConfig): Map<string, string[]> => {
       const byEvent = new Map<string, string[]>();
-      for (const hook of resolveCodexHooks(cfg, plugins)) {
+      // The baseline is dev's table: `role-guard` is the new tail and may follow the
+      // master-plan groups, so it is left out of the published-prefix comparison.
+      for (const hook of resolveCodexHooks(cfg, plugins).filter((h) => h.script !== "role-guard")) {
         byEvent.set(hook.event, [...(byEvent.get(hook.event) ?? []), hook.script]);
       }
       return byEvent;
@@ -1192,5 +1195,56 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
       "comment-draft-confirm",
       "quality-gate-pre-commit",
     ]);
+  });
+
+  // Covers: R6, R7, R17 — spec 0041 T8/T9, D7, D8. role-guard is Codex-only and
+  // late: it trails the plugin groups and never moves a published index.
+  it("registers role-guard late on apply_patch and spawn_agent, with no agents table", () => {
+    const base = config(withPlugins);
+    const plugins = loadEnabledPlugins(base.plugins).loaded;
+    const preTool = resolveCodexHooks(base, plugins).filter((hook) => hook.event === "PreToolUse");
+    const scripts = preTool.map((hook) => hook.script);
+    expect(scripts.slice(0, 3)).toEqual([
+      "guard-destructive",
+      "comment-draft-confirm",
+      "quality-gate-pre-commit",
+    ]);
+    expect(scripts.at(-1)).toBe("role-guard");
+    expect(scripts.indexOf("role-guard")).toBeGreaterThan(scripts.indexOf("check-jscpd.sh"));
+    expect(preTool.find((hook) => hook.script === "role-guard")?.matcher).toBe(
+      "^apply_patch$|spawn_agent$",
+    );
+    // With masterPlan on, role-guard is still the LAST late row: the master-plan
+    // groups were published in dev (#1187), so their indexes must not move.
+    const on = resolveCodexHooks(config({ ...withPlugins, harness: { masterPlan: true } }), plugins)
+      .filter((hook) => hook.event === "PreToolUse")
+      .map((hook) => hook.script);
+    expect(on.slice(-2)).toEqual(["master-accept-confirm", "role-guard"]);
+    const withMaster = resolveCodexHooks(
+      config({ ...withPlugins, harness: { masterPlan: true } }),
+      plugins,
+    );
+    const without = resolveCodexHooks(base, plugins);
+    const indexOf = (hooks: typeof withMaster, event: string, script: string): number =>
+      hooks.filter((hook) => hook.event === event).findIndex((hook) => hook.script === script);
+    // Same positions as dev: master-accept-confirm directly after the plugin groups,
+    // master-plan-context last in SessionStart; role-guard only appends.
+    expect(indexOf(withMaster, "PreToolUse", "master-accept-confirm")).toBe(
+      without.filter((hook) => hook.event === "PreToolUse" && hook.script !== "role-guard").length,
+    );
+    expect(withMaster.filter((hook) => hook.event === "SessionStart").at(-1)?.script).toBe(
+      "master-plan-context",
+    );
+
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+    expect(toml).toContain(".codex/hooks/role-guard.sh");
+    expect(toml).not.toMatch(/^\[agents\]/m);
+    expect(toml).not.toContain("multi_agent_v2");
+    expect(toml).not.toContain("max_depth");
+    expect(readFileSync(join(cwd, ".codex/hooks/role-guard.sh"), "utf-8")).toContain(
+      'id="role-guard-base"',
+    );
   });
 });

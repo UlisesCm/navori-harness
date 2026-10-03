@@ -50,7 +50,11 @@ describe("Codex plugin gates", () => {
       expect(script).not.toContain("# navori:include extract-cmd");
       expect(toml.match(new RegExp(`check-${id}\\.sh`, "g"))).toHaveLength(1);
     }
-    expect(hooks.slice(-2).map((hook) => hook.pluginId)).toEqual(["jscpd", "semgrep"]);
+    // Spec 0041 D8: core `late` rows (role-guard) trail the plugin groups.
+    expect(
+      hooks.filter((hook) => hook.pluginId !== undefined).map((hook) => hook.pluginId),
+    ).toEqual(["jscpd", "semgrep"]);
+    expect(hooks.at(-1)?.script).toBe("role-guard");
     expect(hooks[0]?.script).toBe("guard-destructive");
     expect(projectCodexHooksMatch(join(cwd, ".codex/config.toml"), hooks)).toBe(true);
     expect(renderCodexEngine(cwd, cfg).written).toEqual([]);

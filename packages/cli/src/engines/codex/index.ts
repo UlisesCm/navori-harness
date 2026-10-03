@@ -34,6 +34,7 @@ import {
 import { buildHarnessProse, type ProseEngineResult } from "../shared/prose-harness.ts";
 import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
 import { pluginExtraVars } from "../shared/plugin-extra-vars.ts";
+import { buildRolePolicyShell } from "../shared/role-policy.ts";
 import { pluginScriptCollisions, pluginScriptPlacements } from "../shared/plugin-scripts.ts";
 import {
   resolveHarnessPlan,
@@ -500,7 +501,7 @@ function createCodexAdapter(
     },
 
     placeHook(hook, ctx): PlacementRequest | null {
-      const request = hookRequest(hook);
+      const request = hookRequest(hook, ctx.config);
       return installedScripts(ctx).has(request.destRelPath) ? request : null;
     },
 
@@ -666,7 +667,9 @@ function createCodexAdapter(
               assetPath: join(ctx.coreAssets, `hooks/${id}.sh`),
               managedId: `${id}-base`,
             };
-            return existsSync(hook.assetPath) ? freshRender(hookRequest(hook), ctx.config) : null;
+            return existsSync(hook.assetPath)
+              ? freshRender(hookRequest(hook, ctx.config), ctx.config)
+              : null;
           },
         },
         {
@@ -703,13 +706,17 @@ function createCodexAdapter(
 }
 
 /** The Codex placement of a core hook script (installed only if registered). */
-function hookRequest(hook: PlannedHook): PlacementRequest {
+function hookRequest(hook: PlannedHook, config: NavoriConfig): PlacementRequest {
   return {
     assetPath: hook.assetPath,
     destRelPath: `.codex/hooks/${hook.id}.sh`,
     managedId: hook.managedId,
     commentStyle: "shell",
     chmodExec: true,
+    // Spec 0041 D6: `role-guard`'s per-role prefixes are compiled from the roster.
+    ...(hook.id === "role-guard"
+      ? { extraVars: { rolePolicy: buildRolePolicyShell(config) } }
+      : {}),
   };
 }
 

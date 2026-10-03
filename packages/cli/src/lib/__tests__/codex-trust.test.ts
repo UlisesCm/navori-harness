@@ -176,7 +176,12 @@ describe("Codex plugin trust transitions (spec 0037 T7)", () => {
       "Untrusted",
     );
     const removed = read(withPlugins(false, false));
-    expect(removed.hooks.some((entry) => entry.key === approvedPlugin!.key)).toBe(false);
+    expect(removed.hooks.some((entry) => entry.script === "check-jscpd.sh")).toBe(false);
+    // Spec 0041 D8 (accepted cost): the late `role-guard` group slides into the
+    // freed slot, and the plugin's approval never transfers to it.
+    const slot = removed.hooks.find((entry) => entry.key === approvedPlugin!.key);
+    expect(slot?.script).toBe("role-guard");
+    expect(slot?.status).not.toBe("Trusted");
     // The home row still exists; render/inspection cannot infer ownership of a positional row.
     expect(readFileSync(homePath, "utf-8")).toBe(homeText);
     const replaced = read(withPlugins(false, true)).hooks.find(

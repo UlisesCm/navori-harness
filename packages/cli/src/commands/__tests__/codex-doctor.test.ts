@@ -469,7 +469,10 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
     expect(codex.agents).not.toContain("orchestrator");
     // Skills remain shared; the master-plan skills and hooks are scoped to claude and codex.
     expect(codex.skills).toEqual(claude.skills);
-    expect(codex.hooks).toEqual(claude.hooks);
+    // Spec 0041 D5: `role-guard` is the one hook only Codex ships.
+    expect(codex.hooks.filter((hook) => hook !== "role-guard")).toEqual(claude.hooks);
+    expect(codex.hooks).toContain("role-guard");
+    expect(claude.hooks).not.toContain("role-guard");
     expect(claude.hooks).toContain("master-plan-context");
     expect(claude.hooks).toContain("master-accept-confirm");
     expect(codex.hooks).toContain("master-plan-context");
