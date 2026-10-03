@@ -108,6 +108,18 @@ export interface CodexVerification {
  */
 export const CODEX_VERIFICATIONS: Readonly<Record<string, CodexVerification>> = {};
 
+/**
+ * Hook scripts Codex never registers although their guarantee holds there
+ * (`equivalente` rows, spec 0041 T12/T13): `bash-outcome-watch` is a lane inside
+ * `routing-watch`, and `subagent-no-background` has no vector to block. Their
+ * script is neither installed nor registered, so they stay unsupported surfaces;
+ * `native-overlap.test.ts` pins this list against `CODEX_HOOK_REGISTRATIONS`.
+ */
+export const CODEX_HOOKS_WITHOUT_REGISTRATION: readonly string[] = [
+  "bash-outcome-watch",
+  "subagent-no-background",
+];
+
 /** `kind:id` key a unit is stored under in {@link CODEX_PARITY}. */
 export function codexParityKey(kind: string, id: string): string {
   return `${kind}:${id}`;
@@ -508,9 +520,9 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
     ],
     [
       "hook:bash-outcome-watch",
-      limite(
-        SOURCES.toolContext,
-        "Codex PostToolUse does not distinguish Bash success from failure, so the repeated-failure state cannot be updated without false positives.",
+      equivalente(
+        "bash-outcome lane inside routing-watch on PostToolUse(Bash): the exit code is read from the rollout item_completed record whose item.id is the tool_use_id (probe V4, spec 0041 R11), reusing the bash-outcome partial",
+        "reads only exit_code from the bounded rollout tail and stays silent when the record is missing; the live smoke that promotes the row is T20",
       ),
     ],
     [
@@ -522,10 +534,10 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
     ],
     [
       "hook:subagent-no-background",
-      limite(
-        SOURCES.execCommand,
-        "Codex has no `Monitor` tool, and unified_exec strips background-execution fields " +
-          "from the PreToolUse payload, so no hook can distinguish a backgrounded command (D1).",
+      equivalente(
+        "the vector does not exist in Codex (probe V6b, spec 0041 R12): no run_in_background field and no Monitor tool, so there is nothing to block; shell `&` is prose-only on both engines. Reference: " +
+          SOURCES.execCommand,
+        "no hook is registered or installed in Codex; the shell `&` stays a prose rule, as in Claude",
       ),
     ],
     [

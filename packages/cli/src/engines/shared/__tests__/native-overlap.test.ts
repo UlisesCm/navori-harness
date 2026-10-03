@@ -7,6 +7,7 @@ import { buildCodexRules } from "../../codex/build-rules.ts";
 import { CODEX_HOOK_REGISTRATIONS } from "../../codex/hook-registrations.ts";
 import { loadPlugin } from "../../../lib/config/plugins.ts";
 import {
+  CODEX_HOOKS_WITHOUT_REGISTRATION,
   CODEX_PARITY,
   NARROWED_PATTERN_FAMILIES,
   codexParityIssues,
@@ -533,7 +534,11 @@ describe("OVERLAP_ROWS coverage (one row per distributed unit)", () => {
       const parity = CODEX_PARITY[`hook:${row.script}`];
       expect(parity, `hook:${row.script} has no parity row`).toBeDefined();
       // A registered hook is igual/equivalente; an unregistered one is a limit.
-      expect(parity?.state === "limite-codex", `hook:${row.script}`).toBe(!row.registration);
+      // Exception (spec 0041 T12/T13): two `equivalente` rows have no registered script.
+      expect(
+        parity?.state === "limite-codex" || CODEX_HOOKS_WITHOUT_REGISTRATION.includes(row.script),
+        `hook:${row.script}`,
+      ).toBe(!row.registration);
     }
   });
 
@@ -548,9 +553,13 @@ describe("OVERLAP_ROWS coverage (one row per distributed unit)", () => {
     expect(surfaces.map((s) => s.surface)).toEqual(unregistered);
     for (const surface of surfaces) {
       const parity = CODEX_PARITY[`hook:${surface.surface}`];
-      expect(parity?.state === "limite-codex" ? parity.containment : undefined).toBe(
-        surface.reason,
-      );
+      const expected =
+        parity?.state === "limite-codex"
+          ? parity.containment
+          : parity?.state === "equivalente"
+            ? (parity.difference ?? parity.mechanism)
+            : undefined;
+      expect(expected).toBe(surface.reason);
     }
   });
 

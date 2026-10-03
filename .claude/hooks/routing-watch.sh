@@ -1,4 +1,4 @@
-# navori:managed start id="routing-watch-base" hash="0abc37a0" version="0.11.1" source="@navori/core"
+# navori:managed start id="routing-watch-base" hash="4d2e9205" version="0.11.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse routing watcher (spec 0020).
@@ -356,8 +356,16 @@ navori_json_str() {
 # Repeat-failure state is shared by the PostToolUseFailure watcher and the
 # existing success lane. A successful Bash call only pays for Node when its
 # session already has a failure-state file; ordinary calls use builtins only.
+#
+# `action` is `reset`/`failure` (Claude: the event says which) or `codex`
+# (spec 0041 T12: Codex fires PostToolUse on failure too, so the OUTCOME is read
+# from the rollout, `$2` = its path, `$3` = the call's `tool_use_id`).
 navori_bash_failure_state() {
   local action=$1 sid=${CLAUDE_CODE_SESSION_ID:-} dir file
+  if [ "$action" = codex ]; then
+    navori_plain_field session_id
+    sid=$navori_field
+  fi
   case "$sid" in "" | *[!A-Za-z0-9._-]*) return 0 ;; esac
   [ -n "${nv_project_dir:-}" ] || return 0
   dir=$nv_project_dir/.navori/state/hooks/bash-outcome-watch
@@ -367,24 +375,58 @@ navori_bash_failure_state() {
   fi
   command -v node >/dev/null 2>&1 || return 0
   NV_BASH_OUTCOME_ACTION=$action NV_BASH_OUTCOME_DIR=$dir NV_BASH_OUTCOME_FILE=$file \
+    NV_BASH_OUTCOME_SID=$sid NV_BASH_OUTCOME_TRANSCRIPT=${2:-} NV_BASH_OUTCOME_TOOL_USE=${3:-} \
     NV_BASH_OUTCOME_ROOT=$nv_project_dir node -e '
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const digest = (value) => crypto.createHash("sha256").update(value).digest("hex");
 const env = process.env;
+// Codex outcome (spec 0041 T12): the exit code of THIS call lives in the rollout
+// record `event_msg`/`item_completed` whose `item.id` is the `tool_use_id` of the call
+// (probe V4). Bounded to the tail of the file; only `exit_code` is read, never
+// the output fields. Anything missing or unreadable -> null -> silence.
+const codexExit = () => {
+  const max = 1048576;
+  const fd = fs.openSync(env.NV_BASH_OUTCOME_TRANSCRIPT, "r");
+  try {
+    const size = fs.fstatSync(fd).size;
+    const len = Math.min(size, max);
+    const buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, size - len);
+    const lines = buf.toString("utf8").split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (!line.includes(env.NV_BASH_OUTCOME_TOOL_USE) || !line.includes("item_completed")) continue;
+      let record;
+      try { record = JSON.parse(line); } catch { continue; }
+      const item = record?.payload?.item;
+      if (record?.type !== "event_msg" || record?.payload?.type !== "item_completed") continue;
+      if (item?.type !== "CommandExecution" || item?.id !== env.NV_BASH_OUTCOME_TOOL_USE) continue;
+      return Number.isInteger(item.exit_code) ? item.exit_code : null;
+    }
+    return null;
+  } finally { fs.closeSync(fd); }
+};
 let input = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => { input += chunk; });
 process.stdin.on("end", () => {
   try {
     const payload = JSON.parse(input);
-    if (payload.tool_name !== "Bash" || payload.session_id !== env.CLAUDE_CODE_SESSION_ID) return;
+    if (payload.tool_name !== "Bash" || payload.session_id !== env.NV_BASH_OUTCOME_SID) return;
     if (payload.is_interrupt === true || payload.tool_response?.is_interrupt === true) return;
     const command = payload.tool_input?.command;
     const cwd = payload.cwd;
     if (typeof command !== "string" || !command.trim() || typeof cwd !== "string" || !cwd) return;
     const agent = typeof payload.agent_id === "string" ? payload.agent_id : "";
+    let action = env.NV_BASH_OUTCOME_ACTION;
+    let exitCode = null;
+    if (action === "codex") {
+      exitCode = codexExit();
+      if (exitCode === null) return;
+      action = exitCode === 0 ? "reset" : "failure";
+    }
     const key = digest(JSON.stringify([command.trim().replace(/\s+/g, " "), cwd, agent]));
     const root = path.resolve(env.NV_BASH_OUTCOME_ROOT);
     const dir = env.NV_BASH_OUTCOME_DIR;
@@ -393,21 +435,21 @@ process.stdin.on("end", () => {
     for (const component of [root, path.join(root, ".navori"), path.join(root, ".navori/state"), path.join(root, ".navori/state/hooks"), dir]) {
       if (fs.existsSync(component)) {
         if (!fs.lstatSync(component).isDirectory() || fs.lstatSync(component).isSymbolicLink()) return;
-      } else if (env.NV_BASH_OUTCOME_ACTION === "failure") {
+      } else if (action === "failure") {
         fs.mkdirSync(component);
       } else return;
     }
     if (fs.existsSync(file) && (!fs.lstatSync(file).isFile() || fs.lstatSync(file).isSymbolicLink())) return;
     let rows = fs.existsSync(file) ? fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)) : [];
     if (!Array.isArray(rows) || rows.some((row) => typeof row.key !== "string" || typeof row.sig !== "string" || typeof row.count !== "number" || typeof row.epoch !== "number")) return;
-    if (env.NV_BASH_OUTCOME_ACTION === "reset") {
+    if (action === "reset") {
       const next = rows.filter((row) => row.key !== key);
       if (next.length === rows.length) return;
       rows = next;
     } else {
-      const error = payload.error;
+      const error = exitCode === null ? payload.error : "";
       if (typeof error !== "string") return;
-      const match = /exit code\s+(\d+)/i.exec(error);
+      const match = exitCode === null ? /exit code\s+(\d+)/i.exec(error) : [null, String(exitCode)];
       if (!match) return;
       const code = match[1];
       const escapedRoot = root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -422,7 +464,7 @@ process.stdin.on("end", () => {
         .replace(/\b\d+(?:\.\d+)?\s?(?:ms|seconds?|minutes?)\b/gi, "<d>")
         .replace(/\b[0-9a-f]{8,}\b/gi, "<h>")
         .split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 20).join("\n");
-      if (!body) return;
+      if (!body && exitCode === null) return;
       const sig = digest(code + "\n" + body);
       const previous = rows.find((row) => row.key === key);
       const count = previous?.sig === sig ? Math.min(previous.count + 1, 3) : 1;
@@ -431,7 +473,7 @@ process.stdin.on("end", () => {
       rows.push({ key, sig, count, notified: notified || count === 3, epoch: Date.now() });
       if (count === 3 && !notified) {
         const first = body.split("\n")[0].slice(0, 100);
-        const note = `navori: el comando ${command.trim().slice(0, 100)} falló 3 veces con la misma firma (exit ${code}: ${first}). Cambia de enfoque con debug-failure o escala al usuario. Si el rojo es intencional, ignora esta nota.`;
+        const note = `navori: el comando ${command.trim().slice(0, 100)} falló 3 veces con la misma firma (exit ${code}${first ? ": " + first : ""}). Cambia de enfoque con debug-failure o escala al usuario. Si el rojo es intencional, ignora esta nota.`;
         var output = note.slice(0, 400);
       }
     }
@@ -444,6 +486,51 @@ process.stdin.on("end", () => {
   } catch { /* advisory: never change the tool result */ }
 });
 ' <<< "$payload" 2>/dev/null || true
+  return 0
+}
+
+# A plain top-level string field of the raw payload, with builtins only (no
+# fork), into `navori_field`. Matches `"key":"value"` with an unescaped quote
+# before the colon, which a `tool_response` cannot forge (inside it every quote is
+# `\"`). Empty when absent, spaced or escaped: the caller treats that as silence.
+navori_plain_field() {
+  local needle="\"$1\":\"" rest
+  navori_field=
+  case "$payload" in *"$needle"*) ;; *) return 0 ;; esac
+  rest=${payload#*"$needle"}
+  navori_field=${rest%%\"*}
+  case "$navori_field" in *\\*) navori_field= ;; esac
+  return 0
+}
+
+# Spec 0041 T12 (R11): the Codex Bash outcome lane, run by `routing-watch.sh`
+# on `PostToolUse(Bash)` under Codex. Codex fires PostToolUse on failure too, so
+# the exit code is read from the rollout (`transcript_path`): a fixed-string grep
+# over the BOUNDED tail finds the `item_completed` record of this `tool_use_id`.
+# A success with no failure state costs no Node; everything else (a failure, or a
+# success that must reset a counter) goes through `navori_bash_failure_state`,
+# which parses only `exit_code`. FAIL-OPEN and silent: no rollout, no matching
+# record or an unreadable one means no advice. Prints the advice, if any.
+navori_bash_codex_outcome() {
+  local tid tp sid line
+  navori_plain_field tool_use_id
+  tid=$navori_field
+  navori_plain_field transcript_path
+  tp=$navori_field
+  navori_plain_field session_id
+  sid=$navori_field
+  case "$tid" in "" | *[!A-Za-z0-9._:-]*) return 0 ;; esac
+  case "$sid" in "" | *[!A-Za-z0-9._-]*) return 0 ;; esac
+  case "$tp" in *.jsonl) ;; *) return 0 ;; esac
+  [ -f "$tp" ] && [ -r "$tp" ] || return 0
+  line=$(tail -c 1048576 "$tp" 2>/dev/null | grep -F -- "$tid" 2>/dev/null | grep -F '"item_completed"' 2>/dev/null | tail -n 1)
+  [ -n "$line" ] || return 0
+  case "$line" in
+    *'"exit_code":0,'* | *'"exit_code":0}'*)
+      [ -f "${nv_project_dir:-}/.navori/state/hooks/bash-outcome-watch/$sid" ] || return 0
+      ;;
+  esac
+  navori_bash_failure_state codex "$tp" "$tid"
   return 0
 }
 
@@ -924,6 +1011,23 @@ esac
 if [ "$tool" = "Bash" ] && [ "${1:-}" = "claude-post-tool-use" ]; then
   navori_bash_failure_state reset
   navori_bash_success_lane
+fi
+
+# Spec 0041 T12 (R11): the Codex Bash outcome lane, same hook, no new
+# registration (the Codex hooks-per-Bash count stays pinned). Codex fires
+# PostToolUse on failure too, so the outcome comes from the rollout record of
+# this `tool_use_id`, never from the event. Silent on any missing piece; it only
+# ever prints the repeated-failure advice that Claude's bash-outcome-watch gives.
+# SHORTCUT: when it advises it ends the run, so that one call is not counted
+# toward the routing threshold; ceiling one call per three repeated failures,
+# trigger: if routing counts must stay exact, merge both notes into one output.
+if [ "$tool" = "Bash" ] && [ "$nv_engine" = codex ]; then
+  navori_codex_advice=$(navori_bash_codex_outcome 2>/dev/null) || navori_codex_advice=
+  if [ -n "$navori_codex_advice" ]; then
+    navori_audit_log "advise" "same Bash failure reached three consecutive occurrences"
+    NV_ADVICE="$navori_codex_advice" node -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:process.env.NV_ADVICE}})+"\n")' 2>/dev/null || true
+    exit 0
+  fi
 fi
 
 # Rung 1 of the Bash lane, and the earliest point at which it can end. No write

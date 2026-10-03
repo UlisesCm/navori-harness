@@ -335,15 +335,13 @@ describe("control inventory vs. the actual render (spec 0033 D5)", () => {
     expect(routing?.registration?.matcher).toBe("^(Bash|apply_patch|spawn_agent)$");
   });
 
-  // Covers: R16
-  it("declares repeat-failure advice for Claude and unsupported for Codex", () => {
+  // Covers: R11, R16
+  it("declares repeat-failure advice as advisory on both engines; Codex gives it from a routing-watch lane", () => {
     const row = CODEX_HOOK_REGISTRATIONS.find((r) => r.script === "bash-outcome-watch");
     expect(row?.registration).toBeUndefined();
-    const parity = CODEX_PARITY["hook:bash-outcome-watch"];
-    const why = parity?.state === "limite-codex" ? parity.containment : undefined;
-    expect(why).toContain("does not distinguish Bash success from failure");
+    expect(CODEX_PARITY["hook:bash-outcome-watch"]?.state).toBe("equivalente");
     expect(ENGINE_CAPABILITIES.claude.controls["repeat-failure-advice"].state).toBe("advisory");
-    expect(ENGINE_CAPABILITIES.codex.controls["repeat-failure-advice"].state).toBe("unsupported");
+    expect(ENGINE_CAPABILITIES.codex.controls["repeat-failure-advice"].state).toBe("advisory");
   });
 });
 

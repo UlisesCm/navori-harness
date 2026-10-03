@@ -388,6 +388,25 @@ describe("renderCodexEngine", () => {
     }
   });
 
+  // Covers: R9, R10
+  it("toggling harness.planTiers never moves the PreToolUse index of the confirmation hooks", () => {
+    for (const scribeOwnsMarkdown of [false, true]) {
+      const indexes = (planTiers: boolean): Record<string, number> => {
+        const cfg = config({ harness: { planTiers, scribeOwnsMarkdown } });
+        const scripts = resolveCodexHooks(cfg)
+          .filter((entry) => entry.event === "PreToolUse")
+          .map((entry) => entry.script);
+        return Object.fromEntries(
+          ["role-guard", "pr-publisher-confirm", "general-purpose-confirm"].map((s) => [
+            s,
+            scripts.indexOf(s),
+          ]),
+        );
+      };
+      expect(indexes(true)).toEqual(indexes(false));
+    }
+  });
+
   // Covers: R9
   it("does not register plan-gate without harness.planTiers", () => {
     const cfg = config({ harness: { planTiers: false } });
