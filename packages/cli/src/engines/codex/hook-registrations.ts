@@ -112,9 +112,6 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
     },
   },
   {
-    script: "plan-gate",
-  },
-  {
     script: "implementer-no-markdown",
     registration: {
       event: "PreToolUse",
@@ -252,6 +249,23 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
       timeout: 10,
       statusMessage: "navori: role-guard",
       minVersion: "0.134.0",
+      late: true,
+    },
+  },
+  {
+    // Spec 0041 R9: the LAST late row — after role-guard — so no published trust
+    // index moves. Gates only `implementer` (child role from
+    // `tool_input.agent_type`); under V2 the encrypted `message` is replaced by
+    // the orchestrator's `dispatch_<feature>.json`. Matches `role-guard`'s
+    // unanchored `spawn_agent$`.
+    script: "plan-gate",
+    registration: {
+      event: "PreToolUse",
+      matcher: "spawn_agent$",
+      timeout: 15,
+      statusMessage: "navori: plan-gate",
+      minVersion: "0.134.0",
+      when: (config) => Boolean(config.harness?.planTiers),
       late: true,
     },
   },
