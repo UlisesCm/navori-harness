@@ -103,18 +103,23 @@ T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda
   → allow; `codex-rules.test.ts` › "publish commands are prompt rules" con `// Covers: R10`
   Nota: deny-como-confirmación porque la regla `prompt` no confirma dentro de subagentes (sonda V1);
   en Codex `gh pr create` lo corre el usuario; filas `enforcing: false` hasta T20.
-- [ ] **T12** (R11) — Línea `bash-outcome` dentro de `routing-watch.sh` para Codex, reutilizando el
+- [x] **T12** (R11) — Línea `bash-outcome` dentro de `routing-watch.sh` para Codex, reutilizando el
   partial `bash-outcome.sh` y leyendo el exit code del rollout (D10); matcher de `routing-watch`
   ve los spawns V2 (H17). Si T7/V4 mostró que el rollout llega tarde, la fila queda
   `limite-codex` con F3/F4 y la línea no se emite. · test: `routing-watch` con rollouts de
   fixture (tercer fallo → aviso; sin rollout → silencio); `lib/__tests__/hooks-per-bash.test.ts`
   › conteo Codex desde `resolveCodexHooks` igual al `EXPECTED` fijado con `// Covers: R11`
-- [ ] **T13** (R12, R1) — `subagent-no-background.sh` con rama `SubagentStop` de Codex si T7/V6b
+  Nota: lane dentro de `routing-watch`, sin hook nuevo; lee `item_completed.item.exit_code` del rollout
+  en `PostToolUse` (sonda V4) y nunca lee la salida; fila `enforcing: false` hasta T20. Fix: se corrigió
+  el orden de `plan-gate`, que quedó como la última fila tardía (bug del #1193).
+- [x] **T13** (R12, R1) — `subagent-no-background.sh` con rama `SubagentStop` de Codex si T7/V6b
   pasó (si no: fila `limite-codex` con F5, sin copiar el script); `model-advisor.sh` con modos
   `codex-user-prompt`/`codex-stop` comparando `model` (D17, F21). · test:
   `lib/__tests__/subagent-no-background.test.ts` › proceso abierto → bloquea; cerrado,
   interrumpido, ilegible o `stop_hook_active` → permite; `model-advisor.test.ts` › cambio de
   `model` entre turnos avisa una vez con `// Covers: R12, R1`
+  Nota: sin hook; los vectores que bloquea Claude (`run_in_background`, `Monitor`) no existen en Codex y
+  el `&` de shell es solo prosa en ambos engines (sonda V6b); fila `enforcing: false` hasta T20.
 
 ## Lote 5 — Prosa, master-plan y tgrep
 
