@@ -230,7 +230,7 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
   {
     // Spec 0041 D5/D13, R6/R17: Codex-only (`HOOK_ENGINES`). One group, two
     // branches: `apply_patch` role containment and the subagent spawn deny. Late
-    // and unconditional, and the LAST late row: the master-plan groups before it
+    // and unconditional, and placed before the conditional `plan-gate`: the master-plan groups before it
     // are already published (#1187), so none of their indexes may shift. The `spawn_agent$` alternative is unanchored
     // on purpose: V2 flattens the namespace into the tool name.
     script: "role-guard",
@@ -240,23 +240,6 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
       timeout: 10,
       statusMessage: "navori: role-guard",
       minVersion: "0.134.0",
-      late: true,
-    },
-  },
-  {
-    // Spec 0041 R9: the LAST late row — after role-guard — so no published trust
-    // index moves. Gates only `implementer` (child role from
-    // `tool_input.agent_type`); under V2 the encrypted `message` is replaced by
-    // the orchestrator's `dispatch_<feature>.json`. Matches `role-guard`'s
-    // unanchored `spawn_agent$`.
-    script: "plan-gate",
-    registration: {
-      event: "PreToolUse",
-      matcher: "spawn_agent$",
-      timeout: 15,
-      statusMessage: "navori: plan-gate",
-      minVersion: "0.134.0",
-      when: (config) => Boolean(config.harness?.planTiers),
       late: true,
     },
   },
@@ -284,6 +267,24 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
       timeout: 10,
       statusMessage: "navori: general-purpose-confirm",
       minVersion: "0.134.0",
+      late: true,
+    },
+  },
+  {
+    // Spec 0041 R9: the LAST late row — after general-purpose-confirm — so no trust
+    // index of another row moves when `harness.planTiers` toggles (it is conditional,
+    // so it must trail every unconditional late row). Gates only `implementer` (child role from
+    // `tool_input.agent_type`); under V2 the encrypted `message` is replaced by
+    // the orchestrator's `dispatch_<feature>.json`. Matches `role-guard`'s
+    // unanchored `spawn_agent$`.
+    script: "plan-gate",
+    registration: {
+      event: "PreToolUse",
+      matcher: "spawn_agent$",
+      timeout: 15,
+      statusMessage: "navori: plan-gate",
+      minVersion: "0.134.0",
+      when: (config) => Boolean(config.harness?.planTiers),
       late: true,
     },
   },
