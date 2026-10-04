@@ -55,10 +55,11 @@ describe("Codex plugin gates", () => {
       hooks.filter((hook) => hook.pluginId !== undefined).map((hook) => hook.pluginId),
     ).toEqual(["jscpd", "semgrep"]);
     // Spec 0041 R10: the two confirmations follow role-guard (plan-gate, planTiers off, is absent).
-    expect(hooks.slice(-3).map((hook) => hook.script)).toEqual([
+    expect(hooks.slice(-4).map((hook) => hook.script)).toEqual([
       "role-guard",
       "pr-publisher-confirm",
       "general-purpose-confirm",
+      "engram-write-guard",
     ]);
     expect(hooks[0]?.script).toBe("guard-destructive");
     expect(projectCodexHooksMatch(join(cwd, ".codex/config.toml"), hooks)).toBe(true);

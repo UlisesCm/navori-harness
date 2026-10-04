@@ -512,7 +512,10 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
     // Skills remain shared; the master-plan skills and hooks are scoped to claude and codex.
     expect(codex.skills).toEqual(claude.skills);
     // Spec 0041 D5: `role-guard` is the one hook only Codex ships.
-    expect(codex.hooks.filter((hook) => hook !== "role-guard")).toEqual(claude.hooks);
+    expect(
+      codex.hooks.filter((hook) => hook !== "role-guard" && hook !== "engram-write-guard"),
+    ).toEqual(claude.hooks);
+    expect(codex.hooks).toContain("engram-write-guard");
     expect(codex.hooks).toContain("role-guard");
     expect(claude.hooks).not.toContain("role-guard");
     expect(claude.hooks).toContain("master-plan-context");

@@ -218,6 +218,31 @@ describe("Codex plugin trust transitions (spec 0037 T7)", () => {
   });
 });
 
+describe("engram-write-guard registration (trust positions)", () => {
+  // Covers: A1 — role-guard's registration (and so its trust hash) must not change:
+  // a new hash switches it off until the user re-approves it in /hooks.
+  it("leaves role-guard's hash unchanged and registers the new group after plan-gate", () => {
+    const cfg = NavoriConfigSchema.parse({
+      name: "cx",
+      engines: ["codex"],
+      preset: "custom",
+      branchBase: "main",
+      harness: { planTiers: true },
+    });
+    const hooks = resolveCodexHooks(cfg).filter((h) => h.event === "PreToolUse");
+    const roleGuard = hooks.find((h) => h.script === "role-guard")!;
+    expect(codexHookHash(roleGuard, codexHookCommand(roleGuard))).toBe(
+      "sha256:3ae40c9cf6f20ed7d8f767cf9e00ebabe2e6099677ca43694e36737a9351a7b5",
+    );
+    const scripts = hooks.map((h) => h.script);
+    expect(scripts.indexOf("engram-write-guard")).toBe(scripts.indexOf("plan-gate") + 1);
+    expect(scripts.at(-1)).toBe("engram-write-guard");
+    // plan-gate keeps the index it had before the new row existed.
+    const without = resolveCodexHooks(cfg).filter((h) => h.script !== "engram-write-guard");
+    expect(without.filter((h) => h.event === "PreToolUse").at(-1)?.script).toBe("plan-gate");
+  });
+});
+
 describe("planTrustEdit — bounded text edit (spec 0035 D9)", () => {
   // Covers: R14, R15
   it("preserves every other byte of a config with comments and foreign tables", () => {

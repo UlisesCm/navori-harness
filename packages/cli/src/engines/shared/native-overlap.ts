@@ -219,6 +219,7 @@ const HOOK_IDS: readonly string[] = [
   "general-purpose-confirm",
   "quality-gate-pre-commit",
   "plan-gate",
+  "engram-write-guard",
   "stop-verify-reminder",
 ];
 

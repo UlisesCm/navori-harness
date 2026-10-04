@@ -34,6 +34,7 @@ import {
 import { buildHarnessProse, type ProseEngineResult } from "../shared/prose-harness.ts";
 import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
 import { pluginExtraVars } from "../shared/plugin-extra-vars.ts";
+import { buildEngramPolicyShell } from "../shared/engram-grant-policy.ts";
 import { buildRolePolicyShell } from "../shared/role-policy.ts";
 import { pluginScriptCollisions, pluginScriptPlacements } from "../shared/plugin-scripts.ts";
 import {
@@ -722,6 +723,10 @@ function hookRequest(hook: PlannedHook, config: NavoriConfig): PlacementRequest 
     // Spec 0041 D6: `role-guard`'s per-role prefixes are compiled from the roster.
     ...(hook.id === "role-guard"
       ? { extraVars: { rolePolicy: buildRolePolicyShell(config) } }
+      : {}),
+    // The engram allowlist is compiled from the same grants Claude renders into `tools:`.
+    ...(hook.id === "engram-write-guard"
+      ? { extraVars: { engramPolicy: buildEngramPolicyShell() } }
       : {}),
   };
 }

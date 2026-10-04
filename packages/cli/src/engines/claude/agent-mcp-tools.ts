@@ -4,6 +4,7 @@ import {
   splitToolList,
 } from "../../lib/render/frontmatter.ts";
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
+import { deriveMcpToolEntries } from "../shared/engram-grant-policy.ts";
 
 /**
  * Give an agent the MCP tools that a plugin's own prose tells it to use.
@@ -49,18 +50,14 @@ const AGENTS_DIR = ".claude/agents/";
  * the whole-server wildcard when the manifest declares none.
  */
 export function deriveMcpTools(plugin: LoadedPlugin, mcpTools?: string[]): string[] {
-  if (!plugin.manifest.mcpServer) return [];
-  if (mcpTools && mcpTools.length > 0) {
-    return mcpTools.map((tool) => `mcp__${plugin.manifest.id}__${tool}`);
-  }
-  // A server-level pattern, not one entry per tool: `tools:` accepts
-  // `mcp__<server>__*`, and enumerating instead would mean picking a list.
-  // `invariants` is the wrong list to pick — those are load-bearing SUBSTRINGS
-  // the render must preserve (doctor.ts), which merely happen to look like tool
-  // names today; deriving from them both admits non-tool strings and comes up
-  // short, as engram shows: its prose calls `mem_search`, which is not among
-  // them. `.mcp.json` registers each server under the plugin id.
-  return [`mcp__${plugin.manifest.id}__*`];
+  // The wildcard is a server-level pattern, not one entry per tool: `tools:`
+  // accepts `mcp__<server>__*`, and enumerating instead would mean picking a
+  // list. `invariants` is the wrong list to pick — those are load-bearing
+  // SUBSTRINGS the render must preserve (doctor.ts), which merely happen to look
+  // like tool names today. `.mcp.json` registers each server under the plugin id.
+  // The entries themselves live in `shared/` so the Codex engram-write-guard
+  // compiles its policy from the very same definition.
+  return deriveMcpToolEntries(plugin.manifest, mcpTools);
 }
 
 /**

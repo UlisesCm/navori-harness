@@ -1022,6 +1022,16 @@ describe("CLI e2e — happy paths", () => {
         .replaceAll("mem_session_summary", "YYY"),
     );
 
+    // The engram-write-guard names the granted tools in its compiled policy, so it
+    // also carries the substrings; gut it the same way.
+    const guardPath = join(repo, ".codex/hooks/engram-write-guard.sh");
+    writeFileSync(
+      guardPath,
+      readFileSync(guardPath, "utf-8")
+        .replaceAll("mem_save", "XXX")
+        .replaceAll("mem_session_summary", "YYY"),
+    );
+
     const broken = runCli(["doctor", "--json", "--cwd", repo]);
     const report = JSON.parse(broken.stdout);
     const missing = report.missingInvariants.map((item: { invariant: string }) => item.invariant);
