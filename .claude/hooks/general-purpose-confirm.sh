@@ -1,7 +1,7 @@
-# navori:managed start id="general-purpose-confirm-base" hash="f0e97af1" version="0.11.1" source="@navori/core"
+# navori:managed start id="general-purpose-confirm-base" hash="6ce20c3b" version="0.11.2" source="@navori/core"
 #!/usr/bin/env bash
 #
-# PreToolUse(Agent): dispatching `general-purpose` is raised to a user
+# PreToolUse(Agent|spawn_agent): dispatching `general-purpose` is raised to a user
 # confirmation that names the `scout` (spec 0039 R40).
 #
 # WHY: `general-purpose` is the host's catch-all subagent. For read-only
@@ -377,8 +377,22 @@ navori_audit_on_exit() {
 }
 trap navori_audit_on_exit EXIT
 
+# Claude names the child `subagent_type`; Codex's `spawn_agent` names it `agent_type`.
 navori_gp_type=$(payload_field tool_input.subagent_type)
+[ -n "$navori_gp_type" ] || navori_gp_type=$(payload_field tool_input.agent_type)
 [ "$navori_gp_type" = "general-purpose" ] || exit 0
+
+# Codex hooks cannot emit `ask`, and a `prompt` rule does not confirm inside
+# subagents (live probe V1, spec 0041 R10): the Codex copy denies instead,
+# decided by `$0` like `comment-draft-confirm.sh`. Never an allow.
+case "$0" in
+  *".codex/hooks/"*)
+    navori_audit_verdict="deny"
+    navori_audit_reason="general-purpose despachado; scout cubre lectura e investigación"
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[navori] general-purpose is dispatched here and Codex hooks cannot prompt. For read-only exploration or web research dispatch the scout instead; if this task really needs general-purpose, ask the user to confirm and re-dispatch."}}'
+    exit 0
+    ;;
+esac
 
 navori_audit_verdict="ask"
 navori_audit_reason="general-purpose despachado; scout cubre lectura e investigación"

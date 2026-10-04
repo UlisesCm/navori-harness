@@ -17,7 +17,9 @@ import {
 } from "../../lib/config/presets.ts";
 import { tc, resolveLang } from "../../lib/i18n.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
+import { renderManagedFile } from "../shared/render-managed-file.ts";
 import { interpolate } from "../../lib/render/interpolate.ts";
+import { conditionOrchestration } from "../../lib/render/render-plan.ts";
 import {
   getFrontmatterField,
   removeFrontmatterField,
@@ -32,10 +34,12 @@ import {
 import { buildHarnessProse, type ProseEngineResult } from "../shared/prose-harness.ts";
 import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
 import { pluginExtraVars } from "../shared/plugin-extra-vars.ts";
+import { buildRolePolicyShell } from "../shared/role-policy.ts";
 import { pluginScriptCollisions, pluginScriptPlacements } from "../shared/plugin-scripts.ts";
 import {
   resolveHarnessPlan,
   type PlannedAgent,
+  type PlannedHook,
   type PlannedSkill,
 } from "../shared/harness-plan.ts";
 import {
@@ -46,8 +50,17 @@ import {
   type EngineAdapter,
   type PlacementRequest,
 } from "../shared/execute-plan.ts";
+import {
+  applyHookExtension,
+  hookExtensionTarget,
+  removeHookExtension,
+} from "../shared/hook-extension.ts";
 import { buildCodexConfigToml } from "./build-config-toml.ts";
-import { codexHookCommand, resolvePluginCodexHooks } from "./hook-registrations.ts";
+import {
+  codexHookCommand,
+  resolveCodexHooks,
+  resolvePluginCodexHooks,
+} from "./hook-registrations.ts";
 import { buildCodexRules } from "./build-rules.ts";
 import { collectShellPermissionRules } from "../shared/permission-rules.ts";
 import { adaptHarnessTextForCodex } from "./compat.ts";
@@ -61,7 +74,7 @@ import {
   type ClassifiedLocalSkills,
 } from "./local-skill-pointer.ts";
 
-import { resolveCodexModel } from "../../lib/assets/model-profile.ts";
+import { readRenderedCodexModel, resolveCodexModel } from "../../lib/assets/model-profile.ts";
 
 const NAVORI_VERSION = readCliVersion();
 
@@ -134,7 +147,7 @@ export function renderCodexEngine(
     ? relative(resolve(repoRoot), resolve(cwd)).split(sep).join("/")
     : "";
 
-  const plan = resolveHarnessPlan(config, coreAssets, preset);
+  const plan = resolveHarnessPlan(config, coreAssets, preset, { engine: "codex" });
   // Mirror of the Claude engine's unknown-library warning (audit v0.5.1 A1):
   // an id the plan skipped silently would lose its guidance without signal.
   for (const lib of unknownLibraries([
@@ -307,6 +320,35 @@ export function renderCodexEngine(
     }
   }
 
+  // Spec 0041 R29: plugin hook extensions (the tgrep search lane) ride inside the
+  // Codex copy of the hook they extend, so no hook of their own is registered.
+  // The extension body is engine-neutral; only the hook path moves.
+  for (const plugin of plugins) {
+    for (const extension of plugin.hookExtensionAssets ?? []) {
+      const target = hookExtensionTarget(extension.target, "codex");
+      if (target === null) continue;
+      applyHookExtension({
+        cwd,
+        plugin,
+        extension,
+        target,
+        config,
+        pending,
+        skipped,
+        updatesAvailable: [],
+        downgrades: [],
+        withRelPath: true,
+      });
+    }
+  }
+  for (const plugin of loadDisabledPlugins(config.plugins).loaded) {
+    for (const extension of plugin.hookExtensionAssets ?? []) {
+      const target = hookExtensionTarget(extension.target, "codex");
+      if (target === null) continue;
+      removeHookExtension({ cwd, extension, target, pending, withRelPath: true });
+    }
+  }
+
   const { written, backupPath } = commitWrites({
     pending,
     removals,
@@ -325,6 +367,37 @@ export function renderCodexEngine(
     warnings: isWorkspace ? [] : warnings,
     backupPath,
   };
+}
+
+/**
+ * Spec 0041 D15 (R13, R30): the ONE set of repo-relative script paths Codex
+ * installs under `.codex/hooks/` and `.codex/scripts/`. A script lands only if
+ * a registered hook (core row or plugin hook) runs it, or a hook extension that
+ * rides inside an installed hook sources it (R29: the tgrep guard under
+ * `guard-destructive`). Shell partials (`# navori:include`) are inlined at
+ * render time, so no extra file backs a registered script. A script nothing
+ * runs (unsupported rows, plugin scripts with no registration and no extension
+ * host) is not installed, and a previously installed one is retired by the
+ * orphan scan.
+ */
+export function codexInstalledScripts(
+  config: NavoriConfig,
+  plugins: readonly LoadedPlugin[],
+): ReadonlySet<string> {
+  const installed = new Set(
+    resolveCodexHooks(config, plugins).map(
+      (hook) => hook.scriptPath ?? `.codex/hooks/${hook.script}.sh`,
+    ),
+  );
+  for (const plugin of plugins) {
+    const hosted = (plugin.hookExtensionAssets ?? []).some((extension) => {
+      const target = hookExtensionTarget(extension.target, "codex");
+      return target !== null && installed.has(target);
+    });
+    if (!hosted) continue;
+    for (const script of plugin.scriptAssets) installed.add(`.codex/scripts/${script.dest}`);
+  }
+  return installed;
 }
 
 /** Read only executable command handlers, not comments or incidental TOML text. */
@@ -380,13 +453,22 @@ function createCodexAdapter(
 ): EngineAdapter {
   const agentCatalog: Array<{ id: string; description: string }> = [];
   const manualOnlySkillIds: string[] = [];
+  let installed: ReadonlySet<string> | null = null;
+  const installedScripts = (ctx: AdapterCtx): ReadonlySet<string> =>
+    (installed ??= codexInstalledScripts(ctx.config, ctx.plugins));
 
   return {
     id: "codex",
     label: "Codex",
 
     placeAgent(agent, ctx): PlacementRequest {
-      const { body, description } = buildAgentToml(agent, ctx.config, ctx.plugins);
+      const { body, description } = buildAgentToml(
+        agent,
+        ctx.config,
+        ctx.plugins,
+        warningsSink,
+        ctx.cwd,
+      );
       agentCatalog.push({ id: agent.id, description });
       // Codex auto-discovers standalone project agents from `.codex/agents/`;
       // config.toml does not need one registration table per file.
@@ -424,14 +506,9 @@ function createCodexAdapter(
       };
     },
 
-    placeHook(hook): PlacementRequest {
-      return {
-        assetPath: hook.assetPath,
-        destRelPath: `.codex/hooks/${hook.id}.sh`,
-        managedId: hook.managedId,
-        commentStyle: "shell",
-        chmodExec: true,
-      };
+    placeHook(hook, ctx): PlacementRequest | null {
+      const request = hookRequest(hook, ctx.config);
+      return installedScripts(ctx).has(request.destRelPath) ? request : null;
     },
 
     extraFiles(ctx): PlacementRequest[] {
@@ -485,6 +562,7 @@ function createCodexAdapter(
       for (const plugin of ctx.plugins) {
         for (const script of pluginScriptPlacements(plugin, "codex")) {
           if (collisions.has(script.dest)) continue;
+          if (!installedScripts(ctx).has(script.destRelPath)) continue;
           pluginScripts.push({
             assetPath: script.src,
             destRelPath: script.destRelPath,
@@ -582,22 +660,89 @@ function createCodexAdapter(
         {
           dir: ".codex/hooks",
           match: () => true,
-          desired: new Set(plan.hooks.map(({ id }) => `.codex/hooks/${id}.sh`)),
+          desired: new Set(
+            [...installedScripts(ctx)].filter((rel) => rel.startsWith(".codex/hooks/")),
+          ),
           shape: "file",
+          expected: (rel) => {
+            // A hook the config no longer plans (e.g. planTiers turned off) is
+            // not in `plan.hooks`; its core asset still tells what pristine was.
+            const id = rel.slice(".codex/hooks/".length, -".sh".length);
+            const hook: PlannedHook = plan.hooks.find((h) => h.id === id) ?? {
+              id,
+              assetPath: join(ctx.coreAssets, `hooks/${id}.sh`),
+              managedId: `${id}-base`,
+            };
+            return existsSync(hook.assetPath)
+              ? freshRender(hookRequest(hook, ctx.config), ctx.config)
+              : null;
+          },
         },
         {
           dir: ".codex/scripts",
           match: (name) => name.endsWith(".sh"),
           desired: new Set(
-            ctx.plugins.flatMap((plugin) =>
-              plugin.scriptAssets.map((script) => `.codex/scripts/${script.dest}`),
-            ),
+            [...installedScripts(ctx)].filter((rel) => rel.startsWith(".codex/scripts/")),
           ),
           shape: "file",
+          expected: (rel) => {
+            for (const plugin of ctx.plugins) {
+              const script = pluginScriptPlacements(plugin, "codex").find(
+                (item) => item.destRelPath === rel,
+              );
+              if (!script) continue;
+              return freshRender(
+                {
+                  assetPath: script.src,
+                  destRelPath: script.destRelPath,
+                  managedId: script.managedId,
+                  meta: script.meta,
+                  extraVars: pluginExtraVars(ctx.config),
+                  commentStyle: "shell",
+                },
+                ctx.config,
+              );
+            }
+            return null;
+          },
         },
       ];
     },
   };
+}
+
+/** The Codex placement of a core hook script (installed only if registered). */
+function hookRequest(hook: PlannedHook, config: NavoriConfig): PlacementRequest {
+  return {
+    assetPath: hook.assetPath,
+    destRelPath: `.codex/hooks/${hook.id}.sh`,
+    managedId: hook.managedId,
+    commentStyle: "shell",
+    chmodExec: true,
+    // Spec 0041 D6: `role-guard`'s per-role prefixes are compiled from the roster.
+    ...(hook.id === "role-guard"
+      ? { extraVars: { rolePolicy: buildRolePolicyShell(config) } }
+      : {}),
+  };
+}
+
+/**
+ * The file as navori renders it fresh (no existing content), for the orphan
+ * scan's `requirePristine` comparison; null when the request has no asset.
+ */
+function freshRender(request: PlacementRequest, config: NavoriConfig): string | null {
+  if (request.assetPath === undefined) return null;
+  return renderManagedFile({
+    assetPath: request.assetPath,
+    existingContent: null,
+    managedId: request.managedId,
+    meta: request.meta ?? { source: "@navori/core", version: NAVORI_VERSION },
+    config,
+    extraVars: request.extraVars,
+    commentStyle: request.commentStyle,
+    transform: request.transform,
+    engine: "codex",
+  }).content;
 }
 
 /** Keep one playbook source while removing Claude-only navigation from its Codex reference. */
@@ -629,6 +774,7 @@ function buildAgentsMdRequest(
   const baseBody = buildHarnessProse(ctx.config, ctx.repoRoot, ctx.isWorkspace, {
     includeOrchestration: true,
     includePluginBlocks: true,
+    engine: "codex",
   });
   // Same localized "## Available agents" prose as the Claude engine (#289), but
   // without the orchestrator intro — AGENTS.md IS the catalog Codex reads, so it
@@ -679,10 +825,21 @@ function buildAgentsMdRequest(
   };
 }
 
+/**
+ * Builds one `.codex/agents/<id>.toml`. The agent asset (and any plugin
+ * extension injected into it) is run through `conditionOrchestration` BEFORE
+ * interpolation: unlike `renderManagedFile`, which resolves `navori:if` /
+ * `navori:if-not` for every Markdown asset, this function reads the asset
+ * itself, so without the call the TOML carried both branches of each
+ * condition (e.g. the report and the JSON-evidence instructions) plus the raw
+ * markers (spec 0041 R28). An unbalanced marker throws, as on every engine.
+ */
 function buildAgentToml(
   source: PlannedAgent,
   config: NavoriConfig,
   plugins: readonly LoadedPlugin[],
+  warningsSink: string[],
+  cwd: string,
 ): { body: string; description: string } {
   const raw = readFileSync(source.assetPath, "utf-8");
   const parsed = parseAsset(raw, "html");
@@ -691,7 +848,9 @@ function buildAgentToml(
     config,
   );
   let instructions = adaptHarnessTextForCodex(
-    interpolate(parsed.managedBody, config, { extraVars: pluginExtraVars(config) }),
+    interpolate(conditionOrchestration(parsed.managedBody, config, "codex"), config, {
+      extraVars: pluginExtraVars(config),
+    }),
     config,
   );
 
@@ -700,7 +859,9 @@ function buildAgentToml(
       if (skill.injectInto !== `.claude/agents/${source.id}.md`) continue;
       const extension = parseAsset(readFileSync(skill.absPath, "utf-8"), "html");
       instructions += `\n\n${adaptHarnessTextForCodex(
-        interpolate(extension.managedBody, config, { extraVars: pluginExtraVars(config) }),
+        interpolate(conditionOrchestration(extension.managedBody, config, "codex"), config, {
+          extraVars: pluginExtraVars(config),
+        }),
         config,
       )}`;
     }
@@ -716,8 +877,20 @@ function buildAgentToml(
   ];
   if (sandbox === "read-only") lines.push('sandbox_mode = "read-only"');
   if (modelTier) {
-    const codexModel = resolveCodexModel(config, modelTier).model;
-    lines.push(`model = ${JSON.stringify(codexModel)}`);
+    const choice = resolveCodexModel(
+      config,
+      modelTier,
+      undefined,
+      readRenderedCodexModel(cwd, source.id),
+    );
+    if (choice.source === "fallback") {
+      const warning = tc(resolveLang(config.language)).engine.codexModelFamilyFallback(
+        choice.family ?? choice.model,
+        choice.model,
+      );
+      if (!warningsSink.includes(warning)) warningsSink.push(warning);
+    }
+    lines.push(`model = ${JSON.stringify(choice.model)}`);
   }
   if (effort) lines.push(`model_reasoning_effort = ${JSON.stringify(effort)}`);
 

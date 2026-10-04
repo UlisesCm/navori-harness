@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { NavoriConfig } from "../../lib/config/config.ts";
 import { buildClaudeSettings } from "../claude/build-settings.ts";
 import { buildCodexRules } from "../codex/build-rules.ts";
+import { CODEX_HOOK_REGISTRATIONS } from "../codex/hook-registrations.ts";
 import { collectShellPermissionRules } from "../shared/permission-rules.ts";
 
 const MINIMAL_CONFIG = {
@@ -128,5 +129,29 @@ describe("buildCodexRules — translation (spec 0035 D5)", () => {
     expect(rules.allow).toContain("Bash(git status*)");
     expect(codexRules.body).not.toContain('pattern = ["git", "status"]');
     expect(codexRules.body).not.toContain('decision = "allow"');
+  });
+});
+
+describe("Codex permission translation guarantees (spec 0041)", () => {
+  // Covers: R14, R15
+  it("never emits allow, even for the real merged rule set", () => {
+    const rules = collectShellPermissionRules(MINIMAL_CONFIG, []);
+    expect(rules.allow.length).toBeGreaterThan(0);
+    const { body } = buildCodexRules(rules);
+    expect(body).not.toContain('decision = "allow"');
+  });
+
+  // Covers: R14
+  it("reports the only non-Bash entry as dropped instead of losing it silently", () => {
+    const { dropped } = buildCodexRules(collectShellPermissionRules(MINIMAL_CONFIG, []));
+    expect(dropped).toEqual([{ pattern: "Agent(orchestrator)", reason: "not-bash" }]);
+  });
+
+  // Covers: R10
+  it("registers no PermissionRequest handler: confirmations are rules, not hooks", () => {
+    const events = CODEX_HOOK_REGISTRATIONS.flatMap((row) =>
+      row.registration ? [row.registration.event] : [],
+    );
+    expect(events).not.toContain("PermissionRequest");
   });
 });

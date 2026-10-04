@@ -3,10 +3,10 @@ name: verify-before-done
 description: 'Use when about to declare a task done — the Iron Law of task closure: no success claim without fresh evidence from the command that backs it. Applies to implementer, reviewer, publisher and any response that declares "done".'
 metadata:
   type: behavior
-  maxWords: 650
+  maxWords: 663
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="96a48a3c" version="0.11.1" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="verify-before-done-base" hash="9fbc83ea" version="0.11.2" source="@navori/core" fmkeys="name,description,metadata" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -32,7 +32,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the command that proves it �
 | PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status`, receipt `"status":"ok"` (prefer `navori receipt check …`; if the installed CLI lacks it, use the repository-built CLI); declared-inline change, your own run. No clean working tree required | "the branch has commits, we can create it" |
 | Tests / type-check clean | Suite / `tsc --noEmit` run fresh, exit 0, this turn | "should still be green" |
 | A shell edit landed (`sed -i`, a `>` redirect) | Re-read the changed span, this turn | The exit code — `sed -i` exits 0 on no match, a misdirected `>` truncates the file |
-| Gate outlives Bash timeout, main session | `run_in_background`, wait on completion or `Monitor`; `TaskStop` unneeded tasks first | Polling (`pgrep`, `ps \| grep`) — matches other sessions' waits too |
+| Gate outlives Bash timeout, main session | run the chained steps one by one in the foreground | Polling (`pgrep`, `ps \| grep`) — matches other sessions' waits too |
 | Gate outlives Bash timeout, subagent | Its `&&` steps one by one, foreground, under the timeout | Backgrounding — a subagent never gets re-woken, the run orphans |
 
 ## Failure attribution

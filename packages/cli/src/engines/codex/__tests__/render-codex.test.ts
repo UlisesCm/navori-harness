@@ -6,7 +6,7 @@ import {
   readdirSync,
   writeFileSync,
 } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -15,7 +15,8 @@ import {
   type NavoriConfig,
   type NavoriConfigInput,
 } from "../../../lib/config/schema.ts";
-import { renderCodexEngine } from "../index.ts";
+import { codexInstalledScripts, renderCodexEngine } from "../index.ts";
+import { loadEnabledPlugins } from "../../../lib/config/plugins.ts";
 import { renderClaudeEngine } from "../../claude/index.ts";
 import { adaptHarnessTextForCodex } from "../compat.ts";
 import { resolveCodexHooks } from "../hook-registrations.ts";
@@ -76,15 +77,15 @@ function testPlugin(id: string, capabilities: Record<string, unknown>): LoadedPl
 }
 
 describe("renderCodexEngine", () => {
-  // Covers: R1
-  it.each([false, true])("omits Claude-only master skills with masterPlan=%s", (enabled) => {
+  // Covers: R20
+  it.each([false, true])("ships the master skills to Codex with masterPlan=%s", (enabled) => {
     const cwd = tempRepo();
     renderCodexEngine(cwd, config({ harness: { masterPlan: enabled } }));
-    expect(existsSync(join(cwd, ".agents/skills/master-plan/SKILL.md"))).toBe(false);
-    expect(existsSync(join(cwd, ".agents/skills/context-intake/SKILL.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".agents/skills/master-plan/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".agents/skills/context-intake/SKILL.md"))).toBe(true);
     const index = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
-    expect(index).not.toContain("- `master-plan` —");
-    expect(index).not.toContain("- `context-intake` —");
+    expect(index).toContain("- `master-plan` —");
+    expect(index).toContain("- `context-intake` —");
   });
 
   // Covers: R20
@@ -348,31 +349,79 @@ describe("renderCodexEngine", () => {
     expect(toml).toContain('matcher = "startup|resume|clear|compact|fork"');
   });
 
-  // Covers: R6, R7, R8
-  it("keeps plan-gate advisory and existing PreToolUse trust positions in both scribe modes", () => {
+  // Covers: R6, R7, R8, R9
+  it("registers plan-gate as the last late row and keeps existing PreToolUse trust positions in both scribe modes", () => {
     for (const scribeOwnsMarkdown of [false, true]) {
       const cwd = tempRepo();
       const cfg = config({ harness: { planTiers: true, scribeOwnsMarkdown } });
       renderCodexEngine(cwd, cfg);
       const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
       const hooks = resolveCodexHooks(cfg);
-      expect(hooks.some((entry) => entry.script === "plan-gate")).toBe(false);
-      expect(toml).not.toContain("plan-gate.sh");
-      expect(
-        hooks.filter((entry) => entry.event === "PreToolUse").map((entry) => entry.script),
-      ).toEqual(
+      expect(hooks.some((entry) => entry.script === "plan-gate")).toBe(true);
+      expect(toml).toContain("plan-gate.sh");
+      const preTool = hooks.filter((entry) => entry.event === "PreToolUse");
+      expect(preTool.map((entry) => entry.script)).toEqual(
         scribeOwnsMarkdown
           ? [
               "guard-destructive",
               "comment-draft-confirm",
               "quality-gate-pre-commit",
               "implementer-no-markdown",
+              "role-guard",
+              "pr-publisher-confirm",
+              "general-purpose-confirm",
+              "plan-gate",
             ]
-          : ["guard-destructive", "comment-draft-confirm", "quality-gate-pre-commit"],
+          : [
+              "guard-destructive",
+              "comment-draft-confirm",
+              "quality-gate-pre-commit",
+              "role-guard",
+              "pr-publisher-confirm",
+              "general-purpose-confirm",
+              "plan-gate",
+            ],
       );
+      expect(preTool.at(-1)?.matcher).toBe("spawn_agent$");
       expect(toml.includes("implementer-no-markdown.sh")).toBe(scribeOwnsMarkdown);
       expect(toml).toContain("routing-watch.sh");
     }
+  });
+
+  // Covers: R9, R10
+  it("toggling harness.planTiers never moves the PreToolUse index of the confirmation hooks", () => {
+    for (const scribeOwnsMarkdown of [false, true]) {
+      const indexes = (planTiers: boolean): Record<string, number> => {
+        const cfg = config({ harness: { planTiers, scribeOwnsMarkdown } });
+        const scripts = resolveCodexHooks(cfg)
+          .filter((entry) => entry.event === "PreToolUse")
+          .map((entry) => entry.script);
+        return Object.fromEntries(
+          ["role-guard", "pr-publisher-confirm", "general-purpose-confirm"].map((s) => [
+            s,
+            scripts.indexOf(s),
+          ]),
+        );
+      };
+      expect(indexes(true)).toEqual(indexes(false));
+    }
+  });
+
+  // Covers: R9
+  it("does not register plan-gate without harness.planTiers", () => {
+    const cfg = config({ harness: { planTiers: false } });
+    expect(resolveCodexHooks(cfg).some((entry) => entry.script === "plan-gate")).toBe(false);
+  });
+
+  // Covers: R10 — publication and general-purpose confirmations are PreToolUse
+  // hooks (deny-as-confirmation), never a PermissionRequest registration.
+  it("registers the two confirmations as PreToolUse and no PermissionRequest hook", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+    expect(toml).toContain("pr-publisher-confirm.sh");
+    expect(toml).toContain("general-purpose-confirm.sh");
+    expect(toml).not.toContain("PermissionRequest");
   });
 
   // Covers: R10, R13
@@ -412,6 +461,66 @@ describe("renderCodexEngine", () => {
       const body = readFileSync(file, "utf-8");
       expect({ file, hit: body.includes(".claude/") }).toEqual({ file, hit: false });
     }
+  });
+
+  /**
+   * Spec 0041 R18/R19. A Claude-only tool name or Claude Code version in the
+   * Codex render sends the agent to a tool it does not have. Prose spans that
+   * only make sense on Claude are wrapped in `navori:if-not onCodex` in the
+   * source assets; this sweep fails, naming the file and the managed block, when
+   * one slips through. Hook scripts are not prose, but their `[navori]` message
+   * lines are shown to the agent, so those are scanned too, with a per-entry
+   * allowlist (file + reason) instead of a wildcard.
+   */
+  // Covers: R18, R19
+  it("no Claude-only tool leaks into Codex surfaces", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+
+    const forbidden: ReadonlyArray<readonly [name: string, re: RegExp]> = [
+      ["SendMessage", /SendMessage/],
+      ["TaskCreate", /TaskCreate/],
+      ["TaskList", /TaskList/],
+      ["TaskStop", /TaskStop/],
+      ["ToolSearch", /ToolSearch/],
+      ["`Skill`", /`Skill`/],
+      ["AskUserQuestion", /AskUserQuestion/],
+      ["`Monitor`", /`Monitor`/],
+      ["run_in_background", /run_in_background/],
+      ["Claude Code <version>", /Claude Code \d/],
+    ];
+    const markerRe = /navori:managed(?: start)? id="([^"]+)"/;
+    const leaks: Array<{ file: string; block: string; term: string; line: string }> = [];
+
+    for (const file of proseSurfaces(cwd)) {
+      let block = "(outside any managed block)";
+      for (const line of readFileSync(file, "utf-8").split("\n")) {
+        block = markerRe.exec(line)?.[1] ?? block;
+        for (const [term, re] of forbidden) {
+          if (re.test(line)) {
+            leaks.push({ file: file.slice(cwd.length + 1), block, term, line: line.slice(0, 120) });
+          }
+        }
+      }
+    }
+
+    // Hook `[navori]` messages. Add an entry ONLY with the file and the reason
+    // it is safe on Codex; there is no wildcard.
+    const hookMessageAllowlist: ReadonlyArray<{ file: string; term: string; reason: string }> = [];
+    const hooksDir = join(cwd, ".codex/hooks");
+    for (const name of existsSync(hooksDir) ? readdirSync(hooksDir) : []) {
+      const rel = `.codex/hooks/${name}`;
+      for (const line of readFileSync(join(hooksDir, name), "utf-8").split("\n")) {
+        if (!line.includes("[navori]")) continue;
+        for (const [term, re] of forbidden) {
+          if (!re.test(line)) continue;
+          if (hookMessageAllowlist.some((a) => a.file === rel && a.term === term)) continue;
+          leaks.push({ file: rel, block: "[navori] hook message", term, line: line.slice(0, 120) });
+        }
+      }
+    }
+
+    expect(leaks).toEqual([]);
   });
 
   it("appends an orchestrator-targeted plugin skill to AGENTS.md as a managed sub-block (#277)", () => {
@@ -500,6 +609,52 @@ describe("renderCodexEngine", () => {
     // haiku has no override → falls back to the built-in default.
     const reviewer = readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8");
     expect(reviewer).toContain('model = "gpt-6-luna"');
+  });
+
+  // Covers: R32 — a family in codexMap resolves at render time; without a
+  // catalog the declared fallback is used and one warning names it.
+  it("renders the fallback id and warns once when the catalog lacks the family", () => {
+    const cwd = tempRepo();
+    const result = renderCodexEngine(
+      cwd,
+      config({
+        models: {
+          implementer: "sonnet",
+          reviewer: "sonnet",
+          scribe: "haiku",
+          codexMap: { sonnet: "astra" },
+        },
+      }),
+    );
+    expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8")).toContain(
+      'model = "gpt-6-astra"',
+    );
+    const warns = result.warnings.filter((w) => w.includes("'astra'"));
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain("gpt-6-astra");
+  });
+
+  // Covers: R32 — render must not depend on the machine's catalog: a previously
+  // rendered newer same-family model survives a render without a catalog.
+  it("keeps a previously rendered newer same-family model when no catalog is readable", () => {
+    const cwd = tempRepo();
+    const cfg = config({ models: { implementer: "sonnet", reviewer: "haiku" } });
+    mkdirSync(join(cwd, ".codex/agents"), { recursive: true });
+    writeFileSync(join(cwd, ".codex/agents/implementer.toml"), 'model = "gpt-6.1-sol"\n');
+    const result = renderCodexEngine(cwd, cfg);
+    expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8")).toContain(
+      'model = "gpt-6.1-sol"',
+    );
+    // No previous file: the declared fallback.
+    expect(readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8")).toContain(
+      'model = "gpt-6-luna"',
+    );
+    expect(result.warnings.some((w) => w.includes("gpt-6.1-sol"))).toBe(false);
+    // Idempotent: a second render keeps it.
+    renderCodexEngine(cwd, cfg);
+    expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8")).toContain(
+      'model = "gpt-6.1-sol"',
+    );
   });
 
   // Covers: R12 — configured tier, mapped output and independent effort override.
@@ -925,5 +1080,279 @@ describe("renderCodexEngine — plugin skill extension, jscpdThreshold retired (
     expect(skill).not.toContain("--threshold");
     expect(skill).toContain("--baseline-from-ref");
     expect(skill).toContain("--fail-on-new-clones 0");
+  });
+});
+
+describe("renderCodexEngine — navori:if conditions in agent TOMLs (spec 0041 T1)", () => {
+  // Covers: R28
+  it.each([false, true])(
+    "no .codex/agents/*.toml carries a condition marker (scribeOwnsMarkdown=%s)",
+    (scribeOwnsMarkdown) => {
+      const cwd = tempRepo();
+      renderCodexEngine(cwd, config({ harness: { planTiers: true, scribeOwnsMarkdown } }));
+      for (const file of readdirSync(join(cwd, ".codex/agents"))) {
+        const toml = readFileSync(join(cwd, ".codex/agents", file), "utf-8");
+        expect(toml.includes("navori:if"), `agent ${file} still has a navori:if marker`).toBe(
+          false,
+        );
+      }
+      const implementer = readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8");
+      expect(implementer.includes("write your JSON evidence")).toBe(scribeOwnsMarkdown);
+    },
+  );
+});
+
+describe("renderCodexEngine — installed scripts follow registration (spec 0041 T2)", () => {
+  function listed(cwd: string, dir: string): string[] {
+    const abs = join(cwd, dir);
+    return existsSync(abs) ? readdirSync(abs).map((f) => `${dir}/${f}`) : [];
+  }
+
+  // Covers: R13, R30
+  it("installs exactly codexInstalledScripts under .codex/hooks and .codex/scripts", () => {
+    const cwd = tempRepo();
+    const cfg = config({
+      harness: { planTiers: true, scribeOwnsMarkdown: true, masterPlan: true },
+      plugins: {
+        engram: { enabled: true },
+        jscpd: { enabled: true },
+        semgrep: { enabled: true },
+        tgrep: { enabled: true },
+      },
+    });
+    renderCodexEngine(cwd, cfg);
+    const expected = codexInstalledScripts(cfg, loadEnabledPlugins(cfg.plugins).loaded);
+    const actual = [...listed(cwd, ".codex/hooks"), ...listed(cwd, ".codex/scripts")];
+    expect(new Set(actual)).toEqual(new Set(expected));
+    for (const gone of [
+      ".codex/hooks/bash-outcome-watch.sh",
+      ".codex/hooks/subagent-no-background.sh",
+    ])
+      expect(actual).not.toContain(gone);
+    expect(actual).toContain(".codex/scripts/check-jscpd.sh");
+    // R29: the guard is installed because the hook extension sources it.
+    expect(actual).toContain(".codex/scripts/guard-search-routing.sh");
+  });
+});
+
+describe("renderCodexEngine — tgrep search lane (spec 0041 T16)", () => {
+  const tgrepOn = { plugins: { engram: { enabled: true }, tgrep: { enabled: true } } };
+  const hookPath = ".codex/hooks/guard-destructive.sh";
+  const scriptPath = ".codex/scripts/guard-search-routing.sh";
+
+  /** Run the rendered Codex hook with a stub `tgrep` that reports a live index. */
+  function runCodexGuard(cwd: string, command: string): { status: number | null; stderr: string } {
+    const bin = join(cwd, "bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(
+      join(bin, "tgrep"),
+      "#!/bin/sh\nprintf 'Index status for /x\\n  Server:     running\\n'\n",
+      {
+        mode: 0o755,
+      },
+    );
+    const r = spawnSync("bash", [join(cwd, hookPath)], {
+      input: JSON.stringify({ cwd, tool_name: "Bash", tool_input: { command } }),
+      env: { ...process.env, PATH: `${bin}:/usr/bin:/bin` },
+      cwd,
+      encoding: "utf-8",
+    });
+    return { status: r.status, stderr: r.stderr };
+  }
+
+  // Covers: R29
+  it("blocks a recursive shell grep with exit 2 and carries no Claude path", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config(tgrepOn));
+    execFileSync("git", ["init", "-q"], { cwd });
+    const hook = readFileSync(join(cwd, hookPath), "utf-8");
+    expect(hook).toContain('navori:managed start id="tgrep-search-lane"');
+    // The base hook mentions CLAUDE_PROJECT_DIR in comments and its Claude arm;
+    // the lane is what must stay engine-neutral.
+    const lane = hook.slice(
+      hook.indexOf('navori:managed start id="tgrep-search-lane"'),
+      hook.indexOf('navori:managed end id="tgrep-search-lane"'),
+    );
+    expect(lane).toContain("guard-search-routing.sh");
+    expect(lane).not.toContain("CLAUDE_PROJECT_DIR");
+    expect(lane).not.toContain(".claude/scripts");
+    expect(existsSync(join(cwd, scriptPath))).toBe(true);
+    expect(readFileSync(join(cwd, scriptPath), "utf-8")).not.toContain("${CLAUDE_PROJECT_DIR");
+
+    const blocked = runCodexGuard(cwd, 'grep -rn "foo" src/');
+    expect(blocked.status).toBe(2);
+    expect(blocked.stderr).toContain("BLOCKED by guard-search-routing");
+    // Output filtering stays allowed, exactly as under Claude.
+    expect(runCodexGuard(cwd, "cat f.txt | grep foo").status).toBe(0);
+  });
+
+  // Covers: R29
+  it("installs neither the lane nor the script with tgrep off, and strips them when it turns off", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    expect(readFileSync(join(cwd, hookPath), "utf-8")).not.toContain("tgrep-search-lane");
+    expect(existsSync(join(cwd, scriptPath))).toBe(false);
+
+    renderCodexEngine(cwd, config(tgrepOn));
+    expect(readFileSync(join(cwd, hookPath), "utf-8")).toContain("tgrep-search-lane");
+    renderCodexEngine(cwd, config(tgrepOn));
+    expect(existsSync(join(cwd, scriptPath))).toBe(true);
+
+    renderCodexEngine(
+      cwd,
+      config({ plugins: { engram: { enabled: true }, tgrep: { enabled: false } } }),
+    );
+    expect(readFileSync(join(cwd, hookPath), "utf-8")).not.toContain("tgrep-search-lane");
+    expect(existsSync(join(cwd, scriptPath))).toBe(false);
+  });
+});
+
+describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
+  const withPlugins = {
+    plugins: {
+      engram: { enabled: true },
+      jscpd: { enabled: true },
+      semgrep: { enabled: true },
+    },
+  } as const;
+
+  // Covers: R20, R21
+  it("masterPlan registers master-plan-context and emits both skills", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config({ harness: { masterPlan: true } }));
+    for (const id of ["master-plan", "context-intake"])
+      expect(existsSync(join(cwd, `.agents/skills/${id}/SKILL.md`))).toBe(true);
+    const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+    expect(toml).toContain(".codex/hooks/master-plan-context.sh");
+    expect(existsSync(join(cwd, ".codex/hooks/master-plan-context.sh"))).toBe(true);
+    // The shared script carries the Codex branch (decided by `$0`).
+    const script = readFileSync(join(cwd, ".codex/hooks/master-plan-context.sh"), "utf-8");
+    expect(script).toContain('*".codex/hooks/"*) project_dir=$(git rev-parse --show-toplevel');
+  });
+
+  // Covers: R20, R21
+  it("without masterPlan neither hook is registered or installed, but the skills still ship", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+    expect(toml).not.toContain("master-plan-context");
+    expect(toml).not.toContain("master-accept-confirm");
+    expect(existsSync(join(cwd, ".codex/hooks/master-plan-context.sh"))).toBe(false);
+    expect(existsSync(join(cwd, ".agents/skills/master-plan/SKILL.md"))).toBe(true);
+  });
+
+  // Covers: R20
+  it("master-accept-confirm carries its Codex deny branch and never allows", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config({ harness: { masterPlan: true } }));
+    const script = readFileSync(join(cwd, ".codex/hooks/master-accept-confirm.sh"), "utf-8");
+    expect(script).toContain('*".codex/hooks/"*)');
+    expect(script).toContain('"permissionDecision":"deny"');
+    expect(script).not.toContain('"permissionDecision":"allow"');
+  });
+
+  // Covers: R21 — D8: a registered group's `event:index` is its position among
+  // the other groups of the same event, so the tail may only grow.
+  it("keeps every already-published group index when masterPlan is switched on", () => {
+    // Spec 0041 R9/R10: role-guard and the rows after it are the new tail.
+    const LATE_TAIL = [
+      "role-guard",
+      "pr-publisher-confirm",
+      "general-purpose-confirm",
+      "plan-gate",
+    ];
+    const base = config(withPlugins);
+    const on = config({ ...withPlugins, harness: { masterPlan: true } });
+    const plugins = loadEnabledPlugins(base.plugins).loaded;
+    const slots = (cfg: NavoriConfig): Map<string, string[]> => {
+      const byEvent = new Map<string, string[]>();
+      // The baseline is dev's table: `role-guard` is the new tail and may follow the
+      // master-plan groups, so it is left out of the published-prefix comparison.
+      for (const hook of resolveCodexHooks(cfg, plugins).filter(
+        (h) => !LATE_TAIL.includes(h.script),
+      )) {
+        byEvent.set(hook.event, [...(byEvent.get(hook.event) ?? []), hook.script]);
+      }
+      return byEvent;
+    };
+    const before = slots(base);
+    const after = slots(on);
+    for (const [event, scripts] of before) {
+      expect(after.get(event)?.slice(0, scripts.length), event).toEqual(scripts);
+    }
+    expect(before.get("PreToolUse")).toContain("check-jscpd.sh");
+    expect(after.get("PreToolUse")?.at(-1)).toBe("master-accept-confirm");
+    expect(after.get("SessionStart")?.at(-1)).toBe("master-plan-context");
+    // Pinned: the indexes Codex trust already approved.
+    expect(before.get("SessionStart")).toEqual([
+      "model-advisor",
+      "session-start-context",
+      "worktree-reclaim",
+    ]);
+    expect(before.get("PreToolUse")?.slice(0, 3)).toEqual([
+      "guard-destructive",
+      "comment-draft-confirm",
+      "quality-gate-pre-commit",
+    ]);
+  });
+
+  // Covers: R6, R7, R17 — spec 0041 T8/T9, D7, D8. role-guard is Codex-only and
+  // late: it trails the plugin groups and never moves a published index.
+  it("registers role-guard late on apply_patch and spawn_agent, with no agents table", () => {
+    const base = config(withPlugins);
+    const plugins = loadEnabledPlugins(base.plugins).loaded;
+    const preTool = resolveCodexHooks(base, plugins).filter((hook) => hook.event === "PreToolUse");
+    const scripts = preTool.map((hook) => hook.script);
+    expect(scripts.slice(0, 3)).toEqual([
+      "guard-destructive",
+      "comment-draft-confirm",
+      "quality-gate-pre-commit",
+    ]);
+    expect(scripts.at(-3)).toBe("role-guard");
+    expect(scripts.indexOf("role-guard")).toBeGreaterThan(scripts.indexOf("check-jscpd.sh"));
+    expect(preTool.find((hook) => hook.script === "role-guard")?.matcher).toBe(
+      "^apply_patch$|spawn_agent$",
+    );
+    // With masterPlan on, role-guard is still the LAST late row: the master-plan
+    // groups were published in dev (#1187), so their indexes must not move.
+    const on = resolveCodexHooks(config({ ...withPlugins, harness: { masterPlan: true } }), plugins)
+      .filter((hook) => hook.event === "PreToolUse")
+      .map((hook) => hook.script);
+    expect(on.slice(-4)).toEqual([
+      "master-accept-confirm",
+      "role-guard",
+      "pr-publisher-confirm",
+      "general-purpose-confirm",
+    ]);
+    const withMaster = resolveCodexHooks(
+      config({ ...withPlugins, harness: { masterPlan: true } }),
+      plugins,
+    );
+    const without = resolveCodexHooks(base, plugins);
+    const indexOf = (hooks: typeof withMaster, event: string, script: string): number =>
+      hooks.filter((hook) => hook.event === event).findIndex((hook) => hook.script === script);
+    // Same positions as dev: master-accept-confirm directly after the plugin groups,
+    // master-plan-context last in SessionStart; role-guard only appends.
+    expect(indexOf(withMaster, "PreToolUse", "master-accept-confirm")).toBe(
+      without.filter(
+        (hook) =>
+          hook.event === "PreToolUse" &&
+          !["role-guard", "pr-publisher-confirm", "general-purpose-confirm"].includes(hook.script),
+      ).length,
+    );
+    expect(withMaster.filter((hook) => hook.event === "SessionStart").at(-1)?.script).toBe(
+      "master-plan-context",
+    );
+
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const toml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
+    expect(toml).toContain(".codex/hooks/role-guard.sh");
+    expect(toml).not.toMatch(/^\[agents\]/m);
+    expect(toml).not.toContain("multi_agent_v2");
+    expect(toml).not.toContain("max_depth");
+    expect(readFileSync(join(cwd, ".codex/hooks/role-guard.sh"), "utf-8")).toContain(
+      'id="role-guard-base"',
+    );
   });
 });

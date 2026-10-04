@@ -58,6 +58,7 @@ import {
 import { buildClaudeSettings } from "./build-settings.ts";
 import { mergeCoexistSettings, isPlainObject } from "./coexist-settings.ts";
 import { renderManagedFile } from "../shared/render-managed-file.ts";
+import { applyHookExtension, removeHookExtension } from "../shared/hook-extension.ts";
 import { interpolate, sanitizeProjectValue } from "../../lib/render/interpolate.ts";
 import { expandHookIncludes } from "../../lib/render/hook-includes.ts";
 import { benchMark } from "../../lib/primitives/bench.ts";
@@ -252,7 +253,7 @@ function buildSkillsIndexBody(
 ): string | null {
   // #908: no trigger — the host's native skill listing already tells the
   // model when to use each one (see buildSkillRows' docblock).
-  const rows = buildSkillRows(config, repoRoot, coreAssets, localSkills, cwd, false, true);
+  const rows = buildSkillRows(config, repoRoot, coreAssets, localSkills, cwd, false, "claude");
   if (rows.length === 0) return null;
   const t = tc(lang).blocks.skillsIndex;
   // The project-local note only makes sense when the repo actually declares
@@ -804,8 +805,7 @@ export function renderClaudeEngine(
   const preset = loadActivePreset(config, repoRoot, warnings);
   const fullHarnessPlan = resolveHarnessPlan(config, coreAssets, preset, {
     includeOrchestrator: true,
-    includeClaudeOnlySkills: true,
-    includeClaudeOnlyHooks: true,
+    engine: "claude",
   });
   // Spec 0039 D1/B1: the ONE filtered inventory. Everything below that writes a
   // file or registers a hook reads it, so a unit the matrix marks native on
@@ -1057,6 +1057,7 @@ export function renderClaudeEngine(
         cwd,
         plugin,
         extension,
+        target: extension.target,
         config,
         pending,
         skipped,
@@ -1088,7 +1089,7 @@ export function renderClaudeEngine(
     }
     for (const extension of plugin.hookExtensionAssets ?? []) {
       inspected += 1;
-      removeHookExtension({ cwd, extension, pending });
+      removeHookExtension({ cwd, extension, target: extension.target, pending });
     }
     // Plugin scripts now carry managed markers. Keep hand edits and newer
     // versions rather than deleting solely because a manifest names the path.
@@ -2139,108 +2140,6 @@ function applySubBlockInject(input: {
     content: finalContent,
     status: result.status,
   });
-}
-
-type PendingWrites = Array<{
-  path: string;
-  content: string;
-  status: RenderStatus;
-  chmodExec?: boolean;
-}>;
-
-/**
- * Inject a plugin's hook extension (`hookExtensions[]`, spec 0039 D6) as a
- * shell-style managed sub-block in its target hook mirror. The block lands right
- * after the hook's base block, ahead of the `# navori:user-section` marker and
- * its trailing `exit 0`, so it runs after every rule the base block carries. A
- * missing target (hook not rendered) is a no-op: there is nothing to extend.
- */
-function applyHookExtension(input: {
-  cwd: string;
-  plugin: LoadedPlugin;
-  extension: NonNullable<LoadedPlugin["hookExtensionAssets"]>[number];
-  config: NavoriConfig;
-  pending: PendingWrites;
-  skipped: SkippedFile[];
-  updatesAvailable: UpdateAvailable[];
-  downgrades: UpdateAvailable[];
-}): void {
-  const targetAbs = join(input.cwd, input.extension.target);
-  const pendingEntry = input.pending.find((p) => p.path === targetAbs);
-  let currentContent: string;
-  if (pendingEntry) currentContent = pendingEntry.content;
-  else if (existsSync(targetAbs)) currentContent = readFileSync(targetAbs, "utf-8");
-  else return;
-
-  const source = `@navori/plugin-${input.plugin.manifest.id}`;
-  const lang = resolveLang(input.config.language);
-  const result = injectManagedSection(
-    currentContent,
-    input.extension.id,
-    readFileSync(input.extension.absPath, "utf-8"),
-    { source, version: NAVORI_VERSION },
-    "shell",
-  );
-  classifyVersionDrift(
-    result,
-    input.extension.id,
-    source,
-    NAVORI_VERSION,
-    input.updatesAvailable,
-    input.downgrades,
-  );
-  if (result.status === "user-modified-skipped") {
-    input.skipped.push({
-      path: relative(input.cwd, targetAbs),
-      reason: tc(lang).engine.subBlockEditedByHand(input.extension.id, input.plugin.manifest.id),
-      status: "user-modified-skipped",
-    });
-    return;
-  }
-  if (result.status === "downgrade-skipped") {
-    input.skipped.push({
-      path: relative(input.cwd, targetAbs),
-      reason: tc(lang).engine.subBlockFromNewerNavori(
-        input.extension.id,
-        result.details?.existingVersion ?? undefined,
-      ),
-      status: "downgrade-skipped",
-    });
-    return;
-  }
-  if (result.output === currentContent) return;
-  if (pendingEntry) {
-    pendingEntry.content = result.output;
-    return;
-  }
-  input.pending.push({
-    path: targetAbs,
-    content: result.output,
-    status: result.status === "unchanged" ? "updated" : result.status,
-    chmodExec: true,
-  });
-}
-
-/** Inverse of {@link applyHookExtension}: strip the sub-block when its plugin is disabled. */
-function removeHookExtension(input: {
-  cwd: string;
-  extension: NonNullable<LoadedPlugin["hookExtensionAssets"]>[number];
-  pending: PendingWrites;
-}): void {
-  const targetAbs = join(input.cwd, input.extension.target);
-  const pendingEntry = input.pending.find((p) => p.path === targetAbs);
-  let currentContent: string;
-  if (pendingEntry) currentContent = pendingEntry.content;
-  else if (existsSync(targetAbs)) currentContent = readFileSync(targetAbs, "utf-8");
-  else return;
-
-  const stripped = removeManagedSection(currentContent, input.extension.id, "shell");
-  if (stripped === currentContent) return;
-  if (pendingEntry) {
-    pendingEntry.content = stripped;
-    return;
-  }
-  input.pending.push({ path: targetAbs, content: stripped, status: "updated", chmodExec: true });
 }
 
 /**

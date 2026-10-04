@@ -2,9 +2,23 @@ import { z } from "zod";
 import { ENGINES } from "../../lib/config/schema.ts";
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
 import type { EngineId } from "./engine-capabilities.ts";
+import {
+  CODEX_PARITY,
+  CODEX_VERIFICATIONS,
+  CodexParitySchema,
+  DROPPED_PERMISSION_PATTERNS,
+  NARROWED_PATTERN_FAMILIES,
+  PERMISSION_RULE_CLASS_IDS,
+  CODEX_HOOKS_WITHOUT_REGISTRATION,
+  codexParityIssues,
+  codexParityKey,
+  type CodexParity,
+} from "./codex-parity.ts";
 import type { HarnessPlan } from "./harness-plan.ts";
 import {
-  CLAUDE_ONLY_WORKFLOW_SKILLS,
+  HOOK_ENGINES,
+  WORKFLOW_SKILL_ENGINES,
+  inEngineScope,
   RETIRED_AGENTS,
   RETIRED_HOOKS,
   RETIRED_SKILLS,
@@ -31,7 +45,15 @@ import {
 
 export type Verdict = "complementa" | "reemplazar-por-nativo" | "retirar";
 export type EngineSupport = "emit" | "native" | "unsupported" | "n/a";
-export type UnitKind = "hook" | "skill" | "agent" | "managed-block" | "plugin" | "flow";
+export type UnitKind =
+  | "hook"
+  | "skill"
+  | "agent"
+  | "managed-block"
+  | "plugin"
+  | "flow"
+  | "permission-rule"
+  | "plugin-script";
 
 /**
  * What is emitted in place of a unit on an engine where it is native. Closed on
@@ -59,7 +81,16 @@ const RETIRED_IDS: Readonly<Partial<Record<UnitKind, ReadonlySet<string>>>> = {
 export const OverlapRowSchema = z
   .object({
     unit: z.object({
-      kind: z.enum(["hook", "skill", "agent", "managed-block", "plugin", "flow"]),
+      kind: z.enum([
+        "hook",
+        "skill",
+        "agent",
+        "managed-block",
+        "plugin",
+        "flow",
+        "permission-rule",
+        "plugin-script",
+      ]),
       id: z.string().min(1),
     }),
     native: z
@@ -71,6 +102,8 @@ export const OverlapRowSchema = z
       })
       .nullable(),
     verdict: z.enum(["complementa", "reemplazar-por-nativo", "retirar"]),
+    /** What Codex gives for this unit (spec 0041 R1); required on every row. */
+    codexParity: CodexParitySchema,
     engines: z.record(z.enum(ENGINES), EngineSupportSchema),
     nativeEmission: z
       .object({
@@ -98,6 +131,10 @@ export const OverlapRowSchema = z
       )
     ) {
       fail("invalid codegraph evaluation verdict", ["evaluation", "verdict"]);
+    }
+    // R2: the issue names the unit, so a bad row is findable in a 150-row table.
+    for (const issue of codexParityIssues(row.codexParity)) {
+      fail(`${row.unit.kind}:${row.unit.id} ${issue}`, ["codexParity"]);
     }
     if (row.verdict === "complementa") return;
 
@@ -160,17 +197,6 @@ export interface FilteredInventory {
 
 type Support = Record<EngineId, EngineSupport>;
 
-/** Hooks that Codex does not register (see `CODEX_HOOK_REGISTRATIONS`); kept in step by a test. */
-const CODEX_UNREGISTERED_HOOKS: ReadonlySet<string> = new Set([
-  "plan-gate",
-  "pr-publisher-confirm",
-  "subagent-no-background",
-  "master-accept-confirm",
-  "master-plan-context",
-  "general-purpose-confirm",
-  "bash-outcome-watch",
-]);
-
 /** Every hook `resolveHarnessPlan` can emit, with every optional input switched on. */
 const HOOK_IDS: readonly string[] = [
   "guard-destructive",
@@ -187,6 +213,7 @@ const HOOK_IDS: readonly string[] = [
   "audit-mode-close",
   "master-plan-context",
   "master-accept-confirm",
+  "role-guard",
   "comment-draft-confirm",
   "pr-publisher-confirm",
   "general-purpose-confirm",
@@ -223,6 +250,37 @@ const PLUGIN_IDS: readonly string[] = [
   "tgrep",
 ];
 
+/** Scripts bundled plugins copy into `.claude/scripts` (and `.codex/scripts` when registered). */
+const PLUGIN_SCRIPT_IDS: readonly string[] = [
+  "jscpd/check-jscpd.sh",
+  "semgrep/check-semgrep.sh",
+  "tgrep/guard-search-routing.sh",
+];
+
+/**
+ * `permission-rule` unit ids (spec 0041 R14/R15/R26): the generic classes, every
+ * pattern `buildCodexRules` drops, and every pattern it narrows (one row each,
+ * from `NARROWED_PATTERN_FAMILIES`).
+ */
+const PERMISSION_RULE_IDS: readonly string[] = [
+  ...PERMISSION_RULE_CLASS_IDS.map((id) => `class:${id}`),
+  ...DROPPED_PERMISSION_PATTERNS.map((pattern) => `dropped:${pattern}`),
+  ...NARROWED_PATTERN_FAMILIES.flatMap(({ patterns }) =>
+    patterns.map((pattern) => `narrowed:${pattern}`),
+  ),
+];
+
+/**
+ * What Codex writes for a permission rule: a narrowed or ordinary rule still
+ * becomes a (narrower) prefix_rule, so it is `emit`; only what is never
+ * translated (allow, dropped patterns) is `unsupported`, and the amendment is a
+ * Codex-side behavior with nothing to write (`n/a`).
+ */
+function permissionRuleCodexSupport(id: string): EngineSupport {
+  if (id === "class:prompt-amendment") return "n/a";
+  return id === "class:allow-not-translated" || id.startsWith("dropped:") ? "unsupported" : "emit";
+}
+
 /** R57 flows: where the harness duplicates a native Claude Code workflow. */
 const FLOWS: ReadonlyArray<{ id: string; note: string; codex: EngineSupport }> = [
   {
@@ -251,8 +309,17 @@ function support(claude: EngineSupport, codex: EngineSupport, prose: EngineSuppo
   return { claude, codex, pi: "unsupported", "agents-md": prose, cursor: prose, copilot: prose };
 }
 
+/** The Codex parity row for `unit`; throws naming the unit when none exists (R3). */
+function parityOf(unit: OverlapUnit): CodexParity {
+  const parity = CODEX_PARITY[codexParityKey(unit.kind, unit.id)];
+  if (parity === undefined) {
+    throw new Error(`no CODEX_PARITY row for unit ${unit.kind}:${unit.id}`);
+  }
+  return parity;
+}
+
 function complementa(unit: OverlapUnit, engines: Support, note: string): OverlapRow {
-  return { unit, native: null, verdict: "complementa", engines, note };
+  return { unit, native: null, verdict: "complementa", codexParity: parityOf(unit), engines, note };
 }
 
 /**
@@ -272,6 +339,7 @@ const ENGRAM_ROW: OverlapRow = {
     ccVersion: "2.1.286",
   },
   verdict: "complementa",
+  codexParity: parityOf({ kind: "plugin", id: "engram" }),
   engines: support("emit", "emit", "emit"),
   evaluation: {
     kind: "engram",
@@ -285,6 +353,7 @@ const CODEGRAPH_ROW: OverlapRow = {
   unit: { kind: "plugin", id: "codegraph" },
   native: null,
   verdict: "complementa",
+  codexParity: parityOf({ kind: "plugin", id: "codegraph" }),
   engines: support("emit", "emit", "emit"),
   evaluation: {
     kind: "codegraph",
@@ -311,14 +380,26 @@ export const OVERLAP_ROWS: readonly OverlapRow[] = [
   ...[...ROSTER_CORE_SKILLS, ...ROSTER_WORKFLOW_SKILLS].map((id) =>
     complementa(
       { kind: "skill", id },
-      support("emit", CLAUDE_ONLY_WORKFLOW_SKILLS.has(id) ? "unsupported" : "emit", "n/a"),
+      support(
+        "emit",
+        inEngineScope(WORKFLOW_SKILL_ENGINES[id], "codex") ? "emit" : "unsupported",
+        "n/a",
+      ),
       "No verified native equivalent; emitted everywhere the engine has skills.",
     ),
   ),
   ...HOOK_IDS.map((id) =>
     complementa(
       { kind: "hook", id },
-      support("emit", CODEX_UNREGISTERED_HOOKS.has(id) ? "unsupported" : "emit", "n/a"),
+      support(
+        // Spec 0041 D5: `role-guard` is scoped to Codex, so Claude never gets it.
+        inEngineScope(HOOK_ENGINES[id], "claude") ? "emit" : "unsupported",
+        parityOf({ kind: "hook", id }).state === "limite-codex" ||
+          CODEX_HOOKS_WITHOUT_REGISTRATION.includes(id)
+          ? "unsupported"
+          : "emit",
+        "n/a",
+      ),
       "No verified native equivalent; registered where the engine can.",
     ),
   ),
@@ -340,6 +421,24 @@ export const OVERLAP_ROWS: readonly OverlapRow[] = [
   CODEGRAPH_ROW,
   ...FLOWS.map(({ id, note, codex }) =>
     complementa({ kind: "flow", id }, support("emit", codex, "n/a"), note),
+  ),
+  ...PLUGIN_SCRIPT_IDS.map((id) =>
+    complementa(
+      { kind: "plugin-script", id },
+      support(
+        "emit",
+        parityOf({ kind: "plugin-script", id }).state === "limite-codex" ? "unsupported" : "emit",
+        "n/a",
+      ),
+      "Bundled plugin script; no verified native equivalent.",
+    ),
+  ),
+  ...PERMISSION_RULE_IDS.map((id) =>
+    complementa(
+      { kind: "permission-rule", id },
+      support("emit", permissionRuleCodexSupport(id), "n/a"),
+      "Claude ask/deny/allow rule; Codex translates it to a prefix_rule where it can.",
+    ),
   ),
 ];
 
@@ -421,8 +520,10 @@ export function renderOverlapDoc(rows: readonly OverlapRow[] = OVERLAP_ROWS): st
     "",
     "Una fila por unidad que navori distribuye. `complementa` significa que ninguna capacidad nativa verificada la reemplaza; solo una fila con URL y fecha puede salir de ahí (`OverlapRowSchema`).",
     "",
-    "| Tipo | Unidad | Veredicto | Claude | Codex | URL | Verificada |",
-    "|---|---|---|---|---|---|---|",
+    "Las columnas de paridad Codex salen de `CODEX_PARITY` (`packages/cli/src/engines/shared/codex-parity.ts`): `igual` (misma garantía y mecanismo), `equivalente` (misma garantía, mecanismo distinto) o `limite-codex` (Codex no la ofrece, con su fuente oficial, versión y fecha).",
+    "",
+    "| Tipo | Unidad | Veredicto | Claude | Codex | URL | Verificada | Paridad Codex | Mecanismo | Fuente | Versión Codex | Verificada Codex |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ...rows.map((row) =>
       [
         row.unit.kind,
@@ -432,6 +533,11 @@ export function renderOverlapDoc(rows: readonly OverlapRow[] = OVERLAP_ROWS): st
         row.engines.codex,
         row.native?.url ?? "—",
         row.native?.verifiedAt ?? "—",
+        row.codexParity.state,
+        parityMechanism(row.codexParity),
+        parityEvidence(row.codexParity)?.url ?? "—",
+        parityEvidence(row.codexParity)?.codexVersion ?? "—",
+        parityEvidence(row.codexParity)?.verifiedAt ?? "—",
       ]
         .map(cell)
         .join(" | ")
@@ -441,4 +547,25 @@ export function renderOverlapDoc(rows: readonly OverlapRow[] = OVERLAP_ROWS): st
     "",
   ];
   return lines.join("\n");
+}
+
+/** The mechanism column: what Codex does instead, or what still holds around a limit. */
+function parityMechanism(parity: CodexParity): string {
+  if (parity.state === "igual") return "—";
+  if (parity.state === "limite-codex") return parity.containment ?? "—";
+  return parity.difference === undefined
+    ? parity.mechanism
+    : `${parity.mechanism}; ${parity.difference}`;
+}
+
+/**
+ * Source, Codex version and date of a parity row: the `limite-codex` source, or
+ * the verification an `igual`/`equivalente` row cites. Rows pending their probe
+ * have none and print a dash.
+ */
+function parityEvidence(
+  parity: CodexParity,
+): { url: string; codexVersion: string; verifiedAt: string } | undefined {
+  if (parity.state === "limite-codex") return parity.source;
+  return parity.verification === undefined ? undefined : CODEX_VERIFICATIONS[parity.verification];
 }

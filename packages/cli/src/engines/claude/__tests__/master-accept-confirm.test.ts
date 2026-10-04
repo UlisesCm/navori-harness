@@ -249,3 +249,34 @@ describe("master-accept-confirm wiring", () => {
     );
   });
 });
+
+// Covers: R20 — the Codex copy (installed under .codex/hooks/) cannot ask, so it denies.
+describe.runIf(runsBash)("master-accept-confirm.sh installed for Codex", () => {
+  const codexPath = (() => {
+    const dir = join(mkdtempSync(join(tmpdir(), "navori-master-accept-codex-")), ".codex/hooks");
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, "master-accept-confirm.sh");
+    writeFileSync(path, readFileSync(hookPath, "utf-8"));
+    chmodSync(path, 0o755);
+    return path;
+  })();
+
+  it("denies a manual approval and never asks or allows", () => {
+    const result = spawnSync("bash", [codexPath], {
+      input: JSON.stringify(payload("navori master part P2 --accept A3 --approved-by user")),
+      encoding: "utf-8",
+    });
+    expect(result.status).toBe(0);
+    const decision = JSON.parse(result.stdout).hookSpecificOutput.permissionDecision;
+    expect(decision).toBe("deny");
+  });
+
+  it("stays silent on an unrelated command", () => {
+    const result = spawnSync("bash", [codexPath], {
+      input: JSON.stringify(payload("git status")),
+      encoding: "utf-8",
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("");
+  });
+});

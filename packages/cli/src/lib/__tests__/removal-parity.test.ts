@@ -407,6 +407,10 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "and never a directory",
     "lib/render/backup.ts": "prunes navori's own backup store (~/.navori/backups) by age and size",
     "lib/primitives/lockfile.ts": "removes its own lock file",
+    "lib/plan/gate.ts":
+      "consumes (one dispatch per spawn) the single `.navori/state/handoffs/dispatch_<feature>.json` " +
+      "the orchestrator wrote for the allowed spawn; a navori state artifact, non-recursive, and the " +
+      "path comes from a directory listing filtered by the dispatch-file name pattern (spec 0041 R9)",
     "lib/primitives/update-notice.ts":
       "releases only its exclusively acquired empty update-notice lock directory with nonrecursive rmdirSync",
     "lib/config/global-config.ts": "deletes ~/.navori/global.json on an explicit command",

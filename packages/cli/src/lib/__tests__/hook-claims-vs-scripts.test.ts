@@ -274,9 +274,10 @@ it("the shared planning claim distinguishes Claude's hook from Codex's advisory 
   expect(planning).not.toContain("A hook denies dispatching");
   expect(ENGINE_CAPABILITIES.claude.controls["plan-gate"].state).toBe("enforced");
   expect(ENGINE_CAPABILITIES.codex.controls["plan-gate"].state).toBe("advisory");
+  // Spec 0041 R9: registered in Codex, still advisory until the live smoke (T20).
   expect(
-    CODEX_HOOK_REGISTRATIONS.some((row) => row.script === "plan-gate.sh" && row.registration),
-  ).toBe(false);
+    CODEX_HOOK_REGISTRATIONS.some((row) => row.script === "plan-gate" && row.registration),
+  ).toBe(true);
 });
 
 function hasMechanism(hookId: string, capability: Capability): boolean {

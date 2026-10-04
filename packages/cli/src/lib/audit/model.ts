@@ -633,12 +633,36 @@ export interface SessionAudit {
   host?: "claude" | "codex";
   /** Set when a whole source is missing: `"transcript"` for a Codex session. */
   unavailable?: "transcript";
+  /**
+   * Metadata read from a Codex rollout (spec 0041 R24), Codex sessions only.
+   * Carries ids, timestamps, tool names and counts — never message text,
+   * prompts, tool arguments or outputs. `unavailable` = the rollout could not
+   * be found or read; the session is still reported from its audit log.
+   */
+  rollout?: CodexRolloutFacts | { status: "unavailable"; reason: "missing" | "unreadable" };
   /** CLI mechanism verdicts recorded in the session log (R70 frame). */
   cliEvents?: CliEvent[];
   /** Unparseable or unknown lines, counted instead of thrown. */
   parseErrors: number;
   /** Total lines seen, so `parseErrors` can be read as a ratio. */
   linesRead: number;
+}
+
+/** Content-free facts extracted from a Codex rollout by the isolated adapter. */
+export interface CodexRolloutFacts {
+  status: "parsed";
+  /** Codex CLI version recorded in the rollout's `session_meta`. */
+  cliVersion: string | null;
+  /** `task_started` events: one per Codex turn. */
+  turns: number;
+  /** Tool name → call count (`function_call` and `custom_tool_call`). */
+  toolCalls: Record<string, number>;
+  /** Model name → turns that ran under it (`turn_context`). */
+  models: Record<string, number>;
+  firstTs: string | null;
+  lastTs: string | null;
+  /** Lines that were not valid JSON, counted instead of thrown. */
+  parseErrors: number;
 }
 
 /** A verdict a navori CLI command recorded in the session log (R70). */

@@ -39,8 +39,8 @@ describe("scanControlGaps", () => {
     expect(gaps.some((gap) => gap.control === "master-plan")).toBe(false);
   });
 
-  // Covers: R41
-  it("reports master-plan as unsupported and warn for Codex when enabled", () => {
+  // Covers: R20, R21, R41
+  it("reports master-plan as advisory and warn for Codex when enabled", () => {
     const gaps = scanControlGaps(
       config({
         engines: ["claude", "codex"],
@@ -48,13 +48,12 @@ describe("scanControlGaps", () => {
       }),
     );
     expect(gaps.filter((gap) => gap.control === "master-plan")).toEqual([
-      {
+      expect.objectContaining({
         engine: "codex",
         control: "master-plan",
-        state: "unsupported",
-        reason: "fase 2 de la spec 0034: la skill no se renderiza y no hay hook de arranque",
+        state: "advisory",
         severity: "warn",
-      },
+      }),
     ]);
   });
 

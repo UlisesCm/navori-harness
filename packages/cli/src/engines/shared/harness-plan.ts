@@ -9,7 +9,7 @@ import {
   extraConditionMet,
   isAgentEnabled,
 } from "./harness-assets.ts";
-import { CLAUDE_ONLY_WORKFLOW_SKILLS, type RosterAgent } from "./roster.ts";
+import { HOOK_ENGINES, WORKFLOW_SKILL_ENGINES, inEngineScope, type RosterAgent } from "./roster.ts";
 
 /**
  * Provider-agnostic harness inventory (Spec 0007, Capa 1). Resolves WHICH
@@ -109,8 +109,12 @@ export function resolveHarnessPlan(
   preset: ReturnType<typeof loadPreset>,
   options: {
     includeOrchestrator?: boolean;
-    includeClaudeOnlySkills?: boolean;
-    includeClaudeOnlyHooks?: boolean;
+    /**
+     * Engine the plan is for. Units scoped in `WORKFLOW_SKILL_ENGINES` /
+     * `HOOK_ENGINES` ship only to the engines they list; without `engine`
+     * only universal units are planned (Pi, `render`, plain doctor).
+     */
+    engine?: string;
   } = {},
 ): HarnessPlan {
   const agents: PlannedAgent[] = [];
@@ -139,10 +143,9 @@ export function resolveHarnessPlan(
     config.sdd?.enabled === false
       ? WORKFLOW_SKILLS.filter((id) => id !== "spec-bootstrap")
       : WORKFLOW_SKILLS;
-  const workflowSkills =
-    options.includeClaudeOnlySkills === true
-      ? enabledWorkflowSkills
-      : enabledWorkflowSkills.filter((id) => !CLAUDE_ONLY_WORKFLOW_SKILLS.has(id));
+  const workflowSkills = enabledWorkflowSkills.filter((id) =>
+    inEngineScope(WORKFLOW_SKILL_ENGINES[id], options.engine),
+  );
   const skills: PlannedSkill[] = [
     ...CORE_SKILLS.map((id) => ({
       id,
@@ -272,19 +275,13 @@ export function resolveHarnessPlan(
       managedId: "audit-mode-close-base",
     },
   ];
-  if (options.includeClaudeOnlyHooks === true) {
-    hooks.push(
-      {
-        id: "master-plan-context",
-        assetPath: join(coreAssets, "hooks/master-plan-context.sh"),
-        managedId: "master-plan-context-base",
-      },
-      {
-        id: "master-accept-confirm",
-        assetPath: join(coreAssets, "hooks/master-accept-confirm.sh"),
-        managedId: "master-accept-confirm-base",
-      },
-    );
+  for (const id of ["master-plan-context", "master-accept-confirm", "role-guard"]) {
+    if (!inEngineScope(HOOK_ENGINES[id], options.engine)) continue;
+    hooks.push({
+      id,
+      assetPath: join(coreAssets, `hooks/${id}.sh`),
+      managedId: `${id}-base`,
+    });
   }
   // Spec 0026 E1 (R10). Unconditional like the guard: the draft-confirm
   // covers ANY agent's Bash call that publishes a comment or review, and its

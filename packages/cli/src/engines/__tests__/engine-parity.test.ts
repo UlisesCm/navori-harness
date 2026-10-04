@@ -6,6 +6,7 @@ import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.t
 import { renderClaudeEngine } from "../claude/index.ts";
 import { renderCodexEngine } from "../codex/index.ts";
 import { CODEX_HOOK_REGISTRATIONS } from "../codex/hook-registrations.ts";
+import { CODEX_HOOKS_WITHOUT_REGISTRATION, CODEX_PARITY } from "../shared/codex-parity.ts";
 
 /**
  * Inventory-parity guard between the Claude and Codex engines (Spec 0007 M1).
@@ -26,11 +27,13 @@ import { CODEX_HOOK_REGISTRATIONS } from "../codex/hook-registrations.ts";
  * option in engines/shared/harness-plan.ts). */
 const AGENT_KNOWN_DIFFS: ReadonlySet<string> = new Set(["orchestrator"]);
 
-/** Spec 0034 T17: the master-plan workflow currently has a Claude-only contract. */
-const CLAUDE_ONLY_SKILLS: ReadonlySet<string> = new Set(["context-intake", "master-plan"]);
-
-/** Spec 0034: Claude registers these hooks; Codex has no matching hook contract. */
-const CLAUDE_ONLY_HOOKS: ReadonlySet<string> = new Set([
+/**
+ * Spec 0041 T15: the master-plan hooks are scoped to claude and codex, but Codex
+ * installs a script only when a registration runs it, and both registrations are
+ * conditional on `harness.masterPlan` (off in this fixture, like
+ * `implementer-no-markdown`).
+ */
+const MASTER_PLAN_HOOKS: ReadonlySet<string> = new Set([
   "master-accept-confirm",
   "master-plan-context",
 ]);
@@ -124,17 +127,14 @@ describe("engine inventory parity (claude ↔ codex)", () => {
   });
 
   // Covers: R1
-  it("emits the same shared skill set and only the known Claude-only skills", () => {
+  it("emits the same skill set, master-plan skills included", () => {
     // Both engines materialize skills as `<id>/SKILL.md` directories now, so
     // read directory names on both sides (a flat `<id>.md` would NOT count).
     const claudeSkills = names(join(claudeCwd, ".claude/skills"), asDir);
     const codexSkills = names(join(codexCwd, ".agents/skills"), asDir);
     expect(claudeSkills.length).toBeGreaterThan(0);
-    expect(codexSkills).toEqual(claudeSkills.filter((id) => !CLAUDE_ONLY_SKILLS.has(id)));
-    for (const id of CLAUDE_ONLY_SKILLS) {
-      expect(claudeSkills).toContain(id);
-      expect(codexSkills).not.toContain(id);
-    }
+    expect(codexSkills).toEqual(claudeSkills);
+    for (const id of ["context-intake", "master-plan"]) expect(codexSkills).toContain(id);
   });
 
   // Covers: R1
@@ -148,8 +148,7 @@ describe("engine inventory parity (claude ↔ codex)", () => {
       // `<id>.md` must NOT coexist (it would make the model see the skill twice).
       expect(isSkillDir(claudeDir, id)).toBe(true);
       expect(existsSync(join(claudeDir, `${id}.md`))).toBe(false);
-      // Codex uses the same shape for shared skills only.
-      expect(isSkillDir(codexDir, id)).toBe(!CLAUDE_ONLY_SKILLS.has(id));
+      expect(isSkillDir(codexDir, id)).toBe(true);
     }
   });
 
@@ -176,16 +175,31 @@ describe("engine inventory parity (claude ↔ codex)", () => {
     expect(names(join(codexCwd, ".codex/agents"), stripToml)).not.toContain("orchestrator");
   });
 
-  it("emits the same shared hook set with exactly two Claude-only master-plan hooks", () => {
+  it("emits the same shared hook set; the two master-plan hooks wait for harness.masterPlan on Codex", () => {
     const claudeHooks = names(join(claudeCwd, ".claude/hooks"), stripSh);
     const codexHooks = names(join(codexCwd, ".codex/hooks"), stripSh);
     // Same trap as the agent set: pin non-empty before comparing.
     expect(claudeHooks.length).toBeGreaterThan(0);
-    expect(claudeHooks.filter((hook) => CLAUDE_ONLY_HOOKS.has(hook))).toEqual(
-      [...CLAUDE_ONLY_HOOKS].sort(),
+    expect(claudeHooks.filter((hook) => MASTER_PLAN_HOOKS.has(hook))).toEqual(
+      [...MASTER_PLAN_HOOKS].sort(),
     );
-    expect(codexHooks.filter((hook) => CLAUDE_ONLY_HOOKS.has(hook))).toEqual([]);
-    expect(codexHooks).toEqual(claudeHooks.filter((hook) => !CLAUDE_ONLY_HOOKS.has(hook)));
+    expect(codexHooks.filter((hook) => MASTER_PLAN_HOOKS.has(hook))).toEqual([]);
+    // Spec 0041 R13/R30: Codex installs only scripts a registration runs, so the
+    // table's `unsupported` rows are absent (and `implementer-no-markdown` is
+    // conditional on `scribeOwnsMarkdown`, off in this fixture).
+    const notInstalled = new Set([
+      ...CODEX_HOOK_REGISTRATIONS.filter((row) => row.registration === undefined).map(
+        (row) => row.script,
+      ),
+      "implementer-no-markdown",
+      ...MASTER_PLAN_HOOKS,
+    ]);
+    // Spec 0041 D5: `role-guard` is Codex-only, so it is the one Codex hook with no Claude copy.
+    expect(claudeHooks).not.toContain("role-guard");
+    expect(codexHooks).toContain("role-guard");
+    expect(codexHooks.filter((hook) => hook !== "role-guard")).toEqual(
+      claudeHooks.filter((hook) => !notInstalled.has(hook)),
+    );
   });
 
   // Covers: R3, R18
@@ -199,11 +213,56 @@ describe("engine inventory parity (claude ↔ codex)", () => {
       expect(tableScripts.has(script)).toBe(true);
     }
     for (const row of CODEX_HOOK_REGISTRATIONS) {
-      // The union type guarantees exactly one of the two is set; this just
-      // makes the "declared unsupported with a reason" half of R3 explicit.
-      const decided = Boolean(row.registration) !== Boolean(row.unsupported);
-      expect(decided).toBe(true);
-      if (row.unsupported) expect(row.unsupported.length).toBeGreaterThan(0);
+      // A hook Codex does not register is declared `limite-codex` in the parity
+      // table, with a non-empty reason (R3); a registered one never is.
+      const parity = CODEX_PARITY[`hook:${row.script}`];
+      expect(parity, `hook:${row.script}`).toBeDefined();
+      // T12/T13: two equivalente rows have no registered script of their own.
+      const noScript = row.registration === undefined;
+      expect(
+        parity?.state === "limite-codex" || CODEX_HOOKS_WITHOUT_REGISTRATION.includes(row.script),
+      ).toBe(noScript);
+      if (parity?.state === "limite-codex") {
+        expect(parity.containment?.length ?? 0).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  // Covers: R16
+  it("`model:` in Claude iff `model` in Codex, per role", () => {
+    const hasClaudeModel = (md: string): boolean => /^model:\s*\S/m.test(md);
+    const hasCodexModel = (toml: string): boolean => /^model\s*=\s*"[^"]+"/m.test(toml);
+    const configs: Array<[string, NavoriConfig]> = [
+      ["defaults", parityConfig()],
+      [
+        "partial models",
+        NavoriConfigSchema.parse({
+          name: "model-symmetry",
+          engines: ["claude", "codex"],
+          preset: "custom",
+          branchBase: "main",
+          qualityGate: { fast: "pnpm test", full: "pnpm test" },
+          models: { scribe: "haiku", architect: "opus" },
+        }),
+      ],
+    ];
+    for (const [label, config] of configs) {
+      const claude = mkdtempSync(join(tmpdir(), "navori-model-claude-"));
+      const codex = mkdtempSync(join(tmpdir(), "navori-model-codex-"));
+      try {
+        renderClaudeEngine(claude, config);
+        renderCodexEngine(codex, config);
+        const roles = names(join(codex, ".codex/agents"), stripToml);
+        expect(roles.length, label).toBeGreaterThan(0);
+        for (const role of roles) {
+          const md = readFileSync(join(claude, `.claude/agents/${role}.md`), "utf-8");
+          const toml = readFileSync(join(codex, `.codex/agents/${role}.toml`), "utf-8");
+          expect(hasCodexModel(toml), `${label}: ${role}`).toBe(hasClaudeModel(md));
+        }
+      } finally {
+        rmSync(claude, { recursive: true, force: true });
+        rmSync(codex, { recursive: true, force: true });
+      }
     }
   });
 });

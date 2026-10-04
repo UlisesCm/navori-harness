@@ -4,6 +4,6 @@
 
 **Structure:** `{{sdd.specsDir}}/<feature>/{requirements.md, design.md, tasks.md}` — EARS requirements with id `R<n>`, a design with decisions and trade-offs, and tasks in batches of 1-3 that declare the `R<n>` they cover. Each `R<n>` is covered by ≥1 test that references it (`// Covers: R<n>`); without full traceability the feature is not done.
 
-**Tracking in the spec, not in the harness:** with `tasks.md`, that's the board — do NOT use `TaskCreate` for those tasks (duplicating it produces drift between the spec and the TaskList); ignoring its reminder in SDD sessions is expected.
+**Tracking in the spec, not in the harness:** with `tasks.md`, that's the board — <!-- navori:if-not onCodex -->do NOT use `TaskCreate` for those tasks (duplicating it produces drift between the spec and the TaskList); ignoring its reminder in SDD sessions is expected<!-- /navori:if-not --><!-- navori:if onCodex -->do not mirror those tasks in a separate task list<!-- /navori:if -->.
 
 Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the agent flow (`orchestrator`→`implementer`→`reviewer`) — lives in `spec-bootstrap`: propose SDD; it scaffolds once accepted, via prose or `/spec-bootstrap`.

@@ -1,5 +1,6 @@
 import type { NavoriConfig } from "../../lib/config/config.ts";
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
+import { minCodexVersion as minVerifiedCodexVersion } from "../shared/codex-parity.ts";
 import { OVERLAP_ROWS, isNativeOn, type OverlapRow } from "../shared/native-overlap.ts";
 import { pluginScriptCollisions } from "../shared/plugin-scripts.ts";
 import { compareSemver } from "../../lib/primitives/semver.ts";
@@ -8,10 +9,10 @@ import { compareSemver } from "../../lib/primitives/semver.ts";
  * Spec 0035 D1 — the single table that decides which Claude hook scripts
  * Codex registers, with what event/matcher, and which ones it can't. Replaces
  * the hand-written registration blocks `build-config-toml.ts` used to own
- * directly: every row here is either `registration` (Codex has an equivalent)
- * or `unsupported` (with the reason `ENGINE_CAPABILITIES.codex.
- * unsupportedSurfaces` names), never both, never neither — enforced by the
- * union type below.
+ * directly: every row here either carries a `registration` (Codex has an
+ * equivalent) or has none, and then its `hook:<script>` row in `CODEX_PARITY`
+ * is `limite-codex` with the reason `ENGINE_CAPABILITIES.codex.
+ * unsupportedSurfaces` names — `native-overlap.test.ts` keeps the two in step.
  *
  * ORDER IS PART OF THE CONTRACT. Codex's `trusted_hash` approval key
  * (`event:groupIndex:handlerIndex`) is positional: the index of a
@@ -37,14 +38,23 @@ export interface CodexHookRegistration {
   readonly args?: string;
   /** Registered only when this returns true; always registered when absent. */
   readonly when?: (config: NavoriConfig) => boolean;
+  /**
+   * Emitted AFTER the plugin hook groups (spec 0041 D8). Plugin hooks are
+   * PreToolUse groups numbered by position, so a core row that lands between
+   * the core rows and the plugin ones would renumber every already-approved
+   * plugin hook and silently un-trust it. A late row is a new group at the tail.
+   */
+  readonly late?: true;
 }
 
 export interface CodexHookRow {
   /** Hook script id, without extension — matches `<id>.sh` on both engines. */
   readonly script: string;
   readonly registration?: CodexHookRegistration;
-  /** Set when Codex has no usable equivalent; `registration` is absent. */
-  readonly unsupported?: string;
+  /**
+   * Absent when Codex has no usable equivalent. Why not lives in the hook's
+   * `limite-codex` row of `CODEX_PARITY`, not here: one reason, one place.
+   */
 }
 
 export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
@@ -103,16 +113,6 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
     },
   },
   {
-    script: "plan-gate",
-    unsupported:
-      "Codex 0.158.0 sends delegation through PreToolUse as collaborationspawn_agent. " +
-      "A default spawn (message/task_name only) has no typed agent role; an explicit " +
-      "agent_type spawn exposes the typed role in Pre (observed in T9 corrida 2), " +
-      "recorded only as a reopening input for L06/T17. The workplan opening is still not " +
-      "verifiably readable and a blanket deny prevented child creation, so this hook " +
-      "stays advisory with no registration.",
-  },
-  {
     script: "implementer-no-markdown",
     registration: {
       event: "PreToolUse",
@@ -145,8 +145,6 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
   },
   {
     script: "bash-outcome-watch",
-    unsupported:
-      "Codex PostToolUse does not distinguish Bash success from failure, so the repeated-failure state cannot be updated without false positives.",
   },
   {
     script: "subagent-stop-handoff",
@@ -200,38 +198,96 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
     },
   },
   {
-    // D4: Codex hooks can't emit `ask` — the confirmation moves to a
-    // `.codex/rules/navori.rules` `prompt` rule instead (spec 0035 Lote C).
-    script: "pr-publisher-confirm",
-    unsupported:
-      "Codex hooks cannot emit `ask` (permissionDecision is dropped and the call proceeds); " +
-      "the confirmation moves to a `.codex/rules/navori.rules` prompt rule (D4, Lote C).",
-  },
-  {
     script: "subagent-no-background",
-    unsupported:
-      "Codex has no `Monitor` tool, and unified_exec strips background-execution fields " +
-      "from the PreToolUse payload, so no hook can distinguish a backgrounded command (D1).",
   },
   {
-    // Spec 0034 ships the master plan for Claude first; Codex is phase 2 (#1088).
+    // Spec 0041 D11: Codex hooks cannot emit `ask`, so the Codex copy of the
+    // script denies instead (deny-as-confirmation, like `comment-draft-confirm`),
+    // decided by `$0` inside the script. Never `ask`, never an allow.
     script: "master-accept-confirm",
-    unsupported:
-      "The master plan is Claude-only until its Codex phase (spec 0034, #1088); " +
-      "Codex hooks also cannot emit the `ask` this confirmation needs (D4).",
+    registration: {
+      event: "PreToolUse",
+      matcher: "^Bash$",
+      timeout: 10,
+      statusMessage: "navori: master acceptance confirmation",
+      minVersion: "0.129.0",
+      when: (config) => Boolean(config.harness?.masterPlan),
+      late: true,
+    },
   },
   {
-    // Spec 0039 R40: Claude-only, like the other `ask` confirmations.
-    script: "general-purpose-confirm",
-    unsupported:
-      "Codex hooks cannot emit `ask` (permissionDecision is dropped and the call proceeds), " +
-      "and Codex has no typed `general-purpose` subagent to confirm (spec 0039 R40).",
-  },
-  {
+    // Spec 0041 R21: same SessionStart channel `session-start-context` uses.
     script: "master-plan-context",
-    unsupported:
-      "The master plan is Claude-only until its Codex phase (spec 0034, #1088), " +
-      "so Codex renders no master-plan skill for this context to point at.",
+    registration: {
+      event: "SessionStart",
+      matcher: "startup|resume|clear|compact|fork",
+      timeout: 10,
+      statusMessage: "navori: master-plan context",
+      minVersion: "0.133.0",
+      when: (config) => Boolean(config.harness?.masterPlan),
+      late: true,
+    },
+  },
+  {
+    // Spec 0041 D5/D13, R6/R17: Codex-only (`HOOK_ENGINES`). One group, two
+    // branches: `apply_patch` role containment and the subagent spawn deny. Late
+    // and unconditional, and placed before the conditional `plan-gate`: the master-plan groups before it
+    // are already published (#1187), so none of their indexes may shift. The `spawn_agent$` alternative is unanchored
+    // on purpose: V2 flattens the namespace into the tool name.
+    script: "role-guard",
+    registration: {
+      event: "PreToolUse",
+      matcher: "^apply_patch$|spawn_agent$",
+      timeout: 10,
+      statusMessage: "navori: role-guard",
+      minVersion: "0.134.0",
+      late: true,
+    },
+  },
+  {
+    // Spec 0041 R10: a `prompt` rule does not confirm inside subagents (probe
+    // V1), so the publisher's `gh pr create` is confirmed by deny-as-confirmation
+    // (`case "$0"` inside the script). Never `ask`, never an approving handler.
+    script: "pr-publisher-confirm",
+    registration: {
+      event: "PreToolUse",
+      matcher: "^Bash$",
+      timeout: 10,
+      statusMessage: "navori: pr-publisher-confirm",
+      minVersion: "0.129.0",
+      late: true,
+    },
+  },
+  {
+    // Spec 0041 R10: same deny-as-confirmation. `spawn_agent$` is unanchored (V2
+    // flattens the namespace into the tool name).
+    script: "general-purpose-confirm",
+    registration: {
+      event: "PreToolUse",
+      matcher: "spawn_agent$",
+      timeout: 10,
+      statusMessage: "navori: general-purpose-confirm",
+      minVersion: "0.134.0",
+      late: true,
+    },
+  },
+  {
+    // Spec 0041 R9: the LAST late row — after general-purpose-confirm — so no trust
+    // index of another row moves when `harness.planTiers` toggles (it is conditional,
+    // so it must trail every unconditional late row). Gates only `implementer` (child role from
+    // `tool_input.agent_type`); under V2 the encrypted `message` is replaced by
+    // the orchestrator's `dispatch_<feature>.json`. Matches `role-guard`'s
+    // unanchored `spawn_agent$`.
+    script: "plan-gate",
+    registration: {
+      event: "PreToolUse",
+      matcher: "spawn_agent$",
+      timeout: 15,
+      statusMessage: "navori: plan-gate",
+      minVersion: "0.134.0",
+      when: (config) => Boolean(config.harness?.planTiers),
+      late: true,
+    },
   },
 ];
 
@@ -313,7 +369,8 @@ export function resolvePluginCodexHooks(plugins: readonly LoadedPlugin[]): {
 
 /**
  * The Codex hook groups to register for `config`, in stable render order
- * (table order — see the module doc's ordering contract).
+ * (table order — see the module doc's ordering contract), then the plugin
+ * hooks, then the `late` rows (spec 0041 D8).
  */
 export function resolveCodexHooks(
   config: NavoriConfig,
@@ -321,6 +378,7 @@ export function resolveCodexHooks(
   overlapRows: readonly OverlapRow[] = OVERLAP_ROWS,
 ): ResolvedCodexHook[] {
   const resolved: ResolvedCodexHook[] = [];
+  const late: ResolvedCodexHook[] = [];
   // Spec 0039 D1: same predicate `filterInventory` uses, so a hook (or plugin)
   // the matrix marks native on Codex is neither written nor registered.
   const livePlugins = plugins.filter(
@@ -330,21 +388,24 @@ export function resolveCodexHooks(
     if (!row.registration) continue;
     if (isNativeOn("codex", "hook", row.script, overlapRows)) continue;
     if (row.registration.when && !row.registration.when(config)) continue;
-    const { when: _when, minVersion: _minVersion, ...rest } = row.registration;
-    resolved.push({ script: row.script, ...rest });
+    const { when: _when, minVersion: _minVersion, late: isLate, ...rest } = row.registration;
+    (isLate ? late : resolved).push({ script: row.script, ...rest });
   }
-  return [...resolved, ...resolvePluginCodexHooks(livePlugins).hooks];
+  return [...resolved, ...resolvePluginCodexHooks(livePlugins).hooks, ...late];
 }
 
 /**
- * Minimum Codex version required by the registration table (R18) — the max
- * `minVersion` across every row Codex actually registers (unsupported rows
- * don't count; they're never written to `.codex/config.toml`). Static: a
- * feature toggle being off doesn't lower the floor a rendered `config.toml`
- * with that toggle later ON would need, so this deliberately ignores `when`.
+ * Minimum Codex version for a rendered harness: the max of the registration
+ * table floor (R18) and the highest version the parity table was live-verified
+ * at (spec 0041 R4, T20), so `doctor` and `render` read ONE floor. The table
+ * floor is the max `minVersion` across every row Codex actually registers
+ * (unsupported rows don't count; they're never written to `.codex/config.toml`).
+ * Static: a feature toggle being off doesn't lower the floor a rendered
+ * `config.toml` with that toggle later ON would need, so this deliberately
+ * ignores `when`.
  */
 export function minCodexVersion(): string {
-  let max = "0.0.0";
+  let max = minVerifiedCodexVersion();
   for (const row of CODEX_HOOK_REGISTRATIONS) {
     if (!row.registration) continue;
     if ((compareSemver(row.registration.minVersion, max) ?? 0) > 0) {

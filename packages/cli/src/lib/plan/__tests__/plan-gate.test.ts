@@ -304,3 +304,140 @@ describe("evaluatePlanGate — cumplido without evidence (R11)", () => {
     expect(result.decision).toBe("allow");
   });
 });
+
+describe("evaluatePlanGate — Codex spawn_agent payloads (spec 0041 R9)", () => {
+  const NOW = Date.parse("2026-10-03T12:00:00.000Z");
+  const FERNET = "gAAAAABp_encrypted-token_0123456789abcdef==";
+  const dispatchDir = (): string => join(cwd, ".navori/state/handoffs");
+
+  function codex(agentType: string, message?: string): unknown {
+    return { cwd, tool_input: { agent_type: agentType, task_name: "t", message } };
+  }
+
+  function writeDispatch(feature: string, overrides: Record<string, unknown> = {}): string {
+    mkdirSync(dispatchDir(), { recursive: true });
+    const file = join(dispatchDir(), `dispatch_${feature}.json`);
+    writeFileSync(
+      file,
+      JSON.stringify({
+        feature,
+        opening: `workplan: ${feature}`,
+        createdAt: new Date(NOW - 60_000).toISOString(),
+        ...overrides,
+      }),
+    );
+    return file;
+  }
+
+  // Covers: R9
+  it("V1: reads the first line of a readable message, with a workplan", () => {
+    writeConfig(true);
+    writeWorkplan("demo", VALID_LEVEL1);
+    expect(evaluatePlanGate(codex("implementer", "workplan: demo\nbody"), NOW).decision).toBe(
+      "allow",
+    );
+  });
+
+  // Covers: R9
+  it("V1: denies a readable message with no opening line", () => {
+    writeConfig(true);
+    const result = evaluatePlanGate(codex("implementer", "just do it"), NOW);
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("workplan: <feature>");
+  });
+
+  // Covers: R9
+  it("allows a non-implementer role without reading anything", () => {
+    writeConfig(true);
+    expect(evaluatePlanGate(codex("scout", FERNET), NOW).decision).toBe("allow");
+  });
+
+  // Covers: R9
+  it("V2: an encrypted message with a valid dispatch file is gated by it and consumes it", () => {
+    writeConfig(true);
+    writeWorkplan("demo", VALID_LEVEL1);
+    const file = writeDispatch("demo");
+    expect(evaluatePlanGate(codex("implementer", FERNET), NOW).decision).toBe("allow");
+    expect(existsSync(file)).toBe(false);
+  });
+
+  // Covers: R9
+  it("V2: accepts the offset and fractional createdAt the Codex orchestrator writes (smoke S4d)", () => {
+    writeConfig(true);
+    writeWorkplan("demo", VALID_LEVEL1);
+    const file = writeDispatch("demo", { createdAt: "2026-10-03T20:27:54.004865+00:00" });
+    const now = Date.parse("2026-10-03T20:28:30.000Z");
+    expect(evaluatePlanGate(codex("implementer", FERNET), now).decision).toBe("allow");
+    expect(existsSync(file)).toBe(false);
+  });
+
+  // Covers: R9
+  it("V2: a dispatch with a non-ISO createdAt is still malformed", () => {
+    writeConfig(true);
+    writeDispatch("demo", { createdAt: "yesterday" });
+    const result = evaluatePlanGate(codex("implementer", FERNET), NOW);
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("malformed");
+  });
+
+  // Covers: R9
+  it("V2: a dispatch for a feature without a valid workplan is denied and kept", () => {
+    writeConfig(true);
+    const file = writeDispatch("demo");
+    expect(evaluatePlanGate(codex("implementer", FERNET), NOW).decision).toBe("deny");
+    expect(existsSync(file)).toBe(true);
+  });
+
+  // Covers: R9
+  it("V2: denies naming the fix when no dispatch file exists", () => {
+    writeConfig(true);
+    const result = evaluatePlanGate(codex("implementer", FERNET), NOW);
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("dispatch_<feature>.json");
+  });
+
+  // Covers: R9
+  it("V2: a stale dispatch file is denied", () => {
+    writeConfig(true);
+    writeWorkplan("demo", VALID_LEVEL1);
+    writeDispatch("demo", { createdAt: new Date(NOW - 11 * 60_000).toISOString() });
+    const result = evaluatePlanGate(codex("implementer", FERNET), NOW);
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("stale");
+  });
+
+  // Covers: R9
+  it("V2: a malformed dispatch file is denied", () => {
+    writeConfig(true);
+    mkdirSync(dispatchDir(), { recursive: true });
+    writeFileSync(join(dispatchDir(), "dispatch_demo.json"), "{not json");
+    const result = evaluatePlanGate(codex("implementer", FERNET), NOW);
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("malformed");
+  });
+
+  // Covers: R9
+  it("V2: two fresh dispatch files are never guessed between", () => {
+    writeConfig(true);
+    writeWorkplan("demo", VALID_LEVEL1);
+    writeDispatch("demo");
+    writeDispatch("other");
+    const result = evaluatePlanGate(codex("implementer", FERNET), NOW);
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("will not guess");
+  });
+
+  // Covers: R9
+  it("V2: a missing message is treated as unreadable", () => {
+    writeConfig(true);
+    writeWorkplan("demo", VALID_LEVEL1);
+    writeDispatch("demo");
+    expect(evaluatePlanGate(codex("implementer"), NOW).decision).toBe("allow");
+  });
+
+  // Covers: R9
+  it("an unknown payload shape is allowed, not a crash", () => {
+    writeConfig(true);
+    expect(evaluatePlanGate({ cwd, tool_input: { foo: 1 } }, NOW).decision).toBe("allow");
+  });
+});

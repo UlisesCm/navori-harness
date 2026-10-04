@@ -188,6 +188,9 @@ const es: Record<string, CommandDoc> = {
     notes: [
       "Corre doctor en CI con --strict para fallar el build si hay drift no resuelto.",
       "Valida invariants: substrings load-bearing que deben sobrevivir en el output (exit 2 si faltan).",
+      "El estado de confianza de Codex se lee de $CODEX_HOME/config.toml si CODEX_HOME está definido, y de ~/.codex/config.toml si no; un valor relativo se rechaza.",
+      "Con el engine codex habilitado, también revisa cada git worktree del repo que tenga .codex/config.toml: advierte con el hook, la ruta y 'cd <ruta> && navori codex trust' si falta aprobarlo. Advierte además si el codex instalado es más nuevo que la última versión verificada. Si git o el disco fallan, degrada a un aviso.",
+      "Si algún hook renderizado llama a 'navori', advierte cuando el 'navori' global del PATH es más viejo que el CLI que corre doctor (ejecutaría lógica vieja); nunca cambia ok.",
     ],
   },
   status: {
@@ -242,6 +245,7 @@ const es: Record<string, CommandDoc> = {
       "Muestra la tabla de hooks (evento, matcher, estado) y pide confirmación antes de escribir; sin TTY hace falta --yes.",
       "Respalda ~/.codex/config.toml antes de editarlo y valida el resultado como TOML antes de escribir; si el archivo cambió desde que se mostró la confirmación, aborta sin escribir.",
       "Cubre la raíz y cada workspace de un monorepo con el engine 'codex' habilitado. 'navori doctor' detecta sin escribir si falta correrlo.",
+      "Si CODEX_HOME está definido, usa $CODEX_HOME/config.toml en lugar de ~/.codex/config.toml; un valor relativo se rechaza.",
     ],
   },
   global: {
@@ -1100,6 +1104,8 @@ const en: Record<string, CommandDoc> = {
     notes: [
       "Run doctor in CI with --strict to fail the build on unresolved drift.",
       "Validates invariants: load-bearing substrings that must survive in the output (exit 2 if missing).",
+      "Codex trust state is read from $CODEX_HOME/config.toml if CODEX_HOME is set, and from ~/.codex/config.toml otherwise; a relative value is rejected.",
+      "With the codex engine enabled it also checks every git worktree of the repo that has .codex/config.toml: it warns with the hook, the path and 'cd <path> && navori codex trust' when approval is missing. It also warns when the installed codex is newer than the last verified version. If git or the disk fails, it degrades to a warning.",
     ],
   },
   status: {
@@ -1154,6 +1160,7 @@ const en: Record<string, CommandDoc> = {
       "Shows the hook table (event, matcher, status) and asks for confirmation before writing; no TTY needs --yes.",
       "Backs up ~/.codex/config.toml before editing it and validates the result as TOML before writing; aborts without writing if the file changed since the confirmation was shown.",
       "Covers the root and every monorepo workspace with the 'codex' engine enabled. 'navori doctor' detects, without writing, when this is still needed.",
+      "If CODEX_HOME is set, it uses $CODEX_HOME/config.toml instead of ~/.codex/config.toml; a relative value is rejected.",
     ],
   },
   global: {

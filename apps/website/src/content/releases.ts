@@ -70,6 +70,14 @@ export const RELEASES: readonly ReleaseEntry[] = [
           en: "Claude first: the harness stops emitting what Claude Code already ships natively, navori audit measures ranges and compares snapshots, and there is a search-routing guard, confirmation when a gate cannot reach a verdict, Pi support and a daily new-version notice.",
         },
       },
+      {
+        version: "0.11.2",
+        date: "2026-10-03",
+        note: {
+          es: "Paridad de Codex (spec 0041), verificada en vivo en Codex 0.160.0 con una tabla de garantías: role-guard y guard de spawn, plan-gate con archivo de despacho para multi-agente V2, confirmaciones por deny en publicación y general-purpose, master-plan y context-intake, guard de tgrep y consejo ante fallos repetidos de Bash. Los modelos de Codex se resuelven solos por familia desde el catálogo local (sol, luna, astra) y doctor revisa la confianza de Codex por worktree y avisa de un navori global desactualizado. Arreglos de render: navori:if en los agentes de Codex y poda de huérfanos.",
+          en: "Codex parity (spec 0041), verified live on Codex 0.160.0 with a guarantee table: role-guard and spawn guard, plan-gate with a dispatch file for multi-agent V2, publication and general-purpose confirmations by deny, master-plan and context-intake, a tgrep guard and advice on repeated Bash failures. Codex models resolve automatically by family from the local catalog (sol, luna, astra), and doctor checks Codex trust per worktree and warns about a stale global navori. Render fixes: navori:if in Codex agents and orphan pruning.",
+        },
+      },
     ],
   },
   {

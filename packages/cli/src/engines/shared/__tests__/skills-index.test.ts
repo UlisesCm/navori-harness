@@ -18,22 +18,36 @@ const cfg = (over: Partial<NavoriConfig> = {}): NavoriConfig =>
 
 describe("buildSkillRows (shared skills index) — C4", () => {
   // Covers: R1
-  it("lists Claude-only master skills only when requested by the Claude adapter", () => {
+  it("lists engine-scoped master skills only for the engines that ship them", () => {
     const defaultRows = buildSkillRows(cfg(), process.cwd(), coreAssets).join("\n");
     expect(defaultRows).not.toContain("`master-plan`");
     expect(defaultRows).not.toContain("`context-intake`");
 
-    const claudeRows = buildSkillRows(
-      cfg(),
-      process.cwd(),
-      coreAssets,
-      [],
-      process.cwd(),
-      false,
-      true,
-    ).join("\n");
-    expect(claudeRows).toContain("`master-plan`");
-    expect(claudeRows).toContain("`context-intake`");
+    for (const engine of ["claude", "codex"]) {
+      const rows = buildSkillRows(
+        cfg(),
+        process.cwd(),
+        coreAssets,
+        [],
+        process.cwd(),
+        false,
+        engine,
+      ).join("\n");
+      expect(rows, engine).toContain("`master-plan`");
+      expect(rows, engine).toContain("`context-intake`");
+    }
+    for (const engine of ["cursor", "copilot", "agents-md", "pi"]) {
+      const rows = buildSkillRows(
+        cfg(),
+        process.cwd(),
+        coreAssets,
+        [],
+        process.cwd(),
+        true,
+        engine,
+      );
+      expect(rows.join("\n"), engine).not.toContain("`master-plan`");
+    }
   });
 
   it("always lists the core + workflow skills", () => {

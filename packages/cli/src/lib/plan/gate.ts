@@ -6,7 +6,7 @@
  * directly, the same split `session-start-context.sh` and its TS-driven
  * partials already use.
  */
-import { existsSync, readFileSync, appendFileSync } from "node:fs";
+import { existsSync, readFileSync, appendFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
   checkoutRoot,
@@ -16,6 +16,7 @@ import {
   type StateRoot,
 } from "../primitives/state-root.ts";
 import { createHash } from "node:crypto";
+import { z } from "zod";
 import { readConfig, type NavoriConfig } from "../config/config.ts";
 import { classify } from "./classify.ts";
 import { checkWorkplan, formatCheckResult } from "./check.ts";
@@ -39,6 +40,8 @@ interface AgentHookPayload {
   tool_input?: {
     subagentType?: string;
     prompt?: string;
+    /** True for a Codex `spawn_agent` call (`agent_type` present, no `subagent_type`). */
+    codex: boolean;
   };
 }
 
@@ -64,6 +67,7 @@ function parsePayload(raw: unknown): AgentHookPayload {
           prompt:
             (typeof toolInput.message === "string" ? toolInput.message : undefined) ??
             (typeof toolInput.prompt === "string" ? toolInput.prompt : undefined),
+          codex: codexAgentType !== undefined,
         }
       : undefined,
   };
@@ -77,6 +81,85 @@ const ALLOW: PlanGateResult = { decision: "allow" };
 
 const WORKPLAN_LINE = /^workplan:\s*(\S+)/;
 const NIVEL0_LINE = /^nivel-0:\s*(\S+)/;
+
+/** A Fernet token (what Codex's V2 `spawn_agent` sends in place of `message`). */
+const ENCRYPTED_MESSAGE = /^gAAAAA[A-Za-z0-9_=-]*$/;
+
+/** How long a dispatch file stays valid after `createdAt` (spec 0041 R9, OQ2). */
+export const DISPATCH_TTL_MS = 10 * 60 * 1000;
+const DISPATCH_DIR = ".navori/state/handoffs";
+const DISPATCH_FILE = /^dispatch_([a-z0-9][a-z0-9._-]*)\.json$/;
+
+/**
+ * Contract of `.navori/state/handoffs/dispatch_<feature>.json`, written by the
+ * Codex orchestrator right before it spawns the `implementer` (spec 0041 R9).
+ * Codex V2 encrypts the spawn `message`, so the gate cannot read the opening
+ * line from the payload and reads it from here instead.
+ */
+export const DispatchSchema = z.object({
+  feature: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/),
+  /** The encargo's first line: `workplan: <feature>` or `nivel-0: <path>`. */
+  opening: z.string().min(1),
+  /**
+   * ISO-8601 timestamp; the file is stale `DISPATCH_TTL_MS` after it. Offsets and
+   * fractional seconds are accepted because the Codex orchestrator writes its own
+   * file (smoke S4d: `2026-10-03T20:27:54.004865+00:00`), not only `...Z`.
+   */
+  createdAt: z.string().datetime({ offset: true }),
+});
+export type Dispatch = z.infer<typeof DispatchSchema>;
+
+const DISPATCH_FIX =
+  "the orchestrator must write `.navori/state/handoffs/dispatch_<feature>.json` " +
+  '({"feature","opening":"workplan: <feature>","createdAt":<ISO now>}) right before ' +
+  "spawning the implementer, and keep exactly one fresh dispatch (TTL 10 min)";
+
+/**
+ * Reads the opening line of the single fresh dispatch file. The feature cannot
+ * be taken from the (encrypted) message, so the rule is: exactly ONE valid,
+ * non-stale dispatch file may exist; zero, several or any malformed one denies
+ * rather than guessing. Returns the opening line plus the file to consume.
+ */
+function readDispatch(
+  cwd: string,
+  now: number,
+): { opening: string; file: string } | { reason: string } {
+  const root = resolveStateRoot({ cwd, feature: "dispatch", dir: DISPATCH_DIR });
+  const names = existsSync(root.path)
+    ? readdirSync(root.path).filter((n) => DISPATCH_FILE.test(n))
+    : [];
+  const fresh: { opening: string; file: string }[] = [];
+  let stale = 0;
+  for (const name of names) {
+    const file = stateArtifactPath(root, name);
+    let parsed: Dispatch;
+    try {
+      parsed = DispatchSchema.parse(JSON.parse(readFileSync(file, "utf-8")));
+    } catch {
+      return { reason: `${file} is malformed — ${DISPATCH_FIX}.` };
+    }
+    if (parsed.feature !== DISPATCH_FILE.exec(name)![1]) {
+      return { reason: `${file}: "feature" does not match the file name — ${DISPATCH_FIX}.` };
+    }
+    if (now - Date.parse(parsed.createdAt) > DISPATCH_TTL_MS) {
+      stale++;
+      continue;
+    }
+    fresh.push({ opening: parsed.opening, file });
+  }
+  if (fresh.length === 1) return fresh[0]!;
+  if (fresh.length > 1) {
+    return {
+      reason: `${fresh.length} fresh dispatch files exist, the gate will not guess which one — ${DISPATCH_FIX}.`,
+    };
+  }
+  return {
+    reason:
+      (stale > 0
+        ? `the dispatch file is stale (older than 10 min) — `
+        : "the spawn message is encrypted and no dispatch file exists — ") + `${DISPATCH_FIX}.`,
+  };
+}
 
 const NO_OPENING_LINE_REASON =
   "the encargo does not open with `workplan: <feature>` or `nivel-0: <path>` — " +
@@ -219,7 +302,7 @@ function evaluateWorkplan(root: StateRoot, feature: string): PlanGateResult {
  * config that fails to parse falls back to `allow` rather than blocking a
  * tool call the gate cannot make sense of.
  */
-export function evaluatePlanGate(rawPayload: unknown): PlanGateResult {
+export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()): PlanGateResult {
   const payload = parsePayload(rawPayload);
   if (payload.tool_input?.subagentType !== "implementer") return ALLOW;
 
@@ -238,18 +321,38 @@ export function evaluatePlanGate(rawPayload: unknown): PlanGateResult {
   }
 
   const prompt = payload.tool_input.prompt ?? "";
-  const firstLine = (prompt.split("\n")[0] ?? "").trim();
+  let firstLine = (prompt.split("\n")[0] ?? "").trim();
+  let consume: string | undefined;
+  // Codex V2: the message is encrypted (or absent), so the opening line comes
+  // from the orchestrator's dispatch file. A readable message keeps the V1 path.
+  if (payload.tool_input.codex && (firstLine === "" || ENCRYPTED_MESSAGE.test(firstLine))) {
+    try {
+      const dispatch = readDispatch(cwd, now);
+      if ("reason" in dispatch) return deny(dispatch.reason);
+      firstLine = dispatch.opening.split("\n")[0]!.trim();
+      consume = dispatch.file;
+    } catch (cause: unknown) {
+      return deny(cause instanceof Error ? cause.message : "unsafe state root");
+    }
+  }
   const workplanMatch = WORKPLAN_LINE.exec(firstLine);
   const nivel0Match = NIVEL0_LINE.exec(firstLine);
 
   if (!workplanMatch && !nivel0Match) return deny(NO_OPENING_LINE_REASON);
-  if (nivel0Match) return evaluateNivel0(cwd, config, nivel0Match[1]!);
-  try {
-    return evaluateWorkplan(
-      resolveStateRoot({ cwd, feature: workplanMatch![1]! }),
-      workplanMatch![1]!,
-    );
-  } catch (cause: unknown) {
-    return deny(cause instanceof Error ? cause.message : "unsafe state root");
+  let result: PlanGateResult;
+  if (nivel0Match) {
+    result = evaluateNivel0(cwd, config, nivel0Match[1]!);
+  } else {
+    try {
+      result = evaluateWorkplan(
+        resolveStateRoot({ cwd, feature: workplanMatch![1]! }),
+        workplanMatch![1]!,
+      );
+    } catch (cause: unknown) {
+      return deny(cause instanceof Error ? cause.message : "unsafe state root");
+    }
   }
+  // One dispatch per spawn: an allowed spawn consumes its dispatch file.
+  if (consume && result.decision === "allow") rmSync(consume, { force: true });
+  return result;
 }

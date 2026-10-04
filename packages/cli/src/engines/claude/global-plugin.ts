@@ -155,7 +155,7 @@ export function planGlobalPlugin(
     {
       plan: resolveHarnessPlan(renderConfig, coreAssets, null, {
         includeOrchestrator: true,
-        includeClaudeOnlySkills: true,
+        engine: "claude",
       }),
       plugins: [],
     },

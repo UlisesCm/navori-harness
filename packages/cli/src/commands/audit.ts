@@ -684,7 +684,7 @@ export const auditCommand = defineCommand({
       if (!m.transcript) {
         // A Codex session has no transcript by design (R71): it is reported from
         // its log, not listed as an orphan.
-        const codex = parseCodexSession(m.sessionId, m.logFile);
+        const codex = parseCodexSession(m.sessionId, m.logFile, m.rollout);
         if (codex) {
           parsed.push(codex);
           continue;
