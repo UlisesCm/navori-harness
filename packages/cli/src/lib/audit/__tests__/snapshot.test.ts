@@ -34,6 +34,16 @@ const SECRET_REASON = `Write sobre '${SECRET_PATH}/notes.md'`;
 
 function blockedSession() {
   const s = session();
+  // Historic manually constructed hooks are explicitly observed source facts.
+  s.availability = {
+    hooks: {
+      state: "observed",
+      reason: null,
+      source: "audit-log",
+      adapter: "audit-log",
+      sourceVersion: null,
+    },
+  };
   s.orchestrator.hookEvents = [
     {
       ts: "2026-09-14T10:00:00.000Z",
@@ -63,7 +73,12 @@ function blockedSession() {
 }
 
 function report(repo = "alpha-repo") {
-  return buildReport([blockedSession()], { repo, version: "0.11.0", catalog: CATALOG });
+  const r = buildReport([blockedSession()], { repo, version: "0.11.0", catalog: CATALOG });
+  // Historic format-1 fixtures retain their pre-availability numeric values.
+  r.schemaVersion = 10;
+  r.rangeMetrics["hook.implementer-no-markdown.blocks"] = 2;
+  r.rangeMetrics["hook.implementer-no-markdown.fires"] = 2;
+  return r;
 }
 
 let root: string;
@@ -77,6 +92,11 @@ afterEach(() => {
 });
 
 describe("snapshot: format and privacy (R68)", () => {
+  // Covers: R6
+  it("rejects schema11 production rather than losing availability into format1", () => {
+    const current = buildReport([], { repo: "r", version: "test", catalog: CATALOG });
+    expect(() => buildSnapshot(current, "repo")).toThrow("schema11-snapshot-pending");
+  });
   // Covers: R68
   it("has its own versioned format, independent of the report's schemaVersion", () => {
     const r = report();
@@ -155,7 +175,21 @@ describe("snapshot: the R43 baselines", () => {
         toolUseId: "b1",
       },
     ];
+    for (const s of [s1, s2]) {
+      const evidence = {
+        state: "observed" as const,
+        reason: null,
+        source: "transcript" as const,
+        adapter: "claude-transcript" as const,
+        sourceVersion: "fixture",
+      };
+      s.availability = { tools: evidence, hooks: evidence, "tokens.cacheRead": evidence };
+      for (const run of s.agents)
+        run.availability = { tools: evidence, "tokens.cacheRead": evidence };
+    }
     const r = buildReport([s1, s2], { repo: "r", version: "0.11.0", catalog: CATALOG });
+    r.schemaVersion = 10;
+    r.rangeMetrics["hooks.perBashCall"] = 1;
     const m = buildSnapshot(r, "repo").rangeMetrics;
     // Sessions: 1000+100+300 = 1400 and 500 -> lower median 500, n 2.
     expect(m["session.cacheRead.p50"]).toBe(500);

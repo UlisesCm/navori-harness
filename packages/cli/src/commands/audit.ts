@@ -20,6 +20,7 @@ import {
   listAuditedRepos,
   repoCoverage,
   resolveTranscript,
+  requestedRange,
 } from "../lib/audit/discovery.ts";
 import { attachHookEvents, parseCodexSession, parseSession } from "../lib/audit/parse.ts";
 import { listMarkers } from "../lib/diagnose/health.ts";
@@ -42,7 +43,13 @@ import {
   renderComparison,
   writeSnapshot,
 } from "../lib/audit/snapshot.ts";
-import { buildReport, renderJson, renderMarkdown, weightedTokens } from "../lib/audit/report.ts";
+import {
+  buildReport,
+  projectedAgentCount,
+  renderJson,
+  renderMarkdown,
+  weightedTokens,
+} from "../lib/audit/report.ts";
 import {
   ALL_REPOS_DIR,
   auditsRoot,
@@ -404,12 +411,18 @@ export const auditCommand = defineCommand({
       );
       p.log.message(isEs ? "Ctrl-C para cortar" : "Ctrl-C to stop");
 
-      await new Promise<void>((done) => {
-        const stop = (): void => done();
-        process.once("SIGINT", stop);
-        process.once("SIGTERM", stop);
-      });
-      await receiver.close();
+      let stop: () => void = (): void => {};
+      try {
+        await new Promise<void>((done) => {
+          stop = (): void => done();
+          process.once("SIGINT", stop);
+          process.once("SIGTERM", stop);
+        });
+      } finally {
+        process.removeListener("SIGINT", stop);
+        process.removeListener("SIGTERM", stop);
+        await receiver.close();
+      }
 
       const stats = receiver.stats();
       p.outro(
@@ -551,7 +564,7 @@ export const auditCommand = defineCommand({
         process.exit(2);
       }
       const logFile = auditPathOrExit(() => sessionLogPath(repo, startId), json);
-      mkdirSync(auditDir, { recursive: true });
+      mkdirSync(auditDir, { recursive: true, mode: 0o700 });
       if (existsSync(logFile)) {
         p.outro(isEs ? "audit-mode ya estaba activo" : "audit-mode was already active");
         return;
@@ -574,7 +587,7 @@ export const auditCommand = defineCommand({
           navoriRendered: renderedHarnessVersion(cwd),
           navoriCli: readCliVersion(),
         })}\n`,
-        "utf-8",
+        { encoding: "utf-8", mode: 0o600, flag: "a" },
       );
       // #778: fold in whatever the SessionStart hooks parked before this file
       // existed, and sweep the spools of sessions nobody ever marked. Both run
@@ -644,6 +657,11 @@ export const auditCommand = defineCommand({
       days: Number.isFinite(days) ? days : undefined,
       since: args.since,
       until: args.until,
+      range: requestedRange({
+        days: Number.isFinite(days) ? days : undefined,
+        since: args.since,
+        until: args.until,
+      }),
     };
     const filters = { ...periodFilters, session: args.session };
     // Which repo each marked session belongs to matters only for `--all-repos`,
@@ -655,7 +673,7 @@ export const auditCommand = defineCommand({
     const scopeLabel = allRepos ? "--all-repos" : repo;
     if (!json) for (const w of audited?.warnings ?? []) p.log.warn(w);
 
-    if (marked.length === 0) {
+    if (marked.length === 0 && args.session) {
       const msg = isEs
         ? `No hay sesiones marcadas con audit-mode para '${scopeLabel}'. Actívalo con 'navori audit --start <id-de-sesión>'.`
         : `No sessions marked with audit-mode for '${scopeLabel}'. Activate it with 'navori audit --start <session-id>'.`;
@@ -679,12 +697,27 @@ export const auditCommand = defineCommand({
     };
     const parsed = [];
     const missing: string[] = [];
+    const sourceProblems: Array<{ sessionId: string; status: MarkedSession["sourceStatus"] }> = [];
     const missingIds = new Set<string>();
     for (const m of marked) {
+      if (m.sourceStatus !== "verified") {
+        missing.push(m.sessionId.slice(0, 8));
+        sourceProblems.push({ sessionId: m.sessionId, status: m.sourceStatus });
+        missingIds.add(m.sessionId);
+        continue;
+      }
       if (!m.transcript) {
         // A Codex session has no transcript by design (R71): it is reported from
         // its log, not listed as an orphan.
-        const codex = parseCodexSession(m.sessionId, m.logFile, m.rollout);
+        const codex =
+          m.host === "codex"
+            ? parseCodexSession(
+                m.sessionId,
+                m.logFile,
+                m.rollout,
+                m.hostProvenance === "recovered:rollout" ? m.hostProvenance : undefined,
+              )
+            : null;
         if (codex) {
           parsed.push(codex);
           continue;
@@ -702,7 +735,7 @@ export const auditCommand = defineCommand({
       parsed.push(session);
     }
 
-    if (parsed.length === 0) {
+    if (parsed.length === 0 && args.session) {
       const msg = isEs
         ? `Se encontraron ${marked.length} sesiones marcadas pero ningún transcript localizable.`
         : `Found ${marked.length} marked sessions but no locatable transcript.`;
@@ -712,7 +745,13 @@ export const auditCommand = defineCommand({
       // them from the store by hand.
       if (json)
         console.log(
-          JSON.stringify({ ok: false, error: "no-transcripts", repo, orphanSessions: missing }),
+          JSON.stringify({
+            ok: false,
+            error: "no-transcripts",
+            repo,
+            orphanSessions: missing,
+            sourceProblems,
+          }),
         );
       else p.cancel(msg);
       process.exit(2);
@@ -729,7 +768,7 @@ export const auditCommand = defineCommand({
       ? audited.repos
       : args.session
         ? []
-        : [repoCoverage(repo, periodFilters).row];
+        : [repoCoverage(repo, periodFilters, cwd).row];
     if (!audited && !args.session && !json) {
       const { warning } = repoCoverage(repo, periodFilters);
       if (warning) p.log.warn(warning);
@@ -757,10 +796,35 @@ export const auditCommand = defineCommand({
       // report module stays pure over parsed sessions.
       harnessVersion: renderedHarnessVersion(cwd),
       lang,
+      requestedRange: args.session ? undefined : periodFilters.range,
+      coverage: args.session ? undefined : coverageRows,
     });
+    const reportPayload = { ...report, sourceProblems };
+
+    // Schema 11 snapshots require the complete T11 cohort contract. Reject
+    // before any report, snapshot or copy writer is reached.
+    if (snapshotName || baseSnapshot || copyTo) {
+      if (typeof snapshotName === "string" && snapshotName)
+        auditPathOrExit(
+          () =>
+            snapshotPath(
+              allRepos ? null : repo,
+              snapshotName,
+              report.range.from.slice(0, 10),
+              report.range.to.slice(0, 10),
+            ),
+          json,
+        );
+      if (json)
+        process.stdout.write(
+          `${JSON.stringify({ ok: false, error: "snapshot-schema-unavailable", reason: "schema11-snapshot-pending" })}\n`,
+        );
+      else p.cancel("snapshot-schema-unavailable: schema11-snapshot-pending");
+      process.exit(2);
+    }
 
     if (json) {
-      process.stdout.write(renderJson(report));
+      process.stdout.write(renderJson(reportPayload));
       return;
     }
 
@@ -778,14 +842,18 @@ export const auditCommand = defineCommand({
           () =>
             single
               ? sessionReportDir(repo, single.startedAt.slice(0, 10), single.sessionId)
-              : rangeReportDir(allRepos ? ALL_REPOS_DIR : repo, report.range.from, report.range.to),
+              : rangeReportDir(
+                  allRepos ? ALL_REPOS_DIR : repo,
+                  report.range.from.slice(0, 10),
+                  report.range.to.slice(0, 10),
+                ),
           json,
         );
     mkdirSync(outDir, { recursive: true });
     const mdFile = join(outDir, "report.md");
     const jsonFile = join(outDir, "report.json");
     writeFileSync(mdFile, renderMarkdown(report, lang), "utf-8");
-    writeFileSync(jsonFile, renderJson(report), "utf-8");
+    writeFileSync(jsonFile, renderJson(reportPayload), "utf-8");
 
     // A snapshot of the event log beside its report, so the session folder holds
     // everything about that session. It is a COPY, deliberately: the hooks write
@@ -822,8 +890,9 @@ export const auditCommand = defineCommand({
     // R68/R69. The snapshot is built from the report in memory, so `--compare`
     // works with or without `--snapshot`, and what is compared is exactly what
     // would be saved (reason keys already dropped).
-    const snapshot = buildSnapshot(report, allRepos ? "all" : "repo");
-    if (typeof snapshotName === "string" && snapshotName) {
+    const snapshot =
+      snapshotName || baseSnapshot ? buildSnapshot(report, allRepos ? "all" : "repo") : undefined;
+    if (typeof snapshotName === "string" && snapshotName && snapshot) {
       const target = auditPathOrExit(
         () =>
           snapshotPath(allRepos ? null : repo, snapshotName, report.range.from, report.range.to),
@@ -844,7 +913,7 @@ export const auditCommand = defineCommand({
         p.log.success(`${isEs ? "Copiada a" : "Copied to"} ${dim(copied)}`);
       }
     }
-    if (baseSnapshot) {
+    if (baseSnapshot && snapshot) {
       p.log.message(
         renderComparison(compareSnapshots(baseSnapshot, snapshot), baseSnapshot, snapshot).join(
           "\n",
@@ -880,10 +949,10 @@ export const auditCommand = defineCommand({
       n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`;
     p.note(
       [
-        `${report.totals.sessions} ${isEs ? "sesiones" : "sessions"} · ${report.totals.agents} ${isEs ? "agentes" : "agents"}`,
-        `${isEs ? "ponderado" : "weighted"}  ${k(weightedTotal)} tok`,
-        `${isEs ? "arranque" : "startup"}  ${k(report.totals.startupTokens)} tok`,
-        `cache_read  ${k(report.totals.tokens.cacheRead)} tok`,
+        `${report.totals.sessions} ${isEs ? "sesiones" : "sessions"} · ${projectedAgentCount(report) ?? "unavailable"} ${isEs ? "agentes" : "agents"}`,
+        `${isEs ? "ponderado" : "weighted"}  ${["tokens.input", "tokens.output", "tokens.cacheRead", "tokens.cacheCreation"].every((key) => ["observed", "partial"].includes(report.availability?.[key]?.state ?? "")) ? k(weightedTotal) + " tok" : "unavailable"}`,
+        `${isEs ? "arranque" : "startup"}  ${["observed", "partial"].includes(report.availability?.startupTokens?.state ?? "") ? k(report.totals.startupTokens) + " tok" : "unavailable"}`,
+        `cache_read  ${["observed", "partial"].includes(report.availability?.["tokens.cacheRead"]?.state ?? "") ? k(report.totals.tokens.cacheRead) + " tok" : "unavailable"}`,
         `${isEs ? "hallazgos" : "findings"}  ${high} ${isEs ? "alto" : "high"} · ${warn} ${isEs ? "medio" : "warn"}`,
         missing.length > 0
           ? `${isEs ? "sin transcript" : "no transcript"}  ${missing.join(", ")}`

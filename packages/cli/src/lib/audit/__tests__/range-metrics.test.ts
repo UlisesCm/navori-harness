@@ -5,7 +5,47 @@ import { tmpdir } from "node:os";
 import { buildReport, renderMarkdown } from "../report.ts";
 import { parseCodexSession, parseSession } from "../parse.ts";
 import type { HarnessCatalog } from "../harness.ts";
-import { agent, session } from "./lifecycle-fixtures.ts";
+import { agent as unmeasuredAgent, session as unmeasuredSession } from "./lifecycle-fixtures.ts";
+import type { AgentRun, SessionAudit, MetricEvidence, HookEvent } from "../model.ts";
+
+// These report fixtures intentionally supply measured counters, including explicit zeros.
+// Parser-created sessions below keep their real source evidence instead of inheriting this fixture.
+const transcriptEvidence: MetricEvidence = {
+  state: "observed",
+  reason: null,
+  source: "transcript",
+  adapter: "claude-transcript",
+  sourceVersion: null,
+};
+const hookEvidence: MetricEvidence = {
+  ...transcriptEvidence,
+  source: "audit-log",
+  adapter: "audit-log",
+};
+const measuredAvailability: Record<string, MetricEvidence> = Object.fromEntries(
+  [
+    "tools",
+    "contextPeak",
+    "startupTokens",
+    "durationMs",
+    "tokens.input",
+    "tokens.output",
+    "tokens.cacheRead",
+    "tokens.cacheCreation",
+    "tokens.thinking",
+  ].map((key) => [key, transcriptEvidence]),
+);
+measuredAvailability.hooks = hookEvidence;
+
+/** Build an explicitly measured Claude report fixture, not a parser fallback. */
+function session(over: Partial<SessionAudit> = {}): SessionAudit {
+  return unmeasuredSession({ availability: { ...measuredAvailability }, ...over });
+}
+
+/** Each synthesized child supplies the same explicit measured fixture provenance. */
+function agent(over: Partial<AgentRun> = {}): AgentRun {
+  return unmeasuredAgent({ availability: { ...measuredAvailability }, ...over });
+}
 
 const CATALOG: HarnessCatalog = {
   agents: [
@@ -29,7 +69,109 @@ function writeLines(dir: string, name: string, lines: unknown[]): string {
   return file;
 }
 
-describe("range metrics: published flat under schemaVersion 10", () => {
+describe("range metrics: published flat under schemaVersion 11", () => {
+  // Covers: R6
+  it("keeps unmeasured legacy fixture counters distinct from explicitly measured zeros", () => {
+    const unavailable = report([unmeasuredSession()]);
+    const observedZero = report([session()]);
+    expect(unavailable.rangeMetrics["hooks.ms"]).toBeNull();
+    expect(unavailable.rangeMetrics["edits.calls"]).toBeNull();
+    expect(observedZero.rangeMetrics["hooks.ms"]).toBe(0);
+    expect(observedZero.rangeMetrics["edits.calls"]).toBe(0);
+  });
+  // Covers: R15
+  it("separates hook work from concurrent observable toll and sequential phases", () => {
+    const event = (name: string, phase: string, ms: number, toolUseId = "call-1"): HookEvent => ({
+      ts: "2026-09-30T10:00:00Z",
+      name,
+      phase,
+      verdict: "allow",
+      ms,
+      source: "core",
+      tool: "Bash",
+      toolUseId,
+    });
+    const s = session({
+      agents: [
+        agent({
+          hookEvents: [event("first", "PreToolUse", 100), event("second", "PreToolUse", 100)],
+        }),
+      ],
+    });
+    let m = report([s]).rangeMetrics;
+    expect(m["hooks.ms"]).toBe(200);
+    expect(m["hooks.tollMs"]).toBe(100);
+    expect(m["hooks.tollEvents"]).toBe(1);
+    s.agents[0]!.hookEvents.push(event("third", "PostToolUse", 50));
+    m = report([s]).rangeMetrics;
+    expect(m["hooks.ms"]).toBe(250);
+    expect(m["hooks.tollMs"]).toBe(150);
+    expect(m["hooks.tollEvents"]).toBe(2);
+  });
+
+  // Covers: R15
+  it("marks uncorrelated hook toll and Codex nested calls unavailable", () => {
+    const codex = session({
+      host: "codex",
+      unavailable: "transcript",
+      availability: {
+        hooks: hookEvidence,
+        tools: { ...transcriptEvidence, source: "rollout", adapter: "codex-rollout" },
+      },
+    });
+    codex.orchestrator.hookEvents = [
+      {
+        ts: "2026-09-30T10:00:00Z",
+        name: "guard-destructive",
+        phase: "PreToolUse",
+        verdict: "allow",
+        ms: 100,
+        source: "core",
+        tool: "Bash",
+      },
+    ];
+    codex.orchestrator.toolCounts = { exec: 1 };
+    codex.rollout = {
+      status: "parsed",
+      cliVersion: "0.160.0",
+      turns: 1,
+      toolCalls: { exec: 1 },
+      models: {},
+      firstTs: null,
+      lastTs: null,
+      parseErrors: 0,
+    };
+    const r = report([codex]);
+    expect(r.rangeMetrics["hooks.ms"]).toBe(100);
+    expect(r.rangeMetrics["hooks.tollMs"]).toBeNull();
+    expect(r.rangeMetrics["hooks.ungroupedFires"]).toBe(1);
+    expect(r.rangeMetrics["hooks.bashTranscriptCalls"]).toBeNull();
+    expect(r.rangeMetrics["hooks.bashCoveragePct"]).toBeNull();
+    expect(r.rangeMetrics["codex.execWrappers"]).toBe(1);
+    expect(r.rangeMetrics["codex.nestedToolCalls"]).toBeNull();
+    expect(renderMarkdown(r, "en")).toContain("Codex exec: 1 wrappers, not internal tools");
+  });
+
+  // Covers: R15
+  it("uses Claude transcript Bash calls as the coverage denominator", () => {
+    const s = session();
+    s.orchestrator.toolCounts = { Bash: 2 };
+    s.orchestrator.hookEvents = [
+      {
+        ts: "2026-09-30T10:00:00Z",
+        name: "guard-destructive",
+        phase: "PreToolUse",
+        verdict: "allow",
+        ms: 10,
+        source: "core",
+        tool: "Bash",
+        toolUseId: "call-1",
+      },
+    ];
+    const m = report([s]).rangeMetrics;
+    expect(m["hooks.bashTranscriptCalls"]).toBe(2);
+    expect(m["hooks.bashCoveragePct"]).toBe(50);
+  });
   // Covers: R64, R65
   it("reports per-run turns, context peak and turn-limit hits per agent type", () => {
     const r = report([
@@ -41,7 +183,7 @@ describe("range metrics: published flat under schemaVersion 10", () => {
         ],
       }),
     ]);
-    expect(r.schemaVersion).toBe(10);
+    expect(r.schemaVersion).toBe(11);
     expect(r.rangeMetrics["agent.implementer.turns.p50"]).toBe(20);
     expect(r.rangeMetrics["agent.implementer.turns.p90"]).toBe(50);
     expect(r.rangeMetrics["agent.implementer.turnLimitHits"]).toBe(1);
@@ -217,6 +359,8 @@ describe("codex sessions (R71)", () => {
     expect(r.totals.byAgentType["main-thread"]?.sessions).toBe(1);
     expect(r.rangeMetrics["agent.main-thread.turns.p50"]).toBe(4);
     expect(renderMarkdown(r, "en")).toContain("Codex session");
+    expect(renderMarkdown(r, "es")).toContain("Sesión Codex");
+    expect(codex?.availability?.tools?.state).not.toBe("observed");
   });
 
   // Covers: R71
@@ -226,6 +370,8 @@ describe("codex sessions (R71)", () => {
     expect(r.rangeMetrics["sessions.transcript"]).toBe(0);
     expect(r.rangeMetrics["agent.main-thread.turns.p90"]).toBeUndefined();
     expect(r.rangeMetrics["hooks.fires"]).toBe(1);
+    expect(r.rangeMetrics["codex.execWrappers"]).toBeNull();
+    expect(r.rangeMetrics["codex.nestedToolCalls"]).toBeNull();
     expect(r.totals.byAgentType["main-thread"]).toBeUndefined();
   });
 

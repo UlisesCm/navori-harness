@@ -2,8 +2,8 @@
  * Zod schemas for the master-plan JSON contracts (spec 0034, design.md
  * "Contracts"): `_master/index.json` (`MasterIndexSchema`), `<stage>/state.json`
  * (`MasterStateSchema`) and `<stage>/parts.json` (`PartsSchema`). All three
- * carry `version: 1`; an unknown version fails loud with a message naming the
- * version this navori supports, so a config written by a newer navori never
+ * Legacy state and parts carry `version: 1`; the registry also accepts v2
+ * for mixed workflows. An unknown version fails loud, so a newer navori never
  * silently mismatches (T1).
  */
 import { z } from "zod";
@@ -11,10 +11,7 @@ import { z } from "zod";
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_MESSAGE = "must be an ISO date (YYYY-MM-DD)";
 
-/** Every JSON contract in this module is versioned the same way: a plain
- * number that must equal the version this navori understands. Centralized so
- * the three schemas fail with the same wording (T1: "una versión desconocida
- * falla con un mensaje que nombra la versión de navori necesaria"). */
+/** Legacy state and parts remain v1-only; registry versions are independent. */
 function versionField(kind: string) {
   return z.number().superRefine((value, ctx) => {
     if (value !== 1) {
@@ -46,6 +43,7 @@ const StageEntrySchema = z
     openedAt: z.string().regex(DATE, DATE_MESSAGE),
     closedAt: z.string().regex(DATE, DATE_MESSAGE).nullable(),
     spec: z.string().min(1).nullable().default(null),
+    workflow: z.literal("deliveries").optional(),
   })
   .superRefine((entry, ctx) => {
     const expectedDir = `${String(entry.number).padStart(2, "0")}-${entry.slug}`;
@@ -83,10 +81,22 @@ export type StageEntry = z.infer<typeof StageEntrySchema>;
 
 export const MasterIndexSchema = z
   .object({
-    version: versionField("_master/index.json"),
+    version: z.number().superRefine((value, ctx) => {
+      if (value !== 1 && value !== 2)
+        ctx.addIssue({
+          code: "custom",
+          message: `unsupported _master/index.json version ${value}; this navori reads version 1 or 2`,
+        });
+    }),
     stages: z.array(StageEntrySchema).default([]),
   })
   .superRefine((index, ctx) => {
+    if (index.version === 1 && index.stages.some((stage) => stage.workflow === "deliveries"))
+      ctx.addIssue({
+        code: "custom",
+        message: "deliveries entries require index version 2",
+        path: ["stages"],
+      });
     const active = index.stages.filter((s) => s.state === "activa");
     if (active.length > 1) {
       ctx.addIssue({
@@ -135,7 +145,7 @@ export type MasterUxChoice = (typeof MASTER_UX_CHOICES)[number];
 export const MASTER_MODES = ["template", "en-curso", "desde-cero"] as const;
 export type MasterMode = (typeof MASTER_MODES)[number];
 
-const SignalSchema = z.object({
+export const SignalSchema = z.object({
   commits: z.number().int().nonnegative().nullable(),
   firstCommit: z.string().regex(DATE, DATE_MESSAGE).nullable(),
   filesChangedSinceFirst: z.number().int().nonnegative().nullable(),

@@ -128,6 +128,8 @@ export const HOOK_ENGINES: Readonly<Record<string, readonly string[]>> = {
   "master-accept-confirm": ["claude", "codex"],
   // Spec 0041 D5: Claude restricts roles with `tools:`; only Codex needs the guard.
   "role-guard": ["codex"],
+  // Same reason, for the engram MCP tools (grants compiled from the Claude `tools:` source).
+  "engram-write-guard": ["codex"],
 };
 
 /**

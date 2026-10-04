@@ -17,7 +17,8 @@
 # charset (#503) — this function trusts it into a command line, so an unvalidated
 # id must never reach here. $2 is the payload's cwd (#454: never
 # CLAUDE_PROJECT_DIR — they differ in worktrees, and --arm wrote the flag under
-# the repo name resolved from the cwd). $3 is the audits root.
+# the repo name resolved from the cwd). $3 is the audits root. $4 is the
+# authoritative engine selected by the shared hook input adapter.
 #
 # Fail-open and silent: returns 0 ONLY when audit-mode was actually started, so
 # the caller can announce it; every other path returns 1 and changes nothing.
@@ -26,13 +27,15 @@ navori_audit_consume_armed() {
   narm_sid=$1
   narm_cwd=$2
   narm_root=$3
+  narm_host=$4
   [ -n "$narm_sid" ] && [ -n "$narm_cwd" ] && [ -n "$narm_root" ] || return 1
+  case "$narm_host" in claude | codex) : ;; *) return 1 ;; esac
   narm_repo=$(navori_audit_repo_from_cwd "$narm_cwd") || return 1
   [ -n "$narm_repo" ] || return 1
   narm_file=$narm_root/$narm_repo/.armed
   [ -f "$narm_file" ] || return 1
   command -v navori >/dev/null 2>&1 || return 1
   rm -f "$narm_file" 2>/dev/null || true
-  navori audit --start "$narm_sid" --cwd "$narm_cwd" >/dev/null 2>&1 || return 1
+  navori audit --start "$narm_sid" --cwd "$narm_cwd" --host "$narm_host" >/dev/null 2>&1 || return 1
   return 0
 }

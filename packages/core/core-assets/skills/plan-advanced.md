@@ -12,12 +12,17 @@ metadata:
 1. Dispatch `architect` with the task, the signals and `classify`'s breakdown → it writes
    `solution_<feature>.md`.
 2. Dispatch a fresh-context `auditor` (challenge encargo) → `solution_review_<feature>.md`.
-3. "Present the surviving options to the user with the recommended one first and the challenge
-   findings beside each; the user picks." If only one survives, say so and move on.
+3. Present the surviving options and challenge findings. Before asking the user to choose, give
+   the compact `resumen de decisión` in chat per `formato-respuesta.md`, including recommendation,
+   rationale, scope, pertinent risks/blockers and verification. "Present the surviving options to
+   the user with the recommended one first and the challenge findings beside each; the user picks."
+   If only one survives, say so and move on.
 4. Your verdict, post-challenge: READY / CONCERNS / BLOCKED.
 5. Write the level-2 workplan: everything `plan-simple` covers plus `solution {path, verdict}`,
-   phases with their `A<n>`, and risks with their rollback; render, check and get the user's
-   approval. As in `plan-simple`, an `A<n>` reaches `cumplido` only with evidence the routing-watch hook recorded because the host ran its exact `command`.
+   phases with their `A<n>`, and risks with their rollback; render and check it, then give the
+   compact `resumen de decisión` in chat per `formato-respuesta.md` before asking for approval. As in
+   `plan-simple`, an `A<n>` reaches `cumplido` only with evidence the routing-watch hook recorded
+   because the host ran its exact `command`.
 6. After two rejections, the gate requires `solution_<feature>.md` and
    `solution_review_<feature>.md`: the architect diagnoses why the previous design failed before
    redesigning.

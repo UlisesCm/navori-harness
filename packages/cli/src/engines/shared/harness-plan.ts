@@ -283,6 +283,15 @@ export function resolveHarnessPlan(
       managedId: `${id}-base`,
     });
   }
+  // Codex-only (HOOK_ENGINES) and unconditional like `role-guard`: engram is an
+  // always-on plugin, so there is no config flag whose absence should silence it.
+  if (inEngineScope(HOOK_ENGINES["engram-write-guard"], options.engine)) {
+    hooks.push({
+      id: "engram-write-guard",
+      assetPath: join(coreAssets, "hooks/engram-write-guard.sh"),
+      managedId: "engram-write-guard-base",
+    });
+  }
   // Spec 0026 E1 (R10). Unconditional like the guard: the draft-confirm
   // covers ANY agent's Bash call that publishes a comment or review, and its
   // owner is the harness itself, not a configurable agent or plugin — so

@@ -1,6 +1,6 @@
-import { assert, describe, it, expect } from "vitest";
+import { assert, describe, it, expect, afterEach } from "vitest";
 import { join } from "node:path";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import {
@@ -16,8 +16,9 @@ import {
   sumTokens,
 } from "../parse.ts";
 import type { AgentRun, SessionAudit } from "../model.ts";
-import { emptyPermissionDecisions, emptyToolErrors } from "../model.ts";
-import { buildReport, renderMarkdown } from "../report.ts";
+import { emptyOrchestrator, emptyPermissionDecisions, emptyToolErrors } from "../model.ts";
+import { buildReport, renderJson, renderMarkdown } from "../report.ts";
+import { detectSignals } from "../signals.ts";
 import type { HarnessCatalog } from "../harness.ts";
 
 /** The catalog is not what these specs are about: an empty one keeps the
@@ -36,6 +37,466 @@ const FIXTURE = join(
   "-tmp-fixture-repo",
   "sess-aaa11111.jsonl",
 );
+
+describe("availability and trusted windows", () => {
+  const dirs: string[] = [];
+  const file = (raw: string): string => {
+    const dir = mkdtempSync(join(tmpdir(), "audit-evidence-"));
+    dirs.push(dir);
+    const target = join(dir, "session.jsonl");
+    writeFileSync(target, raw);
+    return target;
+  };
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+  const recordFile = (records: readonly object[]): string =>
+    file(records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+  const pairedHook = (
+    phase: string,
+    seconds: number,
+    id: string,
+    over: Record<string, unknown> = {},
+  ): object => ({
+    event: "hook",
+    name: "probe",
+    phase,
+    verdict: "allow",
+    ms: 1,
+    toolUseId: id,
+    sessionId: "s",
+    tsMs: Date.parse("2026-09-01T00:00:00Z") + seconds * 1000,
+    ...over,
+  });
+  // Covers: R6, R7
+  it.each(["unknown-only", "root-and-unknown", "recognized-zero", "unknown-shape"])(
+    "qualifies recognized tool evidence independently of descriptive records: %s",
+    (mode) => {
+      const root = { type: "user", sessionId: "s", timestamp: "2026-09-01T00:00:00Z" };
+      const unknown = { ...root, type: "arbitrary-garbage" };
+      const records =
+        mode === "unknown-only"
+          ? [unknown]
+          : mode === "recognized-zero"
+            ? [root]
+            : [root, mode === "unknown-shape" ? { ...root, message: 42 } : unknown];
+      const s = parseSession(recordFile(records));
+      const observed = mode === "recognized-zero";
+      expect(s.sources?.transcript).toMatchObject({
+        records: records.length,
+        validRecords: mode === "unknown-only" ? 0 : 1,
+        parseErrors: 0,
+        state: observed ? "observed" : mode === "unknown-only" ? "unavailable" : "partial",
+        reason: observed ? null : "incomplete-enumeration",
+      });
+      expect(s.linesRead).toBe(records.length);
+      const json = JSON.parse(
+        renderJson(buildReport([s], { repo: "probe", version: "test", catalog: EMPTY_CATALOG })),
+      );
+      expect(json.availability.tools.observed).toBe(observed ? 1 : 0);
+      expect(json.availability.tools.contributors).toBe(mode === "unknown-only" ? 0 : 1);
+      expect(json.sessions[0].sources.transcript.reason).toBe(
+        observed ? null : "incomplete-enumeration",
+      );
+      expect(json.availability.tools.state).toBe(
+        observed ? "observed" : mode === "unknown-only" ? "unavailable" : "partial",
+      );
+      // The recognized user record has no tool uses: zero describes only that subset,
+      // never the unrecognized remainder or a completely unrecognized stream.
+      expect(json.sessions[0].orchestrator.shellReads).toBe(mode === "unknown-only" ? null : 0);
+      expect(json.sessions[0].orchestrator.shellWrites).toBe(mode === "unknown-only" ? null : 0);
+      if (!observed) expect(detectSignals(s, EMPTY_CATALOG, "en")).toEqual([]);
+    },
+  );
+  // Covers: R6
+  it.each([
+    { label: "primitive", content: [42], recognized: false, tools: 0 },
+    {
+      label: "unknown block",
+      content: [{ type: "arbitrary-garbage" }],
+      recognized: false,
+      tools: 0,
+    },
+    {
+      label: "invalid tool name",
+      content: [{ type: "tool_use", name: 42 }],
+      recognized: false,
+      tools: 0,
+    },
+    { label: "invalid text", content: [{ type: "text", text: 42 }], recognized: false, tools: 0 },
+    {
+      label: "nested unknown result",
+      content: [{ type: "tool_result", content: [42] }],
+      recognized: false,
+      tools: 0,
+    },
+    { label: "text", content: [{ type: "text", text: "answer" }], recognized: true, tools: 0 },
+    {
+      label: "tool",
+      content: [{ type: "tool_use", name: "Read", input: { file_path: "fixture.ts" } }],
+      recognized: true,
+      tools: 1,
+    },
+    {
+      label: "result",
+      content: [{ type: "tool_result", content: [{ type: "text", text: "ok" }] }],
+      recognized: true,
+      tools: 0,
+    },
+    { label: "explicit empty", content: [], recognized: true, tools: 0 },
+  ])("qualifies measurement-bearing content blocks: $label", ({ content, recognized, tools }) => {
+    const root = { type: "user", sessionId: "s", timestamp: "2026-09-01T00:00:00Z" };
+    const assistant = { ...root, type: "assistant", message: { content } };
+    const catalog: HarnessCatalog = { ...EMPTY_CATALOG, skills: ["probe-skill"] };
+    for (const includeRoot of [true, false]) {
+      const records = includeRoot ? [root, assistant] : [assistant];
+      const s = parseSession(recordFile(records));
+      const state = recognized ? "observed" : includeRoot ? "partial" : "unavailable";
+      expect(s.sources?.transcript).toMatchObject({
+        records: records.length,
+        validRecords: recognized ? records.length : includeRoot ? 1 : 0,
+        parseErrors: 0,
+        state,
+        reason: recognized ? null : "incomplete-enumeration",
+      });
+      expect(s.linesRead).toBe(records.length);
+      const json = JSON.parse(
+        renderJson(buildReport([s], { repo: "blocks", version: "test", catalog })),
+      );
+      expect(json.availability.tools).toMatchObject({
+        eligible: 1,
+        observed: recognized ? 1 : 0,
+        contributors: recognized || includeRoot ? 1 : 0,
+        state,
+      });
+      expect(json.sessions[0].sources.transcript.reason).toBe(
+        recognized ? null : "incomplete-enumeration",
+      );
+      expect(json.sessions[0].orchestrator.shellReads).toBe(recognized || includeRoot ? 0 : null);
+      expect(json.sessions[0].orchestrator.toolCounts).toEqual(
+        recognized || includeRoot ? (tools ? { Read: 1 } : {}) : null,
+      );
+      // A nonempty catalog proves suppression, unlike a vacuous empty-catalog check.
+      const signals = detectSignals(s, catalog, "en");
+      if (recognized) expect(signals.some((signal) => signal.kind === "unused-skills")).toBe(true);
+      else expect(signals).toEqual([]);
+    }
+  });
+  // Covers: R7
+  it("unions verified overlapping and disjoint pairs without idle or double counting", () => {
+    const s = parseSession(
+      recordFile([{ type: "user", sessionId: "s", timestamp: "2026-09-01T00:00:00Z" }]),
+    );
+    const child = parseAgentRun(
+      recordFile([
+        { type: "user", sessionId: "s", agentId: "child", timestamp: "2026-09-01T00:00:00Z" },
+      ]),
+    );
+    assert(child);
+    s.agents.push(child);
+    attachHookEvents(
+      s,
+      recordFile([
+        { event: "start", sessionId: "s", ts: "2026-09-01T00:00:00Z" },
+        pairedHook("PreToolUse", 1, "a", { agentId: ORCHESTRATOR_OWNER }),
+        pairedHook("PostToolUse", 5, "a", { agentId: ORCHESTRATOR_OWNER }),
+        pairedHook("PreToolUse", 3, "b", { agentId: "child" }),
+        pairedHook("PostToolUse", 7, "b", { agentId: "child" }),
+        pairedHook("PreToolUse", 10, "c"),
+        pairedHook("PostToolUseFailure", 12, "c"),
+        { event: "stop", sessionId: "s", ts: "2026-09-01T00:00:20Z" },
+      ]),
+    );
+    expect(s.activeMs).toBe(8000);
+    expect(s.availability?.activeMs?.state).toBe("observed");
+    expect(s.wallClockMs).toBe(20000);
+    expect(s.availability?.wallClockMs?.state).toBe("observed");
+  });
+  // Covers: R7
+  it.each(["unpaired", "reversed", "invalid-time", "wrong-owner", "wrong-session"])(
+    "does not invent active time for %s records",
+    (kind) => {
+      const s = parseSession(
+        recordFile([{ type: "user", sessionId: "s", timestamp: "2026-09-01T00:00:00Z" }]),
+      );
+      const over =
+        kind === "invalid-time"
+          ? { tsMs: 1e30 }
+          : kind === "wrong-owner"
+            ? { agentId: "unowned" }
+            : kind === "wrong-session"
+              ? { sessionId: "other" }
+              : {};
+      attachHookEvents(
+        s,
+        recordFile([
+          { event: "start", sessionId: "s", ts: "2026-09-01T00:00:00Z" },
+          pairedHook("PreToolUse", 3, "x", over),
+          ...(kind === "unpaired"
+            ? []
+            : [pairedHook("PostToolUse", kind === "reversed" ? 1 : 5, "x", over)]),
+        ]),
+      );
+      expect(s.activeMs).toBeNull();
+      expect(s.availability?.activeMs?.state).toBe("unavailable");
+    },
+  );
+  // Covers: R7
+  it("diagnoses missing/unreadable hooks independently from usable transcript", () => {
+    const s = parseSession(
+      recordFile([{ type: "user", sessionId: "s", timestamp: "2026-09-01T00:00:00Z" }]),
+    );
+    attachHookEvents(s, join(dirs[0]!, "absent"));
+    expect(s.sources?.["audit-log"]?.reason).toBe("missing");
+    expect(s.sources?.transcript?.state).toBe("observed");
+    attachHookEvents(s, dirs[0]!);
+    expect(s.sources?.["audit-log"]?.reason).toBe("unreadable");
+    expect(s.sources?.otlp?.reason).toBe("missing");
+  });
+  // Covers: R7
+  it("counts semantic/time errors once, retains descriptive hooks, and qualifies OTLP independently", () => {
+    const s = parseSession(
+      recordFile([{ type: "user", sessionId: "s", timestamp: "2026-09-01T00:00:00Z" }]),
+    );
+    attachHookEvents(
+      s,
+      recordFile([
+        { event: "start", sessionId: "s", ts: "2026-09-01T00:00:00Z" },
+        pairedHook("PreToolUse", 1, "x", { tsMs: "unknown" }),
+        { event: "hook", ts: "2026-09-01T00:00:01Z" },
+        { event: "tool_decision", source: "user_yes", ts: "2026-09-01T00:00:02Z" },
+      ]),
+    );
+    expect(s.parseErrors).toBe(2);
+    expect(s.orchestrator.hookEvents).toHaveLength(1);
+    expect(s.sources?.["audit-log"]).toMatchObject({ state: "partial", parseErrors: 2 });
+    expect(s.sources?.otlp).toMatchObject({ state: "observed", parseErrors: 0 });
+    expect(s.permissions.total).toBe(1);
+    const other = parseSession(
+      recordFile([{ type: "user", sessionId: "s", timestamp: "2026-09-01T00:00:00Z" }]),
+    );
+    attachHookEvents(
+      other,
+      recordFile([
+        { event: "start", sessionId: "s", ts: "2026-09-01T00:00:00Z" },
+        { event: "tool_decision", ts: "2026-09-01T00:00:02Z" },
+      ]),
+    );
+    expect(other.sources?.["audit-log"]?.state).toBe("observed");
+    expect(other.sources?.otlp).toMatchObject({ state: "invalid", parseErrors: 1 });
+  });
+  // Covers: R7
+  it.each([
+    {
+      label: "root",
+      owner: ORCHESTRATOR_OWNER,
+      id: "s",
+      startOwner: undefined,
+      sealed: true,
+      observed: true,
+    },
+    {
+      label: "historical scoped root",
+      owner: undefined,
+      id: undefined,
+      startOwner: undefined,
+      sealed: true,
+      observed: true,
+    },
+    {
+      label: "child",
+      owner: "child",
+      id: "s",
+      startOwner: undefined,
+      sealed: false,
+      observed: false,
+    },
+    {
+      label: "foreign session",
+      owner: ORCHESTRATOR_OWNER,
+      id: "other",
+      startOwner: undefined,
+      sealed: false,
+      observed: false,
+    },
+    {
+      label: "child start",
+      owner: ORCHESTRATOR_OWNER,
+      id: "s",
+      startOwner: "child",
+      sealed: true,
+      observed: false,
+    },
+  ])(
+    "requires root lifecycle ownership to seal and certify calendar duration: $label",
+    (sample) => {
+      for (const event of ["session-end", "stop"]) {
+        const s = parseSession(
+          recordFile([
+            { type: "user", sessionId: "s", timestamp: "2026-09-01T00:00:00Z" },
+            {
+              type: "assistant",
+              sessionId: "s",
+              timestamp: "2026-09-01T00:00:10Z",
+              message: { content: [] },
+            },
+          ]),
+        );
+        attachHookEvents(
+          s,
+          recordFile([
+            {
+              event: "start",
+              sessionId: "s",
+              agentId: sample.startOwner,
+              ts: "2026-09-01T00:00:00Z",
+            },
+            {
+              event,
+              sessionId: sample.id,
+              agentId: sample.owner,
+              ts: "2026-09-01T00:00:10Z",
+              reason: "logout",
+              navoriCli: "terminal-version",
+            },
+          ]),
+        );
+        expect(s.sealed).toBe(sample.sealed);
+        expect(s.wallClockMs).toBe(10000);
+        expect(s.availability?.wallClockMs).toMatchObject({
+          state: sample.observed ? "observed" : "partial",
+          reason: sample.observed ? null : "unsealed",
+        });
+        if (!sample.sealed) {
+          expect(s.endReason).toBeNull();
+          expect(s.navoriAtStop).toBeNull();
+        }
+      }
+    },
+  );
+  // Covers: R7
+  it("never promotes inherited/unowned transcript extrema when an owned hook stop seals", () => {
+    const s = parseSession(
+      recordFile([
+        { type: "user", sessionId: "s", timestamp: "2026-09-01T00:00:10Z" },
+        {
+          type: "assistant",
+          sessionId: "s",
+          timestamp: "2026-09-01T00:00:15Z",
+          message: { content: [] },
+        },
+        { type: "user", sessionId: "parent", timestamp: "2026-08-01T00:00:00Z" },
+        { type: "user", timestamp: "2026-10-01T00:00:00Z" },
+      ]),
+    );
+    attachHookEvents(
+      s,
+      recordFile([
+        { event: "start", sessionId: "s", ts: "2026-09-01T00:00:10Z" },
+        { event: "stop", sessionId: "s", ts: "2026-09-01T00:00:20Z" },
+      ]),
+    );
+    expect(s.startedAt).toBe("2026-09-01T00:00:10.000Z");
+    expect(s.wallClockMs).toBe(10000);
+    expect(s.availability?.wallClockMs?.state).toBe("observed");
+  });
+  // Covers: R6, R7
+  it("preserves explicit zero, rejects invalid components, and sorts UTC instants", () => {
+    const s = parseSession(
+      file(
+        [
+          {
+            type: "assistant",
+            sessionId: "s",
+            timestamp: "2026-09-01T12:00:00+02:00",
+            message: { id: "1", usage: { input_tokens: 0, output_tokens: -1 } },
+          },
+          { type: "user", sessionId: "s", timestamp: "2026-09-01T09:30:00Z" },
+        ]
+          .map((r) => JSON.stringify(r))
+          .join("\n") + "\n",
+      ),
+    );
+    expect(s.availability?.["tokens.input"]?.state).toBe("observed");
+    expect(s.availability?.["tokens.output"]?.state).toBe("invalid");
+    expect(s.availability?.["tokens.cacheRead"]?.state).toBe("unavailable");
+    expect(s.startedAt).toBe("2026-09-01T09:30:00.000Z");
+    expect(s.wallClockMs).toBe(30 * 60000);
+    expect(s.activeMs).toBeNull();
+  });
+  // Covers: R7
+  it("distinguishes an incomplete live tail from malformed complete records", () => {
+    const raw = JSON.stringify({ type: "user", timestamp: "2026-09-01T10:00:00Z" }) + "\n";
+    expect(readJsonl(file(raw + "{unfinished")).health).toMatchObject({
+      state: "partial",
+      incompleteTail: true,
+      parseErrors: 0,
+      reason: "live-tail",
+    });
+    expect(readJsonl(file(raw + "{malformed\n")).health).toMatchObject({
+      state: "partial",
+      incompleteTail: false,
+      parseErrors: 1,
+      reason: "malformed",
+    });
+  });
+  // Covers: R6, R7
+  it("does not use inherited or ownership-unknown rollout extrema as root duration", () => {
+    const log = file(
+      JSON.stringify({
+        event: "start",
+        host: "codex",
+        sessionId: "s",
+        ts: "2026-09-01T10:00:00Z",
+      }) + "\n",
+    );
+    const rollout = file(
+      [
+        { type: "session_meta", timestamp: "2026-09-01T10:00:00Z", payload: { id: "s" } },
+        {
+          type: "event_msg",
+          timestamp: "2026-08-01T00:00:00Z",
+          payload: { type: "task_started", thread_id: "parent" },
+        },
+        { type: "event_msg", timestamp: "2026-09-01T10:10:00Z", payload: { type: "task_started" } },
+      ]
+        .map((r) => JSON.stringify(r))
+        .join("\n") + "\n",
+    );
+    const s = parseCodexSession("s", log, rollout);
+    expect(s?.availability?.wallClockMs?.state).toBe("unavailable");
+    expect(s?.sources?.rollout?.reason).toBe("ownership-unknown");
+    expect(s?.availability?.["tokens.cacheCreation"]?.state).toBe("unsupported");
+  });
+  // Covers: R7
+  it("uses explicitly owned hook-free source activity but keeps active time unknown", () => {
+    const log = file(
+      JSON.stringify({
+        event: "start",
+        host: "codex",
+        sessionId: "s",
+        ts: "2026-09-01T10:00:00Z",
+      }) + "\n",
+    );
+    const rollout = file(
+      [
+        { type: "session_meta", timestamp: "2026-09-01T10:00:00Z", payload: { id: "s" } },
+        {
+          type: "event_msg",
+          timestamp: "2026-09-01T10:10:00Z",
+          payload: { type: "task_started", thread_id: "s" },
+        },
+      ]
+        .map((r) => JSON.stringify(r))
+        .join("\n") + "\n",
+    );
+    expect(parseCodexSession("s", log, rollout)).toMatchObject({
+      wallClockMs: 600000,
+      activeMs: null,
+      availability: { wallClockMs: { state: "partial" } },
+    });
+  });
+});
 
 describe("parse: token dedupe", () => {
   it("counts a streaming-duplicated message once, not twice", () => {
@@ -463,7 +924,7 @@ describe("parse: native agent turn limit (R41, R42)", () => {
 
 describe("parse: missing input", () => {
   it("returns an empty result instead of throwing", () => {
-    expect(readJsonl("/nonexistent/path.jsonl")).toEqual({
+    expect(readJsonl("/nonexistent/path.jsonl")).toMatchObject({
       lines: [],
       parseErrors: 0,
       linesRead: 0,
@@ -811,26 +1272,7 @@ describe("parse: hook attribution", () => {
       endReason: null,
       permissionModes: {},
       prs: [],
-      orchestrator: {
-        tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, thinking: 0 },
-        startupTokens: 0,
-        models: {},
-        shellReads: 0,
-        shellWrites: 0,
-        toolCounts: {},
-        toolCountsByMode: {},
-        classifierExemptBashByMode: {},
-        skillsRead: [],
-        skills: [],
-        skillsDiscarded: 0,
-        skillAttributionRecords: 0,
-        mcpCalls: {},
-        mcpInjectedContext: {},
-        hookEvents: [],
-        frictionEvents: 0,
-        toolErrors: emptyToolErrors(),
-        repeatedCommands: {},
-      },
+      orchestrator: emptyOrchestrator(),
       agents,
       signals: [],
       hookLogFrom: null,
@@ -1821,6 +2263,16 @@ describe("parse: Codex rollout adapter (spec 0041 T18)", () => {
     expect(session?.unavailable).toBe("transcript");
   });
 
+  // Covers: R3
+  it("accepts a hostless historical start only with verified recovery supplied", () => {
+    const { log, rollout } = fixture(`${rolloutLines().join("\n")}\n`);
+    const original = readFileSync(log, "utf-8").replace(',"host":"codex"', "");
+    writeFileSync(log, original);
+    expect(parseCodexSession(SID, log, rollout)).toBeNull();
+    expect(parseCodexSession(SID, log, rollout, "recovered:rollout")?.host).toBe("codex");
+    expect(readFileSync(log, "utf-8")).toBe(original);
+  });
+
   // Covers: R24
   it("never lets raw message, tool input or output text reach the session or the report", () => {
     const { log, rollout } = fixture(`${rolloutLines().join("\n")}\n`);
@@ -1854,7 +2306,12 @@ describe("parse: Codex rollout adapter (spec 0041 T18)", () => {
     });
     const garbage = fixture(`not json ${SECRET}\n{broken\n`);
     const parsed = parseCodexSession(SID, garbage.log, garbage.rollout);
-    expect(parsed?.rollout).toEqual({ status: "unavailable", reason: "unreadable" });
+    expect(parsed?.rollout).toMatchObject({ status: "unavailable", reason: "unreadable" });
+    expect(parsed?.sources?.rollout).toMatchObject({
+      state: "invalid",
+      reason: "malformed",
+      parseErrors: 2,
+    });
     expect(JSON.stringify(parsed)).not.toContain(SECRET);
   });
 });

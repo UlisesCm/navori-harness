@@ -289,6 +289,25 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
       late: true,
     },
   },
+  {
+    // Codex-only (`HOOK_ENGINES`): enforces Claude's per-role engram grants, which
+    // Codex cannot express in an agent. Registered AFTER the conditional `plan-gate`
+    // on purpose: trust keys are positional (`pre_tool_use:<idx>:0`), so placing it
+    // before would shift plan-gate's already-approved index and switch it off, and
+    // role-guard's matcher must never change (a new hash disables it until
+    // re-approved). Accepted cost: toggling `harness.planTiers` moves this row's
+    // index, so it needs one re-approval then (same for `harness.masterPlan`, whose rows precede it). The unanchored matcher also covers
+    // the `mcp__plugin_engram_engram__` prefix; the script compares by tool suffix.
+    script: "engram-write-guard",
+    registration: {
+      event: "PreToolUse",
+      matcher: "mcp__engram__|mcp__plugin_engram_engram__",
+      timeout: 10,
+      statusMessage: "navori: engram-write-guard",
+      minVersion: "0.134.0",
+      late: true,
+    },
+  },
 ];
 
 /** One Codex hook ready to serialize into `.codex/config.toml`. */

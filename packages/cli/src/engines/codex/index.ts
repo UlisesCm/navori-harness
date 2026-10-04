@@ -34,6 +34,7 @@ import {
 import { buildHarnessProse, type ProseEngineResult } from "../shared/prose-harness.ts";
 import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
 import { pluginExtraVars } from "../shared/plugin-extra-vars.ts";
+import { buildEngramPolicyShell } from "../shared/engram-grant-policy.ts";
 import { buildRolePolicyShell } from "../shared/role-policy.ts";
 import { pluginScriptCollisions, pluginScriptPlacements } from "../shared/plugin-scripts.ts";
 import {
@@ -723,6 +724,10 @@ function hookRequest(hook: PlannedHook, config: NavoriConfig): PlacementRequest 
     ...(hook.id === "role-guard"
       ? { extraVars: { rolePolicy: buildRolePolicyShell(config) } }
       : {}),
+    // The engram allowlist is compiled from the same grants Claude renders into `tools:`.
+    ...(hook.id === "engram-write-guard"
+      ? { extraVars: { engramPolicy: buildEngramPolicyShell() } }
+      : {}),
   };
 }
 
@@ -767,6 +772,17 @@ function adaptOrchestratorPlaybookForCodex(content: string, config: NavoriConfig
     );
 }
 
+/**
+ * One short clause per agent for the root roster: the "Use ..." trigger
+ * sentence cut at its first comma (the full text stays in `.codex/agents/<id>.toml`).
+ * Falls back to the first sentence when the description has no trigger.
+ */
+export function compactAgentDescription(description: string): string {
+  const trigger = description.match(/(?:^|\. )(Use [^.]*)/)?.[1];
+  const clause = trigger ?? description.split(/\. /)[0] ?? description;
+  return (clause.split(",")[0] ?? clause).replace(/\.$/, "").trim();
+}
+
 function buildAgentsMdRequest(
   ctx: AdapterCtx,
   agents: ReadonlyArray<{ id: string; description: string }>,
@@ -775,6 +791,7 @@ function buildAgentsMdRequest(
     includeOrchestration: true,
     includePluginBlocks: true,
     engine: "codex",
+    omitSkillsIndex: true,
   });
   // Same localized "## Available agents" prose as the Claude engine (#289), but
   // without the orchestrator intro — AGENTS.md IS the catalog Codex reads, so it
@@ -782,7 +799,14 @@ function buildAgentsMdRequest(
   // from each agent's own frontmatter (collected in placeAgent), not from the
   // Claude "when to reach for it" map.
   const agentCatalog =
-    buildAgentsIndexBlock(resolveLang(ctx.config.language), agents, { withIntro: false }) ?? "";
+    buildAgentsIndexBlock(
+      resolveLang(ctx.config.language),
+      agents.map(({ id, description }) => ({
+        id,
+        description: compactAgentDescription(description),
+      })),
+      { withIntro: false },
+    ) ?? "";
   let body = adaptHarnessTextForCodex(`${baseBody}\n${agentCatalog}`, ctx.config);
   // The main thread embodies the orchestrator in Codex (no `.codex/agents/orchestrator.toml`),
   // so a plugin skill injecting into a target agent (e.g. engram's

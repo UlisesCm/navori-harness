@@ -16,9 +16,9 @@ coverage-*/
 .claude/worktrees/
 # Ephemeral subagent handoffs (audits, research, solutions, reviews). navori's
 # own CUBO_A lists this as never-commit; the file was missing the entry, so a
-# session's artifacts leaked into git. Session STATE lives in progress/ (root),
-# which IS versioned on purpose.
+# session's artifacts leaked into git. Root session state is machine-local too.
 .claude/progress/
+/progress/
 # mtime baseline for the managed-drift watcher — machine-local timing state
 .claude/.managed-drift-stamp
 # Per-session tally for the routing watcher (spec 0020): which files the main

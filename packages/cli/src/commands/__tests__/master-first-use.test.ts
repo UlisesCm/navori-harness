@@ -71,6 +71,33 @@ async function ok(cwd: string, ...argv: string[]): Promise<RunResult> {
   return result;
 }
 
+it("opts into deliveries only explicitly and rejects legacy commands without writes", async () => {
+  const cwd = freshRepo();
+  expect((await ok(cwd, "init", "delivery", "--workflow", "deliveries")).out).toContain(
+    "preparación, baseline y cola disponibles",
+  );
+  const stage = join(cwd, "specs", "_master", "01-delivery");
+  const statePath = join(stage, "state.json");
+  const before = readFileSync(statePath, "utf8");
+  expect((await master(cwd, "mode", "template")).exitCode).toBe(1);
+  expect((await master(cwd, "ux", "none")).exitCode).toBe(1);
+  expect((await master(cwd, "advance")).exitCode).toBe(1);
+  expect((await master(cwd, "check")).exitCode).toBe(1);
+  expect((await master(cwd, "template", "issue", "--part", "P1")).exitCode).toBe(1);
+  expect((await master(cwd, "close", "--abandon", "--reason", "test")).exitCode).toBe(1);
+  expect((await master(cwd, "init", "--workflow", "legacy")).exitCode).toBe(1);
+  expect(readFileSync(statePath, "utf8")).toBe(before);
+  expect((await ok(cwd, "init")).out).toContain("preparación, baseline y cola disponibles");
+});
+
+it("rejects an invalid workflow flag before creating the registry", async () => {
+  const cwd = freshRepo();
+  const config = readFileSync(join(cwd, "navori.config.json"), "utf8");
+  expect((await master(cwd, "init", "delivery", "--workflow", "unknown")).exitCode).toBe(1);
+  expect(existsSync(join(cwd, "specs", "_master"))).toBe(false);
+  expect(readFileSync(join(cwd, "navori.config.json"), "utf8")).toBe(config);
+});
+
 function readJson(path: string): Record<string, unknown> {
   return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
 }
@@ -214,12 +241,20 @@ describe("master commands record CLI audit events (R55, R70)", () => {
   const saved = {
     root: process.env.NAVORI_AUDITS_ROOT,
     session: process.env.CLAUDE_CODE_SESSION_ID,
+    auditHost: process.env.NAVORI_AUDIT_HOST,
+    auditSession: process.env.NAVORI_AUDIT_SESSION_ID,
+    codexSession: process.env.CODEX_SESSION_ID,
+    codexThread: process.env.CODEX_THREAD_ID,
   };
 
   afterEach(() => {
     for (const [key, value] of [
       ["NAVORI_AUDITS_ROOT", saved.root],
       ["CLAUDE_CODE_SESSION_ID", saved.session],
+      ["NAVORI_AUDIT_HOST", saved.auditHost],
+      ["NAVORI_AUDIT_SESSION_ID", saved.auditSession],
+      ["CODEX_SESSION_ID", saved.codexSession],
+      ["CODEX_THREAD_ID", saved.codexThread],
     ] as const) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -232,9 +267,16 @@ describe("master commands record CLI audit events (R55, R70)", () => {
     temps.push(root);
     process.env.NAVORI_AUDITS_ROOT = root;
     process.env.CLAUDE_CODE_SESSION_ID = "master-events";
+    process.env.NAVORI_AUDIT_HOST = "claude";
+    process.env.NAVORI_AUDIT_SESSION_ID = "master-events";
+    delete process.env.CODEX_SESSION_ID;
+    delete process.env.CODEX_THREAD_ID;
     const log = sessionLogPath(repoFromCwd(cwd), "master-events");
     mkdirSync(dirname(log), { recursive: true });
-    writeFileSync(log, `${JSON.stringify({ event: "start" })}\n`);
+    writeFileSync(
+      log,
+      `${JSON.stringify({ event: "start", host: "claude", sessionId: "master-events", cwd })}\n`,
+    );
     return log;
   }
 
@@ -278,6 +320,8 @@ describe("master commands record CLI audit events (R55, R70)", () => {
     const cwd = freshRepo();
     const log = startAudit(cwd);
     delete process.env.CLAUDE_CODE_SESSION_ID;
+    delete process.env.NAVORI_AUDIT_HOST;
+    delete process.env.NAVORI_AUDIT_SESSION_ID;
     await ok(cwd, "init", "mvp");
     await ok(cwd, "close", "--abandon", "--reason", "no longer needed");
     expect(cliEvents(log)).toEqual([]);

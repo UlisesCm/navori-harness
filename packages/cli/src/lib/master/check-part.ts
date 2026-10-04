@@ -33,6 +33,8 @@ export function checkPart(cwd: string, partId: string): string[] {
   const specsDir = config.sdd?.specsDir ?? "specs";
   const stage = activeStage(readMasterIndex(cwd, specsDir));
   if (!stage) return ["no active master-plan stage"];
+  if (stage.workflow === "deliveries")
+    return [`${stage.dir}: deliveries workflow is not supported by legacy part checks`];
   const partsPath = join(masterDirPath(cwd, specsDir), stage.dir, "parts.json");
   if (!existsSync(partsPath)) return [`missing ${partsPath}`];
   const parsed = PartsSchema.safeParse(JSON.parse(readFileSync(partsPath, "utf8")) as unknown);

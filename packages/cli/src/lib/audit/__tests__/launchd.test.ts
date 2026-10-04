@@ -1,31 +1,171 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { createServer } from "node:http";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   LAUNCH_AGENT_LABEL,
   buildLaunchAgent,
+  installLaunchAgent,
   installedArgv,
   isLaunchdPlatform,
+  launchAgentPath,
   probeReceiver,
   receiverArgv,
+  uninstallLaunchAgent,
 } from "../launchd.ts";
 import { startReceiver, type OtelReceiver } from "../collect.ts";
 
-/**
- * What is NOT tested here, deliberately: `installLaunchAgent` and
- * `uninstallLaunchAgent`.
- *
- * Both write into the developer's real `~/Library/LaunchAgents` and shell out
- * to `launchctl`, so a suite that exercised them would load a background agent
- * on whoever ran `pnpm test`. The parts that can be wrong without a machine —
- * the plist's contents, the command it pins, and reading it back — are pure and
- * are covered; the two that cannot are thin wrappers over `launchctl` whose
- * failure the command already surfaces verbatim.
- */
+// Lifecycle tests inject a fake launchctl and isolate HOME; no real job runs.
 
 const open: OtelReceiver[] = [];
 
 afterEach(async () => {
   while (open.length > 0) await open.pop()?.close();
+});
+
+describe("launchd lifecycle (R12)", () => {
+  const originalHome = process.env.HOME;
+  let home: string;
+
+  function setupPlist(): string {
+    const path = launchAgentPath();
+    mkdirSync(join(home, "Library", "LaunchAgents"), { recursive: true });
+    writeFileSync(path, "original plist");
+    return path;
+  }
+
+  afterEach(() => {
+    process.env.HOME = originalHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  function isolatedHome(): void {
+    home = mkdtempSync(join(tmpdir(), "navori-launchd-lifecycle-"));
+    process.env.HOME = home;
+  }
+
+  // Covers: R12
+  it("preserves the plist and reports failed bootout on uninstall", () => {
+    isolatedHome();
+    const path = setupPlist();
+    const controller = vi.fn((args: string[]) =>
+      args[0] === "print" ? { ok: true, message: "" } : { ok: false, message: "permission denied" },
+    );
+    expect(uninstallLaunchAgent(controller)).toMatchObject({
+      removed: false,
+      unloaded: false,
+      error: expect.stringContaining("permission denied"),
+    });
+    expect(readFileSync(path, "utf8")).toBe("original plist");
+  });
+
+  // Covers: R12
+  it("does not replace a loaded job if bootout fails", () => {
+    isolatedHome();
+    const path = setupPlist();
+    const controller = vi.fn((args: string[]) =>
+      args[0] === "print" ? { ok: true, message: "" } : { ok: false, message: "permission denied" },
+    );
+    expect(installLaunchAgent(controller)).toMatchObject({
+      loaded: false,
+      message: expect.stringContaining("permission denied"),
+    });
+    expect(readFileSync(path, "utf8")).toBe("original plist");
+    expect(controller.mock.calls.some(([args]) => args[0] === "bootstrap")).toBe(false);
+  });
+
+  // Covers: R12
+  it("preserves declaration on query failure instead of treating it as absent", () => {
+    isolatedHome();
+    const path = setupPlist();
+    const controller = vi.fn(() => ({ ok: false, message: "I/O error" }));
+    expect(uninstallLaunchAgent(controller).error).toContain("I/O error");
+    expect(installLaunchAgent(controller).loaded).toBe(false);
+    expect(readFileSync(path, "utf8")).toBe("original plist");
+    expect(controller).toHaveBeenCalledTimes(2);
+  });
+
+  // Covers: R12
+  it("refuses removal or replacement when bootout returns success but the job remains loaded", () => {
+    isolatedHome();
+    const path = setupPlist();
+    const controller = vi.fn((_args: string[]) => ({ ok: true, message: "" }));
+    expect(uninstallLaunchAgent(controller).error).toContain("did not unload");
+    expect(installLaunchAgent(controller)).toMatchObject({
+      loaded: false,
+      message: expect.stringContaining("did not unload"),
+    });
+    expect(readFileSync(path, "utf8")).toBe("original plist");
+    expect(controller.mock.calls.some(([args]) => args[0] === "bootstrap")).toBe(false);
+  });
+
+  // Covers: R12
+  it("unloads a loaded job even if its declaration is already missing", () => {
+    isolatedHome();
+    let loaded = true;
+    const controller = vi.fn((args: string[]) => {
+      if (args[0] === "print")
+        return loaded
+          ? { ok: true, message: "" }
+          : { ok: false, message: "Could not find service" };
+      loaded = false;
+      return { ok: true, message: "" };
+    });
+    expect(uninstallLaunchAgent(controller)).toMatchObject({ removed: false, unloaded: true });
+    expect(controller.mock.calls.some(([args]) => args[0] === "bootout")).toBe(true);
+  });
+
+  // Covers: R12
+  it("removes an absent job declaration and reports bootstrap failure", () => {
+    isolatedHome();
+    const path = setupPlist();
+    const absent = { ok: false, message: "Could not find service" };
+    expect(uninstallLaunchAgent(() => absent)).toMatchObject({ removed: true, unloaded: false });
+    expect(existsSync(path)).toBe(false);
+    const controller = vi.fn((args: string[]) =>
+      args[0] === "print" ? absent : { ok: false, message: "bootstrap denied" },
+    );
+    expect(installLaunchAgent(controller)).toMatchObject({
+      loaded: false,
+      message: "bootstrap denied",
+    });
+    expect(existsSync(path)).toBe(true);
+  });
+
+  // Covers: R12
+  it("does not report a healthy install when bootstrap succeeds but print stays absent", () => {
+    isolatedHome();
+    const controller = vi.fn((args: string[]) =>
+      args[0] === "print"
+        ? { ok: false, message: "Could not find service" }
+        : { ok: true, message: "" },
+    );
+    expect(installLaunchAgent(controller)).toMatchObject({
+      loaded: false,
+      message: expect.stringContaining("did not load"),
+    });
+  });
+
+  // Covers: R12
+  it("removes only after confirmed unload and can replace a loaded job", () => {
+    isolatedHome();
+    const path = setupPlist();
+    let loaded = true;
+    const controller = vi.fn((args: string[]) => {
+      if (args[0] === "print")
+        return loaded
+          ? { ok: true, message: "" }
+          : { ok: false, message: "Could not find service" };
+      if (args[0] === "bootout") loaded = false;
+      if (args[0] === "bootstrap") loaded = true;
+      return { ok: true, message: "" };
+    });
+    expect(installLaunchAgent(controller)).toMatchObject({ loaded: true, replaced: true });
+    expect(readFileSync(path, "utf8")).not.toBe("original plist");
+    expect(uninstallLaunchAgent(controller)).toMatchObject({ removed: true, unloaded: true });
+    expect(existsSync(path)).toBe(false);
+  });
 });
 
 /** A port nobody is listening on: opened to reserve a number, then released. */

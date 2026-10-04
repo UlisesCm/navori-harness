@@ -1,6 +1,18 @@
-import { existsSync, readFileSync, readdirSync, statSync, type Dirent } from "node:fs";
-import { basename, join } from "node:path";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  readSync,
+  statSync,
+  type Dirent,
+} from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { codexHome } from "../codex/home.ts";
+import type { EvidenceReason } from "./model.ts";
 import {
   auditsRoot,
   encodeCwdToSlug,
@@ -29,7 +41,16 @@ export interface MarkedSession {
   /** Resolved transcript path, or null when it could not be located. */
   transcript: string | null;
   /** Host that recorded the `start` event; `"codex"` sessions have no Claude transcript. */
-  host: "claude" | "codex";
+  host: "claude" | "codex" | "unknown";
+  /** Explicit marker or a read-only recovery from matching source metadata. */
+  hostProvenance: "declared" | "recovered:rollout" | "recovered:transcript" | "unknown";
+  sourceStatus: "verified" | "missing" | "wrong-format" | "identity-conflict";
+  /** Adapter is selected only after source shape and root identity verify. */
+  adapter: "claude-transcript" | "codex-rollout" | null;
+  source: string | null;
+  sourceVersion: string | null;
+  sourceReason: string | null;
+  versionReason: "not-observed" | null;
   /** Codex rollout path (spec 0041 R24), `null` for Claude sessions or when not found. */
   rollout: string | null;
 }
@@ -40,6 +61,8 @@ export interface DiscoveryFilters {
   until?: string;
   /** Session id or unique prefix; "latest" picks the most recent. */
   session?: string;
+  /** Fixed requested UTC window, independent of observed session extrema. */
+  range?: { from: string; to: string };
 }
 
 interface LogHeader {
@@ -47,7 +70,9 @@ interface LogHeader {
   markedAt: string;
   /** Transcript path as reported by the hook payload, when the log has one. */
   transcript: string | null;
-  host: "claude" | "codex";
+  host: MarkedSession["host"];
+  identityConflict: boolean;
+  present: boolean;
 }
 
 /**
@@ -59,12 +84,13 @@ interface LogHeader {
  * one. Worth the extra pass — it replaces a guess at Claude Code's
  * undocumented directory encoding with the path Claude Code itself reported.
  */
-function readHeader(logFile: string): LogHeader {
+function readHeader(logFile: string, sessionId: string, repoName: string): LogHeader {
   let cwd: string | null = null;
   let markedAt = "";
   let transcript: string | null = null;
   let seenHeader = false;
-  let host: LogHeader["host"] = "claude";
+  let host: LogHeader["host"] = "unknown";
+  let identityConflict = false;
   try {
     const raw = readFileSync(logFile, "utf-8");
     for (const line of raw.split("\n")) {
@@ -74,9 +100,13 @@ function readHeader(logFile: string): LogHeader {
         if (typeof obj !== "object" || obj === null) continue;
         const rec = obj as Record<string, unknown>;
         if (!seenHeader) {
+          if (rec.event !== "start") continue;
           cwd = typeof rec.cwd === "string" ? rec.cwd : null;
           markedAt = typeof rec.ts === "string" ? rec.ts : "";
-          if (rec.host === "codex") host = "codex";
+          if (rec.host === "codex" || rec.host === "claude") host = rec.host;
+          else if (rec.host !== undefined) identityConflict = true;
+          if (rec.sessionId !== undefined && rec.sessionId !== sessionId) identityConflict = true;
+          if (rec.repo !== undefined && rec.repo !== repoName) identityConflict = true;
           seenHeader = true;
         }
         if (!transcript && typeof rec.transcript === "string" && rec.transcript) {
@@ -90,7 +120,80 @@ function readHeader(logFile: string): LogHeader {
   } catch {
     // Unreadable log: treat as headerless rather than failing discovery.
   }
-  return { cwd, markedAt, transcript, host };
+  return { cwd, markedAt, transcript, host, identityConflict, present: seenHeader };
+}
+
+interface SourceIdentity {
+  host: "claude" | "codex";
+  status: MarkedSession["sourceStatus"];
+  version?: string;
+}
+
+/** At most the first root-metadata line; later prompt/tool records stay unread. */
+function sourceMetadataLine(file: string): string | null {
+  const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const buffer = Buffer.alloc(1024 * 1024);
+    const bytes = readSync(fd, buffer, 0, buffer.length, 0);
+    const end = buffer.subarray(0, bytes).indexOf(10);
+    if (end < 0 && bytes === buffer.length) return null;
+    return buffer.toString("utf-8", 0, end >= 0 ? end : bytes);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Read only versioned identity fields; never inspect prompts or tool payloads. */
+function inspectSource(
+  file: string | null,
+  host: "claude" | "codex",
+  sessionId: string,
+  cwd: string | null,
+): SourceIdentity {
+  if (!file) return { host, status: "missing" };
+  try {
+    if (!lstatSync(file).isFile()) return { host, status: "wrong-format" };
+    const line = sourceMetadataLine(file);
+    if (line?.trim()) {
+      const rec: unknown = JSON.parse(line);
+      if (typeof rec !== "object" || rec === null) return { host, status: "wrong-format" };
+      const record = rec as Record<string, unknown>;
+      const meta = host === "codex" ? record.payload : record;
+      if (host === "codex" && record.type !== "session_meta")
+        return { host, status: "wrong-format" };
+      if (typeof meta !== "object" || meta === null) return { host, status: "wrong-format" };
+      const fields = meta as Record<string, unknown>;
+      const id = host === "codex" ? (fields.id ?? fields.session_id) : fields.sessionId;
+      if (
+        host === "codex" &&
+        fields.id !== undefined &&
+        fields.session_id !== undefined &&
+        fields.id !== fields.session_id
+      )
+        return { host, status: "identity-conflict" };
+      if (
+        host === "claude" &&
+        !["user", "assistant", "system", "summary"].includes(String(record.type))
+      )
+        return { host, status: "wrong-format" };
+      if (typeof id !== "string") return { host, status: "wrong-format" };
+      if (typeof fields.cwd !== "string") return { host, status: "wrong-format" };
+      if (
+        id !== sessionId ||
+        (cwd && resolve(projectRootFromCwd(fields.cwd)) !== resolve(projectRootFromCwd(cwd)))
+      )
+        return { host, status: "identity-conflict" };
+      const version = host === "codex" ? fields.cli_version : fields.version;
+      return {
+        host,
+        status: "verified",
+        ...(typeof version === "string" && version ? { version } : {}),
+      };
+    }
+    return { host, status: "wrong-format" };
+  } catch {
+    return { host, status: existsSync(file) ? "wrong-format" : "missing" };
+  }
 }
 
 /**
@@ -165,46 +268,138 @@ export function resolveCodexRollout(sessionId: string, recorded?: string | null)
   }
 }
 
+/** Normalize date inputs to a half-open UTC window once per command. */
+export function requestedRange(
+  filters: DiscoveryFilters,
+  now: Date = new Date(),
+): { from: string; to: string } {
+  if (filters.range) return filters.range;
+  const from = filters.since
+    ? Date.parse(filters.since)
+    : filters.days !== undefined
+      ? now.getTime() - filters.days * 86400000
+      : 0;
+  const to = filters.until
+    ? Date.parse(filters.until) + (/^\d{4}-\d{2}-\d{2}$/.test(filters.until) ? 86400000 : 0)
+    : now.getTime();
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to)
+    throw new Error("invalid-audit-range");
+  return { from: new Date(from).toISOString(), to: new Date(to).toISOString() };
+}
+
 function withinRange(markedAt: string, filters: DiscoveryFilters): boolean {
-  if (!markedAt) return true;
-  const day = markedAt.slice(0, 10);
-  if (filters.since && day < filters.since) return false;
-  if (filters.until && day > filters.until) return false;
-  if (filters.days !== undefined) {
-    const cutoff = Date.now() - filters.days * 24 * 60 * 60 * 1000;
-    const at = Date.parse(markedAt);
-    if (Number.isFinite(at) && at < cutoff) return false;
-  }
-  return true;
+  const at = Date.parse(markedAt);
+  if (!Number.isFinite(at))
+    return !filters.range && !filters.since && !filters.until && filters.days === undefined;
+  const range = requestedRange(filters);
+  return at >= Date.parse(range.from) && at < Date.parse(range.to);
 }
 
 /** Lists the marked sessions of a repo that match the filters. */
+export function markerEnumeration(repoName: string): {
+  state: "observed" | "unavailable";
+  reason: "unreadable" | null;
+  files: string[];
+} {
+  const dir = repoAuditDir(repoName);
+  try {
+    const files = readdirSync(dir).filter(
+      (file) => file.startsWith("session-") && file.endsWith(".log"),
+    );
+    return { state: "observed", reason: null, files };
+  } catch (error: unknown) {
+    const code = typeof error === "object" && error !== null && "code" in error ? error.code : null;
+    return code === "ENOENT"
+      ? { state: "observed", reason: null, files: [] }
+      : { state: "unavailable", reason: "unreadable", files: [] };
+  }
+}
+
+/** Lists markers only when their directory could actually be enumerated. */
 export function findMarkedSessions(
   repoName: string,
   filters: DiscoveryFilters = {},
 ): MarkedSession[] {
   const dir = repoAuditDir(repoName);
-  if (!existsSync(dir)) return [];
+  const enumeration = markerEnumeration(repoName);
+  if (enumeration.state !== "observed") return [];
 
   const sessions: MarkedSession[] = [];
-  for (const file of readdirSync(dir)) {
+  for (const file of enumeration.files) {
     if (!file.startsWith("session-") || !file.endsWith(".log")) continue;
     const sessionId = basename(file)
       .replace(/^session-/, "")
       .replace(/\.log$/, "");
     const logFile = join(dir, file);
-    const { cwd, markedAt, transcript, host } = readHeader(logFile);
+    const { cwd, markedAt, transcript, host, identityConflict, present } = readHeader(
+      logFile,
+      sessionId,
+      repoName,
+    );
     // A Codex hook payload's `transcript_path` is the rollout, not a Claude
     // transcript: it must never reach `parseSession`.
-    const isCodex = host === "codex";
+    const claudeFile = host !== "codex" ? resolveTranscript(sessionId, cwd, transcript) : null;
+    const codexFile = host !== "claude" ? resolveCodexRollout(sessionId, transcript) : null;
+    const claudeSource =
+      host !== "codex" ? inspectSource(claudeFile, "claude", sessionId, cwd) : null;
+    const codexSource =
+      host !== "claude" ? inspectSource(codexFile, "codex", sessionId, cwd) : null;
+    const recovered =
+      host === "unknown"
+        ? [claudeSource, codexSource].filter((source) => source?.status === "verified")
+        : [];
+    const resolvedHost =
+      host !== "unknown"
+        ? host
+        : recovered.length === 1
+          ? (recovered[0]?.host ?? "unknown")
+          : "unknown";
+    const sourceStatus =
+      !present || !cwd
+        ? "wrong-format"
+        : identityConflict || recovered.length > 1
+          ? "identity-conflict"
+          : resolvedHost === "claude"
+            ? (claudeSource?.status ?? "missing")
+            : resolvedHost === "codex"
+              ? (codexSource?.status ?? "missing")
+              : claudeSource?.status === "identity-conflict" ||
+                  codexSource?.status === "identity-conflict"
+                ? "identity-conflict"
+                : claudeSource?.status === "wrong-format" || codexSource?.status === "wrong-format"
+                  ? "wrong-format"
+                  : "missing";
+    const selectedSource = resolvedHost === "codex" ? codexSource : claudeSource;
+    const source =
+      resolvedHost === "codex" ? codexFile : resolvedHost === "claude" ? claudeFile : null;
     sessions.push({
       sessionId,
       logFile,
       cwd,
       markedAt,
-      host,
-      transcript: isCodex ? null : resolveTranscript(sessionId, cwd, transcript),
-      rollout: isCodex ? resolveCodexRollout(sessionId, transcript) : null,
+      host: resolvedHost,
+      hostProvenance:
+        host !== "unknown"
+          ? "declared"
+          : resolvedHost === "codex"
+            ? "recovered:rollout"
+            : resolvedHost === "claude"
+              ? "recovered:transcript"
+              : "unknown",
+      sourceStatus,
+      adapter:
+        sourceStatus === "verified"
+          ? resolvedHost === "codex"
+            ? "codex-rollout"
+            : "claude-transcript"
+          : null,
+      source,
+      sourceVersion: sourceStatus === "verified" ? (selectedSource?.version ?? null) : null,
+      sourceReason: sourceStatus === "verified" ? null : sourceStatus,
+      versionReason:
+        sourceStatus === "verified" && !selectedSource?.version ? "not-observed" : null,
+      transcript: resolvedHost === "claude" ? claudeFile : null,
+      rollout: resolvedHost === "codex" ? codexFile : null,
     });
   }
 
@@ -215,7 +410,24 @@ export function findMarkedSessions(
     const prefix = filters.session;
     return sessions.filter((s) => s.sessionId.startsWith(prefix));
   }
-  return sessions.filter((s) => withinRange(s.markedAt, filters));
+  return sessions.filter((s) => {
+    if (withinRange(s.markedAt, filters)) return true;
+    if (s.sourceStatus !== "verified" || !s.source) return false;
+    try {
+      const line = sourceMetadataLine(s.source);
+      const rec: unknown = line ? JSON.parse(line) : null;
+      if (typeof rec !== "object" || rec === null) return false;
+      const record = rec as Record<string, unknown>;
+      const payload =
+        typeof record.payload === "object" && record.payload !== null
+          ? (record.payload as Record<string, unknown>)
+          : null;
+      const ts = s.host === "codex" ? (payload?.timestamp ?? record.timestamp) : record.timestamp;
+      return typeof ts === "string" && withinRange(ts, filters);
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** One audited repo: how much of the host's activity its audit log covers. */
@@ -225,9 +437,165 @@ export interface RepoCoverage {
   /** Distinct project roots the session logs of this directory recorded. */
   roots: string[];
   /** Sessions with an audit log in the period. */
-  audited: number;
+  audited: number | null;
   /** Host sessions in the period, or null when no root is known to look under. */
   host: number | null;
+  captured?: number | null;
+  ratio?: number | null;
+  reason?: EvidenceReason | null;
+  activation?: {
+    observed: number | null;
+    root: number | null;
+    child: number | null;
+    unknown: number | null;
+    markerOnly: number | null;
+  };
+  populations?: Array<{
+    host: "claude" | "codex";
+    relation: "root" | "child" | "unknown";
+    denominator: number | null;
+    captured: number | null;
+    ratio: number | null;
+    reason: EvidenceReason | null;
+  }>;
+}
+
+interface HostMember {
+  key: string;
+  host: "claude" | "codex";
+  relation: "root" | "child" | "unknown";
+  startedAt: string;
+}
+
+/** Enumerate authoritative metadata only; unreadable/invalid sources keep N unknown. */
+function hostPopulation(
+  roots: readonly string[],
+  filters: DiscoveryFilters,
+): {
+  members: HostMember[];
+  allMembers: HostMember[];
+  complete: boolean;
+  byHost: Record<"claude" | "codex", boolean>;
+  identityConflict: boolean;
+} {
+  const members = new Map<string, HostMember>();
+  let complete = roots.length > 0;
+  const byHost = { claude: roots.length > 0, codex: roots.length > 0 };
+  const files = new Set<string>();
+  const codexFiles = new Set<string>();
+  let identityConflict = false;
+  try {
+    for (const root of roots) {
+      const dirs = hostSlugDirs(root, transcriptsRoot());
+      if (!existsSync(transcriptsRoot())) byHost.claude = false;
+      for (const dir of dirs)
+        for (const entry of readdirSync(dir))
+          if (entry.endsWith(".jsonl")) files.add(join(dir, entry));
+    }
+    const codexRoot = join(codexHome(), "sessions");
+    if (!existsSync(codexRoot)) byHost.codex = false;
+    else {
+      const walk = (dir: string, depth: number): void => {
+        if (depth > 8) {
+          complete = false;
+          return;
+        }
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const file = join(dir, entry.name);
+          if (entry.isDirectory()) walk(file, depth + 1);
+          else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+            files.add(file);
+            codexFiles.add(file);
+          } else if (entry.isSymbolicLink()) complete = false;
+        }
+      };
+      walk(codexRoot, 0);
+    }
+  } catch {
+    complete = false;
+  }
+  for (const file of files) {
+    const expectedHost = codexFiles.has(file) ? "codex" : "claude";
+    try {
+      const line = sourceMetadataLine(file);
+      const record: unknown = line ? JSON.parse(line) : null;
+      if (typeof record !== "object" || record === null) {
+        byHost[expectedHost] = false;
+        continue;
+      }
+      const rec = record as Record<string, unknown>;
+      const host = rec.type === "session_meta" ? "codex" : "claude";
+      if (
+        host !== expectedHost ||
+        (host === "claude" &&
+          !["user", "assistant", "system", "summary"].includes(String(rec.type)))
+      ) {
+        byHost[expectedHost] = false;
+        continue;
+      }
+      const meta = host === "codex" ? rec.payload : rec;
+      if (typeof meta !== "object" || meta === null) {
+        byHost[host] = false;
+        continue;
+      }
+      const fields = meta as Record<string, unknown>;
+      if (typeof fields.cwd !== "string") {
+        byHost[host] = false;
+        continue;
+      }
+      if (
+        !roots.some((root) => resolve(projectRootFromCwd(fields.cwd as string)) === resolve(root))
+      )
+        continue;
+      const id = host === "codex" ? (fields.id ?? fields.session_id) : fields.sessionId;
+      const ts = host === "codex" ? (fields.timestamp ?? rec.timestamp) : rec.timestamp;
+      if (typeof id !== "string" || typeof ts !== "string" || !Number.isFinite(Date.parse(ts))) {
+        byHost[host] = false;
+        continue;
+      }
+      const identity = inspectSource(file, host, id, fields.cwd);
+      if (identity.status !== "verified") {
+        byHost[host] = false;
+        identityConflict ||= identity.status === "identity-conflict";
+        continue;
+      }
+      const relation =
+        typeof fields.parent_thread_id === "string" ||
+        typeof fields.parentSessionId === "string" ||
+        fields.isSidechain === true
+          ? "child"
+          : fields.isSidechain === false ||
+              fields.parent_thread_id === null ||
+              fields.parentSessionId === null
+            ? "root"
+            : "unknown";
+      const key = `${host}:${id}`;
+      const member: HostMember = { key, host, relation, startedAt: new Date(ts).toISOString() };
+      const previous = members.get(key);
+      if (
+        previous &&
+        (previous.startedAt !== member.startedAt || previous.relation !== member.relation)
+      ) {
+        complete = false;
+        members.set(key, { ...member, relation: "unknown" });
+        continue;
+      }
+      members.set(key, member);
+    } catch {
+      byHost[expectedHost] = false;
+    }
+  }
+  if (!complete) {
+    byHost.claude = false;
+    byHost.codex = false;
+  }
+  return {
+    members: [...members.values()].filter((m) => withinRange(m.startedAt, filters)),
+    allMembers: [...members.values()],
+    complete: complete && byHost.claude && byHost.codex,
+    byHost,
+    identityConflict,
+  };
 }
 
 export interface AuditedRepos {
@@ -262,24 +630,9 @@ function hostSlugDirs(root: string, transcripts: string): string[] {
 export function countHostSessions(
   roots: readonly string[],
   filters: DiscoveryFilters = {},
-): number {
-  const transcripts = transcriptsRoot();
-  const seen = new Set<string>();
-  for (const root of roots) {
-    for (const dir of hostSlugDirs(root, transcripts)) {
-      for (const file of readdirSync(dir)) {
-        if (!file.endsWith(".jsonl")) continue;
-        const path = join(dir, file);
-        try {
-          if (!withinRange(new Date(statSync(path).mtimeMs).toISOString(), filters)) continue;
-        } catch {
-          continue;
-        }
-        seen.add(path);
-      }
-    }
-  }
-  return seen.size;
+): number | null {
+  const population = hostPopulation(roots, filters);
+  return population.complete ? population.members.length : null;
 }
 
 /** Distinct project roots recorded by a set of session logs. */
@@ -297,15 +650,81 @@ function rootsOf(sessions: readonly MarkedSession[]): string[] {
 export function repoCoverage(
   repo: string,
   filters: DiscoveryFilters = {},
+  rootHint?: string,
 ): { row: RepoCoverage; warning: string | null } {
   const sessions = findMarkedSessions(repo);
   const roots = rootsOf(sessions);
+  if (rootHint && !roots.includes(projectRootFromCwd(rootHint)))
+    roots.push(projectRootFromCwd(rootHint));
+  const population = hostPopulation(roots, filters);
+  const marked = new Set(
+    sessions
+      .filter((s) => s.host !== "unknown" && s.sourceStatus !== "identity-conflict")
+      .map((s) => `${s.host}:${s.sessionId}`),
+  );
+  const identityConflict =
+    population.identityConflict || sessions.some((s) => s.sourceStatus === "identity-conflict");
+  const activations = sessions.filter((m) => withinRange(m.markedAt, filters));
+  const markerComplete =
+    markerEnumeration(repo).state === "observed" &&
+    sessions.every((s) => Number.isFinite(Date.parse(s.markedAt)));
+  const captureComplete = markerComplete && !identityConflict;
+  const captured = captureComplete
+    ? population.members.filter((m) => marked.has(m.key)).length
+    : null;
+  const host = population.complete ? population.members.length : null;
+  const reason: EvidenceReason | null = identityConflict
+    ? "identity-conflict"
+    : !population.complete || !markerComplete
+      ? "incomplete-enumeration"
+      : host === 0
+        ? "empty-population"
+        : null;
+  const populations: NonNullable<RepoCoverage["populations"]> = [];
+  for (const engine of ["claude", "codex"] as const)
+    for (const relation of ["root", "child", "unknown"] as const) {
+      const cohort = population.members.filter((m) => m.host === engine && m.relation === relation);
+      const n = captureComplete ? cohort.filter((m) => marked.has(m.key)).length : null;
+      populations.push({
+        host: engine,
+        relation,
+        denominator: population.byHost[engine] ? cohort.length : null,
+        captured: n,
+        ratio: population.byHost[engine] && cohort.length && n !== null ? n / cohort.length : null,
+        reason: identityConflict
+          ? "identity-conflict"
+          : !population.byHost[engine] || !markerComplete
+            ? "incomplete-enumeration"
+            : cohort.length === 0
+              ? "empty-population"
+              : null,
+      });
+    }
+  const activation: NonNullable<RepoCoverage["activation"]> = {
+    observed: markerComplete ? activations.length : null,
+    root: markerComplete ? 0 : null,
+    child: markerComplete ? 0 : null,
+    unknown: markerComplete ? 0 : null,
+    markerOnly: markerComplete ? 0 : null,
+  };
+  for (const m of markerComplete ? activations : []) {
+    const member = population.allMembers.find((p) => p.key === `${m.host}:${m.sessionId}`);
+    const relation =
+      m.sourceStatus === "identity-conflict" ? "unknown" : (member?.relation ?? "unknown");
+    activation[relation] = (activation[relation] ?? 0) + 1;
+    if (!member) activation.markerOnly = (activation.markerOnly ?? 0) + 1;
+  }
   return {
     row: {
       repo,
       roots,
-      audited: sessions.filter((m) => withinRange(m.markedAt, filters)).length,
-      host: roots.length === 0 ? null : countHostSessions(roots, filters),
+      audited: markerComplete ? activations.length : null,
+      host,
+      captured,
+      ratio: host && captured !== null ? captured / host : null,
+      reason,
+      activation,
+      populations,
     },
     warning:
       roots.length > 1
@@ -335,7 +754,8 @@ export function listAuditedRepos(filters: DiscoveryFilters = {}): AuditedRepos {
     } catch {
       continue;
     }
-    if (!readdirSync(dir).some((f) => f.startsWith("session-") && f.endsWith(".log"))) continue;
+    const enumeration = markerEnumeration(repo);
+    if (enumeration.state === "observed" && enumeration.files.length === 0) continue;
     const { row, warning } = repoCoverage(repo, filters);
     repos.push(row);
     if (warning) warnings.push(warning);
@@ -350,19 +770,21 @@ export function listAuditedRepos(filters: DiscoveryFilters = {}): AuditedRepos {
  * does not read as a gap in coverage. `null` when no row has one.
  */
 export function coverageMetrics(rows: readonly RepoCoverage[]): Record<string, number | null> {
-  const measurable = rows.filter((r) => r.host !== null);
-  if (measurable.length === 0) {
-    return {
-      "coverage.sessions.audited": null,
-      "coverage.sessions.host": null,
-      "coverage.pct": null,
-    };
-  }
-  const audited = measurable.reduce((n, r) => n + r.audited, 0);
-  const host = measurable.reduce((n, r) => n + (r.host ?? 0), 0);
+  const audited = rows.every((r) => r.audited !== null)
+    ? rows.reduce((n, r) => n + (r.audited ?? 0), 0)
+    : null;
+  const complete = rows.length > 0 && rows.every((r) => r.host !== null);
+  const host = complete ? rows.reduce((n, r) => n + (r.host ?? 0), 0) : null;
+  const captured = rows.every((r) => r.captured !== null)
+    ? rows.reduce((n, r) => n + (r.captured ?? r.audited ?? 0), 0)
+    : null;
   return {
     "coverage.sessions.audited": audited,
     "coverage.sessions.host": host,
-    "coverage.pct": host === 0 ? null : Math.round((1000 * audited) / host) / 10,
+    "coverage.sessions.captured": captured,
+    "coverage.pct":
+      host && captured !== null && captured <= host
+        ? Math.round((1000 * captured) / host) / 10
+        : null,
   };
 }

@@ -15,7 +15,7 @@ import {
   type NavoriConfig,
   type NavoriConfigInput,
 } from "../../../lib/config/schema.ts";
-import { codexInstalledScripts, renderCodexEngine } from "../index.ts";
+import { codexInstalledScripts, compactAgentDescription, renderCodexEngine } from "../index.ts";
 import { loadEnabledPlugins } from "../../../lib/config/plugins.ts";
 import { renderClaudeEngine } from "../../claude/index.ts";
 import { adaptHarnessTextForCodex } from "../compat.ts";
@@ -83,9 +83,10 @@ describe("renderCodexEngine", () => {
     renderCodexEngine(cwd, config({ harness: { masterPlan: enabled } }));
     expect(existsSync(join(cwd, ".agents/skills/master-plan/SKILL.md"))).toBe(true);
     expect(existsSync(join(cwd, ".agents/skills/context-intake/SKILL.md"))).toBe(true);
+    // Codex lists `.agents/skills` natively: AGENTS.md carries no skills index.
     const index = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
-    expect(index).toContain("- `master-plan` —");
-    expect(index).toContain("- `context-intake` —");
+    expect(index).not.toContain("- `master-plan` —");
+    expect(index).not.toContain("- `context-intake` —");
   });
 
   // Covers: R20
@@ -152,6 +153,28 @@ describe("renderCodexEngine", () => {
     expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf8")).toContain(
       'model_reasoning_effort = "high"',
     );
+  });
+  it("trims the Codex AGENTS.md: no skills index, every .codex/agents role in a compact roster", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const agentsMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+
+    // Codex lists `.agents/skills` natively, so the index is dead weight here.
+    expect(agentsMd).not.toContain("## Available skills");
+    const agentFiles = readdirSync(join(cwd, ".codex/agents")).filter((f) => f.endsWith(".toml"));
+    expect(agentFiles.length).toBeGreaterThan(0);
+    for (const file of agentFiles) {
+      const id = file.replace(/\.toml$/, "");
+      expect(agentsMd).toMatch(new RegExp(`^- \`${id}\` — .+`, "m"));
+    }
+    // Roster rows are one short clause, not the full toml description.
+    expect(agentsMd).not.toContain("Does not edit code.");
+  });
+  it("compactAgentDescription keeps the trigger clause", () => {
+    expect(
+      compactAgentDescription("Does things. Use after every run, and before any commit."),
+    ).toBe("Use after every run");
+    expect(compactAgentDescription("Plain summary. More text.")).toBe("Plain summary");
   });
   it("creates a full Codex harness using the v0.145 project paths", () => {
     const cwd = tempRepo();
@@ -371,6 +394,7 @@ describe("renderCodexEngine", () => {
               "pr-publisher-confirm",
               "general-purpose-confirm",
               "plan-gate",
+              "engram-write-guard",
             ]
           : [
               "guard-destructive",
@@ -380,9 +404,12 @@ describe("renderCodexEngine", () => {
               "pr-publisher-confirm",
               "general-purpose-confirm",
               "plan-gate",
+              "engram-write-guard",
             ],
       );
-      expect(preTool.at(-1)?.matcher).toBe("spawn_agent$");
+      // B1: engram-write-guard trails plan-gate so no published trust index moves.
+      expect(preTool.at(-2)?.matcher).toBe("spawn_agent$");
+      expect(preTool.at(-1)?.matcher).toBe("mcp__engram__|mcp__plugin_engram_engram__");
       expect(toml.includes("implementer-no-markdown.sh")).toBe(scribeOwnsMarkdown);
       expect(toml).toContain("routing-watch.sh");
     }
@@ -1260,6 +1287,7 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
       "pr-publisher-confirm",
       "general-purpose-confirm",
       "plan-gate",
+      "engram-write-guard",
     ];
     const base = config(withPlugins);
     const on = config({ ...withPlugins, harness: { masterPlan: true } });
@@ -1308,7 +1336,7 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
       "comment-draft-confirm",
       "quality-gate-pre-commit",
     ]);
-    expect(scripts.at(-3)).toBe("role-guard");
+    expect(scripts.at(-4)).toBe("role-guard");
     expect(scripts.indexOf("role-guard")).toBeGreaterThan(scripts.indexOf("check-jscpd.sh"));
     expect(preTool.find((hook) => hook.script === "role-guard")?.matcher).toBe(
       "^apply_patch$|spawn_agent$",
@@ -1318,11 +1346,12 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
     const on = resolveCodexHooks(config({ ...withPlugins, harness: { masterPlan: true } }), plugins)
       .filter((hook) => hook.event === "PreToolUse")
       .map((hook) => hook.script);
-    expect(on.slice(-4)).toEqual([
+    expect(on.slice(-5)).toEqual([
       "master-accept-confirm",
       "role-guard",
       "pr-publisher-confirm",
       "general-purpose-confirm",
+      "engram-write-guard",
     ]);
     const withMaster = resolveCodexHooks(
       config({ ...withPlugins, harness: { masterPlan: true } }),
@@ -1337,7 +1366,12 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
       without.filter(
         (hook) =>
           hook.event === "PreToolUse" &&
-          !["role-guard", "pr-publisher-confirm", "general-purpose-confirm"].includes(hook.script),
+          ![
+            "role-guard",
+            "pr-publisher-confirm",
+            "general-purpose-confirm",
+            "engram-write-guard",
+          ].includes(hook.script),
       ).length,
     );
     expect(withMaster.filter((hook) => hook.event === "SessionStart").at(-1)?.script).toBe(

@@ -143,8 +143,11 @@ describe("doctor --json — warning-level checks", () => {
     return dir;
   }
 
-  // Covers: R34, R35
-  it("reports enabled codegraph as information without changing config or strict health", () => {
+  function seedEnabledCodegraphRepo(): {
+    repo: string;
+    configPath: string;
+    config: Record<string, unknown>;
+  } {
     const repo = seedRepo();
     expect(runCli(["init", "--recommended", "--cwd", repo]).status).toBe(0);
     const configPath = join(repo, "navori.config.json");
@@ -153,6 +156,12 @@ describe("doctor --json — warning-level checks", () => {
     config.plugins = { codegraph: { enabled: true } };
     writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
     expect(runCli(["render", "--apply", "--cwd", repo]).status).toBe(0);
+    return { repo, configPath, config };
+  }
+
+  // Covers: R34, R35
+  it("reports enabled codegraph as information without changing config", () => {
+    const { repo, configPath } = seedEnabledCodegraphRepo();
     const before = readFileSync(configPath, "utf-8");
     const report = doctorJson(repo);
     expect(report.codegraphDefaultPolicy).toEqual({
@@ -160,6 +169,11 @@ describe("doctor --json — warning-level checks", () => {
       evidence: "docs/research/codegraph-costo-neto.md",
     });
     expect(readFileSync(configPath, "utf-8")).toBe(before);
+  });
+
+  // Covers: R34, R35
+  it("explains enabled codegraph in both languages without changing strict health", () => {
+    const { repo, configPath, config } = seedEnabledCodegraphRepo();
     const human = runCli(["doctor", "--cwd", repo]);
     expect(human.stdout + human.stderr).toContain("docs/research/codegraph-costo-neto.md");
     expect(runCli(["doctor", "--strict", "--cwd", repo]).status).toBe(0);
@@ -167,6 +181,12 @@ describe("doctor --json — warning-level checks", () => {
     writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
     const english = runCli(["doctor", "--cwd", repo]);
     expect(english.stdout + english.stderr).toContain("Codegraph is no longer enabled");
+  }, 20_000);
+
+  // Covers: R34, R35
+  it("stops reporting codegraph when the plugin is disabled", () => {
+    const { repo, configPath, config } = seedEnabledCodegraphRepo();
+    const report = doctorJson(repo);
     config.language = "es";
     writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
     expect(doctorJson(repo).codegraphDefaultPolicy).toEqual(report.codegraphDefaultPolicy);
@@ -407,25 +427,37 @@ describe("doctor --json — cross-scope clash with the global harness (#547)", (
    *  literals — the point is to pin the string a user would actually see. */
   const TITLES = ["Capa global (navori global)", "Global layer (navori global)"];
 
-  it("stays silent with no global layer, then carries the real conflict once installed", () => {
+  function seedGlobalRepo(): {
+    repo: string;
+    home: string;
+    claudeDir: string;
+    env: Record<string, string>;
+  } {
     const repo = mkdtempSync(join(tmpdir(), "navori-doctor-json-global-"));
     const home = mkdtempSync(join(tmpdir(), "navori-doctor-json-ghome-"));
     const claudeDir = mkdtempSync(join(tmpdir(), "navori-doctor-json-gclaude-"));
     dirs.push(repo, home, claudeDir);
     seedRunnableRepo(repo, "doctor-json-global");
 
-    // A HOME of this spec's own (not the shared E2E one) so installing the
-    // global sentinel below cannot leak into the other specs in this file.
+    // Each scenario owns its HOME and Claude directory; the global sentinel
+    // cannot leak into other specs or make test order observable.
     const env = { HOME: home, CLAUDE_CONFIG_DIR: claudeDir };
     expect(runCli(["init", "--recommended", "--cwd", repo], env).status).toBe(0);
+    return { repo, home, claudeDir, env };
+  }
 
+  it("stays silent with no global layer", () => {
+    const { repo, env } = seedGlobalRepo();
     // Zero footprint, output included: with no `~/.navori/global.json` the key
     // is null AND the human run never prints the section (Spec 0010 §2.4).
     expect(doctorJson(repo, env).globalScope).toBeNull();
     const quiet = runCli(["doctor", "--cwd", repo], env);
     expect(quiet.status).toBe(0);
     for (const title of TITLES) expect(quiet.stdout).not.toContain(title);
+  });
 
+  it("carries the real conflict once the global layer is installed", () => {
+    const { repo, home, claudeDir, env } = seedGlobalRepo();
     mkdirSync(join(home, ".navori"), { recursive: true });
     writeFileSync(join(home, ".navori", "global.json"), JSON.stringify({ version: "0.0.0" }));
     writeFileSync(

@@ -6,9 +6,9 @@
  * step is creation-only and guarded by `existsSync`, so a run cut at any
  * point is completed by a second run without rewriting what already exists.
  */
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { readConfig, writeConfig } from "../config/config.ts";
 import { writeFileAtomic } from "../primitives/atomic.ts";
 import { runRender } from "../../commands/render.ts";
@@ -24,6 +24,8 @@ import {
   stageDirName,
 } from "./stages.ts";
 import { writeMasterStatus } from "./status.ts";
+import { DeliveryStateSchema, type DeliveryState } from "./delivery-schema.ts";
+import { checkDeliveryPreparation, containedFile } from "./delivery-checks.ts";
 import { computeSignal, type MasterSignal } from "./signal.ts";
 import {
   MasterStateSchema,
@@ -41,6 +43,7 @@ export interface MasterInitResult {
   signal: MasterSignal;
   /** True when an active stage already existed before this call — R5/R53. */
   alreadyActive: boolean;
+  workflow?: "deliveries";
   /** True when a slug was passed but ignored because a stage was already
    * active (R5). The CLI layer exits 1 on this. */
   requestedSlugIgnored: boolean;
@@ -94,6 +97,7 @@ function ensureRawGitignore(path: string): void {
 function openNewStage(
   index: MasterIndex | null,
   slug: string,
+  workflow: "legacy" | "deliveries",
 ): { index: MasterIndex; entry: StageEntry } {
   if (!isValidSlug(slug)) {
     throw new MasterInitError(
@@ -114,8 +118,29 @@ function openNewStage(
     openedAt: today(),
     closedAt: null,
     spec: null,
+    ...(workflow === "deliveries" ? { workflow: "deliveries" as const } : {}),
   };
-  return { index: { version: 1, stages: [...(index?.stages ?? []), entry] }, entry };
+  return {
+    index: {
+      version: workflow === "deliveries" ? 2 : (index?.version ?? 1),
+      stages: [...(index?.stages ?? []), entry],
+    },
+    entry,
+  };
+}
+
+/** Validate both lexical and physical containment, including missing descendants. */
+function assertContained(cwd: string, path: string): void {
+  const root = realpathSync(cwd);
+  const lexicalRoot = resolve(cwd);
+  const target = resolve(path);
+  if (target !== lexicalRoot && !target.startsWith(`${lexicalRoot}${sep}`))
+    throw new MasterInitError(`refusing to write outside repository: ${path}`);
+  let ancestor = target;
+  while (!existsSync(ancestor) && dirname(ancestor) !== ancestor) ancestor = dirname(ancestor);
+  const physical = realpathSync(ancestor);
+  if (physical !== root && !physical.startsWith(`${root}${sep}`))
+    throw new MasterInitError(`refusing symlink write outside repository: ${path}`);
 }
 
 /**
@@ -124,7 +149,15 @@ function openNewStage(
  * without a slug, a broken `index.json`) — the CLI layer reports it and exits
  * 1, writing nothing else.
  */
-export function runMasterInit(cwd: string, slug: string | undefined): MasterInitResult {
+export function runMasterInit(
+  cwd: string,
+  slug: string | undefined,
+  workflow?: "legacy" | "deliveries",
+): MasterInitResult {
+  if (workflow !== undefined && workflow !== "legacy" && workflow !== "deliveries")
+    throw new MasterInitError(
+      `invalid workflow "${String(workflow)}": expected legacy or deliveries`,
+    );
   const configPath = resolve(cwd, "navori.config.json");
   const config = readConfig(configPath);
   if (config.sdd?.enabled === false) {
@@ -133,8 +166,6 @@ export function runMasterInit(cwd: string, slug: string | undefined): MasterInit
     );
   }
   const specsDir = config.sdd?.specsDir ?? "specs";
-
-  mkdirSync(masterDirPath(cwd, specsDir), { recursive: true });
 
   const existingIndex = readMasterIndex(cwd, specsDir);
   const preexistingActive = activeStage(existingIndex);
@@ -146,6 +177,10 @@ export function runMasterInit(cwd: string, slug: string | undefined): MasterInit
   if (preexistingActive && existingIndex) {
     index = existingIndex;
     active = preexistingActive;
+    if (workflow && workflow !== (active.workflow ?? "legacy"))
+      throw new MasterInitError(
+        `workflow mismatch: active stage uses ${active.workflow ?? "legacy"}`,
+      );
     if (slug) requestedSlugIgnored = true;
   } else {
     if (!slug) {
@@ -153,13 +188,45 @@ export function runMasterInit(cwd: string, slug: string | undefined): MasterInit
         "no active stage: 'navori master init <slug>' requires a slug to open the first one",
       );
     }
-    const opened = openNewStage(existingIndex, slug);
+    const opened = openNewStage(existingIndex, slug, workflow ?? "legacy");
     index = opened.index;
     active = opened.entry;
-    writeFileAtomic(indexJsonPath(cwd, specsDir), `${JSON.stringify(index, null, 2)}\n`);
   }
 
   const paths = stagePaths(cwd, specsDir, active.dir);
+  // Every possible initial write is checked before the registry is committed.
+  for (const path of [
+    masterDirPath(cwd, specsDir),
+    indexJsonPath(cwd, specsDir),
+    indexMdPath(cwd, specsDir),
+    paths.root,
+    paths.rawDir,
+    paths.mdDir,
+    paths.plansDir,
+    paths.gitignore,
+    paths.stateJson,
+    join(paths.root, "STATUS.md"),
+    configPath,
+  ])
+    assertContained(cwd, path);
+  if (existsSync(paths.stateJson)) {
+    const raw: unknown = JSON.parse(readFileSync(paths.stateJson, "utf8"));
+    if (active.workflow === "deliveries") DeliveryStateSchema.parse(raw);
+    else MasterStateSchema.parse(raw);
+  }
+  if (active.workflow === "deliveries" && existsSync(join(paths.root, "parts.json"))) {
+    const partsPath = containedFile(cwd, join(paths.root, "parts.json"));
+    if (!partsPath) throw new MasterInitError(`${active.dir}: parts.json outside repository`);
+    const result = checkDeliveryPreparation(
+      cwd,
+      JSON.parse(readFileSync(partsPath, "utf8")) as unknown,
+    );
+    if (result.blockers.length)
+      throw new MasterInitError(`${active.dir}: invalid parts.json: ${result.blockers.join("; ")}`);
+  }
+  mkdirSync(masterDirPath(cwd, specsDir), { recursive: true });
+  if (!preexistingActive)
+    writeFileAtomic(indexJsonPath(cwd, specsDir), `${JSON.stringify(index, null, 2)}\n`);
   mkdirSync(paths.rawDir, { recursive: true });
   mkdirSync(paths.mdDir, { recursive: true });
   mkdirSync(paths.plansDir, { recursive: true });
@@ -169,16 +236,24 @@ export function runMasterInit(cwd: string, slug: string | undefined): MasterInit
   ensureRawGitignore(paths.gitignore);
 
   if (!existsSync(paths.stateJson)) {
-    const state: MasterState = {
-      version: 1,
-      phase: "context",
-      // Stage ≥2 registers `en-curso` right away (R16): the previous stage
-      // already left code written, so there is nothing to ask.
-      mode: active.number >= 2 ? "en-curso" : null,
+    const base = {
+      phase: "context" as const,
+      mode: active.number >= 2 ? ("en-curso" as const) : null,
       signal: computeSignal(cwd),
-      outcome: null,
-      history: [{ phase: "context", at: today() }],
+      history: [{ phase: "context" as const, at: today() }],
     };
+    const state: MasterState | DeliveryState =
+      active.workflow === "deliveries"
+        ? {
+            ...base,
+            version: 2,
+            workflow: "deliveries",
+          }
+        : {
+            ...base,
+            version: 1,
+            outcome: null,
+          };
     writeFileAtomic(paths.stateJson, `${JSON.stringify(state, null, 2)}\n`);
   }
 
@@ -189,20 +264,28 @@ export function runMasterInit(cwd: string, slug: string | undefined): MasterInit
       ...config,
       harness: { ...(config.harness ?? {}), masterPlan: true },
     });
-    runRender(cwd);
+  }
+  if (config.harness?.masterPlan !== true || active.workflow === "deliveries") {
+    const rendered = runRender(cwd);
+    if (!rendered.ok)
+      throw new MasterInitError(`render failed: ${rendered.reason ?? "unknown error"}`);
   }
 
   // STATUS.md exists from the start: INDEX.md already links to it (R54).
   writeMasterStatus(cwd);
 
   const stateRaw: unknown = JSON.parse(readFileSync(paths.stateJson, "utf8"));
-  const state = MasterStateSchema.parse(stateRaw);
+  const state =
+    active.workflow === "deliveries"
+      ? DeliveryStateSchema.parse(stateRaw)
+      : MasterStateSchema.parse(stateRaw);
   const signal = computeSignal(cwd);
 
   return {
     stage: { number: active.number, slug: active.slug, dir: active.dir },
     phase: state.phase,
     mode: state.mode,
+    ...(active.workflow === "deliveries" ? { workflow: "deliveries" as const } : {}),
     signal,
     alreadyActive: preexistingActive !== null,
     requestedSlugIgnored,

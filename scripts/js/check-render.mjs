@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -102,16 +102,53 @@ const prefixed = (label, path) => (label ? `${label}/${path}` : path);
 const stale = [];
 const blocked = [];
 
+/**
+ * Exempt only new, untracked local bootstrap files in their own ignored Git root.
+ * @param {string} status
+ * @param {string} path
+ * @returns {boolean}
+ */
+function isIgnoredLocalProgress(status, path) {
+  if (status !== "created" || (path !== "progress/current.md" && path !== "progress/history.md"))
+    return false;
+  // Ambient Git overrides must not redirect verification into another checkout.
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
+  );
+  const options = { cwd: target, env, encoding: "utf-8" };
+  const root = spawnSync("git", ["rev-parse", "--show-toplevel"], options);
+  if (root.error || root.status !== 0 || !root.stdout.trim()) return false;
+  try {
+    if (realpathSync(root.stdout.trim()) !== realpathSync(target)) return false;
+  } catch {
+    return false;
+  }
+  const tracked = spawnSync("git", ["ls-files", "--cached", "--", path], options);
+  if (tracked.error || tracked.status !== 0 || tracked.stdout.trim()) return false;
+  const ignored = spawnSync("git", ["check-ignore", "--quiet", "--", path], options);
+  return !ignored.error && ignored.status === 0;
+}
+
+/**
+ * Keep all mirror drift unless the exact root-local bootstrap exception applies.
+ * @param {string} status
+ * @param {string} path
+ * @returns {void}
+ */
+function recordWritten(status, path) {
+  if (!isIgnoredLocalProgress(status, path)) stale.push([status, path]);
+}
+
 for (const { label, scope } of scopes) {
-  for (const file of scope.written ?? []) stale.push([file.status, prefixed(label, file.path)]);
+  for (const file of scope.written ?? []) recordWritten(file.status, prefixed(label, file.path));
   for (const file of scope.skipped ?? []) blocked.push([prefixed(label, file.path), file.reason]);
   for (const engine of scope.extraEngines ?? []) {
-    for (const file of engine.written ?? []) stale.push([file.status, prefixed(label, file.path)]);
+    for (const file of engine.written ?? []) recordWritten(file.status, prefixed(label, file.path));
     for (const file of engine.skipped ?? []) blocked.push([prefixed(label, file.path), file.reason]);
   }
 }
 for (const engine of report.extraEngines ?? []) {
-  for (const file of engine.written ?? []) stale.push([file.status, file.path]);
+  for (const file of engine.written ?? []) recordWritten(file.status, file.path);
   for (const file of engine.skipped ?? []) blocked.push([file.path, file.reason]);
 }
 if (report.gitignore) {

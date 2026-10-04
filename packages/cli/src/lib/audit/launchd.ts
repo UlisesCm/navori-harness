@@ -111,6 +111,18 @@ function launchctl(args: string[]): { ok: boolean; message: string } {
   return { ok: result.status === 0, message: output };
 }
 
+type Launchctl = typeof launchctl;
+
+/** A missing service is the only print failure that proves the label is absent. */
+function agentStatus(controller: Launchctl): { loaded: boolean; error?: string } {
+  const result = controller(["print", `${guiDomain()}/${LAUNCH_AGENT_LABEL}`]);
+  if (result.ok) return { loaded: true };
+  if (/could not find service|service not found|no such process/i.test(result.message)) {
+    return { loaded: false };
+  }
+  return { loaded: false, error: `launchctl print failed: ${result.message || "unknown error"}` };
+}
+
 /** Whether launchd currently has the agent in the user's domain. */
 export function launchAgentLoaded(): boolean {
   if (!isLaunchdPlatform()) return false;
@@ -121,11 +133,11 @@ export interface InstallResult {
   plistPath: string;
   argv: string[];
   port: number;
-  /** False when the file was written but `launchctl` refused to bootstrap it. */
+  /** True only when launchd confirms the agent is loaded after bootstrap. */
   loaded: boolean;
-  /** `launchctl`'s own words when it refused. Empty when it did not. */
+  /** Why query, unload, or bootstrap failed. Empty on success. */
   message: string;
-  /** True when a plist was already there and got replaced. */
+  /** True when a plist was already there; on failure it may be preserved unchanged. */
   replaced: boolean;
 }
 
@@ -136,24 +148,44 @@ export interface InstallResult {
  * out FIRST: a reinstall after an upgrade is the common case, and the whole
  * reason to reinstall is to point launchd at the new command.
  */
-export function installLaunchAgent(): InstallResult {
+export function installLaunchAgent(controller: Launchctl = launchctl): InstallResult {
   const plistPath = launchAgentPath();
   const argv = receiverArgv();
   const replaced = existsSync(plistPath);
+  const failure = (message: string): InstallResult => ({
+    plistPath,
+    argv,
+    port: DEFAULT_PORT,
+    loaded: false,
+    message,
+    replaced,
+  });
 
-  if (replaced) launchctl(["bootout", `${guiDomain()}/${LAUNCH_AGENT_LABEL}`]);
+  const before = agentStatus(controller);
+  if (before.error) return failure(before.error);
+  if (before.loaded) {
+    const bootout = controller(["bootout", `${guiDomain()}/${LAUNCH_AGENT_LABEL}`]);
+    if (!bootout.ok)
+      return failure(`launchctl bootout failed: ${bootout.message || "unknown error"}`);
+    const after = agentStatus(controller);
+    if (after.error) return failure(after.error);
+    if (after.loaded) return failure("launchctl bootout did not unload the agent");
+  }
 
   mkdirSync(dirname(plistPath), { recursive: true });
   mkdirSync(collectLogDir(), { recursive: true });
   writeFileSync(plistPath, buildLaunchAgent(argv, collectLogDir()), "utf-8");
 
-  const boot = launchctl(["bootstrap", guiDomain(), plistPath]);
+  const boot = controller(["bootstrap", guiDomain(), plistPath]);
+  const loaded = boot.ok ? agentStatus(controller) : null;
   return {
     plistPath,
     argv,
     port: DEFAULT_PORT,
-    loaded: boot.ok,
-    message: boot.ok ? "" : boot.message,
+    loaded: loaded?.loaded === true,
+    message: !boot.ok
+      ? boot.message
+      : (loaded?.error ?? (loaded?.loaded ? "" : "launchctl bootstrap did not load the agent")),
     replaced,
   };
 }
@@ -164,18 +196,40 @@ export interface UninstallResult {
   removed: boolean;
   /** launchd had it loaded and no longer does. */
   unloaded: boolean;
+  /** A query or unload failure; declaration is preserved when present. */
+  error?: string;
 }
 
-export function uninstallLaunchAgent(): UninstallResult {
+/** Unload and verify absence before deleting the declaration. */
+export function uninstallLaunchAgent(controller: Launchctl = launchctl): UninstallResult {
   const plistPath = launchAgentPath();
-  const unloaded = launchAgentLoaded()
-    ? launchctl(["bootout", `${guiDomain()}/${LAUNCH_AGENT_LABEL}`]).ok
-    : false;
   const removed = existsSync(plistPath);
+  const before = agentStatus(controller);
+  if (before.error) return { plistPath, removed: false, unloaded: false, error: before.error };
+  if (before.loaded) {
+    const bootout = controller(["bootout", `${guiDomain()}/${LAUNCH_AGENT_LABEL}`]);
+    if (!bootout.ok) {
+      return {
+        plistPath,
+        removed: false,
+        unloaded: false,
+        error: `launchctl bootout failed: ${bootout.message || "unknown error"}`,
+      };
+    }
+    const after = agentStatus(controller);
+    if (after.error) return { plistPath, removed: false, unloaded: false, error: after.error };
+    if (after.loaded)
+      return {
+        plistPath,
+        removed: false,
+        unloaded: false,
+        error: "launchctl bootout did not unload the agent",
+      };
+  }
   // `force` so a plist removed by hand between the check and here is not an
   // error: the end state the caller asked for is "not installed".
   if (removed) rmSync(plistPath, { force: true });
-  return { plistPath, removed, unloaded };
+  return { plistPath, removed, unloaded: before.loaded };
 }
 
 /**

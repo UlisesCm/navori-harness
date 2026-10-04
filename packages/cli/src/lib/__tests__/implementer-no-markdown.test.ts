@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, chmodSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, chmodSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -30,12 +30,17 @@ interface Payload {
 }
 
 /** Install the rendered hook and run it under every available shell (#391). */
-function runHook(payload: Payload): { status: number; stderr: string } {
+function runHook(
+  payload: Payload,
+  nodePath = dirname(process.execPath),
+  includeParentPath = true,
+  engine: "claude" | "codex" = "claude",
+): { status: number; stderr: string } {
   const raw = expandHookIncludes(readFileSync(join(HOOKS_DIR, SCRIPT), "utf-8"));
-  const path = join(dir, SCRIPT);
+  const path = engine === "codex" ? join(dir, ".codex", "hooks", SCRIPT) : join(dir, SCRIPT);
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, raw);
   chmodSync(path, 0o755);
-  const nodeDir = dirname(process.execPath);
   return acrossShells((shell) => {
     const r = spawnSync(shell, [path], {
       cwd: dir,
@@ -43,12 +48,17 @@ function runHook(payload: Payload): { status: number; stderr: string } {
       encoding: "utf-8",
       env: {
         ...process.env,
-        PATH: `${nodeDir}:/usr/bin:/bin:${process.env.PATH ?? ""}`,
+        PATH: `${nodePath}:/usr/bin:/bin${includeParentPath ? `:${process.env.PATH ?? ""}` : ""}`,
       },
     });
     return { status: r.status ?? -1, stderr: r.stderr ?? "" };
   });
 }
+
+const METADATA_PROGRAM = `node -e 'const fs=require("node:fs");const p="state/impl.json";const x=JSON.parse(fs.readFileSync(p,"utf8"));for(const f of ["docs/one.md","docs/two.mdx"])if(!x.filesTouched.includes(f))x.filesTouched.push(f);x.filesTouched.sort();x.markdownRequestsFulfilled=x.markdownRequests.map(r=>r.path);x.nativeRender={applyCommand:"bun run render:apply",applyExitCode:0};x.verification.summary="Markdown metadata only";fs.writeFileSync(p,JSON.stringify(x,null,2)+"\\n");'`;
+
+// Exact incident text is hook payload data only; the submitted program is never run.
+const INCIDENT_PROGRAM = `node -e 'const fs=require("node:fs");const p=".navori/state/handoffs/impl_dual-workflow-deliveries.json";const x=JSON.parse(fs.readFileSync(p,"utf8"));for(const f of ["packages/core/core-assets/master-plan/delivery-master.md","packages/core/core-assets/master-plan/en/delivery-master.md","packages/core/core-assets/master-plan/slice.md","packages/core/core-assets/master-plan/en/slice.md",".claude/hooks/master-accept-confirm.sh","packages/cli/src/engines/__tests__/__golden__/claude.snap"])if(!x.filesTouched.includes(f))x.filesTouched.push(f);x.filesTouched.sort();x.pendingRequests=["No real baseline, queue, criterion, client acceptance, release or deployment attestation was recorded. D3/D4 execution remains unavailable."];x.markdownRequestsFulfilled=x.markdownRequests.map(r=>r.path);x.nativeRender={applyCommand:"bun run render:apply",applyExitCode:0,mirror:".claude/hooks/master-accept-confirm.sh",goldenCommand:"cd packages/cli && bun run test:golden",goldenExitCode:0,goldenResult:"5/5 passed, 1 snapshot updated (claude.snap)",checkRender:"bun run check:render exit 0, 0 pending changes"};x.verification.summary="A1 60/60; A2 83/83 after scribe; D2 focused 66/66; golden read-only 5/5; format:check/check:assets/check:render/lint/typecheck/diff-check green. Full gate reserved for reviewer.";fs.writeFileSync(p,JSON.stringify(x,null,2)+"\\n");'`;
 
 function bash(cmd: string, agentType = "implementer"): Payload {
   return {
@@ -146,6 +156,141 @@ describe("implementer-no-markdown hook — interpreter writes", () => {
       ).toBe(0);
     },
   );
+});
+
+describe("implementer-no-markdown hook — bounded JSON metadata exception", () => {
+  it.each([
+    INCIDENT_PROGRAM,
+    METADATA_PROGRAM,
+    METADATA_PROGRAM.replaceAll("const fs", "const io")
+      .replaceAll("fs.", "io.")
+      .replaceAll("const p", "const target")
+      .replaceAll("(p,", "(target,")
+      .replaceAll("const x", "const record")
+      .replaceAll("x.", "record.")
+      .replaceAll("(x,", "(record,")
+      .replace("state/impl.json", "other/record.JSON"),
+  ])("recognizes a complete JSON-only program as inert payload data", (command: string): void => {
+    const marker = join(dir, "should-not-exist");
+    const result = runHook(bash(command));
+    expect(result.status).toBe(0);
+    expect(() => readFileSync(marker)).toThrow();
+    expect(() => readFileSync(join(dir, "state/impl.json"))).toThrow();
+  });
+
+  it.each([
+    METADATA_PROGRAM.replace('"state/impl.json"', '"notes.md"'),
+    METADATA_PROGRAM.replace('"state/impl.json"', '"notes\\u002emd"'),
+    METADATA_PROGRAM.replace('"state/impl.json"', '"NOTES.MDX"'),
+    METADATA_PROGRAM.replace(
+      "x.filesTouched.sort();",
+      'fs.writeFileSync("extra.md","x");x.filesTouched.sort();',
+    ),
+    METADATA_PROGRAM.replace(
+      "x.filesTouched.sort();",
+      'fs.writeFileSync(p,"x");x.filesTouched.sort();',
+    ),
+    METADATA_PROGRAM.replace("x.filesTouched.sort();", 'p="notes.md";x.filesTouched.sort();'),
+    METADATA_PROGRAM.replace("x.filesTouched.sort();", 'const p="notes.md";x.filesTouched.sort();'),
+    METADATA_PROGRAM.replace(
+      "x.filesTouched.sort();",
+      'const io=fs;io.writeFileSync("notes.md","x");x.filesTouched.sort();',
+    ),
+    METADATA_PROGRAM.replace(
+      "x.filesTouched.sort();",
+      'x.filesTouched.sort(()=>fs.writeFileSync("notes.md","x"));',
+    ),
+    METADATA_PROGRAM.replace(
+      "applyExitCode:0",
+      'applyExitCode:(()=>fs.writeFileSync("notes.md","x"))()',
+    ),
+    METADATA_PROGRAM.replace(
+      "applyExitCode:0",
+      'get applyExitCode(){fs.writeFileSync("notes.md","x")}',
+    ),
+    METADATA_PROGRAM.replace("applyExitCode:0", "applyExitCode:0,applyExitCode:1"),
+    METADATA_PROGRAM.replace("x.verification.summary", "x.__proto__.summary"),
+    METADATA_PROGRAM.replace("applyExitCode:0", '"constructor":0'),
+    METADATA_PROGRAM.replace(
+      "x.filesTouched.sort();",
+      'x.filesTouched[0]="notes.md";x.filesTouched.sort();',
+    ),
+    METADATA_PROGRAM.replace("x.filesTouched.sort();", "/* harmless */x.filesTouched.sort();"),
+    METADATA_PROGRAM.replace(
+      "x.filesTouched.sort();",
+      'x.filesTouched.sort();require("node:fs").writeFileSync("notes.md","x");',
+    ),
+    METADATA_PROGRAM.replace("x.filesTouched.sort();", "x.filesTouched.sort();`template`;"),
+    METADATA_PROGRAM.replace("x.filesTouched.sort();", "x.filesTouched.sort();(() => 1)();"),
+    METADATA_PROGRAM.replace(
+      "x.filesTouched.sort();",
+      'x.filesTouched.sort();fs.writeFileSync("should-not-exist","x");',
+    ),
+    METADATA_PROGRAM + " ; echo x > notes.md",
+    METADATA_PROGRAM + " && echo x",
+    METADATA_PROGRAM + " | cat",
+    `env ${METADATA_PROGRAM}`,
+    METADATA_PROGRAM.replace("node -e '", 'node -e "'),
+    METADATA_PROGRAM.replace("x.filesTouched.sort();", "x.filesTouched.sort();'echo injected'"),
+    METADATA_PROGRAM.replace('"state/impl.json"', '"state/impl.json\\q"'),
+    METADATA_PROGRAM.replace('"state/impl.json"', '"state/impl.json"+"notes.md"'),
+    METADATA_PROGRAM.replace('"Markdown metadata only"', `"${"x".repeat(17000)}notes.md"`),
+    METADATA_PROGRAM.replace('"Markdown metadata only"', `[${"0,".repeat(2100)}"notes.md"]`),
+    `node -e 'const fs=require("node:fs");const p="state/impl.json";const x=JSON.parse(fs.readFileSync(p,"utf8"));x.data=${"[".repeat(17)}"notes.md"${"]".repeat(17)};fs.writeFileSync(p,JSON.stringify(x,null,2)+"\\n");'`,
+    `node -e 'const fs=require("node:fs");const p="state/impl.json";const x=JSON.parse(fs.readFileSync(p,"utf8"));x.${"part.".repeat(8)}leaf="notes.md";fs.writeFileSync(p,JSON.stringify(x,null,2)+"\\n");'`,
+  ])("denies unsupported or hostile mixed program %s", (command: string): void => {
+    const result = runHook(bash(command));
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("markdownRequests");
+    expect(() => readFileSync(join(dir, "should-not-exist"))).toThrow();
+  });
+
+  it("keeps the normal exit-2 denial when analyzer Node fails", () => {
+    const brokenNode = join(dir, "node-bin");
+    mkdirSync(brokenNode);
+    const executable = join(brokenNode, "node");
+    writeFileSync(executable, "#!/bin/sh\necho MALFORMED\nexit 0\n");
+    chmodSync(executable, 0o755);
+    const result = runHook(bash(METADATA_PROGRAM), brokenNode);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("markdownRequests");
+    writeFileSync(executable, "#!/bin/sh\nexit 7\n");
+    const failed = runHook(bash(METADATA_PROGRAM), brokenNode);
+    expect(failed.status).toBe(2);
+    expect(failed.stderr).toContain("markdownRequests");
+  });
+
+  it("keeps the normal exit-2 denial without Node in PATH", () => {
+    const result = runHook(bash(METADATA_PROGRAM), dir, false);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("markdownRequests");
+  });
+
+  it("applies the same bounded classification in the Codex Bash hook", () => {
+    expect(runHook(bash(METADATA_PROGRAM), undefined, true, "codex").status).toBe(0);
+    const mixed = METADATA_PROGRAM.replace(
+      "x.filesTouched.sort();",
+      'fs.writeFileSync("extra.md","x");x.filesTouched.sort();',
+    );
+    expect(runHook(bash(mixed), undefined, true, "codex").status).toBe(2);
+  });
+
+  it("keeps mixed Codex apply_patch paths blocked", () => {
+    const patch =
+      "*** Begin Patch\n*** Add File: data.json\n+{}\n*** Add File: docs/extra.md\n+text\n*** End Patch";
+    const result = runHook(
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "apply_patch",
+        tool_input: { command: patch },
+        agent_type: "implementer",
+      },
+      undefined,
+      true,
+      "codex",
+    );
+    expect(result.status).toBe(2);
+  });
 });
 
 // Covers: R3

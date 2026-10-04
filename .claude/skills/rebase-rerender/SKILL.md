@@ -51,15 +51,50 @@ right after it — this skill is only the sequence, not a copy of the why.
    `packages/cli/src/engines/__tests__/__golden__/<engine>.snap`.) A change
    in that diff you can't explain from your rebase is a finding to
    investigate, not noise to accept with `-u` and move on.
-4. Run the quality gate (`qualityGate.full` per `CLAUDE.md`, or the scoped
-   subset relevant to your change) before continuing your task.
+4. Run the scoped gate before continuing:
+
+   ```bash
+   bun run check:render
+   (cd packages/cli && bunx vitest run golden-render-tree)  # no --update
+   bun typecheck
+   bun run check:assets
+   bun run check:doc-budgets
+   bun run check:links
+   ```
+
+   Plus the tests of the packages touched by main's incoming diff. Do not
+   use `test:golden` as a check: it runs `--update` and never fails.
+   `qualityGate.full` still runs before the PR.
+
+## Render-only conflicts
+
+When EVERY conflicted path is render output (the generated mirror), resolve
+by taking main's side (step 1), then `bun run render:apply` and the scoped
+gate. No implementer→reviewer cycle. Any conflict in source (core-assets,
+`packages/**`, specs, user sections of `AGENTS.md`/`CLAUDE.md`) follows the
+normal cycle.
+
+## One-time setup
+
+```bash
+git config rerere.enabled true
+git config merge.navori-generated.driver true
+```
+
+The driver is declared in `.gitattributes` for `.codex/agents/*.toml`,
+`.codex/hooks/**`, `.codex/scripts/**` and `.codex/rules/**`. It keeps the
+current side; `render:apply` then overwrites it.
 
 ## Checklist
 
+- [ ] One-time setup (`rerere`, `navori-generated` driver) is configured.
 - [ ] No managed block was hand-edited to resolve a conflict.
 - [ ] `bun run render:apply` ran from the repo root, after the rebase/merge.
-- [ ] If it reported `updated` files, `test:golden` ran and its diff is
-      understood.
-- [ ] Quality gate green before resuming other work.
+- [ ] If it reported `updated` files, `golden-render-tree` ran without
+      `--update` and its diff is understood.
+- [ ] Scoped gate green (plus tests of packages in main's incoming diff);
+      `qualityGate.full` before the PR.
+- [ ] Render-only conflicts skipped the implementer→reviewer cycle; source
+      conflicts did not.
 
 If any item fails, fix it and re-run the whole list.

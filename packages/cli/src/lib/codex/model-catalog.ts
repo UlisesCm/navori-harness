@@ -99,7 +99,12 @@ export function highestOfFamily(family: string, slugs: readonly string[]): strin
  * that family; without one it falls back to the last-known id (or, for a family
  * with no declared fallback, to the value itself). Never throws.
  *
- * Never-downgrade rule: without a catalog match, a `previous` (already rendered)
+ * Never-downgrade rule (catalog match): a same-family `previous` whose version is
+ * strictly greater than the catalog's highest is kept (`rendered`), so a stale
+ * catalog written by an older Codex client cannot downgrade the rendered files.
+ * A catalog that is newer or equal wins, so upgrades still apply.
+ *
+ * Never-downgrade rule (no catalog match): a `previous` (already rendered)
  * id of the same family whose version is >= the fallback's is kept, so a repo
  * rendered on a machine with a newer catalog stays stable on CI or machines
  * without one. The fallback applies only when `previous` is absent, of another
@@ -115,9 +120,20 @@ export function resolveCodexModelValue(
 ): CodexModelResolution {
   if (!isCodexFamily(value)) return { model: value, source: "pin" };
   const found = highestOfFamily(value, readCodexCatalogSlugs(catalogPath));
-  if (found !== null) return { model: found, source: "family" };
-  const fallback = CODEX_FAMILY_FALLBACK[value];
   const prev = previous === null ? null : parseSlug(previous);
+  if (found !== null) {
+    const top = parseSlug(found);
+    if (
+      previous !== null &&
+      prev?.family === value &&
+      top &&
+      compareVersions(prev.version, top.version) > 0
+    ) {
+      return { model: previous, source: "rendered" };
+    }
+    return { model: found, source: "family" };
+  }
+  const fallback = CODEX_FAMILY_FALLBACK[value];
   const floor = fallback === undefined ? null : parseSlug(fallback);
   if (
     previous !== null &&

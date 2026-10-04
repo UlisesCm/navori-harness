@@ -1454,21 +1454,22 @@ You are the main agent. **Every change to source goes through `implementer` → 
 
 | You are about to… | Route |
 |---|---|
-| change **source** — code, tests, config the program reads, or harness prose agents obey | `implementer` → `reviewer`. Always, whatever the size |
-| **answer, explain, investigate, review, or plan** | you do it; nothing is written. Delegate only as a **lever for scale** (signal table) |
-| write an **ephemeral** file — `.navori/state/handoffs/*`, scratch script, throwaway probe | you do it; it reaches no diff |
+| change **source** — code, tests, runtime config or agent-facing prose | `implementer` → `reviewer`, always; no inline route or size threshold |
+| **answer, explain, investigate, review, or plan** | do it yourself; nothing is written, so there is nothing to review. Delegate only for scale (signal table) |
+| write an **ephemeral** handoff, scratch script or probe | do it yourself; it reaches no diff |
 | run commands, read files, inspect state | you do it |
 
 ### The mechanics
 
-- **First producer:** architect, scout, auditor or implementer may start without `impl_<feature>.json`; never fabricate it.
-- **Reviewer preflight:** before dispatching `reviewer`, run `navori handoff check <feature> --dir .navori/state/handoffs --json`; require `"status":"ok"`.
+- **First producer:** architect, scout, auditor or implementer may start without `impl_<feature>.json`.
+- **Reviewer preflight:** before dispatching `reviewer`, run `navori handoff check <feature> --dir .navori/state/handoffs/ --json`; require `"status":"ok"`.
 
-- **Planning precondition:** mandatory before an `implementer`; no missing handoff or consumer check bypasses plan approval.
-- **1 focused `implementer`** with explicit scope (no SDD state), then **1 fresh `reviewer`**. Serial: the reviewer needs the implementer's output.
-- **Review AFTER implementing.**
-- **Parallel `implementer`s only on disjoint files.**
-- **`pnpm test && pnpm lint` green** is the reviewer's Pass 2, over the diff that ships.
+- **Planning precondition:** required before an `implementer`; handoff checks never bypass plan approval.
+- Before plan approval or an option choice, give the chat decision summary in `formato-respuesta.md` (recommendation, rationale, scope, risks/blockers and verification). Artifacts supplement it; approval gates stay unchanged.
+- **1 focused `implementer`**, then **1 fresh `reviewer`**. Run serially; review the implementer's output.
+- **Review after implementation.**
+- **Parallel implementers need disjoint files.**
+- **`pnpm test && pnpm lint` green** is Pass 2 on the shipping diff.
 - **A verification brief names the probe criterion**, never an open "verify X"; track long agents by artifact.
 
 ### Claude agent turn limits
@@ -1672,6 +1673,184 @@ navori_audit_repo_from_cwd() {
 payload=$(cat 2>/dev/null) || exit 0
 [ -n "$payload" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
+# Shared hook boilerplate — inlined into each hook at render time (see the
+# include directive in the source scripts + lib/render/hook-includes.ts). Single source
+# of truth for the sibling gate scripts; DO NOT copy this body back into a hook
+# by hand (that is the drift #225/#261 removed).
+#
+# PreToolUse(Bash) passes the tool input on stdin. Read one field out of it
+# WITHOUT hard-depending on jq (NOT preinstalled on macOS): try jq, then node
+# (Claude Code's own runtime), then a best-effort sed unwrap on the leaf key.
+# Nothing extracted → empty output, and each caller decides what that means (the
+# gate scripts scan defensively; guard-destructive waves the command through).
+#
+# $1 is a dotted path written HERE, never user input — the payload is the data.
+# Generic on purpose: `.cwd` feeds the worktree resolver of #454 through the
+# SAME hardened cascade instead of a second copy of it.
+#
+# The sed fallback reads a JSON string through its first unescaped quote. JSON
+# object member order is not a host contract: `command` can precede `cwd`, so a
+# greedy capture to the last quote would swallow the rest of the payload when
+# neither jq nor node is available.
+# `${payload-$(cat)}` (unset test, not `:-`) rather than an unconditional
+# `payload=$(cat)`: a caller that already captured stdin itself (spec 0035 —
+# `managed-drift-watch.sh` needs the audit recorder's session_id/cwd even on
+# tool names this hook does not otherwise read) keeps that value, empty or
+# not, instead of this partial re-reading an already-drained pipe and
+# clobbering it with "".
+payload=${payload-$(cat)}
+payload_field() {
+  if command -v jq >/dev/null 2>&1; then
+    printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
+  fi
+  if command -v node >/dev/null 2>&1; then
+    printf '%s' "$payload" | node -e 'let s="";const p=process.argv[1].split(".");process.stdin.on("data",c=>s+=c).on("end",()=>{try{let v=JSON.parse(s);for(const k of p)v=v?.[k];process.stdout.write(String(v??""))}catch{}})' "$1" 2>/dev/null && return 0
+  fi
+  printf '%s' "$payload" | sed -nE "s/.*\"${1##*.}\"[[:space:]]*:[[:space:]]*\"(([^\"\\]|\\.)*)\".*/\\1/p"
+}
+extract_cmd() {
+  payload_field tool_input.command
+}
+# NOT called here on purpose. `payload_field` may spawn a process, and
+# `routing-watch.sh` — which includes this partial and runs after EVERY tool call
+# in every session — never reads `cmd`. Each consumer that wants it calls
+# `extract_cmd` itself, at the point where it already knows it needs it.
+# Spec 0035 D2 — the single payload adapter shared by every hook that needs an
+# engine-specific value. Inlined into each hook at render time (see the
+# include directive in the source scripts + lib/render/hook-includes.ts).
+# Single source of truth for the Claude/Codex normalization; DO NOT copy this
+# body back into a hook by hand or branch on the engine inside a hook — D2
+# rejected per-script `if codex …` branches (12 copies of the same logic,
+# each one a place to drift).
+#
+# `nv_engine` is decided by WHERE THE HOOK SCRIPT LIVES ON DISK, not by the
+# payload's shape (a `turn_id`/`apply_patch` sniff breaks the day Claude ships
+# a field with the same name — see design.md's "Descartado") and not by an
+# env var prefix on the registered command (that would change the `command`
+# string Codex hashes for `trusted_hash`, un-approving every hook a repo
+# already trusted — see hook-registrations.ts's module doc). The registered
+# command is always `bash ".../.codex/hooks/<script>.sh"` or
+# `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/<script>.sh"`. `$0` — not
+# `BASH_SOURCE`, which zsh (#391: hooks run under bash AND zsh) leaves unset
+# under `set -u` — is the path the invoking shell was given, and
+# `comment-draft-confirm.sh` already established this exact pattern.
+#
+# Depends on `payload`/`payload_field` (the `extract-cmd` partial): include
+# `extract-cmd` in the same script whenever this partial's helpers are used —
+# `payload_field` is only CALLED here (inside functions), never at top level,
+# so include order between the two partials does not matter.
+case "$0" in
+  *".codex/hooks/"*) nv_engine=codex ;;
+  *) nv_engine=claude ;;
+esac
+
+if [ "$nv_engine" = codex ]; then
+  nv_cwd=$(payload_field cwd)
+  # `cwd` is the session's working dir, which may be a workspace subdir in a
+  # monorepo; the project root is always the git toplevel from there. Falls
+  # back to the raw cwd outside a git work tree rather than failing closed.
+  nv_project_dir=$(git -C "${nv_cwd:-.}" rev-parse --show-toplevel 2>/dev/null) || nv_project_dir=${nv_cwd:-.}
+else
+  nv_project_dir=${CLAUDE_PROJECT_DIR:-}
+fi
+
+# Runtime handoffs have one engine-neutral home. The caller composes this
+# relative path with its checkout root; legacy roots remain readable only.
+nv_progress_dir=".navori/state/handoffs"
+
+# The Claude-equivalent tool name for the CURRENT PreToolUse/PostToolUse
+# payload (D2: apply_patch -> Edit, spawn_agent -> Agent, everything else
+# unchanged — `mcp__…` names and `Bash` already match on both engines).
+nv_tool() {
+  local raw
+  raw=$(payload_field tool_name)
+  if [ "$nv_engine" = codex ]; then
+    case "$raw" in
+      apply_patch) printf 'Edit' ;;
+      spawn_agent) printf 'Agent' ;;
+      *) printf '%s' "$raw" ;;
+    esac
+  else
+    printf '%s' "$raw"
+  fi
+}
+
+# Paths the current tool call touches, one per line (possibly none). Claude
+# carries them as `tool_input.file_path` / `tool_input.notebook_path`; Codex's
+# `apply_patch` has no such field — the whole patch is `tool_input.command`,
+# and the paths live in its `*** Add File:` / `*** Update File:` /
+# `*** Delete File:` / `*** Move to:` headers (codex-rs's apply_patch parser).
+nv_edited_paths() {
+  if [ "$nv_engine" = codex ]; then
+    payload_field tool_input.command | sed -nE \
+      's/^\*\*\* (Add File|Update File|Delete File|Move to): (.*)$/\2/p'
+  else
+    local fp nb
+    fp=$(payload_field tool_input.file_path)
+    nb=$(payload_field tool_input.notebook_path)
+    [ -n "$fp" ] && printf '%s\n' "$fp"
+    [ -n "$nb" ] && printf '%s\n' "$nb"
+  fi
+}
+
+# The subagent type of the current call. Claude: `tool_input.subagent_type`
+# (PreToolUse Agent/Task). Codex: `tool_input.agent_type` in PreToolUse
+# (spawn_agent), or the top-level `agent_type` Codex adds to SubagentStop.
+nv_subagent_type() {
+  if [ "$nv_engine" = codex ]; then
+    local t
+    t=$(payload_field tool_input.agent_type)
+    [ -n "$t" ] || t=$(payload_field agent_type)
+    printf '%s' "$t"
+  else
+    payload_field tool_input.subagent_type
+  fi
+}
+
+# The agent a spawn call TARGETS, never the one that makes the call (spec 0041
+# H16). Claude: `tool_input.subagent_type`. Codex PreToolUse/PostToolUse of a
+# spawn: `tool_input.agent_type` only — the top-level `agent_type` there is the
+# CALLER's. On `SubagentStop` the top-level `agent_type` IS the finishing
+# subagent, so that event reads it instead.
+nv_spawn_target_type() {
+  if [ "$nv_engine" = codex ]; then
+    case "$(payload_field hook_event_name)" in
+      SubagentStop) payload_field agent_type ;;
+      *) payload_field tool_input.agent_type ;;
+    esac
+  else
+    payload_field tool_input.subagent_type
+  fi
+}
+
+# The agent RUNNING the current event: the top-level `agent_type`, which the
+# host adds only inside a subagent (empty on the main thread). Never confuse it
+# with `nv_spawn_target_type` (H16). `nv_subagent_type` above keeps its legacy
+# mixed behaviour for existing hooks; new code uses these two helpers.
+nv_event_agent_type() {
+  payload_field agent_type
+}
+
+# True for the spawn tool: Codex V1 `spawn_agent`, or any V2 name that ends in
+# `spawn_agent` (V2 flattens the namespace into the tool name).
+nv_is_spawn_tool() {
+  case "$(payload_field tool_name)" in
+    *spawn_agent) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Deliberately NO `nv_emit_context` helper here. `hook-output-contract.test.ts`
+# ("los partials no hablan con el host, solo escriben al log") holds every
+# `_partials/*.sh` file to zero host-output vocabulary — a partial is inlined
+# BEFORE the per-script, per-event output contract is known, so it must never
+# construct `hookSpecificOutput`/`systemMessage` itself. Every hook this spec
+# touches already builds its own JSON at its own call site (unchanged by D2);
+# a script whose Claude/Codex registrations differ in event name (D1: e.g.
+# `subagent-stop-handoff` is PostToolUse under Claude, SubagentStop under
+# Codex) is unaffected in practice — Codex does not honor `additionalContext`
+# on `SubagentStop` at all (codex-research.md), so `systemMessage` is what a
+# human sees there regardless of which literal `hookEventName` the JSON claims.
 
 # The typed text, under whichever key the host uses.
 #
@@ -1742,7 +1921,8 @@ log_file=$audits_root/$repo/session-$session_id.log
 # charset (#503) — this function trusts it into a command line, so an unvalidated
 # id must never reach here. $2 is the payload's cwd (#454: never
 # CLAUDE_PROJECT_DIR — they differ in worktrees, and --arm wrote the flag under
-# the repo name resolved from the cwd). $3 is the audits root.
+# the repo name resolved from the cwd). $3 is the audits root. $4 is the
+# authoritative engine selected by the shared hook input adapter.
 #
 # Fail-open and silent: returns 0 ONLY when audit-mode was actually started, so
 # the caller can announce it; every other path returns 1 and changes nothing.
@@ -1751,17 +1931,19 @@ navori_audit_consume_armed() {
   narm_sid=$1
   narm_cwd=$2
   narm_root=$3
+  narm_host=$4
   [ -n "$narm_sid" ] && [ -n "$narm_cwd" ] && [ -n "$narm_root" ] || return 1
+  case "$narm_host" in claude | codex) : ;; *) return 1 ;; esac
   narm_repo=$(navori_audit_repo_from_cwd "$narm_cwd") || return 1
   [ -n "$narm_repo" ] || return 1
   narm_file=$narm_root/$narm_repo/.armed
   [ -f "$narm_file" ] || return 1
   command -v navori >/dev/null 2>&1 || return 1
   rm -f "$narm_file" 2>/dev/null || true
-  navori audit --start "$narm_sid" --cwd "$narm_cwd" >/dev/null 2>&1 || return 1
+  navori audit --start "$narm_sid" --cwd "$narm_cwd" --host "$narm_host" >/dev/null 2>&1 || return 1
   return 0
 }
-if navori_audit_consume_armed "$session_id" "$cwd" "$audits_root"; then
+if navori_audit_consume_armed "$session_id" "$cwd" "$audits_root" "$nv_engine"; then
   printf 'navori: audit-mode ACTIVE from this message on (armed via navori audit --arm; the hook ran --start %s).\n' "$session_id"
 fi
 
@@ -1782,7 +1964,7 @@ fi
 # as if the mode were off — a recorder may never be the reason a prompt fails.
 audit_mode='opt-in'
 if [ ! -f "$log_file" ] && [ "$audit_mode" = "always" ] && command -v navori >/dev/null 2>&1; then
-  if navori audit --start "$session_id" --cwd "$cwd" >/dev/null 2>&1; then
+  if navori audit --start "$session_id" --cwd "$cwd" --host "$nv_engine" >/dev/null 2>&1; then
     # Same reasoning as the armed branch: a UserPromptSubmit hook's stdout is
     # injected as context, so the model learns it is being recorded as it starts.
     printf 'navori: audit-mode ACTIVE from this message on (audit.mode=always; no --arm needed).\n'
@@ -5403,6 +5585,9 @@ exit 0
 # unrelated reads/writes in the same command can still false-positive. Dynamic
 # paths, external scripts, and unenumerated runners (`dd`, `rsync`, `git apply`)
 # remain outside this text-based guard (R4: "not a sandbox against evasion").
+# A closed Node/JSON exception below classifies submitted source text only: it
+# assumes a trusted Node runtime and filesystem. A .json symlink/hardlink is
+# not proof of the physical target. Unsupported syntax retains the old block.
 # The contract in `implementer.md` is the rule; this catches the slip, not the
 # workaround.
 #
@@ -6034,6 +6219,135 @@ OPEN_WRITE="(^|[^[:alnum:]_])open[[:space:]]*\\([^)]*,[[:space:]]*(mode[[:space:
 if printf '%s' "$interpreter_cmd" | grep -qE "$INTERPRETER" &&
   printf '%s' "$interpreter_cmd" | grep -qiE "$MD_LITERAL" &&
   printf '%s' "$interpreter_cmd" | grep -qE "${WRITE_API}|${FILE_WRITE}|${OPEN_WRITE}"; then
+  # The program is fixed hook code. The submitted command enters only on
+  # stdin as data; never eval it. A nonzero analyzer, missing node, empty or
+  # malformed output all fall through to the existing exit-2 block.
+  IFS= read -r -d '' navori_json_analyzer <<'NAVORI_JSON_ANALYZER' || :
+const input = require("node:fs").readFileSync(0, "utf8");
+const fail = () => { throw Error("unrecognized metadata program"); };
+try {
+  if (Buffer.byteLength(input) > 16384) fail();
+  const shell = /^[ \t]*node[ \t]+-e[ \t]+\x27([^\x27]*)\x27[ \t]*$/s.exec(input);
+  if (!shell) fail();
+  const source = shell[1];
+  const tokens = [];
+  const forbidden = new Set(["__proto__", "prototype", "constructor", "toJSON"]);
+  const reserved = new Set(["const", "for", "of", "if", "true", "false", "null", "return", "function", "class", "new", "this", "var", "let", "await", "async", "delete", "while", "do", "else", "try", "catch", "throw", "import", "export", "default", "in", "instanceof", "void", "typeof", "yield", "switch", "case", "break", "continue", "with", "super", "extends", "static", "get", "set"]);
+  for (let at = 0; at < source.length;) {
+    const rest = source.slice(at);
+    const space = /^[\t\n\r ]+/.exec(rest);
+    if (space) { at += space[0].length; continue; }
+    const string = /^"(?:[^"\\\x00-\x1f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/.exec(rest);
+    if (string) {
+      tokens.push({ kind: "string", value: JSON.parse(string[0]) });
+      at += string[0].length;
+    } else {
+      const id = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(rest);
+      const number = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/.exec(rest);
+      if (id) { tokens.push({ kind: "id", value: id[0] }); at += id[0].length; }
+      else if (number) {
+        if (!Number.isFinite(Number(number[0]))) fail();
+        tokens.push({ kind: "number", value: number[0] }); at += number[0].length;
+      } else if (rest.startsWith("=>")) { tokens.push({ kind: "punct", value: "=>" }); at += 2; }
+      else if (".,;:=()[]{}!+".includes(rest[0])) { tokens.push({ kind: "punct", value: rest[0] }); at++; }
+      else fail();
+    }
+    if (tokens.length > 4096) fail();
+  }
+  let pos = 0;
+  const peek = (value) => tokens[pos]?.value === value;
+  const take = (value) => {
+    const token = tokens[pos++];
+    const expectedKind = value === "2" ? "number" : ".,;:=()[]{}!+=>".includes(value) ? "punct" : "id";
+    if (!token || token.value !== value || token.kind !== expectedKind) fail();
+  };
+  const kind = (wanted) => { const token = tokens[pos++]; if (!token || token.kind !== wanted) fail(); return token.value; };
+  const name = () => { const value = kind("id"); if (reserved.has(value)) fail(); return value; };
+  const binding = () => { const value = name(); if (forbidden.has(value) || ["JSON", "require"].includes(value)) fail(); return value; };
+  const property = () => { const value = name(); if (forbidden.has(value)) fail(); return value; };
+  const path = (root, stop) => {
+    take(root);
+    let count = 0;
+    let result = "";
+    while (peek(".") && tokens[pos + 1]?.value !== stop) {
+      take("."); result += "." + property();
+      if (++count > 8) fail();
+    }
+    if (!count) fail();
+    return result;
+  };
+  const value = (depth = 0) => {
+    if (depth > 16) fail();
+    if (tokens[pos]?.kind === "string" || tokens[pos]?.kind === "number") { pos++; return; }
+    if (peek("true") || peek("false") || peek("null")) { pos++; return; }
+    if (peek("[")) {
+      take("[");
+      if (!peek("]")) { do { value(depth + 1); if (!peek(",")) break; take(","); if (peek("]")) fail(); } while (true); }
+      take("]"); return;
+    }
+    if (peek("{")) {
+      take("{"); const keys = new Set();
+      if (!peek("}")) {
+        do {
+          const key = tokens[pos]?.kind === "string" ? kind("string") : property();
+          if (forbidden.has(key) || keys.has(key)) fail();
+          keys.add(key); take(":"); value(depth + 1);
+          if (!peek(",")) break; take(","); if (peek("}")) fail();
+        } while (true);
+      }
+      take("}"); return;
+    }
+    fail();
+  };
+  const string = (expected) => { const actual = kind("string"); if (actual !== expected) fail(); };
+  take("const"); const fs = binding(); take("="); take("require"); take("("); string("node:fs"); take(")"); take(";");
+  take("const"); const dest = binding(); if (dest === fs) fail(); take("=");
+  const destination = kind("string");
+  if (!destination || /[\x00-\x1f\x7f]/.test(destination) || !/\.json$/i.test(destination)) fail();
+  take(";");
+  take("const"); const doc = binding(); if (doc === fs || doc === dest) fail(); take("=");
+  take("JSON"); take("."); take("parse"); take("(");
+  take(fs); take("."); take("readFileSync"); take("("); take(dest); take(","); string("utf8"); take(")"); take(")"); take(";");
+  let operations = 0;
+  while (!(peek(fs) && tokens[pos + 1]?.value === "." && tokens[pos + 2]?.value === "writeFileSync")) {
+    if (++operations > 4096) fail();
+    if (peek("for")) {
+      take("for"); take("("); take("const"); const item = binding();
+      if ([fs, dest, doc].includes(item)) fail();
+      take("of"); take("[");
+      if (!peek("]")) { do { kind("string"); if (!peek(",")) break; take(","); if (peek("]")) fail(); } while (true); }
+      take("]"); take(")"); take("if"); take("("); take("!");
+      const checked = path(doc, "includes"); take("."); take("includes"); take("("); take(item); take(")"); take(")");
+      const pushed = path(doc, "push"); if (checked !== pushed) fail();
+      take("."); take("push"); take("("); take(item); take(")"); take(";");
+    } else {
+      const target = path(doc, "sort");
+      if (peek(".") && tokens[pos + 1]?.value === "sort") {
+        take("."); take("sort"); take("("); take(")"); take(";"); continue;
+      }
+      take("=");
+      if (peek(doc)) {
+        path(doc, "map"); take("."); take("map"); take("(");
+        const item = binding(); if ([fs, dest, doc].includes(item)) fail();
+        take("=>"); path(item); take(")");
+      } else value();
+      take(";");
+    }
+  }
+  take(fs); take("."); take("writeFileSync"); take("("); take(dest); take(",");
+  take("JSON"); take("."); take("stringify"); take("("); take(doc); take(","); take("null"); take(","); take("2"); take(")");
+  take("+"); string("\n"); take(")"); take(";");
+  if (pos !== tokens.length) fail();
+  process.stdout.write("ALLOW");
+} catch { process.exitCode = 1; }
+NAVORI_JSON_ANALYZER
+  if command -v node >/dev/null 2>&1; then
+    if navori_json_result=$(printf '%s' "$cmd" | node -e "$navori_json_analyzer" 2>/dev/null) && [ "$navori_json_result" = "ALLOW" ]; then
+      navori_audit_verdict="allow"
+      navori_audit_reason="programa JSON estático reconocido"
+      exit 0
+    fi
+  fi
   block "intérprete con operación de escritura y ruta .md/.mdx"
 fi
 
@@ -6866,7 +7180,7 @@ extract_cmd() {
 
 # Every matching command needs this literal token, so its absence from the raw
 # payload proves this hook cannot apply and avoids parsing the payload at all.
-TRIGGER_TOKENS='approved-by navori master'
+TRIGGER_TOKENS='approved-by delivery-baseline delivery-queue navori master'
 # Shared gate detector — inlined into each hook at render time (see the include
 # directive in the source scripts + lib/render/hook-includes.ts). The caller MUST set
 # $TRIGGER_RE (an ERE) before the include; it decides which git ops this hook
@@ -7400,13 +7714,20 @@ RUNNER='((npx|bunx|pnpm[[:space:]]+(exec|dlx))[[:space:]]+(-[^[:space:]]+[[:spac
 NAVORI="${RUNNER}([^[:space:];&|(\`]*/)?navori(@[^[:space:]]+)?"
 PART_RE="${NAVORI}[[:space:]]+master[[:space:]]+part([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
 CLOSE_RE="${NAVORI}[[:space:]]+master[[:space:]]+close([[:space:];&|)<>]|\$)"
-TRIGGER_RE=".*${BOUND}(${PART_RE}|${CLOSE_RE})"
+BASELINE_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-baseline([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
+QUEUE_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-queue([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
+TRIGGER_RE=".*${BOUND}(${PART_RE}|${CLOSE_RE}|${BASELINE_RE}|${QUEUE_RE})"
 # A command substitution starts a new command: make it a segment of its own so
 # the `VAR=$(` prefix peeling in the shared scan cannot swallow it.
 navori_subst='$('
 navori_semi='; '
 cmd="${cmd//"$navori_subst"/$navori_semi}"
 is_scan_trigger "$cmd" || exit 0
+
+approval_description="a manual criterion"
+case "$cmd" in
+  *delivery-baseline*|*delivery-queue*) approval_description="the delivery baseline or bounded queue" ;;
+esac
 
 # Fixed by construction: no repository content reaches JSON, so this still
 # works when jq and node are unavailable.
@@ -7417,12 +7738,12 @@ case "$0" in
   *".codex/hooks/"*)
     navori_audit_verdict="deny"
     navori_audit_reason="manual approval or stage close"
-    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[navori] this records that the user approved a manual criterion, and Codex hooks cannot prompt. Show the user what it approves and let them confirm and run the command themselves."}}'
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[navori] this records that the user approved %s, and Codex hooks cannot prompt. Show the user what it approves and let them confirm and run the command themselves."}}\n' "$approval_description"
     ;;
   *)
     navori_audit_verdict="ask"
     navori_audit_reason="manual approval or stage close"
-    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[navori] this records that you approved a manual criterion. Confirm only if you reviewed it."}}'
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[navori] this records that you approved %s. Confirm only if you reviewed it."}}\n' "$approval_description"
     ;;
 esac
 # navori:managed end id="master-accept-confirm-base"
@@ -12361,7 +12682,8 @@ add_bounded() {
 # charset (#503) — this function trusts it into a command line, so an unvalidated
 # id must never reach here. $2 is the payload's cwd (#454: never
 # CLAUDE_PROJECT_DIR — they differ in worktrees, and --arm wrote the flag under
-# the repo name resolved from the cwd). $3 is the audits root.
+# the repo name resolved from the cwd). $3 is the audits root. $4 is the
+# authoritative engine selected by the shared hook input adapter.
 #
 # Fail-open and silent: returns 0 ONLY when audit-mode was actually started, so
 # the caller can announce it; every other path returns 1 and changes nothing.
@@ -12370,14 +12692,16 @@ navori_audit_consume_armed() {
   narm_sid=$1
   narm_cwd=$2
   narm_root=$3
+  narm_host=$4
   [ -n "$narm_sid" ] && [ -n "$narm_cwd" ] && [ -n "$narm_root" ] || return 1
+  case "$narm_host" in claude | codex) : ;; *) return 1 ;; esac
   narm_repo=$(navori_audit_repo_from_cwd "$narm_cwd") || return 1
   [ -n "$narm_repo" ] || return 1
   narm_file=$narm_root/$narm_repo/.armed
   [ -f "$narm_file" ] || return 1
   command -v navori >/dev/null 2>&1 || return 1
   rm -f "$narm_file" 2>/dev/null || true
-  navori audit --start "$narm_sid" --cwd "$narm_cwd" >/dev/null 2>&1 || return 1
+  navori audit --start "$narm_sid" --cwd "$narm_cwd" --host "$narm_host" >/dev/null 2>&1 || return 1
   return 0
 }
 _armed_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
@@ -12398,13 +12722,23 @@ fi
 case "$_armed_sid" in
   "" | *[!A-Za-z0-9_-]*) : ;;
   *)
-    if navori_audit_consume_armed "$_armed_sid" "$_armed_cwd" "$_armed_root"; then
+    if navori_audit_consume_armed "$_armed_sid" "$_armed_cwd" "$_armed_root" "$nv_engine"; then
       # Tell the MODEL, not just the log: the session should know it is being
       # recorded, and the user should see the activation in the first turn.
       add "navori: audit-mode ACTIVE for this session (armed via 'navori audit --arm'; the hook ran --start ${_armed_sid})."
     fi
     ;;
 esac
+
+# A hook export cannot reach later Codex tool shells. Deliver the exact pair
+# through the session context so an agent-initiated CLI command can pass it.
+if [ "$nv_engine" = codex ]; then
+  _audit_runtime_id=$(payload_field session_id)
+  case "$_audit_runtime_id" in
+    "" | *[!A-Za-z0-9_-]*) : ;;
+    *) add "Audit CLI context for this session: NAVORI_AUDIT_HOST=codex NAVORI_AUDIT_SESSION_ID=${_audit_runtime_id}. Pass both variables to agent-initiated navori commands when audit correlation is needed." ;;
+  esac
+fi
 
 # ─── Which of the five sources opened this session.
 #
@@ -18944,12 +19278,17 @@ metadata:
 1. Dispatch `architect` with the task, the signals and `classify`'s breakdown → it writes
    `solution_<feature>.md`.
 2. Dispatch a fresh-context `auditor` (challenge encargo) → `solution_review_<feature>.md`.
-3. "Present the surviving options to the user with the recommended one first and the challenge
-   findings beside each; the user picks." If only one survives, say so and move on.
+3. Present the surviving options and challenge findings. Before asking the user to choose, give
+   the compact `resumen de decisión` in chat per `formato-respuesta.md`, including recommendation,
+   rationale, scope, pertinent risks/blockers and verification. "Present the surviving options to
+   the user with the recommended one first and the challenge findings beside each; the user picks."
+   If only one survives, say so and move on.
 4. Your verdict, post-challenge: READY / CONCERNS / BLOCKED.
 5. Write the level-2 workplan: everything `plan-simple` covers plus `solution {path, verdict}`,
-   phases with their `A<n>`, and risks with their rollback; render, check and get the user's
-   approval. As in `plan-simple`, an `A<n>` reaches `cumplido` only with evidence the routing-watch hook recorded because the host ran its exact `command`.
+   phases with their `A<n>`, and risks with their rollback; render and check it, then give the
+   compact `resumen de decisión` in chat per `formato-respuesta.md` before asking for approval. As in
+   `plan-simple`, an `A<n>` reaches `cumplido` only with evidence the routing-watch hook recorded
+   because the host ran its exact `command`.
 6. After two rejections, the gate requires `solution_<feature>.md` and
    `solution_review_<feature>.md`: the architect diagnoses why the previous design failed before
    redesigning.
@@ -18999,6 +19338,8 @@ metadata:
 2. Run `navori plan classify <feature>` → tell the user the level, score and breakdown in ≤ 4
    lines. If it comes back level 2 or higher, switch to `plan-advanced`.
 3. Run `navori plan render <feature>` and `navori plan check <feature>` until both are green;
+   give the compact `resumen de decisión` in chat per `formato-respuesta.md`, including recommendation,
+   scope, pertinent risks/blockers and verification; then
    show the rendered `.md` and wait for the user's approval.
 4. "Open every implementer encargo with `workplan: <feature>` and list the `A<n>` that sub-task covers."
 5. "When a sub-task closes, record it with `navori plan update`" (each `A<n>`'s status and
@@ -19105,6 +19446,8 @@ Only when the orchestration table's fan-out row fires, never on "it feels separa
 
 ## Hard rules
 
+- For `proceed` or `proceed-differently`, give the compact `resumen de decisión` in chat per
+  `formato-respuesta.md` before asking approval; no-work verdicts close with evidence, without approval.
 - **Phase 2 fires only on its disparadores** — never skipped because you "already understood the ticket" when it does fire, and never invented when it doesn't: the audit is for the implementer, and for you in 3 days.
 - **No PR without `APPROVED`.**
 - **A verdict that opens no work doesn't wait for approval:** report it with its evidence, leave `progress/current.md` at `idle`, stop — asking permission to do nothing turns a finished pipeline into a stalled one. Only `proceed` / `proceed-differently` hold for the user, right before code gets written.
@@ -19587,19 +19930,16 @@ metadata:
 
 ## When to use this skill
 
-When a task shows any architectural signal (see the architectural pass in the
-orchestration block), or a ticket audit came back `proceed-differently`. NOT for a
-change following an exact existing pattern with local blast radius and trivial
-rollback — no design pass needed, this skill is pure overhead.
+When a task shows an architectural signal (see orchestration), or a ticket audit
+returns `proceed-differently`. NOT for an exact existing pattern with local blast
+radius and trivial rollback — no design pass needed.
 
-This answers **what to build and why** — not the implementation plan (*what files,
-in what order*), not code review (*did the code do what we agreed*). Design before
-decomposing: a contract, a state owner or a migration path moves task boundaries,
-so tasks written first get rewritten.
+This answers **what to build and why**, not the implementation plan or code review.
+Design before decomposing: contracts, state owners and migration paths move task
+boundaries, so tasks written first get rewritten.
 
-A security-sensitive signal also routes through `secure-by-design`; a
-non-functional-requirement signal routes through `quality-attributes` for its
-evidence matrix. Neither replaces this skill's verdict.
+Security signals also route through `secure-by-design`; non-functional
+requirements through `quality-attributes`. Neither replaces this verdict.
 
 **Who does what (spec 0026 F; spec 0032 R23, R33).** Three roles, never collapsed: `architect`
 **proposes** (applies this skill, writes the artifact) — always; there is no flag to turn it off.
@@ -19635,7 +19975,10 @@ level 2 the user picks among the surviving options before that verdict.
 3. **Approaches, only if ≥2 are genuine.** Never invent a straw alternative when
    one answer is obviously right. When the request proposes one, it is approach A
    and gets no privileges: give each option its tradeoffs and its cost of reversal.
-4. **Choose**: what, why, and why not the others.
+4. **Choose**: what, why, and why not the others. Before asking the user to choose, give the compact
+   `resumen de decisión` in chat per `formato-respuesta.md` (recommendation, rationale, concerns,
+   scope and verification);
+   keep challenge and verdict separate.
 5. **Cover only the dimensions the signal raises** — boundaries and contracts,
    failure modes, migration and compatibility, testing strategy. An empty section
    is noise, not rigor. Every test you name answers a risk named above it.
@@ -19750,9 +20093,9 @@ Do not write anything under `specs` unless the user has explicitly accepted star
 
 ## When to use this skill
 
-When SDD-scope work has been agreed with the user. The threshold and its opt-in gate live in ONE place — the **Spec Driven Development** block in `CLAUDE.md`; don't re-decide them here, and don't scaffold a spec nobody accepted.
+When SDD work meets its threshold; **the threshold and its opt-in gate live in ONE place**: the **Spec Driven Development** block in `CLAUDE.md`. Before asking acceptance, give the compact `resumen de decisión` in chat per `formato-respuesta.md`; a proposal or summary is not authorization to scaffold.
 
-Produces `specs/<feature>/{requirements.md, design.md, tasks.md}` ready to implement. Scaffolding is done by `orchestrator`, not a nested subagent.
+Produces `specs/<feature>/{requirements.md, design.md, tasks.md}`. `orchestrator` scaffolds, not a nested subagent.
 
 **Challenge on critical areas.** WHEN the spec touches `auth, permissions, payments, data integrity`, a fresh-context `auditor` challenges it with `solution-design`'s falsification brief before handoff. One round, no verdict — `orchestrator` decides.
 
@@ -20122,10 +20465,13 @@ if (!parsed.success) return res.status(400).json({ error: z.prettifyError(parsed
 <!-- navori:managed id="formato-respuesta" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
 ## Concisión (aplica a todo: chat y subagentes)
 
-- Lidera con el resultado: la primera línea responde "qué pasó / qué encontré", no el preámbulo.
-- Cero relleno: no narres rutina ("ahora voy a…", "déjame ver…") ni cierres de cortesía.
-- Recorta la prosa, no la sustancia. Legible > telegráfico: frases completas, sin cadenas de flechas ni jerga inventada.
-- Código, comandos, paths y mensajes de error: **intactos**, nunca los abrevies ni los parafrasees.
+- Abre con el resultado; omite rutina y cortesías.
+- Recorta prosa, no sustancia; evita jerga.
+- Conserva código, comandos, paths y errores intactos.
+
+### Resumen de decisión en el chat
+
+Antes de pedir aprobación, resume recomendación y motivo, alcance, riesgos pertinentes, bloqueos y verificación prevista o realizada. No se deben omitir garantías, riesgos ni bloqueos; el artefacto complementa el resumen. Aprobar producto o plan no autoriza despliegue.
 
 ## Formato de respuesta
 

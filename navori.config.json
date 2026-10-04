@@ -25,6 +25,9 @@
     "planTiers": true
   },
   "models": {
+    "codexMap": {
+      "sonnet": "gpt-6.1-sol"
+    },
     "orchestrator": "opus",
     "implementer": "sonnet",
     "reviewer": "sonnet",

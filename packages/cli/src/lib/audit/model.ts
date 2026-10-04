@@ -16,6 +16,73 @@ export interface TokenTotals {
   thinking: number;
 }
 
+/** Public evidence states; initialization counters are never evidence. */
+export type AvailabilityState = "observed" | "partial" | "unavailable" | "unsupported" | "invalid";
+export type EvidenceReason =
+  | "missing"
+  | "unreadable"
+  | "not-observed"
+  | "malformed"
+  | "live-tail"
+  | "ownership-unknown"
+  | "unsealed"
+  | "unsupported-component"
+  | "empty-population"
+  | "incomplete-enumeration"
+  | "identity-conflict";
+export interface MetricEvidence {
+  state: AvailabilityState;
+  reason: EvidenceReason | null;
+  source: "transcript" | "rollout" | "audit-log" | "otlp" | "host-metadata" | "aggregate";
+  adapter: "claude-transcript" | "codex-rollout" | "audit-log" | "otlp" | null;
+  sourceVersion: string | null;
+}
+/** Content-free source diagnostics, independent of metric completeness. */
+export interface SourceHealth extends MetricEvidence {
+  records: number;
+  validRecords: number;
+  parseErrors: number;
+  incompleteTail: boolean;
+  from: string | null;
+  to: string | null;
+}
+/** Contributor counts distinguish a measured zero from an empty reduction. */
+export interface MetricPopulation extends MetricEvidence {
+  eligible: number | null;
+  observed: number;
+  partial: number;
+  unavailable: number;
+  unsupported: number;
+  invalid: number;
+  contributors?: number;
+  policy?: "measured" | "observed-only";
+}
+
+/** Output measurements may be unknown even when parser identities are numbers. */
+export type NullableMeasurements<T> = T extends number
+  ? number | null
+  : T extends readonly (infer U)[]
+    ? NullableMeasurements<U>[]
+    : T extends object
+      ? {
+          [K in keyof T]: K extends
+            | "toolCounts"
+            | "toolCountsByMode"
+            | "models"
+            | "mcpCalls"
+            | "repeatedCommands"
+            | "toolErrorTypes"
+            | "permissionModes"
+            | "byModel"
+            ? NullableMeasurements<T[K]> | null
+            : NullableMeasurements<T[K]>;
+        }
+      : T;
+export type PublishedAuditReport = Omit<
+  NullableMeasurements<AuditReport>,
+  "schemaVersion" | "availability"
+> & { schemaVersion: 11; availability: Record<string, MetricPopulation> };
+
 export function emptyTokens(): TokenTotals {
   return { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, thinking: 0 };
 }
@@ -32,6 +99,7 @@ export function addTokens(a: TokenTotals, b: TokenTotals): TokenTotals {
 
 /** Every token that entered or left the model, for one subagent run. */
 export interface AgentRun {
+  availability?: Record<string, MetricEvidence>;
   agentId: string;
   /** From `agent-<id>.meta.json`; falls back to the parent's `subagent_type`. */
   agentType: string;
@@ -363,6 +431,10 @@ export function emptyOrchestrator(): SessionAudit["orchestrator"] {
 
 /** One audited session: the orchestrator plus every subagent it spawned. */
 export interface SessionAudit {
+  /** Optional only for legacy in-memory inputs; absent evidence is unknown. */
+  availability?: Record<string, MetricEvidence>;
+  sources?: Partial<Record<"transcript" | "rollout" | "audit-log" | "otlp", SourceHealth>>;
+  activeMs?: number | null;
   sessionId: string;
   startedAt: string;
   endedAt: string;
@@ -639,7 +711,9 @@ export interface SessionAudit {
    * prompts, tool arguments or outputs. `unavailable` = the rollout could not
    * be found or read; the session is still reported from its audit log.
    */
-  rollout?: CodexRolloutFacts | { status: "unavailable"; reason: "missing" | "unreadable" };
+  rollout?:
+    | CodexRolloutFacts
+    | { status: "unavailable"; reason: "missing" | "unreadable"; health?: SourceHealth };
   /** CLI mechanism verdicts recorded in the session log (R70 frame). */
   cliEvents?: CliEvent[];
   /** Unparseable or unknown lines, counted instead of thrown. */
@@ -663,6 +737,8 @@ export interface CodexRolloutFacts {
   lastTs: string | null;
   /** Lines that were not valid JSON, counted instead of thrown. */
   parseErrors: number;
+  health?: SourceHealth;
+  ownWindow?: { from: string; to: string };
 }
 
 /** A verdict a navori CLI command recorded in the session log (R70). */
@@ -956,7 +1032,11 @@ export interface AuditReport {
    *  version also carries the optional `repos` rows of an `--all-repos` report
    *  (R61): absent from a single-repo report, so a reader needs no new version.
    *  A reader can tell the shapes apart by this number alone. */
-  schemaVersion: 10;
+  schemaVersion: 10 | 11;
+  /** Schema 11 measurements are nullable at the JSON projection boundary. */
+  availability?: Record<string, MetricPopulation>;
+  availabilityByAgentType?: Record<string, Record<string, MetricPopulation>>;
+  coverage?: import("./discovery.ts").RepoCoverage[];
   generatedBy: string;
   /**
    * When this report was built, ISO-8601.
@@ -1044,7 +1124,7 @@ export interface AuditReport {
 export interface RepoRow {
   repo: string;
   /** Sessions with an audit log in the period. */
-  audited: number;
+  audited: number | null;
   /** Host sessions in the period; null when no project root is known. */
   host: number | null;
 }

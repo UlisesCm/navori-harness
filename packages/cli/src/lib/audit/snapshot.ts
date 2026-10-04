@@ -58,6 +58,8 @@ function isReasonKey(key: string): boolean {
 
 /** Builds the snapshot of a report. Pure: nothing is read or written. */
 export function buildSnapshot(report: AuditReport, scope: "repo" | "all"): RangeSnapshot {
+  if (report.schemaVersion === 11)
+    throw new NavoriError("snapshot-schema-unavailable", "schema11-snapshot-pending");
   const rangeMetrics: Record<string, number | null> = {};
   for (const [key, value] of Object.entries(report.rangeMetrics)) {
     if (!isReasonKey(key)) rangeMetrics[key] = value;

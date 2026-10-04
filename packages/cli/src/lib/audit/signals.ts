@@ -1116,13 +1116,29 @@ export function detectSignals(
   catalog: HarnessCatalog,
   lang: Lang,
 ): Signal[] {
+  if (session.availability && session.availability.tools?.state !== "observed")
+    return [...recorderCoverage(session, lang), ...abandonedQualityGates(session, lang)];
+  const measuredUsage =
+    !session.availability ||
+    [session.availability, ...session.agents.map((a) => a.availability ?? {})].every((evidence) =>
+      [
+        "tokens.input",
+        "tokens.output",
+        "tokens.cacheRead",
+        "tokens.cacheCreation",
+        "startupTokens",
+      ].every((key) => evidence[key]?.state === "observed"),
+    );
   const order = { high: 0, warn: 1, info: 2 } as const;
   return [
-    ...unreachableInstructions(session, catalog, lang),
-    ...startupOverhead(session, catalog, lang),
+    ...(measuredUsage ? unreachableInstructions(session, catalog, lang) : []),
+    ...(measuredUsage ? startupOverhead(session, catalog, lang) : []),
     ...rework(session, lang),
-    ...reviewCycles(session, lang),
-    ...serialFanout(session, lang),
+    ...(measuredUsage ? reviewCycles(session, lang) : []),
+    ...(!session.availability ||
+    session.agents.every((a) => a.availability?.durationMs?.state === "observed")
+      ? serialFanout(session, lang)
+      : []),
     ...friction(session, lang),
     ...toolErrorRate(session, lang),
     ...deadCatalog(session, catalog, lang),
@@ -1248,7 +1264,20 @@ export function reviewerGateLifecycle(sessions: SessionAudit[], lang: Lang): Sig
   // treated as zero.
   const MIN_COMPLETED_GATES = 10;
   const MIN_DIFF_UNITS = 3;
-  const completed = owned.filter((e) => e.outcome === "completed" && e.durationMs !== null);
+  const completedBySession = sessions.map((session) => ({
+    session,
+    gates: correlateGateExecutions(session).filter(
+      (e) =>
+        e.ownerAgentType !== null &&
+        GATE_OWNER_TYPES.has(e.ownerAgentType) &&
+        e.outcome === "completed" &&
+        e.durationMs !== null,
+    ),
+  }));
+  const completed = completedBySession.flatMap(({ gates }) => gates);
+  const sampledSessions = completedBySession
+    .filter(({ gates }) => gates.length > 0)
+    .map(({ session }) => session);
   // The audit has no independent diff identity — no (base, head) pair survives
   // past the ephemeral receipt (deleted by the publisher after commit; see
   // spec 0026 R54 amendment) — so a distinct git branch is used as the
@@ -1262,22 +1291,46 @@ export function reviewerGateLifecycle(sessions: SessionAudit[], lang: Lang): Sig
   // bucketed under one shared "unknown" key rather than counted per session,
   // for the same reason: undercounting here is safe, overcounting is not.
   const knownBranches = new Set(
-    sessions.filter((s) => s.gitBranch !== null).map((s) => s.gitBranch),
+    sampledSessions.filter((s) => s.gitBranch !== null).map((s) => s.gitBranch),
   );
-  const hasUnknownBranch = sessions.some((s) => s.gitBranch === null);
+  const hasUnknownBranch = sampledSessions.some((s) => s.gitBranch === null);
   const diffUnits = knownBranches.size + (hasUnknownBranch ? 1 : 0);
   if (completed.length >= MIN_COMPLETED_GATES && diffUnits >= MIN_DIFF_UNITS) {
     const gateMs = completed.reduce((sum, e) => sum + (e.durationMs ?? 0), 0);
-    const reviewerMs = reviewerRuns.reduce((sum, a) => sum + a.durationMs, 0);
+    const reviewerRunsBySession = completedBySession.map(({ session, gates }) => {
+      const ownerIds = new Set(
+        gates.filter((gate) => gate.ownerAgentType === "reviewer").map((gate) => gate.ownerAgentId),
+      );
+      return session.agents.filter(
+        (agent) => agent.agentType === "reviewer" && ownerIds.has(agent.agentId),
+      );
+    });
+    const sampledReviewerRuns = reviewerRunsBySession.flat();
+    if (sampledReviewerRuns.length === 0) {
+      out.push({
+        kind: "reviewer-gate-duration",
+        severity: "info",
+        summary: pick(
+          lang,
+          `Latencia de reviewer no disponible (${completed.length} gates completados sobre ${diffUnits} rama(s); ninguno tiene una corrida de reviewer correlacionada)`,
+          `Reviewer latency unavailable (${completed.length} completed gates over ${diffUnits} branch(es); none has a correlated reviewer run)`,
+        ),
+        evidence: pick(
+          lang,
+          "Las ejecuciones de gate sin owner reviewer verificable no se imputan como duración ni espera de reviewer.",
+          "Gate executions without a verifiable reviewer owner are not imputed as reviewer duration or wait.",
+        ),
+      });
+      return out;
+    }
+    const reviewerMs = sampledReviewerRuns.reduce((sum, a) => sum + a.durationMs, 0);
     // "Espera": the gap between one reviewer run ending and the next one
     // starting, within the same session — a re-review cycle waiting on
     // whatever came between them. Negative gaps (overlap) are excluded, not
     // clamped to zero, since they are already reported above as overlap.
     let waitMs = 0;
-    for (const s of sessions) {
-      const runs = s.agents
-        .filter((a) => a.agentType === "reviewer")
-        .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+    for (const correlatedRuns of reviewerRunsBySession) {
+      const runs = correlatedRuns.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
       for (let i = 1; i < runs.length; i++) {
         const gap = Date.parse(runs[i]!.startedAt) - Date.parse(runs[i - 1]!.endedAt);
         if (Number.isFinite(gap) && gap > 0) waitMs += gap;
@@ -1293,8 +1346,8 @@ export function reviewerGateLifecycle(sessions: SessionAudit[], lang: Lang): Sig
       ),
       evidence: pick(
         lang,
-        `${reviewerRuns.length} corrida(s) de reviewer, ${completed.length} ejecuciones de gate correlacionadas a reviewer/implementer. La rama de git es la unidad usada como proxy de "diff" (la auditoría no registra una identidad de diff propia; sesiones en la misma rama cuentan como un solo diff). El umbral mínimo de R54 (>=${MIN_COMPLETED_GATES} gates sobre >=${MIN_DIFF_UNITS} ramas de git distintas) ya se cumplió; por debajo de él este hallazgo se marca inconcluso en vez de imprimirse.`,
-        `${reviewerRuns.length} reviewer run(s), ${completed.length} gate executions correlated to reviewer/implementer. The git branch is the proxy used for "diff" (the audit records no independent diff identity; sessions on the same branch count as one diff). R54's own floor (>=${MIN_COMPLETED_GATES} gates over >=${MIN_DIFF_UNITS} distinct git branches) is already met; below it this finding is marked inconclusive instead of being printed.`,
+        `${sampledReviewerRuns.length} corrida(s) de reviewer con gate completado propio, ${completed.length} ejecuciones de gate correlacionadas a reviewer/implementer. La rama de git es la unidad usada como proxy de "diff"; corridas sin gate completado propio no aportan duración ni espera. El umbral mínimo de R54 (>=${MIN_COMPLETED_GATES} gates sobre >=${MIN_DIFF_UNITS} ramas de git distintas) ya se cumplió.`,
+        `${sampledReviewerRuns.length} reviewer run(s) with their own completed gate, ${completed.length} gate executions correlated to reviewer/implementer. Git branch is the proxy for "diff"; runs without their own completed gate add neither duration nor wait. R54's minimum (>=${MIN_COMPLETED_GATES} gates over >=${MIN_DIFF_UNITS} distinct git branches) is met.`,
       ),
     });
   } else if (reviewerRuns.length > 0 || owned.length > 0) {

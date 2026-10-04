@@ -4,6 +4,11 @@
  * `part`, `template` and `close` to this same command (design.md D1).
  */
 import { defineCommand } from "citty";
+import {
+  approveDeliveryBaseline,
+  authorizeDeliveryQueue,
+  checkActiveDelivery,
+} from "../lib/master/delivery.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { appendCliEvent } from "../lib/audit/cli-event.ts";
@@ -64,11 +69,23 @@ const initSubCommand = defineCommand({
       description: "kebab-case slug for a new stage (required only when none is active)",
     },
     cwd: { type: "string", description: "Repo root" },
+    workflow: {
+      type: "string",
+      description: "legacy | deliveries (optional; omitted resumes active workflow)",
+    },
   },
   run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     try {
-      const result = runMasterInit(cwd, args.slug || undefined);
+      if (args.workflow && args.workflow !== "legacy" && args.workflow !== "deliveries")
+        throw new MasterInitError(
+          `invalid workflow "${args.workflow}": expected legacy or deliveries`,
+        );
+      const result = runMasterInit(
+        cwd,
+        args.slug || undefined,
+        args.workflow as "legacy" | "deliveries" | undefined,
+      );
       for (const warning of result.warnings) process.stderr.write(`[navori] ${warning}\n`);
       const signal = result.signal;
       process.stdout.write(
@@ -77,6 +94,10 @@ const initSubCommand = defineCommand({
           `archivosCambiados=${signal.filesChangedSinceFirst ?? "?"} framework=${signal.framework ?? "ninguno"} ` +
           `sugerido=${signal.suggested}\n`,
       );
+      if (result.workflow === "deliveries")
+        process.stdout.write(
+          "Deliveries: preparación, baseline y cola disponibles; ejecución, aceptación y publicación aún no disponibles.\n",
+        );
       if (result.phase === "context") {
         const specsDir = readConfig(join(cwd, "navori.config.json")).sdd?.specsDir ?? "specs";
         process.stdout.write(
@@ -114,6 +135,8 @@ function setMasterMode(cwd: string, value: string): void {
   if (!active) {
     throw new Error("no active stage: run 'navori master init <slug>' first");
   }
+  if (active.workflow === "deliveries")
+    throw new Error(`${active.dir}: mode is not available for deliveries yet`);
   if (active.number >= 2) {
     throw new Error("mode is automatic ('en-curso') from stage 2 onward; it cannot be changed");
   }
@@ -147,6 +170,8 @@ function setMasterUx(cwd: string, value: string): void {
   if (!active) {
     throw new Error("no active stage: run 'navori master init <slug>' first");
   }
+  if (active.workflow === "deliveries")
+    throw new Error(`${active.dir}: ux is not available for deliveries yet`);
   const statePath = join(masterDirPath(cwd, specsDir), active.dir, "state.json");
   if (!existsSync(statePath)) {
     throw new Error(`state.json not found for stage ${active.dir}`);
@@ -219,6 +244,13 @@ const templateSubCommand = defineCommand({
     try {
       const config = readConfig(join(cwd, "navori.config.json"));
       const specsDir = config.sdd?.specsDir ?? "specs";
+      const index = readMasterIndex(cwd, specsDir);
+      const active = activeStage(index);
+      const deliveryTemplate = name === "delivery-master" || name === "slice";
+      if (deliveryTemplate && active?.workflow !== "deliveries")
+        throw new Error(`${name} requires an active deliveries stage`);
+      if (!deliveryTemplate && active?.workflow === "deliveries")
+        throw new Error(`${active.dir}: legacy templates are not available for deliveries`);
       if (args.part) {
         if (name !== "issue") {
           throw new Error("--part solo aplica a 'navori master template issue'");
@@ -226,6 +258,8 @@ const templateSubCommand = defineCommand({
         const index = readMasterIndex(cwd, specsDir);
         const stage = activeStage(index);
         if (!stage) throw new Error("no hay etapa activa");
+        if (stage.workflow === "deliveries")
+          throw new Error(`${stage.dir}: legacy part templates are not available for deliveries`);
         const partsPath = join(masterDirPath(cwd, specsDir), stage.dir, "parts.json");
         if (!existsSync(partsPath)) throw new Error(`falta ${stage.dir}/parts.json`);
         const raw: unknown = JSON.parse(readFileSync(partsPath, "utf8"));
@@ -235,7 +269,7 @@ const templateSubCommand = defineCommand({
         process.stdout.write(`${printIssueTemplate(part, stage.dir, specsDir, config.language)}\n`);
         return;
       }
-      const state = activeStageState(cwd, specsDir);
+      const state = deliveryTemplate ? null : activeStageState(cwd, specsDir);
       process.stdout.write(
         printTemplate(name as TemplateName, config.language, state?.mode ?? null),
       );
@@ -249,6 +283,8 @@ function activeStageState(cwd: string, specsDir: string): MasterState | null {
   const index = readMasterIndex(cwd, specsDir);
   const stage = activeStage(index);
   if (!stage) return null;
+  if (stage.workflow === "deliveries")
+    throw new Error(`${stage.dir}: legacy templates are not available for deliveries`);
   const path = join(masterDirPath(cwd, specsDir), stage.dir, "state.json");
   if (!existsSync(path)) return null;
   const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
@@ -468,6 +504,60 @@ const closeSubCommand = defineCommand({
 export const masterCommand = defineCommand({
   meta: { name: "master", description: "Master-plan project flow (spec 0034)" },
   subCommands: {
+    "delivery-check": defineCommand({
+      meta: { name: "delivery-check", description: "Check delivery preparation without writes" },
+      args: { cwd: { type: "string", description: "Repo root" } },
+      run({ args }) {
+        try {
+          const result = checkActiveDelivery(
+            resolve(typeof args.cwd === "string" ? args.cwd : process.cwd()),
+          );
+          process.stdout.write(
+            `${JSON.stringify({ ready: result.blockers.length === 0, blockers: result.blockers, expectedDigest: result.expectedDigest })}\n`,
+          );
+          if (result.blockers.length) process.exitCode = 1;
+        } catch (cause) {
+          reportError(cause);
+        }
+      },
+    }),
+    "delivery-baseline": defineCommand({
+      meta: {
+        name: "delivery-baseline",
+        description: "Record explicit operator baseline approval",
+      },
+      args: {
+        cwd: { type: "string", description: "Repo root" },
+        "approved-by": { type: "string", description: "Must be user" },
+      },
+      run({ args }) {
+        try {
+          process.stdout.write(
+            `${JSON.stringify(approveDeliveryBaseline(resolve(typeof args.cwd === "string" ? args.cwd : process.cwd()), typeof args["approved-by"] === "string" ? args["approved-by"] : ""))}\n`,
+          );
+        } catch (cause) {
+          reportError(cause);
+        }
+      },
+    }),
+    "delivery-queue": defineCommand({
+      meta: { name: "delivery-queue", description: "Authorize a bounded delivery queue" },
+      args: {
+        cwd: { type: "string", description: "Repo root" },
+        delivery: { type: "string", description: "E<n>" },
+        parts: { type: "string", description: "Comma-separated P<n>" },
+        "approved-by": { type: "string", description: "Must be user" },
+      },
+      run({ args }) {
+        try {
+          process.stdout.write(
+            `${JSON.stringify(authorizeDeliveryQueue(resolve(typeof args.cwd === "string" ? args.cwd : process.cwd()), typeof args.delivery === "string" ? args.delivery : "", typeof args.parts === "string" ? args.parts.split(",").filter(Boolean) : [], typeof args["approved-by"] === "string" ? args["approved-by"] : ""))}\n`,
+          );
+        } catch (cause) {
+          reportError(cause);
+        }
+      },
+    }),
     init: initSubCommand,
     mode: modeSubCommand,
     ux: uxSubCommand,

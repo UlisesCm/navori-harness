@@ -712,6 +712,13 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
       ),
     ],
     [
+      "hook:engram-write-guard",
+      equivalente(
+        "Codex-only PreToolUse(mcp__engram__ | mcp__plugin_engram_engram__): a subagent may call only the engram tools Claude grants its role in `tools:` (auditor reads + mem_save; implementer/reviewer/scout reads; architect/publisher/scribe none); the main thread is never blocked",
+        "Claude restricts with `tools:`, so the hook is not rendered there. A `default` or unknown child gets only mem_search and mem_get_observation (deliberate hardening, Claude's general-purpose inherits all). Registered after plan-gate to keep every published trust index: toggling `harness.planTiers` or `harness.masterPlan` shifts this row's index and needs one re-approval in /hooks; until approved it does not run. Not smoked on its own, so not enforcing",
+      ),
+    ],
+    [
       "hook:master-plan-context",
       verified(
         equivalente(
