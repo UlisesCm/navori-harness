@@ -1,4 +1,4 @@
-# navori:managed start id="master-accept-confirm-base" hash="9950e413" version="0.11.2" source="@navori/core"
+# navori:managed start id="master-accept-confirm-base" hash="431de956" version="0.11.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash): a manual acceptance (`navori master part … --approved-by`)
@@ -56,7 +56,7 @@ extract_cmd() {
 
 # Every matching command needs this literal token, so its absence from the raw
 # payload proves this hook cannot apply and avoids parsing the payload at all.
-TRIGGER_TOKENS='approved-by navori master'
+TRIGGER_TOKENS='approved-by delivery-baseline delivery-queue navori master'
 # Shared gate detector — inlined into each hook at render time (see the include
 # directive in the source scripts + lib/render/hook-includes.ts). The caller MUST set
 # $TRIGGER_RE (an ERE) before the include; it decides which git ops this hook
@@ -590,13 +590,20 @@ RUNNER='((npx|bunx|pnpm[[:space:]]+(exec|dlx))[[:space:]]+(-[^[:space:]]+[[:spac
 NAVORI="${RUNNER}([^[:space:];&|(\`]*/)?navori(@[^[:space:]]+)?"
 PART_RE="${NAVORI}[[:space:]]+master[[:space:]]+part([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
 CLOSE_RE="${NAVORI}[[:space:]]+master[[:space:]]+close([[:space:];&|)<>]|\$)"
-TRIGGER_RE=".*${BOUND}(${PART_RE}|${CLOSE_RE})"
+BASELINE_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-baseline([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
+QUEUE_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-queue([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
+TRIGGER_RE=".*${BOUND}(${PART_RE}|${CLOSE_RE}|${BASELINE_RE}|${QUEUE_RE})"
 # A command substitution starts a new command: make it a segment of its own so
 # the `VAR=$(` prefix peeling in the shared scan cannot swallow it.
 navori_subst='$('
 navori_semi='; '
 cmd="${cmd//"$navori_subst"/$navori_semi}"
 is_scan_trigger "$cmd" || exit 0
+
+approval_description="a manual criterion"
+case "$cmd" in
+  *delivery-baseline*|*delivery-queue*) approval_description="the delivery baseline or bounded queue" ;;
+esac
 
 # Fixed by construction: no repository content reaches JSON, so this still
 # works when jq and node are unavailable.
@@ -607,12 +614,12 @@ case "$0" in
   *".codex/hooks/"*)
     navori_audit_verdict="deny"
     navori_audit_reason="manual approval or stage close"
-    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[navori] this records that the user approved a manual criterion, and Codex hooks cannot prompt. Show the user what it approves and let them confirm and run the command themselves."}}'
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[navori] this records that the user approved %s, and Codex hooks cannot prompt. Show the user what it approves and let them confirm and run the command themselves."}}\n' "$approval_description"
     ;;
   *)
     navori_audit_verdict="ask"
     navori_audit_reason="manual approval or stage close"
-    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[navori] this records that you approved a manual criterion. Confirm only if you reviewed it."}}'
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[navori] this records that you approved %s. Confirm only if you reviewed it."}}\n' "$approval_description"
     ;;
 esac
 # navori:managed end id="master-accept-confirm-base"
