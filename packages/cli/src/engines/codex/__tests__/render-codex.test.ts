@@ -371,6 +371,7 @@ describe("renderCodexEngine", () => {
               "pr-publisher-confirm",
               "general-purpose-confirm",
               "plan-gate",
+              "engram-write-guard",
             ]
           : [
               "guard-destructive",
@@ -380,9 +381,12 @@ describe("renderCodexEngine", () => {
               "pr-publisher-confirm",
               "general-purpose-confirm",
               "plan-gate",
+              "engram-write-guard",
             ],
       );
-      expect(preTool.at(-1)?.matcher).toBe("spawn_agent$");
+      // B1: engram-write-guard trails plan-gate so no published trust index moves.
+      expect(preTool.at(-2)?.matcher).toBe("spawn_agent$");
+      expect(preTool.at(-1)?.matcher).toBe("mcp__engram__|mcp__plugin_engram_engram__");
       expect(toml.includes("implementer-no-markdown.sh")).toBe(scribeOwnsMarkdown);
       expect(toml).toContain("routing-watch.sh");
     }
@@ -1260,6 +1264,7 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
       "pr-publisher-confirm",
       "general-purpose-confirm",
       "plan-gate",
+      "engram-write-guard",
     ];
     const base = config(withPlugins);
     const on = config({ ...withPlugins, harness: { masterPlan: true } });
@@ -1308,7 +1313,7 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
       "comment-draft-confirm",
       "quality-gate-pre-commit",
     ]);
-    expect(scripts.at(-3)).toBe("role-guard");
+    expect(scripts.at(-4)).toBe("role-guard");
     expect(scripts.indexOf("role-guard")).toBeGreaterThan(scripts.indexOf("check-jscpd.sh"));
     expect(preTool.find((hook) => hook.script === "role-guard")?.matcher).toBe(
       "^apply_patch$|spawn_agent$",
@@ -1318,11 +1323,12 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
     const on = resolveCodexHooks(config({ ...withPlugins, harness: { masterPlan: true } }), plugins)
       .filter((hook) => hook.event === "PreToolUse")
       .map((hook) => hook.script);
-    expect(on.slice(-4)).toEqual([
+    expect(on.slice(-5)).toEqual([
       "master-accept-confirm",
       "role-guard",
       "pr-publisher-confirm",
       "general-purpose-confirm",
+      "engram-write-guard",
     ]);
     const withMaster = resolveCodexHooks(
       config({ ...withPlugins, harness: { masterPlan: true } }),
@@ -1337,7 +1343,12 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
       without.filter(
         (hook) =>
           hook.event === "PreToolUse" &&
-          !["role-guard", "pr-publisher-confirm", "general-purpose-confirm"].includes(hook.script),
+          ![
+            "role-guard",
+            "pr-publisher-confirm",
+            "general-purpose-confirm",
+            "engram-write-guard",
+          ].includes(hook.script),
       ).length,
     );
     expect(withMaster.filter((hook) => hook.event === "SessionStart").at(-1)?.script).toBe(
