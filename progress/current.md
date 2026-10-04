@@ -1,9 +1,27 @@
-# Current — PR1202 integration verification pending
+# Current — PR1202 local integration ready for fresh verification
 
-- User requested fixing PR1202 after external merge of PR1201. CI was green, but progress/current.md and progress/history.md conflicted.
-- Main1578954a merged locally without commit; both histories preserved. T5 source files are unchanged; only progress conflicts resolved. No force-push or automatic PR merge.
-- Next: review merged index and exact full gate; record tree hash. Publisher may commit exact approved merge tree locally without push, then reviewer signs fresh receipt after HEAD ancestry updates, then publisher pushes.
-- T2 direct fixtures/goldens resolved but one unassigned full-gate timeout remains; focused base/T2 probe passed2.33s/2.29s. T4 57-path design and scope approved, awaiting reviewed dependencies. T7 previous foreground gate is allowed to finish, no new work while PR1202 fix has priority.
+## Goal
+Fix PR1202 merge conflicts with main without force-push or publishing an unverified integration.
+## Instructions
+User explicitly requested fixing the PR and completing it autonomously. Preserve both progress histories, existing reviewed source and normal hooks. No automatic PR merge, no reduced tests/coverage or timeout overrides.
+## Discoveries
+- PR1202 CI was green but GitHub marked it conflicting after external merge of PR1201 into main1578954a.
+- Only progress/current.md and progress/history.md conflicted. T5 source files were unchanged; imported T1/spec files exactly match reviewed main.
+- Current reviewer preflight aborts a behind HEAD even when a pending merge index is resolved. Local mechanical merge commit is needed before fresh combined review; it is not itself approval to push.
+## Accomplished
+- Resolved both progress conflicts preserving main history and the exact T5 delta; no unresolved paths and diff checks green.
+- Publisher completed local merge commit fedf905a through normal pre-commit checks, with exact staged tree934ca3f78b6d9ab416ac8f0490d154e260e52775. HEAD now includes main and behind count is0. No push occurred.
+- PR1200 and PR1201 merged externally; PR1202 remains open until verified update. T7 old-base full gate passed6974 tests but approval withheld after main advanced; no T7 receipt/PR. T2 direct fixtures/goldens resolved, one unattributed full-gate timeout remains; comparable focused case passed base2.33s/T2 2.29s.
+- T4 localized design and all57paths approved, with explicit crash loss/race/ACL limits; implementation waits for reviewed T1/T2/T5 integration.
+## Next Steps
+- Fresh reviewer evaluates PR1202 combined diff and exact full gate on main1578954a, then signs/checks fresh receipt. Only then publisher commits these progress docs and pushes existing PR, without force-push or merging it.
+- If any check fails, record the exact blocker and stop; no blind retries. Keep pending unpushed merge commit and worktrees intact.
+- After PR fix, resume base alignment/fresh verification for T7/T2 and approved T4 prerequisites.
+## Relevant Files
+- progress/current.md and progress/history.md — sole manual conflict resolutions and this checkpoint.
+- packages/cli/src/lib/audit/collect.ts, its tests and commands/audit.ts — original reviewed T5 source unchanged.
+- packages/cli/src/lib/audit/launchd.ts and global command/tests — exact reviewed T1 main imports.
+- specs/0042-auditoria-accionable-codex/{requirements,design,tasks}.md — exact main imports; only T1 marked complete.
 
 ## Retained T5 checkpoint
 
