@@ -2594,3 +2594,27 @@ Preserve assertions, default 15-second test limit, coverage floor and no skips. 
 - packages/cli/src/__tests__/doctor-json-checks.e2e.test.ts — independent fixtures with unchanged assertions and timeout.
 - progress/current.md — next step and audit blockers.
 - progress/history.md — this publication checkpoint.
+
+## 2026-10-03 22:50 Codex — T5 bounded receiver approved
+
+## Goal
+Deliver Spec0042 T5/R13/R22 bounded OTLP receiver and safe append without declaring audit parity.
+## Instructions
+Fake/synthetic sessions only; no real service/log mutation. PR main, no automatic merge, historical chmod/deletion, dependencies, test skips, timeout overrides or reduced coverage.
+## Discoveries
+- A capped retained buffer does not bound an unterminated line scan; scanner must bound all pending reads.
+- Cached marker authorization becomes stale. Every append must revalidate exact marker/session on the same no-follow descriptor with safe file/parent permissions.
+## Accomplished
+- Corrected receiver allowlist/budgets, bounded incomplete-line handling, LRU/TTL/connection lifecycle and idempotent shutdown. Fixed unsafe/stale marker append, preserving no historical chmod behavior. New CLI start markers created private as receiver prerequisite; global T4 remains open.
+- Fresh independent review SPEC_OK/QUALITY_OK on main6f481613: exact full gate exit0, 349 files/6975 passed/1 skipped, lint/typecheck green, receipt ok/fresh. Source diff exactly collect.ts, collect.test.ts, commands/audit.ts.
+- PR1200 merged externally; T1 PR1201 published and CI green. T2 direct fixtures/goldens fixed but fresh full gate has one unattributed local-preset doctor timeout; read-only comparable focused diagnosis underway. T7 source review SPEC_OK waiting next serial full gate.
+- T4 localized privacy design and 57-file scope explicitly approved after challenge; source waits for reviewed T1/T2/T5 integration. Residual races/ACL/crash loss remain explicit.
+## Next Steps
+- Publish this isolated T5 PR with fresh receipt, no automatic merge.
+- Finish T2 targeted baseline comparison and T7 full gate; publish only full-green cuts. Consolidate completed spec task checkboxes after integration without claiming T2–T12 complete now.
+- Keep clean pushed feature worktrees/branches and safety stashes; shared root stays unchanged.
+## Relevant Files
+- packages/cli/src/lib/audit/collect.ts — bounded OTLP admission and receiver append/lifecycle.
+- packages/cli/src/lib/audit/__tests__/collect.test.ts — synthetic bounds, marker and shutdown regressions.
+- packages/cli/src/commands/audit.ts — private creation of new start markers.
+- progress/current.md and progress/history.md — this checkpoint and retained prior context.

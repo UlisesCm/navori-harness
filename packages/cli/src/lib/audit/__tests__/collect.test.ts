@@ -1,19 +1,23 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createServer } from "node:http";
+import { spawnSync } from "node:child_process";
 import {
   existsSync,
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
   statSync,
+  renameSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { startReceiver, type OtelReceiver } from "../collect.ts";
+import { flattenOtlp, startReceiver, type OtelReceiver } from "../collect.ts";
 import { sessionLogPath } from "../paths.ts";
 import { getCoreRoot } from "../../render/bundled-assets.ts";
 import { NavoriError } from "../../primitives/errors.ts";
@@ -49,7 +53,7 @@ function markSession(sessionId: string, repo = REPO): string {
   writeFileSync(
     file,
     `${JSON.stringify({ ts: "2026-09-11T18:29:00Z", tsMs: 1789496940000, event: "start", repo, sessionId })}\n`,
-    "utf-8",
+    { encoding: "utf-8", mode: 0o600 },
   );
   return file;
 }
@@ -105,9 +109,219 @@ afterEach(async () => {
   while (open.length > 0) await open.pop()?.close();
   process.env.NAVORI_AUDITS_ROOT = undefined;
   rmSync(root, { recursive: true, force: true });
+  vi.restoreAllMocks();
 });
 
 describe("startReceiver (#0021)", () => {
+  // Covers: R13
+  it("rechaza eventos desconocidos, identificadores inválidos y más de mil records con pérdida visible", async () => {
+    markSession("safe-id");
+    const r = await receiver();
+    const valid = { "event.name": "tool_decision", "session.id": "safe-id", source: "config" };
+    const records = [
+      { ...valid, "event.name": "arbitrary_secret", prompt: "private-text" },
+      { ...valid, "session.id": "../escape" },
+      valid,
+      ...Array.from({ length: 1_000 }, (): Record<string, string> => valid),
+    ];
+    const res = await post(r.url, otlpBatch(records));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ partialSuccess: { rejectedLogRecords: 5 } });
+    expect(r.stats()).toMatchObject({ written: 998, discarded: 5 });
+    expect(readFileSync(sessionLogPath(REPO, "safe-id"), "utf-8")).not.toContain("private-text");
+    expect(linesOf("safe-id")).toHaveLength(1_000);
+  });
+
+  // Covers: R13
+  it("descarta atributos desconocidos y metadata oversized sin persistir contenido", async () => {
+    markSession("safe-id");
+    const r = await receiver();
+    const secret = "S".repeat(257);
+    await post(
+      r.url,
+      otlpBatch([
+        {
+          "event.name": "tool_decision",
+          "session.id": "safe-id",
+          tool_name: secret,
+          prompt: "private-text",
+          source: "config",
+        },
+      ]),
+    );
+    const raw = readFileSync(sessionLogPath(REPO, "safe-id"), "utf-8");
+    expect(raw).not.toContain(secret);
+    expect(raw).not.toContain("private-text");
+    expect(r.stats()).toMatchObject({ written: 1, discardedAttributes: 2 });
+    const flat = flattenOtlp(
+      JSON.parse(otlpBatch([{ "event.name": "unapproved", "session.id": "safe-id" }])),
+    );
+    expect(flat).toMatchObject({ events: [], discarded: 1 });
+  });
+
+  // Covers: R22
+  it("acota cachés por LRU/TTL y no repite el horizonte durable tras eviction", async () => {
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation((): number => now);
+    for (let i = 0; i < 1_025; i++) markSession(`s-${i}`);
+    const r = await receiver();
+    for (let start = 0; start < 1_025; start += 1_000) {
+      const batch = Array.from({ length: Math.min(1_000, 1_025 - start) }, (_, index) => ({
+        "event.name": "tool_decision",
+        "session.id": `s-${start + index}`,
+        source: "config",
+      }));
+      await post(r.url, otlpBatch(batch));
+    }
+    expect(r.stats()).toMatchObject({
+      sessions: 1_025,
+      cachedSessions: 1_024,
+      markedSessions: 1_024,
+    });
+    now += 30 * 60 * 1_000 + 1;
+    await post(
+      r.url,
+      otlpBatch([{ "event.name": "tool_decision", "session.id": "s-0", source: "config" }]),
+    );
+    expect(linesOf("s-0").filter((line) => line.event === "otel-start")).toHaveLength(1);
+    expect(r.stats()).toMatchObject({ sessions: 1_025 });
+    const file = sessionLogPath(REPO, "s-0");
+    renameSync(file, `${file}.old`);
+    writeFileSync(file, `${JSON.stringify({ event: "start", sessionId: "wrong-id" })}\n`, {
+      mode: 0o600,
+    });
+    const before = statSync(file).size;
+    const replaced = await post(
+      r.url,
+      otlpBatch([{ "event.name": "tool_decision", "session.id": "s-0", source: "config" }]),
+    );
+    expect(await replaced.json()).toMatchObject({ partialSuccess: { rejectedLogRecords: 1 } });
+    expect(statSync(file).size).toBe(before);
+  });
+
+  // Covers: R13, R22
+  it("revalida el marker tras reemplazar un archivo ya cacheado", async () => {
+    const file = markSession("cached-id");
+    const r = await receiver();
+    const body = otlpBatch([{ "event.name": "tool_decision", "session.id": "cached-id" }]);
+    await post(r.url, body);
+    renameSync(file, `${file}.old`);
+    writeFileSync(file, `${JSON.stringify({ event: "start", sessionId: "other-id" })}\n`, {
+      mode: 0o600,
+    });
+    const before = statSync(file).size;
+    const res = await post(r.url, body);
+    expect(await res.json()).toMatchObject({ partialSuccess: { rejectedLogRecords: 1 } });
+    expect(statSync(file).size).toBe(before);
+    expect(r.stats()).toMatchObject({ written: 1, discarded: 1 });
+    writeFileSync(file, `${JSON.stringify({ event: "tool_decision" })}\n`, { mode: 0o600 });
+    const unmarkedSize = statSync(file).size;
+    await post(r.url, body);
+    expect(statSync(file).size).toBe(unmarkedSize);
+    expect(r.stats()).toMatchObject({ written: 1, discarded: 2 });
+  });
+
+  // Covers: R13, R22
+  it("rechaza archivo público, symlink y directorio padre escribible sin modificarlos", async () => {
+    const file = markSession("unsafe-id");
+    const r = await receiver();
+    const body = otlpBatch([{ "event.name": "tool_decision", "session.id": "unsafe-id" }]);
+    chmodSync(file, 0o644);
+    const before = statSync(file).size;
+    await post(r.url, body);
+    expect(statSync(file).size).toBe(before);
+    chmodSync(file, 0o600);
+    renameSync(file, `${file}.real`);
+    symlinkSync(`${file}.real`, file);
+    await post(r.url, body);
+    expect(statSync(`${file}.real`).size).toBe(before);
+    rmSync(file);
+    renameSync(`${file}.real`, file);
+    chmodSync(dirname(file), 0o777);
+    await post(r.url, body);
+    expect(statSync(file).size).toBe(before);
+    expect(r.stats()).toMatchObject({ written: 0, discarded: 3 });
+  });
+
+  // Covers: R13, R22
+  it("acepta un marker nuevo de audit --start bajo umask 022 y no cambia un 0644 existente", async () => {
+    const project = join(root, "workspace", "project");
+    mkdirSync(project, { recursive: true });
+    const cli = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "..",
+      "..",
+      "..",
+      "dist",
+      "index.js",
+    );
+    const started = spawnSync(
+      "sh",
+      [
+        "-c",
+        'umask 022; exec "$@"',
+        "sh",
+        "node",
+        cli,
+        "audit",
+        "--cwd",
+        project,
+        "--start",
+        "new-id",
+        "--host",
+        "codex",
+      ],
+      { encoding: "utf-8", env: { ...process.env, NAVORI_AUDITS_ROOT: root } },
+    );
+    expect(started.status).toBe(0);
+    const privateFile = sessionLogPath("project", "new-id");
+    expect(statSync(privateFile).mode & 0o777).toBe(0o600);
+    expect(statSync(dirname(privateFile)).mode & 0o777).toBe(0o700);
+    const legacyFile = markSession("legacy-id", "project");
+    chmodSync(legacyFile, 0o644);
+    const legacySize = statSync(legacyFile).size;
+    const r = await receiver();
+    const res = await post(
+      r.url,
+      otlpBatch([
+        { "event.name": "tool_decision", "session.id": "new-id" },
+        { "event.name": "tool_decision", "session.id": "legacy-id" },
+      ]),
+    );
+    expect(await res.json()).toMatchObject({ partialSuccess: { rejectedLogRecords: 1 } });
+    expect(linesOf("new-id", "project").map((line) => line.event)).toContain("tool_decision");
+    expect(statSync(legacyFile).size).toBe(legacySize);
+    expect(statSync(legacyFile).mode & 0o777).toBe(0o644);
+  });
+
+  // Covers: R13, R22
+  it("descarta una línea mayor a 1 MiB sin materializarla ni agregar eventos", async () => {
+    const file = markSession("oversized-id");
+    writeFileSync(file, `${"x".repeat(1024 * 1024 + 1)}\n`, { flag: "a" });
+    const before = statSync(file).size;
+    const r = await receiver();
+    const res = await post(
+      r.url,
+      otlpBatch([{ "event.name": "tool_decision", "session.id": "oversized-id" }]),
+    );
+    expect(await res.json()).toMatchObject({ partialSuccess: { rejectedLogRecords: 1 } });
+    expect(statSync(file).size).toBe(before);
+    expect(r.stats()).toMatchObject({ written: 0, discarded: 1 });
+  });
+
+  // Covers: R22
+  it("cierra repetidamente y deja listeners y conexiones en baseline", async () => {
+    const beforeInt = process.listenerCount("SIGINT");
+    const beforeTerm = process.listenerCount("SIGTERM");
+    const r = await receiver();
+    await fetch(`http://127.0.0.1:${r.port}/healthz`);
+    await Promise.all([r.close(), r.close()]);
+    await r.close();
+    expect(r.stats().activeConnections).toBe(0);
+    expect(process.listenerCount("SIGINT")).toBe(beforeInt);
+    expect(process.listenerCount("SIGTERM")).toBe(beforeTerm);
+  });
   // Covers: R1, R2, R6, R7
   it("escribe cada evento del lote en el log de su sesión", async () => {
     markSession("sess-one");
@@ -181,7 +395,7 @@ describe("startReceiver (#0021)", () => {
       "otel-start",
       "tool_decision",
     ]);
-    expect(r.stats()).toEqual({ written: 3, discarded: 0, sessions: 2 });
+    expect(r.stats()).toMatchObject({ written: 3, discarded: 0, sessions: 2 });
   });
 
   // Covers: R1, R2, R6, R7
@@ -225,7 +439,7 @@ describe("startReceiver (#0021)", () => {
     // the correct outcome: nobody asked to audit that session.
     expect(existsSync(sessionLogPath(REPO, "sin-marcar"))).toBe(false);
     expect(readdirSync(root)).toEqual([]);
-    expect(r.stats()).toEqual({ written: 0, discarded: 1, sessions: 0 });
+    expect(r.stats()).toMatchObject({ written: 0, discarded: 1, sessions: 0 });
   });
 
   // Covers: R3, #763
@@ -241,7 +455,7 @@ describe("startReceiver (#0021)", () => {
     };
 
     await post(r.url, otlpBatch([event]));
-    expect(r.stats()).toEqual({ written: 0, discarded: 1, sessions: 0 });
+    expect(r.stats()).toMatchObject({ written: 0, discarded: 1, sessions: 0 });
 
     markSession("sess-tardia");
     await post(r.url, otlpBatch([{ ...event, "event.timestamp": "2026-09-11T18:30:01.000Z" }]));
@@ -251,7 +465,7 @@ describe("startReceiver (#0021)", () => {
       "otel-start",
       "tool_decision",
     ]);
-    expect(r.stats()).toEqual({ written: 1, discarded: 1, sessions: 1 });
+    expect(r.stats()).toMatchObject({ written: 1, discarded: 1, sessions: 1 });
   });
 
   // Covers: R3, R4
@@ -306,7 +520,7 @@ describe("startReceiver (#0021)", () => {
     expect(noSession.status).toBe(200);
 
     expect(linesOf("sess-basura").map((l) => l.event)).toEqual(["start"]);
-    expect(r.stats()).toEqual({ written: 0, discarded: 3, sessions: 0 });
+    expect(r.stats()).toMatchObject({ written: 0, discarded: 3, sessions: 0 });
   });
 
   it("responde su propia ruta de salud, para que doctor sepa de quién es el puerto", async () => {
@@ -318,7 +532,7 @@ describe("startReceiver (#0021)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.service).toBe("navori-audit-collect");
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       service: "navori-audit-collect",
       written: 0,
       discarded: 0,
@@ -371,7 +585,7 @@ describe("startReceiver (#0021)", () => {
     // tool call, and the session log already runs to thousands of lines — the
     // same argument that keeps `api_request` out unless it names a skill.
     expect(lines).toHaveLength(3);
-    expect(r.stats()).toEqual({ written: 1, discarded: 1, sessions: 1 });
+    expect(r.stats()).toMatchObject({ written: 1, discarded: 1, sessions: 1 });
   });
 
   // Covers: R5, R8
@@ -442,7 +656,7 @@ describe("startReceiver (#0021)", () => {
       model: "claude-opus-5",
     });
     expect(lines).toHaveLength(4);
-    expect(r.stats()).toEqual({ written: 2, discarded: 1, sessions: 1 });
+    expect(r.stats()).toMatchObject({ written: 2, discarded: 1, sessions: 1 });
   });
 });
 

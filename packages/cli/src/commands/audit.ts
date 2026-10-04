@@ -404,12 +404,18 @@ export const auditCommand = defineCommand({
       );
       p.log.message(isEs ? "Ctrl-C para cortar" : "Ctrl-C to stop");
 
-      await new Promise<void>((done) => {
-        const stop = (): void => done();
-        process.once("SIGINT", stop);
-        process.once("SIGTERM", stop);
-      });
-      await receiver.close();
+      let stop: () => void = (): void => {};
+      try {
+        await new Promise<void>((done) => {
+          stop = (): void => done();
+          process.once("SIGINT", stop);
+          process.once("SIGTERM", stop);
+        });
+      } finally {
+        process.removeListener("SIGINT", stop);
+        process.removeListener("SIGTERM", stop);
+        await receiver.close();
+      }
 
       const stats = receiver.stats();
       p.outro(
@@ -551,7 +557,7 @@ export const auditCommand = defineCommand({
         process.exit(2);
       }
       const logFile = auditPathOrExit(() => sessionLogPath(repo, startId), json);
-      mkdirSync(auditDir, { recursive: true });
+      mkdirSync(auditDir, { recursive: true, mode: 0o700 });
       if (existsSync(logFile)) {
         p.outro(isEs ? "audit-mode ya estaba activo" : "audit-mode was already active");
         return;
@@ -574,7 +580,7 @@ export const auditCommand = defineCommand({
           navoriRendered: renderedHarnessVersion(cwd),
           navoriCli: readCliVersion(),
         })}\n`,
-        "utf-8",
+        { encoding: "utf-8", mode: 0o600, flag: "a" },
       );
       // #778: fold in whatever the SessionStart hooks parked before this file
       // existed, and sweep the spools of sessions nobody ever marked. Both run
