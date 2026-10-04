@@ -214,6 +214,23 @@ if [ "$tool" = "Bash" ] && [ "${1:-}" = "claude-post-tool-use" ]; then
   navori_bash_success_lane
 fi
 
+# Spec 0041 T12 (R11): the Codex Bash outcome lane, same hook, no new
+# registration (the Codex hooks-per-Bash count stays pinned). Codex fires
+# PostToolUse on failure too, so the outcome comes from the rollout record of
+# this `tool_use_id`, never from the event. Silent on any missing piece; it only
+# ever prints the repeated-failure advice that Claude's bash-outcome-watch gives.
+# SHORTCUT: when it advises it ends the run, so that one call is not counted
+# toward the routing threshold; ceiling one call per three repeated failures,
+# trigger: if routing counts must stay exact, merge both notes into one output.
+if [ "$tool" = "Bash" ] && [ "$nv_engine" = codex ]; then
+  navori_codex_advice=$(navori_bash_codex_outcome 2>/dev/null) || navori_codex_advice=
+  if [ -n "$navori_codex_advice" ]; then
+    navori_audit_log "advise" "same Bash failure reached three consecutive occurrences"
+    NV_ADVICE="$navori_codex_advice" node -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:process.env.NV_ADVICE}})+"\n")' 2>/dev/null || true
+    exit 0
+  fi
+fi
+
 # Rung 1 of the Bash lane, and the earliest point at which it can end. No write
 # token anywhere in the payload means no redirect, no `tee` and no `sed -i`, so
 # there is nothing here this hook could ever count. It costs no fork and it runs

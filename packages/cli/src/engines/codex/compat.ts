@@ -98,6 +98,14 @@ export const CODEX_VOCABULARY: ReadonlyArray<readonly [from: string, to: string]
   // `orquestacion.md`), so a single entry covers it; a real slash→`$` mechanism
   // is not worth building for one citation.
   ["/spec-bootstrap", "$spec-bootstrap"],
+  // Spec 0041 R18: `SendMessage` is Claude's tool for continuing a running
+  // subagent; Codex continues one with `send_input`. Prose that a term swap
+  // cannot fix sits in an `if-not onCodex` span in the source asset instead.
+  ["`SendMessage`", "`send_input`"],
+  // Spec 0041 R20: the `master-plan` and `context-intake` skills now reach
+  // Codex, and a manual invocation there is `$master-plan` (same reason as the
+  // `/spec-bootstrap` rule above).
+  ["/master-plan", "$master-plan"],
 ];
 
 /**

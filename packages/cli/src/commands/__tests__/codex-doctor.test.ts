@@ -34,6 +34,7 @@ vi.mock(import("../../lib/primitives/home.ts"), () => ({
 
 const {
   isCodexVersionTooOld,
+  isCodexVersionUnverified,
   scanCodexHealth,
   buildEngineInventory,
   buildEngineEvidence,
@@ -42,6 +43,7 @@ const {
   computeHealthVerdict,
   scanOperationalTools,
   probeFailureReason,
+  scanStaleGlobalCli,
 } = await import("../doctor.ts");
 
 function tempRepo(): string {
@@ -80,21 +82,20 @@ describe("scanCodexHealth (Spec 0007 M5)", () => {
     rmSync(codexHome.dir, { recursive: true, force: true });
   });
 
-  it("compares Codex versions numerically instead of treating 0.154 as older than 0.145", () => {
-    expect(isCodexVersionTooOld("0.144.9")).toBe(true);
-    expect(isCodexVersionTooOld("0.145.0")).toBe(false);
-    expect(isCodexVersionTooOld("0.154.0")).toBe(false);
+  it("compares Codex versions numerically instead of treating 0.160 as older than 0.16", () => {
+    expect(isCodexVersionTooOld("0.159.9")).toBe(true);
+    expect(isCodexVersionTooOld("0.160.0")).toBe(false);
+    expect(isCodexVersionTooOld("0.170.0")).toBe(false);
   });
 
   // Covers: R18
   it("derives the minimum Codex version from the registrations", () => {
-    // 0.145.0 is `audit-mode-close`'s minVersion (spec 0035 D1) — the max
-    // across every registered row today, computed from the table rather than
-    // hardcoded, so a future row raising the floor updates both this and
-    // `isCodexVersionTooOld` automatically.
-    expect(minCodexVersion()).toBe("0.145.0");
-    expect(isCodexVersionTooOld("0.144.9")).toBe(true);
-    expect(isCodexVersionTooOld("0.145.0")).toBe(false);
+    // 0.160.0 is the version the live probes and smokes passed on (spec 0041
+    // T20), which outranks the table's own floor (0.145.0, `audit-mode-close`,
+    // spec 0035 D1): one floor, computed rather than hardcoded.
+    expect(minCodexVersion()).toBe("0.160.0");
+    expect(isCodexVersionTooOld("0.159.9")).toBe(true);
+    expect(isCodexVersionTooOld("0.160.0")).toBe(false);
   });
 
   it("returns null when codex is not a configured engine", () => {
@@ -193,6 +194,48 @@ describe("scanCodexHealth (Spec 0007 M5)", () => {
     expect(health?.configMalformed).toBe(false);
   });
 
+  describe("stale rendered models (spec 0041 R32)", () => {
+    const writeCatalog = (slugs: string[]): void => {
+      mkdirSync(join(codexHome.dir, ".codex"), { recursive: true });
+      writeFileSync(
+        join(codexHome.dir, ".codex/models_cache.json"),
+        JSON.stringify({ models: slugs.map((slug) => ({ slug })) }),
+      );
+    };
+    const cfg = (codexMap?: { sonnet?: string }) =>
+      config({ models: { implementer: "sonnet", ...(codexMap ? { codexMap } : {}) } });
+
+    // Covers: R32
+    it("warns with agent, rendered id and newer id when the family moved on", () => {
+      const cwd = tempRepo();
+      renderCodexEngine(cwd, cfg()); // no catalog: fallback gpt-6-sol
+      writeCatalog(["gpt-6-sol", "gpt-6.1-sol"]);
+      expect(scanCodexHealth(cwd, cfg())?.staleModels).toEqual([
+        { agent: "implementer", rendered: "gpt-6-sol", current: "gpt-6.1-sol" },
+      ]);
+      expect(tc("en").doctor.codexModelStale("implementer", "gpt-6-sol", "gpt-6.1-sol")).toContain(
+        "navori render --apply",
+      );
+    });
+
+    // Covers: R32
+    it("is silent when the rendered model matches the current resolution", () => {
+      const cwd = tempRepo();
+      writeCatalog(["gpt-6-sol", "gpt-6.1-sol"]);
+      renderCodexEngine(cwd, cfg());
+      expect(scanCodexHealth(cwd, cfg())?.staleModels).toEqual([]);
+    });
+
+    // Covers: R32
+    it("is silent for a pinned id even when the catalog has a newer model", () => {
+      const cwd = tempRepo();
+      const pinned = cfg({ sonnet: "gpt-6-sol" });
+      renderCodexEngine(cwd, pinned);
+      writeCatalog(["gpt-6-sol", "gpt-6.1-sol"]);
+      expect(scanCodexHealth(cwd, pinned)?.staleModels).toEqual([]);
+    });
+  });
+
   it("does not flag unversioned hooks outside a git work tree (no worktrees ⇒ no exposure)", () => {
     const cwd = tempRepo();
     writeGuard(cwd); // untracked, but the dir is not a git repo
@@ -217,6 +260,126 @@ describe("scanCodexHealth (Spec 0007 M5)", () => {
     });
     const health = scanCodexHealth(cwd, config());
     expect(health?.guardNotVersioned).toEqual([]);
+  });
+
+  describe("worktree trust and version range (spec 0041 T17)", () => {
+    const originalPath = process.env.PATH;
+    afterEach(() => {
+      process.env.PATH = originalPath;
+    });
+
+    function git(cwd: string, ...args: string[]): void {
+      execFileSync("git", ["-C", cwd, "-c", "user.email=t@t.t", "-c", "user.name=t", ...args], {
+        stdio: "ignore",
+      });
+    }
+
+    function stubCodex(cwd: string, version: string): void {
+      const bin = join(cwd, "stub-bin");
+      mkdirSync(bin, { recursive: true });
+      const path = join(bin, "codex");
+      writeFileSync(path, `#!/bin/sh\necho "codex-cli ${version}"\n`);
+      chmodSync(path, 0o755);
+      process.env.PATH = `${bin}:${originalPath}`;
+    }
+
+    // Covers: R4
+    it("warns with hook, path and command for a worktree whose hooks are not approved", () => {
+      const cwd = realpathSync(tempRepo());
+      gitInit(cwd);
+      writeGuard(cwd);
+      git(cwd, "commit", "--allow-empty", "-q", "-m", "init");
+      const wt = join(realpathSync(tempRepo()), "wt");
+      git(cwd, "worktree", "add", "-q", wt);
+      mkdirSync(join(wt, ".codex"), { recursive: true });
+      writeFileSync(join(wt, ".codex/config.toml"), "# rendered\n");
+      const health = scanCodexHealth(cwd, config());
+      expect(health?.worktreeScanError).toBeNull();
+      expect(health?.worktreeHooksUnapproved).toContainEqual({
+        hook: "guard-destructive",
+        path: wt,
+      });
+      expect(tc("en").doctor.codexWorktreeHookUnapproved("guard-destructive", wt)).toContain(
+        `cd ${wt} && navori codex trust`,
+      );
+    });
+
+    // Covers: R4
+    it("ignores worktrees without .codex/config.toml and outside git reports nothing", () => {
+      const cwd = realpathSync(tempRepo());
+      gitInit(cwd);
+      writeGuard(cwd);
+      git(cwd, "commit", "--allow-empty", "-q", "-m", "init");
+      git(cwd, "worktree", "add", "-q", join(realpathSync(tempRepo()), "wt"));
+      expect(scanCodexHealth(cwd, config())?.worktreeHooksUnapproved).toEqual([]);
+      const plain = tempRepo();
+      writeGuard(plain);
+      const h = scanCodexHealth(plain, config());
+      expect(h?.worktreeHooksUnapproved).toEqual([]);
+      expect(h?.worktreeScanError).toBeNull();
+    });
+
+    // Covers: R4
+    it("degrades to a warning instead of throwing when the worktree scan fails", () => {
+      const cwd = realpathSync(tempRepo());
+      gitInit(cwd);
+      writeGuard(cwd);
+      git(cwd, "commit", "--allow-empty", "-q", "-m", "init");
+      // A git shim that answers `rev-parse` but fails `worktree list`.
+      const realGit = execFileSync("which", ["git"], { encoding: "utf-8" }).trim();
+      const bin = join(cwd, "git-shim");
+      mkdirSync(bin);
+      const shim = join(bin, "git");
+      writeFileSync(
+        shim,
+        `#!/bin/sh\ncase "$*" in *"worktree list"*) exit 128;; esac\nexec ${realGit} "$@"\n`,
+      );
+      chmodSync(shim, 0o755);
+      process.env.PATH = `${bin}:${originalPath}`;
+      const health = scanCodexHealth(cwd, config());
+      expect(health?.worktreeScanError).toEqual(expect.any(String));
+      expect(health?.worktreeHooksUnapproved).toEqual([]);
+    });
+
+    // Covers: R23, R27
+    it("degrades a relative CODEX_HOME to a warning naming the variable instead of throwing", () => {
+      const cwd = tempRepo();
+      writeGuard(cwd);
+      const prev = process.env.CODEX_HOME;
+      process.env.CODEX_HOME = "relative/path";
+      try {
+        const health = scanCodexHealth(cwd, config());
+        expect(health?.trustReadError).toContain("CODEX_HOME");
+        expect(computeHealthVerdict(cwd, config({ plugins: {} })).ok).toBe(true);
+        expect(tc("en").doctor.codexTrustUnreadable).toContain("CODEX_HOME must be an absolute");
+        expect(tc("es").doctor.codexTrustUnreadable).toContain("CODEX_HOME debe ser");
+      } finally {
+        if (prev === undefined) delete process.env.CODEX_HOME;
+        else process.env.CODEX_HOME = prev;
+      }
+    });
+
+    // Covers: R27
+    it("warns when the installed Codex is older than the minimum", () => {
+      const cwd = tempRepo();
+      writeGuard(cwd);
+      stubCodex(cwd, "0.100.0");
+      const health = scanCodexHealth(cwd, config());
+      expect(health?.versionWarning).toEqual({ found: "0.100.0", min: minCodexVersion() });
+      expect(health?.versionUnverified).toBeNull();
+    });
+
+    // Covers: R27
+    it("warns when the installed Codex is newer than the last verified version, not at it", () => {
+      const cwd = tempRepo();
+      writeGuard(cwd);
+      stubCodex(cwd, "9.0.0");
+      const ahead = scanCodexHealth(cwd, config());
+      expect(ahead?.versionUnverified).toEqual({ found: "9.0.0", verified: "0.160.0" });
+      expect(ahead?.versionWarning).toBeNull();
+      expect(isCodexVersionUnverified("0.160.0")).toBe(false);
+      expect(isCodexVersionUnverified("0.160.1")).toBe(true);
+    });
   });
 });
 
@@ -346,17 +509,20 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
     assert.isDefined(codex);
     expect(claude.agents).toContain("orchestrator");
     expect(codex.agents).not.toContain("orchestrator");
-    // Skills remain shared; the two master-plan hook assets are Claude-only.
+    // Skills remain shared; the master-plan skills and hooks are scoped to claude and codex.
     expect(codex.skills).toEqual(claude.skills);
-    expect(claude.hooks.filter((hook) => !hook.startsWith("master-"))).toEqual(codex.hooks);
+    // Spec 0041 D5: `role-guard` is the one hook only Codex ships.
+    expect(codex.hooks.filter((hook) => hook !== "role-guard")).toEqual(claude.hooks);
+    expect(codex.hooks).toContain("role-guard");
+    expect(claude.hooks).not.toContain("role-guard");
     expect(claude.hooks).toContain("master-plan-context");
     expect(claude.hooks).toContain("master-accept-confirm");
-    expect(codex.hooks).not.toContain("master-plan-context");
-    expect(codex.hooks).not.toContain("master-accept-confirm");
+    expect(codex.hooks).toContain("master-plan-context");
+    expect(codex.hooks).toContain("master-accept-confirm");
     expect(claude.hooks).toContain("guard-destructive");
   });
 
-  it("reports dormant Claude hooks with masterPlan off and the same assets with it on", () => {
+  it("reports dormant master-plan hooks with masterPlan off and the same assets with it on", () => {
     const cwd = tempRepo();
     for (const masterPlan of [false, true]) {
       const { claude, codex } = buildEngineInventory(
@@ -370,8 +536,8 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
       assert.isDefined(codex);
       expect(claude.hooks).toContain("master-plan-context");
       expect(claude.hooks).toContain("master-accept-confirm");
-      expect(codex.hooks).not.toContain("master-plan-context");
-      expect(codex.hooks).not.toContain("master-accept-confirm");
+      expect(codex.hooks).toContain("master-plan-context");
+      expect(codex.hooks).toContain("master-accept-confirm");
     }
   });
 
@@ -664,5 +830,66 @@ describe("doctor evidence (Spec 0037 V01-V03)", () => {
     expect(find()?.registered.status).toBe("verified");
     rmSync(scriptPath);
     expect(find()?.materialized.status).toBe("missing");
+  });
+});
+
+describe("scanStaleGlobalCli (spec 0041 T20 follow-up)", () => {
+  let repo: string;
+  beforeEach(() => {
+    repo = tempRepo();
+    mkdirSync(join(repo, ".claude/hooks"), { recursive: true });
+    writeFileSync(
+      join(repo, ".claude/hooks/plan-gate.sh"),
+      "#!/bin/sh\n# navori is only mentioned here\nnavori plan-gate --check\n",
+    );
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+  });
+  const claude = (): NavoriConfig => config({ engines: ["claude"] });
+
+  // Covers: R9
+  it("warns when the global navori is older than the running CLI", () => {
+    expect(scanStaleGlobalCli(repo, claude(), () => "navori 0.11.1\n", "0.12.0")).toEqual({
+      global: "0.11.1",
+      current: "0.12.0",
+    });
+    const msg = tc("en").doctor.globalCliStale("0.11.1", "0.12.0");
+    expect(msg).toContain("0.11.1");
+    expect(msg).toContain("0.12.0");
+    expect(msg).toContain("npm i -g navori@0.12.0");
+    expect(tc("es").doctor.globalCliStale("0.11.1", "0.12.0")).toContain("0.12.0");
+  });
+
+  // Covers: R9
+  it("stays silent when the global navori is equal or newer", () => {
+    expect(scanStaleGlobalCli(repo, claude(), () => "0.12.0", "0.12.0")).toBeNull();
+    expect(scanStaleGlobalCli(repo, claude(), () => "0.13.0", "0.12.0")).toBeNull();
+  });
+
+  // Covers: R9
+  it("stays silent when the binary is absent or times out", () => {
+    const absent = (): string => {
+      throw Object.assign(new Error("spawn navori ENOENT"), { code: "ENOENT" });
+    };
+    const timeout = (): string => {
+      throw Object.assign(new Error("spawnSync navori ETIMEDOUT"), { code: "ETIMEDOUT" });
+    };
+    expect(scanStaleGlobalCli(repo, claude(), absent, "0.12.0")).toBeNull();
+    expect(scanStaleGlobalCli(repo, claude(), timeout, "0.12.0")).toBeNull();
+  });
+
+  // Covers: R9
+  it("stays silent on garbage output", () => {
+    expect(scanStaleGlobalCli(repo, claude(), () => "command not found", "0.12.0")).toBeNull();
+    expect(scanStaleGlobalCli(repo, claude(), () => "", "0.12.0")).toBeNull();
+  });
+
+  // Covers: R9
+  it("does not probe when no rendered hook calls navori", () => {
+    writeFileSync(join(repo, ".claude/hooks/plan-gate.sh"), "#!/bin/sh\n# navori\nexit 0\n");
+    const run = vi.fn(() => "0.1.0");
+    expect(scanStaleGlobalCli(repo, claude(), run, "0.12.0")).toBeNull();
+    expect(run).not.toHaveBeenCalled();
   });
 });

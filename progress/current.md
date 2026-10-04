@@ -1,3 +1,10 @@
+# Current — Release 0.11.2 integration pending
+
+## Release Next Step
+Revisar y validar el candidato `release/0.11.2-main`, abrir PR a main y mergear sin squash tras CI; verificar tag y sincronizar main a dev usando worktrees aislados. npm no está publicado ni autorizado por esta preparación. Plan: `.navori/state/handoffs/workplan_release-main-0112.md`.
+
+## Retained measurement context
+
 # Current — Spec 0039 T44 measurement pending
 
 ## Goal

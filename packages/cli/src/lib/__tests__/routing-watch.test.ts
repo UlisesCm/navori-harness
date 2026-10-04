@@ -976,3 +976,159 @@ describe.runIf(runsBash)("routing-watch.sh — acceptance evidence lane (spec 00
     expect(existsSync(evidencePath(dir))).toBe(false);
   });
 });
+
+// Covers: R11
+describe.runIf(runsBash)("routing-watch — Codex bash-outcome lane (spec 0041 T12)", () => {
+  /** The same script as the Codex render writes it: under `.codex/hooks/`, so `nv_engine` is codex. */
+  const codexHook = (() => {
+    const dir = join(mkdtempSync(join(tmpdir(), "navori-routing-codex-")), ".codex", "hooks");
+    mkdirSync(dir, { recursive: true });
+    const p = join(dir, "routing-watch.sh");
+    writeFileSync(p, readFileSync(hookPath, "utf-8"));
+    chmodSync(p, 0o755);
+    return p;
+  })();
+  const CODEX_SESSION = "codex-sess-1";
+  const COMMAND = "bun run test";
+
+  function project(): string {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-codex-outcome-")));
+    gitInit(dir);
+    return dir;
+  }
+
+  /** A rollout line in the shape observed in probe V4 (`event_msg` / `item_completed`). */
+  function itemCompleted(id: string, exitCode: number, output = ""): string {
+    return JSON.stringify({
+      timestamp: "2026-10-03T18:23:02.485Z",
+      type: "event_msg",
+      payload: {
+        type: "item_completed",
+        item: {
+          type: "CommandExecution",
+          id,
+          command: ["/bin/zsh", "-lc", COMMAND],
+          status: exitCode === 0 ? "completed" : "failed",
+          stdout: output,
+          aggregated_output: output,
+          exit_code: exitCode,
+        },
+      },
+    });
+  }
+
+  function rollout(dir: string, lines: string[]): string {
+    const p = join(dir, "rollout.jsonl");
+    writeFileSync(p, `${lines.join("\n")}\n`);
+    return p;
+  }
+
+  function call(
+    shell: HookShell,
+    dir: string,
+    transcript: string,
+    id: string,
+    command = COMMAND,
+  ): HookRun {
+    const payload = {
+      session_id: CODEX_SESSION,
+      cwd: dir,
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command },
+      tool_use_id: id,
+      transcript_path: transcript,
+    };
+    const env = { ...process.env };
+    delete env.CLAUDE_CODE_SESSION_ID;
+    const r = spawnSync(shell, [codexHook], {
+      input: JSON.stringify(payload),
+      encoding: "utf-8",
+      env,
+    });
+    return { code: r.status ?? -1, stdout: r.stdout ?? "" };
+  }
+
+  const stateFile = (dir: string): string =>
+    join(dir, ".navori/state/hooks/bash-outcome-watch", CODEX_SESSION);
+
+  it("advises on the third consecutive identical failure, once, as additionalContext", () => {
+    acrossShells((shell) => {
+      const dir = project();
+      const ids = ["exec-1", "exec-2", "exec-3", "exec-4"];
+      const path = rollout(
+        dir,
+        ids.map((id) => itemCompleted(id, 1)),
+      );
+      const runs = ids.map((id) => call(shell, dir, path, id));
+      expect(runs.map((r) => r.code)).toEqual([0, 0, 0, 0]);
+      expect(runs.map((r) => r.stdout)).toEqual([
+        "",
+        "",
+        expect.stringContaining('"hookEventName":"PostToolUse"'),
+        "",
+      ]);
+      expect(runs[2]!.stdout).toContain("falló 3 veces");
+      expect(runs[2]!.stdout).toContain("exit 1");
+      return runs.map((r) => r.stdout !== "");
+    });
+  });
+
+  it("a success resets the counter", () => {
+    const dir = project();
+    const ids = ["exec-1", "exec-2", "exec-3", "exec-4", "exec-5"];
+    const path = rollout(dir, [
+      itemCompleted("exec-1", 1),
+      itemCompleted("exec-2", 1),
+      itemCompleted("exec-3", 0),
+      itemCompleted("exec-4", 1),
+      itemCompleted("exec-5", 1),
+    ]);
+    expect(ids.map((id) => call("bash", dir, path, id).stdout)).toEqual(["", "", "", "", ""]);
+  });
+
+  it("is silent and never fails with no rollout, an unreadable one or no matching record", () => {
+    const dir = project();
+    const path = rollout(dir, [itemCompleted("other", 1), "not json {", ""]);
+    expect(call("bash", dir, join(dir, "missing.jsonl"), "exec-1")).toEqual({
+      code: 0,
+      stdout: "",
+    });
+    expect(call("bash", dir, path, "exec-1")).toEqual({ code: 0, stdout: "" });
+    expect(call("bash", dir, `${path}.txt`, "exec-1")).toEqual({ code: 0, stdout: "" });
+    writeFileSync(path, "\u0000\u0001garbage exec-1 item_completed\n");
+    expect(call("bash", dir, path, "exec-1")).toEqual({ code: 0, stdout: "" });
+    expect(existsSync(stateFile(dir))).toBe(false);
+  });
+
+  it("ignores a record of another call whose output merely mentions this id and an exit code", () => {
+    const dir = project();
+    const path = rollout(dir, [itemCompleted("exec-9", 2, 'item_completed exec-1 "exit_code":2')]);
+    for (let n = 0; n < 3; n += 1) {
+      expect(call("bash", dir, path, "exec-1").stdout).toBe("");
+    }
+    expect(existsSync(stateFile(dir))).toBe(false);
+  });
+
+  it("never reads the output: failures with different output text share one signature", () => {
+    const dir = project();
+    const path = rollout(dir, [
+      itemCompleted("exec-1", 1, "first error"),
+      itemCompleted("exec-2", 1, "something else entirely"),
+      itemCompleted("exec-3", 1, "yet another message"),
+    ]);
+    const runs = ["exec-1", "exec-2", "exec-3"].map((id) => call("bash", dir, path, id).stdout);
+    expect(runs[2]).toContain("falló 3 veces");
+    expect(readFileSync(stateFile(dir), "utf-8")).not.toContain("error");
+  });
+
+  it("reads only the bounded tail of a large rollout", () => {
+    const dir = project();
+    const filler = "x".repeat(2000);
+    const lines = Array.from({ length: 800 }, (_unused, n) => itemCompleted(`old-${n}`, 0, filler));
+    const path = rollout(dir, [itemCompleted("exec-1", 1), ...lines]);
+    // `exec-1` sits beyond the 1 MiB tail, so it is not found: silence, no state.
+    expect(call("bash", dir, path, "exec-1")).toEqual({ code: 0, stdout: "" });
+    expect(existsSync(stateFile(dir))).toBe(false);
+  });
+});

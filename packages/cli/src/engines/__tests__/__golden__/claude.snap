@@ -297,7 +297,7 @@ name: implementer
 description: Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself.
 tools: Read, Write, Edit, Glob, Grep, Bash, mcp__engram__mem_search, mcp__engram__mem_get_observation
 maxTurns: 160
-maxWords: 2433
+maxWords: 2448
 ---
 
 <!-- navori:managed id="implementer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxTurns,maxWords" -->
@@ -1018,7 +1018,7 @@ The body always comes from a file, never inline:
 name: reviewer
 description: Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes.
 tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation
-maxWords: 2372
+maxWords: 2387
 ---
 
 <!-- navori:managed id="reviewer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
@@ -1949,6 +1949,39 @@ nv_subagent_type() {
   fi
 }
 
+# The agent a spawn call TARGETS, never the one that makes the call (spec 0041
+# H16). Claude: `tool_input.subagent_type`. Codex PreToolUse/PostToolUse of a
+# spawn: `tool_input.agent_type` only — the top-level `agent_type` there is the
+# CALLER's. On `SubagentStop` the top-level `agent_type` IS the finishing
+# subagent, so that event reads it instead.
+nv_spawn_target_type() {
+  if [ "$nv_engine" = codex ]; then
+    case "$(payload_field hook_event_name)" in
+      SubagentStop) payload_field agent_type ;;
+      *) payload_field tool_input.agent_type ;;
+    esac
+  else
+    payload_field tool_input.subagent_type
+  fi
+}
+
+# The agent RUNNING the current event: the top-level `agent_type`, which the
+# host adds only inside a subagent (empty on the main thread). Never confuse it
+# with `nv_spawn_target_type` (H16). `nv_subagent_type` above keeps its legacy
+# mixed behaviour for existing hooks; new code uses these two helpers.
+nv_event_agent_type() {
+  payload_field agent_type
+}
+
+# True for the spawn tool: Codex V1 `spawn_agent`, or any V2 name that ends in
+# `spawn_agent` (V2 flattens the namespace into the tool name).
+nv_is_spawn_tool() {
+  case "$(payload_field tool_name)" in
+    *spawn_agent) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Deliberately NO `nv_emit_context` helper here. `hook-output-contract.test.ts`
 # ("los partials no hablan con el host, solo escriben al log") holds every
 # `_partials/*.sh` file to zero host-output vocabulary — a partial is inlined
@@ -2050,8 +2083,16 @@ navori_json_str() {
 # Repeat-failure state is shared by the PostToolUseFailure watcher and the
 # existing success lane. A successful Bash call only pays for Node when its
 # session already has a failure-state file; ordinary calls use builtins only.
+#
+# `action` is `reset`/`failure` (Claude: the event says which) or `codex`
+# (spec 0041 T12: Codex fires PostToolUse on failure too, so the OUTCOME is read
+# from the rollout, `$2` = its path, `$3` = the call's `tool_use_id`).
 navori_bash_failure_state() {
   local action=$1 sid=${CLAUDE_CODE_SESSION_ID:-} dir file
+  if [ "$action" = codex ]; then
+    navori_plain_field session_id
+    sid=$navori_field
+  fi
   case "$sid" in "" | *[!A-Za-z0-9._-]*) return 0 ;; esac
   [ -n "${nv_project_dir:-}" ] || return 0
   dir=$nv_project_dir/.navori/state/hooks/bash-outcome-watch
@@ -2061,24 +2102,58 @@ navori_bash_failure_state() {
   fi
   command -v node >/dev/null 2>&1 || return 0
   NV_BASH_OUTCOME_ACTION=$action NV_BASH_OUTCOME_DIR=$dir NV_BASH_OUTCOME_FILE=$file \
+    NV_BASH_OUTCOME_SID=$sid NV_BASH_OUTCOME_TRANSCRIPT=${2:-} NV_BASH_OUTCOME_TOOL_USE=${3:-} \
     NV_BASH_OUTCOME_ROOT=$nv_project_dir node -e '
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const digest = (value) => crypto.createHash("sha256").update(value).digest("hex");
 const env = process.env;
+// Codex outcome (spec 0041 T12): the exit code of THIS call lives in the rollout
+// record `event_msg`/`item_completed` whose `item.id` is the `tool_use_id` of the call
+// (probe V4). Bounded to the tail of the file; only `exit_code` is read, never
+// the output fields. Anything missing or unreadable -> null -> silence.
+const codexExit = () => {
+  const max = 1048576;
+  const fd = fs.openSync(env.NV_BASH_OUTCOME_TRANSCRIPT, "r");
+  try {
+    const size = fs.fstatSync(fd).size;
+    const len = Math.min(size, max);
+    const buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, size - len);
+    const lines = buf.toString("utf8").split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (!line.includes(env.NV_BASH_OUTCOME_TOOL_USE) || !line.includes("item_completed")) continue;
+      let record;
+      try { record = JSON.parse(line); } catch { continue; }
+      const item = record?.payload?.item;
+      if (record?.type !== "event_msg" || record?.payload?.type !== "item_completed") continue;
+      if (item?.type !== "CommandExecution" || item?.id !== env.NV_BASH_OUTCOME_TOOL_USE) continue;
+      return Number.isInteger(item.exit_code) ? item.exit_code : null;
+    }
+    return null;
+  } finally { fs.closeSync(fd); }
+};
 let input = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => { input += chunk; });
 process.stdin.on("end", () => {
   try {
     const payload = JSON.parse(input);
-    if (payload.tool_name !== "Bash" || payload.session_id !== env.CLAUDE_CODE_SESSION_ID) return;
+    if (payload.tool_name !== "Bash" || payload.session_id !== env.NV_BASH_OUTCOME_SID) return;
     if (payload.is_interrupt === true || payload.tool_response?.is_interrupt === true) return;
     const command = payload.tool_input?.command;
     const cwd = payload.cwd;
     if (typeof command !== "string" || !command.trim() || typeof cwd !== "string" || !cwd) return;
     const agent = typeof payload.agent_id === "string" ? payload.agent_id : "";
+    let action = env.NV_BASH_OUTCOME_ACTION;
+    let exitCode = null;
+    if (action === "codex") {
+      exitCode = codexExit();
+      if (exitCode === null) return;
+      action = exitCode === 0 ? "reset" : "failure";
+    }
     const key = digest(JSON.stringify([command.trim().replace(/\s+/g, " "), cwd, agent]));
     const root = path.resolve(env.NV_BASH_OUTCOME_ROOT);
     const dir = env.NV_BASH_OUTCOME_DIR;
@@ -2087,21 +2162,21 @@ process.stdin.on("end", () => {
     for (const component of [root, path.join(root, ".navori"), path.join(root, ".navori/state"), path.join(root, ".navori/state/hooks"), dir]) {
       if (fs.existsSync(component)) {
         if (!fs.lstatSync(component).isDirectory() || fs.lstatSync(component).isSymbolicLink()) return;
-      } else if (env.NV_BASH_OUTCOME_ACTION === "failure") {
+      } else if (action === "failure") {
         fs.mkdirSync(component);
       } else return;
     }
     if (fs.existsSync(file) && (!fs.lstatSync(file).isFile() || fs.lstatSync(file).isSymbolicLink())) return;
     let rows = fs.existsSync(file) ? fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)) : [];
     if (!Array.isArray(rows) || rows.some((row) => typeof row.key !== "string" || typeof row.sig !== "string" || typeof row.count !== "number" || typeof row.epoch !== "number")) return;
-    if (env.NV_BASH_OUTCOME_ACTION === "reset") {
+    if (action === "reset") {
       const next = rows.filter((row) => row.key !== key);
       if (next.length === rows.length) return;
       rows = next;
     } else {
-      const error = payload.error;
+      const error = exitCode === null ? payload.error : "";
       if (typeof error !== "string") return;
-      const match = /exit code\s+(\d+)/i.exec(error);
+      const match = exitCode === null ? /exit code\s+(\d+)/i.exec(error) : [null, String(exitCode)];
       if (!match) return;
       const code = match[1];
       const escapedRoot = root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -2116,7 +2191,7 @@ process.stdin.on("end", () => {
         .replace(/\b\d+(?:\.\d+)?\s?(?:ms|seconds?|minutes?)\b/gi, "<d>")
         .replace(/\b[0-9a-f]{8,}\b/gi, "<h>")
         .split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 20).join("\n");
-      if (!body) return;
+      if (!body && exitCode === null) return;
       const sig = digest(code + "\n" + body);
       const previous = rows.find((row) => row.key === key);
       const count = previous?.sig === sig ? Math.min(previous.count + 1, 3) : 1;
@@ -2125,7 +2200,7 @@ process.stdin.on("end", () => {
       rows.push({ key, sig, count, notified: notified || count === 3, epoch: Date.now() });
       if (count === 3 && !notified) {
         const first = body.split("\n")[0].slice(0, 100);
-        const note = `navori: el comando ${command.trim().slice(0, 100)} falló 3 veces con la misma firma (exit ${code}: ${first}). Cambia de enfoque con debug-failure o escala al usuario. Si el rojo es intencional, ignora esta nota.`;
+        const note = `navori: el comando ${command.trim().slice(0, 100)} falló 3 veces con la misma firma (exit ${code}${first ? ": " + first : ""}). Cambia de enfoque con debug-failure o escala al usuario. Si el rojo es intencional, ignora esta nota.`;
         var output = note.slice(0, 400);
       }
     }
@@ -2138,6 +2213,51 @@ process.stdin.on("end", () => {
   } catch { /* advisory: never change the tool result */ }
 });
 ' <<< "$payload" 2>/dev/null || true
+  return 0
+}
+
+# A plain top-level string field of the raw payload, with builtins only (no
+# fork), into `navori_field`. Matches `"key":"value"` with an unescaped quote
+# before the colon, which a `tool_response` cannot forge (inside it every quote is
+# `\"`). Empty when absent, spaced or escaped: the caller treats that as silence.
+navori_plain_field() {
+  local needle="\"$1\":\"" rest
+  navori_field=
+  case "$payload" in *"$needle"*) ;; *) return 0 ;; esac
+  rest=${payload#*"$needle"}
+  navori_field=${rest%%\"*}
+  case "$navori_field" in *\\*) navori_field= ;; esac
+  return 0
+}
+
+# Spec 0041 T12 (R11): the Codex Bash outcome lane, run by `routing-watch.sh`
+# on `PostToolUse(Bash)` under Codex. Codex fires PostToolUse on failure too, so
+# the exit code is read from the rollout (`transcript_path`): a fixed-string grep
+# over the BOUNDED tail finds the `item_completed` record of this `tool_use_id`.
+# A success with no failure state costs no Node; everything else (a failure, or a
+# success that must reset a counter) goes through `navori_bash_failure_state`,
+# which parses only `exit_code`. FAIL-OPEN and silent: no rollout, no matching
+# record or an unreadable one means no advice. Prints the advice, if any.
+navori_bash_codex_outcome() {
+  local tid tp sid line
+  navori_plain_field tool_use_id
+  tid=$navori_field
+  navori_plain_field transcript_path
+  tp=$navori_field
+  navori_plain_field session_id
+  sid=$navori_field
+  case "$tid" in "" | *[!A-Za-z0-9._:-]*) return 0 ;; esac
+  case "$sid" in "" | *[!A-Za-z0-9._-]*) return 0 ;; esac
+  case "$tp" in *.jsonl) ;; *) return 0 ;; esac
+  [ -f "$tp" ] && [ -r "$tp" ] || return 0
+  line=$(tail -c 1048576 "$tp" 2>/dev/null | grep -F -- "$tid" 2>/dev/null | grep -F '"item_completed"' 2>/dev/null | tail -n 1)
+  [ -n "$line" ] || return 0
+  case "$line" in
+    *'"exit_code":0,'* | *'"exit_code":0}'*)
+      [ -f "${nv_project_dir:-}/.navori/state/hooks/bash-outcome-watch/$sid" ] || return 0
+      ;;
+  esac
+  navori_bash_failure_state codex "$tp" "$tid"
   return 0
 }
 
@@ -3443,7 +3563,7 @@ exit 0
 # navori:managed start id="general-purpose-confirm-base" hash="<HASH>" version="<VERSION>" source="@navori/core"
 #!/usr/bin/env bash
 #
-# PreToolUse(Agent): dispatching `general-purpose` is raised to a user
+# PreToolUse(Agent|spawn_agent): dispatching `general-purpose` is raised to a user
 # confirmation that names the `scout` (spec 0039 R40).
 #
 # WHY: `general-purpose` is the host's catch-all subagent. For read-only
@@ -3819,8 +3939,22 @@ navori_audit_on_exit() {
 }
 trap navori_audit_on_exit EXIT
 
+# Claude names the child `subagent_type`; Codex's `spawn_agent` names it `agent_type`.
 navori_gp_type=$(payload_field tool_input.subagent_type)
+[ -n "$navori_gp_type" ] || navori_gp_type=$(payload_field tool_input.agent_type)
 [ "$navori_gp_type" = "general-purpose" ] || exit 0
+
+# Codex hooks cannot emit `ask`, and a `prompt` rule does not confirm inside
+# subagents (live probe V1, spec 0041 R10): the Codex copy denies instead,
+# decided by `$0` like `comment-draft-confirm.sh`. Never an allow.
+case "$0" in
+  *".codex/hooks/"*)
+    navori_audit_verdict="deny"
+    navori_audit_reason="general-purpose despachado; scout cubre lectura e investigación"
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[navori] general-purpose is dispatched here and Codex hooks cannot prompt. For read-only exploration or web research dispatch the scout instead; if this task really needs general-purpose, ask the user to confirm and re-dispatch."}}'
+    exit 0
+    ;;
+esac
 
 navori_audit_verdict="ask"
 navori_audit_reason="general-purpose despachado; scout cubre lectura e investigación"
@@ -4001,6 +4135,39 @@ nv_subagent_type() {
   else
     payload_field tool_input.subagent_type
   fi
+}
+
+# The agent a spawn call TARGETS, never the one that makes the call (spec 0041
+# H16). Claude: `tool_input.subagent_type`. Codex PreToolUse/PostToolUse of a
+# spawn: `tool_input.agent_type` only — the top-level `agent_type` there is the
+# CALLER's. On `SubagentStop` the top-level `agent_type` IS the finishing
+# subagent, so that event reads it instead.
+nv_spawn_target_type() {
+  if [ "$nv_engine" = codex ]; then
+    case "$(payload_field hook_event_name)" in
+      SubagentStop) payload_field agent_type ;;
+      *) payload_field tool_input.agent_type ;;
+    esac
+  else
+    payload_field tool_input.subagent_type
+  fi
+}
+
+# The agent RUNNING the current event: the top-level `agent_type`, which the
+# host adds only inside a subagent (empty on the main thread). Never confuse it
+# with `nv_spawn_target_type` (H16). `nv_subagent_type` above keeps its legacy
+# mixed behaviour for existing hooks; new code uses these two helpers.
+nv_event_agent_type() {
+  payload_field agent_type
+}
+
+# True for the spawn tool: Codex V1 `spawn_agent`, or any V2 name that ends in
+# `spawn_agent` (V2 flattens the namespace into the tool name).
+nv_is_spawn_tool() {
+  case "$(payload_field tool_name)" in
+    *spawn_agent) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # Deliberately NO `nv_emit_context` helper here. `hook-output-contract.test.ts`
@@ -5382,6 +5549,39 @@ nv_subagent_type() {
   fi
 }
 
+# The agent a spawn call TARGETS, never the one that makes the call (spec 0041
+# H16). Claude: `tool_input.subagent_type`. Codex PreToolUse/PostToolUse of a
+# spawn: `tool_input.agent_type` only — the top-level `agent_type` there is the
+# CALLER's. On `SubagentStop` the top-level `agent_type` IS the finishing
+# subagent, so that event reads it instead.
+nv_spawn_target_type() {
+  if [ "$nv_engine" = codex ]; then
+    case "$(payload_field hook_event_name)" in
+      SubagentStop) payload_field agent_type ;;
+      *) payload_field tool_input.agent_type ;;
+    esac
+  else
+    payload_field tool_input.subagent_type
+  fi
+}
+
+# The agent RUNNING the current event: the top-level `agent_type`, which the
+# host adds only inside a subagent (empty on the main thread). Never confuse it
+# with `nv_spawn_target_type` (H16). `nv_subagent_type` above keeps its legacy
+# mixed behaviour for existing hooks; new code uses these two helpers.
+nv_event_agent_type() {
+  payload_field agent_type
+}
+
+# True for the spawn tool: Codex V1 `spawn_agent`, or any V2 name that ends in
+# `spawn_agent` (V2 flattens the namespace into the tool name).
+nv_is_spawn_tool() {
+  case "$(payload_field tool_name)" in
+    *spawn_agent) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Deliberately NO `nv_emit_context` helper here. `hook-output-contract.test.ts`
 # ("los partials no hablan con el host, solo escriben al log") holds every
 # `_partials/*.sh` file to zero host-output vocabulary — a partial is inlined
@@ -6096,6 +6296,39 @@ nv_subagent_type() {
   else
     payload_field tool_input.subagent_type
   fi
+}
+
+# The agent a spawn call TARGETS, never the one that makes the call (spec 0041
+# H16). Claude: `tool_input.subagent_type`. Codex PreToolUse/PostToolUse of a
+# spawn: `tool_input.agent_type` only — the top-level `agent_type` there is the
+# CALLER's. On `SubagentStop` the top-level `agent_type` IS the finishing
+# subagent, so that event reads it instead.
+nv_spawn_target_type() {
+  if [ "$nv_engine" = codex ]; then
+    case "$(payload_field hook_event_name)" in
+      SubagentStop) payload_field agent_type ;;
+      *) payload_field tool_input.agent_type ;;
+    esac
+  else
+    payload_field tool_input.subagent_type
+  fi
+}
+
+# The agent RUNNING the current event: the top-level `agent_type`, which the
+# host adds only inside a subagent (empty on the main thread). Never confuse it
+# with `nv_spawn_target_type` (H16). `nv_subagent_type` above keeps its legacy
+# mixed behaviour for existing hooks; new code uses these two helpers.
+nv_event_agent_type() {
+  payload_field agent_type
+}
+
+# True for the spawn tool: Codex V1 `spawn_agent`, or any V2 name that ends in
+# `spawn_agent` (V2 flattens the namespace into the tool name).
+nv_is_spawn_tool() {
+  case "$(payload_field tool_name)" in
+    *spawn_agent) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # Deliberately NO `nv_emit_context` helper here. `hook-output-contract.test.ts`
@@ -7177,9 +7410,21 @@ is_scan_trigger "$cmd" || exit 0
 
 # Fixed by construction: no repository content reaches JSON, so this still
 # works when jq and node are unavailable.
-navori_audit_verdict="ask"
-navori_audit_reason="manual approval or stage close"
-printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[navori] this records that you approved a manual criterion. Confirm only if you reviewed it."}}'
+# Codex parses `permissionDecision` but drops `"ask"` (the call proceeds), so
+# the Codex copy denies instead: deny-as-confirmation, decided by `$0` like
+# `comment-draft-confirm.sh` (spec 0041 D11). Never an allow.
+case "$0" in
+  *".codex/hooks/"*)
+    navori_audit_verdict="deny"
+    navori_audit_reason="manual approval or stage close"
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[navori] this records that the user approved a manual criterion, and Codex hooks cannot prompt. Show the user what it approves and let them confirm and run the command themselves."}}'
+    ;;
+  *)
+    navori_audit_verdict="ask"
+    navori_audit_reason="manual approval or stage close"
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[navori] this records that you approved a manual criterion. Confirm only if you reviewed it."}}'
+    ;;
+esac
 # navori:managed end id="master-accept-confirm-base"
 
 
@@ -7499,7 +7744,13 @@ trap navori_audit_on_exit EXIT
 
 specs_dir='specs'
 NAVORI_MASTER_LINE_BUDGET=600
-project_dir=${CLAUDE_PROJECT_DIR:-$PWD}
+# Codex sets no CLAUDE_PROJECT_DIR: the root is the git toplevel of the hook's
+# directory; `$0` tells the copies apart (spec 0041 R21, same pattern as
+# `comment-draft-confirm.sh`).
+case "$0" in
+  *".codex/hooks/"*) project_dir=$(git rev-parse --show-toplevel 2>/dev/null) || project_dir=$PWD ;;
+  *) project_dir=${CLAUDE_PROJECT_DIR:-$PWD} ;;
+esac
 index_path=$project_dir/$specs_dir/_master/INDEX.md
 offer='En tu primera respuesta de la sesión, ofrece continuar con el plan maestro en una sola línea, sin interrumpir lo que el usuario pidió.'
 
@@ -8654,6 +8905,22 @@ is_scan_trigger "$cmd" || exit 0
 # It names SOME subagent, not specifically the publisher — a `scout` opening a
 # PR would pass. That is deliberate: this is a routing nudge, not a security
 # boundary, and the detector cannot see through `sh -c` either.
+#
+# CODEX (spec 0041 R10): Codex hooks cannot emit `ask` and a `.codex/rules`
+# `prompt` rule only confirms on the main thread — it is silent inside the
+# publisher subagent (live probe V1) — so the Codex copy denies instead:
+# deny-as-confirmation, decided by `$0` like `comment-draft-confirm.sh`. It runs
+# BEFORE the subagent allow, because the publisher is exactly where the
+# unconfirmed `gh pr create` happens. Fixed by construction: no jq needed.
+case "$0" in
+  *".codex/hooks/"*)
+    navori_audit_verdict="deny"
+    navori_audit_reason="gh pr create requires user confirmation (Codex)"
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[navori] this `gh pr create` opens a PR and Codex hooks cannot prompt. Show the user the title and body, and let them confirm and run the command themselves."}}'
+    exit 0
+    ;;
+esac
+
 navori_pr_agent=$(payload_field agent_id)
 [ -n "$navori_pr_agent" ] || navori_pr_agent=$(payload_field subagent_id)
 if [ -n "$navori_pr_agent" ]; then
@@ -8853,6 +9120,39 @@ nv_subagent_type() {
   else
     payload_field tool_input.subagent_type
   fi
+}
+
+# The agent a spawn call TARGETS, never the one that makes the call (spec 0041
+# H16). Claude: `tool_input.subagent_type`. Codex PreToolUse/PostToolUse of a
+# spawn: `tool_input.agent_type` only — the top-level `agent_type` there is the
+# CALLER's. On `SubagentStop` the top-level `agent_type` IS the finishing
+# subagent, so that event reads it instead.
+nv_spawn_target_type() {
+  if [ "$nv_engine" = codex ]; then
+    case "$(payload_field hook_event_name)" in
+      SubagentStop) payload_field agent_type ;;
+      *) payload_field tool_input.agent_type ;;
+    esac
+  else
+    payload_field tool_input.subagent_type
+  fi
+}
+
+# The agent RUNNING the current event: the top-level `agent_type`, which the
+# host adds only inside a subagent (empty on the main thread). Never confuse it
+# with `nv_spawn_target_type` (H16). `nv_subagent_type` above keeps its legacy
+# mixed behaviour for existing hooks; new code uses these two helpers.
+nv_event_agent_type() {
+  payload_field agent_type
+}
+
+# True for the spawn tool: Codex V1 `spawn_agent`, or any V2 name that ends in
+# `spawn_agent` (V2 flattens the namespace into the tool name).
+nv_is_spawn_tool() {
+  case "$(payload_field tool_name)" in
+    *spawn_agent) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # Deliberately NO `nv_emit_context` helper here. `hook-output-contract.test.ts`
@@ -10382,6 +10682,39 @@ nv_subagent_type() {
   fi
 }
 
+# The agent a spawn call TARGETS, never the one that makes the call (spec 0041
+# H16). Claude: `tool_input.subagent_type`. Codex PreToolUse/PostToolUse of a
+# spawn: `tool_input.agent_type` only — the top-level `agent_type` there is the
+# CALLER's. On `SubagentStop` the top-level `agent_type` IS the finishing
+# subagent, so that event reads it instead.
+nv_spawn_target_type() {
+  if [ "$nv_engine" = codex ]; then
+    case "$(payload_field hook_event_name)" in
+      SubagentStop) payload_field agent_type ;;
+      *) payload_field tool_input.agent_type ;;
+    esac
+  else
+    payload_field tool_input.subagent_type
+  fi
+}
+
+# The agent RUNNING the current event: the top-level `agent_type`, which the
+# host adds only inside a subagent (empty on the main thread). Never confuse it
+# with `nv_spawn_target_type` (H16). `nv_subagent_type` above keeps its legacy
+# mixed behaviour for existing hooks; new code uses these two helpers.
+nv_event_agent_type() {
+  payload_field agent_type
+}
+
+# True for the spawn tool: Codex V1 `spawn_agent`, or any V2 name that ends in
+# `spawn_agent` (V2 flattens the namespace into the tool name).
+nv_is_spawn_tool() {
+  case "$(payload_field tool_name)" in
+    *spawn_agent) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Deliberately NO `nv_emit_context` helper here. `hook-output-contract.test.ts`
 # ("los partials no hablan con el host, solo escriben al log") holds every
 # `_partials/*.sh` file to zero host-output vocabulary — a partial is inlined
@@ -10484,8 +10817,16 @@ navori_json_str() {
 # Repeat-failure state is shared by the PostToolUseFailure watcher and the
 # existing success lane. A successful Bash call only pays for Node when its
 # session already has a failure-state file; ordinary calls use builtins only.
+#
+# `action` is `reset`/`failure` (Claude: the event says which) or `codex`
+# (spec 0041 T12: Codex fires PostToolUse on failure too, so the OUTCOME is read
+# from the rollout, `$2` = its path, `$3` = the call's `tool_use_id`).
 navori_bash_failure_state() {
   local action=$1 sid=${CLAUDE_CODE_SESSION_ID:-} dir file
+  if [ "$action" = codex ]; then
+    navori_plain_field session_id
+    sid=$navori_field
+  fi
   case "$sid" in "" | *[!A-Za-z0-9._-]*) return 0 ;; esac
   [ -n "${nv_project_dir:-}" ] || return 0
   dir=$nv_project_dir/.navori/state/hooks/bash-outcome-watch
@@ -10495,24 +10836,58 @@ navori_bash_failure_state() {
   fi
   command -v node >/dev/null 2>&1 || return 0
   NV_BASH_OUTCOME_ACTION=$action NV_BASH_OUTCOME_DIR=$dir NV_BASH_OUTCOME_FILE=$file \
+    NV_BASH_OUTCOME_SID=$sid NV_BASH_OUTCOME_TRANSCRIPT=${2:-} NV_BASH_OUTCOME_TOOL_USE=${3:-} \
     NV_BASH_OUTCOME_ROOT=$nv_project_dir node -e '
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const digest = (value) => crypto.createHash("sha256").update(value).digest("hex");
 const env = process.env;
+// Codex outcome (spec 0041 T12): the exit code of THIS call lives in the rollout
+// record `event_msg`/`item_completed` whose `item.id` is the `tool_use_id` of the call
+// (probe V4). Bounded to the tail of the file; only `exit_code` is read, never
+// the output fields. Anything missing or unreadable -> null -> silence.
+const codexExit = () => {
+  const max = 1048576;
+  const fd = fs.openSync(env.NV_BASH_OUTCOME_TRANSCRIPT, "r");
+  try {
+    const size = fs.fstatSync(fd).size;
+    const len = Math.min(size, max);
+    const buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, size - len);
+    const lines = buf.toString("utf8").split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (!line.includes(env.NV_BASH_OUTCOME_TOOL_USE) || !line.includes("item_completed")) continue;
+      let record;
+      try { record = JSON.parse(line); } catch { continue; }
+      const item = record?.payload?.item;
+      if (record?.type !== "event_msg" || record?.payload?.type !== "item_completed") continue;
+      if (item?.type !== "CommandExecution" || item?.id !== env.NV_BASH_OUTCOME_TOOL_USE) continue;
+      return Number.isInteger(item.exit_code) ? item.exit_code : null;
+    }
+    return null;
+  } finally { fs.closeSync(fd); }
+};
 let input = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => { input += chunk; });
 process.stdin.on("end", () => {
   try {
     const payload = JSON.parse(input);
-    if (payload.tool_name !== "Bash" || payload.session_id !== env.CLAUDE_CODE_SESSION_ID) return;
+    if (payload.tool_name !== "Bash" || payload.session_id !== env.NV_BASH_OUTCOME_SID) return;
     if (payload.is_interrupt === true || payload.tool_response?.is_interrupt === true) return;
     const command = payload.tool_input?.command;
     const cwd = payload.cwd;
     if (typeof command !== "string" || !command.trim() || typeof cwd !== "string" || !cwd) return;
     const agent = typeof payload.agent_id === "string" ? payload.agent_id : "";
+    let action = env.NV_BASH_OUTCOME_ACTION;
+    let exitCode = null;
+    if (action === "codex") {
+      exitCode = codexExit();
+      if (exitCode === null) return;
+      action = exitCode === 0 ? "reset" : "failure";
+    }
     const key = digest(JSON.stringify([command.trim().replace(/\s+/g, " "), cwd, agent]));
     const root = path.resolve(env.NV_BASH_OUTCOME_ROOT);
     const dir = env.NV_BASH_OUTCOME_DIR;
@@ -10521,21 +10896,21 @@ process.stdin.on("end", () => {
     for (const component of [root, path.join(root, ".navori"), path.join(root, ".navori/state"), path.join(root, ".navori/state/hooks"), dir]) {
       if (fs.existsSync(component)) {
         if (!fs.lstatSync(component).isDirectory() || fs.lstatSync(component).isSymbolicLink()) return;
-      } else if (env.NV_BASH_OUTCOME_ACTION === "failure") {
+      } else if (action === "failure") {
         fs.mkdirSync(component);
       } else return;
     }
     if (fs.existsSync(file) && (!fs.lstatSync(file).isFile() || fs.lstatSync(file).isSymbolicLink())) return;
     let rows = fs.existsSync(file) ? fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)) : [];
     if (!Array.isArray(rows) || rows.some((row) => typeof row.key !== "string" || typeof row.sig !== "string" || typeof row.count !== "number" || typeof row.epoch !== "number")) return;
-    if (env.NV_BASH_OUTCOME_ACTION === "reset") {
+    if (action === "reset") {
       const next = rows.filter((row) => row.key !== key);
       if (next.length === rows.length) return;
       rows = next;
     } else {
-      const error = payload.error;
+      const error = exitCode === null ? payload.error : "";
       if (typeof error !== "string") return;
-      const match = /exit code\s+(\d+)/i.exec(error);
+      const match = exitCode === null ? /exit code\s+(\d+)/i.exec(error) : [null, String(exitCode)];
       if (!match) return;
       const code = match[1];
       const escapedRoot = root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -10550,7 +10925,7 @@ process.stdin.on("end", () => {
         .replace(/\b\d+(?:\.\d+)?\s?(?:ms|seconds?|minutes?)\b/gi, "<d>")
         .replace(/\b[0-9a-f]{8,}\b/gi, "<h>")
         .split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 20).join("\n");
-      if (!body) return;
+      if (!body && exitCode === null) return;
       const sig = digest(code + "\n" + body);
       const previous = rows.find((row) => row.key === key);
       const count = previous?.sig === sig ? Math.min(previous.count + 1, 3) : 1;
@@ -10559,7 +10934,7 @@ process.stdin.on("end", () => {
       rows.push({ key, sig, count, notified: notified || count === 3, epoch: Date.now() });
       if (count === 3 && !notified) {
         const first = body.split("\n")[0].slice(0, 100);
-        const note = `navori: el comando ${command.trim().slice(0, 100)} falló 3 veces con la misma firma (exit ${code}: ${first}). Cambia de enfoque con debug-failure o escala al usuario. Si el rojo es intencional, ignora esta nota.`;
+        const note = `navori: el comando ${command.trim().slice(0, 100)} falló 3 veces con la misma firma (exit ${code}${first ? ": " + first : ""}). Cambia de enfoque con debug-failure o escala al usuario. Si el rojo es intencional, ignora esta nota.`;
         var output = note.slice(0, 400);
       }
     }
@@ -10572,6 +10947,51 @@ process.stdin.on("end", () => {
   } catch { /* advisory: never change the tool result */ }
 });
 ' <<< "$payload" 2>/dev/null || true
+  return 0
+}
+
+# A plain top-level string field of the raw payload, with builtins only (no
+# fork), into `navori_field`. Matches `"key":"value"` with an unescaped quote
+# before the colon, which a `tool_response` cannot forge (inside it every quote is
+# `\"`). Empty when absent, spaced or escaped: the caller treats that as silence.
+navori_plain_field() {
+  local needle="\"$1\":\"" rest
+  navori_field=
+  case "$payload" in *"$needle"*) ;; *) return 0 ;; esac
+  rest=${payload#*"$needle"}
+  navori_field=${rest%%\"*}
+  case "$navori_field" in *\\*) navori_field= ;; esac
+  return 0
+}
+
+# Spec 0041 T12 (R11): the Codex Bash outcome lane, run by `routing-watch.sh`
+# on `PostToolUse(Bash)` under Codex. Codex fires PostToolUse on failure too, so
+# the exit code is read from the rollout (`transcript_path`): a fixed-string grep
+# over the BOUNDED tail finds the `item_completed` record of this `tool_use_id`.
+# A success with no failure state costs no Node; everything else (a failure, or a
+# success that must reset a counter) goes through `navori_bash_failure_state`,
+# which parses only `exit_code`. FAIL-OPEN and silent: no rollout, no matching
+# record or an unreadable one means no advice. Prints the advice, if any.
+navori_bash_codex_outcome() {
+  local tid tp sid line
+  navori_plain_field tool_use_id
+  tid=$navori_field
+  navori_plain_field transcript_path
+  tp=$navori_field
+  navori_plain_field session_id
+  sid=$navori_field
+  case "$tid" in "" | *[!A-Za-z0-9._:-]*) return 0 ;; esac
+  case "$sid" in "" | *[!A-Za-z0-9._-]*) return 0 ;; esac
+  case "$tp" in *.jsonl) ;; *) return 0 ;; esac
+  [ -f "$tp" ] && [ -r "$tp" ] || return 0
+  line=$(tail -c 1048576 "$tp" 2>/dev/null | grep -F -- "$tid" 2>/dev/null | grep -F '"item_completed"' 2>/dev/null | tail -n 1)
+  [ -n "$line" ] || return 0
+  case "$line" in
+    *'"exit_code":0,'* | *'"exit_code":0}'*)
+      [ -f "${nv_project_dir:-}/.navori/state/hooks/bash-outcome-watch/$sid" ] || return 0
+      ;;
+  esac
+  navori_bash_failure_state codex "$tp" "$tid"
   return 0
 }
 
@@ -11054,6 +11474,23 @@ if [ "$tool" = "Bash" ] && [ "${1:-}" = "claude-post-tool-use" ]; then
   navori_bash_success_lane
 fi
 
+# Spec 0041 T12 (R11): the Codex Bash outcome lane, same hook, no new
+# registration (the Codex hooks-per-Bash count stays pinned). Codex fires
+# PostToolUse on failure too, so the outcome comes from the rollout record of
+# this `tool_use_id`, never from the event. Silent on any missing piece; it only
+# ever prints the repeated-failure advice that Claude's bash-outcome-watch gives.
+# SHORTCUT: when it advises it ends the run, so that one call is not counted
+# toward the routing threshold; ceiling one call per three repeated failures,
+# trigger: if routing counts must stay exact, merge both notes into one output.
+if [ "$tool" = "Bash" ] && [ "$nv_engine" = codex ]; then
+  navori_codex_advice=$(navori_bash_codex_outcome 2>/dev/null) || navori_codex_advice=
+  if [ -n "$navori_codex_advice" ]; then
+    navori_audit_log "advise" "same Bash failure reached three consecutive occurrences"
+    NV_ADVICE="$navori_codex_advice" node -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:process.env.NV_ADVICE}})+"\n")' 2>/dev/null || true
+    exit 0
+  fi
+fi
+
 # Rung 1 of the Bash lane, and the earliest point at which it can end. No write
 # token anywhere in the payload means no redirect, no `tee` and no `sed -i`, so
 # there is nothing here this hook could ever count. It costs no fork and it runs
@@ -11509,6 +11946,39 @@ nv_subagent_type() {
   else
     payload_field tool_input.subagent_type
   fi
+}
+
+# The agent a spawn call TARGETS, never the one that makes the call (spec 0041
+# H16). Claude: `tool_input.subagent_type`. Codex PreToolUse/PostToolUse of a
+# spawn: `tool_input.agent_type` only — the top-level `agent_type` there is the
+# CALLER's. On `SubagentStop` the top-level `agent_type` IS the finishing
+# subagent, so that event reads it instead.
+nv_spawn_target_type() {
+  if [ "$nv_engine" = codex ]; then
+    case "$(payload_field hook_event_name)" in
+      SubagentStop) payload_field agent_type ;;
+      *) payload_field tool_input.agent_type ;;
+    esac
+  else
+    payload_field tool_input.subagent_type
+  fi
+}
+
+# The agent RUNNING the current event: the top-level `agent_type`, which the
+# host adds only inside a subagent (empty on the main thread). Never confuse it
+# with `nv_spawn_target_type` (H16). `nv_subagent_type` above keeps its legacy
+# mixed behaviour for existing hooks; new code uses these two helpers.
+nv_event_agent_type() {
+  payload_field agent_type
+}
+
+# True for the spawn tool: Codex V1 `spawn_agent`, or any V2 name that ends in
+# `spawn_agent` (V2 flattens the namespace into the tool name).
+nv_is_spawn_tool() {
+  case "$(payload_field tool_name)" in
+    *spawn_agent) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # Deliberately NO `nv_emit_context` helper here. `hook-output-contract.test.ts`
@@ -12877,6 +13347,39 @@ nv_subagent_type() {
   fi
 }
 
+# The agent a spawn call TARGETS, never the one that makes the call (spec 0041
+# H16). Claude: `tool_input.subagent_type`. Codex PreToolUse/PostToolUse of a
+# spawn: `tool_input.agent_type` only — the top-level `agent_type` there is the
+# CALLER's. On `SubagentStop` the top-level `agent_type` IS the finishing
+# subagent, so that event reads it instead.
+nv_spawn_target_type() {
+  if [ "$nv_engine" = codex ]; then
+    case "$(payload_field hook_event_name)" in
+      SubagentStop) payload_field agent_type ;;
+      *) payload_field tool_input.agent_type ;;
+    esac
+  else
+    payload_field tool_input.subagent_type
+  fi
+}
+
+# The agent RUNNING the current event: the top-level `agent_type`, which the
+# host adds only inside a subagent (empty on the main thread). Never confuse it
+# with `nv_spawn_target_type` (H16). `nv_subagent_type` above keeps its legacy
+# mixed behaviour for existing hooks; new code uses these two helpers.
+nv_event_agent_type() {
+  payload_field agent_type
+}
+
+# True for the spawn tool: Codex V1 `spawn_agent`, or any V2 name that ends in
+# `spawn_agent` (V2 flattens the namespace into the tool name).
+nv_is_spawn_tool() {
+  case "$(payload_field tool_name)" in
+    *spawn_agent) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Deliberately NO `nv_emit_context` helper here. `hook-output-contract.test.ts`
 # ("los partials no hablan con el host, solo escriben al log") holds every
 # `_partials/*.sh` file to zero host-output vocabulary — a partial is inlined
@@ -13743,6 +14246,39 @@ nv_subagent_type() {
   else
     payload_field tool_input.subagent_type
   fi
+}
+
+# The agent a spawn call TARGETS, never the one that makes the call (spec 0041
+# H16). Claude: `tool_input.subagent_type`. Codex PreToolUse/PostToolUse of a
+# spawn: `tool_input.agent_type` only — the top-level `agent_type` there is the
+# CALLER's. On `SubagentStop` the top-level `agent_type` IS the finishing
+# subagent, so that event reads it instead.
+nv_spawn_target_type() {
+  if [ "$nv_engine" = codex ]; then
+    case "$(payload_field hook_event_name)" in
+      SubagentStop) payload_field agent_type ;;
+      *) payload_field tool_input.agent_type ;;
+    esac
+  else
+    payload_field tool_input.subagent_type
+  fi
+}
+
+# The agent RUNNING the current event: the top-level `agent_type`, which the
+# host adds only inside a subagent (empty on the main thread). Never confuse it
+# with `nv_spawn_target_type` (H16). `nv_subagent_type` above keeps its legacy
+# mixed behaviour for existing hooks; new code uses these two helpers.
+nv_event_agent_type() {
+  payload_field agent_type
+}
+
+# True for the spawn tool: Codex V1 `spawn_agent`, or any V2 name that ends in
+# `spawn_agent` (V2 flattens the namespace into the tool name).
+nv_is_spawn_tool() {
+  case "$(payload_field tool_name)" in
+    *spawn_agent) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # Deliberately NO `nv_emit_context` helper here. `hook-output-contract.test.ts`
@@ -18295,8 +18831,8 @@ name: master-plan
 description: Use when the user explicitly asks to start or resume a project master plan, invokes `/master-plan`, or accepts the offer with “sí, continúa”. Guides the staged workflow, user confirmations, evidence and closure. Not for manual context conversion (`context-intake`) or creating a standalone specification (`spec-bootstrap`).
 metadata:
   type: reference
-  # Excede el tope de 500 de las skills core: reúne los contratos completos de T18 (etapas y procedimientos), el mensaje de fase guiado, la fase ux, la regla de sdd.enabled y las variantes de confirmación (spec 0039 R56).
-  maxWords: 2400
+  # Excede el tope de 500 de las skills core: reúne los contratos completos de T18 (etapas y procedimientos), el mensaje de fase guiado, la fase ux, la regla de sdd.enabled y las variantes de confirmación (spec 0039 R56). Sube a 2500: los 13 tramos inline onCodex (marcadores más texto alterno de Codex) suman ~150 palabras al render (2453 medidas) (spec 0041 R20).
+  maxWords: 2500
 ---
 
 <!-- navori:managed id="master-plan" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
@@ -19289,7 +19825,7 @@ name: verify-before-done
 description: 'Use when about to declare a task done — the Iron Law of task closure: no success claim without fresh evidence from the command that backs it. Applies to implementer, reviewer, publisher and any response that declares "done".'
 metadata:
   type: behavior
-  maxWords: 650
+  maxWords: 663
 ---
 
 <!-- navori:managed id="verify-before-done-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->

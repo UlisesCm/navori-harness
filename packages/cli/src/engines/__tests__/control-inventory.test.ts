@@ -6,6 +6,7 @@ import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.t
 import { renderAgentsMdEngine } from "../agents-md/index.ts";
 import { renderClaudeEngine } from "../claude/index.ts";
 import { CODEX_HOOK_REGISTRATIONS } from "../codex/hook-registrations.ts";
+import { CODEX_PARITY } from "../shared/codex-parity.ts";
 import { renderCodexEngine } from "../codex/index.ts";
 import { renderCopilotEngine } from "../copilot/index.ts";
 import { renderCursorEngine } from "../cursor/index.ts";
@@ -215,9 +216,8 @@ function assertControlMatchesRender(cwd: string, engineId: EngineId, controlId: 
     if (controlId === "plan-gate") {
       const configToml = readFileSync(join(cwd, ".codex/config.toml"), "utf-8");
       expect(declaration.state).toBe("advisory");
-      expect(declaration.reason).toContain("Codex 0.158.0");
-      expect(declaration.reason).toContain("no typed agent role");
-      expect(configToml).not.toContain("plan-gate.sh");
+      expect(declaration.reason).toContain("dispatch_<feature>.json");
+      expect(configToml).toContain("plan-gate.sh");
       expect(configToml).toContain("implementer-no-markdown.sh");
     }
     return;
@@ -290,11 +290,12 @@ describe("control inventory vs. the actual render (spec 0033 D5)", () => {
     }
   });
 
-  it("codex: does not render Claude-only master-plan hooks", () => {
+  // Covers: R20, R21
+  it("codex: renders both master-plan hooks when harness.masterPlan is on", () => {
     const cwd = freshDir("codex-master-plan");
     renderCodexEngine(cwd, fullFlagsConfig("codex"));
-    expect(existsSync(join(cwd, ".codex/hooks/master-plan-context.sh"))).toBe(false);
-    expect(existsSync(join(cwd, ".codex/hooks/master-accept-confirm.sh"))).toBe(false);
+    expect(existsSync(join(cwd, ".codex/hooks/master-plan-context.sh"))).toBe(true);
+    expect(existsSync(join(cwd, ".codex/hooks/master-accept-confirm.sh"))).toBe(true);
   });
 
   // Covers: R13, R14, R21
@@ -318,29 +319,29 @@ describe("control inventory vs. the actual render (spec 0033 D5)", () => {
 
     expect(codexPlan).toMatch(/Codex[^\n]*plan-gate[^\n]*advisory/i);
     expect(codexPlan).not.toContain("A hook denies dispatching");
-    expect(codexConfig).not.toContain("plan-gate.sh");
+    expect(codexConfig).toContain("plan-gate.sh");
     expect(ENGINE_CAPABILITIES.codex.controls["plan-gate"].state).toBe("advisory");
     expect(ENGINE_CAPABILITIES.claude.controls["plan-gate"].state).toBe("enforced");
   });
 
-  // Covers: R10
-  it("keeps plan-gate unregistered in Codex and the routing-watch matcher unchanged", () => {
+  // Covers: R9, R10
+  it("registers plan-gate in Codex (spawn_agent$) and keeps the routing-watch matcher unchanged", () => {
     const row = CODEX_HOOK_REGISTRATIONS.find((r) => r.script === "plan-gate");
-    expect(row?.registration).toBeUndefined();
-    expect(row?.unsupported).toContain("explicit agent_type spawn exposes the typed role in Pre");
-    expect(row?.unsupported).toContain("stays advisory");
+    expect(row?.registration?.matcher).toBe("spawn_agent$");
+    expect(row?.registration?.late).toBe(true);
+    expect(CODEX_PARITY["hook:plan-gate"]?.state).toBe("equivalente");
     const routing = CODEX_HOOK_REGISTRATIONS.find((r) => r.script === "routing-watch");
     expect(routing?.registration?.event).toBe("PostToolUse");
     expect(routing?.registration?.matcher).toBe("^(Bash|apply_patch|spawn_agent)$");
   });
 
-  // Covers: R16
-  it("declares repeat-failure advice for Claude and unsupported for Codex", () => {
+  // Covers: R11, R16
+  it("declares repeat-failure advice as advisory on both engines; Codex gives it from a routing-watch lane", () => {
     const row = CODEX_HOOK_REGISTRATIONS.find((r) => r.script === "bash-outcome-watch");
     expect(row?.registration).toBeUndefined();
-    expect(row?.unsupported).toContain("does not distinguish Bash success from failure");
+    expect(CODEX_PARITY["hook:bash-outcome-watch"]?.state).toBe("equivalente");
     expect(ENGINE_CAPABILITIES.claude.controls["repeat-failure-advice"].state).toBe("advisory");
-    expect(ENGINE_CAPABILITIES.codex.controls["repeat-failure-advice"].state).toBe("unsupported");
+    expect(ENGINE_CAPABILITIES.codex.controls["repeat-failure-advice"].state).toBe("advisory");
   });
 });
 
@@ -389,13 +390,13 @@ describe("analyticWriteTools vs. the actual render (spec 0033 D5, R23)", () => {
     }
   });
 
-  // Covers: R60
-  it("codex keeps master-plan unsupported: no skill and no master hooks are rendered", () => {
-    expect(ENGINE_CAPABILITIES.codex.controls["master-plan"].state).toBe("unsupported");
-    const cwd = freshDir("codex-master-plan-unsupported");
+  // Covers: R20, R21, R60
+  it("codex declares master-plan advisory until its smoke (T20): the skill and the hook are rendered", () => {
+    expect(ENGINE_CAPABILITIES.codex.controls["master-plan"].state).toBe("advisory");
+    const cwd = freshDir("codex-master-plan-advisory");
     renderCodexEngine(cwd, fullFlagsConfig("codex"));
-    expect(existsSync(join(cwd, ".agents/skills/master-plan/SKILL.md"))).toBe(false);
-    expect(existsSync(join(cwd, ".codex/skills/master-plan/SKILL.md"))).toBe(false);
+    expect(existsSync(join(cwd, ".agents/skills/master-plan/SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, ".codex/hooks/master-plan-context.sh"))).toBe(true);
   });
 });
 

@@ -106,3 +106,28 @@ describe("resolveHarnessPlan — comment-draft-confirm (spec 0026 E1)", () => {
     expect(plan2.hooks.map((hook) => hook.id)).toContain("comment-draft-confirm");
   });
 });
+
+// Covers: R20, R21
+describe("resolveHarnessPlan — per-engine scope (spec 0041 D11)", () => {
+  const scoped = ["master-plan", "context-intake"];
+  const scopedHooks = ["master-plan-context", "master-accept-confirm"];
+  const idsFor = (engine?: string) => {
+    const plan = resolveHarnessPlan(config, "/core", null, { engine });
+    return { skills: plan.skills.map((s) => s.id), hooks: plan.hooks.map((h) => h.id) };
+  };
+
+  it.each(["claude", "codex"])("plans the master-plan skills and hooks for %s", (engine) => {
+    const { skills, hooks } = idsFor(engine);
+    for (const id of scoped) expect(skills).toContain(id);
+    for (const id of scopedHooks) expect(hooks).toContain(id);
+  });
+
+  it.each([undefined, "cursor", "copilot", "agents-md", "pi"])(
+    "plans only universal units for %s",
+    (engine) => {
+      const { skills, hooks } = idsFor(engine);
+      for (const id of scoped) expect(skills).not.toContain(id);
+      for (const id of scopedHooks) expect(hooks).not.toContain(id);
+    },
+  );
+});

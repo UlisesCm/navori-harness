@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { NavoriConfig } from "../config/config.ts";
+import { resolveCodexModelValue, type CodexModelSource } from "../codex/model-catalog.ts";
 import { CORE_AGENTS, isAgentEnabled } from "../../engines/shared/harness-assets.ts";
 
 /** Which per-agent tier(s) render frontmatter omits for this agent. */
@@ -23,6 +26,8 @@ export interface ProfileValue {
   /** Static doctor cannot observe the model/effort actually used by the host. */
   effectiveObserved: null;
   mapping?: "configured" | "built-in";
+  /** Codex only: whether the id came from a family lookup, a pinned id or the last-known fallback. */
+  source?: CodexModelSource;
 }
 
 /** One renderable core subagent; main-thread orchestrator and preset extras are excluded. */
@@ -34,22 +39,83 @@ export interface ModelProfileProvenance {
 }
 
 // Shared by the Codex renderer and doctor. Tier names describe routing, not
-// equivalent quality across hosts (Spec 0037 R12).
+// equivalent quality across hosts (Spec 0037 R12). Values are model FAMILIES
+// (spec 0041 R32), resolved against the local Codex catalog at render time.
 const CODEX_MODEL_BY_CLAUDE_TIER = {
-  opus: "gpt-6-sol",
-  sonnet: "gpt-6-sol",
-  haiku: "gpt-6-luna",
+  opus: "sol",
+  sonnet: "sol",
+  haiku: "luna",
 } as const;
 
-/** Resolve a configured tier; an omitted tier remains host-inherited. */
+export interface CodexModelChoice {
+  model: string;
+  mapping: "configured" | "built-in";
+  source: CodexModelSource;
+  /** Set when `source` is `fallback`: the family missing from the local catalog. */
+  family?: string;
+}
+
+/**
+ * Resolve a configured tier to a concrete Codex model id (spec 0041 R32).
+ * `models.codexMap[tier]` (or the built-in family) is a family name or a full
+ * id: an id is a pin, a family resolves to the highest-version catalog model.
+ * Never throws; `catalogPath` is injectable so tests never read `~/.codex`.
+ */
 export function resolveCodexModel(
   config: NavoriConfig,
   tier: keyof typeof CODEX_MODEL_BY_CLAUDE_TIER,
-): { model: string; mapping: "configured" | "built-in" } {
+  catalogPath?: string | null,
+  previous: string | null = null,
+): CodexModelChoice {
   const configured = config.models?.codexMap?.[tier];
-  return configured !== undefined
-    ? { model: configured, mapping: "configured" }
-    : { model: CODEX_MODEL_BY_CLAUDE_TIER[tier], mapping: "built-in" };
+  const value = configured ?? CODEX_MODEL_BY_CLAUDE_TIER[tier];
+  const resolved =
+    catalogPath === undefined
+      ? resolveCodexModelValue(value, undefined, previous)
+      : resolveCodexModelValue(value, catalogPath, previous);
+  return { ...resolved, mapping: configured !== undefined ? "configured" : "built-in" };
+}
+
+/** Model id currently rendered in `.codex/agents/<agent>.toml`, or null (absent, unreadable, none). */
+export function readRenderedCodexModel(cwd: string, agentId: string): string | null {
+  try {
+    const toml = readFileSync(join(cwd, ".codex/agents", `${agentId}.toml`), "utf-8");
+    return /^model\s*=\s*"([^"]+)"/m.exec(toml)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** A rendered `.codex/agents/<agent>.toml` model that its family no longer resolves to. */
+export interface StaleCodexModel {
+  agent: string;
+  rendered: string;
+  current: string;
+}
+
+/**
+ * Compare the model rendered in each `.codex/agents/*.toml` against the current
+ * resolution of its tier (spec 0041 R32). Pinned ids and matching models are
+ * silent; an agent without a rendered model, or an unreadable file, is skipped.
+ * Never throws; `catalogPath` is injectable like `resolveCodexModel`.
+ */
+export function scanStaleCodexModels(
+  cwd: string,
+  config: NavoriConfig,
+  catalogPath?: string | null,
+): StaleCodexModel[] {
+  const stale: StaleCodexModel[] = [];
+  for (const agent of CORE_AGENTS) {
+    if (agent.id === "orchestrator" || !isAgentEnabled(config, agent.harnessKey)) continue;
+    const tier = config.models?.[agent.harnessKey];
+    if (!tier) continue;
+    const rendered = readRenderedCodexModel(cwd, agent.id);
+    if (rendered === null) continue;
+    const current = resolveCodexModel(config, tier, catalogPath, rendered);
+    if (current.source === "pin" || current.model === rendered) continue;
+    stale.push({ agent: agent.id, rendered, current: current.model });
+  }
+  return stale;
 }
 
 /** Project core-subagent profiles without guessing host inheritance or file state. */
@@ -74,7 +140,7 @@ export function scanModelProfileProvenance(config: NavoriConfig): ModelProfilePr
               origin: mapped ? "mapped" : "explicit",
               wouldRender: mapped?.model ?? tier,
               effectiveObserved: null,
-              ...(mapped ? { mapping: mapped.mapping } : {}),
+              ...(mapped ? { mapping: mapped.mapping, source: mapped.source } : {}),
             }
           : { configured: null, origin: "inherited", wouldRender: null, effectiveObserved: null },
         effort: configuredEffort

@@ -2546,3 +2546,30 @@ Ejecutar T44 de Spec 0039 con comparación T9 y criterios de cierre intactos.
 - specs/0039-claude-first/tasks.md — T44 permanece pendiente.
 - progress/current.md — próximos pasos de medición.
 - progress/history.md — registro de este checkpoint.
+
+## 2026-10-03 19:46 Codex — preparación release 0.11.2 con historia preservada
+
+## Goal
+Preparar la promoción de dev 0.11.2 a main con historia preservada.
+
+## Instructions
+- Usuario aprobó merge real sin squash y pidió avances por bloque; publicación npm separada.
+- Mantener los worktrees ocupados de main/dev intactos.
+
+## Discoveries
+- El squash #1175 conservó contenido, no ascendencia: 129 conflictos repetidos.
+- main def64403 y el ancestro de dev 6f5f4742 tienen el mismo árbol; no hay contenido exclusivo de main en este snapshot.
+
+## Accomplished
+- 129 conflictos resueltos en release/0.11.2-main; build/render local 0.11.2 y 5 snapshots verdes.
+- Antes de este closeout, índice y archivos tracked coinciden exactamente con dev ab0dea2a, árbol 60758cac688fcbaa8643a3f4c3f71134a92316d6.
+- Gate rápido y lint verdes. Gate completo y receipt se verificarán sobre el diff final antes de publicar; esta entrada registra la preparación, no un merge remoto ni publicación npm.
+
+## Next Steps
+- Revisar y validar el diff final, crear PR a main y mergear sin squash tras CI; verificar tag y sincronizar main a dev con historia preservada.
+- T44 de Spec 0039 sigue pendiente: sesión Claude fresca verificable para iniciar R41, ventana comparable con n>=100 implementer y ruido de dos bases; no cambiar el preregistro.
+
+## Relevant Files
+- progress/current.md — próximo paso de release y contexto T44 conservado.
+- progress/history.md — preparación de la promoción 0.11.2.
+- .navori/state/handoffs/workplan_release-main-0112.json — plan aprobado y criterios A1–A3.

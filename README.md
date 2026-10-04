@@ -64,6 +64,15 @@ Para paridad completa usa `"engines": ["claude", "codex"]`. Para un Codex
 ligero junto a Claude usa `["claude", "agents-md"]`; no hace falta un
 `codexMode` adicional.
 
+Codex recibe **paridad de garantías**: cada hook, agente, skill y regla tiene en Codex un
+equivalente o un límite documentado ([`docs/native-overlap.md`](./docs/native-overlap.md);
+verificación en vivo en [`docs/research/codex-paridad-verificacion.md`](./docs/research/codex-paridad-verificacion.md)).
+
+- Tras `navori render --apply` con Codex, corre `navori codex trust` para aprobar los hooks. Repítelo cuando cambien (por ejemplo, al activar `masterPlan` o tgrep) y en cada worktree; `navori doctor` avisa por ruta.
+- Requiere Codex ≥ 0.160.0; `doctor` avisa si la versión es menor.
+- Los hooks llaman al `navori` global: mantenlo actualizado. `doctor` avisa si es más viejo que el del repo.
+- El guard de búsqueda de tgrep solo bloquea si existe un índice (`tgrep index`); sin índice deja pasar.
+
 **Modelo de sincronización** — los managed blocks llevan `hash`, `version` y `source`. `sync` reporta updates disponibles y avisa antes de pisar un bloque que editaste a mano; hay backups automáticos antes de cada write.
 
 **Perfil de modelos por agente** — cada agente se rendea con su `model` y `effort`: `orchestrator` (opus/xhigh) y `architect` (opus/xhigh) para el juicio y el diseño, `implementer`/`reviewer`/`scout`/`auditor` (sonnet/medium) para la síntesis, `publisher`/`scribe` (haiku/low) para lo mecánico — el trabajo mecánico no corre al precio del de juicio. Sumado a la disciplina de output y a los gates de calidad afinados por evento (solo lo que corresponde, en paralelo), el harness cuesta menos por sesión. Ver [`docs/recipes/model-tiering.md`](./docs/recipes/model-tiering.md).

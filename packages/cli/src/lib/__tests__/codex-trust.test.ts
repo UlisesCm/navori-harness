@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { codexHome } from "../codex/home.ts";
 import {
   codexHookHash,
+  defaultCodexHomeConfigPath,
   codexHookKey,
   isValidToml,
   planTrustEdit,
@@ -174,7 +176,12 @@ describe("Codex plugin trust transitions (spec 0037 T7)", () => {
       "Untrusted",
     );
     const removed = read(withPlugins(false, false));
-    expect(removed.hooks.some((entry) => entry.key === approvedPlugin!.key)).toBe(false);
+    expect(removed.hooks.some((entry) => entry.script === "check-jscpd.sh")).toBe(false);
+    // Spec 0041 D8 (accepted cost): the late `role-guard` group slides into the
+    // freed slot, and the plugin's approval never transfers to it.
+    const slot = removed.hooks.find((entry) => entry.key === approvedPlugin!.key);
+    expect(slot?.script).toBe("role-guard");
+    expect(slot?.status).not.toBe("Trusted");
     // The home row still exists; render/inspection cannot infer ownership of a positional row.
     expect(readFileSync(homePath, "utf-8")).toBe(homeText);
     const replaced = read(withPlugins(false, true)).hooks.find(
@@ -333,3 +340,41 @@ function writeTempHome(text: string): string {
   writeFileSync(path, text, "utf-8");
   return path;
 }
+
+describe("codexHome / defaultCodexHomeConfigPath (spec 0041 R23)", () => {
+  const saved = process.env.CODEX_HOME;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = saved;
+  });
+
+  // Covers: R23
+  it("uses $CODEX_HOME/config.toml when CODEX_HOME is set", () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-codex-home-"));
+    process.env.CODEX_HOME = dir;
+    expect(codexHome()).toBe(dir);
+    expect(defaultCodexHomeConfigPath()).toBe(join(dir, "config.toml"));
+  });
+
+  // Covers: R23
+  it("falls back to ~/.codex/config.toml when CODEX_HOME is unset or empty", () => {
+    delete process.env.CODEX_HOME;
+    expect(defaultCodexHomeConfigPath()).toBe(join(homedir(), ".codex", "config.toml"));
+    process.env.CODEX_HOME = "";
+    expect(defaultCodexHomeConfigPath()).toBe(join(homedir(), ".codex", "config.toml"));
+  });
+
+  // Covers: R23
+  it("readCodexTrustState reads the CODEX_HOME store by default", () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-codex-home-"));
+    writeFileSync(join(dir, "config.toml"), '[projects."/x"]\ntrust_level = "trusted"\n', "utf-8");
+    process.env.CODEX_HOME = dir;
+    expect(readCodexTrustState("/x", "/x/.codex/config.toml", []).projectTrusted).toBe(true);
+  });
+
+  // Covers: R23
+  it("refuses a relative CODEX_HOME instead of resolving it against the cwd", () => {
+    process.env.CODEX_HOME = "relative/dir";
+    expect(() => codexHome()).toThrow(/absolute/);
+  });
+});

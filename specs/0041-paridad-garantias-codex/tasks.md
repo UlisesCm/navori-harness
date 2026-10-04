@@ -1,0 +1,227 @@
+# Paridad de garantías en Codex — Tasks
+
+Tracking de la spec (no `TaskCreate`). Cada tarea declara sus `R<n>` y su test con
+`// Covers: R<n>`. Las tareas de sonda (marcadas **sonda**) corren en Codex real y piden
+autorización al usuario al ejecutarse; usan checkout descartable y `CODEX_HOME` aislado (por eso
+T3 va antes). Una fila de paridad pasa a `igual`/`equivalente` solo con su sonda en verde
+(R25); mientras tanto se queda `limite-codex` con su fuente.
+
+## Lote 0 — Defectos actuales del render Codex (sin sondas)
+
+- [x] **T1** (R28) — `buildAgentToml` en `engines/codex/index.ts` resuelve las condiciones con
+  `engine: "codex"` antes de emitir; ningún `.codex/agents/*.toml` conserva `navori:if`. · test:
+  `engines/__tests__/render-codex.test.ts` › "no agent toml keeps navori:if markers" (nombra el
+  agente) con `// Covers: R28`
+- [x] **T2** (R13, R30) — `codexInstalledScripts(config, plugins)` gobierna `placeHook` y la poda
+  de `.codex/hooks/` y `.codex/scripts/`; la poda usa `isRemovableNavoriFile` con
+  `requirePristine` y reporta lo conservado (`keptOrphanCodex`). `engine-scripts` sale de
+  `unsupportedSurfaces` (H10) y `UnsupportedSurface` gana `renderedPaths`. · test:
+  `render-codex.test.ts` › "installed scripts equal registered set", "edited orphan is kept and
+  reported", "pristine orphan is pruned with backup", y `engine-capabilities.test.ts` › "no
+  unsupported surface has rendered files" con `// Covers: R13, R30`
+  Nota: la poda conserva y reporta un huérfano con texto fuera de su bloque managed
+  (`requirePristine` vía `expected` en `execute-plan.ts`).
+- [x] **T3** (R23) — `lib/codex/home.ts` con `codexHome()` (`$CODEX_HOME` o `~/.codex`), usado por
+  `lib/codex/trust.ts`, `commands/codex.ts` y `commands/doctor.ts`. · test:
+  `lib/__tests__/codex-trust.test.ts` › "uses CODEX_HOME when set" y "falls back to ~/.codex" con
+  `// Covers: R23`
+
+## Lote 1 — Contrato de paridad
+
+- [x] **T4** (R1, R2, R3, R4) — `engines/shared/codex-parity.ts` con `CodexParitySchema`,
+  `CODEX_PARITY`, `CODEX_VERIFICATIONS` y `minCodexVersion()` (D1, D2); `OverlapRowSchema` exige
+  `codexParity`; `UnitKind` gana `permission-rule` y `plugin-script`; `CodexHookRow` pierde
+  `unsupported` y `CODEX_HOOK_UNSUPPORTED_SURFACES` se deriva de la paridad. Clasificación inicial
+  según la tabla "Clasificación inicial de paridad" del diseño: toda fila que dependa de una sonda
+  arranca `limite-codex` con su fuente. · test: `native-overlap.test.ts` › "has exactly one row
+  for every unit" extendido (R3), refine "limite-codex requires official URL, version and date"
+  (R2), "registered hook without igual/equivalente row fails"; `codex-parity.test.ts` ›
+  `minCodexVersion` igual/menor/ignora `limite-codex` (R4) con `// Covers: R1, R2, R3, R4`
+- [x] **T5** (R14, R15, R26) — Filas `permission-rule` para cada patrón `ask`/`deny` no Bash, cada
+  `dropped` y cada `narrowed` de `buildCodexRules`, agrupadas en `NARROWED_PATTERN_FAMILIES` (D3,
+  D4); `allow-not-translated` como `limite-codex` con F8. · test: `native-overlap.test.ts` ›
+  "every narrowed pattern belongs to a family"; `codex-rules.test.ts` › "never emits allow" y "no
+  PermissionRequest registration"; `lib/__tests__/guard-destructive.test.ts` › payload Codex por
+  cada variante que el prefijo no cubre (`rm -rf /etc`, `rm -R ~/x`, `--no-preserve-root`) con
+  `// Covers: R14, R15, R26`
+- [x] **T6** (R5) — `renderOverlapDoc` agrega las columnas *Paridad Codex · Mecanismo · Fuente ·
+  Codex · Verificada*; `docs/native-overlap.md` regenerado. · test: `native-overlap.test.ts` ›
+  doc byte a byte con `// Covers: R5`
+
+## Lote 2 — Sondas previas a los guards (**sonda**, autorización del usuario)
+
+- [x] **T7** (R22) — `docs/research/codex-paridad-verificacion.md` con una sección `## V<n>` por
+  verificación (versión, URL oficial, fecha, resultado). Corre las sondas que no dependen de
+  código nuevo: V1 (`prompt` live en hilo principal y en subagente), V3-payload (nombre de hook,
+  campos y legibilidad de `message` del spawn en V1 con `gpt-5.6-luna` y V2 con `gpt-6-sol`), V4
+  (timing del rollout N−1), V6 (`unified_exec` por agente; marcadores en
+  `agent_transcript_path`), V7 (disparo advisory; `additionalContext` en `UserPromptSubmit`), V10
+  (`agent_type: "orchestrator"` falla). Actualiza `CODEX_VERIFICATIONS`. · test: refine de R25 en
+  `codex-parity.test.ts` › "each verification has its research section with same URL, version
+  and date" con `// Covers: R22`
+  Resultado: sondas V1-V10 corridas en Codex 0.160.0 el 2026-10-03; evidencia en
+  [`docs/research/codex-paridad-verificacion.md`](../../docs/research/codex-paridad-verificacion.md).
+
+## Lote 3 — Guards por rol y plan-gate
+
+- [x] **T8** (R6, R7, R8) — `RosterAgent.writes` en `roster.ts` como fuente única (D6);
+  `engines/shared/role-policy.ts` (`buildRolePolicyShell`); `core-assets/hooks/role-guard.sh`
+  sobre `^apply_patch$`, registrado solo en Codex en `lateRegistrations` (D5, D8). Partial
+  `hook-input.sh`: `nv_spawn_target_type`, `nv_event_agent_type`, `nv_is_spawn_tool` (H16). ·
+  test: `lib/__tests__/role-guard.test.ts` › patch multi-archivo con uno fuera del rol, `..` que
+  escapa, symlink fuera del repo, temporales; rol `default`/desconocido; hilo principal permitido;
+  `implementer`/`scribe` permitidos; fragmento renderizado = `buildRolePolicyShell` sin prefijos
+  literales en el asset; `.claude/hooks/role-guard.sh` ausente en el render Claude con
+  `// Covers: R6, R7, R8`
+  Notas: `role-guard` solo en Codex, registrado al final de las filas tardías, después de
+  master-plan, sin mover índices publicados. Las rutas por rol salen de `RosterAgent.writes`.
+  Sin `jq` ni `node`, el guard deja pasar (decisión documentada). Las filas siguen
+  `enforcing: false` hasta T20.
+- [x] **T9** (R17, R31) — Rama `spawn_agent$` de `role-guard` que deniega cuando el que llama es un
+  subagente (D13, OQ1); `config.toml` sin `[agents]` ni `multi_agent_v2`; prosa `orquestacion` sin
+  `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` para Codex (M4). · test: `render-codex.test.ts` ›
+  "config has no agents table nor multi_agent_v2"; `role-guard.test.ts` › "spawn from a subagent
+  is denied naming the caller role", "spawn from main thread is allowed" con
+  `// Covers: R17, R31`
+  Notas: el spawn hecho por un subagente se deniega (R31). Evidencia de la sonda en vivo con
+  Codex 0.160.0: bajo V2 un subagente sí despachaba un nieto, y el nombre del spawn llega
+  aplanado (`spawn_agent$`). Las filas siguen `enforcing: false` hasta T20.
+- [x] **T10** (R9) — `lib/plan/gate.ts` `parsePayload` reconoce V1 (`agent_type`, `message`) y V2
+  (`agent_type?`, `task_name`, `message`); forma sin rol legible deniega; registro de `plan-gate`
+  en `spawn_agent$` con `when: planTiers`. Si T7/V3 mostró `message` ilegible en V2: lectura de
+  `.navori/state/handoffs/dispatch_<feature>.json` (OQ2). · test:
+  `lib/plan/__tests__/plan-gate.test.ts` › V1, V2 con `agent_type`, V2 sin `agent_type` con
+  `task_name: "implementer"`, forma desconocida, `message` ilegible; `nv_spawn_target_type` nunca
+  devuelve el tipo del que llama con `// Covers: R9`
+  Nota: se usa el dispatch file porque bajo V2 el `message` llega cifrado (sonda V3); en Codex los
+  implementers se despachan de uno en uno; filas `enforcing: false` hasta T20.
+
+## Lote 4 — Confirmaciones y vigilancia
+
+- [x] **T11** (R10) — `general-purpose-confirm.sh` con rama Codex de deny-como-confirmación (D12);
+  la confirmación de publicación por regla `prompt` de `.codex/rules` (sin handler
+  `PermissionRequest`). Filas a `equivalente` solo con V1/V3 en verde. · test:
+  `lib/__tests__/general-purpose-confirm.test.ts` › payload Codex sin confirmar → deny, confirmado
+  → allow; `codex-rules.test.ts` › "publish commands are prompt rules" con `// Covers: R10`
+  Nota: deny-como-confirmación porque la regla `prompt` no confirma dentro de subagentes (sonda V1);
+  en Codex `gh pr create` lo corre el usuario; filas `enforcing: false` hasta T20.
+- [x] **T12** (R11) — Línea `bash-outcome` dentro de `routing-watch.sh` para Codex, reutilizando el
+  partial `bash-outcome.sh` y leyendo el exit code del rollout (D10); matcher de `routing-watch`
+  ve los spawns V2 (H17). Si T7/V4 mostró que el rollout llega tarde, la fila queda
+  `limite-codex` con F3/F4 y la línea no se emite. · test: `routing-watch` con rollouts de
+  fixture (tercer fallo → aviso; sin rollout → silencio); `lib/__tests__/hooks-per-bash.test.ts`
+  › conteo Codex desde `resolveCodexHooks` igual al `EXPECTED` fijado con `// Covers: R11`
+  Nota: lane dentro de `routing-watch`, sin hook nuevo; lee `item_completed.item.exit_code` del rollout
+  en `PostToolUse` (sonda V4) y nunca lee la salida; fila `enforcing: false` hasta T20. Fix: se corrigió
+  el orden de `plan-gate`, que quedó como la última fila tardía (bug del #1193).
+- [x] **T13** (R12, R1) — `subagent-no-background.sh` con rama `SubagentStop` de Codex si T7/V6b
+  pasó (si no: fila `limite-codex` con F5, sin copiar el script); `model-advisor.sh` con modos
+  `codex-user-prompt`/`codex-stop` comparando `model` (D17, F21). · test:
+  `lib/__tests__/subagent-no-background.test.ts` › proceso abierto → bloquea; cerrado,
+  interrumpido, ilegible o `stop_hook_active` → permite; `model-advisor.test.ts` › cambio de
+  `model` entre turnos avisa una vez con `// Covers: R12, R1`
+  Nota: sin hook; los vectores que bloquea Claude (`run_in_background`, `Monitor`) no existen en Codex y
+  el `&` de shell es solo prosa en ambos engines (sonda V6b); fila `enforcing: false` hasta T20.
+
+## Lote 5 — Prosa, master-plan y tgrep
+
+- [x] **T14** (R18, R19) — `conditionOrchestration(content, config, engine)` reconoce `onCodex` y
+  `computeRenderPlan` lo aplica a todos los bloques core; `CODEX_VOCABULARY` agrega
+  `SendMessage` → `send_input` y `/master-plan` → `$master-plan`; spans `if-not onCodex` en
+  `orquestacion`, `sdd`, skills `spec-bootstrap`/`debug-failure`/`verify-before-done`/`master-plan`
+  y agentes `implementer`/`reviewer`. · test: `render-codex.test.ts` › "no Claude-only tool leaks
+  into Codex surfaces" (nombra archivo y bloque; incluye mensajes `[navori]` de hooks registrados
+  con allowlist motivado); golden de `cursor`/`copilot`/`agents-md`/Pi sin cambio con
+  `// Covers: R18, R19`
+  Notas de implementación: (a) la regla `/master-plan` → `$master-plan` de `CODEX_VOCABULARY`
+  se difiere a T15: ninguna prosa emitida la contiene hasta que la skill se emite, y
+  `vocabulary-alive.test.ts` falla ante una regla muerta; (b) `conditionOrchestration` se aplica
+  ahora a todo bloque core, agente y skill mediante el argumento `engine` (default claude);
+  (c) la allowlist de mensajes `[navori]` de hooks queda vacía: ningún mensaje de hook
+  registrado en Codex coincidió.
+- [x] **T15** (R20, R21) — `resolveHarnessPlan` con `engine?: EngineId` en lugar de
+  `includeClaudeOnly*`; `WORKFLOW_SKILL_ENGINES` y `HOOK_ENGINES` en `roster.ts`;
+  `master-plan`/`context-intake` en `.agents/skills/` con `agents/openai.yaml`;
+  `master-plan-context` registrado en Codex con `when: masterPlan` y `nv_project_dir`;
+  `master-accept-confirm` por deny-como-confirmación (D11). · test: `render-codex.test.ts` ›
+  "masterPlan registers master-plan-context and emits both skills"; render de engines de prosa
+  no las emite con `// Covers: R20, R21`
+  Notas de implementación: (a) ambos hooks de master-plan llevan una rama `case` sobre `$0` (patrón
+  de `comment-draft-confirm`): `master-accept-confirm` deniega bajo `.codex/hooks/` y
+  `master-plan-context` toma el toplevel de git en lugar de `CLAUDE_PROJECT_DIR`; `claude.snap`
+  cambia solo en esos dos scripts; no se usó el parcial `nv_project_dir`; (b) las filas de registro
+  llevan `late: true` y `resolveCodexHooks` las emite después de los hooks de plugin (D8); (c) las
+  skills de master-plan no reciben `agents/openai.yaml`: ese sidecar es solo la política manual-only
+  (`allow_implicit_invocation: false`) y desactivaría la oferta "sí, continúa"; (d) las filas de
+  paridad pasaron de `limite-codex` a `equivalente` con `enforcing: false`, porque
+  `native-overlap.test.ts` y `engine-parity.test.ts` exigen registrado => no `limite-codex`; la
+  promoción a enforcing queda en T20; (e) `buildEngineEvidence` de `doctor.ts` sigue planeando sin
+  `engine`, para que la evidencia de Claude no gane hallazgos de hooks sin registrar con
+  `masterPlan` apagado.
+- [x] **T16** (R29) — Extensión `tgrep` neutral al engine: la línea de `guard-destructive` hace
+  `source` relativo a su propio directorio y `guard-search-routing.sh` resuelve la raíz con
+  `nv_project_dir`; `applyHookExtension` sube al spine compartido y Codex lo aplica sobre
+  `.codex/hooks/`. · test: `guard-destructive` Codex con `tgrep` bloquea `grep -r` (exit 2) y no
+  contiene `CLAUDE_PROJECT_DIR` ni `.claude/scripts`; test Claude existente sigue verde con
+  `// Covers: R29`
+  Nota: la lane hace `source` con una ruta relativa a su propio directorio de hooks;
+  `applyHookExtension` vive en el spine compartido; Codex instala
+  `.codex/scripts/guard-search-routing.sh` solo con tgrep activado; la fila sigue `limite-codex`
+  hasta T20; con tgrep activado el hash de `guard-destructive` cambia y hay que correr de nuevo
+  `navori codex trust`.
+
+## Lote 6 — CLI
+
+- [x] **T17** (R4, R27) — `scanCodexHealth` en `commands/doctor.ts` recorre
+  `git worktree list --porcelain`, corre `readCodexTrustState` por cada worktree con
+  `.codex/config.toml` y advierte con hook, ruta y `cd <ruta> && navori codex trust`; advierte si
+  la versión instalada es menor que `minCodexVersion()` o mayor que la última verificada. · test:
+  `codex-doctor.test.ts` › worktree sin aprobar → advertencia con hook, ruta y comando; versión
+  menor y mayor con `// Covers: R4, R27`
+  Nota: `doctor` recorre los worktrees con `.codex/config.toml` y avisa por cada hook sin aprobar,
+  con el comando que lo arregla; la versión mínima "too old" sigue en 0.145.0; "última verificada"
+  se deriva de las fuentes de paridad (hoy 0.160.0); los dos `minCodexVersion` no se unificaron
+  porque miden cosas distintas.
+- [x] **T18** (R24) — `parseCodexSession` en `lib/audit/parse.ts` y descubrimiento en
+  `discovery.ts` (ruta registrada o `codexHome()/sessions/**/rollout-*-<sessionId>.jsonl`), con
+  adaptador aislado; engine identificado en el reporte. · test: `lib/audit/__tests__/` › rollout
+  de fixture sanitizado de 0.160.0 → sesión Codex; ilegible → `unavailable` con `// Covers: R24`
+  Nota: `parseCodexSession` usa un adaptador que solo lee metadatos (tipos, nombres de herramienta,
+  timestamps, versión y modelo), nunca contenido; los tokens de Codex quedan `unavailable` hasta
+  confirmar si son por turno o acumulados.
+- [x] **T19** (R16) — Test de simetría de modelos por rol (D16, H12). · test:
+  `engine-parity.test.ts` › "`model:` in Claude iff `model` in Codex, per role" con
+  `// Covers: R16`
+  Nota: test de simetría de `model` por rol en `engine-parity.test.ts`.
+
+## Lote 7 — Cierre (**sonda**, autorización del usuario)
+
+- [x] **T20** (R25, R22) — Smoke real por cada fila `igual`/`equivalente` que bloquea o pide
+  confirmación: V2 (`role-guard` deny), V3 (plan-gate deny sin workplan y allow con workplan
+  verde, en V1 y V2), V5 (deny de spawn desde subagente), V8 (`master-plan-context`), V9 (guard
+  `tgrep`), más las confirmaciones con humano en la TUI. Promueve en `CODEX_PARITY` solo las filas
+  con `smoke: "pass"`; las demás quedan `limite-codex` con su fuente. Regenera
+  `docs/native-overlap.md` y los goldens declarados en la tabla de impacto. · test: refine de
+  `enforcing` en `codex-parity.test.ts` › "row without V or smoke pass cannot be igual/equivalente";
+  "spawn verification requires v1 and v2" con `// Covers: R25, R22`
+- [x] **T21** (R32) — Modelos de Codex por familia: resolución desde el catálogo local con pin,
+  fallback que nunca degrada + warning, aviso de `doctor` por modelo desactualizado y resolución de
+  familias en Pi; esquema regenerado. · test: `lib/codex/__tests__/model-catalog.test.ts`,
+  `lib/assets/__tests__/model-profile.test.ts`, `engines/codex/__tests__/render-codex.test.ts`,
+  `engines/pi/__tests__/subagent.test.ts` y `commands/__tests__/codex-doctor.test.ts` con
+  `// Covers: R32`
+  Nota: Pi resuelve la familia por catálogo o fallback y antepone `openai-codex/` a los ids no
+  fijados (supuesto, igual que el ejemplo de pin de sus tests); no aplica "nunca degrada" porque no
+  tiene un `.toml` de Codex que leer.
+
+  Resultado: smokes S1-S10 en Codex 0.160.0 el 2026-10-03
+  ([research](../../docs/research/codex-paridad-verificacion.md)). Promovidos a enforcing:
+  role-guard, nested-agent-dispatch, plan-gate (v1+v2), pr-publisher-confirm,
+  general-purpose-confirm, bash-outcome-watch y el guard `tgrep` de guard-search-routing (ahora
+  `equivalente`, antes `limite-codex`). `master-plan-context` queda `enforcing: false` (evidencia
+  indirecta). S4d se corrigió (`createdAt` acepta offsets y fracciones) y se volvió a correr en vivo como S4f, PASS. `minCodexVersion` pasa a
+  0.160.0, unificado con el piso de `hook-registrations`. Las filas por rol de agente y las skills
+  master-plan/context-intake quedan sin promover (sin smoke). El aviso de `doctor` por navori
+  global viejo se implementó después, en el cierre (`doctor` avisa).
+
+Seguimiento (T20): `navori doctor` avisa cuando el `navori` global es más viejo que el CLI del repo, porque los hooks llaman al binario global.

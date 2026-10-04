@@ -61,6 +61,18 @@ is_scan_trigger "$cmd" || exit 0
 
 # Fixed by construction: no repository content reaches JSON, so this still
 # works when jq and node are unavailable.
-navori_audit_verdict="ask"
-navori_audit_reason="manual approval or stage close"
-printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[navori] this records that you approved a manual criterion. Confirm only if you reviewed it."}}'
+# Codex parses `permissionDecision` but drops `"ask"` (the call proceeds), so
+# the Codex copy denies instead: deny-as-confirmation, decided by `$0` like
+# `comment-draft-confirm.sh` (spec 0041 D11). Never an allow.
+case "$0" in
+  *".codex/hooks/"*)
+    navori_audit_verdict="deny"
+    navori_audit_reason="manual approval or stage close"
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[navori] this records that the user approved a manual criterion, and Codex hooks cannot prompt. Show the user what it approves and let them confirm and run the command themselves."}}'
+    ;;
+  *)
+    navori_audit_verdict="ask"
+    navori_audit_reason="manual approval or stage close"
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[navori] this records that you approved a manual criterion. Confirm only if you reviewed it."}}'
+    ;;
+esac

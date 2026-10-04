@@ -1,4 +1,4 @@
-# navori:managed start id="managed-drift-watch-base" hash="b6cb939b" version="0.11.1" source="@navori/core"
+# navori:managed start id="managed-drift-watch-base" hash="4468b6c1" version="0.11.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse watcher for managed-block drift (#530), on every tool that can
@@ -250,6 +250,39 @@ nv_subagent_type() {
   else
     payload_field tool_input.subagent_type
   fi
+}
+
+# The agent a spawn call TARGETS, never the one that makes the call (spec 0041
+# H16). Claude: `tool_input.subagent_type`. Codex PreToolUse/PostToolUse of a
+# spawn: `tool_input.agent_type` only — the top-level `agent_type` there is the
+# CALLER's. On `SubagentStop` the top-level `agent_type` IS the finishing
+# subagent, so that event reads it instead.
+nv_spawn_target_type() {
+  if [ "$nv_engine" = codex ]; then
+    case "$(payload_field hook_event_name)" in
+      SubagentStop) payload_field agent_type ;;
+      *) payload_field tool_input.agent_type ;;
+    esac
+  else
+    payload_field tool_input.subagent_type
+  fi
+}
+
+# The agent RUNNING the current event: the top-level `agent_type`, which the
+# host adds only inside a subagent (empty on the main thread). Never confuse it
+# with `nv_spawn_target_type` (H16). `nv_subagent_type` above keeps its legacy
+# mixed behaviour for existing hooks; new code uses these two helpers.
+nv_event_agent_type() {
+  payload_field agent_type
+}
+
+# True for the spawn tool: Codex V1 `spawn_agent`, or any V2 name that ends in
+# `spawn_agent` (V2 flattens the namespace into the tool name).
+nv_is_spawn_tool() {
+  case "$(payload_field tool_name)" in
+    *spawn_agent) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # Deliberately NO `nv_emit_context` helper here. `hook-output-contract.test.ts`

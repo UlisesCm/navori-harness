@@ -31,7 +31,8 @@ import {
   simulateContextDelivery,
   type ContextDeliveryStatus,
 } from "../lib/assets/doc-budgets.ts";
-import { isDowngrade } from "../lib/primitives/semver.ts";
+import { compareSemver, isDowngrade } from "../lib/primitives/semver.ts";
+import { CODEX_PARITY, CODEX_VERIFICATIONS } from "../engines/shared/codex-parity.ts";
 import { isPlaceholderName } from "../lib/diagnose/detect.ts";
 import { loadPlugin, loadEnabledPlugins } from "../lib/config/plugins.ts";
 import {
@@ -74,6 +75,8 @@ import { scanInterpolationArtifacts } from "../lib/render/interpolation-artifact
 import {
   scanMissingModelProfile,
   scanModelProfileProvenance,
+  scanStaleCodexModels,
+  type StaleCodexModel,
 } from "../lib/assets/model-profile.ts";
 import { scanControlGaps } from "../lib/diagnose/control-gaps.ts";
 import { scanDiskUsage, humanBytes } from "../lib/diagnose/disk-usage.ts";
@@ -1069,11 +1072,26 @@ export const doctorCommand = defineCommand({
           `  ${color.yellow(sym.update)} ${td.codexVersionWarning(codexHealth.versionWarning.found, codexHealth.versionWarning.min)}`,
         );
       }
+      if (codexHealth.versionUnverified) {
+        cx.push(
+          `  ${color.yellow(sym.update)} ${td.codexVersionUnverified(codexHealth.versionUnverified.found, codexHealth.versionUnverified.verified)}`,
+        );
+      }
+      for (const w of codexHealth.worktreeHooksUnapproved) {
+        cx.push(`  ${color.yellow(sym.update)} ${td.codexWorktreeHookUnapproved(w.hook, w.path)}`);
+      }
+      if (codexHealth.worktreeScanError !== null) {
+        cx.push(
+          `  ${color.yellow(sym.update)} ${td.codexWorktreeScanFailed(codexHealth.worktreeScanError)}`,
+        );
+      }
       // Spec 0035 D10/T10: the untrusted-project ERROR and the
       // unapproved-hooks WARNING are mutually exclusive — an untrusted
       // project is the more serious fact (Codex loads nothing at all), so it
       // preempts the hook-count line rather than showing both.
-      if (!codexHealth.trust.projectTrusted) {
+      if (codexHealth.trustReadError !== null) {
+        cx.push(`  ${color.yellow(sym.update)} ${td.codexTrustUnreadable}`);
+      } else if (!codexHealth.trust.projectTrusted) {
         cx.push(`  ${color.red(sym.fail)} ${td.codexProjectUntrusted}`);
       } else {
         const unapproved = codexHealth.trust.hooks.filter((h) => h.status !== "Trusted").length;
@@ -1086,7 +1104,18 @@ export const doctorCommand = defineCommand({
           `  ${color.yellow(sym.update)} ${td.codexGuardNotVersioned(codexHealth.guardNotVersioned.join(", "))}`,
         );
       }
+      for (const m of codexHealth.staleModels) {
+        cx.push(
+          `  ${color.yellow(sym.update)} ${td.codexModelStale(m.agent, m.rendered, m.current)}`,
+        );
+      }
       if (cx.length > 0) p.note(cx.join("\n"), "Codex");
+    }
+
+    // Spec 0041 T20 follow-up: advisory only, never flips `ok` or `--strict`.
+    const staleGlobalCli = scanStaleGlobalCli(cwd, config);
+    if (staleGlobalCli) {
+      p.log.warn(td.globalCliStale(staleGlobalCli.global, staleGlobalCli.current));
     }
 
     // #313: harness `.gitignore` drift. Advisory (yellow) — never
@@ -2707,6 +2736,70 @@ export function isCodexVersionTooOld(version: string): boolean {
   return isDowngrade(minCodexVersion(), version);
 }
 
+/**
+ * Newest Codex version the parity table was verified against: the max of every
+ * passing live probe and every `limite-codex` source (consulted at a concrete
+ * release). `null` when the table carries none. Different from
+ * {@link minCodexVersion}, the floor: that is the highest version a passing
+ * probe needed, this is the newest one anything was consulted at.
+ */
+export function lastVerifiedCodexVersion(): string | null {
+  let max: string | null = null;
+  const consider = (v: string): void => {
+    if (max === null || (compareSemver(v, max) ?? 0) > 0) max = v;
+  };
+  for (const row of Object.values(CODEX_PARITY)) {
+    if (row.state === "limite-codex") consider(row.source.codexVersion);
+  }
+  for (const v of Object.values(CODEX_VERIFICATIONS)) {
+    if (v.probe === "pass") consider(v.codexVersion);
+  }
+  return max;
+}
+
+/** Whether `version` is strictly newer than the last verified Codex version (D14). */
+export function isCodexVersionUnverified(
+  version: string,
+  verified: string | null = lastVerifiedCodexVersion(),
+): boolean {
+  return verified !== null && compareSemver(version, verified) === 1;
+}
+
+/**
+ * Hooks not approved in the OTHER git worktrees of `cwd` (spec 0041 T17, R4).
+ * Never throws: any git or IO failure becomes `error`. Outside a git work tree
+ * there are no worktrees, so nothing to report.
+ */
+function scanWorktreeTrust(
+  cwd: string,
+  hooks: ReturnType<typeof resolveCodexHooks>,
+): { unapproved: Array<{ hook: string; path: string }>; error: string | null } {
+  const unapproved: Array<{ hook: string; path: string }> = [];
+  try {
+    if (!isGitWorkTree(cwd)) return { unapproved, error: null };
+    const out = execFileSync("git", ["-C", cwd, "worktree", "list", "--porcelain"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5000,
+    });
+    const self = realpathSync(resolve(cwd));
+    for (const line of out.split("\n")) {
+      if (!line.startsWith("worktree ")) continue;
+      const path = line.slice("worktree ".length);
+      if (path === self || path === resolve(cwd)) continue;
+      const tomlPath = join(path, ".codex", "config.toml");
+      if (!existsSync(tomlPath)) continue;
+      const state = readCodexTrustState(path, tomlPath, hooks);
+      for (const h of state.hooks) {
+        if (h.status !== "Trusted") unapproved.push({ hook: h.script, path });
+      }
+    }
+    return { unapproved, error: null };
+  } catch (err) {
+    return { unapproved, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export interface CodexHealth {
   /** `.codex/config.toml` has an unbalanced/malformed navori managed block. */
   configMalformed: boolean;
@@ -2719,6 +2812,16 @@ export interface CodexHealth {
    *  an untrusted project is an ERROR (`computeHealthVerdict` flips `ok`), a
    *  trusted project with unapproved hooks is a WARNING with the count. */
   trust: CodexTrustState;
+  /** Installed Codex is newer than the last verified version (D14): re-verify. */
+  versionUnverified: { found: string; verified: string } | null;
+  /** Spec 0041 T17/R4 — hooks not approved in OTHER worktrees of this repo
+   *  (the current checkout is covered by `trust`). One entry per hook. */
+  worktreeHooksUnapproved: Array<{ hook: string; path: string }>;
+  /** Set when reading `~/.codex/config.toml` failed (e.g. a relative `CODEX_HOME`):
+   *  `trust` is then an empty placeholder that must not be read as a verdict. */
+  trustReadError: string | null;
+  /** Set when the worktree scan failed (git or IO): degraded, never thrown. */
+  worktreeScanError: string | null;
   /**
    * Rendered hook scripts not tracked by git. An untracked hook is absent from
    * a git worktree checkout, so a Codex session launched inside a worktree
@@ -2726,6 +2829,8 @@ export interface CodexHealth {
    * never fires. Empty outside a git work tree (no worktrees ⇒ no exposure).
    */
   guardNotVersioned: string[];
+  /** Spec 0041 R32 — rendered agent models older than their family's current resolution. */
+  staleModels: StaleCodexModel[];
 }
 
 /**
@@ -2776,6 +2881,7 @@ export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth 
 
   // (c) codex --version (best effort; absent binary is not an error).
   let versionWarning: CodexHealth["versionWarning"] = null;
+  let versionUnverified: CodexHealth["versionUnverified"] = null;
   try {
     const raw = execFileSync("codex", ["--version"], {
       encoding: "utf-8",
@@ -2785,6 +2891,10 @@ export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth 
     const found = raw.match(/\d+\.\d+\.\d+/)?.[0];
     if (found && isCodexVersionTooOld(found)) {
       versionWarning = { found, min: minCodexVersion() };
+    }
+    const verified = lastVerifiedCodexVersion();
+    if (found && verified !== null && isCodexVersionUnverified(found, verified)) {
+      versionUnverified = { found, verified };
     }
   } catch {
     // Codex not in PATH — nothing to check.
@@ -2806,19 +2916,111 @@ export function scanCodexHealth(cwd: string, config: NavoriConfig): CodexHealth 
   // `[projects."<repoRoot>"]` key — doctor, like render's next-step hint,
   // assumes `cwd` (where navori.config.json lives) IS the git root, the same
   // assumption `build-config-toml.ts`'s `hookBase` already makes.
-  const trust = readCodexTrustState(
-    resolve(cwd),
-    join(codexDir, "config.toml"),
-    resolveCodexHooks(config, loadEnabledPlugins(config.plugins).loaded),
-  );
+  const resolvedHooks = resolveCodexHooks(config, loadEnabledPlugins(config.plugins).loaded);
+  // Never throws: a bad `CODEX_HOME` (`codexHome()` refuses a relative one)
+  // degrades to a warning. `navori codex trust` writes, so it still fails hard.
+  let trust: CodexTrustState = {
+    configTomlPath: join(codexDir, "config.toml"),
+    projectRoot: resolve(cwd),
+    projectTrusted: true, // placeholder: unknown, must not flip the verdict
+    hooks: [],
+  };
+  let trustReadError: string | null = null;
+  try {
+    trust = readCodexTrustState(resolve(cwd), join(codexDir, "config.toml"), resolvedHooks);
+  } catch (err) {
+    trustReadError = err instanceof Error ? err.message : String(err);
+  }
+  const worktrees =
+    trustReadError === null
+      ? scanWorktreeTrust(cwd, resolvedHooks)
+      : { unapproved: [], error: null };
 
   return {
     configMalformed,
     hooksNotExecutable,
     versionWarning,
+    versionUnverified,
     trust,
+    trustReadError,
+    worktreeHooksUnapproved: worktrees.unapproved,
+    worktreeScanError: worktrees.error,
     guardNotVersioned,
+    staleModels: scanStaleCodexModels(cwd, config),
   };
+}
+
+/** Runs `navori --version` from PATH; throws when absent, slow or failing. */
+function runGlobalNavoriVersion(): string {
+  return execFileSync("navori", ["--version"], {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "ignore"],
+    timeout: 3000, // best-effort external probe must not hang doctor (#268)
+  });
+}
+
+/** Hook script dirs the Claude and Codex engines render. */
+const HOOK_SCRIPT_DIRS = [".claude/hooks", ".claude/scripts", ".codex/hooks"] as const;
+
+/** True when any rendered hook script shells out to `navori <subcommand>`. */
+function renderedHooksCallNavori(cwd: string): boolean {
+  for (const dir of HOOK_SCRIPT_DIRS) {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(join(cwd, dir), { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      if (!e.isFile() || !e.name.endsWith(".sh")) continue;
+      try {
+        const body = readFileSync(join(cwd, dir, e.name), "utf-8");
+        const code = body.split("\n").filter((l) => !/^\s*#/.test(l));
+        if (code.some((l) => /(^|[\s;|&(`"'])navori\s+[a-z]/.test(l))) return true;
+      } catch {
+        // Unreadable script — skip rather than guess.
+      }
+    }
+  }
+  return false;
+}
+
+export interface StaleGlobalCli {
+  /** Version reported by the `navori` found on PATH. */
+  global: string;
+  /** Version of the CLI running doctor (the reference). */
+  current: string;
+}
+
+/**
+ * Spec 0041 T20 follow-up: rendered hooks call the `navori` on PATH, so a global
+ * install older than the CLI running doctor silently executes old logic (e.g.
+ * no V2 dispatch path). Advisory only — never feeds `ok` or `--strict`.
+ *
+ * The reference is the running CLI's own version (always readable) rather than
+ * the newest `version="…"` marker stamp, which would need parsing every managed
+ * surface. Returns null — never throws — when no hook calls `navori`, the
+ * binary is absent, the probe times out, or its output is not a semver.
+ *
+ * @param run - Injectable `navori --version` runner (tests never spawn the real one).
+ */
+export function scanStaleGlobalCli(
+  cwd: string,
+  config: NavoriConfig,
+  run: () => string = runGlobalNavoriVersion,
+  current: string = readCliVersion(),
+): StaleGlobalCli | null {
+  if (!config.engines.includes("claude") && !config.engines.includes("codex")) return null;
+  if (!renderedHooksCallNavori(cwd)) return null;
+  let raw: string;
+  try {
+    raw = run();
+  } catch {
+    return null; // missing binary or timeout: nothing to compare
+  }
+  const global = typeof raw === "string" ? raw.match(/\d+\.\d+\.\d+/)?.[0] : undefined;
+  if (!global || compareSemver(global, current) !== -1) return null;
+  return { global, current };
 }
 
 /** True when `cwd` sits inside a git work tree (linked worktrees included). */
@@ -3383,7 +3585,7 @@ export function buildEngineInventory(
     for (const engine of diskEngines) {
       const plan = resolveHarnessPlan(loc.config, coreAssets, preset, {
         includeOrchestrator: engine === "claude",
-        includeClaudeOnlyHooks: engine === "claude",
+        engine,
       });
       const bucket = acc[engine]!;
       for (const a of plan.agents) bucket.agents.add(a.id);

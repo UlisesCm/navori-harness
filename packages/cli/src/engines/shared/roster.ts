@@ -30,22 +30,37 @@ export interface RosterAgent {
   // correct type source now that the two have diverged.
   readonly harnessKey: (typeof AGENT_ROLE_KEYS)[number];
   readonly sandbox?: "read-only" | "workspace-write";
+  /**
+   * Repo-relative path prefixes this role may patch under Codex (spec 0041 D6,
+   * R7); `{{sdd.specsDir}}` is allowed. The SINGLE source of the `role-guard`
+   * policy: `role-policy.ts` compiles it into the hook, so no prefix is written
+   * in the asset. Omitted for roles the guard never restricts (`implementer`,
+   * `scribe`) or never sees as a subagent (`orchestrator`); a role missing here
+   * is treated as unknown and gets {@link COMMON_WRITES} only (fail-closed).
+   */
+  readonly writes?: readonly string[];
 }
+
+/** Prefixes every restricted role may write: the engine-neutral handoff home. */
+export const COMMON_WRITES: readonly string[] = [".navori/state/handoffs/"];
+
+/** The common set plus the SDD specs directory (design-only roles). */
+const SPEC_WRITES: readonly string[] = [...COMMON_WRITES, "{{sdd.specsDir}}/"];
 
 export const ROSTER_AGENTS: ReadonlyArray<RosterAgent> = [
   { id: "orchestrator", harnessKey: "orchestrator" },
   { id: "implementer", harnessKey: "implementer" },
-  { id: "reviewer", harnessKey: "reviewer", sandbox: "workspace-write" },
-  { id: "scout", harnessKey: "scout", sandbox: "workspace-write" },
-  { id: "auditor", harnessKey: "auditor", sandbox: "workspace-write" },
-  { id: "publisher", harnessKey: "publisher" },
+  { id: "reviewer", harnessKey: "reviewer", sandbox: "workspace-write", writes: COMMON_WRITES },
+  { id: "scout", harnessKey: "scout", sandbox: "workspace-write", writes: SPEC_WRITES },
+  { id: "auditor", harnessKey: "auditor", sandbox: "workspace-write", writes: SPEC_WRITES },
+  { id: "publisher", harnessKey: "publisher", writes: COMMON_WRITES },
   // Scribe serializes verified producer payloads into transient handoff
   // artifacts, so it needs workspace-write without production-code authority.
   { id: "scribe", harnessKey: "scribe", sandbox: "workspace-write" },
   // Spec 0026 F (T19, R47/R48): design-only, writes solution_<scope>.md to
   // `.claude/progress/`, so it needs the same workspace-write posture as
   // scout/auditor/reviewer, not the read-only default.
-  { id: "architect", harnessKey: "architect", sandbox: "workspace-write" },
+  { id: "architect", harnessKey: "architect", sandbox: "workspace-write", writes: SPEC_WRITES },
 ];
 
 /**
@@ -95,11 +110,35 @@ export const ROSTER_WORKFLOW_SKILLS: ReadonlyArray<string> = [
   "context-intake",
 ];
 
-/** Workflow skills intentionally unavailable outside the Claude adapter. */
-export const CLAUDE_ONLY_WORKFLOW_SKILLS: ReadonlySet<string> = new Set([
-  "master-plan",
-  "context-intake",
-]);
+/**
+ * Per-engine scope of the units that are NOT universal (spec 0041 D11, R20/R21).
+ * A unit absent from both tables ships to every engine; a unit present ships
+ * only to the engines it lists. Engine ids are plain strings so this module
+ * stays free of the capability registry (no import cycle); `engine-parity`
+ * and `native-overlap` tests pin the ids against `ENGINES`.
+ */
+export const WORKFLOW_SKILL_ENGINES: Readonly<Record<string, readonly string[]>> = {
+  "master-plan": ["claude", "codex"],
+  "context-intake": ["claude", "codex"],
+};
+
+/** Hooks scoped to a subset of engines; same contract as {@link WORKFLOW_SKILL_ENGINES}. */
+export const HOOK_ENGINES: Readonly<Record<string, readonly string[]>> = {
+  "master-plan-context": ["claude", "codex"],
+  "master-accept-confirm": ["claude", "codex"],
+  // Spec 0041 D5: Claude restricts roles with `tools:`; only Codex needs the guard.
+  "role-guard": ["codex"],
+};
+
+/**
+ * Whether a unit with this `scope` (an entry of {@link WORKFLOW_SKILL_ENGINES}
+ * or {@link HOOK_ENGINES}, `undefined` when the unit is universal) ships to
+ * `engine`. With no `engine` only universal units qualify, which is what the
+ * engine-agnostic callers (Pi, `render`, plain doctor) always got.
+ */
+export function inEngineScope(scope: readonly string[] | undefined, engine?: string): boolean {
+  return scope === undefined || (engine !== undefined && scope.includes(engine));
+}
 
 /** The two adapters that place a managed marker, and so can retire one. */
 export type RetiredAdapter = "claude" | "codex";

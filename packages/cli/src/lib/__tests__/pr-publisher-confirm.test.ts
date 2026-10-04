@@ -123,6 +123,39 @@ describe.runIf(runsBash && hasJq)("pr-publisher-confirm.sh — eleva el PR abier
   });
 });
 
+/** The same rendered script, placed where Codex installs it (`$0` selects the branch). */
+function runCodex(payload: Record<string, unknown>): HookRun {
+  const dir = mkdtempSync(join(tmpdir(), "navori-prpilot-codex-"));
+  mkdirSync(join(dir, ".codex/hooks"), { recursive: true });
+  const p = join(dir, ".codex/hooks/pr-publisher-confirm.sh");
+  writeFileSync(p, readFileSync(hookPath, "utf-8"));
+  chmodSync(p, 0o755);
+  const r = spawnSync("bash", [p], { input: JSON.stringify(payload), encoding: "utf-8", cwd: dir });
+  return { code: r.status ?? -1, stdout: r.stdout ?? "" };
+}
+
+describe.runIf(runsBash)("pr-publisher-confirm.sh — Codex copy (spec 0041 R10)", () => {
+  // Covers: R10
+  it("denies `gh pr create` from the main thread AND from the publisher subagent", () => {
+    for (const payload of [
+      bash("gh pr create --title x"),
+      fromSubagent("gh pr create --title x"),
+    ]) {
+      const r = runCodex(payload);
+      expect(r.code).toBe(0);
+      expect(verdictOf(r).decision).toBe("deny");
+      expect(r.stdout).not.toContain('"ask"');
+    }
+  });
+
+  // Covers: R10
+  it("stays silent for any other command", () => {
+    const r = runCodex(bash("git status"));
+    expect(r.code).toBe(0);
+    expect(r.stdout.trim()).toBe("");
+  });
+});
+
 describe.runIf(runsBash)("pr-publisher-confirm.sh — y se calla en todo lo demás", () => {
   it("no dice nada cuando el PR viene de un subagente", () => {
     const r = run(fromSubagent('gh pr create --base main --title "t"'));

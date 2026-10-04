@@ -1,5 +1,5 @@
 import { ENGINES } from "../../lib/config/schema.ts";
-import { CODEX_HOOK_REGISTRATIONS } from "../codex/hook-registrations.ts";
+import { CODEX_HOOKS_WITHOUT_REGISTRATION, CODEX_PARITY } from "./codex-parity.ts";
 
 /** A valid engine id — the same union `NavoriConfigSchema.engines` accepts. */
 export type EngineId = (typeof ENGINES)[number];
@@ -15,6 +15,13 @@ export interface UnsupportedSurface {
   readonly surface: string;
   /** Why this engine can't or doesn't render that surface. */
   readonly reason: string;
+  /**
+   * Repo-relative globs (`*` = one path segment) where the surface would
+   * leave files if the engine rendered it. A test fails when a render writes
+   * a file matching one — "unsupported" must mean nothing is installed
+   * (spec 0041 R30). Omitted for surfaces with no file footprint.
+   */
+  readonly renderedPaths?: readonly string[];
 }
 
 /**
@@ -247,16 +254,33 @@ const PROSE_ENGINE_UNSUPPORTED_SURFACES: readonly UnsupportedSurface[] = [
 ];
 
 /**
- * Spec 0035 D1 — `CODEX_HOOK_REGISTRATIONS` is the single source for which
- * Claude hooks Codex has no usable equivalent for. Derived, not hand-copied,
- * so the reason string in `ENGINE_CAPABILITIES.codex.unsupportedSurfaces`
- * never drifts from the one `engine-parity.test.ts` checks against the table.
+ * Spec 0041 D1 — `CODEX_PARITY` is the single source for which Claude hooks
+ * Codex has no usable equivalent for: every `hook:<script>` row in `limite-codex`
+ * state is an unsupported surface, with the row's containment text (or, failing
+ * that, its official source) as the reason. Derived, not hand-copied, so this
+ * list never drifts from what `native-overlap.test.ts` checks against the
+ * registration table; the table's insertion order is the surface order.
  */
-const CODEX_HOOK_UNSUPPORTED_SURFACES: readonly UnsupportedSurface[] =
-  CODEX_HOOK_REGISTRATIONS.filter((row) => typeof row.unsupported === "string").map((row) => ({
-    surface: row.script,
-    reason: row.unsupported as string,
-  }));
+const CODEX_HOOK_UNSUPPORTED_SURFACES: readonly UnsupportedSurface[] = Object.entries(
+  CODEX_PARITY,
+).flatMap(([key, row]) =>
+  key.startsWith("hook:") &&
+  (row.state === "limite-codex" ||
+    CODEX_HOOKS_WITHOUT_REGISTRATION.includes(key.slice("hook:".length)))
+    ? [
+        {
+          surface: key.slice("hook:".length),
+          reason:
+            row.state === "limite-codex"
+              ? (row.containment ?? `Codex limit documented at ${row.source.url}`)
+              : row.state === "equivalente"
+                ? (row.difference ?? row.mechanism)
+                : "Codex registers no script for this hook",
+          renderedPaths: [`.codex/hooks/${key.slice("hook:".length)}.sh`],
+        },
+      ]
+    : [],
+);
 
 /**
  * Every analytic role declares the same `tools:`/sandbox today, so one shared
@@ -474,35 +498,30 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "The Codex engine deliberately emits no spawnable orchestrator agent — the main " +
           "Codex thread embodies the orchestrator role instead (engines/__tests__/engine-parity.test.ts, " +
           "AGENT_KNOWN_DIFFS; engines/shared/harness-plan.ts, resolveHarnessPlan's includeOrchestrator).",
-      },
-      {
-        surface: "engine-scripts",
-        reason:
-          "Only the Claude engine copies plugin scripts to disk (engines/claude/index.ts " +
-          "writes .claude/scripts/); nothing under engines/codex/ emits a .codex/scripts/ " +
-          "mirror (engines/codex/compat.ts, CODEX_MIRRORED_DIRS).",
-      },
-      {
-        surface: "plugin-hook-extensions",
-        reason:
-          "A plugin's hookExtensions sub-block (spec 0039 D6, the tgrep search lane) is injected " +
-          "only into the Claude `.claude/hooks/*.sh` mirror (engines/claude/index.ts, " +
-          "applyHookExtension); the Codex hook copies carry none.",
+        renderedPaths: [".codex/agents/orchestrator.toml"],
       },
       ...CODEX_HOOK_UNSUPPORTED_SURFACES,
     ],
     controls: {
       "master-plan": {
-        state: "unsupported",
-        reason: "fase 2 de la spec 0034: la skill no se renderiza y no hay hook de arranque",
+        state: "advisory",
+        reason:
+          "harness.masterPlan registers the SessionStart hook in .codex/config.toml and the " +
+          "skills reach .agents/skills; the context is advisory and the live smoke that would " +
+          "make it enforced is spec 0041 T20.",
       },
       "plan-gate": {
         state: "advisory",
         reason:
-          "The workplan procedure remains in AGENTS.md, but plan-gate.sh is not " +
-          "registered: Codex 0.158.0 sends collaborationspawn_agent through PreToolUse " +
-          "with message/task_name but no typed agent role or verifiably readable workplan " +
-          "opening. A blanket deny blocked child creation, not selective implementer gating.",
+          "harness.planTiers registers PreToolUse(spawn_agent$) as the last late row; only implementer is gated, " +
+          "with the role from tool_input.agent_type and, when the message is encrypted (probe V2), the opening " +
+          "line from the orchestrator's dispatch_<feature>.json (spec 0041 R9); advisory until the live smoke (T20).",
+        evidence: {
+          kind: "hook",
+          script: "plan-gate.sh",
+          event: "PreToolUse",
+          matcher: "spawn_agent$",
+        },
       },
       "markdown-ownership": {
         state: "enforced",
@@ -546,9 +565,15 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "accepts cumplido as unevidenced (spec 0039 R10).",
       },
       "repeat-failure-advice": {
-        state: "unsupported",
+        state: "advisory",
         reason:
-          "Codex does not expose a verified separate Bash failure signal; registration is unsupported.",
+          "A lane inside routing-watch reads the exit code of the call from the rollout item_completed record (probe V4, spec 0041 R11) and gives the same advice after three identical failures; silent when the record is missing.",
+        evidence: {
+          kind: "hook",
+          script: "routing-watch.sh",
+          event: "PostToolUse",
+          matcher: "^(Bash|apply_patch|spawn_agent)$",
+        },
       },
       "compact-advice": {
         state: "unsupported",
@@ -557,10 +582,16 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "Claude usage format, so the lane is Claude-only (spec 0039 R44).",
       },
       "general-purpose-confirm": {
-        state: "unsupported",
+        state: "advisory",
         reason:
-          "Codex hooks cannot emit `ask` and it has no typed `general-purpose` subagent; " +
-          "general-purpose-confirm is an unsupported row in CODEX_HOOK_REGISTRATIONS (spec 0039 R40).",
+          "PreToolUse(spawn_agent$) denies a general-purpose spawn as a confirmation, since Codex hooks " +
+          "cannot emit `ask` (spec 0041 R10); advisory until the live smoke (T20).",
+        evidence: {
+          kind: "hook",
+          script: "general-purpose-confirm.sh",
+          event: "PreToolUse",
+          matcher: "spawn_agent$",
+        },
       },
     },
     analyticWriteTools: CODEX_ANALYTIC_WRITE_TOOLS,

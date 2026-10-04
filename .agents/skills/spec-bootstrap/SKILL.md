@@ -22,7 +22,7 @@ metadata:
   maxWordsComposed: 750
 ---
 
-<!-- navori:managed id="spec-bootstrap" hash="a4566c1e" version="0.11.1" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="spec-bootstrap" hash="8e75670c" version="0.11.2" source="@navori/core" fmkeys="name,description,metadata" -->
 # spec-bootstrap — kickoff of an SDD spec
 
 ## Before scaffolding — blocking precondition
@@ -95,6 +95,6 @@ raises them (an empty section is noise, not rigor):
 - **Zero unresolved placeholders.** Don't leave `<...>`; an unknown value is a question for the user, not a hole. Same rule inside a task: "TBD", "implement later" or "similar to T<n>" describe nothing — name the observable behavior and the evidence expected. That is NOT a licence to dictate the code line by line; the implementer keeps its judgment.
 - **Cite a stable anchor, not a line number:** `file` + symbol name, heading, or managed-block id — never `file:line`. Lines drift before implementation; a stale one skips real sites.
 - **Every `R<n>` ends in ≥1 task and ≥1 test.** A requirement with no task or test isn't traceable → it doesn't enter the spec.
-- **Tracking lives in `tasks.md`, not in `TaskCreate`.** See the SDD block.
+- **Tracking lives in `tasks.md`, not in a parallel task list.** See the SDD block.
 - **Self-review before closing the scaffolding:** is each `R<n>` a single testable action? does each task point to real `R<n>`? does the design cover all the `R<n>`? If something fails, fix it before handing the spec off.
 <!-- /navori:managed id="spec-bootstrap" -->

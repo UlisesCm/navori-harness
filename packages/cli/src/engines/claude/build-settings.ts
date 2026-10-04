@@ -819,8 +819,7 @@ export function buildClaudeSettings(
 function legacyInventory(config: NavoriConfig, plugins: LoadedPlugin[]): FilteredInventory {
   const plan = resolveHarnessPlan(config, resolve(getCoreRoot(), "core-assets"), null, {
     includeOrchestrator: true,
-    includeClaudeOnlySkills: true,
-    includeClaudeOnlyHooks: true,
+    engine: "claude",
   });
   return filterInventory({ plan, plugins }, "claude");
 }

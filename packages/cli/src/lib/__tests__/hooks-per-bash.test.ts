@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildClaudeSettings } from "../../engines/claude/build-settings.ts";
 import { mergeCoexistSettings } from "../../engines/claude/coexist-settings.ts";
+import { resolveCodexHooks } from "../../engines/codex/hook-registrations.ts";
 import { loadPlugin } from "../config/plugins.ts";
 import { NavoriConfigSchema, type NavoriConfig } from "../config/schema.ts";
 
@@ -211,5 +212,57 @@ describe("hooks per Bash call (R28)", () => {
       expect(pre.some((h) => h.command.includes("guard-search-routing"))).toBe(false);
       expect(pre.filter((h) => h.command.includes("guard-destructive.sh"))).toHaveLength(1);
     });
+  });
+});
+
+/**
+ * Codex (spec 0041 T12, R11): the same ceiling, computed from `resolveCodexHooks`.
+ * The Bash outcome lane rides the already-registered `routing-watch`, so it adds NO
+ * registration: a change to these numbers must be justified like the Claude ones.
+ * Codex has no `if` and no `PostToolUseFailure` event, so only the matcher decides.
+ */
+function codexMatcherAccepts(matcher: string | undefined, tool: string): boolean {
+  if (matcher === undefined) return true;
+  const start = matcher.startsWith("^");
+  const end = matcher.endsWith("$");
+  const body = matcher.slice(start ? 1 : 0, end ? -1 : undefined).replace(/^\((.*)\)$/, "$1");
+  return body.split("|").some((alt) => {
+    if (start && end) return tool === alt;
+    if (start) return tool.startsWith(alt);
+    if (end) return tool.endsWith(alt);
+    return tool.includes(alt);
+  });
+}
+
+const CODEX_EXPECTED = { pre: 4, post: 2 };
+
+describe("hooks per Bash call, Codex (R11, R28)", () => {
+  const codexConfig = NavoriConfigSchema.parse({
+    name: "hooks-per-bash-codex",
+    engines: ["codex"],
+    preset: "custom",
+    branchBase: "main",
+    qualityGate: { fast: "bun lint", full: "bun test" },
+    plugins: { tgrep: { enabled: true } },
+  });
+  const hooks = resolveCodexHooks(codexConfig, [loadPlugin("tgrep")]);
+  const onBash = (event: string) =>
+    hooks.filter((h) => h.event === event && codexMatcherAccepts(h.matcher, "Bash"));
+
+  // Covers: R11
+  it("pins the hooks that run on a Codex Bash call", () => {
+    expect({ pre: onBash("PreToolUse").length, post: onBash("PostToolUse").length }).toEqual(
+      CODEX_EXPECTED,
+    );
+  });
+
+  // Covers: R11
+  it("the bash-outcome lane adds no registration: it rides routing-watch, with no argument", () => {
+    expect(hooks.some((h) => h.script.includes("bash-outcome"))).toBe(false);
+    const watch = hooks.filter((h) => h.script === "routing-watch");
+    expect(watch).toHaveLength(1);
+    expect(watch[0]).toMatchObject({ event: "PostToolUse" });
+    expect(watch[0]!.args).toBeUndefined();
+    expect(onBash("PostToolUse").map((h) => h.script)).toContain("routing-watch");
   });
 });
