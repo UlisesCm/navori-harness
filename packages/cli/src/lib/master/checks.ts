@@ -108,6 +108,10 @@ export function buildCheckContext(cwd: string, options: CheckOptions = {}): Chec
   if (!index || !stage) {
     throw new MasterCheckSetupError("no hay etapa activa: corra 'navori master init <slug>'");
   }
+  if (stage.workflow === "deliveries")
+    throw new MasterCheckSetupError(
+      `${stage.dir}: deliveries workflow is not supported by legacy checks`,
+    );
   const stagePath = join(masterDirPath(cwd, specsDir), stage.dir);
   // `stages.ts`'s filesystem invariants deliberately let an `activa` entry have
   // no folder yet, so a cut `init` (index.json written, folder not yet

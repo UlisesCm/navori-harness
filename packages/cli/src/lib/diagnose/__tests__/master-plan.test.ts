@@ -13,8 +13,14 @@ const dirs: string[] = [];
 
 interface DoctorReport {
   masterPlan: Array<{
-    kind: "invalid-index" | "missing-raw-gitignore" | "flag-registry-desync";
+    kind:
+      | "invalid-index"
+      | "missing-raw-gitignore"
+      | "flag-registry-desync"
+      | "invalid-state"
+      | "deliveries-pending";
     path?: string;
+    detail?: string;
     repair?: "init" | "checkout" | "close";
   }>;
 }
@@ -59,6 +65,32 @@ function writeIndex(cwd: string, state: "activa" | "cerrada"): string {
   return join("specs", "_master", dir, "context", "raw", ".gitignore");
 }
 
+function writeDeliveryIndex(cwd: string): void {
+  writeIndex(cwd, "activa");
+  writeFileSync(
+    join(cwd, "specs", "_master", "index.json"),
+    JSON.stringify({
+      version: 2,
+      stages: [
+        {
+          number: 1,
+          slug: "bootstrap",
+          dir: "01-bootstrap",
+          state: "activa",
+          openedAt: "2026-01-01",
+          closedAt: null,
+          spec: null,
+          workflow: "deliveries",
+        },
+      ],
+    }),
+  );
+  writeFileSync(
+    join(cwd, "specs", "_master", "01-bootstrap", "context", "raw", ".gitignore"),
+    "*\n!.gitignore\n",
+  );
+}
+
 function doctor(
   cwd: string,
   json = true,
@@ -85,6 +117,40 @@ afterEach(() => {
 });
 
 describe("doctor master-plan diagnostics", () => {
+  it("shows deliveries readiness and corrupt state in both JSON and human output", () => {
+    const cwd = repo(true);
+    writeDeliveryIndex(cwd);
+    const statePath = join(cwd, "specs", "_master", "01-bootstrap", "state.json");
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        version: 2,
+        workflow: "deliveries",
+        phase: "context",
+        mode: null,
+        signal: {
+          commits: null,
+          firstCommit: null,
+          filesChangedSinceFirst: null,
+          framework: null,
+          libraries: [],
+          suggested: "template",
+        },
+        history: [],
+      }),
+    );
+    expect(doctor(cwd).report.masterPlan).toContainEqual({
+      kind: "deliveries-pending",
+      detail: expect.stringContaining("not ready"),
+    });
+    expect(doctor(cwd, false).output).toContain("not ready for delivery");
+    writeFileSync(statePath, "{}");
+    expect(doctor(cwd).report.masterPlan).toContainEqual({
+      kind: "invalid-state",
+      detail: expect.stringContaining("01-bootstrap"),
+    });
+    expect(doctor(cwd, false).output).toContain("_master/state.json");
+  });
   // Covers: R4, R49, R50
   it("scans every registry state directly for coverage", () => {
     const invalid = repo();
@@ -219,6 +285,23 @@ describe("doctor master-plan diagnostics", () => {
     writeFileSync(
       join(coherent, "specs", "_master", "01-bootstrap", "context", "raw", ".gitignore"),
       "*\n!.gitignore\n",
+    );
+    writeFileSync(
+      join(coherent, "specs", "_master", "01-bootstrap", "state.json"),
+      JSON.stringify({
+        version: 1,
+        phase: "context",
+        mode: null,
+        signal: {
+          commits: null,
+          firstCommit: null,
+          filesChangedSinceFirst: null,
+          framework: null,
+          libraries: [],
+          suggested: "template",
+        },
+        history: [],
+      }),
     );
     expect(doctor(coherent)).toMatchObject({
       status: 0,

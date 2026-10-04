@@ -1,3 +1,28 @@
+# Current — D1 awaiting final closure review
+
+## Goal
+Close D1 opt-in workflow foundation after published guard and D0 PRs.
+## Instructions
+Autonomous ordered closure, no automatic merge or gate weakening. Preserve legacy v1, operator MASTER, physical containment and original worktrees. This branch depends on D0 PR1206 and guard PR1204.
+## Discoveries
+- D1's earlier functional review was SPEC_OK; two doctor timeouts blocked its old-base full gate. Current main includes the scenario split, so fresh verification must use the integrated baseline rather than copy the old E2E test.
+- Plan progress cannot invent routing-watch success signals from a producer report; retain exact commands and receipts as separate evidence.
+## Accomplished
+- Created feat/dual-workflow-d1-close from main58957b6e and fast-forwarded the reviewed D0 commit0652074a.
+- Transplanted exactly16 D1 source/test files with SHA-256 parity from the preserved original worktree, without copying stale doctor E2E, prose or generated outputs.
+- A1 passed60/60, doctor diagnostics8/8, goldens5/5; format, local render, lint and typecheck passed. Fresh complete review and receipt remain pending at this checkpoint.
+## Next Steps
+- Review the combined guard/D0/D1 diff and run the exact full quality gate; publish D1 toward main only with a fresh receipt and explicit dependencies.
+- Continue D2 only after D1 publication. D3 CLI projection and D4/D5 remain pending; client acceptance and deployment are not implied.
+## Relevant Files
+- packages/cli/src/lib/master/{schema,delivery-schema,init,stages,status,checks,check-part,part,close}.ts — opt-in state, containment, status dispatch and legacy fail-closed behavior.
+- packages/cli/src/commands/{master,doctor}.ts — workflow routing and text/JSON diagnostics.
+- packages/cli/src/lib/diagnose/master-plan.ts and focused tests — mixed registry diagnostics.
+- Master schema/workflow compatibility and first-use tests — legacy and recovery regressions.
+- progress/current.md and progress/history.md — checkpoint with prior context retained.
+
+## Retained prior-session checkpoint
+
 # Current — D0 awaiting final closure review
 
 ## Goal

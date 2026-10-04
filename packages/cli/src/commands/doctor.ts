@@ -962,6 +962,10 @@ export const doctorCommand = defineCommand({
                 ? td.masterPlanFlagEnabledWithoutActiveRow
                 : td.masterPlanFlagDisabledWithActiveRow,
             )}`;
+          case "invalid-state":
+            return `  ${color.yellow(sym.update)} ${accent("_master/state.json")}  ${grey(issue.detail)}`;
+          case "deliveries-pending":
+            return `  ${color.yellow(sym.update)} ${accent("deliveries")}  ${grey(issue.detail)}`;
         }
       });
       p.log.warn(td.masterPlan(masterPlan.length, lines.join("\n")));

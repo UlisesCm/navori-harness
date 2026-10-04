@@ -5,6 +5,7 @@ import { join, resolve, sep } from "node:path";
 import { readConfig } from "../config/config.ts";
 import { writeFileAtomic } from "../primitives/atomic.ts";
 import { checkPart } from "./check-part.ts";
+import { DeliveryStateSchema } from "./delivery-schema.ts";
 import {
   MASTER_PHASES,
   MasterStateSchema,
@@ -19,6 +20,7 @@ import {
 import { checkUxArtifacts, checkUxDecision } from "./ux.ts";
 import {
   activeStage,
+  assertLegacyStage,
   contextForArchitects,
   indexMdPath,
   lastClosedStage,
@@ -47,6 +49,7 @@ export interface EffectivePart {
 }
 
 export interface MasterStatus {
+  workflow?: "deliveries";
   stage: { number: number; slug: string; dir: string } | null;
   phase: MasterPhase | null;
   nextPhase: MasterPhase | null;
@@ -160,6 +163,24 @@ export function readMasterStatus(cwd: string): MasterStatus {
   };
   if (!stage) return empty;
   const stagePath = join(masterDirPath(cwd, specsDir), stage.dir);
+  if (stage.workflow === "deliveries") {
+    const state = DeliveryStateSchema.parse(
+      JSON.parse(readFileSync(join(stagePath, "state.json"), "utf8")) as unknown,
+    );
+    if (existsSync(join(stagePath, "parts.json")))
+      throw new Error(`${stage.dir}: parts.json is not supported in deliveries foundation`);
+    return {
+      ...empty,
+      workflow: "deliveries",
+      stage: { number: stage.number, slug: stage.slug, dir: stage.dir },
+      phase: state.phase,
+      mode: state.mode,
+      blockers: [
+        "deliveries foundation only: preparation, authorization and execution are not yet available",
+      ],
+    };
+  }
+  assertLegacyStage(stage);
   const state = MasterStateSchema.parse(
     JSON.parse(readFileSync(join(stagePath, "state.json"), "utf8")) as unknown,
   );
@@ -271,6 +292,20 @@ export function readMasterStatus(cwd: string): MasterStatus {
 
 /** Render derived STATUS.md without wall-clock data. */
 export function renderStatusMd(status: MasterStatus): string {
+  if (status.workflow === "deliveries")
+    return [
+      `# Estado de entrega ${status.stage?.dir ?? "ninguna"}`,
+      "",
+      "Workflow: deliveries",
+      "Fase: context",
+      "Preparación: pendiente (D1 foundation)",
+      "Cerrable: no",
+      "",
+      "## Bloqueos",
+      "",
+      ...status.blockers.map((blocker) => `- ${blocker}`),
+      "",
+    ].join("\n");
   const lines = [
     `# Estado de etapa ${status.stage?.dir ?? "ninguna"}`,
     "",
@@ -356,6 +391,14 @@ export function writeMasterStatus(cwd: string): MasterStatus {
   if (!index) throw new Error("no index.json: run 'navori master init <slug>' first");
   if (status.stage) {
     const stagePath = join(masterDirPath(cwd, specsDir), status.stage.dir);
+    if (status.workflow === "deliveries") {
+      const statusPath = join(stagePath, "STATUS.md");
+      assertWritableInRepo(cwd, statusPath);
+      assertWritableInRepo(cwd, indexMdPath(cwd, specsDir));
+      writeFileAtomic(statusPath, renderStatusMd(status));
+      writeFileAtomic(indexMdPath(cwd, specsDir), renderIndexMd(index, specsDir));
+      return status;
+    }
     const partsPath = join(stagePath, "parts.json");
     const masterPath = join(stagePath, "MASTER.md");
     const parts = existsSync(partsPath)
@@ -391,6 +434,8 @@ export function writeMasterStatus(cwd: string): MasterStatus {
 
 export function statusLine(status: MasterStatus, specsDir: string): string {
   if (!status.stage) return "Plan maestro — sin etapa activa.";
+  if (status.workflow === "deliveries")
+    return `Plan maestro — entrega ${status.stage.dir}: preparación pendiente; ${specsDir}/_master/${status.stage.dir}/STATUS.md.`;
   const part = status.parts.find((p) => p.id === status.activePart);
   const clean = [...(part?.title ?? "")]
     .map((char) => (char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 ? " " : char))
