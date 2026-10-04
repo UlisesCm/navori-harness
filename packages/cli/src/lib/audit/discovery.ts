@@ -1,5 +1,16 @@
-import { existsSync, readFileSync, readdirSync, statSync, type Dirent } from "node:fs";
-import { basename, join } from "node:path";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  readSync,
+  statSync,
+  type Dirent,
+} from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { codexHome } from "../codex/home.ts";
 import {
   auditsRoot,
@@ -29,7 +40,16 @@ export interface MarkedSession {
   /** Resolved transcript path, or null when it could not be located. */
   transcript: string | null;
   /** Host that recorded the `start` event; `"codex"` sessions have no Claude transcript. */
-  host: "claude" | "codex";
+  host: "claude" | "codex" | "unknown";
+  /** Explicit marker or a read-only recovery from matching source metadata. */
+  hostProvenance: "declared" | "recovered:rollout" | "recovered:transcript" | "unknown";
+  sourceStatus: "verified" | "missing" | "wrong-format" | "identity-conflict";
+  /** Adapter is selected only after source shape and root identity verify. */
+  adapter: "claude-transcript" | "codex-rollout" | null;
+  source: string | null;
+  sourceVersion: string | null;
+  sourceReason: string | null;
+  versionReason: "not-observed" | null;
   /** Codex rollout path (spec 0041 R24), `null` for Claude sessions or when not found. */
   rollout: string | null;
 }
@@ -47,7 +67,9 @@ interface LogHeader {
   markedAt: string;
   /** Transcript path as reported by the hook payload, when the log has one. */
   transcript: string | null;
-  host: "claude" | "codex";
+  host: MarkedSession["host"];
+  identityConflict: boolean;
+  present: boolean;
 }
 
 /**
@@ -59,12 +81,13 @@ interface LogHeader {
  * one. Worth the extra pass — it replaces a guess at Claude Code's
  * undocumented directory encoding with the path Claude Code itself reported.
  */
-function readHeader(logFile: string): LogHeader {
+function readHeader(logFile: string, sessionId: string, repoName: string): LogHeader {
   let cwd: string | null = null;
   let markedAt = "";
   let transcript: string | null = null;
   let seenHeader = false;
-  let host: LogHeader["host"] = "claude";
+  let host: LogHeader["host"] = "unknown";
+  let identityConflict = false;
   try {
     const raw = readFileSync(logFile, "utf-8");
     for (const line of raw.split("\n")) {
@@ -74,9 +97,13 @@ function readHeader(logFile: string): LogHeader {
         if (typeof obj !== "object" || obj === null) continue;
         const rec = obj as Record<string, unknown>;
         if (!seenHeader) {
+          if (rec.event !== "start") continue;
           cwd = typeof rec.cwd === "string" ? rec.cwd : null;
           markedAt = typeof rec.ts === "string" ? rec.ts : "";
-          if (rec.host === "codex") host = "codex";
+          if (rec.host === "codex" || rec.host === "claude") host = rec.host;
+          else if (rec.host !== undefined) identityConflict = true;
+          if (rec.sessionId !== undefined && rec.sessionId !== sessionId) identityConflict = true;
+          if (rec.repo !== undefined && rec.repo !== repoName) identityConflict = true;
           seenHeader = true;
         }
         if (!transcript && typeof rec.transcript === "string" && rec.transcript) {
@@ -90,7 +117,80 @@ function readHeader(logFile: string): LogHeader {
   } catch {
     // Unreadable log: treat as headerless rather than failing discovery.
   }
-  return { cwd, markedAt, transcript, host };
+  return { cwd, markedAt, transcript, host, identityConflict, present: seenHeader };
+}
+
+interface SourceIdentity {
+  host: "claude" | "codex";
+  status: MarkedSession["sourceStatus"];
+  version?: string;
+}
+
+/** At most the first root-metadata line; later prompt/tool records stay unread. */
+function sourceMetadataLine(file: string): string | null {
+  const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const buffer = Buffer.alloc(1024 * 1024);
+    const bytes = readSync(fd, buffer, 0, buffer.length, 0);
+    const end = buffer.subarray(0, bytes).indexOf(10);
+    if (end < 0 && bytes === buffer.length) return null;
+    return buffer.toString("utf-8", 0, end >= 0 ? end : bytes);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Read only versioned identity fields; never inspect prompts or tool payloads. */
+function inspectSource(
+  file: string | null,
+  host: "claude" | "codex",
+  sessionId: string,
+  cwd: string | null,
+): SourceIdentity {
+  if (!file) return { host, status: "missing" };
+  try {
+    if (!lstatSync(file).isFile()) return { host, status: "wrong-format" };
+    const line = sourceMetadataLine(file);
+    if (line?.trim()) {
+      const rec: unknown = JSON.parse(line);
+      if (typeof rec !== "object" || rec === null) return { host, status: "wrong-format" };
+      const record = rec as Record<string, unknown>;
+      const meta = host === "codex" ? record.payload : record;
+      if (host === "codex" && record.type !== "session_meta")
+        return { host, status: "wrong-format" };
+      if (typeof meta !== "object" || meta === null) return { host, status: "wrong-format" };
+      const fields = meta as Record<string, unknown>;
+      const id = host === "codex" ? (fields.id ?? fields.session_id) : fields.sessionId;
+      if (
+        host === "codex" &&
+        fields.id !== undefined &&
+        fields.session_id !== undefined &&
+        fields.id !== fields.session_id
+      )
+        return { host, status: "identity-conflict" };
+      if (
+        host === "claude" &&
+        !["user", "assistant", "system", "summary"].includes(String(record.type))
+      )
+        return { host, status: "wrong-format" };
+      if (typeof id !== "string") return { host, status: "wrong-format" };
+      if (typeof fields.cwd !== "string") return { host, status: "wrong-format" };
+      if (
+        id !== sessionId ||
+        (cwd && resolve(projectRootFromCwd(fields.cwd)) !== resolve(projectRootFromCwd(cwd)))
+      )
+        return { host, status: "identity-conflict" };
+      const version = host === "codex" ? fields.cli_version : fields.version;
+      return {
+        host,
+        status: "verified",
+        ...(typeof version === "string" && version ? { version } : {}),
+      };
+    }
+    return { host, status: "wrong-format" };
+  } catch {
+    return { host, status: existsSync(file) ? "wrong-format" : "missing" };
+  }
 }
 
 /**
@@ -193,18 +293,75 @@ export function findMarkedSessions(
       .replace(/^session-/, "")
       .replace(/\.log$/, "");
     const logFile = join(dir, file);
-    const { cwd, markedAt, transcript, host } = readHeader(logFile);
+    const { cwd, markedAt, transcript, host, identityConflict, present } = readHeader(
+      logFile,
+      sessionId,
+      repoName,
+    );
     // A Codex hook payload's `transcript_path` is the rollout, not a Claude
     // transcript: it must never reach `parseSession`.
-    const isCodex = host === "codex";
+    const claudeFile = host !== "codex" ? resolveTranscript(sessionId, cwd, transcript) : null;
+    const codexFile = host !== "claude" ? resolveCodexRollout(sessionId, transcript) : null;
+    const claudeSource =
+      host !== "codex" ? inspectSource(claudeFile, "claude", sessionId, cwd) : null;
+    const codexSource =
+      host !== "claude" ? inspectSource(codexFile, "codex", sessionId, cwd) : null;
+    const recovered =
+      host === "unknown"
+        ? [claudeSource, codexSource].filter((source) => source?.status === "verified")
+        : [];
+    const resolvedHost =
+      host !== "unknown"
+        ? host
+        : recovered.length === 1
+          ? (recovered[0]?.host ?? "unknown")
+          : "unknown";
+    const sourceStatus =
+      !present || !cwd
+        ? "wrong-format"
+        : identityConflict || recovered.length > 1
+          ? "identity-conflict"
+          : resolvedHost === "claude"
+            ? (claudeSource?.status ?? "missing")
+            : resolvedHost === "codex"
+              ? (codexSource?.status ?? "missing")
+              : claudeSource?.status === "identity-conflict" ||
+                  codexSource?.status === "identity-conflict"
+                ? "identity-conflict"
+                : claudeSource?.status === "wrong-format" || codexSource?.status === "wrong-format"
+                  ? "wrong-format"
+                  : "missing";
+    const selectedSource = resolvedHost === "codex" ? codexSource : claudeSource;
+    const source =
+      resolvedHost === "codex" ? codexFile : resolvedHost === "claude" ? claudeFile : null;
     sessions.push({
       sessionId,
       logFile,
       cwd,
       markedAt,
-      host,
-      transcript: isCodex ? null : resolveTranscript(sessionId, cwd, transcript),
-      rollout: isCodex ? resolveCodexRollout(sessionId, transcript) : null,
+      host: resolvedHost,
+      hostProvenance:
+        host !== "unknown"
+          ? "declared"
+          : resolvedHost === "codex"
+            ? "recovered:rollout"
+            : resolvedHost === "claude"
+              ? "recovered:transcript"
+              : "unknown",
+      sourceStatus,
+      adapter:
+        sourceStatus === "verified"
+          ? resolvedHost === "codex"
+            ? "codex-rollout"
+            : "claude-transcript"
+          : null,
+      source,
+      sourceVersion: sourceStatus === "verified" ? (selectedSource?.version ?? null) : null,
+      sourceReason: sourceStatus === "verified" ? null : sourceStatus,
+      versionReason:
+        sourceStatus === "verified" && !selectedSource?.version ? "not-observed" : null,
+      transcript: resolvedHost === "claude" ? claudeFile : null,
+      rollout: resolvedHost === "codex" ? codexFile : null,
     });
   }
 

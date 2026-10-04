@@ -27,6 +27,8 @@ set +e
 payload=$(cat 2>/dev/null) || exit 0
 [ -n "$payload" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
+# navori:include extract-cmd
+# navori:include hook-input
 
 # The typed text, under whichever key the host uses.
 #
@@ -79,7 +81,7 @@ log_file=$audits_root/$repo/session-$session_id.log
 # Mid-session coverage is already modeled by the report (recorder horizon), so a
 # log that starts at prompt N is a smaller log, never a broken one.
 # navori:include audit-arm
-if navori_audit_consume_armed "$session_id" "$cwd" "$audits_root"; then
+if navori_audit_consume_armed "$session_id" "$cwd" "$audits_root" "$nv_engine"; then
   printf 'navori: audit-mode ACTIVE from this message on (armed via navori audit --arm; the hook ran --start %s).\n' "$session_id"
 fi
 
@@ -100,7 +102,7 @@ fi
 # as if the mode were off — a recorder may never be the reason a prompt fails.
 audit_mode={{shq:audit.mode}}
 if [ ! -f "$log_file" ] && [ "$audit_mode" = "always" ] && command -v navori >/dev/null 2>&1; then
-  if navori audit --start "$session_id" --cwd "$cwd" >/dev/null 2>&1; then
+  if navori audit --start "$session_id" --cwd "$cwd" --host "$nv_engine" >/dev/null 2>&1; then
     # Same reasoning as the armed branch: a UserPromptSubmit hook's stdout is
     # injected as context, so the model learns it is being recorded as it starts.
     printf 'navori: audit-mode ACTIVE from this message on (audit.mode=always; no --arm needed).\n'

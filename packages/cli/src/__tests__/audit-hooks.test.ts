@@ -925,8 +925,18 @@ describe.each(SHELLS)("armed audit-mode via SessionStart under %s", (shell) => {
     chmodSync(join(shimDir, "navori"), 0o755);
   }
 
-  function runSessionStart(sessionId: string): { out: string; code: number } {
-    const hook = install(shell, join(HOOKS, "session-start-context.sh"));
+  function runSessionStart(
+    sessionId: string,
+    engine: "claude" | "codex" = "claude",
+  ): { out: string; code: number } {
+    const installed = install(shell, join(HOOKS, "session-start-context.sh"));
+    const hook =
+      engine === "codex" ? join(root, ".codex", "hooks", "session-start-context.sh") : installed;
+    if (engine === "codex") {
+      mkdirSync(dirname(hook), { recursive: true });
+      writeFileSync(hook, readFileSync(installed, "utf-8"));
+      chmodSync(hook, 0o755);
+    }
     const input = JSON.stringify({ session_id: sessionId, cwd, hook_event_name: "SessionStart" });
     try {
       const out = execFileSync(shell, [hook], {
@@ -962,10 +972,21 @@ describe.each(SHELLS)("armed audit-mode via SessionStart under %s", (shell) => {
     expect(existsSync(armedFile()), "the flag must be consumed").toBe(false);
     const calls = readFileSync(navoriCalls, "utf-8");
     expect(calls).toContain("audit --start sess-armed-1");
+    expect(calls).toContain("--host claude");
     // The repo comes from the payload's cwd, not CLAUDE_PROJECT_DIR (#454).
     expect(calls).toContain(`--cwd ${cwd}`);
     // The model learns it is being recorded in the very first context.
     expect(out).toContain("audit-mode ACTIVE");
+  });
+
+  // Covers: R1, R9
+  it("stamps Codex as host when the armed SessionStart hook runs in .codex/hooks", () => {
+    installNavoriShim();
+    arm();
+    const { code } = runSessionStart("cx-armed-1", "codex");
+    expect(code).toBe(0);
+    expect(readFileSync(navoriCalls, "utf-8")).toContain("audit --start cx-armed-1");
+    expect(readFileSync(navoriCalls, "utf-8")).toContain("--host codex");
   });
 
   /** The hook legitimately calls `navori` for other things (dominio inject),
@@ -1071,6 +1092,7 @@ describe.each(SHELLS)("armed audit-mode on the RUNNING session under %s", (shell
     expect(code).toBe(0);
     expect(existsSync(armedFile()), "the flag must be consumed").toBe(false);
     expect(startCalls().join("\n")).toContain("audit --start sess-live-1");
+    expect(startCalls().join("\n")).toContain("--host claude");
     // stdout of a UserPromptSubmit hook is injected as context: the model
     // learns it is being recorded the moment it starts to be.
     expect(out).toContain("audit-mode ACTIVE");
@@ -1122,8 +1144,19 @@ describe.each(SHELLS)("audit.mode = always under %s", (shell) => {
     chmodSync(join(shimDir, "navori"), 0o755);
   }
 
-  function runTrigger(sessionId: string, mode: string): { out: string; code: number } {
-    const hook = install(shell, TRIGGER, mode);
+  function runTrigger(
+    sessionId: string,
+    mode: string,
+    engine: "claude" | "codex" = "claude",
+  ): { out: string; code: number } {
+    const installed = install(shell, TRIGGER, mode);
+    const hook =
+      engine === "codex" ? join(root, ".codex", "hooks", "audit-mode-trigger.sh") : installed;
+    if (engine === "codex") {
+      mkdirSync(dirname(hook), { recursive: true });
+      writeFileSync(hook, readFileSync(installed, "utf-8"));
+      chmodSync(hook, 0o755);
+    }
     const input = JSON.stringify({ user_prompt: "arranca el ticket", session_id: sessionId, cwd });
     try {
       const out = execFileSync(shell, [hook], {
@@ -1154,8 +1187,18 @@ describe.each(SHELLS)("audit.mode = always under %s", (shell) => {
     const { out, code } = runTrigger("sess-always-1", "always");
     expect(code).toBe(0);
     expect(startCalls().join("\n")).toContain("audit --start sess-always-1");
+    expect(startCalls().join("\n")).toContain("--host claude");
     // stdout is injected as context, so the model learns it is being recorded.
     expect(out).toContain("audit-mode ACTIVE");
+  });
+
+  // Covers: R1
+  it("stamps Codex in audit.mode=always rather than assuming Claude", () => {
+    installNavoriShim();
+    const { code } = runTrigger("cx-always-1", "always", "codex");
+    expect(code).toBe(0);
+    expect(startCalls().join("\n")).toContain("audit --start cx-always-1");
+    expect(startCalls().join("\n")).toContain("--host codex");
   });
 
   it("starts ONCE — a session already recording is not re-started every prompt", () => {

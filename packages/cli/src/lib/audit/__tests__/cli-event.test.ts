@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { appendCliEvent } from "../cli-event.ts";
 import { sessionLogPath, repoFromCwd } from "../paths.ts";
 
@@ -13,7 +21,16 @@ beforeEach(() => {
   saved = {
     NAVORI_AUDITS_ROOT: process.env.NAVORI_AUDITS_ROOT,
     CLAUDE_CODE_SESSION_ID: process.env.CLAUDE_CODE_SESSION_ID,
+    NAVORI_AUDIT_HOST: process.env.NAVORI_AUDIT_HOST,
+    NAVORI_AUDIT_SESSION_ID: process.env.NAVORI_AUDIT_SESSION_ID,
+    CODEX_SESSION_ID: process.env.CODEX_SESSION_ID,
+    CODEX_THREAD_ID: process.env.CODEX_THREAD_ID,
+    CODEX_HOME: process.env.CODEX_HOME,
   };
+  delete process.env.NAVORI_AUDIT_HOST;
+  delete process.env.NAVORI_AUDIT_SESSION_ID;
+  delete process.env.CODEX_SESSION_ID;
+  delete process.env.CODEX_THREAD_ID;
   root = mkdtempSync(join(tmpdir(), "navori-cli-event-"));
   repo = join(root, "myrepo");
   mkdirSync(repo, { recursive: true });
@@ -33,7 +50,10 @@ afterEach(() => {
 function markSession(): string {
   const log = sessionLogPath(repoFromCwd(repo), "sess-1");
   mkdirSync(join(log, ".."), { recursive: true });
-  writeFileSync(log, `${JSON.stringify({ event: "start" })}\n`);
+  writeFileSync(
+    log,
+    `${JSON.stringify({ event: "start", host: "claude", sessionId: "sess-1", cwd: repo })}\n`,
+  );
   return log;
 }
 
@@ -106,5 +126,86 @@ describe("appendCliEvent", () => {
     expect(appendCliEvent(repo, { name: "x", verdict: "allow" })).toBe(false);
     process.env.CLAUDE_CODE_SESSION_ID = "a".repeat(5000);
     expect(appendCliEvent(repo, { name: "x", verdict: "allow" })).toBe(false);
+  });
+
+  // Covers: R9
+  it("uses an exact explicit pair and rejects an incomplete or conflicting pair", () => {
+    const log = markSession();
+    process.env.NAVORI_AUDIT_HOST = "claude";
+    expect(appendCliEvent(repo, { name: "x", verdict: "allow" })).toBe(false);
+    process.env.NAVORI_AUDIT_SESSION_ID = "sess-1";
+    expect(appendCliEvent(repo, { name: "x", verdict: "allow" })).toBe(true);
+    process.env.NAVORI_AUDIT_SESSION_ID = "other";
+    expect(appendCliEvent(repo, { name: "x", verdict: "allow" })).toBe(false);
+    expect(readFileSync(log, "utf-8").trim().split("\n")).toHaveLength(2);
+  });
+
+  // Covers: R9
+  it("does not correlate another checkout with the same repo basename", () => {
+    markSession();
+    const other = join(root, "other", "myrepo");
+    mkdirSync(other, { recursive: true });
+    expect(appendCliEvent(other, { name: "x", verdict: "allow" })).toBe(false);
+  });
+
+  // Covers: R9
+  it.each([
+    { field: "sessionId", value: "another-session" },
+    { field: "repo", value: "another-repo" },
+  ])("rejects a Claude marker with a contradictory $field", ({ field, value }) => {
+    const log = markSession();
+    writeFileSync(
+      log,
+      `${JSON.stringify({ event: "start", host: "claude", sessionId: "sess-1", cwd: repo, [field]: value })}\n`,
+    );
+    expect(appendCliEvent(repo, { name: "x", verdict: "allow" })).toBe(false);
+    expect(readFileSync(log, "utf-8").trim().split("\n")).toHaveLength(1);
+  });
+
+  // Covers: R9
+  it("rejects a symlinked repo audit directory without touching its target", () => {
+    const log = markSession();
+    const auditDir = join(root, "audits", "myrepo");
+    const target = join(root, "audit-target");
+    renameSync(auditDir, target);
+    symlinkSync(target, auditDir);
+    expect(appendCliEvent(repo, { name: "x", verdict: "allow" })).toBe(false);
+    expect(
+      readFileSync(join(target, basename(log)), "utf-8")
+        .trim()
+        .split("\n"),
+    ).toHaveLength(1);
+  });
+
+  // Covers: R9
+  it("correlates Codex only when the marker and rollout identity match", () => {
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    process.env.NAVORI_AUDIT_HOST = "codex";
+    process.env.NAVORI_AUDIT_SESSION_ID = "cx-1";
+    process.env.CODEX_HOME = join(root, "codex-home");
+    const log = sessionLogPath(repoFromCwd(repo), "cx-1");
+    mkdirSync(join(log, ".."), { recursive: true });
+    writeFileSync(
+      log,
+      `${JSON.stringify({ event: "start", host: "codex", sessionId: "cx-1", cwd: repo })}\n`,
+    );
+    const rollout = join(root, "rollout-cx-1.jsonl");
+    writeFileSync(
+      rollout,
+      `${JSON.stringify({ type: "session_meta", payload: { id: "cx-1", cwd: repo } })}\n`,
+    );
+    writeFileSync(log, `${JSON.stringify({ event: "prompt", transcript: rollout })}\n`, {
+      flag: "a",
+    });
+    expect(appendCliEvent(repo, { name: "x", verdict: "allow" })).toBe(true);
+    process.env.CODEX_THREAD_ID = "another-thread";
+    expect(appendCliEvent(repo, { name: "x", verdict: "allow" })).toBe(false);
+    delete process.env.CODEX_THREAD_ID;
+    writeFileSync(
+      rollout,
+      `${JSON.stringify({ type: "session_meta", payload: { id: "wrong", cwd: repo } })}\n`,
+    );
+    expect(appendCliEvent(repo, { name: "x", verdict: "allow" })).toBe(false);
+    expect(readFileSync(log, "utf-8").trim().split("\n")).toHaveLength(3);
   });
 });

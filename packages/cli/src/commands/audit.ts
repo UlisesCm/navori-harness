@@ -685,12 +685,27 @@ export const auditCommand = defineCommand({
     };
     const parsed = [];
     const missing: string[] = [];
+    const sourceProblems: Array<{ sessionId: string; status: MarkedSession["sourceStatus"] }> = [];
     const missingIds = new Set<string>();
     for (const m of marked) {
+      if (m.sourceStatus !== "verified") {
+        missing.push(m.sessionId.slice(0, 8));
+        sourceProblems.push({ sessionId: m.sessionId, status: m.sourceStatus });
+        missingIds.add(m.sessionId);
+        continue;
+      }
       if (!m.transcript) {
         // A Codex session has no transcript by design (R71): it is reported from
         // its log, not listed as an orphan.
-        const codex = parseCodexSession(m.sessionId, m.logFile, m.rollout);
+        const codex =
+          m.host === "codex"
+            ? parseCodexSession(
+                m.sessionId,
+                m.logFile,
+                m.rollout,
+                m.hostProvenance === "recovered:rollout" ? m.hostProvenance : undefined,
+              )
+            : null;
         if (codex) {
           parsed.push(codex);
           continue;
@@ -718,7 +733,13 @@ export const auditCommand = defineCommand({
       // them from the store by hand.
       if (json)
         console.log(
-          JSON.stringify({ ok: false, error: "no-transcripts", repo, orphanSessions: missing }),
+          JSON.stringify({
+            ok: false,
+            error: "no-transcripts",
+            repo,
+            orphanSessions: missing,
+            sourceProblems,
+          }),
         );
       else p.cancel(msg);
       process.exit(2);
@@ -764,9 +785,10 @@ export const auditCommand = defineCommand({
       harnessVersion: renderedHarnessVersion(cwd),
       lang,
     });
+    const reportPayload = { ...report, sourceProblems };
 
     if (json) {
-      process.stdout.write(renderJson(report));
+      process.stdout.write(renderJson(reportPayload));
       return;
     }
 
@@ -791,7 +813,7 @@ export const auditCommand = defineCommand({
     const mdFile = join(outDir, "report.md");
     const jsonFile = join(outDir, "report.json");
     writeFileSync(mdFile, renderMarkdown(report, lang), "utf-8");
-    writeFileSync(jsonFile, renderJson(report), "utf-8");
+    writeFileSync(jsonFile, renderJson(reportPayload), "utf-8");
 
     // A snapshot of the event log beside its report, so the session folder holds
     // everything about that session. It is a COPY, deliberately: the hooks write

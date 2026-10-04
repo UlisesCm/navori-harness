@@ -1,3 +1,29 @@
+# Current — PR1203 integration verified; publication and merge next
+
+## Goal
+Resolve and merge PR1203 first, then PR1205, per explicit user request.
+## Instructions
+One PR at a time, normal push and merge only with fresh checks; no force/admin or branch/worktree deletion. Preserve other checkout's pending merge.
+## Discoveries
+- Main830ba19c introduced only progress conflicts; T2 master-first-use and engine goldens merged automatically and required fresh verification.
+- Isolated integration branch starts current main then merges reviewed T2, so behind0 review preflight works before merge commit and existing feature remote remains a parent.
+## Accomplished
+- Preserved both append-only progress histories and current checkpoints; no manual program/managed edits.
+- Fresh reviewer APPROVED combined shipping diff; exact full gate exit0, coverage116modules, all checks green. Independently checked receipt ok/fresh true against main830ba19c.
+## Next Steps
+- Normal commit/push merged tree to existing PR1203; verify new CI then authorized matched-head merge. Only after PR1203 closes begin PR1205 integration.
+## Relevant Files
+- progress/current.md and history.md — only manual conflict resolutions, this checkpoint.
+- .navori/state/handoffs/review_audit-capture-identity.json and receipt.txt — fresh verification.
+
+## Preserved resolved checkpoints
+
+# Current — PR1203 integration verification pending
+
+Main 830ba19c and reviewed T2 d73b22f8 combined in an isolated checkout; only progress conflicts resolved, both histories preserved. Next: fresh review/full gate, normal push to existing PR1203, CI then explicitly authorized merge. PR1205 untouched until PR1203 closes.
+
+## Preserved main checkpoint
+
 # Current — D1 awaiting final closure review
 
 ## Goal
@@ -247,3 +273,24 @@ Ejecutar T44 de Spec 0039 con comparación T9 y criterios de cierre intactos.
 - specs/0039-claude-first/tasks.md — T44 permanece pendiente.
 - progress/current.md — próximos pasos de medición.
 - progress/history.md — registro de este checkpoint.
+
+
+## Preserved T2 checkpoint
+
+# Current — T2 verified, publication pending
+
+## Goal
+Deliver Spec0042 T2 capture host and exact source identity.
+## Instructions
+No real services/logs, timeout overrides, skipped tests, historical migration or automatic merge.
+## Discoveries
+- Main58957b6e integrates T1/T5. T2 local-preset timeout did not recur under serial full gate; no deterministic fix was established.
+## Accomplished
+- Fresh reviewer APPROVED T2 twenty source/test/mirror paths. Exact full gate exit0: 350 files,7001 passed,1 existing skipped. Render zero pending, lint/typecheck green. Receipt independently ok/fresh true against main58957b6e.
+## Next Steps
+- Publish T2 work PR with normal hooks/push, then serial fresh T7 review. T4 waits for reviewed T2 integration; no audit parity claim.
+## Relevant Files
+- packages/cli/src/lib/audit/{discovery,cli-event,parse}.ts — exact source and activation identity.
+- packages/cli/src/commands/audit.ts — explicit host/session context.
+- packages/core/core-assets/hooks/{audit-mode-trigger,session-start-context}.sh and _partials/audit-arm.sh — capture identity propagation.
+- Claude/Codex generated hook mirrors and test goldens — native renderer derivatives.
