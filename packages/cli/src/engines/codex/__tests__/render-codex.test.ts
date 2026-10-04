@@ -15,7 +15,7 @@ import {
   type NavoriConfig,
   type NavoriConfigInput,
 } from "../../../lib/config/schema.ts";
-import { codexInstalledScripts, renderCodexEngine } from "../index.ts";
+import { codexInstalledScripts, compactAgentDescription, renderCodexEngine } from "../index.ts";
 import { loadEnabledPlugins } from "../../../lib/config/plugins.ts";
 import { renderClaudeEngine } from "../../claude/index.ts";
 import { adaptHarnessTextForCodex } from "../compat.ts";
@@ -83,9 +83,10 @@ describe("renderCodexEngine", () => {
     renderCodexEngine(cwd, config({ harness: { masterPlan: enabled } }));
     expect(existsSync(join(cwd, ".agents/skills/master-plan/SKILL.md"))).toBe(true);
     expect(existsSync(join(cwd, ".agents/skills/context-intake/SKILL.md"))).toBe(true);
+    // Codex lists `.agents/skills` natively: AGENTS.md carries no skills index.
     const index = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
-    expect(index).toContain("- `master-plan` —");
-    expect(index).toContain("- `context-intake` —");
+    expect(index).not.toContain("- `master-plan` —");
+    expect(index).not.toContain("- `context-intake` —");
   });
 
   // Covers: R20
@@ -152,6 +153,28 @@ describe("renderCodexEngine", () => {
     expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf8")).toContain(
       'model_reasoning_effort = "high"',
     );
+  });
+  it("trims the Codex AGENTS.md: no skills index, every .codex/agents role in a compact roster", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const agentsMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+
+    // Codex lists `.agents/skills` natively, so the index is dead weight here.
+    expect(agentsMd).not.toContain("## Available skills");
+    const agentFiles = readdirSync(join(cwd, ".codex/agents")).filter((f) => f.endsWith(".toml"));
+    expect(agentFiles.length).toBeGreaterThan(0);
+    for (const file of agentFiles) {
+      const id = file.replace(/\.toml$/, "");
+      expect(agentsMd).toMatch(new RegExp(`^- \`${id}\` — .+`, "m"));
+    }
+    // Roster rows are one short clause, not the full toml description.
+    expect(agentsMd).not.toContain("Does not edit code.");
+  });
+  it("compactAgentDescription keeps the trigger clause", () => {
+    expect(
+      compactAgentDescription("Does things. Use after every run, and before any commit."),
+    ).toBe("Use after every run");
+    expect(compactAgentDescription("Plain summary. More text.")).toBe("Plain summary");
   });
   it("creates a full Codex harness using the v0.145 project paths", () => {
     const cwd = tempRepo();
