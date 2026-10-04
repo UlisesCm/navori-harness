@@ -1821,6 +1821,16 @@ describe("parse: Codex rollout adapter (spec 0041 T18)", () => {
     expect(session?.unavailable).toBe("transcript");
   });
 
+  // Covers: R3
+  it("accepts a hostless historical start only with verified recovery supplied", () => {
+    const { log, rollout } = fixture(`${rolloutLines().join("\n")}\n`);
+    const original = readFileSync(log, "utf-8").replace(',"host":"codex"', "");
+    writeFileSync(log, original);
+    expect(parseCodexSession(SID, log, rollout)).toBeNull();
+    expect(parseCodexSession(SID, log, rollout, "recovered:rollout")?.host).toBe("codex");
+    expect(readFileSync(log, "utf-8")).toBe(original);
+  });
+
   // Covers: R24
   it("never lets raw message, tool input or output text reach the session or the report", () => {
     const { log, rollout } = fixture(`${rolloutLines().join("\n")}\n`);

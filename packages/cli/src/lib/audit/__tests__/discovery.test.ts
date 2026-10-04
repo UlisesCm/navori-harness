@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -134,11 +134,23 @@ describe("discovery: transcript path recorded by the hook (#489)", () => {
   it("uses the recorded path, even where the encoding heuristic would miss", () => {
     const elsewhere = mkdtempSync(join(tmpdir(), "navori-transcripts-"));
     const file = join(elsewhere, "anywhere.jsonl");
-    writeFileSync(file, "", "utf-8");
+    writeFileSync(
+      file,
+      `${JSON.stringify({ type: "user", sessionId: "sess-rec", cwd: "/some/repo/path" })}\n`,
+      "utf-8",
+    );
 
     markWithTranscript("sess-rec", "/some/repo/path", file);
     const [found] = findMarkedSessions(REPO);
     expect(found?.transcript).toBe(file);
+    expect(found?.hostProvenance).toBe("recovered:transcript");
+    expect(found?.sourceStatus).toBe("verified");
+    expect(found).toMatchObject({
+      adapter: "claude-transcript",
+      source: file,
+      sourceVersion: null,
+      versionReason: "not-observed",
+    });
     rmSync(elsewhere, { recursive: true, force: true });
   });
 
@@ -308,7 +320,10 @@ describe("discovery: Codex rollouts (spec 0041 T18)", () => {
     const dir = join(home, "sessions", "2026", "10", "03");
     mkdirSync(dir, { recursive: true });
     const file = join(dir, `rollout-2026-10-03T03-11-18-${SID}.jsonl`);
-    writeFileSync(file, "{}\n");
+    writeFileSync(
+      file,
+      `${JSON.stringify({ type: "session_meta", payload: { id: SID, cwd: "/w", cli_version: "0.160.0" } })}\n`,
+    );
     return file;
   }
 
@@ -348,5 +363,90 @@ describe("discovery: Codex rollouts (spec 0041 T18)", () => {
     expect(m?.host).toBe("codex");
     expect(m?.transcript).toBeNull();
     expect(m?.rollout).toBe(file);
+    expect(m?.sourceStatus).toBe("verified");
+    expect(m).toMatchObject({
+      adapter: "codex-rollout",
+      source: file,
+      sourceVersion: "0.160.0",
+      sourceReason: null,
+    });
+  });
+
+  // Covers: R2, R3
+  it("recovers a historical hostless Codex marker only from matching metadata", () => {
+    const file = rollout();
+    const dir = join(root, REPO);
+    mkdirSync(dir, { recursive: true });
+    const log = join(dir, `session-${SID}.log`);
+    const original =
+      [
+        JSON.stringify({
+          event: "start",
+          sessionId: SID,
+          cwd: "/w",
+          repo: REPO,
+          ts: "2026-10-03T03:11:17Z",
+        }),
+        JSON.stringify({ event: "prompt", transcript: file }),
+      ].join("\n") + "\n";
+    writeFileSync(log, original);
+    const [m] = findMarkedSessions(REPO);
+    expect([m?.host, m?.hostProvenance, m?.sourceStatus]).toEqual([
+      "codex",
+      "recovered:rollout",
+      "verified",
+    ]);
+    expect(m).toMatchObject({ adapter: "codex-rollout", source: file, sourceVersion: "0.160.0" });
+    expect(readFileSync(log, "utf-8")).toBe(original);
+  });
+
+  // Covers: R2, R3
+  it("rejects a declared host that contradicts the source format or identity", () => {
+    const file = rollout();
+    const dir = join(root, REPO);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `session-${SID}.log`),
+      [
+        JSON.stringify({ event: "start", host: "claude", sessionId: SID, cwd: "/w", repo: REPO }),
+        JSON.stringify({ event: "prompt", transcript: file }),
+      ].join("\n") + "\n",
+    );
+    expect(findMarkedSessions(REPO)[0]).toMatchObject({
+      sourceStatus: "wrong-format",
+      adapter: null,
+      sourceReason: "wrong-format",
+    });
+    writeFileSync(
+      join(dir, `session-${SID}.log`),
+      [
+        JSON.stringify({
+          event: "start",
+          host: "codex",
+          sessionId: "wrong",
+          cwd: "/w",
+          repo: REPO,
+        }),
+        JSON.stringify({ event: "prompt", transcript: file }),
+      ].join("\n") + "\n",
+    );
+    expect(findMarkedSessions(REPO)[0]?.sourceStatus).toBe("identity-conflict");
+  });
+
+  // Covers: R2, R3
+  it("leaves an empty historical source unknown rather than guessing by path", () => {
+    const dir = join(root, REPO);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `session-${SID}.log`),
+      `${JSON.stringify({ event: "start", sessionId: SID, cwd: "/w", repo: REPO })}\n`,
+    );
+    expect(findMarkedSessions(REPO)[0]).toMatchObject({
+      host: "unknown",
+      sourceStatus: "missing",
+      adapter: null,
+      sourceVersion: null,
+      sourceReason: "missing",
+    });
   });
 });

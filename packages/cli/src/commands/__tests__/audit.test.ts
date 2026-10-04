@@ -95,6 +95,8 @@ function markedSessionWithTranscript(
     jsonl,
     `${JSON.stringify({
       type: "assistant",
+      sessionId: id,
+      cwd: repoDir,
       timestamp: `${day}T10:00:00Z`,
       message: { model: "claude-opus-5", usage },
     })}\n`,
@@ -600,6 +602,8 @@ describe("audit: the summary reports the real spend (R14)", () => {
       jsonl,
       `${JSON.stringify({
         type: "assistant",
+        sessionId: "sess-sum",
+        cwd: repoDir,
         timestamp: "2026-08-25T10:00:00Z",
         message: {
           model: "claude-opus-5",
@@ -838,6 +842,8 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
       jsonl,
       `${JSON.stringify({
         type: "assistant",
+        sessionId: id,
+        cwd: dir,
         timestamp: `${day}T10:00:00Z`,
         message: { model: "claude-opus-5", usage: { input_tokens: 1, output_tokens: 1 } },
       })}\n`,

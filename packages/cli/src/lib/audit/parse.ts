@@ -1295,6 +1295,7 @@ export function parseCodexSession(
   sessionId: string,
   logFile: string,
   rolloutFile?: string | null,
+  recoveredHost?: "recovered:rollout",
 ): SessionAudit | null {
   let raw: string;
   try {
@@ -1315,7 +1316,13 @@ export function parseCodexSession(
       // A malformed line is skipped: the `start` record may come later.
     }
   }
-  if (!start || str(start.host) !== "codex") return null;
+  if (
+    !start ||
+    (str(start.host) !== "codex" &&
+      !(start.host === undefined && recoveredHost === "recovered:rollout"))
+  )
+    return null;
+  if (start.sessionId !== undefined && start.sessionId !== sessionId) return null;
 
   const startedAt = str(start.ts) ?? "";
   const session: SessionAudit = {
