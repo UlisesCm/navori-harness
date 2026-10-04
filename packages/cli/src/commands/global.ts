@@ -535,6 +535,10 @@ const collectInstallSubCommand = defineCommand({
     }
 
     const result = installLaunchAgent();
+    if (!result.loaded) {
+      p.log.warn(result.message);
+      process.exit(1);
+    }
     if (result.replaced) p.log.info(g.collectReplaced);
     p.log.success(g.collectInstalled(result.plistPath));
     p.log.message(grey(g.collectCommand(result.argv.join(" "))));
@@ -546,11 +550,6 @@ const collectInstallSubCommand = defineCommand({
     const entry = result.argv[1] ?? "";
     if (entry.includes(`${sep}dist${sep}`) || entry.endsWith(`${sep}dist${sep}index.js`)) {
       p.log.warn(g.collectDevBinaryWarn(entry));
-    }
-
-    if (!result.loaded) {
-      p.log.warn(g.collectLoadFailed(result.message));
-      process.exit(1);
     }
 
     // `result.loaded` only proves launchd registered the job (#1014): the
@@ -580,6 +579,10 @@ const collectUninstallSubCommand = defineCommand({
     }
 
     const result = uninstallLaunchAgent();
+    if (result.error) {
+      p.log.warn(result.error);
+      process.exit(1);
+    }
     if (!result.removed && !result.unloaded) {
       p.outro(g.collectNothingInstalled);
       return;

@@ -152,4 +152,28 @@ describe("global collect install confirms with probeReceiver (#1014, A2/A3)", ()
     const warned = logWarnMock.mock.calls.map((c) => String(c[0] ?? "")).join("\n");
     expect(warned).toContain("/fake/.navori/logs");
   }, 10_000);
+
+  // Covers: R12
+  it("exits without announcing install when launchd reports failure before writing", async () => {
+    installLaunchAgentMock.mockReturnValue({
+      ...okInstallResult(),
+      loaded: false,
+      message: "launchctl bootout failed: denied",
+    });
+    const exit = vi.spyOn(process, "exit").mockImplementation(((): never => {
+      throw new Error("process.exit");
+    }) as never);
+    try {
+      await expect(runCommand(globalCommand, { rawArgs: ["collect", "install"] })).rejects.toThrow(
+        "process.exit",
+      );
+      expect(exit).toHaveBeenCalledWith(1);
+      expect(logWarnMock).toHaveBeenCalledWith("launchctl bootout failed: denied");
+      expect(logSuccessMock).not.toHaveBeenCalled();
+      expect(outroMock).not.toHaveBeenCalled();
+      expect(probeReceiverMock).not.toHaveBeenCalled();
+    } finally {
+      exit.mockRestore();
+    }
+  });
 });

@@ -2594,3 +2594,86 @@ Preserve assertions, default 15-second test limit, coverage floor and no skips. 
 - packages/cli/src/__tests__/doctor-json-checks.e2e.test.ts — independent fixtures with unchanged assertions and timeout.
 - progress/current.md — next step and audit blockers.
 - progress/history.md — this publication checkpoint.
+
+## 2026-10-03 20:36 Codex — auditoría Codex T1 preparada para PR
+
+## Goal
+Retomar Spec 0042 de auditoría accionable Codex y preparar el primer corte T1/R12 para PR.
+
+## Instructions
+- Usuario autorizó avance autónomo y PRs; evaluar stoppers al final del día. Omitir el error externo de monorepo-fullstack.
+- Preservar otros worktrees, servicios y logs reales; no bypass de gates ni merge automático.
+
+## Discoveries
+- Release 0.11.2 ya está integrada en main 51046a00; rebase omitió dos patches duplicados sin conflictos.
+- T1 conservaba implementación sin commit bloqueada por target anterior; stash de respaldo mantiene fuentes/tests y spec.
+
+## Accomplished
+- T1/R12 aprobada por reviewer independiente: descarga launchd confirmada antes de borrar/reemplazar plist y CLI sin éxito falso.
+- Gate completo AGENTS exit 0 y receipt ok/fresh sobre 51046a00 antes de actualizar tracking; delta de tasks pendiente de re-sign.
+- Scribe marcó únicamente T1 completa; T2–T12 siguen abiertas. No PR publicado todavía en este checkpoint.
+
+## Next Steps
+- Re-sign del delta de tracking y publicar T1 a main; después continuar T2 de identidad/captura.
+- Documentar stoppers verificables; Spec 0039 T44 sigue pendiente sin cambiar preregistro ni pisos.
+
+## Relevant Files
+- packages/cli/src/lib/audit/launchd.ts — contención ante errores de consulta/descarga.
+- packages/cli/src/commands/global.ts — propagación de errores sin éxito falso.
+- packages/cli/src/lib/audit/__tests__/launchd.test.ts — controlador falso y HOME aislado.
+- packages/cli/src/commands/__tests__/global-collect-install.test.ts — fallo de instalación.
+- packages/cli/src/commands/__tests__/global-collect-uninstall.test.ts — fallo de descarga y ausencia confirmada.
+- specs/0042-auditoria-accionable-codex/tasks.md — tablero único con T1 completa y T2–T12 abiertas.
+
+## 2026-10-03 22:08 Codex — doctor PR published, audit scope decisions pending
+
+## Goal
+Advance accepted Spec0042 audit Codex cuts and publish verified work; checkpoint awaiting scope decisions.
+## Instructions
+User authorized autonomous progress and PRs, helper audit-arm.sh, four rendered hook mirrors and local generated .navori/.gitignore. No service/log mutations, automatic merges, test skips, coverage reductions or timeout overrides. Ignore unrelated monorepo worktree issue.
+## Discoveries
+- Baseline doctor tests bundled nine/five synchronous CLI calls under one 15-second case. Split independent scenarios preserved all assertions; host saturation also caused unrelated timeouts.
+- Claude CLI marker append must reject contradictory sessionId/repo, as Codex does; valid exact Claude marker without transcript remains allowed.
+- T3 must not publish partial snapshot format2 or an unused report decoder. Defer new snapshot writing to T11; unknown record ownership cannot establish root duration. Zero-capture coverage must retain known/unknown denominator distinction.
+## Accomplished
+- Published PR #1200 https://github.com/UlisesCm/navori-harness/pull/1200, commit ac0ca7dd. Focused doctor16/16 and full gate green; independent APPROVED, receipt ok/fresh. GitHub quality CI passed; no merge. Doctor worktree clean/pushed, retained on its feature branch because shared main is in use.
+- T1 source originally approved; tracking delta gate blocked by doctor timeouts. T5 bounded reader/per-append authorization source SPEC_OK, fullgate red. T7 correlated reviewer-owner population source SPEC_OK, fullgate six timeouts/6965passed1skip. Neither has publishable fresh receipt.
+- T2 implemented host/source/context recovery, rendered authorized hooks, corrected contradictory Claude markers with prefix failure/post13 passing tests. Second review SPEC_OK but fullgate five failures/6974passed1skip: legacy master marker fixture, two stale hook goldens, and two unattributed timeouts. No T2 receipt/PR.
+## Next Steps
+- Await explicit approval to add T2 fixtures packages/cli/src/commands/__tests__/master-first-use.test.ts and packages/cli/src/engines/__tests__/__golden__/{claude,codex}.snap after two requested-change reviews. No third fix dispatched.
+- Await approval to integrate already reviewed doctor test file from PR1200 into T1/T5/T7 without waiting for human merge; dependent PRs must declare it. No automatic merge.
+- Then fresh implementer, reviewer and serialized full gates before publishing eligible audit cuts. T3/T4/T6/T8–T12 remain unimplemented. T3 architecture clarification/challenge is prepared, not code delivery.
+- Pending audit branches retain uncommitted source and progress; do not park, delete, reset or publish red-gate diffs. Shared root and unrelated live sessions untouched.
+## Relevant Files
+- specs/0042-auditoria-accionable-codex/tasks.md — single task board, only T1 checked; no parity-complete claim.
+- packages/cli/src/__tests__/doctor-json-checks.e2e.test.ts — reviewed test-only split published in PR1200.
+- packages/cli/src/lib/audit/cli-event.ts — T2 exact marker validation.
+- packages/cli/src/lib/audit/collect.ts — T5 bounded and safe append.
+- packages/cli/src/lib/audit/signals.ts — T7 completed-gate owner correlation.
+- progress/current.md and progress/history.md — preserved prior measurement context and this checkpoint.
+
+## 2026-10-03 22:27 Codex — T1 approved after integrated doctor fix
+
+## Goal
+Deliver Spec0042 T1/R12 launchd safety with accepted spec tracking, without claiming full audit parity.
+## Instructions
+No real launchd/service/log mutation; fake-controller and temporary HOME tests. PR targets main; no automatic merge, no test/coverage/timeout relaxation. Preserve other live worktrees and safety stashes.
+## Discoveries
+- Bootout or follow-up query failure must preserve the plist and surface failure; unconfirmed unload must never authorize replacement or false CLI success.
+- PR1200 doctor test-only correction was merged externally into main6f481613. Fresh verification uses that base; no copied fix or foreign commit drag.
+## Accomplished
+- T1 code and spec task tracking passed fresh independent review SPEC_OK/QUALITY_OK. Exact full gate exited0; receipt statusok/fresh against main6f481613. Only T1 is marked complete in the accepted twelve-task board.
+- Rebased four audit cuts onto main6f481613 preserving changes; only T1 progress conflicts resolved with both histories retained. Safety autostash and original stash preserved.
+- User approved T2 master fixture and two goldens; correction11/11focusedgreen and fresh Pass1SPEC_OK. T2 owns next serial full gate.
+- T5/T7 source fixes remain ready for fresh gates on integrated base, unpublished. T4 privacy preflight/design clarification/challenge underway, not implemented. T3 availability clarification prepared; T3/T4/T6/T8–T12 remain open.
+## Next Steps
+- Publish this T1 work PR with spec/progress included; do not merge automatically.
+- Finish T2 full gate and publish only with fresh receipt, then verify/publish T5 and T7 serially. Raise concrete T4 helper/tests/mirrors scope after design challenge before any writer.
+- Shared root stays unchanged; feature branches/worktrees with pending work remain preserved, no unsafe parking/deletion.
+## Relevant Files
+- packages/cli/src/lib/audit/launchd.ts — transactional unload/install safety.
+- packages/cli/src/commands/global.ts — truthful uninstall/install failure handling.
+- packages/cli/src/lib/audit/__tests__/launchd.test.ts — injected fake controller tests.
+- packages/cli/src/commands/__tests__/global-collect-{install,uninstall}.test.ts — command regression tests.
+- specs/0042-auditoria-accionable-codex/{requirements,design,tasks}.md — accepted R1–R22 contract and single board, T1 only checked.
+- progress/current.md and progress/history.md — this checkpoint and retained prior measurement context.

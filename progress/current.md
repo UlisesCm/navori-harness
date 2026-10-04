@@ -1,30 +1,28 @@
-# Current — Doctor scenario budgets reviewed, publication pending
+# Current — Spec0042 T1 approved for publication
 
 ## Goal
-Correct doctor JSON scenario budgets without weakening the gate, unblocking Spec0042 audit deliveries.
+Deliver Spec0042 T1/R12 launchd safety with accepted spec tracking, without claiming full audit parity.
 ## Instructions
-Preserve assertions, default 15-second test limit, coverage floor and no skips. PR targets main; no automatic merge or service/log mutation.
+No real launchd/service/log mutation; fake-controller and temporary HOME tests. PR targets main; no automatic merge, no test/coverage/timeout relaxation. Preserve other live worktrees and safety stashes.
 ## Discoveries
-- Codegraph and global-layer tests bundled nine and five synchronous CLI calls under a single per-test budget. Baseline reproduced the timeout.
-- Host saturation caused unrelated and split tests to exceed budgets; focused verification was retried only after measured load fell.
+- Bootout or follow-up query failure must preserve the plist and surface failure; unconfirmed unload must never authorize replacement or false CLI success.
+- PR1200 doctor test-only correction was merged externally into main6f481613. Fresh verification uses that base; no copied fix or foreign commit drag.
 ## Accomplished
-- Split independent codegraph and global-layer fixtures while preserving all original assertions.
-- Fresh focused run passed 16/16 in 65.26 seconds; exact full project gate exited 0. Independent reviewer approved; receipt check status ok/fresh on main51046a00 before publication tracking.
-- Audit T1/T5/T7 source progress remains unpublished; T2 marker contradiction fixed and fresh code review clean, full gate pending. No audit parity/completion claim.
+- T1 code and spec task tracking passed fresh independent review SPEC_OK/QUALITY_OK. Exact full gate exited0; receipt statusok/fresh against main6f481613. Only T1 is marked complete in the accepted twelve-task board.
+- Rebased four audit cuts onto main6f481613 preserving changes; only T1 progress conflicts resolved with both histories retained. Safety autostash and original stash preserved.
+- User approved T2 master fixture and two goldens; correction11/11focusedgreen and fresh Pass1SPEC_OK. T2 owns next serial full gate.
+- T5/T7 source fixes remain ready for fresh gates on integrated base, unpublished. T4 privacy preflight/design clarification/challenge underway, not implemented. T3 availability clarification prepared; T3/T4/T6/T8–T12 remain open.
 ## Next Steps
-- Publish this isolated doctor fix, without merging automatically.
-- Integrate only reviewed changes into audit cuts, run fresh gates, and publish each eligible cut. T3 availability design clarified; T3/T4/T6/T8–T12 remain open.
+- Publish this T1 work PR with spec/progress included; do not merge automatically.
+- Finish T2 full gate and publish only with fresh receipt, then verify/publish T5 and T7 serially. Raise concrete T4 helper/tests/mirrors scope after design challenge before any writer.
+- Shared root stays unchanged; feature branches/worktrees with pending work remain preserved, no unsafe parking/deletion.
 ## Relevant Files
-- packages/cli/src/__tests__/doctor-json-checks.e2e.test.ts — independent fixtures with unchanged assertions and timeout.
-- progress/current.md — next step and audit blockers.
-- progress/history.md — this publication checkpoint.
-
-## Retained prior context
-
-# Current — Release 0.11.2 integration pending
-
-## Release Next Step
-Revisar y validar el candidato `release/0.11.2-main`, abrir PR a main y mergear sin squash tras CI; verificar tag y sincronizar main a dev usando worktrees aislados. npm no está publicado ni autorizado por esta preparación. Plan: `.navori/state/handoffs/workplan_release-main-0112.md`.
+- packages/cli/src/lib/audit/launchd.ts — transactional unload/install safety.
+- packages/cli/src/commands/global.ts — truthful uninstall/install failure handling.
+- packages/cli/src/lib/audit/__tests__/launchd.test.ts — injected fake controller tests.
+- packages/cli/src/commands/__tests__/global-collect-{install,uninstall}.test.ts — command regression tests.
+- specs/0042-auditoria-accionable-codex/{requirements,design,tasks}.md — accepted R1–R22 contract and single board, T1 only checked.
+- progress/current.md and progress/history.md — this checkpoint and retained prior measurement context.
 
 ## Retained measurement context
 
