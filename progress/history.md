@@ -2573,3 +2573,24 @@ Preparar la promoción de dev 0.11.2 a main con historia preservada.
 - progress/current.md — próximo paso de release y contexto T44 conservado.
 - progress/history.md — preparación de la promoción 0.11.2.
 - .navori/state/handoffs/workplan_release-main-0112.json — plan aprobado y criterios A1–A3.
+
+## 2026-10-03 21:55 Codex — doctor scenario budgets ready for publication
+
+## Goal
+Correct doctor JSON scenario budgets without weakening the gate, unblocking Spec0042 audit deliveries.
+## Instructions
+Preserve assertions, default 15-second test limit, coverage floor and no skips. PR targets main; no automatic merge or service/log mutation.
+## Discoveries
+- Codegraph and global-layer tests bundled nine and five synchronous CLI calls under a single per-test budget. Baseline reproduced the timeout.
+- Host saturation caused unrelated and split tests to exceed budgets; focused verification was retried only after measured load fell.
+## Accomplished
+- Split independent codegraph and global-layer fixtures while preserving all original assertions.
+- Fresh focused run passed 16/16 in 65.26 seconds; exact full project gate exited 0. Independent reviewer approved; receipt check status ok/fresh on main51046a00 before publication tracking.
+- Audit T1/T5/T7 source progress remains unpublished; T2 marker contradiction fixed and fresh code review clean, full gate pending. No audit parity/completion claim.
+## Next Steps
+- Publish this isolated doctor fix, without merging automatically.
+- Integrate only reviewed changes into audit cuts, run fresh gates, and publish each eligible cut. T3 availability design clarified; T3/T4/T6/T8–T12 remain open.
+## Relevant Files
+- packages/cli/src/__tests__/doctor-json-checks.e2e.test.ts — independent fixtures with unchanged assertions and timeout.
+- progress/current.md — next step and audit blockers.
+- progress/history.md — this publication checkpoint.
