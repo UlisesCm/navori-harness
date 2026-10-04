@@ -47,10 +47,10 @@ interface RunResult {
   combined: string;
 }
 
-function run(command: string, args: string[]): RunResult {
-  const r = spawnSync("node", [command, ...args], {
+function run(command: string, args: string[], env: NodeJS.ProcessEnv = {}): RunResult {
+  const r = spawnSync(process.execPath, [command, ...args], {
     encoding: "utf-8",
-    env: { ...process.env, HOME: E2E_HOME, NO_COLOR: "1" },
+    env: { ...process.env, HOME: E2E_HOME, NO_COLOR: "1", ...env },
   });
   return {
     status: r.status ?? -1,
@@ -61,7 +61,18 @@ function run(command: string, args: string[]): RunResult {
 }
 
 const runCli = (args: string[]): RunResult => run(CLI, args);
-const runCheck = (repo: string): RunResult => run(CHECK_SCRIPT, ["--cwd", repo]);
+const runCheck = (repo: string, env: NodeJS.ProcessEnv = {}): RunResult =>
+  run(CHECK_SCRIPT, ["--cwd", repo], env);
+
+/** Run fixture Git operations without inheriting a host checkout or index. */
+function fixtureGit(repo: string, args: string[]): void {
+  const env: NodeJS.ProcessEnv = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]: [string, string | undefined]): boolean => !key.startsWith("GIT_"),
+    ),
+  );
+  expect(spawnSync("git", args, { cwd: repo, env, encoding: "utf-8" }).status).toBe(0);
+}
 
 /**
  * Simulate "the core moved, the mirror didn't": rewind the version stamp of the
@@ -84,6 +95,18 @@ function seedRenderedRepo(): string {
   dirs.push(repo);
   const init = runCli(["init", "--recommended", "--cwd", repo]);
   expect(init.status).toBe(0);
+  return repo;
+}
+
+/** Model a clean checkout where ignored local progress has never been created. */
+function seedMissingLocalProgress(): string {
+  const repo: string = seedRenderedRepo();
+  fixtureGit(repo, ["init", "--quiet"]);
+  const ignore: string = join(repo, ".gitignore");
+  writeFileSync(ignore, `${existsSync(ignore) ? readFileSync(ignore, "utf-8") : ""}\n/progress/\n`);
+  for (const path of ["progress/current.md", "progress/history.md"]) {
+    rmSync(join(repo, path), { force: true });
+  }
   return repo;
 }
 
@@ -114,6 +137,80 @@ describe("check-render — harness mirror drift guard (#421)", () => {
     const check = runCheck(repo);
     expect(check.status).toBe(0);
     expect(check.stdout).toContain("up to date");
+  });
+
+  it("permits absent ignored local progress in a clean checkout without creating it", () => {
+    const repo: string = seedMissingLocalProgress();
+    const check: RunResult = runCheck(repo);
+    expect(check.status, check.combined).toBe(0);
+    for (const path of ["progress/current.md", "progress/history.md"]) {
+      expect(existsSync(join(repo, path))).toBe(false);
+    }
+  });
+
+  it("does not exempt absent progress unless Git confirms it is ignored", () => {
+    const repo: string = seedMissingLocalProgress();
+    writeFileSync(join(repo, ".gitignore"), "");
+    const check: RunResult = runCheck(repo);
+    expect(check.status).toBe(1);
+    expect(check.combined).toContain("progress/current.md");
+  });
+
+  it("does not exempt tracked-but-missing progress even when an ignore rule matches", () => {
+    const repo: string = seedMissingLocalProgress();
+    const path: string = join(repo, "progress/current.md");
+    writeFileSync(path, "fixture local state\n");
+    fixtureGit(repo, ["add", "--force", "--", "progress/current.md"]);
+    rmSync(path);
+    const check: RunResult = runCheck(repo);
+    expect(check.status).toBe(1);
+    expect(check.combined).toContain("progress/current.md");
+  });
+
+  it("fails closed for ignored absent progress outside a Git repository", () => {
+    const repo: string = seedMissingLocalProgress();
+    rmSync(join(repo, ".git"), { recursive: true });
+    expect(runCheck(repo).status).toBe(1);
+  });
+
+  it("fails closed when the Git verification command cannot run", () => {
+    const repo: string = seedMissingLocalProgress();
+    const check: RunResult = runCheck(repo, { PATH: "" });
+    expect(check.status).toBe(1);
+    expect(check.combined).toContain("progress/current.md");
+  });
+
+  it("ignores inherited Git checkout overrides when confirming local progress", () => {
+    const repo: string = seedMissingLocalProgress();
+    expect(
+      runCheck(repo, { GIT_DIR: join(repo, "missing-git-dir"), GIT_INDEX_FILE: "/missing-index" })
+        .status,
+    ).toBe(0);
+  });
+
+  it("still rejects an ignored stale hook alongside ignored absent progress", () => {
+    const repo: string = seedMissingLocalProgress();
+    const ignore: string = join(repo, ".gitignore");
+    writeFileSync(ignore, `${readFileSync(ignore, "utf-8")}\n/.claude/hooks/\n`);
+    const hook: string = join(repo, ".claude/hooks/guard-destructive.sh");
+    rewindVersionStamp(hook);
+    const before: string = readFileSync(hook, "utf-8");
+    const check: RunResult = runCheck(repo);
+    expect(check.status).toBe(1);
+    expect(check.combined).toContain(".claude/hooks/guard-destructive.sh");
+    expect(readFileSync(hook, "utf-8")).toBe(before);
+  });
+
+  it("does not exempt another ignored file that render would create", () => {
+    const repo: string = seedMissingLocalProgress();
+    const ignore: string = join(repo, ".gitignore");
+    writeFileSync(ignore, `${readFileSync(ignore, "utf-8")}\n/.claude/hooks/\n`);
+    const hook: string = join(repo, ".claude/hooks/guard-destructive.sh");
+    rmSync(hook);
+    const check: RunResult = runCheck(repo);
+    expect(check.status).toBe(1);
+    expect(check.combined).toContain(".claude/hooks/guard-destructive.sh");
+    expect(existsSync(hook)).toBe(false);
   });
 
   it("exits non-zero when a rendered hook is a release behind the core", () => {
