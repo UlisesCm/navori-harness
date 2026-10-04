@@ -5,8 +5,47 @@ import { tmpdir } from "node:os";
 import { buildReport, renderMarkdown } from "../report.ts";
 import { parseCodexSession, parseSession } from "../parse.ts";
 import type { HarnessCatalog } from "../harness.ts";
-import { agent, session } from "./lifecycle-fixtures.ts";
-import type { HookEvent } from "../model.ts";
+import { agent as unmeasuredAgent, session as unmeasuredSession } from "./lifecycle-fixtures.ts";
+import type { AgentRun, SessionAudit, MetricEvidence, HookEvent } from "../model.ts";
+
+// These report fixtures intentionally supply measured counters, including explicit zeros.
+// Parser-created sessions below keep their real source evidence instead of inheriting this fixture.
+const transcriptEvidence: MetricEvidence = {
+  state: "observed",
+  reason: null,
+  source: "transcript",
+  adapter: "claude-transcript",
+  sourceVersion: null,
+};
+const hookEvidence: MetricEvidence = {
+  ...transcriptEvidence,
+  source: "audit-log",
+  adapter: "audit-log",
+};
+const measuredAvailability: Record<string, MetricEvidence> = Object.fromEntries(
+  [
+    "tools",
+    "contextPeak",
+    "startupTokens",
+    "durationMs",
+    "tokens.input",
+    "tokens.output",
+    "tokens.cacheRead",
+    "tokens.cacheCreation",
+    "tokens.thinking",
+  ].map((key) => [key, transcriptEvidence]),
+);
+measuredAvailability.hooks = hookEvidence;
+
+/** Build an explicitly measured Claude report fixture, not a parser fallback. */
+function session(over: Partial<SessionAudit> = {}): SessionAudit {
+  return unmeasuredSession({ availability: { ...measuredAvailability }, ...over });
+}
+
+/** Each synthesized child supplies the same explicit measured fixture provenance. */
+function agent(over: Partial<AgentRun> = {}): AgentRun {
+  return unmeasuredAgent({ availability: { ...measuredAvailability }, ...over });
+}
 
 const CATALOG: HarnessCatalog = {
   agents: [
@@ -30,7 +69,16 @@ function writeLines(dir: string, name: string, lines: unknown[]): string {
   return file;
 }
 
-describe("range metrics: published flat under schemaVersion 10", () => {
+describe("range metrics: published flat under schemaVersion 11", () => {
+  // Covers: R6
+  it("keeps unmeasured legacy fixture counters distinct from explicitly measured zeros", () => {
+    const unavailable = report([unmeasuredSession()]);
+    const observedZero = report([session()]);
+    expect(unavailable.rangeMetrics["hooks.ms"]).toBeNull();
+    expect(unavailable.rangeMetrics["edits.calls"]).toBeNull();
+    expect(observedZero.rangeMetrics["hooks.ms"]).toBe(0);
+    expect(observedZero.rangeMetrics["edits.calls"]).toBe(0);
+  });
   // Covers: R15
   it("separates hook work from concurrent observable toll and sequential phases", () => {
     const event = (name: string, phase: string, ms: number, toolUseId = "call-1"): HookEvent => ({
@@ -63,7 +111,14 @@ describe("range metrics: published flat under schemaVersion 10", () => {
 
   // Covers: R15
   it("marks uncorrelated hook toll and Codex nested calls unavailable", () => {
-    const codex = session({ host: "codex", unavailable: "transcript" });
+    const codex = session({
+      host: "codex",
+      unavailable: "transcript",
+      availability: {
+        hooks: hookEvidence,
+        tools: { ...transcriptEvidence, source: "rollout", adapter: "codex-rollout" },
+      },
+    });
     codex.orchestrator.hookEvents = [
       {
         ts: "2026-09-30T10:00:00Z",
@@ -128,7 +183,7 @@ describe("range metrics: published flat under schemaVersion 10", () => {
         ],
       }),
     ]);
-    expect(r.schemaVersion).toBe(10);
+    expect(r.schemaVersion).toBe(11);
     expect(r.rangeMetrics["agent.implementer.turns.p50"]).toBe(20);
     expect(r.rangeMetrics["agent.implementer.turns.p90"]).toBe(50);
     expect(r.rangeMetrics["agent.implementer.turnLimitHits"]).toBe(1);
@@ -304,6 +359,8 @@ describe("codex sessions (R71)", () => {
     expect(r.totals.byAgentType["main-thread"]?.sessions).toBe(1);
     expect(r.rangeMetrics["agent.main-thread.turns.p50"]).toBe(4);
     expect(renderMarkdown(r, "en")).toContain("Codex session");
+    expect(renderMarkdown(r, "es")).toContain("Sesión Codex");
+    expect(codex?.availability?.tools?.state).not.toBe("observed");
   });
 
   // Covers: R71

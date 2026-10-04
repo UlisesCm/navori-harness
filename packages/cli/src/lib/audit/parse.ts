@@ -13,6 +13,8 @@ import {
   type SkillUse,
   type TokenTotals,
   type ToolErrors,
+  type MetricEvidence,
+  type SourceHealth,
   AUTOMATIC_PERMISSION_SOURCES,
   HUMAN_PERMISSION_SOURCES,
   addTokens,
@@ -123,6 +125,276 @@ interface ParsedLines {
   lines: Rec[];
   parseErrors: number;
   linesRead: number;
+  health: SourceHealth;
+}
+
+/** Normalize trusted timestamps before chronological comparisons. */
+function utc(value: unknown): string | null {
+  const ms = typeof value === "string" ? Date.parse(value) : NaN;
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
+/** A timestamp must fit the Date range; finite milliseconds alone are not valid. */
+function recordTime(rec: Rec): string | null {
+  if (rec.timestamp !== undefined || rec.ts !== undefined) return utc(rec.timestamp ?? rec.ts);
+  if (typeof rec.tsMs !== "number" || !Number.isFinite(rec.tsMs)) return null;
+  const date = new Date(rec.tsMs);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+/** Recognize supported block shapes without retaining or interpreting their content. */
+function validTranscriptBlock(block: unknown): boolean {
+  if (!isRec(block)) return false;
+  switch (block.type) {
+    case "text":
+      return typeof block.text === "string";
+    case "thinking":
+      return typeof block.thinking === "string";
+    case "redacted_thinking":
+      return typeof block.data === "string";
+    case "tool_use":
+      return (
+        typeof block.name === "string" &&
+        block.name.trim().length > 0 &&
+        (block.id === undefined || typeof block.id === "string") &&
+        (block.input === undefined || isRec(block.input))
+      );
+    case "tool_result":
+      return (
+        (block.tool_use_id === undefined || typeof block.tool_use_id === "string") &&
+        (block.is_error === undefined || typeof block.is_error === "boolean") &&
+        (block.content === undefined || validTranscriptContent(block.content))
+      );
+    case "image": {
+      const source = block.source;
+      return (
+        isRec(source) &&
+        ((source.type === "base64" &&
+          typeof source.media_type === "string" &&
+          typeof source.data === "string") ||
+          (source.type === "url" && typeof source.url === "string"))
+      );
+    }
+    default:
+      return false;
+  }
+}
+
+/** An array container is not evidence unless every measurement-bearing block is recognized. */
+function validTranscriptContent(content: unknown): boolean {
+  return (
+    typeof content === "string" || (Array.isArray(content) && content.every(validTranscriptBlock))
+  );
+}
+
+/** Validate adapter record and supported block semantics without retaining content. */
+function validSourceRecord(rec: Rec, source: SourceHealth["source"]): boolean {
+  // Timestamp validity qualifies source health, not retention of hook facts.
+  if (source === "transcript")
+    return (
+      typeof rec.type === "string" &&
+      [
+        "user",
+        "assistant",
+        "system",
+        "summary",
+        "attachment",
+        "permission-mode",
+        "pr-link",
+        "queue-operation",
+        "file-history-snapshot",
+        "progress",
+        "last-prompt",
+      ].includes(rec.type) &&
+      (rec.message === undefined ||
+        (isRec(rec.message) &&
+          (rec.message.content === undefined || validTranscriptContent(rec.message.content))))
+    );
+  if (source === "rollout")
+    return (
+      ["session_meta", "event_msg", "response_item", "turn_context"].includes(String(rec.type)) &&
+      isRec(rec.payload)
+    );
+  if (rec.event === "hook")
+    return (
+      typeof rec.name === "string" &&
+      typeof rec.phase === "string" &&
+      typeof rec.verdict === "string" &&
+      typeof rec.ms === "number" &&
+      Number.isFinite(rec.ms) &&
+      rec.ms >= 0
+    );
+  if (rec.event === "tool_decision") return typeof rec.source === "string";
+  if (rec.event === "tool_result")
+    return typeof rec.tool === "string" || typeof rec.errorType === "string";
+  if (rec.event === "api_request")
+    return typeof rec.model === "string" || typeof rec.skill === "string";
+  if (rec.event === "cli")
+    return (
+      typeof rec.name === "string" &&
+      typeof rec.verdict === "string" &&
+      typeof rec.tsMs === "number"
+    );
+  return ["start", "stop", "session-end", "prompt", "otel-start"].includes(String(rec.event));
+}
+
+/** Reads source health without leaking malformed records or exception text. */
+function sourceHealth(
+  raw: string,
+  source: SourceHealth["source"],
+  adapter: SourceHealth["adapter"],
+): SourceHealth {
+  const rows = raw.split("\n");
+  let records = 0;
+  let validRecords = 0;
+  let parseErrors = 0;
+  let incompleteTail = false;
+  let unrecognizedRecords = 0;
+  const stamps: string[] = [];
+  for (const [index, line] of rows.entries()) {
+    if (!line.trim()) continue;
+    records++;
+    try {
+      const rec: unknown = JSON.parse(line);
+      if (
+        !isRec(rec) ||
+        (source !== "transcript" && !validSourceRecord(rec, source)) ||
+        ((rec.timestamp ?? rec.ts) !== undefined && utc(rec.timestamp ?? rec.ts) === null) ||
+        (rec.tsMs !== undefined &&
+          (typeof rec.tsMs !== "number" || !Number.isFinite(new Date(rec.tsMs).getTime()))) ||
+        ((source === "audit-log" || source === "otlp") && recordTime(rec) === null)
+      ) {
+        parseErrors++;
+        continue;
+      }
+      // Retain forward-compatible history, but it cannot certify measurement completeness.
+      if (source === "transcript" && !validSourceRecord(rec, source)) {
+        unrecognizedRecords++;
+        continue;
+      }
+      validRecords++;
+      const ts = recordTime(rec);
+      if (ts) stamps.push(ts);
+    } catch {
+      if (index === rows.length - 1 && !raw.endsWith("\n")) incompleteTail = true;
+      else parseErrors++;
+    }
+  }
+  stamps.sort();
+  return {
+    source,
+    adapter,
+    sourceVersion: null,
+    records,
+    validRecords,
+    parseErrors,
+    incompleteTail,
+    from: stamps[0] ?? null,
+    to: stamps.at(-1) ?? null,
+    state:
+      validRecords === 0
+        ? records === 0 || (unrecognizedRecords > 0 && !parseErrors && !incompleteTail)
+          ? "unavailable"
+          : "invalid"
+        : parseErrors || incompleteTail || unrecognizedRecords
+          ? "partial"
+          : "observed",
+    reason:
+      validRecords === 0
+        ? unrecognizedRecords > 0 && !parseErrors && !incompleteTail
+          ? "incomplete-enumeration"
+          : records === 0
+            ? "not-observed"
+            : "malformed"
+        : incompleteTail
+          ? "live-tail"
+          : parseErrors
+            ? "malformed"
+            : unrecognizedRecords
+              ? "incomplete-enumeration"
+              : null,
+  };
+}
+
+/** Absence is diagnostic, not a parse error or a measured zero. */
+function absentSource(
+  source: SourceHealth["source"],
+  adapter: SourceHealth["adapter"],
+  reason: "missing" | "unreadable",
+): SourceHealth {
+  return {
+    state: "unavailable",
+    reason,
+    source,
+    adapter,
+    sourceVersion: null,
+    records: 0,
+    validRecords: 0,
+    parseErrors: 0,
+    incompleteTail: false,
+    from: null,
+    to: null,
+  };
+}
+
+/** Per-component usage evidence; absent and invalid fields cannot become zero. */
+function usageEvidence(lines: Rec[], health: SourceHealth): Record<string, MetricEvidence> {
+  const keys = {
+    input: "input_tokens",
+    output: "output_tokens",
+    cacheRead: "cache_read_input_tokens",
+    cacheCreation: "cache_creation_input_tokens",
+    thinking: "thinking_tokens",
+  };
+  const rows = lines.filter((l) => str(l.type) === "assistant");
+  const out: Record<string, MetricEvidence> = {};
+  for (const [key, field] of Object.entries(keys)) {
+    const values = rows.map((l) =>
+      key === "thinking"
+        ? path(l, "message", "usage", "output_tokens_details", field)
+        : path(l, "message", "usage", field),
+    );
+    const invalid = values.some(
+      (v) => v !== undefined && (typeof v !== "number" || !Number.isFinite(v) || v < 0),
+    );
+    const observed = values.filter(
+      (v) => typeof v === "number" && Number.isFinite(v) && v >= 0,
+    ).length;
+    out[`tokens.${key}`] = {
+      ...health,
+      state: invalid
+        ? "invalid"
+        : observed === 0
+          ? "unavailable"
+          : observed < rows.length || health.state !== "observed"
+            ? "partial"
+            : "observed",
+      reason: invalid
+        ? "malformed"
+        : observed === 0
+          ? "not-observed"
+          : observed < rows.length
+            ? "not-observed"
+            : health.reason,
+    };
+  }
+  const startup = path(rows[0] ?? {}, "message", "usage", "cache_creation_input_tokens");
+  out.startupTokens = {
+    ...health,
+    state:
+      startup === undefined
+        ? "unavailable"
+        : typeof startup !== "number" || !Number.isFinite(startup) || startup < 0
+          ? "invalid"
+          : health.state,
+    reason:
+      startup === undefined
+        ? "not-observed"
+        : typeof startup !== "number" || !Number.isFinite(startup) || startup < 0
+          ? "malformed"
+          : health.reason,
+  };
+  return out;
 }
 
 /** Reads a JSONL file, counting rather than throwing on malformed lines. */
@@ -131,7 +403,16 @@ export function readJsonl(file: string): ParsedLines {
   try {
     raw = readFileSync(file, "utf-8");
   } catch {
-    return { lines: [], parseErrors: 0, linesRead: 0 };
+    return {
+      lines: [],
+      parseErrors: 0,
+      linesRead: 0,
+      health: absentSource(
+        "transcript",
+        "claude-transcript",
+        existsSync(file) ? "unreadable" : "missing",
+      ),
+    };
   }
   const lines: Rec[] = [];
   let parseErrors = 0;
@@ -147,7 +428,8 @@ export function readJsonl(file: string): ParsedLines {
       parseErrors++;
     }
   }
-  return { lines, parseErrors, linesRead };
+  const health = sourceHealth(raw, "transcript", "claude-transcript");
+  return { lines, parseErrors: health.parseErrors, linesRead, health };
 }
 
 /**
@@ -1116,7 +1398,7 @@ function timestamps(lines: Rec[]): { first: string; last: string } {
   let first = "";
   let last = "";
   for (const l of lines) {
-    const t = str(l.timestamp);
+    const t = utc(l.timestamp);
     if (!t) continue;
     if (!first || t < first) first = t;
     if (!last || t > last) last = t;
@@ -1132,7 +1414,7 @@ function durationMs(first: string, last: string): number {
 
 /** Parses one subagent transcript plus its sidecar meta.json. */
 export function parseAgentRun(jsonlFile: string): AgentRun | null {
-  const { lines } = readJsonl(jsonlFile);
+  const { lines, health } = readJsonl(jsonlFile);
   if (lines.length === 0) return null;
 
   const agentId =
@@ -1171,6 +1453,15 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
   const facts = toolResultFacts(lines, uses);
   return {
     agentId,
+    availability: {
+      ...usageEvidence(lines, health),
+      tools: health,
+      durationMs: {
+        ...health,
+        state: first && last && first !== last ? "partial" : "unavailable",
+        reason: first && last && first !== last ? "ownership-unknown" : "not-observed",
+      },
+    },
     agentType,
     model: model ?? null,
     description,
@@ -1220,6 +1511,7 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
  */
 function readCodexRollout(
   rolloutFile: string | null | undefined,
+  sessionId: string,
 ): NonNullable<SessionAudit["rollout"]> {
   if (!rolloutFile) return { status: "unavailable", reason: "missing" };
   let raw: string;
@@ -1237,7 +1529,9 @@ function readCodexRollout(
     firstTs: null,
     lastTs: null,
     parseErrors: 0,
+    health: sourceHealth(raw, "rollout", "codex-rollout"),
   };
+  const ownStamps: string[] = [];
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
     let rec: unknown;
@@ -1251,7 +1545,7 @@ function readCodexRollout(
       facts.parseErrors++;
       continue;
     }
-    const ts = str(rec.timestamp);
+    const ts = utc(rec.timestamp);
     if (ts) {
       if (facts.firstTs === null || ts < facts.firstTs) facts.firstTs = ts;
       if (facts.lastTs === null || ts > facts.lastTs) facts.lastTs = ts;
@@ -1274,10 +1568,21 @@ function readCodexRollout(
       const name = str(payload.name);
       if (name) facts.toolCalls[name] = (facts.toolCalls[name] ?? 0) + 1;
     }
+    if (
+      ts &&
+      ((type === "session_meta" && (payload.id ?? payload.session_id) === sessionId) ||
+        (payload.thread_id ?? payload.session_id) === sessionId)
+    )
+      ownStamps.push(ts);
   }
   // A file with lines but nothing parseable is not a rollout we can speak for.
-  if (facts.parseErrors > 0 && facts.firstTs === null)
-    return { status: "unavailable", reason: "unreadable" };
+  facts.parseErrors = facts.health?.parseErrors ?? facts.parseErrors;
+  if (facts.health?.state === "invalid")
+    return { status: "unavailable", reason: "unreadable", health: facts.health };
+  ownStamps.sort();
+  if (ownStamps[0] && ownStamps.at(-1))
+    facts.ownWindow = { from: ownStamps[0], to: ownStamps.at(-1)! };
+  if (facts.health) facts.health.sourceVersion = facts.cliVersion;
   return facts;
 }
 
@@ -1358,24 +1663,74 @@ export function parseCodexSession(
     hostSkills: [],
     host: "codex",
     unavailable: "transcript",
-    rollout: readCodexRollout(rolloutFile),
+    rollout: readCodexRollout(rolloutFile, sessionId),
     parseErrors: 0,
     linesRead: 0,
   };
   attachHookEvents(session, logFile);
   // Codex payloads carry no agent id on tool phases, so every event landed on the
   // orchestrator; the window is the log's own first and last instant.
-  const stamps = session.orchestrator.hookEvents.map((e) => e.ts).filter(Boolean);
-  const last = stamps.reduce((a, b) => (b > a ? b : a), startedAt);
-  session.endedAt = last;
-  session.wallClockMs = durationMs(startedAt, last);
   if (session.rollout?.status === "parsed") {
+    if (
+      session.rollout.ownWindow &&
+      session.rollout.ownWindow.from !== session.rollout.ownWindow.to
+    ) {
+      const bounds = [
+        session.startedAt,
+        session.endedAt,
+        session.rollout.ownWindow.from,
+        session.rollout.ownWindow.to,
+      ]
+        .filter((ts) => utc(ts) !== null)
+        .map((ts) => utc(ts)!)
+        .sort();
+      session.startedAt = bounds[0]!;
+      session.endedAt = bounds.at(-1)!;
+      session.wallClockMs = durationMs(session.startedAt, session.endedAt);
+      session.availability = {
+        ...session.availability,
+        wallClockMs: {
+          state: "partial",
+          reason: "unsealed",
+          source: "rollout",
+          adapter: "codex-rollout",
+          sourceVersion: session.rollout.cliVersion,
+        },
+      };
+    }
     // Only counts the rollout states outright; tokens and context stay
     // unavailable (the rollout's usage records are not mapped onto the model).
     session.orchestrator.turns = session.rollout.turns;
     session.orchestrator.toolCounts = { ...session.rollout.toolCalls };
     session.orchestrator.models = { ...session.rollout.models };
+    if (session.rollout.health?.state === "observed")
+      session.rollout.health = {
+        ...session.rollout.health,
+        state: "partial",
+        reason: "ownership-unknown",
+      };
   }
+  const rolloutHealth =
+    session.rollout?.health ??
+    absentSource(
+      "rollout",
+      "codex-rollout",
+      session.rollout?.status === "unavailable" ? session.rollout.reason : "missing",
+    );
+  session.sources = { ...session.sources, rollout: rolloutHealth };
+  session.parseErrors += rolloutHealth?.parseErrors ?? 0;
+  session.linesRead += rolloutHealth?.records ?? 0;
+  session.availability ??= {};
+  for (const key of Object.keys(emptyTokens()))
+    session.availability[`tokens.${key}`] = {
+      state: "unsupported",
+      reason: "unsupported-component",
+      source: "rollout",
+      adapter: "codex-rollout",
+      sourceVersion: session.rollout?.status === "parsed" ? session.rollout.cliVersion : null,
+    };
+  session.availability.tools = rolloutHealth ?? absentSource("rollout", "codex-rollout", "missing");
+  session.availability.startupTokens = { ...session.availability["tokens.cacheCreation"]! };
   return session;
 }
 
@@ -1392,15 +1747,23 @@ export function markOverlaps(agents: AgentRun[]): void {
 
 /** Parses a full session: the orchestrator transcript plus every subagent. */
 export function parseSession(mainJsonl: string): SessionAudit {
-  const { lines, parseErrors, linesRead } = readJsonl(mainJsonl);
+  const { lines, parseErrors, linesRead, health } = readJsonl(mainJsonl);
   const sessionId =
     str(lines.find((l) => str(l.sessionId))?.sessionId) ??
     basename(mainJsonl).replace(/\.jsonl$/, "");
 
-  const { first, last } = timestamps(lines);
+  const { first, last } = timestamps(
+    lines.filter(
+      (line) =>
+        line.sessionId === sessionId &&
+        line.isSidechain !== true &&
+        validSourceRecord(line, "transcript"),
+    ),
+  );
   const uses = toolUses(lines);
 
   const ccVersions = [...new Set(lines.map((l) => str(l.version)).filter((v): v is string => !!v))];
+  health.sourceVersion = ccVersions[0] ?? null;
 
   const permissionModes: Record<string, number> = {};
   for (const l of lines) {
@@ -1551,6 +1914,18 @@ export function parseSession(mainJsonl: string): SessionAudit {
     ],
     parseErrors,
     linesRead,
+    sources: { transcript: health },
+    availability: {
+      ...usageEvidence(lines, health),
+      tools: health,
+      wallClockMs: {
+        ...health,
+        state: first && last && first !== last ? "partial" : "unavailable",
+        reason: first && last && first !== last ? "unsealed" : "not-observed",
+      },
+      activeMs: { ...health, state: "unavailable", reason: "not-observed" },
+    },
+    activeMs: null,
   };
 }
 
@@ -1568,9 +1943,84 @@ export function parseSession(mainJsonl: string): SessionAudit {
  * windows make more than one run a candidate, and the event goes to the
  * orchestrator rather than to an arbitrary winner.
  */
-export function attachHookEvents(session: SessionAudit, logFile: string): void {
-  if (!existsSync(logFile)) return;
+function pairedActiveIntervals(
+  records: readonly Rec[],
+  session: SessionAudit,
+  health: SourceHealth,
+): { value: number | null; evidence: MetricEvidence } {
+  const header = records.find((rec) => rec.event === "start");
+  const scoped = header?.sessionId === session.sessionId;
+  const groups = new Map<string, { starts: number[]; ends: number[] }>();
+  let excluded = false;
+  for (const rec of records) {
+    if (
+      rec.event !== "hook" ||
+      !["PreToolUse", "PostToolUse", "PostToolUseFailure"].includes(String(rec.phase))
+    )
+      continue;
+    const stamp = recordTime(rec);
+    const at = stamp === null ? NaN : Date.parse(stamp);
+    const own = rec.sessionId === session.sessionId || (scoped && rec.sessionId === undefined);
+    const owner =
+      rec.agentId === ORCHESTRATOR_OWNER || rec.agentId === undefined
+        ? "root"
+        : String(rec.agentId);
+    if (
+      !own ||
+      (owner !== "root" && !session.agents.some((a) => a.agentId === owner)) ||
+      typeof rec.toolUseId !== "string" ||
+      !Number.isFinite(at)
+    ) {
+      excluded = true;
+      continue;
+    }
+    const key = `${owner}:${rec.toolUseId}`;
+    const group = groups.get(key) ?? { starts: [], ends: [] };
+    (rec.phase === "PreToolUse" ? group.starts : group.ends).push(at);
+    groups.set(key, group);
+  }
+  const intervals: Array<[number, number]> = [];
+  for (const group of groups.values()) {
+    const start = Math.max(...group.starts);
+    const end = Math.min(...group.ends);
+    if (!group.starts.length || !group.ends.length || end < start) {
+      excluded = true;
+      continue;
+    }
+    intervals.push([start, end]);
+  }
+  intervals.sort(([a], [b]) => a - b);
+  let sum = 0;
+  let from: number | null = null;
+  let to = 0;
+  for (const [start, end] of intervals) {
+    if (from === null) {
+      from = start;
+      to = end;
+    } else if (start <= to) to = Math.max(to, end);
+    else {
+      sum += to - from;
+      from = start;
+      to = end;
+    }
+  }
+  if (from !== null) sum += to - from;
+  return {
+    value: intervals.length ? sum : null,
+    evidence: {
+      ...health,
+      state: intervals.length
+        ? excluded || health.state !== "observed"
+          ? "partial"
+          : "observed"
+        : "unavailable",
+      reason: intervals.length ? (excluded ? "not-observed" : health.reason) : "not-observed",
+    },
+  };
+}
 
+/** Attach source-qualified hooks without inventing missing execution intervals. */
+export function attachHookEvents(session: SessionAudit, logFile: string): void {
   const events: HookEvent[] = [];
   /** `api_request` skills, held until the loop ends: attribution needs the cards. */
   const hostSkills: Array<{ skill: string; agent: string | null }> = [];
@@ -1578,8 +2028,98 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
   try {
     raw = readFileSync(logFile, "utf-8");
   } catch {
+    const missing = absentSource(
+      "audit-log",
+      "audit-log",
+      existsSync(logFile) ? "unreadable" : "missing",
+    );
+    session.sources = {
+      ...session.sources,
+      "audit-log": missing,
+      otlp: absentSource("otlp", "otlp", "missing"),
+    };
+    session.availability = {
+      ...session.availability,
+      hooks: missing,
+      permissions: absentSource("otlp", "otlp", "missing"),
+      activeMs: missing,
+    };
+    session.activeMs = null;
     return;
   }
+
+  const otlpLines: string[] = [];
+  const hookLines: string[] = [];
+  for (const line of raw.split("\n")) {
+    try {
+      const rec: unknown = JSON.parse(line);
+      (isRec(rec) &&
+      ["otel-start", "tool_decision", "tool_result", "api_request"].includes(String(rec.event))
+        ? otlpLines
+        : hookLines
+      ).push(line);
+    } catch {
+      hookLines.push(line);
+    }
+  }
+  const health = sourceHealth(
+    hookLines.join("\n") + (raw.endsWith("\n") ? "\n" : ""),
+    "audit-log",
+    "audit-log",
+  );
+  session.sources = { ...session.sources, "audit-log": health };
+  session.availability = { ...session.availability, hooks: health };
+  const records = raw.split("\n").flatMap((line): Rec[] => {
+    try {
+      const rec: unknown = JSON.parse(line);
+      return isRec(rec) && validSourceRecord(rec, "audit-log") ? [rec] : [];
+    } catch {
+      return [];
+    }
+  });
+  // Historical records without IDs inherit this session's scoped log, never an explicit child.
+  const isRootRecord = (rec: Rec): boolean =>
+    (rec.sessionId === undefined || rec.sessionId === session.sessionId) &&
+    (rec.agentId === undefined || rec.agentId === ORCHESTRATOR_OWNER);
+  const otlp = otlpLines.length
+    ? sourceHealth(otlpLines.join("\n") + (raw.endsWith("\n") ? "\n" : ""), "otlp", "otlp")
+    : absentSource("otlp", "otlp", "missing");
+  session.parseErrors += health.parseErrors + otlp.parseErrors;
+  session.linesRead += health.records + otlp.records;
+  session.sources.otlp = otlp;
+  session.availability.permissions = otlp;
+  const ownStamps = raw.split("\n").flatMap((line): string[] => {
+    try {
+      const rec: unknown = JSON.parse(line);
+      if (!isRec(rec) || !validSourceRecord(rec, "audit-log") || !isRootRecord(rec)) return [];
+      if (!["start", "stop", "session-end", "prompt", "hook"].includes(String(rec.event)))
+        return [];
+      const ts = recordTime(rec);
+      return ts ? [ts] : [];
+    } catch {
+      return [];
+    }
+  });
+  const trustedPrior = ["observed", "partial"].includes(
+    session.availability.wallClockMs?.state ?? "",
+  )
+    ? [utc(session.startedAt), utc(session.endedAt)]
+    : [];
+  const bounds = [...trustedPrior, ...ownStamps].filter((v): v is string => v !== null).sort();
+  if (bounds.length) {
+    session.startedAt = bounds[0]!;
+    session.endedAt = bounds.at(-1)!;
+    session.wallClockMs = durationMs(session.startedAt, session.endedAt);
+  }
+  const active = pairedActiveIntervals(records, session, health);
+  session.activeMs = active.value;
+  session.availability.wallClockMs = {
+    ...health,
+    state: bounds.length > 1 && session.startedAt !== session.endedAt ? "partial" : "unavailable",
+    reason:
+      bounds.length > 1 && session.startedAt !== session.endedAt ? "unsealed" : "not-observed",
+  };
+  session.availability.activeMs = active.evidence;
 
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
@@ -1588,16 +2128,17 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
       const parsed: unknown = JSON.parse(line);
       if (!isRec(parsed)) continue;
       rec = parsed;
+      if (!validSourceRecord(rec, "audit-log")) continue;
     } catch {
       // A malformed line is counted, never thrown on: the log is append-only
       // and a crashed session leaves a valid, merely shorter file.
-      session.parseErrors++;
       continue;
     }
     // The `start` record is written once, by `audit --start`, before any hook
     // has run. It carries the only statement of which navori marked and shaped
     // this session; a log from before the field existed simply leaves it null.
     if (str(rec.event) === "start") {
+      if (!isRootRecord(rec)) continue;
       session.navori = {
         rendered: str(rec.navoriRendered),
         cli: str(rec.navoriCli),
@@ -1611,6 +2152,7 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
     // fields, which reads as "nothing moved" — the same conclusion the reader
     // would draw from their absence.
     if (str(rec.event) === "stop") {
+      if (!isRootRecord(rec)) continue;
       session.sealed = true;
       const rendered = str(rec.navoriRendered);
       const cli = str(rec.navoriCli);
@@ -1632,6 +2174,7 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
     // Both records can land in one log, in either order; the seal is a latch,
     // so taking both is idempotent.
     if (str(rec.event) === "session-end") {
+      if (!isRootRecord(rec)) continue;
       session.sealed = true;
       session.endReason = str(rec.reason);
       continue;
@@ -1701,7 +2244,10 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
       continue;
     }
 
-    const tsMs = typeof rec.tsMs === "number" && Number.isFinite(rec.tsMs) ? rec.tsMs : null;
+    const tsMs =
+      typeof rec.tsMs === "number" && Number.isFinite(new Date(rec.tsMs).getTime())
+        ? rec.tsMs
+        : null;
     const event: HookEvent = {
       // Derived when the writer sent none (#696): the hook stopped forking
       // `date` for a string `tsMs` already contains. Records written before
@@ -1733,6 +2279,31 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
     const owner = ownerOf(event, session);
     owner.push(event);
   }
+  for (const agent of session.agents) agent.availability = { ...agent.availability, hooks: health };
+  if (
+    session.sealed &&
+    session.availability?.wallClockMs?.state === "partial" &&
+    health.state === "observed" &&
+    records.some(
+      (rec) =>
+        rec.event === "start" &&
+        isRootRecord(rec) &&
+        rec.sessionId === session.sessionId &&
+        recordTime(rec) === session.startedAt,
+    ) &&
+    records.some(
+      (rec) =>
+        ["stop", "session-end"].includes(String(rec.event)) &&
+        isRootRecord(rec) &&
+        (rec.sessionId === session.sessionId ||
+          (rec.sessionId === undefined &&
+            records.some(
+              (r) => r.event === "start" && isRootRecord(r) && r.sessionId === session.sessionId,
+            ))) &&
+        recordTime(rec) === session.endedAt,
+    )
+  )
+    session.availability.wallClockMs = { ...health, state: "observed", reason: null };
 
   // The recorder's horizon. Taken as a MINIMUM rather than the first line
   // because the log is appended to by hooks of parallel agents, and two writes

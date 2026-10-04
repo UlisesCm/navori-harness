@@ -1116,13 +1116,29 @@ export function detectSignals(
   catalog: HarnessCatalog,
   lang: Lang,
 ): Signal[] {
+  if (session.availability && session.availability.tools?.state !== "observed")
+    return [...recorderCoverage(session, lang), ...abandonedQualityGates(session, lang)];
+  const measuredUsage =
+    !session.availability ||
+    [session.availability, ...session.agents.map((a) => a.availability ?? {})].every((evidence) =>
+      [
+        "tokens.input",
+        "tokens.output",
+        "tokens.cacheRead",
+        "tokens.cacheCreation",
+        "startupTokens",
+      ].every((key) => evidence[key]?.state === "observed"),
+    );
   const order = { high: 0, warn: 1, info: 2 } as const;
   return [
-    ...unreachableInstructions(session, catalog, lang),
-    ...startupOverhead(session, catalog, lang),
+    ...(measuredUsage ? unreachableInstructions(session, catalog, lang) : []),
+    ...(measuredUsage ? startupOverhead(session, catalog, lang) : []),
     ...rework(session, lang),
-    ...reviewCycles(session, lang),
-    ...serialFanout(session, lang),
+    ...(measuredUsage ? reviewCycles(session, lang) : []),
+    ...(!session.availability ||
+    session.agents.every((a) => a.availability?.durationMs?.state === "observed")
+      ? serialFanout(session, lang)
+      : []),
     ...friction(session, lang),
     ...toolErrorRate(session, lang),
     ...deadCatalog(session, catalog, lang),

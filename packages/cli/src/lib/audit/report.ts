@@ -9,6 +9,10 @@ import {
   type SkillSource,
   type SkillTally,
   type TokenTotals,
+  type MetricEvidence,
+  type MetricPopulation,
+  type NullableMeasurements,
+  type PublishedAuditReport,
   addTokens,
   emptyTokens,
   recorderWindow,
@@ -285,13 +289,62 @@ function agentCards(s: SessionAudit, lang: Lang): string {
   // happens, and every hook event that could not be attributed to a subagent
   // lands on it. Without this, a session with one subagent showed 340 hook
   // events and hid the orchestrator's 187.
-  const cards = [orchestratorCard(s, lang)];
+  const cards = [
+    completeCardEvidence(s.availability, false)
+      ? orchestratorCard(s, lang)
+      : componentTable({ run: s.orchestrator, evidence: s.availability ?? {}, type: MAIN_THREAD }),
+  ];
   cards.push(
     ...[...s.agents]
       .sort((a, b) => weightedTokens(b.tokens, b.model) - weightedTokens(a.tokens, a.model))
-      .map((a) => agentCard(a, s.hookLogFrom, lang, s.agents.length)),
+      .map((a) =>
+        completeCardEvidence(a.availability, true)
+          ? agentCard(a, s.hookLogFrom, lang, s.agents.length)
+          : componentTable({ run: a, evidence: a.availability ?? {}, type: a.agentType }),
+      ),
   );
   return cards.join("\n\n");
+}
+
+/** Legacy cards combine components, so only complete evidence can certify them. */
+function completeCardEvidence(
+  evidence: Record<string, MetricEvidence> | undefined,
+  duration: boolean,
+): boolean {
+  return [
+    "tools",
+    "tokens.input",
+    "tokens.output",
+    "tokens.cacheRead",
+    "tokens.cacheCreation",
+    "tokens.thinking",
+    "startupTokens",
+    ...(duration ? ["durationMs"] : []),
+  ].every((key) => evidence?.[key]?.state === "observed");
+}
+
+/** Retain each measured component without inventing a combined spend or duration. */
+function componentTable(unit: MeasurementRun): string {
+  const rows = ["| Run / component | Value | State | Reason |", "|---|---|---|---|"];
+  for (const key of Object.keys(unit.run.tokens) as Array<keyof TokenTotals>) {
+    const evidence = runEvidence(unit, `tokens.${key}`);
+    rows.push(
+      `| ${unit.type} / tokens.${key} | ${measurable(evidence) ? unit.run.tokens[key] : "unavailable"} | ${evidence.state} | ${evidence.reason ?? "—"} |`,
+    );
+  }
+  for (const key of ["startupTokens", "durationMs"] as const) {
+    const evidence = runEvidence(unit, key);
+    const value =
+      key === "startupTokens"
+        ? unit.run.startupTokens
+        : "durationMs" in unit.run
+          ? unit.run.durationMs
+          : null;
+    rows.push(
+      `| ${unit.type} / ${key} | ${measurable(evidence) ? value : "unavailable"} | ${evidence.state} | ${evidence.reason ?? "—"} |`,
+    );
+  }
+  return rows.join("\n");
 }
 
 /**
@@ -350,7 +403,7 @@ function orchestratorCard(s: SessionAudit, lang: Lang): string {
   const calls = toolCallCount(o.toolCounts);
   const perCall = calls > 0 ? k(Math.round(o.tokens.cacheRead / calls)) : null;
   const rows = [
-    `${model ? `${model} · ` : ""}${minutes(s.wallClockMs)} · ${s.prompts.typed + s.prompts.queued} ${t(lang, "mensajes del usuario", "user messages")}`,
+    `${model ? `${model} · ` : ""}${measurable(s.availability?.wallClockMs) ? minutes(s.wallClockMs) : "unavailable"} · ${s.prompts.typed + s.prompts.queued} ${t(lang, "mensajes del usuario", "user messages")}`,
     "",
     `  ${t(lang, "arranque", "startup").padEnd(14)}${k(o.startupTokens)}`,
     ...reasoningRows(o.tokens, lang),
@@ -360,7 +413,7 @@ function orchestratorCard(s: SessionAudit, lang: Lang): string {
     `  ${t(lang, "skills", "skills").padEnd(LABEL)}${o.skills.length > 0 ? o.skills.map((sk) => sk.slug).join(", ") : t(lang, "—", "—")}`,
     `  ${t(lang, "tools", "tools").padEnd(LABEL)}${toolsLine(o.toolCounts)}`,
     `  ${"mcp".padEnd(LABEL)}${orchestratorMcp(o.mcpCalls, o.mcpInjectedContext ?? {}, lang)}`,
-    `  ${"hooks".padEnd(LABEL)}${orchestratorHooksLine(s, lang)}`,
+    `  ${"hooks".padEnd(LABEL)}${measurable(s.availability?.hooks) ? orchestratorHooksLine(s, lang) : "unavailable"}`,
     ...modeRows(s, lang),
   ];
   const head = `### ${t(lang, "orquestador", "orchestrator")} · "${s.initialPrompt.slice(0, 60)}"`;
@@ -585,7 +638,9 @@ function agentCard(
   rows.push(`  ${t(lang, "skills", "skills").padEnd(LABEL)}${skillsLine(a, lang)}`);
   rows.push(`  ${t(lang, "tools", "tools").padEnd(LABEL)}${toolsLine(a.toolCounts)}`);
   rows.push(`  ${"mcp".padEnd(LABEL)}${mcpLines(a, lang)}`);
-  rows.push(`  ${"hooks".padEnd(LABEL)}${agentHooksLine(a, hookLogFrom, lang, agentCount)}`);
+  rows.push(
+    `  ${"hooks".padEnd(LABEL)}${measurable(a.availability?.hooks) ? agentHooksLine(a, hookLogFrom, lang, agentCount) : "unavailable"}`,
+  );
   if (a.verdict) rows.push(`  ${t(lang, "veredicto", "verdict").padEnd(LABEL)}${a.verdict}`);
 
   return `${head}\n\n\`\`\`\n${rows.join("\n")}\n\`\`\``;
@@ -1044,7 +1099,7 @@ function skillRangeSection(report: AuditReport, lang: Lang): string[] {
   const body = rows.map(
     (r) =>
       `| \`${r.slug}\` | ${r.invoked || "—"} | ${r.inherited || "—"} | ${r.browsed || "—"} | ` +
-      `${r.records || "—"} | ${r.outputTokens ? k(r.outputTokens) : "—"} |`,
+      `${r.records || "—"} | ${measurable(report.availability?.[`skill.${r.slug}.outputTokens`]) ? k(r.outputTokens) : "unavailable"} |`,
   );
 
   const dead = rows.filter((r) => r.invoked === 0 && r.inherited === 0);
@@ -1180,12 +1235,18 @@ function getOrSet<K, V>(map: Map<K, V>, key: K, make: () => V): V {
   return cur;
 }
 
-function addAgentRun(stat: AgentStat, run: Run): void {
+function addAgentRun(stat: AgentStat, run: Run, evidence?: Record<string, MetricEvidence>): void {
   stat.fetch += run.toolCounts.WebFetch ?? 0;
   stat.search += run.toolCounts.WebSearch ?? 0;
-  if (typeof run.turns === "number") stat.turns.push(run.turns);
-  if (typeof run.contextPeak === "number") stat.contextPeaks.push(run.contextPeak);
-  stat.cacheReads.push(run.tokens.cacheRead);
+  if (evidence?.tools?.state === "observed" && typeof run.turns === "number")
+    stat.turns.push(run.turns);
+  if (
+    runEvidence({ run, evidence: evidence ?? {}, type: "" }, "contextPeak").state === "observed" &&
+    typeof run.contextPeak === "number"
+  )
+    stat.contextPeaks.push(run.contextPeak);
+  if (evidence?.["tokens.cacheRead"]?.state === "observed")
+    stat.cacheReads.push(run.tokens.cacheRead);
 }
 
 /**
@@ -1197,7 +1258,9 @@ function addAgentRun(stat: AgentStat, run: Run): void {
  * forbids.
  */
 function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[]): RangeStats {
-  const withTranscript = sessions.filter((s) => s.unavailable !== "transcript");
+  const withTranscript = sessions.filter(
+    (s) => s.unavailable !== "transcript" && s.availability?.tools?.state === "observed",
+  );
   const codexSessions = sessions.filter((s) => s.host === "codex");
   const codexExecWrappers = codexSessions.every((s) => s.rollout?.status === "parsed")
     ? codexSessions.reduce(
@@ -1219,23 +1282,24 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
     main.sessions = withTranscript.length;
     main.launches = withTranscript.length;
     for (const s of withTranscript) {
-      addAgentRun(main, s.orchestrator);
+      addAgentRun(main, s.orchestrator, s.availability);
       if (typeof s.orchestrator.compactions === "number") {
         main.compactions = (main.compactions ?? 0) + s.orchestrator.compactions;
       }
     }
   }
 
-  for (const s of withTranscript) {
+  for (const s of sessions) {
     const seen = new Set<string>();
     for (const a of s.agents) {
+      if (a.availability?.tools?.state !== "observed") continue;
       const stat = getOrSet(agents, a.agentType, emptyAgentStat);
       stat.launches += 1;
       if (!seen.has(a.agentType)) {
         seen.add(a.agentType);
         stat.sessions += 1;
       }
-      addAgentRun(stat, a);
+      addAgentRun(stat, a, a.availability);
       if (typeof a.turnLimitHit === "boolean") {
         stat.limitMeasured += 1;
         if (a.turnLimitHit) stat.turnLimitHits += 1;
@@ -1246,6 +1310,8 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
       ...s.agents.map((run) => ({ run, main: false })),
     ];
     for (const { run, main } of runs) {
+      if (main && s.availability?.tools?.state !== "observed") continue;
+      if (!main && "availability" in run && run.availability?.tools?.state !== "observed") continue;
       for (const [name, n] of Object.entries(run.toolCounts)) {
         const t = tool(name);
         t.calls += n;
@@ -1272,6 +1338,7 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
   let ms = 0;
 
   for (const s of sessions) {
+    if (!measurable(s.availability?.hooks)) continue;
     const runs: Run[] = [s.orchestrator, ...s.agents];
     for (const run of runs) {
       const measured = run.hookEvents.filter((e) => e.verdict !== "gate-started");
@@ -1291,7 +1358,7 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
         hook.ms += e.ms;
         fires += 1;
         ms += e.ms;
-        if (e.tool === "Bash" && e.toolUseId) {
+        if (e.tool === "Bash" && e.toolUseId && s.availability?.hooks?.state === "observed") {
           getOrSet(perBash, `${s.sessionId}\u0000${e.toolUseId}`, () => new Set<string>()).add(
             `${e.name}\u0000${e.phase}`,
           );
@@ -1335,9 +1402,16 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
     },
     codexExecWrappers,
     agents,
-    sessionCacheReads: withTranscript.map(
-      (s) => s.orchestrator.tokens.cacheRead + s.agents.reduce((n, a) => n + a.tokens.cacheRead, 0),
-    ),
+    sessionCacheReads: withTranscript
+      .filter(
+        (s) =>
+          s.availability?.["tokens.cacheRead"]?.state === "observed" &&
+          s.agents.every((a) => a.availability?.["tokens.cacheRead"]?.state === "observed"),
+      )
+      .map(
+        (s) =>
+          s.orchestrator.tokens.cacheRead + s.agents.reduce((n, a) => n + a.tokens.cacheRead, 0),
+      ),
     tools,
     hooks: {
       byHook,
@@ -1613,8 +1687,8 @@ function coverageSection(report: AuditReport, lang: Lang): string[] {
   out.push(
     t(
       lang,
-      `Sesiones con log de audit contra sesiones del host en el periodo: **${metric(m["coverage.sessions.audited"])} / ${metric(m["coverage.sessions.host"])}** (${metric(m["coverage.pct"])}%). El denominador incluye los worktrees de agente del repo. \`n/d\` = no hay raíz de proyecto conocida donde buscar.`,
-      `Sessions with an audit log against host sessions in the period: **${metric(m["coverage.sessions.audited"])} / ${metric(m["coverage.sessions.host"])}** (${metric(m["coverage.pct"])}%). The denominator includes the repo's agent worktrees. \`n/d\` = no known project root to look under.`,
+      `Captura de la cohorte de inicio del host: **${metric(m["coverage.sessions.captured"])} / ${metric(m["coverage.sessions.host"])}** (${metric(m["coverage.pct"])}%). Activaciones en el rango: ${metric(m["coverage.sessions.audited"])}. \`n/d\` = población no enumerable o vacía.`,
+      `Capture of host-start cohort: **${metric(m["coverage.sessions.captured"])} / ${metric(m["coverage.sessions.host"])}** (${metric(m["coverage.pct"])}%). Activations during range: ${metric(m["coverage.sessions.audited"])}. \`n/d\` = unenumerable or empty population.`,
     ),
   );
   if (report.repos) {
@@ -1629,9 +1703,13 @@ function coverageSection(report: AuditReport, lang: Lang): string[] {
         ],
         report.repos.map((r) => [
           `\`${r.repo}\``,
-          String(r.audited),
+          metric(r.audited),
           metric(r.host),
-          r.host ? `${Math.round((1000 * r.audited) / r.host) / 10}%` : "n/d",
+          metric(
+            report.coverage?.find((c) => c.repo === r.repo)?.ratio == null
+              ? null
+              : report.coverage.find((c) => c.repo === r.repo)!.ratio! * 100,
+          ),
         ]),
       ),
     );
@@ -1708,20 +1786,34 @@ function rangeSections(report: AuditReport, lang: Lang): string[] {
     ...coverageSection(report, lang),
     ...activationSection(report, lang),
     ...agentRangeSection(report, lang),
-    ...hookRangeSection(stats, lang),
-    ...toolRangeSection(stats, lang),
-    ...mechanismSection(stats, lang),
+    ...(measurable(report.availability?.hooks) ? hookRangeSection(stats, lang) : []),
+    ...(measurable(report.availability?.tools) ? toolRangeSection(stats, lang) : []),
+    ...(measurable(report.availability?.hooks) ? mechanismSection(stats, lang) : []),
   ];
+}
+
+/** Use the same contributor-qualified agent count at every public boundary. */
+export function projectedAgentCount(report: AuditReport): number | null {
+  return measurable(population(report.sessions, "tools")) ? report.totals.agents : null;
 }
 
 export function renderMarkdown(report: AuditReport, lang: Lang): string {
   const out: string[] = [];
   out.push(`# ${t(lang, "Auditoría del harness", "Harness audit")} — ${report.repo}`);
   out.push("");
+  if (report.schemaVersion === 11) {
+    out.push("## " + t(lang, "Disponibilidad de mediciones", "Measurement availability"), "");
+    out.push("| Metric | State | N observed / partial / eligible | Reason |", "|---|---|---|---|");
+    for (const [name, evidence] of Object.entries(report.availability ?? {}))
+      out.push(
+        `| ${name} | ${evidence.state} | ${evidence.observed} / ${evidence.partial} / ${evidence.eligible} | ${evidence.reason ?? "—"} |`,
+      );
+    out.push("");
+  }
   out.push(
     `${t(lang, "Rango", "Range")}: ${report.range.from} → ${report.range.to} · ` +
       `${report.totals.sessions} ${t(lang, "sesiones", "sessions")} · ` +
-      `${report.totals.agents} ${t(lang, "agentes", "agents")} · ` +
+      `${projectedAgentCount(report) ?? "unavailable"} ${t(lang, "agentes", "agents")} · ` +
       `${t(lang, "generado por", "generated by")} ${report.generatedBy}`,
   );
 
@@ -1740,6 +1832,12 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
       `## ${t(lang, "Sesión", "Session")} ${s.sessionId.slice(0, 8)} · ${s.startedAt.slice(0, 10)}`,
     );
     out.push("");
+    if (!measurable(s.availability?.tools)) {
+      if (s.host === "codex") out.push(t(lang, "**Sesión Codex.**", "**Codex session.**"), "");
+      out.push("Measurements unavailable; no source-backed session totals.", "");
+      out.push(permissionsBlock(s, lang));
+      continue;
+    }
     out.push(
       `**${t(lang, "Prompt inicial", "Initial prompt")}:** ${s.initialPrompt.slice(0, 300) || "—"}`,
     );
@@ -1749,7 +1847,7 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
       .map(([m, n]) => `${m}:${n}`)
       .join(" ");
     out.push(
-      `${t(lang, "Duración", "Duration")} ${minutes(s.wallClockMs)} · ` +
+      `${t(lang, "Duración", "Duration")} ${!measurable(s.availability?.wallClockMs) ? "unavailable" : minutes(s.wallClockMs)}${s.availability?.wallClockMs?.state === "partial" ? " (partial)" : ""} · ` +
         `branch \`${s.gitBranch ?? "—"}\` · CC ${s.ccVersions.join(", ") || "—"} · ` +
         `navori ${sessionNavori(s, lang)} · ` +
         `${t(lang, "permisos", "permissions")} ${modes || "—"}` +
@@ -1890,7 +1988,14 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
       "",
       "```",
     );
-    out.push(spendBreakdown(s, lang));
+    const completeUsage = measurementRuns([s]).every((unit) =>
+      completeCardEvidence(unit.evidence, false),
+    );
+    out.push(
+      completeUsage
+        ? spendBreakdown(s, lang)
+        : "Combined token spend unavailable; see measured components below.",
+    );
     out.push("```");
 
     if (s.signals.length > 0) {
@@ -1904,10 +2009,15 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
     }
 
     out.push("", `### ${t(lang, "Línea de tiempo", "Timeline")}`, "", "```");
-    out.push(agentTimeline(s, lang));
+    const completeTime =
+      s.availability?.wallClockMs?.state === "observed" &&
+      s.agents.every((a) => a.availability?.durationMs?.state === "observed");
+    out.push(
+      completeTime && completeUsage ? agentTimeline(s, lang) : "Timeline measurements unavailable.",
+    );
     out.push("```");
 
-    if (s.agents.length > 0) {
+    if (s.agents.length > 0 && completeTime) {
       const wall = wallClockOf(s.agents);
       const sum = s.agents.reduce((n, a) => n + a.durationMs, 0);
       out.push(
@@ -1934,7 +2044,11 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
     );
 
     out.push("", `### ${t(lang, "Por tipo de agente", "By agent type")}`, "", "```");
-    out.push(byAgentType(s));
+    out.push(
+      completeUsage
+        ? byAgentType(s)
+        : "Combined agent-type spend unavailable; see measured components above.",
+    );
     out.push("```");
 
     out.push("", `### ${t(lang, "Decisiones de permiso", "Permission decisions")}`, "");
@@ -2012,7 +2126,7 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
  * looking like the first.
  */
 function permissionsBlock(s: SessionAudit, lang: Lang): string {
-  if (!s.otelFrom) {
+  if (!s.otelFrom || !measurable(s.availability?.permissions)) {
     return t(
       lang,
       "> **La tercera fuente no estuvo presente.** Nadie recibía los eventos OTel de esta sesión, así que no hay decisiones de permiso que contar — que NO es lo mismo que cero aprobaciones manuales. En el transcript una aprobación concedida es indistinguible de una tool pre-aprobada; lo único observable son los rechazos, y esos ya están en los errores de tool. Para medirlas, levanta `navori audit --collect` antes de abrir la sesión.",
@@ -2044,8 +2158,283 @@ function permissionsBlock(s: SessionAudit, lang: Lang): string {
   return rows.join("\n");
 }
 
+/** Numeric measurements become null unless their actual component contributed. */
+function projectNumbers<T>(
+  value: T,
+  evidence: (path: string) => MetricEvidence,
+  path = "",
+): NullableMeasurements<T> {
+  let projected: unknown = value;
+  if (typeof value === "number")
+    projected = Number.isFinite(value) && value >= 0 && measurable(evidence(path)) ? value : null;
+  else if (Array.isArray(value))
+    projected = value.map((item: unknown, index: number) =>
+      projectNumbers(item, evidence, path ? `${path}.${index}` : String(index)),
+    );
+  else if (typeof value === "object" && value !== null)
+    projected = Object.fromEntries(
+      Object.entries(value).map(([key, item]: [string, unknown]) => [
+        key,
+        projectNumbers(item, evidence, path ? `${path}.${key}` : key),
+      ]),
+    );
+  // The recursive transform preserves keys/strings/booleans and only widens numbers.
+  return projected as NullableMeasurements<T>;
+}
+
+const TOOL_COUNTERS = new Set([
+  "models",
+  "toolCounts",
+  "toolCountsByMode",
+  "classifierExemptBashByMode",
+  "shellReads",
+  "shellWrites",
+  "skills",
+  "skillsDiscarded",
+  "skillAttributionRecords",
+  "mcpCalls",
+  "mcpInjectedContext",
+  "frictionEvents",
+  "toolErrors",
+  "repeatedCommands",
+  "classifierExemptBash",
+  "turns",
+  "compactions",
+  "toolResultBytes",
+  "contextPeak",
+  "mcpBarredTokens",
+]);
+
+/** Component resolver is closed-world: new unknown numeric fields default null. */
+function runMeasurementEvidence(unit: MeasurementRun, path: string): MetricEvidence {
+  const [field, component] = path.split(".");
+  if (field === "tokens") return runEvidence(unit, `tokens.${component}`);
+  if (field === "startupTokens") return runEvidence(unit, "startupTokens");
+  if (field === "durationMs") return runEvidence(unit, "durationMs");
+  if (field === "contextPeak") return runEvidence(unit, "contextPeak");
+  if (field === "skills" && path.endsWith(".attributedOutputTokens"))
+    return runEvidence(unit, "tokens.output");
+  if (field === "hookEvents") return unit.evidence.hooks ?? unknownEvidence();
+  if (TOOL_COUNTERS.has(field ?? "")) return unit.evidence.tools ?? unknownEvidence();
+  return unknownEvidence();
+}
+
+/** Publish every numeric run path through the same resolver used by its N. */
+function publishRun(unit: MeasurementRun): NullableMeasurements<Run> {
+  const out = projectNumbers(unit.run, (path) => runMeasurementEvidence(unit, path));
+  if ("spawnDepth" in unit.run && "spawnDepth" in out) out.spawnDepth = unit.run.spawnDepth;
+  if ("availability" in unit.run && "availability" in out) out.availability = unit.run.availability;
+  if (!measurable(unit.evidence.tools)) {
+    out.toolCounts = null;
+  }
+  return out;
+}
+
+/** Typed schema11 consumer boundary; internal reduction identities do not escape. */
+export function publishReport(report: AuditReport): PublishedAuditReport {
+  const runs = measurementRuns(report.sessions);
+  const published = projectNumbers(report, () => unknownEvidence());
+  const sessions = report.sessions.map((s) => {
+    const unit: MeasurementRun = {
+      run: s.orchestrator,
+      evidence: s.availability ?? {},
+      type: MAIN_THREAD,
+    };
+    const out = projectNumbers(s, (path) => {
+      const [field] = path.split(".");
+      if (field === "wallClockMs" || field === "activeMs")
+        return s.availability?.[field] ?? unknownEvidence();
+      if (["permissions", "toolErrorTypes"].includes(field ?? ""))
+        return s.availability?.permissions ?? unknownEvidence();
+      if (field === "prompts" || field === "permissionModes")
+        return s.host === "codex" ? unknownEvidence() : (unit.evidence.tools ?? unknownEvidence());
+      return unknownEvidence();
+    });
+    out.parseErrors = s.parseErrors;
+    out.linesRead = s.linesRead;
+    out.prs = [...s.prs];
+    out.sources = s.sources;
+    out.availability = s.availability;
+    out.orchestrator = publishRun(unit) as NullableMeasurements<SessionAudit["orchestrator"]>;
+    out.agents = s.agents.map(
+      (run) =>
+        publishRun({
+          run,
+          evidence: run.availability ?? {},
+          type: run.agentType,
+        }) as NullableMeasurements<AgentRun>,
+    );
+    return out;
+  });
+  const tokenValues = (
+    tokens: TokenTotals,
+    populations: Record<string, MetricPopulation> | undefined,
+  ): NullableMeasurements<TokenTotals> => ({
+    input: measurable(populations?.["tokens.input"]) ? tokens.input : null,
+    output: measurable(populations?.["tokens.output"]) ? tokens.output : null,
+    cacheRead: measurable(populations?.["tokens.cacheRead"]) ? tokens.cacheRead : null,
+    cacheCreation: measurable(populations?.["tokens.cacheCreation"]) ? tokens.cacheCreation : null,
+    thinking: measurable(populations?.["tokens.thinking"]) ? tokens.thinking : null,
+  });
+  published.sessions = sessions;
+  published.rangeMetrics = report.rangeMetrics;
+  published.coverage = report.coverage;
+  published.repos = report.repos;
+  published.availabilityByAgentType = report.availabilityByAgentType;
+  published.totals.sessions = report.totals.sessions;
+  published.totals.agents = projectedAgentCount(report);
+  published.totals.tokens = tokenValues(report.totals.tokens, report.availability);
+  published.totals.startupTokens = measurable(report.availability?.startupTokens)
+    ? report.totals.startupTokens
+    : null;
+  published.totals.byAgentType = Object.fromEntries(
+    Object.entries(report.totals.byAgentType).map(([type, row]) => {
+      const n = report.availabilityByAgentType?.[type];
+      const selected = runs.filter((unit) => unit.type === type && measurable(unit.evidence.tools));
+      return [
+        type,
+        {
+          ...row,
+          count: measurable(n?.tools) ? selected.length : null,
+          sessions: measurable(n?.tools)
+            ? report.sessions.filter((s) =>
+                measurementRuns([s]).some(
+                  (unit) => unit.type === type && measurable(unit.evidence.tools),
+                ),
+              ).length
+            : null,
+          tokens: tokenValues(row.tokens, n),
+          webFetch: measurable(n?.tools)
+            ? selected.reduce((sum, unit) => sum + (unit.run.toolCounts.WebFetch ?? 0), 0)
+            : null,
+          webSearch: measurable(n?.tools)
+            ? selected.reduce((sum, unit) => sum + (unit.run.toolCounts.WebSearch ?? 0), 0)
+            : null,
+        },
+      ];
+    }),
+  );
+  const agentUnits = runs.filter((unit) => unit.type !== MAIN_THREAD);
+  const duration = unitPopulation(agentUnits.map((unit) => runEvidence(unit, "durationMs")));
+  published.totals.agentDurationMs = measurable(duration)
+    ? agentUnits
+        .filter((unit) => measurable(runEvidence(unit, "durationMs")))
+        .reduce((sum, unit) => sum + ("durationMs" in unit.run ? unit.run.durationMs : 0), 0)
+    : null;
+  published.totals.agentWallClockMs =
+    agentUnits.length &&
+    agentUnits.every((unit) => runEvidence(unit, "durationMs").state === "observed")
+      ? report.totals.agentWallClockMs
+      : null;
+  published.totals.byModel = Object.fromEntries(
+    Object.keys(report.totals.byModel).map((model) => {
+      const units = agentUnits.filter((unit) => "model" in unit.run && unit.run.model === model);
+      return [
+        model,
+        units.some((unit) => measurable(unit.evidence.tools))
+          ? units.filter((unit) => measurable(unit.evidence.tools)).length
+          : null,
+      ];
+    }),
+  );
+  published.totals.skills = report.totals.skills.map((skill) =>
+    projectNumbers(skill, (path) =>
+      path === "outputTokens"
+        ? (report.availability?.[`skill.${skill.slug}.outputTokens`] ?? unknownEvidence())
+        : population(report.sessions, "tools"),
+    ),
+  );
+  return { ...published, schemaVersion: 11, availability: report.availability ?? {} };
+}
+
+/** Serialize the actual public nullable contract; historical schema10 stays intact. */
 export function renderJson(report: AuditReport): string {
-  return `${JSON.stringify(report, null, 2)}\n`;
+  return `${JSON.stringify(report.schemaVersion === 11 ? publishReport(report) : report, null, 2)}\n`;
+}
+function measurable(evidence: MetricEvidence | undefined): boolean {
+  return evidence?.state === "observed" || evidence?.state === "partial";
+}
+
+interface MeasurementRun {
+  run: Run;
+  evidence: Record<string, MetricEvidence>;
+  type: string;
+}
+
+/** The root and each child are the same exact units used by token sums. */
+function measurementRuns(sessions: readonly SessionAudit[]): MeasurementRun[] {
+  return sessions.flatMap((s) => [
+    { run: s.orchestrator, evidence: s.availability ?? {}, type: MAIN_THREAD },
+    ...s.agents.map((run) => ({ run, evidence: run.availability ?? {}, type: run.agentType })),
+  ]);
+}
+
+function unknownEvidence(): MetricEvidence {
+  return {
+    state: "unavailable",
+    reason: "not-observed",
+    source: "aggregate",
+    adapter: null,
+    sourceVersion: null,
+  };
+}
+
+/** Dependencies are qualified separately: a tool stream cannot certify usage. */
+function runEvidence(unit: MeasurementRun, key: string): MetricEvidence {
+  if (unit.evidence[key]) return unit.evidence[key]!;
+  if (key === "contextPeak") {
+    const components = ["tokens.input", "tokens.cacheRead", "tokens.cacheCreation"].map(
+      (k) => unit.evidence[k] ?? unknownEvidence(),
+    );
+    if (!components.every(measurable)) return unknownEvidence();
+    return {
+      ...components[0]!,
+      state: components.every((e) => e.state === "observed") ? "observed" : "partial",
+      reason: components.every((e) => e.state === "observed") ? null : "not-observed",
+    };
+  }
+  return unknownEvidence();
+}
+
+/** Population and value use identical units and an explicit contribution policy. */
+function unitPopulation(
+  evidence: readonly MetricEvidence[],
+  policy: "measured" | "observed-only" = "measured",
+): MetricPopulation {
+  const out: MetricPopulation = {
+    ...unknownEvidence(),
+    source: "aggregate",
+    eligible: evidence.length,
+    observed: 0,
+    partial: 0,
+    unavailable: 0,
+    unsupported: 0,
+    invalid: 0,
+    policy,
+    contributors: 0,
+  };
+  for (const row of evidence) out[row.state]++;
+  out.contributors = out.observed + (policy === "measured" ? out.partial : 0);
+  if (out.contributors) {
+    out.state = out.observed === out.eligible ? "observed" : "partial";
+    out.reason = out.state === "observed" ? null : "not-observed";
+  } else if (out.invalid) {
+    out.state = "invalid";
+    out.reason = "malformed";
+  } else if (out.unsupported) {
+    out.state = "unsupported";
+    out.reason = "unsupported-component";
+  }
+  return out;
+}
+
+/** No contributor is not a measured zero; missing eligible units qualify totals. */
+function population(sessions: readonly SessionAudit[], key: string): MetricPopulation {
+  const evidence =
+    key.startsWith("tokens.") || key === "startupTokens" || key === "tools"
+      ? measurementRuns(sessions).map((unit) => runEvidence(unit, key))
+      : sessions.map((s) => s.availability?.[key] ?? unknownEvidence());
+  return unitPopulation(evidence);
 }
 
 /**
@@ -2086,13 +2475,16 @@ function tallySkills(sessions: SessionAudit[], catalog: readonly string[]): Skil
       attribution: 2,
       "skill-md": 1,
     };
-    for (const run of [s.orchestrator, ...s.agents]) {
+    for (const unit of measurementRuns([s])) {
+      const run = unit.run;
+      if (!measurable(unit.evidence.tools)) continue;
       for (const sk of run.skills) {
         const prev = seen.get(sk.slug);
         if (prev === undefined || rank[sk.source] > rank[prev]) seen.set(sk.slug, sk.source);
         const tally = get(sk.slug);
         tally.records += sk.attributedRecords ?? 0;
-        tally.outputTokens += sk.attributedOutputTokens ?? 0;
+        if (measurable(runEvidence(unit, "tokens.output")))
+          tally.outputTokens += sk.attributedOutputTokens ?? 0;
       }
     }
     // A host-declared skill the parser could not pin to a run lives only on the
@@ -2169,6 +2561,8 @@ export function buildReport(
     extraMetrics?: Record<string, number | null>;
     /** One row per audited repo, for an `--all-repos` report (R61). */
     repos?: RepoRow[];
+    requestedRange?: { from: string; to: string };
+    coverage?: AuditReport["coverage"];
   },
 ): AuditReport {
   const byAgentType: AuditReport["totals"]["byAgentType"] = {};
@@ -2261,12 +2655,86 @@ export function buildReport(
     opts.lang ?? "en",
   );
 
+  // Only measured per-run components participate; parser identity zeros stay
+  // private when no component contributed to a public aggregate.
+  tokens = emptyTokens();
+  startupTokens = 0;
+  for (const row of Object.values(byAgentType)) row.tokens = emptyTokens();
+  for (const s of sessions) {
+    for (const run of [
+      { ...s.orchestrator, agentType: MAIN_THREAD, availability: s.availability },
+      ...s.agents,
+    ]) {
+      if (measurable(run.availability?.startupTokens)) startupTokens += run.startupTokens;
+      for (const key of Object.keys(tokens) as Array<keyof TokenTotals>)
+        if (measurable(run.availability?.[`tokens.${key}`])) {
+          tokens[key] += run.tokens[key];
+          const row = byAgentType[run.agentType];
+          if (row) row.tokens[key] += run.tokens[key];
+        }
+    }
+  }
+  const rawMetrics = {
+    ...flattenRangeMetrics(stats),
+    ...opts.extraMetrics,
+  };
+  const availability = Object.fromEntries(
+    [
+      "tokens.input",
+      "tokens.output",
+      "tokens.cacheRead",
+      "tokens.cacheCreation",
+      "tokens.thinking",
+      "startupTokens",
+      "tools",
+      "hooks",
+      "wallClockMs",
+      "activeMs",
+    ].map((key) => [key, population(sessions, key)]),
+  );
+  for (const skill of skillTally)
+    availability[`skill.${skill.slug}.outputTokens`] = unitPopulation(
+      measurementRuns(sessions)
+        .filter((unit) => unit.run.skills.some((row) => row.slug === skill.slug))
+        .map((unit) => runEvidence(unit, "tokens.output")),
+    );
+  const rangeMetrics: Record<string, number | null> = {};
+  for (const [key, value] of Object.entries(rawMetrics)) {
+    availability[key] = flatMetricPopulation(key, value, sessions, opts.coverage);
+    rangeMetrics[key] =
+      measurable(availability[key]) || key.endsWith(".n") || key.startsWith("sessions.")
+        ? value
+        : null;
+  }
+  const units = measurementRuns(sessions);
+  const availabilityByAgentType = Object.fromEntries(
+    Object.keys(byAgentType).map((type) => [
+      type,
+      Object.fromEntries(
+        [
+          "tokens.input",
+          "tokens.output",
+          "tokens.cacheRead",
+          "tokens.cacheCreation",
+          "tokens.thinking",
+          "startupTokens",
+          "tools",
+        ].map((key) => [
+          key,
+          unitPopulation(
+            units.filter((unit) => unit.type === type).map((unit) => runEvidence(unit, key)),
+          ),
+        ]),
+      ),
+    ]),
+  );
+
   return {
-    schemaVersion: 10,
+    schemaVersion: 11,
     generatedBy: `navori@${opts.version}`,
     generatedAt: (opts.now ?? new Date()).toISOString(),
     repo: opts.repo,
-    range: {
+    range: opts.requestedRange ?? {
       from: stamps[0]?.slice(0, 10) ?? "",
       to: stamps[stamps.length - 1]?.slice(0, 10) ?? "",
     },
@@ -2286,7 +2754,9 @@ export function buildReport(
       ),
       agentWallClockMs: sessions.reduce((sum, sess) => sum + wallClockOf(sess.agents), 0),
     },
-    signals: sessions.flatMap((s) => s.signals),
+    signals: sessions
+      .filter((s) => s.availability?.tools?.state === "observed")
+      .flatMap((s) => s.signals),
     // #778: the caveat on everything above. Computed here rather than per
     // session because the claim it makes — "these totals mix regimes" — only
     // exists at range level.
@@ -2305,7 +2775,158 @@ export function buildReport(
       ...candidates,
     ],
     orphanSessions: opts.orphanSessions ?? [],
-    rangeMetrics: { ...flattenRangeMetrics(stats), ...opts.extraMetrics },
+    rangeMetrics,
+    availability,
+    availabilityByAgentType,
+    ...(opts.coverage ? { coverage: opts.coverage } : {}),
     ...(opts.repos ? { repos: opts.repos } : {}),
   };
+}
+
+/** Dependencies must all be observed for a whole-run statistic. */
+function dependentEvidence(values: readonly MetricEvidence[]): MetricEvidence {
+  const absent = values.find((value) => !measurable(value));
+  if (absent) return absent;
+  const first = values[0] ?? unknownEvidence();
+  return {
+    ...first,
+    state: values.every((value) => value.state === "observed") ? "observed" : "partial",
+    reason: values.every((value) => value.state === "observed") ? null : "not-observed",
+  };
+}
+
+/** Actual sample/coverage populations, not a guessed token/tool-family alias. */
+function flatMetricPopulation(
+  key: string,
+  value: number | null,
+  sessions: readonly SessionAudit[],
+  coverage: AuditReport["coverage"],
+): MetricPopulation {
+  const units = measurementRuns(sessions);
+  const diagnostic = (): MetricPopulation => ({
+    ...unitPopulation([]),
+    state: "observed",
+    reason: null,
+    contributors: 0,
+  });
+  if (key.startsWith("sessions.") || key.endsWith(".n")) return diagnostic();
+  if (key.startsWith("coverage.")) {
+    const n = coverage?.every((row) => row.host !== null)
+      ? coverage.reduce((sum, row) => sum + (row.host ?? 0), 0)
+      : null;
+    const incomplete =
+      !coverage?.length || coverage.some((row) => row.reason === "incomplete-enumeration");
+    return {
+      ...unitPopulation([]),
+      eligible: n,
+      source: "host-metadata",
+      observed: n ?? 0,
+      contributors: n ?? 0,
+      state: value === null ? "unavailable" : incomplete ? "partial" : "observed",
+      reason:
+        value === null
+          ? n === 0
+            ? "empty-population"
+            : "incomplete-enumeration"
+          : incomplete
+            ? "incomplete-enumeration"
+            : null,
+    };
+  }
+  const agent =
+    /^agent\.(.+)\.(sessions|launches|turns\.p[59]0|cacheRead\.p50|contextPeak\.p[59]0|compactions|web\.fetch|web\.search|turnLimitHits)$/.exec(
+      key,
+    );
+  if (agent) {
+    const [, type, component] = agent;
+    const selected = units.filter((unit) => unit.type === type);
+    if (component === "sessions" || component === "launches")
+      return unitPopulation(
+        selected.length
+          ? selected.map((unit) => runEvidence(unit, "tools"))
+          : sessions.map((s) => s.availability?.tools ?? unknownEvidence()),
+        "observed-only",
+      );
+    const family = component?.startsWith("cacheRead")
+      ? "tokens.cacheRead"
+      : component?.startsWith("contextPeak")
+        ? "contextPeak"
+        : "tools";
+    const rows = selected.map((unit): MetricEvidence => {
+      if (component?.startsWith("turns") && typeof unit.run.turns !== "number")
+        return unknownEvidence();
+      if (component?.startsWith("contextPeak") && typeof unit.run.contextPeak !== "number")
+        return unknownEvidence();
+      if (
+        component === "compactions" &&
+        (!("compactions" in unit.run) || typeof unit.run.compactions !== "number")
+      )
+        return unknownEvidence();
+      if (
+        component === "turnLimitHits" &&
+        (!("turnLimitHit" in unit.run) || typeof unit.run.turnLimitHit !== "boolean")
+      )
+        return unknownEvidence();
+      return runEvidence(unit, family);
+    });
+    return unitPopulation(rows, "observed-only");
+  }
+  if (key === "session.cacheRead.p50")
+    return unitPopulation(
+      sessions.map((s) =>
+        dependentEvidence(
+          measurementRuns([s]).map((unit) => runEvidence(unit, "tokens.cacheRead")),
+        ),
+      ),
+      "observed-only",
+    );
+  if (key.startsWith("tool.")) {
+    const match = /^tool\.(.+)\.(calls|callsMain|callsAgents|resultBytes\.p[59]0)$/.exec(key);
+    if (!match) return unitPopulation([]);
+    const [, name, component] = match;
+    const selected = units
+      .filter((unit) => component !== "callsMain" || unit.type === MAIN_THREAD)
+      .filter((unit) => component !== "callsAgents" || unit.type !== MAIN_THREAD);
+    if (component?.startsWith("resultBytes")) {
+      const samples = selected.flatMap((unit) => {
+        const bytes = unit.run.toolResultBytes?.[name ?? ""] ?? [];
+        const missing = Math.max(0, (unit.run.toolCounts[name ?? ""] ?? 0) - bytes.length);
+        return [
+          ...bytes.map((byte) =>
+            Number.isFinite(byte) && byte >= 0
+              ? runEvidence(unit, "tools")
+              : { ...unknownEvidence(), state: "invalid" as const, reason: "malformed" as const },
+          ),
+          ...Array.from({ length: missing }, () => unknownEvidence()),
+        ];
+      });
+      return unitPopulation(samples, "observed-only");
+    }
+    return unitPopulation(
+      selected.map((unit) => runEvidence(unit, "tools")),
+      "observed-only",
+    );
+  }
+  if (key.startsWith("hook") || key.startsWith("mechanism."))
+    return unitPopulation(
+      sessions.map((s) => s.availability?.hooks ?? unknownEvidence()),
+      key.includes("perBashCall") ? "observed-only" : "measured",
+    );
+  if (key === "codex.execWrappers")
+    return unitPopulation(
+      sessions
+        .filter((s) => s.host === "codex")
+        .map((s) => s.availability?.tools ?? unknownEvidence()),
+    );
+  if (
+    key.startsWith("edits.") ||
+    key.startsWith("search.") ||
+    key.startsWith("activation.") ||
+    key.startsWith("codegraph.")
+  )
+    return unitPopulation(
+      units.map((unit) => runEvidence(unit, "tools")),
+      "observed-only",
+    );
+  return unitPopulation([]);
 }
