@@ -5403,6 +5403,9 @@ exit 0
 # unrelated reads/writes in the same command can still false-positive. Dynamic
 # paths, external scripts, and unenumerated runners (`dd`, `rsync`, `git apply`)
 # remain outside this text-based guard (R4: "not a sandbox against evasion").
+# A closed Node/JSON exception below classifies submitted source text only: it
+# assumes a trusted Node runtime and filesystem. A .json symlink/hardlink is
+# not proof of the physical target. Unsupported syntax retains the old block.
 # The contract in `implementer.md` is the rule; this catches the slip, not the
 # workaround.
 #
@@ -6034,6 +6037,135 @@ OPEN_WRITE="(^|[^[:alnum:]_])open[[:space:]]*\\([^)]*,[[:space:]]*(mode[[:space:
 if printf '%s' "$interpreter_cmd" | grep -qE "$INTERPRETER" &&
   printf '%s' "$interpreter_cmd" | grep -qiE "$MD_LITERAL" &&
   printf '%s' "$interpreter_cmd" | grep -qE "${WRITE_API}|${FILE_WRITE}|${OPEN_WRITE}"; then
+  # The program is fixed hook code. The submitted command enters only on
+  # stdin as data; never eval it. A nonzero analyzer, missing node, empty or
+  # malformed output all fall through to the existing exit-2 block.
+  IFS= read -r -d '' navori_json_analyzer <<'NAVORI_JSON_ANALYZER' || :
+const input = require("node:fs").readFileSync(0, "utf8");
+const fail = () => { throw Error("unrecognized metadata program"); };
+try {
+  if (Buffer.byteLength(input) > 16384) fail();
+  const shell = /^[ \t]*node[ \t]+-e[ \t]+\x27([^\x27]*)\x27[ \t]*$/s.exec(input);
+  if (!shell) fail();
+  const source = shell[1];
+  const tokens = [];
+  const forbidden = new Set(["__proto__", "prototype", "constructor", "toJSON"]);
+  const reserved = new Set(["const", "for", "of", "if", "true", "false", "null", "return", "function", "class", "new", "this", "var", "let", "await", "async", "delete", "while", "do", "else", "try", "catch", "throw", "import", "export", "default", "in", "instanceof", "void", "typeof", "yield", "switch", "case", "break", "continue", "with", "super", "extends", "static", "get", "set"]);
+  for (let at = 0; at < source.length;) {
+    const rest = source.slice(at);
+    const space = /^[\t\n\r ]+/.exec(rest);
+    if (space) { at += space[0].length; continue; }
+    const string = /^"(?:[^"\\\x00-\x1f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/.exec(rest);
+    if (string) {
+      tokens.push({ kind: "string", value: JSON.parse(string[0]) });
+      at += string[0].length;
+    } else {
+      const id = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(rest);
+      const number = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/.exec(rest);
+      if (id) { tokens.push({ kind: "id", value: id[0] }); at += id[0].length; }
+      else if (number) {
+        if (!Number.isFinite(Number(number[0]))) fail();
+        tokens.push({ kind: "number", value: number[0] }); at += number[0].length;
+      } else if (rest.startsWith("=>")) { tokens.push({ kind: "punct", value: "=>" }); at += 2; }
+      else if (".,;:=()[]{}!+".includes(rest[0])) { tokens.push({ kind: "punct", value: rest[0] }); at++; }
+      else fail();
+    }
+    if (tokens.length > 4096) fail();
+  }
+  let pos = 0;
+  const peek = (value) => tokens[pos]?.value === value;
+  const take = (value) => {
+    const token = tokens[pos++];
+    const expectedKind = value === "2" ? "number" : ".,;:=()[]{}!+=>".includes(value) ? "punct" : "id";
+    if (!token || token.value !== value || token.kind !== expectedKind) fail();
+  };
+  const kind = (wanted) => { const token = tokens[pos++]; if (!token || token.kind !== wanted) fail(); return token.value; };
+  const name = () => { const value = kind("id"); if (reserved.has(value)) fail(); return value; };
+  const binding = () => { const value = name(); if (forbidden.has(value) || ["JSON", "require"].includes(value)) fail(); return value; };
+  const property = () => { const value = name(); if (forbidden.has(value)) fail(); return value; };
+  const path = (root, stop) => {
+    take(root);
+    let count = 0;
+    let result = "";
+    while (peek(".") && tokens[pos + 1]?.value !== stop) {
+      take("."); result += "." + property();
+      if (++count > 8) fail();
+    }
+    if (!count) fail();
+    return result;
+  };
+  const value = (depth = 0) => {
+    if (depth > 16) fail();
+    if (tokens[pos]?.kind === "string" || tokens[pos]?.kind === "number") { pos++; return; }
+    if (peek("true") || peek("false") || peek("null")) { pos++; return; }
+    if (peek("[")) {
+      take("[");
+      if (!peek("]")) { do { value(depth + 1); if (!peek(",")) break; take(","); if (peek("]")) fail(); } while (true); }
+      take("]"); return;
+    }
+    if (peek("{")) {
+      take("{"); const keys = new Set();
+      if (!peek("}")) {
+        do {
+          const key = tokens[pos]?.kind === "string" ? kind("string") : property();
+          if (forbidden.has(key) || keys.has(key)) fail();
+          keys.add(key); take(":"); value(depth + 1);
+          if (!peek(",")) break; take(","); if (peek("}")) fail();
+        } while (true);
+      }
+      take("}"); return;
+    }
+    fail();
+  };
+  const string = (expected) => { const actual = kind("string"); if (actual !== expected) fail(); };
+  take("const"); const fs = binding(); take("="); take("require"); take("("); string("node:fs"); take(")"); take(";");
+  take("const"); const dest = binding(); if (dest === fs) fail(); take("=");
+  const destination = kind("string");
+  if (!destination || /[\x00-\x1f\x7f]/.test(destination) || !/\.json$/i.test(destination)) fail();
+  take(";");
+  take("const"); const doc = binding(); if (doc === fs || doc === dest) fail(); take("=");
+  take("JSON"); take("."); take("parse"); take("(");
+  take(fs); take("."); take("readFileSync"); take("("); take(dest); take(","); string("utf8"); take(")"); take(")"); take(";");
+  let operations = 0;
+  while (!(peek(fs) && tokens[pos + 1]?.value === "." && tokens[pos + 2]?.value === "writeFileSync")) {
+    if (++operations > 4096) fail();
+    if (peek("for")) {
+      take("for"); take("("); take("const"); const item = binding();
+      if ([fs, dest, doc].includes(item)) fail();
+      take("of"); take("[");
+      if (!peek("]")) { do { kind("string"); if (!peek(",")) break; take(","); if (peek("]")) fail(); } while (true); }
+      take("]"); take(")"); take("if"); take("("); take("!");
+      const checked = path(doc, "includes"); take("."); take("includes"); take("("); take(item); take(")"); take(")");
+      const pushed = path(doc, "push"); if (checked !== pushed) fail();
+      take("."); take("push"); take("("); take(item); take(")"); take(";");
+    } else {
+      const target = path(doc, "sort");
+      if (peek(".") && tokens[pos + 1]?.value === "sort") {
+        take("."); take("sort"); take("("); take(")"); take(";"); continue;
+      }
+      take("=");
+      if (peek(doc)) {
+        path(doc, "map"); take("."); take("map"); take("(");
+        const item = binding(); if ([fs, dest, doc].includes(item)) fail();
+        take("=>"); path(item); take(")");
+      } else value();
+      take(";");
+    }
+  }
+  take(fs); take("."); take("writeFileSync"); take("("); take(dest); take(",");
+  take("JSON"); take("."); take("stringify"); take("("); take(doc); take(","); take("null"); take(","); take("2"); take(")");
+  take("+"); string("\n"); take(")"); take(";");
+  if (pos !== tokens.length) fail();
+  process.stdout.write("ALLOW");
+} catch { process.exitCode = 1; }
+NAVORI_JSON_ANALYZER
+  if command -v node >/dev/null 2>&1; then
+    if navori_json_result=$(printf '%s' "$cmd" | node -e "$navori_json_analyzer" 2>/dev/null) && [ "$navori_json_result" = "ALLOW" ]; then
+      navori_audit_verdict="allow"
+      navori_audit_reason="programa JSON estático reconocido"
+      exit 0
+    fi
+  fi
   block "intérprete con operación de escritura y ruta .md/.mdx"
 fi
 
