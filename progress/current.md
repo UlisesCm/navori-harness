@@ -1,4 +1,22 @@
-# Current — PR1203 merged; PR1205 verified and awaiting publication
+# Current — Spec 0042 audit logs: 4/12 tasks delivered
+
+## Goal
+Continue Spec 0042 audit-log work, keeping the board grounded in merged evidence.
+## Instructions
+Preserve all worktrees and pending work. T4 remains open until implementation, review and the full gate complete.
+## Discoveries
+- Unweighted task count: T1, T2, T5 and T7 delivered (4/12, 33%); this is not a time estimate.
+- User authorized five additional renderer outputs for T4. The first transfer command was denied by policy because its exclusion filter contained Markdown extension literals; no retry occurred and source stayed unchanged.
+- T3 has read-only reconnaissance underway; no implementation is claimed.
+## Accomplished
+- Updated the Spec 0042 board with merged-PR evidence for T2, T5 and T7. T1 was already checked.
+## Next Steps
+- Continue T3 read-only discovery. For T4, choose a policy-compliant producer route; then review and run the full gate before marking it delivered.
+## Relevant Files
+- specs/0042-auditoria-accionable-codex/tasks.md — sole task board; T4 remains unchecked.
+- progress/history.md — append-only session checkpoints.
+
+## Previous merged-PR checkpoint
 
 ## Goal
 Resolve and merge audit PRs one at a time: PR1203 first, then PR1205.
