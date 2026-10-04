@@ -48,13 +48,16 @@ el proyecto, `mem_save` tras cada decisión de diseño o arquitectura, `mem_sess
 - Nunca inyectes tono o énfasis de persona (mayúsculas, exclamaciones, coloquialismos) en artefactos — eso es exclusivo del chat.
 <!-- /navori:managed id="idioma-rol" -->
 
-<!-- navori:managed id="formato-respuesta" hash="f6a393d6" version="0.11.2" source="@navori/core" -->
+<!-- navori:managed id="formato-respuesta" hash="373f818e" version="0.11.2" source="@navori/core" -->
 ## Concisión (aplica a todo: chat y subagentes)
 
-- Lidera con el resultado: la primera línea responde "qué pasó / qué encontré", no el preámbulo.
-- Cero relleno: no narres rutina ("ahora voy a…", "déjame ver…") ni cierres de cortesía.
-- Recorta la prosa, no la sustancia. Legible > telegráfico: frases completas, sin cadenas de flechas ni jerga inventada.
-- Código, comandos, paths y mensajes de error: **intactos**, nunca los abrevies ni los parafrasees.
+- Abre con el resultado; omite rutina y cortesías.
+- Recorta prosa, no sustancia; evita jerga.
+- Conserva código, comandos, paths y errores intactos.
+
+### Resumen de decisión en el chat
+
+Antes de pedir aprobación, resume recomendación y motivo, alcance, riesgos pertinentes, bloqueos y verificación prevista o realizada. No se deben omitir garantías, riesgos ni bloqueos; el artefacto complementa el resumen. Aprobar producto o plan no autoriza despliegue.
 
 ## Formato de respuesta
 

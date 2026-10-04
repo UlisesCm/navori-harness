@@ -9,7 +9,7 @@ metadata:
   maxWordsComposed: 750
 ---
 
-<!-- navori:managed id="resolve-ticket" hash="28c13d74" version="0.11.2" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="resolve-ticket" hash="bee0dce8" version="0.11.2" source="@navori/core" fmkeys="name,description,metadata" -->
 # resolve-ticket — 6-phase pipeline
 
 ## Pipeline
@@ -31,6 +31,8 @@ Only when the orchestration table's fan-out row fires, never on "it feels separa
 
 ## Hard rules
 
+- For `proceed` or `proceed-differently`, give the compact `resumen de decisión` in chat per
+  `formato-respuesta.md` before asking approval; no-work verdicts close with evidence, without approval.
 - **Phase 2 fires only on its disparadores** — never skipped because you "already understood the ticket" when it does fire, and never invented when it doesn't: the audit is for the implementer, and for you in 3 days.
 - **No PR without `APPROVED`.**
 - **A verdict that opens no work doesn't wait for approval:** report it with its evidence, leave `progress/current.md` at `idle`, stop — asking permission to do nothing turns a finished pipeline into a stalled one. Only `proceed` / `proceed-differently` hold for the user, right before code gets written.
