@@ -1,5 +1,18 @@
-import { appendFileSync, existsSync, readdirSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readSync,
+  readdirSync,
+  writeSync,
+} from "node:fs";
+import { constants } from "node:fs";
+import { dirname } from "node:path";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { Socket } from "node:net";
+import { randomUUID } from "node:crypto";
 import { NavoriError } from "../primitives/errors.ts";
 import { isoSeconds } from "./model.ts";
 import { auditsRoot, sessionLogPath } from "./paths.ts";
@@ -64,6 +77,32 @@ export const SERVICE_ID = "navori-audit-collect";
  * POST from growing the receiver's heap without bound.
  */
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
+const MAX_RECORDS = 1_000;
+const MAX_METADATA_BYTES = 256;
+const CACHE_LIMIT = 1_024;
+const CACHE_TTL_MS = 30 * 60 * 1_000;
+const MAX_CONNECTIONS = 32;
+const MAX_LOG_LINE_BYTES = 1024 * 1024;
+const REQUEST_TIMEOUT_MS = 30_000;
+const EVENT_NAMES = new Set(["tool_decision", "tool_result", "api_request", "user_prompt"]);
+const ATTRIBUTE_KEYS = new Set([
+  "event.name",
+  "event.timestamp",
+  "session.id",
+  "tool_name",
+  "decision",
+  "decision_type",
+  "source",
+  "success",
+  "error_type",
+  "duration_ms",
+  "skill.name",
+  "agent.name",
+  "model",
+  "service.name",
+]);
+const TOKEN_RE = /^[A-Za-z0-9][A-Za-z0-9_.:/@+-]*$/;
+const SOURCES = new Set(["config", "hook", "user_temporary", "user_permanent", "user_reject"]);
 
 type Rec = Record<string, unknown>;
 
@@ -114,6 +153,11 @@ export interface ReceiverStats {
   discarded: number;
   /** Distinct sessions this receiver has appended to. */
   sessions: number;
+  /** Live resource use, not a diagnosis of a KeepAlive process leak. */
+  activeConnections?: number;
+  cachedSessions?: number;
+  markedSessions?: number;
+  discardedAttributes?: number;
 }
 
 export interface OtelReceiver {
@@ -145,13 +189,21 @@ function attrScalar(v: unknown): string | null {
 }
 
 /** Collects `attributes: [{key, value}]` from one OTLP node into `into`. */
-function collectAttributes(node: unknown, into: Map<string, string>): void {
-  if (!isRec(node) || !Array.isArray(node.attributes)) return;
+function collectAttributes(node: unknown, into: Map<string, string>): number {
+  let discarded = 0;
+  if (!isRec(node) || !Array.isArray(node.attributes)) return 0;
   for (const attr of node.attributes) {
     if (!isRec(attr) || typeof attr.key !== "string") continue;
+    if (!ATTRIBUTE_KEYS.has(attr.key)) {
+      discarded++;
+      continue;
+    }
     const value = attrScalar(attr.value);
-    if (value !== null) into.set(attr.key, value);
+    if (value !== null && Buffer.byteLength(value, "utf-8") <= MAX_METADATA_BYTES)
+      into.set(attr.key, value);
+    else discarded++;
   }
+  return discarded;
 }
 
 /** Nanoseconds since the epoch (OTLP sends them as a decimal string) → ms. */
@@ -212,16 +264,20 @@ export interface RoutedEvent {
  * Returns `null` when the body is not an OTLP envelope at all (R5); the
  * `discarded` count covers events dropped INSIDE a well-formed envelope.
  */
-export function flattenOtlp(body: unknown): { events: RoutedEvent[]; discarded: number } | null {
+export function flattenOtlp(
+  body: unknown,
+): { events: RoutedEvent[]; discarded: number; discardedAttributes: number } | null {
   if (!isRec(body) || !Array.isArray(body.resourceLogs)) return null;
   const events: RoutedEvent[] = [];
   let discarded = 0;
+  let discardedAttributes = 0;
+  let seen = 0;
   const receivedAt = Date.now();
 
   for (const resourceLog of body.resourceLogs) {
     if (!isRec(resourceLog)) continue;
     const resourceAttrs = new Map<string, string>();
-    collectAttributes(resourceLog.resource, resourceAttrs);
+    discardedAttributes += collectAttributes(resourceLog.resource, resourceAttrs);
     const scopeLogs = Array.isArray(resourceLog.scopeLogs) ? resourceLog.scopeLogs : [];
 
     for (const scopeLog of scopeLogs) {
@@ -229,6 +285,10 @@ export function flattenOtlp(body: unknown): { events: RoutedEvent[]; discarded: 
       const logRecords = Array.isArray(scopeLog.logRecords) ? scopeLog.logRecords : [];
 
       for (const record of logRecords) {
+        if (++seen > MAX_RECORDS) {
+          discarded++;
+          continue;
+        }
         if (!isRec(record)) {
           discarded++;
           continue;
@@ -236,14 +296,20 @@ export function flattenOtlp(body: unknown): { events: RoutedEvent[]; discarded: 
         // Resource attributes first so a record-level key of the same name
         // wins: the inner scope is the more specific statement about the event.
         const attrs = new Map(resourceAttrs);
-        collectAttributes(record, attrs);
+        discardedAttributes += collectAttributes(record, attrs);
 
         const event = eventNameOf(record, attrs);
         const sessionId = attrs.get("session.id");
         // An event that names no session has no log to belong to, and guessing
         // one would invent exactly the join this spec exists to make exact.
         // Same for a nameless event: `event` is not optional on disk.
-        if (!event || !sessionId) {
+        if (
+          !event ||
+          !EVENT_NAMES.has(event) ||
+          !sessionId ||
+          Buffer.byteLength(sessionId, "utf-8") > MAX_METADATA_BYTES ||
+          !TOKEN_RE.test(sessionId)
+        ) {
           discarded++;
           continue;
         }
@@ -265,9 +331,13 @@ export function flattenOtlp(body: unknown): { events: RoutedEvent[]; discarded: 
           // one keeps the log's shape stable across that difference.
           const decision = attrs.get("decision") ?? attrs.get("decision_type");
           const source = attrs.get("source");
-          if (tool) flat.tool = tool;
-          if (decision) flat.decision = decision;
-          if (source) flat.source = source;
+          if (tool && TOKEN_RE.test(tool)) flat.tool = tool;
+          else if (tool) discardedAttributes++;
+          if (decision && (decision === "accept" || decision === "reject"))
+            flat.decision = decision;
+          else if (decision) discardedAttributes++;
+          if (source && SOURCES.has(source)) flat.source = source;
+          else if (source) discardedAttributes++;
         } else if (event === "tool_result") {
           // FAILURES ONLY (#698). The host emits this once per tool call, and a
           // session log already runs to thousands of lines — the same volume
@@ -285,23 +355,30 @@ export function flattenOtlp(body: unknown): { events: RoutedEvent[]; discarded: 
           }
           const tool = attrs.get("tool_name");
           const ms = Number(attrs.get("duration_ms"));
+          if (!TOKEN_RE.test(errorType)) {
+            discarded++;
+            continue;
+          }
           flat.errorType = errorType;
-          if (tool) flat.tool = tool;
-          if (Number.isFinite(ms)) flat.ms = ms;
+          if (tool && TOKEN_RE.test(tool)) flat.tool = tool;
+          else if (tool) discardedAttributes++;
+          if (Number.isFinite(ms) && ms >= 0) flat.ms = ms;
         } else if (event === "api_request") {
           const skill = attrs.get("skill.name");
           // `api_request` fires on EVERY request and the session log already
           // runs to thousands of lines. Without a skill it carries nothing
           // this spec reads, so it is volume with no reader.
-          if (!skill) {
+          if (!skill || !TOKEN_RE.test(skill)) {
             discarded++;
             continue;
           }
           const agent = attrs.get("agent.name");
           const model = attrs.get("model");
           flat.skill = skill;
-          if (agent) flat.agent = agent;
-          if (model) flat.model = model;
+          if (agent && TOKEN_RE.test(agent)) flat.agent = agent;
+          else if (agent) discardedAttributes++;
+          if (model && TOKEN_RE.test(model)) flat.model = model;
+          else if (model) discardedAttributes++;
         }
 
         events.push({ sessionId, record: flat });
@@ -309,7 +386,7 @@ export function flattenOtlp(body: unknown): { events: RoutedEvent[]; discarded: 
     }
   }
 
-  return { events, discarded };
+  return { events, discarded, discardedAttributes };
 }
 
 /**
@@ -324,9 +401,53 @@ export function flattenOtlp(body: unknown): { events: RoutedEvent[]; discarded: 
  * UserPromptSubmit creates the audit log, and the next batch must be able to
  * discover it without restarting this long-lived receiver (#763).
  */
-function resolveSessionLog(sessionId: string, cache: Map<string, string>): string | null {
-  const cached = cache.get(sessionId);
-  if (cached !== undefined) return cached;
+interface CacheEntry<T> {
+  value: T;
+  expires: number;
+}
+
+function cacheGet<T>(cache: Map<string, CacheEntry<T>>, key: string): T | null {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  cache.delete(key);
+  if (entry.expires <= Date.now()) return null;
+  cache.set(key, entry);
+  return entry.value;
+}
+
+function cacheSet<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T): void {
+  cache.delete(key);
+  cache.set(key, { value, expires: Date.now() + CACHE_TTL_MS });
+  if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value ?? "");
+}
+
+function regularLog(path: string): boolean {
+  try {
+    const file = lstatSync(path);
+    return file.isFile() && (file.mode & 0o077) === 0;
+  } catch {
+    return false;
+  }
+}
+
+function safeLogParents(path: string): boolean {
+  try {
+    for (const dir of [auditsRoot(), dirname(path)]) {
+      const stat = lstatSync(dir);
+      if (!stat.isDirectory() || (stat.mode & 0o022) !== 0) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveSessionLog(
+  sessionId: string,
+  cache: Map<string, CacheEntry<string>>,
+): string | null {
+  const cached = cacheGet(cache, sessionId);
+  if (cached !== null && regularLog(cached)) return cached;
 
   let found: string | null = null;
   const root = auditsRoot();
@@ -340,14 +461,59 @@ function resolveSessionLog(sessionId: string, cache: Map<string, string>): strin
       } catch {
         break; // the id itself is unusable — no repo will make it valid
       }
-      if (existsSync(candidate)) {
+      if (regularLog(candidate)) {
         found = candidate;
         break;
       }
     }
   }
-  if (found !== null) cache.set(sessionId, found);
+  if (found !== null) cacheSet(cache, sessionId, found);
   return found;
+}
+
+/** Revalidates the exact start marker and horizon with at most one MiB retained per line. */
+function inspectLog(fd: number, sessionId: string, receiverId: string): boolean {
+  const buffer = Buffer.alloc(64 * 1024);
+  let parts: Buffer[] = [];
+  let lineBytes = 0;
+  let lineNumber = 0;
+  let horizon = false;
+  const consume = (): void => {
+    const line = Buffer.concat(parts, lineBytes).toString("utf-8");
+    parts = [];
+    lineBytes = 0;
+    const value: unknown = JSON.parse(line);
+    if (!isRec(value)) throw new Error("invalid audit log record");
+    if (lineNumber++ === 0) {
+      if (value.event !== "start" || value.sessionId !== sessionId)
+        throw new Error("audit log marker identity mismatch");
+    } else if (value.event === "otel-start" && value.receiverId === receiverId) {
+      horizon = true;
+    }
+  };
+  let position = 0;
+  for (;;) {
+    const bytes = readSync(fd, buffer, 0, buffer.length, position);
+    if (bytes === 0) break;
+    position += bytes;
+    let start = 0;
+    for (let index = 0; index < bytes; index++) {
+      if (buffer[index] !== 10) continue;
+      const part = buffer.subarray(start, index);
+      lineBytes += part.length;
+      if (lineBytes > MAX_LOG_LINE_BYTES) throw new Error("audit log line exceeds limit");
+      parts.push(Buffer.from(part));
+      consume();
+      start = index + 1;
+    }
+    const tail = buffer.subarray(start, bytes);
+    lineBytes += tail.length;
+    if (lineBytes > MAX_LOG_LINE_BYTES) throw new Error("audit log line exceeds limit");
+    if (tail.length > 0) parts.push(Buffer.from(tail));
+  }
+  if (lineBytes > 0) throw new Error("incomplete audit log line");
+  if (lineNumber === 0) throw new Error("missing audit log marker");
+  return horizon;
 }
 
 /**
@@ -361,9 +527,10 @@ function resolveSessionLog(sessionId: string, cache: Map<string, string>): strin
 function appendEvents(
   events: RoutedEvent[],
   endpoint: string,
-  cache: Map<string, string>,
-  marked: Set<string>,
-): { written: number; discarded: number } {
+  cache: Map<string, CacheEntry<string>>,
+  marked: Map<string, CacheEntry<true>>,
+  receiverId: string,
+): { written: number; discarded: number; newSessions: number } {
   const bySession = new Map<string, OtelRecord[]>();
   for (const { sessionId, record } of events) {
     const batch = bySession.get(sessionId);
@@ -373,6 +540,7 @@ function appendEvents(
 
   let written = 0;
   let discarded = 0;
+  let newSessions = 0;
   for (const [sessionId, records] of bySession) {
     const logFile = resolveSessionLog(sessionId, cache);
     if (logFile === null) {
@@ -380,25 +548,46 @@ function appendEvents(
       continue;
     }
     const lines: string[] = [];
-    if (!marked.has(sessionId)) {
-      // R4: the horizon. Same reason `hookLogFrom` exists — without it "no
-      // manual approvals" and "nobody was listening" render identically. It
-      // lives in the log rather than in the report so the answer survives the
-      // run that produced it.
-      lines.push(`${JSON.stringify({ ...stamp(Date.now()), event: "otel-start", endpoint })}\n`);
-    }
-    for (const record of records) lines.push(`${JSON.stringify(record)}\n`);
+    let fd: number | undefined;
     try {
-      appendFileSync(logFile, lines.join(""), "utf-8");
+      if (!safeLogParents(logFile)) throw new Error("unsafe audit log parent");
+      fd = openSync(logFile, constants.O_RDWR | constants.O_APPEND | constants.O_NOFOLLOW);
+      const file = fstatSync(fd);
+      const current = lstatSync(logFile);
+      if (
+        !file.isFile() ||
+        (file.mode & 0o077) !== 0 ||
+        file.dev !== current.dev ||
+        file.ino !== current.ino
+      )
+        throw new Error("unsafe or replaced audit log");
+      // Keep the bounded LRU/TTL accounting, never use it to authorize a write.
+      cacheGet(marked, sessionId);
+      const alreadyMarked = inspectLog(fd, sessionId, receiverId);
+      if (!alreadyMarked) {
+        // R4: the horizon. Same reason `hookLogFrom` exists — without it "no
+        // manual approvals" and "nobody was listening" render identically. It
+        // lives in the log rather than in the report so the answer survives the
+        // run that produced it.
+        lines.push(
+          `${JSON.stringify({ ...stamp(Date.now()), event: "otel-start", endpoint, receiverId })}\n`,
+        );
+      }
+      for (const record of records) lines.push(`${JSON.stringify(record)}\n`);
+      const content = Buffer.from(lines.join(""), "utf-8");
+      if (writeSync(fd, content) !== content.length) throw new Error("partial audit log write");
       written += records.length;
-      marked.add(sessionId);
+      if (!alreadyMarked) newSessions++;
+      cacheSet(marked, sessionId, true);
     } catch {
       // A failed write is data lost, not a reason to stop listening: the
       // session in flight keeps exporting and the next batch may well land.
       discarded += records.length;
+    } finally {
+      if (fd !== undefined) closeSync(fd);
     }
   }
-  return { written, discarded };
+  return { written, discarded, newSessions };
 }
 
 /** Reads the whole request body, capped. `null` means it was too large. */
@@ -429,11 +618,16 @@ function readBody(req: IncomingMessage): Promise<string | null> {
 export function startReceiver(opts: { port?: number }): Promise<OtelReceiver> {
   const port = opts.port ?? DEFAULT_PORT;
   /** Session id → its resolved log. Misses are retried on the next batch. */
-  const logCache = new Map<string, string>();
+  const logCache = new Map<string, CacheEntry<string>>();
   /** Sessions whose horizon this receiver already wrote. */
-  const marked = new Set<string>();
+  const marked = new Map<string, CacheEntry<true>>();
+  const receiverId = randomUUID();
+  const sockets = new Set<Socket>();
   let written = 0;
   let discarded = 0;
+  let discardedAttributes = 0;
+  let sessions = 0;
+  let closing: Promise<void> | null = null;
   let endpoint = `${HOST}:${port}`;
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -441,9 +635,18 @@ export function startReceiver(opts: { port?: number }): Promise<OtelReceiver> {
     if (req.method === "GET" && path === HEALTH_PATH) {
       // Counts only. The store's path would hand the home directory to any
       // local process that can reach an unauthenticated loopback port.
-      res
-        .writeHead(200, { "content-type": "application/json" })
-        .end(JSON.stringify({ service: SERVICE_ID, written, discarded, sessions: marked.size }));
+      res.writeHead(200, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          service: SERVICE_ID,
+          written,
+          discarded,
+          sessions,
+          activeConnections: sockets.size,
+          cachedSessions: logCache.size,
+          markedSessions: marked.size,
+          discardedAttributes,
+        }),
+      );
       return;
     }
     if (req.method !== "POST" || path !== LOGS_PATH) {
@@ -454,11 +657,16 @@ export function startReceiver(opts: { port?: number }): Promise<OtelReceiver> {
       // 200 even on garbage (R5): OTLP exporters RETRY a failed export, so an
       // error here buys the operator a retry storm and latency in the session
       // being audited — observability that costs the thing it observes.
+      let rejected = 0;
       const respond = (): void => {
-        res.writeHead(200, { "content-type": "application/json" }).end('{"partialSuccess":{}}');
+        if (res.destroyed) return;
+        res
+          .writeHead(200, { "content-type": "application/json" })
+          .end(JSON.stringify({ partialSuccess: { rejectedLogRecords: rejected } }));
       };
       if (raw === null) {
         discarded++;
+        rejected++;
         respond();
         return;
       }
@@ -467,6 +675,7 @@ export function startReceiver(opts: { port?: number }): Promise<OtelReceiver> {
         parsed = JSON.parse(raw);
       } catch {
         discarded++;
+        rejected++;
         respond();
         return;
       }
@@ -476,14 +685,34 @@ export function startReceiver(opts: { port?: number }): Promise<OtelReceiver> {
       // counted once, like any other unreadable body.
       if (flat === null) {
         discarded++;
+        rejected++;
         respond();
         return;
       }
       discarded += flat.discarded;
-      const result = appendEvents(flat.events, endpoint, logCache, marked);
+      discardedAttributes += flat.discardedAttributes;
+      const result = appendEvents(flat.events, endpoint, logCache, marked, receiverId);
       written += result.written;
       discarded += result.discarded;
+      sessions += result.newSessions;
+      rejected += flat.discarded + result.discarded;
       respond();
+    });
+  });
+  server.requestTimeout = REQUEST_TIMEOUT_MS;
+  server.headersTimeout = REQUEST_TIMEOUT_MS;
+  server.on("connection", (socket: Socket): void => {
+    if (sockets.size >= MAX_CONNECTIONS) {
+      discarded++;
+      socket.destroy();
+      return;
+    }
+    sockets.add(socket);
+    socket.on("close", (): void => {
+      sockets.delete(socket);
+    });
+    socket.setTimeout(REQUEST_TIMEOUT_MS, (): void => {
+      socket.destroy();
     });
   });
 
@@ -513,14 +742,25 @@ export function startReceiver(opts: { port?: number }): Promise<OtelReceiver> {
         url: `http://${endpoint}${LOGS_PATH}`,
         endpoint,
         port: actualPort,
-        stats: () => ({ written, discarded, sessions: marked.size }),
-        close: () =>
-          new Promise<void>((done) => {
-            // Keep-alive sockets outlive `close()` on their own, and the
-            // exporter holds one open: without this the command never exits.
-            server.closeAllConnections();
+        stats: () => ({
+          written,
+          discarded,
+          sessions,
+          activeConnections: sockets.size,
+          cachedSessions: logCache.size,
+          markedSessions: marked.size,
+          discardedAttributes,
+        }),
+        close: () => {
+          if (closing !== null) return closing;
+          closing = new Promise<void>((done) => {
             server.close(() => done());
-          }),
+            // Includes idle keep-alive sockets and requests still sending a body.
+            for (const socket of sockets) socket.destroy();
+            sockets.clear();
+          });
+          return closing;
+        },
       });
     });
   });
