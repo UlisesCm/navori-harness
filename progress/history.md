@@ -2876,3 +2876,21 @@ Explicit user-authorized normal merges only after fresh review/full gate/CI. Pre
 - progress/current.md and history.md — sole manual conflict resolutions and this checkpoint.
 - .navori/state/handoffs/review_audit-metric-populations.md and receipt.txt — fresh shipping verification.
 - packages/cli/src/lib/audit/signals.ts/report.ts and two metric tests — reviewed T7 source unchanged.
+
+## 2026-10-04 12:06 Codex — Spec 0042 board reconciled
+
+## Goal
+Advance Spec 0042 audit-log work and reconcile completed-task status with merged PR evidence.
+## Instructions
+Preserve all worktrees and pending work; keep T4 open until implementation, review and the full gate complete.
+## Discoveries
+- T1, T2, T5 and T7 are delivered (4/12, 33%, unweighted task count rather than time).
+- User authorized five additional T4 renderer outputs. The first transfer command was denied by policy due to Markdown extension literals in its exclusion filter; no retry occurred, and source remained unchanged.
+- T3 read-only reconnaissance is underway; no implementation is claimed.
+## Accomplished
+- Checked T2, T5 and T7 on the Spec 0042 task board with their merged PR/commit evidence; T1 was already checked. T4 remains unchecked.
+## Next Steps
+- Continue T3 read-only discovery; choose a policy-compliant producer route for T4, then require review and the full gate before claiming delivery.
+## Relevant Files
+- specs/0042-auditoria-accionable-codex/tasks.md — reconciled task statuses.
+- progress/current.md — current 4/12 checkpoint and T4/T3 status.
