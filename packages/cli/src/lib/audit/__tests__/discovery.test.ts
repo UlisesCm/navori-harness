@@ -8,6 +8,9 @@ import {
   findMarkedSessions,
   resolveCodexRollout,
   listAuditedRepos,
+  repoCoverage,
+  requestedRange,
+  markerEnumeration,
 } from "../discovery.ts";
 import { encodeCwdToSlug, auditsRoot, sessionLogPath } from "../paths.ts";
 
@@ -186,7 +189,11 @@ describe("discovery: every audited repo, with coverage (R61, R62)", () => {
     const dir = join(transcripts, encodeCwdToSlug(slugOf));
     mkdirSync(dir, { recursive: true });
     const file = join(dir, name);
-    writeFileSync(file, "", "utf-8");
+    writeFileSync(
+      file,
+      `${JSON.stringify({ type: "user", sessionId: name.replace(/\.jsonl$/, ""), cwd: slugOf, timestamp: mtime ?? "2026-09-20T10:00:00Z", isSidechain: false })}\n`,
+      "utf-8",
+    );
     if (mtime) utimesSync(file, new Date(mtime), new Date(mtime));
     return file;
   }
@@ -199,14 +206,156 @@ describe("discovery: every audited repo, with coverage (R61, R62)", () => {
     // The real `~` must never be read, even by a code path that forgot the override.
     previousHome = process.env.HOME;
     process.env.HOME = join(sandbox, "home");
+    process.env.CODEX_HOME = join(sandbox, "codex");
+    mkdirSync(join(sandbox, "codex", "sessions"), { recursive: true });
   });
   afterEach(() => {
     delete process.env.NAVORI_TRANSCRIPTS_ROOT;
+    delete process.env.CODEX_HOME;
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
     rmSync(sandbox, { recursive: true, force: true });
   });
 
+  // Covers: R61, R62
+  // Covers: R8
+  it("distinguishes absent/empty marker enumeration from an unreadable directory", () => {
+    const one = projectRoot("one");
+    expect(markerEnumeration("one")).toMatchObject({ state: "observed", files: [] });
+    expect(repoCoverage("one", {}, one).row).toMatchObject({
+      audited: 0,
+      captured: 0,
+      host: 0,
+      reason: "empty-population",
+    });
+    mkdirSync(join(root, "one"));
+    expect(markerEnumeration("one")).toMatchObject({ state: "observed", files: [] });
+    // ENOTDIR is a deterministic unreadable path even when tests run as root.
+    writeFileSync(join(root, "blocked"), "not a directory");
+    expect(markerEnumeration("blocked")).toMatchObject({
+      state: "unavailable",
+      reason: "unreadable",
+    });
+    expect(repoCoverage("blocked", {}, one).row).toMatchObject({
+      audited: null,
+      captured: null,
+      host: 0,
+      reason: "incomplete-enumeration",
+      activation: { observed: null, root: null, child: null, unknown: null, markerOnly: null },
+    });
+    host(one, "only.jsonl");
+    expect(repoCoverage("blocked", {}, one).row).toMatchObject({
+      audited: null,
+      captured: null,
+      host: 1,
+    });
+  });
+  // Covers: R8
+  it.each(["id", "session_id", "matching-aliases", "conflicting-aliases", "conflicting-header"])(
+    "qualifies Codex population and capture identities without changing files: %s",
+    (mode) => {
+      const cwd = projectRoot("identity");
+      const source = join(sandbox, "codex", "sessions", "rollout-s.jsonl");
+      const metadata = {
+        type: "session_meta",
+        timestamp: "2026-09-20T10:00:00Z",
+        payload: {
+          cwd,
+          parent_thread_id: null,
+          ...(mode !== "session_id" ? { id: "s" } : {}),
+          ...(mode !== "id" && mode !== "conflicting-header"
+            ? { session_id: mode === "conflicting-aliases" ? "different" : "s" }
+            : {}),
+        },
+      };
+      writeFileSync(source, JSON.stringify(metadata) + "\n");
+      const dir = join(root, "identity");
+      mkdirSync(dir);
+      const marker = join(dir, "session-s.log");
+      const header = {
+        event: "start",
+        host: "codex",
+        sessionId: mode === "conflicting-header" ? "different" : "s",
+        repo: "identity",
+        cwd,
+        ts: "2026-09-20T10:00:00Z",
+        transcript: source,
+      };
+      writeFileSync(marker, JSON.stringify(header) + "\n");
+      const before = [readFileSync(source, "utf-8"), readFileSync(marker, "utf-8")];
+      const conflict = mode.startsWith("conflicting");
+      expect(findMarkedSessions("identity")[0]?.sourceStatus).toBe(
+        conflict ? "identity-conflict" : "verified",
+      );
+      const row = repoCoverage("identity").row;
+      expect(row).toMatchObject({
+        host: mode === "conflicting-aliases" ? null : 1,
+        captured: conflict ? null : 1,
+        ratio: conflict ? null : 1,
+        reason: conflict ? "identity-conflict" : null,
+        activation: {
+          observed: 1,
+          root: conflict ? 0 : 1,
+          unknown: conflict ? 1 : 0,
+          markerOnly: mode === "conflicting-aliases" ? 1 : 0,
+        },
+      });
+      expect(
+        row.populations?.find((p) => p.host === "codex" && p.relation === "root"),
+      ).toMatchObject({
+        denominator: mode === "conflicting-aliases" ? null : 1,
+        captured: conflict ? null : 1,
+        ratio: conflict ? null : 1,
+      });
+      expect([readFileSync(source, "utf-8"), readFileSync(marker, "utf-8")]).toEqual(before);
+    },
+  );
+  // Covers: R8
+  it("uses UTC midnight, offsets, and an exclusive instant upper boundary", () => {
+    const one = projectRoot("one");
+    host(one, "before.jsonl", "2026-09-19T23:59:59.999Z");
+    host(one, "at.jsonl", "2026-09-20T02:00:00+02:00");
+    host(one, "inside.jsonl", "2026-09-20T23:59:59.999Z");
+    host(one, "after.jsonl", "2026-09-21T00:00:00Z");
+    audit("one", "at", one, "2026-09-20T00:00:00Z");
+    audit("one", "after", one, "2026-09-21T00:00:00Z");
+    const row = repoCoverage("one", {
+      range: { from: "2026-09-20T00:00:00.000Z", to: "2026-09-21T00:00:00.000Z" },
+    }).row;
+    expect(row).toMatchObject({ host: 2, captured: 1, audited: 1, ratio: 0.5 });
+  });
+  // Covers: R8
+  it("resolves late root/child relations outside the cohort and distinguishes true marker-only", () => {
+    const one = projectRoot("one");
+    host(one, "root.jsonl", "2026-09-19T10:00:00Z");
+    const child = host(one, "child.jsonl", "2026-09-19T10:00:00Z");
+    const rec = JSON.parse(readFileSync(child, "utf-8"));
+    writeFileSync(child, JSON.stringify({ ...rec, isSidechain: true }) + "\n");
+    for (const id of ["root", "child", "marker-only"]) audit("one", id, one);
+    const row = repoCoverage("one", { since: "2026-09-20", until: "2026-09-20" }).row;
+    expect(row).toMatchObject({
+      host: 0,
+      captured: 0,
+      audited: 3,
+      activation: { root: 1, child: 1, unknown: 1, markerOnly: 1 },
+    });
+  });
+  // Covers: R8
+  it("deduplicates identical metadata but never certifies conflicting identities", () => {
+    const one = projectRoot("one");
+    const source = host(one, "same.jsonl");
+    const duplicate = host(one, "duplicate.jsonl");
+    writeFileSync(duplicate, readFileSync(source));
+    expect(countHostSessions([one])).toBe(1);
+    audit("one", "same", one);
+    const rec = JSON.parse(readFileSync(source, "utf-8"));
+    writeFileSync(duplicate, JSON.stringify({ ...rec, isSidechain: true }) + "\n");
+    expect(countHostSessions([one])).toBeNull();
+    expect(repoCoverage("one").row).toMatchObject({
+      host: null,
+      activation: { root: 0, child: 0, unknown: 1, markerOnly: 0 },
+    });
+  });
   // Covers: R61, R62
   it("returns one row per repo, counting the repo slug AND its agent worktrees as the denominator", () => {
     const one = projectRoot("one");
@@ -237,6 +386,7 @@ describe("discovery: every audited repo, with coverage (R61, R62)", () => {
     expect(coverageMetrics(repos)).toEqual({
       "coverage.sessions.audited": 3,
       "coverage.sessions.host": 6,
+      "coverage.sessions.captured": 3,
       "coverage.pct": 50,
     });
   });
@@ -253,6 +403,46 @@ describe("discovery: every audited repo, with coverage (R61, R62)", () => {
     const [row] = listAuditedRepos({ since: "2026-09-01" }).repos;
     expect([row?.audited, row?.host]).toEqual([1, 2]);
     expect(countHostSessions([one], { until: "2026-02-01" })).toBe(1);
+  });
+
+  // Covers: R8
+  it("uses the same UTC host-start cohort despite late activation and changed mtime", () => {
+    const one = projectRoot("one");
+    audit("one", "late", one, "2026-09-21T10:00:00Z");
+    const source = host(one, "late.jsonl", "2026-09-20T10:00:00Z");
+    utimesSync(source, new Date("2030-01-01"), new Date("2030-01-01"));
+    const { row } = repoCoverage("one", { since: "2026-09-20", until: "2026-09-20" });
+    expect(row).toMatchObject({ host: 1, captured: 1, audited: 0, ratio: 1 });
+    const later = repoCoverage("one", { since: "2026-09-21", until: "2026-09-21" }).row;
+    expect(later).toMatchObject({
+      host: 0,
+      captured: 0,
+      audited: 1,
+      ratio: null,
+      reason: "empty-population",
+      activation: { root: 1, child: 0, unknown: 0, markerOnly: 0 },
+    });
+  });
+  // Covers: R8
+  it("reports zero capture and distinct root/child/unknown partitions without markers", () => {
+    const one = projectRoot("one");
+    const source = host(one, "child.jsonl", "2026-09-20T10:00:00Z");
+    const rec = JSON.parse(readFileSync(source, "utf-8"));
+    rec.isSidechain = true;
+    writeFileSync(source, JSON.stringify(rec) + "\n");
+    host(one, "root.jsonl", "2026-09-20T11:00:00Z");
+    const { row } = repoCoverage("one", { since: "2026-09-20", until: "2026-09-20" }, one);
+    expect(row).toMatchObject({ host: 2, captured: 0, ratio: 0, activation: { observed: 0 } });
+    expect(
+      row.populations?.find((r) => r.host === "claude" && r.relation === "child")?.denominator,
+    ).toBe(1);
+    expect(
+      row.populations?.find((r) => r.host === "claude" && r.relation === "root")?.denominator,
+    ).toBe(1);
+    expect(requestedRange({ since: "2026-09-20", until: "2026-09-20" })).toEqual({
+      from: "2026-09-20T00:00:00.000Z",
+      to: "2026-09-21T00:00:00.000Z",
+    });
   });
 
   // Covers: R62
@@ -287,7 +477,8 @@ describe("discovery: every audited repo, with coverage (R61, R62)", () => {
   });
 
   // Covers: R62
-  it("leaves a repo with no known root out of the ratio instead of counting it as a gap", () => {
+  // Covers: R8
+  it("retains unknown populations rather than presenting known subpopulation as total", () => {
     mkdirSync(join(root, "headless"), { recursive: true });
     writeFileSync(join(root, "headless", "session-h1.log"), "{not json\n");
     const one = projectRoot("one");
@@ -296,7 +487,7 @@ describe("discovery: every audited repo, with coverage (R61, R62)", () => {
 
     const { repos } = listAuditedRepos();
     expect(repos.find((r) => r.repo === "headless")?.host).toBeNull();
-    expect(coverageMetrics(repos)["coverage.pct"]).toBe(100);
+    expect(coverageMetrics(repos)["coverage.pct"]).toBeNull();
     expect(coverageMetrics(repos.filter((r) => r.repo === "headless"))["coverage.pct"]).toBeNull();
   });
 });

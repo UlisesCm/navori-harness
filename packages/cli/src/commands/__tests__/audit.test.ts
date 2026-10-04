@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseCodexSession } from "../../lib/audit/parse.ts";
+import { encodeCwdToSlug } from "../../lib/audit/paths.ts";
 
 /**
  * `audit` declares a hard contract in its own header: "every write lands under
@@ -51,7 +52,14 @@ function runAudit(args: string[]): CliResult {
   const baseArgs = hasCwd ? [] : ["--cwd", repoDir];
   const r = spawnSync("node", [CLI, "audit", ...baseArgs, ...args], {
     encoding: "utf-8",
-    env: { ...process.env, HOME: home, NAVORI_AUDITS_ROOT: auditsRoot, NO_COLOR: "1" },
+    env: {
+      ...process.env,
+      HOME: home,
+      CODEX_HOME: join(home, ".codex"),
+      NAVORI_TRANSCRIPTS_ROOT: join(home, ".claude", "projects"),
+      NAVORI_AUDITS_ROOT: auditsRoot,
+      NO_COLOR: "1",
+    },
   });
   return { status: r.status ?? -1, combined: (r.stdout ?? "") + (r.stderr ?? "") };
 }
@@ -453,14 +461,63 @@ describe("audit --stop", () => {
 });
 
 describe("audit --json", () => {
-  it("reports no-marked-sessions and exits 2 when the repo has none", () => {
+  // Covers: R8
+  it.each(["0/N", "0/0", "unknown"])(
+    "publishes a read-only %s coverage envelope without synthetic sessions",
+    (state) => {
+      mkdirSync(join(home, ".claude", "projects"), { recursive: true });
+      mkdirSync(join(home, ".codex", "sessions"), { recursive: true });
+      mkdirSync(join(repoDir, ".git"), { recursive: true });
+      if (state === "0/N") {
+        const slug = encodeCwdToSlug(repoDir);
+        const dir = join(home, ".claude", "projects", slug);
+        mkdirSync(dir);
+        writeFileSync(
+          join(dir, "host.jsonl"),
+          JSON.stringify({
+            type: "user",
+            sessionId: "host",
+            cwd: repoDir,
+            isSidechain: false,
+            timestamp: "2026-09-20T00:00:00Z",
+          }) + "\n",
+        );
+      }
+      if (state === "unknown") writeFileSync(auditDir, "not a directory");
+      const before = sandboxTree();
+      const res = runAudit(["--json", "--since", "2026-09-20", "--until", "2026-09-20"]);
+      expect(res.status).toBe(0);
+      const report = JSON.parse(res.combined.trim());
+      expect(report.sessions).toEqual([]);
+      expect(report.coverage[0]).toMatchObject({
+        host: state === "0/N" ? 1 : 0,
+        captured: state === "unknown" ? null : 0,
+        audited: state === "unknown" ? null : 0,
+        ratio: state === "0/N" ? 0 : null,
+        reason:
+          state === "unknown"
+            ? "incomplete-enumeration"
+            : state === "0/0"
+              ? "empty-population"
+              : null,
+      });
+      expect(report.rangeMetrics["coverage.pct"]).toBe(state === "0/N" ? 0 : null);
+      expect(report.totals.tokens.input).toBeNull();
+      expect(sandboxTree()).toEqual(before);
+    },
+  );
+  // Covers: R6, R8
+  it("reports an empty range with unknown evidence without writing", () => {
+    const before = sandboxTree();
     const res = runAudit(["--json"]);
-    expect(res.status).toBe(2);
-    expect(JSON.parse(res.combined.trim())).toEqual({
-      ok: false,
-      error: "no-marked-sessions",
-      repo: REPO,
-    });
+    expect(res.status).toBe(0);
+    const report = JSON.parse(res.combined.trim());
+    expect(report.schemaVersion).toBe(11);
+    expect(report.sessions).toEqual([]);
+    expect(report.rangeMetrics["coverage.sessions.host"]).toBeNull();
+    expect(report.totals.tokens.input).toBeNull();
+    expect(report.signals).toEqual([]);
+    expect(sandboxTree()).toEqual(before);
   });
 });
 
@@ -553,9 +610,9 @@ describe("audit: output layout (R15, R16, R18)", () => {
   it("puts a multi-session report under ranges/, with its index", () => {
     markedSessionWithTranscript("sess-one", "2026-08-25");
     markedSessionWithTranscript("sess-two", "2026-08-26");
-    const res = runAudit([]);
+    const res = runAudit(["--since", "2026-08-25", "--until", "2026-08-26"]);
     expect(res.status).toBe(0);
-    const dir = join(auditDir, "ranges", "2026-08-25--2026-08-26");
+    const dir = join(auditDir, "ranges", "2026-08-25--2026-08-27");
     expect(existsSync(join(dir, "report.md"))).toBe(true);
     // The index is what makes the aggregate navigable without opening the JSON.
     const index = readFileSync(join(dir, "sessions.txt"), "utf-8");
@@ -592,6 +649,29 @@ describe("audit: output layout (R15, R16, R18)", () => {
  * 137.5M of raw cache_read in the body.
  */
 describe("audit: the summary reports the real spend (R14)", () => {
+  // Covers: R6
+  it.each([false, true])(
+    "prints projected agent counts in the real CLI: observed=%s",
+    (observed) => {
+      const id = "summary-agents";
+      markedSessionWithTranscript(id, "2026-08-25");
+      const jsonl = join(sandbox, "transcripts", "enc", `${id}.jsonl`);
+      writeFileSync(
+        jsonl,
+        JSON.stringify({
+          type: "assistant",
+          sessionId: id,
+          cwd: repoDir,
+          timestamp: "2026-08-25T10:00:00Z",
+          message: { content: observed ? [] : [42] },
+        }) + "\n",
+      );
+      const res = runAudit(["--session", id]);
+      expect(res.status).toBe(0);
+      expect(res.combined).toContain(`${observed ? 0 : "unavailable"} agentes`);
+      if (!observed) expect(res.combined).not.toContain("0 agentes");
+    },
+  );
   // Covers: R14
   it("names the weighted total, not only startup", () => {
     runAudit(["--start", "sess-sum"]);
@@ -808,16 +888,16 @@ describe("audit --start over an id that names no session (#675)", () => {
     const res = runAudit(["--json"]);
     expect(res.status).toBe(0);
     const report = JSON.parse(res.combined) as { schemaVersion: number; orphanSessions: string[] };
-    expect(report.schemaVersion).toBe(10);
+    expect(report.schemaVersion).toBe(11);
     expect(report.orphanSessions).toEqual(["sess-orp"]);
   });
 
   it("names them too when NO session has a transcript", () => {
     runAudit(["--start", "sess-ghost"]);
     const res = runAudit(["--json"]);
-    expect(res.status).toBe(2);
-    const payload = JSON.parse(res.combined) as { error: string; orphanSessions: string[] };
-    expect(payload.error).toBe("no-transcripts");
+    expect(res.status).toBe(0);
+    const payload = JSON.parse(res.combined) as { sessions: unknown[]; orphanSessions: string[] };
+    expect(payload.sessions).toEqual([]);
     expect(payload.orphanSessions).toEqual(["sess-gho"]);
   });
 });
@@ -890,12 +970,12 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
     };
     expect(report.totals.sessions).toBe(2);
     expect(report.repos).toEqual([
-      { repo: REPO, audited: 1, host: 3 },
-      { repo: SECOND, audited: 1, host: 1 },
+      { repo: REPO, audited: 1, host: null },
+      { repo: SECOND, audited: 1, host: null },
     ]);
     expect(report.rangeMetrics["coverage.sessions.audited"]).toBe(2);
-    expect(report.rangeMetrics["coverage.sessions.host"]).toBe(4);
-    expect(report.rangeMetrics["coverage.pct"]).toBe(50);
+    expect(report.rangeMetrics["coverage.sessions.host"]).toBeNull();
+    expect(report.rangeMetrics["coverage.pct"]).toBeNull();
   });
 
   // Covers: R62
@@ -907,35 +987,17 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
     const metrics = (JSON.parse(res.combined) as { rangeMetrics: Record<string, number | null> })
       .rangeMetrics;
     expect(metrics["coverage.sessions.audited"]).toBe(1);
-    expect(metrics["coverage.sessions.host"]).toBe(2);
+    expect(metrics["coverage.sessions.host"]).toBeNull();
   });
 
-  // Covers: R68
-  it("saves the snapshot under the audit root, refuses to replace it, and never writes outside the root", () => {
+  // Covers: R6, R8
+  it("rejects schema11 snapshot production before any artifact writes", () => {
     markIn(repoDir, "sess-a", "2026-08-25");
     const before = sandboxTree();
     const res = runAudit(["--snapshot", "base"]);
-    expect(res.status, res.combined).toBe(0);
-
-    const file = join(auditDir, "ranges", "2026-08-25--2026-08-25", "snapshot-base.json");
-    const snap = JSON.parse(readFileSync(file, "utf-8")) as Record<string, unknown>;
-    expect(snap.snapshotFormat).toBe(1);
-    expect(snap.scope).toBe("repo");
-    expect(Object.keys(snap).sort()).toEqual([
-      "generatedBy",
-      "range",
-      "rangeMetrics",
-      "scope",
-      "snapshotFormat",
-    ]);
-    // Everything new is under the audit root.
-    const added = sandboxTree().filter((rel) => !before.includes(rel));
-    expect(added.length).toBeGreaterThan(0);
-    for (const rel of added) expect(rel.startsWith(join("nested", "store", "audits"))).toBe(true);
-
-    const again = runAudit(["--snapshot", "base"]);
-    expect(again.status).toBe(1);
-    expect(again.combined).toMatch(/already exists/);
+    expect(res.status, res.combined).toBe(2);
+    expect(res.combined).toContain("snapshot-schema-unavailable");
+    expect(sandboxTree()).toEqual(before);
   });
 
   // Covers: R68
@@ -947,8 +1009,8 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
     expect(existsSync(join(auditDir, "ranges", "escape"))).toBe(false);
   });
 
-  // Covers: R68
-  it("copies to an explicit path resolved from the git toplevel, and refuses to overwrite it", () => {
+  // Covers: R6
+  it("rejects schema11 snapshot copies without creating or overwriting destinations", () => {
     execFileSync("git", ["init", "-q"], { cwd: repoDir });
     mkdirSync(join(repoDir, "docs", "deep"), { recursive: true });
     markIn(repoDir, "sess-a", "2026-08-25");
@@ -961,8 +1023,9 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
       "--copy-to",
       "docs/base.json",
     ]);
-    expect(res.status, res.combined).toBe(0);
-    expect(existsSync(join(repoDir, "docs", "base.json"))).toBe(true);
+    expect(res.status, res.combined).toBe(2);
+    expect(existsSync(join(repoDir, "docs", "base.json"))).toBe(false);
+    writeFileSync(join(repoDir, "docs", "base.json"), "preserved");
 
     const again = runAudit([
       "--cwd",
@@ -972,12 +1035,12 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
       "--copy-to",
       "docs/base.json",
     ]);
-    expect(again.status).toBe(1);
-    expect(again.combined).toMatch(/already exists/);
+    expect(again.status).toBe(2);
+    expect(readFileSync(join(repoDir, "docs", "base.json"), "utf-8")).toBe("preserved");
   });
 
-  // Covers: R68
-  it("writes an --all-repos snapshot with no repo name, and refuses --copy-to inside any repo", () => {
+  // Covers: R6, R8
+  it("rejects all-repos schema11 snapshots at every copy destination", () => {
     markIn(repoDir, "sess-a", "2026-08-25");
     markIn(secondDir, "sess-b", "2026-08-26");
 
@@ -988,30 +1051,21 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
       "--copy-to",
       join(secondDir, "all.json"),
     ]);
-    expect(inside.status).toBe(1);
-    expect(inside.combined).toMatch(/inside a repository/);
+    expect(inside.status).toBe(2);
+    expect(inside.combined).toContain("snapshot-schema-unavailable");
     expect(existsSync(join(secondDir, "all.json"))).toBe(false);
 
     // A relative path resolves from the toplevel of the cwd repo: also inside.
     execFileSync("git", ["init", "-q"], { cwd: repoDir });
     const relative = runAudit(["--all-repos", "--snapshot", "all2", "--copy-to", "all.json"]);
-    expect(relative.status).toBe(1);
+    expect(relative.status).toBe(2);
     expect(existsSync(join(repoDir, "all.json"))).toBe(false);
 
     const outside = join(sandbox, "elsewhere", "all.json");
     const ok = runAudit(["--all-repos", "--snapshot", "all3", "--copy-to", outside]);
-    expect(ok.status, ok.combined).toBe(0);
-
-    const [rel] = snapshotsUnder(join(auditsRoot, "_all-repos"));
-    expect(rel).toBeDefined();
-    for (const text of [
-      readFileSync(join(auditsRoot, "_all-repos", rel ?? ""), "utf-8"),
-      readFileSync(outside, "utf-8"),
-    ]) {
-      expect(text).not.toContain(REPO);
-      expect(text).not.toContain(SECOND);
-      expect(JSON.parse(text).scope).toBe("all");
-    }
+    expect(ok.status, ok.combined).toBe(2);
+    expect(existsSync(outside)).toBe(false);
+    expect(snapshotsUnder(join(auditsRoot, "_all-repos"))).toEqual([]);
     // `_all-repos` is not a repo: it must not show up as a row.
     const rows = (
       JSON.parse(runAudit(["--all-repos", "--json"]).combined) as { repos: Array<{ repo: string }> }
@@ -1019,25 +1073,23 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
     expect(rows.map((r) => r.repo)).toEqual([REPO, SECOND]);
   });
 
-  // Covers: R69
-  it("prints the per-metric difference against a previous snapshot, with n/a for a missing metric", () => {
+  // Covers: R6
+  it("preserves legacy baselines while rejecting comparison against schema11 reports", () => {
     markIn(repoDir, "sess-a", "2026-08-25");
-    runAudit(["--snapshot", "base"]);
-    const file = join(auditDir, "ranges", "2026-08-25--2026-08-25", "snapshot-base.json");
-    const snap = JSON.parse(readFileSync(file, "utf-8")) as {
-      rangeMetrics: Record<string, number>;
+    const snap = {
+      snapshotFormat: 1,
+      generatedBy: "navori@0.11.0",
+      scope: "repo",
+      range: { from: "2026-08-25", to: "2026-08-25" },
+      rangeMetrics: { "sessions.total": 5 },
     };
-    snap.rangeMetrics["retired.metric"] = 9;
-    snap.rangeMetrics["sessions.total"] = 5;
-    delete snap.rangeMetrics["hooks.fires"];
     const prior = join(sandbox, "prior.json");
     writeFileSync(prior, JSON.stringify(snap), "utf-8");
 
     const res = runAudit(["--compare", prior]);
-    expect(res.status, res.combined).toBe(0);
-    expect(res.combined).toContain("| retired.metric | 9 | n/a | n/a |");
-    expect(res.combined).toContain("| hooks.fires | n/a | 0 | n/a |");
-    expect(res.combined).toMatch(/\| sessions\.total \| 5 \| 1 \| -4 \|/);
+    expect(res.status, res.combined).toBe(2);
+    expect(res.combined).toContain("snapshot-schema-unavailable");
+    expect(JSON.parse(readFileSync(prior, "utf-8"))).toEqual(snap);
   });
 
   // Covers: R68, R69

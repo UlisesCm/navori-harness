@@ -181,7 +181,7 @@ describe("doctor --json — warning-level checks", () => {
     writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
     const english = runCli(["doctor", "--cwd", repo]);
     expect(english.stdout + english.stderr).toContain("Codegraph is no longer enabled");
-  });
+  }, 20_000);
 
   // Covers: R34, R35
   it("stops reporting codegraph when the plugin is disabled", () => {

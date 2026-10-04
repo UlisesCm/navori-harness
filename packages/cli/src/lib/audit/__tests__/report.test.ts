@@ -1,11 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { buildReport, renderMarkdown, weightedTokens } from "../report.ts";
+import {
+  buildReport,
+  publishReport,
+  renderJson,
+  renderMarkdown,
+  weightedTokens,
+} from "../report.ts";
 import type { HarnessCatalog } from "../harness.ts";
 import {
   type AgentRun,
   type HookEvent,
   type InjectedContext,
   type SessionAudit,
+  emptyOrchestrator,
   emptyPermissionDecisions,
   emptyTokens,
   emptyToolErrors,
@@ -23,6 +30,28 @@ import {
 function agent(over: Partial<AgentRun> = {}): AgentRun {
   return {
     agentId: "ag_01",
+    availability: Object.fromEntries(
+      [
+        "tools",
+        "startupTokens",
+        "durationMs",
+        "hooks",
+        "tokens.input",
+        "tokens.output",
+        "tokens.cacheRead",
+        "tokens.cacheCreation",
+        "tokens.thinking",
+      ].map((key) => [
+        key,
+        {
+          state: "observed" as const,
+          reason: null,
+          source: "transcript" as const,
+          adapter: "claude-transcript" as const,
+          sourceVersion: "2.1.231",
+        },
+      ]),
+    ),
     agentType: "implementer",
     model: "claude-opus-5",
     description: "cierra los 5 defectos",
@@ -68,26 +97,7 @@ function session(agents: AgentRun[], over: Partial<SessionAudit> = {}): SessionA
     endReason: null,
     permissionModes: {},
     prs: [],
-    orchestrator: {
-      tokens: emptyTokens(),
-      startupTokens: 0,
-      models: {},
-      shellReads: 0,
-      shellWrites: 0,
-      toolCounts: {},
-      toolCountsByMode: {},
-      classifierExemptBashByMode: {},
-      skillsRead: [],
-      skills: [],
-      skillsDiscarded: 0,
-      skillAttributionRecords: 0,
-      mcpCalls: {},
-      mcpInjectedContext: {},
-      hookEvents: [],
-      frictionEvents: 0,
-      toolErrors: emptyToolErrors(),
-      repeatedCommands: {},
-    },
+    orchestrator: emptyOrchestrator(),
     agents,
     signals: [],
     hookLogFrom: null,
@@ -95,6 +105,28 @@ function session(agents: AgentRun[], over: Partial<SessionAudit> = {}): SessionA
     permissions: emptyPermissionDecisions(),
     toolErrorTypes: {},
     hostSkills: [],
+    availability: Object.fromEntries(
+      [
+        "tools",
+        "startupTokens",
+        "hooks",
+        "wallClockMs",
+        "tokens.input",
+        "tokens.output",
+        "tokens.cacheRead",
+        "tokens.cacheCreation",
+        "tokens.thinking",
+      ].map((key) => [
+        key,
+        {
+          state: "observed" as const,
+          reason: null,
+          source: "transcript" as const,
+          adapter: "claude-transcript" as const,
+          sourceVersion: "2.1.231",
+        },
+      ]),
+    ),
     parseErrors: 0,
     linesRead: 10,
     ...over,
@@ -122,6 +154,207 @@ const CATALOG: HarnessCatalog = {
   // one comes from the fixture, which is the level the crossing lives at.
   mcpFamilies: ["engram", "playwright"],
 };
+
+describe("schema11 evidence projection", () => {
+  // Covers: R6
+  it.each([false, true])(
+    "shares projected agent counts across JSON and text: observed=%s",
+    (observed) => {
+      const root = session([], { availability: observed ? session([]).availability : {} });
+      const report = buildReport([root], { repo: "summary", version: "test", catalog: CATALOG });
+      expect(JSON.parse(renderJson(report)).totals.agents).toBe(observed ? 0 : null);
+      for (const lang of ["en", "es"] as const) {
+        const header = renderMarkdown(report, lang)
+          .split("\n")
+          .find((line) => line.startsWith(lang === "en" ? "Range:" : "Rango:"));
+        expect(header).toContain(
+          `${observed ? 0 : "unavailable"} ${lang === "en" ? "agents" : "agentes"}`,
+        );
+      }
+    },
+  );
+  // Covers: R6
+  it("enumerates every public numeric path without certifying missing measurements", () => {
+    const root = session([agent({ availability: {} })], { availability: {} });
+    const report = buildReport([root], { repo: "unknown", version: "test", catalog: CATALOG });
+    const numbers: string[] = [];
+    const walk = (value: unknown, path: string): void => {
+      if (typeof value === "number") numbers.push(path);
+      else if (Array.isArray(value))
+        value.forEach((item: unknown, index: number) => walk(item, `${path}.${index}`));
+      else if (value !== null && typeof value === "object")
+        Object.entries(value).forEach(([key, item]: [string, unknown]) =>
+          walk(item, path ? `${path}.${key}` : key),
+        );
+    };
+    walk(publishReport(report), "");
+    const diagnostics =
+      /^(schemaVersion|totals.sessions|sessions\.\d+\.(parseErrors|linesRead|prs\.\d+)|sessions\.\d+\.agents\.\d+\.spawnDepth|availability(?:ByAgentType)?\.|rangeMetrics\.(sessions\.|.*\.n$))/;
+    expect(numbers.filter((path) => !diagnostics.test(path))).toEqual([]);
+    expect(numbers).toContain("sessions.0.agents.0.spawnDepth");
+    expect(publishReport(report).sessions[0]?.agents[0]?.model).toBe("claude-opus-5");
+  });
+  // Covers: R6
+  it.each(["child-only", "root-only"])(
+    "uses exact root/child contributors for %s usage",
+    (mode) => {
+      const child = agent({
+        tokens: { ...emptyTokens(), input: 23 },
+        availability: mode === "root-only" ? {} : agent().availability,
+      });
+      const root = session([child], {
+        availability: mode === "child-only" ? {} : session([]).availability,
+      });
+      root.orchestrator.tokens.input = 17;
+      const report = buildReport([root], { repo: "mixed", version: "test", catalog: CATALOG });
+      const json = JSON.parse(renderJson(report));
+      expect(json.totals.tokens.input).toBe(mode === "child-only" ? 23 : 17);
+      expect(json.availability["tokens.input"]).toMatchObject({
+        state: "partial",
+        eligible: 2,
+        observed: 1,
+        partial: 0,
+        unavailable: 1,
+        contributors: 1,
+      });
+      expect(json.totals.byAgentType.implementer.tokens.input).toBe(
+        mode === "child-only" ? 23 : null,
+      );
+      expect(json.availabilityByAgentType.implementer["tokens.input"]).toMatchObject({
+        eligible: 1,
+        observed: mode === "child-only" ? 1 : 0,
+      });
+    },
+  );
+  // Covers: R6
+  it("never certifies an unrelated all-missing type or tool-observed missing components", () => {
+    const root = session(
+      [agent(), agent({ agentId: "missing", agentType: "researcher", availability: {} })],
+      { availability: { tools: session([]).availability!.tools! } },
+    );
+    root.orchestrator.tokens = {
+      input: 987654321,
+      output: 987654321,
+      cacheRead: 987654321,
+      cacheCreation: 987654321,
+      thinking: 987654321,
+    };
+    root.orchestrator.startupTokens = 987654321;
+    root.orchestrator.contextPeak = 987654321;
+    root.orchestrator.skills = [
+      {
+        slug: "probe",
+        source: "attribution",
+        attributedOutputTokens: 987654321,
+        attributedRecords: 1,
+      },
+    ];
+    const report = buildReport([root], { repo: "mixed", version: "test", catalog: CATALOG });
+    const json = JSON.parse(renderJson(report));
+    expect(json.totals.byAgentType.researcher.tokens.input).toBeNull();
+    expect(json.totals.byAgentType.researcher.count).toBeNull();
+    expect(json.sessions[0].orchestrator.contextPeak).toBeNull();
+    for (const value of Object.values(json.sessions[0].orchestrator.tokens))
+      expect(value).toBeNull();
+    expect(json.sessions[0].orchestrator.startupTokens).toBeNull();
+    expect(json.sessions[0].orchestrator.skills[0].attributedOutputTokens).toBeNull();
+    expect(
+      json.totals.skills.find((row: { slug: string }) => row.slug === "probe").outputTokens,
+    ).toBeNull();
+    expect(json.rangeMetrics["agent.main-thread.contextPeak.n"]).toBe(0);
+    expect(renderJson(report)).not.toContain("987654321");
+    const text = renderMarkdown(report, "en");
+    expect(text).not.toContain("987654321");
+    expect(text).toContain("main-thread / tokens.input | unavailable");
+    expect(text).toContain("Combined token spend unavailable");
+    expect(text).toContain("`probe` | — | 1 | — | 1 | unavailable");
+  });
+  // Covers: R6
+  it("publishes only contributed partial components and excludes them from statistics", () => {
+    const root = session([]);
+    root.availability = {
+      tools: root.availability!.tools!,
+      "tokens.input": {
+        ...root.availability!["tokens.input"]!,
+        state: "partial",
+        reason: "live-tail",
+      },
+      "tokens.output": root.availability!["tokens.output"]!,
+    };
+    root.orchestrator.tokens = {
+      input: 41,
+      output: 0,
+      cacheRead: 987654321,
+      cacheCreation: 987654321,
+      thinking: 987654321,
+    };
+    const report = buildReport([root], { repo: "partial", version: "test", catalog: CATALOG });
+    const json = JSON.parse(renderJson(report));
+    expect(json.totals.tokens).toEqual({
+      input: 41,
+      output: 0,
+      cacheRead: null,
+      cacheCreation: null,
+      thinking: null,
+    });
+    expect(json.availability["tokens.input"]).toMatchObject({
+      eligible: 1,
+      observed: 0,
+      partial: 1,
+      contributors: 1,
+    });
+    expect(json.rangeMetrics["session.cacheRead.p50"]).toBeNull();
+    expect(renderMarkdown(report, "en")).toContain(
+      "main-thread / tokens.input | 41 | partial | live-tail",
+    );
+  });
+  // Covers: R6, R8
+  it("does not certify an empty population as measured zero", () => {
+    const report = buildReport([], {
+      repo: "empty",
+      version: "test",
+      catalog: CATALOG,
+      requestedRange: { from: "2026-09-01T00:00:00.000Z", to: "2026-09-02T00:00:00.000Z" },
+    });
+    const json = JSON.parse(renderJson(report));
+    expect(json.totals.tokens.input).toBeNull();
+    expect(json.availability["tokens.input"].eligible).toBe(0);
+    expect(json.range.from).toBe("2026-09-01T00:00:00.000Z");
+    expect(report.signals).toEqual([]);
+    expect(renderMarkdown(report, "en")).toContain("unavailable");
+  });
+  // Covers: R6
+  it("preserves measured zero, excludes unavailable and invalid contributors, and reports N", () => {
+    const known = session([], { sessionId: "known" });
+    known.orchestrator.tokens.input = 0;
+    const missing = session([], { sessionId: "missing", availability: {} });
+    missing.orchestrator.tokens.input = 999;
+    const report = buildReport([known, missing], {
+      repo: "mixed",
+      version: "test",
+      catalog: CATALOG,
+    });
+    const json = JSON.parse(renderJson(report));
+    expect(json.sessions[0].orchestrator.tokens.input).toBe(0);
+    expect(json.sessions[1].orchestrator.tokens.input).toBeNull();
+    expect(json.totals.tokens.input).toBe(0);
+    expect(json.availability["tokens.input"]).toMatchObject({
+      state: "partial",
+      eligible: 2,
+      observed: 1,
+      unavailable: 1,
+    });
+  });
+  // Covers: R6
+  it("does not retroactively certify legacy initialized counters", () => {
+    const report = buildReport([session([], { availability: undefined })], {
+      repo: "legacy",
+      version: "test",
+      catalog: CATALOG,
+    });
+    expect(JSON.parse(renderJson(report)).sessions[0].orchestrator.tokens.input).toBeNull();
+  });
+});
 
 function md(agents: AgentRun[], over: Partial<SessionAudit> = {}): string {
   const report = buildReport([session(agents, over)], {
@@ -550,13 +783,14 @@ describe("hooks del host vs conteo de subagentes (#693)", () => {
 
 describe("schema (#0013)", () => {
   // Covers: R17
-  it("declares schemaVersion 10", () => {
+  // Covers: R6
+  it("declares nullable schemaVersion 11", () => {
     const report = buildReport([session([])], {
       repo: "demo",
       version: "0.6.5",
       catalog: CATALOG,
     });
-    expect(report.schemaVersion).toBe(10);
+    expect(report.schemaVersion).toBe(11);
     // The bump to 10 adds `rangeMetrics`; older shapes lose nothing.
     expect(report.rangeMetrics["sessions.total"]).toBe(1);
     // Same contract for the bump to 8 (#778): `rangeSignals` is a scope the

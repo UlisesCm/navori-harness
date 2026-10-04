@@ -1349,6 +1349,13 @@ describe("unusedManagedCandidates (R47)", () => {
 });
 
 describe("activation published beside the main thread's share of edits", () => {
+  const tools = {
+    state: "observed" as const,
+    reason: null,
+    source: "transcript" as const,
+    adapter: "claude-transcript" as const,
+    sourceVersion: null,
+  };
   const CATALOG: HarnessCatalog = {
     agents: [],
     skills: [],
@@ -1361,7 +1368,14 @@ describe("activation published beside the main thread's share of edits", () => {
   // Covers: R67
   it("publishes the main-thread Edit/Write share, and renders it in the activation section", () => {
     const sess = sessionOf({
-      agents: [runOf({ agentType: "implementer", toolCounts: { Edit: 6, Write: 2 } })],
+      availability: { tools },
+      agents: [
+        runOf({
+          agentType: "implementer",
+          toolCounts: { Edit: 6, Write: 2 },
+          availability: { tools },
+        }),
+      ],
     });
     sess.orchestrator.toolCounts = { Edit: 2 };
     const dir = mkdtempSync(join(tmpdir(), "navori-act-"));
@@ -1412,8 +1426,19 @@ describe("activation published beside the main thread's share of edits", () => {
   });
 
   // Covers: R67
-  it("leaves the share unavailable, not zero, when no Edit/Write ran", () => {
+  // Covers: R6
+  it("does not treat an unmeasured empty fixture as measured edit zero", () => {
     const r = buildReport([sessionOf()], { repo: "demo", version: "0.11.0", catalog: CATALOG });
+    expect(r.rangeMetrics["edits.calls"]).toBeNull();
+    expect(r.rangeMetrics["edits.mainPct"]).toBeNull();
+  });
+  // Covers: R67
+  it("leaves the share unavailable, not zero, when no Edit/Write ran", () => {
+    const r = buildReport([sessionOf({ availability: { tools } })], {
+      repo: "demo",
+      version: "0.11.0",
+      catalog: CATALOG,
+    });
     expect(r.rangeMetrics["edits.calls"]).toBe(0);
     expect(r.rangeMetrics["edits.mainPct"]).toBeNull();
   });
