@@ -373,6 +373,18 @@ describe("session-start context hook — Codex payload (spec 0035 D3)", () => {
     expect(ctx).toContain("Task: seguir con N1");
   });
 
+  // Covers: R1, R9
+  it("delivers the exact Codex audit CLI pair in session context", () => {
+    const hookPath = installHook(join(".codex", "hooks", "session-start-context.sh"));
+    const stdout = acrossShells(
+      (shell) =>
+        runOnce(shell, "startup", hookPath, { cwd: dir, session_id: "cx-runtime-1" }).stdout,
+    );
+    expect(parseCtx(stdout)).toContain(
+      "NAVORI_AUDIT_HOST=codex NAVORI_AUDIT_SESSION_ID=cx-runtime-1",
+    );
+  });
+
   it("never emits the `.claude/context`/`.codex/context` doctrine blocks (D3)", () => {
     const ctxDir = join(dir, ".claude", "context");
     mkdirSync(ctxDir, { recursive: true });

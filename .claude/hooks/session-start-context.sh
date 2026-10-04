@@ -1,4 +1,4 @@
-# navori:managed start id="session-start-context-base" hash="03be06a1" version="0.11.2" source="@navori/core"
+# navori:managed start id="session-start-context-base" hash="80a63868" version="0.11.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # SessionStart context hook.
@@ -619,7 +619,8 @@ add_bounded() {
 # charset (#503) — this function trusts it into a command line, so an unvalidated
 # id must never reach here. $2 is the payload's cwd (#454: never
 # CLAUDE_PROJECT_DIR — they differ in worktrees, and --arm wrote the flag under
-# the repo name resolved from the cwd). $3 is the audits root.
+# the repo name resolved from the cwd). $3 is the audits root. $4 is the
+# authoritative engine selected by the shared hook input adapter.
 #
 # Fail-open and silent: returns 0 ONLY when audit-mode was actually started, so
 # the caller can announce it; every other path returns 1 and changes nothing.
@@ -628,14 +629,16 @@ navori_audit_consume_armed() {
   narm_sid=$1
   narm_cwd=$2
   narm_root=$3
+  narm_host=$4
   [ -n "$narm_sid" ] && [ -n "$narm_cwd" ] && [ -n "$narm_root" ] || return 1
+  case "$narm_host" in claude | codex) : ;; *) return 1 ;; esac
   narm_repo=$(navori_audit_repo_from_cwd "$narm_cwd") || return 1
   [ -n "$narm_repo" ] || return 1
   narm_file=$narm_root/$narm_repo/.armed
   [ -f "$narm_file" ] || return 1
   command -v navori >/dev/null 2>&1 || return 1
   rm -f "$narm_file" 2>/dev/null || true
-  navori audit --start "$narm_sid" --cwd "$narm_cwd" >/dev/null 2>&1 || return 1
+  navori audit --start "$narm_sid" --cwd "$narm_cwd" --host "$narm_host" >/dev/null 2>&1 || return 1
   return 0
 }
 _armed_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
@@ -656,13 +659,23 @@ fi
 case "$_armed_sid" in
   "" | *[!A-Za-z0-9_-]*) : ;;
   *)
-    if navori_audit_consume_armed "$_armed_sid" "$_armed_cwd" "$_armed_root"; then
+    if navori_audit_consume_armed "$_armed_sid" "$_armed_cwd" "$_armed_root" "$nv_engine"; then
       # Tell the MODEL, not just the log: the session should know it is being
       # recorded, and the user should see the activation in the first turn.
       add "navori: audit-mode ACTIVE for this session (armed via 'navori audit --arm'; the hook ran --start ${_armed_sid})."
     fi
     ;;
 esac
+
+# A hook export cannot reach later Codex tool shells. Deliver the exact pair
+# through the session context so an agent-initiated CLI command can pass it.
+if [ "$nv_engine" = codex ]; then
+  _audit_runtime_id=$(payload_field session_id)
+  case "$_audit_runtime_id" in
+    "" | *[!A-Za-z0-9_-]*) : ;;
+    *) add "Audit CLI context for this session: NAVORI_AUDIT_HOST=codex NAVORI_AUDIT_SESSION_ID=${_audit_runtime_id}. Pass both variables to agent-initiated navori commands when audit correlation is needed." ;;
+  esac
+fi
 
 # ─── Which of the five sources opened this session.
 #

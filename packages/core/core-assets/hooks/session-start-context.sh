@@ -151,13 +151,23 @@ fi
 case "$_armed_sid" in
   "" | *[!A-Za-z0-9_-]*) : ;;
   *)
-    if navori_audit_consume_armed "$_armed_sid" "$_armed_cwd" "$_armed_root"; then
+    if navori_audit_consume_armed "$_armed_sid" "$_armed_cwd" "$_armed_root" "$nv_engine"; then
       # Tell the MODEL, not just the log: the session should know it is being
       # recorded, and the user should see the activation in the first turn.
       add "navori: audit-mode ACTIVE for this session (armed via 'navori audit --arm'; the hook ran --start ${_armed_sid})."
     fi
     ;;
 esac
+
+# A hook export cannot reach later Codex tool shells. Deliver the exact pair
+# through the session context so an agent-initiated CLI command can pass it.
+if [ "$nv_engine" = codex ]; then
+  _audit_runtime_id=$(payload_field session_id)
+  case "$_audit_runtime_id" in
+    "" | *[!A-Za-z0-9_-]*) : ;;
+    *) add "Audit CLI context for this session: NAVORI_AUDIT_HOST=codex NAVORI_AUDIT_SESSION_ID=${_audit_runtime_id}. Pass both variables to agent-initiated navori commands when audit correlation is needed." ;;
+  esac
+fi
 
 # ─── Which of the five sources opened this session.
 #
