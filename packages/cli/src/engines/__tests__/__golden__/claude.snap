@@ -1454,21 +1454,22 @@ You are the main agent. **Every change to source goes through `implementer` → 
 
 | You are about to… | Route |
 |---|---|
-| change **source** — code, tests, config the program reads, or harness prose agents obey | `implementer` → `reviewer`. Always, whatever the size |
-| **answer, explain, investigate, review, or plan** | you do it; nothing is written. Delegate only as a **lever for scale** (signal table) |
-| write an **ephemeral** file — `.navori/state/handoffs/*`, scratch script, throwaway probe | you do it; it reaches no diff |
+| change **source** — code, tests, runtime config or agent-facing prose | `implementer` → `reviewer`, always; no inline route or size threshold |
+| **answer, explain, investigate, review, or plan** | do it yourself; nothing is written, so there is nothing to review. Delegate only for scale (signal table) |
+| write an **ephemeral** handoff, scratch script or probe | do it yourself; it reaches no diff |
 | run commands, read files, inspect state | you do it |
 
 ### The mechanics
 
-- **First producer:** architect, scout, auditor or implementer may start without `impl_<feature>.json`; never fabricate it.
-- **Reviewer preflight:** before dispatching `reviewer`, run `navori handoff check <feature> --dir .navori/state/handoffs --json`; require `"status":"ok"`.
+- **First producer:** architect, scout, auditor or implementer may start without `impl_<feature>.json`.
+- **Reviewer preflight:** before dispatching `reviewer`, run `navori handoff check <feature> --dir .navori/state/handoffs/ --json`; require `"status":"ok"`.
 
-- **Planning precondition:** mandatory before an `implementer`; no missing handoff or consumer check bypasses plan approval.
-- **1 focused `implementer`** with explicit scope (no SDD state), then **1 fresh `reviewer`**. Serial: the reviewer needs the implementer's output.
-- **Review AFTER implementing.**
-- **Parallel `implementer`s only on disjoint files.**
-- **`pnpm test && pnpm lint` green** is the reviewer's Pass 2, over the diff that ships.
+- **Planning precondition:** required before an `implementer`; handoff checks never bypass plan approval.
+- Before plan approval or an option choice, give the chat decision summary in `formato-respuesta.md` (recommendation, rationale, scope, risks/blockers and verification). Artifacts supplement it; approval gates stay unchanged.
+- **1 focused `implementer`**, then **1 fresh `reviewer`**. Run serially; review the implementer's output.
+- **Review after implementation.**
+- **Parallel implementers need disjoint files.**
+- **`pnpm test && pnpm lint` green** is Pass 2 on the shipping diff.
 - **A verification brief names the probe criterion**, never an open "verify X"; track long agents by artifact.
 
 ### Claude agent turn limits
@@ -19076,12 +19077,17 @@ metadata:
 1. Dispatch `architect` with the task, the signals and `classify`'s breakdown → it writes
    `solution_<feature>.md`.
 2. Dispatch a fresh-context `auditor` (challenge encargo) → `solution_review_<feature>.md`.
-3. "Present the surviving options to the user with the recommended one first and the challenge
-   findings beside each; the user picks." If only one survives, say so and move on.
+3. Present the surviving options and challenge findings. Before asking the user to choose, give
+   the compact `resumen de decisión` in chat per `formato-respuesta.md`, including recommendation,
+   rationale, scope, pertinent risks/blockers and verification. "Present the surviving options to
+   the user with the recommended one first and the challenge findings beside each; the user picks."
+   If only one survives, say so and move on.
 4. Your verdict, post-challenge: READY / CONCERNS / BLOCKED.
 5. Write the level-2 workplan: everything `plan-simple` covers plus `solution {path, verdict}`,
-   phases with their `A<n>`, and risks with their rollback; render, check and get the user's
-   approval. As in `plan-simple`, an `A<n>` reaches `cumplido` only with evidence the routing-watch hook recorded because the host ran its exact `command`.
+   phases with their `A<n>`, and risks with their rollback; render and check it, then give the
+   compact `resumen de decisión` in chat per `formato-respuesta.md` before asking for approval. As in
+   `plan-simple`, an `A<n>` reaches `cumplido` only with evidence the routing-watch hook recorded
+   because the host ran its exact `command`.
 6. After two rejections, the gate requires `solution_<feature>.md` and
    `solution_review_<feature>.md`: the architect diagnoses why the previous design failed before
    redesigning.
@@ -19131,6 +19137,8 @@ metadata:
 2. Run `navori plan classify <feature>` → tell the user the level, score and breakdown in ≤ 4
    lines. If it comes back level 2 or higher, switch to `plan-advanced`.
 3. Run `navori plan render <feature>` and `navori plan check <feature>` until both are green;
+   give the compact `resumen de decisión` in chat per `formato-respuesta.md`, including recommendation,
+   scope, pertinent risks/blockers and verification; then
    show the rendered `.md` and wait for the user's approval.
 4. "Open every implementer encargo with `workplan: <feature>` and list the `A<n>` that sub-task covers."
 5. "When a sub-task closes, record it with `navori plan update`" (each `A<n>`'s status and
@@ -19237,6 +19245,8 @@ Only when the orchestration table's fan-out row fires, never on "it feels separa
 
 ## Hard rules
 
+- For `proceed` or `proceed-differently`, give the compact `resumen de decisión` in chat per
+  `formato-respuesta.md` before asking approval; no-work verdicts close with evidence, without approval.
 - **Phase 2 fires only on its disparadores** — never skipped because you "already understood the ticket" when it does fire, and never invented when it doesn't: the audit is for the implementer, and for you in 3 days.
 - **No PR without `APPROVED`.**
 - **A verdict that opens no work doesn't wait for approval:** report it with its evidence, leave `progress/current.md` at `idle`, stop — asking permission to do nothing turns a finished pipeline into a stalled one. Only `proceed` / `proceed-differently` hold for the user, right before code gets written.
@@ -19719,19 +19729,16 @@ metadata:
 
 ## When to use this skill
 
-When a task shows any architectural signal (see the architectural pass in the
-orchestration block), or a ticket audit came back `proceed-differently`. NOT for a
-change following an exact existing pattern with local blast radius and trivial
-rollback — no design pass needed, this skill is pure overhead.
+When a task shows an architectural signal (see orchestration), or a ticket audit
+returns `proceed-differently`. NOT for an exact existing pattern with local blast
+radius and trivial rollback — no design pass needed.
 
-This answers **what to build and why** — not the implementation plan (*what files,
-in what order*), not code review (*did the code do what we agreed*). Design before
-decomposing: a contract, a state owner or a migration path moves task boundaries,
-so tasks written first get rewritten.
+This answers **what to build and why**, not the implementation plan or code review.
+Design before decomposing: contracts, state owners and migration paths move task
+boundaries, so tasks written first get rewritten.
 
-A security-sensitive signal also routes through `secure-by-design`; a
-non-functional-requirement signal routes through `quality-attributes` for its
-evidence matrix. Neither replaces this skill's verdict.
+Security signals also route through `secure-by-design`; non-functional
+requirements through `quality-attributes`. Neither replaces this verdict.
 
 **Who does what (spec 0026 F; spec 0032 R23, R33).** Three roles, never collapsed: `architect`
 **proposes** (applies this skill, writes the artifact) — always; there is no flag to turn it off.
@@ -19767,7 +19774,10 @@ level 2 the user picks among the surviving options before that verdict.
 3. **Approaches, only if ≥2 are genuine.** Never invent a straw alternative when
    one answer is obviously right. When the request proposes one, it is approach A
    and gets no privileges: give each option its tradeoffs and its cost of reversal.
-4. **Choose**: what, why, and why not the others.
+4. **Choose**: what, why, and why not the others. Before asking the user to choose, give the compact
+   `resumen de decisión` in chat per `formato-respuesta.md` (recommendation, rationale, concerns,
+   scope and verification);
+   keep challenge and verdict separate.
 5. **Cover only the dimensions the signal raises** — boundaries and contracts,
    failure modes, migration and compatibility, testing strategy. An empty section
    is noise, not rigor. Every test you name answers a risk named above it.
@@ -19882,9 +19892,9 @@ Do not write anything under `specs` unless the user has explicitly accepted star
 
 ## When to use this skill
 
-When SDD-scope work has been agreed with the user. The threshold and its opt-in gate live in ONE place — the **Spec Driven Development** block in `CLAUDE.md`; don't re-decide them here, and don't scaffold a spec nobody accepted.
+When SDD work meets its threshold; **the threshold and its opt-in gate live in ONE place**: the **Spec Driven Development** block in `CLAUDE.md`. Before asking acceptance, give the compact `resumen de decisión` in chat per `formato-respuesta.md`; a proposal or summary is not authorization to scaffold.
 
-Produces `specs/<feature>/{requirements.md, design.md, tasks.md}` ready to implement. Scaffolding is done by `orchestrator`, not a nested subagent.
+Produces `specs/<feature>/{requirements.md, design.md, tasks.md}`. `orchestrator` scaffolds, not a nested subagent.
 
 **Challenge on critical areas.** WHEN the spec touches `auth, permissions, payments, data integrity`, a fresh-context `auditor` challenges it with `solution-design`'s falsification brief before handoff. One round, no verdict — `orchestrator` decides.
 
@@ -20254,10 +20264,13 @@ if (!parsed.success) return res.status(400).json({ error: z.prettifyError(parsed
 <!-- navori:managed id="formato-respuesta" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
 ## Concisión (aplica a todo: chat y subagentes)
 
-- Lidera con el resultado: la primera línea responde "qué pasó / qué encontré", no el preámbulo.
-- Cero relleno: no narres rutina ("ahora voy a…", "déjame ver…") ni cierres de cortesía.
-- Recorta la prosa, no la sustancia. Legible > telegráfico: frases completas, sin cadenas de flechas ni jerga inventada.
-- Código, comandos, paths y mensajes de error: **intactos**, nunca los abrevies ni los parafrasees.
+- Abre con el resultado; omite rutina y cortesías.
+- Recorta prosa, no sustancia; evita jerga.
+- Conserva código, comandos, paths y errores intactos.
+
+### Resumen de decisión en el chat
+
+Antes de pedir aprobación, resume recomendación y motivo, alcance, riesgos pertinentes, bloqueos y verificación prevista o realizada. No se deben omitir garantías, riesgos ni bloqueos; el artefacto complementa el resumen. Aprobar producto o plan no autoriza despliegue.
 
 ## Formato de respuesta
 

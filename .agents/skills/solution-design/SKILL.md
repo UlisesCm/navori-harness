@@ -12,24 +12,21 @@ metadata:
   maxWords: 1119
 ---
 
-<!-- navori:managed id="solution-design" hash="407ad8d9" version="0.11.2" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="solution-design" hash="50551585" version="0.11.2" source="@navori/core" fmkeys="name,description,metadata" -->
 # solution-design — decide what to build, then try to break it
 
 ## When to use this skill
 
-When a task shows any architectural signal (see the architectural pass in the
-orchestration block), or a ticket audit came back `proceed-differently`. NOT for a
-change following an exact existing pattern with local blast radius and trivial
-rollback — no design pass needed, this skill is pure overhead.
+When a task shows an architectural signal (see orchestration), or a ticket audit
+returns `proceed-differently`. NOT for an exact existing pattern with local blast
+radius and trivial rollback — no design pass needed.
 
-This answers **what to build and why** — not the implementation plan (*what files,
-in what order*), not code review (*did the code do what we agreed*). Design before
-decomposing: a contract, a state owner or a migration path moves task boundaries,
-so tasks written first get rewritten.
+This answers **what to build and why**, not the implementation plan or code review.
+Design before decomposing: contracts, state owners and migration paths move task
+boundaries, so tasks written first get rewritten.
 
-A security-sensitive signal also routes through `secure-by-design`; a
-non-functional-requirement signal routes through `quality-attributes` for its
-evidence matrix. Neither replaces this skill's verdict.
+Security signals also route through `secure-by-design`; non-functional
+requirements through `quality-attributes`. Neither replaces this verdict.
 
 **Who does what (spec 0026 F; spec 0032 R23, R33).** Three roles, never collapsed: `architect`
 **proposes** (applies this skill, writes the artifact) — always; there is no flag to turn it off.
@@ -65,7 +62,10 @@ level 2 the user picks among the surviving options before that verdict.
 3. **Approaches, only if ≥2 are genuine.** Never invent a straw alternative when
    one answer is obviously right. When the request proposes one, it is approach A
    and gets no privileges: give each option its tradeoffs and its cost of reversal.
-4. **Choose**: what, why, and why not the others.
+4. **Choose**: what, why, and why not the others. Before asking the user to choose, give the compact
+   `resumen de decisión` in chat per `formato-respuesta.md` (recommendation, rationale, concerns,
+   scope and verification);
+   keep challenge and verdict separate.
 5. **Cover only the dimensions the signal raises** — boundaries and contracts,
    failure modes, migration and compatibility, testing strategy. An empty section
    is noise, not rigor. Every test you name answers a risk named above it.

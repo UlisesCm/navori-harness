@@ -22,7 +22,7 @@ metadata:
   maxWordsComposed: 750
 ---
 
-<!-- navori:managed id="spec-bootstrap" hash="b10727ac" version="0.11.2" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="spec-bootstrap" hash="3bb0c36b" version="0.11.2" source="@navori/core" fmkeys="name,description,metadata" -->
 # spec-bootstrap — kickoff of an SDD spec
 
 ## Before scaffolding — blocking precondition
@@ -31,9 +31,9 @@ Do not write anything under `specs` unless the user has explicitly accepted star
 
 ## When to use this skill
 
-When SDD-scope work has been agreed with the user. The threshold and its opt-in gate live in ONE place — the **Spec Driven Development** block in `CLAUDE.md`; don't re-decide them here, and don't scaffold a spec nobody accepted.
+When SDD work meets its threshold; **the threshold and its opt-in gate live in ONE place**: the **Spec Driven Development** block in `CLAUDE.md`. Before asking acceptance, give the compact `resumen de decisión` in chat per `formato-respuesta.md`; a proposal or summary is not authorization to scaffold.
 
-Produces `specs/<feature>/{requirements.md, design.md, tasks.md}` ready to implement. Scaffolding is done by `orchestrator`, not a nested subagent.
+Produces `specs/<feature>/{requirements.md, design.md, tasks.md}`. `orchestrator` scaffolds, not a nested subagent.
 
 **Challenge on critical areas.** WHEN the spec touches `render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard`, a fresh-context `auditor` challenges it with `solution-design`'s falsification brief before handoff. One round, no verdict — `orchestrator` decides.
 

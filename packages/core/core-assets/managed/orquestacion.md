@@ -8,22 +8,23 @@ You are the main agent. **Every change to source goes through `implementer` → 
 
 | You are about to… | Route |
 |---|---|
-| change **source** — code, tests, config the program reads, or harness prose agents obey | `implementer` → `reviewer`. Always, whatever the size |
-| **answer, explain, investigate, review, or plan** | you do it; nothing is written. Delegate only as a **lever for scale** (signal table) |
-| write an **ephemeral** file — `.navori/state/handoffs/*`, scratch script, throwaway probe | you do it; it reaches no diff |
+| change **source** — code, tests, runtime config or agent-facing prose | `implementer` → `reviewer`, always; no inline route or size threshold |
+| **answer, explain, investigate, review, or plan** | do it yourself; nothing is written, so there is nothing to review. Delegate only for scale (signal table) |
+| write an **ephemeral** handoff, scratch script or probe | do it yourself; it reaches no diff |
 | run commands, read files, inspect state | you do it |
 
 ### The mechanics
 
-- **First producer:** architect, scout, auditor or implementer may start without `impl_<feature>.json`; never fabricate it.
-- **Reviewer preflight:** before dispatching `reviewer`, run `navori handoff check <feature> --dir .navori/state/handoffs --json`; require `"status":"ok"`.
+- **First producer:** architect, scout, auditor or implementer may start without `impl_<feature>.json`.
+- **Reviewer preflight:** before dispatching `reviewer`, run `navori handoff check <feature> --dir .navori/state/handoffs/ --json`; require `"status":"ok"`.
 <!-- navori:if scribeOwnsMarkdown -->- Before dispatching `scribe`, run the same check and require `"status":"ok"`.
 <!-- /navori:if -->
-- **Planning precondition:** mandatory before an `implementer`; no missing handoff or consumer check bypasses plan approval.
-- **1 focused `implementer`** with explicit scope (no SDD state), then<!-- navori:if scribeOwnsMarkdown --> **1 `scribe`** when `impl_<feature>.json` carries `markdownRequests` (model per dispatch: configured default for a handoff-only render, `sonnet` when a request touches the shipped diff, R8), then<!-- /navori:if --> **1 fresh `reviewer`**. Serial: the reviewer needs the implementer's<!-- navori:if scribeOwnsMarkdown --> (and the scribe's, if it ran)<!-- /navori:if --> output.
-- **Review AFTER implementing.**
-- **Parallel `implementer`s only on disjoint files.**
-- **`{{qualityGate.full}}` green** is the reviewer's Pass 2, over the diff that ships.
+- **Planning precondition:** required before an `implementer`; handoff checks never bypass plan approval.
+- Before plan approval or an option choice, give the chat decision summary in `formato-respuesta.md` (recommendation, rationale, scope, risks/blockers and verification). Artifacts supplement it; approval gates stay unchanged.
+- **1 focused `implementer`**, then<!-- navori:if scribeOwnsMarkdown --> **1 `scribe`** for `markdownRequests` (default model for handoff-only; `sonnet` for shipped prose, R8), then<!-- /navori:if --> **1 fresh `reviewer`**. Run serially; review the implementer's<!-- navori:if scribeOwnsMarkdown --> and scribe's<!-- /navori:if --> output.
+- **Review after implementation.**
+- **Parallel implementers need disjoint files.**
+- **`{{qualityGate.full}}` green** is Pass 2 on the shipping diff.
 - **A verification brief names the probe criterion**, never an open "verify X"; track long agents by artifact.
 
 ### Claude agent turn limits

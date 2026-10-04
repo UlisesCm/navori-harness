@@ -1,3 +1,29 @@
+# Current — D0 awaiting final closure review
+
+## Goal
+Close D0 compact interaction and informed approval summaries as a reviewed PR before D1.
+## Instructions
+Sequential closure, autonomous overnight progress, PRs toward main without automatic merges. Preserve protected wording, budgets, thresholds, source typing and original worktrees. D0 explicitly depends on guard PR1204.
+## Discoveries
+- D0 had been implemented but not accepted; percentages did not represent publication. Protected prose contracts and local renderer provenance were separate earlier blockers.
+- The latest main already contains the doctor JSON scenario split. Copying the old D0 test delta would undo that baseline correction, so it is not transplanted.
+## Accomplished
+- Preserved the original D0 worktree and created feat/dual-workflow-d0-close from main58957b6e, then fast-forwarded the reviewed guard dependency7a1967eb.
+- Transplanted the original typed compact-interaction test and seven canonical prose assets with exact SHA-256 matches through implementer and scribe.
+- Local native render updated13 mirrors; golden update passed5/5; A6 passed3/3; selected165 tests and fast checks passed. Fresh full reviewer gate and receipt remain pending at this checkpoint.
+- Guard PR1204 is published without merge; original rejected D0/D2 handoff operations remain untouched.
+## Next Steps
+- Obtain a fresh complete review and receipt for the combined guard-plus-D0 diff, then publish D0 toward main with its PR1204 dependency explicit.
+- Continue D1 only after D0 publication. Preserve the D1/D2/D3 worktrees and report any new stopper without bypassing gates.
+## Relevant Files
+- packages/core/core-assets/managed/{formato-respuesta,orquestacion}.md — compact chat summary and protected orchestration contract.
+- packages/core/core-assets/skills/{plan-simple,plan-advanced,solution-design,resolve-ticket,spec-bootstrap}.md — five informed approval entry points.
+- packages/cli/src/engines/__tests__/compact-interaction.test.ts — bounded semantic and engine parity checks.
+- Native mirrors and five golden snapshots — rendered D0 policy.
+- progress/current.md and progress/history.md — this checkpoint and retained context.
+
+## Retained prior-session checkpoint
+
 # Current — JSON metadata guard awaiting integrated review
 
 ## Goal

@@ -5,7 +5,7 @@ metadata:
   type: reference
 ---
 
-<!-- navori:managed id="plan-simple" hash="594f5447" version="0.11.2" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="plan-simple" hash="a38efe70" version="0.11.2" source="@navori/core" fmkeys="name,description,metadata" -->
 # plan-simple — level-1 workplan
 
 ## Steps
@@ -16,6 +16,8 @@ metadata:
 2. Run `navori plan classify <feature>` → tell the user the level, score and breakdown in ≤ 4
    lines. If it comes back level 2 or higher, switch to `plan-advanced`.
 3. Run `navori plan render <feature>` and `navori plan check <feature>` until both are green;
+   give the compact `resumen de decisión` in chat per `formato-respuesta.md`, including recommendation,
+   scope, pertinent risks/blockers and verification; then
    show the rendered `.md` and wait for the user's approval.
 4. "Open every implementer encargo with `workplan: <feature>` and list the `A<n>` that sub-task covers."
 5. "When a sub-task closes, record it with `navori plan update`" (each `A<n>`'s status and
