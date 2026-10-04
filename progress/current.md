@@ -1,3 +1,30 @@
+# Current — PR1203 merged; PR1205 verified and awaiting publication
+
+## Goal
+Resolve and merge audit PRs one at a time: PR1203 first, then PR1205.
+## Instructions
+Explicit user-authorized normal merges only after fresh review/full gate/CI. Preserve worktrees, branches, stashes and other pending checkout merges; no force/admin.
+## Discoveries
+- Both conflicts were only progress current/history after main advanced. Isolated main-first integration permits review of the pending merge tree before commit, behind0.
+## Accomplished
+- PR1203 integrated/pushed cde39e94, new qualityCI SUCCESS then matched-head normal merge completed c45c535b on 2026-10-04 16:38:29 UTC.
+- T7 then integrated on that main with both histories preserved. Fresh reviewer APPROVED 4 source/test +2 progress paths, exact full gate exit0, coverage116modules, jscpd0clones/semgrep0, lint/typecheck green. Independent receipt ok/fresh true targetc45c535b.
+## Next Steps
+- Publish verified T7 integration to existing PR1205, wait new CI then matched-head normal merge. No T4 changes in this cycle; its renderer scope escalation remains pending.
+- Keep original pending T2 checkout untouched; main branch is held by shared root so skip parking these isolated branches.
+## Relevant Files
+- progress/current.md and history.md — sole manual conflict resolutions and this checkpoint.
+- .navori/state/handoffs/review_audit-metric-populations.md and receipt.txt — fresh shipping verification.
+- packages/cli/src/lib/audit/signals.ts/report.ts and two metric tests — reviewed T7 source unchanged.
+
+## Preserved resolved checkpoints
+
+# Current — PR1205 integration verification pending
+
+PR1203 merged c45c535b after fresh review/gate/CI. Now integrate reviewed T7 5850fd13 onto that main. Only progress conflicts resolved preserving both histories. Next fresh review/fullgate, normal push existing PR1205, CI and authorized matched-head merge.
+
+## Preserved main checkpoint
+
 # Current — PR1203 integration verified; publication and merge next
 
 ## Goal
@@ -294,3 +321,23 @@ No real services/logs, timeout overrides, skipped tests, historical migration or
 - packages/cli/src/commands/audit.ts — explicit host/session context.
 - packages/core/core-assets/hooks/{audit-mode-trigger,session-start-context}.sh and _partials/audit-arm.sh — capture identity propagation.
 - Claude/Codex generated hook mirrors and test goldens — native renderer derivatives.
+
+
+## Preserved T7 checkpoint
+
+# Current — T7 verified, publication pending
+
+## Goal
+Deliver Spec0042 T7 reviewer/gate populations and hook work/toll semantics.
+## Instructions
+No real services/logs, timeout overrides, skipped tests, coverage reduction or automatic merge.
+## Discoveries
+- Review latency needs completed gate owner correlation; unrelated reviewer runs cannot populate it. Missing evidence is unavailable, not zero.
+- Hook work sums executions; concurrent toll uses maximum duration. Wrapper execution alone does not prove internal tool coverage.
+## Accomplished
+- Fresh review APPROVED four T7 source/test files against main58957b6e. Exact full gate exit0, coverage115modules, lint/typecheck green; independent receipt ok/fresh true. Previous timeouts did not recur.
+## Next Steps
+- Publish reviewed T7 PR via normal hooks/push. T2 PR1203 qualityCI successful, awaiting human integration before T4. T3 clarified design retained; no whole-spec parity claim.
+## Relevant Files
+- packages/cli/src/lib/audit/signals.ts and report.ts — corrected metric populations and toll semantics.
+- packages/cli/src/lib/audit/__tests__/reviewer-lifecycle.test.ts and range-metrics.test.ts — ownership and concurrent/wrapper regressions.
