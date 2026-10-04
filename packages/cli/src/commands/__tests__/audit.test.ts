@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   appendFileSync,
@@ -16,6 +16,8 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseCodexSession } from "../../lib/audit/parse.ts";
 import { encodeCwdToSlug } from "../../lib/audit/paths.ts";
+
+vi.mock(import("node:child_process"), { spy: true });
 
 /**
  * `audit` declares a hard contract in its own header: "every write lands under
@@ -47,13 +49,16 @@ interface CliResult {
   combined: string;
 }
 
+/** Spawn the real CLI with isolated paths and a conflict-free plain-output environment. */
 function runAudit(args: string[]): CliResult {
   const hasCwd = args.includes("--cwd");
   const baseArgs = hasCwd ? [] : ["--cwd", repoDir];
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.FORCE_COLOR;
   const r = spawnSync("node", [CLI, "audit", ...baseArgs, ...args], {
     encoding: "utf-8",
     env: {
-      ...process.env,
+      ...env,
       HOME: home,
       CODEX_HOME: join(home, ".codex"),
       NAVORI_TRANSCRIPTS_ROOT: join(home, ".claude", "projects"),
@@ -138,7 +143,29 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   rmSync(sandbox, { recursive: true, force: true });
+});
+
+describe("audit subprocess color environment", () => {
+  it("omits inherited FORCE_COLOR without changing the parent environment", () => {
+    vi.stubEnv("FORCE_COLOR", "1");
+    const spawn = vi.mocked(spawnSync);
+    spawn.mockClear();
+
+    const result = runAudit(["--arm"]);
+
+    expect(result.status).toBe(0);
+    expect(spawn).toHaveBeenCalledOnce();
+    const childEnv = spawn.mock.calls[0]?.[2]?.env;
+    expect(childEnv).not.toHaveProperty("FORCE_COLOR");
+    expect(childEnv?.NO_COLOR).toBe("1");
+    expect(process.env.FORCE_COLOR).toBe("1");
+    expect(result.combined).not.toContain(String.fromCharCode(27));
+    expect(result.combined).not.toContain("Warning:");
+    expect(result.combined).not.toContain("FORCE_COLOR");
+  });
 });
 
 /**
