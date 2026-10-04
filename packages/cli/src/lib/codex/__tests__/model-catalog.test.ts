@@ -115,4 +115,26 @@ describe("codex model catalog (spec 0041 R32)", () => {
       source: "family",
     });
   });
+
+  // Covers: R32
+  it("a stale catalog does not downgrade a newer same-family previous id", () => {
+    const stale = catalog(JSON.stringify({ models: [{ slug: "gpt-6-sol" }] }));
+    expect(resolveCodexModelValue("sol", stale, "gpt-6.1-sol")).toEqual({
+      model: "gpt-6.1-sol",
+      source: "rendered",
+    });
+  });
+
+  // Covers: R32
+  it("a newer or equal catalog wins over previous; another family's previous is ignored", () => {
+    const path = fixture();
+    expect(resolveCodexModelValue("sol", path, "gpt-6.1-sol")).toEqual({
+      model: "gpt-6.1-sol",
+      source: "family",
+    });
+    expect(resolveCodexModelValue("sol", path, "gpt-7-luna")).toEqual({
+      model: "gpt-6.1-sol",
+      source: "family",
+    });
+  });
 });
