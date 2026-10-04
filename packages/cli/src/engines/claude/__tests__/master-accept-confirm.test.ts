@@ -56,7 +56,11 @@ function run(input: Record<string, unknown>, env?: NodeJS.ProcessEnv): HookRun {
   return acrossShells((shell) => runHook(shell, input, env));
 }
 
-function expectAsk(input: Record<string, unknown>, env?: NodeJS.ProcessEnv): void {
+function expectAsk(
+  input: Record<string, unknown>,
+  env?: NodeJS.ProcessEnv,
+  approval = "a manual criterion",
+): void {
   const result = run(input, env);
   expect(result.code).toBe(0);
   const parsed = JSON.parse(result.stdout) as {
@@ -67,11 +71,35 @@ function expectAsk(input: Record<string, unknown>, env?: NodeJS.ProcessEnv): voi
   };
   expect(parsed.hookSpecificOutput?.permissionDecision).toBe("ask");
   expect(parsed.hookSpecificOutput?.permissionDecisionReason).toBe(
-    "[navori] this records that you approved a manual criterion. Confirm only if you reviewed it.",
+    `[navori] this records that you approved ${approval}. Confirm only if you reviewed it.`,
   );
 }
 
 describe.runIf(runsBash)("master-accept-confirm.sh", () => {
+  it("asks for delivery baseline and bounded queue approvals", () => {
+    expectAsk(
+      payload("navori master delivery-baseline --approved-by user"),
+      undefined,
+      "the delivery baseline or bounded queue",
+    );
+    expectAsk(
+      payload("navori master delivery-queue --delivery E1 --parts P1 --approved-by=user"),
+      undefined,
+      "the delivery baseline or bounded queue",
+    );
+    expectAsk(
+      payload(
+        "echo ready && pnpm exec navori master delivery-queue --delivery E1 --parts P1 --approved-by user",
+      ),
+      undefined,
+      "the delivery baseline or bounded queue",
+    );
+  });
+
+  it("does not treat a read-only delivery check as approval", () => {
+    expect(run(payload("navori master delivery-check")).stdout).toBe("");
+    expect(run(payload("navori master delivery-check && echo --approved-by user")).stdout).toBe("");
+  });
   // Covers: R62
   it("asks on navori master part P2 --accept A3 --approved-by user (main thread)", () => {
     expectAsk(payload("navori master part P2 --accept A3 --approved-by user"));
@@ -261,22 +289,32 @@ describe.runIf(runsBash)("master-accept-confirm.sh installed for Codex", () => {
     return path;
   })();
 
-  it("denies a manual approval and never asks or allows", () => {
+  it.each([
+    "navori master part P2 --accept A3 --approved-by user",
+    "navori master delivery-baseline --approved-by user",
+    "navori master delivery-queue --delivery E1 --parts P1 --approved-by=user",
+    "echo ready && pnpm exec navori master delivery-queue --delivery E1 --parts P1 --approved-by user",
+  ])("denies approval and never asks or allows: %s", (command: string) => {
     const result = spawnSync("bash", [codexPath], {
-      input: JSON.stringify(payload("navori master part P2 --accept A3 --approved-by user")),
+      input: JSON.stringify(payload(command)),
       encoding: "utf-8",
     });
     expect(result.status).toBe(0);
     const decision = JSON.parse(result.stdout).hookSpecificOutput.permissionDecision;
     expect(decision).toBe("deny");
+    if (command.includes("delivery-"))
+      expect(result.stdout).toContain("the delivery baseline or bounded queue");
   });
 
-  it("stays silent on an unrelated command", () => {
-    const result = spawnSync("bash", [codexPath], {
-      input: JSON.stringify(payload("git status")),
-      encoding: "utf-8",
-    });
-    expect(result.status).toBe(0);
-    expect(result.stdout).toBe("");
-  });
+  it.each(["git status", "navori master delivery-check"])(
+    "stays silent on a non-approval command: %s",
+    (command: string) => {
+      const result = spawnSync("bash", [codexPath], {
+        input: JSON.stringify(payload(command)),
+        encoding: "utf-8",
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe("");
+    },
+  );
 });

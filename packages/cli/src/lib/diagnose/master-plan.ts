@@ -8,6 +8,7 @@ import { join, relative } from "node:path";
 import type { NavoriConfig } from "../config/config.ts";
 import { activeStage, indexJsonPath, masterDirPath, readMasterIndex } from "../master/stages.ts";
 import { DeliveryStateSchema } from "../master/delivery-schema.ts";
+import { checkDeliveryPreparation, containedFile } from "../master/delivery-checks.ts";
 import { MasterStateSchema } from "../master/schema.ts";
 
 export type MasterPlanDiagnostic =
@@ -59,13 +60,38 @@ export function scanMasterPlan(cwd: string, config: NavoriConfig): MasterPlanDia
       }
     }
     if (active.workflow === "deliveries") {
-      if (existsSync(join(masterDirPath(cwd, specsDir), active.dir, "parts.json")))
-        issues.push({ kind: "invalid-state", detail: `${active.dir}: unexpected parts.json` });
-      else
+      const partsPath = join(masterDirPath(cwd, specsDir), active.dir, "parts.json");
+      if (!existsSync(partsPath))
         issues.push({
           kind: "deliveries-pending",
-          detail: `${active.dir}: D1 foundation only; not ready for delivery`,
+          detail: `${active.dir}: preparation pending; not ready for delivery`,
         });
+      else {
+        try {
+          const safeParts = containedFile(cwd, partsPath);
+          if (!safeParts) throw new Error("parts.json outside repository");
+          const checked = checkDeliveryPreparation(
+            cwd,
+            JSON.parse(readFileSync(safeParts, "utf8")) as unknown,
+          );
+          issues.push(
+            checked.parts
+              ? {
+                  kind: "deliveries-pending",
+                  detail: `${active.dir}: ${checked.blockers.length ? checked.blockers.join("; ") : "preparation ready"}; execution not ready for delivery`,
+                }
+              : {
+                  kind: "invalid-state",
+                  detail: `${active.dir}: invalid parts.json: ${checked.blockers.join("; ")}`,
+                },
+          );
+        } catch (cause) {
+          issues.push({
+            kind: "invalid-state",
+            detail: `${active.dir}: invalid parts.json: ${cause instanceof Error ? cause.message : String(cause)}`,
+          });
+        }
+      }
     }
   }
   for (const stage of index.stages) {

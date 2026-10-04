@@ -10,10 +10,39 @@ import {
   templateHeaders,
   printTemplate,
   printIssueTemplate,
+  TEMPLATE_NAMES,
 } from "../templates.ts";
 import type { Part } from "../schema.ts";
 import { UX_SECTION_KINDS } from "../ux.ts";
 import { writeUxTemplateFixture } from "./test-utils.ts";
+
+it("keeps delivery templates separate from the legacy and UX v1 templates", () => {
+  expect(TEMPLATE_NAMES).toContain("delivery-master");
+  expect(TEMPLATE_NAMES).toContain("slice");
+  expect(TEMPLATE_NAMES).toContain("ux");
+});
+
+it.each(["es", "en"] as const)(
+  "prints the shipped delivery contract and slice templates in %s without language fallback",
+  (language: "es" | "en") => {
+    const contract = printTemplate("delivery-master", language, null);
+    const slice = printTemplate("slice", language, null);
+    for (const name of ["delivery-master", "slice"] as const)
+      expect(resolveTemplatePath(name, language).fallback).toBe(false);
+    for (const field of [
+      "parts.json",
+      "uiBearing",
+      "reviewedRevision",
+      "foundationPartId",
+      "prTarget",
+    ])
+      expect(contract).toContain(field);
+    for (const criterion of ["P<n>.A<n>", "test", "command", "manual"])
+      expect(slice).toContain(criterion);
+    expect(contract).toContain("D3/D4");
+    expect(slice).toContain(language === "es" ? "**pendiente**" : "**pending**");
+  },
+);
 
 let root: string;
 

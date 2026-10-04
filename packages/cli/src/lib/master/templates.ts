@@ -31,6 +31,8 @@ export const TEMPLATE_NAMES = [
   "tasks",
   "issue",
   "ux",
+  "delivery-master",
+  "slice",
 ] as const;
 export type TemplateName = (typeof TEMPLATE_NAMES)[number];
 
