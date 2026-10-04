@@ -1,0 +1,13 @@
+# Generated mirror paths only: any textual conflict here is noise, because
+# `bun run render:apply` rewrites the file from source right after the merge
+# or rebase. Opt in once per clone:
+#   git config merge.navori-generated.driver true
+# (`true` keeps the current side and exits 0, so no conflict markers appear;
+# which side that is does not matter, the re-render overwrites it.)
+# Never list source files here (core-assets, packages/**, specs) and never
+# files with a user-owned zone (AGENTS.md, CLAUDE.md): a kept side would
+# silently drop the other side's authored change.
+.codex/agents/*.toml merge=navori-generated
+.codex/hooks/** merge=navori-generated
+.codex/scripts/** merge=navori-generated
+.codex/rules/** merge=navori-generated
