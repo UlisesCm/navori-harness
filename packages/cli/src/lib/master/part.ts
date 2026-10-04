@@ -69,6 +69,8 @@ export function changeMasterPart(cwd: string, id: string, change: PartChange): v
   const specsDir = config.sdd?.specsDir ?? "specs";
   const stage = activeStage(readMasterIndex(cwd, specsDir));
   if (!stage) throw new Error("no active stage; run navori master init");
+  if (stage.workflow === "deliveries")
+    throw new Error(`${stage.dir}: deliveries workflow is not supported by legacy part operations`);
   const stagePath = join(masterDirPath(cwd, specsDir), stage.dir);
   const state = MasterStateSchema.parse(
     JSON.parse(readFileSync(join(stagePath, "state.json"), "utf8")) as unknown,

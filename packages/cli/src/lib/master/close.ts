@@ -209,6 +209,8 @@ export function runMasterClose(cwd: string, options: CloseOptions = {}): CloseRe
   const specsDir = config.sdd?.specsDir ?? "specs";
   const index = readMasterIndex(cwd, specsDir);
   const stage = activeStage(index);
+  if (stage?.workflow === "deliveries")
+    throw new Error(`${stage.dir}: deliveries workflow is not supported by legacy close`);
   if (!stage) {
     if (
       !options.convert &&

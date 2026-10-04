@@ -64,11 +64,23 @@ const initSubCommand = defineCommand({
       description: "kebab-case slug for a new stage (required only when none is active)",
     },
     cwd: { type: "string", description: "Repo root" },
+    workflow: {
+      type: "string",
+      description: "legacy | deliveries (optional; omitted resumes active workflow)",
+    },
   },
   run({ args }) {
     const cwd = resolve(args.cwd ?? process.cwd());
     try {
-      const result = runMasterInit(cwd, args.slug || undefined);
+      if (args.workflow && args.workflow !== "legacy" && args.workflow !== "deliveries")
+        throw new MasterInitError(
+          `invalid workflow "${args.workflow}": expected legacy or deliveries`,
+        );
+      const result = runMasterInit(
+        cwd,
+        args.slug || undefined,
+        args.workflow as "legacy" | "deliveries" | undefined,
+      );
       for (const warning of result.warnings) process.stderr.write(`[navori] ${warning}\n`);
       const signal = result.signal;
       process.stdout.write(
@@ -77,6 +89,10 @@ const initSubCommand = defineCommand({
           `archivosCambiados=${signal.filesChangedSinceFirst ?? "?"} framework=${signal.framework ?? "ninguno"} ` +
           `sugerido=${signal.suggested}\n`,
       );
+      if (result.workflow === "deliveries")
+        process.stdout.write(
+          "Deliveries: base D1 solamente; preparación, autorización y ejecución todavía no disponibles.\n",
+        );
       if (result.phase === "context") {
         const specsDir = readConfig(join(cwd, "navori.config.json")).sdd?.specsDir ?? "specs";
         process.stdout.write(
@@ -114,6 +130,8 @@ function setMasterMode(cwd: string, value: string): void {
   if (!active) {
     throw new Error("no active stage: run 'navori master init <slug>' first");
   }
+  if (active.workflow === "deliveries")
+    throw new Error(`${active.dir}: mode is not available for deliveries yet`);
   if (active.number >= 2) {
     throw new Error("mode is automatic ('en-curso') from stage 2 onward; it cannot be changed");
   }
@@ -147,6 +165,8 @@ function setMasterUx(cwd: string, value: string): void {
   if (!active) {
     throw new Error("no active stage: run 'navori master init <slug>' first");
   }
+  if (active.workflow === "deliveries")
+    throw new Error(`${active.dir}: ux is not available for deliveries yet`);
   const statePath = join(masterDirPath(cwd, specsDir), active.dir, "state.json");
   if (!existsSync(statePath)) {
     throw new Error(`state.json not found for stage ${active.dir}`);
@@ -226,6 +246,8 @@ const templateSubCommand = defineCommand({
         const index = readMasterIndex(cwd, specsDir);
         const stage = activeStage(index);
         if (!stage) throw new Error("no hay etapa activa");
+        if (stage.workflow === "deliveries")
+          throw new Error(`${stage.dir}: legacy part templates are not available for deliveries`);
         const partsPath = join(masterDirPath(cwd, specsDir), stage.dir, "parts.json");
         if (!existsSync(partsPath)) throw new Error(`falta ${stage.dir}/parts.json`);
         const raw: unknown = JSON.parse(readFileSync(partsPath, "utf8"));
@@ -249,6 +271,8 @@ function activeStageState(cwd: string, specsDir: string): MasterState | null {
   const index = readMasterIndex(cwd, specsDir);
   const stage = activeStage(index);
   if (!stage) return null;
+  if (stage.workflow === "deliveries")
+    throw new Error(`${stage.dir}: legacy templates are not available for deliveries`);
   const path = join(masterDirPath(cwd, specsDir), stage.dir, "state.json");
   if (!existsSync(path)) return null;
   const raw: unknown = JSON.parse(readFileSync(path, "utf8"));

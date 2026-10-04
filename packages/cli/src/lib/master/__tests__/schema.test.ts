@@ -1,5 +1,57 @@
 import { describe, it, expect } from "vitest";
 import { MasterIndexSchema, MasterStateSchema, PartsSchema } from "../schema.ts";
+import { DeliveryStateSchema } from "../delivery-schema.ts";
+
+describe("mixed master registries", () => {
+  const entry = {
+    number: 1,
+    slug: "demo",
+    dir: "01-demo",
+    state: "activa",
+    openedAt: "2026-01-01",
+    closedAt: null,
+    spec: null,
+  };
+  it("preserves v1 legacy and admits legacy entries in v2 without materializing workflow", () => {
+    expect(MasterIndexSchema.parse({ version: 1, stages: [entry] }).stages[0]).not.toHaveProperty(
+      "workflow",
+    );
+    expect(MasterIndexSchema.parse({ version: 2, stages: [entry] }).stages[0]).not.toHaveProperty(
+      "workflow",
+    );
+  });
+  it("requires v2 for deliveries and rejects unknown workflows and versions", () => {
+    expect(
+      MasterIndexSchema.safeParse({ version: 1, stages: [{ ...entry, workflow: "deliveries" }] })
+        .success,
+    ).toBe(false);
+    expect(
+      MasterIndexSchema.safeParse({ version: 2, stages: [{ ...entry, workflow: "other" }] })
+        .success,
+    ).toBe(false);
+    expect(MasterIndexSchema.safeParse({ version: 3, stages: [entry] }).success).toBe(false);
+  });
+  it("keeps deliveries state strict and separate from legacy", () => {
+    const state = {
+      version: 2,
+      workflow: "deliveries",
+      phase: "context",
+      mode: null,
+      signal: {
+        commits: null,
+        firstCommit: null,
+        filesChangedSinceFirst: null,
+        framework: null,
+        libraries: [],
+        suggested: "template",
+      },
+      history: [],
+    };
+    expect(DeliveryStateSchema.safeParse(state).success).toBe(true);
+    expect(DeliveryStateSchema.safeParse({ ...state, outcome: "entregada" }).success).toBe(false);
+    expect(MasterStateSchema.safeParse(state).success).toBe(false);
+  });
+});
 
 // Covers: R6, R16, R48, R54, R59
 describe("MasterStateSchema — ux decision (phase ux)", () => {

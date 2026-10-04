@@ -3,15 +3,19 @@
  * use the `harness.masterPlan` flag as a gate: closed stages retain raw context
  * after `close` turns that flag off.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { NavoriConfig } from "../config/config.ts";
 import { activeStage, indexJsonPath, masterDirPath, readMasterIndex } from "../master/stages.ts";
+import { DeliveryStateSchema } from "../master/delivery-schema.ts";
+import { MasterStateSchema } from "../master/schema.ts";
 
 export type MasterPlanDiagnostic =
   | { kind: "invalid-index"; detail: string }
   | { kind: "missing-raw-gitignore"; path: string; repair: "init" | "checkout" }
-  | { kind: "flag-registry-desync"; repair: "close" | "init" };
+  | { kind: "flag-registry-desync"; repair: "close" | "init" }
+  | { kind: "invalid-state"; detail: string }
+  | { kind: "deliveries-pending"; detail: string };
 
 /**
  * Finds recoverable master-plan inconsistencies without affecting doctor's
@@ -35,6 +39,35 @@ export function scanMasterPlan(cwd: string, config: NavoriConfig): MasterPlanDia
 
   const issues: MasterPlanDiagnostic[] = [];
   const active = activeStage(index);
+  if (active) {
+    const statePath = join(masterDirPath(cwd, specsDir), active.dir, "state.json");
+    if (!existsSync(statePath))
+      issues.push({
+        kind: "invalid-state",
+        detail: `${active.dir}: state.json missing; run master init to resume`,
+      });
+    else {
+      try {
+        const raw: unknown = JSON.parse(readFileSync(statePath, "utf8"));
+        if (active.workflow === "deliveries") DeliveryStateSchema.parse(raw);
+        else MasterStateSchema.parse(raw);
+      } catch (cause) {
+        issues.push({
+          kind: "invalid-state",
+          detail: `${active.dir}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        });
+      }
+    }
+    if (active.workflow === "deliveries") {
+      if (existsSync(join(masterDirPath(cwd, specsDir), active.dir, "parts.json")))
+        issues.push({ kind: "invalid-state", detail: `${active.dir}: unexpected parts.json` });
+      else
+        issues.push({
+          kind: "deliveries-pending",
+          detail: `${active.dir}: D1 foundation only; not ready for delivery`,
+        });
+    }
+  }
   for (const stage of index.stages) {
     const path = join(masterDirPath(cwd, specsDir), stage.dir, "context", "raw", ".gitignore");
     if (!existsSync(path)) {

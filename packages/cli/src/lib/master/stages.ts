@@ -113,6 +113,12 @@ export function activeStage(index: MasterIndex | null): StageEntry | null {
   return index?.stages.find((s) => s.state === "activa") ?? null;
 }
 
+/** Legacy operations must reject by registry entry, even if state.json is v1. */
+export function assertLegacyStage(stage: StageEntry): void {
+  if (stage.workflow === "deliveries")
+    throw new Error(`${stage.dir}: deliveries workflow is not supported by this legacy operation`);
+}
+
 /** The last stage that closed as a delivery (`cerrada`), in registration
  * order — the entry point (R51) and D11's context window both key off it. */
 export function lastClosedStage(index: MasterIndex | null): StageEntry | null {
@@ -199,6 +205,7 @@ export function renderIndexMd(index: MasterIndex, specsDir: string): string {
   const header = "| Número | Slug | Estado | Apertura | Cierre | Enlace |";
   const separator = "|---|---|---|---|---|---|";
   const linkFor = (stage: StageEntry): string => {
+    if (stage.workflow === "deliveries") return `[STATUS.md](${stage.dir}/STATUS.md)`;
     if (stage.state === "activa") return `[MASTER.md](${stage.dir}/MASTER.md)`;
     return `[CLOSURE.md](${stage.dir}/CLOSURE.md)`;
   };
