@@ -2726,3 +2726,28 @@ User explicitly requested fixing the PR and completing it autonomously. Preserve
 - packages/cli/src/lib/audit/collect.ts, its tests and commands/audit.ts — original reviewed T5 source unchanged.
 - packages/cli/src/lib/audit/launchd.ts and global command/tests — exact reviewed T1 main imports.
 - specs/0042-auditoria-accionable-codex/{requirements,design,tasks}.md — exact main imports; only T1 marked complete.
+
+## 2026-10-03 23:32 Codex — JSON metadata guard integrated for fresh review
+
+## Goal
+Complete the isolated JSON-metadata guard correction before resuming dual-workflow-deliveries.
+## Instructions
+No Markdown-write bypass, denied-operation replay, automatic merge, new dependency, timeout override or reduced gate. User approved the bounded recognizer, permanent native .navori/.gitignore and integration after the concurrent session finished.
+## Discoveries
+- The old guard correlated any Markdown literal with any interpreter write API, rejecting JSON metadata. A fully consumed bounded source recognizer grants only a narrow static JSON exception; runtime and filesystem-link assumptions remain explicit.
+- Protected prose contracts, local renderer provenance, separate goldens and concurrent verification caused distinct earlier blockers. Use the local renderer and serialize full gates.
+- The first guard full gate timed out once in an unchanged doctor case; the isolated case passed on guard/base in 2.44/2.39 seconds. The second exact gate passed 7006 tests but its receipt was blocked by a concurrent main advance.
+## Accomplished
+- Implemented the finite recognizer and 81 focused positive/negative cases; native Claude/Codex mirrors, golden verification and permanent state ignore are in the isolated diff.
+- Fast-forwarded the guard branch to main58957b6e, preserving all guard changes. Focused81, golden5, format, local render, lint, typecheck and plan check pass on the integrated base.
+- Fresh full review on the integrated base is pending; no approval, receipt, commit or PR is claimed by this checkpoint.
+## Next Steps
+- Obtain the fresh full reviewer receipt on the integrated diff, then publish this isolated guard PR without merging.
+- Only after validated rollout and an explicit resume decision, reconcile the stopped D0/D2 handoffs. Preserve all dual worktrees; D3 CLI integration and D4/D5 remain pending.
+## Relevant Files
+- packages/core/core-assets/hooks/implementer-no-markdown.sh — finite JSON-only source recognizer and fail-closed boundary.
+- packages/cli/src/lib/__tests__/implementer-no-markdown.test.ts — structural variants, hostile inputs, process failures and bounds.
+- .claude/hooks/implementer-no-markdown.sh and .codex/hooks/implementer-no-markdown.sh — native mirrors.
+- packages/cli/src/engines/__tests__/__golden__/claude.snap — native render fixture.
+- .navori/.gitignore — permanent generated local-state exclusions.
+- progress/current.md and progress/history.md — checkpoint with prior-session context retained.
