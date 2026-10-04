@@ -25,6 +25,7 @@ import {
 } from "./stages.ts";
 import { writeMasterStatus } from "./status.ts";
 import { DeliveryStateSchema, type DeliveryState } from "./delivery-schema.ts";
+import { checkDeliveryPreparation, containedFile } from "./delivery-checks.ts";
 import { computeSignal, type MasterSignal } from "./signal.ts";
 import {
   MasterStateSchema,
@@ -213,10 +214,16 @@ export function runMasterInit(
     if (active.workflow === "deliveries") DeliveryStateSchema.parse(raw);
     else MasterStateSchema.parse(raw);
   }
-  if (active.workflow === "deliveries" && existsSync(join(paths.root, "parts.json")))
-    throw new MasterInitError(
-      `${active.dir}: parts.json is not supported in deliveries foundation`,
+  if (active.workflow === "deliveries" && existsSync(join(paths.root, "parts.json"))) {
+    const partsPath = containedFile(cwd, join(paths.root, "parts.json"));
+    if (!partsPath) throw new MasterInitError(`${active.dir}: parts.json outside repository`);
+    const result = checkDeliveryPreparation(
+      cwd,
+      JSON.parse(readFileSync(partsPath, "utf8")) as unknown,
     );
+    if (result.blockers.length)
+      throw new MasterInitError(`${active.dir}: invalid parts.json: ${result.blockers.join("; ")}`);
+  }
   mkdirSync(masterDirPath(cwd, specsDir), { recursive: true });
   if (!preexistingActive)
     writeFileAtomic(indexJsonPath(cwd, specsDir), `${JSON.stringify(index, null, 2)}\n`);

@@ -73,7 +73,9 @@ async function ok(cwd: string, ...argv: string[]): Promise<RunResult> {
 
 it("opts into deliveries only explicitly and rejects legacy commands without writes", async () => {
   const cwd = freshRepo();
-  expect((await ok(cwd, "init", "delivery", "--workflow", "deliveries")).out).toContain("base D1");
+  expect((await ok(cwd, "init", "delivery", "--workflow", "deliveries")).out).toContain(
+    "preparación, baseline y cola disponibles",
+  );
   const stage = join(cwd, "specs", "_master", "01-delivery");
   const statePath = join(stage, "state.json");
   const before = readFileSync(statePath, "utf8");
@@ -85,7 +87,7 @@ it("opts into deliveries only explicitly and rejects legacy commands without wri
   expect((await master(cwd, "close", "--abandon", "--reason", "test")).exitCode).toBe(1);
   expect((await master(cwd, "init", "--workflow", "legacy")).exitCode).toBe(1);
   expect(readFileSync(statePath, "utf8")).toBe(before);
-  expect((await ok(cwd, "init")).out).toContain("base D1");
+  expect((await ok(cwd, "init")).out).toContain("preparación, baseline y cola disponibles");
 });
 
 it("rejects an invalid workflow flag before creating the registry", async () => {

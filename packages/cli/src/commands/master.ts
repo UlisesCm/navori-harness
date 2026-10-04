@@ -4,6 +4,11 @@
  * `part`, `template` and `close` to this same command (design.md D1).
  */
 import { defineCommand } from "citty";
+import {
+  approveDeliveryBaseline,
+  authorizeDeliveryQueue,
+  checkActiveDelivery,
+} from "../lib/master/delivery.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { appendCliEvent } from "../lib/audit/cli-event.ts";
@@ -91,7 +96,7 @@ const initSubCommand = defineCommand({
       );
       if (result.workflow === "deliveries")
         process.stdout.write(
-          "Deliveries: base D1 solamente; preparación, autorización y ejecución todavía no disponibles.\n",
+          "Deliveries: preparación, baseline y cola disponibles; ejecución, aceptación y publicación aún no disponibles.\n",
         );
       if (result.phase === "context") {
         const specsDir = readConfig(join(cwd, "navori.config.json")).sdd?.specsDir ?? "specs";
@@ -239,6 +244,13 @@ const templateSubCommand = defineCommand({
     try {
       const config = readConfig(join(cwd, "navori.config.json"));
       const specsDir = config.sdd?.specsDir ?? "specs";
+      const index = readMasterIndex(cwd, specsDir);
+      const active = activeStage(index);
+      const deliveryTemplate = name === "delivery-master" || name === "slice";
+      if (deliveryTemplate && active?.workflow !== "deliveries")
+        throw new Error(`${name} requires an active deliveries stage`);
+      if (!deliveryTemplate && active?.workflow === "deliveries")
+        throw new Error(`${active.dir}: legacy templates are not available for deliveries`);
       if (args.part) {
         if (name !== "issue") {
           throw new Error("--part solo aplica a 'navori master template issue'");
@@ -257,7 +269,7 @@ const templateSubCommand = defineCommand({
         process.stdout.write(`${printIssueTemplate(part, stage.dir, specsDir, config.language)}\n`);
         return;
       }
-      const state = activeStageState(cwd, specsDir);
+      const state = deliveryTemplate ? null : activeStageState(cwd, specsDir);
       process.stdout.write(
         printTemplate(name as TemplateName, config.language, state?.mode ?? null),
       );
@@ -492,6 +504,60 @@ const closeSubCommand = defineCommand({
 export const masterCommand = defineCommand({
   meta: { name: "master", description: "Master-plan project flow (spec 0034)" },
   subCommands: {
+    "delivery-check": defineCommand({
+      meta: { name: "delivery-check", description: "Check delivery preparation without writes" },
+      args: { cwd: { type: "string", description: "Repo root" } },
+      run({ args }) {
+        try {
+          const result = checkActiveDelivery(
+            resolve(typeof args.cwd === "string" ? args.cwd : process.cwd()),
+          );
+          process.stdout.write(
+            `${JSON.stringify({ ready: result.blockers.length === 0, blockers: result.blockers, expectedDigest: result.expectedDigest })}\n`,
+          );
+          if (result.blockers.length) process.exitCode = 1;
+        } catch (cause) {
+          reportError(cause);
+        }
+      },
+    }),
+    "delivery-baseline": defineCommand({
+      meta: {
+        name: "delivery-baseline",
+        description: "Record explicit operator baseline approval",
+      },
+      args: {
+        cwd: { type: "string", description: "Repo root" },
+        "approved-by": { type: "string", description: "Must be user" },
+      },
+      run({ args }) {
+        try {
+          process.stdout.write(
+            `${JSON.stringify(approveDeliveryBaseline(resolve(typeof args.cwd === "string" ? args.cwd : process.cwd()), typeof args["approved-by"] === "string" ? args["approved-by"] : ""))}\n`,
+          );
+        } catch (cause) {
+          reportError(cause);
+        }
+      },
+    }),
+    "delivery-queue": defineCommand({
+      meta: { name: "delivery-queue", description: "Authorize a bounded delivery queue" },
+      args: {
+        cwd: { type: "string", description: "Repo root" },
+        delivery: { type: "string", description: "E<n>" },
+        parts: { type: "string", description: "Comma-separated P<n>" },
+        "approved-by": { type: "string", description: "Must be user" },
+      },
+      run({ args }) {
+        try {
+          process.stdout.write(
+            `${JSON.stringify(authorizeDeliveryQueue(resolve(typeof args.cwd === "string" ? args.cwd : process.cwd()), typeof args.delivery === "string" ? args.delivery : "", typeof args.parts === "string" ? args.parts.split(",").filter(Boolean) : [], typeof args["approved-by"] === "string" ? args["approved-by"] : ""))}\n`,
+          );
+        } catch (cause) {
+          reportError(cause);
+        }
+      },
+    }),
     init: initSubCommand,
     mode: modeSubCommand,
     ux: uxSubCommand,
