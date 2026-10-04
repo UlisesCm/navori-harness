@@ -1136,6 +1136,7 @@ interface HookStat {
  *  sections render it, so neither recomputes what the other shows. */
 interface RangeStats {
   sessions: { total: number; transcript: number; codex: number };
+  codexExecWrappers: number | null;
   agents: Map<string, AgentStat>;
   /** Cache read of each whole session (orchestrator + its agents), R43. */
   sessionCacheReads: number[];
@@ -1144,7 +1145,13 @@ interface RangeStats {
     byHook: Map<string, HookStat>;
     fires: number;
     ms: number;
+    /** Toll only for host events with a reliable invocation id; null means unavailable. */
+    tollMs: number | null;
+    tollEvents: number;
+    ungroupedFires: number;
     bashCalls: number;
+    bashTranscriptCalls: number | null;
+    bashCoveragePct: number | null;
     perBashCall: number | null;
     perBashCallP90: number | null;
   };
@@ -1191,6 +1198,14 @@ function addAgentRun(stat: AgentStat, run: Run): void {
  */
 function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[]): RangeStats {
   const withTranscript = sessions.filter((s) => s.unavailable !== "transcript");
+  const codexSessions = sessions.filter((s) => s.host === "codex");
+  const codexExecWrappers = codexSessions.every((s) => s.rollout?.status === "parsed")
+    ? codexSessions.reduce(
+        (count, s) =>
+          count + (s.rollout?.status === "parsed" ? (s.rollout.toolCalls.exec ?? 0) : 0),
+        0,
+      )
+    : null;
   const agents = new Map<string, AgentStat>();
   const tools = new Map<string, ToolStat>();
   const tool = (name: string): ToolStat =>
@@ -1250,12 +1265,18 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
     row.set(verdict, (row.get(verdict) ?? 0) + 1);
   };
   const perBash = new Map<string, Set<string>>();
+  const claudeHookBash = new Set<string>();
+  const tolls: number[] = [];
+  let ungroupedFires = 0;
   let fires = 0;
   let ms = 0;
 
   for (const s of sessions) {
     const runs: Run[] = [s.orchestrator, ...s.agents];
     for (const run of runs) {
+      const measured = run.hookEvents.filter((e) => e.verdict !== "gate-started");
+      tolls.push(...tollGroups(measured.filter((e) => e.toolUseId)).map(maxMs));
+      ungroupedFires += measured.filter((e) => !e.toolUseId).length;
       for (const e of run.hookEvents) {
         // `gate-started` is the first half of one execution, not a second fire
         // and not an outcome: it is neither counted nor tabulated.
@@ -1274,6 +1295,9 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
           getOrSet(perBash, `${s.sessionId}\u0000${e.toolUseId}`, () => new Set<string>()).add(
             `${e.name}\u0000${e.phase}`,
           );
+          if (s.host !== "codex" && s.unavailable !== "transcript") {
+            claudeHookBash.add(`${s.sessionId}\u0000${e.toolUseId}`);
+          }
         }
         if (e.verdict === "block") {
           const rule = getOrSet(
@@ -1296,12 +1320,20 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
   }
 
   const perCall = [...perBash.values()].map((set) => set.size);
+  const bashTranscriptCalls = withTranscript.reduce(
+    (count, s) =>
+      count +
+      (s.orchestrator.toolCounts.Bash ?? 0) +
+      s.agents.reduce((agentCount, a) => agentCount + (a.toolCounts.Bash ?? 0), 0),
+    0,
+  );
   return {
     sessions: {
       total: sessions.length,
       transcript: withTranscript.length,
-      codex: sessions.filter((s) => s.host === "codex").length,
+      codex: codexSessions.length,
     },
+    codexExecWrappers,
     agents,
     sessionCacheReads: withTranscript.map(
       (s) => s.orchestrator.tokens.cacheRead + s.agents.reduce((n, a) => n + a.tokens.cacheRead, 0),
@@ -1311,7 +1343,15 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
       byHook,
       fires,
       ms,
+      tollMs: tolls.length > 0 ? sumMs(tolls) : null,
+      tollEvents: tolls.length,
+      ungroupedFires,
       bashCalls: perBash.size,
+      bashTranscriptCalls: withTranscript.length > 0 ? bashTranscriptCalls : null,
+      bashCoveragePct:
+        bashTranscriptCalls > 0
+          ? Math.round((1000 * claudeHookBash.size) / bashTranscriptCalls) / 10
+          : null,
       perBashCall:
         perCall.length === 0
           ? null
@@ -1375,7 +1415,16 @@ function flattenRangeMetrics(stats: RangeStats): Record<string, number | null> {
   m["edits.mainPct"] = edits === 0 ? null : Math.round((1000 * editsMain) / edits) / 10;
   m["hooks.fires"] = stats.hooks.fires;
   m["hooks.ms"] = stats.hooks.ms;
+  m["hooks.tollMs"] = stats.hooks.tollMs;
+  m["hooks.tollEvents"] = stats.hooks.tollEvents;
+  m["hooks.ungroupedFires"] = stats.hooks.ungroupedFires;
   m["hooks.bashCalls"] = stats.hooks.bashCalls;
+  m["hooks.bashTranscriptCalls"] = stats.hooks.bashTranscriptCalls;
+  m["hooks.bashCoveragePct"] = stats.hooks.bashCoveragePct;
+  if (stats.sessions.codex > 0) {
+    m["codex.execWrappers"] = stats.codexExecWrappers;
+    m["codex.nestedToolCalls"] = null;
+  }
   m["hooks.perBashCall"] = stats.hooks.perBashCall;
   m["hooks.perBashCall.p90"] = stats.hooks.perBashCallP90;
   for (const [name, h] of stats.hooks.byHook) {
@@ -1478,8 +1527,8 @@ function hookRangeSection(stats: RangeStats, lang: Lang): string[] {
     "",
     t(
       lang,
-      `Hooks por llamada Bash: **${metric(hooks.perBashCall)}** (p90 ${metric(hooks.perBashCallP90)}, sobre ${hooks.bashCalls} llamadas con \`toolUseId\`). El tiempo es la suma de lo que midió cada hook, no reloj.`,
-      `Hooks per Bash call: **${metric(hooks.perBashCall)}** (p90 ${metric(hooks.perBashCallP90)}, over ${hooks.bashCalls} calls with a \`toolUseId\`). Time is the sum of what each hook measured, not wall clock.`,
+      `Hooks por llamada Bash: **${metric(hooks.perBashCall)}** (p90 ${metric(hooks.perBashCallP90)}, sobre ${hooks.bashCalls} llamadas con \`toolUseId\`). Trabajo ${msLabel(hooks.ms)}; peaje observable ${hooks.tollMs === null ? "n/d" : msLabel(hooks.tollMs)} en ${hooks.tollEvents} evento(s) correlacionados. ${hooks.ungroupedFires} disparos sin ID quedan fuera del peaje: cobertura incompleta. Bash con hook/transcript Claude: ${hooks.bashTranscriptCalls === null ? "n/d" : `${hooks.bashTranscriptCalls} llamadas, ${metric(hooks.bashCoveragePct)}% cubiertas`}. Codex exec: ${metric(stats.codexExecWrappers)} wrappers, no herramientas internas; llamadas anidadas n/d sin fuente estructurada.`,
+      `Hooks per Bash call: **${metric(hooks.perBashCall)}** (p90 ${metric(hooks.perBashCallP90)}, over ${hooks.bashCalls} calls with a \`toolUseId\`). Work ${msLabel(hooks.ms)}; observable toll ${hooks.tollMs === null ? "n/d" : msLabel(hooks.tollMs)} over ${hooks.tollEvents} correlated event(s). ${hooks.ungroupedFires} fires without an id are excluded from toll: incomplete coverage. Claude Bash with hook/transcript: ${hooks.bashTranscriptCalls === null ? "n/d" : `${hooks.bashTranscriptCalls} calls, ${metric(hooks.bashCoveragePct)}% covered`}. Codex exec: ${metric(stats.codexExecWrappers)} wrappers, not internal tools; nested calls n/d without a structured source.`,
     ),
     "",
     ...rangeTable(

@@ -125,6 +125,128 @@ describe("correlateGateExecutions — duplicate, unknown, missing data", () => {
 });
 
 describe("reviewerGateLifecycle — reporting, not preventing", () => {
+  // Covers: R14
+  it("does not let empty branches satisfy the gate floor or add unrelated reviewer time", () => {
+    const gated = session({
+      sessionId: "gated",
+      gitBranch: "feature-a",
+      agents: Array.from({ length: 10 }, (_, i) =>
+        agent({
+          agentId: `gated-${i}`,
+          hookEvents: [started(`gate-${i}`), terminal(`gate-${i}`)],
+        }),
+      ),
+    });
+    const empty = ["feature-b", "feature-c"].map((gitBranch, i) =>
+      session({
+        sessionId: `empty-${i}`,
+        gitBranch,
+        agents: [agent({ agentId: `empty-reviewer-${i}`, durationMs: 900_000 })],
+      }),
+    );
+    const finding = reviewerGateLifecycle([gated, ...empty], "en").find(
+      (signal) => signal.kind === "reviewer-gate-duration",
+    );
+    expect(finding?.summary).toContain("Not enough data");
+    expect(finding?.summary).toContain("10 completed gates over 1 branch");
+  });
+
+  // Covers: R14
+  it("restricts reviewer and wait durations to sessions with completed gates", () => {
+    const gated = [0, 1, 2].map((i) =>
+      session({
+        sessionId: `gated-${i}`,
+        gitBranch: `feature-${i}`,
+        agents: Array.from({ length: 4 }, (_, j) =>
+          agent({
+            agentId: `reviewer-${i}-${j}`,
+            durationMs: 1000,
+            hookEvents: [started(`gate-${i}-${j}`), terminal(`gate-${i}-${j}`)],
+          }),
+        ),
+      }),
+    );
+    const unrelated = session({
+      sessionId: "unrelated",
+      gitBranch: "feature-other",
+      agents: [agent({ agentId: "unrelated-reviewer", durationMs: 900_000 })],
+    });
+    const finding = reviewerGateLifecycle([...gated, unrelated], "en").find(
+      (signal) => signal.kind === "reviewer-gate-duration",
+    );
+    expect(finding?.summary).toContain("12 completed gates over 3 branch");
+    expect(finding?.evidence).toContain("12 reviewer run(s)");
+    expect(finding?.summary).not.toContain("900s");
+  });
+
+  // Covers: R14
+  it("excludes an unrelated reviewer and its wait gap within a sampled session", () => {
+    const gated = [0, 1, 2].map((i) =>
+      session({
+        sessionId: `gated-${i}`,
+        gitBranch: `feature-${i}`,
+        agents: [
+          ...Array.from({ length: 4 }, (_, j) =>
+            agent({
+              agentId: `reviewer-${i}-${j}`,
+              durationMs: 1000,
+              hookEvents: [started(`gate-${i}-${j}`), terminal(`gate-${i}-${j}`)],
+            }),
+          ),
+          ...(i === 0
+            ? [
+                agent({
+                  agentId: "unrelated-reviewer",
+                  startedAt: "2026-09-14T10:20:00Z",
+                  endedAt: "2026-09-14T10:35:00Z",
+                  durationMs: 900_000,
+                }),
+              ]
+            : []),
+        ],
+      }),
+    );
+    const finding = reviewerGateLifecycle(gated, "en").find(
+      (signal) => signal.kind === "reviewer-gate-duration",
+    );
+    expect(finding?.summary).toContain("12.0s reviewer, 0.0s waiting");
+    expect(finding?.evidence).toContain("12 reviewer run(s) with their own completed gate");
+  });
+
+  // Covers: R14
+  it("reports reviewer latency unavailable when only implementer gates have owners", () => {
+    const gated = [0, 1, 2].map((i) =>
+      session({
+        sessionId: `gated-${i}`,
+        gitBranch: `feature-${i}`,
+        agents: [
+          ...Array.from({ length: 4 }, (_, j) =>
+            agent({
+              agentId: `implementer-${i}-${j}`,
+              agentType: "implementer",
+              hookEvents: [started(`gate-${i}-${j}`), terminal(`gate-${i}-${j}`)],
+            }),
+          ),
+          agent({ agentId: `unmatched-reviewer-${i}`, durationMs: 900_000 }),
+          ...(i === 0
+            ? [
+                agent({ agentId: "ambiguous-reviewer-a", hookEvents: [started("shared-gate")] }),
+                agent({ agentId: "ambiguous-reviewer-b", hookEvents: [terminal("shared-gate")] }),
+              ]
+            : []),
+        ],
+      }),
+    );
+    expect(
+      correlateGateExecutions(gated[0]!).find((gate) => gate.handle.includes("shared-gate")),
+    ).toMatchObject({ outcome: "completed", ownerAgentId: null });
+    const finding = reviewerGateLifecycle(gated, "en").find(
+      (signal) => signal.kind === "reviewer-gate-duration",
+    );
+    expect(finding?.summary).toContain("Reviewer latency unavailable");
+    expect(finding?.summary).not.toContain("0s reviewer");
+    expect(finding?.evidence).toContain("without a verifiable reviewer owner");
+  });
   it("flags overlapping reviewer runs as a possible single-owner violation", () => {
     const r1 = agent({ agentId: "r1", overlapsWith: ["r2"] });
     const r2 = agent({ agentId: "r2", overlapsWith: ["r1"] });
