@@ -78,8 +78,8 @@ afterAll(()=>writeFileSync(join(fixture,'local-teardown'),'completed'));
 
 /** Spawn standard direct Vitest with bounded output capture, rather than a mocked runner. */
 function start(f: Fixture, watch = false, extraEnv: NodeJS.ProcessEnv = {}): Running {
-  const child = spawn(
-    process.execPath,
+  return launch(
+    f,
     [
       vitestBin,
       ...(watch ? ["--watch"] : ["run"]),
@@ -88,12 +88,17 @@ function start(f: Fixture, watch = false, extraEnv: NodeJS.ProcessEnv = {}): Run
       "--reporter=dot",
       "--no-color",
     ],
-    {
-      cwd: f.root,
-      env: { ...process.env, NAVORI_KEEP_TEST_ARTIFACTS: "", ...extraEnv },
-      stdio: ["pipe", "pipe", "pipe"],
-    },
+    extraEnv,
   );
+}
+
+/** Capture and join an exact subprocess, including helper probes outside Vitest workers. */
+function launch(f: Fixture, args: string[], extraEnv: NodeJS.ProcessEnv = {}): Running {
+  const child = spawn(process.execPath, args, {
+    cwd: f.root,
+    env: { ...process.env, NAVORI_KEEP_TEST_ARTIFACTS: "", ...extraEnv },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
   let output = "";
   const collect = (chunk: Buffer): void => {
     output = (output + chunk.toString()).slice(-30_000);
@@ -105,6 +110,16 @@ function start(f: Fixture, watch = false, extraEnv: NodeJS.ProcessEnv = {}): Run
     child.once("close", done);
   });
   return { child, closed, output: () => output };
+}
+
+/** Bound the inheriting writer and release it only after the parent's retention checks. */
+function heldChild(ready: string, release: string, done: string): string {
+  return `const fs=require('node:fs');const path=require('node:path');const root=require('node:os').tmpdir();
+fs.writeFileSync(${JSON.stringify(ready)},root);
+const deadline=Date.now()+20000;const timer=setInterval(()=>{
+ if(!fs.existsSync(${JSON.stringify(release)})){if(Date.now()>deadline){clearInterval(timer);process.exitCode=1;}return;}
+ clearInterval(timer);fs.writeFileSync(path.join(root,'late-payload'),'written');fs.writeFileSync(${JSON.stringify(done)},'done');
+},20);`;
 }
 
 /** Poll only exact fixture evidence, with a finite deadline and actionable output. */
@@ -341,11 +356,150 @@ it('leaves a supported child running',async()=>{
     25_000,
   );
 
+  it.each(["interruption", "nonempty disposal"])(
+    "retains late worker evidence after actual file disposal following %s",
+    async (mode) => {
+      const f = fixture();
+      const runReady = join(f.root, "run-ready");
+      const ready = join(f.root, "writer-ready");
+      const release = join(f.root, "release");
+      const done = join(f.root, "writer-done");
+      const disposed = join(f.root, "file-disposed.json");
+      const coordinatorSource = join(f.root, "coordinator.ts");
+      const workerSource = join(f.root, "worker.ts");
+      writeFileSync(
+        coordinatorSource,
+        `import {createTempRun} from ${JSON.stringify(lifecyclePath)};
+import {writeFileSync} from 'node:fs';
+const run=createTempRun(${JSON.stringify(f.root)});writeFileSync(${JSON.stringify(runReady)},run.root);
+process.once('SIGINT',()=>{${mode === "nonempty disposal" ? "run.dispose();" : ""}process.exit(0);});
+setInterval(()=>{},1000);`,
+      );
+      const coordinator = launch(f, [coordinatorSource]);
+      let worker: Running | undefined;
+      try {
+        await until(() => existsSync(runReady), coordinator.output);
+        const runRoot = readFileSync(runReady, "utf8");
+        writeFileSync(
+          workerSource,
+          `import {createTempFile} from ${JSON.stringify(lifecyclePath)};
+import {spawn} from 'node:child_process';import {writeFileSync} from 'node:fs';
+const keys=['TMPDIR','TMP','TEMP','HOME','USERPROFILE','NAVORI_BACKUP_ROOT','CODEX_HOME'];
+const saved=keys.map(key=>process.env[key]);const file=createTempFile(${JSON.stringify(runRoot)});
+const child=spawn(process.execPath,['-e',${JSON.stringify(heldChild(ready, release, done))}]);
+await new Promise<void>((done,fail)=>{child.once('error',fail);child.once('close',()=>done());});
+let checked=false;await file.dispose(()=>{checked=true;return undefined;});
+writeFileSync(${JSON.stringify(disposed)},JSON.stringify({root:file.root,checked,restored:keys.every((key,i)=>process.env[key]===saved[i])}));`,
+        );
+        worker = launch(f, [workerSource]);
+        await until(() => existsSync(ready), worker.output);
+        coordinator.child.kill("SIGINT");
+        await until(
+          () => coordinator.child.exitCode !== null || coordinator.child.signalCode !== null,
+          coordinator.output,
+        );
+        await coordinator.closed;
+        expect(existsSync(join(runRoot, ".navori-retain")), coordinator.output()).toBe(true);
+        expect(coordinator.output()).toContain("retained");
+        writeFileSync(release, "release");
+        await until(() => existsSync(disposed), worker.output);
+        expect(await worker.closed, worker.output()).toBe(0);
+        const acknowledgment = JSON.parse(readFileSync(disposed, "utf8")) as {
+          root: string;
+          checked: boolean;
+          restored: boolean;
+        };
+        expect(acknowledgment.checked).toBe(true);
+        expect(acknowledgment.restored).toBe(true);
+        expect(acknowledgment.root).toBe(readFileSync(ready, "utf8"));
+        expect(readFileSync(join(acknowledgment.root, "late-payload"), "utf8")).toBe("written");
+        expect(existsSync(runRoot)).toBe(true);
+      } finally {
+        writeFileSync(release, "release");
+        if (worker) await stop(worker);
+        await stop(coordinator);
+        if (!worker || existsSync(done)) rmSync(f.root, { recursive: true, force: true });
+      }
+    },
+    30_000,
+  );
+
+  it.each(["interruption", "nonempty disposal"])(
+    "reports publication failure without claiming retention was published on %s",
+    async (mode) => {
+      const f = fixture();
+      const probe = join(f.root, "publication.ts");
+      writeFileSync(
+        probe,
+        `import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';
+import {createTempRun} from ${JSON.stringify(lifecyclePath)};
+const run=createTempRun(${JSON.stringify(f.root)});fs.writeFileSync(${JSON.stringify(f.log)},run.root);
+fs.writeFileSync(run.root+'/evidence','inspectable');const original=fs.writeFileSync;
+fs.writeFileSync=(...args:Parameters<typeof fs.writeFileSync>):ReturnType<typeof fs.writeFileSync>=>{
+ if(String(args[0])===run.root+'/.navori-retain')throw Object.assign(new Error('publication denied'),{code:'EACCES'});
+ return original(...args);
+};syncBuiltinESMExports();${mode === "nonempty disposal" ? "run.dispose();" : "process.exit(0);"}`,
+      );
+      const run = launch(f, [probe]);
+      try {
+        await until(() => run.child.exitCode !== null, run.output);
+        expect(await run.closed, run.output()).toBe(0);
+        const runRoot = readFileSync(f.log, "utf8");
+        expect(readFileSync(join(runRoot, "evidence"), "utf8")).toBe("inspectable");
+        expect(existsSync(join(runRoot, ".navori-retain"))).toBe(false);
+        expect(run.output()).toContain("retention publication failed");
+        expect(run.output()).toContain("publication denied");
+        expect(run.output()).not.toContain("test temporaries retained");
+      } finally {
+        await stop(run);
+        rmSync(f.root, { recursive: true, force: true });
+      }
+    },
+    25_000,
+  );
+
+  it("retains the file and restores environment when final marker reading fails", async () => {
+    const f = fixture();
+    const probe = join(f.root, "read-failure.ts");
+    writeFileSync(
+      probe,
+      `import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';
+import {createTempFile} from ${JSON.stringify(lifecyclePath)};
+const keys=['TMPDIR','TMP','TEMP','HOME','USERPROFILE','NAVORI_BACKUP_ROOT','CODEX_HOME'];
+const saved=keys.map(key=>process.env[key]);const file=createTempFile(${JSON.stringify(f.root)});
+fs.writeFileSync(file.root+'/evidence','inspectable');const original=fs.readFileSync;
+fs.readFileSync=(...args:Parameters<typeof fs.readFileSync>):ReturnType<typeof fs.readFileSync>=>{
+ if(String(args[0])===${JSON.stringify(join(f.root, ".navori-retain"))})throw Object.assign(new Error('read denied'),{code:'EACCES'});
+ return original(...args);
+};syncBuiltinESMExports();let checked=false;let failed=false;
+try{await file.dispose(()=>{checked=true;return undefined;});}catch(error){failed=error instanceof Error && error.message==='read denied';}
+fs.writeFileSync(${JSON.stringify(f.log)},JSON.stringify({root:file.root,checked,failed,restored:keys.every((key,i)=>process.env[key]===saved[i])}));`,
+    );
+    const run = launch(f, [probe]);
+    try {
+      await until(() => run.child.exitCode !== null, run.output);
+      expect(await run.closed, run.output()).toBe(0);
+      const acknowledgment = JSON.parse(readFileSync(f.log, "utf8")) as {
+        root: string;
+        checked: boolean;
+        failed: boolean;
+        restored: boolean;
+      };
+      expect(acknowledgment).toMatchObject({ checked: true, failed: true, restored: true });
+      expect(readFileSync(join(acknowledgment.root, "evidence"), "utf8")).toBe("inspectable");
+      expect(run.output()).toContain("test temporary cleanup failed");
+    } finally {
+      await stop(run);
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  }, 25_000);
+
   it("keeps exact roots on interruption while an inheriting child finishes writing", async () => {
     const f = fixture();
     const ready = join(f.root, "ready");
     const done = join(f.root, "child-done");
-    const childSource = `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(ready)},require('node:os').tmpdir());setTimeout(()=>{fs.writeFileSync(${JSON.stringify(done)},'done');},2200);`;
+    const release = join(f.root, "release");
+    const childSource = heldChild(ready, release, done);
     writeFileSync(
       f.spec,
       `import {it} from ${JSON.stringify(import.meta.resolve("vitest"))};import {spawn} from 'node:child_process';it('waits for a child',async()=>{const c=spawn(process.execPath,['-e',${JSON.stringify(childSource)}]);await new Promise<void>(done=>c.once('close',()=>done()));});`,
@@ -359,10 +513,15 @@ it('leaves a supported child running',async()=>{
       await run.closed;
       expect(existsSync(childRoot), run.output()).toBe(true);
       expect(run.output()).toContain("retained");
+      expect(existsSync(join(dirname(childRoot), ".navori-retain"))).toBe(true);
+      writeFileSync(release, "release");
       await until(() => existsSync(done), run.output);
+      expect(readFileSync(join(childRoot, "late-payload"), "utf8")).toBe("written");
       expect(existsSync(childRoot)).toBe(true);
     } finally {
+      writeFileSync(release, "release");
       await stop(run);
+      await until(() => existsSync(done), run.output, 22_000);
       // The child completion sentinel proves this fixture's writer has finished.
       if (existsSync(done)) rmSync(f.root, { recursive: true, force: true });
     }
