@@ -28,31 +28,46 @@ export function runCoverage(dependencies = {}) {
   const callerOwned = Boolean(env.NAVORI_COVERAGE_DIR);
   const coverageDir = env.NAVORI_COVERAGE_DIR ?? makeTempDir(join(tmpdir(), "navori-coverage-"));
   const childEnv = { ...env, NAVORI_COVERAGE_DIR: coverageDir };
+  let interrupted = false;
+  try {
+    const vitest = run("bun", ["x", "vitest", "run", "--coverage"], {
+      cwd: packageRoot,
+      env: childEnv,
+      stdio: "inherit",
+    });
+    interrupted = Boolean(vitest.signal) || (vitest.status === null && !vitest.error);
+    if (vitest.error) {
+      process.stderr.write(`test:coverage could not start Vitest: ${vitest.error.message}\n`);
+      return 1;
+    }
+    if (vitest.status !== 0) return vitest.status ?? 1;
 
-  const vitest = run("bun", ["x", "vitest", "run", "--coverage"], {
-    cwd: packageRoot,
-    env: childEnv,
-    stdio: "inherit",
-  });
-  if (vitest.error) {
-    process.stderr.write(`test:coverage could not start Vitest: ${vitest.error.message}\n`);
-    return 1;
+    const floor = run(process.execPath, [floorScript], {
+      cwd: packageRoot,
+      env: childEnv,
+      stdio: "inherit",
+    });
+    interrupted = Boolean(floor.signal) || (floor.status === null && !floor.error);
+    if (floor.error) {
+      process.stderr.write(
+        `test:coverage could not start the coverage floor: ${floor.error.message}\n`,
+      );
+      return 1;
+    }
+    if (floor.status !== 0) return floor.status ?? 1;
+
+    return 0;
+  } finally {
+    if (!callerOwned) {
+      if (interrupted || env.NAVORI_KEEP_TEST_ARTIFACTS === "1") {
+        process.stderr.write(
+          `test:coverage report retained (${interrupted ? "interrupted child" : "NAVORI_KEEP_TEST_ARTIFACTS=1"}): ${coverageDir}\n`,
+        );
+      } else {
+        removeDir(coverageDir, { recursive: true, force: true });
+      }
+    }
   }
-  if (vitest.status !== 0) return vitest.status ?? 1;
-
-  const floor = run(process.execPath, [floorScript], {
-    cwd: packageRoot,
-    env: childEnv,
-    stdio: "inherit",
-  });
-  if (floor.error) {
-    process.stderr.write(`test:coverage could not start the coverage floor: ${floor.error.message}\n`);
-    return 1;
-  }
-  if (floor.status !== 0) return floor.status ?? 1;
-
-  if (!callerOwned) removeDir(coverageDir, { recursive: true, force: true });
-  return 0;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

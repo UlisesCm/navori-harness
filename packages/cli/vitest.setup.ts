@@ -1,31 +1,35 @@
-import { mkdirSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { afterAll, inject } from "vitest";
+import { createTempFile } from "./vitest.tempLifecycle.ts";
+import { describeNavoriHomeLeak, snapshotNavoriHome } from "./vitest.homeGuard.ts";
+import { basename, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-/**
- * Give every test FILE its own backup store (#404).
- *
- * `vitest.globalSetup.ts` already points `NAVORI_BACKUP_ROOT` at a throwaway
- * root for the run; this narrows it once more per spec file so that a purge in
- * one file (`purgeOldBackups` deletes oldest-first under whatever root is
- * active) can never eat another file's fixtures while both run in parallel.
- *
- * The fallback covers running vitest with a config that skips the global setup:
- * an isolated dir in tmpdir is still infinitely better than the real
- * `~/.navori/backups`. Cleanup is the run root's `rmSync` in globalSetup.
- */
-const runRoot = process.env.NAVORI_BACKUP_ROOT;
-if (runRoot) {
-  mkdirSync(runRoot, { recursive: true });
-  process.env.NAVORI_BACKUP_ROOT = mkdtempSync(join(runRoot, "suite-"));
-} else {
-  process.env.NAVORI_BACKUP_ROOT = mkdtempSync(join(tmpdir(), "navori-test-backups-"));
+declare module "vitest" {
+  export interface ProvidedContext {
+    navoriTempRunRoot: string;
+  }
 }
 
-/**
- * Codex model families resolve against `<CODEX_HOME>/models_cache.json` (spec
- * 0041 R32). Drop an inherited override so no spec reads a developer's real
- * catalog; the ephemeral HOME from globalSetup then yields no catalog and every
- * render falls back to the declared last-known ids.
- */
-delete process.env.CODEX_HOME;
+// setupFiles executes before spec imports, on every watch rerun.
+const file = createTempFile(inject("navoriTempRunRoot"));
+const watchedHome = join(file.home, ".navori");
+const before = snapshotNavoriHome(watchedHome);
+const selfRepo = basename(resolve(fileURLToPath(new URL("../..", import.meta.url))));
+
+/** Check isolated HOME after direct children close, before disposing file fixtures. */
+// Large Git fixture cleanup measured >10s; revisit its cost if it exceeds this 30s budget.
+afterAll(async () => {
+  let leak: string | null = null;
+  await file.dispose(() => {
+    leak = describeNavoriHomeLeak(watchedHome, before, snapshotNavoriHome(watchedHome), selfRepo);
+    if (leak) {
+      process.stderr.write(
+        `\n✖ ~/.navori isolation guard (#404/#424)\n${leak}\n  The file's home is kept for inspection: ${file.home}\n\n`,
+      );
+      return "HOME isolation evidence";
+    }
+    return undefined;
+  });
+  // A worker's exitCode does not propagate to the Vitest coordinator.
+  if (leak) throw new Error(`HOME isolation guard failed; evidence retained at ${file.home}`);
+}, 30_000);

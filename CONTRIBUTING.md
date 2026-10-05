@@ -70,6 +70,29 @@ Hay dos niveles:
      `check-coverage-floor.mjs` leen la misma variable, con fallback a `coverage` (el default, sin
      tocarlo, es lo que sigue corriendo en CI y en el gate normal).
 
+   - **Los temporales de tests se limpian por archivo.** Cada spec recibe un directorio aislado
+     antes de importarse, con su `HOME` y backups; al terminar sus hooks locales, se elimina. Esto
+     también corre en cada ciclo de watch y en configs que cargan solo `setupFiles`. Los valores
+     de entorno se restauran al finalizar. El hook reserva 30 s para completar borrados lentos y
+     mantiene la espera de 1 s por hijos directos; un disco lleno aún puede agotar ese margen. El
+     directorio del lock de `dist` usa
+     `NAVORI_TEST_COORDINATION_BASE`, heredado por los procesos hijos y estable mientras cambia
+     `TMPDIR`/`TMP`/`TEMP` para los fixtures.
+   - Para conservar fixtures y reportes generados durante una investigación, ejecuta con
+     `NAVORI_KEEP_TEST_ARTIFACTS=1`. Sin esa opción, los reportes generados por `test:coverage` se
+     borran también si fallan Vitest o el floor; si pasas `NAVORI_COVERAGE_DIR`, ese directorio
+     siempre es tuyo y se conserva. Cuando una limpieza retiene evidencia —por diagnóstico, un
+     hijo directo aún activo o interrupción— la salida indica la ruta exacta. La prueba del guard
+     de `HOME` conserva el directorio de ese archivo.
+
+     La cobertura de ciclo de vida aplica a los workers estándar de Vitest y a hijos Node/Bun que
+     heredan el entorno. El seguimiento de procesos usa un canal experimental de Node para hijos
+     directos: no garantiza nietos desacoplados, procesos que eliminan el entorno, ni configs
+     personalizadas que omiten tanto `setupFiles` como `globalSetup`. Asignaciones temporales hechas
+     al importar la config o sus propios setup files ocurren antes del aislamiento. `SIGKILL` o un
+     reinicio no permiten ejecutar la limpieza ni reportar rutas; tampoco hay barrido histórico ni
+     garantía de cuota o tamaño máximo en disco.
+
    **`jscpd:check` y `semgrep:check`** entraron al gate en #777: son los mismos scripts que corren
    como hook de `git commit` con stdin cerrado, para que la revisión prediga el commit — antes, el
    primer contacto del diff con seguridad era el hook, **después** de un APPROVED ya firmado.
