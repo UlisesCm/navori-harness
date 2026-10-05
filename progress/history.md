@@ -1,5 +1,17 @@
 # History
 
+## 2026-10-05 12:17 codex — Unblock A5 Python JSON handoffs
+
+Resolved the installed CLI hook discrepancy with the checkout-built CLI: 19 hooks approved, while the older global CLI resolved 18. The original pilot branch remains preserved.
+
+The implementer guard conflated Markdown report metadata with write destinations. Added a bounded, parse-only Python JSON handoff recognizer; actual or uncertain Markdown writes retain their denials. Native render regenerated both hook mirrors and the Claude golden. The correction is isolated on a branch based on current main.
+
+Validation: independent reviewer APPROVED after the complete configured gate exited 0: 359 test files, 7283 passed tests, one skipped; coverage floor, lint and typecheck green. The focused guard suite passed all 169 cases. Earlier review findings about branch ancestry, explicit types and scanner-compatible fixture construction were corrected through implementer and reviewer.
+
+Publication is blocked: the progress-only receipt-renewal gate then exited 1 with an interrupted-temporary retention failure at `src/__tests__/temp-lifecycle.integration.test.ts:363`. The same focused command reproduced that exact failure on the changed checkout and isolated origin/main (9 passed, one failed each). Coordinator retention is not communicated durably to surviving workers. The two-file lifecycle correction is proposed and awaits explicit expanded-scope approval; no commit or push occurred.
+
+Next: resume the bounded A5 producer on the preserved pilot branch. Operator/client attestations, host-live sensitive-command normalization, interruption/resumption and matched comparative measurements remain pending; the guard approval does not complete A5.
+
 ## 2026-10-05 10:30 codex — Centralize test temporary-directory ownership
 
 Added per-run and per-file temporary ownership, cleanup after supported child completion, watch/fallback cleanup, stable dist-lock coordination and generated coverage-report disposal. Diagnostic evidence and uncertain interrupted roots remain inspectable; caller-owned reports remain preserved.

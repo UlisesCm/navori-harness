@@ -325,6 +325,106 @@ NAVORI_JSON_ANALYZER
       exit 0
     fi
   fi
+  # Closed Python handoff grammar: parse supplied text, never run its imports,
+  # reads, Git queries or writes. The producer still assumes trusted Python,
+  # stdlib, Git and filesystem; this is destination classification, not isolation.
+  IFS= read -r -d '' navori_python_analyzer <<'NAVORI_PYTHON_ANALYZER' || :
+import ast
+import math
+import re
+import sys
+
+def recognize() -> bool:
+    """Recognize one bounded, complete JSON handoff without evaluating source."""
+    command = sys.stdin.buffer.read(16385)
+    if len(command) > 16384:
+        return False
+    command = command.decode('utf-8')
+    header = re.match(r"python3 - <<'([A-Za-z_][A-Za-z0-9_]*)'\n", command)
+    if not header:
+        return False
+    lines = command[header.end():].split('\n')
+    # Shell closes at the FIRST exact delimiter, including inside Python strings.
+    close = lines.index(header.group(1))
+    if lines[close + 1:] not in ([], ['']):
+        return False
+    tree = ast.parse('\n'.join(lines[:close]))
+    if sum(1 for _ in ast.walk(tree)) > 4096 or len(tree.body) != 7:
+        return False
+    template = ast.parse("""import json, subprocess
+from pathlib import Path
+root = Path.cwd()
+runtime = json.loads((root / 'INPUT').read_text())
+report = {}
+(root / 'OUTPUT').write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\\n')
+print('MESSAGE')
+""")
+    # Only these two exact, read-only argv shapes may occur as report values.
+    expressions = {
+        ast.dump(ast.parse(source, mode='eval').body)
+        for source in (
+            'str(root)', "runtime['repo']", "runtime['results']",
+            "subprocess.check_output(['git', 'branch', '--show-current'], text=True).strip()",
+            "subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()",
+        )
+    }
+
+    def data(node: ast.AST, depth: int = 0) -> bool:
+        """Allow JSON literals and the fixed evidence expressions only."""
+        if depth > 16:
+            return False
+        if isinstance(node, ast.Constant):
+            return (type(node.value) in (str, int, bool, type(None)) or
+                    type(node.value) is float and math.isfinite(node.value))
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            return (isinstance(node.operand, ast.Constant) and
+                    type(node.operand.value) in (int, float) and
+                    math.isfinite(node.operand.value))
+        if isinstance(node, ast.List):
+            return all(data(value, depth + 1) for value in node.elts)
+        if isinstance(node, ast.Dict):
+            keys = [key.value for key in node.keys
+                    if isinstance(key, ast.Constant) and type(key.value) is str]
+            return (len(keys) == len(node.keys) == len(set(keys)) and
+                    all(data(value, depth + 1) for value in node.values))
+        return ast.dump(node) in expressions
+
+    def json_path(node: ast.AST) -> bool:
+        """Validate decoded literal destinations without accessing the filesystem."""
+        return (isinstance(node, ast.Constant) and type(node.value) is str and
+                bool(node.value) and not re.search(r'[\x00-\x1f\x7f]', node.value) and
+                node.value.lower().endswith('.json'))
+
+    input_path = tree.body[3].value.args[0].func.value.right
+    output_path = tree.body[5].value.func.value.right
+    message = tree.body[6].value.args[0]
+    report = tree.body[4].value
+    if not (json_path(input_path) and json_path(output_path) and
+            isinstance(message, ast.Constant) and type(message.value) is str and
+            isinstance(report, ast.Dict) and data(report)):
+        return False
+    for node in ast.walk(template):
+        if isinstance(node, ast.Constant) and node.value in ('INPUT', 'OUTPUT', 'MESSAGE'):
+            node.value = {'INPUT': input_path.value, 'OUTPUT': output_path.value,
+                          'MESSAGE': message.value}[node.value]
+    template.body[4].value = report
+    return ast.dump(tree) == ast.dump(template)
+
+try:
+    if recognize():
+        sys.stdout.write('ALLOW')
+    else:
+        sys.exit(1)
+except Exception:
+    sys.exit(1)
+NAVORI_PYTHON_ANALYZER
+  if command -v python3 >/dev/null 2>&1; then
+    if navori_python_result=$(printf '%s' "$cmd" | python3 -I -S -c "$navori_python_analyzer" 2>/dev/null) && [ "$navori_python_result" = "ALLOW" ]; then
+      navori_audit_verdict="allow"
+      navori_audit_reason="programa JSON Python estático reconocido"
+      exit 0
+    fi
+  fi
   block "intérprete con operación de escritura y ruta .md/.mdx"
 fi
 
