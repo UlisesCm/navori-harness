@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { type HarnessCatalog, barredMcpTokens, reaches } from "./harness.ts";
 import {
   type AgentRun,
@@ -13,6 +14,11 @@ import {
   type MetricPopulation,
   type NullableMeasurements,
   type PublishedAuditReport,
+  type CodexUsageComponent,
+  type CodexResponseFact,
+  type AuditReadBudget,
+  createAuditReadBudget,
+  retainAuditFact,
   addTokens,
   emptyTokens,
   recorderWindow,
@@ -25,6 +31,72 @@ import {
   unusedManagedCandidates,
   type Lang,
 } from "./signals.ts";
+
+/** Explicit per-generation opt-in; the CLI must validate a private file first. */
+export interface AuditPublicationOptions { includeHumanContent?: boolean; }
+
+const PUBLIC_AUDIT_["activeMs", "activityAvailability", "actor", "adapter", "agentDurationMs", "agentId", "agentType", "agentWallClockMs", "agents", "at", "attributedOutputTokens", "attributedRecords", "audited", "automatic", "availability", "availabilityByAgentType", "blindMinutes", "browsed", "budget", "byAgentType", "byModel", "bySource", "bytesRead", "cacheCreation", "cacheRead", "capturedAt", "ccVersions", "chars", "checkout", "classifierExemptBash", "classifierExemptBashByMode", "cliEvents", "cliVersion", "codex", "compactions", "completeLines", "contextPeak", "contributors", "count", "coverage", "coveredPercent", "description", "diagnostics", "durationMs", "editMiss", "eligible", "endReason", "endedAt", "event", "events", "evidence", "fields", "firstTs", "frictionEvents", "from", "generatedAt", "generatedBy", "gitBranch", "handle", "harnessBlock", "health", "hookEvents", "hookLogFrom", "host", "hostSkills", "human", "id", "identity", "incompleteTail", "inherited", "initialPrompt", "input", "invalid", "invalidUtf8", "invoked", "kind", "lastTs", "limits", "lines", "linesRead", "location", "malformedJson", "maxLineBytes", "mcpBarredTokens", "mcpCalls", "mcpInjectedContext", "mcpReach", "model", "models", "ms", "name", "navori", "navoriAtStop", "normalizationLoss", "normalizedOmissions", "observed", "observedArtifactWrites", "observedAt", "omitted", "omittedFacts", "omittedLowerBound", "orchestrator", "orphanSessions", "otelFrom", "other", "outcome", "output", "outputTokens", "overlapsWith", "oversizedLines", "ownWindow", "ownerAgentId", "ownerAgentType", "ownerKey", "parseErrors", "partial", "pathsPerReport", "permissionDenied", "permissionModes", "permissions", "phase", "policy", "prompts", "prs", "range", "rangeMetrics", "rangeSignals", "reading", "reason", "records", "relation", "repo", "repos", "retainedFacts", "retainedObjects", "retainedPaths", "retainedSessions", "rollout", "schemaVersion", "sealed", "sessionEntries", "sessionId", "sessions", "severity", "shellFailure", "shellReads", "shellWrites", "signals", "skillAttributionRecords", "skills", "skillsDiscarded", "skillsRead", "slug", "source", "sourceHeaderFingerprint", "sourceStatus", "sourceVersion", "sources", "spawnDepth", "startedAt", "startupTokens", "state", "status", "stoppedEarly", "summary", "thinking", "timestampBytes", "to", "tokens", "tool", "toolCalls", "toolCounts", "toolCountsByMode", "toolErrorTypes", "toolErrors", "toolResultBytes", "toolUnavailable", "toolUseId", "total", "totals", "truncated", "ts", "tsMs", "turnLimitHit", "turns", "unavailable", "unsupported", "usage", "usageAvailability", "validRecords", "values", "verdict", "wallClockMs", "from", "to", "limits", "maxLineBytes", "eventsPerSession", "sessionsPerReport", "pathsPerReport", "factsPerReport", "technicalBytes", "timestampBytes", "pathBytes", "normalizedFactBytes"] = new Set<string>(["activeMs", "activityAvailability", "actor", "adapter", "agentDurationMs", "agentId", "agentType", "agentWallClockMs", "agents", "at", "attributedOutputTokens", "attributedRecords", "audited", "automatic", "availability", "availabilityByAgentType", "blindMinutes", "browsed", "budget", "byAgentType", "byModel", "bySource", "bytesRead", "cacheCreation", "cacheRead", "capturedAt", "ccVersions", "chars", "checkout", "classifierExemptBash", "classifierExemptBashByMode", "cliEvents", "cliVersion", "codex", "compactions", "completeLines", "contextPeak", "contributors", "count", "coverage", "coveredPercent", "description", "diagnostics", "durationMs", "editMiss", "eligible", "endReason", "endedAt", "event", "events", "evidence", "fields", "firstTs", "frictionEvents", "from", "generatedAt", "generatedBy", "gitBranch", "handle", "harnessBlock", "health", "hookEvents", "hookLogFrom", "host", "hostSkills", "human", "id", "identity", "incompleteTail", "inherited", "initialPrompt", "input", "invalid", "invalidUtf8", "invoked", "kind", "lastTs", "limits", "lines", "linesRead", "location", "malformedJson", "maxLineBytes", "mcpBarredTokens", "mcpCalls", "mcpInjectedContext", "mcpReach", "model", "models", "ms", "name", "navori", "navoriAtStop", "normalizationLoss", "normalizedOmissions", "observed", "observedArtifactWrites", "observedAt", "omitted", "omittedFacts", "omittedLowerBound", "orchestrator", "orphanSessions", "otelFrom", "other", "outcome", "output", "outputTokens", "overlapsWith", "oversizedLines", "ownWindow", "ownerAgentId", "ownerAgentType", "ownerKey", "parseErrors", "partial", "pathsPerReport", "permissionDenied", "permissionModes", "permissions", "phase", "policy", "prompts", "prs", "range", "rangeMetrics", "rangeSignals", "reading", "reason", "records", "relation", "repo", "repos", "retainedFacts", "retainedObjects", "retainedPaths", "retainedSessions", "rollout", "schemaVersion", "sealed", "sessionEntries", "sessionId", "sessions", "severity", "shellFailure", "shellReads", "shellWrites", "signals", "skillAttributionRecords", "skills", "skillsDiscarded", "skillsRead", "slug", "source", "sourceHeaderFingerprint", "sourceStatus", "sourceVersion", "sources", "spawnDepth", "startedAt", "startupTokens", "state", "status", "stoppedEarly", "summary", "thinking", "timestampBytes", "to", "tokens", "tool", "toolCalls", "toolCounts", "toolCountsByMode", "toolErrorTypes", "toolErrors", "toolResultBytes", "toolUnavailable", "toolUseId", "total", "totals", "truncated", "ts", "tsMs", "turnLimitHit", "turns", "unavailable", "unsupported", "usage", "usageAvailability", "validRecords", "values", "verdict", "wallClockMs", "from", "to", "limits", "maxLineBytes", "eventsPerSession", "sessionsPerReport", "pathsPerReport", "factsPerReport", "technicalBytes", "timestampBytes", "pathBytes", "normalizedFactBytes"]);
+const PUBLIC_TECHNICAL_LABELS = new Set([
+  "orchestrator", "main-thread", "implementer", "reviewer", "architect", "auditor", "scout", "scribe", "publisher", "explorer", "worker", "researcher",
+  "Bash", "Read", "Write", "Edit", "Glob", "Grep", "Agent", "Task", "Skill", "WebFetch", "WebSearch", "NotebookEdit", "exec_command", "apply_patch", "spawn_agent", "wait", "send_input",
+  "claude", "codex", "core", "engram", "codegraph", "tgrep", "semgrep", "jscpd", "config", "hook", "user_permanent", "user_temporary", "user_reject", "user_abort",
+  "observed", "partial", "unavailable", "unsupported", "invalid", "not-observed", "malformed", "live-tail", "ownership-unknown", "unsealed", "unsupported-component", "empty-population", "incomplete-enumeration", "identity-conflict",
+  "transcript", "rollout", "audit-log", "otlp", "host-metadata", "aggregate", "claude-transcript", "codex-rollout", "missing", "unreadable", "unsafe", "changed",
+  "allow", "ask", "block", "deny", "skip", "noop", "clean", "dirty", "inject", "repeat", "hard", "advisory", "unknown", "other", "clear", "logout", "prompt_input_exit", "bypass_permissions_disabled", "unspecified",
+  "PreToolUse", "PostToolUse", "SessionStart", "SessionEnd", "Stop", "SubagentStart", "SubagentStop", "UserPromptSubmit", "PreCompact", "APPROVED", "CHANGES_REQUESTED", "high", "medium", "low", "critical", "warning", "info",
+  "auto", "plan", "default", "acceptEdits", "bypassPermissions", "dontAsk", "user", "typed", "queued", "parsed", "measured", "observed-only", "native-write", "native-edit", "native-notebook-edit", "success", "failed", "repo-relative", "outside-workspace", "redacted",
+]);
+const PUBLIC_MAP_["activeMs", "activityAvailability", "actor", "adapter", "agentDurationMs", "agentId", "agentType", "agentWallClockMs", "agents", "at", "attributedOutputTokens", "attributedRecords", "audited", "automatic", "availability", "availabilityByAgentType", "blindMinutes", "browsed", "budget", "byAgentType", "byModel", "bySource", "bytesRead", "cacheCreation", "cacheRead", "capturedAt", "ccVersions", "chars", "checkout", "classifierExemptBash", "classifierExemptBashByMode", "cliEvents", "cliVersion", "codex", "compactions", "completeLines", "contextPeak", "contributors", "count", "coverage", "coveredPercent", "description", "diagnostics", "durationMs", "editMiss", "eligible", "endReason", "endedAt", "event", "events", "evidence", "fields", "firstTs", "frictionEvents", "from", "generatedAt", "generatedBy", "gitBranch", "handle", "harnessBlock", "health", "hookEvents", "hookLogFrom", "host", "hostSkills", "human", "id", "identity", "incompleteTail", "inherited", "initialPrompt", "input", "invalid", "invalidUtf8", "invoked", "kind", "lastTs", "limits", "lines", "linesRead", "location", "malformedJson", "maxLineBytes", "mcpBarredTokens", "mcpCalls", "mcpInjectedContext", "mcpReach", "model", "models", "ms", "name", "navori", "navoriAtStop", "normalizationLoss", "normalizedOmissions", "observed", "observedArtifactWrites", "observedAt", "omitted", "omittedFacts", "omittedLowerBound", "orchestrator", "orphanSessions", "otelFrom", "other", "outcome", "output", "outputTokens", "overlapsWith", "oversizedLines", "ownWindow", "ownerAgentId", "ownerAgentType", "ownerKey", "parseErrors", "partial", "pathsPerReport", "permissionDenied", "permissionModes", "permissions", "phase", "policy", "prompts", "prs", "range", "rangeMetrics", "rangeSignals", "reading", "reason", "records", "relation", "repo", "repos", "retainedFacts", "retainedObjects", "retainedPaths", "retainedSessions", "rollout", "schemaVersion", "sealed", "sessionEntries", "sessionId", "sessions", "severity", "shellFailure", "shellReads", "shellWrites", "signals", "skillAttributionRecords", "skills", "skillsDiscarded", "skillsRead", "slug", "source", "sourceHeaderFingerprint", "sourceStatus", "sourceVersion", "sources", "spawnDepth", "startedAt", "startupTokens", "state", "status", "stoppedEarly", "summary", "thinking", "timestampBytes", "to", "tokens", "tool", "toolCalls", "toolCounts", "toolCountsByMode", "toolErrorTypes", "toolErrors", "toolResultBytes", "toolUnavailable", "toolUseId", "total", "totals", "truncated", "ts", "tsMs", "turnLimitHit", "turns", "unavailable", "unsupported", "usage", "usageAvailability", "validRecords", "values", "verdict", "wallClockMs", "from", "to", "limits", "maxLineBytes", "eventsPerSession", "sessionsPerReport", "pathsPerReport", "factsPerReport", "technicalBytes", "timestampBytes", "pathBytes", "normalizedFactBytes"] = new Set(["models", "toolCounts", "toolCountsByMode", "classifierExemptBashByMode", "mcpCalls", "mcpReach", "mcpBarredTokens", "mcpInjectedContext", "permissionModes", "toolErrorTypes", "bySource", "byAgentType", "byModel", "availabilityByAgentType", "availability", "rangeMetrics", "toolCalls", "toolResultBytes"]);
+
+/** Unknown labels are opaque categories, never short arbitrary user strings. */
+function publicLabel(value: string): string {
+  if (PUBLIC_TECHNICAL_LABELS.has(value)) return value;
+  if (/^(?:claude-(?:opus|sonnet|haiku)-[0-9][a-z0-9.-]*|gpt-[0-9][a-z0-9.-]*|o[1-9](?:-mini)?|plugin:(?:engram|codegraph|tgrep|semgrep|jscpd))$/.test(value)) return value;
+  return `unknown-${createHash("sha256").update(value).digest("hex").slice(0, 12)}`;
+}
+
+/** Metric keys have a fixed vocabulary; unrecognized segments become opaque. */
+function publicMapKey(value: string, family: string): string {
+  if (family !== "rangeMetrics" && family !== "availability") return publicLabel(value);
+  const vocabulary = new Set("tokens input output cacheRead cacheCreation thinking tools hooks wallClockMs activeMs startupTokens session sessions agent turns compactions turnLimitHits resultBytes calls callsMain callsAgents p50 p90 n observed partial eligible unavailable unsupported invalid coverage activation search edits codegraph mechanism codex execWrappers skill outputTokens perBashCall".split(" "));
+  return value.split(".").map((part: string) => vocabulary.has(part) ? part : publicLabel(part)).join(".");
+}
+
+/** Construct only allowlisted fields/values; raw objects are never spread into publication. */
+function metadataPublication<T>(value: T, options: AuditPublicationOptions = {}, field = ""): T {
+  const project = (input: unknown, key: string, parent: string): unknown => {
+    if (typeof input === "number" || typeof input === "boolean" || input === null || input === undefined) return input;
+    if (typeof input === "string") {
+      if (key === "initialPrompt" || key === "description") return options.includeHumanContent ? redactExample(input).slice(0, 300) : "";
+      if (["summary", "evidence"].includes(key)) return "Metadata-only finding; human details withheld.";
+      if (["gitBranch", "cwd"].includes(key)) return null;
+      if (["sessionId", "agentId", "toolUseId", "actor"].includes(key)) return /^[A-Za-z0-9_-]{1,256}$/.test(input) ? input : "unknown";
+      if (["startedAt", "endedAt", "generatedAt", "capturedAt", "at", "from", "to", "hookLogFrom", "otelFrom"].includes(key)) return /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z)?$/.test(input) ? input : "";
+      if (["version", "rendered", "cli", "sourceVersion", "ccVersions"].includes(key)) return /^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/.test(input) ? input : "unknown";
+      if (key === "generatedBy") return /^navori@\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/.test(input) ? input : "navori@unknown";
+      if (key === "path") return /^\.navori\/state\/handoffs\/(?:impl|review|solution|scout|audit)_[A-Za-z0-9_-]{1,100}\.json$/.test(input) ? input : "redacted";
+      return publicLabel(input);
+    }
+    if (Array.isArray(input)) return input.map((item: unknown) => project(item, key, parent));
+    if (typeof input !== "object") return undefined;
+    const out: Record<string, unknown> = {};
+    const dynamic = PUBLIC_MAP_["activeMs", "activityAvailability", "actor", "adapter", "agentDurationMs", "agentId", "agentType", "agentWallClockMs", "agents", "at", "attributedOutputTokens", "attributedRecords", "audited", "automatic", "availability", "availabilityByAgentType", "blindMinutes", "browsed", "budget", "byAgentType", "byModel", "bySource", "bytesRead", "cacheCreation", "cacheRead", "capturedAt", "ccVersions", "chars", "checkout", "classifierExemptBash", "classifierExemptBashByMode", "cliEvents", "cliVersion", "codex", "compactions", "completeLines", "contextPeak", "contributors", "count", "coverage", "coveredPercent", "description", "diagnostics", "durationMs", "editMiss", "eligible", "endReason", "endedAt", "event", "events", "evidence", "fields", "firstTs", "frictionEvents", "from", "generatedAt", "generatedBy", "gitBranch", "handle", "harnessBlock", "health", "hookEvents", "hookLogFrom", "host", "hostSkills", "human", "id", "identity", "incompleteTail", "inherited", "initialPrompt", "input", "invalid", "invalidUtf8", "invoked", "kind", "lastTs", "limits", "lines", "linesRead", "location", "malformedJson", "maxLineBytes", "mcpBarredTokens", "mcpCalls", "mcpInjectedContext", "mcpReach", "model", "models", "ms", "name", "navori", "navoriAtStop", "normalizationLoss", "normalizedOmissions", "observed", "observedArtifactWrites", "observedAt", "omitted", "omittedFacts", "omittedLowerBound", "orchestrator", "orphanSessions", "otelFrom", "other", "outcome", "output", "outputTokens", "overlapsWith", "oversizedLines", "ownWindow", "ownerAgentId", "ownerAgentType", "ownerKey", "parseErrors", "partial", "pathsPerReport", "permissionDenied", "permissionModes", "permissions", "phase", "policy", "prompts", "prs", "range", "rangeMetrics", "rangeSignals", "reading", "reason", "records", "relation", "repo", "repos", "retainedFacts", "retainedObjects", "retainedPaths", "retainedSessions", "rollout", "schemaVersion", "sealed", "sessionEntries", "sessionId", "sessions", "severity", "shellFailure", "shellReads", "shellWrites", "signals", "skillAttributionRecords", "skills", "skillsDiscarded", "skillsRead", "slug", "source", "sourceHeaderFingerprint", "sourceStatus", "sourceVersion", "sources", "spawnDepth", "startedAt", "startupTokens", "state", "status", "stoppedEarly", "summary", "thinking", "timestampBytes", "to", "tokens", "tool", "toolCalls", "toolCounts", "toolCountsByMode", "toolErrorTypes", "toolErrors", "toolResultBytes", "toolUnavailable", "toolUseId", "total", "totals", "truncated", "ts", "tsMs", "turnLimitHit", "turns", "unavailable", "unsupported", "usage", "usageAvailability", "validRecords", "values", "verdict", "wallClockMs", "from", "to", "limits", "maxLineBytes", "eventsPerSession", "sessionsPerReport", "pathsPerReport", "factsPerReport", "technicalBytes", "timestampBytes", "pathBytes", "normalizedFactBytes"].has(key);
+    for (const [child, item] of Object.entries(input)) {
+      if (!dynamic && !PUBLIC_AUDIT_["activeMs", "activityAvailability", "actor", "adapter", "agentDurationMs", "agentId", "agentType", "agentWallClockMs", "agents", "at", "attributedOutputTokens", "attributedRecords", "audited", "automatic", "availability", "availabilityByAgentType", "blindMinutes", "browsed", "budget", "byAgentType", "byModel", "bySource", "bytesRead", "cacheCreation", "cacheRead", "capturedAt", "ccVersions", "chars", "checkout", "classifierExemptBash", "classifierExemptBashByMode", "cliEvents", "cliVersion", "codex", "compactions", "completeLines", "contextPeak", "contributors", "count", "coverage", "coveredPercent", "description", "diagnostics", "durationMs", "editMiss", "eligible", "endReason", "endedAt", "event", "events", "evidence", "fields", "firstTs", "frictionEvents", "from", "generatedAt", "generatedBy", "gitBranch", "handle", "harnessBlock", "health", "hookEvents", "hookLogFrom", "host", "hostSkills", "human", "id", "identity", "incompleteTail", "inherited", "initialPrompt", "input", "invalid", "invalidUtf8", "invoked", "kind", "lastTs", "limits", "lines", "linesRead", "location", "malformedJson", "maxLineBytes", "mcpBarredTokens", "mcpCalls", "mcpInjectedContext", "mcpReach", "model", "models", "ms", "name", "navori", "navoriAtStop", "normalizationLoss", "normalizedOmissions", "observed", "observedArtifactWrites", "observedAt", "omitted", "omittedFacts", "omittedLowerBound", "orchestrator", "orphanSessions", "otelFrom", "other", "outcome", "output", "outputTokens", "overlapsWith", "oversizedLines", "ownWindow", "ownerAgentId", "ownerAgentType", "ownerKey", "parseErrors", "partial", "pathsPerReport", "permissionDenied", "permissionModes", "permissions", "phase", "policy", "prompts", "prs", "range", "rangeMetrics", "rangeSignals", "reading", "reason", "records", "relation", "repo", "repos", "retainedFacts", "retainedObjects", "retainedPaths", "retainedSessions", "rollout", "schemaVersion", "sealed", "sessionEntries", "sessionId", "sessions", "severity", "shellFailure", "shellReads", "shellWrites", "signals", "skillAttributionRecords", "skills", "skillsDiscarded", "skillsRead", "slug", "source", "sourceHeaderFingerprint", "sourceStatus", "sourceVersion", "sources", "spawnDepth", "startedAt", "startupTokens", "state", "status", "stoppedEarly", "summary", "thinking", "timestampBytes", "to", "tokens", "tool", "toolCalls", "toolCounts", "toolCountsByMode", "toolErrorTypes", "toolErrors", "toolResultBytes", "toolUnavailable", "toolUseId", "total", "totals", "truncated", "ts", "tsMs", "turnLimitHit", "turns", "unavailable", "unsupported", "usage", "usageAvailability", "validRecords", "values", "verdict", "wallClockMs", "from", "to", "limits", "maxLineBytes", "eventsPerSession", "sessionsPerReport", "pathsPerReport", "factsPerReport", "technicalBytes", "timestampBytes", "pathBytes", "normalizedFactBytes"].has(child)) continue;
+      if (["responses", "activity", "blockedCommands", "repeatedCommands"].includes(child)) continue;
+      const projected = project(item, child, key);
+      if (projected !== undefined) out[dynamic ? publicMapKey(child, key) : child] = projected;
+    }
+    // Required empty maps remain useful to historical renderers; their content
+    // is deliberately absent, not an authorization to serialize scripts.
+    if ("repeatedCommands" in input) out.repeatedCommands = {};
+    if ("blockedCommands" in input) out.blockedCommands = {};
+    if ("responses" in input) out.responses = [];
+    if ("activity" in input) out.activity = [];
+    return out;
+  };
+  return project(value, field, "") as T;
+}
 
 /**
  * Renders a parsed audit into its two derived artifacts.
@@ -1238,7 +1310,7 @@ function getOrSet<K, V>(map: Map<K, V>, key: K, make: () => V): V {
 function addAgentRun(stat: AgentStat, run: Run, evidence?: Record<string, MetricEvidence>): void {
   stat.fetch += run.toolCounts.WebFetch ?? 0;
   stat.search += run.toolCounts.WebSearch ?? 0;
-  if (evidence?.tools?.state === "observed" && typeof run.turns === "number")
+  if ((evidence?.turns ?? evidence?.tools)?.state === "observed" && typeof run.turns === "number")
     stat.turns.push(run.turns);
   if (
     runEvidence({ run, evidence: evidence ?? {}, type: "" }, "contextPeak").state === "observed" &&
@@ -1262,7 +1334,7 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
     (s) => s.unavailable !== "transcript" && s.availability?.tools?.state === "observed",
   );
   const codexSessions = sessions.filter((s) => s.host === "codex");
-  const codexExecWrappers = codexSessions.every((s) => s.rollout?.status === "parsed")
+  const codexExecWrappers = codexSessions.every((s) => s.availability?.tools?.state === "observed")
     ? codexSessions.reduce(
         (count, s) =>
           count + (s.rollout?.status === "parsed" ? (s.rollout.toolCalls.exec ?? 0) : 0),
@@ -1288,11 +1360,25 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
       }
     }
   }
+  for (const session of codexSessions) {
+    if (
+      !["turns", "tools", "tokens.cacheRead"].some(
+        (key) => session.availability?.[key]?.state === "observed",
+      )
+    )
+      continue;
+    const main = getOrSet(agents, MAIN_THREAD, emptyAgentStat);
+    addAgentRun(main, session.orchestrator, session.availability);
+  }
 
   for (const s of sessions) {
     const seen = new Set<string>();
     for (const a of s.agents) {
-      if (a.availability?.tools?.state !== "observed") continue;
+      if (
+        a.availability?.tools?.state !== "observed" &&
+        a.availability?.turns?.state !== "observed"
+      )
+        continue;
       const stat = getOrSet(agents, a.agentType, emptyAgentStat);
       stat.launches += 1;
       if (!seen.has(a.agentType)) {
@@ -1797,10 +1883,20 @@ export function projectedAgentCount(report: AuditReport): number | null {
   return measurable(population(report.sessions, "tools")) ? report.totals.agents : null;
 }
 
-export function renderMarkdown(report: AuditReport, lang: Lang): string {
+export function renderMarkdown(report: AuditReport, lang: Lang, options: AuditPublicationOptions = {}): string {
+  report = metadataPublication(report, options);
   const out: string[] = [];
   out.push(`# ${t(lang, "Auditoría del harness", "Harness audit")} — ${report.repo}`);
   out.push("");
+  const resource = report.sessions.flatMap((session: SessionAudit) => Object.values(session.sources ?? {}).filter((source) => source?.budget || source?.reading));
+  if (resource.length) {
+    out.push("## Resource diagnostics", "");
+    for (const source of resource) {
+      if (source?.budget) out.push(`- Budget: ${source.budget.retainedFacts}/${source.budget.limits.factsPerReport} facts; omitted ${source.budget.omittedFacts ?? "unknown"} (at least ${source.budget.omittedLowerBound}); ${source.budget.truncated ? "partial" : "within limits"}.`);
+      if (source?.reading) out.push(`- Source: ${source.reading.bytesRead} bytes; invalid UTF-8 ${source.reading.invalidUtf8}; oversized lines ${source.reading.oversizedLines}; omitted ${source.reading.omitted ?? "unknown"} (at least ${source.reading.omittedLowerBound}).`);
+    }
+    out.push("");
+  }
   if (report.schemaVersion === 11) {
     out.push("## " + t(lang, "Disponibilidad de mediciones", "Measurement availability"), "");
     out.push("| Metric | State | N observed / partial / eligible | Reason |", "|---|---|---|---|");
@@ -1832,6 +1928,32 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
       `## ${t(lang, "Sesión", "Session")} ${s.sessionId.slice(0, 8)} · ${s.startedAt.slice(0, 10)}`,
     );
     out.push("");
+    if (s.host === "codex" && s.orchestrator.codex) {
+      out.push(
+        `${t(lang, "**Sesión Codex.**", "**Codex session.**")} Codex ${s.orchestrator.codex.sourceVersion ?? "unavailable"}`,
+        "",
+      );
+      for (const run of [s.orchestrator, ...s.agents]) {
+        const facts = run.codex;
+        if (!facts) continue;
+        const value = (component: CodexUsageComponent): string =>
+          facts.usage[component] === null ? "unavailable" : String(facts.usage[component]);
+        out.push(
+          `Provider usage (${"agentId" in run ? run.agentType : MAIN_THREAD}): input ${value("inputTotal")} · ordinary input ${value("ordinaryInput")} · output ${value("output")} · total ${value("totalTokens")} · reasoning subset ${value("reasoning")}`,
+          `Tools: ${
+            measurable(("agentId" in run ? run.availability : s.availability)?.tools)
+              ? Object.entries(run.toolCounts)
+                  .map(([name, count]) => `${name}:${count}`)
+                  .join(" ") || "0"
+              : "unavailable"
+          }`,
+          `Turns: ${measurable(("agentId" in run ? run.availability : s.availability)?.turns) ? (run.turns ?? "unavailable") : "unavailable"}`,
+          "",
+        );
+      }
+      out.push(permissionsBlock(s, lang));
+      continue;
+    }
     if (!measurable(s.availability?.tools)) {
       if (s.host === "codex") out.push(t(lang, "**Sesión Codex.**", "**Codex session.**"), "");
       out.push("Measurements unavailable; no source-backed session totals.", "");
@@ -2212,6 +2334,8 @@ function runMeasurementEvidence(unit: MeasurementRun, path: string): MetricEvide
   if (field === "startupTokens") return runEvidence(unit, "startupTokens");
   if (field === "durationMs") return runEvidence(unit, "durationMs");
   if (field === "contextPeak") return runEvidence(unit, "contextPeak");
+  if (field === "turns" || field === "models")
+    return unit.evidence[field] ?? unit.evidence.tools ?? unknownEvidence();
   if (field === "skills" && path.endsWith(".attributedOutputTokens"))
     return runEvidence(unit, "tokens.output");
   if (field === "hookEvents") return unit.evidence.hooks ?? unknownEvidence();
@@ -2227,11 +2351,21 @@ function publishRun(unit: MeasurementRun): NullableMeasurements<Run> {
   if (!measurable(unit.evidence.tools)) {
     out.toolCounts = null;
   }
+  if (unit.run.codex) {
+    out.codex = {
+      ...unit.run.codex,
+      responses: [],
+      activity: [],
+      usage: { ...unit.run.codex.usage },
+      usageAvailability: unit.run.codex.usageAvailability,
+    };
+  }
   return out;
 }
 
 /** Typed schema11 consumer boundary; internal reduction identities do not escape. */
-export function publishReport(report: AuditReport): PublishedAuditReport {
+export function publishReport(report: AuditReport, options: AuditPublicationOptions = {}): PublishedAuditReport {
+  report = metadataPublication(report, options);
   const runs = measurementRuns(report.sessions);
   const published = projectNumbers(report, () => unknownEvidence());
   const sessions = report.sessions.map((s) => {
@@ -2348,8 +2482,8 @@ export function publishReport(report: AuditReport): PublishedAuditReport {
 }
 
 /** Serialize the actual public nullable contract; historical schema10 stays intact. */
-export function renderJson(report: AuditReport): string {
-  return `${JSON.stringify(report.schemaVersion === 11 ? publishReport(report) : report, null, 2)}\n`;
+export function renderJson(report: AuditReport, options: AuditPublicationOptions = {}): string {
+  return `${JSON.stringify(report.schemaVersion === 11 ? publishReport(report, options) : metadataPublication(report, options), null, 2)}\n`;
 }
 function measurable(evidence: MetricEvidence | undefined): boolean {
   return evidence?.state === "observed" || evidence?.state === "partial";
@@ -2528,6 +2662,185 @@ function tallySkills(sessions: SessionAudit[], catalog: readonly string[]): Skil
 }
 
 /** Aggregates parsed sessions into the report envelope. */
+/** One immutable provider view precedes every report reducer and projection. */
+function qualifiedCodexView(input: readonly SessionAudit[], budget: AuditReadBudget): SessionAudit[] {
+  // Clone mutable reducer shells only. Provider response/activity objects are
+  // read-only inputs, shared across sibling views instead of copying history.
+  const runs = new WeakMap<Run, Run>();
+  const cloneRun = <T extends Run>(run: T): T => {
+    const known = runs.get(run);
+    if (known) return known as T;
+    const copy: T = { ...run, tokens: { ...run.tokens }, toolCounts: { ...run.toolCounts } };
+    if ("availability" in run) copy.availability = { ...run.availability };
+    if (run.codex) copy.codex = { ...run.codex, source: { ...run.codex.source }, usage: { ...run.codex.usage }, usageAvailability: { ...run.codex.usageAvailability } };
+    runs.set(run, copy);
+    return copy;
+  };
+  const sessions = input.map((session: SessionAudit): SessionAudit => ({
+    ...session, availability: { ...session.availability },
+    orchestrator: cloneRun(session.orchestrator), agents: session.agents.map((run: AgentRun): AgentRun => cloneRun(run)),
+    rollout: session.rollout ? { ...session.rollout } : undefined,
+    sources: session.sources ? Object.fromEntries(Object.entries(session.sources).map(([key, source]) => [key, { ...source }])) : undefined,
+  }));
+  const components: CodexUsageComponent[] = [
+    "inputTotal",
+    "ordinaryInput",
+    "cacheRead",
+    "cacheWrite",
+    "output",
+    "reasoning",
+    "totalTokens",
+  ];
+  const tokenComponents = {
+    input: "ordinaryInput",
+    output: "output",
+    cacheRead: "cacheRead",
+    cacheCreation: "cacheWrite",
+    thinking: "reasoning",
+  } as const;
+  const responseGroups = new Map<string, CodexResponseFact[]>();
+  const activityNames = new Map<string, Set<string | null>>();
+  for (const session of sessions)
+    for (const run of [session.orchestrator, ...session.agents]) {
+      if (run.codex) {
+        const facts = run.codex;
+        const owned = measurable(facts.source)
+          ? facts.responses.filter(
+              (fact) =>
+                fact.threadId === facts.threadId && fact.rootSessionId === facts.rootSessionId,
+            )
+          : [];
+        if (measurable(facts.source) && owned.length !== facts.responses.length)
+          facts.source = { ...facts.source, state: "partial", reason: "ownership-unknown" };
+        facts.responses = owned;
+      }
+      for (const fact of run.codex?.activity ?? []) {
+        const key = JSON.stringify([
+          run.codex!.rootSessionId,
+          run.codex!.threadId,
+          fact.kind,
+          fact.id,
+        ]);
+        if (!activityNames.has(key) && !retainAuditFact(budget, session.sessionId, { kind: "activity-group" })) continue;
+        const names = activityNames.get(key) ?? new Set<string | null>();
+        if (!names.has(fact.name) && !retainAuditFact(budget, session.sessionId, { kind: "activity-name" })) continue;
+        names.add(fact.name);
+        activityNames.set(key, names);
+      }
+      for (const fact of run.codex?.responses ?? []) {
+        const key = JSON.stringify([fact.rootSessionId, fact.threadId, fact.responseId]);
+        if (!responseGroups.has(key) && !retainAuditFact(budget, session.sessionId, { kind: "response-group" })) continue;
+        const copies = responseGroups.get(key) ?? [];
+        if (!retainAuditFact(budget, session.sessionId, { kind: "response-copy" })) continue;
+        copies.push(fact);
+        responseGroups.set(key, copies);
+      }
+    }
+  const charged = new Set<string>();
+  const ownedActivity = new Set<string>();
+  for (const session of sessions)
+    for (const run of [session.orchestrator, ...session.agents]) {
+      const facts = run.codex;
+      if (!facts) continue;
+      facts.usage = { ...facts.usage };
+      facts.usageAvailability = { ...facts.usageAvailability };
+      run.tokens = { ...run.tokens };
+      const availability =
+        "agentId" in run ? (run.availability ??= {}) : (session.availability ??= {});
+      const rows = new Map<string, CodexResponseFact[]>();
+      for (const fact of facts.responses) {
+        const key = JSON.stringify([fact.rootSessionId, fact.threadId, fact.responseId]);
+        if (!charged.has(key) && responseGroups.has(key)) rows.set(key, responseGroups.get(key)!);
+      }
+      for (const key of rows.keys()) charged.add(key);
+      for (const component of components) {
+        const values: number[] = [];
+        let conflict = false;
+        let malformed = false;
+        let excluded = facts.source.state !== "observed";
+        for (const copies of rows.values()) {
+          const identities = new Set(
+            copies.map((copy) => JSON.stringify([copy.turnId, copy.model])),
+          );
+          const amounts = new Set(copies.map((copy) => copy.values[component]));
+          if (identities.size !== 1 || amounts.size !== 1) {
+            conflict = true;
+            continue;
+          }
+          const value = copies[0]!.values[component];
+          malformed ||= copies.some((copy) => copy.evidence[component].state === "invalid");
+          if (value === null) {
+            excluded = true;
+            continue;
+          }
+          values.push(value);
+        }
+        const sum = values.reduce((a, b) => a + b, 0);
+        facts.usage[component] =
+          values.length && !conflict && Number.isSafeInteger(sum) ? sum : null;
+        facts.usageAvailability[component] = {
+          ...facts.source,
+          state:
+            conflict || (malformed && !values.length)
+              ? "invalid"
+              : facts.usage[component] !== null
+                ? excluded
+                  ? "partial"
+                  : "observed"
+                : "unavailable",
+          reason: conflict
+            ? "identity-conflict"
+            : malformed
+              ? "malformed"
+              : facts.usage[component] !== null
+                ? excluded
+                  ? "not-observed"
+                  : null
+                : "not-observed",
+        };
+      }
+      for (const [key, component] of Object.entries(tokenComponents)) {
+        run.tokens[key as keyof TokenTotals] = facts.usage[component] ?? 0;
+        availability[`tokens.${key}`] = facts.usageAvailability[component];
+      }
+      const activity = facts.activity.filter((fact) => {
+        const key = JSON.stringify([facts.rootSessionId, facts.threadId, fact.kind, fact.id]);
+        if ((activityNames.get(key)?.size ?? 0) > 1) {
+          const family =
+            fact.kind === "tool" ? "tools" : fact.kind === "model" ? "models" : "turns";
+          availability[family] = { ...facts.source, state: "invalid", reason: "identity-conflict" };
+          return false;
+        }
+        if (!activityNames.has(key) || ownedActivity.has(key)) return false;
+        ownedActivity.add(key);
+        return true;
+      });
+      run.toolCounts = {};
+      run.turns = 0;
+      if ("models" in run) run.models = {};
+      for (const fact of activity) {
+        if (fact.kind === "tool" && fact.name)
+          run.toolCounts[fact.name] = (run.toolCounts[fact.name] ?? 0) + 1;
+        if (fact.kind === "turn") run.turns = (run.turns ?? 0) + 1;
+        if (fact.kind === "model" && fact.name && "models" in run)
+          run.models[fact.name] = (run.models[fact.name] ?? 0) + 1;
+      }
+      if ("agentId" in run) {
+        const models = [
+          ...new Set(activity.filter((fact) => fact.kind === "model").map((fact) => fact.name)),
+        ];
+        run.model = models.length === 1 ? models[0]! : null;
+      } else if (session.rollout?.status === "parsed") {
+        session.rollout.toolCalls = { ...run.toolCounts };
+        session.rollout.models = { ...run.models };
+        session.rollout.turns = run.turns ?? 0;
+        session.rollout.responses = [];
+        session.rollout.activity = [];
+      }
+    }
+  return sessions;
+}
+
 export function buildReport(
   sessions: SessionAudit[],
   opts: {
@@ -2563,8 +2876,24 @@ export function buildReport(
     repos?: RepoRow[];
     requestedRange?: { from: string; to: string };
     coverage?: AuditReport["coverage"];
+    /** Shared bounded discovery/parser context; never an independent index. */
+    readBudget?: AuditReadBudget;
   },
 ): AuditReport {
+  const readBudget = opts.readBudget ?? createAuditReadBudget();
+  sessions = qualifiedCodexView(sessions, readBudget);
+  for (const session of sessions) {
+    const health = session.sources?.rollout ?? session.sources?.transcript ?? session.sources?.["audit-log"];
+    if (health) health.budget = { ...readBudget.diagnostics, limits: { ...readBudget.diagnostics.limits } };
+    if (readBudget.diagnostics.truncated) {
+      for (const evidence of [session.availability, ...session.agents.map((run: AgentRun) => run.availability)]) {
+        if (!evidence) continue;
+        for (const [key, row] of Object.entries(evidence)) {
+          if (row.state === "observed") evidence[key] = { ...row, state: "partial", reason: "incomplete-enumeration" };
+        }
+      }
+    }
+  }
   const byAgentType: AuditReport["totals"]["byAgentType"] = {};
   const byModel: Record<string, number> = {};
   let tokens = emptyTokens();
@@ -2583,7 +2912,10 @@ export function buildReport(
     startupTokens += s.orchestrator.startupTokens;
     // The main thread is a row like any other (R48) — except for a session with
     // no transcript, whose tokens are unavailable rather than zero.
-    if (s.unavailable !== "transcript") {
+    if (
+      s.unavailable !== "transcript" ||
+      Object.values(s.orchestrator.codex?.usage ?? {}).some((value) => value !== null)
+    ) {
       const main = (byAgentType[MAIN_THREAD] ??= newRow());
       main.count += 1;
       main.sessions += 1;
@@ -2851,7 +3183,9 @@ function flatMetricPopulation(
       ? "tokens.cacheRead"
       : component?.startsWith("contextPeak")
         ? "contextPeak"
-        : "tools";
+        : component?.startsWith("turns")
+          ? "turns"
+          : "tools";
     const rows = selected.map((unit): MetricEvidence => {
       if (component?.startsWith("turns") && typeof unit.run.turns !== "number")
         return unknownEvidence();
@@ -2867,7 +3201,9 @@ function flatMetricPopulation(
         (!("turnLimitHit" in unit.run) || typeof unit.run.turnLimitHit !== "boolean")
       )
         return unknownEvidence();
-      return runEvidence(unit, family);
+      return family === "turns"
+        ? (unit.evidence.turns ?? runEvidence(unit, "tools"))
+        : runEvidence(unit, family);
     });
     return unitPopulation(rows, "observed-only");
   }

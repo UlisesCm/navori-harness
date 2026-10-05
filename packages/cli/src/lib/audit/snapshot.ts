@@ -1,17 +1,9 @@
 import { execFileSync } from "node:child_process";
-import {
-  constants,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { NavoriError } from "../primitives/errors.ts";
 import type { AuditReport } from "./model.ts";
+import { createPrivateAuditFile, copyPrivateAuditFile, readPrivateAuditFile } from "./paths.ts";
 
 /**
  * Range snapshots (spec 0039 R68, R69, D10).
@@ -78,20 +70,15 @@ export function buildSnapshot(report: AuditReport, scope: "repo" | "all"): Range
  * an existing file: a baseline that a re-run silently overwrote is no baseline.
  */
 export function writeSnapshot(path: string, snapshot: RangeSnapshot): void {
-  mkdirSync(dirname(path), { recursive: true });
-  try {
-    writeFileSync(path, `${JSON.stringify(snapshot, null, 2)}\n`, {
-      encoding: "utf-8",
-      flag: "wx",
-    });
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+  const result = createPrivateAuditFile(path, `${JSON.stringify(snapshot, null, 2)}\n`);
+  if (!result.ok) {
+    if (result.reason === "exists") {
       throw new NavoriError(
         "snapshot-exists",
         `The snapshot ${path} already exists and is not overwritten: pick another name or remove it yourself.`,
       );
     }
-    throw err;
+    throw new NavoriError("snapshot-unwritable", `Snapshot refused: ${result.reason}.`);
   }
 }
 
@@ -99,7 +86,9 @@ export function writeSnapshot(path: string, snapshot: RangeSnapshot): void {
 export function readSnapshot(path: string): RangeSnapshot {
   let raw: string;
   try {
-    raw = readFileSync(path, "utf-8");
+    const result = readPrivateAuditFile(path, { ownedRoot: null, privateFile: false });
+    if (!result.ok) throw new Error(result.reason);
+    raw = result.value.toString("utf-8");
   } catch {
     throw new NavoriError("snapshot-unreadable", `Cannot read the snapshot ${path}.`);
   }
@@ -286,7 +275,8 @@ export function copySnapshotTo(
       `${target} already exists and is not overwritten: pass a different --copy-to path.`,
     );
   }
-  mkdirSync(dirname(target), { recursive: true });
-  copyFileSync(snapshotFile, target, constants.COPYFILE_EXCL);
+  const copy = copyPrivateAuditFile(snapshotFile, target, { destination: { ownedRoot: null } });
+  if (!copy.ok)
+    throw new NavoriError("copy-to-unwritable", `Snapshot copy refused: ${copy.reason}.`);
   return target;
 }

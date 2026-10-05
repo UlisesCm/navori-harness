@@ -83,6 +83,17 @@ function registeredCommands(settings: Record<string, unknown>): string[] {
 }
 
 describe("every registered hook carries the audit-log include (#778)", () => {
+  // Covers: R8, R9
+  it("exits capture-start before the historical handoff recorder and stamp", () => {
+    const hook = expandHookIncludes(
+      readFileSync(join(getCoreRoot(), "core-assets/hooks/subagent-stop-handoff.sh"), "utf-8"),
+    );
+    const exit = hook.indexOf('[ "${2:-}" != capture-start ] || exit 0');
+    expect(exit).toBeGreaterThan(hook.indexOf("nv_engine=codex"));
+    expect(exit).toBeLessThan(hook.indexOf("navori_handoff_key="));
+    expect(exit).toBeLessThan(hook.indexOf("trap navori_audit_on_exit EXIT"));
+    expect(hook).toContain('[ -f "$audit_root/$repo/session-$root_id.log" ] || return 0');
+  });
   const pluginIds = listBundledPluginIds();
   const plugins = pluginIds.map((id) => loadPlugin(id));
   const settings = buildClaudeSettings(fullConfig(pluginIds), plugins);
@@ -206,7 +217,21 @@ describe("spec 0039 hook behavior (R25, R26)", () => {
   function fakeNavori(code: number): string {
     const bin = join(root, `bin${code}`);
     mkdirSync(bin, { recursive: true });
-    writeFileSync(join(bin, "navori"), `#!/bin/sh\ncat >/dev/null\nexit ${code}\n`);
+    writeFileSync(
+      join(bin, "navori"),
+      `#!${process.execPath}
+const fs = require("node:fs"), path = require("node:path");
+const args = process.argv.slice(2);
+if (args.includes("--record-metadata")) {
+  const field = name => args[args.indexOf(name) + 1];
+  const record = JSON.parse(fs.readFileSync(0, "utf8"));
+  fs.appendFileSync(path.join(field("--root"), field("--repo"), "session-" + field("--root-session") + ".log"), JSON.stringify(record) + "\\n");
+  process.exit(0);
+}
+fs.readFileSync(0);
+process.exit(${code});
+`,
+    );
     chmodSync(join(bin, "navori"), 0o755);
     return bin;
   }

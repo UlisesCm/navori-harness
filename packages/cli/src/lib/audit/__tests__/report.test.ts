@@ -12,11 +12,94 @@ import {
   type HookEvent,
   type InjectedContext,
   type SessionAudit,
+  type CodexRunFacts,
+  type CodexResponseFact,
+  type MetricEvidence,
   emptyOrchestrator,
   emptyPermissionDecisions,
   emptyTokens,
   emptyToolErrors,
+  createAuditReadBudget,
+  retainAuditFact,
 } from "../model.ts";
+
+describe("Codex canonical report view", () => {
+  // Covers: R4, R5, R8, R9
+  it("shares owned provider facts across run, by-type and text without mutating inputs or charging inherited rows", () => {
+    const evidence: MetricEvidence = {
+      state: "observed",
+      reason: null,
+      source: "rollout",
+      adapter: "codex-rollout",
+      sourceVersion: "0.160.0",
+    };
+    const values: CodexRunFacts["usage"] = {
+      inputTotal: 100,
+      ordinaryInput: 70,
+      cacheRead: 20,
+      cacheWrite: 10,
+      output: 40,
+      reasoning: 15,
+      totalTokens: 140,
+    };
+    const availability = Object.fromEntries(
+      Object.keys(values).map((key) => [key, evidence]),
+    ) as CodexRunFacts["usageAvailability"];
+    const response: CodexResponseFact = {
+      threadId: "child",
+      rootSessionId: "root",
+      turnId: "t1",
+      responseId: "private-response-id",
+      at: null,
+      model: null,
+      values,
+      evidence: availability,
+    };
+    const facts: CodexRunFacts = {
+      threadId: "child",
+      rootSessionId: "root",
+      parentThreadId: "root",
+      sourceVersion: "0.160.0",
+      capturedAt: "2026-10-04T12:00:00Z",
+      source: evidence,
+      responses: [
+        response,
+        structuredClone(response),
+        { ...response, threadId: "parent", responseId: "inherited" },
+      ],
+      activity: [],
+      usage: values,
+      usageAvailability: availability,
+    };
+    const input = session(
+      [agent({ agentId: "child", agentType: "codex-child", codex: facts, availability: {} })],
+      {
+        host: "codex",
+        unavailable: "transcript",
+        availability: {},
+      },
+    );
+    input.orchestrator.codex = {
+      ...facts,
+      threadId: "root",
+      parentThreadId: null,
+      responses: [],
+      capturedAt: null,
+    };
+    const before = JSON.stringify(input);
+    const report = buildReport([input], { repo: "r", version: "0", catalog: CATALOG });
+    expect(report.totals.tokens.output).toBe(40);
+    expect(report.totals.byAgentType["codex-child"]?.tokens.output).toBe(40);
+    expect(publishReport(report).sessions[0]?.agents[0]?.tokens.output).toBe(40);
+    expect(report.availability?.["tokens.output"]?.contributors).toBe(1);
+    expect(renderMarkdown(report, "en")).toContain(
+      "input 100 · ordinary input 70 · output 40 · total 140",
+    );
+    expect(renderMarkdown(report, "en")).not.toContain("weighted, input-token equivalents");
+    expect(renderJson(report)).not.toContain("private-response-id");
+    expect(JSON.stringify(input)).toBe(before);
+  });
+});
 
 /**
  * Spec 0013 — the report's job changed from "one line per agent" to "one card
@@ -154,6 +237,285 @@ const CATALOG: HarnessCatalog = {
   // one comes from the fixture, which is the level the crossing lives at.
   mcpFamilies: ["engram", "playwright"],
 };
+
+/** Synthetic publication/budget probes: no host logs or filesystem writes. */
+describe("private report publication and bounded qualified views", () => {
+  function hookEvent(over: Partial<HookEvent> = {}): HookEvent {
+    return {
+      ts: "2026-08-25T10:00:00Z",
+      name: "guard-destructive",
+      phase: "PreToolUse",
+      verdict: "allow",
+      ms: 10,
+      source: "core",
+      tool: "Bash",
+      ...over,
+    };
+  }
+  /** Build distinct owned facts so dropped evidence cannot look like measured zero. */
+  function provider(count = 1): SessionAudit {
+    const evidence: MetricEvidence = {
+      state: "observed",
+      reason: null,
+      source: "rollout",
+      adapter: "codex-rollout",
+      sourceVersion: "0.160.0",
+    };
+    const values: CodexRunFacts["usage"] = {
+      inputTotal: 10,
+      ordinaryInput: 10,
+      cacheRead: 0,
+      cacheWrite: null,
+      output: 7,
+      reasoning: null,
+      totalTokens: 17,
+    };
+    const availability = Object.fromEntries(
+      Object.keys(values).map((key) => [
+        key,
+        {
+          ...evidence,
+          state: values[key as keyof typeof values] === null ? "unsupported" : "observed",
+          reason: values[key as keyof typeof values] === null ? "unsupported-component" : null,
+        },
+      ]),
+    ) as CodexRunFacts["usageAvailability"];
+    const facts: CodexRunFacts = {
+      threadId: "root",
+      rootSessionId: "root",
+      parentThreadId: null,
+      sourceVersion: "0.160.0",
+      capturedAt: null,
+      source: evidence,
+      responses: Array.from({ length: count }, (_, index): CodexResponseFact => ({
+        threadId: "root",
+        rootSessionId: "root",
+        turnId: `turn-${index}`,
+        responseId: `response-${index}`,
+        at: null,
+        model: "gpt-6.1-sol",
+        values,
+        evidence: availability,
+      })),
+      activity: [],
+      usage: values,
+      usageAvailability: availability,
+    };
+    const root = session([], { sessionId: "root", host: "codex", availability: {} });
+    root.orchestrator.codex = facts;
+    return root;
+  }
+
+  // Covers: R10, R11
+  it("withholds human content, unknown labels, map keys and private identities in every default output", () => {
+    const sentinel = "SECRET-private-example";
+    const run = Object.assign(
+      agent({
+        agentType: sentinel,
+        model: `gpt-6-${sentinel}`,
+        description: sentinel,
+        toolCounts: { Bash: 3, [sentinel]: 1 },
+        mcpCalls: { [sentinel]: { [sentinel]: 2 } },
+        hookEvents: [hookEvent({ name: sentinel, reason: sentinel })],
+        blockedCommands: { tool_1: sentinel },
+        repeatedCommands: { [sentinel]: 3 },
+        observedArtifactWrites: [
+          {
+            actor: "orchestrator",
+            at: null,
+            source: "native-write",
+            outcome: "success",
+            location: {
+              state: "repo-relative",
+              path: `.navori/state/handoffs/impl_${sentinel}.json`,
+            },
+          },
+        ],
+      }),
+      { ownerKey: sentinel, sourcePath: sentinel, sourceHeaderFingerprint: sentinel },
+    );
+    const report = buildReport([session([run], { initialPrompt: sentinel })], {
+      repo: "r",
+      version: "0.1.0",
+      catalog: CATALOG,
+    });
+    for (const output of [
+      renderJson(report),
+      JSON.stringify(publishReport(report)),
+      renderMarkdown(report, "en"),
+      renderMarkdown(report, "es"),
+    ]) {
+      expect(output).not.toContain(sentinel);
+      expect(output).not.toContain("sourceHeaderFingerprint");
+      expect(output).not.toContain("ownerKey");
+      expect(output).not.toContain("sourcePath");
+    }
+    expect(publishReport(report).sessions[0]?.agents[0]?.toolCounts?.Bash).toBe(3);
+  });
+
+  // Covers: R10, R11
+  it("opts into selected examples for one generation without enabling raw command or path content", () => {
+    const prompt = "Selected prompt example";
+    const description = "Selected description example";
+    const secret = "SECRET-command-or-path";
+    const report = buildReport(
+      [
+        session(
+          [
+            agent({
+              description,
+              blockedCommands: { tool_1: secret },
+              repeatedCommands: { [secret]: 2 },
+              hookEvents: [hookEvent({ reason: secret })],
+            }),
+          ],
+          { initialPrompt: prompt, cwd: secret },
+        ),
+      ],
+      { repo: "r", version: "0.1.0", catalog: CATALOG },
+    );
+    const before = renderJson(report);
+    expect(before).not.toContain(prompt);
+    expect(before).not.toContain(description);
+    for (const output of [
+      renderJson(report, { includeHumanContent: true }),
+      renderMarkdown(report, "en", { includeHumanContent: true }),
+    ]) {
+      expect(output).toContain(prompt);
+      expect(output).toContain(description);
+      expect(output).not.toContain(secret);
+    }
+    expect(renderJson(report)).toBe(before);
+  });
+
+  // Covers: R6, R10, R11
+  it("preserves known numeric evidence and nested metric keys through safe publication", () => {
+    const root = session([]);
+    root.orchestrator.toolCountsByMode = { default: { Bash: 3 } };
+    root.agents = [
+      agent({
+        model: "gpt-6.1-sol",
+        toolCounts: { Bash: 3 },
+        mcpCalls: { engram: { Read: 2 } },
+        observedArtifactWrites: [
+          {
+            actor: "orchestrator",
+            at: null,
+            source: "native-write",
+            outcome: "success",
+            location: { state: "repo-relative", path: "navori.config.json" },
+          },
+        ],
+      }),
+    ];
+    const report = buildReport([root], { repo: "r", version: "0.1.0", catalog: CATALOG });
+    const published = publishReport(report);
+    expect(published.totals.tokens.output).toBe(report.totals.tokens.output);
+    expect(published.sessions[0]?.orchestrator.toolCountsByMode?.default?.Bash).toBe(3);
+    expect(published.sessions[0]?.agents[0]?.mcpCalls?.engram?.Read).toBe(2);
+    expect(published.sessions[0]?.agents[0]?.observedArtifactWrites?.[0]?.location).toEqual({
+      state: "repo-relative",
+      path: "navori.config.json",
+    });
+    expect(published.availability?.["tokens.output"]).toEqual(
+      report.availability?.["tokens.output"],
+    );
+  });
+
+  // Covers: R6, R21
+  it("does not certify zero when a shared budget is exhausted before the first provider fact", () => {
+    const budget = createAuditReadBudget({ factsPerReport: 1 });
+    expect(retainAuditFact(budget, "earlier-session", { retained: true })).toBe(true);
+    const report = buildReport([provider()], {
+      repo: "r",
+      version: "0.1.0",
+      catalog: CATALOG,
+      readBudget: budget,
+    });
+    const published = publishReport(report);
+    expect(published.totals.tokens.output).toBeNull();
+    expect(budget.diagnostics.retainedFacts).toBeLessThanOrEqual(1);
+    expect(budget.diagnostics.truncated).toBe(true);
+    expect(budget.diagnostics.omittedLowerBound).toBeGreaterThan(0);
+  });
+
+  // Covers: R6, R21
+  it("retains a known contribution after one fact while exposing the omitted remainder", () => {
+    const measured = createAuditReadBudget();
+    buildReport([provider()], {
+      repo: "r",
+      version: "0.1.0",
+      catalog: CATALOG,
+      readBudget: measured,
+    });
+    const limit = measured.diagnostics.retainedFacts;
+    expect(limit).toBeGreaterThan(0);
+    const budget = createAuditReadBudget({ factsPerReport: limit });
+    const report = buildReport([provider(2)], {
+      repo: "r",
+      version: "0.1.0",
+      catalog: CATALOG,
+      readBudget: budget,
+    });
+    const published = publishReport(report);
+    expect(published.totals.tokens.output).toBe(7);
+    expect(published.availability?.["tokens.output"]?.state).toBe("partial");
+    expect(budget.diagnostics.retainedFacts).toBeLessThanOrEqual(limit);
+    expect(budget.diagnostics.omittedLowerBound).toBeGreaterThan(0);
+  });
+
+  // Covers: R6, R21
+  it("publishes loss diagnostics even when the input has no source health shell", () => {
+    const budget = createAuditReadBudget({ factsPerReport: 1 });
+    retainAuditFact(budget, "earlier-session", { retained: true });
+    const input = provider();
+    expect(input.sources).toBeUndefined();
+    const report = buildReport([input], {
+      repo: "r",
+      version: "0.1.0",
+      catalog: CATALOG,
+      readBudget: budget,
+    });
+    const published = publishReport(report);
+    const budgets = Object.values(published.sessions[0]?.sources ?? {}).flatMap((source) =>
+      source?.budget ? [source.budget] : [],
+    );
+    expect(budgets.length).toBeGreaterThan(0);
+    expect(budgets[0]?.truncated).toBe(true);
+    expect(budgets[0]?.omittedLowerBound).toBeGreaterThan(0);
+    expect(renderMarkdown(report, "en")).toContain("Resource diagnostics");
+    expect(renderMarkdown(report, "en")).toContain("omitted");
+  });
+
+  /** Freeze aliases once; the reducer may clone shells but never mutate callers. */
+  function freezeTree(value: unknown, seen = new WeakSet<object>()): void {
+    if (value === null || typeof value !== "object" || seen.has(value)) return;
+    seen.add(value);
+    for (const child of Object.values(value)) freezeTree(child, seen);
+    Object.freeze(value);
+  }
+
+  // Covers: R4, R5, R8, R9, R21
+  it("preserves deeply frozen provider aliases across independent report generations", () => {
+    const input = provider();
+    const response = input.orchestrator.codex!.responses[0]!;
+    input.orchestrator.codex!.responses.push(response);
+    const before = JSON.stringify(input);
+    freezeTree(input);
+    const options = {
+      repo: "r",
+      version: "0.1.0",
+      catalog: CATALOG,
+      now: new Date("2026-10-04T00:00:00Z"),
+    };
+    const first = buildReport([input], { ...options, readBudget: createAuditReadBudget() });
+    const second = buildReport([input], { ...options, readBudget: createAuditReadBudget() });
+    expect(first.totals.tokens.output).toBe(7);
+    expect(renderJson(second)).toBe(renderJson(first));
+    expect(JSON.stringify(input)).toBe(before);
+    expect(input.orchestrator.codex!.responses[0]).toBe(input.orchestrator.codex!.responses[1]);
+  });
+});
 
 describe("schema11 evidence projection", () => {
   // Covers: R6

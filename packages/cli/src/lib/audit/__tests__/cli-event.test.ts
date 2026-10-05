@@ -1,6 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as fs from "node:fs";
 import {
   mkdirSync,
+  chmodSync,
+  appendFileSync,
+  realpathSync,
   mkdtempSync,
   readFileSync,
   renameSync,
@@ -10,8 +14,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { appendCliEvent } from "../cli-event.ts";
+import {
+  appendCliEvent,
+  captureCodexChild,
+  recordAuditMetadata,
+  absorbAuditMetadataSpool,
+} from "../cli-event.ts";
+import { readChildSourceBindings, readChildSourceRegistrations } from "../discovery.ts";
 import { sessionLogPath, repoFromCwd } from "../paths.ts";
+
+vi.mock(import("node:fs"), { spy: true });
 
 let root: string;
 let repo: string;
@@ -40,6 +52,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.resetAllMocks();
+  vi.restoreAllMocks();
   for (const [k, v] of Object.entries(saved)) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
@@ -47,12 +61,326 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
+/** Private synthetic metadata only; no host log or developer HOME is read. */
+function childFixture(parent = "root"): { log: string; child: string; sources: string } {
+  root = realpathSync(root);
+  repo = join(root, "myrepo");
+  const audit = join(root, "private-audits");
+  process.env.NAVORI_AUDITS_ROOT = audit;
+  process.env.CODEX_HOME = join(root, "synthetic-codex");
+  const sources = join(process.env.CODEX_HOME, "sessions");
+  mkdirSync(sources, { recursive: true, mode: 0o700 });
+  mkdirSync(join(audit, "myrepo"), { recursive: true, mode: 0o700 });
+  const source = (id: string, p: string | null): string => {
+    const path = join(sources, `rollout-fixture-${id}.jsonl`);
+    writeFileSync(
+      path,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id,
+          session_id: "root",
+          cwd: repo,
+          cli_version: "0.160.0",
+          parent_thread_id: p,
+          source: p ? { subagent: { thread_spawn: { parent_thread_id: p, depth: 1 } } } : "cli",
+          base_instructions: "sensitive human sentinel",
+        },
+      }) + "\n",
+      { mode: 0o600 },
+    );
+    return path;
+  };
+  const rootSource = source("root", null);
+  if (parent !== "root") source(parent, "root");
+  const child = source("child", parent);
+  const log = sessionLogPath("myrepo", "root");
+  writeFileSync(
+    log,
+    JSON.stringify({
+      event: "start",
+      host: "codex",
+      sessionId: "root",
+      cwd: repo,
+      repo: "myrepo",
+      ts: "2026-10-04T12:00:00Z",
+      transcript: rootSource,
+    }) + "\n",
+    { mode: 0o600 },
+  );
+  return { log, child, sources };
+}
+
+describe("explicit private Codex child registration", () => {
+  // Covers: R5, R8, R9, R10
+  it("retains both physical revisions but only one logical capture and skips the revision retry", () => {
+    const { log, child, sources } = childFixture();
+    expect(captureCodexChild(repo, "root", "child", child)).toMatchObject({
+      registered: 1,
+      skipped: 0,
+    });
+    const first = readChildSourceRegistrations(log, "root")[0];
+    const revision = join(sources, "arbitrary-revision.jsonl");
+    writeFileSync(revision, readFileSync(child), { mode: 0o600 });
+    expect(captureCodexChild(repo, "root", "child", revision)).toMatchObject({
+      registered: 1,
+      skipped: 0,
+    });
+    const bytes = readFileSync(log, "utf-8");
+    expect(captureCodexChild(repo, "root", "child", revision)).toMatchObject({
+      registered: 0,
+      skipped: 1,
+    });
+    expect(readFileSync(log, "utf-8")).toBe(bytes);
+    expect(readChildSourceRegistrations(log, "root")).toEqual([first]);
+    expect(readChildSourceBindings(log, "root").map((record) => record.sourcePath)).toEqual([
+      child,
+      revision,
+    ]);
+  });
+
+  // Covers: R5, R8, R9, R10
+  it("does not promote real short-write JSON without its newline into capture evidence", async () => {
+    const { log, child } = childFixture();
+    const original = readFileSync(log, "utf-8");
+    const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+    vi.mocked(fs.writeSync).mockImplementation((fd: number, data: unknown) => {
+      if (!Buffer.isBuffer(data)) throw new Error("expected encoded registration bytes");
+      return actual.writeSync(fd, data.subarray(0, data.byteLength - 1));
+    });
+    expect(captureCodexChild(repo, "root", "child", child)).toMatchObject({
+      ok: false,
+      state: "partial",
+      registered: 0,
+      reason: "short-write",
+    });
+    const partial = readFileSync(log, "utf-8");
+    expect(partial.startsWith(original)).toBe(true);
+    expect(partial.endsWith("\n")).toBe(false);
+    expect(JSON.parse(partial.slice(original.length))).toMatchObject({
+      event: "child-source",
+      threadId: "child",
+    });
+    expect(readChildSourceRegistrations(log, "root")).toEqual([]);
+    expect(readChildSourceBindings(log, "root")).toEqual([]);
+    vi.resetAllMocks();
+    expect(captureCodexChild(repo, "root", "child", child).ok).toBe(false);
+    expect(readFileSync(log, "utf-8")).toBe(partial);
+    // The equivalent complete fixture is evidence; adding a subsequent partial record cannot erase it.
+    writeFileSync(log, partial + "\n");
+    const complete = readChildSourceRegistrations(log, "root");
+    expect(complete).toHaveLength(1);
+    appendFileSync(log, JSON.stringify(complete[0]));
+    expect(readChildSourceRegistrations(log, "root")).toEqual(complete);
+    expect(readChildSourceBindings(log, "root")).toHaveLength(1);
+  });
+
+  // Covers: R4, R5, R8, R9, R10
+  it.each(["root", "parent"])(
+    "registers %s lineage once without ambient identity aliases or human metadata",
+    (parent) => {
+      const { log, child } = childFixture(parent);
+      process.env.CODEX_THREAD_ID = "unrelated";
+      process.env.NAVORI_AUDIT_SESSION_ID = "another";
+      const original = readFileSync(log, "utf-8");
+      expect(captureCodexChild(repo, "root", "child", child)).toMatchObject({
+        ok: true,
+        registered: 1,
+      });
+      expect(captureCodexChild(repo, "root", "child", child)).toMatchObject({
+        ok: true,
+        skipped: 1,
+      });
+      const events = readChildSourceRegistrations(log, "root");
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        event: "child-source",
+        rootSessionId: "root",
+        threadId: "child",
+        parentThreadId: parent,
+      });
+      expect(readFileSync(log, "utf-8").startsWith(original)).toBe(true);
+      expect(readFileSync(log, "utf-8")).not.toContain("sensitive human sentinel");
+      expect(events[0]).not.toHaveProperty("tsMs");
+      expect(events[0]).not.toHaveProperty("sessionId");
+      const bytes = readFileSync(log, "utf-8");
+      readChildSourceRegistrations(log, "root");
+      expect(readFileSync(log, "utf-8")).toBe(bytes);
+      appendFileSync(log, JSON.stringify(events[0]) + "\n");
+      expect(readChildSourceRegistrations(log, "root")).toHaveLength(1);
+    },
+  );
+
+  // Covers: R5, R9, R10
+  it("keeps identity fingerprint stable on append and human-only header changes", () => {
+    const { log, child } = childFixture();
+    expect(captureCodexChild(repo, "root", "child", child).ok).toBe(true);
+    const before = readChildSourceRegistrations(log, "root")[0]?.sourceHeaderFingerprint;
+    const text = readFileSync(child, "utf-8").replace("sensitive human sentinel", "different text");
+    writeFileSync(child, text + JSON.stringify({ type: "response_item", payload: {} }) + "\n");
+    expect(captureCodexChild(repo, "root", "child", child)).toMatchObject({ ok: true, skipped: 1 });
+    expect(readChildSourceRegistrations(log, "root")[0]?.sourceHeaderFingerprint).toBe(before);
+  });
+
+  // Covers: R5, R9, R10
+  it.each([
+    "wrong-root",
+    "wrong-thread",
+    "future",
+    "self-parent",
+    "cycle",
+    "wrong-checkout",
+    "missing-parent",
+  ])("refuses %s without mutating source or log", (mode) => {
+    const { log, child, sources } = childFixture(mode === "cycle" ? "parent" : "root");
+    const rec = JSON.parse(readFileSync(child, "utf-8")) as {
+      payload: {
+        cli_version: string;
+        parent_thread_id: string;
+        cwd: string;
+        source: { subagent: { thread_spawn: { parent_thread_id: string } } };
+      };
+    };
+    if (mode === "future") rec.payload.cli_version = "0.161.0";
+    if (mode === "self-parent") {
+      rec.payload.parent_thread_id = "child";
+      rec.payload.source.subagent.thread_spawn.parent_thread_id = "child";
+    }
+    if (mode === "cycle") {
+      const parent = join(sources, "rollout-fixture-parent.jsonl");
+      writeFileSync(
+        parent,
+        readFileSync(parent, "utf-8").replaceAll(
+          '"parent_thread_id":"root"',
+          '"parent_thread_id":"child"',
+        ),
+      );
+    }
+    if (mode === "missing-parent") {
+      rec.payload.parent_thread_id = "absent";
+      rec.payload.source.subagent.thread_spawn.parent_thread_id = "absent";
+    }
+    if (mode === "wrong-checkout") rec.payload.cwd = root;
+    writeFileSync(child, JSON.stringify(rec) + "\n");
+    const original = readFileSync(log, "utf-8");
+    const source = readFileSync(child, "utf-8");
+    expect(
+      captureCodexChild(
+        repo,
+        mode === "wrong-root" ? "other" : "root",
+        mode === "wrong-thread" ? "other" : "child",
+        child,
+      ).ok,
+    ).toBe(false);
+    expect(readFileSync(log, "utf-8")).toBe(original);
+    expect(readFileSync(child, "utf-8")).toBe(source);
+  });
+
+  // Covers: R9, R10
+  it.each(["log", "repo", "root"])("refuses nonprivate %s without chmod", (target) => {
+    const { log, child } = childFixture();
+    const path =
+      target === "log" ? log : target === "repo" ? join(log, "..") : join(log, "..", "..");
+    chmodSync(path, target === "log" ? 0o644 : 0o755);
+    const original = readFileSync(log, "utf-8");
+    expect(captureCodexChild(repo, "root", "child", child).reason).toBe("unsafe-target");
+    expect(fs.statSync(path).mode & 0o777).toBe(target === "log" ? 0o644 : 0o755);
+    expect(readFileSync(log, "utf-8")).toBe(original);
+  });
+
+  // Covers: R9, R10
+  it.each(["log", "source", "repo", "root"])(
+    "refuses a symlinked %s without following it",
+    (target) => {
+      const { log, child } = childFixture();
+      const path =
+        target === "source"
+          ? child
+          : target === "log"
+            ? log
+            : target === "repo"
+              ? join(log, "..")
+              : join(log, "..", "..");
+      const original = readFileSync(log, "utf-8");
+      const sourceBytes = readFileSync(child, "utf-8");
+      renameSync(path, path + ".original");
+      symlinkSync(path + ".original", path);
+      expect(captureCodexChild(repo, "root", "child", child).ok).toBe(false);
+      expect(readFileSync(log, "utf-8")).toBe(original);
+      expect(readFileSync(child, "utf-8")).toBe(sourceBytes);
+    },
+  );
+
+  // Covers: R5, R9, R10
+  it("reports changed identity as a conflict rather than choosing a new parent", () => {
+    const { log, child, sources } = childFixture();
+    expect(captureCodexChild(repo, "root", "child", child).ok).toBe(true);
+    const parent = join(sources, "arbitrary-parent-filename.jsonl");
+    writeFileSync(
+      parent,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "new-parent",
+          session_id: "root",
+          cli_version: "0.160.0",
+          cwd: repo,
+          parent_thread_id: "root",
+          source: { subagent: { thread_spawn: { parent_thread_id: "root" } } },
+        },
+      }) + "\n",
+      { mode: 0o600 },
+    );
+    writeFileSync(
+      child,
+      readFileSync(child, "utf-8").replaceAll(
+        '"parent_thread_id":"root"',
+        '"parent_thread_id":"new-parent"',
+      ),
+    );
+    const original = readFileSync(log, "utf-8");
+    expect(captureCodexChild(repo, "root", "child", child)).toMatchObject({
+      ok: false,
+      state: "invalid",
+      reason: "binding-conflict",
+      conflicted: 1,
+      registered: 0,
+    });
+    expect(readFileSync(log, "utf-8")).toBe(original);
+  });
+
+  // Covers: R9, R10
+  it("rejects a replaced source before append and a short UTF-8 write as partial", async () => {
+    const { log, child } = childFixture();
+    const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+    vi.mocked(fs.openSync).mockImplementation((path, flags, mode) => {
+      if (path === log) {
+        renameSync(child, child + ".old");
+        writeFileSync(child, readFileSync(child + ".old"), { mode: 0o600 });
+      }
+      return actual.openSync(path, flags, mode);
+    });
+    expect(captureCodexChild(repo, "root", "child", child).ok).toBe(false);
+    expect(readChildSourceRegistrations(log, "root")).toHaveLength(0);
+    vi.resetAllMocks();
+    vi.mocked(fs.writeSync).mockReturnValue(1);
+    expect(captureCodexChild(repo, "root", "child", child)).toMatchObject({
+      ok: false,
+      state: "partial",
+      reason: "short-write",
+      registered: 0,
+    });
+    expect(readChildSourceRegistrations(log, "root")).toHaveLength(0);
+  });
+});
+
 function markSession(): string {
   const log = sessionLogPath(repoFromCwd(repo), "sess-1");
-  mkdirSync(join(log, ".."), { recursive: true });
+  mkdirSync(join(log, ".."), { recursive: true, mode: 0o700 });
   writeFileSync(
     log,
     `${JSON.stringify({ event: "start", host: "claude", sessionId: "sess-1", cwd: repo })}\n`,
+    { mode: 0o600 },
   );
   return log;
 }
@@ -113,7 +441,7 @@ describe("appendCliEvent", () => {
     const outside = join(root, "outside.txt");
     writeFileSync(outside, "untouched\n");
     const log = sessionLogPath(repoFromCwd(repo), "sess-1");
-    mkdirSync(join(log, ".."), { recursive: true });
+    mkdirSync(join(log, ".."), { recursive: true, mode: 0o700 });
     symlinkSync(outside, log);
     expect(appendCliEvent(repo, { name: "x", verdict: "allow" })).toBe(false);
     expect(readFileSync(outside, "utf-8")).toBe("untouched\n");
@@ -184,7 +512,7 @@ describe("appendCliEvent", () => {
     process.env.NAVORI_AUDIT_SESSION_ID = "cx-1";
     process.env.CODEX_HOME = join(root, "codex-home");
     const log = sessionLogPath(repoFromCwd(repo), "cx-1");
-    mkdirSync(join(log, ".."), { recursive: true });
+    mkdirSync(join(log, ".."), { recursive: true, mode: 0o700 });
     writeFileSync(
       log,
       `${JSON.stringify({ event: "start", host: "codex", sessionId: "cx-1", cwd: repo })}\n`,
@@ -207,5 +535,293 @@ describe("appendCliEvent", () => {
     );
     expect(appendCliEvent(repo, { name: "x", verdict: "allow" })).toBe(false);
     expect(readFileSync(log, "utf-8").trim().split("\n")).toHaveLength(3);
+  });
+});
+
+/** Synthetic scoped writer probes; no real host logs, HOME or services. */
+describe("private metadata recorder and replay", () => {
+  function request(event: unknown): Parameters<typeof recordAuditMetadata>[0] {
+    return {
+      host: "claude",
+      rootSessionId: "sess-1",
+      repo: "myrepo",
+      auditRoot: process.env.NAVORI_AUDITS_ROOT ?? "",
+      event,
+    };
+  }
+  function hook(): Record<string, unknown> {
+    return {
+      event: "hook",
+      name: "guard-destructive",
+      phase: "PreToolUse",
+      verdict: "allow",
+      source: "core",
+      ms: 2,
+      tsMs: 100,
+      agentId: "orchestrator",
+    };
+  }
+  function arm(): string {
+    const dir = join(process.env.NAVORI_AUDITS_ROOT ?? "", "myrepo");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, ".armed"), JSON.stringify({ cwd: repo, ts: "2026-10-05T00:00:00Z" }), {
+      mode: 0o600,
+    });
+    return join(dir, "pending-sess-1.jsonl");
+  }
+  function events(path: string): Array<Record<string, unknown>> {
+    return readFileSync(path, "utf-8")
+      .trim()
+      .split("\n")
+      .map((line: string) => JSON.parse(line) as Record<string, unknown>);
+  }
+  function spoolRecord(): { spool: string; record: Record<string, unknown> } {
+    const spool = arm();
+    expect(recordAuditMetadata(request({ ...hook(), phase: "SessionStart" }))).toMatchObject({
+      status: "spooled",
+      recorded: 1,
+    });
+    return { spool, record: events(spool)[0]! };
+  }
+
+  // Covers: R10, R11, R21
+  it("writes private metadata with distinct original IDs, never raw human labels", () => {
+    const log = markSession();
+    const secret = "SECRET-user@example.test";
+    const event = { ...hook(), name: secret, source: secret };
+    expect(recordAuditMetadata(request(event))).toMatchObject({ status: "recorded", recorded: 1 });
+    expect(recordAuditMetadata(request(event))).toMatchObject({ status: "recorded", recorded: 1 });
+    const rows = events(log).slice(1);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.eventId).not.toBe(rows[1]?.eventId);
+    expect(rows[0]).toMatchObject({
+      wireVersion: 1,
+      host: "claude",
+      rootSessionId: "sess-1",
+      source: "unknown",
+    });
+    expect(readFileSync(log, "utf-8")).not.toContain(secret);
+    expect(fs.statSync(log).mode & 0o777).toBe(0o600);
+  });
+
+  // Covers: R10, R11
+  it.each([
+    { ...hook(), reason: "raw secret reason" },
+    { event: "prompt", kind: "user", length: 7, tsMs: 100, prompt: "SECRET" },
+    { event: "session-end", tsMs: 100, reason: "SECRET" },
+    { ...hook(), eventId: "supplied-id" },
+    { ...hook(), wireVersion: 1 },
+    { ...hook(), ms: -1 },
+    { ...hook(), agentId: "../outside" },
+  ])("rejects nonallowlisted input before writing", (event: Record<string, unknown>) => {
+    const log = markSession();
+    const before = readFileSync(log);
+    expect(recordAuditMetadata(request(event))).toMatchObject({ status: "invalid", recorded: 0 });
+    expect(readFileSync(log)).toEqual(before);
+  });
+
+  // Covers: R10, R11
+  it("requires the exact private repo arm for startup only, without creating root activation", () => {
+    const spool = arm();
+    expect(recordAuditMetadata(request(hook()))).toMatchObject({
+      status: "skipped",
+      reason: "unmarked",
+    });
+    expect(fs.existsSync(spool)).toBe(false);
+    expect(recordAuditMetadata(request({ ...hook(), phase: "SessionStart" }))).toMatchObject({
+      status: "spooled",
+      recorded: 1,
+    });
+    expect(fs.statSync(spool).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(join(spool, "..")).mode & 0o777).toBe(0o700);
+    expect(fs.existsSync(sessionLogPath("myrepo", "sess-1"))).toBe(false);
+    const armPath = join(spool, "..", ".armed");
+    chmodSync(armPath, 0o644);
+    const before = readFileSync(spool);
+    expect(recordAuditMetadata(request({ ...hook(), phase: "SessionStart" })).recorded).toBe(0);
+    expect(readFileSync(spool)).toEqual(before);
+    expect(fs.statSync(armPath).mode & 0o777).toBe(0o644);
+  });
+
+  // Covers: R10, R11
+  it("refuses unsafe markers and wrong repo arms unchanged", () => {
+    const log = markSession();
+    const before = readFileSync(log);
+    chmodSync(log, 0o644);
+    expect(recordAuditMetadata(request(hook()))).toMatchObject({
+      status: "unavailable",
+      recorded: 0,
+    });
+    expect(readFileSync(log)).toEqual(before);
+    expect(fs.statSync(log).mode & 0o777).toBe(0o644);
+    rmSync(log);
+    const spool = arm();
+    writeFileSync(join(spool, "..", ".armed"), JSON.stringify({ cwd: join(root, "other-repo") }));
+    expect(recordAuditMetadata(request({ ...hook(), phase: "SessionStart" }))).toMatchObject({
+      status: "invalid",
+      reason: "identity-conflict",
+    });
+    expect(fs.existsSync(spool)).toBe(false);
+  });
+
+  // Covers: R10, R11, R21
+  it("replays original IDs once, including reordered identical copies", () => {
+    const { spool, record } = spoolRecord();
+    const reordered = Object.fromEntries(Object.entries(record).reverse());
+    appendFileSync(spool, JSON.stringify(reordered) + "\n");
+    const saved = readFileSync(spool);
+    const log = markSession();
+    const options = request(undefined);
+    expect(absorbAuditMetadataSpool(options)).toMatchObject({
+      status: "recorded",
+      recorded: 1,
+      fullyAbsorbed: true,
+    });
+    expect(fs.existsSync(spool)).toBe(false);
+    expect(events(log).filter((row) => row.eventId === record.eventId)).toHaveLength(1);
+    writeFileSync(spool, saved, { mode: 0o600 });
+    expect(absorbAuditMetadataSpool(options)).toMatchObject({
+      status: "skipped",
+      recorded: 0,
+      skipped: 1,
+      fullyAbsorbed: true,
+    });
+    expect(events(log).filter((row) => row.eventId === record.eventId)).toHaveLength(1);
+  });
+
+  // Covers: R10, R11, R21
+  it.each([false, true])(
+    "rejects every same-ID conflicting variant independent of order (%s)",
+    (reverse: boolean) => {
+      const { spool, record } = spoolRecord();
+      const copies = [record, { ...record, verdict: "block" }];
+      if (reverse) copies.reverse();
+      writeFileSync(spool, copies.map((row) => JSON.stringify(row)).join("\n") + "\n");
+      const before = readFileSync(spool);
+      const log = markSession();
+      const original = readFileSync(log);
+      expect(absorbAuditMetadataSpool(request(undefined))).toMatchObject({
+        status: "invalid",
+        reason: "identity-conflict",
+        conflicted: 1,
+        fullyAbsorbed: false,
+      });
+      expect(readFileSync(spool)).toEqual(before);
+      expect(readFileSync(log)).toEqual(original);
+    },
+  );
+
+  // Covers: R10, R11, R21
+  it("rejects a conflict against root history before appending any spool row", () => {
+    const { spool, record } = spoolRecord();
+    const log = markSession();
+    appendFileSync(log, JSON.stringify({ ...record, verdict: "block" }) + "\n");
+    const before = readFileSync(log);
+    expect(absorbAuditMetadataSpool(request(undefined))).toMatchObject({
+      status: "invalid",
+      reason: "identity-conflict",
+      fullyAbsorbed: false,
+    });
+    expect(readFileSync(log)).toEqual(before);
+    expect(fs.existsSync(spool)).toBe(true);
+  });
+
+  // Covers: R10, R11, R21
+  it.each(["legacy", "malformed", "tail"])(
+    "retains %s spool without inventing IDs or repairing bytes",
+    (invalid: string) => {
+      const { spool, record } = spoolRecord();
+      const text =
+        invalid === "legacy"
+          ? JSON.stringify({ event: "hook", name: "old" }) + "\n"
+          : invalid === "malformed"
+            ? "{bad-json}\n"
+            : JSON.stringify(record);
+      writeFileSync(spool, text);
+      const log = markSession();
+      const before = readFileSync(log);
+      expect(absorbAuditMetadataSpool(request(undefined))).toMatchObject({
+        status: "partial",
+        fullyAbsorbed: false,
+      });
+      expect(readFileSync(spool, "utf-8")).toBe(text);
+      expect(readFileSync(log)).toEqual(before);
+    },
+  );
+
+  // Covers: R10, R11, R21
+  it("retains a capped spool instead of deleting unread records", () => {
+    const { spool, record } = spoolRecord();
+    const line = JSON.stringify(record) + "\n";
+    writeFileSync(spool, line.repeat(100_001));
+    const log = markSession();
+    const before = readFileSync(log);
+    const size = fs.statSync(spool).size;
+    expect(absorbAuditMetadataSpool(request(undefined))).toMatchObject({
+      status: "partial",
+      fullyAbsorbed: false,
+      recorded: 0,
+    });
+    expect(fs.statSync(spool).size).toBe(size);
+    expect(readFileSync(log)).toEqual(before);
+  });
+
+  // Covers: R10, R11, R21
+  it("performs direct metadata lookup without enumerating sibling markers", () => {
+    markSession();
+    vi.mocked(fs.readdirSync).mockImplementation(() => {
+      throw new Error("unexpected directory enumeration");
+    });
+    vi.mocked(fs.opendirSync).mockImplementation(() => {
+      throw new Error("unexpected directory enumeration");
+    });
+    expect(recordAuditMetadata(request(hook()))).toMatchObject({ status: "recorded", recorded: 1 });
+    expect(fs.readdirSync).not.toHaveBeenCalled();
+    expect(fs.opendirSync).not.toHaveBeenCalled();
+  });
+
+  // Covers: R10, R11, R21
+  it("retains a replaced spool rather than deleting an unabsorbed object", async () => {
+    const { spool } = spoolRecord();
+    markSession();
+    const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+    vi.mocked(fs.writeSync).mockImplementation((fd: number, data: unknown): number => {
+      if (!(data instanceof Uint8Array)) throw new Error("unexpected write representation");
+      renameSync(spool, spool + ".original");
+      writeFileSync(spool, "replacement sentinel\n", { mode: 0o600 });
+      return actual.writeSync(fd, data);
+    });
+    expect(absorbAuditMetadataSpool(request(undefined))).toMatchObject({
+      status: "partial",
+      fullyAbsorbed: false,
+      recorded: 1,
+    });
+    expect(readFileSync(spool, "utf-8")).toBe("replacement sentinel\n");
+    expect(fs.existsSync(spool + ".original")).toBe(true);
+  });
+
+  // Covers: R10, R11, R21
+  it("preserves a partial appended suffix and its spool without newline repair", async () => {
+    const { spool } = spoolRecord();
+    const log = markSession();
+    const before = readFileSync(log);
+    const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+    vi.mocked(fs.writeSync).mockImplementation((fd: number, data: unknown): number => {
+      if (!(data instanceof Uint8Array)) throw new Error("unexpected write representation");
+      return actual.writeSync(fd, data.subarray(0, data.byteLength - 1));
+    });
+    expect(absorbAuditMetadataSpool(request(undefined))).toMatchObject({
+      status: "partial",
+      reason: "short-write",
+      recorded: 0,
+      fullyAbsorbed: false,
+    });
+    expect(fs.existsSync(spool)).toBe(true);
+    const partial = readFileSync(log);
+    expect(partial.subarray(0, before.length)).toEqual(before);
+    expect(partial.length).toBeGreaterThan(before.length);
+    vi.resetAllMocks();
+    expect(absorbAuditMetadataSpool(request(undefined)).fullyAbsorbed).toBe(false);
+    expect(readFileSync(log)).toEqual(partial);
   });
 });

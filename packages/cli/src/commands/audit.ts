@@ -21,6 +21,7 @@ import {
   repoCoverage,
   resolveTranscript,
   requestedRange,
+  createAuditDiscoveryContext,
 } from "../lib/audit/discovery.ts";
 import { attachHookEvents, parseCodexSession, parseSession } from "../lib/audit/parse.ts";
 import { listMarkers } from "../lib/diagnose/health.ts";
@@ -64,6 +65,7 @@ import {
   PENDING_SPOOL_RE,
 } from "../lib/audit/paths.ts";
 import { startReceiver, type OtelReceiver } from "../lib/audit/collect.ts";
+import { captureCodexChild } from "../lib/audit/cli-event.ts";
 import { NavoriError } from "../lib/primitives/errors.ts";
 import { resolveLang } from "../lib/i18n.ts";
 import { readGlobalConfig } from "../lib/config/global-config.ts";
@@ -308,6 +310,15 @@ export const auditCommand = defineCommand({
     json: { type: "boolean", description: "Print the JSON report to stdout without writing files" },
     out: { type: "string", description: "Override the output directory" },
     start: { type: "string", description: "Mark a session id as audited (used by the hook flow)" },
+    "capture-child": {
+      type: "string",
+      description: "Register one exact Codex child thread in an opted-in root audit log",
+    },
+    "root-session": {
+      type: "string",
+      description: "Exact root session for --capture-child; never inferred from environment",
+    },
+    rollout: { type: "string", description: "Exact child rollout source for --capture-child" },
     host: {
       type: "string",
       description:
@@ -357,6 +368,44 @@ export const auditCommand = defineCommand({
     const lang = reportLang(cwd);
     const isEs = lang === "es";
     const json = args.json === true;
+
+    // Registration is a separate metadata-only action, before any collector or report writer.
+    if ([args["capture-child"], args["root-session"], args.rollout].some((v) => v !== undefined)) {
+      const thread = args["capture-child"];
+      const root = args["root-session"];
+      const rollout = args.rollout;
+      const incompatible = [
+        args.start,
+        args.stop,
+        args.arm,
+        args.disarm,
+        args.collect,
+        args.session,
+        args.days,
+        args.since,
+        args.until,
+        args.out,
+        args.host,
+        args["all-repos"],
+        args.snapshot,
+        args["copy-to"],
+        args.compare,
+      ].some((value) => value !== undefined && value !== false);
+      if (!thread?.trim() || !root?.trim() || !rollout?.trim() || incompatible) {
+        if (json) console.log(JSON.stringify({ ok: false, error: "capture-flags-conflict" }));
+        else
+          p.cancel(
+            "--capture-child requires --root-session and --rollout, without other audit actions.",
+          );
+        process.exit(2);
+      }
+      const captured = captureCodexChild(cwd, root, thread, rollout);
+      if (json) console.log(JSON.stringify(captured));
+      else if (captured.ok) p.log.success(captured.reason);
+      else p.cancel(captured.reason);
+      if (!captured.ok) process.exit(2);
+      return;
+    }
 
     if (!json) p.intro(brand("audit"));
 
@@ -666,10 +715,11 @@ export const auditCommand = defineCommand({
     const filters = { ...periodFilters, session: args.session };
     // Which repo each marked session belongs to matters only for `--all-repos`,
     // where it picks the catalog the session is judged against.
-    const audited = allRepos ? listAuditedRepos(periodFilters) : undefined;
+    const readContext = createAuditDiscoveryContext();
+    const audited = allRepos ? listAuditedRepos(periodFilters, readContext) : undefined;
     const marked: MarkedSession[] = audited
-      ? audited.repos.flatMap((r) => findMarkedSessions(r.repo, periodFilters))
-      : findMarkedSessions(repo, filters);
+      ? audited.repos.flatMap((r) => findMarkedSessions(r.repo, periodFilters, true, readContext))
+      : findMarkedSessions(repo, filters, true, readContext);
     const scopeLabel = allRepos ? "--all-repos" : repo;
     if (!json) for (const w of audited?.warnings ?? []) p.log.warn(w);
 
@@ -699,7 +749,24 @@ export const auditCommand = defineCommand({
     const missing: string[] = [];
     const sourceProblems: Array<{ sessionId: string; status: MarkedSession["sourceStatus"] }> = [];
     const missingIds = new Set<string>();
+    const registeredOwners = new Set(
+      marked.flatMap((marker) =>
+        (marker.childSources ?? [])
+          .filter((child) => child.sourceStatus === "verified")
+          .map((child) =>
+            JSON.stringify([marker.cwd ? projectRootFromCwd(marker.cwd) : null, child.threadId]),
+          ),
+      ),
+    );
     for (const m of marked) {
+      if (
+        m.host === "codex" &&
+        m.sourceStatus === "verified" &&
+        registeredOwners.has(
+          JSON.stringify([m.cwd ? projectRootFromCwd(m.cwd) : null, m.sessionId]),
+        )
+      )
+        continue;
       if (m.sourceStatus !== "verified") {
         missing.push(m.sessionId.slice(0, 8));
         sourceProblems.push({ sessionId: m.sessionId, status: m.sourceStatus });
@@ -716,6 +783,13 @@ export const auditCommand = defineCommand({
                 m.logFile,
                 m.rollout,
                 m.hostProvenance === "recovered:rollout" ? m.hostProvenance : undefined,
+                {
+                  records: m.auditLogRecords ?? [],
+                  reading: m.auditReading,
+                  normalizationLoss: m.auditNormalizationLoss,
+                  budget: readContext.budget,
+                  children: m.childSources ?? [],
+                },
               )
             : null;
         if (codex) {
@@ -726,11 +800,16 @@ export const auditCommand = defineCommand({
         missingIds.add(m.sessionId);
         continue;
       }
-      const session = parseSession(m.transcript);
+      const session = parseSession(m.transcript, readContext.budget);
       // The harness's own record of what its hooks did. It comes from the
       // session log, not the transcript, because a hook that runs and lets the
       // action through is invisible to the transcript by construction.
-      attachHookEvents(session, m.logFile);
+      attachHookEvents(session, m.logFile, {
+        records: m.auditLogRecords ?? [],
+        reading: m.auditReading,
+        normalizationLoss: m.auditNormalizationLoss,
+        budget: readContext.budget,
+      });
       session.signals = detectSignals(session, catalogOf(m), lang);
       parsed.push(session);
     }
@@ -768,13 +847,14 @@ export const auditCommand = defineCommand({
       ? audited.repos
       : args.session
         ? []
-        : [repoCoverage(repo, periodFilters, cwd).row];
+        : [repoCoverage(repo, periodFilters, cwd, readContext).row];
     if (!audited && !args.session && !json) {
-      const { warning } = repoCoverage(repo, periodFilters);
+      const { warning } = repoCoverage(repo, periodFilters, undefined, readContext);
       if (warning) p.log.warn(warning);
     }
 
     const report = buildReport(parsed, {
+      readBudget: readContext.budget,
       repo: allRepos ? "all-repos" : repo,
       version: readCliVersion(),
       catalog: audited ? mergeCatalogs(catalog, [...catalogs.values()]) : catalog,

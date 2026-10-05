@@ -3,6 +3,8 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   appendFileSync,
   existsSync,
+  chmodSync,
+  realpathSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -165,6 +167,215 @@ describe("audit subprocess color environment", () => {
     expect(result.combined).not.toContain(String.fromCharCode(27));
     expect(result.combined).not.toContain("Warning:");
     expect(result.combined).not.toContain("FORCE_COLOR");
+  });
+});
+
+describe("audit explicit child capture action", () => {
+  /** Metadata-only private fixture; the child is never a fake root start event. */
+  function captureFixture(): { log: string; child: string } {
+    const canonical = realpathSync(sandbox);
+    repoDir = join(canonical, REPO);
+    home = join(canonical, "home");
+    auditsRoot = join(canonical, "nested", "store", "audits");
+    auditDir = join(auditsRoot, REPO);
+    chmodSync(auditsRoot, 0o700);
+    mkdirSync(auditDir, { mode: 0o700 });
+    writeFileSync(join(repoDir, "navori.config.json"), "{}");
+    const sources = join(home, ".codex", "sessions");
+    mkdirSync(sources, { recursive: true, mode: 0o700 });
+    const rootSource = join(sources, "rollout-fixture-root.jsonl");
+    const child = join(sources, "rollout-fixture-child.jsonl");
+    for (const [path, id, parent] of [
+      [rootSource, "root", null],
+      [child, "child", "root"],
+    ] as const) {
+      writeFileSync(
+        path,
+        JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id,
+            session_id: "root",
+            cli_version: "0.160.0",
+            cwd: repoDir,
+            parent_thread_id: parent,
+            source: parent ? { subagent: { thread_spawn: { parent_thread_id: parent } } } : "cli",
+          },
+        }) + "\n",
+        { mode: 0o600 },
+      );
+    }
+    const log = join(auditDir, "session-root.log");
+    writeFileSync(
+      log,
+      JSON.stringify({
+        event: "start",
+        sessionId: "root",
+        host: "codex",
+        repo: REPO,
+        cwd: repoDir,
+        ts: "2026-10-04T12:00:00Z",
+        transcript: rootSource,
+      }) + "\n",
+      { mode: 0o600 },
+    );
+    return { log, child };
+  }
+
+  // Covers: R5, R8, R9, R10
+  it("returns path-free diagnostics, registers once and preserves the root lifecycle bytes", () => {
+    const { log, child } = captureFixture();
+    const original = readFileSync(log, "utf-8");
+    const args = [
+      "--capture-child",
+      "child",
+      "--root-session",
+      "root",
+      "--rollout",
+      child,
+      "--json",
+    ];
+    const first = runAudit(args);
+    expect(first.status).toBe(0);
+    expect(JSON.parse(first.combined)).toMatchObject({ ok: true, registered: 1, skipped: 0 });
+    expect(first.combined).not.toContain(child);
+    expect(first.combined).not.toContain("sourceHeaderFingerprint");
+    expect(readFileSync(log, "utf-8").startsWith(original)).toBe(true);
+    const after = readFileSync(log, "utf-8");
+    const second = runAudit(args);
+    expect(second.status).toBe(0);
+    expect(JSON.parse(second.combined)).toMatchObject({ ok: true, registered: 0, skipped: 1 });
+    expect(readFileSync(log, "utf-8")).toBe(after);
+  });
+
+  // Covers: R4, R5, R8, R9
+  it("reads registered direct/grandchildren once without modifying logs and retains pruned capture", () => {
+    const { log, child } = captureFixture();
+    const grandchild = join(dirname(child), "rollout-fixture-grandchild.jsonl");
+    const rootMetadata = JSON.parse(readFileSync(child, "utf-8"));
+    rootMetadata.payload.id = "grandchild";
+    rootMetadata.payload.parent_thread_id = "child";
+    rootMetadata.payload.source.subagent.thread_spawn.parent_thread_id = "child";
+    writeFileSync(grandchild, JSON.stringify(rootMetadata) + "\n", { mode: 0o600 });
+    for (const [thread, path] of [
+      ["grandchild", grandchild],
+      ["child", child],
+    ]) {
+      appendFileSync(
+        path!,
+        JSON.stringify({
+          type: "token_usage_record",
+          timestamp: "2026-10-04T12:01:00Z",
+          payload: {
+            thread_id: thread,
+            session_id: "root",
+            turn_id: `${thread}-turn`,
+            response_id: `${thread}-response`,
+            usage: {
+              input_tokens: 100,
+              cached_input_tokens: 20,
+              cache_write_input_tokens: 10,
+              output_tokens: 40,
+              reasoning_output_tokens: 5,
+              total_tokens: 140,
+            },
+          },
+        }) + "\n",
+      );
+      expect(
+        runAudit([
+          "--capture-child",
+          thread!,
+          "--root-session",
+          "root",
+          "--rollout",
+          path!,
+          "--json",
+        ]).status,
+      ).toBe(0);
+    }
+    const before = readFileSync(log, "utf-8");
+    writeFileSync(
+      join(auditDir, "session-child.log"),
+      JSON.stringify({
+        event: "start",
+        sessionId: "child",
+        host: "codex",
+        repo: REPO,
+        cwd: repoDir,
+        ts: "2026-10-04T12:00:00Z",
+        transcript: child,
+      }) + "\n",
+      { mode: 0o600 },
+    );
+    const result = runAudit(["--json"]);
+    expect(result.status).toBe(0);
+    const report = JSON.parse(result.combined);
+    expect(report.sessions).toHaveLength(1);
+    expect(report.sessions[0].agents).toHaveLength(2);
+    expect(report.totals.tokens).toMatchObject({
+      input: 140,
+      output: 80,
+      cacheRead: 40,
+      cacheCreation: 20,
+      thinking: 10,
+    });
+    expect(
+      report.sessions[0].agents.map((run: { spawnDepth: number }) => run.spawnDepth).sort(),
+    ).toEqual([1, 2]);
+    expect(result.combined).not.toContain(child);
+    expect(result.combined).not.toContain("sourceHeaderFingerprint");
+    expect(readFileSync(log, "utf-8")).toBe(before);
+    rmSync(grandchild);
+    const pruned = JSON.parse(runAudit(["--json"]).combined);
+    const captured = pruned.sessions[0].agents.find(
+      (run: { agentId: string }) => run.agentId === "grandchild",
+    );
+    expect(captured.codex.capturedAt).not.toBeNull();
+    expect(captured.tokens.output).toBeNull();
+    expect(readFileSync(log, "utf-8")).toBe(before);
+    const changed = JSON.parse(readFileSync(child, "utf-8").split("\n")[0]!);
+    changed.payload.parent_thread_id = "foreign-parent";
+    changed.payload.source.subagent.thread_spawn.parent_thread_id = "foreign-parent";
+    writeFileSync(child, JSON.stringify(changed) + "\n", { mode: 0o600 });
+    const conflicted = JSON.parse(runAudit(["--json"]).combined);
+    const invalid = conflicted.sessions
+      .find((session: { sessionId: string }) => session.sessionId === "root")
+      .agents.find((run: { agentId: string }) => run.agentId === "child");
+    expect(invalid.codex.source.reason).toBe("identity-conflict");
+    expect(invalid.tokens.output).toBeNull();
+    expect(readFileSync(log, "utf-8")).toBe(before);
+  });
+
+  // Covers: R9, R10
+  it.each(["--start", "--stop", "--snapshot", "--compare", "--collect", "--arm"])(
+    "rejects capture combined with %s before any write",
+    (flag) => {
+      const { log, child } = captureFixture();
+      const original = readFileSync(log, "utf-8");
+      const extra = flag === "--collect" || flag === "--arm" ? [flag] : [flag, "other"];
+      const result = runAudit([
+        "--capture-child",
+        "child",
+        "--root-session",
+        "root",
+        "--rollout",
+        child,
+        "--json",
+        ...extra,
+      ]);
+      expect(result.status).toBe(2);
+      expect(JSON.parse(result.combined)).toEqual({ ok: false, error: "capture-flags-conflict" });
+      expect(readFileSync(log, "utf-8")).toBe(original);
+    },
+  );
+
+  // Covers: R9, R10
+  it("requires all three explicit binding arguments without environment fallback", () => {
+    const { log } = captureFixture();
+    const original = readFileSync(log, "utf-8");
+    expect(runAudit(["--capture-child", "child", "--json"]).status).toBe(2);
+    expect(readFileSync(log, "utf-8")).toBe(original);
   });
 });
 

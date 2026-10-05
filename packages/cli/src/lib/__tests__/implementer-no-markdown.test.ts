@@ -60,6 +60,17 @@ const METADATA_PROGRAM = `node -e 'const fs=require("node:fs");const p="state/im
 // Exact incident text is hook payload data only; the submitted program is never run.
 const INCIDENT_PROGRAM = `node -e 'const fs=require("node:fs");const p=".navori/state/handoffs/impl_dual-workflow-deliveries.json";const x=JSON.parse(fs.readFileSync(p,"utf8"));for(const f of ["packages/core/core-assets/master-plan/delivery-master.md","packages/core/core-assets/master-plan/en/delivery-master.md","packages/core/core-assets/master-plan/slice.md","packages/core/core-assets/master-plan/en/slice.md",".claude/hooks/master-accept-confirm.sh","packages/cli/src/engines/__tests__/__golden__/claude.snap"])if(!x.filesTouched.includes(f))x.filesTouched.push(f);x.filesTouched.sort();x.pendingRequests=["No real baseline, queue, criterion, client acceptance, release or deployment attestation was recorded. D3/D4 execution remains unavailable."];x.markdownRequestsFulfilled=x.markdownRequests.map(r=>r.path);x.nativeRender={applyCommand:"bun run render:apply",applyExitCode:0,mirror:".claude/hooks/master-accept-confirm.sh",goldenCommand:"cd packages/cli && bun run test:golden",goldenExitCode:0,goldenResult:"5/5 passed, 1 snapshot updated (claude.snap)",checkRender:"bun run check:render exit 0, 0 pending changes"};x.verification.summary="A1 60/60; A2 83/83 after scribe; D2 focused 66/66; golden read-only 5/5; format:check/check:assets/check:render/lint/typecheck/diff-check green. Full gate reserved for reviewer.";fs.writeFileSync(p,JSON.stringify(x,null,2)+"\\n");'`;
 
+const PATH_SOURCE = `from pathlib import Path
+p = Path("fixture.ts")
+text = p.read_text(encoding="utf-8")
+text = text.replace("AGENTS.md", "instructions.md")
+p.write_text(text, encoding="utf-8")`;
+
+/** Wrap source as inert hook payload data, never as an executable probe. */
+function pathCommand(source = PATH_SOURCE): string {
+  return `python3 - <<'PY'\n${source}\nPY`;
+}
+
 function bash(cmd: string, agentType = "implementer"): Payload {
   return {
     hook_event_name: "PreToolUse",
@@ -68,6 +79,146 @@ function bash(cmd: string, agentType = "implementer"): Payload {
     agent_type: agentType,
   };
 }
+
+describe("implementer-no-markdown hook — closed Python Path rewrite", () => {
+  // Covers: R3, R4
+  it.each([
+    { name: "single quoted heredoc", command: pathCommand() },
+    { name: "double quoted heredoc", command: pathCommand().replace("<<'PY'", '<<"PY"') },
+    { name: "single quoted -c", command: `python3 -c '${PATH_SOURCE}'` },
+    {
+      name: "double quoted -c without expansion",
+      command: `python3 -c "${PATH_SOURCE.replaceAll('"', "'")}"`,
+    },
+  ])(
+    "allows $name without executing submitted source",
+    ({ command }: { name: string; command: string }) => {
+      const fixture = join(dir, "fixture.ts");
+      writeFileSync(fixture, "AGENTS.md\n");
+      expect(runHook(bash(command)).status).toBe(0);
+      expect(readFileSync(fixture, "utf8")).toBe("AGENTS.md\n");
+    },
+  );
+
+  // Covers: R3, R4
+  it.each([
+    { name: "Markdown destination", source: PATH_SOURCE.replace('"fixture.ts"', '"notes.md"') },
+    { name: "mixed case mdx", source: PATH_SOURCE.replace('"fixture.ts"', '"NOTES.MdX"') },
+    {
+      name: "decoded Unicode Markdown",
+      source: PATH_SOURCE.replace('"fixture.ts"', '"notes.\\u006dd"'),
+    },
+    {
+      name: "dynamic concatenation",
+      source: PATH_SOURCE.replace('"fixture.ts"', '"fixture." + "ts"'),
+    },
+    { name: "formatted destination", source: PATH_SOURCE.replace('"fixture.ts"', 'f"fixture.ts"') },
+    {
+      name: "destination callback",
+      source: PATH_SOURCE.replace('"fixture.ts"', "get_destination()"),
+    },
+    {
+      name: "path rebinding",
+      source: PATH_SOURCE.replace("p.write_text", 'p = Path("notes.md")\np.write_text'),
+    },
+    {
+      name: "constructor shadow",
+      source: PATH_SOURCE.replace("p = Path", "Path = dangerous\np = Path"),
+    },
+    {
+      name: "import alias",
+      source: PATH_SOURCE.replace("from pathlib import Path", "from pathlib import Path as Other"),
+    },
+    {
+      name: "extra import",
+      source: PATH_SOURCE.replace(
+        "from pathlib import Path",
+        "from pathlib import Path\nimport os",
+      ),
+    },
+    {
+      name: "extra call",
+      source: PATH_SOURCE.replace("text = text.replace", 'print("hostile")\ntext = text.replace'),
+    },
+    {
+      name: "replacement callback",
+      source: PATH_SOURCE.replace('"instructions.md"', "callback()"),
+    },
+    { name: "lambda replacement", source: PATH_SOURCE.replace('"instructions.md"', 'lambda: "x"') },
+    {
+      name: "different replacement receiver",
+      source: PATH_SOURCE.replace("text.replace", "other.replace"),
+    },
+    {
+      name: "different text binding",
+      source: PATH_SOURCE.replace("text = text.replace", "other = text.replace"),
+    },
+    {
+      name: "different write destination",
+      source: PATH_SOURCE.replace("p.write_text(text", "other.write_text(text"),
+    },
+    {
+      name: "nonlocal write content",
+      source: PATH_SOURCE.replace("p.write_text(text", 'p.write_text("AGENTS.md"'),
+    },
+    { name: "nonUTF8 read", source: PATH_SOURCE.replace('encoding="utf-8"', 'encoding="latin1"') },
+    { name: "additional write", source: PATH_SOURCE + '\np.write_text(text, encoding="utf-8")' },
+    {
+      name: "hostile side effect",
+      source: PATH_SOURCE + '\n__import__("pathlib").Path("should-not-exist").write_text("x")',
+    },
+    {
+      name: "command byte cap",
+      source: PATH_SOURCE.replace('"instructions.md"', JSON.stringify("x".repeat(17000))),
+    },
+    {
+      name: "AST node cap",
+      source: PATH_SOURCE.replace(
+        "p.write_text(text",
+        'text=text.replace("a","b")\n'.repeat(420) + "p.write_text(text",
+      ),
+    },
+    {
+      name: "nested unsupported AST",
+      source: PATH_SOURCE.replace('"fixture.ts"', "[".repeat(17) + '"fixture.ts"' + "]".repeat(17)),
+    },
+    { name: "malformed Python", source: PATH_SOURCE + "\ninvalid Python(" },
+  ])("retains denial for $name", ({ source }: { name: string; source: string }) => {
+    const result = runHook(bash(pathCommand(source)));
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("markdownRequests");
+    expect(() => readFileSync(join(dir, "should-not-exist"))).toThrow();
+  });
+
+  // Covers: R3, R4
+  it.each([
+    { name: "prefix", command: `echo prefix; ${pathCommand()}` },
+    { name: "newline suffix", command: `${pathCommand()}\necho suffix` },
+    { name: "shell chain", command: `${pathCommand()} && echo suffix` },
+    { name: "unquoted heredoc", command: pathCommand().replace("<<'PY'", "<<PY") },
+    { name: "delimiter suffix", command: pathCommand().replace("\nPY", "\nPY; echo suffix") },
+    {
+      name: "shell expansion",
+      command: `python3 -c "${PATH_SOURCE.replaceAll('"', "'")}; text = '$HOME'"`,
+    },
+  ])("retains denial for $name", ({ command }: { name: string; command: string }) => {
+    expect(runHook(bash(command)).status).toBe(2);
+  });
+
+  // Covers: R3, R4
+  it("fails closed for malformed, failed and unavailable analyzer outcomes", () => {
+    const bin = join(dir, "python-bin");
+    mkdirSync(bin);
+    const executable = join(bin, "python3");
+    for (const outcome of ["echo MALFORMED\nexit 0", "exit 7", "exit 127"]) {
+      writeFileSync(executable, `#!/bin/sh\n${outcome}\n`);
+      chmodSync(executable, 0o755);
+      const result = runHook(bash(pathCommand()), bin);
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain("markdownRequests");
+    }
+  });
+});
 
 // Covers: R3, R4
 describe("implementer-no-markdown hook — allow (#985 R3, R4)", () => {

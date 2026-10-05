@@ -49,7 +49,7 @@ async function receiver(): Promise<OtelReceiver> {
 /** A session marked with audit-mode — the log the hook writes at SessionStart. */
 function markSession(sessionId: string, repo = REPO): string {
   const file = sessionLogPath(repo, sessionId);
-  mkdirSync(dirname(file), { recursive: true });
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   writeFileSync(
     file,
     `${JSON.stringify({ ts: "2026-09-11T18:29:00Z", tsMs: 1789496940000, event: "start", repo, sessionId })}\n`,
@@ -241,6 +241,58 @@ describe("startReceiver (#0021)", () => {
     await post(r.url, body);
     expect(statSync(file).size).toBe(before);
     expect(r.stats()).toMatchObject({ written: 0, discarded: 3 });
+  });
+
+  // Covers: R10, R11, R13
+  it("refuses readable owned parents and incomplete tails without changing bytes", async () => {
+    const file = markSession("private-parent");
+    const r = await receiver();
+    const body = otlpBatch([{ "event.name": "tool_decision", "session.id": "private-parent" }]);
+    const before = readFileSync(file);
+    chmodSync(dirname(file), 0o755);
+    expect(await (await post(r.url, body)).json()).toMatchObject({
+      partialSuccess: { rejectedLogRecords: 1 },
+    });
+    expect(readFileSync(file)).toEqual(before);
+    expect(statSync(dirname(file)).mode & 0o777).toBe(0o755);
+    chmodSync(dirname(file), 0o700);
+    writeFileSync(file, Buffer.concat([before, Buffer.from('{"event":')]));
+    const incomplete = readFileSync(file);
+    expect(await (await post(r.url, body)).json()).toMatchObject({
+      partialSuccess: { rejectedLogRecords: 1 },
+    });
+    expect(readFileSync(file)).toEqual(incomplete);
+    expect(r.stats()).toMatchObject({ written: 0, discarded: 2 });
+  });
+
+  // Covers: R10, R11, R13
+  it("refuses a foreign owner and nonregular marker with visible loss", async () => {
+    const file = markSession("boundary-id");
+    const r = await receiver();
+    const body = otlpBatch([{ "event.name": "tool_decision", "session.id": "boundary-id" }]);
+    const before = readFileSync(file);
+    const mode = statSync(file).mode;
+    if (process.getuid) {
+      const uid = process.getuid();
+      const owner = vi.spyOn(process, "getuid").mockReturnValue(uid + 1);
+      try {
+        expect(await (await post(r.url, body)).json()).toMatchObject({
+          partialSuccess: { rejectedLogRecords: 1 },
+        });
+        expect(readFileSync(file)).toEqual(before);
+        expect(statSync(file).mode).toBe(mode);
+      } finally {
+        owner.mockRestore();
+      }
+    }
+    renameSync(file, `${file}.original`);
+    mkdirSync(file, { mode: 0o700 });
+    expect(await (await post(r.url, body)).json()).toMatchObject({
+      partialSuccess: { rejectedLogRecords: 1 },
+    });
+    expect(readFileSync(`${file}.original`)).toEqual(before);
+    expect(statSync(file).isDirectory()).toBe(true);
+    expect(r.stats()).toMatchObject({ written: 0, discarded: process.getuid ? 2 : 1 });
   });
 
   // Covers: R13, R22

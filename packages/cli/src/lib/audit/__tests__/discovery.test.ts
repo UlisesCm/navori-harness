@@ -11,11 +11,137 @@ import {
   repoCoverage,
   requestedRange,
   markerEnumeration,
+  createAuditDiscoveryContext,
 } from "../discovery.ts";
 import { encodeCwdToSlug, auditsRoot, sessionLogPath } from "../paths.ts";
+import { normalizeCodexIdentity, createAuditReadBudget } from "../model.ts";
+import { codexIdentityFingerprint } from "../discovery.ts";
 
 let root: string;
 const REPO = "fixture-repo";
+
+describe("pinned Codex root/thread identity", () => {
+  // Covers: R4, R5, R9
+  it.each(["root", "child", "grandchild"])(
+    "keeps %s root context separate from thread and parent",
+    (thread) => {
+      const parent = thread === "root" ? null : thread === "child" ? "root" : "child";
+      const decoded = normalizeCodexIdentity(
+        {
+          id: thread,
+          session_id: "root",
+          cwd: "/fixture",
+          cli_version: "0.160.0",
+          parent_thread_id: parent,
+          source: parent ? { subagent: { thread_spawn: { parent_thread_id: parent } } } : "cli",
+        },
+        "/fixture",
+      );
+      expect(decoded).toMatchObject({
+        status: "verified",
+        identity: {
+          threadId: thread,
+          rootSessionId: "root",
+          parentThreadId: parent,
+          relation: parent ? "child" : "root",
+        },
+      });
+    },
+  );
+
+  // Covers: R5, R9
+  it("distinguishes unsupported version, unknown relation and contradictory parent evidence", () => {
+    const metadata = { id: "child", session_id: "root", cwd: "/fixture", cli_version: "0.160.0" };
+    expect(normalizeCodexIdentity({ ...metadata, cli_version: "0.161.0" }, "/fixture")).toEqual({
+      status: "unsupported",
+    });
+    expect(normalizeCodexIdentity(metadata, "/fixture")).toMatchObject({
+      status: "verified",
+      identity: { relation: "unknown" },
+    });
+    expect(
+      normalizeCodexIdentity(
+        {
+          ...metadata,
+          parent_thread_id: "root",
+          source: { subagent: { thread_spawn: { parent_thread_id: "different" } } },
+        },
+        "/fixture",
+      ),
+    ).toEqual({ status: "identity-conflict" });
+    expect(normalizeCodexIdentity({ ...metadata, parent_thread_id: "child" }, "/fixture")).toEqual({
+      status: "identity-conflict",
+    });
+  });
+
+  // Covers: R5, R9, R10
+  it("uses only canonical ownership facts for the fingerprint", () => {
+    const fields = { id: "root", session_id: "root", cwd: "/fixture", cli_version: "0.160.0" };
+    const first = normalizeCodexIdentity(fields, "/fixture");
+    const second = normalizeCodexIdentity(
+      {
+        ...fields,
+        base_instructions: "private human data",
+        timestamp: "later",
+        model_provider: "arbitrary",
+      },
+      "/fixture",
+    );
+    expect(first.status).toBe("verified");
+    expect(second.status).toBe("verified");
+    if (first.status !== "verified" || second.status !== "verified") throw new Error("fixture");
+    expect(codexIdentityFingerprint(first.identity)).toBe(
+      codexIdentityFingerprint(second.identity),
+    );
+    expect(codexIdentityFingerprint(first.identity)).toMatch(/^[a-f0-9]{64}$/);
+    expect(codexIdentityFingerprint({ ...first.identity, checkout: "/different" })).not.toBe(
+      codexIdentityFingerprint(first.identity),
+    );
+  });
+
+  // Covers: R5, R9
+  it("accepts an exact child marker but never treats a root marker pointing at child as root ownership", () => {
+    const source = join(root, "child.jsonl");
+    writeFileSync(
+      source,
+      JSON.stringify({
+        type: "session_meta",
+        payload: {
+          id: "child",
+          session_id: "root",
+          cli_version: "0.160.0",
+          cwd: "/fixture",
+          parent_thread_id: "root",
+          source: { subagent: { thread_spawn: { parent_thread_id: "root" } } },
+        },
+      }) + "\n",
+    );
+    mkdirSync(join(root, REPO), { recursive: true });
+    for (const id of ["root", "child"])
+      writeFileSync(
+        sessionLogPath(REPO, id),
+        JSON.stringify({
+          event: "start",
+          sessionId: id,
+          host: "codex",
+          cwd: "/fixture",
+          repo: REPO,
+          transcript: source,
+          ts: "2026-10-04T10:00:00Z",
+        }) + "\n",
+      );
+    const bytes = readFileSync(source, "utf-8");
+    expect(findMarkedSessions(REPO, { session: "child" })[0]).toMatchObject({
+      sourceStatus: "verified",
+      adapter: "codex-rollout",
+    });
+    expect(findMarkedSessions(REPO, { session: "root" })[0]).toMatchObject({
+      sourceStatus: "identity-conflict",
+      adapter: null,
+    });
+    expect(readFileSync(source, "utf-8")).toBe(bytes);
+  });
+});
 
 function markSession(id: string, cwd: string, ts: string): void {
   const dir = join(root, REPO);
@@ -517,6 +643,32 @@ describe("discovery: Codex rollouts (spec 0041 T18)", () => {
     );
     return file;
   }
+
+  // Covers: R21
+  it("builds the Codex fallback index once per context and does not retain newly appended unrelated paths", () => {
+    const file = rollout();
+    const context = createAuditDiscoveryContext();
+    expect(resolveCodexRollout(SID, undefined, context)).toBe(file);
+    const retained = context.budget.diagnostics.retainedPaths;
+    const laterId = "later-synthetic";
+    writeFileSync(join(home, "sessions", `rollout-later-${laterId}.jsonl`), "{}\n");
+    expect(resolveCodexRollout(laterId, undefined, context)).toBeNull();
+    expect(context.budget.diagnostics.retainedPaths).toBe(retained);
+    expect(context.indexedRoots.size).toBe(1);
+  });
+  // Covers: R21
+  it("stops path enumeration before materializing an oversized index and exposes unknown remainder", () => {
+    rollout();
+    const context = createAuditDiscoveryContext(createAuditReadBudget({ pathsPerReport: 2 }));
+    expect(resolveCodexRollout(SID, undefined, context)).toBeNull();
+    expect(context.budget.diagnostics).toMatchObject({
+      retainedPaths: 2,
+      omittedFacts: null,
+      truncated: true,
+    });
+    expect(context.budget.diagnostics.omittedLowerBound).toBeGreaterThan(0);
+    expect(context.indexedPaths?.length).toBeLessThanOrEqual(2);
+  });
 
   // Covers: R24
   it("finds the rollout under codexHome()/sessions by session id", () => {

@@ -2,23 +2,40 @@ import {
   closeSync,
   constants,
   existsSync,
+  fstatSync,
   lstatSync,
   openSync,
   readFileSync,
   readdirSync,
+  opendirSync,
   readSync,
   statSync,
-  type Dirent,
 } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { codexHome } from "../codex/home.ts";
-import type { EvidenceReason } from "./model.ts";
+import {
+  normalizeCodexIdentity,
+  type CodexIdentity,
+  type ChildSourceRegistration,
+  type EvidenceReason,
+  type AuditReadBudget,
+  type AuditReadDiagnostics,
+  type AuditLogView,
+  createAuditReadBudget,
+  normalizeAuditRecord,
+  retainAuditFact,
+  omitAuditFacts,
+  retainAuditPath,
+} from "./model.ts";
 import {
   auditsRoot,
   encodeCwdToSlug,
   projectRootFromCwd,
   repoAuditDir,
+  repoFromCwd,
   transcriptsRoot,
+  readAuditJsonl,
 } from "./paths.ts";
 
 /**
@@ -31,6 +48,12 @@ import {
  */
 
 export interface MarkedSession {
+  /** Private command transport, never serialized into SessionAudit or public reports. */
+  auditLogRecords?: Record<string, unknown>[];
+  auditReading?: AuditReadDiagnostics;
+  auditNormalizationLoss?: number;
+  readBudget?: AuditReadBudget;
+  childSources?: RegisteredCodexChild[];
   sessionId: string;
   /** The append-only log the hooks wrote for this session. */
   logFile: string;
@@ -55,6 +78,441 @@ export interface MarkedSession {
   rollout: string | null;
 }
 
+/** One bounded lazy filesystem/fact context is shared by all report cohorts. */
+export interface AuditDiscoveryContext {
+  budget: AuditReadBudget;
+  indexedPaths: string[] | null;
+  indexedRoots: Set<string>;
+  metadata: Map<string, Record<string, unknown> | null>;
+  logs: Map<string, AuditLogView>;
+  repoRoots: Map<string, Set<string>>;
+}
+
+/** Create a report-local context, never a persistent host or permission cache. */
+export function createAuditDiscoveryContext(
+  budget = createAuditReadBudget(),
+): AuditDiscoveryContext {
+  return {
+    budget,
+    indexedPaths: null,
+    indexedRoots: new Set(),
+    metadata: new Map(),
+    logs: new Map(),
+    repoRoots: new Map(),
+  };
+}
+
+/** Retain a validated marker's checkout anchor without retaining out-of-range activity. */
+function retainRootAnchor(context: AuditDiscoveryContext, repo: string, sessionId: string,
+  record: Record<string, unknown>): void {
+  if (record.event !== "start" || typeof record.cwd !== "string" ||
+      (record.sessionId !== undefined && record.sessionId !== sessionId) ||
+      (record.repo !== undefined && record.repo !== repo)) return;
+  const root = retainAuditPath(context.budget, projectRootFromCwd(record.cwd));
+  if (!root) return;
+  const known = context.repoRoots.get(repo);
+  if (known?.has(root)) return;
+  if (!retainAuditFact(context.budget, null, { repo, root })) return;
+  const roots = known ?? new Set<string>();
+  if (!known && !retainAuditFact(context.budget, null, roots)) return;
+  roots.add(root);
+  context.repoRoots.set(repo, roots);
+}
+
+/** Build one lazy, capped host-path index; a stopped walk never claims complete enumeration. */
+function indexedSourcePaths(
+  context: AuditDiscoveryContext,
+  roots: readonly string[],
+): readonly string[] {
+  const paths: string[] = context.indexedPaths ?? [];
+  context.indexedPaths = paths;
+  let stopped = false;
+  const walk = (directory: string, depth: number): void => {
+    if (stopped || depth > ROLLOUT_MAX_DEPTH) return;
+    let dir: ReturnType<typeof opendirSync>;
+    try {
+      dir = opendirSync(directory);
+    } catch {
+      return;
+    }
+    try {
+      for (let entry = dir.readSync(); entry; entry = dir.readSync()) {
+        const path = retainAuditPath(context.budget, join(directory, entry.name));
+        if (!path) {
+          stopped = true;
+          omitAuditFacts(context.budget, 1, true);
+          break;
+        }
+        if (entry.isFile() && entry.name.endsWith(".jsonl")) paths.push(path);
+        else if (entry.isDirectory()) walk(path, depth + 1);
+        if (stopped) break;
+      }
+    } finally {
+      dir.closeSync();
+    }
+  };
+  for (const root of roots) {
+    if (context.indexedRoots.has(root)) continue;
+    context.indexedRoots.add(root);
+    walk(root, 0);
+  }
+  return paths;
+}
+
+/** Cache only one normalized metadata fact per source, never its prompt/activity history. */
+function indexedSourceMetadata(
+  path: string,
+  context: AuditDiscoveryContext,
+): Record<string, unknown> | null {
+  if (context.metadata.has(path)) return context.metadata.get(path) ?? null;
+  if (!retainAuditPath(context.budget, path)) return null;
+  let record: Record<string, unknown> | null = null;
+  const reading = readAuditJsonl(path, (value) => {
+    const normalized = normalizeAuditRecord(value, "metadata");
+    if (normalized.omitted) omitAuditFacts(context.budget, normalized.omitted);
+    if (normalized.value && retainAuditFact(context.budget, null, normalized.value))
+      record = normalized.value;
+    return false;
+  });
+  if (reading.sourceStatus !== "observed") record = null;
+  const entry = { path, record };
+  if (retainAuditFact(context.budget, null, entry)) context.metadata.set(path, record);
+  return record;
+}
+
+/** Content-free source binding used only by explicit child capture. */
+export interface CodexChildBinding {
+  identity: CodexIdentity;
+  sourcePath: string;
+  sourceHeaderFingerprint: string;
+}
+
+/** Registration remains observed even if its currently selected source cannot be qualified. */
+export interface RegisteredCodexChild {
+  threadId: string;
+  rootSessionId: string;
+  parentThreadId: string;
+  capturedAt: string;
+  sourceStatus: "verified" | "missing" | "wrong-format" | "identity-conflict" | "unsupported";
+  binding: CodexChildBinding | null;
+  depth: number | null;
+}
+
+/** Fingerprint identity only: append, human metadata and physical paths do not change it. */
+export function codexIdentityFingerprint(identity: CodexIdentity): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        "codex-rollout",
+        identity.sourceVersion,
+        identity.threadId,
+        identity.rootSessionId,
+        identity.parentThreadId,
+        identity.relation,
+        identity.checkout,
+      ]),
+    )
+    .digest("hex");
+}
+
+function metadataFromFd(fd: number): Record<string, unknown> | null {
+  const buffer = Buffer.alloc(1024 * 1024);
+  const bytes = readSync(fd, buffer, 0, buffer.length, 0);
+  const end = buffer.subarray(0, bytes).indexOf(10);
+  if (end < 0 && bytes === buffer.length) return null;
+  const rec: unknown = JSON.parse(buffer.toString("utf-8", 0, end < 0 ? bytes : end));
+  if (
+    typeof rec !== "object" ||
+    rec === null ||
+    !("type" in rec) ||
+    rec.type !== "session_meta" ||
+    !("payload" in rec) ||
+    typeof rec.payload !== "object" ||
+    rec.payload === null ||
+    Array.isArray(rec.payload)
+  )
+    return null;
+  return rec.payload as Record<string, unknown>;
+}
+
+/** Reject symlink ancestors without repairing them; path checks are not portable openat containment. */
+export function auditPathHasSafeAncestors(path: string): boolean {
+  let current = resolve(path);
+  for (;;) {
+    const st = lstatSync(current);
+    if (st.isSymbolicLink()) return false;
+    if (
+      st.isDirectory() &&
+      (st.mode & 0o022) !== 0 &&
+      !((st.mode & 0o1000) !== 0 && (st.uid === 0 || st.uid === process.getuid?.()))
+    )
+      return false;
+    const parent = resolve(current, "..");
+    if (parent === current) return true;
+    current = parent;
+  }
+}
+
+/**
+ * Keep no-follow descriptors open through registration, validating exact lineage once.
+ * Revalidation catches observed replacements; Node path checks leave a residual rename race.
+ */
+export function withCodexChildBinding<T>(
+  cwd: string,
+  rootSessionId: string,
+  threadId: string,
+  sourcePath: string,
+  consume: (binding: CodexChildBinding, revalidate: () => boolean) => T,
+  rejectConflict: () => void = () => {},
+): T | null {
+  const opened: Array<{
+    fd: number;
+    path: string;
+    identity: CodexIdentity;
+    dev: number;
+    ino: number;
+  }> = [];
+  try {
+    if (!constants.O_NOFOLLOW || typeof process.getuid !== "function") return null;
+    const checkout = resolve(projectRootFromCwd(cwd));
+    /** Read only the header through the fd that will be revalidated before append. */
+    const open = (path: string, required = false): (typeof opened)[number] | null => {
+      if (!auditPathHasSafeAncestors(path)) return null;
+      const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      // The finally owns every opened descriptor, including failed fstat/header reads.
+      const entry = {
+        fd,
+        path: resolve(path),
+        identity: null as CodexIdentity | null,
+        dev: 0,
+        ino: 0,
+      };
+      try {
+        const st = fstatSync(fd);
+        entry.dev = st.dev;
+        entry.ino = st.ino;
+        if (!st.isFile() || st.uid !== process.getuid?.() || (st.mode & 0o077) !== 0) return null;
+        const fields = metadataFromFd(fd);
+        if (
+          !fields ||
+          typeof fields.cwd !== "string" ||
+          resolve(projectRootFromCwd(fields.cwd)) !== checkout
+        )
+          return null;
+        const decoded = normalizeCodexIdentity(fields, checkout);
+        if (decoded.status !== "verified") {
+          if (required && decoded.status === "identity-conflict") rejectConflict();
+          return null;
+        }
+        if (decoded.identity.rootSessionId !== rootSessionId) {
+          if (required) rejectConflict();
+          return null;
+        }
+        entry.identity = decoded.identity;
+        const valid = { ...entry, identity: decoded.identity };
+        opened.push(valid);
+        return valid;
+      } finally {
+        if (!entry.identity) closeSync(fd);
+      }
+    };
+    const marker = findMarkedSessions(repoFromCwd(cwd), { session: rootSessionId }, false).find(
+      (candidate) => candidate.sessionId === rootSessionId,
+    );
+    if (marker?.sourceStatus === "identity-conflict") rejectConflict();
+    if (
+      !marker ||
+      marker.host !== "codex" ||
+      marker.sourceStatus !== "verified" ||
+      !marker.rollout ||
+      !marker.cwd ||
+      resolve(projectRootFromCwd(marker.cwd)) !== checkout
+    )
+      return null;
+    const root = open(marker.rollout, true);
+    const child = open(sourcePath, true);
+    if (child && child.identity.threadId !== threadId) rejectConflict();
+    if (
+      !root ||
+      root.identity.relation !== "root" ||
+      root.identity.threadId !== rootSessionId ||
+      !child ||
+      child.identity.threadId !== threadId ||
+      child.identity.relation !== "child"
+    )
+      return null;
+    const candidates = new Map<string, (typeof opened)[number]>();
+    candidates.set(rootSessionId, root);
+    candidates.set(threadId, child);
+    /** Metadata-only candidate index; names locate files but never supply owner IDs. */
+    const scan = (dir: string, depth: number): void => {
+      if (depth > ROLLOUT_MAX_DEPTH || !auditPathHasSafeAncestors(dir)) return;
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, e.name);
+        if (e.isDirectory()) scan(path, depth + 1);
+        else if (
+          e.isFile() &&
+          e.name.endsWith(".jsonl") &&
+          !opened.some((entry) => entry.path === resolve(path))
+        ) {
+          const candidate = open(path);
+          if (!candidate) continue;
+          const previous = candidates.get(candidate.identity.threadId);
+          if (
+            previous &&
+            codexIdentityFingerprint(previous.identity) !==
+              codexIdentityFingerprint(candidate.identity)
+          ) {
+            rejectConflict();
+            throw new Error("identity-conflict");
+          }
+          candidates.set(candidate.identity.threadId, candidate);
+        }
+      }
+    };
+    scan(join(codexHome(), "sessions"), 0);
+    const seen = new Set<string>();
+    let current = child;
+    while (current.identity.threadId !== rootSessionId) {
+      if (seen.has(current.identity.threadId)) {
+        rejectConflict();
+        return null;
+      }
+      if (current.identity.relation !== "child") return null;
+      seen.add(current.identity.threadId);
+      const parent = candidates.get(current.identity.parentThreadId ?? "");
+      if (!parent) return null;
+      current = parent;
+    }
+    const revalidate = (): boolean => {
+      const currentMarker = findMarkedSessions(
+        repoFromCwd(cwd),
+        { session: rootSessionId },
+        false,
+      ).find((candidate) => candidate.sessionId === rootSessionId);
+      if (
+        currentMarker?.sourceStatus !== "verified" ||
+        currentMarker.rollout !== marker.rollout ||
+        currentMarker.logFile !== marker.logFile
+      )
+        return false;
+      return opened.every((entry) => {
+        if (!auditPathHasSafeAncestors(entry.path)) return false;
+        const pathStat = lstatSync(entry.path);
+        const fdStat = fstatSync(entry.fd);
+        const fields = metadataFromFd(entry.fd);
+        if (
+          !fields ||
+          pathStat.dev !== entry.dev ||
+          pathStat.ino !== entry.ino ||
+          fdStat.uid !== process.getuid?.() ||
+          (fdStat.mode & 0o077) !== 0 ||
+          !fdStat.isFile() ||
+          typeof fields.cwd !== "string" ||
+          resolve(projectRootFromCwd(fields.cwd)) !== checkout
+        )
+          return false;
+        const decoded = normalizeCodexIdentity(fields, checkout);
+        return (
+          decoded.status === "verified" &&
+          codexIdentityFingerprint(decoded.identity) === codexIdentityFingerprint(entry.identity)
+        );
+      });
+    };
+    return consume(
+      {
+        identity: child.identity,
+        sourcePath: child.path,
+        sourceHeaderFingerprint: codexIdentityFingerprint(child.identity),
+      },
+      revalidate,
+    );
+  } catch {
+    return null;
+  } finally {
+    for (const entry of opened) closeSync(entry.fd);
+  }
+}
+
+/** All complete physical bindings survive logical dedup, so revision retries remain idempotent. */
+export function readChildSourceBindings(
+  logFile: string,
+  rootSessionId: string,
+): ChildSourceRegistration[] {
+  const budget = createAuditReadBudget();
+  const records: Record<string, unknown>[] = [];
+  const reading = readAuditJsonl(logFile, (value) => {
+    const normalized = normalizeAuditRecord(value, "audit-log");
+    if (!normalized.value) return;
+    if (!retainAuditFact(budget, rootSessionId, normalized.value)) return false;
+    records.push(normalized.value);
+  });
+  if (reading.stoppedEarly || reading.sourceStatus !== "observed")
+    throw new Error("unqualified-registration-index");
+  return childBindingsFromRecords(records, rootSessionId, budget);
+}
+
+/** Decode complete registration lines from the same root-log read used by command transport. */
+function childBindingsFromRecords(
+  records: readonly Record<string, unknown>[],
+  rootSessionId: string,
+  budget?: AuditReadBudget,
+): ChildSourceRegistration[] {
+  const registrations = new Map<string, ChildSourceRegistration>();
+  // The writer's terminating newline is part of the capture contract, not just JSON syntax.
+  for (const r of records) {
+    if (
+      r.event !== "child-source" ||
+      r.schemaVersion !== 1 ||
+      r.host !== "codex" ||
+      r.rootSessionId !== rootSessionId ||
+      r.sourceVersion !== "0.160.0" ||
+      typeof r.threadId !== "string" ||
+      !/^[A-Za-z0-9_-]{1,256}$/.test(r.threadId) ||
+      typeof r.parentThreadId !== "string" ||
+      !/^[A-Za-z0-9_-]{1,256}$/.test(r.parentThreadId) ||
+      typeof r.sourcePath !== "string" ||
+      !r.sourcePath ||
+      typeof r.observedAt !== "string" ||
+      !Number.isFinite(Date.parse(r.observedAt)) ||
+      typeof r.sourceHeaderFingerprint !== "string" ||
+      !/^[a-f0-9]{64}$/.test(r.sourceHeaderFingerprint)
+    )
+      continue;
+    const key = JSON.stringify([r.threadId, r.sourceHeaderFingerprint, r.sourcePath]);
+    if (!registrations.has(key)) {
+      const registration: ChildSourceRegistration = {
+        schemaVersion: 1,
+        event: "child-source",
+        host: "codex",
+        rootSessionId,
+        threadId: r.threadId,
+        parentThreadId: r.parentThreadId,
+        sourceVersion: "0.160.0",
+        sourcePath: r.sourcePath,
+        observedAt: r.observedAt,
+        sourceHeaderFingerprint: r.sourceHeaderFingerprint,
+      };
+      if (!budget || retainAuditFact(budget, rootSessionId, registration))
+        registrations.set(key, registration);
+    }
+  }
+  return [...registrations.values()];
+}
+
+/** One logical capture per identity tuple, retaining its first observation across physical revisions. */
+export function readChildSourceRegistrations(
+  logFile: string,
+  rootSessionId: string,
+): ChildSourceRegistration[] {
+  const logical = new Map<string, ChildSourceRegistration>();
+  for (const record of readChildSourceBindings(logFile, rootSessionId)) {
+    const key = `${record.threadId}:${record.sourceHeaderFingerprint}`;
+    if (!logical.has(key)) logical.set(key, record);
+  }
+  return [...logical.values()];
+}
+
 export interface DiscoveryFilters {
   days?: number;
   since?: string;
@@ -63,6 +521,161 @@ export interface DiscoveryFilters {
   session?: string;
   /** Fixed requested UTC window, independent of observed session extrema. */
   range?: { from: string; to: string };
+}
+
+/** One metadata-only lineage index for all registered descendants; report never registers a source. */
+function qualifyRegisteredChildren(markers: MarkedSession[], context: AuditDiscoveryContext): void {
+  const paths = new Set<string>();
+  const registrations = new Map<MarkedSession, ChildSourceRegistration[]>();
+  for (const marker of markers) {
+    if (marker.host !== "codex" || !marker.cwd) continue;
+    const records = childBindingsFromRecords(
+      marker.auditLogRecords ?? [],
+      marker.sessionId,
+      marker.readBudget,
+    );
+    if (!records.length) continue;
+    registrations.set(marker, records);
+    if (marker.rollout && retainAuditPath(context.budget, marker.rollout))
+      paths.add(marker.rollout);
+    for (const record of records)
+      if (retainAuditPath(context.budget, record.sourcePath)) paths.add(record.sourcePath);
+  }
+  if (!registrations.size) return;
+  // Filenames only locate candidates: graph ownership still requires validated metadata.
+  for (const path of indexedSourcePaths(context, [join(codexHome(), "sessions")])) paths.add(path);
+  type Candidate = {
+    status: RegisteredCodexChild["sourceStatus"];
+    binding: CodexChildBinding | null;
+  };
+  const sources = new Map<string, Candidate>();
+  const graph = new Map<string, CodexChildBinding[]>();
+  const key = (identity: CodexIdentity): string =>
+    JSON.stringify([identity.checkout, identity.rootSessionId, identity.threadId]);
+  for (const path of paths) {
+    let candidate: Candidate = { status: "missing", binding: null };
+    try {
+      const st = lstatSync(path);
+      if (
+        !st.isFile() ||
+        !auditPathHasSafeAncestors(path) ||
+        typeof process.getuid !== "function" ||
+        st.uid !== process.getuid()
+      )
+        throw new Error("unsafe-source");
+      const rec: unknown = indexedSourceMetadata(path, context);
+      if (
+        typeof rec !== "object" ||
+        rec === null ||
+        !("type" in rec) ||
+        rec.type !== "session_meta" ||
+        !("payload" in rec) ||
+        typeof rec.payload !== "object" ||
+        rec.payload === null ||
+        Array.isArray(rec.payload)
+      )
+        throw new Error("wrong-format");
+      const fields = rec.payload as Record<string, unknown>;
+      const decoded = normalizeCodexIdentity(
+        fields,
+        typeof fields.cwd === "string" ? resolve(projectRootFromCwd(fields.cwd)) : "",
+      );
+      if (decoded.status !== "verified") candidate = { status: decoded.status, binding: null };
+      else {
+        const binding: CodexChildBinding = {
+          identity: decoded.identity,
+          sourcePath: resolve(path),
+          sourceHeaderFingerprint: codexIdentityFingerprint(decoded.identity),
+        };
+        candidate = { status: "verified", binding };
+        const group = graph.get(key(binding.identity)) ?? [];
+        group.push(binding);
+        graph.set(key(binding.identity), group);
+      }
+    } catch {
+      candidate = { status: existsSync(path) ? "wrong-format" : "missing", binding: null };
+    }
+    sources.set(resolve(path), candidate);
+  }
+  for (const [marker, records] of registrations) {
+    const grouped = new Map<string, ChildSourceRegistration[]>();
+    for (const record of records) {
+      const group = grouped.get(record.threadId) ?? [];
+      group.push(record);
+      grouped.set(record.threadId, group);
+    }
+    const checkout = resolve(projectRootFromCwd(marker.cwd!));
+    marker.childSources = [...grouped].map(([threadId, group]): RegisteredCodexChild => {
+      const first = group[0]!;
+      const child: RegisteredCodexChild = {
+        threadId,
+        rootSessionId: marker.sessionId,
+        parentThreadId: first.parentThreadId,
+        capturedAt: first.observedAt,
+        sourceStatus: "missing",
+        binding: null,
+        depth: null,
+      };
+      if (new Set(group.map((r) => r.sourceHeaderFingerprint)).size !== 1) {
+        child.sourceStatus = "identity-conflict";
+        return child;
+      }
+      const found = group
+        .map((r) => sources.get(resolve(r.sourcePath)))
+        .filter((c): c is Candidate => !!c);
+      const bindings = found.flatMap((c) => (c.binding ? [c.binding] : []));
+      if (found.some((c) => c.status !== "missing" && c.status !== "verified")) {
+        child.sourceStatus = found.find(
+          (c) => c.status !== "missing" && c.status !== "verified",
+        )!.status;
+        return child;
+      }
+      if (!bindings.length) return child;
+      if (
+        bindings.some(
+          (b) =>
+            b.sourceHeaderFingerprint !== first.sourceHeaderFingerprint ||
+            b.identity.checkout !== checkout ||
+            b.identity.threadId !== threadId ||
+            b.identity.rootSessionId !== marker.sessionId ||
+            b.identity.parentThreadId !== first.parentThreadId,
+        )
+      ) {
+        child.sourceStatus = "identity-conflict";
+        return child;
+      }
+      let current = bindings[0]!;
+      const root = marker.rollout ? sources.get(resolve(marker.rollout))?.binding : null;
+      if (marker.sourceStatus !== "verified" || !root || root.identity.relation !== "root")
+        return child;
+      const seen = new Set<string>();
+      let depth = 0;
+      while (current.identity.threadId !== root.identity.threadId) {
+        if (seen.has(current.identity.threadId)) {
+          child.sourceStatus = "identity-conflict";
+          return child;
+        }
+        seen.add(current.identity.threadId);
+        if (current.identity.relation !== "child" || !current.identity.parentThreadId) return child;
+        const parents =
+          graph.get(
+            JSON.stringify([checkout, marker.sessionId, current.identity.parentThreadId]),
+          ) ?? [];
+        if (!parents.length) return child;
+        if (new Set(parents.map((p) => p.sourceHeaderFingerprint)).size !== 1) {
+          child.sourceStatus = "identity-conflict";
+          return child;
+        }
+        current = parents[0]!;
+        depth++;
+      }
+      if (root.sourceHeaderFingerprint !== current.sourceHeaderFingerprint) return child;
+      child.sourceStatus = "verified";
+      child.binding = bindings[0]!;
+      child.depth = depth;
+      return child;
+    });
+  }
 }
 
 interface LogHeader {
@@ -84,7 +697,12 @@ interface LogHeader {
  * one. Worth the extra pass — it replaces a guess at Claude Code's
  * undocumented directory encoding with the path Claude Code itself reported.
  */
-function readHeader(logFile: string, sessionId: string, repoName: string): LogHeader {
+function readHeader(
+  logFile: string,
+  sessionId: string,
+  repoName: string,
+  suppliedRecords?: readonly Record<string, unknown>[],
+): LogHeader {
   let cwd: string | null = null;
   let markedAt = "";
   let transcript: string | null = null;
@@ -92,29 +710,28 @@ function readHeader(logFile: string, sessionId: string, repoName: string): LogHe
   let host: LogHeader["host"] = "unknown";
   let identityConflict = false;
   try {
-    const raw = readFileSync(logFile, "utf-8");
-    for (const line of raw.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const obj: unknown = JSON.parse(line);
-        if (typeof obj !== "object" || obj === null) continue;
-        const rec = obj as Record<string, unknown>;
-        if (!seenHeader) {
-          if (rec.event !== "start") continue;
-          cwd = typeof rec.cwd === "string" ? rec.cwd : null;
-          markedAt = typeof rec.ts === "string" ? rec.ts : "";
-          if (rec.host === "codex" || rec.host === "claude") host = rec.host;
-          else if (rec.host !== undefined) identityConflict = true;
-          if (rec.sessionId !== undefined && rec.sessionId !== sessionId) identityConflict = true;
-          if (rec.repo !== undefined && rec.repo !== repoName) identityConflict = true;
-          seenHeader = true;
-        }
-        if (!transcript && typeof rec.transcript === "string" && rec.transcript) {
-          transcript = rec.transcript;
-          break; // Nothing left to learn from the rest of the log.
-        }
-      } catch {
-        // Skip malformed lines; a truncated log is still a valid log.
+    const local: Record<string, unknown>[] = [];
+    const records = suppliedRecords ?? local;
+    if (!suppliedRecords)
+      readAuditJsonl(logFile, (value) => {
+        const normalized = normalizeAuditRecord(value, "audit-log");
+        if (normalized.value) local.push(normalized.value);
+        return records.length < 100_000;
+      });
+    for (const rec of records) {
+      if (!seenHeader) {
+        if (rec.event !== "start") continue;
+        cwd = typeof rec.cwd === "string" ? rec.cwd : null;
+        markedAt = typeof rec.ts === "string" ? rec.ts : "";
+        if (rec.host === "codex" || rec.host === "claude") host = rec.host;
+        else if (rec.host !== undefined) identityConflict = true;
+        if (rec.sessionId !== undefined && rec.sessionId !== sessionId) identityConflict = true;
+        if (rec.repo !== undefined && rec.repo !== repoName) identityConflict = true;
+        seenHeader = true;
+      }
+      if (!transcript && typeof rec.transcript === "string" && rec.transcript) {
+        transcript = rec.transcript;
+        break; // Nothing left to learn from the rest of the log.
       }
     }
   } catch {
@@ -131,16 +748,13 @@ interface SourceIdentity {
 
 /** At most the first root-metadata line; later prompt/tool records stay unread. */
 function sourceMetadataLine(file: string): string | null {
-  const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-  try {
-    const buffer = Buffer.alloc(1024 * 1024);
-    const bytes = readSync(fd, buffer, 0, buffer.length, 0);
-    const end = buffer.subarray(0, bytes).indexOf(10);
-    if (end < 0 && bytes === buffer.length) return null;
-    return buffer.toString("utf-8", 0, end >= 0 ? end : bytes);
-  } finally {
-    closeSync(fd);
-  }
+  let result: string | null = null;
+  const reading = readAuditJsonl(file, (raw) => {
+    const normalized = normalizeAuditRecord(raw, "metadata");
+    if (normalized.value && normalized.omitted === 0) result = JSON.stringify(normalized.value);
+    return false;
+  });
+  return reading.sourceStatus === "observed" ? result : null;
 }
 
 /** Read only versioned identity fields; never inspect prompts or tool payloads. */
@@ -149,11 +763,13 @@ function inspectSource(
   host: "claude" | "codex",
   sessionId: string,
   cwd: string | null,
+  context?: AuditDiscoveryContext,
 ): SourceIdentity {
   if (!file) return { host, status: "missing" };
   try {
     if (!lstatSync(file).isFile()) return { host, status: "wrong-format" };
-    const line = sourceMetadataLine(file);
+    const cached = context ? indexedSourceMetadata(file, context) : null;
+    const line = context ? (cached ? JSON.stringify(cached) : null) : sourceMetadataLine(file);
     if (line?.trim()) {
       const rec: unknown = JSON.parse(line);
       if (typeof rec !== "object" || rec === null) return { host, status: "wrong-format" };
@@ -164,13 +780,21 @@ function inspectSource(
       if (typeof meta !== "object" || meta === null) return { host, status: "wrong-format" };
       const fields = meta as Record<string, unknown>;
       const id = host === "codex" ? (fields.id ?? fields.session_id) : fields.sessionId;
-      if (
+      if (host === "codex" && fields.cli_version === "0.160.0") {
+        const decoded = normalizeCodexIdentity(
+          fields,
+          resolve(projectRootFromCwd(String(fields.cwd))),
+        );
+        if (decoded.status !== "verified") return { host, status: "identity-conflict" };
+        if (decoded.identity.relation === "unknown") return { host, status: "wrong-format" };
+      } else if (
         host === "codex" &&
         fields.id !== undefined &&
         fields.session_id !== undefined &&
         fields.id !== fields.session_id
-      )
+      ) {
         return { host, status: "identity-conflict" };
+      }
       if (
         host === "claude" &&
         !["user", "assistant", "system", "summary"].includes(String(record.type))
@@ -207,49 +831,29 @@ export function resolveTranscript(
   sessionId: string,
   cwd: string | null,
   recorded?: string | null,
+  context = createAuditDiscoveryContext(),
 ): string | null {
   // Recorded by the hook from the payload: an exact path beats both guesses.
   // Still verified on disk — a transcript can be moved or pruned.
-  if (recorded && existsSync(recorded)) return recorded;
+  if (recorded && existsSync(recorded)) return retainAuditPath(context.budget, recorded);
 
   const root = transcriptsRoot();
   if (!existsSync(root)) return null;
 
   if (cwd) {
     const direct = join(root, encodeCwdToSlug(cwd), `${sessionId}.jsonl`);
-    if (existsSync(direct)) return direct;
+    if (existsSync(direct)) return retainAuditPath(context.budget, direct);
   }
 
-  for (const dir of readdirSync(root)) {
-    const candidate = join(root, dir, `${sessionId}.jsonl`);
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+  return (
+    indexedSourcePaths(context, [root]).find(
+      (path) => path.startsWith(`${root}/`) && basename(path) === `${sessionId}.jsonl`,
+    ) ?? null
+  );
 }
 
 /** Depth-bounded walk: `sessions/YYYY/MM/DD/` is three levels; one spare. */
 const ROLLOUT_MAX_DEPTH = 5;
-
-function findRolloutIn(dir: string, suffix: string, depth: number): string | null {
-  let entries: Dirent[];
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return null;
-  }
-  for (const e of entries) {
-    if (e.isFile() && e.name.startsWith("rollout-") && e.name.endsWith(suffix)) {
-      return join(dir, e.name);
-    }
-  }
-  if (depth >= ROLLOUT_MAX_DEPTH) return null;
-  for (const e of entries) {
-    if (!e.isDirectory()) continue;
-    const hit = findRolloutIn(join(dir, e.name), suffix, depth + 1);
-    if (hit) return hit;
-  }
-  return null;
-}
 
 /**
  * Locates a Codex session's rollout (spec 0041 R24): the path the hook payload
@@ -257,12 +861,23 @@ function findRolloutIn(dir: string, suffix: string, depth: number): string | nul
  * `rollout-*-<sessionId>.jsonl`. Never throws — a bad `CODEX_HOME` or an
  * unreadable tree is "not found".
  */
-export function resolveCodexRollout(sessionId: string, recorded?: string | null): string | null {
-  if (recorded && existsSync(recorded)) return recorded;
+export function resolveCodexRollout(
+  sessionId: string,
+  recorded?: string | null,
+  context = createAuditDiscoveryContext(),
+): string | null {
+  if (recorded && existsSync(recorded)) return retainAuditPath(context.budget, recorded);
   try {
     const root = join(codexHome(), "sessions");
     if (!existsSync(root)) return null;
-    return findRolloutIn(root, `-${sessionId}.jsonl`, 0);
+    return (
+      indexedSourcePaths(context, [root]).find(
+        (path) =>
+          path.startsWith(`${root}/`) &&
+          basename(path).startsWith("rollout-") &&
+          path.endsWith(`-${sessionId}.jsonl`),
+      ) ?? null
+    );
   } catch {
     return null;
   }
@@ -296,16 +911,30 @@ function withinRange(markedAt: string, filters: DiscoveryFilters): boolean {
 }
 
 /** Lists the marked sessions of a repo that match the filters. */
-export function markerEnumeration(repoName: string): {
+export function markerEnumeration(
+  repoName: string,
+  context = createAuditDiscoveryContext(),
+): {
   state: "observed" | "unavailable";
   reason: "unreadable" | null;
   files: string[];
 } {
   const dir = repoAuditDir(repoName);
   try {
-    const files = readdirSync(dir).filter(
-      (file) => file.startsWith("session-") && file.endsWith(".log"),
-    );
+    const files: string[] = [];
+    const stream = opendirSync(dir);
+    try {
+      for (let entry = stream.readSync(); entry; entry = stream.readSync()) {
+        if (!retainAuditPath(context.budget, join(dir, entry.name))) {
+          omitAuditFacts(context.budget, 1, true);
+          break;
+        }
+        if (entry.name.startsWith("session-") && entry.name.endsWith(".log"))
+          files.push(entry.name);
+      }
+    } finally {
+      stream.closeSync();
+    }
     return { state: "observed", reason: null, files };
   } catch (error: unknown) {
     const code = typeof error === "object" && error !== null && "code" in error ? error.code : null;
@@ -319,9 +948,11 @@ export function markerEnumeration(repoName: string): {
 export function findMarkedSessions(
   repoName: string,
   filters: DiscoveryFilters = {},
+  includeChildren = true,
+  context = createAuditDiscoveryContext(),
 ): MarkedSession[] {
   const dir = repoAuditDir(repoName);
-  const enumeration = markerEnumeration(repoName);
+  const enumeration = markerEnumeration(repoName, context);
   if (enumeration.state !== "observed") return [];
 
   const sessions: MarkedSession[] = [];
@@ -331,19 +962,84 @@ export function findMarkedSessions(
       .replace(/^session-/, "")
       .replace(/\.log$/, "");
     const logFile = join(dir, file);
+    if (sessions.length >= context.budget.diagnostics.limits.sessionsPerReport) {
+      omitAuditFacts(context.budget, 1, true);
+      break;
+    }
+    if (filters.session && filters.session !== "latest" && !sessionId.startsWith(filters.session))
+      continue;
+    const cachedLog = context.logs.get(logFile);
+    const auditLogRecords: Record<string, unknown>[] = cachedLog?.records ?? [];
+    let auditNormalizationLoss = cachedLog?.normalizationLoss ?? 0;
+    let excluded = false;
+    let seenStart = auditLogRecords.some((record) => record.event === "start");
+    const auditReading =
+      cachedLog?.reading ??
+      readAuditJsonl(logFile, (value) => {
+        const normalized = normalizeAuditRecord(value, "audit-log");
+        auditNormalizationLoss += normalized.omitted;
+        if (normalized.omitted) omitAuditFacts(context.budget, normalized.omitted);
+        if (!normalized.value) return;
+        const record = normalized.value;
+        if (!seenStart && record.event === "start") {
+          seenStart = true;
+          retainRootAnchor(context, repoName, sessionId, record);
+        }
+        if (
+          record.event === "start" &&
+          typeof record.ts === "string" &&
+          Number.isFinite(Date.parse(record.ts)) &&
+          !filters.session &&
+          !withinRange(record.ts, filters)
+        ) {
+          excluded = true;
+          if (retainAuditFact(context.budget, null, record)) auditLogRecords.push(record);
+          return false;
+        }
+        if (!retainAuditFact(context.budget, sessionId, record)) return false;
+        auditLogRecords.push(record);
+      });
+    if (!cachedLog) {
+      const view = {
+        records: auditLogRecords,
+        reading: auditReading,
+        normalizationLoss: auditNormalizationLoss,
+        budget: context.budget,
+      };
+      // Account for the cache entry without recursively reserving the shared context itself.
+      if (retainAuditFact(context.budget, sessionId, { path: logFile }))
+        context.logs.set(logFile, view);
+    }
+    if (
+      excluded ||
+      (cachedLog &&
+        !filters.session &&
+        auditLogRecords.some(
+          (record) =>
+            record.event === "start" &&
+            typeof record.ts === "string" &&
+            Number.isFinite(Date.parse(record.ts)) &&
+            !withinRange(record.ts, filters),
+        ))
+    )
+      continue;
+    if (auditReading.stoppedEarly) omitAuditFacts(context.budget, 0, true);
     const { cwd, markedAt, transcript, host, identityConflict, present } = readHeader(
       logFile,
       sessionId,
       repoName,
+      auditLogRecords,
     );
     // A Codex hook payload's `transcript_path` is the rollout, not a Claude
     // transcript: it must never reach `parseSession`.
-    const claudeFile = host !== "codex" ? resolveTranscript(sessionId, cwd, transcript) : null;
-    const codexFile = host !== "claude" ? resolveCodexRollout(sessionId, transcript) : null;
+    const claudeFile =
+      host !== "codex" ? resolveTranscript(sessionId, cwd, transcript, context) : null;
+    const codexFile =
+      host !== "claude" ? resolveCodexRollout(sessionId, transcript, context) : null;
     const claudeSource =
-      host !== "codex" ? inspectSource(claudeFile, "claude", sessionId, cwd) : null;
+      host !== "codex" ? inspectSource(claudeFile, "claude", sessionId, cwd, context) : null;
     const codexSource =
-      host !== "claude" ? inspectSource(codexFile, "codex", sessionId, cwd) : null;
+      host !== "claude" ? inspectSource(codexFile, "codex", sessionId, cwd, context) : null;
     const recovered =
       host === "unknown"
         ? [claudeSource, codexSource].filter((source) => source?.status === "verified")
@@ -373,6 +1069,10 @@ export function findMarkedSessions(
     const source =
       resolvedHost === "codex" ? codexFile : resolvedHost === "claude" ? claudeFile : null;
     sessions.push({
+      auditLogRecords,
+      auditReading,
+      auditNormalizationLoss,
+      readBudget: context.budget,
       sessionId,
       logFile,
       cwd,
@@ -402,6 +1102,8 @@ export function findMarkedSessions(
       rollout: resolvedHost === "codex" ? codexFile : null,
     });
   }
+
+  if (includeChildren) qualifyRegisteredChildren(sessions, context);
 
   sessions.sort((a, b) => b.markedAt.localeCompare(a.markedAt));
 
@@ -471,6 +1173,7 @@ interface HostMember {
 function hostPopulation(
   roots: readonly string[],
   filters: DiscoveryFilters,
+  context = createAuditDiscoveryContext(),
 ): {
   members: HostMember[];
   allMembers: HostMember[];
@@ -485,40 +1188,24 @@ function hostPopulation(
   const codexFiles = new Set<string>();
   let identityConflict = false;
   try {
-    for (const root of roots) {
-      const dirs = hostSlugDirs(root, transcriptsRoot());
-      if (!existsSync(transcriptsRoot())) byHost.claude = false;
-      for (const dir of dirs)
-        for (const entry of readdirSync(dir))
-          if (entry.endsWith(".jsonl")) files.add(join(dir, entry));
-    }
+    if (!existsSync(transcriptsRoot())) byHost.claude = false;
     const codexRoot = join(codexHome(), "sessions");
     if (!existsSync(codexRoot)) byHost.codex = false;
-    else {
-      const walk = (dir: string, depth: number): void => {
-        if (depth > 8) {
-          complete = false;
-          return;
-        }
-        for (const entry of readdirSync(dir, { withFileTypes: true })) {
-          const file = join(dir, entry.name);
-          if (entry.isDirectory()) walk(file, depth + 1);
-          else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-            files.add(file);
-            codexFiles.add(file);
-          } else if (entry.isSymbolicLink()) complete = false;
-        }
-      };
-      walk(codexRoot, 0);
+    for (const file of indexedSourcePaths(context, [transcriptsRoot(), codexRoot])) {
+      if (file.startsWith(`${codexRoot}/`)) {
+        files.add(file);
+        codexFiles.add(file);
+      } else if (file.startsWith(`${transcriptsRoot()}/`) && !file.includes("/subagents/"))
+        files.add(file);
     }
+    if (context.budget.diagnostics.truncated) complete = false;
   } catch {
     complete = false;
   }
   for (const file of files) {
     const expectedHost = codexFiles.has(file) ? "codex" : "claude";
     try {
-      const line = sourceMetadataLine(file);
-      const record: unknown = line ? JSON.parse(line) : null;
+      const record: unknown = indexedSourceMetadata(file, context);
       if (typeof record !== "object" || record === null) {
         byHost[expectedHost] = false;
         continue;
@@ -553,7 +1240,7 @@ function hostPopulation(
         byHost[host] = false;
         continue;
       }
-      const identity = inspectSource(file, host, id, fields.cwd);
+      const identity = inspectSource(file, host, id, fields.cwd, context);
       if (identity.status !== "verified") {
         byHost[host] = false;
         identityConflict ||= identity.status === "identity-conflict";
@@ -611,15 +1298,6 @@ export interface AuditedRepos {
  * denominator built from the repo slug alone would drop every delegated session
  * and read as a coverage better than it is (R62).
  */
-function hostSlugDirs(root: string, transcripts: string): string[] {
-  if (!existsSync(transcripts)) return [];
-  const slug = encodeCwdToSlug(root);
-  const worktreePrefix = `${slug}--claude-worktrees-`;
-  return readdirSync(transcripts)
-    .filter((d) => d === slug || d.startsWith(worktreePrefix))
-    .map((d) => join(transcripts, d));
-}
-
 /**
  * Host sessions of the given project roots inside the period: the `*.jsonl`
  * files (sessions; subagent transcripts live in nested directories and do not
@@ -651,12 +1329,14 @@ export function repoCoverage(
   repo: string,
   filters: DiscoveryFilters = {},
   rootHint?: string,
+  context = createAuditDiscoveryContext(),
 ): { row: RepoCoverage; warning: string | null } {
-  const sessions = findMarkedSessions(repo);
+  const sessions = findMarkedSessions(repo, filters, true, context);
   const roots = rootsOf(sessions);
+  for (const root of context.repoRoots.get(repo) ?? []) if (!roots.includes(root)) roots.push(root);
   if (rootHint && !roots.includes(projectRootFromCwd(rootHint)))
     roots.push(projectRootFromCwd(rootHint));
-  const population = hostPopulation(roots, filters);
+  const population = hostPopulation(roots, filters, context);
   const marked = new Set(
     sessions
       .filter((s) => s.host !== "unknown" && s.sourceStatus !== "identity-conflict")
@@ -666,7 +1346,8 @@ export function repoCoverage(
     population.identityConflict || sessions.some((s) => s.sourceStatus === "identity-conflict");
   const activations = sessions.filter((m) => withinRange(m.markedAt, filters));
   const markerComplete =
-    markerEnumeration(repo).state === "observed" &&
+    markerEnumeration(repo, context).state === "observed" &&
+    !context.budget.diagnostics.truncated &&
     sessions.every((s) => Number.isFinite(Date.parse(s.markedAt)));
   const captureComplete = markerComplete && !identityConflict;
   const captured = captureComplete
@@ -741,25 +1422,39 @@ export function repoCoverage(
  * A directory is a repo only if it holds at least one session log, which keeps
  * `_all-repos/` (snapshots) and stray folders out.
  */
-export function listAuditedRepos(filters: DiscoveryFilters = {}): AuditedRepos {
+export function listAuditedRepos(
+  filters: DiscoveryFilters = {},
+  context = createAuditDiscoveryContext(),
+): AuditedRepos {
   const root = auditsRoot();
   const repos: RepoCoverage[] = [];
   const warnings: string[] = [];
   if (!existsSync(root)) return { repos, warnings };
 
-  for (const repo of readdirSync(root).sort()) {
-    const dir = join(root, repo);
-    try {
-      if (!statSync(dir).isDirectory()) continue;
-    } catch {
-      continue;
+  const directory = opendirSync(root);
+  try {
+    for (let entry = directory.readSync(); entry; entry = directory.readSync()) {
+      const repo = entry.name;
+      if (!retainAuditPath(context.budget, join(root, repo))) {
+        omitAuditFacts(context.budget, 1, true);
+        break;
+      }
+      const dir = join(root, repo);
+      try {
+        if (!statSync(dir).isDirectory()) continue;
+      } catch {
+        continue;
+      }
+      const enumeration = markerEnumeration(repo, context);
+      if (enumeration.state === "observed" && enumeration.files.length === 0) continue;
+      const { row, warning } = repoCoverage(repo, filters, undefined, context);
+      repos.push(row);
+      if (warning) warnings.push(warning);
     }
-    const enumeration = markerEnumeration(repo);
-    if (enumeration.state === "observed" && enumeration.files.length === 0) continue;
-    const { row, warning } = repoCoverage(repo, filters);
-    repos.push(row);
-    if (warning) warnings.push(warning);
+  } finally {
+    directory.closeSync();
   }
+  repos.sort((a, b) => a.repo.localeCompare(b.repo));
   return { repos, warnings };
 }
 

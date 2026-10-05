@@ -1,6 +1,6 @@
 import { assert, describe, it, expect, afterEach } from "vitest";
 import { join } from "node:path";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, openSync, writeSync, closeSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import {
@@ -16,10 +16,19 @@ import {
   sumTokens,
 } from "../parse.ts";
 import type { AgentRun, SessionAudit } from "../model.ts";
-import { emptyOrchestrator, emptyPermissionDecisions, emptyToolErrors } from "../model.ts";
-import { buildReport, renderJson, renderMarkdown } from "../report.ts";
+import {
+  emptyOrchestrator,
+  emptyPermissionDecisions,
+  emptyToolErrors,
+  AUDIT_READ_LIMITS,
+  createAuditReadBudget,
+  normalizeAuditRecord,
+  qualifyAuditMetadataRecords,
+} from "../model.ts";
+import { buildReport, publishReport, renderJson, renderMarkdown } from "../report.ts";
 import { detectSignals } from "../signals.ts";
 import type { HarnessCatalog } from "../harness.ts";
+import { readAuditJsonl } from "../paths.ts";
 
 /** The catalog is not what these specs are about: an empty one keeps the
  *  report renderable without pinning a harness shape they never read. */
@@ -68,6 +77,131 @@ describe("availability and trusted windows", () => {
     tsMs: Date.parse("2026-09-01T00:00:00Z") + seconds * 1000,
     ...over,
   });
+  // Covers: R21
+  it("accepts the actual 1MiB line boundary and reports an oversized complete line without retaining it", () => {
+    const prefix = '{"type":"user","padding":"';
+    const suffix = '"}';
+    const exact =
+      prefix +
+      "x".repeat(AUDIT_READ_LIMITS.maxLineBytes - Buffer.byteLength(prefix + suffix)) +
+      suffix;
+    const accepted = readJsonl(file(exact + "\n"));
+    expect(accepted.health.reading).toMatchObject({
+      oversizedLines: 0,
+      completeLines: 1,
+      stoppedEarly: false,
+    });
+    expect(accepted.lines).toHaveLength(1);
+    const rejected = readJsonl(file(exact.slice(0, -2) + "x" + suffix + "\n"));
+    expect(rejected.lines).toEqual([]);
+    expect(rejected.health).toMatchObject({
+      state: "unavailable",
+      reason: "incomplete-enumeration",
+    });
+    expect(rejected.health.reading).toMatchObject({
+      oversizedLines: 1,
+      omitted: 1,
+      incompleteTail: false,
+    });
+  });
+  // Covers: R21
+  it.runIf(process.env.NAVORI_AUDIT_BENCHMARK === "1")("benchmarks ten synthetic 50MiB rollouts without a CI speed threshold", () => {
+    const dir = mkdtempSync(join(tmpdir(), "audit-benchmark-"));
+    dirs.push(dir);
+    const budget = createAuditReadBudget();
+    const started = performance.now();
+    const rssBefore = process.memoryUsage().rss;
+    let sampledPeakRss = rssBefore;
+    let bytesRead = 0;
+    const targetBytes = 50 * 1024 * 1024;
+    const chunkBytes = 64 * 1024;
+    const messageLine = (bytes: number): string => {
+      const prefix = '{"type":"event_msg","payload":{"type":"agent_message","message":"';
+      const suffix = '"}}\n';
+      return prefix + "x".repeat(bytes - Buffer.byteLength(prefix + suffix)) + suffix;
+    };
+    for (let index = 0; index < 10; index++) {
+      const id = `synthetic-${index}`;
+      const target = join(dir, `rollout-${id}.jsonl`);
+      const header = JSON.stringify({ type: "session_meta", payload: { id, session_id: id, cli_version: "0.160.0", cwd: dir, source: "cli" } }) + "\n";
+      const fd = openSync(target, "wx", 0o600);
+      try {
+        writeSync(fd, header);
+        const full = messageLine(chunkBytes);
+        for (let row = 0; row < 799; row++) writeSync(fd, full);
+        writeSync(fd, messageLine(chunkBytes - Buffer.byteLength(header)));
+      } finally { closeSync(fd); }
+      expect(statSync(target).size).toBe(targetBytes);
+      const rootRecord = { event: "start", host: "codex", sessionId: id, cwd: dir, ts: "2026-09-01T00:00:00Z" };
+      const rootLog = recordFile([rootRecord]);
+      const reading = readAuditJsonl(rootLog, () => {});
+      const session = parseCodexSession(id, rootLog, target, undefined, { records: [rootRecord], reading, budget });
+      bytesRead += session?.sources?.rollout?.reading?.bytesRead ?? 0;
+      sampledPeakRss = Math.max(sampledPeakRss, process.memoryUsage().rss);
+    }
+    expect(bytesRead).toBe(10 * targetBytes);
+    process.stdout.write(JSON.stringify({ benchmark: "synthetic-10x50MiB", inputBytes: 10 * targetBytes, bytesRead,
+      elapsedMs: performance.now() - started, rssBefore, sampledPeakRss, budget: budget.diagnostics }) + "\n");
+  }, 120_000);
+  // Covers: R21
+  it("shares a lower report-wide fact ceiling and exposes unknown remainder rather than a complete zero", () => {
+    const budget = createAuditReadBudget({ factsPerReport: 4 });
+    const target = recordFile(Array.from({ length: 10 }, () => ({ type: "user", sessionId: "s" })));
+    const parsed = readJsonl(target, budget, "s");
+    expect(parsed.lines).toHaveLength(3); // One private path and three normalized records are retained.
+    expect(budget.diagnostics).toMatchObject({
+      retainedFacts: 4,
+      omittedFacts: null,
+      truncated: true,
+    });
+    expect(parsed.health).toMatchObject({ state: "partial", reason: "incomplete-enumeration" });
+    expect(parsed.health.reading).toMatchObject({ stoppedEarly: true, omitted: null });
+    expect(budget.diagnostics.omittedLowerBound).toBeGreaterThan(0);
+    const later = readJsonl(recordFile([{ type: "user" }]), budget, "other");
+    expect(later.health.state).toBe("unavailable");
+    expect(budget.diagnostics.retainedFacts).toBeLessThanOrEqual(4);
+  });
+  // Covers: R21, R5
+  it("drops oversized technical identities instead of clipping two distinct owners into one", () => {
+    const prefix = "a".repeat(256);
+    expect(
+      normalizeAuditRecord({ type: "session_meta", payload: { id: prefix } }, "rollout").value,
+    ).toMatchObject({ payload: { id: prefix } });
+    for (const ending of ["x", "y"]) {
+      const normalized = normalizeAuditRecord(
+        { type: "session_meta", payload: { id: prefix + ending } },
+        "rollout",
+      );
+      expect(normalized.omitted).toBe(1);
+      expect(normalized.value).toMatchObject({ payload: {} });
+    }
+  });
+  // Covers: R8, R21
+  it.each([false, true])(
+    "excludes every conflicting metadata ID before counts in either order (%s)",
+    (reverse) => {
+      const hook = {
+        wireVersion: 1,
+        eventId: "id",
+        host: "codex",
+        rootSessionId: "s",
+        event: "hook",
+        name: "test",
+        source: "core",
+        phase: "PreToolUse",
+        verdict: "allow",
+        ms: 1,
+        tsMs: 1,
+      };
+      const conflicting = { ...hook, verdict: "deny" };
+      const records = reverse ? [conflicting, hook, hook] : [hook, conflicting, hook];
+      const result = qualifyAuditMetadataRecords(records, createAuditReadBudget(), "s");
+      expect(result).toMatchObject({ records: [], conflicts: 1, unsupported: 0 });
+      const same = qualifyAuditMetadataRecords([hook, { ...hook }], createAuditReadBudget(), "s");
+      expect(same.records).toHaveLength(1);
+      expect(same.conflicts).toBe(0);
+    },
+  );
   // Covers: R6, R7
   it.each(["unknown-only", "root-and-unknown", "recognized-zero", "unknown-shape"])(
     "qualifies recognized tool evidence independently of descriptive records: %s",
@@ -452,11 +586,15 @@ describe("availability and trusted windows", () => {
     );
     const rollout = file(
       [
-        { type: "session_meta", timestamp: "2026-09-01T10:00:00Z", payload: { id: "s" } },
+        {
+          type: "session_meta",
+          timestamp: "2026-09-01T10:00:00Z",
+          payload: { id: "s", session_id: "s", cli_version: "0.160.0", cwd: "/work" },
+        },
         {
           type: "event_msg",
           timestamp: "2026-08-01T00:00:00Z",
-          payload: { type: "task_started", thread_id: "parent" },
+          payload: { type: "task_started", turn_id: "inherited" },
         },
         { type: "event_msg", timestamp: "2026-09-01T10:10:00Z", payload: { type: "task_started" } },
       ]
@@ -466,7 +604,7 @@ describe("availability and trusted windows", () => {
     const s = parseCodexSession("s", log, rollout);
     expect(s?.availability?.wallClockMs?.state).toBe("unavailable");
     expect(s?.sources?.rollout?.reason).toBe("ownership-unknown");
-    expect(s?.availability?.["tokens.cacheCreation"]?.state).toBe("unsupported");
+    expect(s?.availability?.["tokens.cacheCreation"]?.state).toBe("unavailable");
   });
   // Covers: R7
   it("uses explicitly owned hook-free source activity but keeps active time unknown", () => {
@@ -480,11 +618,26 @@ describe("availability and trusted windows", () => {
     );
     const rollout = file(
       [
-        { type: "session_meta", timestamp: "2026-09-01T10:00:00Z", payload: { id: "s" } },
+        {
+          type: "session_meta",
+          timestamp: "2026-09-01T10:00:00Z",
+          payload: { id: "s", session_id: "s", cli_version: "0.160.0", cwd: "/work" },
+        },
         {
           type: "event_msg",
           timestamp: "2026-09-01T10:10:00Z",
-          payload: { type: "task_started", thread_id: "s" },
+          payload: { type: "task_started", turn_id: "own-turn" },
+        },
+        {
+          type: "event_msg",
+          timestamp: "2026-09-01T10:10:00Z",
+          payload: {
+            type: "item_started",
+            thread_id: "s",
+            turn_id: "own-turn",
+            item: { type: "CommandExecution", id: "own-call" },
+            started_at_ms: 1788257400000,
+          },
         },
       ]
         .map((r) => JSON.stringify(r))
@@ -2207,7 +2360,23 @@ describe("parse: Codex rollout adapter (spec 0041 T18)", () => {
         base_instructions: SECRET,
       }),
       rec("2026-10-03T03:11:19.000Z", "event_msg", { type: "task_started", turn_id: "t1" }),
-      rec("2026-10-03T03:11:19.500Z", "turn_context", { model: "gpt-5.5", cwd: "/work/repo" }),
+      rec("2026-10-03T03:11:19.500Z", "turn_context", {
+        turn_id: "t1",
+        model: "gpt-5.5",
+        cwd: "/work/repo",
+      }),
+      rec("2026-10-03T03:11:19.600Z", "event_msg", {
+        type: "item_started",
+        thread_id: SID,
+        turn_id: "t1",
+        item: { type: "CommandExecution", id: "c1" },
+        started_at_ms: 1790997079600,
+      }),
+      rec("2026-10-03T03:11:19.700Z", "event_msg", {
+        type: "collab_agent_interaction_begin",
+        call_id: "c2",
+        sender_thread_id: SID,
+      }),
       rec("2026-10-03T03:11:20.000Z", "response_item", {
         type: "message",
         role: "user",
@@ -2261,6 +2430,189 @@ describe("parse: Codex rollout adapter (spec 0041 T18)", () => {
     });
     expect(session?.orchestrator.turns).toBe(1);
     expect(session?.unavailable).toBe("transcript");
+  });
+
+  // Covers: R4, R5
+  it("deduplicates response usage without adding cumulative snapshots or default-zero subsets", () => {
+    const usage = JSON.stringify({
+      type: "token_usage_record",
+      timestamp: "2026-10-03T03:11:23.000Z",
+      payload: {
+        thread_id: SID,
+        session_id: SID,
+        turn_id: "t1",
+        response_id: "response-private",
+        usage: {
+          input_tokens: 100,
+          cached_input_tokens: 20,
+          cache_write_input_tokens: 10,
+          output_tokens: 40,
+          reasoning_output_tokens: 15,
+          total_tokens: 140,
+        },
+        turn_token_usage: { total_tokens: 9999 },
+        thread_token_usage: { total_tokens: 99999 },
+      },
+    });
+    const snapshot = JSON.stringify({
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: { total_tokens: 50000 },
+          last_token_usage: { total_tokens: 50000 },
+        },
+      },
+    });
+    const { log, rollout } = fixture(
+      `${[...rolloutLines(), usage, usage, snapshot, snapshot].join("\n")}\n`,
+    );
+    const parsed = parseCodexSession(SID, log, rollout)!;
+    const before = JSON.stringify(parsed);
+    const report = buildReport([parsed], {
+      repo: "r",
+      version: "0",
+      catalog: { agents: [], skills: [], hooks: [] } as unknown as HarnessCatalog,
+    });
+    expect(report.totals.tokens).toMatchObject({
+      input: 70,
+      cacheRead: 20,
+      cacheCreation: 10,
+      output: 40,
+      thinking: 15,
+    });
+    expect(report.sessions[0]?.orchestrator.codex?.usage).toMatchObject({
+      inputTotal: 100,
+      totalTokens: 140,
+    });
+    expect(JSON.stringify(parsed)).toBe(before);
+    expect(JSON.stringify(publishReport(report))).not.toContain("response-private");
+    expect(renderMarkdown(report, "en")).toContain(
+      "input 100 · ordinary input 70 · output 40 · total 140",
+    );
+  });
+
+  // Covers: R4, R5
+  it("retains unknown unowned activity instead of qualifying copied tool and turn rows", () => {
+    const lines = rolloutLines().filter(
+      (line) => !line.includes("item_started") && !line.includes("collab_agent_interaction_begin"),
+    );
+    const { log, rollout } = fixture(`${lines.join("\n")}\n`);
+    const parsed = parseCodexSession(SID, log, rollout)!;
+    const report = buildReport([parsed], {
+      repo: "r",
+      version: "0",
+      catalog: { agents: [], skills: [], hooks: [] } as unknown as HarnessCatalog,
+    });
+    expect(parsed.availability?.tools).toMatchObject({
+      state: "unavailable",
+      reason: "ownership-unknown",
+    });
+    expect(publishReport(report).sessions[0]?.orchestrator.toolCounts).toBeNull();
+    expect(publishReport(report).sessions[0]?.orchestrator.turns).toBeNull();
+  });
+
+  // Covers: R4, R5
+  it.each([false, true])(
+    "does not charge conflicting response copies in either order: reverse=%s",
+    (reverse) => {
+      const responses = [40, 60].map((output) =>
+        JSON.stringify({
+          type: "token_usage_record",
+          payload: {
+            thread_id: SID,
+            session_id: SID,
+            turn_id: "t1",
+            response_id: "conflict",
+            usage: {
+              input_tokens: 100,
+              cached_input_tokens: 20,
+              cache_write_input_tokens: 10,
+              output_tokens: output,
+              total_tokens: 100 + output,
+              reasoning_output_tokens: 15,
+            },
+          },
+        }),
+      );
+      if (reverse) responses.reverse();
+      const { log, rollout } = fixture(`${[...rolloutLines(), ...responses].join("\n")}\n`);
+      const report = buildReport([parseCodexSession(SID, log, rollout)!], {
+        repo: "r",
+        version: "0",
+        catalog: { agents: [], skills: [], hooks: [] } as unknown as HarnessCatalog,
+      });
+      const published = publishReport(report);
+      expect(published.totals.tokens.output).toBeNull();
+      expect(published.totals.tokens.input).toBe(70);
+      expect(report.sessions[0]?.orchestrator.codex?.usageAvailability.output).toMatchObject({
+        state: "invalid",
+        reason: "identity-conflict",
+      });
+      expect(report.availability?.["tokens.output"]?.contributors).toBe(0);
+    },
+  );
+
+  // Covers: R4, R5
+  it.each([0, 100])(
+    "distinguishes provider-default zero subsets from mathematically constrained zero input=%s",
+    (input) => {
+      const response = JSON.stringify({
+        type: "token_usage_record",
+        payload: {
+          thread_id: SID,
+          session_id: SID,
+          turn_id: "t1",
+          response_id: "zero-subsets",
+          usage: {
+            input_tokens: input,
+            output_tokens: input,
+            cached_input_tokens: 0,
+            cache_write_input_tokens: 0,
+            reasoning_output_tokens: 0,
+            total_tokens: 2 * input,
+          },
+        },
+      });
+      const { log, rollout } = fixture(`${[...rolloutLines(), response].join("\n")}\n`);
+      const report = buildReport([parseCodexSession(SID, log, rollout)!], {
+        repo: "r",
+        version: "0",
+        catalog: { agents: [], skills: [], hooks: [] } as unknown as HarnessCatalog,
+      });
+      const published = publishReport(report);
+      expect(published.totals.tokens.cacheRead).toBe(input === 0 ? 0 : null);
+      expect(published.totals.tokens.thinking).toBe(input === 0 ? 0 : null);
+      expect(report.availability?.["tokens.cacheRead"]?.contributors).toBe(input === 0 ? 1 : 0);
+      expect(report.sessions[0]?.orchestrator.codex?.usage.inputTotal).toBe(input);
+    },
+  );
+
+  // Covers: R4, R5, R9
+  it("withholds amounts with contradictory response root ownership rather than repairing the IDs", () => {
+    const response = JSON.stringify({
+      type: "token_usage_record",
+      payload: {
+        thread_id: SID,
+        session_id: "different-root",
+        turn_id: "t1",
+        response_id: "wrong-root-response",
+        usage: { input_tokens: 100, output_tokens: 40, total_tokens: 140 },
+      },
+    });
+    const { log, rollout } = fixture(`${[...rolloutLines(), response].join("\n")}\n`);
+    const parsed = parseCodexSession(SID, log, rollout)!;
+    expect(parsed.sources?.rollout).toMatchObject({
+      state: "invalid",
+      reason: "identity-conflict",
+    });
+    const report = buildReport([parsed], {
+      repo: "r",
+      version: "0",
+      catalog: { agents: [], skills: [], hooks: [] } as unknown as HarnessCatalog,
+    });
+    expect(publishReport(report).totals.tokens.output).toBeNull();
+    expect(report.availability?.["tokens.output"]?.contributors).toBe(0);
   });
 
   // Covers: R3

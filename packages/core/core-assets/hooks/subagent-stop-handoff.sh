@@ -92,6 +92,46 @@ payload_field() { :; }
 nv_subagent_type() { :; }
 # navori:include extract-cmd
 # navori:include hook-input
+navori_audit_repo_from_cwd() { :; }
+# navori:include audit-repo
+
+# Observe only native Codex child lifecycle payloads. The CLI validates source
+# ownership/version and private marker identity; this guard only avoids spawning
+# capture when the exact root session has not opted in. Never use the stop
+# payload's common transcript_path: it belongs to the immediate parent.
+navori_capture_child() {
+  [ "${nv_engine:-}" = codex ] || return 0
+  local event root_id child_id source audit_root repo
+  event=$(payload_field hook_event_name)
+  case "$event" in
+    SubagentStart) source=$(payload_field transcript_path) ;;
+    SubagentStop) source=$(payload_field agent_transcript_path) ;;
+    *) return 0 ;;
+  esac
+  root_id=$(payload_field session_id)
+  child_id=$(payload_field agent_id)
+  case "$root_id" in "" | *[!A-Za-z0-9_-]*) return 0 ;; esac
+  case "$child_id" in "" | *[!A-Za-z0-9_-]*) return 0 ;; esac
+  [ -n "$source" ] || return 0
+  audit_root=${NAVORI_AUDITS_ROOT:-}
+  if [ -z "$audit_root" ]; then
+    [ -n "${HOME:-}" ] || return 0
+    audit_root=$HOME/.navori/audits
+  fi
+  repo=$(navori_audit_repo_from_cwd "${nv_project_dir:-}")
+  [ -n "$repo" ] || return 0
+  [ -f "$audit_root/$repo/session-$root_id.log" ] || return 0
+  [ ! -L "$audit_root/$repo/session-$root_id.log" ] || return 0
+  command -v navori >/dev/null 2>&1 || return 0
+  navori audit --capture-child "$child_id" --root-session "$root_id" \
+    --rollout "$source" --cwd "${nv_cwd:-${nv_project_dir:-.}}" >/dev/null 2>&1 || true
+  return 0
+}
+navori_capture_child || true
+# Startup is observation-only, before handoff stamps/scans and the historical
+# PostToolUse EXIT recorder. Missing sources retry at stop; never poll or wait.
+[ "${2:-}" != capture-start ] || exit 0
+
 navori_handoff_key=$(payload_field session_id)
 case "$navori_handoff_key" in
   "" | *[!A-Za-z0-9_-]*) navori_handoff_key="anon" ;;
@@ -110,7 +150,6 @@ navori_handoff_stamp="${TMPDIR:-/tmp}/navori-handoff-$navori_handoff_repo-$navor
 # never have.
 navori_audit_begin() { :; }
 navori_audit_log() { :; }
-# navori:include audit-repo
 # navori:include audit-log
 navori_audit_begin
 
