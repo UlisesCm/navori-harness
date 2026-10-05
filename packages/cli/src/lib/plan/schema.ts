@@ -85,6 +85,21 @@ export const RiskSchema = z.object({
   rollback: z.string().min(1),
 });
 
+/** Current authority and criterion identity of an opt-in delivery projection. */
+export const DeliveryPlanSourceSchema = z.strictObject({
+  kind: z.literal("master-delivery"),
+  stageSlug: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+  deliveryId: z.string().regex(/^E\d+$/),
+  partId: z.string().regex(/^P\d+$/),
+  baselineIdentity: z.string().regex(/^[a-f0-9]{64}$/),
+  queueIdentity: z.string().regex(/^[a-f0-9]{64}$/),
+  contractDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  sourceDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  designDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  masterDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  criterionMap: z.record(z.string().regex(ACCEPTANCE_ID), z.string().regex(/^P\d+\.A\d+$/)),
+});
+
 export const WorkplanSchema = z.object({
   feature: z.string().min(1),
   level: PlanLevelSchema,
@@ -104,6 +119,7 @@ export const WorkplanSchema = z.object({
   solution: SolutionSchema.optional(),
   phases: z.array(PhaseSchema).optional(),
   risks: z.array(RiskSchema).optional(),
+  source: DeliveryPlanSourceSchema.optional(),
 });
 
 export type PlanLevel = (typeof PLAN_LEVELS)[number];
