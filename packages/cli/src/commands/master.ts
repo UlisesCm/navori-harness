@@ -4,6 +4,7 @@
  * `part`, `template` and `close` to this same command (design.md D1).
  */
 import { defineCommand } from "citty";
+import { prepareDeliverySlice } from "../lib/master/slice.ts";
 import {
   approveDeliveryBaseline,
   authorizeDeliveryQueue,
@@ -504,6 +505,23 @@ const closeSubCommand = defineCommand({
 export const masterCommand = defineCommand({
   meta: { name: "master", description: "Master-plan project flow (spec 0034)" },
   subCommands: {
+    "delivery-slice": defineCommand({
+      meta: { name: "delivery-slice", description: "Project an authorized slice into a workplan" },
+      args: {
+        cwd: { type: "string", description: "Repo root" },
+        part: { type: "string", description: "P<n>", required: true },
+      },
+      run({ args }) {
+        try {
+          const cwd = resolve(typeof args.cwd === "string" ? args.cwd : process.cwd());
+          process.stdout.write(
+            `${JSON.stringify(prepareDeliverySlice(cwd, typeof args.part === "string" ? args.part : ""))}\n`,
+          );
+        } catch (cause: unknown) {
+          reportError(cause);
+        }
+      },
+    }),
     "delivery-check": defineCommand({
       meta: { name: "delivery-check", description: "Check delivery preparation without writes" },
       args: { cwd: { type: "string", description: "Repo root" } },

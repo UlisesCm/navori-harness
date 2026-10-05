@@ -281,7 +281,7 @@ function evaluateWorkplan(root: StateRoot, feature: string): PlanGateResult {
     );
   }
 
-  const result = checkWorkplan(raw);
+  const result = checkWorkplan(raw, root.cwd);
   if (!result.ok) {
     return deny(
       `\`navori plan check ${feature}\` fails:\n${formatCheckResult(result)}\n` +
