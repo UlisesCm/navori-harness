@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -74,6 +74,24 @@ describe("acquireDistLock", () => {
 
   it("uses a different lock for each checkout", () => {
     expect(distLockPath("/tmp/navori-a")).not.toBe(distLockPath("/tmp/navori-b"));
+  });
+
+  it("keeps checkout coordination stable in children inheriting routed tmp variables", () => {
+    const root = packageRoot();
+    const modulePath = fileURLToPath(new URL("../../vitest.distLock.ts", import.meta.url));
+    const result = spawnSync(
+      "bun",
+      [
+        "-e",
+        `import {distLockPath} from ${JSON.stringify(modulePath)}; process.stdout.write(distLockPath(${JSON.stringify(root)}));`,
+      ],
+      {
+        env: { ...process.env, TMPDIR: root, TMP: root, TEMP: root },
+        encoding: "utf8",
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe(distLockPath(root));
   });
 });
 

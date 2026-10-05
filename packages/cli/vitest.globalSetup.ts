@@ -1,10 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describeNavoriHomeLeak, realNavoriHome, snapshotNavoriHome } from "./vitest.homeGuard.ts";
 import { acquireDistLock, releaseOnProcessExit, type DistLockHandle } from "./vitest.distLock.ts";
+import { createTempRun, type TempRun } from "./vitest.tempLifecycle.ts";
+import type { TestProject } from "vitest/node";
 
 const pkgRoot = dirname(fileURLToPath(import.meta.url));
 
@@ -15,11 +14,10 @@ const pkgRoot = dirname(fileURLToPath(import.meta.url));
  * suite lock stays held from the build through global teardown. A live lock is
  * never reclaimed by age: a long suite is safer than deleting dist/ below it.
  */
-export default async function setup(): Promise<() => void> {
+export default async function setup(project: TestProject): Promise<() => void> {
   let lock: DistLockHandle | undefined;
   let disarmExitRelease: (() => void) | undefined;
-  let runRoot: string | undefined;
-  let runHome: string | undefined;
+  let run: TempRun | undefined;
 
   try {
     lock = await acquireDistLock({ packageRoot: pkgRoot });
@@ -36,33 +34,12 @@ export default async function setup(): Promise<() => void> {
       );
     }
 
-    runRoot = mkdtempSync(join(tmpdir(), "navori-test-backups-"));
-    process.env.NAVORI_BACKUP_ROOT = runRoot;
-
-    runHome = mkdtempSync(join(tmpdir(), "navori-test-home-"));
-    process.env.HOME = runHome;
-    // `os.homedir()` reads USERPROFILE on Windows and HOME elsewhere.
-    process.env.USERPROFILE = runHome;
-
-    const realRoot = realNavoriHome();
-    const selfRepo = basename(resolve(pkgRoot, "..", ".."));
-    const before = snapshotNavoriHome(realRoot);
+    run = createTempRun();
+    project.provide("navoriTempRunRoot", run.root);
 
     return () => {
       try {
-        rmSync(runRoot, { recursive: true, force: true });
-        const leak = realRoot
-          ? describeNavoriHomeLeak(realRoot, before, snapshotNavoriHome(realRoot), selfRepo)
-          : null;
-        if (!leak) {
-          rmSync(runHome, { recursive: true, force: true });
-          return;
-        }
-        process.stderr.write(
-          `\n✖ ~/.navori isolation guard (#404/#424)\n${leak}\n` +
-            `  The run's home is kept for inspection: ${runHome}\n\n`,
-        );
-        process.exitCode = 1;
+        run?.dispose();
       } finally {
         disarmExitRelease?.();
         lock?.release();
@@ -70,8 +47,7 @@ export default async function setup(): Promise<() => void> {
     };
   } catch (error) {
     try {
-      if (runRoot) rmSync(runRoot, { recursive: true, force: true });
-      if (runHome) rmSync(runHome, { recursive: true, force: true });
+      run?.dispose();
     } finally {
       disarmExitRelease?.();
       lock?.release();
