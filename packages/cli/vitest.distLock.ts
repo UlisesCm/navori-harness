@@ -5,6 +5,9 @@ import { createHash, randomUUID } from "node:crypto";
 
 const DEFAULT_WAIT_MS = 10 * 60 * 1000;
 const DEFAULT_POLL_MS = 200;
+// Capture before fixture routing; descendants inherit this coordination base.
+const coordinationBase = process.env.NAVORI_TEST_COORDINATION_BASE ?? tmpdir();
+process.env.NAVORI_TEST_COORDINATION_BASE = coordinationBase;
 
 interface DistLockFileSystem {
   mkdir(path: string): void;
@@ -50,7 +53,7 @@ export interface DistLockHandle {
 export function distLockPath(packageRoot: string): string {
   const resolvedRoot = resolve(packageRoot);
   const hash = createHash("sha256").update(resolvedRoot).digest("hex").slice(0, 16);
-  return join(tmpdir(), `navori-cli-dist-${basename(resolvedRoot)}-${hash}.lock`);
+  return join(coordinationBase, `navori-cli-dist-${basename(resolvedRoot)}-${hash}.lock`);
 }
 
 function wait(ms: number): Promise<void> {
@@ -90,7 +93,10 @@ export async function acquireDistLock(options: DistLockOptions): Promise<DistLoc
     try {
       fileSystem.mkdir(lockPath);
       acquiredDirectory = true;
-      fileSystem.writeFile(join(lockPath, "owner.json"), JSON.stringify({ token, packageRoot: resolve(options.packageRoot) }));
+      fileSystem.writeFile(
+        join(lockPath, "owner.json"),
+        JSON.stringify({ token, packageRoot: resolve(options.packageRoot) }),
+      );
       break;
     } catch (error) {
       if (acquiredDirectory) {
@@ -150,7 +156,10 @@ export interface ExitEmitter {
  * synchronously on that path, and `release()` is token-checked, so this never
  * removes another owner's lock.
  */
-export function releaseOnProcessExit(handle: DistLockHandle, target: ExitEmitter = process): () => void {
+export function releaseOnProcessExit(
+  handle: DistLockHandle,
+  target: ExitEmitter = process,
+): () => void {
   const onExit = (): void => {
     try {
       handle.release();
