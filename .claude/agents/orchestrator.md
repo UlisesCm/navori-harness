@@ -174,13 +174,13 @@ If the task is a pure reading / conceptual question → answer directly, no suba
 Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Continue with scoped native tools if unavailable.
 <!-- /navori:managed id="codegraph-access-v2-orchestrator" -->
 
-<!-- navori:managed id="codex-cross-review" hash="3407b4bc" version="0.11.2" source="@navori/core" -->
+<!-- navori:managed id="codex-cross-review" hash="352a2910" version="0.11.2" source="@navori/core" -->
 ## Cross-model review (Codex second opinion)
 
 For a second opinion from a **different provider**, after `reviewer` approves a non-trivial diff—or for a critical-area change—you MAY ask Codex to review it against `AGENTS.md`:
 
 ```bash
-codex exec "revisa el diff origin/main...HEAD según los estándares del repo; inspecciona sin editar archivos ni hacer commits"
+codex exec "revisa el diff origin/dev...HEAD según los estándares del repo; inspecciona sin editar archivos ni hacer commits"
 ```
 
 - Plain root `codex exec` does not select `.codex/agents/reviewer.toml`; its prompt is not a read-only boundary. Effective permissions and approvals depend on Codex configuration and host policy. Full Access can modify files and use the network; do not assume isolation or approvals.

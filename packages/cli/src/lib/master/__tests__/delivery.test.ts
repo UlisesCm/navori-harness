@@ -158,7 +158,9 @@ describe("delivery authority", () => {
     approveDeliveryBaseline(cwd, "user");
     authorizeDeliveryQueue(cwd, "E1", ["P1"], "user");
     expect(readFileSync(path, "utf8")).toBe(original);
-    expect(readMasterStatus(cwd).blockers).toEqual([]);
+    // Baseline approval is not technical completion: this fixture has no git provenance.
+    expect(readMasterStatus(cwd).blockers).toEqual(["not a readable git checkout"]);
+    expect(readMasterStatus(cwd).closable).toBe(false);
     const before = readFileSync(join(stage, "state.json"), "utf8");
     const state = JSON.parse(before) as { baseline: { masterDigest: string } };
     expect(state.baseline.masterDigest).toBe(createHash("sha256").update(original).digest("hex"));
@@ -229,7 +231,7 @@ describe("delivery authority", () => {
     expect(readFileSync(statePath, "utf8")).toBe(after);
     expect(authorizeDeliveryQueue(cwd, "E1", ["P1"], "user").unchanged).toBe(false);
     const queued = readFileSync(statePath, "utf8");
-    expect(authorizeDeliveryQueue(cwd, "E1", ["P1"], "user").unchanged).toBe(true);
+    expect(authorizeDeliveryQueue(cwd, "E1", ["P1"], "user", "continuation").unchanged).toBe(true);
     expect(readFileSync(statePath, "utf8")).toBe(queued);
   });
   it("rejects source drift before replacing approval", () => {

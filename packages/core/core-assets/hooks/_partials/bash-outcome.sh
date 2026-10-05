@@ -43,11 +43,22 @@ navori_tree_fingerprint() {
     scratch=$(navori_git rev-parse --path-format=absolute --git-path navori-fp-index 2>/dev/null) || exit 1
     [ -n "$scratch" ] || exit 1
     [ ! -e "$scratch.lock" ] || exit 1
+    local stage=${2:-}
+    if [ -n "$stage" ]; then
+      case "$stage" in /* | *[[:cntrl:]]* | *\\* | */../* | ../* | */.. | */./* | ./*) exit 1 ;; esac
+      local physical
+      physical=$(cd "$stage" 2>/dev/null && pwd -P) || exit 1
+      [ "$physical" = "$(pwd -P)/$stage" ] || exit 1
+      [ -f "$stage/state.json" ] && [ ! -L "$stage/state.json" ] || exit 1
+      [ ! -L "$stage/STATUS.md" ] || exit 1
+    fi
     work=$(mktemp -d "${TMPDIR:-/tmp}/navori-fp.XXXXXX" 2>/dev/null) || exit 1
     trap 'rm -f "$work"/list "$work"/files "$work"/links "$work"/paths "$work"/shas; rmdir "$work" 2>/dev/null' EXIT
+    local exclusions=()
+    [ -z "$stage" ] || exclusions=(":(exclude,literal)$stage/state.json" ":(exclude,literal)$stage/STATUS.md")
     navori_git ls-files -z --cached --others --exclude-standard --deduplicate -- . \
       ':(exclude).navori/state' ':(exclude).claude/progress' ':(exclude).codex/progress' \
-      ':(exclude).claude/worktrees' > "$work/list" 2>/dev/null || exit 1
+      ':(exclude).claude/worktrees' ${exclusions[@]+"${exclusions[@]}"} > "$work/list" 2>/dev/null || exit 1
     : > "$work/links"
     while IFS= read -r -d '' p; do
       case "$p" in *$'\n'*) exit 1 ;; esac
@@ -276,11 +287,11 @@ navori_bash_success_lane() {
   case "$payload" in
     *'"run_in_background":true'* | *'"interrupted":true'*) return 0 ;;
   esac
-  local c f i d hits=
-  while IFS=$'\t' read -r c f i d; do
+  local c f i d binding stage hits=
+  while IFS=$'\t' read -r c f i d binding stage; do
     [ -n "$c" ] || continue
     case "$payload" in
-      *'"command":"'"$c"'"'[,}]*) hits="$hits$c"$'\t'"$f"$'\t'"$i"$'\t'"$d"$'\n' ;;
+      *'"command":"'"$c"'"'[,}]*) hits="$hits$c"$'\t'"$f"$'\t'"$i"$'\t'"$d"$'\t'"$binding"$'\t'"$stage"$'\n' ;;
     esac
   done < "$idx"
   [ -n "$hits" ] || return 0
@@ -293,18 +304,14 @@ navori_bash_success_lane() {
   tree=$(navori_git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || return 0
   case "$cwd$tree" in *[[:cntrl:]]*) return 0 ;; esac
   head=$(navori_git -C "$tree" rev-parse HEAD 2>/dev/null) || head=
-  wt=$(navori_tree_fingerprint "$tree") || return 0
-  [ -n "$wt" ] || return 0
   htree=$(navori_git -C "$tree" rev-parse 'HEAD^{tree}' 2>/dev/null) || htree=
-  dirty=true
-  [ "$wt" = "$htree" ] && dirty=false
   sid=$(payload_field session_id | tr -cd 'A-Za-z0-9._-')
   agent=$(payload_field agent_id | tr -cd 'A-Za-z0-9._-')
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   root=$(pwd -P 2>/dev/null) || root=$nv_project_dir
 
   local line extra file
-  while IFS=$'\t' read -r c f i d; do
+  while IFS=$'\t' read -r c f i d binding stage; do
     [ -n "$f" ] || continue
     # The index is CLI-written state, but the hook is the one that opens a path
     # taken from it: slug and id shapes, an absolute directory inside this
@@ -319,10 +326,20 @@ navori_bash_success_lane() {
     [ -d "$d" ] && [ ! -L "$d" ] || continue
     file=$d/workplan_$f.evidence.jsonl
     [ ! -L "$file" ] || continue
+    if [ -n "$binding" ]; then
+      [ -n "$stage" ] || continue
+      case "$binding" in '{'*'}') ;; *) continue ;; esac
+    elif [ -n "$stage" ]; then continue
+    fi
+    wt=$(navori_tree_fingerprint "$tree" "$stage") || continue
+    [ -n "$wt" ] || continue
+    dirty=true
+    [ "$wt" = "$htree" ] && dirty=false
     # `$c` is already JSON-escaped: it is the index's own field.
     extra=
     [ -z "$sid" ] || extra=$extra',"sessionId":"'$sid'"'
     [ -z "$agent" ] || extra=$extra',"agentId":"'$agent'"'
+    [ -z "$binding" ] || extra=$extra',"deliveryBinding":'$binding
     line='{"ts":"'$ts'","feature":"'$f'","id":"'$i'","command":"'$c'","tree":"'$(navori_json_str "$tree")'","cwd":"'$(navori_json_str "$cwd")'","head":"'$head'","worktreeTree":"'$wt'","dirty":'$dirty$extra'}'
     printf '%s\n' "$line" >> "$file" 2>/dev/null || true
   done <<NAVORI_HITS

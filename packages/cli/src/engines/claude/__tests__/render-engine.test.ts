@@ -58,6 +58,49 @@ afterEach(() => {
 });
 
 describe("renderClaudeEngine — first render with full config", () => {
+  it.each([undefined, "dev"])(
+    "renders the PR target independently from the main fork point: %s",
+    (prTarget: string | undefined): void => {
+      renderClaudeEngine(cwd, { ...CONFIG_FULL, prTarget });
+      const target = prTarget ?? "main";
+      const reviewer = readFileSync(join(cwd, ".claude/agents/reviewer.md"), "utf-8");
+      const publisher = readFileSync(join(cwd, ".claude/agents/publisher.md"), "utf-8");
+      const implementer = readFileSync(join(cwd, ".claude/agents/implementer.md"), "utf-8");
+      const roleContracts: ReadonlyArray<readonly [string, readonly string[]]> = [
+        [
+          reviewer,
+          [
+            `git fetch origin ${target} --quiet`,
+            `HEAD..origin/${target}`,
+            `git diff "origin/${target}"`,
+            `--target ${target} --dir .navori/state/handoffs --json`,
+          ],
+        ],
+        [
+          publisher,
+          [
+            `git fetch origin ${target} --quiet`,
+            `HEAD..origin/${target}`,
+            `git log origin/${target}..HEAD --oneline`,
+            `diff --name-only "origin/${target}"`,
+            `navori receipt check --feature <feature> --target ${target} `,
+            `--base ${target}`,
+            "base=main",
+          ],
+        ],
+        [implementer, [`git diff --stat origin/${target}...HEAD`]],
+      ];
+      for (const [body, commands] of roleContracts) {
+        for (const command of commands) {
+          expect(body).toContain(command);
+        }
+      }
+      expect(
+        reviewer.split(`navori receipt sign --feature <feature> --target ${target} `),
+      ).toHaveLength(3);
+    },
+  );
+
   it("creates CLAUDE.md, .claude/settings.json, 8 agents (architect always on), 2 skills, qg hook", () => {
     const r = renderClaudeEngine(cwd, CONFIG_FULL);
 

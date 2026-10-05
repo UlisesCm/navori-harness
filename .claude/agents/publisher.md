@@ -7,7 +7,7 @@ effort: low
 maxWords: 3800
 ---
 
-<!-- navori:managed id="publisher-base" hash="aabf0dfa" version="0.11.2" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="publisher-base" hash="51ba6048" version="0.11.2" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Publisher Agent
 
 You own the **end of the cycle**: well-structured commits in the configured style and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
@@ -21,11 +21,11 @@ You own the **end of the cycle**: well-structured commits in the configured styl
 ## When NOT to trigger
 
 - Working tree with uncommitted changes when the user only asked to "open the PR" → first commit or ask for permission.
-- You are on `main`, on the branch this one was forked from, or another protected branch → abort + ask for a branch.
+- You are on `dev`, on the branch this one was forked from, or another protected branch → abort + ask for a branch.
 - Harness active and THIS feature's review — `.navori/state/handoffs/review_<feature>.md`, the single file the pre-flight below identifies by name — contains `CHANGES_REQUESTED` → no PR is created. Never scan the directory for it: a `CHANGES_REQUESTED` belonging to someone else's closed cycle must not abort your PR, exactly as another feature's `APPROVED` never unblocks it.
 - Quality gate red this turn.
 
-> **Two branches, one that decides:** `main` is the target for `gh pr create --base` and every diff below. The fork point is a separate setting; in most repos both name the same branch. Where they differ, the target branch wins — the fork-point diff is never the PR's.
+> **Two branches, one that decides:** `dev` is the target for `gh pr create --base` and every diff below. The fork point is a separate setting; in most repos both name the same branch. Where they differ, the target branch wins — the fork-point diff is never the PR's.
 
 ## Mandatory pre-flight
 
@@ -33,15 +33,15 @@ Run these checks before drafting anything. If something fails, you stop and repo
 
 ```bash
 git status --porcelain                                # what's left to commit
-git rev-parse --abbrev-ref HEAD                       # cannot be main, the fork point, or any protected branch
-git fetch origin main --quiet
-behind=$(git rev-list --count HEAD..origin/main)
+git rev-parse --abbrev-ref HEAD                       # cannot be dev, the fork point, or any protected branch
+git fetch origin dev --quiet
+behind=$(git rev-list --count HEAD..origin/dev)
 if [ "$behind" -ne 0 ]; then
-  printf 'ABORT: branch is %s commit(s) behind origin/main; integrate the target before committing or creating a PR.\n' "$behind" >&2
+  printf 'ABORT: branch is %s commit(s) behind origin/dev; integrate the target before committing or creating a PR.\n' "$behind" >&2
   exit 1
 fi
-git log origin/main..HEAD --oneline           # must have ≥1 commit (or changes to commit)
-git diff origin/main --stat                   # REAL scope so far (two-dot: see below)
+git log origin/dev..HEAD --oneline           # must have ≥1 commit (or changes to commit)
+git diff origin/dev --stat                   # REAL scope so far (two-dot: see below)
 gh auth status                                        # gh authenticated
 ```
 
@@ -57,7 +57,7 @@ The later `receipt.txt` check is also a hard stop: it must report JSON
 Coverage of the review and the receipt's fingerprints are two questions about the SAME set of files. Write it once, read it everywhere:
 
 ```bash
-shipping=$({ git -c core.quotepath=false diff --name-only "origin/main"; \
+shipping=$({ git -c core.quotepath=false diff --name-only "origin/dev"; \
              git -c core.quotepath=false ls-files --others --exclude-standard; } \
            | sort -u | grep -vE '^(\.navori/state/handoffs/|progress/)')
 printf '%s\n' "$shipping"                             # read it: this is what ships
@@ -80,12 +80,12 @@ An absent file, ambiguous (more than one candidate), or with a verdict/scope tha
 **Content receipt: the diff must still match what was approved.** Before committing, run the receipt command with the feature id from `review_<feature>.md`. It owns coverage and drift detection; do not reproduce its algorithm in shell.
 
 ```bash
-navori receipt check --feature <feature> --target main --dir .navori/state/handoffs --json
+navori receipt check --feature <feature> --target dev --dir .navori/state/handoffs --json
 ```
 
 Continue only when the JSON has `"status":"ok"`. A missing `navori`, absent receipt, non-zero command, malformed JSON, `ERROR`, `UNCOVERED`, or `DRIFT` blocks the commit and PR.
 
-For every live-file `DRIFT`, the JSON provides the approved blob and the exact inspection command is `git diff <blob-sha> <file>` (`git cat-file -p <blob-sha>` prints its approved content). Route explained drift caused by a post-review edit to the reviewer for a **delta re-sign**; route unexplained drift or any uncovered file to a full re-review. If the real PR base differs from `main`, pass that actual base as `--target` to both receipt commands.
+For every live-file `DRIFT`, the JSON provides the approved blob and the exact inspection command is `git diff <blob-sha> <file>` (`git cat-file -p <blob-sha>` prints its approved content). Route explained drift caused by a post-review edit to the reviewer for a **delta re-sign**; route unexplained drift or any uncovered file to a full re-review. If the real PR base differs from `dev`, pass that actual base as `--target` to both receipt commands.
 
 <!-- The orchestrator block states the rule (every change goes through implementer -> reviewer); this is where the PR side of it is enforced. -->
 
@@ -125,17 +125,17 @@ Never open the PR with the gate red.
 
 ## PR flow
 
-1. **Gather context** (curated, not the whole repo). The PR diff is against `main`:
-   - `git log origin/main..HEAD --oneline` — commits included.
-   - `git diff origin/main...HEAD --stat` — always.
-   - `git diff origin/main...HEAD` — only if diff < 500 lines. If larger, stat + file list + hunks of 2–3 most relevant files only.
+1. **Gather context** (curated, not the whole repo). The PR diff is against `dev`:
+   - `git log origin/dev..HEAD --oneline` — commits included.
+   - `git diff origin/dev...HEAD --stat` — always.
+   - `git diff origin/dev...HEAD` — only if diff < 500 lines. If larger, stat + file list + hunks of 2–3 most relevant files only.
    - **Commit drag** — only when fork point and target differ. Let the shell settle it:
 
      ```bash
      base=main
-     if [ "$base" != "main" ]; then
+     if [ "$base" != "dev" ]; then
        git fetch origin "$base" --quiet
-       git rev-list --count "origin/main..origin/$base"
+       git rev-list --count "origin/dev..origin/$base"
      fi
      ```
 
@@ -164,7 +164,7 @@ Never open the PR with the gate red.
 
    ```bash
    gh pr create \
-     --base main \
+     --base dev \
      --title "<validated title>" \
      --body "$(cat <<'EOF'
    <validated body>
@@ -172,7 +172,7 @@ Never open the PR with the gate red.
    )"
    ```
 
-   Always pass `--base main` explicitly — don't let `gh` use the repo's default branch. If the target changed, adjust it with `navori configure pr-target`.
+   Always pass `--base dev` explicitly — don't let `gh` use the repo's default branch. If the target changed, adjust it with `navori configure pr-target`.
 
 6. **Output to the user**: only the PR URL + 1 line with the title. Nothing else.
 
@@ -244,7 +244,7 @@ If the repo defines its own template (`.github/pull_request_template.md`), read 
 Whatever template you follow: when the shipping diff changes the **always-on layer** — the harness context every session pays for up front, i.e. the rendered `CLAUDE.md` — the body states its byte delta, measured against the same base as the PR diff:
 
 ```bash
-git show origin/main:CLAUDE.md 2>/dev/null | wc -c   # before (0 if the file is new)
+git show origin/dev:CLAUDE.md 2>/dev/null | wc -c   # before (0 if the file is new)
 wc -c CLAUDE.md                                  # after
 ```
 

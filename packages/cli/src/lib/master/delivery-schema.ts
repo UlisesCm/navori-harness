@@ -1,6 +1,8 @@
 /** Versioned, separate contracts for the opt-in deliveries workflow. */
 import { z } from "zod";
 import { MASTER_MODES, SignalSchema } from "./schema.ts";
+import { DeliveryEvidenceBindingSchema } from "../plan/evidence.ts";
+import { RecordedEvidenceSchema, DeliveryPlanSourceSchema } from "../plan/schema.ts";
 
 const Id = z.string().regex(/^[A-Za-z][A-Za-z0-9-]*$/);
 const RequirementId = z.string().regex(/^(?:RN|RF|RNF)-\d+$/);
@@ -149,6 +151,118 @@ const QueueSchema = z.strictObject({
   partIds: z.array(z.string().regex(/^P\d+$/)).min(1),
   approvedBy: z.literal("user"),
   approvedAt: z.string().datetime(),
+  generation: z.number().int().positive().optional(),
+  transition: z.enum(["replacement", "continuation"]).optional(),
+});
+
+const ProofTreeSchema = z.strictObject({
+  head: z.string(),
+  worktreeTree: Nonempty,
+});
+const CriterionProofSchema = z.strictObject({
+  qualifiedId: z.string().regex(/^P\d+\.A\d+$/),
+  baselineIdentity: Digest,
+  criterionIdentity: Digest,
+  recordedAt: z.string().datetime(),
+  proof: z.discriminatedUnion("kind", [
+    z.strictObject({
+      kind: z.literal("recorded"),
+      feature: Nonempty,
+      criterionId: z.string().regex(/^A\d+$/),
+      binding: DeliveryEvidenceBindingSchema,
+      evidence: RecordedEvidenceSchema,
+      source: DeliveryPlanSourceSchema,
+    }),
+    z.strictObject({
+      kind: z.literal("operator-attestation"),
+      approvedBy: z.literal("user"),
+      artifactDigest: Digest,
+      tree: ProofTreeSchema,
+      authorityGeneration: z.number().int().positive(),
+      queueIdentity: Digest,
+    }),
+  ]),
+});
+const VerifiedPartSchema = z.strictObject({
+  partId: z.string().regex(/^P\d+$/),
+  identity: Digest,
+  baselineIdentity: Digest,
+  criteriaIdentity: Digest,
+  tree: ProofTreeSchema,
+  reviewDigest: Digest,
+  feature: Nonempty,
+  verifiedAt: z.string().datetime(),
+  authorityGeneration: z.number().int().positive(),
+  kind: z.literal("operator-attested-technical-review"),
+  approvedBy: z.literal("user"),
+  producerId: Nonempty,
+  reviewerId: Nonempty,
+  report: z.string().refine((value) => value.trim().length > 0),
+  envelope: z.string().refine((value) => value.trim().length > 0),
+  receipt: z.string().refine((value) => value.trim().length > 0),
+  receiptDigest: Digest,
+  envelopeDigest: Digest,
+  gate: Nonempty,
+  gateIdentity: Nonempty,
+  inputsIdentity: Nonempty,
+});
+
+/** Reviewer-authored claims; the operator, not the CLI, attests identity separation and QA. */
+export const DeliveryReviewEnvelopeSchema = z
+  .strictObject({
+    kind: z.literal("operator-attested-technical-review"),
+    feature: Nonempty,
+    stageSlug: Nonempty,
+    partId: z.string().regex(/^P\d+$/),
+    baselineIdentity: Digest,
+    authorityGeneration: z.number().int().positive(),
+    queueIdentity: Digest,
+    criteriaIdentity: Digest,
+    worktreeTree: Nonempty,
+    producerId: Nonempty,
+    reviewerId: Nonempty,
+    verdict: z.literal("APPROVED"),
+    reportDigest: Digest,
+    gate: Nonempty,
+    exitCode: z.literal(0),
+    executionReference: Nonempty,
+  })
+  .refine(
+    (record) => record.producerId !== record.reviewerId,
+    "reviewer and producer labels must differ",
+  );
+
+const PresentationSchema = z.strictObject({
+  deliveryId: z.string().regex(/^E\d+$/),
+  identity: Digest,
+  baselineIdentity: Digest,
+  authorityGeneration: z.number().int().positive(),
+  partIdentities: z.array(Digest).min(1),
+  tree: ProofTreeSchema,
+  presentedAt: z.string().datetime(),
+});
+const DeliveryDecisionSchema = z
+  .strictObject({
+    kind: z.literal("operator-attestation"),
+    deliveryId: z.string().regex(/^E\d+$/),
+    reviewedIdentity: Digest,
+    decision: z.enum(["accepted", "declined", "deferred", "discarded"]),
+    approvedBy: z.literal("user"),
+    reason: Nonempty.optional(),
+    reference: Nonempty.optional(),
+    recordedAt: z.string().datetime(),
+  })
+  .refine(
+    (record) => record.decision === "accepted" || Boolean(record.reason),
+    "non-acceptance requires a reason",
+  );
+const PublicationSchema = z.strictObject({
+  deliveryId: z.string().regex(/^E\d+$/),
+  reviewedIdentity: Digest,
+  kind: z.enum(["release", "deploy"]),
+  reference: Nonempty,
+  recordedBy: z.literal("user"),
+  recordedAt: z.string().datetime(),
 });
 
 export const DeliveryStateSchema = z.strictObject({
@@ -166,6 +280,20 @@ export const DeliveryStateSchema = z.strictObject({
   baseline: AuthoritySchema.optional(),
   authorization: QueueSchema.optional(),
   authorizationHistory: z.array(QueueSchema).optional(),
+  authorityGeneration: z.number().int().positive().optional(),
+  criteria: z.array(CriterionProofSchema).optional(),
+  verifiedParts: z.array(VerifiedPartSchema).optional(),
+  presentations: z.array(PresentationSchema).optional(),
+  decisions: z.array(DeliveryDecisionSchema).optional(),
+  publications: z.array(PublicationSchema).optional(),
+  closure: z
+    .strictObject({
+      closedAt: z.string().datetime(),
+      baselineIdentity: Digest,
+      authorityGeneration: z.number().int().positive(),
+      pendingPublication: z.array(z.string().regex(/^E\d+$/)),
+    })
+    .optional(),
 });
 
 export type DeliveryState = z.infer<typeof DeliveryStateSchema>;

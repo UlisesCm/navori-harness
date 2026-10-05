@@ -5,6 +5,23 @@ import { readConfig } from "../config/config.ts";
 import { writeFileAtomic } from "../primitives/atomic.ts";
 import { MasterStateSchema, PartsSchema, type PartState } from "./schema.ts";
 import { activeStage, masterDirPath, readMasterIndex } from "./stages.ts";
+import { checkWorkplan } from "../plan/check.ts";
+import { WorkplanSchema } from "../plan/schema.ts";
+import { validateEvidence } from "../plan/evidence.ts";
+import { resolveStateRoot, stateArtifactPath } from "../primitives/state-root.ts";
+import { checkReceipt, evidenceIdentity } from "../diagnose/receipt.ts";
+import { containedFile, deliveryDigest } from "./delivery-checks.ts";
+import {
+  captureDeliveryCriterion,
+  deliveryPartAuthority,
+  deliveryProofTree,
+  writeDeliveryState,
+} from "./delivery.ts";
+import {
+  DeliveryReviewEnvelopeSchema,
+  DeliveryStateSchema,
+  type DeliveryState,
+} from "./delivery-schema.ts";
 
 export interface PartChange {
   state?: string;
@@ -15,6 +32,299 @@ export interface PartChange {
   command?: string;
   result?: string;
   approvedBy?: string;
+}
+
+/** Record current host provenance or an explicitly attested manual obligation. */
+export function recordDeliveryCriterion(
+  cwd: string,
+  partId: string,
+  criterionId: string,
+  approvedBy?: string,
+): { unchanged: boolean } {
+  const context = deliveryPartAuthority(cwd, partId);
+  const criterion = context.part.acceptance.find((entry) => entry.id === criterionId);
+  if (!criterion) throw new Error("unknown delivery criterion");
+  const qualifiedId = `${partId}.${criterionId}`;
+  const base = {
+    qualifiedId,
+    baselineIdentity: context.identity,
+    criterionIdentity: deliveryDigest(criterion),
+    recordedAt: new Date().toISOString(),
+  };
+  let proof: NonNullable<DeliveryState["criteria"]>[number]["proof"];
+  if (criterion.method === "manual") {
+    if (approvedBy !== "user") throw new Error("manual criterion requires --approved-by user");
+    const artifact = containedFile(cwd, criterion.artifact);
+    if (!artifact) throw new Error("manual review artifact is missing or outside repository");
+    proof = {
+      kind: "operator-attestation",
+      approvedBy: "user",
+      artifactDigest: deliveryDigest(readFileSync(artifact, "utf8")),
+      tree: deliveryProofTree(cwd, context.stagePath),
+      authorityGeneration: context.state.authorityGeneration!,
+      queueIdentity: context.state.authorization!.identity,
+    };
+  } else {
+    if (approvedBy !== undefined)
+      throw new Error("operator approval cannot replace executable provenance");
+    const snapshot = activeStage(
+      readMasterIndex(cwd, readConfig(join(cwd, "navori.config.json")).sdd?.specsDir ?? "specs"),
+    )!;
+    const feature = `delivery-${snapshot.slug}-${partId.toLowerCase()}`;
+    const root = resolveStateRoot({ cwd, feature });
+    const plan = WorkplanSchema.parse(
+      JSON.parse(
+        readFileSync(stateArtifactPath(root, `workplan_${feature}.json`), "utf8"),
+      ) as unknown,
+    );
+    if (!plan.source || !checkWorkplan(plan, root.cwd).ok)
+      throw new Error("source-backed plan requires current approved planning metadata");
+    const id = Object.entries(plan.source.criterionMap).find(
+      ([, value]) => value === qualifiedId,
+    )?.[0];
+    if (!id) throw new Error("qualified criterion is not in the projected plan");
+    const binding = captureDeliveryCriterion(root.cwd, plan.source, id, criterion.command);
+    const result = validateEvidence({
+      root,
+      feature,
+      id,
+      command: criterion.command,
+      deliveryBinding: binding,
+    });
+    if (!result.ok) throw new Error(`current host provenance required: ${result.why}`);
+    proof = {
+      kind: "recorded",
+      feature,
+      criterionId: id,
+      binding,
+      source: plan.source,
+      evidence: result.evidence,
+    };
+  }
+  const existing = context.state.criteria?.find((entry) => entry.qualifiedId === qualifiedId);
+  const entry = DeliveryStateSchema.shape.criteria.unwrap().element.parse({ ...base, proof });
+  if (
+    existing &&
+    deliveryDigest({ ...existing, recordedAt: "" }) === deliveryDigest({ ...entry, recordedAt: "" })
+  )
+    return { unchanged: true };
+  // Re-read immediately before committing: another writer cannot silently replace authority.
+  const current = deliveryPartAuthority(cwd, partId);
+  if (deliveryDigest(current.state) !== deliveryDigest(context.state))
+    throw new Error("delivery state changed before criterion write");
+  if (criterion.method === "manual") {
+    const artifact = containedFile(cwd, criterion.artifact);
+    if (
+      proof.kind !== "operator-attestation" ||
+      !artifact ||
+      proof.artifactDigest !== deliveryDigest(readFileSync(artifact, "utf8")) ||
+      proof.tree.worktreeTree !== deliveryProofTree(cwd, current.stagePath).worktreeTree
+    )
+      throw new Error("manual proof changed before criterion write");
+  } else {
+    if (proof.kind !== "recorded") throw new Error("recorded provenance required");
+    const root = resolveStateRoot({ cwd, feature: proof.feature });
+    const result = validateEvidence({
+      root,
+      feature: proof.feature,
+      id: proof.criterionId,
+      command: criterion.command,
+      deliveryBinding: proof.binding,
+    });
+    if (!result.ok || deliveryDigest(result.evidence) !== deliveryDigest(proof.evidence))
+      throw new Error("host provenance changed before criterion write");
+  }
+  current.state.criteria = [
+    ...(current.state.criteria ?? []).filter((item) => item.qualifiedId !== qualifiedId),
+    entry,
+  ];
+  writeDeliveryState(cwd, current.stagePath, current.state);
+  return { unchanged: false };
+}
+
+/** Revalidate every criterion against its original producer identity and current bytes. */
+export function deliveryPartProof(
+  cwd: string,
+  partId: string,
+): { criteriaIdentity: string; tree: { head: string; worktreeTree: string } } {
+  const context = deliveryPartAuthority(cwd, partId);
+  const tree = deliveryProofTree(cwd, context.stagePath);
+  const identities: string[] = [];
+  for (const criterion of context.part.acceptance) {
+    const qualifiedId = `${partId}.${criterion.id}`;
+    const record = context.state.criteria?.find((entry) => entry.qualifiedId === qualifiedId);
+    if (
+      !record ||
+      record.baselineIdentity !== context.identity ||
+      record.criterionIdentity !== deliveryDigest(criterion)
+    )
+      throw new Error(`${qualifiedId}: current criterion proof is missing`);
+    if (criterion.method === "manual") {
+      const artifact = containedFile(cwd, criterion.artifact);
+      if (
+        record.proof.kind !== "operator-attestation" ||
+        record.proof.authorityGeneration !== context.state.authorityGeneration ||
+        !artifact ||
+        record.proof.artifactDigest !== deliveryDigest(readFileSync(artifact, "utf8")) ||
+        record.proof.tree.worktreeTree !== tree.worktreeTree
+      )
+        throw new Error(`${qualifiedId}: manual attestation is stale`);
+    } else {
+      if (record.proof.kind !== "recorded")
+        throw new Error(`${qualifiedId}: executable provenance required`);
+      const root = resolveStateRoot({ cwd, feature: record.proof.feature });
+      const plan = WorkplanSchema.parse(
+        JSON.parse(
+          readFileSync(stateArtifactPath(root, `workplan_${record.proof.feature}.json`), "utf8"),
+        ) as unknown,
+      );
+      if (!plan.source || !checkWorkplan(plan, root.cwd).ok)
+        throw new Error("source-backed plan is stale or unapproved");
+      const binding = captureDeliveryCriterion(
+        root.cwd,
+        plan.source,
+        record.proof.criterionId,
+        criterion.command,
+      );
+      if (deliveryDigest(binding) !== deliveryDigest(record.proof.binding))
+        throw new Error(`${qualifiedId}: producer authority changed`);
+      const result = validateEvidence({
+        root,
+        feature: record.proof.feature,
+        id: record.proof.criterionId,
+        command: criterion.command,
+        deliveryBinding: binding,
+      });
+      if (!result.ok) throw new Error(`${qualifiedId}: ${result.why}`);
+      if (deliveryDigest(result.evidence) !== deliveryDigest(record.proof.evidence))
+        throw new Error(`${qualifiedId}: producer run changed; record the new run explicitly`);
+    }
+    identities.push(deliveryDigest(record));
+  }
+  return { criteriaIdentity: deliveryDigest(identities), tree };
+}
+
+/** Capture a cooperative operator attestation, never claim host-authenticated review or CLI-run QA. */
+export function captureDeliveryReview(
+  cwd: string,
+  partId: string,
+  reportName: string,
+  envelopeName: string,
+  approvedBy: string,
+): { identity: string; unchanged: boolean } {
+  if (approvedBy !== "user")
+    throw new Error("technical review capture requires --approved-by user");
+  const snapshot = (): NonNullable<DeliveryState["verifiedParts"]>[number] => {
+    const context = deliveryPartAuthority(cwd, partId);
+    const proof = deliveryPartProof(cwd, partId);
+    const stage = activeStage(
+      readMasterIndex(cwd, readConfig(join(cwd, "navori.config.json")).sdd?.specsDir ?? "specs"),
+    )!;
+    const feature = `delivery-${stage.slug}-${partId.toLowerCase()}`;
+    const root = resolveStateRoot({ cwd, feature });
+    const reportPath = stateArtifactPath(root, reportName);
+    const envelopePath = stateArtifactPath(root, envelopeName);
+    const receiptPath = stateArtifactPath(root, "receipt.txt");
+    const report = readFileSync(reportPath, "utf8");
+    const envelopeBytes = readFileSync(envelopePath, "utf8");
+    const envelope = DeliveryReviewEnvelopeSchema.parse(JSON.parse(envelopeBytes) as unknown);
+    const config = readConfig(join(cwd, "navori.config.json"));
+    const gate = config.qualityGate?.full ?? "";
+    const queue = context.state.authorization!;
+    if (
+      !report.trim() ||
+      envelope.feature !== feature ||
+      envelope.stageSlug !== stage.slug ||
+      envelope.partId !== partId ||
+      envelope.baselineIdentity !== context.identity ||
+      envelope.authorityGeneration !== context.state.authorityGeneration ||
+      envelope.queueIdentity !== queue.identity ||
+      envelope.criteriaIdentity !== proof.criteriaIdentity ||
+      envelope.worktreeTree !== proof.tree.worktreeTree ||
+      envelope.reportDigest !== deliveryDigest(report) ||
+      envelope.gate !== gate
+    )
+      throw new Error("technical review envelope does not bind the current snapshot");
+    const receiptBytes = readFileSync(receiptPath, "utf8");
+    const receipt = checkReceipt({
+      cwd: root.cwd,
+      feature,
+      target: config.prTarget ?? config.branchBase,
+      dir: root.dir,
+      gate,
+      includeConsumed: false,
+    });
+    if (
+      receipt.exitCode !== 0 ||
+      receipt.result.status !== "ok" ||
+      !receipt.result.fresh ||
+      receipt.result.consumed
+    )
+      throw new Error("technical capture requires the actual current unconsumed canonical receipt");
+    if (
+      readFileSync(receiptPath, "utf8") !== receiptBytes ||
+      readFileSync(reportPath, "utf8") !== report ||
+      readFileSync(envelopePath, "utf8") !== envelopeBytes
+    )
+      throw new Error("technical artifacts changed during capture");
+    const inputs = evidenceIdentity(cwd, gate);
+    const reviewDigest = deliveryDigest(report),
+      envelopeDigest = deliveryDigest(envelopeBytes),
+      receiptDigest = deliveryDigest(receiptBytes);
+    const identity = deliveryDigest([
+      partId,
+      context.identity,
+      proof,
+      reviewDigest,
+      envelopeDigest,
+      receiptDigest,
+    ]);
+    return {
+      partId,
+      identity,
+      baselineIdentity: context.identity,
+      ...proof,
+      reviewDigest,
+      feature,
+      verifiedAt: new Date().toISOString(),
+      authorityGeneration: envelope.authorityGeneration,
+      kind: "operator-attested-technical-review",
+      approvedBy: "user",
+      producerId: envelope.producerId,
+      reviewerId: envelope.reviewerId,
+      report,
+      envelope: envelopeBytes,
+      receipt: receiptBytes,
+      receiptDigest,
+      envelopeDigest,
+      gate,
+      gateIdentity: inputs.gate,
+      inputsIdentity: inputs.inputs,
+    };
+  };
+  const context = deliveryPartAuthority(cwd, partId);
+  const first = snapshot();
+  const second = snapshot();
+  const current = deliveryPartAuthority(cwd, partId);
+  if (
+    first.identity !== second.identity ||
+    deliveryDigest(context.state) !== deliveryDigest(current.state) ||
+    deliveryDigest(deliveryPartProof(cwd, partId)) !==
+      deliveryDigest({ criteriaIdentity: second.criteriaIdentity, tree: second.tree })
+  )
+    throw new Error("technical snapshot changed before state commit");
+  if (
+    current.state.verifiedParts?.some(
+      (entry) => entry.partId === partId && entry.identity === second.identity,
+    )
+  )
+    return { identity: second.identity, unchanged: true };
+  current.state.verifiedParts = [
+    ...(current.state.verifiedParts ?? []).filter((entry) => entry.partId !== partId),
+    second,
+  ];
+  writeDeliveryState(cwd, current.stagePath, current.state);
+  return { identity: second.identity, unchanged: false };
 }
 
 function git(cwd: string, args: string[]): string {

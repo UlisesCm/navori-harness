@@ -23,6 +23,7 @@ import {
   renderIndexMd,
 } from "./stages.ts";
 import { closeBlockers, readMasterStatus, writeMasterStatus, type MasterStatus } from "./status.ts";
+import { deliveryAuthority, deliveryLifecycle, writeDeliveryState } from "./delivery.ts";
 
 export interface CloseOptions {
   convert?: string;
@@ -209,8 +210,62 @@ export function runMasterClose(cwd: string, options: CloseOptions = {}): CloseRe
   const specsDir = config.sdd?.specsDir ?? "specs";
   const index = readMasterIndex(cwd, specsDir);
   const stage = activeStage(index);
-  if (stage?.workflow === "deliveries")
-    throw new Error(`${stage.dir}: deliveries workflow is not supported by legacy close`);
+  if (stage?.workflow === "deliveries") {
+    if (options.convert || options.abandon || options.reason)
+      throw new Error(
+        "deliveries close requires identity-bound dispositions, not legacy close options",
+      );
+    const context = deliveryAuthority(cwd);
+    const lifecycle = context.state.closure ? null : deliveryLifecycle(cwd);
+    if (lifecycle?.blockers.length) throw new Error(lifecycle.blockers.join("; "));
+    const paths = [
+      indexJsonPath(cwd, specsDir),
+      indexMdPath(cwd, specsDir),
+      configPath,
+      join(context.stagePath, "STATUS.md"),
+    ];
+    const root = realpathSync(cwd);
+    for (const path of paths) {
+      const parent = realpathSync(resolve(path, ".."));
+      if (!parent.startsWith(`${root}${sep}`) && parent !== root)
+        throw new Error("close output escapes repository");
+      if (existsSync(path) && realpathSync(path) !== path)
+        throw new Error("close output is redirected");
+    }
+    if (!context.state.closure) {
+      const fresh = deliveryAuthority(cwd);
+      if (
+        JSON.stringify(fresh.state) !== JSON.stringify(context.state) ||
+        JSON.stringify(deliveryLifecycle(cwd)) !== JSON.stringify(lifecycle)
+      )
+        throw new Error("delivery changed before close");
+      fresh.state.closure = {
+        closedAt: new Date().toISOString(),
+        baselineIdentity: fresh.identity,
+        authorityGeneration: fresh.state.authorityGeneration!,
+        pendingPublication: lifecycle!.pendingPublication,
+      };
+      fresh.state.phase = "closed";
+      writeDeliveryState(cwd, fresh.stagePath, fresh.state);
+      context.state = fresh.state;
+    }
+    options.afterStep?.(1);
+    writeMasterStatus(cwd);
+    options.afterStep?.(2);
+    const finalIndex: MasterIndex = {
+      ...index!,
+      stages: index!.stages.map((entry) =>
+        entry.dir === stage.dir
+          ? { ...entry, state: "cerrada", closedAt: context.state.closure!.closedAt.slice(0, 10) }
+          : entry,
+      ),
+    };
+    save(indexJsonPath(cwd, specsDir), finalIndex);
+    writeFileAtomic(indexMdPath(cwd, specsDir), renderIndexMd(finalIndex, specsDir));
+    options.afterStep?.(3);
+    finishRender(cwd, configPath, config);
+    return { stage: stage.dir, outcome: "entregada", reconciled: Boolean(lifecycle === null) };
+  }
   if (!stage) {
     if (
       !options.convert &&

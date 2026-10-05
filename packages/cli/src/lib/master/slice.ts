@@ -13,7 +13,12 @@ import {
   stateArtifactPath,
 } from "../primitives/state-root.ts";
 import { checkDeliveryPreparation, deliveryDigest } from "./delivery-checks.ts";
-import { activeDeliverySnapshot } from "./delivery.ts";
+import {
+  activeDeliverySnapshot,
+  assertDeliveryEligibility,
+  deliveryQueueIdentity,
+} from "./delivery.ts";
+import { writeAcceptanceIndex } from "../plan/acceptance-index.ts";
 
 function same(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
@@ -57,16 +62,12 @@ export function deliverySliceProjection(cwd: string, partId: string): Workplan {
     queue.baselineIdentity !== baselineIdentity ||
     queue.deliveryId !== delivery.id ||
     !queue.partIds.includes(partId) ||
-    queue.identity !== deliveryDigest([baselineIdentity, queue.deliveryId, queue.partIds])
+    queue.identity !== deliveryQueueIdentity(queue)
   )
     throw new Error("part is not in the current authorized queue");
   if (branchName(cwd) !== delivery.git.branch)
     throw new Error(`delivery requires branch ${delivery.git.branch}`);
-  // D4 will supply verified completion; until then dependent slices stay closed.
-  if (delivery.dependsOn.length || part.dependsOn.length)
-    throw new Error("dependent delivery or part awaits verified completion");
-  if (doc.design.ui === "new" && partId !== doc.design.foundationPartId)
-    throw new Error("product slice awaits implemented foundation evidence");
+  assertDeliveryEligibility(cwd, partId);
   const executable = part.acceptance.filter((criterion) => criterion.method !== "manual");
   if (!executable.length) throw new Error("manual-only part is not an implementer dispatch");
   const criterionMap = Object.fromEntries(
@@ -112,6 +113,7 @@ export function deliverySliceProjection(cwd: string, partId: string): Workplan {
       designDigest: result.designDigest,
       masterDigest: snapshot.masterDigest,
       queueIdentity: queue.identity,
+      ...(queue.generation ? { authorityGeneration: queue.generation } : {}),
       criterionMap,
     },
   });
@@ -152,6 +154,8 @@ export function checkDeliveryPlanSource(cwd: string, plan: Workplan): string[] {
 export function prepareDeliverySlice(
   cwd: string,
   partId: string,
+  refresh = false,
+  approvedBy?: string,
 ): { feature: string; unchanged: boolean } {
   const projection = deliverySliceProjection(cwd, partId);
   const root = resolveStateRoot({
@@ -163,6 +167,42 @@ export function prepareDeliverySlice(
   if (existsSync(path)) {
     const existing: unknown = JSON.parse(readFileSync(path, "utf8"));
     const parsed = WorkplanSchema.parse(existing);
+    if (refresh) {
+      if (approvedBy !== "user") throw new Error("projection refresh requires --approved-by user");
+      const stripQueue = (source: Workplan["source"]): unknown => {
+        if (!source) return null;
+        const { queueIdentity: _queue, authorityGeneration: _generation, ...definition } = source;
+        return definition;
+      };
+      if (
+        !same(stripQueue(parsed.source), stripQueue(projection.source)) ||
+        !same(parsed.files, projection.files) ||
+        !same(parsed.acceptance, projection.acceptance) ||
+        parsed.objective !== projection.objective ||
+        !same(parsed.outOfScope, projection.outOfScope)
+      )
+        throw new Error(
+          "source definitions changed; refresh cannot substitute for source/baseline reapproval",
+        );
+      const next = WorkplanSchema.parse({
+        ...parsed,
+        source: projection.source,
+        progress: Object.fromEntries(parsed.acceptance.map((entry) => [entry.id, "pendiente"])),
+        evidence: {},
+        decisions: [
+          ...parsed.decisions,
+          {
+            text: "Explicit reverification projection refresh; normal tier approval is required again.",
+            date: new Date().toISOString().slice(0, 10),
+          },
+        ],
+      });
+      if (!checkWorkplan(next, root.cwd).ok)
+        throw new Error("refreshed projection needs valid human planning metadata");
+      writeFileAtomic(path, `${JSON.stringify(next, null, 2)}\n`);
+      writeAcceptanceIndex(root);
+      return { feature: projection.feature, unchanged: false };
+    }
     const sourceProblems = checkDeliveryPlanSource(root.cwd, parsed);
     if (sourceProblems.length)
       throw new Error(
