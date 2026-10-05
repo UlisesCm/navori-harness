@@ -49,6 +49,7 @@ describe("runCoverage", () => {
     const run = vi.fn(() => ({ status: null, signal: "SIGINT", pid: 1, output: [] }));
     const removeDir = vi.fn();
     const status = runCoverage({
+      env: { NAVORI_COVERAGE_DIR: undefined },
       mkdtempSync: () => "/tmp/navori-coverage-interrupted",
       rmSync: removeDir,
       spawnSync: run,
@@ -59,10 +60,11 @@ describe("runCoverage", () => {
     expect(removeDir).not.toHaveBeenCalled();
   });
 
-  it("keeps the report when the coverage floor fails", () => {
+  it("removes the generated report when the coverage floor fails", () => {
     const removeDir = vi.fn();
     let invocation = 0;
     const status = runCoverage({
+      env: { NAVORI_COVERAGE_DIR: undefined },
       mkdtempSync: () => "/tmp/navori-coverage-floor-failure",
       rmSync: removeDir,
       spawnSync: () => {
@@ -72,6 +74,56 @@ describe("runCoverage", () => {
     });
 
     expect(status).toBe(2);
+    expect(removeDir).toHaveBeenCalledWith("/tmp/navori-coverage-floor-failure", {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  it.each(["failed", "spawn-error"])(
+    "removes generated reports after ordinary %s completion",
+    (outcome) => {
+      const removeDir = vi.fn();
+      const run = vi.fn(() => ({
+        status: outcome === "failed" ? 2 : null,
+        signal: null,
+        error: outcome === "spawn-error" ? new Error("ENOENT") : undefined,
+      }));
+      expect(
+        runCoverage({
+          env: { NAVORI_COVERAGE_DIR: undefined },
+          mkdtempSync: () => "/tmp/owned-report",
+          rmSync: removeDir,
+          spawnSync: run,
+        }),
+      ).toBe(outcome === "failed" ? 2 : 1);
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(removeDir).toHaveBeenCalledWith("/tmp/owned-report", { recursive: true, force: true });
+    },
+  );
+
+  it("retains diagnostics only on explicit opt-in", () => {
+    const removeDir = vi.fn();
+    expect(
+      runCoverage({
+        env: { NAVORI_COVERAGE_DIR: undefined, NAVORI_KEEP_TEST_ARTIFACTS: "1" },
+        mkdtempSync: () => "/tmp/kept-report",
+        rmSync: removeDir,
+        spawnSync: () => ({ status: 2, signal: null }),
+      }),
+    ).toBe(2);
+    expect(removeDir).not.toHaveBeenCalled();
+  });
+
+  it("preserves caller-owned reports on failure", () => {
+    const removeDir = vi.fn();
+    expect(
+      runCoverage({
+        env: { NAVORI_COVERAGE_DIR: "/tmp/caller-report" },
+        rmSync: removeDir,
+        spawnSync: () => ({ status: 2, signal: null }),
+      }),
+    ).toBe(2);
     expect(removeDir).not.toHaveBeenCalled();
   });
 });
