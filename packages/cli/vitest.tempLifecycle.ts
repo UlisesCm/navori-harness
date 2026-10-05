@@ -1,6 +1,6 @@
 import { ChildProcess } from "node:child_process";
 import { subscribe, unsubscribe } from "node:diagnostics_channel";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,6 +14,19 @@ const environmentKeys = [
   "CODEX_HOME",
 ] as const;
 
+const retentionMarker = ".navori-retain";
+
+/** Only a missing marker permits ordinary cleanup; other I/O failures retain evidence. */
+function runRetained(root: string): boolean {
+  try {
+    readFileSync(join(root, retentionMarker));
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 /** Owns one exact allocated root; incomplete file lifetimes remain inspectable. */
 export interface TempRun {
   root: string;
@@ -23,8 +36,18 @@ export interface TempRun {
 /** Allocate the suite container without changing coordinator environment. */
 export function createTempRun(base: string = tmpdir()): TempRun {
   const root = mkdtempSync(join(base, "navori-test-run-"));
+  const publishRetention = (): boolean => {
+    try {
+      writeFileSync(join(root, retentionMarker), "", { flag: "a" });
+      return true;
+    } catch (error) {
+      process.stderr.write(`test retention publication failed at ${root}: ${String(error)}\n`);
+      return false;
+    }
+  };
   const onExit = (): void => {
-    process.stderr.write(`test temporaries retained after interrupted run: ${root}\n`);
+    if (publishRetention())
+      process.stderr.write(`test temporaries retained after interrupted run: ${root}\n`);
   };
   process.once("exit", onExit);
   return {
@@ -33,7 +56,8 @@ export function createTempRun(base: string = tmpdir()): TempRun {
       process.off("exit", onExit);
       // Remaining file roots were not safely completed, or hold diagnosed evidence.
       if (readdirSync(root).length > 0) {
-        process.stderr.write(`test temporaries retained for inspection: ${root}\n`);
+        if (publishRetention())
+          process.stderr.write(`test temporaries retained for inspection: ${root}\n`);
         return;
       }
       rmSync(root, { recursive: true, force: true });
@@ -117,9 +141,11 @@ export function createTempFile(runRoot?: string): TempFile {
               ? retainReason()
               : undefined
             : retainReason;
-        if (children.size > 0 || reason || keepArtifacts) {
+        // Publication before this check binds late workers; it cannot undo deletion begun earlier.
+        const retainedRun = runRoot !== undefined && runRetained(runRoot);
+        if (children.size > 0 || reason || keepArtifacts || retainedRun) {
           process.stderr.write(
-            `test file temporaries retained (${reason ?? (children.size > 0 ? "direct child still active" : "NAVORI_KEEP_TEST_ARTIFACTS=1")}): ${root}\n`,
+            `test file temporaries retained (${reason ?? (children.size > 0 ? "direct child still active" : keepArtifacts ? "NAVORI_KEEP_TEST_ARTIFACTS=1" : "coordinator retention")}): ${root}\n`,
           );
         } else {
           rmSync(root, { recursive: true, force: true });

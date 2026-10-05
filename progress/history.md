@@ -1,5 +1,13 @@
 # History
 
+## 2026-10-05 15:41 codex — Bind interrupted retention to late workers
+
+User approved the two-file correction after the interruption failure was reproduced on this checkout and isolated origin/main. The run owner publishes a monotonic retention marker before announcing retention; file owners read it after writer completion and HOME evidence checks. Marker I/O errors retain evidence and restore the environment. The guarantee applies to publication before the final deletion decision, without claiming universal cancellation/deletion serialization.
+
+The integration suite replaces the fixed child timer with external release and covers actual post-disposal acknowledgment, publication failures and read failures. Focused acceptance passed 20 tests across two files; lint and format checks exited 0. Independent full-gate validation and a fresh content receipt are publication prerequisites; the final result is reported in [PR #1225](https://github.com/UlisesCm/navori-harness/pull/1225). This entry records the implementation checkpoint before that gate.
+
+The guard was manually committed and pushed as 643b81de; PR #1225 opened as a draft to main. Its original CI quality job could not acquire a hosted runner. A5 operator/client attestations, live interruption/resumption and matched workflow measurements remain pending.
+
 ## 2026-10-05 12:17 codex — Unblock A5 Python JSON handoffs
 
 Resolved the installed CLI hook discrepancy with the checkout-built CLI: 19 hooks approved, while the older global CLI resolved 18. The original pilot branch remains preserved.
