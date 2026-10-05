@@ -37,6 +37,26 @@ afterEach(async () => {
 });
 
 describe("Pi render base", () => {
+  it.each([undefined, "dev"])(
+    "renders the PR target independently from the main fork point: %s",
+    (prTarget: string | undefined): void => {
+      const cwd = freshDir();
+      renderPiEngine(cwd, { ...config, prTarget });
+      const target = prTarget ?? "main";
+      const reviewer = readFileSync(join(cwd, ".pi/agents/reviewer.md"), "utf-8");
+      const implementer = readFileSync(join(cwd, ".pi/agents/implementer.md"), "utf-8");
+      expect(reviewer).toContain(`git fetch origin ${target} --quiet`);
+      expect(reviewer).toContain(`HEAD..origin/${target}`);
+      expect(reviewer).toContain(`git diff "origin/${target}"`);
+      expect(
+        reviewer.split(`navori receipt sign --feature <feature> --target ${target} `),
+      ).toHaveLength(3);
+      expect(reviewer).toContain(`--target ${target} --dir .navori/state/handoffs --json`);
+      expect(implementer).toContain(`git diff --stat origin/${target}...HEAD`);
+      expect(existsSync(join(cwd, ".pi/agents/publisher.md"))).toBe(false);
+    },
+  );
+
   // Covers: R6
   it("preserves dangling symlinks at the Pi root and managed destinations", () => {
     const root = freshDir();

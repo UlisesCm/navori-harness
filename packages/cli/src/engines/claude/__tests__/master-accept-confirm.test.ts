@@ -76,6 +76,48 @@ function expectAsk(
 }
 
 describe.runIf(runsBash)("master-accept-confirm.sh", () => {
+  // Covers: R58, R62
+  it.each([
+    "navori master delivery-review --part P1 --report report.txt --envelope review.json --approved-by user",
+    "echo ready && pnpm exec navori master delivery-review --part P1 --approved-by=user",
+    "$(navori master delivery-review --part P1)",
+  ])("asks explicit cooperative review consent: %s", (command: string) => {
+    const result = run(payload(command));
+    const output = JSON.parse(result.stdout) as {
+      hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string };
+    };
+    expect(output.hookSpecificOutput.permissionDecision).toBe("ask");
+    expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
+      "named reviewer was separate from the producer",
+    );
+    expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
+      "does not authenticate reviewer identity or execute QA",
+    );
+  });
+
+  // Covers: R58, R62
+  it.each([
+    "navori master delivery-decision --delivery E1 --identity abc --decision accepted --approved-by user",
+    "bunx navori master delivery-publication --delivery E1 --kind release --reference v1 --approved-by user",
+    "navori master delivery-revoke --approved-by user",
+    "navori master delivery-criterion --part P1 --criterion A2 --approved-by=user",
+    "navori master delivery-slice --part P1 --refresh --approved-by user",
+  ])("keeps every new human attestation behind consent: %s", (command: string) => {
+    expect(JSON.parse(run(payload(command)).stdout).hookSpecificOutput.permissionDecision).toBe(
+      "ask",
+    );
+  });
+
+  // Covers: R58, R62
+  it.each([
+    "navori master delivery-present --delivery E1",
+    "navori master delivery-slice --part P1",
+    "navori master delivery-criterion --part P1 --criterion A1",
+    "navori master delivery-criterion --part P1 --criterion A1; echo --approved-by user",
+    'echo "navori master delivery-review"',
+  ])("does not infer an attestation from non-consent work: %s", (command: string) => {
+    expect(run(payload(command)).stdout).toBe("");
+  });
   it("asks for delivery baseline and bounded queue approvals", () => {
     expectAsk(
       payload("navori master delivery-baseline --approved-by user"),
@@ -288,6 +330,23 @@ describe.runIf(runsBash)("master-accept-confirm.sh installed for Codex", () => {
     chmodSync(path, 0o755);
     return path;
   })();
+
+  // Covers: R20, R58, R62
+  it.each([
+    "delivery-review --part P1",
+    "delivery-decision --delivery E1 --decision accepted",
+    "delivery-publication --delivery E1 --kind deploy",
+    "delivery-revoke",
+    "delivery-criterion --part P1 --criterion A2 --approved-by user",
+    "delivery-slice --part P1 --refresh",
+  ])("denies unattended attestation without pretending Codex can ask: %s", (verb: string) => {
+    const result = spawnSync("bash", [codexPath], {
+      input: JSON.stringify(payload(`navori master ${verb}`)),
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision).toBe("deny");
+  });
 
   it.each([
     "navori master part P2 --accept A3 --approved-by user",

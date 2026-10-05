@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { resolveStateRoot } from "../../primitives/state-root.ts";
 import { buildAcceptanceIndex, writeAcceptanceIndex } from "../acceptance-index.ts";
 import type { Workplan } from "../schema.ts";
+import * as delivery from "../../master/delivery.ts";
 
 let cwd: string;
 
@@ -37,10 +38,55 @@ beforeEach(() => {
   cwd = realpathSync(mkdtempSync(join(tmpdir(), "navori-acc-index-")));
   execFileSync("git", ["init", "-q"], { cwd });
 });
-afterEach(() => rmSync(cwd, { recursive: true, force: true }));
+afterEach(() => {
+  vi.restoreAllMocks();
+  rmSync(cwd, { recursive: true, force: true });
+});
 
 // Covers: R6
 describe("acceptance-index", () => {
+  // Covers: R6, R7, R8
+  it("captures qualified delivery authority before the hook runs, not during acceptance", () => {
+    const dir = join(cwd, ".navori/state/handoffs");
+    const slice = plan("delivery-demo-p1", {}, ["bun check"]);
+    const digest = "a".repeat(64);
+    slice.source = {
+      kind: "master-delivery",
+      stageSlug: "demo",
+      deliveryId: "E1",
+      partId: "P1",
+      baselineIdentity: digest,
+      queueIdentity: digest,
+      contractDigest: digest,
+      sourceDigest: digest,
+      designDigest: digest,
+      masterDigest: digest,
+      criterionMap: { A1: "P1.A1" },
+    };
+    const binding = {
+      policy: "deliveries-content-v1" as const,
+      authorityGeneration: 1,
+      stagePath: "specs/_master/01-demo",
+      sourceIdentity: digest,
+      baselineIdentity: digest,
+      queueIdentity: digest,
+      qualifiedId: "P1.A1",
+      criterionIdentity: digest,
+    };
+    const capture = vi.spyOn(delivery, "captureDeliveryCriterion").mockReturnValue(binding);
+    writePlan(dir, slice);
+    expect(buildAcceptanceIndex([dir])).toBe(
+      `bun check\t${slice.feature}\tA1\t${dir}\t${JSON.stringify(binding)}\t${binding.stagePath}\n`,
+    );
+    expect(capture).toHaveBeenCalledWith(cwd, slice.source, "A1", "bun check");
+    capture.mockImplementation(() => {
+      throw new Error("stale current authority");
+    });
+    expect(buildAcceptanceIndex([dir])).toBe("");
+    expect(readFileSync(join(dir, `workplan_${slice.feature}.json`), "utf8")).toBe(
+      JSON.stringify(slice),
+    );
+  });
   it("lists one tab-separated line per pending criterion, JSON-escaped, skipping cumplido", () => {
     const dir = join(cwd, ".navori/state/handoffs");
     writePlan(dir, plan("one", { A1: "cumplido", A2: "pendiente" }, ["echo a", 'echo "b\\c"']));

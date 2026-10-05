@@ -93,6 +93,7 @@ export const DeliveryPlanSourceSchema = z.strictObject({
   partId: z.string().regex(/^P\d+$/),
   baselineIdentity: z.string().regex(/^[a-f0-9]{64}$/),
   queueIdentity: z.string().regex(/^[a-f0-9]{64}$/),
+  authorityGeneration: z.number().int().positive().optional(),
   contractDigest: z.string().regex(/^[a-f0-9]{64}$/),
   sourceDigest: z.string().regex(/^[a-f0-9]{64}$/),
   designDigest: z.string().regex(/^[a-f0-9]{64}$/),

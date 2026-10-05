@@ -9,6 +9,7 @@ import {
 import { execFileSync, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { parse } from "smol-toml";
 import { describe, expect, it } from "vitest";
 import {
   NavoriConfigSchema,
@@ -77,6 +78,88 @@ function testPlugin(id: string, capabilities: Record<string, unknown>): LoadedPl
 }
 
 describe("renderCodexEngine", () => {
+  it("requires reviewer-owned Codex gate continuation through the final process exit", (): void => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config());
+    const instructions = parse(
+      readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8"),
+    ).developer_instructions;
+    if (typeof instructions !== "string") {
+      throw new Error("Rendered Codex reviewer must contain string developer instructions");
+    }
+    const start = instructions.indexOf("**Quality gate**");
+    const end = instructions.indexOf("**Partial verdict:**", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const execution = instructions.slice(start, end);
+    const continuationContracts: RegExp[] = [
+      /exec_command/,
+      /exact (?:returned )?(?:`?session_id`?|handle)/i,
+      /write_stdin[^.\n]*empty `?chars`?/i,
+      /same reviewer/i,
+      /yield[^.\n]*(?:not|neither)[^.\n]*timeout/i,
+      /yield[^.\n]*(?:not|neither)[^.\n]*success/i,
+      /final (?:process )?exit/i,
+      /without[^.\n]*final (?:process )?exit/i,
+      /(?:never|no|do not)[^.\n]*detach/i,
+      /(?:never|no|do not)[^.\n]*share/i,
+      /(?:never|no|do not)[^.\n]*restart/i,
+      /(?:never|no|do not)[^.\n]*pgrep[^.\n]*ps/i,
+      /(?:actual|real) timeout/i,
+      /cancel/i,
+      /reject/i,
+      /lost handle/i,
+      /(?:incomplete|BLOCKED)/,
+      /no (?:APPROVED[^.\n]*or )?receipt/i,
+    ];
+    for (const contract of continuationContracts) {
+      expect(execution).toMatch(contract);
+    }
+    expect(execution).not.toContain("the only handle that exists is this Bash call itself");
+    expect(execution).not.toContain("Bash tool's max `timeout`");
+    expect(execution).not.toContain("If no chained step fits under any foreground timeout");
+  });
+
+  it.each([undefined, "dev"])(
+    "renders the PR target independently from the main fork point: %s",
+    (prTarget: string | undefined): void => {
+      const cwd = tempRepo();
+      renderCodexEngine(cwd, config({ prTarget }));
+      const target = prTarget ?? "main";
+      const reviewer = parse(
+        readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8"),
+      ).developer_instructions;
+      const publisher = parse(
+        readFileSync(join(cwd, ".codex/agents/publisher.toml"), "utf-8"),
+      ).developer_instructions;
+      const implementer = parse(
+        readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8"),
+      ).developer_instructions;
+      if (
+        typeof reviewer !== "string" ||
+        typeof publisher !== "string" ||
+        typeof implementer !== "string"
+      ) {
+        throw new Error("Rendered Codex roles must contain string developer instructions");
+      }
+      expect(reviewer).toContain(`git fetch origin ${target} --quiet`);
+      expect(reviewer).toContain(`HEAD..origin/${target}`);
+      expect(reviewer).toContain(`git diff "origin/${target}"`);
+      expect(
+        reviewer.split(`navori receipt sign --feature <feature> --target ${target} `),
+      ).toHaveLength(3);
+      expect(reviewer).toContain(`--target ${target} --dir .navori/state/handoffs --json`);
+      expect(publisher).toContain(`git fetch origin ${target} --quiet`);
+      expect(publisher).toContain(`HEAD..origin/${target}`);
+      expect(publisher).toContain(`git log origin/${target}..HEAD --oneline`);
+      expect(publisher).toContain(`diff --name-only "origin/${target}"`);
+      expect(publisher).toContain(`navori receipt check --feature <feature> --target ${target} `);
+      expect(publisher).toContain(`--base ${target}`);
+      expect(implementer).toContain(`git diff --stat origin/${target}...HEAD`);
+      expect(publisher).toContain("base=main");
+    },
+  );
+
   // Covers: R20
   it.each([false, true])("ships the master skills to Codex with masterPlan=%s", (enabled) => {
     const cwd = tempRepo();
