@@ -1018,7 +1018,7 @@ The body always comes from a file, never inline:
 name: reviewer
 description: Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes.
 tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation
-maxWords: 2387
+maxWords: 2654
 ---
 
 <!-- navori:managed id="reviewer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->

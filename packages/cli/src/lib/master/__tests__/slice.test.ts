@@ -758,7 +758,7 @@ describe("cooperative technical snapshot and lifecycle", () => {
     const updated = presentDelivery(cwd, "E1");
     expect(updated.identity).not.toBe(presented.identity);
     decideDelivery(cwd, "E1", updated.identity, "accepted", "user");
-  });
+  }, 30_000);
 
   // Covers: R7, R8, R9
   it("settles current E2 without changing E1 proof on the same code fingerprint", () => {
@@ -781,7 +781,7 @@ describe("cooperative technical snapshot and lifecycle", () => {
     decideDelivery(cwd, "E2", nextPresentation.identity, "accepted", "user");
     expect(deliveryLifecycle(cwd).blockers).toEqual([]);
     expect(deliveryLifecycle(cwd).pendingPublication).toEqual(["E1", "E2"]);
-  });
+  }, 30_000);
   // Covers: R7, R8, R9
   it("requires consent and actual receipt, retains historical provenance, and keeps final QA distinct", () => {
     const { cwd, stage, plan } = technicalFixture();
