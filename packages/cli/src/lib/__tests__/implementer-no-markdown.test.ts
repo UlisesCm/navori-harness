@@ -35,11 +35,16 @@ function runHook(
   nodePath = dirname(process.execPath),
   includeParentPath = true,
   engine: "claude" | "codex" = "claude",
+  prelude: string = "",
 ): { status: number; stderr: string } {
   const raw = expandHookIncludes(readFileSync(join(HOOKS_DIR, SCRIPT), "utf-8"));
   const path = engine === "codex" ? join(dir, ".codex", "hooks", SCRIPT) : join(dir, SCRIPT);
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, raw);
+  const firstNewline = raw.indexOf("\n") + 1;
+  writeFileSync(
+    path,
+    prelude ? `${raw.slice(0, firstNewline)}${prelude}\n${raw.slice(firstNewline)}` : raw,
+  );
   chmodSync(path, 0o755);
   return acrossShells((shell) => {
     const r = spawnSync(shell, [path], {
@@ -307,6 +312,115 @@ describe("implementer-no-markdown hook — interpreter writes", () => {
       ).toBe(0);
     },
   );
+});
+
+// Submitted source remains hook payload data, including its Git calls and JSON read.
+const PYTHON_PROGRAM = `python3 - <<'PY'
+import json, subprocess
+from pathlib import Path
+root = Path.cwd()
+runtime = json.loads((root / 'probe.json').read_text())
+report = {'worktree': str(root), 'repo': runtime['repo'], 'results': runtime['results'], 'branch': subprocess.check_output(['git', 'branch', '--show-current'], text=True).strip(), 'head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(), 'markdownRequests': [{'path': 'docs/task.md', 'evidence': 'NOTES.MDX'}]}
+(root / 'impl.json').write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\\n')
+print('handoff written')
+PY`;
+
+describe.each(["claude", "codex"] as const)("closed Python JSON handoff — %s", (engine) => {
+  it.each([
+    PYTHON_PROGRAM,
+    PYTHON_PROGRAM + "\n",
+    PYTHON_PROGRAM.replace("impl.json", "impl.JSON"),
+    PYTHON_PROGRAM.replace(
+      "report =",
+      `#${"x".repeat(16384 - PYTHON_PROGRAM.length - 2)}\nreport =`,
+    ),
+    PYTHON_PROGRAM.replace("'docs/task.md'", `${"[".repeat(13)}'docs/task.md'${"]".repeat(13)}`),
+  ])("allows metadata without executing reads, Git queries or writes", (command: string): void => {
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    const git = join(bin, "git");
+    // Codex normalization calls git -C ...; only submitted argv can mark execution.
+    writeFileSync(
+      git,
+      '#!/bin/sh\ncase "$*" in "branch --show-current"|"rev-parse HEAD") touch git-called;; esac\nexit 99\n',
+    );
+    chmodSync(git, 0o755);
+    writeFileSync(join(dir, "probe.json"), "not JSON: must not be read");
+    expect(runHook(bash(command), bin, true, engine).status).toBe(0);
+    expect(readFileSync(join(dir, "probe.json"), "utf8")).toBe("not JSON: must not be read");
+    expect(() => readFileSync(join(dir, "impl.json"))).toThrow();
+    expect(() => readFileSync(join(dir, "git-called"))).toThrow();
+  });
+
+  it.each([
+    PYTHON_PROGRAM.replace("'impl.json'", "'notes.md'"),
+    PYTHON_PROGRAM.replace("'impl.json'", "'NOTES.MDX'"),
+    PYTHON_PROGRAM.replace("'impl.json'", "'notes\\u002emd'"),
+    PYTHON_PROGRAM.replace("'impl.json'", "'impl.json\\x00'"),
+    PYTHON_PROGRAM.replace("'impl.json'", "destination"),
+    PYTHON_PROGRAM.replace("'impl.json'", "f'impl.json'"),
+    PYTHON_PROGRAM.replace("report =", "root = Path('notes.md')\nreport ="),
+    PYTHON_PROGRAM.replace("report =", "alias = Path\nreport ="),
+    PYTHON_PROGRAM.replace("report =", "import os\nreport ="),
+    PYTHON_PROGRAM.replace("report =", "open('notes.md', 'w').write('x')\nreport ="),
+    PYTHON_PROGRAM.replace(
+      "print('handoff written')",
+      "(root / 'other.json').write_text('{}')\nprint('handoff written')",
+    ),
+    PYTHON_PROGRAM.replace(
+      "print('handoff written')",
+      "(root / 'other.md').write_text('x')\nprint('handoff written')",
+    ),
+    PYTHON_PROGRAM.replace("'--show-current'", "'--delete'"),
+    PYTHON_PROGRAM.replace("text=True", "text=True, shell=True"),
+    PYTHON_PROGRAM.replace("text=True", "text=True, cwd=root"),
+    PYTHON_PROGRAM.replace("text=True", "text=True, env={}"),
+    PYTHON_PROGRAM.replace("['git', 'rev-parse', 'HEAD']", "argv"),
+    PYTHON_PROGRAM.replace(".strip()", ".strip('x')"),
+    PYTHON_PROGRAM.replace("str(root)", "str(root, 'utf8')"),
+    PYTHON_PROGRAM.replace("runtime['repo']", "runtime[key]"),
+    PYTHON_PROGRAM.replace("'docs/task.md'", "danger('docs/task.md')"),
+    PYTHON_PROGRAM.replace("'docs/task.md'", "[x for x in ['docs/task.md']]"),
+    PYTHON_PROGRAM.replace("'docs/task.md'", "'''\nPY\ntouch notes.md\n'''"),
+    PYTHON_PROGRAM.slice(0, -2),
+    PYTHON_PROGRAM + " ",
+    PYTHON_PROGRAM + "\necho done",
+    PYTHON_PROGRAM + " | cat",
+    PYTHON_PROGRAM.replace("<<'PY'", "<<PY"),
+    PYTHON_PROGRAM.replace("<<'PY'", "<<-'PY'"),
+    PYTHON_PROGRAM.replace("python3 -", "env python3 -"),
+    PYTHON_PROGRAM.replace("python3 -", "python3 - $(echo x)"),
+    PYTHON_PROGRAM.replaceAll("\n", "\r\n"),
+    PYTHON_PROGRAM.replace("report =", "report = broken syntax\nreport ="),
+    PYTHON_PROGRAM.replace("'docs/task.md'", `'${"x".repeat(17000)}docs/task.md'`),
+    PYTHON_PROGRAM.replace(
+      "report =",
+      `#${"x".repeat(16385 - PYTHON_PROGRAM.length - 2)}\nreport =`,
+    ),
+    PYTHON_PROGRAM.replace("'docs/task.md'", `[${"0,".repeat(4100)}'docs/task.md']`),
+    PYTHON_PROGRAM.replace("'docs/task.md'", `${"[".repeat(17)}'docs/task.md'${"]".repeat(17)}`),
+  ])("denies unsupported complete programs: %s", (command: string): void => {
+    const result = runHook(bash(command), undefined, true, engine);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("markdownRequests");
+    expect(() => readFileSync(join(dir, "impl.json"))).toThrow();
+  });
+
+  it("fails closed for malformed output and analyzer errors", () => {
+    const executable = join(dir, "python3");
+    for (const script of ["echo MALFORMED\nexit 0", "exit 7"]) {
+      writeFileSync(executable, `#!/bin/sh\n${script}\n`);
+      chmodSync(executable, 0o755);
+      expect(runHook(bash(PYTHON_PROGRAM), dir, true, engine).status).toBe(2);
+    }
+  });
+
+  it("fails closed when controlled shell resolution cannot find Python", () => {
+    // PATH alone is insufficient: /usr/bin may contain Python on this host.
+    const prelude =
+      'command() { if [ "$1" = "-v" ] && [ "$2" = "python3" ]; then return 1; fi; builtin command "$@"; }';
+    expect(runHook(bash(PYTHON_PROGRAM), undefined, true, engine, prelude).status).toBe(2);
+  });
 });
 
 describe("implementer-no-markdown hook — bounded JSON metadata exception", () => {
