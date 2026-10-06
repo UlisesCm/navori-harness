@@ -401,3 +401,55 @@ describe("fingerprint failures are controlled rejections", () => {
     }
   });
 });
+
+describe("criteria shaped `cd <dir> && ...` (host persists cd)", () => {
+  const CD_COMMAND = "cd packages/cli && bun run test x";
+
+  function recordFrom(command: string, lineCwd: string): void {
+    mkdirSync(join(cwd, "packages/cli"), { recursive: true });
+    writeLog([logLine({ command, cwd: lineCwd })]);
+  }
+
+  it("accepts the post-cd cwd <tree>/<dir>", () => {
+    mkdirSync(join(cwd, "packages/cli"), { recursive: true });
+    recordFrom(CD_COMMAND, join(cwd, "packages/cli"));
+    expect(validate(CD_COMMAND).ok).toBe(true);
+  });
+
+  it("still accepts the tree root cwd for the same command", () => {
+    recordFrom(CD_COMMAND, cwd);
+    expect(validate(CD_COMMAND).ok).toBe(true);
+  });
+
+  it("rejects another subdirectory than the cd target", () => {
+    mkdirSync(join(cwd, "other"), { recursive: true });
+    recordFrom(CD_COMMAND, join(cwd, "other"));
+    expect(validate(CD_COMMAND).ok).toBe(false);
+  });
+
+  it("rejects <tree>/<dir> for a command without the cd prefix", () => {
+    recordFrom(COMMAND, join(cwd, "packages/cli"));
+    expect(validate(COMMAND).ok).toBe(false);
+  });
+
+  it.each(["cd ../x && bun test x", "cd /abs && bun test x", "cd ~/x && bun test x"])(
+    "rejects an unsafe cd target: %s",
+    (command: string) => {
+      mkdirSync(join(cwd, "x"), { recursive: true });
+      recordFrom(command, join(cwd, "x"));
+      expect(validate(command).ok).toBe(false);
+    },
+  );
+
+  it("rejects a cd target that is a symlink leaving the tree", () => {
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), "navori-evidence-out-")));
+    try {
+      symlinkSync(outside, join(cwd, "link"));
+      const command = "cd link && bun test x";
+      writeLog([logLine({ command, cwd: outside })]);
+      expect(validate(command).ok).toBe(false);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+});
