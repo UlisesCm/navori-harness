@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import {
   appendCliEvent,
+  hasAuditTarget,
   captureCodexChild,
   recordAuditMetadata,
   absorbAuditMetadataSpool,
@@ -24,6 +25,7 @@ import {
 } from "../cli-event.ts";
 import { readChildSourceBindings, readChildSourceRegistrations } from "../discovery.ts";
 import { sessionLogPath, repoFromCwd } from "../paths.ts";
+import { normalizeOutcome } from "../model.ts";
 
 vi.mock(import("node:fs"), { spy: true });
 
@@ -447,6 +449,98 @@ function markSession(): string {
   );
   return log;
 }
+
+const OUTCOME = {
+  schemaVersion: 1 as const,
+  featureKey: "a".repeat(64),
+  sidecar: "b".repeat(64),
+  critical: 0,
+  high: 1,
+  medium: 0,
+  low: 0,
+  correlation: "correlated" as const,
+  fp: "c".repeat(64),
+  alg: "navori-content/v1",
+};
+
+describe("review-outcome events", () => {
+  // Covers: R16
+  it("appends a closed review-outcome record", () => {
+    const log = markSession();
+    expect(appendCliEvent(repo, { name: "review-outcome", verdict: "approved" }, OUTCOME)).toBe(
+      true,
+    );
+    const line = readFileSync(log, "utf-8").trim().split("\n")[1] ?? "";
+    expect(Buffer.byteLength(line)).toBeLessThanOrEqual(2048);
+    expect(JSON.parse(line)).toMatchObject({
+      event: "cli",
+      name: "review-outcome",
+      verdict: "approved",
+      featureKey: "a".repeat(64),
+      sidecar: "b".repeat(64),
+    });
+  });
+
+  // Covers: R16
+  it.each([
+    ["an extra key", { ...OUTCOME, summary: "free text" }],
+    ["an invalid hash", { ...OUTCOME, fp: "not-hex" }],
+    ["a missing feature key", { ...OUTCOME, featureKey: undefined }],
+    ["a negative count", { ...OUTCOME, high: -1 }],
+    ["an unknown correlation", { ...OUTCOME, correlation: "accepted" }],
+    ["a raw slug as the key", { ...OUTCOME, featureKey: "payroll-leak" }],
+  ])("writes nothing for %s", (_label, outcome) => {
+    const log = markSession();
+    expect(
+      appendCliEvent(
+        repo,
+        { name: "review-outcome", verdict: "approved" },
+        outcome as unknown as typeof OUTCOME,
+      ),
+    ).toBe(false);
+    expect(readFileSync(log, "utf-8").trim().split("\n")).toHaveLength(1);
+  });
+
+  // Covers: R16
+  it("rejects an outcome under another name or an unknown verdict, and an oversized record", () => {
+    markSession();
+    expect(appendCliEvent(repo, { name: "plan-gate", verdict: "approved" }, OUTCOME)).toBe(false);
+    expect(appendCliEvent(repo, { name: "review-outcome", verdict: "accepted" }, OUTCOME)).toBe(
+      false,
+    );
+    expect(
+      normalizeOutcome({ name: "review-outcome", verdict: "approved", ...OUTCOME }),
+    ).not.toBeNull();
+    expect(
+      normalizeOutcome({
+        name: "review-outcome",
+        verdict: "approved",
+        ...OUTCOME,
+        startedAtMs: "x",
+      }),
+    ).toBeNull();
+    expect(normalizeOutcome(null)).toBeNull();
+    expect(normalizeOutcome([])).toBeNull();
+    expect(
+      normalizeOutcome({
+        name: "review-outcome",
+        verdict: "approved",
+        ...OUTCOME,
+        schemaVersion: 2,
+      }),
+    ).toBeNull();
+  });
+
+  // Covers: R16
+  it("resolves whether an audit target exists without writing", () => {
+    expect(hasAuditTarget(repo)).toBe(false);
+    const log = markSession();
+    expect(hasAuditTarget(repo)).toBe(true);
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    expect(hasAuditTarget(repo)).toBe(false);
+    expect(readFileSync(log, "utf-8").trim().split("\n")).toHaveLength(1);
+  });
+});
 
 describe("appendCliEvent", () => {
   // Covers: R55, R70

@@ -443,3 +443,46 @@ describe("checkHandoff — doubts (R18)", () => {
     expect([...REQUIRED_IMPL_KEYS]).not.toContain("doubts");
   });
 });
+
+describe("checkHandoff — publisher review evidence (R16, M8)", () => {
+  // Covers: R16
+  it("warns, without failing, when the review carries no valid evidence", () => {
+    const cwd = repo();
+    const options = {
+      cwd,
+      dir: ".navori/state/handoffs",
+      feature: "demo",
+      consumer: "publisher" as const,
+    };
+    writeHandoff(cwd, options.dir, "demo", validHandoff(cwd));
+    const absent = checkHandoff(options);
+    expect(absent.status).toBe("ok");
+    expect(handoffExitCode(absent)).toBe(0);
+    expect(absent.warnings.map((w) => w.check)).toContain("review-evidence");
+    writeFileSync(
+      join(cwd, options.dir, "review_demo.json"),
+      JSON.stringify({ feature: "demo", verdict: "APPROVED", findings: [] }),
+    );
+    const legacy = checkHandoff(options);
+    expect(legacy.warnings.find((w) => w.check === "review-evidence")?.detail).toContain("missing");
+    expect(checkHandoff({ ...options, consumer: "orchestrator" }).warnings).toEqual([]);
+  });
+
+  // Covers: R16
+  it("keeps the base impl check under --for publisher: a missing impl fails, evidence stays WARN", () => {
+    const cwd = repo();
+    const options = {
+      cwd,
+      dir: ".navori/state/handoffs",
+      feature: "demo",
+      consumer: "publisher" as const,
+    };
+    const missing = checkHandoff(options);
+    expect(missing.status).toBe("findings");
+    expect(missing.failures.map((f) => f.check)).toContain("exists");
+    writeHandoff(cwd, options.dir, "demo", validHandoff(cwd));
+    const present = checkHandoff(options);
+    expect(present.status).toBe("ok");
+    expect(present.warnings.map((w) => w.check)).toContain("review-evidence");
+  });
+});

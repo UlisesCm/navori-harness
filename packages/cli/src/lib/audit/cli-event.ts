@@ -8,9 +8,11 @@ import {
 } from "./discovery.ts";
 import {
   canonicalAuditMetadata,
+  normalizeOutcome,
   AUDIT_READ_LIMITS,
   type ChildSourceRegistration,
   type AuditReadDiagnostics,
+  type ReviewOutcome,
 } from "./model.ts";
 import {
   appendPrivateAuditFile,
@@ -212,6 +214,64 @@ function contextFromEnv(): AuditContext | null {
   return codex ? { host: "codex", sessionId: codex } : null;
 }
 
+interface AuditTarget {
+  host: "claude" | "codex";
+  sessionId: string;
+  repo: string;
+  logFile: string;
+}
+
+/** Cheap exact-context resolution shared by the writer and `hasAuditTarget`; throws on filesystem errors. */
+function auditTarget(cwd: string): AuditTarget | null {
+  const context = contextFromEnv();
+  if (!context) return null;
+  const { host, sessionId } = context;
+  if (host !== "claude" && host !== "codex") return null;
+  if (
+    host === "claude" &&
+    (process.env.CODEX_SESSION_ID?.trim() || process.env.CODEX_THREAD_ID?.trim())
+  )
+    return null;
+  if (host === "codex" && process.env.CLAUDE_CODE_SESSION_ID?.trim()) return null;
+  if (
+    host === "claude" &&
+    process.env.CLAUDE_CODE_SESSION_ID?.trim() &&
+    process.env.CLAUDE_CODE_SESSION_ID?.trim() !== sessionId
+  )
+    return null;
+  if (
+    host === "codex" &&
+    [process.env.CODEX_SESSION_ID, process.env.CODEX_THREAD_ID].some(
+      (id) => id?.trim() && id.trim() !== sessionId,
+    )
+  )
+    return null;
+  const repo = repoFromCwd(cwd);
+  // Do not traverse a replaced audit root or repo directory, even if the
+  // final log itself is regular and O_NOFOLLOW would accept it.
+  if (!lstatSync(auditsRoot()).isDirectory() || !lstatSync(repoAuditDir(repo)).isDirectory())
+    return null;
+  const logFile = sessionLogPath(repo, sessionId);
+  const st = lstatSync(logFile);
+  if (!st.isFile() || st.isSymbolicLink()) return null;
+  return { host, sessionId, repo, logFile };
+}
+
+/**
+ * Whether a CLI event for `cwd` could be written: the exact context resolves
+ * to a regular session log. Callers check this BEFORE computing anything for
+ * an event, so a session without audit context costs nothing. The header and
+ * Codex source binding are still verified by `appendCliEvent`, so a `true`
+ * here can still end in a refused write.
+ */
+export function hasAuditTarget(cwd: string): boolean {
+  try {
+    return auditTarget(cwd) !== null;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Appends a CLI decision to the exact validated audit session.
  *
@@ -233,41 +293,20 @@ function contextFromEnv(): AuditContext | null {
  * One `writeSync` of a complete line (O_APPEND), so concurrent writers
  * cannot interleave inside a record.
  *
+ * An `outcome` adds the closed review-outcome payload (`normalizeOutcome`); an
+ * invalid payload or a record over 2,048 B writes nothing.
+ *
  * @returns whether a record was written.
  */
-export function appendCliEvent(cwd: string, event: CliEvent): boolean {
+export function appendCliEvent(
+  cwd: string,
+  event: CliEvent,
+  outcome?: Omit<ReviewOutcome, "name" | "verdict">,
+): boolean {
   try {
-    const context = contextFromEnv();
-    if (!context) return false;
-    const { host, sessionId } = context;
-    if (host !== "claude" && host !== "codex") return false;
-    if (
-      host === "claude" &&
-      (process.env.CODEX_SESSION_ID?.trim() || process.env.CODEX_THREAD_ID?.trim())
-    )
-      return false;
-    if (host === "codex" && process.env.CLAUDE_CODE_SESSION_ID?.trim()) return false;
-    if (
-      host === "claude" &&
-      process.env.CLAUDE_CODE_SESSION_ID?.trim() &&
-      process.env.CLAUDE_CODE_SESSION_ID?.trim() !== sessionId
-    )
-      return false;
-    if (
-      host === "codex" &&
-      [process.env.CODEX_SESSION_ID, process.env.CODEX_THREAD_ID].some(
-        (id) => id?.trim() && id.trim() !== sessionId,
-      )
-    )
-      return false;
-    const repo = repoFromCwd(cwd);
-    // Do not traverse a replaced audit root or repo directory, even if the
-    // final log itself is regular and O_NOFOLLOW would accept it.
-    if (!lstatSync(auditsRoot()).isDirectory() || !lstatSync(repoAuditDir(repo)).isDirectory())
-      return false;
-    const logFile = sessionLogPath(repo, sessionId);
-    const st = lstatSync(logFile);
-    if (!st.isFile() || st.isSymbolicLink()) return false;
+    const target = auditTarget(cwd);
+    if (!target) return false;
+    const { host, sessionId, repo, logFile } = target;
     const header = exactHeader(logFile);
     if (!header || !matchesAuditHeaderIdentity(header, host, sessionId, repo, cwd)) return false;
     /** Re-read bounded source identity; report caches must never authorize a live append. */
@@ -282,13 +321,20 @@ export function appendCliEvent(cwd: string, event: CliEvent): boolean {
       );
     const binding = host === "codex" ? sourceBinding() : undefined;
     if (host === "codex" && !binding) return false;
+    const payload =
+      outcome === undefined
+        ? undefined
+        : normalizeOutcome({ ...outcome, name: event.name, verdict: event.verdict });
+    if (outcome !== undefined && payload === null) return false;
     const record = {
       tsMs: Date.now(),
       event: "cli",
       name: technicalCategory(event.name),
       verdict: METADATA_VERDICTS.has(event.verdict) ? event.verdict : "unknown",
       ...(event.reason ? { reason: event.reason === "stale" ? "stale" : "unspecified" } : {}),
+      ...(payload ?? {}),
     };
+    if (Buffer.byteLength(JSON.stringify(record)) > 2048) return false;
     return (
       appendRecord(logFile, record, (fd: number): boolean => {
         const header = readAuditHeaderFromFd(fd);
@@ -364,6 +410,8 @@ const METADATA_VERDICTS = new Set([
   "compact-advice",
   "gate-started",
   "gate-killed",
+  "approved",
+  "changes-requested",
   "unknown",
 ]);
 const METADATA_TOOLS = new Set(["Bash", "Edit", "Read", "Write", "Agent", "Task", "NotebookEdit"]);
@@ -400,6 +448,7 @@ const METADATA_NAMES = new Set([
   "pr-publisher-confirm",
   "subagent-no-background",
   "bash-outcome-watch",
+  "review-outcome",
   "test",
 ]);
 

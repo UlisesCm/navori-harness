@@ -247,6 +247,9 @@ const PUBLIC_AUDIT_FIELDS = new Set<string>([
   "normalizedFactBytes",
 ]);
 const PUBLIC_TECHNICAL_LABELS = new Set([
+  "review-outcome",
+  "approved",
+  "changes-requested",
   "orchestrator",
   "main-thread",
   "implementer",
@@ -1973,7 +1976,8 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
         }
       }
     }
-    for (const e of s.cliEvents ?? []) count(e.name, e.verdict);
+    // `*-outcome` events are task outcomes (spec 0042 D5), not hook/CLI decisions.
+    for (const e of s.cliEvents ?? []) if (!e.name.endsWith("-outcome")) count(e.name, e.verdict);
   }
 
   const perCall = [...perBash.values()].map((set) => set.size);

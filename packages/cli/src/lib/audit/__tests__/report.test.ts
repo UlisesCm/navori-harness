@@ -2394,6 +2394,21 @@ describe("range sections (spec 0039 F0b)", () => {
     expect(md).not.toContain("fixture-cli");
   });
 
+  // Covers: R16
+  it("keeps review-outcome events out of the mechanism tally and its public labels readable", () => {
+    const { report, md } = range([agent({})], {
+      cliEvents: [
+        { tsMs: 1, event: "cli", name: "review-outcome", verdict: "approved" },
+        { tsMs: 2, event: "cli", name: "fixture-cli", verdict: "reject" },
+      ],
+    });
+    expect(Object.keys(report.rangeMetrics).some((key) => key.includes("review-outcome"))).toBe(
+      false,
+    );
+    expect(report.rangeMetrics["mechanism.fixture-cli.reject"]).toBe(1);
+    expect(md).not.toContain("review-outcome");
+  });
+
   // Covers: R70
   it("counts evidence rejection and repeat-failure advice as separate mechanisms", () => {
     const { report, md } = range(

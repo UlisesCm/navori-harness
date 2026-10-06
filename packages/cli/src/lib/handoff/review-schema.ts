@@ -33,6 +33,8 @@ export const ReviewSidecarSchema = z.object({
   feature: z.string().min(1),
   verdict: z.string().min(1),
   findings: z.array(FindingSchema),
+  /** Producer evidence (`review-evidence.ts`); validated there, never rejects the sidecar. */
+  evidence: z.unknown().optional(),
 });
 
 export type ReviewSidecar = z.infer<typeof ReviewSidecarSchema>;
@@ -51,6 +53,25 @@ export interface LogReviewOptions {
   cwd: string;
   feature: string;
   dir?: string;
+  /**
+   * Observation hook, called once after a successful run (also for a duplicate
+   * and with zero findings). Its failure is swallowed: it can never change the
+   * result, the stdout or the exit code.
+   */
+  observe?: (info: { root: StateRoot; sidecar: ReviewSidecar; hash: string }) => void;
+}
+
+function observeSafely(
+  options: LogReviewOptions,
+  root: StateRoot,
+  sidecar: ReviewSidecar,
+  hash: string,
+): void {
+  try {
+    options.observe?.({ root, sidecar, hash });
+  } catch {
+    // observation is best-effort by contract
+  }
 }
 
 /** Validates `review_<feature>.json` and appends its findings with score >= 50, deduped by sidecar hash. */
@@ -109,6 +130,7 @@ export function logReview(options: LogReviewOptions): LogReviewResult {
   const logPath = stateArtifactPath(root, FINDINGS_LOG_NAME);
   const existing = existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
   if (existing.split("\n").some((line) => line.includes(`"sidecarHash":"${hash}"`))) {
+    observeSafely(options, root, result.data, hash);
     return { status: "duplicate", hash, appended: 0 };
   }
   const kept = result.data.findings.filter((f) => f.score >= FINDING_SCORE_THRESHOLD);
@@ -126,5 +148,6 @@ export function logReview(options: LogReviewOptions): LogReviewResult {
     const prefix = existing === "" || existing.endsWith("\n") ? "" : "\n";
     appendFileSync(logPath, `${prefix}${lines.join("\n")}\n`);
   }
+  observeSafely(options, root, result.data, hash);
   return { status: "appended", hash, appended: lines.length };
 }

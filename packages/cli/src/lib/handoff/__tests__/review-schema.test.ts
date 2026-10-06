@@ -76,6 +76,21 @@ describe("logReview", () => {
     expect(logReview({ cwd: root, feature: "demo", dir: "state" }).status).toBe("error");
   });
 
+  // Covers: R16
+  it("keeps logging when the optional evidence is junk and calls observe once per run", () => {
+    const root = repo();
+    write(root, { ...sidecar, evidence: { v: 99, anything: true } });
+    const seen: string[] = [];
+    const result = logReview({
+      cwd: root,
+      feature: "demo",
+      dir: "state",
+      observe: (info) => seen.push(info.hash),
+    });
+    expect(result).toMatchObject({ status: "appended", appended: 1 });
+    expect(seen).toEqual([result.status === "error" ? "" : result.hash]);
+  });
+
   it("has the narrow allow rule in settings-base.json", () => {
     const settings = readFileSync(
       join(import.meta.dirname, "../../../../../core/core-assets/settings/settings-base.json"),

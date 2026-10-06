@@ -16,11 +16,12 @@ import { spawnSync } from "node:child_process";
 import { ImplHandoffSchema, type MarkdownRequest } from "./schema.ts";
 import { isUnderProgressDir } from "../primitives/progress-dirs.ts";
 import { FEATURE_SLUG, resolveStateRoot, stateArtifactPath } from "../primitives/state-root.ts";
+import { reviewEvidenceWarning } from "./review-evidence.ts";
 
-export type HandoffConsumer = "orchestrator" | "scribe";
+export type HandoffConsumer = "orchestrator" | "scribe" | "publisher";
 export type HandoffStatus = "ok" | "findings" | "error";
 export type FailureCheck = "exists" | "parse" | "feature" | "worktree" | "branch" | "path";
-export type WarningCheck = "head" | "legacy-md";
+export type WarningCheck = "head" | "legacy-md" | "review-evidence";
 
 export interface HandoffFinding {
   check: FailureCheck;
@@ -144,6 +145,22 @@ function checkLegacyMarkdown(options: HandoffCheckOptions): HandoffCheckResult {
  * into `failures` — validation failures and infrastructure failures are
  * different exit codes (0/2 vs 1, design.md Contracts). */
 export function checkHandoff(options: HandoffCheckOptions): HandoffCheckResult {
+  // Intent: the publisher always follows an implementer, so the base impl check stays for it.
+  const result = checkHandoffBase(options);
+  if (options.consumer !== "publisher" || !FEATURE_SLUG.test(options.feature)) return result;
+  // M8: the publisher is told when the review carries no valid producer evidence.
+  // A WARN only: it never changes status or exit code.
+  try {
+    const root = resolveStateRoot({ cwd: options.cwd, feature: options.feature, dir: options.dir });
+    const detail = reviewEvidenceWarning(root, options.feature);
+    if (detail !== null) result.warnings.push({ check: "review-evidence", detail });
+  } catch {
+    // an unresolvable state root is already reported by the base check
+  }
+  return result;
+}
+
+function checkHandoffBase(options: HandoffCheckOptions): HandoffCheckResult {
   try {
     if (!FEATURE_SLUG.test(options.feature)) {
       const result = empty(options.feature, options.consumer);
