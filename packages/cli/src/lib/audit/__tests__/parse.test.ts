@@ -2614,6 +2614,101 @@ it("counts and drops an invalid outcome payload but keeps the CLI event", () => 
   ]);
 });
 
+// Covers: R17
+it("attaches a valid dispatch-outcome payload and drops free text or a bad spawn id", () => {
+  const dispatch = {
+    name: "dispatch-outcome",
+    verdict: "allow",
+    schemaVersion: 1,
+    featureKey: "a".repeat(64),
+    stage: "implement",
+    spawn: "toolu_01AbC-9",
+  };
+  const before = parseSession(FIXTURE).parseErrors;
+  const s = parseLog([
+    { event: "cli", tsMs: 5, ...dispatch },
+    { event: "cli", tsMs: 6, ...dispatch, note: "free text" },
+    { event: "cli", tsMs: 7, ...dispatch, spawn: "has space" },
+    { event: "cli", tsMs: 8, ...dispatch, stage: "review" },
+  ]);
+  expect(s.parseErrors).toBe(before + 3);
+  expect(s.cliEvents?.map((event) => event.outcomePayload)).toEqual([
+    dispatch,
+    undefined,
+    undefined,
+    undefined,
+  ]);
+});
+
+describe("parse: spawn link of dispatches (spec 0042 T10a)", () => {
+  /** A main transcript whose `Agent` call `toolu_1` got `result`, with one run on disk. */
+  function linked(
+    result: Record<string, unknown>,
+    opts: { toolName?: string; runId?: string; meta?: Record<string, unknown> } = {},
+  ): SessionAudit {
+    const dir = mkdtempSync(join(tmpdir(), "navori-spawn-link-"));
+    const file = join(dir, "session.jsonl");
+    const subagents = join(dir, "session", "subagents");
+    const runId = opts.runId ?? "run1";
+    mkdirSync(subagents, { recursive: true });
+    writeFileSync(
+      join(subagents, `agent-${runId}.jsonl`),
+      `${JSON.stringify({ type: "assistant", agentId: runId, message: { content: [] } })}\n`,
+    );
+    if (opts.meta)
+      writeFileSync(join(subagents, `agent-${runId}.meta.json`), JSON.stringify(opts.meta));
+    writeFileSync(
+      file,
+      [
+        {
+          type: "assistant",
+          message: {
+            content: [{ type: "tool_use", id: "toolu_1", name: opts.toolName ?? "Agent" }],
+          },
+        },
+        result,
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n") + "\n",
+    );
+    return parseSession(file);
+  }
+  const resultOf = (toolUseResult: unknown): Record<string, unknown> => ({
+    type: "user",
+    toolUseResult,
+    message: { content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "ok" }] },
+  });
+
+  // Covers: R17
+  it("links the Agent call id to the run it created", () => {
+    const session = linked(resultOf({ agentId: "run1" }));
+    expect(session.agents[0]?.spawnToolUseId).toBe("toolu_1");
+  });
+
+  // Covers: R17
+  it("links a background (async_launched) spawn too", () => {
+    const session = linked(resultOf({ status: "async_launched", agentId: "run1" }));
+    expect(session.agents[0]?.spawnToolUseId).toBe("toolu_1");
+  });
+
+  // Covers: R17
+  it("links nothing for a call a hook denied (string result) or for another run id", () => {
+    expect(
+      linked(resultOf("PreToolUse:Agent hook error: plan-gate")).agents[0]?.spawnToolUseId,
+    ).toBeUndefined();
+    expect(linked(resultOf({ agentId: "other" })).agents[0]?.spawnToolUseId).toBeUndefined();
+  });
+
+  // Covers: R17
+  it("ignores a non-Agent tool result and never links a nested run", () => {
+    expect(
+      linked(resultOf({ agentId: "run1" }), { toolName: "Bash" }).agents[0]?.spawnToolUseId,
+    ).toBeUndefined();
+    const nested = linked(resultOf({ agentId: "run1" }), { meta: { spawnDepth: 2 } });
+    expect(nested.agents[0]?.spawnToolUseId).toBeUndefined();
+  });
+});
+
 describe("Codex discovered usage ownership (spec 0042 T6)", () => {
   const dirs: string[] = [];
   const SECRET = "SYNTHETIC-USAGE-HISTORY-SECRET";

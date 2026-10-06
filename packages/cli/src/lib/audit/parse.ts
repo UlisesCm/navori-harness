@@ -703,6 +703,32 @@ function cappedAgentIds(lines: Rec[], uses: Rec[]): Set<string> {
   return capped;
 }
 
+/**
+ * Parent `Agent` call id → the run it created (spec 0042 T10a), read from the
+ * same `tool_result.tool_use_id ↔ toolUseResult.agentId` pair as caps. Covers
+ * background spawns (`async_launched` carries an `agentId` too). A call a hook
+ * denied never spawned: its `toolUseResult` is a string, so it links nothing.
+ */
+function spawnLinks(lines: Rec[], uses: Rec[]): Map<string, string> {
+  const agentUses = new Set(
+    uses
+      .filter((use) => str(use.name) === "Agent")
+      .map((use) => str(use.id))
+      .filter((id): id is string => id !== null),
+  );
+  const links = new Map<string, string>();
+  for (const line of lines) {
+    if (str(line.type) !== "user") continue;
+    const agentId = str(path(line, "toolUseResult", "agentId"));
+    if (!agentId) continue;
+    for (const block of arr(path(line, "message", "content"))) {
+      const id = isRec(block) && str(block.type) === "tool_result" ? str(block.tool_use_id) : null;
+      if (id && agentUses.has(id) && !links.has(agentId)) links.set(agentId, id);
+    }
+  }
+  return links;
+}
+
 /** Size in bytes of one `tool_result` payload. */
 function resultBytes(content: unknown): number {
   if (typeof content === "string") return Buffer.byteLength(content);
@@ -2422,6 +2448,11 @@ export function parseSession(mainJsonl: string, budget = createAuditReadBudget()
 
   const capped = cappedAgentIds(lines, uses);
   for (const a of agents) a.turnLimitHit = capped.has(a.agentId);
+  const spawned = spawnLinks(lines, uses);
+  for (const a of agents) {
+    const spawn = spawned.get(a.agentId);
+    if (spawn && a.spawnDepth <= 1) a.spawnToolUseId = spawn;
+  }
 
   const skills = collectSkills(uses, lines);
   const byMode = countByMode(lines);
@@ -2825,7 +2856,11 @@ export function attachHookEvents(
       if (cliReason) cli.reason = cliReason;
       // An outcome event carries a closed payload. The cli event is kept either
       // way; an invalid payload is counted and dropped, never half-read.
-      if (cliName === "review-outcome" || cliName === "receipt-outcome") {
+      if (
+        cliName === "review-outcome" ||
+        cliName === "receipt-outcome" ||
+        cliName === "dispatch-outcome"
+      ) {
         const payload: Record<string, unknown> = { ...rec };
         for (const key of ["tsMs", "event", "reason"]) delete payload[key];
         const outcome = normalizeOutcome(payload);

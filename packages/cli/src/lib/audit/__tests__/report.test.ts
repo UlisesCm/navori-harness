@@ -2555,6 +2555,74 @@ describe("review/receipt outcomes in the report (spec 0042 T9b)", () => {
     }
   });
 
+  const dispatchEvent = (spawnId: string | undefined, tsMs = at("09:59")): CliEvent => ({
+    tsMs,
+    event: "cli",
+    name: "dispatch-outcome",
+    verdict: "allow",
+    outcomePayload: {
+      name: "dispatch-outcome",
+      verdict: "allow",
+      schemaVersion: 1,
+      featureKey: hex("e"),
+      stage: "implement",
+      ...(spawnId ? { spawn: spawnId } : {}),
+    },
+  });
+
+  // Covers: R17
+  it("exposes dispatch availability and orphan counts inside outcomes only", () => {
+    const report = build([
+      session([agent({ spawnToolUseId: "toolu_ok" })], {
+        sessionId: "claude-s",
+        cliEvents: [reviewEvent(), dispatchEvent("toolu_ok"), dispatchEvent("toolu_lost")],
+      }),
+      session([], { sessionId: "codex-s", host: "codex", cliEvents: [dispatchEvent("c1")] }),
+      session([], { sessionId: "silent" }),
+    ]);
+    const json = JSON.parse(renderJson(report));
+    expect(json.outcomes.dispatch).toEqual({
+      events: 3,
+      confirmed: 1,
+      unconfirmed: 1,
+      unlinkable: 1,
+      nestedUnlinked: 0,
+      dispatchWithoutRounds: 1,
+      roundsWithoutDispatch: 1,
+    });
+    // Codex is partial (never a full observation), a silent session is unknown.
+    expect(json.availability["outcomes.dispatch"]).toMatchObject({
+      state: "partial",
+      eligible: 3,
+      observed: 1,
+      partial: 1,
+      unavailable: 1,
+    });
+    expect(renderJson(report)).not.toContain("spawnToolUseId");
+    expect(renderJson(report)).not.toContain("toolu_ok");
+  });
+
+  // Covers: R17
+  it("reports dispatch availability as unknown, not zero, when no session logged one", () => {
+    const json = JSON.parse(renderJson(build([session([], { cliEvents: [reviewEvent()] })])));
+    expect(json.availability["outcomes.dispatch"]).toMatchObject({
+      state: "unavailable",
+      observed: 0,
+      eligible: 1,
+    });
+    expect(json.outcomes).not.toHaveProperty("dispatch");
+  });
+
+  // Covers: R17
+  it("keeps the dispatch field names hashed outside the outcomes subtree", () => {
+    const report = build([session([], { cliEvents: [reviewEvent(), dispatchEvent("toolu_x")] })]);
+    Object.assign(report.rangeMetrics, { "tokens.confirmed.unlinkable": 1 });
+    const published = publishReport(report);
+    expect(Object.keys(published.rangeMetrics)).not.toContain("tokens.confirmed.unlinkable");
+    expect(published.outcomes?.dispatch).toMatchObject({ events: 1, unconfirmed: 1 });
+    expect(published.availability).toHaveProperty("outcomes.dispatch");
+  });
+
   // Covers: R16
   it("reports unknown availability and no outcomes key when no session logged one", () => {
     const json = JSON.parse(renderJson(build([session([])])));

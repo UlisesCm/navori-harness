@@ -671,6 +671,12 @@ export interface AgentRun {
   endedAt: string;
   durationMs: number;
   spawnDepth: number;
+  /**
+   * `tool_use_id` of the parent's `Agent` call that created this run (spec 0042
+   * T10a). Private join key, absent for Codex, nested runs and unlinked runs;
+   * never allowlisted, so it is not published.
+   */
+  spawnToolUseId?: string;
   tokens: TokenTotals;
   /**
    * `cache_creation_input_tokens` of the agent's FIRST assistant message: the
@@ -1424,12 +1430,48 @@ export interface ReceiptOutcome {
   fp?: string;
 }
 
-/** Either closed outcome payload carried by a `cli` event. */
-export type Outcome = ReviewOutcome | ReceiptOutcome;
+/**
+ * The closed metadata-only payload `navori plan gate` logs on an allowed
+ * implementer spawn (spec 0042 D5/T10a, `schemaVersion` 1). It is a claim that
+ * the gate let a dispatch through, never proof that the spawn happened: a
+ * dispatch only counts once a run links to `spawn`. `spawn` is the host's
+ * `tool_use_id` of the `Agent` call; no free text ever appears.
+ */
+export interface DispatchOutcome {
+  name: "dispatch-outcome";
+  verdict: "allow";
+  schemaVersion: 1;
+  featureKey: string;
+  stage: "implement";
+  spawn?: string;
+}
+
+/** Any closed outcome payload carried by a `cli` event. */
+export type Outcome = ReviewOutcome | ReceiptOutcome | DispatchOutcome;
 /** What a writer supplies: the event itself supplies `name` and `verdict`. */
 export type OutcomePayload =
   | Omit<ReviewOutcome, "name" | "verdict">
-  | Omit<ReceiptOutcome, "name" | "verdict">;
+  | Omit<ReceiptOutcome, "name" | "verdict">
+  | Omit<DispatchOutcome, "name" | "verdict">;
+
+const DISPATCH_SPAWN = /^[A-Za-z0-9_-]{1,256}$/;
+
+function normalizeDispatchOutcome(record: Record<string, unknown>): DispatchOutcome | null {
+  const allowed = new Set(["name", "verdict", "schemaVersion", "featureKey", "stage", "spawn"]);
+  if (Object.keys(record).some((key) => !allowed.has(key))) return null;
+  if (record.schemaVersion !== 1 || record.verdict !== "allow" || record.stage !== "implement")
+    return null;
+  if (typeof record.featureKey !== "string" || !/^[a-f0-9]{64}$/.test(record.featureKey))
+    return null;
+  if (
+    record.spawn !== undefined &&
+    (typeof record.spawn !== "string" || !DISPATCH_SPAWN.test(record.spawn))
+  )
+    return null;
+  return Buffer.byteLength(JSON.stringify(record)) <= OUTCOME_MAX_BYTES
+    ? (record as unknown as DispatchOutcome)
+    : null;
+}
 
 const RECEIPT_VERDICTS: readonly string[] = ["ok", "findings", "error"];
 const RECEIPT_STALE: readonly string[] = ["format", "gate", "inputs", "gate,inputs"];
@@ -1503,8 +1545,8 @@ function normalizeReceiptOutcome(record: Record<string, unknown>): ReceiptOutcom
 }
 
 /**
- * The single closed normalizer of an outcome payload (`review-outcome` or
- * `receipt-outcome`): unknown keys, bad hex, an unknown enum, a non-integer
+ * The single closed normalizer of an outcome payload (`review-outcome`,
+ * `receipt-outcome` or `dispatch-outcome`): unknown keys, bad hex, an unknown enum, a non-integer
  * count or a record over 1,024 B yield `null`. Shared by every writer and by
  * the reader so the contract cannot drift.
  */
@@ -1512,6 +1554,7 @@ export function normalizeOutcome(value: unknown): Outcome | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (record.name === "receipt-outcome") return normalizeReceiptOutcome(record);
+  if (record.name === "dispatch-outcome") return normalizeDispatchOutcome(record);
   return normalizeReviewOutcome(record);
 }
 
@@ -1835,11 +1878,30 @@ export interface OutcomeEpisode {
   acceptedAtMs?: number;
   provenance: { sessions: number; hosts: number; events: number; duplicates: number };
 }
+/**
+ * How `dispatch-outcome` events relate to the runs and rounds seen (spec 0042
+ * T10a). A dispatch is only `confirmed` when a Claude run links to its spawn;
+ * `unconfirmed` ones (denied elsewhere, retried, no spawn id) and `unlinkable`
+ * ones (a host with no spawn-to-run link) never start or bound anything.
+ */
+export interface DispatchSummary {
+  events: number;
+  confirmed: number;
+  unconfirmed: number;
+  unlinkable: number;
+  /** Claude runs deeper than the main thread: their spawn call is not in the parent transcript. */
+  nestedUnlinked: number;
+  /** Features with a dispatch and no review or receipt event. */
+  dispatchWithoutRounds: number;
+  /** Features with review or receipt events and no dispatch. */
+  roundsWithoutDispatch: number;
+}
 /** Join of review and receipt outcome events per feature (spec 0042 T9b). */
 export interface AuditOutcomes {
   schemaVersion: 1;
   tasks: Array<{ feature: string; episodes: OutcomeEpisode[] }>;
   totals: { tasks: number; accepted: number; open: number; ambiguous: number };
+  dispatch?: DispatchSummary;
 }
 
 export interface AuditReport {

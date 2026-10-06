@@ -1,5 +1,7 @@
 import type {
   AuditOutcomes,
+  DispatchOutcome,
+  DispatchSummary,
   EpisodeReceipts,
   EpisodeReviews,
   Outcome,
@@ -36,15 +38,21 @@ interface Observation {
   outcome: Outcome;
 }
 
-/** Whether a session logged at least one valid review / receipt outcome. */
+/** What the join reads of a session; `agents` is only needed to confirm dispatches. */
+type JoinSession = Pick<SessionAudit, "sessionId" | "host" | "cliEvents"> &
+  Partial<Pick<SessionAudit, "agents">>;
+
+/** Whether a session logged at least one valid review / receipt / dispatch outcome. */
 export function outcomeKinds(session: Pick<SessionAudit, "cliEvents">): {
   review: boolean;
   receipt: boolean;
+  dispatch: boolean;
 } {
-  const kinds = { review: false, receipt: false };
+  const kinds = { review: false, receipt: false, dispatch: false };
   for (const event of session.cliEvents ?? []) {
     if (event.outcomePayload?.name === "review-outcome") kinds.review = true;
     if (event.outcomePayload?.name === "receipt-outcome") kinds.receipt = true;
+    if (event.outcomePayload?.name === "dispatch-outcome") kinds.dispatch = true;
   }
   return kinds;
 }
@@ -312,7 +320,7 @@ function episodesOf(
  * a review round started inside it makes the first episode left-censored.
  */
 export function joinOutcomes(
-  sessions: ReadonlyArray<Pick<SessionAudit, "sessionId" | "host" | "cliEvents">>,
+  sessions: ReadonlyArray<JoinSession>,
   rangeFromMs: number | null,
 ): AuditOutcomes | undefined {
   const byFeature = new Map<
@@ -322,7 +330,7 @@ export function joinOutcomes(
   const observations: Observation[] = [];
   for (const session of sessions)
     for (const event of session.cliEvents ?? [])
-      if (event.outcomePayload)
+      if (event.outcomePayload && event.outcomePayload.name !== "dispatch-outcome")
         observations.push({
           sessionId: session.sessionId,
           host: session.host ?? "unknown",
@@ -337,7 +345,8 @@ export function joinOutcomes(
     if (observation.outcome.name === "review-outcome") addRound(group.rounds, observation);
     else addReceipt(group.receipts, observation);
   }
-  if (byFeature.size === 0) return undefined;
+  const dispatch = summarizeDispatch(sessions, new Set(byFeature.keys()));
+  if (byFeature.size === 0 && !dispatch) return undefined;
   const tasks = [...byFeature.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([key, group]) => ({
@@ -354,5 +363,59 @@ export function joinOutcomes(
       open: episodes.filter((episode) => !episode.accepted).length,
       ambiguous: episodes.filter((episode) => episode.boundary === "ambiguous").length,
     },
+    ...(dispatch ? { dispatch } : {}),
   };
+}
+
+/**
+ * Relates `dispatch-outcome` events to the runs and rounds seen (spec 0042
+ * T10a, B1). A dispatch is a gate claim, not a spawn: it is `confirmed` only
+ * when a Claude run in the same session links to its `spawn`, and it never
+ * opens an episode or moves a start. Codex has no spawn-to-run link, so its
+ * dispatches are `unlinkable`, not unconfirmed and never zero. The same
+ * `(session, spawn, feature)` is one dispatch.
+ */
+function summarizeDispatch(
+  sessions: ReadonlyArray<JoinSession>,
+  roundFeatures: ReadonlySet<string>,
+): DispatchSummary | undefined {
+  const seen = new Set<string>();
+  const dispatched = new Set<string>();
+  const summary: DispatchSummary = {
+    events: 0,
+    confirmed: 0,
+    unconfirmed: 0,
+    unlinkable: 0,
+    nestedUnlinked: 0,
+    dispatchWithoutRounds: 0,
+    roundsWithoutDispatch: 0,
+  };
+  for (const session of sessions) {
+    const payloads = (session.cliEvents ?? []).flatMap((event) =>
+      event.outcomePayload?.name === "dispatch-outcome" ? [event.outcomePayload] : [],
+    );
+    if (payloads.length === 0) continue;
+    const codex = session.host === "codex";
+    const linked = new Set<string>();
+    for (const run of session.agents ?? []) {
+      if (run.spawnToolUseId) linked.add(run.spawnToolUseId);
+      else if (!codex && run.spawnDepth > 1) summary.nestedUnlinked++;
+    }
+    for (const payload of payloads as DispatchOutcome[]) {
+      const identity = `${session.sessionId}\0${payload.spawn ?? ""}\0${payload.featureKey}`;
+      if (payload.spawn) {
+        if (seen.has(identity)) continue;
+        seen.add(identity);
+      }
+      dispatched.add(payload.featureKey);
+      summary.events++;
+      if (codex) summary.unlinkable++;
+      else if (payload.spawn && linked.has(payload.spawn)) summary.confirmed++;
+      else summary.unconfirmed++;
+    }
+  }
+  if (summary.events === 0) return undefined;
+  for (const key of dispatched) if (!roundFeatures.has(key)) summary.dispatchWithoutRounds++;
+  for (const key of roundFeatures) if (!dispatched.has(key)) summary.roundsWithoutDispatch++;
+  return summary;
 }

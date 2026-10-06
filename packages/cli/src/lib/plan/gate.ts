@@ -21,12 +21,28 @@ import { readConfig, type NavoriConfig } from "../config/config.ts";
 import { classify } from "./classify.ts";
 import { checkWorkplan, formatCheckResult } from "./check.ts";
 import type { Workplan } from "./schema.ts";
+import { appendCliEvent, hasAuditTarget, outcomeFeatureKey } from "../audit/cli-event.ts";
+
+/** What an allowed `workplan: <feature>` spawn tells the audit log (spec 0042 T10a). */
+export interface GateDispatch {
+  feature: string;
+  cwd: string;
+  codex: boolean;
+  /** The hook payload's `session_id`, when it carries one. */
+  sessionId?: string;
+  /** The `Agent` call's `tool_use_id`, when it is a bounded id. */
+  spawn?: string;
+}
 
 export interface PlanGateResult {
   decision: "allow" | "deny";
   /** Only set on `deny` — names the skill to load and the command to run (R16). */
   reason?: string;
+  /** Only set on an `allow` resolved from a `workplan:` opening line. */
+  dispatch?: GateDispatch;
 }
+
+const SPAWN_ID = /^[A-Za-z0-9_-]{1,256}$/;
 
 /**
  * The subset of the `Agent`/`spawn_agent` `PreToolUse` payload this gate
@@ -37,6 +53,8 @@ export interface PlanGateResult {
  */
 interface AgentHookPayload {
   cwd?: string;
+  sessionId?: string;
+  toolUseId?: string;
   tool_input?: {
     subagentType?: string;
     prompt?: string;
@@ -59,6 +77,11 @@ function parsePayload(raw: unknown): AgentHookPayload {
     typeof toolInput?.agent_type === "string" ? toolInput.agent_type : undefined;
   return {
     cwd: typeof raw.cwd === "string" ? raw.cwd : undefined,
+    sessionId: typeof raw.session_id === "string" ? raw.session_id : undefined,
+    toolUseId:
+      typeof raw.tool_use_id === "string" && SPAWN_ID.test(raw.tool_use_id)
+        ? raw.tool_use_id
+        : undefined,
     tool_input: toolInput
       ? {
           subagentType:
@@ -354,5 +377,61 @@ export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()):
   }
   // One dispatch per spawn: an allowed spawn consumes its dispatch file.
   if (consume && result.decision === "allow") rmSync(consume, { force: true });
+  if (result.decision === "allow" && workplanMatch) {
+    const dispatch: GateDispatch = {
+      feature: workplanMatch[1]!,
+      cwd,
+      codex: payload.tool_input.codex,
+      ...(payload.sessionId ? { sessionId: payload.sessionId } : {}),
+      ...(payload.toolUseId ? { spawn: payload.toolUseId } : {}),
+    };
+    return { ...result, dispatch };
+  }
   return result;
+}
+
+/**
+ * Logs the closed `dispatch-outcome` of an allowed spawn. Observation only:
+ * every step, including the feature key and the audit-target lookup, sits
+ * inside one try/catch so no failure here can change the decision the hook
+ * already took (an exit other than 0/2 would turn an allow into a block).
+ * Without audit context nothing beyond the cheap target lookup runs.
+ */
+export function emitDispatchOutcome(dispatch: GateDispatch): void {
+  try {
+    const context = dispatch.sessionId
+      ? {
+          host: dispatch.codex ? ("codex" as const) : ("claude" as const),
+          sessionId: dispatch.sessionId,
+        }
+      : undefined;
+    if (!hasAuditTarget(dispatch.cwd, context)) return;
+    appendCliEvent(
+      dispatch.cwd,
+      { name: "dispatch-outcome", verdict: "allow" },
+      {
+        schemaVersion: 1,
+        featureKey: outcomeFeatureKey(dispatch.cwd, dispatch.feature),
+        stage: "implement",
+        ...(dispatch.spawn ? { spawn: dispatch.spawn } : {}),
+      },
+      context,
+    );
+  } catch {
+    // Fail-open by contract.
+  }
+}
+
+/**
+ * The hook entry: decide, report a deny, then (on allow only) log the
+ * dispatch. The emission runs after the exit code is settled and is swallowed.
+ */
+export function applyPlanGate(raw: unknown): void {
+  const result = evaluatePlanGate(raw);
+  if (result.decision === "deny") {
+    process.stderr.write(`[navori] BLOCKED by plan-gate: ${result.reason}\n`);
+    process.exitCode = 2;
+    return;
+  }
+  if (result.dispatch) emitDispatchOutcome(result.dispatch);
 }

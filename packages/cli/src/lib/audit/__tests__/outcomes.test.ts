@@ -3,7 +3,14 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { featureLabel, joinOutcomes, outcomeKinds } from "../outcomes.ts";
-import type { CliEvent, Outcome, ReceiptOutcome, ReviewOutcome } from "../model.ts";
+import type {
+  AgentRun,
+  CliEvent,
+  DispatchOutcome,
+  Outcome,
+  ReceiptOutcome,
+  ReviewOutcome,
+} from "../model.ts";
 
 const hex = (c: string): string => c.repeat(64);
 const FEATURE = hex("f");
@@ -54,6 +61,22 @@ function receipt(over: Partial<ReceiptOutcome> = {}): ReceiptOutcome {
     ...IDENTITY,
     ...over,
   };
+}
+/** A `dispatch-outcome` of FEATURE; `spawn` undefined models a payload without a spawn id. */
+function dispatch(spawn: string | undefined, over: Partial<DispatchOutcome> = {}): DispatchOutcome {
+  return {
+    name: "dispatch-outcome",
+    verdict: "allow",
+    schemaVersion: 1,
+    featureKey: FEATURE,
+    stage: "implement",
+    ...(spawn ? { spawn } : {}),
+    ...over,
+  };
+}
+/** Only what the join reads of a subagent run. */
+function run(over: Partial<AgentRun> = {}): AgentRun {
+  return { agentId: "a1", spawnDepth: 1, ...over } as AgentRun;
 }
 function event(outcome: Outcome, tsMs: number): CliEvent {
   return {
@@ -334,8 +357,14 @@ describe("availability kinds and purity", () => {
     expect(outcomeKinds(session("s1", [event(review(), 1)]))).toEqual({
       review: true,
       receipt: false,
+      dispatch: false,
     });
-    expect(outcomeKinds(session("s2", []))).toEqual({ review: false, receipt: false });
+    expect(outcomeKinds(session("s2", []))).toEqual({
+      review: false,
+      receipt: false,
+      dispatch: false,
+    });
+    expect(outcomeKinds(session("s3", [event(dispatch("t1"), 1)])).dispatch).toBe(true);
   });
 
   // Covers: R16
@@ -346,5 +375,106 @@ describe("availability kinds and purity", () => {
     );
     const imports = source.match(/^import[^;]*;/gm) ?? [];
     expect(imports.every((line) => /from "\.\/model\.ts"/.test(line))).toBe(true);
+  });
+});
+
+describe("dispatch confirmation (spec 0042 T10a)", () => {
+  const withRuns = (
+    events: CliEvent[],
+    agents: AgentRun[],
+    host: "claude" | "codex" = "claude",
+  ) => [{ ...session("s1", events, host), agents }];
+
+  // Covers: R17
+  it("confirms a dispatch only when a run in its session links to its spawn", () => {
+    const sessions = withRuns(
+      [event(dispatch("toolu_a"), 1000), event(dispatch("toolu_b"), 2000)],
+      [run({ spawnToolUseId: "toolu_a" })],
+    );
+    expect(joinOutcomes(sessions, 0)?.dispatch).toMatchObject({
+      events: 2,
+      confirmed: 1,
+      unconfirmed: 1,
+    });
+  });
+
+  // Covers: R17
+  it("never opens a task, episode or boundary from a dispatch alone (B1)", () => {
+    const sessions = withRuns(
+      [event(dispatch("toolu_a"), 1000)],
+      [run({ spawnToolUseId: "toolu_a" })],
+    );
+    const outcomes = joinOutcomes(sessions, 0);
+    expect(outcomes?.tasks).toEqual([]);
+    expect(outcomes?.totals).toEqual({ tasks: 0, accepted: 0, open: 0, ambiguous: 0 });
+    expect(outcomes?.dispatch).toMatchObject({
+      dispatchWithoutRounds: 1,
+      roundsWithoutDispatch: 0,
+    });
+  });
+
+  // Covers: R17
+  it("leaves episodes exactly as without the dispatch, even after an acceptance", () => {
+    const base = solo(review(), receipt());
+    const withDispatch = [
+      session("s1", [
+        event(review(), 30_000),
+        event(receipt(), 31_000),
+        event(dispatch("toolu_late"), 40_000),
+      ]),
+    ];
+    expect(joinOutcomes(withDispatch, 0)?.tasks).toEqual(joinOutcomes(base, 0)?.tasks);
+    expect(joinOutcomes(withDispatch, 0)?.dispatch).toMatchObject({
+      unconfirmed: 1,
+      dispatchWithoutRounds: 0,
+      roundsWithoutDispatch: 0,
+    });
+  });
+
+  // Covers: R17
+  it("counts a retried spawn id once and a payload without spawn as unconfirmed", () => {
+    const sessions = withRuns(
+      [event(dispatch("toolu_a"), 1), event(dispatch("toolu_a"), 2), event(dispatch(undefined), 3)],
+      [run({ spawnToolUseId: "toolu_a" })],
+    );
+    expect(joinOutcomes(sessions, 0)?.dispatch).toMatchObject({
+      events: 2,
+      confirmed: 1,
+      unconfirmed: 1,
+    });
+  });
+
+  // Covers: R17
+  it("does not link a spawn to a run of another session", () => {
+    const sessions = [
+      { ...session("s1", [event(dispatch("toolu_a"), 1)]), agents: [] as AgentRun[] },
+      { ...session("s2", []), agents: [run({ spawnToolUseId: "toolu_a" })] },
+    ];
+    expect(joinOutcomes(sessions, 0)?.dispatch).toMatchObject({ confirmed: 0, unconfirmed: 1 });
+  });
+
+  // Covers: R17
+  it("counts nested runs without a spawn link and keeps Codex dispatches unlinkable", () => {
+    const nested = withRuns(
+      [event(dispatch("toolu_a"), 1)],
+      [run({ spawnToolUseId: "toolu_a" }), run({ agentId: "n1", spawnDepth: 2 })],
+    );
+    expect(joinOutcomes(nested, 0)?.dispatch).toMatchObject({ confirmed: 1, nestedUnlinked: 1 });
+    const codex = withRuns([event(dispatch("c1"), 1)], [], "codex");
+    expect(joinOutcomes(codex, 0)?.dispatch).toMatchObject({
+      events: 1,
+      unlinkable: 1,
+      confirmed: 0,
+      unconfirmed: 0,
+    });
+  });
+
+  // Covers: R17
+  it("counts rounds without any dispatch per feature", () => {
+    const sessions = solo(review(), dispatch("toolu_a", { featureKey: hex("9") }));
+    expect(joinOutcomes(sessions, 0)?.dispatch).toMatchObject({
+      dispatchWithoutRounds: 1,
+      roundsWithoutDispatch: 1,
+    });
   });
 });

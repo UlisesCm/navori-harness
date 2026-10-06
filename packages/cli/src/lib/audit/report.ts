@@ -72,6 +72,14 @@ const PUBLIC_OUTCOME_FIELDS = new Set<string>([
   "duplicates",
   "open",
   "ambiguous",
+  "dispatch",
+  "events",
+  "confirmed",
+  "unconfirmed",
+  "unlinkable",
+  "nestedUnlinked",
+  "dispatchWithoutRounds",
+  "roundsWithoutDispatch",
 ]);
 /** Closed label values published only inside the `outcomes` subtree. */
 const PUBLIC_OUTCOME_LABELS = new Set<string>([
@@ -89,7 +97,11 @@ const PUBLIC_OUTCOME_LABELS = new Set<string>([
   "unavailable",
 ]);
 /** The only availability keys that name an outcomes join. */
-const PUBLIC_OUTCOME_AVAILABILITY = new Set(["outcomes.review", "outcomes.receipt"]);
+const PUBLIC_OUTCOME_AVAILABILITY = new Set([
+  "outcomes.review",
+  "outcomes.receipt",
+  "outcomes.dispatch",
+]);
 const PUBLIC_AUDIT_FIELDS = new Set<string>([
   "activeMs",
   "activityAvailability",
@@ -3756,12 +3768,13 @@ export function buildReport(
         : null;
   }
   // Spec 0042 T9b: a session that logged no outcome event is `unknown`, not "no review".
-  const outcomeEvidence = (kind: "review" | "receipt"): MetricEvidence[] =>
+  // A Codex dispatch has no spawn-to-run link, so it is `partial`, never a full observation.
+  const outcomeEvidence = (kind: "review" | "receipt" | "dispatch"): MetricEvidence[] =>
     sessions.map((s) =>
       outcomeKinds(s)[kind]
         ? {
-            state: "observed",
-            reason: null,
+            state: kind === "dispatch" && s.host === "codex" ? "partial" : "observed",
+            reason: kind === "dispatch" && s.host === "codex" ? "ownership-unknown" : null,
             source: "audit-log",
             adapter: "audit-log",
             sourceVersion: null,
@@ -3770,6 +3783,7 @@ export function buildReport(
     );
   availability["outcomes.review"] = unitPopulation(outcomeEvidence("review"));
   availability["outcomes.receipt"] = unitPopulation(outcomeEvidence("receipt"));
+  availability["outcomes.dispatch"] = unitPopulation(outcomeEvidence("dispatch"));
   const rangeFrom = opts.requestedRange?.from ?? stamps[0]?.slice(0, 10) ?? "";
   const rangeFromMs = rangeFrom ? Date.parse(`${rangeFrom.slice(0, 10)}T00:00:00Z`) : Number.NaN;
   const outcomes = joinOutcomes(sessions, Number.isNaN(rangeFromMs) ? null : rangeFromMs);

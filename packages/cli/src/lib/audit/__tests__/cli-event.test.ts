@@ -617,6 +617,89 @@ describe("receipt-outcome events", () => {
   });
 });
 
+describe("dispatch-outcome events", () => {
+  const DISPATCH = {
+    schemaVersion: 1 as const,
+    featureKey: "a".repeat(64),
+    stage: "implement" as const,
+    spawn: "toolu_01AbC",
+  };
+  const event = { name: "dispatch-outcome", verdict: "allow" };
+  const lineCount = (log: string): number => readFileSync(log, "utf-8").trim().split("\n").length;
+
+  // Covers: R17
+  it("appends a closed dispatch-outcome record within the size cap", () => {
+    const log = markSession();
+    expect(appendCliEvent(repo, event, DISPATCH)).toBe(true);
+    const line = readFileSync(log, "utf-8").trim().split("\n")[1] ?? "";
+    expect(Buffer.byteLength(line)).toBeLessThanOrEqual(2048);
+    expect(JSON.parse(line)).toMatchObject({
+      event: "cli",
+      name: "dispatch-outcome",
+      verdict: "allow",
+      stage: "implement",
+      spawn: "toolu_01AbC",
+    });
+  });
+
+  // Covers: R17
+  it.each([
+    ["an extra key", { ...DISPATCH, note: "free text" }],
+    ["a raw slug as the key", { ...DISPATCH, featureKey: "payroll-leak" }],
+    ["a stage outside the enum", { ...DISPATCH, stage: "review" }],
+    ["a spawn with free text", { ...DISPATCH, spawn: "has a space" }],
+    ["an oversized spawn", { ...DISPATCH, spawn: "x".repeat(257) }],
+    ["another schema version", { ...DISPATCH, schemaVersion: 2 }],
+  ])("writes nothing for %s", (_label, outcome) => {
+    const log = markSession();
+    expect(appendCliEvent(repo, event, outcome as unknown as typeof DISPATCH)).toBe(false);
+    expect(lineCount(log)).toBe(1);
+  });
+
+  // Covers: R17
+  it("refuses any verdict but allow and never validates as another outcome", () => {
+    const log = markSession();
+    expect(appendCliEvent(repo, { ...event, verdict: "block" }, DISPATCH)).toBe(false);
+    expect(normalizeOutcome({ name: "review-outcome", verdict: "allow", ...DISPATCH })).toBeNull();
+    expect(lineCount(log)).toBe(1);
+  });
+
+  // Covers: R17
+  it("uses an explicit session without any ambient variable, checked against the header", () => {
+    const log = markSession();
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    const context = { host: "claude" as const, sessionId: "sess-1" };
+    expect(hasAuditTarget(repo)).toBe(false);
+    expect(hasAuditTarget(repo, context)).toBe(true);
+    expect(appendCliEvent(repo, event, DISPATCH, context)).toBe(true);
+    expect(lineCount(log)).toBe(2);
+    // A session whose log does not exist, or whose header names another session, writes nothing.
+    expect(appendCliEvent(repo, event, DISPATCH, { host: "claude", sessionId: "ghost" })).toBe(
+      false,
+    );
+  });
+
+  // Covers: R17
+  it("writes nothing when the explicit session contradicts an ambient identity", () => {
+    const log = markSession();
+    const context = { host: "claude" as const, sessionId: "sess-1" };
+    process.env.CLAUDE_CODE_SESSION_ID = "other";
+    expect(appendCliEvent(repo, event, DISPATCH, context)).toBe(false);
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    process.env.NAVORI_AUDIT_HOST = "claude";
+    process.env.NAVORI_AUDIT_SESSION_ID = "other";
+    expect(appendCliEvent(repo, event, DISPATCH, context)).toBe(false);
+    process.env.NAVORI_AUDIT_HOST = "codex";
+    process.env.NAVORI_AUDIT_SESSION_ID = "sess-1";
+    expect(appendCliEvent(repo, event, DISPATCH, context)).toBe(false);
+    delete process.env.NAVORI_AUDIT_HOST;
+    delete process.env.NAVORI_AUDIT_SESSION_ID;
+    process.env.CODEX_SESSION_ID = "codex-1";
+    expect(appendCliEvent(repo, event, DISPATCH, context)).toBe(false);
+    expect(lineCount(log)).toBe(1);
+  });
+});
+
 describe("appendCliEvent", () => {
   // Covers: R55, R70
   it("appends one complete cli record to the session log", () => {
