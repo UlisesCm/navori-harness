@@ -29,7 +29,7 @@ El único tablero de avance es este archivo. Cada lote pasa por implementer y re
 
 ## Lote 4 — Outcomes de trabajo
 
-- [ ] **T9** (R16) — Persistir outcomes mínimos de revisión/findings/receipt y unir feature/diff exacto con procedencia y dedup. Tests nuevos de outcomes y tests handoff/receipt: revisión cero findings, diff distinto, receipt stale, ausencia de fuentes y episodios ambiguos. No fetch/check adicional desde reportes.
+- [x] **T9** (R16) — Persistir outcomes mínimos de revisión/findings/receipt y unir feature/diff exacto con procedencia y dedup. Tests nuevos de outcomes y tests handoff/receipt: revisión cero findings, diff distinto, receipt stale, ausencia de fuentes y episodios ambiguos. No fetch/check adicional desde reportes.
 - [ ] **T10** (R17, R18) — Calcular eficiencia por tarea aceptada y lifecycle/esperas con N/cobertura; censurar abiertas y no repartir usage ambiguo. Tests nuevos de outcomes y `range-metrics.test.ts`: aceptación local mismo diff, rondas incompletas, tareas abiertas, múltiples features y ausencia de ownership.
 
 ## Lote 5 — Comparación y cierre
