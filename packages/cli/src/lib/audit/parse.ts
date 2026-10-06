@@ -48,6 +48,7 @@ import {
   emptyTokens,
   emptyToolErrors,
   isoSeconds,
+  normalizeOutcome,
 } from "./model.ts";
 import { codexIdentityFingerprint, type RegisteredCodexChild } from "./discovery.ts";
 import { projectRootFromCwd, readAuditJsonl } from "./paths.ts";
@@ -2822,6 +2823,15 @@ export function attachHookEvents(
       const cli: CliEvent = { tsMs: rec.tsMs, event: "cli", name: cliName, verdict: cliVerdict };
       const cliReason = str(rec.reason);
       if (cliReason) cli.reason = cliReason;
+      // An outcome event carries a closed payload. The cli event is kept either
+      // way; an invalid payload is counted and dropped, never half-read.
+      if (cliName === "review-outcome" || cliName === "receipt-outcome") {
+        const payload: Record<string, unknown> = { ...rec };
+        for (const key of ["tsMs", "event", "reason"]) delete payload[key];
+        const outcome = normalizeOutcome(payload);
+        if (outcome && outcome.name === cliName) cli.outcomePayload = outcome;
+        else session.parseErrors++;
+      }
       (session.cliEvents ??= []).push(cli);
       continue;
     }
