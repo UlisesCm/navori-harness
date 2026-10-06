@@ -5,7 +5,6 @@ import {
   fstatSync,
   lstatSync,
   openSync,
-  readFileSync,
   readdirSync,
   opendirSync,
   readSync,
@@ -103,11 +102,19 @@ export function createAuditDiscoveryContext(
 }
 
 /** Retain a validated marker's checkout anchor without retaining out-of-range activity. */
-function retainRootAnchor(context: AuditDiscoveryContext, repo: string, sessionId: string,
-  record: Record<string, unknown>): void {
-  if (record.event !== "start" || typeof record.cwd !== "string" ||
-      (record.sessionId !== undefined && record.sessionId !== sessionId) ||
-      (record.repo !== undefined && record.repo !== repo)) return;
+function retainRootAnchor(
+  context: AuditDiscoveryContext,
+  repo: string,
+  sessionId: string,
+  record: Record<string, unknown>,
+): void {
+  if (
+    record.event !== "start" ||
+    typeof record.cwd !== "string" ||
+    (record.sessionId !== undefined && record.sessionId !== sessionId) ||
+    (record.repo !== undefined && record.repo !== repo)
+  )
+    return;
   const root = retainAuditPath(context.budget, projectRootFromCwd(record.cwd));
   if (!root) return;
   const known = context.repoRoots.get(repo);
@@ -128,11 +135,16 @@ function indexedSourcePaths(
   context.indexedPaths = paths;
   let stopped = false;
   const walk = (directory: string, depth: number): void => {
-    if (stopped || depth > ROLLOUT_MAX_DEPTH) return;
+    if (stopped) return;
+    if (depth > ROLLOUT_MAX_DEPTH) {
+      omitAuditFacts(context.budget, 0, true);
+      return;
+    }
     let dir: ReturnType<typeof opendirSync>;
     try {
       dir = opendirSync(directory);
     } catch {
+      omitAuditFacts(context.budget, 0, true);
       return;
     }
     try {
@@ -145,6 +157,7 @@ function indexedSourcePaths(
         }
         if (entry.isFile() && entry.name.endsWith(".jsonl")) paths.push(path);
         else if (entry.isDirectory()) walk(path, depth + 1);
+        else if (entry.isSymbolicLink()) omitAuditFacts(context.budget, 0, true);
         if (stopped) break;
       }
     } finally {
@@ -152,7 +165,7 @@ function indexedSourcePaths(
     }
   };
   for (const root of roots) {
-    if (context.indexedRoots.has(root)) continue;
+    if (context.indexedRoots.has(root) || !existsSync(root)) continue;
     context.indexedRoots.add(root);
     walk(root, 0);
   }
@@ -972,6 +985,33 @@ export function findMarkedSessions(
     const auditLogRecords: Record<string, unknown>[] = cachedLog?.records ?? [];
     let auditNormalizationLoss = cachedLog?.normalizationLoss ?? 0;
     let excluded = false;
+    /** Reject old activity only after its verified source also falls outside the cohort. */
+    const outsideCohort = (records: readonly Record<string, unknown>[]): boolean => {
+      if (filters.session) return false;
+      const header = readHeader(logFile, sessionId, repoName, records);
+      if (withinRange(header.markedAt, filters) || header.identityConflict || !header.cwd)
+        return false;
+      const hosts = header.host === "unknown" ? (["claude", "codex"] as const) : [header.host];
+      let verified = 0;
+      for (const host of hosts) {
+        const source =
+          host === "codex"
+            ? resolveCodexRollout(sessionId, header.transcript, context)
+            : resolveTranscript(sessionId, header.cwd, header.transcript, context);
+        if (inspectSource(source, host, sessionId, header.cwd, context).status !== "verified")
+          continue;
+        verified++;
+        const metadata = source ? indexedSourceMetadata(source, context) : null;
+        const payload = metadata?.payload;
+        const timestamp =
+          host === "codex" && typeof payload === "object" && payload !== null
+            ? ((payload as Record<string, unknown>).timestamp ?? metadata?.timestamp)
+            : metadata?.timestamp;
+        if (typeof timestamp !== "string" || !Number.isFinite(Date.parse(timestamp))) return false;
+        if (withinRange(timestamp, filters)) return false;
+      }
+      return verified === 1;
+    };
     let seenStart = auditLogRecords.some((record) => record.event === "start");
     const auditReading =
       cachedLog?.reading ??
@@ -990,7 +1030,8 @@ export function findMarkedSessions(
           typeof record.ts === "string" &&
           Number.isFinite(Date.parse(record.ts)) &&
           !filters.session &&
-          !withinRange(record.ts, filters)
+          !withinRange(record.ts, filters) &&
+          outsideCohort([...auditLogRecords, record])
         ) {
           excluded = true;
           if (retainAuditFact(context.budget, null, record)) auditLogRecords.push(record);
@@ -1010,19 +1051,7 @@ export function findMarkedSessions(
       if (retainAuditFact(context.budget, sessionId, { path: logFile }))
         context.logs.set(logFile, view);
     }
-    if (
-      excluded ||
-      (cachedLog &&
-        !filters.session &&
-        auditLogRecords.some(
-          (record) =>
-            record.event === "start" &&
-            typeof record.ts === "string" &&
-            Number.isFinite(Date.parse(record.ts)) &&
-            !withinRange(record.ts, filters),
-        ))
-    )
-      continue;
+    if (excluded || (cachedLog && outsideCohort(auditLogRecords))) continue;
     if (auditReading.stoppedEarly) omitAuditFacts(context.budget, 0, true);
     const { cwd, markedAt, transcript, host, identityConflict, present } = readHeader(
       logFile,
@@ -1116,8 +1145,7 @@ export function findMarkedSessions(
     if (withinRange(s.markedAt, filters)) return true;
     if (s.sourceStatus !== "verified" || !s.source) return false;
     try {
-      const line = sourceMetadataLine(s.source);
-      const rec: unknown = line ? JSON.parse(line) : null;
+      const rec: unknown = indexedSourceMetadata(s.source, context);
       if (typeof rec !== "object" || rec === null) return false;
       const record = rec as Record<string, unknown>;
       const payload =

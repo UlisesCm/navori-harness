@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { join } from "node:path";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { buildReport, renderMarkdown } from "../report.ts";
+import { buildReport, publishReport, renderMarkdown } from "../report.ts";
 import { parseCodexSession, parseSession } from "../parse.ts";
 import type { HarnessCatalog } from "../harness.ts";
 import { agent as unmeasuredAgent, session as unmeasuredSession } from "./lifecycle-fixtures.ts";
@@ -39,12 +39,18 @@ measuredAvailability.hooks = hookEvidence;
 
 /** Build an explicitly measured Claude report fixture, not a parser fallback. */
 function session(over: Partial<SessionAudit> = {}): SessionAudit {
-  return unmeasuredSession({ availability: { ...measuredAvailability }, ...over });
+  return unmeasuredSession({
+    availability: { ...measuredAvailability },
+    ...over,
+  });
 }
 
 /** Each synthesized child supplies the same explicit measured fixture provenance. */
 function agent(over: Partial<AgentRun> = {}): AgentRun {
-  return unmeasuredAgent({ availability: { ...measuredAvailability }, ...over });
+  return unmeasuredAgent({
+    availability: { ...measuredAvailability },
+    ...over,
+  });
 }
 
 const CATALOG: HarnessCatalog = {
@@ -60,12 +66,16 @@ const CATALOG: HarnessCatalog = {
 };
 
 function report(sessions: ReturnType<typeof session>[]) {
-  return buildReport(sessions, { repo: "demo", version: "0.11.0", catalog: CATALOG });
+  return buildReport(sessions, {
+    repo: "demo",
+    version: "0.11.0",
+    catalog: CATALOG,
+  });
 }
 
 function writeLines(dir: string, name: string, lines: unknown[]): string {
   const file = join(dir, name);
-  writeFileSync(file, lines.map((l) => JSON.stringify(l)).join("\n"), "utf-8");
+  writeFileSync(file, lines.map((l) => JSON.stringify(l)).join("\n") + "\n", "utf-8");
   return file;
 }
 
@@ -109,16 +119,50 @@ describe("range metrics: published flat under schemaVersion 11", () => {
     expect(m["hooks.tollEvents"]).toBe(2);
   });
 
-  // Covers: R15
+  // Covers: R6, R10, R11, R15
   it("marks uncorrelated hook toll and Codex nested calls unavailable", () => {
-    const codex = session({
-      host: "codex",
-      unavailable: "transcript",
-      availability: {
-        hooks: hookEvidence,
-        tools: { ...transcriptEvidence, source: "rollout", adapter: "codex-rollout" },
+    const dir = mkdtempSync(join(tmpdir(), "navori-owned-exec-"));
+    const log = writeLines(dir, "session-root.log", [
+      { event: "start", host: "codex", sessionId: "root", cwd: "/repo" },
+    ]);
+    const rollout = writeLines(dir, "rollout.jsonl", [
+      {
+        type: "session_meta",
+        payload: {
+          id: "root",
+          session_id: "root",
+          cli_version: "0.160.0",
+          cwd: "/repo",
+        },
       },
+      {
+        type: "event_msg",
+        payload: {
+          type: "item_started",
+          thread_id: "root",
+          turn_id: "turn-1",
+          item: { type: "CommandExecution", id: "exec-1" },
+        },
+      },
+      {
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call",
+          name: "exec",
+          call_id: "exec-1",
+          input: "true",
+        },
+      },
+    ]);
+    const codex = parseCodexSession("root", log, rollout)!;
+    expect(codex.orchestrator.codex?.source.state).toBe("observed");
+    expect(codex.orchestrator.codex?.activity).toContainEqual({
+      kind: "tool",
+      id: "exec-1",
+      name: "exec",
+      at: null,
     });
+    codex.availability = { ...codex.availability, hooks: hookEvidence };
     codex.orchestrator.hookEvents = [
       {
         ts: "2026-09-30T10:00:00Z",
@@ -130,17 +174,6 @@ describe("range metrics: published flat under schemaVersion 11", () => {
         tool: "Bash",
       },
     ];
-    codex.orchestrator.toolCounts = { exec: 1 };
-    codex.rollout = {
-      status: "parsed",
-      cliVersion: "0.160.0",
-      turns: 1,
-      toolCalls: { exec: 1 },
-      models: {},
-      firstTs: null,
-      lastTs: null,
-      parseErrors: 0,
-    };
     const r = report([codex]);
     expect(r.rangeMetrics["hooks.ms"]).toBe(100);
     expect(r.rangeMetrics["hooks.tollMs"]).toBeNull();
@@ -149,7 +182,22 @@ describe("range metrics: published flat under schemaVersion 11", () => {
     expect(r.rangeMetrics["hooks.bashCoveragePct"]).toBeNull();
     expect(r.rangeMetrics["codex.execWrappers"]).toBe(1);
     expect(r.rangeMetrics["codex.nestedToolCalls"]).toBeNull();
+    expect(publishReport(r).sessions[0]?.rollout).toMatchObject({ toolCalls: { exec: 1 } });
     expect(renderMarkdown(r, "en")).toContain("Codex exec: 1 wrappers, not internal tools");
+    const unavailable = structuredClone(r);
+    unavailable.sessions[0]!.availability!.tools = {
+      ...transcriptEvidence,
+      source: "rollout",
+      adapter: "codex-rollout",
+      state: "unavailable",
+      reason: "ownership-unknown",
+    };
+    expect(publishReport(unavailable).sessions[0]?.rollout).toMatchObject({
+      toolCalls: { exec: null },
+    });
+    expect(renderMarkdown(unavailable, "en")).toContain(
+      "Codex exec: n/d wrappers, not internal tools",
+    );
   });
 
   // Covers: R15
@@ -177,9 +225,24 @@ describe("range metrics: published flat under schemaVersion 11", () => {
     const r = report([
       session({
         agents: [
-          agent({ agentId: "a1", agentType: "implementer", turns: 10, turnLimitHit: false }),
-          agent({ agentId: "a2", agentType: "implementer", turns: 50, turnLimitHit: true }),
-          agent({ agentId: "a3", agentType: "implementer", turns: 20, turnLimitHit: false }),
+          agent({
+            agentId: "a1",
+            agentType: "implementer",
+            turns: 10,
+            turnLimitHit: false,
+          }),
+          agent({
+            agentId: "a2",
+            agentType: "implementer",
+            turns: 50,
+            turnLimitHit: true,
+          }),
+          agent({
+            agentId: "a3",
+            agentType: "implementer",
+            turns: 20,
+            turnLimitHit: false,
+          }),
         ],
       }),
     ]);
@@ -235,13 +298,25 @@ describe("range metrics: published flat under schemaVersion 11", () => {
       sessionId: "s1",
       agents: [agent({ agentId: "a1" }), agent({ agentId: "a2" })],
     });
-    s1.orchestrator.tokens = { input: 1, output: 2, cacheRead: 3, cacheCreation: 4, thinking: 5 };
+    s1.orchestrator.tokens = {
+      input: 1,
+      output: 2,
+      cacheRead: 3,
+      cacheCreation: 4,
+      thinking: 5,
+    };
     const s2 = session({ sessionId: "s2", agents: [agent({ agentId: "a3" })] });
     const { byAgentType } = report([s1, s2]).totals;
     expect(byAgentType["main-thread"]).toMatchObject({
       count: 2,
       sessions: 2,
-      tokens: { input: 1, output: 2, cacheRead: 3, cacheCreation: 4, thinking: 5 },
+      tokens: {
+        input: 1,
+        output: 2,
+        cacheRead: 3,
+        cacheCreation: 4,
+        thinking: 5,
+      },
     });
     // Two launches in one session and one in another: count 3, sessions 2.
     expect(byAgentType.reviewer).toMatchObject({ count: 3, sessions: 2 });
@@ -251,12 +326,22 @@ describe("range metrics: published flat under schemaVersion 11", () => {
   it("counts WebFetch and WebSearch per agent type", () => {
     const s = session({
       agents: [
-        agent({ agentType: "researcher", toolCounts: { WebFetch: 3, WebSearch: 1 } }),
-        agent({ agentId: "a2", agentType: "researcher", toolCounts: { WebFetch: 2 } }),
+        agent({
+          agentType: "researcher",
+          toolCounts: { WebFetch: 3, WebSearch: 1 },
+        }),
+        agent({
+          agentId: "a2",
+          agentType: "researcher",
+          toolCounts: { WebFetch: 2 },
+        }),
       ],
     });
     const r = report([s]);
-    expect(r.totals.byAgentType.researcher).toMatchObject({ webFetch: 5, webSearch: 1 });
+    expect(r.totals.byAgentType.researcher).toMatchObject({
+      webFetch: 5,
+      webSearch: 1,
+    });
     expect(r.rangeMetrics["agent.researcher.web.fetch"]).toBe(5);
     expect(r.rangeMetrics["agent.researcher.web.search"]).toBe(1);
   });
@@ -279,9 +364,16 @@ describe("parse: transcript measures", () => {
       },
       {
         type: "assistant",
-        message: { id: "m1", usage: usage(1), content: [{ type: "text", text: "x" }] },
+        message: {
+          id: "m1",
+          usage: usage(1),
+          content: [{ type: "text", text: "x" }],
+        },
       },
-      { type: "assistant", message: { id: "m2", usage: usage(100), content: [] } },
+      {
+        type: "assistant",
+        message: { id: "m2", usage: usage(100), content: [] },
+      },
       { type: "system", subtype: "compact_boundary" },
       { type: "system", subtype: "compact_boundary" },
     ]);
@@ -310,12 +402,18 @@ describe("parse: transcript measures", () => {
         message: {
           content: [
             { type: "tool_result", tool_use_id: "t1", content: "12345" },
-            { type: "tool_result", tool_use_id: "t2", content: [{ type: "text", text: "ab" }] },
+            {
+              type: "tool_result",
+              tool_use_id: "t2",
+              content: [{ type: "text", text: "ab" }],
+            },
           ],
         },
       },
     ]);
-    expect(parseSession(file).orchestrator.toolResultBytes).toEqual({ Read: [5, 2] });
+    expect(parseSession(file).orchestrator.toolResultBytes).toEqual({
+      Read: [5, 2],
+    });
   });
 });
 

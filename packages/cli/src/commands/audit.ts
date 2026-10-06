@@ -1,17 +1,8 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import {
-  appendFileSync,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  statSync,
-  writeFileSync,
-  rmSync,
-} from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, lstatSync, readFileSync, type Stats } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { isAbsolute, join, resolve } from "node:path";
 import { readHarnessCatalog, renderedHarnessVersion } from "../lib/audit/harness.ts";
 import {
   type MarkedSession,
@@ -28,12 +19,8 @@ import { listMarkers } from "../lib/diagnose/health.ts";
 import {
   type Lang,
   detectSignals,
-  flattenActivation,
-  flattenSearchRouting,
-  mineActivation,
-  mineSearchRouting,
-  mineCodegraphProjectPaths,
-  flattenCodegraphPaths,
+  mineClaudeMetrics,
+  flattenMinedMetrics,
 } from "../lib/audit/signals.ts";
 import type { HarnessCatalog } from "../lib/audit/harness.ts";
 import {
@@ -50,11 +37,11 @@ import {
   renderJson,
   renderMarkdown,
   weightedTokens,
+  publishReport,
 } from "../lib/audit/report.ts";
 import {
   ALL_REPOS_DIR,
   auditsRoot,
-  pendingSpoolPath,
   projectRootFromCwd,
   rangeReportDir,
   repoAuditDir,
@@ -62,10 +49,22 @@ import {
   sessionLogPath,
   sessionReportDir,
   snapshotPath,
-  PENDING_SPOOL_RE,
+  ensurePrivateAuditDirectory,
+  createPrivateAuditFile,
+  appendPrivateAuditFile,
+  removePrivateAuditFile,
+  readPrivateAuditFile,
+  replacePrivateAuditFile,
+  type PrivateAuditResult,
 } from "../lib/audit/paths.ts";
 import { startReceiver, type OtelReceiver } from "../lib/audit/collect.ts";
-import { captureCodexChild } from "../lib/audit/cli-event.ts";
+import {
+  captureCodexChild,
+  recordAuditMetadata,
+  absorbAuditMetadataSpool,
+  readAuditHeaderFromFd,
+  matchesAuditHeaderIdentity,
+} from "../lib/audit/cli-event.ts";
 import { NavoriError } from "../lib/primitives/errors.ts";
 import { resolveLang } from "../lib/i18n.ts";
 import { readGlobalConfig } from "../lib/config/global-config.ts";
@@ -152,8 +151,8 @@ function auditPathOrExit<T = string>(build: () => T, json: boolean): T {
 function emptyFlagOrExit(value: unknown, flag: string, json: boolean, isEs: boolean): void {
   if (value !== "") return;
   const message = isEs
-    ? `La bandera ${flag} necesita un id de sesión: '${flag} <id>'. Sin id no se activa ni se sella nada, así que no genero ningún reporte.`
-    : `The ${flag} flag needs a session id: '${flag} <id>'. With no id nothing is activated or sealed, so no report is produced.`;
+    ? `${flag} necesita un id de sesión: '${flag} <id>'. Sin id no activo/sello ni genero reporte.`
+    : `${flag} needs a session id: '${flag} <id>'. No id means no start/seal/report.`;
   if (json) console.log(JSON.stringify({ ok: false, error: "missing-flag-value", flag }));
   else p.cancel(message);
   process.exit(2);
@@ -175,70 +174,38 @@ function emptyFlagOrExit(value: unknown, flag: string, json: boolean, isEs: bool
  * can take back. Both failure paths exit 2 — this function never returns
  * normally unless the match was unique.
  */
-/** Days a spool survives without its session ever being marked (#778). */
-const SPOOL_TTL_DAYS = 7;
-
-/**
- * Fold this session's spooled SessionStart records into its brand-new log (#778).
- *
- * The records are already in the log's own line format — the partial writes
- * them with the same `jq` — so absorbing is a concatenation, not a translation.
- * Order does not matter: `attachHookEvents` sorts by `tsMs` and derives the
- * recorder's horizon as a MINIMUM over the unsorted events, precisely because
- * parallel agents already race on that append.
- *
- * Best-effort by design. A spool that cannot be read or deleted must not stop
- * `--start` from marking the session: the recording is the product, the spool
- * is an optimisation on its coverage.
- */
-function absorbSpool(repo: string, sessionId: string, logFile: string): void {
-  let spool: string;
-  try {
-    spool = pendingSpoolPath(repo, sessionId);
-  } catch {
-    return; // An id that cannot name a path cannot name a spool either.
-  }
-  if (!existsSync(spool)) return;
-  try {
-    const body = readFileSync(spool, "utf-8");
-    if (body.trim() !== "") appendFileSync(logFile, body.endsWith("\n") ? body : `${body}\n`);
-  } catch {
-    return; // Leave the spool in place; the sweep below will reclaim it.
-  }
-  try {
-    rmSync(spool, { force: true });
-  } catch {
-    /* the file stays; it is ~2 lines and the sweep will take it */
-  }
+/** Refuse unsafe history without repairing it or exposing its contents. */
+function privateResultOrExit<T>(result: PrivateAuditResult<T>, json: boolean): T {
+  if (result.ok) return result.value;
+  if (json)
+    process.stdout.write(
+      JSON.stringify({ ok: false, error: "unsafe-audit-target", reason: result.reason }) + "\n",
+    );
+  else p.cancel("unsafe-audit-target: " + result.reason);
+  return process.exit(2);
 }
 
-/**
- * Drop spools of sessions that were never marked (#778).
- *
- * A spool only exists in a repo that has used audit-mode, and only SessionStart
- * writes one, so this is a couple of lines per unmarked session — but "a couple
- * of lines, forever" is still a leak, and the recorder may not create one.
- * `--start` is the natural sweeper: it is the only command that runs often
- * enough to matter and cheap enough to afford a `readdir`.
- */
-function sweepStaleSpools(auditDir: string, keepSessionId: string): void {
-  const cutoff = Date.now() - SPOOL_TTL_DAYS * 24 * 60 * 60 * 1000;
-  let entries: string[];
-  try {
-    entries = readdirSync(auditDir);
-  } catch {
-    return;
-  }
-  for (const name of entries) {
-    if (!PENDING_SPOOL_RE.test(name)) continue;
-    if (name === `pending-${keepSessionId}.jsonl`) continue;
-    const path = join(auditDir, name);
-    try {
-      if (statSync(path).mtimeMs < cutoff) rmSync(path, { force: true });
-    } catch {
-      /* unreadable or already gone: nothing to reclaim */
-    }
-  }
+/** Validate the marker on the descriptor that will receive the lifecycle append. */
+function lifecycleAppend(
+  path: string,
+  id: string,
+  repo: string,
+  cwd: string,
+  host: "claude" | "codex" | undefined,
+  line: string,
+): PrivateAuditResult<number> {
+  return appendPrivateAuditFile(path, (fd: number): string => {
+    const header = readAuditHeaderFromFd(fd);
+    const declared = header?.host === undefined ? "claude" : header.host;
+    const selected = host ?? declared;
+    if (
+      !header ||
+      (selected !== "claude" && selected !== "codex") ||
+      !matchesAuditHeaderIdentity(header, selected, id, repo, cwd)
+    )
+      throw new Error("identity-conflict");
+    return line;
+  });
 }
 
 function resolveStopTarget(
@@ -273,8 +240,8 @@ function resolveStopTarget(
   } else {
     p.cancel(
       isEs
-        ? `El prefijo '${stopId}' es ambiguo: casa con ${ids.length} sesiones marcadas (${ids.join(", ")}). No sello ninguna — pasa suficientes caracteres para nombrar una sola.`
-        : `The prefix '${stopId}' is ambiguous: it matches ${ids.length} marked sessions (${ids.join(", ")}). Nothing was sealed — pass enough characters to name exactly one.`,
+        ? `Prefijo '${stopId}' ambiguo: ${ids.length} sesiones (${ids.join(", ")}). No sello; usa un prefijo único.`
+        : `Prefix '${stopId}' ambiguous: ${ids.length} sessions (${ids.join(", ")}). Nothing sealed; use a unique prefix.`,
     );
   }
   process.exit(2);
@@ -296,78 +263,303 @@ function mergeCatalogs(base: HarnessCatalog, others: HarnessCatalog[]): HarnessC
   return { ...base, agents: [...agents.values()], skills: [...skills], managedSkills: [] };
 }
 
+/** Read one bounded UTF-8 document; nothing is persisted before EOF. */
+async function readMetadataInput(): Promise<unknown> {
+  const bytes = Buffer.alloc(2049);
+  let length = 0;
+  while (length < bytes.length) {
+    const chunk: unknown = process.stdin.read(
+      Math.min(bytes.length - length, process.stdin.readableLength || bytes.length - length),
+    );
+    if (chunk === null && process.stdin.readableEnded) {
+      const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, length));
+      return JSON.parse(text) as unknown;
+    }
+    if (chunk === null) {
+      await new Promise<void>((resolveRead, rejectRead) => {
+        const cleanup = (): void => {
+          process.stdin.off("readable", ready);
+          process.stdin.off("end", ready);
+          process.stdin.off("error", failed);
+        };
+        const ready = (): void => {
+          cleanup();
+          resolveRead();
+        };
+        const failed = (error: Error): void => {
+          cleanup();
+          rejectRead(error);
+        };
+        process.stdin.once("readable", ready);
+        process.stdin.once("end", ready);
+        process.stdin.once("error", failed);
+      });
+    } else if (Buffer.isBuffer(chunk)) {
+      chunk.copy(bytes, length);
+      length += chunk.length;
+    } else throw new Error("metadata-input-type");
+  }
+  throw new Error("metadata-input-limit");
+}
+
+/** Exclusive, silent noninteractive bridge to the existing private writer. */
+async function recordMetadataAction(args: Readonly<Record<string, unknown>>): Promise<void> {
+  process.exitCode = 2;
+  const conflicts = [
+    "consume-arm",
+    "capture-child",
+    "rollout",
+    "start",
+    "stop",
+    "arm",
+    "disarm",
+    "collect",
+    "session",
+    "days",
+    "since",
+    "until",
+    "out",
+    "all-repos",
+    "snapshot",
+    "copy-to",
+    "compare",
+    "json",
+    "include-human-content",
+  ];
+  const host = args.host;
+  const rootSessionId = args["root-session"];
+  const repo = args.repo;
+  const auditRoot = args.root;
+  if (
+    args["record-metadata"] !== true ||
+    conflicts.some((key) => args[key] !== undefined) ||
+    (host !== "claude" && host !== "codex") ||
+    typeof rootSessionId !== "string" ||
+    !/^[A-Za-z0-9_-]{1,256}$/.test(rootSessionId) ||
+    typeof repo !== "string" ||
+    !/^[A-Za-z0-9_.-]{1,256}$/.test(repo) ||
+    repo === "." ||
+    repo === ".." ||
+    typeof auditRoot !== "string" ||
+    !isAbsolute(auditRoot)
+  )
+    return;
+  try {
+    const result = recordAuditMetadata({
+      host,
+      rootSessionId,
+      repo,
+      auditRoot,
+      event: await readMetadataInput(),
+    });
+    if (["recorded", "spooled", "skipped"].includes(result.status)) process.exitCode = 0;
+  } catch {
+    // Invalid input/read failures stay silent and cannot select another action.
+  }
+}
+
+/** Read complete private arm payload and capture its stable observable generation. */
+function readArm(file: string, cwd: string, root: string): Stats | null {
+  const identity = lstatSync(file);
+  const read = readPrivateAuditFile(file, { ownedRoot: resolve(root), maxBytes: 2048 });
+  if (!read.ok) return null;
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(read.value);
+  if (!text.endsWith("\n") || text.slice(0, -1).includes("\n")) return null;
+  const arm: unknown = JSON.parse(text);
+  if (!arm || typeof arm !== "object" || Array.isArray(arm)) return null;
+  const payload = arm as Record<string, unknown>;
+  if (
+    Object.keys(payload).length !== 2 ||
+    typeof payload.ts !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(payload.ts) ||
+    !Number.isFinite(Date.parse(payload.ts)) ||
+    typeof payload.cwd !== "string" ||
+    !isAbsolute(payload.cwd) ||
+    resolve(projectRootFromCwd(payload.cwd)) !== resolve(projectRootFromCwd(cwd))
+  )
+    return null;
+  const current = lstatSync(file);
+  if (
+    current.dev !== identity.dev ||
+    current.ino !== identity.ino ||
+    current.size !== identity.size
+  )
+    return null;
+  return identity;
+}
+
+/** Serialize cooperating consumers with an exclusive private claim, fresh generation
+ * validation and own-token cleanup before start. Crashes conservatively retain claims;
+ * trusted-local-writer and ABA limits remain those of the existing private helpers. */
+function consumeArm(args: Readonly<Record<string, unknown>>): boolean {
+  const { start, host, cwd, root } = args;
+  if (
+    args["consume-arm"] !== true ||
+    typeof start !== "string" ||
+    !/^[A-Za-z0-9_-]{1,256}$/.test(start) ||
+    (host !== "claude" && host !== "codex") ||
+    typeof cwd !== "string" ||
+    !isAbsolute(cwd) ||
+    Buffer.byteLength(cwd) > 2048 ||
+    typeof root !== "string" ||
+    !isAbsolute(root) ||
+    resolve(root) !== auditsRoot() ||
+    Object.keys(args).some(
+      (key) =>
+        key !== "_" &&
+        !["consume-arm", "start", "host", "cwd", "root"].includes(key) &&
+        args[key] !== undefined,
+    )
+  )
+    return false;
+  try {
+    const file = join(repoAuditDir(repoFromCwd(cwd)), ".armed");
+    const original = readArm(file, cwd, root);
+    if (!original) return false;
+    const claim = `${file}.claim`;
+    const token = `${randomUUID()}\n`;
+    const options = { ownedRoot: resolve(root) };
+    if (!createPrivateAuditFile(claim, token, options).ok) return false;
+    let claimed: Stats | undefined;
+    let consumed = false;
+    let released = false;
+    try {
+      claimed = lstatSync(claim);
+      const current = readArm(file, cwd, root);
+      if (
+        current &&
+        current.dev === original.dev &&
+        current.ino === original.ino &&
+        current.size === original.size
+      )
+        consumed = removePrivateAuditFile(file, { ...options, expectedIdentity: original }).ok;
+    } finally {
+      try {
+        const content = readPrivateAuditFile(claim, { ...options, maxBytes: 2048 });
+        released =
+          claimed !== undefined &&
+          content.ok &&
+          content.value.equals(Buffer.from(token)) &&
+          removePrivateAuditFile(claim, { ...options, expectedIdentity: claimed }).ok;
+      } catch {
+        /* Failed cleanup never authorizes start or another claim's removal. */
+      }
+    }
+    return consumed && released;
+  } catch {
+    return false;
+  }
+}
+
+/** Audit reports and exclusive internal metadata transport actions. */
 export const auditCommand = defineCommand({
   meta: {
     name: "audit",
-    description: "Report how the harness actually ran: token attribution and adherence gaps",
+    description: "Report harness tokens and adherence gaps",
   },
   args: {
+    "consume-arm": {
+      type: "boolean",
+      description: "Consume private arm; requires start/host/cwd/root",
+    },
+    "include-human-content": {
+      type: "boolean",
+      description: "Human content in private reports, this call only",
+    },
+    "record-metadata": {
+      type: "boolean",
+      description: "Bounded internal metadata from stdin",
+    },
+    repo: { type: "string", description: "Exact metadata repo" },
+    root: { type: "string", description: "Absolute private audit root" },
     cwd: { type: "string", description: "Repo to audit (default: cwd)" },
-    days: { type: "string", description: "Only sessions marked in the last N days" },
-    since: { type: "string", description: "Only sessions from this date (YYYY-MM-DD)" },
-    until: { type: "string", description: "Only sessions up to this date (YYYY-MM-DD)" },
-    session: { type: "string", description: "One session by id, prefix, or 'latest'" },
-    json: { type: "boolean", description: "Print the JSON report to stdout without writing files" },
-    out: { type: "string", description: "Override the output directory" },
-    start: { type: "string", description: "Mark a session id as audited (used by the hook flow)" },
+    days: { type: "string", description: "Last N days of marked sessions" },
+    since: { type: "string", description: "From YYYY-MM-DD" },
+    until: { type: "string", description: "Through YYYY-MM-DD" },
+    session: { type: "string", description: "Session id, prefix, or 'latest'" },
+    json: { type: "boolean", description: "JSON stdout; no files" },
+    out: { type: "string", description: "Output directory" },
+    start: { type: "string", description: "Start auditing this session id" },
     "capture-child": {
       type: "string",
-      description: "Register one exact Codex child thread in an opted-in root audit log",
+      description: "Exact Codex child; opted-in root log",
     },
     "root-session": {
       type: "string",
-      description: "Exact root session for --capture-child; never inferred from environment",
+      description: "Exact child/metadata root session; no inference",
     },
-    rollout: { type: "string", description: "Exact child rollout source for --capture-child" },
+    rollout: { type: "string", description: "Exact --capture-child rollout source" },
     host: {
       type: "string",
-      description:
-        "With --start: the host that runs the session ('claude' or 'codex'), stamped on the start record. The caller states it; it is never inferred. Omitted = Claude (every log before spec 0039).",
+      description: "claude/codex; metadata/consumption requires it; start: claude",
     },
     stop: {
       type: "string",
-      description: "Seal a session's log by id, unique prefix, or 'latest', and report on it",
+      description: "Seal/report id, unique prefix, or 'latest'",
     },
     arm: {
       type: "boolean",
-      description:
-        "Arm audit-mode for this repo: a running session activates on its next message, otherwise the next session opened does. A hook consumes the flag and runs --start with the session's id.",
+      description: "Arm once for next repo message/session; hook consumes/starts",
     },
     disarm: {
       type: "boolean",
-      description: "Remove a pending --arm flag without starting anything",
+      description: "Cancel pending arm; no start",
     },
     "all-repos": {
       type: "boolean",
-      description:
-        "Aggregate the sessions of every repo under the audit root into one range report, with a row and a coverage figure per repo",
+      description: "All-repo range report with per-repo coverage",
     },
     snapshot: {
       type: "string",
-      description:
-        "Save the range metrics as a versioned snapshot under the audit root, under this name",
+      description: "Named versioned range snapshot in audit root",
     },
     "copy-to": {
       type: "string",
-      description:
-        "Also copy the snapshot to this explicit path (relative paths resolve from the git toplevel; never overwrites). Requires --snapshot",
+      description: "Copy --snapshot here, relative to git root; no overwrite",
     },
     compare: {
       type: "string",
-      description:
-        "Print the per-metric difference between this snapshot file and the current range",
+      description: "Compare snapshot metrics to range",
     },
     collect: {
       type: "boolean",
-      description:
-        "Run the OTel events receiver until interrupted: the third audit source, the one that carries what the HOST decided (permission source, active skill). Prints the address, the output directory and the environment the audited session must export.",
+      description: "Receive OTel until interrupted; show address/output/export env",
     },
   },
   async run({ args }) {
+    const consuming = args["consume-arm"] !== undefined;
+    if (consuming && !consumeArm(args)) {
+      process.exitCode = 2;
+      return;
+    }
+    if (
+      !consuming &&
+      (args["record-metadata"] !== undefined || args.repo !== undefined || args.root !== undefined)
+    ) {
+      await recordMetadataAction(args);
+      return;
+    }
     const cwd = resolve(args.cwd ?? process.cwd());
     const lang = reportLang(cwd);
     const isEs = lang === "es";
     const json = args.json === true;
+    if (
+      [args.start, args.stop, args.out].some(
+        (value) => value !== undefined && typeof value !== "string",
+      ) ||
+      [args.arm, args.disarm].some((value) => value !== undefined && typeof value !== "boolean")
+    )
+      process.exit(2);
+    if (
+      args["include-human-content"] !== undefined &&
+      (typeof args["include-human-content"] !== "boolean" ||
+        (args["include-human-content"] === true &&
+          ["collect", "capture-child", "root-session", "rollout"].some(
+            (key) => args[key] !== undefined,
+          )))
+    ) {
+      process.exit(2);
+    }
 
     // Registration is a separate metadata-only action, before any collector or report writer.
     if ([args["capture-child"], args["root-session"], args.rollout].some((v) => v !== undefined)) {
@@ -386,6 +578,7 @@ export const auditCommand = defineCommand({
         args.until,
         args.out,
         args.host,
+        args["include-human-content"],
         args["all-repos"],
         args.snapshot,
         args["copy-to"],
@@ -486,11 +679,31 @@ export const auditCommand = defineCommand({
     const snapshotName = args.snapshot;
     const copyTo = args["copy-to"];
     const comparePath = args.compare;
+    const human = args["include-human-content"];
     const flagError = (code: string, es: string, en: string): never => {
       if (json) console.log(JSON.stringify({ ok: false, error: code }));
       else p.cancel(isEs ? es : en);
       return process.exit(2);
     };
+    if (human !== undefined && typeof human !== "boolean")
+      flagError("invalid-human-content", "Bandera inválida.", "Invalid flag.");
+    if (
+      human === true &&
+      (json ||
+        snapshotName !== undefined ||
+        copyTo !== undefined ||
+        comparePath !== undefined ||
+        args.start !== undefined ||
+        args.stop !== undefined ||
+        args.arm !== undefined ||
+        args.disarm !== undefined ||
+        args.collect !== undefined)
+    )
+      flagError(
+        "human-content-conflict",
+        "El contenido humano requiere archivos privados de reporte.",
+        "Human content requires private report files.",
+      );
     for (const [flag, value] of [
       ["--snapshot", snapshotName],
       ["--copy-to", copyTo],
@@ -507,15 +720,15 @@ export const auditCommand = defineCommand({
     if (copyTo && !snapshotName) {
       flagError(
         "copy-to-needs-snapshot",
-        "--copy-to copia la instantánea: pásala con --snapshot <nombre>.",
-        "--copy-to copies the snapshot: pass --snapshot <name> too.",
+        "--copy-to requiere --snapshot <nombre>.",
+        "--copy-to requires --snapshot <name>.",
       );
     }
     if (json && (snapshotName || comparePath)) {
       flagError(
         "json-with-snapshot",
-        "--json no escribe archivos: no se combina con --snapshot ni --compare.",
-        "--json writes no files: it does not combine with --snapshot or --compare.",
+        "--json no escribe archivos; incompatible con --snapshot/--compare.",
+        "--json writes no files; incompatible with --snapshot/--compare.",
       );
     }
     if (
@@ -528,8 +741,8 @@ export const auditCommand = defineCommand({
     ) {
       flagError(
         "all-repos-conflict",
-        "--all-repos solo genera el reporte de rango: no se combina con --session, --start, --stop, --arm ni --disarm.",
-        "--all-repos only builds the range report: it does not combine with --session, --start, --stop, --arm or --disarm.",
+        "--all-repos: rango únicamente; incompatible con --session/--start/--stop/--arm/--disarm.",
+        "--all-repos: range only; incompatible with --session/--start/--stop/--arm/--disarm.",
       );
     }
     // Read before anything is generated: a bad path should cost nothing.
@@ -554,33 +767,37 @@ export const auditCommand = defineCommand({
     // session, never "every session from now on".
     if (args.arm === true) {
       const armedFile = join(auditDir, ".armed");
-      mkdirSync(auditDir, { recursive: true });
+      privateResultOrExit(ensurePrivateAuditDirectory(auditDir), json);
       if (existsSync(armedFile)) {
+        privateResultOrExit(readPrivateAuditFile(armedFile, { maxBytes: 2048 }), json);
         p.outro(
           isEs
-            ? "ya estaba armado — arranca en el siguiente mensaje de una sesión abierta, o al abrir la próxima"
-            : "already armed — starts on the next message of an open session, or when the next one opens",
+            ? "ya estaba armado: una vez, próximo mensaje/sesión; --disarm cancela"
+            : "already armed: once, next message/session; --disarm cancels",
         );
         return;
       }
-      writeFileSync(
-        armedFile,
-        `${JSON.stringify({ ts: new Date().toISOString(), cwd })}\n`,
-        "utf-8",
+      privateResultOrExit(
+        createPrivateAuditFile(
+          armedFile,
+          `${JSON.stringify({ ts: new Date().toISOString(), cwd })}\n`,
+        ),
+        json,
       );
       p.outro(
         isEs
-          ? `${color.green("armado")} — audit-mode arrancará en tu SIGUIENTE mensaje si ya hay una sesión abierta en este repo, o al abrir la próxima (una sola sesión; 'navori audit --disarm' lo cancela)`
-          : `${color.green("armed")} — audit-mode starts on your NEXT message if a session is already open in this repo, or when the next one opens (one session only; 'navori audit --disarm' cancels)`,
+          ? `${color.green("armado")}: audit-mode una sesión, próximo mensaje/apertura; navori audit --disarm cancela`
+          : `${color.green("armed")}: audit-mode one session, next message/opening; navori audit --disarm cancels`,
       );
       return;
     }
     if (args.disarm === true) {
       const armedFile = join(auditDir, ".armed");
-      if (existsSync(armedFile)) {
-        rmSync(armedFile);
+      const removed = removePrivateAuditFile(armedFile);
+      if (removed.ok) {
         p.outro(isEs ? "desarmado" : "disarmed");
       } else {
+        if (removed.reason !== "missing") privateResultOrExit(removed, json);
         p.outro(isEs ? "no había nada armado" : "nothing was armed");
       }
       return;
@@ -603,7 +820,7 @@ export const auditCommand = defineCommand({
       // The host is declared by the caller (a hook knows which engine it runs
       // in), never inferred from the environment: a wrong guess would file a
       // Claude session as Codex and drop its transcript metrics (R71).
-      const hostArg = typeof args.host === "string" ? args.host : undefined;
+      const hostArg = args.host;
       if (hostArg !== undefined && hostArg !== "claude" && hostArg !== "codex") {
         const message = isEs
           ? `--host acepta 'claude' o 'codex', recibí '${hostArg}'.`
@@ -613,8 +830,12 @@ export const auditCommand = defineCommand({
         process.exit(2);
       }
       const logFile = auditPathOrExit(() => sessionLogPath(repo, startId), json);
-      mkdirSync(auditDir, { recursive: true, mode: 0o700 });
+      privateResultOrExit(ensurePrivateAuditDirectory(auditDir), json);
       if (existsSync(logFile)) {
+        privateResultOrExit(
+          lifecycleAppend(logFile, startId, repo, cwd, hostArg ?? "claude", ""),
+          json,
+        );
         p.outro(isEs ? "audit-mode ya estaba activo" : "audit-mode was already active");
         return;
       }
@@ -624,25 +845,31 @@ export const auditCommand = defineCommand({
       // is the only instant at which both are true of the session: the report
       // runs later — sometimes releases later — and any version it read off disk
       // would describe its own moment, not the session's.
-      appendFileSync(
-        logFile,
-        `${JSON.stringify({
-          ts: new Date().toISOString(),
-          event: "start",
-          cwd,
-          repo,
-          sessionId: startId,
-          ...(hostArg ? { host: hostArg } : {}),
-          navoriRendered: renderedHarnessVersion(cwd),
-          navoriCli: readCliVersion(),
-        })}\n`,
-        { encoding: "utf-8", mode: 0o600, flag: "a" },
+      privateResultOrExit(
+        createPrivateAuditFile(
+          logFile,
+          `${JSON.stringify({
+            ts: new Date().toISOString(),
+            event: "start",
+            cwd,
+            repo,
+            sessionId: startId,
+            ...(hostArg ? { host: hostArg } : {}),
+            navoriRendered: renderedHarnessVersion(cwd),
+            navoriCli: readCliVersion(),
+          })}\n`,
+        ),
+        json,
       );
-      // #778: fold in whatever the SessionStart hooks parked before this file
-      // existed, and sweep the spools of sessions nobody ever marked. Both run
-      // here because `--start` is the one moment that knows the answer.
-      absorbSpool(repo, startId, logFile);
-      sweepStaleSpools(auditDir, startId);
+      // Only the bounded metadata protocol can be consumed; legacy or partial
+      // startup content remains untouched and produces a visible coverage gap.
+      const absorbed = absorbAuditMetadataSpool({
+        host: hostArg ?? "claude",
+        rootSessionId: startId,
+        repo,
+        auditRoot: auditsRoot(),
+      });
+      if (!absorbed.fullyAbsorbed) p.log.warn("audit-observation-gap: startup-spool-retained");
       // #675: the id is only checked for SHAPE (`SESSION_ID_RE`, which exists
       // to stop traversal and does that well). Nothing checked that it names a
       // real session, so a typo — `--start p` — answered "audit-mode active"
@@ -659,8 +886,8 @@ export const auditCommand = defineCommand({
       if (hostArg !== "codex" && !resolveTranscript(startId, cwd)) {
         p.log.warn(
           isEs
-            ? `No encontré transcript para '${startId}'. Si la sesión acabó de abrir puede que aún no exista; si fue un typo, este log nunca va a producir reporte y hay que borrarlo a mano: ${logFile}`
-            : `No transcript found for '${startId}'. If the session just opened it may not exist yet; if it was a typo, this log can never produce a report and has to be deleted by hand: ${logFile}`,
+            ? `No encontré transcript para '${startId}': puede tardar al abrir. Un id incorrecto no genera reporte; borra su log manualmente: ${logFile}`
+            : `No transcript found for '${startId}': may be late on opening. Wrong ids cannot report; delete their log manually: ${logFile}`,
         );
       }
       p.outro(
@@ -686,15 +913,24 @@ export const auditCommand = defineCommand({
       // merged mid-session moves the harness under a run already in flight, and
       // a single stamp cannot say so. The parser keeps this pair only when one
       // of the two moved.
-      appendFileSync(
-        target.logFile,
-        `${JSON.stringify({
-          ts: new Date().toISOString(),
-          event: "stop",
-          navoriRendered: renderedHarnessVersion(cwd),
-          navoriCli: readCliVersion(),
-        })}\n`,
-        "utf-8",
+      const stopHost = args.host;
+      if (stopHost !== undefined && stopHost !== "claude" && stopHost !== "codex")
+        flagError("invalid-host", "Host inválido.", "Invalid host.");
+      privateResultOrExit(
+        lifecycleAppend(
+          target.logFile,
+          target.sessionId,
+          repo,
+          cwd,
+          stopHost === "claude" || stopHost === "codex" ? stopHost : undefined,
+          `${JSON.stringify({
+            ts: new Date().toISOString(),
+            event: "stop",
+            navoriRendered: renderedHarnessVersion(cwd),
+            navoriCli: readCliVersion(),
+          })}\n`,
+        ),
+        json,
       );
       // The RESOLVED id, not the prefix: the report that follows must describe
       // the session that was just sealed and no other.
@@ -748,7 +984,6 @@ export const auditCommand = defineCommand({
     const parsed = [];
     const missing: string[] = [];
     const sourceProblems: Array<{ sessionId: string; status: MarkedSession["sourceStatus"] }> = [];
-    const missingIds = new Set<string>();
     const registeredOwners = new Set(
       marked.flatMap((marker) =>
         (marker.childSources ?? [])
@@ -770,7 +1005,6 @@ export const auditCommand = defineCommand({
       if (m.sourceStatus !== "verified") {
         missing.push(m.sessionId.slice(0, 8));
         sourceProblems.push({ sessionId: m.sessionId, status: m.sourceStatus });
-        missingIds.add(m.sessionId);
         continue;
       }
       if (!m.transcript) {
@@ -797,7 +1031,6 @@ export const auditCommand = defineCommand({
           continue;
         }
         missing.push(m.sessionId.slice(0, 8));
-        missingIds.add(m.sessionId);
         continue;
       }
       const session = parseSession(m.transcript, readContext.budget);
@@ -836,12 +1069,18 @@ export const auditCommand = defineCommand({
       process.exit(2);
     }
 
-    // The two miners read the raw transcripts (the command text they classify
-    // never leaves them) and a Codex session has none by design, so only
-    // sessions that HAVE a transcript, or should have, are mined.
+    // Provenance defines the Claude population, including missing Claude
+    // sources; failed Codex rollouts never become missing Claude transcripts.
     const mined = marked
-      .filter((m) => m.transcript || missingIds.has(m.sessionId))
-      .map((m) => ({ sessionId: m.sessionId, transcript: m.transcript, cwd: m.cwd }));
+      .filter((m) => m.host === "claude")
+      .map((m) => ({
+        sessionId: m.sessionId,
+        host: m.host,
+        transcript: m.sourceStatus === "verified" ? m.transcript : null,
+        cwd: m.cwd,
+      }));
+    const mining = mineClaudeMetrics(mined, readContext.budget);
+    const minedMetrics = flattenMinedMetrics(mining, readContext.budget);
     // Coverage has no meaning for a single session: its denominator is a period.
     const coverageRows = audited
       ? audited.repos
@@ -860,10 +1099,9 @@ export const auditCommand = defineCommand({
       catalog: audited ? mergeCatalogs(catalog, [...catalogs.values()]) : catalog,
       extraMetrics: {
         ...(coverageRows.length > 0 ? coverageMetrics(coverageRows) : {}),
-        ...flattenSearchRouting(mineSearchRouting(mined)),
-        ...flattenCodegraphPaths(mineCodegraphProjectPaths(mined)),
-        ...flattenActivation(mineActivation(mined)),
+        ...minedMetrics.metrics,
       },
+      extraAvailability: minedMetrics.availability,
       repos: audited?.repos.map((r) => ({ repo: r.repo, audited: r.audited, host: r.host })),
       // #675: the human note already printed these; `--json` could not see them
       // at all, which is the half a CI or an agent reads.
@@ -929,47 +1167,43 @@ export const auditCommand = defineCommand({
                 ),
           json,
         );
-    mkdirSync(outDir, { recursive: true });
+    const root = auditsRoot();
+    const withinAudit = outDir === root || outDir.startsWith(root + "/");
+    if (human === true && !withinAudit)
+      flagError(
+        "human-content-destination",
+        "Destino privado requerido.",
+        "Private audit destination required.",
+      );
+    const options = withinAudit ? {} : { ownedRoot: outDir };
+    privateResultOrExit(ensurePrivateAuditDirectory(outDir, options), json);
     const mdFile = join(outDir, "report.md");
     const jsonFile = join(outDir, "report.json");
-    writeFileSync(mdFile, renderMarkdown(report, lang), "utf-8");
-    writeFileSync(jsonFile, renderJson(reportPayload), "utf-8");
-
-    // A snapshot of the event log beside its report, so the session folder holds
-    // everything about that session. It is a COPY, deliberately: the hooks write
-    // `session-<id>.log` at the repo root — they run long before anyone knows
-    // which day the session started, and pointing them at a dated directory
-    // would make every hook depend on a name only the report can compute. The
-    // original stays the append-only source of truth.
-    if (single && !args.out) {
-      const source = marked.find((m) => m.sessionId === single.sessionId)?.logFile;
-      if (source && existsSync(source)) {
-        try {
-          copyFileSync(source, join(outDir, "session.log"));
-        } catch {
-          // A snapshot that cannot be written is not worth failing the report
-          // for: the log it copies is still intact where the hooks wrote it.
-        }
-      }
-    }
-    // The range report is an index too: without it, "which sessions does this
-    // aggregate cover?" is answerable only by reading the JSON.
+    privateResultOrExit(
+      replacePrivateAuditFile(
+        mdFile,
+        renderMarkdown(report, lang, { includeHumanContent: human === true }),
+        options,
+      ),
+      json,
+    );
+    privateResultOrExit(
+      replacePrivateAuditFile(
+        jsonFile,
+        renderJson(reportPayload, { includeHumanContent: human === true }),
+        options,
+      ),
+      json,
+    );
     if (!single && !args.out) {
-      writeFileSync(
-        join(outDir, "sessions.txt"),
-        `${parsed
-          .map(
-            (sess) =>
-              `${sess.startedAt.slice(0, 10)}-${sess.sessionId.slice(0, 8)}\t${sess.initialPrompt.slice(0, 90)}`,
-          )
-          .join("\n")}\n`,
-        "utf-8",
+      const index = publishReport(report)
+        .sessions.map((session) => `${session.startedAt.slice(0, 10)}\t${session.sessionId}`)
+        .join("\n");
+      privateResultOrExit(
+        replacePrivateAuditFile(join(outDir, "sessions.txt"), index + "\n"),
+        json,
       );
     }
-
-    // R68/R69. The snapshot is built from the report in memory, so `--compare`
-    // works with or without `--snapshot`, and what is compared is exactly what
-    // would be saved (reason keys already dropped).
     const snapshot =
       snapshotName || baseSnapshot ? buildSnapshot(report, allRepos ? "all" : "repo") : undefined;
     if (typeof snapshotName === "string" && snapshotName && snapshot) {

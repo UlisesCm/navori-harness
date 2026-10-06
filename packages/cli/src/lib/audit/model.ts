@@ -20,6 +20,9 @@ export const AUDIT_READ_LIMITS = Object.freeze({
   normalizedFactBytes: 2048,
 });
 
+/** Numeric read ceilings allow smaller synthetic budgets while retaining every limit key. */
+export type AuditReadLimits = { [Key in keyof typeof AUDIT_READ_LIMITS]: number };
+
 /** Loss counts are exact only after a continued scan; early stop has unknown remainder. */
 export interface AuditReadDiagnostics {
   sourceStatus: "observed" | "unavailable" | "invalid";
@@ -38,7 +41,7 @@ export interface AuditReadDiagnostics {
 
 /** Content-free report-wide resource accounting, shared by discovery and parser. */
 export interface AuditBudgetDiagnostics {
-  limits: typeof AUDIT_READ_LIMITS;
+  limits: AuditReadLimits;
   retainedFacts: number;
   retainedPaths: number;
   retainedSessions: number;
@@ -63,9 +66,7 @@ export interface AuditLogView {
 }
 
 /** Lower ceilings are injectable for synthetic probes only, never a runtime config knob. */
-export function createAuditReadBudget(
-  limits: Partial<typeof AUDIT_READ_LIMITS> = {},
-): AuditReadBudget {
+export function createAuditReadBudget(limits: Partial<AuditReadLimits> = {}): AuditReadBudget {
   const selected = { ...AUDIT_READ_LIMITS, ...limits };
   for (const key of Object.keys(selected) as Array<keyof typeof selected>)
     if (
@@ -112,19 +113,25 @@ export function retainAuditFact(
   const objects: object[] = [];
   const visited = new WeakSet<object>();
   const limits = budget.diagnostics.limits;
-  const available = Math.min(limits.factsPerReport - budget.diagnostics.retainedFacts,
-    sessionKey === null ? limits.factsPerReport : limits.eventsPerSession - (session ?? 0));
+  const available = Math.min(
+    limits.factsPerReport - budget.diagnostics.retainedFacts,
+    sessionKey === null ? limits.factsPerReport : limits.eventsPerSession - (session ?? 0),
+  );
   const collect = (item: unknown): void => {
     if (
       typeof item !== "object" ||
       item === null ||
       budget.retainedObjects.has(item) ||
-      visited.has(item) || objects.length > available
+      visited.has(item) ||
+      objects.length > available
     )
       return;
     objects.push(item);
     visited.add(item);
-    for (const child of Object.values(item)) { collect(child); if (objects.length > available) break; }
+    for (const child of Object.values(item)) {
+      collect(child);
+      if (objects.length > available) break;
+    }
   };
   collect(value);
   if (
@@ -148,22 +155,32 @@ export function retainAuditFact(
 }
 
 /** Dynamic dictionary entries are retained facts too, not free scalar properties. */
-export function retainAuditDictionary(budget: AuditReadBudget, sessionKey: string | null,
-  dictionary: Record<string, unknown>): boolean {
+export function retainAuditDictionary(
+  budget: AuditReadBudget,
+  sessionKey: string | null,
+  dictionary: Record<string, unknown>,
+): boolean {
   if (budget.dictionaryEntries.has(dictionary)) return true;
   const keys = Object.keys(dictionary);
   const limits = budget.diagnostics.limits;
   const existing = budget.retainedObjects.has(dictionary) ? 0 : 1;
-  const session = sessionKey === null ? 0 : budget.sessionEntries.get(sessionKey) ?? 0;
-  if (keys.some((key) => Buffer.byteLength(key) > limits.technicalBytes) ||
-      budget.diagnostics.retainedFacts + existing + keys.length > limits.factsPerReport ||
-      (sessionKey !== null && session + existing + keys.length > limits.eventsPerSession)) {
-    omitAuditFacts(budget, keys.length || 1); return false;
+  const session = sessionKey === null ? 0 : (budget.sessionEntries.get(sessionKey) ?? 0);
+  if (
+    keys.some((key) => Buffer.byteLength(key) > limits.technicalBytes) ||
+    budget.diagnostics.retainedFacts + existing + keys.length > limits.factsPerReport ||
+    (sessionKey !== null && session + existing + keys.length > limits.eventsPerSession)
+  ) {
+    omitAuditFacts(budget, keys.length || 1);
+    return false;
   }
   if (!retainAuditFact(budget, sessionKey, dictionary)) return false;
   budget.dictionaryEntries.set(dictionary, keys.length);
   budget.diagnostics.retainedFacts += keys.length;
-  if (sessionKey !== null) budget.sessionEntries.set(sessionKey, (budget.sessionEntries.get(sessionKey) ?? 0) + keys.length);
+  if (sessionKey !== null)
+    budget.sessionEntries.set(
+      sessionKey,
+      (budget.sessionEntries.get(sessionKey) ?? 0) + keys.length,
+    );
   return true;
 }
 
@@ -177,7 +194,10 @@ export function releaseAuditFact(budget: AuditReadBudget, value: object, descend
   budget.dictionaryEntries.delete(value);
   budget.diagnostics.retainedFacts -= 1 + entries;
   if (owner !== null)
-    budget.sessionEntries.set(owner, Math.max(0, (budget.sessionEntries.get(owner) ?? 1) - 1 - entries));
+    budget.sessionEntries.set(
+      owner,
+      Math.max(0, (budget.sessionEntries.get(owner) ?? 1) - 1 - entries),
+    );
   if (!descendants) return;
   for (const child of Object.values(value))
     if (typeof child === "object" && child !== null) releaseAuditFact(budget, child);
@@ -288,6 +308,8 @@ export function canonicalAuditMetadata(record: Record<string, unknown>): string 
         "repeat",
         "partial",
         "compact-advice",
+        "gate-started",
+        "gate-killed",
         "unknown",
       ].includes(String(record.verdict)) ||
       (record.kind !== undefined && !["hard", "ask", "advisory"].includes(String(record.kind))) ||

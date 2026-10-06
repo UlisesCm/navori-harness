@@ -1,8 +1,14 @@
 import { fstatSync, lstatSync, readSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
-import { readChildSourceBindings, withCodexChildBinding } from "./discovery.ts";
+import {
+  findMarkedSessions,
+  readChildSourceBindings,
+  withCodexChildBinding,
+  type MarkedSession,
+} from "./discovery.ts";
 import {
   canonicalAuditMetadata,
+  AUDIT_READ_LIMITS,
   type ChildSourceRegistration,
   type AuditReadDiagnostics,
 } from "./model.ts";
@@ -159,7 +165,7 @@ export function captureCodexChild(
             if (typeof header !== "object" || header === null) return false;
             const h = header as Record<string, unknown>;
             const marker = findMarkedSessions(repoFromCwd(cwd), { session: rootSessionId }).find(
-              (m) => m.sessionId === rootSessionId,
+              (m: MarkedSession): boolean => m.sessionId === rootSessionId,
             );
             return (
               h.event === "start" &&
@@ -263,7 +269,19 @@ export function appendCliEvent(cwd: string, event: CliEvent): boolean {
     const st = lstatSync(logFile);
     if (!st.isFile() || st.isSymbolicLink()) return false;
     const header = exactHeader(logFile);
-    if (!header || !validHeader(header, host, sessionId, repo, cwd)) return false;
+    if (!header || !matchesAuditHeaderIdentity(header, host, sessionId, repo, cwd)) return false;
+    /** Re-read bounded source identity; report caches must never authorize a live append. */
+    const sourceBinding = (): MarkedSession | undefined =>
+      findMarkedSessions(repo, { session: sessionId }, false).find(
+        (marker: MarkedSession): boolean =>
+          marker.sessionId === sessionId &&
+          marker.host === host &&
+          marker.sourceStatus === "verified" &&
+          marker.cwd !== null &&
+          resolve(projectRootFromCwd(marker.cwd)) === resolve(projectRootFromCwd(cwd)),
+      );
+    const binding = host === "codex" ? sourceBinding() : undefined;
+    if (host === "codex" && !binding) return false;
     const record = {
       tsMs: Date.now(),
       event: "cli",
@@ -273,8 +291,16 @@ export function appendCliEvent(cwd: string, event: CliEvent): boolean {
     };
     return (
       appendRecord(logFile, record, (fd: number): boolean => {
-        const header = headerFromFd(fd);
-        return header !== null && validHeader(header, host, sessionId, repo, cwd);
+        const header = readAuditHeaderFromFd(fd);
+        if (header === null || !matchesAuditHeaderIdentity(header, host, sessionId, repo, cwd))
+          return false;
+        if (host !== "codex") return true;
+        const current = sourceBinding();
+        return (
+          current !== undefined &&
+          current.source === binding?.source &&
+          current.sourceVersion === binding?.sourceVersion
+        );
       }) === "written"
     );
   } catch {
@@ -336,6 +362,8 @@ const METADATA_VERDICTS = new Set([
   "repeat",
   "partial",
   "compact-advice",
+  "gate-started",
+  "gate-killed",
   "unknown",
 ]);
 const METADATA_TOOLS = new Set(["Bash", "Edit", "Read", "Write", "Agent", "Task", "NotebookEdit"]);
@@ -364,6 +392,9 @@ const METADATA_NAMES = new Set([
   "engram-write-guard",
   "master-plan-context",
   "master-accept-confirm",
+  "master-advance",
+  "master-part-accept",
+  "master-close",
   "comment-draft-confirm",
   "general-purpose-confirm",
   "pr-publisher-confirm",
@@ -476,7 +507,7 @@ function metadataEvent(value: unknown): MetadataScalars | null {
 }
 
 /** Read only the first bounded line on the same descriptor used for append. */
-function headerFromFd(fd: number): Record<string, unknown> | null {
+export function readAuditHeaderFromFd(fd: number): Record<string, unknown> | null {
   const buffer = Buffer.alloc(1_048_576);
   const count = readSync(fd, buffer, 0, buffer.length, 0);
   const newline = buffer.subarray(0, count).indexOf(10);
@@ -497,14 +528,15 @@ function exactHeader(path: string, ownedRoot = auditsRoot()): Record<string, unk
   const checked = appendPrivateAuditFile(
     path,
     (fd: number): string => {
-      header = headerFromFd(fd);
+      header = readAuditHeaderFromFd(fd);
       return "";
     },
     { ownedRoot },
   );
   return checked.ok ? header : null;
 }
-function validHeader(
+/** Match bounded explicit marker identity; absence alone selects legacy Claude. */
+export function matchesAuditHeaderIdentity(
   header: Record<string, unknown>,
   host: "claude" | "codex",
   id: string,
@@ -516,11 +548,13 @@ function validHeader(
   );
   if (
     header.event !== "start" ||
-    (header.host ?? "claude") !== host ||
+    (header.host === undefined ? "claude" : header.host) !== host ||
     !aliases.length ||
     aliases.some((value: unknown): boolean => value !== id) ||
     (header.repo !== undefined && header.repo !== repo) ||
     typeof header.cwd !== "string" ||
+    !isAbsolute(header.cwd) ||
+    Buffer.byteLength(header.cwd) > AUDIT_READ_LIMITS.pathBytes ||
     repoFromCwd(header.cwd) !== repo
   )
     return false;
@@ -568,13 +602,16 @@ export function recordAuditMetadata(request: AuditMetadataRequest): MetadataReco
       return metadataResult("invalid", "invalid-metadata");
     const header = exactHeader(target, request.auditRoot);
     if (header) {
-      if (!validHeader(header, request.host, request.rootSessionId, request.repo))
+      if (!matchesAuditHeaderIdentity(header, request.host, request.rootSessionId, request.repo))
         return metadataResult("invalid", "identity-conflict");
       const appended = appendPrivateAuditFile(
         target,
         (fd: number): string => {
-          const current = headerFromFd(fd);
-          if (!current || !validHeader(current, request.host, request.rootSessionId, request.repo))
+          const current = readAuditHeaderFromFd(fd);
+          if (
+            !current ||
+            !matchesAuditHeaderIdentity(current, request.host, request.rootSessionId, request.repo)
+          )
             throw new Error("identity-conflict");
           return `${JSON.stringify(record)}\n`;
         },
@@ -690,7 +727,10 @@ export function absorbAuditMetadataSpool(
     const target = metadataTarget(request);
     if (!target) return finish(metadataResult("invalid", "invalid-metadata"));
     const header = exactHeader(target, request.auditRoot);
-    if (!header || !validHeader(header, request.host, request.rootSessionId, request.repo))
+    if (
+      !header ||
+      !matchesAuditHeaderIdentity(header, request.host, request.rootSessionId, request.repo)
+    )
       return finish(metadataResult("unavailable", "unsafe-target"));
     const spool = join(request.auditRoot, request.repo, `pending-${request.rootSessionId}.jsonl`);
     let identity: ReturnType<typeof lstatSync>;
@@ -785,8 +825,11 @@ export function absorbAuditMetadataSpool(
             stat.size !== expectedSize
           )
             throw new Error("changed");
-          const current = headerFromFd(fd);
-          if (!current || !validHeader(current, request.host, request.rootSessionId, request.repo))
+          const current = readAuditHeaderFromFd(fd);
+          if (
+            !current ||
+            !matchesAuditHeaderIdentity(current, request.host, request.rootSessionId, request.repo)
+          )
             throw new Error("identity-conflict");
           return `${canonical}\n`;
         },

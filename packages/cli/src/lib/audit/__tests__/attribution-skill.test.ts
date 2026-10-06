@@ -23,7 +23,7 @@ import { parseAgentRun } from "../parse.ts";
 function transcript(records: object[]): string {
   const dir = mkdtempSync(join(tmpdir(), "navori-attr-"));
   const file = join(dir, "agent-abc123.jsonl");
-  writeFileSync(file, records.map((r) => JSON.stringify(r)).join("\n"), "utf-8");
+  writeFileSync(file, records.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf-8");
   return file;
 }
 
@@ -32,7 +32,11 @@ function assistant(over: Record<string, unknown> = {}): object {
   return {
     type: "assistant",
     timestamp: "2026-09-12T10:00:00.000Z",
-    message: { model: "claude-opus-5", usage: { output_tokens: 100 }, content: [] },
+    message: {
+      model: "claude-opus-5",
+      usage: { output_tokens: 100 },
+      content: [],
+    },
     ...over,
   };
 }
@@ -70,7 +74,12 @@ describe("collectSkills — el tramo atribuido por el host (#725)", () => {
             model: "m",
             usage: { output_tokens: 0 },
             content: [
-              { type: "tool_use", id: "t1", name: "Skill", input: { skill: "review-diff" } },
+              {
+                type: "tool_use",
+                id: "t1",
+                name: "Skill",
+                input: { skill: "review-diff" },
+              },
             ],
           },
         },
@@ -110,7 +119,13 @@ describe("collectSkills — el tramo atribuido por el host (#725)", () => {
     // El campo vive ahí. Aceptarlo en cualquier record haría que un eco del
     // valor en otro tipo de línea contara como trabajo.
     const run = parseAgentRun(
-      transcript([{ type: "user", attributionSkill: "ticket-intake", message: { content: [] } }]),
+      transcript([
+        {
+          type: "user",
+          attributionSkill: "ticket-intake",
+          message: { content: [] },
+        },
+      ]),
     );
     expect(run?.skills).toEqual([]);
   });

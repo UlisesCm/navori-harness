@@ -10,7 +10,8 @@ import {
   detectSignals,
   flattenActivation,
   hookMisfires,
-  mineActivation,
+  mineClaudeMetrics,
+  flattenMinedMetrics,
   unusedManagedCandidates,
 } from "../signals.ts";
 import { buildReport, renderMarkdown } from "../report.ts";
@@ -1400,17 +1401,20 @@ describe("activation published beside the main thread's share of edits", () => {
           },
         ]
           .map((r) => JSON.stringify(r))
-          .join("\n"),
+          .join("\n") + "\n",
         "utf-8",
       );
-      const activation = flattenActivation(
-        mineActivation([{ sessionId: "s1", transcript: file, cwd: "/tmp/repo" }]),
+      const activation = flattenMinedMetrics(
+        mineClaudeMetrics([
+          { sessionId: "s1", host: "claude", transcript: file, cwd: "/tmp/repo" },
+        ]),
       );
       const r = buildReport([sess], {
         repo: "demo",
         version: "0.11.0",
         catalog: CATALOG,
-        extraMetrics: activation,
+        extraMetrics: activation.metrics,
+        extraAvailability: activation.availability,
       });
       expect(r.rangeMetrics["edits.calls"]).toBe(10);
       expect(r.rangeMetrics["edits.callsMain"]).toBe(2);

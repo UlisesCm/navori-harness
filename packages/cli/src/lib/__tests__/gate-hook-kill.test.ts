@@ -47,14 +47,18 @@ let gateChildWitness: string;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "navori-kill-"));
   cwd = join(root, REPO);
-  mkdirSync(join(root, "audits", REPO), { recursive: true });
+  mkdirSync(join(root, "audits", REPO), { recursive: true, mode: 0o700 });
+  const cli = join(root, "navori");
+  writeFileSync(cli, `#!/bin/sh\nexec '${process.execPath}' '${resolve("dist/index.js")}' "$@"\n`, {
+    mode: 0o700,
+  });
   mkdirSync(cwd, { recursive: true });
   // `navori audit --start` writes this line; without the log file the recorder
   // is off and the bench would measure nothing.
   writeFileSync(
     logFile(),
-    `${JSON.stringify({ ts: "2026-09-15T10:00:00Z", event: "start", cwd, repo: REPO })}\n`,
-    "utf-8",
+    `${JSON.stringify({ ts: "2026-09-15T10:00:00Z", event: "start", sessionId: "kill1", cwd, repo: REPO })}\n`,
+    { mode: 0o600 },
   );
   hookPath = join(root, "quality-gate-pre-commit.sh");
   // The gate command is itself a CHILD shell (`sh -c '...'`) that writes a
@@ -125,7 +129,7 @@ async function runAndSignal(shell: HookShell, signal?: NodeJS.Signals): Promise<
       ...process.env,
       NAVORI_AUDITS_ROOT: join(root, "audits"),
       CLAUDE_PROJECT_DIR: cwd,
-      PATH: `${dirname(process.execPath)}:/usr/bin:/bin:${process.env.PATH ?? ""}`,
+      PATH: `${root}:${dirname(process.execPath)}:/usr/bin:/bin:${process.env.PATH ?? ""}`,
     },
   });
   const exited = new Promise<number | null>((resolveExit) => {
@@ -178,7 +182,7 @@ describe.each(HOOK_SHELLS)("a cancelled quality gate under %s (#797)", (shell) =
       expect(run.verdicts).not.toContain("allow");
       expect(run.verdicts).toEqual(["gate-started", "gate-killed"]);
       const terminal = run.events.at(-1);
-      expect(terminal?.reason).toBe(`cancelado por ${signal}: nada quedo validado`);
+      expect(terminal?.reason).toBe("unspecified");
       // The tool call it belongs to, which is what `quality-gate-aborted`
       // correlates on.
       expect(terminal?.toolUseId).toBe("toolu_kill1");

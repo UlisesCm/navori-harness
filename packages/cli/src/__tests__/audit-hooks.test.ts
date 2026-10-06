@@ -1,10 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  lstatSync,
+  renameSync,
+  statSync,
+  symlinkSync,
+  unlinkSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -294,7 +299,9 @@ describe.each(SHELLS)("native Codex child capture under %s", (shell) => {
   // Covers: R4, R8, R9
   it("never substitutes the stop parent transcript for a missing child path", () => {
     activate();
-    expect(capture("SubagentStop", { agent_transcript_path: "" }).calls).toEqual([]);
+    const { calls } = capture("SubagentStop", { agent_transcript_path: "" });
+    expect(calls).not.toContain("--capture-child");
+    expect(calls).not.toContain("/private/parent.jsonl");
   });
 
   // Covers: R8, R9
@@ -668,6 +675,73 @@ function hooksWithRecorder(): string[] {
   }
   return found.sort();
 }
+
+describe("canonical audit metadata filter", () => {
+  // Covers: R9, R11
+  it("compiles the real jq filter and returns only bounded metadata", () => {
+    const source = readFileSync(join(HOOKS, "_partials/audit-log.sh"), "utf-8");
+    const filter = source.match(/--argjson tsMs "\$navori_audit_end" '([\s\S]*?)' 2>\/dev\/null/);
+    expect(filter?.[1]).toBeTruthy();
+    const secret = "SECRET-user@example.test";
+    const result = spawnSync(
+      "jq",
+      [
+        "-c",
+        "--arg",
+        "name",
+        "worktree-reclaim",
+        "--arg",
+        "phase",
+        "SessionEnd",
+        "--arg",
+        "verdict",
+        "skip",
+        "--arg",
+        "reason",
+        secret,
+        "--arg",
+        "tool",
+        "Bash",
+        "--arg",
+        "source",
+        "/private/secret",
+        "--arg",
+        "kind",
+        "advisory",
+        "--argjson",
+        "ms",
+        "12",
+        "--argjson",
+        "tsMs",
+        "1756116000000",
+        filter?.[1] ?? "",
+      ],
+      {
+        input: JSON.stringify({ agent_id: "child1", tool_use_id: "tool_123", prompt: secret }),
+        encoding: "utf-8",
+      },
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      event: "hook",
+      name: "worktree-reclaim",
+      source: "unknown",
+      phase: "SessionEnd",
+      verdict: "skip",
+      agentId: "child1",
+      toolUseId: "tool_123",
+      tool: "Bash",
+      kind: "advisory",
+      reason: "unspecified",
+      ms: 12,
+      tsMs: 1756116000000,
+    });
+    expect(result.stdout).not.toContain(secret);
+    expect(result.stdout).not.toContain("/private/secret");
+  });
+});
 
 describe.each(SHELLS)("audit-mode hook recorder under %s", (shell) => {
   // Covers: R5
@@ -1074,222 +1148,222 @@ describe.each(SHELLS)("the handoff note is said once per problem under %s", (she
     expect(out).not.toContain("impl_agosto.md");
   });
 });
+/** Real CLI-backed opt-in consumption across both consumers, engines and shells. */
+describe.each(SHELLS)("checked armed consumption under %s", (shell) => {
+  describe.each(["claude", "codex"] as const)("%s", (engine) => {
+    describe.each(["session-start-context.sh", "audit-mode-trigger.sh"])("%s", (consumer) => {
+      let hook: string;
+      let bin: string;
+      let armFile: string;
+      let auditDir: string;
+      let calls: string;
 
-/**
- * #597 — the armed audit-mode flag. `navori audit --arm` (a terminal command,
- * BEFORE the session opens) leaves `.armed` under the repo's audit dir; the
- * SessionStart hook is the only party that knows the new session's id, so IT
- * runs `--start` and consumes the flag. These specs drive the rendered hook
- * against a fake `navori` on PATH that records its argv — the contract under
- * test is the hook's, not the CLI's (that half has its own suite).
- */
-describe.each(SHELLS)("armed audit-mode via SessionStart under %s", (shell) => {
-  let navoriCalls: string;
-  let shimDir: string;
-
-  function installNavoriShim(exitCode = 0): void {
-    shimDir = join(root, "shim-bin");
-    mkdirSync(shimDir, { recursive: true });
-    navoriCalls = join(root, "navori-calls.log");
-    writeFileSync(
-      join(shimDir, "navori"),
-      `#!/bin/sh\nprintf '%s\\n' "$*" >> "${navoriCalls}"\nexit ${exitCode}\n`,
-      "utf-8",
-    );
-    chmodSync(join(shimDir, "navori"), 0o755);
-  }
-
-  function runSessionStart(
-    sessionId: string,
-    engine: "claude" | "codex" = "claude",
-  ): { out: string; code: number } {
-    const installed = install(shell, join(HOOKS, "session-start-context.sh"));
-    const hook =
-      engine === "codex" ? join(root, ".codex", "hooks", "session-start-context.sh") : installed;
-    if (engine === "codex") {
-      mkdirSync(dirname(hook), { recursive: true });
-      writeFileSync(hook, readFileSync(installed, "utf-8"));
-      chmodSync(hook, 0o755);
-    }
-    const input = JSON.stringify({ session_id: sessionId, cwd, hook_event_name: "SessionStart" });
-    try {
-      const out = execFileSync(shell, [hook], {
-        input,
-        encoding: "utf-8",
-        cwd: root,
-        env: {
-          ...process.env,
-          NAVORI_AUDITS_ROOT: root,
-          CLAUDE_PROJECT_DIR: root, // deliberately NOT the repo: cwd must win (#454)
-          TMPDIR: root,
-          PATH: `${shimDir}:${dirname(process.execPath)}:/usr/bin:/bin`,
-        },
+      beforeEach(() => {
+        bin = join(root, "real-bin");
+        mkdirSync(bin);
+        calls = join(root, "real-calls");
+        const cli = resolve(fileURLToPath(new URL("../../dist/index.js", import.meta.url)));
+        writeFileSync(
+          join(bin, "navori"),
+          `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\nexec '${process.execPath}' '${cli}' "$@"\n`,
+        );
+        chmodSync(join(bin, "navori"), 0o755);
+        const installed = install(shell, join(HOOKS, consumer), "opt-in");
+        hook = join(root, `.${engine}`, "hooks", consumer);
+        mkdirSync(dirname(hook), { recursive: true });
+        writeFileSync(hook, readFileSync(installed));
+        chmodSync(hook, 0o755);
+        chmodSync(root, 0o700);
+        auditDir = join(root, REPO);
+        mkdirSync(auditDir, { mode: 0o700 });
+        armFile = join(auditDir, ".armed");
+        writeFileSync(armFile, JSON.stringify({ ts: "2026-09-07T00:00:00Z", cwd }) + "\n", {
+          mode: 0o600,
+        });
       });
-      return { out, code: 0 };
-    } catch (err) {
-      const e = err as { stdout?: string; stderr?: string; status?: number };
-      return { out: (e.stdout ?? "") + (e.stderr ?? ""), code: e.status ?? -1 };
-    }
-  }
 
-  const armedFile = () => join(root, REPO, ".armed");
-  function arm(): void {
-    mkdirSync(join(root, REPO), { recursive: true });
-    writeFileSync(armedFile(), `${JSON.stringify({ ts: "2026-09-07T00:00:00Z", cwd })}\n`, "utf-8");
-  }
+      /** Run the full installed hook with the actual built CLI on PATH. */
+      function invoke(id: string): { out: string; status: number | null } {
+        const result = spawnSync(shell, [hook], {
+          input: JSON.stringify({
+            session_id: id,
+            cwd,
+            user_prompt: "continue",
+            hook_event_name:
+              consumer === "audit-mode-trigger.sh" ? "UserPromptSubmit" : "SessionStart",
+          }),
+          encoding: "utf8",
+          cwd: root,
+          env: {
+            ...process.env,
+            NAVORI_AUDITS_ROOT: root,
+            TMPDIR: root,
+            CLAUDE_PROJECT_DIR: root,
+            PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,
+          },
+        });
+        return { out: result.stdout + result.stderr, status: result.status };
+      }
 
-  it("consumes the flag, starts the audit with the session's id, and tells the model", () => {
-    installNavoriShim();
-    arm();
-    const { out, code } = runSessionStart("sess-armed-1");
-    expect(code).toBe(0);
-    expect(existsSync(armedFile()), "the flag must be consumed").toBe(false);
-    const calls = readFileSync(navoriCalls, "utf-8");
-    expect(calls).toContain("audit --start sess-armed-1");
-    expect(calls).toContain("--host claude");
-    // The repo comes from the payload's cwd, not CLAUDE_PROJECT_DIR (#454).
-    expect(calls).toContain(`--cwd ${cwd}`);
-    // The model learns it is being recorded in the very first context.
-    expect(out).toContain("audit-mode ACTIVE");
-  });
+      // Covers: R1, R9, R10
+      it("consumes a private arm and activates the exact engine session once", () => {
+        const result = invoke("armed-real");
+        expect(result.status).toBe(0);
+        expect(result.out).toContain("audit-mode ACTIVE");
+        expect(existsSync(armFile)).toBe(false);
+        const header = JSON.parse(
+          readFileSync(join(auditDir, "session-armed-real.log"), "utf8").split("\n")[0] ?? "",
+        ) as Record<string, unknown>;
+        expect(header.host).toBe(engine);
+        expect(readFileSync(calls, "utf8")).toContain("--consume-arm --start armed-real");
+        expect(invoke("second").out).not.toContain("audit-mode ACTIVE");
+        expect(existsSync(join(auditDir, "session-second.log"))).toBe(false);
+      });
 
-  // Covers: R1, R9
-  it("stamps Codex as host when the armed SessionStart hook runs in .codex/hooks", () => {
-    installNavoriShim();
-    arm();
-    const { code } = runSessionStart("cx-armed-1", "codex");
-    expect(code).toBe(0);
-    expect(readFileSync(navoriCalls, "utf-8")).toContain("audit --start cx-armed-1");
-    expect(readFileSync(navoriCalls, "utf-8")).toContain("--host codex");
-  });
+      // Covers: R10
+      it("consumes only the valid arm even when the destination refuses start", () => {
+        const destination = join(auditDir, "session-failed.log");
+        writeFileSync(destination, "public sentinel\n", { mode: 0o644 });
+        expect(invoke("failed").out).not.toContain("audit-mode ACTIVE");
+        expect(existsSync(armFile)).toBe(false);
+        expect(readFileSync(destination, "utf8")).toBe("public sentinel\n");
+        expect(statSync(destination).mode & 0o777).toBe(0o644);
+      });
 
-  /** The hook legitimately calls `navori` for other things (dominio inject),
-   *  so the assertion is "no --start was issued", never "navori never ran". */
-  const startCalls = () =>
-    (existsSync(navoriCalls) ? readFileSync(navoriCalls, "utf-8") : "")
-      .split("\n")
-      .filter((l) => l.includes("audit --start"));
+      // Covers: R10
+      it.each([
+        "missing",
+        "public-leaf",
+        "public-parent",
+        "public-root",
+        "leaf-symlink",
+        "parent-symlink",
+        "malformed",
+        "truncated",
+        "utf8",
+        "overlimit",
+        "wrong-project",
+      ])("preserves refused %s arm", (kind) => {
+        const good = readFileSync(armFile);
+        if (kind === "missing") unlinkSync(armFile);
+        if (kind === "public-leaf") chmodSync(armFile, 0o644);
+        if (kind === "public-parent") chmodSync(auditDir, 0o755);
+        if (kind === "public-root") chmodSync(root, 0o755);
+        if (kind === "leaf-symlink") {
+          const target = join(root, "arm-target");
+          writeFileSync(target, good, { mode: 0o600 });
+          unlinkSync(armFile);
+          symlinkSync(target, armFile);
+        }
+        if (kind === "parent-symlink") {
+          const target = join(root, "arm-dir");
+          renameSync(auditDir, target);
+          symlinkSync(target, auditDir);
+        }
+        if (kind === "malformed") writeFileSync(armFile, "{}\n");
+        if (kind === "truncated") writeFileSync(armFile, good.subarray(0, good.length - 1));
+        if (kind === "utf8") writeFileSync(armFile, Buffer.from([0xff, 10]));
+        if (kind === "overlimit") writeFileSync(armFile, " ".repeat(2049) + "\n");
+        if (kind === "wrong-project") {
+          const other = join(root, "other", REPO);
+          mkdirSync(other, { recursive: true });
+          writeFileSync(armFile, JSON.stringify({ ts: "2026-09-07T00:00:00Z", cwd: other }) + "\n");
+        }
+        const before = kind === "missing" ? null : readFileSync(armFile);
+        const mode = kind === "missing" ? null : lstatSync(armFile).mode;
+        const result = invoke("refused");
+        expect(result.status).toBe(0);
+        expect(result.out).not.toContain("audit-mode ACTIVE");
+        expect(existsSync(join(auditDir, "session-refused.log"))).toBe(false);
+        if (before) {
+          expect(readFileSync(armFile)).toEqual(before);
+          expect(lstatSync(armFile).mode).toBe(mode);
+        }
+      });
 
-  it("does nothing when no flag is armed", () => {
-    installNavoriShim();
-    const { out, code } = runSessionStart("sess-unarmed");
-    expect(code).toBe(0);
-    expect(startCalls()).toEqual([]);
-    expect(out).not.toContain("audit-mode ACTIVE");
-  });
-
-  it("arms exactly ONE session: a failure consumes the flag rather than latching it", () => {
-    // A flag surviving a failed --start would fire on some later unrelated
-    // session; losing the arm and asking the user again is the lesser evil.
-    installNavoriShim(1);
-    arm();
-    const { out, code } = runSessionStart("sess-armed-2");
-    expect(code).toBe(0);
-    expect(existsSync(armedFile())).toBe(false);
-    expect(out).not.toContain("audit-mode ACTIVE");
-  });
-
-  it("leaves the flag alone for a path-shaped session id (payload not trusted)", () => {
-    installNavoriShim();
-    arm();
-    const { code } = runSessionStart("../escape");
-    expect(code).toBe(0);
-    expect(startCalls()).toEqual([]);
-    expect(existsSync(armedFile()), "the arm waits for a valid session").toBe(true);
+      // Covers: R10
+      it("allows only the exclusive claimant to activate after synchronized readiness", async () => {
+        const barrier = join(root, "claim-barrier");
+        mkdirSync(barrier);
+        const preload = join(root, "claim-barrier.mjs");
+        writeFileSync(
+          preload,
+          `
+          import fs from "node:fs";
+          import {join} from "node:path";
+          import {syncBuiltinESMExports} from "node:module";
+          if (process.argv.includes("--consume-arm")) {
+            const open = fs.openSync, directory = ${JSON.stringify(barrier)};
+            fs.openSync = (path, ...args) => {
+              if (String(path).endsWith("/.armed.claim")) {
+                fs.writeFileSync(join(directory, String(process.pid)), "ready");
+                const deadline = Date.now() + 3000;
+                while (fs.readdirSync(directory).length < 2) {
+                  if (Date.now() > deadline) throw new Error("claim-barrier-timeout");
+                  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+                }
+              }
+              return open(path, ...args);
+            };
+            syncBuiltinESMExports();
+          }
+        `,
+        );
+        const runConcurrent = (id: string): Promise<string> =>
+          new Promise((resolveRun, rejectRun) => {
+            const child = spawn(shell, [hook], {
+              cwd: root,
+              env: {
+                ...process.env,
+                NAVORI_AUDITS_ROOT: root,
+                NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import ${preload}`,
+                TMPDIR: root,
+                CLAUDE_PROJECT_DIR: root,
+                PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,
+              },
+            });
+            let output = "";
+            child.stdout.on("data", (bytes: Buffer) => {
+              output += bytes.toString();
+            });
+            child.stderr.on("data", (bytes: Buffer) => {
+              output += bytes.toString();
+            });
+            child.on("error", rejectRun);
+            child.on("close", (code: number | null) =>
+              code === 0 ? resolveRun(output) : rejectRun(new Error("hook failed")),
+            );
+            child.stdin.end(
+              JSON.stringify({
+                session_id: id,
+                cwd,
+                user_prompt: "continue",
+                hook_event_name: "SessionStart",
+              }),
+            );
+          });
+        const output = await Promise.all([
+          runConcurrent("contender-a"),
+          runConcurrent("contender-b"),
+        ]);
+        expect(
+          output.filter((value) => value.includes("audit-mode ACTIVE")),
+          JSON.stringify({
+            output,
+            files: readdirSync(auditDir),
+            calls: readFileSync(calls, "utf8"),
+          }),
+        ).toHaveLength(1);
+        expect(
+          readdirSync(auditDir).filter((name) => name.startsWith("session-contender-")),
+        ).toHaveLength(1);
+        expect(existsSync(armFile)).toBe(false);
+        expect(readdirSync(barrier)).toHaveLength(2);
+        expect(existsSync(join(auditDir, ".armed.claim"))).toBe(false);
+      });
+    });
   });
 });
-
-/**
- * #599 — the armed flag also applies to the RUNNING session: the
- * UserPromptSubmit recorder consumes it on the next prompt, so arming never
- * requires closing a warm session. Same shim technique as the SessionStart
- * suite; the contract under test is the trigger hook's.
- */
-describe.each(SHELLS)("armed audit-mode on the RUNNING session under %s", (shell) => {
-  let navoriCalls: string;
-  let shimDir: string;
-
-  function installNavoriShim(exitCode = 0): void {
-    shimDir = join(root, "shim-bin");
-    mkdirSync(shimDir, { recursive: true });
-    navoriCalls = join(root, "navori-calls.log");
-    writeFileSync(
-      join(shimDir, "navori"),
-      `#!/bin/sh\nprintf '%s\\n' "$*" >> "${navoriCalls}"\nexit ${exitCode}\n`,
-      "utf-8",
-    );
-    chmodSync(join(shimDir, "navori"), 0o755);
-  }
-
-  function runTrigger(
-    sessionId: string,
-    prompt = "sigue con el ticket",
-  ): {
-    out: string;
-    code: number;
-  } {
-    const hook = install(shell, TRIGGER);
-    const input = JSON.stringify({ user_prompt: prompt, session_id: sessionId, cwd });
-    try {
-      const out = execFileSync(shell, [hook], {
-        input,
-        encoding: "utf-8",
-        cwd: root,
-        env: {
-          ...process.env,
-          NAVORI_AUDITS_ROOT: root,
-          TMPDIR: root,
-          PATH: `${shimDir}:${dirname(process.execPath)}:/usr/bin:/bin`,
-        },
-      });
-      return { out, code: 0 };
-    } catch (err) {
-      const e = err as { stdout?: string; stderr?: string; status?: number };
-      return { out: (e.stdout ?? "") + (e.stderr ?? ""), code: e.status ?? -1 };
-    }
-  }
-
-  const armedFile = () => join(root, REPO, ".armed");
-  function arm(): void {
-    mkdirSync(join(root, REPO), { recursive: true });
-    writeFileSync(armedFile(), `${JSON.stringify({ ts: "2026-09-07T00:00:00Z", cwd })}\n`, "utf-8");
-  }
-  const startCalls = () =>
-    (existsSync(navoriCalls) ? readFileSync(navoriCalls, "utf-8") : "")
-      .split("\n")
-      .filter((l) => l.includes("audit --start"));
-
-  it("consumes the flag on the next prompt and announces it on stdout", () => {
-    installNavoriShim();
-    arm();
-    const { out, code } = runTrigger("sess-live-1");
-    expect(code).toBe(0);
-    expect(existsSync(armedFile()), "the flag must be consumed").toBe(false);
-    expect(startCalls().join("\n")).toContain("audit --start sess-live-1");
-    expect(startCalls().join("\n")).toContain("--host claude");
-    // stdout of a UserPromptSubmit hook is injected as context: the model
-    // learns it is being recorded the moment it starts to be.
-    expect(out).toContain("audit-mode ACTIVE");
-  });
-
-  it("stays silent and free when nothing is armed (the every-prompt path)", () => {
-    installNavoriShim();
-    const { out, code } = runTrigger("sess-live-2");
-    expect(code).toBe(0);
-    expect(startCalls()).toEqual([]);
-    expect(out).toBe("");
-  });
-
-  it("a failed --start consumes the flag rather than latching it", () => {
-    installNavoriShim(1);
-    arm();
-    const { out, code } = runTrigger("sess-live-3");
-    expect(code).toBe(0);
-    expect(existsSync(armedFile())).toBe(false);
-    expect(out).not.toContain("audit-mode ACTIVE");
-  });
-});
-
 /**
  * `audit.mode = "always"` — coverage that does not wait on anyone remembering.
  *

@@ -1,25 +1,36 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   appendFileSync,
   existsSync,
   chmodSync,
+  closeSync,
+  openSync,
   realpathSync,
   mkdirSync,
   mkdtempSync,
+  lstatSync,
+  renameSync,
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
+  statSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runCommand } from "citty";
+import * as privatePaths from "../../lib/audit/paths.ts";
+import { auditCommand } from "../audit.ts";
 import { parseCodexSession } from "../../lib/audit/parse.ts";
 import { encodeCwdToSlug } from "../../lib/audit/paths.ts";
 
 vi.mock(import("node:child_process"), { spy: true });
+vi.mock(import("../../lib/audit/paths.ts"), { spy: true });
+const realPaths = await vi.importActual<typeof privatePaths>("../../lib/audit/paths.ts");
 
 /**
  * `audit` declares a hard contract in its own header: "every write lands under
@@ -52,23 +63,31 @@ interface CliResult {
 }
 
 /** Spawn the real CLI with isolated paths and a conflict-free plain-output environment. */
-function runAudit(args: string[]): CliResult {
+function runAudit(args: string[], permissiveUmask = false): CliResult {
   const hasCwd = args.includes("--cwd");
   const baseArgs = hasCwd ? [] : ["--cwd", repoDir];
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env.FORCE_COLOR;
-  const r = spawnSync("node", [CLI, "audit", ...baseArgs, ...args], {
-    encoding: "utf-8",
-    env: {
-      ...env,
-      HOME: home,
-      CODEX_HOME: join(home, ".codex"),
-      NAVORI_TRANSCRIPTS_ROOT: join(home, ".claude", "projects"),
-      NAVORI_AUDITS_ROOT: auditsRoot,
-      NO_COLOR: "1",
+  const commandArgs = [CLI, "audit", ...baseArgs, ...args];
+  const r = spawnSync(
+    permissiveUmask ? "sh" : "node",
+    permissiveUmask ? ["-c", 'umask 000; exec "$@"', "sh", "node", ...commandArgs] : commandArgs,
+    {
+      encoding: "utf-8",
+      env: {
+        ...env,
+        HOME: home,
+        CODEX_HOME: join(home, ".codex"),
+        NAVORI_TRANSCRIPTS_ROOT: join(home, ".claude", "projects"),
+        NAVORI_AUDITS_ROOT: auditsRoot,
+        NO_COLOR: "1",
+      },
     },
-  });
-  return { status: r.status ?? -1, combined: (r.stdout ?? "") + (r.stderr ?? "") };
+  );
+  return {
+    status: r.status ?? -1,
+    combined: (r.stdout ?? "") + (r.stderr ?? ""),
+  };
 }
 
 /** Every path under `dir`, relative to it — directories included. */
@@ -126,6 +145,42 @@ function markedSessionWithTranscript(
   );
 }
 
+describe("Claude-only mining population", () => {
+  // Covers: R4, R21
+  it("keeps missing Codex rollouts out of the complete Claude denominator", () => {
+    markedSessionWithTranscript("claude-mining", "2026-09-01");
+    expect(runAudit(["--start", "codex-missing-mining", "--host", "codex"]).status).toBe(0);
+    const response = runAudit(["--json"]);
+    expect(response.status, response.combined).toBe(0);
+    const report = JSON.parse(response.combined) as {
+      availability: Record<string, { state: string; eligible: number }>;
+      rangeMetrics: Record<string, number | null>;
+    };
+    expect(report.availability["activation.sessions"]).toMatchObject({
+      state: "observed",
+      eligible: 1,
+    });
+    expect(report.rangeMetrics["activation.sessions"]).toBe(1);
+    expect(report.rangeMetrics["mining.passes"]).toBe(2);
+  });
+  // Covers: R4, R21
+  it("publishes no Claude observed zero for a Codex-only missing source", () => {
+    expect(runAudit(["--start", "codex-only-mining", "--host", "codex"]).status).toBe(0);
+    const response = runAudit(["--json"]);
+    expect(response.status, response.combined).toBe(0);
+    const report = JSON.parse(response.combined) as {
+      availability: Record<string, { state: string; eligible: number }>;
+      rangeMetrics: Record<string, number | null>;
+    };
+    expect(report.availability["activation.sessions"]).toMatchObject({
+      state: "unavailable",
+      eligible: 0,
+    });
+    expect(report.rangeMetrics["activation.sessions"]).toBeNull();
+    expect(report.rangeMetrics["mining.passes"]).toBe(0);
+  });
+});
+
 beforeEach(() => {
   sandbox = mkdtempSync(join(tmpdir(), "navori-audit-cmd-"));
   home = join(sandbox, "home");
@@ -136,7 +191,7 @@ beforeEach(() => {
   auditDir = join(auditsRoot, REPO);
   repoDir = join(sandbox, REPO);
   mkdirSync(home, { recursive: true });
-  mkdirSync(auditsRoot, { recursive: true });
+  mkdirSync(auditsRoot, { recursive: true, mode: 0o700 });
   // An existing directory outside the audit root: without it the escape fails
   // with ENOENT, which is the LESS severe half of the defect. With it, the
   // pre-fix CLI writes there and reports success.
@@ -148,6 +203,268 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   rmSync(sandbox, { recursive: true, force: true });
+});
+
+describe("metadata transport", () => {
+  const metadata = {
+    event: "hook",
+    name: "quality-gate-pre-commit",
+    source: "core",
+    phase: "PreToolUse",
+    verdict: "gate-started",
+    ms: 1,
+    tsMs: 1,
+    agentId: "orchestrator",
+  };
+  const sessionId = "metadata-session";
+  const eventInput = JSON.stringify(metadata);
+
+  /** Complete private marker independent of production creation APIs. */
+  function marker(host: "claude" | "codex" = "claude"): string {
+    chmodSync(auditsRoot, 0o700);
+    mkdirSync(auditDir, { mode: 0o700 });
+    const log = join(auditDir, `session-${sessionId}.log`);
+    writeFileSync(log, JSON.stringify({ event: "start", host, sessionId, cwd: repoDir }) + "\n", {
+      mode: 0o600,
+    });
+    return log;
+  }
+  function flags(host = "claude"): string[] {
+    return [
+      "--record-metadata",
+      "--host",
+      host,
+      "--root-session",
+      sessionId,
+      "--repo",
+      REPO,
+      "--root",
+      auditsRoot,
+    ];
+  }
+  /** No ambient identity or notifier can supply this explicit subprocess transport. */
+  function transportEnv(): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      HOME: home,
+      CI: "1",
+      NAVORI_AUDITS_ROOT: auditsRoot,
+    };
+    for (const key of [
+      "FORCE_COLOR",
+      "NAVORI_AUDIT_HOST",
+      "NAVORI_AUDIT_SESSION_ID",
+      "CLAUDE_CODE_SESSION_ID",
+      "CODEX_SESSION_ID",
+      "CODEX_THREAD_ID",
+    ])
+      delete env[key];
+    return env;
+  }
+  function invoke(args = flags(), input: string | Buffer = eventInput, fd?: number) {
+    return spawnSync(process.execPath, [CLI, "audit", ...args], {
+      input: fd === undefined ? input : undefined,
+      stdio: fd === undefined ? "pipe" : [fd, "pipe", "pipe"],
+      encoding: "utf-8",
+      env: transportEnv(),
+      timeout: 5000,
+    });
+  }
+  function silent(result: ReturnType<typeof invoke>, status: number): void {
+    expect(result.status).toBe(status);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("");
+  }
+
+  // Covers: R10, R11, R21
+  it.each(["claude", "codex"] as const)("appends one real private %s record", (host) => {
+    const log = marker(host);
+    silent(invoke(flags(host)), 0);
+    const rows = readFileSync(log, "utf-8").trim().split("\n");
+    expect(rows).toHaveLength(2);
+    expect(JSON.parse(rows[1]!)).toMatchObject({
+      ...metadata,
+      wireVersion: 1,
+      host,
+      rootSessionId: sessionId,
+      eventId: expect.any(String),
+    });
+  });
+
+  // Covers: R10, R11, R21
+  it("accepts exactly 2048 UTF-8 input bytes including JSON whitespace", () => {
+    const log = marker();
+    silent(invoke(flags(), eventInput.padEnd(2048, " ")), 0);
+    expect(readFileSync(log, "utf-8").trim().split("\n")).toHaveLength(2);
+  });
+
+  // Covers: R10, R11
+  it("consumes only validated metadata startup spool through the real start command", () => {
+    expect(runAudit(["--arm"]).status).toBe(0);
+    silent(invoke(flags(), JSON.stringify({ ...metadata, phase: "SessionStart" })), 0);
+    const spool = join(auditDir, `pending-${sessionId}.jsonl`);
+    const record = JSON.parse(readFileSync(spool, "utf8")) as { eventId: string };
+    expect(runAudit(["--start", sessionId]).status).toBe(0);
+    expect(existsSync(spool)).toBe(false);
+    expect(readFileSync(join(auditDir, `session-${sessionId}.log`), "utf8")).toContain(
+      record.eventId,
+    );
+  });
+
+  // Covers: R10, R11
+  it("spools only an armed startup and silently skips unmarked later phases", () => {
+    chmodSync(auditsRoot, 0o700);
+    mkdirSync(auditDir, { mode: 0o700 });
+    silent(invoke(), 0);
+    expect(readdirSync(auditDir)).toEqual([]);
+    writeFileSync(join(auditDir, ".armed"), JSON.stringify({ cwd: repoDir }), {
+      mode: 0o600,
+    });
+    silent(invoke(flags(), JSON.stringify({ ...metadata, phase: "SessionStart" })), 0);
+    expect(
+      JSON.parse(readFileSync(join(auditDir, `pending-${sessionId}.jsonl`), "utf-8")),
+    ).toMatchObject({ wireVersion: 1, phase: "SessionStart" });
+  });
+
+  // Covers: R10, R11, R21
+  it.each([
+    "",
+    "{",
+    eventInput + eventInput,
+    eventInput.padEnd(2049, " "),
+    Buffer.from([0xff]),
+    Buffer.concat([Buffer.from(eventInput), Buffer.from("é".repeat(1024))]),
+    JSON.stringify({ ...metadata, reason: "PRIVATE raw reason" }),
+    JSON.stringify({ ...metadata, verdict: "PRIVATE unknown verdict" }),
+  ])("rejects malformed, oversized or human-content input without side effects (%#)", (input) => {
+    const log = marker();
+    const before = readFileSync(log);
+    silent(invoke(flags(), input), 2);
+    expect(readFileSync(log)).toEqual(before);
+    expect(readdirSync(auditDir)).toEqual([`session-${sessionId}.log`]);
+  });
+
+  // Covers: R10, R11, R21
+  it.each(
+    [
+      ["--record-metadata=false", "--start", "new"],
+      ["--no-record-metadata", "--root-session", sessionId],
+      [...flags(), "--root", "/other"],
+      [...flags(), "--host", "codex"],
+      [...flags(), "--root-session", "other"],
+      [...flags(), "--repo", "other"],
+      [...flags(), "--arm=false"],
+      [...flags(), "--json=false"],
+      [...flags(), "--collect=false"],
+      [...flags(), "--start", "new"],
+      [...flags(), "--capture-child", "child"],
+      [...flags(), "--snapshot", "private"],
+      ["--repo", REPO],
+      ["--root", "/other"],
+      ["--record-metadata"],
+      flags(" CLAUDE "),
+      [
+        "--record-metadata",
+        "--host",
+        "claude",
+        "--root-session",
+        "bad/id",
+        "--repo",
+        REPO,
+        "--root",
+        auditsRoot,
+      ],
+      [
+        "--record-metadata",
+        "--host",
+        "claude",
+        "--root-session",
+        sessionId,
+        "--repo",
+        "../escape",
+        "--root",
+        auditsRoot,
+      ],
+      [
+        "--record-metadata",
+        "--host",
+        "claude",
+        "--root-session",
+        sessionId,
+        "--repo",
+        REPO,
+        "--root",
+        "relative",
+      ],
+    ].map((args) => ({ args })),
+  )("rejects false, orphan, duplicate or conflicting parsed flags (%#)", ({ args }) => {
+    const log = marker();
+    const before = readFileSync(log);
+    const tree = sandboxTree();
+    silent(invoke(args), 2);
+    expect(readFileSync(log)).toEqual(before);
+    expect(sandboxTree()).toEqual(tree);
+  });
+
+  // Covers: R10, R11
+  it.each(["unsafe", "symlink", "identity", "host"])(
+    "refuses a %s target without repair",
+    (fault) => {
+      const log = marker();
+      if (fault === "unsafe") chmodSync(log, 0o644);
+      if (fault === "identity")
+        writeFileSync(
+          log,
+          JSON.stringify({ event: "start", sessionId: "other", cwd: repoDir }) + "\n",
+        );
+      if (fault === "symlink") {
+        const target = join(auditDir, "target");
+        writeFileSync(target, readFileSync(log), { mode: 0o600 });
+        rmSync(log);
+        symlinkSync(target, log);
+      }
+      const before = readFileSync(log);
+      silent(invoke(flags(fault === "host" ? "codex" : "claude")), 2);
+      expect(readFileSync(log)).toEqual(before);
+    },
+  );
+
+  // Covers: R10, R11
+  it("silently rejects a stdin read failure", () => {
+    const log = marker();
+    const fd = openSync(auditDir, "r");
+    try {
+      silent(invoke(flags(), eventInput, fd), 2);
+    } finally {
+      closeSync(fd);
+    }
+    expect(readFileSync(log, "utf-8").trim().split("\n")).toHaveLength(1);
+  });
+
+  // Covers: R10, R11, R21
+  it("does not append a valid document until its pipe reaches EOF", async () => {
+    const log = marker();
+    const before = readFileSync(log);
+    const child = spawn(process.execPath, [CLI, "audit", ...flags()], {
+      env: transportEnv(),
+      stdio: "pipe",
+    });
+    const done = new Promise<number | null>((resolveExit) => child.once("close", resolveExit));
+    const watchdog = setTimeout(() => child.kill("SIGKILL"), 5000);
+    try {
+      child.stdin.write(eventInput);
+      await new Promise<void>((resolveWait) => setTimeout(resolveWait, 200));
+      expect(child.exitCode).toBeNull();
+      expect(readFileSync(log)).toEqual(before);
+      child.stdin.end();
+      expect(await done).toBe(0);
+      expect(readFileSync(log, "utf-8").trim().split("\n")).toHaveLength(2);
+    } finally {
+      clearTimeout(watchdog);
+      if (child.exitCode === null) child.kill("SIGKILL");
+      await done;
+    }
+  }, 10000);
 });
 
 describe("audit subprocess color environment", () => {
@@ -237,14 +554,22 @@ describe("audit explicit child capture action", () => {
     ];
     const first = runAudit(args);
     expect(first.status).toBe(0);
-    expect(JSON.parse(first.combined)).toMatchObject({ ok: true, registered: 1, skipped: 0 });
+    expect(JSON.parse(first.combined)).toMatchObject({
+      ok: true,
+      registered: 1,
+      skipped: 0,
+    });
     expect(first.combined).not.toContain(child);
     expect(first.combined).not.toContain("sourceHeaderFingerprint");
     expect(readFileSync(log, "utf-8").startsWith(original)).toBe(true);
     const after = readFileSync(log, "utf-8");
     const second = runAudit(args);
     expect(second.status).toBe(0);
-    expect(JSON.parse(second.combined)).toMatchObject({ ok: true, registered: 0, skipped: 1 });
+    expect(JSON.parse(second.combined)).toMatchObject({
+      ok: true,
+      registered: 0,
+      skipped: 1,
+    });
     expect(readFileSync(log, "utf-8")).toBe(after);
   });
 
@@ -256,7 +581,9 @@ describe("audit explicit child capture action", () => {
     rootMetadata.payload.id = "grandchild";
     rootMetadata.payload.parent_thread_id = "child";
     rootMetadata.payload.source.subagent.thread_spawn.parent_thread_id = "child";
-    writeFileSync(grandchild, JSON.stringify(rootMetadata) + "\n", { mode: 0o600 });
+    writeFileSync(grandchild, JSON.stringify(rootMetadata) + "\n", {
+      mode: 0o600,
+    });
     for (const [thread, path] of [
       ["grandchild", grandchild],
       ["child", child],
@@ -365,7 +692,10 @@ describe("audit explicit child capture action", () => {
         ...extra,
       ]);
       expect(result.status).toBe(2);
-      expect(JSON.parse(result.combined)).toEqual({ ok: false, error: "capture-flags-conflict" });
+      expect(JSON.parse(result.combined)).toEqual({
+        ok: false,
+        error: "capture-flags-conflict",
+      });
       expect(readFileSync(log, "utf-8")).toBe(original);
     },
   );
@@ -394,7 +724,9 @@ describe("audit --arm / --disarm (#597)", () => {
     expect(existsSync(armedFile())).toBe(true);
     // Diagnostic content, parseable: when it fires on the wrong repo, the
     // recorded cwd says where the arm actually happened.
-    const body = JSON.parse(readFileSync(armedFile(), "utf-8")) as { cwd: string };
+    const body = JSON.parse(readFileSync(armedFile(), "utf-8")) as {
+      cwd: string;
+    };
     expect(body.cwd).toBe(repoDir);
   });
 
@@ -432,6 +764,454 @@ describe("audit --arm / --disarm (#597)", () => {
   });
 });
 
+describe("private CLI lifecycle and exports", () => {
+  describe("exclusive arm claim orchestration", () => {
+    let armed: string;
+    let claim: string;
+    let initialExitCode: typeof process.exitCode;
+
+    beforeEach(() => {
+      expect(runAudit(["--arm"]).status).toBe(0);
+      armed = join(auditDir, ".armed");
+      claim = `${armed}.claim`;
+      initialExitCode = process.exitCode;
+      process.exitCode = 0;
+      vi.stubEnv("NAVORI_AUDITS_ROOT", auditsRoot);
+    });
+    afterEach(() => {
+      process.exitCode = initialExitCode;
+    });
+
+    /** Parse the actual command and delegate real filesystem helpers in this process. */
+    async function consume(): Promise<void> {
+      await runCommand(auditCommand, {
+        rawArgs: [
+          "--consume-arm",
+          "--start",
+          "delayed-a",
+          "--host",
+          "codex",
+          "--cwd",
+          repoDir,
+          "--root",
+          auditsRoot,
+        ],
+      });
+      expect(process.exitCode).toBe(2);
+      expect(existsSync(join(auditDir, "session-delayed-a.log"))).toBe(false);
+    }
+
+    // Covers: R10
+    it.each([false, true])(
+      "refuses a delayed old reader after cleanup; observable distinct rearm=%s",
+      async (rearm) => {
+        const original = statSync(armed);
+        const create = realPaths.createPrivateAuditFile;
+        let replacement: Buffer | undefined;
+        let generation: ReturnType<typeof statSync> | undefined;
+        vi.spyOn(privatePaths, "createPrivateAuditFile").mockImplementation(
+          (file, data, options) => {
+            if (file === claim) {
+              expect(
+                runAudit([
+                  "--consume-arm",
+                  "--start",
+                  "winner-b",
+                  "--host",
+                  "codex",
+                  "--root",
+                  auditsRoot,
+                ]).status,
+              ).toBe(0);
+              expect(existsSync(claim)).toBe(false);
+              if (rearm) {
+                // Distinct size proves observable generation difference even if inode is reused.
+                replacement = Buffer.from(
+                  JSON.stringify({ ts: "2026-10-05T00:00:00.000Z", cwd: repoDir }) + " \n",
+                );
+                writeFileSync(armed, replacement, { mode: 0o600 });
+                generation = statSync(armed);
+                expect([generation.dev, generation.ino, generation.size]).not.toEqual([
+                  original.dev,
+                  original.ino,
+                  original.size,
+                ]);
+              }
+            }
+            return create(file, data, options);
+          },
+        );
+        await consume();
+        expect(existsSync(claim)).toBe(false);
+        expect(existsSync(join(auditDir, "session-winner-b.log"))).toBe(true);
+        if (replacement && generation) {
+          expect(readFileSync(armed)).toEqual(replacement);
+          const after = statSync(armed);
+          expect([after.dev, after.ino, after.size, after.mode]).toEqual([
+            generation.dev,
+            generation.ino,
+            generation.size,
+            generation.mode,
+          ]);
+        } else expect(existsSync(armed)).toBe(false);
+      },
+    );
+
+    // Covers: R10
+    it.each([
+      "partial-create",
+      "post-create-guard",
+      "create-close-throw",
+      "revalidate-throw",
+      "arm-remove-refusal",
+      "arm-remove-close-throw",
+      "cleanup-read-refusal",
+      "token-mismatch",
+      "replacement",
+      "insecure-claim",
+      "cleanup-remove-refusal",
+      "cleanup-close-throw",
+    ])("refuses %s without authorizing start or another claim cleanup", async (failure) => {
+      const create = realPaths.createPrivateAuditFile;
+      const read = realPaths.readPrivateAuditFile;
+      const remove = realPaths.removePrivateAuditFile;
+      let reads = 0;
+      let retained: Buffer | undefined;
+      const refusal = { ok: false, reason: "io", partial: true } as const;
+      vi.spyOn(privatePaths, "createPrivateAuditFile").mockImplementation((file, data, options) => {
+        const created = create(file, failure === "partial-create" ? "partial" : data, options);
+        if (file === claim) {
+          if (failure === "partial-create") return refusal;
+          if (failure === "post-create-guard") {
+            chmodSync(claim, 0o644);
+            return refusal;
+          }
+          if (failure === "create-close-throw") throw new Error("injected-close");
+        }
+        return created;
+      });
+      vi.spyOn(privatePaths, "readPrivateAuditFile").mockImplementation((file, options) => {
+        if (file === armed && ++reads === 2 && failure === "revalidate-throw")
+          throw new Error("injected-read");
+        if (file === claim && failure === "cleanup-read-refusal") return refusal;
+        return read(file, options);
+      });
+      vi.spyOn(privatePaths, "removePrivateAuditFile").mockImplementation((file, options) => {
+        if (
+          (file === armed && failure === "arm-remove-refusal") ||
+          (file === claim && failure === "cleanup-remove-refusal")
+        )
+          return refusal;
+        const removed = remove(file, options);
+        if (file === armed) {
+          if (failure === "arm-remove-close-throw") throw new Error("injected-close");
+          if (failure === "token-mismatch") {
+            writeFileSync(claim, "other-owner\n");
+            retained = readFileSync(claim);
+          }
+          if (failure === "replacement") {
+            const bytes = readFileSync(claim);
+            // Keep the old inode alive to guarantee a replacement inode.
+            renameSync(claim, join(auditDir, "old-claim"));
+            writeFileSync(claim, bytes, { mode: 0o600 });
+            retained = bytes;
+          }
+          if (failure === "insecure-claim") {
+            chmodSync(claim, 0o644);
+            retained = readFileSync(claim);
+          }
+        }
+        if (file === claim && failure === "cleanup-close-throw") throw new Error("injected-close");
+        return removed;
+      });
+      await consume();
+      const untouchedArm = [
+        "partial-create",
+        "post-create-guard",
+        "create-close-throw",
+        "revalidate-throw",
+        "arm-remove-refusal",
+      ].includes(failure);
+      expect(existsSync(armed)).toBe(untouchedArm);
+      const ownCleanup = [
+        "revalidate-throw",
+        "arm-remove-refusal",
+        "arm-remove-close-throw",
+        "cleanup-close-throw",
+      ].includes(failure);
+      expect(existsSync(claim)).toBe(!ownCleanup);
+      if (retained) expect(readFileSync(claim)).toEqual(retained);
+    });
+
+    // Covers: R10
+    it("retains a confirmed private claim after a forced process crash without activation", () => {
+      const script = `
+        import fs from "node:fs";
+        import {syncBuiltinESMExports} from "node:module";
+        const claim = process.argv[1];
+        const open = fs.openSync, close = fs.closeSync, stat = fs.lstatSync;
+        let fd, confirmed = false;
+        fs.openSync = (...args) => { const value = open(...args); if (args[0] === claim) fd = value; return value; };
+        fs.closeSync = value => { close(value); if (value === fd) confirmed = true; };
+        fs.lstatSync = (...args) => { if (confirmed && args[0] === claim) process.exit(99); return stat(...args); };
+        syncBuiltinESMExports();
+        process.argv = [process.execPath, ${JSON.stringify(CLI)}, "audit", ...process.argv.slice(2)];
+        await import(${JSON.stringify(CLI)});
+      `;
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          script,
+          claim,
+          "--consume-arm",
+          "--start",
+          "crashed",
+          "--host",
+          "codex",
+          "--cwd",
+          repoDir,
+          "--root",
+          auditsRoot,
+        ],
+        {
+          cwd: resolve(dirname(CLI), ".."),
+          encoding: "utf8",
+          env: { ...process.env, NAVORI_AUDITS_ROOT: auditsRoot },
+        },
+      );
+      expect(result.status, result.stderr).toBe(99);
+      expect(existsSync(armed)).toBe(true);
+      expect(statSync(claim).mode & 0o777).toBe(0o600);
+      expect(readFileSync(claim, "utf8")).toMatch(/^[a-f0-9-]{36}\n$/);
+      expect(existsSync(join(auditDir, "session-crashed.log"))).toBe(false);
+      expect(
+        runAudit([
+          "--consume-arm",
+          "--start",
+          "after-crash",
+          "--host",
+          "codex",
+          "--root",
+          auditsRoot,
+        ]).status,
+      ).toBe(2);
+      expect(existsSync(armed)).toBe(true);
+      expect(existsSync(claim)).toBe(true);
+    });
+
+    // Covers: R10
+    it.each(["private", "public", "symlink", "empty"])(
+      "preserves existing/crashed %s claim",
+      async (kind) => {
+        const content = kind === "empty" ? "" : "crashed-owner\n";
+        const target = join(auditDir, "claim-target");
+        if (kind === "symlink") {
+          writeFileSync(target, content, { mode: 0o600 });
+          symlinkSync(target, claim);
+        } else writeFileSync(claim, content, { mode: kind === "public" ? 0o644 : 0o600 });
+        const armBytes = readFileSync(armed);
+        const before = lstatSync(claim);
+        await consume();
+        expect(readFileSync(armed)).toEqual(armBytes);
+        expect(readFileSync(claim, "utf8")).toBe(content);
+        const after = lstatSync(claim);
+        expect([after.dev, after.ino, after.size, after.mode]).toEqual([
+          before.dev,
+          before.ino,
+          before.size,
+          before.mode,
+        ]);
+      },
+    );
+  });
+  // Covers: R10
+  it.each(
+    [
+      ["--consume-arm=false"],
+      ["--no-consume-arm"],
+      ["--consume-arm", "--consume-arm"],
+      ["--host", "codex"],
+      ["--cwd", "/"],
+      ["--root", "/"],
+      ["--start", "other"],
+      ["--collect"],
+      ["--arm"],
+      ["--disarm"],
+      ["--stop", "other"],
+      ["--record-metadata"],
+      ["--repo", REPO],
+      ["--capture-child", "child"],
+      ["--json"],
+      ["--include-human-content"],
+    ].map((flags) => ({ flags })),
+  )("refuses conflicting parsed consume flags $flags before any writer", ({ flags: extra }) => {
+    expect(runAudit(["--arm"]).status).toBe(0);
+    const file = join(auditDir, ".armed");
+    const bytes = readFileSync(file);
+    expect(
+      runAudit([
+        "--consume-arm",
+        "--start",
+        "strict",
+        "--host",
+        "claude",
+        "--cwd",
+        repoDir,
+        "--root",
+        auditsRoot,
+        ...extra,
+      ]).status,
+    ).toBe(2);
+    expect(readFileSync(file)).toEqual(bytes);
+    expect(readdirSync(auditDir)).toEqual([".armed"]);
+  });
+  // Covers: R10
+  it("rejects root mismatch and missing consumption, preserving idempotent disarm", () => {
+    expect(runAudit(["--disarm"]).status).toBe(0);
+    expect(
+      runAudit(["--consume-arm", "--start", "missing", "--host", "claude", "--root", auditsRoot])
+        .status,
+    ).toBe(2);
+    expect(runAudit(["--arm"]).status).toBe(0);
+    const before = readFileSync(join(auditDir, ".armed"));
+    expect(
+      runAudit(["--consume-arm", "--start", "wrong-root", "--host", "claude", "--root", sandbox])
+        .status,
+    ).toBe(2);
+    expect(readFileSync(join(auditDir, ".armed"))).toEqual(before);
+    expect(readdirSync(auditDir)).toEqual([".armed"]);
+  });
+  // Covers: R10
+  it.each(["--start", "--stop"])(
+    "rejects repeated %s identity instead of selecting the report path",
+    (flag) => {
+      expect(runAudit([flag, "first", flag, "second"]).status).toBe(2);
+      expect(existsSync(auditDir)).toBe(false);
+    },
+  );
+  // Covers: R10
+  it("creates private lifecycle files even under child umask 000", () => {
+    rmSync(auditsRoot, { recursive: true });
+    expect(runAudit(["--arm"], true).status).toBe(0);
+    expect(statSync(auditsRoot).mode & 0o777).toBe(0o700);
+    expect(statSync(auditDir).mode & 0o777).toBe(0o700);
+    expect(statSync(join(auditDir, ".armed")).mode & 0o777).toBe(0o600);
+    expect(runAudit(["--start", "permissive"], true).status).toBe(0);
+    expect(statSync(join(auditDir, "session-permissive.log")).mode & 0o777).toBe(0o600);
+  });
+  // Covers: R10
+  it.each(["root", "repo", "leaf"])("refuses symlink %s without changing its target", (part) => {
+    const target = join(sandbox, "target");
+    if (part === "leaf") {
+      mkdirSync(auditDir, { mode: 0o700 });
+      writeFileSync(target, "sentinel\n", { mode: 0o600 });
+      symlinkSync(target, join(auditDir, "session-linked.log"));
+    } else {
+      mkdirSync(target, { mode: 0o700 });
+      if (part === "root") rmSync(auditsRoot, { recursive: true });
+      symlinkSync(target, part === "root" ? auditsRoot : auditDir);
+    }
+    expect(runAudit(["--start", "linked"]).status).toBe(2);
+    if (part === "leaf") expect(readFileSync(target, "utf8")).toBe("sentinel\n");
+    else expect(readdirSync(target)).toEqual([]);
+  });
+  // Covers: R10
+  it.each([null, "", "relative", "/other/fixture-repo"])(
+    "refuses wrong or ambient marker cwd %j before stop",
+    (cwd) => {
+      mkdirSync(auditDir, { mode: 0o700 });
+      const path = join(auditDir, "session-wrong.log");
+      const bytes = JSON.stringify({ event: "start", sessionId: "wrong", cwd }) + "\n";
+      writeFileSync(path, bytes, { mode: 0o600 });
+      expect(runAudit(["--stop", "wrong"]).status).toBe(2);
+      expect(readFileSync(path, "utf8")).toBe(bytes);
+    },
+  );
+  // Covers: R10
+  it("preserves an incomplete live tail when sealing is requested", () => {
+    runAudit(["--start", "tail"]);
+    const path = join(auditDir, "session-tail.log");
+    appendFileSync(path, '{"event":');
+    const bytes = readFileSync(path, "utf8");
+    expect(runAudit(["--stop", "tail"]).status).toBe(2);
+    expect(readFileSync(path, "utf8")).toBe(bytes);
+  });
+  // Covers: R10
+  it.each(["--start", "--stop"])("refuses an unmarked exact private file for %s", (flag) => {
+    mkdirSync(auditDir, { mode: 0o700 });
+    const path = join(auditDir, "session-unsafe.log");
+    const bytes = '{"event":"hook"}\n';
+    writeFileSync(path, bytes, { mode: 0o600 });
+    expect(runAudit([flag, "unsafe"]).status).toBe(2);
+    expect(readFileSync(path, "utf8")).toBe(bytes);
+  });
+  // Covers: R10
+  it.each(["--start", "--stop", "--disarm"])(
+    "preserves insecure existing targets for %s",
+    (flag) => {
+      mkdirSync(auditDir, { mode: 0o700 });
+      const path = join(auditDir, flag === "--disarm" ? ".armed" : "session-unsafe.log");
+      const bytes = JSON.stringify({ event: "start", sessionId: "unsafe", cwd: repoDir }) + "\n";
+      writeFileSync(path, bytes, { mode: 0o644 });
+      expect(runAudit(flag === "--disarm" ? [flag] : [flag, "unsafe"]).status).toBe(2);
+      expect(readFileSync(path, "utf8")).toBe(bytes);
+      expect(statSync(path).mode & 0o777).toBe(0o644);
+    },
+  );
+  // Covers: R10 R11
+  it.each([
+    { flags: ["--json"] },
+    { flags: ["--snapshot", "shared"] },
+    { flags: ["--out", "/tmp/untrusted-report"] },
+  ])("rejects human opt-in with $flags", ({ flags }) => {
+    expect(runAudit(["--include-human-content", ...flags]).status).toBe(2);
+  });
+  // Covers: R10 R11
+  it("writes rerunnable private metadata artifacts without copying the raw log", () => {
+    markedSessionWithTranscript("private-export", "2026-08-25");
+    appendFileSync(
+      join(auditDir, "session-private-export.log"),
+      '{"event":"prompt","prompt":"SECRET_PROMPT_SENTINEL"}\n',
+    );
+    for (let pass = 0; pass < 2; pass++)
+      expect(runAudit(["--session", "private-export"]).status).toBe(0);
+    const dir = join(auditDir, "sessions", "2026-08-25-private-");
+    expect(statSync(dir).mode & 0o777).toBe(0o700);
+    for (const name of ["report.md", "report.json"]) {
+      expect(statSync(join(dir, name)).mode & 0o777).toBe(0o600);
+      expect(readFileSync(join(dir, name), "utf8")).not.toContain("SECRET_PROMPT_SENTINEL");
+    }
+    expect(existsSync(join(dir, "session.log"))).toBe(false);
+  });
+  // Covers: R10 R11
+  it("refuses insecure output files and directories without rewriting them", () => {
+    markedSessionWithTranscript("output-private", "2026-08-25");
+    const out = join(sandbox, "custom");
+    mkdirSync(out, { mode: 0o755 });
+    expect(runAudit(["--session", "output-private", "--out", out]).status).toBe(2);
+    expect(statSync(out).mode & 0o777).toBe(0o755);
+    chmodSync(out, 0o700);
+    const target = join(out, "report.md");
+    writeFileSync(target, "old-report", { mode: 0o644 });
+    expect(runAudit(["--session", "output-private", "--out", out]).status).toBe(2);
+    expect(readFileSync(target, "utf8")).toBe("old-report");
+    expect(statSync(target).mode & 0o777).toBe(0o644);
+  });
+  // Covers: R11
+  it("allows explicit private human generation per invocation, followed by metadata-only regeneration", () => {
+    markedSessionWithTranscript("human-private", "2026-08-25");
+    const result = runAudit(["--session", "human-private", "--include-human-content"]);
+    expect(result.status).toBe(0);
+    expect(result.combined).not.toContain("initialPrompt");
+    const dir = join(auditDir, "sessions", "2026-08-25-human-pr");
+    expect(readFileSync(join(dir, "report.json"), "utf8")).toContain("initialPrompt");
+    expect(runAudit(["--session", "human-private"]).status).toBe(0);
+    expect(readFileSync(join(dir, "report.json"), "utf8")).toContain('"initialPrompt": ""');
+  });
+});
+
 /**
  * #778 — the SessionStart records that had nowhere to land.
  *
@@ -445,7 +1225,7 @@ describe("audit --start: the SessionStart spool (#778)", () => {
   const spool = (id: string) => join(auditDir, `pending-${id}.jsonl`);
 
   function writeSpool(id: string, ...names: string[]): void {
-    mkdirSync(auditDir, { recursive: true });
+    mkdirSync(auditDir, { recursive: true, mode: 0o700 });
     writeFileSync(
       spool(id),
       `${names
@@ -463,18 +1243,19 @@ describe("audit --start: the SessionStart spool (#778)", () => {
     );
   }
 
-  it("folds the spooled SessionStart records into the log it just created", () => {
+  // Covers: R10 R11
+  it("preserves unvalidated legacy spool records without copying their content", () => {
     writeSpool("sess-spool", "session-start-context", "check-jscpd");
     expect(runAudit(["--start", "sess-spool"]).status).toBe(0);
 
     const log = readFileSync(join(auditDir, "session-sess-spool.log"), "utf-8");
-    expect(log).toContain('"name":"session-start-context"');
-    expect(log).toContain('"name":"check-jscpd"');
+    expect(log).not.toContain('"name":"session-start-context"');
+    expect(log).not.toContain('"name":"check-jscpd"');
     // The `start` record still leads: nothing about absorbing may cost the
     // stamp that makes the log a marked session.
     expect(log.split("\n")[0]).toContain('"event":"start"');
     // Absorbed means MOVED: leaving it would double every record on a re-run.
-    expect(existsSync(spool("sess-spool"))).toBe(false);
+    expect(existsSync(spool("sess-spool"))).toBe(true);
   });
 
   it("marks the session normally when there is no spool at all", () => {
@@ -482,7 +1263,8 @@ describe("audit --start: the SessionStart spool (#778)", () => {
     expect(existsSync(join(auditDir, "session-sess-plain.log"))).toBe(true);
   });
 
-  it("sweeps spools of sessions nobody ever marked, and keeps the recent ones", () => {
+  // Covers: R10
+  it("preserves historical spools regardless of age", () => {
     writeSpool("sess-old", "session-start-context");
     writeSpool("sess-new", "session-start-context");
     const ancient = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -492,7 +1274,7 @@ describe("audit --start: the SessionStart spool (#778)", () => {
 
     // A couple of lines per unmarked session is small; forever is not, and the
     // recorder may not leak.
-    expect(existsSync(spool("sess-old"))).toBe(false);
+    expect(existsSync(spool("sess-old"))).toBe(true);
     expect(existsSync(spool("sess-new"))).toBe(true);
   });
 
@@ -796,7 +1578,10 @@ describe("audit: a mode flag with no value stops the command (R2)", () => {
   it("reports the missing value as JSON under --json, not as prose", () => {
     const res = runAudit(["--json", "--stop"]);
     expect(res.status).not.toBe(0);
-    const parsed = JSON.parse(res.combined.trim()) as { ok: boolean; error: string };
+    const parsed = JSON.parse(res.combined.trim()) as {
+      ok: boolean;
+      error: string;
+    };
     expect(parsed).toMatchObject({ ok: false, error: "missing-flag-value" });
   });
 
@@ -839,9 +1624,10 @@ describe("audit: output layout (R15, R16, R18)", () => {
     const res = runAudit(["--session", "sess-alpha"]);
     expect(res.status).toBe(0);
     const dir = join(auditDir, "sessions", "2026-08-25-sess-alp");
-    for (const file of ["report.md", "report.json", "session.log"]) {
+    for (const file of ["report.md", "report.json"]) {
       expect(existsSync(join(dir, file)), `${file} missing`).toBe(true);
     }
+    expect(existsSync(join(dir, "session.log"))).toBe(false);
   });
 
   // Covers: R16
@@ -854,8 +1640,14 @@ describe("audit: output layout (R15, R16, R18)", () => {
     expect(existsSync(join(dir, "report.md"))).toBe(true);
     // The index is what makes the aggregate navigable without opening the JSON.
     const index = readFileSync(join(dir, "sessions.txt"), "utf-8");
-    expect(index).toContain("2026-08-25-sess-one");
-    expect(index).toContain("2026-08-26-sess-two");
+    expect(index).toContain("2026-08-25");
+    expect(index).toContain("2026-08-26");
+    expect(
+      index
+        .split("\n")
+        .filter(Boolean)
+        .every((row) => row.split("\t").length === 2),
+    ).toBe(true);
   });
 
   // Covers: R18
@@ -1054,7 +1846,11 @@ describe("audit --stop resolves a prefix, like --session (A1)", () => {
     const res = runAudit(["--json", "--stop", "dupli"]);
     expect(res.status).toBe(2);
     const parsed = JSON.parse(res.combined.trim()) as { matches: string[] };
-    expect(parsed).toMatchObject({ ok: false, error: "ambiguous-session-prefix", prefix: "dupli" });
+    expect(parsed).toMatchObject({
+      ok: false,
+      error: "ambiguous-session-prefix",
+      prefix: "dupli",
+    });
     // Order is by marking time, which two spawns a few ms apart make a poor
     // thing to assert on; the set is what the human needs to disambiguate.
     expect([...parsed.matches].sort()).toEqual(["dupli-aaa", "dupli-bbb"]);
@@ -1125,18 +1921,32 @@ describe("audit --start over an id that names no session (#675)", () => {
 
     const res = runAudit(["--json"]);
     expect(res.status).toBe(0);
-    const report = JSON.parse(res.combined) as { schemaVersion: number; orphanSessions: string[] };
+    const report = JSON.parse(res.combined) as {
+      schemaVersion: number;
+      orphanSessions: string[];
+    };
     expect(report.schemaVersion).toBe(11);
-    expect(report.orphanSessions).toEqual(["sess-orp"]);
+    expect(report.orphanSessions).toHaveLength(1);
+    expect(report.orphanSessions[0]).toMatch(/^unknown-[a-f0-9]{12}$/);
+    expect(res.combined).not.toContain("sess-orp");
+    expect(JSON.parse(runAudit(["--json"]).combined).orphanSessions).toEqual(report.orphanSessions);
   });
 
   it("names them too when NO session has a transcript", () => {
     runAudit(["--start", "sess-ghost"]);
     const res = runAudit(["--json"]);
     expect(res.status).toBe(0);
-    const payload = JSON.parse(res.combined) as { sessions: unknown[]; orphanSessions: string[] };
+    const payload = JSON.parse(res.combined) as {
+      sessions: unknown[];
+      orphanSessions: string[];
+    };
     expect(payload.sessions).toEqual([]);
-    expect(payload.orphanSessions).toEqual(["sess-gho"]);
+    expect(payload.orphanSessions).toHaveLength(1);
+    expect(payload.orphanSessions[0]).toMatch(/^unknown-[a-f0-9]{12}$/);
+    expect(res.combined).not.toContain("sess-gho");
+    expect(JSON.parse(runAudit(["--json"]).combined).orphanSessions).toEqual(
+      payload.orphanSessions,
+    );
   });
 });
 
@@ -1163,7 +1973,10 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
         sessionId: id,
         cwd: dir,
         timestamp: `${day}T10:00:00Z`,
-        message: { model: "claude-opus-5", usage: { input_tokens: 1, output_tokens: 1 } },
+        message: {
+          model: "claude-opus-5",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
       })}\n`,
       "utf-8",
     );
@@ -1207,10 +2020,18 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
       totals: { sessions: number };
     };
     expect(report.totals.sessions).toBe(2);
-    expect(report.repos).toEqual([
-      { repo: REPO, audited: 1, host: null },
-      { repo: SECOND, audited: 1, host: null },
-    ]);
+    expect(report.repos).toHaveLength(2);
+    expect(new Set(report.repos.map((row) => row.repo)).size).toBe(2);
+    for (const row of report.repos) {
+      expect(row).toEqual({
+        repo: expect.stringMatching(/^unknown-[a-f0-9]{12}$/),
+        audited: 1,
+        host: null,
+      });
+    }
+    expect(res.combined).not.toContain(REPO);
+    expect(res.combined).not.toContain(SECOND);
+    expect(JSON.parse(runAudit(["--all-repos", "--json"]).combined).repos).toEqual(report.repos);
     expect(report.rangeMetrics["coverage.sessions.audited"]).toBe(2);
     expect(report.rangeMetrics["coverage.sessions.host"]).toBeNull();
     expect(report.rangeMetrics["coverage.pct"]).toBeNull();
@@ -1222,8 +2043,11 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
     hostSession(repoDir, "sess-a.jsonl");
     hostSession(repoDir, "other.jsonl");
     const res = runAudit(["--json"]);
-    const metrics = (JSON.parse(res.combined) as { rangeMetrics: Record<string, number | null> })
-      .rangeMetrics;
+    const metrics = (
+      JSON.parse(res.combined) as {
+        rangeMetrics: Record<string, number | null>;
+      }
+    ).rangeMetrics;
     expect(metrics["coverage.sessions.audited"]).toBe(1);
     expect(metrics["coverage.sessions.host"]).toBeNull();
   });
@@ -1306,9 +2130,17 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
     expect(snapshotsUnder(join(auditsRoot, "_all-repos"))).toEqual([]);
     // `_all-repos` is not a repo: it must not show up as a row.
     const rows = (
-      JSON.parse(runAudit(["--all-repos", "--json"]).combined) as { repos: Array<{ repo: string }> }
+      JSON.parse(runAudit(["--all-repos", "--json"]).combined) as {
+        repos: Array<{ repo: string }>;
+      }
     ).repos;
-    expect(rows.map((r) => r.repo)).toEqual([REPO, SECOND]);
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((r) => r.repo)).size).toBe(2);
+    for (const row of rows) {
+      expect(row.repo).toMatch(/^unknown-[a-f0-9]{12}$/);
+      expect(row.repo).not.toBe(REPO);
+      expect(row.repo).not.toBe(SECOND);
+    }
   });
 
   // Covers: R6

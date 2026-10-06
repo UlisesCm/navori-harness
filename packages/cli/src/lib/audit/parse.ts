@@ -31,6 +31,7 @@ import {
   type AuditReadBudget,
   type AuditReadDiagnostics,
   type AuditLogView,
+  AUDIT_READ_LIMITS,
   createAuditReadBudget,
   normalizeAuditRecord,
   retainAuditFact,
@@ -391,7 +392,10 @@ function readParsedSource(
     };
   }
   const reading = readAuditJsonl(file, (raw) => {
-    const normalized = normalizeAuditRecord(raw, source);
+    const normalized = normalizeAuditRecord(
+      adapter === "claude-transcript" ? deriveClaudeFacts(raw) : raw,
+      source,
+    );
     normalizedLoss += normalized.omitted;
     if (normalized.omitted) omitAuditFacts(budget, normalized.omitted);
     if (!normalized.value) {
@@ -598,6 +602,44 @@ export function redactExample(command: string): string {
   return out.length > EXAMPLE_MAX_CHARS ? `${out.slice(0, EXAMPLE_MAX_CHARS - 1)}…` : out;
 }
 
+/** Derive bounded Claude facts locally; supplied internal fields are never trusted. */
+function deriveClaudeFacts(raw: unknown): unknown {
+  if (!isRec(raw) || !isRec(raw.message) || !Array.isArray(raw.message.content)) return raw;
+  const content = raw.message.content.map((block: unknown): unknown => {
+    if (!isRec(block)) return block;
+    const clean = { ...block };
+    delete clean._auditClaude;
+    if (raw.type === "user" && block.type === "tool_result") {
+      const text =
+        typeof block.content === "string"
+          ? block.content
+          : arr(block.content)
+              .slice(0, 128)
+              .filter((part): part is Rec => isRec(part) && part.type === "text")
+              .map((part) => str(part.text) ?? "")
+              .join("\n");
+      clean._auditClaude = {
+        bytes: resultBytes(block.content),
+        cap: /\bstopped at its [1-9]\d*-turn limit\b/.test(text),
+        error: classifyToolError(
+          typeof block.content === "string" ? block.content : (JSON.stringify(block.content) ?? ""),
+        ),
+      };
+    } else if (raw.type === "assistant" && block.type === "tool_use" && block.name === "Bash") {
+      const command = str(path(block, "input", "command"));
+      if (command !== null) {
+        let example = redactExample(command);
+        // Technical strings retain their existing byte ceiling, including multibyte examples.
+        while (Buffer.byteLength(example) > AUDIT_READ_LIMITS.technicalBytes)
+          example = Array.from(example).slice(0, -2).join("") + "…";
+        clean._auditClaude = { example };
+      }
+    }
+    return clean;
+  });
+  return { ...raw, message: { ...raw.message, content } };
+}
+
 /** Assistant messages deduplicated by `message.id` (last line wins, as in
  *  `sumTokens`); a line with no id counts as its own message. */
 function uniqueAssistantMessages(lines: Rec[]): Rec[] {
@@ -654,14 +696,7 @@ function cappedAgentIds(lines: Rec[], uses: Rec[]): Set<string> {
         !agentUses.has(str(block.tool_use_id) ?? "")
       )
         continue;
-      const content =
-        typeof block.content === "string"
-          ? block.content
-          : arr(block.content)
-              .filter((part): part is Rec => isRec(part) && str(part.type) === "text")
-              .map((part) => str(part.text) ?? "")
-              .join("\n");
-      if (/\bstopped at its [1-9]\d*-turn limit\b/.test(content)) capped.add(agentId);
+      if (path(block, "_auditClaude", "cap") === true) capped.add(agentId);
     }
   }
   return capped;
@@ -700,13 +735,11 @@ function toolResultFacts(
       const id = str(block.tool_use_id);
       const use = id ? byId.get(id) : undefined;
       const name = (use ? str(use.name) : null) ?? "(unknown)";
-      (toolResultBytes[name] ??= []).push(resultBytes(block.content));
+      (toolResultBytes[name] ??= []).push(num(path(block, "_auditClaude", "bytes")));
       if (block.is_error !== true || !id || name !== "Bash") continue;
-      const text =
-        typeof block.content === "string" ? block.content : JSON.stringify(block.content);
-      const command = use ? str(path(use, "input", "command")) : null;
-      if (command && classifyToolError(text) === "harnessBlock") {
-        blockedCommands[id] = redactExample(command);
+      const example = use ? str(path(use, "_auditClaude", "example")) : null;
+      if (example && path(block, "_auditClaude", "error") === "harnessBlock") {
+        blockedCommands[id] = example;
       }
     }
   }
@@ -1403,9 +1436,14 @@ function countToolErrors(lines: Rec[]): ToolErrors {
     if (str(l.type) !== "user") continue;
     for (const block of arr(path(l, "message", "content"))) {
       if (!isRec(block) || block.is_error !== true) continue;
+      const error = str(path(block, "_auditClaude", "error"));
       const text =
-        typeof block.content === "string" ? block.content : JSON.stringify(block.content);
-      errors[classifyToolError(text)]++;
+        typeof block.content === "string" ? block.content : (JSON.stringify(block.content) ?? "");
+      const cause =
+        error && Object.hasOwn(errors, error)
+          ? (error as keyof ToolErrors)
+          : classifyToolError(text);
+      errors[cause]++;
     }
   }
   return errors;
@@ -2606,6 +2644,7 @@ export function attachHookEvents(
   const health = sourceHealth(
     hookLines,
     "audit-log",
+    "audit-log",
     reading
       ? {
           ...reading,
@@ -2619,7 +2658,6 @@ export function attachHookEvents(
       : undefined,
     supplied?.normalizationLoss ?? parsed?.health.normalizedOmissions ?? 0,
     budget,
-    "audit-log",
   );
   session.sources = { ...session.sources, "audit-log": health };
   if (metadataLines.length)

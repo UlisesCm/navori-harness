@@ -1,6 +1,8 @@
 # Shared advisory metadata recorder. The CLI is the single private-FD writer.
 # No shell redirects, human content, or fallback writes are permitted here.
 # Missing CLI or failed validation leaves an observation gap, never a hook failure.
+# zsh replaces $0 with the function name; preserve the enclosing script identity.
+navori_audit_script=$0
 navori_audit_begin() {
   navori_audit_on=0
   navori_audit_root=${NAVORI_AUDITS_ROOT:-${HOME:-}/.navori/audits}
@@ -57,7 +59,7 @@ navori_audit_record_metadata() {
   command -v navori >/dev/null 2>&1 || return 0
   case "${nv_engine:-}" in
     claude | codex) navori_audit_host=$nv_engine ;;
-    *) case "$0" in *".codex/hooks/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
+    *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
   esac
   # The writer assigns eventId/wireVersion before first persistence. Replay
   # keeps those identifiers; this transport never generates replacement IDs.
@@ -84,10 +86,10 @@ navori_audit_log() {
     --arg tool "${navori_audit_tool:-}" --arg source "${navori_audit_source:-core}" \
     --arg kind "${3:-}" --argjson ms "$navori_audit_ms" --argjson tsMs "$navori_audit_end" '
     def id: type == "string" and length > 0 and length <= 256 and test("^[A-Za-z0-9_-]+$");
-    def label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
-    {event:"hook",name:($name|label),source:($source|label),ms:$ms,tsMs:$tsMs,
+    def technical_label: if length <= 256 and test("^[A-Za-z0-9_.:-]+$") then . else "unknown" end;
+    {event:"hook",name:($name|technical_label),source:($source|technical_label),ms:$ms,tsMs:$tsMs,
      phase:(if (["PreToolUse","PostToolUse","SessionStart","SessionEnd","Stop","SubagentStart","SubagentStop","UserPromptSubmit","PreCompact"]|index($phase)) != null then $phase else "unknown" end),
-     verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice"]|index($verdict)) != null then $verdict else "unknown" end),
+     verdict:(if (["allow","ask","block","deny","skip","noop","clean","dirty","inject","repeat","partial","compact-advice","gate-started","gate-killed"]|index($verdict)) != null then $verdict else "unknown" end),
      agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
      + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)

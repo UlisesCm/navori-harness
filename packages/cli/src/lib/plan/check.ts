@@ -4,7 +4,6 @@
  * instead of guessing at a fix (R15).
  */
 import { evidenceCase } from "./render.ts";
-import { checkDeliveryPlanSource } from "../master/slice.ts";
 import { WorkplanSchema, type Workplan } from "./schema.ts";
 
 export interface CheckFinding {
@@ -128,7 +127,7 @@ function checkLevel(plan: Workplan): CheckFinding[] {
 /** Validates a raw (unparsed) workplan value against the schema and R15's
  * structural rules. Returns every failure, not just the first, so a single
  * run can drive a full fix. */
-export function checkWorkplan(raw: unknown, cwd?: string): CheckResult {
+export function checkWorkplan(raw: unknown): CheckResult {
   const parsed = WorkplanSchema.safeParse(raw);
   if (!parsed.success) {
     const findings = parsed.error.issues.map((issue) => ({
@@ -139,12 +138,6 @@ export function checkWorkplan(raw: unknown, cwd?: string): CheckResult {
   }
 
   const findings = [...checkStructural(parsed.data), ...checkLevel(parsed.data)];
-  if (parsed.data.source) {
-    const problems = cwd
-      ? checkDeliveryPlanSource(cwd, parsed.data)
-      : ["delivery source requires an explicit checkout context"];
-    findings.push(...problems.map((message) => ({ rule: "delivery-source", message })));
-  }
   return { ok: findings.length === 0, findings, warnings: checkEvidence(parsed.data) };
 }
 

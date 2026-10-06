@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { createHash } from "node:crypto";
 import {
   buildReport,
   publishReport,
@@ -15,6 +16,7 @@ import {
   type CodexRunFacts,
   type CodexResponseFact,
   type MetricEvidence,
+  type MetricPopulation,
   emptyOrchestrator,
   emptyPermissionDecisions,
   emptyTokens,
@@ -22,6 +24,86 @@ import {
   createAuditReadBudget,
   retainAuditFact,
 } from "../model.ts";
+
+/** Match an opaque public category while asserting its original label is withheld. */
+function opaqueLabel(value: string): string {
+  return `unknown-${createHash("sha256").update(value).digest("hex").slice(0, 12)}`;
+}
+
+describe("closed miner evidence", () => {
+  const evidence: MetricPopulation = {
+    state: "partial",
+    reason: "incomplete-enumeration",
+    source: "transcript",
+    adapter: "claude-transcript",
+    sourceVersion: null,
+    eligible: 1,
+    observed: 0,
+    partial: 1,
+    unavailable: 0,
+    unsupported: 0,
+    invalid: 0,
+    contributors: 1,
+  };
+  // Covers: R4, R11, R21
+  it("accepts actual miner keys and refuses arbitrary/core/coverage evidence overrides", () => {
+    const measured = session([]);
+    const report = buildReport([measured], {
+      repo: "synthetic",
+      version: "0",
+      catalog: CATALOG,
+      extraMetrics: {
+        "search.shell": 2,
+        "search.good.pct": 100,
+        "activation.sessions.graded": 1,
+        "search.arbitrary": 9,
+        "activation.arbitrary": 9,
+        "tokens.input": 999,
+        "sessions.total": 999,
+        "coverage.pct": 100,
+      },
+      extraAvailability: Object.fromEntries(
+        [
+          "search.shell",
+          "search.good.pct",
+          "activation.sessions.graded",
+          "search.arbitrary",
+          "activation.arbitrary",
+          "tokens.input",
+          "sessions.total",
+          "coverage.pct",
+        ].map((key) => [
+          key,
+          key.startsWith("search.") || key.startsWith("activation.")
+            ? evidence
+            : { ...evidence, state: "invalid" as const, eligible: 999 },
+        ]),
+      ),
+    });
+    expect(report.rangeMetrics["search.shell"]).toBe(2);
+    expect(report.availability?.["search.shell"]?.state).toBe("partial");
+    expect(report.rangeMetrics["search.good.pct"]).toBeNull();
+    expect(report.rangeMetrics["activation.sessions.graded"]).toBeNull();
+    expect(report.rangeMetrics["search.arbitrary"]).toBeUndefined();
+    expect(report.rangeMetrics["activation.arbitrary"]).toBeUndefined();
+    expect(report.rangeMetrics["sessions.total"]).toBe(1);
+    expect(report.availability?.["tokens.input"]?.state).toBe("observed");
+    expect(report.availability?.["coverage.pct"]?.state).toBe("partial");
+    expect(report.availability?.["coverage.pct"]?.eligible).not.toBe(999);
+  });
+  // Covers: R21
+  it("does not infer miner completeness from a complete ordinary parser", () => {
+    const report = buildReport([session([])], {
+      repo: "synthetic",
+      version: "0",
+      catalog: CATALOG,
+      extraMetrics: { "search.shell": 0, "activation.total.pct": 100 },
+    });
+    expect(report.rangeMetrics["search.shell"]).toBeNull();
+    expect(report.rangeMetrics["activation.total.pct"]).toBeNull();
+    expect(report.availability?.["search.shell"]?.state).toBe("unavailable");
+  });
+});
 
 describe("Codex canonical report view", () => {
   // Covers: R4, R5, R8, R9
@@ -72,7 +154,14 @@ describe("Codex canonical report view", () => {
       usageAvailability: availability,
     };
     const input = session(
-      [agent({ agentId: "child", agentType: "codex-child", codex: facts, availability: {} })],
+      [
+        agent({
+          agentId: "child",
+          agentType: "codex-child",
+          codex: facts,
+          availability: {},
+        }),
+      ],
       {
         host: "codex",
         unavailable: "transcript",
@@ -87,7 +176,11 @@ describe("Codex canonical report view", () => {
       capturedAt: null,
     };
     const before = JSON.stringify(input);
-    const report = buildReport([input], { repo: "r", version: "0", catalog: CATALOG });
+    const report = buildReport([input], {
+      repo: "r",
+      version: "0",
+      catalog: CATALOG,
+    });
     expect(report.totals.tokens.output).toBe(40);
     expect(report.totals.byAgentType["codex-child"]?.tokens.output).toBe(40);
     expect(publishReport(report).sessions[0]?.agents[0]?.tokens.output).toBe(40);
@@ -142,7 +235,12 @@ function agent(over: Partial<AgentRun> = {}): AgentRun {
     endedAt: "2026-08-25T10:20:00Z",
     durationMs: 20 * 60 * 1000,
     spawnDepth: 1,
-    tokens: { ...emptyTokens(), output: 2000, cacheCreation: 100_000, cacheRead: 5_000_000 },
+    tokens: {
+      ...emptyTokens(),
+      output: 2000,
+      cacheCreation: 100_000,
+      cacheRead: 5_000_000,
+    },
     startupTokens: 17_000,
     overlapsWith: [],
     toolCounts: { Bash: 73, Read: 53 },
@@ -240,6 +338,80 @@ const CATALOG: HarnessCatalog = {
 
 /** Synthetic publication/budget probes: no host logs or filesystem writes. */
 describe("private report publication and bounded qualified views", () => {
+  // Covers: R6, R10, R11
+  it("publishes numeric and null coverage only in its envelope, withholding malformed values", () => {
+    const report = buildReport([], {
+      repo: "r",
+      version: "0.1.0",
+      catalog: CATALOG,
+    });
+    report.coverage = [
+      { repo: "r", roots: [], host: 1, audited: 0, captured: 0, ratio: 0 },
+      {
+        repo: "r",
+        roots: [],
+        host: 0,
+        audited: 0,
+        captured: null,
+        ratio: null,
+      },
+    ];
+    expect(
+      publishReport(report).coverage?.map(({ captured, ratio }) => ({
+        captured,
+        ratio,
+      })),
+    ).toEqual([
+      { captured: 0, ratio: 0 },
+      { captured: null, ratio: null },
+    ]);
+    const secret = "SECRET-coverage-field";
+    for (const malformed of [secret, { summary: secret }, [1], true, Infinity, NaN]) {
+      Object.assign(report.coverage[0]!, {
+        captured: malformed,
+        ratio: malformed,
+      });
+      const published = publishReport(report);
+      expect(published.coverage?.[0]).not.toHaveProperty("captured");
+      expect(published.coverage?.[0]).not.toHaveProperty("ratio");
+      expect(renderJson(report)).not.toContain(secret);
+    }
+    Object.assign(report, { captured: 1, ratio: 1 });
+    expect(publishReport(report)).not.toHaveProperty("captured");
+    expect(publishReport(report)).not.toHaveProperty("ratio");
+  });
+
+  // Covers: R6, R10, R11
+  it("preserves finite activation keys and renders the section while hiding dynamic segments", () => {
+    const report = buildReport([], {
+      repo: "r",
+      version: "0.1.0",
+      catalog: CATALOG,
+    });
+    const secret = "SECRET-dynamic-activation";
+    Object.assign(report.rangeMetrics, {
+      "coverage.pct": 75,
+      "activation.total.opportunities": 4,
+      "activation.total.hits": 3,
+      "activation.total.pct": 75,
+      "activation.implementer.opportunities": 4,
+      "activation.implementer.hits": 3,
+      "activation.implementer.pct": 75,
+      [`activation.${secret}.opportunities`]: 1,
+      [`activation.total.${secret}`]: 1,
+    });
+    expect(publishReport(report).rangeMetrics).toMatchObject({
+      "coverage.pct": 75,
+      "activation.total.opportunities": 4,
+      "activation.total.hits": 3,
+      "activation.total.pct": 75,
+      "activation.implementer.opportunities": 4,
+    });
+    expect(renderMarkdown(report, "en")).toContain("Activation");
+    expect(renderJson(report)).not.toContain(secret);
+    expect(renderMarkdown(report, "en")).not.toContain(secret);
+  });
+
   function hookEvent(over: Partial<HookEvent> = {}): HookEvent {
     return {
       ts: "2026-08-25T10:00:00Z",
@@ -301,7 +473,11 @@ describe("private report publication and bounded qualified views", () => {
       usage: values,
       usageAvailability: availability,
     };
-    const root = session([], { sessionId: "root", host: "codex", availability: {} });
+    const root = session([], {
+      sessionId: "root",
+      host: "codex",
+      availability: {},
+    });
     root.orchestrator.codex = facts;
     return root;
   }
@@ -332,7 +508,11 @@ describe("private report publication and bounded qualified views", () => {
           },
         ],
       }),
-      { ownerKey: sentinel, sourcePath: sentinel, sourceHeaderFingerprint: sentinel },
+      {
+        ownerKey: sentinel,
+        sourcePath: sentinel,
+        sourceHeaderFingerprint: sentinel,
+      },
     );
     const report = buildReport([session([run], { initialPrompt: sentinel })], {
       repo: "r",
@@ -408,7 +588,11 @@ describe("private report publication and bounded qualified views", () => {
         ],
       }),
     ];
-    const report = buildReport([root], { repo: "r", version: "0.1.0", catalog: CATALOG });
+    const report = buildReport([root], {
+      repo: "r",
+      version: "0.1.0",
+      catalog: CATALOG,
+    });
     const published = publishReport(report);
     expect(published.totals.tokens.output).toBe(report.totals.tokens.output);
     expect(published.sessions[0]?.orchestrator.toolCountsByMode?.default?.Bash).toBe(3);
@@ -420,6 +604,57 @@ describe("private report publication and bounded qualified views", () => {
     expect(published.availability?.["tokens.output"]).toEqual(
       report.availability?.["tokens.output"],
     );
+  });
+
+  // Covers: R6, R10, R11
+  it("keeps safe artifact paths only in their location context and projects frozen aliases once", () => {
+    const privateLabel = "private-project-label";
+    const run = Object.assign(agent({ model: `gpt-6-${privateLabel}` }), {
+      path: "AGENTS.md",
+      ownerKey: "private-source-id",
+    });
+    run.observedArtifactWrites = [
+      {
+        actor: "orchestrator",
+        at: null,
+        source: "native-write",
+        outcome: "success",
+        location: { state: "repo-relative", path: "AGENTS.md" },
+      },
+      {
+        actor: "orchestrator",
+        at: null,
+        source: "native-write",
+        outcome: "success",
+        location: {
+          state: "repo-relative",
+          path: `.navori/state/handoffs/impl_${privateLabel}.json`,
+        },
+      },
+    ];
+    const report = buildReport([session([run])], {
+      repo: "r",
+      version: "0.1.0",
+      catalog: CATALOG,
+    });
+    freezeTree(report);
+    const before = JSON.stringify(report);
+    const defaultJson = renderJson(report);
+    const published = publishReport(report, { includeHumanContent: true });
+    expect(
+      published.sessions[0]?.agents[0]?.observedArtifactWrites?.map((event) => event.location),
+    ).toEqual([
+      { state: "repo-relative", path: "AGENTS.md" },
+      { state: "repo-relative", path: "redacted" },
+    ]);
+    expect(published.sessions[0]?.agents[0]).not.toHaveProperty("path");
+    expect(JSON.stringify(published)).not.toContain(privateLabel);
+    expect(JSON.stringify(published)).not.toContain("private-source-id");
+    expect(published.availability?.["tokens.output"]?.state).toBe(
+      report.availability?.["tokens.output"]?.state,
+    );
+    expect(renderJson(report)).toBe(defaultJson);
+    expect(JSON.stringify(report)).toBe(before);
   });
 
   // Covers: R6, R21
@@ -508,8 +743,14 @@ describe("private report publication and bounded qualified views", () => {
       catalog: CATALOG,
       now: new Date("2026-10-04T00:00:00Z"),
     };
-    const first = buildReport([input], { ...options, readBudget: createAuditReadBudget() });
-    const second = buildReport([input], { ...options, readBudget: createAuditReadBudget() });
+    const first = buildReport([input], {
+      ...options,
+      readBudget: createAuditReadBudget(),
+    });
+    const second = buildReport([input], {
+      ...options,
+      readBudget: createAuditReadBudget(),
+    });
     expect(first.totals.tokens.output).toBe(7);
     expect(renderJson(second)).toBe(renderJson(first));
     expect(JSON.stringify(input)).toBe(before);
@@ -522,8 +763,14 @@ describe("schema11 evidence projection", () => {
   it.each([false, true])(
     "shares projected agent counts across JSON and text: observed=%s",
     (observed) => {
-      const root = session([], { availability: observed ? session([]).availability : {} });
-      const report = buildReport([root], { repo: "summary", version: "test", catalog: CATALOG });
+      const root = session([], {
+        availability: observed ? session([]).availability : {},
+      });
+      const report = buildReport([root], {
+        repo: "summary",
+        version: "test",
+        catalog: CATALOG,
+      });
       expect(JSON.parse(renderJson(report)).totals.agents).toBe(observed ? 0 : null);
       for (const lang of ["en", "es"] as const) {
         const header = renderMarkdown(report, lang)
@@ -538,7 +785,11 @@ describe("schema11 evidence projection", () => {
   // Covers: R6
   it("enumerates every public numeric path without certifying missing measurements", () => {
     const root = session([agent({ availability: {} })], { availability: {} });
-    const report = buildReport([root], { repo: "unknown", version: "test", catalog: CATALOG });
+    const report = buildReport([root], {
+      repo: "unknown",
+      version: "test",
+      catalog: CATALOG,
+    });
     const numbers: string[] = [];
     const walk = (value: unknown, path: string): void => {
       if (typeof value === "number") numbers.push(path);
@@ -568,7 +819,11 @@ describe("schema11 evidence projection", () => {
         availability: mode === "child-only" ? {} : session([]).availability,
       });
       root.orchestrator.tokens.input = 17;
-      const report = buildReport([root], { repo: "mixed", version: "test", catalog: CATALOG });
+      const report = buildReport([root], {
+        repo: "mixed",
+        version: "test",
+        catalog: CATALOG,
+      });
       const json = JSON.parse(renderJson(report));
       expect(json.totals.tokens.input).toBe(mode === "child-only" ? 23 : 17);
       expect(json.availability["tokens.input"]).toMatchObject({
@@ -588,10 +843,17 @@ describe("schema11 evidence projection", () => {
       });
     },
   );
-  // Covers: R6
+  // Covers: R6, R10, R11
   it("never certifies an unrelated all-missing type or tool-observed missing components", () => {
     const root = session(
-      [agent(), agent({ agentId: "missing", agentType: "researcher", availability: {} })],
+      [
+        agent(),
+        agent({
+          agentId: "missing",
+          agentType: "researcher",
+          availability: {},
+        }),
+      ],
       { availability: { tools: session([]).availability!.tools! } },
     );
     root.orchestrator.tokens = {
@@ -611,7 +873,11 @@ describe("schema11 evidence projection", () => {
         attributedRecords: 1,
       },
     ];
-    const report = buildReport([root], { repo: "mixed", version: "test", catalog: CATALOG });
+    const report = buildReport([root], {
+      repo: "mixed",
+      version: "test",
+      catalog: CATALOG,
+    });
     const json = JSON.parse(renderJson(report));
     expect(json.totals.byAgentType.researcher.tokens.input).toBeNull();
     expect(json.totals.byAgentType.researcher.count).toBeNull();
@@ -621,7 +887,8 @@ describe("schema11 evidence projection", () => {
     expect(json.sessions[0].orchestrator.startupTokens).toBeNull();
     expect(json.sessions[0].orchestrator.skills[0].attributedOutputTokens).toBeNull();
     expect(
-      json.totals.skills.find((row: { slug: string }) => row.slug === "probe").outputTokens,
+      json.totals.skills.find((row: { slug: string }) => row.slug === opaqueLabel("probe"))
+        .outputTokens,
     ).toBeNull();
     expect(json.rangeMetrics["agent.main-thread.contextPeak.n"]).toBe(0);
     expect(renderJson(report)).not.toContain("987654321");
@@ -629,7 +896,7 @@ describe("schema11 evidence projection", () => {
     expect(text).not.toContain("987654321");
     expect(text).toContain("main-thread / tokens.input | unavailable");
     expect(text).toContain("Combined token spend unavailable");
-    expect(text).toContain("`probe` | — | 1 | — | 1 | unavailable");
+    expect(text).toContain(`\`${opaqueLabel("probe")}\` | — | 1 | — | 1 | unavailable`);
   });
   // Covers: R6
   it("publishes only contributed partial components and excludes them from statistics", () => {
@@ -650,7 +917,11 @@ describe("schema11 evidence projection", () => {
       cacheCreation: 987654321,
       thinking: 987654321,
     };
-    const report = buildReport([root], { repo: "partial", version: "test", catalog: CATALOG });
+    const report = buildReport([root], {
+      repo: "partial",
+      version: "test",
+      catalog: CATALOG,
+    });
     const json = JSON.parse(renderJson(report));
     expect(json.totals.tokens).toEqual({
       input: 41,
@@ -676,7 +947,10 @@ describe("schema11 evidence projection", () => {
       repo: "empty",
       version: "test",
       catalog: CATALOG,
-      requestedRange: { from: "2026-09-01T00:00:00.000Z", to: "2026-09-02T00:00:00.000Z" },
+      requestedRange: {
+        from: "2026-09-01T00:00:00.000Z",
+        to: "2026-09-02T00:00:00.000Z",
+      },
     });
     const json = JSON.parse(renderJson(report));
     expect(json.totals.tokens.input).toBeNull();
@@ -883,7 +1157,10 @@ describe("hook line: constant toll vs the gate doing its job", () => {
 
   it("still names the blocks it produced", () => {
     const events = hookRuns("guard-destructive", 3, 50, 0, 0);
-    events.push({ ...(events[0] as (typeof events)[number]), verdict: "block" });
+    events.push({
+      ...(events[0] as (typeof events)[number]),
+      verdict: "block",
+    });
     expect(md([agent({ hookEvents: events })])).toContain("1 bloqueos");
   });
 
@@ -982,7 +1259,10 @@ describe("MCP reach: barred vs available (#0013)", () => {
       version: "0.6.5",
       catalog: CATALOG,
     });
-    expect(report.sessions[0]?.agents[0]?.mcpReach).toEqual({ engram: false, playwright: false });
+    expect(report.sessions[0]?.agents[0]?.mcpReach).toEqual({
+      engram: false,
+      playwright: false,
+    });
   });
 });
 
@@ -1000,12 +1280,20 @@ describe("engram: ceremony vs content, requested vs injected reads (#728)", () =
     const s = session([]);
     s.orchestrator.mcpCalls = { engram: ops };
     s.orchestrator.mcpInjectedContext = injected;
-    const report = buildReport([s], { repo: "demo", version: "0.6.5", catalog: CATALOG });
+    const report = buildReport([s], {
+      repo: "demo",
+      version: "0.6.5",
+      catalog: CATALOG,
+    });
     return renderMarkdown(report, "es");
   }
 
   it("splits the writes into content and ceremony instead of summing them", () => {
-    const out = engramCard({ mem_save: 9, mem_session_summary: 3, mem_search: 5 });
+    const out = engramCard({
+      mem_save: 9,
+      mem_session_summary: 3,
+      mem_search: 5,
+    });
     // The per-op detail stays whole — the split explains it, never replaces it.
     expect(out).toContain("engram     17 (mem_save 9, mem_search 5, mem_session_summary 3)");
     expect(out).toContain("escrituras  9 de contenido + 3 de ceremonia (mem_session_summary");
@@ -1064,8 +1352,16 @@ describe("time: sum vs wall clock (#0013)", () => {
   // Covers: R13
   it("does not add up overlapping agents into clock time", () => {
     const parallel = [
-      agent({ agentId: "a", startedAt: "2026-08-25T10:00:00Z", endedAt: "2026-08-25T10:20:00Z" }),
-      agent({ agentId: "b", startedAt: "2026-08-25T10:05:00Z", endedAt: "2026-08-25T10:25:00Z" }),
+      agent({
+        agentId: "a",
+        startedAt: "2026-08-25T10:00:00Z",
+        endedAt: "2026-08-25T10:20:00Z",
+      }),
+      agent({
+        agentId: "b",
+        startedAt: "2026-08-25T10:05:00Z",
+        endedAt: "2026-08-25T10:25:00Z",
+      }),
     ];
     const report = buildReport([session(parallel)], {
       repo: "demo",
@@ -1082,8 +1378,16 @@ describe("time: sum vs wall clock (#0013)", () => {
   // Covers: R13
   it("adds disjoint windows in full", () => {
     const serial = [
-      agent({ agentId: "a", startedAt: "2026-08-25T10:00:00Z", endedAt: "2026-08-25T10:10:00Z" }),
-      agent({ agentId: "b", startedAt: "2026-08-25T11:00:00Z", endedAt: "2026-08-25T11:10:00Z" }),
+      agent({
+        agentId: "a",
+        startedAt: "2026-08-25T10:00:00Z",
+        endedAt: "2026-08-25T10:10:00Z",
+      }),
+      agent({
+        agentId: "b",
+        startedAt: "2026-08-25T11:00:00Z",
+        endedAt: "2026-08-25T11:10:00Z",
+      }),
     ];
     const report = buildReport([session(serial)], {
       repo: "demo",
@@ -1204,7 +1508,11 @@ describe("the orchestrator gets a card too (#0013)", () => {
       },
     ];
     s.orchestrator.toolCounts = { Bash: 302 };
-    const report = buildReport([s], { repo: "demo", version: "0.6.5", catalog: CATALOG });
+    const report = buildReport([s], {
+      repo: "demo",
+      version: "0.6.5",
+      catalog: CATALOG,
+    });
     const out = renderMarkdown(report, "es");
     // Most of a session happens in the orchestrator, and every hook event that
     // could not be attributed to a subagent lands on it. A real session showed
@@ -1473,7 +1781,10 @@ describe("session header: a harness that moved mid-session (#607)", () => {
   });
 
   it("shows one when nothing moved", () => {
-    const out = md([], { navori: { rendered: "0.7.5", cli: "0.7.5" }, navoriAtStop: null });
+    const out = md([], {
+      navori: { rendered: "0.7.5", cli: "0.7.5" },
+      navoriAtStop: null,
+    });
     // Scoped to the version segment: the range line of the header carries its
     // own arrow, so a bare `not.toContain("→")` would pass for the wrong reason.
     expect(out).toContain("navori 0.7.5 ·");
@@ -1521,7 +1832,12 @@ describe("thinking counts once, inside output (A3)", () => {
   const thinker = (over: Partial<AgentRun> = {}): AgentRun =>
     agent({
       startupTokens: 17_000,
-      tokens: { ...emptyTokens(), output: 2000, thinking: 1000, cacheCreation: 100_000 },
+      tokens: {
+        ...emptyTokens(),
+        output: 2000,
+        thinking: 1000,
+        cacheCreation: 100_000,
+      },
       ...over,
     });
 
@@ -1536,7 +1852,9 @@ describe("thinking counts once, inside output (A3)", () => {
 
   it("says nothing about thinking when there was none", () => {
     const out = md([
-      thinker({ tokens: { ...emptyTokens(), output: 2000, cacheCreation: 100_000 } }),
+      thinker({
+        tokens: { ...emptyTokens(), output: 2000, cacheCreation: 100_000 },
+      }),
     ]);
     expect(out).not.toContain("de los cuales");
   });
@@ -1546,7 +1864,12 @@ describe("thinking counts once, inside output (A3)", () => {
       orchestrator: {
         ...session([]).orchestrator,
         startupTokens: 5000,
-        tokens: { ...emptyTokens(), output: 4000, thinking: 3000, cacheCreation: 50_000 },
+        tokens: {
+          ...emptyTokens(),
+          output: 4000,
+          thinking: 3000,
+          cacheCreation: 50_000,
+        },
       },
     });
     expect(out).toMatch(/razonamiento\s+4k/);
@@ -1640,7 +1963,7 @@ describe("weightedTokens: cache_read weighted per model (#927)", () => {
 describe("rankings order by the weighted axis (#927)", () => {
   const cacheHeavy = agent({
     agentId: "ag_cache",
-    agentType: "cache-heavy",
+    agentType: "implementer",
     description: "reads a lot of cached context",
     // Fable 5.1's 0.025x override still outweighs a small reasoning-heavy run:
     // 10_000_000 * 0.025 = 250_000.
@@ -1650,7 +1973,7 @@ describe("rankings order by the weighted axis (#927)", () => {
   });
   const reasoningHeavy = agent({
     agentId: "ag_reason",
-    agentType: "reasoning-heavy",
+    agentType: "reviewer",
     description: "does a lot of actual reasoning",
     model: "claude-sonnet-5",
     // Raw (old billable) total is 1000 — bigger than cacheHeavy's raw total of
@@ -1659,25 +1982,28 @@ describe("rankings order by the weighted axis (#927)", () => {
     startupTokens: 0,
   });
 
+  // Covers: R10, R11
   it("puts the cache-heavy agent first in the timeline", () => {
     const out = md([reasoningHeavy, cacheHeavy]);
     const timeline = out.split("### Línea de tiempo")[1] ?? "";
-    expect(timeline.indexOf("cache-heavy")).toBeGreaterThanOrEqual(0);
-    expect(timeline.indexOf("cache-heavy")).toBeLessThan(timeline.indexOf("reasoning-heavy"));
+    expect(timeline.indexOf("implementer")).toBeGreaterThanOrEqual(0);
+    expect(timeline.indexOf("implementer")).toBeLessThan(timeline.indexOf("reviewer"));
   });
 
+  // Covers: R10, R11
   it("puts the cache-heavy agent's card first", () => {
     const out = md([reasoningHeavy, cacheHeavy]);
     const cards = out.split("### Ficha por agente")[1] ?? "";
-    expect(cards.indexOf("cache-heavy")).toBeGreaterThanOrEqual(0);
-    expect(cards.indexOf("cache-heavy")).toBeLessThan(cards.indexOf("reasoning-heavy"));
+    expect(cards.indexOf("implementer")).toBeGreaterThanOrEqual(0);
+    expect(cards.indexOf("implementer")).toBeLessThan(cards.indexOf("reviewer"));
   });
 
+  // Covers: R10, R11
   it("puts the cache-heavy type first in the by-agent-type table", () => {
     const out = md([reasoningHeavy, cacheHeavy]);
     const byType = out.split("### Por tipo de agente")[1] ?? "";
-    expect(byType.indexOf("cache-heavy")).toBeGreaterThanOrEqual(0);
-    expect(byType.indexOf("cache-heavy")).toBeLessThan(byType.indexOf("reasoning-heavy"));
+    expect(byType.indexOf("implementer")).toBeGreaterThanOrEqual(0);
+    expect(byType.indexOf("implementer")).toBeLessThan(byType.indexOf("reviewer"));
   });
 });
 
@@ -1758,7 +2084,14 @@ describe("totals.skills — el histograma del rango", () => {
       ["a"],
     );
     expect(r.totals.skills).toEqual([
-      { slug: "a", invoked: 1, inherited: 1, browsed: 1, records: 20, outputTokens: 5000 },
+      {
+        slug: "a",
+        invoked: 1,
+        inherited: 1,
+        browsed: 1,
+        records: 20,
+        outputTokens: 5000,
+      },
     ]);
   });
 
@@ -1777,7 +2110,14 @@ describe("totals.skills — el histograma del rango", () => {
     // La mitad de la pregunta que decide si una skill se queda en el catálogo.
     const r = build([withSkills([])], ["nunca-usada"]);
     expect(r.totals.skills).toEqual([
-      { slug: "nunca-usada", invoked: 0, inherited: 0, browsed: 0, records: 0, outputTokens: 0 },
+      {
+        slug: "nunca-usada",
+        invoked: 0,
+        inherited: 0,
+        browsed: 0,
+        records: 0,
+        outputTokens: 0,
+      },
     ]);
   });
 
@@ -1827,9 +2167,19 @@ describe("peaje por evento de hooks concurrentes (#924)", () => {
   /** The `PreToolUse` fan-out of one real Bash call. Max 43ms, sum 114ms. */
   const REAL_PRE: HookEvent[] = [
     { name: "guard-destructive", verdict: "skip", ms: 18, source: "core" },
-    { name: "quality-gate-pre-commit", verdict: "skip", ms: 17, source: "core" },
+    {
+      name: "quality-gate-pre-commit",
+      verdict: "skip",
+      ms: 17,
+      source: "core",
+    },
     { name: "check-jscpd", verdict: "allow", ms: 17, source: "plugin:jscpd" },
-    { name: "check-semgrep", verdict: "allow", ms: 19, source: "plugin:semgrep" },
+    {
+      name: "check-semgrep",
+      verdict: "allow",
+      ms: 19,
+      source: "plugin:semgrep",
+    },
     { name: "model-advisor", verdict: "skip", ms: 43, source: "core" },
   ].map((e) => ({
     ...e,
@@ -1863,7 +2213,9 @@ describe("peaje por evento de hooks concurrentes (#924)", () => {
   };
 
   function withHooks(hookEvents: HookEvent[]): string {
-    return md([], { orchestrator: { ...session([]).orchestrator, hookEvents } });
+    return md([], {
+      orchestrator: { ...session([]).orchestrator, hookEvents },
+    });
   }
 
   it("cobra el más lento de cada evento y deja ver la suma que NO se paga", () => {
@@ -1963,7 +2315,12 @@ describe("range sections (spec 0039 F0b)", () => {
     const events = [
       hookEvent({ toolUseId: "t1", name: "guard-destructive", ms: 10 }),
       hookEvent({ toolUseId: "t1", name: "routing-watch", ms: 5 }),
-      hookEvent({ toolUseId: "t1", name: "routing-watch", phase: "PostToolUse", ms: 5 }),
+      hookEvent({
+        toolUseId: "t1",
+        name: "routing-watch",
+        phase: "PostToolUse",
+        ms: 5,
+      }),
       hookEvent({ toolUseId: "t2", name: "guard-destructive", ms: 30 }),
       // Not a Bash call: never part of the per-call figure.
       hookEvent({ toolUseId: "t3", tool: "Read", name: "guard-destructive" }),
@@ -1980,34 +2337,50 @@ describe("range sections (spec 0039 F0b)", () => {
   });
 
   // Covers: R66
-  it("groups blocks per rule with at most 3 examples, redacted and cut to 160", () => {
+  // Covers: R10, R11
+  it("groups blocks per rule while withholding command examples in every generation", () => {
     const secret = "ghp_abcdefghijklmnop1234";
     const blocked: Record<string, string> = {};
     const events: HookEvent[] = [];
     for (let i = 0; i < 5; i++) {
       blocked[`t${i}`] = `git push https://x:${secret}@host/r --token ${secret} ${"y".repeat(400)}`;
       events.push(
-        hookEvent({ toolUseId: `t${i}`, verdict: "block", reason: "rule 4: force push" }),
+        hookEvent({
+          toolUseId: `t${i}`,
+          verdict: "block",
+          reason: "rule 4: force push",
+        }),
       );
     }
     const { report, md } = range([agent({ hookEvents: events, blockedCommands: blocked })]);
     expect(report.rangeMetrics["hook.guard-destructive.blocks"]).toBe(5);
     expect(report.rangeMetrics["hook.guard-destructive.blocks.rule 4: force push"]).toBe(5);
+    expect(publishReport(report).rangeMetrics["hook.guard-destructive.blocks"]).toBe(5);
     const examples = md.split("\n").filter((l) => l.startsWith("  - `git push"));
-    expect(examples).toHaveLength(3);
+    expect(examples).toHaveLength(0);
+    expect(renderMarkdown(report, "en", { includeHumanContent: true })).not.toContain("git push");
     expect(md).not.toContain(secret);
-    for (const line of examples) expect(line.length).toBeLessThanOrEqual(160 + 8);
     // Free text never reaches the flat metrics.
     expect(JSON.stringify(report.rangeMetrics)).not.toContain("git push");
   });
 
-  // Covers: R70
+  // Covers: R70, R10, R11
   it("tabulates any name x verdict from hooks and CLI events", () => {
     const { report, md } = range(
-      [agent({ hookEvents: [hookEvent({ name: "fixture-hook", verdict: "advise" })] })],
+      [
+        agent({
+          hookEvents: [hookEvent({ name: "fixture-hook", verdict: "advise" })],
+        }),
+      ],
       {
         cliEvents: [
-          { tsMs: 1, event: "cli", name: "fixture-cli", verdict: "reject", reason: "r" },
+          {
+            tsMs: 1,
+            event: "cli",
+            name: "fixture-cli",
+            verdict: "reject",
+            reason: "r",
+          },
           { tsMs: 2, event: "cli", name: "fixture-cli", verdict: "reject" },
           { tsMs: 3, event: "cli", name: "fixture-cli", verdict: "accept" },
         ],
@@ -2017,14 +2390,28 @@ describe("range sections (spec 0039 F0b)", () => {
     expect(report.rangeMetrics["mechanism.fixture-cli.accept"]).toBe(1);
     expect(report.rangeMetrics["mechanism.fixture-hook.advise"]).toBe(1);
     expect(md).toContain("## Mechanisms: name × verdict");
-    expect(md).toContain("| `fixture-cli` | 1 | 0 | 2 |");
+    expect(md).toContain(`| \`${opaqueLabel("fixture-cli")}\` | 1 | 0 | 2 |`);
+    expect(md).not.toContain("fixture-cli");
   });
 
   // Covers: R70
   it("counts evidence rejection and repeat-failure advice as separate mechanisms", () => {
     const { report, md } = range(
-      [agent({ hookEvents: [hookEvent({ name: "bash-outcome-watch", verdict: "advise" })] })],
-      { cliEvents: [{ tsMs: 1, event: "cli", name: "plan-update-evidence", verdict: "block" }] },
+      [
+        agent({
+          hookEvents: [hookEvent({ name: "bash-outcome-watch", verdict: "advise" })],
+        }),
+      ],
+      {
+        cliEvents: [
+          {
+            tsMs: 1,
+            event: "cli",
+            name: "plan-update-evidence",
+            verdict: "block",
+          },
+        ],
+      },
     );
     expect(report.rangeMetrics["mechanism.bash-outcome-watch.advise"]).toBe(1);
     expect(report.rangeMetrics["mechanism.plan-update-evidence.block"]).toBe(1);

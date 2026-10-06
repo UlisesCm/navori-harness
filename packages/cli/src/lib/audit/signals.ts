@@ -1,14 +1,31 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { opendirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { type HarnessCatalog, barredMcpTokens } from "./harness.ts";
-import type { AgentRun, GateExecution, SessionAudit, Signal } from "./model.ts";
+import type {
+  AgentRun,
+  GateExecution,
+  SessionAudit,
+  Signal,
+  AuditReadBudget,
+  AuditReadDiagnostics,
+  MetricPopulation,
+} from "./model.ts";
+import {
+  createAuditReadBudget,
+  retainAuditFact,
+  releaseAuditFact,
+  retainAuditPath,
+  omitAuditFacts,
+} from "./model.ts";
+import { readAuditJsonl } from "./paths.ts";
 import { GATE_HOOK_NAMES, correlateGateExecutions, gateHandle, recorderWindow } from "./model.ts";
 import { compareSemver } from "../primitives/semver.ts";
 import { RETIRED_AGENTS } from "../../engines/shared/roster.ts";
 import { MAIN_THREAD_ONLY_HOOKS } from "../../engines/shared/harness-plan.ts";
 import { ORCHESTRATOR_OWNER } from "./parse.ts";
 import { roleAliases, skillAliases } from "../assets/activation-aliases.ts";
-import { countNonTrivial } from "../diagnose/source-classify.ts";
+import { classifyPath } from "../diagnose/source-classify.ts";
 
 /**
  * Findings, as pure functions over one parsed session plus the harness it ran
@@ -1520,27 +1537,6 @@ function pyStr(v: unknown, dflt: string): string {
   return typeof v === "string" ? v : String(v);
 }
 
-/** Every non-empty line of a JSONL file as parsed JSON, `null` for a line that
- *  does not parse. A missing or unreadable file yields `undefined`. */
-function readJsonl(path: string): Array<unknown> | undefined {
-  let raw: string;
-  try {
-    raw = readFileSync(path, "utf-8");
-  } catch {
-    return undefined;
-  }
-  const out: unknown[] = [];
-  for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      out.push(JSON.parse(line));
-    } catch {
-      out.push(null);
-    }
-  }
-  return out;
-}
-
 /**
  * Python's `shlex.split` (POSIX mode, no comments): quotes group, a backslash
  * escapes the next character (inside double quotes only `"` and `\`), and an
@@ -1727,71 +1723,11 @@ export function classifySearchCommand(command: string): SearchCounts {
   return out;
 }
 
-/** Subagent transcripts of ONE session: `<project>/<session>/subagents/agent-*.jsonl`. */
-function subagentTranscripts(mainPath: string, sessionId: string): string[] {
-  const dir = join(dirname(mainPath), sessionId, "subagents");
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((f) => f.startsWith("agent-") && f.endsWith(".jsonl"))
-    .sort()
-    .map((f) => join(dir, f));
-}
-
-/**
- * Counts the searches of ONE transcript (main thread or subagent).
- *
- * `skipSidechain` drops `isSidechain` records on the main thread: the host
- * repeats them there AND writes them under `subagents/`, so counting both
- * passes would double every subagent search.
- *
- * Two passes, as in the script: a command the guard blocked never RAN but its
- * `tool_use` is in the transcript, so it would count as `shell` while its retry
- * counted again. The verdict is read from the transcript itself (`tool_result`
- * with `is_error` and the guard's text).
- */
-function scanSearchTranscript(path: string, counts: SearchCounts, skipSidechain: boolean): void {
-  const pending = new Map<unknown, string>();
-  const blocked = new Set<unknown>();
-  for (const entry of readJsonl(path) ?? []) {
-    if (entry === null) {
-      bump(counts, "malformado");
-      continue;
-    }
-    if (!isJson(entry)) continue;
-    if (skipSidechain && entry.isSidechain) continue;
-    const msg = entry.message;
-    if (!isJson(msg) || !Array.isArray(msg.content)) continue;
-    for (const block of msg.content as unknown[]) {
-      if (!isJson(block)) continue;
-      if (block.type === "tool_use") {
-        if (block.name === "Grep") bump(counts, "nativo");
-        else if (block.name === CODEGRAPH_TOOL) bump(counts, "codegraph-v2");
-        else if (block.name === "Bash") {
-          const command = isJson(block.input) ? block.input.command : undefined;
-          if (typeof command === "string") pending.set(block.id, command);
-        }
-      } else if (block.type === "tool_result") {
-        // BOTH conditions: content that merely QUOTES the string (a guard file
-        // read in-session) would otherwise count reads as blocks.
-        if (!block.is_error) continue;
-        if ((JSON.stringify(block.content) ?? "").includes("BLOCKED by guard-")) {
-          blocked.add(block.tool_use_id);
-        }
-      }
-    }
-  }
-  for (const [id, command] of pending) {
-    if (blocked.has(id)) {
-      bump(counts, "bloqueado");
-      continue;
-    }
-    for (const [route, n] of Object.entries(classifySearchCommand(command))) bump(counts, route, n);
-  }
-}
-
 /** A marked session as the miners need it: its id and where its transcript is. */
 export interface MinedSession {
   sessionId: string;
+  /** Explicit provenance; unknown and Codex sources are not Claude inputs. */
+  host: "claude" | "codex" | "unknown";
   /** Resolved transcript, or null when it could not be located. */
   transcript: string | null;
   /** Working directory recorded when audit-mode was armed. */
@@ -1805,19 +1741,16 @@ export interface MinedSession {
  * zero: a rotated transcript and a session with no searches must not read the
  * same. Only counts are returned.
  */
-export function mineSearchRouting(sessions: readonly MinedSession[]): SearchCounts {
-  const counts: SearchCounts = {};
-  for (const s of sessions) {
-    if (!s.transcript || !existsSync(s.transcript)) {
-      bump(counts, "no_disponible");
-      continue;
-    }
-    scanSearchTranscript(s.transcript, counts, true);
-    for (const sub of subagentTranscripts(s.transcript, s.sessionId)) {
-      scanSearchTranscript(sub, counts, false);
-    }
-  }
-  return counts;
+export function mineSearchRouting(
+  sessions: readonly MinedSession[],
+  budget?: AuditReadBudget,
+): MinedResult<SearchCounts> {
+  const result = mineClaudeMetrics(sessions, budget, ["search"]);
+  return {
+    value: result.search,
+    evidence: result.evidence.search,
+    diagnostics: result.diagnostics,
+  };
 }
 
 // ─── codegraph projectPath vs. session cwd (spec 0039 R32, over R64's data) ──
@@ -1842,35 +1775,16 @@ const trimSlash = (p: string): string => (p.length > 1 ? p.replace(/\/+$/, "") :
  * `projectPath` is not a mismatch (the server defaults to its own root), and a
  * record without a cwd falls back to the session's.
  */
-export function mineCodegraphProjectPaths(sessions: readonly MinedSession[]): CodegraphPathStats {
-  const stats: CodegraphPathStats = { calls: 0, mismatched: 0, paths: [] };
-  for (const s of sessions) {
-    if (!s.transcript || !existsSync(s.transcript)) continue;
-    const files = [s.transcript, ...subagentTranscripts(s.transcript, s.sessionId)];
-    for (const [i, file] of files.entries()) {
-      for (const entry of readJsonl(file) ?? []) {
-        // Same dedupe rule as scanSearchTranscript: the host repeats sidechain
-        // records on the main thread AND under `subagents/`.
-        if (!isJson(entry) || (i === 0 && entry.isSidechain)) continue;
-        const msg = entry.message;
-        if (!isJson(msg) || !Array.isArray(msg.content)) continue;
-        const cwd = typeof entry.cwd === "string" ? entry.cwd : (s.cwd ?? null);
-        for (const block of msg.content as unknown[]) {
-          if (!isJson(block) || block.type !== "tool_use" || block.name !== CODEGRAPH_TOOL)
-            continue;
-          stats.calls++;
-          const target = isJson(block.input) ? block.input.projectPath : undefined;
-          if (typeof target !== "string" || cwd === null) continue;
-          if (trimSlash(target) === trimSlash(cwd)) continue;
-          stats.mismatched++;
-          if (stats.paths.length < MAX_MISMATCH_PATHS && !stats.paths.includes(target)) {
-            stats.paths.push(target);
-          }
-        }
-      }
-    }
-  }
-  return stats;
+export function mineCodegraphProjectPaths(
+  sessions: readonly MinedSession[],
+  budget?: AuditReadBudget,
+): MinedResult<CodegraphPathStats> {
+  const result = mineClaudeMetrics(sessions, budget, ["codegraph"]);
+  return {
+    value: result.codegraph,
+    evidence: result.evidence.codegraph,
+    diagnostics: result.diagnostics,
+  };
 }
 
 /** The `codegraph-projectpath-mismatch` signal; empty when every call matched. */
@@ -1945,18 +1859,6 @@ const CD_PREFIX = /^\s*cd\s+("[^"]*"|\S+)\s*&&\s*/;
 const HOOK_BLOCK = /PreToolUse:|PostToolUse:|hook error/;
 const DENIED = /requested permissions|user doesn't want|denied|rejected/i;
 
-interface ActTool {
-  name: string;
-  input: Json;
-  error: boolean;
-  out: string;
-}
-interface ActTurn {
-  user: string;
-  tools: ActTool[];
-  assistant: string[];
-}
-
 function textOf(msg: Json): string {
   const c = msg.content;
   if (typeof c === "string") return c;
@@ -1965,63 +1867,6 @@ function textOf(msg: Json): string {
     .filter((b): b is Json => isJson(b) && b.type === "text")
     .map((b) => (typeof b.text === "string" ? b.text : ""))
     .join("\n");
-}
-
-/** Main-thread turns of one transcript; each tool call carries its `is_error`. */
-function parseActivationTurns(path: string): ActTurn[] {
-  const turns: ActTurn[] = [];
-  let cur: ActTurn | null = null;
-  const pending = new Map<unknown, ActTool>();
-  for (const d of readJsonl(path) ?? []) {
-    if (!isJson(d) || d.isSidechain) continue;
-    const msg: Json = isJson(d.message) ? d.message : {};
-    const c = msg.content;
-    if (d.type === "user") {
-      const blocks = Array.isArray(c) ? (c as unknown[]) : [];
-      const results = blocks.filter((b): b is Json => isJson(b) && b.type === "tool_result");
-      if (results.length > 0) {
-        for (const b of results) {
-          const tu = pending.get(b.tool_use_id);
-          if (!tu) continue;
-          tu.error = Boolean(b.is_error);
-          // Truncated only when it is not a string, as in the script.
-          tu.out =
-            typeof b.content === "string"
-              ? b.content
-              : (JSON.stringify(b.content) ?? "null").slice(0, 8000);
-        }
-        continue;
-      }
-      const txt = textOf(msg);
-      if (txt.trim()) {
-        cur = { user: txt, tools: [], assistant: [] };
-        turns.push(cur);
-      }
-    } else if (d.type === "assistant" && cur !== null && Array.isArray(c)) {
-      for (const b of c as unknown[]) {
-        if (!isJson(b)) continue;
-        if (b.type === "tool_use") {
-          const rec: ActTool = {
-            name: pyStr(b.name, "None"),
-            input: isJson(b.input) ? b.input : {},
-            error: false,
-            out: "",
-          };
-          cur.tools.push(rec);
-          pending.set(b.id, rec);
-        } else if (b.type === "text") {
-          cur.assistant.push(typeof b.text === "string" ? b.text : "");
-        }
-      }
-    }
-  }
-  return turns;
-}
-
-function isDebuggable(x: ActTool): boolean {
-  if (!x.error) return false;
-  if (HOOK_BLOCK.test(x.out.slice(0, 200)) || DENIED.test(x.out.slice(0, 300))) return false;
-  return VERIFY_CMD.test(pyStr(x.input.command, "")) || ERROR_LINE.test(x.out);
 }
 
 /** Command signature: the leading `cd … &&` dropped, first four tokens. */
@@ -2046,6 +1891,744 @@ export interface ActivationStats {
 
 const MIN_OPP = 3;
 
+type MinerFamily = "search" | "codegraph" | "activation";
+/** Per-pass losses count read attempts, not distinct historical rows. */
+export interface MinerDiagnostics {
+  bytesRead: number;
+  passes: number;
+  completePasses: number;
+  malformedJson: number;
+  invalidUtf8: number;
+  oversizedLines: number;
+  omittedLowerBound: number;
+  unknownRemainder: boolean;
+}
+/** Standalone callers receive the same explicit read evidence as the CLI. */
+export interface MinedResult<T> {
+  value: T;
+  evidence: MetricPopulation;
+  diagnostics: MinerDiagnostics;
+}
+interface MiningResult {
+  search: SearchCounts;
+  codegraph: CodegraphPathStats;
+  activation: ActivationStats;
+  evidence: Record<MinerFamily, MetricPopulation>;
+  diagnostics: MinerDiagnostics;
+}
+interface MiningTurn {
+  asked: Set<string>;
+  used: Set<string>;
+  paths: Set<string>;
+  source: number;
+  test: number;
+  verify: boolean;
+  pr: boolean;
+  commit: boolean;
+  bash: boolean;
+  tail: string;
+  texts: number;
+  calls: MiningCall[];
+}
+interface MiningCall {
+  bash: boolean;
+  verify: boolean;
+  signature: string | null;
+  error: boolean;
+  debuggable: boolean;
+}
+
+const opaqueMinerKey = (value: string): string => createHash("sha256").update(value).digest("hex");
+
+/** Mine only requested families, reserving every retained entry before insertion.
+ * Activation inspects the admitted second pass; equal read shapes are not a
+ * snapshot proof. Private suffixes and correlations are released per file. */
+export function mineClaudeMetrics(
+  sessions: readonly MinedSession[],
+  budget: AuditReadBudget = createAuditReadBudget(),
+  requested: readonly MinerFamily[] = ["search", "codegraph", "activation"],
+): MiningResult {
+  const search: SearchCounts = {};
+  const codegraph: CodegraphPathStats = { calls: 0, mismatched: 0, paths: [] };
+  const activation: ActivationStats = {
+    sessions: 0,
+    unavailable: 0,
+    opp: {},
+    hit: {},
+    auto: Object.create(null) as Record<string, number>,
+    asked: Object.create(null) as Record<string, number>,
+    buckets: { "0%": 0, "1-24%": 0, "25-74%": 0, "75-100%": 0 },
+    graded: 0,
+  };
+  const evidence = Object.fromEntries(
+    ["search", "codegraph", "activation"].map((family) => [
+      family,
+      {
+        state: "unavailable",
+        reason: "empty-population",
+        source: "transcript",
+        adapter: "claude-transcript",
+        sourceVersion: null,
+        eligible: 0,
+        observed: 0,
+        partial: 0,
+        unavailable: 0,
+        unsupported: 0,
+        invalid: 0,
+        contributors: 0,
+      },
+    ]),
+  ) as Record<MinerFamily, MetricPopulation>;
+  const diagnostics: MinerDiagnostics = {
+    bytesRead: 0,
+    passes: 0,
+    completePasses: 0,
+    malformedJson: 0,
+    invalidUtf8: 0,
+    oversizedLines: 0,
+    omittedLowerBound: 0,
+    unknownRemainder: false,
+  };
+  const want = (family: MinerFamily): boolean => requested.includes(family);
+  const roles = roleAliases();
+  const skills = skillAliases();
+  const outputEntries = new Map<string, object>();
+  let exhausted = false;
+  const reserve = (value: object, owner: string | null = null): boolean => {
+    if (retainAuditFact(budget, owner, value)) return true;
+    exhausted = true;
+    diagnostics.unknownRemainder = true;
+    return false;
+  };
+  const count = (counts: SearchCounts, prefix: string, key: string, by = 1): void => {
+    const outputKey = `${prefix}:${key}`;
+    if (!outputEntries.has(outputKey)) {
+      const entry = Object.freeze({ outputKey });
+      if (!reserve(entry)) return;
+      outputEntries.set(outputKey, entry);
+    }
+    bump(counts, key, by);
+  };
+  // Containers and fixed counters are returned facts too; dynamic keys above
+  // have separate immutable reservations, never a growing dictionary snapshot.
+  if (
+    !reserve({
+      diagnostics,
+      evidence: Object.fromEntries(requested.map((family) => [family, evidence[family]])),
+      ...Object.fromEntries(
+        requested.map((family) => [family, { search, codegraph, activation }[family]]),
+      ),
+    })
+  ) {
+    for (const session of sessions)
+      if (session.host === "claude")
+        for (const family of requested) {
+          evidence[family].eligible = (evidence[family].eligible ?? 0) + 1;
+          evidence[family].unavailable++;
+          evidence[family].reason = "not-observed";
+        }
+    return { search, codegraph, activation, evidence, diagnostics };
+  }
+  for (const session of sessions) {
+    if (session.host !== "claude") continue;
+    const complete: Record<MinerFamily, boolean> = {
+      search: true,
+      codegraph: true,
+      activation: true,
+    };
+    const contributed: Record<MinerFamily, boolean> = {
+      search: false,
+      codegraph: false,
+      activation: false,
+    };
+    const lose = (
+      families: readonly MinerFamily[] = requested,
+      reason: MetricPopulation["reason"] = "incomplete-enumeration",
+    ): void => {
+      for (const family of families) {
+        complete[family] = false;
+        if (evidence[family].reason === "empty-population") evidence[family].reason = reason;
+      }
+    };
+    /** Aggregate actual pass I/O; a completed inventory is not semantic evidence. */
+    const inspect = (reading: AuditReadDiagnostics, families: readonly MinerFamily[]): void => {
+      diagnostics.passes++;
+      diagnostics.bytesRead += reading.bytesRead;
+      diagnostics.malformedJson += reading.malformedJson;
+      diagnostics.invalidUtf8 += reading.invalidUtf8;
+      diagnostics.oversizedLines += reading.oversizedLines;
+      diagnostics.omittedLowerBound += reading.omittedLowerBound;
+      diagnostics.unknownRemainder ||= reading.omitted === null;
+      if (
+        reading.sourceStatus !== "observed" ||
+        reading.omittedLowerBound ||
+        reading.incompleteTail ||
+        reading.stoppedEarly
+      )
+        lose(
+          families,
+          reading.reason === "missing"
+            ? "missing"
+            : reading.sourceStatus === "invalid"
+              ? "identity-conflict"
+              : reading.sourceStatus === "unavailable"
+                ? "unreadable"
+                : reading.incompleteTail
+                  ? "live-tail"
+                  : reading.malformedJson || reading.invalidUtf8
+                    ? "malformed"
+                    : "incomplete-enumeration",
+        );
+      else {
+        diagnostics.completePasses++;
+        for (const family of families) contributed[family] = true;
+      }
+    };
+    /** Keep correlations file-local until late results can no longer overwrite them. */
+    const scan = (path: string, main: boolean): void => {
+      const families = requested.filter((family) => main || family !== "activation");
+      let validOmission = false;
+      const handles = new Map<object, object>();
+      const keep = <T extends object>(value: T, slots = 1): T | null => {
+        const handle = Object.freeze(
+          Object.fromEntries(
+            Array.from({ length: slots - 1 }, (_, index) => [
+              index,
+              Object.freeze({ entry: true }),
+            ]),
+          ),
+        );
+        if (!reserve(handle, path)) {
+          lose(families);
+          return null;
+        }
+        handles.set(value, handle);
+        return value;
+      };
+      const drop = (value: object): void => {
+        const handle = handles.get(value);
+        if (handle) releaseAuditFact(budget, handle);
+        handles.delete(value);
+      };
+      const keyOf = (value: unknown): string | null => {
+        if (
+          value !== undefined &&
+          value !== null &&
+          !["string", "number", "boolean"].includes(typeof value)
+        ) {
+          omitAuditFacts(budget);
+          validOmission = true;
+          lose(families, "identity-conflict");
+          return null;
+        }
+        return opaqueMinerKey(`${typeof value}:${String(value)}`);
+      };
+      const names = new Map<string, object>();
+      const nameOf = (block: Json, fallback: string): string | null => {
+        const input = isJson(block.input) ? block.input : {};
+        const raw = pyStr(block.name === "Skill" ? input.skill : input.subagent_type, fallback);
+        const aliases = block.name === "Skill" ? skills : roles;
+        const name = Object.hasOwn(aliases, raw) ? (aliases[raw] ?? raw) : raw;
+        if (Buffer.byteLength(name) <= budget.diagnostics.limits.technicalBytes) return name;
+        omitAuditFacts(budget);
+        validOmission = true;
+        lose(["activation"]);
+        return null;
+      };
+      let inventory: AuditReadDiagnostics | undefined;
+      if (main && want("activation") && !exhausted) {
+        let active = false;
+        inventory = readAuditJsonl(
+          path,
+          (row) => {
+            if (!isJson(row) || row.isSidechain) return;
+            const msg = isJson(row.message) ? row.message : {};
+            if (
+              row.type === "user" &&
+              !(
+                Array.isArray(msg.content) &&
+                msg.content.some((block: unknown) => isJson(block) && block.type === "tool_result")
+              ) &&
+              textOf(msg).trim()
+            )
+              active = true;
+            if (row.type !== "assistant" || !active) return;
+            if (!Array.isArray(msg.content)) return;
+            for (const block of msg.content as unknown[]) {
+              if (
+                !isJson(block) ||
+                block.type !== "tool_use" ||
+                !["Skill", "Agent", "Task"].includes(String(block.name))
+              )
+                continue;
+              const name = nameOf(block, "?");
+              if (name !== null && !names.has(name)) {
+                const entry = keep(Object.freeze({ name }));
+                if (!entry) return false;
+                names.set(name, entry);
+              }
+            }
+          },
+          {
+            maxLineBytes: budget.diagnostics.limits.maxLineBytes,
+            maxEvents: budget.diagnostics.limits.eventsPerSession,
+          },
+        );
+        inspect(inventory, ["activation"]);
+        // An inventory is not a semantic contribution, even when readable.
+        contributed.activation = false;
+      }
+      const pending = new Map<string, { routes: SearchCounts }>();
+      const blocked = new Map<string, object>();
+      const calls = new Map<string, MiningCall>();
+      const turns: MiningTurn[] = [];
+      const tails = new Map<MiningTurn, object>();
+      let current: MiningTurn | null = null;
+      const member = (set: Set<string>, key: string): void => {
+        if (set.has(key)) return;
+        if (keep(Object.freeze({ key }))) set.add(key);
+      };
+      let reading: AuditReadDiagnostics | undefined;
+      if (!exhausted)
+        reading = readAuditJsonl(
+          path,
+          (row) => {
+            if (!isJson(row)) {
+              if (row === null && want("search")) count(search, "search", "malformado");
+              validOmission = true;
+              lose(families);
+              return;
+            }
+            if (main && row.isSidechain) return;
+            const msg = isJson(row.message) ? row.message : {};
+            const content = Array.isArray(msg.content) ? (msg.content as unknown[]) : [];
+            if (main && want("activation") && row.type === "user") {
+              const results = content.filter(
+                (block): block is Json => isJson(block) && block.type === "tool_result",
+              );
+              if (results.length) {
+                for (const block of results) {
+                  const id = keyOf(block.tool_use_id);
+                  const call = id === null ? undefined : calls.get(id);
+                  if (!call) continue;
+                  const output =
+                    typeof block.content === "string"
+                      ? block.content
+                      : (JSON.stringify(block.content) ?? "null").slice(0, 8000);
+                  call.error = Boolean(block.is_error);
+                  call.debuggable =
+                    call.error &&
+                    !HOOK_BLOCK.test(output.slice(0, 200)) &&
+                    !DENIED.test(output.slice(0, 300)) &&
+                    (call.verify || ERROR_LINE.test(output));
+                }
+              } else {
+                const text = textOf(msg);
+                if (text.trim()) {
+                  const turn: MiningTurn = {
+                    asked: new Set(),
+                    used: new Set(),
+                    paths: new Set(),
+                    source: 0,
+                    test: 0,
+                    verify: false,
+                    pr: false,
+                    commit: false,
+                    bash: false,
+                    tail: "",
+                    texts: 0,
+                    calls: [],
+                  };
+                  if (!keep(turn)) return false;
+                  current = turn;
+                  turns.push(turn);
+                  const user = text.toLowerCase();
+                  for (const name of names.keys())
+                    if (user.includes(name)) member(turn.asked, name);
+                }
+              }
+            }
+            for (const block of content) {
+              if (!isJson(block)) continue;
+              if (want("search")) {
+                if (block.type === "tool_use") {
+                  if (block.name === "Grep") count(search, "search", "nativo");
+                  else if (block.name === CODEGRAPH_TOOL) count(search, "search", "codegraph-v2");
+                  else if (
+                    block.name === "Bash" &&
+                    isJson(block.input) &&
+                    typeof block.input.command === "string"
+                  ) {
+                    const id = keyOf(block.id);
+                    if (id !== null) {
+                      const old = pending.get(id);
+                      const entry = keep({ routes: classifySearchCommand(block.input.command) });
+                      if (!entry) return false;
+                      if (old) drop(old);
+                      pending.set(id, entry);
+                    }
+                  }
+                } else if (
+                  block.type === "tool_result" &&
+                  block.is_error &&
+                  (JSON.stringify(block.content) ?? "").includes("BLOCKED by guard-")
+                ) {
+                  const id = keyOf(block.tool_use_id);
+                  if (id !== null && !blocked.has(id)) {
+                    const entry = keep(Object.freeze({ id }));
+                    if (!entry) return false;
+                    blocked.set(id, entry);
+                  }
+                }
+              }
+              if (want("codegraph") && block.type === "tool_use" && block.name === CODEGRAPH_TOOL) {
+                codegraph.calls++;
+                const cwd = typeof row.cwd === "string" ? row.cwd : (session.cwd ?? null);
+                const target = isJson(block.input) ? block.input.projectPath : undefined;
+                if (
+                  typeof target === "string" &&
+                  cwd !== null &&
+                  trimSlash(target) !== trimSlash(cwd)
+                ) {
+                  codegraph.mismatched++;
+                  const label = `path-${opaqueMinerKey(target).slice(0, 16)}`;
+                  if (
+                    codegraph.paths.length < MAX_MISMATCH_PATHS &&
+                    !codegraph.paths.includes(label) &&
+                    reserve(Object.freeze({ label }))
+                  )
+                    codegraph.paths.push(label);
+                }
+              }
+              if (!main || !want("activation") || row.type !== "assistant" || !current) continue;
+              if (block.type === "text") {
+                const tail = `${current.texts ? "\n" : ""}${typeof block.text === "string" ? block.text : ""}`;
+                // Fixed 1500-character private suffix; replaced handle is released
+                // before the next row and the suffix is cleared after folding.
+                const suffix = (current.tail + tail).slice(-1500);
+                const retained = keep(
+                  Object.freeze({ suffix }),
+                  Math.max(
+                    1,
+                    Math.ceil(
+                      Buffer.byteLength(suffix) / budget.diagnostics.limits.normalizedFactBytes,
+                    ),
+                  ),
+                );
+                if (!retained) return false;
+                const old = tails.get(current);
+                if (old) drop(old);
+                tails.set(current, retained);
+                current.tail = suffix;
+                current.texts++;
+              } else if (block.type === "tool_use") {
+                const input = isJson(block.input) ? block.input : {};
+                const tool = pyStr(block.name, "None");
+                const command = pyStr(input.command, "");
+                if (["Skill", "Agent", "Task"].includes(tool)) {
+                  const name = nameOf(block, "?");
+                  const used = nameOf(block, "");
+                  if (used !== null)
+                    member(current.used, `${tool === "Skill" ? "skill" : "agent"}:${used}`);
+                  if (name !== null && names.has(name))
+                    count(
+                      current.asked.has(name) ? activation.asked : activation.auto,
+                      current.asked.has(name) ? "asked" : "auto",
+                      name,
+                    );
+                  else lose(["activation"]);
+                }
+                if ((tool === "Edit" || tool === "Write") && input.file_path) {
+                  const path = pyStr(input.file_path, "");
+                  const kind = classifyPath(path, session.cwd ?? "");
+                  const key = opaqueMinerKey(path);
+                  if ((kind === "source" || kind === "test") && !current.paths.has(key)) {
+                    member(current.paths, key);
+                    if (current.paths.has(key)) current[kind]++;
+                  }
+                }
+                const signature = commandSig(command);
+                const call: MiningCall = {
+                  bash: tool === "Bash",
+                  verify: VERIFY_CMD.test(command),
+                  signature: signature.length >= 6 ? opaqueMinerKey(signature) : null,
+                  error: false,
+                  debuggable: false,
+                };
+                if (!keep(call)) return false;
+                current.calls.push(call);
+                const id = keyOf(block.id);
+                if (id !== null) {
+                  if (!calls.has(id) && !keep(Object.freeze({ id }))) return false;
+                  calls.set(id, call);
+                }
+                if (call.bash) {
+                  current.verify ||= call.verify;
+                  current.pr ||= PR_CMD.test(`${current.bash ? " ; " : ""}${command}`);
+                  current.commit ||= COMMIT_CMD.test(command);
+                  current.bash = true;
+                }
+              }
+            }
+            for (const family of families) contributed[family] = true;
+            return !exhausted;
+          },
+          {
+            maxLineBytes: budget.diagnostics.limits.maxLineBytes,
+            maxEvents: budget.diagnostics.limits.eventsPerSession,
+          },
+        );
+      if (reading) {
+        inspect(reading, families);
+        if (want("search") && reading.malformedJson)
+          count(search, "search", "malformado", reading.malformedJson);
+        if (
+          inventory &&
+          (inventory.bytesRead !== reading.bytesRead || inventory.lines !== reading.lines)
+        )
+          lose(["activation"]);
+      } else lose(families);
+      // Fully scanned malformed JSON is excluded from the admitted sequence.
+      // Unknown or valid-row omissions can still hide overwrites/late results.
+      const correlated =
+        reading?.sourceStatus === "observed" &&
+        !reading.stoppedEarly &&
+        !reading.incompleteTail &&
+        !reading.oversizedLines &&
+        !reading.invalidUtf8 &&
+        !validOmission &&
+        !exhausted;
+      for (const [id, entry] of correlated ? pending : []) {
+        if (blocked.has(id)) count(search, "search", "bloqueado");
+        else
+          for (const [route, n] of Object.entries(entry.routes)) count(search, "search", route, n);
+      }
+      let opportunities = 0;
+      let hits = 0;
+      const failed = new Set<string>();
+      for (const turn of complete.activation ? turns : []) {
+        const touched = turn.source || turn.test;
+        const mark = (id: string, condition: boolean, agent?: string, skill?: string): void => {
+          const got =
+            (agent !== undefined && turn.used.has(`agent:${agent}`)) ||
+            (skill !== undefined && turn.used.has(`skill:${skill}`));
+          if (!condition && !got) return;
+          opportunities++;
+          count(activation.opp, "opp", id);
+          if (got) {
+            hits++;
+            count(activation.hit, "hit", id);
+          }
+        };
+        mark("implementer", touched >= 2, "implementer");
+        mark(
+          "verify-before-done",
+          touched > 0 && DONE_CLAIM.test(turn.tail) && !turn.verify,
+          undefined,
+          "verify-before-done",
+        );
+        mark(
+          "debug-error",
+          turn.calls.some((call) => call.debuggable),
+          undefined,
+          "debug-failure",
+        );
+        mark("pr-review", turn.pr, "publisher", "review-diff");
+        mark("reviewer", touched > 0 && turn.commit, "reviewer");
+        for (const call of turn.calls) {
+          if (!call.bash || !call.error || call.signature === null) continue;
+          if (failed.has(call.signature)) mark("loop-back-debug", true, undefined, "debug-failure");
+          member(failed, call.signature);
+        }
+      }
+      if (main && want("activation") && reading?.sourceStatus === "observed") {
+        activation.sessions++;
+        if (complete.activation && !exhausted && opportunities >= MIN_OPP) {
+          activation.graded++;
+          const rate = (100 * hits) / opportunities;
+          activation.buckets[
+            rate === 0 ? "0%" : rate < 25 ? "1-24%" : rate < 75 ? "25-74%" : "75-100%"
+          ]++;
+        }
+      }
+      for (const turn of turns) turn.tail = "";
+      tails.clear();
+      for (const handle of handles.values()) releaseAuditFact(budget, handle);
+      handles.clear();
+      if (exhausted) lose(families);
+    };
+    if (!session.transcript) {
+      lose(requested, "missing");
+      if (want("search")) count(search, "search", "no_disponible");
+      if (want("activation")) activation.unavailable++;
+    } else {
+      scan(session.transcript, true);
+      if (!contributed.activation && want("activation")) activation.unavailable++;
+      if (!contributed.search && want("search")) count(search, "search", "no_disponible");
+      if ((want("search") || want("codegraph")) && !exhausted) {
+        const dir = join(dirname(session.transcript), session.sessionId, "subagents");
+        const files: string[] = [];
+        try {
+          const directory = opendirSync(dir);
+          try {
+            for (;;) {
+              const entry = directory.readSync();
+              if (!entry) break;
+              if (!entry.name.startsWith("agent-") || !entry.name.endsWith(".jsonl")) continue;
+              const path = retainAuditPath(budget, join(dir, entry.name));
+              if (path === null) {
+                exhausted = true;
+                lose(["search", "codegraph"]);
+                break;
+              }
+              files.push(path);
+            }
+          } finally {
+            directory.closeSync();
+          }
+        } catch (error) {
+          if (!isJson(error) || error.code !== "ENOENT") lose(["search", "codegraph"]);
+        }
+        for (const path of files.sort()) {
+          if (exhausted) break;
+          scan(path, false);
+        }
+      }
+    }
+    for (const family of requested) {
+      const row = evidence[family];
+      row.eligible = (row.eligible ?? 0) + 1;
+      if (complete[family]) row.observed++;
+      else if (contributed[family]) row.partial++;
+      else row.unavailable++;
+    }
+  }
+  for (const row of Object.values(evidence)) {
+    row.contributors = row.observed + row.partial;
+    row.state = row.contributors
+      ? row.observed === row.eligible
+        ? "observed"
+        : "partial"
+      : "unavailable";
+    row.reason =
+      row.state === "observed"
+        ? null
+        : row.eligible
+          ? row.reason === "empty-population"
+            ? "not-observed"
+            : row.reason
+          : "empty-population";
+  }
+  return { search, codegraph, activation, evidence, diagnostics };
+}
+
+/** Only actual miner output keys may carry external miner evidence. */
+export function minerMetricKey(key: string): boolean {
+  if (key.startsWith("mining."))
+    return [
+      "bytesRead",
+      "passes",
+      "completePasses",
+      "malformedJson",
+      "invalidUtf8",
+      "oversizedLines",
+      "omittedLowerBound",
+      "unknownRemainder",
+    ].includes(key.slice(7));
+  if (key === "codegraph.calls" || key === "codegraph.projectpath.mismatch") return true;
+  if (key.startsWith("search."))
+    return [...SEARCH_ROUTES, "good.pct", "v2.pct"].includes(
+      key.slice(7) as (typeof SEARCH_ROUTES)[number],
+    );
+  return (
+    /^activation\.(sessions(?:\.unavailable|\.graded)?|bucket\.(?:0%|1-24%|25-74%|75-100%)|invoked\.(?:auto|asked)\..*)$/.test(
+      key,
+    ) ||
+    ["total", ...ACTIVATION_TRIGGERS.map(({ id }) => id)].some((id) =>
+      ["opportunities", "hits", "pct"].some((suffix) => key === `activation.${id}.${suffix}`),
+    )
+  );
+}
+
+/** Ratios and grades need complete populations; partial counts describe admitted rows. */
+export function flattenMinedMetrics(
+  result: MiningResult,
+  budget?: AuditReadBudget,
+): { metrics: Record<string, number | null>; availability: Record<string, MetricPopulation> } {
+  const fixed = {
+    ...flattenSearchRouting(result.search),
+    ...flattenCodegraphPaths(result.codegraph),
+    ...flattenActivation({ ...result.activation, auto: {}, asked: {} }),
+  };
+  const metrics: Record<string, number | null> = {};
+  const availability: Record<string, MetricPopulation> = {};
+  /** Reserve derived output facts before insertion, sharing the CLI/report cap. */
+  const publish = (key: string, value: number | null, row: MetricPopulation): void => {
+    if (budget && !retainAuditFact(budget, null, Object.freeze({ key, value }))) {
+      for (const evidence of Object.values(result.evidence)) {
+        evidence.partial += evidence.observed;
+        evidence.observed = 0;
+        evidence.state = evidence.contributors ? "partial" : "unavailable";
+        evidence.reason = "incomplete-enumeration";
+      }
+      return;
+    }
+    metrics[key] = value;
+    availability[key] = row;
+  };
+  for (const [key, value] of Object.entries(fixed)) {
+    const family = key.split(".")[0] as MinerFamily;
+    const row = result.evidence[family];
+    const diagnostic =
+      key === "search.no_disponible" ||
+      key === "search.malformado" ||
+      key === "activation.sessions.unavailable";
+    const unknown =
+      !diagnostic &&
+      (!row.contributors ||
+        (row.state !== "observed" &&
+          (value === 0 ||
+            key.endsWith(".pct") ||
+            key.includes(".bucket.") ||
+            key.endsWith(".graded"))));
+    publish(
+      key,
+      unknown ? null : value,
+      diagnostic ? { ...row, state: "observed", reason: null } : row,
+    );
+  }
+  for (const [kind, counts] of [
+    ["auto", result.activation.auto],
+    ["asked", result.activation.asked],
+  ] as const) {
+    for (const name in counts)
+      if (Object.hasOwn(counts, name))
+        publish(
+          `activation.invoked.${kind}.${name}`,
+          counts[name] ?? null,
+          result.evidence.activation,
+        );
+  }
+  for (const [key, value] of Object.entries(result.diagnostics)) {
+    const metric = `mining.${key}`;
+    publish(metric, typeof value === "boolean" ? Number(value) : value, {
+      ...result.evidence.search,
+      state: "observed",
+      reason: null,
+    });
+  }
+  for (const key of Object.keys(metrics))
+    if (
+      availability[key]?.state !== "observed" &&
+      (metrics[key] === 0 ||
+        key.endsWith(".pct") ||
+        key.includes(".bucket.") ||
+        key.endsWith(".graded"))
+    )
+      metrics[key] = null;
+  return { metrics, availability };
+}
+
 /**
  * Activation over opportunities (R67, `mine-activation.py`).
  *
@@ -2060,107 +2643,16 @@ const MIN_OPP = 3;
  * report's skill tally already reads it) and the examples list, which carried
  * command text.
  */
-export function mineActivation(sessions: readonly MinedSession[]): ActivationStats {
-  const roles = roleAliases();
-  const skills = skillAliases();
-  const canonRole = (n: string): string => roles[n] ?? n;
-  const canonSkill = (n: string): string => skills[n] ?? n;
-  const stats: ActivationStats = {
-    sessions: 0,
-    unavailable: 0,
-    opp: {},
-    hit: {},
-    auto: {},
-    asked: {},
-    buckets: { "0%": 0, "1-24%": 0, "25-74%": 0, "75-100%": 0 },
-    graded: 0,
+export function mineActivation(
+  sessions: readonly MinedSession[],
+  budget?: AuditReadBudget,
+): MinedResult<ActivationStats> {
+  const result = mineClaudeMetrics(sessions, budget, ["activation"]);
+  return {
+    value: result.activation,
+    evidence: result.evidence.activation,
+    diagnostics: result.diagnostics,
   };
-
-  for (const s of sessions) {
-    if (!s.transcript || !existsSync(s.transcript)) {
-      stats.unavailable += 1;
-      continue;
-    }
-    stats.sessions += 1;
-    const turns = parseActivationTurns(s.transcript);
-    const root = s.cwd ?? "";
-    const opp: Record<string, number> = {};
-    const hit: Record<string, number> = {};
-    const failedOnce = new Set<string>();
-
-    for (const t of turns) {
-      const u = t.user.toLowerCase();
-      const cmds = t.tools
-        .filter((x) => x.name === "Bash")
-        .map((x) => pyStr(x.input.command, ""))
-        .join(" ; ");
-      const usedSkill = new Set(
-        t.tools.filter((x) => x.name === "Skill").map((x) => canonSkill(pyStr(x.input.skill, ""))),
-      );
-      const usedAgent = new Set(
-        t.tools
-          .filter((x) => x.name === "Agent" || x.name === "Task")
-          .map((x) => canonRole(pyStr(x.input.subagent_type, ""))),
-      );
-      for (const x of t.tools) {
-        if (x.name === "Skill") {
-          const n = canonSkill(pyStr(x.input.skill, "?"));
-          bump(u.includes(n) ? stats.asked : stats.auto, n);
-        } else if (x.name === "Agent" || x.name === "Task") {
-          const n = canonRole(pyStr(x.input.subagent_type, "?"));
-          bump(u.includes(n) ? stats.asked : stats.auto, n);
-        }
-      }
-
-      const mark = (id: string, cond: boolean, agent?: string, skill?: string): void => {
-        // `got` implies opportunity: when work is delegated it happens in the
-        // sidechain and `cond` (which looks at the main thread) is blind to it.
-        const got =
-          (agent !== undefined && usedAgent.has(agent)) ||
-          (skill !== undefined && usedSkill.has(skill));
-        if (!cond && !got) return;
-        bump(opp, id);
-        if (got) bump(hit, id);
-      };
-
-      const written = t.tools
-        .filter((x) => (x.name === "Edit" || x.name === "Write") && x.input.file_path)
-        .map((x) => pyStr(x.input.file_path, ""));
-      const touched = new Set(countNonTrivial(written, root).counted);
-      mark("implementer", touched.size >= 2, "implementer");
-
-      const final = t.assistant.join("\n").slice(-1500);
-      mark(
-        "verify-before-done",
-        touched.size > 0 && DONE_CLAIM.test(final) && !VERIFY_CMD.test(cmds),
-        undefined,
-        "verify-before-done",
-      );
-      mark("debug-error", t.tools.some(isDebuggable), undefined, "debug-failure");
-      mark("pr-review", PR_CMD.test(cmds), "publisher", "review-diff");
-      mark("reviewer", touched.size > 0 && COMMIT_CMD.test(cmds), "reviewer");
-
-      for (const x of t.tools) {
-        if (x.name !== "Bash" || !x.error) continue;
-        const k = commandSig(pyStr(x.input.command, ""));
-        if (k.length < 6) continue;
-        if (failedOnce.has(k)) mark("loop-back-debug", true, undefined, "debug-failure");
-        failedOnce.add(k);
-      }
-    }
-
-    for (const [id, n] of Object.entries(opp)) bump(stats.opp, id, n);
-    for (const [id, n] of Object.entries(hit)) bump(stats.hit, id, n);
-    const o = Object.values(opp).reduce((a, b) => a + b, 0);
-    const h = Object.values(hit).reduce((a, b) => a + b, 0);
-    if (o >= MIN_OPP) {
-      stats.graded += 1;
-      const rate = (100 * h) / o;
-      stats.buckets[rate === 0 ? "0%" : rate < 25 ? "1-24%" : rate < 75 ? "25-74%" : "75-100%"] +=
-        1;
-    }
-  }
-  return stats;
 }
 
 /** Flat metrics of the activation stats. The rate is floored to a whole

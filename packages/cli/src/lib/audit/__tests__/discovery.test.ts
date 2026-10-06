@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import * as fs from "node:fs";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +17,11 @@ import {
 import { encodeCwdToSlug, auditsRoot, sessionLogPath } from "../paths.ts";
 import { normalizeCodexIdentity, createAuditReadBudget } from "../model.ts";
 import { codexIdentityFingerprint } from "../discovery.ts";
+
+vi.mock(import("node:fs"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, opendirSync: vi.fn(actual.opendirSync) };
+});
 
 let root: string;
 const REPO = "fixture-repo";
@@ -233,9 +239,9 @@ describe("paths: audit root isolation", () => {
     expect(sessionLogPath(REPO, "s1")).toBe(join(root, REPO, "session-s1.log"));
   });
 
-  it("resolves a relative override so a chdir cannot move the store", () => {
+  it("rejects a relative override so a chdir cannot move the store", () => {
     process.env.NAVORI_AUDITS_ROOT = "relative-audits";
-    expect(auditsRoot().startsWith("/")).toBe(true);
+    expect(auditsRoot).toThrow(expect.objectContaining({ code: "invalid-audit-root" }));
   });
 });
 
@@ -336,11 +342,122 @@ describe("discovery: every audited repo, with coverage (R61, R62)", () => {
     mkdirSync(join(sandbox, "codex", "sessions"), { recursive: true });
   });
   afterEach(() => {
+    vi.mocked(fs.opendirSync).mockReset();
     delete process.env.NAVORI_TRANSCRIPTS_ROOT;
     delete process.env.CODEX_HOME;
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
     rmSync(sandbox, { recursive: true, force: true });
+  });
+
+  // Covers: R8, R21
+  it.each(["symlink", "depth", "unreadable"])(
+    "keeps coverage unknown after %s loss, including a cached fallback index",
+    (loss) => {
+      const cwd = projectRoot("loss");
+      const sessions = join(sandbox, "codex", "sessions");
+      const source = join(sessions, "rollout-root.jsonl");
+      const metadata = (id: string): string =>
+        JSON.stringify({
+          type: "session_meta",
+          timestamp: "2026-09-20T10:00:00Z",
+          payload: {
+            id,
+            cwd,
+            timestamp: "2026-09-20T10:00:00Z",
+            cli_version: "0.160.0",
+            parent_thread_id: null,
+          },
+        }) + "\n";
+      writeFileSync(source, metadata("root"));
+      mkdirSync(join(root, "loss"));
+      writeFileSync(
+        join(root, "loss", "session-root.log"),
+        JSON.stringify({
+          event: "start",
+          host: "codex",
+          sessionId: "root",
+          repo: "loss",
+          cwd,
+          ts: "2026-09-20T10:00:00Z",
+        }) + "\n",
+      );
+      const hidden =
+        loss === "symlink"
+          ? join(sandbox, "hidden")
+          : loss === "depth"
+            ? join(sessions, "1", "2", "3", "4", "5", "6")
+            : join(sessions, "unreadable");
+      mkdirSync(hidden, { recursive: true });
+      writeFileSync(join(hidden, "rollout-unmarked.jsonl"), metadata("unmarked"));
+      if (loss === "symlink") fs.symlinkSync(hidden, join(sessions, "alias"));
+      const open = vi.mocked(fs.opendirSync).getMockImplementation();
+      if (!open) throw new Error("Missing filesystem mock implementation");
+      const spy = vi.mocked(fs.opendirSync).mockImplementation((path, options) => {
+        if (loss === "unreadable" && path === hidden) throw new Error("EACCES fixture");
+        return open(path, options);
+      });
+      const context = createAuditDiscoveryContext();
+      expect(resolveCodexRollout("root", undefined, context)).toBe(source);
+      expect(context.budget.diagnostics).toMatchObject({ truncated: true, omittedFacts: null });
+      const lossCount = context.budget.diagnostics.omittedLowerBound;
+      for (let repeat = 0; repeat < 2; repeat++) {
+        const row = repoCoverage("loss", {}, cwd, context).row;
+        expect(row).toMatchObject({ host: null, ratio: null, reason: "incomplete-enumeration" });
+        for (const cohort of row.populations ?? [])
+          expect(cohort).toMatchObject({
+            denominator: null,
+            ratio: null,
+            reason: "incomplete-enumeration",
+          });
+        expect(context.budget.diagnostics.omittedLowerBound).toBe(lossCount);
+      }
+      expect(spy.mock.calls.some(([path]) => path === hidden)).toBe(loss === "unreadable");
+    },
+  );
+
+  // Covers: R8, R21
+  it("retains complete empty and valid host populations without truncation", () => {
+    const cwd = projectRoot("complete");
+    const empty = createAuditDiscoveryContext();
+    expect(repoCoverage("complete", {}, cwd, empty).row).toMatchObject({
+      host: 0,
+      captured: 0,
+      reason: "empty-population",
+    });
+    expect(empty.budget.diagnostics.truncated).toBe(false);
+    audit("complete", "s", cwd);
+    host(cwd, "s.jsonl");
+    const complete = createAuditDiscoveryContext();
+    expect(repoCoverage("complete", {}, cwd, complete).row).toMatchObject({
+      host: 1,
+      captured: 1,
+      ratio: 1,
+      reason: null,
+    });
+    expect(complete.budget.diagnostics.truncated).toBe(false);
+  });
+
+  // Covers: R61, R62
+  // Covers: R8
+  it("keeps known activations when a host source root is absent", () => {
+    const cwd = projectRoot("absent");
+    audit("absent", "s", cwd);
+    host(cwd, "s.jsonl");
+    process.env.CODEX_HOME = join(sandbox, "absent-codex");
+    const context = createAuditDiscoveryContext();
+    const row = repoCoverage("absent", {}, cwd, context).row;
+    expect(row).toMatchObject({
+      audited: 1,
+      captured: 1,
+      host: null,
+      reason: "incomplete-enumeration",
+    });
+    expect(row.populations?.find((cohort) => cohort.host === "codex")).toMatchObject({
+      denominator: null,
+      reason: "incomplete-enumeration",
+    });
+    expect(context.budget.diagnostics.truncated).toBe(false);
   });
 
   // Covers: R61, R62
@@ -548,6 +665,40 @@ describe("discovery: every audited repo, with coverage (R61, R62)", () => {
       reason: "empty-population",
       activation: { root: 1, child: 0, unknown: 0, markerOnly: 0 },
     });
+  });
+  // Covers: R8
+  it.each([true, false])("qualifies late activation with a shared cache (warm=%s)", (warm) => {
+    const one = projectRoot("one");
+    audit("one", "late", one, "2026-09-21T10:00:00Z");
+    host(one, "late.jsonl", "2026-09-20T10:00:00Z");
+    const context = createAuditDiscoveryContext();
+    if (warm) findMarkedSessions("one", {}, false, context);
+    const cohort = { since: "2026-09-20", until: "2026-09-20" };
+    expect(findMarkedSessions("one", cohort, false, context).map((s) => s.sessionId)).toEqual([
+      "late",
+    ]);
+    const retained = context.budget.diagnostics.retainedFacts;
+    expect(findMarkedSessions("one", cohort, false, context).map((s) => s.sessionId)).toEqual([
+      "late",
+    ]);
+    expect(context.budget.diagnostics.retainedFacts).toBe(retained);
+  });
+
+  // Covers: R8, R21
+  it("stops unrelated old activity after verifying its source-start cohort", () => {
+    const one = projectRoot("one");
+    audit("one", "old", one, "2026-01-01T10:00:00Z");
+    host(one, "old.jsonl", "2026-01-01T10:00:00Z");
+    const log = sessionLogPath("one", "old");
+    writeFileSync(
+      log,
+      `${JSON.stringify({ event: "cli", name: "probe", verdict: "allow" })}\n`.repeat(1000),
+      { flag: "a" },
+    );
+    const context = createAuditDiscoveryContext();
+    expect(findMarkedSessions("one", { since: "2026-09-20" }, false, context)).toEqual([]);
+    expect(context.logs.get(log)?.records).toHaveLength(1);
+    expect(context.budget.diagnostics.retainedFacts).toBeLessThan(20);
   });
   // Covers: R8
   it("reports zero capture and distinct root/child/unknown partitions without markers", () => {

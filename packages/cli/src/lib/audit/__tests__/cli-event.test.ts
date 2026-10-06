@@ -19,11 +19,74 @@ import {
   captureCodexChild,
   recordAuditMetadata,
   absorbAuditMetadataSpool,
+  readAuditHeaderFromFd,
+  matchesAuditHeaderIdentity,
 } from "../cli-event.ts";
 import { readChildSourceBindings, readChildSourceRegistrations } from "../discovery.ts";
 import { sessionLogPath, repoFromCwd } from "../paths.ts";
 
 vi.mock(import("node:fs"), { spy: true });
+
+describe("bounded lifecycle header primitives", () => {
+  const cwd = process.cwd();
+  const marker = { event: "start", sessionId: "explicit", repo: repoFromCwd(cwd), cwd };
+  // Covers: R10 R11
+  it.each([null, "other", 0, []])("rejects malformed declared host %j", (host) => {
+    expect(
+      matchesAuditHeaderIdentity({ ...marker, host }, "claude", "explicit", marker.repo, cwd),
+    ).toBe(false);
+  });
+  // Covers: R10
+  it.each(["", ".", "relative/path", "/" + "x".repeat(8192)])(
+    "rejects noncanonical or oversized cwd %s",
+    (path) => {
+      expect(
+        matchesAuditHeaderIdentity(
+          { ...marker, cwd: path },
+          "claude",
+          "explicit",
+          marker.repo,
+          cwd,
+        ),
+      ).toBe(false);
+    },
+  );
+  // Covers: R10
+  it("accepts absolute legacy identity and rejects conflicting aliases and projects", () => {
+    expect(matchesAuditHeaderIdentity(marker, "claude", "explicit", marker.repo, cwd)).toBe(true);
+    expect(
+      matchesAuditHeaderIdentity(
+        { ...marker, id: "other" },
+        "claude",
+        "explicit",
+        marker.repo,
+        cwd,
+      ),
+    ).toBe(false);
+    expect(
+      matchesAuditHeaderIdentity(
+        marker,
+        "claude",
+        "explicit",
+        marker.repo,
+        "/other/" + marker.repo,
+      ),
+    ).toBe(false);
+  });
+  // Covers: R10
+  it("requires a complete valid UTF8 header on the supplied descriptor", () => {
+    const path = join(root, "header");
+    for (const bytes of [Buffer.from(JSON.stringify(marker)), Buffer.from([255, 10])]) {
+      writeFileSync(path, bytes);
+      const fd = fs.openSync(path, "r");
+      try {
+        expect(readAuditHeaderFromFd(fd)).toBeNull();
+      } finally {
+        fs.closeSync(fd);
+      }
+    }
+  });
+});
 
 let root: string;
 let repo: string;
@@ -516,6 +579,7 @@ describe("appendCliEvent", () => {
     writeFileSync(
       log,
       `${JSON.stringify({ event: "start", host: "codex", sessionId: "cx-1", cwd: repo })}\n`,
+      { mode: 0o600 },
     );
     const rollout = join(root, "rollout-cx-1.jsonl");
     writeFileSync(
@@ -536,10 +600,63 @@ describe("appendCliEvent", () => {
     expect(appendCliEvent(repo, { name: "x", verdict: "allow" })).toBe(false);
     expect(readFileSync(log, "utf-8").trim().split("\n")).toHaveLength(3);
   });
+
+  // Covers: R9
+  it.each(["id", "cli_version"])("revalidates Codex %s before append", async (field) => {
+    const { log } = childFixture();
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    process.env.NAVORI_AUDIT_HOST = "codex";
+    process.env.NAVORI_AUDIT_SESSION_ID = "root";
+    const header = JSON.parse(readFileSync(log, "utf-8")) as { transcript: string };
+    const source = JSON.parse(readFileSync(header.transcript, "utf-8")) as {
+      payload: Record<string, unknown>;
+    };
+    const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+    let appendOpens = 0;
+    vi.spyOn(fs, "openSync").mockImplementation((path, flags, mode) => {
+      if (path === log && typeof flags === "number" && (flags & fs.constants.O_RDWR) !== 0) {
+        appendOpens++;
+        if (appendOpens === 2) {
+          source.payload[field] = field === "id" ? "another-thread" : "0.161.0";
+          writeFileSync(header.transcript, `${JSON.stringify(source)}\n`);
+        }
+      }
+      return actual.openSync(path, flags, mode);
+    });
+    expect(appendCliEvent(repo, { name: "x", verdict: "allow" })).toBe(false);
+    expect(appendOpens).toBe(2);
+    expect(readFileSync(log, "utf-8").trim().split("\n")).toHaveLength(1);
+  });
 });
 
 /** Synthetic scoped writer probes; no real host logs, HOME or services. */
 describe("private metadata recorder and replay", () => {
+  // Covers: R10, R11, R21
+  it.each(["gate-started", "gate-killed"])(
+    "persists the emitted %s witness through the private writer",
+    (verdict) => {
+      const log = markSession();
+      expect(
+        recordAuditMetadata(request({ ...hook(), verdict, toolUseId: "gate-1" })),
+      ).toMatchObject({ status: "recorded", recorded: 1 });
+      expect(events(log).at(-1)).toMatchObject({ verdict, toolUseId: "gate-1", wireVersion: 1 });
+    },
+  );
+
+  // Covers: R10, R11, R21
+  it.each(["master-advance", "master-part-accept", "master-close"])(
+    "retains the fixed %s mechanism while hashing caller content",
+    (name) => {
+      const log = markSession();
+      expect(appendCliEvent(repo, { name, verdict: "allow" })).toBe(true);
+      expect(events(log).at(-1)?.name).toBe(name);
+      const arbitrary = "master-private-user@example.test";
+      expect(appendCliEvent(repo, { name: arbitrary, verdict: "allow" })).toBe(true);
+      expect(events(log).at(-1)?.name).toMatch(/^unknown-[a-f0-9]{12}$/);
+      expect(readFileSync(log, "utf-8")).not.toContain(arbitrary);
+    },
+  );
+
   function request(event: unknown): Parameters<typeof recordAuditMetadata>[0] {
     return {
       host: "claude",
@@ -785,7 +902,7 @@ describe("private metadata recorder and replay", () => {
     const { spool } = spoolRecord();
     markSession();
     const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
-    vi.mocked(fs.writeSync).mockImplementation((fd: number, data: unknown): number => {
+    vi.mocked(fs.writeSync).mockImplementationOnce((fd: number, data: unknown): number => {
       if (!(data instanceof Uint8Array)) throw new Error("unexpected write representation");
       renameSync(spool, spool + ".original");
       writeFileSync(spool, "replacement sentinel\n", { mode: 0o600 });

@@ -11,7 +11,6 @@ import { activeStage, masterDirPath, readMasterIndex } from "./stages.ts";
 /** Read only the physically contained active deliveries stage and its contract. */
 function active(cwd: string): {
   stagePath: string;
-  stageSlug: string;
   state: DeliveryState;
   input: unknown;
 } {
@@ -31,7 +30,6 @@ function active(cwd: string): {
   if (!safeParts) throw new Error("delivery parts.json outside repository");
   return {
     stagePath,
-    stageSlug: stage.slug,
     state: DeliveryStateSchema.parse(JSON.parse(readFileSync(statePath, "utf8")) as unknown),
     input: JSON.parse(readFileSync(safeParts, "utf8")) as unknown,
   };
@@ -42,17 +40,6 @@ function operatorMasterDigest(cwd: string, stagePath: string): string {
   const masterPath = containedFile(cwd, join(stagePath, "MASTER.md"));
   if (!masterPath) throw new Error("operator MASTER.md is missing or outside repository");
   return createHash("sha256").update(readFileSync(masterPath)).digest("hex");
-}
-
-/** Expose checked active context without weakening preparation or containment. */
-export function activeDeliverySnapshot(
-  cwd: string,
-): ReturnType<typeof active> & { masterDigest: string } {
-  const context = active(cwd);
-  return {
-    ...context,
-    masterDigest: operatorMasterDigest(cwd, context.stagePath),
-  };
 }
 
 /** Read-only D2 preparation; reports blockers rather than silently approving. */
