@@ -253,10 +253,32 @@ function sameBinding(left?: DeliveryEvidenceBinding, right?: DeliveryEvidenceBin
   return keys.every((key) => left[key] === right[key]);
 }
 
+/**
+ * Claude Code persists `cd`, so the recorded cwd of a `cd <dir> && ...`
+ * criterion is `<tree>/<dir>`. Returns that `<dir>` only for a strict leading
+ * `cd <dir> &&`: relative, plain segments (no `..`, `~`, quotes, variables,
+ * globs or other shell syntax).
+ */
+function leadingCdDir(command: string): string | undefined {
+  const dir = /^cd[ \t]+([^\s&;|<>$`"'\\*?[\]{}()~]+)[ \t]*&&/.exec(command)?.[1];
+  if (dir === undefined || dir.startsWith("/")) return undefined;
+  const segments = dir.split("/");
+  return segments.some((s) => s === "" || s === "." || s === "..") ? undefined : dir;
+}
+
+/** Real path of the criterion's leading `cd` target, only if it stays inside `tree`. */
+function cdTargetCwd(tree: string, command: string): string | undefined {
+  const dir = leadingCdDir(command);
+  if (dir === undefined) return undefined;
+  const target = real(join(tree, dir));
+  return target?.startsWith(`${tree}${sep}`) ? target : undefined;
+}
+
 /** Why one command-matching candidate is not valid, or `undefined` if it is. */
 function candidateProblem(
   line: EvidenceLine,
   accepted: readonly string[],
+  command: string,
   binding?: DeliveryEvidenceBinding,
 ): { why: string; tree: string } | undefined {
   const tree = real(line.tree);
@@ -264,7 +286,8 @@ function candidateProblem(
   if (!accepted.includes(tree)) {
     return { why: `ran in ${line.tree}, not this feature's checkout/worktree`, tree };
   }
-  if (real(line.cwd) !== tree) {
+  const cwd = real(line.cwd);
+  if (cwd !== tree && (cwd === undefined || cwd !== cdTargetCwd(tree, command))) {
     return { why: `ran from ${line.cwd}, not the tree root ${tree}`, tree };
   }
   const head = readHead(tree);
@@ -320,7 +343,7 @@ export function validateEvidence(input: ValidateEvidenceInput): EvidenceVerdict 
   }
   let firstProblem: { why: string; tree: string } | undefined;
   for (const line of sameCommand) {
-    const problem = candidateProblem(line, accepted, input.deliveryBinding);
+    const problem = candidateProblem(line, accepted, command, input.deliveryBinding);
     if (problem === undefined) {
       return {
         ok: true,
