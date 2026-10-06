@@ -17,10 +17,8 @@ const before = snapshotNavoriHome(watchedHome);
 const selfRepo = basename(resolve(fileURLToPath(new URL("../..", import.meta.url))));
 
 /** Check isolated HOME after direct children close, before disposing file fixtures. */
-// Large Git fixture cleanup measured >10s; revisit its cost if it exceeds this 30s budget.
-// Explicit A5 exception only; this does not fix the underlying cleanup cost.
-const cleanupTimeout: number =
-  process.env.NAVORI_A5_CLEANUP_TIMEOUT_EXCEPTION === "1" ? 120_000 : 30_000;
+// Budget for disposing the file's temp root; fixture-heavy tests should clean up after themselves.
+const cleanupTimeout = 30_000;
 afterAll(async () => {
   let leak: string | null = null;
   await file.dispose(() => {
