@@ -1,12 +1,15 @@
 import { defineCommand } from "citty";
 import {
   checkReceipt,
+  emitReceiptOutcome,
   formatReceipt,
   signReceipt,
   type ReceiptOptions,
 } from "../lib/diagnose/receipt.ts";
 import { readConfig } from "../lib/config/config.ts";
 import { resolve } from "node:path";
+import { hasAuditTarget } from "../lib/audit/cli-event.ts";
+import { contentIdentity } from "../lib/primitives/content-identity.ts";
 import { resolveStateRoot } from "../lib/primitives/state-root.ts";
 import { beginReview, sealReview } from "../lib/handoff/review-evidence.ts";
 
@@ -33,7 +36,8 @@ export function resolveReceiptOptions(args: {
     includeConsumed: args.includeConsumed,
   };
 }
-function execute(
+/** Runs `receipt sign|check`: prints the result, sets the exit code, then records the audit outcome. */
+export function executeReceipt(
   action: "sign" | "check",
   args: {
     feature: string;
@@ -44,14 +48,20 @@ function execute(
     includeConsumed?: boolean;
   },
 ): void {
-  const receipt =
-    action === "sign"
-      ? signReceipt(resolveReceiptOptions(args))
-      : checkReceipt(resolveReceiptOptions(args));
+  const resolved = resolveReceiptOptions(args);
+  // Without an exact audit context there is no observer: zero identity compute, zero write.
+  const options: ReceiptOptions = hasAuditTarget(resolved.cwd)
+    ? {
+        ...resolved,
+        observer: { sample: () => contentIdentity(resolved.cwd, { target: resolved.target }) },
+      }
+    : resolved;
+  const receipt = action === "sign" ? signReceipt(options) : checkReceipt(options);
   process.stdout.write(
     `${args.json ? JSON.stringify(receipt.result) : formatReceipt(receipt.result)}\n`,
   );
   if (receipt.exitCode !== 0) process.exitCode = receipt.exitCode;
+  if (options.observer) emitReceiptOutcome(options, action, receipt.result);
 }
 
 /** `review begin|seal`: producer evidence for `review_<feature>.json` (spec 0042 D5). */
@@ -112,7 +122,7 @@ export const receiptCommand = defineCommand({
     sign: defineCommand({
       meta: { name: "sign", description: "Write a receipt for the current publish set" },
       args: shared,
-      run: ({ args }) => execute("sign", args),
+      run: ({ args }) => executeReceipt("sign", args),
     }),
     review: defineCommand({
       meta: {
@@ -149,7 +159,8 @@ export const receiptCommand = defineCommand({
           description: "Fall back to receipt.consumed.txt when receipt.txt is absent",
         },
       },
-      run: ({ args }) => execute("check", { ...args, includeConsumed: args["include-consumed"] }),
+      run: ({ args }) =>
+        executeReceipt("check", { ...args, includeConsumed: args["include-consumed"] }),
     }),
   },
 });
