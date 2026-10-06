@@ -144,6 +144,17 @@ Unidad tarea `{repo identity,feature}` con revisiones de diff; reuso del slug de
 - **Episodios**: fingerprint nuevo tras aceptación = episodio n+1; sin boundaries es ambiguo; sin inicio observado, left-censored; abierto, censurado.
 - **Report**: clave aditiva `outcomes` en v11, con availability `outcomes.review` y `outcomes.receipt`. La etiqueta sale de `featureKey` (el slug crudo es irrecuperable por diseño). El report nunca llama `checkReceipt` ni lanza git.
 
+#### Addendum D5 — decisiones de T10a
+
+- **Contrato dispatch-outcome**: payload cerrado `{schemaVersion 1, featureKey hex64, stage 'implement', spawn? tool_use_id acotado}`, veredicto solo `allow`. Lo emite `navori plan gate` únicamente en allow resuelto desde una apertura `workplan:` (nunca nivel-0 ni deny). La emisión es fail-safe: ocurre tras fijar el exit code y un fallo no lo altera.
+- **Sesión**: se toma del payload del hook y se valida contra la identidad ambiente (R9); contradicción = no se escribe.
+- **Vínculo spawn↔run**: `tool_result.tool_use_id` ↔ `toolUseResult.agentId`, incluido `async_launched`. Los runs anidados cuentan como no vinculados.
+- **Dispatch sin confirmar**: nunca abre tarea, episodio ni boundary (B1).
+- **Codex**: dispatches no vinculables; availability parcial, nunca cero.
+- **Report**: `outcomes.dispatch` con availability y conteos de huérfanos (`dispatchWithoutRounds`, `roundsWithoutDispatch`, `unconfirmed`). Dedup por (sesión, spawn, featureKey); sin spawn no se deduplica y cuenta como unconfirmed.
+- **Decisiones adoptadas**: alcance de tokens solo `implementer`, con `reviewer` como follow-up; worktrees externos quedan como residual visible vía conteos de huérfanos; espera humana = idle entre turnos solo en Claude, estratificada por host.
+- **Orden de split**: se invierte; primero el emisor (T10a), luego las métricas R17/R18 (T10b).
+
 ### D6 — Comparación y acción (R15, R17–R20)
 
 Snapshot formato 2 conserva métricas numéricas, disponibilidad, N y cohortes: repo por identificador hash local no path/nombre; host, modelo exacto/familia explícita, rol, régimen realmente cargado, tipo/unidad trabajo y cobertura. Snapshot v1 sigue legible; dimensiones faltantes = legacy-unknown y delta descriptivo. No utilizar generatedBy como versión activa. Modelo mixto/desconocido no se imputa a uno conocido.
