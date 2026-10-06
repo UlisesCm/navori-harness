@@ -434,9 +434,20 @@ function runAsk(
   writeFileSync(target, readFileSync(script, "utf-8"));
   chmodSync(target, 0o755);
   const auditsRoot = realpathSync(mkdtempSync(join(tmpdir(), "navori-1117-audits-")));
-  mkdirSync(join(auditsRoot, basename(dir)));
+  mkdirSync(join(auditsRoot, basename(dir)), { mode: 0o700 });
+  writeFileSync(
+    join(binDir, "navori"),
+    `#!/bin/sh\nexec '${process.execPath}' '${resolve("dist/index.js")}' "$@"\n`,
+    { mode: 0o700 },
+  );
   const log = join(auditsRoot, basename(dir), "session-s1.log");
-  writeFileSync(log, `${JSON.stringify({ event: "start" })}\n`);
+  writeFileSync(
+    log,
+    `${JSON.stringify({ event: "start", host: relPath.includes(".codex/") ? "codex" : "claude", sessionId: "s1", cwd: dir })}\n`,
+    {
+      mode: 0o600,
+    },
+  );
   const r = spawnSync(shell, [target], {
     cwd: dir,
     input,
@@ -502,7 +513,7 @@ describe.runIf(runsBash && hasJq)("jscpd no-verdict cases ask under Claude (#111
   it("records the ask outcome in the audit log with its reason", () => {
     const out = noFlags("bash", "hook.sh");
     const ask = out.events.find((e) => e.verdict === "ask");
-    expect(ask?.reason).toContain("required flags unavailable");
+    expect(ask?.reason).toBe("unspecified");
     expect(out.events.some((e) => e.verdict === "block")).toBe(false);
   });
 
@@ -536,7 +547,8 @@ describe.runIf(runsBash && hasJq)("jscpd no-verdict cases ask under Claude (#111
     const out = runAsk("bash", fx.dir, fx.binDir, fx.hooks.jscpd, "hook.sh", HOOK_PAYLOAD(fx.dir));
     expect(out.status).toBe(BLOCKS);
     expect(out.stdout).not.toContain("permissionDecision");
-    expect(out.events.find((e) => e.verdict === "block")?.reason).toContain("2 new clone(s)");
+    expect(out.events.find((e) => e.verdict === "block")?.reason).toBe("unspecified");
+    expect(out.stderr).toContain("2 new clone(s)");
     expect(out.events.some((e) => e.verdict === "ask")).toBe(false);
   });
 
@@ -546,9 +558,8 @@ describe.runIf(runsBash && hasJq)("jscpd no-verdict cases ask under Claude (#111
     const out = runAsk("bash", fx.dir, fx.binDir, fx.hooks.jscpd, "hook.sh", HOOK_PAYLOAD(fx.dir));
     expect(out.status).toBe(BLOCKS);
     expect(out.stdout).not.toContain("permissionDecision");
-    expect(out.events.find((e) => e.verdict === "block")?.reason).toContain(
-      "cannot rule out new clones",
-    );
+    expect(out.events.find((e) => e.verdict === "block")?.reason).toBe("unspecified");
+    expect(out.stderr).toContain("cannot rule out new clones");
   });
 
   // Covers: A1
@@ -604,7 +615,7 @@ describe.runIf(runsBash && hasJq)("jscpd no-verdict cases ask under Claude (#111
     expect(d.decision).toBe("ask");
     expect(d.reason).toContain("no duplication verdict");
     expect(d.reason).not.toContain("outside the agent");
-    expect(out.events.find((e) => e.verdict === "ask")?.reason).toContain("no clone evidence");
+    expect(out.events.find((e) => e.verdict === "ask")?.reason).toBe("unspecified");
   });
 
   // Covers: A1
@@ -698,7 +709,7 @@ describe.runIf(runsBash && hasJq)("quality-gate runner missing asks under Claude
   it("records the ask outcome in the audit log with its reason", () => {
     const fx = qgFixture("missing");
     const out = runAsk("bash", fx.dir, fx.binDir, fx.script, "hook.sh", HOOK_PAYLOAD(fx.dir));
-    expect(out.events.find((e) => e.verdict === "ask")?.reason).toContain("'pnpm' no esta en PATH");
+    expect(out.events.find((e) => e.verdict === "ask")?.reason).toBe("unspecified");
     expect(out.events.some((e) => e.verdict === "block")).toBe(false);
   });
 
@@ -714,7 +725,8 @@ describe.runIf(runsBash && hasJq)("quality-gate runner missing asks under Claude
     const fx = qgFixture("red");
     const out = runAsk("bash", fx.dir, fx.binDir, fx.script, "hook.sh", HOOK_PAYLOAD(fx.dir));
     const block = out.events.find((e) => e.verdict === "block");
-    expect(block?.reason).toContain("quality gate en rojo");
+    expect(block?.reason).toBe("unspecified");
+    expect(out.stderr).toContain("quality-gate fast failed. Commit aborted.");
     expect(block?.kind).toBe("hard");
   });
 
@@ -730,8 +742,8 @@ describe.runIf(runsBash && hasJq)("quality-gate runner missing asks under Claude
       HOOK_PAYLOAD(fx.dir),
     );
     const block = out.events.find((e) => e.verdict === "block");
-    expect(block?.reason).toContain("sin veredicto y sin forma de preguntar");
-    expect(block?.reason).not.toContain("en rojo");
+    expect(block?.reason).toBe("unspecified");
+    expect(out.stderr).toContain("Commit BLOCKED to avoid skipping the gate silently");
     expect(block?.kind).toBe("hard");
   });
 

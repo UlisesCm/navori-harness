@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -20,6 +21,7 @@ import { loadEnabledPlugins } from "../../../lib/config/plugins.ts";
 import { renderClaudeEngine } from "../../claude/index.ts";
 import { adaptHarnessTextForCodex } from "../compat.ts";
 import { resolveCodexHooks } from "../hook-registrations.ts";
+import { listBundledPluginIds } from "../../../lib/render/bundled-assets.ts";
 import { buildCodexConfigToml } from "../build-config-toml.ts";
 import { codexHookHash } from "../../../lib/codex/trust.ts";
 import { PluginManifestSchema, type LoadedPlugin } from "../../../lib/config/plugins.ts";
@@ -59,6 +61,51 @@ function config(overrides: Partial<NavoriConfigInput> = {}): NavoriConfig {
     ...overrides,
   });
 }
+
+// Covers: R8, R9
+it.each([
+  [false, false, "490bfa8d66de1605e4091589beb091b8f658e7713755d22e2dd6ed05ac49f6f1"],
+  [false, true, "918e29553aa27987f0d7f6ce49258ae1bd9883459b7d9dd0a3899225bccfebdf"],
+  [true, false, "4033adc179afea42f55dd73927a40a5196a0d0ef51049601e0722a5209102fcc"],
+  [true, true, "60e26a73769835cbc469d4938d4f5986367548148106c5bf0f6af66af77dbba8"],
+] as const)(
+  "keeps every pre-capture indexed tuple with planTiers=%s masterPlan=%s",
+  (planTiers, masterPlan, digest) => {
+    const cfg = NavoriConfigSchema.parse({
+      name: "fx",
+      engines: ["codex"],
+      preset: "custom",
+      plugins: Object.fromEntries(listBundledPluginIds().map((id) => [id, { enabled: true }])),
+      hooks: { verifyOnStop: true },
+      harness: { planTiers, masterPlan },
+    });
+    const hooks = resolveCodexHooks(cfg, loadEnabledPlugins(cfg.plugins).loaded);
+    const indexes = new Map<string, number>();
+    const tuples = hooks.map((hook) => {
+      const index = indexes.get(hook.event) ?? 0;
+      indexes.set(hook.event, index + 1);
+      return { index, ...hook };
+    });
+    const added = tuples.filter((hook) => hook.event === "SubagentStart");
+    expect(added).toEqual([
+      {
+        index: 0,
+        script: "subagent-stop-handoff",
+        event: "SubagentStart",
+        args: "codex capture-start",
+        timeout: 15,
+        statusMessage: "navori: child capture",
+      },
+    ]);
+    // Golden digest taken from HEAD73fd353b before adding capture. Every tuple
+    // includes script/event/index/args/matcher/timeout/status, including plugins.
+    const oldTuples = tuples.filter((hook) => hook.event !== "SubagentStart");
+    expect(createHash("sha256").update(JSON.stringify(oldTuples)).digest("hex")).toBe(digest);
+    expect(buildCodexConfigToml(cfg, loadEnabledPlugins(cfg.plugins).loaded)).not.toContain(
+      "trusted_hash",
+    );
+  },
+);
 
 function testPlugin(id: string, capabilities: Record<string, unknown>): LoadedPlugin {
   return {

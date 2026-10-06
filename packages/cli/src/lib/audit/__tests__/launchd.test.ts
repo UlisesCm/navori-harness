@@ -1,11 +1,22 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createServer } from "node:http";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   LAUNCH_AGENT_LABEL,
   buildLaunchAgent,
+  collectLogDir,
   installLaunchAgent,
   installedArgv,
   isLaunchdPlatform,
@@ -31,7 +42,7 @@ describe("launchd lifecycle (R12)", () => {
   function setupPlist(): string {
     const path = launchAgentPath();
     mkdirSync(join(home, "Library", "LaunchAgents"), { recursive: true });
-    writeFileSync(path, "original plist");
+    writeFileSync(path, "original plist", { mode: 0o600 });
     return path;
   }
 
@@ -44,6 +55,81 @@ describe("launchd lifecycle (R12)", () => {
     home = mkdtempSync(join(tmpdir(), "navori-launchd-lifecycle-"));
     process.env.HOME = home;
   }
+
+  // Covers: R10, R11, R12
+  it("precreates private supervisor files before fake bootstrap under umask 000", () => {
+    isolatedHome();
+    const parent = join(home, "Library", "LaunchAgents");
+    mkdirSync(parent, { recursive: true });
+    chmodSync(parent, 0o755);
+    const originalMode = statSync(parent).mode;
+    const originalUmask = process.umask(0);
+    let loaded = false;
+    const controller = vi.fn((args: string[]): { ok: boolean; message: string } => {
+      if (args[0] === "print")
+        return loaded
+          ? { ok: true, message: "" }
+          : { ok: false, message: "Could not find service" };
+      if (args[0] === "bootstrap") {
+        expect(statSync(collectLogDir()).mode & 0o777).toBe(0o700);
+        expect(statSync(launchAgentPath()).mode & 0o777).toBe(0o600);
+        for (const name of ["collect.out.log", "collect.err.log"]) {
+          const file = join(collectLogDir(), name);
+          expect(statSync(file).isFile()).toBe(true);
+          expect(statSync(file).mode & 0o777).toBe(0o600);
+        }
+        expect(statSync(parent).mode).toBe(originalMode);
+        loaded = true;
+      }
+      return { ok: true, message: "" };
+    });
+    try {
+      expect(installLaunchAgent(controller)).toMatchObject({ loaded: true, replaced: false });
+      expect(controller.mock.calls.some(([args]) => args[0] === "bootstrap")).toBe(true);
+    } finally {
+      process.umask(originalUmask);
+    }
+  });
+
+  // Covers: R10, R11, R12
+  it.each([
+    "public-plist",
+    "public-log",
+    "symlink-log",
+    "nonregular-log",
+    "public-log-directory",
+  ] as const)("refuses %s unchanged before bootstrap", (unsafe: string) => {
+    isolatedHome();
+    const plist = setupPlist();
+    const dir = collectLogDir();
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const log = join(dir, "collect.out.log");
+    const sentinel = join(home, "sentinel.log");
+    writeFileSync(sentinel, "private sentinel", { mode: 0o600 });
+    if (unsafe === "public-plist") chmodSync(plist, 0o644);
+    if (unsafe === "public-log") writeFileSync(log, "public sentinel", { mode: 0o644 });
+    if (unsafe === "symlink-log") symlinkSync(sentinel, log);
+    if (unsafe === "nonregular-log") mkdirSync(log, { mode: 0o700 });
+    if (unsafe === "public-log-directory") chmodSync(dir, 0o755);
+    const plistBefore = readFileSync(plist);
+    const plistMode = statSync(plist).mode;
+    const directoryMode = statSync(dir).mode;
+    const controller = vi.fn((_args: string[]): { ok: boolean; message: string } => ({
+      ok: false,
+      message: "Could not find service",
+    }));
+    expect(installLaunchAgent(controller).loaded).toBe(false);
+    expect(controller.mock.calls.some(([args]) => args[0] === "bootstrap")).toBe(false);
+    expect(readFileSync(plist)).toEqual(plistBefore);
+    expect(statSync(plist).mode).toBe(plistMode);
+    expect(statSync(dir).mode).toBe(directoryMode);
+    expect(readFileSync(sentinel, "utf8")).toBe("private sentinel");
+    if (unsafe === "public-log") {
+      expect(readFileSync(log, "utf8")).toBe("public sentinel");
+      expect(statSync(log).mode & 0o777).toBe(0o644);
+    }
+    if (unsafe === "nonregular-log") expect(statSync(log).isDirectory()).toBe(true);
+  });
 
   // Covers: R12
   it("preserves the plist and reports failed bootout on uninstall", () => {

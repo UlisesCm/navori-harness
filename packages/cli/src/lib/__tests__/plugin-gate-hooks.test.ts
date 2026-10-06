@@ -386,7 +386,7 @@ describe.runIf(runsBash)("plugin gate hooks — untrusted branchBase stays inert
 
 /** Covers: R5, R6 (spec 0037) — the host decision and audit reason are separate scanner evidence. */
 describe.runIf(runsBash)("plugin gate hooks — rendered scanner outcome fidelity", () => {
-  type AuditEvent = { verdict: string; reason?: string };
+  type AuditEvent = { verdict: string; reason?: string; host?: string };
 
   /** Isolate Git history, fake scanner, and audit log for one host/shell case. */
   function fixture(id: "jscpd" | "semgrep") {
@@ -396,9 +396,18 @@ describe.runIf(runsBash)("plugin gate hooks — rendered scanner outcome fidelit
     const auditRoot = join(root, "audits");
     const repo = join(root, "repo");
     mkdirSync(repo);
-    mkdirSync(join(auditRoot, "repo"), { recursive: true });
+    mkdirSync(join(auditRoot, "repo"), { recursive: true, mode: 0o700 });
+    writeFileSync(
+      join(bin, "navori"),
+      `#!/bin/sh\nexec '${process.execPath}' '${resolve("dist/index.js")}' "$@"\n`,
+      { mode: 0o700 },
+    );
     const log = join(auditRoot, "repo", "session-spec0037.log");
-    writeFileSync(log, "");
+    writeFileSync(
+      log,
+      `${JSON.stringify({ event: "start", sessionId: "spec0037", cwd: repo })}\n`,
+      { mode: 0o600 },
+    );
     execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
     writeFileSync(join(repo, "changed.ts"), "export const before = 1;\n");
     execFileSync("git", ["add", "changed.ts"], { cwd: repo });
@@ -461,7 +470,10 @@ exit "$SCAN_EXIT"
   }
 
   function run(script: string, f: ReturnType<typeof fixture>, scanExit: number, shell: HookShell) {
-    writeFileSync(f.log, "");
+    writeFileSync(
+      f.log,
+      `${JSON.stringify({ event: "start", host: script.includes(".codex/") ? "codex" : "claude", sessionId: "spec0037", cwd: f.repo })}\n`,
+    );
     const result = spawnSync(resolveBin(shell), [script], {
       cwd: f.repo,
       env: { ...f.env, SCAN_EXIT: String(scanExit) },
@@ -476,7 +488,7 @@ exit "$SCAN_EXIT"
     const events = readFileSync(f.log, "utf-8")
       .trim()
       .split("\n")
-      .filter(Boolean)
+      .filter((line) => Boolean(line) && (JSON.parse(line) as { event?: string }).event === "hook")
       .map((line) => JSON.parse(line) as AuditEvent);
     return { status: result.status, signal: result.signal, stderr: result.stderr, events };
   }
@@ -500,7 +512,8 @@ exit "$SCAN_EXIT"
       const clean = run(script, f, 0, shell);
       expect(clean.status).toBe(0);
       expect(clean.events.map((event) => event.verdict)).toEqual(["gate-started", "allow"]);
-      expect(clean.events.at(-1)?.reason).toMatch(/clean scan/);
+      expect(clean.events.at(-1)?.host).toBe(placement === "codex" ? "codex" : "claude");
+      expect(clean.events.at(-1)?.reason).toBe("unspecified");
       const args = readFileSync(f.args, "utf-8");
       expect(args).toContain("new.tsx");
       expect(args).toContain("changed.ts");
@@ -524,7 +537,7 @@ exit "$SCAN_EXIT"
         expect(cached.events).toEqual([
           expect.objectContaining({
             verdict: "allow",
-            reason: expect.stringContaining("reused unchanged green scan"),
+            reason: "unspecified",
           }),
         ]);
         // A changed fingerprint must invalidate the previous green cache marker.
@@ -546,14 +559,14 @@ exit "$SCAN_EXIT"
       expect(blocked.events.at(-1)?.verdict).toBe("block");
       if (id === "jscpd") {
         expect(blocked.stderr).toMatch(/exit 1 with no new-clone evidence/);
-        expect(blocked.events.at(-1)?.reason).toContain("not confirmed clones");
+        expect(blocked.events.at(-1)?.reason).toBe("unspecified");
       }
 
       const error = run(script, f, 3, shell);
       expect(error.status).toBe(1);
       expect(error.stderr).toMatch(/nothing was validated/);
       expect(error.events.at(-1)).toMatchObject({ verdict: "allow" });
-      expect(error.events.at(-1)?.reason).toMatch(/not validated/);
+      expect(error.events.at(-1)?.reason).toBe("unspecified");
       if (id === "semgrep") {
         expect(readFileSync(marker, "utf-8")).toBe(markerBeforeError);
       }
@@ -564,7 +577,7 @@ exit "$SCAN_EXIT"
       expect(skipped.status).toBe(0);
       expect(skipped.events.at(-1)).toMatchObject({
         verdict: "allow",
-        reason: expect.stringContaining("zero changed"),
+        reason: "unspecified",
       });
       expect(skipped.events.some((event) => event.verdict === "gate-started")).toBe(false);
     });
@@ -589,12 +602,17 @@ exit "$SCAN_EXIT"
       expect(noBase.status).toBe(0);
       expect(noBase.events.at(-1)).toMatchObject({
         verdict: "allow",
-        reason: expect.stringContaining("baseline unresolved"),
+        reason: "unspecified",
       });
       expect(noBase.events.some((event) => event.verdict === "gate-started")).toBe(false);
 
       const restricted = join(f.root, "restricted");
       mkdirSync(restricted);
+      writeFileSync(
+        join(restricted, "navori"),
+        `#!/bin/sh\nexec '${process.execPath}' '${resolve("dist/index.js")}' "$@"\n`,
+        { mode: 0o700 },
+      );
       for (const tool of [
         "bash",
         "cat",
@@ -617,7 +635,7 @@ exit "$SCAN_EXIT"
       expect(missing.status).toBe(0);
       expect(missing.events.at(-1)).toMatchObject({
         verdict: "allow",
-        reason: expect.stringContaining("scanner unavailable"),
+        reason: "unspecified",
       });
       expect(missing.events.some((event) => event.verdict === "gate-started")).toBe(false);
     });
@@ -686,7 +704,7 @@ exit "$SCAN_EXIT"
     const clean = run(script, f, 0, shell);
     expect(clean.status).toBe(0);
     expect(clean.events.at(-1)?.verdict).toBe("allow");
-    expect(clean.events.at(-1)?.reason).toMatch(/clean scan/);
+    expect(clean.events.at(-1)?.reason).toBe("unspecified");
   });
 
   it.each(
@@ -709,7 +727,7 @@ exit "$SCAN_EXIT"
     expect(result.stderr).toContain("not a duplication verdict");
     expect(result.events.at(-1)).toMatchObject({
       verdict: "block",
-      reason: expect.stringContaining("required flags unavailable"),
+      reason: "unspecified",
     });
     expect(result.events.some((event) => event.verdict === "gate-started")).toBe(false);
   });

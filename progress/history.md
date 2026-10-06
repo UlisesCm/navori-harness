@@ -1,5 +1,17 @@
 # History
 
+## 2026-10-05 21:25 codex — Recover audit privacy, usage and bounded mining
+
+Recovered PR #1222's malformed report and context-safe public projection, qualified metadata route and canonical hook capture. Private CLI/lifecycle exports now require checked private storage and explicit identity; human content requires per-call opt-in. Exclusive private arm claims replace the disproved unlink-only contention assumption. Native Node 26 crash tests invoke the built CLI rather than removed TypeScript-transform flags.
+
+Pinned usage tests prove response deduplication, inherited-history exclusion and actual new post-resume child execution. Legacy Claude miners use incremental requested-family scans, shared accounted state and explicit availability/losses while preserving admitted-row parity. Three fresh synthetic 500 MiB parser runs and separate miner probes document sampled resource measurements without universal performance or integrity claims. Bundle comment handling and equivalent explanatory copy preserve executable behavior and every distinct legal notice under the unchanged size limit.
+
+Unrelated master/delivery/plan source inherited from dev was aligned exactly to main; original commits and branches remain preserved. Native render/goldens are part of the recovered audit diff.
+
+Validation: scoped T4, T6 and T8 independent reviews approved. Latest T8/alignment full configured gate exited 0: 361 test files, 7,750 passed tests, two skipped, coverage floor over 118 modules/one documented exception, lint/typecheck green, bundle 1,228,783/1,228,800 bytes. Differential Semgrep reported zero new findings, with limited scanner coverage. Root checked a fresh scoped receipt before closure edits. Whole-PR review on the final documentation and publication remain prerequisites; this entry records verified scoped results. T9–T12 and the separate A5 operator/comparative pilot remain pending.
+
+The first whole-PR review then reproduced false complete coverage for a skipped symlink and stopped before its full gate. A focused correction now records symlink, depth and unreadable-directory losses, preserves them through cached enumeration and distinguishes an absent host root from lost entries. The original repro returns unknown coverage; focused discovery/parse/report/command acceptance passed 508 tests with one existing skip, lint/typecheck green and bundle 1,228,777 bytes. Fresh whole-PR review and stable-byte full validation remain required after this correction.
+
 ## 2026-10-05 15:41 codex — Bind interrupted retention to late workers
 
 User approved the two-file correction after the interruption failure was reproduced on this checkout and isolated origin/main. The run owner publishes a monotonic retention marker before announcing retention; file owners read it after writer completion and HOME evidence checks. Marker I/O errors retain evidence and restore the environment. The guarantee applies to publication before the final deletion decision, without claiming universal cancellation/deletion serialization.

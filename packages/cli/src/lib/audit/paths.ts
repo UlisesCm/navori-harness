@@ -1,7 +1,23 @@
-import { existsSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  realpathSync,
+  renameSync,
+  unlinkSync,
+  writeSync,
+  type Stats,
+} from "node:fs";
+import { randomUUID } from "node:crypto";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { NavoriError } from "../primitives/errors.ts";
 import { safeHomedir } from "../primitives/home.ts";
+import { AUDIT_READ_LIMITS, type AuditReadDiagnostics } from "./model.ts";
 
 /** Env var that redirects the whole audit store (logs AND generated reports). */
 const AUDITS_ROOT_ENV = "NAVORI_AUDITS_ROOT";
@@ -33,8 +49,565 @@ export function auditsRoot(): string {
   const override = process.env[AUDITS_ROOT_ENV]?.trim();
   // resolve(): a relative override would hang off the process CWD and silently
   // move the store when the caller chdirs — see safeHomedir().
-  if (override) return resolve(override);
+  if (override) {
+    if (!isAbsolute(override))
+      throw new NavoriError("invalid-audit-root", "Audit root must be absolute.");
+    return resolve(override);
+  }
   return join(safeHomedir(), ".navori", "audits");
+}
+
+export type PrivateAuditReason =
+  | "unsafe"
+  | "changed"
+  | "missing"
+  | "exists"
+  | "incomplete-tail"
+  | "short-write"
+  | "limit"
+  | "unsupported"
+  | "io";
+export type PrivateAuditResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; reason: PrivateAuditReason; partial: boolean };
+export interface PrivateAuditOptions {
+  /** Default: audit-owned root. null explicitly selects ordinary user ancestors. */
+  ownedRoot?: string | null;
+}
+
+class PrivateAuditFault extends Error {
+  constructor(readonly reason: PrivateAuditReason) {
+    super(reason);
+  }
+}
+interface AuditIdentity {
+  path: string;
+  stat: Stats;
+}
+
+/** Permit only the standard macOS system aliases before the owned boundary. */
+function systemAuditPath(path: string): string {
+  for (const prefix of ["/var", "/tmp"]) {
+    if (path === prefix || path.startsWith(prefix + sep)) {
+      try {
+        if (realpathSync(prefix) === "/private" + prefix) return "/private" + path;
+      } catch {
+        /* Normal validation will refuse unavailable ancestors. */
+      }
+    }
+  }
+  return path;
+}
+
+/** Content-free refusal; a mutation attempt may leave a private partial artifact. */
+function refused<T>(error: unknown, partial = false): PrivateAuditResult<T> {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return {
+    ok: false,
+    reason:
+      error instanceof PrivateAuditFault
+        ? error.reason
+        : code === "EEXIST"
+          ? "exists"
+          : code === "ENOENT"
+            ? "missing"
+            : "io",
+    partial,
+  };
+}
+function sameAuditIdentity(a: Stats, b: Stats): boolean {
+  return a.dev === b.dev && a.ino === b.ino && a.uid === b.uid && a.mode === b.mode;
+}
+function auditUid(): number {
+  if (typeof process.getuid !== "function" || !constants.O_NOFOLLOW)
+    throw new PrivateAuditFault("unsupported");
+  return process.getuid();
+}
+function regularAuditFile(stat: Stats, privateFile = true): void {
+  if (!stat.isFile() || stat.uid !== auditUid() || (privateFile && (stat.mode & 0o177) !== 0))
+    throw new PrivateAuditFault("unsafe");
+}
+
+/** Validate every observed ancestor; ordinary user ancestors are never chmodded.
+ * Local trusted writers are assumed: Node path rechecks are not portable openat
+ * containment and cannot eliminate the remaining ancestor TOCTOU window. */
+function auditParents(
+  path: string,
+  options: PrivateAuditOptions,
+  create: boolean,
+): AuditIdentity[] {
+  path = systemAuditPath(path);
+  if (!isAbsolute(path) || resolve(path) !== path) throw new PrivateAuditFault("unsafe");
+  const rawOwned = options.ownedRoot === undefined ? auditsRoot() : options.ownedRoot;
+  const owned = rawOwned === null ? null : systemAuditPath(rawOwned);
+  if (owned !== null && (!isAbsolute(owned) || (path !== owned && !path.startsWith(owned + sep))))
+    throw new PrivateAuditFault("unsafe");
+  const dirs: string[] = [];
+  for (let dir = dirname(path); ; dir = dirname(dir)) {
+    dirs.unshift(dir);
+    if (dirname(dir) === dir) break;
+  }
+  const identities: AuditIdentity[] = [];
+  for (const dir of dirs) {
+    let stat: Stats;
+    try {
+      stat = lstatSync(dir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT" || !create)
+        throw new PrivateAuditFault("missing");
+      recheckAuditParents(identities);
+      mkdirSync(dir, { mode: 0o700 });
+      stat = lstatSync(dir);
+    }
+    const isOwned = owned !== null && (dir === owned || dir.startsWith(owned + sep));
+    if (!stat.isDirectory() || (isOwned && (stat.uid !== auditUid() || (stat.mode & 0o077) !== 0)))
+      throw new PrivateAuditFault("unsafe");
+    identities.push({ path: dir, stat });
+  }
+  return identities;
+}
+function recheckAuditParents(identities: readonly AuditIdentity[]): void {
+  for (const identity of identities)
+    if (!sameAuditIdentity(identity.stat, lstatSync(identity.path)))
+      throw new PrivateAuditFault("changed");
+}
+
+/** Rebind the descriptor to its current path immediately before each operation. */
+function auditGuard(
+  path: string,
+  fd: number,
+  identity: Stats,
+  parents: readonly AuditIdentity[],
+  privateFile = true,
+): void {
+  recheckAuditParents(parents);
+  const stat = fstatSync(fd);
+  regularAuditFile(stat, privateFile);
+  if (!sameAuditIdentity(identity, stat) || !sameAuditIdentity(stat, lstatSync(path)))
+    throw new PrivateAuditFault("changed");
+}
+
+/** Create only missing owned directories, refusing insecure history unchanged. */
+export function ensurePrivateAuditDirectory(
+  path: string,
+  options: PrivateAuditOptions = {},
+): PrivateAuditResult<void> {
+  try {
+    auditParents(join(path, ".directory-check"), options, true);
+    return { ok: true, value: undefined };
+  } catch (error) {
+    return refused(error);
+  }
+}
+
+/** Exclusive 0600 artifact creation, never overwriting or repairing history. */
+export function createPrivateAuditFile(
+  path: string,
+  data: string | Uint8Array,
+  options: PrivateAuditOptions = {},
+): PrivateAuditResult<number> {
+  let fd: number | undefined;
+  let partial = false;
+  try {
+    if (existsSync(path)) throw new PrivateAuditFault("exists");
+    const parents = auditParents(path, options, true);
+    fd = openSync(
+      path,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      0o600,
+    );
+    partial = true;
+    const identity = fstatSync(fd);
+    auditGuard(path, fd, identity, parents);
+    const bytes = typeof data === "string" ? Buffer.from(data, "utf-8") : data;
+    if (writeSync(fd, bytes) !== bytes.byteLength) throw new PrivateAuditFault("short-write");
+    auditGuard(path, fd, identity, parents);
+    return { ok: true, value: bytes.byteLength };
+  } catch (error) {
+    return refused(error, partial);
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+/** Append one complete JSONL batch to the validated fd, preserving any partial
+ * suffix on short write. Never truncate/repair; subsequent writers refuse it. */
+export function appendPrivateAuditFile(
+  path: string,
+  data: string | Uint8Array | ((fd: number) => string | Uint8Array),
+  options: PrivateAuditOptions = {},
+): PrivateAuditResult<number> {
+  let fd: number | undefined;
+  let partial = false;
+  try {
+    const parents = auditParents(path, options, false);
+    const expected = lstatSync(path);
+    regularAuditFile(expected);
+    fd = openSync(path, constants.O_RDWR | constants.O_APPEND | constants.O_NOFOLLOW);
+    auditGuard(path, fd, expected, parents);
+    const stat = fstatSync(fd);
+    if (stat.size) {
+      const tail = Buffer.alloc(1);
+      if (readSync(fd, tail, 0, 1, stat.size - 1) !== 1 || tail[0] !== 10)
+        throw new PrivateAuditFault("incomplete-tail");
+    }
+    const content = typeof data === "function" ? data(fd) : data;
+    const bytes = typeof content === "string" ? Buffer.from(content, "utf-8") : content;
+    if (bytes.byteLength && bytes[bytes.byteLength - 1] !== 10)
+      throw new PrivateAuditFault("incomplete-tail");
+    auditGuard(path, fd, expected, parents);
+    if (bytes.byteLength === 0) return { ok: true, value: 0 };
+    partial = true;
+    if (writeSync(fd, bytes) !== bytes.byteLength) throw new PrivateAuditFault("short-write");
+    auditGuard(path, fd, expected, parents);
+    return { ok: true, value: bytes.byteLength };
+  } catch (error) {
+    return refused(error, partial);
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+/** Checked bounded read. Public numeric legacy snapshots may opt out of file
+ * privacy, never of no-follow, regularity, owner or ancestor identity checks. */
+export function readPrivateAuditFile(
+  path: string,
+  options: PrivateAuditOptions & { maxBytes?: number; privateFile?: boolean } = {},
+): PrivateAuditResult<Buffer> {
+  let fd: number | undefined;
+  try {
+    if (options.ownedRoot === null && options.privateFile === false)
+      path = join(realpathSync(dirname(path)), basename(path));
+    const parents = auditParents(path, options, false);
+    const identity = lstatSync(path);
+    regularAuditFile(identity, options.privateFile !== false);
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    auditGuard(path, fd, identity, parents, options.privateFile !== false);
+    const max = options.maxBytes ?? 8 * 1024 * 1024;
+    if (!Number.isSafeInteger(max) || max < 0 || identity.size > max)
+      throw new PrivateAuditFault("limit");
+    const bytes = Buffer.alloc(identity.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = readSync(fd, bytes, offset, Math.min(65536, bytes.length - offset), offset);
+      if (!count) throw new PrivateAuditFault("changed");
+      offset += count;
+    }
+    auditGuard(path, fd, identity, parents, options.privateFile !== false);
+    if (fstatSync(fd).size !== identity.size) throw new PrivateAuditFault("changed");
+    return { ok: true, value: bytes };
+  } catch (error) {
+    return refused(error);
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+/** Replace only generated artifacts via a checked exclusive sibling. Never use
+ * this for historical JSONL logs; append is intentionally non-transactional. */
+export function replacePrivateAuditFile(
+  path: string,
+  data: string | Uint8Array,
+  options: PrivateAuditOptions = {},
+): PrivateAuditResult<number> {
+  const temporary = join(dirname(path), `.audit-${randomUUID()}.tmp`);
+  let staged: Stats | undefined;
+  let fd: number | undefined;
+  try {
+    const parents = auditParents(path, options, true);
+    let target: Stats | undefined;
+    try {
+      target = lstatSync(path);
+      regularAuditFile(target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    fd = openSync(
+      temporary,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      0o600,
+    );
+    staged = fstatSync(fd);
+    auditGuard(temporary, fd, staged, parents);
+    const bytes = typeof data === "string" ? Buffer.from(data, "utf-8") : data;
+    if (writeSync(fd, bytes) !== bytes.byteLength) throw new PrivateAuditFault("short-write");
+    auditGuard(temporary, fd, staged, parents);
+    recheckAuditParents(parents);
+    if (target) {
+      regularAuditFile(lstatSync(path));
+      if (!sameAuditIdentity(target, lstatSync(path))) throw new PrivateAuditFault("changed");
+    } else {
+      try {
+        lstatSync(path);
+        throw new PrivateAuditFault("changed");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+    if (!staged || !sameAuditIdentity(staged, lstatSync(temporary)))
+      throw new PrivateAuditFault("changed");
+    renameSync(temporary, path);
+    staged = undefined;
+    return { ok: true, value: bytes.byteLength };
+  } catch (error) {
+    return refused(error);
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+    if (staged) {
+      try {
+        if (sameAuditIdentity(staged, lstatSync(temporary))) unlinkSync(temporary);
+      } catch {
+        /* Do not clean an unverified replacement. */
+      }
+    }
+  }
+}
+
+/** Stream from a validated source fd to an exclusive private destination. */
+export function copyPrivateAuditFile(
+  source: string,
+  destination: string,
+  options: {
+    source?: PrivateAuditOptions;
+    destination?: PrivateAuditOptions;
+    maxBytes?: number;
+  } = {},
+): PrivateAuditResult<number> {
+  let input: number | undefined;
+  let output: number | undefined;
+  let partial = false;
+  try {
+    const sourceParents = auditParents(source, options.source ?? {}, false);
+    const identity = lstatSync(source);
+    regularAuditFile(identity);
+    input = openSync(source, constants.O_RDONLY | constants.O_NOFOLLOW);
+    auditGuard(source, input, identity, sourceParents);
+    const max = options.maxBytes ?? 8 * 1024 * 1024;
+    if (!Number.isSafeInteger(max) || max < 0 || identity.size > max)
+      throw new PrivateAuditFault("limit");
+    const parents = auditParents(destination, options.destination ?? {}, true);
+    output = openSync(
+      destination,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      0o600,
+    );
+    partial = true;
+    const target = fstatSync(output);
+    const buffer = Buffer.alloc(65536);
+    let offset = 0;
+    while (offset < identity.size) {
+      auditGuard(source, input, identity, sourceParents);
+      auditGuard(destination, output, target, parents);
+      const count = readSync(
+        input,
+        buffer,
+        0,
+        Math.min(buffer.length, identity.size - offset),
+        offset,
+      );
+      if (!count) throw new PrivateAuditFault("changed");
+      if (writeSync(output, buffer.subarray(0, count)) !== count)
+        throw new PrivateAuditFault("short-write");
+      offset += count;
+    }
+    auditGuard(source, input, identity, sourceParents);
+    auditGuard(destination, output, target, parents);
+    if (fstatSync(input).size !== identity.size) throw new PrivateAuditFault("changed");
+    return { ok: true, value: offset };
+  } catch (error) {
+    return refused(error, partial);
+  } finally {
+    if (input !== undefined) closeSync(input);
+    if (output !== undefined) closeSync(output);
+  }
+}
+
+/** Remove an explicitly selected private artifact only after fd/path checks.
+ * The caller owns lifecycle authorization; no cached lookup authorizes unlink. */
+export function removePrivateAuditFile(
+  path: string,
+  options: PrivateAuditOptions & {
+    expectedIdentity?: Readonly<{ dev: number; ino: number; size: number }>;
+  } = {},
+): PrivateAuditResult<void> {
+  let fd: number | undefined;
+  try {
+    const parents = auditParents(path, options, false);
+    const identity = lstatSync(path);
+    regularAuditFile(identity);
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    auditGuard(path, fd, identity, parents);
+    if (options.expectedIdentity) {
+      const expected = options.expectedIdentity;
+      for (const current of [fstatSync(fd), lstatSync(path)]) {
+        if (
+          current.dev !== expected.dev ||
+          current.ino !== expected.ino ||
+          current.size !== expected.size
+        )
+          throw new PrivateAuditFault("changed");
+      }
+    }
+    unlinkSync(path);
+    return { ok: true, value: undefined };
+  } catch (error) {
+    return refused(error);
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+/** Stream complete UTF-8 JSONL records without retaining a whole source. Host
+ * inputs may be nonprivate; audit-owned artifacts require explicit private
+ * policy. Oversize bytes are discarded before decoding, not after allocation.
+ * Active files may grow; descriptor identity is not content-integrity proof. */
+export function readAuditJsonl(
+  path: string,
+  visit: (value: unknown, lineBytes: number) => boolean | void,
+  options: {
+    maxLineBytes?: number;
+    maxEvents?: number;
+    privateArtifact?: boolean;
+    ownedRoot?: string;
+  } = {},
+): AuditReadDiagnostics {
+  const out: AuditReadDiagnostics = {
+    bytesRead: 0,
+    lines: 0,
+    completeLines: 0,
+    malformedJson: 0,
+    invalidUtf8: 0,
+    oversizedLines: 0,
+    incompleteTail: false,
+    stoppedEarly: false,
+    omitted: 0,
+    omittedLowerBound: 0,
+    sourceStatus: "observed",
+    reason: null,
+  };
+  let fd: number | undefined;
+  try {
+    if (!isAbsolute(path)) throw new PrivateAuditFault("unsafe");
+    if (!options.privateArtifact) path = join(realpathSync(dirname(path)), basename(path));
+    const parents = auditParents(
+      path,
+      { ownedRoot: options.privateArtifact ? options.ownedRoot : null },
+      false,
+    );
+    const identity = lstatSync(path);
+    regularAuditFile(identity, options.privateArtifact === true);
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const guard = (): void =>
+      auditGuard(path, fd!, identity, parents, options.privateArtifact === true);
+    guard();
+    const maxLine = options.maxLineBytes ?? AUDIT_READ_LIMITS.maxLineBytes;
+    const maxEvents = options.maxEvents ?? AUDIT_READ_LIMITS.eventsPerSession;
+    if (
+      !Number.isSafeInteger(maxLine) ||
+      maxLine < 1 ||
+      maxLine > AUDIT_READ_LIMITS.maxLineBytes ||
+      !Number.isSafeInteger(maxEvents) ||
+      maxEvents < 1 ||
+      maxEvents > AUDIT_READ_LIMITS.eventsPerSession
+    )
+      throw new PrivateAuditFault("unsafe");
+    const chunk = Buffer.alloc(65536);
+    const decoder = new TextDecoder("utf-8", { fatal: true });
+    let fragments: Buffer[] = [];
+    let length = 0;
+    let overflow = false;
+    let events = 0;
+    const drop = (): void => {
+      out.omitted = (out.omitted ?? 0) + 1;
+      out.omittedLowerBound++;
+    };
+    const complete = (): boolean => {
+      if (!length) return true;
+      out.lines++;
+      out.completeLines++;
+      if (overflow) {
+        out.oversizedLines++;
+        drop();
+        return true;
+      }
+      let text: string;
+      try {
+        text = decoder.decode(Buffer.concat(fragments, length));
+      } catch {
+        out.invalidUtf8++;
+        drop();
+        return true;
+      }
+      if (!text.trim()) return true;
+      let value: unknown;
+      try {
+        value = JSON.parse(text);
+      } catch {
+        out.malformedJson++;
+        drop();
+        return true;
+      }
+      if (++events > maxEvents || visit(value, length + 1) === false) {
+        out.stoppedEarly = true;
+        out.omitted = null;
+        out.omittedLowerBound++;
+        return false;
+      }
+      return true;
+    };
+    let running = true;
+    while (running) {
+      guard();
+      const count = readSync(fd, chunk, 0, chunk.length, null);
+      if (!count) break;
+      out.bytesRead += count;
+      let start = 0;
+      for (let i = 0; i <= count; i++) {
+        if (i !== count && chunk[i] !== 10) continue;
+        const part = chunk.subarray(start, i);
+        length += part.length;
+        if (length > maxLine) {
+          overflow = true;
+          fragments = [];
+        } else if (!overflow && part.length) fragments.push(Buffer.from(part));
+        if (i < count) {
+          if (!complete()) {
+            running = false;
+            break;
+          }
+          fragments = [];
+          length = 0;
+          overflow = false;
+        }
+        start = i + 1;
+      }
+    }
+    if (!out.stoppedEarly && length) {
+      out.lines++;
+      out.incompleteTail = true;
+      if (overflow) out.oversizedLines++;
+      drop();
+    }
+    guard();
+  } catch (error) {
+    const failure = refused(error);
+    if (!failure.ok) {
+      out.sourceStatus =
+        failure.reason === "unsafe" || failure.reason === "changed" ? "invalid" : "unavailable";
+      out.reason =
+        failure.reason === "missing"
+          ? "missing"
+          : failure.reason === "unsafe"
+            ? "unsafe"
+            : failure.reason === "changed"
+              ? "changed"
+              : "unreadable";
+    }
+    out.omitted = null;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+  return out;
 }
 
 /**

@@ -18,8 +18,10 @@ command -v jq >/dev/null 2>&1 || exit 0
 
 session_id=$(printf '%s' "$payload" | jq -r '.session_id // ""' 2>/dev/null) || exit 0
 cwd=$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null) || exit 0
+# reason is categorized below, never transported as caller free text.
 reason=$(printf '%s' "$payload" | jq -r '.reason // .matcher // "other"' 2>/dev/null) || reason="other"
 [ -n "$session_id" ] || exit 0
+case "$session_id" in *[!A-Za-z0-9_-]*) exit 0 ;; esac
 [ -n "$cwd" ] || cwd=$PWD
 
 repo=$(navori_audit_repo_from_cwd "$cwd") || exit 0
@@ -35,8 +37,13 @@ log_file=$audits_root/$repo/session-$session_id.log
 
 [ -f "$log_file" ] || exit 0
 
-ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || ts=""
-printf '%s\n' "$(jq -cn --arg ts "$ts" --arg r "$reason" \
-  '{ts:$ts,event:"session-end",reason:$r}' 2>/dev/null)" >> "$log_file" 2>/dev/null
-
+# navori:include audit-log
+navori_audit_phase=SessionEnd
+case "$reason" in clear | logout | prompt_input_exit | bypass_permissions_disabled) : ;; *) reason=other ;; esac
+now_ms=$(navori_audit_now)
+[ "$now_ms" -ge 0 ] 2>/dev/null || now_ms=0
+metadata=$(printf '%s' "$payload" | jq -c --arg reason "$reason" --argjson tsMs "$now_ms" '
+  {event:"session-end",reason:$reason,tsMs:$tsMs}
+  + (if (.agent_id|type) == "string" and (.agent_id|length) <= 256 and (.agent_id|test("^[A-Za-z0-9_-]+$")) then {agentId:.agent_id} else {} end)' 2>/dev/null) || exit 0
+navori_audit_record_metadata "$metadata"
 exit 0

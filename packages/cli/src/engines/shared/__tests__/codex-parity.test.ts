@@ -32,6 +32,15 @@ const verification = (
 });
 
 describe("CodexParitySchema", () => {
+  // Covers: R8, R9
+  it("keeps the published handoff parity description without asserting live child capture", () => {
+    const row = CODEX_PARITY["hook:subagent-stop-handoff"];
+    expect(row?.state).toBe("equivalente");
+    if (row?.state !== "equivalente") throw new Error("missing handoff parity");
+    // Startup transport is covered by registration/runtime probes separately.
+    // User retained this generated-doc mechanism verbatim; no live claim added.
+    expect(row.mechanism).toBe("SubagentStop instead of PostToolUse(Agent|Task)");
+  });
   // Covers: R1
   it("accepts the three states and rejects anything else", () => {
     for (const row of [

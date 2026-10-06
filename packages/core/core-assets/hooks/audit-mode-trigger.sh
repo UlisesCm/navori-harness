@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # navori — audit-mode prompt recorder (UserPromptSubmit)
 #
-# While audit-mode is active, appends the typed prompt to the session's
-# append-only log. That is its ONLY job.
+# While audit-mode is active, transports prompt metadata to the private writer.
 #
 # It used to also detect an audit-mode invocation in the prompt text and ask
 # Claude to confirm activation. That was removed (spec 0013, R3): matching
@@ -11,10 +10,6 @@
 # feature. The asymmetry made it worse — turning it ON matched loosely, while
 # turning it OFF required the literal phrase, so sessions stayed open forever.
 # Activation is now exclusively `navori audit --start <id>`.
-#
-# Writes are O_APPEND only; the log is never re-read to be rewritten, so
-# parallel subagents cannot corrupt it and a crashed session still leaves a
-# valid (merely shorter) file.
 #
 # FAIL-OPEN ABSOLUTE: this hook runs on every prompt. Any error, any missing
 # dependency, any odd path exits 0 silently. It must never be the reason a
@@ -30,22 +25,6 @@ command -v jq >/dev/null 2>&1 || exit 0
 # navori:include extract-cmd
 # navori:include hook-input
 
-# The typed text, under whichever key the host uses.
-#
-# Reading only `.user_prompt` recorded EMPTY prompts against a real session:
-# the hook fired, matched, and appended `{"event":"prompt","prompt":""}` — the
-# field simply wasn't there. An audit whose whole job is attribution cannot
-# silently log blanks, and `jq`'s `//` makes tolerating both names free.
-#
-# Order matters, and it puts the DOCUMENTED key first (#774): "UserPromptSubmit
-# hooks receive the `prompt` field" is the contract, and `user_prompt` appears
-# nowhere in it. Preferring the undocumented spelling meant a host that shipped
-# both would have had navori read the one nobody promises anything about — an
-# inverted precedence with no upside, since the documented key is the one that
-# cannot change out from under us. `user_prompt` stays as the fallback because
-# it is what a real payload turned out to carry, and losing that is the
-# regression above.
-prompt=$(printf '%s' "$payload" | jq -r '.prompt // .user_prompt // ""' 2>/dev/null) || exit 0
 session_id=$(printf '%s' "$payload" | jq -r '.session_id // ""' 2>/dev/null) || exit 0
 cwd=$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null) || exit 0
 [ -n "$session_id" ] || exit 0
@@ -113,16 +92,14 @@ fi
 # audit-mode: one stat and out.
 [ -f "$log_file" ] || exit 0
 
-# Record the human's own words — they entered the model's context, so they cost
-# tokens and belong in the audit.
-#
-# `transcript_path` rides along because the payload is the ONLY place it is
-# stated. Without it the reader has to guess the transcript's location by
-# re-deriving Claude Code's undocumented directory encoding (see paths.ts),
-# and a guess that misses costs the whole report.
-ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || ts=""
-transcript=$(printf '%s' "$payload" | jq -r '.transcript_path // ""' 2>/dev/null) || transcript=""
-printf '%s\n' "$(jq -cn --arg ts "$ts" --arg ev "prompt" --arg p "$prompt" --arg tr "$transcript" \
-  '{ts:$ts,event:$ev,prompt:$p} + (if $tr == "" then {} else {transcript:$tr} end)' 2>/dev/null)" >> "$log_file" 2>/dev/null
-
+# Metadata only: prompt text and private transcript paths never cross the bridge.
+# navori:include audit-log
+navori_audit_phase=UserPromptSubmit
+navori_audit_now_ms=$(navori_audit_now)
+[ "$navori_audit_now_ms" -ge 0 ] 2>/dev/null || navori_audit_now_ms=0
+metadata=$(printf '%s' "$payload" | jq -c --argjson tsMs "$navori_audit_now_ms" '
+  (.prompt // .user_prompt // "") as $prompt |
+  {event:"prompt",kind:"user",length:(if ($prompt|type) == "string" then ($prompt|length) else 0 end),tsMs:$tsMs}
+  + (if (.agent_id|type) == "string" and (.agent_id|length) <= 256 and (.agent_id|test("^[A-Za-z0-9_-]+$")) then {agentId:.agent_id} else {} end)' 2>/dev/null) || exit 0
+navori_audit_record_metadata "$metadata"
 exit 0

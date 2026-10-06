@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { expandHookIncludes } from "../render/hook-includes.ts";
 import { acrossShells, type HookShell } from "./helpers/shells.ts";
 
@@ -82,16 +82,37 @@ function run(
   const root = mkdtempSync(join(tmpdir(), "navori-spool-root-"));
   const repo = basename(CWD);
   const repoDir = join(root, repo);
-  if (opts.repoDirExists) mkdirSync(repoDir, { recursive: true });
-  if (opts.logExists) writeFileSync(join(repoDir, `session-${SESSION}.log`), "", "utf-8");
+  writeFileSync(
+    join(root, "navori"),
+    `#!/bin/sh\nexec '${process.execPath}' '${resolve("dist/index.js")}' "$@"\n`,
+    { mode: 0o700 },
+  );
+  if (opts.repoDirExists) {
+    mkdirSync(repoDir, { recursive: true, mode: 0o700 });
+    writeFileSync(
+      join(repoDir, ".armed"),
+      JSON.stringify({ cwd: CWD, ts: "2026-10-05T00:00:00Z" }),
+      { mode: 0o600 },
+    );
+  }
+  if (opts.logExists)
+    writeFileSync(
+      join(repoDir, `session-${SESSION}.log`),
+      `${JSON.stringify({ event: "start", sessionId: SESSION, cwd: CWD })}\n`,
+      { mode: 0o600 },
+    );
 
   const res = spawnSync(shell, [probeFor(opts.phase)], {
     input: JSON.stringify({ session_id: SESSION, cwd: CWD }),
     encoding: "utf-8",
-    env: { ...process.env, NAVORI_AUDITS_ROOT: root },
+    env: { ...process.env, NAVORI_AUDITS_ROOT: root, PATH: `${root}:${process.env.PATH ?? ""}` },
   });
 
-  const files = existsSync(repoDir) ? readdirSync(repoDir).sort() : [];
+  const files = existsSync(repoDir)
+    ? readdirSync(repoDir)
+        .filter((name) => name !== ".armed")
+        .sort()
+    : [];
   const spoolPath = join(repoDir, `pending-${SESSION}.jsonl`);
   let spool: Record<string, unknown> | null = null;
   if (existsSync(spoolPath)) {
@@ -100,6 +121,7 @@ function run(
       tsMs: _tsMs,
       ts: _ts,
       ms: _ms,
+      eventId: _eventId,
       ...stable
     } = JSON.parse(body) as Record<string, unknown>;
     spool = stable;
@@ -116,12 +138,15 @@ describe.runIf(runsBash && hasJq)("audit-log — spool de SessionStart (#778)", 
     // Mismo formato que el log: `--start` lo absorbe concatenando, no traduciendo.
     expect(out.spool).toEqual({
       event: "hook",
-      name: "probe",
+      name: expect.stringMatching(/^unknown-[a-f0-9]{12}$/),
       phase: "SessionStart",
       verdict: "inject",
       source: "core",
-      reason: "probe",
+      reason: "unspecified",
       agentId: "orchestrator",
+      wireVersion: 1,
+      host: "claude",
+      rootSessionId: SESSION,
     });
   });
 

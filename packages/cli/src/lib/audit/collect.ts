@@ -1,21 +1,10 @@
-import {
-  closeSync,
-  existsSync,
-  fstatSync,
-  lstatSync,
-  openSync,
-  readSync,
-  readdirSync,
-  writeSync,
-} from "node:fs";
-import { constants } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, lstatSync, readSync, readdirSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import { randomUUID } from "node:crypto";
 import { NavoriError } from "../primitives/errors.ts";
 import { isoSeconds } from "./model.ts";
-import { auditsRoot, sessionLogPath } from "./paths.ts";
+import { appendPrivateAuditFile, auditsRoot, sessionLogPath } from "./paths.ts";
 
 /**
  * The OTel events receiver — audit's third source (spec 0021).
@@ -430,18 +419,6 @@ function regularLog(path: string): boolean {
   }
 }
 
-function safeLogParents(path: string): boolean {
-  try {
-    for (const dir of [auditsRoot(), dirname(path)]) {
-      const stat = lstatSync(dir);
-      if (!stat.isDirectory() || (stat.mode & 0o022) !== 0) return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function resolveSessionLog(
   sessionId: string,
   cache: Map<string, CacheEntry<string>>,
@@ -547,35 +524,26 @@ function appendEvents(
       discarded += records.length;
       continue;
     }
-    const lines: string[] = [];
-    let fd: number | undefined;
     try {
-      if (!safeLogParents(logFile)) throw new Error("unsafe audit log parent");
-      fd = openSync(logFile, constants.O_RDWR | constants.O_APPEND | constants.O_NOFOLLOW);
-      const file = fstatSync(fd);
-      const current = lstatSync(logFile);
-      if (
-        !file.isFile() ||
-        (file.mode & 0o077) !== 0 ||
-        file.dev !== current.dev ||
-        file.ino !== current.ino
-      )
-        throw new Error("unsafe or replaced audit log");
-      // Keep the bounded LRU/TTL accounting, never use it to authorize a write.
-      cacheGet(marked, sessionId);
-      const alreadyMarked = inspectLog(fd, sessionId, receiverId);
-      if (!alreadyMarked) {
-        // R4: the horizon. Same reason `hookLogFrom` exists — without it "no
-        // manual approvals" and "nobody was listening" render identically. It
-        // lives in the log rather than in the report so the answer survives the
-        // run that produced it.
-        lines.push(
-          `${JSON.stringify({ ...stamp(Date.now()), event: "otel-start", endpoint, receiverId })}\n`,
-        );
-      }
-      for (const record of records) lines.push(`${JSON.stringify(record)}\n`);
-      const content = Buffer.from(lines.join(""), "utf-8");
-      if (writeSync(fd, content) !== content.length) throw new Error("partial audit log write");
+      let alreadyMarked = false;
+      const result = appendPrivateAuditFile(logFile, (fd) => {
+        const lines: string[] = [];
+        // Keep the bounded LRU/TTL accounting, never use it to authorize a write.
+        cacheGet(marked, sessionId);
+        alreadyMarked = inspectLog(fd, sessionId, receiverId);
+        if (!alreadyMarked) {
+          // R4: the horizon. Same reason `hookLogFrom` exists — without it "no
+          // manual approvals" and "nobody was listening" render identically. It
+          // lives in the log rather than in the report so the answer survives the
+          // run that produced it.
+          lines.push(
+            `${JSON.stringify({ ...stamp(Date.now()), event: "otel-start", endpoint, receiverId })}\n`,
+          );
+        }
+        for (const record of records) lines.push(`${JSON.stringify(record)}\n`);
+        return lines.join("");
+      });
+      if (!result.ok) throw new Error(result.reason);
       written += records.length;
       if (!alreadyMarked) newSessions++;
       cacheSet(marked, sessionId, true);
@@ -583,8 +551,6 @@ function appendEvents(
       // A failed write is data lost, not a reason to stop listening: the
       // session in flight keeps exporting and the next batch may well land.
       discarded += records.length;
-    } finally {
-      if (fd !== undefined) closeSync(fd);
     }
   }
   return { written, discarded, newSessions };

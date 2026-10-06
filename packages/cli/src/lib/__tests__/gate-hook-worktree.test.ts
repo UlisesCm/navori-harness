@@ -711,9 +711,16 @@ describe.runIf(runsBash)(
       if (configText !== null) writeFileSync(join(f, "navori.config.json"), configText);
       const auditsRoot = realpathSync(mkdtempSync(join(tmpdir(), "navori-1097-audits-")));
       const repoDir = join(auditsRoot, basename(fx.main));
-      mkdirSync(repoDir);
+      mkdirSync(repoDir, { mode: 0o700 });
+      writeFileSync(
+        join(fx.binDir, "navori"),
+        `#!/bin/sh\nexec '${process.execPath}' '${resolve("dist/index.js")}' "$@"\n`,
+        { mode: 0o700 },
+      );
       const log = join(repoDir, "session-s1.log");
-      writeFileSync(log, `${JSON.stringify({ event: "start" })}\n`);
+      writeFileSync(log, `${JSON.stringify({ event: "start", sessionId: "s1", cwd: fx.main })}\n`, {
+        mode: 0o600,
+      });
       const r = spawnSync(shell, [fx.hooks["quality-gate"]], {
         cwd: fx.main,
         input: JSON.stringify({
@@ -746,8 +753,8 @@ describe.runIf(runsBash)(
         foreignGateRun(shell, JSON.stringify({ qualityGate: { fast: "bun lint" } })),
       );
       expect(out.status).toBe(0);
-      expect(out.reason).toContain("<FOREIGN>");
-      expect(out.reason).toContain("qualityGate.fast propio NO se ejecuto");
+      expect(out.reason).toBe("unspecified");
+      expect(out.stderr).toContain("<FOREIGN>");
       expect(out.stderr).toContain("declares its own qualityGate.fast");
       expect(out.stderr).toContain("NOT executed");
     });
@@ -755,8 +762,8 @@ describe.runIf(runsBash)(
     it.runIf(hasJq)("names the destination only when it has no config", () => {
       const out = acrossShells((shell) => foreignGateRun(shell, null));
       expect(out.status).toBe(0);
-      expect(out.reason).toContain("<FOREIGN>");
-      expect(out.reason).not.toContain("qualityGate.fast");
+      expect(out.reason).toBe("unspecified");
+      expect(out.stderr).toContain("<FOREIGN>");
       expect(out.stderr).not.toContain("declares its own");
     });
 
@@ -764,7 +771,8 @@ describe.runIf(runsBash)(
       for (const cfg of ["{ not json", "{}", JSON.stringify({ qualityGate: { fast: 5 } })]) {
         const out = acrossShells((shell) => foreignGateRun(shell, cfg));
         expect(out.status).toBe(0);
-        expect(out.reason).toContain("<FOREIGN>");
+        expect(out.reason).toBe("unspecified");
+        expect(out.stderr).toContain("<FOREIGN>");
         expect(out.stderr).not.toContain("declares its own");
       }
     });

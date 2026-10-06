@@ -41,8 +41,12 @@ import type { NavoriConfig } from "../config/config.ts";
  */
 
 const home = vi.hoisted(() => ({ dir: "" }));
-vi.mock(import("../primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
-vi.mock(import("../primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
+vi.mock(import("../primitives/home.ts"), () => ({
+  safeHomedir: () => home.dir,
+}));
+vi.mock(import("../primitives/home.ts"), () => ({
+  safeHomedir: () => home.dir,
+}));
 
 const { renderCodexEngine } = await import("../../engines/codex/index.ts");
 const { renderClaudeEngine } = await import("../../engines/claude/index.ts");
@@ -286,7 +290,10 @@ describe("Pi's owned-agent orphan removal", () => {
     expect(readFileSync(editedScout, "utf-8")).toBe(userEdit);
     expect(result.skipped).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ path: ".pi/agents/scout.md", status: "user-modified-skipped" }),
+        expect.objectContaining({
+          path: ".pi/agents/scout.md",
+          status: "user-modified-skipped",
+        }),
       ]),
     );
   });
@@ -401,10 +408,11 @@ describe("the inventory of delete paths is complete (#496)", () => {
     "lib/primitives/state-root.ts":
       "removes only its own exclusively created state temporary after a failed atomic write; " +
       "an existing temporary (including a symlink) is never removed",
-    "lib/audit/launchd.ts":
-      "removes the LaunchAgent plist it wrote itself (~/Library/LaunchAgents), on an explicit " +
-      "'global collect uninstall'. One fixed path composed from the label — never a user file, " +
-      "and never a directory",
+    "lib/audit/paths.ts":
+      "cleans only its exclusively created, identity-checked atomic-write temporary; " +
+      "removes consumed spool files after successful absorption and identity checks, or the " +
+      "fixed LaunchAgent plist on explicit collect uninstall. Callers authorize lifecycle; " +
+      "private ownership alone does not authorize deletion",
     "lib/render/backup.ts": "prunes navori's own backup store (~/.navori/backups) by age and size",
     "lib/primitives/lockfile.ts": "removes its own lock file",
     "lib/plan/gate.ts":
@@ -414,10 +422,6 @@ describe("the inventory of delete paths is complete (#496)", () => {
     "lib/primitives/update-notice.ts":
       "releases only its exclusively acquired empty update-notice lock directory with nonrecursive rmdirSync",
     "lib/config/global-config.ts": "deletes ~/.navori/global.json on an explicit command",
-    "commands/audit.ts":
-      "--disarm removes the `.armed` flag navori itself wrote under the audit root (#597). " +
-      "Never a user file — the audit store is navori's own. (The armed flow's consumption " +
-      "lives in the SessionStart hook, in shell, outside this inventory's reach.)",
     "lib/workspace/tickets.ts":
       "deletes a ticket from navori's workspace store on an explicit command",
     "engines/claude/global-render.ts":
@@ -560,7 +564,10 @@ describe("an orphan root that is itself a symlink (#496)", () => {
     const result = runRender(cwd, { dryRun: false, prune: true });
 
     expect(result.prunedEngineOutputs).toEqual(["AGENTS.md"]);
-    expect(result.keptEngineOutputs).toContainEqual({ path: ".codex", reason: "symlink" });
+    expect(result.keptEngineOutputs).toContainEqual({
+      path: ".codex",
+      reason: "symlink",
+    });
     // Everything the user had behind the link, files AND directories.
     expect(readFileSync(join(outside, "rules/shared.md"), "utf-8")).toBe(FIXTURES.navori);
     expect(existsSync(join(outside, "rules"))).toBe(true);
@@ -585,7 +592,10 @@ describe("an orphan root that is itself a symlink (#496)", () => {
     // The marker read THROUGH the link is CLAUDE.md's, and it made the link
     // removable. Now the link is judged as a link.
     expect(result.prunedEngineOutputs).not.toContain("AGENTS.md");
-    expect(result.keptEngineOutputs).toContainEqual({ path: "AGENTS.md", reason: "symlink" });
+    expect(result.keptEngineOutputs).toContainEqual({
+      path: "AGENTS.md",
+      reason: "symlink",
+    });
     expect(lstatSync(join(cwd, "AGENTS.md")).isSymbolicLink()).toBe(true);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(true);
   });
@@ -708,7 +718,10 @@ describe("the criterion reads the JSON notation of the marker too (#538)", () =>
       generatedSettings("99.0.0"),
     );
     expect(existsSync(path)).toBe(true);
-    expect(kept).toContainEqual({ path: ".claude/settings.json", reason: "newer" });
+    expect(kept).toContainEqual({
+      path: ".claude/settings.json",
+      reason: "newer",
+    });
   });
 
   it("keeps a HYBRID json — `$navori` present, `managed` absent — as the user's", () => {
@@ -719,7 +732,10 @@ describe("the criterion reads the JSON notation of the marker too (#538)", () =>
       `${JSON.stringify({ $navori: { managedHooks: ["x"] }, permissions: {} }, null, 2)}\n`,
     );
     expect(existsSync(path)).toBe(true);
-    expect(kept).toContainEqual({ path: ".claude/settings.json", reason: "foreign" });
+    expect(kept).toContainEqual({
+      path: ".claude/settings.json",
+      reason: "foreign",
+    });
   });
 
   it("keeps a json with no marker at all", () => {
@@ -728,7 +744,10 @@ describe("the criterion reads the JSON notation of the marker too (#538)", () =>
       `${JSON.stringify({ mine: true }, null, 2)}\n`,
     );
     expect(existsSync(path)).toBe(true);
-    expect(kept).toContainEqual({ path: ".claude/mis-cosas.json", reason: "foreign" });
+    expect(kept).toContainEqual({
+      path: ".claude/mis-cosas.json",
+      reason: "foreign",
+    });
   });
 
   it("still never deletes the per-user settings.local.json, marker or not", () => {
@@ -739,7 +758,10 @@ describe("the criterion reads the JSON notation of the marker too (#538)", () =>
       generatedSettings(readCliVersion()),
     );
     expect(existsSync(path)).toBe(true);
-    expect(kept).toContainEqual({ path: ".claude/settings.local.json", reason: "ephemeral" });
+    expect(kept).toContainEqual({
+      path: ".claude/settings.local.json",
+      reason: "ephemeral",
+    });
   });
 });
 

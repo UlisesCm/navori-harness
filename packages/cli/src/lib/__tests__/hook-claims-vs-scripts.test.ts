@@ -280,8 +280,30 @@ it("the shared planning claim distinguishes Claude's hook from Codex's advisory 
   ).toBe(true);
 });
 
+/** Distinguish handoff absence checks from opt-in markers and dedup stamps. */
+function testsHandoffExistence(source: string): boolean {
+  const tests = source.matchAll(
+    /(?:\[\[?|test|!|&&|\|\|)\s+!?\s*-(?:f|e|s)\s+("[^"]*"|'[^']*'|[^\s;\]]+)/g,
+  );
+  for (const test of tests) {
+    const target = test[1]!.replace(/^["']|["']$/g, "");
+    // Bound to this hook's handoff iterator and explicit handoff filenames;
+    // extend bindings if its iterator changes, never license arbitrary -f checks.
+    if (
+      /^\$(?:f|\{f\})$/.test(target) ||
+      /(?:^|\/)(?:impl_|review_)[^/]+\.(?:md|json)$/.test(target)
+    )
+      return true;
+  }
+  return false;
+}
+
+/** Qualify a claimed capability against its target, not unrelated audit files. */
 function hasMechanism(hookId: string, capability: Capability): boolean {
-  return capability.mechanism.test(SCRIPTS.get(hookId) ?? "");
+  const source = SCRIPTS.get(hookId) ?? "";
+  if (hookId === "subagent-stop-handoff" && capability.id === "detects a file that is missing")
+    return testsHandoffExistence(source);
+  return capability.mechanism.test(source);
 }
 
 /**
@@ -362,6 +384,19 @@ describe("hook claims match what the hook scripts can do", () => {
 describe("the capability reader discriminates between the real scripts", () => {
   const block = CAPABILITIES[0] as Capability;
   const absence = CAPABILITIES[1] as Capability;
+
+  // Covers: R8, R9
+  it.each([
+    ['[ -f "$audit_root/$repo/session-$root_id.log" ] || return 0', false],
+    ['test -e "$navori_handoff_stamp"', false],
+    ['[ ! -f "$f" ]', true],
+    ['test -s "${f}"', true],
+    ['[ -e "$dir/impl_feature.json" ]', true],
+    ['[ -f "$dir/review_feature.md" ]', true],
+  ] as const)("qualifies the absence target in %s: %s", (source, expected) => {
+    expect(absence.mechanism.test(source)).toBe(true);
+    expect(testsHandoffExistence(source)).toBe(expected);
+  });
 
   it.each([
     ["guard-destructive", true],

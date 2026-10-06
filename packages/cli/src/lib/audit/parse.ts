@@ -1,4 +1,13 @@
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  opendirSync,
+  lstatSync,
+  constants,
+  openSync,
+  fstatSync,
+  readSync,
+  closeSync,
+} from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import {
   type AgentRun,
@@ -15,6 +24,22 @@ import {
   type ToolErrors,
   type MetricEvidence,
   type SourceHealth,
+  type CodexResponseFact,
+  type CodexActivityFact,
+  type CodexUsageComponent,
+  type CodexRunFacts,
+  type AuditReadBudget,
+  type AuditReadDiagnostics,
+  type AuditLogView,
+  AUDIT_READ_LIMITS,
+  createAuditReadBudget,
+  normalizeAuditRecord,
+  retainAuditFact,
+  omitAuditFacts,
+  retainAuditPath,
+  releaseAuditFact,
+  qualifyAuditMetadataRecords,
+  normalizeCodexIdentity,
   AUTOMATIC_PERMISSION_SOURCES,
   HUMAN_PERMISSION_SOURCES,
   addTokens,
@@ -24,6 +49,8 @@ import {
   emptyToolErrors,
   isoSeconds,
 } from "./model.ts";
+import { codexIdentityFingerprint, type RegisteredCodexChild } from "./discovery.ts";
+import { projectRootFromCwd, readAuditJsonl } from "./paths.ts";
 
 /**
  * Transcript JSONL → domain model.
@@ -212,8 +239,23 @@ function validSourceRecord(rec: Rec, source: SourceHealth["source"]): boolean {
     );
   if (source === "rollout")
     return (
-      ["session_meta", "event_msg", "response_item", "turn_context"].includes(String(rec.type)) &&
-      isRec(rec.payload)
+      ["session_meta", "event_msg", "response_item", "turn_context", "token_usage_record"].includes(
+        String(rec.type),
+      ) && isRec(rec.payload)
+    );
+  if (source === "host-metadata")
+    return (
+      rec.event === "child-source" &&
+      rec.schemaVersion === 1 &&
+      rec.host === "codex" &&
+      rec.sourceVersion === "0.160.0" &&
+      [rec.threadId, rec.rootSessionId, rec.parentThreadId].every(
+        (id) => typeof id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(id),
+      ) &&
+      typeof rec.sourcePath === "string" &&
+      typeof rec.sourceHeaderFingerprint === "string" &&
+      /^[a-f0-9]{64}$/.test(rec.sourceHeaderFingerprint) &&
+      utc(rec.observedAt) !== null
     );
   if (rec.event === "hook")
     return (
@@ -240,80 +282,140 @@ function validSourceRecord(rec: Rec, source: SourceHealth["source"]): boolean {
 
 /** Reads source health without leaking malformed records or exception text. */
 function sourceHealth(
-  raw: string,
+  rows: readonly Rec[],
   source: SourceHealth["source"],
   adapter: SourceHealth["adapter"],
+  reading?: AuditReadDiagnostics,
+  normalizationLoss = 0,
+  budget?: AuditReadBudget,
 ): SourceHealth {
-  const rows = raw.split("\n");
-  let records = 0;
+  const records = reading?.lines ?? rows.length;
   let validRecords = 0;
-  let parseErrors = 0;
-  let incompleteTail = false;
+  let parseErrors = (reading?.malformedJson ?? 0) + (reading?.invalidUtf8 ?? 0);
+  const incompleteTail = reading?.incompleteTail ?? false;
   let unrecognizedRecords = 0;
-  const stamps: string[] = [];
-  for (const [index, line] of rows.entries()) {
-    if (!line.trim()) continue;
-    records++;
-    try {
-      const rec: unknown = JSON.parse(line);
-      if (
-        !isRec(rec) ||
-        (source !== "transcript" && !validSourceRecord(rec, source)) ||
-        ((rec.timestamp ?? rec.ts) !== undefined && utc(rec.timestamp ?? rec.ts) === null) ||
-        (rec.tsMs !== undefined &&
-          (typeof rec.tsMs !== "number" || !Number.isFinite(new Date(rec.tsMs).getTime()))) ||
-        ((source === "audit-log" || source === "otlp") && recordTime(rec) === null)
-      ) {
-        parseErrors++;
-        continue;
-      }
-      // Retain forward-compatible history, but it cannot certify measurement completeness.
-      if (source === "transcript" && !validSourceRecord(rec, source)) {
-        unrecognizedRecords++;
-        continue;
-      }
-      validRecords++;
-      const ts = recordTime(rec);
-      if (ts) stamps.push(ts);
-    } catch {
-      if (index === rows.length - 1 && !raw.endsWith("\n")) incompleteTail = true;
-      else parseErrors++;
+  let from: string | null = null;
+  let to: string | null = null;
+  for (const rec of rows) {
+    if (
+      !isRec(rec) ||
+      (source !== "transcript" && !validSourceRecord(rec, source)) ||
+      ((rec.timestamp ?? rec.ts) !== undefined && utc(rec.timestamp ?? rec.ts) === null) ||
+      (rec.tsMs !== undefined &&
+        (typeof rec.tsMs !== "number" || !Number.isFinite(new Date(rec.tsMs).getTime()))) ||
+      ((source === "audit-log" || source === "otlp") && recordTime(rec) === null)
+    ) {
+      parseErrors++;
+      continue;
     }
+    // Retain forward-compatible history, but it cannot certify measurement completeness.
+    if (source === "transcript" && !validSourceRecord(rec, source)) {
+      unrecognizedRecords++;
+      continue;
+    }
+    validRecords++;
+    const ts = source === "host-metadata" ? utc(rec.observedAt) : recordTime(rec);
+    if (ts && (from === null || ts < from)) from = ts;
+    if (ts && (to === null || ts > to)) to = ts;
   }
-  stamps.sort();
+  const loss = normalizationLoss > 0 || !!reading?.oversizedLines || !!reading?.stoppedEarly;
   return {
     source,
     adapter,
     sourceVersion: null,
+    normalizedOmissions: normalizationLoss,
     records,
     validRecords,
     parseErrors,
     incompleteTail,
-    from: stamps[0] ?? null,
-    to: stamps.at(-1) ?? null,
+    from,
+    to,
+    ...(reading ? { reading } : {}),
+    ...(budget ? { budget: { ...budget.diagnostics } } : {}),
     state:
-      validRecords === 0
-        ? records === 0 || (unrecognizedRecords > 0 && !parseErrors && !incompleteTail)
-          ? "unavailable"
-          : "invalid"
-        : parseErrors || incompleteTail || unrecognizedRecords
-          ? "partial"
-          : "observed",
-    reason:
-      validRecords === 0
-        ? unrecognizedRecords > 0 && !parseErrors && !incompleteTail
-          ? "incomplete-enumeration"
-          : records === 0
-            ? "not-observed"
-            : "malformed"
-        : incompleteTail
-          ? "live-tail"
-          : parseErrors
-            ? "malformed"
-            : unrecognizedRecords
-              ? "incomplete-enumeration"
-              : null,
+      reading?.sourceStatus !== undefined && reading.sourceStatus !== "observed"
+        ? reading.sourceStatus
+        : validRecords === 0
+          ? loss
+            ? "unavailable"
+            : records === 0 || (unrecognizedRecords > 0 && !parseErrors && !incompleteTail)
+              ? "unavailable"
+              : "invalid"
+          : parseErrors || incompleteTail || unrecognizedRecords || loss
+            ? "partial"
+            : "observed",
+    reason: reading?.reason
+      ? reading.reason === "missing"
+        ? "missing"
+        : "unreadable"
+      : loss
+        ? "incomplete-enumeration"
+        : validRecords === 0
+          ? unrecognizedRecords > 0 && !parseErrors && !incompleteTail
+            ? "incomplete-enumeration"
+            : records === 0
+              ? "not-observed"
+              : "malformed"
+          : incompleteTail
+            ? "live-tail"
+            : parseErrors
+              ? "malformed"
+              : unrecognizedRecords
+                ? "incomplete-enumeration"
+                : null,
   };
+}
+
+/** Retain only bounded normalized facts from the shared incremental reader. */
+function readParsedSource(
+  file: string,
+  source: SourceHealth["source"],
+  adapter: SourceHealth["adapter"],
+  budget: AuditReadBudget,
+  sessionKey: string,
+): ParsedLines {
+  const lines: Rec[] = [];
+  let normalizedLoss = 0;
+  let invalidObjects = 0;
+  if (!retainAuditPath(budget, file)) {
+    return {
+      lines,
+      parseErrors: 0,
+      linesRead: 0,
+      health: {
+        ...sourceHealth([], source, adapter),
+        state: "unavailable",
+        reason: "incomplete-enumeration",
+        normalizedOmissions: 1,
+        budget: { ...budget.diagnostics },
+      },
+    };
+  }
+  const reading = readAuditJsonl(file, (raw) => {
+    const normalized = normalizeAuditRecord(
+      adapter === "claude-transcript" ? deriveClaudeFacts(raw) : raw,
+      source,
+    );
+    normalizedLoss += normalized.omitted;
+    if (normalized.omitted) omitAuditFacts(budget, normalized.omitted);
+    if (!normalized.value) {
+      if (!normalized.omitted) invalidObjects++;
+      return;
+    }
+    if (!retainAuditFact(budget, sessionKey, normalized.value)) {
+      normalizedLoss++;
+      return false;
+    }
+    lines.push(normalized.value);
+  });
+  if (reading.stoppedEarly) omitAuditFacts(budget, 0, true);
+  const health = sourceHealth(lines, source, adapter, reading, normalizedLoss, budget);
+  health.parseErrors += invalidObjects;
+  if (invalidObjects) {
+    health.state = health.validRecords ? "partial" : "invalid";
+    health.reason = "malformed";
+  }
+  return { lines, parseErrors: health.parseErrors, linesRead: reading.lines, health };
 }
 
 /** Absence is diagnostic, not a parse error or a measured zero. */
@@ -398,38 +500,12 @@ function usageEvidence(lines: Rec[], health: SourceHealth): Record<string, Metri
 }
 
 /** Reads a JSONL file, counting rather than throwing on malformed lines. */
-export function readJsonl(file: string): ParsedLines {
-  let raw: string;
-  try {
-    raw = readFileSync(file, "utf-8");
-  } catch {
-    return {
-      lines: [],
-      parseErrors: 0,
-      linesRead: 0,
-      health: absentSource(
-        "transcript",
-        "claude-transcript",
-        existsSync(file) ? "unreadable" : "missing",
-      ),
-    };
-  }
-  const lines: Rec[] = [];
-  let parseErrors = 0;
-  let linesRead = 0;
-  for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    linesRead++;
-    try {
-      const obj: unknown = JSON.parse(line);
-      if (isRec(obj)) lines.push(obj);
-      else parseErrors++;
-    } catch {
-      parseErrors++;
-    }
-  }
-  const health = sourceHealth(raw, "transcript", "claude-transcript");
-  return { lines, parseErrors: health.parseErrors, linesRead, health };
+export function readJsonl(
+  file: string,
+  budget = createAuditReadBudget(),
+  sessionKey = basename(file),
+): ParsedLines {
+  return readParsedSource(file, "transcript", "claude-transcript", budget, sessionKey);
 }
 
 /**
@@ -526,6 +602,44 @@ export function redactExample(command: string): string {
   return out.length > EXAMPLE_MAX_CHARS ? `${out.slice(0, EXAMPLE_MAX_CHARS - 1)}…` : out;
 }
 
+/** Derive bounded Claude facts locally; supplied internal fields are never trusted. */
+function deriveClaudeFacts(raw: unknown): unknown {
+  if (!isRec(raw) || !isRec(raw.message) || !Array.isArray(raw.message.content)) return raw;
+  const content = raw.message.content.map((block: unknown): unknown => {
+    if (!isRec(block)) return block;
+    const clean = { ...block };
+    delete clean._auditClaude;
+    if (raw.type === "user" && block.type === "tool_result") {
+      const text =
+        typeof block.content === "string"
+          ? block.content
+          : arr(block.content)
+              .slice(0, 128)
+              .filter((part): part is Rec => isRec(part) && part.type === "text")
+              .map((part) => str(part.text) ?? "")
+              .join("\n");
+      clean._auditClaude = {
+        bytes: resultBytes(block.content),
+        cap: /\bstopped at its [1-9]\d*-turn limit\b/.test(text),
+        error: classifyToolError(
+          typeof block.content === "string" ? block.content : (JSON.stringify(block.content) ?? ""),
+        ),
+      };
+    } else if (raw.type === "assistant" && block.type === "tool_use" && block.name === "Bash") {
+      const command = str(path(block, "input", "command"));
+      if (command !== null) {
+        let example = redactExample(command);
+        // Technical strings retain their existing byte ceiling, including multibyte examples.
+        while (Buffer.byteLength(example) > AUDIT_READ_LIMITS.technicalBytes)
+          example = Array.from(example).slice(0, -2).join("") + "…";
+        clean._auditClaude = { example };
+      }
+    }
+    return clean;
+  });
+  return { ...raw, message: { ...raw.message, content } };
+}
+
 /** Assistant messages deduplicated by `message.id` (last line wins, as in
  *  `sumTokens`); a line with no id counts as its own message. */
 function uniqueAssistantMessages(lines: Rec[]): Rec[] {
@@ -582,14 +696,7 @@ function cappedAgentIds(lines: Rec[], uses: Rec[]): Set<string> {
         !agentUses.has(str(block.tool_use_id) ?? "")
       )
         continue;
-      const content =
-        typeof block.content === "string"
-          ? block.content
-          : arr(block.content)
-              .filter((part): part is Rec => isRec(part) && str(part.type) === "text")
-              .map((part) => str(part.text) ?? "")
-              .join("\n");
-      if (/\bstopped at its [1-9]\d*-turn limit\b/.test(content)) capped.add(agentId);
+      if (path(block, "_auditClaude", "cap") === true) capped.add(agentId);
     }
   }
   return capped;
@@ -628,13 +735,11 @@ function toolResultFacts(
       const id = str(block.tool_use_id);
       const use = id ? byId.get(id) : undefined;
       const name = (use ? str(use.name) : null) ?? "(unknown)";
-      (toolResultBytes[name] ??= []).push(resultBytes(block.content));
+      (toolResultBytes[name] ??= []).push(num(path(block, "_auditClaude", "bytes")));
       if (block.is_error !== true || !id || name !== "Bash") continue;
-      const text =
-        typeof block.content === "string" ? block.content : JSON.stringify(block.content);
-      const command = use ? str(path(use, "input", "command")) : null;
-      if (command && classifyToolError(text) === "harnessBlock") {
-        blockedCommands[id] = redactExample(command);
+      const example = use ? str(path(use, "_auditClaude", "example")) : null;
+      if (example && path(block, "_auditClaude", "error") === "harnessBlock") {
+        blockedCommands[id] = example;
       }
     }
   }
@@ -1331,9 +1436,14 @@ function countToolErrors(lines: Rec[]): ToolErrors {
     if (str(l.type) !== "user") continue;
     for (const block of arr(path(l, "message", "content"))) {
       if (!isRec(block) || block.is_error !== true) continue;
+      const error = str(path(block, "_auditClaude", "error"));
       const text =
-        typeof block.content === "string" ? block.content : JSON.stringify(block.content);
-      errors[classifyToolError(text)]++;
+        typeof block.content === "string" ? block.content : (JSON.stringify(block.content) ?? "");
+      const cause =
+        error && Object.hasOwn(errors, error)
+          ? (error as keyof ToolErrors)
+          : classifyToolError(text);
+      errors[cause]++;
     }
   }
   return errors;
@@ -1413,8 +1523,11 @@ function durationMs(first: string, last: string): number {
 }
 
 /** Parses one subagent transcript plus its sidecar meta.json. */
-export function parseAgentRun(jsonlFile: string): AgentRun | null {
-  const { lines, health } = readJsonl(jsonlFile);
+export function parseAgentRun(
+  jsonlFile: string,
+  budget = createAuditReadBudget(),
+): AgentRun | null {
+  const { lines, health } = readJsonl(jsonlFile, budget);
   if (lines.length === 0) return null;
 
   const agentId =
@@ -1431,7 +1544,43 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
   const metaFile = jsonlFile.replace(/\.jsonl$/, ".meta.json");
   if (existsSync(metaFile)) {
     try {
-      const meta: unknown = JSON.parse(readFileSync(metaFile, "utf-8"));
+      const metadataStat = lstatSync(metaFile);
+      if (
+        !metadataStat.isFile() ||
+        metadataStat.size > budget.diagnostics.limits.normalizedFactBytes ||
+        metadataStat.uid !== process.getuid?.() ||
+        !retainAuditPath(budget, metaFile)
+      ) {
+        omitAuditFacts(budget);
+        throw new Error("unqualified-agent-metadata");
+      }
+      const fd = openSync(metaFile, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      let raw: Buffer;
+      try {
+        const opened = fstatSync(fd);
+        const buffer = Buffer.alloc(budget.diagnostics.limits.normalizedFactBytes + 1);
+        const bytes = readSync(fd, buffer, 0, buffer.length, 0);
+        const current = lstatSync(metaFile);
+        if (
+          !opened.isFile() ||
+          opened.uid !== process.getuid?.() ||
+          bytes >= buffer.length ||
+          opened.dev !== current.dev ||
+          opened.ino !== current.ino ||
+          opened.dev !== metadataStat.dev ||
+          opened.ino !== metadataStat.ino
+        ) {
+          omitAuditFacts(budget);
+          throw new Error("changed-agent-metadata");
+        }
+        raw = buffer.subarray(0, bytes);
+      } finally {
+        closeSync(fd);
+      }
+      const decoded: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+      const normalized = normalizeAuditRecord(decoded, "metadata");
+      if (normalized.omitted) omitAuditFacts(budget, normalized.omitted);
+      const meta = normalized.value;
       if (isRec(meta)) {
         agentType = str(meta.agentType) ?? agentType;
         description = str(meta.description) ?? "";
@@ -1509,17 +1658,119 @@ export function parseAgentRun(jsonlFile: string): AgentRun | null {
  * or returned. Returns `unavailable` — never throws — when the file is absent or
  * unreadable.
  */
+/** Pinned provider fields keep defaults unknown and derived subsets explicit. */
+function codexResponseFact(
+  payload: Rec,
+  at: string | null,
+  model: string | null,
+): CodexResponseFact {
+  const names: Record<CodexUsageComponent, string> = {
+    inputTotal: "input_tokens",
+    ordinaryInput: "",
+    cacheRead: "cached_input_tokens",
+    cacheWrite: "cache_write_input_tokens",
+    output: "output_tokens",
+    reasoning: "reasoning_output_tokens",
+    totalTokens: "total_tokens",
+  };
+  const usage = isRec(payload.usage) ? payload.usage : {};
+  const values = {} as Record<CodexUsageComponent, number | null>;
+  const evidence = {} as Record<CodexUsageComponent, MetricEvidence>;
+  for (const component of Object.keys(names) as CodexUsageComponent[]) {
+    const raw = usage[names[component]];
+    const valid = typeof raw === "number" && Number.isSafeInteger(raw) && raw >= 0;
+    const defaultCapable = ["cacheRead", "cacheWrite", "reasoning"].includes(component);
+    values[component] = valid && (!defaultCapable || raw > 0) ? raw : null;
+    evidence[component] = {
+      state:
+        values[component] !== null
+          ? "observed"
+          : raw !== undefined && !valid
+            ? "invalid"
+            : "unavailable",
+      reason:
+        values[component] !== null
+          ? null
+          : raw !== undefined && !valid
+            ? "malformed"
+            : "not-observed",
+      source: "rollout",
+      adapter: "codex-rollout",
+      sourceVersion: "0.160.0",
+    };
+  }
+  const invalidate = (component: CodexUsageComponent): void => {
+    values[component] = null;
+    evidence[component] = { ...evidence[component], state: "invalid", reason: "malformed" };
+  };
+  for (const component of ["cacheRead", "cacheWrite"] as const) {
+    const raw = usage[names[component]];
+    if (values.inputTotal === 0 && (raw === undefined || raw === 0)) {
+      values[component] = 0;
+      evidence[component] = { ...evidence.inputTotal };
+    } else if (values.inputTotal !== null && typeof raw === "number" && raw > values.inputTotal)
+      invalidate(component);
+  }
+  if (
+    values.output === 0 &&
+    (usage.reasoning_output_tokens === undefined || usage.reasoning_output_tokens === 0)
+  ) {
+    values.reasoning = 0;
+    evidence.reasoning = { ...evidence.output };
+  } else if (
+    values.output !== null &&
+    typeof usage.reasoning_output_tokens === "number" &&
+    usage.reasoning_output_tokens > values.output
+  )
+    invalidate("reasoning");
+  if (values.inputTotal !== null && values.cacheRead !== null && values.cacheWrite !== null) {
+    if (values.cacheRead + values.cacheWrite > values.inputTotal) {
+      invalidate("cacheRead");
+      invalidate("cacheWrite");
+    } else {
+      values.ordinaryInput = values.inputTotal - values.cacheRead - values.cacheWrite;
+      evidence.ordinaryInput = { ...evidence.inputTotal };
+    }
+  }
+  if (values.inputTotal !== null && values.output !== null) {
+    const total = values.inputTotal + values.output;
+    if (
+      !Number.isSafeInteger(total) ||
+      (usage.total_tokens !== undefined && usage.total_tokens !== total)
+    )
+      invalidate("totalTokens");
+    else {
+      values.totalTokens = total;
+      evidence.totalTokens = { ...evidence.inputTotal };
+    }
+  }
+  return {
+    threadId: str(payload.thread_id)!,
+    rootSessionId: str(payload.session_id)!,
+    turnId: str(payload.turn_id)!,
+    responseId: str(payload.response_id)!,
+    at,
+    model,
+    values,
+    evidence,
+  };
+}
+
+/** Sanitized response and activity facts require explicit pinned owner IDs, never file order. */
 function readCodexRollout(
   rolloutFile: string | null | undefined,
   sessionId: string,
+  selected?: RegisteredCodexChild["binding"],
+  budget = createAuditReadBudget(),
 ): NonNullable<SessionAudit["rollout"]> {
   if (!rolloutFile) return { status: "unavailable", reason: "missing" };
-  let raw: string;
-  try {
-    raw = readFileSync(rolloutFile, "utf-8");
-  } catch {
-    return { status: "unavailable", reason: existsSync(rolloutFile) ? "unreadable" : "missing" };
-  }
+  const parsed = readParsedSource(rolloutFile, "rollout", "codex-rollout", budget, sessionId);
+  if (parsed.health.state === "unavailable" && parsed.health.reading?.sourceStatus !== "observed")
+    return {
+      status: "unavailable",
+      reason: existsSync(rolloutFile) ? "unreadable" : "missing",
+      health: parsed.health,
+    };
   const facts: CodexRolloutFacts = {
     status: "parsed",
     cliVersion: null,
@@ -1529,22 +1780,151 @@ function readCodexRollout(
     firstTs: null,
     lastTs: null,
     parseErrors: 0,
-    health: sourceHealth(raw, "rollout", "codex-rollout"),
+    health: parsed.health,
   };
-  const ownStamps: string[] = [];
-  for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    let rec: unknown;
-    try {
-      rec = JSON.parse(line);
-    } catch {
-      facts.parseErrors++;
-      continue;
+  let ownFrom: string | null = null;
+  let ownTo: string | null = null;
+  if (facts.health?.state === "invalid")
+    return { status: "unavailable", reason: "unreadable", health: facts.health };
+  const rows = parsed.lines.filter((row) => isRec(row.payload));
+  const headers = rows.filter((row) => row.type === "session_meta");
+  const metadata = headers[0]?.payload;
+  const decoded = isRec(metadata)
+    ? normalizeCodexIdentity(
+        metadata,
+        typeof metadata.cwd === "string" ? resolve(projectRootFromCwd(metadata.cwd)) : "",
+      )
+    : null;
+  const owner =
+    decoded?.status === "verified" &&
+    (decoded.identity.threadId === sessionId ||
+      (!selected &&
+        decoded.identity.rootSessionId === sessionId &&
+        decoded.identity.relation === "root")) &&
+    (!selected || selected.sourceHeaderFingerprint === codexIdentityFingerprint(decoded.identity))
+      ? decoded.identity
+      : null;
+  const consistent =
+    owner &&
+    headers.every((row) => {
+      const payload = row.payload as Rec;
+      const normalized = normalizeCodexIdentity(
+        payload,
+        typeof payload.cwd === "string" ? resolve(projectRootFromCwd(payload.cwd)) : "",
+      );
+      return (
+        normalized.status === "verified" &&
+        codexIdentityFingerprint(normalized.identity) === codexIdentityFingerprint(owner)
+      );
+    });
+  if (!consistent) {
+    facts.health = {
+      ...facts.health!,
+      state: "unavailable",
+      reason: decoded?.status === "unsupported" ? "unsupported-component" : "identity-conflict",
+    };
+    return facts;
+  }
+  const { checkout: _checkout, ...identity } = owner;
+  facts.identity = identity;
+  facts.cliVersion = owner.sourceVersion;
+  const turnOwners = new Map<string, Set<string>>();
+  const callOwners = new Map<string, Set<string>>();
+  const addOwner = (
+    map: Map<string, Set<string>>,
+    id: string | null,
+    thread: string | null,
+  ): void => {
+    if (!id || !thread) return;
+    const owners = map.get(id) ?? new Set<string>();
+    if (!owners.has(thread) && !retainAuditFact(budget, sessionId, { id, thread })) {
+      facts.health = { ...facts.health!, state: "partial", reason: "incomplete-enumeration" };
+      return;
     }
-    if (!isRec(rec)) {
-      facts.parseErrors++;
-      continue;
+    owners.add(thread);
+    map.set(id, owners);
+  };
+  for (const row of rows) {
+    const payload = row.payload as Rec;
+    if (
+      row.type === "token_usage_record" &&
+      payload.session_id === owner.rootSessionId &&
+      str(payload.response_id) &&
+      str(payload.thread_id)
+    )
+      addOwner(turnOwners, str(payload.turn_id), str(payload.thread_id));
+    if (
+      row.type === "event_msg" &&
+      ["item_started", "item_completed"].includes(String(payload.type)) &&
+      str(payload.thread_id) &&
+      str(payload.turn_id) &&
+      isRec(payload.item)
+    ) {
+      addOwner(turnOwners, str(payload.turn_id), str(payload.thread_id));
+      if (
+        ["CommandExecution", "DynamicToolCall", "CollabAgentToolCall", "McpToolCall"].includes(
+          String(payload.item.type),
+        )
+      )
+        addOwner(callOwners, str(payload.item.id), str(payload.thread_id));
     }
+    if (
+      row.type === "event_msg" &&
+      [
+        "collab_agent_spawn_begin",
+        "collab_agent_interaction_begin",
+        "collab_waiting_begin",
+        "collab_close_begin",
+        "collab_resume_begin",
+      ].includes(String(payload.type))
+    )
+      addOwner(callOwners, str(payload.call_id), str(payload.sender_thread_id));
+  }
+  const matches = (map: Map<string, Set<string>>, id: string | null): boolean => {
+    const owners = id ? map.get(id) : undefined;
+    return owners?.size === 1 && owners.has(owner.threadId);
+  };
+  const inherited = (map: Map<string, Set<string>>, id: string | null): boolean => {
+    const owners = id ? map.get(id) : undefined;
+    return owners?.size === 1 && !owners.has(owner.threadId);
+  };
+  const activity: CodexActivityFact[] = [];
+  const activityNames = new Set<string>();
+  const addActivity = (fact: CodexActivityFact): void => {
+    const key = fact.name ? `${fact.kind}:${fact.name}` : null;
+    if (key && !activityNames.has(key)) {
+      if (!retainAuditFact(budget, sessionId, { key })) {
+        facts.health = { ...facts.health!, state: "partial", reason: "incomplete-enumeration" };
+        return;
+      }
+      activityNames.add(key);
+    }
+    if (retainAuditFact(budget, sessionId, fact)) activity.push(fact);
+    else facts.health = { ...facts.health!, state: "partial", reason: "incomplete-enumeration" };
+  };
+  const unknown = { tools: false, turns: false, models: false };
+  const modelByTurn = new Map<string, Set<string>>();
+  for (const row of rows)
+    if (row.type === "turn_context") {
+      const payload = row.payload as Rec;
+      if (matches(turnOwners, str(payload.turn_id)) && str(payload.model)) {
+        const models = modelByTurn.get(str(payload.turn_id)!) ?? new Set<string>();
+        if (
+          !models.has(str(payload.model)!) &&
+          !retainAuditFact(budget, sessionId, {
+            turn: str(payload.turn_id),
+            model: str(payload.model),
+          })
+        ) {
+          facts.health = { ...facts.health!, state: "partial", reason: "incomplete-enumeration" };
+          continue;
+        }
+        models.add(str(payload.model)!);
+        modelByTurn.set(str(payload.turn_id)!, models);
+      }
+    }
+  facts.responses = [];
+  for (const rec of rows) {
     const ts = utc(rec.timestamp);
     if (ts) {
       if (facts.firstTs === null || ts < facts.firstTs) facts.firstTs = ts;
@@ -1554,34 +1934,99 @@ function readCodexRollout(
     if (!payload) continue;
     const type = str(rec.type);
     const inner = str(payload.type);
+    let owned = false;
+    if (
+      type === "token_usage_record" &&
+      payload.thread_id === owner.threadId &&
+      payload.session_id !== owner.rootSessionId
+    ) {
+      facts.health = { ...facts.health!, state: "invalid", reason: "identity-conflict" };
+      continue;
+    }
     if (type === "session_meta") {
       facts.cliVersion ??= str(payload.cli_version);
+      owned = payload.id === owner.threadId;
     } else if (type === "turn_context") {
       const model = str(payload.model);
-      if (model) facts.models[model] = (facts.models[model] ?? 0) + 1;
+      owned = matches(turnOwners, str(payload.turn_id));
+      if (owned && model)
+        addActivity({ kind: "model", id: str(payload.turn_id)!, name: model, at: ts });
+      else if (!inherited(turnOwners, str(payload.turn_id))) unknown.models = true;
     } else if (type === "event_msg" && inner === "task_started") {
-      facts.turns++;
+      owned = matches(turnOwners, str(payload.turn_id));
+      if (owned) addActivity({ kind: "turn", id: str(payload.turn_id)!, name: null, at: ts });
+      else if (!inherited(turnOwners, str(payload.turn_id))) unknown.turns = true;
     } else if (
       type === "response_item" &&
       (inner === "function_call" || inner === "custom_tool_call")
     ) {
       const name = str(payload.name);
-      if (name) facts.toolCalls[name] = (facts.toolCalls[name] ?? 0) + 1;
+      owned = matches(callOwners, str(payload.call_id));
+      if (owned && name) addActivity({ kind: "tool", id: str(payload.call_id)!, name, at: ts });
+      else if (!inherited(callOwners, str(payload.call_id))) unknown.tools = true;
+    } else if (
+      type === "token_usage_record" &&
+      payload.thread_id === owner.threadId &&
+      payload.session_id === owner.rootSessionId &&
+      str(payload.response_id) &&
+      str(payload.turn_id)
+    ) {
+      owned = true;
+      const models = modelByTurn.get(str(payload.turn_id)!);
+      const response = codexResponseFact(payload, ts, models?.size === 1 ? [...models][0]! : null);
+      if (retainAuditFact(budget, sessionId, response)) facts.responses.push(response);
+      else facts.health = { ...facts.health!, state: "partial", reason: "incomplete-enumeration" };
+    } else if (type === "event_msg") {
+      owned =
+        ((inner === "item_started" || inner === "item_completed") &&
+          payload.thread_id === owner.threadId) ||
+        matches(turnOwners, str(payload.turn_id));
     }
-    if (
-      ts &&
-      ((type === "session_meta" && (payload.id ?? payload.session_id) === sessionId) ||
-        (payload.thread_id ?? payload.session_id) === sessionId)
-    )
-      ownStamps.push(ts);
+    if (ts && owned) {
+      if (ownFrom === null || ts < ownFrom) ownFrom = ts;
+      if (ownTo === null || ts > ownTo) ownTo = ts;
+    }
   }
+  facts.activity = activity;
+  if (Object.values(unknown).some(Boolean) && facts.health?.state === "observed")
+    facts.health = { ...facts.health, state: "partial", reason: "ownership-unknown" };
+  for (const fact of activity) {
+    if (fact.kind === "turn") facts.turns++;
+    if (fact.kind === "model" && fact.name)
+      facts.models[fact.name] = (facts.models[fact.name] ?? 0) + 1;
+    if (fact.kind === "tool" && fact.name)
+      facts.toolCalls[fact.name] = (facts.toolCalls[fact.name] ?? 0) + 1;
+  }
+  const activityEvidence = (family: "tools" | "turns" | "models"): MetricEvidence => {
+    const kind = family === "tools" ? "tool" : family === "turns" ? "turn" : "model";
+    const measured = activity.some((fact) => fact.kind === kind);
+    return {
+      ...facts.health!,
+      sourceVersion: owner.sourceVersion,
+      state: measured
+        ? unknown[family] || facts.health!.state !== "observed"
+          ? "partial"
+          : "observed"
+        : "unavailable",
+      reason: measured
+        ? unknown[family]
+          ? "ownership-unknown"
+          : facts.health!.reason
+        : "ownership-unknown",
+    };
+  };
+  facts.activityAvailability = {
+    tools: activityEvidence("tools"),
+    turns: activityEvidence("turns"),
+    models: activityEvidence("models"),
+  };
   // A file with lines but nothing parseable is not a rollout we can speak for.
   facts.parseErrors = facts.health?.parseErrors ?? facts.parseErrors;
   if (facts.health?.state === "invalid")
     return { status: "unavailable", reason: "unreadable", health: facts.health };
-  ownStamps.sort();
-  if (ownStamps[0] && ownStamps.at(-1))
-    facts.ownWindow = { from: ownStamps[0], to: ownStamps.at(-1)! };
+  if (ownFrom && ownTo) facts.ownWindow = { from: ownFrom, to: ownTo };
+  for (const row of parsed.lines) releaseAuditFact(budget, row);
+  facts.health!.budget = { ...budget.diagnostics };
   if (facts.health) facts.health.sourceVersion = facts.cliVersion;
   return facts;
 }
@@ -1601,26 +2046,21 @@ export function parseCodexSession(
   logFile: string,
   rolloutFile?: string | null,
   recoveredHost?: "recovered:rollout",
+  projection?: AuditLogView & { children: RegisteredCodexChild[] },
 ): SessionAudit | null {
-  let raw: string;
-  try {
-    raw = readFileSync(logFile, "utf-8");
-  } catch {
-    return null;
-  }
-  let start: Rec | null = null;
-  for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const parsed: unknown = JSON.parse(line);
-      if (isRec(parsed) && str(parsed.event) === "start") {
-        start = parsed;
-        break;
-      }
-    } catch {
-      // A malformed line is skipped: the `start` record may come later.
-    }
-  }
+  const budget = projection?.budget ?? createAuditReadBudget();
+  const log = projection
+    ? projection
+    : (() => {
+        const parsed = readParsedSource(logFile, "audit-log", "audit-log", budget, sessionId);
+        return {
+          records: parsed.lines,
+          reading: parsed.health.reading,
+          normalizationLoss: parsed.health.normalizedOmissions,
+          budget,
+        };
+      })();
+  const start = log.records.find((record) => record.event === "start") ?? null;
   if (
     !start ||
     (str(start.host) !== "codex" &&
@@ -1663,11 +2103,68 @@ export function parseCodexSession(
     hostSkills: [],
     host: "codex",
     unavailable: "transcript",
-    rollout: readCodexRollout(rolloutFile, sessionId),
+    rollout: readCodexRollout(rolloutFile, sessionId, undefined, budget),
     parseErrors: 0,
     linesRead: 0,
   };
-  attachHookEvents(session, logFile);
+  for (const child of projection?.children ?? []) {
+    const rollout =
+      child.sourceStatus === "verified" && child.binding
+        ? readCodexRollout(child.binding.sourcePath, child.threadId, child.binding, budget)
+        : {
+            status: "unavailable" as const,
+            reason: "missing" as const,
+            health: {
+              ...absentSource("rollout", "codex-rollout", "missing"),
+              reason:
+                child.sourceStatus === "identity-conflict"
+                  ? ("identity-conflict" as const)
+                  : child.sourceStatus === "unsupported"
+                    ? ("unsupported-component" as const)
+                    : child.sourceStatus === "wrong-format"
+                      ? ("malformed" as const)
+                      : ("missing" as const),
+            },
+          };
+    const measured = codexRunFacts(
+      child.threadId,
+      sessionId,
+      child.parentThreadId,
+      child.capturedAt,
+      rollout,
+    );
+    session.agents.push({
+      agentId: child.threadId,
+      agentType: "codex-child",
+      model: null,
+      description: "",
+      startedAt: rollout.status === "parsed" ? (rollout.ownWindow?.from ?? "") : "",
+      endedAt: rollout.status === "parsed" ? (rollout.ownWindow?.to ?? "") : "",
+      durationMs: 0,
+      spawnDepth: child.depth ?? 0,
+      tokens: emptyTokens(),
+      startupTokens: 0,
+      overlapsWith: [],
+      toolCounts: rollout.status === "parsed" ? { ...rollout.toolCalls } : {},
+      skillsRead: [],
+      skills: [],
+      skillsDiscarded: 0,
+      skillAttributionRecords: 0,
+      mcpCalls: {},
+      mcpReach: {},
+      mcpBarredTokens: {},
+      hookEvents: [],
+      frictionEvents: 0,
+      toolErrors: emptyToolErrors(),
+      repeatedCommands: {},
+      classifierExemptBash: 0,
+      verdict: null,
+      turns: rollout.status === "parsed" ? rollout.turns : undefined,
+      codex: measured,
+      availability: codexRunAvailability(measured, rollout),
+    });
+  }
+  attachHookEvents(session, logFile, log);
   // Codex payloads carry no agent id on tool phases, so every event landed on the
   // orchestrator; the window is the log's own first and last instant.
   if (session.rollout?.status === "parsed") {
@@ -1703,12 +2200,6 @@ export function parseCodexSession(
     session.orchestrator.turns = session.rollout.turns;
     session.orchestrator.toolCounts = { ...session.rollout.toolCalls };
     session.orchestrator.models = { ...session.rollout.models };
-    if (session.rollout.health?.state === "observed")
-      session.rollout.health = {
-        ...session.rollout.health,
-        state: "partial",
-        reason: "ownership-unknown",
-      };
   }
   const rolloutHealth =
     session.rollout?.health ??
@@ -1721,17 +2212,88 @@ export function parseCodexSession(
   session.parseErrors += rolloutHealth?.parseErrors ?? 0;
   session.linesRead += rolloutHealth?.records ?? 0;
   session.availability ??= {};
-  for (const key of Object.keys(emptyTokens()))
-    session.availability[`tokens.${key}`] = {
-      state: "unsupported",
-      reason: "unsupported-component",
-      source: "rollout",
-      adapter: "codex-rollout",
-      sourceVersion: session.rollout?.status === "parsed" ? session.rollout.cliVersion : null,
-    };
-  session.availability.tools = rolloutHealth ?? absentSource("rollout", "codex-rollout", "missing");
+  session.orchestrator.codex = codexRunFacts(
+    session.rollout?.status === "parsed"
+      ? (session.rollout.identity?.threadId ?? sessionId)
+      : sessionId,
+    session.rollout?.status === "parsed"
+      ? (session.rollout.identity?.rootSessionId ?? sessionId)
+      : sessionId,
+    session.rollout?.status === "parsed"
+      ? (session.rollout.identity?.parentThreadId ?? null)
+      : null,
+    null,
+    session.rollout!,
+  );
+  session.availability = {
+    ...session.availability,
+    ...codexRunAvailability(session.orchestrator.codex, session.rollout!),
+  };
   session.availability.startupTokens = { ...session.availability["tokens.cacheCreation"]! };
   return session;
+}
+
+/** Private provider facts remain unaggregated until report-wide deduplication. */
+function codexRunFacts(
+  threadId: string,
+  rootSessionId: string,
+  parentThreadId: string | null,
+  capturedAt: string | null,
+  rollout: SessionAudit["rollout"],
+): CodexRunFacts {
+  const source = rollout?.health ?? absentSource("rollout", "codex-rollout", "missing");
+  const components: CodexUsageComponent[] = [
+    "inputTotal",
+    "ordinaryInput",
+    "cacheRead",
+    "cacheWrite",
+    "output",
+    "reasoning",
+    "totalTokens",
+  ];
+  return {
+    threadId,
+    rootSessionId,
+    parentThreadId,
+    capturedAt,
+    sourceVersion: rollout?.status === "parsed" ? rollout.cliVersion : null,
+    source,
+    responses: rollout?.status === "parsed" ? (rollout.responses ?? []) : [],
+    activity: rollout?.status === "parsed" ? (rollout.activity ?? []) : [],
+    usage: Object.fromEntries(components.map((key) => [key, null])) as CodexRunFacts["usage"],
+    usageAvailability: Object.fromEntries(
+      components.map((key): [CodexUsageComponent, MetricEvidence] => [
+        key,
+        { ...source, state: "unavailable", reason: "not-observed" },
+      ]),
+    ) as CodexRunFacts["usageAvailability"],
+  };
+}
+
+/** Missing ownership is never converted to an observed zero. */
+function codexRunAvailability(
+  facts: CodexRunFacts,
+  rollout: SessionAudit["rollout"],
+): Record<string, MetricEvidence> {
+  const unknown: MetricEvidence = {
+    ...facts.source,
+    state: "unavailable",
+    reason:
+      facts.source.state === "observed" || facts.source.state === "partial"
+        ? "ownership-unknown"
+        : facts.source.reason,
+  };
+  return {
+    tools:
+      rollout?.status === "parsed" ? (rollout.activityAvailability?.tools ?? unknown) : unknown,
+    turns:
+      rollout?.status === "parsed" ? (rollout.activityAvailability?.turns ?? unknown) : unknown,
+    models:
+      rollout?.status === "parsed" ? (rollout.activityAvailability?.models ?? unknown) : unknown,
+    ...Object.fromEntries(Object.keys(emptyTokens()).map((key) => [`tokens.${key}`, unknown])),
+    startupTokens: unknown,
+    durationMs: unknown,
+  };
 }
 
 /** Fills `overlapsWith` by comparing agent windows pairwise. */
@@ -1746,8 +2308,8 @@ export function markOverlaps(agents: AgentRun[]): void {
 }
 
 /** Parses a full session: the orchestrator transcript plus every subagent. */
-export function parseSession(mainJsonl: string): SessionAudit {
-  const { lines, parseErrors, linesRead, health } = readJsonl(mainJsonl);
+export function parseSession(mainJsonl: string, budget = createAuditReadBudget()): SessionAudit {
+  const { lines, parseErrors, linesRead, health } = readJsonl(mainJsonl, budget);
   const sessionId =
     str(lines.find((l) => str(l.sessionId))?.sessionId) ??
     basename(mainJsonl).replace(/\.jsonl$/, "");
@@ -1826,10 +2388,20 @@ export function parseSession(mainJsonl: string): SessionAudit {
   const agents: AgentRun[] = [];
   const subagentsDir = mainJsonl.replace(/\.jsonl$/, "") + "/subagents";
   if (existsSync(subagentsDir)) {
-    for (const f of readdirSync(subagentsDir)) {
-      if (!f.startsWith("agent-") || !f.endsWith(".jsonl")) continue;
-      const run = parseAgentRun(join(subagentsDir, f));
-      if (run) agents.push(run);
+    const directory = opendirSync(subagentsDir);
+    try {
+      for (let entry = directory.readSync(); entry; entry = directory.readSync()) {
+        const f = entry.name;
+        if (!retainAuditPath(budget, join(subagentsDir, f))) {
+          omitAuditFacts(budget, 1, true);
+          break;
+        }
+        if (!f.startsWith("agent-") || !f.endsWith(".jsonl")) continue;
+        const run = parseAgentRun(join(subagentsDir, f), budget);
+        if (run) agents.push(run);
+      }
+    } finally {
+      directory.closeSync();
     }
   }
   agents.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
@@ -2020,14 +2592,21 @@ function pairedActiveIntervals(
 }
 
 /** Attach source-qualified hooks without inventing missing execution intervals. */
-export function attachHookEvents(session: SessionAudit, logFile: string): void {
+export function attachHookEvents(
+  session: SessionAudit,
+  logFile: string,
+  supplied?: AuditLogView,
+): void {
   const events: HookEvent[] = [];
   /** `api_request` skills, held until the loop ends: attribution needs the cards. */
   const hostSkills: Array<{ skill: string; agent: string | null }> = [];
-  let raw: string;
-  try {
-    raw = readFileSync(logFile, "utf-8");
-  } catch {
+  const budget = supplied?.budget ?? createAuditReadBudget();
+  const parsed = supplied
+    ? null
+    : readParsedSource(logFile, "audit-log", "audit-log", budget, session.sessionId);
+  const rows = supplied?.records ?? parsed!.lines;
+  const reading = supplied?.reading ?? parsed?.health.reading;
+  if (reading?.sourceStatus !== "observed") {
     const missing = absentSource(
       "audit-log",
       "audit-log",
@@ -2048,57 +2627,84 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
     return;
   }
 
-  const otlpLines: string[] = [];
-  const hookLines: string[] = [];
-  for (const line of raw.split("\n")) {
-    try {
-      const rec: unknown = JSON.parse(line);
-      (isRec(rec) &&
-      ["otel-start", "tool_decision", "tool_result", "api_request"].includes(String(rec.event))
-        ? otlpLines
-        : hookLines
-      ).push(line);
-    } catch {
-      hookLines.push(line);
+  const qualifiedMetadata = qualifyAuditMetadataRecords(rows, budget, session.sessionId);
+  const otlpLines: Rec[] = [];
+  const hookLines: Rec[] = [];
+  const metadataLines: Rec[] = [];
+  for (const rec of qualifiedMetadata.records) {
+    if (rec.event === "child-source") {
+      metadataLines.push(rec);
+      continue;
     }
+    (["otel-start", "tool_decision", "tool_result", "api_request"].includes(String(rec.event))
+      ? otlpLines
+      : hookLines
+    ).push(rec);
   }
   const health = sourceHealth(
-    hookLines.join("\n") + (raw.endsWith("\n") ? "\n" : ""),
+    hookLines,
     "audit-log",
     "audit-log",
+    reading
+      ? {
+          ...reading,
+          lines:
+            hookLines.length +
+            reading.malformedJson +
+            reading.invalidUtf8 +
+            reading.oversizedLines +
+            Number(reading.incompleteTail),
+        }
+      : undefined,
+    supplied?.normalizationLoss ?? parsed?.health.normalizedOmissions ?? 0,
+    budget,
   );
   session.sources = { ...session.sources, "audit-log": health };
+  if (metadataLines.length)
+    session.sources["host-metadata"] = sourceHealth(
+      metadataLines,
+      "host-metadata",
+      null,
+      reading
+        ? { ...reading, lines: metadataLines.length, malformedJson: 0, invalidUtf8: 0 }
+        : undefined,
+      supplied?.normalizationLoss ?? parsed?.health.normalizedOmissions ?? 0,
+      budget,
+    );
   session.availability = { ...session.availability, hooks: health };
-  const records = raw.split("\n").flatMap((line): Rec[] => {
-    try {
-      const rec: unknown = JSON.parse(line);
-      return isRec(rec) && validSourceRecord(rec, "audit-log") ? [rec] : [];
-    } catch {
-      return [];
-    }
-  });
+  health.metadataConflicts = qualifiedMetadata.conflicts;
+  health.unsupportedWire = qualifiedMetadata.unsupported;
+  if (qualifiedMetadata.conflicts || qualifiedMetadata.unsupported) {
+    health.state = hookLines.some((record) => record.event === "hook") ? "partial" : "unavailable";
+    health.reason = qualifiedMetadata.conflicts ? "identity-conflict" : "unsupported-component";
+  }
+  const records = hookLines.filter((rec) => validSourceRecord(rec, "audit-log"));
   // Historical records without IDs inherit this session's scoped log, never an explicit child.
   const isRootRecord = (rec: Rec): boolean =>
+    (rec.rootSessionId === undefined || rec.rootSessionId === session.sessionId) &&
     (rec.sessionId === undefined || rec.sessionId === session.sessionId) &&
     (rec.agentId === undefined || rec.agentId === ORCHESTRATOR_OWNER);
   const otlp = otlpLines.length
-    ? sourceHealth(otlpLines.join("\n") + (raw.endsWith("\n") ? "\n" : ""), "otlp", "otlp")
+    ? sourceHealth(
+        otlpLines,
+        "otlp",
+        "otlp",
+        reading
+          ? { ...reading, lines: otlpLines.length, malformedJson: 0, invalidUtf8: 0 }
+          : undefined,
+        supplied?.normalizationLoss ?? parsed?.health.normalizedOmissions ?? 0,
+        budget,
+      )
     : absentSource("otlp", "otlp", "missing");
   session.parseErrors += health.parseErrors + otlp.parseErrors;
   session.linesRead += health.records + otlp.records;
   session.sources.otlp = otlp;
   session.availability.permissions = otlp;
-  const ownStamps = raw.split("\n").flatMap((line): string[] => {
-    try {
-      const rec: unknown = JSON.parse(line);
-      if (!isRec(rec) || !validSourceRecord(rec, "audit-log") || !isRootRecord(rec)) return [];
-      if (!["start", "stop", "session-end", "prompt", "hook"].includes(String(rec.event)))
-        return [];
-      const ts = recordTime(rec);
-      return ts ? [ts] : [];
-    } catch {
-      return [];
-    }
+  const ownStamps = records.flatMap((rec): string[] => {
+    if (!isRootRecord(rec)) return [];
+    if (!["start", "stop", "session-end", "prompt", "hook"].includes(String(rec.event))) return [];
+    const ts = recordTime(rec);
+    return ts ? [ts] : [];
   });
   const trustedPrior = ["observed", "partial"].includes(
     session.availability.wallClockMs?.state ?? "",
@@ -2121,19 +2727,7 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
   };
   session.availability.activeMs = active.evidence;
 
-  for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    let rec: Rec;
-    try {
-      const parsed: unknown = JSON.parse(line);
-      if (!isRec(parsed)) continue;
-      rec = parsed;
-      if (!validSourceRecord(rec, "audit-log")) continue;
-    } catch {
-      // A malformed line is counted, never thrown on: the log is append-only
-      // and a crashed session leaves a valid, merely shorter file.
-      continue;
-    }
+  for (const rec of [...records, ...otlpLines]) {
     // The `start` record is written once, by `audit --start`, before any hook
     // has run. It carries the only statement of which navori marked and shaped
     // this session; a log from before the field existed simply leaves it null.
@@ -2279,7 +2873,18 @@ export function attachHookEvents(session: SessionAudit, logFile: string): void {
     const owner = ownerOf(event, session);
     owner.push(event);
   }
-  for (const agent of session.agents) agent.availability = { ...agent.availability, hooks: health };
+  for (const agent of session.agents)
+    agent.availability = {
+      ...agent.availability,
+      hooks:
+        session.host === "codex"
+          ? {
+              ...health,
+              state: agent.hookEvents.length ? "partial" : "unavailable",
+              reason: agent.hookEvents.length ? "ownership-unknown" : "not-observed",
+            }
+          : health,
+    };
   if (
     session.sealed &&
     session.availability?.wallClockMs?.state === "partial" &&

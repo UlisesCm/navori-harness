@@ -178,7 +178,7 @@ describe("codegraph-projectpath-mismatch", () => {
         },
       }),
     );
-    writeFileSync(path, lines.join("\n"));
+    writeFileSync(path, `${lines.join("\n")}\n`);
     return path;
   }
 
@@ -187,17 +187,24 @@ describe("codegraph-projectpath-mismatch", () => {
     const repo = "/work/repo";
     const wt = "/work/repo/.claude/worktrees/agent-1";
     const path = transcript(repo, [repo, `${repo}/`, wt, undefined]);
-    const stats = mineCodegraphProjectPaths([{ sessionId: "s1", transcript: path }]);
-    expect(stats).toEqual({ calls: 4, mismatched: 1, paths: [wt] });
+    const stats = mineCodegraphProjectPaths([
+      { sessionId: "s1", host: "claude", transcript: path },
+    ]).value;
+    expect(stats).toMatchObject({ calls: 4, mismatched: 1 });
+    expect(stats.paths).toHaveLength(1);
+    expect(stats.paths[0]).toMatch(/^path-[a-f0-9]{16}$/);
     const [signal] = codegraphProjectPathMismatch(stats, "en");
     expect(signal?.kind).toBe("codegraph-projectpath-mismatch");
-    expect(signal?.evidence).toContain(wt);
+    expect(signal?.evidence).toContain(stats.paths[0]);
+    expect(JSON.stringify(stats)).not.toContain(wt);
   });
 
   // Covers: R32
   it("is silent when every call matches the cwd", () => {
     const path = transcript("/work/repo", ["/work/repo", undefined]);
-    const stats = mineCodegraphProjectPaths([{ sessionId: "s1", transcript: path }]);
+    const stats = mineCodegraphProjectPaths([
+      { sessionId: "s1", host: "claude", transcript: path },
+    ]).value;
     expect(codegraphProjectPathMismatch(stats, "es")).toEqual([]);
   });
 });

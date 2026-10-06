@@ -384,15 +384,29 @@ describe.runIf(runsBash && hasJq)(
       // (`navori_audit_repo_from_cwd`) — it has to match the repo the payload
       // names, not an arbitrary label, or the log write silently misses.
       const repoName = repo.split("/").pop() as string;
-      mkdirSync(join(auditsRoot, repoName), { recursive: true });
+      mkdirSync(join(auditsRoot, repoName), { recursive: true, mode: 0o700 });
+      writeFileSync(
+        join(auditsRoot, "navori"),
+        `#!/bin/sh\nexec '${process.execPath}' '${resolve("dist/index.js")}' "$@"\n`,
+        { mode: 0o700 },
+      );
       const logPath = join(auditsRoot, repoName, `session-${SESSION}.log`);
-      writeFileSync(logPath, "", "utf-8");
+      writeFileSync(
+        logPath,
+        `${JSON.stringify({ event: "start", sessionId: SESSION, cwd: repo })}\n`,
+        { mode: 0o600 },
+      );
 
       const file = writeBody("audit fixture body");
       const r = spawnSync("bash", [hookPath], {
         input: JSON.stringify({ ...bash(`gh pr comment 5 --body-file ${file}`), cwd: repo }),
         encoding: "utf-8",
-        env: { ...process.env, CLAUDE_PROJECT_DIR: repo, NAVORI_AUDITS_ROOT: auditsRoot },
+        env: {
+          ...process.env,
+          CLAUDE_PROJECT_DIR: repo,
+          NAVORI_AUDITS_ROOT: auditsRoot,
+          PATH: `${auditsRoot}:${process.env.PATH ?? ""}`,
+        },
       });
       expect(r.status).toBe(0);
       expect(JSON.parse(r.stdout).hookSpecificOutput.permissionDecision).toBe("ask");
@@ -401,7 +415,11 @@ describe.runIf(runsBash && hasJq)(
         (() => {
           const dir = mkdtempSync(join(tmpdir(), "navori-cdc-empty-jsonl-"));
           const p = join(dir, "empty.jsonl");
-          writeFileSync(p, "", "utf-8");
+          writeFileSync(
+            p,
+            `${JSON.stringify({ type: "user", sessionId: SESSION, cwd: repo, message: { role: "user", content: "" } })}\n`,
+            { mode: 0o600 },
+          );
           return p;
         })(),
       );

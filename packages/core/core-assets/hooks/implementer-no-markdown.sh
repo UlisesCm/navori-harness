@@ -32,6 +32,8 @@
 # A closed Node/JSON exception below classifies submitted source text only: it
 # assumes a trusted Node runtime and filesystem. A .json symlink/hardlink is
 # not proof of the physical target. Unsupported syntax retains the old block.
+# The closed Python Path exception likewise parses data, never runs submitted
+# code, and is not a general sandbox or a symlink/physical-target guarantee.
 # The contract in `implementer.md` is the rule; this catches the slip, not the
 # workaround.
 #
@@ -196,6 +198,94 @@ OPEN_WRITE="(^|[^[:alnum:]_])open[[:space:]]*\\([^)]*,[[:space:]]*(mode[[:space:
 if printf '%s' "$interpreter_cmd" | grep -qE "$INTERPRETER" &&
   printf '%s' "$interpreter_cmd" | grep -qiE "$MD_LITERAL" &&
   printf '%s' "$interpreter_cmd" | grep -qE "${WRITE_API}|${FILE_WRITE}|${OPEN_WRITE}"; then
+  # A fixed trusted parser recognizes only this complete, bounded Path rewrite.
+  # All failures retain the original denial; no submitted Python is executed.
+  IFS= read -r -d '' navori_python_analyzer <<'NAVORI_PYTHON_ANALYZER' || :
+import ast
+import re
+import sys
+
+def require(value):
+    if not value:
+        raise ValueError("unrecognized Path rewrite")
+
+def literal(node):
+    require(isinstance(node, ast.Constant) and type(node.value) is str)
+    return node.value
+
+def assignment(node):
+    require(isinstance(node, ast.Assign) and len(node.targets) == 1)
+    require(isinstance(node.targets[0], ast.Name))
+    return node.targets[0].id, node.value
+
+def method(node, owner, name):
+    require(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute))
+    require(isinstance(node.func.value, ast.Name) and node.func.value.id == owner)
+    require(node.func.attr == name)
+    return node
+
+def utf8(call):
+    require(len(call.keywords) == 1 and call.keywords[0].arg == "encoding")
+    require(literal(call.keywords[0].value) == "utf-8")
+
+try:
+    command = sys.stdin.buffer.read(16385)
+    require(len(command) <= 16384)
+    command = command.decode("utf-8", errors="strict")
+    heredoc = re.fullmatch(r"[ \t]*python3[ \t]+-[ \t]+<<(['\"])([A-Za-z_][A-Za-z_0-9]*)\1[ \t]*\n(.*)\n\2\n?", command, re.S)
+    if heredoc:
+        source = heredoc.group(3)
+    else:
+        # Single shell quotes are literal; double quotes may not expand or
+        # escape anything. Unsupported shell quoting is deliberately denied.
+        invocation = re.fullmatch(r"[ \t]*python3[ \t]+-c[ \t]+(?:'([^']*)'|\"([^\"\\$`]*)\")[ \t]*", command, re.S)
+        require(invocation is not None)
+        source = invocation.group(1) if invocation.group(1) is not None else invocation.group(2)
+    tree = ast.parse(source, mode="exec")
+    pending = [(tree, 0)]
+    nodes = 0
+    while pending:
+        node, depth = pending.pop()
+        nodes += 1
+        require(nodes <= 4096 and depth <= 16)
+        pending.extend((child, depth + 1) for child in ast.iter_child_nodes(node))
+    body = tree.body
+    require(len(body) >= 5)
+    imported = body[0]
+    require(isinstance(imported, ast.ImportFrom) and imported.module == "pathlib" and imported.level == 0)
+    require(len(imported.names) == 1 and imported.names[0].name == "Path" and imported.names[0].asname is None)
+    path, constructor = assignment(body[1])
+    require(path != "Path" and isinstance(constructor, ast.Call))
+    require(isinstance(constructor.func, ast.Name) and constructor.func.id == "Path")
+    require(len(constructor.args) == 1 and not constructor.keywords)
+    destination = literal(constructor.args[0])
+    require(destination and not any(char in destination for char in "\x00\r\n"))
+    require(not destination.lower().endswith((".md", ".mdx")))
+    text, read = assignment(body[2])
+    require(text not in (path, "Path"))
+    read = method(read, path, "read_text")
+    require(not read.args)
+    utf8(read)
+    for statement in body[3:-1]:
+        target, replacement = assignment(statement)
+        require(target == text)
+        replacement = method(replacement, text, "replace")
+        require(len(replacement.args) == 2 and not replacement.keywords)
+        for argument in replacement.args:
+            literal(argument)
+    require(isinstance(body[-1], ast.Expr))
+    write = method(body[-1].value, path, "write_text")
+    require(len(write.args) == 1 and isinstance(write.args[0], ast.Name) and write.args[0].id == text)
+    utf8(write)
+    print("ALLOW_PATH_REWRITE")
+except Exception:
+    sys.exit(1)
+NAVORI_PYTHON_ANALYZER
+  navori_python_safe=$(printf '%s' "$cmd" | python3 -c "$navori_python_analyzer" 2>/dev/null) || navori_python_safe=""
+  if [ "$navori_python_safe" = "ALLOW_PATH_REWRITE" ]; then
+    navori_audit_reason="reescritura Path no-md clasificada"
+    exit 0
+  fi
   # The program is fixed hook code. The submitted command enters only on
   # stdin as data; never eval it. A nonzero analyzer, missing node, empty or
   # malformed output all fall through to the existing exit-2 block.

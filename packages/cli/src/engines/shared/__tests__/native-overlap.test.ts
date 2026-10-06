@@ -55,6 +55,28 @@ const keyOf = (kind: string, id: string): string => `${kind}:${id}`;
 
 const IGUAL: CodexParity = { state: "igual", enforcing: false };
 
+// Covers: R8, R9
+it("adds startup observation on the same script with the verified native producer floor", () => {
+  const rows = CODEX_HOOK_REGISTRATIONS.filter((row) => row.script === "subagent-stop-handoff");
+  expect(rows).toHaveLength(2);
+  expect(rows[0]?.registration).toEqual({
+    event: "SubagentStop",
+    args: "codex",
+    timeout: 15,
+    statusMessage: "navori: handoff check",
+    minVersion: "0.133.0",
+  });
+  expect(rows[1]?.registration).toEqual({
+    event: "SubagentStart",
+    args: "codex capture-start",
+    timeout: 15,
+    statusMessage: "navori: child capture",
+    minVersion: "0.160.0",
+    late: true,
+  });
+  expect(CODEX_HOOK_REGISTRATIONS.at(-1)).toBe(rows[1]);
+});
+
 /** A `limite-codex` parity with a valid source, to mutate in negative cases. */
 function limiteParity(
   source: { url: string; codexVersion: string; verifiedAt: string } = {

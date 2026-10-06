@@ -308,6 +308,20 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
       late: true,
     },
   },
+  {
+    // Spec 0042 R8/R9: additive observation-only startup, never a handoff scan.
+    // Append after every published core/plugin group to preserve trust indexes.
+    // This new group remains untrusted until the operator approves it.
+    script: "subagent-stop-handoff",
+    registration: {
+      event: "SubagentStart",
+      args: "codex capture-start",
+      timeout: 15,
+      statusMessage: "navori: child capture",
+      minVersion: "0.160.0",
+      late: true,
+    },
+  },
 ];
 
 /** One Codex hook ready to serialize into `.codex/config.toml`. */

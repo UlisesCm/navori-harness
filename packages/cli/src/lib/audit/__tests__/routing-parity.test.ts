@@ -250,6 +250,7 @@ function materialize(root: string): void {
 function minedFor(root: string, repo?: string): MinedSession[] {
   return SESSIONS.filter((s) => repo === undefined || s.repo === repo).map((s) => ({
     sessionId: s.id,
+    host: "claude",
     cwd: s.cwd,
     transcript: s.hasTranscript ? join(root, PROJECTS, `-fx-${s.repo}`, `${s.id}.jsonl`) : null,
   }));
@@ -311,15 +312,15 @@ const PINNED_ASKED: Record<string, number> = { implementer: 1, reviewer: 1 };
 describe("search routing: parity with mine-search-routing.py", () => {
   // Covers: R67
   it("reproduces the script's counts for each repo", () => {
-    const alpha = mineSearchRouting(minedFor(root, "alpha"));
-    const beta = mineSearchRouting(minedFor(root, "beta"));
+    const alpha = mineSearchRouting(minedFor(root, "alpha")).value;
+    const beta = mineSearchRouting(minedFor(root, "beta")).value;
     expect(alpha).toEqual(PINNED_ROUTING_ALPHA);
     expect(beta).toEqual(PINNED_ROUTING_BETA);
   });
 
   // Covers: R67
   it("publishes the quotients with the script's denominators", () => {
-    const m = flattenSearchRouting(mineSearchRouting(minedFor(root)));
+    const m = flattenSearchRouting(mineSearchRouting(minedFor(root)).value);
     const c = (k: string): number => (PINNED_ROUTING_ALPHA as Record<string, number>)[k] ?? 0;
     const b = (k: string): number => (PINNED_ROUTING_BETA as Record<string, number>)[k] ?? 0;
     const good = c("wrapper") + c("nativo") + b("wrapper") + b("nativo");
@@ -365,7 +366,7 @@ describe("search routing: classification rules", () => {
 describe("activation: parity with mine-activation.py", () => {
   // Covers: R67
   it("reproduces the script's opportunities and hits per trigger", () => {
-    const stats = mineActivation(minedFor(root));
+    const stats = mineActivation(minedFor(root)).value;
     for (const { id } of ACTIVATION_TRIGGERS) {
       const [opp, hit] = PINNED_ACTIVATION[id] ?? [-1, -1];
       expect([stats.opp[id] ?? 0, stats.hit[id] ?? 0], id).toEqual([opp, hit]);
@@ -376,7 +377,7 @@ describe("activation: parity with mine-activation.py", () => {
 
   // Covers: R67
   it("counts a session whose transcript rotated as unavailable, not as zero", () => {
-    const stats = mineActivation(minedFor(root, "alpha"));
+    const stats = mineActivation(minedFor(root, "alpha")).value;
     expect(stats.unavailable).toBe(1);
     expect(flattenActivation(stats)["activation.sessions.unavailable"]).toBe(1);
   });

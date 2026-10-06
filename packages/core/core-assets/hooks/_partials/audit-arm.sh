@@ -21,7 +21,8 @@
 # authoritative engine selected by the shared hook input adapter.
 #
 # Fail-open and silent: returns 0 ONLY when audit-mode was actually started, so
-# the caller can announce it; every other path returns 1 and changes nothing.
+# the caller can announce it. A validated flag stays consumed if start fails;
+# insecure, malformed or missing flags remain unchanged.
 # Safe under `set -euo pipefail` and `set +e` alike.
 navori_audit_consume_armed() {
   narm_sid=$1
@@ -35,7 +36,6 @@ navori_audit_consume_armed() {
   narm_file=$narm_root/$narm_repo/.armed
   [ -f "$narm_file" ] || return 1
   command -v navori >/dev/null 2>&1 || return 1
-  rm -f "$narm_file" 2>/dev/null || true
-  navori audit --start "$narm_sid" --cwd "$narm_cwd" --host "$narm_host" >/dev/null 2>&1 || return 1
+  NAVORI_AUDITS_ROOT="$narm_root" navori audit --consume-arm --start "$narm_sid" --cwd "$narm_cwd" --host "$narm_host" --root "$narm_root" >/dev/null 2>&1 || return 1
   return 0
 }

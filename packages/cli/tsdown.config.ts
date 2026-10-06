@@ -1,4 +1,5 @@
 import { defineConfig } from "tsdown";
+import { bundleCommentsPlugin } from "./scripts/bundle-comments.ts";
 
 // Migrated from tsup in #890. `outputOptions.codeSplitting: false` disables
 // tsdown's default (always-on) code splitting so the CLI ships as a single
@@ -13,8 +14,10 @@ export default defineConfig({
   minify: true,
   deps: { alwaysBundle: [/./] },
   banner: { js: "#!/usr/bin/env node" },
+  plugins: [bundleCommentsPlugin()],
   outputOptions: {
     codeSplitting: false,
     entryFileNames: "index.js",
+    comments: { legal: true, annotation: false, jsdoc: false },
   },
 });

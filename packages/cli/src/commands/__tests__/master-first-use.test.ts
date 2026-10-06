@@ -272,10 +272,11 @@ describe("master commands record CLI audit events (R55, R70)", () => {
     delete process.env.CODEX_SESSION_ID;
     delete process.env.CODEX_THREAD_ID;
     const log = sessionLogPath(repoFromCwd(cwd), "master-events");
-    mkdirSync(dirname(log), { recursive: true });
+    mkdirSync(dirname(log), { recursive: true, mode: 0o700 });
     writeFileSync(
       log,
       `${JSON.stringify({ event: "start", host: "claude", sessionId: "master-events", cwd })}\n`,
+      { mode: 0o600 },
     );
     return log;
   }
@@ -377,7 +378,10 @@ describe("master-plan skill — every `navori master …` form is exercised (R59
       'usa `navori master close --abandon --reason "x"` y `navori master template ux`',
     );
     expect(forms).toEqual([
-      expect.objectContaining({ sub: "close", flags: ["--abandon", "--reason"] }),
+      expect.objectContaining({
+        sub: "close",
+        flags: ["--abandon", "--reason"],
+      }),
       expect.objectContaining({ sub: "template", positional: "ux", flags: [] }),
     ]);
   });
