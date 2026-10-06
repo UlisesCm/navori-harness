@@ -1,6 +1,6 @@
 # Claude first — Requirements
 
-**Fecha:** 2026-09-30 · **Estado:** especificación; implementación no autorizada todavía.
+**Fecha:** 2026-09-30 · **Estado:** implementada (2026-10-06). Cierre en #1238; el veredicto medido de R43 sigue en #1177 ([claude-first-verificacion](../../docs/research/claude-first-verificacion.md)).
 **Base del checkout:** `01f3ac97` (`origin/main`).
 **Evidencia:** [evidence.md](evidence.md). Contiene la auditoría del 2026-09-30 sobre 127
 sesiones, el inventario de capacidades nativas por verificar y la investigación del curso
