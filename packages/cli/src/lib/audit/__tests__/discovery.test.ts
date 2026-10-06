@@ -289,6 +289,52 @@ describe("discovery: transcript path recorded by the hook (#489)", () => {
     rmSync(elsewhere, { recursive: true, force: true });
   });
 
+  it("verifies a transcript whose identity record follows the host's prelude", () => {
+    // Claude Code 2.1.x opens transcripts with bookkeeping records that carry
+    // no cwd; the identity lives on the first `attachment`/`user` record.
+    const elsewhere = mkdtempSync(join(tmpdir(), "navori-transcripts-"));
+    const file = join(elsewhere, "prelude.jsonl");
+    const prelude = [
+      { type: "last-prompt", leafUuid: "u1", sessionId: "sess-pre" },
+      { type: "ai-title", aiTitle: "a title", sessionId: "sess-pre" },
+      { type: "permission-mode", permissionMode: "auto", sessionId: "sess-pre" },
+    ];
+    const identity = { type: "attachment", sessionId: "sess-pre", cwd: "/some/repo/path" };
+    writeFileSync(
+      file,
+      [...prelude, identity].map((rec) => JSON.stringify(rec)).join("\n") + "\n",
+      "utf-8",
+    );
+
+    markWithTranscript("sess-pre", "/some/repo/path", file);
+    const [found] = findMarkedSessions(REPO);
+    expect(found?.sourceStatus).toBe("verified");
+    expect(found?.adapter).toBe("claude-transcript");
+    rmSync(elsewhere, { recursive: true, force: true });
+  });
+
+  // The 32nd record always decides: 31 prelude records still reach the identity, 32 do not.
+  it.each([
+    [31, "verified"],
+    [32, "wrong-format"],
+  ] as const)("with %i prelude records the source is %s", (length, status) => {
+    const id = `sess-prelude-${length}`;
+    const elsewhere = mkdtempSync(join(tmpdir(), "navori-transcripts-"));
+    const file = join(elsewhere, `${id}.jsonl`);
+    const prelude = Array.from({ length }, () => ({ type: "queue-operation" }));
+    const identity = { type: "user", sessionId: id, cwd: "/some/repo/path" };
+    writeFileSync(
+      file,
+      [...prelude, identity].map((rec) => JSON.stringify(rec)).join("\n") + "\n",
+      "utf-8",
+    );
+
+    markWithTranscript(id, "/some/repo/path", file);
+    const [found] = findMarkedSessions(REPO, { session: id });
+    expect(found?.sourceStatus).toBe(status);
+    rmSync(elsewhere, { recursive: true, force: true });
+  });
+
   it("falls back to the search when the recorded path no longer exists", () => {
     // A transcript can be pruned or moved; a stale record must not win.
     markWithTranscript("sess-gone", "/some/repo/path", join(tmpdir(), "definitely-not-here.jsonl"));

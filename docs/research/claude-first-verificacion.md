@@ -282,6 +282,48 @@ y cargado realmente. No se retrotrae al merge. La medición posterior deberá re
 re-despachos que vuelven a alcanzar el límite y `CHANGES_REQUESTED` posteriores a parciales para
 aplicar, sin alterar, los disparadores pre-registrados de >25% y >10%.
 
+## Cierre T44 — comparación formal diferida a la spec 0042
+
+Revisado el 2026-10-06 sobre `main` `3eee19d7` (navori@0.11.2, reporte `schemaVersion` 11). T44 se
+cierra **sin veredicto de R43**: la comparación formal no se puede ejecutar con el minero actual y
+se reprograma en #1177. Los criterios pre-registrados no cambian.
+
+**Bloqueos verificados:**
+
+1. **`--compare` y `--snapshot` están deshabilitados a propósito.** Con el reporte en schema 11,
+   `navori audit --compare` sale con `snapshot-schema-unavailable: schema11-snapshot-pending`
+   (`lib/audit/snapshot.ts`, `commands/audit.ts`). Se reactivan con la 0042 T11 (snapshots con
+   cohortes y disponibilidad).
+2. **El presupuesto de lectura trunca el rango.** `factsPerReport` = 100,000 se agota antes de leer
+   las sesiones de un rango de tamaño T9: sobre 2026-09-21..2026-10-01 el descubrimiento solo
+   recupera 31 de las 95 sesiones de la base; el resto queda sin encabezado legible. Además, con el presupuesto marcado
+   como truncado, cada sesión queda en `tools.state: partial` (`incomplete-enumeration`) y el
+   reporte de rango la excluye: en 2026-10-04..2026-10-06 las dos sesiones Claude se leen completas
+   y aun así `sessions.transcript`, el cache read y `hooks.perBashCall` salen nulos.
+3. **El tamaño mínimo no se alcanza.** R43 exige n ≥ 100 lanzamientos de `implementer` por ventana;
+   con el bloqueo 2 ninguna ventana actual llega a ese n.
+
+**Corregido en este cierre:** el descubrimiento marcaba como `wrong-format` todo transcript de
+Claude Code 2.1.28x, porque exigía que la primera línea fuera el registro de identidad. Esos
+transcripts abren con hasta 9 registros de servicio sin `cwd` (`last-prompt`, `ai-title`,
+`permission-mode`, `queue-operation`, `file-history-snapshot`…) y la identidad llega en un
+registro `attachment` o `user`. Con la corrección, la ventana 2026-10-02 vuelve a verificar 10
+sesiones (antes 1) y 2026-10-03..2026-10-06, 13 (antes 2). Las cifras preliminares de arriba se
+tomaron antes de esta regresión y siguen siendo la única lectura descriptiva disponible.
+
+**R28** queda cubierto por las pruebas estáticas de T17 y T29 (`hooks-per-bash.test.ts`); la cifra
+medida de `hooks.perBashCall` se anota cuando la comparación formal sea posible.
+
+**Inicio de la ventana de R41:** `2026-10-04T18:53:45.984Z`, sesión Claude `53b30c6e`, la primera en
+este repo con el harness 0.11.2 renderizado (`navoriRendered: "0.11.2"`) después de que el release
+que integra 0039 en `main` se mergeara (#1199, `2026-10-04T02:03:29Z`). Las sesiones intermedias
+registraron un render 0.11.0 y no cuentan.
+
+**Para cerrar el veredicto (#1177):** cuando la 0042 T11 reactive las instantáneas y el reporte de
+rango no excluya sesiones por truncado, recalcular la base T9 con el minero vigente (mismo minero en
+ambas ventanas), medir la banda de ruido con dos ventanas base consecutivas y comparar una ventana
+posterior a la de R41 con n ≥ 100.
+
 ## Resultados de las sondas (T2)
 
 Host Claude Code **2.1.287**, `claude -p`, repo scratch. Costo total aproximado: **USD 0.47** (10
