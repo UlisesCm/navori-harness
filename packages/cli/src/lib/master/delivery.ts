@@ -63,13 +63,15 @@ export function activeDeliverySnapshot(
   };
 }
 
-/** Bind a recorder entry to current authority and the full qualified definition. */
-export function captureDeliveryCriterion(
+/**
+ * Validate current authority and the full preparation projection ONCE for a source, then
+ * bind any number of its criteria. Callers with several criteria per plan reuse the result
+ * instead of re-running the projection per criterion.
+ */
+export function deliveryCriterionCapture(
   cwd: string,
   source: NonNullable<Workplan["source"]>,
-  id: string,
-  command: string,
-): DeliveryEvidenceBinding {
+): (id: string, command: string) => DeliveryEvidenceBinding {
   deliveryPartAuthority(cwd, source.partId);
   const snapshot = activeDeliverySnapshot(cwd);
   const result = checkDeliveryPreparation(cwd, snapshot.input);
@@ -101,23 +103,44 @@ export function captureDeliveryCriterion(
     queue.identity !== deliveryQueueIdentity(queue)
   )
     throw new Error("delivery authority is absent or stale");
-  const qualifiedId = source.criterionMap[id];
   const part = result.parts.parts.find(
     (entry) => entry.id === source.partId && entry.deliveryId === source.deliveryId,
   );
-  const criterion = part?.acceptance.find((entry) => `${part.id}.${entry.id}` === qualifiedId);
-  if (!qualifiedId || !criterion || criterion.method === "manual" || criterion.command !== command)
-    throw new Error("delivery executable criterion is absent or changed");
-  return {
-    policy: "deliveries-content-v1",
-    authorityGeneration: queue.generation,
-    stagePath: relative(realpathSync(cwd), realpathSync(snapshot.stagePath)).split(sep).join("/"),
-    sourceIdentity: deliveryDigest(source),
-    baselineIdentity,
-    queueIdentity: queue.identity,
-    qualifiedId,
-    criterionIdentity: deliveryDigest(criterion),
+  const stagePath = relative(realpathSync(cwd), realpathSync(snapshot.stagePath))
+    .split(sep)
+    .join("/");
+  const generation = queue.generation;
+  return (id, command) => {
+    const qualifiedId = source.criterionMap[id];
+    const criterion = part?.acceptance.find((entry) => `${part.id}.${entry.id}` === qualifiedId);
+    if (
+      !qualifiedId ||
+      !criterion ||
+      criterion.method === "manual" ||
+      criterion.command !== command
+    )
+      throw new Error("delivery executable criterion is absent or changed");
+    return {
+      policy: "deliveries-content-v1",
+      authorityGeneration: generation,
+      stagePath,
+      sourceIdentity: deliveryDigest(source),
+      baselineIdentity,
+      queueIdentity: queue.identity,
+      qualifiedId,
+      criterionIdentity: deliveryDigest(criterion),
+    };
   };
+}
+
+/** Bind a recorder entry to current authority and the full qualified definition. */
+export function captureDeliveryCriterion(
+  cwd: string,
+  source: NonNullable<Workplan["source"]>,
+  id: string,
+  command: string,
+): DeliveryEvidenceBinding {
+  return deliveryCriterionCapture(cwd, source)(id, command);
 }
 
 /** Read-only D2 preparation; reports blockers rather than silently approving. */
@@ -136,6 +159,7 @@ export function checkActiveDelivery(
 /** Read and validate source and design inputs without changing operator files. */
 export function preparedDelivery(cwd: string): {
   stagePath: string;
+  stageSlug: string;
   state: DeliveryState;
   checked: NonNullable<ReturnType<typeof checkDeliveryPreparation>["parts"]>;
   sourceDigest: string;
@@ -148,6 +172,7 @@ export function preparedDelivery(cwd: string): {
     throw new Error(`deliveries preparation blocked: ${result.blockers.join("; ")}`);
   return {
     stagePath: context.stagePath,
+    stageSlug: context.stageSlug,
     state: context.state,
     checked: result.parts,
     sourceDigest: result.sourceDigest,
@@ -211,7 +236,11 @@ export function deliveryPartAuthority(
   return { ...context, part };
 }
 
-/** Fingerprint only this physical stage's lifecycle metadata, not the global receipt. */
+/**
+ * Fingerprint the whole worktree, excluding only this stage's own `state.json`
+ * and `STATUS.md` (the lifecycle files this tooling rewrites). Any other change
+ * (code, MASTER.md, sibling stages, the global receipt) alters the fingerprint.
+ */
 export function deliveryProofTree(
   cwd: string,
   stagePath: string,
@@ -231,14 +260,35 @@ export function writeDeliveryState(cwd: string, stagePath: string, state: Delive
   writeFileAtomic(path, `${JSON.stringify(DeliveryStateSchema.parse(state), null, 2)}\n`);
 }
 
+/** Re-read authority inputs right before a write; abort if anything moved since the first read. */
+function recheckPrepared(
+  cwd: string,
+  before: string,
+  identity: string,
+  operation: string,
+): ReturnType<typeof preparedDelivery> {
+  const fresh = preparedDelivery(cwd);
+  if (
+    deliveryDigest(fresh.state) !== before ||
+    deliveryDigest([
+      fresh.checked.digest,
+      fresh.sourceDigest,
+      fresh.designDigest,
+      fresh.masterDigest,
+    ]) !== identity
+  )
+    throw new Error(`delivery changed before ${operation}`);
+  return fresh;
+}
+
 /** Record explicit operator review of the exact current source/design contract. */
 export function approveDeliveryBaseline(
   cwd: string,
   approvedBy: string,
 ): { identity: string; unchanged: boolean } {
   if (approvedBy !== "user") throw new Error("baseline requires --approved-by user");
-  const { stagePath, state, checked, sourceDigest, designDigest, masterDigest } =
-    preparedDelivery(cwd);
+  const { state, checked, sourceDigest, designDigest, masterDigest } = preparedDelivery(cwd);
+  const before = deliveryDigest(state);
   if (state.phase === "closed") throw new Error("closed deliveries are immutable");
   const identity = deliveryDigest([checked.digest, sourceDigest, designDigest, masterDigest]);
   if (state.baseline?.identity === identity) return { identity, unchanged: true };
@@ -246,7 +296,8 @@ export function approveDeliveryBaseline(
     throw new Error(
       "changed baseline requires explicit queue revision; existing authorization retained",
     );
-  state.baseline = {
+  const fresh = recheckPrepared(cwd, before, identity, "baseline approval");
+  fresh.state.baseline = {
     identity,
     contractDigest: checked.digest,
     sourceDigest,
@@ -255,7 +306,7 @@ export function approveDeliveryBaseline(
     approvedBy: "user",
     approvedAt: new Date().toISOString(),
   };
-  writeDeliveryState(cwd, stagePath, state);
+  writeDeliveryState(cwd, fresh.stagePath, fresh.state);
   return { identity, unchanged: false };
 }
 
@@ -268,8 +319,8 @@ export function authorizeDeliveryQueue(
   transition: "replacement" | "continuation" = "replacement",
 ): { identity: string; unchanged: boolean } {
   if (approvedBy !== "user") throw new Error("queue requires --approved-by user");
-  const { stagePath, state, checked, sourceDigest, designDigest, masterDigest } =
-    preparedDelivery(cwd);
+  const { state, checked, sourceDigest, designDigest, masterDigest } = preparedDelivery(cwd);
+  const before = deliveryDigest(state);
   if (state.phase === "closed") throw new Error("closed deliveries are immutable");
   const baselineIdentity = deliveryDigest([
     checked.digest,
@@ -300,9 +351,14 @@ export function authorizeDeliveryQueue(
     throw new Error("continuation requires current generation-bearing authority");
   const generation = continuing ? state.authorityGeneration! : (state.authorityGeneration ?? 0) + 1;
   const foundationId = checked.design.ui === "new" ? checked.design.foundationPartId : null;
+  // Every part verified here would lose its review when a replacement bumps the generation.
+  const verified = new Set<string>();
   for (const prerequisite of delivery.dependsOn) {
     const required = checked.deliveries.find((entry) => entry.id === prerequisite)!;
-    for (const id of required.partIds) effectiveDeliveryPart(cwd, id);
+    for (const id of required.partIds) {
+      effectiveDeliveryPart(cwd, id);
+      verified.add(id);
+    }
   }
   if (
     foundationId &&
@@ -311,6 +367,7 @@ export function authorizeDeliveryQueue(
   ) {
     try {
       effectiveDeliveryPart(cwd, foundationId);
+      verified.add(foundationId);
     } catch {
       throw new Error("product slices await implemented foundation evidence");
     }
@@ -318,14 +375,26 @@ export function authorizeDeliveryQueue(
   for (const id of partIds) {
     const part = checked.parts.find((item) => item.id === id)!;
     for (const dependency of part.dependsOn)
-      if (!partIds.includes(dependency)) effectiveDeliveryPart(cwd, dependency);
+      if (!partIds.includes(dependency)) {
+        effectiveDeliveryPart(cwd, dependency);
+        verified.add(dependency);
+      }
   }
+  if (!continuing && verified.size)
+    throw new Error(
+      `replacement would invalidate the verified prerequisite parts ${[...verified].join(", ")} ` +
+        "and the dependent queue could never dispatch; use --transition continuation",
+    );
   const identity = deliveryDigest([baselineIdentity, deliveryId, partIds, generation]);
   if (continuing && state.authorization?.identity === identity)
     return { identity, unchanged: true };
-  if (state.authorization)
-    state.authorizationHistory = [...(state.authorizationHistory ?? []), state.authorization];
-  state.authorization = {
+  const fresh = recheckPrepared(cwd, before, baselineIdentity, "queue authorization");
+  if (fresh.state.authorization)
+    fresh.state.authorizationHistory = [
+      ...(fresh.state.authorizationHistory ?? []),
+      fresh.state.authorization,
+    ];
+  fresh.state.authorization = {
     identity,
     baselineIdentity,
     deliveryId,
@@ -335,9 +404,9 @@ export function authorizeDeliveryQueue(
     generation,
     transition,
   };
-  state.authorityGeneration = generation;
-  state.phase = "execution";
-  writeDeliveryState(cwd, stagePath, state);
+  fresh.state.authorityGeneration = generation;
+  fresh.state.phase = "execution";
+  writeDeliveryState(cwd, fresh.stagePath, fresh.state);
   return { identity, unchanged: false };
 }
 
@@ -355,15 +424,20 @@ export function revokeDeliveryQueue(cwd: string, approvedBy: string): { generati
   if (approvedBy !== "user") throw new Error("queue revocation requires --approved-by user");
   const context = active(cwd);
   if (context.state.phase === "closed") throw new Error("closed deliveries are immutable");
-  if (context.state.authorization)
-    context.state.authorizationHistory = [
-      ...(context.state.authorizationHistory ?? []),
-      context.state.authorization,
+  const fresh = active(cwd);
+  if (deliveryDigest(fresh.state) !== deliveryDigest(context.state))
+    throw new Error("delivery changed before revocation");
+  if (fresh.state.authorization)
+    fresh.state.authorizationHistory = [
+      ...(fresh.state.authorizationHistory ?? []),
+      fresh.state.authorization,
     ];
-  delete context.state.authorization;
-  context.state.authorityGeneration = (context.state.authorityGeneration ?? 0) + 1;
-  writeDeliveryState(cwd, context.stagePath, context.state);
-  return { generation: context.state.authorityGeneration };
+  delete fresh.state.authorization;
+  fresh.state.authorityGeneration = (fresh.state.authorityGeneration ?? 0) + 1;
+  // No queue is authorized any more: return to the pre-authorization phase.
+  fresh.state.phase = "context";
+  writeDeliveryState(cwd, fresh.stagePath, fresh.state);
+  return { generation: fresh.state.authorityGeneration };
 }
 
 /** Completion provenance can resolve retained queues, but never authorizes a new run. */
@@ -405,6 +479,9 @@ export function effectiveDeliveryPart(
   )
     throw new Error(`${partId}: current technical review is missing`);
   const tree = deliveryProofTree(cwd, context.stagePath);
+  const stagePath = relative(realpathSync(cwd), realpathSync(context.stagePath))
+    .split(sep)
+    .join("/");
   const criteria = part.acceptance.map((criterion) => {
     const record = context.state.criteria?.find(
       (entry) => entry.qualifiedId === `${partId}.${criterion.id}`,
@@ -422,6 +499,20 @@ export function effectiveDeliveryPart(
         partId,
         record.proof.binding.authorityGeneration,
       );
+      // The stored evidence must belong to this criterion, feature and stage. `head` and
+      // `dirty` are deliberately not compared: `worktreeTree` below already binds the
+      // content, and committing identical content legitimately changes both.
+      if (criterion.method === "manual" || record.proof.evidence.command !== criterion.command)
+        throw new Error(`${partId}: recorded command differs from the criterion command`);
+      if (record.proof.feature !== review.feature)
+        throw new Error(
+          `${partId}: recorded provenance belongs to feature ${record.proof.feature}, not ${review.feature}`,
+        );
+      if (
+        record.proof.binding.stagePath !== stagePath ||
+        record.proof.source.stageSlug !== context.stageSlug
+      )
+        throw new Error(`${partId}: recorded provenance belongs to another stage`);
       if (
         record.proof.binding.policy !== "deliveries-content-v1" ||
         record.proof.binding.baselineIdentity !== context.identity ||
@@ -690,7 +781,11 @@ export function publishDelivery(
   return { unchanged: false };
 }
 
-/** Derive readiness from exact identities; publication is independent of domain close. */
+/**
+ * Derive readiness from exact identities. Publication must be recorded before
+ * domain close: closed stages are immutable, so `master close` refuses while
+ * `pendingPublication` is non-empty.
+ */
 export function deliveryLifecycle(cwd: string): {
   blockers: string[];
   pendingPublication: string[];

@@ -205,7 +205,13 @@ export function readMasterStatus(cwd: string): MasterStatus {
       phase: state.phase,
       mode: state.mode,
       blockers,
-      ...(lifecycle ? { deliveryLifecycle: lifecycle, closable: blockers.length === 0 } : {}),
+      // `master close` refuses while accepted deliveries await publication, so status must too.
+      ...(lifecycle
+        ? {
+            deliveryLifecycle: lifecycle,
+            closable: blockers.length === 0 && lifecycle.pendingPublication.length === 0,
+          }
+        : {}),
     };
   }
   assertLegacyStage(stage);
@@ -328,6 +334,11 @@ export function renderStatusMd(status: MasterStatus): string {
       `Fase: ${status.phase ?? "context"}`,
       `Preparación: ${status.blockers.length === 0 ? "lista" : "pendiente"}`,
       `Cerrable: ${status.closable ? "sí" : "no"}`,
+      ...(status.deliveryLifecycle?.pendingPublication.length
+        ? [
+            `Publicación pendiente: ${status.deliveryLifecycle.pendingPublication.join(", ")}; ejecute 'navori master delivery-publication' antes de cerrar`,
+          ]
+        : []),
       ...(status.deliveryLifecycle?.deliveries ?? []).map(
         (entry) =>
           `${entry.id}: ${entry.decision ?? "pending"}; publication=${entry.published ? "recorded" : "pending"}; presented=${entry.presentedIdentity ?? "none"}; scope=${entry.scopeIdentity}`,

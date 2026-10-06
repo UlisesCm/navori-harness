@@ -165,7 +165,8 @@ export function prepareDeliverySlice(
   });
   const path = stateArtifactPath(root, `workplan_${projection.feature}.json`);
   if (existsSync(path)) {
-    const existing: unknown = JSON.parse(readFileSync(path, "utf8"));
+    const raw = readFileSync(path, "utf8");
+    const existing: unknown = JSON.parse(raw);
     const parsed = WorkplanSchema.parse(existing);
     if (refresh) {
       if (approvedBy !== "user") throw new Error("projection refresh requires --approved-by user");
@@ -184,6 +185,9 @@ export function prepareDeliverySlice(
         throw new Error(
           "source definitions changed; refresh cannot substitute for source/baseline reapproval",
         );
+      // Same source and queue: nothing to reverify, so keep progress, evidence and decisions.
+      if (same(parsed.source, projection.source))
+        return { feature: projection.feature, unchanged: true };
       const next = WorkplanSchema.parse({
         ...parsed,
         source: projection.source,
@@ -199,14 +203,23 @@ export function prepareDeliverySlice(
       });
       if (!checkWorkplan(next, root.cwd).ok)
         throw new Error("refreshed projection needs valid human planning metadata");
+      // The index is derived from the plan files on disk, so the plan is written first.
+      // If the index write fails the previous plan bytes are restored: a retry then sees the
+      // old queue identity again and converges instead of finding a no-op over a stale index.
       writeFileAtomic(path, `${JSON.stringify(next, null, 2)}\n`);
-      writeAcceptanceIndex(root);
+      try {
+        writeAcceptanceIndex(root);
+      } catch (cause: unknown) {
+        writeFileAtomic(path, raw);
+        throw cause;
+      }
       return { feature: projection.feature, unchanged: false };
     }
     const sourceProblems = checkDeliveryPlanSource(root.cwd, parsed);
     if (sourceProblems.length)
       throw new Error(
-        `existing workplan diverged; manual review required: ${sourceProblems.join("; ")}`,
+        `existing workplan diverged; manual review required: ${sourceProblems.join("; ")}` +
+          " (after a queue change, re-run with --refresh --approved-by user)",
       );
     const validation = checkWorkplan(parsed, root.cwd);
     if (!validation.ok)
@@ -216,6 +229,7 @@ export function prepareDeliverySlice(
     return { feature: projection.feature, unchanged: true };
   }
   ensureStateDirectory(root);
+  // No index write: a new plan is not gate-valid until `navori plan` writes the acceptance index.
   writeFileAtomic(path, `${JSON.stringify(projection, null, 2)}\n`);
   return { feature: projection.feature, unchanged: false };
 }

@@ -73,12 +73,14 @@ describe("acceptance-index", () => {
       qualifiedId: "P1.A1",
       criterionIdentity: digest,
     };
-    const capture = vi.spyOn(delivery, "captureDeliveryCriterion").mockReturnValue(binding);
+    const bind = vi.fn(() => binding);
+    const capture = vi.spyOn(delivery, "deliveryCriterionCapture").mockReturnValue(bind);
     writePlan(dir, slice);
     expect(buildAcceptanceIndex([dir])).toBe(
       `bun check\t${slice.feature}\tA1\t${dir}\t${JSON.stringify(binding)}\t${binding.stagePath}\n`,
     );
-    expect(capture).toHaveBeenCalledWith(cwd, slice.source, "A1", "bun check");
+    expect(capture).toHaveBeenCalledWith(cwd, slice.source);
+    expect(bind).toHaveBeenCalledWith("A1", "bun check");
     capture.mockImplementation(() => {
       throw new Error("stale current authority");
     });
@@ -87,6 +89,42 @@ describe("acceptance-index", () => {
       JSON.stringify(slice),
     );
   });
+  // Covers: R6, R7, R8
+  it("projects a delivery slice once per plan, however many criteria it binds", () => {
+    const dir = join(cwd, ".navori/state/handoffs");
+    const slice = plan("delivery-demo-p1", { A3: "cumplido" }, ["a", "b", "c"]);
+    const digest = "a".repeat(64);
+    slice.source = {
+      kind: "master-delivery",
+      stageSlug: "demo",
+      deliveryId: "E1",
+      partId: "P1",
+      baselineIdentity: digest,
+      queueIdentity: digest,
+      contractDigest: digest,
+      sourceDigest: digest,
+      designDigest: digest,
+      masterDigest: digest,
+      criterionMap: { A1: "P1.A1", A2: "P1.A2", A3: "P1.A3" },
+    };
+    const binding = {
+      policy: "deliveries-content-v1" as const,
+      authorityGeneration: 1,
+      stagePath: "specs/_master/01-demo",
+      sourceIdentity: digest,
+      baselineIdentity: digest,
+      queueIdentity: digest,
+      qualifiedId: "P1.A1",
+      criterionIdentity: digest,
+    };
+    const bind = vi.fn(() => binding);
+    const capture = vi.spyOn(delivery, "deliveryCriterionCapture").mockReturnValue(bind);
+    writePlan(dir, slice);
+    expect(buildAcceptanceIndex([dir]).split("\n").filter(Boolean)).toHaveLength(2);
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(bind).toHaveBeenCalledTimes(2);
+  });
+
   it("lists one tab-separated line per pending criterion, JSON-escaped, skipping cumplido", () => {
     const dir = join(cwd, ".navori/state/handoffs");
     writePlan(dir, plan("one", { A1: "cumplido", A2: "pendiente" }, ["echo a", 'echo "b\\c"']));

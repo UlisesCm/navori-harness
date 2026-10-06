@@ -244,6 +244,15 @@ function real(path: string): string | undefined {
   }
 }
 
+/** Key-order independent comparison over the schema's keys (all values are primitives). */
+function sameBinding(left?: DeliveryEvidenceBinding, right?: DeliveryEvidenceBinding): boolean {
+  if (!left || !right) return left === right;
+  const keys = Object.keys(
+    DeliveryEvidenceBindingSchema.shape,
+  ) as (keyof DeliveryEvidenceBinding)[];
+  return keys.every((key) => left[key] === right[key]);
+}
+
 /** Why one command-matching candidate is not valid, or `undefined` if it is. */
 function candidateProblem(
   line: EvidenceLine,
@@ -265,7 +274,7 @@ function candidateProblem(
       tree,
     };
   }
-  if (JSON.stringify(line.deliveryBinding) !== JSON.stringify(binding))
+  if (!sameBinding(line.deliveryBinding, binding))
     return { why: "producer delivery authority or criterion definition changed", tree };
   const fingerprint = fingerprintTree(tree, binding);
   if (!fingerprint.ok) {

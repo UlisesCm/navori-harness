@@ -208,6 +208,40 @@ describe("delivery producer-bound fingerprint policy", () => {
     writeLog([logLine({ worktreeTree: fingerprint.tree })]);
     expect(validateEvidence(input).ok).toBe(false);
   });
+
+  // Covers: R7, R8, R9
+  it("compares the producer binding independently of key order", () => {
+    const binding = deliveryBinding();
+    const fingerprint = fingerprintTree(cwd, binding);
+    if (!fingerprint.ok) throw new Error(fingerprint.reason);
+    const reversed = Object.fromEntries(
+      Object.entries(binding).reverse(),
+    ) as DeliveryEvidenceBinding;
+    expect(JSON.stringify(reversed)).not.toBe(JSON.stringify(binding));
+    writeLog([logLine({ worktreeTree: fingerprint.tree, deliveryBinding: binding })]);
+    const input = {
+      root: resolveStateRoot({ cwd, feature: "demo" }),
+      feature: "demo",
+      id: "A1",
+      command: COMMAND,
+    };
+    expect(validateEvidence({ ...input, deliveryBinding: reversed }).ok).toBe(true);
+    // The log line itself carries the binding in another key order.
+    writeFileSync(
+      join(cwd, ".navori/state/handoffs/workplan_demo.evidence.jsonl"),
+      JSON.stringify({
+        ...logLine({ worktreeTree: fingerprint.tree }),
+        deliveryBinding: reversed,
+      }) + "\n",
+    );
+    expect(validateEvidence({ ...input, deliveryBinding: binding }).ok).toBe(true);
+    expect(
+      validateEvidence({
+        ...input,
+        deliveryBinding: { ...reversed, queueIdentity: "e".repeat(64) },
+      }).ok,
+    ).toBe(false);
+  });
 });
 
 // Covers: R7, R8, R9

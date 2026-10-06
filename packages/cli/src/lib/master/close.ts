@@ -218,6 +218,11 @@ export function runMasterClose(cwd: string, options: CloseOptions = {}): CloseRe
     const context = deliveryAuthority(cwd);
     const lifecycle = context.state.closure ? null : deliveryLifecycle(cwd);
     if (lifecycle?.blockers.length) throw new Error(lifecycle.blockers.join("; "));
+    // Publication writes are rejected on closed stages, so it must precede close.
+    if (lifecycle?.pendingPublication.length)
+      throw new Error(
+        `accepted deliveries await publication: ${lifecycle.pendingPublication.join(", ")}; run 'navori master delivery-publication' for each before close`,
+      );
     const paths = [
       indexJsonPath(cwd, specsDir),
       indexMdPath(cwd, specsDir),
@@ -243,7 +248,8 @@ export function runMasterClose(cwd: string, options: CloseOptions = {}): CloseRe
         closedAt: new Date().toISOString(),
         baselineIdentity: fresh.identity,
         authorityGeneration: fresh.state.authorityGeneration!,
-        pendingPublication: lifecycle!.pendingPublication,
+        // Always empty: close refuses while publication is pending (see above).
+        pendingPublication: [],
       };
       fresh.state.phase = "closed";
       writeDeliveryState(cwd, fresh.stagePath, fresh.state);

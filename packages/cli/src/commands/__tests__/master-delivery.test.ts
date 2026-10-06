@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { masterCommand } from "../master.ts";
 import * as delivery from "../../lib/master/delivery.ts";
+import * as part from "../../lib/master/part.ts";
 import { DeliveryStateSchema } from "../../lib/master/delivery-schema.ts";
 
 const dirs: string[] = [];
@@ -134,6 +135,116 @@ describe("delivery CLI", () => {
     );
     expect(result.code).toBe(1);
     expect(result.output).toMatch(/requires --approved-by user/);
+  });
+
+  describe("operator mutation adapters", () => {
+    const quietStdout = (): MockInstance<typeof process.stdout.write> =>
+      vi.spyOn(process.stdout, "write").mockReturnValue(true);
+
+    it("passes delivery-revoke consent through and refuses it when omitted", async () => {
+      const revoke = vi.spyOn(delivery, "revokeDeliveryQueue").mockReturnValue({ generation: 3 });
+      const stdout = quietStdout();
+      expect(
+        (await invoke(tmpdir(), "delivery-revoke", "--approved-by", "user")).code,
+      ).toBeUndefined();
+      expect(revoke).toHaveBeenLastCalledWith(tmpdir(), "user");
+      expect(stdout).toHaveBeenLastCalledWith('{"generation":3}\n');
+      vi.restoreAllMocks();
+      const refused = await invoke(tmpdir(), "delivery-revoke");
+      expect(refused.code).toBe(1);
+      expect(refused.output).toMatch(/requires --approved-by user/);
+    });
+
+    it("passes delivery-review artifacts and consent to the technical capture", async () => {
+      const capture = vi
+        .spyOn(part, "captureDeliveryReview")
+        .mockReturnValue({ identity, unchanged: false });
+      const stdout = quietStdout();
+      const args = ["delivery-review", "--part", "P1", "--report", "r.txt", "--envelope", "e.json"];
+      expect((await invoke(tmpdir(), ...args, "--approved-by", "user")).code).toBeUndefined();
+      expect(capture).toHaveBeenLastCalledWith(tmpdir(), "P1", "r.txt", "e.json", "user");
+      expect(stdout).toHaveBeenLastCalledWith(`{"identity":"${identity}","unchanged":false}\n`);
+      vi.restoreAllMocks();
+      const refused = await invoke(tmpdir(), ...args);
+      expect(refused.code).toBe(1);
+      expect(refused.output).toMatch(/requires --approved-by user/);
+    });
+
+    it("passes delivery-present the delivery id only", async () => {
+      const present = vi
+        .spyOn(delivery, "presentDelivery")
+        .mockReturnValue({ identity, unchanged: false });
+      const stdout = quietStdout();
+      expect((await invoke(tmpdir(), "delivery-present", "--delivery", "E1")).code).toBeUndefined();
+      expect(present).toHaveBeenLastCalledWith(tmpdir(), "E1");
+      expect(stdout).toHaveBeenLastCalledWith(`{"identity":"${identity}","unchanged":false}\n`);
+    });
+
+    it("passes delivery-criterion approval only when the operator supplies it", async () => {
+      const record = vi
+        .spyOn(part, "recordDeliveryCriterion")
+        .mockReturnValue({ unchanged: false });
+      quietStdout();
+      const args = ["delivery-criterion", "--part", "P1", "--criterion", "A1"];
+      expect((await invoke(tmpdir(), ...args)).code).toBeUndefined();
+      expect(record).toHaveBeenLastCalledWith(tmpdir(), "P1", "A1", undefined);
+      expect((await invoke(tmpdir(), ...args, "--approved-by", "user")).code).toBeUndefined();
+      expect(record).toHaveBeenLastCalledWith(tmpdir(), "P1", "A1", "user");
+    });
+
+    it("passes delivery-publication its attested reference and rejects a merge kind", async () => {
+      const publish = vi.spyOn(delivery, "publishDelivery").mockReturnValue({ unchanged: false });
+      const stdout = quietStdout();
+      const args = ["delivery-publication", "--delivery", "E1", "--identity", identity];
+      const approved = ["--reference", "v1.2.0", "--approved-by", "user"];
+      expect(
+        (await invoke(tmpdir(), ...args, "--kind", "deploy", ...approved)).code,
+      ).toBeUndefined();
+      expect(publish).toHaveBeenLastCalledWith(
+        tmpdir(),
+        "E1",
+        identity,
+        "deploy",
+        "v1.2.0",
+        "user",
+      );
+      expect(stdout).toHaveBeenLastCalledWith('{"unchanged":false}\n');
+      publish.mockClear();
+      const merge = await invoke(tmpdir(), ...args, "--kind", "merge", ...approved);
+      expect(merge.code).toBe(1);
+      expect(merge.output).toMatch(/publication kind must be release or deploy/);
+      expect(publish).not.toHaveBeenCalled();
+    });
+
+    it("rejects an unknown delivery-queue transition before any authorization", async () => {
+      const authorize = vi
+        .spyOn(delivery, "authorizeDeliveryQueue")
+        .mockReturnValue({ identity, unchanged: false });
+      quietStdout();
+      const args = [
+        "delivery-queue",
+        "--delivery",
+        "E1",
+        "--parts",
+        "P1,P2",
+        "--approved-by",
+        "user",
+      ];
+      const invalid = await invoke(tmpdir(), ...args, "--transition", "swap");
+      expect(invalid.code).toBe(1);
+      expect(invalid.output).toMatch(/invalid authority transition/);
+      expect(authorize).not.toHaveBeenCalled();
+      expect(
+        (await invoke(tmpdir(), ...args, "--transition", "continuation")).code,
+      ).toBeUndefined();
+      expect(authorize).toHaveBeenLastCalledWith(
+        tmpdir(),
+        "E1",
+        ["P1", "P2"],
+        "user",
+        "continuation",
+      );
+    });
   });
 
   it("does not turn a general implementation request into baseline or queue authority", async () => {

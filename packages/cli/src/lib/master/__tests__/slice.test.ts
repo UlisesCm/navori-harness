@@ -21,8 +21,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkWorkplan } from "../../plan/check.ts";
 import { evaluatePlanGate } from "../../plan/gate.ts";
+import * as deliveryChecks from "../delivery-checks.ts";
 import { contractDigest, deliveryDigest } from "../delivery-checks.ts";
-import type { DeliveryParts } from "../delivery-schema.ts";
+import * as deliveryApi from "../delivery.ts";
+import * as acceptanceIndex from "../../plan/acceptance-index.ts";
+import type { DeliveryParts, DeliveryState } from "../delivery-schema.ts";
 import {
   approveDeliveryBaseline,
   authorizeDeliveryQueue,
@@ -44,9 +47,24 @@ import { computeSignal } from "../signal.ts";
 import * as receiptApi from "../../diagnose/receipt.ts";
 import { DeliveryReviewEnvelopeSchema } from "../delivery-schema.ts";
 import { runMasterClose } from "../close.ts";
-import { readMasterStatus } from "../status.ts";
+import { readMasterStatus, renderStatusMd } from "../status.ts";
 
 vi.mock("../../../commands/render.ts", () => ({ runRender: vi.fn(() => ({ ok: true })) }));
+
+/** Captured before any spy so a diverging fixture can still delegate to the real digest. */
+const realDeliveryDigest = deliveryChecks.deliveryDigest;
+
+/** Simulate a concurrent writer: every delivery-state digest differs from the previous one. */
+function divergeStateDigests(): void {
+  let calls = 0;
+  vi.spyOn(deliveryChecks, "deliveryDigest").mockImplementation((value: unknown) =>
+    typeof value === "object" &&
+    value !== null &&
+    (value as { workflow?: unknown }).workflow === "deliveries"
+      ? `diverged-${calls++}`
+      : realDeliveryDigest(value),
+  );
+}
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -190,6 +208,7 @@ describe("delivery slice projection", () => {
     const original = readFileSync(path, "utf8");
     writeFileSync(path, original.replace("Build", "Human edit"));
     expect(() => prepareDeliverySlice(cwd, "P1")).toThrow(/diverged/);
+    expect(() => prepareDeliverySlice(cwd, "P1")).toThrow(/--refresh --approved-by user/);
   });
 
   it("fails source/scope drift in plan check and manual-only dispatch", () => {
@@ -569,6 +588,7 @@ describe("cooperative technical snapshot and lifecycle", () => {
       const presentation = presentDelivery(cwd, "E1");
       expect(reviewedDeliveryIdentity(cwd, "E1").identity).toBe(presentation.identity);
       decideDelivery(cwd, "E1", presentation.identity, "accepted", "user");
+      publishDelivery(cwd, "E1", presentation.identity, "release", "fixture-v1", "user");
       expect(readMasterStatus(cwd).closable).toBe(true);
       const before = readFileSync(join(stage, "state.json"), "utf8");
       const tree = effectiveDeliveryPart(cwd, "P1").tree.worktreeTree;
@@ -601,7 +621,7 @@ describe("cooperative technical snapshot and lifecycle", () => {
 
   // Covers: R7, R8, R9
   it.each([1, 2, 3])(
-    "closes accepted unpublished work and recovers after durable step %s",
+    "refuses close while publication is pending, then closes published work and recovers after durable step %s",
     (step) => {
       const { cwd, stage } = technicalFixture();
       const master = readFileSync(join(stage, "MASTER.md"), "utf8");
@@ -611,7 +631,29 @@ describe("cooperative technical snapshot and lifecycle", () => {
       expect(() => runMasterClose(cwd)).toThrow(/acceptance.*pending/);
       expect(readFileSync(join(stage, "state.json"), "utf8")).toBe(before);
       decideDelivery(cwd, "E1", presentation.identity, "accepted", "user");
+      // Status agrees with close: accepted work awaiting publication is not closable.
+      const pending = readMasterStatus(cwd);
+      expect(pending.closable).toBe(false);
+      expect(pending.deliveryLifecycle?.pendingPublication).toEqual(["E1"]);
+      expect(renderStatusMd(pending)).toMatch(
+        /Cerrable: no\nPublicación pendiente: E1; ejecute 'navori master delivery-publication'/,
+      );
+      const watched = [
+        join(stage, "state.json"),
+        join(stage, "STATUS.md"),
+        join(stage, "..", "index.json"),
+        join(cwd, "navori.config.json"),
+      ];
+      const snapshot = (): (string | null)[] =>
+        watched.map((path) => (existsSync(path) ? readFileSync(path, "utf8") : null));
+      const untouched = snapshot();
+      expect(() => runMasterClose(cwd)).toThrow(
+        /await publication: E1.*navori master delivery-publication/,
+      );
+      expect(snapshot()).toEqual(untouched);
+      publishDelivery(cwd, "E1", presentation.identity, "release", "fixture-v1", "user");
       expect(readMasterStatus(cwd).closable).toBe(true);
+      expect(renderStatusMd(readMasterStatus(cwd))).not.toMatch(/Publicación pendiente/);
       expect(() =>
         runMasterClose(cwd, {
           afterStep: (completed) => {
@@ -624,7 +666,7 @@ describe("cooperative technical snapshot and lifecycle", () => {
         closure: { pendingPublication: string[] };
       };
       expect(committed.phase).toBe("closed");
-      expect(committed.closure.pendingPublication).toEqual(["E1"]);
+      expect(committed.closure.pendingPublication).toEqual([]);
       expect(runMasterClose(cwd).reconciled).toBe(true);
       expect(readMasterStatus(cwd).stage).toBeNull();
       expect(readFileSync(join(stage, "MASTER.md"), "utf8")).toBe(master);
@@ -964,6 +1006,214 @@ describe("cooperative technical snapshot and lifecycle", () => {
     expect(() =>
       decideDelivery(cwd, "E1", deliveryScopeIdentity(cwd, "E1"), "deferred", "user"),
     ).toThrow(/reason/);
+  });
+});
+
+/** The recorded (executable) proof of P1.A1 inside a parsed delivery state. */
+function recordedProof(
+  state: DeliveryState,
+): Extract<NonNullable<DeliveryState["criteria"]>[number]["proof"], { kind: "recorded" }> {
+  const proof = state.criteria?.find((entry) => entry.qualifiedId === "P1.A1")?.proof;
+  if (proof?.kind !== "recorded") throw new Error("fixture lacks a recorded proof");
+  return proof;
+}
+
+/** Rewrite the lifecycle state the way a stale or hand-edited record would look. */
+function tamperState(stage: string, mutate: (state: DeliveryState) => void): void {
+  const path = join(stage, "state.json");
+  const state = JSON.parse(readFileSync(path, "utf8")) as DeliveryState;
+  mutate(state);
+  writeFileSync(path, JSON.stringify(state));
+}
+
+describe("delivery review hardening", () => {
+  // Covers: R7, R8, R9
+  it("fails fast on a replacement that would invalidate verified prerequisites", () => {
+    const { cwd, stage } = twoDeliveryFixture();
+    captureDeliveryReview(cwd, "P1", "technical-report.txt", "technical-envelope.json", "user");
+    const before = readFileSync(join(stage, "state.json"), "utf8");
+    expect(() => authorizeDeliveryQueue(cwd, "E2", ["P2"], "user")).toThrow(
+      /invalidate the verified prerequisite parts P1.*--transition continuation/,
+    );
+    expect(readFileSync(join(stage, "state.json"), "utf8")).toBe(before);
+    expect(effectiveDeliveryPart(cwd, "P1").partId).toBe("P1");
+    expect(authorizeDeliveryQueue(cwd, "E2", ["P2"], "user", "continuation").unchanged).toBe(false);
+  });
+
+  // Covers: R7, R8, R9
+  it.each([
+    [
+      "recorded command",
+      (state: DeliveryState) => (recordedProof(state).evidence.command = "other command"),
+      /recorded command differs/,
+    ],
+    [
+      "recorded feature",
+      (state: DeliveryState) => (recordedProof(state).feature = "delivery-other-p1"),
+      /belongs to feature delivery-other-p1/,
+    ],
+    [
+      "binding stage path",
+      (state: DeliveryState) => (recordedProof(state).binding.stagePath = "specs/_master/02-other"),
+      /another stage/,
+    ],
+    [
+      "source stage slug",
+      (state: DeliveryState) => (recordedProof(state).source.stageSlug = "other"),
+      /another stage/,
+    ],
+    [
+      "source identity",
+      (state: DeliveryState) => (recordedProof(state).binding.sourceIdentity = "f".repeat(64)),
+      /executable provenance is stale/,
+    ],
+    [
+      "provenance queue",
+      (state: DeliveryState) => (recordedProof(state).binding.queueIdentity = "f".repeat(64)),
+      /completion provenance is revoked or invalid/,
+    ],
+    [
+      "criterion definition",
+      (state: DeliveryState) => {
+        state.criteria!.find((entry) => entry.qualifiedId === "P1.A1")!.criterionIdentity =
+          "f".repeat(64);
+      },
+      /criterion definition changed/,
+    ],
+    [
+      "review gate",
+      (state: DeliveryState) => (state.verifiedParts![0]!.gate = "false"),
+      /technical snapshot is stale/,
+    ],
+    [
+      "receipt digest",
+      (state: DeliveryState) => (state.verifiedParts![0]!.receiptDigest = "f".repeat(64)),
+      /technical snapshot is stale/,
+    ],
+    [
+      "missing review",
+      (state: DeliveryState) => (state.verifiedParts = []),
+      /current technical review is missing/,
+    ],
+  ])("rejects a stored %s that no longer matches", (_label, mutate, message) => {
+    const { cwd, stage } = technicalFixture();
+    captureDeliveryReview(cwd, "P1", "technical-report.txt", "technical-envelope.json", "user");
+    expect(effectiveDeliveryPart(cwd, "P1").partId).toBe("P1");
+    tamperState(stage, mutate);
+    expect(() => effectiveDeliveryPart(cwd, "P1")).toThrow(message);
+  });
+
+  // Covers: R7, R8, R9
+  it.each([
+    ["presentation", false],
+    ["decision", true],
+    ["publication", true],
+  ] as const)("aborts %s without a write when delivery changes before it", (label, presented) => {
+    const { cwd, stage } = technicalFixture();
+    captureDeliveryReview(cwd, "P1", "technical-report.txt", "technical-envelope.json", "user");
+    const presentation = presented ? presentDelivery(cwd, "E1") : undefined;
+    if (label === "publication")
+      decideDelivery(cwd, "E1", presentation!.identity, "accepted", "user");
+    const before = readFileSync(join(stage, "state.json"), "utf8");
+    const operate = (): unknown =>
+      label === "presentation"
+        ? presentDelivery(cwd, "E1")
+        : label === "decision"
+          ? decideDelivery(cwd, "E1", presentation!.identity, "accepted", "user")
+          : publishDelivery(cwd, "E1", presentation!.identity, "release", "fixture-v1", "user");
+    divergeStateDigests();
+    expect(operate).toThrow(`delivery changed before ${label}`);
+    vi.restoreAllMocks();
+    expect(readFileSync(join(stage, "state.json"), "utf8")).toBe(before);
+    expect(operate()).toMatchObject({ unchanged: false });
+  });
+
+  // Covers: R7, R8, R9
+  it("aborts close without a write when delivery changes before the closure commit", () => {
+    const { cwd, stage } = technicalFixture();
+    captureDeliveryReview(cwd, "P1", "technical-report.txt", "technical-envelope.json", "user");
+    const presentation = presentDelivery(cwd, "E1");
+    decideDelivery(cwd, "E1", presentation.identity, "accepted", "user");
+    publishDelivery(cwd, "E1", presentation.identity, "release", "fixture-v1", "user");
+    const before = readFileSync(join(stage, "state.json"), "utf8");
+    const real = deliveryApi.deliveryLifecycle;
+    let calls = 0;
+    vi.spyOn(deliveryApi, "deliveryLifecycle").mockImplementation((root) => {
+      const result = real(root);
+      return ++calls === 1 ? result : { ...result, deliveries: [] };
+    });
+    expect(() => runMasterClose(cwd)).toThrow("delivery changed before close");
+    vi.restoreAllMocks();
+    expect(readFileSync(join(stage, "state.json"), "utf8")).toBe(before);
+    expect(runMasterClose(cwd).outcome).toBe("entregada");
+  });
+
+  // Covers: R7, R8, R9
+  it.each([
+    ["baseline approval", () => undefined, (cwd: string) => approveDeliveryBaseline(cwd, "user")],
+    [
+      "queue authorization",
+      (cwd: string) => approveDeliveryBaseline(cwd, "user"),
+      (cwd: string) => authorizeDeliveryQueue(cwd, "E1", ["P1"], "user"),
+    ],
+    [
+      "revocation",
+      (cwd: string) => {
+        approveDeliveryBaseline(cwd, "user");
+        authorizeDeliveryQueue(cwd, "E1", ["P1"], "user");
+      },
+      (cwd: string) => revokeDeliveryQueue(cwd, "user"),
+    ],
+  ])("aborts %s without a write when delivery changes before it", (label, setup, operate) => {
+    const { cwd, stage } = fixture();
+    setup(cwd);
+    const before = readFileSync(join(stage, "state.json"), "utf8");
+    const run = (): unknown => operate(cwd);
+    divergeStateDigests();
+    expect(run).toThrow(`delivery changed before ${label}`);
+    vi.restoreAllMocks();
+    expect(readFileSync(join(stage, "state.json"), "utf8")).toBe(before);
+    expect(run).not.toThrow();
+  });
+
+  // Covers: R7, R8, R9
+  it("returns to the context phase when revocation leaves no authorization", () => {
+    const { cwd, stage } = authorized();
+    const read = (): DeliveryState =>
+      JSON.parse(readFileSync(join(stage, "state.json"), "utf8")) as DeliveryState;
+    expect(read().phase).toBe("execution");
+    expect(revokeDeliveryQueue(cwd, "user")).toEqual({ generation: 2 });
+    expect(read().phase).toBe("context");
+    expect(read().authorization).toBeUndefined();
+    expect(read().authorizationHistory).toHaveLength(1);
+  });
+
+  // Covers: R7, R8, R9
+  it("treats --refresh over an unchanged source and queue as a no-op", () => {
+    const { cwd } = authorized();
+    const path = savePlan(cwd, { ...humanPlan(cwd), progress: { A1: "cumplido" } });
+    const bytes = readFileSync(path, "utf8");
+    expect(prepareDeliverySlice(cwd, "P1", true, "user")).toEqual({
+      feature: "delivery-demo-p1",
+      unchanged: true,
+    });
+    expect(readFileSync(path, "utf8")).toBe(bytes);
+  });
+
+  // Covers: R7, R8, R9
+  it("restores the plan when the acceptance index write fails, so a retry converges", () => {
+    const { cwd } = authorized();
+    const path = savePlan(cwd, humanPlan(cwd));
+    const bytes = readFileSync(path, "utf8");
+    authorizeDeliveryQueue(cwd, "E1", ["P1"], "user");
+    vi.spyOn(acceptanceIndex, "writeAcceptanceIndex").mockImplementation(() => {
+      throw new Error("index disk full");
+    });
+    expect(() => prepareDeliverySlice(cwd, "P1", true, "user")).toThrow(/index disk full/);
+    expect(readFileSync(path, "utf8")).toBe(bytes);
+    vi.restoreAllMocks();
+    expect(prepareDeliverySlice(cwd, "P1", true, "user").unchanged).toBe(false);
+    expect(readFileSync(path, "utf8")).not.toBe(bytes);
   });
 });
 
