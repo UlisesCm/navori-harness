@@ -10,9 +10,11 @@ import { resolveStateRoot } from "../lib/primitives/state-root.ts";
 import { checkHandoff, handoffExitCode, type HandoffConsumer } from "../lib/handoff/check.ts";
 import { logReview } from "../lib/handoff/review-schema.ts";
 import { readConfig } from "../lib/config/config.ts";
+import { emitReviewOutcome } from "../lib/handoff/review-evidence.ts";
+import { resolveReceiptOptions } from "./receipt.ts";
 
 function resolveConsumer(value: string | undefined): HandoffConsumer {
-  return value === "scribe" ? "scribe" : "orchestrator";
+  return value === "scribe" || value === "publisher" ? value : "orchestrator";
 }
 
 const checkSubCommand = defineCommand({
@@ -25,7 +27,7 @@ const checkSubCommand = defineCommand({
     feature: { type: "positional" as const, required: true, description: "Feature slug" },
     for: {
       type: "string" as const,
-      description: "Consumer running the check: orchestrator (default) or scribe",
+      description: "Consumer running the check: orchestrator (default), scribe or publisher",
     },
     dir: {
       type: "string" as const,
@@ -94,6 +96,15 @@ const logReviewSubCommand = defineCommand({
       cwd: args.cwd ?? process.cwd(),
       feature: args.feature,
       dir: args.dir,
+      observe: (info) =>
+        emitReviewOutcome(() => {
+          const { cwd, feature, dir, target, gate } = resolveReceiptOptions({
+            feature: args.feature,
+            dir: args.dir,
+            cwd: args.cwd,
+          });
+          return { cwd, feature, dir, target, gate };
+        }, info),
     });
     const text =
       result.status === "error"

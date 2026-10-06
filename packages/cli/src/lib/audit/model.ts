@@ -1315,6 +1315,115 @@ export interface CliEvent {
   reason?: string;
 }
 
+/** How a review's evidence related to the content when `log-review` observed it. */
+export type ReviewCorrelation =
+  | "correlated"
+  | "changed-after-review"
+  | "changed-during-review"
+  | "missing"
+  | "invalid"
+  | "unknown-algorithm"
+  | "unavailable";
+export type ReviewOutcomeVerdict = "approved" | "changes-requested" | "unknown";
+
+/**
+ * The closed metadata-only payload of a `review-outcome` cli event (spec 0042
+ * D5, `schemaVersion` 1). `featureKey` is `sha256(repo + "\0" + feature)`: the
+ * raw slug is never logged. `fp`/`alg`/`base`/`head`/`gate`/`inputs` appear only
+ * when `correlation` is `correlated`; `gate` is absent when no gate is
+ * configured (an unconfigured gate is not a pass). `nonce` identifies the round.
+ */
+export interface ReviewOutcome {
+  name: "review-outcome";
+  verdict: ReviewOutcomeVerdict;
+  schemaVersion: 1;
+  featureKey: string;
+  sidecar: string;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  correlation: ReviewCorrelation;
+  nonce?: string;
+  alg?: string;
+  fp?: string;
+  base?: string;
+  head?: string;
+  gate?: string;
+  inputs?: string;
+  startedAtMs?: number;
+  sealedAtMs?: number;
+}
+
+const OUTCOME_VERDICTS: readonly string[] = ["approved", "changes-requested", "unknown"];
+const OUTCOME_CORRELATIONS: readonly string[] = [
+  "correlated",
+  "changed-after-review",
+  "changed-during-review",
+  "missing",
+  "invalid",
+  "unknown-algorithm",
+  "unavailable",
+];
+const OUTCOME_HEX: Record<string, RegExp> = {
+  featureKey: /^[a-f0-9]{64}$/,
+  sidecar: /^[a-f0-9]{64}$/,
+  fp: /^[a-f0-9]{64}$/,
+  gate: /^[a-f0-9]{64}$/,
+  inputs: /^[a-f0-9]{64}$/,
+  base: /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/,
+  head: /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/,
+  nonce: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+  alg: /^navori-content\/v1$/,
+};
+const OUTCOME_COUNTS = ["critical", "high", "medium", "low"] as const;
+const OUTCOME_TIMES = ["startedAtMs", "sealedAtMs"] as const;
+const OUTCOME_MAX_BYTES = 1024;
+
+/**
+ * The single closed normalizer of a `review-outcome` payload: unknown keys, bad
+ * hex, an unknown enum, a non-integer count or a record over 1,024 B yield
+ * `null`. Shared by every writer so the contract cannot drift.
+ */
+export function normalizeOutcome(value: unknown): ReviewOutcome | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const allowed = new Set<string>([
+    "name",
+    "verdict",
+    "schemaVersion",
+    "correlation",
+    ...Object.keys(OUTCOME_HEX),
+    ...OUTCOME_COUNTS,
+    ...OUTCOME_TIMES,
+  ]);
+  if (Object.keys(record).some((key) => !allowed.has(key))) return null;
+  if (record.name !== "review-outcome" || record.schemaVersion !== 1) return null;
+  if (typeof record.verdict !== "string" || !OUTCOME_VERDICTS.includes(record.verdict)) return null;
+  if (typeof record.correlation !== "string" || !OUTCOME_CORRELATIONS.includes(record.correlation))
+    return null;
+  for (const [key, pattern] of Object.entries(OUTCOME_HEX)) {
+    const field = record[key];
+    if (field === undefined) {
+      if (key === "featureKey" || key === "sidecar") return null;
+      continue;
+    }
+    if (typeof field !== "string" || !pattern.test(field)) return null;
+  }
+  for (const key of [...OUTCOME_COUNTS, ...OUTCOME_TIMES]) {
+    const field = record[key];
+    if (field === undefined) {
+      if ((OUTCOME_COUNTS as readonly string[]).includes(key)) return null;
+      continue;
+    }
+    if (typeof field !== "number" || !Number.isSafeInteger(field) || field < 0) return null;
+    if ((OUTCOME_COUNTS as readonly string[]).includes(key) && field > 10_000) return null;
+  }
+  return Buffer.byteLength(JSON.stringify(record)) <= OUTCOME_MAX_BYTES
+    ? (record as unknown as ReviewOutcome)
+    : null;
+}
+
 /**
  * What the hook recorder observed, when it did not observe the whole session.
  *

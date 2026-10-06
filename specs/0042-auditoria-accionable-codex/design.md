@@ -125,6 +125,17 @@ Aceptación = review APPROVED correlacionado + receipt ok/fresh del **mismo diff
 
 Unidad tarea `{repo identity,feature}` con revisiones de diff; reuso del slug después de aceptación inicia episodio nuevo identificable, o ambiguo si faltan boundaries. Eventos de trabajo/etapa proceden de plan/handoff explícitos con sesión+feature; una sesión puede tener varias features y su usage no se reparte por porcentaje inventado. Tokens por tarea únicamente para intervalos atribuibles; tiempos hasta aceptación usan inicio observado, abiertas son censuradas. Esperas humanas/CI solo cuando están identificadas; restante es tiempo sin clasificar, no tiempo activo. Persistir outcomes mínimos en el log existente protege contra consumo/limpieza de fuentes efímeras sin crear un board.
 
+#### Addendum D5 — decisiones de T9a (evidencia del productor)
+
+- **Verbos**: viven bajo `navori receipt review begin|seal <feature>`; `begin` sella antes de leer el diff y `seal` valida al terminar, antes de emitir el sidecar.
+- **Identidad**: `navori-content/v1` hashea solo el working tree; `indexDiverges` se reporta fuera del hash.
+- **Stamps por nonce**: cada `begin` produce un stamp identificado por nonce; `seal` lo exige con `--nonce`. Exit 2 = el contenido cambió durante la revisión; cualquier otra negativa, exit 1.
+- **B1/B2**: B1 rechaza sellar si ya existe evidencia o si el sidecar es más antiguo que el stamp (mtime del archivo stamp, no `startedAt`, para evitar flakes por mtime grueso). B2: con `qualityGate.full` vacío o ausente no se emite campo `gate` en stamp, evidencia ni evento, y esa evidencia nunca satisface la aceptación local técnica (gate inexistente no es pass). Aparte, por la base de D5, evidencia ausente o inválida deja la revisión `uncorrelated`.
+- **featureKey**: el evento guarda `sha256(repo + NUL + feature)`, no el feature en claro.
+- **Tally**: los eventos `*-outcome` se excluyen del conteo de eventos de uso/tally.
+- **Publisher**: `handoff check --for publisher` emite WARN (no fallo) si falta la evidencia de review.
+- **Límite de confianza residual**: un agente con shell puede forjar el stamp y el sidecar; `begin` no prueba el orden de lectura. Es atestación del productor, no certificación.
+
 ### D6 — Comparación y acción (R15, R17–R20)
 
 Snapshot formato 2 conserva métricas numéricas, disponibilidad, N y cohortes: repo por identificador hash local no path/nombre; host, modelo exacto/familia explícita, rol, régimen realmente cargado, tipo/unidad trabajo y cobertura. Snapshot v1 sigue legible; dimensiones faltantes = legacy-unknown y delta descriptivo. No utilizar generatedBy como versión activa. Modelo mixto/desconocido no se imputa a uno conocido.

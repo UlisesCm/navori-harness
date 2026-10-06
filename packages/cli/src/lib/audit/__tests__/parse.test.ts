@@ -2541,6 +2541,33 @@ describe("parse: range measures (spec 0039)", () => {
   });
 });
 
+// Covers: R16
+it("reads a review-outcome event as an ordinary CLI event without parse errors", () => {
+  const dir = mkdtempSync(join(tmpdir(), "navori-outcome-events-"));
+  const file = join(dir, "session-s1.log");
+  writeFileSync(
+    file,
+    `${JSON.stringify({
+      event: "cli",
+      tsMs: 5,
+      name: "review-outcome",
+      verdict: "approved",
+      schemaVersion: 1,
+      featureKey: "a".repeat(64),
+      sidecar: "b".repeat(64),
+      correlation: "missing",
+    })}\n`,
+    "utf-8",
+  );
+  const s = parseSession(FIXTURE);
+  const before = s.parseErrors;
+  attachHookEvents(s, file);
+  expect(s.parseErrors).toBe(before);
+  expect(s.cliEvents).toEqual([
+    { tsMs: 5, event: "cli", name: "review-outcome", verdict: "approved" },
+  ]);
+});
+
 describe("Codex discovered usage ownership (spec 0042 T6)", () => {
   const dirs: string[] = [];
   const SECRET = "SYNTHETIC-USAGE-HISTORY-SECRET";
