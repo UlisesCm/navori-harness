@@ -510,7 +510,7 @@ const checkSubCommand = defineCommand({
       return;
     }
     const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
-    const result = checkWorkplan(raw);
+    const result = checkWorkplan(raw, root.cwd);
     process.stdout.write(`${args.json ? JSON.stringify(result) : formatCheckResult(result)}\n`);
     // Explicit on both branches — see `classifyDiff`'s comment on the same
     // pattern: a stale non-zero code from an earlier command run in this

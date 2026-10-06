@@ -4,15 +4,24 @@
  * `part`, `template` and `close` to this same command (design.md D1).
  */
 import { defineCommand } from "citty";
+import { prepareDeliverySlice } from "../lib/master/slice.ts";
 import {
   approveDeliveryBaseline,
   authorizeDeliveryQueue,
   checkActiveDelivery,
+  revokeDeliveryQueue,
+  presentDelivery,
+  decideDelivery,
+  publishDelivery,
 } from "../lib/master/delivery.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { appendCliEvent } from "../lib/audit/cli-event.ts";
-import { changeMasterPart } from "../lib/master/part.ts";
+import {
+  changeMasterPart,
+  recordDeliveryCriterion,
+  captureDeliveryReview,
+} from "../lib/master/part.ts";
 import { runMasterClose } from "../lib/master/close.ts";
 import { readMasterStatus, statusLine, writeMasterStatus } from "../lib/master/status.ts";
 import { readConfig } from "../lib/config/config.ts";
@@ -51,6 +60,10 @@ import {
 function reportError(cause: unknown): void {
   process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
   process.exitCode = 1;
+}
+
+function stringArg(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 function rejectMutationStage(stage: string | undefined): void {
@@ -504,6 +517,28 @@ const closeSubCommand = defineCommand({
 export const masterCommand = defineCommand({
   meta: { name: "master", description: "Master-plan project flow (spec 0034)" },
   subCommands: {
+    "delivery-slice": defineCommand({
+      meta: { name: "delivery-slice", description: "Project an authorized slice into a workplan" },
+      args: {
+        cwd: { type: "string", description: "Repo root" },
+        part: { type: "string", description: "P<n>", required: true },
+        refresh: {
+          type: "boolean",
+          description: "Explicitly refresh current-queue reverification and reset pending criteria",
+        },
+        "approved-by": { type: "string", description: "user for projection refresh" },
+      },
+      run({ args }) {
+        try {
+          const cwd = resolve(typeof args.cwd === "string" ? args.cwd : process.cwd());
+          process.stdout.write(
+            `${JSON.stringify(prepareDeliverySlice(cwd, typeof args.part === "string" ? args.part : "", Boolean(args.refresh), typeof args["approved-by"] === "string" ? args["approved-by"] : undefined))}\n`,
+          );
+        } catch (cause: unknown) {
+          reportError(cause);
+        }
+      },
+    }),
     "delivery-check": defineCommand({
       meta: { name: "delivery-check", description: "Check delivery preparation without writes" },
       args: { cwd: { type: "string", description: "Repo root" } },
@@ -547,13 +582,186 @@ export const masterCommand = defineCommand({
         delivery: { type: "string", description: "E<n>" },
         parts: { type: "string", description: "Comma-separated P<n>" },
         "approved-by": { type: "string", description: "Must be user" },
+        transition: {
+          type: "string",
+          description: "replacement (conservative default) | continuation",
+        },
+      },
+      run({ args }) {
+        try {
+          if (
+            args.transition &&
+            args.transition !== "replacement" &&
+            args.transition !== "continuation"
+          )
+            throw new Error("invalid authority transition");
+          process.stdout.write(
+            `${JSON.stringify(authorizeDeliveryQueue(resolve(typeof args.cwd === "string" ? args.cwd : process.cwd()), typeof args.delivery === "string" ? args.delivery : "", typeof args.parts === "string" ? args.parts.split(",").filter(Boolean) : [], typeof args["approved-by"] === "string" ? args["approved-by"] : "", args.transition === "continuation" ? "continuation" : "replacement"))}\n`,
+          );
+        } catch (cause) {
+          reportError(cause);
+        }
+      },
+    }),
+    "delivery-revoke": defineCommand({
+      meta: {
+        name: "delivery-revoke",
+        description: "Explicitly revoke queue authority and prior generation proof",
+      },
+      args: {
+        cwd: { type: "string", description: "Repo root" },
+        "approved-by": { type: "string", description: "Must be user" },
       },
       run({ args }) {
         try {
           process.stdout.write(
-            `${JSON.stringify(authorizeDeliveryQueue(resolve(typeof args.cwd === "string" ? args.cwd : process.cwd()), typeof args.delivery === "string" ? args.delivery : "", typeof args.parts === "string" ? args.parts.split(",").filter(Boolean) : [], typeof args["approved-by"] === "string" ? args["approved-by"] : ""))}\n`,
+            `${JSON.stringify(revokeDeliveryQueue(resolve(stringArg(args.cwd) || process.cwd()), stringArg(args["approved-by"])))}\n`,
           );
-        } catch (cause) {
+        } catch (cause: unknown) {
+          reportError(cause);
+        }
+      },
+    }),
+    "delivery-criterion": defineCommand({
+      meta: {
+        name: "delivery-criterion",
+        description: "Consume current host provenance or explicit manual attestation",
+      },
+      args: {
+        cwd: { type: "string", description: "Repo root" },
+        part: { type: "string", required: true, description: "P<n>" },
+        criterion: { type: "string", required: true, description: "A<n>" },
+        "approved-by": { type: "string", description: "user only for manual criterion" },
+      },
+      run({ args }) {
+        try {
+          process.stdout.write(
+            `${JSON.stringify(recordDeliveryCriterion(resolve(stringArg(args.cwd) || process.cwd()), stringArg(args.part), stringArg(args.criterion), typeof args["approved-by"] === "string" ? args["approved-by"] : undefined))}\n`,
+          );
+        } catch (cause: unknown) {
+          reportError(cause);
+        }
+      },
+    }),
+    "delivery-review": defineCommand({
+      meta: {
+        name: "delivery-review",
+        description:
+          "Operator-attested technical review; CLI verifies content/receipt, not identity or QA execution",
+      },
+      args: {
+        cwd: { type: "string", description: "Repo root" },
+        part: { type: "string", required: true, description: "P<n>" },
+        report: {
+          type: "string",
+          required: true,
+          description: "Report artifact filename in this feature handoff directory",
+        },
+        envelope: {
+          type: "string",
+          required: true,
+          description: "Strict technical review envelope filename",
+        },
+        "approved-by": {
+          type: "string",
+          description:
+            "user attests separate reviewer and observed full QA for this exact snapshot",
+        },
+      },
+      run({ args }) {
+        try {
+          process.stdout.write(
+            `${JSON.stringify(captureDeliveryReview(resolve(stringArg(args.cwd) || process.cwd()), stringArg(args.part), stringArg(args.report), stringArg(args.envelope), stringArg(args["approved-by"])))}\n`,
+          );
+        } catch (cause: unknown) {
+          reportError(cause);
+        }
+      },
+    }),
+    "delivery-present": defineCommand({
+      meta: {
+        name: "delivery-present",
+        description: "Record a current technically reviewed demo identity, not client consent",
+      },
+      args: {
+        cwd: { type: "string", description: "Repo root" },
+        delivery: { type: "string", required: true, description: "E<n>" },
+      },
+      run({ args }) {
+        try {
+          process.stdout.write(
+            `${JSON.stringify(presentDelivery(resolve(stringArg(args.cwd) || process.cwd()), stringArg(args.delivery)))}\n`,
+          );
+        } catch (cause: unknown) {
+          reportError(cause);
+        }
+      },
+    }),
+    "delivery-decision": defineCommand({
+      meta: {
+        name: "delivery-decision",
+        description: "Explicit operator-attested client decision on an exact reviewed identity",
+      },
+      args: {
+        cwd: { type: "string", description: "Repo root" },
+        delivery: { type: "string", required: true, description: "E<n>" },
+        identity: {
+          type: "string",
+          required: true,
+          description: "Exact presented identity, or current scope for deferral/discard",
+        },
+        decision: {
+          type: "string",
+          required: true,
+          description: "accepted | declined | deferred | discarded",
+        },
+        reason: { type: "string", description: "Required non-acceptance reason" },
+        reference: { type: "string", description: "Optional external consent reference" },
+        "approved-by": { type: "string", description: "Must be user" },
+      },
+      run({ args }) {
+        try {
+          const decision = args.decision;
+          if (
+            decision !== "accepted" &&
+            decision !== "declined" &&
+            decision !== "deferred" &&
+            decision !== "discarded"
+          )
+            throw new Error("invalid delivery decision");
+          process.stdout.write(
+            `${JSON.stringify(decideDelivery(resolve(stringArg(args.cwd) || process.cwd()), stringArg(args.delivery), stringArg(args.identity), decision, stringArg(args["approved-by"]), typeof args.reason === "string" ? args.reason : undefined, typeof args.reference === "string" ? args.reference : undefined))}\n`,
+          );
+        } catch (cause: unknown) {
+          reportError(cause);
+        }
+      },
+    }),
+    "delivery-publication": defineCommand({
+      meta: {
+        name: "delivery-publication",
+        description: "Attest release/deploy reference without executing deployment",
+      },
+      args: {
+        cwd: { type: "string", description: "Repo root" },
+        delivery: { type: "string", required: true, description: "E<n>" },
+        identity: { type: "string", required: true, description: "Exact accepted identity" },
+        kind: { type: "string", required: true, description: "release | deploy (not merge)" },
+        reference: {
+          type: "string",
+          required: true,
+          description: "Explicit release or deploy reference",
+        },
+        "approved-by": { type: "string", description: "Must be user" },
+      },
+      run({ args }) {
+        try {
+          if (args.kind !== "release" && args.kind !== "deploy")
+            throw new Error("publication kind must be release or deploy");
+          process.stdout.write(
+            `${JSON.stringify(publishDelivery(resolve(stringArg(args.cwd) || process.cwd()), stringArg(args.delivery), stringArg(args.identity), args.kind, stringArg(args.reference), stringArg(args["approved-by"])))}\n`,
+          );
+        } catch (cause: unknown) {
           reportError(cause);
         }
       },

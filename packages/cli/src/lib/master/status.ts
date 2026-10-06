@@ -6,7 +6,7 @@ import { readConfig } from "../config/config.ts";
 import { writeFileAtomic } from "../primitives/atomic.ts";
 import { checkPart } from "./check-part.ts";
 import { DeliveryStateSchema } from "./delivery-schema.ts";
-import { checkActiveDelivery } from "./delivery.ts";
+import { checkActiveDelivery, deliveryLifecycle } from "./delivery.ts";
 import { deliveryDigest } from "./delivery-checks.ts";
 import {
   MASTER_PHASES,
@@ -52,6 +52,7 @@ export interface EffectivePart {
 
 export interface MasterStatus {
   workflow?: "deliveries";
+  deliveryLifecycle?: ReturnType<typeof deliveryLifecycle>;
   stage: { number: number; slug: string; dir: string } | null;
   phase: MasterPhase | "execution" | "review" | null;
   nextPhase: MasterPhase | null;
@@ -188,6 +189,15 @@ export function readMasterStatus(cwd: string): MasterStatus {
       if (state.baseline?.identity !== identity) blockers.push("baseline is missing or stale");
       if (!state.authorization) blockers.push("queue authorization is pending");
     }
+    let lifecycle: ReturnType<typeof deliveryLifecycle> | undefined;
+    if (!blockers.length) {
+      try {
+        lifecycle = deliveryLifecycle(cwd);
+        blockers.push(...lifecycle.blockers);
+      } catch (cause: unknown) {
+        blockers.push(cause instanceof Error ? cause.message : "invalid delivery lifecycle");
+      }
+    }
     return {
       ...empty,
       workflow: "deliveries",
@@ -195,6 +205,13 @@ export function readMasterStatus(cwd: string): MasterStatus {
       phase: state.phase,
       mode: state.mode,
       blockers,
+      // `master close` refuses while accepted deliveries await publication, so status must too.
+      ...(lifecycle
+        ? {
+            deliveryLifecycle: lifecycle,
+            closable: blockers.length === 0 && lifecycle.pendingPublication.length === 0,
+          }
+        : {}),
     };
   }
   assertLegacyStage(stage);
@@ -316,7 +333,16 @@ export function renderStatusMd(status: MasterStatus): string {
       "Workflow: deliveries",
       `Fase: ${status.phase ?? "context"}`,
       `Preparación: ${status.blockers.length === 0 ? "lista" : "pendiente"}`,
-      "Cerrable: no",
+      `Cerrable: ${status.closable ? "sí" : "no"}`,
+      ...(status.deliveryLifecycle?.pendingPublication.length
+        ? [
+            `Publicación pendiente: ${status.deliveryLifecycle.pendingPublication.join(", ")}; ejecute 'navori master delivery-publication' antes de cerrar`,
+          ]
+        : []),
+      ...(status.deliveryLifecycle?.deliveries ?? []).map(
+        (entry) =>
+          `${entry.id}: ${entry.decision ?? "pending"}; publication=${entry.published ? "recorded" : "pending"}; presented=${entry.presentedIdentity ?? "none"}; scope=${entry.scopeIdentity}`,
+      ),
       "",
       "## Bloqueos",
       "",

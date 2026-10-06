@@ -20,6 +20,7 @@ import {
   readHead,
   validateEvidence,
   type EvidenceLine,
+  type DeliveryEvidenceBinding,
 } from "../evidence.ts";
 
 let cwd: string;
@@ -75,6 +76,173 @@ function validate(command = COMMAND) {
     command,
   });
 }
+
+/** A physical fixture stage, never a generic state/STATUS exclusion. */
+function deliveryBinding(): DeliveryEvidenceBinding {
+  const stagePath = "specs/_master/01-evidence";
+  mkdirSync(join(cwd, stagePath), { recursive: true });
+  writeFileSync(
+    join(cwd, stagePath, "state.json"),
+    JSON.stringify({ version: 2, workflow: "deliveries" }),
+  );
+  writeFileSync(join(cwd, stagePath, "STATUS.md"), "Derived lifecycle\n");
+  return {
+    policy: "deliveries-content-v1",
+    authorityGeneration: 1,
+    stagePath,
+    sourceIdentity: "a".repeat(64),
+    baselineIdentity: "b".repeat(64),
+    queueIdentity: "c".repeat(64),
+    qualifiedId: "P1.A1",
+    criterionIdentity: "d".repeat(64),
+  };
+}
+
+describe("delivery producer-bound fingerprint policy", () => {
+  // Covers: R7, R8, R9
+  it("preserves original delivery HEAD as provenance while leaving legacy validation HEAD-strict", () => {
+    const binding = deliveryBinding();
+    const fp = fingerprintTree(cwd, binding);
+    if (!fp.ok) throw new Error(fp.reason);
+    const original = readHead(cwd);
+    writeLog([logLine({ deliveryBinding: binding, worktreeTree: fp.tree })]);
+    git("commit", "--allow-empty", "-m", "identical code snapshot");
+    const input = {
+      root: resolveStateRoot({ cwd, feature: "demo" }),
+      feature: "demo",
+      id: "A1",
+      command: COMMAND,
+      deliveryBinding: binding,
+    };
+    const result = validateEvidence(input);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.evidence.head).toBe(original);
+    writeLog([logLine({ head: original })]);
+    expect(validate().ok).toBe(false);
+    const { policy: _policy, ...partial } = binding;
+    writeFileSync(
+      join(cwd, ".navori/state/handoffs/workplan_demo.evidence.jsonl"),
+      JSON.stringify({ ...logLine(), deliveryBinding: partial }) + "\n",
+    );
+    expect(validateEvidence(input).ok).toBe(false);
+  });
+  // Covers: R7, R8, R9
+  it("keeps only this stage's lifecycle writes stable and leaves legacy fingerprints unchanged", () => {
+    const binding = deliveryBinding();
+    const before = fingerprintTree(cwd, binding);
+    const legacy = fingerprintTree(cwd);
+    writeFileSync(join(cwd, binding.stagePath, "state.json"), "updated lifecycle");
+    writeFileSync(join(cwd, binding.stagePath, "STATUS.md"), "regenerated view");
+    expect(fingerprintTree(cwd, binding)).toEqual(before);
+    expect(fingerprintTree(cwd)).not.toEqual(legacy);
+  });
+
+  // Covers: R7, R8, R9
+  it.each(["parts.json", "MASTER.md", "UX.md", "source.txt"])(
+    "does not exclude %s from technical proof",
+    (name: string) => {
+      const binding = deliveryBinding();
+      const path = join(cwd, binding.stagePath, name);
+      writeFileSync(path, "reviewed definition");
+      const before = fingerprintTree(cwd, binding);
+      writeFileSync(path, "changed definition");
+      expect(fingerprintTree(cwd, binding)).not.toEqual(before);
+    },
+  );
+
+  // Covers: R7, R8, R9
+  it.each(["state.json", "STATUS.md"])(
+    "keeps neighboring stage %s and executable code in the fingerprint",
+    (name: string) => {
+      const binding = deliveryBinding();
+      const neighbor = join(cwd, "specs/_master/02-neighbor");
+      mkdirSync(neighbor, { recursive: true });
+      writeFileSync(join(neighbor, name), "old");
+      const before = fingerprintTree(cwd, binding);
+      writeFileSync(join(neighbor, name), "new");
+      const afterNeighbor = fingerprintTree(cwd, binding);
+      expect(afterNeighbor).not.toEqual(before);
+      writeFileSync(join(cwd, "a.txt"), "code changed");
+      expect(fingerprintTree(cwd, binding)).not.toEqual(afterNeighbor);
+    },
+  );
+
+  // Covers: R7, R8, R9
+  it("rejects lexical traversal, physically aliased stages and redirected lifecycle files", () => {
+    const binding = deliveryBinding();
+    expect(fingerprintTree(cwd, { stagePath: "../outside" }).ok).toBe(false);
+    symlinkSync(join(cwd, binding.stagePath), join(cwd, "alias"));
+    expect(fingerprintTree(cwd, { stagePath: "alias" }).ok).toBe(false);
+    rmSync(join(cwd, binding.stagePath, "state.json"));
+    symlinkSync(join(cwd, "a.txt"), join(cwd, binding.stagePath, "state.json"));
+    expect(fingerprintTree(cwd, binding).ok).toBe(false);
+  });
+
+  // Covers: R7, R8, R9
+  it("requires the producer binding and rejects queue/criterion replacement despite stable lifecycle bytes", () => {
+    const binding = deliveryBinding();
+    const fingerprint = fingerprintTree(cwd, binding);
+    expect(fingerprint.ok).toBe(true);
+    if (!fingerprint.ok) throw new Error(fingerprint.reason);
+    writeLog([logLine({ worktreeTree: fingerprint.tree, deliveryBinding: binding })]);
+    const input = {
+      root: resolveStateRoot({ cwd, feature: "demo" }),
+      feature: "demo",
+      id: "A1",
+      command: COMMAND,
+      deliveryBinding: binding,
+    };
+    expect(validateEvidence(input).ok).toBe(true);
+    writeFileSync(join(cwd, binding.stagePath, "state.json"), "accepted metadata");
+    expect(validateEvidence(input).ok).toBe(true);
+    expect(
+      validateEvidence({ ...input, deliveryBinding: { ...binding, queueIdentity: "e".repeat(64) } })
+        .ok,
+    ).toBe(false);
+    expect(
+      validateEvidence({
+        ...input,
+        deliveryBinding: { ...binding, criterionIdentity: "e".repeat(64) },
+      }).ok,
+    ).toBe(false);
+    writeLog([logLine({ worktreeTree: fingerprint.tree })]);
+    expect(validateEvidence(input).ok).toBe(false);
+  });
+
+  // Covers: R7, R8, R9
+  it("compares the producer binding independently of key order", () => {
+    const binding = deliveryBinding();
+    const fingerprint = fingerprintTree(cwd, binding);
+    if (!fingerprint.ok) throw new Error(fingerprint.reason);
+    const reversed = Object.fromEntries(
+      Object.entries(binding).reverse(),
+    ) as DeliveryEvidenceBinding;
+    expect(JSON.stringify(reversed)).not.toBe(JSON.stringify(binding));
+    writeLog([logLine({ worktreeTree: fingerprint.tree, deliveryBinding: binding })]);
+    const input = {
+      root: resolveStateRoot({ cwd, feature: "demo" }),
+      feature: "demo",
+      id: "A1",
+      command: COMMAND,
+    };
+    expect(validateEvidence({ ...input, deliveryBinding: reversed }).ok).toBe(true);
+    // The log line itself carries the binding in another key order.
+    writeFileSync(
+      join(cwd, ".navori/state/handoffs/workplan_demo.evidence.jsonl"),
+      JSON.stringify({
+        ...logLine({ worktreeTree: fingerprint.tree }),
+        deliveryBinding: reversed,
+      }) + "\n",
+    );
+    expect(validateEvidence({ ...input, deliveryBinding: binding }).ok).toBe(true);
+    expect(
+      validateEvidence({
+        ...input,
+        deliveryBinding: { ...reversed, queueIdentity: "e".repeat(64) },
+      }).ok,
+    ).toBe(false);
+  });
+});
 
 // Covers: R7, R8, R9
 describe("computeWorktreeTree", () => {

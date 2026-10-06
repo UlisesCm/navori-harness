@@ -1018,7 +1018,7 @@ The body always comes from a file, never inline:
 name: reviewer
 description: Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes.
 tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation
-maxWords: 2387
+maxWords: 2654
 ---
 
 <!-- navori:managed id="reviewer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
@@ -1091,6 +1091,7 @@ Apply `.claude/skills/review-diff/SKILL.md` — the full checklist by dimensions
 ```bash
 pnpm test && pnpm lint
 ```
+
 
 Read it in full to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `publisher` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed. You are the single owner of this gate run: the only handle that exists is this Bash call itself, correlated to the diff you're reviewing this turn — never share it with another process, and never poll `pgrep`/`ps` for it (it also matches other sessions' commands and never exits). A timeout is never a success signal. Run it in the foreground with the Bash tool's max `timeout`; if `pnpm test && pnpm lint` can exceed it, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its `&&`-chained steps one by one in the foreground, each under the timeout — never background it (no shell `&`, no `run_in_background`, no `Monitor`), you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait.
 
@@ -2402,11 +2403,22 @@ navori_tree_fingerprint() {
     scratch=$(navori_git rev-parse --path-format=absolute --git-path navori-fp-index 2>/dev/null) || exit 1
     [ -n "$scratch" ] || exit 1
     [ ! -e "$scratch.lock" ] || exit 1
+    local stage=${2:-}
+    if [ -n "$stage" ]; then
+      case "$stage" in /* | *[[:cntrl:]]* | *\\* | */../* | ../* | */.. | */./* | ./*) exit 1 ;; esac
+      local physical
+      physical=$(cd "$stage" 2>/dev/null && pwd -P) || exit 1
+      [ "$physical" = "$(pwd -P)/$stage" ] || exit 1
+      [ -f "$stage/state.json" ] && [ ! -L "$stage/state.json" ] || exit 1
+      [ ! -L "$stage/STATUS.md" ] || exit 1
+    fi
     work=$(mktemp -d "${TMPDIR:-/tmp}/navori-fp.XXXXXX" 2>/dev/null) || exit 1
     trap 'rm -f "$work"/list "$work"/files "$work"/links "$work"/paths "$work"/shas; rmdir "$work" 2>/dev/null' EXIT
+    local exclusions=()
+    [ -z "$stage" ] || exclusions=(":(exclude,literal)$stage/state.json" ":(exclude,literal)$stage/STATUS.md")
     navori_git ls-files -z --cached --others --exclude-standard --deduplicate -- . \
       ':(exclude).navori/state' ':(exclude).claude/progress' ':(exclude).codex/progress' \
-      ':(exclude).claude/worktrees' > "$work/list" 2>/dev/null || exit 1
+      ':(exclude).claude/worktrees' ${exclusions[@]+"${exclusions[@]}"} > "$work/list" 2>/dev/null || exit 1
     : > "$work/links"
     while IFS= read -r -d '' p; do
       case "$p" in *$'\n'*) exit 1 ;; esac
@@ -2635,11 +2647,11 @@ navori_bash_success_lane() {
   case "$payload" in
     *'"run_in_background":true'* | *'"interrupted":true'*) return 0 ;;
   esac
-  local c f i d hits=
-  while IFS=$'\t' read -r c f i d; do
+  local c f i d binding stage hits=
+  while IFS=$'\t' read -r c f i d binding stage; do
     [ -n "$c" ] || continue
     case "$payload" in
-      *'"command":"'"$c"'"'[,}]*) hits="$hits$c"$'\t'"$f"$'\t'"$i"$'\t'"$d"$'\n' ;;
+      *'"command":"'"$c"'"'[,}]*) hits="$hits$c"$'\t'"$f"$'\t'"$i"$'\t'"$d"$'\t'"$binding"$'\t'"$stage"$'\n' ;;
     esac
   done < "$idx"
   [ -n "$hits" ] || return 0
@@ -2652,18 +2664,14 @@ navori_bash_success_lane() {
   tree=$(navori_git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || return 0
   case "$cwd$tree" in *[[:cntrl:]]*) return 0 ;; esac
   head=$(navori_git -C "$tree" rev-parse HEAD 2>/dev/null) || head=
-  wt=$(navori_tree_fingerprint "$tree") || return 0
-  [ -n "$wt" ] || return 0
   htree=$(navori_git -C "$tree" rev-parse 'HEAD^{tree}' 2>/dev/null) || htree=
-  dirty=true
-  [ "$wt" = "$htree" ] && dirty=false
   sid=$(payload_field session_id | tr -cd 'A-Za-z0-9._-')
   agent=$(payload_field agent_id | tr -cd 'A-Za-z0-9._-')
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   root=$(pwd -P 2>/dev/null) || root=$nv_project_dir
 
   local line extra file
-  while IFS=$'\t' read -r c f i d; do
+  while IFS=$'\t' read -r c f i d binding stage; do
     [ -n "$f" ] || continue
     # The index is CLI-written state, but the hook is the one that opens a path
     # taken from it: slug and id shapes, an absolute directory inside this
@@ -2678,10 +2686,20 @@ navori_bash_success_lane() {
     [ -d "$d" ] && [ ! -L "$d" ] || continue
     file=$d/workplan_$f.evidence.jsonl
     [ ! -L "$file" ] || continue
+    if [ -n "$binding" ]; then
+      [ -n "$stage" ] || continue
+      case "$binding" in '{'*'}') ;; *) continue ;; esac
+    elif [ -n "$stage" ]; then continue
+    fi
+    wt=$(navori_tree_fingerprint "$tree" "$stage") || continue
+    [ -n "$wt" ] || continue
+    dirty=true
+    [ "$wt" = "$htree" ] && dirty=false
     # `$c` is already JSON-escaped: it is the index's own field.
     extra=
     [ -z "$sid" ] || extra=$extra',"sessionId":"'$sid'"'
     [ -z "$agent" ] || extra=$extra',"agentId":"'$agent'"'
+    [ -z "$binding" ] || extra=$extra',"deliveryBinding":'$binding
     line='{"ts":"'$ts'","feature":"'$f'","id":"'$i'","command":"'$c'","tree":"'$(navori_json_str "$tree")'","cwd":"'$(navori_json_str "$cwd")'","head":"'$head'","worktreeTree":"'$wt'","dirty":'$dirty$extra'}'
     printf '%s\n' "$line" >> "$file" 2>/dev/null || true
   done <<NAVORI_HITS
@@ -6856,7 +6874,10 @@ PART_RE="${NAVORI}[[:space:]]+master[[:space:]]+part([[:space:]]|\$).*--approved
 CLOSE_RE="${NAVORI}[[:space:]]+master[[:space:]]+close([[:space:];&|)<>]|\$)"
 BASELINE_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-baseline([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
 QUEUE_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-queue([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
-TRIGGER_RE=".*${BOUND}(${PART_RE}|${CLOSE_RE}|${BASELINE_RE}|${QUEUE_RE})"
+DELIVERY_REVIEW_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-(review|decision|publication|revoke)([[:space:];&|)<>]|\$)"
+DELIVERY_CRITERION_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-criterion([[:space:]]|\$).*--approved-by([[:space:]=]|\$)"
+DELIVERY_REFRESH_RE="${NAVORI}[[:space:]]+master[[:space:]]+delivery-slice([[:space:]]|\$).*--refresh([[:space:]=]|\$)"
+TRIGGER_RE=".*${BOUND}(${PART_RE}|${CLOSE_RE}|${BASELINE_RE}|${QUEUE_RE}|${DELIVERY_REVIEW_RE}|${DELIVERY_CRITERION_RE}|${DELIVERY_REFRESH_RE})"
 # A command substitution starts a new command: make it a segment of its own so
 # the `VAR=$(` prefix peeling in the shared scan cannot swallow it.
 navori_subst='$('
@@ -6866,6 +6887,11 @@ is_scan_trigger "$cmd" || exit 0
 
 approval_description="a manual criterion"
 case "$cmd" in
+  *delivery-review*) approval_description="this exact technical snapshot: you inspected the bound report, attest that the named reviewer was separate from the producer, and observed the stated full QA command succeed. The CLI checks content and the current receipt; it does not authenticate reviewer identity or execute QA" ;;
+  *delivery-decision*) approval_description="the explicit client decision on this exact presented delivery or reasoned disposition of its current scope" ;;
+  *delivery-publication*) approval_description="the release or deploy reference for this exact accepted delivery; this records publication, it does not deploy" ;;
+  *delivery-revoke*) approval_description="revocation of the active authority generation and prior effective proof" ;;
+  *delivery-slice*) approval_description="the current-queue reverification refresh; pending criteria reset and normal plan approval is required again" ;;
   *delivery-baseline*|*delivery-queue*) approval_description="the delivery baseline or bounded queue" ;;
 esac
 
@@ -9529,11 +9555,22 @@ navori_tree_fingerprint() {
     scratch=$(navori_git rev-parse --path-format=absolute --git-path navori-fp-index 2>/dev/null) || exit 1
     [ -n "$scratch" ] || exit 1
     [ ! -e "$scratch.lock" ] || exit 1
+    local stage=${2:-}
+    if [ -n "$stage" ]; then
+      case "$stage" in /* | *[[:cntrl:]]* | *\\* | */../* | ../* | */.. | */./* | ./*) exit 1 ;; esac
+      local physical
+      physical=$(cd "$stage" 2>/dev/null && pwd -P) || exit 1
+      [ "$physical" = "$(pwd -P)/$stage" ] || exit 1
+      [ -f "$stage/state.json" ] && [ ! -L "$stage/state.json" ] || exit 1
+      [ ! -L "$stage/STATUS.md" ] || exit 1
+    fi
     work=$(mktemp -d "${TMPDIR:-/tmp}/navori-fp.XXXXXX" 2>/dev/null) || exit 1
     trap 'rm -f "$work"/list "$work"/files "$work"/links "$work"/paths "$work"/shas; rmdir "$work" 2>/dev/null' EXIT
+    local exclusions=()
+    [ -z "$stage" ] || exclusions=(":(exclude,literal)$stage/state.json" ":(exclude,literal)$stage/STATUS.md")
     navori_git ls-files -z --cached --others --exclude-standard --deduplicate -- . \
       ':(exclude).navori/state' ':(exclude).claude/progress' ':(exclude).codex/progress' \
-      ':(exclude).claude/worktrees' > "$work/list" 2>/dev/null || exit 1
+      ':(exclude).claude/worktrees' ${exclusions[@]+"${exclusions[@]}"} > "$work/list" 2>/dev/null || exit 1
     : > "$work/links"
     while IFS= read -r -d '' p; do
       case "$p" in *$'\n'*) exit 1 ;; esac
@@ -9762,11 +9799,11 @@ navori_bash_success_lane() {
   case "$payload" in
     *'"run_in_background":true'* | *'"interrupted":true'*) return 0 ;;
   esac
-  local c f i d hits=
-  while IFS=$'\t' read -r c f i d; do
+  local c f i d binding stage hits=
+  while IFS=$'\t' read -r c f i d binding stage; do
     [ -n "$c" ] || continue
     case "$payload" in
-      *'"command":"'"$c"'"'[,}]*) hits="$hits$c"$'\t'"$f"$'\t'"$i"$'\t'"$d"$'\n' ;;
+      *'"command":"'"$c"'"'[,}]*) hits="$hits$c"$'\t'"$f"$'\t'"$i"$'\t'"$d"$'\t'"$binding"$'\t'"$stage"$'\n' ;;
     esac
   done < "$idx"
   [ -n "$hits" ] || return 0
@@ -9779,18 +9816,14 @@ navori_bash_success_lane() {
   tree=$(navori_git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || return 0
   case "$cwd$tree" in *[[:cntrl:]]*) return 0 ;; esac
   head=$(navori_git -C "$tree" rev-parse HEAD 2>/dev/null) || head=
-  wt=$(navori_tree_fingerprint "$tree") || return 0
-  [ -n "$wt" ] || return 0
   htree=$(navori_git -C "$tree" rev-parse 'HEAD^{tree}' 2>/dev/null) || htree=
-  dirty=true
-  [ "$wt" = "$htree" ] && dirty=false
   sid=$(payload_field session_id | tr -cd 'A-Za-z0-9._-')
   agent=$(payload_field agent_id | tr -cd 'A-Za-z0-9._-')
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   root=$(pwd -P 2>/dev/null) || root=$nv_project_dir
 
   local line extra file
-  while IFS=$'\t' read -r c f i d; do
+  while IFS=$'\t' read -r c f i d binding stage; do
     [ -n "$f" ] || continue
     # The index is CLI-written state, but the hook is the one that opens a path
     # taken from it: slug and id shapes, an absolute directory inside this
@@ -9805,10 +9838,20 @@ navori_bash_success_lane() {
     [ -d "$d" ] && [ ! -L "$d" ] || continue
     file=$d/workplan_$f.evidence.jsonl
     [ ! -L "$file" ] || continue
+    if [ -n "$binding" ]; then
+      [ -n "$stage" ] || continue
+      case "$binding" in '{'*'}') ;; *) continue ;; esac
+    elif [ -n "$stage" ]; then continue
+    fi
+    wt=$(navori_tree_fingerprint "$tree" "$stage") || continue
+    [ -n "$wt" ] || continue
+    dirty=true
+    [ "$wt" = "$htree" ] && dirty=false
     # `$c` is already JSON-escaped: it is the index's own field.
     extra=
     [ -z "$sid" ] || extra=$extra',"sessionId":"'$sid'"'
     [ -z "$agent" ] || extra=$extra',"agentId":"'$agent'"'
+    [ -z "$binding" ] || extra=$extra',"deliveryBinding":'$binding
     line='{"ts":"'$ts'","feature":"'$f'","id":"'$i'","command":"'$c'","tree":"'$(navori_json_str "$tree")'","cwd":"'$(navori_json_str "$cwd")'","head":"'$head'","worktreeTree":"'$wt'","dirty":'$dirty$extra'}'
     printf '%s\n' "$line" >> "$file" 2>/dev/null || true
   done <<NAVORI_HITS

@@ -10,7 +10,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { z } from "zod";
 import { stateArtifactPath, type StateRoot } from "../primitives/state-root.ts";
 import type { RecordedEvidence } from "./schema.ts";
@@ -23,6 +23,26 @@ const FINGERPRINT_EXCLUDES = [
   ".codex/progress",
   ".claude/worktrees",
 ] as const;
+
+/** Producer-captured authority, qualified definition and exact lifecycle directory. */
+export const DeliveryEvidenceBindingSchema = z.strictObject({
+  policy: z.literal("deliveries-content-v1"),
+  authorityGeneration: z.number().int().positive(),
+  stagePath: z
+    .string()
+    .regex(/^[^\t\r\n\\]+$/)
+    .refine(
+      (path) =>
+        !path.startsWith("/") &&
+        !path.split("/").some((segment) => !segment || segment === "." || segment === ".."),
+    ),
+  sourceIdentity: z.string().regex(/^[a-f0-9]{64}$/),
+  baselineIdentity: z.string().regex(/^[a-f0-9]{64}$/),
+  queueIdentity: z.string().regex(/^[a-f0-9]{64}$/),
+  qualifiedId: z.string().regex(/^P\d+\.A\d+$/),
+  criterionIdentity: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type DeliveryEvidenceBinding = z.infer<typeof DeliveryEvidenceBindingSchema>;
 
 /** One line of `workplan_<feature>.evidence.jsonl` (0038 § Contracts). */
 const EvidenceLineSchema = z.object({
@@ -37,6 +57,7 @@ const EvidenceLineSchema = z.object({
   dirty: z.boolean(),
   sessionId: z.string().optional(),
   agentId: z.string().optional(),
+  deliveryBinding: DeliveryEvidenceBindingSchema.optional(),
 });
 export type EvidenceLine = z.infer<typeof EvidenceLineSchema>;
 
@@ -85,7 +106,25 @@ export type Fingerprint = { ok: true; tree: string } | { ok: false; reason: stri
  * hash their target; gitlinks/directories are skipped. Same procedure the
  * recording hook must use (0038 D1 step 4).
  */
-export function fingerprintTree(tree: string): Fingerprint {
+export function fingerprintTree(
+  tree: string,
+  binding?: Pick<DeliveryEvidenceBinding, "stagePath">,
+): Fingerprint {
+  const excludes: string[] = [...FINGERPRINT_EXCLUDES];
+  if (binding) {
+    const parsed = DeliveryEvidenceBindingSchema.shape.stagePath.safeParse(binding.stagePath);
+    if (!parsed.success) return { ok: false, reason: "invalid delivery binding" };
+    const root = real(tree);
+    const stage = root && resolve(root, binding.stagePath);
+    if (!root || !stage || !stage.startsWith(`${root}${sep}`) || real(stage) !== stage)
+      return { ok: false, reason: "delivery stage is not physically contained" };
+    for (const name of ["state.json", "STATUS.md"]) {
+      const path = join(stage, name);
+      if ((name === "state.json" || existsSync(path)) && real(path) !== path)
+        return { ok: false, reason: "delivery lifecycle file is missing or redirected" };
+      excludes.push(`${binding.stagePath}/${name}`);
+    }
+  }
   const scratch = git(tree, [
     "rev-parse",
     "--path-format=absolute",
@@ -108,7 +147,7 @@ export function fingerprintTree(tree: string): Fingerprint {
     "--deduplicate",
     "--",
     ".",
-    ...FINGERPRINT_EXCLUDES.map((p) => `:(exclude)${p}`),
+    ...excludes.map((p) => `:(exclude,literal)${p}`),
   ]);
   if (listed === undefined) return { ok: false, reason: "git ls-files failed" };
   const files: Array<{ path: string; mode: string }> = [];
@@ -193,6 +232,8 @@ export interface ValidateEvidenceInput {
   command: string;
   /** `impl_<feature>.json`'s declared worktree, if any. */
   implWorktree?: string;
+  /** Required current identity for source-backed slices; never synthesize from a log. */
+  deliveryBinding?: DeliveryEvidenceBinding;
 }
 
 function real(path: string): string | undefined {
@@ -203,10 +244,20 @@ function real(path: string): string | undefined {
   }
 }
 
+/** Key-order independent comparison over the schema's keys (all values are primitives). */
+function sameBinding(left?: DeliveryEvidenceBinding, right?: DeliveryEvidenceBinding): boolean {
+  if (!left || !right) return left === right;
+  const keys = Object.keys(
+    DeliveryEvidenceBindingSchema.shape,
+  ) as (keyof DeliveryEvidenceBinding)[];
+  return keys.every((key) => left[key] === right[key]);
+}
+
 /** Why one command-matching candidate is not valid, or `undefined` if it is. */
 function candidateProblem(
   line: EvidenceLine,
   accepted: readonly string[],
+  binding?: DeliveryEvidenceBinding,
 ): { why: string; tree: string } | undefined {
   const tree = real(line.tree);
   if (tree === undefined) return { why: `tree ${line.tree} no longer exists`, tree: line.tree };
@@ -217,13 +268,15 @@ function candidateProblem(
     return { why: `ran from ${line.cwd}, not the tree root ${tree}`, tree };
   }
   const head = readHead(tree);
-  if (head !== line.head) {
+  if (head !== line.head && !binding) {
     return {
       why: `tree changed since the run (HEAD ${line.head.slice(0, 7) || "none"} → ${head.slice(0, 7) || "none"})`,
       tree,
     };
   }
-  const fingerprint = fingerprintTree(tree);
+  if (!sameBinding(line.deliveryBinding, binding))
+    return { why: "producer delivery authority or criterion definition changed", tree };
+  const fingerprint = fingerprintTree(tree, binding);
   if (!fingerprint.ok) {
     return { why: `cannot compute the tree fingerprint: ${fingerprint.reason}`, tree };
   }
@@ -267,7 +320,7 @@ export function validateEvidence(input: ValidateEvidenceInput): EvidenceVerdict 
   }
   let firstProblem: { why: string; tree: string } | undefined;
   for (const line of sameCommand) {
-    const problem = candidateProblem(line, accepted);
+    const problem = candidateProblem(line, accepted, input.deliveryBinding);
     if (problem === undefined) {
       return {
         ok: true,

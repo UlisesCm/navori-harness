@@ -1,6 +1,7 @@
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -13,6 +14,12 @@ import { join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
+import { HOOK_SHELLS, type HookShell } from "./helpers/shells.ts";
+import {
+  fingerprintTree,
+  readEvidenceLog,
+  type DeliveryEvidenceBinding,
+} from "../plan/evidence.ts";
 
 const dirs: string[] = [];
 afterAll(() => {
@@ -136,5 +143,164 @@ describe("bash-outcome-watch", () => {
     symlinkSync(other, file);
     expect(run(hook, dir, failure(dir)).stdout).toBe("");
     expect(readFileSync(other, "utf8")).toBe("sentinel");
+  });
+});
+
+describe("producer-bound delivery success lane", () => {
+  // Covers: R7, R8, R9
+  it.each(HOOK_SHELLS)(
+    "preserves legacy and exact bound fingerprints under nounset in %s",
+    (shell: HookShell) => {
+      const { dir, success } = setup();
+      execFileSync("git", ["init", "-q", dir]);
+      const stagePath = "stage";
+      mkdirSync(join(dir, stagePath));
+      writeFileSync(join(dir, stagePath, "state.json"), "lifecycle");
+      writeFileSync(join(dir, stagePath, "STATUS.md"), "view");
+      const partial = resolve(getCoreRoot(), "core-assets/hooks/_partials/bash-outcome.sh");
+      const fingerprint = (stage?: string): string => {
+        const result = spawnSync(
+          shell,
+          [
+            "-uc",
+            'source "$1"; navori_tree_fingerprint "$2" "${3:-}"',
+            "fixture",
+            partial,
+            dir,
+            ...(stage === undefined ? [] : [stage]),
+          ],
+          { encoding: "utf8" },
+        );
+        expect(result.stderr).toBe("");
+        expect(result.status).toBe(0);
+        return result.stdout.trim();
+      };
+      const legacy = fingerprint();
+      expect(fingerprint("")).toBe(legacy);
+      expect(fingerprintTree(dir)).toEqual({ ok: true, tree: legacy });
+      const bound = fingerprint(stagePath);
+      writeFileSync(join(dir, stagePath, "state.json"), "accepted");
+      writeFileSync(join(dir, stagePath, "STATUS.md"), "derived acceptance");
+      expect(fingerprint(stagePath)).toBe(bound);
+      expect(fingerprint()).not.toBe(legacy);
+      writeFileSync(join(dir, stagePath, "parts.json"), "source changed");
+      expect(fingerprint(stagePath)).not.toBe(bound);
+
+      const stateDir = join(dir, ".navori/state/handoffs");
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(join(stateDir, "acceptance-index"), `true\tlegacy\tA1\t${stateDir}\tnull\t\n`);
+      const record = (): ReturnType<typeof spawnSync> =>
+        spawnSync(shell, [success, "claude-post-tool-use"], {
+          input: JSON.stringify({ cwd: dir, tool_name: "Bash", tool_input: { command: "true" } }),
+          encoding: "utf8",
+          env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+        });
+      expect(record().status).toBe(0);
+      const evidence = join(stateDir, "workplan_legacy.evidence.jsonl");
+      expect(existsSync(evidence)).toBe(false);
+      writeFileSync(join(stateDir, "acceptance-index"), `true\tlegacy\tA1\t${stateDir}\n`);
+      const result = record();
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      const lines = readEvidenceLog(evidence);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]!.deliveryBinding).toBeUndefined();
+      expect(fingerprintTree(dir)).toEqual({ ok: true, tree: lines[0]!.worktreeTree });
+
+      symlinkSync(join(dir, stagePath), join(dir, "redirected"));
+      const redirected = spawnSync(
+        shell,
+        ["-uc", 'source "$1"; navori_tree_fingerprint "$2" redirected', "fixture", partial, dir],
+        { encoding: "utf8" },
+      );
+      expect(redirected.status).toBe(1);
+      expect(redirected.stdout).toBe("");
+    },
+  );
+
+  // Covers: R7, R8, R9
+  it("carries CLI-captured binding and agrees with the reader on exact stage exclusions", () => {
+    const { dir, success } = setup();
+    execFileSync("git", ["init", "-q", dir]);
+    const stagePath = "specs/_master/01-proof";
+    mkdirSync(join(dir, stagePath), { recursive: true });
+    writeFileSync(join(dir, stagePath, "state.json"), "lifecycle");
+    writeFileSync(join(dir, stagePath, "STATUS.md"), "view");
+    const binding: DeliveryEvidenceBinding = {
+      policy: "deliveries-content-v1" as const,
+      authorityGeneration: 1,
+      stagePath,
+      sourceIdentity: "a".repeat(64),
+      baselineIdentity: "b".repeat(64),
+      queueIdentity: "c".repeat(64),
+      qualifiedId: "P1.A1",
+      criterionIdentity: "d".repeat(64),
+    };
+    const stateDir = join(dir, ".navori/state/handoffs");
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(
+      join(stateDir, "acceptance-index"),
+      `true\tdelivery-proof-p1\tA1\t${stateDir}\t${JSON.stringify(binding)}\t${stagePath}\n`,
+    );
+    const payload = {
+      session_id: "fixture-session",
+      cwd: dir,
+      tool_name: "Bash",
+      tool_input: { command: "true" },
+      tool_response: { stdout: "", stderr: "" },
+    };
+    expect(run(success, dir, payload, true).code).toBe(0);
+    const lines = readEvidenceLog(join(stateDir, "workplan_delivery-proof-p1.evidence.jsonl"));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.deliveryBinding).toEqual(binding);
+    const expected = fingerprintTree(dir, binding);
+    expect(expected).toEqual({ ok: true, tree: lines[0]!.worktreeTree });
+    writeFileSync(join(dir, stagePath, "state.json"), "accepted");
+    writeFileSync(join(dir, stagePath, "STATUS.md"), "derived acceptance");
+    expect(fingerprintTree(dir, binding)).toEqual(expected);
+    writeFileSync(join(dir, stagePath, "parts.json"), "changed source");
+    expect(fingerprintTree(dir, binding)).not.toEqual(expected);
+  });
+
+  // Covers: R7, R8, R9
+  it("writes no bound success for redirected stages or unknown Codex correlation", () => {
+    const { dir, success } = setup();
+    execFileSync("git", ["init", "-q", dir]);
+    const stateDir = join(dir, ".navori/state/handoffs");
+    mkdirSync(stateDir, { recursive: true });
+    const binding = {
+      policy: "deliveries-content-v1" as const,
+      authorityGeneration: 1,
+      stagePath: "stage",
+      sourceIdentity: "a".repeat(64),
+      baselineIdentity: "b".repeat(64),
+      queueIdentity: "c".repeat(64),
+      qualifiedId: "P1.A1",
+      criterionIdentity: "d".repeat(64),
+    };
+    const physical = join(dir, "physical");
+    mkdirSync(physical);
+    writeFileSync(join(physical, "state.json"), "state");
+    symlinkSync(physical, join(dir, "stage"));
+    writeFileSync(
+      join(stateDir, "acceptance-index"),
+      `true\tdelivery-proof-p1\tA1\t${stateDir}\t${JSON.stringify(binding)}\tstage\n`,
+    );
+    const payload = {
+      session_id: "fixture-session",
+      cwd: dir,
+      tool_name: "Bash",
+      tool_input: { command: "true" },
+    };
+    expect(run(success, dir, payload, true).code).toBe(0);
+    const evidence = join(stateDir, "workplan_delivery-proof-p1.evidence.jsonl");
+    expect(existsSync(evidence)).toBe(false);
+    const codex = spawnSync("bash", [success, "codex-post-tool-use"], {
+      input: JSON.stringify(payload),
+      encoding: "utf8",
+      env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+    });
+    expect(codex.status).toBe(0);
+    expect(existsSync(evidence)).toBe(false);
   });
 });

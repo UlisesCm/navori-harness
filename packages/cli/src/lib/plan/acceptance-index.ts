@@ -16,6 +16,8 @@ import {
   type StateRoot,
 } from "../primitives/state-root.ts";
 import { WorkplanSchema } from "./schema.ts";
+import { deliveryCriterionCapture } from "../master/delivery.ts";
+import { resolveStateRoot } from "../primitives/state-root.ts";
 
 /** Where the hook looks (`$CLAUDE_PROJECT_DIR/.navori/state/handoffs`). */
 const NEUTRAL_DIR = ".navori/state/handoffs";
@@ -35,9 +37,27 @@ function linesForDir(dir: string): string[] {
     if (!/^workplan_.+\.json$/.test(name)) continue;
     try {
       const plan = WorkplanSchema.parse(JSON.parse(readFileSync(resolve(dir, name), "utf8")));
+      // Projection runs once per plan; a stale slice throws here and contributes no line.
+      const capture =
+        plan.source &&
+        plan.acceptance.some((criterion) => plan.progress[criterion.id] !== "cumplido")
+          ? deliveryCriterionCapture(
+              resolveStateRoot({ cwd: dir, feature: plan.feature, dir }).cwd,
+              plan.source,
+            )
+          : undefined;
       for (const criterion of plan.acceptance) {
         if (plan.progress[criterion.id] === "cumplido") continue;
-        lines.push(`${jsonEscape(criterion.command)}\t${plan.feature}\t${criterion.id}\t${dir}\n`);
+        if (capture) {
+          const binding = capture(criterion.id, criterion.command);
+          lines.push(
+            `${jsonEscape(criterion.command)}\t${plan.feature}\t${criterion.id}\t${dir}\t${JSON.stringify(binding)}\t${binding.stagePath}\n`,
+          );
+        } else {
+          lines.push(
+            `${jsonEscape(criterion.command)}\t${plan.feature}\t${criterion.id}\t${dir}\n`,
+          );
+        }
       }
     } catch {
       // An unreadable or invalid workplan contributes nothing: the index is
