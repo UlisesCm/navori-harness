@@ -559,7 +559,8 @@ function twoDeliveryFixture(): ReturnType<typeof technicalFixture> {
   });
 }
 
-describe("cooperative technical snapshot and lifecycle", () => {
+// ~20 git-backed lifecycle calls per test: 6-8s unloaded, over the 15s global timeout under load.
+describe("cooperative technical snapshot and lifecycle", { timeout: 60_000 }, () => {
   // Covers: R7, R8, R9
   it.each(["changed", "deleted", "redirected"] as const)(
     "invalidates ignored manual artifact %s across historical proof and lifecycle consumers",
@@ -674,8 +675,6 @@ describe("cooperative technical snapshot and lifecycle", () => {
       expect(runMasterClose(cwd).reconciled).toBe(false);
       expect(readFileSync(join(stage, "state.json"), "utf8")).toBe(closedBytes);
     },
-    // Measured 6.6-8.2s unloaded (15s under load): ~20 git-backed lifecycle calls at 0.3-1.2s each, no single hotspot to cut.
-    60_000,
   );
 
   // Covers: R7, R8, R9
