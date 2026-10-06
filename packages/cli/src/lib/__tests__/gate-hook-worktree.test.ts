@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   mkdtempSync,
@@ -8,6 +8,7 @@ import {
   chmodSync,
   readFileSync,
   realpathSync,
+  rmSync,
   symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,6 +18,27 @@ import { interpolate } from "../render/interpolate.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
 import type { NavoriConfig } from "../config/config.ts";
 import { acrossShells, type HookShell } from "./helpers/shells.ts";
+
+/** Per-test fixture dirs, removed by the top-level `afterEach` below. */
+const tempDirs: string[] = [];
+
+/** `mkdtemp` under tmpdir() (realpath'd, as git reports it) registered for per-test cleanup. */
+function mkTemp(prefix: string): string {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+  tempDirs.push(dir);
+  return dir;
+}
+
+// Keeps the file's single end-of-file rmSync (vitest.setup.ts) cheap: git fixtures are removed as
+// they are used. Failed tests and NAVORI_KEEP_TEST_ARTIFACTS=1 retain them as evidence.
+afterEach((ctx) => {
+  const dirs = tempDirs.splice(0);
+  if (ctx.task.result?.state === "fail" || process.env.NAVORI_KEEP_TEST_ARTIFACTS === "1") return;
+  const root = realpathSync(tmpdir());
+  for (const dir of dirs) {
+    if (dir.startsWith(`${root}/`)) rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 /**
  * #454 — the gate hooks must scan the tree the COMMIT acts on.
@@ -129,7 +151,7 @@ function git(cwd: string, ...args: string[]): string {
 function setupFixture(scanExit = 1): Fixture {
   // realpath, not the raw mkdtemp path: on macOS mkdtemp hands back `/var/…`
   // while git reports `/private/var/…`, and the hook's messages quote git's.
-  const main = realpathSync(mkdtempSync(join(tmpdir(), "navori-454-main-")));
+  const main = mkTemp("navori-454-main-");
   writeFileSync(join(main, "a.ts"), "export const a = 1;\n");
   git(main, "init", "-q");
   git(main, "add", "a.ts");
@@ -140,7 +162,7 @@ function setupFixture(scanExit = 1): Fixture {
   const baseSha = git(main, "rev-parse", "main").trim();
   const baseShort = git(main, "rev-parse", "--short", baseSha).trim();
 
-  const worktree = join(realpathSync(mkdtempSync(join(tmpdir(), "navori-454-wt-"))), "wt");
+  const worktree = join(mkTemp("navori-454-wt-"), "wt");
   git(main, "worktree", "add", "-q", "-b", "feature", worktree, "main");
   // The diff the gate must see: it exists ONLY in the worktree.
   writeFileSync(join(worktree, "a.ts"), "export const a = 2;\n");
@@ -184,7 +206,7 @@ function setupFixture(scanExit = 1): Fixture {
  * points the command at.
  */
 function addForeignRepo(fx: Fixture): string {
-  const foreign = realpathSync(mkdtempSync(join(tmpdir(), "navori-454-other-")));
+  const foreign = mkTemp("navori-454-other-");
   writeFileSync(join(foreign, "b.ts"), "export const b = 1;\n");
   git(foreign, "init", "-q");
   git(foreign, "add", "b.ts");
@@ -709,7 +731,7 @@ describe.runIf(runsBash)(
       const fx = setupFixture(1);
       const f = addForeignRepo(fx);
       if (configText !== null) writeFileSync(join(f, "navori.config.json"), configText);
-      const auditsRoot = realpathSync(mkdtempSync(join(tmpdir(), "navori-1097-audits-")));
+      const auditsRoot = mkTemp("navori-1097-audits-");
       const repoDir = join(auditsRoot, basename(fx.main));
       mkdirSync(repoDir, { mode: 0o700 });
       writeFileSync(
@@ -861,7 +883,7 @@ describe.runIf(runsBash)(
     it("treats `..` behind a symlinked cwd as ambiguous", () => {
       const out = acrossShells((shell) =>
         landingRun(shell, "quality-gate", (fx, f) => {
-          const link = join(realpathSync(mkdtempSync(join(tmpdir(), "navori-1095-link-"))), "l");
+          const link = join(mkTemp("navori-1095-link-"), "l");
           symlinkSync(fx.main, link);
           return { command: `cd ../${basename(f)} && git commit -m x`, payloadCwd: link };
         }),
@@ -1003,7 +1025,7 @@ describe.runIf(runsBash)(
         [
           "CLAUDE_PROJECT_DIR not a git repo",
           (_fx, f) => {
-            const plain = realpathSync(mkdtempSync(join(tmpdir(), "navori-1099-plain-")));
+            const plain = mkTemp("navori-1099-plain-");
             return { command: "git commit -m x", payloadCwd: f, cpd: plain, hookRoot: plain };
           },
         ],
@@ -1186,13 +1208,13 @@ describe.runIf(runsBash)("gate hooks — chained gated ops landing in another re
   const otherRepo = (fx: Fixture): string => addForeignRepo({ ...fx });
   /** A linked worktree of `repo`. */
   const linkedWorktree = (repo: string): string => {
-    const wt = join(realpathSync(mkdtempSync(join(tmpdir(), "navori-1115-wt-"))), "wt");
+    const wt = join(mkTemp("navori-1115-wt-"), "wt");
     git(repo, "worktree", "add", "-q", "-b", "other", wt, "main");
     return wt;
   };
   /** A symlink called `name` (may hold a space) pointing at `target`. */
   const linkAs = (name: string, target: string): string => {
-    const link = join(realpathSync(mkdtempSync(join(tmpdir(), "navori-1115-ln-"))), name);
+    const link = join(mkTemp("navori-1115-ln-"), name);
     symlinkSync(target, link);
     return link;
   };
