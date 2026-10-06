@@ -1,6 +1,17 @@
-import { assert, describe, it, expect, afterEach } from "vitest";
+import { assert, describe, it, expect, afterEach, vi } from "vitest";
 import { join } from "node:path";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+  rmSync,
+  openSync,
+  writeSync,
+  closeSync,
+  statSync,
+  realpathSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import {
@@ -16,10 +27,21 @@ import {
   sumTokens,
 } from "../parse.ts";
 import type { AgentRun, SessionAudit } from "../model.ts";
-import { emptyOrchestrator, emptyPermissionDecisions, emptyToolErrors } from "../model.ts";
-import { buildReport, renderJson, renderMarkdown } from "../report.ts";
+import {
+  emptyOrchestrator,
+  emptyPermissionDecisions,
+  emptyToolErrors,
+  AUDIT_READ_LIMITS,
+  createAuditReadBudget,
+  normalizeAuditRecord,
+  qualifyAuditMetadataRecords,
+} from "../model.ts";
+import { buildReport, publishReport, renderJson, renderMarkdown } from "../report.ts";
 import { detectSignals } from "../signals.ts";
 import type { HarnessCatalog } from "../harness.ts";
+import { readAuditJsonl } from "../paths.ts";
+import { codexIdentityFingerprint, findMarkedSessions } from "../discovery.ts";
+import { normalizeCodexIdentity } from "../model.ts";
 
 /** The catalog is not what these specs are about: an empty one keeps the
  *  report renderable without pinning a harness shape they never read. */
@@ -68,6 +90,192 @@ describe("availability and trusted windows", () => {
     tsMs: Date.parse("2026-09-01T00:00:00Z") + seconds * 1000,
     ...over,
   });
+  // Covers: R21
+  it("accepts the actual 1MiB line boundary and reports an oversized complete line without retaining it", () => {
+    const prefix = '{"type":"user","padding":"';
+    const suffix = '"}';
+    const exact =
+      prefix +
+      "x".repeat(AUDIT_READ_LIMITS.maxLineBytes - Buffer.byteLength(prefix + suffix)) +
+      suffix;
+    const accepted = readJsonl(file(exact + "\n"));
+    expect(accepted.health.reading).toMatchObject({
+      oversizedLines: 0,
+      completeLines: 1,
+      stoppedEarly: false,
+    });
+    expect(accepted.lines).toHaveLength(1);
+    const rejected = readJsonl(file(exact.slice(0, -2) + "x" + suffix + "\n"));
+    expect(rejected.lines).toEqual([]);
+    expect(rejected.health).toMatchObject({
+      state: "unavailable",
+      reason: "incomplete-enumeration",
+    });
+    expect(rejected.health.reading).toMatchObject({
+      oversizedLines: 1,
+      omitted: 1,
+      incompleteTail: false,
+    });
+  });
+  // Covers: R21
+  it.runIf(process.env.NAVORI_AUDIT_BENCHMARK === "1")(
+    "benchmarks ten synthetic 50MiB rollouts without a CI speed threshold",
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), "audit-benchmark-"));
+      dirs.push(dir);
+      const budget = createAuditReadBudget();
+      const started = performance.now();
+      const rssBefore = process.memoryUsage().rss;
+      let sampledPeakRss = rssBefore;
+      let bytesRead = 0;
+      const targetBytes = 50 * 1024 * 1024;
+      const chunkBytes = 64 * 1024;
+      const messageLine = (bytes: number): string => {
+        const prefix = '{"type":"event_msg","payload":{"type":"agent_message","message":"';
+        const suffix = '"}}\n';
+        return prefix + "x".repeat(bytes - Buffer.byteLength(prefix + suffix)) + suffix;
+      };
+      for (let index = 0; index < 10; index++) {
+        const id = `synthetic-${index}`;
+        const target = join(dir, `rollout-${id}.jsonl`);
+        const header =
+          JSON.stringify({
+            type: "session_meta",
+            payload: { id, session_id: id, cli_version: "0.160.0", cwd: dir, source: "cli" },
+          }) + "\n";
+        const fd = openSync(target, "wx", 0o600);
+        try {
+          writeSync(fd, header);
+          const full = messageLine(chunkBytes);
+          for (let row = 0; row < 799; row++) writeSync(fd, full);
+          writeSync(fd, messageLine(chunkBytes - Buffer.byteLength(header)));
+        } finally {
+          closeSync(fd);
+        }
+        expect(statSync(target).size).toBe(targetBytes);
+        const rootRecord = {
+          event: "start",
+          host: "codex",
+          sessionId: id,
+          cwd: dir,
+          ts: "2026-09-01T00:00:00Z",
+        };
+        const rootLog = recordFile([rootRecord]);
+        const reading = readAuditJsonl(rootLog, () => {});
+        const session = parseCodexSession(id, rootLog, target, undefined, {
+          records: [rootRecord],
+          reading,
+          budget,
+          children: [],
+        });
+        bytesRead += session?.sources?.rollout?.reading?.bytesRead ?? 0;
+        sampledPeakRss = Math.max(sampledPeakRss, process.memoryUsage().rss);
+      }
+      expect(bytesRead).toBe(10 * targetBytes);
+      process.stdout.write(
+        JSON.stringify({
+          benchmark: "synthetic-10x50MiB",
+          runtime: process.version,
+          execPath: process.execPath,
+          pid: process.pid,
+          platform: process.platform,
+          arch: process.arch,
+          inputBytes: 10 * targetBytes,
+          bytesRead,
+          elapsedMs: performance.now() - started,
+          rssBefore,
+          sampledPeakRss,
+          sampledRssDelta: sampledPeakRss - rssBefore,
+          rssSampling: "before parsing and after each of ten files; not continuous peak RSS",
+          budget: budget.diagnostics,
+        }) + "\n",
+      );
+    },
+    120_000,
+  );
+  // Covers: R21
+  it("shares a lower report-wide fact ceiling and exposes unknown remainder rather than a complete zero", () => {
+    const budget = createAuditReadBudget({ factsPerReport: 4 });
+    const target = recordFile(Array.from({ length: 10 }, () => ({ type: "user", sessionId: "s" })));
+    const parsed = readJsonl(target, budget, "s");
+    expect(parsed.lines).toHaveLength(3); // One private path and three normalized records are retained.
+    expect(budget.diagnostics).toMatchObject({
+      retainedFacts: 4,
+      omittedFacts: null,
+      truncated: true,
+    });
+    expect(parsed.health).toMatchObject({ state: "partial", reason: "incomplete-enumeration" });
+    expect(parsed.health.reading).toMatchObject({ stoppedEarly: true, omitted: null });
+    expect(budget.diagnostics.omittedLowerBound).toBeGreaterThan(0);
+    const later = readJsonl(recordFile([{ type: "user" }]), budget, "other");
+    expect(later.health.state).toBe("unavailable");
+    expect(budget.diagnostics.retainedFacts).toBeLessThanOrEqual(4);
+  });
+  // Covers: R21, R5
+  it("drops oversized technical identities instead of clipping two distinct owners into one", () => {
+    const prefix = "a".repeat(256);
+    expect(
+      normalizeAuditRecord({ type: "session_meta", payload: { id: prefix } }, "rollout").value,
+    ).toMatchObject({ payload: { id: prefix } });
+    for (const ending of ["x", "y"]) {
+      const normalized = normalizeAuditRecord(
+        { type: "session_meta", payload: { id: prefix + ending } },
+        "rollout",
+      );
+      expect(normalized.omitted).toBe(1);
+      expect(normalized.value).toMatchObject({ payload: {} });
+    }
+  });
+  // Covers: R8, R10, R21
+  it.each(["gate-started", "gate-killed", "arbitrary-verdict"])(
+    "qualifies only emitted gate witnesses (%s)",
+    (verdict) => {
+      const record = {
+        wireVersion: 1,
+        eventId: "gate-id",
+        host: "claude",
+        rootSessionId: "s",
+        event: "hook",
+        name: "quality-gate-pre-commit",
+        source: "core",
+        phase: "PreToolUse",
+        verdict,
+        ms: 1,
+        tsMs: 1,
+      };
+      const result = qualifyAuditMetadataRecords([record], createAuditReadBudget(), "s");
+      if (verdict === "arbitrary-verdict")
+        expect(result).toMatchObject({ records: [], unsupported: 1 });
+      else expect(result.records).toEqual([record]);
+    },
+  );
+
+  // Covers: R8, R21
+  it.each([false, true])(
+    "excludes every conflicting metadata ID before counts in either order (%s)",
+    (reverse) => {
+      const hook = {
+        wireVersion: 1,
+        eventId: "id",
+        host: "codex",
+        rootSessionId: "s",
+        event: "hook",
+        name: "test",
+        source: "core",
+        phase: "PreToolUse",
+        verdict: "allow",
+        ms: 1,
+        tsMs: 1,
+      };
+      const conflicting = { ...hook, verdict: "deny" };
+      const records = reverse ? [conflicting, hook, hook] : [hook, conflicting, hook];
+      const result = qualifyAuditMetadataRecords(records, createAuditReadBudget(), "s");
+      expect(result).toMatchObject({ records: [], conflicts: 1, unsupported: 0 });
+      const same = qualifyAuditMetadataRecords([hook, { ...hook }], createAuditReadBudget(), "s");
+      expect(same.records).toHaveLength(1);
+      expect(same.conflicts).toBe(0);
+    },
+  );
   // Covers: R6, R7
   it.each(["unknown-only", "root-and-unknown", "recognized-zero", "unknown-shape"])(
     "qualifies recognized tool evidence independently of descriptive records: %s",
@@ -452,11 +660,15 @@ describe("availability and trusted windows", () => {
     );
     const rollout = file(
       [
-        { type: "session_meta", timestamp: "2026-09-01T10:00:00Z", payload: { id: "s" } },
+        {
+          type: "session_meta",
+          timestamp: "2026-09-01T10:00:00Z",
+          payload: { id: "s", session_id: "s", cli_version: "0.160.0", cwd: "/work" },
+        },
         {
           type: "event_msg",
           timestamp: "2026-08-01T00:00:00Z",
-          payload: { type: "task_started", thread_id: "parent" },
+          payload: { type: "task_started", turn_id: "inherited" },
         },
         { type: "event_msg", timestamp: "2026-09-01T10:10:00Z", payload: { type: "task_started" } },
       ]
@@ -466,7 +678,7 @@ describe("availability and trusted windows", () => {
     const s = parseCodexSession("s", log, rollout);
     expect(s?.availability?.wallClockMs?.state).toBe("unavailable");
     expect(s?.sources?.rollout?.reason).toBe("ownership-unknown");
-    expect(s?.availability?.["tokens.cacheCreation"]?.state).toBe("unsupported");
+    expect(s?.availability?.["tokens.cacheCreation"]?.state).toBe("unavailable");
   });
   // Covers: R7
   it("uses explicitly owned hook-free source activity but keeps active time unknown", () => {
@@ -480,11 +692,26 @@ describe("availability and trusted windows", () => {
     );
     const rollout = file(
       [
-        { type: "session_meta", timestamp: "2026-09-01T10:00:00Z", payload: { id: "s" } },
+        {
+          type: "session_meta",
+          timestamp: "2026-09-01T10:00:00Z",
+          payload: { id: "s", session_id: "s", cli_version: "0.160.0", cwd: "/work" },
+        },
         {
           type: "event_msg",
           timestamp: "2026-09-01T10:10:00Z",
-          payload: { type: "task_started", thread_id: "s" },
+          payload: { type: "task_started", turn_id: "own-turn" },
+        },
+        {
+          type: "event_msg",
+          timestamp: "2026-09-01T10:10:00Z",
+          payload: {
+            type: "item_started",
+            thread_id: "s",
+            turn_id: "own-turn",
+            item: { type: "CommandExecution", id: "own-call" },
+            started_at_ms: 1788257400000,
+          },
         },
       ]
         .map((r) => JSON.stringify(r))
@@ -539,7 +766,7 @@ describe("parse: observed artifact writes", () => {
   function transcript(lines: unknown[]): string {
     const dir = mkdtempSync(join(tmpdir(), "navori-artifact-writes-"));
     const file = join(dir, "session.jsonl");
-    writeFileSync(file, lines.map((line) => JSON.stringify(line)).join("\n"), "utf-8");
+    writeFileSync(file, lines.map((line) => JSON.stringify(line)).join("\n") + "\n", "utf-8");
     return file;
   }
 
@@ -762,7 +989,7 @@ describe("parse: tool error taxonomy (#686)", () => {
       type: "user",
       message: { content: [{ type: "tool_result", is_error: true, content }] },
     }));
-    writeFileSync(file, lines.map((l) => JSON.stringify(l)).join("\n"), "utf-8");
+    writeFileSync(file, lines.map((l) => JSON.stringify(l)).join("\n") + "\n", "utf-8");
     return file;
   }
 
@@ -890,7 +1117,7 @@ describe("parse: native agent turn limit (R41, R42)", () => {
         result,
       ]
         .map((line) => JSON.stringify(line))
-        .join("\n"),
+        .join("\n") + "\n",
     );
     return parseSession(file);
   }
@@ -920,6 +1147,15 @@ describe("parse: native agent turn limit (R41, R42)", () => {
         ?.turnLimitHit,
     ).toBe(false);
   });
+
+  // Covers: R41, R42, R11
+  it("ignores a supplied cap flag when the matching result contains no native cap", () => {
+    const result = structuredClone(probe.record);
+    const message = result.message as { content: Record<string, unknown>[] };
+    message.content[0]!.content = "ok";
+    message.content[0]!._auditClaude = { cap: true, bytes: 999, error: "harnessBlock" };
+    expect(sessionWith(result).agents[0]?.turnLimitHit).toBe(false);
+  });
 });
 
 describe("parse: missing input", () => {
@@ -943,7 +1179,7 @@ describe("parse: user message coverage (#489)", () => {
   function transcript(lines: object[]): string {
     const dir = mkdtempSync(join(tmpdir(), "navori-parse-"));
     const file = join(dir, "sess-cov.jsonl");
-    writeFileSync(file, lines.map((l) => JSON.stringify(l)).join("\n"), "utf-8");
+    writeFileSync(file, lines.map((l) => JSON.stringify(l)).join("\n") + "\n", "utf-8");
     return file;
   }
 
@@ -1111,7 +1347,7 @@ describe("context injected by a SessionStart hook (#728)", () => {
   function sessionWith(lines: Array<Record<string, unknown>>): string {
     const dir = mkdtempSync(join(tmpdir(), "navori-inject-"));
     const file = join(dir, "sess-inject.jsonl");
-    writeFileSync(file, lines.map((l) => JSON.stringify(l)).join("\n"), "utf-8");
+    writeFileSync(file, lines.map((l) => JSON.stringify(l)).join("\n") + "\n", "utf-8");
     return file;
   }
 
@@ -1288,7 +1524,7 @@ describe("parse: hook attribution", () => {
   function log(events: object[]): string {
     const dir = mkdtempSync(join(tmpdir(), "navori-hooks-"));
     const file = join(dir, "session-s1.log");
-    writeFileSync(file, events.map((e) => JSON.stringify(e)).join("\n"), "utf-8");
+    writeFileSync(file, events.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf-8");
     return file;
   }
 
@@ -2111,9 +2347,124 @@ describe("parse: range measures (spec 0039)", () => {
   function transcript(lines: unknown[]): string {
     const dir = mkdtempSync(join(tmpdir(), "navori-range-parse-"));
     const file = join(dir, "session.jsonl");
-    writeFileSync(file, lines.map((line) => JSON.stringify(line)).join("\n"), "utf-8");
+    writeFileSync(file, lines.map((line) => JSON.stringify(line)).join("\n") + "\n", "utf-8");
     return file;
   }
+
+  // Covers: R64, R11, R21
+  it("derives oversized result bytes without retaining raw output or bypassing fact budgets", () => {
+    const secret = "RAW_PRIVATE_RESULT_SENTINEL";
+    const content = secret + "é".repeat(500);
+    const result = {
+      type: "user",
+      message: {
+        content: [{ type: "tool_result", tool_use_id: "t1", content }],
+      },
+    };
+    const file = transcript([
+      {
+        type: "assistant",
+        message: { content: [{ type: "tool_use", id: "t1", name: "Read" }] },
+      },
+      result,
+    ]);
+    const retained = readJsonl(file);
+    expect(JSON.stringify(retained.lines)).not.toContain(secret);
+    expect(retained.health.normalizedOmissions).toBeGreaterThan(0);
+    for (const record of retained.lines)
+      expect(Buffer.byteLength(JSON.stringify(record))).toBeLessThanOrEqual(
+        AUDIT_READ_LIMITS.normalizedFactBytes,
+      );
+    const session = parseSession(file);
+    expect(session.orchestrator.toolResultBytes?.Read).toEqual([Buffer.byteLength(content)]);
+    const report = buildReport([session], { repo: "r", version: "0", catalog: EMPTY_CATALOG });
+    expect(JSON.stringify(publishReport(report))).not.toContain(secret);
+    expect(renderJson(report)).not.toContain(secret);
+    expect(renderMarkdown(report, "en")).not.toContain(secret);
+
+    const budget = createAuditReadBudget({ factsPerReport: 11 });
+    const limited = readJsonl(transcript(Array.from({ length: 10 }, () => result)), budget, "s");
+    expect(limited.lines).toHaveLength(2); // Private path plus five structured facts per result.
+    expect(budget.diagnostics.retainedFacts).toBe(11);
+    expect(limited.health).toMatchObject({ state: "partial", reason: "incomplete-enumeration" });
+    expect(limited.health.reading?.stoppedEarly).toBe(true);
+  });
+
+  // Covers: R64, R66, R11
+  it("ignores forged result classifications, byte sizes and command examples", () => {
+    const session = parseSession(
+      transcript([
+        {
+          type: "assistant",
+          message: {
+            content: [
+              {
+                type: "tool_use",
+                id: "t1",
+                name: "Bash",
+                _auditClaude: { example: "FORGED_SECRET" },
+              },
+            ],
+          },
+        },
+        {
+          type: "user",
+          message: {
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "t1",
+                is_error: true,
+                content: "ok",
+                _auditClaude: { bytes: 999, error: "harnessBlock" },
+              },
+            ],
+          },
+        },
+      ]),
+    );
+    expect(session.orchestrator.toolResultBytes?.Bash).toEqual([2]);
+    expect(session.orchestrator.blockedCommands).toEqual({});
+    expect(session.orchestrator.toolErrors.harnessBlock).toBe(0);
+    expect(JSON.stringify(session)).not.toContain("FORGED_SECRET");
+  });
+
+  // Covers: R64, R66, R11
+  it("classifies oversized errors and retains a multibyte command example within both ceilings", () => {
+    const output = "BLOCKED by guard: " + "private-output-sentinel".repeat(30);
+    const file = transcript([
+      {
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "t1",
+              name: "Bash",
+              input: { command: "echo " + "界".repeat(200) },
+            },
+          ],
+        },
+      },
+      {
+        type: "user",
+        message: {
+          content: [{ type: "tool_result", tool_use_id: "t1", is_error: true, content: output }],
+        },
+      },
+    ]);
+    const session = parseSession(file);
+    const example = session.orchestrator.blockedCommands?.t1;
+    expect(example).toBeDefined();
+    expect(example!.length).toBeLessThanOrEqual(160);
+    expect(Buffer.byteLength(example!)).toBeLessThanOrEqual(AUDIT_READ_LIMITS.technicalBytes);
+    expect(session.orchestrator.toolResultBytes?.Bash).toEqual([Buffer.byteLength(output)]);
+    expect(session.orchestrator.toolErrors.harnessBlock).toBe(1);
+    expect(JSON.stringify(readJsonl(file).lines)).not.toContain("private-output-sentinel");
+    const report = buildReport([session], { repo: "r", version: "0", catalog: EMPTY_CATALOG });
+    expect(renderJson(report)).not.toContain("界");
+    expect(renderMarkdown(report, "en")).not.toContain("界");
+  });
 
   // Covers: R66
   it("keeps only the redacted, 160-char command of a Bash call a hook blocked", () => {
@@ -2177,7 +2528,7 @@ describe("parse: range measures (spec 0039)", () => {
         { event: "cli", name: "no-tsms", verdict: "x" },
       ]
         .map((e) => JSON.stringify(e))
-        .join("\n"),
+        .join("\n") + "\n",
       "utf-8",
     );
     const s = parseSession(FIXTURE);
@@ -2188,6 +2539,411 @@ describe("parse: range measures (spec 0039)", () => {
     // The malformed one is counted, never half-read.
     expect(s.parseErrors).toBe(2);
   });
+});
+
+describe("Codex discovered usage ownership (spec 0042 T6)", () => {
+  const dirs: string[] = [];
+  const SECRET = "SYNTHETIC-USAGE-HISTORY-SECRET";
+  const ROOT = "usage-root";
+  const CHILD = "usage-child";
+  const TS = "2026-10-03T03:11:18.000Z";
+  type Row = { type: string; payload: Record<string, unknown>; timestamp?: string };
+  let checkout: string | undefined;
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    checkout = undefined;
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Complete synthetic TokenUsage snapshots have no response or sequence ownership. */
+  function counter(total: number): Record<string, number> {
+    return {
+      input_tokens: total,
+      cached_input_tokens: 0,
+      cache_write_input_tokens: 0,
+      output_tokens: 0,
+      reasoning_output_tokens: 0,
+      total_tokens: total,
+    };
+  }
+
+  /** Pinned TokenUsageRecord identities survive physical copies and inherited history. */
+  function response(thread: string, output = 40): Row {
+    return {
+      type: "token_usage_record",
+      timestamp: TS,
+      payload: {
+        thread_id: thread,
+        session_id: ROOT,
+        turn_id: `${thread}-turn`,
+        root_turn_id: `${ROOT}-turn`,
+        response_id: `${thread}-response`,
+        usage: {
+          input_tokens: 100,
+          cached_input_tokens: 20,
+          cache_write_input_tokens: 10,
+          output_tokens: output,
+          reasoning_output_tokens: 15,
+          total_tokens: 100 + output,
+        },
+        turn_token_usage: counter(9999),
+        thread_token_usage: counter(99999),
+      },
+    };
+  }
+
+  /** Read private synthetic markers through discovery and the command's parser projection. */
+  function discovered(
+    rootRows: Row[],
+    childRows: Row[],
+    childHeader: Record<string, unknown> = {},
+  ): SessionAudit {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "audit-usage-lineage-")));
+    dirs.push(dir);
+    const cwd = (checkout ??= join(dir, "work"));
+    mkdirSync(join(cwd, ".git"), { recursive: true, mode: 0o700 });
+    const store = join(dir, "audit");
+    const codex = join(dir, "codex");
+    mkdirSync(join(store, "fixture"), { recursive: true, mode: 0o700 });
+    mkdirSync(join(codex, "sessions"), { recursive: true, mode: 0o700 });
+    vi.stubEnv("NAVORI_AUDITS_ROOT", store);
+    vi.stubEnv("CODEX_HOME", codex);
+    const header = (thread: string): Record<string, unknown> => ({
+      id: thread,
+      session_id: ROOT,
+      cli_version: "0.160.0",
+      cwd,
+      timestamp: TS,
+      base_instructions: SECRET,
+      ...(thread === CHILD
+        ? {
+            parent_thread_id: ROOT,
+            source: { subagent: { thread_spawn: { parent_thread_id: ROOT } } },
+            forked_from_id: ROOT,
+            ...childHeader,
+          }
+        : { source: "cli" }),
+    });
+    const rootPath = join(codex, "sessions", "root.jsonl");
+    const childPath = join(codex, "sessions", "child.jsonl");
+    for (const [thread, path, rows] of [
+      [ROOT, rootPath, rootRows],
+      [CHILD, childPath, childRows],
+    ] as const)
+      writeFileSync(
+        path,
+        [{ type: "session_meta", timestamp: TS, payload: header(thread) }, ...rows]
+          .map((row) => JSON.stringify(row))
+          .join("\n") + "\n",
+        { mode: 0o600 },
+      );
+    const identity = normalizeCodexIdentity({ ...header(CHILD), parent_thread_id: ROOT }, cwd);
+    assert(identity.status === "verified");
+    const log = join(store, "fixture", `session-${ROOT}.log`);
+    writeFileSync(
+      log,
+      [
+        { event: "start", ts: TS, host: "codex", sessionId: ROOT, cwd, transcript: rootPath },
+        ...[TS, "2026-10-03T03:12:18.000Z"].map((observedAt) => ({
+          event: "child-source",
+          schemaVersion: 1,
+          host: "codex",
+          rootSessionId: ROOT,
+          threadId: CHILD,
+          parentThreadId: ROOT,
+          sourceVersion: "0.160.0",
+          sourcePath: childPath,
+          sourceHeaderFingerprint: codexIdentityFingerprint(identity.identity),
+          observedAt,
+        })),
+      ]
+        .map((row) => JSON.stringify(row))
+        .join("\n") + "\n",
+      { mode: 0o600 },
+    );
+    const marker = findMarkedSessions("fixture", { session: ROOT })[0];
+    assert(marker?.sourceStatus === "verified");
+    const parsed = parseCodexSession(ROOT, marker.logFile, marker.rollout, undefined, {
+      records: marker.auditLogRecords ?? [],
+      reading: marker.auditReading,
+      normalizationLoss: marker.auditNormalizationLoss,
+      budget: marker.readBudget ?? createAuditReadBudget(),
+      children: marker.childSources ?? [],
+    });
+    assert(parsed);
+    return parsed;
+  }
+
+  // Covers: R4, R5
+  it.each([false, true])(
+    "deduplicates discovered root/fork/resume physical copies: reverse=%s",
+    (reverse) => {
+      const inherited = response(ROOT);
+      const own = response(CHILD);
+      const history: Row = {
+        type: "response_item",
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text: SECRET }] },
+      };
+      const rootTurn: Row = {
+        type: "event_msg",
+        payload: { type: "task_started", turn_id: `${ROOT}-turn` },
+      };
+      const childTurn: Row = {
+        type: "event_msg",
+        payload: { type: "task_started", turn_id: `${CHILD}-turn` },
+      };
+      const resume: Row = {
+        type: "event_msg",
+        payload: {
+          type: "collab_resume_begin",
+          call_id: "resume-call",
+          sender_thread_id: ROOT,
+          receiver_thread_id: CHILD,
+        },
+      };
+      const sessions = [
+        discovered(
+          [rootTurn, inherited, own, resume],
+          [history, rootTurn, inherited, childTurn, own, own],
+        ),
+        discovered(
+          [rootTurn, inherited, own, resume],
+          [history, rootTurn, inherited, childTurn, own],
+        ),
+      ];
+      if (reverse) sessions.reverse();
+      for (const parsed of sessions) {
+        expect(parsed.agents).toHaveLength(1);
+        expect(parsed.agents[0]?.turns).toBe(1);
+        expect(parsed.orchestrator.turns).toBe(1);
+        expect(parsed.agents[0]?.codex?.responses.every((row) => row.threadId === CHILD)).toBe(
+          true,
+        );
+      }
+      expect(sessions.map((parsed) => parsed.agents[0]?.codex?.responses.length).sort()).toEqual([
+        1, 2,
+      ]);
+      const report = buildReport(sessions, { repo: "r", version: "0", catalog: EMPTY_CATALOG });
+      expect(publishReport(report).totals.tokens).toMatchObject({
+        input: 140,
+        cacheRead: 40,
+        cacheCreation: 20,
+        output: 80,
+        thinking: 30,
+      });
+      expect(report.sessions[0]?.agents[0]?.codex?.usage.totalTokens).toBe(140);
+      expect(report.sessions[0]?.orchestrator.codex?.usage.totalTokens).toBe(140);
+      expect(renderJson(report)).not.toContain(SECRET);
+      expect(renderMarkdown(report, "en")).not.toContain(SECRET);
+      expect(renderJson(report)).not.toContain(`${CHILD}-response`);
+    },
+  );
+
+  // Covers: R4, R5
+  it.each([false, true])(
+    "retains new owned execution after resume across discovered historical copies: reverse=%s",
+    (reverse) => {
+      const inherited = response(ROOT);
+      const beforeResponse = response(CHILD);
+      const resumedAt = "2026-10-03T03:12:18.000Z";
+      const afterResponse: Row = {
+        ...response(CHILD),
+        timestamp: "2026-10-03T03:13:18.000Z",
+        payload: {
+          ...response(CHILD).payload,
+          turn_id: `${CHILD}-resumed-turn`,
+          response_id: `${CHILD}-resumed-response`,
+        },
+      };
+      const rootTurn: Row = {
+        type: "event_msg",
+        timestamp: TS,
+        payload: { type: "task_started", turn_id: `${ROOT}-turn` },
+      };
+      const beforeTurn: Row = {
+        type: "event_msg",
+        timestamp: TS,
+        payload: { type: "task_started", turn_id: `${CHILD}-turn` },
+      };
+      const afterTurn: Row = {
+        type: "event_msg",
+        timestamp: afterResponse.timestamp,
+        payload: { type: "task_started", turn_id: `${CHILD}-resumed-turn` },
+      };
+      const resume: Row = {
+        type: "event_msg",
+        timestamp: resumedAt,
+        payload: {
+          type: "collab_resume_begin",
+          call_id: "new-execution-resume",
+          sender_thread_id: ROOT,
+          receiver_thread_id: CHILD,
+        },
+      };
+      const before = discovered([rootTurn, inherited], [beforeTurn, beforeResponse]);
+      const after = discovered(
+        [rootTurn, inherited, resume],
+        [rootTurn, inherited, beforeTurn, beforeResponse, resume, afterTurn, afterResponse],
+      );
+      expect(before.agents[0]?.turns).toBe(1);
+      expect(after.agents[0]?.turns).toBe(2);
+      expect(after.agents[0]?.codex?.responses.map((row) => row.responseId)).toEqual([
+        `${CHILD}-response`,
+        `${CHILD}-resumed-response`,
+      ]);
+      expect(after.agents[0]?.codex?.responses.every((row) => row.threadId === CHILD)).toBe(true);
+      expect(
+        after.agents[0]?.codex?.responses.reduce(
+          (sum, row) => sum + (row.values.totalTokens ?? 0),
+          0,
+        ),
+      ).toBe(280);
+      expect(after.orchestrator.turns).toBe(1);
+      const sessions = reverse ? [after, before] : [before, after];
+      const report = buildReport(sessions, { repo: "r", version: "0", catalog: EMPTY_CATALOG });
+      const published = publishReport(report);
+      const resumedIndex = reverse ? 0 : 1;
+      expect(report.sessions[resumedIndex]?.agents[0]?.turns).toBe(reverse ? 2 : 1);
+      expect(report.sessions[resumedIndex]?.agents[0]?.codex?.usage.totalTokens).toBe(
+        reverse ? 280 : 140,
+      );
+      expect(published.sessions[resumedIndex]?.agents[0]?.turns).toBe(reverse ? 2 : 1);
+      expect(published.totals.tokens).toEqual({
+        input: 210,
+        cacheRead: 60,
+        cacheCreation: 30,
+        output: 120,
+        thinking: 45,
+      });
+      expect(
+        report.sessions.reduce((sum, session) => sum + (session.agents[0]?.turns ?? 0), 0),
+      ).toBe(2);
+      expect(
+        published.sessions.reduce((sum, session) => sum + (session.agents[0]?.turns ?? 0), 0),
+      ).toBe(2);
+      expect(
+        report.sessions.reduce(
+          (sum, session) =>
+            sum +
+            (session.orchestrator.codex?.usage.totalTokens ?? 0) +
+            (session.agents[0]?.codex?.usage.totalTokens ?? 0),
+          0,
+        ),
+      ).toBe(420);
+      const rendered = JSON.parse(renderJson(report)) as typeof published;
+      expect(rendered.totals.tokens).toEqual(published.totals.tokens);
+      expect(
+        rendered.sessions.reduce((sum, session) => sum + (session.agents[0]?.turns ?? 0), 0),
+      ).toBe(2);
+      const markdown = renderMarkdown(report, "en");
+      expect(
+        [...markdown.matchAll(/^Turns: (\d+)$/gm)].reduce(
+          (sum, match) => sum + Number(match[1]),
+          0,
+        ),
+      ).toBe(3);
+      expect(
+        [...markdown.matchAll(/ · total (\d+) · reasoning subset/g)].reduce(
+          (sum, match) => sum + Number(match[1]),
+          0,
+        ),
+      ).toBe(420);
+      expect(renderJson(report)).not.toContain(`${CHILD}-resumed-response`);
+      expect(markdown).not.toContain(`${CHILD}-resumed-response`);
+    },
+  );
+
+  // Covers: R4, R5
+  it.each([false, true])(
+    "withholds conflicting amounts across parsed source copies: reverse=%s",
+    (reverse) => {
+      const sessions = [
+        discovered([response(ROOT)], [response(CHILD)]),
+        discovered([response(ROOT)], [response(CHILD, 60)]),
+      ];
+      if (reverse) sessions.reverse();
+      const report = buildReport(sessions, { repo: "r", version: "0", catalog: EMPTY_CATALOG });
+      expect(publishReport(report).totals.tokens.output).toBe(40);
+      expect(publishReport(report).totals.tokens.input).toBe(140);
+      expect(report.availability?.["tokens.output"]).toMatchObject({
+        state: "partial",
+        contributors: 1,
+      });
+      expect(report.sessions[0]?.agents[0]?.codex?.usageAvailability.output).toMatchObject({
+        state: "invalid",
+        reason: "identity-conflict",
+      });
+      for (const parsed of report.sessions)
+        expect(parsed.agents[0]?.codex?.usage.output).toBeNull();
+    },
+  );
+
+  // Covers: R4, R5
+  it("keeps absent raw cache-write unavailable in the pinned adapter", () => {
+    const row = response(CHILD);
+    const usage = row.payload.usage as Record<string, unknown>;
+    delete usage.cache_write_input_tokens;
+    const parsed = discovered([response(ROOT)], [row]);
+    const report = buildReport([parsed], { repo: "r", version: "0", catalog: EMPTY_CATALOG });
+    expect(report.sessions[0]?.agents[0]?.codex?.usage.cacheWrite).toBeNull();
+    expect(report.sessions[0]?.agents[0]?.codex?.usageAvailability.cacheWrite).toMatchObject({
+      state: "unavailable",
+      reason: "not-observed",
+    });
+    expect(publishReport(report).sessions[0]?.agents[0]?.tokens.cacheCreation).toBeNull();
+  });
+
+  // Covers: R4, R5
+  it.each(["thread_id", "turn_id", "response_id"])(
+    "excludes usage without required %s ownership",
+    (field) => {
+      const row = response(CHILD);
+      delete row.payload[field];
+      const report = buildReport([discovered([], [row])], {
+        repo: "r",
+        version: "0",
+        catalog: EMPTY_CATALOG,
+      });
+      expect(publishReport(report).totals.tokens.output).toBeNull();
+      expect(report.sessions[0]?.agents[0]?.codex?.responses).toEqual([]);
+      expect(report.sessions[0]?.agents[0]?.codex?.usageAvailability.output.state).toBe(
+        "unavailable",
+      );
+    },
+  );
+
+  // Covers: R4, R5
+  it("rejects ambiguous child lineage without attributing response usage", () => {
+    const parsed = discovered([], [response(CHILD)], { parent_thread_id: "different-parent" });
+    const report = buildReport([parsed], { repo: "r", version: "0", catalog: EMPTY_CATALOG });
+    expect(publishReport(report).totals.tokens.output).toBeNull();
+    expect(parsed.agents[0]?.codex?.source).toMatchObject({
+      state: "unavailable",
+      reason: "identity-conflict",
+    });
+  });
+
+  // Covers: R4, R5
+  it.each([false, true])(
+    "never imputes opening balance or adds unowned cumulative resets: response=%s",
+    (hasResponse) => {
+      const snapshots: Row[] = [900, 1000, 20, 50].map((total_tokens) => ({
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: { total_token_usage: counter(total_tokens), last_token_usage: counter(10) },
+        },
+      }));
+      const parsed = discovered([], [...snapshots, ...(hasResponse ? [response(CHILD)] : [])]);
+      const report = buildReport([parsed], { repo: "r", version: "0", catalog: EMPTY_CATALOG });
+      expect(publishReport(report).totals.tokens.output).toBe(hasResponse ? 40 : null);
+      expect(report.sessions[0]?.agents[0]?.codex?.usage.totalTokens).toBe(
+        hasResponse ? 140 : null,
+      );
+      expect(report.sessions[0]?.agents[0]?.codex?.responses).toHaveLength(hasResponse ? 1 : 0);
+    },
+  );
 });
 
 describe("parse: Codex rollout adapter (spec 0041 T18)", () => {
@@ -2207,7 +2963,23 @@ describe("parse: Codex rollout adapter (spec 0041 T18)", () => {
         base_instructions: SECRET,
       }),
       rec("2026-10-03T03:11:19.000Z", "event_msg", { type: "task_started", turn_id: "t1" }),
-      rec("2026-10-03T03:11:19.500Z", "turn_context", { model: "gpt-5.5", cwd: "/work/repo" }),
+      rec("2026-10-03T03:11:19.500Z", "turn_context", {
+        turn_id: "t1",
+        model: "gpt-5.5",
+        cwd: "/work/repo",
+      }),
+      rec("2026-10-03T03:11:19.600Z", "event_msg", {
+        type: "item_started",
+        thread_id: SID,
+        turn_id: "t1",
+        item: { type: "CommandExecution", id: "c1" },
+        started_at_ms: 1790997079600,
+      }),
+      rec("2026-10-03T03:11:19.700Z", "event_msg", {
+        type: "collab_agent_interaction_begin",
+        call_id: "c2",
+        sender_thread_id: SID,
+      }),
       rec("2026-10-03T03:11:20.000Z", "response_item", {
         type: "message",
         role: "user",
@@ -2263,6 +3035,189 @@ describe("parse: Codex rollout adapter (spec 0041 T18)", () => {
     expect(session?.unavailable).toBe("transcript");
   });
 
+  // Covers: R4, R5
+  it("deduplicates response usage without adding cumulative snapshots or default-zero subsets", () => {
+    const usage = JSON.stringify({
+      type: "token_usage_record",
+      timestamp: "2026-10-03T03:11:23.000Z",
+      payload: {
+        thread_id: SID,
+        session_id: SID,
+        turn_id: "t1",
+        response_id: "response-private",
+        usage: {
+          input_tokens: 100,
+          cached_input_tokens: 20,
+          cache_write_input_tokens: 10,
+          output_tokens: 40,
+          reasoning_output_tokens: 15,
+          total_tokens: 140,
+        },
+        turn_token_usage: { total_tokens: 9999 },
+        thread_token_usage: { total_tokens: 99999 },
+      },
+    });
+    const snapshot = JSON.stringify({
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: { total_tokens: 50000 },
+          last_token_usage: { total_tokens: 50000 },
+        },
+      },
+    });
+    const { log, rollout } = fixture(
+      `${[...rolloutLines(), usage, usage, snapshot, snapshot].join("\n")}\n`,
+    );
+    const parsed = parseCodexSession(SID, log, rollout)!;
+    const before = JSON.stringify(parsed);
+    const report = buildReport([parsed], {
+      repo: "r",
+      version: "0",
+      catalog: { agents: [], skills: [], hooks: [] } as unknown as HarnessCatalog,
+    });
+    expect(report.totals.tokens).toMatchObject({
+      input: 70,
+      cacheRead: 20,
+      cacheCreation: 10,
+      output: 40,
+      thinking: 15,
+    });
+    expect(report.sessions[0]?.orchestrator.codex?.usage).toMatchObject({
+      inputTotal: 100,
+      totalTokens: 140,
+    });
+    expect(JSON.stringify(parsed)).toBe(before);
+    expect(JSON.stringify(publishReport(report))).not.toContain("response-private");
+    expect(renderMarkdown(report, "en")).toContain(
+      "input 100 · ordinary input 70 · output 40 · total 140",
+    );
+  });
+
+  // Covers: R4, R5
+  it("retains unknown unowned activity instead of qualifying copied tool and turn rows", () => {
+    const lines = rolloutLines().filter(
+      (line) => !line.includes("item_started") && !line.includes("collab_agent_interaction_begin"),
+    );
+    const { log, rollout } = fixture(`${lines.join("\n")}\n`);
+    const parsed = parseCodexSession(SID, log, rollout)!;
+    const report = buildReport([parsed], {
+      repo: "r",
+      version: "0",
+      catalog: { agents: [], skills: [], hooks: [] } as unknown as HarnessCatalog,
+    });
+    expect(parsed.availability?.tools).toMatchObject({
+      state: "unavailable",
+      reason: "ownership-unknown",
+    });
+    expect(publishReport(report).sessions[0]?.orchestrator.toolCounts).toBeNull();
+    expect(publishReport(report).sessions[0]?.orchestrator.turns).toBeNull();
+  });
+
+  // Covers: R4, R5
+  it.each([false, true])(
+    "does not charge conflicting response copies in either order: reverse=%s",
+    (reverse) => {
+      const responses = [40, 60].map((output) =>
+        JSON.stringify({
+          type: "token_usage_record",
+          payload: {
+            thread_id: SID,
+            session_id: SID,
+            turn_id: "t1",
+            response_id: "conflict",
+            usage: {
+              input_tokens: 100,
+              cached_input_tokens: 20,
+              cache_write_input_tokens: 10,
+              output_tokens: output,
+              total_tokens: 100 + output,
+              reasoning_output_tokens: 15,
+            },
+          },
+        }),
+      );
+      if (reverse) responses.reverse();
+      const { log, rollout } = fixture(`${[...rolloutLines(), ...responses].join("\n")}\n`);
+      const report = buildReport([parseCodexSession(SID, log, rollout)!], {
+        repo: "r",
+        version: "0",
+        catalog: { agents: [], skills: [], hooks: [] } as unknown as HarnessCatalog,
+      });
+      const published = publishReport(report);
+      expect(published.totals.tokens.output).toBeNull();
+      expect(published.totals.tokens.input).toBe(70);
+      expect(report.sessions[0]?.orchestrator.codex?.usageAvailability.output).toMatchObject({
+        state: "invalid",
+        reason: "identity-conflict",
+      });
+      expect(report.availability?.["tokens.output"]?.contributors).toBe(0);
+    },
+  );
+
+  // Covers: R4, R5
+  it.each([0, 100])(
+    "distinguishes provider-default zero subsets from mathematically constrained zero input=%s",
+    (input) => {
+      const response = JSON.stringify({
+        type: "token_usage_record",
+        payload: {
+          thread_id: SID,
+          session_id: SID,
+          turn_id: "t1",
+          response_id: "zero-subsets",
+          usage: {
+            input_tokens: input,
+            output_tokens: input,
+            cached_input_tokens: 0,
+            cache_write_input_tokens: 0,
+            reasoning_output_tokens: 0,
+            total_tokens: 2 * input,
+          },
+        },
+      });
+      const { log, rollout } = fixture(`${[...rolloutLines(), response].join("\n")}\n`);
+      const report = buildReport([parseCodexSession(SID, log, rollout)!], {
+        repo: "r",
+        version: "0",
+        catalog: { agents: [], skills: [], hooks: [] } as unknown as HarnessCatalog,
+      });
+      const published = publishReport(report);
+      expect(published.totals.tokens.cacheRead).toBe(input === 0 ? 0 : null);
+      expect(published.totals.tokens.thinking).toBe(input === 0 ? 0 : null);
+      expect(report.availability?.["tokens.cacheRead"]?.contributors).toBe(input === 0 ? 1 : 0);
+      expect(report.sessions[0]?.orchestrator.codex?.usage.inputTotal).toBe(input);
+    },
+  );
+
+  // Covers: R4, R5, R9
+  it("withholds amounts with contradictory response root ownership rather than repairing the IDs", () => {
+    const response = JSON.stringify({
+      type: "token_usage_record",
+      payload: {
+        thread_id: SID,
+        session_id: "different-root",
+        turn_id: "t1",
+        response_id: "wrong-root-response",
+        usage: { input_tokens: 100, output_tokens: 40, total_tokens: 140 },
+      },
+    });
+    const { log, rollout } = fixture(`${[...rolloutLines(), response].join("\n")}\n`);
+    const parsed = parseCodexSession(SID, log, rollout)!;
+    expect(parsed.sources?.rollout).toMatchObject({
+      state: "invalid",
+      reason: "identity-conflict",
+    });
+    const report = buildReport([parsed], {
+      repo: "r",
+      version: "0",
+      catalog: { agents: [], skills: [], hooks: [] } as unknown as HarnessCatalog,
+    });
+    expect(publishReport(report).totals.tokens.output).toBeNull();
+    expect(report.availability?.["tokens.output"]?.contributors).toBe(0);
+  });
+
   // Covers: R3
   it("accepts a hostless historical start only with verified recovery supplied", () => {
     const { log, rollout } = fixture(`${rolloutLines().join("\n")}\n`);
@@ -2295,14 +3250,28 @@ describe("parse: Codex rollout adapter (spec 0041 T18)", () => {
       status: "unavailable",
       reason: "missing",
     });
-    expect(parseCodexSession(SID, none.log, "/nonexistent/rollout.jsonl")?.rollout).toEqual({
+    const missing = parseCodexSession(SID, none.log, "/nonexistent/rollout.jsonl")?.rollout;
+    expect(missing).toMatchObject({
       status: "unavailable",
       reason: "missing",
     });
+    expect(missing?.health).toMatchObject({
+      source: "rollout",
+      state: "unavailable",
+      reason: "missing",
+      reading: { sourceStatus: "unavailable", reason: "missing" },
+    });
     const dirAsFile = fixture(null);
-    expect(parseCodexSession(SID, dirAsFile.log, join(dirAsFile.log, ".."))?.rollout).toEqual({
+    const unreadable = parseCodexSession(SID, dirAsFile.log, join(dirAsFile.log, ".."))?.rollout;
+    expect(unreadable).toMatchObject({
       status: "unavailable",
       reason: "unreadable",
+    });
+    expect(unreadable?.health).toMatchObject({
+      source: "rollout",
+      state: "invalid",
+      reason: "unreadable",
+      reading: { sourceStatus: "invalid", reason: "unsafe" },
     });
     const garbage = fixture(`not json ${SECRET}\n{broken\n`);
     const parsed = parseCodexSession(SID, garbage.log, garbage.rollout);

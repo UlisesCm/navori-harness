@@ -64,17 +64,29 @@ function record(shell: HookShell, payload: Record<string, unknown>): Record<stri
   // (#404/#424) fails the whole run if a spec touches the machine-global store.
   const root = mkdtempSync(join(tmpdir(), "navori-owner-root-"));
   const repo = basename(String(payload.cwd ?? ""));
-  mkdirSync(join(root, repo), { recursive: true });
+  mkdirSync(join(root, repo), { recursive: true, mode: 0o700 });
+  writeFileSync(
+    join(root, "navori"),
+    `#!/bin/sh\nexec '${process.execPath}' '${resolve("dist/index.js")}' "$@"\n`,
+    { mode: 0o700 },
+  );
   const logFile = join(root, repo, `session-${SESSION}.log`);
-  writeFileSync(logFile, "", "utf-8");
+  writeFileSync(
+    logFile,
+    `${JSON.stringify({ event: "start", sessionId: SESSION, cwd: payload.cwd })}\n`,
+    { mode: 0o600 },
+  );
 
   spawnSync(shell, [probePath], {
     input: JSON.stringify(payload),
     encoding: "utf-8",
-    env: { ...process.env, NAVORI_AUDITS_ROOT: root },
+    env: { ...process.env, NAVORI_AUDITS_ROOT: root, PATH: `${root}:${process.env.PATH ?? ""}` },
   });
 
-  const lines = readFileSync(logFile, "utf-8").trim().split("\n").filter(Boolean);
+  const lines = readFileSync(logFile, "utf-8")
+    .trim()
+    .split("\n")
+    .filter((line) => (JSON.parse(line) as { event: string }).event === "hook");
   expect(lines, "el partial no registró nada").toHaveLength(1);
   return JSON.parse(lines[0] as string) as Record<string, unknown>;
 }
@@ -84,7 +96,9 @@ function recorded(payload: Record<string, unknown>): Record<string, unknown> {
     const ev = record(shell, payload);
     // `ms` and the timestamps are wall-clock: they cannot agree between two
     // runs, and comparing them would make every row flaky.
-    const { ms: _ms, ts: _ts, tsMs: _tsMs, ...stable } = ev;
+    expect(ev.eventId).toEqual(expect.any(String));
+    expect(ev.wireVersion).toBe(1);
+    const { ms: _ms, ts: _ts, tsMs: _tsMs, eventId: _eventId, ...stable } = ev;
     return stable;
   });
 }
@@ -148,9 +162,18 @@ describe.runIf(runsBash && hasJq)("audit-log — de quién es el evento (#709)",
   it("dentro de un worktree de agente normaliza el repo al repo padre (#764)", () => {
     const root = mkdtempSync(join(tmpdir(), "navori-owner-root-"));
     const repo = "navori-owner-repo";
-    mkdirSync(join(root, repo), { recursive: true });
+    mkdirSync(join(root, repo), { recursive: true, mode: 0o700 });
+    writeFileSync(
+      join(root, "navori"),
+      `#!/bin/sh\nexec '${process.execPath}' '${resolve("dist/index.js")}' "$@"\n`,
+      { mode: 0o700 },
+    );
     const logFile = join(root, repo, `session-${SESSION}.log`);
-    writeFileSync(logFile, "", "utf-8");
+    writeFileSync(
+      logFile,
+      `${JSON.stringify({ event: "start", sessionId: SESSION, cwd: CWD })}\n`,
+      { mode: 0o600 },
+    );
 
     const wtCwd = `${CWD}/.claude/worktrees/agent-a2a999b59fde9ce6c`;
     spawnSync(runsBash ? "bash" : "sh", [probePath], {
@@ -161,10 +184,13 @@ describe.runIf(runsBash && hasJq)("audit-log — de quién es el evento (#709)",
         tool_input: {},
       }),
       encoding: "utf-8",
-      env: { ...process.env, NAVORI_AUDITS_ROOT: root },
+      env: { ...process.env, NAVORI_AUDITS_ROOT: root, PATH: `${root}:${process.env.PATH ?? ""}` },
     });
 
-    const lines = readFileSync(logFile, "utf-8").trim().split("\n").filter(Boolean);
+    const lines = readFileSync(logFile, "utf-8")
+      .trim()
+      .split("\n")
+      .filter((line) => (JSON.parse(line) as { event: string }).event === "hook");
     expect(lines, "el log del repo padre recibió el evento").toHaveLength(1);
     expect(existsSync(join(root, "agent-a2a999b59fde9ce6c"))).toBe(false);
   });

@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildReport } from "../report.ts";
@@ -92,6 +102,28 @@ afterEach(() => {
 });
 
 describe("snapshot: format and privacy (R68)", () => {
+  // Covers: R10, R11, R68
+  it("creates private snapshots independent of umask and never repairs historical files", () => {
+    const snap = buildSnapshot(report(), "repo");
+    const path = snapshotPath("alpha-repo", "private", snap.range.from, snap.range.to);
+    const previous = process.umask(0);
+    try {
+      writeSnapshot(path, snap);
+    } finally {
+      process.umask(previous);
+    }
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect(statSync(auditsRoot()).mode & 0o777).toBe(0o700);
+    chmodSync(path, 0o644);
+    const before = readFileSync(path);
+    expect(readSnapshot(path).snapshotFormat).toBe(1);
+    expect(() => writeSnapshot(path, snap)).toThrow(/already exists/);
+    expect(readFileSync(path)).toEqual(before);
+    expect(statSync(path).mode & 0o777).toBe(0o644);
+    const link = join(root, "legacy-link.json");
+    symlinkSync(path, link);
+    expect(() => readSnapshot(link)).toThrow();
+  });
   // Covers: R6
   it("rejects schema11 production rather than losing availability into format1", () => {
     const current = buildReport([], { repo: "r", version: "test", catalog: CATALOG });
@@ -276,6 +308,7 @@ describe("snapshot: --copy-to (R68)", () => {
     // realpath: macOS reports /private/var for a /var temp dir.
     expect(written.endsWith(join("work", "repo", "docs", "base.json"))).toBe(true);
     expect(readSnapshot(written).snapshotFormat).toBe(1);
+    expect(statSync(written).mode & 0o777).toBe(0o600);
   });
 
   // Covers: R68

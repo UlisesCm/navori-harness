@@ -8,12 +8,564 @@
  */
 
 /** The four usage counters plus thinking, as reported per assistant message. */
+export const AUDIT_READ_LIMITS = Object.freeze({
+  maxLineBytes: 1_048_576,
+  eventsPerSession: 100_000,
+  sessionsPerReport: 10_000,
+  pathsPerReport: 100_000,
+  factsPerReport: 100_000,
+  technicalBytes: 256,
+  timestampBytes: 64,
+  pathBytes: 4096,
+  normalizedFactBytes: 2048,
+});
+
+/** Numeric read ceilings allow smaller synthetic budgets while retaining every limit key. */
+export type AuditReadLimits = { [Key in keyof typeof AUDIT_READ_LIMITS]: number };
+
+/** Loss counts are exact only after a continued scan; early stop has unknown remainder. */
+export interface AuditReadDiagnostics {
+  sourceStatus: "observed" | "unavailable" | "invalid";
+  reason: "missing" | "unreadable" | "unsafe" | "changed" | null;
+  bytesRead: number;
+  lines: number;
+  completeLines: number;
+  malformedJson: number;
+  invalidUtf8: number;
+  oversizedLines: number;
+  incompleteTail: boolean;
+  stoppedEarly: boolean;
+  omitted: number | null;
+  omittedLowerBound: number;
+}
+
+/** Content-free report-wide resource accounting, shared by discovery and parser. */
+export interface AuditBudgetDiagnostics {
+  limits: AuditReadLimits;
+  retainedFacts: number;
+  retainedPaths: number;
+  retainedSessions: number;
+  omittedFacts: number | null;
+  omittedLowerBound: number;
+  truncated: boolean;
+}
+export interface AuditReadBudget {
+  diagnostics: AuditBudgetDiagnostics;
+  sessionEntries: Map<string, number>;
+  retainedObjects: WeakSet<object>;
+  objectOwners: WeakMap<object, string | null>;
+  dictionaryEntries: WeakMap<object, number>;
+  retainedPaths: Map<string, string>;
+}
+/** One bounded root event view is shared by discovery, parser and sibling units. */
+export interface AuditLogView {
+  records: Record<string, unknown>[];
+  reading?: AuditReadDiagnostics;
+  normalizationLoss?: number;
+  budget: AuditReadBudget;
+}
+
+/** Lower ceilings are injectable for synthetic probes only, never a runtime config knob. */
+export function createAuditReadBudget(limits: Partial<AuditReadLimits> = {}): AuditReadBudget {
+  const selected = { ...AUDIT_READ_LIMITS, ...limits };
+  for (const key of Object.keys(selected) as Array<keyof typeof selected>)
+    if (
+      !Number.isSafeInteger(selected[key]) ||
+      selected[key] < 1 ||
+      selected[key] > AUDIT_READ_LIMITS[key]
+    )
+      throw new RangeError("invalid-audit-budget");
+  return {
+    diagnostics: {
+      limits: selected,
+      retainedFacts: 0,
+      retainedPaths: 0,
+      retainedSessions: 0,
+      omittedFacts: 0,
+      omittedLowerBound: 0,
+      truncated: false,
+    },
+    sessionEntries: new Map(),
+    retainedObjects: new WeakSet(),
+    objectOwners: new WeakMap(),
+    dictionaryEntries: new WeakMap(),
+    retainedPaths: new Map(),
+  };
+}
+
+/** Record known omissions; unknown remainder is never serialized as a measured zero. */
+export function omitAuditFacts(budget: AuditReadBudget, count = 1, unknownRemainder = false): void {
+  const diagnostics = budget.diagnostics;
+  diagnostics.truncated = true;
+  diagnostics.omittedLowerBound += count;
+  diagnostics.omittedFacts =
+    unknownRemainder || diagnostics.omittedFacts === null ? null : diagnostics.omittedFacts + count;
+}
+
+/** Reserve each retained structured object once, including nested control entries. */
+export function retainAuditFact(
+  budget: AuditReadBudget,
+  sessionKey: string | null,
+  value: object,
+): boolean {
+  if (budget.retainedObjects.has(value)) return true;
+  const session = sessionKey === null ? undefined : budget.sessionEntries.get(sessionKey);
+  const objects: object[] = [];
+  const visited = new WeakSet<object>();
+  const limits = budget.diagnostics.limits;
+  const available = Math.min(
+    limits.factsPerReport - budget.diagnostics.retainedFacts,
+    sessionKey === null ? limits.factsPerReport : limits.eventsPerSession - (session ?? 0),
+  );
+  const collect = (item: unknown): void => {
+    if (
+      typeof item !== "object" ||
+      item === null ||
+      budget.retainedObjects.has(item) ||
+      visited.has(item) ||
+      objects.length > available
+    )
+      return;
+    objects.push(item);
+    visited.add(item);
+    for (const child of Object.values(item)) {
+      collect(child);
+      if (objects.length > available) break;
+    }
+  };
+  collect(value);
+  if (
+    (sessionKey !== null &&
+      session === undefined &&
+      budget.sessionEntries.size >= limits.sessionsPerReport) ||
+    (sessionKey !== null && (session ?? 0) + objects.length > limits.eventsPerSession) ||
+    budget.diagnostics.retainedFacts + objects.length > limits.factsPerReport
+  ) {
+    omitAuditFacts(budget, objects.length, objects.length > available);
+    return false;
+  }
+  for (const object of objects) {
+    budget.retainedObjects.add(object);
+    budget.objectOwners.set(object, sessionKey);
+  }
+  if (sessionKey !== null) budget.sessionEntries.set(sessionKey, (session ?? 0) + objects.length);
+  budget.diagnostics.retainedFacts += objects.length;
+  budget.diagnostics.retainedSessions = budget.sessionEntries.size;
+  return true;
+}
+
+/** Dynamic dictionary entries are retained facts too, not free scalar properties. */
+export function retainAuditDictionary(
+  budget: AuditReadBudget,
+  sessionKey: string | null,
+  dictionary: Record<string, unknown>,
+): boolean {
+  if (budget.dictionaryEntries.has(dictionary)) return true;
+  const keys = Object.keys(dictionary);
+  const limits = budget.diagnostics.limits;
+  const existing = budget.retainedObjects.has(dictionary) ? 0 : 1;
+  const session = sessionKey === null ? 0 : (budget.sessionEntries.get(sessionKey) ?? 0);
+  if (
+    keys.some((key) => Buffer.byteLength(key) > limits.technicalBytes) ||
+    budget.diagnostics.retainedFacts + existing + keys.length > limits.factsPerReport ||
+    (sessionKey !== null && session + existing + keys.length > limits.eventsPerSession)
+  ) {
+    omitAuditFacts(budget, keys.length || 1);
+    return false;
+  }
+  if (!retainAuditFact(budget, sessionKey, dictionary)) return false;
+  budget.dictionaryEntries.set(dictionary, keys.length);
+  budget.diagnostics.retainedFacts += keys.length;
+  if (sessionKey !== null)
+    budget.sessionEntries.set(
+      sessionKey,
+      (budget.sessionEntries.get(sessionKey) ?? 0) + keys.length,
+    );
+  return true;
+}
+
+/** Release folded transient records; derived facts must reserve their own retained objects first. */
+export function releaseAuditFact(budget: AuditReadBudget, value: object, descendants = true): void {
+  const owner = budget.objectOwners.get(value);
+  if (owner === undefined) return;
+  budget.objectOwners.delete(value);
+  budget.retainedObjects.delete(value);
+  const entries = budget.dictionaryEntries.get(value) ?? 0;
+  budget.dictionaryEntries.delete(value);
+  budget.diagnostics.retainedFacts -= 1 + entries;
+  if (owner !== null)
+    budget.sessionEntries.set(
+      owner,
+      Math.max(0, (budget.sessionEntries.get(owner) ?? 1) - 1 - entries),
+    );
+  if (!descendants) return;
+  for (const child of Object.values(value))
+    if (typeof child === "object" && child !== null) releaseAuditFact(budget, child);
+}
+
+/** Intern private paths once in the capped report context; no path reaches diagnostics. */
+export function retainAuditPath(budget: AuditReadBudget, path: string): string | null {
+  const known = budget.retainedPaths.get(path);
+  if (known) return known;
+  const limits = budget.diagnostics.limits;
+  if (
+    Buffer.byteLength(path) > limits.pathBytes ||
+    budget.retainedPaths.size >= limits.pathsPerReport ||
+    budget.diagnostics.retainedFacts >= limits.factsPerReport
+  ) {
+    omitAuditFacts(budget);
+    return null;
+  }
+  budget.retainedPaths.set(path, path);
+  budget.diagnostics.retainedFacts++;
+  budget.diagnostics.retainedPaths = budget.retainedPaths.size;
+  return path;
+}
+
+/** Canonical closed metadata payload equality is independent of JSON key insertion order. */
+export function canonicalAuditMetadata(record: Record<string, unknown>): string | null {
+  const common = ["wireVersion", "eventId", "host", "rootSessionId", "event", "tsMs", "agentId"];
+  const fields =
+    record.event === "hook"
+      ? [
+          ...common,
+          "name",
+          "phase",
+          "verdict",
+          "source",
+          "ms",
+          "toolUseId",
+          "kind",
+          "tool",
+          "reason",
+        ]
+      : record.event === "prompt"
+        ? [...common, "kind", "length"]
+        : record.event === "session-end"
+          ? [...common, "reason"]
+          : [];
+  if (
+    !fields.length ||
+    record.wireVersion !== 1 ||
+    !["claude", "codex"].includes(String(record.host)) ||
+    typeof record.eventId !== "string" ||
+    !record.eventId ||
+    typeof record.rootSessionId !== "string" ||
+    !record.rootSessionId ||
+    typeof record.tsMs !== "number" ||
+    !Number.isSafeInteger(record.tsMs) ||
+    record.tsMs < 0
+  )
+    return null;
+  const out: Record<string, string | number> = {};
+  for (const key of Object.keys(record).sort()) {
+    const value = record[key];
+    if (
+      !fields.includes(key) ||
+      (typeof value !== "string" && typeof value !== "number") ||
+      (typeof value === "string" && Buffer.byteLength(value) > AUDIT_READ_LIMITS.technicalBytes) ||
+      (typeof value === "number" && (!Number.isSafeInteger(value) || value < 0))
+    )
+      return null;
+    out[key] = value;
+  }
+  if (record.event === "prompt" && (record.kind !== "user" || typeof record.length !== "number"))
+    return null;
+  if (
+    record.event === "session-end" &&
+    !["clear", "logout", "prompt_input_exit", "bypass_permissions_disabled", "other"].includes(
+      String(record.reason),
+    )
+  )
+    return null;
+  if (
+    record.event === "hook" &&
+    (typeof record.name !== "string" ||
+      typeof record.source !== "string" ||
+      typeof record.ms !== "number" ||
+      ![
+        "PreToolUse",
+        "PostToolUse",
+        "SessionStart",
+        "SessionEnd",
+        "Stop",
+        "SubagentStart",
+        "SubagentStop",
+        "UserPromptSubmit",
+        "PreCompact",
+        "unknown",
+      ].includes(String(record.phase)) ||
+      ![
+        "allow",
+        "ask",
+        "block",
+        "deny",
+        "skip",
+        "noop",
+        "clean",
+        "dirty",
+        "inject",
+        "repeat",
+        "partial",
+        "compact-advice",
+        "gate-started",
+        "gate-killed",
+        "unknown",
+      ].includes(String(record.verdict)) ||
+      (record.kind !== undefined && !["hard", "ask", "advisory"].includes(String(record.kind))) ||
+      (record.tool !== undefined &&
+        !["Bash", "Edit", "Read", "Write", "Agent", "Task", "NotebookEdit"].includes(
+          String(record.tool),
+        )) ||
+      ![
+        "core",
+        "plugin:semgrep",
+        "plugin:jscpd",
+        "plugin:engram",
+        "plugin:codegraph",
+        "plugin:tgrep",
+        "unknown",
+      ].includes(String(record.source)) ||
+      (record.reason !== undefined && record.reason !== "unspecified"))
+  )
+    return null;
+  const canonical = JSON.stringify(out);
+  return Buffer.byteLength(canonical) <= AUDIT_READ_LIMITS.normalizedFactBytes ? canonical : null;
+}
+
+/** Exclude every contradictory ID before projection; legacy history remains readable. */
+export function qualifyAuditMetadataRecords(
+  records: readonly Record<string, unknown>[],
+  budget: AuditReadBudget,
+  sessionKey: string,
+): { records: Record<string, unknown>[]; conflicts: number; unsupported: number } {
+  const identities = new Map<
+    string,
+    { canonical: string; record: Record<string, unknown>; conflict: boolean }
+  >();
+  let unsupported = 0;
+  for (const record of records) {
+    if (record.wireVersion === undefined) continue;
+    const canonical = canonicalAuditMetadata(record);
+    if (!canonical || record.rootSessionId !== sessionKey) {
+      unsupported++;
+      continue;
+    }
+    const id = String(record.eventId);
+    const prior = identities.get(id);
+    if (prior) {
+      if (prior.canonical !== canonical) prior.conflict = true;
+      continue;
+    }
+    const entry = { canonical, record, conflict: false };
+    if (retainAuditFact(budget, sessionKey, entry)) identities.set(id, entry);
+    else unsupported++;
+  }
+  const qualified = records.filter((record) => {
+    if (record.wireVersion === undefined) return true;
+    const entry = identities.get(String(record.eventId));
+    return entry?.record === record && !entry.conflict;
+  });
+  const conflicts = [...identities.values()].filter((entry) => entry.conflict).length;
+  for (const entry of identities.values()) releaseAuditFact(budget, entry, false);
+  return { records: qualified, conflicts, unsupported };
+}
+
+/** Normalize transient JSON before retention; every clipping/drop is observable loss. */
+export function normalizeAuditRecord(
+  value: unknown,
+  source: string,
+): { value: Record<string, unknown> | null; omitted: number } {
+  let omitted = 0;
+  const technical = new Set([
+    "type",
+    "timestamp",
+    "id",
+    "session_id",
+    "thread_id",
+    "parent_thread_id",
+    "forked_from_id",
+    "cwd",
+    "cli_version",
+    "source",
+    "turn_id",
+    "root_turn_id",
+    "response_id",
+    "model",
+    "usage",
+    "call_id",
+    "name",
+    "item",
+    "started_at_ms",
+    "sender_thread_id",
+    "subagent",
+    "thread_spawn",
+    "input_tokens",
+    "cached_input_tokens",
+    "cache_write_input_tokens",
+    "output_tokens",
+    "reasoning_output_tokens",
+    "total_tokens",
+  ]);
+  const normalize = (item: unknown, key: string, depth: number): unknown => {
+    if (depth > 12) {
+      omitted++;
+      return undefined;
+    }
+    if (typeof item === "string") {
+      const limit = /^(timestamp|ts|observedAt)$/.test(key)
+        ? AUDIT_READ_LIMITS.timestampBytes
+        : /^(cwd|transcript|sourcePath|path)$/.test(key)
+          ? AUDIT_READ_LIMITS.pathBytes
+          : AUDIT_READ_LIMITS.technicalBytes;
+      if (Buffer.byteLength(item) <= limit) return item;
+      omitted++;
+      return undefined;
+    }
+    if (Array.isArray(item)) {
+      if (item.length > 128) omitted += item.length - 128;
+      return item.slice(0, 128).map((child) => normalize(child, key, depth + 1));
+    }
+    if (typeof item !== "object" || item === null) return item;
+    const out: Record<string, unknown> = {};
+    for (const [field, child] of Object.entries(item)) {
+      if (source === "rollout" && !technical.has(field) && field !== "payload") continue;
+      if (
+        Buffer.byteLength(field) > AUDIT_READ_LIMITS.technicalBytes ||
+        Object.keys(out).length >= 128
+      ) {
+        omitted++;
+        continue;
+      }
+      const normalized = normalize(child, field, depth + 1);
+      if (normalized !== undefined) out[field] = normalized;
+    }
+    return out;
+  };
+  const normalized = normalize(value, "", 0);
+  if (typeof normalized !== "object" || normalized === null || Array.isArray(normalized))
+    return { value: null, omitted };
+  if (Buffer.byteLength(JSON.stringify(normalized)) > AUDIT_READ_LIMITS.normalizedFactBytes)
+    return { value: null, omitted: omitted + 1 };
+  return { value: normalized as Record<string, unknown>, omitted };
+}
+
 export interface TokenTotals {
   input: number;
   output: number;
   cacheRead: number;
   cacheCreation: number;
   thinking: number;
+}
+
+/** Versioned, content-free ownership facts; physical rollout names are not identities. */
+export interface CodexIdentity {
+  threadId: string;
+  rootSessionId: string;
+  parentThreadId: string | null;
+  relation: "root" | "child" | "unknown";
+  sourceVersion: "0.160.0";
+  checkout: string;
+}
+
+/** Registration is an observation, never a lifecycle or tool event. Paths stay private. */
+export interface ChildSourceRegistration {
+  schemaVersion: 1;
+  event: "child-source";
+  host: "codex";
+  rootSessionId: string;
+  threadId: string;
+  parentThreadId: string;
+  sourceVersion: "0.160.0";
+  sourcePath: string;
+  observedAt: string;
+  sourceHeaderFingerprint: string;
+}
+
+/** Provider amounts are inclusive/subset facts, never Claude pricing estimates. */
+export type CodexUsageComponent =
+  | "inputTotal"
+  | "ordinaryInput"
+  | "cacheRead"
+  | "cacheWrite"
+  | "output"
+  | "reasoning"
+  | "totalTokens";
+export interface CodexResponseFact {
+  threadId: string;
+  rootSessionId: string;
+  turnId: string;
+  responseId: string;
+  at: string | null;
+  model: string | null;
+  values: Record<CodexUsageComponent, number | null>;
+  evidence: Record<CodexUsageComponent, MetricEvidence>;
+}
+/** Stable owned activity IDs support report-local dedup without retaining human payloads. */
+export interface CodexActivityFact {
+  kind: "turn" | "model" | "tool";
+  id: string;
+  name: string | null;
+  at: string | null;
+}
+/** Sanitized run provenance; private physical binding paths/fingerprints never enter reports. */
+export interface CodexRunFacts {
+  threadId: string;
+  rootSessionId: string;
+  parentThreadId: string | null;
+  sourceVersion: string | null;
+  capturedAt: string | null;
+  source: MetricEvidence;
+  responses: CodexResponseFact[];
+  activity: CodexActivityFact[];
+  usage: Record<CodexUsageComponent, number | null>;
+  usageAvailability: Record<CodexUsageComponent, MetricEvidence>;
+}
+
+/** Decode only the pinned ownership contract; unknown versions never borrow its semantics. */
+export function normalizeCodexIdentity(
+  fields: Record<string, unknown>,
+  checkout: string,
+):
+  | { status: "verified"; identity: CodexIdentity }
+  | {
+      status: "unsupported" | "identity-conflict" | "wrong-format";
+    } {
+  if (fields.cli_version !== "0.160.0") return { status: "unsupported" };
+  const id = (value: unknown): value is string =>
+    typeof value === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(value);
+  const root = fields.session_id ?? fields.id;
+  if (!id(fields.id) || !id(root) || typeof fields.cwd !== "string")
+    return { status: "wrong-format" };
+  const object = (value: unknown): Record<string, unknown> | null =>
+    typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  const source = object(fields.source);
+  const subagent = object(source?.subagent);
+  const spawn = object(subagent?.thread_spawn);
+  const top = fields.parent_thread_id;
+  const nested = spawn?.parent_thread_id;
+  if ((top !== undefined && top !== null && !id(top)) || (spawn && !id(nested)))
+    return { status: "wrong-format" };
+  if (id(top) && id(nested) && top !== nested) return { status: "identity-conflict" };
+  const parent = id(top) ? top : id(nested) ? nested : null;
+  if (
+    parent === fields.id ||
+    (fields.id === root && (parent !== null || source?.subagent !== undefined))
+  )
+    return { status: "identity-conflict" };
+  return {
+    status: "verified",
+    identity: {
+      threadId: fields.id,
+      rootSessionId: root,
+      parentThreadId: parent,
+      relation: fields.id === root ? "root" : parent ? "child" : "unknown",
+      sourceVersion: "0.160.0",
+      checkout,
+    },
+  };
 }
 
 /** Public evidence states; initialization counters are never evidence. */
@@ -39,6 +591,11 @@ export interface MetricEvidence {
 }
 /** Content-free source diagnostics, independent of metric completeness. */
 export interface SourceHealth extends MetricEvidence {
+  normalizedOmissions?: number;
+  metadataConflicts?: number;
+  unsupportedWire?: number;
+  budget?: AuditBudgetDiagnostics;
+  reading?: AuditReadDiagnostics;
   records: number;
   validRecords: number;
   parseErrors: number;
@@ -99,6 +656,7 @@ export function addTokens(a: TokenTotals, b: TokenTotals): TokenTotals {
 
 /** Every token that entered or left the model, for one subagent run. */
 export interface AgentRun {
+  codex?: CodexRunFacts;
   availability?: Record<string, MetricEvidence>;
   agentId: string;
   /** From `agent-<id>.meta.json`; falls back to the parent's `subagent_type`. */
@@ -433,7 +991,9 @@ export function emptyOrchestrator(): SessionAudit["orchestrator"] {
 export interface SessionAudit {
   /** Optional only for legacy in-memory inputs; absent evidence is unknown. */
   availability?: Record<string, MetricEvidence>;
-  sources?: Partial<Record<"transcript" | "rollout" | "audit-log" | "otlp", SourceHealth>>;
+  sources?: Partial<
+    Record<"transcript" | "rollout" | "audit-log" | "otlp" | "host-metadata", SourceHealth>
+  >;
   activeMs?: number | null;
   sessionId: string;
   startedAt: string;
@@ -525,6 +1085,7 @@ export interface SessionAudit {
   permissionModes: Record<string, number>;
   prs: number[];
   orchestrator: {
+    codex?: CodexRunFacts;
     tokens: TokenTotals;
     startupTokens: number;
     /**
@@ -739,6 +1300,10 @@ export interface CodexRolloutFacts {
   parseErrors: number;
   health?: SourceHealth;
   ownWindow?: { from: string; to: string };
+  identity?: Omit<CodexIdentity, "checkout">;
+  activityAvailability?: Record<"tools" | "turns" | "models", MetricEvidence>;
+  responses?: CodexResponseFact[];
+  activity?: CodexActivityFact[];
 }
 
 /** A verdict a navori CLI command recorded in the session log (R70). */

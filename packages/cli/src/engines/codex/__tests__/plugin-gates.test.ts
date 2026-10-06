@@ -35,6 +35,7 @@ function tempRepo(): string {
 
 // Covers: R4, R6, R20
 describe("Codex plugin gates", () => {
+  // Covers: R8, R9
   it("renders Codex-only scripts with includes and provenance, registering each once after core", () => {
     const cwd = tempRepo();
     const cfg = config();
@@ -55,11 +56,26 @@ describe("Codex plugin gates", () => {
       hooks.filter((hook) => hook.pluginId !== undefined).map((hook) => hook.pluginId),
     ).toEqual(["jscpd", "semgrep"]);
     // Spec 0041 R10: the two confirmations follow role-guard (plan-gate, planTiers off, is absent).
-    expect(hooks.slice(-4).map((hook) => hook.script)).toEqual([
+    expect(
+      hooks
+        .filter((hook) => hook.event !== "SubagentStart")
+        .slice(-4)
+        .map((hook) => hook.script),
+    ).toEqual([
       "role-guard",
       "pr-publisher-confirm",
       "general-purpose-confirm",
       "engram-write-guard",
+    ]);
+    // Covers: R8, R9 — additive startup never replaces the historical tail.
+    expect(hooks.filter((hook) => hook.event === "SubagentStart")).toEqual([
+      {
+        script: "subagent-stop-handoff",
+        event: "SubagentStart",
+        args: "codex capture-start",
+        timeout: 15,
+        statusMessage: "navori: child capture",
+      },
     ]);
     expect(hooks[0]?.script).toBe("guard-destructive");
     expect(projectCodexHooksMatch(join(cwd, ".codex/config.toml"), hooks)).toBe(true);

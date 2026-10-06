@@ -1,7 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { safeHomedir } from "../primitives/home.ts";
+import {
+  createPrivateAuditFile,
+  ensurePrivateAuditDirectory,
+  readPrivateAuditFile,
+  removePrivateAuditFile,
+  replacePrivateAuditFile,
+} from "./paths.ts";
 import { DEFAULT_PORT, SERVICE_ID } from "./collect.ts";
 
 /**
@@ -172,9 +179,20 @@ export function installLaunchAgent(controller: Launchctl = launchctl): InstallRe
     if (after.loaded) return failure("launchctl bootout did not unload the agent");
   }
 
-  mkdirSync(dirname(plistPath), { recursive: true });
-  mkdirSync(collectLogDir(), { recursive: true });
-  writeFileSync(plistPath, buildLaunchAgent(argv, collectLogDir()), "utf-8");
+  const logDir = collectLogDir();
+  const directory = ensurePrivateAuditDirectory(logDir, { ownedRoot: logDir });
+  if (!directory.ok) return failure(`Collector storage refused: ${directory.reason}.`);
+  for (const name of ["collect.out.log", "collect.err.log"]) {
+    const path = join(logDir, name);
+    const result = existsSync(path)
+      ? readPrivateAuditFile(path, { ownedRoot: logDir })
+      : createPrivateAuditFile(path, "", { ownedRoot: logDir });
+    if (!result.ok) return failure(`Collector storage refused: ${result.reason}.`);
+  }
+  const plist = replacePrivateAuditFile(plistPath, buildLaunchAgent(argv, logDir), {
+    ownedRoot: null,
+  });
+  if (!plist.ok) return failure(`Launch agent storage refused: ${plist.reason}.`);
 
   const boot = controller(["bootstrap", guiDomain(), plistPath]);
   const loaded = boot.ok ? agentStatus(controller) : null;
@@ -228,7 +246,16 @@ export function uninstallLaunchAgent(controller: Launchctl = launchctl): Uninsta
   }
   // `force` so a plist removed by hand between the check and here is not an
   // error: the end state the caller asked for is "not installed".
-  if (removed) rmSync(plistPath, { force: true });
+  if (removed) {
+    const result = removePrivateAuditFile(plistPath, { ownedRoot: null });
+    if (!result.ok && result.reason !== "missing")
+      return {
+        plistPath,
+        removed: false,
+        unloaded: before.loaded,
+        error: `Launch agent storage refused: ${result.reason}.`,
+      };
+  }
   return { plistPath, removed, unloaded: before.loaded };
 }
 
@@ -244,7 +271,9 @@ export function installedArgv(): string[] | null {
   if (!existsSync(plistPath)) return null;
   let raw: string;
   try {
-    raw = readFileSync(plistPath, "utf-8");
+    const result = readPrivateAuditFile(plistPath, { ownedRoot: null, privateFile: false });
+    if (!result.ok) return null;
+    raw = result.value.toString("utf-8");
   } catch {
     return null;
   }

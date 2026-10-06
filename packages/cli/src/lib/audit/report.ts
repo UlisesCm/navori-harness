@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { type HarnessCatalog, barredMcpTokens, reaches } from "./harness.ts";
 import {
   type AgentRun,
@@ -13,18 +14,576 @@ import {
   type MetricPopulation,
   type NullableMeasurements,
   type PublishedAuditReport,
+  type CodexUsageComponent,
+  type CodexResponseFact,
+  type AuditReadBudget,
+  createAuditReadBudget,
+  retainAuditFact,
   addTokens,
   emptyTokens,
   recorderWindow,
 } from "./model.ts";
 import { redactExample } from "./parse.ts";
 import {
+  ACTIVATION_TRIGGERS,
+  minerMetricKey,
   harnessRegime,
   hookMisfires,
   reviewerGateLifecycle,
   unusedManagedCandidates,
   type Lang,
 } from "./signals.ts";
+
+/** Explicit per-generation opt-in; the CLI must validate a private file first. */
+export interface AuditPublicationOptions {
+  includeHumanContent?: boolean;
+}
+
+const PUBLIC_AUDIT_FIELDS = new Set<string>([
+  "activeMs",
+  "activityAvailability",
+  "actor",
+  "adapter",
+  "agentDurationMs",
+  "agentId",
+  "agentType",
+  "agentWallClockMs",
+  "agents",
+  "at",
+  "attributedOutputTokens",
+  "attributedRecords",
+  "audited",
+  "automatic",
+  "availability",
+  "availabilityByAgentType",
+  "blindMinutes",
+  "browsed",
+  "budget",
+  "byAgentType",
+  "byModel",
+  "bySource",
+  "bytesRead",
+  "cacheCreation",
+  "cacheRead",
+  "capturedAt",
+  "ccVersions",
+  "chars",
+  "checkout",
+  "classifierExemptBash",
+  "classifierExemptBashByMode",
+  "cliEvents",
+  "cliVersion",
+  "codex",
+  "compactions",
+  "completeLines",
+  "contextPeak",
+  "contributors",
+  "count",
+  "coverage",
+  "coveredPercent",
+  "description",
+  "diagnostics",
+  "durationMs",
+  "editMiss",
+  "eligible",
+  "endReason",
+  "endedAt",
+  "event",
+  "events",
+  "evidence",
+  "fields",
+  "firstTs",
+  "frictionEvents",
+  "from",
+  "generatedAt",
+  "generatedBy",
+  "gitBranch",
+  "handle",
+  "harnessBlock",
+  "health",
+  "hookEvents",
+  "hookLogFrom",
+  "host",
+  "hostSkills",
+  "human",
+  "id",
+  "identity",
+  "incompleteTail",
+  "inherited",
+  "initialPrompt",
+  "input",
+  "invalid",
+  "invalidUtf8",
+  "invoked",
+  "kind",
+  "lastTs",
+  "limits",
+  "lines",
+  "linesRead",
+  "location",
+  "malformedJson",
+  "maxLineBytes",
+  "mcpBarredTokens",
+  "mcpCalls",
+  "mcpInjectedContext",
+  "mcpReach",
+  "model",
+  "models",
+  "ms",
+  "name",
+  "navori",
+  "navoriAtStop",
+  "normalizationLoss",
+  "normalizedOmissions",
+  "observed",
+  "observedArtifactWrites",
+  "observedAt",
+  "omitted",
+  "omittedFacts",
+  "omittedLowerBound",
+  "orchestrator",
+  "orphanSessions",
+  "otelFrom",
+  "other",
+  "outcome",
+  "output",
+  "outputTokens",
+  "overlapsWith",
+  "oversizedLines",
+  "ownWindow",
+  "ownerAgentId",
+  "ownerAgentType",
+  "ownerKey",
+  "parseErrors",
+  "partial",
+  "pathsPerReport",
+  "permissionDenied",
+  "permissionModes",
+  "permissions",
+  "phase",
+  "policy",
+  "prompts",
+  "prs",
+  "range",
+  "rangeMetrics",
+  "rangeSignals",
+  "reading",
+  "reason",
+  "records",
+  "relation",
+  "repo",
+  "repos",
+  "retainedFacts",
+  "retainedObjects",
+  "retainedPaths",
+  "retainedSessions",
+  "rollout",
+  "schemaVersion",
+  "sealed",
+  "sessionEntries",
+  "sessionId",
+  "sessions",
+  "severity",
+  "shellFailure",
+  "shellReads",
+  "shellWrites",
+  "signals",
+  "skillAttributionRecords",
+  "skills",
+  "skillsDiscarded",
+  "skillsRead",
+  "slug",
+  "source",
+  "sourceHeaderFingerprint",
+  "sourceStatus",
+  "sourceVersion",
+  "sources",
+  "spawnDepth",
+  "startedAt",
+  "startupTokens",
+  "state",
+  "status",
+  "stoppedEarly",
+  "summary",
+  "thinking",
+  "timestampBytes",
+  "to",
+  "tokens",
+  "tool",
+  "toolCalls",
+  "toolCounts",
+  "toolCountsByMode",
+  "toolErrorTypes",
+  "toolErrors",
+  "toolResultBytes",
+  "toolUnavailable",
+  "toolUseId",
+  "total",
+  "totals",
+  "truncated",
+  "ts",
+  "tsMs",
+  "turnLimitHit",
+  "turns",
+  "unavailable",
+  "unsupported",
+  "usage",
+  "usageAvailability",
+  "validRecords",
+  "values",
+  "verdict",
+  "wallClockMs",
+  "from",
+  "to",
+  "limits",
+  "maxLineBytes",
+  "eventsPerSession",
+  "sessionsPerReport",
+  "pathsPerReport",
+  "factsPerReport",
+  "technicalBytes",
+  "timestampBytes",
+  "pathBytes",
+  "normalizedFactBytes",
+]);
+const PUBLIC_TECHNICAL_LABELS = new Set([
+  "orchestrator",
+  "main-thread",
+  "implementer",
+  "reviewer",
+  "architect",
+  "auditor",
+  "scout",
+  "scribe",
+  "publisher",
+  "explorer",
+  "worker",
+  "researcher",
+  "Bash",
+  "Read",
+  "Write",
+  "Edit",
+  "Glob",
+  "Grep",
+  "Agent",
+  "Task",
+  "Skill",
+  "WebFetch",
+  "WebSearch",
+  "NotebookEdit",
+  "exec_command",
+  "exec",
+  "apply_patch",
+  "spawn_agent",
+  "wait",
+  "send_input",
+  "claude",
+  "codex",
+  "core",
+  "engram",
+  "codegraph",
+  "tgrep",
+  "semgrep",
+  "jscpd",
+  "config",
+  "hook",
+  "user_permanent",
+  "user_temporary",
+  "user_reject",
+  "user_abort",
+  "observed",
+  "partial",
+  "unavailable",
+  "unsupported",
+  "invalid",
+  "not-observed",
+  "malformed",
+  "live-tail",
+  "ownership-unknown",
+  "unsealed",
+  "unsupported-component",
+  "empty-population",
+  "incomplete-enumeration",
+  "identity-conflict",
+  "transcript",
+  "rollout",
+  "audit-log",
+  "otlp",
+  "host-metadata",
+  "aggregate",
+  "claude-transcript",
+  "codex-rollout",
+  "missing",
+  "unreadable",
+  "unsafe",
+  "changed",
+  "allow",
+  "ask",
+  "block",
+  "deny",
+  "skip",
+  "noop",
+  "clean",
+  "dirty",
+  "inject",
+  "repeat",
+  "hard",
+  "advisory",
+  "unknown",
+  "other",
+  "clear",
+  "logout",
+  "prompt_input_exit",
+  "bypass_permissions_disabled",
+  "unspecified",
+  "PreToolUse",
+  "PostToolUse",
+  "SessionStart",
+  "SessionEnd",
+  "Stop",
+  "SubagentStart",
+  "SubagentStop",
+  "UserPromptSubmit",
+  "PreCompact",
+  "APPROVED",
+  "CHANGES_REQUESTED",
+  "high",
+  "medium",
+  "low",
+  "critical",
+  "warning",
+  "info",
+  "auto",
+  "plan",
+  "default",
+  "acceptEdits",
+  "bypassPermissions",
+  "dontAsk",
+  "user",
+  "typed",
+  "queued",
+  "parsed",
+  "measured",
+  "observed-only",
+  "native-write",
+  "native-edit",
+  "native-notebook-edit",
+  "success",
+  "failed",
+  "repo-relative",
+  "outside-workspace",
+  "redacted",
+  "guard-destructive",
+  "check-semgrep",
+  "subagent-stop-handoff",
+  "model-advisor",
+  "managed-drift-watch",
+  "bash-outcome-watch",
+  "plan-update-evidence",
+  "playwright",
+  "structural-search",
+  "skill-tool",
+  "skill-md",
+  "attribution",
+  "mem_save",
+  "mem_search",
+  "mem_get_observation",
+  "mem_context",
+  "mem_session_start",
+  "mem_session_end",
+  "mem_session_summary",
+  "mem_save_prompt",
+  "accept",
+  "reject",
+  "advise",
+]);
+const PUBLIC_MAP_FIELDS = new Set([
+  "models",
+  "toolCounts",
+  "toolCountsByMode",
+  "classifierExemptBashByMode",
+  "mcpCalls",
+  "mcpReach",
+  "mcpBarredTokens",
+  "mcpInjectedContext",
+  "permissionModes",
+  "toolErrorTypes",
+  "bySource",
+  "byAgentType",
+  "byModel",
+  "availabilityByAgentType",
+  "availability",
+  "rangeMetrics",
+  "toolCalls",
+  "toolResultBytes",
+]);
+const PUBLIC_SOURCE_FIELDS = new Set([
+  "transcript",
+  "rollout",
+  "audit-log",
+  "otlp",
+  "host-metadata",
+]);
+
+/** Unknown labels are opaque categories, never short arbitrary user strings. */
+function publicLabel(value: string): string {
+  if (PUBLIC_TECHNICAL_LABELS.has(value)) return value;
+  if (/^unknown-[a-f0-9]{12}$/.test(value)) return value;
+  if (
+    /^(?:claude-(?:opus|sonnet|haiku|fable|mythos)-[0-9](?:-[0-9])?(?:-\d{8})?|gpt-[0-9](?:\.[0-9])?(?:-(?:sol|astra|luna|mini|nano))?|o[1-9](?:-mini)?|plugin:(?:engram|codegraph|tgrep|semgrep|jscpd))$/.test(
+      value,
+    )
+  )
+    return value;
+  return `unknown-${createHash("sha256").update(value).digest("hex").slice(0, 12)}`;
+}
+
+/** Metric keys have a fixed vocabulary; unrecognized segments become opaque. */
+function publicMapKey(value: string, family: string): string {
+  if (family !== "rangeMetrics" && family !== "availability") return publicLabel(value);
+  if (value === "coverage.pct") return value;
+  if (value.startsWith("mining.") && minerMetricKey(value)) return value;
+  const [activation, trigger, measurement, extra] = value.split(".");
+  if (
+    activation === "activation" &&
+    extra === undefined &&
+    (trigger === "total" || ACTIVATION_TRIGGERS.some(({ id }) => id === trigger)) &&
+    ["opportunities", "hits", "pct"].includes(measurement ?? "")
+  )
+    return value;
+  const vocabulary = new Set(
+    "tokens input output cacheRead cacheCreation thinking tools hooks wallClockMs activeMs startupTokens session sessions agent launches web fetch turns compactions turnLimitHits resultBytes calls callsMain callsAgents p50 p90 n observed partial eligible unavailable unsupported invalid coverage activation search edits codegraph mechanism codex execWrappers skill outputTokens perBashCall blocks fires tollMs tollEvents ungroupedFires bashCalls bashTranscriptCalls bashCoveragePct mainPct".split(
+      " ",
+    ),
+  );
+  return value
+    .split(".")
+    .map((part: string) =>
+      vocabulary.has(part) || PUBLIC_AUDIT_FIELDS.has(part) ? part : publicLabel(part),
+    )
+    .join(".");
+}
+
+/** Construct only allowlisted fields/values; raw objects are never spread into publication. */
+function metadataPublication(
+  value: AuditReport,
+  options: AuditPublicationOptions = {},
+): AuditReport {
+  const seen = new WeakSet<object>();
+  const project = (input: unknown, key: string, parent: string): unknown => {
+    if (["captured", "ratio"].includes(key))
+      return parent === "coverage" &&
+        (input === null || (typeof input === "number" && Number.isFinite(input)))
+        ? input
+        : undefined;
+    if (
+      typeof input === "number" ||
+      typeof input === "boolean" ||
+      input === null ||
+      input === undefined
+    )
+      return input;
+    if (typeof input === "string") {
+      if (
+        (key === "initialPrompt" && parent === "sessions") ||
+        (key === "description" && parent === "agents")
+      )
+        return options.includeHumanContent ? redactExample(input).slice(0, 300) : "";
+      if (["summary", "evidence"].includes(key))
+        return "Metadata-only finding; human details withheld.";
+      if (["gitBranch", "cwd"].includes(key)) return null;
+      if (["sessionId", "agentId", "toolUseId", "actor"].includes(key))
+        return /^[A-Za-z0-9_-]{1,256}$/.test(input) ? input : "unknown";
+      if (
+        [
+          "startedAt",
+          "endedAt",
+          "generatedAt",
+          "capturedAt",
+          "at",
+          "from",
+          "to",
+          "hookLogFrom",
+          "otelFrom",
+        ].includes(key)
+      )
+        return /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z)?$/.test(input) ? input : "";
+      if (["version", "rendered", "cli", "sourceVersion", "ccVersions"].includes(key))
+        return /^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/.test(input) ? input : "unknown";
+      if (key === "generatedBy")
+        return /^navori@\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/.test(input)
+          ? input
+          : "navori@unknown";
+      if (key === "path")
+        return parent === "location" &&
+          ["navori.config.json", "AGENTS.md", "CLAUDE.md"].includes(input)
+          ? input
+          : "redacted";
+      return publicLabel(input);
+    }
+    if (Array.isArray(input)) return input.map((item: unknown) => project(item, key, parent));
+    if (typeof input !== "object") return undefined;
+    if (seen.has(input)) return input;
+    seen.add(input);
+    const out = input as Record<string, unknown>;
+    const dynamic =
+      PUBLIC_MAP_FIELDS.has(key) ||
+      parent === "mcpCalls" ||
+      parent === "toolCountsByMode" ||
+      parent === "availabilityByAgentType";
+    for (const [child, item] of Object.entries(input)) {
+      delete out[child];
+      if (["ownerKey", "sourceHeaderFingerprint", "sourcePath", "identity"].includes(child))
+        continue;
+      if (["responses", "activity", "blockedCommands", "repeatedCommands"].includes(child)) {
+        out[child] = Array.isArray(item) ? [] : {};
+        continue;
+      }
+      const providerField =
+        ["usage", "usageAvailability"].includes(key) &&
+        [
+          "inputTotal",
+          "ordinaryInput",
+          "cacheRead",
+          "cacheWrite",
+          "output",
+          "reasoning",
+          "totalTokens",
+        ].includes(child);
+      const locationField = key === "location" && child === "path";
+      const contextField =
+        (key === "coverage" && ["captured", "ratio"].includes(child)) ||
+        (key === "sources" && PUBLIC_SOURCE_FIELDS.has(child)) ||
+        ((key === "navori" || key === "navoriAtStop") && ["rendered", "cli"].includes(child)) ||
+        (key === "prompts" && ["typed", "queued", "queuedSystem"].includes(child));
+      if (
+        !dynamic &&
+        !PUBLIC_AUDIT_FIELDS.has(child) &&
+        !providerField &&
+        !locationField &&
+        !contextField
+      )
+        continue;
+      const projected = project(item, child, key);
+      if (projected !== undefined)
+        out[
+          dynamic
+            ? publicMapKey(child, parent === "availabilityByAgentType" ? "availability" : key)
+            : child
+        ] = projected;
+    }
+    // Required empty maps remain useful to historical renderers; their content
+    // is deliberately absent, not an authorization to serialize scripts.
+    if ("repeatedCommands" in input) out.repeatedCommands = {};
+    if ("blockedCommands" in input) out.blockedCommands = {};
+    if ("responses" in input) out.responses = [];
+    if ("activity" in input) out.activity = [];
+    return out;
+  };
+  const copy = structuredClone(value);
+  project(copy, "", "");
+  return copy;
+}
 
 /**
  * Renders a parsed audit into its two derived artifacts.
@@ -292,7 +851,11 @@ function agentCards(s: SessionAudit, lang: Lang): string {
   const cards = [
     completeCardEvidence(s.availability, false)
       ? orchestratorCard(s, lang)
-      : componentTable({ run: s.orchestrator, evidence: s.availability ?? {}, type: MAIN_THREAD }),
+      : componentTable({
+          run: s.orchestrator,
+          evidence: s.availability ?? {},
+          type: MAIN_THREAD,
+        }),
   ];
   cards.push(
     ...[...s.agents]
@@ -300,7 +863,11 @@ function agentCards(s: SessionAudit, lang: Lang): string {
       .map((a) =>
         completeCardEvidence(a.availability, true)
           ? agentCard(a, s.hookLogFrom, lang, s.agents.length)
-          : componentTable({ run: a, evidence: a.availability ?? {}, type: a.agentType }),
+          : componentTable({
+              run: a,
+              evidence: a.availability ?? {},
+              type: a.agentType,
+            }),
       ),
   );
   return cards.join("\n\n");
@@ -831,7 +1398,11 @@ function hooksLine(events: HookEvent[], lang: Lang, agentCount: number): string 
   if (completed.length === 0) return t(lang, "—", "—");
   const by = new Map<string, { ms: number[]; blocked: number; phases: Set<string> }>();
   for (const e of completed) {
-    const cur = by.get(e.name) ?? { ms: [], blocked: 0, phases: new Set<string>() };
+    const cur = by.get(e.name) ?? {
+      ms: [],
+      blocked: 0,
+      phases: new Set<string>(),
+    };
     cur.ms.push(e.ms);
     cur.blocked += e.verdict === "block" ? 1 : 0;
     cur.phases.add(e.phase);
@@ -1123,8 +1694,8 @@ function skillRangeSection(report: AuditReport, lang: Lang): string[] {
     // measurement report a skill as used because somebody opened its file.
     t(
       lang,
-      "Sesiones en que cada skill hizo algo. **invocada** = alguien la pidió (tool `Skill`, o el host lo declaró) · **heredada** = una corrida trabajó bajo ella sin pedirla (tramo atribuido) · **solo abierta** = se leyó el archivo y nada más, que no es uso.",
-      "Sessions in which each skill did something. **invoked** = somebody asked for it (the `Skill` tool, or the host declared it) · **inherited** = a run worked under it without asking (attributed span) · **only opened** = its file was read and nothing else, which is not use.",
+      "Sesiones por skill. **invocada** = solicitada vía `Skill` o declarada por host · **heredada** = trabajo sin solicitarla (tramo atribuido) · **solo abierta** = archivo leído, sin uso.",
+      "Sessions per skill. **invoked** = requested via `Skill` or host-declared · **inherited** = work without requesting it (attributed span) · **only opened** = file read, no use.",
     ),
     "",
     ...header,
@@ -1238,7 +1809,7 @@ function getOrSet<K, V>(map: Map<K, V>, key: K, make: () => V): V {
 function addAgentRun(stat: AgentStat, run: Run, evidence?: Record<string, MetricEvidence>): void {
   stat.fetch += run.toolCounts.WebFetch ?? 0;
   stat.search += run.toolCounts.WebSearch ?? 0;
-  if (evidence?.tools?.state === "observed" && typeof run.turns === "number")
+  if ((evidence?.turns ?? evidence?.tools)?.state === "observed" && typeof run.turns === "number")
     stat.turns.push(run.turns);
   if (
     runEvidence({ run, evidence: evidence ?? {}, type: "" }, "contextPeak").state === "observed" &&
@@ -1262,7 +1833,7 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
     (s) => s.unavailable !== "transcript" && s.availability?.tools?.state === "observed",
   );
   const codexSessions = sessions.filter((s) => s.host === "codex");
-  const codexExecWrappers = codexSessions.every((s) => s.rollout?.status === "parsed")
+  const codexExecWrappers = codexSessions.every((s) => s.availability?.tools?.state === "observed")
     ? codexSessions.reduce(
         (count, s) =>
           count + (s.rollout?.status === "parsed" ? (s.rollout.toolCalls.exec ?? 0) : 0),
@@ -1272,7 +1843,12 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
   const agents = new Map<string, AgentStat>();
   const tools = new Map<string, ToolStat>();
   const tool = (name: string): ToolStat =>
-    getOrSet(tools, name, () => ({ calls: 0, callsMain: 0, callsAgents: 0, resultBytes: [] }));
+    getOrSet(tools, name, () => ({
+      calls: 0,
+      callsMain: 0,
+      callsAgents: 0,
+      resultBytes: [],
+    }));
 
   // Every declared agent has a row, including the ones that never ran (R46).
   for (const name of declaredAgents) getOrSet(agents, name, emptyAgentStat);
@@ -1288,11 +1864,25 @@ function rangeStats(sessions: SessionAudit[], declaredAgents: readonly string[])
       }
     }
   }
+  for (const session of codexSessions) {
+    if (
+      !["turns", "tools", "tokens.cacheRead"].some(
+        (key) => session.availability?.[key]?.state === "observed",
+      )
+    )
+      continue;
+    const main = getOrSet(agents, MAIN_THREAD, emptyAgentStat);
+    addAgentRun(main, session.orchestrator, session.availability);
+  }
 
   for (const s of sessions) {
     const seen = new Set<string>();
     for (const a of s.agents) {
-      if (a.availability?.tools?.state !== "observed") continue;
+      if (
+        a.availability?.tools?.state !== "observed" &&
+        a.availability?.turns?.state !== "observed"
+      )
+        continue;
       const stat = getOrSet(agents, a.agentType, emptyAgentStat);
       stat.launches += 1;
       if (!seen.has(a.agentType)) {
@@ -1766,8 +2356,8 @@ function activationSection(report: AuditReport, lang: Lang): string[] {
       "",
       t(
         lang,
-        `Wrapper + nativo sobre búsquedas reales: **${metric(m["search.good.pct"])}%**. Vía v2 (tgrep + codegraph) contra escape: **${metric(m["search.v2.pct"])}%**. Los filtros (\`… | grep\`) y las extracciones de un archivo conocido se reportan aparte y no entran al cociente.`,
-        `Wrapper + native over real searches: **${metric(m["search.good.pct"])}%**. v2 route (tgrep + codegraph) against escape: **${metric(m["search.v2.pct"])}%**. Filters (\`… | grep\`) and extractions from a known file are reported apart and stay out of the quotient.`,
+        `Wrapper + nativo sobre búsquedas reales: **${metric(m["search.good.pct"])}%**. v2 (tgrep + codegraph) contra escape: **${metric(m["search.v2.pct"])}%**. Filtros (\`… | grep\`) y extracciones de archivo conocido: aparte, fuera del cociente.`,
+        `Wrapper + native over real searches: **${metric(m["search.good.pct"])}%**. v2 (tgrep + codegraph) against escape: **${metric(m["search.v2.pct"])}%**. Filters (\`… | grep\`) and known-file extractions: separate, excluded from the quotient.`,
       ),
       "",
       ...rangeTable(
@@ -1797,10 +2387,32 @@ export function projectedAgentCount(report: AuditReport): number | null {
   return measurable(population(report.sessions, "tools")) ? report.totals.agents : null;
 }
 
-export function renderMarkdown(report: AuditReport, lang: Lang): string {
+export function renderMarkdown(
+  report: AuditReport,
+  lang: Lang,
+  options: AuditPublicationOptions = {},
+): string {
+  report = metadataPublication(report, options);
   const out: string[] = [];
   out.push(`# ${t(lang, "Auditoría del harness", "Harness audit")} — ${report.repo}`);
   out.push("");
+  const resource = report.sessions.flatMap((session: SessionAudit) =>
+    Object.values(session.sources ?? {}).filter((source) => source?.budget || source?.reading),
+  );
+  if (resource.length) {
+    out.push("## Resource diagnostics", "");
+    for (const source of resource) {
+      if (source?.budget)
+        out.push(
+          `- Budget: ${source.budget.retainedFacts}/${source.budget.limits.factsPerReport} facts; omitted ${source.budget.omittedFacts ?? "unknown"} (at least ${source.budget.omittedLowerBound}); ${source.budget.truncated ? "partial" : "within limits"}.`,
+        );
+      if (source?.reading)
+        out.push(
+          `- Source: ${source.reading.bytesRead} bytes; invalid UTF-8 ${source.reading.invalidUtf8}; oversized lines ${source.reading.oversizedLines}; omitted ${source.reading.omitted ?? "unknown"} (at least ${source.reading.omittedLowerBound}).`,
+        );
+    }
+    out.push("");
+  }
   if (report.schemaVersion === 11) {
     out.push("## " + t(lang, "Disponibilidad de mediciones", "Measurement availability"), "");
     out.push("| Metric | State | N observed / partial / eligible | Reason |", "|---|---|---|---|");
@@ -1832,6 +2444,32 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
       `## ${t(lang, "Sesión", "Session")} ${s.sessionId.slice(0, 8)} · ${s.startedAt.slice(0, 10)}`,
     );
     out.push("");
+    if (s.host === "codex" && s.orchestrator.codex) {
+      out.push(
+        `${t(lang, "**Sesión Codex.**", "**Codex session.**")} Codex ${s.orchestrator.codex.sourceVersion ?? "unavailable"}`,
+        "",
+      );
+      for (const run of [s.orchestrator, ...s.agents]) {
+        const facts = run.codex;
+        if (!facts) continue;
+        const value = (component: CodexUsageComponent): string =>
+          facts.usage[component] === null ? "unavailable" : String(facts.usage[component]);
+        out.push(
+          `Provider usage (${"agentId" in run ? run.agentType : MAIN_THREAD}): input ${value("inputTotal")} · ordinary input ${value("ordinaryInput")} · output ${value("output")} · total ${value("totalTokens")} · reasoning subset ${value("reasoning")}`,
+          `Tools: ${
+            measurable(("agentId" in run ? run.availability : s.availability)?.tools)
+              ? Object.entries(run.toolCounts)
+                  .map(([name, count]) => `${name}:${count}`)
+                  .join(" ") || "0"
+              : "unavailable"
+          }`,
+          `Turns: ${measurable(("agentId" in run ? run.availability : s.availability)?.turns) ? (run.turns ?? "unavailable") : "unavailable"}`,
+          "",
+        );
+      }
+      out.push(permissionsBlock(s, lang));
+      continue;
+    }
     if (!measurable(s.availability?.tools)) {
       if (s.host === "codex") out.push(t(lang, "**Sesión Codex.**", "**Codex session.**"), "");
       out.push("Measurements unavailable; no source-backed session totals.", "");
@@ -1894,8 +2532,8 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
         "",
         t(
           lang,
-          `**Sesión en curso.** El log no está sellado y la última actividad fue hace menos de ${LIVE_WINDOW_MIN} min: cada cifra de abajo es una foto del momento en que se generó el reporte, no un total. Séllala con \`navori audit --stop ${s.sessionId.slice(0, 8)}\` y vuelve a correrlo.`,
-          `**Session still running.** The log is unsealed and the last activity was under ${LIVE_WINDOW_MIN} min ago: every figure below is a snapshot taken when the report was built, not a total. Seal it with \`navori audit --stop ${s.sessionId.slice(0, 8)}\` and run this again.`,
+          `**Sesión en curso.** Log sin sellar, actividad hace menos de ${LIVE_WINDOW_MIN} min: cifras al generar el reporte, no totales. Sella con \`navori audit --stop ${s.sessionId.slice(0, 8)}\` y repite el reporte.`,
+          `**Session still running.** Unsealed log, activity under ${LIVE_WINDOW_MIN} min ago: figures at report time, not totals. Seal with \`navori audit --stop ${s.sessionId.slice(0, 8)}\` and rerun the report.`,
         ),
       );
     }
@@ -1909,8 +2547,8 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
       queued > 0
         ? t(
             lang,
-            `**Mensajes del usuario:** ${typed + queued} — ${typed} iniciaron un turno y ${queued} se escribieron mientras el agente trabajaba. Estos últimos se entregan dentro del turno en curso y NO disparan el hook, así que el log de la sesión no los ve; el conteo sale del transcript.`,
-            `**User messages:** ${typed + queued} — ${typed} started a turn and ${queued} were written while the agent was working. The latter are delivered inside the running turn and do NOT fire the hook, so the session log cannot see them; this count comes from the transcript.`,
+            `**Mensajes del usuario:** ${typed + queued} — ${typed} iniciaron turno; ${queued} llegaron durante el trabajo, dentro del turno y sin disparar el hook. El conteo sale del transcript, no del log.`,
+            `**User messages:** ${typed + queued} — ${typed} started a turn; ${queued} arrived during work, inside the turn without firing the hook. Counted from the transcript, not the log.`,
           )
         : t(
             lang,
@@ -1948,8 +2586,8 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
         "",
         t(
           lang,
-          `**Escrituras del orquestador:** ${nativeWrites} nativas (Edit/Write) · ${shellWrites} por shell (\`>\`, \`sed -i\`, \`tee\`). Las de shell no pasan por el guard salvo que el destino sea un archivo managed, y quedan fuera del cociente de lectura a propósito — se cuentan aquí porque esa vía no tenía instrumento.`,
-          `**Orchestrator writes:** ${nativeWrites} native (Edit/Write) · ${shellWrites} through the shell (\`>\`, \`sed -i\`, \`tee\`). Shell writes only meet the guard when the target is a managed file, and they are deliberately out of the read-lane ratio — counted here because that lane had no instrument.`,
+          `**Escrituras del orquestador:** ${nativeWrites} nativas (Edit/Write) · ${shellWrites} por shell (\`>\`, \`sed -i\`, \`tee\`). Shell pasa por el guard solo para archivos managed. Se mide aparte del cociente de lectura.`,
+          `**Orchestrator writes:** ${nativeWrites} native (Edit/Write) · ${shellWrites} through shell (\`>\`, \`sed -i\`, \`tee\`). Shell meets the guard only for managed files. Measured separately from the read-lane ratio.`,
         ),
       );
     }
@@ -2038,8 +2676,8 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
       "",
       t(
         lang,
-        "> Los `ms` de un hook los mide el hook mismo, y solo se miden con audit-mode activo: incluyen el costo del propio recorder. La **mediana** es el peaje que pagaría un comando más; el total incluye las corridas largas, que son el gate haciendo su trabajo en un commit y no overhead que se pueda recortar. **Los totales por hook no se suman entre sí**: los hooks de un mismo evento arrancan en paralelo, así que lo que la sesión esperó es el más lento de cada evento — eso es lo que dice `peaje por evento`.",
-        "> A hook's `ms` are measured by the hook itself, and only while audit-mode is on: they include the recorder's own cost. The **median** is the toll one more command would pay; the total includes the long runs, which are the gate doing its job on a commit — not overhead to trim. **The per-hook totals do not add up**: the hooks of one event start in parallel, so what the session waited for is the slowest of each event — that is what `per-event toll` reports.",
+        "> Los `ms` se miden en cada hook solo con audit-mode: incluyen el costo del propio recorder. La **mediana** estima el peaje de otro comando; el total incluye gates largos de commit, no overhead recortable. **Los totales por hook no se suman entre sí**: arrancan en paralelo; `peaje por evento` mide el más lento.",
+        "> Each hook measures its `ms` only in audit-mode, including recorder cost. The **median** estimates another command's toll; totals include long commit gates, not removable overhead. **The per-hook totals do not add up**: hooks start in parallel; `per-event toll` measures the slowest.",
       ),
     );
 
@@ -2064,8 +2702,8 @@ export function renderMarkdown(report: AuditReport, lang: Lang): string {
         "",
         t(
           lang,
-          `**Errores declarados por el host:** ${declared.map(([k, n]) => `${k} ${n}`).join(" · ")}. La taxonomía de arriba se infiere de la primera línea del resultado y envejece cada vez que una herramienta reescribe su mensaje; ésta es la categoría que el host mismo puso. No se mapean entre sí a propósito — inventar esa equivalencia sería la inferencia que este dato viene a quitar.`,
-          `**Error categories declared by the host:** ${declared.map(([k, n]) => `${k} ${n}`).join(" · ")}. The taxonomy above is inferred from the first line of a result and ages every time a tool rewrites its message; this one is the category the host itself set. They are deliberately not mapped onto each other — inventing that equivalence is the inference this data removes.`,
+          `**Errores declarados por el host:** ${declared.map(([k, n]) => `${k} ${n}`).join(" · ")}. Son categorías del host; la taxonomía anterior infiere la primera línea y depende del formato del mensaje. No se presume equivalencia entre ambas.`,
+          `**Error categories declared by the host:** ${declared.map(([k, n]) => `${k} ${n}`).join(" · ")}. These are host categories; the taxonomy above infers the first line and depends on message format. No equivalence between them is assumed.`,
         ),
       );
     }
@@ -2129,8 +2767,8 @@ function permissionsBlock(s: SessionAudit, lang: Lang): string {
   if (!s.otelFrom || !measurable(s.availability?.permissions)) {
     return t(
       lang,
-      "> **La tercera fuente no estuvo presente.** Nadie recibía los eventos OTel de esta sesión, así que no hay decisiones de permiso que contar — que NO es lo mismo que cero aprobaciones manuales. En el transcript una aprobación concedida es indistinguible de una tool pre-aprobada; lo único observable son los rechazos, y esos ya están en los errores de tool. Para medirlas, levanta `navori audit --collect` antes de abrir la sesión.",
-      "> **The third source was not present.** Nobody was receiving this session's OTel events, so there are no permission decisions to count — which is NOT the same as zero manual approvals. In the transcript a granted prompt is indistinguishable from a pre-approved tool; only refusals are observable, and those are already in the tool errors. To measure them, start `navori audit --collect` before opening the session.",
+      "> **La tercera fuente no estuvo presente.** Sin receptor OTel no hay decisiones medibles, no cero aprobaciones. El transcript no distingue una aprobación de una tool pre-aprobada; solo muestra rechazos como errores de tool. Ejecuta `navori audit --collect` antes de abrir la sesión para medirlas.",
+      "> **The third source was not present.** Without an OTel receiver, permission decisions are unmeasured, not zero approvals. The transcript cannot distinguish a granted prompt from a pre-approved tool; only refusals appear as tool errors. Start `navori audit --collect` before opening the session to measure them.",
     );
   }
 
@@ -2151,8 +2789,8 @@ function permissionsBlock(s: SessionAudit, lang: Lang): string {
     "",
     t(
       lang,
-      `> Contadas desde \`${s.otelFrom}\`, el instante en que el receptor empezó a escribir en este log: lo anterior a esa marca no lo vio nadie. "Humanas" son las que alguien respondió en un prompt (\`user_*\`); "automáticas" las que resolvieron la config o un hook.`,
-      `> Counted from \`${s.otelFrom}\`, the instant the receiver started writing into this log: anything before that mark nobody saw. "Human" are the ones somebody answered in a prompt (\`user_*\`); "automatic" the ones config or a hook resolved.`,
+      `> Desde \`${s.otelFrom}\`, inicio del receptor en este log; lo anterior no se observó. "Humanas": respuestas a prompts (\`user_*\`); "automáticas": resueltas por config o hook.`,
+      `> From \`${s.otelFrom}\`, receiver start in this log; earlier decisions are unobserved. "Human": prompt responses (\`user_*\`); "automatic": resolved by config or hook.`,
     ),
   ].filter((line) => line !== "");
   return rows.join("\n");
@@ -2212,6 +2850,8 @@ function runMeasurementEvidence(unit: MeasurementRun, path: string): MetricEvide
   if (field === "startupTokens") return runEvidence(unit, "startupTokens");
   if (field === "durationMs") return runEvidence(unit, "durationMs");
   if (field === "contextPeak") return runEvidence(unit, "contextPeak");
+  if (field === "turns" || field === "models")
+    return unit.evidence[field] ?? unit.evidence.tools ?? unknownEvidence();
   if (field === "skills" && path.endsWith(".attributedOutputTokens"))
     return runEvidence(unit, "tokens.output");
   if (field === "hookEvents") return unit.evidence.hooks ?? unknownEvidence();
@@ -2227,11 +2867,24 @@ function publishRun(unit: MeasurementRun): NullableMeasurements<Run> {
   if (!measurable(unit.evidence.tools)) {
     out.toolCounts = null;
   }
+  if (unit.run.codex) {
+    out.codex = {
+      ...unit.run.codex,
+      responses: [],
+      activity: [],
+      usage: { ...unit.run.codex.usage },
+      usageAvailability: unit.run.codex.usageAvailability,
+    };
+  }
   return out;
 }
 
 /** Typed schema11 consumer boundary; internal reduction identities do not escape. */
-export function publishReport(report: AuditReport): PublishedAuditReport {
+export function publishReport(
+  report: AuditReport,
+  options: AuditPublicationOptions = {},
+): PublishedAuditReport {
+  report = metadataPublication(report, options);
   const runs = measurementRuns(report.sessions);
   const published = projectNumbers(report, () => unknownEvidence());
   const sessions = report.sessions.map((s) => {
@@ -2241,7 +2894,14 @@ export function publishReport(report: AuditReport): PublishedAuditReport {
       type: MAIN_THREAD,
     };
     const out = projectNumbers(s, (path) => {
-      const [field] = path.split(".");
+      const [field, component] = path.split(".");
+      if (
+        field === "rollout" &&
+        component === "toolCalls" &&
+        s.host === "codex" &&
+        s.rollout?.status === "parsed"
+      )
+        return unit.evidence.tools ?? unknownEvidence();
       if (field === "wallClockMs" || field === "activeMs")
         return s.availability?.[field] ?? unknownEvidence();
       if (["permissions", "toolErrorTypes"].includes(field ?? ""))
@@ -2344,12 +3004,16 @@ export function publishReport(report: AuditReport): PublishedAuditReport {
         : population(report.sessions, "tools"),
     ),
   );
-  return { ...published, schemaVersion: 11, availability: report.availability ?? {} };
+  return {
+    ...published,
+    schemaVersion: 11,
+    availability: report.availability ?? {},
+  };
 }
 
 /** Serialize the actual public nullable contract; historical schema10 stays intact. */
-export function renderJson(report: AuditReport): string {
-  return `${JSON.stringify(report.schemaVersion === 11 ? publishReport(report) : report, null, 2)}\n`;
+export function renderJson(report: AuditReport, options: AuditPublicationOptions = {}): string {
+  return `${JSON.stringify(report.schemaVersion === 11 ? publishReport(report, options) : metadataPublication(report, options), null, 2)}\n`;
 }
 function measurable(evidence: MetricEvidence | undefined): boolean {
   return evidence?.state === "observed" || evidence?.state === "partial";
@@ -2365,7 +3029,11 @@ interface MeasurementRun {
 function measurementRuns(sessions: readonly SessionAudit[]): MeasurementRun[] {
   return sessions.flatMap((s) => [
     { run: s.orchestrator, evidence: s.availability ?? {}, type: MAIN_THREAD },
-    ...s.agents.map((run) => ({ run, evidence: run.availability ?? {}, type: run.agentType })),
+    ...s.agents.map((run) => ({
+      run,
+      evidence: run.availability ?? {},
+      type: run.agentType,
+    })),
   ]);
 }
 
@@ -2528,6 +3196,229 @@ function tallySkills(sessions: SessionAudit[], catalog: readonly string[]): Skil
 }
 
 /** Aggregates parsed sessions into the report envelope. */
+/** One immutable provider view precedes every report reducer and projection. */
+function qualifiedCodexView(
+  input: readonly SessionAudit[],
+  budget: AuditReadBudget,
+): SessionAudit[] {
+  // Clone mutable reducer shells only. Provider response/activity objects are
+  // read-only inputs, shared across sibling views instead of copying history.
+  const runs = new WeakMap<Run, Run>();
+  const cloneRun = <T extends Run>(run: T): T => {
+    const known = runs.get(run);
+    if (known) return known as T;
+    const copy: T = {
+      ...run,
+      tokens: { ...run.tokens },
+      toolCounts: { ...run.toolCounts },
+    };
+    if ("mcpReach" in copy) copy.mcpReach = { ...copy.mcpReach };
+    if ("availability" in copy) copy.availability = { ...copy.availability };
+    if (run.codex)
+      copy.codex = {
+        ...run.codex,
+        source: { ...run.codex.source },
+        usage: { ...run.codex.usage },
+        usageAvailability: { ...run.codex.usageAvailability },
+      };
+    runs.set(run, copy);
+    return copy;
+  };
+  const sessions = input.map((session: SessionAudit): SessionAudit => ({
+    ...session,
+    availability: { ...session.availability },
+    orchestrator: cloneRun(session.orchestrator),
+    agents: session.agents.map((run: AgentRun): AgentRun => cloneRun(run)),
+    rollout: session.rollout ? { ...session.rollout } : undefined,
+    sources: session.sources
+      ? Object.fromEntries(
+          Object.entries(session.sources).map(([key, source]) => [key, { ...source }]),
+        )
+      : undefined,
+  }));
+  const components: CodexUsageComponent[] = [
+    "inputTotal",
+    "ordinaryInput",
+    "cacheRead",
+    "cacheWrite",
+    "output",
+    "reasoning",
+    "totalTokens",
+  ];
+  const tokenComponents = {
+    input: "ordinaryInput",
+    output: "output",
+    cacheRead: "cacheRead",
+    cacheCreation: "cacheWrite",
+    thinking: "reasoning",
+  } as const;
+  const responseGroups = new Map<string, CodexResponseFact[]>();
+  const activityNames = new Map<string, Set<string | null>>();
+  for (const session of sessions)
+    for (const run of [session.orchestrator, ...session.agents]) {
+      if (run.codex) {
+        const facts = run.codex;
+        const owned = measurable(facts.source)
+          ? facts.responses.filter(
+              (fact) =>
+                fact.threadId === facts.threadId && fact.rootSessionId === facts.rootSessionId,
+            )
+          : [];
+        if (measurable(facts.source) && owned.length !== facts.responses.length)
+          facts.source = {
+            ...facts.source,
+            state: "partial",
+            reason: "ownership-unknown",
+          };
+        facts.responses = owned;
+      }
+      for (const fact of run.codex?.activity ?? []) {
+        const key = JSON.stringify([
+          run.codex!.rootSessionId,
+          run.codex!.threadId,
+          fact.kind,
+          fact.id,
+        ]);
+        if (
+          !activityNames.has(key) &&
+          !retainAuditFact(budget, session.sessionId, {
+            kind: "activity-group",
+          })
+        )
+          continue;
+        const names = activityNames.get(key) ?? new Set<string | null>();
+        if (
+          !names.has(fact.name) &&
+          !retainAuditFact(budget, session.sessionId, { kind: "activity-name" })
+        )
+          continue;
+        names.add(fact.name);
+        activityNames.set(key, names);
+      }
+      for (const fact of run.codex?.responses ?? []) {
+        const key = JSON.stringify([fact.rootSessionId, fact.threadId, fact.responseId]);
+        if (
+          !responseGroups.has(key) &&
+          !retainAuditFact(budget, session.sessionId, {
+            kind: "response-group",
+          })
+        )
+          continue;
+        const copies = responseGroups.get(key) ?? [];
+        if (!retainAuditFact(budget, session.sessionId, { kind: "response-copy" })) continue;
+        copies.push(fact);
+        responseGroups.set(key, copies);
+      }
+    }
+  const charged = new Set<string>();
+  const ownedActivity = new Set<string>();
+  for (const session of sessions)
+    for (const run of [session.orchestrator, ...session.agents]) {
+      const facts = run.codex;
+      if (!facts) continue;
+      facts.usage = { ...facts.usage };
+      facts.usageAvailability = { ...facts.usageAvailability };
+      run.tokens = { ...run.tokens };
+      const availability =
+        "agentId" in run ? (run.availability ??= {}) : (session.availability ??= {});
+      const rows = new Map<string, CodexResponseFact[]>();
+      for (const fact of facts.responses) {
+        const key = JSON.stringify([fact.rootSessionId, fact.threadId, fact.responseId]);
+        if (!charged.has(key) && responseGroups.has(key)) rows.set(key, responseGroups.get(key)!);
+      }
+      for (const key of rows.keys()) charged.add(key);
+      for (const component of components) {
+        const values: number[] = [];
+        let conflict = false;
+        let malformed = false;
+        let excluded = facts.source.state !== "observed";
+        for (const copies of rows.values()) {
+          const identities = new Set(
+            copies.map((copy) => JSON.stringify([copy.turnId, copy.model])),
+          );
+          const amounts = new Set(copies.map((copy) => copy.values[component]));
+          if (identities.size !== 1 || amounts.size !== 1) {
+            conflict = true;
+            continue;
+          }
+          const value = copies[0]!.values[component];
+          malformed ||= copies.some((copy) => copy.evidence[component].state === "invalid");
+          if (value === null) {
+            excluded = true;
+            continue;
+          }
+          values.push(value);
+        }
+        const sum = values.reduce((a, b) => a + b, 0);
+        facts.usage[component] =
+          values.length && !conflict && Number.isSafeInteger(sum) ? sum : null;
+        facts.usageAvailability[component] = {
+          ...facts.source,
+          state:
+            conflict || (malformed && !values.length)
+              ? "invalid"
+              : facts.usage[component] !== null
+                ? excluded
+                  ? "partial"
+                  : "observed"
+                : "unavailable",
+          reason: conflict
+            ? "identity-conflict"
+            : malformed
+              ? "malformed"
+              : facts.usage[component] !== null
+                ? excluded
+                  ? "not-observed"
+                  : null
+                : "not-observed",
+        };
+      }
+      for (const [key, component] of Object.entries(tokenComponents)) {
+        run.tokens[key as keyof TokenTotals] = facts.usage[component] ?? 0;
+        availability[`tokens.${key}`] = facts.usageAvailability[component];
+      }
+      const activity = facts.activity.filter((fact) => {
+        const key = JSON.stringify([facts.rootSessionId, facts.threadId, fact.kind, fact.id]);
+        if ((activityNames.get(key)?.size ?? 0) > 1) {
+          const family =
+            fact.kind === "tool" ? "tools" : fact.kind === "model" ? "models" : "turns";
+          availability[family] = {
+            ...facts.source,
+            state: "invalid",
+            reason: "identity-conflict",
+          };
+          return false;
+        }
+        if (!activityNames.has(key) || ownedActivity.has(key)) return false;
+        ownedActivity.add(key);
+        return true;
+      });
+      run.toolCounts = {};
+      run.turns = 0;
+      if ("models" in run) run.models = {};
+      for (const fact of activity) {
+        if (fact.kind === "tool" && fact.name)
+          run.toolCounts[fact.name] = (run.toolCounts[fact.name] ?? 0) + 1;
+        if (fact.kind === "turn") run.turns = (run.turns ?? 0) + 1;
+        if (fact.kind === "model" && fact.name && "models" in run)
+          run.models[fact.name] = (run.models[fact.name] ?? 0) + 1;
+      }
+      if ("agentId" in run) {
+        const models = [
+          ...new Set(activity.filter((fact) => fact.kind === "model").map((fact) => fact.name)),
+        ];
+        run.model = models.length === 1 ? models[0]! : null;
+      } else if (session.rollout?.status === "parsed") {
+        session.rollout.toolCalls = { ...run.toolCounts };
+        session.rollout.models = { ...run.models };
+        session.rollout.turns = run.turns ?? 0;
+        session.rollout.responses = [];
+        session.rollout.activity = [];
+      }
+    }
+  return sessions;
+}
+
 export function buildReport(
   sessions: SessionAudit[],
   opts: {
@@ -2559,12 +3450,60 @@ export function buildReport(
      * raw transcripts, which this module does not touch.
      */
     extraMetrics?: Record<string, number | null>;
+    /** Closed miner-owned evidence; core/provider/coverage evidence is immutable here. */
+    extraAvailability?: Record<string, MetricPopulation>;
     /** One row per audited repo, for an `--all-repos` report (R61). */
     repos?: RepoRow[];
     requestedRange?: { from: string; to: string };
     coverage?: AuditReport["coverage"];
+    /** Shared bounded discovery/parser context; never an independent index. */
+    readBudget?: AuditReadBudget;
   },
 ): AuditReport {
+  const readBudget = opts.readBudget ?? createAuditReadBudget();
+  sessions = qualifiedCodexView(sessions, readBudget);
+  for (const session of sessions) {
+    const health =
+      session.sources?.rollout ?? session.sources?.transcript ?? session.sources?.["audit-log"];
+    const diagnostics = {
+      ...readBudget.diagnostics,
+      limits: { ...readBudget.diagnostics.limits },
+    };
+    if (health) health.budget = diagnostics;
+    else if (diagnostics.truncated) {
+      session.sources ??= {};
+      session.sources["host-metadata"] = {
+        state: "partial",
+        reason: "incomplete-enumeration",
+        source: "aggregate",
+        adapter: null,
+        sourceVersion: null,
+        records: 0,
+        validRecords: 0,
+        parseErrors: 0,
+        incompleteTail: false,
+        from: null,
+        to: null,
+        budget: diagnostics,
+      };
+    }
+    if (readBudget.diagnostics.truncated) {
+      for (const evidence of [
+        session.availability,
+        ...session.agents.map((run: AgentRun) => run.availability),
+      ]) {
+        if (!evidence) continue;
+        for (const [key, row] of Object.entries(evidence)) {
+          if (row.state === "observed")
+            evidence[key] = {
+              ...row,
+              state: "partial",
+              reason: "incomplete-enumeration",
+            };
+        }
+      }
+    }
+  }
   const byAgentType: AuditReport["totals"]["byAgentType"] = {};
   const byModel: Record<string, number> = {};
   let tokens = emptyTokens();
@@ -2583,7 +3522,10 @@ export function buildReport(
     startupTokens += s.orchestrator.startupTokens;
     // The main thread is a row like any other (R48) — except for a session with
     // no transcript, whose tokens are unavailable rather than zero.
-    if (s.unavailable !== "transcript") {
+    if (
+      s.unavailable !== "transcript" ||
+      Object.values(s.orchestrator.codex?.usage ?? {}).some((value) => value !== null)
+    ) {
       const main = (byAgentType[MAIN_THREAD] ??= newRow());
       main.count += 1;
       main.sessions += 1;
@@ -2662,7 +3604,11 @@ export function buildReport(
   for (const row of Object.values(byAgentType)) row.tokens = emptyTokens();
   for (const s of sessions) {
     for (const run of [
-      { ...s.orchestrator, agentType: MAIN_THREAD, availability: s.availability },
+      {
+        ...s.orchestrator,
+        agentType: MAIN_THREAD,
+        availability: s.availability,
+      },
       ...s.agents,
     ]) {
       if (measurable(run.availability?.startupTokens)) startupTokens += run.startupTokens;
@@ -2676,7 +3622,11 @@ export function buildReport(
   }
   const rawMetrics = {
     ...flattenRangeMetrics(stats),
-    ...opts.extraMetrics,
+    ...Object.fromEntries(
+      Object.entries(opts.extraMetrics ?? {}).filter(
+        ([key]) => minerMetricKey(key) || key.startsWith("coverage."),
+      ),
+    ),
   };
   const availability = Object.fromEntries(
     [
@@ -2700,9 +3650,21 @@ export function buildReport(
     );
   const rangeMetrics: Record<string, number | null> = {};
   for (const [key, value] of Object.entries(rawMetrics)) {
-    availability[key] = flatMetricPopulation(key, value, sessions, opts.coverage);
+    const miner = minerMetricKey(key);
+    const external =
+      miner && Object.hasOwn(opts.extraMetrics ?? {}, key)
+        ? opts.extraAvailability?.[key]
+        : undefined;
+    availability[key] =
+      external ??
+      (miner ? unitPopulation([]) : flatMetricPopulation(key, value, sessions, opts.coverage));
+    const needsComplete =
+      miner && (key.endsWith(".pct") || key.includes(".bucket.") || key.endsWith(".graded"));
+    const partialZero = miner && value === 0 && availability[key].state === "partial";
     rangeMetrics[key] =
-      measurable(availability[key]) || key.endsWith(".n") || key.startsWith("sessions.")
+      !partialZero &&
+      (!needsComplete || availability[key].state === "observed") &&
+      (measurable(availability[key]) || key.endsWith(".n") || key.startsWith("sessions."))
         ? value
         : null;
   }
@@ -2851,7 +3813,9 @@ function flatMetricPopulation(
       ? "tokens.cacheRead"
       : component?.startsWith("contextPeak")
         ? "contextPeak"
-        : "tools";
+        : component?.startsWith("turns")
+          ? "turns"
+          : "tools";
     const rows = selected.map((unit): MetricEvidence => {
       if (component?.startsWith("turns") && typeof unit.run.turns !== "number")
         return unknownEvidence();
@@ -2867,7 +3831,9 @@ function flatMetricPopulation(
         (!("turnLimitHit" in unit.run) || typeof unit.run.turnLimitHit !== "boolean")
       )
         return unknownEvidence();
-      return runEvidence(unit, family);
+      return family === "turns"
+        ? (unit.evidence.turns ?? runEvidence(unit, "tools"))
+        : runEvidence(unit, family);
     });
     return unitPopulation(rows, "observed-only");
   }
@@ -2895,7 +3861,11 @@ function flatMetricPopulation(
           ...bytes.map((byte) =>
             Number.isFinite(byte) && byte >= 0
               ? runEvidence(unit, "tools")
-              : { ...unknownEvidence(), state: "invalid" as const, reason: "malformed" as const },
+              : {
+                  ...unknownEvidence(),
+                  state: "invalid" as const,
+                  reason: "malformed" as const,
+                },
           ),
           ...Array.from({ length: missing }, () => unknownEvidence()),
         ];
