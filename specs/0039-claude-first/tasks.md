@@ -271,9 +271,11 @@ Lote 3 (sujeto al gate de T2):
 
 ## Cierre
 
-- [ ] **T44** (R28, R43) — `navori audit --compare` contra la instantánea de T9 para
+- [x] **T44** (R28, R43) — `navori audit --compare` contra la instantánea de T9 para
   `hooks.perBashCall` y el cache read de R43; resultado en el doc de T1. Arranca la ventana del
-  disparador de R41.
+  disparador de R41. · Cerrada sin veredicto de R43: `--compare` espera la 0042 T11 y el
+  presupuesto de lectura trunca el rango (doc de T1, §Cierre T44); la comparación formal sigue en
+  #1177. Ventana de R41 desde `2026-10-04T18:53:45.984Z`.
 
 ## Trazabilidad
 
