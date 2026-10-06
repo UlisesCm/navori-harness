@@ -542,6 +542,81 @@ describe("review-outcome events", () => {
   });
 });
 
+const RECEIPT = {
+  schemaVersion: 1 as const,
+  featureKey: "a".repeat(64),
+  action: "check" as const,
+  freshness: "fresh" as const,
+  consumed: 0 as const,
+  uncovered: 0,
+  drift: 0,
+  base: "d".repeat(40),
+  head: "e".repeat(40),
+  gate: "1".repeat(64),
+  inputs: "2".repeat(64),
+  receipt: "3".repeat(64),
+  identity: "stable" as const,
+  alg: "navori-content/v1",
+  fp: "c".repeat(64),
+};
+
+describe("receipt-outcome events", () => {
+  // Covers: R16
+  it("appends a closed receipt-outcome record within the size cap", () => {
+    const log = markSession();
+    expect(appendCliEvent(repo, { name: "receipt-outcome", verdict: "ok" }, RECEIPT)).toBe(true);
+    const line = readFileSync(log, "utf-8").trim().split("\n")[1] ?? "";
+    expect(Buffer.byteLength(line)).toBeLessThanOrEqual(2048);
+    expect(JSON.parse(line)).toMatchObject({
+      event: "cli",
+      name: "receipt-outcome",
+      verdict: "ok",
+      action: "check",
+      identity: "stable",
+      fp: "c".repeat(64),
+    });
+  });
+
+  // Covers: R16
+  it.each([
+    ["an extra key", { ...RECEIPT, message: "git failed: secret path" }],
+    ["an unknown action", { ...RECEIPT, action: "publish" }],
+    ["a raw slug as the key", { ...RECEIPT, featureKey: "payroll-leak" }],
+    ["a bad receipt hash", { ...RECEIPT, receipt: "abc" }],
+    ["a stale reason outside the enum", { ...RECEIPT, stale: "everything" }],
+    ["a fractional count", { ...RECEIPT, drift: 1.5 }],
+    ["consumed outside 0/1", { ...RECEIPT, consumed: 2 }],
+    ["a fingerprint without a stable identity", { ...RECEIPT, identity: "unstable" }],
+  ])("writes nothing for %s", (_label, outcome) => {
+    const log = markSession();
+    expect(
+      appendCliEvent(
+        repo,
+        { name: "receipt-outcome", verdict: "ok" },
+        outcome as unknown as typeof RECEIPT,
+      ),
+    ).toBe(false);
+    expect(readFileSync(log, "utf-8").trim().split("\n")).toHaveLength(1);
+  });
+
+  // Covers: R16
+  it("normalizes one error shape and refuses a verdict outside the receipt vocabulary", () => {
+    const error = {
+      name: "receipt-outcome",
+      verdict: "error",
+      schemaVersion: 1,
+      featureKey: "a".repeat(64),
+      action: "sign",
+    };
+    expect(normalizeOutcome(error)).toEqual(error);
+    expect(normalizeOutcome({ ...error, verdict: "approved" })).toBeNull();
+    // A review payload never validates as a receipt, and vice versa.
+    expect(normalizeOutcome({ ...error, name: "review-outcome" })).toBeNull();
+    markSession();
+    expect(appendCliEvent(repo, { name: "review-outcome", verdict: "ok" }, RECEIPT)).toBe(false);
+  });
+});
+
 describe("appendCliEvent", () => {
   // Covers: R55, R70
   it("appends one complete cli record to the session log", () => {

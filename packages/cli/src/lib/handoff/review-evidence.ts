@@ -22,9 +22,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { z } from "zod";
-import { appendCliEvent, hasAuditTarget } from "../audit/cli-event.ts";
+import { appendCliEvent, hasAuditTarget, outcomeFeatureKey } from "../audit/cli-event.ts";
 import type { ReviewCorrelation, ReviewOutcome, ReviewOutcomeVerdict } from "../audit/model.ts";
-import { repoFromCwd } from "../audit/paths.ts";
 import { evidenceIdentity } from "../diagnose/receipt.ts";
 import { CONTENT_ALG, contentIdentity } from "../primitives/content-identity.ts";
 import { isUnderProgressDir } from "../primitives/progress-dirs.ts";
@@ -409,7 +408,7 @@ export function emitReviewOutcome(
   const correlated = correlation === "correlated" && evidence !== undefined;
   const payload: Omit<ReviewOutcome, "name" | "verdict"> = {
     schemaVersion: 1,
-    featureKey: sha256(`${repoFromCwd(root.cwd)}\0${sidecar.feature}`),
+    featureKey: outcomeFeatureKey(root.cwd, sidecar.feature),
     sidecar: info.hash,
     ...counts,
     correlation,

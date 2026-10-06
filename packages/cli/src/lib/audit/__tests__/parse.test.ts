@@ -2541,30 +2541,76 @@ describe("parse: range measures (spec 0039)", () => {
   });
 });
 
-// Covers: R16
-it("reads a review-outcome event as an ordinary CLI event without parse errors", () => {
+const REVIEW_PAYLOAD = {
+  name: "review-outcome",
+  verdict: "approved",
+  schemaVersion: 1,
+  featureKey: "a".repeat(64),
+  sidecar: "b".repeat(64),
+  critical: 0,
+  high: 0,
+  medium: 0,
+  low: 0,
+  correlation: "missing",
+};
+const RECEIPT_PAYLOAD = {
+  name: "receipt-outcome",
+  verdict: "ok",
+  schemaVersion: 1,
+  featureKey: "a".repeat(64),
+  action: "check",
+  freshness: "fresh",
+  identity: "unavailable",
+};
+
+function parseLog(lines: Array<Record<string, unknown>>): ReturnType<typeof parseSession> {
   const dir = mkdtempSync(join(tmpdir(), "navori-outcome-events-"));
   const file = join(dir, "session-s1.log");
-  writeFileSync(
-    file,
-    `${JSON.stringify({
-      event: "cli",
-      tsMs: 5,
-      name: "review-outcome",
-      verdict: "approved",
-      schemaVersion: 1,
-      featureKey: "a".repeat(64),
-      sidecar: "b".repeat(64),
-      correlation: "missing",
-    })}\n`,
-    "utf-8",
-  );
+  writeFileSync(file, lines.map((line) => JSON.stringify(line)).join("\n") + "\n", "utf-8");
   const s = parseSession(FIXTURE);
-  const before = s.parseErrors;
   attachHookEvents(s, file);
+  return s;
+}
+
+// Covers: R16
+it("attaches the validated payload of review and receipt outcome events without parse errors", () => {
+  const before = parseSession(FIXTURE).parseErrors;
+  const s = parseLog([
+    { event: "cli", tsMs: 5, ...REVIEW_PAYLOAD },
+    { event: "cli", tsMs: 6, ...RECEIPT_PAYLOAD },
+  ]);
   expect(s.parseErrors).toBe(before);
   expect(s.cliEvents).toEqual([
-    { tsMs: 5, event: "cli", name: "review-outcome", verdict: "approved" },
+    {
+      tsMs: 5,
+      event: "cli",
+      name: "review-outcome",
+      verdict: "approved",
+      outcomePayload: REVIEW_PAYLOAD,
+    },
+    {
+      tsMs: 6,
+      event: "cli",
+      name: "receipt-outcome",
+      verdict: "ok",
+      outcomePayload: RECEIPT_PAYLOAD,
+    },
+  ]);
+});
+
+// Covers: R16
+it("counts and drops an invalid outcome payload but keeps the CLI event", () => {
+  const before = parseSession(FIXTURE).parseErrors;
+  const s = parseLog([
+    { event: "cli", tsMs: 5, ...REVIEW_PAYLOAD, extra: "free text" },
+    { event: "cli", tsMs: 6, ...RECEIPT_PAYLOAD, featureKey: "not-hex" },
+    { event: "cli", tsMs: 7, ...RECEIPT_PAYLOAD, action: "publish" },
+  ]);
+  expect(s.parseErrors).toBe(before + 3);
+  expect(s.cliEvents?.map((event) => [event.name, event.verdict, event.outcomePayload])).toEqual([
+    ["review-outcome", "approved", undefined],
+    ["receipt-outcome", "ok", undefined],
+    ["receipt-outcome", "ok", undefined],
   ]);
 });
 

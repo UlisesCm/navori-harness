@@ -637,8 +637,12 @@ export type NullableMeasurements<T> = T extends number
       : T;
 export type PublishedAuditReport = Omit<
   NullableMeasurements<AuditReport>,
-  "schemaVersion" | "availability"
-> & { schemaVersion: 11; availability: Record<string, MetricPopulation> };
+  "schemaVersion" | "availability" | "outcomes"
+> & {
+  schemaVersion: 11;
+  availability: Record<string, MetricPopulation>;
+  outcomes?: AuditOutcomes;
+};
 
 export function emptyTokens(): TokenTotals {
   return { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, thinking: 0 };
@@ -1313,6 +1317,13 @@ export interface CliEvent {
   name: string;
   verdict: string;
   reason?: string;
+  /**
+   * The validated closed payload of a `review-outcome` / `receipt-outcome`
+   * event (spec 0042 D5). Named apart from `outcome`, which the public
+   * projection allowlists: this one is raw material for the join and is never
+   * published as is.
+   */
+  outcomePayload?: Outcome;
 }
 
 /** How a review's evidence related to the content when `log-review` observed it. */
@@ -1380,14 +1391,131 @@ const OUTCOME_COUNTS = ["critical", "high", "medium", "low"] as const;
 const OUTCOME_TIMES = ["startedAtMs", "sealedAtMs"] as const;
 const OUTCOME_MAX_BYTES = 1024;
 
+export type ReceiptOutcomeVerdict = "ok" | "findings" | "error";
+export type ReceiptAction = "sign" | "check";
+/** Whether the identity sandwich around a receipt command saw the same content on both sides. */
+export type ReceiptIdentityState = "stable" | "unstable" | "unavailable";
+export type ReceiptStaleReason = "format" | "gate" | "inputs" | "gate,inputs";
+
 /**
- * The single closed normalizer of a `review-outcome` payload: unknown keys, bad
- * hex, an unknown enum, a non-integer count or a record over 1,024 B yield
- * `null`. Shared by every writer so the contract cannot drift.
+ * The closed metadata-only projection of what `receipt sign|check` already
+ * computed (spec 0042 D5/T9b, `schemaVersion` 1). On `error` only `action` and
+ * `featureKey` survive (never the message). `alg`/`fp` appear only when
+ * `identity` is `stable`; `gate` is absent when no gate is configured.
  */
-export function normalizeOutcome(value: unknown): ReviewOutcome | null {
+export interface ReceiptOutcome {
+  name: "receipt-outcome";
+  verdict: ReceiptOutcomeVerdict;
+  schemaVersion: 1;
+  featureKey: string;
+  action: ReceiptAction;
+  freshness?: "fresh" | "stale";
+  stale?: ReceiptStaleReason;
+  consumed?: 0 | 1;
+  uncovered?: number;
+  drift?: number;
+  base?: string;
+  head?: string;
+  gate?: string;
+  inputs?: string;
+  receipt?: string;
+  identity?: ReceiptIdentityState;
+  alg?: string;
+  fp?: string;
+}
+
+/** Either closed outcome payload carried by a `cli` event. */
+export type Outcome = ReviewOutcome | ReceiptOutcome;
+/** What a writer supplies: the event itself supplies `name` and `verdict`. */
+export type OutcomePayload =
+  | Omit<ReviewOutcome, "name" | "verdict">
+  | Omit<ReceiptOutcome, "name" | "verdict">;
+
+const RECEIPT_VERDICTS: readonly string[] = ["ok", "findings", "error"];
+const RECEIPT_STALE: readonly string[] = ["format", "gate", "inputs", "gate,inputs"];
+const RECEIPT_IDENTITY: readonly string[] = ["stable", "unstable", "unavailable"];
+const RECEIPT_HEX: Record<string, RegExp> = {
+  featureKey: /^[a-f0-9]{64}$/,
+  fp: /^[a-f0-9]{64}$/,
+  gate: /^[a-f0-9]{64}$/,
+  inputs: /^[a-f0-9]{64}$/,
+  receipt: /^[a-f0-9]{64}$/,
+  base: /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/,
+  head: /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/,
+  alg: /^navori-content\/v1$/,
+};
+const RECEIPT_COUNTS = ["uncovered", "drift"] as const;
+
+function normalizeReceiptOutcome(record: Record<string, unknown>): ReceiptOutcome | null {
+  const allowed = new Set<string>([
+    "name",
+    "verdict",
+    "schemaVersion",
+    "action",
+    "freshness",
+    "stale",
+    "consumed",
+    "identity",
+    ...Object.keys(RECEIPT_HEX),
+    ...RECEIPT_COUNTS,
+  ]);
+  if (Object.keys(record).some((key) => !allowed.has(key))) return null;
+  if (record.schemaVersion !== 1) return null;
+  if (typeof record.verdict !== "string" || !RECEIPT_VERDICTS.includes(record.verdict)) return null;
+  if (record.action !== "sign" && record.action !== "check") return null;
+  if (
+    record.freshness !== undefined &&
+    record.freshness !== "fresh" &&
+    record.freshness !== "stale"
+  )
+    return null;
+  if (
+    record.stale !== undefined &&
+    (typeof record.stale !== "string" || !RECEIPT_STALE.includes(record.stale))
+  )
+    return null;
+  if (record.consumed !== undefined && record.consumed !== 0 && record.consumed !== 1) return null;
+  if (
+    record.identity !== undefined &&
+    (typeof record.identity !== "string" || !RECEIPT_IDENTITY.includes(record.identity))
+  )
+    return null;
+  for (const [key, pattern] of Object.entries(RECEIPT_HEX)) {
+    const field = record[key];
+    if (field === undefined) {
+      if (key === "featureKey") return null;
+      continue;
+    }
+    if (typeof field !== "string" || !pattern.test(field)) return null;
+  }
+  for (const key of RECEIPT_COUNTS) {
+    const field = record[key];
+    if (field === undefined) continue;
+    if (typeof field !== "number" || !Number.isSafeInteger(field) || field < 0 || field > 100_000)
+      return null;
+  }
+  // `fp`/`alg` are only meaningful (and only emitted) for a stable identity.
+  if ((record.fp !== undefined || record.alg !== undefined) && record.identity !== "stable")
+    return null;
+  return Buffer.byteLength(JSON.stringify(record)) <= OUTCOME_MAX_BYTES
+    ? (record as unknown as ReceiptOutcome)
+    : null;
+}
+
+/**
+ * The single closed normalizer of an outcome payload (`review-outcome` or
+ * `receipt-outcome`): unknown keys, bad hex, an unknown enum, a non-integer
+ * count or a record over 1,024 B yield `null`. Shared by every writer and by
+ * the reader so the contract cannot drift.
+ */
+export function normalizeOutcome(value: unknown): Outcome | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
+  if (record.name === "receipt-outcome") return normalizeReceiptOutcome(record);
+  return normalizeReviewOutcome(record);
+}
+
+function normalizeReviewOutcome(record: Record<string, unknown>): ReviewOutcome | null {
   const allowed = new Set<string>([
     "name",
     "verdict",
@@ -1678,6 +1806,42 @@ export interface SkillTally {
   outputTokens: number;
 }
 
+/** Review-round counts of one episode; non-correlated rounds are tallied by reason. */
+export interface EpisodeReviews {
+  rounds: number;
+  approved: number;
+  correlated: number;
+  uncorrelatedByReason: Record<string, number>;
+}
+/** Receipt-observation counts of one episode. */
+export interface EpisodeReceipts {
+  observations: number;
+  ok: number;
+  fresh: number;
+  stale: number;
+  findings: number;
+  error: number;
+  unstable: number;
+}
+/** One attempt at a feature: opened by the first event, closed by local technical acceptance. */
+export interface OutcomeEpisode {
+  /** `ambiguous`: events without a diff identity arrived after acceptance. */
+  boundary: "known" | "ambiguous";
+  /** The first event is not provably the first review of the episode. */
+  leftCensored: boolean;
+  reviews: EpisodeReviews;
+  receipts: EpisodeReceipts;
+  accepted: boolean;
+  acceptedAtMs?: number;
+  provenance: { sessions: number; hosts: number; events: number; duplicates: number };
+}
+/** Join of review and receipt outcome events per feature (spec 0042 T9b). */
+export interface AuditOutcomes {
+  schemaVersion: 1;
+  tasks: Array<{ feature: string; episodes: OutcomeEpisode[] }>;
+  totals: { tasks: number; accepted: number; open: number; ambiguous: number };
+}
+
 export interface AuditReport {
   /** Bumped to 2 by spec 0013: reports now carry per-agent cards (skills with
    *  provenance, MCP by server, recorded hook executions). Bumped to 3 when
@@ -1785,6 +1949,11 @@ export interface AuditReport {
    * lands here.
    */
   rangeMetrics: Record<string, number | null>;
+  /**
+   * Review/receipt outcome join (spec 0042 T9b). Additive and optional inside
+   * schema 11; absent when no session logged an outcome event.
+   */
+  outcomes?: AuditOutcomes;
   /**
    * One row per audited repo, present only in an `--all-repos` report (R61):
    * sessions with an audit log in the period against the host's sessions for

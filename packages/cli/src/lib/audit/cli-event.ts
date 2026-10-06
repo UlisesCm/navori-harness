@@ -12,7 +12,7 @@ import {
   AUDIT_READ_LIMITS,
   type ChildSourceRegistration,
   type AuditReadDiagnostics,
-  type ReviewOutcome,
+  type OutcomePayload,
 } from "./model.ts";
 import {
   appendPrivateAuditFile,
@@ -257,6 +257,13 @@ function auditTarget(cwd: string): AuditTarget | null {
   return { host, sessionId, repo, logFile };
 }
 
+/** `sha256(repo + NUL + feature)`: the only form in which a feature slug appears in an outcome event. */
+export function outcomeFeatureKey(cwd: string, feature: string): string {
+  return createHash("sha256")
+    .update(`${repoFromCwd(cwd)}\0${feature}`)
+    .digest("hex");
+}
+
 /**
  * Whether a CLI event for `cwd` could be written: the exact context resolves
  * to a regular session log. Callers check this BEFORE computing anything for
@@ -293,16 +300,12 @@ export function hasAuditTarget(cwd: string): boolean {
  * One `writeSync` of a complete line (O_APPEND), so concurrent writers
  * cannot interleave inside a record.
  *
- * An `outcome` adds the closed review-outcome payload (`normalizeOutcome`); an
+ * An `outcome` adds the closed review/receipt-outcome payload (`normalizeOutcome`); an
  * invalid payload or a record over 2,048 B writes nothing.
  *
  * @returns whether a record was written.
  */
-export function appendCliEvent(
-  cwd: string,
-  event: CliEvent,
-  outcome?: Omit<ReviewOutcome, "name" | "verdict">,
-): boolean {
+export function appendCliEvent(cwd: string, event: CliEvent, outcome?: OutcomePayload): boolean {
   try {
     const target = auditTarget(cwd);
     if (!target) return false;
@@ -412,6 +415,9 @@ const METADATA_VERDICTS = new Set([
   "gate-killed",
   "approved",
   "changes-requested",
+  "ok",
+  "findings",
+  "error",
   "unknown",
 ]);
 const METADATA_TOOLS = new Set(["Bash", "Edit", "Read", "Write", "Agent", "Task", "NotebookEdit"]);
@@ -449,6 +455,7 @@ const METADATA_NAMES = new Set([
   "subagent-no-background",
   "bash-outcome-watch",
   "review-outcome",
+  "receipt-outcome",
   "test",
 ]);
 

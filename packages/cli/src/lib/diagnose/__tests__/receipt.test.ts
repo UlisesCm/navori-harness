@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   mkdtempSync,
   mkdirSync,
@@ -13,7 +13,20 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkReceipt, formatReceipt, signReceipt, type ReceiptOptions } from "../receipt.ts";
-import { resolveReceiptOptions } from "../../../commands/receipt.ts";
+import { executeReceipt, resolveReceiptOptions } from "../../../commands/receipt.ts";
+import { repoFromCwd, sessionLogPath } from "../../audit/paths.ts";
+import { contentIdentity, type ContentIdentity } from "../../primitives/content-identity.ts";
+import { emitReceiptOutcome, receiptOutcomeOf, type ReceiptObserver } from "../receipt.ts";
+
+// Pass-through spies: the receipt-outcome tests count identity computations and git calls.
+vi.mock("../../primitives/content-identity.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../primitives/content-identity.ts")>();
+  return { ...actual, contentIdentity: vi.fn(actual.contentIdentity) };
+});
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, spawnSync: vi.fn(actual.spawnSync) };
+});
 
 const workspaces: string[] = [];
 afterEach(() =>
@@ -475,5 +488,285 @@ describe("receipt v2 evidence identity", () => {
     const withFlag = checkReceipt({ ...options, includeConsumed: true });
     expect(withFlag.result.status).toBe("ok");
     expect(withFlag.result.consumed).toBe(true);
+  });
+});
+
+describe("receipt-outcome observation", () => {
+  const saved: Record<string, string | undefined> = {};
+  const KEYS = [
+    "NAVORI_AUDITS_ROOT",
+    "CLAUDE_CODE_SESSION_ID",
+    "NAVORI_AUDIT_HOST",
+    "NAVORI_AUDIT_SESSION_ID",
+    "CODEX_SESSION_ID",
+    "CODEX_THREAD_ID",
+  ];
+  beforeEach(() => {
+    for (const key of KEYS) saved[key] = process.env[key];
+    for (const key of KEYS.slice(2)) delete process.env[key];
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+  });
+  afterEach(() => {
+    for (const key of KEYS) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    process.exitCode = undefined;
+    vi.mocked(contentIdentity).mockClear();
+    vi.restoreAllMocks();
+  });
+
+  /** A pushed repo with a config (gate configurable) and one file to publish. */
+  function project(
+    gate: string | null = "quality-gate-full",
+  ): ReceiptOptions & { feature: string } {
+    const options = fixture();
+    writeFileSync(
+      join(options.cwd, "navori.config.json"),
+      JSON.stringify({
+        name: "test",
+        version: "1",
+        preset: "node",
+        engines: ["claude"],
+        branchBase: "main",
+        ...(gate === null ? {} : { qualityGate: { fast: "true", full: gate } }),
+      }),
+    );
+    git(options.cwd, "add", "navori.config.json");
+    git(options.cwd, "commit", "-m", "config");
+    git(options.cwd, "push", "origin", "main");
+    writeFileSync(join(options.cwd, "feature.txt"), "feature\n");
+    return { ...options, gate: gate ?? "" };
+  }
+  function markAudit(cwd: string): string {
+    process.env.NAVORI_AUDITS_ROOT = join(cwd, "..", "audits");
+    process.env.CLAUDE_CODE_SESSION_ID = "sess-1";
+    const log = sessionLogPath(repoFromCwd(cwd), "sess-1");
+    mkdirSync(join(log, ".."), { recursive: true, mode: 0o700 });
+    writeFileSync(
+      log,
+      `${JSON.stringify({ event: "start", host: "claude", sessionId: "sess-1", cwd })}\n`,
+      { mode: 0o600 },
+    );
+    return log;
+  }
+  function events(log: string): Array<Record<string, unknown>> {
+    return readFileSync(log, "utf8")
+      .trim()
+      .split("\n")
+      .slice(1)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+  }
+  /** Runs the command and returns what it printed, its exit code and what it left in `process.exitCode`. */
+  function run(
+    action: "sign" | "check",
+    cwd: string,
+    feature: string,
+  ): { stdout: string; exit: unknown } {
+    let stdout = "";
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
+      stdout += String(chunk);
+      return true;
+    });
+    process.exitCode = undefined;
+    executeReceipt(action, { cwd, feature, target: "main", json: true });
+    const exit = process.exitCode;
+    process.exitCode = undefined;
+    vi.restoreAllMocks();
+    return { stdout, exit };
+  }
+  const sampleOf =
+    (values: ContentIdentity[]): (() => ContentIdentity) =>
+    () =>
+      values.shift() as ContentIdentity;
+  const ok = (fingerprint: string, head = "a".repeat(40)): ContentIdentity => ({
+    ok: true,
+    alg: "navori-content/v1",
+    fingerprint,
+    base: "b".repeat(40),
+    head,
+    indexDiverges: false,
+  });
+
+  // Covers: R16
+  it("sign and check each emit one closed event with a stable identity and no raw feature", () => {
+    const options = project();
+    const log = markAudit(options.cwd);
+    run("sign", options.cwd, "secret-payroll-fix");
+    run("check", options.cwd, "secret-payroll-fix");
+    const written = events(log);
+    expect(written).toHaveLength(2);
+    expect(written[0]).toMatchObject({
+      name: "receipt-outcome",
+      verdict: "ok",
+      schemaVersion: 1,
+      action: "sign",
+      freshness: "fresh",
+      identity: "stable",
+      alg: "navori-content/v1",
+    });
+    expect(written[1]).toMatchObject({
+      action: "check",
+      verdict: "ok",
+      freshness: "fresh",
+      consumed: 0,
+      uncovered: 0,
+      drift: 0,
+      identity: "stable",
+    });
+    for (const event of written) {
+      expect(event.fp).toMatch(/^[a-f0-9]{64}$/);
+      expect(event.gate).toMatch(/^[a-f0-9]{64}$/);
+      expect(event.inputs).toMatch(/^[a-f0-9]{64}$/);
+      expect(event.receipt).toMatch(/^[a-f0-9]{64}$/);
+      expect(event.featureKey).toMatch(/^[a-f0-9]{64}$/);
+    }
+    // Same content, same receipt bytes: sign and check agree on the identity and the hash.
+    expect(written[1]?.fp).toBe(written[0]?.fp);
+    expect(written[1]?.receipt).toBe(written[0]?.receipt);
+    expect(readFileSync(log, "utf8")).not.toContain("secret-payroll-fix");
+  });
+
+  // Covers: R16
+  it("prints and exits exactly the same with and without audit context, and does no work without one", () => {
+    const options = project();
+    const without = run("sign", options.cwd, "same-output");
+    const withoutCheck = run("check", options.cwd, "same-output");
+    expect(vi.mocked(contentIdentity)).not.toHaveBeenCalled();
+    const log = markAudit(options.cwd);
+    const withContext = run("sign", options.cwd, "same-output");
+    const withContextCheck = run("check", options.cwd, "same-output");
+    expect(withContext).toEqual(without);
+    expect(withContextCheck).toEqual(withoutCheck);
+    expect(vi.mocked(contentIdentity)).toHaveBeenCalledTimes(4); // sandwich x 2 commands
+    expect(events(log)).toHaveLength(2);
+    // ReceiptResult keeps its exact shape: nothing of the projection leaks into stdout.
+    expect(Object.keys(JSON.parse(withContext.stdout)).sort()).toEqual(
+      [
+        "consumed",
+        "drift",
+        "error",
+        "formatVersion",
+        "fresh",
+        "headSha",
+        "stale",
+        "status",
+        "target",
+        "targetSha",
+        "uncovered",
+      ].sort(),
+    );
+  });
+
+  // Covers: R16
+  it("adds no gate run and no second git fetch to the command", () => {
+    const options = project();
+    const fetches = (): number =>
+      vi.mocked(spawnSync).mock.calls.filter((call) => (call[1] as string[]).includes("fetch"))
+        .length;
+    vi.mocked(spawnSync).mockClear();
+    run("check", options.cwd, "fetch-count"); // absent receipt: error, still inspects once
+    const baseline = fetches();
+    markAudit(options.cwd);
+    vi.mocked(spawnSync).mockClear();
+    run("check", options.cwd, "fetch-count");
+    expect(fetches()).toBe(baseline);
+    const gateRuns = vi
+      .mocked(spawnSync)
+      .mock.calls.filter((call) => String(call[0]).includes("quality-gate-full"));
+    expect(gateRuns).toEqual([]);
+  });
+
+  // Covers: R16
+  it("reports a stale gate as stale without failing, and omits gate when none is configured", () => {
+    const options = project();
+    const log = markAudit(options.cwd);
+    expect(signReceipt(options).exitCode).toBe(0);
+    const observer: ReceiptObserver = { sample: () => contentIdentity(options.cwd) };
+    const stale = { ...options, gate: "another-gate", observer };
+    const checked = checkReceipt(stale);
+    expect(checked).toMatchObject({ exitCode: 0, result: { fresh: false, stale: ["gate"] } });
+    emitReceiptOutcome(stale, "check", checked.result);
+    expect(events(log).at(-1)).toMatchObject({
+      verdict: "ok",
+      freshness: "stale",
+      stale: "gate",
+      identity: "stable",
+    });
+    // No `qualityGate.full`: the gate digest is never published, so it can never satisfy acceptance.
+    const bare = project(null);
+    const bareLog = markAudit(bare.cwd);
+    run("sign", bare.cwd, "no-gate");
+    const [event] = events(bareLog);
+    expect(event).toMatchObject({ verdict: "ok", identity: "stable" });
+    expect(event).not.toHaveProperty("gate");
+    expect(event?.inputs).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  // Covers: R16
+  it("emits only counts for findings and only action plus key for an error", () => {
+    const options = project();
+    const log = markAudit(options.cwd);
+    expect(signReceipt(options).exitCode).toBe(0);
+    writeFileSync(join(options.cwd, "feature.txt"), "edited after review\n");
+    writeFileSync(join(options.cwd, "extra-secret-name.ts"), "x\n");
+    const checked = run("check", options.cwd, options.feature);
+    expect(checked.exit).toBe(2);
+    expect(events(log).at(-1)).toMatchObject({ verdict: "findings", uncovered: 1, drift: 1 });
+    expect(readFileSync(log, "utf8")).not.toContain("extra-secret-name");
+    const failed = run("check", options.cwd, "no-such-receipt");
+    expect(failed.exit).toBe(1);
+    const error = events(log).at(-1) as Record<string, unknown>;
+    expect(Object.keys(error).sort()).toEqual(
+      ["action", "event", "featureKey", "name", "schemaVersion", "tsMs", "verdict"].sort(),
+    );
+    expect(error).toMatchObject({ verdict: "error", action: "check" });
+  });
+
+  // Covers: R16
+  it("marks the identity unstable (no fp) when the content moves between the two samples", () => {
+    const options = project();
+    const observer: ReceiptObserver = {
+      sample: sampleOf([ok("1".repeat(64)), ok("2".repeat(64))]),
+    };
+    const signed = signReceipt({ ...options, observer });
+    const { payload } = receiptOutcomeOf("f".repeat(64), "sign", signed.result, observer);
+    expect(payload).toMatchObject({ identity: "unstable" });
+    expect(payload).not.toHaveProperty("fp");
+    expect(payload).not.toHaveProperty("alg");
+  });
+
+  // Covers: R16
+  it("reads a failed or throwing sample as unavailable without changing the result", () => {
+    const options = project();
+    const baseline = signReceipt(options);
+    const failing: ReceiptObserver = {
+      sample: sampleOf([ok("1".repeat(64)), { ok: false, reason: "timeout" }]),
+    };
+    expect(signReceipt({ ...options, observer: failing })).toEqual(baseline);
+    expect(
+      receiptOutcomeOf("f".repeat(64), "sign", baseline.result, failing).payload,
+    ).toMatchObject({ identity: "unavailable" });
+    const throwing: ReceiptObserver = {
+      sample: () => {
+        throw new Error("EMFILE");
+      },
+    };
+    expect(signReceipt({ ...options, observer: throwing })).toEqual(baseline);
+    expect(checkReceipt({ ...options, observer: throwing })).toEqual(checkReceipt(options));
+    expect(
+      receiptOutcomeOf("f".repeat(64), "check", baseline.result, throwing).payload,
+    ).toMatchObject({ identity: "unavailable" });
+  });
+
+  // Covers: R16
+  it("never changes the command when the audit log is unsafe or unwritable", () => {
+    const options = project();
+    const baseline = run("sign", options.cwd, "unsafe-log");
+    const log = markAudit(options.cwd);
+    rmSync(log);
+    symlinkSync(join(options.cwd, "base.txt"), log);
+    expect(run("sign", options.cwd, "unsafe-log")).toEqual(baseline);
+    expect(readFileSync(join(options.cwd, "base.txt"), "utf8")).toBe("base\n");
   });
 });

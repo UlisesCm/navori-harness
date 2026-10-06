@@ -4,6 +4,9 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { LOCKFILES } from "./detect.ts";
 import { isUnderProgressDir } from "../primitives/progress-dirs.ts";
+import { appendCliEvent, outcomeFeatureKey } from "../audit/cli-event.ts";
+import type { OutcomePayload, ReceiptAction, ReceiptOutcome } from "../audit/model.ts";
+import type { ContentIdentity } from "../primitives/content-identity.ts";
 import {
   ensureStateDirectory,
   resolveStateRoot,
@@ -41,6 +44,40 @@ export interface ReceiptOptions {
   gate: string;
   /** `check` only: fall back to `receipt.consumed.txt` when `receipt.txt` is absent. */
   includeConsumed?: boolean;
+  /**
+   * Audit observation (spec 0042 T9b). Absent unless an exact audit context
+   * exists, so a command outside one computes no identity at all. It only
+   * collects what the command already computes plus two identity samples; it
+   * never changes the result, the exit code or `ReceiptResult`.
+   */
+  observer?: ReceiptObserver;
+}
+
+/**
+ * Mutable collector for the `receipt-outcome` projection. `sample` is invoked
+ * through a guard (a throw reads as an unavailable identity), once before
+ * `inspect` and once after the receipt was written or read: the "sandwich" that
+ * tells a stable tree from one edited while the command ran.
+ */
+export interface ReceiptObserver {
+  sample: () => ContentIdentity;
+  before?: ContentIdentity;
+  after?: ContentIdentity;
+  /** sha256 of the receipt text written (sign) or read (check). */
+  receipt?: string;
+  /** Recomputed gate/inputs digests; `gate` is left unset when no gate is configured. */
+  gate?: string;
+  inputs?: string;
+}
+
+/** Samples the identity without ever letting an observation failure escape. */
+function sampleIdentity(observer: ReceiptObserver | undefined): ContentIdentity | undefined {
+  if (!observer) return undefined;
+  try {
+    return observer.sample();
+  } catch {
+    return { ok: false, reason: "git-failed" };
+  }
 }
 
 /** The gate/inputs half of R5's "evidence identity" (base+comando+inputs). The
@@ -231,6 +268,7 @@ export function signReceipt(options: ReceiptOptions): { exitCode: number; result
   try {
     const root = receiptRoot(options);
     options = { ...options, cwd: root.cwd, dir: root.dir };
+    if (options.observer) options.observer.before = sampleIdentity(options.observer);
     const state = inspect(options);
     const identity = evidenceIdentity(options.cwd, options.gate);
     const lines = [
@@ -253,6 +291,12 @@ export function signReceipt(options: ReceiptOptions): { exitCode: number; result
     stateArtifactPath(root, `receipt.txt.tmp-${process.pid}`);
     stateArtifactPath(root, "receipt.txt");
     renameSync(temporary, destination);
+    if (options.observer) {
+      options.observer.after = sampleIdentity(options.observer);
+      options.observer.receipt = sha256(output);
+      if (options.gate !== "") options.observer.gate = identity.gate;
+      options.observer.inputs = identity.inputs;
+    }
     return { exitCode: 0, result: success(options, state) };
   } catch (cause: unknown) {
     return {
@@ -284,9 +328,14 @@ function parseHeader(line: string): ReceiptHeader {
   };
 }
 
-function readReceiptFile(path: string): { header: ReceiptHeader; records: Map<string, string> } {
+function readReceiptFile(path: string): {
+  header: ReceiptHeader;
+  records: Map<string, string>;
+  hash: string;
+} {
   if (!existsSync(path)) throw new Error("receipt is absent");
-  const lines = readFileSync(path, "utf8").split("\n");
+  const text = readFileSync(path, "utf8");
+  const lines = text.split("\n");
   const header = parseHeader(lines[0] ?? "");
   const records = new Map<string, string>();
   for (const line of lines.slice(1)) {
@@ -295,7 +344,7 @@ function readReceiptFile(path: string): { header: ReceiptHeader; records: Map<st
     if (!match) throw new Error("receipt is malformed");
     records.set(match[2]!, match[1]!);
   }
-  return { header, records };
+  return { header, records, hash: sha256(text) };
 }
 
 /** Picks `receipt.txt`, or `receipt.consumed.txt` when `includeConsumed` is set
@@ -317,9 +366,10 @@ export function checkReceipt(options: ReceiptOptions): { exitCode: number; resul
   try {
     const root = receiptRoot(options);
     options = { ...options, cwd: root.cwd, dir: root.dir };
+    if (options.observer) options.observer.before = sampleIdentity(options.observer);
     const state = inspect(options);
     const { path, consumed } = resolveReceiptSource(root, options);
-    const { header, records } = readReceiptFile(path);
+    const { header, records, hash } = readReceiptFile(path);
     if (header.feature !== options.feature) {
       throw new Error(`receipt belongs to feature "${header.feature}", not "${options.feature}"`);
     }
@@ -340,6 +390,14 @@ export function checkReceipt(options: ReceiptOptions): { exitCode: number; resul
       const identity = evidenceIdentity(options.cwd, options.gate);
       if (header.gate !== identity.gate) stale.push("gate");
       if (header.inputs !== identity.inputs) stale.push("inputs");
+      if (options.observer) {
+        if (options.gate !== "") options.observer.gate = identity.gate;
+        options.observer.inputs = identity.inputs;
+      }
+    }
+    if (options.observer) {
+      options.observer.after = sampleIdentity(options.observer);
+      options.observer.receipt = hash;
     }
     const result = success(options, state);
     result.uncovered = uncovered;
@@ -354,6 +412,70 @@ export function checkReceipt(options: ReceiptOptions): { exitCode: number; resul
       exitCode: 1,
       result: empty(options, cause instanceof Error ? cause.message : "receipt failed"),
     };
+  }
+}
+
+/**
+ * Pure projection of a finished receipt command into its closed
+ * `receipt-outcome` payload. Only metadata: counts, enums, hashes and the
+ * `featureKey`. An `error` result keeps nothing but `action` and `featureKey`
+ * (never the message). `alg`/`fp` appear only when the identity sandwich was
+ * stable; an unset `gate` means no gate is configured.
+ */
+export function receiptOutcomeOf(
+  featureKey: string,
+  action: ReceiptAction,
+  result: ReceiptResult,
+  observer?: ReceiptObserver,
+): { verdict: ReceiptOutcome["verdict"]; payload: Omit<ReceiptOutcome, "name" | "verdict"> } {
+  const base = { schemaVersion: 1 as const, featureKey, action };
+  if (result.status === "error") return { verdict: "error", payload: base };
+  const before = observer?.before;
+  const after = observer?.after;
+  const identity: NonNullable<ReceiptOutcome["identity"]> =
+    before?.ok && after?.ok
+      ? before.fingerprint === after.fingerprint && before.head === after.head
+        ? "stable"
+        : "unstable"
+      : "unavailable";
+  const payload: Omit<ReceiptOutcome, "name" | "verdict"> = {
+    ...base,
+    freshness: result.fresh ? "fresh" : "stale",
+    ...(result.stale.length ? { stale: result.stale.join(",") as ReceiptOutcome["stale"] } : {}),
+    ...(action === "check"
+      ? {
+          consumed: result.consumed ? (1 as const) : (0 as const),
+          uncovered: result.uncovered.length,
+          drift: result.drift.length,
+        }
+      : {}),
+    ...(result.targetSha ? { base: result.targetSha } : {}),
+    ...(result.headSha ? { head: result.headSha } : {}),
+    ...(observer?.gate ? { gate: observer.gate } : {}),
+    ...(observer?.inputs ? { inputs: observer.inputs } : {}),
+    ...(observer?.receipt ? { receipt: observer.receipt } : {}),
+    identity,
+    ...(identity === "stable" && after?.ok ? { alg: after.alg, fp: after.fingerprint } : {}),
+  };
+  return { verdict: result.status, payload };
+}
+
+/** Records the `receipt-outcome` of a finished command. Never throws and never prints. */
+export function emitReceiptOutcome(
+  options: Pick<ReceiptOptions, "cwd" | "feature" | "observer">,
+  action: ReceiptAction,
+  result: ReceiptResult,
+): void {
+  try {
+    const { verdict, payload } = receiptOutcomeOf(
+      outcomeFeatureKey(options.cwd, options.feature),
+      action,
+      result,
+      options.observer,
+    );
+    appendCliEvent(options.cwd, { name: "receipt-outcome", verdict }, payload as OutcomePayload);
+  } catch {
+    // Observation must never change what the command does.
   }
 }
 

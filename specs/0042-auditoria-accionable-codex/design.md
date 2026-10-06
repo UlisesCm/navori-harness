@@ -136,6 +136,14 @@ Unidad tarea `{repo identity,feature}` con revisiones de diff; reuso del slug de
 - **Publisher**: `handoff check --for publisher` emite WARN (no fallo) si falta la evidencia de review.
 - **Límite de confianza residual**: un agente con shell puede forjar el stamp y el sidecar; `begin` no prueba el orden de lectura. Es atestación del productor, no certificación.
 
+#### Addendum D5 — decisiones de T9b
+
+- **Proyección del receipt**: `receipt sign/check` proyecta el outcome con un observer que no lanza. El sandwich compara fingerprint+head, no base, porque el fetch de inspect mueve `origin/<target>`. `sign` cuenta como fresh.
+- **Sin contexto de audit**: no se calcula ni se escribe nada. Con `qualityGate.full` vacío no se emite `gate` y nunca se acepta.
+- **Join puro** (`outcomes.ts`): se indexa por nonce; la última ronda correlacionada por fingerprint decide (B3) y se exige igualdad de la tupla de identidad completa.
+- **Episodios**: fingerprint nuevo tras aceptación = episodio n+1; sin boundaries es ambiguo; sin inicio observado, left-censored; abierto, censurado.
+- **Report**: clave aditiva `outcomes` en v11, con availability `outcomes.review` y `outcomes.receipt`. La etiqueta sale de `featureKey` (el slug crudo es irrecuperable por diseño). El report nunca llama `checkReceipt` ni lanza git.
+
 ### D6 — Comparación y acción (R15, R17–R20)
 
 Snapshot formato 2 conserva métricas numéricas, disponibilidad, N y cohortes: repo por identificador hash local no path/nombre; host, modelo exacto/familia explícita, rol, régimen realmente cargado, tipo/unidad trabajo y cobertura. Snapshot v1 sigue legible; dimensiones faltantes = legacy-unknown y delta descriptivo. No utilizar generatedBy como versión activa. Modelo mixto/desconocido no se imputa a uno conocido.

@@ -1,4 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { spawn, spawnSync, execFileSync } from "node:child_process";
+import { checkReceipt, signReceipt } from "../../diagnose/receipt.ts";
 import { createHash } from "node:crypto";
 import {
   buildReport,
@@ -17,6 +19,9 @@ import {
   type CodexResponseFact,
   type MetricEvidence,
   type MetricPopulation,
+  type CliEvent,
+  type ReceiptOutcome,
+  type ReviewOutcome,
   emptyOrchestrator,
   emptyPermissionDecisions,
   emptyTokens,
@@ -24,6 +29,25 @@ import {
   createAuditReadBudget,
   retainAuditFact,
 } from "../model.ts";
+
+// Pass-through spies: the outcomes report must never run a check or spawn git.
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...actual,
+    spawn: vi.fn(actual.spawn),
+    spawnSync: vi.fn(actual.spawnSync),
+    execFileSync: vi.fn(actual.execFileSync),
+  };
+});
+vi.mock("../../diagnose/receipt.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../diagnose/receipt.ts")>();
+  return {
+    ...actual,
+    checkReceipt: vi.fn(actual.checkReceipt),
+    signReceipt: vi.fn(actual.signReceipt),
+  };
+});
 
 /** Match an opaque public category while asserting its original label is withheld. */
 function opaqueLabel(value: string): string {
@@ -2432,5 +2456,197 @@ describe("range sections (spec 0039 F0b)", () => {
     expect(report.rangeMetrics["mechanism.plan-update-evidence.block"]).toBe(1);
     expect(md).toContain("`bash-outcome-watch`");
     expect(md).toContain("`plan-update-evidence`");
+  });
+});
+
+describe("review/receipt outcomes in the report (spec 0042 T9b)", () => {
+  const hex = (c: string): string => c.repeat(64);
+  const identity = {
+    alg: "navori-content/v1",
+    fp: hex("1"),
+    base: "b".repeat(40),
+    gate: hex("2"),
+    inputs: hex("3"),
+  };
+  const at = (hhmm: string): number => Date.parse(`2026-08-25T${hhmm}:00Z`);
+  const reviewEvent = (over: Partial<ReviewOutcome> = {}, tsMs = at("10:30")): CliEvent => {
+    const outcome: ReviewOutcome = {
+      name: "review-outcome",
+      verdict: "approved",
+      schemaVersion: 1,
+      featureKey: hex("f"),
+      sidecar: hex("5"),
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+      correlation: "correlated",
+      nonce: "00000000-0000-4000-8000-000000000001",
+      startedAtMs: Date.parse("2026-08-25T10:00:00Z"),
+      sealedAtMs: Date.parse("2026-08-25T10:30:00Z"),
+      head: "c".repeat(40),
+      ...identity,
+      ...over,
+    };
+    return {
+      tsMs,
+      event: "cli",
+      name: outcome.name,
+      verdict: outcome.verdict,
+      outcomePayload: outcome,
+    };
+  };
+  const receiptEvent = (tsMs = at("10:31")): CliEvent => {
+    const outcome: ReceiptOutcome = {
+      name: "receipt-outcome",
+      verdict: "ok",
+      schemaVersion: 1,
+      featureKey: hex("f"),
+      action: "check",
+      freshness: "fresh",
+      identity: "stable",
+      receipt: hex("4"),
+      ...identity,
+    };
+    return {
+      tsMs,
+      event: "cli",
+      name: outcome.name,
+      verdict: outcome.verdict,
+      outcomePayload: outcome,
+    };
+  };
+  const build = (sessions: SessionAudit[]) =>
+    buildReport(sessions, {
+      repo: "synthetic",
+      version: "0.1.0",
+      catalog: CATALOG,
+      requestedRange: { from: "2026-08-25", to: "2026-08-26" },
+    });
+
+  // Covers: R16
+  it("adds an additive outcomes key to schema 11 with availability per kind", () => {
+    const report = build([
+      session([], { sessionId: "with", cliEvents: [reviewEvent(), receiptEvent()] }),
+      session([], { sessionId: "silent" }),
+    ]);
+    const json = JSON.parse(renderJson(report));
+    expect(json.schemaVersion).toBe(11);
+    expect(json.outcomes).toMatchObject({
+      schemaVersion: 1,
+      totals: { tasks: 1, accepted: 1, open: 0, ambiguous: 0 },
+    });
+    const [task] = json.outcomes.tasks;
+    expect(task.feature).toMatch(/^unknown-[a-f0-9]{12}$/);
+    expect(task.episodes[0]).toMatchObject({
+      accepted: true,
+      leftCensored: false,
+      reviews: { rounds: 1, approved: 1, correlated: 1, uncorrelatedByReason: {} },
+      receipts: { observations: 1, ok: 1, fresh: 1 },
+    });
+    // The silent session is unknown, not "no review": partial, never zero-observed.
+    for (const kind of ["outcomes.review", "outcomes.receipt"]) {
+      expect(json.availability[kind]).toMatchObject({
+        state: "partial",
+        eligible: 2,
+        observed: 1,
+        unavailable: 1,
+      });
+    }
+  });
+
+  // Covers: R16
+  it("reports unknown availability and no outcomes key when no session logged one", () => {
+    const json = JSON.parse(renderJson(build([session([])])));
+    expect(json).not.toHaveProperty("outcomes");
+    expect(json.availability["outcomes.review"]).toMatchObject({
+      state: "unavailable",
+      observed: 0,
+      eligible: 1,
+    });
+  });
+
+  // Covers: R16
+  it("publishes no hash, raw payload or reason outside the closed vocabulary", () => {
+    const stray = reviewEvent(
+      {
+        correlation: "changed-after-review",
+        fp: undefined,
+        alg: undefined,
+        gate: undefined,
+        inputs: undefined,
+        base: undefined,
+        head: undefined,
+        nonce: "00000000-0000-4000-8000-000000000002",
+        sealedAtMs: at("10:45"),
+      },
+      at("10:45"),
+    );
+    const text = renderJson(
+      build([session([], { cliEvents: [reviewEvent(), receiptEvent(), stray] })]),
+    );
+    expect(text).not.toMatch(/[a-f0-9]{40,}/);
+    expect(text).not.toContain("outcomePayload");
+    expect(text).not.toContain("featureKey");
+    const episode = JSON.parse(text).outcomes.tasks[0].episodes[0];
+    expect(episode.reviews.uncorrelatedByReason).toEqual({ "changed-after-review": 1 });
+    expect(episode.boundary).toBe("ambiguous");
+  });
+
+  // Covers: R16
+  it("keeps outcome events out of the mechanism tally and renders a short section", () => {
+    const report = build([session([], { cliEvents: [reviewEvent(), receiptEvent()] })]);
+    expect(Object.keys(report.rangeMetrics).some((key) => key.includes("-outcome"))).toBe(false);
+    const md = renderMarkdown(report, "en");
+    expect(md).toContain("Review outcomes");
+    expect(md).toContain("1 tasks · 1 locally accepted");
+    expect(md).not.toContain("receipt-outcome");
+  });
+
+  // Covers: R16
+  it("renders old v11 reports without outcomes unchanged", () => {
+    const report = build([session([])]);
+    expect(report.outcomes).toBeUndefined();
+    expect(renderMarkdown(report, "en")).not.toContain("Review outcomes");
+  });
+
+  // Covers: R16
+  it("never invokes checkReceipt, signReceipt or spawns git while building and rendering", () => {
+    vi.mocked(checkReceipt).mockClear();
+    vi.mocked(signReceipt).mockClear();
+    for (const fn of [spawn, spawnSync, execFileSync]) vi.mocked(fn).mockClear();
+    const report = build([session([], { cliEvents: [reviewEvent(), receiptEvent()] })]);
+    renderJson(report);
+    renderMarkdown(report, "en");
+    publishReport(report);
+    expect(checkReceipt).not.toHaveBeenCalled();
+    expect(signReceipt).not.toHaveBeenCalled();
+    for (const fn of [spawn, spawnSync, execFileSync]) expect(fn).not.toHaveBeenCalled();
+  });
+
+  // Covers: R16
+  it("publishes the outcomes block but keeps hashing generic key parts outside it", () => {
+    const report = build([session([], { cliEvents: [reviewEvent(), receiptEvent()] })]);
+    Object.assign(report.rangeMetrics, { "tokens.open.error": 3 });
+    Object.assign(report.availability ?? {}, {
+      "tokens.ok.findings": report.availability?.["outcomes.review"],
+    });
+    const published = publishReport(report);
+    // Outside outcomes: parts that merely equal an outcomes field name stay hashed.
+    expect(Object.keys(published.rangeMetrics)).toContain(
+      `tokens.${opaqueLabel("open")}.${opaqueLabel("error")}`,
+    );
+    expect(Object.keys(published.rangeMetrics)).not.toContain("tokens.open.error");
+    expect(Object.keys(published.availability)).toContain(
+      `tokens.${opaqueLabel("ok")}.${opaqueLabel("findings")}`,
+    );
+    // Inside outcomes (and its two availability entries): fields still published.
+    expect(published.availability).toHaveProperty("outcomes.review");
+    expect(published.availability).toHaveProperty("outcomes.receipt");
+    expect(published.outcomes?.tasks[0]?.episodes[0]).toMatchObject({
+      accepted: true,
+      reviews: { rounds: 1, approved: 1, correlated: 1 },
+      receipts: { observations: 1, ok: 1, fresh: 1 },
+    });
   });
 });

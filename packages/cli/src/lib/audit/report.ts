@@ -23,6 +23,7 @@ import {
   emptyTokens,
   recorderWindow,
 } from "./model.ts";
+import { joinOutcomes, outcomeKinds } from "./outcomes.ts";
 import { redactExample } from "./parse.ts";
 import {
   ACTIVATION_TRIGGERS,
@@ -39,6 +40,56 @@ export interface AuditPublicationOptions {
   includeHumanContent?: boolean;
 }
 
+/**
+ * Field names published ONLY inside the `outcomes` subtree (spec 0042 T9b).
+ * Scoped on purpose: these generic names must not change publication
+ * behavior anywhere else in the report.
+ */
+const PUBLIC_OUTCOME_FIELDS = new Set<string>([
+  "outcomes",
+  "tasks",
+  "feature",
+  "episodes",
+  "boundary",
+  "leftCensored",
+  "reviews",
+  "rounds",
+  "approved",
+  "correlated",
+  "uncorrelatedByReason",
+  "receipts",
+  "observations",
+  "ok",
+  "fresh",
+  "stale",
+  "findings",
+  "error",
+  "unstable",
+  "accepted",
+  "acceptedAtMs",
+  "provenance",
+  "hosts",
+  "duplicates",
+  "open",
+  "ambiguous",
+]);
+/** Closed label values published only inside the `outcomes` subtree. */
+const PUBLIC_OUTCOME_LABELS = new Set<string>([
+  "receipt-outcome",
+  "ok",
+  "findings",
+  "error",
+  "known",
+  "ambiguous",
+  "changed-after-review",
+  "changed-during-review",
+  "missing",
+  "invalid",
+  "unknown-algorithm",
+  "unavailable",
+]);
+/** The only availability keys that name an outcomes join. */
+const PUBLIC_OUTCOME_AVAILABILITY = new Set(["outcomes.review", "outcomes.receipt"]);
 const PUBLIC_AUDIT_FIELDS = new Set<string>([
   "activeMs",
   "activityAvailability",
@@ -429,8 +480,9 @@ const PUBLIC_SOURCE_FIELDS = new Set([
 ]);
 
 /** Unknown labels are opaque categories, never short arbitrary user strings. */
-function publicLabel(value: string): string {
+function publicLabel(value: string, inOutcomes = false): string {
   if (PUBLIC_TECHNICAL_LABELS.has(value)) return value;
+  if (inOutcomes && PUBLIC_OUTCOME_LABELS.has(value)) return value;
   if (/^unknown-[a-f0-9]{12}$/.test(value)) return value;
   if (
     /^(?:claude-(?:opus|sonnet|haiku|fable|mythos)-[0-9](?:-[0-9])?(?:-\d{8})?|gpt-[0-9](?:\.[0-9])?(?:-(?:sol|astra|luna|mini|nano))?|o[1-9](?:-mini)?|plugin:(?:engram|codegraph|tgrep|semgrep|jscpd))$/.test(
@@ -442,9 +494,10 @@ function publicLabel(value: string): string {
 }
 
 /** Metric keys have a fixed vocabulary; unrecognized segments become opaque. */
-function publicMapKey(value: string, family: string): string {
-  if (family !== "rangeMetrics" && family !== "availability") return publicLabel(value);
+function publicMapKey(value: string, family: string, inOutcomes = false): string {
+  if (family !== "rangeMetrics" && family !== "availability") return publicLabel(value, inOutcomes);
   if (value === "coverage.pct") return value;
+  if (family === "availability" && PUBLIC_OUTCOME_AVAILABILITY.has(value)) return value;
   if (value.startsWith("mining.") && minerMetricKey(value)) return value;
   const [activation, trigger, measurement, extra] = value.split(".");
   if (
@@ -473,7 +526,7 @@ function metadataPublication(
   options: AuditPublicationOptions = {},
 ): AuditReport {
   const seen = new WeakSet<object>();
-  const project = (input: unknown, key: string, parent: string): unknown => {
+  const project = (input: unknown, key: string, parent: string, inOutcomes = false): unknown => {
     if (["captured", "ratio"].includes(key))
       return parent === "coverage" &&
         (input === null || (typeof input === "number" && Number.isFinite(input)))
@@ -522,20 +575,23 @@ function metadataPublication(
           ["navori.config.json", "AGENTS.md", "CLAUDE.md"].includes(input)
           ? input
           : "redacted";
-      return publicLabel(input);
+      return publicLabel(input, inOutcomes);
     }
-    if (Array.isArray(input)) return input.map((item: unknown) => project(item, key, parent));
+    if (Array.isArray(input))
+      return input.map((item: unknown) => project(item, key, parent, inOutcomes));
     if (typeof input !== "object") return undefined;
     if (seen.has(input)) return input;
     seen.add(input);
     const out = input as Record<string, unknown>;
     const dynamic =
       PUBLIC_MAP_FIELDS.has(key) ||
+      (inOutcomes && key === "uncorrelatedByReason") ||
       parent === "mcpCalls" ||
       parent === "toolCountsByMode" ||
       parent === "availabilityByAgentType";
     for (const [child, item] of Object.entries(input)) {
       delete out[child];
+      const childInOutcomes = inOutcomes || (key === "" && child === "outcomes");
       if (["ownerKey", "sourceHeaderFingerprint", "sourcePath", "identity"].includes(child))
         continue;
       if (["responses", "activity", "blockedCommands", "repeatedCommands"].includes(child)) {
@@ -562,16 +618,21 @@ function metadataPublication(
       if (
         !dynamic &&
         !PUBLIC_AUDIT_FIELDS.has(child) &&
+        !(childInOutcomes && PUBLIC_OUTCOME_FIELDS.has(child)) &&
         !providerField &&
         !locationField &&
         !contextField
       )
         continue;
-      const projected = project(item, child, key);
+      const projected = project(item, child, key, childInOutcomes);
       if (projected !== undefined)
         out[
           dynamic
-            ? publicMapKey(child, parent === "availabilityByAgentType" ? "availability" : key)
+            ? publicMapKey(
+                child,
+                parent === "availabilityByAgentType" ? "availability" : key,
+                inOutcomes,
+              )
             : child
         ] = projected;
     }
@@ -2426,6 +2487,24 @@ export function renderMarkdown(
       );
     out.push("");
   }
+  if (report.outcomes) {
+    const { totals } = report.outcomes;
+    out.push(
+      "## " + t(lang, "Resultados de revisión", "Review outcomes"),
+      "",
+      `${totals.tasks} ${t(lang, "tareas", "tasks")} · ${totals.accepted} ${t(lang, "aceptadas localmente", "locally accepted")} · ${totals.open} ${t(lang, "abiertas (censuradas)", "open (censored)")} · ${totals.ambiguous} ${t(lang, "con frontera ambigua", "with ambiguous boundary")}`,
+      "",
+      "| Task | Episode | Accepted | Review rounds (approved / correlated) | Receipts (ok / stale) | Boundary |",
+      "|---|---|---|---|---|---|",
+    );
+    for (const task of report.outcomes.tasks)
+      task.episodes.forEach((episode, index) =>
+        out.push(
+          `| ${task.feature} | ${index + 1} | ${episode.accepted ? "yes" : "no"} | ${episode.reviews.rounds} (${episode.reviews.approved} / ${episode.reviews.correlated}) | ${episode.receipts.ok} / ${episode.receipts.stale} | ${episode.boundary}${episode.leftCensored ? ", left-censored" : ""} |`,
+        ),
+      );
+    out.push("");
+  }
   out.push(
     `${t(lang, "Rango", "Range")}: ${report.range.from} → ${report.range.to} · ` +
       `${report.totals.sessions} ${t(lang, "sesiones", "sessions")} · ` +
@@ -2889,6 +2968,9 @@ export function publishReport(
   options: AuditPublicationOptions = {},
 ): PublishedAuditReport {
   report = metadataPublication(report, options);
+  // Outcome counts are plain integers of the join, not per-run measurements:
+  // they bypass the numeric nulling below and were already filtered above.
+  const { outcomes } = report;
   const runs = measurementRuns(report.sessions);
   const published = projectNumbers(report, () => unknownEvidence());
   const sessions = report.sessions.map((s) => {
@@ -3012,6 +3094,7 @@ export function publishReport(
     ...published,
     schemaVersion: 11,
     availability: report.availability ?? {},
+    outcomes,
   };
 }
 
@@ -3672,6 +3755,24 @@ export function buildReport(
         ? value
         : null;
   }
+  // Spec 0042 T9b: a session that logged no outcome event is `unknown`, not "no review".
+  const outcomeEvidence = (kind: "review" | "receipt"): MetricEvidence[] =>
+    sessions.map((s) =>
+      outcomeKinds(s)[kind]
+        ? {
+            state: "observed",
+            reason: null,
+            source: "audit-log",
+            adapter: "audit-log",
+            sourceVersion: null,
+          }
+        : unknownEvidence(),
+    );
+  availability["outcomes.review"] = unitPopulation(outcomeEvidence("review"));
+  availability["outcomes.receipt"] = unitPopulation(outcomeEvidence("receipt"));
+  const rangeFrom = opts.requestedRange?.from ?? stamps[0]?.slice(0, 10) ?? "";
+  const rangeFromMs = rangeFrom ? Date.parse(`${rangeFrom.slice(0, 10)}T00:00:00Z`) : Number.NaN;
+  const outcomes = joinOutcomes(sessions, Number.isNaN(rangeFromMs) ? null : rangeFromMs);
   const units = measurementRuns(sessions);
   const availabilityByAgentType = Object.fromEntries(
     Object.keys(byAgentType).map((type) => [
@@ -3744,6 +3845,7 @@ export function buildReport(
     rangeMetrics,
     availability,
     availabilityByAgentType,
+    ...(outcomes ? { outcomes } : {}),
     ...(opts.coverage ? { coverage: opts.coverage } : {}),
     ...(opts.repos ? { repos: opts.repos } : {}),
   };
