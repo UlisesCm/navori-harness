@@ -19,7 +19,7 @@ The combined A4 result is fixture evidence only; it is not evidence of authentic
 
 **Setup.** Disposable repository, isolated HOME, CLI run from source at main `0551a5df`, Claude Code in auto mode with the hook provided by global navori 0.11.2.
 
-1. **Stale criterion.** After a tracked file changed and was committed, `delivery-review` for P1 was refused with `P1.A1: tree changed since the run (uncommitted changes)`, and re-recording via `delivery-criterion` was refused with `current host provenance required: tree changed since the run (uncommitted changes)`. Limitation: the wording says "uncommitted" even for committed drift; the refusal itself is correct.
+1. **Stale criterion.** After a tracked file changed and was committed, `delivery-review` for P1 was refused with `P1.A1: tree changed since the run (uncommitted changes)`, and re-recording via `delivery-criterion` was refused with `current host provenance required: tree changed since the run (uncommitted changes)`. The wording was corrected in this change to report the HEAD change for committed drift; refusal behavior is unchanged.
 2. **Unauthorized part.** `delivery-slice --part P2` and `delivery-criterion --part P2 --criterion A1` were both refused with `part is not in the current authorized queue`.
 3. **Out-of-repository path.** `delivery-review --report` with a relative traversal path and with an absolute path were both refused with `invalid state artifact name`; a symlink inside the repo pointing outside was refused with `state artifact escapes checkout`.
 4. **Consent denied.** Run by the user as operator in Claude Code in `auto` permission mode; the hook was routed through the globally installed navori 0.11.2, while the scripted probes used the CLI from source.

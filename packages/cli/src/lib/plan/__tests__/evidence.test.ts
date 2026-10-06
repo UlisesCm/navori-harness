@@ -210,6 +210,48 @@ describe("delivery producer-bound fingerprint policy", () => {
   });
 
   // Covers: R7, R8, R9
+  it("names the HEAD change when a committed content change stales bound evidence", () => {
+    const binding = deliveryBinding();
+    const fp = fingerprintTree(cwd, binding);
+    if (!fp.ok) throw new Error(fp.reason);
+    const old = readHead(cwd);
+    writeLog([logLine({ deliveryBinding: binding, worktreeTree: fp.tree })]);
+    const input = {
+      root: resolveStateRoot({ cwd, feature: "demo" }),
+      feature: "demo",
+      id: "A1",
+      command: COMMAND,
+      deliveryBinding: binding,
+    };
+    writeFileSync(join(cwd, "a.txt"), "committed change\n");
+    git("commit", "-am", "content change");
+    const verdict = validateEvidence(input);
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) {
+      expect(verdict.why).toContain(`HEAD ${old.slice(0, 7)} → ${readHead(cwd).slice(0, 7)}`);
+      expect(verdict.why).not.toContain("uncommitted");
+    }
+  });
+
+  // Covers: R7, R8, R9
+  it("keeps 'uncommitted changes' for bound evidence when HEAD is unchanged", () => {
+    const binding = deliveryBinding();
+    const fp = fingerprintTree(cwd, binding);
+    if (!fp.ok) throw new Error(fp.reason);
+    writeLog([logLine({ deliveryBinding: binding, worktreeTree: fp.tree })]);
+    writeFileSync(join(cwd, "a.txt"), "uncommitted change\n");
+    const verdict = validateEvidence({
+      root: resolveStateRoot({ cwd, feature: "demo" }),
+      feature: "demo",
+      id: "A1",
+      command: COMMAND,
+      deliveryBinding: binding,
+    });
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) expect(verdict.why).toContain("uncommitted changes");
+  });
+
+  // Covers: R7, R8, R9
   it("compares the producer binding independently of key order", () => {
     const binding = deliveryBinding();
     const fingerprint = fingerprintTree(cwd, binding);

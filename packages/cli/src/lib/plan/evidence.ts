@@ -291,12 +291,8 @@ function candidateProblem(
     return { why: `ran from ${line.cwd}, not the tree root ${tree}`, tree };
   }
   const head = readHead(tree);
-  if (head !== line.head && !binding) {
-    return {
-      why: `tree changed since the run (HEAD ${line.head.slice(0, 7) || "none"} → ${head.slice(0, 7) || "none"})`,
-      tree,
-    };
-  }
+  const headMoved = `tree changed since the run (HEAD ${line.head.slice(0, 7) || "none"} → ${head.slice(0, 7) || "none"})`;
+  if (head !== line.head && !binding) return { why: headMoved, tree };
   if (!sameBinding(line.deliveryBinding, binding))
     return { why: "producer delivery authority or criterion definition changed", tree };
   const fingerprint = fingerprintTree(tree, binding);
@@ -304,7 +300,12 @@ function candidateProblem(
     return { why: `cannot compute the tree fingerprint: ${fingerprint.reason}`, tree };
   }
   if (fingerprint.tree !== line.worktreeTree) {
-    return { why: "tree changed since the run (uncommitted changes)", tree };
+    // A bound line skips the HEAD check above, so name a moved HEAD here instead of
+    // blaming uncommitted changes for what was a commit.
+    return {
+      why: head !== line.head ? headMoved : "tree changed since the run (uncommitted changes)",
+      tree,
+    };
   }
   return undefined;
 }
