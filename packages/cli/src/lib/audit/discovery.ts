@@ -172,6 +172,51 @@ function indexedSourcePaths(
   return paths;
 }
 
+/**
+ * Records a Claude transcript may carry before its first identity record
+ * (`last-prompt`, `ai-title`, `mode`, `permission-mode`, `queue-operation`,
+ * `file-history-snapshot`…). Observed preludes are ≤ 9 records; the bound
+ * keeps a foreign JSONL from being scanned to its end.
+ */
+const SOURCE_PRELUDE_MAX_RECORDS = 32;
+
+/** Claude transcript record types that carry the session's `sessionId` + `cwd`. */
+const CLAUDE_IDENTITY_TYPES: readonly string[] = [
+  "user",
+  "assistant",
+  "system",
+  "summary",
+  "attachment",
+];
+
+/**
+ * Whether a raw source record is host bookkeeping to skip on the way to the
+ * identity record: no top-level `cwd` and not a Codex `session_meta`.
+ */
+function isSourcePrelude(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const rec = value as Record<string, unknown>;
+  return rec.type !== "session_meta" && !("cwd" in rec);
+}
+
+/**
+ * Visits the source's identity record: the first one that is not prelude,
+ * within `SOURCE_PRELUDE_MAX_RECORDS`. Prelude records are never normalized
+ * nor retained — they can hold a title or a prompt id.
+ */
+function readSourceIdentity(
+  path: string,
+  visit: (value: unknown) => void,
+): ReturnType<typeof readAuditJsonl> {
+  let seen = 0;
+  return readAuditJsonl(path, (value) => {
+    seen++;
+    if (isSourcePrelude(value) && seen < SOURCE_PRELUDE_MAX_RECORDS) return;
+    visit(value);
+    return false;
+  });
+}
+
 /** Cache only one normalized metadata fact per source, never its prompt/activity history. */
 function indexedSourceMetadata(
   path: string,
@@ -180,12 +225,11 @@ function indexedSourceMetadata(
   if (context.metadata.has(path)) return context.metadata.get(path) ?? null;
   if (!retainAuditPath(context.budget, path)) return null;
   let record: Record<string, unknown> | null = null;
-  const reading = readAuditJsonl(path, (value) => {
+  const reading = readSourceIdentity(path, (value) => {
     const normalized = normalizeAuditRecord(value, "metadata");
     if (normalized.omitted) omitAuditFacts(context.budget, normalized.omitted);
     if (normalized.value && retainAuditFact(context.budget, null, normalized.value))
       record = normalized.value;
-    return false;
   });
   if (reading.sourceStatus !== "observed") record = null;
   const entry = { path, record };
@@ -759,13 +803,12 @@ interface SourceIdentity {
   version?: string;
 }
 
-/** At most the first root-metadata line; later prompt/tool records stay unread. */
+/** At most the root-metadata record past the prelude; later prompt/tool records stay unread. */
 function sourceMetadataLine(file: string): string | null {
   let result: string | null = null;
-  const reading = readAuditJsonl(file, (raw) => {
+  const reading = readSourceIdentity(file, (raw) => {
     const normalized = normalizeAuditRecord(raw, "metadata");
     if (normalized.value && normalized.omitted === 0) result = JSON.stringify(normalized.value);
-    return false;
   });
   return reading.sourceStatus === "observed" ? result : null;
 }
@@ -808,10 +851,7 @@ function inspectSource(
       ) {
         return { host, status: "identity-conflict" };
       }
-      if (
-        host === "claude" &&
-        !["user", "assistant", "system", "summary"].includes(String(record.type))
-      )
+      if (host === "claude" && !CLAUDE_IDENTITY_TYPES.includes(String(record.type)))
         return { host, status: "wrong-format" };
       if (typeof id !== "string") return { host, status: "wrong-format" };
       if (typeof fields.cwd !== "string") return { host, status: "wrong-format" };
@@ -1242,8 +1282,7 @@ function hostPopulation(
       const host = rec.type === "session_meta" ? "codex" : "claude";
       if (
         host !== expectedHost ||
-        (host === "claude" &&
-          !["user", "assistant", "system", "summary"].includes(String(rec.type)))
+        (host === "claude" && !CLAUDE_IDENTITY_TYPES.includes(String(rec.type)))
       ) {
         byHost[expectedHost] = false;
         continue;
