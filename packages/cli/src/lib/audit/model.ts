@@ -677,6 +677,13 @@ export interface AgentRun {
    * never allowlisted, so it is not published.
    */
   spawnToolUseId?: string;
+  /**
+   * Union-ready `[startMs, endMs]` of this run's own Pre/PostToolUse pairs, the
+   * same basis as the session's `activeMs` (spec 0042 T10b, M1). Private; it
+   * excludes the idle gap of a resumed agent, which lies outside any pair, and
+   * cannot separate a permission wait inside a pair. Absent without an audit log.
+   */
+  activeIntervals?: Array<[number, number]>;
   tokens: TokenTotals;
   /**
    * `cache_creation_input_tokens` of the agent's FIRST assistant message: the
@@ -1005,6 +1012,12 @@ export interface SessionAudit {
     Record<"transcript" | "rollout" | "audit-log" | "otlp" | "host-metadata", SourceHealth>
   >;
   activeMs?: number | null;
+  /**
+   * Gaps between the last main-thread record and the next typed prompt, in
+   * epoch ms, minus subagent windows (spec 0042 T10b, M4). Claude only and
+   * private: timestamps of records, never content. Absent = no source.
+   */
+  idleBetweenTurns?: Array<[number, number]>;
   sessionId: string;
   startedAt: string;
   endedAt: string;
@@ -1697,6 +1710,12 @@ export interface GateExecution {
    *  event to read it from (`timeout`, `unknown`, or an ambiguous `duplicate`). */
   durationMs: number | null;
   outcome: GateOutcome;
+  /** A `gate-started` event was seen: the gate really ran (spec 0042 T10b). */
+  ran: boolean;
+  /** The terminal verdict, when exactly one terminal event exists. */
+  terminal?: "allow" | "block";
+  /** Every event of the handle carried the owner's own `agentId` (no time-window guess). */
+  ownerExact: boolean;
 }
 
 /**
@@ -1711,7 +1730,9 @@ export interface GateExecution {
  * (its own test pins that a `toolUseId`-less event produces no finding there).
  * This function is the one place that keeps the count instead of losing it.
  */
-export function correlateGateExecutions(session: SessionAudit): GateExecution[] {
+export function correlateGateExecutions(
+  session: Pick<SessionAudit, "sealed" | "orchestrator" | "agents">,
+): GateExecution[] {
   if (!session.sealed) return [];
 
   const owners: Array<{ ownerKey: string; agentType: string; events: HookEvent[] }> = [
@@ -1742,7 +1763,12 @@ export function correlateGateExecutions(session: SessionAudit): GateExecution[] 
   const out: GateExecution[] = [];
   for (const [handle, bucket] of byHandle) {
     const hasRealId = bucket.events.some((e) => e.toolUseId !== undefined);
+
     const singleOwnerKey = bucket.owners.size === 1 ? [...bucket.owners][0]! : null;
+    // Exact ownership: the payload itself named the owner on every event, so the
+    // time-window fallback of `ownerOf` did not place any of them.
+    const ownerExact =
+      singleOwnerKey !== null && bucket.events.every((e) => e.agentId === singleOwnerKey);
     const ownerAgentId =
       singleOwnerKey === null || singleOwnerKey === "orchestrator" ? null : singleOwnerKey;
     const ownerAgentType =
@@ -1759,6 +1785,8 @@ export function correlateGateExecutions(session: SessionAudit): GateExecution[] 
         endedAt: null,
         durationMs: null,
         outcome: "unknown",
+        ran: false,
+        ownerExact: false,
       });
       continue;
     }
@@ -1776,6 +1804,8 @@ export function correlateGateExecutions(session: SessionAudit): GateExecution[] 
         endedAt: terminal[terminal.length - 1]!.ts,
         durationMs: null,
         outcome: "duplicate",
+        ran: started !== undefined,
+        ownerExact,
       });
       continue;
     }
@@ -1790,6 +1820,9 @@ export function correlateGateExecutions(session: SessionAudit): GateExecution[] 
         endedAt: one.ts,
         durationMs: one.ms,
         outcome: "completed",
+        ran: started !== undefined,
+        terminal: one.verdict === "block" ? "block" : "allow",
+        ownerExact,
       });
       continue;
     }
@@ -1803,6 +1836,8 @@ export function correlateGateExecutions(session: SessionAudit): GateExecution[] 
         endedAt: null,
         durationMs: null,
         outcome: "timeout",
+        ran: started !== undefined,
+        ownerExact,
       });
     }
   }
@@ -1877,6 +1912,125 @@ export interface OutcomeEpisode {
   accepted: boolean;
   acceptedAtMs?: number;
   provenance: { sessions: number; hosts: number; events: number; duplicates: number };
+  /** Spec 0042 T10b: implementer-only consumption, rounds, first approval, gate attempts. */
+  efficiency?: EpisodeEfficiency;
+  /** Spec 0042 T10b: time to acceptance, active time, idle between turns, unclassified rest. */
+  lifecycle?: EpisodeLifecycle;
+}
+
+/** State of a task metric; `null` values never mean zero. */
+export type TaskMetricState = "observed" | "partial" | "unavailable";
+/** Aggregate of one per-task figure: nearest-rank p50/p90 over `n` of `eligible` tasks. */
+export interface TaskMetric {
+  p50: number | null;
+  p90: number | null;
+  /** Tasks whose value entered p50/p90. */
+  n: number;
+  /** Tasks the metric applies to (accepted, or all for `tokensAllTasks`). */
+  eligible: number;
+  /** Open tasks left out of an accepted-only metric: censored, never fast. */
+  censored: number;
+  state: TaskMetricState;
+  /** Most frequent exclusion reason when not fully observed. */
+  reason: string | null;
+}
+/** One value with its own evidence; `value: null` is unknown, never zero. */
+export interface TaskValue {
+  value: number | null;
+  state: TaskMetricState;
+  reason: string | null;
+}
+/** Token components of attributed implementer runs; `null` = not measurable. */
+export type TokenComponents = Record<keyof TokenTotals, number | null>;
+/** Gate attempts of the attributed runs, from verifiable `gate-started` + terminal block only. */
+export interface EpisodeGate {
+  /** Executions that ran and ended with one terminal verdict, owner confirmed. */
+  executions: number;
+  failures: number;
+  /** A `block` without `gate-started`: the gate could not run, not a failed gate. */
+  notRun: number;
+  /** Timeout, duplicate, unknown handle or an owner not named by the payload. */
+  unverifiable: number;
+}
+export interface EpisodeEfficiency {
+  /** Tokens cover implementer dispatch runs only; reviewer and orchestrator are not attributed. */
+  tokenScope: "implementer-dispatch";
+  tokens: TokenComponents;
+  tokensReason: string | null;
+  attributedRuns: number;
+  /** Review rounds up to acceptance (all rounds while open). */
+  rounds: number;
+  firstApproval: boolean | null;
+  firstApprovalReason: string | null;
+  gate: EpisodeGate | null;
+  gateReason: string | null;
+}
+export interface EpisodeLifecycle {
+  start: "dispatch" | "review-begin" | null;
+  /** Open, left-censored or ambiguous: no elapsed time is claimed. */
+  censored: boolean;
+  /** From the first confirmed dispatch to acceptance. */
+  elapsedMs: number | null;
+  /** From the first review begin to acceptance. */
+  reviewElapsedMs: number | null;
+  active: TaskValue;
+  /** Claude-only gap between a turn and the next typed prompt; not attributable in shared sessions. */
+  idleBetweenTurns: TaskValue;
+  idleHost: "claude" | "codex" | "mixed";
+  unclassified: TaskValue;
+  /** The unclassified rest still contains waits that no source identified. */
+  includesUnidentifiedWaits: boolean;
+}
+/** Range summary of R17 (efficiency) and R18 (lifecycle). No composite score, no cross-range comparison. */
+export interface OutcomeSummary {
+  r17: {
+    tokenScope: "implementer-dispatch";
+    /** Episodes with a confirmed dispatch over all episodes; the rest is `no-dispatch-event`. */
+    tokenCoverage: { episodes: number; withDispatch: number; withoutDispatch: number };
+    tokensPerAcceptedTask: Record<keyof TokenTotals, TaskMetric>;
+    tokensAllTasks: Record<keyof TokenTotals, TaskMetric>;
+    reviewRoundsToAcceptance: TaskMetric;
+    /** Lower bound, not a rate: `undetermined` episodes may hide either answer. */
+    firstApproval: {
+      yes: number;
+      no: number;
+      undetermined: number;
+      eligible: number;
+      state: TaskMetricState;
+      reason: string | null;
+    };
+    /**
+     * Failed attempts (a red-green loop counts each red), not failed tasks, over every
+     * episode with a verifiable gate (open ones included); `eligible` is all episodes.
+     */
+    gate: EpisodeGate & {
+      episodes: number;
+      eligible: number;
+      withoutGateExecution: number;
+      /** The same figures restricted to accepted episodes. */
+      acceptedOnly: { executions: number; failures: number; episodes: number; eligible: number };
+      state: TaskMetricState;
+      reason: string | null;
+    };
+  };
+  r18: {
+    timeToAcceptance: TaskMetric;
+    reviewToAcceptance: TaskMetric;
+    activeTime: TaskMetric;
+    idleBetweenTurns: Record<"claude" | "codex" | "mixed", TaskMetric>;
+    unclassified: TaskMetric;
+    /** Longest review begin-to-seal span counted as active; longer is `partial`. */
+    reviewSpanCapMs: number;
+  };
+  unattributed: {
+    /** Per component, `attributed + tokens` is the measured total; unsummed episodes stay in `tokens`. */
+    tokens: TokenComponents;
+    /** Tokens of episodes whose sum is reported (every run observed), per component. */
+    attributedTokens: TokenComponents;
+    runs: { attributed: number; unattributed: number };
+    ambiguousSpawns: number;
+    gateExecutions: number;
+  };
 }
 /**
  * How `dispatch-outcome` events relate to the runs and rounds seen (spec 0042
@@ -1902,6 +2056,8 @@ export interface AuditOutcomes {
   tasks: Array<{ feature: string; episodes: OutcomeEpisode[] }>;
   totals: { tasks: number; accepted: number; open: number; ambiguous: number };
   dispatch?: DispatchSummary;
+  /** Spec 0042 T10b; absent when no episode exists. */
+  summary?: OutcomeSummary;
 }
 
 export interface AuditReport {

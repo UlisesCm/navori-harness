@@ -2623,6 +2623,137 @@ describe("review/receipt outcomes in the report (spec 0042 T9b)", () => {
     expect(published.availability).toHaveProperty("outcomes.dispatch");
   });
 
+  describe("task efficiency and lifecycle (spec 0042 T10b)", () => {
+    const dispatchOf = (spawn: string, tsMs: number): CliEvent => ({
+      tsMs,
+      event: "cli",
+      name: "dispatch-outcome",
+      verdict: "allow",
+      outcomePayload: {
+        name: "dispatch-outcome",
+        verdict: "allow",
+        schemaVersion: 1,
+        featureKey: hex("f"),
+        stage: "implement",
+        spawn,
+      },
+    });
+    const accepted = (spawn = "toolu_secret"): SessionAudit =>
+      session([agent({ spawnToolUseId: spawn, activeIntervals: [[at("09:00"), at("09:30")]] })], {
+        sessionId: "impl",
+        sealed: true,
+        availability: {
+          ...session([]).availability,
+          activeMs: {
+            state: "observed",
+            reason: null,
+            source: "audit-log",
+            adapter: "audit-log",
+            sourceVersion: null,
+          },
+        },
+        idleBetweenTurns: [[at("09:40"), at("09:50")]],
+        cliEvents: [dispatchOf(spawn, at("09:00")), reviewEvent(), receiptEvent()],
+      });
+
+    // Covers: R17, R18
+    it("publishes episode and summary figures inside outcomes with real numbers and null for the unknown", () => {
+      const report = build([accepted()]);
+      const json = JSON.parse(renderJson(report));
+      // The allowlist drops nothing the join produced: no field name or label is lost or hashed.
+      expect(json.outcomes).toEqual(JSON.parse(JSON.stringify(report.outcomes)));
+      const episode = json.outcomes.tasks[0].episodes[0];
+      expect(json.schemaVersion).toBe(11);
+      expect(episode.efficiency).toMatchObject({
+        tokenScope: "implementer-dispatch",
+        attributedRuns: 1,
+        rounds: 1,
+        firstApproval: true,
+      });
+      expect(typeof episode.efficiency.tokens.output).toBe("number");
+      expect(episode.lifecycle).toMatchObject({
+        start: "dispatch",
+        elapsedMs: at("10:31") - at("09:00"),
+        // 30 min of the run's tool pairs + the 30 min review, not the idle gap.
+        active: { value: 3_600_000, state: "observed" },
+        idleBetweenTurns: { value: at("09:50") - at("09:40"), state: "observed" },
+        idleHost: "claude",
+      });
+      const { r17, r18, unattributed } = json.outcomes.summary;
+      expect(r17.tokenScope).toBe("implementer-dispatch");
+      expect(r17.tokenCoverage).toEqual({ episodes: 1, withDispatch: 1, withoutDispatch: 0 });
+      expect(r17.tokensPerAcceptedTask.output).toMatchObject({ n: 1, eligible: 1, censored: 0 });
+      expect(r18.timeToAcceptance).toMatchObject({ n: 1, state: "observed" });
+      expect(r18.idleBetweenTurns.codex).toMatchObject({ n: 0, p50: null, state: "unavailable" });
+      expect(unattributed.runs).toEqual({ attributed: 1, unattributed: 0 });
+      // Unknown stays null in the JSON, never 0: this task has no gate execution at all.
+      expect(r17.gate).toMatchObject({ executions: 0, failures: 0, withoutGateExecution: 1 });
+    });
+
+    // Covers: R17, R18
+    it("publishes every reason and state label of unobserved, open and Codex tasks unchanged", () => {
+      const codex = session([], {
+        sessionId: "cx",
+        host: "codex",
+        cliEvents: [reviewEvent({ featureKey: hex("c"), nonce: undefined }), receiptEvent()],
+      });
+      const open = session([], {
+        sessionId: "open",
+        cliEvents: [
+          dispatchOf("toolu_open", at("09:00")),
+          reviewEvent({
+            featureKey: hex("d"),
+            verdict: "changes-requested",
+            correlation: "missing",
+          }),
+        ],
+      });
+      const report = build([accepted(), codex, open]);
+      const json = JSON.parse(renderJson(report));
+      expect(json.outcomes).toEqual(JSON.parse(JSON.stringify(report.outcomes)));
+      const text = JSON.stringify(json.outcomes);
+      for (const label of ["no-dispatch-event", "ownership-unknown", "censored", "no-source"])
+        expect(text).toContain(label);
+      expect(text).not.toMatch(/"(?:reason|state|idleHost|start|tokenScope)":"unknown-/);
+    });
+
+    // Covers: R17, R18
+    it("never publishes join keys, spawn ids or raw intervals", () => {
+      const text = renderJson(build([accepted()]));
+      for (const secret of ["toolu_secret", "spawnToolUseId", "activeIntervals", "featureKey"])
+        expect(text).not.toContain(secret);
+      expect(text).not.toMatch(/"idleBetweenTurns":\s*\[/);
+    });
+
+    // Covers: R17, R18
+    it("scopes the new field names to the outcomes subtree and leaves the global allowlists alone", () => {
+      const report = build([accepted()]);
+      Object.assign(report, { efficiency: { tokens: { output: 1 } }, unattributed: { runs: 1 } });
+      Object.assign(report.sessions[0] as object, { lifecycle: { elapsedMs: 5 } });
+      const published = JSON.parse(renderJson(report));
+      for (const leaked of ["efficiency", "unattributed", "lifecycle"]) {
+        expect(published).not.toHaveProperty(leaked);
+        expect(published.sessions[0]).not.toHaveProperty(leaked);
+      }
+      expect(published.outcomes.summary).toBeDefined();
+      expect(Object.keys(published.rangeMetrics).join()).not.toMatch(
+        /efficiency|lifecycle|accepted/,
+      );
+    });
+
+    // Covers: R17, R18
+    it("renders a short Markdown section with scope, censoring and the quality caveat", () => {
+      const md = renderMarkdown(build([accepted()]), "en");
+      expect(md).toContain("Efficiency per accepted task");
+      expect(md).toContain("Lifecycle");
+      expect(md).toContain("implementer-dispatch");
+      expect(md).toContain("Fewer tokens does not mean better quality");
+      expect(md).toMatch(/Time to acceptance \(from dispatch\) \| \d+s/);
+      // Without a summary (no episode) there is no section.
+      expect(renderMarkdown(build([session([])]), "en")).not.toContain("Efficiency per accepted");
+    });
+  });
+
   // Covers: R16
   it("reports unknown availability and no outcomes key when no session logged one", () => {
     const json = JSON.parse(renderJson(build([session([])])));

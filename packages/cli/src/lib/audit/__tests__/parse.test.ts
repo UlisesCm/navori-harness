@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import {
   ORCHESTRATOR_OWNER,
   attachHookEvents,
+  idleBetweenTurns,
   isClassifierExemptCommand,
   isReadLaneCommand,
   isWriteLaneCommand,
@@ -390,7 +391,7 @@ describe("availability and trusted windows", () => {
       else expect(signals).toEqual([]);
     }
   });
-  // Covers: R7
+  // Covers: R7, R18
   it("unions verified overlapping and disjoint pairs without idle or double counting", () => {
     const s = parseSession(
       recordFile([{ type: "user", sessionId: "s", timestamp: "2026-09-01T00:00:00Z" }]),
@@ -419,6 +420,9 @@ describe("availability and trusted windows", () => {
     expect(s.availability?.activeMs?.state).toBe("observed");
     expect(s.wallClockMs).toBe(20000);
     expect(s.availability?.wallClockMs?.state).toBe("observed");
+    // Each run keeps only its own pairs (T10b, M1): never the window nor another owner's.
+    const base = Date.parse("2026-09-01T00:00:00Z");
+    expect(s.agents[0]?.activeIntervals).toEqual([[base + 3000, base + 7000]]);
   });
   // Covers: R7
   it.each(["unpaired", "reversed", "invalid-time", "wrong-owner", "wrong-session"])(
@@ -3450,5 +3454,66 @@ describe("parse: Codex rollout adapter (spec 0041 T18)", () => {
       parseErrors: 2,
     });
     expect(JSON.stringify(parsed)).not.toContain(SECRET);
+  });
+});
+
+describe("idle between turns (spec 0042 T10b, M4)", () => {
+  const at = (sec: number): string => new Date(Date.UTC(2026, 8, 1, 0, 0, sec)).toISOString();
+  const typed = (sec: number) => ({
+    type: "user",
+    promptSource: "typed",
+    timestamp: at(sec),
+    message: { content: "SYNTHETIC-PROMPT-SECRET" },
+  });
+  const record = (type: string, sec: number, extra: object = {}) => ({
+    type,
+    timestamp: at(sec),
+    ...extra,
+  });
+  const ms = (sec: number): number => Date.parse(at(sec));
+  const window = (from: number, to: number): AgentRun =>
+    ({ startedAt: at(from), endedAt: at(to) }) as AgentRun;
+
+  // Covers: R18
+  it("is the gap from the last main-thread record to the next typed prompt", () => {
+    const lines = [
+      typed(0),
+      record("assistant", 5),
+      record("user", 6),
+      typed(20),
+      record("assistant", 22),
+      typed(30),
+    ];
+    expect(idleBetweenTurns(lines, [])).toEqual([
+      [ms(6), ms(20)],
+      [ms(22), ms(30)],
+    ]);
+  });
+
+  // Covers: R18
+  it("has no gap for consecutive typed prompts, a first prompt or sidechain records", () => {
+    expect(idleBetweenTurns([typed(0), typed(5)], [])).toEqual([]);
+    expect(idleBetweenTurns([record("assistant", 1, { isSidechain: true }), typed(9)], [])).toEqual(
+      [],
+    );
+    // Bookkeeping records between turns are not the end of the turn.
+    expect(
+      idleBetweenTurns([record("assistant", 2), record("permission-mode", 8), typed(10)], []),
+    ).toEqual([[ms(2), ms(10)]]);
+  });
+
+  // Covers: R18
+  it("subtracts the time a subagent was running in the background", () => {
+    expect(idleBetweenTurns([record("assistant", 0), typed(30)], [window(5, 25)])).toEqual([
+      [ms(0), ms(5)],
+      [ms(25), ms(30)],
+    ]);
+  });
+
+  // Covers: R18
+  it("is carried by a parsed Claude session and never holds prompt content", () => {
+    const s = parseSession(FIXTURE);
+    expect(Array.isArray(s.idleBetweenTurns)).toBe(true);
+    expect(JSON.stringify(s.idleBetweenTurns)).not.toMatch(/[a-z]/i);
   });
 });

@@ -347,6 +347,54 @@ describe("range metrics: published flat under schemaVersion 11", () => {
   });
 });
 
+describe("per-task metrics stay out of rangeMetrics (spec 0042 T10b)", () => {
+  // Covers: R17, R18
+  it("keeps efficiency and lifecycle inside outcomes: no snapshot-comparable per-task key", () => {
+    const hex = (c: string): string => c.repeat(64);
+    const identity = {
+      alg: "navori-content/v1",
+      fp: hex("1"),
+      base: "b".repeat(40),
+      gate: hex("2"),
+      inputs: hex("3"),
+    };
+    const at = Date.parse("2026-09-30T10:00:00Z");
+    const s = session({
+      cliEvents: [
+        {
+          tsMs: at,
+          event: "cli",
+          name: "review-outcome",
+          verdict: "approved",
+          outcomePayload: {
+            name: "review-outcome",
+            verdict: "approved",
+            schemaVersion: 1,
+            featureKey: hex("f"),
+            sidecar: hex("5"),
+            critical: 0,
+            high: 0,
+            medium: 0,
+            low: 0,
+            correlation: "correlated",
+            nonce: "00000000-0000-4000-8000-000000000001",
+            startedAtMs: at - 1000,
+            sealedAtMs: at,
+            ...identity,
+          },
+        },
+      ],
+    });
+    const built = report([s]);
+    expect(built.outcomes?.summary).toBeDefined();
+    const keys = Object.keys(built.rangeMetrics).concat(Object.keys(built.availability ?? {}));
+    expect(
+      keys.filter((key) => /task|episode|efficiency|lifecycle|accept|idle|unclassified/i.test(key)),
+    ).toEqual([]);
+    expect(Object.keys(publishReport(built).rangeMetrics)).toEqual(Object.keys(built.rangeMetrics));
+  });
+});
+
 describe("parse: transcript measures", () => {
   const dir = mkdtempSync(join(tmpdir(), "navori-range-metrics-"));
 

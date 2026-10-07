@@ -9,6 +9,8 @@ import {
   type SessionAudit,
   type SkillSource,
   type SkillTally,
+  type OutcomeSummary,
+  type TaskMetric,
   type TokenTotals,
   type MetricEvidence,
   type MetricPopulation,
@@ -24,6 +26,7 @@ import {
   recorderWindow,
 } from "./model.ts";
 import { joinOutcomes, outcomeKinds } from "./outcomes.ts";
+import { quantile } from "./task-metrics.ts";
 import { redactExample } from "./parse.ts";
 import {
   ACTIVATION_TRIGGERS,
@@ -80,6 +83,69 @@ const PUBLIC_OUTCOME_FIELDS = new Set<string>([
   "nestedUnlinked",
   "dispatchWithoutRounds",
   "roundsWithoutDispatch",
+  // T10b: efficiency, lifecycle and the range summary (scoped to `outcomes`).
+  "efficiency",
+  "lifecycle",
+  "summary",
+  "tokenScope",
+  "tokens",
+  "tokensReason",
+  "input",
+  "output",
+  "cacheRead",
+  "cacheCreation",
+  "thinking",
+  "attributedRuns",
+  "firstApproval",
+  "firstApprovalReason",
+  "gate",
+  "gateReason",
+  "executions",
+  "failures",
+  "notRun",
+  "unverifiable",
+  "start",
+  "censored",
+  "elapsedMs",
+  "reviewElapsedMs",
+  "active",
+  "idleBetweenTurns",
+  "idleHost",
+  "unclassified",
+  "includesUnidentifiedWaits",
+  "value",
+  "state",
+  "reason",
+  "r17",
+  "r18",
+  "tokenCoverage",
+  "withDispatch",
+  "withoutDispatch",
+  "tokensPerAcceptedTask",
+  "tokensAllTasks",
+  "reviewRoundsToAcceptance",
+  "yes",
+  "no",
+  "undetermined",
+  "eligible",
+  "withoutGateExecution",
+  "timeToAcceptance",
+  "reviewToAcceptance",
+  "activeTime",
+  "claude",
+  "codex",
+  "mixed",
+  "reviewSpanCapMs",
+  "unattributed",
+  "attributedTokens",
+  "acceptedOnly",
+  "runs",
+  "attributed",
+  "ambiguousSpawns",
+  "gateExecutions",
+  "p50",
+  "p90",
+  "n",
 ]);
 /** Closed label values published only inside the `outcomes` subtree. */
 const PUBLIC_OUTCOME_LABELS = new Set<string>([
@@ -95,6 +161,31 @@ const PUBLIC_OUTCOME_LABELS = new Set<string>([
   "invalid",
   "unknown-algorithm",
   "unavailable",
+  "implementer-dispatch",
+  "dispatch",
+  "review-begin",
+  "observed",
+  "partial",
+  "no-dispatch-event",
+  "ownership-unknown",
+  "partial-usage",
+  "left-censored",
+  "incomplete-round",
+  "pending",
+  "unobserved-history",
+  "no-review-round",
+  "ambiguous-boundary",
+  "no-source",
+  "shared-session",
+  "partial-source",
+  "review-span-cap",
+  "no-eligible-tasks",
+  "not-observed",
+  "unsealed",
+  "censored",
+  "claude",
+  "codex",
+  "mixed",
 ]);
 /** The only availability keys that name an outcomes join. */
 const PUBLIC_OUTCOME_AVAILABILITY = new Set([
@@ -1781,11 +1872,46 @@ function skillRangeSection(report: AuditReport, lang: Lang): string[] {
   ];
 }
 
-/** Nearest-rank quantile; `null` for no data — unavailable, never zero. */
-function quantile(values: number[], q: number): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.max(0, Math.ceil(q * sorted.length) - 1)] ?? null;
+/** `p50 / p90 · n/eligible · censored · state` of one task metric, in the unit it is read in. */
+function taskMetricCell(metric: TaskMetric, unit: "ms" | "count" = "count"): string {
+  const fmt = (value: number | null): string =>
+    value === null ? "unavailable" : unit === "ms" ? `${Math.round(value / 1000)}s` : String(value);
+  return `${fmt(metric.p50)} / ${fmt(metric.p90)} · ${metric.n}/${metric.eligible} · ${metric.censored} censored · ${metric.state}${metric.reason ? ` (${metric.reason})` : ""}`;
+}
+
+/** Short Markdown block of the R17/R18 summary (spec 0042 T10b). */
+function taskMetricLines(summary: OutcomeSummary, lang: Lang): string[] {
+  const { r17, r18 } = summary;
+  const approval = r17.firstApproval;
+  return [
+    "### " + t(lang, "Eficiencia por tarea aceptada", "Efficiency per accepted task"),
+    "",
+    "| Metric | p50 / p90 · n/eligible · censored · state |",
+    "|---|---|",
+    `| Implementer output tokens | ${taskMetricCell(r17.tokensPerAcceptedTask.output)} |`,
+    `| Implementer output tokens, all tasks | ${taskMetricCell(r17.tokensAllTasks.output)} |`,
+    `| Review rounds to acceptance | ${taskMetricCell(r17.reviewRoundsToAcceptance)} |`,
+    `| First approval (lower bound) | ${approval.yes} yes / ${approval.no} no / ${approval.undetermined} undetermined · ${approval.state}${approval.reason ? ` (${approval.reason})` : ""} |`,
+    `| Gate failed attempts | ${r17.gate.failures}/${r17.gate.executions} ran · ${r17.gate.notRun} not run · ${r17.gate.unverifiable} unverifiable · ${r17.gate.state}${r17.gate.reason ? ` (${r17.gate.reason})` : ""} |`,
+    `| Token coverage (dispatch) | ${r17.tokenCoverage.withDispatch}/${r17.tokenCoverage.episodes} episodes · scope ${r17.tokenScope} |`,
+    "",
+    t(
+      lang,
+      "Menos tokens no implica mejor calidad: leer junto a rondas, primera aprobación y fallos; solo implementer; sin comparación entre rangos hasta T11.",
+      "Fewer tokens does not mean better quality: read with rounds, first approval and failures; implementer only; no comparison across ranges until T11.",
+    ),
+    "",
+    "### " + t(lang, "Ciclo de vida", "Lifecycle"),
+    "",
+    "| Metric | p50 / p90 · n/eligible · censored · state |",
+    "|---|---|",
+    `| Time to acceptance (from dispatch) | ${taskMetricCell(r18.timeToAcceptance, "ms")} |`,
+    `| Time to acceptance (from review begin) | ${taskMetricCell(r18.reviewToAcceptance, "ms")} |`,
+    `| Active time | ${taskMetricCell(r18.activeTime, "ms")} |`,
+    `| Idle between turns (Claude) | ${taskMetricCell(r18.idleBetweenTurns.claude, "ms")} |`,
+    `| Unclassified rest | ${taskMetricCell(r18.unclassified, "ms")} |`,
+    "",
+  ];
 }
 
 /** The orchestrator's row in `byAgentType` and in every `agent.*` key. */
@@ -2516,6 +2642,7 @@ export function renderMarkdown(
         ),
       );
     out.push("");
+    if (report.outcomes.summary) out.push(...taskMetricLines(report.outcomes.summary, lang));
   }
   out.push(
     `${t(lang, "Rango", "Range")}: ${report.range.from} → ${report.range.to} · ` +
