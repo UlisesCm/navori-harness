@@ -144,7 +144,7 @@ con los ids de su tarea.
 
 ## Lote 5 — `root` en el config (commit `feat(config): …`)
 
-- [ ] **T9** (R1) — `MonorepoSchema.workspaceHarness` (`lib/config/schema.ts`) pasa a
+- [x] **T9** (R1) — `MonorepoSchema.workspaceHarness` (`lib/config/schema.ts`) pasa a
   `z.enum(["minimal", "full", "root"]).default("minimal")`, con JSDoc y `.describe()`.
   `readConfig` (`lib/config/config.ts`) agrega al `ConfigError` la pista de "valor de un
   navori más nuevo" cuando un issue es un enum inválido. Regenerar el JSON Schema con
@@ -155,7 +155,7 @@ con los ids de su tarea.
   - "un enum desconocido produce el error con la pista de actualizar"
   · test: `lib/__tests__/schema-publish.test.ts` — sin caso nuevo.
 
-- [ ] **T10** (R4, R7, R9) — Cableado de `root` en `runRender` y `sync`:
+- [x] **T10** (R4, R7, R9) — Cableado de `root` en `runRender` y `sync`:
   - pasan `rootHoist` a la raíz en todo modo con `monorepo` declarado;
   - `reconcileTrimmedWorkspace` corre bajo `isTrimmedHarness` (misma lista que `minimal`);
   - después, `removeEmptyDirs` barre `.claude/skills` y `.claude/`, solo si quedaron
@@ -174,8 +174,10 @@ con los ids de su tarea.
   - "justo después de cambiar a `root`, pendiente > 0; tras aplicar, 0 y drift 0"
 
 ## Lote 6 — `root` en Codex (commit `feat(codex): …`)
+  - Los tests "render -> sync --apply -> render" (T5 y T10) viven en
+    `commands/__tests__/sync-workspace-harness.test.ts`, no en `render-workspace-harness.test.ts`.
 
-- [ ] **T11** (R8) — `renderCodexEngine` (`engines/codex/index.ts`) gana `harnessScope` y
+- [x] **T11** (R8) — `renderCodexEngine` (`engines/codex/index.ts`) gana `harnessScope` y
   `rootHoist`. El plan sale de `planCodexSkills`, extraído del armado actual de `plan`.
   - Bajo `root` en un workspace, el plan queda vacío y `extraFiles` emite solo `AGENTS.md`.
   - `orphanScans` agrega `.codex/config.toml` y `.codex/rules/navori.rules` con
@@ -193,7 +195,7 @@ con los ids de su tarea.
 
 ## Lote 7 — doctor (commit `feat(doctor): …`)
 
-- [ ] **T12** (R10) — Diagnóstico de los modos recortados:
+- [x] **T12** (R10) — Diagnóstico de los modos recortados:
   - `scanStaleHarness` (`lib/diagnose/stale-harness.ts`) reporta `trimmed-workspace` bajo
     `root`: cualquier archivo en `.claude/` del workspace, y `.codex/` y `.agents/skills`
     si `codex` está activo. Bajo `minimal` sigue igual.
@@ -210,7 +212,7 @@ con los ids de su tarea.
   - "la evidencia de un workspace `minimal` o `root` no marca `missing` agentes, hooks ni
     skills omitidas"
 
-- [ ] **T13** (R11) — Bajo `full`, `doctor` muestra una nota informativa (es/en en
+- [x] **T13** (R11) — Bajo `full`, `doctor` muestra una nota informativa (es/en en
   `lib/i18n.ts`): hooks, agentes, settings y `.mcp.json` del workspace no se usan si la
   sesión arranca en la raíz. No cambia el veredicto ni el código de salida.
   · test: `commands/__tests__/doctor-workspace-harness.test.ts`
@@ -226,6 +228,7 @@ con los ids de su tarea.
   contradicen el design, se corrige el design en el mismo PR, pero la medición no bloquea
   el merge.
   · sin test: es evidencia de campo.
+  - Omitida por instrucción: es evidencia para el cuerpo del PR, no un gate de merge.
 
 ## Trazabilidad
 
