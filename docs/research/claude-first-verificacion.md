@@ -333,8 +333,12 @@ declara éxito ni fallo.
 
 1. **El recorte de texto libre contaba como pérdida.** El recorte de visualización y los registros
    que superaban el tope se marcaban como pérdida y degradaban toda la evidencia a `partial`. Ahora
-   el recorte no es pérdida y los registros grandes se proyectan conservando `usage` y `tool_use`
-   (`db95a7f2`, `7d47a938`).
+   el recorte de texto de visualización no es pérdida y los registros grandes se proyectan
+   conservando `usage` y `tool_use` (`db95a7f2`, `7d47a938`). Eso vale solo para visualización: lo
+   que una métrica lee (p. ej. el `stdout` de SessionStart del contexto inyectado) se mide del
+   registro crudo antes de normalizar y el registro guardado conserva solo el tamaño derivado
+   (`3c57e201`); los arreglos `message.content` / `tool_result.content` sobre el tope siguen
+   contando como pérdida.
 2. **Tipos de registro 2.1.29x no reconocidos.** `mode`, `atis-latch`, `ai-title`,
    `file-history-delta`, `cost-state`, `continued-in`, `agent-name` y el bloque `tool_reference`
    caían fuera de la lista permitida (`473e8c05`).
@@ -354,6 +358,7 @@ declara éxito ni fallo.
 | `agent.implementer.sessions` | `null` | 3 |
 | `agent.implementer.cacheRead.p50` | `null` | 1,133,553 (n = 9) |
 | `hooks.perBashCall` | `null` | 5.22 (p90 6) |
+| Contexto inyectado (engram) | descartado en silencio | 1 / 2 / 2 inyecciones por sesión Claude |
 
 Antes había 8 agentes `implementer` en disco, 3 transcripts parciales y disponibilidad observada
 0 / parcial 8. Después, los lanzamientos observados son 9/9 y los 3 transcripts quedan en estado
