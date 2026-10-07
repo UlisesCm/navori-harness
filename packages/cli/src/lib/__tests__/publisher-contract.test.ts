@@ -113,4 +113,12 @@ describe("PR flow step 3 — every title/body claim traces to the cycle's eviden
     expect(body).toMatch(/no inferred path, command, count or decision/i);
     expect(body).toMatch(/never filled in/i);
   });
+
+  it("publisher.md forbids writing project files through Bash and makes the stop report final when a hook blocks", () => {
+    const body = readPublisher();
+    expect(body).toMatch(/never write to project files through bash/i);
+    expect(body).toMatch(/sed -i/);
+    expect(body).toMatch(/git checkout/);
+    expect(body).toMatch(/stop report is the last action; the fix is not yours/i);
+  });
 });

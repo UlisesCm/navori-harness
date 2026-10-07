@@ -254,6 +254,7 @@ wc -c CLAUDE.md                                  # after
 ## Hard rules
 
 - ❌ A stop report (gate red, missing review, protected branch, etc.) is the last action of this cycle. Do not continue investigating, re-running the gate, or calling `git`/`gh` after emitting it. If flaky, the next invocation decides.
+- ❌ Never write to project files through Bash (redirections, sed -i, tee, interpreter one-liners, git checkout or restore of files). When a hook blocks, the stop report is the last action; the fix is not yours.
 - ❌ Never push with `--force` to `{{branchBase}}` or another protected branch.
 - ❌ Never skip hooks (`--no-verify`) unless the user explicitly asks.
 - ❌ Never ask for a merge / approve the PR yourself. Your job ends with the URL.
