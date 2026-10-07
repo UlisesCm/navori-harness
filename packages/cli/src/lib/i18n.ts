@@ -749,6 +749,14 @@ interface SyncCmdStrings {
   fileChangedSinceDiff: (path: string) => string;
   /** Resolvable whole-file conflicts the user kept (or left unanswered). */
   fileConflictsKept: (count: number) => string;
+  /** `--accept-new-files` contradicts `--keep-mine`. */
+  bulkFlagsConflictFiles: string;
+  /** `--accept-new-files` cannot be combined with `--interactive`. */
+  bulkFlagsInteractiveFiles: string;
+  /** `--accept-new-files` without `--apply`/`--yes`: preview only, nothing written. */
+  acceptNewFilesPreview: (count: number) => string;
+  /** `--accept-new-files` accepted N whole files. */
+  acceptNewFilesApplied: (count: number) => string;
 }
 
 interface DoctorCmdStrings {
@@ -1958,6 +1966,17 @@ const CMD_ES: CmdStrings = {
       `${path} cambió en disco desde que se mostró el diff — lo dejé intacto. Vuelve a correr sync.`,
     fileConflictsKept: (count) =>
       `${count} archivo(s) con tu edición se mantienen. Corre 'navori sync --interactive' para resolverlos.`,
+    bulkFlagsConflictFiles:
+      "--accept-new-files y --keep-mine son excluyentes: --accept-new-files sobrescribe tus " +
+      "ediciones en archivos completos con la versión renderizada; --keep-mine las conserva.",
+    bulkFlagsInteractiveFiles:
+      "--interactive no se combina con --accept-new-files: uno pregunta archivo por archivo y " +
+      "el otro decide en bloque sin preguntar. Elige uno.",
+    acceptNewFilesPreview: (count) =>
+      `--accept-new-files sobrescribiría ${count} archivo(s) completo(s) con tu edición. No escribí ` +
+      `nada: vuelve a correrlo con --apply (o --yes) para aplicarlo.`,
+    acceptNewFilesApplied: (count) =>
+      `--accept-new-files: acepté la versión renderizada en ${count} archivo(s) completo(s)`,
   },
   doctor: {
     noConfigRunInit: (path) => `No hay navori.config.json en ${path}. Corre 'navori init' primero.`,
@@ -3358,6 +3377,17 @@ const CMD_EN: CmdStrings = {
       `${path} changed on disk since the diff was shown — left untouched. Run sync again.`,
     fileConflictsKept: (count) =>
       `${count} file(s) with your edit stay as they are. Run 'navori sync --interactive' to resolve them.`,
+    bulkFlagsConflictFiles:
+      "--accept-new-files and --keep-mine are mutually exclusive: --accept-new-files overwrites " +
+      "your edits in whole files with the rendered version; --keep-mine keeps them.",
+    bulkFlagsInteractiveFiles:
+      "--interactive cannot be combined with --accept-new-files: one asks file by file, the " +
+      "other decides in bulk without asking. Pick one.",
+    acceptNewFilesPreview: (count) =>
+      `--accept-new-files would overwrite ${count} whole file(s) carrying your edit. Nothing was ` +
+      `written: re-run it with --apply (or --yes) to apply it.`,
+    acceptNewFilesApplied: (count) =>
+      `--accept-new-files: accepted the rendered version in ${count} whole file(s)`,
   },
   doctor: {
     noConfigRunInit: (path) => `No navori.config.json at ${path}. Run 'navori init' first.`,

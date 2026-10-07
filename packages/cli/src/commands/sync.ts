@@ -76,6 +76,14 @@ export const syncCommand = defineCommand({
         "version, without prompting. Destructive: requires --apply (or --yes) to write, and " +
         "backs up CLAUDE.md first. Your user zone is never touched.",
     },
+    "accept-new-files": {
+      type: "boolean",
+      description:
+        "Resolve EVERY whole-file conflict (a managed file you edited that still carries its " +
+        "navori marker) by overwriting your edit with the rendered version, without prompting. " +
+        "Destructive: requires --apply (or --yes) to write, and backs up each file first. " +
+        "--accept-new alone never touches whole files.",
+    },
     "keep-mine": {
       type: "boolean",
       description:
@@ -135,6 +143,7 @@ export const syncCommand = defineCommand({
         acceptNew: Boolean(args["accept-new"]),
         keepMine: Boolean(args["keep-mine"]),
         interactive: Boolean(args.interactive),
+        acceptNewFiles: Boolean(args["accept-new-files"]),
       },
       lang,
     );
@@ -155,6 +164,7 @@ export const syncCommand = defineCommand({
       process.exit(1);
     }
     const bulkMode = bulk.mode;
+    const acceptFiles = bulk.acceptFiles;
 
     const targetsResult = resolveSyncTargets(cwd, config, workspaceFilter);
     if (!targetsResult.ok) {
@@ -190,10 +200,32 @@ export const syncCommand = defineCommand({
       const autoApply = Boolean(args.apply || args.yes) && !args["dry-run"];
       // A bulk flag ANSWERS the conflicts, so it defuses the --yes CI gate —
       // that gate exists precisely because nobody had decided what to do.
-      const yesBlocked = Boolean(args.yes) && conflicts.length > 0 && bulkMode === null;
+      const yesBlocked = Boolean(args.yes) && conflictsBlockYes(conflicts, bulkMode, acceptFiles);
       let writtenTotal = 0;
       const backups: Array<{ label: string; path: string }> = [];
+      const resolvedPaths = new Set<string>();
       if (autoApply && !yesBlocked) {
+        // `--accept-new-files` answers the resolvable whole files; they are
+        // written (with backup) before the normal apply pass so it sees them as
+        // navori's own.
+        if (acceptFiles) {
+          const outcome = applyFileResolutions(conflicts.filter(isResolvableFile), lang);
+          backups.push(...outcome.backups);
+          if (outcome.error !== null) {
+            console.log(
+              JSON.stringify({
+                command: "sync",
+                ok: false,
+                reason: "write-failed",
+                detail: outcome.error,
+                backups,
+              }),
+            );
+            process.exit(1);
+          }
+          writtenTotal += outcome.applied.length;
+          for (const c of outcome.applied) resolvedPaths.add(c.resolution.absPath);
+        }
         const resolutions = buildBulkResolutions(plans, bulkMode);
         for (const t of targets) {
           const applied = renderSyncTarget(t, false, resolutions.get(t.label));
@@ -204,8 +236,9 @@ export const syncCommand = defineCommand({
       const mode = args["dry-run"] ? "dry-run" : autoApply ? "apply" : "plan";
       console.log(
         JSON.stringify(
-          buildSyncJson(plans, conflicts, {
+          buildSyncJson(plans, conflicts, resolvedPaths, {
             ok: !yesBlocked,
+            acceptNewFiles: acceptFiles,
             // Stable English code (never localized) — only present on failure.
             reason: yesBlocked ? "conflicts-detected" : undefined,
             mode,
@@ -263,7 +296,7 @@ export const syncCommand = defineCommand({
 
     // The CI gate stands only when the conflicts are unanswered: a bulk flag IS
     // the answer, so `--yes --accept-new` must not exit 1 (#523).
-    if (args.yes && conflicts.length > 0 && bulkMode === null) {
+    if (args.yes && conflictsBlockYes(conflicts, bulkMode, acceptFiles)) {
       const lines = conflicts.map((c) => `  - ${c.path}: ${c.reason}`).join("\n");
       p.cancel(ts.conflictsWithYes(conflicts.length, lines));
       process.exit(1);
@@ -271,6 +304,22 @@ export const syncCommand = defineCommand({
 
     // Per-target conflict resolutions, chosen in --interactive mode or in bulk.
     let resolutions: Map<string, ConflictResolution> = new Map();
+
+    // `--accept-new-files` answers every resolvable whole file. Like the bulk
+    // modes it never prompts and never writes without --apply/--yes.
+    if (acceptFiles) {
+      if (!autoApply) {
+        const preview = ts.acceptNewFilesPreview(resolvableFiles.length);
+        if (bulkMode === null) {
+          p.outro(preview);
+          return;
+        }
+        p.log.info(preview);
+      } else {
+        acceptedFiles = resolvableFiles;
+        p.log.info(ts.acceptNewFilesApplied(resolvableFiles.length));
+      }
+    }
 
     if (bulkMode !== null) {
       // Decided in bulk: never prompt. Writing still requires --apply/--yes —
@@ -533,7 +582,12 @@ export interface ConflictResolution {
 export type BulkMode = "accept-new" | "keep-mine";
 
 export type BulkModeResult =
-  | { ok: true; mode: BulkMode | null }
+  | {
+      ok: true;
+      mode: BulkMode | null;
+      /** `--accept-new-files`: accept the rendered version of every resolvable whole file. */
+      acceptFiles: boolean;
+    }
   /** `reason` is the LOCALIZED human message; `reasonCode` is the stable
    *  kebab-case code `--json` consumers branch on (never localized). */
   | { ok: false; reason: string; reasonCode: string };
@@ -547,12 +601,28 @@ export type BulkModeResult =
  * fail fast with exit 1 rather than picking a winner silently.
  */
 export function resolveBulkMode(
-  flags: { acceptNew: boolean; keepMine: boolean; interactive: boolean },
+  flags: {
+    acceptNew: boolean;
+    keepMine: boolean;
+    interactive: boolean;
+    acceptNewFiles?: boolean;
+  },
   lang: Lang = DEFAULT_LANG,
 ): BulkModeResult {
   const ts = tc(lang).sync;
+  const acceptFiles = flags.acceptNewFiles === true;
   if (flags.acceptNew && flags.keepMine) {
     return { ok: false, reason: ts.bulkFlagsConflict, reasonCode: "bulk-flags-conflict" };
+  }
+  if (acceptFiles && flags.keepMine) {
+    return { ok: false, reason: ts.bulkFlagsConflictFiles, reasonCode: "bulk-flags-conflict" };
+  }
+  if (acceptFiles && flags.interactive) {
+    return {
+      ok: false,
+      reason: ts.bulkFlagsInteractiveFiles,
+      reasonCode: "bulk-flags-interactive",
+    };
   }
   const mode: BulkMode | null = flags.acceptNew
     ? "accept-new"
@@ -562,7 +632,29 @@ export function resolveBulkMode(
   if (mode !== null && flags.interactive) {
     return { ok: false, reason: ts.bulkFlagsInteractive, reasonCode: "bulk-flags-interactive" };
   }
-  return { ok: true, mode };
+  return { ok: true, mode, acceptFiles };
+}
+
+/**
+ * Whether `--yes` must fail as a CI gate: a conflict is still unanswered. A bulk
+ * mode answers CLAUDE.md blocks (and, historically, tolerated whole files, #523);
+ * `--accept-new-files` answers the whole files. Block conflicts need a bulk mode
+ * even when `--accept-new-files` is set.
+ */
+export function conflictsBlockYes(
+  conflicts: readonly Conflict[],
+  bulkMode: BulkMode | null,
+  acceptFiles: boolean,
+): boolean {
+  if (bulkMode !== null) return false;
+  return conflicts.some((c) => c.kind === "block" || !acceptFiles);
+}
+
+/** Which bulk flag can answer a conflict: `bulk`, or `none` (manual exit only). */
+export type Resolvable = "bulk" | "none";
+
+export function resolvableOf(c: Conflict): Resolvable {
+  return c.kind === "block" || c.resolution !== undefined ? "bulk" : "none";
 }
 
 /**
@@ -799,8 +891,12 @@ export function applyFileResolutions(
 function buildSyncJson(
   plans: TargetPlan[],
   conflicts: Conflict[],
+  /** Absolute paths of whole files written by `--accept-new-files` this run. */
+  resolvedPaths: ReadonlySet<string>,
   meta: {
     ok: boolean;
+    /** `--accept-new-files` was passed. */
+    acceptNewFiles: boolean;
     /** Stable English failure code; omitted from the payload when undefined. */
     reason?: string;
     mode: string;
@@ -813,12 +909,16 @@ function buildSyncJson(
     orphanedWorkspaces: string[];
   },
 ) {
+  // A skip whose file was just resolved is no longer skipped.
+  const isStillSkipped = (s: { resolution?: SkipResolution }): boolean =>
+    !s.resolution || !resolvedPaths.has(s.resolution.absPath);
   return {
     command: "sync",
     ok: meta.ok,
     ...(meta.reason ? { reason: meta.reason } : {}),
     mode: meta.mode,
     resolution: meta.resolution,
+    acceptNewFiles: meta.acceptNewFiles,
     targets: plans.map(({ target, claude, engines }) => ({
       label: target.label,
       claudeMd: (claude?.claudeMdEntries ?? []).map((e) => ({
@@ -828,7 +928,7 @@ function buildSyncJson(
       written: (claude?.written ?? [])
         .filter((w) => w.path !== "CLAUDE.md")
         .map((w) => ({ path: w.path, status: w.status })),
-      skipped: (claude?.skipped ?? []).map((s) => ({
+      skipped: (claude?.skipped ?? []).filter(isStillSkipped).map((s) => ({
         path: s.path,
         reason: s.reason,
         status: s.status,
@@ -841,7 +941,7 @@ function buildSyncJson(
       engines: engines.map((engine) => ({
         engine: engine.engine,
         written: engine.written.map((w) => ({ path: w.path, status: w.status })),
-        skipped: engine.skipped.map((s) => ({
+        skipped: engine.skipped.filter(isStillSkipped).map((s) => ({
           path: s.path,
           reason: s.reason,
           status: s.status,
@@ -851,7 +951,11 @@ function buildSyncJson(
     })),
     // `kind` tells automation which conflicts `--accept-new`/`--keep-mine` can
     // reach ("block") and which no flag can ("file") — see the Conflict docs.
-    conflicts: conflicts.map((c) => ({ path: c.path, reason: c.reason, kind: c.kind })),
+    // Post-resolution state: files `--accept-new-files` just wrote are no longer
+    // conflicts. `resolvable` never carries file bodies (`resolution` is dropped).
+    conflicts: conflicts
+      .filter((c) => !c.resolution || !resolvedPaths.has(c.resolution.absPath))
+      .map((c) => ({ path: c.path, reason: c.reason, kind: c.kind, resolvable: resolvableOf(c) })),
     orphanedWorkspaces: meta.orphanedWorkspaces,
     pending: meta.pending,
     written: meta.written,
