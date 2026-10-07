@@ -1,4 +1,4 @@
-# navori:managed start id="qg-pre-commit-base" hash="bf6bf2a1" version="0.11.2" source="@navori/core"
+# navori:managed start id="qg-pre-commit-base" hash="ca4d8413" version="0.11.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Pre-commit / pre-push quality gate hook.
@@ -481,6 +481,8 @@ run_gate() {
   eval "$1" || {
     navori_audit_block_reason="quality gate en rojo: '$1' fallo, commit abortado"
     echo "[navori] quality-gate fast failed. Commit aborted." >&2
+    echo "[navori] The gate ran in this working tree: $PWD" >&2
+    echo "[navori] Stop and report the failure. The fix goes back through implementer -> reviewer. Do not edit files to make the gate pass, and do not use --no-verify." >&2
     exit 2
   }
 }

@@ -9,7 +9,7 @@ import {
   symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve, dirname, basename } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { shellSingleQuote } from "../primitives/shell-escape.ts";
@@ -84,6 +84,20 @@ describe("quality-gate hook — declared runner present", () => {
     const r = runHook(installHook("pnpm run typecheck"), "git commit -m test");
     expect(r.status).toBe(2);
     expect(r.stderr).toContain("quality-gate fast failed");
+  });
+
+  it("a red gate names the working tree and tells the publisher to stop and report", () => {
+    fakeBin("pnpm", 2);
+    const r = runHook(installHook("pnpm run typecheck"), "git commit -m test");
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("[navori] quality-gate fast failed. Commit aborted.");
+    expect(r.stderr).toContain("The gate ran in this working tree:");
+    // tmpdir may be a symlink (/var -> /private/var), so match the unique basename.
+    expect(r.stderr).toContain(basename(dir));
+    expect(r.stderr).toContain("Stop and report");
+    expect(r.stderr).toContain("implementer -> reviewer");
+    expect(r.stderr).toContain("Do not edit files");
+    expect(r.stderr).toContain("do not use --no-verify");
   });
 
   it("ignores commands that are not a git commit", () => {

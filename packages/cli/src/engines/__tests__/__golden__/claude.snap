@@ -928,6 +928,7 @@ wc -c CLAUDE.md                                  # after
 ## Hard rules
 
 - ❌ A stop report (gate red, missing review, protected branch, etc.) is the last action of this cycle. Do not continue investigating, re-running the gate, or calling `git`/`gh` after emitting it. If flaky, the next invocation decides.
+- ❌ Never write to project files through Bash (redirections, sed -i, tee, interpreter one-liners, git checkout or restore of files). When a hook blocks, the stop report is the last action; the fix is not yours.
 - ❌ Never push with `--force` to `main` or another protected branch.
 - ❌ Never skip hooks (`--no-verify`) unless the user explicitly asks.
 - ❌ Never ask for a merge / approve the PR yourself. Your job ends with the URL.
@@ -8423,6 +8424,8 @@ run_gate() {
   eval "$1" || {
     navori_audit_block_reason="quality gate en rojo: '$1' fallo, commit abortado"
     echo "[navori] quality-gate fast failed. Commit aborted." >&2
+    echo "[navori] The gate ran in this working tree: $PWD" >&2
+    echo "[navori] Stop and report the failure. The fix goes back through implementer -> reviewer. Do not edit files to make the gate pass, and do not use --no-verify." >&2
     exit 2
   }
 }
