@@ -167,7 +167,7 @@ const es: Record<string, CommandDoc> = {
     ],
     notes: [
       "Si editaste un bloque managed a mano, sync lo detecta (hash drift) y NO lo pisa: lo resuelves tú.",
-      "Un archivo completo editado a mano (agente, skill, hook, script de plugin, AGENTS.md…) que conserva su marcador navori se resuelve con --interactive (diff + keep/accept) o en bloque con --accept-new-files. Sin marcador sigue la salida manual: muévelo aparte y corre render --apply.",
+      "Un archivo completo editado a mano (agente, skill, hook, script de plugin, AGENTS.md…) que conserva su marcador navori se resuelve con --interactive (diff + keep/accept) o en bloque con --accept-new-files. Un archivo sin ningún marcador navori (script de plugin legacy o archivo tuyo en una ruta de plugin) solo se reemplaza completo con --interactive: avisa que no es una edición de navori, muestra el diff, por defecto conserva el tuyo y, si aceptas, guarda un backup (se conserva 30 días; recupéralo con navori backup restore). Ningún flag masivo ni --json lo toca. Si solo conserva parte del marcador o lo menciona en un comentario, la salida es manual: muévelo aparte y corre render --apply.",
       "Con --json, cada conflicto trae 'resolvable' ('bulk' o 'none') y la salida trae 'acceptNewFiles'; nunca incluye el contenido de los archivos y refleja el estado posterior a la resolución.",
       "sync es el comando para upgrades de versión; render --apply es para regenerar.",
       "Mantiene el '.claude/.gitignore' del harness (y '.codex/.gitignore' con codex habilitado) al día igual que cualquier otro bloque managed.",
@@ -1125,7 +1125,7 @@ const en: Record<string, CommandDoc> = {
     ],
     notes: [
       "If you hand-edited a managed block, sync detects it (hash drift) and won't overwrite — you resolve it.",
-      "A hand-edited whole file (agent, skill, hook, plugin script, AGENTS.md…) that still carries its navori marker is resolved with --interactive (diff + keep/accept) or in bulk with --accept-new-files. Without a marker the manual exit remains: move it aside and run render --apply.",
+      "A hand-edited whole file (agent, skill, hook, plugin script, AGENTS.md…) that still carries its navori marker is resolved with --interactive (diff + keep/accept) or in bulk with --accept-new-files. A file with no navori marker at all (a legacy plugin script, or your own file at a plugin path) is replaced whole only with --interactive: it warns that this is not a navori edit, shows the diff, defaults to keeping yours and, if you accept, backs it up (kept 30 days; recover it with navori backup restore). No bulk flag or --json touches it. If it keeps only part of the marker or mentions it in a comment, the exit is manual: move it aside and run render --apply.",
       "With --json, each conflict carries 'resolvable' ('bulk' or 'none') and the output carries 'acceptNewFiles'; it never includes file contents and reports the post-resolution state.",
       "sync is for version upgrades; render --apply is for regenerating.",
       "Keeps the harness's '.claude/.gitignore' (and '.codex/.gitignore' with codex enabled) up to date, same as any other managed block.",
