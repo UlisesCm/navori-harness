@@ -215,6 +215,7 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
         {
           absPath: destPath,
           basis: existing,
+          resolvableReason: strings.managedFileEditedResolvable,
           render: () => forcedInjectContent(existing, spec.managedId, body, CORE_META, "html"),
         },
       ),

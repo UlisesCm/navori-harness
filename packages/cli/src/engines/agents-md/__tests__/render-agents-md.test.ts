@@ -141,7 +141,7 @@ describe("renderAgentsMdEngine", () => {
     expect(r.skipped).toEqual([
       {
         path: "AGENTS.md",
-        reason: tc("es").engine.managedBlockEditedByHand,
+        reason: tc("es").engine.managedFileEditedResolvable,
         status: "user-modified-skipped",
         // The skip now also carries the forced render sync can offer.
         resolution: expect.objectContaining({ absPath: join(cwd, "AGENTS.md") }),

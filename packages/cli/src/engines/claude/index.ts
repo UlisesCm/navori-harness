@@ -1922,7 +1922,7 @@ type ManagedFilePlan =
       reason: string;
       status: SkipStatus;
       /** On-disk bytes and lazy forced body, set only for an edited block that kept its marker. */
-      forced?: { basis: string; render: () => string | null };
+      forced?: { basis: string; render: () => string | null; resolvableReason: string };
     }
   | { kind: "write"; path: string; content: string; status: RenderStatus };
 
@@ -1953,6 +1953,8 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
         ? {
             forced: {
               basis: existing,
+              resolvableReason: tc(resolveLang(input.config.language)).engine
+                .managedFileEditedResolvable,
               render: () => forcedManagedFileContent(renderInput),
             },
           }
@@ -1993,6 +1995,7 @@ function applyManagedFilePlan(
             absPath: plan.path,
             basis: plan.forced.basis,
             chmodExec,
+            resolvableReason: plan.forced.resolvableReason,
             render: plan.forced.render,
           }),
     );

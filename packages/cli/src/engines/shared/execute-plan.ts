@@ -191,7 +191,14 @@ export interface SkipResolution {
  */
 export function attachResolution(
   skip: SkippedFile,
-  input: { absPath: string; basis: string; chmodExec?: boolean; render: () => string | null },
+  input: {
+    absPath: string;
+    basis: string;
+    chmodExec?: boolean;
+    render: () => string | null;
+    /** Replaces `skip.reason` when a resolution is attached (sync can fix it). */
+    resolvableReason?: string;
+  },
 ): SkippedFile {
   if (skip.status !== "user-modified-skipped") return skip;
   const stats = lstatSync(input.absPath, { throwIfNoEntry: false });
@@ -205,6 +212,7 @@ export function attachResolution(
   if (content === null || content === input.basis) return skip;
   return {
     ...skip,
+    ...(input.resolvableReason !== undefined ? { reason: input.resolvableReason } : {}),
     resolution: {
       absPath: input.absPath,
       basis: input.basis,
@@ -289,7 +297,8 @@ export function collectPlan(
   collisions: CollisionNotice[];
 } {
   const prune = options.prune !== false;
-  const skipReason = options.skipReason ?? makeDefaultSkipReason(options.lang ?? DEFAULT_LANG);
+  const lang = options.lang ?? DEFAULT_LANG;
+  const skipReason = options.skipReason ?? makeDefaultSkipReason(lang);
   const pending: PendingWrite[] = [];
   const skipped: ExecuteResult["skipped"] = [];
   const collisions: CollisionNotice[] = [];
@@ -312,7 +321,7 @@ export function collectPlan(
   requests.push(...adapter.extraFiles(ctx));
 
   for (const req of requests)
-    collectRequest(req, ctx, pending, skipped, skipReason, collisions, adapter.id);
+    collectRequest(req, ctx, pending, skipped, skipReason, collisions, adapter.id, lang);
 
   const { removals, kept } = prune
     ? collectOrphans(adapter.orphanScans(plan, ctx), ctx.cwd)
@@ -366,6 +375,7 @@ function collectRequest(
   skipReason: SkipReason,
   collisions: CollisionNotice[],
   engine: string,
+  lang: Lang,
 ): void {
   const path = join(ctx.cwd, req.destRelPath);
   let content: string;
@@ -400,6 +410,7 @@ function collectRequest(
                 absPath: path,
                 basis: existing,
                 chmodExec: req.chmodExec,
+                resolvableReason: tc(lang).engine.managedFileEditedResolvable,
                 render: () =>
                   forcedManagedFileContent({
                     assetPath,
@@ -488,6 +499,7 @@ function collectRequest(
             absPath: path,
             basis: forced.basis,
             chmodExec: req.chmodExec,
+            resolvableReason: tc(lang).engine.managedFileEditedResolvable,
             render: forced.render,
           }),
     );

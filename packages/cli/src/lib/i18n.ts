@@ -1146,6 +1146,8 @@ interface DoctorCmdStrings {
 interface EngineCmdStrings {
   // Skip reasons (shared spine + adapter overrides)
   managedBlockEditedByHand: string;
+  /** Same skip when `navori sync` CAN resolve the file (it kept its marker). */
+  managedFileEditedResolvable: string;
   blockFromNewerNavori: (version: string | undefined) => string;
   subBlockEditedByHand: (skillId: string, pluginId: string) => string;
   subBlockFromNewerNavori: (skillId: string, version: string | undefined) => string;
@@ -2711,6 +2713,8 @@ const CMD_ES: CmdStrings = {
   engine: {
     managedBlockEditedByHand:
       "bloque managed editado por el usuario; en bloques de CLAUDE.md/AGENTS.md resuelve con 'navori sync'; en archivos completos ajusta el destino a mano o muévelo aparte y corre 'navori render --apply'",
+    managedFileEditedResolvable:
+      "bloque managed editado por el usuario; resuélvelo con 'navori sync --interactive' (o 'navori sync --accept-new-files --apply' para aceptar la versión renderizada)",
     blockFromNewerNavori: (v) =>
       `bloque escrito por una navori más nueva (${v ?? "?"}); no lo toqué. Actualiza tu CLI: npm i -g navori@latest`,
     subBlockEditedByHand: (id, pid) =>
@@ -4116,6 +4120,8 @@ const CMD_EN: CmdStrings = {
   engine: {
     managedBlockEditedByHand:
       "managed block edited by hand; for CLAUDE.md/AGENTS.md blocks resolve with 'navori sync'; for whole files adjust the destination manually or move it aside and run 'navori render --apply'",
+    managedFileEditedResolvable:
+      "managed block edited by hand; resolve it with 'navori sync --interactive' (or 'navori sync --accept-new-files --apply' to accept the rendered version)",
     blockFromNewerNavori: (v) =>
       `block written by a newer navori (${v ?? "?"}); left untouched. Update your CLI: npm i -g navori@latest`,
     subBlockEditedByHand: (id, pid) =>

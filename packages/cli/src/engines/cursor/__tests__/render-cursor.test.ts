@@ -110,7 +110,7 @@ describe("renderCursorEngine", () => {
     expect(r.skipped).toEqual([
       {
         path: MDC,
-        reason: tc("es").engine.managedBlockEditedByHand,
+        reason: tc("es").engine.managedFileEditedResolvable,
         status: "user-modified-skipped",
         // The skip now also carries the forced render sync can offer.
         resolution: expect.objectContaining({ absPath: join(cwd, MDC) }),
