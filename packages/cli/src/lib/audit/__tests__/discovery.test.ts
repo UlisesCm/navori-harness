@@ -645,6 +645,44 @@ describe("discovery: every audited repo, with coverage (R61, R62)", () => {
     },
   );
   // Covers: R8
+  it("does not read a spawned Codex child thread as an identity conflict", () => {
+    const cwd = projectRoot("child");
+    audit("child", "s", cwd);
+    host(cwd, "s.jsonl");
+    writeFileSync(
+      join(sandbox, "codex", "sessions", "rollout-child.jsonl"),
+      JSON.stringify({
+        type: "session_meta",
+        timestamp: "2026-09-20T10:00:00Z",
+        payload: {
+          cwd,
+          id: "child-thread",
+          session_id: "root-session",
+          parent_thread_id: "intermediate-thread",
+          cli_version: "0.159.3",
+        },
+      }) + "\n",
+    );
+    expect(repoCoverage("child", {}, cwd).row).toMatchObject({ host: 2, captured: 1 });
+    expect(repoCoverage("child", {}, cwd).row.reason).not.toBe("identity-conflict");
+  });
+
+  // Covers: R8
+  it("ignores a fully read source of host bookkeeping only, but not an unreadable one", () => {
+    const cwd = projectRoot("stub");
+    audit("stub", "s", cwd);
+    host(cwd, "s.jsonl");
+    const stub = host(cwd, "title-only.jsonl");
+    writeFileSync(stub, `${JSON.stringify({ type: "ai-title", aiTitle: "t", sessionId: "x" })}\n`);
+    expect(repoCoverage("stub", {}, cwd).row).toMatchObject({ host: 1, captured: 1, reason: null });
+    writeFileSync(stub, "{not json\n");
+    expect(repoCoverage("stub", {}, cwd).row).toMatchObject({
+      host: null,
+      reason: "incomplete-enumeration",
+    });
+  });
+
+  // Covers: R8
   it("uses UTC midnight, offsets, and an exclusive instant upper boundary", () => {
     const one = projectRoot("one");
     host(one, "before.jsonl", "2026-09-19T23:59:59.999Z");

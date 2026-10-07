@@ -85,6 +85,8 @@ export interface AuditDiscoveryContext {
   indexedPaths: string[] | null;
   indexedRoots: Set<string>;
   metadata: Map<string, Record<string, unknown> | null>;
+  /** Fully read sources holding only host bookkeeping (titles): no session, nothing to attribute. */
+  bookkeepingOnly: Set<string>;
   logs: Map<string, AuditLogView>;
   repoRoots: Map<string, Set<string>>;
 }
@@ -99,6 +101,7 @@ export function createAuditDiscoveryContext(
     indexedPaths: null,
     indexedRoots: new Set(),
     metadata: new Map(),
+    bookkeepingOnly: new Set(),
     logs: new Map(),
     repoRoots: new Map(),
   };
@@ -233,13 +236,24 @@ function indexedSourceMetadata(
   if (context.metadata.has(path)) return context.metadata.get(path) ?? null;
   if (!retainAuditPath(context.budget, path)) return null;
   let record: Record<string, unknown> | null = null;
+  let visited = false;
   const reading = readSourceIdentity(path, (value) => {
+    visited = true;
     const normalized = normalizeAuditRecord(value, "metadata");
     if (normalized.omitted) omitAuditFacts(context.scanBudget, normalized.omitted);
     if (normalized.value && retainAuditFact(context.scanBudget, null, normalized.value))
       record = normalized.value;
   });
   if (reading.sourceStatus !== "observed") record = null;
+  else if (
+    !visited &&
+    !reading.stoppedEarly &&
+    !reading.malformedJson &&
+    !reading.invalidUtf8 &&
+    !reading.oversizedLines &&
+    !reading.incompleteTail
+  )
+    context.bookkeepingOnly.add(path);
   const entry = { path, record };
   if (retainAuditFact(context.scanBudget, null, entry)) context.metadata.set(path, record);
   return record;
@@ -855,7 +869,9 @@ function inspectSource(
         host === "codex" &&
         fields.id !== undefined &&
         fields.session_id !== undefined &&
-        fields.id !== fields.session_id
+        fields.id !== fields.session_id &&
+        // A spawned child thread (any ancestor as parent) carries its tree's root `session_id`.
+        typeof fields.parent_thread_id !== "string"
       ) {
         return { host, status: "identity-conflict" };
       }
@@ -1282,6 +1298,7 @@ function hostPopulation(
     const expectedHost = codexFiles.has(file) ? "codex" : "claude";
     try {
       const record: unknown = indexedSourceMetadata(file, context);
+      if (context.bookkeepingOnly.has(file)) continue;
       if (typeof record !== "object" || record === null) {
         byHost[expectedHost] = false;
         continue;
