@@ -264,7 +264,7 @@ const SKILL = (ws: string, id: string): string => join(cwd, ws, ".claude/skills"
  * Field-shaped monorepo: two workspaces with their own presets, one of them with
  * its own `qualityGate`, under a root with a third preset.
  */
-function writeMoonarConfig(harness: "minimal" | "full" = "minimal"): void {
+function writeMoonarConfig(harness: "minimal" | "full" | "root" = "minimal"): void {
   writeConfig(join(cwd, "navori.config.json"), {
     name: "moonar-demo",
     engines: ["claude"],
@@ -398,5 +398,181 @@ describe("render por workspace — `minimal` no duplica lo de la raíz (spec 004
     const second = runRender(cwd, { dryRun: false });
     expect(countPendingRenderChanges(second)).toBe(0);
     expect(countPendingRenderChanges(runRender(cwd, { dryRun: true }))).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Spec 0043 — `root`: the workspace keeps only its context file, the root
+// writes what the workspaces hand up.
+// ---------------------------------------------------------------------------
+
+const WS_BACKEND = "apps/backend";
+const WS_STOREFRONT = "apps/storefront";
+const rootSkillDir = (id: string): string => join(cwd, ".claude/skills", id);
+
+/** Two workspaces that each declare `vitest`; the gate decides whether their bytes agree. */
+function writeVitestConfig(gates: { a: string; b: string }, harness: "root" | "minimal" = "root") {
+  writeConfig(join(cwd, "navori.config.json"), {
+    name: "vitest-demo",
+    engines: ["claude"],
+    preset: "monorepo-turbopnpm",
+    qualityGate: { fast: "pnpm -w lint", full: "pnpm -w test" },
+    monorepo: {
+      enabled: true,
+      tool: "turbo",
+      workspaces: [
+        {
+          name: "backend",
+          path: WS_BACKEND,
+          libraries: ["vitest"],
+          qualityGate: { fast: gates.a, full: "pnpm test" },
+        },
+        {
+          name: "storefront",
+          path: WS_STOREFRONT,
+          libraries: ["vitest"],
+          qualityGate: { fast: gates.b, full: "pnpm test" },
+        },
+      ],
+      workspaceHarness: harness,
+    },
+  });
+}
+
+describe("render por workspace — `root` (spec 0043)", () => {
+  it("`full` → `root`: el workspace queda sin `.claude/`, lo ajeno se conserva y se reporta, y la raíz gana lo subido", () => {
+    // Covers: R4, R5, R7
+    writeMoonarConfig("full");
+    expect(runRender(cwd).ok).toBe(true);
+    expect(existsSync(rootSkillDir("nextjs-app-router"))).toBe(false);
+    // Un archivo del usuario en un workspace, no en el otro.
+    writeFileSync(join(cwd, WS_BACKEND, ".claude/agents/mio.md"), "# mi agente\n");
+
+    writeMoonarConfig("root");
+    const result = runRender(cwd, { dryRun: false });
+    expect(result.ok).toBe(true);
+
+    // `storefront` no tenía nada propio: ni `.claude/` queda.
+    expect(existsSync(join(cwd, WS_STOREFRONT, ".claude"))).toBe(false);
+    // `backend` conserva lo suyo — y solo eso — y lo dice.
+    const left = readdirSync(join(cwd, WS_BACKEND, ".claude"), { recursive: true });
+    expect(left.map(String).filter((f) => f.endsWith(".md") || f.endsWith(".json"))).toEqual([
+      join("agents", "mio.md"),
+    ]);
+    const backend = result.workspaces.find((w) => w.workspaceName === "backend")!;
+    expect(backend.trimmedKept.some((k) => k.path.endsWith("mio.md"))).toBe(true);
+    // La raíz ganó lo que los workspaces subieron.
+    expect(existsSync(join(rootSkillDir("nextjs-app-router"), "SKILL.md"))).toBe(true);
+    expect(existsSync(join(rootSkillDir("medusa-modules"), "SKILL.md"))).toBe(true);
+    expect(existsSync(join(cwd, WS_STOREFRONT, "CLAUDE.md"))).toBe(true);
+  });
+
+  it("`render --workspace` bajo `root` con una raíz sin lo subido conserva las skills del workspace", () => {
+    // Covers: R4, R9
+    writeMoonarConfig("root");
+    // Sin raíz renderizada: no hay quien provea nada, el workspace conserva todo.
+    expect(runRender(cwd, { dryRun: false, workspaceFilter: "backend" }).ok).toBe(true);
+    expect(skillIds(join(cwd, WS_BACKEND))).toEqual(
+      expect.arrayContaining(["locate-code", "review-diff", "medusa-modules"]),
+    );
+    // Con una raíz que ya tiene lo genérico pero no lo subido: se va lo genérico,
+    // se queda lo que la raíz todavía no tiene.
+    expect(runRender(cwd, { dryRun: false, workspaceFilter: "storefront" }).ok).toBe(true);
+    writeMoonarConfig("minimal");
+    expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
+    writeMoonarConfig("root");
+    rmSync(rootSkillDir("medusa-modules"), { recursive: true, force: true });
+    const filtered = runRender(cwd, { dryRun: false, workspaceFilter: "backend" });
+    expect(filtered.ok).toBe(true);
+    expect(skillIds(join(cwd, WS_BACKEND))).toContain("medusa-modules");
+    expect(skillIds(join(cwd, WS_BACKEND))).not.toContain("locate-code");
+  });
+
+  it("`root` → `minimal` devuelve las skills al workspace y poda lo subido en la raíz", () => {
+    // Covers: R7, R9
+    writeMoonarConfig("root");
+    expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
+    expect(existsSync(rootSkillDir("medusa-modules"))).toBe(true);
+    expect(skillIds(join(cwd, WS_BACKEND))).toEqual([]);
+
+    writeMoonarConfig("minimal");
+    expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
+
+    expect(existsSync(SKILL(WS_BACKEND, "medusa-modules"))).toBe(true);
+    expect(existsSync(rootSkillDir("medusa-modules"))).toBe(false);
+    expect(existsSync(rootSkillDir("nextjs-app-router"))).toBe(false);
+    expect(countPendingRenderChanges(runRender(cwd, { dryRun: true }))).toBe(0);
+  });
+
+  it("un conflicto que desaparece renombra `slug-id` al id original sin dejar restos", () => {
+    // Covers: R6
+    writeVitestConfig({ a: "pnpm a-lint", b: "pnpm b-lint" });
+    expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
+    expect(existsSync(rootSkillDir("vitest"))).toBe(false);
+    expect(existsSync(join(rootSkillDir("backend-vitest"), "SKILL.md"))).toBe(true);
+    expect(existsSync(join(rootSkillDir("storefront-vitest"), "SKILL.md"))).toBe(true);
+
+    // Los gates coinciden: los bytes también, y queda una sola con el id original.
+    writeVitestConfig({ a: "pnpm lint", b: "pnpm lint" });
+    expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
+
+    expect(existsSync(join(rootSkillDir("vitest"), "SKILL.md"))).toBe(true);
+    expect(existsSync(rootSkillDir("backend-vitest"))).toBe(false);
+    expect(existsSync(rootSkillDir("storefront-vitest"))).toBe(false);
+    expect(existsSync(join(cwd, WS_BACKEND, ".claude"))).toBe(false);
+    expect(countPendingRenderChanges(runRender(cwd, { dryRun: true }))).toBe(0);
+  });
+
+  it("fixture moonar bajo `root`: suben `medusa-*` y `nextjs-*` y ninguna variante core", () => {
+    // Covers: R5
+    writeMoonarConfig("root");
+    expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
+
+    const rootIds = skillIds(cwd);
+    expect(rootIds).toEqual(
+      expect.arrayContaining([
+        "medusa-modules",
+        "medusa-api-routes",
+        "nextjs-app-router",
+        "nextjs-data-fetching",
+        "new-resource",
+      ]),
+    );
+    // Ninguna variante por workspace de una core: `storefront` tiene otro gate y aun así gana la raíz.
+    expect(
+      rootIds.filter((id) => /-(verify-before-done|review-diff|locate-code)$/.test(id)),
+    ).toEqual([]);
+    expect(readFileSync(join(rootSkillDir("verify-before-done"), "SKILL.md"), "utf-8")).toContain(
+      "pnpm -w",
+    );
+    for (const ws of [WS_BACKEND, WS_STOREFRONT]) {
+      expect(readdirSync(join(cwd, ws))).toEqual(["CLAUDE.md"]);
+    }
+    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf-8")).toContain("`medusa-modules`");
+  });
+
+  it("segundo render bajo `root`: cero cambios", () => {
+    // Covers: R9
+    writeMoonarConfig("root");
+    expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
+    expect(countPendingRenderChanges(runRender(cwd, { dryRun: false }))).toBe(0);
+    expect(countPendingRenderChanges(runRender(cwd, { dryRun: true }))).toBe(0);
+  });
+
+  it("un destino de la raíz que no es de navori bloquea la subida y el workspace conserva su copia", () => {
+    // Covers: R6
+    writeMoonarConfig("root");
+    mkdirSync(rootSkillDir("nextjs-app-router"), { recursive: true });
+    writeFileSync(join(rootSkillDir("nextjs-app-router"), "SKILL.md"), "# mía\n");
+
+    const result = runRender(cwd, { dryRun: false });
+    expect(result.ok).toBe(true);
+
+    expect(readFileSync(join(rootSkillDir("nextjs-app-router"), "SKILL.md"), "utf-8")).toBe(
+      "# mía\n",
+    );
+    expect(existsSync(SKILL(WS_STOREFRONT, "nextjs-app-router"))).toBe(true);
+    const storefront = result.workspaces.find((w) => w.workspaceName === "storefront")!;
+    expect(storefront.engineResult?.warnings.join("\n")).toContain("nextjs-app-router");
   });
 });

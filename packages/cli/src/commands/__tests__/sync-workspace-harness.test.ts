@@ -53,7 +53,7 @@ async function runSync(flags: Record<string, unknown>): Promise<void> {
   await (syncCommand.run as (ctx: unknown) => Promise<void>)({ args: { cwd, ...flags } });
 }
 
-function writeMonorepoConfig(harness: "minimal" | "full"): void {
+function writeMonorepoConfig(harness: "minimal" | "full" | "root"): void {
   writeConfig(join(cwd, "navori.config.json"), {
     name: "ws-sync-demo",
     engines: ["claude"],
@@ -132,5 +132,37 @@ describe("sync respeta workspaceHarness (spec 0043 T1)", () => {
     await runSync({ apply: true });
     expect(listFiles(ws)).toEqual(afterRender);
     expect(countPendingRenderChanges(runRender(cwd, { dryRun: true }))).toBe(0);
+  });
+
+  it("render → sync --apply → render bajo `root`: cero cambios y sync no borra nada", async () => {
+    // Covers: R9
+    mkdirSync(join(cwd, "apps/web"), { recursive: true });
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "ws-sync-root",
+      engines: ["claude"],
+      preset: "monorepo-turbopnpm",
+      qualityGate: { fast: "pnpm -w lint", full: "pnpm -w test" },
+      monorepo: {
+        enabled: true,
+        tool: "turbo",
+        workspaces: [
+          { name: "backend", path: "apps/backend", preset: "medusa" },
+          { name: "web", path: "apps/web", preset: "nextjs" },
+        ],
+        workspaceHarness: "root",
+      },
+    });
+    expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
+    const snapshot = (): string[] => listFiles(cwd).filter((f) => !f.startsWith(".navori/"));
+    const before = snapshot();
+    expect(before.some((f) => f.endsWith("medusa-modules/SKILL.md"))).toBe(true);
+
+    await runSync({ apply: true });
+
+    // sync no recrea lo que `root` omite en los workspaces y no borra nada.
+    expect(snapshot()).toEqual(before);
+    expect(countPendingRenderChanges(runRender(cwd, { dryRun: true }))).toBe(0);
+    expect(countPendingRenderChanges(runRender(cwd, { dryRun: false }))).toBe(0);
+    expect(existsSync(join(cwd, "apps/backend/.claude"))).toBe(false);
   });
 });

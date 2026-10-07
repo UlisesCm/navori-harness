@@ -567,7 +567,16 @@ export function readConfig(path: string): NavoriConfig {
 
   const result = NavoriConfigSchema.safeParse(parsed);
   if (!result.success) {
-    throw new ConfigError(`Validation failed for ${path}`, result.error.issues);
+    // An enum value this CLI does not know is most often a config written by a
+    // NEWER navori (spec 0043: `workspaceHarness: "root"` is rejected by every
+    // CLI that predates it). Say so, so the fix is "update" rather than a hunt
+    // for a typo. Already-published CLIs cannot be taught this; it serves the
+    // next enum addition.
+    const unknownValue = result.error.issues.some((issue) => issue.code === "invalid_value");
+    const hint = unknownValue
+      ? ` — ${tc(resolveLang((parsed as { language?: unknown }).language)).common.configNewerValueHint}`
+      : "";
+    throw new ConfigError(`Validation failed for ${path}${hint}`, result.error.issues);
   }
   warnUnknownConfigKeys(parsed, result.data.language);
   warnDroppedEnums(parsed, result.data);

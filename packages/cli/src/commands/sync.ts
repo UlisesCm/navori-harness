@@ -6,6 +6,7 @@ import { type NavoriConfig } from "../lib/config/config.ts";
 import { readConfigOrExit } from "../lib/config/cli-config.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
 import { decideClaudeWorkspaceSkills } from "../engines/claude/workspace-decision.ts";
+import type { HoistedSkill, WorkspaceHarness } from "../engines/shared/workspace-skills.ts";
 import { renderNonClaudeEngines, type EngineRenderSummary } from "./render.ts";
 import {
   effectiveConfigForWorkspace,
@@ -446,7 +447,10 @@ export interface SyncTarget {
   monorepoContext?: MonorepoRenderContext;
   /** `monorepo.workspaceHarness` for a workspace target (spec 0018/0043), so sync
    * stops recreating what the mode omits; undefined for the root, which is never trimmed. */
-  harnessScope?: "minimal" | "full";
+  harnessScope?: WorkspaceHarness;
+  /** What the workspaces hand up (spec 0043), for the root target. Sync writes it and prunes
+   * nothing: `pruneCandidates` is always empty here, because deleting is `render`'s, with a preview. */
+  rootHoist?: { skills: readonly HoistedSkill[]; pruneCandidates: readonly [] };
   /** Skills the root already provides (spec 0043), so sync stops recreating them in the
    * workspace. Always `prune: false`: sync deletes nothing; `render` reconciles, with a preview. */
   workspaceSkills?: { omitted: ReadonlySet<string>; prune: false };
@@ -527,7 +531,15 @@ export function resolveSyncTargets(
     };
   }
 
-  const targets: SyncTarget[] = [{ label: "root", cwd, repoRoot: cwd, config }];
+  const targets: SyncTarget[] = [
+    {
+      label: "root",
+      cwd,
+      repoRoot: cwd,
+      config,
+      rootHoist: { skills: decision.hoisted, pruneCandidates: [] },
+    },
+  ];
   const orphanedWorkspaces: string[] = [];
   for (const ws of declared) {
     const wsCwd = resolve(cwd, ws.path);
@@ -722,6 +734,7 @@ function renderSyncTarget(
         monorepoContext: target.monorepoContext,
         harnessScope: target.harnessScope,
         workspaceSkills: target.workspaceSkills,
+        rootHoist: target.rootHoist,
       })
     : undefined;
   const additional = renderNonClaudeEngines(target.cwd, target.config, engines, dryRun, {

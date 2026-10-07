@@ -617,6 +617,8 @@ interface CommonCmdStrings {
   aborted: string;
   // lib/config.ts soft warnings (stderr) — localized off config.language.
   unknownConfigValues: (list: string) => string;
+  /** Appended to a validation failure caused by an unknown enum value (spec 0043). */
+  configNewerValueHint: string;
   unknownConfigKeys: (list: string) => string;
   deadProgressKeys: (list: string) => string;
   deprecatedConfigKeys: (list: string) => string;
@@ -663,6 +665,8 @@ interface RenderCmdStrings {
   workspaceTrimmedKept: (workspace: string, kept: number) => string;
   /** Skills a trimmed workspace no longer writes because the root has them (spec 0043). */
   workspaceSkillsTrimmed: (workspace: string, removed: number, kept: number) => string;
+  /** A skill the root could not take from a workspace under `root` (spec 0043 F10). */
+  hoistBlocked: (name: string, reason: "foreign" | "modified" | "newer") => string;
   wouldWrite: string;
   noChangePreview: string;
   written: string;
@@ -1800,6 +1804,8 @@ const CMD_ES: CmdStrings = {
     aborted: "Abortado",
     unknownConfigValues: (list) =>
       `navori: valores de config desconocidos ignorados (¿config de un navori más nuevo? actualiza el CLI): ${list}`,
+    configNewerValueHint:
+      "un valor desconocido puede venir de un navori más nuevo: actualiza navori en esta máquina, en CI y en el CLI global de los agentes",
     unknownConfigKeys: (list) =>
       `navori: claves de config desconocidas (no se rechazan para mantener compatibilidad futura): ${list}`,
     deadProgressKeys: (list) =>
@@ -1845,6 +1851,8 @@ const CMD_ES: CmdStrings = {
       `${workspace}: ${kept} archivo(s) conservados por no ser de navori — revísalos, son tuyos`,
     workspaceSkillsTrimmed: (workspace, removed, kept) =>
       `${workspace}: ${removed} skill(s) duplicadas de la raíz quitadas, ${kept} conservadas`,
+    hoistBlocked: (name, reason) =>
+      `no se sube a la raíz como \`.claude/skills/${name}\`: ya existe ahí y no es de navori sin cambios (${reason}). El workspace conserva su copia; renómbrala o muévela y vuelve a renderizar.`,
     wouldWrite: "→ preview (se escribiría)",
     noChangePreview: "→ sin cambios",
     written: "→ written",
@@ -3231,6 +3239,8 @@ const CMD_EN: CmdStrings = {
     aborted: "Aborted",
     unknownConfigValues: (list) =>
       `navori: unknown config values ignored (config from a newer navori? update the CLI): ${list}`,
+    configNewerValueHint:
+      "an unknown value may come from a newer navori: update navori on this machine, in CI and in the agents' global CLI",
     unknownConfigKeys: (list) =>
       `navori: unknown config keys (not rejected to preserve forward compatibility): ${list}`,
     deadProgressKeys: (list) =>
@@ -3274,6 +3284,8 @@ const CMD_EN: CmdStrings = {
       `${workspace}: ${kept} file(s) kept because navori did not write them — review them, they are yours`,
     workspaceSkillsTrimmed: (workspace, removed, kept) =>
       `${workspace}: ${removed} skill(s) duplicated from the root removed, ${kept} kept`,
+    hoistBlocked: (name, reason) =>
+      `not hoisted to the root as \`.claude/skills/${name}\`: it already exists there and is not untouched navori output (${reason}). The workspace keeps its copy; rename or move that one and render again.`,
     wouldWrite: "→ preview (would write)",
     noChangePreview: "→ no changes",
     written: "→ written",

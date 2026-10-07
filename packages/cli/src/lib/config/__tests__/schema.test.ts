@@ -124,6 +124,28 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
     expect(c.monorepo?.workspaceHarness).toBe("full");
   });
 
+  it("acepta 'root', el default sigue siendo 'minimal' y cualquier otro valor se rechaza", () => {
+    // Covers: R1
+    const root = NavoriConfigSchema.parse({
+      ...MINIMAL,
+      monorepo: { enabled: true, workspaceHarness: "root" },
+    });
+    expect(root.monorepo?.workspaceHarness).toBe("root");
+    expect(
+      NavoriConfigSchema.parse({ ...MINIMAL, monorepo: { enabled: true } }).monorepo
+        ?.workspaceHarness,
+    ).toBe("minimal");
+    for (const bad of ["Root", "workspace", "", 1, null]) {
+      expect(
+        NavoriConfigSchema.safeParse({
+          ...MINIMAL,
+          monorepo: { enabled: true, workspaceHarness: bad },
+        }).success,
+        `${String(bad)} debería rechazarse`,
+      ).toBe(false);
+    }
+  });
+
   it("rechaza cualquier otro valor de workspaceHarness", () => {
     // Covers: R1
     // Un typo silencioso aquí decidiría el harness de todo un monorepo.

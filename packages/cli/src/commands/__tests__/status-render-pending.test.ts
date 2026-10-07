@@ -183,4 +183,32 @@ describe("status renderPending (#1143)", () => {
     expect(after.renderPending).toBe(0);
     expect(after.drift).toBe(0);
   });
+
+  // Covers: R4, R9
+  it("right after switching to `root`, pending is > 0; after applying, 0 and drift 0", async () => {
+    const mono = (harness: "minimal" | "root") => ({
+      name: "pending-root",
+      engines: ["claude"],
+      preset: "monorepo-turbopnpm",
+      qualityGate: { fast: "pnpm -w lint", full: "pnpm -w test" },
+      monorepo: {
+        enabled: true,
+        tool: "turbo" as const,
+        workspaces: [{ name: "backend", path: "apps/backend", preset: "medusa" }],
+        workspaceHarness: harness,
+      },
+    });
+    mkdirSync(join(cwd, "apps/backend"), { recursive: true });
+    writeConfig(join(cwd, "navori.config.json"), mono("minimal"));
+    expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
+    expect((await statusJson()).renderPending).toBe(0);
+
+    writeConfig(join(cwd, "navori.config.json"), mono("root"));
+    expect((await statusJson()).renderPending as number).toBeGreaterThan(0);
+
+    expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
+    const after = await statusJson();
+    expect(after.renderPending).toBe(0);
+    expect(after.drift).toBe(0);
+  });
 });
