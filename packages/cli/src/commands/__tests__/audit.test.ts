@@ -205,6 +205,30 @@ afterEach(() => {
   rmSync(sandbox, { recursive: true, force: true });
 });
 
+describe("audit undeclared args", () => {
+  // A hook newer than the installed CLI used to fall through to the full range
+  // report on every prompt: the undeclared flag was parsed and ignored.
+  it.each([[["--bogus-flag"]], [["--no-bogus"]], [["stray"]], [["--bogus", "--json"]]])(
+    "exits 2 on %j without writing a report",
+    (extra) => {
+      const r = runAudit(extra);
+      expect(r.status).toBe(2);
+      expect(r.combined).toMatch(/bogus|stray/);
+      expect(readdirSync(auditsRoot)).toEqual([]);
+    },
+  );
+
+  it("names every undeclared arg in --json mode", () => {
+    const r = runAudit(["stray", "--json", "--bogus"]);
+    expect(r.status).toBe(2);
+    expect(JSON.parse(r.combined)).toEqual({
+      ok: false,
+      error: "unknown-args",
+      args: ["--bogus", "stray"],
+    });
+  });
+});
+
 describe("metadata transport", () => {
   const metadata = {
     event: "hook",
