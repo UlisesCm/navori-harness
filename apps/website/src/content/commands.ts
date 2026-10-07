@@ -695,7 +695,7 @@ const es: Record<string, CommandDoc> = {
     summary:
       "Cómo corrió el harness de verdad: a dónde se fueron los tokens y qué instrucciones nadie siguió.",
     usage:
-      "navori audit [--session <id>] [--days <n>] [--since <fecha>] [--until <fecha>] [--json]",
+      "navori audit [--session <id>] [--days <n>] [--since <fecha>] [--until <fecha>] [--snapshot <nombre>] [--compare <snapshot>] [--json]",
     flags: [
       { flag: "--session <id>", desc: "Una sesión por id, prefijo, o 'latest'." },
       { flag: "--days <n>", desc: "Solo sesiones marcadas en los últimos N días." },
@@ -703,6 +703,18 @@ const es: Record<string, CommandDoc> = {
       { flag: "--until <YYYY-MM-DD>", desc: "Hasta esta fecha." },
       { flag: "--json", desc: "Imprime el reporte JSON a stdout sin escribir archivos." },
       { flag: "--out <dir>", desc: "Cambia el directorio de salida." },
+      {
+        flag: "--snapshot <nombre>",
+        desc: "Congela las métricas del rango como snapshot versionado (formato 2: cohortes por host, régimen, modelo y trabajo) en la raíz de auditoría. No sobrescribe uno existente. No se combina con --json.",
+      },
+      {
+        flag: "--copy-to <ruta>",
+        desc: "Copia el snapshot a esta ruta, relativa a la raíz de git; no sobrescribe.",
+      },
+      {
+        flag: "--compare <snapshot>",
+        desc: "Compara el rango contra un snapshot guardado, métrica por métrica. Solo describe: marca 'matched' cuando las cohortes coinciden y nunca declara una mejora. Sí se combina con --json (no escribe archivos).",
+      },
       { flag: "--start <id>", desc: "Marca una sesión como auditada (lo usa el flujo del hook)." },
       {
         flag: "--arm",
@@ -734,6 +746,8 @@ const es: Record<string, CommandDoc> = {
       "Los datos salen de dos fuentes que no se sustituyen: el log de eventos que los hooks escriben (qué hizo el harness) y el transcript de Claude Code (el único lugar donde viven los tokens).",
       "El reporte se escribe en markdown y JSON dentro de ~/.navori/audits/<repo>/, junto a una copia del log de la sesión.",
       "Los conteos de hooks son parciales cuando el recorder arrancó tarde: la ficha del orquestador lo declara con el porcentaje de la sesión que sí observó.",
+      "Lo que un host no expone aparece como no disponible, nunca como 0. El reporte suma resultados por tarea (revisión, recibo, despacho) y recomendaciones agrupadas por su denominador, sin puntaje único.",
+      "Límites: los verbos de revisión del recibo llegan desde la versión 0.11.3, los umbrales mínimos y topes no están calibrados, la banda de ruido de --compare no está medida y la atribución de tokens por tarea cubre solo al implementer.",
     ],
   },
   adopt: {
@@ -1611,7 +1625,8 @@ const en: Record<string, CommandDoc> = {
     title: "audit",
     summary:
       "How the harness actually ran: where the tokens went, and which instructions nobody could follow.",
-    usage: "navori audit [--session <id>] [--days <n>] [--since <date>] [--until <date>] [--json]",
+    usage:
+      "navori audit [--session <id>] [--days <n>] [--since <date>] [--until <date>] [--snapshot <name>] [--compare <snapshot>] [--json]",
     flags: [
       { flag: "--session <id>", desc: "One session by id, prefix, or 'latest'." },
       { flag: "--days <n>", desc: "Only sessions marked in the last N days." },
@@ -1619,6 +1634,18 @@ const en: Record<string, CommandDoc> = {
       { flag: "--until <YYYY-MM-DD>", desc: "Up to this date." },
       { flag: "--json", desc: "Print the JSON report to stdout without writing files." },
       { flag: "--out <dir>", desc: "Override the output directory." },
+      {
+        flag: "--snapshot <name>",
+        desc: "Freeze the range's metrics as a versioned snapshot (format 2: cohorts by host, regime, model and work) in the audit root. Never overwrites an existing one. Cannot be combined with --json.",
+      },
+      {
+        flag: "--copy-to <path>",
+        desc: "Copy the snapshot to this path, relative to the git root; no overwrite.",
+      },
+      {
+        flag: "--compare <snapshot>",
+        desc: "Compare the range against a saved snapshot, metric by metric. Descriptive only: it marks 'matched' when the cohorts agree and never declares an improvement. Can be combined with --json (writes no files).",
+      },
       { flag: "--start <id>", desc: "Mark a session as audited (used by the hook flow)." },
       {
         flag: "--arm",
@@ -1650,6 +1677,8 @@ const en: Record<string, CommandDoc> = {
       "Two sources feed it and neither replaces the other: the event log the hooks write (what the harness did) and Claude Code's transcript (the only place token usage exists).",
       "The report is written as markdown and JSON under ~/.navori/audits/<repo>/, beside a copy of the session's log.",
       "Hook counts are partial when the recorder started late: the orchestrator's card says so, with the share of the session it did observe.",
+      "What a host does not expose shows as unavailable, never as 0. The report adds per-task outcomes (review, receipt, dispatch) and recommendations grouped by their denominator, with no single score.",
+      "Limits: the receipt review verbs ship from release 0.11.3, the minimum floors and caps are uncalibrated, --compare's noise band is unmeasured, and per-task token attribution covers the implementer only.",
     ],
   },
   adopt: {

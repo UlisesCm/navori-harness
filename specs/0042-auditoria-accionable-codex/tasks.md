@@ -36,8 +36,38 @@ El único tablero de avance es este archivo. Cada lote pasa por implementer y re
 ## Lote 5 — Comparación y cierre
 
 - [x] **T11** (R19, R20) — Snapshots con cohortes/disponibilidad y preflight por métrica; recomendaciones con evidencia/impacto separado de hipótesis. Tests: `snapshot.test.ts`, `signals.test.ts`: snapshots legacy desconocidos, cohortes incompatibles, ventanas solapadas y muestras insuficientes sin mejora causal.
-- [ ] **T12** (R1–R22) — Verificar trazabilidad completa, regresión Claude/Codex y gate completo; documentar contratos/versionado y límites observados sin prometer mediciones aún no capturables. Tests: conjunto de casos anteriores; receipt fresco sobre el diff que se entrega.
+- [x] **T12** (R1–R22) — Verificar trazabilidad completa, regresión Claude/Codex y gate completo; documentar contratos/versionado y límites observados sin prometer mediciones aún no capturables. Tests: conjunto de casos anteriores; receipt fresco sobre el diff que se entrega.
+  - Estado: cerrado con test de regresión cross-host `cross-host-regression.test.ts`, corrección de la ventana de un solo día y docs del sitio alineadas. Gate completo exit 0: 370 archivos, 8,197 pruebas aprobadas, 2 omitidas, piso de cobertura de 124 módulos (1 excepción) y bundle 1288.3/1300 KB. El receipt sobre el diff entregado sigue pendiente.
 
 ## Evidencia inicial
 
 Baseline sin cambios de fuente: gate completo verde el 2026-10-03, 349 archivos de test, 6964 tests aprobados y uno omitido; piso de cobertura intacto, bundle 1099.8 KB. Esto no verifica cambios nuevos.
+
+## Trazabilidad R1–R22
+
+Tests principales por requisito (archivos bajo `packages/cli/src/lib/audit/__tests__/` salvo comandos). `cross-host-regression.test.ts` cubre R4, R6, R8, R16, R17, R19 y R20 en Claude y Codex; el resto se ejercita con fixtures por host, sin regresión end-to-end entre hosts.
+
+| Req | Tests principales | Cross-host |
+|-----|-------------------|------------|
+| R1 | `cli-event`, `receipt`, `plan-gate` | — |
+| R2 | `discovery`, `receipt`, `launchd` | — |
+| R3 | `discovery`, `receipt`, `collect` | — |
+| R4 | `parse`, `cli-event`, `report` | sí (`cross-host-regression`) |
+| R5 | `parse`, `discovery`, `cli-event` | — |
+| R6 | `parse`, `report`, `snapshot` | sí (`cross-host-regression`) |
+| R7 | `parse`, `discovery`, `collect` | — |
+| R8 | `discovery`, `report`, `range-metrics` | sí (`cross-host-regression`) |
+| R9 | `cli-event`, `plan-gate`, `receipt` | — |
+| R10 | `paths`, `cli-event`, `launchd`, `report`, comandos | — |
+| R11 | `miners`, `paths`, `cli-event` | — |
+| R12 | `launchd`, `global-collect-install`, `global-collect-uninstall` | — |
+| R13 | `collect` | — |
+| R14 | `reviewer-lifecycle`, `parse`, `audit` (comando) | — |
+| R15 | `range-metrics` | — |
+| R16 | `outcomes`, `cli-event`, `plan-gate` | sí (`cross-host-regression`) |
+| R17 | `outcomes`, `task-metrics` | sí (`cross-host-regression`) |
+| R18 | `task-metrics`, `outcomes` | — |
+| R19 | `snapshot` | sí (`cross-host-regression`) |
+| R20 | `recommend`, `report`, `cross-host-regression` | sí (`cross-host-regression`) |
+| R21 | `discovery`, `parse`, `miners` | — |
+| R22 | `collect` | — |

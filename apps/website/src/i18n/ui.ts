@@ -224,7 +224,7 @@ export const ui = {
       "El log que escriben los hooks (qué hizo el harness), el transcript (el único lugar donde viven los tokens) y los eventos OTel del host (qué permiso se aprobó y qué skill estaba activa).",
     "audit.point4.title": "Opt-in y por sesión",
     "audit.point4.body":
-      "Sin un --start previo no hay log que auditar y navori no observa nada. El reporte queda en markdown y JSON dentro de ~/.navori/audits/.",
+      "Sin un --start previo no hay log que auditar y navori no observa nada. El reporte queda en markdown y JSON dentro de ~/.navori/audits/, y --snapshot/--compare permiten contrastar rangos: describen, no declaran mejoras.",
 
     "commands.eyebrow": "Comandos",
     "commands.title": "El ciclo completo, comando a comando.",
@@ -528,7 +528,7 @@ export const ui = {
       "The event log the hooks write (what the harness did), the transcript (the only place tokens live), and the host's OTel events (which permission was approved, which skill was active).",
     "audit.point4.title": "Opt-in, one session at a time",
     "audit.point4.body":
-      "With no prior --start there is no log to audit and navori observes nothing. The report lands as markdown and JSON under ~/.navori/audits/.",
+      "With no prior --start there is no log to audit and navori observes nothing. The report lands as markdown and JSON under ~/.navori/audits/, and --snapshot/--compare let you contrast ranges: they describe, they never declare an improvement.",
 
     "commands.eyebrow": "Commands",
     "commands.title": "The whole lifecycle, command by command.",

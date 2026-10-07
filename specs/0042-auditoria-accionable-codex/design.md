@@ -232,3 +232,24 @@ Controles seleccionados: [NIST SSDF 1.1 PW.8.2](https://csrc.nist.gov/pubs/sp/80
 Destino propuesto: contratos de audit y fixtures en repo; límites/recovery/disponibilidad en documentación audit; metadata-only en doctrina existente solo si requiere uso operativo. No promover al Dominio: no es regla business cross-repo.
 
 Fuera: nuevos servicios/DB/board, migración/retención/chmod históricos, scripts transcript ejecutados o persistidos, llamadas Jira/GitHub/fetch desde report, billing exacto, quality score único, reducir sample T44, cambios dual-workflow/release. Ningún servicio real será instalado o detenido por pruebas.
+
+## Contratos, versionado y límites observados
+
+**Contratos y versionado**
+- Reporte JSON `schemaVersion` 11, solo con claves aditivas: `outcomes`, `comparison`, `recommendations` e ids de availability. Los lectores previos no inventan availability.
+- Snapshot formato 2; el lector acepta formatos 1 y 2.
+- Nombres de evento cli cerrados para outcomes: `review-outcome`, `receipt-outcome`, `dispatch-outcome`.
+- Flags: `audit --json --compare` se permite (sin escritura); `audit --json --snapshot` se rechaza. `comparison` y `recommendations` son efímeras y nunca se persisten en snapshots.
+- Identidad de contenido: `navori-content/v1`.
+- Ventana de un solo día: un rango solo-fecha con `from === to` se expande al día UTC completo en `windowOf` de la comparación; los demás rangos solo-fecha conservan el semiabierto `[from, to)` almacenado.
+
+**Límites observados (sin prometer más)**
+- Los verbos `receipt review` están disponibles desde el release 0.11.3.
+- El productor LLM puede falsificar `begin`/`seal`, y `begin` no prueba el orden de lectura.
+- El plan gate de Codex es consultivo.
+- La atribución de tokens es solo del implementer.
+- `reviewSpanCapMs` (2 h) y los pisos de rango no están calibrados; la banda de ruido no está medida.
+- Los worktrees externos son un residual.
+- El RSS es muestreado, no continuo.
+- Sin backfill de rollouts/logs legacy; entorno vivo de Codex sin probar.
+- Los timeouts de reglas de semgrep son preexistentes y no deterministas (también en `origin/main` 1916e749); no los introduce este cambio y la configuración de semgrep no se modificó.
