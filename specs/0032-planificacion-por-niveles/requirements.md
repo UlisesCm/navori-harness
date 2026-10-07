@@ -100,6 +100,10 @@ deja rastro verificable:
   `nivel-0: <ruta>`; el hook la lee de `tool_input.prompt`, campo documentado para la herramienta
   `Agent` (<https://code.claude.com/docs/en/hooks>, sección Agent). Un encargo sin esa línea se
   niega.
+  El hook DEBERÁ negar (`exit 2`) cuando `plan check` emita un veredicto de denegación. SI
+  `navori` o su subcomando `plan` no están disponibles, ENTONCES no hay veredicto: el hook
+  DEBERÁ pedir confirmación al usuario (`ask`) en Claude con `permission_mode` en `default`,
+  `acceptEdits` o `auto`, y DEBERÁ negar en Codex y en cualquier otro modo.
 - **R17** — DONDE el engine no permita interceptar el lanzamiento de subagentes, el gate DEBERÁ
   degradarse a la verificación del reviewer (R21) y `navori doctor` DEBERÁ reportarlo.
 - **R18** — CUANDO `plan check` o `plan update` calculen un nivel mayor que el declarado, el
