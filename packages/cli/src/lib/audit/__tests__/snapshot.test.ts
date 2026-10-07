@@ -550,9 +550,30 @@ describe("snapshot: per-metric preflight (R19)", () => {
     const touching = { ...c, range: { from: "2026-09-08", to: "2026-09-15" } };
     expect(row(b, touching, R43).reasons).not.toContain("overlapping-window");
     expect(row(b, { ...c, range: { from: "", to: "" } }, R43).reasons).toContain("window-unknown");
+    expect(row(b, { ...c, range: { from: "2026-09-15", to: "2026-09-15" } }, R43).reasons).toEqual(
+      [],
+    );
     expect(
-      row(b, { ...c, range: { from: "2026-09-15", to: "2026-09-15" } }, R43).reasons,
+      row(
+        b,
+        { ...c, range: { from: "2026-09-15T00:00:00.000Z", to: "2026-09-15T00:00:00.000Z" } },
+        R43,
+      ).reasons,
     ).toContain("window-unknown");
+  });
+
+  // Covers: R19
+  it("a single-day range is the whole UTC day: comparable when disjoint, overlapping when not", () => {
+    const [b, c] = pair(R43, metric(100), metric(100));
+    const day = (d: string) => ({ from: d, to: d });
+    const base = { ...b, range: day("2026-09-01") };
+    expect(row(base, { ...c, range: day("2026-09-02") }, R43).reasons).toEqual([]);
+    expect(row(base, { ...c, range: day("2026-09-01") }, R43).reasons).toContain(
+      "overlapping-window",
+    );
+    expect(
+      row(base, { ...c, range: { from: "2026-08-31", to: "2026-09-02" } }, R43).reasons,
+    ).toContain("overlapping-window");
   });
 
   // Covers: R19

@@ -430,10 +430,15 @@ function dimensionLabel(c: Cohort | null, dim: ComparisonDimension, role: string
   return labels.includes("mixed") ? "mixed" : roles.map((r, i) => `${r}=${labels[i]}`).join(";");
 }
 
-/** Window bounds `[from,to)` in ms, or null when unreadable or empty. */
+/**
+ * Window bounds `[from,to)` in ms, or null when unreadable or empty. A
+ * same-day date-only range (the stamp fallback when no range was requested)
+ * is the whole UTC day, as discovery reads `--until YYYY-MM-DD`.
+ */
 function windowOf(range: { from: string; to: string }): [number, number] | null {
   const from = Date.parse(range.from);
-  const to = Date.parse(range.to);
+  let to = Date.parse(range.to);
+  if (range.from === range.to && /^\d{4}-\d{2}-\d{2}$/.test(range.to)) to += 86400000;
   return Number.isNaN(from) || Number.isNaN(to) || to <= from ? null : [from, to];
 }
 
