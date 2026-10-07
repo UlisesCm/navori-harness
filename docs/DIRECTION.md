@@ -127,6 +127,10 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
     commitea en este repo y en todo repo no-Bonum: navori se come su propia comida. (En repos
     `/bonum` el harness va gitignored por convención.)
 
+## Unidad de PR y de verificación
+
+La unidad de PR es la entrega funcional; el milestone es la unidad de verificación y de commit. Una spec pequeña va en 1 PR; una grande se reparte en 2 a 4 PRs según `sdd.deliveries`. El gate completo corre una vez por PR, sobre los bytes que se publican. No hay rama de integración: las entregas mergean en orden a `prTarget`. Master-plan sigue las mismas reglas. Detalle y evidencia: [`docs/research/distribucion-entregas-agentes.md`](research/distribucion-entregas-agentes.md).
+
 ## Criterio de admisión por superficie
 
 Antes de sumar una superficie nueva (plugin, servidor MCP, bloque managed o skill), el

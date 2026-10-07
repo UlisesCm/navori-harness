@@ -95,12 +95,12 @@ Estimated LOC: 1200
 - **A9** — re-render sin drift ·
   `bun run check:render`
   → exit 0
-- [ ] **T13** (R20) — `prTarget: "main"` en `navori.config.json` y `navori render --apply` · effect:
+- [x] **T13** (R20) — `prTarget: "main"` en `navori.config.json` y `navori render --apply` · effect:
   behavior · test: `lib/__tests__/pr-target-render.test.ts`::"reviewer y publisher apuntan a
   main"
-- [ ] **T14** (R1) — sección de unidad de PR y de verificación en `docs/DIRECTION.md`, con enlace
+- [x] **T14** (R1) — sección de unidad de PR y de verificación en `docs/DIRECTION.md`, con enlace
   a la dirección · effect: docs · test: `lib/__tests__/direction-doc.test.ts`::"unidad de PR"
-- [ ] **T15** (R24) — línea base 0039/0041 y tabla de calibración en
+- [x] **T15** (R24) — línea base 0039/0041 y tabla de calibración en
   `docs/research/distribucion-entregas-agentes.md`; el reporte de investigación pasa a
   `docs/research/` como anexo de evidencia · effect: docs · test:
   `lib/__tests__/direction-doc.test.ts`::"tabla de calibración"

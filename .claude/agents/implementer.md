@@ -8,7 +8,7 @@ maxTurns: 160
 maxWords: 2448
 ---
 
-<!-- navori:managed id="implementer-base" hash="04e960d3" version="0.11.2" source="@navori/core" fmkeys="name,description,tools,model,effort,maxTurns,maxWords" -->
+<!-- navori:managed id="implementer-base" hash="9225dc1e" version="0.11.2" source="@navori/core" fmkeys="name,description,tools,model,effort,maxTurns,maxWords" -->
 # Implementer Agent
 
 You execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.
@@ -33,7 +33,7 @@ When the encargo opens with `workplan: <feature>`, read `.navori/state/handoffs/
 
 - **One task per session.** If you discover your change requires touching something else outside the scope, you stop and report `blocked`.
 - **A guard, cap/threshold, test, or core asset blocks the requested in-scope change** → report `Status: BLOCKED` naming the guard, the possible exits, and the cost of each. Forbidden: raising the guard's threshold, rewriting content so it stops being detected, or touching core/harness assets outside your scope to route around it — the orchestrator decides the exit, not you.
-- **Self scope review before reporting**: `git diff --stat origin/dev...HEAD` (plus the working tree, for what's still uncommitted) — every file outside the encargo's scope is either justified in the report or reverted before you close.
+- **Self scope review before reporting**: `git diff --stat origin/main...HEAD` (plus the working tree, for what's still uncommitted) — every file outside the encargo's scope is either justified in the report or reverted before you close.
 - **Never write `progress/current.md` (root).** Session state is consolidated by the orchestrator; you may run in parallel with other implementers and that file is shared. Your only progress file is `.navori/state/handoffs/impl_<feature>.json`.
 - **Strong typing, `any` forbidden in new code.** Define correct types before moving on. Use `unknown` + narrowing, generics, or domain types. Cover parameters, returns, callbacks, events, props, hooks, and service responses. If typing it well is genuinely impossible (third-party lib without types), a `// any justified: <reason>` comment — last resort, not a shortcut.
 - **No hardcode**: secrets / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, depending on the stack).

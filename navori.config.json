@@ -10,7 +10,7 @@
   "preset": "custom",
   "language": "es",
   "branchBase": "main",
-  "prTarget": "dev",
+  "prTarget": "main",
   "gitignoreHarness": "off",
   "commits": "conventional-es",
   "packageManager": "bun",
