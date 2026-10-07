@@ -443,6 +443,9 @@ export interface SyncTarget {
    * reads `config.monorepo` directly). Keeps the workspace's "## Monorepo" block
    * in sync with what `render` writes. */
   monorepoContext?: MonorepoRenderContext;
+  /** `monorepo.workspaceHarness` for a workspace target (spec 0018/0043), so sync
+   * stops recreating what the mode omits; undefined for the root, which is never trimmed. */
+  harnessScope?: "minimal" | "full";
 }
 
 export interface TargetPlan {
@@ -505,6 +508,7 @@ export function resolveSyncTargets(
           repoRoot: cwd,
           config: effectiveConfigForWorkspace(config, match),
           monorepoContext: buildMonorepoContext(config, match),
+          harnessScope: config.monorepo?.workspaceHarness,
         },
       ],
     };
@@ -530,6 +534,7 @@ export function resolveSyncTargets(
       repoRoot: cwd,
       config: effectiveConfigForWorkspace(config, ws),
       monorepoContext: buildMonorepoContext(config, ws),
+      harnessScope: config.monorepo?.workspaceHarness,
     });
   }
   return { ok: true, targets, orphanedWorkspaces };
@@ -701,6 +706,7 @@ function renderSyncTarget(
         forceIds: resolution?.forceIds,
         repoRoot: target.repoRoot,
         monorepoContext: target.monorepoContext,
+        harnessScope: target.harnessScope,
       })
     : undefined;
   const additional = renderNonClaudeEngines(target.cwd, target.config, engines, dryRun, {
