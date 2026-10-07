@@ -400,11 +400,16 @@ describe.runIf(runsBash)(
  * Real verdicts (red gate, semgrep findings) stay hard blocks everywhere.
  */
 const hasJq = spawnSync("jq", ["--version"], { env: { PATH: BASE_PATH } }).status === 0;
-const HOOK_PAYLOAD = (cwd: string, command = "git commit -m x"): string =>
+const HOOK_PAYLOAD = (
+  cwd: string,
+  command = "git commit -m x",
+  permissionMode: string | null = "default",
+): string =>
   JSON.stringify({
     session_id: "s1",
     cwd,
     hook_event_name: "PreToolUse",
+    ...(permissionMode === null ? {} : { permission_mode: permissionMode }),
     tool_name: "Bash",
     tool_input: { command },
   });
@@ -783,6 +788,51 @@ describe.runIf(runsBash && hasJq)("quality-gate runner missing asks under Claude
       "hook.sh",
       JSON.stringify({ session_id: "s1", cwd: fx.dir, tool_input: { command: "git commit -m x" } }),
     );
+    expect(out.status).toBe(BLOCKS);
+    expect(out.stdout).toBe("");
+  });
+});
+
+describe.runIf(runsBash && hasJq)("navori_can_ask only asks where the prompt shows (#1117)", () => {
+  const HOOK_SRC = resolve(getCoreRoot(), "core-assets/hooks/quality-gate-pre-commit.sh");
+  const runMode = (mode: string | null, relPath = "hook.sh"): AskRun => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-1117-mode-")));
+    const binDir = join(dir, "fakebin");
+    mkdirSync(binDir);
+    const script = join(dir, "src-hook.sh");
+    writeFileSync(
+      script,
+      expandHookIncludes(readFileSync(HOOK_SRC, "utf-8")).replace(
+        "{{shq:qualityGate.fast}}",
+        shellSingleQuote("pnpm run typecheck"),
+      ),
+    );
+    return runAsk("bash", dir, binDir, script, relPath, HOOK_PAYLOAD(dir, "git commit -m x", mode));
+  };
+
+  // Covers: A1
+  it.each(["default", "acceptEdits", "auto"])(
+    "permission_mode %s asks (exit 0 + ask JSON)",
+    (m) => {
+      const out = runMode(m);
+      expect(out.status).toBe(CLEAN);
+      expect(askDecision(out.stdout).decision).toBe("ask");
+    },
+  );
+
+  // Covers: A1
+  it.each(["bypassPermissions", "dontAsk", "plan", "", "weird", null])(
+    "permission_mode %s fails closed (exit 2, no stdout)",
+    (m) => {
+      const out = runMode(m);
+      expect(out.status).toBe(BLOCKS);
+      expect(out.stdout).toBe("");
+    },
+  );
+
+  // Covers: A1
+  it("permission_mode default on a Codex copy keeps exit 2", () => {
+    const out = runMode("default", ".codex/hooks/qg.sh");
     expect(out.status).toBe(BLOCKS);
     expect(out.stdout).toBe("");
   });
