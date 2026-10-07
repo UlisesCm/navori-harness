@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   chmodSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -18,7 +18,8 @@ import { stripVTControlCharacters } from "node:util";
 /**
  * #1240 — `sync` resolves whole-file conflicts of user-edited managed files
  * that still carry a navori marker: diff + keep/accept, written through
- * `commitWrites` with a backup. Markerless files stay out of scope.
+ * `commitWrites` with a backup. #1245 adds the interactive-only replace of a
+ * markerless file (see the second describe).
  */
 
 const home = vi.hoisted(() => ({ dir: "" }));
@@ -27,6 +28,7 @@ vi.mock(import("../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home
 interface SelectOptions {
   message: string;
   options: Array<{ value: string; label: string }>;
+  initialValue?: string;
 }
 const ui = vi.hoisted(() => ({
   selectCalls: [] as SelectOptions[],
@@ -104,6 +106,7 @@ const runSync = async (flags: Record<string, unknown>): Promise<void> => {
 
 interface SyncJson {
   conflicts: Array<{ path: string; kind: string }>;
+  pending: number;
 }
 
 async function runSyncJson(flags: Record<string, unknown>): Promise<SyncJson> {
@@ -117,11 +120,11 @@ async function runSyncJson(flags: Record<string, unknown>): Promise<SyncJson> {
 
 const SENTINEL = "USER NOTES SENTINEL — never touched by sync";
 
-function seed(plugins?: Record<string, unknown>): void {
+function seed(plugins?: Record<string, unknown>, engines: string[] = ["claude"]): void {
   writeConfig(join(cwd, "navori.config.json"), {
     name: "demo",
     preset: "custom",
-    engines: ["claude"],
+    engines,
     ...(plugins ? { plugins } : {}),
   } as Parameters<typeof writeConfig>[1]);
   expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
@@ -254,25 +257,6 @@ describe("sync interactive: resolve a user-edited managed file (#1240)", () => {
     const second = await runSyncJson({});
     expect(second.conflicts).toEqual([]);
   });
-
-  // Covers: scope (markerless out) — a markerless user-edited file is never offered.
-  it("a markerless user-edited plugin script is never offered and keeps the manual-exit message", async () => {
-    seed({ jscpd: { enabled: true } });
-    const script = join(cwd, ".claude/scripts/check-jscpd.sh");
-    expect(existsSync(script)).toBe(true);
-    const legacy = readFileSync(script, "utf-8")
-      .split("\n")
-      .filter((l) => !l.includes("navori:managed"))
-      .join("\n");
-    const markerless = `${legacy}\n# user line\n`;
-    writeFileSync(script, markerless, "utf-8");
-
-    await runSync({ interactive: true });
-
-    expect(ui.selectCalls).toHaveLength(0);
-    expect(ui.warns).toContain(tc("es").sync.fileConflictsRemain(1));
-    expect(readFileSync(script, "utf-8")).toBe(markerless);
-  });
 });
 
 describe("applyFileResolutions partial failure (#1240)", () => {
@@ -307,5 +291,179 @@ describe("applyFileResolutions partial failure (#1240)", () => {
     } finally {
       chmodSync(join(cwd, "tb"), 0o755);
     }
+  });
+});
+
+// Covers: #1245
+describe("sync interactive: replace a markerless file (#1245)", () => {
+  const SCRIPT = ".claude/scripts/check-jscpd.sh";
+  const FOREIGN = ".codex/scripts/check-jscpd.sh";
+
+  /** The managed script, the way pre-#637 navori wrote it (no marker), plus a user line. */
+  function makeMarkerless(rel: string, extra = "# user line\n"): { fresh: string; mine: string } {
+    const abs = join(cwd, rel);
+    const fresh = readFileSync(abs, "utf-8");
+    const stripped = fresh
+      .split("\n")
+      .filter((l) => !l.includes("navori:managed"))
+      .join("\n");
+    const mine = `${stripped}\n${extra}`;
+    writeFileSync(abs, mine, "utf-8");
+    return { fresh, mine };
+  }
+
+  const backupDirOf = (): string => {
+    const line = ui.messages.find((m) => m.includes("[root:sync]"));
+    expect(line).toBeDefined();
+    return stripVTControlCharacters(line!.split("[root:sync]")[1]!).trim();
+  };
+
+  const ts = tc("es").sync;
+
+  it("keep (the default) changes nothing, makes no backup and the prompt defaults to keep", async () => {
+    seed({ jscpd: { enabled: true } });
+    const { mine } = makeMarkerless(SCRIPT);
+
+    await runSync({ interactive: true }); // no scripted answer -> the mock answers "keep"
+
+    expect(readFileSync(join(cwd, SCRIPT), "utf-8")).toBe(mine);
+    expect(ui.selectCalls).toHaveLength(1);
+    expect(ui.selectCalls[0]?.initialValue).toBe("keep");
+    expect(ui.selectCalls[0]?.options.map((o) => o.label)).toEqual([
+      ts.optKeepMine,
+      ts.optReplaceWholeFile,
+    ]);
+    expect(ui.warns).toContain(ts.markerlessFileWarning(SCRIPT));
+    expect(ui.messages.some((m) => m.includes("[root:sync]"))).toBe(false);
+    expect(ui.warns).toContain(ts.fileConflictsKept(1));
+  });
+
+  it("replace writes the fresh render (one block), keeps the exec bit, backs up the basis, prints the path, and the next full syncs are clean", async () => {
+    seed({ jscpd: { enabled: true } });
+    const { fresh, mine } = makeMarkerless(SCRIPT);
+    chmodSync(join(cwd, SCRIPT), 0o644);
+    ui.answers = ["accept"];
+
+    await runSync({ interactive: true });
+
+    const abs = join(cwd, SCRIPT);
+    const after = readFileSync(abs, "utf-8");
+    expect(after).toBe(fresh);
+    expect(after.split("navori:managed start")).toHaveLength(2);
+    expect(statSync(abs).mode & 0o100).toBeTruthy();
+    // Diff shown, backup holds the user's bytes and its path was printed.
+    expect(ui.messages.some((m) => m.includes("# user line"))).toBe(true);
+    expect(readFileSync(join(backupDirOf(), SCRIPT), "utf-8")).toBe(mine);
+    expect(ui.messages.some((m) => m.includes(ts.markerlessBackupHint))).toBe(true);
+
+    // Idempotence: the FULL sync (apply pass included), twice, rewrites nothing.
+    for (let run = 0; run < 2; run++) {
+      await runSync({ apply: true });
+      expect(readFileSync(abs, "utf-8")).toBe(fresh);
+      const json = await runSyncJson({});
+      expect(json.conflicts).toEqual([]);
+      expect(json.pending).toBe(0);
+    }
+  });
+
+  it("site 2: a foreign file at a codex plugin script path is replaced with the null-existing render, exec bit kept, idempotent", async () => {
+    seed({ jscpd: { enabled: true } }, ["claude", "codex"]);
+    const fresh = readFileSync(join(cwd, FOREIGN), "utf-8");
+    // Truly foreign: not navori's rendered text at all.
+    writeFileSync(join(cwd, FOREIGN), "echo mine\n", "utf-8");
+    ui.answers = ["accept"];
+
+    await runSync({ interactive: true });
+
+    const abs = join(cwd, FOREIGN);
+    expect(readFileSync(abs, "utf-8")).toBe(fresh);
+    expect(fresh.split("navori:managed start")).toHaveLength(2);
+    expect(statSync(abs).mode & 0o100).toBeTruthy();
+    expect(readFileSync(join(backupDirOf(), FOREIGN), "utf-8")).toBe("echo mine\n");
+    for (let run = 0; run < 2; run++) {
+      await runSync({ apply: true });
+      expect(readFileSync(abs, "utf-8")).toBe(fresh);
+      const json = await runSyncJson({});
+      expect(json.conflicts).toEqual([]);
+      expect(json.pending).toBe(0);
+    }
+  });
+
+  it("a mixed list resolves each file on its own: accept the marker-kept agent, keep the markerless script", async () => {
+    seed({ jscpd: { enabled: true } });
+    const [agent] = agentFiles();
+    const { pristine } = editAgent(agent!);
+    const { mine } = makeMarkerless(SCRIPT);
+    // Prompt order follows the conflict list; answer by looking at what is asked.
+    ui.onSelect = () => {
+      const last = ui.selectCalls[ui.selectCalls.length - 1]!;
+      ui.answers = [last.message.includes(".claude/agents/") ? "accept" : "keep"];
+    };
+
+    await runSync({ interactive: true });
+
+    expect(readFileSync(agent!, "utf-8")).toBe(pristine);
+    expect(readFileSync(join(cwd, SCRIPT), "utf-8")).toBe(mine);
+    expect(ui.selectCalls).toHaveLength(2);
+    expect(ui.warns).toContain(ts.fileConflictsKept(1));
+  });
+
+  it("accepting the markerless file while keeping the marker-kept one also works (and vice versa order-independent)", async () => {
+    seed({ jscpd: { enabled: true } });
+    const [agent] = agentFiles();
+    const { edited } = editAgent(agent!);
+    const { fresh } = makeMarkerless(SCRIPT);
+    ui.onSelect = () => {
+      const last = ui.selectCalls[ui.selectCalls.length - 1]!;
+      ui.answers = [last.message.includes(".claude/scripts/") ? "accept" : "keep"];
+    };
+
+    await runSync({ interactive: true });
+
+    expect(readFileSync(agent!, "utf-8")).toBe(edited);
+    expect(readFileSync(join(cwd, SCRIPT), "utf-8")).toBe(fresh);
+  });
+
+  it("a markerless file changed after the diff is dropped, not written", async () => {
+    seed({ jscpd: { enabled: true } });
+    makeMarkerless(SCRIPT);
+    const abs = join(cwd, SCRIPT);
+    const late = `${readFileSync(abs, "utf-8")}# late edit\n`;
+    ui.answers = ["accept"];
+    ui.onSelect = () => writeFileSync(abs, late, "utf-8");
+
+    await runSync({ interactive: true });
+
+    expect(readFileSync(abs, "utf-8")).toBe(late);
+    expect(ui.warns.some((w) => w.includes("cambió"))).toBe(true);
+    expect(ui.messages.some((m) => m.includes("[root:sync]"))).toBe(false);
+  });
+
+  it("cancel writes nothing for a markerless file", async () => {
+    seed({ jscpd: { enabled: true } });
+    const { mine } = makeMarkerless(SCRIPT);
+    ui.answers = ["accept"];
+    ui.cancelAt = 1;
+    vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("exit");
+    }) as never);
+
+    await expect(runSync({ interactive: true })).rejects.toThrow("exit");
+
+    expect(readFileSync(join(cwd, SCRIPT), "utf-8")).toBe(mine);
+  });
+
+  it("a file carrying another id's block (or a partial marker) is never offered", async () => {
+    seed({ jscpd: { enabled: true } });
+    const { mine } = makeMarkerless(
+      SCRIPT,
+      '# navori:managed start id="other" version="999.0.0"\n',
+    );
+
+    await runSync({ interactive: true });
+
+    expect(ui.selectCalls).toHaveLength(0);
+    expect(ui.warns).toContain(ts.fileConflictsRemain(1));
+    expect(readFileSync(join(cwd, SCRIPT), "utf-8")).toBe(mine);
   });
 });
