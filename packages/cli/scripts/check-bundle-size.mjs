@@ -49,8 +49,15 @@ import { dirname, resolve } from "node:path";
  * Raising was chosen over splitting the check for now; the split into a hard
  * dependency ceiling plus a soft first-party trend line is still owed.
  * Measured at 1231KB; restores ~69KB of headroom.
+ *
+ * Raised 1300 -> 1400 by spec 0043 workspace-harness-root (#1143), the fourth
+ * raise for first-party growth: `main` built to 1297.5KB, 2.5KB under the
+ * limit, and the branch adds ~17KB of its own code with ZERO new
+ * dependencies. The split into a hard dependency ceiling plus a soft
+ * first-party trend line is still owed. Measured at 1314.8KB; restores ~85KB
+ * of headroom.
  */
-const LIMIT_KB = 1300;
+const LIMIT_KB = 1400;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const bundle = resolve(here, "..", "dist", "index.js");
