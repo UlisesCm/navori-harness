@@ -130,6 +130,34 @@ describe("scripts de plugin: marcador propio (#637)", () => {
     expect(result.skipped.some((sk) => sk.path.endsWith("check-jscpd.sh"))).toBe(true);
   });
 
+  it("sync-file-resolve: the skip of an in-block edit carries the forced render (marker kept, exec preserved)", () => {
+    renderClaudeEngine(cwd, config());
+    const original = readFileSync(script(), "utf-8");
+    const edited = original.replace("#!/usr/bin/env bash", "#!/usr/bin/env bash\n# mío");
+    writeFileSync(script(), edited);
+
+    const sk = renderClaudeEngine(cwd, config()).skipped.find((s) =>
+      s.path.endsWith("check-jscpd.sh"),
+    );
+    expect(sk?.resolution?.basis).toBe(edited);
+    expect(sk?.resolution?.content).toBe(original);
+    expect(sk?.resolution?.chmodExec).toBe(true);
+  });
+
+  it("sync-file-resolve: a markerless user-edited legacy script is skipped with NO resolution", () => {
+    renderClaudeEngine(cwd, config());
+    const legacy = readFileSync(script(), "utf-8")
+      .split("\n")
+      .filter((l) => !l.includes("navori:managed"))
+      .join("\n");
+    writeFileSync(script(), `${legacy}\n# user line\n`);
+    const sk = renderClaudeEngine(cwd, config()).skipped.find((s) =>
+      s.path.endsWith("check-jscpd.sh"),
+    );
+    expect(sk?.status).toBe("user-modified-skipped");
+    expect(sk?.resolution).toBeUndefined();
+  });
+
   it("es idempotente: un segundo render no reescribe el script", () => {
     renderClaudeEngine(cwd, config());
     const second = renderClaudeEngine(cwd, config());

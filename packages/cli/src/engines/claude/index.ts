@@ -58,7 +58,7 @@ import {
 } from "../../lib/primitives/json-ownership.ts";
 import { buildClaudeSettings } from "./build-settings.ts";
 import { mergeCoexistSettings, isPlainObject } from "./coexist-settings.ts";
-import { renderManagedFile } from "../shared/render-managed-file.ts";
+import { forcedManagedFileContent, renderManagedFile } from "../shared/render-managed-file.ts";
 import { applyHookExtension, removeHookExtension } from "../shared/hook-extension.ts";
 import { interpolate, sanitizeProjectValue } from "../../lib/render/interpolate.ts";
 import { expandHookIncludes } from "../../lib/render/hook-includes.ts";
@@ -83,6 +83,7 @@ import {
 import { buildSkillRows } from "../shared/skills-index.ts";
 import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
 import {
+  attachResolution,
   collectPlan,
   collisionWarnings,
   commitWrites,
@@ -1915,7 +1916,14 @@ interface ManagedFilePlanInput {
 
 type ManagedFilePlan =
   | { kind: "noop" }
-  | { kind: "skip"; path: string; reason: string; status: SkipStatus }
+  | {
+      kind: "skip";
+      path: string;
+      reason: string;
+      status: SkipStatus;
+      /** On-disk bytes and lazy forced body, set only for an edited block that kept its marker. */
+      forced?: { basis: string; render: () => string | null };
+    }
   | { kind: "write"; path: string; content: string; status: RenderStatus };
 
 function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
@@ -1923,7 +1931,7 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
   const destPath = join(input.cwd, input.destRelPath);
   const existing =
     input.treatAsFresh === true || !existsSync(destPath) ? null : readFileSync(destPath, "utf-8");
-  const result = renderManagedFile({
+  const renderInput = {
     assetPath,
     existingContent: existing,
     managedId: input.managedId,
@@ -1931,7 +1939,8 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
     config: input.config,
     extraVars: input.extraVars,
     transform: input.transform,
-  });
+  };
+  const result = renderManagedFile(renderInput);
   if (result.status === "unchanged") return { kind: "noop" };
   if (result.status === "user-modified-skipped") {
     return {
@@ -1939,6 +1948,15 @@ function planManagedFile(input: ManagedFilePlanInput): ManagedFilePlan {
       path: destPath,
       reason: tc(resolveLang(input.config.language)).engine.managedBlockEditedByHand,
       status: "user-modified-skipped",
+      // With `treatAsFresh` there is no existing content, hence no skip here.
+      ...(existing !== null
+        ? {
+            forced: {
+              basis: existing,
+              render: () => forcedManagedFileContent(renderInput),
+            },
+          }
+        : {}),
     };
   }
   if (result.status === "downgrade-skipped") {
@@ -1963,7 +1981,21 @@ function applyManagedFilePlan(
 ): void {
   if (plan.kind === "noop") return;
   if (plan.kind === "skip") {
-    skipped.push({ path: relative(cwd, plan.path), reason: plan.reason, status: plan.status });
+    const skip: SkippedFile = {
+      path: relative(cwd, plan.path),
+      reason: plan.reason,
+      status: plan.status,
+    };
+    skipped.push(
+      plan.forced === undefined
+        ? skip
+        : attachResolution(skip, {
+            absPath: plan.path,
+            basis: plan.forced.basis,
+            chmodExec,
+            render: plan.forced.render,
+          }),
+    );
     return;
   }
   pending.push({ path: plan.path, content: plan.content, status: plan.status, chmodExec });

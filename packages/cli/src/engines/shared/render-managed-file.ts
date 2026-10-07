@@ -67,6 +67,12 @@ export interface RenderManagedFileInput {
   transform?: (text: string) => string;
   /** Engine being rendered for; resolves the reserved `onCodex` condition key (default `"claude"`). */
   engine?: string;
+  /**
+   * Overwrite a hand-edited managed block instead of skipping it (the "accept"
+   * answer of `navori sync`). Only the re-render path honors it; a downgrade is
+   * refused by the caller (see `forcedManagedFileContent`).
+   */
+  forceOverwrite?: boolean;
 }
 
 export interface RenderManagedFileResult {
@@ -134,7 +140,19 @@ export function renderManagedFile(input: RenderManagedFileInput): RenderManagedF
     input.managedId,
     input.meta,
     commentStyle,
+    input.forceOverwrite,
   );
+}
+
+/**
+ * Body `renderManagedFile` would write if the user's edit to the block were
+ * accepted, or null when that is not safe or meaningful: the block comes from a
+ * newer navori (never forced, anti-rollback) or nothing would change.
+ */
+export function forcedManagedFileContent(input: RenderManagedFileInput): string | null {
+  const forced = renderManagedFile({ ...input, forceOverwrite: true });
+  if (forced.details?.downgrade) return null;
+  return forced.content === input.existingContent ? null : forced.content;
 }
 
 function inferCommentStyle(path: string): CommentStyle {
@@ -197,6 +215,7 @@ function rerender(
   managedId: string,
   meta: { source: string; version: string },
   commentStyle: CommentStyle,
+  forceOverwrite = false,
 ): RenderManagedFileResult {
   // Both groups are mandatory: when the file has frontmatter, `fmBlock` and
   // `afterFm` are both strings (`afterFm` may legitimately be ""), and when it
@@ -231,7 +250,14 @@ function rerender(
   // can prune whatever this one stops declaring.
   const metaWithFmKeys: MarkerMeta =
     Object.keys(assetFm).length > 0 ? { ...meta, fmKeys: Object.keys(assetFm) } : meta;
-  const inject = injectManagedSection(restOfDest, managedId, body, metaWithFmKeys, commentStyle);
+  const inject = injectManagedSection(
+    restOfDest,
+    managedId,
+    body,
+    metaWithFmKeys,
+    commentStyle,
+    forceOverwrite,
+  );
   const content = fmHeader + inject.output;
 
   // "unchanged" from injection only speaks for the managed BODY. The

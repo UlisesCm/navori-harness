@@ -43,7 +43,7 @@ export function aggregateRender(result: ReturnType<typeof runRender>): Aggregate
     },
   ): void => {
     for (const w of eng?.written ?? []) writes.push({ ...w, scope });
-    for (const s of eng?.skipped ?? []) conflicts.push({ ...s, scope });
+    for (const s of eng?.skipped ?? []) conflicts.push({ path: s.path, reason: s.reason, scope });
   };
 
   addEngine("root", result.engineResult);

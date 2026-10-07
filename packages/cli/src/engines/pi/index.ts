@@ -139,7 +139,10 @@ export function renderPiEngine(
     if (!resource.owned(resource.content))
       throw new Error(`Generated Pi resource failed validation: ${resource.relPath}`);
   }
-  const skipped: SkippedFile[] = [...collected.skipped];
+  // Resolutions are sync-side: Pi's ownership/symlink checks only run in its own apply.
+  const skipped: SkippedFile[] = collected.skipped.map(
+    ({ resolution: _resolution, ...skip }) => skip,
+  );
   const piPending: PendingWrite[] = [];
   let collided = false;
   for (const relPath of [".pi", ".pi/extensions", ".pi/agents"]) {

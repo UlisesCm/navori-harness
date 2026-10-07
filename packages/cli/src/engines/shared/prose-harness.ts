@@ -10,7 +10,7 @@ import { getCoreRoot, readCliVersion } from "../../lib/render/bundled-assets.ts"
 import { tc, resolveLang } from "../../lib/i18n.ts";
 import type { RenderStatus } from "../../lib/primitives/style.ts";
 import { buildSkillRows } from "./skills-index.ts";
-import type { SkippedFile } from "./execute-plan.ts";
+import { attachResolution, forcedInjectContent, type SkippedFile } from "./execute-plan.ts";
 
 /**
  * Shared engine for the non-Claude "prose" targets: AGENTS.md (universal),
@@ -205,11 +205,20 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
   let backupPath: string | null = null;
 
   if (result.status === "user-modified-skipped") {
-    skipped.push({
-      path: spec.destRelPath,
-      reason: strings.managedBlockEditedByHand,
-      status: "user-modified-skipped",
-    });
+    skipped.push(
+      attachResolution(
+        {
+          path: spec.destRelPath,
+          reason: strings.managedBlockEditedByHand,
+          status: "user-modified-skipped",
+        },
+        {
+          absPath: destPath,
+          basis: existing,
+          render: () => forcedInjectContent(existing, spec.managedId, body, CORE_META, "html"),
+        },
+      ),
+    );
   } else if (result.status === "downgrade-skipped") {
     skipped.push({
       path: spec.destRelPath,
