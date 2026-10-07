@@ -39,14 +39,14 @@ Estimated LOC: 1300
 - **A4** [observable] — la propia 0044 pasa `check` ·
   `bun packages/cli/src/index.ts spec check 0044-entregas-funcionales`
   → exit 0, sin errores
-- [ ] **T5** (R11, R12, R13) — `checkSpec`: milestone sin criterio, tarea huérfana o duplicada,
+- [x] **T5** (R11, R12, R13) — `checkSpec`: milestone sin criterio, tarea huérfana o duplicada,
   `R<n>` sin cubrir, entrega no vertical (error en `split`, aviso en `single`), `foundation` mal
   ubicada o sin `Consumes:` · effect: behavior · test: `lib/spec/__tests__/check.test.ts`::"una
   regla por caso"
-- [ ] **T6** (R14) — specs anteriores: todo hallazgo como aviso y exit 0; test sobre todos los
+- [x] **T6** (R14) — specs anteriores: todo hallazgo como aviso y exit 0; test sobre todos los
   `specs/*/tasks.md` del repo · effect: behavior · test:
   `lib/spec/__tests__/real-specs.test.ts`::"todas las specs reales"
-- [ ] **T7** (R4, R11) — subcomando `check`, permisos `allow` de solo lectura
+- [x] **T7** (R4, R11) — subcomando `check`, permisos `allow` de solo lectura
   `navori spec classify` y `navori spec check` en `settings-base.json` · effect: behavior · test:
   `commands/__tests__/spec.test.ts`::"check" y
   `asset-command-permissions.test.ts`::"navori spec"

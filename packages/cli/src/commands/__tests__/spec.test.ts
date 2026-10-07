@@ -188,3 +188,57 @@ describe("navori spec classify — failures", () => {
     expect(JSON.parse(result.stdout)).toMatchObject({ format: "legacy", shape: "single" });
   });
 });
+
+function writeRequirements(feature: string, ids: string[]): void {
+  writeFileSync(
+    join(cwd, "specs", feature, "requirements.md"),
+    ids.map((id) => `- **${id}** — x`).join("\n"),
+  );
+}
+
+// Covers: R4, R11
+describe("navori spec check", () => {
+  it("exits 0 with the stable JSON contract when the spec is sound", async () => {
+    writeTasks("demo", deliveries(2, 3));
+    writeRequirements("demo", ["R1"]);
+    const result = await run("check", "demo", "--json");
+    expect(result.exitCode).toBe(0);
+    const json = JSON.parse(result.stdout) as Record<string, unknown>;
+    expect(Object.keys(json)).toEqual([
+      "formatVersion",
+      "feature",
+      "format",
+      "ok",
+      "findings",
+      "classification",
+    ]);
+    expect(json).toMatchObject({ formatVersion: 1, feature: "demo", ok: true, findings: [] });
+  });
+
+  it("exits 2 with ERROR/WHY/FIX when a finding is an error", async () => {
+    writeTasks("demo", deliveries(2, 3));
+    writeRequirements("demo", ["R1", "R2"]);
+    const result = await run("check", "demo", "--json");
+    expect(result.exitCode).toBe(2);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: false,
+      findings: [{ rule: "requirement-uncovered", severity: "error", where: "R2" }],
+    });
+    expect(result.stderr).toContain("ERROR:");
+    expect(result.stderr).toContain("WHY:");
+    expect(result.stderr).toContain("FIX:");
+  });
+
+  it("exits 0 with warnings only for the previous format", async () => {
+    writeTasks("demo", "- [ ] one\n");
+    const result = await run("check", "demo");
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("WARN:");
+  });
+
+  it("exits 1 when the tasks file is missing", async () => {
+    const result = await run("check", "nope");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("ERROR: cannot read");
+  });
+});

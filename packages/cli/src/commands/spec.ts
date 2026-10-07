@@ -12,8 +12,10 @@ import {
   resolveDeliveryThresholds,
   type DeliveryThresholds,
 } from "../lib/config/schema.ts";
+import { checkSpec } from "../lib/spec/check.ts";
 import { classifySpec, type SpecWarning } from "../lib/spec/classify.ts";
 import { locateSpecDir } from "../lib/spec/locate.ts";
+import { parseRequirementIds } from "../lib/spec/requirements.ts";
 import { parseTasks, type ParsedTasks } from "../lib/spec/tasks.ts";
 
 /** Version of the `--json` contract; additive changes only (design "Contracts"). */
@@ -31,6 +33,8 @@ interface SpecContext {
   feature: string;
   /** Repo-relative, forward-slash path of `tasks.md` (for messages and JSON). */
   tasksPath: string;
+  /** The requirements file next to `tasks.md`. */
+  requirementsFile: string;
   thresholds: DeliveryThresholds;
   parsed: ParsedTasks;
 }
@@ -41,6 +45,11 @@ const shared = {
   json: { type: "boolean" as const, description: "Output as JSON" },
 };
 
+/** The ERROR / WHY / FIX triple on stderr. */
+function printFailure(failure: Failure): void {
+  process.stderr.write(`ERROR: ${failure.what}\nWHY:   ${failure.why}\nFIX:   ${failure.fix}\n`);
+}
+
 /** Prints a failure as ERROR / WHY / FIX on stderr (plus JSON on stdout) and exits 1. */
 function fail(feature: string, failure: Failure, json: boolean): undefined {
   if (json) {
@@ -48,7 +57,7 @@ function fail(feature: string, failure: Failure, json: boolean): undefined {
       `${JSON.stringify({ formatVersion: FORMAT_VERSION, feature, error: failure })}\n`,
     );
   }
-  process.stderr.write(`ERROR: ${failure.what}\nWHY:   ${failure.why}\nFIX:   ${failure.fix}\n`);
+  printFailure(failure);
   process.exitCode = 1;
   return undefined;
 }
@@ -120,7 +129,13 @@ function loadSpec(
       json,
     );
   }
-  return { feature, tasksPath, thresholds, parsed: parseTasks(text) };
+  return {
+    feature,
+    tasksPath,
+    requirementsFile: join(location.dir, "requirements.md"),
+    thresholds,
+    parsed: parseTasks(text),
+  };
 }
 
 const classifySubCommand = defineCommand({
@@ -154,7 +169,7 @@ const classifySubCommand = defineCommand({
       );
     }
     if (error) {
-      process.stderr.write(`ERROR: ${error.what}\nWHY:   ${error.why}\nFIX:   ${error.fix}\n`);
+      printFailure(error);
       process.exitCode = 1;
       return;
     }
@@ -164,7 +179,61 @@ const classifySubCommand = defineCommand({
   },
 });
 
+const checkSubCommand = defineCommand({
+  meta: {
+    name: "check",
+    description: "Validate a spec's tasks.md: milestones, criteria, coverage, vertical deliveries",
+  },
+  args: shared,
+  run({ args }) {
+    const json = args.json ?? false;
+    const spec = loadSpec(args.feature, args.cwd, json);
+    if (!spec) return;
+    let requirementIds: string[] | undefined;
+    try {
+      requirementIds = parseRequirementIds(readFileSync(spec.requirementsFile, "utf8"));
+    } catch {
+      requirementIds = undefined;
+    }
+    const result = checkSpec(spec.parsed, spec.thresholds, requirementIds);
+    const errors = result.findings.filter((f) => f.severity === "error");
+    const where = (line: number | undefined): string =>
+      line === undefined ? spec.tasksPath : `${spec.tasksPath}:${line}`;
+    for (const f of result.findings) {
+      if (f.severity === "warning") {
+        process.stderr.write(`WARN:  [${f.rule}] ${where(f.line)} — ${f.message}\n`);
+      }
+    }
+    if (json) {
+      process.stdout.write(
+        `${JSON.stringify({
+          formatVersion: FORMAT_VERSION,
+          feature: spec.feature,
+          format: result.format,
+          ok: result.ok,
+          findings: result.findings,
+          classification: result.classification,
+        })}\n`,
+      );
+    } else {
+      process.stdout.write(
+        `${spec.feature}: ${result.ok ? "ok" : "findings"} — ${errors.length} error(s), ${result.findings.length - errors.length} warning(s)\n`,
+      );
+    }
+    if (errors.length > 0) {
+      printFailure({
+        what: `${spec.tasksPath} has ${errors.length} error finding(s)`,
+        why: errors.map((f) => `[${f.rule}] ${where(f.line)} — ${f.message}`).join("\n       "),
+        fix: "correct each finding in tasks.md (or the requirements file), then run `navori spec check` again",
+      });
+      process.exitCode = 2;
+      return;
+    }
+    process.exitCode = 0;
+  },
+});
+
 export const specCommand = defineCommand({
   meta: { name: "spec", description: "Classify and validate a spec's tasks.md" },
-  subCommands: { classify: classifySubCommand },
+  subCommands: { classify: classifySubCommand, check: checkSubCommand },
 });

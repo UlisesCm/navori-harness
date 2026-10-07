@@ -110,7 +110,7 @@ export interface ParsedTasks {
   legacyTaskCount: number;
 }
 
-interface SourceLine {
+export interface SourceLine {
   /** 1-based line number in the original text. */
   n: number;
   text: string;
@@ -129,7 +129,7 @@ const CONSUMES_START = /^- \*\*Consumes:\*\*\s*(.*)$/;
 const ARROW = /→|->/g;
 
 /** Drops fenced regions (and their delimiters), keeping original line numbers. */
-function visibleLines(text: string): SourceLine[] {
+export function visibleLines(text: string): SourceLine[] {
   const out: SourceLine[] = [];
   let fence: { char: string; length: number } | undefined;
   for (const [index, line] of text.split(/\r?\n/).entries()) {
