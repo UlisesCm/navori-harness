@@ -4,10 +4,7 @@ description: Strict reviewer — approves or rejects a diff against CLAUDE.md an
 tools: Read, Glob, Grep, Bash, Write
 model: {{models.reviewer}}
 effort: {{effort.reviewer}}
-# Spec 0044 T11 (R16, R17): added spec delivery closing cycle, receipt gate,
-# gate-ran signing, and spec traceability for deliveries; +~300 words measured.
-# 3250 = 3064 actual + 5.8% margin for composition.
-maxWords: 3250
+maxWords: 2966
 ---
 
 # Reviewer Agent
