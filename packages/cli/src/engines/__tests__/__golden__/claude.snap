@@ -16048,6 +16048,8 @@ esac
       "Bash(navori dominio doctor:*)",
       "Bash(navori plan classify:*)",
       "Bash(navori plan check:*)",
+      "Bash(navori spec classify:*)",
+      "Bash(navori spec check:*)",
       "Bash(navori master status:*)",
       "Bash(navori master check:*)",
       "Bash(navori master template:*)",
