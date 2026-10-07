@@ -208,8 +208,15 @@ contenido.
 - **`sync --json`** añade `acceptNewFiles` y, por conflicto, `resolvable` (`bulk` | `none`), nunca
   `basis` ni contenido. Reporta el estado posterior a resolver: los archivos resueltos salen de
   `conflicts[]` y `targets[].skipped`, y entran en `written`/`backups`.
-- **Sin marcador** sigue la salida manual: mover el archivo aparte y `navori render --apply`
-  (seguimiento en #1245).
+- **`resolution`** y **`markerlessResolution`**: un archivo que conserva su marcador completo lleva
+  `resolution` (resoluble en bulk). Uno sin ningún texto `navori:managed` (scripts de plugin que
+  #1242 no adopta, assets `foreign`) lleva `markerlessResolution`: reemplazo de archivo completo,
+  solo en `--interactive`, con render fresco (`existingContent` null, #637), aviso neutral, default
+  «conservar» y backup en `~/.navori/backups` (30 días; `navori backup restore`). Los flags bulk
+  (`--accept-new-files`, `--yes`, `--json`, `--dry-run`) nunca lo leen: `resolvable` sigue en `none`
+  y la forma del JSON no cambia; sin respuesta interactiva se avisa con
+  `sync.markerlessFilesInteractiveOnly`. Un marcador parcial o una mención de `navori:managed` en un
+  comentario no lleva ninguna de las dos: salida manual, mover aparte y `navori render --apply`.
 
 Ver [sync.ts](../packages/cli/src/commands/sync.ts) y
 [execute-plan.ts](../packages/cli/src/engines/shared/execute-plan.ts).
