@@ -742,6 +742,13 @@ interface SyncCmdStrings {
   conflictDiffTruncated: (hidden: number) => string;
   /** Whole-file conflicts carry no block-level diff — say so, don't stay silent. */
   conflictDiffFileLevel: string;
+  // Whole-file conflict resolution (#1240).
+  /** Header above a resolvable file's diff in the interactive flow. */
+  fileConflictHeader: (label: string, path: string) => string;
+  /** The file changed on disk between the diff and the write: it was left alone. */
+  fileChangedSinceDiff: (path: string) => string;
+  /** Resolvable whole-file conflicts the user kept (or left unanswered). */
+  fileConflictsKept: (count: number) => string;
 }
 
 interface DoctorCmdStrings {
@@ -1946,6 +1953,11 @@ const CMD_ES: CmdStrings = {
     conflictDiffFileLevel:
       "(conflicto de archivo completo: el preview no trae diff — resuélvelo a mano o mueve el " +
       "archivo aparte y corre 'navori render --apply')",
+    fileConflictHeader: (label, path) => `Conflicto de archivo [${label}] ${path}`,
+    fileChangedSinceDiff: (path) =>
+      `${path} cambió en disco desde que se mostró el diff — lo dejé intacto. Vuelve a correr sync.`,
+    fileConflictsKept: (count) =>
+      `${count} archivo(s) con tu edición se mantienen. Corre 'navori sync --interactive' para resolverlos.`,
   },
   doctor: {
     noConfigRunInit: (path) => `No hay navori.config.json en ${path}. Corre 'navori init' primero.`,
@@ -3341,6 +3353,11 @@ const CMD_EN: CmdStrings = {
     conflictDiffFileLevel:
       "(whole-file conflict: the preview carries no diff — resolve it by hand or move the " +
       "file aside and run 'navori render --apply')",
+    fileConflictHeader: (label, path) => `File conflict [${label}] ${path}`,
+    fileChangedSinceDiff: (path) =>
+      `${path} changed on disk since the diff was shown — left untouched. Run sync again.`,
+    fileConflictsKept: (count) =>
+      `${count} file(s) with your edit stay as they are. Run 'navori sync --interactive' to resolve them.`,
   },
   doctor: {
     noConfigRunInit: (path) => `No navori.config.json at ${path}. Run 'navori init' first.`,

@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { relative, resolve, join } from "node:path";
 import { type NavoriConfig } from "../lib/config/config.ts";
 import { readConfigOrExit } from "../lib/config/cli-config.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
@@ -24,6 +24,11 @@ import {
   accent,
 } from "../lib/primitives/style.ts";
 import { tc, resolveLang, DEFAULT_LANG, type Lang } from "../lib/i18n.ts";
+import {
+  commitWrites,
+  type PendingWrite,
+  type SkipResolution,
+} from "../engines/shared/execute-plan.ts";
 
 /**
  * `sync` re-runs every configured engine but exposes the plan up front so the
@@ -251,6 +256,10 @@ export const syncCommand = defineCommand({
     const autoApply = Boolean(args.yes || args.apply);
     const blockConflicts = conflicts.filter((c) => c.kind === "block");
     const fileConflicts = conflicts.filter((c) => c.kind === "file");
+    const resolvableFiles = conflicts.filter(isResolvableFile);
+    // Files the user answered "accept" for; written (with backup) before the
+    // normal apply pass, only after EVERY prompt was answered.
+    let acceptedFiles: ResolvableConflict[] = [];
 
     // The CI gate stands only when the conflicts are unanswered: a bulk flag IS
     // the answer, so `--yes --accept-new` must not exit 1 (#523).
@@ -274,28 +283,24 @@ export const syncCommand = defineCommand({
       }
       resolutions = buildBulkResolutions(plans, bulkMode);
       p.log.info(ts.bulkApplied(`--${bulkMode}`, blockConflicts.length));
-      // Whole-file conflicts are out of reach for both modes (the plan carries
-      // no rendered body for them); say so instead of implying they were fixed.
-      warnFileConflictsRemain(fileConflicts.length, ts);
     } else if (!autoApply) {
       if (conflicts.length > 0 && Boolean(args.interactive)) {
         const resolved = await resolveConflictsInteractively(plans, lang);
-        if (resolved === null) {
+        const files = await resolveFileConflictsInteractively(resolvableFiles, lang);
+        if (resolved === null || files === null) {
           p.cancel(tc(lang).common.aborted);
           process.exit(0);
         }
         resolutions = resolved;
-        // Whole-file conflicts aren't resolved block-by-block. They stay as-is;
-        // surface that explicitly.
-        warnFileConflictsRemain(fileConflicts.length, ts);
+        acceptedFiles = files;
       } else if (conflicts.length > 0) {
         const choice = await p.select({
           message: ts.conflictPrompt(conflicts.length),
           options: [
             { value: "skip-conflicts", label: ts.optSkipConflicts },
-            // Block-by-block resolution only exists for managed blocks; offering it
-            // with file-only conflicts is a dead end that writes nothing.
-            ...(blockConflicts.length > 0
+            // Offered only when something is resolvable: a CLAUDE.md block or a
+            // whole file that kept its marker. With neither it is a dead end.
+            ...(blockConflicts.length > 0 || resolvableFiles.length > 0
               ? [{ value: "interactive", label: ts.optInteractive }]
               : []),
             { value: "abort", label: ts.optAbort },
@@ -307,13 +312,14 @@ export const syncCommand = defineCommand({
         }
         if (choice === "interactive") {
           const resolved = await resolveConflictsInteractively(plans, lang);
-          if (resolved === null) {
+          const files = await resolveFileConflictsInteractively(resolvableFiles, lang);
+          if (resolved === null || files === null) {
             p.cancel(tc(lang).common.aborted);
             process.exit(0);
           }
           resolutions = resolved;
+          acceptedFiles = files;
         }
-        warnFileConflictsRemain(fileConflicts.length, ts);
       } else {
         const ok = await p.confirm({
           message: ts.applyChanges,
@@ -326,10 +332,28 @@ export const syncCommand = defineCommand({
       }
     }
 
+    // Say what stays untouched BEFORE writing: whole files nobody can resolve,
+    // and resolvable ones the user kept or never answered.
+    const keptResolvable = resolvableFiles.length - acceptedFiles.length;
+    warnFileConflictsRemain(fileConflicts.length - resolvableFiles.length, ts);
+    if (keptResolvable > 0) p.log.warn(ts.fileConflictsKept(keptResolvable));
+
+    // Accepted whole files first, so the apply pass below sees them as navori's
+    // own (`unchanged`) instead of conflicts again.
+    const fileOutcome = applyFileResolutions(acceptedFiles, lang);
+    for (const c of fileOutcome.dropped) p.log.warn(ts.fileChangedSinceDiff(c.path));
+    for (const backup of fileOutcome.backups) {
+      p.log.message(`${dim(`${tc(lang).common.backupLabel} [${backup.label}]`)} ${backup.path}`);
+    }
+    if (fileOutcome.error !== null) {
+      p.cancel(fileOutcome.error);
+      process.exit(1);
+    }
+
     // Apply pass: actually write. Engines skip conflict files automatically
     // (user-modified-skipped never lands in `pending`); accept-new resolutions
     // are passed as forceIds so those CLAUDE.md blocks are overwritten.
-    let writtenTotal = 0;
+    let writtenTotal = fileOutcome.applied.length;
     for (const t of targets) {
       const res = resolutions.get(t.label);
       const applied = renderSyncTarget(t, false, res);
@@ -341,13 +365,15 @@ export const syncCommand = defineCommand({
 
     // `--accept-new` resolved every block conflict, so only the whole-file ones
     // are still "kept"; reporting the original count would contradict the run.
-    const keptConflicts = bulkMode === "accept-new" ? fileConflicts.length : conflicts.length;
+    const keptConflicts =
+      (bulkMode === "accept-new" ? fileConflicts.length : conflicts.length) -
+      fileOutcome.applied.length;
     p.log.success(ts.wroteFiles(writtenTotal));
     p.outro(`${color.green(ts.doneWord)} ${summarize(writtenTotal, keptConflicts, lang)}`);
   },
 });
 
-/** Warns that whole-file conflicts stay untouched (no resolution flow reaches them). */
+/** Warns that whole-file conflicts nobody can resolve stay untouched. */
 function warnFileConflictsRemain(
   count: number,
   ts: { fileConflictsRemain: (n: number) => string },
@@ -468,11 +494,25 @@ export interface Conflict {
    * (`--interactive`) or in bulk (`--accept-new` / `--keep-mine`), because the
    * plan carries the rendered body for it.
    * `file` — a whole managed file the user hand-edited (`.claude/agents/*.md`,
-   * `AGENTS.md`, `.cursor/rules/*`). NO resolution flag reaches these: the plan
-   * has no rendered body to put in their place, so navori never overwrites them
-   * automatically. Reported so nobody reads a clean exit as "all fixed".
+   * `AGENTS.md`, `.cursor/rules/*`). Resolvable only when the engine attached a
+   * `resolution` (the file still carries a navori marker); every other file
+   * conflict is never overwritten automatically and is reported so nobody reads
+   * a clean exit as "all fixed".
    */
   kind: ConflictKind;
+  /** Target label the conflict belongs to (backup labelling). */
+  label: string;
+  /** Absolute directory of that target (`relPath` base for the write). */
+  cwd: string;
+  /** Forced render sync may write on accept. Holds file bodies: never serialize. */
+  resolution?: SkipResolution;
+}
+
+/** A whole-file conflict sync can resolve (the engine attached a resolution). */
+export type ResolvableConflict = Conflict & { resolution: SkipResolution };
+
+export function isResolvableFile(c: Conflict): c is ResolvableConflict {
+  return c.kind === "file" && c.resolution !== undefined;
 }
 
 export type ConflictKind = "block" | "file";
@@ -649,6 +689,110 @@ export async function resolveConflictsInteractively(
 }
 
 /**
+ * Ask, per resolvable whole file, whether to keep the user's edit or accept the
+ * rendered version, showing the diff. Returns the accepted files, or null when
+ * the user cancelled (nothing is written until every prompt is answered).
+ */
+export async function resolveFileConflictsInteractively(
+  conflicts: readonly ResolvableConflict[],
+  lang: Lang = DEFAULT_LANG,
+): Promise<ResolvableConflict[] | null> {
+  const ts = tc(lang).sync;
+  const accepted: ResolvableConflict[] = [];
+  for (const c of conflicts) {
+    p.log.message(
+      `${color.yellow(ts.fileConflictHeader(c.label, accent(c.path)))}\n` +
+        `${dim(ts.conflictDiffLegend)}\n${formatLineDiff(c.resolution.basis, c.resolution.content)}`,
+    );
+    const choice = await p.select({
+      message: ts.conflictChoice(c.path),
+      options: [
+        { value: "keep", label: ts.optKeepMine },
+        { value: "accept", label: ts.optAcceptNew },
+      ],
+    });
+    if (p.isCancel(choice)) return null;
+    if (choice === "accept") accepted.push(c);
+  }
+  return accepted;
+}
+
+export interface FileResolutionOutcome {
+  /** Conflicts whose file was written. */
+  applied: ResolvableConflict[];
+  /** Conflicts dropped because the file changed (or stopped being regular) since the diff. */
+  dropped: ResolvableConflict[];
+  /** Backup dirs of the accepted writes, labelled `<target>:sync`. */
+  backups: Array<{ label: string; path: string }>;
+  /**
+   * Localized write-failure message, or null. On a failure targets already
+   * written stay written (their backups are in `backups`); later targets are not
+   * attempted, and re-running is idempotent (written files become navori's own).
+   */
+  error: string | null;
+}
+
+/** True when `path` is still a regular, non-symlink file holding exactly `basis`. */
+function stillMatchesBasis(path: string, basis: string): boolean {
+  try {
+    const stats = lstatSync(path, { throwIfNoEntry: false });
+    return (
+      Boolean(stats?.isFile()) && !stats?.isSymbolicLink() && readFileSync(path, "utf-8") === basis
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Write the accepted whole-file resolutions through `commitWrites` (one call per
+ * target, so backup + atomic write stay the engines' single choke point). The
+ * disk is re-checked immediately before each target's write: a file that no
+ * longer equals the `basis` the user saw, or is no longer a regular file, is
+ * DROPPED (never written) and the others proceed. Never prints; the caller reports.
+ */
+export function applyFileResolutions(
+  accepted: readonly ResolvableConflict[],
+  lang: Lang = DEFAULT_LANG,
+): FileResolutionOutcome {
+  const outcome: FileResolutionOutcome = { applied: [], dropped: [], backups: [], error: null };
+  const byTarget = new Map<string, ResolvableConflict[]>();
+  for (const c of accepted) byTarget.set(c.label, [...(byTarget.get(c.label) ?? []), c]);
+
+  for (const [label, group] of byTarget) {
+    const pending: PendingWrite[] = [];
+    const writable: ResolvableConflict[] = [];
+    for (const c of group) {
+      const { absPath, basis, content, chmodExec } = c.resolution;
+      if (!stillMatchesBasis(absPath, basis)) {
+        outcome.dropped.push(c);
+        continue;
+      }
+      writable.push(c);
+      if (pending.some((w) => w.path === absPath)) continue; // same file reached twice
+      pending.push({
+        path: absPath,
+        relPath: relative(c.cwd, absPath),
+        content,
+        status: "updated",
+        chmodExec,
+      });
+    }
+    const first = writable[0];
+    if (first === undefined) continue;
+    try {
+      const { backupPath } = commitWrites({ pending, removals: [], cwd: first.cwd, lang });
+      outcome.applied.push(...writable);
+      if (backupPath) outcome.backups.push({ label: `${label}:sync`, path: backupPath });
+    } catch (error) {
+      outcome.error = error instanceof Error ? error.message : String(error);
+      return outcome;
+    }
+  }
+  return outcome;
+}
+
+/**
  * Machine-readable sync result. Keys are stable English (never localized) so
  * CI/automation can parse the same shape regardless of `config.language`.
  */
@@ -732,6 +876,8 @@ export function collectTargetConflicts({ target, claude, engines }: TargetPlan):
         path: `${prefix}CLAUDE.md (${e.asset.id})`,
         reason: "managed block edited",
         kind: "block",
+        label: target.label,
+        cwd: target.cwd,
       });
     }
   }
@@ -741,7 +887,14 @@ export function collectTargetConflicts({ target, claude, engines }: TargetPlan):
   // (block from a newer navori) is intentionally not a conflict.
   for (const s of claude?.skipped ?? []) {
     if (s.status === "user-modified-skipped") {
-      out.push({ path: `${prefix}${s.path}`, reason: s.reason, kind: "file" });
+      out.push({
+        path: `${prefix}${s.path}`,
+        reason: s.reason,
+        kind: "file",
+        label: target.label,
+        cwd: target.cwd,
+        resolution: s.resolution,
+      });
     }
   }
   for (const engine of engines) {
@@ -751,6 +904,9 @@ export function collectTargetConflicts({ target, claude, engines }: TargetPlan):
           path: `${prefix}[${engine.engine}] ${skipped.path}`,
           reason: skipped.reason,
           kind: "file",
+          label: target.label,
+          cwd: target.cwd,
+          resolution: skipped.resolution,
         });
       }
     }
@@ -805,6 +961,9 @@ function reportTargetPlan({ target, claude, engines }: TargetPlan, lang: Lang): 
     lines.push(
       `  ${color.yellow(sym.conflict)} [claude] ${s.path}  ${dim("(skipped:")} ${dim(s.reason)}${dim(")")}`,
     );
+    if (s.resolution) {
+      lines.push(...formatConflictDiffLines(s.resolution.basis, s.resolution.content, lang));
+    }
   }
 
   if ((claude?.updatesAvailable.length ?? 0) > 0) {
@@ -827,18 +986,25 @@ function reportTargetPlan({ target, claude, engines }: TargetPlan, lang: Lang): 
       lines.push(
         `  ${color.yellow(sym.conflict)} [${engine.engine}] ${skipped.path}  ${dim("(skipped:")} ${dim(skipped.reason)}${dim(")")}`,
       );
+      if (skipped.resolution) {
+        lines.push(
+          ...formatConflictDiffLines(skipped.resolution.basis, skipped.resolution.content, lang),
+        );
+      }
     }
     for (const warning of engine.warnings) {
       lines.push(`  ${color.yellow(sym.conflict)} [${engine.engine}] ${warning}`);
     }
   }
 
-  // Whole-file conflicts get NO diff (see formatConflictDiffLines): the plan
-  // carries no rendered body for them. Say it once per target rather than
-  // letting the silence read as "nothing differs".
+  // Whole-file conflicts WITHOUT a resolution get no diff: the plan carries no
+  // rendered body for them. Say it once per target rather than letting the
+  // silence read as "nothing differs".
+  const isUnresolvable = (s: { status?: string; resolution?: unknown }): boolean =>
+    s.status === "user-modified-skipped" && s.resolution === undefined;
   const hasFileConflict =
-    (claude?.skipped ?? []).some((s) => s.status === "user-modified-skipped") ||
-    engines.some((engine) => engine.skipped.some((s) => s.status === "user-modified-skipped"));
+    (claude?.skipped ?? []).some(isUnresolvable) ||
+    engines.some((engine) => engine.skipped.some(isUnresolvable));
   if (hasFileConflict) lines.push(`      ${dim(ts.conflictDiffFileLevel)}`);
 
   p.log.message(lines.join("\n"));
