@@ -144,6 +144,33 @@ Unidad tarea `{repo identity,feature}` con revisiones de diff; reuso del slug de
 - **Episodios**: fingerprint nuevo tras aceptación = episodio n+1; sin boundaries es ambiguo; sin inicio observado, left-censored; abierto, censurado.
 - **Report**: clave aditiva `outcomes` en v11, con availability `outcomes.review` y `outcomes.receipt`. La etiqueta sale de `featureKey` (el slug crudo es irrecuperable por diseño). El report nunca llama `checkReceipt` ni lanza git.
 
+#### Addendum D5 — decisiones de T10a
+
+- **Contrato dispatch-outcome**: payload cerrado `{schemaVersion 1, featureKey hex64, stage 'implement', spawn? tool_use_id acotado}`, veredicto solo `allow`. Lo emite `navori plan gate` únicamente en allow resuelto desde una apertura `workplan:` (nunca nivel-0 ni deny). La emisión es fail-safe: ocurre tras fijar el exit code y un fallo no lo altera.
+- **Sesión**: se toma del payload del hook y se valida contra la identidad ambiente (R9); contradicción = no se escribe.
+- **Vínculo spawn↔run**: `tool_result.tool_use_id` ↔ `toolUseResult.agentId`, incluido `async_launched`. Los runs anidados cuentan como no vinculados.
+- **Dispatch sin confirmar**: nunca abre tarea, episodio ni boundary (B1).
+- **Codex**: dispatches no vinculables; availability parcial, nunca cero.
+- **Report**: `outcomes.dispatch` con availability y conteos de huérfanos (`dispatchWithoutRounds`, `roundsWithoutDispatch`, `unconfirmed`). Dedup por (sesión, spawn, featureKey); sin spawn no se deduplica y cuenta como unconfirmed.
+- **Decisiones adoptadas**: alcance de tokens solo `implementer`, con `reviewer` como follow-up; worktrees externos quedan como residual visible vía conteos de huérfanos; espera humana = idle entre turnos solo en Claude, estratificada por host.
+- **Orden de split**: se invierte; primero el emisor (T10a), luego las métricas R17/R18 (T10b).
+
+#### Addendum D5 — decisiones de T10b
+
+- **Atribución**: tokens solo `implementer-dispatch` (`reviewer` queda como follow-up). Un run se atribuye únicamente por dispatch CONFIRMADO (run Claude de la misma sesión con `spawnToolUseId` igual al spawn del dispatch). Un spawn reclamado por dos features es ambiguo y no atribuye nada (`ambiguousSpawns`). Un dispatch confirmado posterior a una aceptación abre el episodio n+1; el no confirmado nunca. Features con solo dispatch no crean tareas.
+- **Tokens**: por componente solo si todos los runs atribuidos lo midieron como `observed` (parcial => `null`, `partial-usage`); es más estricto que `measurable()` de T6. Los tokens atribuidos = suma de las sumas reportadas por los episodios; una suma `null` (otro run parcial) deja todos sus tokens en `unattributed`. `unattributed` = total medido − atribuido, con `attributedTokens` expuesto de modo que atribuido + `unattributed` = total medido; sin repartos porcentuales.
+- **R17**: `tokensPerAcceptedTask`, `tokensAllTasks` (aceptadas + abiertas) y `tokenCoverage` (episodios con/sin dispatch) lado a lado. `reviewRoundsToAcceptance` cuenta rondas con tiempo <= aceptación; excluye left-censored y ambiguas. `r17.gate` cubre todos los episodios con ejecuciones ran+terminal (abiertos incluidos; eligible = todos los episodios) y expone `acceptedOnly` `{executions,failures,episodes,eligible}` como cifra solo-aceptadas.
+- **`firstApproval`**: cota inferior `{yes,no,undetermined}`. `true` solo si el primer ítem es dispatch confirmado, la primera ronda está en una sesión que también contiene ese dispatch y está correlacionada como aprobada sobre el fp aceptado. `null` con razón `left-censored`, `unobserved-history`, `incomplete-round`, `pending` o `no-review-round` (M2).
+- **Gate fallido**: solo desde ejecuciones de fast-gate (`quality-gate-pre-commit`) con `gate-started` más un bloqueo terminal en sesión sellada con `agentId` exacto en el payload. Bloqueo sin `gate-started` = `notRun`; timeout/duplicado/desconocido/dueño inexacto = `unverifiable`; `allow` sin `gate-started` no es ejecución. La ausencia de recibo nunca es fallo; el gate completo no emite evento de resultado.
+- **R18**: `timeToAcceptance` (desde el primer dispatch confirmado) y `reviewToAcceptance` (desde el primer begin de review) se agregan por separado.
+- **Tiempo activo**: unión de los intervalos de pares Pre/PostToolUse propios de los runs atribuidos más los intervalos begin→seal de review; misma base que `activeMs` de sesión (T3) pero por run. Una espera de permiso dentro de un par no es separable; el hueco idle de un agente reanudado queda fuera de los pares y se excluye (M1).
+- **Tope de review**: intervalo acotado a 2 h (`reviewSpanCapMs`, `REVIEW_SPAN_CAP_MS`); por encima o sin sellar, el episodio es parcial y el valor `null` (M5). El valor es un techo elegido, sin datos para calibrarlo.
+- **Idle entre turnos**: solo Claude; hueco entre el último registro del hilo principal y el siguiente prompt tipado, menos ventanas de subagentes; lee solo tipos de registro y timestamps. Estratificado `claude`/`codex`/`mixed`; no se atribuye (parcial, sesión compartida) si la sesión registró más de una feature (M4).
+- **No clasificado**: `elapsed − |activo ∪ idle|`, con `includesUnidentifiedWaits`. Solo episodios con inicio por dispatch reciben activo/idle/no clasificado.
+- **Censura**: episodios abiertos y left-censored son censurados, nunca rápidos. Todo agregado es `{p50,p90,n,eligible,censored,state,reason}`; el cuantil nearest-rank vive en `task-metrics.ts`.
+- **Salida**: claves aditivas dentro de `outcomes` (`efficiency` y `lifecycle` por episodio; `summary.r17`/`r18`/`unattributed`), `schemaVersion` sigue en 11, allowlists de outcomes acotadas, nada en `rangeMetrics`. Sin score compuesto ni comparación entre rangos hasta T11.
+- **Residuales**: worktrees externos parten `featureKey` (visible en conteos de huérfanos); Codex no tiene vínculo de run; el host poda transcripts.
+
 ### D6 — Comparación y acción (R15, R17–R20)
 
 Snapshot formato 2 conserva métricas numéricas, disponibilidad, N y cohortes: repo por identificador hash local no path/nombre; host, modelo exacto/familia explícita, rol, régimen realmente cargado, tipo/unidad trabajo y cobertura. Snapshot v1 sigue legible; dimensiones faltantes = legacy-unknown y delta descriptivo. No utilizar generatedBy como versión activa. Modelo mixto/desconocido no se imputa a uno conocido.
@@ -153,6 +180,20 @@ Comparación preflight por métrica: mismas dimensiones conocidas, población eq
 Hook work=sum; toll por evento/fase=max concurrente observado, secuenciales separados; sin IDs/grupos confiables toll parcial. Dos hooks paralelos 100 ms = work 200/toll 100. Tool count Codex wrapper no equivale a operaciones internas; sin fuente estructurada, nested calls unavailable. Nunca inspeccionar/ejecutar scripts para inferirlas.
 
 Recomendaciones rankean mecanismo con impacto observado (tokens atribuibles, tiempo bloqueante o ocurrencias/N), evidencia y cobertura; no mezclar unidades en puntuación inventada. Separar hechos, hipótesis y próximo probe; failures/repeticiones no son automáticamente retrabajo de código. Causas sin impacto medible permanecen pistas.
+
+#### Addendum D6 — decisiones de T11
+
+- **Snapshot v2**: `{snapshotFormat, generatedBy (informativo), scope, repo, repos, range, controls{auditMode,miner}, cohorts{all,tools,hooks}, metrics{value,state,reason,n}}`. Unidad y eje se derivan de la clave, no se guardan. Se construye desde `publishReport`. Una cohorte por población que mide (ejes tools/hooks): las sesiones que no miden una métrica no la contaminan.
+- **Repo**: id = sha256 del commit raíz (el menor), resuelto por `gitRootCommit` en el comando; `buildSnapshot` lo recibe como parámetro. `null` = desconocido explícito, nunca basename. Es seudónimo, no anonimato. All-repos = conteo + digest de las etiquetas de repo publicadas, ordenadas.
+- **Trabajo**: `work {tracked,untracked}` mide instrumentación (sesión con evento de outcome), no el tipo de trabajo; se exige homogéneo solo en familias de unidad sesión. Host/trabajo/modelo/régimen mezclados = solo descriptivo; la estratificación es follow-up.
+- **Preflight por métrica**: orden y razones cerradas. Outcomes `matched|descriptive|inconclusive|notControlled`. `matched` = mismas cohortes conocidas y cobertura, nunca mejora. A lo sumo uno de régimen/modelo puede diferir (contraste); host/trabajo distintos o régimen+modelo = confundido.
+- **Deltas**: solo estadísticos intensivos (p50/p90/pct/perBashCall) reciben `delta`/`relativeChange`; los conteos no. `relativeChange` = `null` con base 0.
+- **R43**: único criterio preregistrado (0039: -10%, n>=100). Produce `threshold-met-unverified|threshold-not-met` con `noiseBand` `unmeasured` y sin veredicto; incontrolado: task-mix, ccVersion, ediciones locales del harness. Exige mismo `audit.mode` y miner (versión navori de `generatedBy`); distinto o desconocido => `notControlled`. No da el veredicto que 0039 T44 cerró sin R43 (sigue en #1177).
+- **Lector v1**: scope desconocido, cohortes `null`, estado `legacy-unknown`, claves por `publicMapKey`, `n` recuperado solo de claves hermanas `.n`. El lector v2 revalida cada clave (idempotencia de `publicMapKey`), etiqueta (regex), `generatedBy` y contenedores seguros ante prototipos.
+- **`recommend.ts`**: puro; su firma solo toma sessions/rangeMetrics/availability, sin comparación ni snapshot (fijado por test). Grupos por denominador (per-tool-call, per-bash-call, tokens, blocking-ms); ranking solo dentro del grupo, el orden de grupos es presentación, sin score. Pisos de rango `MIN_CALLS=100`, `MIN_SESSIONS=3`, `MIN_TOLL_EVENTS=10` son elecciones de ingeniería NO calibradas ni preregistradas; bajo el piso = pista sin rankear. Hechos separados de hipótesis (ids cerrados + `nextProbe`). Fuera a propósito: `gate-failed-attempts`, `review-rounds` y adaptadores `task.*` (follow-up).
+- **Publicación**: `comparison`/`recommendations` son claves aditivas v11 de constructores cerrados, extraídas antes de `metadataPublication` y re-adjuntadas tras `projectNumbers` (como outcomes) para conservar deltas negativos; `PUBLIC_*` global intacto. La comparación viaja solo en `--json --compare` y en terminal, nunca en los reportes persistidos.
+- **CLI**: se quita el corte de schema 11; `--json --compare` permitido (sin escrituras), `--json --snapshot` sigue rechazado.
+- **Límites**: rango por defecto de un día (from==to) = ventana desconocida; un cambio de régimen a media sesión solo se detecta con `navoriAtStop`; `audit.mode` se lee de `navori.config.json` al generar el snapshot, no lo que gobernó cada sesión.
 
 ## Incremental boundaries
 
@@ -191,3 +232,24 @@ Controles seleccionados: [NIST SSDF 1.1 PW.8.2](https://csrc.nist.gov/pubs/sp/80
 Destino propuesto: contratos de audit y fixtures en repo; límites/recovery/disponibilidad en documentación audit; metadata-only en doctrina existente solo si requiere uso operativo. No promover al Dominio: no es regla business cross-repo.
 
 Fuera: nuevos servicios/DB/board, migración/retención/chmod históricos, scripts transcript ejecutados o persistidos, llamadas Jira/GitHub/fetch desde report, billing exacto, quality score único, reducir sample T44, cambios dual-workflow/release. Ningún servicio real será instalado o detenido por pruebas.
+
+## Contratos, versionado y límites observados
+
+**Contratos y versionado**
+- Reporte JSON `schemaVersion` 11, solo con claves aditivas: `outcomes`, `comparison`, `recommendations` e ids de availability. Los lectores previos no inventan availability.
+- Snapshot formato 2; el lector acepta formatos 1 y 2.
+- Nombres de evento cli cerrados para outcomes: `review-outcome`, `receipt-outcome`, `dispatch-outcome`.
+- Flags: `audit --json --compare` se permite (sin escritura); `audit --json --snapshot` se rechaza. `comparison` y `recommendations` son efímeras y nunca se persisten en snapshots.
+- Identidad de contenido: `navori-content/v1`.
+- Ventana de un solo día: un rango solo-fecha con `from === to` se expande al día UTC completo en `windowOf` de la comparación; los demás rangos solo-fecha conservan el semiabierto `[from, to)` almacenado.
+
+**Límites observados (sin prometer más)**
+- Los verbos `receipt review` están disponibles desde el release 0.11.3.
+- El productor LLM puede falsificar `begin`/`seal`, y `begin` no prueba el orden de lectura.
+- El plan gate de Codex es consultivo.
+- La atribución de tokens es solo del implementer.
+- `reviewSpanCapMs` (2 h) y los pisos de rango no están calibrados; la banda de ruido no está medida.
+- Los worktrees externos son un residual.
+- El RSS es muestreado, no continuo.
+- Sin backfill de rollouts/logs legacy; entorno vivo de Codex sin probar.
+- Los timeouts de reglas de semgrep son preexistentes y no deterministas (también en `origin/main` 1916e749); no los introduce este cambio y la configuración de semgrep no se modificó.

@@ -12,6 +12,7 @@ import {
 import type { HarnessCatalog } from "../harness.ts";
 import {
   type AgentRun,
+  type AuditReport,
   type HookEvent,
   type InjectedContext,
   type SessionAudit,
@@ -2555,6 +2556,205 @@ describe("review/receipt outcomes in the report (spec 0042 T9b)", () => {
     }
   });
 
+  const dispatchEvent = (spawnId: string | undefined, tsMs = at("09:59")): CliEvent => ({
+    tsMs,
+    event: "cli",
+    name: "dispatch-outcome",
+    verdict: "allow",
+    outcomePayload: {
+      name: "dispatch-outcome",
+      verdict: "allow",
+      schemaVersion: 1,
+      featureKey: hex("e"),
+      stage: "implement",
+      ...(spawnId ? { spawn: spawnId } : {}),
+    },
+  });
+
+  // Covers: R17
+  it("exposes dispatch availability and orphan counts inside outcomes only", () => {
+    const report = build([
+      session([agent({ spawnToolUseId: "toolu_ok" })], {
+        sessionId: "claude-s",
+        cliEvents: [reviewEvent(), dispatchEvent("toolu_ok"), dispatchEvent("toolu_lost")],
+      }),
+      session([], { sessionId: "codex-s", host: "codex", cliEvents: [dispatchEvent("c1")] }),
+      session([], { sessionId: "silent" }),
+    ]);
+    const json = JSON.parse(renderJson(report));
+    expect(json.outcomes.dispatch).toEqual({
+      events: 3,
+      confirmed: 1,
+      unconfirmed: 1,
+      unlinkable: 1,
+      nestedUnlinked: 0,
+      dispatchWithoutRounds: 1,
+      roundsWithoutDispatch: 1,
+    });
+    // Codex is partial (never a full observation), a silent session is unknown.
+    expect(json.availability["outcomes.dispatch"]).toMatchObject({
+      state: "partial",
+      eligible: 3,
+      observed: 1,
+      partial: 1,
+      unavailable: 1,
+    });
+    expect(renderJson(report)).not.toContain("spawnToolUseId");
+    expect(renderJson(report)).not.toContain("toolu_ok");
+  });
+
+  // Covers: R17
+  it("reports dispatch availability as unknown, not zero, when no session logged one", () => {
+    const json = JSON.parse(renderJson(build([session([], { cliEvents: [reviewEvent()] })])));
+    expect(json.availability["outcomes.dispatch"]).toMatchObject({
+      state: "unavailable",
+      observed: 0,
+      eligible: 1,
+    });
+    expect(json.outcomes).not.toHaveProperty("dispatch");
+  });
+
+  // Covers: R17
+  it("keeps the dispatch field names hashed outside the outcomes subtree", () => {
+    const report = build([session([], { cliEvents: [reviewEvent(), dispatchEvent("toolu_x")] })]);
+    Object.assign(report.rangeMetrics, { "tokens.confirmed.unlinkable": 1 });
+    const published = publishReport(report);
+    expect(Object.keys(published.rangeMetrics)).not.toContain("tokens.confirmed.unlinkable");
+    expect(published.outcomes?.dispatch).toMatchObject({ events: 1, unconfirmed: 1 });
+    expect(published.availability).toHaveProperty("outcomes.dispatch");
+  });
+
+  describe("task efficiency and lifecycle (spec 0042 T10b)", () => {
+    const dispatchOf = (spawn: string, tsMs: number): CliEvent => ({
+      tsMs,
+      event: "cli",
+      name: "dispatch-outcome",
+      verdict: "allow",
+      outcomePayload: {
+        name: "dispatch-outcome",
+        verdict: "allow",
+        schemaVersion: 1,
+        featureKey: hex("f"),
+        stage: "implement",
+        spawn,
+      },
+    });
+    const accepted = (spawn = "toolu_secret"): SessionAudit =>
+      session([agent({ spawnToolUseId: spawn, activeIntervals: [[at("09:00"), at("09:30")]] })], {
+        sessionId: "impl",
+        sealed: true,
+        availability: {
+          ...session([]).availability,
+          activeMs: {
+            state: "observed",
+            reason: null,
+            source: "audit-log",
+            adapter: "audit-log",
+            sourceVersion: null,
+          },
+        },
+        idleBetweenTurns: [[at("09:40"), at("09:50")]],
+        cliEvents: [dispatchOf(spawn, at("09:00")), reviewEvent(), receiptEvent()],
+      });
+
+    // Covers: R17, R18
+    it("publishes episode and summary figures inside outcomes with real numbers and null for the unknown", () => {
+      const report = build([accepted()]);
+      const json = JSON.parse(renderJson(report));
+      // The allowlist drops nothing the join produced: no field name or label is lost or hashed.
+      expect(json.outcomes).toEqual(JSON.parse(JSON.stringify(report.outcomes)));
+      const episode = json.outcomes.tasks[0].episodes[0];
+      expect(json.schemaVersion).toBe(11);
+      expect(episode.efficiency).toMatchObject({
+        tokenScope: "implementer-dispatch",
+        attributedRuns: 1,
+        rounds: 1,
+        firstApproval: true,
+      });
+      expect(typeof episode.efficiency.tokens.output).toBe("number");
+      expect(episode.lifecycle).toMatchObject({
+        start: "dispatch",
+        elapsedMs: at("10:31") - at("09:00"),
+        // 30 min of the run's tool pairs + the 30 min review, not the idle gap.
+        active: { value: 3_600_000, state: "observed" },
+        idleBetweenTurns: { value: at("09:50") - at("09:40"), state: "observed" },
+        idleHost: "claude",
+      });
+      const { r17, r18, unattributed } = json.outcomes.summary;
+      expect(r17.tokenScope).toBe("implementer-dispatch");
+      expect(r17.tokenCoverage).toEqual({ episodes: 1, withDispatch: 1, withoutDispatch: 0 });
+      expect(r17.tokensPerAcceptedTask.output).toMatchObject({ n: 1, eligible: 1, censored: 0 });
+      expect(r18.timeToAcceptance).toMatchObject({ n: 1, state: "observed" });
+      expect(r18.idleBetweenTurns.codex).toMatchObject({ n: 0, p50: null, state: "unavailable" });
+      expect(unattributed.runs).toEqual({ attributed: 1, unattributed: 0 });
+      // Unknown stays null in the JSON, never 0: this task has no gate execution at all.
+      expect(r17.gate).toMatchObject({ executions: 0, failures: 0, withoutGateExecution: 1 });
+    });
+
+    // Covers: R17, R18
+    it("publishes every reason and state label of unobserved, open and Codex tasks unchanged", () => {
+      const codex = session([], {
+        sessionId: "cx",
+        host: "codex",
+        cliEvents: [reviewEvent({ featureKey: hex("c"), nonce: undefined }), receiptEvent()],
+      });
+      const open = session([], {
+        sessionId: "open",
+        cliEvents: [
+          dispatchOf("toolu_open", at("09:00")),
+          reviewEvent({
+            featureKey: hex("d"),
+            verdict: "changes-requested",
+            correlation: "missing",
+          }),
+        ],
+      });
+      const report = build([accepted(), codex, open]);
+      const json = JSON.parse(renderJson(report));
+      expect(json.outcomes).toEqual(JSON.parse(JSON.stringify(report.outcomes)));
+      const text = JSON.stringify(json.outcomes);
+      for (const label of ["no-dispatch-event", "ownership-unknown", "censored", "no-source"])
+        expect(text).toContain(label);
+      expect(text).not.toMatch(/"(?:reason|state|idleHost|start|tokenScope)":"unknown-/);
+    });
+
+    // Covers: R17, R18
+    it("never publishes join keys, spawn ids or raw intervals", () => {
+      const text = renderJson(build([accepted()]));
+      for (const secret of ["toolu_secret", "spawnToolUseId", "activeIntervals", "featureKey"])
+        expect(text).not.toContain(secret);
+      expect(text).not.toMatch(/"idleBetweenTurns":\s*\[/);
+    });
+
+    // Covers: R17, R18
+    it("scopes the new field names to the outcomes subtree and leaves the global allowlists alone", () => {
+      const report = build([accepted()]);
+      Object.assign(report, { efficiency: { tokens: { output: 1 } }, unattributed: { runs: 1 } });
+      Object.assign(report.sessions[0] as object, { lifecycle: { elapsedMs: 5 } });
+      const published = JSON.parse(renderJson(report));
+      for (const leaked of ["efficiency", "unattributed", "lifecycle"]) {
+        expect(published).not.toHaveProperty(leaked);
+        expect(published.sessions[0]).not.toHaveProperty(leaked);
+      }
+      expect(published.outcomes.summary).toBeDefined();
+      expect(Object.keys(published.rangeMetrics).join()).not.toMatch(
+        /efficiency|lifecycle|accepted/,
+      );
+    });
+
+    // Covers: R17, R18
+    it("renders a short Markdown section with scope, censoring and the quality caveat", () => {
+      const md = renderMarkdown(build([accepted()]), "en");
+      expect(md).toContain("Efficiency per accepted task");
+      expect(md).toContain("Lifecycle");
+      expect(md).toContain("implementer-dispatch");
+      expect(md).toContain("Fewer tokens does not mean better quality");
+      expect(md).toMatch(/Time to acceptance \(from dispatch\) \| \d+s/);
+      // Without a summary (no episode) there is no section.
+      expect(renderMarkdown(build([session([])]), "en")).not.toContain("Efficiency per accepted");
+    });
+  });
+
   // Covers: R16
   it("reports unknown availability and no outcomes key when no session logged one", () => {
     const json = JSON.parse(renderJson(build([session([])])));
@@ -2648,5 +2848,129 @@ describe("review/receipt outcomes in the report (spec 0042 T9b)", () => {
       reviews: { rounds: 1, approved: 1, correlated: 1 },
       receipts: { observations: 1, ok: 1, fresh: 1 },
     });
+  });
+});
+
+describe("comparison and recommendations in the published report (spec 0042 T11)", () => {
+  const build = (sessions: SessionAudit[]) =>
+    buildReport(sessions, { repo: "demo", version: "0.11.2", catalog: CATALOG });
+  const comparison = (key: string): NonNullable<AuditReport["comparison"]> => ({
+    base: {
+      format: 2,
+      scope: "repo",
+      range: { from: "2026-09-01", to: "2026-09-08" },
+      sessions: 3,
+    },
+    current: {
+      format: 2,
+      scope: "repo",
+      range: { from: "2026-09-15", to: "2026-09-22" },
+      sessions: 3,
+    },
+    rows: [
+      {
+        key,
+        base: 100,
+        current: 88,
+        delta: -12,
+        relativeChange: -0.12,
+        outcome: "matched",
+        reasons: [],
+        contrast: "regime",
+        n: { base: 120, current: 130 },
+        criterion: {
+          source: "spec-0039/R43",
+          threshold: -0.1,
+          minN: 100,
+          observedChange: -0.12,
+          state: "threshold-met-unverified",
+          noiseBand: "unmeasured",
+          uncontrolled: ["task-mix"],
+        },
+      },
+    ],
+    totals: { matched: 1, descriptive: 0, inconclusive: 0, notControlled: 0 },
+  });
+
+  // Covers: R19
+  it("re-attaches the comparison after the numeric projection: negative deltas survive", () => {
+    const report = build([session([])]);
+    report.comparison = comparison("agent.implementer.cacheRead.p50");
+    const published = publishReport(report);
+    expect(published.comparison?.rows[0]).toMatchObject({
+      delta: -12,
+      relativeChange: -0.12,
+      criterion: { observedChange: -0.12, state: "threshold-met-unverified" },
+    });
+    // The pre-fix shape: every figure of an unknown key came out null.
+    expect(JSON.parse(renderJson(report)).comparison.rows[0].delta).toBe(-12);
+    expect(publishReport(build([session([])]))).not.toHaveProperty("comparison");
+  });
+
+  // Covers: R19
+  it("publishes a free-text key of the comparison as an opaque label", () => {
+    const report = build([session([])]);
+    report.comparison = comparison("agent.my-secret-agent.turns.p50");
+    const text = JSON.stringify(publishReport(report).comparison);
+    expect(text).not.toContain("my-secret-agent");
+    expect(text).toContain(`agent.${opaqueLabel("my-secret-agent")}.turns.p50`);
+  });
+
+  // Covers: R20
+  it("always computes recommendations and publishes their figures, closed ids and keys", () => {
+    const empty = publishReport(build([session([])]));
+    expect(empty.recommendations).toEqual([]);
+    const report = build([session([])]);
+    report.recommendations = [
+      {
+        group: "blocking-ms",
+        cause: "hook-toll",
+        status: "fact",
+        rank: 1,
+        impact: { unit: "ms", value: 5000, n: 40, state: "partial" },
+        scope: { sessions: 2, eligibleSessions: 2 },
+        evidence: { metrics: ["hook.secret-hook.ms", "hooks.tollMs"], signals: [] },
+        hypotheses: [{ id: "toll-share-by-hook", nextProbe: "parallel-group-ids" }],
+      },
+    ];
+    const rec = publishReport(report).recommendations?.[0];
+    expect(rec?.impact).toEqual({ unit: "ms", value: 5000, n: 40, state: "partial" });
+    expect(rec?.evidence.metrics).toEqual([
+      `hook.${opaqueLabel("secret-hook")}.ms`,
+      "hooks.tollMs",
+    ]);
+    expect(rec?.hypotheses[0]?.id).toBe("toll-share-by-hook");
+    expect(JSON.stringify(publishReport(report))).not.toContain("secret-hook");
+  });
+
+  // Covers: R20
+  it("keeps the generic allowlist closed: the recommendation words stay hashed outside their subtree", () => {
+    const report = build([session([])]);
+    Object.assign(report.rangeMetrics, { "tokens.hypotheses.rank": 3, "tokens.impact.status": 1 });
+    const keys = Object.keys(publishReport(report).rangeMetrics);
+    expect(keys).toContain(`tokens.${opaqueLabel("hypotheses")}.${opaqueLabel("rank")}`);
+    expect(keys).not.toContain("tokens.impact.status");
+  });
+
+  // Covers: R20
+  it("prints the observed causes in the private Markdown, facts and hypotheses apart", () => {
+    const report = build([session([])]);
+    report.recommendations = [
+      {
+        group: "per-tool-call",
+        cause: "friction",
+        status: "lead",
+        rank: null,
+        impact: { unit: "ratio", value: 0.04, n: 50, state: "observed" },
+        scope: { sessions: 1, eligibleSessions: 1 },
+        evidence: { metrics: [], signals: ["friction"] },
+        hypotheses: [{ id: "blocks-cost-context", nextProbe: "tokens-after-block" }],
+      },
+    ];
+    const text = renderMarkdown(report, "en");
+    expect(text).toContain("Observed causes");
+    expect(text).toContain(
+      "| per-tool-call | — | friction | lead | 0.04 ratio (observed) | 50 | 1/1 | blocks-cost-context → tokens-after-block |",
+    );
   });
 });

@@ -41,7 +41,8 @@ export interface CliEvent {
   reason?: string;
 }
 
-interface AuditContext {
+/** Explicit session identity, e.g. the hook payload's `session_id`; checked against every ambient variable. */
+export interface AuditContext {
   host: "claude" | "codex";
   sessionId: string;
 }
@@ -222,11 +223,21 @@ interface AuditTarget {
 }
 
 /** Cheap exact-context resolution shared by the writer and `hasAuditTarget`; throws on filesystem errors. */
-function auditTarget(cwd: string): AuditTarget | null {
-  const context = contextFromEnv();
+function auditTarget(cwd: string, explicit?: AuditContext): AuditTarget | null {
+  const context = explicit ?? contextFromEnv();
   if (!context) return null;
   const { host, sessionId } = context;
   if (host !== "claude" && host !== "codex") return null;
+  if (explicit) {
+    // An explicit identity never overrides the ambient one: any contradiction writes nothing.
+    const pairHost = process.env.NAVORI_AUDIT_HOST?.trim();
+    const pairSession = process.env.NAVORI_AUDIT_SESSION_ID?.trim();
+    if (
+      (pairHost !== undefined || pairSession !== undefined) &&
+      (pairHost !== host || pairSession !== sessionId)
+    )
+      return null;
+  }
   if (
     host === "claude" &&
     (process.env.CODEX_SESSION_ID?.trim() || process.env.CODEX_THREAD_ID?.trim())
@@ -271,9 +282,9 @@ export function outcomeFeatureKey(cwd: string, feature: string): string {
  * Codex source binding are still verified by `appendCliEvent`, so a `true`
  * here can still end in a refused write.
  */
-export function hasAuditTarget(cwd: string): boolean {
+export function hasAuditTarget(cwd: string, context?: AuditContext): boolean {
   try {
-    return auditTarget(cwd) !== null;
+    return auditTarget(cwd, context) !== null;
   } catch {
     return false;
   }
@@ -300,14 +311,22 @@ export function hasAuditTarget(cwd: string): boolean {
  * One `writeSync` of a complete line (O_APPEND), so concurrent writers
  * cannot interleave inside a record.
  *
- * An `outcome` adds the closed review/receipt-outcome payload (`normalizeOutcome`); an
+ * An explicit `context` (the hook payload's session) replaces the ambient
+ * lookup but is still checked against every ambient variable and the header.
+ *
+ * An `outcome` adds the closed review/receipt/dispatch-outcome payload (`normalizeOutcome`); an
  * invalid payload or a record over 2,048 B writes nothing.
  *
  * @returns whether a record was written.
  */
-export function appendCliEvent(cwd: string, event: CliEvent, outcome?: OutcomePayload): boolean {
+export function appendCliEvent(
+  cwd: string,
+  event: CliEvent,
+  outcome?: OutcomePayload,
+  context?: AuditContext,
+): boolean {
   try {
-    const target = auditTarget(cwd);
+    const target = auditTarget(cwd, context);
     if (!target) return false;
     const { host, sessionId, repo, logFile } = target;
     const header = exactHeader(logFile);
@@ -456,6 +475,7 @@ const METADATA_NAMES = new Set([
   "bash-outcome-watch",
   "review-outcome",
   "receipt-outcome",
+  "dispatch-outcome",
   "test",
 ]);
 

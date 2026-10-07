@@ -52,6 +52,7 @@ import {
 } from "./model.ts";
 import { codexIdentityFingerprint, type RegisteredCodexChild } from "./discovery.ts";
 import { projectRootFromCwd, readAuditJsonl } from "./paths.ts";
+import { subtractIntervals } from "./task-metrics.ts";
 
 /**
  * Transcript JSONL → domain model.
@@ -701,6 +702,32 @@ function cappedAgentIds(lines: Rec[], uses: Rec[]): Set<string> {
     }
   }
   return capped;
+}
+
+/**
+ * Parent `Agent` call id → the run it created (spec 0042 T10a), read from the
+ * same `tool_result.tool_use_id ↔ toolUseResult.agentId` pair as caps. Covers
+ * background spawns (`async_launched` carries an `agentId` too). A call a hook
+ * denied never spawned: its `toolUseResult` is a string, so it links nothing.
+ */
+function spawnLinks(lines: Rec[], uses: Rec[]): Map<string, string> {
+  const agentUses = new Set(
+    uses
+      .filter((use) => str(use.name) === "Agent")
+      .map((use) => str(use.id))
+      .filter((id): id is string => id !== null),
+  );
+  const links = new Map<string, string>();
+  for (const line of lines) {
+    if (str(line.type) !== "user") continue;
+    const agentId = str(path(line, "toolUseResult", "agentId"));
+    if (!agentId) continue;
+    for (const block of arr(path(line, "message", "content"))) {
+      const id = isRec(block) && str(block.type) === "tool_result" ? str(block.tool_use_id) : null;
+      if (id && agentUses.has(id) && !links.has(agentId)) links.set(agentId, id);
+    }
+  }
+  return links;
 }
 
 /** Size in bytes of one `tool_result` payload. */
@@ -2297,6 +2324,42 @@ function codexRunAvailability(
   };
 }
 
+/**
+ * Idle between turns (spec 0042 T10b, M4): from the last main-thread record
+ * before a typed prompt to that prompt, minus every subagent window (a
+ * background agent was working, nobody was idle). Reads only record types and
+ * timestamps, never content; a typed prompt directly after another has no gap.
+ * Claude transcripts only: Codex has no such source and stays absent.
+ */
+export function idleBetweenTurns(
+  lines: Rec[],
+  agents: readonly AgentRun[],
+): Array<[number, number]> {
+  const records = lines
+    .filter((l) => l.isSidechain !== true)
+    .flatMap((l) => {
+      const at = Date.parse(str(l.timestamp) ?? "");
+      return Number.isFinite(at)
+        ? [{ at, type: str(l.type), typed: str(l.promptSource) === "typed" }]
+        : [];
+    })
+    .sort((a, b) => a.at - b.at);
+  const gaps: Array<[number, number]> = [];
+  let previous: number | null = null;
+  for (const record of records) {
+    if (record.type === "user" && record.typed) {
+      if (previous !== null && record.at > previous) gaps.push([previous, record.at]);
+      previous = null;
+    } else if (["assistant", "user", "system"].includes(record.type ?? "")) previous = record.at;
+  }
+  const windows = agents.flatMap((a) => {
+    const from = Date.parse(a.startedAt);
+    const to = Date.parse(a.endedAt);
+    return Number.isFinite(from) && Number.isFinite(to) ? [[from, to] as const] : [];
+  });
+  return subtractIntervals(gaps, windows).map(([from, to]) => [from, to]);
+}
+
 /** Fills `overlapsWith` by comparing agent windows pairwise. */
 export function markOverlaps(agents: AgentRun[]): void {
   for (const a of agents) {
@@ -2422,6 +2485,11 @@ export function parseSession(mainJsonl: string, budget = createAuditReadBudget()
 
   const capped = cappedAgentIds(lines, uses);
   for (const a of agents) a.turnLimitHit = capped.has(a.agentId);
+  const spawned = spawnLinks(lines, uses);
+  for (const a of agents) {
+    const spawn = spawned.get(a.agentId);
+    if (spawn && a.spawnDepth <= 1) a.spawnToolUseId = spawn;
+  }
 
   const skills = collectSkills(uses, lines);
   const byMode = countByMode(lines);
@@ -2499,6 +2567,7 @@ export function parseSession(mainJsonl: string, budget = createAuditReadBudget()
       activeMs: { ...health, state: "unavailable", reason: "not-observed" },
     },
     activeMs: null,
+    idleBetweenTurns: idleBetweenTurns(lines, agents),
   };
 }
 
@@ -2520,10 +2589,15 @@ function pairedActiveIntervals(
   records: readonly Rec[],
   session: SessionAudit,
   health: SourceHealth,
-): { value: number | null; evidence: MetricEvidence } {
+): {
+  value: number | null;
+  evidence: MetricEvidence;
+  /** Each owner's own tool-pair intervals (`root` for the main thread). */
+  byOwner: Map<string, Array<[number, number]>>;
+} {
   const header = records.find((rec) => rec.event === "start");
   const scoped = header?.sessionId === session.sessionId;
-  const groups = new Map<string, { starts: number[]; ends: number[] }>();
+  const groups = new Map<string, { starts: number[]; ends: number[]; owner: string }>();
   let excluded = false;
   for (const rec of records) {
     if (
@@ -2548,11 +2622,12 @@ function pairedActiveIntervals(
       continue;
     }
     const key = `${owner}:${rec.toolUseId}`;
-    const group = groups.get(key) ?? { starts: [], ends: [] };
+    const group = groups.get(key) ?? { starts: [], ends: [], owner };
     (rec.phase === "PreToolUse" ? group.starts : group.ends).push(at);
     groups.set(key, group);
   }
   const intervals: Array<[number, number]> = [];
+  const byOwner = new Map<string, Array<[number, number]>>();
   for (const group of groups.values()) {
     const start = Math.max(...group.starts);
     const end = Math.min(...group.ends);
@@ -2561,6 +2636,7 @@ function pairedActiveIntervals(
       continue;
     }
     intervals.push([start, end]);
+    byOwner.set(group.owner, [...(byOwner.get(group.owner) ?? []), [start, end]]);
   }
   intervals.sort(([a], [b]) => a - b);
   let sum = 0;
@@ -2579,6 +2655,7 @@ function pairedActiveIntervals(
   }
   if (from !== null) sum += to - from;
   return {
+    byOwner,
     value: intervals.length ? sum : null,
     evidence: {
       ...health,
@@ -2720,6 +2797,8 @@ export function attachHookEvents(
   }
   const active = pairedActiveIntervals(records, session, health);
   session.activeMs = active.value;
+  for (const agent of session.agents)
+    agent.activeIntervals = active.byOwner.get(agent.agentId) ?? [];
   session.availability.wallClockMs = {
     ...health,
     state: bounds.length > 1 && session.startedAt !== session.endedAt ? "partial" : "unavailable",
@@ -2825,7 +2904,11 @@ export function attachHookEvents(
       if (cliReason) cli.reason = cliReason;
       // An outcome event carries a closed payload. The cli event is kept either
       // way; an invalid payload is counted and dropped, never half-read.
-      if (cliName === "review-outcome" || cliName === "receipt-outcome") {
+      if (
+        cliName === "review-outcome" ||
+        cliName === "receipt-outcome" ||
+        cliName === "dispatch-outcome"
+      ) {
         const payload: Record<string, unknown> = { ...rec };
         for (const key of ["tsMs", "event", "reason"]) delete payload[key];
         const outcome = normalizeOutcome(payload);

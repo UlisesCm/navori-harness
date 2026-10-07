@@ -2052,14 +2052,27 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
     expect(metrics["coverage.sessions.host"]).toBeNull();
   });
 
-  // Covers: R6, R8
-  it("rejects schema11 snapshot production before any artifact writes", () => {
+  // Covers: R19, R68
+  it("writes a format 2 snapshot of a schema 11 report, privately and without the repo name", () => {
+    execFileSync("git", ["init", "-q"], { cwd: repoDir });
+    execFileSync(
+      "git",
+      ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-qm", "x"],
+      {
+        cwd: repoDir,
+      },
+    );
     markIn(repoDir, "sess-a", "2026-08-25");
-    const before = sandboxTree();
     const res = runAudit(["--snapshot", "base"]);
-    expect(res.status, res.combined).toBe(2);
-    expect(res.combined).toContain("snapshot-schema-unavailable");
-    expect(sandboxTree()).toEqual(before);
+    expect(res.status, res.combined).toBe(0);
+    const [file] = snapshotsUnder(auditDir);
+    expect(file).toBeDefined();
+    const text = readFileSync(join(auditDir, file!), "utf-8");
+    const snap = JSON.parse(text) as { snapshotFormat: number; scope: string; repo: string };
+    expect(snap).toMatchObject({ snapshotFormat: 2, scope: "repo" });
+    expect(snap.repo).toMatch(/^[a-f0-9]{16}$/);
+    expect(text).not.toContain(REPO);
+    expect(text).not.toContain(repoDir);
   });
 
   // Covers: R68
@@ -2071,8 +2084,8 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
     expect(existsSync(join(auditDir, "ranges", "escape"))).toBe(false);
   });
 
-  // Covers: R6
-  it("rejects schema11 snapshot copies without creating or overwriting destinations", () => {
+  // Covers: R68
+  it("copies a snapshot to the git toplevel of the cwd and never overwrites a destination", () => {
     execFileSync("git", ["init", "-q"], { cwd: repoDir });
     mkdirSync(join(repoDir, "docs", "deep"), { recursive: true });
     markIn(repoDir, "sess-a", "2026-08-25");
@@ -2085,8 +2098,10 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
       "--copy-to",
       "docs/base.json",
     ]);
-    expect(res.status, res.combined).toBe(2);
-    expect(existsSync(join(repoDir, "docs", "base.json"))).toBe(false);
+    expect(res.status, res.combined).toBe(0);
+    expect(JSON.parse(readFileSync(join(repoDir, "docs", "base.json"), "utf-8"))).toMatchObject({
+      snapshotFormat: 2,
+    });
     writeFileSync(join(repoDir, "docs", "base.json"), "preserved");
 
     const again = runAudit([
@@ -2097,12 +2112,12 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
       "--copy-to",
       "docs/base.json",
     ]);
-    expect(again.status).toBe(2);
+    expect(again.status).not.toBe(0);
     expect(readFileSync(join(repoDir, "docs", "base.json"), "utf-8")).toBe("preserved");
   });
 
-  // Covers: R6, R8
-  it("rejects all-repos schema11 snapshots at every copy destination", () => {
+  // Covers: R68
+  it("refuses an all-repos snapshot inside any repo and allows it outside", () => {
     markIn(repoDir, "sess-a", "2026-08-25");
     markIn(secondDir, "sess-b", "2026-08-26");
 
@@ -2113,21 +2128,22 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
       "--copy-to",
       join(secondDir, "all.json"),
     ]);
-    expect(inside.status).toBe(2);
-    expect(inside.combined).toContain("snapshot-schema-unavailable");
+    expect(inside.status).not.toBe(0);
+    expect(inside.combined).toContain("Refusing to write a multi-repo snapshot");
     expect(existsSync(join(secondDir, "all.json"))).toBe(false);
 
     // A relative path resolves from the toplevel of the cwd repo: also inside.
     execFileSync("git", ["init", "-q"], { cwd: repoDir });
     const relative = runAudit(["--all-repos", "--snapshot", "all2", "--copy-to", "all.json"]);
-    expect(relative.status).toBe(2);
+    expect(relative.status).not.toBe(0);
     expect(existsSync(join(repoDir, "all.json"))).toBe(false);
 
     const outside = join(sandbox, "elsewhere", "all.json");
     const ok = runAudit(["--all-repos", "--snapshot", "all3", "--copy-to", outside]);
-    expect(ok.status, ok.combined).toBe(2);
-    expect(existsSync(outside)).toBe(false);
-    expect(snapshotsUnder(join(auditsRoot, "_all-repos"))).toEqual([]);
+    expect(ok.status, ok.combined).toBe(0);
+    const copied = JSON.parse(readFileSync(outside, "utf-8")) as { scope: string; repos: number };
+    expect(copied).toMatchObject({ scope: "all", repos: 2 });
+    expect(readFileSync(outside, "utf-8")).not.toContain(REPO);
     // `_all-repos` is not a repo: it must not show up as a row.
     const rows = (
       JSON.parse(runAudit(["--all-repos", "--json"]).combined) as {
@@ -2143,8 +2159,8 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
     }
   });
 
-  // Covers: R6
-  it("preserves legacy baselines while rejecting comparison against schema11 reports", () => {
+  // Covers: R19
+  it("compares a legacy baseline as unknown and leaves it untouched; --json --compare writes nothing", () => {
     markIn(repoDir, "sess-a", "2026-08-25");
     const snap = {
       snapshotFormat: 1,
@@ -2157,9 +2173,32 @@ describe("audit --all-repos / --snapshot / --copy-to / --compare (R61, R62, R68,
     writeFileSync(prior, JSON.stringify(snap), "utf-8");
 
     const res = runAudit(["--compare", prior]);
-    expect(res.status, res.combined).toBe(2);
-    expect(res.combined).toContain("snapshot-schema-unavailable");
+    expect(res.status, res.combined).toBe(0);
+    expect(res.combined).toContain("format 1");
+    expect(res.combined).toContain("does not mean improvement");
     expect(JSON.parse(readFileSync(prior, "utf-8"))).toEqual(snap);
+
+    const before = sandboxTree();
+    const json = runAudit(["--json", "--compare", prior]);
+    expect(json.status, json.combined).toBe(0);
+    const report = JSON.parse(json.combined) as {
+      comparison: {
+        base: { format: number; scope: string };
+        rows: Array<{ reasons: string[]; outcome: string }>;
+      };
+      recommendations: unknown[];
+    };
+    expect(report.comparison.base).toMatchObject({ format: 1, scope: "unknown" });
+    expect(report.comparison.rows.length).toBeGreaterThan(0);
+    expect(
+      report.comparison.rows.every(
+        (row) => row.outcome === "descriptive" && row.reasons.includes("legacy-snapshot"),
+      ),
+    ).toBe(true);
+    expect(Array.isArray(report.recommendations)).toBe(true);
+    expect(sandboxTree()).toEqual(before);
+    // The range's own files never depend on whether a comparison was asked for.
+    expect(JSON.parse(runAudit(["--json"]).combined)).not.toHaveProperty("comparison");
   });
 
   // Covers: R68, R69

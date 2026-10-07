@@ -9,6 +9,9 @@ import {
   type SessionAudit,
   type SkillSource,
   type SkillTally,
+  type OutcomeSummary,
+  type Recommendation,
+  type TaskMetric,
   type TokenTotals,
   type MetricEvidence,
   type MetricPopulation,
@@ -24,6 +27,8 @@ import {
   recorderWindow,
 } from "./model.ts";
 import { joinOutcomes, outcomeKinds } from "./outcomes.ts";
+import { buildRecommendations } from "./recommend.ts";
+import { quantile } from "./task-metrics.ts";
 import { redactExample } from "./parse.ts";
 import {
   ACTIVATION_TRIGGERS,
@@ -72,6 +77,77 @@ const PUBLIC_OUTCOME_FIELDS = new Set<string>([
   "duplicates",
   "open",
   "ambiguous",
+  "dispatch",
+  "events",
+  "confirmed",
+  "unconfirmed",
+  "unlinkable",
+  "nestedUnlinked",
+  "dispatchWithoutRounds",
+  "roundsWithoutDispatch",
+  // T10b: efficiency, lifecycle and the range summary (scoped to `outcomes`).
+  "efficiency",
+  "lifecycle",
+  "summary",
+  "tokenScope",
+  "tokens",
+  "tokensReason",
+  "input",
+  "output",
+  "cacheRead",
+  "cacheCreation",
+  "thinking",
+  "attributedRuns",
+  "firstApproval",
+  "firstApprovalReason",
+  "gate",
+  "gateReason",
+  "executions",
+  "failures",
+  "notRun",
+  "unverifiable",
+  "start",
+  "censored",
+  "elapsedMs",
+  "reviewElapsedMs",
+  "active",
+  "idleBetweenTurns",
+  "idleHost",
+  "unclassified",
+  "includesUnidentifiedWaits",
+  "value",
+  "state",
+  "reason",
+  "r17",
+  "r18",
+  "tokenCoverage",
+  "withDispatch",
+  "withoutDispatch",
+  "tokensPerAcceptedTask",
+  "tokensAllTasks",
+  "reviewRoundsToAcceptance",
+  "yes",
+  "no",
+  "undetermined",
+  "eligible",
+  "withoutGateExecution",
+  "timeToAcceptance",
+  "reviewToAcceptance",
+  "activeTime",
+  "claude",
+  "codex",
+  "mixed",
+  "reviewSpanCapMs",
+  "unattributed",
+  "attributedTokens",
+  "acceptedOnly",
+  "runs",
+  "attributed",
+  "ambiguousSpawns",
+  "gateExecutions",
+  "p50",
+  "p90",
+  "n",
 ]);
 /** Closed label values published only inside the `outcomes` subtree. */
 const PUBLIC_OUTCOME_LABELS = new Set<string>([
@@ -87,9 +163,38 @@ const PUBLIC_OUTCOME_LABELS = new Set<string>([
   "invalid",
   "unknown-algorithm",
   "unavailable",
+  "implementer-dispatch",
+  "dispatch",
+  "review-begin",
+  "observed",
+  "partial",
+  "no-dispatch-event",
+  "ownership-unknown",
+  "partial-usage",
+  "left-censored",
+  "incomplete-round",
+  "pending",
+  "unobserved-history",
+  "no-review-round",
+  "ambiguous-boundary",
+  "no-source",
+  "shared-session",
+  "partial-source",
+  "review-span-cap",
+  "no-eligible-tasks",
+  "not-observed",
+  "unsealed",
+  "censored",
+  "claude",
+  "codex",
+  "mixed",
 ]);
 /** The only availability keys that name an outcomes join. */
-const PUBLIC_OUTCOME_AVAILABILITY = new Set(["outcomes.review", "outcomes.receipt"]);
+const PUBLIC_OUTCOME_AVAILABILITY = new Set([
+  "outcomes.review",
+  "outcomes.receipt",
+  "outcomes.dispatch",
+]);
 const PUBLIC_AUDIT_FIELDS = new Set<string>([
   "activeMs",
   "activityAvailability",
@@ -480,7 +585,7 @@ const PUBLIC_SOURCE_FIELDS = new Set([
 ]);
 
 /** Unknown labels are opaque categories, never short arbitrary user strings. */
-function publicLabel(value: string, inOutcomes = false): string {
+export function publicLabel(value: string, inOutcomes = false): string {
   if (PUBLIC_TECHNICAL_LABELS.has(value)) return value;
   if (inOutcomes && PUBLIC_OUTCOME_LABELS.has(value)) return value;
   if (/^unknown-[a-f0-9]{12}$/.test(value)) return value;
@@ -494,7 +599,7 @@ function publicLabel(value: string, inOutcomes = false): string {
 }
 
 /** Metric keys have a fixed vocabulary; unrecognized segments become opaque. */
-function publicMapKey(value: string, family: string, inOutcomes = false): string {
+export function publicMapKey(value: string, family: string, inOutcomes = false): string {
   if (family !== "rangeMetrics" && family !== "availability") return publicLabel(value, inOutcomes);
   if (value === "coverage.pct") return value;
   if (family === "availability" && PUBLIC_OUTCOME_AVAILABILITY.has(value)) return value;
@@ -1769,11 +1874,46 @@ function skillRangeSection(report: AuditReport, lang: Lang): string[] {
   ];
 }
 
-/** Nearest-rank quantile; `null` for no data — unavailable, never zero. */
-function quantile(values: number[], q: number): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.max(0, Math.ceil(q * sorted.length) - 1)] ?? null;
+/** `p50 / p90 · n/eligible · censored · state` of one task metric, in the unit it is read in. */
+function taskMetricCell(metric: TaskMetric, unit: "ms" | "count" = "count"): string {
+  const fmt = (value: number | null): string =>
+    value === null ? "unavailable" : unit === "ms" ? `${Math.round(value / 1000)}s` : String(value);
+  return `${fmt(metric.p50)} / ${fmt(metric.p90)} · ${metric.n}/${metric.eligible} · ${metric.censored} censored · ${metric.state}${metric.reason ? ` (${metric.reason})` : ""}`;
+}
+
+/** Short Markdown block of the R17/R18 summary (spec 0042 T10b). */
+function taskMetricLines(summary: OutcomeSummary, lang: Lang): string[] {
+  const { r17, r18 } = summary;
+  const approval = r17.firstApproval;
+  return [
+    "### " + t(lang, "Eficiencia por tarea aceptada", "Efficiency per accepted task"),
+    "",
+    "| Metric | p50 / p90 · n/eligible · censored · state |",
+    "|---|---|",
+    `| Implementer output tokens | ${taskMetricCell(r17.tokensPerAcceptedTask.output)} |`,
+    `| Implementer output tokens, all tasks | ${taskMetricCell(r17.tokensAllTasks.output)} |`,
+    `| Review rounds to acceptance | ${taskMetricCell(r17.reviewRoundsToAcceptance)} |`,
+    `| First approval (lower bound) | ${approval.yes} yes / ${approval.no} no / ${approval.undetermined} undetermined · ${approval.state}${approval.reason ? ` (${approval.reason})` : ""} |`,
+    `| Gate failed attempts | ${r17.gate.failures}/${r17.gate.executions} ran · ${r17.gate.notRun} not run · ${r17.gate.unverifiable} unverifiable · ${r17.gate.state}${r17.gate.reason ? ` (${r17.gate.reason})` : ""} |`,
+    `| Token coverage (dispatch) | ${r17.tokenCoverage.withDispatch}/${r17.tokenCoverage.episodes} episodes · scope ${r17.tokenScope} |`,
+    "",
+    t(
+      lang,
+      "Menos tokens no implica mejor calidad: leer junto a rondas, primera aprobación y fallos; solo implementer; sin comparación entre rangos hasta T11.",
+      "Fewer tokens does not mean better quality: read with rounds, first approval and failures; implementer only; no comparison across ranges until T11.",
+    ),
+    "",
+    "### " + t(lang, "Ciclo de vida", "Lifecycle"),
+    "",
+    "| Metric | p50 / p90 · n/eligible · censored · state |",
+    "|---|---|",
+    `| Time to acceptance (from dispatch) | ${taskMetricCell(r18.timeToAcceptance, "ms")} |`,
+    `| Time to acceptance (from review begin) | ${taskMetricCell(r18.reviewToAcceptance, "ms")} |`,
+    `| Active time | ${taskMetricCell(r18.activeTime, "ms")} |`,
+    `| Idle between turns (Claude) | ${taskMetricCell(r18.idleBetweenTurns.claude, "ms")} |`,
+    `| Unclassified rest | ${taskMetricCell(r18.unclassified, "ms")} |`,
+    "",
+  ];
 }
 
 /** The orchestrator's row in `byAgentType` and in every `agent.*` key. */
@@ -2452,11 +2592,32 @@ export function projectedAgentCount(report: AuditReport): number | null {
   return measurable(population(report.sessions, "tools")) ? report.totals.agents : null;
 }
 
+/** The ranked causes. Facts and hypotheses sit in separate columns: a hypothesis is never a finding. */
+function recommendationLines(recs: readonly Recommendation[], lang: Lang): string[] {
+  return [
+    "## " +
+      t(
+        lang,
+        "Causas observadas (cada una solo contra su unidad)",
+        "Observed causes (each only against its own unit)",
+      ),
+    "",
+    "| Unit | # | Cause | Status | Impact | n | Sessions | Hypotheses → next probe |",
+    "|---|---|---|---|---|---|---|---|",
+    ...recs.map(
+      (r) =>
+        `| ${r.group} | ${r.rank ?? "—"} | ${r.cause} | ${r.status} | ${r.impact.value ?? "n/a"} ${r.impact.unit} (${r.impact.state}) | ${r.impact.n} | ${r.scope.sessions}/${r.scope.eligibleSessions} | ${r.hypotheses.map((h) => `${h.id} → ${h.nextProbe ?? "—"}`).join("; ") || "—"} |`,
+    ),
+    "",
+  ];
+}
+
 export function renderMarkdown(
   report: AuditReport,
   lang: Lang,
   options: AuditPublicationOptions = {},
 ): string {
+  const recommendations = report.recommendations;
   report = metadataPublication(report, options);
   const out: string[] = [];
   out.push(`# ${t(lang, "Auditoría del harness", "Harness audit")} — ${report.repo}`);
@@ -2504,7 +2665,9 @@ export function renderMarkdown(
         ),
       );
     out.push("");
+    if (report.outcomes.summary) out.push(...taskMetricLines(report.outcomes.summary, lang));
   }
+  if (recommendations?.length) out.push(...recommendationLines(recommendations, lang));
   out.push(
     `${t(lang, "Rango", "Range")}: ${report.range.from} → ${report.range.to} · ` +
       `${report.totals.sessions} ${t(lang, "sesiones", "sessions")} · ` +
@@ -2967,12 +3130,18 @@ export function publishReport(
   report: AuditReport,
   options: AuditPublicationOptions = {},
 ): PublishedAuditReport {
+  // Closed constructors of their own: the generic allowlist would drop them, and
+  // `projectNumbers` below would null every figure — a negative delta included.
+  const { comparison, recommendations } = report;
   report = metadataPublication(report, options);
   // Outcome counts are plain integers of the join, not per-run measurements:
   // they bypass the numeric nulling below and were already filtered above.
   const { outcomes } = report;
   const runs = measurementRuns(report.sessions);
-  const published = projectNumbers(report, () => unknownEvidence());
+  const published = projectNumbers<Omit<AuditReport, "comparison" | "recommendations">>(
+    report,
+    () => unknownEvidence(),
+  );
   const sessions = report.sessions.map((s) => {
     const unit: MeasurementRun = {
       run: s.orchestrator,
@@ -3095,6 +3264,28 @@ export function publishReport(
     schemaVersion: 11,
     availability: report.availability ?? {},
     outcomes,
+    ...(comparison
+      ? {
+          comparison: {
+            ...comparison,
+            rows: comparison.rows.map((row) => ({
+              ...row,
+              key: publicMapKey(row.key, "rangeMetrics"),
+            })),
+          },
+        }
+      : {}),
+    ...(recommendations
+      ? {
+          recommendations: recommendations.map((r) => ({
+            ...r,
+            evidence: {
+              ...r.evidence,
+              metrics: r.evidence.metrics.map((key) => publicMapKey(key, "rangeMetrics")),
+            },
+          })),
+        }
+      : {}),
   };
 }
 
@@ -3756,12 +3947,13 @@ export function buildReport(
         : null;
   }
   // Spec 0042 T9b: a session that logged no outcome event is `unknown`, not "no review".
-  const outcomeEvidence = (kind: "review" | "receipt"): MetricEvidence[] =>
+  // A Codex dispatch has no spawn-to-run link, so it is `partial`, never a full observation.
+  const outcomeEvidence = (kind: "review" | "receipt" | "dispatch"): MetricEvidence[] =>
     sessions.map((s) =>
       outcomeKinds(s)[kind]
         ? {
-            state: "observed",
-            reason: null,
+            state: kind === "dispatch" && s.host === "codex" ? "partial" : "observed",
+            reason: kind === "dispatch" && s.host === "codex" ? "ownership-unknown" : null,
             source: "audit-log",
             adapter: "audit-log",
             sourceVersion: null,
@@ -3770,6 +3962,7 @@ export function buildReport(
     );
   availability["outcomes.review"] = unitPopulation(outcomeEvidence("review"));
   availability["outcomes.receipt"] = unitPopulation(outcomeEvidence("receipt"));
+  availability["outcomes.dispatch"] = unitPopulation(outcomeEvidence("dispatch"));
   const rangeFrom = opts.requestedRange?.from ?? stamps[0]?.slice(0, 10) ?? "";
   const rangeFromMs = rangeFrom ? Date.parse(`${rangeFrom.slice(0, 10)}T00:00:00Z`) : Number.NaN;
   const outcomes = joinOutcomes(sessions, Number.isNaN(rangeFromMs) ? null : rangeFromMs);
@@ -3846,6 +4039,7 @@ export function buildReport(
     availability,
     availabilityByAgentType,
     ...(outcomes ? { outcomes } : {}),
+    recommendations: buildRecommendations({ sessions, rangeMetrics, availability }),
     ...(opts.coverage ? { coverage: opts.coverage } : {}),
     ...(opts.repos ? { repos: opts.repos } : {}),
   };

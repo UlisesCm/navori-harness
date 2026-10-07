@@ -637,11 +637,13 @@ export type NullableMeasurements<T> = T extends number
       : T;
 export type PublishedAuditReport = Omit<
   NullableMeasurements<AuditReport>,
-  "schemaVersion" | "availability" | "outcomes"
+  "schemaVersion" | "availability" | "outcomes" | "comparison" | "recommendations"
 > & {
   schemaVersion: 11;
   availability: Record<string, MetricPopulation>;
   outcomes?: AuditOutcomes;
+  comparison?: SnapshotComparison;
+  recommendations?: Recommendation[];
 };
 
 export function emptyTokens(): TokenTotals {
@@ -671,6 +673,19 @@ export interface AgentRun {
   endedAt: string;
   durationMs: number;
   spawnDepth: number;
+  /**
+   * `tool_use_id` of the parent's `Agent` call that created this run (spec 0042
+   * T10a). Private join key, absent for Codex, nested runs and unlinked runs;
+   * never allowlisted, so it is not published.
+   */
+  spawnToolUseId?: string;
+  /**
+   * Union-ready `[startMs, endMs]` of this run's own Pre/PostToolUse pairs, the
+   * same basis as the session's `activeMs` (spec 0042 T10b, M1). Private; it
+   * excludes the idle gap of a resumed agent, which lies outside any pair, and
+   * cannot separate a permission wait inside a pair. Absent without an audit log.
+   */
+  activeIntervals?: Array<[number, number]>;
   tokens: TokenTotals;
   /**
    * `cache_creation_input_tokens` of the agent's FIRST assistant message: the
@@ -999,6 +1014,12 @@ export interface SessionAudit {
     Record<"transcript" | "rollout" | "audit-log" | "otlp" | "host-metadata", SourceHealth>
   >;
   activeMs?: number | null;
+  /**
+   * Gaps between the last main-thread record and the next typed prompt, in
+   * epoch ms, minus subagent windows (spec 0042 T10b, M4). Claude only and
+   * private: timestamps of records, never content. Absent = no source.
+   */
+  idleBetweenTurns?: Array<[number, number]>;
   sessionId: string;
   startedAt: string;
   endedAt: string;
@@ -1424,12 +1445,48 @@ export interface ReceiptOutcome {
   fp?: string;
 }
 
-/** Either closed outcome payload carried by a `cli` event. */
-export type Outcome = ReviewOutcome | ReceiptOutcome;
+/**
+ * The closed metadata-only payload `navori plan gate` logs on an allowed
+ * implementer spawn (spec 0042 D5/T10a, `schemaVersion` 1). It is a claim that
+ * the gate let a dispatch through, never proof that the spawn happened: a
+ * dispatch only counts once a run links to `spawn`. `spawn` is the host's
+ * `tool_use_id` of the `Agent` call; no free text ever appears.
+ */
+export interface DispatchOutcome {
+  name: "dispatch-outcome";
+  verdict: "allow";
+  schemaVersion: 1;
+  featureKey: string;
+  stage: "implement";
+  spawn?: string;
+}
+
+/** Any closed outcome payload carried by a `cli` event. */
+export type Outcome = ReviewOutcome | ReceiptOutcome | DispatchOutcome;
 /** What a writer supplies: the event itself supplies `name` and `verdict`. */
 export type OutcomePayload =
   | Omit<ReviewOutcome, "name" | "verdict">
-  | Omit<ReceiptOutcome, "name" | "verdict">;
+  | Omit<ReceiptOutcome, "name" | "verdict">
+  | Omit<DispatchOutcome, "name" | "verdict">;
+
+const DISPATCH_SPAWN = /^[A-Za-z0-9_-]{1,256}$/;
+
+function normalizeDispatchOutcome(record: Record<string, unknown>): DispatchOutcome | null {
+  const allowed = new Set(["name", "verdict", "schemaVersion", "featureKey", "stage", "spawn"]);
+  if (Object.keys(record).some((key) => !allowed.has(key))) return null;
+  if (record.schemaVersion !== 1 || record.verdict !== "allow" || record.stage !== "implement")
+    return null;
+  if (typeof record.featureKey !== "string" || !/^[a-f0-9]{64}$/.test(record.featureKey))
+    return null;
+  if (
+    record.spawn !== undefined &&
+    (typeof record.spawn !== "string" || !DISPATCH_SPAWN.test(record.spawn))
+  )
+    return null;
+  return Buffer.byteLength(JSON.stringify(record)) <= OUTCOME_MAX_BYTES
+    ? (record as unknown as DispatchOutcome)
+    : null;
+}
 
 const RECEIPT_VERDICTS: readonly string[] = ["ok", "findings", "error"];
 const RECEIPT_STALE: readonly string[] = ["format", "gate", "inputs", "gate,inputs"];
@@ -1503,8 +1560,8 @@ function normalizeReceiptOutcome(record: Record<string, unknown>): ReceiptOutcom
 }
 
 /**
- * The single closed normalizer of an outcome payload (`review-outcome` or
- * `receipt-outcome`): unknown keys, bad hex, an unknown enum, a non-integer
+ * The single closed normalizer of an outcome payload (`review-outcome`,
+ * `receipt-outcome` or `dispatch-outcome`): unknown keys, bad hex, an unknown enum, a non-integer
  * count or a record over 1,024 B yield `null`. Shared by every writer and by
  * the reader so the contract cannot drift.
  */
@@ -1512,6 +1569,7 @@ export function normalizeOutcome(value: unknown): Outcome | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (record.name === "receipt-outcome") return normalizeReceiptOutcome(record);
+  if (record.name === "dispatch-outcome") return normalizeDispatchOutcome(record);
   return normalizeReviewOutcome(record);
 }
 
@@ -1654,6 +1712,12 @@ export interface GateExecution {
    *  event to read it from (`timeout`, `unknown`, or an ambiguous `duplicate`). */
   durationMs: number | null;
   outcome: GateOutcome;
+  /** A `gate-started` event was seen: the gate really ran (spec 0042 T10b). */
+  ran: boolean;
+  /** The terminal verdict, when exactly one terminal event exists. */
+  terminal?: "allow" | "block";
+  /** Every event of the handle carried the owner's own `agentId` (no time-window guess). */
+  ownerExact: boolean;
 }
 
 /**
@@ -1668,7 +1732,9 @@ export interface GateExecution {
  * (its own test pins that a `toolUseId`-less event produces no finding there).
  * This function is the one place that keeps the count instead of losing it.
  */
-export function correlateGateExecutions(session: SessionAudit): GateExecution[] {
+export function correlateGateExecutions(
+  session: Pick<SessionAudit, "sealed" | "orchestrator" | "agents">,
+): GateExecution[] {
   if (!session.sealed) return [];
 
   const owners: Array<{ ownerKey: string; agentType: string; events: HookEvent[] }> = [
@@ -1699,7 +1765,12 @@ export function correlateGateExecutions(session: SessionAudit): GateExecution[] 
   const out: GateExecution[] = [];
   for (const [handle, bucket] of byHandle) {
     const hasRealId = bucket.events.some((e) => e.toolUseId !== undefined);
+
     const singleOwnerKey = bucket.owners.size === 1 ? [...bucket.owners][0]! : null;
+    // Exact ownership: the payload itself named the owner on every event, so the
+    // time-window fallback of `ownerOf` did not place any of them.
+    const ownerExact =
+      singleOwnerKey !== null && bucket.events.every((e) => e.agentId === singleOwnerKey);
     const ownerAgentId =
       singleOwnerKey === null || singleOwnerKey === "orchestrator" ? null : singleOwnerKey;
     const ownerAgentType =
@@ -1716,6 +1787,8 @@ export function correlateGateExecutions(session: SessionAudit): GateExecution[] 
         endedAt: null,
         durationMs: null,
         outcome: "unknown",
+        ran: false,
+        ownerExact: false,
       });
       continue;
     }
@@ -1733,6 +1806,8 @@ export function correlateGateExecutions(session: SessionAudit): GateExecution[] 
         endedAt: terminal[terminal.length - 1]!.ts,
         durationMs: null,
         outcome: "duplicate",
+        ran: started !== undefined,
+        ownerExact,
       });
       continue;
     }
@@ -1747,6 +1822,9 @@ export function correlateGateExecutions(session: SessionAudit): GateExecution[] 
         endedAt: one.ts,
         durationMs: one.ms,
         outcome: "completed",
+        ran: started !== undefined,
+        terminal: one.verdict === "block" ? "block" : "allow",
+        ownerExact,
       });
       continue;
     }
@@ -1760,6 +1838,8 @@ export function correlateGateExecutions(session: SessionAudit): GateExecution[] 
         endedAt: null,
         durationMs: null,
         outcome: "timeout",
+        ran: started !== undefined,
+        ownerExact,
       });
     }
   }
@@ -1834,12 +1914,227 @@ export interface OutcomeEpisode {
   accepted: boolean;
   acceptedAtMs?: number;
   provenance: { sessions: number; hosts: number; events: number; duplicates: number };
+  /** Spec 0042 T10b: implementer-only consumption, rounds, first approval, gate attempts. */
+  efficiency?: EpisodeEfficiency;
+  /** Spec 0042 T10b: time to acceptance, active time, idle between turns, unclassified rest. */
+  lifecycle?: EpisodeLifecycle;
+}
+
+/** State of a task metric; `null` values never mean zero. */
+export type TaskMetricState = "observed" | "partial" | "unavailable";
+/** Aggregate of one per-task figure: nearest-rank p50/p90 over `n` of `eligible` tasks. */
+export interface TaskMetric {
+  p50: number | null;
+  p90: number | null;
+  /** Tasks whose value entered p50/p90. */
+  n: number;
+  /** Tasks the metric applies to (accepted, or all for `tokensAllTasks`). */
+  eligible: number;
+  /** Open tasks left out of an accepted-only metric: censored, never fast. */
+  censored: number;
+  state: TaskMetricState;
+  /** Most frequent exclusion reason when not fully observed. */
+  reason: string | null;
+}
+/** One value with its own evidence; `value: null` is unknown, never zero. */
+export interface TaskValue {
+  value: number | null;
+  state: TaskMetricState;
+  reason: string | null;
+}
+/** Token components of attributed implementer runs; `null` = not measurable. */
+export type TokenComponents = Record<keyof TokenTotals, number | null>;
+/** Gate attempts of the attributed runs, from verifiable `gate-started` + terminal block only. */
+export interface EpisodeGate {
+  /** Executions that ran and ended with one terminal verdict, owner confirmed. */
+  executions: number;
+  failures: number;
+  /** A `block` without `gate-started`: the gate could not run, not a failed gate. */
+  notRun: number;
+  /** Timeout, duplicate, unknown handle or an owner not named by the payload. */
+  unverifiable: number;
+}
+export interface EpisodeEfficiency {
+  /** Tokens cover implementer dispatch runs only; reviewer and orchestrator are not attributed. */
+  tokenScope: "implementer-dispatch";
+  tokens: TokenComponents;
+  tokensReason: string | null;
+  attributedRuns: number;
+  /** Review rounds up to acceptance (all rounds while open). */
+  rounds: number;
+  firstApproval: boolean | null;
+  firstApprovalReason: string | null;
+  gate: EpisodeGate | null;
+  gateReason: string | null;
+}
+export interface EpisodeLifecycle {
+  start: "dispatch" | "review-begin" | null;
+  /** Open, left-censored or ambiguous: no elapsed time is claimed. */
+  censored: boolean;
+  /** From the first confirmed dispatch to acceptance. */
+  elapsedMs: number | null;
+  /** From the first review begin to acceptance. */
+  reviewElapsedMs: number | null;
+  active: TaskValue;
+  /** Claude-only gap between a turn and the next typed prompt; not attributable in shared sessions. */
+  idleBetweenTurns: TaskValue;
+  idleHost: "claude" | "codex" | "mixed";
+  unclassified: TaskValue;
+  /** The unclassified rest still contains waits that no source identified. */
+  includesUnidentifiedWaits: boolean;
+}
+/** Range summary of R17 (efficiency) and R18 (lifecycle). No composite score, no cross-range comparison. */
+export interface OutcomeSummary {
+  r17: {
+    tokenScope: "implementer-dispatch";
+    /** Episodes with a confirmed dispatch over all episodes; the rest is `no-dispatch-event`. */
+    tokenCoverage: { episodes: number; withDispatch: number; withoutDispatch: number };
+    tokensPerAcceptedTask: Record<keyof TokenTotals, TaskMetric>;
+    tokensAllTasks: Record<keyof TokenTotals, TaskMetric>;
+    reviewRoundsToAcceptance: TaskMetric;
+    /** Lower bound, not a rate: `undetermined` episodes may hide either answer. */
+    firstApproval: {
+      yes: number;
+      no: number;
+      undetermined: number;
+      eligible: number;
+      state: TaskMetricState;
+      reason: string | null;
+    };
+    /**
+     * Failed attempts (a red-green loop counts each red), not failed tasks, over every
+     * episode with a verifiable gate (open ones included); `eligible` is all episodes.
+     */
+    gate: EpisodeGate & {
+      episodes: number;
+      eligible: number;
+      withoutGateExecution: number;
+      /** The same figures restricted to accepted episodes. */
+      acceptedOnly: { executions: number; failures: number; episodes: number; eligible: number };
+      state: TaskMetricState;
+      reason: string | null;
+    };
+  };
+  r18: {
+    timeToAcceptance: TaskMetric;
+    reviewToAcceptance: TaskMetric;
+    activeTime: TaskMetric;
+    idleBetweenTurns: Record<"claude" | "codex" | "mixed", TaskMetric>;
+    unclassified: TaskMetric;
+    /** Longest review begin-to-seal span counted as active; longer is `partial`. */
+    reviewSpanCapMs: number;
+  };
+  unattributed: {
+    /** Per component, `attributed + tokens` is the measured total; unsummed episodes stay in `tokens`. */
+    tokens: TokenComponents;
+    /** Tokens of episodes whose sum is reported (every run observed), per component. */
+    attributedTokens: TokenComponents;
+    runs: { attributed: number; unattributed: number };
+    ambiguousSpawns: number;
+    gateExecutions: number;
+  };
+}
+/**
+ * How `dispatch-outcome` events relate to the runs and rounds seen (spec 0042
+ * T10a). A dispatch is only `confirmed` when a Claude run links to its spawn;
+ * `unconfirmed` ones (denied elsewhere, retried, no spawn id) and `unlinkable`
+ * ones (a host with no spawn-to-run link) never start or bound anything.
+ */
+export interface DispatchSummary {
+  events: number;
+  confirmed: number;
+  unconfirmed: number;
+  unlinkable: number;
+  /** Claude runs deeper than the main thread: their spawn call is not in the parent transcript. */
+  nestedUnlinked: number;
+  /** Features with a dispatch and no review or receipt event. */
+  dispatchWithoutRounds: number;
+  /** Features with review or receipt events and no dispatch. */
+  roundsWithoutDispatch: number;
 }
 /** Join of review and receipt outcome events per feature (spec 0042 T9b). */
 export interface AuditOutcomes {
   schemaVersion: 1;
   tasks: Array<{ feature: string; episodes: OutcomeEpisode[] }>;
   totals: { tasks: number; accepted: number; open: number; ambiguous: number };
+  dispatch?: DispatchSummary;
+  /** Spec 0042 T10b; absent when no episode exists. */
+  summary?: OutcomeSummary;
+}
+
+/** One observed cause of friction, errors, repetition, review rework or hook toll (spec 0042 R20). */
+export interface Recommendation {
+  /** The denominator the cause is ranked against; causes only rank inside their own group. */
+  group: "per-tool-call" | "per-bash-call" | "tokens" | "blocking-ms";
+  cause: "tool-errors" | "friction" | "repeated-commands" | "review-cycles" | "hook-toll";
+  /** `fact` = observed above the range-level floor; `lead` = unranked hint. Neither claims a cause. */
+  status: "fact" | "lead";
+  /** 1-based inside the group, facts only. */
+  rank: number | null;
+  impact: {
+    unit: "ratio" | "tokens" | "ms";
+    value: number | null;
+    /** Denominator or sample behind the value. */
+    n: number;
+    state: "observed" | "partial" | "unavailable";
+  };
+  scope: { sessions: number; eligibleSessions: number };
+  evidence: { metrics: string[]; signals: string[] };
+  /** Unproven readings and the probe that would test each; never mixed into the facts. */
+  hypotheses: Array<{ id: string; nextProbe: string | null }>;
+}
+
+/** Outcome of a per-metric snapshot comparison. None of them means "improved". */
+export type ComparisonOutcome = "matched" | "descriptive" | "inconclusive" | "notControlled";
+export type ComparisonDimension = "repo" | "scope" | "host" | "regime" | "model" | "work";
+export type ComparisonReason =
+  | "legacy-snapshot"
+  | "diagnostic-metric"
+  | "extensive-count"
+  | "window-unknown"
+  | "overlapping-window"
+  | "confounded"
+  | `${"cohort-unknown" | "cohort-mixed" | "cohort-mismatch"}:${ComparisonDimension}`
+  | "side-unavailable"
+  | "partial-coverage"
+  | "below-floor"
+  | "no-preregistered-floor"
+  | "audit-mode-uncontrolled"
+  | "miner-differs";
+export interface ComparisonRow {
+  key: string;
+  base: number | null;
+  current: number | null;
+  /** Only for intensive statistics (p50/p90/pct/per-call); never for counts. */
+  delta: number | null;
+  relativeChange: number | null;
+  outcome: ComparisonOutcome;
+  reasons: ComparisonReason[];
+  contrast: "regime" | "model" | null;
+  n: { base: number | null; current: number | null };
+  /** Present only for a pre-registered metric that cleared the preflight. */
+  criterion?: {
+    source: "spec-0039/R43";
+    threshold: number;
+    minN: number;
+    observedChange: number | null;
+    state: "threshold-met-unverified" | "threshold-not-met";
+    noiseBand: "unmeasured";
+    uncontrolled: string[];
+  };
+}
+export interface ComparisonSide {
+  format: 1 | 2;
+  scope: "repo" | "all" | "unknown";
+  range: { from: string; to: string };
+  sessions: number | null;
+}
+/** Per-metric snapshot comparison (spec 0042 R19). Preflight, not causality. */
+export interface SnapshotComparison {
+  base: ComparisonSide;
+  current: ComparisonSide;
+  rows: ComparisonRow[];
+  totals: Record<ComparisonOutcome, number>;
 }
 
 export interface AuditReport {
@@ -1954,6 +2249,10 @@ export interface AuditReport {
    * schema 11; absent when no session logged an outcome event.
    */
   outcomes?: AuditOutcomes;
+  /** Ranked observed causes (spec 0042 R20); `[]` = computed, nothing to rank. */
+  recommendations?: Recommendation[];
+  /** Attached by `--json --compare` only; never persisted in the range's files. */
+  comparison?: SnapshotComparison;
   /**
    * One row per audited repo, present only in an `--all-repos` report (R61):
    * sessions with an audit log in the period against the host's sessions for

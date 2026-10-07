@@ -15,7 +15,7 @@ import {
 } from "../lib/primitives/state-root.ts";
 import { classify, declaredFlagsFromSignals, type ClassifyInput } from "../lib/plan/classify.ts";
 import { checkWorkplan, formatCheckResult } from "../lib/plan/check.ts";
-import { evaluatePlanGate } from "../lib/plan/gate.ts";
+import { applyPlanGate } from "../lib/plan/gate.ts";
 import { applyWorkplanUpdate, renderWorkplan, type WorkplanUpdate } from "../lib/plan/render.ts";
 import { writeAcceptanceIndex } from "../lib/plan/acceptance-index.ts";
 import { validateEvidence } from "../lib/plan/evidence.ts";
@@ -535,11 +535,7 @@ const gateSubCommand = defineCommand({
       // would block every tool call the moment the payload shape changes.
       return;
     }
-    const result = evaluatePlanGate(raw);
-    if (result.decision === "deny") {
-      process.stderr.write(`[navori] BLOCKED by plan-gate: ${result.reason}\n`);
-      process.exitCode = 2;
-    }
+    applyPlanGate(raw);
   },
 });
 

@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import {
   ORCHESTRATOR_OWNER,
   attachHookEvents,
+  idleBetweenTurns,
   isClassifierExemptCommand,
   isReadLaneCommand,
   isWriteLaneCommand,
@@ -390,7 +391,7 @@ describe("availability and trusted windows", () => {
       else expect(signals).toEqual([]);
     }
   });
-  // Covers: R7
+  // Covers: R7, R18
   it("unions verified overlapping and disjoint pairs without idle or double counting", () => {
     const s = parseSession(
       recordFile([{ type: "user", sessionId: "s", timestamp: "2026-09-01T00:00:00Z" }]),
@@ -419,6 +420,9 @@ describe("availability and trusted windows", () => {
     expect(s.availability?.activeMs?.state).toBe("observed");
     expect(s.wallClockMs).toBe(20000);
     expect(s.availability?.wallClockMs?.state).toBe("observed");
+    // Each run keeps only its own pairs (T10b, M1): never the window nor another owner's.
+    const base = Date.parse("2026-09-01T00:00:00Z");
+    expect(s.agents[0]?.activeIntervals).toEqual([[base + 3000, base + 7000]]);
   });
   // Covers: R7
   it.each(["unpaired", "reversed", "invalid-time", "wrong-owner", "wrong-session"])(
@@ -2614,6 +2618,101 @@ it("counts and drops an invalid outcome payload but keeps the CLI event", () => 
   ]);
 });
 
+// Covers: R17
+it("attaches a valid dispatch-outcome payload and drops free text or a bad spawn id", () => {
+  const dispatch = {
+    name: "dispatch-outcome",
+    verdict: "allow",
+    schemaVersion: 1,
+    featureKey: "a".repeat(64),
+    stage: "implement",
+    spawn: "toolu_01AbC-9",
+  };
+  const before = parseSession(FIXTURE).parseErrors;
+  const s = parseLog([
+    { event: "cli", tsMs: 5, ...dispatch },
+    { event: "cli", tsMs: 6, ...dispatch, note: "free text" },
+    { event: "cli", tsMs: 7, ...dispatch, spawn: "has space" },
+    { event: "cli", tsMs: 8, ...dispatch, stage: "review" },
+  ]);
+  expect(s.parseErrors).toBe(before + 3);
+  expect(s.cliEvents?.map((event) => event.outcomePayload)).toEqual([
+    dispatch,
+    undefined,
+    undefined,
+    undefined,
+  ]);
+});
+
+describe("parse: spawn link of dispatches (spec 0042 T10a)", () => {
+  /** A main transcript whose `Agent` call `toolu_1` got `result`, with one run on disk. */
+  function linked(
+    result: Record<string, unknown>,
+    opts: { toolName?: string; runId?: string; meta?: Record<string, unknown> } = {},
+  ): SessionAudit {
+    const dir = mkdtempSync(join(tmpdir(), "navori-spawn-link-"));
+    const file = join(dir, "session.jsonl");
+    const subagents = join(dir, "session", "subagents");
+    const runId = opts.runId ?? "run1";
+    mkdirSync(subagents, { recursive: true });
+    writeFileSync(
+      join(subagents, `agent-${runId}.jsonl`),
+      `${JSON.stringify({ type: "assistant", agentId: runId, message: { content: [] } })}\n`,
+    );
+    if (opts.meta)
+      writeFileSync(join(subagents, `agent-${runId}.meta.json`), JSON.stringify(opts.meta));
+    writeFileSync(
+      file,
+      [
+        {
+          type: "assistant",
+          message: {
+            content: [{ type: "tool_use", id: "toolu_1", name: opts.toolName ?? "Agent" }],
+          },
+        },
+        result,
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n") + "\n",
+    );
+    return parseSession(file);
+  }
+  const resultOf = (toolUseResult: unknown): Record<string, unknown> => ({
+    type: "user",
+    toolUseResult,
+    message: { content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "ok" }] },
+  });
+
+  // Covers: R17
+  it("links the Agent call id to the run it created", () => {
+    const session = linked(resultOf({ agentId: "run1" }));
+    expect(session.agents[0]?.spawnToolUseId).toBe("toolu_1");
+  });
+
+  // Covers: R17
+  it("links a background (async_launched) spawn too", () => {
+    const session = linked(resultOf({ status: "async_launched", agentId: "run1" }));
+    expect(session.agents[0]?.spawnToolUseId).toBe("toolu_1");
+  });
+
+  // Covers: R17
+  it("links nothing for a call a hook denied (string result) or for another run id", () => {
+    expect(
+      linked(resultOf("PreToolUse:Agent hook error: plan-gate")).agents[0]?.spawnToolUseId,
+    ).toBeUndefined();
+    expect(linked(resultOf({ agentId: "other" })).agents[0]?.spawnToolUseId).toBeUndefined();
+  });
+
+  // Covers: R17
+  it("ignores a non-Agent tool result and never links a nested run", () => {
+    expect(
+      linked(resultOf({ agentId: "run1" }), { toolName: "Bash" }).agents[0]?.spawnToolUseId,
+    ).toBeUndefined();
+    const nested = linked(resultOf({ agentId: "run1" }), { meta: { spawnDepth: 2 } });
+    expect(nested.agents[0]?.spawnToolUseId).toBeUndefined();
+  });
+});
+
 describe("Codex discovered usage ownership (spec 0042 T6)", () => {
   const dirs: string[] = [];
   const SECRET = "SYNTHETIC-USAGE-HISTORY-SECRET";
@@ -3355,5 +3454,66 @@ describe("parse: Codex rollout adapter (spec 0041 T18)", () => {
       parseErrors: 2,
     });
     expect(JSON.stringify(parsed)).not.toContain(SECRET);
+  });
+});
+
+describe("idle between turns (spec 0042 T10b, M4)", () => {
+  const at = (sec: number): string => new Date(Date.UTC(2026, 8, 1, 0, 0, sec)).toISOString();
+  const typed = (sec: number) => ({
+    type: "user",
+    promptSource: "typed",
+    timestamp: at(sec),
+    message: { content: "SYNTHETIC-PROMPT-SECRET" },
+  });
+  const record = (type: string, sec: number, extra: object = {}) => ({
+    type,
+    timestamp: at(sec),
+    ...extra,
+  });
+  const ms = (sec: number): number => Date.parse(at(sec));
+  const window = (from: number, to: number): AgentRun =>
+    ({ startedAt: at(from), endedAt: at(to) }) as AgentRun;
+
+  // Covers: R18
+  it("is the gap from the last main-thread record to the next typed prompt", () => {
+    const lines = [
+      typed(0),
+      record("assistant", 5),
+      record("user", 6),
+      typed(20),
+      record("assistant", 22),
+      typed(30),
+    ];
+    expect(idleBetweenTurns(lines, [])).toEqual([
+      [ms(6), ms(20)],
+      [ms(22), ms(30)],
+    ]);
+  });
+
+  // Covers: R18
+  it("has no gap for consecutive typed prompts, a first prompt or sidechain records", () => {
+    expect(idleBetweenTurns([typed(0), typed(5)], [])).toEqual([]);
+    expect(idleBetweenTurns([record("assistant", 1, { isSidechain: true }), typed(9)], [])).toEqual(
+      [],
+    );
+    // Bookkeeping records between turns are not the end of the turn.
+    expect(
+      idleBetweenTurns([record("assistant", 2), record("permission-mode", 8), typed(10)], []),
+    ).toEqual([[ms(2), ms(10)]]);
+  });
+
+  // Covers: R18
+  it("subtracts the time a subagent was running in the background", () => {
+    expect(idleBetweenTurns([record("assistant", 0), typed(30)], [window(5, 25)])).toEqual([
+      [ms(0), ms(5)],
+      [ms(25), ms(30)],
+    ]);
+  });
+
+  // Covers: R18
+  it("is carried by a parsed Claude session and never holds prompt content", () => {
+    const s = parseSession(FIXTURE);
+    expect(Array.isArray(s.idleBetweenTurns)).toBe(true);
+    expect(JSON.stringify(s.idleBetweenTurns)).not.toMatch(/[a-z]/i);
   });
 });

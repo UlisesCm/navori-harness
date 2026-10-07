@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import {
   mkdtempSync,
   mkdirSync,
@@ -12,7 +12,9 @@ import {
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evaluatePlanGate } from "../gate.ts";
+import { applyPlanGate, evaluatePlanGate } from "../gate.ts";
+import { hasAuditTarget, outcomeFeatureKey } from "../../audit/cli-event.ts";
+import { repoFromCwd, sessionLogPath } from "../../audit/paths.ts";
 import type { Workplan } from "../schema.ts";
 
 /**
@@ -21,6 +23,8 @@ import type { Workplan } from "../schema.ts";
  *
  * Covers: R16, R17, R19
  */
+
+vi.mock(import("../../audit/cli-event.ts"), { spy: true });
 
 let cwd: string;
 
@@ -439,5 +443,187 @@ describe("evaluatePlanGate — Codex spawn_agent payloads (spec 0041 R9)", () =>
   it("an unknown payload shape is allowed, not a crash", () => {
     writeConfig(true);
     expect(evaluatePlanGate({ cwd, tool_input: { foo: 1 } }, NOW).decision).toBe("allow");
+  });
+});
+
+describe("applyPlanGate — dispatch-outcome emission (spec 0042 T10a)", () => {
+  const SESSION = "sess-dispatch";
+  const AUDIT_KEYS = [
+    "NAVORI_AUDITS_ROOT",
+    "CLAUDE_CODE_SESSION_ID",
+    "NAVORI_AUDIT_HOST",
+    "NAVORI_AUDIT_SESSION_ID",
+    "CODEX_SESSION_ID",
+    "CODEX_THREAD_ID",
+  ];
+  let saved: Record<string, string | undefined>;
+  let auditRoot: string;
+
+  /** Opts the session in the way `navori audit --start` does: a header-only log. */
+  function startAudit(sessionId = SESSION): string {
+    const log = sessionLogPath(repoFromCwd(cwd), sessionId);
+    mkdirSync(join(log, ".."), { recursive: true, mode: 0o700 });
+    writeFileSync(
+      log,
+      `${JSON.stringify({ event: "start", host: "claude", sessionId, repo: repoFromCwd(cwd), cwd })}\n`,
+      { mode: 0o600 },
+    );
+    return log;
+  }
+  const lines = (log: string): string[] => readFileSync(log, "utf-8").trim().split("\n");
+  const spawnPayload = (prompt: string, extra: Record<string, unknown> = {}): unknown => ({
+    cwd,
+    session_id: SESSION,
+    tool_use_id: "toolu_01Abc",
+    tool_input: { subagent_type: "implementer", prompt },
+    ...extra,
+  });
+  /** Runs the hook and returns everything observable: exit code, stdout and stderr. */
+  function observe(raw: unknown): { exitCode: unknown; stdout: string; stderr: string } {
+    const out: string[] = [];
+    const err: string[] = [];
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      out.push(String(chunk));
+      return true;
+    });
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      err.push(String(chunk));
+      return true;
+    });
+    const before = process.exitCode;
+    process.exitCode = undefined;
+    try {
+      applyPlanGate(raw);
+      return { exitCode: process.exitCode, stdout: out.join(""), stderr: err.join("") };
+    } finally {
+      process.exitCode = before;
+      stdout.mockRestore();
+      stderr.mockRestore();
+    }
+  }
+
+  beforeEach(() => {
+    saved = Object.fromEntries(AUDIT_KEYS.map((key) => [key, process.env[key]]));
+    for (const key of AUDIT_KEYS) delete process.env[key];
+    auditRoot = join(cwd, "..", `${cwd.split("/").pop()}-audits`);
+    process.env.NAVORI_AUDITS_ROOT = auditRoot;
+    writeConfig(true);
+    writeWorkplan("demo", VALID_LEVEL1);
+  });
+
+  afterEach(() => {
+    vi.mocked(hasAuditTarget).mockRestore();
+    vi.mocked(outcomeFeatureKey).mockRestore();
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(auditRoot, { recursive: true, force: true });
+  });
+
+  // Covers: R17
+  it("logs one closed dispatch-outcome on allow, from the payload's session", () => {
+    const log = startAudit();
+    const seen = observe(spawnPayload("workplan: demo\ndo A1"));
+    expect(seen).toEqual({ exitCode: undefined, stdout: "", stderr: "" });
+    const [, record] = lines(log);
+    const event = JSON.parse(record ?? "");
+    expect(event).toMatchObject({
+      event: "cli",
+      name: "dispatch-outcome",
+      verdict: "allow",
+      schemaVersion: 1,
+      stage: "implement",
+      spawn: "toolu_01Abc",
+    });
+    expect(event.featureKey).toMatch(/^[a-f0-9]{64}$/);
+    expect(Object.keys(event).sort()).toEqual(
+      ["event", "featureKey", "name", "schemaVersion", "spawn", "stage", "tsMs", "verdict"].sort(),
+    );
+    expect(Buffer.byteLength(record ?? "")).toBeLessThanOrEqual(2048);
+    expect(record).not.toContain("demo");
+  });
+
+  // Covers: R17
+  it("omits a spawn id that is not a bounded id but still records the dispatch", () => {
+    const log = startAudit();
+    observe(spawnPayload("workplan: demo", { tool_use_id: "not a valid id" }));
+    expect(JSON.parse(lines(log)[1] ?? "")).not.toHaveProperty("spawn");
+  });
+
+  // Covers: R17
+  it.each([
+    ["a throw while looking up the audit target", () => vi.mocked(hasAuditTarget)],
+    ["a throw while computing the feature key", () => vi.mocked(outcomeFeatureKey)],
+  ])("keeps the allow byte-identical when there is %s (B2)", (_label, target) => {
+    startAudit();
+    const baseline = observe({ ...(spawnPayload("workplan: demo") as object), session_id: "none" });
+    target().mockImplementation(() => {
+      throw new Error("forced");
+    });
+    const forced = observe(spawnPayload("workplan: demo"));
+    expect(target()).toHaveBeenCalled();
+    expect(forced).toEqual(baseline);
+    expect(forced).toEqual({ exitCode: undefined, stdout: "", stderr: "" });
+  });
+
+  // Covers: R17
+  it("emits nothing on deny and leaves its exit code and stderr unchanged", () => {
+    const log = startAudit();
+    const seen = observe(spawnPayload("just do it"));
+    expect(seen.exitCode).toBe(2);
+    expect(seen.stderr).toContain("BLOCKED by plan-gate");
+    expect(lines(log)).toHaveLength(1);
+    expect(outcomeFeatureKey).not.toHaveBeenCalled();
+  });
+
+  // Covers: R17
+  it("emits nothing for a nivel-0 allow", () => {
+    const log = startAudit();
+    expect(observe(spawnPayload("nivel-0: README.md\nfix a typo")).exitCode).toBeUndefined();
+    expect(lines(log)).toHaveLength(1);
+  });
+
+  // Covers: R17
+  it("computes nothing and writes nothing without an audit context", () => {
+    const seen = observe(spawnPayload("workplan: demo", { session_id: undefined }));
+    expect(seen).toEqual({ exitCode: undefined, stdout: "", stderr: "" });
+    expect(outcomeFeatureKey).not.toHaveBeenCalled();
+    const unlogged = observe(spawnPayload("workplan: demo", { session_id: "never-started" }));
+    expect(unlogged.exitCode).toBeUndefined();
+    expect(outcomeFeatureKey).not.toHaveBeenCalled();
+  });
+
+  // Covers: R17
+  it("writes nothing when the payload session contradicts the ambient identity (R9)", () => {
+    const log = startAudit();
+    process.env.CLAUDE_CODE_SESSION_ID = "another-session";
+    expect(observe(spawnPayload("workplan: demo")).exitCode).toBeUndefined();
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    process.env.NAVORI_AUDIT_HOST = "claude";
+    process.env.NAVORI_AUDIT_SESSION_ID = "another-session";
+    expect(observe(spawnPayload("workplan: demo")).exitCode).toBeUndefined();
+    expect(lines(log)).toHaveLength(1);
+    expect(outcomeFeatureKey).not.toHaveBeenCalled();
+  });
+
+  // Covers: R17
+  it("writes through a payload session that matches the ambient one", () => {
+    const log = startAudit();
+    process.env.CLAUDE_CODE_SESSION_ID = SESSION;
+    observe(spawnPayload("workplan: demo"));
+    expect(lines(log)).toHaveLength(2);
+  });
+
+  // Covers: R17
+  it("still allows a Codex spawn whose source is unverified, writing nothing", () => {
+    const log = startAudit();
+    const seen = observe({
+      cwd,
+      session_id: SESSION,
+      tool_input: { agent_type: "implementer", message: "workplan: demo\nbody" },
+    });
+    expect(seen).toEqual({ exitCode: undefined, stdout: "", stderr: "" });
+    expect(lines(log)).toHaveLength(1);
   });
 });
