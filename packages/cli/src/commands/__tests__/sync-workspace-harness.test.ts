@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
@@ -164,5 +172,45 @@ describe("sync respeta workspaceHarness (spec 0043 T1)", () => {
     expect(countPendingRenderChanges(runRender(cwd, { dryRun: true }))).toBe(0);
     expect(countPendingRenderChanges(runRender(cwd, { dryRun: false }))).toBe(0);
     expect(existsSync(join(cwd, "apps/backend/.claude"))).toBe(false);
+  });
+
+  it("con Codex activo, `sync` bajo `root` no recrea ni borra el árbol Codex del workspace", async () => {
+    // Covers: R8, R9
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "ws-sync-codex-root",
+      engines: ["claude", "codex"],
+      preset: "monorepo-turbopnpm",
+      qualityGate: { fast: "pnpm -w lint", full: "pnpm -w test" },
+      monorepo: {
+        enabled: true,
+        tool: "turbo",
+        workspaces: [{ name: "backend", path: "apps/backend", preset: "medusa" }],
+        workspaceHarness: "full",
+      },
+    });
+    expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
+    const ws = join(cwd, "apps/backend");
+    expect(existsSync(join(ws, ".codex"))).toBe(true);
+    // Switch to `root`, but do not render: sync must neither delete the old tree...
+    writeConfig(join(cwd, "navori.config.json"), {
+      ...JSON.parse(readFileSync(join(cwd, "navori.config.json"), "utf-8")),
+      monorepo: {
+        enabled: true,
+        tool: "turbo",
+        workspaces: [{ name: "backend", path: "apps/backend", preset: "medusa" }],
+        workspaceHarness: "root",
+      },
+    });
+    const before = listFiles(ws);
+    await runSync({ apply: true });
+    expect(listFiles(ws)).toEqual(before);
+
+    // ...nor bring back what `render` removed.
+    expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
+    expect(existsSync(join(ws, ".codex"))).toBe(false);
+    const after = listFiles(ws);
+    await runSync({ apply: true });
+    expect(listFiles(ws)).toEqual(after);
+    expect(countPendingRenderChanges(runRender(cwd, { dryRun: true }))).toBe(0);
   });
 });

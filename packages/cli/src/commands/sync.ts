@@ -6,8 +6,13 @@ import { type NavoriConfig } from "../lib/config/config.ts";
 import { readConfigOrExit } from "../lib/config/cli-config.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
 import { decideClaudeWorkspaceSkills } from "../engines/claude/workspace-decision.ts";
+import { decideCodexWorkspaceSkills } from "../engines/codex/workspace-decision.ts";
 import type { HoistedSkill, WorkspaceHarness } from "../engines/shared/workspace-skills.ts";
-import { renderNonClaudeEngines, type EngineRenderSummary } from "./render.ts";
+import {
+  renderNonClaudeEngines,
+  type CodexWorkspaceOptions,
+  type EngineRenderSummary,
+} from "./render.ts";
 import {
   effectiveConfigForWorkspace,
   buildMonorepoContext,
@@ -454,6 +459,8 @@ export interface SyncTarget {
   /** Skills the root already provides (spec 0043), so sync stops recreating them in the
    * workspace. Always `prune: false`: sync deletes nothing; `render` reconciles, with a preview. */
   workspaceSkills?: { omitted: ReadonlySet<string>; prune: false };
+  /** The same two, for the Codex engine (spec 0043 R8): its own decision, over its own plan. */
+  codex?: CodexWorkspaceOptions;
 }
 
 export interface TargetPlan {
@@ -492,6 +499,14 @@ export function resolveSyncTargets(
     omitted: decision.omitted.get(path) ?? new Set<string>(),
     prune: false,
   });
+  const codexDecision = decideCodexWorkspaceSkills(cwd, config, { rootRendered: !workspaceFilter });
+  const codexFor = (path: string): CodexWorkspaceOptions => ({
+    harnessScope: config.monorepo?.workspaceHarness,
+    workspaceSkills: {
+      omitted: codexDecision.omitted.get(path) ?? new Set<string>(),
+      prune: false,
+    },
+  });
 
   if (workspaceFilter) {
     if (declared.length === 0) {
@@ -526,6 +541,7 @@ export function resolveSyncTargets(
           monorepoContext: buildMonorepoContext(config, match),
           harnessScope: config.monorepo?.workspaceHarness,
           workspaceSkills: skillsFor(match.path),
+          codex: codexFor(match.path),
         },
       ],
     };
@@ -538,6 +554,14 @@ export function resolveSyncTargets(
       repoRoot: cwd,
       config,
       rootHoist: { skills: decision.hoisted, pruneCandidates: [] },
+      codex: {
+        // Codex's own orphan scan prunes a leftover hoist anyway; handing it the
+        // candidates only makes that prune pristine-gated instead of marker-only.
+        rootHoist: {
+          skills: codexDecision.hoisted,
+          pruneCandidates: codexDecision.rootPruneCandidates,
+        },
+      },
     },
   ];
   const orphanedWorkspaces: string[] = [];
@@ -561,6 +585,7 @@ export function resolveSyncTargets(
       monorepoContext: buildMonorepoContext(config, ws),
       harnessScope: config.monorepo?.workspaceHarness,
       workspaceSkills: skillsFor(ws.path),
+      codex: codexFor(ws.path),
     });
   }
   return { ok: true, targets, orphanedWorkspaces };
@@ -740,6 +765,7 @@ function renderSyncTarget(
   const additional = renderNonClaudeEngines(target.cwd, target.config, engines, dryRun, {
     repoRoot: target.repoRoot,
     warnMissingAdapters: target.label === "root",
+    codex: target.codex,
   });
   return { target, claude, engines: additional };
 }
