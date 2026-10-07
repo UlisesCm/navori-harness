@@ -490,6 +490,8 @@ export function normalizeAuditRecord(
       return undefined;
     }
     if (Array.isArray(item)) {
+      // Every array the miners read is a `content` block list (message.content / tool_result.content);
+      // other long arrays (file lines, tool schemas) are display content.
       if (item.length > 128 && (!projected(key) || key === "content")) omitted += item.length - 128;
       return item.slice(0, 128).map((child) => normalize(child, key, depth + 1, free));
     }

@@ -616,6 +616,20 @@ export function redactExample(command: string): string {
 
 /** Derive bounded Claude facts locally; supplied internal fields are never trusted. */
 function deriveClaudeFacts(raw: unknown): unknown {
+  // The SessionStart stdout is far over the string cap: measure it here, from the raw record,
+  // and store only the derived size (supplied internal fields are dropped).
+  if (isRec(raw) && raw.type === "attachment" && isRec(raw.attachment)) {
+    const { _auditClaude: _ignored, ...attachment } = raw.attachment;
+    const payload = str(attachment.stdout);
+    const at = payload === null ? -1 : payload.indexOf(ENGRAM_CONTEXT_MARKER);
+    return {
+      ...raw,
+      attachment:
+        at < 0 || payload === null
+          ? attachment
+          : { ...attachment, _auditClaude: { injectedChars: payload.length - at } },
+    };
+  }
   if (!isRec(raw) || !isRec(raw.message) || !Array.isArray(raw.message.content)) return raw;
   const content = raw.message.content.map((block: unknown): unknown => {
     if (!isRec(block)) return block;
@@ -1432,13 +1446,11 @@ function collectInjectedContext(lines: Rec[]): Record<string, InjectedContext> {
     if (str(l.type) !== "attachment") continue;
     const a = l.attachment;
     if (!isRec(a) || str(a.hookEvent) !== "SessionStart") continue;
-    const payload = str(a.stdout);
-    if (payload === null) continue;
-    const at = payload.indexOf(ENGRAM_CONTEXT_MARKER);
-    if (at < 0) continue;
+    const chars = path(a, "_auditClaude", "injectedChars");
+    if (typeof chars !== "number") continue;
     const entry = (injected.engram ??= { count: 0, chars: 0 });
     entry.count++;
-    entry.chars += payload.length - at;
+    entry.chars += chars;
   }
   return injected;
 }

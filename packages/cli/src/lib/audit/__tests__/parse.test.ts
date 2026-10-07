@@ -1394,6 +1394,18 @@ describe("context injected by a SessionStart hook (#728)", () => {
     expect(s.orchestrator.mcpInjectedContext).toEqual({});
   });
 
+  // Covers: R6, R21
+  it("counts an injection whose stdout is far over the string cap, from the raw record", () => {
+    const body = MARKER + "\n" + "m".repeat(9000);
+    const file = sessionWith([injection(PROTOCOL + body)]);
+    const retained = readJsonl(file);
+    expect(retained.health.normalizedOmissions).toBe(0);
+    expect(JSON.stringify(retained.lines)).not.toContain("mmmmmmmmmm");
+    const s = parseSession(file);
+    expect(s.orchestrator.mcpInjectedContext).toEqual({ engram: { count: 1, chars: body.length } });
+    expect(s.sources?.transcript?.state).toBe("observed");
+  });
+
   it("reports nothing when no SessionStart hook injected memory", () => {
     const s = parseSession(sessionWith([injection("navori: session context")]));
     expect(s.orchestrator.mcpInjectedContext).toEqual({});
@@ -3533,6 +3545,12 @@ describe("parse: Claude 2.1.29x transcripts clip content without losing measurem
     const text = normalizeAuditRecord({ type: "assistant", text: long }, "transcript");
     expect(text.omitted).toBe(0);
     expect(text.value).toMatchObject({ type: "assistant", text: "" });
+    const stdout = normalizeAuditRecord(
+      { type: "attachment", attachment: { stdout: long } },
+      "transcript",
+    );
+    expect(stdout.omitted).toBe(0);
+    expect(stdout.value).toMatchObject({ attachment: { stdout: "" } });
     const lines = normalizeAuditRecord(
       { type: "attachment", lines: Array(300).fill("a") },
       "transcript",
