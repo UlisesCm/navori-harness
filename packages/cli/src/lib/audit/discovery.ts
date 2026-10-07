@@ -80,6 +80,8 @@ export interface MarkedSession {
 /** One bounded lazy filesystem/fact context is shared by all report cohorts. */
 export interface AuditDiscoveryContext {
   budget: AuditReadBudget;
+  /** Facts of the host-path scan; separate so it cannot starve parsing of the shared pool. */
+  scanBudget: AuditReadBudget;
   indexedPaths: string[] | null;
   indexedRoots: Set<string>;
   metadata: Map<string, Record<string, unknown> | null>;
@@ -93,12 +95,18 @@ export function createAuditDiscoveryContext(
 ): AuditDiscoveryContext {
   return {
     budget,
+    scanBudget: createAuditReadBudget(),
     indexedPaths: null,
     indexedRoots: new Set(),
     metadata: new Map(),
     logs: new Map(),
     repoRoots: new Map(),
   };
+}
+
+/** Whether discovery lost facts in either the shared pool or its own scan pool. */
+function discoveryTruncated(context: AuditDiscoveryContext): boolean {
+  return context.budget.diagnostics.truncated || context.scanBudget.diagnostics.truncated;
 }
 
 /** Retain a validated marker's checkout anchor without retaining out-of-range activity. */
@@ -227,13 +235,13 @@ function indexedSourceMetadata(
   let record: Record<string, unknown> | null = null;
   const reading = readSourceIdentity(path, (value) => {
     const normalized = normalizeAuditRecord(value, "metadata");
-    if (normalized.omitted) omitAuditFacts(context.budget, normalized.omitted);
-    if (normalized.value && retainAuditFact(context.budget, null, normalized.value))
+    if (normalized.omitted) omitAuditFacts(context.scanBudget, normalized.omitted);
+    if (normalized.value && retainAuditFact(context.scanBudget, null, normalized.value))
       record = normalized.value;
   });
   if (reading.sourceStatus !== "observed") record = null;
   const entry = { path, record };
-  if (retainAuditFact(context.budget, null, entry)) context.metadata.set(path, record);
+  if (retainAuditFact(context.scanBudget, null, entry)) context.metadata.set(path, record);
   return record;
 }
 
@@ -1266,7 +1274,7 @@ function hostPopulation(
       } else if (file.startsWith(`${transcriptsRoot()}/`) && !file.includes("/subagents/"))
         files.add(file);
     }
-    if (context.budget.diagnostics.truncated) complete = false;
+    if (discoveryTruncated(context)) complete = false;
   } catch {
     complete = false;
   }
@@ -1414,7 +1422,7 @@ export function repoCoverage(
   const activations = sessions.filter((m) => withinRange(m.markedAt, filters));
   const markerComplete =
     markerEnumeration(repo, context).state === "observed" &&
-    !context.budget.diagnostics.truncated &&
+    !discoveryTruncated(context) &&
     sessions.every((s) => Number.isFinite(Date.parse(s.markedAt)));
   const captureComplete = markerComplete && !identityConflict;
   const captured = captureComplete

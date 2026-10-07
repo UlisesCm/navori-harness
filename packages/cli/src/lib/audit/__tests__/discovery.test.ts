@@ -484,6 +484,51 @@ describe("discovery: every audited repo, with coverage (R61, R62)", () => {
     expect(complete.budget.diagnostics.truncated).toBe(false);
   });
 
+  // Covers: R8, R21
+  it("does not count display clipping of a long-text identity record as truncation", () => {
+    const cwd = projectRoot("long");
+    audit("long", "s", cwd);
+    const file = host(cwd, "s.jsonl");
+    writeFileSync(
+      file,
+      `${JSON.stringify({ type: "user", sessionId: "s", cwd, timestamp: "2026-09-20T10:00:00Z", isSidechain: false, title: "t".repeat(5000) })}\n`,
+    );
+    const context = createAuditDiscoveryContext();
+    expect(repoCoverage("long", {}, cwd, context).row).toMatchObject({
+      host: 1,
+      captured: 1,
+      ratio: 1,
+      reason: null,
+    });
+    expect(context.budget.diagnostics.truncated).toBe(false);
+    expect(context.scanBudget.diagnostics.truncated).toBe(false);
+  });
+
+  // Covers: R8, R21
+  it("scans host paths in its own fact pool so parsing keeps the shared one", () => {
+    const cwd = projectRoot("pool");
+    audit("pool", "s0", cwd);
+    for (let i = 0; i < 20; i++) host(cwd, `s${i}.jsonl`);
+    const context = createAuditDiscoveryContext();
+    repoCoverage("pool", {}, cwd, context);
+    expect(context.scanBudget.diagnostics.retainedFacts).toBeGreaterThanOrEqual(20);
+    expect(context.budget.diagnostics.retainedFacts).toBeLessThan(
+      context.scanBudget.diagnostics.retainedFacts,
+    );
+  });
+
+  // Covers: R8, R21
+  it("still reports incomplete coverage when the scan pool genuinely refuses facts", () => {
+    const cwd = projectRoot("refused");
+    audit("refused", "s", cwd);
+    host(cwd, "s.jsonl");
+    const context = createAuditDiscoveryContext();
+    context.scanBudget = createAuditReadBudget({ factsPerReport: 1 });
+    const row = repoCoverage("refused", {}, cwd, context).row;
+    expect(context.scanBudget.diagnostics.truncated).toBe(true);
+    expect(row).toMatchObject({ host: null, ratio: null, reason: "incomplete-enumeration" });
+  });
+
   // Covers: R61, R62
   // Covers: R8
   it("keeps known activations when a host source root is absent", () => {
