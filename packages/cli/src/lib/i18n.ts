@@ -763,6 +763,15 @@ interface SyncCmdStrings {
   acceptNewFilesPreview: (count: number) => string;
   /** `--accept-new-files` accepted N whole files. */
   acceptNewFilesApplied: (count: number) => string;
+  // Markerless whole-file replace, interactive only (#1245).
+  /** Warning shown before the diff of a markerless file. */
+  markerlessFileWarning: (path: string) => string;
+  /** Option label: replace the whole file (the user's version survives only in the backup). */
+  optReplaceWholeFile: string;
+  /** Bulk flags left N markerless files untouched; only `--interactive` resolves them. */
+  markerlessFilesInteractiveOnly: (count: number) => string;
+  /** Printed after a replace: where the previous version lives. */
+  markerlessBackupHint: string;
 }
 
 interface DoctorCmdStrings {
@@ -1159,6 +1168,12 @@ interface EngineCmdStrings {
   managedBlockEditedByHand: string;
   /** Same skip when `navori sync` CAN resolve the file (it kept its marker). */
   managedFileEditedResolvable: string;
+  /**
+   * Skip reason when the file has no navori marker and `navori sync
+   * --interactive` can replace it whole (#1245). Neutral: the file may be the
+   * user's own, not an edited navori file.
+   */
+  markerlessFileEditedResolvable: string;
   blockFromNewerNavori: (version: string | undefined) => string;
   subBlockEditedByHand: (skillId: string, pluginId: string) => string;
   subBlockFromNewerNavori: (skillId: string, version: string | undefined) => string;
@@ -2004,6 +2019,14 @@ const CMD_ES: CmdStrings = {
       `nada: vuelve a correrlo con --apply (o --yes) para aplicarlo.`,
     acceptNewFilesApplied: (count) =>
       `--accept-new-files: acepté la versión renderizada en ${count} archivo(s) completo(s)`,
+    markerlessFileWarning: (path) =>
+      `${path} no tiene marcador de navori. Aceptar reemplaza TODO su contenido por la versión renderizada; si es un archivo tuyo en una ruta que navori usa, también se pierde. Se guarda un backup en ~/.navori/backups.`,
+    optReplaceWholeFile:
+      "Reemplazar el archivo completo — tu versión queda solo en el backup (se conserva 30 días)",
+    markerlessFilesInteractiveOnly: (count) =>
+      `${count} archivo(s) sin marcador de navori quedan intactos: solo 'navori sync --interactive' puede reemplazarlos, ningún flag masivo los toca.`,
+    markerlessBackupHint:
+      "Tu versión anterior está en el backup; recupérala con 'navori backup restore'.",
   },
   doctor: {
     noConfigRunInit: (path) => `No hay navori.config.json en ${path}. Corre 'navori init' primero.`,
@@ -2745,6 +2768,8 @@ const CMD_ES: CmdStrings = {
       "bloque managed editado por el usuario; en bloques de CLAUDE.md/AGENTS.md resuelve con 'navori sync'; en archivos completos ajusta el destino a mano o muévelo aparte y corre 'navori render --apply'",
     managedFileEditedResolvable:
       "bloque managed editado por el usuario; resuélvelo con 'navori sync --interactive' (o 'navori sync --accept-new-files --apply' para aceptar la versión renderizada)",
+    markerlessFileEditedResolvable:
+      "archivo sin marcador de navori (editado por el usuario o ajeno); solo 'navori sync --interactive' puede reemplazarlo completo (con backup); ningún flag masivo lo toca. Si solo conserva parte del marcador o lo menciona en un comentario, muévelo aparte y corre 'navori render --apply'",
     blockFromNewerNavori: (v) =>
       `bloque escrito por una navori más nueva (${v ?? "?"}); no lo toqué. Actualiza tu CLI: npm i -g navori@latest`,
     subBlockEditedByHand: (id, pid) =>
@@ -3437,6 +3462,14 @@ const CMD_EN: CmdStrings = {
       `written: re-run it with --apply (or --yes) to apply it.`,
     acceptNewFilesApplied: (count) =>
       `--accept-new-files: accepted the rendered version in ${count} whole file(s)`,
+    markerlessFileWarning: (path) =>
+      `${path} has no navori marker. Accepting replaces ALL of its content with the rendered version; if it is your own file at a path navori uses, that is lost too. A backup goes to ~/.navori/backups.`,
+    optReplaceWholeFile:
+      "Replace the whole file — your version survives only in the backup (kept 30 days)",
+    markerlessFilesInteractiveOnly: (count) =>
+      `${count} file(s) without a navori marker stay untouched: only 'navori sync --interactive' can replace them, no bulk flag touches them.`,
+    markerlessBackupHint:
+      "Your previous version is in the backup; restore it with 'navori backup restore'.",
   },
   doctor: {
     noConfigRunInit: (path) => `No navori.config.json at ${path}. Run 'navori init' first.`,
@@ -4172,6 +4205,8 @@ const CMD_EN: CmdStrings = {
       "managed block edited by hand; for CLAUDE.md/AGENTS.md blocks resolve with 'navori sync'; for whole files adjust the destination manually or move it aside and run 'navori render --apply'",
     managedFileEditedResolvable:
       "managed block edited by hand; resolve it with 'navori sync --interactive' (or 'navori sync --accept-new-files --apply' to accept the rendered version)",
+    markerlessFileEditedResolvable:
+      "file without a navori marker (edited by hand or not navori's); only 'navori sync --interactive' can replace it whole (with a backup); no bulk flag touches it. If it keeps only part of the marker or mentions it in a comment, move it aside and run 'navori render --apply'",
     blockFromNewerNavori: (v) =>
       `block written by a newer navori (${v ?? "?"}); left untouched. Update your CLI: npm i -g navori@latest`,
     subBlockEditedByHand: (id, pid) =>

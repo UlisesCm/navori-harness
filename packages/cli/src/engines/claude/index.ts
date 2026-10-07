@@ -91,6 +91,7 @@ import {
 } from "../shared/workspace-skills.ts";
 import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
 import {
+  attachMarkerlessResolution,
   attachResolution,
   collectPlan,
   collisionWarnings,
@@ -1115,11 +1116,39 @@ export function renderClaudeEngine(
         onDisk !== legacyPluginScriptContent(script, config) &&
         !matchesLegacyFingerprint(basename(script.src), onDisk)
       ) {
-        skipped.push({
-          path: destRelPath,
-          reason: tc(lang).engine.managedBlockEditedByHand,
-          status: "user-modified-skipped",
-        });
+        // #1245: no marker anywhere -> offered ONLY interactively, as a whole-file
+        // replace. The fresh body is what the apply pass would write
+        // (`treatAsFresh`, never the append/forced path: #637).
+        const freshInput = {
+          cwd,
+          assetRoot: dirname(script.src),
+          assetRelPath: basename(script.src),
+          destRelPath,
+          managedId,
+          config,
+          meta: script.meta,
+          extraVars: pluginExtraVars(config),
+          treatAsFresh: true,
+        };
+        skipped.push(
+          attachMarkerlessResolution(
+            {
+              path: destRelPath,
+              reason: tc(lang).engine.managedBlockEditedByHand,
+              status: "user-modified-skipped",
+            },
+            {
+              absPath: destAbs,
+              basis: onDisk,
+              chmodExec: script.exec,
+              resolvableReason: tc(lang).engine.markerlessFileEditedResolvable,
+              renderFresh: () => {
+                const plan = planManagedFile(freshInput);
+                return plan.kind === "write" ? plan.content : null;
+              },
+            },
+          ),
+        );
         continue;
       }
       applyManagedFilePlan(
