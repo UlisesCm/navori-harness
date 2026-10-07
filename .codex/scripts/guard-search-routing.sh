@@ -1,4 +1,4 @@
-# navori:managed start id="tgrep-script-guard-search-routing" hash="42d7f23a" version="0.11.2" source="@navori/plugin-tgrep"
+# navori:managed start id="tgrep-script-guard-search-routing" hash="11369e1c" version="0.11.2" source="@navori/plugin-tgrep"
 #!/usr/bin/env bash
 # Search-routing lane for the tgrep plugin (spec 0039 D6, R29-R31).
 #
@@ -13,6 +13,11 @@
 #   43  allow with verdict `fail-open`: the guard would have blocked but tgrep is
 #       missing or has no index (R31), so the shell search stays available.
 #   *   allow.
+#
+# Blocking classification (#1117):
+#   - exit 42 (block): hard — a recursive content search that must go through the index; the remedy is
+#     already on stderr. The sourcing sub-block turns it into exit 2.
+#   - exit 43 (fail-open): advisory — tgrep is missing or has no index, so the shell search stays available.
 #
 # WHAT IT BLOCKS: a segment that STARTS a command (never one after a pipe) and
 # invokes `grep`/`egrep`/`fgrep` recursively, or `rg` with no concrete file

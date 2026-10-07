@@ -1,4 +1,4 @@
-# navori:managed start id="managed-drift-watch-base" hash="504f8a27" version="0.11.2" source="@navori/core"
+# navori:managed start id="managed-drift-watch-base" hash="b9783c71" version="0.11.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse watcher for managed-block drift (#530), on every tool that can
@@ -92,6 +92,9 @@
 # is none and in a bad one is one. That ~35ms is the MEDIAN of 13,692 recorded
 # runs in `~/.navori/audits` (mean 43.7ms, p95 78ms); the "~25ms measured over
 # 60 files" this used to quote was a single early sample and ran ~40% optimistic.
+# Blocking classification (#1117):
+#   - managed block with a misaligned hash: advisory — PostToolUse, exit 2 only reaches the model; there is
+#     nothing to approve or undo here.
 set -uo pipefail
 
 # The tools this state auditor must run after, i.e. the matcher it has to be
