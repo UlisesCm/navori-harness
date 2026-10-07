@@ -12,6 +12,7 @@ import {
 import type { HarnessCatalog } from "../harness.ts";
 import {
   type AgentRun,
+  type AuditReport,
   type HookEvent,
   type InjectedContext,
   type SessionAudit,
@@ -2847,5 +2848,129 @@ describe("review/receipt outcomes in the report (spec 0042 T9b)", () => {
       reviews: { rounds: 1, approved: 1, correlated: 1 },
       receipts: { observations: 1, ok: 1, fresh: 1 },
     });
+  });
+});
+
+describe("comparison and recommendations in the published report (spec 0042 T11)", () => {
+  const build = (sessions: SessionAudit[]) =>
+    buildReport(sessions, { repo: "demo", version: "0.11.2", catalog: CATALOG });
+  const comparison = (key: string): NonNullable<AuditReport["comparison"]> => ({
+    base: {
+      format: 2,
+      scope: "repo",
+      range: { from: "2026-09-01", to: "2026-09-08" },
+      sessions: 3,
+    },
+    current: {
+      format: 2,
+      scope: "repo",
+      range: { from: "2026-09-15", to: "2026-09-22" },
+      sessions: 3,
+    },
+    rows: [
+      {
+        key,
+        base: 100,
+        current: 88,
+        delta: -12,
+        relativeChange: -0.12,
+        outcome: "matched",
+        reasons: [],
+        contrast: "regime",
+        n: { base: 120, current: 130 },
+        criterion: {
+          source: "spec-0039/R43",
+          threshold: -0.1,
+          minN: 100,
+          observedChange: -0.12,
+          state: "threshold-met-unverified",
+          noiseBand: "unmeasured",
+          uncontrolled: ["task-mix"],
+        },
+      },
+    ],
+    totals: { matched: 1, descriptive: 0, inconclusive: 0, notControlled: 0 },
+  });
+
+  // Covers: R19
+  it("re-attaches the comparison after the numeric projection: negative deltas survive", () => {
+    const report = build([session([])]);
+    report.comparison = comparison("agent.implementer.cacheRead.p50");
+    const published = publishReport(report);
+    expect(published.comparison?.rows[0]).toMatchObject({
+      delta: -12,
+      relativeChange: -0.12,
+      criterion: { observedChange: -0.12, state: "threshold-met-unverified" },
+    });
+    // The pre-fix shape: every figure of an unknown key came out null.
+    expect(JSON.parse(renderJson(report)).comparison.rows[0].delta).toBe(-12);
+    expect(publishReport(build([session([])]))).not.toHaveProperty("comparison");
+  });
+
+  // Covers: R19
+  it("publishes a free-text key of the comparison as an opaque label", () => {
+    const report = build([session([])]);
+    report.comparison = comparison("agent.my-secret-agent.turns.p50");
+    const text = JSON.stringify(publishReport(report).comparison);
+    expect(text).not.toContain("my-secret-agent");
+    expect(text).toContain(`agent.${opaqueLabel("my-secret-agent")}.turns.p50`);
+  });
+
+  // Covers: R20
+  it("always computes recommendations and publishes their figures, closed ids and keys", () => {
+    const empty = publishReport(build([session([])]));
+    expect(empty.recommendations).toEqual([]);
+    const report = build([session([])]);
+    report.recommendations = [
+      {
+        group: "blocking-ms",
+        cause: "hook-toll",
+        status: "fact",
+        rank: 1,
+        impact: { unit: "ms", value: 5000, n: 40, state: "partial" },
+        scope: { sessions: 2, eligibleSessions: 2 },
+        evidence: { metrics: ["hook.secret-hook.ms", "hooks.tollMs"], signals: [] },
+        hypotheses: [{ id: "toll-share-by-hook", nextProbe: "parallel-group-ids" }],
+      },
+    ];
+    const rec = publishReport(report).recommendations?.[0];
+    expect(rec?.impact).toEqual({ unit: "ms", value: 5000, n: 40, state: "partial" });
+    expect(rec?.evidence.metrics).toEqual([
+      `hook.${opaqueLabel("secret-hook")}.ms`,
+      "hooks.tollMs",
+    ]);
+    expect(rec?.hypotheses[0]?.id).toBe("toll-share-by-hook");
+    expect(JSON.stringify(publishReport(report))).not.toContain("secret-hook");
+  });
+
+  // Covers: R20
+  it("keeps the generic allowlist closed: the recommendation words stay hashed outside their subtree", () => {
+    const report = build([session([])]);
+    Object.assign(report.rangeMetrics, { "tokens.hypotheses.rank": 3, "tokens.impact.status": 1 });
+    const keys = Object.keys(publishReport(report).rangeMetrics);
+    expect(keys).toContain(`tokens.${opaqueLabel("hypotheses")}.${opaqueLabel("rank")}`);
+    expect(keys).not.toContain("tokens.impact.status");
+  });
+
+  // Covers: R20
+  it("prints the observed causes in the private Markdown, facts and hypotheses apart", () => {
+    const report = build([session([])]);
+    report.recommendations = [
+      {
+        group: "per-tool-call",
+        cause: "friction",
+        status: "lead",
+        rank: null,
+        impact: { unit: "ratio", value: 0.04, n: 50, state: "observed" },
+        scope: { sessions: 1, eligibleSessions: 1 },
+        evidence: { metrics: [], signals: ["friction"] },
+        hypotheses: [{ id: "blocks-cost-context", nextProbe: "tokens-after-block" }],
+      },
+    ];
+    const text = renderMarkdown(report, "en");
+    expect(text).toContain("Observed causes");
+    expect(text).toContain(
+      "| per-tool-call | — | friction | lead | 0.04 ratio (observed) | 50 | 1/1 | blocks-cost-context → tokens-after-block |",
+    );
   });
 });

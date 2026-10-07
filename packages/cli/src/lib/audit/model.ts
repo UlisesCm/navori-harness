@@ -637,11 +637,13 @@ export type NullableMeasurements<T> = T extends number
       : T;
 export type PublishedAuditReport = Omit<
   NullableMeasurements<AuditReport>,
-  "schemaVersion" | "availability" | "outcomes"
+  "schemaVersion" | "availability" | "outcomes" | "comparison" | "recommendations"
 > & {
   schemaVersion: 11;
   availability: Record<string, MetricPopulation>;
   outcomes?: AuditOutcomes;
+  comparison?: SnapshotComparison;
+  recommendations?: Recommendation[];
 };
 
 export function emptyTokens(): TokenTotals {
@@ -2060,6 +2062,81 @@ export interface AuditOutcomes {
   summary?: OutcomeSummary;
 }
 
+/** One observed cause of friction, errors, repetition, review rework or hook toll (spec 0042 R20). */
+export interface Recommendation {
+  /** The denominator the cause is ranked against; causes only rank inside their own group. */
+  group: "per-tool-call" | "per-bash-call" | "tokens" | "blocking-ms";
+  cause: "tool-errors" | "friction" | "repeated-commands" | "review-cycles" | "hook-toll";
+  /** `fact` = observed above the range-level floor; `lead` = unranked hint. Neither claims a cause. */
+  status: "fact" | "lead";
+  /** 1-based inside the group, facts only. */
+  rank: number | null;
+  impact: {
+    unit: "ratio" | "tokens" | "ms";
+    value: number | null;
+    /** Denominator or sample behind the value. */
+    n: number;
+    state: "observed" | "partial" | "unavailable";
+  };
+  scope: { sessions: number; eligibleSessions: number };
+  evidence: { metrics: string[]; signals: string[] };
+  /** Unproven readings and the probe that would test each; never mixed into the facts. */
+  hypotheses: Array<{ id: string; nextProbe: string | null }>;
+}
+
+/** Outcome of a per-metric snapshot comparison. None of them means "improved". */
+export type ComparisonOutcome = "matched" | "descriptive" | "inconclusive" | "notControlled";
+export type ComparisonDimension = "repo" | "scope" | "host" | "regime" | "model" | "work";
+export type ComparisonReason =
+  | "legacy-snapshot"
+  | "diagnostic-metric"
+  | "extensive-count"
+  | "window-unknown"
+  | "overlapping-window"
+  | "confounded"
+  | `${"cohort-unknown" | "cohort-mixed" | "cohort-mismatch"}:${ComparisonDimension}`
+  | "side-unavailable"
+  | "partial-coverage"
+  | "below-floor"
+  | "no-preregistered-floor"
+  | "audit-mode-uncontrolled"
+  | "miner-differs";
+export interface ComparisonRow {
+  key: string;
+  base: number | null;
+  current: number | null;
+  /** Only for intensive statistics (p50/p90/pct/per-call); never for counts. */
+  delta: number | null;
+  relativeChange: number | null;
+  outcome: ComparisonOutcome;
+  reasons: ComparisonReason[];
+  contrast: "regime" | "model" | null;
+  n: { base: number | null; current: number | null };
+  /** Present only for a pre-registered metric that cleared the preflight. */
+  criterion?: {
+    source: "spec-0039/R43";
+    threshold: number;
+    minN: number;
+    observedChange: number | null;
+    state: "threshold-met-unverified" | "threshold-not-met";
+    noiseBand: "unmeasured";
+    uncontrolled: string[];
+  };
+}
+export interface ComparisonSide {
+  format: 1 | 2;
+  scope: "repo" | "all" | "unknown";
+  range: { from: string; to: string };
+  sessions: number | null;
+}
+/** Per-metric snapshot comparison (spec 0042 R19). Preflight, not causality. */
+export interface SnapshotComparison {
+  base: ComparisonSide;
+  current: ComparisonSide;
+  rows: ComparisonRow[];
+  totals: Record<ComparisonOutcome, number>;
+}
+
 export interface AuditReport {
   /** Bumped to 2 by spec 0013: reports now carry per-agent cards (skills with
    *  provenance, MCP by server, recorded hook executions). Bumped to 3 when
@@ -2172,6 +2249,10 @@ export interface AuditReport {
    * schema 11; absent when no session logged an outcome event.
    */
   outcomes?: AuditOutcomes;
+  /** Ranked observed causes (spec 0042 R20); `[]` = computed, nothing to rank. */
+  recommendations?: Recommendation[];
+  /** Attached by `--json --compare` only; never persisted in the range's files. */
+  comparison?: SnapshotComparison;
   /**
    * One row per audited repo, present only in an `--all-repos` report (R61):
    * sessions with an audit log in the period against the host's sessions for

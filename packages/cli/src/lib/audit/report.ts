@@ -10,6 +10,7 @@ import {
   type SkillSource,
   type SkillTally,
   type OutcomeSummary,
+  type Recommendation,
   type TaskMetric,
   type TokenTotals,
   type MetricEvidence,
@@ -26,6 +27,7 @@ import {
   recorderWindow,
 } from "./model.ts";
 import { joinOutcomes, outcomeKinds } from "./outcomes.ts";
+import { buildRecommendations } from "./recommend.ts";
 import { quantile } from "./task-metrics.ts";
 import { redactExample } from "./parse.ts";
 import {
@@ -583,7 +585,7 @@ const PUBLIC_SOURCE_FIELDS = new Set([
 ]);
 
 /** Unknown labels are opaque categories, never short arbitrary user strings. */
-function publicLabel(value: string, inOutcomes = false): string {
+export function publicLabel(value: string, inOutcomes = false): string {
   if (PUBLIC_TECHNICAL_LABELS.has(value)) return value;
   if (inOutcomes && PUBLIC_OUTCOME_LABELS.has(value)) return value;
   if (/^unknown-[a-f0-9]{12}$/.test(value)) return value;
@@ -597,7 +599,7 @@ function publicLabel(value: string, inOutcomes = false): string {
 }
 
 /** Metric keys have a fixed vocabulary; unrecognized segments become opaque. */
-function publicMapKey(value: string, family: string, inOutcomes = false): string {
+export function publicMapKey(value: string, family: string, inOutcomes = false): string {
   if (family !== "rangeMetrics" && family !== "availability") return publicLabel(value, inOutcomes);
   if (value === "coverage.pct") return value;
   if (family === "availability" && PUBLIC_OUTCOME_AVAILABILITY.has(value)) return value;
@@ -2590,11 +2592,32 @@ export function projectedAgentCount(report: AuditReport): number | null {
   return measurable(population(report.sessions, "tools")) ? report.totals.agents : null;
 }
 
+/** The ranked causes. Facts and hypotheses sit in separate columns: a hypothesis is never a finding. */
+function recommendationLines(recs: readonly Recommendation[], lang: Lang): string[] {
+  return [
+    "## " +
+      t(
+        lang,
+        "Causas observadas (cada una solo contra su unidad)",
+        "Observed causes (each only against its own unit)",
+      ),
+    "",
+    "| Unit | # | Cause | Status | Impact | n | Sessions | Hypotheses → next probe |",
+    "|---|---|---|---|---|---|---|---|",
+    ...recs.map(
+      (r) =>
+        `| ${r.group} | ${r.rank ?? "—"} | ${r.cause} | ${r.status} | ${r.impact.value ?? "n/a"} ${r.impact.unit} (${r.impact.state}) | ${r.impact.n} | ${r.scope.sessions}/${r.scope.eligibleSessions} | ${r.hypotheses.map((h) => `${h.id} → ${h.nextProbe ?? "—"}`).join("; ") || "—"} |`,
+    ),
+    "",
+  ];
+}
+
 export function renderMarkdown(
   report: AuditReport,
   lang: Lang,
   options: AuditPublicationOptions = {},
 ): string {
+  const recommendations = report.recommendations;
   report = metadataPublication(report, options);
   const out: string[] = [];
   out.push(`# ${t(lang, "Auditoría del harness", "Harness audit")} — ${report.repo}`);
@@ -2644,6 +2667,7 @@ export function renderMarkdown(
     out.push("");
     if (report.outcomes.summary) out.push(...taskMetricLines(report.outcomes.summary, lang));
   }
+  if (recommendations?.length) out.push(...recommendationLines(recommendations, lang));
   out.push(
     `${t(lang, "Rango", "Range")}: ${report.range.from} → ${report.range.to} · ` +
       `${report.totals.sessions} ${t(lang, "sesiones", "sessions")} · ` +
@@ -3106,12 +3130,18 @@ export function publishReport(
   report: AuditReport,
   options: AuditPublicationOptions = {},
 ): PublishedAuditReport {
+  // Closed constructors of their own: the generic allowlist would drop them, and
+  // `projectNumbers` below would null every figure — a negative delta included.
+  const { comparison, recommendations } = report;
   report = metadataPublication(report, options);
   // Outcome counts are plain integers of the join, not per-run measurements:
   // they bypass the numeric nulling below and were already filtered above.
   const { outcomes } = report;
   const runs = measurementRuns(report.sessions);
-  const published = projectNumbers(report, () => unknownEvidence());
+  const published = projectNumbers<Omit<AuditReport, "comparison" | "recommendations">>(
+    report,
+    () => unknownEvidence(),
+  );
   const sessions = report.sessions.map((s) => {
     const unit: MeasurementRun = {
       run: s.orchestrator,
@@ -3234,6 +3264,28 @@ export function publishReport(
     schemaVersion: 11,
     availability: report.availability ?? {},
     outcomes,
+    ...(comparison
+      ? {
+          comparison: {
+            ...comparison,
+            rows: comparison.rows.map((row) => ({
+              ...row,
+              key: publicMapKey(row.key, "rangeMetrics"),
+            })),
+          },
+        }
+      : {}),
+    ...(recommendations
+      ? {
+          recommendations: recommendations.map((r) => ({
+            ...r,
+            evidence: {
+              ...r.evidence,
+              metrics: r.evidence.metrics.map((key) => publicMapKey(key, "rangeMetrics")),
+            },
+          })),
+        }
+      : {}),
   };
 }
 
@@ -3987,6 +4039,7 @@ export function buildReport(
     availability,
     availabilityByAgentType,
     ...(outcomes ? { outcomes } : {}),
+    recommendations: buildRecommendations({ sessions, rangeMetrics, availability }),
     ...(opts.coverage ? { coverage: opts.coverage } : {}),
     ...(opts.repos ? { repos: opts.repos } : {}),
   };

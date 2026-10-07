@@ -27,6 +27,7 @@ import {
   buildSnapshot,
   compareSnapshots,
   copySnapshotTo,
+  gitRootCommit,
   readSnapshot,
   renderComparison,
   writeSnapshot,
@@ -97,6 +98,19 @@ function reportLang(cwd: string): Lang {
     }
   }
   return resolveLang(readGlobalConfig()?.language) as Lang;
+}
+
+/** `audit.mode` of the repo's config, `unknown` when it cannot be read: R43 requires it equal across windows. */
+function auditModeOf(cwd: string): "opt-in" | "always" | "unknown" {
+  try {
+    const cfg: unknown = JSON.parse(readFileSync(join(cwd, "navori.config.json"), "utf-8"));
+    const audit = (cfg as { audit?: { mode?: unknown } } | null)?.audit;
+    // The schema defaults a declared config without `audit` to opt-in.
+    const mode = audit?.mode ?? "opt-in";
+    return mode === "always" ? "always" : mode === "opt-in" ? "opt-in" : "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 /**
@@ -724,11 +738,11 @@ export const auditCommand = defineCommand({
         "--copy-to requires --snapshot <name>.",
       );
     }
-    if (json && (snapshotName || comparePath)) {
+    if (json && snapshotName) {
       flagError(
         "json-with-snapshot",
-        "--json no escribe archivos; incompatible con --snapshot/--compare.",
-        "--json writes no files; incompatible with --snapshot/--compare.",
+        "--json no escribe archivos; incompatible con --snapshot.",
+        "--json writes no files; incompatible with --snapshot.",
       );
     }
     if (
@@ -1119,30 +1133,37 @@ export const auditCommand = defineCommand({
     });
     const reportPayload = { ...report, sourceProblems };
 
-    // Schema 11 snapshots require the complete T11 cohort contract. Reject
-    // before any report, snapshot or copy writer is reached.
-    if (snapshotName || baseSnapshot || copyTo) {
-      if (typeof snapshotName === "string" && snapshotName)
-        auditPathOrExit(
-          () =>
-            snapshotPath(
-              allRepos ? null : repo,
-              snapshotName,
-              report.range.from.slice(0, 10),
-              report.range.to.slice(0, 10),
-            ),
-          json,
-        );
-      if (json)
-        process.stdout.write(
-          `${JSON.stringify({ ok: false, error: "snapshot-schema-unavailable", reason: "schema11-snapshot-pending" })}\n`,
-        );
-      else p.cancel("snapshot-schema-unavailable: schema11-snapshot-pending");
-      process.exit(2);
-    }
+    // Frozen once, from the same report the files render. `--compare` alone
+    // writes nothing: it reads the base and prints (or, with `--json`, attaches)
+    // the comparison, which is never persisted in the range's own files.
+    const snapshot =
+      snapshotName || baseSnapshot
+        ? buildSnapshot(report, {
+            scope: allRepos ? "all" : "repo",
+            rootCommit: allRepos ? null : gitRootCommit(projectRootFromCwd(cwd)),
+            auditMode: auditModeOf(cwd),
+          })
+        : undefined;
+    if (snapshotName)
+      auditPathOrExit(
+        () =>
+          snapshotPath(
+            allRepos ? null : repo,
+            snapshotName,
+            report.range.from.slice(0, 10),
+            report.range.to.slice(0, 10),
+          ),
+        json,
+      );
 
     if (json) {
-      process.stdout.write(renderJson(reportPayload));
+      process.stdout.write(
+        renderJson(
+          baseSnapshot && snapshot
+            ? { ...reportPayload, comparison: compareSnapshots(baseSnapshot, snapshot) }
+            : reportPayload,
+        ),
+      );
       return;
     }
 
@@ -1204,12 +1225,15 @@ export const auditCommand = defineCommand({
         json,
       );
     }
-    const snapshot =
-      snapshotName || baseSnapshot ? buildSnapshot(report, allRepos ? "all" : "repo") : undefined;
     if (typeof snapshotName === "string" && snapshotName && snapshot) {
       const target = auditPathOrExit(
         () =>
-          snapshotPath(allRepos ? null : repo, snapshotName, report.range.from, report.range.to),
+          snapshotPath(
+            allRepos ? null : repo,
+            snapshotName,
+            report.range.from.slice(0, 10),
+            report.range.to.slice(0, 10),
+          ),
         json,
       );
       auditPathOrExit(() => writeSnapshot(target, snapshot), json);
@@ -1219,7 +1243,7 @@ export const auditCommand = defineCommand({
           () =>
             copySnapshotTo(target, copyTo, {
               cwd,
-              scope: snapshot.scope,
+              scope: allRepos ? "all" : "repo",
               repoRoots: audited ? audited.repos.flatMap((r) => r.roots) : [],
             }),
           json,
