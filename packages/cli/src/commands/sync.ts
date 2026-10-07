@@ -276,9 +276,7 @@ export const syncCommand = defineCommand({
       p.log.info(ts.bulkApplied(`--${bulkMode}`, blockConflicts.length));
       // Whole-file conflicts are out of reach for both modes (the plan carries
       // no rendered body for them); say so instead of implying they were fixed.
-      if (fileConflicts.length > 0) {
-        p.log.warn(ts.fileConflictsRemain(fileConflicts.length));
-      }
+      warnFileConflictsRemain(fileConflicts.length, ts);
     } else if (!autoApply) {
       if (conflicts.length > 0 && Boolean(args.interactive)) {
         const resolved = await resolveConflictsInteractively(plans, lang);
@@ -289,15 +287,17 @@ export const syncCommand = defineCommand({
         resolutions = resolved;
         // Whole-file conflicts aren't resolved block-by-block. They stay as-is;
         // surface that explicitly.
-        if (fileConflicts.length > 0) {
-          p.log.warn(ts.fileConflictsRemain(fileConflicts.length));
-        }
+        warnFileConflictsRemain(fileConflicts.length, ts);
       } else if (conflicts.length > 0) {
         const choice = await p.select({
           message: ts.conflictPrompt(conflicts.length),
           options: [
             { value: "skip-conflicts", label: ts.optSkipConflicts },
-            { value: "interactive", label: ts.optInteractive },
+            // Block-by-block resolution only exists for managed blocks; offering it
+            // with file-only conflicts is a dead end that writes nothing.
+            ...(blockConflicts.length > 0
+              ? [{ value: "interactive", label: ts.optInteractive }]
+              : []),
             { value: "abort", label: ts.optAbort },
           ],
         });
@@ -313,6 +313,7 @@ export const syncCommand = defineCommand({
           }
           resolutions = resolved;
         }
+        warnFileConflictsRemain(fileConflicts.length, ts);
       } else {
         const ok = await p.confirm({
           message: ts.applyChanges,
@@ -345,6 +346,14 @@ export const syncCommand = defineCommand({
     p.outro(`${color.green(ts.doneWord)} ${summarize(writtenTotal, keptConflicts, lang)}`);
   },
 });
+
+/** Warns that whole-file conflicts stay untouched (no resolution flow reaches them). */
+function warnFileConflictsRemain(
+  count: number,
+  ts: { fileConflictsRemain: (n: number) => string },
+): void {
+  if (count > 0) p.log.warn(ts.fileConflictsRemain(count));
+}
 
 export interface SyncTarget {
   /** Display label (e.g. "root", "workspace:backend"). */

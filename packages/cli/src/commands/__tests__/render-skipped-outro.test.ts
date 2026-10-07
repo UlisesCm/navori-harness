@@ -94,9 +94,11 @@ describe("render outro vs skipped files", () => {
     expect(r.status).toBe(0);
     expect(outro).not.toMatch(UP_TO_DATE);
     expect(outro).toMatch(SKIPPED_LEAD);
-    // Names the count and the remedy — `render --apply` will never fix these.
+    // Names the count and the real manual exit (#1227): `sync` does not resolve
+    // whole files; moving the file aside makes `render --apply` regenerate it.
     expect(outro).toMatch(/1 (archivo|file)/);
-    expect(outro).toContain("navori sync");
+    expect(outro).not.toContain("navori sync");
+    expect(outro).toContain("navori render --apply");
   });
 
   it("reports the skip in preview mode too, not only when applying", () => {
