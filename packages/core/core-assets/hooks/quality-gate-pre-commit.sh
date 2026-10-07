@@ -113,6 +113,8 @@ run_gate() {
   eval "$1" || {
     navori_audit_block_reason="quality gate en rojo: '$1' fallo, commit abortado"
     echo "[navori] quality-gate fast failed. Commit aborted." >&2
+    echo "[navori] The gate ran in this working tree: $PWD" >&2
+    echo "[navori] Stop and report the failure. The fix goes back through implementer -> reviewer. Do not edit files to make the gate pass, and do not use --no-verify." >&2
     exit 2
   }
 }
