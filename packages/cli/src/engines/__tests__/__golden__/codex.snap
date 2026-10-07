@@ -4639,8 +4639,10 @@ fi
 # WHY IT IS SOUND, which is the only part that matters in a security control:
 # every `block` in this file needs one of these literal substrings to survive
 # into the string its rule reads — `commit`/`push` (rules 1-2), `rm` (rule 3),
-# `:(` (rule 4), `/dev/` (rule 5), and `>`/`sed`/`tee` (rule 6, the three write
-# verbs it recognizes). No rule can fire without one.
+# `:(` (rule 4), `/dev/` (rule 5), `>`/`sed`/`tee` (rule 6, the three write
+# verbs it recognizes), and `reset`/`clean`/`restore`/`checkout` (rule 7, whose
+# regex ends in `(reset|checkout|restore|clean)` — one per git subcommand it
+# inspects). No rule can fire without one.
 #
 # Rules 1-2 are keyed on `commit`/`push`, NOT on `git` (spec 0016 T3.1). Both go
 # through `$git_cp`, whose regex ends in `(commit|push)` — and rule 2 narrows
@@ -4682,7 +4684,7 @@ if [ "${#cmd}" -le "$FAST_MAX" ]; then
   _fast=${_fast//\\/}
   _fast=${_fast//"${_nl}"/}
   case "$_fast" in
-    *commit*|*push*|*rm*|*sed*|*tee*|*'/dev/'*|*'>'*|*':('*) ;;
+    *commit*|*push*|*rm*|*sed*|*tee*|*'/dev/'*|*'>'*|*':('*|*reset*|*clean*|*restore*|*checkout*) ;;
     # Search verbs: not destructive, but the user section below is where a plugin
     # lane (tgrep's search routing, spec 0039 D6) inspects them, and this early exit
     # would never let it run. `rg` needs a word edge: `*rg*` would match `merge`.
@@ -5209,6 +5211,140 @@ if [ -n "${nv_project_dir:-}" ]; then
     || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*${abs_managed_path}([[:space:]]|\$)"; then
     block "$managed_rewrite_msg" managed-rewrite
   fi
+fi
+
+# 7. Whole-tree discards of work that exists only in the working tree (#1252).
+#    A subagent that committed the wrong diff recovered with `git reset --hard`
+#    and erased reviewed, uncommitted work: unlike every rule above, the damage
+#    here depends on STATE, not on text — the same command is a harmless no-op on
+#    a clean tree and an irreversible loss on a dirty one. So the verdict asks
+#    the repository, and blocks only when there is something to lose.
+#
+#    COVERED (blocked when the target repo has what the command would destroy):
+#      git reset --hard · git checkout -f · git checkout -- . / git checkout .
+#      git restore <paths>   without --staged (or with --staged --worktree)
+#        → destroyed = tracked changes: `git status --porcelain --untracked-files=no`
+#      git clean -f…         (-fd, -fdx, --force; not -n/--dry-run)
+#        → destroyed = untracked files (ignored ones too with -x/-X)
+#    NOT COVERED: `git checkout <file>` of one path (the caller named exactly what
+#      goes; the publisher's own prose forbids it), `git reset --soft/--mixed`
+#      (history/index only, nothing in the tree is lost), `git restore --staged`,
+#      `git stash` (recoverable), and the segment-level limits of the header.
+#
+#    TARGET. The command runs in the payload's `cwd`, moved by a `cd <dir>` in an
+#    earlier segment or by `git -C <dir>`. The directory must be LITERAL: a `$VAR`,
+#    a substitution, `cd -`, `--git-dir`/`--work-tree`, or a path that does not
+#    exist cannot be inspected, so the rule FAILS CLOSED and blocks. Every `cd` is
+#    taken to persist, including one inside a subshell that would not carry over:
+#    a seatbelt does not model scopes. A directory that is not a git repo has
+#    nothing to lose and is allowed.
+#
+#    Reads `segments` with quotes dropped (`git reset "--hard"` is `--hard`), so
+#    obfuscated and compound forms reach it exactly like rules 1-3. Each candidate
+#    costs a `git status`, so their number is bounded and past it the verdict is
+#    `block` (#511's rule: too much to inspect is denied, never waved through).
+#    CEILING: `git status` over a very large tree can itself outlast the hook's
+#    timeout; trigger to revisit — an audited `ms` near the limit on this rule.
+# Loose on purpose: the verb only has to be a word of a `git` segment, so a
+# substitution between `git` and the verb (`git -C $(pwd) reset --hard`) still
+# makes the segment a candidate; the token walk below decides the real subcommand.
+_dsc_re='^git[[:space:]]+(.*[[:space:]])?(reset|checkout|restore|clean)([[:space:]]|$)'
+_dsc_route="commit the work first (a WIP commit is enough: 'git add -A && git commit -m wip'), or ask the user to run the discard outside the agent."
+segments_dq=$(printf '%s' "$segments" | tr -d "'\")")
+_dsc_cands=$(printf '%s' "$segments_dq" | grep -E "$_dsc_re" || true)
+if [ -n "$_dsc_cands" ]; then
+  if [ "$(printf '%s\n' "$_dsc_cands" | wc -l)" -gt 16 ]; then
+    block "too many discard commands to inspect (> 16) — nothing in it was evaluated" oversize "split it into smaller commands the guard can inspect."
+  fi
+  # $1 dir · $2 tracked|untracked|all — succeeds when the dir holds what would be lost.
+  _dsc_dirty() {
+    git -C "$1" rev-parse --git-dir >/dev/null 2>&1 || return 1
+    case "$2" in
+      tracked) [ -n "$(GIT_OPTIONAL_LOCKS=0 git -C "$1" status --porcelain --untracked-files=no 2>/dev/null)" ] ;;
+      untracked) [ -n "$(git -C "$1" ls-files --others --exclude-standard 2>/dev/null | head -n 1)" ] ;;
+      *) [ -n "$(git -C "$1" ls-files --others 2>/dev/null | head -n 1)" ] ;;
+    esac
+  }
+  # $1 base dir · $2 operand → the directory it names, or `?` when it is not literal.
+  _dsc_resolve() {
+    case "$2" in
+      '' | '~' | '~/'*) set -- "$1" "${HOME:-?}${2#\~}" ;;
+    esac
+    case "$1$2" in
+      *'$'* | *'`'* | *'*'* | *'?'*) printf '?' ;;
+      *) case "$2" in /*) printf '%s' "$2" ;; *) printf '%s/%s' "$1" "$2" ;; esac ;;
+    esac
+  }
+  _dsc_home=$(payload_field cwd 2>/dev/null || true)
+  [ -n "$_dsc_home" ] || _dsc_home=$PWD
+  _dsc_cur=$_dsc_home
+  while IFS= read -r _seg; do
+    case "$_seg" in
+      'cd' | 'cd '*)
+        _dsc_arg=${_seg#cd}
+        _dsc_arg=${_dsc_arg#"${_dsc_arg%%[![:space:]]*}"}
+        _dsc_arg=${_dsc_arg%"${_dsc_arg##*[![:space:]]}"}
+        case "$_dsc_arg" in '-P '* | '-L '*) _dsc_arg=${_dsc_arg#-? } ;; esac
+        case "$_dsc_arg" in '-' | '-'*) _dsc_cur='?' ;; *) _dsc_cur=$(_dsc_resolve "$_dsc_cur" "$_dsc_arg") ;; esac
+        continue
+        ;;
+    esac
+    printf '%s' "$_seg" | grep -qE "$_dsc_re" || continue
+    _dsc_dir=$_dsc_cur
+    _dsc_c=0 _dsc_sub="" _dsc_want="" _dsc_kind=""
+    _dsc_hard=0 _dsc_staged=0 _dsc_wt=0 _dsc_force=0 _dsc_dry=0 _dsc_all=0 _dsc_dot=0
+    while IFS= read -r _t; do
+      [ -n "$_t" ] || continue
+      _dsc_c=$((_dsc_c + 1))
+      [ "$_dsc_c" -gt 1 ] || continue   # the `git` word itself
+      if [ "$_dsc_want" = C ]; then _dsc_dir=$(_dsc_resolve "$_dsc_dir" "$_t"); _dsc_want=""; continue; fi
+      if [ "$_dsc_want" = skip ]; then _dsc_want=""; continue; fi
+      if [ -z "$_dsc_sub" ]; then
+        case "$_t" in
+          -C) _dsc_want=C ;;
+          -c | --namespace) _dsc_want=skip ;;
+          --git-dir | --work-tree) _dsc_dir='?'; _dsc_want=skip ;;
+          --git-dir=* | --work-tree=*) _dsc_dir='?' ;;
+          -*) ;;
+          reset | checkout | restore | clean) _dsc_sub=$_t ;;
+          *'$'* | *'`'*) _dsc_dir='?' ;;
+          *) [ "$_dsc_dir" = '?' ] || _dsc_sub=$_t ;;
+        esac
+        continue
+      fi
+      case "$_t" in
+        --ha | --har | --hard) _dsc_hard=1 ;;
+        --staged) _dsc_staged=1 ;;
+        --worktree) _dsc_wt=1 ;;
+        --force) _dsc_force=1 ;;
+        --dry-run) _dsc_dry=1 ;;
+        --*) ;;
+        -*)
+          case "$_t" in *S*) _dsc_staged=1 ;; esac
+          case "$_t" in *W*) _dsc_wt=1 ;; esac
+          case "$_t" in *f*) _dsc_force=1 ;; esac
+          case "$_t" in *n*) _dsc_dry=1 ;; esac
+          case "$_t" in *x* | *X*) _dsc_all=1 ;; esac
+          ;;
+        . | ./ | ':/' | ':/.') _dsc_dot=1 ;;
+      esac
+    done <<< "$(printf '%s' "$_seg" | tr -s '[:space:]' '\n')"
+    case "$_dsc_sub" in
+      reset) [ "$_dsc_hard" = 1 ] && _dsc_kind=tracked ;;
+      checkout) { [ "$_dsc_force" = 1 ] || [ "$_dsc_dot" = 1 ]; } && _dsc_kind=tracked ;;
+      restore) { [ "$_dsc_staged" = 0 ] || [ "$_dsc_wt" = 1 ]; } && _dsc_kind=tracked ;;
+      clean) { [ "$_dsc_force" = 1 ] && [ "$_dsc_dry" = 0 ]; } && { [ "$_dsc_all" = 1 ] && _dsc_kind=all || _dsc_kind=untracked; } ;;
+    esac
+    [ -n "$_dsc_kind" ] || continue
+    _dsc_msg="git ${_dsc_sub} would discard uncommitted work"
+    if [ "$_dsc_dir" = '?' ] || [ ! -d "$_dsc_dir" ]; then
+      block "git ${_dsc_sub} discards work and its target directory cannot be inspected (variable, substitution, missing or unresolved path)" unspecified \
+        "use a literal existing directory (cd <dir> && … or git -C <dir> …), or ${_dsc_route}"
+    fi
+    if _dsc_dirty "$_dsc_dir" "$_dsc_kind"; then
+      block "$_dsc_msg" unspecified "$_dsc_route"
+    fi
+  done <<< "$segments_dq"
 fi
 # navori:managed end id="guard-destructive-base"
 

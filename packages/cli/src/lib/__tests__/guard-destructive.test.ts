@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, symlinkSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  symlinkSync,
+  readFileSync,
+  writeFileSync,
+  chmodSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { getCoreRoot } from "../render/bundled-assets.ts";
@@ -42,6 +49,24 @@ function resolveBin(name: string): string {
   resolvedBins.set(name, resolved);
   return resolved;
 }
+
+/**
+ * Whole-tree discards rule 7 blocks on a dirty repo (#1252). Shared with the
+ * fast-path table so a command the rule can block is never skipped by it.
+ */
+const DISCARD_COMMANDS = [
+  "git reset --hard",
+  "git reset --hard HEAD~1",
+  "git checkout -- .",
+  "git checkout .",
+  "git checkout -f",
+  "git restore .",
+  "git restore src/a.ts",
+  "git restore --staged --worktree .",
+  "git clean -fd",
+  "git clean -fdx",
+  "git clean --force",
+];
 
 /** Run the guard with `command` on stdin; returns its exit code. */
 function runGuard(command: string, env?: NodeJS.ProcessEnv): number {
@@ -1557,6 +1582,7 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
       "git push origin +main",
       "true;git push --force main",
       "FOO=1 git push --force main",
+      ...DISCARD_COMMANDS,
     ];
 
     it.each(BLOCKED)("never short-circuits a command that must block: %s", (cmd) => {
@@ -1695,6 +1721,165 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
 
     it("still lets a harmless rm through", () => {
       expect(runCodex("rm -rf ./build")).toBe(0);
+    });
+  });
+
+  /**
+   * Rule 7 (#1252): whole-tree discards are blocked only when the target repo
+   * holds what they would destroy — the verdict depends on repo STATE, so these
+   * run against real temp repos (cwd arrives in the payload, like the host's).
+   */
+  describe("whole-tree discards (#1252)", () => {
+    const git = (cwd: string, ...args: string[]): void => {
+      execFileSync("git", ["-C", cwd, ...args], { stdio: "pipe" });
+    };
+    const makeRepo = (): string => {
+      const dir = mkdtempSync(join(tmpdir(), "navori-guard-discard-"));
+      git(dir, "init", "-q");
+      git(dir, "config", "user.email", "t@example.com");
+      git(dir, "config", "user.name", "t");
+      writeFileSync(join(dir, "a.txt"), "one\n");
+      git(dir, "add", ".");
+      git(dir, "commit", "-q", "-m", "init");
+      return dir;
+    };
+    const dirtyRepo = (): string => {
+      const dir = makeRepo();
+      writeFileSync(join(dir, "a.txt"), "two\n");
+      return dir;
+    };
+    /** Clean tracked tree, one untracked file: only `git clean` has anything to lose. */
+    const untrackedRepo = (): string => {
+      const dir = makeRepo();
+      writeFileSync(join(dir, "new.txt"), "x\n");
+      return dir;
+    };
+    /** Exit code of the guard with `cwd` carried in the payload, under bash AND zsh. */
+    const verdict = (command: string, cwd: string): number => {
+      const payload = JSON.stringify({ cwd, tool_input: { command } });
+      return acrossShells((shell) => {
+        const r = spawnSync(resolveBin(shell), [guardPath], {
+          input: payload,
+          cwd,
+          encoding: "utf-8",
+        });
+        return r.status ?? -1;
+      });
+    };
+
+    // Covers: A1
+    it.each(DISCARD_COMMANDS.filter((c) => !c.startsWith("git clean")))(
+      "blocks `%s` when tracked changes would be lost",
+      (command) => {
+        expect(verdict(command, dirtyRepo())).toBe(2);
+      },
+    );
+
+    // Covers: A1
+    it.each(DISCARD_COMMANDS.filter((c) => c.startsWith("git clean")))(
+      "blocks `%s` when untracked files would be lost",
+      (command) => {
+        expect(verdict(command, untrackedRepo())).toBe(2);
+      },
+    );
+
+    // Covers: A1
+    it.each(DISCARD_COMMANDS)("allows `%s` on a clean tree", (command) => {
+      expect(verdict(command, makeRepo())).toBe(0);
+    });
+
+    // Covers: A1
+    it("does not treat untracked files as lost by reset, nor tracked changes as lost by clean", () => {
+      expect(verdict("git reset --hard", untrackedRepo())).toBe(0);
+      expect(verdict("git clean -fd", dirtyRepo())).toBe(0);
+    });
+
+    // Covers: A1
+    it.each([
+      "git restore --staged a.txt",
+      "git restore -S .",
+      "git reset --soft HEAD~1",
+      "git reset --mixed",
+      "git reset HEAD a.txt",
+      "git checkout main",
+      "git checkout -b topic",
+      "git checkout -- a.txt",
+      "git clean -n",
+      "git clean -fdn",
+      "git clean --dry-run",
+      "git status --porcelain",
+    ])("allows `%s` even on a dirty tree", (command) => {
+      const dir = dirtyRepo();
+      writeFileSync(join(dir, "new.txt"), "x\n");
+      expect(verdict(command, dir)).toBe(0);
+    });
+
+    // Covers: A1
+    it.each([
+      ["quoted flag", 'git reset "--hard"'],
+      ["quoted verb", "git 're'set --hard"],
+      ["backslash git", "\\git reset --hard"],
+      ["command wrapper", "command git reset --hard"],
+      ["subshell", "(git reset --hard)"],
+      ["env prefix", "FOO=1 git reset --hard"],
+      ["compound after commit", "git commit -m x && git reset --hard"],
+      ["compound after echo", "echo hi; git checkout -- ."],
+      ["line continuation", "git reset \\\n  --hard"],
+      ["global options", "git -c core.x=y --no-pager reset --hard"],
+      ["flag after other flags", "git reset -q --hard HEAD"],
+      ["combined clean flags", "git clean -xdf"],
+      ["abbreviated long flag", "git reset --har"],
+    ])("catches the obfuscated form: %s", (_name, command) => {
+      const dir = dirtyRepo();
+      writeFileSync(join(dir, "new.txt"), "x\n");
+      expect(verdict(command, dir)).toBe(2);
+    });
+
+    // Covers: A1
+    it("resolves the target from `git -C <dir>` and a leading `cd <dir> &&`", () => {
+      const dirty = dirtyRepo();
+      const clean = makeRepo();
+      expect(verdict(`git -C ${dirty} reset --hard`, clean)).toBe(2);
+      expect(verdict(`cd ${dirty} && git reset --hard`, clean)).toBe(2);
+      expect(verdict(`git -C ${clean} reset --hard`, dirty)).toBe(0);
+      expect(verdict(`cd ${clean} && git reset --hard`, dirty)).toBe(0);
+      expect(verdict(`cd ${clean}; git reset --hard`, dirty)).toBe(0);
+      const sub = join(dirty, "sub");
+      mkdirSync(sub);
+      expect(verdict("cd sub && git reset --hard", dirty)).toBe(2);
+    });
+
+    // Covers: A1
+    it.each([
+      ["variable in -C", "git -C $REPO reset --hard"],
+      ["variable in cd", "cd $REPO && git reset --hard"],
+      ["substitution", "git -C $(pwd) reset --hard"],
+      ["cd -", "cd - && git reset --hard"],
+      ["--git-dir", "git --git-dir=.git reset --hard"],
+      ["--work-tree", "git --work-tree /tmp reset --hard"],
+      ["missing directory", "git -C /nonexistent/navori-1252 reset --hard"],
+    ])("fails closed when the target cannot be resolved: %s", (_name, command) => {
+      // Clean cwd on purpose: the block must come from the unresolved target.
+      expect(verdict(command, makeRepo())).toBe(2);
+    });
+
+    // Covers: A1
+    it("names an actionable route and never needs to run outside the agent only", () => {
+      const dir = dirtyRepo();
+      const r = spawnSync(resolveBin("bash"), [guardPath], {
+        input: JSON.stringify({ cwd: dir, tool_input: { command: "git reset --hard" } }),
+        cwd: dir,
+        encoding: "utf-8",
+      });
+      expect(r.status).toBe(2);
+      expect(r.stderr).toContain("route:");
+      expect(r.stderr).toMatch(/commit the work first/);
+    });
+
+    // Covers: A1
+    it("allows a discard outside any git repository", () => {
+      const dir = mkdtempSync(join(tmpdir(), "navori-guard-norepo-"));
+      expect(verdict("git reset --hard", dir)).toBe(0);
     });
   });
 });
