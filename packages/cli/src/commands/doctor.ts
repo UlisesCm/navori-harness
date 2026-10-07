@@ -34,7 +34,12 @@ import {
 import { compareSemver, isDowngrade } from "../lib/primitives/semver.ts";
 import { CODEX_PARITY, CODEX_VERIFICATIONS } from "../engines/shared/codex-parity.ts";
 import { isPlaceholderName } from "../lib/diagnose/detect.ts";
-import { loadPlugin, loadEnabledPlugins } from "../lib/config/plugins.ts";
+import {
+  loadPlugin,
+  loadEnabledPlugins,
+  type PluginExternalTool,
+  type VersionAdvisory,
+} from "../lib/config/plugins.ts";
 import {
   listAvailableExternalProviders,
   EXTERNAL_PROVIDER_SETUP_RECIPE_URL,
@@ -208,6 +213,8 @@ export const doctorCommand = defineCommand({
     // #978: per-machine binary version vs the manifest's declared pin — same
     // informational tier as `missingExternalTools` above, never a gate.
     const pinnedVersionDrift = scanPinnedVersionDrift(config);
+    // #1210: same informational tier — never `computeHealthVerdict`, never `--strict`.
+    const versionAdvisories = scanVersionAdvisories(config);
     // #1060: same informational tier — a present binary missing a specific
     // CLI capability, never fed into `computeHealthVerdict` or `--strict`.
     const externalToolCapabilityGaps = scanExternalToolCapabilities(config);
@@ -397,6 +404,8 @@ export const doctorCommand = defineCommand({
       // above — a binary present but on the wrong version, never fed into
       // `computeHealthVerdict` or `--strict`.
       pinnedVersionDrift,
+      // #1210: curated known-bad version floor; informational, never gates.
+      versionAdvisories,
       // #1060: same non-gating, informational tier as `missingExternalTools`
       // above — a present binary that fails a declared capability probe,
       // never fed into `computeHealthVerdict` or `--strict`.
@@ -772,6 +781,16 @@ export const doctorCommand = defineCommand({
         )}`;
       });
       p.log.warn(td.pinnedVersionDrift(pinnedVersionDrift.length, lines.join("\n")));
+    }
+
+    if (versionAdvisories.length > 0) {
+      const lines = versionAdvisories.map((a) => {
+        const row = td.versionAdvisoryRow(a.installedVersion, a.below, a.reason[lang]);
+        return `  ${color.yellow(sym.update)} ${accent(a.pluginId)}  ${grey(row)}${
+          a.ref ? `\n      ${grey(a.ref)}` : ""
+        }`;
+      });
+      p.log.warn(td.versionAdvisories(versionAdvisories.length, lines.join("\n")));
     }
 
     if (externalToolCapabilityGaps.length > 0) {
@@ -1911,13 +1930,49 @@ export interface PinnedVersionDrift {
  * silent rather than guess.
  */
 export function scanPinnedVersionDrift(config: NavoriConfig): PinnedVersionDrift[] {
-  const drifted: PinnedVersionDrift[] = [];
+  return probeEnabledToolVersions(config, (tool) => !!tool.pinnedVersion).flatMap((v) => {
+    const pinnedVersion = v.tool.pinnedVersion;
+    if (!pinnedVersion || v.installedVersion === pinnedVersion) return [];
+    return [
+      {
+        pluginId: v.pluginId,
+        binary: v.binary,
+        installedVersion: v.installedVersion,
+        pinnedVersion,
+        install: v.install,
+      },
+    ];
+  });
+}
+
+/** An enabled plugin's external tool found on PATH with a parseable `--version`. */
+interface InstalledToolVersion {
+  pluginId: string;
+  binary: string;
+  tool: PluginExternalTool;
+  installedVersion: string;
+  install: string | null;
+}
+
+/**
+ * Shared loop of the pin and advisory scans: enabled plugin -> manifest tool
+ * with a `checkBinary` -> `wants(tool)` (checked BEFORE `hasBinary`, so a
+ * plugin nobody asks about never touches PATH) -> binary on PATH -> first
+ * `x.y.z` of `--version`. Absent binary, failing or unparseable `--version`
+ * and broken plugins stay silent rather than guess (missing ones are reported
+ * by `missingExternalTools` / `missingPlugins`).
+ */
+function probeEnabledToolVersions(
+  config: NavoriConfig,
+  wants: (tool: PluginExternalTool) => boolean,
+): InstalledToolVersion[] {
+  const found: InstalledToolVersion[] = [];
   const platform = currentPlatform();
   for (const [id, settings] of Object.entries(config.plugins ?? {})) {
     if (settings.enabled !== true) continue;
     try {
       const tool = loadPlugin(id).manifest.externalTool;
-      if (!tool?.checkBinary || !tool.pinnedVersion) continue;
+      if (!tool?.checkBinary || !wants(tool)) continue;
       if (!hasBinary(tool.checkBinary)) continue;
       let raw: string;
       try {
@@ -1931,20 +1986,55 @@ export function scanPinnedVersionDrift(config: NavoriConfig): PinnedVersionDrift
       }
       const match = /\d+\.\d+\.\d+/.exec(raw);
       if (!match) continue; // unparseable output — never guess
-      const installedVersion = match[0];
-      if (installedVersion === tool.pinnedVersion) continue;
-      drifted.push({
+      found.push({
         pluginId: id,
         binary: tool.checkBinary,
-        installedVersion,
-        pinnedVersion: tool.pinnedVersion,
+        tool,
+        installedVersion: match[0],
         install: (platform ? tool.install?.[platform] : undefined) ?? null,
       });
     } catch {
       // Missing / broken plugin is reported via missingPlugins.
     }
   }
-  return drifted;
+  return found;
+}
+
+export interface VersionAdvisoryHit {
+  pluginId: string;
+  binary: string;
+  installedVersion: string;
+  /** Exclusive floor: the first release without the problem. */
+  below: string;
+  /** Both locales, so JSON consumers pick; the human row picks by doctor's lang. */
+  reason: VersionAdvisory["reason"];
+  ref: string | null;
+}
+
+/**
+ * #1210 — installed binary below a curated known-bad floor declared in its
+ * plugin manifest (`externalTool.versionAdvisory`). Offline and informational:
+ * same tier as the pin scan, never fed into `computeHealthVerdict` or
+ * `--strict`. `below` is exclusive and every matching entry is reported. A
+ * prerelease of the fixed version (`3.0.0-rc.1`) compares as fixed
+ * (`parseSemver` ignores the suffix) — a false negative accepted over noise.
+ */
+export function scanVersionAdvisories(config: NavoriConfig): VersionAdvisoryHit[] {
+  return probeEnabledToolVersions(
+    config,
+    (tool) => (tool.versionAdvisory?.length ?? 0) > 0,
+  ).flatMap((v) =>
+    (v.tool.versionAdvisory ?? [])
+      .filter((a) => compareSemver(v.installedVersion, a.below) === -1)
+      .map((a) => ({
+        pluginId: v.pluginId,
+        binary: v.binary,
+        installedVersion: v.installedVersion,
+        below: a.below,
+        reason: a.reason,
+        ref: a.ref ?? null,
+      })),
+  );
 }
 
 export interface ExternalToolCapabilityGap {

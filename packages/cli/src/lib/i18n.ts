@@ -812,6 +812,12 @@ interface DoctorCmdStrings {
    *  above: never gates `--strict`, never flips `ok`. */
   pinnedVersionDrift: (n: number, lines: string) => string;
   pinnedVersionDriftRow: (installed: string, pinned: string, how: string) => string;
+  /** #1210 — installed binary is below a known-bad floor curated in the plugin
+   *  manifest (`externalTool.versionAdvisory`). Informational, like
+   *  `pinnedVersionDrift` above: never gates `--strict`, never flips `ok`.
+   *  The remedy lives in the manifest's `reason`, not in a generated command. */
+  versionAdvisories: (n: number, lines: string) => string;
+  versionAdvisoryRow: (installed: string, below: string, reason: string) => string;
   /** #1060 — installed binary lacks a CLI capability the manifest's
    *  `externalTool.capabilityProbe` declares (e.g. jscpd < 5.1.1 missing
    *  `--baseline-from-ref`). Informational, like `pinnedVersionDrift` above:
@@ -2059,6 +2065,11 @@ const CMD_ES: CmdStrings = {
       `(env/MCP) está calibrada contra esa versión exacta:\n${lines}`,
     pinnedVersionDriftRow: (installed, pinned, how) =>
       `— instalado ${installed}, el manifest fija ${pinned}; ${how}`,
+    versionAdvisories: (n, lines) =>
+      `Herramientas en una versión con un problema conocido (${n}) — curado en el manifest ` +
+      `del plugin; informativo:\n${lines}`,
+    versionAdvisoryRow: (installed, below, reason) =>
+      `— instalado ${installed} < ${below}: ${reason}`,
     externalToolCapabilityGaps: (n, lines) =>
       `Binarios sin una capacidad que el manifest requiere (${n}) — la versión instalada no ` +
       `soporta lo que su hook/script necesita; '--version' no es confiable, así que el manifest ` +
@@ -3451,6 +3462,11 @@ const CMD_EN: CmdStrings = {
       `config (env/MCP) is calibrated against that exact version:\n${lines}`,
     pinnedVersionDriftRow: (installed, pinned, how) =>
       `— installed ${installed}, manifest pins ${pinned}; ${how}`,
+    versionAdvisories: (n, lines) =>
+      `Tools on a version with a known problem (${n}) — curated in the plugin manifest; ` +
+      `informational:\n${lines}`,
+    versionAdvisoryRow: (installed, below, reason) =>
+      `— installed ${installed} < ${below}: ${reason}`,
     externalToolCapabilityGaps: (n, lines) =>
       `Binaries missing a capability the manifest requires (${n}) — the installed version ` +
       `doesn't support what its hook/script needs; '--version' isn't reliable, so the manifest ` +
