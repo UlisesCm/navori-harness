@@ -35,7 +35,7 @@ El único tablero de avance es este archivo. Cada lote pasa por implementer y re
 
 ## Lote 5 — Comparación y cierre
 
-- [ ] **T11** (R19, R20) — Snapshots con cohortes/disponibilidad y preflight por métrica; recomendaciones con evidencia/impacto separado de hipótesis. Tests: `snapshot.test.ts`, `signals.test.ts`: snapshots legacy desconocidos, cohortes incompatibles, ventanas solapadas y muestras insuficientes sin mejora causal.
+- [x] **T11** (R19, R20) — Snapshots con cohortes/disponibilidad y preflight por métrica; recomendaciones con evidencia/impacto separado de hipótesis. Tests: `snapshot.test.ts`, `signals.test.ts`: snapshots legacy desconocidos, cohortes incompatibles, ventanas solapadas y muestras insuficientes sin mejora causal.
 - [ ] **T12** (R1–R22) — Verificar trazabilidad completa, regresión Claude/Codex y gate completo; documentar contratos/versionado y límites observados sin prometer mediciones aún no capturables. Tests: conjunto de casos anteriores; receipt fresco sobre el diff que se entrega.
 
 ## Evidencia inicial
