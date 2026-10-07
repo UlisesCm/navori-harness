@@ -371,7 +371,68 @@ export function qualifyAuditMetadataRecords(
   return { records: qualified, conflicts, unsupported };
 }
 
-/** Normalize transient JSON before retention; every clipping/drop is observable loss. */
+/** Scalar-ish keys a transcript record needs to stay measurable once it exceeds the fact cap. */
+const SKELETON_TOP = [
+  "type",
+  "subtype",
+  "timestamp",
+  "sessionId",
+  "cwd",
+  "agentId",
+  "isSidechain",
+  "isCompactSummary",
+  "gitBranch",
+  "version",
+  "permissionMode",
+  "mode",
+  "operation",
+  "prNumber",
+  "hookEvent",
+];
+const SKELETON_BLOCK = ["type", "id", "name", "tool_use_id", "is_error", "_auditClaude"];
+const SKELETON_INPUT = ["command", "subagent_type", "skill", "file_path", "notebook_path"];
+
+/** Pick the listed keys of an object, if any. */
+function pick(source: unknown, keys: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (typeof source !== "object" || source === null) return out;
+  for (const key of keys) if (key in source) out[key] = (source as Record<string, unknown>)[key];
+  return out;
+}
+
+/** Measurement skeleton of an over-cap transcript record: usage and tool_use name/id survive. */
+function transcriptSkeleton(record: Record<string, unknown>): Record<string, unknown> {
+  const out = pick(record, SKELETON_TOP);
+  const result = pick(record.toolUseResult, ["agentId"]);
+  if (Object.keys(result).length) out.toolUseResult = result;
+  const message = record.message;
+  if (typeof message === "object" && message !== null) {
+    const m = message as Record<string, unknown>;
+    const kept = pick(m, ["id", "model", "role", "usage"]);
+    if (Array.isArray(m.content))
+      kept.content = m.content.map((block) => {
+        const b = pick(block, SKELETON_BLOCK);
+        // Content is dropped, the key stays so the block still validates as its type.
+        const stub = { text: "text", thinking: "thinking", redacted_thinking: "data" }[
+          String(b.type)
+        ];
+        if (stub) b[stub] = "";
+        if (b.type === "image") b.source = { type: "url", url: "" };
+        const input = pick((block as Record<string, unknown> | null)?.input, SKELETON_INPUT);
+        if (Object.keys(input).length) b.input = input;
+        return b;
+      });
+    out.message = kept;
+  }
+  return out;
+}
+
+/**
+ * Normalize transient JSON before retention. Clipping free text (long strings, arrays or
+ * depth under non-technical keys) is display projection, not loss; clipped strings stay as
+ * `""` so shape validators still see the key. Technical keys, field names and key counts
+ * still count as loss, and an over-cap transcript record projects to a measurement skeleton.
+ */
 export function normalizeAuditRecord(
   value: unknown,
   source: string,
@@ -407,9 +468,11 @@ export function normalizeAuditRecord(
     "reasoning_output_tokens",
     "total_tokens",
   ]);
+  const projected = (key: string): boolean =>
+    !technical.has(key) && !/^(timestamp|ts|observedAt|cwd|transcript|sourcePath|path)$/.test(key);
   const normalize = (item: unknown, key: string, depth: number): unknown => {
     if (depth > 12) {
-      omitted++;
+      if (!projected(key)) omitted++;
       return undefined;
     }
     if (typeof item === "string") {
@@ -419,11 +482,12 @@ export function normalizeAuditRecord(
           ? AUDIT_READ_LIMITS.pathBytes
           : AUDIT_READ_LIMITS.technicalBytes;
       if (Buffer.byteLength(item) <= limit) return item;
+      if (projected(key)) return "";
       omitted++;
       return undefined;
     }
     if (Array.isArray(item)) {
-      if (item.length > 128) omitted += item.length - 128;
+      if (item.length > 128 && (!projected(key) || key === "content")) omitted += item.length - 128;
       return item.slice(0, 128).map((child) => normalize(child, key, depth + 1));
     }
     if (typeof item !== "object" || item === null) return item;
@@ -445,9 +509,14 @@ export function normalizeAuditRecord(
   const normalized = normalize(value, "", 0);
   if (typeof normalized !== "object" || normalized === null || Array.isArray(normalized))
     return { value: null, omitted };
-  if (Buffer.byteLength(JSON.stringify(normalized)) > AUDIT_READ_LIMITS.normalizedFactBytes)
-    return { value: null, omitted: omitted + 1 };
-  return { value: normalized as Record<string, unknown>, omitted };
+  const cap = AUDIT_READ_LIMITS.normalizedFactBytes;
+  if (Buffer.byteLength(JSON.stringify(normalized)) <= cap)
+    return { value: normalized as Record<string, unknown>, omitted };
+  if (source === "transcript") {
+    const skeleton = transcriptSkeleton(normalized as Record<string, unknown>);
+    if (Buffer.byteLength(JSON.stringify(skeleton)) <= cap) return { value: skeleton, omitted };
+  }
+  return { value: null, omitted: omitted + 1 };
 }
 
 export interface TokenTotals {

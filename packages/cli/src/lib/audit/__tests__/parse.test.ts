@@ -2374,7 +2374,8 @@ describe("parse: range measures (spec 0039)", () => {
     ]);
     const retained = readJsonl(file);
     expect(JSON.stringify(retained.lines)).not.toContain(secret);
-    expect(retained.health.normalizedOmissions).toBeGreaterThan(0);
+    // Clipping free text is projection, not loss (spec 0042 R6).
+    expect(retained.health.normalizedOmissions).toBe(0);
     for (const record of retained.lines)
       expect(Buffer.byteLength(JSON.stringify(record))).toBeLessThanOrEqual(
         AUDIT_READ_LIMITS.normalizedFactBytes,
@@ -3515,5 +3516,60 @@ describe("idle between turns (spec 0042 T10b, M4)", () => {
     const s = parseSession(FIXTURE);
     expect(Array.isArray(s.idleBetweenTurns)).toBe(true);
     expect(JSON.stringify(s.idleBetweenTurns)).not.toMatch(/[a-z]/i);
+  });
+});
+
+describe("parse: Claude 2.1.29x transcripts clip content without losing measurements", () => {
+  const usage = (n: number): Record<string, number> => ({
+    input_tokens: n,
+    output_tokens: 1,
+    cache_read_input_tokens: 10 * n,
+    cache_creation_input_tokens: 0,
+  });
+
+  // Covers: R6, R21
+  it("clips display text silently but still counts a clipped technical key", () => {
+    const long = "x".repeat(5000);
+    const text = normalizeAuditRecord({ type: "assistant", text: long }, "transcript");
+    expect(text.omitted).toBe(0);
+    expect(text.value).toMatchObject({ type: "assistant", text: "" });
+    const lines = normalizeAuditRecord(
+      { type: "attachment", lines: Array(300).fill("a") },
+      "transcript",
+    );
+    expect(lines.omitted).toBe(0);
+    const technical = normalizeAuditRecord({ type: "assistant", model: long }, "transcript");
+    expect(technical.omitted).toBeGreaterThan(0);
+    const blocks = normalizeAuditRecord(
+      { type: "assistant", message: { content: Array(200).fill({ type: "text" }) } },
+      "transcript",
+    );
+    expect(blocks.omitted).toBeGreaterThan(0);
+  });
+
+  // Covers: R6, R21
+  it("keeps usage and tool_use name/id of an over-cap assistant record", () => {
+    const record = {
+      type: "assistant",
+      timestamp: "2026-10-05T10:00:00.000Z",
+      diagnostics: Object.fromEntries(
+        Array.from({ length: 100 }, (_, i) => [`k${i}`, "y".repeat(60)]),
+      ),
+      message: {
+        id: "msg_1",
+        model: "m",
+        usage: usage(7),
+        content: [{ type: "tool_use", id: "toolu_1", name: "Bash", input: { command: "ls" } }],
+      },
+    };
+    expect(Buffer.byteLength(JSON.stringify(record))).toBeGreaterThan(
+      AUDIT_READ_LIMITS.normalizedFactBytes,
+    );
+    const { value, omitted } = normalizeAuditRecord(record, "transcript");
+    expect(omitted).toBe(0);
+    expect(value).toMatchObject({
+      message: { id: "msg_1", usage: usage(7), content: [{ name: "Bash", id: "toolu_1" }] },
+    });
+    expect(normalizeAuditRecord(record, "audit-log").value).toBeNull();
   });
 });
