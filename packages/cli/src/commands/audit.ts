@@ -1,4 +1,4 @@
-import { defineCommand } from "citty";
+import { defineCommand, type ArgsDef } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, lstatSync, readFileSync, type Stats } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -465,82 +465,116 @@ function consumeArm(args: Readonly<Record<string, unknown>>): boolean {
   }
 }
 
+const auditArgs = {
+  "consume-arm": {
+    type: "boolean",
+    description: "Consume private arm; requires start/host/cwd/root",
+  },
+  "include-human-content": {
+    type: "boolean",
+    description: "Human content in private reports, this call only",
+  },
+  "record-metadata": {
+    type: "boolean",
+    description: "Bounded internal metadata from stdin",
+  },
+  repo: { type: "string", description: "Exact metadata repo" },
+  root: { type: "string", description: "Absolute private audit root" },
+  cwd: { type: "string", description: "Repo to audit (default: cwd)" },
+  days: { type: "string", description: "Last N days of marked sessions" },
+  since: { type: "string", description: "From YYYY-MM-DD" },
+  until: { type: "string", description: "Through YYYY-MM-DD" },
+  session: { type: "string", description: "Session id, prefix, or 'latest'" },
+  json: { type: "boolean", description: "JSON stdout; no files" },
+  out: { type: "string", description: "Output directory" },
+  start: { type: "string", description: "Start auditing this session id" },
+  "capture-child": {
+    type: "string",
+    description: "Exact Codex child; opted-in root log",
+  },
+  "root-session": {
+    type: "string",
+    description: "Exact child/metadata root session; no inference",
+  },
+  rollout: { type: "string", description: "Exact --capture-child rollout source" },
+  host: {
+    type: "string",
+    description: "claude/codex; metadata/consumption requires it; start: claude",
+  },
+  stop: {
+    type: "string",
+    description: "Seal/report id, unique prefix, or 'latest'",
+  },
+  arm: {
+    type: "boolean",
+    description: "Arm once for next repo message/session; hook consumes/starts",
+  },
+  disarm: {
+    type: "boolean",
+    description: "Cancel pending arm; no start",
+  },
+  "all-repos": {
+    type: "boolean",
+    description: "All-repo range report with per-repo coverage",
+  },
+  snapshot: {
+    type: "string",
+    description: "Named versioned range snapshot in audit root",
+  },
+  "copy-to": {
+    type: "string",
+    description: "Copy --snapshot here, relative to git root; no overwrite",
+  },
+  compare: {
+    type: "string",
+    description: "Compare snapshot metrics to range",
+  },
+  collect: {
+    type: "boolean",
+    description: "Receive OTel until interrupted; show address/output/export env",
+  },
+} satisfies ArgsDef;
+
+/**
+ * Exit 2 on any flag or positional that `audit` does not declare.
+ *
+ * citty parses an undeclared `--flag` into `args` and moves on, and `audit`
+ * with no action flag is the FULL range report: a hook that sends a flag this
+ * installed CLI predates (`--record-metadata` from an older global install)
+ * silently pays for a report of every marked session on every prompt — tens
+ * of seconds, past the hook timeout. Failing fast turns that drift into a
+ * cheap, visible error instead of a slow default.
+ */
+function unknownArgsOrExit(args: Readonly<Record<string, unknown>>): void {
+  const positionals = Array.isArray(args._) ? args._.map(String) : [];
+  const unknown = Object.keys(args)
+    .filter((key) => key !== "_" && !Object.hasOwn(auditArgs, key))
+    .map((key) => `--${key}`)
+    .concat(positionals);
+  if (unknown.length === 0) return;
+  const isEs =
+    reportLang(resolve(typeof args.cwd === "string" ? args.cwd : process.cwd())) === "es";
+  const list = unknown.join(", ");
+  if (args.json === true)
+    console.log(JSON.stringify({ ok: false, error: "unknown-args", args: unknown }));
+  else
+    p.cancel(
+      isEs
+        ? `navori audit no reconoce: ${list}. ¿CLI desactualizado respecto a los hooks? Reinstala navori.`
+        : `navori audit does not recognize: ${list}. CLI older than the hooks? Reinstall navori.`,
+    );
+  process.exit(2);
+}
+
 /** Audit reports and exclusive internal metadata transport actions. */
 export const auditCommand = defineCommand({
   meta: {
     name: "audit",
     description: "Report harness tokens and adherence gaps",
   },
-  args: {
-    "consume-arm": {
-      type: "boolean",
-      description: "Consume private arm; requires start/host/cwd/root",
-    },
-    "include-human-content": {
-      type: "boolean",
-      description: "Human content in private reports, this call only",
-    },
-    "record-metadata": {
-      type: "boolean",
-      description: "Bounded internal metadata from stdin",
-    },
-    repo: { type: "string", description: "Exact metadata repo" },
-    root: { type: "string", description: "Absolute private audit root" },
-    cwd: { type: "string", description: "Repo to audit (default: cwd)" },
-    days: { type: "string", description: "Last N days of marked sessions" },
-    since: { type: "string", description: "From YYYY-MM-DD" },
-    until: { type: "string", description: "Through YYYY-MM-DD" },
-    session: { type: "string", description: "Session id, prefix, or 'latest'" },
-    json: { type: "boolean", description: "JSON stdout; no files" },
-    out: { type: "string", description: "Output directory" },
-    start: { type: "string", description: "Start auditing this session id" },
-    "capture-child": {
-      type: "string",
-      description: "Exact Codex child; opted-in root log",
-    },
-    "root-session": {
-      type: "string",
-      description: "Exact child/metadata root session; no inference",
-    },
-    rollout: { type: "string", description: "Exact --capture-child rollout source" },
-    host: {
-      type: "string",
-      description: "claude/codex; metadata/consumption requires it; start: claude",
-    },
-    stop: {
-      type: "string",
-      description: "Seal/report id, unique prefix, or 'latest'",
-    },
-    arm: {
-      type: "boolean",
-      description: "Arm once for next repo message/session; hook consumes/starts",
-    },
-    disarm: {
-      type: "boolean",
-      description: "Cancel pending arm; no start",
-    },
-    "all-repos": {
-      type: "boolean",
-      description: "All-repo range report with per-repo coverage",
-    },
-    snapshot: {
-      type: "string",
-      description: "Named versioned range snapshot in audit root",
-    },
-    "copy-to": {
-      type: "string",
-      description: "Copy --snapshot here, relative to git root; no overwrite",
-    },
-    compare: {
-      type: "string",
-      description: "Compare snapshot metrics to range",
-    },
-    collect: {
-      type: "boolean",
-      description: "Receive OTel until interrupted; show address/output/export env",
-    },
-  },
+  args: auditArgs,
   async run({ args }) {
+    unknownArgsOrExit(args);
     const consuming = args["consume-arm"] !== undefined;
     if (consuming && !consumeArm(args)) {
       process.exitCode = 2;
