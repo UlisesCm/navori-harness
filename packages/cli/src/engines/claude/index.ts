@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pluginScriptPlacements } from "../shared/plugin-scripts.ts";
+import { matchesLegacyFingerprint } from "../shared/legacy-plugin-script-fingerprints.ts";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config/config.ts";
 import {
   enabledMonorepoWorkspaces,
@@ -990,9 +991,16 @@ export function renderClaudeEngine(
       // 133 lines became 269). So a marker-less file is decided here first:
       // byte-equal to the pre-#637 output means it is untouched navori work and
       // gets replaced wholesale; anything else is the user's and is skipped
-      // with a reason rather than clobbered.
+      // with a reason rather than clobbered. "Pre-#637 output" is the current
+      // template minus the marker OR any older render recorded in the frozen
+      // fingerprint table (#1226): the current template alone only recognizes
+      // the very last marker-less version.
       const legacy = onDisk !== null && !onDisk.includes(`navori:managed start id="${managedId}"`);
-      if (legacy && onDisk !== legacyPluginScriptContent(script, config)) {
+      if (
+        legacy &&
+        onDisk !== legacyPluginScriptContent(script, config) &&
+        !matchesLegacyFingerprint(basename(script.src), onDisk)
+      ) {
         skipped.push({
           path: destRelPath,
           reason: tc(lang).engine.managedBlockEditedByHand,
