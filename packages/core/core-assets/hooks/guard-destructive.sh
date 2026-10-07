@@ -84,7 +84,9 @@ block() {
   # Truncated: the ceiling below blocks commands far larger than any transcript
   # should carry, and the reason line already says which rule fired.
   echo "[navori] command: ${cmd:0:2000}" >&2
-  echo "[navori] if intentional, run the command yourself outside the agent." >&2
+  # $3: the route that gets the same intent through, when one exists. Rules
+  # with no safe route (root delete, fork bomb, ...) pass none and say nothing.
+  [ -z "${3:-}" ] || echo "[navori] route: $3" >&2
   # Only ASSIGNMENTS here: this is the one place the guard says no, and nothing
   # may come between the decision and `exit 2`. The recording happens in the
   # trap, after the exit is already committed.
@@ -152,7 +154,7 @@ CMD_MAX=131072
 LINE_MAX=4096
 HEREDOC_PROBE_MAX=64
 if [ "${#cmd}" -gt "$CMD_MAX" ]; then
-  block "command too large to inspect (${#cmd} chars > ${CMD_MAX}) — nothing in it was evaluated" oversize
+  block "command too large to inspect (${#cmd} chars > ${CMD_MAX}) — nothing in it was evaluated" oversize "split it into smaller commands the guard can inspect."
 fi
 
 # Pre-expanded newline, shared by the inert-content pass and the segment split.
@@ -248,7 +250,7 @@ while [ "$_hd_scan" = 1 ] && IFS= read -r _line; do
   # whole extra pass over the command on the way in.
   _hd_lines=$((_hd_lines + 1))
   if [ "$_hd_lines" -gt "$LINE_MAX" ]; then
-    block "too many lines to inspect (> ${LINE_MAX}) — nothing in it was evaluated" oversize
+    block "too many lines to inspect (> ${LINE_MAX}) — nothing in it was evaluated" oversize "split it into smaller commands the guard can inspect."
   fi
   if [ -n "$_hd_delim" ]; then
     # Inside a heredoc body. The terminator is compared whitespace-trimmed (a
@@ -288,7 +290,7 @@ while [ "$_hd_scan" = 1 ] && IFS= read -r _line; do
   # verdict is `block`, not silence.
   _hd_probes=$((_hd_probes + 1))
   if [ "$_hd_probes" -gt "$HEREDOC_PROBE_MAX" ]; then
-    block "too many heredoc openers to inspect (> ${HEREDOC_PROBE_MAX}) — nothing in it was evaluated" oversize
+    block "too many heredoc openers to inspect (> ${HEREDOC_PROBE_MAX}) — nothing in it was evaluated" oversize "split it into smaller commands the guard can inspect."
   fi
   # Heredoc opener? The probe marks the DELIMITER's own quotes first, then drops
   # every other quoted span, so `cat <<'EOF'` is told apart from a `<<` inside a
@@ -569,7 +571,7 @@ git_cp='(^|[[:space:]]|[;&|])git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:spa
 #    flag carrying an `n` ANYWHERE later in the line was read as the commit's.
 if printf '%s' "$segments"            | grep -qE "${git_cp}.*--no-verify" \
   || printf '%s' "$segments_unquoted" | grep -qE "${git_cp}.*[[:space:]]-[a-zA-Z]*n[a-zA-Z]*([[:space:]]|\$)"; then
-  block "git commit/push with --no-verify (skipping hooks/gates)" no-verify
+  block "git commit/push with --no-verify (skipping hooks/gates)" no-verify "commit without --no-verify and fix what the hook reports."
 fi
 
 # 2. Force-push to the base branch. force-with-lease is allowed (safe rebase
@@ -591,7 +593,7 @@ if [ -n "$push_seg" ] \
   && printf '%s' "$push_seg" | grep -qE '(--force([[:space:]]|$)|[[:space:]]-f([[:space:]]|$)|[[:space:]]\+[^[:space:]])' \
   && ! printf '%s' "$push_seg" | grep -qE 'force-with-lease' \
   && printf '%s' "$push_seg" | grep -qE "(^|[[:space:]+/])${base}([[:space:]]|\$)"; then
-  block "force-push to the base branch '${base}'" force-push-base
+  block "force-push to the base branch '${base}'" force-push-base "push a feature branch, or use --force-with-lease on it."
 fi
 
 # 3. rm -rf with variable indirection or absolute home/system roots that static
@@ -758,13 +760,18 @@ rm_run_rec="(^|[[:space:]])rm[[:space:]]+(${rm_arg})*${rm_rec}(${rm_arg})*"
 # a `-r` token after it is treated as recursive too, the safe side (`rm -f --
 # -r $X` blocks, as it did before).
 rm_run_post="(^|[[:space:]])rm[[:space:]]+(${rm_arg})*${rm_quote}${rm_var}[^<>&[:space:]]*[[:space:]]+(${rm_arg})*-[a-zA-Z]*[rR][a-zA-Z]*([[:space:]]|\$)"
+# Split in two (#1117) so each block carries the message it deserves: a root /
+# home / system / scratch-root target has NO safe route; a variable target does.
 if printf '%s' "$segments_rm" \
-  | grep -qE "${rm_run}${rm_quote}((${rm_home}|${rm_root}|${rm_tmp})${rm_end})" \
-  || printf '%s' "$segments_rm" \
+  | grep -qE "${rm_run}${rm_quote}((${rm_home}|${rm_root}|${rm_tmp})${rm_end})"; then
+  block "recursive rm over root / home / system / scratch root" rm-root
+fi
+if printf '%s' "$segments_rm" \
   | grep -qE "${rm_run_rec}${rm_quote}${rm_var}" \
   || printf '%s' "$segments_rm" \
   | grep -qE "${rm_run_post}"; then
-  block "recursive rm over a variable / root / home" rm-var
+  block "recursive rm over a variable" rm-var \
+    "the variable cannot be inspected; resolve it first and re-issue the delete as 'rm -rf <absolute path>' with the literal absolute path — the host then asks the user to confirm that exact command."
 fi
 
 # 3b. `--no-preserve-root` is an aggravating factor on its own (#509): it exists

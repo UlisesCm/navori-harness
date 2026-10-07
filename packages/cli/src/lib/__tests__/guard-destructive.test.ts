@@ -1578,6 +1578,61 @@ describe.runIf(runsBash)("guard-destructive.sh", () => {
     });
   });
 
+  // #1117 — a block names a route the agent or the user can act on, never "copy
+  // this and run it yourself outside the agent". The verdicts themselves are the
+  // existing table; only the message changes.
+  describe("actionable block messages (#1117)", () => {
+    const rendered = renderGuard("main");
+    const BLOCKED: [string, string][] = [
+      ["rm -rf /", "root"],
+      ["rm -rf /etc", "system"],
+      ["rm -rf $HOME/x", "home variable"],
+      ['rm -rf "$SCRATCH"', "variable"],
+      ["git commit --no-verify -m x", "no-verify"],
+      ["git push --force origin main", "force-push base"],
+      ["rm --no-preserve-root -rf x", "no-preserve-root"],
+      [":(){ :|:& };:", "fork bomb"],
+      ["echo x > .claude/agents/implementer.md", "managed rewrite"],
+    ];
+
+    // Covers: A4
+    it.each(BLOCKED)("`%s` (%s) blocks and never sends the user outside the agent", (command) => {
+      const out = runGuardVerbose(command, rendered);
+      expect(out.status).toBe(2);
+      expect(out.stderr).not.toContain("outside the agent");
+    });
+
+    // Covers: A4
+    it("rm over a variable names the exact literal-absolute-path form", () => {
+      const out = runGuardVerbose('rm -rf "$SCRATCH"', rendered);
+      expect(out.status).toBe(2);
+      expect(out.stderr).toContain("rm -rf <absolute path>");
+      expect(out.stderr).toContain("literal absolute path");
+    });
+
+    // Covers: A4
+    it("rm of the filesystem root has no route hint", () => {
+      const out = runGuardVerbose("rm -rf /", rendered);
+      expect(out.status).toBe(2);
+      expect(out.stderr).not.toContain("route:");
+      expect(out.stderr).not.toContain("absolute path");
+    });
+
+    // Covers: A4
+    it("a variable assigned in the same command stays hard", () => {
+      expect(runGuardVerbose("S=/private/tmp/x/s; rm -rf $S", rendered).status).toBe(2);
+    });
+
+    // Covers: A4
+    it("oversize, no-verify and force-push-base carry a route", () => {
+      expect(runGuardVerbose("git commit --no-verify -m x", rendered).stderr).toContain("route:");
+      expect(runGuardVerbose("git push --force origin main", rendered).stderr).toContain("route:");
+      expect(runGuardVerbose(`echo ${"x".repeat(140_000)}`, rendered).stderr).toContain(
+        "split it into smaller commands",
+      );
+    });
+  });
+
   describe("with NO JSON parser on PATH (sed fallback)", () => {
     // A minimal PATH with only the coreutils the guard needs — deliberately
     // without jq or node — proves the guard still inspects the command instead
