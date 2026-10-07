@@ -427,6 +427,54 @@ describe("PluginManifestSchema — externalTool.capabilityProbe (#1060)", () => 
   });
 });
 
+describe("PluginManifestSchema — externalTool.versionAdvisory (#1210)", () => {
+  const withTool = (externalTool: Record<string, unknown>): { success: boolean } =>
+    PluginManifestSchema.safeParse({ ...MINIMAL, externalTool });
+  const entry = { below: "3.0.0", reason: { es: "motivo", en: "reason" } };
+
+  it("omitting versionAdvisory is legal", () => {
+    expect(withTool({ name: "t" }).success).toBe(true);
+  });
+
+  it("accepts a valid entry, with and without ref", () => {
+    expect(withTool({ name: "t", versionAdvisory: [entry] }).success).toBe(true);
+    expect(
+      withTool({
+        name: "t",
+        versionAdvisory: [{ ...entry, ref: "https://github.com/o/r/issues/1" }],
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each(["3", "3.0", "v3.0.0", "3.0.0-rc.1", ""])("rejects below %j", (below) => {
+    expect(withTool({ name: "t", versionAdvisory: [{ ...entry, below }] }).success).toBe(false);
+  });
+
+  it("rejects a reason missing a locale or empty", () => {
+    expect(
+      withTool({ name: "t", versionAdvisory: [{ ...entry, reason: { es: "solo es" } }] }).success,
+    ).toBe(false);
+    expect(
+      withTool({ name: "t", versionAdvisory: [{ ...entry, reason: { es: "x", en: "" } }] }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an empty array and a bad ref URL", () => {
+    expect(withTool({ name: "t", versionAdvisory: [] }).success).toBe(false);
+    expect(withTool({ name: "t", versionAdvisory: [{ ...entry, ref: "not a url" }] }).success).toBe(
+      false,
+    );
+  });
+
+  it("the bundled engram manifest loads with below 3.0.0 and both locales", () => {
+    const advisory = loadPlugin("engram").manifest.externalTool?.versionAdvisory;
+    expect(advisory).toHaveLength(1);
+    expect(advisory?.[0]?.below).toBe("3.0.0");
+    expect(advisory?.[0]?.reason.es.length).toBeGreaterThan(0);
+    expect(advisory?.[0]?.reason.en.length).toBeGreaterThan(0);
+  });
+});
+
 /**
  * Covers: R13 — `mcpServer.alwaysLoad` (spec 0017 T7). The field exists because
  * of a measurement, not a preference: with an MCP server deferred, two full

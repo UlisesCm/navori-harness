@@ -2,7 +2,7 @@
   "id": "engram",
   "name": "Engram persistent memory",
   "description": "Memory persistence across Claude Code sessions via MCP server",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "managed": [],
   "externalTool": {
     "name": "engram",
@@ -13,7 +13,17 @@
       "win32": "go install github.com/Gentleman-Programming/engram/cmd/engram@latest"
     },
     "installDocs": "https://github.com/Gentleman-Programming/engram",
-    "postInstall": "claude plugin marketplace add Gentleman-Programming/engram && claude plugin install engram"
+    "postInstall": "claude plugin marketplace add Gentleman-Programming/engram && claude plugin install engram",
+    "versionAdvisory": [
+      {
+        "below": "3.0.0",
+        "reason": {
+          "es": "`engram setup codex` < 3.0.0 escribe `model_instructions_file` en ~/.codex/config.toml y reemplaza el prompt base de Codex; actualiza engram y vuelve a correr `engram setup codex` para limpiarlo",
+          "en": "`engram setup codex` < 3.0.0 writes `model_instructions_file` into ~/.codex/config.toml, replacing Codex's base prompt; upgrade engram and rerun `engram setup codex` to remove it"
+        },
+        "ref": "https://github.com/Gentleman-Programming/engram/issues/1549"
+      }
+    ]
   },
   "mcpServer": {
     "command": "engram",
