@@ -96,6 +96,8 @@ con los ids de su tarea.
     aplicar, 0 y drift 0"
   · test: `commands/__tests__/sync-workspace-harness.test.ts`
   - "sync bajo `minimal` no recrea las omitidas y no borra nada"
+  - Los tests "render -> sync --apply -> render" (T5 y T10) viven en
+    `commands/__tests__/sync-workspace-harness.test.ts`, no en `render-workspace-harness.test.ts`.
 
 ## Lote 4 — `root` en el engine Claude (commit `feat(claude): …`)
 

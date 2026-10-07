@@ -197,7 +197,7 @@ export interface WorkspaceSkillDecision {
   /** Skills the root adds. Only workspaces under `root` contribute. */
   hoisted: readonly HoistedSkill[];
   /** Root dirs a previous hoist may have left (see "Limpieza de lo subido"). */
-  rootPruneCandidates: ReadonlySet<string>;
+  rootPruneCandidates: readonly HoistedSkill[]; // ver Addendum 2026-10-07
   /** Hoists skipped because the root path belongs to someone else, for the report. */
   blocked: ReadonlyArray<{ workspace: string; id: string; reason: "foreign" | "modified" | "newer" }>;
 }
@@ -266,7 +266,7 @@ export function decideWorkspaceSkills(input: {
   - Con `prune: false` (`sync`), no se tocan.
   - `selectedLibs` de §8.7 se calcula con el plan **sin** filtrar, así que una omitida
     nunca la poda §8.7 con el criterio débil (F2).
-- `rootHoist?: { skills: readonly HoistedSkill[]; pruneCandidates: ReadonlySet<string> }`.
+- `rootHoist?: { skills: readonly HoistedSkill[]; pruneCandidates: readonly HoistedSkill[] }` (ver Addendum 2026-10-07).
   Solo lo pasa el render de la raíz, en todo modo mientras haya `monorepo` declarado.
   - Las subidas entran a `harnessPlan.skills` y se renderizan con la config de su
     workspace.
@@ -473,3 +473,11 @@ Cada test responde a un riesgo nombrado arriba.
 - **`navori configure workspace` para elegir el modo.** Hoy no escribe `workspaceHarness`.
 - **La mitad de `status` de #1143.** Ya está en `main` (`computeRenderPending`); aquí solo
   se extiende el conteo.
+
+## Addendum 2026-10-07 — `rootPruneCandidates` es `HoistedSkill[]`
+
+El diseño tipaba `rootPruneCandidates` y `pruneCandidates` como `ReadonlySet<string>`. El
+código usa `readonly HoistedSkill[]` (`engines/shared/workspace-skills.ts`): el planificador
+de borrado (`planOmittedSkillRemoval`) necesita, además del nombre del directorio, lo que
+hace falta para juzgar si el archivo sigue intacto, y un set de strings no lo lleva. La
+semántica no cambia: sale del config actual y queda vacío si un preset no cargó.
