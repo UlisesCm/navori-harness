@@ -742,6 +742,21 @@ interface SyncCmdStrings {
   conflictDiffTruncated: (hidden: number) => string;
   /** Whole-file conflicts carry no block-level diff — say so, don't stay silent. */
   conflictDiffFileLevel: string;
+  // Whole-file conflict resolution (#1240).
+  /** Header above a resolvable file's diff in the interactive flow. */
+  fileConflictHeader: (label: string, path: string) => string;
+  /** The file changed on disk between the diff and the write: it was left alone. */
+  fileChangedSinceDiff: (path: string) => string;
+  /** Resolvable whole-file conflicts the user kept (or left unanswered). */
+  fileConflictsKept: (count: number) => string;
+  /** `--accept-new-files` contradicts `--keep-mine`. */
+  bulkFlagsConflictFiles: string;
+  /** `--accept-new-files` cannot be combined with `--interactive`. */
+  bulkFlagsInteractiveFiles: string;
+  /** `--accept-new-files` without `--apply`/`--yes`: preview only, nothing written. */
+  acceptNewFilesPreview: (count: number) => string;
+  /** `--accept-new-files` accepted N whole files. */
+  acceptNewFilesApplied: (count: number) => string;
 }
 
 interface DoctorCmdStrings {
@@ -1131,6 +1146,8 @@ interface DoctorCmdStrings {
 interface EngineCmdStrings {
   // Skip reasons (shared spine + adapter overrides)
   managedBlockEditedByHand: string;
+  /** Same skip when `navori sync` CAN resolve the file (it kept its marker). */
+  managedFileEditedResolvable: string;
   blockFromNewerNavori: (version: string | undefined) => string;
   subBlockEditedByHand: (skillId: string, pluginId: string) => string;
   subBlockFromNewerNavori: (skillId: string, version: string | undefined) => string;
@@ -1946,6 +1963,22 @@ const CMD_ES: CmdStrings = {
     conflictDiffFileLevel:
       "(conflicto de archivo completo: el preview no trae diff — resuélvelo a mano o mueve el " +
       "archivo aparte y corre 'navori render --apply')",
+    fileConflictHeader: (label, path) => `Conflicto de archivo [${label}] ${path}`,
+    fileChangedSinceDiff: (path) =>
+      `${path} cambió en disco desde que se mostró el diff — lo dejé intacto. Vuelve a correr sync.`,
+    fileConflictsKept: (count) =>
+      `${count} archivo(s) con tu edición se mantienen. Corre 'navori sync --interactive' para resolverlos.`,
+    bulkFlagsConflictFiles:
+      "--accept-new-files y --keep-mine son excluyentes: --accept-new-files sobrescribe tus " +
+      "ediciones en archivos completos con la versión renderizada; --keep-mine las conserva.",
+    bulkFlagsInteractiveFiles:
+      "--interactive no se combina con --accept-new-files: uno pregunta archivo por archivo y " +
+      "el otro decide en bloque sin preguntar. Elige uno.",
+    acceptNewFilesPreview: (count) =>
+      `--accept-new-files sobrescribiría ${count} archivo(s) completo(s) con tu edición. No escribí ` +
+      `nada: vuelve a correrlo con --apply (o --yes) para aplicarlo.`,
+    acceptNewFilesApplied: (count) =>
+      `--accept-new-files: acepté la versión renderizada en ${count} archivo(s) completo(s)`,
   },
   doctor: {
     noConfigRunInit: (path) => `No hay navori.config.json en ${path}. Corre 'navori init' primero.`,
@@ -2680,6 +2713,8 @@ const CMD_ES: CmdStrings = {
   engine: {
     managedBlockEditedByHand:
       "bloque managed editado por el usuario; en bloques de CLAUDE.md/AGENTS.md resuelve con 'navori sync'; en archivos completos ajusta el destino a mano o muévelo aparte y corre 'navori render --apply'",
+    managedFileEditedResolvable:
+      "bloque managed editado por el usuario; resuélvelo con 'navori sync --interactive' (o 'navori sync --accept-new-files --apply' para aceptar la versión renderizada)",
     blockFromNewerNavori: (v) =>
       `bloque escrito por una navori más nueva (${v ?? "?"}); no lo toqué. Actualiza tu CLI: npm i -g navori@latest`,
     subBlockEditedByHand: (id, pid) =>
@@ -3341,6 +3376,22 @@ const CMD_EN: CmdStrings = {
     conflictDiffFileLevel:
       "(whole-file conflict: the preview carries no diff — resolve it by hand or move the " +
       "file aside and run 'navori render --apply')",
+    fileConflictHeader: (label, path) => `File conflict [${label}] ${path}`,
+    fileChangedSinceDiff: (path) =>
+      `${path} changed on disk since the diff was shown — left untouched. Run sync again.`,
+    fileConflictsKept: (count) =>
+      `${count} file(s) with your edit stay as they are. Run 'navori sync --interactive' to resolve them.`,
+    bulkFlagsConflictFiles:
+      "--accept-new-files and --keep-mine are mutually exclusive: --accept-new-files overwrites " +
+      "your edits in whole files with the rendered version; --keep-mine keeps them.",
+    bulkFlagsInteractiveFiles:
+      "--interactive cannot be combined with --accept-new-files: one asks file by file, the " +
+      "other decides in bulk without asking. Pick one.",
+    acceptNewFilesPreview: (count) =>
+      `--accept-new-files would overwrite ${count} whole file(s) carrying your edit. Nothing was ` +
+      `written: re-run it with --apply (or --yes) to apply it.`,
+    acceptNewFilesApplied: (count) =>
+      `--accept-new-files: accepted the rendered version in ${count} whole file(s)`,
   },
   doctor: {
     noConfigRunInit: (path) => `No navori.config.json at ${path}. Run 'navori init' first.`,
@@ -4069,6 +4120,8 @@ const CMD_EN: CmdStrings = {
   engine: {
     managedBlockEditedByHand:
       "managed block edited by hand; for CLAUDE.md/AGENTS.md blocks resolve with 'navori sync'; for whole files adjust the destination manually or move it aside and run 'navori render --apply'",
+    managedFileEditedResolvable:
+      "managed block edited by hand; resolve it with 'navori sync --interactive' (or 'navori sync --accept-new-files --apply' to accept the rendered version)",
     blockFromNewerNavori: (v) =>
       `block written by a newer navori (${v ?? "?"}); left untouched. Update your CLI: npm i -g navori@latest`,
     subBlockEditedByHand: (id, pid) =>

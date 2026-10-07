@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/config/schema.ts";
 import { renderClaudeEngine } from "../index.ts";
+import { tc } from "../../../lib/i18n.ts";
 import { navoriAuthorship } from "../../../lib/render/removable.ts";
 import { pluginExtraVars } from "../../shared/plugin-extra-vars.ts";
 import { legacyFingerprintTable } from "../../shared/legacy-plugin-script-fingerprints.ts";
@@ -128,6 +129,70 @@ describe("scripts de plugin: marcador propio (#637)", () => {
     const result = renderClaudeEngine(cwd, config());
     expect(readFileSync(script(), "utf-8")).toContain("# lo edité yo");
     expect(result.skipped.some((sk) => sk.path.endsWith("check-jscpd.sh"))).toBe(true);
+  });
+
+  it("sync-file-resolve: the skip of an in-block edit carries the forced render (marker kept, exec preserved)", () => {
+    renderClaudeEngine(cwd, config());
+    const original = readFileSync(script(), "utf-8");
+    const edited = original.replace("#!/usr/bin/env bash", "#!/usr/bin/env bash\n# mío");
+    writeFileSync(script(), edited);
+
+    const sk = renderClaudeEngine(cwd, config()).skipped.find((s) =>
+      s.path.endsWith("check-jscpd.sh"),
+    );
+    expect(sk?.resolution?.basis).toBe(edited);
+    expect(sk?.resolution?.content).toBe(original);
+    expect(sk?.resolution?.chmodExec).toBe(true);
+  });
+
+  it("sync-file-resolve: a markerless user-edited legacy script is skipped with NO resolution", () => {
+    renderClaudeEngine(cwd, config());
+    const legacy = readFileSync(script(), "utf-8")
+      .split("\n")
+      .filter((l) => !l.includes("navori:managed"))
+      .join("\n");
+    writeFileSync(script(), `${legacy}\n# user line\n`);
+    const sk = renderClaudeEngine(cwd, config()).skipped.find((s) =>
+      s.path.endsWith("check-jscpd.sh"),
+    );
+    expect(sk?.status).toBe("user-modified-skipped");
+    expect(sk?.resolution).toBeUndefined();
+  });
+
+  it("I1: an in-block edit on a script from a NEWER navori is downgrade-skipped, no resolution", () => {
+    renderClaudeEngine(cwd, config());
+    const body = readFileSync(script(), "utf-8");
+    const newer = body
+      .replace(/version="[^"]*"/, 'version="999.0.0"')
+      .replace("#!/usr/bin/env bash", "#!/usr/bin/env bash\n# futuro");
+    writeFileSync(script(), newer);
+
+    const sk = renderClaudeEngine(cwd, config()).skipped.find((s) =>
+      s.path.endsWith("check-jscpd.sh"),
+    );
+    expect(sk?.status).toBe("downgrade-skipped");
+    expect(sk?.resolution).toBeUndefined();
+    expect(readFileSync(script(), "utf-8")).toBe(newer);
+  });
+
+  it("the skip reason points at sync when resolvable and keeps the manual exit otherwise", () => {
+    renderClaudeEngine(cwd, config());
+    const original = readFileSync(script(), "utf-8");
+    writeFileSync(script(), original.replace("#!/usr/bin/env bash", "#!/usr/bin/env bash\n# mío"));
+    const resolvable = renderClaudeEngine(cwd, config()).skipped.find((s) =>
+      s.path.endsWith("check-jscpd.sh"),
+    );
+    expect(resolvable?.reason).toBe(tc("es").engine.managedFileEditedResolvable);
+
+    const legacy = original
+      .split("\n")
+      .filter((l) => !l.includes("navori:managed"))
+      .join("\n");
+    writeFileSync(script(), `${legacy}\n# user line\n`);
+    const manual = renderClaudeEngine(cwd, config()).skipped.find((s) =>
+      s.path.endsWith("check-jscpd.sh"),
+    );
+    expect(manual?.reason).toBe(tc("es").engine.managedBlockEditedByHand);
   });
 
   it("es idempotente: un segundo render no reescribe el script", () => {

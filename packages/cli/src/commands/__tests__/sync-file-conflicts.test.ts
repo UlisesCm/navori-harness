@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -96,6 +104,16 @@ function breakFirstAgentFile(): string {
   return path;
 }
 
+/**
+ * Turn an edited agent file into an UNRESOLVABLE conflict: a symlink (sync must
+ * never write through a link, so the engine attaches no resolution to it).
+ */
+function makeUnresolvable(path: string): void {
+  const real = join(cwd, "real-agent-copy.txt");
+  renameSync(path, real);
+  symlinkSync(real, path);
+}
+
 function seed(): void {
   writeConfig(join(cwd, "navori.config.json"), {
     name: "demo",
@@ -106,9 +124,10 @@ function seed(): void {
 }
 
 describe("sync with whole-file conflicts (#1227)", () => {
-  it("does not offer 'interactive' when only whole files conflict", async () => {
+  it("does not offer 'interactive' when only UNRESOLVABLE whole files conflict", async () => {
     seed();
     const agent = breakFirstAgentFile();
+    makeUnresolvable(agent);
     const before = readFileSync(agent, "utf-8");
     ui.answers = ["skip-conflicts"];
 
@@ -120,7 +139,7 @@ describe("sync with whole-file conflicts (#1227)", () => {
     expect(readFileSync(agent, "utf-8")).toBe(before);
   });
 
-  it("with a block+file mix, offers 'interactive' and warns about the files after it", async () => {
+  it("with a block+resolvable-file mix, offers 'interactive' and warns about the kept file", async () => {
     seed();
     breakFirstAgentFile();
     editFirstBlock(join(cwd, "CLAUDE.md"));
@@ -129,12 +148,14 @@ describe("sync with whole-file conflicts (#1227)", () => {
     await runSync({});
 
     expect(ui.selectCalls[0]!.options.map((o) => o.value)).toContain("interactive");
-    expect(ui.warns).toContain(tc("es").sync.fileConflictsRemain(1));
+    // The agent file kept its marker, so it is resolvable: answered "keep" -> kept.
+    expect(ui.warns).toContain(tc("es").sync.fileConflictsKept(1));
   });
 
-  it("--interactive with file-only conflicts warns and writes nothing", async () => {
+  it("--interactive with unresolvable file-only conflicts warns and writes nothing", async () => {
     seed();
     const agent = breakFirstAgentFile();
+    makeUnresolvable(agent);
     const before = readFileSync(agent, "utf-8");
 
     await runSync({ interactive: true });

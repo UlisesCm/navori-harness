@@ -153,6 +153,10 @@ const es: Record<string, CommandDoc> = {
       },
       { flag: "--apply", desc: "Aplica los cambios sin el prompt interactivo." },
       { flag: "--yes", desc: "Auto-confirma. Falla con exit 1 si hay conflictos (CI gate)." },
+      {
+        flag: "--accept-new-files",
+        desc: "Sobrescribe, sin preguntar, cada archivo completo editado a mano que conserva su marcador navori. Requiere --apply o --yes y respalda cada archivo antes. --accept-new no toca archivos completos.",
+      },
       { flag: "--workspace <name>", desc: "Sincroniza solo un workspace (monorepo)." },
     ],
     example: [
@@ -163,6 +167,8 @@ const es: Record<string, CommandDoc> = {
     ],
     notes: [
       "Si editaste un bloque managed a mano, sync lo detecta (hash drift) y NO lo pisa: lo resuelves tú.",
+      "Un archivo completo editado a mano (agente, skill, hook, script de plugin, AGENTS.md…) que conserva su marcador navori se resuelve con --interactive (diff + keep/accept) o en bloque con --accept-new-files. Sin marcador sigue la salida manual: muévelo aparte y corre render --apply.",
+      "Con --json, cada conflicto trae 'resolvable' ('bulk' o 'none') y la salida trae 'acceptNewFiles'; nunca incluye el contenido de los archivos y refleja el estado posterior a la resolución.",
       "sync es el comando para upgrades de versión; render --apply es para regenerar.",
       "Mantiene el '.claude/.gitignore' del harness (y '.codex/.gitignore' con codex habilitado) al día igual que cualquier otro bloque managed.",
     ],
@@ -1083,6 +1089,10 @@ const en: Record<string, CommandDoc> = {
       },
       { flag: "--apply", desc: "Apply changes without the interactive prompt." },
       { flag: "--yes", desc: "Auto-confirm. Exits 1 if there are conflicts (CI gate)." },
+      {
+        flag: "--accept-new-files",
+        desc: "Overwrite, without prompting, every hand-edited whole file that still carries its navori marker. Requires --apply or --yes and backs up each file first. --accept-new never touches whole files.",
+      },
       { flag: "--workspace <name>", desc: "Sync only one workspace (monorepo)." },
     ],
     example: [
@@ -1093,6 +1103,8 @@ const en: Record<string, CommandDoc> = {
     ],
     notes: [
       "If you hand-edited a managed block, sync detects it (hash drift) and won't overwrite — you resolve it.",
+      "A hand-edited whole file (agent, skill, hook, plugin script, AGENTS.md…) that still carries its navori marker is resolved with --interactive (diff + keep/accept) or in bulk with --accept-new-files. Without a marker the manual exit remains: move it aside and run render --apply.",
+      "With --json, each conflict carries 'resolvable' ('bulk' or 'none') and the output carries 'acceptNewFiles'; it never includes file contents and reports the post-resolution state.",
       "sync is for version upgrades; render --apply is for regenerating.",
       "Keeps the harness's '.claude/.gitignore' (and '.codex/.gitignore' with codex enabled) up to date, same as any other managed block.",
     ],

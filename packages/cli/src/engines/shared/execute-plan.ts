@@ -1,11 +1,24 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 import type { NavoriConfig } from "../../lib/config/config.ts";
 import { writeFileAtomic } from "../../lib/primitives/atomic.ts";
 import { createBackup, purgeOldBackups } from "../../lib/render/backup.ts";
 import { RenderWriteError } from "../../lib/primitives/errors.ts";
 import { readCliVersion } from "../../lib/render/bundled-assets.ts";
-import { injectManagedSection, readMarkerAttrs } from "../../lib/render/marker.ts";
+import {
+  injectManagedSection,
+  readMarkerAttrs,
+  type CommentStyle,
+  type MarkerMeta,
+} from "../../lib/render/marker.ts";
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
 import type { loadPreset } from "../../lib/config/presets.ts";
 import type { RenderStatus } from "../../lib/primitives/style.ts";
@@ -16,7 +29,7 @@ import {
   type KeepReason,
 } from "../../lib/render/removable.ts";
 import { tc, DEFAULT_LANG, type Lang } from "../../lib/i18n.ts";
-import { renderManagedFile } from "./render-managed-file.ts";
+import { forcedManagedFileContent, renderManagedFile } from "./render-managed-file.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "./ephemeral-paths.ts";
 import type { HarnessPlan, PlannedAgent, PlannedHook, PlannedSkill } from "./harness-plan.ts";
 
@@ -144,6 +157,84 @@ export interface SkippedFile {
   path: string;
   reason: string;
   status?: SkipStatus;
+  /**
+   * Present only when `navori sync` may resolve this skip by writing the forced
+   * render of an existing file that still carries a navori marker. Never set on
+   * a downgrade, a non-regular destination, a markerless file or a sub-block /
+   * settings skip — presence of the field is the single "resolvable" test.
+   */
+  resolution?: SkipResolution;
+}
+
+/**
+ * What accepting a `user-modified-skipped` file would write. Carries full file
+ * bodies, so consumers that serialize skips (JSON output) must never spread it.
+ */
+export interface SkipResolution {
+  /** Absolute destination (no cwd re-derivation downstream). */
+  absPath: string;
+  /** Bytes on disk the proposal was computed against (diff left side + TOCTOU check). */
+  basis: string;
+  /** Full forced render: only the managed block changes, the user zone is kept. */
+  content: string;
+  chmodExec?: boolean;
+}
+
+/**
+ * Attach a {@link SkipResolution} to a skip, or return it unchanged. Single
+ * guard for every resolvable site: the status must be `user-modified-skipped`
+ * (a `downgrade-skipped` never gets one — anti-rollback), the destination must
+ * be a regular non-symlink file (the atomic write would replace a link), and
+ * `render` must produce a body that differs from `basis`. `render` returns
+ * null when it cannot guarantee a safe forced body; a throw leaves the plain
+ * skip so a clean skip never becomes a hard failure.
+ */
+export function attachResolution(
+  skip: SkippedFile,
+  input: {
+    absPath: string;
+    basis: string;
+    chmodExec?: boolean;
+    render: () => string | null;
+    /** Replaces `skip.reason` when a resolution is attached (sync can fix it). */
+    resolvableReason?: string;
+  },
+): SkippedFile {
+  if (skip.status !== "user-modified-skipped") return skip;
+  const stats = lstatSync(input.absPath, { throwIfNoEntry: false });
+  if (!stats?.isFile() || stats.isSymbolicLink()) return skip;
+  let content: string | null;
+  try {
+    content = input.render();
+  } catch {
+    return skip;
+  }
+  if (content === null || content === input.basis) return skip;
+  return {
+    ...skip,
+    ...(input.resolvableReason !== undefined ? { reason: input.resolvableReason } : {}),
+    resolution: {
+      absPath: input.absPath,
+      basis: input.basis,
+      content,
+      ...(input.chmodExec ? { chmodExec: true } : {}),
+    },
+  };
+}
+
+/**
+ * Forced inject for a body-only site: the new content, or null when the block
+ * is a downgrade (never forced) or the result equals the input.
+ */
+export function forcedInjectContent(
+  existing: string,
+  id: string,
+  body: string,
+  meta: MarkerMeta,
+  style: CommentStyle,
+): string | null {
+  const forced = injectManagedSection(existing, id, body, meta, style, true);
+  return forced.details?.downgrade ? null : forced.output;
 }
 
 /**
@@ -206,7 +297,8 @@ export function collectPlan(
   collisions: CollisionNotice[];
 } {
   const prune = options.prune !== false;
-  const skipReason = options.skipReason ?? makeDefaultSkipReason(options.lang ?? DEFAULT_LANG);
+  const lang = options.lang ?? DEFAULT_LANG;
+  const skipReason = options.skipReason ?? makeDefaultSkipReason(lang);
   const pending: PendingWrite[] = [];
   const skipped: ExecuteResult["skipped"] = [];
   const collisions: CollisionNotice[] = [];
@@ -229,7 +321,7 @@ export function collectPlan(
   requests.push(...adapter.extraFiles(ctx));
 
   for (const req of requests)
-    collectRequest(req, ctx, pending, skipped, skipReason, collisions, adapter.id);
+    collectRequest(req, ctx, pending, skipped, skipReason, collisions, adapter.id, lang);
 
   const { removals, kept } = prune
     ? collectOrphans(adapter.orphanScans(plan, ctx), ctx.cwd)
@@ -283,19 +375,24 @@ function collectRequest(
   skipReason: SkipReason,
   collisions: CollisionNotice[],
   engine: string,
+  lang: Lang,
 ): void {
   const path = join(ctx.cwd, req.destRelPath);
   let content: string;
   let status: RenderStatus;
   let existingVersion: string | undefined;
 
+  // Forced render for the final user-modified skip (lazy: runs only then).
+  let forced: { basis: string; render: () => string | null } | null = null;
+
   if (req.assetPath !== undefined) {
+    const assetPath = req.assetPath;
     const existing = existsSync(path) ? readFileSync(path, "utf-8") : null;
     if (existing !== null && req.meta?.source.startsWith("@navori/plugin-")) {
       const authorship = navoriAuthorship(path, req.managedId, { verifyHash: true });
       if (authorship !== "ours") {
         const status = authorship === "newer" ? "downgrade-skipped" : "user-modified-skipped";
-        skipped.push({
+        const skip: SkippedFile = {
           path: req.destRelPath,
           reason: skipReason(
             status,
@@ -304,12 +401,36 @@ function collectRequest(
               undefined,
           ),
           status,
-        });
+        };
+        // Only an edited block that still carries our marker is resolvable;
+        // `foreign` (no marker of this id) stays the manual exit.
+        skipped.push(
+          authorship === "modified"
+            ? attachResolution(skip, {
+                absPath: path,
+                basis: existing,
+                chmodExec: req.chmodExec,
+                resolvableReason: tc(lang).engine.managedFileEditedResolvable,
+                render: () =>
+                  forcedManagedFileContent({
+                    assetPath,
+                    existingContent: existing,
+                    managedId: req.managedId,
+                    meta: req.meta ?? CORE_META,
+                    config: ctx.config,
+                    extraVars: req.extraVars,
+                    commentStyle: req.commentStyle,
+                    transform: req.transform,
+                    engine,
+                  }),
+              })
+            : skip,
+        );
         return;
       }
     }
-    const result = renderManagedFile({
-      assetPath: req.assetPath,
+    const renderInput = {
+      assetPath,
       existingContent: existing,
       managedId: req.managedId,
       meta: req.meta ?? CORE_META,
@@ -318,7 +439,11 @@ function collectRequest(
       commentStyle: req.commentStyle,
       transform: req.transform,
       engine,
-    });
+    };
+    const result = renderManagedFile(renderInput);
+    if (existing !== null) {
+      forced = { basis: existing, render: () => forcedManagedFileContent(renderInput) };
+    }
     content = result.content;
     status = result.status;
     // Core assets only: the plugin path above already refuses foreign files.
@@ -341,6 +466,19 @@ function collectRequest(
       req.meta ?? CORE_META,
       req.commentStyle,
     );
+    if (exists) {
+      forced = {
+        basis: existing,
+        render: () =>
+          forcedInjectContent(
+            existing,
+            req.managedId,
+            req.body ?? "",
+            req.meta ?? CORE_META,
+            req.commentStyle,
+          ),
+      };
+    }
     content = result.output;
     if (!exists && req.firstRenderSeed?.trailer) content += req.firstRenderSeed.trailer;
     status = result.status;
@@ -349,11 +487,22 @@ function collectRequest(
 
   if (status === "unchanged") return;
   if (status === "user-modified-skipped" || status === "downgrade-skipped") {
-    skipped.push({
+    const skip: SkippedFile = {
       path: req.destRelPath,
       reason: skipReason(status, req.destRelPath, existingVersion),
       status,
-    });
+    };
+    skipped.push(
+      forced === null
+        ? skip
+        : attachResolution(skip, {
+            absPath: path,
+            basis: forced.basis,
+            chmodExec: req.chmodExec,
+            resolvableReason: tc(lang).engine.managedFileEditedResolvable,
+            render: forced.render,
+          }),
+    );
     return;
   }
   pending.push({ path, relPath: req.destRelPath, content, status, chmodExec: req.chmodExec });

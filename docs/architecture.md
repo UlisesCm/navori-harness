@@ -148,6 +148,39 @@ regeneración es idempotente y nunca pisa lo que está fuera de los markers.
 - **Fuera de los markers** → tuyo, intocable. Ese es el moat: regeneración
   idempotente sin destruir tu trabajo. Ver [marker.ts](../packages/cli/src/lib/render/marker.ts).
 
+### Resolución de archivos completos en `sync`
+
+Un archivo managed completo (agente, skill, hook, script de plugin, `AGENTS.md`…) editado a mano
+es resoluble solo si conserva el marcador navori de su id. El engine adjunta entonces
+`SkippedFile.resolution` (`absPath`, `basis`, `content`, `chmodExec?`), calculado únicamente tras
+`user-modified-skipped` —después del anti-rollback, así que un `downgrade-skipped` nunca la lleva—
+y solo para un destino regular que no sea symlink. No se adjunta a archivos sin marcador, skips de
+sub-bloque o settings, ni en Pi; tampoco cuando el render forzado iguala al archivo o falla. La
+presencia del campo es el único criterio de «resoluble» y ningún JSON de salida incluye el
+contenido.
+
+- **`sync --interactive`** (o la opción «resolver uno por uno», ofrecida si hay conflictos de
+  bloque o de archivo resoluble) muestra el diff por archivo y pregunta keep/accept. Todas las
+  respuestas se recogen antes de escribir; cancelar no escribe nada.
+- **Escritura**: los aceptados se escriben con `commitWrites` y backup `<target>:sync` antes del
+  apply normal. Justo antes de cada escritura se re-verifica que el archivo siga siendo regular e
+  igual al `basis` mostrado (TOCTOU); si no, se descarta con aviso y los demás continúan. Si una
+  escritura falla, los anteriores quedan escritos (con sus backups impresos), los posteriores no se
+  intentan, sale con exit 1 y repetir el comando es idempotente.
+- **`--accept-new-files`** acepta todo archivo resoluble sin preguntar. Solo escribe con `--apply`
+  o `--yes` (si no, preview); combina con `--accept-new`, y se rechaza con `--keep-mine`
+  (`bulk-flags-conflict`) e `--interactive` (`bulk-flags-interactive`). `--yes` sigue saliendo con
+  1 si quedan conflictos de bloque de CLAUDE.md sin responder; `--accept-new` solo nunca toca
+  archivos completos (semántica CI intacta, #523).
+- **`sync --json`** añade `acceptNewFiles` y, por conflicto, `resolvable` (`bulk` | `none`), nunca
+  `basis` ni contenido. Reporta el estado posterior a resolver: los archivos resueltos salen de
+  `conflicts[]` y `targets[].skipped`, y entran en `written`/`backups`.
+- **Sin marcador** sigue la salida manual: mover el archivo aparte y `navori render --apply`
+  (seguimiento en #1245).
+
+Ver [sync.ts](../packages/cli/src/commands/sync.ts) y
+[execute-plan.ts](../packages/cli/src/engines/shared/execute-plan.ts).
+
 ## 6. Modos de permiso de Claude Code — tabla de referencia
 
 Referencia de lookup (no una orden always-on): el bloque managed

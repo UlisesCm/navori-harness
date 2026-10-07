@@ -196,3 +196,25 @@ describe("Pi render base", () => {
     expect(readFileSync(first, "utf-8")).toBe("{}\n");
   });
 });
+
+describe("Pi sync resolution", () => {
+  // Covers: sync-file-resolve (#1240) - Pi never exposes a resolution: its
+  // ownership/symlink checks only run inside its own apply.
+  it("strips the resolution from a user-modified skill skip", () => {
+    const cwd = freshDir();
+    renderPiEngine(cwd, config);
+    const skillsDir = join(cwd, ".agents/skills");
+    const skill = readdirSync(skillsDir).find((id) => existsSync(join(skillsDir, id, "SKILL.md")));
+    expect(skill).toBeDefined();
+    const path = join(skillsDir, skill ?? "", "SKILL.md");
+    const lines = readFileSync(path, "utf-8").split("\n");
+    const open = lines.findIndex((l) => l.startsWith("<!-- navori:managed"));
+    lines.splice(open + 1, 0, "EDITED BY HAND");
+    writeFileSync(path, lines.join("\n"));
+
+    const second = renderPiEngine(cwd, config);
+    const skip = second.skipped.find((sk) => sk.path.endsWith("SKILL.md"));
+    expect(skip?.status).toBe("user-modified-skipped");
+    expect(skip).not.toHaveProperty("resolution");
+  });
+});

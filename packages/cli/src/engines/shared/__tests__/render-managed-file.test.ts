@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { renderManagedFile } from "../render-managed-file.ts";
+import { forcedManagedFileContent, renderManagedFile } from "../render-managed-file.ts";
 import { getCoreRoot } from "../../../lib/render/bundled-assets.ts";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
 
@@ -278,5 +278,30 @@ The implementer still writes Markdown.
     });
     expect(r.content).toContain("The scribe owns Markdown.");
     expect(r.content).not.toContain("The implementer still writes Markdown.");
+  });
+});
+
+describe("forcedManagedFileContent", () => {
+  const input = (existingContent: string | null, version = "1.0.0") => ({
+    assetPath,
+    existingContent,
+    managedId: "leader-base",
+    meta: { source: "@navori/core", version },
+    config: CONFIG,
+  });
+
+  it("returns the body that replaces a hand-edited block", () => {
+    const fresh = renderManagedFile(input(null)).content;
+    const edited = fresh.replace("# Agente Líder", "# EDITADO");
+    expect(renderManagedFile(input(edited)).status).toBe("user-modified-skipped");
+    expect(forcedManagedFileContent(input(edited))).toBe(fresh);
+  });
+
+  it("returns null when the block was written by a newer navori (never forced)", () => {
+    const newer = renderManagedFile(input(null, "999.0.0")).content.replace(
+      "# Agente Líder",
+      "# EDITADO",
+    );
+    expect(forcedManagedFileContent(input(newer))).toBeNull();
   });
 });

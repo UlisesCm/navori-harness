@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -55,6 +55,7 @@ const { runRender } = await import("../render.ts");
 const {
   syncCommand,
   resolveBulkMode,
+  conflictsBlockYes,
   buildBulkResolutions,
   summarizeConflictDiff,
   CONFLICT_DIFF_MAX_LINES,
@@ -85,11 +86,13 @@ interface SyncJson {
   reason?: string;
   mode: string;
   resolution: string | null;
+  acceptNewFiles: boolean;
+  detail?: string;
   targets: Array<{
     label: string;
     claudeMd: Array<{ id: string; status: string }>;
   }>;
-  conflicts: Array<{ path: string; reason: string; kind?: string }>;
+  conflicts: Array<{ path: string; reason: string; kind?: string; resolvable?: string }>;
   pending: number;
   written: number;
   backups: Array<{ label: string; path: string }>;
@@ -360,14 +363,17 @@ describe("resolveBulkMode — contradictory invocations fail fast", () => {
     expect(resolveBulkMode({ acceptNew: true, keepMine: false, interactive: false })).toEqual({
       ok: true,
       mode: "accept-new",
+      acceptFiles: false,
     });
     expect(resolveBulkMode({ acceptNew: false, keepMine: true, interactive: false })).toEqual({
       ok: true,
       mode: "keep-mine",
+      acceptFiles: false,
     });
     expect(resolveBulkMode({ acceptNew: false, keepMine: false, interactive: true })).toEqual({
       ok: true,
       mode: null,
+      acceptFiles: false,
     });
   });
 
@@ -424,5 +430,208 @@ describe("summarizeConflictDiff — what the preview shows and what it does not"
   it("reports a pure deletion and a pure insertion without inventing a counterpart", () => {
     expect(summarizeConflictDiff("a\nb", "a").lines).toEqual(["- b"]);
     expect(summarizeConflictDiff("a", "a\nb").lines).toEqual(["+ b"]);
+  });
+});
+
+describe("sync --accept-new-files (#1240)", () => {
+  const SENTINEL = "FILE USER ZONE — never touched";
+
+  /** Rendered repo (+ optional plugins) with ONE agent file hand-edited inside its block. */
+  function seedEditedAgent(plugins?: Record<string, unknown>): {
+    agent: string;
+    pristine: string;
+    edited: string;
+  } {
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "demo",
+      preset: "custom",
+      engines: ["claude"],
+      ...(plugins ? { plugins } : {}),
+    } as Parameters<typeof writeConfig>[1]);
+    expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
+    const dir = join(cwd, ".claude", "agents");
+    const name = readdirSync(dir)
+      .filter((f) => f.endsWith(".md"))
+      .sort()[0]!;
+    const agent = join(dir, name);
+    const pristine = `${readFileSync(agent, "utf-8").trimEnd()}\n\n${SENTINEL}\n`;
+    writeFileSync(agent, pristine, "utf-8");
+    const edited = pristine.replace(/(<!-- navori:managed [^>]*-->\n)/, "$1HAND EDIT\n");
+    expect(edited).not.toBe(pristine);
+    writeFileSync(agent, edited, "utf-8");
+    return { agent, pristine, edited };
+  }
+
+  /** Run `sync --json` expecting `process.exit(1)`; returns the JSON it printed first. */
+  async function runSyncJsonFailing(flags: Record<string, unknown>): Promise<SyncJson> {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((l: unknown) => {
+      lines.push(String(l));
+    });
+    try {
+      await expect(
+        syncCommand.run?.({
+          rawArgs: [],
+          cmd: syncCommand,
+          args: { _: [], cwd, json: true, ...flags },
+        } as never),
+      ).rejects.toThrow("exit");
+    } finally {
+      spy.mockRestore();
+    }
+    return JSON.parse(lines[0] ?? "{}") as SyncJson;
+  }
+
+  /** Make `process.exit` throw so a failing run can be asserted, not exited. */
+  function trapExit(): void {
+    vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("exit");
+    }) as never);
+  }
+
+  // Covers: A3 — resolvable is reported, bodies never leak.
+  it("--json reports resolvable:'bulk' for a marker-carrying file and never file contents", async () => {
+    seedEditedAgent();
+    const plan = await runSyncJson({});
+    expect(plan.acceptNewFiles).toBe(false);
+    const file = plan.conflicts.find((c) => c.kind === "file");
+    expect(file?.resolvable).toBe("bulk");
+    expect(Object.keys(file ?? {}).sort()).toEqual(["kind", "path", "reason", "resolvable"]);
+    expect(JSON.stringify(plan)).not.toContain("HAND EDIT");
+    expect(JSON.stringify(plan)).not.toMatch(/"(basis|content)"/);
+  });
+
+  // Covers: A3 — writes with --apply, post-resolution state, user zone + backup.
+  it("--accept-new-files --apply restores the file, keeps the user zone, backs up, reports post-resolution state", async () => {
+    const { agent, pristine, edited } = seedEditedAgent();
+
+    const out = await runSyncJson({ "accept-new-files": true, apply: true });
+
+    expect(out.ok).toBe(true);
+    expect(out.acceptNewFiles).toBe(true);
+    expect(readFileSync(agent, "utf-8")).toBe(pristine);
+    expect(out.written).toBeGreaterThanOrEqual(1);
+    expect(out.conflicts).toEqual([]); // post-resolution, not the stale plan
+    const backup = out.backups.find((b) => b.label === "root:sync");
+    expect(backup).toBeDefined();
+    expect(
+      readFileSync(join(backup!.path, ".claude/agents", agent.split("/").pop()!), "utf-8"),
+    ).toBe(edited);
+    expect(prompted.count).toBe(0);
+    // Convergence: nothing left to resolve.
+    expect((await runSyncJson({})).conflicts).toEqual([]);
+  });
+
+  it("--accept-new alone still leaves whole files untouched (CI semantics unchanged)", async () => {
+    const { agent, edited } = seedEditedAgent();
+    const out = await runSyncJson({ "accept-new": true, apply: true, yes: true });
+    expect(out.ok).toBe(true);
+    expect(readFileSync(agent, "utf-8")).toBe(edited);
+    expect(out.conflicts.some((c) => c.kind === "file")).toBe(true);
+  });
+
+  // Covers: A3 — never writes without --apply/--yes.
+  it("--accept-new-files without --apply/--yes is a preview and writes nothing", async () => {
+    const { agent, edited } = seedEditedAgent();
+    await runSyncHuman({ "accept-new-files": true });
+    expect(readFileSync(agent, "utf-8")).toBe(edited);
+    const json = await runSyncJson({ "accept-new-files": true });
+    expect(json.mode).toBe("plan");
+    expect(readFileSync(agent, "utf-8")).toBe(edited);
+  });
+
+  it("--dry-run never writes, even with --accept-new-files --apply", async () => {
+    const { agent, edited } = seedEditedAgent();
+    await runSyncJson({ "accept-new-files": true, apply: true, "dry-run": true });
+    expect(readFileSync(agent, "utf-8")).toBe(edited);
+  });
+
+  it("--yes --accept-new-files resolves file-only conflicts (human mode, no prompt)", async () => {
+    const { agent, pristine } = seedEditedAgent();
+    await runSyncHuman({ "accept-new-files": true, yes: true });
+    expect(readFileSync(agent, "utf-8")).toBe(pristine);
+  });
+
+  // Covers: A3 — unanswered block conflicts still fail --yes (both paths).
+  it("--yes --accept-new-files with an unanswered CLAUDE.md block conflict exits 1 and writes nothing", async () => {
+    const { agent, edited } = seedEditedAgent();
+    const claudeMd = join(cwd, "CLAUDE.md");
+    const mangled = simulateFormatter(readFileSync(claudeMd, "utf-8"));
+    writeFileSync(claudeMd, mangled, "utf-8");
+    trapExit();
+
+    await expect(runSyncHuman({ "accept-new-files": true, yes: true })).rejects.toThrow("exit");
+    const failed = await runSyncJsonFailing({ "accept-new-files": true, yes: true });
+    expect(failed).toMatchObject({ ok: false, reason: "conflicts-detected" });
+    expect(readFileSync(agent, "utf-8")).toBe(edited);
+    expect(readFileSync(claudeMd, "utf-8")).toBe(mangled);
+  });
+
+  it("conflictsBlockYes: block needs a bulk mode, files are answered by the flag", () => {
+    const file = { kind: "file" } as Parameters<typeof conflictsBlockYes>[0][number];
+    const block = { kind: "block" } as Parameters<typeof conflictsBlockYes>[0][number];
+    expect(conflictsBlockYes([file], null, false)).toBe(true); // today's CI gate
+    expect(conflictsBlockYes([file], null, true)).toBe(false);
+    expect(conflictsBlockYes([block, file], null, true)).toBe(true);
+    expect(conflictsBlockYes([block, file], "accept-new", true)).toBe(false);
+    expect(conflictsBlockYes([], null, false)).toBe(false);
+  });
+
+  // Covers: A3 — contradictory combinations exit 1 (human + json).
+  it.each([
+    [{ "keep-mine": true }, "bulk-flags-conflict"],
+    [{ interactive: true }, "bulk-flags-interactive"],
+  ])("--accept-new-files with %j exits 1 with a stable reason", async (flags, reason) => {
+    seedEditedAgent();
+    trapExit();
+    await expect(runSyncHuman({ "accept-new-files": true, ...flags })).rejects.toThrow("exit");
+    const failed = await runSyncJsonFailing({ "accept-new-files": true, ...flags });
+    expect(failed).toMatchObject({ ok: false, reason });
+  });
+
+  it("resolveBulkMode: --accept-new-files combines with --accept-new, rejects --keep-mine/--interactive", () => {
+    const base = { acceptNew: false, keepMine: false, interactive: false };
+    expect(resolveBulkMode({ ...base, acceptNew: true, acceptNewFiles: true })).toEqual({
+      ok: true,
+      mode: "accept-new",
+      acceptFiles: true,
+    });
+    for (const [flag, code] of [
+      ["keepMine", "bulk-flags-conflict"],
+      ["interactive", "bulk-flags-interactive"],
+    ] as const) {
+      const r = resolveBulkMode({ ...base, [flag]: true, acceptNewFiles: true });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reasonCode).toBe(code);
+    }
+  });
+
+  // Covers: scope — markerless files are never swept by the flag.
+  it("a markerless user-edited plugin script is reported resolvable:'none' and left untouched", async () => {
+    seedEditedAgent({ jscpd: { enabled: true } });
+    const script = join(cwd, ".claude/scripts/check-jscpd.sh");
+    const markerless = `${readFileSync(script, "utf-8")
+      .split("\n")
+      .filter((l) => !l.includes("navori:managed"))
+      .join("\n")}\n# user line\n`;
+    writeFileSync(script, markerless, "utf-8");
+
+    const out = await runSyncJson({ "accept-new-files": true, apply: true });
+
+    expect(readFileSync(script, "utf-8")).toBe(markerless);
+    const left = out.conflicts.filter((c) => c.resolvable === "none");
+    expect(left.some((c) => c.path.includes("check-jscpd.sh"))).toBe(true);
+  });
+
+  // Covers: I1 — anti-rollback holds through the flag.
+  it("a block from a NEWER navori edited by hand is never overwritten by the flag", async () => {
+    const { agent } = seedEditedAgent();
+    const newer = readFileSync(agent, "utf-8").replace(/version="[^"]*"/, 'version="999.0.0"');
+    writeFileSync(agent, newer, "utf-8");
+
+    const out = await runSyncJson({ "accept-new-files": true, apply: true });
+
+    expect(readFileSync(agent, "utf-8")).toBe(newer);
+    expect(out.conflicts.some((c) => c.path.includes(agent.split("/").pop()!))).toBe(false);
   });
 });
