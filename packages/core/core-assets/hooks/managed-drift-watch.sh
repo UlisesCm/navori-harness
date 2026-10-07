@@ -163,7 +163,7 @@ navori_audit_reached_check=0
 navori_audit_on_exit() {
   navori_audit_code=$?
   if [ "$navori_audit_code" -eq 2 ]; then
-    navori_audit_log "dirty" "bloque managed con hash desalineado"
+    navori_audit_log "dirty" "bloque managed con hash desalineado" advisory
   elif [ "$navori_audit_reached_check" -eq 1 ]; then
     navori_audit_log "clean"
   else

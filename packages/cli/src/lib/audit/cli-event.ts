@@ -8,6 +8,7 @@ import {
 } from "./discovery.ts";
 import {
   canonicalAuditMetadata,
+  isHookReason,
   normalizeOutcome,
   AUDIT_READ_LIMITS,
   type ChildSourceRegistration,
@@ -575,8 +576,8 @@ function metadataEvent(value: unknown): MetadataScalars | null {
       out.tool = value.tool;
     }
     if (value.reason !== undefined) {
-      if (value.reason !== "unspecified") return null;
-      out.reason = "unspecified";
+      if (!isHookReason(value.reason)) return null;
+      out.reason = value.reason;
     }
   }
   return Buffer.byteLength(JSON.stringify(out)) <= 2048 ? out : null;

@@ -1,4 +1,4 @@
-# navori:managed start id="plan-gate-base" hash="6e7fee4b" version="0.11.2" source="@navori/core"
+# navori:managed start id="plan-gate-base" hash="35e91150" version="0.11.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Agent) gate — spec 0032 (#1011), R16/R17/R19: while
@@ -140,6 +140,11 @@ navori_audit_record_metadata() {
 }
 
 # Only closed categories and bounded technical identifiers cross this bridge.
+# Args: verdict, reason, kind. `reason` is recorded only when it is one of the
+# allowlisted codes below (mirrored by HOOK_REASON_CODES in lib/audit/model.ts,
+# pinned by a drift test); any other non-empty text is stored as "unspecified".
+# `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
+# explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
   [ "${navori_audit_on:-0}" = 1 ] || return 0
   command -v jq >/dev/null 2>&1 || return 0
@@ -163,8 +168,11 @@ navori_audit_log() {
      agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
      + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
-     + (if $reason != "" then {reason:"unspecified"} else {} end)
-     + (if (["hard","ask","advisory"]|index($kind)) != null then {kind:$kind} else {} end)' 2>/dev/null) || return 0
+     + (if $reason == "" then {}
+        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable"]|index($reason)) != null then {reason:$reason}
+        else {reason:"unspecified"} end)
+     + (($kind | if . == "" then (if $verdict == "block" then "hard" elif $verdict == "ask" then "ask" else "" end) else . end) as $k
+        | if (["hard","ask","advisory"]|index($k)) != null then {kind:$k} else {} end)' 2>/dev/null) || return 0
   navori_audit_record_metadata "$navori_audit_metadata"
   return 0
 }
@@ -183,7 +191,7 @@ trap navori_audit_on_exit EXIT
 
 if ! command -v navori >/dev/null 2>&1; then
   navori_audit_verdict="block"
-  navori_audit_reason="binary missing from PATH"
+  navori_audit_reason="binary-missing"
   echo "[navori] BLOCKED by plan-gate: navori is not installed or not on PATH — install it before dispatching a planned implementer." >&2
   exit 2
 fi
@@ -194,12 +202,12 @@ case "$navori_exit" in
   0) exit 0 ;;
   2)
     navori_audit_verdict="block"
-    navori_audit_reason="plan gate denied the dispatch"
+    navori_audit_reason="plan-denied"
     exit 2
     ;;
   *)
     navori_audit_verdict="block"
-    navori_audit_reason="plan subcommand unavailable, exit $navori_exit"
+    navori_audit_reason="subcommand-unavailable"
     echo "[navori] BLOCKED by plan-gate: this navori build has no working 'plan' subcommand (exit $navori_exit) — update navori (or run 'navori render --apply' after updating) before dispatching a planned implementer." >&2
     exit 2
     ;;

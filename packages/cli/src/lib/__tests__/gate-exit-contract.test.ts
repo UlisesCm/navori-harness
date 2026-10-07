@@ -837,3 +837,72 @@ describe.runIf(runsBash && hasJq)("navori_can_ask only asks where the prompt sho
     expect(out.stdout).toBe("");
   });
 });
+
+describe.runIf(runsBash && hasJq)("audit kind and reason code on every block (#1117)", () => {
+  const GUARD_SRC = resolve(getCoreRoot(), "core-assets/hooks/guard-destructive.sh");
+  const guardScript = (dir: string): string => {
+    const script = join(dir, "src-guard.sh");
+    writeFileSync(
+      script,
+      interpolate(
+        expandHookIncludes(readFileSync(GUARD_SRC, "utf-8")),
+        { branchBase: "main", preset: "custom" } as unknown as NavoriConfig,
+        {},
+      ),
+    );
+    return script;
+  };
+  const runGuard = (command: string): AskRun => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-1117-guard-")));
+    const binDir = join(dir, "fakebin");
+    mkdirSync(binDir);
+    return runAsk("bash", dir, binDir, guardScript(dir), "hook.sh", HOOK_PAYLOAD(dir, command));
+  };
+  /** A minimal hook that only calls the shared recorder, so the partial is tested alone. */
+  const runRecorder = (verdict: string, reason: string, kind = ""): AskRun => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-1117-rec-")));
+    const binDir = join(dir, "fakebin");
+    mkdirSync(binDir);
+    const script = join(dir, "src-rec.sh");
+    writeFileSync(
+      script,
+      expandHookIncludes(
+        [
+          "payload=$(cat)",
+          'navori_audit_name="t"',
+          'navori_audit_phase="PreToolUse"',
+          "# navori:include audit-repo",
+          "# navori:include audit-log",
+          "navori_audit_begin",
+          `navori_audit_log ${shellSingleQuote(verdict)} ${shellSingleQuote(reason)} ${shellSingleQuote(kind)}`,
+          "",
+        ].join("\n"),
+      ),
+    );
+    return runAsk("bash", dir, binDir, script, "hook.sh", HOOK_PAYLOAD(dir));
+  };
+
+  // Covers: A2
+  it("a guard block records kind hard and an allowlisted reason code", () => {
+    const out = runGuard("git commit --no-verify -m x");
+    expect(out.status).toBe(BLOCKS);
+    const row = out.events.find((e) => e.verdict === "block");
+    expect(row?.kind).toBe("hard");
+    expect(row?.reason).toBe("no-verify");
+  });
+
+  // Covers: A2
+  it("derives the kind from the verdict only for block and ask; deny and explicit kinds are untouched", () => {
+    expect(runRecorder("block", "free text").events.at(-1)).toMatchObject({
+      kind: "hard",
+      reason: "unspecified",
+    });
+    expect(runRecorder("ask", "").events.at(-1)).toMatchObject({ kind: "ask" });
+    expect(runRecorder("deny", "").events.at(-1)?.kind).toBeUndefined();
+    expect(runRecorder("allow", "x", "advisory").events.at(-1)?.kind).toBe("advisory");
+    expect(runRecorder("block", "rm-var", "advisory").events.at(-1)).toMatchObject({
+      kind: "advisory",
+      reason: "rm-var",
+    });
+  });
+});

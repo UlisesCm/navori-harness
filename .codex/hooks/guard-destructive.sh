@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="1d271886" version="0.11.2" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="05641740" version="0.11.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -313,6 +313,11 @@ navori_audit_record_metadata() {
 }
 
 # Only closed categories and bounded technical identifiers cross this bridge.
+# Args: verdict, reason, kind. `reason` is recorded only when it is one of the
+# allowlisted codes below (mirrored by HOOK_REASON_CODES in lib/audit/model.ts,
+# pinned by a drift test); any other non-empty text is stored as "unspecified".
+# `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
+# explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
   [ "${navori_audit_on:-0}" = 1 ] || return 0
   command -v jq >/dev/null 2>&1 || return 0
@@ -336,8 +341,11 @@ navori_audit_log() {
      agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
      + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
-     + (if $reason != "" then {reason:"unspecified"} else {} end)
-     + (if (["hard","ask","advisory"]|index($kind)) != null then {kind:$kind} else {} end)' 2>/dev/null) || return 0
+     + (if $reason == "" then {}
+        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable"]|index($reason)) != null then {reason:$reason}
+        else {reason:"unspecified"} end)
+     + (($kind | if . == "" then (if $verdict == "block" then "hard" elif $verdict == "ask" then "ask" else "" end) else . end) as $k
+        | if (["hard","ask","advisory"]|index($k)) != null then {kind:$k} else {} end)' 2>/dev/null) || return 0
   navori_audit_record_metadata "$navori_audit_metadata"
   return 0
 }
@@ -381,7 +389,8 @@ block() {
   # may come between the decision and `exit 2`. The recording happens in the
   # trap, after the exit is already committed.
   navori_audit_verdict="block"
-  navori_audit_reason="$1"
+  # $2: allowlisted audit reason code; user-section callers pass none.
+  navori_audit_reason="${2:-unspecified}"
   exit 2
 }
 
@@ -443,7 +452,7 @@ CMD_MAX=131072
 LINE_MAX=4096
 HEREDOC_PROBE_MAX=64
 if [ "${#cmd}" -gt "$CMD_MAX" ]; then
-  block "command too large to inspect (${#cmd} chars > ${CMD_MAX}) — nothing in it was evaluated"
+  block "command too large to inspect (${#cmd} chars > ${CMD_MAX}) — nothing in it was evaluated" oversize
 fi
 
 # Pre-expanded newline, shared by the inert-content pass and the segment split.
@@ -539,7 +548,7 @@ while [ "$_hd_scan" = 1 ] && IFS= read -r _line; do
   # whole extra pass over the command on the way in.
   _hd_lines=$((_hd_lines + 1))
   if [ "$_hd_lines" -gt "$LINE_MAX" ]; then
-    block "too many lines to inspect (> ${LINE_MAX}) — nothing in it was evaluated"
+    block "too many lines to inspect (> ${LINE_MAX}) — nothing in it was evaluated" oversize
   fi
   if [ -n "$_hd_delim" ]; then
     # Inside a heredoc body. The terminator is compared whitespace-trimmed (a
@@ -579,7 +588,7 @@ while [ "$_hd_scan" = 1 ] && IFS= read -r _line; do
   # verdict is `block`, not silence.
   _hd_probes=$((_hd_probes + 1))
   if [ "$_hd_probes" -gt "$HEREDOC_PROBE_MAX" ]; then
-    block "too many heredoc openers to inspect (> ${HEREDOC_PROBE_MAX}) — nothing in it was evaluated"
+    block "too many heredoc openers to inspect (> ${HEREDOC_PROBE_MAX}) — nothing in it was evaluated" oversize
   fi
   # Heredoc opener? The probe marks the DELIMITER's own quotes first, then drops
   # every other quoted span, so `cat <<'EOF'` is told apart from a `<<` inside a
@@ -860,7 +869,7 @@ git_cp='(^|[[:space:]]|[;&|])git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:spa
 #    flag carrying an `n` ANYWHERE later in the line was read as the commit's.
 if printf '%s' "$segments"            | grep -qE "${git_cp}.*--no-verify" \
   || printf '%s' "$segments_unquoted" | grep -qE "${git_cp}.*[[:space:]]-[a-zA-Z]*n[a-zA-Z]*([[:space:]]|\$)"; then
-  block "git commit/push with --no-verify (skipping hooks/gates)"
+  block "git commit/push with --no-verify (skipping hooks/gates)" no-verify
 fi
 
 # 2. Force-push to the base branch. force-with-lease is allowed (safe rebase
@@ -882,7 +891,7 @@ if [ -n "$push_seg" ] \
   && printf '%s' "$push_seg" | grep -qE '(--force([[:space:]]|$)|[[:space:]]-f([[:space:]]|$)|[[:space:]]\+[^[:space:]])' \
   && ! printf '%s' "$push_seg" | grep -qE 'force-with-lease' \
   && printf '%s' "$push_seg" | grep -qE "(^|[[:space:]+/])${base}([[:space:]]|\$)"; then
-  block "force-push to the base branch '${base}'"
+  block "force-push to the base branch '${base}'" force-push-base
 fi
 
 # 3. rm -rf with variable indirection or absolute home/system roots that static
@@ -1055,7 +1064,7 @@ if printf '%s' "$segments_rm" \
   | grep -qE "${rm_run_rec}${rm_quote}${rm_var}" \
   || printf '%s' "$segments_rm" \
   | grep -qE "${rm_run_post}"; then
-  block "recursive rm over a variable / root / home"
+  block "recursive rm over a variable / root / home" rm-var
 fi
 
 # 3b. `--no-preserve-root` is an aggravating factor on its own (#509): it exists
@@ -1072,18 +1081,18 @@ fi
 #     that merely quotes it was already elided into `live` and never gets here.
 if printf '%s' "$segments" \
   | grep -qE "(^|[[:space:]])rm[[:space:]](.*[[:space:]])?${rm_quote}--no-preserve-root${rm_quote}([[:space:]]|\$)"; then
-  block "rm --no-preserve-root (disarms rm's own root protection)"
+  block "rm --no-preserve-root (disarms rm's own root protection)" no-preserve-root
 fi
 
 # 4. Fork bomb. Reads `live`, not `scan`: FIX C turns `(` into a space, which
 #    would defuse the very pattern this rule looks for.
 if printf '%s' "$live" | grep -qE ':\(\)[[:space:]]*\{[[:space:]]*:\|:'; then
-  block "fork bomb"
+  block "fork bomb" fork-bomb
 fi
 
 # 5. Writing to a raw block device (wipes a disk/partition).
 if printf '%s' "$live" | grep -qE '(of=/dev/(sd|nvme|disk|hd)|>[[:space:]]*/dev/(sd|nvme|disk|hd))'; then
-  block "direct write to a block device"
+  block "direct write to a block device" block-device
 fi
 
 # 6. Shell rewrites of a file navori MAINTAINS (#530). In auto mode every edit
@@ -1148,7 +1157,7 @@ managed_rewrite_msg="shell rewrite of a navori-managed file — edit the source 
 if printf '%s' "$scan" | grep -qiE "(^|[^>])>\|?[[:space:]]*(\./)?${managed_path}([[:space:]]|\$)" \
   || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])sed[[:space:]]+(-[a-zA-Z]*i[a-zA-Z]*[^[:space:]]*|--in-place)([[:space:]]|=).*${managed_path}" \
   || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*(\./)?${managed_path}([[:space:]]|\$)"; then
-  block "$managed_rewrite_msg"
+  block "$managed_rewrite_msg" managed-rewrite
 fi
 
 # 6b (#1034). The `>`/`>|`/`tee` arms above only ever match a BARE or
@@ -1209,7 +1218,7 @@ if [ -n "${nv_project_dir:-}" ]; then
   abs_managed_path="[\"']?(${cpd_literal}|${unresolved_prefix})[\"']?/${managed_path}[\"']?"
   if printf '%s' "$scan" | grep -qiE "(^|[^>])>\|?[[:space:]]*${abs_managed_path}([[:space:]]|\$)" \
     || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*${abs_managed_path}([[:space:]]|\$)"; then
-    block "$managed_rewrite_msg"
+    block "$managed_rewrite_msg" managed-rewrite
   fi
 fi
 # navori:managed end id="guard-destructive-base"

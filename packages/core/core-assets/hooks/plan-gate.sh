@@ -67,7 +67,7 @@ trap navori_audit_on_exit EXIT
 
 if ! command -v navori >/dev/null 2>&1; then
   navori_audit_verdict="block"
-  navori_audit_reason="binary missing from PATH"
+  navori_audit_reason="binary-missing"
   echo "[navori] BLOCKED by plan-gate: navori is not installed or not on PATH — install it before dispatching a planned implementer." >&2
   exit 2
 fi
@@ -78,12 +78,12 @@ case "$navori_exit" in
   0) exit 0 ;;
   2)
     navori_audit_verdict="block"
-    navori_audit_reason="plan gate denied the dispatch"
+    navori_audit_reason="plan-denied"
     exit 2
     ;;
   *)
     navori_audit_verdict="block"
-    navori_audit_reason="plan subcommand unavailable, exit $navori_exit"
+    navori_audit_reason="subcommand-unavailable"
     echo "[navori] BLOCKED by plan-gate: this navori build has no working 'plan' subcommand (exit $navori_exit) — update navori (or run 'navori render --apply' after updating) before dispatching a planned implementer." >&2
     exit 2
     ;;
