@@ -324,6 +324,53 @@ rango no excluya sesiones por truncado, recalcular la base T9 con el minero vige
 ambas ventanas), medir la banda de ruido con dos ventanas base consecutivas y comparar una ventana
 posterior a la de R41 con n ≥ 100.
 
+### Actualización 2026-10-07 — R43 cerrado como no evaluable (#1177)
+
+R43 se cierra **sin veredicto: no evaluable**. Los criterios pre-registrados no cambian y no se
+declara éxito ni fallo.
+
+**Defectos del minero encontrados y corregidos en `fix/1177-audit-range-metrics`:**
+
+1. **El recorte de texto libre contaba como pérdida.** El recorte de visualización y los registros
+   que superaban el tope se marcaban como pérdida y degradaban toda la evidencia a `partial`. Ahora
+   el recorte no es pérdida y los registros grandes se proyectan conservando `usage` y `tool_use`
+   (`db95a7f2`, `7d47a938`).
+2. **Tipos de registro 2.1.29x no reconocidos.** `mode`, `atis-latch`, `ai-title`,
+   `file-history-delta`, `cost-state`, `continued-in`, `agent-name` y el bloque `tool_reference`
+   caían fuera de la lista permitida (`473e8c05`).
+3. **El descubrimiento agotaba el presupuesto compartido.** El escaneo de rutas del host y las vistas
+   de log consumían unos 46k de los 100k hechos antes de parsear; ahora usan un pool propio
+   (`975b3d48`, `7d47a938`).
+4. **`identity-conflict` espurio.** Los hilos hijos de Codex (`session_id` = raíz del árbol,
+   `parent_thread_id` presente) y los transcripts de solo títulos marcaban la población del host como
+   incompleta (`d286a9f2`).
+
+**Antes y después sobre la ventana de R41 (2026-10-04..2026-10-07):**
+
+| Métrica | Antes | Después |
+| --- | --- | --- |
+| `coverage0` | `null` (`incomplete-enumeration`) | audited 11 / host 205 / captured 11, ratio 0.0537 |
+| `agent.implementer.launches` | `null` | 9 |
+| `agent.implementer.sessions` | `null` | 3 |
+| `agent.implementer.cacheRead.p50` | `null` | 1,133,553 (n = 9) |
+| `hooks.perBashCall` | `null` | 5.22 (p90 6) |
+
+Antes había 8 agentes `implementer` en disco, 3 transcripts parciales y disponibilidad observada
+0 / parcial 8. Después, los lanzamientos observados son 9/9 y los 3 transcripts quedan en estado
+`observed` (`schemaVersion` 11). Son 9 y no 8 porque la sesión viva ganó un `implementer` entre
+mediciones. Estas cifras son **solo descriptivas**: no hay base contra la cual compararlas.
+
+**Por qué no es evaluable:**
+
+- **La base T9 es irrecuperable.** En disco solo quedan 4 de los 24 transcripts de la base y
+  7 lanzamientos de `implementer`; no se puede recalcular con el minero corregido.
+- **n ≥ 100 es inalcanzable** para la base y para cualquier ventana actual.
+- **Las instantáneas escritas antes de esta corrección subcuentan** (recorte y registros sobre el
+  tope contados como pérdida) y no son válidas para R43.
+
+Los `null` del cierre del 2026-10-06 eran un defecto de entrada (evidencia degradada a `partial`),
+no una compuerta de cobertura. R28 y el disparador de R41 siguen como están.
+
 ## Resultados de las sondas (T2)
 
 Host Claude Code **2.1.287**, `claude -p`, repo scratch. Costo total aproximado: **USD 0.47** (10

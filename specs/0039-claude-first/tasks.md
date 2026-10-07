@@ -274,8 +274,9 @@ Lote 3 (sujeto al gate de T2):
 - [x] **T44** (R28, R43) — `navori audit --compare` contra la instantánea de T9 para
   `hooks.perBashCall` y el cache read de R43; resultado en el doc de T1. Arranca la ventana del
   disparador de R41. · Cerrada sin veredicto de R43: `--compare` espera la 0042 T11 y el
-  presupuesto de lectura trunca el rango (doc de T1, §Cierre T44); la comparación formal sigue en
-  #1177. Ventana de R41 desde `2026-10-04T18:53:45.984Z`.
+  presupuesto de lectura trunca el rango (doc de T1, §Cierre T44). R43 se cierra como no evaluable
+  el 2026-10-07 (#1177): base T9 irrecuperable y n ≥ 100 inalcanzable; medición posterior solo
+  descriptiva (doc de T1, §Actualización 2026-10-07). Ventana de R41 desde `2026-10-04T18:53:45.984Z`.
 
 ## Trazabilidad
 
