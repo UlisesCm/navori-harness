@@ -154,3 +154,41 @@ describe("scanStaleHarness — lo que ningún render vuelve a tocar (spec 0018 R
     expect(scanStaleHarness(cwd, config())).toEqual([]);
   });
 });
+
+describe("scanStaleHarness bajo `root` (spec 0043 R10)", () => {
+  const rootConfig = (engines: string[] = ["claude"]): NavoriConfig =>
+    config({
+      engines,
+      monorepo: {
+        enabled: true,
+        workspaceHarness: "root",
+        workspaces: [{ name: "api", path: "apps/api" }],
+      },
+    } as Partial<NavoriConfig>);
+
+  it("bajo `root`, un resto en `.claude/` del workspace se reporta", () => {
+    // Covers: R10
+    managed("apps/api/.claude/agents/reviewer", "0.8.2");
+    const found = scanStaleHarness(cwd, rootConfig());
+    expect(found).toEqual([
+      expect.objectContaining({
+        path: "apps/api/.claude",
+        reason: "trimmed-workspace",
+        files: 1,
+        frozenAt: "0.8.2",
+      }),
+    ]);
+    // Con Codex activo también se reportan `.codex/` y `.agents/skills`.
+    managed("apps/api/.codex/agents/reviewer", "0.8.2");
+    managed("apps/api/.agents/skills/x/SKILL", "0.8.2");
+    const paths = scanStaleHarness(cwd, rootConfig(["claude", "codex"])).map((h) => h.path);
+    expect(paths).toEqual(["apps/api/.agents/skills", "apps/api/.claude", "apps/api/.codex"]);
+  });
+
+  it("bajo `root`, un workspace sin `.claude/` no reporta nada", () => {
+    // Covers: R10
+    mkdirSync(join(cwd, "apps/api"), { recursive: true });
+    writeFileSync(join(cwd, "apps/api/CONTEXT"), "# api\n");
+    expect(scanStaleHarness(cwd, rootConfig(["claude", "codex"]))).toEqual([]);
+  });
+});

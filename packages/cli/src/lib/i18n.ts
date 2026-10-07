@@ -1079,6 +1079,11 @@ interface DoctorCmdStrings {
   staleHarnessUndeclared: string;
   /** Leftovers a `minimal` workspace no longer owns but navori can't prove it wrote. */
   staleHarnessTrimmed: string;
+  /** Leftover in a workspace under `workspaceHarness: "root"` (spec 0043 R10). */
+  staleHarnessTrimmedRoot: string;
+  /** Note title and text under `workspaceHarness: "full"` (spec 0043 R11). */
+  workspaceFullTitle: string;
+  workspaceFullNote: string;
   /** Note title for `.md` files loose in a skills root (#626). */
   flatSkillsTitle: string;
   /** One loose file: where it is and where it must move to load. */
@@ -2412,6 +2417,11 @@ const CMD_ES: CmdStrings = {
       "Vive en un subdirectorio que el config no declara como workspace, así que el render nunca entra ahí. Decláralo en 'monorepo.workspaces' o bórralo.",
     staleHarnessTrimmed:
       "Sobró del recorte por workspace. navori no lo borra porque un script de plugin no lleva marca de autoría y navori nunca borra lo que no puede probar que escribió: bórralo tú una vez, no vuelve a aparecer.",
+    staleHarnessTrimmedRoot:
+      'Este workspace corre bajo `workspaceHarness: "root"`: desde la raíz nada de esto se lee. `navori render --apply` quita lo que navori escribió sin cambios; lo demás es tuyo — muévelo a la raíz o bórralo.',
+    workspaceFullTitle: "Workspaces con harness completo:",
+    workspaceFullNote:
+      'Bajo `workspaceHarness: "full"` cada workspace lleva hooks, agentes, settings y `.mcp.json` propios, y Claude Code no los usa si la sesión arranca en la raíz. Si arrancas siempre desde la raíz, `"root"` (o el default `"minimal"`) los quita. Es informativo: no cambia el veredicto.',
     flatSkillsTitle: "Skills que no cargan (formato inválido):",
     flatSkillsRow: (path, suggested) => `${path} — muévela a ${suggested}`,
     flatSkillsHint:
@@ -3840,6 +3850,11 @@ const CMD_EN: CmdStrings = {
       "It lives in a subdirectory the config does not declare as a workspace, so the render never goes there. Declare it in 'monorepo.workspaces' or delete it.",
     staleHarnessTrimmed:
       "Left over from the per-workspace trim. navori does not delete it because a plugin script carries no authorship mark, and navori never deletes what it cannot prove it wrote: remove it once and it will not come back.",
+    staleHarnessTrimmedRoot:
+      'This workspace runs under `workspaceHarness: "root"`: nothing here is read from the root. `navori render --apply` removes what navori wrote untouched; the rest is yours — move it to the root or delete it.',
+    workspaceFullTitle: "Workspaces with the full harness:",
+    workspaceFullNote:
+      'Under `workspaceHarness: "full"` each workspace carries its own hooks, agents, settings and `.mcp.json`, and Claude Code does not use them when the session starts at the root. If you always start from the root, `"root"` (or the default `"minimal"`) removes them. Informational: it does not change the verdict.',
     flatSkillsTitle: "Skills that never load (invalid shape):",
     flatSkillsRow: (path, suggested) => `${path} — move it to ${suggested}`,
     flatSkillsHint:

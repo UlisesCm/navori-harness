@@ -20,7 +20,15 @@ import { renderManagedFile } from "../engines/shared/render-managed-file.ts";
 import { pluginScriptManagedId } from "../engines/shared/plugin-scripts.ts";
 import { pluginExtraVars } from "../engines/shared/plugin-extra-vars.ts";
 import { navoriAuthorship } from "../lib/render/removable.ts";
-import { CLAUDE_COMPUTED_BLOCK_IDS, buildDesiredMcpServers } from "../engines/claude/index.ts";
+import {
+  CLAUDE_COMPUTED_BLOCK_IDS,
+  buildDesiredMcpServers,
+  planClaudeSkills,
+} from "../engines/claude/index.ts";
+import { decideClaudeWorkspaceSkills } from "../engines/claude/workspace-decision.ts";
+import { planCodexSkills } from "../engines/codex/index.ts";
+import { decideCodexWorkspaceSkills } from "../engines/codex/workspace-decision.ts";
+import { isTrimmedHarness } from "../engines/shared/workspace-skills.ts";
 import { getCoreRoot, readCliVersion } from "../lib/render/bundled-assets.ts";
 import { isPlainObject } from "../engines/claude/coexist-settings.ts";
 import {
@@ -342,6 +350,8 @@ export const doctorCommand = defineCommand({
     // Spec 0018 R6: harness that no render will refresh again. Advisory and
     // read-only — reporting is the whole contract, navori never touches these.
     const staleHarness = scanStaleHarness(cwd, config);
+    // Spec 0043 R11: informational only — it feeds neither the verdict nor the exit code.
+    const workspaceFullHarness = scanWorkspaceFullHarness(config);
     const engineInventory = buildEngineInventory(config, cwd);
     const provenance = buildDoctorProvenance(cwd);
     const engineEvidence = buildEngineEvidence(config, cwd);
@@ -478,6 +488,7 @@ export const doctorCommand = defineCommand({
       distribution,
       workspaceDrift,
       staleHarness,
+      workspaceFullHarness,
       flatSkills,
       foreignSkillIndexes,
       globalScope,
@@ -492,11 +503,12 @@ export const doctorCommand = defineCommand({
       // the text output so a piped check ($navori doctor --json --strict)
       // fails the build the same way the human-readable run would. `!verdict.ok`
       // is exactly the hard-issue set (#244).
+      // `exitCode`, not `process.exit`: the report is large (spec 0043 grew it past
+      // a pipe's 64 KB), and exiting at once truncates whatever stdout still holds.
       if (!verdict.ok) {
-        process.exit(2);
-      }
-      if (isStrictModeFailure(Boolean(args.strict), drifts, mcpCoherenceIssues)) {
-        process.exit(1);
+        process.exitCode = 2;
+      } else if (isStrictModeFailure(Boolean(args.strict), drifts, mcpCoherenceIssues)) {
+        process.exitCode = 1;
       }
       return;
     }
@@ -1220,9 +1232,16 @@ export const doctorCommand = defineCommand({
       const rows = staleHarness.map(
         (h) =>
           `  ${color.yellow(sym.update)} ${td.staleHarnessRow(accent(h.path), h.files, h.frozenAt)}\n` +
-          `      ${grey(h.reason === "undeclared-workspace" ? td.staleHarnessUndeclared : td.staleHarnessTrimmed)}`,
+          `      ${grey(staleHarnessExplanation(h, td))}`,
       );
       p.note(rows.join("\n"), td.staleHarnessTitle);
+    }
+
+    // Spec 0043 R11. Under `full` the workspaces carry hooks, agents, settings and
+    // `.mcp.json` that a session started at the root never reads: worth saying once,
+    // because nothing else tells a team it is paying for files it cannot use.
+    if (workspaceFullHarness) {
+      p.note(`  ${color.cyan(sym.bullet)} ${grey(td.workspaceFullNote)}`, td.workspaceFullTitle);
     }
 
     // #626. Advisory like its neighbours: an unloadable skill breaks nothing
@@ -2673,7 +2692,12 @@ function scanMissingInvariants(cwd: string, config: NavoriConfig): MissingInvari
   // (spec 0018 R2, default "minimal"). It answers "does THIS workspace's tree even
   // carry agent files", which an invariant that only lives in an injectInto sub-block
   // needs to know (#847).
-  const workspaceMinimalHarness = (config.monorepo?.workspaceHarness ?? "minimal") === "minimal";
+  // Spec 0043 R10: `root` trims the workspace too, so it is a trimmed harness like `minimal`.
+  const workspaceMinimalHarness = isTrimmedHarness(config.monorepo?.workspaceHarness ?? "minimal");
+  // A trimmed workspace does not carry the root's skills (they are identical to
+  // the root's, or live only there), so an invariant that sits in one of them is
+  // found in the root's text: reading the workspace alone would be a false red.
+  const rootText = workspaceMinimalHarness ? readRenderedText(cwd, config) : "";
   for (const ws of enabledMonorepoWorkspaces(config)) {
     const wsCwd = resolve(cwd, ws.path);
     if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
@@ -2683,6 +2707,7 @@ function scanMissingInvariants(cwd: string, config: NavoriConfig): MissingInvari
         effectiveConfigForWorkspace(config, ws),
         ws.path,
         workspaceMinimalHarness,
+        rootText,
       ),
     );
   }
@@ -2698,6 +2723,8 @@ function missingInvariantsAt(
   config: NavoriConfig,
   pathPrefix: string,
   minimalHarness: boolean,
+  /** The root's rendered text, searched too for a trimmed workspace (spec 0043 R10). */
+  rootText = "",
 ): MissingInvariant[] {
   const sources: Array<{ source: string; invariants: string[] }> = [];
   const tag = (s: string): string => (pathPrefix ? `${pathPrefix} · ${s}` : s);
@@ -2753,8 +2780,9 @@ function missingInvariantsAt(
 
   if (sources.length === 0) return [];
 
-  const output = readRenderedText(scanCwd, config);
-  if (output.trim() === "") return []; // nothing rendered yet
+  const ownText = readRenderedText(scanCwd, config);
+  if (ownText.trim() === "") return []; // nothing rendered yet
+  const output = rootText === "" ? ownText : `${ownText}\n${rootText}`;
 
   const missing: MissingInvariant[] = [];
   for (const { source, invariants } of sources) {
@@ -3603,6 +3631,68 @@ function readContextSurface(cwd: string): DocBudgetContextFile[] {
   }
 }
 
+/**
+ * Which skills each location of a monorepo actually carries, per disk engine
+ * (spec 0043 R10): the engine's own plan (`planClaudeSkills`/`planCodexSkills`,
+ * the one producer the render uses) minus what the trim omits from a workspace,
+ * plus what the root writes on the workspaces' behalf. `doctor` judges the tree a
+ * full render would leave, so the decision is taken as if the root were rendered.
+ * `trimmed` says the location is a workspace whose mode drops agents, hooks and
+ * plugin extensions (Claude: `minimal`/`root`; Codex: `root` only).
+ */
+function engineSkillScopes(
+  config: NavoriConfig,
+  cwd: string,
+): (
+  engine: "claude" | "codex",
+  loc: { cwd: string; config: NavoriConfig; path: string },
+) => { ids: string[]; hoisted: string[]; trimmed: boolean } {
+  const mode = config.monorepo?.workspaceHarness ?? "minimal";
+  const claude = decideClaudeWorkspaceSkills(cwd, config, { rootRendered: true });
+  const codex = decideCodexWorkspaceSkills(cwd, config, { rootRendered: true });
+  return (engine, loc) => {
+    const decision = engine === "claude" ? claude : codex;
+    const isWorkspace = loc.path !== ".";
+    const trimmed = isWorkspace && (engine === "claude" ? isTrimmedHarness(mode) : mode === "root");
+    const omitted = trimmed
+      ? (decision.omitted.get(loc.path) ?? new Set<string>())
+      : new Set<string>();
+    const planned =
+      engine === "claude"
+        ? planClaudeSkills(loc.cwd, loc.config, { repoRoot: cwd })
+        : planCodexSkills(loc.cwd, loc.config, { repoRoot: cwd });
+    const hoisted = isWorkspace ? [] : decision.hoisted.map((h) => h.id);
+    return {
+      ids: [...planned.skills.map((s) => s.id).filter((id) => !omitted.has(id)), ...hoisted],
+      hoisted,
+      trimmed,
+    };
+  };
+}
+
+/**
+ * Spec 0043 R11: true when this monorepo declares workspaces and keeps them under
+ * `workspaceHarness: "full"`. Null otherwise, so the note never shows for `minimal`
+ * or `root`, nor outside a monorepo. A fact about the config, not a finding: it
+ * does not count toward the health verdict.
+ */
+export function scanWorkspaceFullHarness(config: NavoriConfig): { workspaces: string[] } | null {
+  const workspaces = enabledMonorepoWorkspaces(config);
+  if (workspaces.length === 0 || config.monorepo?.workspaceHarness !== "full") return null;
+  return { workspaces: workspaces.map((w) => w.path) };
+}
+
+/** Why a frozen directory is reported: the three causes read differently to the person fixing them. */
+function staleHarnessExplanation(
+  h: { reason: "undeclared-workspace" | "trimmed-workspace"; path: string },
+  td: ReturnType<typeof tc>["doctor"],
+): string {
+  if (h.reason === "undeclared-workspace") return td.staleHarnessUndeclared;
+  // `.claude/scripts` is the one leftover navori cannot prove it wrote (a plugin
+  // script carries no authorship mark); anything else is a `root` leftover.
+  return h.path.endsWith("/.claude/scripts") ? td.staleHarnessTrimmed : td.staleHarnessTrimmedRoot;
+}
+
 export interface EngineInventory {
   agents: string[];
   skills: string[];
@@ -3659,12 +3749,15 @@ export function buildEngineInventory(
     acc[engine] = { agents: new Set(), skills: new Set(), scripts: new Set(), hooks: new Set() };
   }
 
-  const locations: Array<{ cwd: string; config: NavoriConfig }> = [{ cwd, config }];
+  const locations: Array<{ cwd: string; config: NavoriConfig; path: string }> = [
+    { cwd, config, path: "." },
+  ];
   for (const ws of enabledMonorepoWorkspaces(config)) {
     const wsCwd = resolve(cwd, ws.path);
     if (!existsSync(wsCwd)) continue; // orphaned workspace — render skips it too
-    locations.push({ cwd: wsCwd, config: effectiveConfigForWorkspace(config, ws) });
+    locations.push({ cwd: wsCwd, config: effectiveConfigForWorkspace(config, ws), path: ws.path });
   }
+  const skillScope = engineSkillScopes(config, cwd);
 
   for (const loc of locations) {
     let preset: ReturnType<typeof loadPreset> = null;
@@ -3683,7 +3776,7 @@ export function buildEngineInventory(
       });
       const bucket = acc[engine]!;
       for (const a of plan.agents) bucket.agents.add(a.id);
-      for (const s of plan.skills) bucket.skills.add(s.id);
+      for (const id of skillScope(engine, loc).ids) bucket.skills.add(id);
       for (const h of plan.hooks) bucket.hooks.add(h.id);
       for (const s of pluginAssets.skills) bucket.skills.add(s);
       for (const s of pluginAssets.scripts) bucket.scripts.add(s);
@@ -3981,6 +4074,7 @@ export function buildEngineEvidence(config: NavoriConfig, cwd: string): EngineEv
     })),
   ];
   const rows: EngineEvidenceRow[] = [];
+  const skillScope = engineSkillScopes(config, cwd);
   for (const loc of locations) {
     let preset: ReturnType<typeof loadPreset> = null;
     if (loc.config.preset && loc.config.preset !== "custom") {
@@ -3993,9 +4087,14 @@ export function buildEngineEvidence(config: NavoriConfig, cwd: string): EngineEv
     const plugins = loadEnabledPlugins(loc.config.plugins).loaded;
     for (const engine of loc.config.engines) {
       if (engine !== "claude" && engine !== "codex") continue;
-      const plan = resolveHarnessPlan(loc.config, coreAssets, preset, {
+      const scope = skillScope(engine, loc);
+      // A trimmed workspace has no agents, hooks, scripts or plugin extensions of its
+      // own: they live at the root, and observing them here would report as `missing`
+      // exactly what the mode omits by design (spec 0043 R10).
+      const wsPlan = resolveHarnessPlan(loc.config, coreAssets, preset, {
         includeOrchestrator: engine === "claude",
       });
+      const plan = scope.trimmed ? { ...wsPlan, agents: [], hooks: [] } : wsPlan;
       const registrationPath = join(
         loc.cwd,
         engine === "claude" ? ".claude/settings.json" : ".codex/config.toml",
@@ -4023,14 +4122,12 @@ export function buildEngineEvidence(config: NavoriConfig, cwd: string): EngineEv
           contract: "agent discovery",
           path: engine === "claude" ? `.claude/agents/${a.id}.md` : `.codex/agents/${a.id}.toml`,
         })),
-        ...plan.skills.map((s) => ({
+        ...scope.ids.map((id) => ({
           kind: "skill" as const,
-          id: s.id,
+          id,
           contract: "skill discovery",
           path:
-            engine === "claude"
-              ? `.claude/skills/${s.id}/SKILL.md`
-              : `.agents/skills/${s.id}/SKILL.md`,
+            engine === "claude" ? `.claude/skills/${id}/SKILL.md` : `.agents/skills/${id}/SKILL.md`,
         })),
         ...plan.hooks.map((h) => ({
           kind: "hook" as const,
@@ -4039,7 +4136,7 @@ export function buildEngineEvidence(config: NavoriConfig, cwd: string): EngineEv
           path: engine === "claude" ? `.claude/hooks/${h.id}.sh` : `.codex/hooks/${h.id}.sh`,
         })),
         ...plugins.flatMap((plugin) =>
-          plugin.skillAssets.map((skill) => ({
+          (scope.trimmed ? [] : plugin.skillAssets).map((skill) => ({
             kind: "skill" as const,
             id: skill.id,
             contract: skill.injectInto ? "plugin managed extension" : "plugin skill discovery",
@@ -4058,7 +4155,7 @@ export function buildEngineEvidence(config: NavoriConfig, cwd: string): EngineEv
           })),
         ),
         ...plugins.flatMap((plugin) =>
-          plugin.scriptAssets.map((script) => ({
+          (scope.trimmed ? [] : plugin.scriptAssets).map((script) => ({
             kind: "script" as const,
             id: script.dest,
             contract: "plugin script reference",
@@ -4067,7 +4164,7 @@ export function buildEngineEvidence(config: NavoriConfig, cwd: string): EngineEv
           })),
         ),
         ...plugins.flatMap((plugin) =>
-          (plugin.manifest.hooks ?? []).map((hook, ordinal) => ({
+          (scope.trimmed ? [] : (plugin.manifest.hooks ?? [])).map((hook, ordinal) => ({
             kind: "hook" as const,
             id: `${plugin.manifest.id}:${hook.event}:${hook.matcher ?? "*"}`,
             contract: "plugin hook registration",

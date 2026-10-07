@@ -17,7 +17,9 @@ import { EPHEMERAL_HARNESS_PATHS } from "../../engines/shared/ephemeral-paths.ts
  *      `packages/cli/.claude/`, frozen at 0.6.5, until it was deleted.
  *
  *   2. `trimmed-workspace` — `.claude/scripts/` left inside a DECLARED
- *      workspace after `workspaceHarness: "minimal"` stopped writing it. The
+ *      workspace after `workspaceHarness: "minimal"` stopped writing it (and,
+ *      under `"root"`, anything left in its `.claude/`, `.codex/` or
+ *      `.agents/skills`, spec 0043 R10). The
  *      render deliberately does not delete these: a plugin script is the one
  *      file navori generates without a proof of authorship (`scriptAssets` has
  *      no `managedId`, unlike hooks/agents/skills), and navori never deletes
@@ -171,10 +173,23 @@ export function scanStaleHarness(cwd: string, config: NavoriConfig): StaleHarnes
   }
 
   // The trimmed leftovers live INSIDE a declared workspace, so the loop above
-  // skipped them by design.
-  if (config.monorepo?.workspaceHarness === "minimal") {
-    for (const ws of workspaces) {
-      const rel = join(ws.path, ".claude", "scripts").replace(/\\/g, "/");
+  // skipped them by design. Under `minimal` only `.claude/scripts` is never
+  // reconciled; under `root` (spec 0043) the workspace keeps its context file and
+  // nothing else, so anything left in its `.claude/` — and, with the Codex engine,
+  // its `.codex/` and `.agents/skills` — is a leftover the mode no longer writes.
+  const mode = config.monorepo?.workspaceHarness;
+  const leftovers =
+    mode === "root"
+      ? [
+          ".claude",
+          ...((config.engines ?? []).includes("codex") ? [".codex", ".agents/skills"] : []),
+        ]
+      : mode === "minimal"
+        ? [".claude/scripts"]
+        : [];
+  for (const ws of workspaces) {
+    for (const leftover of leftovers) {
+      const rel = join(ws.path, leftover).replace(/\\/g, "/");
       if (!existsSync(join(cwd, rel))) continue;
       const survey = surveyDir(join(cwd, rel));
       if (survey.files === 0) continue;
