@@ -73,16 +73,16 @@ Estimated LOC: 1200
 - **A7** — topes de palabras y presupuesto always-on ·
   `bun run check:doc-budgets`
   → exit 0
-- [ ] **T10** (R10, R15) — bloque `sdd`, skill `spec-bootstrap` (entregas, milestones, tareas en
+- [x] **T10** (R10, R15) — bloque `sdd`, skill `spec-bootstrap` (entregas, milestones, tareas en
   lugar de lotes) y bloque `orquestacion` (ciclo acotado = `qualityGate.fast` + `A<n>`, gate
   completo una vez por PR, `navori receipt gate`); una línea en `planificacion` para el workplan
   por entrega · effect: behavior · test: `engines/__tests__/render-engine.test.ts`::"anclas sdd y
   orquestacion"
-- [ ] **T11** (R16, R17, R26) — `reviewer` (encargo `spec: <spec> E<n> M<n>`, `receipt gate`,
+- [x] **T11** (R16, R17, R26) — `reviewer` (encargo `spec: <spec> E<n> M<n>`, `receipt gate`,
   ciclo de cierre con el diff completo de la entrega) y `publisher` (`mode: commit-only` antes
   de "PR flow"), con topes de palabras justificados en el frontmatter · effect: behavior · test:
   `engines/__tests__/render-engine.test.ts`::"commit-only antes de PR flow"
-- [ ] **T12** (R18, R19, R23) — `publisher`: PR por entrega con `Spec-Delivery:`, orden con
+- [x] **T12** (R18, R19, R23) — `publisher`: PR por entrega con `Spec-Delivery:`, orden con
   `git merge-base --is-ancestor`, `Refs`/`Closes` y aviso cuando `prTarget` no es la branch por
   defecto; fila `flow:spec-delivery-publication` en la matriz de solapamiento · effect: behavior
   · test: `engines/__tests__/render-codex.test.ts`::"anclas de entrega" y

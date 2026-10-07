@@ -446,6 +446,7 @@ describe("OVERLAP_ROWS coverage (one row per distributed unit)", () => {
     "native-task-list",
     "native-workflows",
     "nested-agent-dispatch",
+    "spec-delivery-publication",
   ]);
 
   // Covers: R2, R3, R57
@@ -470,11 +471,25 @@ describe("OVERLAP_ROWS coverage (one row per distributed unit)", () => {
         "native-task-list",
         "native-workflows",
         "nested-agent-dispatch",
+        "spec-delivery-publication",
       ].sort(),
     );
     const nested = OVERLAP_ROWS.find((r) => r.unit.id === "nested-agent-dispatch");
     expect(nested?.engines.claude).toBe("emit");
     expect(nested?.engines.codex).toBe("unsupported");
+  });
+
+  // Covers: R23
+  it("spec-delivery: a flow row declares what differs on Codex without claiming enforcement", () => {
+    const row = OVERLAP_ROWS.find((r) => r.unit.id === "spec-delivery-publication");
+    expect(row?.unit.kind).toBe("flow");
+    expect(row?.engines.claude).toBe("emit");
+    expect(row?.engines.codex).toBe("emit");
+    expect(row?.codexParity.state).toBe("equivalente");
+    if (row?.codexParity.state !== "equivalente") throw new Error("expected equivalente");
+    expect(row.codexParity.enforcing).toBe(false);
+    expect(row.codexParity.mechanism).toContain("gh pr create");
+    expect(row.codexParity.difference).toContain("gh pr list");
   });
 
   // Covers: R1, R3

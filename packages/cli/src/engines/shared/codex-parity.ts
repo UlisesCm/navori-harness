@@ -779,6 +779,13 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
         true,
       ),
     ],
+    [
+      "flow:spec-delivery-publication",
+      equivalente(
+        "the publisher prose renders to both engines; on Codex the user confirms each `gh pr create` per delivery (deny-as-confirmation of pr-publisher-confirm)",
+        "the secondary delivery-order check with `gh pr list` is confirmed or run by the user; the plan gate is advisory on Codex",
+      ),
+    ],
     // Permission rules.
     ...permissionRuleEntries(),
   ]),

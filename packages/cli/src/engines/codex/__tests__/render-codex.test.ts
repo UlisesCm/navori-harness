@@ -1520,3 +1520,26 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
     );
   });
 });
+
+// Covers: R18, R19, R23, R26
+it("anclas de entrega", () => {
+  const cwd = tempRepo();
+  renderCodexEngine(cwd, config());
+  const publisher = readFileSync(join(cwd, ".codex/agents/publisher.toml"), "utf-8");
+  const reviewer = readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8");
+  const agentsMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+  for (const anchor of [
+    "Spec-Delivery: <spec> E<n>/<total>",
+    "git merge-base --is-ancestor",
+    "Refs #<issue>",
+    "Closes #<issue>",
+    "mode: commit-only",
+  ]) {
+    expect(publisher).toContain(anchor);
+  }
+  expect(publisher.indexOf("mode: commit-only")).toBeLessThan(publisher.indexOf("## PR flow"));
+  expect(reviewer).toContain("spec: <spec> E<n> M<n>");
+  expect(reviewer).toContain("navori receipt gate");
+  expect(agentsMd).toContain("spec: <spec> E<n> M<n>");
+  expect(agentsMd).toContain("deliveries `E<n>`");
+});

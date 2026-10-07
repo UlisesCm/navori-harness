@@ -1,4 +1,4 @@
-<!-- navori:managed id="planificacion" hash="7f18ad34" version="0.11.2" source="@navori/core" -->
+<!-- navori:managed id="planificacion" hash="305f971c" version="0.11.2" source="@navori/core" -->
 ## Planning tiers — classified, never chosen
 
 Before planning, write the draft `.navori/state/handoffs/workplan_<feature>.json` (files, signals) and
@@ -9,7 +9,7 @@ run `navori plan classify <feature>`. The level comes from that command, never j
 | 0 | score ≤ 3, one non-trivial file at most, no floor | encargo opens with `nivel-0: <path>` |
 | 1 | everything below level 2 — the default | `plan render` → `plan check` green → user approval; encargo opens with `workplan: <feature>`. Skill `plan-simple` |
 | 2 | score ≥ 8, or a floor: money/credentials/PII, 2+ repos, new dependency, shared contract, migration | `architect` → `auditor` challenge → user picks → your verdict → level-2 workplan. Skill `plan-advanced` |
-| 3 | user accepted a spec | `specs/<feature>/tasks.md`. Skill `spec-bootstrap` |
+| 3 | user accepted a spec | `specs/<feature>/tasks.md`. Skill `spec-bootstrap`. One workplan per delivery (`<spec>-e<n>`, phases = milestones); see `orquestacion`. |
 
 - Tell the user the level, score and breakdown in ≤ 4 lines. The user may raise the level; refuse
   to lower it when a floor applies, naming it.
