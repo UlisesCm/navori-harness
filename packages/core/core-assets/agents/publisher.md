@@ -119,7 +119,7 @@ Never open the PR with the gate red.
 4. If you touch potentially sensitive files (`.env*`, credentials, odd lockfiles), **flag the user before staging**.
 5. `git add <files>` (prefer explicit over `git add -A`).
 6. `git commit -m "..."` with a HEREDOC for the body if applicable.
-7. Validate with `git status` that the commit landed. Foreign modified files are reported as an observation and never discarded, restored or reverted.
+7. Validate with `git status` that the commit landed. If it failed, stop with `git status` + `git log -1 --stat`; recovery is the orchestrator's or the user's call. Foreign modified files are reported as an observation and never discarded, restored or reverted.
 8. **Consume the receipt:** `mv -f .navori/state/handoffs/receipt.txt .navori/state/handoffs/receipt.consumed.txt`. The approval is now frozen into the commit; renaming it (instead of deleting it) keeps the evidence on disk without it being rearmed — a plain `check` never reads a consumed receipt again, only the opt-in flag documented in `cierre-sesion.md` does.
 
 ## PR flow
@@ -255,6 +255,7 @@ wc -c CLAUDE.md                                  # after
 
 - ❌ A stop report (gate red, missing review, protected branch, etc.) is the last action of this cycle. Do not continue investigating, re-running the gate, or calling `git`/`gh` after emitting it. If flaky, the next invocation decides.
 - ❌ Never write to project files through Bash (redirections, sed -i, tee, interpreter one-liners, git checkout or restore of files). When a hook blocks, the stop report is the last action; the fix is not yours.
+- ❌ Never rewrite history: no git reset in any mode, no commit --amend, no rebase. A commit that lands wrong is a stop report with `git status` + `git log -1 --stat`; recovery is the orchestrator's or the user's call.
 - ❌ Never push with `--force` to `{{branchBase}}` or another protected branch.
 - ❌ Never skip hooks (`--no-verify`) unless the user explicitly asks.
 - ❌ Never ask for a merge / approve the PR yourself. Your job ends with the URL.
