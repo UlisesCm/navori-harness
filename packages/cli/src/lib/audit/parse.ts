@@ -234,6 +234,13 @@ function validSourceRecord(rec: Rec, source: SourceHealth["source"]): boolean {
         "file-history-snapshot",
         "progress",
         "last-prompt",
+        // Claude Code 2.1.29x service records: no measurement-bearing blocks.
+        "mode",
+        "atis-latch",
+        "ai-title",
+        "file-history-delta",
+        "cost-state",
+        "continued-in",
       ].includes(rec.type) &&
       (rec.message === undefined ||
         (isRec(rec.message) &&

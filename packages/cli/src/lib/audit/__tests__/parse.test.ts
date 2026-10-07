@@ -3572,4 +3572,63 @@ describe("parse: Claude 2.1.29x transcripts clip content without losing measurem
     });
     expect(normalizeAuditRecord(record, "audit-log").value).toBeNull();
   });
+
+  // Covers: R6, R21
+  it("observes a 2.1.29x transcript: long text, big tool_use, service types, subagents", () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-cc29x-"));
+    const file = join(dir, "session.jsonl");
+    const subagents = join(dir, "session", "subagents");
+    mkdirSync(subagents, { recursive: true });
+    for (const id of ["a1", "a2"])
+      writeFileSync(
+        join(subagents, `agent-${id}.jsonl`),
+        `${JSON.stringify({ type: "assistant", agentId: id, message: { id: `s${id}`, usage: usage(1), content: [] } })}\n`,
+      );
+    const big = (i: number): unknown => ({
+      type: "assistant",
+      diagnostics: Object.fromEntries(
+        Array.from({ length: 100 }, (_, k) => [`k${k}`, "y".repeat(60)]),
+      ),
+      message: {
+        id: `m${i}`,
+        usage: usage(i),
+        content: [
+          { type: "thinking", thinking: "t".repeat(3000) },
+          { type: "text", text: "u".repeat(3000) },
+          { type: "tool_use", id: `tu${i}`, name: "Bash", input: { command: "ls" } },
+        ],
+      },
+    });
+    const service = [
+      "mode",
+      "atis-latch",
+      "ai-title",
+      "file-history-delta",
+      "cost-state",
+      "continued-in",
+    ].map((type) => ({ type }));
+    writeFileSync(
+      file,
+      [
+        {
+          type: "attachment",
+          attachment: { content: "z".repeat(9000), lines: Array(500).fill("l") },
+        },
+        ...service,
+        big(1),
+        big(2),
+        big(3),
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n") + "\n",
+    );
+    const session = parseSession(file);
+    expect(session.sources?.transcript).toMatchObject({
+      state: "observed",
+      normalizedOmissions: 0,
+    });
+    expect(session.agents).toHaveLength(2);
+    expect(session.orchestrator.tokens.input).toBe(6);
+    expect(session.orchestrator.toolCounts.Bash).toBe(3);
+  });
 });
