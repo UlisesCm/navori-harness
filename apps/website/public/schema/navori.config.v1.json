@@ -686,10 +686,12 @@
         },
         "workspaceHarness": {
           "default": "minimal",
+          "description": "How much harness each workspace gets. minimal (default): its context file plus the skills the root does not already have. full: everything, as before. root: only its context file; the root also writes the workspaces' library and preset skills. Requires a navori that knows `root` on every machine and in CI.",
           "type": "string",
           "enum": [
             "minimal",
-            "full"
+            "full",
+            "root"
           ]
         }
       },

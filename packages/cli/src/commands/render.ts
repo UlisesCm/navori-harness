@@ -17,10 +17,13 @@ import {
 import { createBackup, purgeOldBackups } from "../lib/render/backup.ts";
 import type { AssetPlanEntry, UpdateAvailable } from "../lib/render/render-plan.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
+import { decideClaudeWorkspaceSkills } from "../engines/claude/workspace-decision.ts";
+import { isTrimmedHarness } from "../engines/shared/workspace-skills.ts";
 import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
 import { renderCursorEngine } from "../engines/cursor/index.ts";
 import { renderCopilotEngine } from "../engines/copilot/index.ts";
 import { renderCodexEngine } from "../engines/codex/index.ts";
+import { decideCodexWorkspaceSkills } from "../engines/codex/workspace-decision.ts";
 import { renderPiEngine } from "../engines/pi/index.ts";
 import { resolveCodexHooks, minCodexVersion } from "../engines/codex/hook-registrations.ts";
 import { readCodexTrustState } from "../lib/codex/trust.ts";
@@ -109,6 +112,22 @@ const WORKSPACE_TRIMMED_PATHS = [
 ] as const;
 
 /**
+ * The directories a trimmed workspace may be left with EMPTY once its generated
+ * files are gone (spec 0043 F13): Claude's under `minimal` and `root`, and, under
+ * `root` with the Codex engine, Codex's too — `minimal` leaves the Codex tree as
+ * it was, so it never sweeps there. `removeEmptyDirs` only takes what is empty.
+ */
+function emptyDirsToSweep(config: NavoriConfig): string[] {
+  const codexTrimmed =
+    config.monorepo?.workspaceHarness === "root" && (config.engines ?? []).includes("codex");
+  return [
+    ".claude/skills",
+    ".claude",
+    ...(codexTrimmed ? [".agents/skills", ".agents", ".codex"] : []),
+  ];
+}
+
+/**
  * Remove what a trimmed workspace no longer owns, sparing whatever navori did
  * not write (spec 0018 R4/R5).
  *
@@ -121,9 +140,23 @@ const WORKSPACE_TRIMMED_PATHS = [
  * The plan is PURE, so it runs in preview too and the verdict is visible BEFORE
  * anything is deleted.
  */
-function reconcileTrimmedWorkspace(wsCwd: string, dryRun: boolean): OrphanRemovalPlan {
+function reconcileTrimmedWorkspace(
+  wsCwd: string,
+  dryRun: boolean,
+  sweep: readonly string[],
+): OrphanRemovalPlan {
   const present = WORKSPACE_TRIMMED_PATHS.filter((rel) => existsSync(resolve(wsCwd, rel)));
-  if (present.length === 0) return { remove: [], keep: [] };
+  // Spec 0043 F13: the engine already removed the skill copies the workspace no
+  // longer writes, which can leave `.claude/skills` — and `.claude` — empty. They
+  // go when, and only when, nothing is left in them; `removeEmptyDirs` refuses a
+  // non-empty directory, so a file of the user's keeps its parent.
+  const sweepEmptyHarnessDirs = (): void => {
+    if (!dryRun) removeEmptyDirs(wsCwd, sweep);
+  };
+  if (present.length === 0) {
+    sweepEmptyHarnessDirs();
+    return { remove: [], keep: [] };
+  }
   const plan = planOrphanRemoval(wsCwd, present, EPHEMERAL_HARNESS_PATHS);
   if (!dryRun && plan.remove.length > 0) {
     // Backed up before deleting, like every other delete path — a trim the user
@@ -135,6 +168,7 @@ function reconcileTrimmedWorkspace(wsCwd: string, dryRun: boolean): OrphanRemova
     for (const rel of plan.remove) rmSync(resolve(wsCwd, rel), { force: true });
     removeEmptyDirs(wsCwd, present);
   }
+  sweepEmptyHarnessDirs();
   return plan;
 }
 
@@ -183,6 +217,15 @@ export interface EngineRenderSummary {
 }
 
 /**
+ * The workspace-skill scope of a Codex render (spec 0043 R8): `harnessScope` and
+ * the decision's output for this directory. Only `root` changes what Codex writes.
+ */
+export type CodexWorkspaceOptions = Pick<
+  NonNullable<Parameters<typeof renderCodexEngine>[2]>,
+  "harnessScope" | "workspaceSkills" | "rootHoist"
+>;
+
+/**
  * Dispatch the non-Claude engines declared in config.engines[] against `cwd`
  * (the repo root or a workspace dir; `repoRoot` resolves shared assets like
  * local presets). `warnMissingAdapters: false` silences the "no adapter yet"
@@ -193,7 +236,13 @@ export function renderNonClaudeEngines(
   config: NavoriConfig,
   engines: readonly string[],
   dryRun: boolean,
-  options: { repoRoot?: string; warnMissingAdapters?: boolean; lang?: Lang } = {},
+  options: {
+    repoRoot?: string;
+    warnMissingAdapters?: boolean;
+    lang?: Lang;
+    /** Spec 0043 R8: handed to the Codex engine only; the prose engines ignore the scope. */
+    codex?: CodexWorkspaceOptions;
+  } = {},
 ): EngineRenderSummary[] {
   const repoRoot = options.repoRoot ?? cwd;
   const warnMissingAdapters = options.warnMissingAdapters ?? true;
@@ -211,7 +260,7 @@ export function renderNonClaudeEngines(
     "agents-md": (c, cfg, o) => renderAgentsMdEngine(c, cfg, o),
     cursor: (c, cfg, o) => renderCursorEngine(c, cfg, o),
     copilot: (c, cfg, o) => renderCopilotEngine(c, cfg, o),
-    codex: (c, cfg, o) => renderCodexEngine(c, cfg, o),
+    codex: (c, cfg, o) => renderCodexEngine(c, cfg, { ...o, ...options.codex }),
     pi: (c, cfg, o) => renderPiEngine(c, cfg, o),
   };
 
@@ -325,6 +374,43 @@ function reportMissingLocalSkills(
   if (!target) return; // no engine configured at all — nothing to attach the warning to
   for (const id of missing) {
     target.warnings.push(tc(lang).engine.localSkillMissing(id));
+  }
+}
+
+/**
+ * Say which of a workspace's hoists the root refused (spec 0043 F10): the root
+ * path already belongs to something that is not navori's, so the workspace
+ * keeps its copy and this is the only place that says why.
+ */
+function reportBlockedHoists(
+  decision: ReturnType<typeof decideClaudeWorkspaceSkills>,
+  workspaceName: string,
+  engineResult: ClaudeEngineResult | undefined,
+  lang: Lang,
+): void {
+  if (!engineResult) return;
+  for (const blocked of decision.blocked) {
+    if (blocked.workspace !== workspaceName) continue;
+    engineResult.warnings.push(tc(lang).render.hoistBlocked(blocked.id, blocked.reason));
+  }
+}
+
+/** Codex's counterpart of `reportBlockedHoists`: the warning rides the workspace's Codex summary. */
+function reportBlockedCodexHoists(
+  decision: ReturnType<typeof decideCodexWorkspaceSkills>,
+  workspaceName: string,
+  summaries: EngineRenderSummary[],
+  lang: Lang,
+): void {
+  const codex = summaries.find((summary) => summary.engine === "codex");
+  if (!codex) return;
+  for (const blocked of decision.blocked) {
+    if (blocked.workspace !== workspaceName) continue;
+    codex.warnings.push(
+      tc(lang)
+        .render.hoistBlocked(blocked.id, blocked.reason)
+        .replaceAll(".claude/skills", ".agents/skills"),
+    );
   }
 }
 
@@ -535,6 +621,10 @@ export function runRender(
     }
     const wsCwd = resolve(cwd, match.path);
     const wsConfig = effectiveConfigForWorkspace(config, match);
+    // Spec 0043: no root is rendered here, so only what the root already has on
+    // disk can justify dropping a workspace copy.
+    const decision = decideClaudeWorkspaceSkills(cwd, config, { rootRendered: false });
+    const codexDecision = decideCodexWorkspaceSkills(cwd, config, { rootRendered: false });
     const wsResult = renderClaude
       ? renderClaudeEngine(wsCwd, wsConfig, {
           dryRun,
@@ -544,13 +634,13 @@ export function runRender(
           // Spec 0018: the WORKSPACE render honors the scope; the root call
           // below never passes it, so the root is never trimmed.
           harnessScope: config.monorepo?.workspaceHarness,
+          workspaceSkills: {
+            omitted: decision.omitted.get(match.path) ?? new Set<string>(),
+            prune: true,
+          },
         })
       : undefined;
-    // AFTER the render, so a run that fails to write never deletes (0018 R4).
-    const wsTrim =
-      config.monorepo?.workspaceHarness === "minimal"
-        ? reconcileTrimmedWorkspace(wsCwd, dryRun)
-        : ({ remove: [], keep: [] } as OrphanRemovalPlan);
+    reportBlockedHoists(decision, match.name, wsResult, lang);
     // #77: --workspace must also render the non-Claude engines for that
     // workspace. There is no root render here, so the summaries land in the
     // top-level `extraEngines` (same field the normal path uses for the root)
@@ -558,7 +648,20 @@ export function runRender(
     const wsExtraEngines = renderNonClaudeEngines(wsCwd, wsConfig, engines, dryRun, {
       repoRoot: cwd,
       lang,
+      codex: {
+        harnessScope: config.monorepo?.workspaceHarness,
+        workspaceSkills: {
+          omitted: codexDecision.omitted.get(match.path) ?? new Set<string>(),
+          prune: true,
+        },
+      },
     });
+    reportBlockedCodexHoists(codexDecision, match.name, wsExtraEngines, lang);
+    // AFTER every engine rendered, so a run that fails to write never deletes (0018 R4)
+    // and the empty-directory sweep sees what the Codex engine just removed (spec 0043).
+    const wsTrim = isTrimmedHarness(config.monorepo?.workspaceHarness ?? "minimal")
+      ? reconcileTrimmedWorkspace(wsCwd, dryRun, emptyDirsToSweep(config))
+      : ({ remove: [], keep: [] } as OrphanRemovalPlan);
     return {
       ok: true,
       language: lang,
@@ -584,16 +687,39 @@ export function runRender(
           engineResult: wsResult,
           extraEngines: [],
           trimmed: wsTrim.remove,
-          trimmedKept: wsTrim.keep,
+          trimmedKept: [...wsTrim.keep, ...(wsResult?.trimmedKept ?? [])],
         },
       ],
       extraEngines: wsExtraEngines,
     };
   }
 
+  // Spec 0043: taken ONCE, before anything is written — the root's plan answers
+  // "will the root hold this skill" (the root is written first, in preview too,
+  // where the disk does not have it yet), and the root receives what the
+  // workspaces hand up.
+  const decision = decideClaudeWorkspaceSkills(cwd, config, { rootRendered: true });
+  const codexDecision = decideCodexWorkspaceSkills(cwd, config, { rootRendered: true });
   const engineResult = renderClaude
-    ? renderClaudeEngine(cwd, config, { dryRun, force: forceFlag })
+    ? renderClaudeEngine(cwd, config, {
+        dryRun,
+        force: forceFlag,
+        rootHoist: { skills: decision.hoisted, pruneCandidates: decision.rootPruneCandidates },
+      })
     : undefined;
+
+  // The root's non-Claude engines go BEFORE the workspaces, like the root's Claude
+  // render: a workspace under `root` drops its Codex skills on the strength of the
+  // root holding them (spec 0043), so the root has to be written first.
+  const extraEngines = renderNonClaudeEngines(cwd, config, engines, dryRun, {
+    lang,
+    codex: {
+      rootHoist: {
+        skills: codexDecision.hoisted,
+        pruneCandidates: codexDecision.rootPruneCandidates,
+      },
+    },
+  });
 
   const workspaces: WorkspaceRenderResult[] = [];
   const orphanedWorkspaces: string[] = [];
@@ -616,12 +742,13 @@ export function runRender(
           repoRoot: cwd,
           monorepoContext: buildMonorepoContext(config, ws),
           harnessScope: config.monorepo?.workspaceHarness,
+          workspaceSkills: {
+            omitted: decision.omitted.get(ws.path) ?? new Set<string>(),
+            prune: true,
+          },
         })
       : undefined;
-    const wsTrim =
-      config.monorepo?.workspaceHarness === "minimal"
-        ? reconcileTrimmedWorkspace(wsCwd, dryRun)
-        : ({ remove: [], keep: [] } as OrphanRemovalPlan);
+    reportBlockedHoists(decision, ws.name, wsResult, lang);
     // #77: non-Claude engines (AGENTS.md) render per workspace too. The root
     // call below already warns once about adapterless engines (cursor/copilot),
     // so those warnings are muted here.
@@ -629,7 +756,18 @@ export function runRender(
       repoRoot: cwd,
       warnMissingAdapters: false,
       lang,
+      codex: {
+        harnessScope: config.monorepo?.workspaceHarness,
+        workspaceSkills: {
+          omitted: codexDecision.omitted.get(ws.path) ?? new Set<string>(),
+          prune: true,
+        },
+      },
     });
+    reportBlockedCodexHoists(codexDecision, ws.name, wsExtraEngines, lang);
+    const wsTrim = isTrimmedHarness(config.monorepo?.workspaceHarness ?? "minimal")
+      ? reconcileTrimmedWorkspace(wsCwd, dryRun, emptyDirsToSweep(config))
+      : ({ remove: [], keep: [] } as OrphanRemovalPlan);
     workspaces.push({
       workspacePath: ws.path,
       workspaceName: ws.name,
@@ -643,11 +781,9 @@ export function runRender(
       engineResult: wsResult,
       extraEngines: wsExtraEngines,
       trimmed: wsTrim.remove,
-      trimmedKept: wsTrim.keep,
+      trimmedKept: [...wsTrim.keep, ...(wsResult?.trimmedKept ?? [])],
     });
   }
-
-  const extraEngines = renderNonClaudeEngines(cwd, config, engines, dryRun, { lang });
 
   // Spec 0033 D2, R11: a `project.localSkills` id missing its source under
   // `.claude/skills/<id>/` is named by `render` regardless of which engines
@@ -932,6 +1068,13 @@ export const renderCommand = defineCommand({
     if (result.engineResult) {
       reportClaudeMd(result.filePath, result.entries, result.written, preview, result.language);
       reportEngineFiles(result.engineResult, result.language);
+      // Spec 0043: a root skill a previous hoist left that carries something of
+      // the user's (or a newer navori's) is kept — and said, not swallowed.
+      const rootKept = result.engineResult.trimmedKept ?? [];
+      if (rootKept.length > 0) {
+        p.log.warn(tr.workspaceTrimmedKept(tr.rootLabel, rootKept.length));
+        for (const k of rootKept) p.log.message(`  ${dim(`${k.path} — ${k.reason}`)}`);
+      }
     }
     if (result.languageFallbacks.length > 0) {
       p.log.warn(tr.langFallback(result.languageFallbacks.join(", ")));
@@ -954,6 +1097,15 @@ export const renderCommand = defineCommand({
       }
       if (ws.backupPath) {
         p.log.message(`${dim(tc(result.language).common.backupLabel)} ${ws.backupPath}`);
+      }
+      // Spec 0043 F8: one count line instead of a listing per removed copy; only
+      // what was KEPT names paths, because only that needs the reader to act.
+      const skillsRemoved = removedTrimmedCount(ws.engineResult);
+      const skillsKept = ws.engineResult?.trimmedKept ?? [];
+      if (skillsRemoved > 0 || skillsKept.length > 0) {
+        p.log.message(
+          tr.workspaceSkillsTrimmed(ws.workspaceName, skillsRemoved, skillsKept.length),
+        );
       }
       // Spec 0018 R4/R5. The kept list is a WARNING, not a note: it is the only
       // moment anyone learns that something in those directories was theirs.
@@ -1273,7 +1425,13 @@ export function countRenderStatuses(result: ReturnType<typeof runRender>): Recor
     }
   };
   countScope(result.entries, result.engineResult, result.extraEngines ?? []);
-  for (const ws of result.workspaces) countScope(ws.entries, ws.engineResult, ws.extraEngines);
+  for (const ws of result.workspaces) {
+    countScope(ws.entries, ws.engineResult, ws.extraEngines);
+    // What the trim reconciliation would remove (or just removed) is pending work
+    // too: without it `status` reads "no render pending" over a workspace that
+    // still holds files the mode no longer writes (spec 0043 F4).
+    bump("removed-trimmed", ws.trimmed.length);
+  }
   // The harness `.gitignore` is one more line of the same listing. Its skips go
   // to `countSkippedFiles`, like every other file-level skip.
   if (result.gitignore && !result.gitignore.status.endsWith("-skipped")) {
@@ -1480,8 +1638,8 @@ function summarize(counts: Record<string, number>): string {
     parts.push(color.red(`${counts["user-modified-skipped"]} conflict`));
   if (counts["downgrade-skipped"])
     parts.push(color.yellow(`${counts["downgrade-skipped"]} downgrade-skip`));
-  if (counts["removed-condition-false"])
-    parts.push(color.magenta(`${counts["removed-condition-false"]} removed`));
+  const removed = (counts["removed-condition-false"] ?? 0) + (counts["removed-trimmed"] ?? 0);
+  if (removed) parts.push(color.magenta(`${removed} removed`));
   if (counts.unchanged) parts.push(dim(`${counts.unchanged} unchanged`));
   return parts.length > 0 ? `${dim("—")} ${parts.join(dim(", "))}` : "";
 }
@@ -1585,12 +1743,20 @@ function reportExtraEngines(extraEngines: EngineRenderSummary[], lang: Lang): vo
   }
 }
 
+/** Copies of root-provided skills a workspace render removed (or would remove). */
+function removedTrimmedCount(engine: ClaudeEngineResult | undefined): number {
+  return (engine?.written ?? []).filter((w) => w.status === "removed-trimmed").length;
+}
+
 function reportEngineFiles(engine: ClaudeEngineResult, lang: Lang): void {
   // CLAUDE.md is reported separately by reportClaudeMd; filter it out here.
   // Header used to say ".claude/" which was misleading — progress/ also lands
   // here. "Engine files" describes the union (settings, agents, skills, hooks,
-  // progress).
-  const written = engine.written.filter((w) => w.path !== "CLAUDE.md");
+  // progress). `removed-trimmed` copies are summarized by the per-workspace count
+  // line instead of one row each (spec 0043).
+  const written = engine.written.filter(
+    (w) => w.path !== "CLAUDE.md" && w.status !== "removed-trimmed",
+  );
   // Discounts CLAUDE.md the same way `written` does above — it has its own
   // section — so this "+N unchanged" and the outro's summary count one set.
   const unchangedCount = countUnchangedEngineFiles(engine);
@@ -1664,7 +1830,8 @@ export function summarizeRenderEntries(counts: Record<string, number>): string {
   if (counts.created) parts.push(`${counts.created} created`);
   if (counts.updated) parts.push(`${counts.updated} updated`);
   if (counts["user-modified-skipped"]) parts.push(`${counts["user-modified-skipped"]} conflict`);
-  if (counts["removed-condition-false"]) parts.push(`${counts["removed-condition-false"]} removed`);
+  const removed = (counts["removed-condition-false"] ?? 0) + (counts["removed-trimmed"] ?? 0);
+  if (removed) parts.push(`${removed} removed`);
   if (counts.unchanged) parts.push(`${counts.unchanged} unchanged`);
   return parts.join(", ");
 }

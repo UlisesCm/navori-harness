@@ -443,7 +443,7 @@ export function resolveAssetPath(
   return { path: resolve(root, asset.relPath), fallback: base === "es" };
 }
 
-export type AssetStatus = InjectResult["status"] | "removed-condition-false";
+export type AssetStatus = InjectResult["status"] | "removed-condition-false" | "removed-trimmed";
 
 export interface AssetPlanEntry {
   asset: CoreManagedAsset;

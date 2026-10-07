@@ -143,8 +143,26 @@ const MonorepoSchema = z.object({
    * asymmetry of being wrong points the same way: under `minimal` the rare
    * workspace-first user still has a working harness, while under `full`
    * everyone keeps paying ~43-48% of every bump PR for files nothing can load.
+   *
+   * `root` (spec 0043) is for teams that ALWAYS start the session at the repo
+   * root: the workspace keeps only its context file (and `AGENTS.md` under
+   * Codex), and the root also writes the library and preset skills the
+   * workspaces declare, since those are what a root session can no longer find
+   * in the workspace. Under `minimal` too, a workspace stops duplicating the
+   * skills that are byte-identical to the root's.
+   *
+   * One value for the WHOLE monorepo: a repo with some apps started from the
+   * root and others from the app cannot be expressed. An older navori rejects
+   * `root` (the enum is strict on purpose: a silent fallback to `minimal` would
+   * recreate skills in every workspace of whoever has an old CLI), so update
+   * the whole team and CI before setting it.
    */
-  workspaceHarness: z.enum(["minimal", "full"]).default("minimal"),
+  workspaceHarness: z
+    .enum(["minimal", "full", "root"])
+    .default("minimal")
+    .describe(
+      "How much harness each workspace gets. minimal (default): its context file plus the skills the root does not already have. full: everything, as before. root: only its context file; the root also writes the workspaces' library and preset skills. Requires a navori that knows `root` on every machine and in CI.",
+    ),
 });
 
 const SddSchema = z.object({

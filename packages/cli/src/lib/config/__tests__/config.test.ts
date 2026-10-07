@@ -896,3 +896,51 @@ describe("migrateRetiredConfigKeys — the repair path R40 lacked (#920)", () =>
     }
   });
 });
+
+describe("readConfig — valor de enum desconocido (spec 0043 R1)", () => {
+  const write = (dir: string, patch: Record<string, unknown>): string => {
+    const path = join(dir, "navori.config.json");
+    writeFileSync(
+      path,
+      JSON.stringify({ name: "demo", engines: ["claude"], preset: "custom", ...patch }),
+    );
+    return path;
+  };
+
+  it("un enum desconocido produce el error con la pista de actualizar", () => {
+    // Covers: R1
+    const dir = makeTmpDir();
+    try {
+      const path = write(dir, { monorepo: { enabled: true, workspaceHarness: "from-the-future" } });
+      let caught: unknown;
+      try {
+        readConfig(path);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(ConfigError);
+      expect((caught as ConfigError).message).toMatch(/navori más nuevo/);
+      expect((caught as ConfigError).issues?.[0]?.path).toEqual(["monorepo", "workspaceHarness"]);
+      // En inglés cuando el config lo pide.
+      const en = write(dir, {
+        language: "en",
+        monorepo: { enabled: true, workspaceHarness: "from-the-future" },
+      });
+      expect(() => readConfig(en)).toThrow(/newer navori/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("un error que no es de enum no lleva la pista", () => {
+    // Covers: R1
+    const dir = makeTmpDir();
+    try {
+      const path = write(dir, { name: 42 });
+      expect(() => readConfig(path)).toThrow(ConfigError);
+      expect(() => readConfig(path)).not.toThrow(/navori más nuevo|newer navori/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

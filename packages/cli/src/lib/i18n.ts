@@ -617,6 +617,8 @@ interface CommonCmdStrings {
   aborted: string;
   // lib/config.ts soft warnings (stderr) — localized off config.language.
   unknownConfigValues: (list: string) => string;
+  /** Appended to a validation failure caused by an unknown enum value (spec 0043). */
+  configNewerValueHint: string;
   unknownConfigKeys: (list: string) => string;
   deadProgressKeys: (list: string) => string;
   deprecatedConfigKeys: (list: string) => string;
@@ -661,6 +663,10 @@ interface RenderCmdStrings {
   workspaceTrimmed: (workspace: string, removed: number) => string;
   /** Files inside the trimmed paths that were NOT navori's, so they stayed (R5). */
   workspaceTrimmedKept: (workspace: string, kept: number) => string;
+  /** Skills a trimmed workspace no longer writes because the root has them (spec 0043). */
+  workspaceSkillsTrimmed: (workspace: string, removed: number, kept: number) => string;
+  /** A skill the root could not take from a workspace under `root` (spec 0043 F10). */
+  hoistBlocked: (name: string, reason: "foreign" | "modified" | "newer") => string;
   wouldWrite: string;
   noChangePreview: string;
   written: string;
@@ -1073,6 +1079,11 @@ interface DoctorCmdStrings {
   staleHarnessUndeclared: string;
   /** Leftovers a `minimal` workspace no longer owns but navori can't prove it wrote. */
   staleHarnessTrimmed: string;
+  /** Leftover in a workspace under `workspaceHarness: "root"` (spec 0043 R10). */
+  staleHarnessTrimmedRoot: string;
+  /** Note title and text under `workspaceHarness: "full"` (spec 0043 R11). */
+  workspaceFullTitle: string;
+  workspaceFullNote: string;
   /** Note title for `.md` files loose in a skills root (#626). */
   flatSkillsTitle: string;
   /** One loose file: where it is and where it must move to load. */
@@ -1245,6 +1256,14 @@ interface BlocksCmdStrings {
      * root's files back in — recreating exactly what the trim removed.
      */
     inheritsFromRoot: string;
+    /**
+     * Under `workspaceHarness: "root"` the workspace holds its context file and
+     * nothing else (spec 0043 R12): say where everything else lives, for the same
+     * reason as `inheritsFromRoot`.
+     */
+    livesAtRoot: string;
+    /** The workspace's own gate commands, named when they differ from the root's. */
+    ownGate: (fast: string | undefined, full: string | undefined) => string;
     rootHeading: string;
     rootIntro: (tool: string) => string;
     workspacesLead: string;
@@ -1790,6 +1809,8 @@ const CMD_ES: CmdStrings = {
     aborted: "Abortado",
     unknownConfigValues: (list) =>
       `navori: valores de config desconocidos ignorados (¿config de un navori más nuevo? actualiza el CLI): ${list}`,
+    configNewerValueHint:
+      "un valor desconocido puede venir de un navori más nuevo: actualiza navori en esta máquina, en CI y en el CLI global de los agentes",
     unknownConfigKeys: (list) =>
       `navori: claves de config desconocidas (no se rechazan para mantener compatibilidad futura): ${list}`,
     deadProgressKeys: (list) =>
@@ -1833,6 +1854,10 @@ const CMD_ES: CmdStrings = {
       `${workspace}: ${removed} archivo(s) retirados — el workspace hereda agentes, hooks y settings de la raíz`,
     workspaceTrimmedKept: (workspace, kept) =>
       `${workspace}: ${kept} archivo(s) conservados por no ser de navori — revísalos, son tuyos`,
+    workspaceSkillsTrimmed: (workspace, removed, kept) =>
+      `${workspace}: ${removed} skill(s) duplicadas de la raíz quitadas, ${kept} conservadas`,
+    hoistBlocked: (name, reason) =>
+      `no se sube a la raíz como \`.claude/skills/${name}\`: ya existe ahí y no es de navori sin cambios (${reason}). El workspace conserva su copia; renómbrala o muévela y vuelve a renderizar.`,
     wouldWrite: "→ preview (se escribiría)",
     noChangePreview: "→ sin cambios",
     written: "→ written",
@@ -2392,6 +2417,11 @@ const CMD_ES: CmdStrings = {
       "Vive en un subdirectorio que el config no declara como workspace, así que el render nunca entra ahí. Decláralo en 'monorepo.workspaces' o bórralo.",
     staleHarnessTrimmed:
       "Sobró del recorte por workspace. navori no lo borra porque un script de plugin no lleva marca de autoría y navori nunca borra lo que no puede probar que escribió: bórralo tú una vez, no vuelve a aparecer.",
+    staleHarnessTrimmedRoot:
+      'Este workspace corre bajo `workspaceHarness: "root"`: desde la raíz nada de esto se lee. `navori render --apply` quita lo que navori escribió sin cambios; lo demás es tuyo — muévelo a la raíz o bórralo.',
+    workspaceFullTitle: "Workspaces con harness completo:",
+    workspaceFullNote:
+      'Bajo `workspaceHarness: "full"` cada workspace lleva hooks, agentes, settings y `.mcp.json` propios, y Claude Code no los usa si la sesión arranca en la raíz. Si arrancas siempre desde la raíz, `"root"` (o el default `"minimal"`) los quita. Es informativo: no cambia el veredicto.',
     flatSkillsTitle: "Skills que no cargan (formato inválido):",
     flatSkillsRow: (path, suggested) => `${path} — muévela a ${suggested}`,
     flatSkillsHint:
@@ -2835,6 +2865,15 @@ const CMD_ES: CmdStrings = {
         `Corre tareas acotadas con \`--filter=${name}\`. No importes el código de un hermano por ruta relativa; consúmelo como paquete (\`workspace:*\`).`,
       inheritsFromRoot:
         "Este workspace tiene su `CLAUDE.md` y sus skills; **los agentes, los hooks y los permisos son los de la raíz del repo**, no falta nada. Es deliberado: el motor los descubre hacia arriba desde donde arranca la sesión, así que una copia aquí nunca se leería. No los copies de vuelta.",
+      livesAtRoot:
+        "Este workspace solo tiene su archivo de contexto: **las skills, los agentes, los hooks y la configuración viven en la raíz del repo** y se cargan desde ahí, no falta nada. Arranca Claude Code desde la raíz. No los copies de vuelta.",
+      ownGate: (fast, full) =>
+        `El gate de calidad de este workspace difiere del de la raíz, y las skills de la raíz mencionan el de la raíz. Para este workspace usa: ${[
+          fast ? `rápido \`${fast}\`` : "",
+          full ? `completo \`${full}\`` : "",
+        ]
+          .filter(Boolean)
+          .join(", ")}.`,
       rootHeading: "## Monorepo — root",
       rootIntro: (tool) =>
         `Este repo es un monorepo \`${tool}\`. El código real vive en los workspaces, cada uno con su propio harness (\`CLAUDE.md\` + \`.claude/\`). Al orquestar, **enruta cada tarea al workspace dueño** y trabaja desde su \`CLAUDE.md\`, no desde aquí.`,
@@ -3210,6 +3249,8 @@ const CMD_EN: CmdStrings = {
     aborted: "Aborted",
     unknownConfigValues: (list) =>
       `navori: unknown config values ignored (config from a newer navori? update the CLI): ${list}`,
+    configNewerValueHint:
+      "an unknown value may come from a newer navori: update navori on this machine, in CI and in the agents' global CLI",
     unknownConfigKeys: (list) =>
       `navori: unknown config keys (not rejected to preserve forward compatibility): ${list}`,
     deadProgressKeys: (list) =>
@@ -3251,6 +3292,10 @@ const CMD_EN: CmdStrings = {
       `${workspace}: ${removed} file(s) removed — the workspace inherits agents, hooks and settings from the root`,
     workspaceTrimmedKept: (workspace, kept) =>
       `${workspace}: ${kept} file(s) kept because navori did not write them — review them, they are yours`,
+    workspaceSkillsTrimmed: (workspace, removed, kept) =>
+      `${workspace}: ${removed} skill(s) duplicated from the root removed, ${kept} kept`,
+    hoistBlocked: (name, reason) =>
+      `not hoisted to the root as \`.claude/skills/${name}\`: it already exists there and is not untouched navori output (${reason}). The workspace keeps its copy; rename or move that one and render again.`,
     wouldWrite: "→ preview (would write)",
     noChangePreview: "→ no changes",
     written: "→ written",
@@ -3805,6 +3850,11 @@ const CMD_EN: CmdStrings = {
       "It lives in a subdirectory the config does not declare as a workspace, so the render never goes there. Declare it in 'monorepo.workspaces' or delete it.",
     staleHarnessTrimmed:
       "Left over from the per-workspace trim. navori does not delete it because a plugin script carries no authorship mark, and navori never deletes what it cannot prove it wrote: remove it once and it will not come back.",
+    staleHarnessTrimmedRoot:
+      'This workspace runs under `workspaceHarness: "root"`: nothing here is read from the root. `navori render --apply` removes what navori wrote untouched; the rest is yours — move it to the root or delete it.',
+    workspaceFullTitle: "Workspaces with the full harness:",
+    workspaceFullNote:
+      'Under `workspaceHarness: "full"` each workspace carries its own hooks, agents, settings and `.mcp.json`, and Claude Code does not use them when the session starts at the root. If you always start from the root, `"root"` (or the default `"minimal"`) removes them. Informational: it does not change the verdict.',
     flatSkillsTitle: "Skills that never load (invalid shape):",
     flatSkillsRow: (path, suggested) => `${path} — move it to ${suggested}`,
     flatSkillsHint:
@@ -4243,6 +4293,15 @@ const CMD_EN: CmdStrings = {
         `Run scoped tasks with \`--filter=${name}\`. Don't import a sibling's code by relative path; consume it as a package (\`workspace:*\`).`,
       inheritsFromRoot:
         "This workspace has its `CLAUDE.md` and its skills; **the agents, hooks and permissions are the repo root's**, nothing is missing. It is deliberate: the engine discovers them by walking up from where the session started, so a copy here would never be read. Don't copy them back.",
+      livesAtRoot:
+        "This workspace holds only its context file: **the skills, agents, hooks and configuration live at the repo root** and load from there, nothing is missing. Start Claude Code from the root. Don't copy them back.",
+      ownGate: (fast, full) =>
+        `This workspace's quality gate differs from the root's, and the root's skills mention the root's. For this workspace use: ${[
+          fast ? `fast \`${fast}\`` : "",
+          full ? `full \`${full}\`` : "",
+        ]
+          .filter(Boolean)
+          .join(", ")}.`,
       rootHeading: "## Monorepo — root",
       rootIntro: (tool) =>
         `This repo is a \`${tool}\` monorepo. The real code lives in the workspaces, each with its own harness (\`CLAUDE.md\` + \`.claude/\`). When orchestrating, **route each task to the owning workspace** and work from its \`CLAUDE.md\`, not from here.`,

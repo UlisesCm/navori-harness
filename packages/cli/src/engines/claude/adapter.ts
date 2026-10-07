@@ -1,6 +1,15 @@
 import type { AdapterCtx, EngineAdapter, PlacementRequest } from "../shared/execute-plan.ts";
 
 /**
+ * Where Claude places a skill, relative to the render root. One definition for
+ * the adapter, the fresh-render oracle and the sub-block routing, so they cannot
+ * disagree about which file a skill id lives in.
+ */
+export function claudeSkillDest(id: string): string {
+  return `.claude/skills/${id}/SKILL.md`;
+}
+
+/**
  * Claude adapter (Spec 0008, Capa 2) — the SHARED slice only: core/preset
  * agents, core/workflow/preset/library skills, and core hooks, placed under
  * `.claude/`. Everything Claude-only (the CLAUDE.md pipeline, settings.json,
@@ -43,7 +52,7 @@ export function createClaudeAdapter(): EngineAdapter {
         assetPath: skill.assetPath,
         // Directory form — the shape Claude Code auto-discovers. See the module
         // header; the flat legacy `<id>.md` is pruned by the engine.
-        destRelPath: `.claude/skills/${skill.id}/SKILL.md`,
+        destRelPath: claudeSkillDest(skill.id),
         managedId: skill.managedId,
         commentStyle: "html",
       };

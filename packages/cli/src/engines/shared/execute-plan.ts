@@ -97,6 +97,19 @@ export interface OrphanScan {
    * so engines that do not set it are unaffected.
    */
   expected?: (relPath: string) => string | null;
+  /**
+   * With `expected`: rewrites the on-disk copy of `relPath` before it is compared
+   * with it (`PristineOpts.requirePristine.normalize`), so a copy rendered by an
+   * older navori does not read as user-edited. Takes the path because one scan
+   * judges many units, each normalized against its own asset.
+   */
+  normalize?: (onDisk: string, relPath: string) => string;
+  /**
+   * What the report calls a deletion this scan queues. Defaults to
+   * `removed-condition-false`; spec 0043 names the ones that come from a trimmed
+   * workspace `removed-trimmed`.
+   */
+  removalStatus?: PendingRemoval["status"];
 }
 
 export interface AdapterCtx {
@@ -123,7 +136,7 @@ export interface EngineAdapter {
 }
 
 export interface ExecuteResult {
-  written: Array<{ path: string; status: RenderStatus | "removed-condition-false" }>;
+  written: Array<{ path: string; status: RenderStatus }>;
   skipped: SkippedFile[];
   backupPath: string | null;
 }
@@ -273,6 +286,13 @@ export interface PendingWrite {
 export interface PendingRemoval {
   path: string;
   recursive?: boolean;
+  /**
+   * What `commitWrites` reports for this deletion. Defaults to
+   * `removed-condition-false`; a removal with a more specific cause (spec 0043:
+   * a workspace copy of a skill the root already provides) names it so the
+   * report says why the file went.
+   */
+  status?: "removed-condition-false" | "removed-trimmed";
 }
 
 /**
@@ -525,13 +545,25 @@ function pushKept(
   markerId?: string,
   verifyHash?: boolean,
   expected?: string | null,
+  normalize?: (onDisk: string) => string,
 ): void {
   const authorship = navoriAuthorship(absPath, markerId, {
     verifyHash,
-    ...(expected != null ? { requirePristine: { expected } } : {}),
+    ...(expected != null ? { requirePristine: { expected, normalize } } : {}),
   });
   if (authorship === "ours") return;
   kept.push({ path: relative(cwd, absPath), reason: authorship });
+}
+
+/** `scan.normalize` bound to one path, or undefined when the scan has none. */
+function normalizeFor(scan: OrphanScan, relPath: string): ((onDisk: string) => string) | undefined {
+  const normalize = scan.normalize;
+  return normalize ? (onDisk) => normalize(onDisk, relPath) : undefined;
+}
+
+/** The `status` of a removal this scan queues, when the scan names one. */
+function statusOf(scan: OrphanScan): Pick<PendingRemoval, "status"> {
+  return scan.removalStatus ? { status: scan.removalStatus } : {};
 }
 
 function collectOrphans(
@@ -551,11 +583,12 @@ function collectOrphans(
         // Flat orphan files (scripts, hooks, agents): a hand-edited managed block
         // is kept, not deleted (`verifyHash`).
         const expected = scan.expected?.(relPath);
-        const pristine = expected != null ? { requirePristine: { expected } } : {};
+        const normalize = normalizeFor(scan, relPath);
+        const pristine = expected != null ? { requirePristine: { expected, normalize } } : {};
         if (navoriAuthorship(absPath, undefined, { verifyHash: true, ...pristine }) === "ours") {
-          removals.push({ path: absPath });
+          removals.push({ path: absPath, ...statusOf(scan) });
         } else {
-          pushKept(kept, cwd, absPath, undefined, true, expected);
+          pushKept(kept, cwd, absPath, undefined, true, expected, normalize);
         }
         continue;
       }
@@ -584,13 +617,33 @@ function collectOrphans(
       const skillPath = join(skillDir, "SKILL.md");
       if (scan.desired.has(relPath)) continue;
       if (!existsSync(skillPath)) continue; // desired dropped, nothing on disk to judge
-      if (!isRemovableNavoriFile(skillPath)) {
-        pushKept(kept, cwd, skillPath);
+      // Opt-in like the `file` shape (spec 0043 R3): with `expected`, a copy that
+      // carries anything the user wrote is kept and reported instead of deleted.
+      const skillExpected = scan.expected?.(relPath);
+      const skillNormalize = normalizeFor(scan, relPath);
+      const skillPristine =
+        skillExpected != null
+          ? { requirePristine: { expected: skillExpected, normalize: skillNormalize } }
+          : undefined;
+      if (!isRemovableNavoriFile(skillPath, undefined, skillPristine)) {
+        pushKept(
+          kept,
+          cwd,
+          skillPath,
+          undefined,
+          skillExpected != null,
+          skillExpected,
+          skillNormalize,
+        );
         continue;
       }
       const children = readDirSafe(skillDir);
       const onlySkill = children.length === 1 && children[0]?.name === "SKILL.md";
-      removals.push({ path: onlySkill ? skillDir : skillPath, recursive: onlySkill });
+      removals.push({
+        path: onlySkill ? skillDir : skillPath,
+        recursive: onlySkill,
+        ...statusOf(scan),
+      });
     }
   }
   return { removals, kept };
@@ -726,7 +779,7 @@ export function commitWrites(input: {
       ...pending.map((item) => ({ path: item.relPath, status: item.status })),
       ...removals.map((item) => ({
         path: relative(cwd, item.path),
-        status: "removed-condition-false" as const,
+        status: item.status ?? ("removed-condition-false" as const),
       })),
     ],
     backupPath,

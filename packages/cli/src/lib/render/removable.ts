@@ -22,7 +22,17 @@ const CLI_VERSION = readCliVersion();
  * `hasUserWrittenText`.
  */
 export interface PristineOpts {
-  requirePristine?: { expected: string };
+  requirePristine?: {
+    expected: string;
+    /**
+     * Rewrites the on-disk content before it is compared with `expected` (spec
+     * 0043 R3). A copy rendered by an older navori lacks the frontmatter keys the
+     * asset gained since (`type:`, `maxWords:`); re-rendering it with the current
+     * asset refreshes those keys and keeps the user's, so only what the user
+     * wrote still counts as a difference.
+     */
+    normalize?: (onDisk: string) => string;
+  };
 }
 
 /**
@@ -87,7 +97,7 @@ export function isRemovableNavoriFile(
 export function navoriAuthorship(
   path: string,
   markerId?: string,
-  opts?: { verifyHash?: boolean; requirePristine?: { expected: string } },
+  opts?: { verifyHash?: boolean; requirePristine?: PristineOpts["requirePristine"] },
 ): NavoriAuthorship {
   let stats;
   try {
@@ -123,8 +133,9 @@ export function navoriAuthorship(
       if (stored && body !== null && computeManagedHash(body) !== stored) return "modified";
     }
   }
-  if (opts?.requirePristine && hasUserWrittenText(content, opts.requirePristine.expected)) {
-    return "modified";
+  if (opts?.requirePristine) {
+    const { expected, normalize } = opts.requirePristine;
+    if (hasUserWrittenText(normalize ? normalize(content) : content, expected)) return "modified";
   }
   return "ours";
 }

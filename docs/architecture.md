@@ -38,6 +38,39 @@ flowchart TD
 > en la capa Project config y el render los aplica junto a core + preset — ver
 > el pipeline abajo. [packages/plugins/](../packages/plugins)
 
+### Harness de workspaces en monorepos (`monorepo.workspaceHarness`)
+
+`monorepo.workspaceHarness` (`lib/config/schema.ts`) decide cuánto harness escribe
+navori en cada workspace. Es un único valor para todo el monorepo:
+
+| Valor | Qué recibe el workspace |
+|---|---|
+| `minimal` (default) | Su archivo de contexto más las skills que la raíz no tiene ya. Una skill del workspace idéntica a la de la raíz (comparación normalizada, sin deriva de frontmatter) no se duplica. |
+| `full` | Todo, como antes de recortar. Vuelve al comportamiento previo byte a byte. |
+| `root` | Solo su archivo de contexto (`CLAUDE.md`, y `AGENTS.md` bajo Codex). La raíz escribe además las skills de librería y de preset que declaran los workspaces. |
+
+`root` es para equipos que siempre abren la sesión en la raíz del repo. La decisión
+(`engines/shared/workspace-engine-decision.ts`) se toma una sola vez antes de escribir y
+la comparten `render`, `sync` y `doctor`, así que preview, apply y diagnóstico parten del
+mismo plan. En Claude, `sync` no borra (`prune: false`): solo `render` poda. El destino raíz de Codex en `sync` conserva la poda de huérfanos por marcador que Codex ya tenía. Lo que el recorte borra queda
+respaldado (`navori backup`).
+
+`navori doctor` y el diagnóstico de harness obsoleto (`lib/diagnose/stale-harness.ts`)
+tratan `minimal` y `root` como harness recortado: no reportan como faltante lo que el
+modo omite y sí reportan restos generados por navori que el modo ya no escribe. Bajo
+`full`, `doctor` agrega una nota informativa: hooks, agentes, settings y `.mcp.json` del
+workspace no se usan si la sesión arranca en la raíz; no cambia el veredicto de salud.
+
+Advertencias operativas al usar `root`:
+
+- **Actualizá navori antes de ponerlo.** Un navori anterior rechaza `"root"` y con él todo
+  el config (el enum es estricto a propósito: un fallback silencioso a `minimal` recrearía
+  skills en cada workspace). Actualizá a todo el equipo, a CI y al CLI global que usan los
+  agentes antes de editar el config.
+- **Directorios `<slug>-<id>` huérfanos en la raíz.** Si renombrás o quitás un workspace,
+  los directorios `<slug>-<id>` que la raíz escribió para él no se detectan ni se borran:
+  la poda parte del config actual y no escanea directorios. Borralos a mano.
+
 ## 2. Pipeline de render — `navori render [--apply]`
 
 `render` es **preview por default** (no toca disco); `--apply` escribe. La

@@ -90,4 +90,54 @@ describe("plugin invariants over a monorepo workspace (#847)", () => {
     expect(verdict.missingInvariants).toEqual([]);
     expect(verdict.ok).toBe(true);
   });
+
+  for (const harness of ["minimal", "root"] as const) {
+    it(`an invariant that lives in a root skill is no false red in a ${harness} workspace (spec 0043 R10)`, () => {
+      // Covers: R10
+      const cwd = tmp();
+      const presetDir = join(cwd, ".navori/presets/mistack");
+      mkdirSync(join(presetDir, "skills"), { recursive: true });
+      writeFileSync(
+        join(presetDir, "mistack.json"),
+        JSON.stringify({
+          id: "mistack",
+          displayName: "Mistack",
+          extends: "core",
+          extras: {
+            skills: [
+              {
+                id: "mistack-example",
+                relPath: "skills/mistack-example.md",
+                destRelPath: ".claude/skills/mistack-example.md",
+              },
+            ],
+          },
+          invariants: ["ONLY-IN-THE-SKILL-TOKEN"],
+        }),
+      );
+      writeFileSync(
+        join(presetDir, "skills/mistack-example.md"),
+        "---\nname: mistack-example\ndescription: x\nmetadata:\n  type: reference\n---\n\n# x\n\nONLY-IN-THE-SKILL-TOKEN\n",
+      );
+      mkdirSync(join(cwd, "apps/backend"), { recursive: true });
+      const cfg = NavoriConfigSchema.parse({
+        name: "mono",
+        engines: ["claude"],
+        preset: "mistack",
+        monorepo: {
+          enabled: true,
+          tool: "pnpm",
+          workspaces: [{ name: "backend", path: "apps/backend" }],
+          workspaceHarness: harness,
+        },
+      });
+      writeConfig(join(cwd, "navori.config.json"), cfg);
+      expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
+      // The workspace's own tree really does not carry the skill.
+      expect(existsSync(join(cwd, "apps/backend/.claude/skills/mistack-example"))).toBe(false);
+
+      const verdict = computeHealthVerdict(cwd, cfg);
+      expect(verdict.missingInvariants).toEqual([]);
+    });
+  }
 });
