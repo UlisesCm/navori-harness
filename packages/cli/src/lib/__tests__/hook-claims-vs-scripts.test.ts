@@ -513,3 +513,52 @@ describe("no Codex-registered hook emits ask (spec 0035 D4)", () => {
     ).toBe(true);
   });
 });
+
+/**
+ * #1117 — every managed or plugin script that can block says, next to the code,
+ * which of its exit sites is hard, ask or advisory. The marker is the contract;
+ * a block site added to a script that lacks it fails here instead of shipping
+ * as an unclassified dead end. `exit 42` is the tgrep routing lane's block code
+ * (the sourcing sub-block turns it into exit 2).
+ */
+describe("blocking classification (#1117)", () => {
+  const MARKER = "# Blocking classification (#1117):";
+  const BLOCK_EXIT = /\bexit (2|42)\b/;
+
+  function shellFiles(dir: string): string[] {
+    return existsSync(dir)
+      ? readdirSync(dir)
+          .filter((f) => f.endsWith(".sh"))
+          .map((f) => join(dir, f))
+      : [];
+  }
+
+  const pluginRoot = getPluginAssetsRoot();
+  const candidates = [
+    ...shellFiles(HOOKS_DIR),
+    ...readdirSync(pluginRoot, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .flatMap((d) => [
+        ...shellFiles(join(pluginRoot, d.name, "scripts")),
+        ...shellFiles(join(pluginRoot, d.name, "managed")),
+      ]),
+  ];
+  const blocking = candidates
+    .map((file) => ({ file, source: readFileSync(file, "utf-8") }))
+    .filter(({ source }) => BLOCK_EXIT.test(executableBody(source)));
+
+  it("finds the blocking scripts it is meant to police", () => {
+    // Guards the guard: an empty list would make the next test vacuous.
+    expect(blocking.length).toBeGreaterThanOrEqual(12);
+    const names = blocking.map(({ file }) => file.split("/").at(-1));
+    expect(names).toContain("guard-search-routing.sh");
+    expect(names).toContain("guard-destructive-search-lane.sh");
+  });
+
+  it.each(blocking.map(({ file, source }) => [file.split("/").slice(-3).join("/"), source]))(
+    "%s carries a Blocking classification header",
+    (_name, source) => {
+      expect(source).toContain(MARKER);
+    },
+  );
+});

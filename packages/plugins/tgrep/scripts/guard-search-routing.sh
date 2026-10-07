@@ -13,6 +13,11 @@
 #       missing or has no index (R31), so the shell search stays available.
 #   *   allow.
 #
+# Blocking classification (#1117):
+#   - exit 42 (block): hard — a recursive content search that must go through the index; the remedy is
+#     already on stderr. The sourcing sub-block turns it into exit 2.
+#   - exit 43 (fail-open): advisory — tgrep is missing or has no index, so the shell search stays available.
+#
 # WHAT IT BLOCKS: a segment that STARTS a command (never one after a pipe) and
 # invokes `grep`/`egrep`/`fgrep` recursively, or `rg` with no concrete file
 # target. It redirects to `tgrep search` and to nothing else (R29).

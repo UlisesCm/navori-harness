@@ -15,6 +15,7 @@ import { expandHookIncludes } from "../lib/render/hook-includes.ts";
 import { buildClaudeSettings } from "../engines/claude/build-settings.ts";
 import { getCoreRoot, listBundledPluginIds } from "../lib/render/bundled-assets.ts";
 import { loadPlugin } from "../lib/config/plugins.ts";
+import { HOOK_REASON_CODES } from "../lib/audit/model.ts";
 import { NavoriConfigSchema, type NavoriConfig } from "../lib/config/schema.ts";
 
 /**
@@ -289,5 +290,24 @@ process.exit(${code});
     handoff("# report\n\nwork done, rewritten\n");
     expect(run(hook, stopPayload()).out).toContain("systemMessage");
     expect(run(hook, stopPayload()).out).toBe("");
+  });
+});
+
+describe("hook audit reason codes and kinds (#1117)", () => {
+  const hooksDir = join(getCoreRoot(), "core-assets/hooks");
+
+  // Covers: A2
+  it("the partial's reason allowlist equals HOOK_REASON_CODES", () => {
+    const partial = readFileSync(join(hooksDir, "_partials/audit-log.sh"), "utf-8");
+    const list = /\[("[a-z-]+"(?:,"[a-z-]+")*)\]\|index\(\$reason\)/.exec(partial);
+    expect(list).not.toBeNull();
+    const codes = [...(list?.[1] ?? "").matchAll(/"([a-z-]+)"/g)].map((m) => m[1]);
+    expect(codes).toEqual([...HOOK_REASON_CODES]);
+  });
+
+  // Covers: A2
+  it("managed-drift-watch records its dirty verdict as advisory", () => {
+    const src = readFileSync(join(hooksDir, "managed-drift-watch.sh"), "utf-8");
+    expect(src).toMatch(/navori_audit_log "dirty" "[^"]*" advisory/);
   });
 });

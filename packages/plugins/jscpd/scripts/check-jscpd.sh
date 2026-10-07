@@ -6,6 +6,10 @@
 # Triggered as a PreToolUse(Bash) hook, gated to git commit — so the
 # duplication check runs right before code lands, not on every turn.
 
+# Blocking classification (#1117):
+#   - no usable flags / ambiguous or failed run: ask (Claude, modes that show the prompt) / hard (Codex, no payload
+#     or jq, non-prompting modes) — no verdict.
+#   - new clones over the baseline, or a report that cannot rule them out: hard — a real verdict.
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.

@@ -15,11 +15,21 @@
 #   - the payload is a real PreToolUse hook call. A git hook or the CLI
 #     (`</dev/null`) has no payload, so there is nobody to ask.
 #   - jq exists to build the reason JSON safely; without it, block.
+#   - `permission_mode` is one where the host SHOWS the prompt: default,
+#     acceptEdits or auto (the host docs state a hook ask there). Everything
+#     else — bypassPermissions, dontAsk, plan (it can run with prompts disabled),
+#     empty, missing or unknown — is "no": a hook ask is undocumented or denied
+#     there, and these gates fall back to exit 2, so an ask must never turn into
+#     a silent allow.
 # Needs `payload`/`payload_field` from the extract-cmd partial.
 navori_can_ask() {
   case "$0" in
     *".codex/hooks/"* | *".codex/scripts/"*) return 1 ;;
   esac
   command -v jq >/dev/null 2>&1 || return 1
-  [ "$(payload_field hook_event_name)" = "PreToolUse" ]
+  [ "$(payload_field hook_event_name)" = "PreToolUse" ] || return 1
+  case "$(payload_field permission_mode)" in
+    default | acceptEdits | auto) return 0 ;;
+  esac
+  return 1
 }

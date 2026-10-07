@@ -14,6 +14,8 @@
 # the same content passes that gate up to three times per cycle, a green scan is
 # memoized by content fingerprint (see the cache block below, #402).
 
+# Blocking classification (#1117):
+#   - findings (scan status 1): hard — a real verdict. A scanner crash is NOT a block (exit 1, the call proceeds).
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.

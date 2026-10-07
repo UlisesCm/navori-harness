@@ -196,6 +196,46 @@ Doc oficial: https://code.claude.com/docs/en/permission-modes
 | `dontAsk` | only what is pre-approved | `Edit`/`Write` are NOT in navori's `allow` and the mode denies `AskUserQuestion` outright: the implement/review cycle cannot run. The one mode navori does not support today — use `default`, `acceptEdits`, `plan` or `auto` |
 | `bypassPermissions` | everything | prompts are skipped and `allow` rules stop having any effect — but `deny` rules still block, in this mode as in every other, and so does the hook (`exit 2` blocks in any mode). Isolated environments only |
 
+### 6.1 Bloqueos de hooks — clasificación hard / ask / advisory
+
+Cada script managed con `exit 2` declara su clasificación en el header
+`# Blocking classification (#1117):` (lo exige `hook-claims-vs-scripts.test.ts`).
+
+| Clase | Significa | Hooks |
+|---|---|---|
+| `hard` | hay veredicto o una contención: no hay nada que aprobar | `guard-destructive` (límites, `--no-verify`, force-push a base, `rm` sobre root/home/sistema, reescritura de archivos managed), `plan-gate` con plan denegado, `quality-gate-pre-commit` con cwd inválido o gate en rojo, `role-guard`, `implementer-no-markdown`, `subagent-no-background`, `engram-write-guard`, `check-jscpd`/`check-semgrep` con hallazgos |
+| `ask` | no hay veredicto (falta la herramienta): decide el humano en la UI | `plan-gate` con `navori` ausente o sin subcomando `plan`; `quality-gate-pre-commit` con runner ausente; `check-jscpd` sin flags, ambiguo o con corrida fallida |
+| `advisory` | `PostToolUse`: el `exit 2` solo llega al modelo | `managed-drift-watch` |
+
+`ask` solo se emite si `navori_can_ask` ([gate-ask.sh](../packages/core/core-assets/hooks/_partials/gate-ask.sh))
+lo permite: script no-Codex, `jq`, payload `PreToolUse` y `permission_mode` en
+`default`, `acceptEdits` o `auto`. `plan` queda fuera (puede correr con prompts
+desactivados); vacío, ausente o desconocido también. Fuera de la allowlist el gate
+bloquea con `exit 2`, así que un `ask` nunca se vuelve un allow silencioso. Codex ignora
+`permissionDecision`: ahí es siempre `exit 2`. Los hooks de confirmación (`master-accept`,
+`comment-draft`, etc.) conservan su `ask` en todo modo: su respaldo es permitir.
+
+Contrato del host para un `ask` de hook (docs de Claude Code):
+
+| Modo | `ask` de hook | `exit 2` | Regla `ask` de settings |
+|---|---|---|---|
+| `default`, `acceptEdits`, `plan` | pregunta | bloquea | pregunta |
+| `auto` | fuerza el prompt | bloquea | pregunta |
+| `dontAsk` | se niega solo | bloquea | se niega |
+| `bypassPermissions` | no documentado | bloquea | pregunta |
+| `-p` | se niega | bloquea | se niega salvo host de permisos |
+
+`guard-destructive` no pregunta. Para `rm` sobre una variable bloquea y su mensaje
+indica la forma literal `rm -rf <ruta absoluta>`, que la regla `ask` de
+`settings-base.json` convierte en confirmación nativa. Residual: esa regla solo
+casa las grafías literales; cualquier otra forma sigue bloqueada.
+
+Auditoría: `navori_audit_log` deriva `kind` del veredicto (`block` → `hard`,
+`ask` → `ask`; `deny` explícito) y `reason` es un único código de la allowlist
+`HOOK_REASON_CODES` ([model.ts](../packages/cli/src/lib/audit/model.ts)), espejo de la lista
+de `jq` del partial (un test detecta deriva). Cualquier otro texto se registra como
+`unspecified`.
+
 ## Archivos clave
 
 | Pieza | Archivo |

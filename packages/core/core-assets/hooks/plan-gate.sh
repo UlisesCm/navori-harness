@@ -19,12 +19,24 @@
 # BINARY RESOLUTION. Same as `audit-mode-trigger.sh` / `session-start-context.sh`:
 # `command -v navori`. Unlike those two (best-effort, silently absent), this
 # is a HARD gate — `harness.planTiers` promises the workplan is enforced, so a
-# missing or outdated `navori` must DENY with an actionable reason, never fail
-# open. An outdated build with no `plan` subcommand exits with something other
+# real plan denial (exit 2 from `navori plan gate`) always stays a hard block.
+# When navori is missing or outdated there is NO verdict to enforce (#1117): the
+# gate asks the human instead of leaving a dead end — Claude only, in a mode
+# that shows the prompt (`navori_can_ask`), recorded as verdict `ask`. Codex
+# (drops `permissionDecision`), no payload, no jq and bypassPermissions/dontAsk/
+# plan/unknown modes keep the hard block (exit 2); an ask is never a silent
+# allow. The `*)` arm also catches a crashing or killed navori (exit 126/127/
+# 137, ...), not only a missing `plan` subcommand; the ask text says "exit N".
+# An outdated build with no `plan` subcommand exits with something other
 # than this gate's own two contractual codes (0 allow, 2 deny) — citty's
 # unknown-command exit — which this script tells apart from a real verdict
 # below, in ONE invocation (a second `--help` probe would read the hook's
 # stdin payload twice, which a pipe cannot replay).
+#
+# Blocking classification (#1117):
+#   - navori missing / `plan` subcommand unavailable: ask (Claude, prompting
+#     modes only) / hard (Codex, no payload or jq, non-prompting modes) — no verdict.
+#   - `navori plan gate` denied the dispatch: hard — a real verdict.
 #
 # CODEX (spec 0041 R9). Registered on PreToolUse(spawn_agent$) as the last late
 # row. Only `implementer` is gated, with the role from `tool_input.agent_type`.
@@ -50,6 +62,8 @@ navori_audit_tool="Agent"
 # code of this gate.
 navori_audit_begin() { :; }
 navori_audit_log() { :; }
+# navori:include extract-cmd
+# navori:include gate-ask
 # navori:include audit-repo
 # navori:include audit-log
 navori_audit_begin
@@ -65,11 +79,27 @@ navori_audit_on_exit() {
 }
 trap navori_audit_on_exit EXIT
 
-if ! command -v navori >/dev/null 2>&1; then
+# No verdict (navori missing or unusable). $1 = audit reason code, $2 = hard-block
+# message, $3 = text shown to the human when asking. Never returns.
+plan_gate_no_verdict() {
+  codex_copy=0
+  case "$0" in *".codex/hooks/"*) codex_copy=1 ;; esac
+  if [ "$codex_copy" = 0 ] && navori_can_ask; then
+    navori_audit_verdict="ask"
+    navori_audit_reason="$1"
+    jq -cn --arg reason "$3" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$reason}}'
+    exit 0
+  fi
   navori_audit_verdict="block"
-  navori_audit_reason="binary missing from PATH"
-  echo "[navori] BLOCKED by plan-gate: navori is not installed or not on PATH — install it before dispatching a planned implementer." >&2
+  navori_audit_reason="$1"
+  echo "$2" >&2
   exit 2
+}
+
+if ! command -v navori >/dev/null 2>&1; then
+  plan_gate_no_verdict "binary-missing" \
+    "[navori] BLOCKED by plan-gate: navori is not installed or not on PATH — install it before dispatching a planned implementer." \
+    "[navori] plan-gate could not check the workplan: navori is not on PATH, so there is no verdict. Approve to dispatch the implementer WITHOUT the plan gate, or deny and install navori. If you are an agent, report this to the user and wait."
 fi
 
 printf '%s' "$payload" | navori plan gate
@@ -78,13 +108,12 @@ case "$navori_exit" in
   0) exit 0 ;;
   2)
     navori_audit_verdict="block"
-    navori_audit_reason="plan gate denied the dispatch"
+    navori_audit_reason="plan-denied"
     exit 2
     ;;
   *)
-    navori_audit_verdict="block"
-    navori_audit_reason="plan subcommand unavailable, exit $navori_exit"
-    echo "[navori] BLOCKED by plan-gate: this navori build has no working 'plan' subcommand (exit $navori_exit) — update navori (or run 'navori render --apply' after updating) before dispatching a planned implementer." >&2
-    exit 2
+    plan_gate_no_verdict "subcommand-unavailable" \
+      "[navori] BLOCKED by plan-gate: this navori build has no working 'plan' subcommand (exit $navori_exit) — update navori (or run 'navori render --apply' after updating) before dispatching a planned implementer." \
+      "[navori] plan-gate could not check the workplan: this navori build has no working 'plan' subcommand (exit $navori_exit), so there is no verdict. Approve to dispatch the implementer WITHOUT the plan gate, or deny and update navori. If you are an agent, report this to the user and wait."
     ;;
 esac

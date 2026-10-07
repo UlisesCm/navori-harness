@@ -400,11 +400,16 @@ describe.runIf(runsBash)(
  * Real verdicts (red gate, semgrep findings) stay hard blocks everywhere.
  */
 const hasJq = spawnSync("jq", ["--version"], { env: { PATH: BASE_PATH } }).status === 0;
-const HOOK_PAYLOAD = (cwd: string, command = "git commit -m x"): string =>
+const HOOK_PAYLOAD = (
+  cwd: string,
+  command = "git commit -m x",
+  permissionMode: string | null = "default",
+): string =>
   JSON.stringify({
     session_id: "s1",
     cwd,
     hook_event_name: "PreToolUse",
+    ...(permissionMode === null ? {} : { permission_mode: permissionMode }),
     tool_name: "Bash",
     tool_input: { command },
   });
@@ -428,6 +433,8 @@ function runAsk(
   script: string,
   relPath: string,
   input: string,
+  /** Replaces the `navori` shim: null = no binary on PATH; a string = wrapper body. */
+  navoriShim?: string | null,
 ): AskRun {
   const target = join(dir, relPath);
   mkdirSync(resolve(target, ".."), { recursive: true });
@@ -435,11 +442,11 @@ function runAsk(
   chmodSync(target, 0o755);
   const auditsRoot = realpathSync(mkdtempSync(join(tmpdir(), "navori-1117-audits-")));
   mkdirSync(join(auditsRoot, basename(dir)), { mode: 0o700 });
-  writeFileSync(
-    join(binDir, "navori"),
-    `#!/bin/sh\nexec '${process.execPath}' '${resolve("dist/index.js")}' "$@"\n`,
-    { mode: 0o700 },
-  );
+  const realNavori = `exec '${process.execPath}' '${resolve("dist/index.js")}' "$@"`;
+  if (navoriShim !== null)
+    writeFileSync(join(binDir, "navori"), `#!/bin/sh\n${navoriShim ?? ""}\n${realNavori}\n`, {
+      mode: 0o700,
+    });
   const log = join(auditsRoot, basename(dir), "session-s1.log");
   writeFileSync(
     log,
@@ -786,4 +793,192 @@ describe.runIf(runsBash && hasJq)("quality-gate runner missing asks under Claude
     expect(out.status).toBe(BLOCKS);
     expect(out.stdout).toBe("");
   });
+});
+
+describe.runIf(runsBash && hasJq)("navori_can_ask only asks where the prompt shows (#1117)", () => {
+  const HOOK_SRC = resolve(getCoreRoot(), "core-assets/hooks/quality-gate-pre-commit.sh");
+  const runMode = (mode: string | null, relPath = "hook.sh"): AskRun => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-1117-mode-")));
+    const binDir = join(dir, "fakebin");
+    mkdirSync(binDir);
+    const script = join(dir, "src-hook.sh");
+    writeFileSync(
+      script,
+      expandHookIncludes(readFileSync(HOOK_SRC, "utf-8")).replace(
+        "{{shq:qualityGate.fast}}",
+        shellSingleQuote("pnpm run typecheck"),
+      ),
+    );
+    return runAsk("bash", dir, binDir, script, relPath, HOOK_PAYLOAD(dir, "git commit -m x", mode));
+  };
+
+  // Covers: A1
+  it.each(["default", "acceptEdits", "auto"])(
+    "permission_mode %s asks (exit 0 + ask JSON)",
+    (m) => {
+      const out = runMode(m);
+      expect(out.status).toBe(CLEAN);
+      expect(askDecision(out.stdout).decision).toBe("ask");
+    },
+  );
+
+  // Covers: A1
+  it.each(["bypassPermissions", "dontAsk", "plan", "", "weird", null])(
+    "permission_mode %s fails closed (exit 2, no stdout)",
+    (m) => {
+      const out = runMode(m);
+      expect(out.status).toBe(BLOCKS);
+      expect(out.stdout).toBe("");
+    },
+  );
+
+  // Covers: A1
+  it("permission_mode default on a Codex copy keeps exit 2", () => {
+    const out = runMode("default", ".codex/hooks/qg.sh");
+    expect(out.status).toBe(BLOCKS);
+    expect(out.stdout).toBe("");
+  });
+});
+
+describe.runIf(runsBash && hasJq)("audit kind and reason code on every block (#1117)", () => {
+  const GUARD_SRC = resolve(getCoreRoot(), "core-assets/hooks/guard-destructive.sh");
+  const guardScript = (dir: string): string => {
+    const script = join(dir, "src-guard.sh");
+    writeFileSync(
+      script,
+      interpolate(
+        expandHookIncludes(readFileSync(GUARD_SRC, "utf-8")),
+        { branchBase: "main", preset: "custom" } as unknown as NavoriConfig,
+        {},
+      ),
+    );
+    return script;
+  };
+  const runGuard = (command: string): AskRun => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-1117-guard-")));
+    const binDir = join(dir, "fakebin");
+    mkdirSync(binDir);
+    return runAsk("bash", dir, binDir, guardScript(dir), "hook.sh", HOOK_PAYLOAD(dir, command));
+  };
+  /** A minimal hook that only calls the shared recorder, so the partial is tested alone. */
+  const runRecorder = (verdict: string, reason: string, kind = ""): AskRun => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-1117-rec-")));
+    const binDir = join(dir, "fakebin");
+    mkdirSync(binDir);
+    const script = join(dir, "src-rec.sh");
+    writeFileSync(
+      script,
+      expandHookIncludes(
+        [
+          "payload=$(cat)",
+          'navori_audit_name="t"',
+          'navori_audit_phase="PreToolUse"',
+          "# navori:include audit-repo",
+          "# navori:include audit-log",
+          "navori_audit_begin",
+          `navori_audit_log ${shellSingleQuote(verdict)} ${shellSingleQuote(reason)} ${shellSingleQuote(kind)}`,
+          "",
+        ].join("\n"),
+      ),
+    );
+    return runAsk("bash", dir, binDir, script, "hook.sh", HOOK_PAYLOAD(dir));
+  };
+
+  // Covers: A2
+  it("a guard block records kind hard and an allowlisted reason code", () => {
+    const out = runGuard("git commit --no-verify -m x");
+    expect(out.status).toBe(BLOCKS);
+    const row = out.events.find((e) => e.verdict === "block");
+    expect(row?.kind).toBe("hard");
+    expect(row?.reason).toBe("no-verify");
+  });
+
+  // Covers: A2
+  it("derives the kind from the verdict only for block and ask; deny and explicit kinds are untouched", () => {
+    expect(runRecorder("block", "free text").events.at(-1)).toMatchObject({
+      kind: "hard",
+      reason: "unspecified",
+    });
+    expect(runRecorder("ask", "").events.at(-1)).toMatchObject({ kind: "ask" });
+    expect(runRecorder("deny", "").events.at(-1)?.kind).toBeUndefined();
+    expect(runRecorder("allow", "x", "advisory").events.at(-1)?.kind).toBe("advisory");
+    expect(runRecorder("block", "rm-var", "advisory").events.at(-1)).toMatchObject({
+      kind: "advisory",
+      reason: "rm-var",
+    });
+  });
+});
+
+describe.runIf(runsBash && hasJq)("plan-gate asks when there is no verdict (#1117)", () => {
+  const SRC = resolve(getCoreRoot(), "core-assets/hooks/plan-gate.sh");
+  const run = (opts: { mode?: string | null; relPath?: string; shim?: string | null }): AskRun => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-1117-plan-")));
+    const binDir = join(dir, "fakebin");
+    mkdirSync(binDir);
+    const script = join(dir, "src-plan-gate.sh");
+    writeFileSync(script, expandHookIncludes(readFileSync(SRC, "utf-8")));
+    const payload = JSON.stringify({
+      session_id: "s1",
+      cwd: dir,
+      hook_event_name: "PreToolUse",
+      ...(opts.mode === null ? {} : { permission_mode: opts.mode ?? "default" }),
+      tool_name: "Agent",
+      tool_input: { subagent_type: "implementer", prompt: "workplan: x" },
+    });
+    return runAsk("bash", dir, binDir, script, opts.relPath ?? "hook.sh", payload, opts.shim);
+  };
+  /** A navori whose `plan` subcommand exits with `code`; every other command is the real build. */
+  const planExits = (code: number): string => `[ "\${1:-}" = plan ] && exit ${code}`;
+
+  // Covers: A3
+  it("navori missing + Claude prompting mode → ask, no 'outside the agent'", () => {
+    const out = run({ shim: null });
+    expect(out.status).toBe(CLEAN);
+    const d = askDecision(out.stdout);
+    expect(d.decision).toBe("ask");
+    expect(d.reason).not.toContain("outside the agent");
+  });
+
+  // Covers: A3
+  it("plan subcommand unavailable → ask, recorded as verdict ask kind ask", () => {
+    const out = run({ shim: planExits(1) });
+    expect(out.status).toBe(CLEAN);
+    expect(askDecision(out.stdout).reason).toContain("exit 1");
+    expect(out.events.find((e) => e.verdict === "ask")).toMatchObject({
+      kind: "ask",
+      reason: "subcommand-unavailable",
+    });
+  });
+
+  // Covers: A3
+  it("a real plan denial (navori exit 2) stays a hard block", () => {
+    const out = run({ shim: planExits(2) });
+    expect(out.status).toBe(BLOCKS);
+    expect(out.stdout).toBe("");
+    expect(out.events.find((e) => e.verdict === "block")).toMatchObject({
+      kind: "hard",
+      reason: "plan-denied",
+    });
+  });
+
+  // Covers: A3
+  it("Codex copy keeps exit 2 for both no-verdict paths", () => {
+    for (const shim of [null, planExits(1)]) {
+      const out = run({ shim, relPath: ".codex/hooks/plan-gate.sh" });
+      expect(out.status).toBe(BLOCKS);
+      expect(out.stdout).toBe("");
+    }
+  });
+
+  // Covers: A3
+  it.each(["bypassPermissions", "dontAsk", "plan", "", "weird", null])(
+    "permission_mode %s fails closed (exit 2)",
+    (mode) => {
+      for (const shim of [null, planExits(1)]) {
+        const out = run({ shim, mode });
+        expect(out.status).toBe(BLOCKS);
+        expect(out.stdout).toBe("");
+      }
+    },
+  );
 });

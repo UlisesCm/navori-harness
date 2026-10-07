@@ -326,7 +326,7 @@ export function canonicalAuditMetadata(record: Record<string, unknown>): string 
         "plugin:tgrep",
         "unknown",
       ].includes(String(record.source)) ||
-      (record.reason !== undefined && record.reason !== "unspecified"))
+      (record.reason !== undefined && !isHookReason(record.reason)))
   )
     return null;
   const canonical = JSON.stringify(out);
@@ -964,6 +964,35 @@ export interface HookEvent {
 /** `hard` = a verdict/guard blocked; `ask` = the user was asked; `advisory` =
  *  proceeded with a warning. */
 export type HookKind = "hard" | "ask" | "advisory";
+
+/**
+ * Closed set of block reasons a hook may record (#1117). Mirrored by the jq
+ * allowlist in `_partials/audit-log.sh`; `hook-audit-instrumentation.test.ts`
+ * fails when the two drift. Anything else is stored as `"unspecified"` — never
+ * free text.
+ */
+export const HOOK_REASON_CODES = [
+  "oversize",
+  "no-verify",
+  "force-push-base",
+  "rm-root",
+  "rm-var",
+  "no-preserve-root",
+  "fork-bomb",
+  "block-device",
+  "managed-rewrite",
+  "binary-missing",
+  "plan-denied",
+  "subcommand-unavailable",
+] as const;
+
+/** Value of a hook record's `reason` on the wire: a code or `"unspecified"`. */
+export function isHookReason(value: unknown): value is string {
+  return (
+    value === "unspecified" ||
+    (typeof value === "string" && (HOOK_REASON_CODES as readonly string[]).includes(value))
+  );
+}
 
 /**
  * Context an MCP server's `SessionStart` hook pushed into the session, unasked.

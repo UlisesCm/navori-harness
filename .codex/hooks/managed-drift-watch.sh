@@ -1,4 +1,4 @@
-# navori:managed start id="managed-drift-watch-base" hash="eb097bb2" version="0.11.2" source="@navori/core"
+# navori:managed start id="managed-drift-watch-base" hash="b9783c71" version="0.11.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse watcher for managed-block drift (#530), on every tool that can
@@ -92,6 +92,9 @@
 # is none and in a bad one is one. That ~35ms is the MEDIAN of 13,692 recorded
 # runs in `~/.navori/audits` (mean 43.7ms, p95 78ms); the "~25ms measured over
 # 60 files" this used to quote was a single early sample and ran ~40% optimistic.
+# Blocking classification (#1117):
+#   - managed block with a misaligned hash: advisory — PostToolUse, exit 2 only reaches the model; there is
+#     nothing to approve or undo here.
 set -uo pipefail
 
 # The tools this state auditor must run after, i.e. the matcher it has to be
@@ -413,6 +416,11 @@ navori_audit_record_metadata() {
 }
 
 # Only closed categories and bounded technical identifiers cross this bridge.
+# Args: verdict, reason, kind. `reason` is recorded only when it is one of the
+# allowlisted codes below (mirrored by HOOK_REASON_CODES in lib/audit/model.ts,
+# pinned by a drift test); any other non-empty text is stored as "unspecified".
+# `kind` defaults from the verdict (block -> hard, ask -> ask); `deny` stays
+# explicit because the confirm hooks use it as deny-as-confirmation on Codex.
 navori_audit_log() {
   [ "${navori_audit_on:-0}" = 1 ] || return 0
   command -v jq >/dev/null 2>&1 || return 0
@@ -436,8 +444,11 @@ navori_audit_log() {
      agentId:(([.agent_id,.subagent_id]|map(select(id))|first)//"orchestrator")}
      + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
-     + (if $reason != "" then {reason:"unspecified"} else {} end)
-     + (if (["hard","ask","advisory"]|index($kind)) != null then {kind:$kind} else {} end)' 2>/dev/null) || return 0
+     + (if $reason == "" then {}
+        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable"]|index($reason)) != null then {reason:$reason}
+        else {reason:"unspecified"} end)
+     + (($kind | if . == "" then (if $verdict == "block" then "hard" elif $verdict == "ask" then "ask" else "" end) else . end) as $k
+        | if (["hard","ask","advisory"]|index($k)) != null then {kind:$k} else {} end)' 2>/dev/null) || return 0
   navori_audit_record_metadata "$navori_audit_metadata"
   return 0
 }
@@ -455,7 +466,7 @@ navori_audit_reached_check=0
 navori_audit_on_exit() {
   navori_audit_code=$?
   if [ "$navori_audit_code" -eq 2 ]; then
-    navori_audit_log "dirty" "bloque managed con hash desalineado"
+    navori_audit_log "dirty" "bloque managed con hash desalineado" advisory
   elif [ "$navori_audit_reached_check" -eq 1 ]; then
     navori_audit_log "clean"
   else
