@@ -661,6 +661,8 @@ interface RenderCmdStrings {
   workspaceTrimmed: (workspace: string, removed: number) => string;
   /** Files inside the trimmed paths that were NOT navori's, so they stayed (R5). */
   workspaceTrimmedKept: (workspace: string, kept: number) => string;
+  /** Skills a trimmed workspace no longer writes because the root has them (spec 0043). */
+  workspaceSkillsTrimmed: (workspace: string, removed: number, kept: number) => string;
   wouldWrite: string;
   noChangePreview: string;
   written: string;
@@ -1833,6 +1835,8 @@ const CMD_ES: CmdStrings = {
       `${workspace}: ${removed} archivo(s) retirados — el workspace hereda agentes, hooks y settings de la raíz`,
     workspaceTrimmedKept: (workspace, kept) =>
       `${workspace}: ${kept} archivo(s) conservados por no ser de navori — revísalos, son tuyos`,
+    workspaceSkillsTrimmed: (workspace, removed, kept) =>
+      `${workspace}: ${removed} skill(s) duplicadas de la raíz quitadas, ${kept} conservadas`,
     wouldWrite: "→ preview (se escribiría)",
     noChangePreview: "→ sin cambios",
     written: "→ written",
@@ -3251,6 +3255,8 @@ const CMD_EN: CmdStrings = {
       `${workspace}: ${removed} file(s) removed — the workspace inherits agents, hooks and settings from the root`,
     workspaceTrimmedKept: (workspace, kept) =>
       `${workspace}: ${kept} file(s) kept because navori did not write them — review them, they are yours`,
+    workspaceSkillsTrimmed: (workspace, removed, kept) =>
+      `${workspace}: ${removed} skill(s) duplicated from the root removed, ${kept} kept`,
     wouldWrite: "→ preview (would write)",
     noChangePreview: "→ no changes",
     written: "→ written",

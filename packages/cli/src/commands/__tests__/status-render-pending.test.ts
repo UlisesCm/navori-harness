@@ -126,7 +126,15 @@ describe("status renderPending (#1143)", () => {
       monorepo: {
         enabled: true,
         tool: "turbo" as const,
-        workspaces: [{ name: "backend", path: "apps/backend" }],
+        // Con gate propio, `verify-before-done` difiere de la raíz y el workspace la
+        // conserva (spec 0043): sigue habiendo una skill de workspace que re-crear.
+        workspaces: [
+          {
+            name: "backend",
+            path: "apps/backend",
+            qualityGate: { fast: "pnpm lint", full: "pnpm test" },
+          },
+        ],
         workspaceHarness: "minimal" as const,
       },
     };
@@ -137,7 +145,7 @@ describe("status renderPending (#1143)", () => {
     expect(runRender(cwd).ok).toBe(true);
     writeConfig(join(cwd, "navori.config.json"), base);
     // ...and a workspace skill that render would re-create.
-    rmSync(join(cwd, "apps/backend/.claude/skills/locate-code"), { recursive: true });
+    rmSync(join(cwd, "apps/backend/.claude/skills/verify-before-done"), { recursive: true });
     const before = snapshot(cwd);
 
     const json = await statusJson();
@@ -145,5 +153,34 @@ describe("status renderPending (#1143)", () => {
     expect(json.drift).toBe(0);
     expect(json.renderPending as number).toBeGreaterThanOrEqual(2);
     expect(snapshot(cwd)).toEqual(before);
+  });
+
+  // Covers: R3, R9
+  it("after updating to this version with duplicated copies, pending is > 0; after applying, 0 and drift 0", async () => {
+    const mono = (harness: "full" | "minimal") => ({
+      name: "pending-dedup",
+      engines: ["claude"],
+      preset: "monorepo-turbopnpm",
+      qualityGate: { fast: "pnpm -w lint", full: "pnpm -w test" },
+      monorepo: {
+        enabled: true,
+        tool: "turbo" as const,
+        workspaces: [{ name: "backend", path: "apps/backend" }],
+        workspaceHarness: harness,
+      },
+    });
+    mkdirSync(join(cwd, "apps/backend"), { recursive: true });
+    // The tree an older navori left: every skill duplicated into the workspace.
+    writeConfig(join(cwd, "navori.config.json"), mono("full"));
+    expect(runRender(cwd).ok).toBe(true);
+    writeConfig(join(cwd, "navori.config.json"), mono("minimal"));
+
+    const before = await statusJson();
+    expect(before.renderPending as number).toBeGreaterThan(0);
+
+    expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
+    const after = await statusJson();
+    expect(after.renderPending).toBe(0);
+    expect(after.drift).toBe(0);
   });
 });

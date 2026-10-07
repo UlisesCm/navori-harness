@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
+import { removeManagedSection } from "../../../lib/render/marker.ts";
 
 /**
  * A plugin sub-block whose target is absent has TWO causes, and the render used
@@ -73,5 +74,41 @@ describe("render — el aviso de sub-bloque no inyectado (#676)", () => {
     const r = renderClaudeEngine(root, BASE);
     expect(injectWarnings(r.warnings)).toEqual([]);
     expect(existsSync(join(root, ".claude/agents/orchestrator.md"))).toBe(true);
+  });
+});
+
+describe("render — un sub-bloque cuyo destino es una skill omitida (spec 0043 R13)", () => {
+  const JSCPD = { ...BASE, plugins: { jscpd: { enabled: true } } } as unknown as NavoriConfig;
+  const target = (): string => join(ws, ".claude/skills/review-diff/SKILL.md");
+  const omitted = { omitted: new Set(["review-diff"]), prune: false };
+
+  it("no avisa aunque el destino no esté en disco", () => {
+    // Covers: R13
+    // Sin el set de omitidas, ese destino ausente sí es un aviso legítimo (#676).
+    const control = renderClaudeEngine(ws, JSCPD, { repoRoot: root });
+    expect(control.warnings.some((w) => /no inyectado|not injected/.test(w))).toBe(false);
+    rmSync(join(ws, ".claude"), { recursive: true });
+
+    const r = renderClaudeEngine(ws, JSCPD, { repoRoot: root, workspaceSkills: omitted });
+    expect(injectWarnings(r.warnings)).toEqual([]);
+    expect(existsSync(target())).toBe(false);
+  });
+
+  it("no reescribe la copia en disco", () => {
+    // Covers: R13
+    renderClaudeEngine(ws, JSCPD, { repoRoot: root });
+    // Quitar el sub-bloque: un render normal lo volvería a inyectar.
+    const stripped = removeManagedSection(
+      readFileSync(target(), "utf-8"),
+      "jscpd-review-extension",
+      "html",
+    );
+    expect(stripped).not.toBe(readFileSync(target(), "utf-8"));
+    writeFileSync(target(), stripped);
+
+    const r = renderClaudeEngine(ws, JSCPD, { repoRoot: root, workspaceSkills: omitted });
+
+    expect(readFileSync(target(), "utf-8")).toBe(stripped);
+    expect(r.written.some((w) => w.path.includes("review-diff"))).toBe(false);
   });
 });

@@ -400,6 +400,11 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "retired .pi/agents/<role>.md only when it is a regular non-symlink file, its role " +
       "is in Navori's fixed allowlist but no longer desired, and ownsPiAgent validates " +
       "the exact canonical content and digest; an edited or foreign role is preserved",
+    "engines/shared/workspace-skills.ts":
+      "spec 0043 — planOmittedSkillRemoval QUEUES a workspace's copy of a skill the root " +
+      "provides; the delete itself is commitWrites'. The copy is queued only when " +
+      "navoriAuthorship answers `ours` under requirePristine (+ normalize) and every block " +
+      "hash verifies; anything else is kept and reported",
     "lib/render/removable.ts":
       "the criterion itself, plus removeEmptyDirs (rmdirSync refuses non-empty)",
 

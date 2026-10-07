@@ -82,6 +82,7 @@ import {
   type OverlapRow,
 } from "../shared/native-overlap.ts";
 import { buildSkillRows } from "../shared/skills-index.ts";
+import { planOmittedSkillRemoval } from "../shared/workspace-skills.ts";
 import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
 import {
   attachResolution,
@@ -89,6 +90,7 @@ import {
   collisionWarnings,
   commitWrites,
   type AdapterCtx,
+  type KeptOrphan,
   type PendingRemoval,
   type SkipReason,
   type SkipStatus,
@@ -153,6 +155,12 @@ export interface ClaudeEngineResult {
   /** Total number of destination files inspected this render. `inspected -
    * written.length - skipped.length` = how many were already up to date. */
   inspected: number;
+  /**
+   * Copies of omitted skills the render KEPT on disk, with why (spec 0043): not
+   * navori's, a newer navori's, or edited by the user. Paths are relative to the
+   * render's `cwd`.
+   */
+  trimmedKept?: KeptOrphan[];
 }
 
 /**
@@ -253,10 +261,21 @@ function buildSkillsIndexBody(
   /** Where this CLAUDE.md is written — the `.claude/skills/` it indexes sit
    * next to it, which on a workspace render is NOT `repoRoot`. */
   cwd: string,
+  /** Skills this render does not write (they live at the root, whose index lists them). */
+  omitted: ReadonlySet<string>,
 ): string | null {
   // #908: no trigger — the host's native skill listing already tells the
   // model when to use each one (see buildSkillRows' docblock).
-  const rows = buildSkillRows(config, repoRoot, coreAssets, localSkills, cwd, false, "claude");
+  const rows = buildSkillRows(
+    config,
+    repoRoot,
+    coreAssets,
+    localSkills,
+    cwd,
+    false,
+    "claude",
+    omitted,
+  );
   if (rows.length === 0) return null;
   const t = tc(lang).blocks.skillsIndex;
   // The project-local note only makes sense when the repo actually declares
@@ -515,6 +534,15 @@ export function renderClaudeEngine(
      * (nothing reads it) are all unreachable in a workspace.
      */
     harnessScope?: "minimal" | "full";
+    /**
+     * Skills this workspace does NOT write because the root already provides
+     * them (spec 0043 R2) — the output of `decideWorkspaceSkills`, computed once
+     * per run before any file is written. They leave the plan, the skills index
+     * and the sub-block routing. `prune: true` (`render`) also removes the
+     * copies already on disk, through the pristine criterion and with a preview;
+     * `prune: false` (`sync`) only stops recreating them and never deletes.
+     */
+    workspaceSkills?: { omitted: ReadonlySet<string>; prune: boolean };
   } = {},
 ): ClaudeEngineResult {
   // Fill in render-only derived defaults (e.g. prTarget ?? branchBase) so
@@ -636,6 +664,7 @@ export function renderClaudeEngine(
   // when the body comes back empty.
   const localSkills = config.project?.localSkills ?? [];
   let claudeMdContent = claudeMdPlan.next;
+  const omittedSkills = options.workspaceSkills?.omitted ?? new Set<string>();
   const skillsIndexBody = buildSkillsIndexBody(
     config,
     localSkills,
@@ -643,6 +672,7 @@ export function renderClaudeEngine(
     coreAssets,
     lang,
     cwd,
+    omittedSkills,
   );
   if (skillsIndexBody !== null) {
     const result = injectManagedSection(
@@ -870,9 +900,14 @@ export function renderClaudeEngine(
   // Under `minimal` only skills survive: they DO load in a workspace (lazily,
   // the first time Claude reads a file in that subdirectory), which is exactly
   // the behavior a monorepo wants. Agents and hooks do not (0018 R2).
-  const harnessPlan = minimalHarness
+  const trimmedPlan = minimalHarness
     ? { ...inventory.plan, agents: [], hooks: [] }
     : inventory.plan;
+  // Spec 0043 R2: what the root already provides is not this workspace's to write.
+  const harnessPlan =
+    omittedSkills.size > 0
+      ? { ...trimmedPlan, skills: trimmedPlan.skills.filter((s) => !omittedSkills.has(s.id)) }
+      : trimmedPlan;
   // A `project.libraries` id this registry doesn't know is silently skipped by
   // the plan AND its managed skill is pruned from disk below (§8.6) — a repo
   // upgraded without `navori update` would lose its guidance with zero signal
@@ -1041,6 +1076,7 @@ export function renderClaudeEngine(
         skipped,
         warnings,
         minimalHarness,
+        omittedSkills,
         // #215: register version drift so `navori update` reports a plugin
         // sub-block whose version bumped, instead of silently correcting it on
         // render. Reuses the CLAUDE.md plan's buckets so it flows out via the
@@ -1236,7 +1272,10 @@ export function renderClaudeEngine(
   const selectedLibs = new Set([
     ...(config.project?.libraries ?? []),
     ...(config.project?.extraLibraries ?? []),
-    ...harnessPlan.skills.map((s) => s.id),
+    // The plan BEFORE the workspace omission (spec 0043): an omitted skill is
+    // still selected, so this weak, marker-only prune never takes one with the
+    // user's text in it. Removing an omitted copy is the pristine path's call.
+    ...inventory.plan.skills.map((s) => s.id),
   ]);
   const localSkillIds = new Set(config.project?.localSkills ?? []);
   for (const { id } of isPresetLoaded(config, preset) ? LIBRARY_SKILLS : []) {
@@ -1374,6 +1413,27 @@ export function renderClaudeEngine(
     removals.push(removal);
   }
 
+  // 8.9. Copies of the skills this workspace no longer writes (spec 0043 R3).
+  // Only `render` asks (`prune`); `sync` never deletes. Judged by the single
+  // pristine criterion, so a copy with anything of the user's in it stays and is
+  // reported, not removed.
+  const trimmedKept: KeptOrphan[] = [];
+  if (options.workspaceSkills?.prune) {
+    for (const skill of inventory.plan.skills) {
+      if (!omittedSkills.has(skill.id)) continue;
+      const plan = planOmittedSkillRemoval({
+        cwd,
+        skillsDir: ".claude/skills",
+        skill,
+        expected: composeFreshClaudeSkill(skill, config, enabledPlugins),
+        normalize: (onDisk) => normalizeClaudeSkill(onDisk, skill, config, enabledPlugins),
+      });
+      inspected += plan.removals.length;
+      removals.push(...plan.removals);
+      trimmedKept.push(...plan.kept);
+    }
+  }
+
   // 9. Backup + atomic writes — shared spine (Spec 0008 C.3). The CLAUDE.md-only
   // pending (built above), the shared-plan pending (§3–6.6) and the
   // reconciliation removals all flow through ONE commitWrites: a single backup
@@ -1406,6 +1466,7 @@ export function renderClaudeEngine(
     downgrades: claudeMdPlan.downgrades,
     languageFallbacks: claudeMdPlan.languageFallbacks,
     inspected,
+    trimmedKept,
   };
 }
 
@@ -1486,11 +1547,39 @@ export function composeFreshClaudeSkill(
   plugins: readonly LoadedPlugin[],
   transform?: (text: string) => string,
 ): string {
+  return composeClaudeSkill(skill, config, plugins, null, transform);
+}
+
+/**
+ * An on-disk skill copy rewritten the way a render would write it now: the
+ * asset's own frontmatter keys refreshed (a copy from an older navori lacks the
+ * ones the asset gained since) and any missing plugin sub-block added, while
+ * the user's keys, text and hand-edited blocks are left exactly as they are.
+ * What `requirePristine.normalize` applies before comparing with the fresh
+ * bytes.
+ */
+export function normalizeClaudeSkill(
+  onDisk: string,
+  skill: PlannedSkill,
+  config: NavoriConfig,
+  plugins: readonly LoadedPlugin[],
+  transform?: (text: string) => string,
+): string {
+  return composeClaudeSkill(skill, config, plugins, onDisk, transform);
+}
+
+function composeClaudeSkill(
+  skill: PlannedSkill,
+  config: NavoriConfig,
+  plugins: readonly LoadedPlugin[],
+  existingContent: string | null,
+  transform?: (text: string) => string,
+): string {
   const effective = effectiveConfig(config);
   const dest = claudeSkillDest(skill.id);
   let content = renderManagedFile({
     assetPath: skill.assetPath,
-    existingContent: null,
+    existingContent,
     managedId: skill.managedId,
     meta: CORE_META,
     config: effective,
@@ -2179,8 +2268,16 @@ function applySubBlockInject(input: {
   /** Spec 0018 scope of THIS render. Decides whether an absent target is a
    *  finding or the trim working as designed — see the branch below. */
   minimalHarness: boolean;
+  /** Skills this render does not write (spec 0043): a sub-block aimed at one lives at the root. */
+  omittedSkills: ReadonlySet<string>;
 }): void {
   const targetAbs = join(input.cwd, input.skill.injectInto!);
+  // Spec 0043 R13. The target skill is written by the root, which injects the
+  // sub-block there. Warning (#676) would be false, and re-injecting into a stale
+  // copy still on disk would keep the second render from ever reaching zero.
+  for (const id of input.omittedSkills) {
+    if (input.skill.injectInto === claudeSkillDest(id)) return;
+  }
 
   let currentContent: string;
   const pendingEntry = input.pending.find((p) => p.path === targetAbs);

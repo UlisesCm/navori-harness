@@ -116,4 +116,27 @@ describe("sync respeta workspaceHarness (spec 0043 T1)", () => {
     expect(existsSync(join(ws, ".claude/settings.json"))).toBe(true);
     expect(existsSync(join(ws, ".claude/agents"))).toBe(true);
   });
+
+  it("bajo `minimal`, sync no recrea las omitidas y no borra nada", async () => {
+    // Covers: R9
+    // Un repo con las copias de un navori anterior: sync no las recrea si faltan
+    // y tampoco las borra — el que reconcilia es `render`, con preview.
+    writeMonorepoConfig("full");
+    expect(runRender(cwd).ok).toBe(true);
+    const ws = join(cwd, "apps/backend");
+    writeMonorepoConfig("minimal");
+    const before = listFiles(ws);
+    expect(before.some((f) => f.includes("locate-code"))).toBe(true);
+
+    await runSync({ apply: true });
+    expect(listFiles(ws)).toEqual(before);
+
+    // Y lo que `render` ya había quitado, sync no lo trae de vuelta.
+    expect(runRender(cwd, { dryRun: false }).ok).toBe(true);
+    expect(existsSync(join(ws, ".claude/skills/locate-code"))).toBe(false);
+    const afterRender = listFiles(ws);
+    await runSync({ apply: true });
+    expect(listFiles(ws)).toEqual(afterRender);
+    expect(countPendingRenderChanges(runRender(cwd, { dryRun: true }))).toBe(0);
+  });
 });

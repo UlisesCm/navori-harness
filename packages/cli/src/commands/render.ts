@@ -17,6 +17,8 @@ import {
 import { createBackup, purgeOldBackups } from "../lib/render/backup.ts";
 import type { AssetPlanEntry, UpdateAvailable } from "../lib/render/render-plan.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
+import { decideClaudeWorkspaceSkills } from "../engines/claude/workspace-decision.ts";
+import { isTrimmedHarness } from "../engines/shared/workspace-skills.ts";
 import { renderAgentsMdEngine } from "../engines/agents-md/index.ts";
 import { renderCursorEngine } from "../engines/cursor/index.ts";
 import { renderCopilotEngine } from "../engines/copilot/index.ts";
@@ -535,6 +537,9 @@ export function runRender(
     }
     const wsCwd = resolve(cwd, match.path);
     const wsConfig = effectiveConfigForWorkspace(config, match);
+    // Spec 0043: no root is rendered here, so only what the root already has on
+    // disk can justify dropping a workspace copy.
+    const decision = decideClaudeWorkspaceSkills(cwd, config, { rootRendered: false });
     const wsResult = renderClaude
       ? renderClaudeEngine(wsCwd, wsConfig, {
           dryRun,
@@ -544,13 +549,16 @@ export function runRender(
           // Spec 0018: the WORKSPACE render honors the scope; the root call
           // below never passes it, so the root is never trimmed.
           harnessScope: config.monorepo?.workspaceHarness,
+          workspaceSkills: {
+            omitted: decision.omitted.get(match.path) ?? new Set<string>(),
+            prune: true,
+          },
         })
       : undefined;
     // AFTER the render, so a run that fails to write never deletes (0018 R4).
-    const wsTrim =
-      config.monorepo?.workspaceHarness === "minimal"
-        ? reconcileTrimmedWorkspace(wsCwd, dryRun)
-        : ({ remove: [], keep: [] } as OrphanRemovalPlan);
+    const wsTrim = isTrimmedHarness(config.monorepo?.workspaceHarness ?? "minimal")
+      ? reconcileTrimmedWorkspace(wsCwd, dryRun)
+      : ({ remove: [], keep: [] } as OrphanRemovalPlan);
     // #77: --workspace must also render the non-Claude engines for that
     // workspace. There is no root render here, so the summaries land in the
     // top-level `extraEngines` (same field the normal path uses for the root)
@@ -584,7 +592,7 @@ export function runRender(
           engineResult: wsResult,
           extraEngines: [],
           trimmed: wsTrim.remove,
-          trimmedKept: wsTrim.keep,
+          trimmedKept: [...wsTrim.keep, ...(wsResult?.trimmedKept ?? [])],
         },
       ],
       extraEngines: wsExtraEngines,
@@ -594,6 +602,10 @@ export function runRender(
   const engineResult = renderClaude
     ? renderClaudeEngine(cwd, config, { dryRun, force: forceFlag })
     : undefined;
+  // Spec 0043: taken once, before any workspace is written. The root was just
+  // rendered above, so its own plan answers "will the root hold this skill" —
+  // in preview too, where the disk does not have it yet.
+  const decision = decideClaudeWorkspaceSkills(cwd, config, { rootRendered: true });
 
   const workspaces: WorkspaceRenderResult[] = [];
   const orphanedWorkspaces: string[] = [];
@@ -616,12 +628,15 @@ export function runRender(
           repoRoot: cwd,
           monorepoContext: buildMonorepoContext(config, ws),
           harnessScope: config.monorepo?.workspaceHarness,
+          workspaceSkills: {
+            omitted: decision.omitted.get(ws.path) ?? new Set<string>(),
+            prune: true,
+          },
         })
       : undefined;
-    const wsTrim =
-      config.monorepo?.workspaceHarness === "minimal"
-        ? reconcileTrimmedWorkspace(wsCwd, dryRun)
-        : ({ remove: [], keep: [] } as OrphanRemovalPlan);
+    const wsTrim = isTrimmedHarness(config.monorepo?.workspaceHarness ?? "minimal")
+      ? reconcileTrimmedWorkspace(wsCwd, dryRun)
+      : ({ remove: [], keep: [] } as OrphanRemovalPlan);
     // #77: non-Claude engines (AGENTS.md) render per workspace too. The root
     // call below already warns once about adapterless engines (cursor/copilot),
     // so those warnings are muted here.
@@ -643,7 +658,7 @@ export function runRender(
       engineResult: wsResult,
       extraEngines: wsExtraEngines,
       trimmed: wsTrim.remove,
-      trimmedKept: wsTrim.keep,
+      trimmedKept: [...wsTrim.keep, ...(wsResult?.trimmedKept ?? [])],
     });
   }
 
@@ -954,6 +969,15 @@ export const renderCommand = defineCommand({
       }
       if (ws.backupPath) {
         p.log.message(`${dim(tc(result.language).common.backupLabel)} ${ws.backupPath}`);
+      }
+      // Spec 0043 F8: one count line instead of a listing per removed copy; only
+      // what was KEPT names paths, because only that needs the reader to act.
+      const skillsRemoved = removedTrimmedCount(ws.engineResult);
+      const skillsKept = ws.engineResult?.trimmedKept ?? [];
+      if (skillsRemoved > 0 || skillsKept.length > 0) {
+        p.log.message(
+          tr.workspaceSkillsTrimmed(ws.workspaceName, skillsRemoved, skillsKept.length),
+        );
       }
       // Spec 0018 R4/R5. The kept list is a WARNING, not a note: it is the only
       // moment anyone learns that something in those directories was theirs.
@@ -1273,7 +1297,13 @@ export function countRenderStatuses(result: ReturnType<typeof runRender>): Recor
     }
   };
   countScope(result.entries, result.engineResult, result.extraEngines ?? []);
-  for (const ws of result.workspaces) countScope(ws.entries, ws.engineResult, ws.extraEngines);
+  for (const ws of result.workspaces) {
+    countScope(ws.entries, ws.engineResult, ws.extraEngines);
+    // What the trim reconciliation would remove (or just removed) is pending work
+    // too: without it `status` reads "no render pending" over a workspace that
+    // still holds files the mode no longer writes (spec 0043 F4).
+    bump("removed-trimmed", ws.trimmed.length);
+  }
   // The harness `.gitignore` is one more line of the same listing. Its skips go
   // to `countSkippedFiles`, like every other file-level skip.
   if (result.gitignore && !result.gitignore.status.endsWith("-skipped")) {
@@ -1480,8 +1510,8 @@ function summarize(counts: Record<string, number>): string {
     parts.push(color.red(`${counts["user-modified-skipped"]} conflict`));
   if (counts["downgrade-skipped"])
     parts.push(color.yellow(`${counts["downgrade-skipped"]} downgrade-skip`));
-  if (counts["removed-condition-false"])
-    parts.push(color.magenta(`${counts["removed-condition-false"]} removed`));
+  const removed = (counts["removed-condition-false"] ?? 0) + (counts["removed-trimmed"] ?? 0);
+  if (removed) parts.push(color.magenta(`${removed} removed`));
   if (counts.unchanged) parts.push(dim(`${counts.unchanged} unchanged`));
   return parts.length > 0 ? `${dim("—")} ${parts.join(dim(", "))}` : "";
 }
@@ -1585,12 +1615,20 @@ function reportExtraEngines(extraEngines: EngineRenderSummary[], lang: Lang): vo
   }
 }
 
+/** Copies of root-provided skills a workspace render removed (or would remove). */
+function removedTrimmedCount(engine: ClaudeEngineResult | undefined): number {
+  return (engine?.written ?? []).filter((w) => w.status === "removed-trimmed").length;
+}
+
 function reportEngineFiles(engine: ClaudeEngineResult, lang: Lang): void {
   // CLAUDE.md is reported separately by reportClaudeMd; filter it out here.
   // Header used to say ".claude/" which was misleading — progress/ also lands
   // here. "Engine files" describes the union (settings, agents, skills, hooks,
-  // progress).
-  const written = engine.written.filter((w) => w.path !== "CLAUDE.md");
+  // progress). `removed-trimmed` copies are summarized by the per-workspace count
+  // line instead of one row each (spec 0043).
+  const written = engine.written.filter(
+    (w) => w.path !== "CLAUDE.md" && w.status !== "removed-trimmed",
+  );
   // Discounts CLAUDE.md the same way `written` does above — it has its own
   // section — so this "+N unchanged" and the outro's summary count one set.
   const unchangedCount = countUnchangedEngineFiles(engine);
@@ -1664,7 +1702,8 @@ export function summarizeRenderEntries(counts: Record<string, number>): string {
   if (counts.created) parts.push(`${counts.created} created`);
   if (counts.updated) parts.push(`${counts.updated} updated`);
   if (counts["user-modified-skipped"]) parts.push(`${counts["user-modified-skipped"]} conflict`);
-  if (counts["removed-condition-false"]) parts.push(`${counts["removed-condition-false"]} removed`);
+  const removed = (counts["removed-condition-false"] ?? 0) + (counts["removed-trimmed"] ?? 0);
+  if (removed) parts.push(`${removed} removed`);
   if (counts.unchanged) parts.push(`${counts.unchanged} unchanged`);
   return parts.join(", ");
 }

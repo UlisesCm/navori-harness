@@ -189,6 +189,10 @@ describe("runRender — monorepo iteration (spec 0001 fase 1)", () => {
         enabled: true,
         tool: "pnpm",
         workspaces: [{ name: "api", path: "apps/api" }],
+        // `full`: under `minimal` the workspace skill is byte-identical to the
+        // root's and is no longer written (spec 0043), which would stop proving
+        // that the workspace resolved the preset.
+        workspaceHarness: "full",
       },
     });
 

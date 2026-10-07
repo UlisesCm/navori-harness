@@ -1,9 +1,33 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeConfig } from "../../lib/config/config.ts";
-import { runRender } from "../render.ts";
+import { writeConfig, readConfig } from "../../lib/config/config.ts";
+import { planClaudeSkills } from "../../engines/claude/index.ts";
+import { countPendingRenderChanges, renderCommand, runRender } from "../render.ts";
+
+const logged = vi.hoisted(() => ({ messages: [] as string[] }));
+vi.mock("@clack/prompts", () => ({
+  intro: () => undefined,
+  outro: () => undefined,
+  cancel: () => undefined,
+  log: {
+    message: (m: string) => void logged.messages.push(m),
+    info: (m: string) => void logged.messages.push(m),
+    warn: (m: string) => void logged.messages.push(m),
+    error: () => undefined,
+    success: () => undefined,
+    step: () => undefined,
+  },
+}));
 
 /**
  * Spec 0018 — a workspace only gets the harness the engine can actually reach.
@@ -91,14 +115,16 @@ describe("render por workspace — `minimal` escribe solo lo alcanzable (spec 00
     expect(readFileSync(join(cwd, "CLAUDE.md"), "utf-8")).not.toContain('id="contexto-monorepo"');
   });
 
-  it("bajo el default, el workspace recibe CLAUDE.md y skills, y nada más", () => {
+  it("bajo el default, el workspace recibe CLAUDE.md y nada más cuando todo es igual al de la raíz", () => {
     // Covers: R2
     writeMonorepoConfig(); // sin declarar nada: el default del schema es `minimal`
     expect(runRender(cwd).ok).toBe(true);
 
     for (const ws of ["apps/backend", "apps/storefront"]) {
       expect(existsSync(join(cwd, ws, "CLAUDE.md")), `${ws}/CLAUDE.md`).toBe(true);
-      expect(existsSync(join(cwd, ws, ".claude/skills")), `${ws}/.claude/skills`).toBe(true);
+      // Spec 0043: este fixture hereda preset y `qualityGate` de la raíz, así que
+      // cada skill del workspace es idéntica a la de la raíz y ya no se duplica.
+      expect(existsSync(join(cwd, ws, ".claude/skills")), `${ws}/.claude/skills`).toBe(false);
       for (const piece of UNREACHABLE) {
         expect(existsSync(join(cwd, ws, piece)), `${ws}/${piece} no debería existir`).toBe(false);
       }
@@ -219,5 +245,158 @@ describe("render por workspace — `minimal` escribe solo lo alcanzable (spec 00
       expect(ws.written, `${ws.workspaceName} reescribió en el segundo render`).toBe(false);
       expect(ws.trimmed, `${ws.workspaceName} volvió a borrar`).toEqual([]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Spec 0043 — `minimal` stops duplicating what the root already has.
+// ---------------------------------------------------------------------------
+
+/** Skill directory names under a `.claude/skills`, sorted; empty when absent. */
+function skillIds(dir: string): string[] {
+  const skills = join(dir, ".claude/skills");
+  return existsSync(skills) ? readdirSync(skills).sort() : [];
+}
+
+const SKILL = (ws: string, id: string): string => join(cwd, ws, ".claude/skills", id, "SKILL.md");
+
+/**
+ * Field-shaped monorepo: two workspaces with their own presets, one of them with
+ * its own `qualityGate`, under a root with a third preset.
+ */
+function writeMoonarConfig(harness: "minimal" | "full" = "minimal"): void {
+  writeConfig(join(cwd, "navori.config.json"), {
+    name: "moonar-demo",
+    engines: ["claude"],
+    preset: "monorepo-turbopnpm",
+    qualityGate: { fast: "pnpm -w lint", full: "pnpm -w test" },
+    monorepo: {
+      enabled: true,
+      tool: "turbo",
+      workspaces: [
+        { name: "backend", path: "apps/backend", preset: "medusa" },
+        {
+          name: "storefront",
+          path: "apps/storefront",
+          preset: "nextjs",
+          qualityGate: { fast: "pnpm lint", full: "pnpm test" },
+        },
+      ],
+      workspaceHarness: harness,
+    },
+  });
+}
+
+describe("render por workspace — `minimal` no duplica lo de la raíz (spec 0043)", () => {
+  it("bajo `minimal` el workspace no lleva las idénticas a la raíz y sí las de su preset y librerías", () => {
+    // Covers: R2
+    writeMoonarConfig();
+    expect(runRender(cwd).ok).toBe(true);
+
+    const rootIds = skillIds(cwd);
+    // El workspace de `backend` hereda el gate de la raíz: solo conserva lo de su preset.
+    const backend = skillIds(join(cwd, "apps/backend"));
+    expect(backend).toEqual(expect.arrayContaining(["medusa-modules", "medusa-api-routes"]));
+    for (const id of backend) {
+      expect(rootIds, `${id} está duplicada de la raíz`).not.toContain(id);
+    }
+    // `storefront` tiene su propio gate: las skills que lo interpolan difieren de la raíz.
+    const storefront = skillIds(join(cwd, "apps/storefront"));
+    expect(storefront).toEqual(
+      expect.arrayContaining(["nextjs-app-router", "verify-before-done", "review-diff"]),
+    );
+    expect(storefront).not.toContain("locate-code");
+  });
+
+  it("la raíz conserva exactamente su set", () => {
+    // Covers: R2
+    writeMoonarConfig();
+    expect(runRender(cwd).ok).toBe(true);
+    const planned = planClaudeSkills(cwd, readConfig(join(cwd, "navori.config.json")), {
+      repoRoot: cwd,
+    }).skills.map((s) => s.id);
+    expect(skillIds(cwd)).toEqual([...planned].sort());
+  });
+
+  it("fixture moonar: omite, conserva y reporta lo esperado", () => {
+    // Covers: R2, R3
+    // Un repo renderizado por un navori anterior: todo duplicado, bajo `full`.
+    writeMoonarConfig("full");
+    expect(runRender(cwd).ok).toBe(true);
+    // Copia de un asset viejo: sin el mapa `metadata:` que el asset ganó después.
+    const old = readFileSync(SKILL("apps/backend", "locate-code"), "utf-8");
+    const stripped = old.replace(/^metadata:\n(?: {2}.*\n)+/m, "");
+    expect(stripped).not.toBe(old);
+    writeFileSync(SKILL("apps/backend", "locate-code"), stripped);
+    // Copia con texto del usuario, y copia sin marca de navori.
+    writeFileSync(
+      SKILL("apps/backend", "debug-failure"),
+      `${readFileSync(SKILL("apps/backend", "debug-failure"), "utf-8")}\nMi nota propia.\n`,
+    );
+    writeFileSync(SKILL("apps/backend", "plan-simple"), "---\nname: plan-simple\n---\nmía\n");
+
+    writeMoonarConfig("minimal");
+    const result = runRender(cwd, { dryRun: false });
+    expect(result.ok).toBe(true);
+    const backend = result.workspaces.find((w) => w.workspaceName === "backend")!;
+
+    // Se quitó la prístina (incluida la del asset viejo)…
+    expect(existsSync(SKILL("apps/backend", "locate-code"))).toBe(false);
+    expect(existsSync(SKILL("apps/backend", "review-diff"))).toBe(false);
+    // …y se conservaron y reportaron las que no son de navori sola.
+    const kept = Object.fromEntries(backend.trimmedKept.map((k) => [k.path, k.reason]));
+    expect(kept[".claude/skills/debug-failure/SKILL.md"]).toBe("modified");
+    expect(kept[".claude/skills/plan-simple/SKILL.md"]).toBe("foreign");
+    expect(existsSync(SKILL("apps/backend", "debug-failure"))).toBe(true);
+    expect(existsSync(SKILL("apps/backend", "plan-simple"))).toBe(true);
+    // Lo propio de su preset sigue ahí.
+    expect(existsSync(SKILL("apps/backend", "medusa-modules"))).toBe(true);
+    // `storefront` interpola su gate: la copia difiere de la raíz y se conserva.
+    expect(existsSync(SKILL("apps/storefront", "verify-before-done"))).toBe(true);
+    expect(existsSync(SKILL("apps/storefront", "locate-code"))).toBe(false);
+  });
+
+  it("`render --workspace` sin raíz renderizada no omite nada", () => {
+    // Covers: R3
+    writeMoonarConfig();
+    const result = runRender(cwd, { dryRun: false, workspaceFilter: "backend" });
+    expect(result.ok).toBe(true);
+    // La raíz nunca se renderizó: no hay quien provea las genéricas, así que el
+    // workspace las conserva todas.
+    expect(existsSync(join(cwd, ".claude"))).toBe(false);
+    expect(skillIds(join(cwd, "apps/backend"))).toEqual(
+      expect.arrayContaining(["locate-code", "review-diff", "medusa-modules"]),
+    );
+  });
+
+  it("el preview imprime la línea de conteo y no borra", async () => {
+    // Covers: R3
+    writeMoonarConfig("full");
+    expect(runRender(cwd).ok).toBe(true);
+    writeMoonarConfig("minimal");
+    logged.messages.length = 0;
+
+    await renderCommand.run?.({
+      rawArgs: [],
+      cmd: renderCommand,
+      args: { _: [], cwd } as never,
+    });
+
+    expect(existsSync(SKILL("apps/backend", "locate-code"))).toBe(true);
+    expect(logged.messages.join("\n")).toMatch(
+      /backend: \d+ skill\(s\) duplicadas de la raíz quitadas, 0 conservadas/,
+    );
+  });
+
+  it("segundo render: cero cambios", () => {
+    // Covers: R2, R9
+    writeMoonarConfig("full");
+    expect(runRender(cwd).ok).toBe(true);
+    writeMoonarConfig("minimal");
+    const applied = runRender(cwd, { dryRun: false });
+    expect(countPendingRenderChanges(applied)).toBeGreaterThan(0);
+    const second = runRender(cwd, { dryRun: false });
+    expect(countPendingRenderChanges(second)).toBe(0);
+    expect(countPendingRenderChanges(runRender(cwd, { dryRun: true }))).toBe(0);
   });
 });

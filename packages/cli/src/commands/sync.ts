@@ -5,6 +5,7 @@ import { relative, resolve, join } from "node:path";
 import { type NavoriConfig } from "../lib/config/config.ts";
 import { readConfigOrExit } from "../lib/config/cli-config.ts";
 import { renderClaudeEngine, type ClaudeEngineResult } from "../engines/claude/index.ts";
+import { decideClaudeWorkspaceSkills } from "../engines/claude/workspace-decision.ts";
 import { renderNonClaudeEngines, type EngineRenderSummary } from "./render.ts";
 import {
   effectiveConfigForWorkspace,
@@ -446,6 +447,9 @@ export interface SyncTarget {
   /** `monorepo.workspaceHarness` for a workspace target (spec 0018/0043), so sync
    * stops recreating what the mode omits; undefined for the root, which is never trimmed. */
   harnessScope?: "minimal" | "full";
+  /** Skills the root already provides (spec 0043), so sync stops recreating them in the
+   * workspace. Always `prune: false`: sync deletes nothing; `render` reconciles, with a preview. */
+  workspaceSkills?: { omitted: ReadonlySet<string>; prune: false };
 }
 
 export interface TargetPlan {
@@ -476,6 +480,14 @@ export function resolveSyncTargets(
 ): SyncTargetsResult {
   const declared = enabledMonorepoWorkspaces(config);
   const ts = tc(resolveLang(config.language)).sync;
+  // Taken once, before any target is rendered (spec 0043). The full sync writes
+  // the root first, so its plan answers for the root; `--workspace` renders no
+  // root, so only what is on disk counts.
+  const decision = decideClaudeWorkspaceSkills(cwd, config, { rootRendered: !workspaceFilter });
+  const skillsFor = (path: string): SyncTarget["workspaceSkills"] => ({
+    omitted: decision.omitted.get(path) ?? new Set<string>(),
+    prune: false,
+  });
 
   if (workspaceFilter) {
     if (declared.length === 0) {
@@ -509,6 +521,7 @@ export function resolveSyncTargets(
           config: effectiveConfigForWorkspace(config, match),
           monorepoContext: buildMonorepoContext(config, match),
           harnessScope: config.monorepo?.workspaceHarness,
+          workspaceSkills: skillsFor(match.path),
         },
       ],
     };
@@ -535,6 +548,7 @@ export function resolveSyncTargets(
       config: effectiveConfigForWorkspace(config, ws),
       monorepoContext: buildMonorepoContext(config, ws),
       harnessScope: config.monorepo?.workspaceHarness,
+      workspaceSkills: skillsFor(ws.path),
     });
   }
   return { ok: true, targets, orphanedWorkspaces };
@@ -707,6 +721,7 @@ function renderSyncTarget(
         repoRoot: target.repoRoot,
         monorepoContext: target.monorepoContext,
         harnessScope: target.harnessScope,
+        workspaceSkills: target.workspaceSkills,
       })
     : undefined;
   const additional = renderNonClaudeEngines(target.cwd, target.config, engines, dryRun, {

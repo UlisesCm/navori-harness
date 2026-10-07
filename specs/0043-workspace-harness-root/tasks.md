@@ -47,7 +47,7 @@ con los ids de su tarea.
 
 ## Lote 3 — `minimal` deja de duplicar lo de la raíz (commit `feat(render): …`)
 
-- [ ] **T4** (R2, R3, R13) — Decisión y engine para `minimal`:
+- [x] **T4** (R2, R3, R13) — Decisión y engine para `minimal`:
   - Crear `engines/shared/workspace-skills.ts` con `WorkspaceHarness`, `isTrimmedHarness`,
     `decideWorkspaceSkills` (reglas 1–3 del design) y `planOmittedSkillRemoval`. Este
     último borra la forma directorio y la forma plana con el criterio prístino único, y
@@ -72,7 +72,7 @@ con los ids de su tarea.
   - "un sub-bloque cuyo destino es una skill omitida no avisa y no reescribe la copia en
     disco"
 
-- [ ] **T5** (R3, R9) — `runRender` (`commands/render.ts`), en sus dos rutas, y `sync`:
+- [x] **T5** (R3, R9) — `runRender` (`commands/render.ts`), en sus dos rutas, y `sync`:
   - Calculan la decisión una vez, antes de escribir, con `planClaudeSkills`.
   - `rootHas` sale del disco más el plan de la raíz en la ruta completa (la raíz se escribe
     primero), y solo del disco en `--workspace` y en `sync --workspace`.

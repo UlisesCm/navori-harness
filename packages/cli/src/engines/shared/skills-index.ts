@@ -67,6 +67,9 @@ export function buildSkillRows(
   includeTrigger: boolean = true,
   /** Engine the index is for; engine-scoped skills (`WORKFLOW_SKILL_ENGINES`) list only there. */
   engine?: string,
+  /** Skills the render does not write here (spec 0043): they live at the root, whose
+   * index lists them, so a second row would only repeat context. */
+  exclude: ReadonlySet<string> = new Set(),
 ): string[] {
   const rows: string[] = [];
   const listed = new Set<string>();
@@ -74,15 +77,19 @@ export function buildSkillRows(
     const trigger = includeTrigger ? readSkillTrigger(assetPath) : null;
     return trigger ? `- \`${id}\` — ${tag} · ${trigger}` : `- \`${id}\` — ${tag}`;
   };
+  // A skill is "listed" even when excluded, so a later source of the same id
+  // does not re-add the row this one just dropped.
+  const push = (id: string, tag: string, assetPath: string): void => {
+    if (!exclude.has(id)) rows.push(row(id, tag, assetPath));
+    listed.add(id);
+  };
 
   for (const id of CORE_SKILLS) {
-    rows.push(row(id, "navori", join(coreAssets, `skills/${id}.md`)));
-    listed.add(id);
+    push(id, "navori", join(coreAssets, `skills/${id}.md`));
   }
   for (const id of WORKFLOW_SKILLS) {
     if (!inEngineScope(WORKFLOW_SKILL_ENGINES[id], engine)) continue;
-    rows.push(row(id, "navori (workflow)", join(coreAssets, `skills/${id}.md`)));
-    listed.add(id);
+    push(id, "navori (workflow)", join(coreAssets, `skills/${id}.md`));
   }
   let loadedPreset: LoadedPreset | null = null;
   if (config.preset && config.preset !== "custom") {
@@ -102,8 +109,7 @@ export function buildSkillRows(
         // `config.preset` is untrusted config interpolated into this managed row;
         // sanitize so it can't forge a marker / smuggle a newline (#264).
         const preset = sanitizeProjectValue(config.preset);
-        rows.push(row(name, `preset (\`${preset}\`)`, join(loaded!.assetRoot, e.relPath)));
-        listed.add(name);
+        push(name, `preset (\`${preset}\`)`, join(loaded!.assetRoot, e.relPath));
       }
     } catch {
       // Preset problems are surfaced elsewhere; the index degrades gracefully.
@@ -120,8 +126,7 @@ export function buildSkillRows(
       : extra.has(id)
         ? "library (extra)"
         : `library (preset \`${sanitizeProjectValue(config.preset ?? "")}\`)`;
-    rows.push(row(id, origin, join(coreAssets, `lib-skills/${id}.md`)));
-    listed.add(id);
+    push(id, origin, join(coreAssets, `lib-skills/${id}.md`));
   }
   for (const name of localSkills) {
     if (listed.has(name)) continue;
