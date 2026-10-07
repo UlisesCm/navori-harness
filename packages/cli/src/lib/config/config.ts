@@ -296,7 +296,10 @@ const CONFIG_KEY_RULE: ConfigObjectRule = {
     qualityGate: QUALITY_GATE_RULE,
     hooks: { keys: ["verifyOnStop"] },
     audit: { keys: ["mode"] },
-    sdd: { keys: ["enabled", "specsDir", "applyWhen", "doesNotApplyTo"] },
+    sdd: {
+      keys: ["enabled", "specsDir", "applyWhen", "doesNotApplyTo", "deliveries"],
+      children: { deliveries: { keys: ["splitMinTasks", "splitMinLoc", "maxPrsPerSpec"] } },
+    },
     // `scribeOwnsMarkdown`/`planTiers` (spec 0030 R13, spec 0032 R30) are harness
     // FLAGS, not roster agents — added here directly instead of in
     // `AGENT_ROLE_KEYS`, which `roster-parity.test.ts` checks 1:1 against the
