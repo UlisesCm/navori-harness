@@ -23,6 +23,8 @@ export interface MonorepoRenderContext {
   currentPath: string;
   /** The other workspaces, for the "siblings" list. */
   siblings: Array<{ name: string; path: string; preset?: string }>;
+  /** The ROOT's quality gate, so a workspace under `root` can say when its own differs (spec 0043 R12). */
+  rootQualityGate?: { fast?: string; full?: string };
 }
 
 /**
@@ -43,6 +45,7 @@ export function buildMonorepoContext(
     siblings: all
       .filter((w) => w.path !== current.path)
       .map((w) => ({ name: w.name, path: w.path, preset: w.preset })),
+    rootQualityGate: config.qualityGate,
   };
 }
 

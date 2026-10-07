@@ -48,15 +48,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-type SyncRunner = NonNullable<typeof syncCommand.run>;
-type SyncArgs = Parameters<SyncRunner>[0]["args"];
-
+/** `sync` as the CLI runs it, against this test's repo; citty's context is only read for `args`. */
 async function runSync(flags: Record<string, unknown>): Promise<void> {
-  await syncCommand.run?.({
-    rawArgs: [],
-    cmd: syncCommand,
-    args: { _: [], cwd, ...flags } as unknown as SyncArgs,
-  });
+  await (syncCommand.run as (ctx: unknown) => Promise<void>)({ args: { cwd, ...flags } });
 }
 
 function writeMonorepoConfig(harness: "minimal" | "full"): void {

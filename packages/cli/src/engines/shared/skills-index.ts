@@ -70,6 +70,8 @@ export function buildSkillRows(
   /** Skills the render does not write here (spec 0043): they live at the root, whose
    * index lists them, so a second row would only repeat context. */
   exclude: ReadonlySet<string> = new Set(),
+  /** Skills the root writes on behalf of its workspaces (spec 0043), listed under their final name. */
+  hoisted: ReadonlyArray<{ id: string; tag: string }> = [],
 ): string[] {
   const rows: string[] = [];
   const listed = new Set<string>();
@@ -127,6 +129,11 @@ export function buildSkillRows(
         ? "library (extra)"
         : `library (preset \`${sanitizeProjectValue(config.preset ?? "")}\`)`;
     push(id, origin, join(coreAssets, `lib-skills/${id}.md`));
+  }
+  for (const h of hoisted) {
+    if (listed.has(h.id)) continue;
+    rows.push(`- \`${h.id}\` — ${h.tag}`);
+    listed.add(h.id);
   }
   for (const name of localSkills) {
     if (listed.has(name)) continue;

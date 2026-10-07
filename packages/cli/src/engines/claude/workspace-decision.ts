@@ -1,7 +1,10 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { NavoriConfig } from "../../lib/config/config.ts";
+import { lstatSync } from "node:fs";
 import { navoriAuthorship } from "../../lib/render/removable.ts";
+import { getCoreRoot } from "../../lib/render/bundled-assets.ts";
+import { CORE_SKILLS, WORKFLOW_SKILLS } from "../shared/harness-assets.ts";
 import {
   effectiveConfigForWorkspace,
   enabledMonorepoWorkspaces,
@@ -10,13 +13,19 @@ import type { PlannedSkill } from "../shared/harness-plan.ts";
 import {
   decideWorkspaceSkills,
   type DecisionWorkspace,
+  type SkillKind,
   type WorkspaceHarness,
   type WorkspaceSkillDecision,
 } from "../shared/workspace-skills.ts";
 import { claudeSkillDest } from "./adapter.ts";
 import { composeFreshClaudeSkill, planClaudeSkills } from "./index.ts";
 
-const NOTHING_OMITTED: WorkspaceSkillDecision = { omitted: new Map() };
+const NOTHING_OMITTED: WorkspaceSkillDecision = {
+  omitted: new Map(),
+  hoisted: [],
+  rootPruneCandidates: [],
+  blocked: [],
+};
 
 /**
  * The workspace-skill decision for a Claude render of `config` (spec 0043),
@@ -55,14 +64,30 @@ export function decideClaudeWorkspaceSkills(
     const plan = planClaudeSkills(wsCwd, wsConfig, { repoRoot: cwd });
     workspaces.push({ ws, config: wsConfig, skills: plan.skills, presetLoaded: plan.presetLoaded });
   }
+  const coreAssets = resolve(getCoreRoot(), "core-assets");
+  const rootSkillPath = (name: string): string => join(cwd, claudeSkillDest(name));
   return decideWorkspaceSkills({
     mode,
     root: { config, skills: rootPlan.skills, presetLoaded: rootPlan.presetLoaded },
     workspaces,
+    allWorkspaces: declared,
+    rootRendered: opts.rootRendered,
+    kindOf: (skill: PlannedSkill): SkillKind => kindOfSkill(skill, coreAssets),
     render: (skill: PlannedSkill, skillConfig: NavoriConfig) =>
       composeFreshClaudeSkill(skill, skillConfig, rootPlan.plugins),
     rootHas: (name) =>
       (opts.rootRendered && rootIds.has(name)) ||
-      navoriAuthorship(join(cwd, claudeSkillDest(name))) !== "foreign",
+      navoriAuthorship(rootSkillPath(name)) !== "foreign",
+    rootAuthorship: (name) =>
+      lstatSync(rootSkillPath(name), { throwIfNoEntry: false }) === undefined
+        ? "absent"
+        : navoriAuthorship(rootSkillPath(name), undefined, { verifyHash: true }),
   });
+}
+
+/** Where a planned skill comes from: the core roster, the workflow set, a library or a preset. */
+function kindOfSkill(skill: PlannedSkill, coreAssets: string): SkillKind {
+  if (CORE_SKILLS.includes(skill.id)) return "core";
+  if (WORKFLOW_SKILLS.includes(skill.id)) return "workflow";
+  return skill.assetPath === join(coreAssets, `lib-skills/${skill.id}.md`) ? "library" : "preset";
 }

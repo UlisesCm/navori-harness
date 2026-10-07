@@ -1247,6 +1247,14 @@ interface BlocksCmdStrings {
      * root's files back in — recreating exactly what the trim removed.
      */
     inheritsFromRoot: string;
+    /**
+     * Under `workspaceHarness: "root"` the workspace holds its context file and
+     * nothing else (spec 0043 R12): say where everything else lives, for the same
+     * reason as `inheritsFromRoot`.
+     */
+    livesAtRoot: string;
+    /** The workspace's own gate commands, named when they differ from the root's. */
+    ownGate: (fast: string | undefined, full: string | undefined) => string;
     rootHeading: string;
     rootIntro: (tool: string) => string;
     workspacesLead: string;
@@ -2839,6 +2847,15 @@ const CMD_ES: CmdStrings = {
         `Corre tareas acotadas con \`--filter=${name}\`. No importes el código de un hermano por ruta relativa; consúmelo como paquete (\`workspace:*\`).`,
       inheritsFromRoot:
         "Este workspace tiene su `CLAUDE.md` y sus skills; **los agentes, los hooks y los permisos son los de la raíz del repo**, no falta nada. Es deliberado: el motor los descubre hacia arriba desde donde arranca la sesión, así que una copia aquí nunca se leería. No los copies de vuelta.",
+      livesAtRoot:
+        "Este workspace solo tiene su archivo de contexto: **las skills, los agentes, los hooks y la configuración viven en la raíz del repo** y se cargan desde ahí, no falta nada. Arranca Claude Code desde la raíz. No los copies de vuelta.",
+      ownGate: (fast, full) =>
+        `El gate de calidad de este workspace difiere del de la raíz, y las skills de la raíz mencionan el de la raíz. Para este workspace usa: ${[
+          fast ? `rápido \`${fast}\`` : "",
+          full ? `completo \`${full}\`` : "",
+        ]
+          .filter(Boolean)
+          .join(", ")}.`,
       rootHeading: "## Monorepo — root",
       rootIntro: (tool) =>
         `Este repo es un monorepo \`${tool}\`. El código real vive en los workspaces, cada uno con su propio harness (\`CLAUDE.md\` + \`.claude/\`). Al orquestar, **enruta cada tarea al workspace dueño** y trabaja desde su \`CLAUDE.md\`, no desde aquí.`,
@@ -4249,6 +4266,15 @@ const CMD_EN: CmdStrings = {
         `Run scoped tasks with \`--filter=${name}\`. Don't import a sibling's code by relative path; consume it as a package (\`workspace:*\`).`,
       inheritsFromRoot:
         "This workspace has its `CLAUDE.md` and its skills; **the agents, hooks and permissions are the repo root's**, nothing is missing. It is deliberate: the engine discovers them by walking up from where the session started, so a copy here would never be read. Don't copy them back.",
+      livesAtRoot:
+        "This workspace holds only its context file: **the skills, agents, hooks and configuration live at the repo root** and load from there, nothing is missing. Start Claude Code from the root. Don't copy them back.",
+      ownGate: (fast, full) =>
+        `This workspace's quality gate differs from the root's, and the root's skills mention the root's. For this workspace use: ${[
+          fast ? `fast \`${fast}\`` : "",
+          full ? `full \`${full}\`` : "",
+        ]
+          .filter(Boolean)
+          .join(", ")}.`,
       rootHeading: "## Monorepo — root",
       rootIntro: (tool) =>
         `This repo is a \`${tool}\` monorepo. The real code lives in the workspaces, each with its own harness (\`CLAUDE.md\` + \`.claude/\`). When orchestrating, **route each task to the owning workspace** and work from its \`CLAUDE.md\`, not from here.`,

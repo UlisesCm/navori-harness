@@ -82,7 +82,13 @@ import {
   type OverlapRow,
 } from "../shared/native-overlap.ts";
 import { buildSkillRows } from "../shared/skills-index.ts";
-import { planOmittedSkillRemoval } from "../shared/workspace-skills.ts";
+import {
+  hoistedPlannedSkill,
+  hoistTransform,
+  planOmittedSkillRemoval,
+  type HoistedSkill,
+  type WorkspaceHarness,
+} from "../shared/workspace-skills.ts";
 import { buildAgentsIndexBlock } from "../shared/agents-index.ts";
 import {
   attachResolution,
@@ -90,6 +96,7 @@ import {
   collisionWarnings,
   commitWrites,
   type AdapterCtx,
+  type EngineAdapter,
   type KeptOrphan,
   type PendingRemoval,
   type SkipReason,
@@ -263,6 +270,8 @@ function buildSkillsIndexBody(
   cwd: string,
   /** Skills this render does not write (they live at the root, whose index lists them). */
   omitted: ReadonlySet<string>,
+  /** Skills the root writes on behalf of its workspaces, listed under their final name. */
+  hoisted: ReadonlyArray<{ id: string; tag: string }>,
 ): string | null {
   // #908: no trigger — the host's native skill listing already tells the
   // model when to use each one (see buildSkillRows' docblock).
@@ -275,6 +284,7 @@ function buildSkillsIndexBody(
     false,
     "claude",
     omitted,
+    hoisted,
   );
   if (rows.length === 0) return null;
   const t = tc(lang).blocks.skillsIndex;
@@ -353,6 +363,22 @@ export const CLAUDE_COMPUTED_BLOCK_IDS = [
 ] as const;
 
 /**
+ * The workspace's own quality-gate commands, when they differ from the root's
+ * (spec 0043 R12). Null when it has none of its own: the root's skills already
+ * name the right ones.
+ */
+function ownGateParts(
+  config: NavoriConfig,
+  root: { fast?: string; full?: string } | undefined,
+): { fast?: string; full?: string } | null {
+  const own = config.qualityGate;
+  if (!own || (own.fast === root?.fast && own.full === root?.full)) return null;
+  const fast = own.fast ? sanitizeProjectValue(own.fast) : undefined;
+  const full = own.full ? sanitizeProjectValue(own.full) : undefined;
+  return fast || full ? { fast, full } : null;
+}
+
+/**
  * The "## Monorepo" map block. At the ROOT it lists every workspace so the
  * orchestrator routes each task to the owning app; inside a WORKSPACE it names
  * the current app and its siblings. Returns null (block stripped) when the repo
@@ -364,7 +390,7 @@ function buildContextoMonorepoBody(
   isWorkspace: boolean,
   lang: Lang,
   /** Spec 0018 R7: say the workspace inherits, or its harness reads as broken. */
-  minimalHarness = false,
+  scope: WorkspaceHarness = "full",
 ): string | null {
   const t = tc(lang).blocks.monorepo;
   if (isWorkspace) {
@@ -397,12 +423,20 @@ function buildContextoMonorepoBody(
     }
     lines.push("");
     lines.push(t.scopedTaskHint(currentName));
-    if (minimalHarness) {
+    if (scope === "minimal") {
       // Without this, a collaborator who opens the app sees a `.claude/` with
       // only `skills/` in it, reads a half-installed harness, and copies the
       // root's files back in — recreating exactly what the trim removed.
       lines.push("");
       lines.push(t.inheritsFromRoot);
+    } else if (scope === "root") {
+      // Spec 0043 R12: same reason, stronger case — the workspace has nothing but
+      // its context file. The skills run against the ROOT's gate, so when this
+      // workspace has its own, its commands are named here: nothing else would.
+      lines.push("");
+      lines.push(t.livesAtRoot);
+      const own = ownGateParts(config, mono.rootQualityGate);
+      if (own) lines.push(t.ownGate(own.fast, own.full));
     }
     lines.push("");
     return lines.join("\n");
@@ -533,7 +567,7 @@ export function renderClaudeEngine(
      * (no nested precedence level), `.mcp.json` (project-scoped) and `context/`
      * (nothing reads it) are all unreachable in a workspace.
      */
-    harnessScope?: "minimal" | "full";
+    harnessScope?: WorkspaceHarness;
     /**
      * Skills this workspace does NOT write because the root already provides
      * them (spec 0043 R2) — the output of `decideWorkspaceSkills`, computed once
@@ -543,6 +577,17 @@ export function renderClaudeEngine(
      * `prune: false` (`sync`) only stops recreating them and never deletes.
      */
     workspaceSkills?: { omitted: ReadonlySet<string>; prune: boolean };
+    /**
+     * Passed by the ROOT render of a monorepo, in every mode (spec 0043 R5):
+     * `skills` are the library/preset skills the workspaces under `root` hand up
+     * (rendered with their own workspace's config); `pruneCandidates` are root
+     * dirs a previous hoist may have left, removed only when this run no longer
+     * wants them and the pristine criterion says navori wrote them untouched.
+     */
+    rootHoist?: {
+      skills: readonly HoistedSkill[];
+      pruneCandidates: readonly HoistedSkill[];
+    };
   } = {},
 ): ClaudeEngineResult {
   // Fill in render-only derived defaults (e.g. prTarget ?? branchBase) so
@@ -550,7 +595,10 @@ export function renderClaudeEngine(
   const config = effectiveConfig(inputConfig);
   // Spec 0018. Default `full`: this function is called by the root render with
   // no scope at all, and the root must never be trimmed.
-  const minimalHarness = options.harnessScope === "minimal";
+  const trimmedHarness = options.harnessScope === "minimal" || options.harnessScope === "root";
+  // Spec 0043: under `root` the workspace keeps only its context file — no skills
+  // index either, since the root's index is the one that always loads.
+  const rootScope = options.harnessScope === "root";
   const lang = resolveLang(config.language);
   const dryRun = options.dryRun === true;
   const force = options.force === true;
@@ -616,7 +664,7 @@ export function renderClaudeEngine(
     if (entry.asset.audience !== "orchestrator") continue;
     // `.claude/context/` is read by the SessionStart hook, and that hook only
     // ever runs from the repo root — nothing reads a workspace copy (0018 R2).
-    if (minimalHarness) continue;
+    if (trimmedHarness) continue;
     const destRelPath = `${ORCHESTRATOR_CONTEXT_DIR}/${orchestratorContextFileName(entry.asset.id)}`;
     inspected += 1;
     // Migration (spec 0019 R2): whatever a pre-prefix navori left under the
@@ -665,15 +713,25 @@ export function renderClaudeEngine(
   const localSkills = config.project?.localSkills ?? [];
   let claudeMdContent = claudeMdPlan.next;
   const omittedSkills = options.workspaceSkills?.omitted ?? new Set<string>();
-  const skillsIndexBody = buildSkillsIndexBody(
-    config,
-    localSkills,
-    repoRoot,
-    coreAssets,
-    lang,
-    cwd,
-    omittedSkills,
-  );
+  const hoistRows = (options.rootHoist?.skills ?? []).map((h) => ({
+    id: h.id,
+    tag:
+      h.workspaceName === undefined
+        ? "workspace"
+        : `workspace (\`${sanitizeProjectValue(h.workspaceName)}\`)`,
+  }));
+  const skillsIndexBody = rootScope
+    ? null
+    : buildSkillsIndexBody(
+        config,
+        localSkills,
+        repoRoot,
+        coreAssets,
+        lang,
+        cwd,
+        omittedSkills,
+        hoistRows,
+      );
   if (skillsIndexBody !== null) {
     const result = injectManagedSection(
       claudeMdContent,
@@ -699,7 +757,7 @@ export function renderClaudeEngine(
   // (subagents are a Claude Code capability); the agents-md engine drops it.
   const agentsIndexBody = buildAgentsIndexBody(config, lang);
   // Same channel as the audience blocks, same reason (0018 R2).
-  if (agentsIndexBody !== null && !minimalHarness) {
+  if (agentsIndexBody !== null && !trimmedHarness) {
     // Orchestrator-only, like the doctrine that references it (#572): it is the
     // catalog of agents you can SPAWN, and no subagent can spawn one — none of
     // them declares the `Agent` tool. So it goes to the context dir, not into
@@ -770,7 +828,7 @@ export function renderClaudeEngine(
     options.monorepoContext,
     isWorkspace,
     lang,
-    minimalHarness,
+    options.harnessScope ?? "full",
   );
   if (monorepoBody !== null) {
     const result = injectManagedSection(
@@ -845,10 +903,10 @@ export function renderClaudeEngine(
 
   // 2. .claude/settings.json — skipped under `minimal`: Claude Code's settings
   // precedence has no nested level, so a workspace copy is never read (0018 R2).
-  const settingsResult = minimalHarness
+  const settingsResult = trimmedHarness
     ? ({ kind: "noop" } as const)
     : planSettings(cwd, config, inventory, force);
-  if (!minimalHarness) inspected += 1;
+  if (!trimmedHarness) inspected += 1;
   if (settingsResult.kind === "skip") {
     skipped.push({ path: relative(cwd, settingsResult.path), reason: settingsResult.reason });
   } else if (settingsResult.kind === "write") {
@@ -870,7 +928,7 @@ export function renderClaudeEngine(
   const disabledPlugins = loadDisabledPlugins(config.plugins).loaded;
   // Project-scoped registry, read at the repo root — a workspace copy is dead
   // weight under `minimal` (0018 R2).
-  const mcpResult = minimalHarness
+  const mcpResult = trimmedHarness
     ? ({ kind: "noop" } as const)
     : planMcpRegistration(cwd, enabledPlugins, disabledPlugins, config, force);
   // Count `.mcp.json` as an inspected destination only when there's one to
@@ -878,7 +936,7 @@ export function renderClaudeEngine(
   // reconcile. A repo with no MCP plugins and no `.mcp.json` has no destination
   // here (unlike settings.json, which navori always owns), so it isn't counted.
   const hasMcpDestination =
-    !minimalHarness &&
+    !trimmedHarness &&
     (enabledPlugins.some((pl) => pl.manifest.mcpServer) || existsSync(join(cwd, ".mcp.json")));
   if (hasMcpDestination) inspected += 1;
   if (mcpResult.kind === "skip") {
@@ -900,7 +958,7 @@ export function renderClaudeEngine(
   // Under `minimal` only skills survive: they DO load in a workspace (lazily,
   // the first time Claude reads a file in that subdirectory), which is exactly
   // the behavior a monorepo wants. Agents and hooks do not (0018 R2).
-  const trimmedPlan = minimalHarness
+  const trimmedPlan = trimmedHarness
     ? { ...inventory.plan, agents: [], hooks: [] }
     : inventory.plan;
   // Spec 0043 R2: what the root already provides is not this workspace's to write.
@@ -940,34 +998,59 @@ export function renderClaudeEngine(
     pending.push({ path: p.path, content: p.content, status: p.status, chmodExec: p.chmodExec });
   }
   for (const s of sharedPlan.skipped) skipped.push(s);
-  const collisions = sharedPlan.collisions;
-  inspected += harnessPlan.agents.length + harnessPlan.skills.length + harnessPlan.hooks.length;
+  const collisions = [...sharedPlan.collisions];
+  // Spec 0043 R5: skills a workspace hands up. Each renders with ITS workspace's
+  // config (the bytes the workspace would have written), under the final name —
+  // so each goes through the shared spine on its own, with that config.
+  const hoistedPlanned = (options.rootHoist?.skills ?? []).map(hoistedPlannedSkill);
+  for (const h of options.rootHoist?.skills ?? []) {
+    const hoistPlan = collectPlan(
+      { agents: [], hooks: [], skills: [hoistedPlannedSkill(h)] },
+      withSkillTransform(createClaudeAdapter(), hoistTransform(h)),
+      { ...adapterCtx, config: effectiveConfig(h.config) },
+      { prune: false, skipReason: makeClaudeSkipReason(lang), lang },
+    );
+    for (const p of hoistPlan.pending) {
+      pending.push({ path: p.path, content: p.content, status: p.status });
+    }
+    skipped.push(...hoistPlan.skipped);
+    collisions.push(...hoistPlan.collisions);
+  }
+  inspected +=
+    harnessPlan.agents.length +
+    harnessPlan.skills.length +
+    harnessPlan.hooks.length +
+    hoistedPlanned.length;
   if (!config.qualityGate?.fast) {
     warnings.push(tc(lang).engine.qualityGateHookSkipped);
   }
 
-  // 5. progress/ bootstrap (one-shot, never overwritten)
-  inspected += 2;
-  applyBootstrapPlan(
-    planBootstrapFile({
+  // 5. progress/ bootstrap (one-shot, never overwritten). Not under `root`: that
+  // workspace holds its context file and nothing else, and the root keeps the
+  // session state (spec 0043 R4).
+  if (!rootScope) inspected += 2;
+  if (!rootScope)
+    applyBootstrapPlan(
+      planBootstrapFile({
+        cwd,
+        assetRelPath: "progress/current.md",
+        destRelPath: `${config.progress?.dir ?? "progress"}/${config.progress?.currentFile ?? "current.md"}`,
+        config,
+      }),
       cwd,
-      assetRelPath: "progress/current.md",
-      destRelPath: `${config.progress?.dir ?? "progress"}/${config.progress?.currentFile ?? "current.md"}`,
-      config,
-    }),
-    cwd,
-    pending,
-  );
-  applyBootstrapPlan(
-    planBootstrapFile({
+      pending,
+    );
+  if (!rootScope)
+    applyBootstrapPlan(
+      planBootstrapFile({
+        cwd,
+        assetRelPath: "progress/history.md",
+        destRelPath: `${config.progress?.dir ?? "progress"}/${config.progress?.historyFile ?? "history.md"}`,
+        config,
+      }),
       cwd,
-      assetRelPath: "progress/history.md",
-      destRelPath: `${config.progress?.dir ?? "progress"}/${config.progress?.historyFile ?? "history.md"}`,
-      config,
-    }),
-    cwd,
-    pending,
-  );
+      pending,
+    );
 
   // 6.5-bis. Preset HOOKS — the one preset-extra kind the spine doesn't model
   // (arbitrary destRelPath + exec bit, no id-derived path). Preset agents/skills
@@ -976,7 +1059,7 @@ export function renderClaudeEngine(
   // no-op today — kept Claude-only until a real preset needs it (then lift into
   // the plan). The preset was loaded (with its warnings) by loadActivePreset.
   for (const extra of preset?.def.extras.hooks ?? []) {
-    if (minimalHarness) break; // hooks resolve from the root (0018 R2)
+    if (trimmedHarness) break; // hooks resolve from the root (0018 R2)
     if (!extraConditionMet(extra, config)) continue;
     inspected += 1;
     applyManagedFilePlan(
@@ -998,7 +1081,7 @@ export function renderClaudeEngine(
   // 7. Plugin scripts (copy + interpolate to .claude/scripts/). Skipped under
   // `minimal`: every hook that invokes them resolves `$CLAUDE_PROJECT_DIR`, so
   // only the root's copy is ever executed (0018 R2).
-  for (const plugin of minimalHarness ? [] : enabledPlugins) {
+  for (const plugin of trimmedHarness ? [] : enabledPlugins) {
     for (const script of pluginScriptPlacements(plugin, "claude")) {
       inspected += 1;
       // #637: through the SAME managed-file path every other generated file
@@ -1075,7 +1158,7 @@ export function renderClaudeEngine(
         pending,
         skipped,
         warnings,
-        minimalHarness,
+        trimmedHarness,
         omittedSkills,
         // #215: register version drift so `navori update` reports a plugin
         // sub-block whose version bumped, instead of silently correcting it on
@@ -1276,6 +1359,10 @@ export function renderClaudeEngine(
     // still selected, so this weak, marker-only prune never takes one with the
     // user's text in it. Removing an omitted copy is the pristine path's call.
     ...inventory.plan.skills.map((s) => s.id),
+    // Spec 0043: what this run hoists is selected, and so is whatever it may
+    // prune below — those are judged by the pristine path, never by this one.
+    ...(options.rootHoist?.skills ?? []).map((h) => h.id),
+    ...(options.rootHoist?.pruneCandidates ?? []).map((h) => h.id),
   ]);
   const localSkillIds = new Set(config.project?.localSkills ?? []);
   for (const { id } of isPresetLoaded(config, preset) ? LIBRARY_SKILLS : []) {
@@ -1406,7 +1493,7 @@ export function renderClaudeEngine(
   // skill the shared plan placed). Marker-gated per skill, keyed on the exact
   // managed id navori stamped, so a user's hand-written `<id>.md` is never
   // touched. (#166)
-  for (const skill of harnessPlan.skills) {
+  for (const skill of [...harnessPlan.skills, ...hoistedPlanned]) {
     const removal = planFlatSkillRemoval(cwd, skill.id, skill.managedId);
     if (!removal) continue;
     inspected += 1;
@@ -1432,6 +1519,32 @@ export function renderClaudeEngine(
       removals.push(...plan.removals);
       trimmedKept.push(...plan.kept);
     }
+  }
+
+  // 8.10. Root dirs a previous hoist may have left that this run no longer
+  // wants (spec 0043 R5). Same pristine criterion as above; a dir that is not
+  // navori's at all (`foreign`) is simply not ours to mention, so only a copy
+  // navori wrote and the user touched, or a newer navori wrote, is reported.
+  const wantedAtRoot = new Set([...harnessPlan.skills, ...hoistedPlanned].map((sk) => sk.id));
+  for (const candidate of options.rootHoist?.pruneCandidates ?? []) {
+    if (wantedAtRoot.has(candidate.id)) continue;
+    const planned = hoistedPlannedSkill(candidate);
+    const candidateConfig = effectiveConfig(candidate.config);
+    const transform = hoistTransform(candidate);
+    const plan = planOmittedSkillRemoval({
+      cwd,
+      skillsDir: ".claude/skills",
+      skill: planned,
+      expected: composeFreshClaudeSkill(planned, candidateConfig, enabledPlugins, transform),
+      normalize: (onDisk) =>
+        normalizeClaudeSkill(onDisk, planned, candidateConfig, enabledPlugins, transform),
+    });
+    for (const removal of plan.removals) {
+      if (removals.some((r) => r.path === removal.path)) continue;
+      inspected += 1;
+      removals.push(removal);
+    }
+    trimmedKept.push(...plan.kept.filter((k) => k.reason !== "foreign"));
   }
 
   // 9. Backup + atomic writes — shared spine (Spec 0008 C.3). The CLAUDE.md-only
@@ -1471,6 +1584,21 @@ export function renderClaudeEngine(
 }
 
 // ─────────────────────────── helpers ───────────────────────────
+
+/** `adapter`, with every skill it places rewritten by `transform` (a hoisted `slug-id`). */
+function withSkillTransform(
+  adapter: EngineAdapter,
+  transform: ((text: string) => string) | undefined,
+): EngineAdapter {
+  if (!transform) return adapter;
+  return {
+    ...adapter,
+    placeSkill: (skill, ctx) => {
+      const request = adapter.placeSkill(skill, ctx);
+      return request && { ...request, transform };
+    },
+  };
+}
 
 /**
  * The ONE producer of Claude's harness inventory: preset, unfiltered plan and
@@ -2267,7 +2395,7 @@ function applySubBlockInject(input: {
   downgrades: UpdateAvailable[];
   /** Spec 0018 scope of THIS render. Decides whether an absent target is a
    *  finding or the trim working as designed — see the branch below. */
-  minimalHarness: boolean;
+  trimmedHarness: boolean;
   /** Skills this render does not write (spec 0043): a sub-block aimed at one lives at the root. */
   omittedSkills: ReadonlySet<string>;
 }): void {
@@ -2299,7 +2427,7 @@ function applySubBlockInject(input: {
     // it cost 13 lines per workspace on every render of a real monorepo — 26
     // lines pointing at a config that is correct. That is how a reader learns
     // to skip these, including the day one of them is real.
-    if (!input.minimalHarness) {
+    if (!input.trimmedHarness) {
       // The real case: the agent (`orchestrator.md` and friends) is disabled in
       // `config.harness`, so the contribution IS lost and the user should know.
       input.warnings.push(
