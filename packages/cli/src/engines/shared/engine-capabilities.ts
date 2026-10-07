@@ -398,7 +398,10 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       },
       "plan-gate": {
         state: "enforced",
-        reason: "harness.planTiers registers the PreToolUse(Agent) hook (build-settings.ts).",
+        reason:
+          "harness.planTiers registers the PreToolUse(Agent) hook (build-settings.ts). A plan " +
+          "denial blocks; when navori is missing or has no plan subcommand it asks (Claude, " +
+          "prompting modes only) and stays a hard block on Codex and non-prompting modes (#1117).",
         evidence: { kind: "hook", script: "plan-gate.sh", event: "PreToolUse", matcher: "Agent" },
       },
       "markdown-ownership": {

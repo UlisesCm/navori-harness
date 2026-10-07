@@ -1,4 +1,4 @@
-# navori:managed start id="plan-gate-base" hash="35e91150" version="0.11.2" source="@navori/core"
+# navori:managed start id="plan-gate-base" hash="15d34fd8" version="0.11.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Agent) gate — spec 0032 (#1011), R16/R17/R19: while
@@ -20,12 +20,24 @@
 # BINARY RESOLUTION. Same as `audit-mode-trigger.sh` / `session-start-context.sh`:
 # `command -v navori`. Unlike those two (best-effort, silently absent), this
 # is a HARD gate — `harness.planTiers` promises the workplan is enforced, so a
-# missing or outdated `navori` must DENY with an actionable reason, never fail
-# open. An outdated build with no `plan` subcommand exits with something other
+# real plan denial (exit 2 from `navori plan gate`) always stays a hard block.
+# When navori is missing or outdated there is NO verdict to enforce (#1117): the
+# gate asks the human instead of leaving a dead end — Claude only, in a mode
+# that shows the prompt (`navori_can_ask`), recorded as verdict `ask`. Codex
+# (drops `permissionDecision`), no payload, no jq and bypassPermissions/dontAsk/
+# plan/unknown modes keep the hard block (exit 2); an ask is never a silent
+# allow. The `*)` arm also catches a crashing or killed navori (exit 126/127/
+# 137, ...), not only a missing `plan` subcommand; the ask text says "exit N".
+# An outdated build with no `plan` subcommand exits with something other
 # than this gate's own two contractual codes (0 allow, 2 deny) — citty's
 # unknown-command exit — which this script tells apart from a real verdict
 # below, in ONE invocation (a second `--help` probe would read the hook's
 # stdin payload twice, which a pipe cannot replay).
+#
+# Blocking classification (#1117):
+#   - navori missing / `plan` subcommand unavailable: ask (Claude, prompting
+#     modes only) / hard (Codex, no payload or jq, non-prompting modes) — no verdict.
+#   - `navori plan gate` denied the dispatch: hard — a real verdict.
 #
 # CODEX (spec 0041 R9). Registered on PreToolUse(spawn_agent$) as the last late
 # row. Only `implementer` is gated, with the role from `tool_input.agent_type`.
@@ -51,6 +63,83 @@ navori_audit_tool="Agent"
 # code of this gate.
 navori_audit_begin() { :; }
 navori_audit_log() { :; }
+# Shared hook boilerplate — inlined into each hook at render time (see the
+# include directive in the source scripts + lib/render/hook-includes.ts). Single source
+# of truth for the sibling gate scripts; DO NOT copy this body back into a hook
+# by hand (that is the drift #225/#261 removed).
+#
+# PreToolUse(Bash) passes the tool input on stdin. Read one field out of it
+# WITHOUT hard-depending on jq (NOT preinstalled on macOS): try jq, then node
+# (Claude Code's own runtime), then a best-effort sed unwrap on the leaf key.
+# Nothing extracted → empty output, and each caller decides what that means (the
+# gate scripts scan defensively; guard-destructive waves the command through).
+#
+# $1 is a dotted path written HERE, never user input — the payload is the data.
+# Generic on purpose: `.cwd` feeds the worktree resolver of #454 through the
+# SAME hardened cascade instead of a second copy of it.
+#
+# The sed fallback reads a JSON string through its first unescaped quote. JSON
+# object member order is not a host contract: `command` can precede `cwd`, so a
+# greedy capture to the last quote would swallow the rest of the payload when
+# neither jq nor node is available.
+# `${payload-$(cat)}` (unset test, not `:-`) rather than an unconditional
+# `payload=$(cat)`: a caller that already captured stdin itself (spec 0035 —
+# `managed-drift-watch.sh` needs the audit recorder's session_id/cwd even on
+# tool names this hook does not otherwise read) keeps that value, empty or
+# not, instead of this partial re-reading an already-drained pipe and
+# clobbering it with "".
+payload=${payload-$(cat)}
+payload_field() {
+  if command -v jq >/dev/null 2>&1; then
+    printf '%s' "$payload" | jq -r ".$1 // empty" 2>/dev/null && return 0
+  fi
+  if command -v node >/dev/null 2>&1; then
+    printf '%s' "$payload" | node -e 'let s="";const p=process.argv[1].split(".");process.stdin.on("data",c=>s+=c).on("end",()=>{try{let v=JSON.parse(s);for(const k of p)v=v?.[k];process.stdout.write(String(v??""))}catch{}})' "$1" 2>/dev/null && return 0
+  fi
+  printf '%s' "$payload" | sed -nE "s/.*\"${1##*.}\"[[:space:]]*:[[:space:]]*\"(([^\"\\]|\\.)*)\".*/\\1/p"
+}
+extract_cmd() {
+  payload_field tool_input.command
+}
+# NOT called here on purpose. `payload_field` may spawn a process, and
+# `routing-watch.sh` — which includes this partial and runs after EVERY tool call
+# in every session — never reads `cmd`. Each consumer that wants it calls
+# `extract_cmd` itself, at the point where it already knows it needs it.
+# Can this gate hand a no-verdict outcome to the user instead of blocking?
+# Inlined at render time (see lib/render/hook-includes.ts). Decides only; the
+# JSON that speaks to the host stays in each script (partials never carry host
+# output vocabulary — hook-output-contract.test.ts).
+#
+# WHY (#1117): when the TOOL failed (scanner missing a flag, declared runner not
+# on PATH) the gate has no verdict, and "run it yourself outside the agent" is a
+# dead end. Claude Code's PreToolUse can ask the human; that is the right exit.
+#
+# Returns 0 only when ALL hold; any doubt is "no", and "no" is today's block:
+#   - the script is not a Codex copy (Codex drops `permissionDecision`, so an
+#     ask there would let the call PROCEED unasked). Decided by WHERE THE SCRIPT
+#     LIVES, the same rule as the hook-input partial; hooks live in `.codex/hooks/`,
+#     plugin scripts in `.codex/scripts/`.
+#   - the payload is a real PreToolUse hook call. A git hook or the CLI
+#     (`</dev/null`) has no payload, so there is nobody to ask.
+#   - jq exists to build the reason JSON safely; without it, block.
+#   - `permission_mode` is one where the host SHOWS the prompt: default,
+#     acceptEdits or auto (the host docs state a hook ask there). Everything
+#     else — bypassPermissions, dontAsk, plan (it can run with prompts disabled),
+#     empty, missing or unknown — is "no": a hook ask is undocumented or denied
+#     there, and these gates fall back to exit 2, so an ask must never turn into
+#     a silent allow.
+# Needs `payload`/`payload_field` from the extract-cmd partial.
+navori_can_ask() {
+  case "$0" in
+    *".codex/hooks/"* | *".codex/scripts/"*) return 1 ;;
+  esac
+  command -v jq >/dev/null 2>&1 || return 1
+  [ "$(payload_field hook_event_name)" = "PreToolUse" ] || return 1
+  case "$(payload_field permission_mode)" in
+    default | acceptEdits | auto) return 0 ;;
+  esac
+  return 1
+}
 # Shared audit repository resolver (#764) — inlined into every audit hook at
 # render time. A nested agent worktree lives below the repository's
 # `.claude/worktrees/` directory, but its basename is an ephemeral agent id.
@@ -189,11 +278,27 @@ navori_audit_on_exit() {
 }
 trap navori_audit_on_exit EXIT
 
-if ! command -v navori >/dev/null 2>&1; then
+# No verdict (navori missing or unusable). $1 = audit reason code, $2 = hard-block
+# message, $3 = text shown to the human when asking. Never returns.
+plan_gate_no_verdict() {
+  codex_copy=0
+  case "$0" in *".codex/hooks/"*) codex_copy=1 ;; esac
+  if [ "$codex_copy" = 0 ] && navori_can_ask; then
+    navori_audit_verdict="ask"
+    navori_audit_reason="$1"
+    jq -cn --arg reason "$3" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$reason}}'
+    exit 0
+  fi
   navori_audit_verdict="block"
-  navori_audit_reason="binary-missing"
-  echo "[navori] BLOCKED by plan-gate: navori is not installed or not on PATH — install it before dispatching a planned implementer." >&2
+  navori_audit_reason="$1"
+  echo "$2" >&2
   exit 2
+}
+
+if ! command -v navori >/dev/null 2>&1; then
+  plan_gate_no_verdict "binary-missing" \
+    "[navori] BLOCKED by plan-gate: navori is not installed or not on PATH — install it before dispatching a planned implementer." \
+    "[navori] plan-gate could not check the workplan: navori is not on PATH, so there is no verdict. Approve to dispatch the implementer WITHOUT the plan gate, or deny and install navori. If you are an agent, report this to the user and wait."
 fi
 
 printf '%s' "$payload" | navori plan gate
@@ -206,10 +311,9 @@ case "$navori_exit" in
     exit 2
     ;;
   *)
-    navori_audit_verdict="block"
-    navori_audit_reason="subcommand-unavailable"
-    echo "[navori] BLOCKED by plan-gate: this navori build has no working 'plan' subcommand (exit $navori_exit) — update navori (or run 'navori render --apply' after updating) before dispatching a planned implementer." >&2
-    exit 2
+    plan_gate_no_verdict "subcommand-unavailable" \
+      "[navori] BLOCKED by plan-gate: this navori build has no working 'plan' subcommand (exit $navori_exit) — update navori (or run 'navori render --apply' after updating) before dispatching a planned implementer." \
+      "[navori] plan-gate could not check the workplan: this navori build has no working 'plan' subcommand (exit $navori_exit), so there is no verdict. Approve to dispatch the implementer WITHOUT the plan gate, or deny and update navori. If you are an agent, report this to the user and wait."
     ;;
 esac
 # navori:managed end id="plan-gate-base"
