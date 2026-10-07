@@ -97,6 +97,12 @@ export interface OrphanScan {
    * so engines that do not set it are unaffected.
    */
   expected?: (relPath: string) => string | null;
+  /**
+   * With `expected`: rewrites the on-disk copy before it is compared with it
+   * (`PristineOpts.requirePristine.normalize`), so a copy rendered by an older
+   * navori does not read as user-edited.
+   */
+  normalize?: (onDisk: string) => string;
 }
 
 export interface AdapterCtx {
@@ -123,7 +129,7 @@ export interface EngineAdapter {
 }
 
 export interface ExecuteResult {
-  written: Array<{ path: string; status: RenderStatus | "removed-condition-false" }>;
+  written: Array<{ path: string; status: RenderStatus }>;
   skipped: SkippedFile[];
   backupPath: string | null;
 }
@@ -273,6 +279,13 @@ export interface PendingWrite {
 export interface PendingRemoval {
   path: string;
   recursive?: boolean;
+  /**
+   * What `commitWrites` reports for this deletion. Defaults to
+   * `removed-condition-false`; a removal with a more specific cause (spec 0043:
+   * a workspace copy of a skill the root already provides) names it so the
+   * report says why the file went.
+   */
+  status?: "removed-condition-false" | "removed-trimmed";
 }
 
 /**
@@ -525,10 +538,11 @@ function pushKept(
   markerId?: string,
   verifyHash?: boolean,
   expected?: string | null,
+  normalize?: (onDisk: string) => string,
 ): void {
   const authorship = navoriAuthorship(absPath, markerId, {
     verifyHash,
-    ...(expected != null ? { requirePristine: { expected } } : {}),
+    ...(expected != null ? { requirePristine: { expected, normalize } } : {}),
   });
   if (authorship === "ours") return;
   kept.push({ path: relative(cwd, absPath), reason: authorship });
@@ -551,11 +565,12 @@ function collectOrphans(
         // Flat orphan files (scripts, hooks, agents): a hand-edited managed block
         // is kept, not deleted (`verifyHash`).
         const expected = scan.expected?.(relPath);
-        const pristine = expected != null ? { requirePristine: { expected } } : {};
+        const pristine =
+          expected != null ? { requirePristine: { expected, normalize: scan.normalize } } : {};
         if (navoriAuthorship(absPath, undefined, { verifyHash: true, ...pristine }) === "ours") {
           removals.push({ path: absPath });
         } else {
-          pushKept(kept, cwd, absPath, undefined, true, expected);
+          pushKept(kept, cwd, absPath, undefined, true, expected, scan.normalize);
         }
         continue;
       }
@@ -584,8 +599,23 @@ function collectOrphans(
       const skillPath = join(skillDir, "SKILL.md");
       if (scan.desired.has(relPath)) continue;
       if (!existsSync(skillPath)) continue; // desired dropped, nothing on disk to judge
-      if (!isRemovableNavoriFile(skillPath)) {
-        pushKept(kept, cwd, skillPath);
+      // Opt-in like the `file` shape (spec 0043 R3): with `expected`, a copy that
+      // carries anything the user wrote is kept and reported instead of deleted.
+      const skillExpected = scan.expected?.(relPath);
+      const skillPristine =
+        skillExpected != null
+          ? { requirePristine: { expected: skillExpected, normalize: scan.normalize } }
+          : undefined;
+      if (!isRemovableNavoriFile(skillPath, undefined, skillPristine)) {
+        pushKept(
+          kept,
+          cwd,
+          skillPath,
+          undefined,
+          skillExpected != null,
+          skillExpected,
+          scan.normalize,
+        );
         continue;
       }
       const children = readDirSafe(skillDir);
@@ -726,7 +756,7 @@ export function commitWrites(input: {
       ...pending.map((item) => ({ path: item.relPath, status: item.status })),
       ...removals.map((item) => ({
         path: relative(cwd, item.path),
-        status: "removed-condition-false" as const,
+        status: item.status ?? ("removed-condition-false" as const),
       })),
     ],
     backupPath,

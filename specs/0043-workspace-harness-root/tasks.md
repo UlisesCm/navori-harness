@@ -6,7 +6,7 @@ con los ids de su tarea.
 
 ## Lote 1 — `sync` deja de recrear lo que el modo omite (commit `fix(sync): …`)
 
-- [ ] **T1** (R9) — `SyncTarget` (`commands/sync.ts`) gana `harnessScope` en sus dos
+- [x] **T1** (R9) — `SyncTarget` (`commands/sync.ts`) gana `harnessScope` en sus dos
   construcciones de `resolveSyncTargets`: la ruta `--workspace` y el bucle. El valor sale de
   `config.monorepo.workspaceHarness`, igual que en `runRender`, y `renderSyncTarget` lo pasa
   a `renderClaudeEngine`. Sync no corre reconciliación ni borra nada; el borrado queda en
@@ -19,7 +19,7 @@ con los ids de su tarea.
 
 ## Lote 2 — piezas compartidas sin cambio de comportamiento (commit `refactor(render): …`)
 
-- [ ] **T2** (R2) — Agregar a `engines/claude/index.ts` dos funciones exportadas:
+- [x] **T2** (R2) — Agregar a `engines/claude/index.ts` dos funciones exportadas:
   - `planClaudeSkills(cwd, config, { repoRoot })` con `loadActivePreset`,
     `resolveHarnessPlan` y `filterInventory`. Devuelve `skills` y `presetLoaded`, y no
     emite avisos.
@@ -33,7 +33,7 @@ con los ids de su tarea.
   - "`planClaudeSkills` excluye lo que retira la matriz nativa, igual que el plan del
     engine"
 
-- [ ] **T3** (R3) — Tres cambios de infraestructura:
+- [x] **T3** (R3) — Tres cambios de infraestructura:
   - `PristineOpts.requirePristine` (`lib/render/removable.ts`) gana `normalize`, que se
     aplica al contenido en disco antes de `hasUserWrittenText`.
   - `PendingRemoval` gana un `status` opcional, que `commitWrites` respeta.

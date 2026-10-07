@@ -45,6 +45,7 @@ import {
 } from "../../lib/render/removable.ts";
 import {
   injectManagedSection,
+  type InjectResult,
   removeManagedSection,
   removeManagedSectionGuarded,
   reorderManagedBlocks,
@@ -73,7 +74,7 @@ import {
   extraConditionMet,
   isAgentEnabled,
 } from "../shared/harness-assets.ts";
-import { resolveHarnessPlan, type HarnessPlan } from "../shared/harness-plan.ts";
+import { resolveHarnessPlan, type HarnessPlan, type PlannedSkill } from "../shared/harness-plan.ts";
 import {
   OVERLAP_ROWS,
   filterInventory,
@@ -93,7 +94,7 @@ import {
   type SkipStatus,
   type SkippedFile,
 } from "../shared/execute-plan.ts";
-import { createClaudeAdapter } from "./adapter.ts";
+import { claudeSkillDest, createClaudeAdapter } from "./adapter.ts";
 import { withAgentMcpTools, withoutAgentMcpTools } from "./agent-mcp-tools.ts";
 import { pluginExtraVars } from "../shared/plugin-extra-vars.ts";
 
@@ -804,17 +805,11 @@ export function renderClaudeEngine(
   // Load enabled plugins once and thread the result through the steps that
   // need it (settings, scripts, skill injects). Was loaded twice before — once
   // here via planSettings and again for scripts/skills (issue #10).
-  const preset = loadActivePreset(config, repoRoot, warnings);
-  const fullHarnessPlan = resolveHarnessPlan(config, coreAssets, preset, {
-    includeOrchestrator: true,
-    engine: "claude",
-  });
-  // Spec 0039 D1/B1: the ONE filtered inventory. Everything below that writes a
-  // file or registers a hook reads it, so a unit the matrix marks native on
-  // Claude loses its file and its registration together.
-  const inventory = filterInventory(
-    { plan: fullHarnessPlan, plugins: loadEnabledPlugins(config.plugins).loaded },
-    "claude",
+  const { preset, fullHarnessPlan, inventory } = resolveClaudeInventory(
+    config,
+    coreAssets,
+    repoRoot,
+    warnings,
   );
   const enabledPlugins = inventory.plugins;
 
@@ -1415,6 +1410,102 @@ export function renderClaudeEngine(
 }
 
 // ─────────────────────────── helpers ───────────────────────────
+
+/**
+ * The ONE producer of Claude's harness inventory: preset, unfiltered plan and
+ * the filtered inventory (spec 0039 D1/B1 — everything that writes a file or
+ * registers a hook reads the filtered one, so a unit the matrix marks native on
+ * Claude loses its file and its registration together). `warnings` receives the
+ * preset-load advisories; callers that only plan pass a throwaway array so the
+ * advisory is emitted by the engine render alone.
+ */
+function resolveClaudeInventory(
+  config: NavoriConfig,
+  coreAssets: string,
+  repoRoot: string,
+  warnings: string[],
+): {
+  preset: ReturnType<typeof loadPreset>;
+  fullHarnessPlan: HarnessPlan;
+  inventory: FilteredInventory;
+} {
+  const preset = loadActivePreset(config, repoRoot, warnings);
+  const fullHarnessPlan = resolveHarnessPlan(config, coreAssets, preset, {
+    includeOrchestrator: true,
+    engine: "claude",
+  });
+  const inventory = filterInventory(
+    { plan: fullHarnessPlan, plugins: loadEnabledPlugins(config.plugins).loaded },
+    "claude",
+  );
+  return { preset, fullHarnessPlan, inventory };
+}
+
+/**
+ * The skills `renderClaudeEngine` would plan for `config`, without rendering
+ * anything (spec 0043, F6). The single plan producer that `render`, `sync` and
+ * `doctor` share with the engine, so a decision taken from it and the engine's
+ * own plan cannot disagree — in particular on the skills the native-overlap
+ * matrix retires. `presetLoaded` is false when the declared preset failed to
+ * load: its skills are then missing from `skills`, and a caller must not infer
+ * anything from their absence. Emits no warnings.
+ */
+export function planClaudeSkills(
+  _cwd: string,
+  inputConfig: NavoriConfig,
+  opts: { repoRoot: string },
+): {
+  skills: readonly PlannedSkill[];
+  presetLoaded: boolean;
+  plugins: readonly LoadedPlugin[];
+} {
+  const config = effectiveConfig(inputConfig);
+  const { preset, inventory } = resolveClaudeInventory(
+    config,
+    resolve(getCoreRoot(), "core-assets"),
+    opts.repoRoot,
+    [],
+  );
+  return {
+    skills: inventory.plan.skills,
+    presetLoaded: isPresetLoaded(config, preset),
+    plugins: inventory.plugins,
+  };
+}
+
+/**
+ * The bytes `renderClaudeEngine` writes for one skill into an empty directory:
+ * the managed asset plus every plugin `injectInto` sub-block aimed at its file
+ * (spec 0043). The oracle for "is this copy the same as that one" and "did the
+ * user write anything in this copy". `transform` is the same asset-text rewrite a
+ * `PlacementRequest` carries.
+ */
+export function composeFreshClaudeSkill(
+  skill: PlannedSkill,
+  config: NavoriConfig,
+  plugins: readonly LoadedPlugin[],
+  transform?: (text: string) => string,
+): string {
+  const effective = effectiveConfig(config);
+  const dest = claudeSkillDest(skill.id);
+  let content = renderManagedFile({
+    assetPath: skill.assetPath,
+    existingContent: null,
+    managedId: skill.managedId,
+    meta: CORE_META,
+    config: effective,
+    commentStyle: "html",
+    transform,
+    engine: "claude",
+  }).content;
+  for (const plugin of plugins) {
+    for (const skillAsset of plugin.skillAssets) {
+      if (skillAsset.injectInto !== dest) continue;
+      content = composeSubBlock(content, plugin, skillAsset, effective).finalContent;
+    }
+  }
+  return content;
+}
 
 /**
  * Prune a stale FLAT skill file (`.claude/skills/<id>.md`) that an earlier
@@ -2036,6 +2127,34 @@ function applyBootstrapPlan(
 }
 
 /**
+ * Inject one plugin sub-block into `currentContent`. Shared by the render
+ * (`applySubBlockInject`) and the fresh-render oracle (`composeFreshClaudeSkill`)
+ * so what the engine writes and what the oracle expects come from one function.
+ * `finalContent` also carries layer 3 of the MCP wiring: the prose just injected
+ * is worthless to an agent whose `tools:` allowlist omits the server's tools, so
+ * the grant ships with the instruction.
+ */
+function composeSubBlock(
+  currentContent: string,
+  plugin: LoadedPlugin,
+  skill: LoadedPlugin["skillAssets"][number],
+  config: NavoriConfig,
+): { result: InjectResult; finalContent: string; source: string } {
+  const skillBody = stripFrontmatter(readFileSync(skill.absPath, "utf-8"));
+  const interpolated = interpolate(skillBody, config, { extraVars: pluginExtraVars(config) });
+  const source = `@navori/plugin-${plugin.manifest.id}`;
+  const result = injectManagedSection(
+    currentContent,
+    skill.id,
+    interpolated,
+    { source, version: NAVORI_VERSION },
+    "html",
+  );
+  const finalContent = withAgentMcpTools(result.output, plugin, skill.injectInto!, skill.mcpTools);
+  return { result, finalContent, source };
+}
+
+/**
  * Append a plugin skill (declared with `injectInto`) as a managed sub-block
  * at the end of the target file. The sub-block is its own managed section
  * with id = skill id and source = the plugin package; it lives alongside
@@ -2097,23 +2216,11 @@ function applySubBlockInject(input: {
     return;
   }
 
-  const rawSkill = readFileSync(input.skill.absPath, "utf-8");
-  const skillBody = stripFrontmatter(rawSkill);
-  const interpolated = interpolate(skillBody, input.config, {
-    extraVars: pluginExtraVars(input.config),
-  });
-
-  const subBlockSource = `@navori/plugin-${input.plugin.manifest.id}`;
-  const result = injectManagedSection(
-    currentContent,
-    input.skill.id,
-    interpolated,
-    {
-      source: subBlockSource,
-      version: NAVORI_VERSION,
-    },
-    "html",
-  );
+  const {
+    result,
+    finalContent,
+    source: subBlockSource,
+  } = composeSubBlock(currentContent, input.plugin, input.skill, input.config);
 
   // #215: bucket the sub-block's version drift the same way core/preset/plugin
   // CLAUDE.md blocks do — an upgrade lands in `updatesAvailable` (so `navori
@@ -2151,16 +2258,6 @@ function applySubBlockInject(input: {
     });
     return;
   }
-  // Layer 3 of the MCP wiring: the prose just injected is worthless to an agent
-  // whose `tools:` allowlist omits the server's tools. Grant them here so the
-  // instruction and the capability always ship together.
-  const finalContent = withAgentMcpTools(
-    result.output,
-    input.plugin,
-    input.skill.injectInto!,
-    input.skill.mcpTools,
-  );
-
   // An up-to-date sub-block does NOT imply an up-to-date frontmatter: a repo
   // rendered before this fix has the prose and lacks the tools, and returning
   // early on `unchanged` would leave it that way forever.

@@ -36,7 +36,8 @@ export type RenderStatus =
   | "unchanged"
   | "user-modified-skipped"
   | "downgrade-skipped"
-  | "removed-condition-false";
+  | "removed-condition-false"
+  | "removed-trimmed";
 
 /** Symbol + color for a render-plan entry status. */
 export function renderStatusSymbol(status: RenderStatus): string {
@@ -52,6 +53,7 @@ export function renderStatusSymbol(status: RenderStatus): string {
     case "downgrade-skipped":
       return color.yellow(sym.update);
     case "removed-condition-false":
+    case "removed-trimmed":
       return color.magenta(sym.removed);
   }
 }
@@ -70,6 +72,7 @@ export function renderStatusLabel(status: RenderStatus): string {
     case "downgrade-skipped":
       return color.yellow(status);
     case "removed-condition-false":
+    case "removed-trimmed":
       return color.magenta(status);
   }
 }
