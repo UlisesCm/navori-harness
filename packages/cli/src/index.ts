@@ -23,6 +23,7 @@ import { dominioCommand } from "./commands/dominio.ts";
 import { auditCommand } from "./commands/audit.ts";
 import { receiptCommand } from "./commands/receipt.ts";
 import { planCommand } from "./commands/plan.ts";
+import { specCommand } from "./commands/spec.ts";
 import { handoffCommand } from "./commands/handoff.ts";
 import { masterCommand } from "./commands/master.ts";
 import { readCliVersion } from "./lib/render/bundled-assets.ts";
@@ -63,6 +64,7 @@ const main = defineCommand({
     audit: auditCommand,
     receipt: receiptCommand,
     plan: planCommand,
+    spec: specCommand,
     handoff: handoffCommand,
     master: masterCommand,
   },

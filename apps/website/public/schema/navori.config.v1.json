@@ -135,6 +135,27 @@
     "sdd": {
       "type": "object",
       "properties": {
+        "deliveries": {
+          "type": "object",
+          "properties": {
+            "splitMinTasks": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "splitMinLoc": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "maxPrsPerSpec": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
+        },
         "enabled": {
           "default": true,
           "type": "boolean"

@@ -165,7 +165,41 @@ const MonorepoSchema = z.object({
     ),
 });
 
+/** One `sdd.deliveries` field: an integer no smaller than `min`, with a
+ * message that names the field (spec 0044 R3). */
+function deliveryField(field: string, min: number) {
+  const message =
+    min > 1
+      ? `sdd.deliveries.${field} must be an integer >= ${min}`
+      : `sdd.deliveries.${field} must be a positive integer`;
+  return z.number({ error: message }).int(message).min(min, message).optional();
+}
+
+/**
+ * `sdd.deliveries` (spec 0044 R2, R3). Every field is optional and carries NO
+ * zod `.default()`: `writeConfig` persists the validated output, so a schema
+ * default would be materialized into the user's file and frozen there. The
+ * effective values come from `resolveDeliveryThresholds`.
+ */
+const DeliveriesSchema = z.object({
+  splitMinTasks: deliveryField("splitMinTasks", 1),
+  splitMinLoc: deliveryField("splitMinLoc", 1),
+  maxPrsPerSpec: deliveryField("maxPrsPerSpec", 2),
+});
+
+/** Default `sdd.deliveries` thresholds (spec 0044 R2). */
+export const DEFAULT_DELIVERIES = {
+  splitMinTasks: 12,
+  splitMinLoc: 1500,
+  maxPrsPerSpec: 4,
+} as const;
+
+/** The effective `sdd.deliveries` thresholds: every field resolved. */
+export type DeliveryThresholds = Required<z.infer<typeof DeliveriesSchema>>;
+
 const SddSchema = z.object({
+  /** Spec-splitting thresholds; see {@link DeliveriesSchema}. */
+  deliveries: DeliveriesSchema.optional(),
   enabled: z.boolean().default(true),
   specsDir: z.string().default("specs"),
   /**
@@ -547,4 +581,14 @@ export const NavoriConfigSchema = z
   .passthrough();
 
 export type NavoriConfig = z.infer<typeof NavoriConfigSchema>;
+
+/** Effective `sdd.deliveries` thresholds: configured values over {@link DEFAULT_DELIVERIES}. */
+export function resolveDeliveryThresholds(config: NavoriConfig): DeliveryThresholds {
+  const configured = config.sdd?.deliveries;
+  return {
+    splitMinTasks: configured?.splitMinTasks ?? DEFAULT_DELIVERIES.splitMinTasks,
+    splitMinLoc: configured?.splitMinLoc ?? DEFAULT_DELIVERIES.splitMinLoc,
+    maxPrsPerSpec: configured?.maxPrsPerSpec ?? DEFAULT_DELIVERIES.maxPrsPerSpec,
+  };
+}
 export type NavoriConfigInput = z.input<typeof NavoriConfigSchema>;

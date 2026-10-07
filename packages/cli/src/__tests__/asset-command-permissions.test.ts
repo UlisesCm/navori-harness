@@ -479,6 +479,15 @@ describe("assets order only commands the settings pre-approve (#506)", () => {
   });
 });
 
+// Covers: R4, R11
+describe("navori spec", () => {
+  it("pre-approves the two read-only subcommands, and only those", () => {
+    expect(permissions.allow).toContain("Bash(navori spec classify:*)");
+    expect(permissions.allow).toContain("Bash(navori spec check:*)");
+    expect(permissions.allow.filter((rule) => rule.startsWith("Bash(navori spec"))).toHaveLength(2);
+  });
+});
+
 describe("the rendered allowlist never pre-approves `sg` (#495)", () => {
   it("carries no `sg` rule — on Linux that is shadow-utils, not ast-grep", () => {
     // The source asset is covered by build-settings.test.ts; this is the mirror

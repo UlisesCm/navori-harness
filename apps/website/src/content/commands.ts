@@ -853,6 +853,28 @@ const es: Record<string, CommandDoc> = {
       "`gate` no toma <feature>: lee el payload del hook PreToolUse(Agent) por stdin y niega el despacho del implementer bajo harness.planTiers sin un workplan válido o una exención de nivel 0.",
     ],
   },
+  spec: {
+    id: "spec",
+    title: "spec",
+    summary: "Clasifica el tasks.md de una spec y valida su estructura de entregas (spec 0044).",
+    usage: "navori spec <classify|check> <feature> [--cwd <path>] [--json]",
+    flags: [
+      { flag: "--cwd <path>", desc: "Raíz del repo; por defecto el directorio actual." },
+      { flag: "--json", desc: "Emite el contrato machine-readable." },
+    ],
+    example: [
+      {
+        title: "Clasificar y validar una spec",
+        code: "navori spec classify checkout --json\nnavori spec check checkout",
+      },
+    ],
+    notes: [
+      "`classify` decide la forma: un solo PR (single) o un PR por entrega funcional (split). Parte solo con 2 o más entregas y más de 12 tareas o de 1500 líneas estimadas, con un tope de 4 PRs; los umbrales viven en sdd.deliveries.",
+      "`check` valida hitos, criterios, tareas, cobertura de R<n>, entregas verticales y foundation. Las specs del formato anterior solo emiten advertencias.",
+      "Códigos de salida: 0 sin hallazgos o solo advertencias, 2 con hallazgos de error, 1 por config inválida o tasks.md ausente.",
+      "Es de solo lectura: no ejecuta los comandos de aceptación ni abre PRs.",
+    ],
+  },
   handoff: {
     id: "handoff",
     title: "handoff",
@@ -1790,6 +1812,28 @@ const en: Record<string, CommandDoc> = {
       "`gate` takes no <feature>: it reads the PreToolUse(Agent) hook payload from stdin and denies dispatching the implementer under harness.planTiers without a valid workplan or a level-0 exemption.",
     ],
   },
+  spec: {
+    id: "spec",
+    title: "spec",
+    summary: "Classifies a spec's tasks.md and validates its delivery structure (spec 0044).",
+    usage: "navori spec <classify|check> <feature> [--cwd <path>] [--json]",
+    flags: [
+      { flag: "--cwd <path>", desc: "Repo root; defaults to the current directory." },
+      { flag: "--json", desc: "Emits the machine-readable contract." },
+    ],
+    example: [
+      {
+        title: "Classify and validate a spec",
+        code: "navori spec classify checkout --json\nnavori spec check checkout",
+      },
+    ],
+    notes: [
+      "`classify` decides the shape: one PR (single) or one PR per functional delivery (split). It splits only with 2 or more deliveries and more than 12 tasks or 1500 estimated lines, capped at 4 PRs; the thresholds live in sdd.deliveries.",
+      "`check` validates milestones, criteria, tasks, R<n> coverage, vertical deliveries and foundation. Previous-format specs only emit warnings.",
+      "Exit codes: 0 no findings or warnings only, 2 error findings, 1 invalid config or missing tasks.md.",
+      "It is read-only: it never runs the acceptance commands or opens PRs.",
+    ],
+  },
   handoff: {
     id: "handoff",
     title: "handoff",
@@ -1913,6 +1957,7 @@ export const commandOrder = [
   "global",
   "receipt",
   "plan",
+  "spec",
   "handoff",
   "master",
 ] as const;
