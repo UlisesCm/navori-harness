@@ -13,7 +13,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkReceipt, formatReceipt, signReceipt, type ReceiptOptions } from "../receipt.ts";
-import { executeReceipt, resolveReceiptOptions } from "../../../commands/receipt.ts";
+import { executeGate, executeReceipt, resolveReceiptOptions } from "../../../commands/receipt.ts";
+import { decideGateFromDisk } from "../../spec/gate.ts";
 import { repoFromCwd, sessionLogPath } from "../../audit/paths.ts";
 import { contentIdentity, type ContentIdentity } from "../../primitives/content-identity.ts";
 import { emitReceiptOutcome, receiptOutcomeOf, type ReceiptObserver } from "../receipt.ts";
@@ -648,6 +649,7 @@ describe("receipt-outcome observation", () => {
         "error",
         "formatVersion",
         "fresh",
+        "gateKind",
         "headSha",
         "stale",
         "status",
@@ -768,5 +770,131 @@ describe("receipt-outcome observation", () => {
     symlinkSync(join(options.cwd, "base.txt"), log);
     expect(run("sign", options.cwd, "unsafe-log")).toEqual(baseline);
     expect(readFileSync(join(options.cwd, "base.txt"), "utf8")).toBe("base\n");
+  });
+});
+
+describe("gateKind", () => {
+  const TASKS = [
+    "## E1 — d",
+    "### M1 — first",
+    "- **A1** — c `ls` → ok",
+    "- [x] **T1** (R1) — t · effect: behavior",
+    "### M2 — last",
+    "- **A2** — c `ls` → ok",
+    "- [ ] **T2** (R1) — t · effect: behavior",
+    "",
+  ].join("\n");
+
+  function withSpec(): ReceiptOptions {
+    const options = fixture();
+    mkdirSync(join(options.cwd, "specs", "s"), { recursive: true });
+    writeFileSync(join(options.cwd, "specs", "s", "tasks.md"), TASKS);
+    writeFileSync(join(options.cwd, "base.txt"), "reviewed\n");
+    return options;
+  }
+  const decide = (options: ReceiptOptions, milestone: string) =>
+    decideGateFromDisk(options.cwd, "s", milestone);
+
+  // Covers: R25, R16, R17
+  it("signs scoped, then check is ok but never fresh and reports gateKind scoped", () => {
+    const options = withSpec();
+    const signed = signReceipt({
+      ...options,
+      gateDecision: decide(options, "M1"),
+      gateRan: "scoped",
+    });
+    expect(signed.exitCode).toBe(0);
+    expect(signed.result.gateKind).toBe("scoped");
+    const checked = checkReceipt(options);
+    expect(checked.result).toMatchObject({
+      status: "ok",
+      fresh: false,
+      stale: ["gate"],
+      gateKind: "scoped",
+    });
+    expect(checked.exitCode).toBe(0);
+  });
+
+  // Covers: R25, R17
+  it("refuses --gate-ran scoped when the decision is full and writes no receipt", () => {
+    const options = withSpec();
+    const refused = signReceipt({
+      ...options,
+      gateDecision: decide(options, "M2"),
+      gateRan: "scoped",
+    });
+    expect(refused.exitCode).toBe(1);
+    expect(refused.result.status).toBe("error");
+    expect(refused.result.error).toContain("qualityGate.full");
+    expect(checkReceipt(options).result.error).toBe("receipt is absent");
+  });
+
+  // Covers: R25, R17
+  it("signs full when the gate ran is full even if the decision was scoped", () => {
+    const options = withSpec();
+    const signed = signReceipt({
+      ...options,
+      gateDecision: decide(options, "M1"),
+      gateRan: "full",
+    });
+    expect(signed.result.gateKind).toBe("full");
+    expect(checkReceipt(options).result).toMatchObject({ fresh: true, gateKind: "full" });
+  });
+
+  // Covers: R16
+  it("without the new flags behaves as today: fresh, gateKind full; v1 reads null", () => {
+    const options = withSpec();
+    expect(signReceipt(options).exitCode).toBe(0);
+    expect(checkReceipt(options).result).toMatchObject({ fresh: true, gateKind: "full" });
+    const target = join(options.cwd, options.dir, "receipt.txt");
+    writeFileSync(
+      target,
+      readFileSync(target, "utf8").replace(/^# navori-receipt v2/, "# navori-receipt v1"),
+    );
+    expect(checkReceipt(options).result).toMatchObject({ fresh: false, gateKind: null });
+  });
+
+  // Covers: R16, R25
+  it("receipt gate prints the decision as JSON without writing anything", () => {
+    const options = withSpec();
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      executeGate({
+        feature: options.feature,
+        cwd: options.cwd,
+        spec: "s",
+        milestone: "M1",
+        json: true,
+      });
+      expect(JSON.parse(String(out.mock.calls[0]![0]))).toEqual({
+        gateKind: "scoped",
+        reason: "pending-later-work",
+        unit: "spec",
+        closingMilestone: "M2",
+      });
+    } finally {
+      out.mockRestore();
+    }
+    expect(checkReceipt(options).result.error).toBe("receipt is absent");
+  });
+
+  // Covers: R25
+  it("rejects scoped flags without all three and bad --gate-ran values (exit 1)", () => {
+    const options = withSpec();
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      for (const extra of [{ spec: "s" }, { spec: "s", milestone: "M1", gateRan: "partial" }]) {
+        process.exitCode = 0;
+        executeReceipt("sign", { feature: options.feature, cwd: options.cwd, ...extra });
+        expect(process.exitCode).toBe(1);
+      }
+      expect(stderr.mock.calls.join("")).toContain("FIX:");
+      expect(checkReceipt(options).result.error).toBe("receipt is absent");
+    } finally {
+      process.exitCode = 0;
+      stderr.mockRestore();
+      stdout.mockRestore();
+    }
   });
 });

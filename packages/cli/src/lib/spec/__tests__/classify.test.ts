@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_DELIVERIES } from "../../config/schema.ts";
-import { classifySpec } from "../classify.ts";
+import { classifySpec, decideGate } from "../classify.ts";
+import { decideGateFromDisk } from "../gate.ts";
 import { parseTasks } from "../tasks.ts";
 
 /** A tasks.md with `deliveries` deliveries, `tasks` tasks and `loc` LOC in the first. */
@@ -94,5 +95,74 @@ describe("classifySpec — maxPrsPerSpec cap", () => {
     expect(result.error?.rule).toBe("too-many-deliveries");
     expect(result.error?.what).toContain("5 deliveries");
     expect(result.error?.fix).toContain("split the spec");
+  });
+});
+
+describe("decideGate", () => {
+  const two = (done: string) =>
+    [
+      "## E1 — d",
+      "### M1 — a",
+      "- **A1** — c `ls` → ok",
+      `- [${done}] **T1** (R1) — t · effect: behavior`,
+      "### M2 — b",
+      "- **A2** — c `ls` → ok",
+      "- [ ] **T2** (R1) — t · effect: behavior",
+      "### M3 — c",
+      "- **A3** — c `ls` → ok",
+      "- [ ] **T3** (R1) — t · effect: behavior",
+    ].join("\n");
+  const gate = (text: string, milestone: string, over = {}) => {
+    const parsed = parseTasks(text);
+    return decideGate(parsed, classifySpec(parsed, { ...DEFAULT_DELIVERIES, ...over }), milestone);
+  };
+
+  // Covers: R25
+  it("is scoped only with unchecked work in a later milestone of the unit", () => {
+    expect(gate(two("x"), "M1")).toMatchObject({
+      gateKind: "scoped",
+      reason: "pending-later-work",
+      closingMilestone: "M3",
+    });
+    expect(gate(two("x"), "M2").gateKind).toBe("scoped");
+  });
+
+  // Covers: R25
+  it("is full for the closing milestone", () => {
+    expect(gate(two("x"), "M3")).toMatchObject({ gateKind: "full", reason: "closing-milestone" });
+  });
+
+  // Covers: R25
+  it("is full when every later task is already checked (fix on an open PR)", () => {
+    const done = two("x").replace(/\[ \]/g, "[x]");
+    expect(gate(done, "M1")).toMatchObject({ gateKind: "full", reason: "unit-complete" });
+  });
+
+  // Covers: R25
+  it("is full for legacy format, unknown milestone and unreadable tasks", () => {
+    expect(gate("- [ ] a\n- [ ] b", "M1").reason).toBe("legacy-format");
+    expect(gate(two("x"), "M9")).toMatchObject({ gateKind: "full", reason: "unknown-milestone" });
+    const missing = decideGateFromDisk("/nonexistent-navori-dir", "s", "M1");
+    expect(missing).toMatchObject({ gateKind: "full", reason: "tasks-unreadable" });
+  });
+
+  // Covers: R25
+  it("scopes the unit to the delivery in split and to the whole spec in single", () => {
+    const text = (loc: number) =>
+      [
+        "## E1 — one",
+        `Estimated LOC: ${loc}`,
+        "### M1 — a",
+        "- **A1** — c `ls` → ok",
+        "- [x] **T1** (R1) — t · effect: behavior",
+        "## E2 — two",
+        "### M2 — b",
+        "- **A2** — c `ls` → ok",
+        "- [ ] **T2** (R1) — t · effect: behavior",
+      ].join("\n");
+    // Split (over the LOC threshold): M1 closes E1, so E2's pending work does not make it scoped.
+    expect(gate(text(2000), "M1")).toMatchObject({ gateKind: "full", unit: "E1" });
+    // Single: the unit is the whole spec, so M2's pending task keeps M1 scoped.
+    expect(gate(text(10), "M1")).toMatchObject({ gateKind: "scoped", unit: "spec" });
   });
 });

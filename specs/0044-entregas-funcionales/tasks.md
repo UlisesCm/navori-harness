@@ -58,10 +58,10 @@ Estimated LOC: 1200
 - **A5** [observable] — un milestone intermedio de la 0044 decide `scoped` y el de cierre `full` ·
   `cd packages/cli && bun run test src/lib/spec/__tests__/classify.test.ts src/lib/diagnose/__tests__/receipt.test.ts`
   → exit 0, 0 failed
-- [ ] **T8** (R25) — `decideGate` en `lib/spec/`: `scoped` solo con trabajo pendiente posterior en
+- [x] **T8** (R25) — `decideGate` en `lib/spec/`: `scoped` solo con trabajo pendiente posterior en
   la misma entrega; `full` en cierre, unidad completa, legacy, milestone desconocido o `tasks.md`
   ilegible · effect: behavior · test: `lib/spec/__tests__/classify.test.ts`::"decideGate"
-- [ ] **T9** (R16, R17, R25) — `navori receipt gate` de solo lectura; `receipt sign --spec
+- [x] **T9** (R16, R17, R25) — `navori receipt gate` de solo lectura; `receipt sign --spec
   --milestone --gate-ran` escribe `gateKind`, rechaza `scoped` cuando la decisión es `full`, y sin
   flags firma como hoy · effect: behavior · test:
   `lib/diagnose/__tests__/receipt.test.ts`::"gateKind"
