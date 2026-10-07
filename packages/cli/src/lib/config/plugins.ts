@@ -43,6 +43,26 @@ export const PLATFORMS = ["darwin", "linux", "win32"] as const;
 
 export type Platform = (typeof PLATFORMS)[number];
 
+/**
+ * Known-bad version floor for an external tool (#1210). Not a pin: it never
+ * gates and is distinct from `pinnedVersion` (exact match) and
+ * `capabilityProbe.minVersion` (display-only).
+ */
+const VersionAdvisorySchema = z.object({
+  /** Installed versions strictly below this x.y.z are affected (exclusive: the first fixed release). */
+  below: z.string().regex(/^\d+\.\d+\.\d+$/, "versionAdvisory.below must be an exact x.y.z semver"),
+  /**
+   * Why the version is a problem, shown verbatim by `doctor` in the user's
+   * language. Both locales are required. Put the remedy here when upgrading
+   * alone is not enough.
+   */
+  reason: z.object({ es: z.string().min(1), en: z.string().min(1) }),
+  /** Upstream issue/release URL backing the claim. */
+  ref: z.url().optional(),
+});
+
+export type VersionAdvisory = z.infer<typeof VersionAdvisorySchema>;
+
 const ExternalToolSchema = z.object({
   name: z.string().min(1),
   /** Binary name to look up in PATH. Safer than checkCommand because it
@@ -105,6 +125,13 @@ const ExternalToolSchema = z.object({
         .regex(/^\d+\.\d+\.\d+$/, "capabilityProbe.minVersion must be an exact x.y.z semver"),
     })
     .optional(),
+  /**
+   * Curated known-bad version floors (#1210). `doctor` warns, offline and
+   * informationally, when the installed `--version` is below an entry's
+   * `below`. Add an entry only with an upstream `ref`; `below` is the first
+   * fixed release.
+   */
+  versionAdvisory: z.array(VersionAdvisorySchema).min(1).optional(),
 });
 
 const McpServerSchema = z.object({
