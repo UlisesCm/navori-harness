@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { join } from "node:path";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { buildReport, publishReport, renderMarkdown } from "../report.ts";
-import { parseCodexSession, parseSession } from "../parse.ts";
+import { attachHookEvents, parseCodexSession, parseSession } from "../parse.ts";
+import { createAuditReadBudget, type AuditReadBudget } from "../model.ts";
 import type { HarnessCatalog } from "../harness.ts";
 import { agent as unmeasuredAgent, session as unmeasuredSession } from "./lifecycle-fixtures.ts";
 import type { AgentRun, SessionAudit, MetricEvidence, HookEvent } from "../model.ts";
@@ -524,5 +525,108 @@ describe("codex sessions (R71)", () => {
   // Covers: R71
   it("does not invent a Codex session for a log that never declared the host", () => {
     expect(parseCodexSession("claude-1", codexLog("claude"))).toBeNull();
+  });
+});
+
+describe("range metrics: Claude 2.1.29x window is measured, real loss still is not (spec 0039 R43)", () => {
+  const usage = (n: number): Record<string, number> => ({
+    input_tokens: n,
+    output_tokens: 1,
+    cache_read_input_tokens: 100 * n,
+    cache_creation_input_tokens: 0,
+  });
+  /** An assistant record over the 2 KB fact cap: only the skeleton can carry it. */
+  const heavy = (id: string, n: number, blocks: unknown[]): Record<string, unknown> => ({
+    type: "assistant",
+    timestamp: "2026-10-05T10:00:00.000Z",
+    diagnostics: Object.fromEntries(
+      Array.from({ length: 100 }, (_, k) => [`k${k}`, "y".repeat(60)]),
+    ),
+    message: { id, model: "m", usage: usage(n), content: blocks },
+  });
+
+  /** Three sessions, each with two implementer subagents and Bash calls with hooks. */
+  function window(budget?: AuditReadBudget): SessionAudit[] {
+    return [0, 1, 2].map((i) => {
+      const dir = mkdtempSync(join(tmpdir(), "navori-r43-"));
+      const main = writeLines(dir, `s${i}.jsonl`, [
+        { type: "mode" },
+        { type: "attachment", attachment: { content: "z".repeat(9000) } },
+        heavy("m1", 1, [
+          { type: "tool_use", id: `bash${i}`, name: "Bash", input: { command: "ls" } },
+        ]),
+        heavy("m2", 2, [{ type: "tool_use", id: `agent${i}`, name: "Agent" }]),
+      ]);
+      const subagents = join(dir, `s${i}`, "subagents");
+      mkdirSync(subagents, { recursive: true });
+      for (const run of ["a", "b"]) {
+        writeLines(subagents, `agent-${run}${i}.jsonl`, [
+          heavy(`sub-${run}${i}`, 3 + i, [{ type: "text", text: "t".repeat(3000) }]),
+        ]);
+        writeFileSync(
+          join(subagents, `agent-${run}${i}.meta.json`),
+          JSON.stringify({ agentType: "implementer", description: "d" }),
+        );
+      }
+      const session = parseSession(main, budget);
+      const log = writeLines(dir, `session-s${i}.log`, [
+        {
+          event: "start",
+          sessionId: `s${i}`,
+          repo: "demo",
+          cwd: "/repo",
+          ts: "2026-10-05T10:00:00Z",
+        },
+        {
+          event: "hook",
+          ts: "2026-10-05T10:00:01Z",
+          name: "guard",
+          phase: "PreToolUse",
+          verdict: "allow",
+          ms: 5,
+          source: "core",
+          tool: "Bash",
+          toolUseId: `bash${i}`,
+        },
+      ]);
+      attachHookEvents(session, log);
+      return session;
+    });
+  }
+  const keys = [
+    "agent.implementer.launches",
+    "agent.implementer.sessions",
+    "agent.implementer.cacheRead.p50",
+    "hooks.perBashCall",
+  ] as const;
+
+  // Covers: R43, R6, R21
+  it("measures the R43 metrics when only display content was clipped", () => {
+    const budget = createAuditReadBudget();
+    const r = buildReport(window(budget), {
+      repo: "demo",
+      version: "0.11.0",
+      catalog: CATALOG,
+      readBudget: budget,
+    });
+    expect(budget.diagnostics.truncated).toBe(false);
+    expect(r.rangeMetrics["agent.implementer.launches"]).toBe(6);
+    expect(r.rangeMetrics["agent.implementer.sessions"]).toBe(3);
+    expect(r.rangeMetrics["agent.implementer.cacheRead.p50"]).toBe(400);
+    expect(r.rangeMetrics["hooks.perBashCall"]).toBe(1);
+    for (const key of keys) expect(r.availability?.[key]).toMatchObject({ unavailable: 0 });
+  });
+
+  // Covers: R43, R6, R21
+  it("stays null, never zero, when the read budget genuinely refuses facts", () => {
+    const budget = createAuditReadBudget({ factsPerReport: 30 });
+    const r = buildReport(window(budget), {
+      repo: "demo",
+      version: "0.11.0",
+      catalog: CATALOG,
+      readBudget: budget,
+    });
+    expect(budget.diagnostics.truncated).toBe(true);
+    for (const key of keys) expect(r.rangeMetrics[key]).toBeNull();
   });
 });

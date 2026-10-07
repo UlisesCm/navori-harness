@@ -1394,6 +1394,18 @@ describe("context injected by a SessionStart hook (#728)", () => {
     expect(s.orchestrator.mcpInjectedContext).toEqual({});
   });
 
+  // Covers: R6, R21
+  it("counts an injection whose stdout is far over the string cap, from the raw record", () => {
+    const body = MARKER + "\n" + "m".repeat(9000);
+    const file = sessionWith([injection(PROTOCOL + body)]);
+    const retained = readJsonl(file);
+    expect(retained.health.normalizedOmissions).toBe(0);
+    expect(JSON.stringify(retained.lines)).not.toContain("mmmmmmmmmm");
+    const s = parseSession(file);
+    expect(s.orchestrator.mcpInjectedContext).toEqual({ engram: { count: 1, chars: body.length } });
+    expect(s.sources?.transcript?.state).toBe("observed");
+  });
+
   it("reports nothing when no SessionStart hook injected memory", () => {
     const s = parseSession(sessionWith([injection("navori: session context")]));
     expect(s.orchestrator.mcpInjectedContext).toEqual({});
@@ -2374,7 +2386,8 @@ describe("parse: range measures (spec 0039)", () => {
     ]);
     const retained = readJsonl(file);
     expect(JSON.stringify(retained.lines)).not.toContain(secret);
-    expect(retained.health.normalizedOmissions).toBeGreaterThan(0);
+    // Clipping free text is projection, not loss (spec 0042 R6).
+    expect(retained.health.normalizedOmissions).toBe(0);
     for (const record of retained.lines)
       expect(Buffer.byteLength(JSON.stringify(record))).toBeLessThanOrEqual(
         AUDIT_READ_LIMITS.normalizedFactBytes,
@@ -3515,5 +3528,177 @@ describe("idle between turns (spec 0042 T10b, M4)", () => {
     const s = parseSession(FIXTURE);
     expect(Array.isArray(s.idleBetweenTurns)).toBe(true);
     expect(JSON.stringify(s.idleBetweenTurns)).not.toMatch(/[a-z]/i);
+  });
+});
+
+describe("parse: Claude 2.1.29x transcripts clip content without losing measurements", () => {
+  const usage = (n: number): Record<string, number> => ({
+    input_tokens: n,
+    output_tokens: 1,
+    cache_read_input_tokens: 10 * n,
+    cache_creation_input_tokens: 0,
+  });
+
+  // Covers: R6, R21
+  it("clips display text silently but still counts a clipped technical key", () => {
+    const long = "x".repeat(5000);
+    const text = normalizeAuditRecord({ type: "assistant", text: long }, "transcript");
+    expect(text.omitted).toBe(0);
+    expect(text.value).toMatchObject({ type: "assistant", text: "" });
+    const stdout = normalizeAuditRecord(
+      { type: "attachment", attachment: { stdout: long } },
+      "transcript",
+    );
+    expect(stdout.omitted).toBe(0);
+    expect(stdout.value).toMatchObject({ attachment: { stdout: "" } });
+    const lines = normalizeAuditRecord(
+      { type: "attachment", lines: Array(300).fill("a") },
+      "transcript",
+    );
+    expect(lines.omitted).toBe(0);
+    const technical = normalizeAuditRecord({ type: "assistant", model: long }, "transcript");
+    expect(technical.omitted).toBeGreaterThan(0);
+    const blocks = normalizeAuditRecord(
+      { type: "assistant", message: { content: Array(200).fill({ type: "text" }) } },
+      "transcript",
+    );
+    expect(blocks.omitted).toBeGreaterThan(0);
+  });
+
+  // Covers: R6, R21
+  it("treats depth past the cap under display content as projection, not loss", () => {
+    let deep: Record<string, unknown> = { leaf: "x" };
+    for (let i = 0; i < 15; i++) deep = { child: deep };
+    expect(
+      normalizeAuditRecord({ type: "attachment", attachment: deep }, "transcript").omitted,
+    ).toBe(0);
+  });
+
+  // Covers: R6, R21
+  it("projects an over-cap identity head to its identity fields instead of losing it", () => {
+    const schemas = Array.from({ length: 40 }, (_, i) => ({
+      type: "function",
+      name: `tool_${i}`,
+      inputSchema: { type: "object", properties: { a: { type: "string" }, b: { type: "string" } } },
+    }));
+    const codex = normalizeAuditRecord(
+      {
+        type: "session_meta",
+        payload: { id: "t1", session_id: "t1", cwd: "/r", dynamic_tools: schemas },
+      },
+      "metadata",
+    );
+    expect(codex.omitted).toBe(0);
+    expect(codex.value).toMatchObject({ type: "session_meta", payload: { id: "t1", cwd: "/r" } });
+    const claude = normalizeAuditRecord(
+      {
+        type: "attachment",
+        sessionId: "s",
+        cwd: "/r",
+        attachment: { tools: schemas, more: schemas },
+      },
+      "metadata",
+    );
+    expect(claude.omitted).toBe(0);
+    expect(claude.value).toMatchObject({ sessionId: "s", cwd: "/r" });
+  });
+
+  // Covers: R6, R21
+  it("keeps usage and tool_use name/id of an over-cap assistant record", () => {
+    const record = {
+      type: "assistant",
+      timestamp: "2026-10-05T10:00:00.000Z",
+      diagnostics: Object.fromEntries(
+        Array.from({ length: 100 }, (_, i) => [`k${i}`, "y".repeat(60)]),
+      ),
+      message: {
+        id: "msg_1",
+        model: "m",
+        usage: usage(7),
+        content: [{ type: "tool_use", id: "toolu_1", name: "Bash", input: { command: "ls" } }],
+      },
+    };
+    expect(Buffer.byteLength(JSON.stringify(record))).toBeGreaterThan(
+      AUDIT_READ_LIMITS.normalizedFactBytes,
+    );
+    const { value, omitted } = normalizeAuditRecord(record, "transcript");
+    expect(omitted).toBe(0);
+    expect(value).toMatchObject({
+      message: { id: "msg_1", usage: usage(7), content: [{ name: "Bash", id: "toolu_1" }] },
+    });
+    expect(normalizeAuditRecord(record, "audit-log").value).toBeNull();
+  });
+
+  // Covers: R6, R21
+  it("observes a 2.1.29x transcript: long text, big tool_use, service types, subagents", () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-cc29x-"));
+    const file = join(dir, "session.jsonl");
+    const subagents = join(dir, "session", "subagents");
+    mkdirSync(subagents, { recursive: true });
+    for (const id of ["a1", "a2"])
+      writeFileSync(
+        join(subagents, `agent-${id}.jsonl`),
+        `${JSON.stringify({ type: "assistant", agentId: id, message: { id: `s${id}`, usage: usage(1), content: [] } })}\n`,
+      );
+    const big = (i: number): unknown => ({
+      type: "assistant",
+      diagnostics: Object.fromEntries(
+        Array.from({ length: 100 }, (_, k) => [`k${k}`, "y".repeat(60)]),
+      ),
+      message: {
+        id: `m${i}`,
+        usage: usage(i),
+        content: [
+          { type: "thinking", thinking: "t".repeat(3000) },
+          { type: "text", text: "u".repeat(3000) },
+          { type: "tool_use", id: `tu${i}`, name: "Bash", input: { command: "ls" } },
+        ],
+      },
+    });
+    const service = [
+      "agent-name",
+      "mode",
+      "atis-latch",
+      "ai-title",
+      "file-history-delta",
+      "cost-state",
+      "continued-in",
+      "agent-name",
+    ].map((type) => ({ type }));
+    writeFileSync(
+      file,
+      [
+        {
+          type: "attachment",
+          attachment: { content: "z".repeat(9000), lines: Array(500).fill("l") },
+        },
+        ...service,
+        {
+          type: "user",
+          message: {
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "x",
+                content: [{ type: "tool_reference", tool_name: "ToolSearch" }],
+              },
+            ],
+          },
+        },
+        big(1),
+        big(2),
+        big(3),
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n") + "\n",
+    );
+    const session = parseSession(file);
+    expect(session.sources?.transcript).toMatchObject({
+      state: "observed",
+      normalizedOmissions: 0,
+    });
+    expect(session.agents).toHaveLength(2);
+    expect(session.orchestrator.tokens.input).toBe(6);
+    expect(session.orchestrator.toolCounts.Bash).toBe(3);
   });
 });

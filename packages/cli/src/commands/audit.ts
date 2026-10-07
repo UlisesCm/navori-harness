@@ -15,6 +15,7 @@ import {
   createAuditDiscoveryContext,
 } from "../lib/audit/discovery.ts";
 import { attachHookEvents, parseCodexSession, parseSession } from "../lib/audit/parse.ts";
+import { omitAuditFacts } from "../lib/audit/model.ts";
 import { listMarkers } from "../lib/diagnose/health.ts";
 import {
   type Lang,
@@ -1069,7 +1070,7 @@ export const auditCommand = defineCommand({
                   records: m.auditLogRecords ?? [],
                   reading: m.auditReading,
                   normalizationLoss: m.auditNormalizationLoss,
-                  budget: readContext.budget,
+                  budget: readContext.scanBudget,
                   children: m.childSources ?? [],
                 },
               )
@@ -1089,7 +1090,7 @@ export const auditCommand = defineCommand({
         records: m.auditLogRecords ?? [],
         reading: m.auditReading,
         normalizationLoss: m.auditNormalizationLoss,
-        budget: readContext.budget,
+        budget: readContext.scanBudget,
       });
       session.signals = detectSignals(session, catalogOf(m), lang);
       parsed.push(session);
@@ -1140,6 +1141,10 @@ export const auditCommand = defineCommand({
       if (warning) p.log.warn(warning);
     }
 
+    // Loss in the discovery pool is loss of the report: it must demote evidence like any other.
+    const scan = readContext.scanBudget.diagnostics;
+    if (scan.truncated)
+      omitAuditFacts(readContext.budget, scan.omittedLowerBound, scan.omittedFacts === null);
     const report = buildReport(parsed, {
       readBudget: readContext.budget,
       repo: allRepos ? "all-repos" : repo,

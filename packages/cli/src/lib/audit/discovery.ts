@@ -80,9 +80,13 @@ export interface MarkedSession {
 /** One bounded lazy filesystem/fact context is shared by all report cohorts. */
 export interface AuditDiscoveryContext {
   budget: AuditReadBudget;
+  /** Facts retained while discovering (host scan, session logs); separate so they cannot starve parsing of the shared pool. */
+  scanBudget: AuditReadBudget;
   indexedPaths: string[] | null;
   indexedRoots: Set<string>;
   metadata: Map<string, Record<string, unknown> | null>;
+  /** Fully read sources holding only host bookkeeping (titles): no session, nothing to attribute. */
+  bookkeepingOnly: Set<string>;
   logs: Map<string, AuditLogView>;
   repoRoots: Map<string, Set<string>>;
 }
@@ -93,12 +97,19 @@ export function createAuditDiscoveryContext(
 ): AuditDiscoveryContext {
   return {
     budget,
+    scanBudget: createAuditReadBudget(),
     indexedPaths: null,
     indexedRoots: new Set(),
     metadata: new Map(),
+    bookkeepingOnly: new Set(),
     logs: new Map(),
     repoRoots: new Map(),
   };
+}
+
+/** Whether discovery lost facts in either the shared pool or its own scan pool. */
+function discoveryTruncated(context: AuditDiscoveryContext): boolean {
+  return context.budget.diagnostics.truncated || context.scanBudget.diagnostics.truncated;
 }
 
 /** Retain a validated marker's checkout anchor without retaining out-of-range activity. */
@@ -225,15 +236,26 @@ function indexedSourceMetadata(
   if (context.metadata.has(path)) return context.metadata.get(path) ?? null;
   if (!retainAuditPath(context.budget, path)) return null;
   let record: Record<string, unknown> | null = null;
+  let visited = false;
   const reading = readSourceIdentity(path, (value) => {
+    visited = true;
     const normalized = normalizeAuditRecord(value, "metadata");
-    if (normalized.omitted) omitAuditFacts(context.budget, normalized.omitted);
-    if (normalized.value && retainAuditFact(context.budget, null, normalized.value))
+    if (normalized.omitted) omitAuditFacts(context.scanBudget, normalized.omitted);
+    if (normalized.value && retainAuditFact(context.scanBudget, null, normalized.value))
       record = normalized.value;
   });
   if (reading.sourceStatus !== "observed") record = null;
+  else if (
+    !visited &&
+    !reading.stoppedEarly &&
+    !reading.malformedJson &&
+    !reading.invalidUtf8 &&
+    !reading.oversizedLines &&
+    !reading.incompleteTail
+  )
+    context.bookkeepingOnly.add(path);
   const entry = { path, record };
-  if (retainAuditFact(context.budget, null, entry)) context.metadata.set(path, record);
+  if (retainAuditFact(context.scanBudget, null, entry)) context.metadata.set(path, record);
   return record;
 }
 
@@ -847,7 +869,9 @@ function inspectSource(
         host === "codex" &&
         fields.id !== undefined &&
         fields.session_id !== undefined &&
-        fields.id !== fields.session_id
+        fields.id !== fields.session_id &&
+        // A spawned child thread (any ancestor as parent) carries its tree's root `session_id`.
+        typeof fields.parent_thread_id !== "string"
       ) {
         return { host, status: "identity-conflict" };
       }
@@ -1058,7 +1082,7 @@ export function findMarkedSessions(
       readAuditJsonl(logFile, (value) => {
         const normalized = normalizeAuditRecord(value, "audit-log");
         auditNormalizationLoss += normalized.omitted;
-        if (normalized.omitted) omitAuditFacts(context.budget, normalized.omitted);
+        if (normalized.omitted) omitAuditFacts(context.scanBudget, normalized.omitted);
         if (!normalized.value) return;
         const record = normalized.value;
         if (!seenStart && record.event === "start") {
@@ -1074,10 +1098,10 @@ export function findMarkedSessions(
           outsideCohort([...auditLogRecords, record])
         ) {
           excluded = true;
-          if (retainAuditFact(context.budget, null, record)) auditLogRecords.push(record);
+          if (retainAuditFact(context.scanBudget, null, record)) auditLogRecords.push(record);
           return false;
         }
-        if (!retainAuditFact(context.budget, sessionId, record)) return false;
+        if (!retainAuditFact(context.scanBudget, sessionId, record)) return false;
         auditLogRecords.push(record);
       });
     if (!cachedLog) {
@@ -1085,14 +1109,14 @@ export function findMarkedSessions(
         records: auditLogRecords,
         reading: auditReading,
         normalizationLoss: auditNormalizationLoss,
-        budget: context.budget,
+        budget: context.scanBudget,
       };
       // Account for the cache entry without recursively reserving the shared context itself.
-      if (retainAuditFact(context.budget, sessionId, { path: logFile }))
+      if (retainAuditFact(context.scanBudget, sessionId, { path: logFile }))
         context.logs.set(logFile, view);
     }
     if (excluded || (cachedLog && outsideCohort(auditLogRecords))) continue;
-    if (auditReading.stoppedEarly) omitAuditFacts(context.budget, 0, true);
+    if (auditReading.stoppedEarly) omitAuditFacts(context.scanBudget, 0, true);
     const { cwd, markedAt, transcript, host, identityConflict, present } = readHeader(
       logFile,
       sessionId,
@@ -1266,7 +1290,7 @@ function hostPopulation(
       } else if (file.startsWith(`${transcriptsRoot()}/`) && !file.includes("/subagents/"))
         files.add(file);
     }
-    if (context.budget.diagnostics.truncated) complete = false;
+    if (discoveryTruncated(context)) complete = false;
   } catch {
     complete = false;
   }
@@ -1274,6 +1298,7 @@ function hostPopulation(
     const expectedHost = codexFiles.has(file) ? "codex" : "claude";
     try {
       const record: unknown = indexedSourceMetadata(file, context);
+      if (context.bookkeepingOnly.has(file)) continue;
       if (typeof record !== "object" || record === null) {
         byHost[expectedHost] = false;
         continue;
@@ -1414,7 +1439,7 @@ export function repoCoverage(
   const activations = sessions.filter((m) => withinRange(m.markedAt, filters));
   const markerComplete =
     markerEnumeration(repo, context).state === "observed" &&
-    !context.budget.diagnostics.truncated &&
+    !discoveryTruncated(context) &&
     sessions.every((s) => Number.isFinite(Date.parse(s.markedAt)));
   const captureComplete = markerComplete && !identityConflict;
   const captured = captureComplete

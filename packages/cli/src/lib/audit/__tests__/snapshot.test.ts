@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildReport } from "../report.ts";
+import { parseSession } from "../parse.ts";
 import type { HarnessCatalog } from "../harness.ts";
 import { auditsRoot, snapshotPath } from "../paths.ts";
 import {
@@ -154,6 +155,57 @@ describe("snapshot: format 2 and privacy (R19, R68)", () => {
     expect(Object.values(snap.metrics).every((m) => m.state)).toBe(true);
     r.schemaVersion = 10;
     expect(() => buildSnapshot(r, OPTS)).toThrow(/schema 11/);
+  });
+
+  // Covers: R43, R19
+  it("round-trips the R43 metrics of a parsed Claude 2.1.29x window as observed with n", () => {
+    const sessions = [0, 1, 2].map((i) => {
+      const dir = mkdtempSync(join(tmpdir(), "navori-snap-r43-"));
+      const heavy = {
+        type: "assistant",
+        timestamp: "2026-10-05T10:00:00.000Z",
+        diagnostics: Object.fromEntries(
+          Array.from({ length: 100 }, (_, k) => [`k${k}`, "y".repeat(60)]),
+        ),
+        message: {
+          id: `m${i}`,
+          usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 100 * (i + 1) },
+          content: [{ type: "text", text: "t".repeat(3000) }],
+        },
+      };
+      const main = join(dir, `s${i}.jsonl`);
+      writeFileSync(main, `${JSON.stringify(heavy)}\n`);
+      const subagents = join(dir, `s${i}`, "subagents");
+      mkdirSync(subagents, { recursive: true });
+      writeFileSync(join(subagents, `agent-a${i}.jsonl`), `${JSON.stringify(heavy)}\n`);
+      writeFileSync(
+        join(subagents, `agent-a${i}.meta.json`),
+        JSON.stringify({ agentType: "implementer" }),
+      );
+      return parseSession(main);
+    });
+    const snap = buildSnapshot(
+      buildReport(sessions, { repo: "alpha-repo", version: "0.11.0", catalog: CATALOG }),
+      OPTS,
+    );
+    const path = snapshotPath("alpha-repo", "r43", "2026-10-05", "2026-10-05");
+    writeSnapshot(path, snap);
+    const back = readSnapshot(path);
+    expect(back.snapshotFormat).toBe(2);
+    expect(back.metrics["agent.implementer.launches"]).toMatchObject({
+      value: 3,
+      state: "observed",
+      n: 3,
+    });
+    expect(back.metrics["agent.implementer.sessions"]).toMatchObject({
+      value: 3,
+      state: "observed",
+    });
+    expect(back.metrics["agent.implementer.cacheRead.p50"]).toMatchObject({
+      value: 200,
+      state: "observed",
+      n: 3,
+    });
   });
 
   // Covers: R19, R68
