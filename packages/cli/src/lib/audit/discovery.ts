@@ -80,7 +80,7 @@ export interface MarkedSession {
 /** One bounded lazy filesystem/fact context is shared by all report cohorts. */
 export interface AuditDiscoveryContext {
   budget: AuditReadBudget;
-  /** Facts of the host-path scan; separate so it cannot starve parsing of the shared pool. */
+  /** Facts retained while discovering (host scan, session logs); separate so they cannot starve parsing of the shared pool. */
   scanBudget: AuditReadBudget;
   indexedPaths: string[] | null;
   indexedRoots: Set<string>;
@@ -1066,7 +1066,7 @@ export function findMarkedSessions(
       readAuditJsonl(logFile, (value) => {
         const normalized = normalizeAuditRecord(value, "audit-log");
         auditNormalizationLoss += normalized.omitted;
-        if (normalized.omitted) omitAuditFacts(context.budget, normalized.omitted);
+        if (normalized.omitted) omitAuditFacts(context.scanBudget, normalized.omitted);
         if (!normalized.value) return;
         const record = normalized.value;
         if (!seenStart && record.event === "start") {
@@ -1082,10 +1082,10 @@ export function findMarkedSessions(
           outsideCohort([...auditLogRecords, record])
         ) {
           excluded = true;
-          if (retainAuditFact(context.budget, null, record)) auditLogRecords.push(record);
+          if (retainAuditFact(context.scanBudget, null, record)) auditLogRecords.push(record);
           return false;
         }
-        if (!retainAuditFact(context.budget, sessionId, record)) return false;
+        if (!retainAuditFact(context.scanBudget, sessionId, record)) return false;
         auditLogRecords.push(record);
       });
     if (!cachedLog) {
@@ -1093,14 +1093,14 @@ export function findMarkedSessions(
         records: auditLogRecords,
         reading: auditReading,
         normalizationLoss: auditNormalizationLoss,
-        budget: context.budget,
+        budget: context.scanBudget,
       };
       // Account for the cache entry without recursively reserving the shared context itself.
-      if (retainAuditFact(context.budget, sessionId, { path: logFile }))
+      if (retainAuditFact(context.scanBudget, sessionId, { path: logFile }))
         context.logs.set(logFile, view);
     }
     if (excluded || (cachedLog && outsideCohort(auditLogRecords))) continue;
-    if (auditReading.stoppedEarly) omitAuditFacts(context.budget, 0, true);
+    if (auditReading.stoppedEarly) omitAuditFacts(context.scanBudget, 0, true);
     const { cwd, markedAt, transcript, host, identityConflict, present } = readHeader(
       logFile,
       sessionId,

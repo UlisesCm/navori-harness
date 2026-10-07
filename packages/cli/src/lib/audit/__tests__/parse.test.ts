@@ -3548,6 +3548,44 @@ describe("parse: Claude 2.1.29x transcripts clip content without losing measurem
   });
 
   // Covers: R6, R21
+  it("treats depth past the cap under display content as projection, not loss", () => {
+    let deep: Record<string, unknown> = { leaf: "x" };
+    for (let i = 0; i < 15; i++) deep = { child: deep };
+    expect(
+      normalizeAuditRecord({ type: "attachment", attachment: deep }, "transcript").omitted,
+    ).toBe(0);
+  });
+
+  // Covers: R6, R21
+  it("projects an over-cap identity head to its identity fields instead of losing it", () => {
+    const schemas = Array.from({ length: 40 }, (_, i) => ({
+      type: "function",
+      name: `tool_${i}`,
+      inputSchema: { type: "object", properties: { a: { type: "string" }, b: { type: "string" } } },
+    }));
+    const codex = normalizeAuditRecord(
+      {
+        type: "session_meta",
+        payload: { id: "t1", session_id: "t1", cwd: "/r", dynamic_tools: schemas },
+      },
+      "metadata",
+    );
+    expect(codex.omitted).toBe(0);
+    expect(codex.value).toMatchObject({ type: "session_meta", payload: { id: "t1", cwd: "/r" } });
+    const claude = normalizeAuditRecord(
+      {
+        type: "attachment",
+        sessionId: "s",
+        cwd: "/r",
+        attachment: { tools: schemas, more: schemas },
+      },
+      "metadata",
+    );
+    expect(claude.omitted).toBe(0);
+    expect(claude.value).toMatchObject({ sessionId: "s", cwd: "/r" });
+  });
+
+  // Covers: R6, R21
   it("keeps usage and tool_use name/id of an over-cap assistant record", () => {
     const record = {
       type: "assistant",
@@ -3600,12 +3638,14 @@ describe("parse: Claude 2.1.29x transcripts clip content without losing measurem
       },
     });
     const service = [
+      "agent-name",
       "mode",
       "atis-latch",
       "ai-title",
       "file-history-delta",
       "cost-state",
       "continued-in",
+      "agent-name",
     ].map((type) => ({ type }));
     writeFileSync(
       file,
@@ -3615,6 +3655,18 @@ describe("parse: Claude 2.1.29x transcripts clip content without losing measurem
           attachment: { content: "z".repeat(9000), lines: Array(500).fill("l") },
         },
         ...service,
+        {
+          type: "user",
+          message: {
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "x",
+                content: [{ type: "tool_reference", tool_name: "ToolSearch" }],
+              },
+            ],
+          },
+        },
         big(1),
         big(2),
         big(3),

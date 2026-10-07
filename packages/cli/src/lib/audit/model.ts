@@ -470,9 +470,12 @@ export function normalizeAuditRecord(
   ]);
   const projected = (key: string): boolean =>
     !technical.has(key) && !/^(timestamp|ts|observedAt|cwd|transcript|sourcePath|path)$/.test(key);
-  const normalize = (item: unknown, key: string, depth: number): unknown => {
+  // `free`: some ancestor is display content, so a subtree past the depth cap (a tool schema)
+  // is projection too; a technical key names measurement-bearing data and still counts.
+  const normalize = (item: unknown, key: string, depth: number, free = false): unknown => {
+    free ||= depth > 0 && projected(key);
     if (depth > 12) {
-      if (!projected(key)) omitted++;
+      if (!free) omitted++;
       return undefined;
     }
     if (typeof item === "string") {
@@ -488,7 +491,7 @@ export function normalizeAuditRecord(
     }
     if (Array.isArray(item)) {
       if (item.length > 128 && (!projected(key) || key === "content")) omitted += item.length - 128;
-      return item.slice(0, 128).map((child) => normalize(child, key, depth + 1));
+      return item.slice(0, 128).map((child) => normalize(child, key, depth + 1, free));
     }
     if (typeof item !== "object" || item === null) return item;
     const out: Record<string, unknown> = {};
@@ -501,7 +504,7 @@ export function normalizeAuditRecord(
         omitted++;
         continue;
       }
-      const normalized = normalize(child, field, depth + 1);
+      const normalized = normalize(child, field, depth + 1, free);
       if (normalized !== undefined) out[field] = normalized;
     }
     return out;
@@ -512,9 +515,15 @@ export function normalizeAuditRecord(
   const cap = AUDIT_READ_LIMITS.normalizedFactBytes;
   if (Buffer.byteLength(JSON.stringify(normalized)) <= cap)
     return { value: normalized as Record<string, unknown>, omitted };
-  if (source === "transcript") {
+  // A Claude identity head (no Codex `payload`) projects like a transcript record.
+  if (source === "transcript" || (source === "metadata" && !("payload" in normalized))) {
     const skeleton = transcriptSkeleton(normalized as Record<string, unknown>);
     if (Buffer.byteLength(JSON.stringify(skeleton)) <= cap) return { value: skeleton, omitted };
+  }
+  // A Codex head carries tool schemas: keep only its technical fields, as a rollout read does.
+  if (source === "metadata" && "payload" in (normalized as object)) {
+    const technicalOnly = normalizeAuditRecord(value, "rollout");
+    if (technicalOnly.value) return technicalOnly;
   }
   return { value: null, omitted: omitted + 1 };
 }

@@ -181,6 +181,8 @@ function validTranscriptBlock(block: unknown): boolean {
       return typeof block.thinking === "string";
     case "redacted_thinking":
       return typeof block.data === "string";
+    case "tool_reference":
+      return typeof block.tool_name === "string";
     case "tool_use":
       return (
         typeof block.name === "string" &&
@@ -241,6 +243,7 @@ function validSourceRecord(rec: Rec, source: SourceHealth["source"]): boolean {
         "file-history-delta",
         "cost-state",
         "continued-in",
+        "agent-name",
       ].includes(rec.type) &&
       (rec.message === undefined ||
         (isRec(rec.message) &&
