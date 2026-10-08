@@ -182,3 +182,59 @@ export function classifySpec(
     error,
   };
 }
+
+export type GateKind = "scoped" | "full";
+
+/** Why {@link decideGate} chose its kind; `no-spec-flags` is set by callers that never asked. */
+export type GateReason =
+  | "pending-later-work"
+  | "closing-milestone"
+  | "unit-complete"
+  | "legacy-format"
+  | "unknown-milestone"
+  | "tasks-unreadable"
+  | "no-spec-flags";
+
+export interface GateDecision {
+  gateKind: GateKind;
+  reason: GateReason;
+  /** PR unit of the milestone: the delivery id in `split`, `"spec"` in `single`; null when unknown. */
+  unit: string | null;
+  /** Last milestone of that unit (the one that needs the full gate); null when unknown. */
+  closingMilestone: string | null;
+}
+
+/**
+ * Decides the gate a review cycle for `milestoneId` needs (spec 0044 R25).
+ *
+ * `scoped` only when the format is the new one, the milestone exists and at
+ * least one task is still unchecked in a LATER milestone of the same PR unit
+ * (a delivery in `split`, the whole spec in `single`). Every other case is
+ * `full`, so a stale checkbox can only over-gate, never skip the gate.
+ */
+export function decideGate(
+  parsed: ParsedTasks,
+  classification: SpecClassification,
+  milestoneId: string,
+): GateDecision {
+  const full = (
+    reason: GateReason,
+    unit: string | null = null,
+    closingMilestone: string | null = null,
+  ): GateDecision => ({ gateKind: "full", reason, unit, closingMilestone });
+  if (parsed.format === "legacy" || classification.format === "legacy") {
+    return full("legacy-format");
+  }
+  const split = classification.shape === "split";
+  const owner = classification.deliveries.find((d) =>
+    d.milestones.some((m) => m.id === milestoneId),
+  );
+  if (!owner) return full("unknown-milestone");
+  const unitMilestones = (split ? [owner] : classification.deliveries).flatMap((d) => d.milestones);
+  const unit = split ? owner.id : "spec";
+  const closing = unitMilestones[unitMilestones.length - 1]?.id ?? null;
+  const later = unitMilestones.slice(unitMilestones.findIndex((m) => m.id === milestoneId) + 1);
+  if (later.length === 0) return full("closing-milestone", unit, closing);
+  if (later.every((m) => m.tasks.every((t) => t.done))) return full("unit-complete", unit, closing);
+  return { gateKind: "scoped", reason: "pending-later-work", unit, closingMilestone: closing };
+}

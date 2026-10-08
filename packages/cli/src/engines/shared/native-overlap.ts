@@ -304,6 +304,11 @@ const FLOWS: ReadonlyArray<{ id: string; note: string; codex: EngineSupport }> =
     note: "An agent dispatching subagents (`Agent(scout, scribe)` in `architect`); Claude Code allows it, Codex and CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1 do not, so orquestacion.md falls back to the orchestrator running scout before and scribe after.",
     codex: "unsupported",
   },
+  {
+    id: "spec-delivery-publication",
+    note: "One PR per spec delivery (`Spec-Delivery:` line, ancestor check, `Refs`/`Closes`); Claude's publisher runs `gh pr create`, on Codex the user confirms each one (spec 0044 D8).",
+    codex: "emit",
+  },
 ];
 
 function support(claude: EngineSupport, codex: EngineSupport, prose: EngineSupport): Support {

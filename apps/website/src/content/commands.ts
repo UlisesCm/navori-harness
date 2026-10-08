@@ -795,11 +795,20 @@ const es: Record<string, CommandDoc> = {
     id: "receipt",
     title: "receipt",
     summary: "Firma o verifica los bytes revisados antes de publicar un cambio.",
-    usage: "navori receipt <sign|check> --feature <id> [--target <ref>] [--dir <path>] [--json]",
+    usage:
+      "navori receipt <sign|check|gate> --feature <id> [--target <ref>] [--dir <path>] [--spec <spec> --milestone M<n> [--gate-ran <scoped|full>]] [--json]",
     flags: [
       { flag: "--feature <id>", desc: "Identificador recibido en el handoff." },
       { flag: "--target <ref>", desc: "Base real del PR; por defecto prTarget." },
       { flag: "--dir <path>", desc: "Directorio de progreso; por defecto .claude/progress." },
+      {
+        flag: "--spec <spec> --milestone M<n>",
+        desc: "Spec y milestone del ciclo; con `gate` son obligatorios, con `sign` van juntos con --gate-ran.",
+      },
+      {
+        flag: "--gate-ran <scoped|full>",
+        desc: "`sign`: el gate que corrió el ciclo. Se rechaza `scoped` cuando la decisión es `full`.",
+      },
       { flag: "--json", desc: "Emite el contrato machine-readable." },
     ],
     example: [
@@ -808,7 +817,10 @@ const es: Record<string, CommandDoc> = {
         code: "navori receipt sign --feature checkout --json\nnavori receipt check --feature checkout --json",
       },
     ],
-    notes: ["Solo publica cuando el JSON devuelve status ok."],
+    notes: [
+      "Solo publica cuando el JSON devuelve status ok.",
+      "`gate` es de solo lectura: devuelve { gateKind, reason, unit, closingMilestone } y decide si el ciclo del milestone necesita el gate acotado (scoped) o el completo (full). Un receipt scoped no es fresh: solo permite el commit, nunca el PR.",
+    ],
   },
   plan: {
     id: "plan",
@@ -871,7 +883,7 @@ const es: Record<string, CommandDoc> = {
     notes: [
       "`classify` decide la forma: un solo PR (single) o un PR por entrega funcional (split). Parte solo con 2 o más entregas y más de 12 tareas o de 1500 líneas estimadas, con un tope de 4 PRs; los umbrales viven en sdd.deliveries.",
       "`check` valida hitos, criterios, tareas, cobertura de R<n>, entregas verticales y foundation. Las specs del formato anterior solo emiten advertencias.",
-      "Códigos de salida: 0 sin hallazgos o solo advertencias, 2 con hallazgos de error, 1 por config inválida o tasks.md ausente.",
+      "Códigos de salida: 0 sin hallazgos o solo advertencias, 2 con hallazgos de error, 1 por config inválida o tasks.md ausente (`classify` también sale con 1 cuando las entregas superan maxPrsPerSpec).",
       "Es de solo lectura: no ejecuta los comandos de aceptación ni abre PRs.",
     ],
   },
@@ -1754,11 +1766,20 @@ const en: Record<string, CommandDoc> = {
     id: "receipt",
     title: "receipt",
     summary: "Signs or checks the reviewed bytes before publishing a change.",
-    usage: "navori receipt <sign|check> --feature <id> [--target <ref>] [--dir <path>] [--json]",
+    usage:
+      "navori receipt <sign|check|gate> --feature <id> [--target <ref>] [--dir <path>] [--spec <spec> --milestone M<n> [--gate-ran <scoped|full>]] [--json]",
     flags: [
       { flag: "--feature <id>", desc: "Identifier received in the handoff." },
       { flag: "--target <ref>", desc: "Actual PR base; defaults to prTarget." },
       { flag: "--dir <path>", desc: "Progress directory; defaults to .claude/progress." },
+      {
+        flag: "--spec <spec> --milestone M<n>",
+        desc: "Spec and milestone of the cycle; required by `gate`, and with `sign` they go together with --gate-ran.",
+      },
+      {
+        flag: "--gate-ran <scoped|full>",
+        desc: "`sign`: the gate the cycle ran. `scoped` is refused when the decision is `full`.",
+      },
       { flag: "--json", desc: "Emit the machine-readable contract." },
     ],
     example: [
@@ -1767,7 +1788,10 @@ const en: Record<string, CommandDoc> = {
         code: "navori receipt sign --feature checkout --json\nnavori receipt check --feature checkout --json",
       },
     ],
-    notes: ["Publish only when JSON returns status ok."],
+    notes: [
+      "Publish only when JSON returns status ok.",
+      "`gate` is read-only: it returns { gateKind, reason, unit, closingMilestone } and decides whether the milestone's cycle needs the scoped or the full gate. A scoped receipt is never fresh: it only allows the commit, never the PR.",
+    ],
   },
   plan: {
     id: "plan",
@@ -1830,7 +1854,7 @@ const en: Record<string, CommandDoc> = {
     notes: [
       "`classify` decides the shape: one PR (single) or one PR per functional delivery (split). It splits only with 2 or more deliveries and more than 12 tasks or 1500 estimated lines, capped at 4 PRs; the thresholds live in sdd.deliveries.",
       "`check` validates milestones, criteria, tasks, R<n> coverage, vertical deliveries and foundation. Previous-format specs only emit warnings.",
-      "Exit codes: 0 no findings or warnings only, 2 error findings, 1 invalid config or missing tasks.md.",
+      "Exit codes: 0 no findings or warnings only, 2 error findings, 1 invalid config or missing tasks.md (`classify` also exits 1 when deliveries exceed maxPrsPerSpec).",
       "It is read-only: it never runs the acceptance commands or opens PRs.",
     ],
   },

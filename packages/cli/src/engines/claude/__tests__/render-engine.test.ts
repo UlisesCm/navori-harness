@@ -682,6 +682,48 @@ describe("renderClaudeEngine — prTarget in the publisher agent", () => {
   });
 });
 
+describe("renderClaudeEngine — spec deliveries doctrine (spec 0044)", () => {
+  // Covers: R10, R15, R23
+  it("anclas sdd y orquestacion", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    const claudeMd = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
+    expect(claudeMd).toContain("deliveries `E<n>`");
+    expect(claudeMd).toContain("milestones `M<n>`");
+    expect(claudeMd).not.toContain("batches of 1-3");
+    // orquestacion and planificacion render as context files, not inline in CLAUDE.md.
+    const orquestacion = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
+    expect(orquestacion).toContain("spec: <spec> E<n> M<n>");
+    expect(orquestacion).toContain("navori receipt gate");
+    expect(orquestacion).toContain("`pnpm typecheck` plus its `A<n>` commands");
+    // planificacion only renders behind `harness.planTiers`.
+    renderClaudeEngine(cwd, {
+      ...CONFIG_FULL,
+      harness: { ...CONFIG_FULL.harness, planTiers: true },
+    } as NavoriConfig);
+    const planificacion = readFileSync(join(cwd, ".claude/context/05-planificacion.md"), "utf-8");
+    expect(planificacion).toContain("`<spec>-e<n>`");
+    const skill = readFileSync(join(cwd, ".claude/skills/spec-bootstrap/SKILL.md"), "utf-8");
+    expect(skill).toContain("## E1 —");
+    expect(skill).toContain("### M1 —");
+    expect(skill).toContain("**A1**");
+    expect(skill).not.toContain("batches of 1-3");
+  });
+
+  // Covers: R16, R17, R26
+  it("commit-only antes de PR flow", () => {
+    renderClaudeEngine(cwd, CONFIG_FULL);
+    const publisher = readFileSync(join(cwd, ".claude/agents/publisher.md"), "utf-8");
+    const commitOnly = publisher.indexOf("mode: commit-only");
+    expect(commitOnly).toBeGreaterThan(-1);
+    expect(commitOnly).toBeLessThan(publisher.indexOf("\n## PR flow"));
+    expect(publisher).toContain('"gateKind":"scoped"');
+    const reviewer = readFileSync(join(cwd, ".claude/agents/reviewer.md"), "utf-8");
+    expect(reviewer).toContain("spec: <spec> E<n> M<n>");
+    expect(reviewer).toContain("navori receipt gate");
+    expect(reviewer).toContain("--gate-ran");
+  });
+});
+
 describe("renderClaudeEngine — language-aware baseline (tipado-fuerte)", () => {
   const claudeMd = () => readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
   const withLang = (codeLanguage: string) =>

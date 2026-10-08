@@ -1,6 +1,6 @@
 # Distribución de specs en PRs para agentes: entregas funcionales
 
-**Fecha:** 2026-10-07 · **Estado:** dirección aprobada por el usuario; pendiente de spec.
+**Fecha:** 2026-10-07 · **Estado:** dirección aprobada e implementada en la spec 0044.
 **Alcance:** cómo se reparte una spec SDD (y toda spec o parte que genere master-plan) en
 milestones, commits y PRs. No cambia EARS, `R<n>` ni la trazabilidad `// Covers: R<n>`.
 
@@ -37,6 +37,13 @@ Cada PR paga unos 10 gates en serie: plan, implementer, handoff check, scribe, r
 pasadas, gate completo, receipt, pre-commit, publisher y CI. Ese costo no compra atención
 humana: los 174 PRs tienen 0 reviews en GitHub y una mediana de 6.8 min entre apertura y merge.
 El 36% de los PRs mergeados son `fix`.
+
+## Línea base 0039/0041
+
+| Spec | Tareas | PRs |
+|---|---|---|
+| 0039 | 45 | 32 |
+| 0041 | 21 | 14 |
 
 ## Evidencia externa (resumen)
 
@@ -130,6 +137,15 @@ las plantillas lo digan y lo apliquen.
 - `core-assets/skills/master-plan.md` y las plantillas `master-plan/*`: aplicar la clasificación
   a las specs que generan.
 - CLI: comando de clasificación de spec y lectura de `sdd.deliveries` en el schema de config.
+
+## Tabla de calibración
+
+| Spec | Entregas | PRs | LOC | Observación |
+|---|---|---|---|---|
+| 0039 / 0041 | — | 32 / 14 | — | línea base |
+| 0044 | 3 | — | — | pendiente tras el merge |
+
+Evidencia: [`distribucion-entregas-agentes-evidencia.md`](distribucion-entregas-agentes-evidencia.md).
 
 ## Calibración
 

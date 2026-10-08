@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { LOCKFILES } from "./detect.ts";
 import { isUnderProgressDir } from "../primitives/progress-dirs.ts";
 import { appendCliEvent, outcomeFeatureKey } from "../audit/cli-event.ts";
+import type { GateDecision } from "../spec/classify.ts";
 import type { OutcomePayload, ReceiptAction, ReceiptOutcome } from "../audit/model.ts";
 import type { ContentIdentity } from "../primitives/content-identity.ts";
 import {
@@ -33,6 +34,8 @@ export interface ReceiptResult {
   stale: StaleReason[];
   /** True only when `check` read `receipt.consumed.txt` via `includeConsumed`. */
   consumed: boolean;
+  /** `sign`: the kind written; `check`: read from the header. `null` for a receipt older than v2 or on error. */
+  gateKind: "full" | "scoped" | null;
   error: string | null;
 }
 export interface ReceiptOptions {
@@ -44,6 +47,10 @@ export interface ReceiptOptions {
   gate: string;
   /** `check` only: fall back to `receipt.consumed.txt` when `receipt.txt` is absent. */
   includeConsumed?: boolean;
+  /** `sign` only: the recomputed `decideGate` result (spec 0044 R25). */
+  gateDecision?: GateDecision;
+  /** `sign` only: the gate the reviewer declares to have run. */
+  gateRan?: "scoped" | "full";
   /**
    * Audit observation (spec 0042 T9b). Absent unless an exact audit context
    * exists, so a command outside one computes no identity at all. It only
@@ -89,6 +96,9 @@ export interface EvidenceIdentity {
   inputs: string;
 }
 
+/** Header `gate=` value of a receipt signed after a scoped cycle; never a sha256, so `check` reads it stale. */
+const SCOPED_GATE = "scoped";
+
 function sha256(input: string | Buffer): string {
   return createHash("sha256").update(input).digest("hex");
 }
@@ -121,6 +131,7 @@ function empty(options: ReceiptOptions, error: string): ReceiptResult {
     fresh: false,
     stale: [],
     consumed: false,
+    gateKind: null,
     error,
   };
 }
@@ -249,6 +260,7 @@ function success(
     fresh: true,
     stale: [],
     consumed: false,
+    gateKind: "full",
     error: null,
   };
 }
@@ -269,10 +281,16 @@ export function signReceipt(options: ReceiptOptions): { exitCode: number; result
     const root = receiptRoot(options);
     options = { ...options, cwd: root.cwd, dir: root.dir };
     if (options.observer) options.observer.before = sampleIdentity(options.observer);
+    if (options.gateRan === "scoped" && options.gateDecision?.gateKind !== "scoped") {
+      throw new Error(
+        `this cycle needs qualityGate.full (${options.gateDecision?.reason ?? "no-spec-flags"}), but --gate-ran scoped was declared\nWHY:   a scoped receipt cannot stand in for the full gate\nFIX:   run qualityGate.full and sign again with --gate-ran full (or without the spec flags)`,
+      );
+    }
+    const scoped = options.gateRan === "scoped";
     const state = inspect(options);
     const identity = evidenceIdentity(options.cwd, options.gate);
     const lines = [
-      `# navori-receipt v2 feature=${options.feature} base=${state.targetSha} gate=${identity.gate} inputs=${identity.inputs}`,
+      `# navori-receipt v2 feature=${options.feature} base=${state.targetSha} gate=${scoped ? SCOPED_GATE : identity.gate} inputs=${identity.inputs}`,
     ];
     for (const path of state.paths) {
       const absolute = resolve(options.cwd, path);
@@ -297,7 +315,9 @@ export function signReceipt(options: ReceiptOptions): { exitCode: number; result
       if (options.gate !== "") options.observer.gate = identity.gate;
       options.observer.inputs = identity.inputs;
     }
-    return { exitCode: 0, result: success(options, state) };
+    const result = success(options, state);
+    result.gateKind = scoped ? "scoped" : "full";
+    return { exitCode: 0, result };
   } catch (cause: unknown) {
     return {
       exitCode: 1,
@@ -405,6 +425,7 @@ export function checkReceipt(options: ReceiptOptions): { exitCode: number; resul
     result.stale = stale;
     result.fresh = stale.length === 0;
     result.consumed = consumed;
+    result.gateKind = header.version !== 2 ? null : header.gate === SCOPED_GATE ? "scoped" : "full";
     if (uncovered.length || drift.length) result.status = "findings";
     return { exitCode: result.status === "ok" ? 0 : 2, result };
   } catch (cause: unknown) {

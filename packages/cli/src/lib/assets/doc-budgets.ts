@@ -83,8 +83,9 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   "packages/core/core-assets/managed/intake-tickets.md": 251, // 228 → 10.1%
   "packages/core/core-assets/managed/operaciones-seguras.md": 310,
   // 1058 words → 5.1% headroom. The extra prose is Codex-only (`navori:if onCodex`
-  // alternatives); Claude's startup context is unchanged.
-  "packages/core/core-assets/managed/orquestacion.md": 1112,
+  // alternatives); Claude's startup context is unchanged. Spec 0044 T10: the
+  // per-milestone cycle bullet; same floor recovered (1102 measured → 1161).
+  "packages/core/core-assets/managed/orquestacion.md": 1161, // 1102 → 5.1%
   "packages/core/core-assets/managed/plan-maestro.md": 90,
   // Spec 0032 (#1011): own small ceiling (design.md "Components" targets
   // ~250 words) — the level table and the gate rule only, condition
@@ -92,13 +93,15 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // 1.10, not a bare 250): a brand-new budget follows this file's own
   // recalibration rule from day one instead of starting one policy violation
   // away from red.
-  "packages/core/core-assets/managed/planificacion.md": 274, // 249 → 10.0%
+  // Spec 0044 T10: one line for the per-delivery workplan (269 measured → 284).
+  "packages/core/core-assets/managed/planificacion.md": 284, // 269 → 5.3%
 
   // Spec 0041 T14: the source carries both engine branches (`if-not onCodex` /
   // `if onCodex`), so it measures more than any single render; the text
   // rendered for Claude did not change. Raised just enough to recover the 5%
-  // headroom floor (208 measured → 219).
-  "packages/core/core-assets/managed/sdd.md": 219, // 208 → 5.3%
+  // headroom floor (208 measured → 219). Spec 0044 T10: the E/M/T delivery
+  // grammar replaces "batches of 1-3"; same floor recovered (219 measured → 231).
+  "packages/core/core-assets/managed/sdd.md": 231, // 219 → 5.2%
   "packages/core/core-assets/managed/tipado-fuerte.md": 50,
 
   // Plugin managed blocks (#917). Measured / ceiling → headroom.

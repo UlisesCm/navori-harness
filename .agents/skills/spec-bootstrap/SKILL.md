@@ -13,16 +13,19 @@ metadata:
   # goes up explicitly rather than shrinking unrelated prose to make space —
   # the override is loud, not silent (skill-meta.ts). 720 leaves a real
   # margin (697/720) instead of reproducing the same 3-word squeeze.
-  maxWords: 720
+  # Spec 0044 T10 (R10): E/M/A/T grammar added (delivery/milestone/acceptance/task
+  # structure), +~150 words measured; 1050 = 981 actual + 7% margin.
+  maxWords: 1050
   # Spec 0026 T16 (R35): the critical-areas challenge interpolates
   # render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard INSIDE the managed zone, same defect as
   # review-diff (#683) — a verbose repo config pushes the composed file past
   # the asset's own cap with no plugin involved. Margin measured against the
-  # skill-caps-composed.test.ts fixture.
-  maxWordsComposed: 750
+  # skill-caps-composed.test.ts fixture. Spec 0044: +100 words margin
+  # for composition with project config.
+  maxWordsComposed: 1100
 ---
 
-<!-- navori:managed id="spec-bootstrap" hash="fdebdc46" version="0.11.2" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="spec-bootstrap" hash="db33cd53" version="0.11.2" source="@navori/core" fmkeys="name,description,metadata" -->
 # spec-bootstrap — kickoff of an SDD spec
 
 ## Before scaffolding — blocking precondition
@@ -41,7 +44,7 @@ Produces `specs/<feature>/{requirements.md, design.md, tasks.md}`. `orchestrator
 
 1. **requirements.md first.** No clear requirements, no design. Derive from the ticket/request; each requirement is EARS with id `R<n>`.
 2. **design.md** — how to meet those `R<n>`: affected components, contracts, decisions and trade-offs. Reference the `R<n>` each decision satisfies. Design BEFORE decomposing: an architecture decision (e.g. a contract or a migration path) moves task boundaries, so tasks written first get rewritten. The `architect` writes `design.md`, applying `solution-design`.
-3. **tasks.md** — batches of 1-3 tasks; each task lists the `R<n>` it covers and its test(s).
+3. **tasks.md** — structured by deliveries `E<n>` (one PR each), milestones `M<n>` (one verification/commit each), acceptance criteria `A<n>` per milestone, and tasks `T<n>` that declare the `R<n>` they cover; see the grammar below.
 4. **`evals.md` — optional, rare.** Only when the feature ships a new **always-on layer** (context every session pays for), where prose can't prove behavior moved: `specs/<feature>/evals.md` tabulates RED (without the layer) / GREEN (with it) over ONE isolated variable — same ticket, same repo, same model — with named scenarios, each failure against its evidence, and inverted results kept exactly as they came out. The raw transcript dies with the session; the distilled table survives in git.
 
 The reasoning that fills `design.md` is the `solution-design` skill — also the lighter home for an R2-architectural change that skips a full spec.
@@ -82,12 +85,21 @@ raises them (an empty section is noise, not rigor):
 ## NOT in scope         ← deferred work + why, so nobody "improves things along the way"
 ```
 
-`tasks.md`:
+`tasks.md` — E/M/A/T grammar (`navori spec check` parses this):
 ```md
 # <Feature> — Tasks
 
-- [ ] **T1** (R1, R2) — <what gets implemented> · test: <file>::<case> with `// Covers: R1, R2`
-- [ ] **T2** (R3) — <what gets implemented> · test: <file>::<case> with `// Covers: R3`
+## E1 — <title> (optional ' (foundation)')
+Estimated LOC: <n>
+
+### M1 — <title>
+- **A1** [observable] — <desc> · `<command>` → <expected>
+- [ ] **T1** (R<a>, R<b>) — <what> · effect: behavior|docs|tests|schema · test: <file>::<case>
+
+### M2 — <title>
+- **A2** — <desc> · `<command>` → <expected>
+- [ ] **T2** (R<c>) — <what> · effect: behavior · test: <file>::<case>
+- [ ] **T3** (R<d>, R<e>) — <what> · effect: docs · test: <file>::<heading>
 ```
 
 ## Hard rules

@@ -4,10 +4,10 @@ description: Drafts commits in the configured style and opens the PR with the re
 tools: Read, Glob, Grep, Bash
 model: haiku
 effort: low
-maxWords: 3800
+maxWords: 4200
 ---
 
-<!-- navori:managed id="publisher-base" hash="e9eef05b" version="0.11.2" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="publisher-base" hash="f7f3a714" version="0.11.2" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Publisher Agent
 
 You own the **end of the cycle**: well-structured commits in the configured style and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
@@ -21,11 +21,11 @@ You own the **end of the cycle**: well-structured commits in the configured styl
 ## When NOT to trigger
 
 - Working tree with uncommitted changes when the user only asked to "open the PR" → first commit or ask for permission.
-- You are on `dev`, on the branch this one was forked from, or another protected branch → abort + ask for a branch.
+- You are on `main`, on the branch this one was forked from, or another protected branch → abort + ask for a branch.
 - Harness active and THIS feature's review — `.navori/state/handoffs/review_<feature>.md`, the single file the pre-flight below identifies by name — contains `CHANGES_REQUESTED` → no PR is created. Never scan the directory for it: a `CHANGES_REQUESTED` belonging to someone else's closed cycle must not abort your PR, exactly as another feature's `APPROVED` never unblocks it.
 - Quality gate red this turn.
 
-> **Two branches, one that decides:** `dev` is the target for `gh pr create --base` and every diff below. The fork point is a separate setting; in most repos both name the same branch. Where they differ, the target branch wins — the fork-point diff is never the PR's.
+> **Two branches, one that decides:** `main` is the target for `gh pr create --base` and every diff below. The fork point is a separate setting; in most repos both name the same branch. Where they differ, the target branch wins — the fork-point diff is never the PR's.
 
 ## Mandatory pre-flight
 
@@ -33,15 +33,15 @@ Run these checks before drafting anything. If something fails, you stop and repo
 
 ```bash
 git status --porcelain                                # what's left to commit
-git rev-parse --abbrev-ref HEAD                       # cannot be dev, the fork point, or any protected branch
-git fetch origin dev --quiet
-behind=$(git rev-list --count HEAD..origin/dev)
+git rev-parse --abbrev-ref HEAD                       # cannot be main, the fork point, or any protected branch
+git fetch origin main --quiet
+behind=$(git rev-list --count HEAD..origin/main)
 if [ "$behind" -ne 0 ]; then
-  printf 'ABORT: branch is %s commit(s) behind origin/dev; integrate the target before committing or creating a PR.\n' "$behind" >&2
+  printf 'ABORT: branch is %s commit(s) behind origin/main; integrate the target before committing or creating a PR.\n' "$behind" >&2
   exit 1
 fi
-git log origin/dev..HEAD --oneline           # must have ≥1 commit (or changes to commit)
-git diff origin/dev --stat                   # REAL scope so far (two-dot: see below)
+git log origin/main..HEAD --oneline           # must have ≥1 commit (or changes to commit)
+git diff origin/main --stat                   # REAL scope so far (two-dot: see below)
 gh auth status                                        # gh authenticated
 ```
 
@@ -57,7 +57,7 @@ The later `receipt.txt` check is also a hard stop: it must report JSON
 Coverage of the review and the receipt's fingerprints are two questions about the SAME set of files. Write it once, read it everywhere:
 
 ```bash
-shipping=$({ git -c core.quotepath=false diff --name-only "origin/dev"; \
+shipping=$({ git -c core.quotepath=false diff --name-only "origin/main"; \
              git -c core.quotepath=false ls-files --others --exclude-standard; } \
            | sort -u | grep -vE '^(\.navori/state/handoffs/|progress/)')
 printf '%s\n' "$shipping"                             # read it: this is what ships
@@ -80,12 +80,12 @@ An absent file, ambiguous (more than one candidate), or with a verdict/scope tha
 **Content receipt: the diff must still match what was approved.** Before committing, run the receipt command with the feature id from `review_<feature>.md`. It owns coverage and drift detection; do not reproduce its algorithm in shell.
 
 ```bash
-navori receipt check --feature <feature> --target dev --dir .navori/state/handoffs --json
+navori receipt check --feature <feature> --target main --dir .navori/state/handoffs --json
 ```
 
 Continue only when the JSON has `"status":"ok"`. A missing `navori`, absent receipt, non-zero command, malformed JSON, `ERROR`, `UNCOVERED`, or `DRIFT` blocks the commit and PR.
 
-For every live-file `DRIFT`, the JSON provides the approved blob and the exact inspection command is `git diff <blob-sha> <file>` (`git cat-file -p <blob-sha>` prints its approved content). Route explained drift caused by a post-review edit to the reviewer for a **delta re-sign**; route unexplained drift or any uncovered file to a full re-review. If the real PR base differs from `dev`, pass that actual base as `--target` to both receipt commands.
+For every live-file `DRIFT`, the JSON provides the approved blob and the exact inspection command is `git diff <blob-sha> <file>` (`git cat-file -p <blob-sha>` prints its approved content). Route explained drift caused by a post-review edit to the reviewer for a **delta re-sign**; route unexplained drift or any uncovered file to a full re-review. If the real PR base differs from `main`, pass that actual base as `--target` to both receipt commands.
 
 <!-- The orchestrator block states the rule (every change goes through implementer -> reviewer); this is where the PR side of it is enforced. -->
 
@@ -104,7 +104,7 @@ For every live-file `DRIFT`, the JSON provides the approved blob and the exact i
 The PR gate is the FULL one, `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck`, not `cd packages/cli && bun lint`. Which steps sit where is a per-project decision; don't assume the fast gate covers all full steps. Three paths:
 
 - **Reviewed:** the reviewer ran `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` green in Pass 2 (see `review_<feature>.md`). Skip re-running **only** when `navori receipt check` reports `"fresh":true`. The `quality-gate-pre-commit` hook re-runs `fast` on `git commit` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
-- **`"fresh":false`:** no trustworthy evidence — YOU run `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` green in pre-flight before `gh pr create`. Follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row if it outlives the timeout.
+- **`"fresh":false` on `full` receipts:** no trustworthy evidence — YOU run `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` green in pre-flight before `gh pr create`. Follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row if it outlives the timeout.
 - **Declared inline (no reviewer):** no review evidence either — run `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` yourself.
 
 Never open the PR with the gate red.
@@ -123,29 +123,34 @@ Never open the PR with the gate red.
 7. Validate with `git status` that the commit landed. If it failed, stop with `git status` + `git log -1 --stat`; recovery is the orchestrator's or the user's call. Foreign modified files are reported as an observation and never discarded, restored or reverted.
 8. **Consume the receipt:** `mv -f .navori/state/handoffs/receipt.txt .navori/state/handoffs/receipt.consumed.txt`. The approval is now frozen into the commit; renaming it (instead of deleting it) keeps the evidence on disk without it being rearmed — a plain `check` never reads a consumed receipt again, only the opt-in flag documented in `cierre-sesion.md` does.
 
+## Commit-only mode
+
+If the brief says `mode: commit-only`, or `navori receipt check` returns `"gateKind":"scoped"`, run the Commit flow through step 8 and STOP: no push, no PR, whatever `fresh` says.
+
 ## PR flow
 
-1. **Gather context** (curated, not the whole repo). The PR diff is against `dev`:
-   - `git log origin/dev..HEAD --oneline` — commits included.
-   - `git diff origin/dev...HEAD --stat` — always.
-   - `git diff origin/dev...HEAD` — only if diff < 500 lines. If larger, stat + file list + hunks of 2–3 most relevant files only.
+1. **Gather context** (curated, not the whole repo). The PR diff is against `main`:
+   - `git log origin/main..HEAD --oneline` — commits included.
+   - `git diff origin/main...HEAD --stat` — always.
+   - `git diff origin/main...HEAD` — only if diff < 500 lines. If larger, stat + file list + hunks of 2–3 most relevant files only.
    - **Commit drag** — only when fork point and target differ. Let the shell settle it:
 
      ```bash
      base=main
-     if [ "$base" != "dev" ]; then
+     if [ "$base" != "main" ]; then
        git fetch origin "$base" --quiet
-       git rev-list --count "origin/dev..origin/$base"
+       git rev-list --count "origin/main..origin/$base"
      fi
      ```
 
      Count > 0 means your PR drags foreign commits: warn the user and suggest rebase.
    - Ticket if applicable: branch name (e.g. `BT-1234-fix-x` → `BT-1234`) or first commit.
    - `.navori/state/handoffs/impl_<feature>.md` — non-obvious decisions.
+   - **Spec deliveries** (only for shape `split`; read shape from `navori spec classify <spec> --json`): brief names `delivery: E<n>` and `after: <sha>`; after `git fetch`, verify `git merge-base --is-ancestor <sha> origin/main` (preapproved); if it fails (squash merge), use `gh pr list --state merged --base main` as a signal only and ASK the user rather than abort silently. Body carries `Spec-Delivery: <spec> E<n>/<total>`. Report `head: <sha>` at the end. Always `--base main`, one PR per delivery in tasks.md order, no integration branch.
 
 2. **Draft title and body**:
    - **Title**: follows the configured commit style (`conventional-es`), ≤70 chars, imperative and without a trailing period.
-   - **Body**: the repo's exact template (below). No empty sections.
+   - **Body**: the repo's exact template (below). No empty sections. For spec deliveries, include references: `Refs #<issue>` on intermediate deliveries and `Closes #<issue>` on the last; shape `single` → `Closes #<issue>`.
 
 3. **Validate** before firing `gh`:
    - Every claim in the title and body — path, command, count or decision — traces to the cycle's handoffs (`impl_<feature>.*`, `review_<feature>.md`), `git log`/`git diff` against the base, or the spec; nothing else backs a claim, so no inferred path, command, count or decision goes in. **No handoff on disk** → draft from the diff and the issue only. A fact you can't trace is omitted, or reported to the orchestrator — never filled in (#1001, #1028).
@@ -164,7 +169,7 @@ Never open the PR with the gate red.
 
    ```bash
    gh pr create \
-     --base dev \
+     --base main \
      --title "<validated title>" \
      --body "$(cat <<'EOF'
    <validated body>
@@ -172,13 +177,13 @@ Never open the PR with the gate red.
    )"
    ```
 
-   Always pass `--base dev` explicitly — don't let `gh` use the repo's default branch. If the target changed, adjust it with `navori configure pr-target`.
+   Always pass `--base main` explicitly — don't let `gh` use the repo's default branch. If the target changed, adjust it with `navori configure pr-target`.
 
 6. **Output to the user**: only the PR URL + 1 line with the title. Nothing else.
 
 7. **Checks — read them ONCE, never wait**: `gh pr checks <N> --json name,bucket,state,link,workflow`. `bucket: pending` (the normal case right after creating the PR) → say so in **one extra line** and stop, no retry. `bucket: fail` → name the check in that line and point to `follow-up-prs` for the diagnosis. Informative only: you never hold or revert a PR over a red check.
 
-8. **Confirm the close actually linked** — only when the body declares one. The body is not evidence of anything; `closingIssuesReferences` is what GitHub parsed out of it:
+8. **Confirm the close actually linked** — only when the body declares one, and warning when `main` differs from the remote default branch (`git rev-parse --abbrev-ref origin/HEAD`): the issue will not auto-close, so an empty `closingIssuesReferences` is expected, not a failure. The body is not evidence of anything; `closingIssuesReferences` is what GitHub parsed out of it:
 
    ```bash
    gh pr view <N> --json closingIssuesReferences --jq '[.closingIssuesReferences[].number]'
@@ -244,7 +249,7 @@ If the repo defines its own template (`.github/pull_request_template.md`), read 
 Whatever template you follow: when the shipping diff changes the **always-on layer** — the harness context every session pays for up front, i.e. the rendered `CLAUDE.md` — the body states its byte delta, measured against the same base as the PR diff:
 
 ```bash
-git show origin/dev:CLAUDE.md 2>/dev/null | wc -c   # before (0 if the file is new)
+git show origin/main:CLAUDE.md 2>/dev/null | wc -c   # before (0 if the file is new)
 wc -c CLAUDE.md                                  # after
 ```
 

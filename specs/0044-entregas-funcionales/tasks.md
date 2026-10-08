@@ -58,10 +58,10 @@ Estimated LOC: 1200
 - **A5** [observable] — un milestone intermedio de la 0044 decide `scoped` y el de cierre `full` ·
   `cd packages/cli && bun run test src/lib/spec/__tests__/classify.test.ts src/lib/diagnose/__tests__/receipt.test.ts`
   → exit 0, 0 failed
-- [ ] **T8** (R25) — `decideGate` en `lib/spec/`: `scoped` solo con trabajo pendiente posterior en
+- [x] **T8** (R25) — `decideGate` en `lib/spec/`: `scoped` solo con trabajo pendiente posterior en
   la misma entrega; `full` en cierre, unidad completa, legacy, milestone desconocido o `tasks.md`
   ilegible · effect: behavior · test: `lib/spec/__tests__/classify.test.ts`::"decideGate"
-- [ ] **T9** (R16, R17, R25) — `navori receipt gate` de solo lectura; `receipt sign --spec
+- [x] **T9** (R16, R17, R25) — `navori receipt gate` de solo lectura; `receipt sign --spec
   --milestone --gate-ran` escribe `gateKind`, rechaza `scoped` cuando la decisión es `full`, y sin
   flags firma como hoy · effect: behavior · test:
   `lib/diagnose/__tests__/receipt.test.ts`::"gateKind"
@@ -73,16 +73,16 @@ Estimated LOC: 1200
 - **A7** — topes de palabras y presupuesto always-on ·
   `bun run check:doc-budgets`
   → exit 0
-- [ ] **T10** (R10, R15) — bloque `sdd`, skill `spec-bootstrap` (entregas, milestones, tareas en
+- [x] **T10** (R10, R15) — bloque `sdd`, skill `spec-bootstrap` (entregas, milestones, tareas en
   lugar de lotes) y bloque `orquestacion` (ciclo acotado = `qualityGate.fast` + `A<n>`, gate
   completo una vez por PR, `navori receipt gate`); una línea en `planificacion` para el workplan
   por entrega · effect: behavior · test: `engines/__tests__/render-engine.test.ts`::"anclas sdd y
   orquestacion"
-- [ ] **T11** (R16, R17, R26) — `reviewer` (encargo `spec: <spec> E<n> M<n>`, `receipt gate`,
+- [x] **T11** (R16, R17, R26) — `reviewer` (encargo `spec: <spec> E<n> M<n>`, `receipt gate`,
   ciclo de cierre con el diff completo de la entrega) y `publisher` (`mode: commit-only` antes
   de "PR flow"), con topes de palabras justificados en el frontmatter · effect: behavior · test:
   `engines/__tests__/render-engine.test.ts`::"commit-only antes de PR flow"
-- [ ] **T12** (R18, R19, R23) — `publisher`: PR por entrega con `Spec-Delivery:`, orden con
+- [x] **T12** (R18, R19, R23) — `publisher`: PR por entrega con `Spec-Delivery:`, orden con
   `git merge-base --is-ancestor`, `Refs`/`Closes` y aviso cuando `prTarget` no es la branch por
   defecto; fila `flow:spec-delivery-publication` en la matriz de solapamiento · effect: behavior
   · test: `engines/__tests__/render-codex.test.ts`::"anclas de entrega" y
@@ -95,12 +95,12 @@ Estimated LOC: 1200
 - **A9** — re-render sin drift ·
   `bun run check:render`
   → exit 0
-- [ ] **T13** (R20) — `prTarget: "main"` en `navori.config.json` y `navori render --apply` · effect:
+- [x] **T13** (R20) — `prTarget: "main"` en `navori.config.json` y `navori render --apply` · effect:
   behavior · test: `lib/__tests__/pr-target-render.test.ts`::"reviewer y publisher apuntan a
   main"
-- [ ] **T14** (R1) — sección de unidad de PR y de verificación en `docs/DIRECTION.md`, con enlace
+- [x] **T14** (R1) — sección de unidad de PR y de verificación en `docs/DIRECTION.md`, con enlace
   a la dirección · effect: docs · test: `lib/__tests__/direction-doc.test.ts`::"unidad de PR"
-- [ ] **T15** (R24) — línea base 0039/0041 y tabla de calibración en
+- [x] **T15** (R24) — línea base 0039/0041 y tabla de calibración en
   `docs/research/distribucion-entregas-agentes.md`; el reporte de investigación pasa a
   `docs/research/` como anexo de evidencia · effect: docs · test:
   `lib/__tests__/direction-doc.test.ts`::"tabla de calibración"
