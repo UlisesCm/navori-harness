@@ -184,6 +184,21 @@ export const MARKER_PAIR_WORDS = 11;
  */
 export const SESSION_CONTEXT_DELIVERY_BUDGET_CHARS = 8000;
 
+/**
+ * Soft cap, in BYTES, of the session-state file (`progress/current.md`, #1263):
+ * half the delivery budget, leaving room for the other context files. Past it
+ * `doctor` and the SessionStart hook nudge; nothing blocks. Bytes, not
+ * characters: the hooks measure with `wc -c`, which is locale-independent.
+ */
+export const PROGRESS_SOFT_CAP_BYTES = SESSION_CONTEXT_DELIVERY_BUDGET_CHARS / 2;
+
+/**
+ * Hard ceiling, in BYTES, of the same file: the delivery budget itself, where
+ * the file demonstrably stops fitting startup context. The pre-commit hook
+ * blocks a commit that leaves the file above it AND larger than at HEAD.
+ */
+export const PROGRESS_HARD_CAP_BYTES = SESSION_CONTEXT_DELIVERY_BUDGET_CHARS;
+
 /** One `.claude/context/*.md` file, as measured before delivery is decided. */
 export interface ContextDeliveryFile {
   /** Repo-relative path, e.g. `.claude/context/10-orquestacion.md`. */

@@ -340,6 +340,27 @@ describe.runIf(runsBash)("gate hooks — scan the tree the commit acts on (#454)
     expect(out.scannedFile).toBe(true);
   });
 
+  // #1263: the session-state ratchet measures the tree the commit lands in, not
+  // the (clean) main repo the hook process starts in.
+  it("quality gate ratchets the session state of the worktree it commits in", () => {
+    const out = acrossShells((shell) => {
+      const fx = setupFixture();
+      mkdirSync(join(fx.worktree, "progress"), { recursive: true });
+      writeFileSync(join(fx.worktree, "progress/current.md"), "a".repeat(9000));
+      const inWorktree = normalize(
+        fx,
+        runHook(fx, shell, "quality-gate", "git commit -am x", fx.worktree),
+      );
+      const inMain = normalize(fx, runHook(fx, shell, "quality-gate", "git commit -m x", fx.main));
+      return { inWorktree, inMain };
+    });
+
+    expect(out.inWorktree.status).toBe(HOOK_BLOCKS);
+    expect(out.inWorktree.stderr).toContain("Commit BLOCKED");
+    // The clean main repo has nothing oversized: the gate runs as usual there.
+    expect(out.inMain.stderr).not.toContain("Commit BLOCKED");
+  });
+
   // The quality gate had the same defect through a different line: it cd'd to
   // `$CLAUDE_PROJECT_DIR`, so `pnpm test` ran over the main repo's code while
   // the commit carried the worktree's.

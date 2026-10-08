@@ -15,6 +15,7 @@ import { getCoreRoot } from "../render/bundled-assets.ts";
 import { shellSingleQuote } from "../primitives/shell-escape.ts";
 import { expandHookIncludes } from "../render/hook-includes.ts";
 import { acrossShells } from "./helpers/shells.ts";
+import { PROGRESS_HARD_CAP_BYTES } from "../assets/doc-budgets.ts";
 
 /**
  * Behavioral tests for the quality-gate pre-commit hook (#88). We install the
@@ -40,10 +41,9 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 function installHook(gate: string): string {
   // `navori render` inlines the shared `# navori:include` partials and
   // shell-quotes `{{shq:qualityGate.fast}}` (#197); mirror both.
-  const raw = expandHookIncludes(readFileSync(HOOK_SRC, "utf-8")).replace(
-    "{{shq:qualityGate.fast}}",
-    shellSingleQuote(gate),
-  );
+  const raw = expandHookIncludes(readFileSync(HOOK_SRC, "utf-8"))
+    .replace("{{shq:qualityGate.fast}}", shellSingleQuote(gate))
+    .replace("{{navori.progressHardCapBytes}}", String(PROGRESS_HARD_CAP_BYTES));
   const path = join(dir, "hook.sh");
   writeFileSync(path, raw);
   chmodSync(path, 0o755);
@@ -383,5 +383,166 @@ describe("quality-gate hook — the content receipt is NOT a hook concern (#365)
     const r = runHook(installHook("pnpm run typecheck"), "git commit -m x");
     expect(r.status).toBe(2);
     expect(r.stderr).toContain("quality-gate fast failed");
+  });
+});
+
+describe("quality-gate hook — session-state ratchet (#1263)", () => {
+  const CURRENT = "progress/current.md";
+  const OVER = PROGRESS_HARD_CAP_BYTES + 1000;
+
+  function git(...args: string[]): string {
+    return execFileSync(
+      "git",
+      ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args],
+      { cwd: dir, stdio: "pipe", encoding: "utf-8" },
+    );
+  }
+
+  function put(bytes: number, rel = CURRENT, ch = "a"): void {
+    mkdirSync(dirname(join(dir, rel)), { recursive: true });
+    writeFileSync(join(dir, rel), ch.repeat(bytes));
+  }
+
+  /** A repo with HEAD holding `headBytes` of session state (0 = file absent at HEAD). */
+  function repo(headBytes: number, rel = CURRENT): void {
+    git("init", "-q");
+    writeFileSync(join(dir, "base.txt"), "base\n");
+    git("add", "base.txt");
+    if (headBytes > 0) {
+      put(headBytes, rel);
+      git("add", rel);
+    }
+    git("commit", "-q", "-m", "base");
+  }
+
+  function run(command: string | null, env: Record<string, string> = {}) {
+    const hook = installHook("true");
+    return acrossShells((shell) => {
+      const r = spawnSync(shell, [hook], {
+        cwd: dir,
+        input: JSON.stringify(command === null ? {} : { tool_input: { command } }),
+        encoding: "utf-8",
+        env: { PATH: `${binDir}:${BASE_PATH}`, ...env },
+      });
+      return { status: r.status, stderr: r.stderr };
+    });
+  }
+
+  const blocked = (r: { status: number | null; stderr: string }) => {
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("Commit BLOCKED");
+    expect(r.stderr).toContain("history");
+    // Its own message: not the red-gate text, and it names no way around it.
+    expect(r.stderr).not.toContain("Do not edit files");
+    expect(r.stderr).not.toMatch(/NAVORI_|override|bypass|--no-verify/i);
+    expect(r.stderr).not.toContain("running quality-gate fast");
+  };
+  const passes = (r: { status: number | null; stderr: string }) => {
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("running quality-gate fast");
+  };
+
+  it("blocks a first commit (unborn HEAD) that stages an oversized file", () => {
+    git("init", "-q");
+    put(OVER);
+    git("add", CURRENT);
+    blocked(run("git commit -m x"));
+  });
+
+  it("passes a file at or under the ceiling", () => {
+    repo(0);
+    put(PROGRESS_HARD_CAP_BYTES);
+    git("add", CURRENT);
+    passes(run("git commit -m x"));
+  });
+
+  it("blocks growth over the ceiling versus HEAD", () => {
+    repo(OVER);
+    put(OVER + 500);
+    git("add", CURRENT);
+    blocked(run("git commit -m x"));
+  });
+
+  it("passes a shrink that is still over the ceiling", () => {
+    repo(OVER * 4);
+    put(OVER);
+    git("add", CURRENT);
+    passes(run("git commit -m x"));
+  });
+
+  it("passes an untouched legacy oversized file (an unrelated commit)", () => {
+    repo(OVER * 4);
+    writeFileSync(join(dir, "other.txt"), "x\n");
+    git("add", "other.txt");
+    passes(run("git commit -m x"));
+  });
+
+  it("blocks when the INDEX is oversized even if the worktree copy was trimmed", () => {
+    repo(100);
+    put(OVER);
+    git("add", CURRENT);
+    put(100);
+    blocked(run("git commit -m x"));
+  });
+
+  it("blocks `git add && git commit` in one call (nothing staged yet)", () => {
+    repo(100);
+    put(OVER);
+    blocked(run("git add -A && git commit -m x"));
+  });
+
+  it("blocks `git commit -a`", () => {
+    repo(100);
+    put(OVER);
+    blocked(run("git commit -am x"));
+  });
+
+  it("blocks a pathspec commit", () => {
+    repo(100);
+    put(OVER);
+    blocked(run(`git commit ${CURRENT} -m x`));
+  });
+
+  it("guards the same fallback paths the session hook reads", () => {
+    repo(0, ".claude/progress/current.md");
+    put(OVER, ".claude/progress/current.md");
+    blocked(run("git commit -am x"));
+  });
+
+  it("ignores a gitignored progress/ directory", () => {
+    git("init", "-q");
+    writeFileSync(join(dir, ".gitignore"), "progress/\n");
+    put(OVER * 2);
+    passes(run("git commit --allow-empty -m x"));
+  });
+
+  it("does not run on commands that are not a commit", () => {
+    repo(100);
+    put(OVER);
+    const r = run("git status");
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toContain("BLOCKED");
+  });
+
+  it("does NOT block every Bash call when the command could not be read (empty $cmd)", () => {
+    repo(100);
+    put(OVER);
+    const r = run(null);
+    expect(r.stderr).toContain("no command could be read");
+    expect(r.stderr).not.toContain("Commit BLOCKED");
+    expect(r.status).toBe(0);
+  });
+
+  it("measures bytes: the C and a UTF-8 locale agree on multibyte content", () => {
+    repo(0);
+    // 4500 two-byte characters: 9000 bytes (over) but 4500 characters (under).
+    put(4500, CURRENT, "é");
+    git("add", CURRENT);
+    const asC = run("git commit -m x", { LC_ALL: "C" });
+    const asUtf8 = run("git commit -m x", { LC_ALL: "en_US.UTF-8" });
+    blocked(asC);
+    blocked(asUtf8);
+    expect(asC.stderr).toContain("9000 bytes");
+    expect(asUtf8.stderr).toContain("9000 bytes");
   });
 });

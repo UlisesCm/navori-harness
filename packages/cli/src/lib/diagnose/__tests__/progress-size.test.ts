@@ -29,18 +29,23 @@ describe("scanProgressSize (#1263)", () => {
   it("reports the file one character over the cap", () => {
     expect(scanProgressSize(repoWith("a".repeat(4001)))).toEqual({
       path: PROGRESS_CURRENT_PATH,
-      chars: 4001,
-      thresholdChars: 4000,
+      bytes: 4001,
+      thresholdBytes: 4000,
     });
+  });
+
+  it("measures bytes, not characters (the hooks use wc -c)", () => {
+    // 2500 chars of 2-byte "é" = 5000 bytes: over the 4000 cap by bytes only.
+    expect(scanProgressSize(repoWith("é".repeat(2500)))?.bytes).toBe(5000);
   });
 
   it("honors a custom threshold", () => {
     const cwd = repoWith("a".repeat(50));
     expect(scanProgressSize(cwd, 100)).toBeNull();
-    expect(scanProgressSize(cwd, 10)?.thresholdChars).toBe(10);
+    expect(scanProgressSize(cwd, 10)?.thresholdBytes).toBe(10);
   });
 
-  it("counts characters, not bytes", () => {
-    expect(scanProgressSize(repoWith("é".repeat(3000)))).toBeNull();
+  it("reports nothing for multibyte content that stays under the cap in bytes", () => {
+    expect(scanProgressSize(repoWith("é".repeat(1999)))).toBeNull();
   });
 });

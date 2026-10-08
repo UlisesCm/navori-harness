@@ -1,5 +1,6 @@
 import type { NavoriConfig } from "../config/config.ts";
 import { DEFAULT_COMPACT_ADVICE_TOKENS } from "../config/schema.ts";
+import { PROGRESS_HARD_CAP_BYTES, PROGRESS_SOFT_CAP_BYTES } from "../assets/doc-budgets.ts";
 import { resolveLang } from "../i18n.ts";
 import { placeholderFallback, type FallbackScope } from "./placeholders.ts";
 import { shellSingleQuote } from "../primitives/shell-escape.ts";
@@ -111,6 +112,11 @@ export function interpolate(
     "harness.compactAdviceTokens": String(
       config.harness?.compactAdviceTokens ?? DEFAULT_COMPACT_ADVICE_TOKENS,
     ),
+    // Not config keys (no `navori.*` section exists, so a user can never shadow
+    // them): constants of the harness, defined once in doc-budgets.ts and shared
+    // by the hooks, `doctor` and the closeout doctrine (#1263).
+    "navori.progressSoftCapBytes": String(PROGRESS_SOFT_CAP_BYTES),
+    "navori.progressHardCapBytes": String(PROGRESS_HARD_CAP_BYTES),
     ...options.extraVars,
   };
   const scope = options.fallbackScope ?? "repo";

@@ -6,9 +6,9 @@ import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.t
 import { scanClaudeHookScripts, computeHealthVerdict, doctorCommand } from "../doctor.ts";
 
 describe("doctor progressSize (#1263)", () => {
-  /** Run `doctor --json` on a repo whose session-state file has `chars` characters. */
+  /** Run `doctor --json` on a repo whose session-state file has `chars` bytes. */
   async function runJson(chars: number): Promise<{
-    progressSize: { path: string; chars: number; thresholdChars: number } | null;
+    progressSize: { path: string; bytes: number; thresholdBytes: number } | null;
     exitCode: number | string | undefined;
   }> {
     const cwd = mkdtempSync(join(tmpdir(), "navori-progress-doctor-"));
@@ -40,8 +40,8 @@ describe("doctor progressSize (#1263)", () => {
     const { progressSize } = await runJson(4500);
     expect(progressSize).toEqual({
       path: "progress/current.md",
-      chars: 4500,
-      thresholdChars: 4000,
+      bytes: 4500,
+      thresholdBytes: 4000,
     });
   });
 

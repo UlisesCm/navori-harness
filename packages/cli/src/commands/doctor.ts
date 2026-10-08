@@ -1001,7 +1001,7 @@ export const doctorCommand = defineCommand({
     }
 
     if (progressSize) {
-      const row = td.progressSizeRow(progressSize.chars, progressSize.thresholdChars);
+      const row = td.progressSizeRow(progressSize.bytes, progressSize.thresholdBytes);
       p.log.warn(
         td.progressSize(`  ${color.yellow(sym.update)} ${accent(progressSize.path)}  ${grey(row)}`),
       );
