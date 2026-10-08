@@ -85,6 +85,10 @@
         "full": {
           "type": "string",
           "minLength": 1
+        },
+        "scoped": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [
@@ -654,6 +658,10 @@
                     "minLength": 1
                   },
                   "full": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "scoped": {
                     "type": "string",
                     "minLength": 1
                   }
