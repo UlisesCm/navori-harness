@@ -366,7 +366,6 @@ describe("reviewer gate table claude y codex (spec 0045)", () => {
     readFileSync(resolve(ROOT, "navori.config.json"), "utf-8"),
   ) as NavoriConfig;
   const scoped = interpolate("{{navori.scopedGate}}", repoConfig);
-  const full = repoConfig.qualityGate?.full ?? "";
   const renders = {
     claude: readFileSync(resolve(ROOT, ".claude/agents/reviewer.md"), "utf-8"),
     codex: readFileSync(resolve(ROOT, ".codex/agents/reviewer.toml"), "utf-8"),
@@ -378,7 +377,7 @@ describe("reviewer gate table claude y codex (spec 0045)", () => {
       it("CHANGES_REQUESTED round runs the scoped gate plus A<n>, not the full gate", () => {
         expect(scoped).not.toBe("");
         expect(text).toContain(
-          `| Ends in \`CHANGES_REQUESTED\` (any issue ≥80) | \`${scoped}\` plus the assigned \`A<n>\` commands. Do NOT run \`${full}\`.`,
+          `| Ends in \`CHANGES_REQUESTED\` (any issue ≥80) | \`${scoped}\` plus the assigned \`A<n>\` commands. Do NOT run the full gate.`,
         );
       });
 

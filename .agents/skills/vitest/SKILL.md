@@ -6,7 +6,7 @@ metadata:
   maxWords: 550
 ---
 
-<!-- navori:managed id="vitest" hash="43a8962a" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="vitest" hash="a29e443f" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Vitest — conventions
 
 ## When to use this skill
@@ -67,7 +67,7 @@ describe('getUser', () => {
 - Every async assertion is awaited; no unhandled-rejection warnings.
 - Mocks reset between tests; environment matches the code under test (DOM vs node).
 - No sprawling snapshots; assertions target real values.
-- `cd packages/cli && bun lint` green.
+- `bun run lint && bun run typecheck` green.
 <!-- /navori:managed id="vitest" -->
 
 ## This repo's tests (your domain)

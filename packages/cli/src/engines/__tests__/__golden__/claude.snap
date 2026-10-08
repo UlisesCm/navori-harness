@@ -1010,7 +1010,7 @@ The body always comes from a file, never inline:
 name: reviewer
 description: Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes.
 tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation
-maxWords: 3017
+maxWords: 3019
 ---
 
 <!-- navori:managed id="reviewer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
@@ -1090,7 +1090,7 @@ If the result contains `"gateKind":"scoped"`, run `pnpm lint` plus the milestone
 
 | Round outcome | Gate evidence |
 |---|---|
-| Ends in `CHANGES_REQUESTED` (any issue ≥80) | `pnpm lint` plus the assigned `A<n>` commands. Do NOT run `pnpm test && pnpm lint`. |
+| Ends in `CHANGES_REQUESTED` (any issue ≥80) | `pnpm lint` plus the assigned `A<n>` commands. Do NOT run the full gate. |
 | About to sign `APPROVED` (including delta re-sign) | The full gate, over the bytes you sign: |
 ```bash
 navori gate full

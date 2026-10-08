@@ -4,7 +4,7 @@ description: Strict reviewer — approves or rejects a diff against CLAUDE.md an
 tools: Read, Glob, Grep, Bash, Write
 model: {{models.reviewer}}
 effort: {{effort.reviewer}}
-maxWords: 3017
+maxWords: 3019
 ---
 
 # Reviewer Agent
@@ -86,7 +86,7 @@ If the result contains `"gateKind":"scoped"`, run `{{navori.scopedGate}}` plus t
 
 | Round outcome | Gate evidence |
 |---|---|
-| Ends in `CHANGES_REQUESTED` (any issue ≥80) | `{{navori.scopedGate}}` plus the assigned `A<n>` commands. Do NOT run `{{qualityGate.full}}`. |
+| Ends in `CHANGES_REQUESTED` (any issue ≥80) | `{{navori.scopedGate}}` plus the assigned `A<n>` commands. Do NOT run the full gate. |
 | About to sign `APPROVED` (including delta re-sign) | The full gate, over the bytes you sign: |
 ```bash
 {{gateRun.full}}
