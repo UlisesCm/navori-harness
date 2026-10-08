@@ -205,7 +205,7 @@ describe("CLI e2e — happy paths", () => {
     expect(JSON.stringify(settings.hooks?.Stop ?? [])).not.toContain("check-jscpd.sh");
   });
 
-  it("project.localSkills renders a skills-index block; doctor flags a missing file", () => {
+  it("project.localSkills renders no skills-index block (#1273); doctor flags a missing file", () => {
     const repo = makeTmpRepo({
       "package.json": JSON.stringify({ name: "ls-app", dependencies: { typescript: "^5" } }),
       "tsconfig.json": "{}",
@@ -224,9 +224,7 @@ describe("CLI e2e — happy paths", () => {
     expect(runCli(["render", "--apply", "--cwd", repo]).status).toBe(0);
 
     const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
-    expect(claudeMd).toContain('navori:managed id="skills-index"');
-    expect(claudeMd).toContain("rest-nexus-workflow");
-    expect(claudeMd).toContain("project-local");
+    expect(claudeMd).not.toContain('navori:managed id="skills-index"');
 
     // doctor warns: the declared skill has no file on disk.
     expect(runCli(["doctor", "--cwd", repo]).combined).toMatch(/project-local.*sin archivo/);
@@ -784,13 +782,13 @@ describe("CLI e2e — happy paths", () => {
     // engram carries no CLAUDE.md-wide managed block anymore (#814; its doctrine
     // is a skill injected straight into the agents that hold `mem_*` tools) —
     // add a plugin that still does, to keep covering the "source: plugin" case.
-    runCli(["add", "gh", "--skip-install", "--yes", "--cwd", repo]);
+    runCli(["add", "tgrep", "--skip-install", "--yes", "--cwd", repo]);
     runCli(["render", "--apply", "--cwd", repo]);
 
     const r = runCli(["doctor", "--cwd", repo]);
     expect(r.status).toBe(0);
     expect(r.combined).toMatch(/idioma-rol.*@navori\/core/);
-    expect(r.combined).toMatch(/gh-protocol.*@navori\/plugin-gh/);
+    expect(r.combined).toMatch(/tgrep-search-v2.*@navori\/plugin-tgrep/);
   });
 
   it("doctor --json outputs valid pipeable JSON", () => {
@@ -808,7 +806,7 @@ describe("CLI e2e — happy paths", () => {
     // orquestacion (rol del orquestador), idioma-rol, formato-respuesta,
     // tipado-fuerte, operaciones-seguras, arranque-sesion, cierre-sesion,
     // sdd (enabled by default), intake-tickets, code-discovery-routing (#838),
-    // plus the computed skills-index and agentes-disponibles. engram carries
+    // plus the computed agentes-disponibles (skills-index left in #1273). engram carries
     // no CLAUDE.md-wide block (#814): its doctrine is a skill injected
     // straight into the agents that hold `mem_*` tools.
     const blockIds = parsed.managedBlocks.map((m: { id: string }) => m.id).sort();
@@ -823,7 +821,6 @@ describe("CLI e2e — happy paths", () => {
       "operaciones-seguras",
       "orquestacion",
       "sdd",
-      "skills-index",
       "tipado-fuerte",
     ]);
     // G1: drifts array shipped (empty after a fresh render)

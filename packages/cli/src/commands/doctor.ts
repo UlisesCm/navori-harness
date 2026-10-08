@@ -3274,7 +3274,7 @@ function trimSlash(path: string): string {
 }
 
 /** The config knob that shrinks a given block, ordered by measured yield (#917). */
-export type DocBudgetLever = "project-context" | "local-skills" | "preset" | "plugins" | "core";
+export type DocBudgetLever = "project-context" | "preset" | "plugins" | "core";
 
 /** A measured block plus the knob that shrinks it. */
 export type DocBudgetBlock = ManagedBlockMeasure & { lever: DocBudgetLever };
@@ -3436,7 +3436,6 @@ export interface DocBudgetMcpServer {
 /** Which knob shrinks this block — keyed off what RENDERED it, not its name. */
 function leverFor(id: string, source: string | null): DocBudgetLever {
   if (id === "contexto-proyecto") return "project-context";
-  if (id === "skills-index") return "local-skills";
   if (id.startsWith("stack-")) return "preset";
   if (source?.startsWith("@navori/plugin-")) return "plugins";
   return "core";

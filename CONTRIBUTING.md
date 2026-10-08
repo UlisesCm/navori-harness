@@ -176,7 +176,7 @@ y se tratan distinto a propósito.
 | Superficie | Quién la escribe | ¿Techo? | Quién lo vigila |
 |---|---|---|---|
 | Assets managed (`core-assets/managed/`, `presets/*/managed/`, `plugins/*/managed/`) | navori | **Sí**, por archivo | `bun run check:doc-budgets` en el gate |
-| Bloques computados (`skills-index`, `contexto-proyecto`, `agentes-disponibles`) | navori, desde la config del consumidor | **Sí**, fórmula `base + k · filas` | `navori doctor` (reporta) |
+| Bloques computados (`contexto-proyecto`, `agentes-disponibles`) | navori, desde la config del consumidor | **Sí**, fórmula `base + k · filas` | `navori doctor` (reporta) |
 | Prosa propia del consumidor, fuera de los marcadores | el dueño del repo | **No, nunca** | se reporta y ya |
 | `.claude/context/*.md` | navori | **No todavía** (#919) | `navori doctor` (reporta) |
 | `AGENTS.md` (engines prosa) | navori | **No** — se reporta contra el cap del host | `navori doctor` (aviso amarillo desde el 80 %) |

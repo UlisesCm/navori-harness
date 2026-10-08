@@ -548,7 +548,7 @@ describe("render por workspace — `root` (spec 0043)", () => {
     for (const ws of [WS_BACKEND, WS_STOREFRONT]) {
       expect(readdirSync(join(cwd, ws))).toEqual(["CLAUDE.md"]);
     }
-    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf-8")).toContain("`medusa-modules`");
+    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf-8")).not.toContain('id="skills-index"');
   });
 
   it("segundo render bajo `root`: cero cambios", () => {

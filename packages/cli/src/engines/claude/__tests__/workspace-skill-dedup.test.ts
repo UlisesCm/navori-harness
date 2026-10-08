@@ -192,15 +192,14 @@ describe("renderClaudeEngine con `workspaceSkills` (spec 0043 T4)", () => {
     expect(r.written.filter((w) => w.status === "removed-trimmed")).toEqual([]);
   });
 
-  it("el índice del workspace excluye las omitidas", () => {
+  it("sin índice de skills en el workspace (#1273) y sin warnings por las omitidas", () => {
     // Covers: R13
     const r = renderClaudeEngine(ws, BASE, {
       repoRoot: root,
       workspaceSkills: omit("locate-code"),
     });
     const index = readFileSync(join(ws, "CLAUDE.md"), "utf-8");
-    expect(index).toContain("`review-diff`");
-    expect(index).not.toContain("`locate-code`");
+    expect(index).not.toContain('id="skills-index"');
     expect(r.warnings).toEqual(
       expect.not.arrayContaining([expect.stringContaining("locate-code")]),
     );

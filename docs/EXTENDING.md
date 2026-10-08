@@ -78,8 +78,9 @@ Cuando el tema merece su propio archivo, este escalón es tuyo por completo.
 2. Escribe el frontmatter con una `description` que declare **cuándo** usarla. Ese trigger es lo
    que hace que el host la cargue sola en el momento justo. El contrato completo —campos, tipos,
    caps— está en [`recipes/skill-authoring.md`](recipes/skill-authoring.md).
-3. Declara el id en `project.localSkills` de `navori.config.json`. Con eso aparece en el índice de
-   `CLAUDE.md` etiquetada `project-local`, con su trigger leído de tu propio archivo.
+3. Declara el id en `project.localSkills` de `navori.config.json`. Con eso `doctor` lo vigila (avisa si falta
+   `<id>/SKILL.md`) y los engines de prosa lo listan en su índice de skills etiquetada `project-local`; en Claude
+   el host lo descubre solo por su `description` (`CLAUDE.md` ya no lleva índice de skills, #1273).
 
 **navori nunca escribe dentro de ese archivo.** No lleva bloque managed ni user-section: es tuyo
 entero, y ningún render futuro lo va a tocar. Lo que navori aporta es indexarlo y cuidarlo:
@@ -165,7 +166,7 @@ usa quien revisa.
 
 ### 1. ¿Dónde vive hoy este tema?
 
-Abre el bloque "Skills disponibles" de tu `CLAUDE.md`: ahí están los triggers de las skills core,
+Abre el listado de skills que el host muestra en tu sesión (`CLAUDE.md` ya no lleva un bloque "Skills disponibles", #1273): ahí están los triggers de las skills core,
 las de workflow, las de librería auto-detectadas y las del preset. Es el mejor minuto que vas a
 invertir, porque muy seguido descubres que el tema ya tiene casa — y entonces tu aporte va a la
 **user-section de esa skill** o a un `injectInto`, que es más rápido de escribir y llega con la
@@ -211,7 +212,7 @@ implementación después entra sola, porque la decisión ya está acordada.
 
 Para (a), extender tu repo:
 
-- [ ] Revisé el índice de skills y ya sé si el tema tiene casa o estrena una.
+- [ ] Revisé el listado de skills de mi sesión y ya sé si el tema tiene casa o estrena una.
 - [ ] Está en el escalón más barato que le sirve (user-section antes que skill; skill antes que preset).
 - [ ] La `description` dice **cuándo** usarlo, no sólo qué hace.
 - [ ] `.claude/skills/<id>/SKILL.md` en forma directorio, y el id declarado en `project.localSkills`.
