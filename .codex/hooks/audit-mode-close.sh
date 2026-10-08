@@ -1,4 +1,4 @@
-# navori:managed start id="audit-mode-close-base" hash="528e1042" version="0.11.2" source="@navori/core"
+# navori:managed start id="audit-mode-close-base" hash="528e1042" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 # navori — audit-mode close (SessionEnd)
 #

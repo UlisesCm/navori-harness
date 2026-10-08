@@ -1,4 +1,4 @@
-# navori:managed start id="bash-outcome-watch-base" hash="1d8c16d8" version="0.11.2" source="@navori/core"
+# navori:managed start id="bash-outcome-watch-base" hash="1d8c16d8" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 # PostToolUseFailure(Bash) advisory. The shared state helper also handles reset
 # from routing-watch on a successful PostToolUse(Bash).

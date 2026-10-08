@@ -1,4 +1,4 @@
-# navori:managed start id="implementer-no-markdown-base" hash="f84aa6f7" version="0.11.2" source="@navori/core"
+# navori:managed start id="implementer-no-markdown-base" hash="f84aa6f7" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash|Edit|Write|NotebookEdit) guard — the mechanical half of R1

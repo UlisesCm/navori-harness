@@ -1,4 +1,4 @@
-# Arquitectura de navori — cómo funciona (v0.2)
+# Arquitectura de navori — cómo funciona (v0.11.3)
 
 > Diagramas navegables: en GitHub, **hacé click en los nodos** para saltar al
 > archivo fuente. navori reconstruye `CLAUDE.md` + `.claude/` de forma
@@ -159,6 +159,23 @@ Los planes, las decisiones y el contenido del `MASTER.md` son prosa authored en 
 criterio humano y se validan contra su estructura, no se parsean como fuente de estado. Los archivos
 de estado derivados, como `STATUS.md`, se renderizan.
 
+**Entregas de una parte.** Las entregas de cada parte se validan contra su `parts.json`, no contra el
+Markdown. `navori master delivery-*` opera sobre la fase de entregas: `delivery-baseline` registra la
+aprobación explícita de la línea base; `delivery-queue` autoriza una cola acotada de partes de una
+entrega (`--delivery E<n> --parts P<n>,…`); `delivery-slice` proyecta el slice autorizado a un workplan;
+`delivery-revoke` retira la autoridad concedida. `delivery-criterion`, `delivery-review`,
+`delivery-present`, `delivery-decision` y `delivery-publication` cubren criterios, revisión,
+presentación, decisión y publicación de cada entrega. Los pasos que autorizan o aprueban llevan
+`--approved-by`, que debe ser `user`.
+
+### 4.1 Specs en entregas — `navori spec classify` y `check`
+
+`navori spec classify <feature>` decide si una spec sale en una PR o en una PR por entrega, comparando
+tareas y LOC estimadas contra `sdd.deliveries` (`splitMinTasks`, `splitMinLoc`, `maxPrsPerSpec`;
+defaults 12, 1500 y 4). `navori spec check` valida el `tasks.md`: milestones `M<n>`, criterios,
+cobertura de `R<n>` por tareas `T<n>` y entregas verticales `E<n>`. El gate completo corre una vez
+por PR; el gate por milestone lo decide `navori receipt gate`.
+
 ## 5. El corazón: bloques managed
 
 Todo el modelo gira alrededor de marcadores en los archivos generados. La
@@ -243,9 +260,13 @@ Cada script managed con `exit 2` declara su clasificación en el header
 
 | Clase | Significa | Hooks |
 |---|---|---|
-| `hard` | hay veredicto o una contención: no hay nada que aprobar | `guard-destructive` (límites, `--no-verify`, force-push a base, `rm` sobre root/home/sistema, reescritura de archivos managed), `plan-gate` con plan denegado, `quality-gate-pre-commit` con cwd inválido o gate en rojo, `role-guard`, `implementer-no-markdown`, `subagent-no-background`, `engram-write-guard`, `check-jscpd`/`check-semgrep` con hallazgos |
+| `hard` | hay veredicto o una contención: no hay nada que aprobar | `guard-destructive` (límites, `--no-verify`, force-push a base, `rm` sobre root/home/sistema, reescritura de archivos managed, descarte de árbol completo con trabajo sin commitear: `git reset --hard`, `git checkout -f` / `git checkout .`, `git restore` de rutas sin `--staged`, `git clean -f`), `plan-gate` con plan denegado, `quality-gate-pre-commit` con cwd inválido o gate en rojo, `role-guard`, `implementer-no-markdown`, `subagent-no-background`, `engram-write-guard`, `check-jscpd`/`check-semgrep` con hallazgos |
 | `ask` | no hay veredicto (falta la herramienta): decide el humano en la UI | `plan-gate` con `navori` ausente o sin subcomando `plan`; `quality-gate-pre-commit` con runner ausente; `check-jscpd` sin flags, ambiguo o con corrida fallida |
 | `advisory` | `PostToolUse`: el `exit 2` solo llega al modelo | `managed-drift-watch` |
+
+Los mensajes de bloqueo son accionables: cuando existe una salida segura, la línea `route:` la nombra
+(por ejemplo, un directorio literal con `git -C <dir>` o partir el comando). Los bloqueos sin salida
+(`rm` sobre root o home, fork bomb, dispositivos de bloque) no la dan.
 
 `ask` solo se emite si `navori_can_ask` ([gate-ask.sh](../packages/core/core-assets/hooks/_partials/gate-ask.sh))
 lo permite: script no-Codex, `jq`, payload `PreToolUse` y `permission_mode` en
@@ -275,6 +296,18 @@ Auditoría: `navori_audit_log` deriva `kind` del veredicto (`block` → `hard`,
 `HOOK_REASON_CODES` ([model.ts](../packages/cli/src/lib/audit/model.ts)), espejo de la lista
 de `jq` del partial (un test detecta deriva). Cualquier otro texto se registra como
 `unspecified`.
+
+### 6.2 Notas de Codex
+
+- **`AGENTS.md` más delgado**: Codex omite el índice de skills (lo lista nativamente), el roster de
+  agentes se reduce a una cláusula y `qualityGate.full` aparece una sola vez, en `orquestacion.md`.
+- **Sin degradación de modelo con catálogo viejo**: un catálogo escrito por un cliente de Codex
+  anterior no baja el modelo ya renderizado. Una `previous` de la misma familia con versión mayor
+  que la del catálogo se conserva.
+- **Guardia de escrituras de engram en subagentes**: el hook `engram-write-guard` aplica una política
+  por rol. `auditor` lee y guarda (`mem_save`); `implementer`, `reviewer` y `scout` solo leen;
+  `architect`, `publisher` y `scribe` no acceden; el resto, solo lectura. Un acceso denegado sale con
+  `exit 2`. Sin `jq` ni `node` el hook también bloquea, y en repos sin engram es inerte.
 
 ## Archivos clave
 

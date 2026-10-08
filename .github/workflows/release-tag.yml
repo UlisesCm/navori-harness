@@ -1,7 +1,7 @@
 # Tags a release the moment its commit lands on `main`.
 #
 # WHY THIS IS A WORKFLOW AND NOT A LINE IN THE README. The tag step is written
-# in `README.md` § Releases — step 4, with the exact command — and it was still
+# in `README.md` § Releases — step 6, with the exact command — and it was still
 # skipped in BOTH 0.8.4 and 0.8.5. The 0.8.5 miss happened *after* the README
 # was corrected to spell it out, so the documentation is not the gap.
 #

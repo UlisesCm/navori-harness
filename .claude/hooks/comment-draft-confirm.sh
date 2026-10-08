@@ -1,4 +1,4 @@
-# navori:managed start id="comment-draft-confirm-base" hash="291efa1c" version="0.11.2" source="@navori/core"
+# navori:managed start id="comment-draft-confirm-base" hash="291efa1c" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash): a call that PUBLISHES a comment/review or creates a GitHub

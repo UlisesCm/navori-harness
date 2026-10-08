@@ -92,7 +92,9 @@ y la ubica en un nivel:
 
 Con `harness.planTiers: true`, un hook `PreToolUse` (`navori plan gate`) niega el despacho de un
 subagente sin workplan válido para su nivel; dos rechazos seguidos escalan la exigencia al nivel
-siguiente (más artefactos, no solo más intentos). `navori plan classify --diff` corre el mismo
+siguiente (más artefactos, no solo más intentos). Si `navori` no está instalado o no tiene el
+subcomando `plan`, el hook no tiene veredicto: en modos que muestran el prompt pide confirmación
+en vez de bloquear sin salida. `navori plan classify --diff` corre el mismo
 clasificador contra el diff real y avisa cuando el trabajo se salió del nivel declarado.
 
 **Coexistencia** — ¿ya tienes tu propio harness (tu orquestación / SDD)? `blocks.exclude` deja que navori conviva sin pisar tus bloques: opta por no renderear `orquestacion` / `sdd` con `navori configure blocks`, y el resto del harness sigue igual.
@@ -107,7 +109,13 @@ clasificador contra el diff real y avisa cuando el trabajo se salió del nivel d
 | `registry` | Registro global de tus repos con navori (`ls` / `scan <dir>` / `add` / `remove` / `prune`). `init` y `update` te dan de alta solos; `scan` puebla lo que ya existía |
 | `sync` | Refresca todos los engines configurados con conflict resolution + backups |
 | `add` / `remove` / `configure` | Activa un plugin / lo desactiva limpiando sus bloques y scripts / ajusta una sección del config sin re-init. `configure migrate` renombra las claves retiradas que dejan el config sin cargar (`--all` para todo el registro) |
-| `doctor` / `status` / `audit` | Audita config + drift (`--strict` para CI) / snapshot rápido / mide cómo se usó el harness en tus sesiones |
+| `doctor` / `status` / `audit` | Audita config + drift y avisa de versiones de herramientas externas (informativo, no afecta `--strict`) / snapshot rápido / mide cómo se usó el harness en tus sesiones (resultados, ventanas de disponibilidad, comparación de snapshots) |
+| `sync` (por archivo) | Además de los bloques, ofrece reemplazo interactivo por archivo para los archivos sin marcador (`--accept-new-files` los acepta en bloque) |
+| `spec <classify\|check>` | Clasifica una spec como una PR o una PR por entrega (`classify`) y valida su `tasks.md` (`check`): milestones, criterios, cobertura y entregas verticales |
+| `plan <sub>` | Planificación por niveles (`classify`, `render`, `update`, `check`, `gate`); ver [Planificación por niveles](#planificación-por-niveles) |
+| `receipt <sign\|check\|gate\|review>` | Recibo del contenido revisado antes de publicar; `gate` decide si cada milestone necesita el gate acotado o el completo |
+| `tools notice` | Emite los avisos de versiones de herramientas externas pendientes para el hook de arranque (`--ack` marca como entregados) |
+| `master <sub>` | Plan maestro por etapas (`init`, `ux`, `mode`, `advance`, `check`, …) y entregas (`delivery-*`, gated con `--approved-by`) |
 | `adopt` | Toma bajo gestión de navori un archivo del harness que escribiste a mano (envuelve, no reescribe) |
 | `workspace` / `ticket` / `dominio` | Config y tickets cross-repo, y la base de conocimiento durable del workspace |
 | `global` | Harness base de la máquina en `~/.claude` (`init` / `render` / `doctor` / `uninstall`), opt-in explícito y aditivo |
@@ -178,10 +186,10 @@ una segunda copia es una copia que se desincroniza.
 
 ## Releases
 
-Releases manuales, **en este orden**. Desde 0.8.2 el commit del paso 4 va **por PR a
-`main`**, no en push directo: el README documentaba el release directo y en la misma
-línea advertía que así no hay PR donde verlo antes — o sea, CI no valida el árbol del
-release hasta que ya aterrizó.
+Releases manuales, **en este orden**. El flujo es `dev` → `main`: los tickets mergean a `dev`, y
+`main` solo recibe releases desde `dev`. Desde 0.8.2 el commit del paso 4 va **por PR**, no en push
+directo: el README documentaba el release directo y en la misma línea advertía que así no hay PR
+donde verlo antes — o sea, CI no valida el árbol del release hasta que ya aterrizó.
 
 1. Escribe la entrada de versiones del minor (titular + 3–5 bullets, en español e inglés) en
    `apps/website/src/content/releases.ts`. Si el minor actual del CLI no tiene entrada, falla el
@@ -196,10 +204,15 @@ release hasta que ya aterrizó.
    entre `.claude/` y `CLAUDE.md`. Saltarte este paso deja el tag puesto sobre un árbol
    inconsistente y pone en rojo el primer CI de `main` posterior al release (`bun run check:render`,
    #421). Yendo por PR eso se ve antes de aterrizar; era justo el punto ciego del push directo.
-4. Commit `chore(release): navori vX.Y.Z` — incluye el bump **y** el re-render del paso 3.
-5. Tag `vX.Y.Z` — **automático desde 0.8.6**. `release-tag.yml` se dispara cuando
-   `packages/cli/package.json` cambia en `main`, y crea y pushea el tag anotado sobre ese
-   commit si no existe ya. Es idempotente, así que re-correrlo no hace nada.
+4. Commit `chore(release): navori vX.Y.Z` — incluye el bump **y** el re-render del paso 3. Va en
+   `dev`, por PR a `dev` como cualquier ticket.
+5. PR `dev` → `main` con **merge commit, no squash**: así `dev` queda como ancestro de `main` y el
+   siguiente release no arrastra historia reescrita. Tras el merge, `dev` queda por detrás del merge
+   commit: avánzalo a `main` (fast-forward) para que ambas ramas coincidan.
+6. Tag `vX.Y.Z` — **automático desde 0.8.6**. `release-tag.yml` se dispara cuando
+   `packages/cli/package.json` cambia en `main`, y crea y pushea el tag anotado sobre el HEAD de
+   ese push (el merge commit del paso 5, que contiene el commit `chore(release)`) si no existe ya.
+   Es idempotente, así que re-correrlo no hace nada.
 
    Está automatizado porque el paso se saltó en **0.8.4 y en 0.8.5**, y el segundo fue
    *después* de escribir aquí el comando exacto. El daño es diferido y silencioso:
@@ -207,13 +220,14 @@ release hasta que ya aterrizó.
    lo deja validando contra el anterior — sigue diciendo "existe en v0.8.3" para un parque
    que ya va en 0.8.4, y no falla nada.
 
-   Si hace falta a mano: `git tag -a vX.Y.Z <commit del paso 4> && git push origin vX.Y.Z`.
-   El tag apunta al commit `chore(release)`, como `v0.8.2` → `285fa51` y `v0.8.3` → `6f32a00`.
-6. `npm publish` desde `packages/cli`.
+   Si hace falta a mano: `git tag -a vX.Y.Z <HEAD de main tras el paso 5> && git push origin vX.Y.Z`.
+   Los tags de releases anteriores al flujo `dev` → `main` apuntan al commit `chore(release)` directo,
+   como `v0.8.2` → `285fa51` y `v0.8.3` → `6f32a00`.
+7. `npm publish` desde `packages/cli`.
 
 El footer del website imprime la versión importando el `package.json` del CLI
 (`apps/website/src/components/Footer.astro`), y `deploy-website.yml` vigila ese archivo en
-su filtro de `paths`, así que el bump del paso 1 redespliega el sitio. **Si el sitio muestra
+su filtro de `paths`, así que el bump del paso 2 redespliega el sitio. **Si el sitio muestra
 una versión vieja, ese filtro es el primer sospechoso**: hasta 0.8.4 no incluía el manifest
 del CLI y el sitio se quedó dos releases atrás, mostrando `v0.8.2` con `0.8.4` ya en npm.
 

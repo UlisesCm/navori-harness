@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="478daa34" version="0.11.2" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="6922b835" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -383,7 +383,7 @@ fi
 # branchBase is shell-quoted at render time via the shq: marker (#197): a
 # hostile branchBase in navori.config.json lands here as an inert literal,
 # never executable.
-base='main'
+base='dev'
 
 block() {
   echo "[navori] BLOCKED by guard-destructive: $1" >&2
@@ -1372,7 +1372,7 @@ if [ -n "$_dsc_cands" ]; then
 fi
 # navori:managed end id="guard-destructive-base"
 
-# navori:managed start id="tgrep-search-lane" hash="dcd394f0" version="0.11.2" source="@navori/plugin-tgrep"
+# navori:managed start id="tgrep-search-lane" hash="dcd394f0" version="0.11.3" source="@navori/plugin-tgrep"
 # Blocking classification (#1117):
 #   - content search that should go through the index (exit 42 -> exit 2): hard — the remedy
 #     (`tgrep search`) is printed on stderr. Missing tgrep or no index fails open (exit 43): advisory.

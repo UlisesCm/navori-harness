@@ -1,4 +1,4 @@
-# navori:managed start id="role-guard-base" hash="14702607" version="0.11.2" source="@navori/core"
+# navori:managed start id="role-guard-base" hash="14702607" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(apply_patch | spawn_agent) guard, CODEX ONLY (spec 0041 D5/D13,

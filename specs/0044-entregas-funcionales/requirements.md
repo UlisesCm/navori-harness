@@ -125,8 +125,8 @@ unidad de PR de la spec:
 - **R26** — WHILE el receipt vigente es de tipo `scoped`, o el brief del `publisher` declara
   `mode: commit-only`, the `publisher` SHALL hacer solo el commit y SHALL NOT publicar la rama
   ni abrir un PR.
-- **R20** — The system SHALL corregir `prTarget` en el `navori.config.json` de este repo a `main`,
-  la branch a la que mergea.
+- **R20** — The system SHALL corregir `prTarget` en el `navori.config.json` de este repo a `dev`,
+  la branch de integración a la que mergea; `main` solo recibe releases desde `dev`.
 
 ### G — Master-plan
 

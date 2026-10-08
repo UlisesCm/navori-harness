@@ -112,7 +112,8 @@ const es: Record<string, CommandDoc> = {
     title: "render",
     summary:
       "Reconstruye todos los engines configurados desde navori.config.json. Idempotente. Preview por default.",
-    usage: "navori render [--apply] [--force] [--workspace <name>]",
+    usage:
+      "navori render [--apply] [--force] [--workspace <name>] [--json] [--all [--prune] [--verbose]]",
     flags: [
       {
         flag: "--apply",
@@ -124,6 +125,22 @@ const es: Record<string, CommandDoc> = {
       },
       { flag: "--workspace <name>", desc: "Renderiza solo un workspace por nombre (monorepo)." },
       { flag: "--dry-run", desc: "Deprecado: preview ya es el default. Alias explícito." },
+      {
+        flag: "--json",
+        desc: "Resultado machine-readable; suprime la salida humana (CI/automatización).",
+      },
+      {
+        flag: "--all",
+        desc: "Renderiza TODOS los repos del registro global (~/.navori/registry.json), no solo el actual. Úsalo tras subir de versión navori para propagar los cambios a todos tus proyectos.",
+      },
+      {
+        flag: "--prune",
+        desc: "Con --all: quita del registro las entradas cuyo repo ya no existe antes de renderizar. En un solo repo (con --apply): borra, con backup previo, las salidas de engines que ya no están en config.engines.",
+      },
+      {
+        flag: "--verbose",
+        desc: "Con --all: lista cada bloque managed que cambió por repo, no solo los conteos.",
+      },
     ],
     example: [
       {
@@ -149,10 +166,20 @@ const es: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "--interactive",
-        desc: "Resuelve cada conflicto de CLAUDE.md uno por uno: ves el diff y eliges keep-mine o accept-new.",
+        desc: "Resuelve cada conflicto uno por uno: ves el diff y eliges keep-mine o accept-new, sea un bloque de CLAUDE.md, un archivo completo con marcador o un archivo sin marcadores (se reemplaza completo, con backup).",
       },
       { flag: "--apply", desc: "Aplica los cambios sin el prompt interactivo." },
       { flag: "--yes", desc: "Auto-confirma. Falla con exit 1 si hay conflictos (CI gate)." },
+      {
+        flag: "--accept-new",
+        desc: "Resuelve, sin preguntar, todos los conflictos de bloques de CLAUDE.md con la versión nueva del render. Destructivo: requiere --apply o --yes y respalda CLAUDE.md antes. Tu zona de usuario nunca se toca.",
+      },
+      {
+        flag: "--keep-mine",
+        desc: "Resuelve, sin preguntar, todos los conflictos de bloques de CLAUDE.md conservando tu edición y aplicando el resto de los cambios. Requiere --apply o --yes.",
+      },
+      { flag: "--dry-run", desc: "Muestra el plan sin escribir." },
+      { flag: "--json", desc: "Salida machine-readable para CI; suprime la salida humana." },
       {
         flag: "--accept-new-files",
         desc: "Sobrescribe, sin preguntar, cada archivo completo editado a mano que conserva su marcador navori. Requiere --apply o --yes y respalda cada archivo antes. --accept-new no toca archivos completos.",
@@ -197,6 +224,7 @@ const es: Record<string, CommandDoc> = {
       "El estado de confianza de Codex se lee de $CODEX_HOME/config.toml si CODEX_HOME está definido, y de ~/.codex/config.toml si no; un valor relativo se rechaza.",
       "Con el engine codex habilitado, también revisa cada git worktree del repo que tenga .codex/config.toml: advierte con el hook, la ruta y 'cd <ruta> && navori codex trust' si falta aprobarlo. Advierte además si el codex instalado es más nuevo que la última versión verificada. Si git o el disco fallan, degrada a un aviso.",
       "Si algún hook renderizado llama a 'navori', advierte cuando el 'navori' global del PATH es más viejo que el CLI que corre doctor (ejecutaría lógica vieja); nunca cambia ok.",
+      "Avisa, solo como dato informativo, cuando hay una versión estable más nueva de una herramienta externa con latestRelease en su manifest (hoy, engram), y advierte cuando la versión instalada está por debajo de un piso conocido como defectuoso (hoy, engram < 3.0.0). Ninguno de los dos cambia el veredicto ni --strict.",
     ],
   },
   status: {
@@ -453,6 +481,7 @@ const es: Record<string, CommandDoc> = {
     notes: [
       "Es incremental: solo agrega los workspaces que el config todavía no lista, y nunca toca los que ya están.",
       "Requiere que el config declare monorepo.enabled. 'navori init --scan-monorepo' es lo que lo deja listo desde el arranque.",
+      "monorepo.workspaceHarness decide cuánto harness recibe cada workspace: minimal (default, su archivo de contexto más las skills que el root no tiene), full (todo) o root (solo su archivo de contexto; el root escribe además las skills de librería y preset de los workspaces). root exige un navori que lo conozca en cada máquina y en CI.",
     ],
   },
   registry: {
@@ -728,7 +757,7 @@ const es: Record<string, CommandDoc> = {
     summary:
       "Cómo corrió el harness de verdad: a dónde se fueron los tokens y qué instrucciones nadie siguió.",
     usage:
-      "navori audit [--session <id>] [--days <n>] [--since <fecha>] [--until <fecha>] [--snapshot <nombre>] [--compare <snapshot>] [--json]",
+      "navori audit [--session <id>] [--days <n>] [--since <fecha>] [--until <fecha>] [--all-repos] [--include-human-content] [--snapshot <nombre>] [--compare <snapshot>] [--json]",
     flags: [
       { flag: "--session <id>", desc: "Una sesión por id, prefijo, o 'latest'." },
       { flag: "--days <n>", desc: "Solo sesiones marcadas en los últimos N días." },
@@ -736,6 +765,15 @@ const es: Record<string, CommandDoc> = {
       { flag: "--until <YYYY-MM-DD>", desc: "Hasta esta fecha." },
       { flag: "--json", desc: "Imprime el reporte JSON a stdout sin escribir archivos." },
       { flag: "--out <dir>", desc: "Cambia el directorio de salida." },
+      {
+        flag: "--all-repos",
+        desc: "Reporte de rango sobre todos los repos auditados, con la cobertura de cada uno.",
+      },
+      {
+        flag: "--include-human-content",
+        desc: "Incluye contenido humano en los reportes privados, solo en esta llamada. No se combina con --collect.",
+      },
+      { flag: "--disarm", desc: "Cancela un --arm pendiente sin iniciar ninguna sesión." },
       {
         flag: "--snapshot <nombre>",
         desc: "Congela las métricas del rango como snapshot versionado (formato 2: cohortes por host, régimen, modelo y trabajo) en la raíz de auditoría. No sobrescribe uno existente. No se combina con --json.",
@@ -780,6 +818,7 @@ const es: Record<string, CommandDoc> = {
       "El reporte se escribe en markdown y JSON dentro de ~/.navori/audits/<repo>/, junto a una copia del log de la sesión.",
       "Los conteos de hooks son parciales cuando el recorder arrancó tarde: la ficha del orquestador lo declara con el porcentaje de la sesión que sí observó.",
       "Lo que un host no expone aparece como no disponible, nunca como 0. El reporte suma resultados por tarea (revisión, recibo, despacho) y recomendaciones agrupadas por su denominador, sin puntaje único.",
+      "Cada métrica declara su ventana de disponibilidad (desde qué versión o fuente existe el dato), y el reporte suma métricas de eficiencia por tarea. Un flag no declarado se rechaza (exit 2).",
       "Límites: los verbos de revisión del recibo llegan desde la versión 0.11.3, los umbrales mínimos y topes no están calibrados, la banda de ruido de --compare no está medida y la atribución de tokens por tarea cubre solo al implementer.",
     ],
   },
@@ -823,7 +862,7 @@ const es: Record<string, CommandDoc> = {
     title: "receipt",
     summary: "Firma o verifica los bytes revisados antes de publicar un cambio.",
     usage:
-      "navori receipt <sign|check|gate> --feature <id> [--target <ref>] [--dir <path>] [--spec <spec> --milestone M<n> [--gate-ran <scoped|full>]] [--json]",
+      "navori receipt <sign|check|gate|review begin|review seal> --feature <id> [--target <ref>] [--dir <path>] [--include-consumed] [--spec <spec> --milestone M<n> [--gate-ran <scoped|full>]] [--json]",
     flags: [
       { flag: "--feature <id>", desc: "Identificador recibido en el handoff." },
       { flag: "--target <ref>", desc: "Base real del PR; por defecto prTarget." },
@@ -835,6 +874,14 @@ const es: Record<string, CommandDoc> = {
       {
         flag: "--gate-ran <scoped|full>",
         desc: "`sign`: el gate que corrió el ciclo. Se rechaza `scoped` cuando la decisión es `full`.",
+      },
+      {
+        flag: "--include-consumed",
+        desc: "`check`: si receipt.txt ya no existe, usa receipt.consumed.txt (el recibo ya consumido por la publicación).",
+      },
+      {
+        flag: "review begin | review seal --nonce <n>",
+        desc: "Evidencia del productor de review_<feature>.json: `begin` sella la identidad del contenido antes del diff e imprime el nonce; `seal` sella el sidecar escrito con ese nonce.",
       },
       { flag: "--json", desc: "Emite el contrato machine-readable." },
     ],
@@ -890,6 +937,7 @@ const es: Record<string, CommandDoc> = {
       "`classify` es la única definición del nivel de una tarea (0-3); no reescribas sus umbrales en otro lugar.",
       "`render` regenera workplan_<feature>.md desde el JSON de forma determinista — nunca lo edites a mano.",
       "`gate` no toma <feature>: lee el payload del hook PreToolUse(Agent) por stdin y niega el despacho del implementer bajo harness.planTiers sin un workplan válido o una exención de nivel 0.",
+      "El hook plan-gate solo deniega cuando hay un veredicto (plan ausente o inválido). Si falta el binario navori o su subcomando plan no hay veredicto: en Claude, con permisos que muestran el prompt, pide confirmación al humano en lugar de bloquear; en Codex o en modos sin prompt mantiene el bloqueo.",
     ],
   },
   spec: {
@@ -920,7 +968,7 @@ const es: Record<string, CommandDoc> = {
     summary:
       "Valida el handoff del implementer antes de que el orquestador despache al siguiente rol.",
     usage:
-      "navori handoff check <feature> [--for scribe] [--dir <path>] [--cwd <checkout>] [--json]",
+      "navori handoff <check|log-review> <feature> [--for scribe] [--dir <path>] [--cwd <checkout>] [--json]",
     flags: [
       {
         flag: "--for scribe",
@@ -943,6 +991,7 @@ const es: Record<string, CommandDoc> = {
     notes: [
       "El JSON trae `status` (ok/findings/error), `failures` y `warnings` con un `check` nombrado por regla (exists/parse/feature/worktree/branch/path para las fallas; head/legacy-md para los avisos), y el `worktree`/`branch` que el handoff registró.",
       "Exit codes como `receipt`: 0 ok, 2 findings (una comprobación falló), 1 error (git o I/O, nunca una falla de validación).",
+      "`log-review <feature>` valida review_<feature>.json y agrega a findings.jsonl los hallazgos con score >= 50, sin duplicar los ya registrados. Acepta --dir, --cwd y --json; sale con 1 si el sidecar no es válido.",
       "Sin `head` en el handoff el resultado sigue siendo `ok`, solo con un aviso — nunca bloquea.",
       "Con `harness.scribeOwnsMarkdown: false` valida `impl_<feature>.md` en su lugar (existe, no está vacío, tiene una línea `Status:`), ligado al feature solo por el nombre del archivo.",
     ],
@@ -952,7 +1001,7 @@ const es: Record<string, CommandDoc> = {
     title: "master",
     summary: "Plan maestro de proyecto: gestiona etapas, fases, partes y cierre (spec 0034).",
     usage:
-      "navori master <init|mode|status|check|advance|part|template|close> [opciones] [--cwd <path>]",
+      "navori master <init|mode|ux|status|check|advance|part|template|close|delivery-*> [opciones] [--cwd <path>]",
     flags: [
       {
         flag: "<slug>",
@@ -961,6 +1010,42 @@ const es: Record<string, CommandDoc> = {
       {
         flag: "<template|en-curso>",
         desc: "Modo de la etapa (mode). Solo se puede fijar en fase 'context' y solo en la primera etapa — de la etapa 2 en adelante el modo queda registrado como 'en-curso' automáticamente.",
+      },
+      {
+        flag: "ux <none|md|md-json>",
+        desc: "Registra la decisión del contrato UX de la etapa. Solo se puede fijar en la fase 'ux' y aún no está disponible para el modo entregas.",
+      },
+      {
+        flag: "delivery-slice --part <P<n>> [--refresh --approved-by user]",
+        desc: "Proyecta una parte autorizada en un workplan. --refresh reinicia los criterios pendientes y exige --approved-by user.",
+      },
+      {
+        flag: "delivery-queue --delivery <E<n>> --parts <P1,P2> --approved-by user [--transition replacement|continuation]",
+        desc: "Autoriza una cola acotada de partes para una entrega; las partes se validan contra parts.json.",
+      },
+      {
+        flag: "delivery-check | delivery-baseline --approved-by user | delivery-revoke --approved-by user",
+        desc: "Revisa sin escribir si la preparación está lista (exit 1 con bloqueos), registra la aprobación explícita de la base o revoca la autoridad de la cola.",
+      },
+      {
+        flag: "delivery-criterion --part <P<n>> --criterion <A<n>> [--approved-by user]",
+        desc: "Consume la evidencia del host o, solo en criterios manuales, una atestación explícita (--approved-by user).",
+      },
+      {
+        flag: "delivery-review --part <P<n>> --report <archivo> --envelope <archivo> [--approved-by user]",
+        desc: "Registra la revisión técnica atestada por el operador; el CLI verifica contenido y recibo, no la identidad del revisor ni la ejecución del QA.",
+      },
+      {
+        flag: "delivery-present --delivery <E<n>>",
+        desc: "Registra la identidad de una demo ya revisada técnicamente; no es el consentimiento del cliente.",
+      },
+      {
+        flag: "delivery-decision --delivery <E<n>> --identity <id> --decision <accepted|declined|deferred|discarded> [--reason <texto>] [--reference <ref>] --approved-by user",
+        desc: "Registra la decisión del cliente sobre una identidad revisada; toda decisión distinta de accepted exige --reason.",
+      },
+      {
+        flag: "delivery-publication --delivery <E<n>> --identity <id> --kind <release|deploy> --reference <ref> --approved-by user",
+        desc: "Atesta la referencia de release o deploy de una identidad aceptada, sin ejecutar el despliegue (un merge no cuenta).",
       },
       {
         flag: "status [--json|--line]",
@@ -1000,6 +1085,7 @@ const es: Record<string, CommandDoc> = {
       "Con una etapa ya activa, init (con o sin slug) no crea otra: completa lo que le falte a la activa, reporta su etapa y fase, y sale con 1 si se pidió un slug.",
       "Falla si sdd.enabled es false, nombrando la clave que hay que activar.",
       "check --stage inspecciona etapas cerradas; las operaciones que mutan estado solo actúan sobre la etapa activa.",
+      "Los subcomandos delivery-* son del modo entregas: validan las partes contra parts.json y toda aprobación exige --approved-by user. El hook master-accept-confirm pide confirmación humana antes de registrar una aceptación; un agente no puede aprobarse a sí mismo.",
     ],
   },
 };
@@ -1109,7 +1195,8 @@ const en: Record<string, CommandDoc> = {
     title: "render",
     summary:
       "Rebuilds every configured engine from navori.config.json. Idempotent. Preview by default.",
-    usage: "navori render [--apply] [--force] [--workspace <name>]",
+    usage:
+      "navori render [--apply] [--force] [--workspace <name>] [--json] [--all [--prune] [--verbose]]",
     flags: [
       {
         flag: "--apply",
@@ -1121,6 +1208,19 @@ const en: Record<string, CommandDoc> = {
       },
       { flag: "--workspace <name>", desc: "Render only one workspace by name (monorepo)." },
       { flag: "--dry-run", desc: "Deprecated: preview is the default now. Explicit alias." },
+      { flag: "--json", desc: "Machine-readable result; suppresses human output (CI/automation)." },
+      {
+        flag: "--all",
+        desc: "Renders EVERY repo in the global registry (~/.navori/registry.json), not just the current one. Use it after a navori bump to roll changes into all your projects.",
+      },
+      {
+        flag: "--prune",
+        desc: "With --all: drops registry entries whose repo no longer exists before rendering. In a single repo (with --apply): deletes, backing up first, outputs left by engines no longer in config.engines.",
+      },
+      {
+        flag: "--verbose",
+        desc: "With --all: lists each changed managed block per repo, not just the counts.",
+      },
     ],
     example: [
       {
@@ -1146,10 +1246,20 @@ const en: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "--interactive",
-        desc: "Resolve each CLAUDE.md conflict one by one: see the diff and pick keep-mine or accept-new.",
+        desc: "Resolve each conflict one by one: see the diff and pick keep-mine or accept-new, whether it is a CLAUDE.md block, a whole file that carries a marker, or a markerless file (replaced whole, with a backup).",
       },
       { flag: "--apply", desc: "Apply changes without the interactive prompt." },
       { flag: "--yes", desc: "Auto-confirm. Exits 1 if there are conflicts (CI gate)." },
+      {
+        flag: "--accept-new",
+        desc: "Resolves, without prompting, every CLAUDE.md block conflict with the new rendered version. Destructive: requires --apply or --yes and backs up CLAUDE.md first. Your user zone is never touched.",
+      },
+      {
+        flag: "--keep-mine",
+        desc: "Resolves, without prompting, every CLAUDE.md block conflict by keeping your edit and applying the remaining changes. Requires --apply or --yes.",
+      },
+      { flag: "--dry-run", desc: "Shows the plan without writing." },
+      { flag: "--json", desc: "Machine-readable output for CI; suppresses human output." },
       {
         flag: "--accept-new-files",
         desc: "Overwrite, without prompting, every hand-edited whole file that still carries its navori marker. Requires --apply or --yes and backs up each file first. --accept-new never touches whole files.",
@@ -1193,6 +1303,8 @@ const en: Record<string, CommandDoc> = {
       "Validates invariants: load-bearing substrings that must survive in the output (exit 2 if missing).",
       "Codex trust state is read from $CODEX_HOME/config.toml if CODEX_HOME is set, and from ~/.codex/config.toml otherwise; a relative value is rejected.",
       "With the codex engine enabled it also checks every git worktree of the repo that has .codex/config.toml: it warns with the hook, the path and 'cd <path> && navori codex trust' when approval is missing. It also warns when the installed codex is newer than the last verified version. If git or the disk fails, it degrades to a warning.",
+      "If any rendered hook calls 'navori', it warns when the global 'navori' on the PATH is older than the CLI running doctor (it would run old logic); it never changes ok.",
+      "It reports, as informational data only, when a newer stable release exists for an external tool whose manifest declares latestRelease (today, engram), and warns when the installed version is below a known-bad floor (today, engram < 3.0.0). Neither changes the verdict or --strict.",
     ],
   },
   status: {
@@ -1448,6 +1560,7 @@ const en: Record<string, CommandDoc> = {
     notes: [
       "It is incremental: it only adds workspaces the config does not list yet, and never touches the ones already there.",
       "It needs monorepo.enabled in the config. 'navori init --scan-monorepo' is what sets that up from the start.",
+      "monorepo.workspaceHarness decides how much harness each workspace gets: minimal (default, its context file plus the skills the root lacks), full (everything) or root (only its context file; the root also writes the workspaces' library and preset skills). root requires a navori that knows it on every machine and in CI.",
     ],
   },
   registry: {
@@ -1726,7 +1839,7 @@ const en: Record<string, CommandDoc> = {
     summary:
       "How the harness actually ran: where the tokens went, and which instructions nobody could follow.",
     usage:
-      "navori audit [--session <id>] [--days <n>] [--since <date>] [--until <date>] [--snapshot <name>] [--compare <snapshot>] [--json]",
+      "navori audit [--session <id>] [--days <n>] [--since <date>] [--until <date>] [--all-repos] [--include-human-content] [--snapshot <name>] [--compare <snapshot>] [--json]",
     flags: [
       { flag: "--session <id>", desc: "One session by id, prefix, or 'latest'." },
       { flag: "--days <n>", desc: "Only sessions marked in the last N days." },
@@ -1734,6 +1847,15 @@ const en: Record<string, CommandDoc> = {
       { flag: "--until <YYYY-MM-DD>", desc: "Up to this date." },
       { flag: "--json", desc: "Print the JSON report to stdout without writing files." },
       { flag: "--out <dir>", desc: "Override the output directory." },
+      {
+        flag: "--all-repos",
+        desc: "Range report across every audited repo, with each repo's coverage.",
+      },
+      {
+        flag: "--include-human-content",
+        desc: "Includes human content in the private reports, for this call only. It cannot be combined with --collect.",
+      },
+      { flag: "--disarm", desc: "Cancels a pending --arm without starting any session." },
       {
         flag: "--snapshot <name>",
         desc: "Freeze the range's metrics as a versioned snapshot (format 2: cohorts by host, regime, model and work) in the audit root. Never overwrites an existing one. Cannot be combined with --json.",
@@ -1778,6 +1900,7 @@ const en: Record<string, CommandDoc> = {
       "The report is written as markdown and JSON under ~/.navori/audits/<repo>/, beside a copy of the session's log.",
       "Hook counts are partial when the recorder started late: the orchestrator's card says so, with the share of the session it did observe.",
       "What a host does not expose shows as unavailable, never as 0. The report adds per-task outcomes (review, receipt, dispatch) and recommendations grouped by their denominator, with no single score.",
+      "Each metric declares its availability window (since which version or source the data exists), and the report adds per-task efficiency metrics. An undeclared flag is rejected (exit 2).",
       "Limits: the receipt review verbs ship from release 0.11.3, the minimum floors and caps are uncalibrated, --compare's noise band is unmeasured, and per-task token attribution covers the implementer only.",
     ],
   },
@@ -1821,7 +1944,7 @@ const en: Record<string, CommandDoc> = {
     title: "receipt",
     summary: "Signs or checks the reviewed bytes before publishing a change.",
     usage:
-      "navori receipt <sign|check|gate> --feature <id> [--target <ref>] [--dir <path>] [--spec <spec> --milestone M<n> [--gate-ran <scoped|full>]] [--json]",
+      "navori receipt <sign|check|gate|review begin|review seal> --feature <id> [--target <ref>] [--dir <path>] [--include-consumed] [--spec <spec> --milestone M<n> [--gate-ran <scoped|full>]] [--json]",
     flags: [
       { flag: "--feature <id>", desc: "Identifier received in the handoff." },
       { flag: "--target <ref>", desc: "Actual PR base; defaults to prTarget." },
@@ -1833,6 +1956,14 @@ const en: Record<string, CommandDoc> = {
       {
         flag: "--gate-ran <scoped|full>",
         desc: "`sign`: the gate the cycle ran. `scoped` is refused when the decision is `full`.",
+      },
+      {
+        flag: "--include-consumed",
+        desc: "`check`: when receipt.txt is gone, falls back to receipt.consumed.txt (the receipt already consumed by publishing).",
+      },
+      {
+        flag: "review begin | review seal --nonce <n>",
+        desc: "Producer evidence for review_<feature>.json: `begin` stamps the content identity before the diff and prints the nonce; `seal` seals the written sidecar with that nonce.",
       },
       { flag: "--json", desc: "Emit the machine-readable contract." },
     ],
@@ -1888,6 +2019,7 @@ const en: Record<string, CommandDoc> = {
       "`classify` is the single definition of a task's level (0-3); don't rewrite its thresholds elsewhere.",
       "`render` regenerates workplan_<feature>.md from the JSON deterministically — never hand-edit it.",
       "`gate` takes no <feature>: it reads the PreToolUse(Agent) hook payload from stdin and denies dispatching the implementer under harness.planTiers without a valid workplan or a level-0 exemption.",
+      "The plan-gate hook only denies when there is a verdict (missing or invalid plan). When the navori binary or its plan subcommand is missing there is no verdict: on Claude, in a permission mode that shows the prompt, it asks the human to confirm instead of blocking; on Codex or in modes without a prompt it keeps the block.",
     ],
   },
   spec: {
@@ -1918,7 +2050,7 @@ const en: Record<string, CommandDoc> = {
     summary:
       "Validates the implementer's handoff before the orchestrator dispatches the next role.",
     usage:
-      "navori handoff check <feature> [--for scribe] [--dir <path>] [--cwd <checkout>] [--json]",
+      "navori handoff <check|log-review> <feature> [--for scribe] [--dir <path>] [--cwd <checkout>] [--json]",
     flags: [
       {
         flag: "--for scribe",
@@ -1944,6 +2076,7 @@ const en: Record<string, CommandDoc> = {
     notes: [
       "The JSON carries `status` (ok/findings/error), `failures` and `warnings` with a `check` named after the rule (exists/parse/feature/worktree/branch/path for failures; head/legacy-md for warnings), and the `worktree`/`branch` the handoff registered.",
       "Exit codes match `receipt`: 0 ok, 2 findings (a check failed), 1 error (git or I/O, never a validation failure).",
+      "`log-review <feature>` validates review_<feature>.json and appends findings with score >= 50 to findings.jsonl, skipping ones already recorded. It accepts --dir, --cwd and --json; it exits 1 when the sidecar is invalid.",
       "A missing `head` in the handoff still returns `ok`, only with a warning — it never blocks.",
       "With `harness.scribeOwnsMarkdown: false` it validates `impl_<feature>.md` instead (exists, not empty, has a `Status:` line), tied to the feature only by the file name.",
     ],
@@ -1953,7 +2086,7 @@ const en: Record<string, CommandDoc> = {
     title: "master",
     summary: "Project master plan: manages stages, phases, parts, and closure (spec 0034).",
     usage:
-      "navori master <init|mode|status|check|advance|part|template|close> [options] [--cwd <path>]",
+      "navori master <init|mode|ux|status|check|advance|part|template|close|delivery-*> [options] [--cwd <path>]",
     flags: [
       {
         flag: "<slug>",
@@ -1962,6 +2095,42 @@ const en: Record<string, CommandDoc> = {
       {
         flag: "<template|en-curso>",
         desc: "The stage's mode (mode). Can only be set in phase 'context' and only for the first stage — from stage 2 onward the mode is registered as 'en-curso' automatically.",
+      },
+      {
+        flag: "ux <none|md|md-json>",
+        desc: "Records the stage's UX contract decision. It can only be set in phase 'ux' and is not available for deliveries mode yet.",
+      },
+      {
+        flag: "delivery-slice --part <P<n>> [--refresh --approved-by user]",
+        desc: "Projects an authorized part into a workplan. --refresh resets pending criteria and requires --approved-by user.",
+      },
+      {
+        flag: "delivery-queue --delivery <E<n>> --parts <P1,P2> --approved-by user [--transition replacement|continuation]",
+        desc: "Authorizes a bounded queue of parts for a delivery; the parts are validated against parts.json.",
+      },
+      {
+        flag: "delivery-check | delivery-baseline --approved-by user | delivery-revoke --approved-by user",
+        desc: "Checks without writing whether preparation is ready (exit 1 with blockers), records the explicit baseline approval, or revokes the queue authority.",
+      },
+      {
+        flag: "delivery-criterion --part <P<n>> --criterion <A<n>> [--approved-by user]",
+        desc: "Consumes host evidence or, for manual criteria only, an explicit attestation (--approved-by user).",
+      },
+      {
+        flag: "delivery-review --part <P<n>> --report <file> --envelope <file> [--approved-by user]",
+        desc: "Records the operator-attested technical review; the CLI verifies content and receipt, not the reviewer's identity or QA execution.",
+      },
+      {
+        flag: "delivery-present --delivery <E<n>>",
+        desc: "Records the identity of a demo that is already technically reviewed; it is not client consent.",
+      },
+      {
+        flag: "delivery-decision --delivery <E<n>> --identity <id> --decision <accepted|declined|deferred|discarded> [--reason <text>] [--reference <ref>] --approved-by user",
+        desc: "Records the client's decision on a reviewed identity; any decision other than accepted requires --reason.",
+      },
+      {
+        flag: "delivery-publication --delivery <E<n>> --identity <id> --kind <release|deploy> --reference <ref> --approved-by user",
+        desc: "Attests the release or deploy reference of an accepted identity without running the deployment (a merge does not count).",
       },
       {
         flag: "status [--json|--line]",
@@ -2004,6 +2173,7 @@ const en: Record<string, CommandDoc> = {
       "With a stage already active, init (with or without a slug) does not create a second one: it completes whatever the active one is missing, reports its stage and phase, and exits 1 if a slug was passed.",
       "Fails when sdd.enabled is false, naming the key to turn on.",
       "check --stage inspects closed stages; state-changing operations act only on the active stage.",
+      "The delivery-* subcommands belong to deliveries mode: they validate parts against parts.json and every approval requires --approved-by user. The master-accept-confirm hook asks a human to confirm before an acceptance is recorded; an agent cannot approve itself.",
     ],
   },
 };

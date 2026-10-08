@@ -1,4 +1,4 @@
-# navori:managed start id="session-start-context-base" hash="07b3f33e" version="0.11.2" source="@navori/core"
+# navori:managed start id="session-start-context-base" hash="805bcc43" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # SessionStart context hook.
@@ -683,7 +683,7 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')
   # branchBase is shell-quoted at render time via the shq: marker (#197) so an
   # untrusted branchBase can't inject a command here.
-  base='main'
+  base='dev'
   if [ "$branch" = "$base" ]; then
     add "Branch: ${branch}  ⚠️ on the base branch — create a working branch before committing."
   else

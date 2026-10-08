@@ -7,9 +7,9 @@ const read = (rel: string): string => readFileSync(resolve(REPO_ROOT, rel), "utf
 
 describe("prTarget of this repo (spec 0044)", () => {
   // Covers: R20
-  it("reviewer y publisher apuntan a main", () => {
+  it("reviewer y publisher apuntan a dev", () => {
     const config = JSON.parse(read("navori.config.json")) as { prTarget?: string };
-    expect(config.prTarget).toBe("main");
+    expect(config.prTarget).toBe("dev");
 
     const rendered = [
       ".claude/agents/reviewer.md",
@@ -20,8 +20,8 @@ describe("prTarget of this repo (spec 0044)", () => {
     for (const rel of rendered) {
       expect(existsSync(resolve(REPO_ROOT, rel)), rel).toBe(true);
       const text = read(rel);
-      expect(text, rel).toContain("origin/main");
-      expect(text, rel).not.toContain("origin/dev");
+      expect(text, rel).toContain("origin/dev");
+      expect(text, rel).not.toContain("origin/main");
     }
   });
 });

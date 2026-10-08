@@ -387,6 +387,14 @@ describe.runIf(runsBash)("plugin gate hooks — untrusted branchBase stays inert
 /** Covers: R5, R6 (spec 0037) — the host decision and audit reason are separate scanner evidence. */
 describe.runIf(runsBash)("plugin gate hooks — rendered scanner outcome fidelity", () => {
   type AuditEvent = { verdict: string; reason?: string; host?: string };
+  // The claude/codex placements run THIS repo's rendered hooks, which bake in its
+  // `branchBase`; the fixture repo and the source render must use the same base.
+  const BASE =
+    (
+      JSON.parse(readFileSync(resolve("../../navori.config.json"), "utf-8")) as {
+        branchBase?: string;
+      }
+    ).branchBase ?? "main";
 
   /** Isolate Git history, fake scanner, and audit log for one host/shell case. */
   function fixture(id: "jscpd" | "semgrep") {
@@ -408,7 +416,7 @@ describe.runIf(runsBash)("plugin gate hooks — rendered scanner outcome fidelit
       `${JSON.stringify({ event: "start", sessionId: "spec0037", cwd: repo })}\n`,
       { mode: 0o600 },
     );
-    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
+    execFileSync("git", ["init", "-q", "-b", BASE], { cwd: repo });
     writeFileSync(join(repo, "changed.ts"), "export const before = 1;\n");
     execFileSync("git", ["add", "changed.ts"], { cwd: repo });
     execFileSync(
@@ -424,7 +432,7 @@ describe.runIf(runsBash)("plugin gate hooks — rendered scanner outcome fidelit
       ],
       { cwd: repo },
     );
-    execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: repo });
+    execFileSync("git", ["update-ref", `refs/remotes/origin/${BASE}`, "HEAD"], { cwd: repo });
     writeFileSync(join(repo, "changed.ts"), "export const localOnly = 1;\n");
     execFileSync("git", ["add", "changed.ts"], { cwd: repo });
     execFileSync(
@@ -452,7 +460,7 @@ if [ "\${1:-}" = "--help" ]; then
 fi
 printf '%s\\n' "$@" > "$SCAN_ARGS"
 # Reproduces jscpd --baseline-from-ref: it checks the base out via a detached worktree.
-if [ -n "\${SCAN_WORKTREE:-}" ]; then git worktree add -q --detach "$SCAN_WORKTREE" origin/main || exit 9; fi
+if [ -n "\${SCAN_WORKTREE:-}" ]; then git worktree add -q --detach "$SCAN_WORKTREE" origin/${BASE} || exit 9; fi
 if [ -n "\${SCAN_SIGNAL:-}" ]; then kill -s "$SCAN_SIGNAL" "$PPID"; exit 0; fi
 exit "$SCAN_EXIT"
 `,
@@ -505,7 +513,7 @@ exit "$SCAN_EXIT"
           ? join(f.root, "hook.sh")
           : resolve(`../../.${placement}/scripts/check-${id}.sh`);
       if (placement === "source") {
-        writeFileSync(script, renderScript(id, rel));
+        writeFileSync(script, renderScript(id, rel, BASE));
         chmodSync(script, 0o755);
       }
       // Covers: R5, R6 — every rendered host shares the same exit and audit contract.
@@ -518,13 +526,13 @@ exit "$SCAN_EXIT"
       expect(args).toContain("new.tsx");
       expect(args).toContain("changed.ts");
       expect(args).toContain(
-        execFileSync("git", ["rev-parse", "origin/main"], {
+        execFileSync("git", ["rev-parse", `origin/${BASE}`], {
           cwd: f.repo,
           encoding: "utf-8",
         }).trim(),
       );
       expect(args).not.toContain(
-        execFileSync("git", ["rev-parse", "main"], {
+        execFileSync("git", ["rev-parse", BASE], {
           cwd: f.repo,
           encoding: "utf-8",
         }).trim(),
@@ -593,11 +601,11 @@ exit "$SCAN_EXIT"
           ? join(f.root, "hook.sh")
           : resolve(`../../.codex/scripts/check-${id}.sh`);
       if (placement === "source") {
-        writeFileSync(script, renderScript(id, rel));
+        writeFileSync(script, renderScript(id, rel, BASE));
         chmodSync(script, 0o755);
       }
       execFileSync("git", ["branch", "-m", "topic"], { cwd: f.repo });
-      execFileSync("git", ["update-ref", "-d", "refs/remotes/origin/main"], { cwd: f.repo });
+      execFileSync("git", ["update-ref", "-d", `refs/remotes/origin/${BASE}`], { cwd: f.repo });
       const noBase = run(script, f, 0, shell);
       expect(noBase.status).toBe(0);
       expect(noBase.events.at(-1)).toMatchObject({
@@ -651,7 +659,7 @@ exit "$SCAN_EXIT"
           ? join(f.root, "hook.sh")
           : resolve(`../../.codex/scripts/check-${id}.sh`);
       if (placement === "source") {
-        writeFileSync(script, renderScript(id, rel));
+        writeFileSync(script, renderScript(id, rel, BASE));
         chmodSync(script, 0o755);
       }
       f.env.SCAN_SIGNAL = "TERM";
@@ -671,7 +679,7 @@ exit "$SCAN_EXIT"
           ? join(f.root, "hook.sh")
           : resolve(`../../.codex/scripts/check-${id}.sh`);
       if (placement === "source") {
-        writeFileSync(script, renderScript(id, rel));
+        writeFileSync(script, renderScript(id, rel, BASE));
         chmodSync(script, 0o755);
       }
       f.env.SCAN_SIGNAL = "KILL";
@@ -692,7 +700,7 @@ exit "$SCAN_EXIT"
         ? join(f.root, "hook.sh")
         : resolve("../../.codex/scripts/check-jscpd.sh");
     if (placement === "source") {
-      writeFileSync(script, renderScript("jscpd", "scripts/check-jscpd.sh"));
+      writeFileSync(script, renderScript("jscpd", "scripts/check-jscpd.sh", BASE));
       chmodSync(script, 0o755);
     }
     const fakeRm = join(f.root, "bin", "rm");
@@ -718,7 +726,7 @@ exit "$SCAN_EXIT"
         ? join(f.root, "hook.sh")
         : resolve("../../.codex/scripts/check-jscpd.sh");
     if (placement === "source") {
-      writeFileSync(script, renderScript("jscpd", "scripts/check-jscpd.sh"));
+      writeFileSync(script, renderScript("jscpd", "scripts/check-jscpd.sh", BASE));
       chmodSync(script, 0o755);
     }
     f.env.SCAN_NO_FLAGS = "1";
@@ -737,7 +745,7 @@ exit "$SCAN_EXIT"
   it("jscpd never lets its baseline checkout write the caller's GIT_INDEX_FILE", () => {
     const f = fixture("jscpd");
     const script = join(f.root, "hook.sh");
-    writeFileSync(script, renderScript("jscpd", "scripts/check-jscpd.sh"));
+    writeFileSync(script, renderScript("jscpd", "scripts/check-jscpd.sh", BASE));
     chmodSync(script, 0o755);
     execFileSync("git", ["add", "-A"], { cwd: f.repo });
     const gitDir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
