@@ -54,6 +54,7 @@ import {
 } from "../lib/workspace/monorepo.ts";
 import { hasBinary } from "../lib/primitives/which.ts";
 import { probeEnabledToolVersions } from "../lib/primitives/tool-version-probe.ts";
+import { scanToolUpdates } from "../lib/primitives/tool-version-notice.ts";
 import { currentPlatform } from "../lib/config/platform.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/config/presets.ts";
 import { classifyLocalSkills } from "../engines/codex/local-skill-pointer.ts";
@@ -219,6 +220,9 @@ export const doctorCommand = defineCommand({
     const pinnedVersionDrift = scanPinnedVersionDrift(config);
     // #1210: same informational tier — never `computeHealthVerdict`, never `--strict`.
     const versionAdvisories = scanVersionAdvisories(config);
+    // #1244: newer stable release of an opted-in tool, from the per-machine cache
+    // (no network here). Same informational tier — never gates, never `--strict`.
+    const toolUpdates = scanToolUpdates(config);
     // #1060: same informational tier — a present binary missing a specific
     // CLI capability, never fed into `computeHealthVerdict` or `--strict`.
     const externalToolCapabilityGaps = scanExternalToolCapabilities(config);
@@ -412,6 +416,9 @@ export const doctorCommand = defineCommand({
       pinnedVersionDrift,
       // #1210: curated known-bad version floor; informational, never gates.
       versionAdvisories,
+      // #1244: cache-only newer-release notices; informational, never gates.
+      toolUpdates: toolUpdates.updates,
+      toolReleaseUnparseable: toolUpdates.unparseable,
       // #1060: same non-gating, informational tier as `missingExternalTools`
       // above — a present binary that fails a declared capability probe,
       // never fed into `computeHealthVerdict` or `--strict`.
@@ -799,6 +806,26 @@ export const doctorCommand = defineCommand({
         }`;
       });
       p.log.warn(td.versionAdvisories(versionAdvisories.length, lines.join("\n")));
+    }
+
+    if (toolUpdates.updates.length > 0) {
+      const lines = toolUpdates.updates.map(
+        (u) =>
+          `  ${color.yellow(sym.update)} ${accent(u.pluginId)}  ${grey(
+            td.toolUpdateRow(u.installedVersion, u.latestVersion),
+          )}`,
+      );
+      p.log.warn(td.toolUpdates(toolUpdates.updates.length, lines.join("\n")));
+    }
+
+    if (toolUpdates.unparseable.length > 0) {
+      const lines = toolUpdates.unparseable.map(
+        (u) =>
+          `  ${color.yellow(sym.update)} ${accent(u.pluginId)}  ${grey(
+            td.toolReleaseUnparseableRow(u.source, u.id),
+          )}`,
+      );
+      p.log.warn(td.toolReleaseUnparseable(toolUpdates.unparseable.length, lines.join("\n")));
     }
 
     if (externalToolCapabilityGaps.length > 0) {

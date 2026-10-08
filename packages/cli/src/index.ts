@@ -26,6 +26,7 @@ import { planCommand } from "./commands/plan.ts";
 import { specCommand } from "./commands/spec.ts";
 import { handoffCommand } from "./commands/handoff.ts";
 import { masterCommand } from "./commands/master.ts";
+import { toolsCommand } from "./commands/tools.ts";
 import { readCliVersion } from "./lib/render/bundled-assets.ts";
 import {
   runUpdateNotice,
@@ -71,6 +72,7 @@ const main = defineCommand({
     spec: specCommand,
     handoff: handoffCommand,
     master: masterCommand,
+    tools: toolsCommand,
   },
 });
 

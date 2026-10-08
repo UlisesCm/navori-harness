@@ -1,5 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync, chmodSync, mkdirSync, readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  existsSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -19,12 +29,18 @@ import type { HookShell } from "./helpers/shells.ts";
 const HOOK_SRC = resolve(getCoreRoot(), "core-assets/hooks/session-start-context.sh");
 
 let dir: string;
+/** Temp HOME: the hook must never see the developer's real `~/.navori` or `navori` on PATH. */
+let home: string;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "navori-ss-"));
+  home = mkdtempSync(join(tmpdir(), "navori-ss-home-"));
   installHook();
 });
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true });
+  rmSync(home, { recursive: true, force: true });
+});
 
 function git(...args: string[]): void {
   const r = spawnSync("git", args, { cwd: dir, encoding: "utf-8" });
@@ -69,6 +85,7 @@ function runOnce(
   source: string,
   hookPath: string = join(dir, "hook.sh"),
   extraPayload: Record<string, unknown> = {},
+  extraEnv: Record<string, string> = {},
 ): { status: number; stdout: string } {
   // Ensure the shell/`git` (/usr/bin, /bin) and `node` (this runtime's dir, used
   // to build the JSON) resolve. Vitest's inherited PATH can be too thin to find
@@ -78,7 +95,14 @@ function runOnce(
     cwd: dir,
     input: JSON.stringify({ hook_event_name: "SessionStart", source, ...extraPayload }),
     encoding: "utf-8",
-    env: { ...process.env, PATH: `${nodeDir}:/usr/bin:/bin:${process.env.PATH ?? ""}` },
+    env: {
+      ...process.env,
+      HOME: home,
+      // Opted out unless a case installs its own stub `navori` and opts back in.
+      NAVORI_NO_UPDATE_NOTIFIER: "1",
+      PATH: `${nodeDir}:/usr/bin:/bin:${process.env.PATH ?? ""}`,
+      ...extraEnv,
+    },
   });
   return { status: s.status ?? -1, stdout: s.stdout ?? "" };
 }
@@ -402,5 +426,124 @@ describe("session-start context hook — Codex payload (spec 0035 D3)", () => {
     installHook("hook.sh");
     const claudeCtx = parseCtx(acrossShells((shell) => runOnce(shell, "startup").stdout));
     expect(claudeCtx).toContain("Doctrine only Claude needs repeated.");
+  });
+});
+
+/**
+ * #1244 — tool update notice. The hook calls `navori tools notice` and trusts nothing it
+ * prints: output without the `#navori-tool-notice v1` sentinel (an older navori's usage
+ * banner) or with a bad ack charset is discarded, and the delivery is acked only when the
+ * BODY (not the budget pointer) was emitted. Every case uses a temp HOME and a stub `navori`
+ * in a PATH that never reaches the real one.
+ */
+describe("session-start context hook — tool update notice (#1244)", () => {
+  const SENTINEL = "#navori-tool-notice v1 ack=";
+  const NOTICE = "A newer engram is available: 3.2.1 (installed: 3.0.0).";
+  const OUTPUT = `${SENTINEL}engram@3.2.1\n${NOTICE}\n`;
+  let bin: string;
+  let log: string;
+
+  /** `navori` stub: records every call, then prints `output` and exits with `exit`. */
+  function stub(output: string, { exit = 0, sleep = 0 } = {}): Record<string, string> {
+    writeFileSync(join(bin, "out.txt"), output);
+    writeFileSync(
+      join(bin, "navori"),
+      `#!/bin/sh\necho "$*" >> "${log}"\n[ "${sleep}" = 0 ] || sleep ${sleep}\ncat "${join(bin, "out.txt")}"\nexit ${exit}\n`,
+    );
+    chmodSync(join(bin, "navori"), 0o755);
+    return {
+      NAVORI_NO_UPDATE_NOTIFIER: "",
+      PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,
+    };
+  }
+
+  const calls = (): string[] =>
+    existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : [];
+
+  /** Run under every shell with a fresh call log each time; the outputs must agree. */
+  function emit(env: Record<string, string>): { ctx: string; calls: string[] } {
+    const seen: { ctx: string; calls: string[] }[] = [];
+    for (const shell of HOOK_SHELLS) {
+      rmSync(log, { force: true });
+      const ctx = parseCtx(runOnce(shell, "startup", join(dir, "hook.sh"), {}, env).stdout);
+      seen.push({ ctx, calls: calls() });
+    }
+    for (const other of seen) expect(other).toEqual(seen[0]);
+    return seen[0]!;
+  }
+
+  beforeEach(() => {
+    bin = mkdtempSync(join(tmpdir(), "navori-ss-bin-"));
+    log = join(bin, "calls.log");
+  });
+  afterEach(() => rmSync(bin, { recursive: true, force: true }));
+
+  it("appends the notice body and acks exactly once after emitting", () => {
+    const r = emit(stub(OUTPUT));
+    expect(r.ctx).toContain(NOTICE);
+    expect(r.ctx).not.toContain("#navori-tool-notice");
+    expect(r.calls).toEqual(["tools notice", "tools notice --ack engram@3.2.1"]);
+  });
+
+  it("is the LAST section: it follows the repository state", () => {
+    git("init", "-q", "-b", "feat/x");
+    git("config", "user.email", "t@t.co");
+    git("config", "user.name", "t");
+    writeFileSync(join(dir, "a.txt"), "a\n");
+    git("add", "a.txt");
+    git("commit", "-qm", "chore: seed");
+    const r = emit(stub(OUTPUT));
+    expect(r.ctx).toContain("Branch: feat/x");
+    expect(r.ctx.indexOf(NOTICE)).toBeGreaterThan(r.ctx.indexOf("Branch: feat/x"));
+  });
+
+  it("discards an older navori's usage banner and acks nothing", () => {
+    const banner = "USAGE navori init|add|render|doctor\n\nCOMMANDS\n  init  ...\n";
+    const r = emit(stub(banner, { exit: 2 }));
+    expect(r.ctx).toBe("");
+    expect(r.calls).toEqual(["tools notice"]);
+  });
+
+  it.each([
+    ["a future contract version", `#navori-tool-notice v2 ack=engram@3.2.1\n${NOTICE}\n`],
+    ["a sentinel that is not the first line", `junk\n${OUTPUT}`],
+    ["an ack with shell metacharacters", `${SENTINEL}engram@3.2.1;touch pwned\n${NOTICE}\n`],
+    ["an empty ack", `${SENTINEL}\n${NOTICE}\n`],
+    ["a sentinel with no body", `${SENTINEL}engram@3.2.1\n`],
+  ])("discards %s", (_name, output) => {
+    const r = emit(stub(output));
+    expect(r.ctx).toBe("");
+    expect(r.calls).toEqual(["tools notice"]);
+  });
+
+  it("degrades to the fixed English pointer and does NOT ack when the budget is spent", () => {
+    const r = emit({ ...stub(OUTPUT), NAVORI_CTX_BUDGET: "10" });
+    expect(r.ctx).toContain("tool update notices didn't fit here");
+    expect(r.ctx).not.toContain(NOTICE);
+    expect(r.calls).toEqual(["tools notice"]);
+  });
+
+  it("does not call navori when opted out", () => {
+    const r = emit({ ...stub(OUTPUT), NAVORI_NO_UPDATE_NOTIFIER: "1" });
+    expect(r.ctx).toBe("");
+    expect(r.calls).toEqual([]);
+  });
+
+  it("does not call navori at all without node or jq (nothing could emit it)", () => {
+    // PATH made of symlinks to every system tool EXCEPT node, jq and navori.
+    const farm = join(bin, "farm");
+    mkdirSync(farm);
+    for (const root of ["/usr/bin", "/bin"])
+      for (const name of readdirSync(root))
+        if (!["node", "jq", "navori"].includes(name) && !existsSync(join(farm, name)))
+          symlinkSync(join(root, name), join(farm, name));
+    const r = emit({ ...stub(OUTPUT), PATH: `${bin}:${farm}` });
+    expect(r.ctx).toBe("");
+    expect(r.calls).toEqual([]);
+  });
+
+  it("keeps working when the notice command is slow", () => {
+    const r = emit(stub(OUTPUT, { sleep: 1 }));
+    expect(r.ctx).toContain(NOTICE);
   });
 });

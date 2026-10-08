@@ -78,13 +78,21 @@ function renderedRepo(resumeBytes: number): string {
   return cwd;
 }
 
-function runHook(cwd: string): string {
+/** Temp HOME and the tool-notice opt-out by default: the hook must not reach the developer's real
+ *  `~/.navori` or a real `navori` on PATH. #1244 cases override `env` with a stub. */
+function runHook(cwd: string, env: Record<string, string> = {}): string {
   const out = execFileSync("bash", [join(cwd, ".claude/hooks/session-start-context.sh")], {
     cwd,
     input: "{}",
     encoding: "utf-8",
     timeout: 20_000,
     stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      HOME: mkdtempSync(join(tmpdir(), "navori-budget-home-")),
+      NAVORI_NO_UPDATE_NOTIFIER: "1",
+      ...env,
+    },
   });
   if (!out.trim()) return "";
   return (
@@ -220,5 +228,40 @@ describe("spec 0019 — la escalera llega, no solo cabe", () => {
     expect(ctx, "cierre-sesion degradó pero sin puntero — se perdió").toContain(
       "40-cierre-sesion.md",
     );
+  });
+});
+
+describe("#1244 — el aviso de herramientas va al final y no rompe el techo", () => {
+  const BODY = "A newer engram is available: 3.2.1 (installed: 3.0.0).";
+  /** Stub `navori` that prints a valid v1 notice; PATH keeps node and the system tools. */
+  function withStub(): Record<string, string> {
+    const bin = mkdtempSync(join(tmpdir(), "navori-budget-bin-"));
+    writeFileSync(
+      join(bin, "navori"),
+      `#!/bin/sh\n[ "$3" = "--ack" ] || printf '#navori-tool-notice v1 ack=engram@3.2.1\\n${BODY}\\n'\n`,
+      { mode: 0o755 },
+    );
+    return {
+      NAVORI_NO_UPDATE_NOTIFIER: "",
+      PATH: `${bin}:${join(process.execPath, "..")}:/usr/bin:/bin`,
+    };
+  }
+
+  it("llega como cuerpo, después del resume, cuando el presupuesto tiene sitio", () => {
+    const ctx = runHook(renderedRepo(4600), { ...withStub(), NAVORI_CTX_BUDGET: "12000" });
+    expect(ctx).toContain(BODY);
+    expect(ctx.indexOf(BODY)).toBeGreaterThan(ctx.indexOf("Branch:"));
+    expect(ctx.length).toBeLessThanOrEqual(12_000 + 800);
+  });
+
+  it("con el presupuesto saturado degrada a puntero sin desplazar doctrina y cabe bajo el techo", () => {
+    // El aviso va al final a propósito: es lo primero que el presupuesto recorta.
+    for (const resumeBytes of [4600, 60_000]) {
+      const ctx = runHook(renderedRepo(resumeBytes), withStub());
+      expect(ctx.length).toBeLessThanOrEqual(DELIVERY_CEILING);
+      expect(ctx).not.toContain(BODY);
+      expect(ctx).toContain("tool update notices didn't fit");
+      expect(ctx).toContain('navori:managed id="orquestacion"');
+    }
   });
 });
