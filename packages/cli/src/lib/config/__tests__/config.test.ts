@@ -56,6 +56,29 @@ describe("effectiveConfig — prTarget fallback", () => {
   });
 });
 
+describe("qualityGate.scoped (spec 0045)", () => {
+  const parse = (qualityGate: object): ReturnType<typeof NavoriConfigSchema.safeParse> =>
+    NavoriConfigSchema.safeParse({
+      name: "demo",
+      engines: ["claude"],
+      preset: "custom",
+      qualityGate,
+    });
+
+  // Covers: R25
+  it("accepts an optional scoped command and leaves it unset by default", () => {
+    const withScoped = parse({ fast: "f", full: "F", scoped: "s" });
+    expect(withScoped.success && withScoped.data.qualityGate?.scoped).toBe("s");
+    const without = parse({ fast: "f", full: "F" });
+    expect(without.success && without.data.qualityGate?.scoped).toBeUndefined();
+  });
+
+  // Covers: R25
+  it("rejects an empty scoped command", () => {
+    expect(parse({ fast: "f", full: "F", scoped: "" }).success).toBe(false);
+  });
+});
+
 describe("effectiveConfig — sdd derivation", () => {
   const base = NavoriConfigSchema.parse({
     name: "demo",

@@ -10,7 +10,7 @@ metadata:
   maxWordsComposed: 1450
 ---
 
-<!-- navori:managed id="review-diff-base" hash="6030804c" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="review-diff-base" hash="a552a6bd" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Code review — checklist for a diff
 
 Apply this checklist to a diff (staged, branch vs `dev`, or a PR). The skeleton is stack-agnostic; repo-specific rules live in the user-section below.
@@ -102,7 +102,7 @@ Rule: if removing the abstraction leaves the code **as correct** and shorter, re
 
 ## 9. Quality gate (run this turn, not assumed)
 
-- `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` passes → CRITICAL if it fails; this is the same gate the `reviewer` owns in Pass 2, never re-defined here.
+- `bun run format:check && bun run lint && bun run typecheck && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage` passes → CRITICAL if it fails; this is the same gate the `reviewer` owns in Pass 2, never re-defined here.
 - Failure attribution (per `verify-before-done`): a failure classified *introduced (demonstrated)* → HIGH; never classify one by diff location alone.
 
 ## 10. Commit and PR

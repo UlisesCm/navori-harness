@@ -19,6 +19,7 @@
     "build": "bun run --filter '*' build",
     "dev": "bun run --filter '*' dev",
     "lint": "oxlint packages/cli/src",
+    "typecheck": "bun run --filter navori typecheck",
     "gen:schemas": "bun run --filter navori gen:schemas",
     "format": "oxfmt \"packages/cli/src/**/*.{ts,tsx}\" \"apps/website/src/**/*.{ts,tsx}\"",
     "format:check": "oxfmt --check \"packages/cli/src/**/*.{ts,tsx}\" \"apps/website/src/**/*.{ts,tsx}\"",
@@ -32,7 +33,8 @@
     "semgrep:check": "bash .claude/scripts/check-semgrep.sh </dev/null",
     "hooks:install": "node scripts/js/install-git-hooks.mjs",
     "render:apply": "bun run --filter navori build && node packages/cli/dist/index.js render --apply",
-    "check": "bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck",
+    "check:scoped": "bun run format:check && bun run lint && bun run typecheck && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size",
+    "check": "bun run format:check && bun run lint && bun run typecheck && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage",
     "check:fast": "bun run format:check && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun lint && bun typecheck"
   },
   "devDependencies": {

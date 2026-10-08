@@ -162,7 +162,11 @@ export function gateRunnerCommand(config: NavoriConfig, kind: "fast" | "full"): 
  */
 function deriveQualityGateAllow(config: NavoriConfig): string[] {
   const rules = new Set<string>();
-  for (const gate of [config.qualityGate?.fast, config.qualityGate?.full]) {
+  for (const gate of [
+    config.qualityGate?.fast,
+    config.qualityGate?.scoped,
+    config.qualityGate?.full,
+  ]) {
     if (!gate?.trim()) continue;
     const steps = gate.split(GATE_SEQUENCERS).map((s) => s.trim());
     for (const step of steps) {

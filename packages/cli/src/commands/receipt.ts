@@ -13,6 +13,10 @@ import { contentIdentity } from "../lib/primitives/content-identity.ts";
 import { resolveStateRoot } from "../lib/primitives/state-root.ts";
 import { decideGateFromDisk } from "../lib/spec/gate.ts";
 import type { GateDecision } from "../lib/spec/classify.ts";
+import {
+  decideWorkplanGateFromDisk,
+  type WorkplanGateDecision,
+} from "../lib/plan/gate-decision.ts";
 import { beginReview, sealReview } from "../lib/handoff/review-evidence.ts";
 
 export function resolveReceiptOptions(args: {
@@ -38,51 +42,66 @@ export function resolveReceiptOptions(args: {
     includeConsumed: args.includeConsumed,
   };
 }
+/** Scoped-sign flags: a spec milestone, or a workplan phase (spec 0045 D7). */
+type SignScope =
+  | { spec: string; milestone: string; gateRan: "scoped" | "full" }
+  | { spec?: undefined; phase?: string; gateRan: "scoped" | "full" };
+
 /**
- * Validates the spec-scoped `sign` flags (`--spec`, `--milestone`, `--gate-ran`),
- * which only make sense together. Returns `undefined` when none was given (sign
- * behaves as before), `"invalid"` after reporting an error (exit 1).
+ * Validates the scoped `sign` flags: `--spec --milestone --gate-ran` (spec),
+ * or `--gate-ran [--phase]` without `--spec` (workplan). Returns `undefined`
+ * when none was given (sign behaves as before), `"invalid"` after reporting an
+ * error (exit 1).
  */
 function signSpecFlags(
   action: "sign" | "check",
-  args: { spec?: string; milestone?: string; gateRan?: string },
-): { spec: string; milestone: string; gateRan: "scoped" | "full" } | "invalid" | undefined {
-  if (!args.spec && !args.milestone && !args.gateRan) return undefined;
+  args: { spec?: string; milestone?: string; gateRan?: string; phase?: string },
+): SignScope | "invalid" | undefined {
+  if (!args.spec && !args.milestone && !args.gateRan && !args.phase) return undefined;
   const problem =
     action !== "sign"
-      ? "--spec, --milestone and --gate-ran apply to `receipt sign` only"
-      : !args.spec || !args.milestone || !args.gateRan
-        ? "--spec, --milestone and --gate-ran must be given together"
-        : args.gateRan !== "scoped" && args.gateRan !== "full"
-          ? `--gate-ran must be "scoped" or "full", got "${args.gateRan}"`
-          : undefined;
-  if (problem || !args.spec || !args.milestone) {
+      ? "--spec, --milestone, --phase and --gate-ran apply to `receipt sign` only"
+      : !args.gateRan || (args.spec && !args.milestone) || (!args.spec && args.milestone)
+        ? "--gate-ran is required, and --spec and --milestone must be given together"
+        : args.spec && args.phase
+          ? "--phase applies to workplans, not to --spec"
+          : args.gateRan !== "scoped" && args.gateRan !== "full"
+            ? `--gate-ran must be "scoped" or "full", got "${args.gateRan}"`
+            : undefined;
+  if (problem || !args.gateRan) {
     process.stderr.write(
-      `ERROR: ${problem}\nWHY:   the gate kind is recomputed from the spec and milestone, so all three are needed\nFIX:   pass --spec <spec> --milestone M<n> --gate-ran <scoped|full>, or none of them\n`,
+      `ERROR: ${problem}\nWHY:   the gate kind is recomputed from the spec and milestone (or the workplan), so all the flags of one form are needed\nFIX:   pass --spec <spec> --milestone M<n> --gate-ran <scoped|full>, or --gate-ran <scoped|full> [--phase <p>], or none of them\n`,
     );
     process.exitCode = 1;
     return "invalid";
   }
-  return { spec: args.spec, milestone: args.milestone, gateRan: args.gateRan as "scoped" | "full" };
+  const gateRan = args.gateRan as "scoped" | "full";
+  return args.spec && args.milestone
+    ? { spec: args.spec, milestone: args.milestone, gateRan }
+    : { phase: args.phase, gateRan };
 }
 
 /** `receipt gate`: read-only `decideGate` for a milestone (spec 0044 D5). */
 export function executeGate(args: {
   feature: string;
-  spec: string;
-  milestone: string;
+  spec?: string;
+  milestone?: string;
+  phase?: string;
   dir?: string;
   cwd?: string;
   json?: boolean;
 }): void {
-  let decision: GateDecision;
+  let decision: GateDecision | WorkplanGateDecision;
   try {
-    decision = decideGateFromDisk(
-      resolveStateRoot({ cwd: args.cwd ?? process.cwd(), feature: args.feature, dir: args.dir })
-        .cwd,
-      args.spec,
-      args.milestone,
-    );
+    const root = resolveStateRoot({
+      cwd: args.cwd ?? process.cwd(),
+      feature: args.feature,
+      dir: args.dir,
+    });
+    decision =
+      args.spec && args.milestone
+        ? decideGateFromDisk(root.cwd, args.spec, args.milestone)
+        : decideWorkplanGateFromDisk(root, args.feature, args.phase);
   } catch {
     decision = { gateKind: "full", reason: "tasks-unreadable", unit: null, closingMilestone: null };
   }
@@ -104,6 +123,7 @@ export function executeReceipt(
     spec?: string;
     milestone?: string;
     gateRan?: string;
+    phase?: string;
   },
 ): void {
   const spec = signSpecFlags(action, args);
@@ -114,7 +134,14 @@ export function executeReceipt(
     ? {
         ...resolved,
         gateRan: spec.gateRan,
-        gateDecision: decideGateFromDisk(resolved.cwd, spec.spec, spec.milestone),
+        gateDecision:
+          spec.spec === undefined
+            ? decideWorkplanGateFromDisk(
+                resolveStateRoot({ cwd: resolved.cwd, feature: args.feature, dir: args.dir }),
+                args.feature,
+                spec.phase,
+              )
+            : decideGateFromDisk(resolved.cwd, spec.spec, spec.milestone),
       }
     : resolved;
   const options: ReceiptOptions = hasAuditTarget(withSpec.cwd)
@@ -192,6 +219,7 @@ export const receiptCommand = defineCommand({
         ...shared,
         spec: { type: "string" as const, description: "Spec directory (with --milestone)" },
         milestone: { type: "string" as const, description: "Milestone id, e.g. M3" },
+        phase: { type: "string" as const, description: "Workplan phase (name or 1-based index)" },
         "gate-ran": {
           type: "string" as const,
           description: "Gate the cycle ran: scoped or full",
@@ -202,12 +230,14 @@ export const receiptCommand = defineCommand({
     gate: defineCommand({
       meta: {
         name: "gate",
-        description: "Decide whether a milestone's review cycle needs the scoped or the full gate",
+        description:
+          "Decide whether a milestone's or workplan phase's review cycle needs the scoped or the full gate",
       },
       args: {
         ...shared,
-        spec: { type: "string" as const, required: true, description: "Spec directory" },
-        milestone: { type: "string" as const, required: true, description: "Milestone id" },
+        spec: { type: "string" as const, description: "Spec directory (with --milestone)" },
+        milestone: { type: "string" as const, description: "Milestone id" },
+        phase: { type: "string" as const, description: "Workplan phase (name or 1-based index)" },
       },
       run: ({ args }) => executeGate(args),
     }),

@@ -5,7 +5,6 @@ import { createHash } from "node:crypto";
 import { LOCKFILES } from "./detect.ts";
 import { isUnderProgressDir } from "../primitives/progress-dirs.ts";
 import { appendCliEvent, outcomeFeatureKey } from "../audit/cli-event.ts";
-import type { GateDecision } from "../spec/classify.ts";
 import type { OutcomePayload, ReceiptAction, ReceiptOutcome } from "../audit/model.ts";
 import type { ContentIdentity } from "../primitives/content-identity.ts";
 import {
@@ -48,7 +47,7 @@ export interface ReceiptOptions {
   /** `check` only: fall back to `receipt.consumed.txt` when `receipt.txt` is absent. */
   includeConsumed?: boolean;
   /** `sign` only: the recomputed `decideGate` result (spec 0044 R25). */
-  gateDecision?: GateDecision;
+  gateDecision?: { gateKind: "scoped" | "full"; reason: string };
   /** `sign` only: the gate the reviewer declares to have run. */
   gateRan?: "scoped" | "full";
   /**
