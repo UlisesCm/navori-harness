@@ -1,5 +1,11 @@
 # History
 
+## 2026-10-08 13:00 claude — Prompts de reviewer y publisher más chicos (#1264)
+
+Cambios: publisher deja de recalcular el shipping set en prosa y lee `navori receipt check --json` con una tabla estado→acción (28,367 → 24,144 B renderizado); reviewer elimina literales duplicados del gate, la regla de navegador repetida y el Setup 5 que repetía el routing (22,194 → 20,050 B); test nuevo `agent-prompt-bytes` fija topes de bytes; `harnessVersion` registrado por el render.
+Quality gate: `bun check` verde, receipt firmado (reviewer APPROVED, nivel 2 con architect + challenge; P-B/R-B descartados).
+Notas: comentario de maxWords del publisher quedó desactualizado (3557 palabras reales); ahorro ~6.4 KB por ciclo.
+
 ## 2026-10-08 11:30 claude — Tope duro de progress/current.md (#1263, fase 2)
 
 Cambios: el hook de pre-commit bloquea (trinquete) un commit de agente cuyo `progress/current.md` supera 8000 bytes y creció respecto a HEAD; el hook de arranque avisa desde 4000 bytes; `doctor` mide bytes; topes definidos una vez en `doc-budgets.ts` e interpolados en los hooks; sin override. Doctrina de cierre paso 3 actualizada.
