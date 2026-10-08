@@ -16,12 +16,12 @@ Estimated LOC: 1000
 - **A2** [observable] — el reviewer renderizado para Claude y Codex nombra `qualityGate.full` solo
   en la ronda que firma `APPROVED` · `bun run check:render && bun run check:doc-budgets`
   → exit 0
-- [ ] **T1** (R25) — `QualityGateSchema` acepta `scoped` opcional sin `.default()`; se regenera
+- [x] **T1** (R25) — `QualityGateSchema` acepta `scoped` opcional sin `.default()`; se regenera
   `navori.config.v1.json` · effect: schema · test:
   `lib/config/__tests__/config.test.ts`::"qualityGate.scoped"
-- [ ] **T2** (R8, R25) — variable derivada `navori.scopedGate` (`scoped ?? fast`) en `interpolate`
+- [x] **T2** (R8, R25) — variable derivada `navori.scopedGate` (`scoped ?? fast`) en `interpolate`
   · effect: behavior · test: `lib/render/__tests__/interpolate.test.ts`::"navori.scopedGate"
-- [ ] **T3** (R8, R9, R24) — `reviewer.md` (Setup 3, Pass 2 "Quality gate", "Content receipt"):
+- [x] **T3** (R8, R9, R24) — `reviewer.md` (Setup 3, Pass 2 "Quality gate", "Content receipt"):
   `CHANGES_REQUESTED` usa `navori.scopedGate` + `A<n>`; `full` solo antes de firmar; tope de
   palabras subido con su porqué · effect: docs · test:
   `lib/render/__tests__/interpolate.test.ts`::"reviewer gate table claude y codex"
@@ -30,11 +30,11 @@ Estimated LOC: 1000
 - **A3** — decisión de gate y receipt en verde ·
   `cd packages/cli && bun run test src/lib/plan/__tests__/gate-decision.test.ts src/lib/diagnose/__tests__/receipt.test.ts`
   → exit 0, 0 failed
-- [ ] **T4** (R10, R11) — `decideWorkplanGate(plan, phase?)` puro en `lib/plan/gate-decision.ts`:
+- [x] **T4** (R10, R11) — `decideWorkplanGate(plan, phase?)` puro en `lib/plan/gate-decision.ts`:
   `scoped` con `pendingLater` mientras quede una fase posterior con `A<n>` sin `cumplido`; `full`
   sin fases, en la última o ante un workplan ilegible · effect: behavior · test:
   `lib/plan/__tests__/gate-decision.test.ts`::"razones y fail closed"
-- [ ] **T5** (R10, R11) — `commands/receipt.ts`: rama sin `--spec`, `--phase`; `sign --gate-ran
+- [x] **T5** (R10, R11) — `commands/receipt.ts`: rama sin `--spec`, `--phase`; `sign --gate-ran
   scoped` con decisión `full` sale 1 sin receipt · effect: behavior · test:
   `lib/diagnose/__tests__/receipt.test.ts`::"workplan scoped y full"
 

@@ -631,7 +631,7 @@ Lo que se le escape a esta aproximación lo atrapa `full` en `APPROVED`.
 - **Presupuestos, por entrega.** Cada PR pasa `check:doc-budgets` solo (challenge M3). Medido con
   `wc -w`:
   - `reviewer.md` mide 3066 y su tope es 2966. Crece ≈+70 palabras en E1 (D6, D7), ≈+20 en E3 (D10)
-    y ≈+30 en E4 (D9). Cada entrega sube el tope al mínimo necesario más ≥5 %, con el porqué en el
+    y ≈+30 en E4 (D9). Cada entrega sube el tope al conteo medido más 10 palabras, con el porqué en el
     frontmatter, como en la 0044 (D11).
   - `orchestrator.md` mide 3151 y su tope es 3050. Crece ≈+40 palabras en E4 (D13, D14).
   - `planificacion`: solo cambia la celda de la fila 0, ≈+8 palabras, en E4.
