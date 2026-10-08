@@ -6,7 +6,7 @@ metadata:
   maxWords: 663
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="9fbc83ea" version="0.11.2" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="verify-before-done-base" hash="cf103aff" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -26,7 +26,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the command that proves it �
 | Claim | Required output | Not sufficient |
 |---|---|---|
 | `cd packages/cli && bun lint` / `bun run format:check && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage && bun lint && bun typecheck` green | Full command run this turn, exit 0 | "ran it before", "should be green" |
-| Zero new errors vs baseline | Classify per **Failure attribution** below: state per failure, demonstrated over `main` | "outside the diff" / "inside the diff" alone |
+| Zero new errors vs baseline | Classify per **Failure attribution** below: state per failure, demonstrated over `dev` | "outside the diff" / "inside the diff" alone |
 | UI validated in the browser (only if asked) | Observed state via the repo's browser tool this turn | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
 | PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status`, receipt `"status":"ok"` (prefer `navori receipt check …`; if the installed CLI lacks it, use the repository-built CLI); declared-inline change, your own run. No clean working tree required | "the branch has commits, we can create it" |
@@ -37,7 +37,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the command that proves it �
 
 ## Failure attribution
 
-A failure has three possible states: **introduced (demonstrated)**, **pre-existing (demonstrated)**, or **origin not determined**. Location relative to `git diff --name-only main` (inside or outside the diff) only orients — it never proves origin.
+A failure has three possible states: **introduced (demonstrated)**, **pre-existing (demonstrated)**, or **origin not determined**. Location relative to `git diff --name-only dev` (inside or outside the diff) only orients — it never proves origin.
 
 Only the **same command**, run over the comparable base and over the change, demonstrates a state: the two runs disagree → introduced (demonstrated); they agree → pre-existing (demonstrated); no comparable run exists → origin not determined.
 

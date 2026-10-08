@@ -1,4 +1,4 @@
-# navori:managed start id="master-accept-confirm-base" hash="f5ff73ba" version="0.11.2" source="@navori/core"
+# navori:managed start id="master-accept-confirm-base" hash="f5ff73ba" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash): a manual acceptance (`navori master part … --approved-by`)

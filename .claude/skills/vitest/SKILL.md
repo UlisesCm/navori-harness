@@ -6,7 +6,7 @@ metadata:
   maxWords: 550
 ---
 
-<!-- navori:managed id="vitest" hash="43a8962a" version="0.11.2" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="vitest" hash="43a8962a" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Vitest — conventions
 
 ## When to use this skill

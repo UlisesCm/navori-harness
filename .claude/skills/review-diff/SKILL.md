@@ -10,10 +10,10 @@ metadata:
   maxWordsComposed: 1450
 ---
 
-<!-- navori:managed id="review-diff-base" hash="dd46d76b" version="0.11.2" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="review-diff-base" hash="6030804c" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Code review — checklist for a diff
 
-Apply this checklist to a diff (staged, branch vs `main`, or a PR). The skeleton is stack-agnostic; repo-specific rules live in the user-section below.
+Apply this checklist to a diff (staged, branch vs `dev`, or a PR). The skeleton is stack-agnostic; repo-specific rules live in the user-section below.
 
 ## How to report
 
@@ -128,17 +128,17 @@ Pay extra attention if the diff touches `render/sync/backup writes and deletes i
 - `verify-before-done`: the §9 quality gate is run this turn, not assumed from the implementer's report.
 <!-- /navori:managed id="review-diff-base" -->
 
-<!-- navori:managed id="jscpd-review-extension" hash="6b005d05" version="0.11.2" source="@navori/plugin-jscpd" -->
+<!-- navori:managed id="jscpd-review-extension" hash="55987bb7" version="0.11.3" source="@navori/plugin-jscpd" -->
 ## Code duplication (jscpd)
 
 Before approving a change, run `jscpd` over the changed `.ts`/`.tsx` files vs
 the base branch, failing on any clone that is new vs that base:
 
 ```
-git diff --name-only --diff-filter=ACMRT main -- '*.ts' '*.tsx' | xargs -r jscpd --min-tokens 100 --min-lines 10 --mode strict --baseline-from-ref 'main' --fail-on-new-clones 0
+git diff --name-only --diff-filter=ACMRT dev -- '*.ts' '*.tsx' | xargs -r jscpd --min-tokens 100 --min-lines 10 --mode strict --baseline-from-ref 'dev' --fail-on-new-clones 0
 ```
 
-A literal `main` left unsubstituted here would be a silent no-op
+A literal `dev` left unsubstituted here would be a silent no-op
 scan (#273) — the values above come from the repo's own config at render
 time, never typed by hand.
 - Fingerprint sensitivity: editing inside an existing clone (even a single line) changes its fingerprint, so jscpd reports it as new — it counts as a new clone even though the duplication itself predates the change.

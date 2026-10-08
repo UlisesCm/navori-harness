@@ -1,4 +1,4 @@
-# navori:managed start id="master-plan-context-base" hash="47124c26" version="0.11.2" source="@navori/core"
+# navori:managed start id="master-plan-context-base" hash="47124c26" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 # SessionStart master-plan status. Advisory and fail-open: no startup failure
 # may block the user's unrelated request. Render fills the specsDir placeholder.

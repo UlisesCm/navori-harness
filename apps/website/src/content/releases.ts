@@ -78,6 +78,14 @@ export const RELEASES: readonly ReleaseEntry[] = [
           en: "Codex parity (spec 0041), verified live on Codex 0.160.0 with a guarantee table: role-guard and spawn guard, plan-gate with a dispatch file for multi-agent V2, publication and general-purpose confirmations by deny, master-plan and context-intake, a tgrep guard and advice on repeated Bash failures. Codex models resolve automatically by family from the local catalog (sol, luna, astra), and doctor checks Codex trust per worktree and warns about a stale global navori. Render fixes: navori:if in Codex agents and orphan pruning.",
         },
       },
+      {
+        version: "0.11.3",
+        date: "2026-10-07",
+        note: {
+          es: "Entregas funcionales para specs: spec classify y spec check, sdd.deliveries con entregas, milestones y tareas, un gate completo por PR y un master-plan que reparte sus partes con las mismas reglas. sync reemplaza archivo por archivo (también los que no tienen marcadores), con --accept-new-files y diff para conservar o aceptar; monorepo.workspaceHarness suma el modo root. navori tools avisa de versiones nuevas de herramientas externas y doctor advierte de versiones con problema conocido (engram < 3.0.0). navori audit une resultados de revisión y recibo, mide disponibilidad, compara cohortes y calcula eficiencia por tarea. Hooks más seguros: el guard bloquea descartes de árbol completo con trabajo sin commitear, el publisher no reescribe historia, plan-gate pide confirmación y los bloqueos dicen qué hacer. Codex recibe un AGENTS.md más delgado y un guard de escrituras de engram, y ya no degrada el modelo renderizado.",
+          en: "Functional deliveries for specs: spec classify and spec check, sdd.deliveries with deliveries, milestones and tasks, one full gate per PR and a master-plan that splits its parts with the same rules. sync replaces file by file (including markerless files), with --accept-new-files and a diff to keep or accept; monorepo.workspaceHarness gains the root mode. navori tools notices new releases of external tools and doctor warns about known-bad versions (engram < 3.0.0). navori audit joins review and receipt outcomes, measures availability, compares cohorts and computes per-task efficiency. Safer hooks: the guard blocks whole-tree discards with uncommitted work, the publisher cannot rewrite history, plan-gate asks for confirmation and blocks say what to do. Codex gets a thinner AGENTS.md and an engram write guard, and no longer downgrades the rendered model.",
+        },
+      },
     ],
   },
   {
