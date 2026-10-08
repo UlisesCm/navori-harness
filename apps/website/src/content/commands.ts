@@ -1091,6 +1091,32 @@ const es: Record<string, CommandDoc> = {
       "Los subcomandos delivery-* son del modo entregas: validan las partes contra parts.json y toda aprobación exige --approved-by user. El hook master-accept-confirm pide confirmación humana antes de registrar una aceptación; un agente no puede aprobarse a sí mismo.",
     ],
   },
+  gate: {
+    id: "gate",
+    title: "gate",
+    summary:
+      "Corre el quality gate del proyecto con la salida completa en un log y solo un veredicto compacto en stdout.",
+    usage: "navori gate <fast|full> [--cwd <path>]",
+    flags: [
+      {
+        flag: "<fast|full>",
+        desc: "Qué gate correr: qualityGate.fast o qualityGate.full de navori.config.json, tal cual está escrito.",
+      },
+      { flag: "--cwd <path>", desc: "Raíz del proyecto; por defecto el directorio actual." },
+    ],
+    example: [
+      {
+        title: "Correr el gate completo",
+        code: "$ navori gate full\nnavori gate full: exit 0 — log .navori/state/gate/full-20261008T191709Z.log",
+      },
+    ],
+    notes: [
+      "La primera línea de stdout es siempre el centinela 'navori gate <kind>: exit <N> — log <path>'. Sin ese centinela el gate no corrió: ejecuta el comando literal.",
+      "La salida completa va a .navori/state/gate/<kind>-<ts>.log. En verde imprime un resumen corto (menos de 2 KB); en rojo, el fragmento con los errores y la cola, con tope.",
+      "El exit code es el de la cadena del gate. Sale con 2 sin correr nada si el gate configurado ya no pasa el chequeo de seguridad que da su permiso exacto.",
+      "Reenvía SIGINT/SIGTERM a los procesos hijos y deja un centinela 'killed'.",
+    ],
+  },
 };
 
 const en: Record<string, CommandDoc> = {
@@ -2179,6 +2205,32 @@ const en: Record<string, CommandDoc> = {
       "The delivery-* subcommands belong to deliveries mode: they validate parts against parts.json and every approval requires --approved-by user. The master-accept-confirm hook asks a human to confirm before an acceptance is recorded; an agent cannot approve itself.",
     ],
   },
+  gate: {
+    id: "gate",
+    title: "gate",
+    summary:
+      "Runs the project's quality gate with the full output in a log and only a compact verdict on stdout.",
+    usage: "navori gate <fast|full> [--cwd <path>]",
+    flags: [
+      {
+        flag: "<fast|full>",
+        desc: "Which gate to run: qualityGate.fast or qualityGate.full from navori.config.json, verbatim.",
+      },
+      { flag: "--cwd <path>", desc: "Project root; defaults to the current directory." },
+    ],
+    example: [
+      {
+        title: "Run the full gate",
+        code: "$ navori gate full\nnavori gate full: exit 0 — log .navori/state/gate/full-20261008T191709Z.log",
+      },
+    ],
+    notes: [
+      "The first stdout line is always the sentinel 'navori gate <kind>: exit <N> — log <path>'. No sentinel means the gate did not run: run the literal command.",
+      "The full output goes to .navori/state/gate/<kind>-<ts>.log. Green prints a short summary (under 2 KB); red prints the error excerpt and the tail, capped.",
+      "The exit code is the gate chain's. It exits 2 without running anything when the configured gate no longer passes the safety check that earns its exact permission.",
+      "It forwards SIGINT/SIGTERM to the child processes and writes a 'killed' sentinel.",
+    ],
+  },
 };
 
 export const commandDocs: Record<Lang, Record<string, CommandDoc>> = { es, en };
@@ -2212,4 +2264,5 @@ export const commandOrder = [
   "spec",
   "handoff",
   "master",
+  "gate",
 ] as const;

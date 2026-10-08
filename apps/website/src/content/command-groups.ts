@@ -45,6 +45,7 @@ export const COMMAND_GROUPS: readonly CommandGroup[] = [
       "bench",
       "codex",
       "receipt",
+      "gate",
       "plan",
       "spec",
       "handoff",
