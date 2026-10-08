@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  computeManagedHash,
   injectManagedSection,
   removeManagedSection,
   extractManagedContent,
@@ -37,12 +38,76 @@ describe("injectManagedSection", () => {
     expect(second.output).toBe(first.output);
   });
 
-  it("meta-only update (same content, newer version) preserves the document tail", () => {
-    // Regression: on a version bump where a block's content is byte-identical,
-    // injectManagedSection took a fast meta-only path that rebuilt the doc up to
-    // the block's close marker but DROPPED everything after it — truncating all
-    // later blocks and user prose. On `render --all --apply` this silently
-    // deleted content. The tail must survive.
+  // Covers: A1
+  it("identical body with a newer CLI version is unchanged and keeps the old version", () => {
+    const existing = injectManagedSection("", "a", "content A", {
+      source: "@navori/core",
+      version: "0.2.20",
+    }).output;
+    const result = injectManagedSection(existing, "a", "content A", {
+      source: "@navori/core",
+      version: "0.2.22",
+    });
+    expect(result.status).toBe("unchanged");
+    expect(result.output).toBe(existing);
+    expect(result.output).toContain('version="0.2.20"');
+    // A version-only difference is not an update available.
+    expect(result.details?.versionDrift).toBe(false);
+  });
+
+  // Covers: A1
+  it("a body change stamps the new version and reports versionDrift", () => {
+    const existing = injectManagedSection("", "a", "content A", {
+      source: "@navori/core",
+      version: "0.2.20",
+    }).output;
+    const result = injectManagedSection(existing, "a", "content A2", {
+      source: "@navori/core",
+      version: "0.2.22",
+    });
+    expect(result.status).toBe("updated");
+    expect(result.output).toContain('version="0.2.22"');
+    expect(result.details?.versionDrift).toBe(true);
+  });
+
+  // Covers: A1
+  it("a versionless block with identical body still gets stamped", () => {
+    const versionless =
+      '<!-- navori:managed id="a" hash="' +
+      computeManagedHash("content A") +
+      '" source="@navori/core" -->\ncontent A\n<!-- /navori:managed id="a" -->\n';
+    const result = injectManagedSection(versionless, "a", "content A", {
+      source: "@navori/core",
+      version: "0.2.22",
+    });
+    expect(result.status).toBe("updated");
+    expect(result.output).toContain('version="0.2.22"');
+  });
+
+  // Covers: A1
+  it("restamp stamps the version even when the body is identical", () => {
+    const existing = injectManagedSection("", "a", "content A", {
+      source: "@navori/core",
+      version: "0.2.20",
+    }).output;
+    const result = injectManagedSection(
+      existing,
+      "a",
+      "content A",
+      { source: "@navori/core", version: "0.2.22" },
+      "html",
+      false,
+      true,
+    );
+    expect(result.status).toBe("updated");
+    expect(result.output).toContain('version="0.2.22"');
+  });
+
+  // Covers: A1
+  it("a body change preserves the document tail (meta replaced in place)", () => {
+    // Regression: a meta-only fast path once rebuilt the doc up to the block's
+    // close marker but DROPPED everything after it — truncating all later
+    // blocks and user prose. The tail must survive.
     const existing = [
       '<!-- navori:managed id="a" version="0.2.20" source="@navori/core" -->',
       "content A",
@@ -58,7 +123,7 @@ describe("injectManagedSection", () => {
     const result = injectManagedSection(
       existing,
       "a",
-      "content A",
+      "content A changed",
       { source: "@navori/core", version: "0.2.22" },
       "html",
     );
@@ -352,6 +417,49 @@ describe("injectManagedSection", () => {
       );
       expect(forced.status).toBe("updated");
       expect(forced.output).toContain("OLD body from 0.2.9");
+    });
+
+    // Covers: A1
+    it("floorVersion protects a frozen older marker: max(marker, floor) is the downgrade base", () => {
+      // Block frozen at 0.2.0; the registry says a 0.3.0 CLI applied a change.
+      const frozen = injectManagedSection("", "idioma-rol", "frozen body\n", {
+        source: "@navori/core",
+        version: "0.2.0",
+      }).output;
+      const result = injectManagedSection(frozen, "idioma-rol", "other body\n", {
+        source: "@navori/core",
+        version: "0.2.9",
+        floorVersion: "0.3.0",
+      });
+      expect(result.status).toBe("downgrade-skipped");
+      expect(result.details?.downgrade).toBe(true);
+      expect(result.output).toBe(frozen);
+      // Without the floor the same render is a normal update.
+      const noFloor = injectManagedSection(frozen, "idioma-rol", "other body\n", {
+        source: "@navori/core",
+        version: "0.2.9",
+      });
+      expect(noFloor.status).toBe("updated");
+    });
+
+    // Covers: A1
+    it("floorVersion is never written into the marker and forceOverwrite still bypasses it", () => {
+      const frozen = injectManagedSection("", "idioma-rol", "frozen body\n", {
+        source: "@navori/core",
+        version: "0.2.0",
+      }).output;
+      const forced = injectManagedSection(
+        frozen,
+        "idioma-rol",
+        "other body\n",
+        { source: "@navori/core", version: "0.2.9", floorVersion: "0.3.0" },
+        "html",
+        true,
+      );
+      expect(forced.status).toBe("updated");
+      expect(forced.output).toContain('version="0.2.9"');
+      expect(forced.output).not.toContain("0.3.0");
+      expect(forced.output).not.toContain("floor");
     });
 
     it("upgrades normally when the incoming version is newer", () => {
