@@ -450,6 +450,11 @@ export const RETIRED_PLUGIN_BLOCKS: Record<string, { retiredIn: string; blockIds
   // longer does (#1013).
   codegraph: { retiredIn: "#838", blockIds: ["codegraph-protocol"] },
   tgrep: { retiredIn: "#838", blockIds: ["tgrep-protocol"] },
+  // #1273: `gh-protocol` was a generic `gh` cheat-sheet paid by every non-fork
+  // agent. Content dropped, not moved: the publisher carries its own `gh` rules
+  // (and the `gh-comment-channel-publisher` sub-block), and any model knows
+  // `gh issue view`. The settings fragment (permissions) is unchanged.
+  gh: { retiredIn: "#1273", blockIds: ["gh-protocol"] },
 };
 
 /**
