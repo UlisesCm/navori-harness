@@ -322,9 +322,9 @@ describe("scanDocBudget (#917)", () => {
     writeClaudeMd(
       cwd,
       [
-        `<!-- navori:managed id="gh-protocol" hash="h" version="${CURRENT}" source="@navori/plugin-gh" -->`,
+        `<!-- navori:managed id="tgrep-search-v2" hash="h" version="${CURRENT}" source="@navori/plugin-tgrep" -->`,
         words(20),
-        `<!-- /navori:managed id="gh-protocol" -->`,
+        `<!-- /navori:managed id="tgrep-search-v2" -->`,
       ].join("\n"),
     );
     expect(scanDocBudget(cwd, config())!.blocks[0]!.lever).toBe("plugins");

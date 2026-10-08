@@ -406,7 +406,6 @@ describe("doc-budgets module (#917)", () => {
 
   it("names the computed blocks it deliberately leaves unbudgeted", () => {
     expect([...COMPUTED_BLOCKS_WITHOUT_BUDGET]).toEqual([
-      "skills-index",
       "contexto-proyecto",
       "agentes-disponibles",
     ]);
@@ -446,8 +445,8 @@ describe("doc-budgets module (#917)", () => {
     expect(byId["operaciones-seguras"]).toBe(
       DOC_BUDGETS["packages/core/core-assets/managed/operaciones-seguras.md"]! + MARKER_PAIR_WORDS,
     );
-    expect(byId["gh-protocol"]).toBe(
-      DOC_BUDGETS["packages/plugins/gh/managed/gh-protocol.md"]! + MARKER_PAIR_WORDS,
+    expect(byId["tgrep-search-v2"]).toBe(
+      DOC_BUDGETS["packages/plugins/tgrep/managed/tgrep-search-v2.md"]! + MARKER_PAIR_WORDS,
     );
     expect(byId["stack-vite-react-ts-mantine"]).toBe(
       DOC_BUDGETS["packages/core/core-assets/presets/vite-react-ts-mantine/managed/stack.md"]! +
@@ -485,8 +484,8 @@ describe("doc-budgets module (#917)", () => {
    */
   it("keeps the computed ceilings generous enough for real consumer configs", () => {
     expect(computedBlockCeiling("contexto-proyecto", 9)!).toBeGreaterThan(335);
-    // `bonum-webapp`: 32 skill rows / 208 words measured on a 0.9.0 render.
-    expect(computedBlockCeiling("skills-index", 32)!).toBeGreaterThan(208);
+    // This repo: 6 agent rows / 210 words measured.
+    expect(computedBlockCeiling("agentes-disponibles", 6)!).toBeGreaterThan(210);
   });
 
   /**

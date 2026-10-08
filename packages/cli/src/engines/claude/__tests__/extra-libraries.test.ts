@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, statSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
+import { renderAgentsMdEngine } from "../../agents-md/index.ts";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
 
 // #1104 — `project.extraLibraries` is user-owned: rendered like a detected lib
@@ -53,8 +54,9 @@ describe("renderClaudeEngine — project.extraLibraries (#1104)", () => {
   });
 
   // Covers: A2
-  it("labels the skills-index row as 'library (extra)'", () => {
-    renderClaudeEngine(cwd, cfg({ libraries: [], extraLibraries: ["zod-validation"] }));
+  it("labels the prose skills-index row as 'library (extra)'", () => {
+    // The Claude render has no skills index since #1273; AGENTS.md keeps it.
+    renderAgentsMdEngine(cwd, cfg({ libraries: [], extraLibraries: ["zod-validation"] }));
     const files = readdirSync(cwd, { recursive: true, encoding: "utf-8" }).filter(
       (f) => f.endsWith(".md") && statSync(join(cwd, f)).isFile(),
     );

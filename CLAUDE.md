@@ -98,29 +98,20 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, deplo
 **The permission mode decides what you CAN do — read it before planning how.** The host sets it, you never change it. `dontAsk` isn't supported today (`Edit`/`Write` aren't pre-approved, so the implement/review cycle can't run). Reference: https://code.claude.com/docs/en/permission-modes
 <!-- /navori:managed id="operaciones-seguras" -->
 
-<!-- navori:managed id="sdd" hash="439c2549" version="0.11.3" source="@navori/core" -->
+<!-- navori:managed id="sdd" hash="f71ff3ca" version="0.11.3" source="@navori/core" -->
 ## Spec Driven Development (SDD)
 
 **When to PROPOSE a spec**: real scope — a complete new feature, changes to auth/security/permissions, adapters or models with sensitive data, or scope > ~2 days. UI bugfixes, a new field in a form, isolated refactors, or copy tweaks go straight in. Crossing it makes SDD a **recommendation you put to the user**: the route is opt-in, so the spec starts only on their explicit request or accepted proposal.
 
-**Structure:** `specs/<feature>/{requirements.md, design.md, tasks.md}` — EARS requirements with id `R<n>`, a design with decisions and trade-offs, and `tasks.md` in deliveries `E<n>` (one PR each), milestones `M<n>` (each verified and committed) and tasks `T<n>` that declare the `R<n>` they cover. Each `R<n>` is covered by ≥1 test that references it (`// Covers: R<n>`); without full traceability the feature is not done.
-
-**Tracking in the spec, not in the harness:** with `tasks.md`, that's the board — do NOT use `TaskCreate` for those tasks (duplicating it produces drift between the spec and the TaskList); ignoring its reminder in SDD sessions is expected.
+**Spec tasks live in `tasks.md`:** do NOT use `TaskCreate` for them (ignore its reminder).
 
 Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the agent flow (`orchestrator`→`implementer`→`reviewer`) — lives in `spec-bootstrap`: propose SDD; it scaffolds once accepted, via prose or `/spec-bootstrap`.
 <!-- /navori:managed id="sdd" -->
 
-<!-- navori:managed id="intake-tickets" hash="071e0101" version="0.11.3" source="@navori/core" -->
+<!-- navori:managed id="intake-tickets" hash="d3a8e215" version="0.11.3" source="@navori/core" -->
 ## Tickets: problem first, proposed solution second
 
-A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a proposed solution. Treat them differently:
-
-- **The problem is the contract.** Verify it in the repo with evidence (`file:line`, a repro, a query) before writing code. If you can't confirm it, that's a finding to report — not a reason to implement anyway.
-- **The proposed solution is a suggestion, never the spec.** Evaluate it against the verified problem: it may solve it, mask it, or target something else. You have standing to propose a different path — cite why yours beats the ticket's.
-- **Not every ticket proceeds.** Legitimate outcomes besides "implement": already solved, can't reproduce, works as intended, needs splitting into N tickets, blocked on missing info. Saying so early — with evidence — beats a polished PR for the wrong fix. **None of them opens work, so none of them waits for approval:** report the verdict with its evidence and close the cycle. The human gate stays for `proceed` and `proceed-differently`, the two that open the chequebook.
-- **Size is measured, not assumed.** Before calling something small, run the command that proves it (call sites, files touched, layers crossed). A one-line description routinely hides a 13-call-site change.
-
-The `resolve-ticket` skill runs this as a pipeline; the `auditor` agent produces the verdict with evidence.
+A ticket's **problem is the contract** (verify it with evidence first); its **proposed solution is a suggestion**, never the spec. A verdict that opens no work needs no approval. Rules: `.claude/skills/resolve-ticket/SKILL.md`.
 <!-- /navori:managed id="intake-tickets" -->
 
 <!-- navori:managed id="code-discovery-routing" hash="64eb5632" version="0.11.3" source="@navori/core" -->
@@ -138,20 +129,6 @@ Choose by the missing information, not by keywords or a fixed tool sequence.
 - Validate changes with the project's compiler, linter and tests; discovery is not validation.
 <!-- /navori:managed id="code-discovery-routing" -->
 
-<!-- navori:managed id="gh-protocol" hash="b2d02c0b" version="0.11.3" source="@navori/plugin-gh" -->
-## GitHub CLI (gh)
-
-To interact with GitHub (issues, PRs, repos) use **gh**:
-
-- View an issue: `gh issue view <number>` or `gh issue view <number> --comments`
-- Search issues: `gh issue list --search "<query>"` or `gh issue list --label bug --state open`
-- Create a PR: `gh pr create --title "..." --body "..."`
-- View a PR + checks: `gh pr view <number> --checks` or `gh pr checks <number>`
-- List PRs: `gh pr list --state open`
-- View workflow runs: `gh run list --limit 5` or `gh run view <id> --log-failed`
-
-`gh auth status` shows whether you're authenticated. If it fails, run `gh auth login`.
-<!-- /navori:managed id="gh-protocol" -->
 
 <!-- navori:managed id="tgrep-search-v2" hash="0f13352d" version="0.11.3" source="@navori/plugin-tgrep" -->
 ### Textual provider: tgrep
@@ -165,39 +142,6 @@ Use `tgrep search -n [flags] -- PATTERN ROOT`; without `-n` piped output has no 
 Use `codegraph_explore` for structural discovery when available. Pass the current checkout's absolute `projectPath`; do not substitute another worktree's index. Treat fresh verbatim source in context as already read. Covers only its indexed languages (see codegraph status); docs, shell and config usually fall outside, so an empty result there is a gap, not absence. Never initialize an index during ordinary discovery. If unindexed or the provider fails, use scoped native exploration. Do not call tgrep merely to confirm the same symbol.
 <!-- /navori:managed id="codegraph-search-v2" -->
 
-<!-- navori:managed id="skills-index" hash="bf82f0de" version="0.11.3" source="@navori/core" -->
-## Skills disponibles
-
-Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/SKILL.md` — el directorio no es opcional: es la única forma que Claude Code descubre, también para las tuyas. El listado nativo del host entrega el "cuándo usar" de cada una.
-Las `project-local` son tuyas — navori las indexa pero nunca toca su contenido.
-
-- `verify-before-done` — navori
-- `debug-failure` — navori
-- `review-diff` — navori
-- `security-invariants` — navori
-- `secure-by-design` — navori
-- `locate-code` — navori
-- `scoped-gate` — navori
-- `resolve-ticket` — navori (workflow)
-- `solution-design` — navori (workflow)
-- `spec-bootstrap` — navori (workflow)
-- `dominio` — navori (workflow)
-- `follow-up-prs` — navori (workflow)
-- `quality-attributes` — navori (workflow)
-- `author-skill` — navori (workflow)
-- `plan-simple` — navori (workflow)
-- `plan-advanced` — navori (workflow)
-- `master-plan` — navori (workflow)
-- `context-intake` — navori (workflow)
-- `zod-validation` — library (detected)
-- `vitest` — library (detected)
-- `citty` — library (detected)
-- `clack` — library (detected)
-- `playwright-cli` — project-local
-- `author-agent` — project-local
-- `rebase-rerender` — project-local
-- `worktree-hygiene` — project-local
-<!-- /navori:managed id="skills-index" -->
 
 <!-- navori:managed id="contexto-proyecto" hash="b1ef1c95" version="0.11.3" source="@navori/core" -->
 ## Contexto del proyecto

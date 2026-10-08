@@ -185,6 +185,6 @@ describe("evals.md — the real run, for the rare new always-on layer (#396)", (
     // The eval is an extra instrument for one rare trigger. If it leaks into the
     // hard rules, every spec starts paying for a run that almost none needs.
     expect(topLevelSection(SPEC_BOOTSTRAP, "Hard rules")).not.toMatch(/evals/i);
-    expect(read(SPEC_BOOTSTRAP)).toContain("**Every `R<n>` ends in ≥1 task and ≥1 test.**");
+    expect(read(SPEC_BOOTSTRAP)).toContain("**Every `R<n>` ends in ≥1 task and ≥1 test**");
   });
 });
