@@ -721,6 +721,29 @@ function collectOrphans(
   return { removals, kept };
 }
 
+let realWrites = 0;
+
+/**
+ * Record that a command REALLY wrote or removed something (not a preview). The
+ * registry (`harnessVersion`) bumps only after an apply that did, so every
+ * commit chokepoint calls this: `commitWrites`, the prose harness, prune, sync
+ * resolutions and `adopt`. A module-level counter on purpose: results come in
+ * about ten shapes and there is no single aggregate to read after the fact.
+ */
+export function noteRealWrite(): void {
+  realWrites += 1;
+}
+
+/** Zero the real-write counter at the start of an apply. */
+export function resetRealWrites(): void {
+  realWrites = 0;
+}
+
+/** Whether a real write/removal happened since {@link resetRealWrites}. */
+export function hadRealWrites(): boolean {
+  return realWrites > 0;
+}
+
 /**
  * Capa 3, mitad 2: back up, write atomically, chmod, prune — once. Shared by
  * every engine (Spec 0008 C.1). Parametrized where engines legitimately
@@ -806,6 +829,7 @@ export function commitWrites(input: {
         current = item.path;
         mkdirSync(dirname(item.path), { recursive: true });
         writeFileAtomic(item.path, item.content);
+        noteRealWrite();
         if (item.chmodExec) {
           try {
             chmodSync(item.path, 0o755);
@@ -819,6 +843,7 @@ export function commitWrites(input: {
         for (const removal of removals) {
           current = removal.path;
           rmSync(removal.path, { recursive: removal.recursive === true, force: true });
+          noteRealWrite();
           completed.push(relative(cwd, removal.path));
         }
       }
@@ -839,6 +864,7 @@ export function commitWrites(input: {
       for (const removal of removals) {
         try {
           rmSync(removal.path, { recursive: removal.recursive === true, force: true });
+          noteRealWrite();
         } catch {
           // Best effort — a read-only scripts dir shouldn't crash the render.
         }

@@ -75,15 +75,16 @@ function fixtureGit(repo: string, args: string[]): void {
 }
 
 /**
- * Simulate "the core moved, the mirror didn't": rewind the version stamp of the
- * FIRST managed block in `file`. The block's content still matches its own hash
- * (so it reads as pristine, not hand-edited) but its metadata is a release
- * behind — exactly the shape a mirror rendered by an older navori has, and what
- * makes `injectManagedSection` report `updated` instead of `unchanged`.
+ * Simulate "the core moved, the mirror didn't": drift the `source=` provenance
+ * of the FIRST managed block in `file`. The block's content still matches its
+ * own hash (so it reads as pristine, not hand-edited) but its metadata differs
+ * from what the core renders — exactly what makes `injectManagedSection` report
+ * `updated` instead of `unchanged`. (A version stamp alone no longer counts:
+ * an identical body keeps its last-change version, #1262.)
  */
-function rewindVersionStamp(file: string): void {
+function driftBlockMetadata(file: string): void {
   const before = readFileSync(file, "utf-8");
-  const after = before.replace(/version="[^"]+"/, 'version="0.0.1"');
+  const after = before.replace(/source="[^"]+"/, 'source="@navori/drifted"');
   expect(after).not.toBe(before);
   writeFileSync(file, after, "utf-8");
 }
@@ -193,7 +194,7 @@ describe("check-render — harness mirror drift guard (#421)", () => {
     const ignore: string = join(repo, ".gitignore");
     writeFileSync(ignore, `${readFileSync(ignore, "utf-8")}\n/.claude/hooks/\n`);
     const hook: string = join(repo, ".claude/hooks/guard-destructive.sh");
-    rewindVersionStamp(hook);
+    driftBlockMetadata(hook);
     const before: string = readFileSync(hook, "utf-8");
     const check: RunResult = runCheck(repo);
     expect(check.status).toBe(1);
@@ -216,7 +217,7 @@ describe("check-render — harness mirror drift guard (#421)", () => {
   it("exits non-zero when a rendered hook is a release behind the core", () => {
     const repo = seedRenderedRepo();
     const hook = join(repo, ".claude/hooks/guard-destructive.sh");
-    rewindVersionStamp(hook);
+    driftBlockMetadata(hook);
     const beforeCheck = readFileSync(hook, "utf-8");
 
     const check = runCheck(repo);
@@ -238,7 +239,7 @@ describe("check-render — harness mirror drift guard (#421)", () => {
 
   it("exits non-zero when a CLAUDE.md managed block is stale, naming the block", () => {
     const repo = seedRenderedRepo();
-    rewindVersionStamp(join(repo, "CLAUDE.md"));
+    driftBlockMetadata(join(repo, "CLAUDE.md"));
 
     const check = runCheck(repo);
     expect(check.status).toBe(1);
@@ -277,7 +278,7 @@ describe("check-render — harness mirror drift guard (#421)", () => {
 
   it("render --json exposes the per-file plan the guard reads (#421 contract)", () => {
     const repo = seedRenderedRepo();
-    rewindVersionStamp(join(repo, ".claude/hooks/guard-destructive.sh"));
+    driftBlockMetadata(join(repo, ".claude/hooks/guard-destructive.sh"));
 
     const r = runCli(["render", "--json", "--cwd", repo]);
     expect(r.status).toBe(0);

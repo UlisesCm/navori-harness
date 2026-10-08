@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { isDowngrade } from "../primitives/semver.ts";
+import { compareSemver, isDowngrade, parseSemver } from "../primitives/semver.ts";
 import { readCliVersion } from "./bundled-assets.ts";
 import { tc, SUPPORTED_LANGS, DEFAULT_LANG, type Lang } from "../i18n.ts";
 
@@ -81,6 +81,35 @@ export interface MarkerMeta {
    * a retired key (e.g. `disable-model-invocation`) used to survive forever.
    */
   fmKeys?: string[];
+  /**
+   * Per-block anti-rollback floor: the registry's `harnessVersion` (latest
+   * navori that applied a real change). The downgrade check uses
+   * `max(existing marker version, floorVersion)`, so a frozen marker (stamped
+   * at its last content change) is still protected from an older CLI. Input
+   * only — it is NEVER written into the marker.
+   */
+  floorVersion?: string;
+}
+
+/**
+ * Ambient anti-rollback floor for the current render/sync run. Every engine
+ * builds its marker meta from the CLI version alone (25 call sites), so the
+ * registry's `harnessVersion` is set here once by the command that read the
+ * config, instead of being threaded through each one. `meta.floorVersion`
+ * (explicit) wins over it. Callers clear it when the run ends.
+ */
+let ambientFloorVersion: string | undefined;
+
+/** Set (or clear, with `undefined`) the run-wide floor used by {@link injectManagedSection}. */
+export function setMarkerFloorVersion(floor: string | undefined): void {
+  ambientFloorVersion = floor;
+}
+
+/** The newer of two versions; an unparseable side loses to a parseable one. */
+function maxSemver(a: string | null, b: string | undefined): string | null {
+  if (b === undefined || parseSemver(b) === null) return a;
+  if (a === null || parseSemver(a) === null) return b;
+  return compareSemver(a, b) === -1 ? b : a;
 }
 
 function openMarker(id: string, hash: string, meta: MarkerMeta, syntax: MarkerSyntax): string {
@@ -246,7 +275,9 @@ export interface InjectResult {
     existingVersion?: string | null;
     existingSource?: string | null;
     /** True when the existing marker declared a version distinct from the
-     * one being injected. Useful to surface "update available" in sync. */
+     * one being injected AND the body differs. A version-only difference with
+     * identical content is not an update: the marker keeps its last-change
+     * version. Useful to surface "update available" in sync. */
     versionDrift?: boolean;
     /** True when the existing marker was written by a STRICTLY NEWER navori
      * than the one injecting (anti-retroceso, issue #79). When set and the
@@ -349,6 +380,12 @@ export function injectManagedSection(
    * keeps the safe behavior: a user-modified block is never silently clobbered.
    */
   forceOverwrite = false,
+  /**
+   * Stamp `meta.version` even when the body is identical. For callers that
+   * wrote a real change outside the hashed body (frontmatter) and need the
+   * marker to record it. Default false: an identical body keeps its version.
+   */
+  restamp = false,
 ): InjectResult {
   const syntax = syntaxFor(commentStyle);
 
@@ -397,7 +434,9 @@ export function injectManagedSection(
   const expectedHash = match.existingHash;
   const userModified = expectedHash !== null && expectedHash !== actualHash;
 
+  const bodyUnchanged = canonicalContent === match.content;
   const versionDrift =
+    !bodyUnchanged &&
     match.existingVersion !== null &&
     meta.version !== undefined &&
     match.existingVersion !== meta.version;
@@ -408,7 +447,10 @@ export function injectManagedSection(
   // hits running `update`/`sync`. Detect it here, at the one primitive every
   // managed block flows through, so CLAUDE.md, agents, skills, hooks and
   // scripts are all covered.
-  const downgrade = isDowngrade(match.existingVersion, meta.version);
+  const downgrade = isDowngrade(
+    maxSemver(match.existingVersion, meta.floorVersion ?? ambientFloorVersion),
+    meta.version,
+  );
 
   const details = {
     existingHash: expectedHash,
@@ -420,7 +462,7 @@ export function injectManagedSection(
     downgrade,
   };
 
-  if (canonicalContent === match.content) {
+  if (bodyUnchanged) {
     // Normalize "no keys declared" (undefined/[]) and "attribute absent"
     // (null) to the same empty string so a body-only render doesn't spuriously
     // rewrite the marker, while still forcing a write the one time `fmkeys`
@@ -429,9 +471,16 @@ export function injectManagedSection(
     // the snapshot would never actually land on disk.
     const existingFmKeysStr = (match.existingFmKeys ?? []).join(",");
     const desiredFmKeysStr = (meta.fmKeys ?? []).join(",");
+    // The version is ignored only when the block already carries one: it
+    // records the last navori that CHANGED the block, so a newer CLI with an
+    // identical body must not restamp it. A versionless block is still stamped
+    // (else it stays "foreign" to prune/retire forever).
+    const sameVersion =
+      (!restamp && match.existingVersion !== null) ||
+      match.existingVersion === (meta.version ?? null);
     const sameMeta =
       expectedHash === newHash &&
-      match.existingVersion === (meta.version ?? null) &&
+      sameVersion &&
       match.existingSource === (meta.source ?? null) &&
       existingFmKeysStr === desiredFmKeysStr;
     if (sameMeta) {

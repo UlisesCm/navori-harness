@@ -6,6 +6,8 @@ import { createBackup } from "../lib/render/backup.ts";
 import { readCliVersion } from "../lib/render/bundled-assets.ts";
 import { readConfigOrExit } from "../lib/config/cli-config.ts";
 import { injectManagedSection } from "../lib/render/marker.ts";
+import { recordHarnessVersionIfWritten } from "./render.ts";
+import { noteRealWrite, resetRealWrites } from "../engines/shared/execute-plan.ts";
 import { listMarkers } from "../lib/diagnose/health.ts";
 import { resolveLang, tc, DEFAULT_LANG } from "../lib/i18n.ts";
 import { accent, brand, dim } from "../lib/primitives/style.ts";
@@ -150,6 +152,11 @@ export const adoptCommand = defineCommand({
     // nobody can find is not one (R13).
     const handle = createBackup(cwd, [plan.relPath]);
     writeFileSync(plan.path, plan.content, "utf-8");
+    // The adopted block is stamped with this CLI: a real write, so the registry
+    // must not lag behind it.
+    resetRealWrites();
+    noteRealWrite();
+    if (existsSync(configPath)) recordHarnessVersionIfWritten(cwd);
     p.log.success(t.adopted(plan.relPath, plan.markerId));
     p.outro(dim(t.backupAt(handle.path)));
   },

@@ -26,6 +26,9 @@ vi.mock(import("../../../lib/primitives/home.ts"), () => ({ safeHomedir: () => h
 
 const { writeConfig } = await import("../../../lib/config/config.ts");
 const { runRender } = await import("../../../commands/render.ts");
+const { syncCommand } = await import("../../../commands/sync.ts");
+const { adoptCommand } = await import("../../../commands/adopt.ts");
+const { readCliVersion } = await import("../../../lib/render/bundled-assets.ts");
 const { backupRoot } = await import("../../../lib/render/backup.ts");
 const { EPHEMERAL_HARNESS_PATHS } = await import("../ephemeral-paths.ts");
 
@@ -66,22 +69,22 @@ function backupIds(): string[] {
 }
 
 /**
- * Stamp an OLDER navori version into every managed marker in the repo, leaving
- * each body byte-identical — the shape of a release restamp, and the dominant
- * real-world reason a render rewrites files (marker.ts §"content is identical
- * but metadata differs"). One render then touches everything it owns, which is
- * what makes the invariant below worth asserting.
+ * Drift the `source=` provenance in every managed marker in the repo, leaving
+ * each body byte-identical and its hash valid. A metadata difference is a real
+ * change the next render writes back, so one render touches everything it owns
+ * — what makes the invariant below worth asserting. (A version-only difference
+ * no longer rewrites anything, #1262, so it cannot drive this fixture.)
  */
-function restampEveryManagedMarker(root: string): number {
-  let stamped = 0;
+function driftEveryManagedMarker(root: string): number {
+  let drifted = 0;
   for (const [rel, content] of snapshotTree(root)) {
     if (!content.includes("navori:managed")) continue;
-    const older = content.replace(/version="[^"]+"/g, 'version="0.0.1"');
-    if (older === content) continue;
-    writeFileSync(join(root, rel), older, "utf-8");
-    stamped++;
+    const changed = content.replace(/source="[^"]+"/g, 'source="@navori/drifted"');
+    if (changed === content) continue;
+    writeFileSync(join(root, rel), changed, "utf-8");
+    drifted++;
   }
-  return stamped;
+  return drifted;
 }
 
 /** Ephemeral harness state is excluded from every backup on purpose (#348). */
@@ -94,7 +97,7 @@ describe("render — every write is covered by a backup (#458)", () => {
     writeFileSync(join(cwd, ".gitignore"), "node_modules/\n# the user's own rule\n.env.local\n");
     runRender(cwd, { dryRun: false });
 
-    expect(restampEveryManagedMarker(cwd)).toBeGreaterThan(10);
+    expect(driftEveryManagedMarker(cwd)).toBeGreaterThan(10);
 
     const before = snapshotTree(cwd);
     const idsBefore = new Set(backupIds());
@@ -189,5 +192,182 @@ describe("render — every write is covered by a backup (#458)", () => {
         `commitWrites() (${CHOKE_POINT}) — or, if it genuinely cannot destroy repo content, add it ` +
         `to ALLOWED here with the reason:\n  ${offenders.join("\n  ")}`,
     ).toEqual([]);
+  });
+});
+
+// Covers: A2
+describe("registry — harnessVersion + frozen JSON stamps (#1262)", () => {
+  const configPath = (): string => join(cwd, "navori.config.json");
+  const readRaw = (): Record<string, unknown> =>
+    JSON.parse(readFileSync(configPath(), "utf-8")) as Record<string, unknown>;
+  /** Rewrite the config in canonical form with `harnessVersion` set. */
+  const setRegistry = (harnessVersion: string): void => {
+    writeFileSync(configPath(), JSON.stringify({ ...readRaw(), harnessVersion }, null, 2) + "\n");
+  };
+  const settingsPath = (): string => join(cwd, ".claude/settings.json");
+  const patchSettings = (patch: (s: Record<string, unknown>) => void): void => {
+    const parsed = JSON.parse(readFileSync(settingsPath(), "utf-8")) as Record<string, unknown>;
+    patch(parsed);
+    writeFileSync(settingsPath(), JSON.stringify(parsed, null, 2) + "\n");
+  };
+  const stamp = (s: Record<string, unknown>, version: string): void => {
+    (s.$navori as { version: string }).version = version;
+  };
+  const agentRel = ".claude/agents/reviewer.md";
+
+  it("records the CLI version after an apply that wrote, and never on a preview", () => {
+    config({ engines: ["claude"] });
+    runRender(cwd, { dryRun: true });
+    expect(readRaw().harnessVersion).toBeUndefined();
+
+    runRender(cwd, { dryRun: false });
+    expect(readRaw().harnessVersion).toBe(readCliVersion());
+  });
+
+  it("leaves navori.config.json byte-identical on a no-op apply", () => {
+    config({ engines: ["claude"] });
+    runRender(cwd, { dryRun: false });
+    setRegistry("0.0.1"); // an older recorded value a no-op must NOT bump
+    const before = readFileSync(configPath(), "utf-8");
+
+    const second = runRender(cwd, { dryRun: false });
+    expect(second.engineResult?.written).toEqual([]);
+    expect(readFileSync(configPath(), "utf-8")).toBe(before);
+  });
+
+  it("bumps an older registry when the apply really changes something", () => {
+    config({ engines: ["claude"] });
+    runRender(cwd, { dryRun: false });
+    setRegistry("0.0.1");
+    rmSync(join(cwd, agentRel));
+
+    runRender(cwd, { dryRun: false });
+    expect(readRaw().harnessVersion).toBe(readCliVersion());
+  });
+
+  it("never lowers a newer registry", () => {
+    config({ engines: ["claude"], harnessVersion: "99.0.0" });
+    const first = runRender(cwd, { dryRun: false });
+    expect(first.engineResult?.written.length).toBeGreaterThan(0);
+    expect(readRaw().harnessVersion).toBe("99.0.0");
+  });
+
+  it("skips a non-canonical config with a warning instead of reformatting it", () => {
+    config({ engines: ["claude"] });
+    const indented = JSON.stringify(readRaw(), null, 4) + "\n";
+    writeFileSync(configPath(), indented);
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    runRender(cwd, { dryRun: false });
+    const warned = stderr.mock.calls.some(([chunk]) => String(chunk).includes("harnessVersion"));
+    stderr.mockRestore();
+    expect(readFileSync(configPath(), "utf-8")).toBe(indented);
+    expect(warned).toBe(true);
+  });
+
+  it("uses harnessVersion as a per-block floor: an older CLI cannot overwrite a block", () => {
+    config({ engines: ["claude"] });
+    runRender(cwd, { dryRun: false });
+    const agent = join(cwd, agentRel);
+    // A hand edit inside the block: without the floor the block (stamped at the
+    // CLI version) reads as user-modified; only a newer floor makes it a downgrade.
+    writeFileSync(
+      agent,
+      readFileSync(agent, "utf-8").replace(/(<!-- navori:managed [^>]*-->\n)/, "$1HAND EDIT\n"),
+    );
+    setRegistry("99.0.0");
+    const before = readFileSync(agent, "utf-8");
+
+    const result = runRender(cwd, { dryRun: false });
+    expect(readFileSync(agent, "utf-8")).toBe(before);
+    expect(
+      result.engineResult?.skipped.some(
+        (f) => f.path === agentRel && f.status === "downgrade-skipped",
+      ),
+    ).toBe(true);
+  });
+
+  it("freezes the settings.json stamp when only the CLI version moved", () => {
+    config({ engines: ["claude"] });
+    runRender(cwd, { dryRun: false });
+    patchSettings((s) => stamp(s, "0.0.1"));
+    const before = readFileSync(settingsPath(), "utf-8");
+
+    const result = runRender(cwd, { dryRun: false });
+    expect(result.engineResult?.written.map((w) => w.path)).not.toContain(".claude/settings.json");
+    expect(readFileSync(settingsPath(), "utf-8")).toBe(before);
+  });
+
+  it("stamps the CLI version when the settings content really changes", () => {
+    config({ engines: ["claude"] });
+    runRender(cwd, { dryRun: false });
+    patchSettings((s) => {
+      stamp(s, "0.0.1");
+      s.effortLevel = "low";
+    });
+
+    runRender(cwd, { dryRun: false });
+    const after = JSON.parse(readFileSync(settingsPath(), "utf-8")) as {
+      $navori: { version: string };
+    };
+    expect(after.$navori.version).toBe(readCliVersion());
+  });
+
+  it("does not roll settings.json back when its stamp or the floor is newer; --force does", () => {
+    config({ engines: ["claude"] });
+    runRender(cwd, { dryRun: false });
+    patchSettings((s) => {
+      stamp(s, "99.0.0");
+      s.effortLevel = "low";
+    });
+    const before = readFileSync(settingsPath(), "utf-8");
+
+    const skipped = runRender(cwd, { dryRun: false });
+    expect(readFileSync(settingsPath(), "utf-8")).toBe(before);
+    expect(
+      skipped.engineResult?.skipped.some(
+        (f) => f.path === ".claude/settings.json" && f.status === "downgrade-skipped",
+      ),
+    ).toBe(true);
+
+    // The floor alone (stamp older, registry newer) guards it too.
+    patchSettings((s) => stamp(s, "0.0.1"));
+    setRegistry("99.0.0");
+    const floored = readFileSync(settingsPath(), "utf-8");
+    runRender(cwd, { dryRun: false });
+    expect(readFileSync(settingsPath(), "utf-8")).toBe(floored);
+
+    runRender(cwd, { dryRun: false, force: true });
+    expect(readFileSync(settingsPath(), "utf-8")).not.toBe(floored);
+  });
+
+  it("sync --apply that writes records the registry", async () => {
+    config({ engines: ["claude"] });
+    runRender(cwd, { dryRun: false });
+    setRegistry("0.0.1");
+    rmSync(join(cwd, agentRel));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await syncCommand.run?.({
+      rawArgs: [],
+      cmd: syncCommand,
+      args: { _: [], cwd, json: true, apply: true } as never,
+    });
+    log.mockRestore();
+    expect(readRaw().harnessVersion).toBe(readCliVersion());
+  });
+
+  it("adopt --apply records the registry", async () => {
+    config({ engines: ["claude"] });
+    runRender(cwd, { dryRun: false });
+    setRegistry("0.0.1");
+    writeFileSync(join(cwd, ".claude/agents/handmade.md"), "# my agent\n");
+
+    await adoptCommand.run?.({
+      rawArgs: [],
+      cmd: adoptCommand,
+      args: { _: [], cwd, path: ".claude/agents/handmade.md", apply: true } as never,
+    });
+    expect(readRaw().harnessVersion).toBe(readCliVersion());
   });
 });

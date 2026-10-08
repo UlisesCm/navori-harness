@@ -2,7 +2,12 @@ import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, rmSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
-import { readConfig, ConfigError, type NavoriConfig } from "../lib/config/config.ts";
+import {
+  readConfig,
+  recordHarnessVersion,
+  ConfigError,
+  type NavoriConfig,
+} from "../lib/config/config.ts";
 import { loadEnabledPlugins } from "../lib/config/plugins.ts";
 import {
   measureDocBudgetFile,
@@ -29,7 +34,14 @@ import { resolveCodexHooks, minCodexVersion } from "../engines/codex/hook-regist
 import { readCodexTrustState } from "../lib/codex/trust.ts";
 import type { ProseEngineResult } from "../engines/shared/prose-harness.ts";
 import { ENGINE_CAPABILITIES } from "../engines/shared/engine-capabilities.ts";
-import type { SkippedFile } from "../engines/shared/execute-plan.ts";
+import {
+  hadRealWrites,
+  noteRealWrite,
+  resetRealWrites,
+  type SkippedFile,
+} from "../engines/shared/execute-plan.ts";
+import { readCliVersion } from "../lib/render/bundled-assets.ts";
+import { setMarkerFloorVersion } from "../lib/render/marker.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
 import {
   renderGitignore,
@@ -166,6 +178,7 @@ function reconcileTrimmedWorkspace(
     // Never recursive: the plan enumerated FILES, so a directory only goes away
     // through `removeEmptyDirs` — that is, when nothing of the user's is left.
     for (const rel of plan.remove) rmSync(resolve(wsCwd, rel), { force: true });
+    noteRealWrite();
     removeEmptyDirs(wsCwd, present);
   }
   sweepEmptyHarnessDirs();
@@ -289,6 +302,7 @@ export function renderNonClaudeEngines(
     const render = PROSE_ENGINES[eng];
     if (render) {
       const r = render(cwd, config, { dryRun, repoRoot });
+      if (!dryRun && r.written.length > 0) noteRealWrite();
       if (eng === "codex") appendCodexTrustHint(r.warnings, cwd, repoRoot, config, lang);
       out.push({ engine: eng, ...r });
     } else if (warnMissingAdapters) {
@@ -434,6 +448,44 @@ export interface RunRenderOptions {
 }
 
 /**
+ * After an `--apply` that committed at least one real write or removal, record
+ * the CLI version as the repo's `harnessVersion` (never lowered; see
+ * `recordHarnessVersion`). A no-op apply leaves `navori.config.json` untouched.
+ * Shared by `render`, `sync` and `adopt` so the three apply paths cannot drift.
+ */
+export function recordHarnessVersionIfWritten(cwd: string): void {
+  if (!hadRealWrites()) return;
+  const outcome = recordHarnessVersion(`${cwd}/navori.config.json`, readCliVersion());
+  if (outcome === "non-canonical" || outcome === "unreadable") {
+    process.stderr.write(
+      `navori: harnessVersion not recorded in navori.config.json (${outcome}); the file is left untouched.\n`,
+    );
+  }
+}
+
+/**
+ * Render the harness into `cwd`. Wraps {@link runRenderCore} with the registry
+ * bookkeeping: zero the real-write counter, run, clear the floor, and record
+ * `harnessVersion` once when an apply really changed something.
+ */
+export function runRender(
+  cwd: string,
+  dryRunOrOptions: boolean | RunRenderOptions = false,
+  force = false,
+): ReturnType<typeof runRenderCore> {
+  const dryRun =
+    typeof dryRunOrOptions === "boolean" ? dryRunOrOptions : Boolean(dryRunOrOptions.dryRun);
+  resetRealWrites();
+  try {
+    const result = runRenderCore(cwd, dryRunOrOptions, force);
+    if (!dryRun && result.ok) recordHarnessVersionIfWritten(cwd);
+    return result;
+  } finally {
+    setMarkerFloorVersion(undefined);
+  }
+}
+
+/**
  * Run the render flow against `cwd`. Reusable from other commands (e.g. init).
  * The top-level fields always describe the repo root render so existing callers
  * (init.ts) keep working unchanged. When `config.monorepo.workspaces[]` is
@@ -445,7 +497,7 @@ export interface RunRenderOptions {
  * (there is no root render to conflict with, #77). This is the "iterate one
  * app" path for monorepos.
  */
-export function runRender(
+function runRenderCore(
   cwd: string,
   dryRunOrOptions: boolean | RunRenderOptions = false,
   force = false,
@@ -566,6 +618,8 @@ export function runRender(
   }
   const lang = resolveLang(config.language);
   benchMark("loadConfig");
+  // Anti-rollback floor for every managed block this run touches (see marker.ts).
+  setMarkerFloorVersion(config.harnessVersion);
 
   // #589 — keep the registry's cached display name in step with the config.
   // Only `init` and `update` ever wrote that name, and neither runs during a
@@ -828,6 +882,21 @@ export function runRender(
     lang,
   });
 
+  // These ignore-file reconciliations are real writes too: a release whose only
+  // change is a new ignore rule must still advance `harnessVersion`.
+  if (!dryRun) {
+    const ignoreResults = [
+      gitignore,
+      claudeGitignore,
+      codexGitignore,
+      navoriGitignore,
+      prettierignore,
+    ];
+    if (ignoreResults.some((r) => r?.status === "created" || r?.status === "updated")) {
+      noteRealWrite();
+    }
+  }
+
   // #312: outputs owned only by engines no longer in config.engines[] (a stale
   // AGENTS.md/.codex after narrowing to claude) linger because render never
   // revisits a disabled engine. Report them always; with --prune on an apply
@@ -874,6 +943,7 @@ export function runRender(
       // Never recursive: the plan enumerated FILES, so a directory can only go
       // away through `removeEmptyDirs` — i.e. when nothing of the user's is left.
       for (const rel of removable) rmSync(resolve(cwd, rel), { force: true });
+      noteRealWrite();
       removeEmptyDirs(cwd, paths);
     }
     prunedEngineOutputs = removable;

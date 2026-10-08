@@ -4,6 +4,7 @@ import { writeFileAtomic } from "../primitives/atomic.ts";
 import { NavoriError } from "../primitives/errors.ts";
 import { NavoriConfigSchema, type NavoriConfig, type NavoriConfigInput } from "./schema.ts";
 import { tc, resolveLang } from "../i18n.ts";
+import { compareSemver, parseSemver } from "../primitives/semver.ts";
 import { schemaUrl } from "./schema-url.ts";
 
 const SCHEMA_URL = schemaUrl("navori.config.v1.json");
@@ -270,6 +271,7 @@ const CONFIG_KEY_RULE: ConfigObjectRule = {
     "$schema",
     "name",
     "version",
+    "harnessVersion",
     "workspace",
     "engines",
     "preset",
@@ -503,6 +505,61 @@ export function writeConfig(path: string, input: NavoriConfigInput): void {
   const validated = NavoriConfigSchema.parse({ $schema: SCHEMA_URL, ...input });
   const preserved = preserveForwardCompatEnums(input, validated);
   writeFileAtomic(path, JSON.stringify(preserved, null, 2) + "\n");
+}
+
+/** What {@link recordHarnessVersion} did. */
+export type RecordHarnessVersionResult = "recorded" | "unchanged" | "non-canonical" | "unreadable";
+
+/**
+ * Record `cliVersion` as the config's `harnessVersion` (the newest navori that
+ * applied a real change) — only ever UP, and only when `navori.config.json` is
+ * already in the canonical shape `writeConfig` produces. A raw JSON round-trip,
+ * not `writeConfig`: no zod, so no defaults get injected and key order is kept
+ * (the new key lands right after `version`, or `name`). A hand-formatted file is
+ * left byte-identical (`non-canonical`) rather than reformatted. A `cliVersion`
+ * that does not parse (dev build) never records.
+ */
+export function recordHarnessVersion(
+  configPath: string,
+  cliVersion: string,
+): RecordHarnessVersionResult {
+  if (parseSemver(cliVersion) === null) return "unchanged";
+  let text: string;
+  let raw: unknown;
+  try {
+    text = readFileSync(configPath, "utf-8");
+    raw = JSON.parse(text);
+  } catch {
+    return "unreadable";
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "unreadable";
+  if (JSON.stringify(raw, null, 2) + "\n" !== text) return "non-canonical";
+  const record = raw as Record<string, unknown>;
+  const current = record.harnessVersion;
+  if (typeof current === "string") {
+    // Equal or newer already recorded. An unparseable stored value compares as
+    // null and is overwritten.
+    const order = compareSemver(cliVersion, current);
+    if (order === 0 || order === -1) return "unchanged";
+  }
+  let next: Record<string, unknown>;
+  if ("harnessVersion" in record) {
+    next = { ...record, harnessVersion: cliVersion };
+  } else {
+    next = {};
+    const anchor = "version" in record ? "version" : "name";
+    let placed = false;
+    for (const [key, value] of Object.entries(record)) {
+      next[key] = value;
+      if (key === anchor) {
+        next.harnessVersion = cliVersion;
+        placed = true;
+      }
+    }
+    if (!placed) next.harnessVersion = cliVersion;
+  }
+  writeFileAtomic(configPath, JSON.stringify(next, null, 2) + "\n");
+  return "recorded";
 }
 
 /**

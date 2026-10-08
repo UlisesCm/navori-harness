@@ -1,3 +1,5 @@
+import { isDowngrade } from "./semver.ts";
+
 /**
  * The JSON notation of navori's authorship marker: a top-level `$navori` key.
  *
@@ -65,4 +67,67 @@ export function readNavoriOwnership(content: string): NavoriOwnership | null {
  */
 export function isNavoriOwnedSettings(parsed: unknown): boolean {
   return parseNavoriOwnership(parsed)?.managed === true;
+}
+
+/** Outcome of {@link planStampedJson}. */
+export type StampedJsonPlan =
+  | { kind: "noop" }
+  | { kind: "write"; content: string }
+  /** A real change, but the file's stamp (or the harness floor) is newer than
+   *  the CLI: writing would roll a newer navori's output back (#79). */
+  | { kind: "downgrade-skipped"; existingVersion: string };
+
+/**
+ * Decide whether a navori-stamped JSON file (`.claude/settings.json`,
+ * `.mcp.json`) must be rewritten, without letting the release number alone
+ * force a write. The stamp records the release that last CHANGED the file:
+ *
+ *  - candidate identical to the file once the candidate carries the EXISTING
+ *    stamp → `noop` (a newer CLI over unchanged content leaves it untouched);
+ *  - otherwise it is a real change: when the existing stamp or the harness
+ *    `floor` is newer than the CLI → `downgrade-skipped` (unless `force`);
+ *    else `write` the candidate, stamped with the CLI version.
+ *
+ * `candidate` is the full serialized file stamped with the CLI version. A file
+ * with no readable stamp, or a candidate with none, falls back to byte equality.
+ */
+export function planStampedJson(
+  current: string,
+  candidate: string,
+  cliVersion: string,
+  floor?: string,
+  force = false,
+): StampedJsonPlan {
+  if (current === candidate) return { kind: "noop" };
+  const existingVersion = readNavoriOwnership(current)?.version;
+  if (existingVersion !== undefined) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      parsed = null;
+    }
+    const ownership = parseNavoriOwnership(parsed);
+    if (ownership !== null && parsed !== null && typeof parsed === "object") {
+      const record = parsed as Record<string, unknown>;
+      // Reassigning an existing key keeps its position (the stamp stays first).
+      const frozen = {
+        ...record,
+        [NAVORI_OWNERSHIP_KEY]: {
+          ...(record[NAVORI_OWNERSHIP_KEY] as Record<string, unknown>),
+          version: existingVersion,
+        },
+      };
+      if (JSON.stringify(frozen, null, 2) + "\n" === current) return { kind: "noop" };
+    }
+  }
+  if (!force) {
+    if (isDowngrade(existingVersion, cliVersion)) {
+      return { kind: "downgrade-skipped", existingVersion: existingVersion as string };
+    }
+    if (isDowngrade(floor, cliVersion)) {
+      return { kind: "downgrade-skipped", existingVersion: floor as string };
+    }
+  }
+  return { kind: "write", content: candidate };
 }

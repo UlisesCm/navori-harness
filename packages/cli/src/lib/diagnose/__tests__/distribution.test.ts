@@ -286,6 +286,58 @@ describe("scanDistribution — the four divergences", () => {
     expect(base?.baseVersion).toBeNull();
   });
 
+  /** `writeHarness`, but the registry (`harnessVersion`) disagrees with the settings stamp. */
+  function writeRegistry(cwd: string, harnessVersion: string): void {
+    writeFileSync(
+      join(cwd, "navori.config.json"),
+      `${JSON.stringify({ name: "fx", harnessVersion }, null, 2)}\n`,
+    );
+  }
+
+  // Covers: A3
+  it("reads the registry's harnessVersion on both sides, ahead of the settings stamp", () => {
+    const { origin, cwd } = publishedRepo("0.7.7");
+    const other = clone(origin, "registry-base");
+    writeRegistry(other, "0.8.0");
+    commitAll(other, "registry 0.8.0");
+    git(other, "push", "-q", "origin", "main");
+    git(cwd, "fetch", "-q", "origin");
+    git(cwd, "merge", "-q", "--ff-only", "origin/main");
+    git(cwd, "checkout", "-q", "-b", "feat/registry");
+    writeRegistry(cwd, "0.9.0");
+    commitAll(cwd, "registry 0.9.0");
+
+    const base = scanDistribution(cwd, config())?.base;
+    expect(base?.localVersion).toBe("0.9.0");
+    expect(base?.baseVersion).toBe("0.8.0");
+  });
+
+  // Covers: A3
+  it("falls back to the settings stamp when the base's navori.config.json is invalid JSON", () => {
+    const { origin, cwd } = publishedRepo("0.7.7");
+    const other = clone(origin, "invalid-base");
+    writeFileSync(join(other, "navori.config.json"), "{ not json");
+    commitAll(other, "break config");
+    git(other, "push", "-q", "origin", "main");
+    git(cwd, "fetch", "-q", "origin");
+
+    const base = scanDistribution(cwd, config())?.base;
+    expect(base?.baseVersion).toBe("0.7.7");
+  });
+
+  // Covers: A3
+  it("falls back to the settings stamp when the base ships no navori.config.json", () => {
+    const { origin, cwd } = publishedRepo("0.7.7");
+    const other = clone(origin, "missing-base");
+    git(other, "rm", "-q", "navori.config.json");
+    commitAll(other, "drop config");
+    git(other, "push", "-q", "origin", "main");
+    git(cwd, "fetch", "-q", "origin");
+
+    const base = scanDistribution(cwd, config())?.base;
+    expect(base?.baseVersion).toBe("0.7.7");
+  });
+
   it("renders the sentence that names both versions — the claim, not the count", () => {
     const { cwd } = publishedRepo("0.7.7");
     git(cwd, "checkout", "-q", "-b", "chore/harness-navori-0.8.6");

@@ -667,12 +667,13 @@ export interface DriftReport {
   filePath: string;
   markerId: string;
   source: string;
-  /** "version" — the bundle moved ahead (disk older than the CLI; render/sync
-   * brings it forward). "downgrade" — disk is NEWER than the CLI; render's
-   * anti-rollback preserves the block, so the fix is updating the CLI, not
-   * render (#242). "content" — the body of the managed block no longer matches
-   * its `hash=` attribute, i.e. the user edited inside the marker. */
-  kind: "version" | "downgrade" | "content";
+  /** "downgrade" — disk is NEWER than the CLI; render's anti-rollback preserves
+   * the block, so the fix is updating the CLI, not render (#242). "harness" —
+   * the registry's `harnessVersion` is newer than the CLI (same fix, whole
+   * harness). "content" — the body of the managed block no longer matches its
+   * `hash=` attribute, i.e. the user edited inside the marker. A marker OLDER
+   * than the CLI is not drift: its version is the last release that changed it. */
+  kind: "downgrade" | "harness" | "content";
   fromVersion?: string;
   toVersion?: string;
   expectedHash?: string;
@@ -682,7 +683,9 @@ export interface DriftReport {
 /**
  * Walk `.claude/agents/` and `.claude/skills/` and report drift for each
  * managed marker found:
- *   - **version drift** — the marker's `version=` is older than the bundle's.
+ *   - **downgrade** — the marker's `version=` is NEWER than the CLI's (an older
+ *     marker is not drift: it is the last release that changed the block).
+ *   - **harness** — `config.harnessVersion` is newer than the CLI.
  *   - **content drift** — the body no longer hashes to its `hash=` attr,
  *     i.e. hand-edited. `navori sync` surfaces this as a conflict.
  * Markers without `version=`/`hash=` or with unknown sources are skipped.
@@ -700,6 +703,16 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
   const engines = config.engines ?? ["claude"];
 
   const out = scanManagedDriftAt(cwd, "", naviVersion, knownSources, engines);
+  if (config.harnessVersion && isDowngrade(config.harnessVersion, naviVersion)) {
+    out.push({
+      filePath: "navori.config.json",
+      markerId: "harnessVersion",
+      source: "navori.config.json",
+      kind: "harness",
+      fromVersion: config.harnessVersion,
+      toVersion: naviVersion,
+    });
+  }
   // Monorepo: render/sync manage the managed blocks in EVERY workspace, so the
   // scan must too — otherwise a hand-edited block in `apps/backend/CLAUDE.md`
   // makes `sync` report a conflict while `doctor --strict` exits green (#235).
@@ -760,18 +773,16 @@ function scanManagedDriftAt(
       if (!m.source) continue;
 
       if (m.version) {
-        if (knownSources.has(m.source) && naviVersion !== m.version) {
-          // Direction matters (#242): when the on-disk block is NEWER than the
-          // running CLI, render's anti-rollback (marker.ts `downgrade-skipped`)
-          // preserves the block, so recommending render/sync is a fix that does
-          // nothing. Classify it as a downgrade so doctor tells the user to
-          // update the CLI instead.
-          const kind = isDowngrade(m.version, naviVersion) ? "downgrade" : "version";
+        if (knownSources.has(m.source) && isDowngrade(m.version, naviVersion)) {
+          // Only the NEWER-than-CLI direction is drift (#242): render's
+          // anti-rollback (marker.ts `downgrade-skipped`) preserves the block, so
+          // doctor tells the user to update the CLI. An older marker is the
+          // frozen last-change version, not staleness.
           out.push({
             filePath: rel(path),
             markerId: m.id,
             source: m.source,
-            kind,
+            kind: "downgrade",
             fromVersion: m.version,
             toVersion: naviVersion,
           });
@@ -1242,10 +1253,7 @@ export function suggestNextSteps(state: HealthState, lang: Lang = DEFAULT_LANG):
   if (state.drifts.some((d) => d.kind === "content")) {
     steps.push(ts.nextContentDrift);
   }
-  if (state.drifts.some((d) => d.kind === "version")) {
-    steps.push(ts.nextVersionDrift);
-  }
-  if (state.drifts.some((d) => d.kind === "downgrade")) {
+  if (state.drifts.some((d) => d.kind === "downgrade" || d.kind === "harness")) {
     steps.push(ts.nextDowngradeDrift);
   }
   if (state.orderReport && !state.orderReport.interleaved) {

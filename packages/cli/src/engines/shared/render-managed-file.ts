@@ -258,7 +258,8 @@ function rerender(
     commentStyle,
     forceOverwrite,
   );
-  const content = fmHeader + inject.output;
+  let content = fmHeader + inject.output;
+  let injected = inject;
 
   // "unchanged" from injection only speaks for the managed BODY. The
   // frontmatter is merged separately (asset wins for its keys), so a
@@ -269,6 +270,21 @@ function rerender(
   // host reads `.claude/agents/*.md`, which kept the old prose while the
   // source and the tests (which swept the source) were green. Body unchanged
   // but bytes differ ⇒ the frontmatter shifted ⇒ "updated".
+  if (inject.status === "unchanged" && content !== existing) {
+    // A real write (frontmatter shifted) with an identical body: the marker
+    // must record the version that made it, since the frontmatter sits outside
+    // the hash and the inject fast path keeps the old version otherwise.
+    injected = injectManagedSection(
+      restOfDest,
+      managedId,
+      body,
+      metaWithFmKeys,
+      commentStyle,
+      forceOverwrite,
+      true,
+    );
+    content = fmHeader + injected.output;
+  }
   const status: InjectResult["status"] =
     inject.status === "unchanged"
       ? content === existing
@@ -282,7 +298,7 @@ function rerender(
   return {
     content,
     status,
-    details: inject.details,
+    details: injected.details,
     ...(collides && {
       collision: { overwrittenKeys: Object.keys(assetFm).filter((k) => k in destFm) },
     }),

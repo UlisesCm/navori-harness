@@ -56,6 +56,7 @@ import type { RenderStatus } from "../../lib/primitives/style.ts";
 import {
   isNavoriOwnedSettings,
   NAVORI_OWNERSHIP_KEY,
+  planStampedJson,
 } from "../../lib/primitives/json-ownership.ts";
 import { buildClaudeSettings } from "./build-settings.ts";
 import { mergeCoexistSettings, isPlainObject } from "./coexist-settings.ts";
@@ -909,7 +910,11 @@ export function renderClaudeEngine(
     : planSettings(cwd, config, inventory, force);
   if (!trimmedHarness) inspected += 1;
   if (settingsResult.kind === "skip") {
-    skipped.push({ path: relative(cwd, settingsResult.path), reason: settingsResult.reason });
+    skipped.push({
+      path: relative(cwd, settingsResult.path),
+      reason: settingsResult.reason,
+      ...(settingsResult.status && { status: settingsResult.status }),
+    });
   } else if (settingsResult.kind === "write") {
     pending.push({
       path: settingsResult.path,
@@ -941,7 +946,11 @@ export function renderClaudeEngine(
     (enabledPlugins.some((pl) => pl.manifest.mcpServer) || existsSync(join(cwd, ".mcp.json")));
   if (hasMcpDestination) inspected += 1;
   if (mcpResult.kind === "skip") {
-    skipped.push({ path: relative(cwd, mcpResult.path), reason: mcpResult.reason });
+    skipped.push({
+      path: relative(cwd, mcpResult.path),
+      reason: mcpResult.reason,
+      ...(mcpResult.status && { status: mcpResult.status }),
+    });
   } else if (mcpResult.kind === "write") {
     pending.push({
       path: mcpResult.path,
@@ -2016,7 +2025,7 @@ function loadActivePreset(
 
 type SettingsPlan =
   | { kind: "noop" }
-  | { kind: "skip"; path: string; reason: string }
+  | { kind: "skip"; path: string; reason: string; status?: SkipStatus }
   | { kind: "write"; path: string; content: string; status: RenderStatus };
 
 function planSettings(
@@ -2074,14 +2083,32 @@ function planSettings(
     return { kind: "write", path, content: mergedJson, status: "updated" };
   }
 
-  const current = readFileSync(path, "utf-8");
-  if (current === newJson) return { kind: "noop" };
-  return { kind: "write", path, content: newJson, status: "updated" };
+  // The `$navori.version` stamp records the release that last CHANGED the file:
+  // a newer CLI over otherwise identical content leaves it byte-identical, and a
+  // real change never rolls back a newer navori's output (the stamp, or the
+  // registry floor, is newer than this CLI).
+  const plan = planStampedJson(
+    readFileSync(path, "utf-8"),
+    newJson,
+    readCliVersion(),
+    config.harnessVersion,
+    force,
+  );
+  if (plan.kind === "noop") return { kind: "noop" };
+  if (plan.kind === "downgrade-skipped") {
+    return {
+      kind: "skip",
+      path,
+      reason: tc(resolveLang(config.language)).engine.blockFromNewerNavori(plan.existingVersion),
+      status: "downgrade-skipped",
+    };
+  }
+  return { kind: "write", path, content: plan.content, status: "updated" };
 }
 
 type McpPlan =
   | { kind: "noop" }
-  | { kind: "skip"; path: string; reason: string }
+  | { kind: "skip"; path: string; reason: string; status?: SkipStatus }
   | { kind: "write"; path: string; content: string; status: RenderStatus };
 
 /**
@@ -2217,6 +2244,18 @@ export function planMcpRegistration(
 
   const newJson = JSON.stringify(stamped, null, 2) + "\n";
   if (existing === newJson) return { kind: "noop" };
+  if (existing !== null) {
+    const plan = planStampedJson(existing, newJson, readCliVersion(), config.harnessVersion, force);
+    if (plan.kind === "noop") return { kind: "noop" };
+    if (plan.kind === "downgrade-skipped") {
+      return {
+        kind: "skip",
+        path,
+        reason: tc(resolveLang(config.language)).engine.blockFromNewerNavori(plan.existingVersion),
+        status: "downgrade-skipped",
+      };
+    }
+  }
   return {
     kind: "write",
     path,

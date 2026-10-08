@@ -1111,33 +1111,48 @@ describe("CLI e2e — happy paths", () => {
     expect(strict.status).toBe(2);
   });
 
-  it("doctor reports version drift when an agent file is older than the bundle", () => {
+  // Covers: A3
+  it("doctor does not report drift for an agent marker older than the CLI", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
     runCli(["init", "--recommended", "--cwd", repo]);
 
-    // Tamper with leader.md: replace the version="..." attr with an older one.
+    // A marker's version is the release that last CHANGED the block: an older
+    // one with unchanged content is expected after any release that skipped it.
     const leaderPath = join(repo, ".claude/agents/orchestrator.md");
-    const tampered = readFileSync(leaderPath, "utf-8").replace(
+    const older = readFileSync(leaderPath, "utf-8").replace(
       /version="\d+\.\d+\.\d+"/,
       'version="0.0.0"',
     );
-    writeFileSync(leaderPath, tampered, "utf-8");
+    writeFileSync(leaderPath, older, "utf-8");
 
     const r = runCli(["doctor", "--json", "--cwd", repo]);
     expect(r.status).toBe(0);
-    const parsed = JSON.parse(r.stdout);
-    const drift = parsed.drifts.find(
-      (d: { filePath: string; markerId: string; kind: string }) =>
-        d.filePath === ".claude/agents/orchestrator.md" &&
-        d.markerId === "orchestrator-base" &&
-        d.kind === "version",
+    expect(JSON.parse(r.stdout).drifts).toEqual([]);
+    expect(runCli(["doctor", "--strict", "--cwd", repo]).status).toBe(0);
+  });
+
+  // Covers: A3
+  it("doctor reports a harnessVersion newer than the CLI and --strict fails on it", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    const configPath = join(repo, "navori.config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+    writeFileSync(
+      configPath,
+      `${JSON.stringify({ ...config, harnessVersion: "999.0.0" }, null, 2)}\n`,
+      "utf-8",
     );
+
+    const r = runCli(["doctor", "--json", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    const drift = JSON.parse(r.stdout).drifts.find((d: { kind: string }) => d.kind === "harness");
     expect(drift).toBeDefined();
-    expect(drift.fromVersion).toBe("0.0.0");
+    expect(drift.fromVersion).toBe("999.0.0");
     expect(drift.toVersion).toMatch(/^\d+\.\d+\.\d+$/);
-    // ok stays true — drift is informational, not an error
-    expect(parsed.ok).toBe(true);
+    expect(runCli(["doctor", "--strict", "--cwd", repo]).status).not.toBe(0);
   });
 
   it("configure language changes the config field", () => {
@@ -2166,6 +2181,7 @@ describe("CLI e2e — global registry + render --all", () => {
     expect(ls.combined).not.toContain("reg-gone");
   });
 
+  // Covers: A3
   it("render --all row detail surfaces a changed .claude/ file, not just CLAUDE.md blocks", () => {
     // Regression: when a repo's only pending change is a .claude/ file (hook,
     // agent, skill, settings) and every CLAUDE.md block is unchanged, the row
@@ -2177,16 +2193,15 @@ describe("CLI e2e — global registry + render --all", () => {
     dirs.push(repo);
     expect(runCli(["init", "--yes", "--apply", "--cwd", repo], { HOME: fakeHome }).status).toBe(0);
 
-    // Drift ONE managed .claude/ file's version so render wants to update it,
-    // while every CLAUDE.md block stays byte-identical.
+    // Really change ONE managed .claude/ file (a version-only edit no longer
+    // counts), while every CLAUDE.md block stays byte-identical.
     const agent = join(repo, ".claude", "agents", "orchestrator.md");
-    const before = readFileSync(agent, "utf-8");
-    writeFileSync(agent, before.replace(/version="[0-9.]+"/, 'version="0.0.1"'));
+    rmSync(agent);
 
     const preview = runCli(["render", "--all"], { HOME: fakeHome });
     expect(preview.combined).toMatch(/1 would change/);
-    // The row detail names the update instead of showing only "unchanged".
-    expect(preview.combined).toMatch(/file-detail.*updated/);
+    // The row detail names the change instead of showing only "unchanged".
+    expect(preview.combined).toMatch(/file-detail.*(created|updated)/);
 
     // --verbose lists the actual file path.
     const verbose = runCli(["render", "--all", "--verbose"], { HOME: fakeHome });

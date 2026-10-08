@@ -305,3 +305,42 @@ describe("forcedManagedFileContent", () => {
     expect(forcedManagedFileContent(input(newer))).toBeNull();
   });
 });
+
+describe("renderManagedFile — version stamping (marker-version-churn)", () => {
+  const at = (existingContent: string | null, version: string, path = assetPath) =>
+    renderManagedFile({
+      assetPath: path,
+      existingContent,
+      managedId: "leader-base",
+      meta: { source: "@navori/core", version },
+      config: CONFIG,
+    });
+
+  // Covers: A1
+  it("identical asset under a newer CLI is unchanged and keeps the old version", () => {
+    const first = at(null, "0.0.1");
+    const second = at(first.content, "0.0.2");
+    expect(second.status).toBe("unchanged");
+    expect(second.content).toBe(first.content);
+    expect(second.content).toContain('version="0.0.1"');
+  });
+
+  // Covers: A1
+  it("a frontmatter-only change is a real write and stamps the new version", () => {
+    const first = at(null, "0.0.1");
+    const edited = first.content.replace("description: Orquestador.", "description: Otra.");
+    const second = at(edited, "0.0.2");
+    expect(second.status).toBe("updated");
+    expect(second.content).toContain("description: Orquestador.");
+    expect(second.content).toContain('version="0.0.2"');
+    expect(second.content).not.toContain('version="0.0.1"');
+  });
+
+  // Covers: A1
+  it("a frontmatter-only change under an older CLI than the marker keeps the newer version", () => {
+    const first = at(null, "0.0.9");
+    const edited = first.content.replace("description: Orquestador.", "description: Otra.");
+    const second = at(edited, "0.0.2");
+    expect(second.content).toContain('version="0.0.9"');
+  });
+});

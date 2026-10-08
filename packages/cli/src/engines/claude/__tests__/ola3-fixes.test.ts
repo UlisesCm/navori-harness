@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/config/schema.ts";
 import { renderClaudeEngine } from "../index.ts";
 import { readCliVersion } from "../../../lib/render/bundled-assets.ts";
+import { computeManagedHash, extractManagedContent } from "../../../lib/render/marker.ts";
 
 /**
  * Ola 3 fixes for the Claude engine:
@@ -154,30 +155,49 @@ describe("#557 — `.mcp.json` declares whether navori wrote the whole file", ()
   });
 });
 
-describe("#215 — plugin sub-block version drift surfaces in updatesAvailable", () => {
-  it("reports an orchestrator.md sub-block whose stamped version is older than this CLI's", () => {
+describe("#215 — plugin sub-block versions are the last change; updatesAvailable lists real ones", () => {
+  const ID = "engram-orchestrator-extension";
+  const BLOCK_RE = new RegExp(
+    `(<!-- navori:managed id="${ID}" )hash="[^"]+"( version=")[^"]+(" [^>]*-->\\n)[\\s\\S]*?(\\n<!-- /navori:managed id="${ID}" -->)`,
+  );
+
+  /** A repo last written by navori 0.0.1, whose sub-block body was `body`. */
+  function seedOlderBlock(cwd: string, body: string): string {
+    const path = join(cwd, ".claude/agents/orchestrator.md");
+    const leader = readFileSync(path, "utf-8");
+    expect(leader).toContain(`id="${ID}"`);
+    const draft = leader.replace(BLOCK_RE, `$1hash="x"$20.0.1$3${body}$4`);
+    expect(draft).not.toBe(leader);
+    // Hash what the engine will extract, so the block reads as untouched by the user.
+    const hash = computeManagedHash(extractManagedContent(draft, ID) ?? "");
+    writeFileSync(path, draft.replace('hash="x"', `hash="${hash}"`));
+    return path;
+  }
+
+  // Covers: A3
+  it("keeps an unchanged sub-block at its older version and offers no update for it", () => {
     const cwd = tempRepo();
-    // First render stamps the engram sub-block in orchestrator.md at the current version.
-    const first = renderClaudeEngine(cwd, config({ engram: { enabled: true } }));
-    expect(first.updatesAvailable.some((u) => u.id === "engram-orchestrator-extension")).toBe(
-      false,
-    );
-
-    const leaderPath = join(cwd, ".claude/agents/orchestrator.md");
-    const leader = readFileSync(leaderPath, "utf-8");
-    expect(leader).toContain('id="engram-orchestrator-extension"');
-
-    // Simulate a repo rendered by an OLDER navori: rewind the sub-block's stamped
-    // version to a clearly-older one, leaving the content intact.
-    const drifted = leader.replace(
-      /(id="engram-orchestrator-extension"[^>]*version=")[^"]+(")/,
-      "$10.0.1$2",
-    );
-    expect(drifted).not.toBe(leader);
-    writeFileSync(leaderPath, drifted);
+    renderClaudeEngine(cwd, config({ engram: { enabled: true } }));
+    const path = join(cwd, ".claude/agents/orchestrator.md");
+    // Rewind only the stamped version: same content, last changed by an older navori.
+    const leader = readFileSync(path, "utf-8");
+    const older = leader.replace(new RegExp(`(id="${ID}"[^>]*version=")[^"]+(")`), "$10.0.1$2");
+    expect(older).not.toBe(leader);
+    writeFileSync(path, older);
 
     const second = renderClaudeEngine(cwd, config({ engram: { enabled: true } }));
-    const drift = second.updatesAvailable.find((u) => u.id === "engram-orchestrator-extension");
+    expect(second.updatesAvailable.some((u) => u.id === ID)).toBe(false);
+    expect(readFileSync(path, "utf-8")).toBe(older);
+  });
+
+  // Covers: A3
+  it("reports a sub-block whose content really changed since the older version that wrote it", () => {
+    const cwd = tempRepo();
+    renderClaudeEngine(cwd, config({ engram: { enabled: true } }));
+    seedOlderBlock(cwd, "an older body the bundle no longer ships");
+
+    const second = renderClaudeEngine(cwd, config({ engram: { enabled: true } }));
+    const drift = second.updatesAvailable.find((u) => u.id === ID);
     expect(drift).toBeDefined();
     expect(drift!.fromVersion).toBe("0.0.1");
     expect(drift!.source).toContain("engram");

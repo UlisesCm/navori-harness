@@ -31,12 +31,12 @@ const contentDrift: DriftReport = {
   source: "@navori/core",
   kind: "content",
 };
-const versionDrift: DriftReport = {
-  filePath: ".claude/agents/leader.md",
-  markerId: "leader-base",
-  source: "@navori/core",
-  kind: "version",
-  fromVersion: "0.0.1",
+const harnessDrift: DriftReport = {
+  filePath: "navori.config.json",
+  markerId: "harnessVersion",
+  source: "navori.config.json",
+  kind: "harness",
+  fromVersion: "9.9.9",
   toVersion: "0.0.2",
 };
 const downgradeDrift: DriftReport = {
@@ -63,13 +63,15 @@ describe("suggestNextSteps (spec 0003 §3.5.3)", () => {
     expect(steps.some((s) => s.includes("sync --interactive"))).toBe(true);
   });
 
-  it("suggests render --apply on version drift", () => {
+  // Covers: A3
+  it("tells the user to update the CLI when the harness registry is newer than it", () => {
     const steps = suggestNextSteps({
       claudeMdExists: true,
       missingPlugins: [],
-      drifts: [versionDrift],
+      drifts: [harnessDrift],
     });
-    expect(steps.some((s) => s.includes("render --apply"))).toBe(true);
+    expect(steps.some((s) => s.includes("navori@latest"))).toBe(true);
+    expect(steps.some((s) => s.includes("render --apply"))).toBe(false);
   });
 
   // #242: a downgrade (disk newer than the CLI) is NOT fixed by render — the
@@ -383,19 +385,33 @@ describe("listMarkers + scanManagedDrift", () => {
     expect(drifts.some((d) => d.kind === "content" && d.markerId === "leader-base")).toBe(true);
   });
 
-  it("detects version drift when the version is older than the bundle", () => {
-    // Correct hash so content drift doesn't fire — isolate the version check.
+  // Covers: A3
+  it("does not report a marker older than the CLI: its version is the last change, not staleness", () => {
     const body = "stable body";
     writeAgent(body, `hash="${computeManagedHash(body)}" version="0.0.0" source="@navori/core"`);
-    const drifts = scanManagedDrift(cwd, config);
-    expect(drifts.some((d) => d.kind === "version" && d.markerId === "leader-base")).toBe(true);
-    expect(drifts.some((d) => d.kind === "content")).toBe(false);
+    expect(scanManagedDrift(cwd, config)).toEqual([]);
+  });
+
+  // Covers: A3
+  it("reports a harnessVersion newer than the CLI, and not one equal or older", () => {
+    const newer = scanManagedDrift(cwd, { ...config, harnessVersion: "999.0.0" });
+    expect(newer).toEqual([
+      expect.objectContaining({
+        kind: "harness",
+        filePath: "navori.config.json",
+        fromVersion: "999.0.0",
+        toVersion: readCliVersion(),
+      }),
+    ]);
+    expect(scanManagedDrift(cwd, { ...config, harnessVersion: readCliVersion() })).toEqual([]);
+    expect(scanManagedDrift(cwd, { ...config, harnessVersion: "0.0.1" })).toEqual([]);
+    expect(scanManagedDrift(cwd, config)).toEqual([]);
   });
 
   // #242: when the on-disk version is NEWER than the running CLI, the mismatch
   // is a downgrade (render's anti-rollback preserves the block), classified
   // apart from a plain version drift so doctor advises updating the CLI.
-  it("classifies a marker newer than the CLI as a downgrade, not version drift", () => {
+  it("classifies a marker newer than the CLI as a downgrade", () => {
     const body = "stable body";
     // 999.0.0 is guaranteed newer than any real CLI version.
     writeAgent(body, `hash="${computeManagedHash(body)}" version="999.0.0" source="@navori/core"`);
@@ -403,7 +419,6 @@ describe("listMarkers + scanManagedDrift", () => {
     const d = drifts.find((x) => x.markerId === "leader-base");
     expect(d?.kind).toBe("downgrade");
     expect(d?.fromVersion).toBe("999.0.0");
-    expect(drifts.some((x) => x.kind === "version")).toBe(false);
   });
 
   it("no drift for a marker without version/hash attrs", () => {
