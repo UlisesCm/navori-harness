@@ -250,7 +250,7 @@ export const ui = {
     "commands.render.desc":
       "Reconstruye todos los engines configurados. Preview por default; --apply escribe.",
     "commands.sync.desc":
-      "Actualiza solo los bloques managed. Con --interactive resuelves los conflictos bloque por bloque.",
+      "Actualiza solo los bloques managed. Con --interactive resuelves los conflictos bloque por bloque, o archivo por archivo en los que no tienen marcadores.",
     "commands.update.desc":
       "Detecta que el bundle avanzó y te dice qué cambiaría antes de tocarlo.",
     "commands.migrations.desc": "Aplica las migraciones de config entre versiones del CLI.",
@@ -554,7 +554,7 @@ export const ui = {
       "Edits the config without opening it by hand: quality gate, critical areas, legacy paths.",
     "commands.render.desc": "Rebuilds every configured engine. Preview by default; --apply writes.",
     "commands.sync.desc":
-      "Refreshes only the managed blocks. With --interactive you resolve conflicts block by block.",
+      "Refreshes only the managed blocks. With --interactive you resolve conflicts block by block, or file by file for markerless files.",
     "commands.update.desc": "Detects that the bundle moved and tells you what would change first.",
     "commands.migrations.desc": "Applies config migrations between CLI versions.",
     "commands.backup.desc": "The safety net: every write leaves a restorable snapshot first.",
