@@ -897,4 +897,77 @@ describe("gateKind", () => {
       stdout.mockRestore();
     }
   });
+
+  // Covers: R10, R11
+  it("workplan scoped y full", () => {
+    const options = withSpec();
+    writeFileSync(
+      join(options.cwd, "navori.config.json"),
+      JSON.stringify({
+        name: "test",
+        version: "1",
+        preset: "node",
+        engines: ["claude"],
+        branchBase: "main",
+        qualityGate: { fast: "true", full: options.gate },
+      }),
+    );
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const plan = {
+      feature: options.feature,
+      level: 2,
+      classification: { score: 5, level: 2, signals: [] },
+      objective: "o",
+      acceptance: ["A1", "A2"].map((id) => ({
+        id,
+        description: "d",
+        command: "true",
+        expected: "exit 0",
+      })),
+      progress: { A1: "cumplido" },
+      phases: [
+        { name: "one", acceptance: ["A1"] },
+        { name: "two", acceptance: ["A2"] },
+      ],
+    };
+    const dir = join(options.cwd, options.dir ?? ".claude/progress");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `workplan_${options.feature}.json`);
+    writeFileSync(file, JSON.stringify(plan));
+    const base = { feature: options.feature, cwd: options.cwd, dir: options.dir };
+    try {
+      executeGate({ ...base, phase: "one", json: true });
+      expect(JSON.parse(String(out.mock.calls[0]![0]))).toEqual({
+        gateKind: "scoped",
+        reason: "pending-later-work",
+        unit: options.feature,
+        closingMilestone: null,
+        closingPhase: "two",
+        pendingLater: ["A2"],
+      });
+      // full decision: scoped is refused with exit 1 and no receipt
+      process.exitCode = 0;
+      executeReceipt("sign", { ...base, gateRan: "scoped", phase: "two" });
+      expect(process.exitCode).toBe(1);
+      expect(stderr.mock.calls.join("")).not.toContain("--gate-ran is required");
+      expect(checkReceipt(options).result.error).toBe("receipt is absent");
+      // unreadable workplan is full too
+      writeFileSync(file, "{ not json");
+      process.exitCode = 0;
+      executeReceipt("sign", { ...base, gateRan: "scoped", phase: "one" });
+      expect(process.exitCode).toBe(1);
+      expect(checkReceipt(options).result.error).toBe("receipt is absent");
+      // scoped decision signs scoped
+      writeFileSync(file, JSON.stringify(plan));
+      process.exitCode = 0;
+      executeReceipt("sign", { ...base, gateRan: "scoped", phase: "one" });
+      expect(process.exitCode).toBe(0);
+      expect(checkReceipt(options).result.gateKind).toBe("scoped");
+    } finally {
+      process.exitCode = 0;
+      stderr.mockRestore();
+      out.mockRestore();
+    }
+  });
 });

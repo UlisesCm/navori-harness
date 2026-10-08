@@ -6,7 +6,7 @@ metadata:
   maxWords: 550
 ---
 
-<!-- navori:managed id="citty" hash="383d4338" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="citty" hash="a94825ea" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Citty — command definitions
 
 ## When to use this skill
@@ -76,7 +76,7 @@ runMain(main);
 - Every arg has a `type` and `description`; enums carry `options`; user flags have defaults.
 - Built-in `--help`/`--version` still work (no shadowing alias).
 - No side effects at import time; `cleanup` is idempotent.
-- `cd packages/cli && bun lint` green.
+- `bun run lint && bun run typecheck` green.
 <!-- /navori:managed id="citty" -->
 
 ## This repo's CLI (your domain)

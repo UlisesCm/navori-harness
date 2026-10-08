@@ -46,6 +46,9 @@ function tolerantEnum<T extends readonly [string, ...string[]]>(values: T, fallb
 const QualityGateSchema = z.object({
   fast: z.string().min(1),
   full: z.string().min(1),
+  /** Cheap checks of `full` plus tests related to the diff; the reviewer's
+   * lane for rounds that end in CHANGES_REQUESTED. Falls back to `fast`. */
+  scoped: z.string().min(1).optional(),
 });
 
 // Lifecycle-hook toggles (Claude Stop). The handoff validator is always wired —

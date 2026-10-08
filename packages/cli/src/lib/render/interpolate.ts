@@ -118,6 +118,10 @@ export function interpolate(
     // by the hooks, `doctor` and the closeout doctrine (#1263).
     "navori.progressSoftCapBytes": String(PROGRESS_SOFT_CAP_BYTES),
     "navori.progressHardCapBytes": String(PROGRESS_HARD_CAP_BYTES),
+    // The reviewer's bounded gate lane: `scoped` when declared, else `fast`.
+    // Never blank, so no engine renders `<not configured>`.
+    "navori.scopedGate":
+      config.qualityGate?.scoped ?? config.qualityGate?.fast ?? "the repo's fast quality gate",
     ...options.extraVars,
   };
   const scope = options.fallbackScope ?? "repo";
