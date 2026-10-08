@@ -17,6 +17,7 @@ import { expandHookIncludes } from "../render/hook-includes.ts";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { shellSingleQuote } from "../primitives/shell-escape.ts";
 import { acrossShells, HOOK_SHELLS } from "./helpers/shells.ts";
+import { PROGRESS_SOFT_CAP_BYTES } from "../assets/doc-budgets.ts";
 import type { HookShell } from "./helpers/shells.ts";
 
 /**
@@ -57,10 +58,9 @@ function installHook(destRel = "hook.sh"): string {
   // and the reason it matters: a partial may itself carry `{{...}}`. Testing the
   // raw asset would exercise a script that exists nowhere, since
   // `# navori:include` is resolved at render time.
-  const raw = expandHookIncludes(readFileSync(HOOK_SRC, "utf-8")).replace(
-    "{{shq:branchBase}}",
-    shellSingleQuote("main"),
-  );
+  const raw = expandHookIncludes(readFileSync(HOOK_SRC, "utf-8"))
+    .replace("{{shq:branchBase}}", shellSingleQuote("main"))
+    .replace("{{navori.progressSoftCapBytes}}", String(PROGRESS_SOFT_CAP_BYTES));
   const path = join(dir, destRel);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, raw);
@@ -551,5 +551,56 @@ describe("session-start context hook — tool update notice (#1244)", () => {
   it("keeps working when the notice command is slow", () => {
     const r = emit(stub(OUTPUT, { sleep: 1 }));
     expect(r.ctx).toContain(NOTICE);
+  });
+});
+
+describe("session-start context hook — soft-cap notice (#1263)", () => {
+  const SOFT = String(PROGRESS_SOFT_CAP_BYTES);
+  const EN = `over the ${SOFT}-byte cap`;
+  const ES = `(tope ${SOFT})`;
+
+  function seed(bytes: number, ch = "a"): void {
+    mkdirSync(join(dir, "progress"), { recursive: true });
+    writeFileSync(join(dir, "progress", "current.md"), ch.repeat(bytes));
+  }
+
+  it("says nothing at or under the soft cap", () => {
+    seed(PROGRESS_SOFT_CAP_BYTES);
+    const ctx = runHook("startup").ctx;
+    expect(ctx).toContain("Resume");
+    expect(ctx).not.toContain(EN);
+    expect(ctx).not.toContain(ES);
+  });
+
+  it("appends a fixed English sentence to the inline resume when over", () => {
+    seed(PROGRESS_SOFT_CAP_BYTES + 1);
+    const ctx = runHook("startup").ctx;
+    expect(ctx).toContain(`progress/current.md is ${PROGRESS_SOFT_CAP_BYTES + 1} bytes, ${EN}`);
+    expect(ctx).not.toContain(ES);
+  });
+
+  it("appends the Spanish sentence to the pointer when the resume does not fit", () => {
+    seed(PROGRESS_SOFT_CAP_BYTES + 1);
+    const r = acrossShells((shell) =>
+      runOnce(shell, "startup", join(dir, "hook.sh"), {}, { NAVORI_CTX_BUDGET: "200" }),
+    );
+    const ctx = parseCtx(r.stdout);
+    expect(ctx).toContain("quedó fuera del contexto de arranque");
+    expect(ctx).toContain(`Mide ${PROGRESS_SOFT_CAP_BYTES + 1} bytes ${ES}`);
+    expect(ctx).not.toContain(EN);
+  });
+
+  it("counts bytes, not characters (multibyte content over the cap by bytes only)", () => {
+    seed(2500, "é");
+    expect(runHook("startup").ctx).toContain("is 5000 bytes");
+  });
+
+  it("never interpolates file content into the notice", () => {
+    seed(PROGRESS_SOFT_CAP_BYTES + 1, "$");
+    const ctx = runHook("startup").ctx;
+    const line = ctx.split("\n").find((l) => l.includes(EN));
+    expect(line).toBe(
+      `[navori] progress/current.md is ${PROGRESS_SOFT_CAP_BYTES + 1} bytes, ${EN}: trim it to the current state and the next step, moving older checkpoints to progress/history.md.`,
+    );
   });
 });
