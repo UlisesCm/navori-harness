@@ -140,12 +140,12 @@ describe("scanDocBudget (#917)", () => {
   });
 
   /**
-   * "Old" and "fat" are different defects with different fixes, and today the
-   * first explains everything seen in the wild: `bonum-webapp`'s file on disk
-   * is 3208 words rendered by 0.8.7, and a re-render with the current build
-   * takes it to 2033 (−37%) without its owner deciding anything.
+   * A marker older than the CLI is no longer a diagnosis: its version is the
+   * release that last CHANGED the block, frozen while the body is unchanged, so
+   * a file full of older markers is not "stale". The report carries no such count.
    */
-  it("diagnoses a stale file as OLD, counting the blocks an earlier navori wrote", () => {
+  // Covers: A3
+  it("does not call a file with older markers stale", () => {
     const cwd = tempRepo();
     writeClaudeMd(
       cwd,
@@ -154,14 +154,8 @@ describe("scanDocBudget (#917)", () => {
       ),
     );
     const report = scanDocBudget(cwd, config())!;
-    expect(report.staleBlocks).toBe(2);
+    expect("staleBlocks" in report).toBe(false);
     expect(report.cliVersion).toBe(CURRENT);
-  });
-
-  it("does not call a current file stale", () => {
-    const cwd = tempRepo();
-    writeClaudeMd(cwd, block("tipado-fuerte", words(20)));
-    expect(scanDocBudget(cwd, config())!.staleBlocks).toBe(0);
   });
 
   /**

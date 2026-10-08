@@ -697,18 +697,14 @@ export const doctorCommand = defineCommand({
         if (d.kind === "content") {
           return `  ${color.red(sym.conflict)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`hash ${d.expectedHash} ≠ ${d.actualHash}`)}  ${grey(td.driftContentRow(d.source))}`;
         }
-        const suffix =
-          d.kind === "downgrade" ? td.driftDowngradeRow(d.source) : td.driftVersionSuffix(d.source);
+        const suffix = d.kind === "harness" ? td.driftHarnessRow : td.driftDowngradeRow(d.source);
         return `  ${color.yellow(sym.update)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`${d.fromVersion} → ${d.toVersion}`)}  ${grey(suffix)}`;
       });
-      // One hint per block; escalate by severity of the fix that actually
-      // applies: content edits (sync) > downgrade (update the CLI) > version
-      // (render). A downgrade's fix is never render, so it must outrank it (#242).
+      // One hint per block; content edits (sync) outrank a downgrade/harness
+      // finding, whose fix is updating the CLI, never render (#242).
       const hint = drifts.some((d) => d.kind === "content")
         ? td.driftHintContent
-        : drifts.some((d) => d.kind === "downgrade")
-          ? td.driftHintDowngrade
-          : td.driftHintVersion;
+        : td.driftHintDowngrade;
       p.log.warn(td.drift(drifts.length, hint, lines.join("\n")));
     }
 
@@ -1579,11 +1575,6 @@ export function docBudgetLines(
         report.copilotInstructions.words,
         report.copilotInstructions.chars,
       )}`,
-    );
-  }
-  if (report.staleBlocks > 0) {
-    lines.push(
-      `  ${color.yellow(sym.update)} ${td.docBudgetStale(report.staleBlocks, report.cliVersion)}`,
     );
   }
   for (const block of report.blocks.filter((b) => b.over)) {
@@ -3358,8 +3349,6 @@ export interface DocBudgetReport {
   overBy: number | null;
   /** Empty when there is no `CLAUDE.md` — never a block from another surface. */
   blocks: DocBudgetBlock[];
-  /** Blocks whose marker version differs from the running navori. */
-  staleBlocks: number;
   cliVersion: string;
   contextFiles: DocBudgetContextFile[];
   contextWords: number;
@@ -3503,15 +3492,6 @@ export function scanDocBudget(cwd: string, config: NavoriConfig): DocBudgetRepor
     lever: leverFor(b.id, sourceById.get(b.id) ?? null),
   }));
 
-  // A block rendered by another navori is the "your file is OLD" diagnosis, and
-  // it is a different defect from "your file is FAT" with a different fix: a
-  // re-render recovered 1175 words (−37%) in `bonum-webapp` without its owner
-  // deciding anything. Counted across BOTH files of the surface, since a stale
-  // repo is stale in all of them.
-  const staleBlocks = [...claudeMarkers, ...listContextMarkers(cwd)].filter(
-    (m) => m.version !== null && m.version !== cliVersion,
-  ).length;
-
   return {
     totalWords: measure?.totalWords ?? null,
     managedWords: measure?.managedWords ?? null,
@@ -3520,7 +3500,6 @@ export function scanDocBudget(cwd: string, config: NavoriConfig): DocBudgetRepor
     ceiling: measure?.ceiling ?? null,
     overBy: measure?.overBy ?? null,
     blocks,
-    staleBlocks,
     cliVersion,
     contextFiles,
     contextWords: contextFiles.reduce((sum, f) => sum + f.words, 0),

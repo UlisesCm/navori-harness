@@ -827,10 +827,9 @@ interface DoctorCmdStrings {
   unknownExcludedBlocks: (n: number, lines: string) => string;
   unknownExcludedBlockRow: (id: string) => string;
   driftContentRow: (source: string) => string;
-  driftVersionSuffix: (source: string) => string;
+  driftHarnessRow: string;
   drift: (n: number, hint: string, lines: string) => string;
   driftHintContent: string;
-  driftHintVersion: string;
   driftDowngradeRow: (source: string) => string;
   driftHintDowngrade: string;
   corruptedSettings: (n: number, lines: string) => string;
@@ -1065,8 +1064,6 @@ interface DoctorCmdStrings {
    * the fix is almost never trimming the file this line names.
    */
   docBudgetContextPointer: (path: string, ctxCharsBefore: number, budget: number) => string;
-  /** "Your file is OLD": blocks rendered by an earlier navori. */
-  docBudgetStale: (blocks: number, version: string) => string;
   /** "Your file is FAT": one block over its ceiling, with the knob that shrinks it. */
   docBudgetOverBlock: (id: string, words: number, ceiling: number, lever: string) => string;
   /** The knob per block family, named so the warning is actionable. */
@@ -1527,7 +1524,6 @@ interface StatusCmdStrings {
   nextRender: string;
   nextMissingPlugins: (count: number) => string;
   nextContentDrift: string;
-  nextVersionDrift: string;
   nextDowngradeDrift: string;
   nextReorder: string;
   nextInterleaved: (lead: string) => string;
@@ -2122,11 +2118,10 @@ const CMD_ES: CmdStrings = {
       `probablemente un typo; no excluyen nada. Corrígelos o quítalos de blocks.exclude:\n${lines}`,
     unknownExcludedBlockRow: (id) => `— '${id}' no coincide con ningún bloque core`,
     driftContentRow: (source) => `(${source}, content edited)`,
-    driftVersionSuffix: (source) => `(${source})`,
+    driftHarnessRow: "(harnessVersion en navori.config.json, adelantado)",
     drift: (n, hint, lines) => `Drift detectado (${n}) — ${hint}:\n${lines}`,
     driftHintContent:
-      "corre 'navori sync' para resolver conflicts; 'navori render --apply' para actualizar versiones",
-    driftHintVersion: "corre 'navori render --apply' o 'navori sync'",
+      "corre 'navori sync' para resolver conflicts; 'navori render --apply' para restaurar los bloques editados o distintos del asset incluido",
     driftDowngradeRow: (source) => `(${source}, disco adelantado)`,
     driftHintDowngrade:
       "el bloque en disco es más nuevo que tu CLI; render lo preserva (anti-retroceso), así que actualiza navori (p.ej. 'npm i -g navori@latest')",
@@ -2440,8 +2435,6 @@ const CMD_ES: CmdStrings = {
       `${path}: llega como PUNTERO, no inline — los archivos anteriores en el orden de entrega ya ` +
       `sumaban ${ctxCharsBefore}/${budget} caracteres. El culpable casi nunca es este archivo: es el ` +
       `que creció ANTES en el orden de '.claude/context/'`,
-    docBudgetStale: (blocks, version) =>
-      `${blocks} bloque(s) los renderizó una versión anterior de navori (la actual es ${version}): tu archivo no está gordo, está viejo — corre 'navori render --apply' y vuelve a medir antes de recortar nada`,
     docBudgetOverBlock: (id, words, ceiling, lever) =>
       `'${id}': ${words} palabras contra un techo de ${ceiling} — ${lever}`,
     docBudgetLever: {
@@ -2773,7 +2766,6 @@ const CMD_ES: CmdStrings = {
     nextMissingPlugins: (count) =>
       `Resuelve ${count} plugin(s) faltante(s): instálalos o quítalos del config.`,
     nextContentDrift: "Corre 'navori sync --interactive' para resolver bloques editados a mano.",
-    nextVersionDrift: "Corre 'navori render --apply' para traer los bloques a la última versión.",
     nextDowngradeDrift:
       "Tu CLI navori está desactualizado (los bloques en disco son más nuevos): actualízalo con 'npm i -g navori@latest'. Render no los retrocede.",
     nextReorder:
@@ -3580,11 +3572,10 @@ const CMD_EN: CmdStrings = {
       `likely a typo; they exclude nothing. Fix or drop them from blocks.exclude:\n${lines}`,
     unknownExcludedBlockRow: (id) => `— '${id}' matches no core block`,
     driftContentRow: (source) => `(${source}, content edited)`,
-    driftVersionSuffix: (source) => `(${source})`,
+    driftHarnessRow: "(harnessVersion in navori.config.json, ahead)",
     drift: (n, hint, lines) => `Drift detected (${n}) — ${hint}:\n${lines}`,
     driftHintContent:
-      "run 'navori sync' to resolve conflicts; 'navori render --apply' to update versions",
-    driftHintVersion: "run 'navori render --apply' or 'navori sync'",
+      "run 'navori sync' to resolve conflicts; 'navori render --apply' to restore blocks that were edited or differ from the bundled asset",
     driftDowngradeRow: (source) => `(${source}, disk ahead)`,
     driftHintDowngrade:
       "the on-disk block is newer than your CLI; render preserves it (anti-rollback), so update navori instead (e.g. 'npm i -g navori@latest')",
@@ -3896,8 +3887,6 @@ const CMD_EN: CmdStrings = {
       `${path}: arrives as a POINTER, not inline — files ahead of it in delivery order already used ` +
       `${ctxCharsBefore}/${budget} chars. The culprit is almost never this file: it's whichever one ` +
       `grew EARLIER in '.claude/context/'s order`,
-    docBudgetStale: (blocks, version) =>
-      `${blocks} block(s) were rendered by an earlier navori (current is ${version}): your file isn't fat, it's old — run 'navori render --apply' and measure again before trimming anything`,
     docBudgetOverBlock: (id, words, ceiling, lever) =>
       `'${id}': ${words} words against a ${ceiling} ceiling — ${lever}`,
     docBudgetLever: {
@@ -4224,7 +4213,6 @@ const CMD_EN: CmdStrings = {
     nextMissingPlugins: (count) =>
       `Resolve ${count} missing plugin(s): install them or remove them from the config.`,
     nextContentDrift: "Run 'navori sync --interactive' to resolve manually edited blocks.",
-    nextVersionDrift: "Run 'navori render --apply' to update blocks to the latest version.",
     nextDowngradeDrift:
       "Your navori CLI is out of date (on-disk blocks are newer): update it with 'npm i -g navori@latest'. Render won't roll them back.",
     nextReorder: "Run 'navori render --apply' to reorder CLAUDE.md blocks into canonical order.",

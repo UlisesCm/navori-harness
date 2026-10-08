@@ -495,7 +495,9 @@ export interface RenderPlan {
   /** Assets that fell back to Spanish because the requested language is not available. */
   languageFallbacks: string[];
   /** Markers whose existing version is older than the source package's current
-   * version. Listed regardless of whether the content changed. */
+   * version. Informational only: a marker's version is the release that last
+   * CHANGED the block (frozen while its body is unchanged), so an older version
+   * with identical content is expected and is not rewritten. */
   updatesAvailable: UpdateAvailable[];
   /** Markers whose existing version is NEWER than this CLI's — the block was
    * written by a newer navori and was preserved, not overwritten (#79). */

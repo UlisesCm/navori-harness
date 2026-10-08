@@ -951,8 +951,8 @@ function routingNotice(session: SessionAudit, lang: Lang): Signal[] {
  * Did the sessions in this range run under the harness the repo has TODAY? (#778)
  *
  * `report.ts` has printed the per-session `rendered/cli` pair for releases, and
- * nothing ever evaluated it — `model.ts` even documents that `rendered ≠ cli`
- * "is itself a finding" without emitting one. That gap has a measured price: a
+ * nothing ever evaluated it — `model.ts` even documents that a rendered harness
+ * newer than the CLI "is itself a finding" without emitting one. That gap has a measured price: a
  * repo was audited for two weeks on "1,495 searches with tgrep at 0.3%" while
  * its logs said 8 sessions with no version recorded and 3 on 0.7.x, against a
  * repo whose harness read 0.8.6. Not one of the measured sessions had the plugin
@@ -981,10 +981,11 @@ export function harnessRegime(
 
   for (const s of sessions) {
     const { rendered, cli } = s.navori;
-    // The CLI moved without a `render`: the machine had one version and the
-    // session ran under another. Counted independently of the age question —
-    // a session can be current AND have been marked by a newer binary.
-    if (rendered !== null && cli !== null && rendered !== cli) {
+    // The harness on disk is NEWER than the binary that ran the session (an
+    // older CLI over a harness rendered by a newer one). The reverse — a newer
+    // CLI over an older render — is no longer drift: render stamps only on a
+    // real content change. Counted independently of the age question.
+    if (rendered !== null && cli !== null && compareSemver(rendered, cli) === 1) {
       cliDrift.push(`${s.sessionId.slice(0, 8)} (${rendered} / CLI ${cli})`);
     }
     if (rendered === null) {
@@ -1025,8 +1026,8 @@ export function harnessRegime(
     parts.push(
       pick(
         lang,
-        `${cliDrift.length} con rendered ≠ cli (el binario se actualizó sin correr 'render'): ${cliDrift.join(", ")}`,
-        `${cliDrift.length} with rendered ≠ cli (the binary was updated without a 'render'): ${cliDrift.join(", ")}`,
+        `${cliDrift.length} con rendered > cli (el harness en disco es más nuevo que el binario que corrió la sesión): ${cliDrift.join(", ")}`,
+        `${cliDrift.length} with rendered > cli (the harness on disk is newer than the binary that ran the session): ${cliDrift.join(", ")}`,
       ),
     );
   }

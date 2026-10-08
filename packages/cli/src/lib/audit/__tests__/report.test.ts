@@ -9,7 +9,10 @@ import {
   renderMarkdown,
   weightedTokens,
 } from "../report.ts";
-import type { HarnessCatalog } from "../harness.ts";
+import { renderedHarnessVersion, type HarnessCatalog } from "../harness.ts";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   type AgentRun,
   type AuditReport,
@@ -1097,11 +1100,16 @@ describe("range finding: the sessions ran under another harness (#778)", () => {
     expect(r.rangeSignals[0]?.summary).toContain("1 de 2 sesiones");
   });
 
-  it("fires on rendered ≠ cli alone — the divergence model.ts already called a finding", () => {
-    const r = report(range({ rendered: "0.8.6", cli: "0.8.7" }), "0.8.6");
-    expect(r.rangeSignals[0]?.evidence).toContain("rendered ≠ cli");
+  it("fires when the rendered harness is NEWER than the cli", () => {
+    const r = report(range({ rendered: "0.8.7", cli: "0.8.6" }), "0.8.7");
+    expect(r.rangeSignals[0]?.evidence).toContain("rendered > cli");
     // Short id, the same 8 chars every other line of the report names a session by.
-    expect(r.rangeSignals[0]?.evidence).toContain("sess0000 (0.8.6 / CLI 0.8.7)");
+    expect(r.rangeSignals[0]?.evidence).toContain("sess0000 (0.8.7 / CLI 0.8.6)");
+  });
+
+  it("does not fire when the rendered harness is OLDER than the cli", () => {
+    const r = report(range({ rendered: "0.8.6", cli: "0.8.7" }), "0.8.6");
+    expect(r.rangeSignals).toEqual([]);
   });
 
   it("prints the caveat BEFORE the figures it qualifies", () => {
@@ -2972,5 +2980,46 @@ describe("comparison and recommendations in the published report (spec 0042 T11)
     expect(text).toContain(
       "| per-tool-call | — | friction | lead | 0.04 ratio (observed) | 50 | 1/1 | blocks-cost-context → tokens-after-block |",
     );
+  });
+});
+
+/**
+ * A marker's version is the release that last changed ITS block, so it can no
+ * longer stand for "the release that rendered the harness". The registry's
+ * `harnessVersion` does; the recorder's marker is the fallback for repos
+ * rendered before it existed.
+ */
+describe("renderedHarnessVersion: the registry first, the recorder's marker as fallback", () => {
+  const RECORDER_MARKER =
+    '# navori:managed start id="audit-mode-trigger-base" hash="abc" version="0.9.0" source="@navori/core"\n' +
+    "echo body\n";
+
+  function repo(opts: { config?: string; recorder?: boolean }): string {
+    const root = mkdtempSync(join(tmpdir(), "navori-rendered-version-"));
+    if (opts.config !== undefined) writeFileSync(join(root, "navori.config.json"), opts.config);
+    if (opts.recorder) {
+      mkdirSync(join(root, ".claude", "hooks"), { recursive: true });
+      writeFileSync(join(root, ".claude", "hooks", "audit-mode-trigger.sh"), RECORDER_MARKER);
+    }
+    return root;
+  }
+
+  // Covers: A3
+  it("reads harnessVersion from navori.config.json, ahead of a frozen marker", () => {
+    const root = repo({ config: '{ "name": "x", "harnessVersion": "0.11.3" }', recorder: true });
+    expect(renderedHarnessVersion(root)).toBe("0.11.3");
+  });
+
+  // Covers: A3
+  it("falls back to the recorder's marker when the registry has no harnessVersion", () => {
+    const root = repo({ config: '{ "name": "x" }', recorder: true });
+    expect(renderedHarnessVersion(root)).toBe("0.9.0");
+  });
+
+  // Covers: A3
+  it("falls back to the marker on a missing or invalid config, and is null with neither", () => {
+    expect(renderedHarnessVersion(repo({ config: "{ not json", recorder: true }))).toBe("0.9.0");
+    expect(renderedHarnessVersion(repo({ recorder: true }))).toBe("0.9.0");
+    expect(renderedHarnessVersion(repo({}))).toBeNull();
   });
 });
