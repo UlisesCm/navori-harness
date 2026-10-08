@@ -1,5 +1,11 @@
 # History
 
+## 2026-10-08 11:30 claude — Tope duro de progress/current.md (#1263, fase 2)
+
+Cambios: el hook de pre-commit bloquea (trinquete) un commit de agente cuyo `progress/current.md` supera 8000 bytes y creció respecto a HEAD; el hook de arranque avisa desde 4000 bytes; `doctor` mide bytes; topes definidos una vez en `doc-budgets.ts` e interpolados en los hooks; sin override. Doctrina de cierre paso 3 actualizada.
+Quality gate: verde completo, receipt firmado (reviewer APPROVED, nivel 2 con architect + challenge).
+Notas: repos sin `qualityGate.fast` y commits fuera del detector quedan en #1266.
+
 ## 2026-10-08 10:30 claude — Acotar progress/current.md (#1263)
 
 Cambios: `navori doctor` avisa (humano y `--json` `progressSize`) cuando `progress/current.md` supera 4000 caracteres (mitad de `SESSION_CONTEXT_DELIVERY_BUDGET_CHARS`), solo informativo; el paso 3 de la doctrina de cierre aclara que los checkpoints van a `history.md`; goldens re-renderizados; `progress/current.md` recortado de 38.8 KB a ~680 caracteres (el log previo queda en `git show 22cc6dea:progress/current.md`).
