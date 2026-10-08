@@ -3,13 +3,7 @@
   "name": "GitHub CLI (issues + PRs)",
   "description": "Acceso a Issues, PRs y repos de GitHub desde la terminal",
   "version": "0.0.2",
-  "managed": [
-    {
-      "id": "gh-protocol",
-      "file": "managed/gh-protocol.md",
-      "recommendedAgent": "publisher"
-    }
-  ],
+  "managed": [],
   "externalTool": {
     "name": "gh",
     "checkBinary": "gh",
@@ -38,7 +32,7 @@
       ]
     }
   },
-  "invariants": ["gh issue view", "gh pr create"],
+  "invariants": [],
   "skills": [
     {
       "id": "gh-comment-channel-publisher",

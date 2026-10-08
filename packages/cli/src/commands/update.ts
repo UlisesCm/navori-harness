@@ -468,7 +468,7 @@ export const updateCommand = defineCommand({
     // Preview the full configured-engine render against the current config,
     // aggregating root + every workspace.
     // This surfaces bundle / version drift a config-field diff can't see — new
-    // core skills, settings fixes, the skills-index — and is the same engine the
+    // core skills, settings fixes — and is the same engine the
     // apply pass runs, so the preview matches what will happen.
     const preview = runRender(cwd, true);
     const agg = aggregateRender(preview);

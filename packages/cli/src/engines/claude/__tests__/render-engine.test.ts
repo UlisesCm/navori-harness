@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
+import { renderAgentsMdEngine } from "../../agents-md/index.ts";
 import { claudeHookCommand } from "../build-settings.ts";
 import { readTemplateFile } from "../../../lib/master/templates.ts";
 import { allTasks, parseTasks } from "../../../lib/spec/tasks.ts";
@@ -689,8 +690,9 @@ describe("renderClaudeEngine — spec deliveries doctrine (spec 0044)", () => {
   it("anclas sdd y orquestacion", () => {
     renderClaudeEngine(cwd, CONFIG_FULL);
     const claudeMd = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
-    expect(claudeMd).toContain("deliveries `E<n>`");
-    expect(claudeMd).toContain("milestones `M<n>`");
+    // Structure/Tracking left the Claude SDD block (#1273): the delivery
+    // grammar lives in spec-bootstrap (asserted below) and, in full, in the
+    // prose engines' SDD block.
     expect(claudeMd).not.toContain("batches of 1-3");
     // orquestacion and planificacion render as context files, not inline in CLAUDE.md.
     const orquestacion = readFileSync(join(cwd, ".claude/context/10-orquestacion.md"), "utf-8");
@@ -770,8 +772,8 @@ describe("renderClaudeEngine — computed blocks respect config.language (#289)"
   it("renders the four computed blocks in Spanish when language is es", () => {
     renderClaudeEngine(cwd, richConfig("es"));
     const md = claudeMd();
-    expect(md).toContain("## Skills disponibles");
-    expect(md).toContain("Skills que los agentes pueden aplicar");
+    // The skills index left the Claude render (#1273).
+    expect(md).not.toContain("## Skills disponibles");
     // The agents index rides the orchestrator channel since #572 — only whoever
     // spawns needs the catalog — so its language is verified where it renders.
     const agentsEs = readFileSync(join(cwd, ".claude/context/20-agentes-disponibles.md"), "utf-8");
@@ -792,8 +794,7 @@ describe("renderClaudeEngine — computed blocks respect config.language (#289)"
   it("renders the four computed blocks in English when language is en", () => {
     renderClaudeEngine(cwd, richConfig("en"));
     const md = claudeMd();
-    expect(md).toContain("## Available skills");
-    expect(md).toContain("Skills the agents can apply");
+    expect(md).not.toContain("## Available skills");
     const agentsEn = readFileSync(join(cwd, ".claude/context/20-agentes-disponibles.md"), "utf-8");
     expect(agentsEn).toContain("## Available agents");
     expect(agentsEn).toContain("Subagents you can spawn via the `Agent` tool");
@@ -816,8 +817,11 @@ describe("renderClaudeEngine — SDD managed block + scaffolder", () => {
     const md = claudeMd();
     expect(md).toContain('id="sdd"');
     expect(md).toContain("Spec Driven Development (SDD)");
-    expect(md).toContain("EARS");
-    expect(md).toContain("Covers: R");
+    // The Structure/Tracking paragraphs live in `spec-bootstrap` for Claude
+    // (#1273); the trigger and the no-TaskCreate rule stay always-on.
+    expect(md).toContain("When to PROPOSE a spec");
+    expect(md).toContain("do NOT use `TaskCreate`");
+    expect(md).not.toContain("Covers: R");
   });
 
   it("suppresses the SDD block when sdd.enabled is false", () => {
@@ -828,9 +832,11 @@ describe("renderClaudeEngine — SDD managed block + scaffolder", () => {
     expect(md).not.toContain("Spec Driven Development (SDD)");
   });
 
+  // The Structure paragraph that interpolates `sdd.specsDir` is prose-engine
+  // only since #1273 (Claude points at spec-bootstrap instead).
   it("interpolates specsDir — defaults to 'specs'", () => {
-    renderClaudeEngine(cwd, CONFIG_FULL);
-    expect(claudeMd()).toContain("specs/<feature>/");
+    renderAgentsMdEngine(cwd, CONFIG_FULL);
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf-8")).toContain("specs/<feature>/");
   });
 
   it("interpolates a custom specsDir", () => {
@@ -838,8 +844,8 @@ describe("renderClaudeEngine — SDD managed block + scaffolder", () => {
       ...CONFIG_FULL,
       sdd: { enabled: true, specsDir: "docs/specs" },
     } as unknown as NavoriConfig;
-    renderClaudeEngine(cwd, cfg);
-    expect(claudeMd()).toContain("docs/specs/<feature>/");
+    renderAgentsMdEngine(cwd, cfg);
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf-8")).toContain("docs/specs/<feature>/");
   });
 
   it("writes the spec-bootstrap scaffolder skill", () => {
@@ -957,7 +963,7 @@ describe("renderClaudeEngine — user-section preservation", () => {
     "## Reglas del repo\n\n- Nunca usar `context.db`, siempre `context.sudo().db`.\n- PostGIS: `findZoneByCoordinates()`.";
   const CONFIG_UPGRADED = {
     ...CONFIG_FULL,
-    plugins: { engram: { enabled: true }, gh: { enabled: true }, semgrep: { enabled: true } },
+    plugins: { engram: { enabled: true }, tgrep: { enabled: true }, semgrep: { enabled: true } },
   } as unknown as NavoriConfig;
 
   it("ships a user-section with a placeholder on a fresh CLAUDE.md", () => {
@@ -984,15 +990,15 @@ describe("renderClaudeEngine — user-section preservation", () => {
       ),
     );
 
-    // Upgrade: enabling gh introduces a NEW managed block and reorders. (semgrep
+    // Upgrade: enabling tgrep introduces a NEW managed block and reorders. (semgrep
     // is enabled too but no longer contributes one — #614 moved its protocol
-    // into the security-invariants skill, so `gh` is what proves the landing.)
+    // into the security-invariants skill, so `tgrep` is what proves the landing.)
     renderClaudeEngine(cwd, CONFIG_UPGRADED);
     const after = readFileSync(path, "utf-8");
     expect(after).toContain("## Reglas del repo");
     expect(after).toContain("context.sudo().db");
     expect(after).toContain("findZoneByCoordinates()");
-    expect(after).toContain('id="gh-protocol"'); // the upgrade landed
+    expect(after).toContain('id="tgrep-search-v2"'); // the upgrade landed
     // Domain stays below every managed block.
     expect(after.indexOf("## Reglas del repo")).toBeGreaterThan(
       after.lastIndexOf("<!-- /navori:managed"),

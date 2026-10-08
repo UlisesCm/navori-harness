@@ -297,7 +297,7 @@ name: implementer
 description: Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself.
 tools: Read, Write, Edit, Glob, Grep, Bash, mcp__engram__mem_search, mcp__engram__mem_get_observation
 maxTurns: 160
-maxWords: 2448
+maxWords: 2444
 ---
 
 <!-- navori:managed id="implementer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxTurns,maxWords" -->
@@ -347,7 +347,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
 - **Zero new errors** introduced by your code in the quality gate tools (vs. baseline) — classify per `verify-before-done`'s Failure attribution, never by diff location alone; see the evidence table below. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.
 - **Never mutate or discard the shared working tree**: no stashing, no checkout/reset that discards local changes, no working-tree clean — these hit the `ask` permission rule and can stall a background agent indefinitely. Same reasoning for scratch files: leave them, don't clean them with a recursive delete.
 - **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.
-- **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see the SDD block in `CLAUDE.md`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.
+- **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see `spec-bootstrap`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.
 - **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `locate-code`; an entry point you didn't list is one the `reviewer` has to rediscover.
 - If a tool fails weirdly (e.g. tsc breaks with no apparent diff), **don't improvise a workaround**: note `Status: BLOCKED` + the reason in `.navori/state/handoffs/impl_<feature>.md` and stop.
 - **While iterating, run only the tests of the area you touch** (filter by the runner's path). The full gate in step 4 runs at the end, not on each iteration — saves time and context. Never run the full `pnpm test && pnpm lint` suite yourself: that's the `reviewer`'s Pass 2 job, and it commonly outlives Bash's timeout. If this repo has a diff-scoped fast check (`scoped-gate`), it's hygiene for iterating, never a substitute for step 4.
@@ -468,7 +468,7 @@ report; don't try to fix it yourself.
 name: orchestrator
 description: 'Do NOT invoke as a subagent, never and under no condition. Orchestration playbook that the main agent EMBODIES (the "## Role: orchestrator" block, delivered to the session by the SessionStart hook); open it as a depth reference instead. Delegating it serializes the work and kills parallelism.'
 tools: Read, Glob, Grep, Bash, Agent, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__engram__mem_context, mcp__engram__mem_save, mcp__engram__mem_session_summary, mcp__engram__mem_update
-maxWords: 3050
+maxWords: 3365
 ---
 
 <!-- navori:managed id="orchestrator-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
@@ -485,7 +485,7 @@ One route removes the decision entirely. It is more expensive per change and tha
 ## Startup protocol
 
 1. `CLAUDE.md` (stack, conventions, quality gate) is already in your context when your host injects it; read it from disk ONLY if your host did not inject it (e.g. an engine without automatic injection).
-2. The catalog of subagents and skills is in `CLAUDE.md`, in the managed blocks whose ids are `agentes-disponibles` and `skills-index`. Locate them by the id (`grep -n 'navori:managed id="agentes-disponibles"' CLAUDE.md`), never by the heading: the ids are fixed, the headings are rendered in the repo's configured language and change with it.
+2. The catalog of subagents is the managed block whose id is `agentes-disponibles`, delivered at session start. Locate it by the id, never by the heading: the ids are fixed, the headings are rendered in the repo's configured language and change with it. Skills: the host's native listing.
 3. Read `progress/current.md` (repo root) if it exists — the previous session's state.
 4. Identify the task's scope against the "Project rules" below (legacy paths, critical areas, repo conventions).
 5. **Did text from a ticket (Jira/Linear/GitHub/Slack) arrive?** If it matches your `auditor` agent's ticket-encargo triggers (bug in a critical feature, structural migration, feature that crosses >3 layers), invoke that agent first — it produces `.navori/state/handoffs/audit_ticket_<ID>.md` that guides all later decomposition. For trivial tickets (typo, copy, color), skip the audit. The single architectural design gate — when it fires, who proposes, who challenges, who decides — lives in "## Role: orchestrator" and the `solution-design` skill, not here.
@@ -530,7 +530,7 @@ When the `done -> file` come back, **gather and analyze deeply YOURSELF**: read 
 
 Fan-out is a lever, not a toll — so when you do delegate, hand the smallest encargo that covers the work:
 
-- **Don't delegate merely to wrap a lookup.** If what's missing is a Code discovery routing call you can make yourself (project instructions), run it directly — a subagent invocation isn't a proxy for a query you can issue this turn. When delegation is warranted for a real reason, carry over the pending question, the evidence you already gathered, the relevant paths and their freshness in the encargo; never assume the subagent shares this context — it starts isolated.
+- **Don't delegate merely to wrap a lookup.** If what's missing is a Code discovery routing call you can make yourself (project instructions), run it directly — a subagent invocation isn't a proxy for a query you can issue this turn. When delegation is warranted for a real reason, carry over the pending question, the evidence you already gathered, the relevant paths and their freshness in the encargo; never assume the subagent shares this context — it starts isolated, with no skills listing: name any skill it should apply with its path `.claude/skills/<id>/SKILL.md`.
 - **Peel off the mechanical first.** Copies, renames, scaffolding, JSON/string edits → send them to a low-tier agent in their own encargo; never bundle them into the `implementer`'s, where they inflate its context and its run without raising quality.
 - **One encargo = one unit.** A pre-existing bug the `implementer` hits outside its scope → it reports and stops there (a trivial one-liner is the exception); **you** decide whether to open a separate unit. Scope doesn't self-expand mid-run.
 - **Tier by sub-task, not by round.** A single fix round can mix tiers. Map: **low** → mechanical work (copies, renames, scaffolding, string/JSON edits, a one-line fix); **mid** → a scoped bugfix with a clear cause or a bounded feature; **high** → judgment work (design, security regex, ambiguous root-cause, removal semantics, critical areas).
@@ -17229,10 +17229,12 @@ name: resolve-ticket
 description: Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial — the canonical 6-phase pipeline to process it with objective gates.
 metadata:
   type: reference
-  maxWords: 700
+  # #1273: +208 words of ticket principles moved off the always-on file (908
+  # measured); ceil(908 × 1.10) = 999.
+  maxWords: 999
   # Compuesto (#683): ningún plugin extiende esta skill, así que los 50 sobre el
   # cap del asset son exactamente el margen de interpolación.
-  maxWordsComposed: 750
+  maxWordsComposed: 1049
 ---
 
 <!-- navori:managed id="resolve-ticket" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
@@ -17254,6 +17256,15 @@ Agents and skills chained by objective gates: what one phase pays for in tokens 
 ## Phase 2 fan-out
 
 Only when the orchestration table's fan-out row fires, never on "it feels separable": three auditors on a one-file ticket cost more than the serial run they replace. Then one `auditor` per area, **all the `Agent` calls in the SAME turn**, each writing `audit_ticket_<ID-area>.md` (e.g. `audit_ticket_BTBS-138-webapp.md`) so none overwrites another. **You synthesize** the N reports — contradictions and gaps included — into the single `audit_ticket_<ID>.md` every later phase reads. Never delegated.
+
+## Ticket principles
+
+A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a proposed solution. Treat them differently:
+
+- **The problem is the contract.** Verify it in the repo with evidence (`file:line`, a repro, a query) before writing code. If you can't confirm it, that's a finding to report — not a reason to implement anyway.
+- **The proposed solution is a suggestion, never the spec.** Evaluate it against the verified problem: it may solve it, mask it, or target something else. You have standing to propose a different path — cite why yours beats the ticket's.
+- **Not every ticket proceeds.** Legitimate outcomes besides "implement": already solved, can't reproduce, works as intended, needs splitting into N tickets, blocked on missing info. Saying so early — with evidence — beats a polished PR for the wrong fix. **None of them opens work, so none of them waits for approval:** report the verdict with its evidence and close the cycle. The human gate stays for `proceed` and `proceed-differently`, the two that open the chequebook.
+- **Size is measured, not assumed.** Before calling something small, run the command that proves it (call sites, files touched, layers crossed). A one-line description routinely hides a 13-call-site change.
 
 ## Hard rules
 
@@ -17888,14 +17899,16 @@ metadata:
   # margin (697/720) instead of reproducing the same 3-word squeeze.
   # Spec 0044 T10 (R10): E/M/A/T grammar added (delivery/milestone/acceptance/task
   # structure), +~150 words measured; 1050 = 981 actual + 7% margin.
-  maxWords: 1050
+  # #1273: re-measured at 823 after the Covers convention moved in; ceil(823 × 1.10)
+  # = 906 (the 1050 above had drifted slack).
+  maxWords: 906
   # Spec 0026 T16 (R35): the critical-areas challenge interpolates
   # auth, permissions, payments, data integrity INSIDE the managed zone, same defect as
   # review-diff (#683) — a verbose repo config pushes the composed file past
   # the asset's own cap with no plugin involved. Margin measured against the
   # skill-caps-composed.test.ts fixture. Spec 0044: +100 words margin
   # for composition with project config.
-  maxWordsComposed: 1100
+  maxWordsComposed: 1006
 ---
 
 <!-- navori:managed id="spec-bootstrap" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
@@ -17979,8 +17992,8 @@ Estimated LOC: <n>
 
 - **Zero unresolved placeholders.** Don't leave `<...>`; an unknown value is a question for the user, not a hole. Same rule inside a task: "TBD", "implement later" or "similar to T<n>" describe nothing — name the observable behavior and the evidence expected. That is NOT a licence to dictate the code line by line; the implementer keeps its judgment.
 - **Cite a stable anchor, not a line number:** `file` + symbol name, heading, or managed-block id — never `file:line`. Lines drift before implementation; a stale one skips real sites.
-- **Every `R<n>` ends in ≥1 task and ≥1 test.** A requirement with no task or test isn't traceable → it doesn't enter the spec.
-- **Tracking lives in `tasks.md`, not in `TaskCreate`.** See the SDD block.
+- **Every `R<n>` ends in ≥1 task and ≥1 test**, and each test references its requirements with a `// Covers: R<n>` comment above the case. A requirement with no task or test isn't traceable → it doesn't enter the spec; without full traceability the feature is not done.
+- **Tracking lives in `tasks.md`, not in `TaskCreate`.** Duplicating it makes the board drift from the spec; ignore the TaskList reminder in SDD sessions.
 - **Self-review before closing the scaffolding:** is each `R<n>` a single testable action? does each task point to real `R<n>`? does the design cover all the `R<n>`? If something fails, fix it before handing the spec off.
 <!-- /navori:managed id="spec-bootstrap" -->
 
@@ -18340,9 +18353,7 @@ Read-only by default. Before mutating data, schema, or infrastructure (DB, deplo
 
 **When to PROPOSE a spec**: real scope — a complete new feature, changes to auth/security/permissions, adapters or models with sensitive data, or scope > ~2 days. UI bugfixes, a new field in a form, isolated refactors, or copy tweaks go straight in. Crossing it makes SDD a **recommendation you put to the user**: the route is opt-in, so the spec starts only on their explicit request or accepted proposal.
 
-**Structure:** `specs/<feature>/{requirements.md, design.md, tasks.md}` — EARS requirements with id `R<n>`, a design with decisions and trade-offs, and `tasks.md` in deliveries `E<n>` (one PR each), milestones `M<n>` (each verified and committed) and tasks `T<n>` that declare the `R<n>` they cover. Each `R<n>` is covered by ≥1 test that references it (`// Covers: R<n>`); without full traceability the feature is not done.
-
-**Tracking in the spec, not in the harness:** with `tasks.md`, that's the board — do NOT use `TaskCreate` for those tasks (duplicating it produces drift between the spec and the TaskList); ignoring its reminder in SDD sessions is expected.
+**Spec tasks live in `tasks.md`:** do NOT use `TaskCreate` for them (ignore its reminder).
 
 Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the agent flow (`orchestrator`→`implementer`→`reviewer`) — lives in `spec-bootstrap`: propose SDD; it scaffolds once accepted, via prose or `/spec-bootstrap`.
 <!-- /navori:managed id="sdd" -->
@@ -18350,14 +18361,7 @@ Spec scaffolding — EARS templates, `R<n>↔test` traceability rules, and the a
 <!-- navori:managed id="intake-tickets" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
 ## Tickets: problem first, proposed solution second
 
-A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a proposed solution. Treat them differently:
-
-- **The problem is the contract.** Verify it in the repo with evidence (`file:line`, a repro, a query) before writing code. If you can't confirm it, that's a finding to report — not a reason to implement anyway.
-- **The proposed solution is a suggestion, never the spec.** Evaluate it against the verified problem: it may solve it, mask it, or target something else. You have standing to propose a different path — cite why yours beats the ticket's.
-- **Not every ticket proceeds.** Legitimate outcomes besides "implement": already solved, can't reproduce, works as intended, needs splitting into N tickets, blocked on missing info. Saying so early — with evidence — beats a polished PR for the wrong fix. **None of them opens work, so none of them waits for approval:** report the verdict with its evidence and close the cycle. The human gate stays for `proceed` and `proceed-differently`, the two that open the chequebook.
-- **Size is measured, not assumed.** Before calling something small, run the command that proves it (call sites, files touched, layers crossed). A one-line description routinely hides a 13-call-site change.
-
-The `resolve-ticket` skill runs this as a pipeline; the `auditor` agent produces the verdict with evidence.
+A ticket's **problem is the contract** (verify it with evidence first); its **proposed solution is a suggestion**, never the spec. A verdict that opens no work needs no approval. Rules: `.claude/skills/resolve-ticket/SKILL.md`.
 <!-- /navori:managed id="intake-tickets" -->
 
 <!-- navori:managed id="code-discovery-routing" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
@@ -18387,48 +18391,6 @@ To read Jira tickets use **acli** (not the Atlassian MCP).
 
 The Atlassian/Rovo MCP remains the fallback if `acli` fails or is unavailable.
 <!-- /navori:managed id="acli-protocol" -->
-
-<!-- navori:managed id="gh-protocol" hash="<HASH>" version="<VERSION>" source="@navori/plugin-gh" -->
-## GitHub CLI (gh)
-
-To interact with GitHub (issues, PRs, repos) use **gh**:
-
-- View an issue: `gh issue view <number>` or `gh issue view <number> --comments`
-- Search issues: `gh issue list --search "<query>"` or `gh issue list --label bug --state open`
-- Create a PR: `gh pr create --title "..." --body "..."`
-- View a PR + checks: `gh pr view <number> --checks` or `gh pr checks <number>`
-- List PRs: `gh pr list --state open`
-- View workflow runs: `gh run list --limit 5` or `gh run view <id> --log-failed`
-
-`gh auth status` shows whether you're authenticated. If it fails, run `gh auth login`.
-<!-- /navori:managed id="gh-protocol" -->
-
-<!-- navori:managed id="skills-index" hash="<HASH>" version="<VERSION>" source="@navori/core" -->
-## Skills disponibles
-
-Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/SKILL.md` — el directorio no es opcional: es la única forma que Claude Code descubre, también para las tuyas. El listado nativo del host entrega el "cuándo usar" de cada una.
-
-- `verify-before-done` — navori
-- `debug-failure` — navori
-- `review-diff` — navori
-- `security-invariants` — navori
-- `secure-by-design` — navori
-- `locate-code` — navori
-- `scoped-gate` — navori
-- `resolve-ticket` — navori (workflow)
-- `solution-design` — navori (workflow)
-- `spec-bootstrap` — navori (workflow)
-- `dominio` — navori (workflow)
-- `follow-up-prs` — navori (workflow)
-- `quality-attributes` — navori (workflow)
-- `author-skill` — navori (workflow)
-- `plan-simple` — navori (workflow)
-- `plan-advanced` — navori (workflow)
-- `master-plan` — navori (workflow)
-- `context-intake` — navori (workflow)
-- `zod-validation` — library (detected)
-- `vitest` — library (detected)
-<!-- /navori:managed id="skills-index" -->
 
 <!-- navori:user-start -->
 

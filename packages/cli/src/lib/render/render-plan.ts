@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import {
   injectManagedSection,
   removeManagedSection,
+  removeManagedSectionGuarded,
   resolveCondition,
   type InjectResult,
 } from "./marker.ts";
@@ -261,8 +262,8 @@ export const GLOBAL_SAFE_BLOCK_IDS: readonly string[] = CORE_MANAGED_ASSETS.filt
  * `blocks.exclude` entries outside this set are ignored by the render; `doctor`
  * flags them (a known-but-not-excludable id, or an unknown id → typo). Preset
  * extras and plugin blocks opt out by their own mechanisms (change the preset /
- * disable the plugin), and the computed CLAUDE.md blocks (skills-index,
- * agentes-disponibles, contexto-*) self-strip when empty.
+ * disable the plugin), and the computed CLAUDE.md blocks (agentes-disponibles,
+ * contexto-*) self-strip when empty.
  */
 export const EXCLUDABLE_BLOCK_IDS: readonly string[] = ["orquestacion", "sdd"] as const;
 
@@ -387,20 +388,23 @@ function resolveConditions(
  * Resolves `navori:if` / `navori:if-not` markers in `content`.
  *
  * `engine` names the engine the text is rendered for and defaults to
- * `"claude"`, so every caller that does not pass it (Claude, the prose-only
- * engines) keeps its output byte-for-byte. The reserved key `onCodex` is true
- * only when `engine === "codex"`; it never reads `config`, so a config key of
- * the same name has no effect. Spans wrapped in `if-not onCodex` therefore
- * render everywhere except Codex, and `if onCodex` spans only on Codex.
+ * `"claude"`, so Claude-side callers that do not pass it keep their output
+ * byte-for-byte; prose callers must pass theirs. The reserved key `onCodex` is true
+ * only when `engine === "codex"` and `onClaude` only when `engine === "claude"`;
+ * neither reads `config`, so a config key of the same name has no effect. Spans
+ * wrapped in `if-not onCodex` therefore render everywhere except Codex. Prose
+ * callers (agents-md, cursor, copilot) and the global baseline pass their own
+ * engine id so they never take the Claude-only branch.
  */
 export function conditionOrchestration(
   content: string,
   config: NavoriConfig,
-  /** Engine id being rendered; only `"codex"` makes the reserved key `onCodex` true. */
+  /** Engine id being rendered; `"codex"` makes `onCodex` true, `"claude"` makes `onClaude` true. */
   engine: string = "claude",
 ): string {
   const enabled = (key: string) => {
     if (key === "onCodex") return engine === "codex";
+    if (key === "onClaude") return engine === "claude";
     if (key === "sdd") return config.sdd?.enabled !== false;
     // Explicit value wins; unset (including an entirely absent `harness`
     // section) falls back to HARNESS_DEFAULTS rather than assuming "unset"
@@ -768,11 +772,24 @@ export function computeRenderPlan(
     if (retiredBlocks) {
       for (const blockId of retiredBlocks.blockIds) {
         if (skipIds.has(blockId)) continue;
-        const before = working;
-        working = removeManagedSection(working, blockId);
-        if (before !== working) {
+        // Guarded (#1273): a block the user edited, or one stamped by a newer
+        // navori, is user-kept — only pristine copies are navori's to remove.
+        // "downgrade-skipped" is the non-conflict "kept" status: a retired block
+        // has no new content, so the sync conflict flow (user-modified-skipped)
+        // would offer a resolution that can resolve nothing.
+        const result = removeManagedSectionGuarded(working, blockId);
+        const asset = { id: blockId, relPath: `@navori/plugin-${declaredId}` };
+        if ("kept" in result) {
           entries.push({
-            asset: { id: blockId, relPath: `@navori/plugin-${declaredId}` },
+            asset,
+            source: declaredId,
+            status: "downgrade-skipped",
+            newContent: null,
+          });
+        } else if (result.content !== working) {
+          working = result.content;
+          entries.push({
+            asset,
             source: declaredId,
             status: "removed-condition-false",
             newContent: null,
@@ -855,7 +872,7 @@ export function computeRenderPlan(
  *
  * `computedBlockIds` is an ADAPTER contribution (#228): the core is
  * engine-agnostic, so it no longer hardcodes the Claude engine's computed block
- * ids (`skills-index`, `agentes-disponibles`, `contexto-*`). The Claude engine
+ * ids (`agentes-disponibles`, `contexto-*`). The Claude engine
  * owns that list and passes it here; callers that don't (e.g. doctor's order
  * check over a `.claude/CLAUDE.md`) get the core/preset/plugin order, and the
  * engine's computed blocks — always emitted last — sort to the tail on their

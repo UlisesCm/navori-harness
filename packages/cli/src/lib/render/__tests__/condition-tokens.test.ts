@@ -142,3 +142,33 @@ describe("conditionOrchestration — reserved key onCodex", () => {
     expect(conditionOrchestration(content, withKey)).toBe("aclaudez");
   });
 });
+
+describe("conditionOrchestration — reserved key onClaude", () => {
+  const content =
+    "a<!-- navori:if onClaude -->claude<!-- /navori:if -->" +
+    "<!-- navori:if-not onClaude -->prose<!-- /navori:if-not -->z";
+
+  // Covers: #1273
+  it("renders the if span only for claude (default included)", () => {
+    expect(conditionOrchestration(content, config(false))).toBe("aclaudez");
+    expect(conditionOrchestration(content, config(false), "claude")).toBe("aclaudez");
+  });
+
+  // Covers: #1273
+  it("renders the if-not span for every other engine id, global included", () => {
+    for (const engine of ["codex", "agents-md", "cursor", "copilot", "pi", "global"]) {
+      expect(conditionOrchestration(content, config(false), engine)).toBe("aprosez");
+    }
+  });
+
+  // Covers: #1273
+  it("never reads onClaude from the config", () => {
+    const withKey = NavoriConfigSchema.parse({
+      name: "condition-tokens-demo",
+      engines: ["claude"],
+      preset: "custom",
+      harness: { onClaude: false },
+    });
+    expect(conditionOrchestration(content, withKey)).toBe("aclaudez");
+  });
+});

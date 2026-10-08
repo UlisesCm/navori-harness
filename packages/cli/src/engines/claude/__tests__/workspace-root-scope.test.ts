@@ -135,10 +135,10 @@ describe("renderClaudeEngine — workspace bajo `root` (spec 0043 T7)", () => {
     expect(inherited).toMatch(/viven en la raíz/i);
   });
 
-  it("sin `skills-index` en el workspace", () => {
+  it("sin `skills-index` en el workspace (ni en ningún render de Claude, #1273)", () => {
     // Covers: R12, R13
     renderClaudeEngine(ws, wsConfig(), { repoRoot: root, monorepoContext: context() });
-    expect(contextFile()).toContain('id="skills-index"');
+    expect(contextFile()).not.toContain('id="skills-index"');
     renderRootScope(wsConfig());
     expect(contextFile()).not.toContain('id="skills-index"');
   });
@@ -210,7 +210,7 @@ describe("renderClaudeEngine — la raíz sube lo de los workspaces (spec 0043 T
     expect(out).toContain('navori:managed id="web-nextjs-app-router"');
   });
 
-  it("el índice de la raíz lista lo subido con su nombre final", () => {
+  it("lo subido se escribe con su nombre final y la raíz ya no lleva índice (#1273)", () => {
     // Covers: R5, R13
     renderClaudeEngine(root, ROOT_CONFIG, {
       rootHoist: {
@@ -222,8 +222,9 @@ describe("renderClaudeEngine — la raíz sube lo de los workspaces (spec 0043 T
       },
     });
     const index = readFileSync(join(root, "CLAUDE.md"), "utf-8");
-    expect(index).toContain("- `nextjs-app-router` — workspace");
-    expect(index).toContain("- `web-new-resource` — workspace (`web`)");
+    expect(index).not.toContain('id="skills-index"');
+    expect(existsSync(rootSkill("nextjs-app-router"))).toBe(true);
+    expect(existsSync(rootSkill("web-new-resource"))).toBe(true);
   });
 
   it("un candidato ya no deseado se poda y uno con texto del usuario se conserva", () => {

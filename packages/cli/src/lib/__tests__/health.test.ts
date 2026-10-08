@@ -576,9 +576,9 @@ describe("scanManagedOrder", () => {
 
   it("detects a swap AMONG computed blocks only when the engine's ids are threaded (#228 follow-up)", () => {
     // Two engine-computed blocks in the wrong relative order (canonical:
-    // skills-index before agentes-disponibles).
-    let doc = injectManagedSection("", "agentes-disponibles", "x").output;
-    doc = injectManagedSection(doc, "skills-index", "y").output;
+    // agentes-disponibles before contexto-proyecto).
+    let doc = injectManagedSection("", "contexto-proyecto", "x").output;
+    doc = injectManagedSection(doc, "agentes-disponibles", "y").output;
     writeFileSync(join(cwd, "CLAUDE.md"), doc);
 
     // Without the ids, both computed blocks are absent from the canonical list,
@@ -588,9 +588,9 @@ describe("scanManagedOrder", () => {
     // With the ids threaded (as doctor does), the swap is flagged.
     const r = scanManagedOrder(cwd, config, CLAUDE_COMPUTED_BLOCK_IDS);
     expect(r).not.toBeNull();
-    expect(r!.current).toEqual(["agentes-disponibles", "skills-index"]);
-    expect(r!.expected).toEqual(["skills-index", "agentes-disponibles"]);
-    expect(r!.misplacedFirst).toEqual({ id: "skills-index", currentPos: 2, total: 2 });
+    expect(r!.current).toEqual(["contexto-proyecto", "agentes-disponibles"]);
+    expect(r!.expected).toEqual(["agentes-disponibles", "contexto-proyecto"]);
+    expect(r!.misplacedFirst).toEqual({ id: "agentes-disponibles", currentPos: 2, total: 2 });
   });
 });
 
@@ -849,8 +849,8 @@ describe("monorepo workspace scanning (#235)", () => {
     // scan mirror that (`omitRootOnly:true`), so a realistic workspace order-drift is
     // a swap among the computed blocks (threaded via CLAUDE_COMPUTED_BLOCK_IDS).
     mkdirSync(join(cwd, "apps/api"), { recursive: true });
-    let doc = injectManagedSection("", "agentes-disponibles", "x").output;
-    doc = injectManagedSection(doc, "skills-index", "y").output; // canonical: skills-index first
+    let doc = injectManagedSection("", "contexto-proyecto", "x").output;
+    doc = injectManagedSection(doc, "agentes-disponibles", "y").output; // canonical: agentes-disponibles first
     writeFileSync(join(cwd, "apps/api/CLAUDE.md"), doc);
 
     const r = scanManagedOrder(
@@ -860,8 +860,8 @@ describe("monorepo workspace scanning (#235)", () => {
     );
     expect(r).not.toBeNull();
     expect(r!.workspacePath).toBe("apps/api");
-    expect(r!.current).toEqual(["agentes-disponibles", "skills-index"]);
-    expect(r!.expected).toEqual(["skills-index", "agentes-disponibles"]);
+    expect(r!.current).toEqual(["contexto-proyecto", "agentes-disponibles"]);
+    expect(r!.expected).toEqual(["agentes-disponibles", "contexto-proyecto"]);
   });
 
   it("scanMalformedMarkers scans workspace files when passed the config", () => {

@@ -1067,10 +1067,7 @@ interface DoctorCmdStrings {
   /** "Your file is FAT": one block over its ceiling, with the knob that shrinks it. */
   docBudgetOverBlock: (id: string, words: number, ceiling: number, lever: string) => string;
   /** The knob per block family, named so the warning is actionable. */
-  docBudgetLever: Record<
-    "project-context" | "local-skills" | "preset" | "plugins" | "core",
-    string
-  >;
+  docBudgetLever: Record<"project-context" | "preset" | "plugins" | "core", string>;
   /** Note title for the distribution section (#778). */
   distributionTitle: string;
   /** Harness files rendered on disk that were never committed. */
@@ -1269,11 +1266,6 @@ interface EngineCmdStrings {
  * pull the same localized text via `tc(resolveLang(config.language)).blocks.*`.
  */
 interface BlocksCmdStrings {
-  skillsIndex: {
-    heading: string;
-    intro: string;
-    localNote: string;
-  };
   agentsIndex: {
     heading: string;
     intro: string;
@@ -2440,7 +2432,6 @@ const CMD_ES: CmdStrings = {
     docBudgetLever: {
       "project-context":
         "recorta 'project.criticalAreas' / 'legacyPaths' / 'libraryMigrations' en navori.config.json",
-      "local-skills": "poda 'project.localSkills' (~7 palabras por entrada)",
       preset: "cambia o quita el preset ('preset' en navori.config.json)",
       plugins: "deshabilita los plugins que no uses ('plugins' en navori.config.json)",
       core: "es un bloque core de navori: repórtalo como issue, no es tuyo de recortar",
@@ -2882,12 +2873,6 @@ const CMD_ES: CmdStrings = {
       "Un proyecto con su propio harness navori lo reemplaza.",
   },
   blocks: {
-    skillsIndex: {
-      heading: "## Skills disponibles",
-      intro:
-        'Skills que los agentes pueden aplicar. Toda skill vive en `.claude/skills/<id>/SKILL.md` — el directorio no es opcional: es la única forma que Claude Code descubre, también para las tuyas. El listado nativo del host entrega el "cuándo usar" de cada una.',
-      localNote: "Las `project-local` son tuyas — navori las indexa pero nunca toca su contenido.",
-    },
     agentsIndex: {
       heading: "## Agentes disponibles",
       intro:
@@ -3892,7 +3877,6 @@ const CMD_EN: CmdStrings = {
     docBudgetLever: {
       "project-context":
         "trim 'project.criticalAreas' / 'legacyPaths' / 'libraryMigrations' in navori.config.json",
-      "local-skills": "prune 'project.localSkills' (~7 words per entry)",
       preset: "change or drop the preset ('preset' in navori.config.json)",
       plugins: "disable the plugins you don't use ('plugins' in navori.config.json)",
       core: "this is a navori core block: report it as an issue, it isn't yours to trim",
@@ -4329,13 +4313,6 @@ const CMD_EN: CmdStrings = {
       "A project with its own navori harness supersedes it.",
   },
   blocks: {
-    skillsIndex: {
-      heading: "## Available skills",
-      intro:
-        'Skills the agents can apply. Every skill lives at `.claude/skills/<id>/SKILL.md` — the directory is not optional: it is the only shape Claude Code discovers, yours included. The host\'s native listing supplies the "when to use" for each one.',
-      localNote:
-        "The `project-local` ones are yours — navori indexes them but never touches their content.",
-    },
     agentsIndex: {
       heading: "## Available agents",
       intro:

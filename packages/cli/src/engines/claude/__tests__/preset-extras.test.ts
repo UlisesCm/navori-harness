@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
+import { renderAgentsMdEngine } from "../../agents-md/index.ts";
 import { computeManagedHash } from "../../../lib/render/marker.ts";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
 import {
@@ -246,9 +247,10 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
       expect(r.warnings.find((w) => w.includes("not found"))).toBeUndefined();
     });
 
-    it("lists detected library skills in the skills index as '— library (detected)'", () => {
-      renderClaudeEngine(cwd, withLibraries(["winston-logging"], { localSkills: ["my-local"] }));
-      const claudeMd = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
+    it("lists detected library skills in the prose skills index as '— library (detected)'", () => {
+      // The Claude render has no skills index since #1273: the prose engines keep it.
+      renderAgentsMdEngine(cwd, withLibraries(["winston-logging"], { localSkills: ["my-local"] }));
+      const claudeMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
       // Assert on the index row format — stack.md mentions both names in prose
       // on purpose, so a bare substring would false-positive.
       expect(claudeMd).toContain("`winston-logging` — library (detected)");
@@ -260,9 +262,8 @@ describe("renderClaudeEngine — preset.extras (spec 0001 fase 2)", () => {
       // was non-empty, so a repo with detected library skills but no local skills got
       // the .md files but no index row. The index now renders whenever there's
       // anything to list (core skills are always present).
-      renderClaudeEngine(cwd, withLibraries(["mongoose"]));
-      const claudeMd = readFileSync(join(cwd, "CLAUDE.md"), "utf-8");
-      expect(claudeMd).toContain('navori:managed id="skills-index"');
+      renderAgentsMdEngine(cwd, withLibraries(["mongoose"]));
+      const claudeMd = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
       expect(claudeMd).toContain("`mongoose` — library (detected)");
       // Core skills are listed too, and the project-local note is omitted (none declared).
       expect(claudeMd).toContain("`verify-before-done` — navori");

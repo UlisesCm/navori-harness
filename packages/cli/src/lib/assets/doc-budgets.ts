@@ -56,7 +56,10 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // #955 — recalibrated at ×1.10 (2200 → 10.0%). Lower than the previous
   // 2423 because the raise was paid for by trimming this repo's own prose
   // (536 → 427 words); the 12 managed blocks inside it are not editable here.
-  "CLAUDE.md": 2420,
+  // #1273 — the always-on file dropped the skills index, the gh cheat-sheet and
+  // the intake / SDD-Structure prose for Claude: 2198 → 1618 words measured
+  // (11,963 B, under the 12,000 B target); ceil(1618 × 1.10) = 1780.
+  "CLAUDE.md": 1780,
   // #930 — the prose surface self-hosted at this repo's root. Like `CLAUDE.md`
   // above, it is a RENDERED file, not a source asset, so it matches no
   // `MANAGED_ASSET_PATHSPECS` glob and is listed here explicitly. Same ceiling
@@ -70,7 +73,9 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // (`wc -w AGENTS.md`). Recalibrated per the #955 rule (≥10% headroom,
   // `ceiling = ceil(words × 1.10)`), not the old ×1.05/#908 floor this line
   // used before: ceil(4471 × 1.10) = 4919.
-  "AGENTS.md": 4919,
+  // #1273: Codex dropped `gh-protocol` (3805 → 3698 words measured); the old
+  // ceiling had also drifted slack. ceil(3698 × 1.10) = 4068.
+  "AGENTS.md": 4068,
 
   // Core managed blocks — auto-discovered from `core-assets/managed/`.
   // Entries recalibrated in #955 carry `// <measured> → <headroom>` at ×1.10.
@@ -80,7 +85,9 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   "packages/core/core-assets/managed/codex-cross-review.md": 180,
   "packages/core/core-assets/managed/formato-respuesta.md": 150,
   "packages/core/core-assets/managed/idioma-rol.md": 140,
-  "packages/core/core-assets/managed/intake-tickets.md": 251, // 228 → 10.1%
+  // #1273: the source carries both forms (Claude pointer + full text for the
+  // prose engines), so it measures more than any single render (268 measured).
+  "packages/core/core-assets/managed/intake-tickets.md": 295, // 268 → 10.1%
   "packages/core/core-assets/managed/operaciones-seguras.md": 310,
   // 1058 words → 5.1% headroom. The extra prose is Codex-only (`navori:if onCodex`
   // alternatives); Claude's startup context is unchanged. Spec 0044 T10: the
@@ -101,13 +108,14 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // rendered for Claude did not change. Raised just enough to recover the 5%
   // headroom floor (208 measured → 219). Spec 0044 T10: the E/M/T delivery
   // grammar replaces "batches of 1-3"; same floor recovered (219 measured → 231).
-  "packages/core/core-assets/managed/sdd.md": 231, // 219 → 5.2%
+  // #1273: Structure/Tracking sit in an `if-not onClaude` span and Claude gets
+  // its own one-line tracking rule, so the source grows (243 measured → 268).
+  "packages/core/core-assets/managed/sdd.md": 268, // 243 → 10.3%
   "packages/core/core-assets/managed/tipado-fuerte.md": 50,
 
   // Plugin managed blocks (#917). Measured / ceiling → headroom.
   "packages/plugins/acli/managed/acli-protocol.md": 80, // 70 → 14.3%
   "packages/plugins/codegraph/managed/codegraph-search-v2.md": 105, // 91 → 15.4%
-  "packages/plugins/gh/managed/gh-protocol.md": 120, // 107 → 12.1%
   "packages/plugins/jscpd/managed/jscpd-protocol.md": 90, // 80 → 12.5%
   "packages/plugins/tgrep/managed/tgrep-search-v2.md": 115, // 104 → 10.6%
 
@@ -138,11 +146,7 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
  * punish. `COMPUTED_BLOCK_FORMULAS` below carries the `base + k · rows` version
  * `doctor` reports against; nothing here fails a build over them.
  */
-export const COMPUTED_BLOCKS_WITHOUT_BUDGET = [
-  "skills-index",
-  "contexto-proyecto",
-  "agentes-disponibles",
-] as const;
+export const COMPUTED_BLOCKS_WITHOUT_BUDGET = ["contexto-proyecto", "agentes-disponibles"] as const;
 
 /**
  * Where the gate auto-discovers managed assets that must carry a ceiling, as
@@ -323,7 +327,7 @@ export interface ComputedBlockFormula {
 }
 
 /**
- * Ceilings for the three blocks navori COMPUTES from the consumer's config.
+ * Ceilings for the two blocks navori COMPUTES from the consumer's config.
  *
  * The unit is a rendered ROW (`- …` line), which is countable from the file
  * alone — no config resolution, no guessing which knob produced which line.
@@ -332,10 +336,6 @@ export interface ComputedBlockFormula {
  * entry COSTS, it does not punish a repo for using the tool. Every `k` sits
  * above the most expensive row navori can emit for that block, measured today:
  *
- * - `skills-index` — rows measured at 4-5 words (`- \`id\` — tag`, no trigger:
- *   the `claude` engine drops it since #908). Base measured at 68 here (header
- *   + marker pair) for 18 rows / 150 words; `bonum-webapp` renders 32 rows /
- *   208 words, i.e. 4.4 per row. `80 + 7·rows` clears both by ~40%.
  * - `contexto-proyecto` — the priciest row is `migrationRow`, 42 (es) / 43 (en)
  *   words with one-word arguments (`i18n.ts`, `blocks.projectContext`), so `k`
  *   is that worst case plus room for the user's own words. Base is heading (4)
@@ -348,7 +348,6 @@ export interface ComputedBlockFormula {
  *   agent row there too.
  */
 export const COMPUTED_BLOCK_FORMULAS: Readonly<Record<string, ComputedBlockFormula>> = {
-  "skills-index": { base: 80, perRow: 7 },
   "contexto-proyecto": { base: 30, perRow: 45 },
   "agentes-disponibles": { base: 60, perRow: 40 },
 };
@@ -393,12 +392,13 @@ const MANAGED_ASSET_RE = /\/managed\/([^/]+)\.md$/;
  * same table (see the comment on that entry for why they can drift by a few
  * words).
  *
- * Measured 4116 words for the `navori-agents` block in THIS repo's own
+ * Measured 3686 words for the `navori-agents` block in THIS repo's own
  * `AGENTS.md` (codex engine, plugin sub-blocks included) → ceiling below
  * carries ~10% headroom over that.
  */
 export const PROSE_WRAPPER_CEILINGS: Readonly<Record<string, number>> = {
-  "navori-agents": 4530,
+  // #1273: re-measured at 3686 words after `gh-protocol` left Codex; ceil(3686 × 1.10).
+  "navori-agents": 4055,
 };
 
 /**

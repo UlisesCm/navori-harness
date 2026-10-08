@@ -32,6 +32,7 @@ export function renderCopilotEngine(
     config: inputConfig,
     destRelPath: ".github/copilot-instructions.md",
     managedId: MANAGED_ID,
+    engine: "copilot",
     header: HEADER,
     userSection: USER_SECTION,
     dryRun: options.dryRun,

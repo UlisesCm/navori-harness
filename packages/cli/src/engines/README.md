@@ -137,3 +137,10 @@ si prefieres no versionarlos, agrégalos al `.gitignore` del repo destino junto 
 Comparten su propio spine (`renderProseFile`) y son wrappers de ~40 LOC. No
 emiten agents/skills/hooks por archivo; migrarlos al `EngineAdapter` sería churn
 sin ganancia (Spec 0007 DT-1).
+
+Cada adapter pasa su `engine` (`"agents-md"`, `"cursor"`, `"copilot"`) a `renderProseFile`, y es obligatorio
+(#1273): resuelve las llaves reservadas de condición `onCodex` y `onClaude` (ambas ignoran la config). `onClaude`
+solo es verdadera para `engine === "claude"`: el CLAUDE.md recibe el invariante + puntero de `intake-tickets` y
+`sdd`, mientras que los engines de prosa (y Pi) conservan el texto completo porque no cargan skills. El baseline
+global se condiciona como engine `"global"` (el hook de SessionStart solo llega a la sesión principal), así que
+tampoco recibe la forma Claude.
