@@ -32,6 +32,10 @@ import {
   runUpdateNoticeWorker,
   UPDATE_NOTICE_WORKER_ARG,
 } from "./lib/primitives/update-notice.ts";
+import {
+  runToolVersionWorker,
+  TOOL_VERSION_WORKER_ARG,
+} from "./lib/primitives/tool-version-notice.ts";
 
 const main = defineCommand({
   meta: {
@@ -72,6 +76,10 @@ const main = defineCommand({
 
 if (process.argv[2] === UPDATE_NOTICE_WORKER_ARG) {
   void runUpdateNoticeWorker(process.argv[3]).finally(() => {
+    process.exitCode = 0;
+  });
+} else if (process.argv[2] === TOOL_VERSION_WORKER_ARG) {
+  void runToolVersionWorker(process.argv[3]).finally(() => {
     process.exitCode = 0;
   });
 } else {
