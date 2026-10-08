@@ -8,9 +8,9 @@ Estimated LOC: <number>
 
 ### M1 — <milestone title>
 
-- **A1** [observable] — <acceptance criterion description> → `expected command or "verified manually"`
+- **A1** [observable] — <criterion description> · `<command>` → <expected output>
 
-- [ ] **T1** (R<n>, ...) — <title>.
+- [ ] **T1** (R<n>, ...) — <title> · effect: behavior · test: <file>::<case>
   - **Files:** exact paths this task touches.
   - **Interfaces:** the ones it touches, each named in `design.md`.
   - **Pattern:** an existing repo file to follow.
@@ -21,9 +21,9 @@ Estimated LOC: <number>
 
 ### M2 — <milestone title>
 
-- **A2** — <description>
+- **A2** — <description> · `<command>` → <expected output>
 
-- [ ] **T2** (R<n>) — <title>.
+- [ ] **T2** (R<n>) — <title> · effect: tests · test: <file>::<case>
   - **Files:** ...
   - **Interfaces:** ...
   - **Pattern:** ...
@@ -38,9 +38,9 @@ Estimated LOC: <number>
 
 ### M3 — <milestone title>
 
-- **A3** — <description>
+- **A3** [observable] — <description> · `<command>` → <expected output>
 
-- [ ] **T3** (R<n>) — <title>.
+- [ ] **T3** (R<n>) — <title> · effect: behavior · test: <file>::<case>
   - **Files:** ...
 
 Each `R<n>` in `requirements.md` cites the `P<n>.A<m>` it covers (R60).

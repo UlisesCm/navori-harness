@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
 import { claudeHookCommand } from "../build-settings.ts";
 import { readTemplateFile } from "../../../lib/master/templates.ts";
+import { allTasks, parseTasks } from "../../../lib/spec/tasks.ts";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
 
 const CONFIG_FULL = {
@@ -1137,6 +1138,26 @@ describe("renderClaudeEngine — skills directory form + legacy migration (#166)
           /batches? (de|of) 1[-–]3|lotes de 1[-–]3/i,
         );
       }
+    },
+  );
+
+  // Covers: R21
+  it.each(["es", "en"] as const)(
+    "master-plan tasks template (%s) parses with the spec check grammar",
+    (language) => {
+      // A spec generated from the template must not fail `navori spec check` out of the box.
+      const parsed = parseTasks(readTemplateFile("tasks", language));
+      expect(parsed.format).toBe("deliveries");
+      const milestones = parsed.deliveries.flatMap((d) => d.milestones);
+      const criteria = milestones.flatMap((m) => m.criteria);
+      expect(criteria.length).toBeGreaterThan(0);
+      for (const criterion of criteria) {
+        expect(criterion.command, criterion.id).not.toBe("");
+        expect(criterion.expected, criterion.id).not.toBe("");
+      }
+      const tasks = allTasks(parsed);
+      expect(tasks.length).toBeGreaterThan(0);
+      for (const task of tasks) expect(task.effect, task.id).toBeDefined();
     },
   );
 

@@ -8,9 +8,9 @@ Estimated LOC: <número>
 
 ### M1 — <título del milestone>
 
-- **A1** [observable] — <descripción del criterio de aceptación> → `comando esperado o "verificado manualmente"`
+- **A1** [observable] — <descripción del criterio> · `<comando>` → <salida esperada>
 
-- [ ] **T1** (R<n>, ...) — <título>.
+- [ ] **T1** (R<n>, ...) — <título> · effect: behavior · test: <archivo>::<caso>
   - **Archivos:** rutas exactas que la tarea toca.
   - **Interfaces:** las que toca, cada una nombrada en `design.md`.
   - **Patrón:** un archivo del repo que ya existe, a seguir.
@@ -21,9 +21,9 @@ Estimated LOC: <número>
 
 ### M2 — <título del milestone>
 
-- **A2** — <descripción>
+- **A2** — <descripción> · `<comando>` → <salida esperada>
 
-- [ ] **T2** (R<n>) — <título>.
+- [ ] **T2** (R<n>) — <título> · effect: tests · test: <archivo>::<caso>
   - **Archivos:** ...
   - **Interfaces:** ...
   - **Patrón:** ...
@@ -38,9 +38,9 @@ Estimated LOC: <número>
 
 ### M3 — <título del milestone>
 
-- **A3** — <descripción>
+- **A3** [observable] — <descripción> · `<comando>` → <salida esperada>
 
-- [ ] **T3** (R<n>) — <título>.
+- [ ] **T3** (R<n>) — <título> · effect: behavior · test: <archivo>::<caso>
   - **Archivos:** ...
 
 Cada `R<n>` de `requirements.md` cita los `P<n>.A<m>` que cubre (R60).
