@@ -193,8 +193,19 @@ regeneración es idempotente y nunca pisa lo que está fuera de los markers.
 
 - **`hash`** → detecta edición manual del bloque (content drift). `sync` lo
   respeta o lo resuelve interactivo (keep-mine / accept-new).
-- **`version`** → detecta que el bundle (core/preset/plugin) avanzó (version
-  drift). `render --apply` lo actualiza.
+- **`version`** → versión de navori que cambió por última vez el contenido del bloque (o su
+  frontmatter), no la que lo renderizó por última vez. Re-renderizar con un CLI más nuevo sobre
+  contenido igual deja el archivo byte-idéntico; los bloques sin versión sí se estampan. El hash no
+  cambia (sha1 del cuerpo). `$navori.version` en `.claude/settings.json` y `.mcp.json` sigue la
+  misma regla.
+- **`harnessVersion`** (clave opcional de primer nivel en `navori.config.json`) → última versión de
+  navori que aplicó un cambio real. Solo la escribe un `--apply` de `render`/`sync`/`adopt` que
+  escribió o borró algo; nunca baja, y se omite con un aviso si el archivo no está en el JSON
+  canónico que navori escribe.
+- **Anti-rollback (#79)** → piso por bloque = max(`version` del marker, `harnessVersion`). Un CLI
+  más viejo omite (`downgrade-skipped`) los bloques y JSON que degradaría; `render --force` solo
+  lo anula en `settings.json`/`.mcp.json`. No se rechaza el apply completo. Brecha aceptada: un
+  asset que va A→B→A solo queda protegido si el CLI nuevo aplicó algún otro cambio real.
 - **Fuera de los markers** → tuyo, intocable. Ese es el moat: regeneración
   idempotente sin destruir tu trabajo. Ver [marker.ts](../packages/cli/src/lib/render/marker.ts).
 

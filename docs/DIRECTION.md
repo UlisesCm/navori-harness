@@ -107,7 +107,11 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
    *Por qué*: reproducibilidad total; sin estado oculto.
 4. **Modelo híbrido de sync con marcadores** — `<!-- navori:managed ... -->` se sincroniza;
    todo lo de afuera es del usuario e intocable. `hash` detecta drift de contenido; `version`
-   detecta que el bundle avanzó. *Por qué*: regenerar idempotente sin pisar trabajo manual.
+   es la versión de navori que cambió por última vez el contenido del bloque (no la que lo
+   renderizó), así que re-renderizar con un CLI más nuevo sobre contenido igual no toca el archivo.
+   `harnessVersion` en `navori.config.json` es el registro a nivel repo de la última versión que
+   aplicó un cambio real, y sostiene el anti-rollback (#1262). *Por qué*: regenerar idempotente sin
+   pisar trabajo manual ni ensuciar el diff.
 5. **Render preview por default** — `render` no toca disco; `--apply` escribe, con backup previo
    y escritura atómica (fsync). *Por qué*: nunca sorprender al usuario con cambios en disco.
 6. **Plugins como bundles** — cada plugin trae hasta piezas opcionales (settings fragment,

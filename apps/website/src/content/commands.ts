@@ -220,6 +220,8 @@ const es: Record<string, CommandDoc> = {
     ],
     notes: [
       "Corre doctor en CI con --strict para fallar el build si hay drift no resuelto.",
+      "'harnessVersion' (clave opcional de navori.config.json) guarda la última versión de navori que aplicó un cambio real; solo la escribe un --apply de render/sync/adopt que escribió o borró algo, y nunca baja. Si es mayor que el CLI que corre doctor, aparece el hallazgo 'harness' y --strict falla.",
+      "Ya no hay drift de 'version' por bloque ni 'staleBlocks': 'version' en un marker es la versión que cambió el contenido por última vez. En --json, DriftReport.kind pasa a downgrade|harness|content (cambio incompatible para quien consuma el JSON).",
       "Valida invariants: substrings load-bearing que deben sobrevivir en el output (exit 2 si faltan).",
       "El estado de confianza de Codex se lee de $CODEX_HOME/config.toml si CODEX_HOME está definido, y de ~/.codex/config.toml si no; un valor relativo se rechaza.",
       "Con el engine codex habilitado, también revisa cada git worktree del repo que tenga .codex/config.toml: advierte con el hook, la ruta y 'cd <ruta> && navori codex trust' si falta aprobarlo. Advierte además si el codex instalado es más nuevo que la última versión verificada. Si git o el disco fallan, degrada a un aviso.",
@@ -241,6 +243,7 @@ const es: Record<string, CommandDoc> = {
       },
     ],
     notes: [
+      "Muestra 'harness (last changed)' con la versión de navori que cambió el harness por última vez (harnessVersion); la clave de --json sigue siendo 'renderedVersion'.",
       "status es la vista al vuelo; doctor es el audit verboso. Comparten la misma lógica de health-check.",
     ],
   },
