@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isNavoriOwnedSettings, readNavoriOwnership } from "../json-ownership.ts";
+import { isNavoriOwnedSettings, planStampedJson, readNavoriOwnership } from "../json-ownership.ts";
 
 describe("isNavoriOwnedSettings", () => {
   it("returns true for $navori.managed === true", () => {
@@ -60,5 +60,64 @@ describe("readNavoriOwnership", () => {
     expect(readNavoriOwnership("# markdown\n")).toBeNull();
     expect(readNavoriOwnership("[]")).toBeNull();
     expect(readNavoriOwnership('{"hooks":{}}')).toBeNull();
+  });
+});
+
+// Covers: A2
+describe("planStampedJson", () => {
+  const doc = (version: string, extra: Record<string, unknown> = {}): string =>
+    JSON.stringify({ $navori: { managed: true, version }, hooks: {}, ...extra }, null, 2) + "\n";
+
+  it("is a noop when only the stamp would differ", () => {
+    expect(planStampedJson(doc("0.1.0"), doc("0.2.0"), "0.2.0")).toEqual({ kind: "noop" });
+  });
+
+  it("is a noop when identical", () => {
+    expect(planStampedJson(doc("0.2.0"), doc("0.2.0"), "0.2.0")).toEqual({ kind: "noop" });
+  });
+
+  it("preserves key order: stamp-only diff stays a noop with the stamp not first", () => {
+    const mk = (v: string): string =>
+      JSON.stringify({ hooks: {}, $navori: { managed: true, version: v }, a: 1 }, null, 2) + "\n";
+    expect(planStampedJson(mk("0.1.0"), mk("0.2.0"), "0.2.0")).toEqual({ kind: "noop" });
+  });
+
+  it("writes the candidate stamped with the CLI version on a real change", () => {
+    const candidate = doc("0.2.0", { extra: 1 });
+    expect(planStampedJson(doc("0.1.0"), candidate, "0.2.0")).toEqual({
+      kind: "write",
+      content: candidate,
+    });
+  });
+
+  it("skips when the existing stamp is newer than the CLI", () => {
+    expect(planStampedJson(doc("0.3.0"), doc("0.2.0", { extra: 1 }), "0.2.0")).toEqual({
+      kind: "downgrade-skipped",
+      existingVersion: "0.3.0",
+    });
+  });
+
+  it("skips when the floor is newer than the CLI", () => {
+    expect(planStampedJson(doc("0.1.0"), doc("0.2.0", { extra: 1 }), "0.2.0", "0.4.0")).toEqual({
+      kind: "downgrade-skipped",
+      existingVersion: "0.4.0",
+    });
+  });
+
+  it("force bypasses the downgrade guards", () => {
+    const candidate = doc("0.2.0", { extra: 1 });
+    expect(planStampedJson(doc("0.3.0"), candidate, "0.2.0", "0.4.0", true)).toEqual({
+      kind: "write",
+      content: candidate,
+    });
+  });
+
+  it("writes when the current file has no readable stamp", () => {
+    const candidate = doc("0.2.0");
+    expect(planStampedJson("not json", candidate, "0.2.0")).toEqual({
+      kind: "write",
+      content: candidate,
+    });
+    expect(planStampedJson("", candidate, "0.2.0")).toEqual({ kind: "write", content: candidate });
   });
 });

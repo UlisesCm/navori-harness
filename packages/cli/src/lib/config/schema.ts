@@ -503,13 +503,22 @@ export const NavoriConfigSchema = z
     name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "name must be kebab-case"),
     /**
      * The PROJECT's version — the user's, not navori's. Nothing in the CLI
-     * writes it after `init`, and nothing should: the navori release that
-     * rendered a harness already lives in `.claude/settings.json` (`$navori.version`)
-     * and in every managed marker's `version=`, which is what `health.ts`
-     * compares to tell drift from a downgrade. A third copy is a copy that
-     * desynchronizes (#604). `status` prints both, labelled apart.
+     * writes it after `init`, and nothing should. The navori release that
+     * applied the harness is recorded apart, in `harnessVersion` below (a
+     * block's `version=` and the settings stamp only say which release last
+     * CHANGED that artifact, so they no longer say which release rendered the
+     * repo). `status` prints both, labelled apart.
      */
     version: z.string().default("1.0.0"),
+    /**
+     * The newest navori release that applied a REAL change to this harness
+     * (written by `render`/`sync`/`adopt --apply`, never lowered, never on a
+     * no-op). It is the registry behind the anti-rollback floor: per-block
+     * `version=` stamps are frozen at their last content change, so this is
+     * what keeps an older CLI from overwriting newer blocks. Optional with no
+     * default, so it is never persisted until an apply records it.
+     */
+    harnessVersion: z.string().optional(),
     // `workspace` names an entry in the machine-local registry (~/.navori/
     // workspaces/<name>/). Registry names are kebab-case by construction
     // (WorkspaceConfigSchema.name), so mirror that here. Without the regex a
