@@ -269,3 +269,11 @@ describe("interpolate — project.* sanitization (#198)", () => {
     expect(interpolate("{{constructor.name}}", CONFIG)).toBe("<not configured: constructor.name>");
   });
 });
+
+describe("interpolate — progress caps (#1263)", () => {
+  it("injects the soft and hard byte caps as built-in vars", () => {
+    expect(
+      interpolate("{{navori.progressSoftCapBytes}}/{{navori.progressHardCapBytes}}", CONFIG),
+    ).toBe("4000/8000");
+  });
+});
