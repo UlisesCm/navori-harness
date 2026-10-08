@@ -317,7 +317,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
      - [ ] Define interface in <path>
      - [ ] Implement logic in <path>
      - [ ] Cover with a test
-     - [ ] Run `pnpm lint`
+     - [ ] Run `navori gate fast`
      ```
 
    - `Expected files: <list>`
@@ -325,10 +325,12 @@ You execute **a single** task from start to verification. You don't orchestrate,
 4. **Quality gate** (mandatory before returning):
 
    ```bash
-   pnpm lint
+   navori gate fast
    ```
 
-   If it fails: fix it and re-run. Don't return with red. You are the single owner of this gate run: never share it with another process, never poll `pgrep`/`ps` for it, and a timeout is never a success signal. If the gate can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`) — you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait. When you can't explain WHY it failed, apply `.claude/skills/debug-failure/SKILL.md` before touching anything — the size of the output is not the trigger, the missing root cause is, and a failure whose error stream you truncated away reads the same as one you understand. If your second fix attempt fails the same way, that same skill's hypothesis re-check governs instead of throwing a third patch.
+   If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run: run the literal `pnpm lint`. Open the log only on a red.
+
+   If it fails: fix it and re-run. Don't return with red. You are the single owner of this gate run: never share it with another process, never poll `pgrep`/`ps` for it, and a timeout is never a success signal. If the gate can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`) — you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait. When you can't explain WHY it failed, apply `.claude/skills/debug-failure/SKILL.md` before touching anything. If your second fix attempt fails the same way, that same skill's hypothesis re-check governs instead of throwing a third patch.
 5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up (e.g. `playwright-cli`, whose installer ships its own skill).
 6. **No commits** without the `reviewer`'s approval. When you finish, write the report and return the reference.
 
@@ -612,9 +614,11 @@ And never take a merged PR as proof on its own: **squash merge leaves no ancestr
 ## Quality gate
 
 ```bash
-pnpm lint    # fast gate — pre-step to the reviewer
-pnpm test && pnpm lint    # full gate — before closing the session / creating the PR
+navori gate fast    # fast gate — pre-step to the reviewer
+navori gate full    # full gate — before closing the session / creating the PR
 ```
+
+When the command is `navori gate <kind>`, its first stdout line is `navori gate <kind>: exit <N> — log <path>`; if it is missing, the gate did not run: run the literal `pnpm lint` or `pnpm test && pnpm lint` command instead.
 
 If the repo has no test suite, the `implementer` still can't claim "done" without fresh evidence (a correct diff plus whatever checks exist) — but browser/visual validation stays **on-request only, never automatic**. The `verify-before-done` skill enforces the "fresh evidence rule" over any "done" claim.
 
@@ -758,7 +762,7 @@ If the real PR base differs from `main`, pass that actual base as `--target`.
 The PR gate is the FULL one, not `pnpm lint`. Which steps sit where is a per-project decision; don't assume the fast gate covers all full steps. Three paths:
 
 - **Reviewed:** the reviewer ran the full gate green in Pass 2 (see `review_<feature>.md`). Skip re-running **only** when the receipt table says `"fresh":true`. The `quality-gate-pre-commit` hook re-runs `fast` on `git commit` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
-- **`"fresh":false`:** no trustworthy evidence — YOU run the full gate in pre-flight before `gh pr create`. Follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row if it outlives the timeout.
+- **`"fresh":false`:** no trustworthy evidence — YOU run `navori gate full` in pre-flight before `gh pr create`. Follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row if it outlives the timeout. When the command is `navori gate <kind>`, its first stdout line is `navori gate <kind>: exit <N> — log <path>`; if that line is missing, the gate did not run: run the literal full gate.
 - **Declared inline (no reviewer):** no review evidence either — run it yourself.
 
 Never open the PR with the gate red.
@@ -1021,10 +1025,8 @@ You are a strict reviewer. Your only function is to **approve or reject**. You d
 1. Ground yourself in `CLAUDE.md` — already in your context when your host injects it; read it from disk ONLY if your host did not inject it. Then read `.navori/state/handoffs/impl_<feature>.md` (when `impl_<feature>` carries `doubts`, read them too: each is a `{file, reason}`), `.navori/state/handoffs/audit_ticket_<ID>.md` and `.navori/state/handoffs/solution_<scope>.md` (whichever exist). When there IS a solution artifact, the diff is judged against the approach it records — an implementation that quietly took a different path is a `SPEC_MISS`, even if the code is good. You do NOT re-open the design itself: whether that approach was the right one was settled in its own phase; your question is whether the code did what was agreed.
 2. Identify modified files. Diff against `main` (the PR's target
    branch), **not** against the fork point: it's the EXACT diff GitHub will show and
-   the one publisher reviews. In most repos the branch you forked from and
-   the branch the PR targets are the same, and the distinction costs you nothing;
-   where they differ, the fork-point diff is NOT the PR's — so the target always
-   wins, and you never have to work out which of the two a given name refers to.
+   the one publisher reviews. Where the fork branch and the PR target differ, the
+   fork-point diff is NOT the PR's: the target always wins.
 
    ```bash
    git status --short
@@ -1084,13 +1086,15 @@ When the encargo opens with `spec: <spec> E<n> M<n>`, run first:
 ```bash
 navori receipt gate --feature <feature> --spec <spec> --milestone M<n> --json
 ```
-If the result contains `"gateKind":"scoped"`, run `pnpm lint` plus the milestone's `A<n>` commands instead. If `"gateKind":"full"`, the gate fails, or there is no spec line, run:
+If the result contains `"gateKind":"scoped"`, run `navori gate fast` plus the milestone's `A<n>` commands instead. If `"gateKind":"full"`, the gate fails, or there is no spec line, run:
 ```bash
-pnpm test && pnpm lint
+navori gate full
 ```
 
+If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run (an old navori prints help and exits 0): run the literal `pnpm lint` or `pnpm test && pnpm lint` instead. Read only the verdict.
 
-Read it in full to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `publisher` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed. You are the single owner of this gate run: the only handle that exists is this Bash call itself, correlated to the diff you're reviewing this turn — never share it with another process, and never poll `pgrep`/`ps` for it (it also matches other sessions' commands and never exits). A timeout is never a success signal. Run it in the foreground with the Bash tool's max `timeout`; if the full gate can exceed it, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its `&&`-chained steps one by one in the foreground, each under the timeout — never background it (no shell `&`, no `run_in_background`, no `Monitor`), you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait.
+
+Read the verdict to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `publisher` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed. You are the single owner of this gate run: the only handle that exists is this Bash call itself, correlated to the diff you're reviewing this turn — never share it with another process, and never poll `pgrep`/`ps` for it (it also matches other sessions' commands and never exits). A timeout is never a success signal. Run `navori gate full` in the foreground with the Bash tool's max `timeout`; if the full gate can exceed it, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its `&&`-chained steps one by one in the foreground, each under the timeout — never background it (no shell `&`, no `run_in_background`, no `Monitor`), you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait.
 
 
 **Partial verdict:**
@@ -1557,7 +1561,7 @@ On Claude, a `SessionStart` hook injects the live context — branch, recent com
 
 Before closing the session:
 
-1. **Quality gate**: run `navori receipt check --feature <feature> --include-consumed --json`. `"status":"ok"` and `"fresh":true` → cite the receipt as evidence, no re-run needed. Any other result → run pnpm test && pnpm lint again (or document debt in `progress/current.md`).
+1. **Quality gate**: run `navori receipt check --feature <feature> --include-consumed --json`. `"status":"ok"` and `"fresh":true` → cite the receipt as evidence, no re-run needed. Any other result → run navori gate full again (or document debt in `progress/current.md`).
 2. **History**: add an entry in `progress/history.md` with `## YYYY-MM-DD HH:MM <agent> — <summary>` + changes + gate status. **One redaction, every destination**: write that summary once and reuse the same text wherever else this closeout persists it (a memory store, for instance) — never write the same session up twice. If the session turned up a durable fact that outlives this repo (a data model, a business rule, a cross-service contract, a shared gotcha), promote it with the `dominio` skill instead of leaving it only in session memory.
 3. **Clear current**: leave `progress/current.md` at `idle` or with the explicit next step. It holds only current state and next step (≤ ~4000 bytes); checkpoints and narrative go to `progress/history.md` (step 2). Agent commits growing it past ~8000 bytes are blocked.
 4. **No temporaries**: delete scratch files; don't leave `console.log`, `debugger`, or commented-out code.
@@ -16354,6 +16358,8 @@ esac
       "Bash(pnpm lint:*)",
       "Bash(pnpm test:*)",
       "Bash(pnpm test && pnpm lint)",
+      "Bash(navori gate fast)",
+      "Bash(navori gate full)",
       "Bash(pnpm run build:*)",
       "Bash(pnpm build:*)",
       "Bash(pnpm run test:*)",
