@@ -118,21 +118,23 @@ de caché de ambos directorios.
 | `update` | Re-detecta el repo, refresca config y corre sync en un paso |
 | `render` | Genera los archivos nativos de cada engine configurado (preview por default; `--apply` escribe). `--all` renderea todos los repos del registro global; `--prune` limpia los que ya no existen |
 | `registry <sub>` | Registro global de tus repos con navori, para `render --all` (`ls`, `scan <dir>`, `add`, `remove`, `prune`) |
-| `sync` | Refresca todos los engines configurados con conflict resolution + backups |
+| `sync` | Refresca todos los engines configurados con conflict resolution + backups. Los bloques en conflicto se resuelven con `--interactive` (diff, keep-mine / accept-new) o en bloque con `--accept-new` / `--keep-mine`. Los archivos completos sin marcador se resuelven archivo por archivo en modo interactivo (diff, keep / accept); `--accept-new-files` acepta en bloque los resolvibles |
 | `preset init <id>` | Scaffoldea un preset local en `.navori/presets/<id>/` |
 | `scan` | Detecta workspaces nuevos en monorepos (`pnpm-workspace.yaml` / `package.json#workspaces`) |
-| `doctor` | Audita el config + drift de cada managed block (CLAUDE.md **y AGENTS.md**), orden canónico, markers malformados, desincronización de monorepo y tools externas faltantes (`--strict` para CI) |
+| `doctor` | Audita el config + drift de cada managed block (CLAUDE.md **y AGENTS.md**), orden canónico, markers malformados, desincronización de monorepo y tools externas faltantes (`--strict` para CI). Informativo, sin afectar `--strict`: versiones instaladas con problema conocido (`externalTool.versionAdvisory`) y avisos de versiones nuevas de herramientas (`navori tools notice`) |
 | `status` | Snapshot rápido: config, plugins activos, conteo de drift y próximos pasos |
-| `audit` | Reporta cómo corrió el harness de verdad: atribución de tokens y huecos de adherencia en tus sesiones |
-| `receipt <sign\|check>` | Firma o verifica los bytes revisados antes de publicar un cambio (`navori receipt <sign\|check> --feature <id> [--target <ref>] [--dir <path>] [--json]`) |
+| `audit` | Reporta cómo corrió el harness de verdad: atribución de tokens, huecos de adherencia y outcomes de revisión y receipt; disponibilidad de herramientas por ventanas; eficiencia y ciclo de vida por tarea aceptada. `--snapshot` guarda una foto nombrada del rango y `--compare` la contrasta con otra por cohorte, con causas y evidencia |
+| `receipt <sub>` | Recibo de los bytes revisados antes de publicar: `sign` (`--feature <id>`, `--gate-ran scoped\|full`, `--spec <dir> --milestone <Mn>`), `check`, `gate --spec <dir> --milestone <Mn>` (decide si el milestone necesita el gate acotado o el completo) y `review begin` / `review seal --nonce <n>` (sidecar de revisión con identidad de contenido). Flags comunes: `--target <ref>`, `--dir <path>`, `--json` |
+| `spec <classify\|check> <feature>` | `classify` decide si una spec sale en 1 PR o en una PR por entrega (umbrales de `sdd.deliveries`); `check` valida su `tasks.md`: milestones, criterios, cobertura y entregas verticales. Flags: `--cwd`, `--json` |
+| `tools notice [--ack <pluginId@x.y.z,…>]` | Emite los avisos de versiones de herramientas externas pendientes para el hook de arranque; `--ack` los marca como entregados |
 | `handoff <check>` | Valida el handoff del implementer (`impl_<feature>.json`) antes de despachar al siguiente agente (`navori handoff check <feature> [--for scribe] [--dir <path>] [--cwd <checkout>] [--json]`) |
 | `plan <sub>` | Planificación por niveles (`harness.planTiers`): `classify [--files\|--diff]` mide complejidad y nivel de una tarea, `render`/`update` mantienen el workplan Markdown en sync con su JSON, `check` valida su esquema y reglas, `gate` es el hook `PreToolUse(Agent)` que niega el despacho sin workplan válido |
-| `master <sub>` | Flujo guiado del plan maestro por etapas (`init`, `mode`, `template`, `check`, `advance`, `status`, `part`, `close`) |
+| `master <sub>` | Flujo guiado del plan maestro por etapas (`init`, `ux`, `mode`, `template`, `check`, `advance`, `status`, `part`, `close`) y entregas de sus partes: `delivery-slice`, `delivery-check`, `delivery-baseline`, `delivery-queue`, `delivery-criterion`, `delivery-review`, `delivery-present`, `delivery-decision`, `delivery-publication`, `delivery-revoke`. Las que autorizan o aprueban llevan `--approved-by` |
 | `bench` | Corre `render` en dry-run N veces y reporta latencias (detecta regresiones locales) |
-| `workspace <sub>` | Gestiona workspaces cross-repo (`init`, `ls`, `show`, `rm`) |
+| `workspace <sub>` | Gestiona workspaces cross-repo (`init`, `ls`, `show`, `link`, `add-repo`, `set-default`, `render`, `rename`, `delete`) |
 | `ticket <sub>` | Gestiona tickets-as-files en un workspace (`new`, `list`, `show`, `archive`, `delete`) |
 | `dominio <sub>` | Base de conocimiento durable del workspace (`init`, `list`, `show`, `reindex`, `doctor`, `inject`) |
-| `global <sub>` | Harness base por máquina en `~/.claude` (`init`, `render`, `doctor`, `uninstall`) — opt-in explícito y aditivo |
+| `global <sub>` | Harness base por máquina en `~/.claude` (`init`, `render`, `doctor`, `uninstall`) — opt-in explícito y aditivo. `global collect install` / `uninstall` gestionan el receptor OTel que alimenta `audit --collect` (launchd, solo macOS) |
 | `codex <sub>` | Comandos específicos de Codex; hoy `trust` aprueba los hooks del proyecto en `~/.codex/config.toml` |
 | `backup <sub>` | Lista y restaura backups de `~/.navori/backups/` |
 | `migrations <sub>` | Lista y restaura migraciones de `~/.navori/migrations/` |
@@ -202,7 +204,10 @@ Con `harness.planTiers: true` en `navori.config.json`, `navori plan classify` mi
 complejidad de una tarea (señales como dinero/credenciales/PII, dependencia nueva, migración de
 esquema, o tocar una ruta de `project.criticalPaths`) y la ubica en un nivel 0–3. El hook
 `PreToolUse(Agent)` (`navori plan gate`) niega el despacho de un subagente sin el workplan que su
-nivel exige, y escala la exigencia tras dos rechazos seguidos. `navori plan classify --diff`
+nivel exige, y escala la exigencia tras dos rechazos seguidos. Si `navori` falta o su build no tiene el
+subcomando `plan`, el hook no tiene veredicto y, en modos que muestran el prompt, pide
+confirmación en vez de dejarte sin salida (en `bypassPermissions`, `dontAsk` o `plan` sigue
+bloqueando). `navori plan classify --diff`
 corre el mismo clasificador contra `git diff --name-only <base>...HEAD` para avisar cuando el
 trabajo se salió del nivel que el workplan declaró.
 
@@ -215,12 +220,41 @@ El agente `architect` ya no tiene un flag `harness.architect` — renderiza siem
 que todavía trae `harness.architect` falla con un aviso de clave retirada en vez de ignorarla en
 silencio; `navori configure migrate` la quita.
 
+## Entregas de specs (`sdd.deliveries`)
+
+Una spec grande no tiene por qué salir en una sola PR. `navori spec classify <feature>` la mide
+contra los umbrales de `sdd.deliveries` en `navori.config.json` (`splitMinTasks`, `splitMinLoc`,
+`maxPrsPerSpec`; defaults 12 tareas, 1500 LOC estimadas y 4 PRs) y dice si sale en una PR o en una
+PR por entrega. `navori spec check` valida el `tasks.md` contra su gramática:
+
+- **`E<n>`**: entrega; una PR cada una.
+- **`M<n>`**: milestone; cada uno se verifica y se commitea por separado.
+- **`T<n>`**: tarea; declara los `R<n>` que cubre.
+
+El gate completo corre una vez por PR, no una vez por milestone; el gate por milestone lo decide
+`navori receipt gate`.
+
+## Harness de workspaces (`monorepo.workspaceHarness`)
+
+`monorepo.workspaceHarness` decide cuánto harness recibe cada workspace de un monorepo. Es un solo
+valor para todo el repo:
+
+- `minimal` (default): su archivo de contexto más las skills que la raíz no tiene ya. Una skill
+  idéntica a la de la raíz no se duplica.
+- `full`: todo, como antes de recortar.
+- `root`: solo su archivo de contexto (`CLAUDE.md`, y `AGENTS.md` bajo Codex). La raíz escribe las
+  skills de librería y de preset que declaran los workspaces.
+
+`navori doctor` trata `minimal` y `root` como harness recortado, y avisa si el valor es `full`.
+
 ## Harness defensivo (read-only por default)
 
 El harness que genera `navori` trae permisos seguros desde el arranque, para que tengas menos prompts en lo cotidiano sin bajar la guardia en lo peligroso:
 
 - **Las lecturas no piden confirmación**: `git status/diff/log/show`, `ls`, `cat`, `grep`, `Read`/`Glob`/`Grep`, etc. corren sin interrumpirte.
 - **Lo destructivo pide confirmación** (`ask`): `rm -rf`, `git push --force`, `git reset --hard`, `git clean -f`, `chmod -R`, …
+- **Descartar trabajo sin commitear se bloquea** (`guard-destructive`, `exit 2`, sin aprobación posible): `git reset --hard`, `git checkout -f`, `git checkout -- .` (o `git checkout .`), `git restore <rutas>` sin `--staged`, y `git clean -f` (sin `-n`). El bloqueo depende del estado: si el árbol está limpio, no hay nada que perder y el comando pasa. Si el directorio destino no se puede inspeccionar (variable, sustitución o ruta inexistente), también bloquea. El mensaje indica la ruta para hacerlo de forma segura.
+- **El `publisher` no reescribe historia**: tras un commit fallido no ejecuta `git reset` ni reescribe commits. Reporta con `git status` y `git log -1 --stat`, y la recuperación queda para el orquestador o el usuario.
 - **Lo catastrófico se rechaza** (`deny`): `rm -rf /`, `sudo rm`, `mkfs`, …
 - Un hook `guard-destructive` actúa como backstop adicional.
 
