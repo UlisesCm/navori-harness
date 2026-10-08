@@ -90,6 +90,7 @@ import {
 } from "../lib/assets/model-profile.ts";
 import { scanControlGaps } from "../lib/diagnose/control-gaps.ts";
 import { scanDiskUsage, humanBytes } from "../lib/diagnose/disk-usage.ts";
+import { scanProgressSize } from "../lib/diagnose/progress-size.ts";
 import { scanMasterPlan } from "../lib/diagnose/master-plan.ts";
 import { codegraphWiringFindings, scanCodegraphWiring } from "../lib/diagnose/codegraph-wiring.ts";
 import { scanNestedWorktrees } from "../lib/workspace/nested-worktrees.ts";
@@ -275,6 +276,9 @@ export const doctorCommand = defineCommand({
     // nobody). Two `du`s so growth is visible before the disk fills; doctor
     // reports and suggests the cleanup command, it never deletes.
     const diskUsage = scanDiskUsage(cwd);
+    // #1263: advisory only — a fat session-state file falls out of startup
+    // context; never part of the health verdict.
+    const progressSize = scanProgressSize(cwd);
     // Spec 0034 D8: registry health remains visible after `close` turns the
     // feature flag off, because closed stages can retain confidential raw input.
     // This is advisory only; a warning must not block the repair command.
@@ -458,6 +462,7 @@ export const doctorCommand = defineCommand({
       // already prints the same string — so the JSON leaks nothing extra, and
       // this payload already carries an absolute `configPath`.
       diskUsage,
+      progressSize,
       masterPlan,
       codegraphWiring,
       codegraphDefaultPolicy,
@@ -997,6 +1002,13 @@ export const doctorCommand = defineCommand({
         return `  ${color.yellow(sym.update)} ${accent(issue.path)}  ${grey(row)}`;
       });
       p.log.warn(td.diskUsage(diskUsage.length, lines.join("\n")));
+    }
+
+    if (progressSize) {
+      const row = td.progressSizeRow(progressSize.chars, progressSize.thresholdChars);
+      p.log.warn(
+        td.progressSize(`  ${color.yellow(sym.update)} ${accent(progressSize.path)}  ${grey(row)}`),
+      );
     }
 
     if (masterPlan.length > 0) {

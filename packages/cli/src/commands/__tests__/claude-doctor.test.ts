@@ -1,9 +1,60 @@
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
-import { scanClaudeHookScripts, computeHealthVerdict } from "../doctor.ts";
+import { scanClaudeHookScripts, computeHealthVerdict, doctorCommand } from "../doctor.ts";
+
+describe("doctor progressSize (#1263)", () => {
+  /** Run `doctor --json` on a repo whose session-state file has `chars` characters. */
+  async function runJson(chars: number): Promise<{
+    progressSize: { path: string; chars: number; thresholdChars: number } | null;
+    exitCode: number | string | undefined;
+  }> {
+    const cwd = mkdtempSync(join(tmpdir(), "navori-progress-doctor-"));
+    writeFileSync(
+      join(cwd, "navori.config.json"),
+      JSON.stringify({ name: "p", engines: ["codex"], preset: "custom", branchBase: "main" }),
+    );
+    mkdirSync(join(cwd, "progress"));
+    writeFileSync(join(cwd, "progress/current.md"), "a".repeat(chars));
+    const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const before = process.exitCode;
+    process.exitCode = undefined;
+    try {
+      await doctorCommand.run?.({
+        args: { _: [], cwd, json: true, strict: false },
+        rawArgs: [],
+        cmd: doctorCommand,
+      });
+      const report = JSON.parse(String(output.mock.calls.at(-1)?.[0]));
+      return { progressSize: report.progressSize, exitCode: process.exitCode };
+    } finally {
+      process.exitCode = before;
+      output.mockRestore();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  }
+
+  it("includes progressSize in --json when over the cap", async () => {
+    const { progressSize } = await runJson(4500);
+    expect(progressSize).toEqual({
+      path: "progress/current.md",
+      chars: 4500,
+      thresholdChars: 4000,
+    });
+  });
+
+  it("reports null under the cap", async () => {
+    expect((await runJson(100)).progressSize).toBeNull();
+  });
+
+  it("is advisory: the same exit code with and without the oversized file", async () => {
+    const fat = await runJson(9000);
+    const slim = await runJson(100);
+    expect(fat.exitCode).toBe(slim.exitCode);
+  });
+});
 
 function tempRepo(): string {
   return mkdtempSync(join(tmpdir(), "navori-claude-doctor-"));
