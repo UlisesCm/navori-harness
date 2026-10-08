@@ -112,7 +112,7 @@ Estimated LOC: 450
 - **A10** [observable] — una parte de master-plan valida sus `E<n>` contra `parts.json` ·
   `cd packages/cli && bun run test src/lib/master/__tests__/delivery-checks.test.ts`
   → exit 0, 0 failed
-- [ ] **T16** (R22) — `deliveryIdsForSpec` de solo lectura en `lib/master/` y su regla en
+- [x] **T16** (R22) — `deliveryIdsForSpec` de solo lectura en `lib/master/` y su regla en
   `checkSpec`; aviso cuando el destino de la entrega difiere de `prTarget` · effect: behavior ·
   test: `lib/master/__tests__/delivery-checks.test.ts`::"deliveryIdsForSpec"
 
@@ -120,7 +120,7 @@ Estimated LOC: 450
 - **A11** [observable] — la skill y las plantillas citan la clasificación en ambos engines ·
   `cd packages/cli && bun run test src/engines src/lib/master`
   → exit 0, 0 failed
-- [ ] **T17** (R21, R23) — skill `master-plan` (spec de una parte y fase `executing`) y plantillas
+- [x] **T17** (R21, R23) — skill `master-plan` (spec de una parte y fase `executing`) y plantillas
   `tasks.md`, `delivery-master.md` y `slice.md` en es y en, con tope de palabras justificado ·
   effect: behavior · test: `engines/__tests__/render-engine.test.ts`::"master-plan clasifica
   specs"

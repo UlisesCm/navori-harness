@@ -1,8 +1,65 @@
 /** Read-only preparation checks; never infer operator approval from valid files. */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { resolve, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
+import { readConfig } from "../config/config.ts";
 import { DeliveryPartsSchema, type DeliveryParts } from "./delivery-schema.ts";
+import { activeStage, masterDirPath, readMasterIndex } from "./stages.ts";
+
+/** A `parts.json` delivery that a spec implements, with its git targets (R22). */
+export interface SpecDeliveryRef {
+  id: string;
+  prTarget: string;
+  integrationTarget: string;
+}
+
+/**
+ * Read-only mapping of a spec to the deliveries of the active master-plan
+ * stage (spec 0044 R22). `specPath` is the spec directory, absolute or
+ * relative to `cwd`. Returns `null` when the spec is not a part of a stage in
+ * deliveries mode (no config/index, no active stage, legacy workflow,
+ * unreadable `parts.json`, or no part links the spec). Never touches
+ * authority or queues.
+ */
+export function deliveryIdsForSpec(cwd: string, specPath: string): SpecDeliveryRef[] | null {
+  let specsDir = "specs";
+  let stage;
+  try {
+    const configPath = join(cwd, "navori.config.json");
+    if (existsSync(configPath)) {
+      specsDir = readConfig(configPath).sdd?.specsDir ?? specsDir;
+    }
+    stage = activeStage(readMasterIndex(cwd, specsDir));
+  } catch {
+    return null;
+  }
+  if (!stage || stage.workflow !== "deliveries") return null;
+  const partsPath = join(masterDirPath(cwd, specsDir), stage.dir, "parts.json");
+  if (!existsSync(partsPath)) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(partsPath, "utf8"));
+  } catch {
+    return null;
+  }
+  const parsed = DeliveryPartsSchema.safeParse(raw);
+  if (!parsed.success) return null;
+  const spec = resolve(cwd, specPath);
+  const ids = new Set<string>();
+  for (const part of parsed.data.parts) {
+    if (part.spec === null) continue;
+    const linked = resolve(cwd, part.spec);
+    if (linked === spec || linked.startsWith(`${spec}${sep}`)) ids.add(part.deliveryId);
+  }
+  if (ids.size === 0) return null;
+  return parsed.data.deliveries
+    .filter((delivery) => ids.has(delivery.id))
+    .map((delivery) => ({
+      id: delivery.id,
+      prTarget: delivery.git.prTarget,
+      integrationTarget: delivery.git.integrationTarget,
+    }));
+}
 
 /** Hash a deterministic JSON identity without logging source content. */
 export function deliveryDigest(value: unknown): string {
