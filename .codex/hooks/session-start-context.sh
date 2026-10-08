@@ -1,4 +1,4 @@
-# navori:managed start id="session-start-context-base" hash="286cd5c4" version="0.11.2" source="@navori/core"
+# navori:managed start id="session-start-context-base" hash="07b3f33e" version="0.11.2" source="@navori/core"
 #!/usr/bin/env bash
 #
 # SessionStart context hook.
@@ -419,14 +419,67 @@ NAVORI_CTX_BUDGET=${NAVORI_CTX_BUDGET:-8000}
 #
 # `${#ctx}` counts characters, not bytes, and this content is UTF-8 with
 # accents. That undercounts, which is why the budget carries margin.
+#
+# Records which of the two it emitted in NAVORI_BOUNDED_LAST (`body` or `pointer`)
+# rather than in a return code: under `set -e` a non-zero return would kill the
+# hook at every existing call site. Only the tool-update notice reads it, to ack
+# a delivery that actually carried the body.
+NAVORI_BOUNDED_LAST=""
 add_bounded() {
   body="$1"; pointer="$2"
-  if [ $(( ${#ctx} + ${#body} )) -le "$NAVORI_CTX_BUDGET" ]; then
+  if [ $(( ${#ctx} + ${#body} + navori_notice_reserve )) -le "$NAVORI_CTX_BUDGET" ]; then
     add "$body"
+    NAVORI_BOUNDED_LAST="body"
   else
     add "$pointer"
+    NAVORI_BOUNDED_LAST="pointer"
   fi
 }
+
+# Tool update notice (#1244), resolution: runs BEFORE the sections so its space can
+# be reserved, but is emitted LAST (see the emission block). The hook does NO network
+# and waits for none: `navori tools notice` reads a per-machine cache and launches a
+# detached worker that refreshes it.
+#
+# Output contract v1 (a hook that trusts arbitrary `navori` stdout would inject an OLD
+# navori's usage banner into the model's context): the first line must be
+# `#navori-tool-notice v1 ack=<id@x.y.z[,...]>`; anything else is discarded whole. The
+# `ack` list is charset-checked here because it is passed back to the CLI. The delivery
+# is stamped (`--ack`) only after the BODY was emitted.
+# Pre-check order: nothing to emit with -> never call navori, so no worker either.
+#
+# Reserve: with a notice present, `add_bounded` keeps NAVORI_NOTICE_RESERVE (default
+# 300) characters free for it, so earlier sections give way a little sooner. No notice,
+# no reserve: the budget is untouched.
+NAVORI_NOTICE_RESERVE=${NAVORI_NOTICE_RESERVE:-300}
+navori_notice_ack=""
+navori_notice_ack_pending=""
+navori_notice_body=""
+navori_notice_reserve=0
+if [ "${NAVORI_NO_UPDATE_NOTIFIER:-}" != 1 ] \
+  && { command -v node >/dev/null 2>&1 || command -v jq >/dev/null 2>&1; } \
+  && command -v navori >/dev/null 2>&1; then
+  notice=$(navori tools notice 2>/dev/null || true)
+  notice_head=${notice%%$'\n'*}
+  case "$notice_head" in
+    "#navori-tool-notice v1 ack="*)
+      notice_ack=${notice_head#"#navori-tool-notice v1 ack="}
+      notice_body=${notice#*$'\n'}
+      case "$notice_ack" in
+        "" | *[!A-Za-z0-9._@,-]*) : ;;
+        *)
+          if [ "$notice_body" != "$notice" ] && [ -n "$notice_body" ]; then
+            navori_notice_body="$notice_body"
+            if [ $(( ${#notice_body} + 1 )) -le "$NAVORI_NOTICE_RESERVE" ]; then
+              navori_notice_ack_pending="$notice_ack"
+              navori_notice_reserve=$(( ${#notice_body} + 2 ))
+            fi
+          fi
+          ;;
+      esac
+      ;;
+  esac
+fi
 
 # ─── Armed audit-mode (#597/#599): consume the flag `navori audit --arm` left.
 # The consumption protocol lives in the shared partial (also inlined into the
@@ -729,6 +782,21 @@ if [ -d "$HOME/.navori/workspaces" ] && command -v navori >/dev/null 2>&1; then
   fi
 fi
 
+# Tool update notice (#1244), emission: last in the output on purpose (volatile and
+# cheap to rebuild with `navori doctor`). Its space was reserved up front (see the
+# resolve block after `add_bounded`), so the body normally lands and is acked. Only a
+# notice larger than the reserve degrades to the fixed pointer, which is NOT acked: a
+# pointer, a missing node/jq or an early exit leaves the notice pending.
+if [ "$navori_notice_reserve" -gt 0 ]; then
+  add ""
+  add "$navori_notice_body"
+  NAVORI_BOUNDED_LAST="body"
+  navori_notice_ack="$navori_notice_ack_pending"
+elif [ -n "$navori_notice_body" ]; then
+  add ""
+  add "[navori] tool update notices didn't fit here; run 'navori doctor' to see them."
+fi
+
 # (The orchestrator blocks used to be emitted HERE, last. That is exactly why
 # they never arrived — see "THE SIZE CONTRACT" at the top. They now go first.)
 
@@ -752,6 +820,11 @@ elif command -v jq >/dev/null 2>&1; then
 else
   navori_audit_verdict="noop"
   navori_audit_reason="sin node ni jq: el contexto no se emitio"
+fi
+
+# Stamp the notice delivery AFTER the JSON went out, and only when it did.
+if [ "$navori_audit_verdict" = "inject" ] && [ -n "$navori_notice_ack" ]; then
+  navori tools notice --ack "$navori_notice_ack" >/dev/null 2>&1 || true
 fi
 exit 0
 # navori:managed end id="session-start-context-base"

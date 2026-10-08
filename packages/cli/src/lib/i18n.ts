@@ -595,6 +595,21 @@ export function updateNoticeText(
     : `navori ${latest} available (current: ${current}). Update with: ${command}\nReleases: ${page}\nThen run: navori render --apply\n`;
 }
 
+/**
+ * One line of the SessionStart tool-update notice (#1244), addressed to the model: it relays
+ * it to the user once. Only a validated plugin id and `x.y.z` versions are interpolated.
+ */
+export function toolNoticeText(
+  lang: Lang,
+  pluginId: string,
+  installed: string,
+  latest: string,
+): string {
+  return lang === "es"
+    ? `Hay una versión nueva de ${pluginId}: ${latest} (instalada: ${installed}). Avísale al usuario una vez; \`navori doctor\` muestra el detalle.`
+    : `A newer ${pluginId} is available: ${latest} (installed: ${installed}). Tell the user once; \`navori doctor\` shows the detail.`;
+}
+
 /* ------------------------------------------------------------------------- *
  * Command output catalog
  *
@@ -848,6 +863,13 @@ interface DoctorCmdStrings {
    *  The remedy lives in the manifest's `reason`, not in a generated command. */
   versionAdvisories: (n: number, lines: string) => string;
   versionAdvisoryRow: (installed: string, below: string, reason: string) => string;
+  /** #1244 — a newer stable release of an opted-in tool exists (cache only, no network in
+   *  doctor). Informational like `versionAdvisories`: never gates `--strict`, never flips `ok`. */
+  toolUpdates: (n: number, lines: string) => string;
+  toolUpdateRow: (installed: string, latest: string) => string;
+  /** #1244 — the upstream's latest tag could not be read as x.y.z, so no notice can ever fire. */
+  toolReleaseUnparseable: (n: number, lines: string) => string;
+  toolReleaseUnparseableRow: (source: string, id: string) => string;
   /** #1060 — installed binary lacks a CLI capability the manifest's
    *  `externalTool.capabilityProbe` declares (e.g. jscpd < 5.1.1 missing
    *  `--baseline-from-ref`). Informational, like `pinnedVersionDrift` above:
@@ -2151,6 +2173,14 @@ const CMD_ES: CmdStrings = {
       `del plugin; informativo:\n${lines}`,
     versionAdvisoryRow: (installed, below, reason) =>
       `— instalado ${installed} < ${below}: ${reason}`,
+    toolUpdates: (n, lines) =>
+      `Herramientas con una versión estable más nueva (${n}) — según la última consulta ` +
+      `en caché; informativo:\n${lines}`,
+    toolUpdateRow: (installed, latest) => `— instalado ${installed}, disponible ${latest}`,
+    toolReleaseUnparseable: (n, lines) =>
+      `No se pudo interpretar la última versión publicada (${n}) — por eso no habrá aviso ` +
+      `de actualización para estas herramientas:\n${lines}`,
+    toolReleaseUnparseableRow: (source, id) => `— fuente ${source}:${id}`,
     externalToolCapabilityGaps: (n, lines) =>
       `Binarios sin una capacidad que el manifest requiere (${n}) — la versión instalada no ` +
       `soporta lo que su hook/script necesita; '--version' no es confiable, así que el manifest ` +
@@ -3596,6 +3626,14 @@ const CMD_EN: CmdStrings = {
       `informational:\n${lines}`,
     versionAdvisoryRow: (installed, below, reason) =>
       `— installed ${installed} < ${below}: ${reason}`,
+    toolUpdates: (n, lines) =>
+      `Tools with a newer stable release (${n}) — from the last cached lookup; ` +
+      `informational:\n${lines}`,
+    toolUpdateRow: (installed, latest) => `— installed ${installed}, available ${latest}`,
+    toolReleaseUnparseable: (n, lines) =>
+      `Could not read the latest published version (${n}) — so no update notice can fire ` +
+      `for these tools:\n${lines}`,
+    toolReleaseUnparseableRow: (source, id) => `— source ${source}:${id}`,
     externalToolCapabilityGaps: (n, lines) =>
       `Binaries missing a capability the manifest requires (${n}) — the installed version ` +
       `doesn't support what its hook/script needs; '--version' isn't reliable, so the manifest ` +

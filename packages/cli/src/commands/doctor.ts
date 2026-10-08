@@ -42,12 +42,7 @@ import {
 import { compareSemver, isDowngrade } from "../lib/primitives/semver.ts";
 import { CODEX_PARITY, CODEX_VERIFICATIONS } from "../engines/shared/codex-parity.ts";
 import { isPlaceholderName } from "../lib/diagnose/detect.ts";
-import {
-  loadPlugin,
-  loadEnabledPlugins,
-  type PluginExternalTool,
-  type VersionAdvisory,
-} from "../lib/config/plugins.ts";
+import { loadPlugin, loadEnabledPlugins, type VersionAdvisory } from "../lib/config/plugins.ts";
 import {
   listAvailableExternalProviders,
   EXTERNAL_PROVIDER_SETUP_RECIPE_URL,
@@ -58,6 +53,8 @@ import {
   enabledMonorepoWorkspaces,
 } from "../lib/workspace/monorepo.ts";
 import { hasBinary } from "../lib/primitives/which.ts";
+import { probeEnabledToolVersions } from "../lib/primitives/tool-version-probe.ts";
+import { scanToolUpdates } from "../lib/primitives/tool-version-notice.ts";
 import { currentPlatform } from "../lib/config/platform.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/config/presets.ts";
 import { classifyLocalSkills } from "../engines/codex/local-skill-pointer.ts";
@@ -223,6 +220,9 @@ export const doctorCommand = defineCommand({
     const pinnedVersionDrift = scanPinnedVersionDrift(config);
     // #1210: same informational tier — never `computeHealthVerdict`, never `--strict`.
     const versionAdvisories = scanVersionAdvisories(config);
+    // #1244: newer stable release of an opted-in tool, from the per-machine cache
+    // (no network here). Same informational tier — never gates, never `--strict`.
+    const toolUpdates = scanToolUpdates(config);
     // #1060: same informational tier — a present binary missing a specific
     // CLI capability, never fed into `computeHealthVerdict` or `--strict`.
     const externalToolCapabilityGaps = scanExternalToolCapabilities(config);
@@ -416,6 +416,9 @@ export const doctorCommand = defineCommand({
       pinnedVersionDrift,
       // #1210: curated known-bad version floor; informational, never gates.
       versionAdvisories,
+      // #1244: cache-only newer-release notices; informational, never gates.
+      toolUpdates: toolUpdates.updates,
+      toolReleaseUnparseable: toolUpdates.unparseable,
       // #1060: same non-gating, informational tier as `missingExternalTools`
       // above — a present binary that fails a declared capability probe,
       // never fed into `computeHealthVerdict` or `--strict`.
@@ -803,6 +806,26 @@ export const doctorCommand = defineCommand({
         }`;
       });
       p.log.warn(td.versionAdvisories(versionAdvisories.length, lines.join("\n")));
+    }
+
+    if (toolUpdates.updates.length > 0) {
+      const lines = toolUpdates.updates.map(
+        (u) =>
+          `  ${color.yellow(sym.update)} ${accent(u.pluginId)}  ${grey(
+            td.toolUpdateRow(u.installedVersion, u.latestVersion),
+          )}`,
+      );
+      p.log.warn(td.toolUpdates(toolUpdates.updates.length, lines.join("\n")));
+    }
+
+    if (toolUpdates.unparseable.length > 0) {
+      const lines = toolUpdates.unparseable.map(
+        (u) =>
+          `  ${color.yellow(sym.update)} ${accent(u.pluginId)}  ${grey(
+            td.toolReleaseUnparseableRow(u.source, u.id),
+          )}`,
+      );
+      p.log.warn(td.toolReleaseUnparseable(toolUpdates.unparseable.length, lines.join("\n")));
     }
 
     if (externalToolCapabilityGaps.length > 0) {
@@ -1962,61 +1985,6 @@ export function scanPinnedVersionDrift(config: NavoriConfig): PinnedVersionDrift
       },
     ];
   });
-}
-
-/** An enabled plugin's external tool found on PATH with a parseable `--version`. */
-interface InstalledToolVersion {
-  pluginId: string;
-  binary: string;
-  tool: PluginExternalTool;
-  installedVersion: string;
-  install: string | null;
-}
-
-/**
- * Shared loop of the pin and advisory scans: enabled plugin -> manifest tool
- * with a `checkBinary` -> `wants(tool)` (checked BEFORE `hasBinary`, so a
- * plugin nobody asks about never touches PATH) -> binary on PATH -> first
- * `x.y.z` of `--version`. Absent binary, failing or unparseable `--version`
- * and broken plugins stay silent rather than guess (missing ones are reported
- * by `missingExternalTools` / `missingPlugins`).
- */
-function probeEnabledToolVersions(
-  config: NavoriConfig,
-  wants: (tool: PluginExternalTool) => boolean,
-): InstalledToolVersion[] {
-  const found: InstalledToolVersion[] = [];
-  const platform = currentPlatform();
-  for (const [id, settings] of Object.entries(config.plugins ?? {})) {
-    if (settings.enabled !== true) continue;
-    try {
-      const tool = loadPlugin(id).manifest.externalTool;
-      if (!tool?.checkBinary || !wants(tool)) continue;
-      if (!hasBinary(tool.checkBinary)) continue;
-      let raw: string;
-      try {
-        raw = execFileSync(tool.checkBinary, ["--version"], {
-          encoding: "utf-8",
-          stdio: ["ignore", "pipe", "ignore"],
-          timeout: 5000, // best-effort external probe must not hang doctor (#268)
-        });
-      } catch {
-        continue; // binary present but --version failed — not this scan's job
-      }
-      const match = /\d+\.\d+\.\d+/.exec(raw);
-      if (!match) continue; // unparseable output — never guess
-      found.push({
-        pluginId: id,
-        binary: tool.checkBinary,
-        tool,
-        installedVersion: match[0],
-        install: (platform ? tool.install?.[platform] : undefined) ?? null,
-      });
-    } catch {
-      // Missing / broken plugin is reported via missingPlugins.
-    }
-  }
-  return found;
 }
 
 export interface VersionAdvisoryHit {

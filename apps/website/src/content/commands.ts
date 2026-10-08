@@ -623,6 +623,33 @@ const es: Record<string, CommandDoc> = {
       "La skill 'dominio' del harness es el camino guiado para promover un hallazgo aquí en vez de dejarlo en la memoria de la sesión.",
     ],
   },
+  tools: {
+    id: "tools",
+    title: "tools",
+    summary:
+      "Comando de máquina del hook SessionStart: avisa una vez que hay una versión estable más nueva de una herramienta con latestRelease en su manifest (hoy, engram).",
+    usage: "navori tools notice [--ack <plugin@x.y.z,...>]",
+    flags: [
+      {
+        flag: "notice",
+        desc: "Lee la caché por máquina (nunca la red), reserva el refresco diario en un worker aparte e imprime los avisos pendientes. Sin avisos no imprime nada.",
+      },
+      {
+        flag: "--ack <plugin@x.y.z,...>",
+        desc: "Marca como entregados los avisos de esas versiones. Solo lo llama el hook, después de emitir el cuerpo.",
+      },
+    ],
+    example: [
+      {
+        title: "Lo que lee el hook",
+        code: "$ navori tools notice\n#navori-tool-notice v1 ack=engram@3.2.1\nHay una versión nueva de engram: 3.2.1 (instalada: 3.0.0). Avísale al usuario una vez; `navori doctor` muestra el detalle.",
+      },
+    ],
+    notes: [
+      "La primera línea es un centinela: el hook descarta cualquier salida que no empiece con '#navori-tool-notice v1', así un navori viejo no mete su banner de uso al contexto.",
+      "Termina siempre con exit 0. NAVORI_NO_UPDATE_NOTIFIER=1 lo apaga por completo, y 'navori doctor' muestra los mismos avisos como dato informativo.",
+    ],
+  },
   backup: {
     id: "backup",
     title: "backup",
@@ -1594,6 +1621,33 @@ const en: Record<string, CommandDoc> = {
       "The harness's 'dominio' skill is the guided path for promoting a finding here instead of leaving it in session memory.",
     ],
   },
+  tools: {
+    id: "tools",
+    title: "tools",
+    summary:
+      "Machine command for the SessionStart hook: tells the session once that a newer stable release exists for a tool whose manifest declares latestRelease (today, engram).",
+    usage: "navori tools notice [--ack <plugin@x.y.z,...>]",
+    flags: [
+      {
+        flag: "notice",
+        desc: "Reads the per-machine cache (never the network), reserves the daily refresh for a detached worker and prints the pending notices. With none, it prints nothing.",
+      },
+      {
+        flag: "--ack <plugin@x.y.z,...>",
+        desc: "Marks the notices for those versions as delivered. Only the hook calls it, after emitting the body.",
+      },
+    ],
+    example: [
+      {
+        title: "What the hook reads",
+        code: "$ navori tools notice\n#navori-tool-notice v1 ack=engram@3.2.1\nA newer engram is available: 3.2.1 (installed: 3.0.0). Tell the user once; `navori doctor` shows the detail.",
+      },
+    ],
+    notes: [
+      "The first line is a sentinel: the hook discards any output that does not start with '#navori-tool-notice v1', so an older navori cannot put its usage banner in the context.",
+      "It always exits 0. NAVORI_NO_UPDATE_NOTIFIER=1 turns it off entirely, and 'navori doctor' shows the same notices as informational data.",
+    ],
+  },
   backup: {
     id: "backup",
     title: "backup",
@@ -1978,6 +2032,7 @@ export const commandOrder = [
   "workspace",
   "ticket",
   "dominio",
+  "tools",
   "global",
   "receipt",
   "plan",

@@ -77,9 +77,34 @@ No instala ni actualiza automáticamente y tampoco ejecuta `render`: después de
 actualizar navori, corre `navori render --apply` para aplicar los cambios a tu
 harness.
 
-Si un cierre abrupto deja bloqueado el aviso, detén primero todos los procesos
-`navori`. Después elimina únicamente `~/.navori/update-notice/lock`; conserva los
-archivos de caché y reserva de ese directorio.
+#### Avisos de actualización de herramientas de plugin
+
+Plugins como `engram` pueden declarar `latestRelease` en su manifest para recibir
+avisos cuando existe una versión más nueva. El aviso aparece al final del contexto de
+arranque, en un espacio reservado de 300 caracteres, una vez cada 24 h por versión.
+
+La consulta se ejecuta:
+- **Fuente**: `api.github.com/repos/<owner>/<repo>/releases/latest` o
+  `registry.npmjs.org/<package>/latest` (sin token, solo un User-Agent `navori/<version>`)
+- **Frecuencia**: máximo una solicitud por herramienta por día, reservada bajo un lock
+- **Red**: la carga de red ocurre en un worker detached en segundo plano; la sesión
+  nunca espera
+- **Caché**: `~/.navori/tool-versions/` (similar a `~/.navori/update-notice/`)
+- **CI**: sin red — ni refrescos ni avisos
+
+Desactívalo junto con el aviso de navori: `NAVORI_NO_UPDATE_NOTIFIER=1`.
+
+**Limitaciones:**
+- Codex en sandboxes sin red no obtiene refrescos ni avisos.
+- pi no tiene hooks de sesión: ahí los avisos solo aparecen en `navori doctor`.
+- Si el aviso no cabe en su reserva, se muestra un puntero a `navori doctor` y el aviso
+  se reintenta en la siguiente sesión (no se marca como entregado).
+- `doctor` muestra todos los avisos como filas informativas, sin aplicar `--strict`.
+
+Si un cierre abrupto deja bloqueado el aviso, solo intervendrás si el lock persiste
+más de un minuto. En ese caso, detén todos los procesos `navori` y elimina
+`~/.navori/tool-versions/lock` o `~/.navori/update-notice/lock`; conserva los archivos
+de caché de ambos directorios.
 
 ## Comandos
 

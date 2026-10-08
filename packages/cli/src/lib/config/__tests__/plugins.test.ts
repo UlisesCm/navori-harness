@@ -475,6 +475,54 @@ describe("PluginManifestSchema — externalTool.versionAdvisory (#1210)", () => 
   });
 });
 
+describe("PluginManifestSchema — externalTool.latestRelease (#1244)", () => {
+  const withTool = (externalTool: Record<string, unknown>): { success: boolean } =>
+    PluginManifestSchema.safeParse({ ...MINIMAL, externalTool });
+
+  it("accepts npm and github sources and defaults notify to minor", () => {
+    const npm = PluginManifestSchema.parse({
+      ...MINIMAL,
+      externalTool: { name: "t", latestRelease: { source: "npm", id: "@scope/pkg" } },
+    });
+    expect(npm.externalTool?.latestRelease?.notify).toBe("minor");
+    expect(
+      withTool({
+        name: "t",
+        latestRelease: { source: "github", id: "owner/repo", notify: "patch" },
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each([
+    { source: "npm", id: "Bad Name" },
+    { source: "npm", id: "https://evil.example/x" },
+    { source: "github", id: "no-slash" },
+    { source: "github", id: "a/b/c" },
+    { source: "gitlab", id: "a/b" },
+    { source: "npm", id: "pkg", notify: "always" },
+  ])("rejects %j", (latestRelease) => {
+    expect(withTool({ name: "t", latestRelease }).success).toBe(false);
+  });
+
+  it("is rejected together with pinnedVersion", () => {
+    expect(
+      withTool({
+        name: "t",
+        pinnedVersion: "1.0.0",
+        latestRelease: { source: "npm", id: "pkg" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("the bundled engram manifest watches its GitHub releases", () => {
+    expect(loadPlugin("engram").manifest.externalTool?.latestRelease).toEqual({
+      source: "github",
+      id: "Gentleman-Programming/engram",
+      notify: "minor",
+    });
+  });
+});
+
 /**
  * Covers: R13 — `mcpServer.alwaysLoad` (spec 0017 T7). The field exists because
  * of a measurement, not a preference: with an MCP server deferred, two full

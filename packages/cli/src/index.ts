@@ -26,12 +26,17 @@ import { planCommand } from "./commands/plan.ts";
 import { specCommand } from "./commands/spec.ts";
 import { handoffCommand } from "./commands/handoff.ts";
 import { masterCommand } from "./commands/master.ts";
+import { toolsCommand } from "./commands/tools.ts";
 import { readCliVersion } from "./lib/render/bundled-assets.ts";
 import {
   runUpdateNotice,
   runUpdateNoticeWorker,
   UPDATE_NOTICE_WORKER_ARG,
 } from "./lib/primitives/update-notice.ts";
+import {
+  runToolVersionWorker,
+  TOOL_VERSION_WORKER_ARG,
+} from "./lib/primitives/tool-version-notice.ts";
 
 const main = defineCommand({
   meta: {
@@ -67,11 +72,16 @@ const main = defineCommand({
     spec: specCommand,
     handoff: handoffCommand,
     master: masterCommand,
+    tools: toolsCommand,
   },
 });
 
 if (process.argv[2] === UPDATE_NOTICE_WORKER_ARG) {
   void runUpdateNoticeWorker(process.argv[3]).finally(() => {
+    process.exitCode = 0;
+  });
+} else if (process.argv[2] === TOOL_VERSION_WORKER_ARG) {
+  void runToolVersionWorker(process.argv[3]).finally(() => {
     process.exitCode = 0;
   });
 } else {
