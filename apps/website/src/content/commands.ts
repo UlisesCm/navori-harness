@@ -882,7 +882,7 @@ const es: Record<string, CommandDoc> = {
     ],
     notes: [
       "`classify` decide la forma: un solo PR (single) o un PR por entrega funcional (split). Parte solo con 2 o más entregas y más de 12 tareas o de 1500 líneas estimadas, con un tope de 4 PRs; los umbrales viven en sdd.deliveries.",
-      "`check` valida hitos, criterios, tareas, cobertura de R<n>, entregas verticales y foundation. Las specs del formato anterior solo emiten advertencias.",
+      "`check` valida hitos, criterios, tareas, cobertura de R<n>, entregas verticales y foundation. Si la spec es una parte de master-plan en modo entregas, cada `E<n>` debe existir en parts.json (`master-delivery-unmapped`, error) y su destino debe coincidir con prTarget (`master-target-mismatch`, advertencia). Las specs del formato anterior solo emiten advertencias.",
       "Códigos de salida: 0 sin hallazgos o solo advertencias, 2 con hallazgos de error, 1 por config inválida o tasks.md ausente (`classify` también sale con 1 cuando las entregas superan maxPrsPerSpec).",
       "Es de solo lectura: no ejecuta los comandos de aceptación ni abre PRs.",
     ],
@@ -1853,7 +1853,7 @@ const en: Record<string, CommandDoc> = {
     ],
     notes: [
       "`classify` decides the shape: one PR (single) or one PR per functional delivery (split). It splits only with 2 or more deliveries and more than 12 tasks or 1500 estimated lines, capped at 4 PRs; the thresholds live in sdd.deliveries.",
-      "`check` validates milestones, criteria, tasks, R<n> coverage, vertical deliveries and foundation. Previous-format specs only emit warnings.",
+      "`check` validates milestones, criteria, tasks, R<n> coverage, vertical deliveries and foundation. If the spec is a part of a master-plan stage in deliveries mode, each `E<n>` must exist in parts.json (`master-delivery-unmapped`, error) and its target must match prTarget (`master-target-mismatch`, warning). Previous-format specs only emit warnings.",
       "Exit codes: 0 no findings or warnings only, 2 error findings, 1 invalid config or missing tasks.md (`classify` also exits 1 when deliveries exceed maxPrsPerSpec).",
       "It is read-only: it never runs the acceptance commands or opens PRs.",
     ],

@@ -12,6 +12,7 @@ import {
   resolveDeliveryThresholds,
   type DeliveryThresholds,
 } from "../lib/config/schema.ts";
+import { deliveryIdsForSpec } from "../lib/master/delivery-checks.ts";
 import { checkSpec } from "../lib/spec/check.ts";
 import { classifySpec, type SpecWarning } from "../lib/spec/classify.ts";
 import { locateSpecDir } from "../lib/spec/locate.ts";
@@ -35,6 +36,11 @@ interface SpecContext {
   tasksPath: string;
   /** The requirements file next to `tasks.md`. */
   requirementsFile: string;
+  /** Absolute repo root and spec directory, for the master-plan mapping (R22). */
+  cwd: string;
+  dir: string;
+  /** Effective PR target (`prTarget ?? branchBase`) the harness renders. */
+  prTarget: string;
   thresholds: DeliveryThresholds;
   parsed: ParsedTasks;
 }
@@ -80,11 +86,13 @@ function loadSpec(
   const cwd = resolve(cwdArg ?? process.cwd());
   const configPath = join(cwd, "navori.config.json");
   let specsDir = "specs";
+  let prTarget = "main";
   let thresholds: DeliveryThresholds = { ...DEFAULT_DELIVERIES };
   if (existsSync(configPath)) {
     try {
       const config = readConfig(configPath);
       specsDir = config.sdd?.specsDir ?? specsDir;
+      prTarget = config.prTarget ?? config.branchBase;
       thresholds = resolveDeliveryThresholds(config);
     } catch (cause: unknown) {
       if (!(cause instanceof ConfigError)) throw cause;
@@ -133,6 +141,9 @@ function loadSpec(
     feature,
     tasksPath,
     requirementsFile: join(location.dir, "requirements.md"),
+    cwd,
+    dir: location.dir,
+    prTarget,
     thresholds,
     parsed: parseTasks(text),
   };
@@ -195,7 +206,13 @@ const checkSubCommand = defineCommand({
     } catch {
       requirementIds = undefined;
     }
-    const result = checkSpec(spec.parsed, spec.thresholds, requirementIds);
+    const deliveries = deliveryIdsForSpec(spec.cwd, spec.dir);
+    const result = checkSpec(
+      spec.parsed,
+      spec.thresholds,
+      requirementIds,
+      deliveries ? { deliveries, prTarget: spec.prTarget } : null,
+    );
     const errors = result.findings.filter((f) => f.severity === "error");
     const where = (line: number | undefined): string =>
       line === undefined ? spec.tasksPath : `${spec.tasksPath}:${line}`;

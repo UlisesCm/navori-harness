@@ -112,7 +112,7 @@ Estimated LOC: 450
 - **A10** [observable] — una parte de master-plan valida sus `E<n>` contra `parts.json` ·
   `cd packages/cli && bun run test src/lib/master/__tests__/delivery-checks.test.ts`
   → exit 0, 0 failed
-- [ ] **T16** (R22) — `deliveryIdsForSpec` de solo lectura en `lib/master/` y su regla en
+- [x] **T16** (R22) — `deliveryIdsForSpec` de solo lectura en `lib/master/` y su regla en
   `checkSpec`; aviso cuando el destino de la entrega difiere de `prTarget` · effect: behavior ·
   test: `lib/master/__tests__/delivery-checks.test.ts`::"deliveryIdsForSpec"
 

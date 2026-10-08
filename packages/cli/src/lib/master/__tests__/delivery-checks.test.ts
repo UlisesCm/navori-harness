@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkDeliveryPreparation, contractDigest } from "../delivery-checks.ts";
+import {
+  checkDeliveryPreparation,
+  contractDigest,
+  deliveryIdsForSpec,
+} from "../delivery-checks.ts";
 import type { DeliveryParts } from "../delivery-schema.ts";
 
 const dirs: string[] = [];
@@ -177,5 +181,54 @@ describe("delivery preparation", () => {
     parts.sources[0]!.path = "link.txt";
     parts.digest = contractDigest(parts);
     expect(checkDeliveryPreparation(cwd, parts).blockers.join(" ")).toMatch(/outside repo/);
+  });
+});
+
+describe("deliveryIdsForSpec", () => {
+  function stage(deliveries = true): {
+    cwd: string;
+    parts: DeliveryParts;
+  } {
+    const { cwd, parts } = fixture();
+    const dir = join(cwd, "specs", "_master", "01-demo");
+    mkdirSync(dir, { recursive: true });
+    parts.parts[0]!.spec = "specs/0001-login";
+    parts.digest = contractDigest(parts);
+    writeFileSync(join(dir, "parts.json"), JSON.stringify(parts));
+    writeFileSync(
+      join(cwd, "specs", "_master", "index.json"),
+      JSON.stringify({
+        version: 2,
+        stages: [
+          {
+            number: 1,
+            slug: "demo",
+            dir: "01-demo",
+            state: "activa",
+            openedAt: "2026-01-01",
+            closedAt: null,
+            spec: null,
+            ...(deliveries ? { workflow: "deliveries" } : {}),
+          },
+        ],
+      }),
+    );
+    return { cwd, parts };
+  }
+
+  // Covers: R22
+  it("maps a spec to its deliveries with their git targets, read-only", () => {
+    const { cwd } = stage();
+    const expected = [{ id: "E1", prTarget: "dev", integrationTarget: "dev" }];
+    expect(deliveryIdsForSpec(cwd, "specs/0001-login")).toEqual(expected);
+    expect(deliveryIdsForSpec(cwd, join(cwd, "specs", "0001-login"))).toEqual(expected);
+  });
+
+  // Covers: R22
+  it("returns null for specs outside master-plan deliveries mode", () => {
+    const { cwd } = stage();
+    expect(deliveryIdsForSpec(cwd, "specs/0002-other")).toBeNull();
+    expect(deliveryIdsForSpec(stage(false).cwd, "specs/0001-login")).toBeNull();
+    expect(deliveryIdsForSpec(fixture().cwd, "specs/0001-login")).toBeNull();
   });
 });
