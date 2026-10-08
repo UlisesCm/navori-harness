@@ -59,8 +59,9 @@ Hay dos niveles:
    - **`blame.ignoreRevsFile`**: configúralo (`git config blame.ignoreRevsFile .git-blame-ignore-revs`)
      para que `git blame` salte los commits de reformateo masivo (p. ej. la migración a oxfmt,
      #889) listados en `.git-blame-ignore-revs` en la raíz. Un commit entra ahí **solo después de
-     aterrizar en `main`**, nunca en el mismo PR que se va a mergear por squash — el squash reescribe
-     el SHA y la entrada deja de ser ancestro de `main` (#986, #1004). `bun run check:blame-ignore`
+     aterrizar en `main`** (vía el PR `dev` → `main`, que mergea con merge commit), nunca en el mismo PR
+     de ticket que se mergea por squash a `dev` — el squash reescribe el SHA y la entrada deja de ser
+     ancestro de `main` (#986, #1004). `bun run check:blame-ignore`
      (parte del gate) exige ambas cosas por entrada: que sea ancestro de `origin/main` y que su diff
      sea mecánico.
    - **Dos gates corriendo el mismo `test:coverage` sobre el mismo árbol de trabajo** (dos agentes
@@ -125,7 +126,7 @@ Hay dos niveles:
 
    Dos reglas que solo se descubren cuando ya te mordieron (#435):
 
-   - **El re-render caduca cuando la base se mueve.** Tras cualquier rebase o merge de `main`,
+   - **El re-render caduca cuando la base se mueve.** Tras cualquier rebase o merge de `dev`,
      vuelve a correr `bun run render:apply`: tu espejo se generó contra los assets de antes, y si
      entre medias entró otro PR de assets, el tuyo ya está viejo. Pasó tres veces seguidas
      mientras se construía #421.
@@ -234,6 +235,6 @@ el reporte omite esa línea cuando `engines` no incluye `claude`.
 ## Commits y PRs
 
 - Commits: Conventional, español MX, atómicos (`feat|fix|chore|docs(scope): mensaje`).
-- Cada ticket en branch nueva con PR hacia `dev` (format, lint y typecheck en CI, sin tests). `dev` entra a
-  `main` por PR, y ese PR debe pasar el gate completo.
+- Cada ticket en branch nueva, creada desde `dev`, con PR hacia `dev` (format, lint y typecheck en CI, sin
+  tests). `dev` entra a `main` por PR con merge commit, no squash, y ese PR debe pasar el gate completo.
 - No commitees el harness local (`CLAUDE.md`, `.claude/`) de un repo `/bonum`.

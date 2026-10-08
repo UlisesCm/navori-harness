@@ -240,9 +240,9 @@ una spec** en `specs/` y consíguela aprobada; recién entonces se implementa.
    Lo que no se deduce del comando —los disparadores del re-render del espejo, el golden snapshot,
    y qué cuenta como cambio doc-only— está en `CONTRIBUTING.md`.
 4. **Commits**: Conventional, español MX, atómicos.
-5. **Branching/PR**: cada ticket en branch nueva con base `main`; **este repo mergea a `main`**
-   (excepción a la regla Bonum de mergear a `develop`). Nunca commitees el harness local de un
-   repo `/bonum`.
+5. **Branching/PR**: cada ticket en branch nueva con base `dev` y PR a `dev`; `main` solo recibe
+   releases desde `dev` por merge commit (`branchBase`/`prTarget` en `navori.config.json`). Nunca
+   commitees el harness local de un repo `/bonum`.
 6. **Memoria (engram)**: `mem_search` al inicio si el mensaje referencia navori; `mem_save`
    proactivo tras una decisión de diseño; `mem_session_summary` antes de cerrar.
 
