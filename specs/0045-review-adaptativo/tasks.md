@@ -39,18 +39,16 @@ Estimated LOC: 1000
   `lib/diagnose/__tests__/receipt.test.ts`::"workplan scoped y full"
 
 ### M3 — Gate de este repo
-- **A4** [observable] — una ronda intermedia corre el `scoped` sin la suite completa ·
-  `bun run test:related` → exit 0 y lista solo tests relacionados con el diff
-- **A5** — config y selector en verde ·
-  `cd packages/cli && bun run test src/__tests__/repo-gate-config.test.ts scripts/__tests__/test-related.test.ts`
+- **A4** [observable] — una ronda intermedia corre el scoped sin tests ·
+  `bun run check:scoped` → exit 0 sin correr vitest
+- **A5** — config en verde ·
+  `cd packages/cli && bun run test src/__tests__/repo-gate-config.test.ts`
   → exit 0, 0 failed
-- [ ] **T6** (R23) — `navori.config.json` y `package.json`: `full` ordenado de barato a caro con el
+- [x] **T6** (R23) — `navori.config.json` y `package.json`: `full` ordenado de barato a caro con el
   mismo conjunto de checks, `test:coverage` al final; `fast` = lint + typecheck; script raíz
   `typecheck` · effect: behavior · test: `__tests__/repo-gate-config.test.ts`::"orden y conjunto"
-- [ ] **T7** (R25) — `packages/cli/scripts/test-related.mjs` (`vitest related` + barrido de tests
-  que leen `core-assets`) y `qualityGate.scoped` = pasos baratos de `full` + `test:related` ·
-  effect: behavior · test: `scripts/__tests__/test-related.test.ts`::"cambio en core-assets y lista
-  vacía"
+- [x] **T7** (R25) — `check:scoped` = pasos estáticos de `full`, sin tests; los tests de una ronda
+  son los `A<n>` · effect: behavior · test: `src/__tests__/repo-gate-config.test.ts`::"orden y conjunto"
 
 ## E2 — Los checks mecánicos viven en el hook nativo
 Estimated LOC: 1150

@@ -22,8 +22,8 @@ checks mecánicos. Todo extiende piezas que ya existen; no hay un mecanismo para
    - `qualityGate.full` corre solo cuando el reviewer va a firmar `APPROVED` (R8, R9, R25).
    - `navori receipt gate` suma la rama de workplan con fases, con la regla de `decideGate` de la
      0044 y el mismo cierre por fallo hacia `full` (R10, R11).
-   - Este repo declara un `scoped` que es `full` sin `test:coverage` más los tests relacionados
-     (R23, R25).
+   - Este repo declara un `scoped` = `check:scoped`: los pasos estáticos de `full`, sin tests
+     (R23, R25). Los tests de cada ronda los aportan los `A<n>`.
 2. **La duplicación se quita por config versionada, nunca por detección (bloque A).**
    - `qualityGate.nativeHooks: true` saca **solo el paso del gate** del hook `quality-gate-pre-commit`.
      Ese paso queda fuera del script renderizado, y los guards que no son gate siguen corriendo: el
@@ -110,8 +110,8 @@ Bloque B — gate por aprobación
   sin `--spec`, `--phase` y `pendingLater`. Cubre R10 y R11.
 - `packages/core/core-assets/agents/reviewer.md`: Setup 3, Pass 2 "Quality gate" y "Content
   receipt". Cubre R8, R9 y R25.
-- Para este repo: `navori.config.json`, `package.json` (`check`, `typecheck`),
-  `packages/cli/package.json` y `packages/cli/scripts/test-related.mjs` (nuevo). Cubre R23 y R25.
+- Para este repo: `navori.config.json`, `package.json` (`check`, `check:scoped`, `typecheck`).
+  Cubre R23 y R25.
 
 Bloque D — aceptación
 
@@ -321,8 +321,8 @@ Tabla de Pass 2 en `reviewer.md` ("Quality gate"):
   anyway".
 - El implementer sigue con `{{qualityGate.fast}}`.
 - **Riesgo de la auditoría (M1): fallos que se ven una ronda tarde.** En este repo `scoped` incluye
-  todos los checks baratos de `full` (D15). Lo único que queda fuera de una ronda intermedia es lo
-  que `test:related` no selecciona.
+  todos los checks baratos de `full` (D15). Lo único que queda fuera de una ronda intermedia son
+  los tests que no estén en sus `A<n>`.
 
 **Ahorro esperado, dicho con honestidad (challenge M2).**
 
@@ -601,22 +601,15 @@ actual de `check:doc-budgets`, presupuesto de 8000 caracteres).
 
 El script `check` de `package.json` se reordena igual.
 
-**`qualityGate.scoped`:** los pasos 1–11 de `full` (≈10 s según el Baseline) y, al final,
-`bun run test:related`. Es decir, `full` sin `test:coverage` más los tests relacionados (R25,
-challenge M2). Así una ronda intermedia ya ve goldens, `check:render`, `check:assets` y la deriva de
-`core-assets`.
+**`qualityGate.scoped`** = `bun run check:scoped`: los pasos 1–11 de `full`, sin `test:coverage` y
+sin tests (R25). Una ronda intermedia ya ve goldens, `check:render`, `check:assets` y la deriva de
+`core-assets` sin correr vitest; los tests de la ronda son sus `A<n>`.
 
-**`test:related`** (`packages/cli/scripts/test-related.mjs`):
-
-1. Calcula los archivos cambiados contra `origin/<branchBase>`: commiteados, árbol de trabajo y sin
-   rastrear.
-2. Los `.ts` bajo `packages/cli/src` pasan a `vitest related --run`, que sigue imports estáticos
-   (Vitest CLI, consultada el 2026-10-08). Los archivos de test cambiados entran directo.
-3. **Hueco de assets.** Si cambió algo fuera del grafo de imports (`packages/core/**`,
-   `packages/plugins/**`, goldens, `scripts/**`), suma los tests cuyo código fuente menciona
-   `core-assets`, `getCoreRoot`, `plugins/` o el basename del archivo cambiado. Es un escaneo
-   textual determinista sobre `packages/cli/src/**/__tests__/*.test.ts`.
-4. Con la lista vacía sale 0 y lo dice.
+**Decisión: sin selector de tests (`test:related`).** Se probó `vitest related` sobre el diff de M3
+y se descartó: los módulos hub (`config.ts`, `permission-rules.ts`) seleccionaron 241 archivos y
+tardó 518 s, contra ~408 s del `full` completo. El selector costaba más que el gate que reemplazaba.
+El `scoped` queda en checks estáticos (8 s medidos, `check:scoped`), y lo que cada ronda necesita
+se declara en sus `A<n>`.
 
 Lo que se le escape a esta aproximación lo atrapa `full` en `APPROVED`.
 
@@ -784,7 +777,7 @@ nivel-0: src/a.ts | verify: `bun test src/a.test.ts` → exit 0
   - Un CLI viejo con un registro de auditoría `native-hook` lo descarta.
 - **Regex costosa en `matches:`.** Corre en la máquina del mismo usuario, sobre ≤4 MiB, dentro del
   carril fail-open.
-- **`test:related` incompleto.** Lo atrapa `full` en `APPROVED`, una ronda más tarde.
+- **Test fuera de los `A<n>`.** Lo atrapa `full` en `APPROVED`, una ronda más tarde.
 
 ## Migration
 
@@ -809,7 +802,7 @@ nivel-0: src/a.ts | verify: `bun test src/a.test.ts` → exit 0
 - **Spec 0030.** Nota de enmienda de R5 y R8.
 - **Este repo.**
   - Se actualizan `navori.config.json` (D4, D9, D15) y `package.json` (`check`, `typecheck`).
-  - Se agrega `test:related`.
+  - Se agrega `check:scoped` (script raíz; sin tests).
   - Se re-renderiza el harness autohospedado (`.claude/`, `.codex/`, `AGENTS.md`).
 - **Orden de publicación.** Conviene publicar el CLI antes de que los repos rendericen la prosa
   nueva.
@@ -828,8 +821,8 @@ Cada test responde a un riesgo de arriba, con vitest y `// Covers: R<n>`.
 | La auditoría cuenta cero en vez de "no observado" | `outcomes.test.ts`: solo `skip`/`native-hook` da `gate:null` y `gateReason:"native-hook"`; mixto da contadores separados. Golden de la salida de `audit-log.sh` renderizado con `native-hook`. `hook-audit-instrumentation.test.ts` comprueba la paridad de la allowlist (`// Covers: R2`) |
 | Un `receipt gate` de workplan publica sin `full` | `gate-decision.test.ts` (todas las razones, `pendingLater`) y `receipt.test.ts` (`sign --gate-ran scoped` con decisión `full` da exit 1 sin receipt) (`// Covers: R10, R11`) |
 | El carril acotado no usa `scoped` | `interpolate.test.ts` y render de `reviewer` con la tabla de D6, en Claude y Codex (`// Covers: R8, R9, R25, R24`) |
-| Config de este repo | Test que lee `navori.config.json`: `typecheck` en `fast`; `test:coverage` último en `full`; mismo conjunto de checks; `scoped` = `full` sin `test:coverage` más `test:related`; las tres declaraciones nativas (`// Covers: R23, R25, R1`) |
-| `test:related` no ve assets | `test-related.test.ts`: un cambio en `core-assets` selecciona los tests de render y assets; lista vacía da exit 0 (`// Covers: R25`) |
+| Config de este repo | Test que lee `navori.config.json`: `typecheck` en `fast`; `test:coverage` último en `full`; mismo conjunto de checks; `scoped` = `check:scoped` (pasos estáticos de `full`, sin tests); las tres declaraciones nativas (`// Covers: R23, R25, R1`) |
+| `scoped` sin tests | `repo-gate-config.test.ts`::"orden y conjunto": `qualityGate.scoped` = `check:scoped` y su cadena no contiene `vitest`; `bun run check:scoped` → exit 0 sin correr vitest (`// Covers: R25`) |
 | Nivel 0 sin `verify:` pasa | `plan-gate.test.ts`: gramática, v2 de Codex por archivo de despacho (`// Covers: R12`) |
 | Review ligero sobre algo crítico | `plan.test.ts`: sin workplan, sin `criticalPaths` da `full`/`criticalPaths-undeclared`; con el config real de este repo y un hook cambiado da `full`; un archivo trivial da `light`. Con workplan, archivos sin rastrear no cambian `exceedsDeclared` (`// Covers: R13, R14`) |
 | `request` | `render.test.ts` y anclas del reviewer en los dos engines (`// Covers: R15, R16`) |
@@ -883,7 +876,7 @@ prosa para los dos engines (su parte de R24). Ninguna es `foundation`.
 
 | Entrega | Capacidad demostrable | `R<n>` | LOC est. |
 |---|---|---|---|
-| **E1** — El gate completo corre una vez por aprobación | Una ronda `CHANGES_REQUESTED` corre el `scoped` de este repo (≈10 s + tests relacionados) y no `full`. Un workplan de nivel 2 con fases pendientes da `scoped` con `pendingLater` y commit-only. `full` está ordenado y `typecheck` entra en `fast`. Incluye la calibración de rondas por ciclo antes y después (D6) | R8–R11, R23, R25, R24 (su prosa) | 1000 |
+| **E1** — El gate completo corre una vez por aprobación | Una ronda `CHANGES_REQUESTED` corre el `scoped` de este repo (`check:scoped`, 8 s medidos, sin tests) y no `full`. Un workplan de nivel 2 con fases pendientes da `scoped` con `pendingLater` y commit-only. `full` está ordenado y `typecheck` entra en `fast`. Incluye la calibración de rondas por ciclo antes y después (D6) | R8–R11, R23, R25, R24 (su prosa) | 1000 |
 | **E2** — Los checks mecánicos viven en el hook nativo | Con las tres declaraciones de este repo, un `git commit` del agente corre `check:fast` una sola vez (el nativo) y conserva el tope de `progress/current.md`. `settings.json` no registra semgrep ni jscpd. `doctor` reconoce el hook de `.git/hooks` y da error en un clon sin `hooks:install`. La auditoría muestra `native-hook` | R1–R7, R24 (fila de matriz) | 1150 |
 | **E3** — La aceptación compara contra lo esperado | Un `A<n>` con `contains:` cuyo comando no imprime el texto no se puede marcar `cumplido`. La línea de evidencia no lleva la salida. `navori plan check` lo reporta como finding sin romper master-plan. `request` aparece en el plan renderizado | R15–R20, R24 (su prosa) | 1000 |
 | **E4** — El ciclo de un cambio chico es proporcional | Un `nivel-0:` sin `verify:` se niega. Con `verify:`, un archivo trivial recibe el review ligero y un `criticalPath` el completo. `impl_<f>.md` sale de `navori handoff render` sin despachar al scribe. Un nit tras `APPROVED` va al PR | R12–R14, R21, R22, R24 (su prosa) | 450 |
@@ -908,7 +901,7 @@ Total estimado: unas 3600 LOC.
 
 - Claude Code hooks reference: https://code.claude.com/docs/en/hooks. Forma de `PostToolUse` y
   `PostToolUseFailure`; `error` abre con `Exit code N`. Consultada el 2026-10-08.
-- Vitest CLI: https://vitest.dev/guide/cli. `vitest related`, `--run`. Consultada el 2026-10-08.
+- Vitest CLI: https://vitest.dev/guide/cli. Consultada el 2026-10-08.
 - husky v9: https://raw.githubusercontent.com/typicode/husky/main/index.js (stubs de `.husky/_`,
   `core.hooksPath`) y https://raw.githubusercontent.com/typicode/husky/main/husky (el script `h` sale
   0 si `.husky/<hook>` no existe o si `HUSKY=0`). Consultadas el 2026-10-08.

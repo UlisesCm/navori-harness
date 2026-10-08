@@ -84,8 +84,8 @@ mientras el reviewer lo trata como finding.
 - **R11** — IF `navori receipt gate` no puede leer o validar el workplan THEN the system SHALL
   decidir `full`.
 - **R25** — The system SHALL aceptar en `navori.config.json` el campo opcional
-  `qualityGate.scoped` (los checks baratos de `full` sin la suite completa, más los tests
-  relacionados con el diff), y el carril `scoped` SHALL correrlo en lugar de `qualityGate.fast`
+  `qualityGate.scoped` (los checks estáticos baratos de `full`, sin tests; los tests de la ronda
+  los aportan los `A<n>`), y el carril `scoped` SHALL correrlo en lugar de `qualityGate.fast`
   cuando esté declarado.
 
 ### C — Verificación proporcional al nivel
@@ -150,7 +150,7 @@ Medición en este repo, 2026-10-08, cada paso de `qualityGate.full` por separado
 
 **Lectura:** `test:coverage` es el 97 % del gate. Mover lint/semgrep/jscpd a git hooks quita
 duplicación (segundos); el ahorro grande viene de correr la suite completa menos veces (bloque B)
-y de correr solo los tests afectados en las rondas intermedias (R25).
+y de no correr la suite en las rondas intermedias: los tests de cada ronda son sus `A<n>` (R25).
 
 ## NOT in scope
 
