@@ -254,14 +254,21 @@ describe("#1244 — el aviso de herramientas va al final y no rompe el techo", (
     expect(ctx.length).toBeLessThanOrEqual(12_000 + 800);
   });
 
-  it("con el presupuesto saturado degrada a puntero sin desplazar doctrina y cabe bajo el techo", () => {
-    // El aviso va al final a propósito: es lo primero que el presupuesto recorta.
+  it("con el presupuesto saturado el aviso llega como cuerpo gracias a su reserva y cabe bajo el techo", () => {
     for (const resumeBytes of [4600, 60_000]) {
       const ctx = runHook(renderedRepo(resumeBytes), withStub());
       expect(ctx.length).toBeLessThanOrEqual(DELIVERY_CEILING);
-      expect(ctx).not.toContain(BODY);
-      expect(ctx).toContain("tool update notices didn't fit");
+      expect(ctx).toContain(BODY);
+      expect(ctx.indexOf(BODY)).toBeGreaterThan(ctx.indexOf("Branch:"));
+      // El aviso nunca desplaza doctrina: la escalera de orquestación sigue llegando como cuerpo.
       expect(ctx).toContain('navori:managed id="orquestacion"');
     }
+  });
+
+  it("sin aviso la reserva no se aplica: el contexto es idéntico al de antes", () => {
+    const repo = renderedRepo(4600);
+    const plain = runHook(repo);
+    const noNotice = runHook(repo, { ...withStub(), NAVORI_NO_UPDATE_NOTIFIER: "1" });
+    expect(noNotice).toBe(plain);
   });
 });

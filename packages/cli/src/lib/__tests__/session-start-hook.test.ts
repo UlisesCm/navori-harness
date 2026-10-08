@@ -516,8 +516,14 @@ describe("session-start context hook — tool update notice (#1244)", () => {
     expect(r.calls).toEqual(["tools notice"]);
   });
 
-  it("degrades to the fixed English pointer and does NOT ack when the budget is spent", () => {
+  it("still delivers and acks the body when the budget is spent: the notice has its own reserve", () => {
     const r = emit({ ...stub(OUTPUT), NAVORI_CTX_BUDGET: "10" });
+    expect(r.ctx).toContain(NOTICE);
+    expect(r.calls).toEqual(["tools notice", "tools notice --ack engram@3.2.1"]);
+  });
+
+  it("degrades to the fixed English pointer and does NOT ack when the notice exceeds its reserve", () => {
+    const r = emit({ ...stub(OUTPUT), NAVORI_NOTICE_RESERVE: "10" });
     expect(r.ctx).toContain("tool update notices didn't fit here");
     expect(r.ctx).not.toContain(NOTICE);
     expect(r.calls).toEqual(["tools notice"]);
