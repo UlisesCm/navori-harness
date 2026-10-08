@@ -1,5 +1,11 @@
 # History
 
+## 2026-10-08 10:30 claude — Acotar progress/current.md (#1263)
+
+Cambios: `navori doctor` avisa (humano y `--json` `progressSize`) cuando `progress/current.md` supera 4000 caracteres (mitad de `SESSION_CONTEXT_DELIVERY_BUDGET_CHARS`), solo informativo; el paso 3 de la doctrina de cierre aclara que los checkpoints van a `history.md`; goldens re-renderizados; `progress/current.md` recortado de 38.8 KB a ~680 caracteres (el log previo queda en `git show 22cc6dea:progress/current.md`).
+Quality gate: verde completo, receipt firmado (reviewer APPROVED).
+Notas: el primer gate falló por otra sesión corriendo vitest en el mismo checkout; se aisló el trabajo en este worktree.
+
 ## 2026-10-05 21:25 codex — Recover audit privacy, usage and bounded mining
 
 Recovered PR #1222's malformed report and context-safe public projection, qualified metadata route and canonical hook capture. Private CLI/lifecycle exports now require checked private storage and explicit identity; human content requires per-call opt-in. Exclusive private arm claims replace the disproved unlink-only contention assumption. Native Node 26 crash tests invoke the built CLI rather than removed TypeScript-transform flags.
