@@ -82,7 +82,6 @@ import {
   type FilteredInventory,
   type OverlapRow,
 } from "../shared/native-overlap.ts";
-import { buildSkillRows } from "../shared/skills-index.ts";
 import {
   hoistedPlannedSkill,
   hoistTransform,
@@ -246,56 +245,6 @@ function legacyContextPath(cwd: string, id: string): string {
 
 const SKILLS_INDEX_ID = "skills-index";
 
-/**
- * Whether a preset extra applies to this config. An extra with no `condition`
- * is always on; one with a condition is materialized only when the config path
- * resolves truthy (same semantics as CoreManagedAsset.condition). Used in BOTH
- * the skills index and the extras render loop so they never disagree.
- */
-/**
- * Build the body of the skills index — a navigation map of the skills agents
- * can apply: core (navori), preset (stack), library (detected from deps), and
- * project-local (the user's own, declared in `project.localSkills`). navori
- * indexes the local ones so agents discover them, but never owns their `.md`
- * content. Returns null when there's nothing to list so the caller strips the
- * block instead of rendering an empty header (defensive — core skills are
- * always present today, so in practice it always returns content).
- */
-function buildSkillsIndexBody(
-  config: NavoriConfig,
-  localSkills: readonly string[],
-  repoRoot: string,
-  coreAssets: string,
-  lang: Lang,
-  /** Where this CLAUDE.md is written — the `.claude/skills/` it indexes sit
-   * next to it, which on a workspace render is NOT `repoRoot`. */
-  cwd: string,
-  /** Skills this render does not write (they live at the root, whose index lists them). */
-  omitted: ReadonlySet<string>,
-  /** Skills the root writes on behalf of its workspaces, listed under their final name. */
-  hoisted: ReadonlyArray<{ id: string; tag: string }>,
-): string | null {
-  // #908: no trigger — the host's native skill listing already tells the
-  // model when to use each one (see buildSkillRows' docblock).
-  const rows = buildSkillRows(
-    config,
-    repoRoot,
-    coreAssets,
-    localSkills,
-    cwd,
-    false,
-    "claude",
-    omitted,
-    hoisted,
-  );
-  if (rows.length === 0) return null;
-  const t = tc(lang).blocks.skillsIndex;
-  // The project-local note only makes sense when the repo actually declares
-  // local skills; otherwise it points at a category that isn't present.
-  const localNote = localSkills.length > 0 ? [t.localNote] : [];
-  return [t.heading, "", t.intro, ...localNote, "", ...rows, ""].join("\n");
-}
-
 /** Managed-block id for the agents index injected into CLAUDE.md. */
 const AGENTS_INDEX_ID = "agentes-disponibles";
 
@@ -333,8 +282,8 @@ const CODEX_CROSS_REVIEW_ID = "codex-cross-review";
  *
  * The prose lives in `core-assets/managed/codex-cross-review.md` (not inline in
  * TS) so it goes through the same asset+interpolation pipeline as every other
- * managed block (#229). Follow-up: the other computed blocks (`skills-index`,
- * `agentes-disponibles`, `contexto-*`) are shared across engines and build their
+ * managed block (#229). Follow-up: the other computed blocks
+ * (`agentes-disponibles`, `contexto-*`) are shared across engines and build their
  * rows from config, so relocating THEIR prose + localizing it is a larger,
  * cross-engine refactor tracked separately.
  */
@@ -358,7 +307,6 @@ const CONTEXTO_MONOREPO_ID = "contexto-monorepo";
  * hand the same list to doctor's order check (`lib/diagnose/health.ts`).
  */
 export const CLAUDE_COMPUTED_BLOCK_IDS = [
-  SKILLS_INDEX_ID,
   AGENTS_INDEX_ID,
   CONTEXTO_MONOREPO_ID,
   CONTEXTO_PROYECTO_ID,
@@ -706,52 +654,23 @@ export function renderClaudeEngine(
     );
   }
 
-  // 1b. Skills index — a managed block in CLAUDE.md listing the skills agents
-  // can apply: core (always) + preset + library (detected from deps) +
-  // project-local. Rendered whenever there's anything to list (core skills are
-  // always present), so detected library/preset skills are discoverable even
-  // when the repo declares no project-local skills. The block is stripped only
-  // when the body comes back empty.
-  const localSkills = config.project?.localSkills ?? [];
+  // 1b. Skills index — retired from the Claude render (#1273): the main session
+  // lists skills natively and the orchestrator names the skills (with paths) a
+  // subagent needs in its brief. Older renders still carry the block, so it is
+  // removed GUARDED: a pristine copy goes; one the user edited, or a newer navori
+  // stamped, stays (user-kept) and is reported as a skipped entry.
   let claudeMdContent = claudeMdPlan.next;
   const omittedSkills = options.workspaceSkills?.omitted ?? new Set<string>();
-  const hoistRows = (options.rootHoist?.skills ?? []).map((h) => ({
-    id: h.id,
-    tag:
-      h.workspaceName === undefined
-        ? "workspace"
-        : `workspace (\`${sanitizeProjectValue(h.workspaceName)}\`)`,
-  }));
-  const skillsIndexBody = rootScope
-    ? null
-    : buildSkillsIndexBody(
-        config,
-        localSkills,
-        repoRoot,
-        coreAssets,
-        lang,
-        cwd,
-        omittedSkills,
-        hoistRows,
-      );
-  if (skillsIndexBody !== null) {
-    const result = injectManagedSection(
-      claudeMdContent,
-      SKILLS_INDEX_ID,
-      skillsIndexBody,
-      CORE_META,
-      "html",
-      options.forceIds?.has(SKILLS_INDEX_ID) ?? false,
-    );
-    claudeMdContent = result.output;
+  const skillsIndexRemoval = removeManagedSectionGuarded(claudeMdContent, SKILLS_INDEX_ID);
+  if ("kept" in skillsIndexRemoval) {
     claudeMdPlan.entries.push({
       asset: { id: SKILLS_INDEX_ID, relPath: "(computed)" },
       source: "core",
-      status: result.status,
+      status: "downgrade-skipped",
       newContent: null,
     });
   } else {
-    claudeMdContent = removeManagedSection(claudeMdContent, SKILLS_INDEX_ID);
+    claudeMdContent = skillsIndexRemoval.content;
   }
 
   // 1b-bis. Agents index — the catalog of leaf subagents the orchestrator (main

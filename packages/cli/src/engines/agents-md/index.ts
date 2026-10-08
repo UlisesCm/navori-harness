@@ -31,6 +31,7 @@ export function renderAgentsMdEngine(
     config: inputConfig,
     destRelPath: "AGENTS.md",
     managedId: MANAGED_ID,
+    engine: "agents-md",
     header: HEADER,
     userSection: USER_SECTION,
     dryRun: options.dryRun,

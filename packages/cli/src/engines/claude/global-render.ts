@@ -140,8 +140,11 @@ export function composeBaseline(config: GlobalConfig): string {
       );
     }
     const rawAsset = readFileSync(resolveAssetPath(asset, config.language).path, "utf-8");
-    const raw =
-      asset.id === "orquestacion" ? conditionOrchestration(rawAsset, renderConfig) : rawAsset;
+    // Every asset is conditioned, under a non-Claude engine id: the baseline is
+    // delivered by SessionStart to the main session only, never to subagents, so
+    // the Claude-only `onClaude` pointers (which exist to spare subagents) do not
+    // apply and no raw `navori:if` marker may leak into the hook prose (#1273).
+    const raw = conditionOrchestration(rawAsset, renderConfig, "global");
     const rendered = interpolate(raw.trim(), renderConfig, { fallbackScope: "global" });
     const unresolved = rendered.match(/<not configured: [^>]+>/g);
     if (unresolved) {
