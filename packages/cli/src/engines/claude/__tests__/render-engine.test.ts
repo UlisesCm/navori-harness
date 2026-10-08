@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
 import { claudeHookCommand } from "../build-settings.ts";
+import { readTemplateFile } from "../../../lib/master/templates.ts";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
 
 const CONFIG_FULL = {
@@ -1104,6 +1105,40 @@ describe("renderClaudeEngine — skills directory form + legacy migration (#166)
     expect(contextIntake).toContain("name: context-intake");
     expect(contextIntake).toContain("disable-model-invocation: true");
   });
+
+  // Covers: R21, R23
+  it("master-plan clasifica specs: the skill cites classify, delivery rules and the E<n> id", () => {
+    renderClaudeEngine(cwd, { ...CONFIG_FULL, harness: { masterPlan: true } } as NavoriConfig);
+    const skill = readFileSync(join(cwd, ".claude/skills/master-plan/SKILL.md"), "utf-8");
+    // Every spec of a part is classified, then split with the delivery rules.
+    expect(skill).toContain("navori spec classify");
+    expect(skill).toContain("sdd.deliveries");
+    // `E<n>` is the PR unit and shares its id with `parts.json`; `spec check` validates it.
+    expect(skill).toContain("E<n>");
+    expect(skill).toContain("parts.json");
+    expect(skill).toContain("navori spec check");
+  });
+
+  // Covers: R21, R23
+  it.each(["es", "en"] as const)(
+    "master-plan templates (%s) use the E/M/A/T grammar, not batches of 1-3",
+    (language) => {
+      const tasks = readTemplateFile("tasks", language);
+      expect(tasks).toContain("## E1 —");
+      expect(tasks).toContain("### M1 —");
+      expect(tasks).toContain("**A1**");
+      expect(tasks).toContain("**T1**");
+      const delivery = readTemplateFile("delivery-master", language);
+      expect(delivery).toContain("E<n>");
+      expect(delivery).toContain(language === "es" ? "mismo id" : "same id");
+      expect(readTemplateFile("slice", language)).toContain("navori spec classify");
+      for (const name of ["tasks", "delivery-master", "slice"] as const) {
+        expect(readTemplateFile(name, language)).not.toMatch(
+          /batches? (de|of) 1[-–]3|lotes de 1[-–]3/i,
+        );
+      }
+    },
+  );
 
   it("preserves unknown frontmatter (e.g. a future `allowed-tools`) through the render", () => {
     // The SKILL.md content is rendered verbatim from the asset; the pipeline must

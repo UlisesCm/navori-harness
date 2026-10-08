@@ -1,14 +1,46 @@
-# Part tasks.md template (`harness.masterPlan`, R35)
+# Delivery tasks template (`harness.masterPlan`, R35)
 
-Same format as `spec-bootstrap` (batches of 1-3 tasks, each naming the `R<n>` it covers), plus these mandatory per-task fields:
+Organize work by deliveries, each with milestones, acceptance criteria, and tasks. Each task declares exact files, interfaces, pattern file, closed-list reads, pinned library versions, command and expected result, named test cases, and out-of-scope items; do not write function bodies in tasks.
 
-- [ ] **T<n>** (R<n>, ...) — <title>.
+## E1 — <delivery title>
+
+Estimated LOC: <number>
+
+### M1 — <milestone title>
+
+- **A1** [observable] — <acceptance criterion description> → `expected command or "verified manually"`
+
+- [ ] **T1** (R<n>, ...) — <title>.
   - **Files:** exact paths this task touches.
   - **Interfaces:** the ones it touches, each named in `design.md`.
   - **Pattern:** an existing repo file to follow.
   - **Reading:** closed list of files to read before writing.
   - **Libraries:** name and exact version (no `^` or `~`).
-  - **Done:** command, expected result and named test cases. Names the `P<n>.A<m>` it closes.
+  - **Done:** command, expected result, and test cases by name. Names the `P<n>.A<m>` it closes.
   - **Out of scope:** what this task does NOT do.
 
-Every `R<n>` in `requirements.md` cites the `P<n>.A<m>` it covers (R60).
+### M2 — <milestone title>
+
+- **A2** — <description>
+
+- [ ] **T2** (R<n>) — <title>.
+  - **Files:** ...
+  - **Interfaces:** ...
+  - **Pattern:** ...
+  - **Reading:** ...
+  - **Libraries:** ...
+  - **Done:** ...
+  - **Out of scope:** ...
+
+## E2 — <next delivery title>
+
+Estimated LOC: <number>
+
+### M3 — <milestone title>
+
+- **A3** — <description>
+
+- [ ] **T3** (R<n>) — <title>.
+  - **Files:** ...
+
+Each `R<n>` in `requirements.md` cites the `P<n>.A<m>` it covers (R60).

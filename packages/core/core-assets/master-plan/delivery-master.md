@@ -23,7 +23,7 @@ Decisión `design.ui`: `none` solo si ninguna fuente es UI y se explica `reason`
 
 ## Entregas y política Git
 
-En `parts.json`, define cada E<n> con resultado, partes asignadas, dependencias y campos Git `branch`, `base`, `integrationTarget` y `prTarget`. Define cada P<n> con entrega, objetivo, alcance, fuera de alcance, dependencias, fuentes y RN/RF/RNF cubiertos. Las dependencias deben estar acíclicas y cada asignación debe coincidir en ambas direcciones.
+En `parts.json`, define cada E<n> con resultado, partes asignadas, dependencias y campos Git `branch`, `base`, `integrationTarget` y `prTarget`. Cada `E<n>` del `tasks.md` de la spec debe declarar el mismo id que la entrega en `parts.json`, y la unidad de PR es la entrega completa. Define cada P<n> con entrega, objetivo, alcance, fuera de alcance, dependencias, fuentes y RN/RF/RNF cubiertos. Las dependencias deben estar acíclicas y cada asignación debe coincidir en ambas direcciones.
 
 | Entrega | Resultado | Partes | Depende de | Branch / base / integración / destino PR |
 |---|---|---|---|---|

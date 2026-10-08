@@ -23,7 +23,7 @@ Choose `design.ui`: `none` only when no source is UI-bearing, with an explanator
 
 ## Deliveries and Git policy
 
-In `parts.json`, define each E<n> with outcome, assigned parts, dependencies, and Git fields `branch`, `base`, `integrationTarget`, and `prTarget`. Define each P<n> with delivery, objective, scope, out of scope, dependencies, sources, and covered RN/RF/RNF. Dependencies must be acyclic and assignments must agree in both directions.
+In `parts.json`, define each E<n> with outcome, assigned parts, dependencies, and Git fields `branch`, `base`, `integrationTarget`, and `prTarget`. Each `E<n>` in the spec `tasks.md` must declare the same id as the delivery in `parts.json`, and the PR unit is the complete delivery. Define each P<n> with delivery, objective, scope, out of scope, dependencies, sources, and covered RN/RF/RNF. Dependencies must be acyclic and assignments must agree in both directions.
 
 | Delivery | Outcome | Parts | Depends on | Branch / base / integration / PR target |
 |---|---|---|---|---|

@@ -3,8 +3,8 @@ name: master-plan
 description: Use when the user explicitly asks to start or resume a project master plan, invokes `/master-plan`, or accepts the offer with “sí, continúa”. Guides the staged workflow, user confirmations, evidence and closure. Not for manual context conversion (`context-intake`) or creating a standalone specification (`spec-bootstrap`).
 metadata:
   type: reference
-  # Excede el tope de 500 de las skills core: reúne los contratos completos de T18 (etapas y procedimientos), el mensaje de fase guiado, la fase ux, la regla de sdd.enabled y las variantes de confirmación (spec 0039 R56). Sube a 2500: los 13 tramos inline onCodex (marcadores más texto alterno de Codex) suman ~150 palabras al render (2453 medidas) (spec 0041 R20).
-  maxWords: 2500
+  # Excede el tope de 500 de las skills core: reúne los contratos completos de T18 (etapas y procedimientos), el mensaje de fase guiado, la fase ux, la regla de sdd.enabled y las variantes de confirmación (spec 0039 R56). Sube a 2500: los 13 tramos inline onCodex (marcadores más texto alterno de Codex) suman ~150 palabras al render (2453 medidas) (spec 0041 R20). Sube a 2700: nueva sección Part-spec (D7 de 0044 R21) ~100 palabras, medidas 2555 * 1.05 => 2681, con holgura => 2700.
+  maxWords: 2700
 ---
 
 # Plan maestro de proyecto
@@ -46,7 +46,7 @@ Continúa desde la fase registrada. En cada fase completa su lista, corre `navor
 5. **`questioned`** — Resuelve preguntas abiertas <!-- navori:if-not onCodex -->con `AskUserQuestion`<!-- /navori:if-not --><!-- navori:if onCodex -->con una pregunta en el chat que termina tu turno<!-- /navori:if -->, una por una, recomendación primero; no preguntes lo ya respondido por contexto o código. Registra pregunta, opción elegida, descartadas y fecha como `D<n>` en `DECISIONS.md`. Cierre: cero decisiones abiertas y criterios de cada parte mapeados a requisitos de su spec.
 6. **`mastered`** — Revisa el plan y propone al usuario crear issues solo si son útiles o pedidos. Confirma cada acción irreversible. Cierre: `MASTER.md` cumple rigor y cada parte está lista para arrancar o tiene estado explícito.
 7. **`ux`** — Pregunta <!-- navori:if-not onCodex -->con `AskUserQuestion`<!-- /navori:if-not --><!-- navori:if onCodex -->en el chat (termina tu turno y espera la respuesta)<!-- /navori:if --> “¿Quieres generar UX.md?”: explica que es el contrato UX funcional que permite a herramientas de sistema de diseño como navori-heron diseñar la experiencia sin redescubrir el producto. Opciones `UX.md + ux.json` (para cuando una herramienta lo consuma directo, p. ej. proyectos nuevos) / `Solo UX.md` / `No generar`; registra con `navori master ux md-json|md|none`. Con md o md-json, despacha un `architect` con `MASTER.md`, `DECISIONS.md`, `parts.json`, `DIGEST.md`, `CODEBASE.md`, `context/md/` y `navori master template ux`; escribe `UX.md` (y `ux.json` con los mismos IDs en md-json). Resuelve sus preguntas abiertas <!-- navori:if-not onCodex -->con `AskUserQuestion`<!-- /navori:if-not --><!-- navori:if onCodex -->con una pregunta en el chat que termina tu turno<!-- /navori:if -->, una a una, como `D<n>`, sin repetir lo ya respondido en `DECISIONS.md` o `MASTER.md`; corre `navori master check` hasta verde y avanza.
-8. **`executing`** — Trabaja únicamente en la parte que el usuario pidió iniciar, como spec nivel 3. Genera o actualiza `STATUS.md` con `navori master status`, nunca a mano. Al cerrar la sesión, regenera el estado y reporta fase, parte y evidencia pendiente.
+8. **`executing`** — Trabaja únicamente en la parte que el usuario pidió iniciar, como spec nivel 3. En entregas, cada entrega es una spec nivel 3 con fase de ejecución, tareas codificadas en el `E<n>` y resultado en `parts.json`. Genera o actualiza `STATUS.md` con `navori master status`, nunca a mano. Al cerrar la sesión, regenera el estado y reporta fase, parte y evidencia pendiente.
 
 ## Scout, arquitectos y partes diferidas
 
@@ -65,6 +65,10 @@ Antes de cerrar cada plan, `MASTER.md` y cada spec de parte comprueba: nada impl
 ## Spec de una parte
 
 Cuando una parte arranque, crea su spec con `spec-bootstrap`; si ya existe una spec del repo que la cubre, enlázala y no dupliques. Cada tarea debe declarar archivos exactos, interfaces, archivo patrón, lista cerrada de lectura, versiones fijas de librerías, comando y resultado esperado, pruebas nombradas y fuera de alcance; no escribas cuerpos de funciones en las tareas. Cada criterio `P<n>.A<m>` debe tener método (`test`, `comando` o `manual`) y aparecer en al menos un `R<n>`; cada requisito que cite un criterio debe apuntar a uno existente. Corre `navori master check --part`.
+
+### Part-spec: entregas funcionales
+
+En una spec de proyecto con entregas, cada `E<n>` del `tasks.md` de la parte debe declarar su entrega usando la identidad exacta del `E<n>` en `parts.json`. Clasificar la spec con `navori spec classify` antes de dividirla por entregas según `sdd.deliveries`. Con entregas activas, `navori spec check` valida que cada `E<n>` del `tasks.md` mapea a una entrega existente de `parts.json`. Sin entregas, se ignora este mapeo y la spec sigue el flujo clásico de un PR por spec.
 
 ## Issues de GitHub
 

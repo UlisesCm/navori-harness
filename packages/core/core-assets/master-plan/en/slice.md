@@ -1,5 +1,7 @@
 # Part template (`navori master template slice`)
 
+The spec for this part must be classified beforehand with `navori spec classify` before splitting by deliveries.
+
 ## Identity and outcome
 
 ID: <P<n>>

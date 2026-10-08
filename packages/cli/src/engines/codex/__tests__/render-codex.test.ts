@@ -219,6 +219,18 @@ describe("renderCodexEngine", () => {
     expect(index).not.toContain("- `context-intake` —");
   });
 
+  // Covers: R21, R23
+  it("master-plan clasifica specs: the Codex skill cites classify, delivery rules and the E<n> id", () => {
+    const cwd = tempRepo();
+    renderCodexEngine(cwd, config({ harness: { masterPlan: true } }));
+    const skill = readFileSync(join(cwd, ".agents/skills/master-plan/SKILL.md"), "utf-8");
+    expect(skill).toContain("navori spec classify");
+    expect(skill).toContain("sdd.deliveries");
+    expect(skill).toContain("E<n>");
+    expect(skill).toContain("parts.json");
+    expect(skill).toContain("navori spec check");
+  });
+
   // Covers: R20
   it("warns that full access is not path isolation or universal approval", () => {
     const result = buildCodexConfigToml(config(), []);

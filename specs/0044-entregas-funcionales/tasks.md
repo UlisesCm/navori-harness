@@ -120,7 +120,7 @@ Estimated LOC: 450
 - **A11** [observable] — la skill y las plantillas citan la clasificación en ambos engines ·
   `cd packages/cli && bun run test src/engines src/lib/master`
   → exit 0, 0 failed
-- [ ] **T17** (R21, R23) — skill `master-plan` (spec de una parte y fase `executing`) y plantillas
+- [x] **T17** (R21, R23) — skill `master-plan` (spec de una parte y fase `executing`) y plantillas
   `tasks.md`, `delivery-master.md` y `slice.md` en es y en, con tope de palabras justificado ·
   effect: behavior · test: `engines/__tests__/render-engine.test.ts`::"master-plan clasifica
   specs"

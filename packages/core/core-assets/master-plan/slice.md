@@ -1,5 +1,7 @@
 # Plantilla de parte (`navori master template slice`)
 
+La spec de esta parte debe clasificarse previamente con `navori spec classify` antes de dividir por entregas.
+
 ## Identidad y resultado
 
 ID: <P<n>>
