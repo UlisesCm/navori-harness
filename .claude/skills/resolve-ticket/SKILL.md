@@ -3,13 +3,15 @@ name: resolve-ticket
 description: Use when a ticket arrives (ID, URL or pasted text) and the task isn't trivial — the canonical 6-phase pipeline to process it with objective gates.
 metadata:
   type: reference
-  maxWords: 700
+  # #1273: +208 words of ticket principles moved off the always-on file (908
+  # measured); ceil(908 × 1.10) = 999.
+  maxWords: 999
   # Compuesto (#683): ningún plugin extiende esta skill, así que los 50 sobre el
   # cap del asset son exactamente el margen de interpolación.
-  maxWordsComposed: 750
+  maxWordsComposed: 1049
 ---
 
-<!-- navori:managed id="resolve-ticket" hash="b4976bec" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="resolve-ticket" hash="8c95850b" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # resolve-ticket — 6-phase pipeline
 
 ## Pipeline
@@ -28,6 +30,15 @@ Agents and skills chained by objective gates: what one phase pays for in tokens 
 ## Phase 2 fan-out
 
 Only when the orchestration table's fan-out row fires, never on "it feels separable": three auditors on a one-file ticket cost more than the serial run they replace. Then one `auditor` per area, **all the `Agent` calls in the SAME turn**, each writing `audit_ticket_<ID-area>.md` (e.g. `audit_ticket_BTBS-138-webapp.md`) so none overwrites another. **You synthesize** the N reports — contradictions and gaps included — into the single `audit_ticket_<ID>.md` every later phase reads. Never delegated.
+
+## Ticket principles
+
+A ticket (bug or feature, from any board) describes a SYMPTOM and often ships a proposed solution. Treat them differently:
+
+- **The problem is the contract.** Verify it in the repo with evidence (`file:line`, a repro, a query) before writing code. If you can't confirm it, that's a finding to report — not a reason to implement anyway.
+- **The proposed solution is a suggestion, never the spec.** Evaluate it against the verified problem: it may solve it, mask it, or target something else. You have standing to propose a different path — cite why yours beats the ticket's.
+- **Not every ticket proceeds.** Legitimate outcomes besides "implement": already solved, can't reproduce, works as intended, needs splitting into N tickets, blocked on missing info. Saying so early — with evidence — beats a polished PR for the wrong fix. **None of them opens work, so none of them waits for approval:** report the verdict with its evidence and close the cycle. The human gate stays for `proceed` and `proceed-differently`, the two that open the chequebook.
+- **Size is measured, not assumed.** Before calling something small, run the command that proves it (call sites, files touched, layers crossed). A one-line description routinely hides a 13-call-site change.
 
 ## Hard rules
 
