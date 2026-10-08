@@ -283,10 +283,13 @@ describe("publisher — the pre-flight measures the tree it was triggered by", (
     );
   });
 
-  it("aborts before building a shipping diff when the target advanced (#771)", () => {
+  it("aborts before consuming a receipt when the target advanced (#771)", () => {
+    // The shipping set is no longer spelled out in the pre-flight (#1264:
+    // `navori receipt check` owns it), so the hard stop is now ordered against the
+    // receipt command — the first thing in the pre-flight that reads that set.
     const fetchAt = PRE_FLIGHT.indexOf("git fetch origin {{prTarget}} --quiet");
     const freshnessAt = PRE_FLIGHT.indexOf("git rev-list --count HEAD..origin/{{prTarget}}");
-    const shippingAt = PRE_FLIGHT.indexOf("shipping=$(");
+    const shippingAt = PRE_FLIGHT.indexOf("navori receipt check");
 
     expect(fetchAt, "the target must be fetched before its freshness is measured").toBeGreaterThan(
       -1,
@@ -294,7 +297,7 @@ describe("publisher — the pre-flight measures the tree it was triggered by", (
     expect(freshnessAt, "the pilot must count commits missing from its base").toBeGreaterThan(
       fetchAt,
     );
-    expect(shippingAt, "the shipping diff anchor disappeared").toBeGreaterThan(freshnessAt);
+    expect(shippingAt, "the receipt check anchor disappeared").toBeGreaterThan(freshnessAt);
     expect(PRE_FLIGHT.slice(freshnessAt, shippingAt)).toContain("exit 1");
     expect(PRE_FLIGHT.slice(freshnessAt, shippingAt)).toMatch(/hard stop/i);
   });
@@ -338,16 +341,47 @@ describe("publisher — the pre-flight measures the tree it was triggered by", (
     ).toEqual([]);
   });
 
-  it("defines that set ONCE and has both consumers read the same name", () => {
-    // Two spellings of one set is how :63 and :109 drifted apart in the first
-    // place: the receipt check was two-dot + untracked, the waiver was
-    // three-dot, and neither sentence knew about the other.
-    const definitions = [...PRE_FLIGHT.matchAll(/ls-files --others --exclude-standard/g)];
-    expect(
-      definitions.length,
-      "the shipping-diff listing is spelled out more than once in the pre-flight — name it once and reference it, or the two copies drift",
-    ).toBe(1);
-    expect(PRE_FLIGHT, "the set has no name to reference").toContain("shipping diff");
+  it("does not re-derive the shipping set — `navori receipt check` is its only definition", () => {
+    // #1264 replaced the old "defined ONCE in shell" guarantee. The prose copy
+    // had drifted from the code (it filtered `progress/` and the handoffs dir;
+    // the receipt excludes PROGRESS_DIRS), so the set now has ONE definition, in
+    // code. Its correctness is covered by diagnose/__tests__/receipt.test.ts
+    // (untracked + progress exclusion, UTF-8 paths, deletions, behind-target).
+    expect(PRE_FLIGHT, "the pre-flight spells out an untracked listing again").not.toMatch(
+      /ls-files --others/,
+    );
+    expect(PRE_FLIGHT, "the pre-flight rebuilds a shipping set in shell").not.toContain(
+      "shipping=$(",
+    );
+    expect(PRE_FLIGHT, "a name-only listing is a second definition of the set").not.toContain(
+      "--name-only",
+    );
+    expect(PRE_FLIGHT, "the receipt command no longer owns the set").toContain(
+      "navori receipt check",
+    );
+  });
+
+  it("maps every receipt check outcome to an action (#1264)", () => {
+    // The status -> action table replaces the prose that re-derived coverage.
+    // Each field the receipt reports must have a row, or the agent improvises.
+    for (const outcome of [
+      '"status":"error"',
+      '"status":"findings"',
+      "uncovered[]",
+      "drift[]",
+      '"fresh":true',
+      '"fresh":false',
+      '"gateKind":"scoped"',
+    ]) {
+      expect(PRE_FLIGHT, `no receipt-check row covers ${outcome}`).toContain(outcome);
+    }
+  });
+
+  it("states the gate command once — everything else says 'the full gate' (#1264)", () => {
+    // Eight copies of the same ~290 B command text were a per-dispatch cost with
+    // no information. The Gate section owns the literal; other places refer to it.
+    expect(pilot.split("{{qualityGate.full}}").length - 1).toBe(1);
+    expect(region("### Gate:", /^#{2,3} /m)).toContain("{{qualityGate.full}}");
   });
 
   it("the exception does not roll its own listing — there is nothing to count", () => {
@@ -476,7 +510,10 @@ describe("publisher — la única excepción es la imposibilidad declarada", () 
   });
 
   it("exige el gate completo al pilot, porque no hay review en que confiar", () => {
-    expect(DECLARED_EXCEPTION).toContain("{{qualityGate.full}}");
+    // El literal del comando vive una sola vez, en la sección Gate (#1264);
+    // aquí se exige "el gate completo" (nunca el rápido) por referencia.
+    expect(DECLARED_EXCEPTION).toMatch(/run the full gate green yourself/i);
+    expect(DECLARED_EXCEPTION).not.toContain("{{qualityGate.fast}}");
     expect(DECLARED_EXCEPTION).toMatch(/no review evidence to trust/i);
   });
 

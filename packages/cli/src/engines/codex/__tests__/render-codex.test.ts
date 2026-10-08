@@ -199,7 +199,7 @@ describe("renderCodexEngine", () => {
       expect(publisher).toContain(`git fetch origin ${target} --quiet`);
       expect(publisher).toContain(`HEAD..origin/${target}`);
       expect(publisher).toContain(`git log origin/${target}..HEAD --oneline`);
-      expect(publisher).toContain(`diff --name-only "origin/${target}"`);
+      expect(publisher).toContain(`git diff origin/${target} --stat`);
       expect(publisher).toContain(`navori receipt check --feature <feature> --target ${target} `);
       expect(publisher).toContain(`--base ${target}`);
       expect(implementer).toContain(`git diff --stat origin/${target}...HEAD`);

@@ -105,7 +105,9 @@ describe("PR pre-flight — one list, no clean-tree requirement (A3, M5)", () =>
     const trigger = section("agents/publisher.md", "When to trigger");
     expect(trigger).not.toMatch(/clean (working tree|status|tree)/i);
     // What replaces it: evidence over the diff that ships, not a git-state check.
-    expect(trigger).toMatch(/fresh `\{\{qualityGate\.full\}\}` evidence over the shipping diff/i);
+    // (#1264: the gate command literal lives once, in the Gate section; the trigger
+    // keeps the evidence-over-the-shipping-diff requirement without repeating it.)
+    expect(trigger).toMatch(/fresh full-gate evidence over the diff that ships/i);
   });
 
   it("the leader's pre-flight matches orquestacion's and adds no gate re-run", () => {

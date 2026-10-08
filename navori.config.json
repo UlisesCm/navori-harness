@@ -2,6 +2,7 @@
   "$schema": "https://ulisescm.github.io/navori-harness/schema/navori.config.v1.json",
   "name": "navori-harness",
   "version": "1.0.0",
+  "harnessVersion": "0.11.3",
   "engines": [
     "claude",
     "codex",
