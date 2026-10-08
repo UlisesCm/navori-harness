@@ -1,46 +1,27 @@
 import { randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { safeHomedir } from "./home.ts";
 import { writeFileAtomic } from "./atomic.ts";
+import {
+  DAY,
+  locked,
+  machineEligible,
+  readBoundedJson,
+  readState,
+  spawnPrivateWorker,
+  stableVersion,
+  stamp,
+  type Stamp,
+} from "./remote-version-cache.ts";
 import { compareSemver } from "./semver.ts";
 import { updateNoticeText, resolveLang, type Lang } from "../i18n.ts";
 
 export const UPDATE_NOTICE_WORKER_ARG = "--navori-private-update-worker";
-const DAY = 86_400_000;
 const MAX_BYTES = 16 * 1024;
 const REGISTRY = "https://registry.npmjs.org/navori/latest";
-type Stamp = { at: number };
 type Attempt = Stamp & { token: string | null };
 type Latest = Stamp & { version: string };
-
-function stableVersion(value: unknown): value is string {
-  if (typeof value !== "string" || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value))
-    return false;
-  return value.split(".").every((part) => Number.isSafeInteger(Number(part)));
-}
-
-function stamp(value: unknown, now: number): value is Stamp {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "at" in value &&
-    typeof value.at === "number" &&
-    Number.isSafeInteger(value.at) &&
-    value.at >= 0 &&
-    value.at <= now
-  );
-}
-
-function readState(path: string): unknown {
-  try {
-    const text = readFileSync(path, "utf8");
-    return text.length <= MAX_BYTES ? (JSON.parse(text) as unknown) : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 function validAttempt(value: unknown, now: number): value is Attempt {
   return (
@@ -59,24 +40,8 @@ function stateDir(): string {
   return join(safeHomedir(), ".navori", "update-notice");
 }
 
-function locked<T>(dir: string, action: () => T): T | undefined {
-  const lock = join(dir, "lock");
-  try {
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    mkdirSync(lock);
-  } catch {
-    return undefined;
-  }
-  try {
-    return action();
-  } finally {
-    rmdirSync(lock);
-  }
-}
-
 function eligible(argv: readonly string[]): boolean {
-  if (process.env.NAVORI_NO_UPDATE_NOTIFIER === "1") return false;
-  if (process.env.CI && !/^(0|false)$/i.test(process.env.CI)) return false;
+  if (!machineEligible()) return false;
   if (!process.stdout.isTTY || !process.stderr.isTTY) return false;
   if (argv.some((arg) => arg === "--json" || arg.startsWith("--json="))) return false;
   if (argv.length === 0 || argv.some((arg) => ["--help", "-h", "--version", "-v"].includes(arg)))
@@ -183,17 +148,7 @@ export function runUpdateNotice(installed: string, argv: readonly string[]): voi
         updateNoticeText(language(argv), installed, result.version, installer()),
       );
     if (result.token) {
-      const child = spawn(
-        process.execPath,
-        [process.argv[1]!, UPDATE_NOTICE_WORKER_ARG, result.token],
-        {
-          detached: true,
-          stdio: "ignore",
-          shell: false,
-        },
-      );
-      child.on("error", () => {});
-      child.unref();
+      spawnPrivateWorker(UPDATE_NOTICE_WORKER_ARG, result.token);
     }
   } catch {
     /* optional notice must not affect commands */
@@ -215,27 +170,7 @@ export async function runUpdateNoticeWorker(token: string | undefined): Promise<
     });
     if (!claimed) return;
     const response = await fetch(REGISTRY, { signal: AbortSignal.timeout(2_000) });
-    if (!response.ok || !response.body) return;
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > MAX_BYTES) {
-        await reader.cancel();
-        return;
-      }
-      chunks.push(value);
-    }
-    const bytes = new Uint8Array(size);
-    let offset = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    const raw: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    const raw = await readBoundedJson(response, MAX_BYTES);
     if (
       typeof raw !== "object" ||
       raw === null ||

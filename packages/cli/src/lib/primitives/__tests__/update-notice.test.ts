@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -200,6 +200,17 @@ describe("daily update notice", () => {
     mkdirSync(join(dir, "lock"));
     runUpdateNotice("0.1.0", ["status"]);
     expect(output).not.toHaveBeenCalled();
+  });
+
+  it("recovers an orphan lock older than a minute on the following run", () => {
+    put("latest.json", { at: Date.now(), version: "0.2.0" });
+    mkdirSync(join(dir, "lock"));
+    const old = (Date.now() - 120_000) / 1000;
+    utimesSync(join(dir, "lock"), old, old);
+    runUpdateNotice("0.1.0", ["status"]);
+    expect(output).not.toHaveBeenCalled();
+    runUpdateNotice("0.1.0", ["status"]);
+    expect(String(output.mock.calls[0]?.[0])).toContain("0.2.0");
   });
 
   it("consumes a duplicate worker token before the only registry request", async () => {
