@@ -10,36 +10,36 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { SESSION_CONTEXT_DELIVERY_BUDGET_CHARS } from "../assets/doc-budgets.ts";
+import { PROGRESS_SOFT_CAP_BYTES } from "../assets/doc-budgets.ts";
 
 /** Fixed runtime path the session hook reads (`progress.currentFile` is deprecated, #779). */
 export const PROGRESS_CURRENT_PATH = "progress/current.md";
 
-/** Half the session-start delivery budget — leaves room for the other context files. */
-export const DEFAULT_PROGRESS_THRESHOLD_CHARS = SESSION_CONTEXT_DELIVERY_BUDGET_CHARS / 2;
+/** Soft cap in bytes, shared with the hooks (see `PROGRESS_SOFT_CAP_BYTES`). */
+export const DEFAULT_PROGRESS_THRESHOLD_BYTES = PROGRESS_SOFT_CAP_BYTES;
 
 export interface ProgressSizeIssue {
   /** Repo-relative path of the measured file. */
   path: string;
-  /** Length in characters (not bytes), matching the hook's `${#body}`. */
-  chars: number;
-  thresholdChars: number;
+  /** Size in bytes (UTF-8), matching the hooks' `wc -c`. */
+  bytes: number;
+  thresholdBytes: number;
 }
 
 /**
- * Report the session-state file when it exceeds `thresholdChars`. A missing or
+ * Report the session-state file when it exceeds `thresholdBytes`. A missing or
  * unreadable file is simply fine — never throws.
  */
 export function scanProgressSize(
   cwd: string,
-  thresholdChars: number = DEFAULT_PROGRESS_THRESHOLD_CHARS,
+  thresholdBytes: number = DEFAULT_PROGRESS_THRESHOLD_BYTES,
 ): ProgressSizeIssue | null {
-  let chars: number;
+  let bytes: number;
   try {
-    chars = readFileSync(join(cwd, PROGRESS_CURRENT_PATH), "utf-8").length;
+    bytes = readFileSync(join(cwd, PROGRESS_CURRENT_PATH)).byteLength;
   } catch {
     return null;
   }
-  if (chars <= thresholdChars) return null;
-  return { path: PROGRESS_CURRENT_PATH, chars, thresholdChars };
+  if (bytes <= thresholdBytes) return null;
+  return { path: PROGRESS_CURRENT_PATH, bytes, thresholdBytes };
 }

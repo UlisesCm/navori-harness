@@ -954,7 +954,7 @@ interface DoctorCmdStrings {
   diskWorktreesRow: (size: string) => string;
   /** #1263 — the session-state file grew past the session-start cap. */
   progressSize: (lines: string) => string;
-  progressSizeRow: (chars: number, cap: number) => string;
+  progressSizeRow: (bytes: number, cap: number) => string;
   /** #522 — nested agent worktrees with their own install break eslint's
    *  upward config resolution, so no agent can commit from one. */
   nestedWorktrees: (n: number, eslintConfig: string, lines: string) => string;
@@ -2300,8 +2300,8 @@ const CMD_ES: CmdStrings = {
       `navori nunca los borra solo)`,
     progressSize: (lines) =>
       `El estado de sesión es demasiado grande — se cae del contexto de arranque:\n${lines}`,
-    progressSizeRow: (chars, cap) =>
-      `— ${chars} caracteres (tope ${cap}); mueve los checkpoints a progress/history.md y deja ` +
+    progressSizeRow: (bytes, cap) =>
+      `— ${bytes} bytes (tope ${cap}); mueve los checkpoints a progress/history.md y deja ` +
       `solo el estado actual y el siguiente paso`,
     nestedWorktrees: (n, eslintConfig, lines) =>
       `Worktrees anidados con node_modules propio y eslint en el repo (${n}) — eslint ` +
@@ -3753,8 +3753,8 @@ const CMD_EN: CmdStrings = {
       `navori never deletes them itself)`,
     progressSize: (lines) =>
       `Session state is too large — it falls out of startup context:\n${lines}`,
-    progressSizeRow: (chars, cap) =>
-      `— ${chars} characters (cap ${cap}); move checkpoints to progress/history.md and keep ` +
+    progressSizeRow: (bytes, cap) =>
+      `— ${bytes} bytes (cap ${cap}); move checkpoints to progress/history.md and keep ` +
       `only the current state and next step`,
     nestedWorktrees: (n, eslintConfig, lines) =>
       `Nested worktrees with their own node_modules while the repo runs eslint (${n}) — ` +
