@@ -1,5 +1,15 @@
 # History
 
+## 2026-10-08 16:40 claude — Revisión adaptativa, entrega E1 (#1275, PR #1278)
+
+Cambios:
+- **M1:** `qualityGate.scoped` y `{{navori.scopedGate}}`. El reviewer corre scoped + `A<n>` en rondas `CHANGES_REQUESTED` y el full solo al firmar `APPROVED`.
+- **M2:** `receipt gate` y `receipt sign` para workplans (`decideWorkplanGate`, fail closed a full).
+- **M3:** `qualityGate.full` ordenado de barato a caro, `fast` = lint + typecheck y `check:scoped` estático sin tests (~8 s). Se descartó `vitest related`: sobre módulos hub seleccionó 241 archivos y tardó 518 s, contra ~408 s del full.
+- El prompt del reviewer volvió bajo su techo de bytes: se quitó el literal del full de la fila CR.
+Quality gate: full verde en la ronda de firma, receipt `gateKind: full` (reviewer APPROVED tras 1 CR por bytes del prompt).
+Notas: la rama se rebaseó sobre #1276 a mitad de ciclo. Se abrió #1277 (evidencia `A<n>` en worktrees).
+
 ## 2026-10-08 13:00 claude — Prompts de reviewer y publisher más chicos (#1264)
 
 Cambios: publisher deja de recalcular el shipping set en prosa y lee `navori receipt check --json` con una tabla estado→acción (28,367 → 24,144 B renderizado); reviewer elimina literales duplicados del gate, la regla de navegador repetida y el Setup 5 que repetía el routing (22,194 → 20,050 B); test nuevo `agent-prompt-bytes` fija topes de bytes; `harnessVersion` registrado por el render.
