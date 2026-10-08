@@ -277,3 +277,60 @@ describe("interpolate — progress caps (#1263)", () => {
     ).toBe("4000/8000");
   });
 });
+
+describe("interpolate — gate runner placeholders (#1272)", () => {
+  const withGate = (qualityGate?: Record<string, string>): NavoriConfig =>
+    ({ ...CONFIG, qualityGate }) as unknown as NavoriConfig;
+  const safe = withGate({ fast: "pnpm lint && pnpm typecheck", full: "pnpm test" });
+  const kinds = ["fast", "full"] as const;
+  const scopes = ["repo", "global"] as const;
+
+  it.each(kinds)("repo + safe chain resolves to `navori gate %s`", (kind) => {
+    expect(interpolate(`{{gateRun.${kind}}}`, safe)).toBe(`navori gate ${kind}`);
+  });
+
+  it("shq quotes the runner command in repo scope", () => {
+    expect(interpolate("{{shq:gateRun.fast}}", safe)).toBe("'navori gate fast'");
+  });
+
+  it.each(["pnpm a | tee x", "pnpm a > out", "echo $HOME"])(
+    "repo + unsafe gate %s falls back to the qualityGate text",
+    (gate) => {
+      const cfg = withGate({ fast: gate, full: gate });
+      for (const kind of kinds) {
+        expect(interpolate(`{{gateRun.${kind}}}`, cfg)).toBe(
+          interpolate(`{{qualityGate.${kind}}}`, cfg),
+        );
+        expect(interpolate(`{{shq:gateRun.${kind}}}`, cfg)).toBe(
+          interpolate(`{{shq:qualityGate.${kind}}}`, cfg),
+        );
+      }
+    },
+  );
+
+  it.each(kinds)("global + safe chain matches {{qualityGate.%s}}", (kind) => {
+    const opts = { fallbackScope: "global" } as const;
+    expect(interpolate(`{{gateRun.${kind}}}`, safe, opts)).toBe(
+      interpolate(`{{qualityGate.${kind}}}`, safe, opts),
+    );
+    expect(interpolate(`{{gateRun.${kind}}}`, safe, opts)).not.toContain("navori gate");
+  });
+
+  it.each<[string, Record<string, string> | undefined]>([
+    ["undefined", undefined],
+    ["empty", {}],
+    ["only the other kind", { full: "pnpm test" }],
+  ])("unconfigured (%s) matches {{qualityGate.<kind>}} in both scopes", (_name, gate) => {
+    const cfg = withGate(gate);
+    for (const scope of scopes) {
+      // The kind actually configured is covered above; compare the missing one.
+      for (const kind of kinds.filter((k) => gate?.[k] === undefined)) {
+        for (const m of ["", "shq:"]) {
+          expect(interpolate(`{{${m}gateRun.${kind}}}`, cfg, { fallbackScope: scope })).toBe(
+            interpolate(`{{${m}qualityGate.${kind}}}`, cfg, { fallbackScope: scope }),
+          );
+        }
+      }
+    }
+  });
+});
