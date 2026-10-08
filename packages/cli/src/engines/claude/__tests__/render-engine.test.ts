@@ -84,7 +84,7 @@ describe("renderClaudeEngine — first render with full config", () => {
             `git fetch origin ${target} --quiet`,
             `HEAD..origin/${target}`,
             `git log origin/${target}..HEAD --oneline`,
-            `diff --name-only "origin/${target}"`,
+            `git diff origin/${target} --stat`,
             `navori receipt check --feature <feature> --target ${target} `,
             `--base ${target}`,
             "base=main",
