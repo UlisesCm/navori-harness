@@ -24,7 +24,7 @@ import { join } from "node:path";
 const home = vi.hoisted(() => ({ dir: "" }));
 vi.mock(import("../../lib/primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
-const prompted = vi.hoisted(() => ({ count: 0 }));
+const prompted = vi.hoisted(() => ({ count: 0, warns: [] as string[] }));
 vi.mock("@clack/prompts", () => {
   const boom = (): never => {
     prompted.count += 1;
@@ -37,7 +37,9 @@ vi.mock("@clack/prompts", () => {
     log: {
       message: () => undefined,
       info: () => undefined,
-      warn: () => undefined,
+      warn: (m: string) => {
+        prompted.warns.push(m);
+      },
       error: () => undefined,
       success: () => undefined,
       step: () => undefined,
@@ -60,6 +62,7 @@ const {
   summarizeConflictDiff,
   CONFLICT_DIFF_MAX_LINES,
 } = await import("../sync.ts");
+const { tc } = await import("../../lib/i18n.ts");
 const { USER_SECTION_START, USER_SECTION_END } = await import("../../lib/render/marker.ts");
 
 let cwd: string;
@@ -68,6 +71,7 @@ beforeEach(() => {
   home.dir = mkdtempSync(join(tmpdir(), "navori-home-"));
   cwd = mkdtempSync(join(tmpdir(), "navori-sync-bulk-"));
   prompted.count = 0;
+  prompted.warns = [];
 });
 
 afterEach(() => {
@@ -606,21 +610,107 @@ describe("sync --accept-new-files (#1240)", () => {
     }
   });
 
-  // Covers: scope — markerless files are never swept by the flag.
-  it("a markerless user-edited plugin script is reported resolvable:'none' and left untouched", async () => {
-    seedEditedAgent({ jscpd: { enabled: true } });
-    const script = join(cwd, ".claude/scripts/check-jscpd.sh");
-    const markerless = `${readFileSync(script, "utf-8")
-      .split("\n")
-      .filter((l) => !l.includes("navori:managed"))
-      .join("\n")}\n# user line\n`;
-    writeFileSync(script, markerless, "utf-8");
+  // Covers: #1245 — the bulk-leak matrix. A marker-kept agent sits next to a
+  // markerless script; no bulk path may write the script, JSON never carries its
+  // bodies, and the marker-kept file is still resolved where the flag says so.
+  describe("#1245 markerless files are interactive-only", () => {
+    const SCRIPT = ".claude/scripts/check-jscpd.sh";
 
-    const out = await runSyncJson({ "accept-new-files": true, apply: true });
+    function seedMixed(): { script: string; mine: string; agent: string; edited: string } {
+      const { agent, edited } = seedEditedAgent({ jscpd: { enabled: true } });
+      const script = join(cwd, SCRIPT);
+      const mine = `${readFileSync(script, "utf-8")
+        .split("\n")
+        .filter((l) => !l.includes("navori:managed"))
+        .join("\n")}\n# user line\n`;
+      writeFileSync(script, mine, "utf-8");
+      return { script, mine, agent, edited };
+    }
 
-    expect(readFileSync(script, "utf-8")).toBe(markerless);
-    const left = out.conflicts.filter((c) => c.resolvable === "none");
-    expect(left.some((c) => c.path.includes("check-jscpd.sh"))).toBe(true);
+    /** JSON runs (also failing ones, `--yes` may exit 1 on unanswered conflicts). */
+    const jsonFlags: Array<[string, Record<string, unknown>]> = [
+      ["--json", {}],
+      ["--json --dry-run", { "dry-run": true }],
+      ["--json --apply", { apply: true }],
+      ["--json --yes", { yes: true }],
+      ["--json --accept-new-files --apply", { "accept-new-files": true, apply: true }],
+      ["--json --accept-new --apply", { "accept-new": true, apply: true }],
+      [
+        "--json --accept-new --accept-new-files --yes",
+        { "accept-new": true, "accept-new-files": true, yes: true },
+      ],
+    ];
+
+    it.each(jsonFlags)(
+      "%s leaves the markerless script byte-identical and reports resolvable:'none' without bodies",
+      async (_name, flags) => {
+        const { script, mine } = seedMixed();
+        trapExit();
+        const lines: string[] = [];
+        vi.spyOn(console, "log").mockImplementation((l: unknown) => {
+          lines.push(String(l));
+        });
+        await (
+          syncCommand.run?.({
+            rawArgs: [],
+            cmd: syncCommand,
+            args: { _: [], cwd, json: true, ...flags },
+          } as never) ?? Promise.resolve()
+        ).catch(() => undefined);
+        vi.restoreAllMocks();
+
+        expect(readFileSync(script, "utf-8")).toBe(mine);
+        expect(prompted.count).toBe(0);
+        const raw = lines[0] ?? "{}";
+        expect(raw).not.toContain("user line");
+        expect(raw).not.toContain("markerlessResolution");
+        const out = JSON.parse(raw) as SyncJson;
+        const entry = out.conflicts.find((c) => c.path.includes("check-jscpd.sh"));
+        expect(entry?.resolvable).toBe("none");
+        expect(entry?.kind).toBe("file");
+        // The reason (the plan hint) names the interactive-only exit.
+        expect(entry?.reason).toBe(tc("es").engine.markerlessFileEditedResolvable);
+        expect(entry?.reason).toContain("navori sync --interactive");
+      },
+    );
+
+    it("--json --accept-new-files --apply still resolves the marker-kept agent next to it", async () => {
+      const { script, mine, agent, edited } = seedMixed();
+      const out = await runSyncJson({ "accept-new-files": true, apply: true });
+      expect(readFileSync(agent, "utf-8")).not.toBe(edited);
+      expect(readFileSync(script, "utf-8")).toBe(mine);
+      expect(out.conflicts.some((c) => c.path.includes("check-jscpd.sh"))).toBe(true);
+      expect(out.conflicts.some((c) => c.path.includes(agent.split("/").pop()!))).toBe(false);
+      for (const b of out.backups) {
+        expect(existsSync(join(b.path, SCRIPT))).toBe(false);
+      }
+    });
+
+    it("human --accept-new-files --apply resolves the agent, leaves the script and names the interactive-only exit", async () => {
+      const { script, mine, agent, edited } = seedMixed();
+      await runSyncHuman({ "accept-new-files": true, apply: true });
+      expect(readFileSync(agent, "utf-8")).not.toBe(edited);
+      expect(readFileSync(script, "utf-8")).toBe(mine);
+      expect(prompted.warns).toContain(tc("es").sync.markerlessFilesInteractiveOnly(1));
+      expect(prompted.count).toBe(0);
+    });
+
+    it("human --accept-new-files --yes leaves the script untouched", async () => {
+      const { script, mine } = seedMixed();
+      trapExit();
+      await runSyncHuman({ "accept-new-files": true, yes: true }).catch(() => undefined);
+      expect(readFileSync(script, "utf-8")).toBe(mine);
+      expect(prompted.count).toBe(0);
+    });
+
+    it("human --dry-run and the --accept-new-files preview write nothing", async () => {
+      const { script, mine, agent, edited } = seedMixed();
+      await runSyncHuman({ "dry-run": true });
+      await runSyncHuman({ "accept-new-files": true });
+      expect(readFileSync(script, "utf-8")).toBe(mine);
+      expect(readFileSync(agent, "utf-8")).toBe(edited);
+      expect(prompted.count).toBe(0);
+    });
   });
 
   // Covers: I1 — anti-rollback holds through the flag.

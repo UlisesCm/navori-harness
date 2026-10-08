@@ -175,8 +175,17 @@ export interface SkippedFile {
    * render of an existing file that still carries a navori marker. Never set on
    * a downgrade, a non-regular destination, a markerless file or a sub-block /
    * settings skip — presence of the field is the single "resolvable" test.
+   * Bulk and `--json` consumers read ONLY this field.
    */
   resolution?: SkipResolution;
+  /**
+   * Present only for a markerless file (no `navori:managed` text anywhere) the
+   * user edited, or that is not navori's at all (#1245). ONLY an interactive,
+   * per-file answer may write it: accepting replaces the WHOLE file with a fresh
+   * render. Never set together with `resolution`, and bulk/`--json` paths must
+   * not read it (a separate field keeps them fail-closed by construction).
+   */
+  markerlessResolution?: SkipResolution;
 }
 
 /**
@@ -188,7 +197,10 @@ export interface SkipResolution {
   absPath: string;
   /** Bytes on disk the proposal was computed against (diff left side + TOCTOU check). */
   basis: string;
-  /** Full forced render: only the managed block changes, the user zone is kept. */
+  /**
+   * Full forced render: only the managed block changes, the user zone is kept.
+   * For a `markerlessResolution` it is a fresh render of the whole file.
+   */
   content: string;
   chmodExec?: boolean;
 }
@@ -233,6 +245,46 @@ export function attachResolution(
       ...(input.chmodExec ? { chmodExec: true } : {}),
     },
   };
+}
+
+/**
+ * Attach a {@link SkippedFile.markerlessResolution} (#1245) to a skip, or return
+ * it unchanged. Delegates to {@link attachResolution} so the status, regular
+ * non-symlink, throw and no-op guards live in one place, then moves the result
+ * into the interactive-only field. On top of those it refuses any `basis` that
+ * contains `navori:managed` text (another id's block, a newer version, a
+ * half-deleted marker: anti-rollback stays out of reach) and any fresh body that
+ * is not exactly one managed block (#637 duplication guard).
+ *
+ * `renderFresh` MUST render with `existingContent = null`: any other path
+ * appends the block after the existing text and duplicates the file (#637).
+ */
+export function attachMarkerlessResolution(
+  skip: SkippedFile,
+  input: {
+    absPath: string;
+    basis: string;
+    chmodExec?: boolean;
+    renderFresh: () => string | null;
+    /** Replaces `skip.reason` when the resolution is attached. */
+    resolvableReason: string;
+  },
+): SkippedFile {
+  if (skip.resolution !== undefined || skip.markerlessResolution !== undefined) return skip;
+  if (input.basis.includes("navori:managed")) return skip;
+  const attached = attachResolution(skip, {
+    absPath: input.absPath,
+    basis: input.basis,
+    chmodExec: input.chmodExec,
+    resolvableReason: input.resolvableReason,
+    render: () => {
+      const fresh = input.renderFresh();
+      return fresh !== null && fresh.split("navori:managed start").length === 2 ? fresh : null;
+    },
+  });
+  if (attached.resolution === undefined) return skip;
+  const { resolution, ...rest } = attached;
+  return { ...rest, markerlessResolution: resolution };
 }
 
 /**
@@ -422,19 +474,20 @@ function collectRequest(
           ),
           status,
         };
-        // Only an edited block that still carries our marker is resolvable;
-        // `foreign` (no marker of this id) stays the manual exit.
+        // An edited block that still carries our marker is bulk-resolvable;
+        // `foreign` (no marker of this id) is offered only interactively, as a
+        // whole-file replace (#1245). `newer` gets nothing (anti-rollback).
         skipped.push(
-          authorship === "modified"
-            ? attachResolution(skip, {
+          authorship === "foreign"
+            ? attachMarkerlessResolution(skip, {
                 absPath: path,
                 basis: existing,
                 chmodExec: req.chmodExec,
-                resolvableReason: tc(lang).engine.managedFileEditedResolvable,
-                render: () =>
-                  forcedManagedFileContent({
+                resolvableReason: tc(lang).engine.markerlessFileEditedResolvable,
+                renderFresh: () =>
+                  renderManagedFile({
                     assetPath,
-                    existingContent: existing,
+                    existingContent: null,
                     managedId: req.managedId,
                     meta: req.meta ?? CORE_META,
                     config: ctx.config,
@@ -442,9 +495,28 @@ function collectRequest(
                     commentStyle: req.commentStyle,
                     transform: req.transform,
                     engine,
-                  }),
+                  }).content,
               })
-            : skip,
+            : authorship === "modified"
+              ? attachResolution(skip, {
+                  absPath: path,
+                  basis: existing,
+                  chmodExec: req.chmodExec,
+                  resolvableReason: tc(lang).engine.managedFileEditedResolvable,
+                  render: () =>
+                    forcedManagedFileContent({
+                      assetPath,
+                      existingContent: existing,
+                      managedId: req.managedId,
+                      meta: req.meta ?? CORE_META,
+                      config: ctx.config,
+                      extraVars: req.extraVars,
+                      commentStyle: req.commentStyle,
+                      transform: req.transform,
+                      engine,
+                    }),
+                })
+              : skip,
         );
         return;
       }

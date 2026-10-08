@@ -14,6 +14,7 @@ import { injectManagedSection } from "../../../lib/render/marker.ts";
 import { readCliVersion } from "../../../lib/render/bundled-assets.ts";
 import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/config/schema.ts";
 import {
+  attachMarkerlessResolution,
   attachResolution,
   collectPlan,
   type AdapterCtx,
@@ -182,14 +183,51 @@ describe("site: plugin asset (execute-plan 298/352, asset branch)", () => {
     expect(skip?.resolution?.content).not.toContain("EDITED");
   });
 
-  it("A2/scope: a plugin file WITHOUT our marker (foreign) is skipped with no resolution", () => {
+  // Covers: #1245
+  it("#1245: a plugin file WITHOUT any marker (foreign) gets markerlessResolution from a null-existing render, never resolution", () => {
     const request = assetRequest();
     const abs = join(cwd, request.destRelPath);
     mkdirSync(join(abs, ".."), { recursive: true });
-    writeFileSync(abs, "user-authored file, no navori marker\n");
+    const mine = "user-authored file, no navori marker\n";
+    writeFileSync(abs, mine);
     const [skip] = skipsFor(request);
     expect(skip?.status).toBe("user-modified-skipped");
     expect(skip?.resolution).toBeUndefined();
+    expect(skip?.markerlessResolution?.basis).toBe(mine);
+    // A first-ever render of the asset (existing = null): the user's text is not appended (#637).
+    const fresh = skip?.markerlessResolution?.content ?? "";
+    expect(fresh).toContain("plugin body v2");
+    expect(fresh).not.toContain("user-authored");
+    expect(fresh.split("navori:managed start")).toHaveLength(2);
+    expect(readFileSync(abs, "utf-8")).toBe(mine);
+  });
+
+  // Covers: #1245
+  it("#1245: a foreign file with a partial marker or a comment mention gets NO markerlessResolution", () => {
+    const request = assetRequest();
+    const abs = join(cwd, request.destRelPath);
+    mkdirSync(join(abs, ".."), { recursive: true });
+    for (const body of [
+      'mine\n<!-- navori:managed start id="other" -->\n',
+      "see navori:managed docs\n",
+    ]) {
+      writeFileSync(abs, body);
+      const [skip] = skipsFor(request);
+      expect(skip?.status).toBe("user-modified-skipped");
+      expect(skip?.markerlessResolution).toBeUndefined();
+      expect(skip?.resolution).toBeUndefined();
+    }
+  });
+
+  // Covers: #1245
+  it("#1245: a symlinked foreign file gets NO markerlessResolution", () => {
+    const request = assetRequest();
+    const abs = join(cwd, request.destRelPath);
+    mkdirSync(join(abs, ".."), { recursive: true });
+    writeFileSync(join(cwd, "real.txt"), "mine\n");
+    symlinkSync(join(cwd, "real.txt"), abs);
+    const [skip] = skipsFor(request);
+    expect(skip?.markerlessResolution).toBeUndefined();
   });
 
   it("I1: a plugin file from a newer navori is downgrade-skipped, no resolution", () => {
@@ -300,5 +338,111 @@ describe("attachResolution guard", () => {
     expect(
       attachResolution(base, { absPath: join(cwd, "ghost"), basis: "a", render: () => "b" }),
     ).toBe(base);
+  });
+});
+
+// Covers: #1245
+describe("attachMarkerlessResolution guard", () => {
+  const base: SkippedFile = { path: "x", reason: "r", status: "user-modified-skipped" };
+  const FRESH = '# navori:managed start id="x"\nbody\n# navori:managed end id="x"\n';
+  const input = (renderFresh: () => string | null, basis = "mine\n") => {
+    const absPath = join(cwd, "x");
+    writeFileSync(absPath, basis);
+    return { absPath, basis, resolvableReason: "R", renderFresh };
+  };
+
+  it("attaches markerlessResolution (not resolution) and replaces the reason", () => {
+    const out = attachMarkerlessResolution(
+      base,
+      input(() => FRESH),
+    );
+    expect(out.resolution).toBeUndefined();
+    expect(out.markerlessResolution?.content).toBe(FRESH);
+    expect(out.reason).toBe("R");
+  });
+
+  it("never sets both fields: a skip that already carries one is returned unchanged", () => {
+    const has: SkippedFile = { ...base, resolution: { absPath: "a", basis: "b", content: "c" } };
+    expect(
+      attachMarkerlessResolution(
+        has,
+        input(() => FRESH),
+      ),
+    ).toBe(has);
+  });
+
+  it("refuses a downgrade-skipped skip without rendering", () => {
+    let rendered = false;
+    const down: SkippedFile = { ...base, status: "downgrade-skipped" };
+    const out = attachMarkerlessResolution(
+      down,
+      input(() => {
+        rendered = true;
+        return FRESH;
+      }),
+    );
+    expect(out).toBe(down);
+    expect(rendered).toBe(false);
+  });
+
+  it("refuses a basis containing navori:managed text, without rendering", () => {
+    let rendered = false;
+    const out = attachMarkerlessResolution(
+      base,
+      input(() => {
+        rendered = true;
+        return FRESH;
+      }, '# navori:managed start id="other"\n'),
+    );
+    expect(out).toBe(base);
+    expect(rendered).toBe(false);
+  });
+
+  it("a render throw falls back to the plain skip", () => {
+    const out = attachMarkerlessResolution(
+      base,
+      input(() => {
+        throw new Error("boom");
+      }),
+    );
+    expect(out).toBe(base);
+  });
+
+  it("no offer when the render is null or identical to the basis", () => {
+    expect(
+      attachMarkerlessResolution(
+        base,
+        input(() => null),
+      ),
+    ).toBe(base);
+    expect(
+      attachMarkerlessResolution(
+        base,
+        input(() => "mine\n"),
+      ),
+    ).toBe(base);
+  });
+
+  it("refuses a fresh body that is not exactly one managed block (#637 duplication)", () => {
+    expect(
+      attachMarkerlessResolution(
+        base,
+        input(() => `${FRESH}${FRESH}`),
+      ),
+    ).toBe(base);
+    expect(
+      attachMarkerlessResolution(
+        base,
+        input(() => "no block at all\n"),
+      ),
+    ).toBe(base);
+  });
+
+  it("refuses a missing destination", () => {
+    const out = attachMarkerlessResolution(base, {
+      ...input(() => FRESH),
+      absPath: join(cwd, "does-not-exist"),
+    });
+    expect(out).toBe(base);
   });
 });

@@ -297,6 +297,13 @@ export const syncCommand = defineCommand({
     const blockConflicts = conflicts.filter((c) => c.kind === "block");
     const fileConflicts = conflicts.filter((c) => c.kind === "file");
     const resolvableFiles = conflicts.filter(isResolvableFile);
+    // Bulk paths answer `resolvableFiles` only; an interactive answer also sees
+    // the markerless files (#1245).
+    const interactiveFiles = conflicts.filter(isInteractiveResolvableFile);
+    // Files an answer was offered for: grows to `interactiveFiles` once the user
+    // goes interactive, so the kept/remain counts below stay consistent.
+    let answerableFiles: Conflict[] = resolvableFiles;
+    let wentInteractive = false;
     // Files the user answered "accept" for; written (with backup) before the
     // normal apply pass, only after EVERY prompt was answered.
     let acceptedFiles: ResolvableConflict[] = [];
@@ -342,13 +349,15 @@ export const syncCommand = defineCommand({
     } else if (!autoApply) {
       if (conflicts.length > 0 && Boolean(args.interactive)) {
         const resolved = await resolveConflictsInteractively(plans, lang);
-        const files = await resolveFileConflictsInteractively(resolvableFiles, lang);
+        const files = await resolveFileConflictsInteractively(interactiveFiles, lang);
         if (resolved === null || files === null) {
           p.cancel(tc(lang).common.aborted);
           process.exit(0);
         }
         resolutions = resolved;
         acceptedFiles = files;
+        answerableFiles = interactiveFiles;
+        wentInteractive = true;
       } else if (conflicts.length > 0) {
         const choice = await p.select({
           message: ts.conflictPrompt(conflicts.length),
@@ -356,7 +365,7 @@ export const syncCommand = defineCommand({
             { value: "skip-conflicts", label: ts.optSkipConflicts },
             // Offered only when something is resolvable: a CLAUDE.md block or a
             // whole file that kept its marker. With neither it is a dead end.
-            ...(blockConflicts.length > 0 || resolvableFiles.length > 0
+            ...(blockConflicts.length > 0 || interactiveFiles.length > 0
               ? [{ value: "interactive", label: ts.optInteractive }]
               : []),
             { value: "abort", label: ts.optAbort },
@@ -368,13 +377,15 @@ export const syncCommand = defineCommand({
         }
         if (choice === "interactive") {
           const resolved = await resolveConflictsInteractively(plans, lang);
-          const files = await resolveFileConflictsInteractively(resolvableFiles, lang);
+          const files = await resolveFileConflictsInteractively(interactiveFiles, lang);
           if (resolved === null || files === null) {
             p.cancel(tc(lang).common.aborted);
             process.exit(0);
           }
           resolutions = resolved;
           acceptedFiles = files;
+          answerableFiles = interactiveFiles;
+          wentInteractive = true;
         }
       } else {
         const ok = await p.confirm({
@@ -390,8 +401,13 @@ export const syncCommand = defineCommand({
 
     // Say what stays untouched BEFORE writing: whole files nobody can resolve,
     // and resolvable ones the user kept or never answered.
-    const keptResolvable = resolvableFiles.length - acceptedFiles.length;
-    warnFileConflictsRemain(fileConflicts.length - resolvableFiles.length, ts);
+    const keptResolvable = answerableFiles.length - acceptedFiles.length;
+    warnFileConflictsRemain(fileConflicts.length - answerableFiles.length, ts);
+    // #1245: markerless files nobody answered interactively (bulk flags, skip).
+    const markerlessLeft = fileConflicts.filter(
+      (c) => c.markerlessResolution !== undefined && !wentInteractive,
+    ).length;
+    if (markerlessLeft > 0) p.log.warn(ts.markerlessFilesInteractiveOnly(markerlessLeft));
     if (keptResolvable > 0) p.log.warn(ts.fileConflictsKept(keptResolvable));
 
     // Accepted whole files first, so the apply pass below sees them as navori's
@@ -400,6 +416,15 @@ export const syncCommand = defineCommand({
     for (const c of fileOutcome.dropped) p.log.warn(ts.fileChangedSinceDiff(c.path));
     for (const backup of fileOutcome.backups) {
       p.log.message(`${dim(`${tc(lang).common.backupLabel} [${backup.label}]`)} ${backup.path}`);
+    }
+    // #1245: a replaced markerless file survives only in the backup — say where.
+    const markerlessPaths = new Set(
+      interactiveFiles.flatMap((c) =>
+        c.markerlessResolution === undefined ? [] : [c.markerlessResolution.absPath],
+      ),
+    );
+    if (fileOutcome.applied.some((c) => markerlessPaths.has(c.resolution.absPath))) {
+      p.log.message(dim(ts.markerlessBackupHint));
     }
     if (fileOutcome.error !== null) {
       p.cancel(fileOutcome.error);
@@ -611,6 +636,12 @@ export interface Conflict {
   cwd: string;
   /** Forced render sync may write on accept. Holds file bodies: never serialize. */
   resolution?: SkipResolution;
+  /**
+   * Whole-file replace of a markerless file (#1245): written ONLY by an
+   * interactive per-file answer. Bulk, `--json` and `resolvableOf` never read it.
+   * Holds file bodies: never serialize.
+   */
+  markerlessResolution?: SkipResolution;
 }
 
 /** A whole-file conflict sync can resolve (the engine attached a resolution). */
@@ -618,6 +649,14 @@ export type ResolvableConflict = Conflict & { resolution: SkipResolution };
 
 export function isResolvableFile(c: Conflict): c is ResolvableConflict {
   return c.kind === "file" && c.resolution !== undefined;
+}
+
+/**
+ * A whole-file conflict an interactive answer can resolve: bulk-resolvable
+ * (`resolution`) or markerless replace (`markerlessResolution`, #1245).
+ */
+export function isInteractiveResolvableFile(c: Conflict): boolean {
+  return c.kind === "file" && (c.resolution !== undefined || c.markerlessResolution !== undefined);
 }
 
 export type ConflictKind = "block" | "file";
@@ -706,7 +745,10 @@ export function conflictsBlockYes(
   return conflicts.some((c) => c.kind === "block" || !acceptFiles);
 }
 
-/** Which bulk flag can answer a conflict: `bulk`, or `none` (manual exit only). */
+/**
+ * Which bulk flag can answer a conflict: `bulk`, or `none` (manual exit only).
+ * `none` also covers a markerless file (#1245): its only exit is interactive.
+ */
 export type Resolvable = "bulk" | "none";
 
 export function resolvableOf(c: Conflict): Resolvable {
@@ -841,30 +883,47 @@ export async function resolveConflictsInteractively(
 }
 
 /**
- * Ask, per resolvable whole file, whether to keep the user's edit or accept the
- * rendered version, showing the diff. Returns the accepted files, or null when
- * the user cancelled (nothing is written until every prompt is answered).
+ * Ask, per answerable whole file, whether to keep the user's version or accept
+ * the rendered one, showing the diff. Returns the accepted files normalized to
+ * {@link ResolvableConflict} (a markerless replace #1245 becomes a plain
+ * `resolution`, so `applyFileResolutions` is unchanged), or null when the user
+ * cancelled (nothing is written until every prompt is answered).
+ *
+ * A markerless file gets a neutral warning first (it may be the user's own file
+ * at a navori path, not an edited navori file) and the prompt defaults to keep.
  */
 export async function resolveFileConflictsInteractively(
-  conflicts: readonly ResolvableConflict[],
+  conflicts: readonly Conflict[],
   lang: Lang = DEFAULT_LANG,
 ): Promise<ResolvableConflict[] | null> {
   const ts = tc(lang).sync;
   const accepted: ResolvableConflict[] = [];
   for (const c of conflicts) {
+    if (c.resolution !== undefined && c.markerlessResolution !== undefined) {
+      throw new Error(`invariant: ${c.path} carries both resolution and markerlessResolution`);
+    }
+    const markerless = c.resolution === undefined;
+    const proposal = c.resolution ?? c.markerlessResolution;
+    if (proposal === undefined) continue;
+    if (markerless) p.log.warn(ts.markerlessFileWarning(c.path));
     p.log.message(
       `${color.yellow(ts.fileConflictHeader(c.label, accent(c.path)))}\n` +
-        `${dim(ts.conflictDiffLegend)}\n${formatLineDiff(c.resolution.basis, c.resolution.content)}`,
+        `${dim(ts.conflictDiffLegend)}\n${formatLineDiff(proposal.basis, proposal.content)}`,
     );
     const choice = await p.select({
       message: ts.conflictChoice(c.path),
       options: [
         { value: "keep", label: ts.optKeepMine },
-        { value: "accept", label: ts.optAcceptNew },
+        { value: "accept", label: markerless ? ts.optReplaceWholeFile : ts.optAcceptNew },
       ],
+      // Explicit, not positional: an accidental Enter must never write.
+      initialValue: "keep",
     });
     if (p.isCancel(choice)) return null;
-    if (choice === "accept") accepted.push(c);
+    if (choice === "accept") {
+      const { markerlessResolution: _dropped, ...rest } = c;
+      accepted.push({ ...rest, resolution: proposal });
+    }
   }
   return accepted;
 }
@@ -1058,6 +1117,7 @@ export function collectTargetConflicts({ target, claude, engines }: TargetPlan):
         label: target.label,
         cwd: target.cwd,
         resolution: s.resolution,
+        markerlessResolution: s.markerlessResolution,
       });
     }
   }
@@ -1071,6 +1131,7 @@ export function collectTargetConflicts({ target, claude, engines }: TargetPlan):
           label: target.label,
           cwd: target.cwd,
           resolution: skipped.resolution,
+          markerlessResolution: skipped.markerlessResolution,
         });
       }
     }
@@ -1125,8 +1186,9 @@ function reportTargetPlan({ target, claude, engines }: TargetPlan, lang: Lang): 
     lines.push(
       `  ${color.yellow(sym.conflict)} [claude] ${s.path}  ${dim("(skipped:")} ${dim(s.reason)}${dim(")")}`,
     );
-    if (s.resolution) {
-      lines.push(...formatConflictDiffLines(s.resolution.basis, s.resolution.content, lang));
+    const proposal = s.resolution ?? s.markerlessResolution;
+    if (proposal) {
+      lines.push(...formatConflictDiffLines(proposal.basis, proposal.content, lang));
     }
   }
 
@@ -1150,10 +1212,9 @@ function reportTargetPlan({ target, claude, engines }: TargetPlan, lang: Lang): 
       lines.push(
         `  ${color.yellow(sym.conflict)} [${engine.engine}] ${skipped.path}  ${dim("(skipped:")} ${dim(skipped.reason)}${dim(")")}`,
       );
-      if (skipped.resolution) {
-        lines.push(
-          ...formatConflictDiffLines(skipped.resolution.basis, skipped.resolution.content, lang),
-        );
+      const proposal = skipped.resolution ?? skipped.markerlessResolution;
+      if (proposal) {
+        lines.push(...formatConflictDiffLines(proposal.basis, proposal.content, lang));
       }
     }
     for (const warning of engine.warnings) {
@@ -1164,8 +1225,14 @@ function reportTargetPlan({ target, claude, engines }: TargetPlan, lang: Lang): 
   // Whole-file conflicts WITHOUT a resolution get no diff: the plan carries no
   // rendered body for them. Say it once per target rather than letting the
   // silence read as "nothing differs".
-  const isUnresolvable = (s: { status?: string; resolution?: unknown }): boolean =>
-    s.status === "user-modified-skipped" && s.resolution === undefined;
+  const isUnresolvable = (s: {
+    status?: string;
+    resolution?: unknown;
+    markerlessResolution?: unknown;
+  }): boolean =>
+    s.status === "user-modified-skipped" &&
+    s.resolution === undefined &&
+    s.markerlessResolution === undefined;
   const hasFileConflict =
     (claude?.skipped ?? []).some(isUnresolvable) ||
     engines.some((engine) => engine.skipped.some(isUnresolvable));

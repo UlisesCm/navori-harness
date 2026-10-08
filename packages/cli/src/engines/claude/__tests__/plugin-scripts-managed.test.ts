@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/config/schema.ts";
@@ -145,18 +145,62 @@ describe("scripts de plugin: marcador propio (#637)", () => {
     expect(sk?.resolution?.chmodExec).toBe(true);
   });
 
-  it("sync-file-resolve: a markerless user-edited legacy script is skipped with NO resolution", () => {
-    renderClaudeEngine(cwd, config());
-    const legacy = readFileSync(script(), "utf-8")
+  /** Strips every marker line, as a pre-#637 script (no marker at all). */
+  function markerless(): string {
+    return readFileSync(script(), "utf-8")
       .split("\n")
       .filter((l) => !l.includes("navori:managed"))
       .join("\n");
-    writeFileSync(script(), `${legacy}\n# user line\n`);
-    const sk = renderClaudeEngine(cwd, config()).skipped.find((s) =>
-      s.path.endsWith("check-jscpd.sh"),
-    );
+  }
+  const skipOf = (): ReturnType<typeof renderClaudeEngine>["skipped"][number] | undefined =>
+    renderClaudeEngine(cwd, config()).skipped.find((s) => s.path.endsWith("check-jscpd.sh"));
+
+  // Covers: #1245
+  it("#1245: a markerless user-edited legacy script gets markerlessResolution (fresh render, exec), never resolution", () => {
+    renderClaudeEngine(cwd, config());
+    const fresh = readFileSync(script(), "utf-8");
+    const edited = `${markerless()}\n# user line\n`;
+    writeFileSync(script(), edited);
+    const sk = skipOf();
     expect(sk?.status).toBe("user-modified-skipped");
     expect(sk?.resolution).toBeUndefined();
+    expect(sk?.markerlessResolution?.basis).toBe(edited);
+    // treatAsFresh content: byte-identical to the original render, one block (#637).
+    expect(sk?.markerlessResolution?.content).toBe(fresh);
+    expect(fresh.split("navori:managed start")).toHaveLength(2);
+    expect(sk?.markerlessResolution?.chmodExec).toBe(true);
+    expect(sk?.markerlessResolution?.absPath).toBe(script());
+    expect(readFileSync(script(), "utf-8")).toBe(edited);
+  });
+
+  // Covers: #1245
+  it("#1245: another id's block, a partial marker or a comment mention gets NO markerlessResolution", () => {
+    renderClaudeEngine(cwd, config());
+    const body = markerless();
+    for (const extra of [
+      '# navori:managed start id="other" version="999.0.0"',
+      "# navori:managed (se me borró el resto)",
+      "# menciono navori:managed en un comentario",
+    ]) {
+      writeFileSync(script(), `${body}\n${extra}\n`);
+      const sk = skipOf();
+      expect(sk?.status).toBe("user-modified-skipped");
+      expect(sk?.markerlessResolution).toBeUndefined();
+      expect(sk?.resolution).toBeUndefined();
+      expect(sk?.reason).toBe(tc("es").engine.managedBlockEditedByHand);
+    }
+  });
+
+  // Covers: #1245
+  it("#1245: a symlinked markerless script gets NO markerlessResolution", () => {
+    renderClaudeEngine(cwd, config());
+    const target = join(cwd, "mine.sh");
+    writeFileSync(target, `${markerless()}\n# user line\n`);
+    rmSync(script());
+    symlinkSync(target, script());
+    const sk = skipOf();
+    expect(sk?.status).toBe("user-modified-skipped");
+    expect(sk?.markerlessResolution).toBeUndefined();
   });
 
   it("I1: an in-block edit on a script from a NEWER navori is downgrade-skipped, no resolution", () => {
@@ -189,6 +233,12 @@ describe("scripts de plugin: marcador propio (#637)", () => {
       .filter((l) => !l.includes("navori:managed"))
       .join("\n");
     writeFileSync(script(), `${legacy}\n# user line\n`);
+    const markerlessSkip = renderClaudeEngine(cwd, config()).skipped.find((s) =>
+      s.path.endsWith("check-jscpd.sh"),
+    );
+    expect(markerlessSkip?.reason).toBe(tc("es").engine.markerlessFileEditedResolvable);
+
+    writeFileSync(script(), `${legacy}\n# navori:managed (resto borrado)\n`);
     const manual = renderClaudeEngine(cwd, config()).skipped.find((s) =>
       s.path.endsWith("check-jscpd.sh"),
     );
