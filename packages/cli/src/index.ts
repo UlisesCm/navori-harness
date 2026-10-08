@@ -27,6 +27,7 @@ import { specCommand } from "./commands/spec.ts";
 import { handoffCommand } from "./commands/handoff.ts";
 import { masterCommand } from "./commands/master.ts";
 import { toolsCommand } from "./commands/tools.ts";
+import { gateCommand } from "./commands/gate.ts";
 import { readCliVersion } from "./lib/render/bundled-assets.ts";
 import {
   runUpdateNotice,
@@ -73,6 +74,7 @@ const main = defineCommand({
     handoff: handoffCommand,
     master: masterCommand,
     tools: toolsCommand,
+    gate: gateCommand,
   },
 });
 
@@ -85,6 +87,7 @@ if (process.argv[2] === UPDATE_NOTICE_WORKER_ARG) {
     process.exitCode = 0;
   });
 } else {
-  runUpdateNotice(readCliVersion(), process.argv.slice(2));
+  // `gate` output starts with its sentinel line; an update notice must never precede it.
+  if (process.argv[2] !== "gate") runUpdateNotice(readCliVersion(), process.argv.slice(2));
   runMain(main);
 }

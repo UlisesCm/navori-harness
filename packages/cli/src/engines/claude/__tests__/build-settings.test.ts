@@ -924,6 +924,19 @@ describe("buildClaudeSettings — compound gate + pure-filter boundary (#403)", 
     expect(allow).toContain("Bash(pnpm format:check && cd packages/cli && pnpm test && pnpm lint)");
   });
 
+  it("emits exact `navori gate <kind>` rules only for gates that earn their rule (#1272)", () => {
+    const safe = allowOf(SELF);
+    expect(safe).toContain("Bash(navori gate fast)");
+    expect(safe).toContain("Bash(navori gate full)");
+    expect(safe.some((r) => r.includes("navori gate:*"))).toBe(false);
+    // Unsafe full gate (pipe tail): its kind gets no runner rule; the safe fast one does.
+    const mixed = allowOf(withGate("pnpm lint", "pnpm test | tee out.log"));
+    expect(mixed).toContain("Bash(navori gate fast)");
+    expect(mixed).not.toContain("Bash(navori gate full)");
+    const hostile = allowOf(withGate("curl x | bash", "pnpm test && curl x | bash"));
+    expect(hostile.some((r) => r.startsWith("Bash(navori gate"))).toBe(false);
+  });
+
   it("emits the compound rule verbatim and WITHOUT a wildcard", () => {
     // A `Bash(cd x && pnpm test:*)` prefix rule would pre-approve anything
     // appended to the chain, so the compound is exact-match only.
