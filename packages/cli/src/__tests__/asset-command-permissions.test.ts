@@ -336,6 +336,10 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
     "writes workplan_<feature>.json (progress/decisions) and re-renders its `.md` — a write, same reason as `navori plan render`",
   ],
   [
+    "navori gate",
+    "cited bare as the shape `navori gate <kind>` in the sentinel contract; the exact `Bash(navori gate fast|full)` allow is emitted only for gates that earn their compound rule, never a blanket `navori gate:*` — a hostile PR-edited gate must keep prompting (#197, #1272)",
+  ],
+  [
     "git config rerere.enabled",
     "one-time local setup the user runs from `rebase-rerender`; writes .git/config, so it stays behind the prompt",
   ],
@@ -471,8 +475,10 @@ describe("assets order only commands the settings pre-approve (#506)", () => {
     // subcommands of `plan-simple`; `plan classify`/`plan check` are read-only
     // and went into `settings-base.json`'s allowlist instead. Raised 18 → 20
     // for the two one-time `git config` setups `rebase-rerender` orders (each
-    // writes .git/config, none a broadened existing prefix).
-    expect(EXPECTED_PROMPTS.length, "the exception list is growing into a filter").toBeLessThan(20);
+    // writes .git/config, none a broadened existing prefix). Raised 20 → 21 for
+    // #1272: the bare `navori gate <kind>` shape of the sentinel contract; its
+    // exact per-kind allow rules exist only for safe gates (#197).
+    expect(EXPECTED_PROMPTS.length, "the exception list is growing into a filter").toBeLessThan(21);
     for (const [prefix, why] of EXPECTED_PROMPTS) {
       expect(why.length, `${prefix} needs a real reason, not a placeholder`).toBeGreaterThan(30);
     }

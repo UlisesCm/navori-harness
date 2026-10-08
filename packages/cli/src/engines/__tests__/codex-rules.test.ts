@@ -141,6 +141,16 @@ describe("Codex permission translation guarantees (spec 0041)", () => {
     expect(body).not.toContain('decision = "allow"');
   });
 
+  it("derives the runner rule only for a safe gate; Codex still translates no allow (#1272)", () => {
+    const withGate = (full: string): NavoriConfig =>
+      ({ ...MINIMAL_CONFIG, qualityGate: { fast: "pnpm test", full } }) as unknown as NavoriConfig;
+    const safe = collectShellPermissionRules(withGate("pnpm lint && pnpm test"), []);
+    expect(safe.allow).toContain("Bash(navori gate full)");
+    expect(buildCodexRules(safe).body).not.toContain('"gate"');
+    const unsafe = collectShellPermissionRules(withGate("pnpm test | tee out.log"), []);
+    expect(unsafe.allow).not.toContain("Bash(navori gate full)");
+  });
+
   // Covers: R14
   it("reports the only non-Bash entry as dropped instead of losing it silently", () => {
     const { dropped } = buildCodexRules(collectShellPermissionRules(MINIMAL_CONFIG, []));

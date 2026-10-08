@@ -109,6 +109,30 @@ function gateStepRule(step: string): string | null {
 }
 
 /**
+ * True when EVERY step of a gate string earns an allow rule — the exact
+ * predicate `deriveQualityGateAllow` uses before emitting the compound rule.
+ * `navori gate` re-checks it at run time so a gate edited after render never
+ * runs under a stale rule (#197).
+ */
+export function isSafeGateChain(gate: string): boolean {
+  const steps = gate.split(GATE_SEQUENCERS).map((s) => s.trim());
+  return steps.every((step) => step !== "" && gateStepRule(step) !== null);
+}
+
+const GATE_KINDS = ["fast", "full"] as const;
+
+/**
+ * `navori gate <kind>` when `qualityGate.<kind>` is configured AND safe to
+ * pre-approve (`isSafeGateChain`), else `null`. The one answer shared by the
+ * allow rule and by the `{{gateRun.<kind>}}` placeholder, so the asset never
+ * tells an agent to run the runner under a prompt that hides the command.
+ */
+export function gateRunnerCommand(config: NavoriConfig, kind: "fast" | "full"): string | null {
+  const gate = config.qualityGate?.[kind];
+  return gate?.trim() && isSafeGateChain(gate) ? `navori gate ${kind}` : null;
+}
+
+/**
  * Permission allow-rules derived from the repo's own quality gate + package
  * manager. Three sources:
  *
@@ -141,17 +165,21 @@ function deriveQualityGateAllow(config: NavoriConfig): string[] {
   for (const gate of [config.qualityGate?.fast, config.qualityGate?.full]) {
     if (!gate?.trim()) continue;
     const steps = gate.split(GATE_SEQUENCERS).map((s) => s.trim());
-    const stepRules = steps.map((step) => (step ? gateStepRule(step) : null));
-    for (const rule of stepRules) {
+    for (const step of steps) {
+      const rule = step ? gateStepRule(step) : null;
       if (rule) rules.add(rule);
     }
+    const safe = isSafeGateChain(gate);
     // The compound as the user actually types it. Reconstructed from nothing —
     // it is the raw gate, trimmed — so it stays byte-identical to what CLAUDE.md
     // tells the agent to run; safe because every step that composes it passed
     // validation and the rule carries no wildcard.
-    if (steps.length > 1 && stepRules.every((rule) => rule !== null)) {
-      rules.add(`Bash(${gate.trim()})`);
-    }
+    if (steps.length > 1 && safe) rules.add(`Bash(${gate.trim()})`);
+  }
+  // The runner, exact per kind and only for a gate that earned its rule above —
+  // never a blanket `navori gate:*` (#197: it would pre-approve any gate string).
+  for (const kind of GATE_KINDS) {
+    if (gateRunnerCommand(config, kind)) rules.add(`Bash(navori gate ${kind})`);
   }
   const pm = resolvePackageManager(config);
   if (pm) {

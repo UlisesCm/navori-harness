@@ -4,6 +4,7 @@ import { PROGRESS_HARD_CAP_BYTES, PROGRESS_SOFT_CAP_BYTES } from "../assets/doc-
 import { resolveLang } from "../i18n.ts";
 import { placeholderFallback, type FallbackScope } from "./placeholders.ts";
 import { shellSingleQuote } from "../primitives/shell-escape.ts";
+import { gateRunnerCommand } from "../../engines/shared/permission-rules.ts";
 
 /**
  * The single `{{path.to.value}}` interpolator for the whole render pipeline
@@ -147,16 +148,28 @@ function maybeInterpolateLine(
   return interpolateRaw(line, config, extra, scope);
 }
 
+const GATE_RUN_RE = /^gateRun\.(fast|full)$/;
+
 function interpolateRaw(
   content: string,
   config: NavoriConfig,
   extra: Record<string, string>,
   scope: FallbackScope,
 ): string {
-  return content.replace(PLACEHOLDER_RE, (_match, marker: string | undefined, path: string) => {
+  return content.replace(PLACEHOLDER_RE, (_match, marker: string | undefined, rawPath: string) => {
+    let path = rawPath;
+    // `{{gateRun.<kind>}}` (#1272) — the `navori gate <kind>` runner when the repo
+    // gate is a safe chain; otherwise it becomes `{{qualityGate.<kind>}}` so the
+    // literal gate and its repo/global/unconfigured fallbacks apply unchanged.
+    const kind = marker === "raw" ? undefined : GATE_RUN_RE.exec(rawPath)?.[1];
+    if (kind === "fast" || kind === "full") {
+      const runner = scope === "repo" ? gateRunnerCommand(config, kind) : null;
+      if (runner !== null) return marker === "shq" ? shellSingleQuote(runner) : runner;
+      path = `qualityGate.${kind}`;
+    }
     // `{{raw:token}}` — the asset wants the braces as TEXT (#439). Emit them and
     // resolve nothing; this is the one marker that never touches the config.
-    if (marker === "raw") return `{{${path}}}`;
+    if (marker === "raw") return `{{${rawPath}}}`;
     const value = resolveSanitized(path, config, extra);
     // The fallback is prose the reader of the rendered file sees, so it follows
     // the repo's language like the rest of the published copy (#445).

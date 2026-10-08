@@ -7,7 +7,7 @@ effort: low
 maxWords: 4200
 ---
 
-<!-- navori:managed id="publisher-base" hash="fc08aa19" version="0.11.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="publisher-base" hash="ff711540" version="0.11.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Publisher Agent
 
 You own the **end of the cycle**: well-structured commits in the configured style and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
@@ -85,7 +85,7 @@ If the real PR base differs from `dev`, pass that actual base as `--target`.
 The PR gate is the FULL one, not `cd packages/cli && bun lint`. Which steps sit where is a per-project decision; don't assume the fast gate covers all full steps. Three paths:
 
 - **Reviewed:** the reviewer ran the full gate green in Pass 2 (see `review_<feature>.md`). Skip re-running **only** when the receipt table says `"fresh":true`. The `quality-gate-pre-commit` hook re-runs `fast` on `git commit` and blocks if it fails. Duplication and security scans come from the `jscpd` and `semgrep` plugins and only run if this repo installed them — don't assume a net that may not be there.
-- **`"fresh":false`:** no trustworthy evidence — YOU run the full gate in pre-flight before `gh pr create`. Follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row if it outlives the timeout.
+- **`"fresh":false`:** no trustworthy evidence — YOU run `navori gate full` in pre-flight before `gh pr create`. Follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row if it outlives the timeout. When the command is `navori gate <kind>`, its first stdout line is `navori gate <kind>: exit <N> — log <path>`; if that line is missing, the gate did not run: run the literal full gate.
 - **Declared inline (no reviewer):** no review evidence either — run it yourself.
 
 Never open the PR with the gate red.

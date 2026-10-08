@@ -13,6 +13,8 @@ export default defineConfig({
     // Per-spec-file backup store, so no test writes to (or purges from) the
     // developer's real ~/.navori/backups (#404).
     setupFiles: ["./vitest.setup.ts"],
+    // Drop console output of passing tests; failing tests still print theirs (#1272).
+    silent: "passed-only",
     testTimeout: 15_000, // e2e specs spawn the CLI several times
     // Cap worker forks: the e2e specs each `spawnSync(dist/index.js)`, so at full
     // core count ~200 child processes run at once and exhaust file descriptors
@@ -48,7 +50,9 @@ export default defineConfig({
       // `json-summary` feeds scripts/check-coverage-floor.mjs, which catches the
       // shape this aggregate cannot: a single module at 0% dilutes into ~3,300
       // statements and never moves the average.
-      reporter: ["text", "json-summary"],
+      // `text-summary` keeps the aggregate in the log; the per-file table (~14 KB)
+      // is recoverable from the json-summary report (#1272).
+      reporter: ["text-summary", "json-summary"],
       thresholds: {
         // Spec 0003 §3.4.1 — pragmatic gate over src/lib/. The critical paths
         // (marker, config/schema, presets, scan, skill-meta) are well covered;

@@ -155,9 +155,11 @@ And never take a merged PR as proof on its own: **squash merge leaves no ancestr
 ## Quality gate
 
 ```bash
-{{qualityGate.fast}}    # fast gate — pre-step to the reviewer
-{{qualityGate.full}}    # full gate — before closing the session / creating the PR
+{{gateRun.fast}}    # fast gate — pre-step to the reviewer
+{{gateRun.full}}    # full gate — before closing the session / creating the PR
 ```
+
+When the command is `navori gate <kind>`, its first stdout line is `navori gate <kind>: exit <N> — log <path>`; if it is missing, the gate did not run: run the literal `{{qualityGate.fast}}` or `{{qualityGate.full}}` command instead.
 
 If the repo has no test suite, the `implementer` still can't claim "done" without fresh evidence (a correct diff plus whatever checks exist) — but browser/visual validation stays **on-request only, never automatic**. The `verify-before-done` skill enforces the "fresh evidence rule" over any "done" claim.
 
