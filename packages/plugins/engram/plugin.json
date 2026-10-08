@@ -2,7 +2,7 @@
   "id": "engram",
   "name": "Engram persistent memory",
   "description": "Memory persistence across Claude Code sessions via MCP server",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "managed": [],
   "externalTool": {
     "name": "engram",
@@ -13,6 +13,11 @@
       "win32": "go install github.com/Gentleman-Programming/engram/cmd/engram@latest"
     },
     "installDocs": "https://github.com/Gentleman-Programming/engram",
+    "latestRelease": {
+      "source": "github",
+      "id": "Gentleman-Programming/engram",
+      "notify": "minor"
+    },
     "postInstall": "claude plugin marketplace add Gentleman-Programming/engram && claude plugin install engram",
     "versionAdvisory": [
       {

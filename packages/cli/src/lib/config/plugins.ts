@@ -63,76 +63,111 @@ const VersionAdvisorySchema = z.object({
 
 export type VersionAdvisory = z.infer<typeof VersionAdvisorySchema>;
 
-const ExternalToolSchema = z.object({
-  name: z.string().min(1),
-  /** Binary name to look up in PATH. Safer than checkCommand because it
-   * never spawns a shell — we walk PATH directories manually. */
-  checkBinary: z
-    .string()
-    .regex(/^[a-zA-Z0-9_\-.]+$/, "binary name must be alphanumeric")
-    .optional(),
-  /**
-   * Install command per platform. `partialRecord`, not `record`: a manifest is
-   * allowed to omit a platform (that is a legitimate "no single command
-   * upstream documents here"), but a key outside `PLATFORMS` — `"macos"`, a
-   * typo — must fail at load time instead of silently never matching. Plain
-   * `z.record` with an enum key is EXHAUSTIVE in zod 4, which would reject
-   * every bundled manifest.
-   */
-  install: z.partialRecord(z.enum(PLATFORMS), z.string()).optional(),
-  /**
-   * Official installation page for the tool. The honest destination for a
-   * platform with no single install command, and the fallback every degraded
-   * path (`add` without a command, a failed install, `doctor`'s missing-tool
-   * row) points at instead of telling the user to "install it manually" with
-   * nowhere to go. A rotten URL degrades to a 404 the user sees; a made-up
-   * install command would run shell on their machine.
-   */
-  installDocs: z.url().optional(),
-  postInstall: z.string().optional(),
-  /**
-   * Exact upstream version this manifest's `env`/MCP config was calibrated
-   * against (e.g. codegraph's `CODEGRAPH_MCP_TOOLS` shape). Machine-readable
-   * counterpart to the version pinned inside `install.*` strings (#978) — an
-   * omitted field means no known-compatible version has been declared, not
-   * "any version is fine". `doctor` reads it to compare against the installed
-   * binary's `--version`, but strictly as a warning: a version mismatch is a
-   * fact about this machine, never a gate (same tier as a missing binary).
-   */
-  pinnedVersion: z
-    .string()
-    .regex(/^\d+\.\d+\.\d+$/, "pinnedVersion must be an exact x.y.z semver")
-    .optional(),
-  /**
-   * Declares that this binary must support a specific CLI capability that
-   * `--version` cannot answer reliably (#1060: `jscpd@5.1.0 --version` prints
-   * `cpd 5.0.16`, a full minor off). `doctor` runs `checkBinary` with `args`
-   * and checks the captured stdout for every string in `mustContain`.
-   *
-   * `minVersion` is **display-only** — it appears in the doctor/init message
-   * so the user knows which floor to install, but it is NEVER compared
-   * against the binary's reported version. Unlike `pinnedVersion` (exact
-   * equality against `--version`), this field answers "does this binary
-   * support flag X", the actual question a gate that shells out to that
-   * flag needs answered.
-   */
-  capabilityProbe: z
-    .object({
-      args: z.array(z.string()).min(1),
-      mustContain: z.array(z.string()).min(1),
-      minVersion: z
-        .string()
-        .regex(/^\d+\.\d+\.\d+$/, "capabilityProbe.minVersion must be an exact x.y.z semver"),
-    })
-    .optional(),
-  /**
-   * Curated known-bad version floors (#1210). `doctor` warns, offline and
-   * informationally, when the installed `--version` is below an entry's
-   * `below`. Add an entry only with an upstream `ref`; `below` is the first
-   * fixed release.
-   */
-  versionAdvisory: z.array(VersionAdvisorySchema).min(1).optional(),
-});
+/**
+ * Where to look up the latest stable release of an external tool (#1244). The
+ * endpoint is hard-coded per `source` in the notice worker; the manifest only
+ * names the package or repo, never a URL.
+ */
+const NPM_ID = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
+const GITHUB_ID = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
+
+const LatestReleaseSchema = z
+  .object({
+    source: z.enum(["npm", "github"]),
+    /** npm package name, or `owner/repo` for GitHub. */
+    id: z.string(),
+    /** Smallest version component whose increase is worth a notice. */
+    notify: z.enum(["major", "minor", "patch"]).default("minor"),
+  })
+  .refine((r) => (r.source === "npm" ? NPM_ID : GITHUB_ID).test(r.id), {
+    message: "latestRelease.id must be an npm package name (npm) or owner/repo (github)",
+    path: ["id"],
+  });
+
+export type LatestRelease = z.infer<typeof LatestReleaseSchema>;
+
+const ExternalToolSchema = z
+  .object({
+    name: z.string().min(1),
+    /** Binary name to look up in PATH. Safer than checkCommand because it
+     * never spawns a shell — we walk PATH directories manually. */
+    checkBinary: z
+      .string()
+      .regex(/^[a-zA-Z0-9_\-.]+$/, "binary name must be alphanumeric")
+      .optional(),
+    /**
+     * Install command per platform. `partialRecord`, not `record`: a manifest is
+     * allowed to omit a platform (that is a legitimate "no single command
+     * upstream documents here"), but a key outside `PLATFORMS` — `"macos"`, a
+     * typo — must fail at load time instead of silently never matching. Plain
+     * `z.record` with an enum key is EXHAUSTIVE in zod 4, which would reject
+     * every bundled manifest.
+     */
+    install: z.partialRecord(z.enum(PLATFORMS), z.string()).optional(),
+    /**
+     * Official installation page for the tool. The honest destination for a
+     * platform with no single install command, and the fallback every degraded
+     * path (`add` without a command, a failed install, `doctor`'s missing-tool
+     * row) points at instead of telling the user to "install it manually" with
+     * nowhere to go. A rotten URL degrades to a 404 the user sees; a made-up
+     * install command would run shell on their machine.
+     */
+    installDocs: z.url().optional(),
+    postInstall: z.string().optional(),
+    /**
+     * Exact upstream version this manifest's `env`/MCP config was calibrated
+     * against (e.g. codegraph's `CODEGRAPH_MCP_TOOLS` shape). Machine-readable
+     * counterpart to the version pinned inside `install.*` strings (#978) — an
+     * omitted field means no known-compatible version has been declared, not
+     * "any version is fine". `doctor` reads it to compare against the installed
+     * binary's `--version`, but strictly as a warning: a version mismatch is a
+     * fact about this machine, never a gate (same tier as a missing binary).
+     */
+    pinnedVersion: z
+      .string()
+      .regex(/^\d+\.\d+\.\d+$/, "pinnedVersion must be an exact x.y.z semver")
+      .optional(),
+    /**
+     * Declares that this binary must support a specific CLI capability that
+     * `--version` cannot answer reliably (#1060: `jscpd@5.1.0 --version` prints
+     * `cpd 5.0.16`, a full minor off). `doctor` runs `checkBinary` with `args`
+     * and checks the captured stdout for every string in `mustContain`.
+     *
+     * `minVersion` is **display-only** — it appears in the doctor/init message
+     * so the user knows which floor to install, but it is NEVER compared
+     * against the binary's reported version. Unlike `pinnedVersion` (exact
+     * equality against `--version`), this field answers "does this binary
+     * support flag X", the actual question a gate that shells out to that
+     * flag needs answered.
+     */
+    capabilityProbe: z
+      .object({
+        args: z.array(z.string()).min(1),
+        mustContain: z.array(z.string()).min(1),
+        minVersion: z
+          .string()
+          .regex(/^\d+\.\d+\.\d+$/, "capabilityProbe.minVersion must be an exact x.y.z semver"),
+      })
+      .optional(),
+    /**
+     * Curated known-bad version floors (#1210). `doctor` warns, offline and
+     * informationally, when the installed `--version` is below an entry's
+     * `below`. Add an entry only with an upstream `ref`; `below` is the first
+     * fixed release.
+     */
+    versionAdvisory: z.array(VersionAdvisorySchema).min(1).optional(),
+    /**
+     * Opt in to the "newer release available" notice (#1244): a detached worker
+     * refreshes the latest stable release and `navori tools notice` tells the
+     * session once. Incompatible with `pinnedVersion`: a pin means navori decides
+     * when to move, so announcing "newer exists" would contradict it.
+     */
+    latestRelease: LatestReleaseSchema.optional(),
+  })
+  .refine((tool) => !(tool.latestRelease && tool.pinnedVersion), {
+    message: "latestRelease is incompatible with pinnedVersion",
+    path: ["latestRelease"],
+  });
 
 const McpServerSchema = z.object({
   command: z.string().min(1),
