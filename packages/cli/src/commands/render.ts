@@ -70,7 +70,7 @@ import {
 } from "../lib/render/bundled-assets.ts";
 import { resolveHarnessPlan } from "../engines/shared/harness-plan.ts";
 import { loadPreset } from "../lib/config/presets.ts";
-import { classifyLocalSkills } from "../engines/codex/local-skill-pointer.ts";
+import { classifyLocalSkills } from "../engines/shared/local-skill-pointer.ts";
 import {
   effectiveConfigForWorkspace,
   buildMonorepoContext,
