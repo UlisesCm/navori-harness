@@ -70,8 +70,7 @@ import { NESTED_GITIGNORE_MANAGED_ID } from "../engines/shared/nested-gitignore-
 import { extractManagedContent } from "../lib/render/marker.ts";
 import { scanGitignoreHarness } from "../engines/shared/gitignore-harness.ts";
 import { scanPrettierIgnore } from "../engines/shared/prettierignore-harness.ts";
-import { isLaunchdPlatform, launchAgentLoaded, probeReceiver } from "../lib/audit/launchd.ts";
-import { DEFAULT_PORT as OTEL_RECEIVER_PORT } from "../lib/audit/collect.ts";
+import { DEFAULT_PORT as OTEL_RECEIVER_PORT, probeReceiver } from "../lib/audit/collect.ts";
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/diagnose/scan.ts";
 import { loadWorkspace, canonicalPath } from "../lib/workspace/workspace.ts";
 import { scanWorkspaceDrift } from "../lib/workspace/workspace-drift.ts";
@@ -94,8 +93,9 @@ import { scanProgressSize } from "../lib/diagnose/progress-size.ts";
 import { scanMasterPlan } from "../lib/diagnose/master-plan.ts";
 import { codegraphWiringFindings, scanCodegraphWiring } from "../lib/diagnose/codegraph-wiring.ts";
 import { scanNestedWorktrees } from "../lib/workspace/nested-worktrees.ts";
-import { scanGlobalScope, type ManagedPolicyKey } from "../lib/workspace/global-scope.ts";
 import { scanForeignHarness, type ForeignHarnessReport } from "../lib/diagnose/foreign-harness.ts";
+import { scanGlobalLayerLeftovers, type GlobalLeftover } from "../lib/diagnose/global-leftovers.ts";
+import { claudeUserDir } from "../engines/claude/user-scope.ts";
 import { scanDistribution, type DistributionReport } from "../lib/diagnose/distribution.ts";
 import { scanPermissionMode, scanRetiredAssets } from "../lib/diagnose/health.ts";
 import {
@@ -359,12 +359,9 @@ export const doctorCommand = defineCommand({
     const engineInventory = buildEngineInventory(config, cwd);
     const provenance = buildDoctorProvenance(cwd);
     const engineEvidence = buildEngineEvidence(config, cwd);
-    // #547: real clashes between the machine-global harness (`navori global`)
-    // and this repo's. Null — and therefore invisible — when no global layer is
-    // installed, which is Spec 0010's zero-footprint invariant applied to the
-    // output too. Advisory: it feeds neither the verdict nor the exit code.
-    const globalScope = scanGlobalScope(cwd, config);
     const foreignHarness = scanForeignHarness(cwd, config);
+    // Spec 0046 D5: advisory only - feeds neither the verdict nor `--strict`.
+    const globalLayerLeftovers = scanGlobalLayerLeftovers();
     const permissionModes = scanPermissionMode(cwd);
     // Informational: a name like `temp-app` or `my-app` is almost always a
     // never-renamed scaffold (the package.json carried it through). Doesn't
@@ -499,10 +496,10 @@ export const doctorCommand = defineCommand({
       workspaceFullHarness,
       flatSkills,
       foreignSkillIndexes,
-      globalScope,
       engineInventory,
       provenance,
       engineEvidence,
+      globalLayerLeftovers,
     };
 
     if (args.json) {
@@ -884,11 +881,6 @@ export const doctorCommand = defineCommand({
     if (otelReceiver) {
       if (otelReceiver.responding) {
         p.log.info(`${check} ${td.otelReceiverOk(otelReceiver.port)}`);
-      } else if (otelReceiver.supervised) {
-        // Loaded and dead: the only state that looks healthy from the outside.
-        p.log.warn(td.otelReceiverDead(otelReceiver.port));
-      } else if (otelReceiver.supportsSupervisor) {
-        p.log.warn(td.otelReceiverAbsent);
       } else {
         p.log.warn(td.otelReceiverManual);
       }
@@ -1300,44 +1292,6 @@ export const doctorCommand = defineCommand({
       p.note(rows.join("\n"), td.foreignSkillIndexTitle);
     }
 
-    // #547: the machine-global harness seen from this repo. Advisory (yellow),
-    // like every section above — it never flips the verdict, and every sub-check
-    // is read-only. Two guards, the optional-section pattern: the null keeps a machine
-    // with no global layer from ever seeing the heading, and the row count keeps
-    // an installed-and-healthy one from seeing an empty box.
-    if (globalScope) {
-      const gs: string[] = [];
-      for (const agent of globalScope.shadowedAgents) {
-        gs.push(
-          `  ${color.yellow(sym.update)} ${td.globalScopeShadowedAgent(agent.id, agent.repoPath)}`,
-        );
-      }
-      for (const rule of globalScope.permissionConflicts) {
-        gs.push(`  ${color.yellow(sym.update)} ${td.globalScopePermissionConflict(rule)}`);
-      }
-      if (globalScope.hookDrift.kind === "not-evaluable") {
-        gs.push(`  ${color.yellow(sym.update)} ${td.globalScopeHookNotEvaluable}`);
-      } else if (globalScope.hookDrift.kind === "plugin-missing") {
-        gs.push(`  ${color.yellow(sym.update)} ${td.globalScopeHookLegacyInstall}`);
-      } else if (globalScope.hookDrift.kind !== "ok") {
-        gs.push(
-          `  ${color.yellow(sym.update)} ${td.globalScopeHookDrift(globalScope.hookDrift.kind)}`,
-        );
-      }
-      for (const finding of globalScope.managedPolicy) {
-        // A map, not a ternary chain: the exhaustive `Record` is what makes the
-        // typecheck fail if a new `ManagedPolicyKey` lands without its row.
-        const rows: Record<ManagedPolicyKey, string> = {
-          strictPluginOnlyCustomization: td.globalScopeStrictPluginOnly(finding.path),
-          allowManagedPermissionRulesOnly: td.globalScopeManagedPermissionsOnly(finding.path),
-          strictKnownMarketplaces: td.globalScopeStrictKnownMarketplaces(finding.path),
-          blockedMarketplaces: td.globalScopeBlockedMarketplaces(finding.path),
-        };
-        gs.push(`  ${color.yellow(sym.update)} ${rows[finding.key]}`);
-      }
-      if (gs.length > 0) p.note(gs.join("\n"), td.globalScopeTitle);
-    }
-
     // #555 / spec 0014: the harness that was already here. Advisory and
     // read-only like every section above, and printed ONLY when something
     // actually clashes — a foreign harness that steps on nothing is never
@@ -1357,6 +1311,16 @@ export const doctorCommand = defineCommand({
       if (fh.length > 0) p.note(fh.join("\n"), td.foreignHarnessTitle);
     }
 
+    if (globalLayerLeftovers.length > 0) {
+      p.log.warn(
+        globalLayerLeftoversMessage(
+          globalLayerLeftovers,
+          join(claudeUserDir(), "settings.json"),
+          td,
+        ),
+      );
+    }
+
     const hasIssues = !verdict.ok;
     const strictFail = isStrictModeFailure(Boolean(args.strict), drifts, mcpCoherenceIssues);
     p.outro(
@@ -1374,6 +1338,39 @@ export const doctorCommand = defineCommand({
     if (strictFail) process.exit(1);
   },
 });
+
+/**
+ * The warning for leftovers of the retired global layer (spec 0046 D5): the
+ * leftovers found and only the removal steps that apply, in an order that keeps
+ * `ownedPermissions` readable until the personal settings are cleaned. Pure;
+ * paths are the resolved ones, never a hardcoded `~/.claude`.
+ */
+export function globalLayerLeftoversMessage(
+  leftovers: GlobalLeftover[],
+  settingsPath: string,
+  td: ReturnType<typeof tc>["doctor"],
+): string {
+  const by = (kind: GlobalLeftover["kind"]): string | undefined =>
+    leftovers.find((l) => l.kind === kind)?.path;
+  const plist = by("launch-agent");
+  const hook = by("legacy-hook");
+  const plugin = by("plugin");
+  const manifest = by("manifest");
+  const steps: string[] = [];
+  if (plist) steps.push(td.globalLayerStepLaunchAgent(plist), td.globalLayerStepAuditAlways);
+  if (hook || manifest) {
+    steps.push(
+      td.globalLayerStepSettings(settingsPath, "navori-global-baseline.sh", manifest ?? null),
+    );
+  }
+  const files = [plugin, hook].filter((x): x is string => x !== undefined);
+  if (files.length > 0) steps.push(td.globalLayerStepFiles(files));
+  if (manifest) steps.push(td.globalLayerStepManifest(manifest));
+  return td.globalLayerLeftovers([
+    ...leftovers.map((l) => td.globalLayerLeftoverRow(l.kind, l.path)),
+    ...steps,
+  ]);
+}
 
 /**
  * The rows doctor prints for a foreign-harness report (#555).
@@ -2202,10 +2199,9 @@ export interface MissingOptionalTool {
  * not need a receiver standing by, and painting that red would be noise — which
  * is why this never feeds `computeHealthVerdict` either: informative, always.
  *
- * The two questions are separate on purpose. "Is the agent loaded" is what
- * launchd knows; "does the receiver answer" is what the operator actually
- * needs, and the gap between them is the ugly case the issue names — loaded,
- * dead, and silent, while every session exports into nothing.
+ * Two states only: the receiver answers its health route (info) or it does
+ * not (warn, with the manual `navori audit --collect` hint). There is no
+ * supervisor to ask (spec 0046).
  */
 export async function scanOtelReceiver(
   config: NavoriConfig,
@@ -2218,18 +2214,12 @@ export async function scanOtelReceiver(
   const port = opts.port ?? OTEL_RECEIVER_PORT;
   return {
     port,
-    supervised: isLaunchdPlatform() && launchAgentLoaded(),
-    supportsSupervisor: isLaunchdPlatform(),
     responding: await probeReceiver(port),
   };
 }
 
 interface OtelReceiverReport {
   port: number;
-  /** launchd holds the agent (macOS only). */
-  supervised: boolean;
-  /** This platform has a supervisor implementation at all. */
-  supportsSupervisor: boolean;
   /** The receiver answered its own health route. */
   responding: boolean;
 }

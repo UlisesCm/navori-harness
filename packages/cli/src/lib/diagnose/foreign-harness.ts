@@ -2,11 +2,10 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import {
-  globalTargetDir,
+  claudeUserDir,
   permissionBagOf,
-  readExistingSettings,
-} from "../../engines/claude/global-render.ts";
-import { globalConfigExists } from "../config/global-config.ts";
+  readSettingsFile,
+} from "../../engines/claude/user-scope.ts";
 import { listMarkers } from "./health.ts";
 import { SKILL_DIR_ENTRY } from "../assets/skill-meta.ts";
 import type { NavoriConfig } from "../config/config.ts";
@@ -78,15 +77,9 @@ export interface ForeignHarnessOptions {
   /**
    * Claude's user-level config dir. Injected by the specs so they never read
    * the developer's real `~/.claude`; production resolves it through
-   * `globalTargetDir()`, which honors `CLAUDE_CONFIG_DIR`.
+   * `claudeUserDir()`, which honors `CLAUDE_CONFIG_DIR`.
    */
   claudeDir?: string;
-  /**
-   * Whether navori's own global layer is installed. When it is, the personal
-   * `settings.json` vs repo `deny` comparison belongs to `scanGlobalScope`
-   * (#547) and is skipped here so one rule is never printed twice.
-   */
-  globalLayerInstalled?: boolean;
 }
 
 /** navori's own global plugin — its assets are navori's, never foreign. */
@@ -315,39 +308,29 @@ function pluginCollisions(claudeDir: string, navoriAgents: Map<string, string>):
  * Rules navori's `settings.json` denies that a foreign settings file allows
  * (R3). A `deny` that something else allows is a guard that does not guard.
  *
- * Two sources, and the personal one is skipped when navori's global layer is
- * installed: `scanGlobalScope` already compares exactly that pair (#547), and
- * printing one rule in two sections teaches the reader that the sections
- * overlap rather than that the rule is doubly broken.
+ * Two sources: the repo's `settings.local.json` and the personal `settings.json`.
  */
-function permissionContradictions(
-  cwd: string,
-  claudeDir: string,
-  globalLayerInstalled: boolean,
-): ForeignPermissionConflict[] {
-  const repoRead = readExistingSettings(join(cwd, ".claude"));
+function permissionContradictions(cwd: string, claudeDir: string): ForeignPermissionConflict[] {
+  const repoRead = readSettingsFile(join(cwd, ".claude"));
   if (repoRead.kind !== "ok") return [];
   const denied = new Set(permissionBagOf(repoRead.settings).deny ?? []);
   if (denied.size === 0) return [];
 
   const out: ForeignPermissionConflict[] = [];
-  const sources: Array<{ dir: string; file: string; label: string; skip: boolean }> = [
+  const sources: Array<{ dir: string; file: string; label: string }> = [
     {
       dir: join(cwd, ".claude"),
       file: "settings.local.json",
       label: join(".claude", "settings.local.json"),
-      skip: false,
     },
     {
       dir: claudeDir,
       file: "settings.json",
       label: join(claudeDir, "settings.json"),
-      skip: globalLayerInstalled,
     },
   ];
   for (const source of sources) {
-    if (source.skip) continue;
-    const read = readExistingSettings(source.dir, source.file);
+    const read = readSettingsFile(source.dir, source.file);
     if (read.kind !== "ok") continue;
     for (const rule of permissionBagOf(read.settings).allow ?? []) {
       if (denied.has(rule)) out.push({ rule, path: source.label });
@@ -374,13 +357,12 @@ export function scanForeignHarness(
   if (!config.engines.includes("claude")) return null;
   let claudeDir: string;
   try {
-    claudeDir = options.claudeDir ?? globalTargetDir();
+    claudeDir = options.claudeDir ?? claudeUserDir();
   } catch {
     return null; // HomeError: the honest answer is "I cannot know"
   }
 
   const navori = navoriInventory(cwd);
-  const globalLayerInstalled = options.globalLayerInstalled ?? globalConfigExists();
   const all = [
     ...repoSkillCollisions(cwd, navori.skills),
     ...personalCollisions(claudeDir, navori),
@@ -394,7 +376,7 @@ export function scanForeignHarness(
 
   return {
     conflicts,
-    permissions: permissionContradictions(cwd, claudeDir, globalLayerInstalled),
+    permissions: permissionContradictions(cwd, claudeDir),
     staleAcknowledged,
   };
 }

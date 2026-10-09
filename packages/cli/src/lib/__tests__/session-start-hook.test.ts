@@ -171,7 +171,7 @@ describe("session-start context hook", () => {
   // outright. The hook body never branched on the source for these, so what is
   // pinned is that it keeps emitting the same context there: a regression that
   // narrowed the matcher back would be invisible to this file, which is why
-  // `build-settings.test.ts` and `global-plugin.test.ts` pin the registration.
+  // `build-settings.test.ts` pins the registration.
   it.each(["clear", "fork"])("emits the harness context on source=%s too", (source) => {
     mkdirSync(join(dir, "progress"), { recursive: true });
     writeFileSync(join(dir, "progress", "current.md"), "Next: wire the hook\n");

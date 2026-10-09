@@ -285,79 +285,6 @@ const es: Record<string, CommandDoc> = {
       "Si CODEX_HOME está definido, usa $CODEX_HOME/config.toml en lugar de ~/.codex/config.toml; un valor relativo se rechaza.",
     ],
   },
-  global: {
-    id: "global",
-    title: "global",
-    summary:
-      "Instala un harness base por máquina en ~/.claude, para las sesiones que arrancan fuera de un repo con navori. Opt-in y de huella cero: sin 'navori global init' no existe, y navori no tocó nada de tu máquina.",
-    usage:
-      "navori global init [--apply] [--recommended] [--lang <es|en>]\nnavori global render [--apply]\nnavori global doctor\nnavori global collect install|uninstall\nnavori global uninstall",
-    flags: [
-      {
-        flag: "init",
-        desc: "Wizard de la capa global: elige los bloques del baseline y tus permisos personales. Preview por default — sin --apply no escribe un solo byte, solo muestra el plugin, el hook y los settings que instalaría.",
-      },
-      {
-        flag: "init --apply",
-        desc: "Escribe lo que el preview mostró: el manifest ~/.navori/global.json y el plugin 'navori@skills-dir' en ~/.claude/skills/navori/ (8 agentes, 14 skills y el hook del baseline).",
-      },
-      {
-        flag: "init --recommended",
-        desc: "Sin preguntas: toma la selección recomendada (o la que ya tenías, si re-inicializas). Es el camino headless para CI y scripts; también es a lo que cae solo cuando no hay terminal interactiva.",
-      },
-      {
-        flag: "init --lang <es|en>",
-        desc: "Idioma del baseline global y de los prompts. Default: es, o el que ya tenía la instalación.",
-      },
-      {
-        flag: "render",
-        desc: "Re-renderiza el plugin y el hook tras un bump del CLI. Preview por default: sin --apply no toca disco.",
-      },
-      { flag: "render --apply", desc: "Escribe a disco (respalda settings.json si lo modifica)." },
-      {
-        flag: "doctor",
-        desc: "Audita la capa: drift del hook, el gate ejecutado de verdad, el plugin al día, permisos y versión. Si no está instalada, lo dice y ya.",
-      },
-      {
-        flag: "collect install",
-        desc: "Instala el LaunchAgent (macOS) que mantiene arriba 'navori audit --collect', el receptor de la tercera fuente de audit. Con KeepAlive y RunAtLoad: launchd lo revive si se cae y lo levanta al arrancar la máquina. navori escribe el plist; launchd lo ejecuta. Antes de reportar éxito confirma con reintentos acotados que el receptor responde de verdad, no solo que launchd registró el job.",
-      },
-      {
-        flag: "collect uninstall",
-        desc: "Descarga el LaunchAgent y borra el plist. Igual que el resto de 'global': todo lo que navori escribió fuera del repo sabe deshacerse.",
-      },
-      {
-        flag: "uninstall",
-        desc: "Retira solo lo que navori escribió: el plugin, el manifest y los permisos que reclamó — los tuyos quedan intactos.",
-      },
-    ],
-    example: [
-      {
-        title: "Ver qué instalaría (no escribe nada)",
-        code: "$ navori global init --recommended\n  · plugin: ~/.claude/skills/navori (25 archivos)\n  · hook: ~/.claude/skills/navori/hooks/navori-global-baseline.sh\n  · settings: sin cambios (~/.claude/settings.json)\n  · Bloques del baseline: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\nPreview: no se escribió un solo byte. Corre 'navori global init --apply' para instalar.",
-      },
-      {
-        title: "Instalar la capa global",
-        code: "$ navori global init --apply\n  · plugin: ~/.claude/skills/navori (25 archivos)\n  · Bloques del baseline: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\n✓ Harness global instalado en ~/.claude.",
-      },
-      {
-        title: "Auditar",
-        code: "$ navori global doctor\n  ✓ hook de baseline presente y al día\n  ✓ gate funcional (emite baseline fuera de un repo navori, y nada dentro)\n  ✓ plugin 'navori@skills-dir' instalado y al día\n✓ OK",
-      },
-      {
-        title: "Quitarla",
-        code: "$ navori global uninstall\n✓ Harness global desinstalado de ~/.claude.",
-      },
-    ],
-    notes: [
-      "Opt-in de verdad: sin 'navori global init --apply' no existe ~/.navori/global.json y navori no escribió un solo byte en tu máquina. El init sin --apply tampoco escribe: es un preview.",
-      "El wizard es el único camino de UI para 'permissions'. Lo que declares ahí se mergea a ~/.claude/settings.json y queda registrado como de navori, que es lo que permite al uninstall retirarlo sin tocar tus reglas.",
-      "El plugin 'navori@skills-dir' lo carga Claude Code sin marketplace ni paso de instalación; sus skills se invocan '/navori:<nombre>'.",
-      "El hook se hace a un lado solo: si la sesión arranca dentro de un repo con navori.config.json, no emite nada. Manda el harness del repo.",
-      "De ~/.claude/settings.json solo escribe 'permissions', y con la config por default ni siquiera lo crea.",
-      "Respeta CLAUDE_CONFIG_DIR: si lo tienes seteado, el plugin va ahí y no a ~/.claude.",
-    ],
-  },
   remove: {
     id: "remove",
     title: "remove",
@@ -1391,79 +1318,6 @@ const en: Record<string, CommandDoc> = {
       "If CODEX_HOME is set, it uses $CODEX_HOME/config.toml instead of ~/.codex/config.toml; a relative value is rejected.",
     ],
   },
-  global: {
-    id: "global",
-    title: "global",
-    summary:
-      "Installs a machine-wide harness baseline into ~/.claude, for sessions that start outside a navori repo. Opt-in and zero-footprint: without 'navori global init' it doesn't exist, and navori touched nothing on your machine.",
-    usage:
-      "navori global init [--apply] [--recommended] [--lang <es|en>]\nnavori global render [--apply]\nnavori global doctor\nnavori global collect install|uninstall\nnavori global uninstall",
-    flags: [
-      {
-        flag: "init",
-        desc: "Global-layer wizard: pick the baseline blocks and your personal permissions. Preview by default — without --apply it writes not a single byte, it only shows the plugin, the hook and the settings it would install.",
-      },
-      {
-        flag: "init --apply",
-        desc: "Writes what the preview showed: the ~/.navori/global.json manifest and the 'navori@skills-dir' plugin under ~/.claude/skills/navori/ (8 agents, 14 skills and the baseline hook).",
-      },
-      {
-        flag: "init --recommended",
-        desc: "No questions: takes the recommended selection (or the one you already had, on a re-init). It is the headless path for CI and scripts, and also what it falls back to with no interactive terminal.",
-      },
-      {
-        flag: "init --lang <es|en>",
-        desc: "Language of the global baseline and of the prompts. Default: es, or whatever the existing install already had.",
-      },
-      {
-        flag: "render",
-        desc: "Re-renders the plugin and the hook after a CLI bump. Preview by default: without --apply nothing is written.",
-      },
-      { flag: "render --apply", desc: "Write to disk (backs up settings.json if it changes it)." },
-      {
-        flag: "doctor",
-        desc: "Audits the layer: hook drift, the gate actually executed, plugin up to date, permissions and version. If it isn't installed, it says so and stops.",
-      },
-      {
-        flag: "collect install",
-        desc: "Installs the LaunchAgent (macOS) that keeps 'navori audit --collect' up — the receiver behind audit's third source. With KeepAlive and RunAtLoad: launchd revives it when it dies and starts it at login. navori writes the plist; launchd runs it. Before reporting success it confirms, with bounded retries, that the receiver actually answers — not just that launchd registered the job.",
-      },
-      {
-        flag: "collect uninstall",
-        desc: "Unloads the LaunchAgent and deletes the plist. Like the rest of 'global': everything navori wrote outside the repo knows how to undo itself.",
-      },
-      {
-        flag: "uninstall",
-        desc: "Removes only what navori wrote: the plugin, the manifest and the permissions it claimed — yours are left intact.",
-      },
-    ],
-    example: [
-      {
-        title: "See what it would install (writes nothing)",
-        code: "$ navori global init --recommended\n  · plugin: ~/.claude/skills/navori (25 files)\n  · hook: ~/.claude/skills/navori/hooks/navori-global-baseline.sh\n  · settings: unchanged (~/.claude/settings.json)\n  · Baseline blocks: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\nPreview: not a single byte was written. Run 'navori global init --apply' to install.",
-      },
-      {
-        title: "Install the global layer",
-        code: "$ navori global init --apply\n  · plugin: ~/.claude/skills/navori (25 files)\n  · Baseline blocks: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\n✓ Global harness installed at ~/.claude.",
-      },
-      {
-        title: "Audit",
-        code: "$ navori global doctor\n  ✓ baseline hook present and up to date\n  ✓ gate works (emits the baseline outside a navori repo, nothing inside one)\n  ✓ plugin 'navori@skills-dir' installed and up to date\n✓ OK",
-      },
-      {
-        title: "Remove it",
-        code: "$ navori global uninstall\n✓ Global harness uninstalled from ~/.claude.",
-      },
-    ],
-    notes: [
-      "Opt-in for real: without 'navori global init --apply' there is no ~/.navori/global.json, and navori wrote not a single byte on your machine. An init without --apply writes nothing either: it is a preview.",
-      "The wizard is the only UI path to 'permissions'. What you declare there is merged into ~/.claude/settings.json and recorded as navori's, which is what lets uninstall retract it without touching your own rules.",
-      "Claude Code loads the 'navori@skills-dir' plugin with no marketplace and no install step; its skills are invoked as '/navori:<name>'.",
-      "The hook steps aside on its own: if the session starts inside a repo with navori.config.json it emits nothing. The repo's harness wins.",
-      "In ~/.claude/settings.json it only writes 'permissions', and with the default config it doesn't even create the file.",
-      "Honors CLAUDE_CONFIG_DIR: if you have it set, the plugin goes there instead of ~/.claude.",
-    ],
-  },
   remove: {
     id: "remove",
     title: "remove",
@@ -2258,7 +2112,6 @@ export const commandOrder = [
   "ticket",
   "dominio",
   "tools",
-  "global",
   "receipt",
   "plan",
   "spec",

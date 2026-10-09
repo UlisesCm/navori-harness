@@ -155,8 +155,8 @@ describe("conditionOrchestration — reserved key onClaude", () => {
   });
 
   // Covers: #1273
-  it("renders the if-not span for every other engine id, global included", () => {
-    for (const engine of ["codex", "agents-md", "cursor", "copilot", "pi", "global"]) {
+  it("renders the if-not span for every other engine id", () => {
+    for (const engine of ["codex", "agents-md", "cursor", "copilot", "pi"]) {
       expect(conditionOrchestration(content, config(false), engine)).toBe("aprosez");
     }
   });

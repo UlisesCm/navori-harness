@@ -140,14 +140,7 @@ describe("render — every write is covered by a backup (#458)", () => {
      * Each entry is a decision, not a snooze: adding one means arguing why the
      * write cannot destroy repo content the user would want back.
      */
-    const ALLOWED: Record<string, string> = {
-      "engines/claude/global-render.ts":
-        "writes the machine-global ~/.claude baseline (hook + settings), not repo content; " +
-        "`navori global` has its own install/uninstall contract",
-      "engines/claude/global-plugin.ts":
-        "writes ~/.claude/skills/navori/, a directory navori owns end to end and uninstall " +
-        "deletes whole; nothing of the repo — or of the user's own ~/.claude/skills — is in reach",
-    };
+    const ALLOWED: Record<string, string> = {};
 
     const WRITE_PRIMITIVE =
       /\b(writeFileAtomic|writeFileSync|appendFileSync|copyFileSync|cpSync|renameSync|rmSync|unlinkSync|rmdirSync)\(/;
