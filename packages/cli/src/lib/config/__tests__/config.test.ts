@@ -511,6 +511,17 @@ describe("readConfig", () => {
 });
 
 describe("config key diagnostics (#779)", () => {
+  // Covers: R1
+  it("knows the native-hook declarations", () => {
+    expect(
+      findUnknownConfigKeys({
+        name: "demo",
+        qualityGate: { fast: "x", full: "y", nativeHooks: true },
+        plugins: { semgrep: { enabled: true, nativeHook: true } },
+      }),
+    ).toEqual([]);
+  });
+
   it("finds typos at each declared level but leaves extension points open", () => {
     expect(
       findUnknownConfigKeys({
