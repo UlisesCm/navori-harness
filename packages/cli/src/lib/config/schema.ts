@@ -49,6 +49,9 @@ const QualityGateSchema = z.object({
   /** Cheap checks of `full` plus tests related to the diff; the reviewer's
    * lane for rounds that end in CHANGES_REQUESTED. Falls back to `fast`. */
   scoped: z.string().min(1).optional(),
+  /** Declares that the project's native git pre-commit already runs `fast`, so
+   * the `quality-gate-pre-commit` hook skips only its gate step (spec 0045 R1-R3). */
+  nativeHooks: z.boolean().optional(),
 });
 
 // Lifecycle-hook toggles (Claude Stop). The handoff validator is always wired —
@@ -350,6 +353,9 @@ const EffortSchema = z.object({
 
 const PluginEntrySchema = z.object({
   enabled: z.boolean(),
+  /** The native git hook runs this plugin's check, so its hook is not registered
+   * while its scripts still install (spec 0045 R4). */
+  nativeHook: z.boolean().optional(),
 });
 
 // `skills` ({ auto, optIn }) was removed (#236): no engine, template, doctor or

@@ -1,5 +1,13 @@
 import { assert, describe, it, expect } from "vitest";
-import { PluginManifestSchema, listKnownPluginIds, loadPlugin } from "../plugins.ts";
+import {
+  PluginManifestSchema,
+  listKnownPluginIds,
+  loadEnabledPlugins,
+  loadPlugin,
+} from "../plugins.ts";
+import { NavoriConfigSchema } from "../schema.ts";
+import { buildClaudeSettings } from "../../../engines/claude/build-settings.ts";
+import { resolveCodexHooks } from "../../../engines/codex/hook-registrations.ts";
 
 /**
  * Schema parser tests. Containment of resolved paths (scripts.src,
@@ -660,4 +668,44 @@ describe("real plugin manifests — install.* version pin matches externalTool.p
       }
     },
   );
+});
+
+// Covers: R4
+describe("nativeHook omite el registro", () => {
+  const cfg = (nativeHook: boolean) =>
+    NavoriConfigSchema.parse({
+      name: "demo",
+      engines: ["claude", "codex"],
+      preset: "custom",
+      branchBase: "main",
+      qualityGate: { fast: "bun lint", full: "bun test" },
+      plugins: { semgrep: { enabled: true, nativeHook }, jscpd: { enabled: true } },
+    });
+  const settingsHooks = (c: ReturnType<typeof cfg>) =>
+    JSON.stringify(buildClaudeSettings(c, loadEnabledPlugins(c.plugins).loaded).hooks ?? {});
+  const codexPlugins = (c: ReturnType<typeof cfg>) =>
+    resolveCodexHooks(c, loadEnabledPlugins(c.plugins).loaded)
+      .filter((h) => h.pluginId !== undefined)
+      .map((h) => h.pluginId);
+
+  it("loadEnabledPlugins keeps the scripts but drops the hooks of a nativeHook plugin", () => {
+    const on = loadEnabledPlugins(cfg(true).plugins).loaded;
+    const off = loadEnabledPlugins(cfg(false).plugins).loaded;
+    const semgrepOn = on.find((p) => p.manifest.id === "semgrep");
+    const semgrepOff = off.find((p) => p.manifest.id === "semgrep");
+    expect(semgrepOff?.manifest.hooks?.length).toBeGreaterThan(0);
+    expect(semgrepOn?.manifest.hooks).toEqual([]);
+    expect(semgrepOn?.nativeHookOmitted).toBe(true);
+    expect(semgrepOn?.scriptAssets).toEqual(semgrepOff?.scriptAssets);
+    expect(on.find((p) => p.manifest.id === "jscpd")?.nativeHookOmitted).toBeUndefined();
+  });
+
+  it("Claude settings and Codex hooks register the plugin only without nativeHook", () => {
+    expect(settingsHooks(cfg(false))).toContain("check-semgrep.sh");
+    expect(settingsHooks(cfg(true))).not.toContain("check-semgrep.sh");
+    expect(settingsHooks(cfg(true))).toContain("check-jscpd.sh");
+    expect(codexPlugins(cfg(false))).toContain("semgrep");
+    expect(codexPlugins(cfg(true))).not.toContain("semgrep");
+    expect(codexPlugins(cfg(true))).toContain("jscpd");
+  });
 });

@@ -1027,3 +1027,37 @@ describe("harnessVersion registry", () => {
     expect(recordHarnessVersion(fixture("[1]\n"), "0.12.0")).toBe("unreadable");
   });
 });
+
+describe("nativeHooks config (spec 0045)", () => {
+  const base = {
+    name: "demo",
+    engines: ["claude"],
+    preset: "custom",
+    branchBase: "main",
+    qualityGate: { fast: "bun lint", full: "bun test" },
+  };
+
+  // Covers: R1
+  it("nativeHooks", () => {
+    const off = NavoriConfigSchema.parse(base);
+    // No `.default()`: an undeclared key stays absent and does not enter the written config.
+    expect(Object.keys(off.qualityGate ?? {})).not.toContain("nativeHooks");
+    expect(
+      NavoriConfigSchema.parse({ ...base, plugins: { semgrep: { enabled: true } } }).plugins,
+    ).toEqual({ semgrep: { enabled: true } });
+
+    const on = NavoriConfigSchema.parse({
+      ...base,
+      qualityGate: { ...base.qualityGate, nativeHooks: true },
+      plugins: { semgrep: { enabled: true, nativeHook: true } },
+    });
+    expect(on.qualityGate?.nativeHooks).toBe(true);
+    expect(on.plugins?.semgrep?.nativeHook).toBe(true);
+    expect(
+      NavoriConfigSchema.safeParse({
+        ...base,
+        qualityGate: { ...base.qualityGate, nativeHooks: "yes" },
+      }).success,
+    ).toBe(false);
+  });
+});

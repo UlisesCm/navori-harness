@@ -114,6 +114,8 @@ export function interpolate(
     // Never blank, so no engine renders `<not configured>`.
     "navori.scopedGate":
       config.qualityGate?.scoped ?? config.qualityGate?.fast ?? "the repo's fast quality gate",
+    // "1" only when declared true; absent or false stays "0" (spec 0045 D1).
+    "navori.nativeHooks": config.qualityGate?.nativeHooks === true ? "1" : "0",
     ...options.extraVars,
   };
   if (!options.omitUnresolvedKeyLines) {
