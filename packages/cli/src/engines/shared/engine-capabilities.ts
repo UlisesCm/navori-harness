@@ -753,8 +753,10 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         decision: "deferred",
         source: "Pi 1.1.0 MCP guide (Control tool exposure, Permissions)",
         verifiedFrom: "1.1.0",
-        probe: "Not probed: direct and indirect grants per role are verified in spec 0047 E3.",
-        boundary: "Roles that need MCP stay unavailable until E3.",
+        probe:
+          "Not probed: Pi 1.1.0 connects every enabled MCP server and lists all of them in the child prompt, so per-server limiting is not verifiable.",
+        boundary:
+          "Roles that need MCP stay unavailable in children (--no-mcp, render and runtime diagnostics) until per-role grants are verifiable.",
       },
     ],
   },

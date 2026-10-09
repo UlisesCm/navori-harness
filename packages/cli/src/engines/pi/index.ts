@@ -36,6 +36,8 @@ import {
   localSkillPointerMarkerId,
   localSkillSourceAbs,
 } from "../shared/local-skill-pointer.ts";
+import { loadEnabledPlugins } from "../../lib/config/plugins.ts";
+import { deriveMcpTools } from "../claude/agent-mcp-tools.ts";
 import { tc } from "../../lib/i18n.ts";
 
 const ROLE_TOOLS: Readonly<Record<string, readonly string[]>> = {
@@ -124,6 +126,31 @@ function piNeedsContextWriter(config: NavoriConfig): boolean {
   );
 }
 
+/**
+ * Spec 0047 R10 (fail-closed): Pi children always run with `--no-mcp` (Pi 1.1.0 connects every
+ * enabled server and lists them all in the child prompt, so per-server limiting is not
+ * verifiable). An enabled plugin that injects MCP prose into a rendered Pi role therefore cannot
+ * work there: direct, discovery and codemode access are all unavailable. Name each one.
+ */
+function mcpRoleDiagnostics(config: NavoriConfig, roles: ReadonlyArray<{ id: string }>): string[] {
+  const roleIds = new Set(roles.map((role) => role.id));
+  const out: string[] = [];
+  for (const plugin of loadEnabledPlugins(config.plugins).loaded) {
+    if (!plugin.manifest.mcpServer) continue;
+    for (const skill of plugin.manifest.skills ?? []) {
+      const role = skill.injectInto?.match(/^\.claude\/agents\/([a-z0-9-]+)\.md$/)?.[1];
+      if (role === undefined || !roleIds.has(role)) continue;
+      const tools = deriveMcpTools(plugin, skill.mcpTools).join(", ");
+      out.push(
+        `Pi role ${role} needs MCP tools from plugin ${plugin.manifest.id} (${tools}) but is unavailable for them in children: ` +
+          "Pi children run with --no-mcp, so direct, discovery and codemode MCP access are all off. " +
+          `Run that work from the parent session, or disable plugin ${plugin.manifest.id} for Pi.`,
+      );
+    }
+  }
+  return out;
+}
+
 /** Render the opt-in Pi manifest through the shared plan and commit choke point. */
 export function renderPiEngine(
   cwd: string,
@@ -166,6 +193,7 @@ export function renderPiEngine(
       warnings.push(tc(lang).engine.localSkillForeignCodex(localSkillPointerDestRel(id)));
     }
   }
+  warnings.push(...mcpRoleDiagnostics(config, roles));
   if (scribeOwnsMarkdown && !roles.some((agent) => agent.id === "scribe")) {
     warnings.push(
       "harness.scribeOwnsMarkdown forbids implementer Markdown but the scribe role is disabled; Pi implementer dispatch is refused until harness.scribe is enabled or scribeOwnsMarkdown is turned off.",
