@@ -254,7 +254,7 @@ export function migrateRetiredConfigKeys(
   return { config, renamed, dropped, decisions, removed };
 }
 
-const QUALITY_GATE_RULE: ConfigObjectRule = { keys: ["fast", "full", "scoped"] };
+const QUALITY_GATE_RULE: ConfigObjectRule = { keys: ["fast", "full", "scoped", "nativeHooks"] };
 
 /**
  * Raw-config key map used for advisory typo diagnostics.
@@ -323,7 +323,7 @@ const CONFIG_KEY_RULE: ConfigObjectRule = {
       children: { codexMap: { keys: ["opus", "sonnet", "haiku"] } },
     },
     effort: { keys: AGENT_ROLE_KEYS },
-    plugins: { keys: [], recordValues: { keys: ["enabled"] }, allowExtensions: true },
+    plugins: { keys: [], recordValues: { keys: ["enabled", "nativeHook"] }, allowExtensions: true },
     blocks: { keys: ["exclude"] },
     progress: { keys: ["dir", "currentFile", "historyFile"] },
     project: {

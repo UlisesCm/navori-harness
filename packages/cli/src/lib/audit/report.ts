@@ -106,6 +106,7 @@ const PUBLIC_OUTCOME_FIELDS = new Set<string>([
   "failures",
   "notRun",
   "unverifiable",
+  "deferred",
   "start",
   "censored",
   "elapsedMs",
@@ -1894,7 +1895,7 @@ function taskMetricLines(summary: OutcomeSummary, lang: Lang): string[] {
     `| Implementer output tokens, all tasks | ${taskMetricCell(r17.tokensAllTasks.output)} |`,
     `| Review rounds to acceptance | ${taskMetricCell(r17.reviewRoundsToAcceptance)} |`,
     `| First approval (lower bound) | ${approval.yes} yes / ${approval.no} no / ${approval.undetermined} undetermined · ${approval.state}${approval.reason ? ` (${approval.reason})` : ""} |`,
-    `| Gate failed attempts | ${r17.gate.failures}/${r17.gate.executions} ran · ${r17.gate.notRun} not run · ${r17.gate.unverifiable} unverifiable · ${r17.gate.state}${r17.gate.reason ? ` (${r17.gate.reason})` : ""} |`,
+    `| Gate failed attempts | ${r17.gate.failures}/${r17.gate.executions} ran · ${r17.gate.notRun} not run · ${r17.gate.unverifiable} unverifiable · ${r17.gate.deferred} deferred to the native hook · ${r17.gate.state}${r17.gate.reason ? ` (${r17.gate.reason})` : ""} |`,
     `| Token coverage (dispatch) | ${r17.tokenCoverage.withDispatch}/${r17.tokenCoverage.episodes} episodes · scope ${r17.tokenScope} |`,
     "",
     t(

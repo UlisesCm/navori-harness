@@ -97,6 +97,14 @@ import { scanForeignHarness, type ForeignHarnessReport } from "../lib/diagnose/f
 import { scanGlobalLayerLeftovers, type GlobalLeftover } from "../lib/diagnose/global-leftovers.ts";
 import { claudeUserDir } from "../engines/claude/user-scope.ts";
 import { scanDistribution, type DistributionReport } from "../lib/diagnose/distribution.ts";
+import {
+  detectNativeHooks,
+  listWorktreePaths,
+  NATIVE_HOOK_EVENTS,
+  type NativeHookEvent,
+  type NativeHookState,
+  type NativeHooksDetection,
+} from "../lib/diagnose/native-hooks.ts";
 import { scanPermissionMode, scanRetiredAssets } from "../lib/diagnose/health.ts";
 import {
   listMarkers,
@@ -211,6 +219,7 @@ export const doctorCommand = defineCommand({
       missingPresetFiles,
       codexHealth,
       duplicateMarkers,
+      nativeHooks,
     } = verdict;
     const drifts = scanManagedDrift(cwd, config);
     const orderReport = scanManagedOrder(cwd, config, CLAUDE_COMPUTED_BLOCK_IDS);
@@ -483,6 +492,7 @@ export const doctorCommand = defineCommand({
       gitignoreHealth,
       prettierIgnoreHealth,
       gitHygiene,
+      nativeHooks,
       // #917. Serialized whole — a `--json` consumer is the reader who can plot
       // the surface over time, and it is the only reader that sees every block,
       // not just the ones over their ceiling.
@@ -1215,6 +1225,25 @@ export const doctorCommand = defineCommand({
       if (gh.length > 0) p.note(gh.join("\n"), td.gitHygieneTitle);
     }
 
+    // Spec 0045 D3: native git hooks. Errors (declared but not active here) flip
+    // the verdict; the duplicate and worktree findings are warnings.
+    if (nativeHooks) {
+      p.note(
+        nativeHooks.findings
+          .map((f) => {
+            const mark =
+              f.level === "error"
+                ? color.red(sym.fail)
+                : f.level === "warning"
+                  ? color.yellow(sym.update)
+                  : color.cyan(sym.bullet);
+            return `  ${mark} ${nativeHookFindingText(f, td)}`;
+          })
+          .join("\n"),
+        td.nativeHooksTitle,
+      );
+    }
+
     // #917: the startup surface. Always one summary line — `doctor` is the
     // command a user runs to ask "how am I doing", so the number it exists to
     // answer is not hidden behind a failure. The lines below it appear only
@@ -1663,6 +1692,9 @@ export interface HealthVerdict {
   /** Managed ids appearing more than once in a file — the extra copy is invisible
    *  to render/sync/doctor and may hold stale content, so it flips `ok` (#274). */
   duplicateMarkers: DuplicateMarker[];
+  /** Native git hooks vs the config's declarations (spec 0045 D3); null outside git
+   *  when nothing is declared. Its `error` findings flip `ok`. */
+  nativeHooks: NativeHooksReport | null;
 }
 
 /**
@@ -1681,7 +1713,9 @@ export function computeHealthVerdict(cwd: string, config: NavoriConfig): HealthV
   const missingPresetFiles = scanMissingPresetFiles(cwd, config);
   const codexHealth = scanCodexHealth(cwd, config);
   const duplicateMarkers = scanDuplicateMarkers(cwd, config);
+  const nativeHooks = scanNativeHooks(cwd, config);
   const ok =
+    (nativeHooks?.errors ?? 0) === 0 &&
     missingPlugins.length === 0 &&
     corruptedSettings.length === 0 &&
     missingInvariants.length === 0 &&
@@ -1700,6 +1734,7 @@ export function computeHealthVerdict(cwd: string, config: NavoriConfig): HealthV
     missingPresetFiles,
     codexHealth,
     duplicateMarkers,
+    nativeHooks,
   };
 }
 
@@ -3256,6 +3291,125 @@ export function scanGitHygiene(cwd: string, config: NavoriConfig): GitHygieneRep
     presetsIgnored,
     nestedStateUnprotected,
   };
+}
+
+export interface NativeHookFinding {
+  level: "info" | "warning" | "error";
+  code:
+    | "found"
+    | "gate-declared-missing"
+    | "plugin-declared-missing"
+    | "plugin-only-guarantee"
+    | "duplicate"
+    | "worktree-missing";
+  event?: NativeHookEvent;
+  plugin?: string;
+  state?: NativeHookState;
+  /** Worktree path, for `worktree-missing`. */
+  path?: string;
+  gitVersion?: string | null;
+}
+
+export interface NativeHooksReport {
+  detection: NativeHooksDetection;
+  findings: NativeHookFinding[];
+  /** Count of `error` findings; they flip the health verdict. */
+  errors: number;
+}
+
+/**
+ * Native git hooks against the config's declarations (spec 0045 D3, R5-R7).
+ *
+ * - Always (inside git): one info finding per event with manager and path.
+ * - `qualityGate.nativeHooks` declared and `pre-commit` not active in THIS
+ *   clone/worktree: error (R6). Undeclared and active: duplicate warning (R7).
+ * - `plugins.<p>.nativeHook`: only plugins whose hooks were actually omitted
+ *   (`loadEnabledPlugins` marks them `nativeHookOmitted`) are declarations that
+ *   depend on a native hook; a plugin with no hooks has nothing to guard. Error
+ *   when both events are absent, plus an info that the hook is then the only
+ *   guarantee of that check.
+ * - With any declaration, a warning per `.claude/worktrees/` worktree whose
+ *   `pre-commit` is absent (never an error: the implementer already runs `fast`).
+ *
+ * Null outside git when nothing is declared. Doctor never runs a hook.
+ */
+export function scanNativeHooks(cwd: string, config: NavoriConfig): NativeHooksReport | null {
+  const gateDeclared = config.qualityGate?.nativeHooks === true;
+  const omitted = loadEnabledPlugins(config.plugins)
+    .loaded.filter((p) => p.nativeHookOmitted === true)
+    .map((p) => p.manifest.id);
+  const declared = gateDeclared || omitted.length > 0;
+  const detection = detectNativeHooks(cwd);
+  if (detection.top === null && !declared) return null;
+
+  const findings: NativeHookFinding[] = [];
+  for (const event of NATIVE_HOOK_EVENTS) {
+    findings.push({ level: "info", code: "found", event, state: detection.hooks[event] });
+  }
+  const commit = detection.hooks["pre-commit"];
+  const push = detection.hooks["pre-push"];
+  if (gateDeclared && !commit.active) {
+    findings.push({
+      level: "error",
+      code: "gate-declared-missing",
+      event: "pre-commit",
+      state: commit,
+      gitVersion: detection.gitVersion,
+    });
+  }
+  if (!gateDeclared && commit.active) {
+    findings.push({ level: "warning", code: "duplicate", event: "pre-commit", state: commit });
+  }
+  for (const plugin of omitted) {
+    findings.push({ level: "info", code: "plugin-only-guarantee", plugin });
+    if (!commit.active && !push.active) {
+      findings.push({
+        level: "error",
+        code: "plugin-declared-missing",
+        plugin,
+        gitVersion: detection.gitVersion,
+      });
+    }
+  }
+  if (declared && detection.top !== null) {
+    for (const path of listWorktreePaths(detection.top)) {
+      if (!path.includes("/.claude/worktrees/") || path === detection.top) continue;
+      if (!detectNativeHooks(path).hooks["pre-commit"].active) {
+        findings.push({ level: "warning", code: "worktree-missing", event: "pre-commit", path });
+      }
+    }
+  }
+  return {
+    detection,
+    findings,
+    errors: findings.filter((f) => f.level === "error").length,
+  };
+}
+
+/** One line of the doctor note for a native-hook finding. */
+export function nativeHookFindingText(
+  f: NativeHookFinding,
+  td: ReturnType<typeof tc>["doctor"],
+): string {
+  switch (f.code) {
+    case "found":
+      return td.nativeHooksFound(
+        f.event!,
+        f.state!.active ? f.state!.manager : null,
+        f.state!.path,
+        f.state!.absence,
+      );
+    case "gate-declared-missing":
+      return td.nativeHooksGateMissing(f.state!.manager, f.state!.absence, f.gitVersion ?? null);
+    case "plugin-declared-missing":
+      return td.nativeHooksPluginMissing(f.plugin!, f.gitVersion ?? null);
+    case "plugin-only-guarantee":
+      return td.nativeHooksPluginOnlyGuarantee(f.plugin!);
+    case "duplicate":
+      return td.nativeHooksDuplicate(f.state!.manager, f.state!.path);
+    case "worktree-missing":
+      return td.nativeHooksWorktreeMissing(f.path!);
+  }
 }
 
 /** Drop a trailing slash so a configured `specsDir` works with or without one. */

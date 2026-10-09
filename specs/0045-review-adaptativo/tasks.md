@@ -59,14 +59,14 @@ Estimated LOC: 1150
   → exit 0, 0 failed
 - **A7** [observable] — los goldens de render con y sin flags no dependen del estado de git ·
   `bun run check:render` → exit 0
-- [ ] **T8** (R1) — `qualityGate.nativeHooks` y `plugins.<p>.nativeHook` opcionales en el schema;
+- [x] **T8** (R1) — `qualityGate.nativeHooks` y `plugins.<p>.nativeHook` opcionales en el schema;
   variable derivada `navori.nativeHooks` · effect: schema · test:
   `lib/config/__tests__/config.test.ts`::"nativeHooks"
-- [ ] **T9** (R2, R3) — `quality-gate-pre-commit.sh`: el bloque del gate queda bajo
+- [x] **T9** (R2, R3) — `quality-gate-pre-commit.sh`: el bloque del gate queda bajo
   `navori_native_fast`; el tope de `progress/current.md` y la user-section siguen; el skip se
   audita como `skip` con razón `native-hook` · effect: behavior · test:
   `__tests__/quality-gate-native.test.ts`::"tope, user-section y gate omitido en claude y codex"
-- [ ] **T10** (R4) — `loadEnabledPlugins` carga un plugin con `nativeHook` sin hooks y con sus
+- [x] **T10** (R4) — `loadEnabledPlugins` carga un plugin con `nativeHook` sin hooks y con sus
   scripts; `build-settings` y `resolveCodexHooks` no lo registran · effect: behavior · test:
   `lib/config/__tests__/plugins.test.ts`::"nativeHook omite el registro"
 
@@ -74,14 +74,15 @@ Estimated LOC: 1150
 - **A8** — detección, doctor y auditoría en verde ·
   `cd packages/cli && bun run test src/lib/diagnose/__tests__/native-hooks.test.ts src/commands/__tests__/doctor-native-hooks.test.ts src/lib/audit/__tests__/outcomes.test.ts src/__tests__/hook-audit-instrumentation.test.ts`
   → exit 0, 0 failed
-- [ ] **T11** (R5, R6) — `detectNativeHooks(cwd)` en `lib/diagnose/native-hooks.ts`: husky (stub
+- [x] **T11** (R5, R6) — `detectNativeHooks(cwd)` en `lib/diagnose/native-hooks.ts`: husky (stub
   sin `.husky/<hook>` = ausente), lefthook, pre-commit, hook plano y `core.hooksPath` relativo, por
   worktree · effect: behavior · test: `lib/diagnose/__tests__/native-hooks.test.ts`::"fixtures por
   gestor y worktree"
-- [ ] **T12** (R5, R6, R7) — `scanNativeHooks` en `doctor`: reporta lo detectado, error si lo
+- [x] **T12** (R5, R6, R7) — `scanNativeHooks` en `doctor`: reporta lo detectado, error si lo
   declarado no está activo, aviso de duplicado si no está declarado · effect: behavior · test:
-  `commands/__tests__/doctor-native-hooks.test.ts`::"filas de D3"
-- [ ] **T13** (R2) — razón `native-hook` en `HOOK_REASON_CODES` y en la allowlist de
+  `commands/__tests__/doctor-native-hooks.test.ts`::"filas de D3". El error voltea
+  `computeHealthVerdict` (salida 2) y las filas de plugin consumen `LoadedPlugin.nativeHookOmitted`
+- [x] **T13** (R2) — razón `native-hook` en `HOOK_REASON_CODES` y en la allowlist de
   `audit-log.sh`; `outcomes.ts` reporta "no observado" en vez de cero · effect: behavior · test:
   `lib/audit/__tests__/outcomes.test.ts`::"skip native-hook"
 
@@ -89,11 +90,11 @@ Estimated LOC: 1150
 - **A9** [observable] — `doctor` reconoce el pre-commit versionado ·
   `bun packages/cli/src/index.ts doctor` → sin error de hooks nativos y fila con
   `.git/hooks/pre-commit`
-- [ ] **T14** (R1, R4) — `navori.config.json`: `qualityGate.nativeHooks`,
-  `plugins.semgrep.nativeHook` y `plugins.jscpd.nativeHook` en `true`; `prepare` corre
-  `hooks:install`, que avisa y sale 0 ante un hook ajeno · effect: behavior · test:
+- [x] **T14** (R1) — `navori.config.json` declara solo `qualityGate.nativeHooks: true` (sin
+  `plugins.<p>.nativeHook`; enmienda #1282); `prepare` corre `hooks:install`, que avisa y sale 0
+  ante un hook ajeno · effect: behavior · test:
   `__tests__/repo-gate-config.test.ts`::"declaraciones nativas"
-- [ ] **T15** (R24) — fila `native-git-hooks` en `FLOWS` y `docs/native-overlap.md` regenerado;
+- [x] **T15** (R24) — fila `native-git-hooks` en `FLOWS` y `docs/native-overlap.md` regenerado;
   skills de semgrep y jscpd documentan la invocación desde un hook nativo · effect: docs · test:
   `engines/shared/__tests__/native-overlap.test.ts`::"native-git-hooks"
 

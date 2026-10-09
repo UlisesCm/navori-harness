@@ -213,7 +213,7 @@ de `gate-trigger` cuando el comando no es `git commit`, como hoy.
   índice de las filas `late` y pide **una** reaprobación en `/hooks` tras el render. Ese costo queda
   en la fila `native-git-hooks` de `FLOWS`.
 - Contrato de invocación (R4), que ya existe y está en uso:
-  - `package.json` de este repo define
+  - Ejemplo de un repo consumidor: su `package.json` define
     `"semgrep:check": "bash .claude/scripts/check-semgrep.sh </dev/null"` (y su par de jscpd), y el
     pre-commit versionado lo llama vía `check:fast`.
   - Con stdin vacío el script escanea sin condición (rama "No command extracted").
@@ -247,6 +247,10 @@ nunca ejecuta un hook.
 
 Cualquier caso que no encaje cuenta como ausente (R6).
 
+Un `nativeHook` de plugin solo cuenta como declaración cuando sus hooks se omitieron de verdad
+(`LoadedPlugin.nativeHookOmitted`). El error voltea el veredicto de salud (`computeHealthVerdict`),
+así que `status` y `doctor` salen con 2.
+
 Reporte:
 
 | Estado | Config | Nivel |
@@ -266,12 +270,12 @@ Reporte:
 
 ### D4 — Este repo declara los hooks nativos (dogfooding)
 
-- `qualityGate.nativeHooks: true`, `plugins.semgrep.nativeHook: true` y
-  `plugins.jscpd.nativeHook: true`.
-- Por qué los tres: `scripts/git-hooks/pre-commit` corre `bun run check:fast` (format, `jscpd:check`,
-  `semgrep:check`, lint, typecheck), que cubre el nuevo `fast` (D15) y los dos scripts de plugin.
-- `semgrep:check` y `jscpd:check` siguen en `qualityGate.full` y en CI, así que el disparo de push y
-  `gh pr create` de semgrep tiene respaldo.
+- Solo `qualityGate.nativeHooks: true`. `plugins.<p>.nativeHook` sigue siendo una función para repos
+  consumidores (T10), pero este repo ya no lo declara.
+- Por qué: `scripts/git-hooks/pre-commit` corre `bun run check:fast`, que equivale a
+  `qualityGate.fast` (D15).
+- Enmienda 2026-10-09: #1282 retiró los plugins jscpd/semgrep de este repo (ahora scripts
+  `check:dup`/`check:ast` como devDependency; semgrep corre solo en CI sobre `main`).
 - **`hooks:install` corre desde `prepare`** (decisión del usuario, 2026-10-08): `bun install` deja
   instalado `.git/hooks/pre-commit`, que comparten todos los worktrees. Si
   `scripts/js/install-git-hooks.mjs` encuentra un hook ajeno, avisa y sale 0 en vez de lanzar, para
@@ -295,6 +299,9 @@ Cambios:
   (`task-metrics.ts`), un run con `executions === 0 && deferred > 0` aporta `gate: null` y
   `gateReason: "native-hook"`. La métrica R17 sale `partial` o `unavailable` con esa razón, en vez
   de un cero falso.
+- `EpisodeGate.deferred` también llega al resumen `r17.gate` y al reporte de auditoría (allowlist de
+  claves y fila markdown en `report.ts`). Si cualquier run del episodio tiene `executions === 0` y
+  `deferred > 0`, el gate del episodio es `null` con `gateReason: "native-hook"`.
 - La suma `unattributed.gateExecutions` de `outcomes.ts`: sigue contando solo `completed`.
 - **Desfase de versiones.** Un CLI viejo que lee un registro con `reason: "native-hook"` lo descarta
   en el validador de registros (`model.ts`, comprobación `isHookReason`). Para él se pierde un `skip`
@@ -877,7 +884,7 @@ prosa para los dos engines (su parte de R24). Ninguna es `foundation`.
 | Entrega | Capacidad demostrable | `R<n>` | LOC est. |
 |---|---|---|---|
 | **E1** — El gate completo corre una vez por aprobación | Una ronda `CHANGES_REQUESTED` corre el `scoped` de este repo (`check:scoped`, 8 s medidos, sin tests) y no `full`. Un workplan de nivel 2 con fases pendientes da `scoped` con `pendingLater` y commit-only. `full` está ordenado y `typecheck` entra en `fast`. Incluye la calibración de rondas por ciclo antes y después (D6) | R8–R11, R23, R25, R24 (su prosa) | 1000 |
-| **E2** — Los checks mecánicos viven en el hook nativo | Con las tres declaraciones de este repo, un `git commit` del agente corre `check:fast` una sola vez (el nativo) y conserva el tope de `progress/current.md`. `settings.json` no registra semgrep ni jscpd. `doctor` reconoce el hook de `.git/hooks` y da error en un clon sin `hooks:install`. La auditoría muestra `native-hook` | R1–R7, R24 (fila de matriz) | 1150 |
+| **E2** — Los checks mecánicos viven en el hook nativo | Con la declaración `nativeHooks` de este repo, un `git commit` del agente corre `check:fast` una sola vez (el nativo) y conserva el tope de `progress/current.md`. `settings.json` no registra hooks de calidad duplicados. `doctor` reconoce el hook de `.git/hooks` y da error en un clon sin `hooks:install`. La auditoría muestra `native-hook` | R1–R7, R24 (fila de matriz) | 1150 |
 | **E3** — La aceptación compara contra lo esperado | Un `A<n>` con `contains:` cuyo comando no imprime el texto no se puede marcar `cumplido`. La línea de evidencia no lleva la salida. `navori plan check` lo reporta como finding sin romper master-plan. `request` aparece en el plan renderizado | R15–R20, R24 (su prosa) | 1000 |
 | **E4** — El ciclo de un cambio chico es proporcional | Un `nivel-0:` sin `verify:` se niega. Con `verify:`, un archivo trivial recibe el review ligero y un `criticalPath` el completo. `impl_<f>.md` sale de `navori handoff render` sin despachar al scribe. Un nit tras `APPROVED` va al PR | R12–R14, R21, R22, R24 (su prosa) | 450 |
 

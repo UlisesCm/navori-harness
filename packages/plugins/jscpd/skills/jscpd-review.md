@@ -17,10 +17,12 @@ git diff --name-only --diff-filter=ACMRT {{branchBase}} -- '*.ts' '*.tsx' | xarg
 A literal `{{branchBase}}` left unsubstituted here would be a silent no-op
 scan (#273) — the values above come from the repo's own config at render
 time, never typed by hand.
-- Fingerprint sensitivity: editing inside an existing clone (even a single line) changes its fingerprint, so jscpd reports it as new — it counts as a new clone even though the duplication itself predates the change.
+- Fingerprint sensitivity: editing inside an existing clone (even one line) changes its fingerprint, so jscpd reports it as a new clone.
 - If it reports a new clone vs the base branch: **do not approve** the change without justification (reviewers must ask for a refactor or extraction).
 - Silent skip if `jscpd` is not in `PATH` (don't block if the dev doesn't have the tool installed).
 
 In repos with the Claude Code hooks, the commit gate already runs this scan
-for you (`PreToolUse` on `git commit`) — the command above is for running it
-yourself before that point.
+(`PreToolUse` on `git commit`). With `plugins.jscpd.nativeHook: true` your git
+hook runs `check-jscpd.sh </dev/null` instead: exit 0 passes, 2 means findings,
+1 a scanner failure. Where `.claude/` is gitignored, a fresh worktree lacks the
+script until rendered.

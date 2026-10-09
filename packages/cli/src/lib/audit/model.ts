@@ -1064,6 +1064,7 @@ export const HOOK_REASON_CODES = [
   "binary-missing",
   "plan-denied",
   "subcommand-unavailable",
+  "native-hook",
 ] as const;
 
 /** Value of a hook record's `reason` on the wire: a code or `"unspecified"`. */
@@ -1798,8 +1799,11 @@ export function gateHandle(event: Pick<HookEvent, "name" | "toolUseId">): string
  *  - `duplicate`  — more than one terminal event shares a real handle.
  *  - `unknown`    — the event(s) carry no `toolUseId`, so no real handle exists
  *                   to correlate ownership or detect duplicates against.
+ *  - `deferred`   — the handle's only events are `skip` with reason `native-hook`
+ *                   (spec 0045 D5): the gate belongs to the native git hook, so
+ *                   this commit says nothing about whether it passed.
  */
-export type GateOutcome = "completed" | "timeout" | "duplicate" | "unknown";
+export type GateOutcome = "completed" | "timeout" | "duplicate" | "unknown" | "deferred";
 
 /**
  * One correlated gate execution: a `GATE_HOOK_NAMES` invocation joined to the
@@ -1892,6 +1896,23 @@ export function correlateGateExecutions(
       singleOwnerKey === null
         ? null
         : (owners.find((o) => o.ownerKey === singleOwnerKey)?.agentType ?? null);
+
+    // Spec 0045 D5: a commit whose gate was left to the native hook is not an
+    // unknown handle and not a run: it is deferred, owner kept when exact.
+    if (bucket.events.every((e) => e.verdict === "skip" && e.reason === "native-hook")) {
+      out.push({
+        handle,
+        ownerAgentId,
+        ownerAgentType,
+        startedAt: bucket.events[0]!.ts,
+        endedAt: bucket.events[0]!.ts,
+        durationMs: null,
+        outcome: "deferred",
+        ran: false,
+        ownerExact,
+      });
+      continue;
+    }
 
     if (!hasRealId) {
       out.push({
@@ -2068,6 +2089,8 @@ export interface EpisodeGate {
   notRun: number;
   /** Timeout, duplicate, unknown handle or an owner not named by the payload. */
   unverifiable: number;
+  /** Commits whose gate was left to the native git hook (`skip` + `native-hook`): not observed. */
+  deferred: number;
 }
 export interface EpisodeEfficiency {
   /** Tokens cover implementer dispatch runs only; reviewer and orchestrator are not attributed. */

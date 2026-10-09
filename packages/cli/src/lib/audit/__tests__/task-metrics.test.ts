@@ -31,7 +31,7 @@ const run = (over: Partial<RunFacts> = {}): RunFacts => ({
   tokens: tokens(),
   tokenGap: null,
   active: [[1_000, 5_000]],
-  gate: { executions: 2, failures: 1, notRun: 0, unverifiable: 0 },
+  gate: { executions: 2, failures: 1, notRun: 0, unverifiable: 0, deferred: 0 },
   ...over,
 });
 /** An accepted, fully observed episode: dispatch at 1 s, review 6-7 s, acceptance at 10 s. */
@@ -419,7 +419,11 @@ describe("summarizeEpisodes", () => {
     const { r17 } = summarizeEpisodes(
       [
         row(),
-        row({ runs: [run({ gate: { executions: 0, failures: 0, notRun: 1, unverifiable: 2 } })] }),
+        row({
+          runs: [
+            run({ gate: { executions: 0, failures: 0, notRun: 1, unverifiable: 2, deferred: 0 } }),
+          ],
+        }),
         row({ runs: [run({ gate: null })] }),
       ],
       NO_UNATTRIBUTED,
@@ -445,7 +449,9 @@ describe("summarizeEpisodes", () => {
         row({
           accepted: false,
           acceptedAtMs: undefined,
-          runs: [run({ gate: { executions: 3, failures: 3, notRun: 0, unverifiable: 0 } })],
+          runs: [
+            run({ gate: { executions: 3, failures: 3, notRun: 0, unverifiable: 0, deferred: 0 } }),
+          ],
         }),
       ],
       NO_UNATTRIBUTED,

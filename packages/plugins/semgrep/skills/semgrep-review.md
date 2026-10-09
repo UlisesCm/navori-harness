@@ -25,3 +25,8 @@ introduces, not on debt already on `{{branchBase}}`.
 In repos with the Claude Code hooks, the commit/push gate already runs this
 scan for you (`PreToolUse`) — the command above is for running it yourself
 before that point.
+
+With `plugins.semgrep.nativeHook: true` your git hook runs this plugin's
+`check-semgrep.sh` with empty stdin (`</dev/null`) instead of the agent hook: exit 0
+passes, 2 means findings, 1 a scanner failure. Where `.claude/` is gitignored, a
+fresh worktree lacks the script until rendered.

@@ -781,7 +781,7 @@ describe("task efficiency and lifecycle (spec 0042 T10b)", () => {
           hook("gate-started", "t2", "a1"),
           hook("allow", "t2", "a1"),
         ]),
-      ).toEqual({ executions: 2, failures: 1, notRun: 0, unverifiable: 0 });
+      ).toEqual({ executions: 2, failures: 1, notRun: 0, unverifiable: 0, deferred: 0 });
     });
 
     // Covers: R17
@@ -791,6 +791,7 @@ describe("task efficiency and lifecycle (spec 0042 T10b)", () => {
         failures: 0,
         notRun: 1,
         unverifiable: 0,
+        deferred: 0,
       });
     });
 
@@ -819,8 +820,44 @@ describe("task efficiency and lifecycle (spec 0042 T10b)", () => {
         failures: 0,
         notRun: 0,
         unverifiable: 0,
+        deferred: 0,
       });
       expect(summaryOf([full("s1", events, [impl()])])?.r17.gate.failures).toBe(0);
+    });
+  });
+
+  // Covers: R2
+  describe("skip native-hook", () => {
+    const skip = (toolUseId: string, agentId: string): HookEvent => ({
+      ...hook("skip", toolUseId, agentId),
+      reason: "native-hook",
+    });
+    const episodeOf = (hookEvents: HookEvent[]) =>
+      firstEpisode([full("s1", timeline(), [impl({ hookEvents })])]);
+
+    it("reports the gate as not observed with its reason instead of zero executions", () => {
+      const episode = episodeOf([skip("t1", "a1")]);
+      expect(episode?.efficiency?.gate).toBeNull();
+      expect(episode?.efficiency?.gateReason).toBe("native-hook");
+      const gate = summaryOf([full("s1", timeline(), [impl({ hookEvents: [skip("t1", "a1")] })])])
+        ?.r17.gate;
+      expect(gate).toMatchObject({ state: "unavailable", reason: "native-hook", executions: 0 });
+    });
+
+    it("keeps a run that ran the gate observed and counts a mixed run's deferred skips", () => {
+      const ran = [hook("gate-started", "t1", "a1"), hook("allow", "t1", "a1")];
+      expect(episodeOf([...ran, skip("t2", "a1")])?.efficiency?.gate).toEqual({
+        executions: 1,
+        failures: 0,
+        notRun: 0,
+        unverifiable: 0,
+        deferred: 1,
+      });
+    });
+
+    it("does not treat another skip reason as deferred, nor count it as an execution", () => {
+      const other: HookEvent = { ...hook("skip", "t1", "a1"), reason: "unspecified" };
+      expect(episodeOf([other])?.efficiency?.gate).toMatchObject({ executions: 0, deferred: 0 });
     });
   });
 

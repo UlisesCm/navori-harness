@@ -340,6 +340,8 @@ export type PluginPromptEntry = z.infer<typeof PromptEntrySchema>;
 /** Resolved manifest with its package root and computed asset paths. */
 export interface LoadedPlugin {
   manifest: PluginManifest;
+  /** Set when `nativeHook: true` emptied `manifest.hooks` (spec 0045 R4). */
+  nativeHookOmitted?: true;
   /** Absolute path to the plugin package root (where plugin.json lives). */
   packageRoot: string;
   /** Resolved absolute paths for each managed entry. */
@@ -618,6 +620,12 @@ export function loadPlugin(pluginId: string): LoadedPlugin {
   return { manifest, packageRoot, managedAssets, scriptAssets, hookExtensionAssets, skillAssets };
 }
 
+export interface PluginEntryConfig {
+  enabled: boolean;
+  nativeHook?: boolean;
+}
+type PluginsConfig = Record<string, PluginEntryConfig>;
+
 /**
  * Load all plugins that are enabled in the config (plugins[id].enabled === true).
  * Skips entries whose package is not installed (returns them in `missing` for doctor to report).
@@ -627,9 +635,7 @@ export interface PluginsLoadResult {
   missing: Array<{ id: string; reason: string }>;
 }
 
-export function loadEnabledPlugins(
-  pluginsConfig: Record<string, { enabled: boolean }> | undefined,
-): PluginsLoadResult {
+export function loadEnabledPlugins(pluginsConfig: PluginsConfig | undefined): PluginsLoadResult {
   return loadPluginsWhere(pluginsConfig, (v) => v.enabled === true);
 }
 
@@ -640,26 +646,29 @@ export function loadEnabledPlugins(
  * (#80). A plugin absent from config entirely is NOT returned: there's nothing
  * declaring it, so there's nothing to reconcile.
  */
-export function loadDisabledPlugins(
-  pluginsConfig: Record<string, { enabled: boolean }> | undefined,
-): PluginsLoadResult {
+export function loadDisabledPlugins(pluginsConfig: PluginsConfig | undefined): PluginsLoadResult {
   return loadPluginsWhere(pluginsConfig, (v) => v.enabled === false);
 }
 
 function loadPluginsWhere(
-  pluginsConfig: Record<string, { enabled: boolean }> | undefined,
-  predicate: (v: { enabled: boolean }) => boolean,
+  pluginsConfig: PluginsConfig | undefined,
+  predicate: (v: PluginEntryConfig) => boolean,
 ): PluginsLoadResult {
-  const ids = Object.entries(pluginsConfig ?? {})
-    .filter(([, v]) => predicate(v))
-    .map(([k]) => k);
+  const entries = Object.entries(pluginsConfig ?? {}).filter(([, v]) => predicate(v));
 
   const loaded: LoadedPlugin[] = [];
   const missing: Array<{ id: string; reason: string }> = [];
 
-  for (const id of ids) {
+  for (const [id, entry] of entries) {
     try {
-      loaded.push(loadPlugin(id));
+      const plugin = loadPlugin(id);
+      // nativeHook: the native git hook runs the check, so the plugin keeps its
+      // scripts/skills/settings but registers no hooks on any engine (R4).
+      loaded.push(
+        entry.nativeHook === true && (plugin.manifest.hooks?.length ?? 0) > 0
+          ? { ...plugin, manifest: { ...plugin.manifest, hooks: [] }, nativeHookOmitted: true }
+          : plugin,
+      );
     } catch (err) {
       if (err instanceof PluginNotFoundError) {
         missing.push({ id, reason: "unknown plugin id" });

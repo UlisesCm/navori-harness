@@ -89,6 +89,9 @@
         "scoped": {
           "type": "string",
           "minLength": 1
+        },
+        "nativeHooks": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -443,6 +446,9 @@
         "properties": {
           "enabled": {
             "type": "boolean"
+          },
+          "nativeHook": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -664,6 +670,9 @@
                   "scoped": {
                     "type": "string",
                     "minLength": 1
+                  },
+                  "nativeHooks": {
+                    "type": "boolean"
                   }
                 },
                 "required": [

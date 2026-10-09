@@ -18,14 +18,15 @@ const hookPath = (name) => resolve(root, git("-C", root, "rev-parse", "--git-pat
 const target = hookPath("pre-commit");
 
 if (existsSync(target) && !readFileSync(target, "utf-8").includes(marker)) {
-  throw new Error(
-    `Refusing to overwrite non-navori hook: ${target}. Merge scripts/git-hooks/pre-commit manually instead.`,
+  // Warn and exit 0: this runs from `prepare`, so a throw would break `bun install`.
+  console.warn(
+    `Skipping the pre-commit hook: ${target} is not a navori hook. Merge scripts/git-hooks/pre-commit manually.`,
   );
+} else {
+  copyFileSync(source, target);
+  chmodSync(target, 0o755);
+  console.log(`Installed versioned pre-commit hook at ${target}`);
 }
-
-copyFileSync(source, target);
-chmodSync(target, 0o755);
-console.log(`Installed versioned pre-commit hook at ${target}`);
 
 const legacy = hookPath("pre-push");
 if (existsSync(legacy) && readFileSync(legacy, "utf-8").includes(legacyMarker)) {

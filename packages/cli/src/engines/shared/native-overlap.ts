@@ -309,6 +309,11 @@ const FLOWS: ReadonlyArray<{ id: string; note: string; codex: EngineSupport }> =
     note: "One PR per spec delivery (`Spec-Delivery:` line, ancestor check, `Refs`/`Closes`); Claude's publisher runs `gh pr create`, on Codex the user confirms each one (spec 0044 D8).",
     codex: "emit",
   },
+  {
+    id: "native-git-hooks",
+    note: "Git pre-commit hook that runs the quality gate (`qualityGate.nativeHooks`, spec 0045 D4) versus the agent-side gate run; git-level, so engine-independent; unverified as a replacement, kept.",
+    codex: "n/a",
+  },
 ];
 
 function support(claude: EngineSupport, codex: EngineSupport, prose: EngineSupport): Support {

@@ -268,14 +268,15 @@ const isMeasured = (evidence: MetricEvidence | undefined): boolean =>
 /** Fast-gate executions of a sealed session that ran and ended with one verdict, by owner run. */
 function gateOf(session: JoinSession, agentId: string): EpisodeGate | null {
   if (!session.sealed || !session.orchestrator || !session.agents) return null;
-  const gate: EpisodeGate = { executions: 0, failures: 0, notRun: 0, unverifiable: 0 };
+  const gate: EpisodeGate = { executions: 0, failures: 0, notRun: 0, unverifiable: 0, deferred: 0 };
   for (const execution of correlateGateExecutions({
     sealed: session.sealed,
     orchestrator: session.orchestrator,
     agents: session.agents,
   })) {
     if (execution.ownerAgentId !== agentId || !execution.handle.startsWith(FAST_GATE)) continue;
-    if (execution.outcome !== "completed" || !execution.ownerExact) gate.unverifiable++;
+    if (execution.outcome === "deferred") gate.deferred++;
+    else if (execution.outcome !== "completed" || !execution.ownerExact) gate.unverifiable++;
     else if (execution.ran && execution.terminal) {
       gate.executions++;
       if (execution.terminal === "block") gate.failures++;

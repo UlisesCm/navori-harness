@@ -227,6 +227,9 @@ export function efficiencyOf(facts: EpisodeFacts): EpisodeEfficiency {
   const gaps = facts.runs.flatMap((run) => (run.tokenGap ? [run.tokenGap] : []));
   const gates = facts.runs.map((run) => run.gate);
   const known = gates.flatMap((gate) => (gate ? [gate] : []));
+  // Spec 0045 D5: a run whose commits left the gate to the native hook has no
+  // observed gate; reporting zero executions would read as "it never ran".
+  const nativeDeferred = known.some((gate) => gate.executions === 0 && gate.deferred > 0);
   return {
     ...base,
     tokens,
@@ -238,18 +241,19 @@ export function efficiencyOf(facts: EpisodeFacts): EpisodeEfficiency {
           : (gaps[0] ?? null),
     attributedRuns: facts.runs.length,
     gate:
-      known.length === gates.length
+      known.length === gates.length && !nativeDeferred
         ? known.reduce(
             (sum, gate) => ({
               executions: sum.executions + gate.executions,
               failures: sum.failures + gate.failures,
               notRun: sum.notRun + gate.notRun,
               unverifiable: sum.unverifiable + gate.unverifiable,
+              deferred: sum.deferred + gate.deferred,
             }),
-            { executions: 0, failures: 0, notRun: 0, unverifiable: 0 },
+            { executions: 0, failures: 0, notRun: 0, unverifiable: 0, deferred: 0 },
           )
         : null,
-    gateReason: known.length === gates.length ? null : "unsealed",
+    gateReason: nativeDeferred ? "native-hook" : known.length === gates.length ? null : "unsealed",
   };
 }
 
@@ -491,6 +495,7 @@ export function summarizeEpisodes(
         failures: sum("failures"),
         notRun: sum("notRun"),
         unverifiable: sum("unverifiable"),
+        deferred: sum("deferred"),
         episodes: gateEpisodes,
         eligible: rows.length,
         withoutGateExecution: gated.filter((gate) => gate.executions === 0).length,
