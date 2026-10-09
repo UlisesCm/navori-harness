@@ -1,6 +1,6 @@
-// navori:managed-file id="pi-extension" hash="fca583762ce894d2c937b287c67126e3ad045ce7fefff6e87f30cafdb25f3263"
+// navori:managed-file id="pi-extension" hash="d48bcb749e584703c533611e1a691412d66cff942d2a6013e23a4c4a92faa544"
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import { VERSION, defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -360,6 +360,134 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
   });
 }
 
+// Host-observed acceptance evidence (spec 0047 R7, D4). Same neutral line the Claude hook appends to
+// workplan_<feature>.evidence.jsonl; read back by "navori plan update" via validateEvidence. The command is
+// never run from here: it only records what Pi's own built-in bash tool already ran and reported.
+const EVIDENCE_DIRS = [".navori/state/handoffs", ".claude/progress", ".codex/progress"];
+const FINGERPRINT_EXCLUDES = [".navori/state", ".claude/progress", ".codex/progress", ".claude/worktrees"];
+const GIT_HARDENING = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"];
+const GIT_TIMEOUT_MS = 120_000;
+const MAX_SEEN_CALLS = 1024;
+const seenCalls = new Set<string>();
+type GitOptions = { env?: NodeJS.ProcessEnv; input?: string };
+type FsStat = { isSymbolicLink(): boolean; isFile(): boolean; mode: number };
+
+/** Git with repo-controlled code paths neutralized; undefined on any failure. */
+function git(cwd: string, args: string[], options: GitOptions = {}): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const child = spawn("git", [...GIT_HARDENING, ...args], { cwd, env: options.env ?? process.env, stdio: ["pipe", "pipe", "ignore"] });
+    const chunks: Buffer[] = [];
+    const timer = setTimeout(() => child.kill("SIGKILL"), GIT_TIMEOUT_MS);
+    child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.stdin.on("error", () => {});
+    child.stdin.end(options.input ?? "");
+    child.on("error", () => { clearTimeout(timer); resolve(undefined); });
+    child.on("close", (code: number | null) => { clearTimeout(timer); resolve(code === 0 ? Buffer.concat(chunks).toString("utf8") : undefined); });
+  });
+}
+
+/** Content hash of the whole working tree; same procedure as fingerprintTree in lib/plan/evidence.ts (change one, change both). */
+async function fingerprintTree(tree: string): Promise<string | undefined> {
+  const scratch = (await git(tree, ["rev-parse", "--path-format=absolute", "--git-path", "navori-fp-index"]))?.trim();
+  if (!scratch || existsSync(scratch + ".lock")) return undefined;
+  const listed = await git(tree, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate", "--", ".",
+    ...FINGERPRINT_EXCLUDES.map((path) => ":(exclude,literal)" + path)]);
+  if (listed === undefined) return undefined;
+  const files: Array<{ path: string; mode: string }> = [];
+  const links: Array<{ path: string; target: string }> = [];
+  for (const path of listed.split("\0").filter(Boolean)) {
+    if (path.includes("\n")) return undefined;
+    let stat: FsStat;
+    try { stat = lstatSync(join(tree, path)); } catch { continue; }
+    if (stat.isSymbolicLink()) links.push({ path, target: readlinkSync(join(tree, path)) });
+    else if (stat.isFile()) files.push({ path, mode: stat.mode & 0o111 ? "100755" : "100644" });
+  }
+  const entries: string[] = [];
+  if (files.length) {
+    const shas = (await git(tree, ["hash-object", "-w", "--no-filters", "--stdin-paths"], { input: files.map((f) => f.path).join("\n") + "\n" }))
+      ?.split("\n").filter(Boolean);
+    if (!shas || shas.length !== files.length) return undefined;
+    files.forEach((f, i) => entries.push(f.mode + " " + shas[i] + "\t" + f.path + "\0"));
+  }
+  for (const link of links) {
+    const sha = (await git(tree, ["hash-object", "-w", "--no-filters", "--stdin"], { input: link.target }))?.trim();
+    if (!sha) return undefined;
+    entries.push("120000 " + sha + "\t" + link.path + "\0");
+  }
+  const env = { ...process.env, GIT_INDEX_FILE: scratch };
+  if ((await git(tree, ["read-tree", "--empty"], { env })) === undefined) return undefined;
+  if (entries.length && (await git(tree, ["update-index", "--add", "-z", "--index-info"], { env, input: entries.join("") })) === undefined) return undefined;
+  return (await git(tree, ["write-tree"], { env }))?.trim() || undefined;
+}
+
+type EvidenceEvent = { toolName: string; toolCallId: string; input: unknown; isError: boolean; structuredContent?: unknown };
+type EvidenceContext = { cwd: string; sessionManager?: { getSessionId?: () => string } };
+type ToolRegistry = { getAllTools?: () => Array<{ name: string; sourceInfo?: { path?: string; source?: string } }> };
+
+/**
+ * Terminal success contract of Pi 1.1.0's built-in bash tool (probed in first-class-evidence.test.ts): the result carries
+ * structuredContent.exit_code, and a non-zero exit is isError:true. Success needs BOTH (isError alone, or text, never
+ * proves it), and the registered bash must be the built-in one: a replaced tool can claim any shape. Anything missing
+ * means no evidence (fail closed). Parent, child and nested (parentToolCallId) calls all go through here.
+ */
+function isVerifiedBashSuccess(pi: ToolRegistry, event: EvidenceEvent): event is EvidenceEvent & { input: { command: string } } {
+  if (event.toolName !== "bash" || event.isError !== false || !isRecord(event.input) || typeof event.input.command !== "string") return false;
+  if (!isRecord(event.structuredContent) || event.structuredContent.exit_code !== 0) return false;
+  if (typeof pi.getAllTools !== "function") return false;
+  const bash = pi.getAllTools().find((tool) => tool.name === "bash");
+  return bash?.sourceInfo?.path === "builtin:bash" && bash.sourceInfo.source === "builtin";
+}
+
+/** Pending criteria whose command equals this one exactly, from the CLI-written acceptance-index. */
+function matchingCriteria(cwd: string, command: string): Array<{ feature: string; id: string; dir: string }> {
+  let index: string;
+  try { index = readFileSync(join(cwd, EVIDENCE_DIRS[0], "acceptance-index"), "utf8"); } catch { return []; }
+  const hits: Array<{ feature: string; id: string; dir: string }> = [];
+  for (const row of index.split("\n")) {
+    const fields = row.split("\t");
+    // Delivery-bound criteria (6 fields) need producer authority Pi does not capture: never recorded here.
+    if (fields.length !== 4) continue;
+    let criterion: unknown;
+    try { criterion = JSON.parse('"' + fields[0] + '"'); } catch { continue; }
+    if (criterion !== command) continue;
+    const [, feature, id, dir] = fields;
+    if (!/^[a-z0-9][a-z0-9._-]*$/.test(feature) || !/^A[0-9]+$/.test(id)) continue;
+    if (!EVIDENCE_DIRS.some((rel) => join(cwd, rel) === dir)) continue;
+    hits.push({ feature, id, dir });
+  }
+  return hits;
+}
+
+/** Append one evidence line per pending criterion matched by a verified, exact bash success. Never runs the command. */
+async function recordEvidence(pi: ToolRegistry, event: EvidenceEvent, ctx: EvidenceContext): Promise<void> {
+  if (!isVerifiedBashSuccess(pi, event)) return;
+  const command = event.input.command;
+  const sessionId = (ctx.sessionManager?.getSessionId?.() ?? "").replace(/[^A-Za-z0-9._-]/g, "");
+  const callKey = sessionId + "\0" + event.toolCallId;
+  if (seenCalls.has(callKey)) return;
+  const hits = matchingCriteria(ctx.cwd, command);
+  if (!hits.length) return;
+  seenCalls.add(callKey);
+  if (seenCalls.size > MAX_SEEN_CALLS) seenCalls.delete(seenCalls.values().next().value as string);
+  const tree = (await git(ctx.cwd, ["rev-parse", "--show-toplevel"]))?.trim();
+  if (!tree || /[\u0000-\u001f]/.test(ctx.cwd + tree)) return;
+  const head = (await git(tree, ["rev-parse", "HEAD"]))?.trim() ?? "";
+  const headTree = (await git(tree, ["rev-parse", "HEAD^{tree}"]))?.trim() ?? "";
+  const worktreeTree = await fingerprintTree(tree);
+  if (!worktreeTree) return;
+  const role = (process.env.NAVORI_PI_CHILD_ROLE ?? "").replace(/[^A-Za-z0-9._-]/g, "");
+  const ts = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+  for (const hit of hits) {
+    const file = join(hit.dir, "workplan_" + hit.feature + ".evidence.jsonl");
+    try {
+      if (existsSync(file) && lstatSync(file).isSymbolicLink()) continue;
+      const line = { ts, feature: hit.feature, id: hit.id, command, tree, cwd: ctx.cwd, head, worktreeTree, dirty: worktreeTree !== headTree,
+        ...(sessionId ? { sessionId } : {}), ...(process.env.NAVORI_PI_CHILD_DEPTH && role ? { agentId: "pi-" + role } : {}) };
+      appendFileSync(file, JSON.stringify(line) + "\n");
+    } catch { /* Fail-open: no line means plan update asks for a rerun. */ }
+  }
+}
+
 export default function (pi: ExtensionAPI): void {
   try {
     assertSupportedPiRuntime(VERSION);
@@ -386,6 +514,10 @@ export default function (pi: ExtensionAPI): void {
     if (/\.mdx?$/i.test(input.path)) {
       return { block: true, reason: "Navori scribe owns Markdown; direct Pi edit/write blocked. Bash is outside this advisory boundary." };
     }
+  });
+  // Registered before the parent-only return below: children and nested calls must be observed too.
+  pi.on("tool_result", async (event, ctx) => {
+    try { await recordEvidence(pi, event, ctx); } catch { /* Observation never alters or fails a tool result. */ }
   });
   if (process.env.NAVORI_PI_CHILD_DEPTH) return;
   pi.on("before_agent_start", async (event, ctx) => {

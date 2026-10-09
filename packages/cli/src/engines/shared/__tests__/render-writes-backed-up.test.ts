@@ -140,7 +140,10 @@ describe("render — every write is covered by a backup (#458)", () => {
      * Each entry is a decision, not a snooze: adding one means arguing why the
      * write cannot destroy repo content the user would want back.
      */
-    const ALLOWED: Record<string, string> = {};
+    const ALLOWED: Record<string, string> = {
+      "engines/pi/extension-source.ts":
+        "the appendFileSync lives in the Pi extension source template string and runs only inside a Pi session (evidence log append), never during render",
+    };
 
     const WRITE_PRIMITIVE =
       /\b(writeFileAtomic|writeFileSync|appendFileSync|copyFileSync|cpSync|renameSync|rmSync|unlinkSync|rmdirSync)\(/;
