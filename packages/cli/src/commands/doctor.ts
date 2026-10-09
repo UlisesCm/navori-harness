@@ -94,6 +94,8 @@ import { scanMasterPlan } from "../lib/diagnose/master-plan.ts";
 import { codegraphWiringFindings, scanCodegraphWiring } from "../lib/diagnose/codegraph-wiring.ts";
 import { scanNestedWorktrees } from "../lib/workspace/nested-worktrees.ts";
 import { scanForeignHarness, type ForeignHarnessReport } from "../lib/diagnose/foreign-harness.ts";
+import { scanGlobalLayerLeftovers, type GlobalLeftover } from "../lib/diagnose/global-leftovers.ts";
+import { claudeUserDir } from "../engines/claude/user-scope.ts";
 import { scanDistribution, type DistributionReport } from "../lib/diagnose/distribution.ts";
 import { scanPermissionMode, scanRetiredAssets } from "../lib/diagnose/health.ts";
 import {
@@ -358,6 +360,8 @@ export const doctorCommand = defineCommand({
     const provenance = buildDoctorProvenance(cwd);
     const engineEvidence = buildEngineEvidence(config, cwd);
     const foreignHarness = scanForeignHarness(cwd, config);
+    // Spec 0046 D5: advisory only - feeds neither the verdict nor `--strict`.
+    const globalLayerLeftovers = scanGlobalLayerLeftovers();
     const permissionModes = scanPermissionMode(cwd);
     // Informational: a name like `temp-app` or `my-app` is almost always a
     // never-renamed scaffold (the package.json carried it through). Doesn't
@@ -495,6 +499,7 @@ export const doctorCommand = defineCommand({
       engineInventory,
       provenance,
       engineEvidence,
+      globalLayerLeftovers,
     };
 
     if (args.json) {
@@ -1306,6 +1311,16 @@ export const doctorCommand = defineCommand({
       if (fh.length > 0) p.note(fh.join("\n"), td.foreignHarnessTitle);
     }
 
+    if (globalLayerLeftovers.length > 0) {
+      p.log.warn(
+        globalLayerLeftoversMessage(
+          globalLayerLeftovers,
+          join(claudeUserDir(), "settings.json"),
+          td,
+        ),
+      );
+    }
+
     const hasIssues = !verdict.ok;
     const strictFail = isStrictModeFailure(Boolean(args.strict), drifts, mcpCoherenceIssues);
     p.outro(
@@ -1333,6 +1348,39 @@ export const doctorCommand = defineCommand({
  * covered the scan would prove the conflict was found and nothing about the
  * claim made to the reader.
  */
+/**
+ * The warning for leftovers of the retired global layer (spec 0046 D5): the
+ * leftovers found and only the removal steps that apply, in an order that keeps
+ * `ownedPermissions` readable until the personal settings are cleaned. Pure;
+ * paths are the resolved ones, never a hardcoded `~/.claude`.
+ */
+export function globalLayerLeftoversMessage(
+  leftovers: GlobalLeftover[],
+  settingsPath: string,
+  td: ReturnType<typeof tc>["doctor"],
+): string {
+  const by = (kind: GlobalLeftover["kind"]): string | undefined =>
+    leftovers.find((l) => l.kind === kind)?.path;
+  const plist = by("launch-agent");
+  const hook = by("legacy-hook");
+  const plugin = by("plugin");
+  const manifest = by("manifest");
+  const steps: string[] = [];
+  if (plist) steps.push(td.globalLayerStepLaunchAgent(plist), td.globalLayerStepAuditAlways);
+  if (hook || manifest) {
+    steps.push(
+      td.globalLayerStepSettings(settingsPath, "navori-global-baseline.sh", manifest ?? null),
+    );
+  }
+  const files = [plugin, hook].filter((x): x is string => x !== undefined);
+  if (files.length > 0) steps.push(td.globalLayerStepFiles(files));
+  if (manifest) steps.push(td.globalLayerStepManifest(manifest));
+  return td.globalLayerLeftovers([
+    ...leftovers.map((l) => td.globalLayerLeftoverRow(l.kind, l.path)),
+    ...steps,
+  ]);
+}
+
 export function foreignHarnessLines(
   report: ForeignHarnessReport,
   td: ReturnType<typeof tc>["doctor"],

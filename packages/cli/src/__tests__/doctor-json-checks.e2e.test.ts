@@ -91,6 +91,7 @@ interface DoctorReport {
     emptyDeclared: boolean;
   } | null;
   availableExternalProviders: string[];
+  globalLayerLeftovers: Array<{ kind: string; path: string }>;
   config: { monorepo?: { workspaces: Array<{ name: string; path: string }> } };
 }
 
@@ -447,6 +448,31 @@ describe("doctor --json — personal settings vs this repo, no global layer (#54
     const quiet = runCli(["doctor", "--cwd", repo], env);
     expect(quiet.status).toBe(0);
     for (const title of TITLES) expect(quiet.stdout).not.toContain(title);
+  });
+
+  // Covers: R8
+  it("globalLayerLeftovers vacío", () => {
+    const { repo, env } = seedGlobalRepo();
+    expect(doctorJson(repo, env).globalLayerLeftovers).toEqual([]);
+    const quiet = runCli(["doctor", "--cwd", repo], env);
+    expect(quiet.status).toBe(0);
+    expect(quiet.stdout + quiet.stderr).not.toMatch(
+      /launchctl|global\.json|navori-global-baseline/,
+    );
+  });
+
+  // Covers: R6, R8
+  it("reports a leftover in both outputs without changing the exit code", () => {
+    const { repo, home, env } = seedGlobalRepo();
+    const manifest = join(home, ".navori", "global.json");
+    mkdirSync(join(home, ".navori"), { recursive: true });
+    writeFileSync(manifest, "{}");
+    expect(doctorJson(repo, env).globalLayerLeftovers).toEqual([
+      { kind: "manifest", path: manifest },
+    ]);
+    const loud = runCli(["doctor", "--strict", "--cwd", repo], env);
+    expect(loud.status).toBe(0);
+    expect(loud.stdout + loud.stderr).toContain(manifest);
   });
 
   it("still reports the personal-settings conflict in the human run (foreignHarness)", () => {

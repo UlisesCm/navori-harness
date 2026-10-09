@@ -985,6 +985,14 @@ interface DoctorCmdStrings {
   codexVersionUnverified: (found: string, verified: string) => string;
   /** Spec 0041 T20 follow-up — the global `navori` the hooks call is older than this CLI. */
   globalCliStale: (global: string, current: string) => string;
+  /** Spec 0046 D5 - leftovers of the retired global layer, with the removal steps that apply. */
+  globalLayerLeftovers: (lines: string[]) => string;
+  globalLayerLeftoverRow: (kind: string, path: string) => string;
+  globalLayerStepLaunchAgent: (plist: string) => string;
+  globalLayerStepAuditAlways: string;
+  globalLayerStepSettings: (settings: string, hook: string, manifest: string | null) => string;
+  globalLayerStepFiles: (paths: string[]) => string;
+  globalLayerStepManifest: (manifest: string) => string;
   /** Spec 0041 T17 — the worktree trust scan failed (git or IO); degraded, never fatal. */
   codexWorktreeScanFailed: (reason: string) => string;
   /** Spec 0041 R32 — a rendered agent model is older than what its family resolves to now. */
@@ -2210,6 +2218,16 @@ const CMD_ES: CmdStrings = {
       `hook '${hook}' sin aprobar en el worktree ${path} — corre 'cd ${path} && navori codex trust'`,
     codexVersionUnverified: (found, verified) =>
       `codex ${found} > ${verified} (última versión verificada) — re-verifica los guards antes de confiar en ellos`,
+    globalLayerLeftovers: (lines) =>
+      `quedan restos de la capa global retirada de navori. Pasos para limpiarlos, en este orden:\n${lines.join("\n")}`,
+    globalLayerLeftoverRow: (kind, path) => `  - ${kind}: ${path}`,
+    globalLayerStepLaunchAgent: (plist) =>
+      `  1. launchctl bootout gui/$(id -u)/com.navori.audit-collect y borra ${plist}`,
+    globalLayerStepAuditAlways: `     (si usas audit.mode: always, el bootout detiene su receptor: corre 'navori audit --collect' con tu propio supervisor)`,
+    globalLayerStepSettings: (settings, hook, manifest) =>
+      `  2. en ${settings}, quita las entradas SessionStart que apuntan a ${hook}${manifest ? ` y las reglas listadas en ownedPermissions de ${manifest}` : ""} (antes de borrar el manifiesto)`,
+    globalLayerStepFiles: (paths) => `  3. borra ${paths.join(" y ")}`,
+    globalLayerStepManifest: (manifest) => `  4. borra ${manifest}`,
     globalCliStale: (global, current) =>
       `el 'navori' global del PATH es ${global}, más viejo que este CLI (${current}) y los hooks renderizados lo ejecutan: correrían lógica vieja sin avisar — actualiza con 'npm i -g navori@${current}'`,
     codexWorktreeScanFailed: (reason) =>
@@ -3504,6 +3522,16 @@ const CMD_EN: CmdStrings = {
       `hook '${hook}' unapproved in worktree ${path} — run 'cd ${path} && navori codex trust'`,
     codexVersionUnverified: (found, verified) =>
       `codex ${found} > ${verified} (last verified version) — re-verify the guards before relying on them`,
+    globalLayerLeftovers: (lines) =>
+      `leftovers of navori's retired global layer remain. Steps to clean them up, in this order:\n${lines.join("\n")}`,
+    globalLayerLeftoverRow: (kind, path) => `  - ${kind}: ${path}`,
+    globalLayerStepLaunchAgent: (plist) =>
+      `  1. launchctl bootout gui/$(id -u)/com.navori.audit-collect, then delete ${plist}`,
+    globalLayerStepAuditAlways: `     (if you use audit.mode: always, the bootout stops its receiver: run 'navori audit --collect' under your own supervisor)`,
+    globalLayerStepSettings: (settings, hook, manifest) =>
+      `  2. in ${settings}, remove the SessionStart entries pointing to ${hook}${manifest ? ` and the rules listed in ownedPermissions of ${manifest}` : ""} (before deleting the manifest)`,
+    globalLayerStepFiles: (paths) => `  3. delete ${paths.join(" and ")}`,
+    globalLayerStepManifest: (manifest) => `  4. delete ${manifest}`,
     globalCliStale: (global, current) =>
       `the global 'navori' on PATH is ${global}, older than this CLI (${current}) and the rendered hooks run it: they would silently run old logic — update with 'npm i -g navori@${current}'`,
     codexWorktreeScanFailed: (reason) => `could not check Codex trust across worktrees (${reason})`,

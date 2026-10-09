@@ -61,14 +61,14 @@ Estimated LOC: 6000
 - **A5** [observable] — los restos se reportan, el HOME no cambia y sin restos no hay ruido ·
   `cd packages/cli && bun run test src/lib/diagnose/__tests__/global-leftovers.test.ts src/__tests__/doctor-json-checks.e2e.test.ts`
   → exit 0, 0 failed
-- [ ] **T10** (R6) — `lib/diagnose/global-leftovers.ts` (`scanGlobalLayerLeftovers`) detecta los
+- [x] **T10** (R6) — `lib/diagnose/global-leftovers.ts` (`scanGlobalLayerLeftovers`) detecta los
   cuatro restos de D5 (`plugin` solo con `plugin.json` de navori) y `doctor` imprime el warning con
   los pasos que aplican, con rutas resueltas · effect: behavior · test:
   `lib/diagnose/__tests__/global-leftovers.test.ts`::"reporta cada resto con sus pasos"
-- [ ] **T11** (R7) — el chequeo es de solo lectura: snapshot de rutas, tamaños y `mtime` del HOME
+- [x] **T11** (R7) — el chequeo es de solo lectura: snapshot de rutas, tamaños y `mtime` del HOME
   temporal idéntico antes y después de `doctor`; un `skills/navori` ajeno no es resto · effect:
   behavior · test: `lib/diagnose/__tests__/global-leftovers.test.ts`::"no escribe fuera del repo"
-- [ ] **T12** (R8) — sin restos, la salida humana no menciona la capa y `doctor --json` trae
+- [x] **T12** (R8) — sin restos, la salida humana no menciona la capa y `doctor --json` trae
   `globalLayerLeftovers: []` en lugar de `globalScope` · effect: behavior · test:
   `__tests__/doctor-json-checks.e2e.test.ts`::"globalLayerLeftovers vacío"
 
