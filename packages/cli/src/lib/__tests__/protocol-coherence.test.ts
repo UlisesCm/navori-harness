@@ -438,3 +438,41 @@ describe("phase owners (T16)", () => {
     expect(skill).not.toMatch(/gh (pr|issue) comment/);
   });
 });
+
+/**
+ * #1274: the reviewer stops re-reading the whole solution and the whole
+ * review-diff every round, without losing SPEC_MISS detection. Red until the
+ * scribe applies the `reviewer` prose requests.
+ */
+describe("reviewer re-reads (#1274)", () => {
+  const reviewer = read("agents/reviewer.md");
+
+  it("reads the solution by its fixed headings and falls back to the whole file", () => {
+    for (const heading of [
+      "Chosen solution",
+      "Boundaries & contracts",
+      "NOT in scope",
+      "revision after challenge",
+    ]) {
+      expect(reviewer).toContain(heading);
+    }
+    expect(reviewer).toMatch(/whole file when those headings are absent/);
+  });
+
+  it("round 2+ reopens the solution only on SPEC_MISS or out-of-diff files", () => {
+    const line = lineWith("agents/reviewer.md", "From round 2 on");
+    expect(line).toContain("SPEC_MISS");
+    expect(line).toContain("outside the prior diff");
+    expect(line).toContain("review_<feature>.md");
+  });
+
+  it("applies review-diff in full in round 1 and scoped from round 2", () => {
+    const line = lineWith("agents/reviewer.md", "in full in round 1");
+    expect(line).toContain("review-diff/SKILL.md");
+    expect(line).toContain("Pre-pass");
+  });
+
+  it("keeps the Coverage table mandatory on the signing round", () => {
+    expect(reviewer).toMatch(/Coverage[^\n]*signing round/);
+  });
+});

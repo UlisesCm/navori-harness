@@ -9,10 +9,10 @@ metadata:
   # no cabía en los 3 palabras de margen que quedaban.
   # spec 0033 R19: +29 palabras exactas del fallback de origin/dev
   # (fetch, ref no verificable, marca *unverified*) agregado al paso 1.
-  maxWords: 1119
+  maxWords: 1251
 ---
 
-<!-- navori:managed id="solution-design" hash="9557de4f" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="solution-design" hash="a6863c80" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # solution-design — decide what to build, then try to break it
 
 ## When to use this skill
@@ -135,6 +135,8 @@ optimization, an optional edge case, stylistic architecture taste.
 ## NOT in scope                  ← deferred work + why; stops "improving things along the way"
 ## Open questions                ← [repo] investigate · [human] ask · [assumed] recorded
 ```
+
+The headings `Chosen solution`, `Boundaries & contracts` and `NOT in scope` are a stable contract: the reviewer reads the artifact by those names, so do not rename them.
 
 ## Before declaring done
 
