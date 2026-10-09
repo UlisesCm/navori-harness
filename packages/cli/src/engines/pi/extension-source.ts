@@ -25,6 +25,8 @@ const MAX_CHILDREN = 3;
 const TIMEOUT_MS = 600_000;
 const GRACE_MS = 5_000;
 const MAX_OUTPUT_BYTES = 65_536;
+const MAX_EVENT_BYTES = 8 * 1024 * 1024;
+type ChildResult = { text: string; truncated: boolean };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -124,67 +126,135 @@ function roleSpec(cwd: string, role: Role): RoleSpec {
     tools: tools as string[], instructions: match[2].trim() };
 }
 
-function finalText(jsonl: string): string {
-  let text = "";
+/** Parse bounded raw-byte records, retaining only the latest complete assistant snapshot. */
+function childParser(): { feed: (chunk: Buffer) => void; finish: () => ChildResult } {
+  let pending = Buffer.alloc(0);
+  let pendingBytes = 0;
+  let result: ChildResult = { text: "", truncated: false };
   let settled = false;
-  for (const line of jsonl.split("\n")) {
-    if (!line.trim()) continue;
+  const record = (raw: Buffer): void => {
+    const line = raw.toString("utf8").replace(/\r$/, "");
+    if (!line.trim()) return;
     let event: unknown;
     try { event = JSON.parse(line); } catch { throw new Error("Invalid Pi child JSONL event"); }
     if (!isRecord(event)) throw new Error("Invalid Pi child JSONL event");
-    if (event.type === "agent_settled") settled = true;
-    if (event.type !== "message_end" || !isRecord(event.message) || event.message.role !== "assistant") continue;
+    if (event.type === "agent_settled") {
+      if (event.aborted === true) throw new Error("Pi child agent_settled aborted");
+      settled = true;
+    }
+    if (event.type !== "message_end" || !isRecord(event.message) || event.message.role !== "assistant") return;
     const blocks = event.message.content;
-    if (!Array.isArray(blocks)) continue;
-    const parts = blocks.filter((block: unknown): block is { type: string; text: string } =>
-      isRecord(block) && block.type === "text" && typeof block.text === "string");
-    text = parts.map((part) => part.text).join("\n");
-  }
-  if (!settled) throw new Error("Pi child stopped before agent_settled");
-  return text.slice(0, MAX_OUTPUT_BYTES);
+    if (!Array.isArray(blocks)) return;
+    let bytes = Buffer.alloc(0);
+    let total = 0;
+    let count = 0;
+    for (const block of blocks) {
+      if (!isRecord(block) || block.type !== "text" || typeof block.text !== "string") continue;
+      const part = Buffer.from((count++ ? "\n" : "") + block.text, "utf8");
+      total += part.length;
+      const remaining = MAX_OUTPUT_BYTES - bytes.length;
+      if (remaining > 0) bytes = Buffer.concat([bytes, part.subarray(0, remaining)]);
+    }
+    // A cutoff inside a multibyte character must drop the entire partial character.
+    if (total > MAX_OUTPUT_BYTES) {
+      let end = bytes.length;
+      let start = end - 1;
+      while (start >= 0 && (bytes[start] & 0xc0) === 0x80) start--;
+      if (start >= 0) {
+        const lead = bytes[start];
+        const width = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1;
+        if (end - start < width) end = start;
+      }
+      bytes = bytes.subarray(0, end);
+    }
+    result = { text: bytes.toString("utf8"), truncated: total > MAX_OUTPUT_BYTES };
+  };
+  return {
+    feed(chunk: Buffer): void {
+      let start = 0;
+      while (start < chunk.length) {
+        const newline = chunk.indexOf(10, start);
+        const end = newline < 0 ? chunk.length : newline;
+        const size = end - start;
+        if (pendingBytes + size > MAX_EVENT_BYTES) throw new Error("Pi child exceeded output limit: event record");
+        if (pendingBytes + size > pending.length) {
+          const capacity = Math.min(MAX_EVENT_BYTES, Math.max(pendingBytes + size, pending.length * 2, 4096));
+          const grown = Buffer.alloc(capacity);
+          pending.copy(grown, 0, 0, pendingBytes);
+          pending = grown;
+        }
+        chunk.copy(pending, pendingBytes, start, end);
+        pendingBytes += size;
+        if (newline < 0) return;
+        record(pending.subarray(0, pendingBytes));
+        pendingBytes = 0;
+        start = newline + 1;
+      }
+    },
+    finish(): ChildResult {
+      if (pendingBytes) record(pending.subarray(0, pendingBytes));
+      pending = Buffer.alloc(0);
+      pendingBytes = 0;
+      if (!settled) throw new Error("Pi child stopped before agent_settled");
+      return result;
+    },
+  };
 }
 
-function runChild(cwd: string, role: RoleSpec, task: string, parentSignal: AbortSignal): Promise<string> {
+/** Run one child with bounded incremental parsing and unchanged cancellation deadlines. */
+function runChild(cwd: string, role: RoleSpec, task: string, parentSignal: AbortSignal): Promise<ChildResult> {
   const args = ["--mode", "json", "--no-session", "--approve"];
   if (role.model) args.push("--model", role.model);
   if (role.tools.length) args.push("--tools", role.tools.join(","));
   else args.push("--no-tools");
   args.push("--", role.instructions + "\n\nTask: " + task);
-  return new Promise<string>((resolve, reject) => {
+  return new Promise<ChildResult>((resolve, reject) => {
     const child = spawn("pi", args, { cwd, env: { ...process.env, NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: role.name },
       detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
-    let output = "";
+    const parser = childParser();
+    let parseError: unknown;
     let stopping = false;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
+    // Kill the whole process group so descendants of the leader are cleaned up too.
+    const kill = (signal: NodeJS.Signals): void => {
+      try {
+        if (child.pid && process.platform !== "win32") process.kill(-child.pid, signal);
+        else child.kill(signal);
+      } catch { /* Process or group already exited. */ }
+    };
     const stop = (): void => {
       if (stopping) return;
       stopping = true;
-      const kill = (signal: NodeJS.Signals): void => {
-        try {
-          if (child.pid && process.platform !== "win32") process.kill(-child.pid, signal);
-          else child.kill(signal);
-        } catch { /* Process already exited. */ }
-      };
       kill("SIGTERM");
+      // Not cleared when the leader closes: descendants may outlive it and still need SIGKILL.
       killTimer = setTimeout(() => kill("SIGKILL"), GRACE_MS);
     };
     const timeout = setTimeout(stop, TIMEOUT_MS);
     const abort = (): void => stop();
+    const release = (): void => {
+      clearTimeout(timeout);
+      parentSignal.removeEventListener("abort", abort);
+    };
     parentSignal.addEventListener("abort", abort, { once: true });
     if (parentSignal.aborted) stop();
     child.stdout.on("data", (chunk: Buffer) => {
-      if (Buffer.byteLength(output) <= MAX_OUTPUT_BYTES * 4) output += chunk.toString("utf8");
-      if (Buffer.byteLength(output) > MAX_OUTPUT_BYTES * 4) stop();
+      if (stopping) return;
+      try { parser.feed(chunk); } catch (cause) { parseError = cause; stop(); }
     });
     child.stderr.resume();
-    child.on("error", (cause: Error) => { stop(); reject(cause); });
+    child.on("error", (cause: Error) => {
+      // A spawn failure has no process or group to escalate against.
+      if (!child.pid) { stopping = true; if (killTimer) clearTimeout(killTimer); }
+      else stop();
+      release();
+      reject(cause);
+    });
     child.on("close", (code: number | null) => {
-      clearTimeout(timeout);
-      if (killTimer) clearTimeout(killTimer);
-      parentSignal.removeEventListener("abort", abort);
-      if (stopping) reject(new Error("Pi child cancelled, timed out, or exceeded output limit"));
+      release();
+      if (parseError) reject(parseError);
+      else if (stopping) reject(new Error("Pi child cancelled, timed out, or exceeded output limit"));
       else if (code !== 0) reject(new Error("Pi child exited " + code + "; inspect Pi auth with /login openai-codex"));
-      else { try { resolve(finalText(output)); } catch (cause) { reject(cause); } }
+      else { try { resolve(parser.finish()); } catch (cause) { reject(cause); } }
     });
   });
 }
@@ -232,7 +302,7 @@ export default function (pi: ExtensionAPI): void {
       try {
         if (params.role !== "scout") await checkDispatch(ctx.cwd, params.role, params.task, params.feature, signal);
         const result = await runChild(ctx.cwd, spec, params.task, signal);
-        return { content: [{ type: "text", text: result }], details: { role: params.role, truncated: result.length >= MAX_OUTPUT_BYTES } };
+        return { content: [{ type: "text", text: result.text }], details: { role: params.role, truncated: result.truncated } };
       } finally { active--; }
     },
   }));
