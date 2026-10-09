@@ -127,17 +127,12 @@ export const ui = {
     "scopes.eyebrow": "Alcances",
     "scopes.title": "El harness ya no vive solo en el repo",
     "scopes.subtitle":
-      "Tres alcances aditivos, cada uno opt-in. Ninguno degrada al de abajo: el de la máquina se hace a un lado en cuanto encuentra un repo con navori.",
+      "Dos alcances aditivos, cada uno opt-in. El workspace se suma al repo sin degradarlo.",
     "scopes.repo.tag": "por repo",
     "scopes.repo.title": "El repo",
     "scopes.repo.body":
       "navori.config.json checked-in es la fuente de verdad. render reconstruye CLAUDE.md, .claude/ y progress/ desde ahí, idempotente y sin tocar lo que escribiste tú.",
     "scopes.repo.cmd": "navori init",
-    "scopes.global.tag": "por máquina",
-    "scopes.global.title": "La máquina",
-    "scopes.global.body":
-      "Las sesiones que arrancan fuera de un repo con navori —un scratch, un repo ajeno, tu home— hoy no tienen harness de ninguna clase. La capa global instala un piso de doctrina en ~/.claude, y se aparta sola cuando el repo trae el suyo.",
-    "scopes.global.cmd": "navori global init",
     "scopes.workspace.tag": "por organización",
     "scopes.workspace.title": "El workspace",
     "scopes.workspace.body":
@@ -264,8 +259,6 @@ export const ui = {
     "commands.bench.desc": "Mide render sobre N corridas y reporta p50/p95.",
     "commands.audit.desc":
       "Cómo corrió el harness de verdad: tokens por agente y doctrina que nadie siguió.",
-    "commands.global.desc":
-      "El harness base por máquina en ~/.claude, para las sesiones fuera de un repo con navori.",
     "commands.workspace.desc":
       "Config cross-repo y render del estándar a todos los repos de la org.",
     "commands.dominio.desc": "La base de conocimiento del workspace: los hechos que cruzan repos.",
@@ -434,17 +427,12 @@ export const ui = {
     "scopes.eyebrow": "Scopes",
     "scopes.title": "The harness no longer lives only in the repo",
     "scopes.subtitle":
-      "Three additive scopes, each opt-in. None degrades the one below it: the machine layer steps aside the moment it finds a repo with navori.",
+      "Two additive scopes, each opt-in. The workspace adds to the repo without degrading it.",
     "scopes.repo.tag": "per repo",
     "scopes.repo.title": "The repo",
     "scopes.repo.body":
       "A checked-in navori.config.json is the source of truth. render rebuilds CLAUDE.md, .claude/ and progress/ from it — idempotent, and without touching what you wrote.",
     "scopes.repo.cmd": "navori init",
-    "scopes.global.tag": "per machine",
-    "scopes.global.title": "The machine",
-    "scopes.global.body":
-      "Sessions that start outside a navori repo — a scratch dir, someone else's project, your home — have no harness at all. The global layer installs a floor of doctrine in ~/.claude, and steps aside on its own when the repo brings its own.",
-    "scopes.global.cmd": "navori global init",
     "scopes.workspace.tag": "per organization",
     "scopes.workspace.title": "The workspace",
     "scopes.workspace.body":
@@ -566,8 +554,6 @@ export const ui = {
     "commands.bench.desc": "Times render over N runs and reports p50/p95.",
     "commands.audit.desc":
       "How the harness actually ran: tokens per agent, and doctrine nobody followed.",
-    "commands.global.desc":
-      "The per-machine base harness in ~/.claude, for sessions outside a navori repo.",
     "commands.workspace.desc": "Cross-repo config, and rendering the standard to every org repo.",
     "commands.dominio.desc": "The workspace knowledge base: the facts that span repos.",
     "commands.ticket.desc": "Tickets as versionable files inside the workspace.",

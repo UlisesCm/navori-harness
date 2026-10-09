@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -138,6 +138,45 @@ describe("the website documents every registered subcommand (#548)", () => {
 
   it("carries no stale exemption (the list can only shrink)", () => {
     expect(audit.stale, staleMessage(audit.stale)).toEqual([]);
+  });
+});
+
+/** Public docs surface where the retired `navori global` must not be mentioned (spec 0046). */
+function publicDocSources(): string[] {
+  const website = resolve(REPO_ROOT, "apps", "website", "src");
+  const files = [
+    resolve(REPO_ROOT, "README" + ".md"),
+    resolve(REPO_ROOT, "packages", "cli", "README" + ".md"),
+    resolve(REPO_ROOT, "packages", "cli", "src", "engines", "README" + ".md"),
+  ];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = resolve(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      // releases.ts is the changelog history: it keeps naming the removed command.
+      else if (/\.(ts|astro)$/.test(entry.name) && entry.name !== "releases.ts") files.push(full);
+    }
+  };
+  walk(website);
+  return files;
+}
+
+describe("public docs after retiring the global layer (spec 0046)", () => {
+  // Covers: R9
+  it("docs públicas no mencionan navori global", () => {
+    const sources = publicDocSources();
+    expect(sources.length).toBeGreaterThan(5); // anti-false-green: the walk found the sources
+    const offenders = sources.filter((f) => /navori global/i.test(readFileSync(f, "utf8")));
+    expect(offenders.map((f) => f.slice(REPO_ROOT.length + 1))).toEqual([]);
+  });
+
+  // Covers: R10
+  it("DIRECTION no declara la capa global", () => {
+    const direction = readFileSync(resolve(REPO_ROOT, "docs", "DIRECTION" + ".md"), "utf8");
+    expect(direction).not.toContain("La capa global (`~/.claude`)");
+    expect(direction).not.toContain("navori global");
+    expect(direction).toContain("superseded por 0046");
+    expect(direction).toMatch(/^8\. \*\*Huella-cero sin opt-in\*\*/m);
   });
 });
 

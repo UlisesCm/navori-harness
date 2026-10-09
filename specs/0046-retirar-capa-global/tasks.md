@@ -74,10 +74,10 @@ Estimated LOC: 6000
 
 ### M6 — Docs, web y dirección
 - **A6** [observable] — ningún doc público documenta `navori global` · `bun check` → exit 0
-- [ ] **T13** (R9) — READMEs, `engines/README.md`, `apps/website` (`commands.ts`,
+- [x] **T13** (R9) — READMEs, `engines/README.md`, `apps/website` (`commands.ts`,
   `command-groups.ts`, `llms.txt.ts`, `Scopes.astro`, `i18n/ui.ts`) sin `navori global`;
   `releases.ts` intacto · effect: docs · test:
   `__tests__/command-docs-inventory.test.ts`::"docs públicas no mencionan navori global"
-- [ ] **T14** (R10) — `DIRECTION.md` según D7 (sección borrada, invariante 8 reescrito en su
+- [x] **T14** (R10) — `DIRECTION.md` según D7 (sección borrada, invariante 8 reescrito en su
   número, No-meta nueva) y línea de superseded en `specs/0010-global-harness/design.md` · effect:
   docs · test: `__tests__/command-docs-inventory.test.ts`::"DIRECTION no declara la capa global"

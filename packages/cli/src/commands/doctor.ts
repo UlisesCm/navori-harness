@@ -1340,15 +1340,6 @@ export const doctorCommand = defineCommand({
 });
 
 /**
- * The rows doctor prints for a foreign-harness report (#555).
- *
- * Exported and pure so its spec can assert the SENTENCE, which is the whole
- * product here: the row has to name which of the two files Claude Code loads,
- * and precedence runs the opposite way for agents and skills. A test that only
- * covered the scan would prove the conflict was found and nothing about the
- * claim made to the reader.
- */
-/**
  * The warning for leftovers of the retired global layer (spec 0046 D5): the
  * leftovers found and only the removal steps that apply, in an order that keeps
  * `ownedPermissions` readable until the personal settings are cleaned. Pure;
@@ -1381,6 +1372,15 @@ export function globalLayerLeftoversMessage(
   ]);
 }
 
+/**
+ * The rows doctor prints for a foreign-harness report (#555).
+ *
+ * Exported and pure so its spec can assert the SENTENCE, which is the whole
+ * product here: the row has to name which of the two files Claude Code loads,
+ * and precedence runs the opposite way for agents and skills. A test that only
+ * covered the scan would prove the conflict was found and nothing about the
+ * claim made to the reader.
+ */
 export function foreignHarnessLines(
   report: ForeignHarnessReport,
   td: ReturnType<typeof tc>["doctor"],
