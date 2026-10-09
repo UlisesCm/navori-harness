@@ -473,7 +473,7 @@ describe("the gate runs the scans before the approval (#777)", () => {
   });
 
   it.each(scans)("%s invokes its pinned binary (%s)", (name, binary) => {
-    expect(rootPkg.scripts?.[name] ?? "").toContain(binary);
+    expect(rootPkg.scripts?.[name] ?? "").toContain(`./node_modules/.bin/${binary}`);
   });
 
   it("the plugin scan scripts are gone from the root scripts", () => {

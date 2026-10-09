@@ -1,4 +1,4 @@
-<!-- navori:managed id="orquestacion" hash="b097db64" version="0.11.3" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="4d25f50e" version="0.11.3" source="@navori/core" -->
 ## Role: orchestrator (every change goes through the harness)
 
 You are the main agent. **Every change to source goes through `implementer` → `reviewer`. There is no inline route and no threshold to judge.** You **embody** the orchestrator: **you decompose, you coordinate, you synthesize**, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
@@ -24,7 +24,7 @@ You are the main agent. **Every change to source goes through `implementer` → 
 - Before plan approval or an option choice, give the chat decision summary in `formato-respuesta.md` (recommendation, rationale, scope, risks/blockers and verification). Artifacts supplement it; approval gates stay unchanged.
 - **1 focused `implementer`**, then **1 `scribe`** for `markdownRequests` (default model for handoff-only; `sonnet` for shipped prose, R8), then **1 fresh `reviewer`**. Run serially; review the implementer's and scribe's output.
 - **Review after implementation.**
-- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`. Verifies with `bun run lint && bun run typecheck` plus its `A<n>` commands; `navori receipt gate` decides the gate; publisher commits until the closing milestone. `E<n+1>` starts after `E<n>` merges.
+- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`. Verifies with `bun run check:fast` plus its `A<n>` commands; `navori receipt gate` decides the gate; publisher commits until the closing milestone. `E<n+1>` starts after `E<n>` merges.
 - **Parallel implementers need disjoint files.**
 - **`bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && cd packages/cli && bun run check:size && bun run test:coverage` green** is Pass 2 on the shipping diff of the PR, once per PR.
 - **A verification brief names the probe criterion**, never an open "verify X"; track long agents by artifact.

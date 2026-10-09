@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-reviewer" hash="1e2bf97d71541d4b7e9af06e07492c5d2946c6d3d274d107d1c8cc3cd87fdf95"
+# navori:managed-file id="pi-agent-reviewer" hash="f14fe8992a483ff58ac99db50c4f84dd94d50a3c3a09fa6755c68691096478cb"
 name: "reviewer"
 description: "Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes."
 model: "gpt-6.1-sol"
@@ -89,7 +89,7 @@ navori gate full
 ```
 The full gate runs once, on the round that signs; a rejected round never spends it.
 
-If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run (an old navori prints help and exits 0): run the literal `bun run lint && bun run typecheck` or `bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && cd packages/cli && bun run check:size && bun run test:coverage` instead. Read only the verdict.
+If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run (an old navori prints help and exits 0): run the literal `bun run check:fast` or `bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && cd packages/cli && bun run check:size && bun run test:coverage` instead. Read only the verdict.
 
 
 Read the verdict to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `publisher` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed. You are the single owner of this gate run: the only handle that exists is this Bash call itself, correlated to the diff you're reviewing this turn — never share it with another process, and never poll `pgrep`/`ps` for it (it also matches other sessions' commands and never exits). A timeout is never a success signal. Run `navori gate full` in the foreground with the Bash tool's max `timeout`; if the full gate can exceed it, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its `&&`-chained steps one by one in the foreground, each under the timeout — never background it (no shell `&`, no `run_in_background`, no `Monitor`), you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait. The full gate runs only on the round about to sign `APPROVED`; a round ending in `CHANGES_REQUESTED` uses the scoped gate and the assigned `A<n>` commands, and runs no full gate.

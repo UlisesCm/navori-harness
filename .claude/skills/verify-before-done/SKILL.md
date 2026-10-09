@@ -6,7 +6,7 @@ metadata:
   maxWords: 663
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="ff20e4c5" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="verify-before-done-base" hash="dc7ece53" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -25,7 +25,7 @@ BEFORE claiming "done / ready / approved": IDENTIFY the command that proves it �
 
 | Claim | Required output | Not sufficient |
 |---|---|---|
-| `bun run lint && bun run typecheck` / `bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && cd packages/cli && bun run check:size && bun run test:coverage` green | Full command run this turn, exit 0 | "ran it before", "should be green" |
+| `bun run check:fast` / `bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && cd packages/cli && bun run check:size && bun run test:coverage` green | Full command run this turn, exit 0 | "ran it before", "should be green" |
 | Zero new errors vs baseline | Classify per **Failure attribution** below: state per failure, demonstrated over `dev` | "outside the diff" / "inside the diff" alone |
 | UI validated in the browser (only if asked) | Observed state via the repo's browser tool this turn | "looks fine in code" |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
@@ -45,7 +45,7 @@ Never `git stash` to measure it — it empties the shared tree while another age
 
 ## Red flags (STOP)
 
-- About to write "done"/"ready"/"should work", or `git commit`/`APPROVED` without a fresh `bun run lint && bun run typecheck` run and a full diff read. "Just this once" — NO.
+- About to write "done"/"ready"/"should work", or `git commit`/`APPROVED` without a fresh `bun run check:fast` run and a full diff read. "Just this once" — NO.
 - Trusting a subagent's report without verifying its **load-bearing claims** (cited `file:line`s plus the diff it touched) — scope defined ONCE in `.claude/agents/orchestrator.md` § Anti-broken-telephone, never a full re-read of an already-validated diff.
 
 ## Rationalization prevention

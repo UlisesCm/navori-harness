@@ -1,4 +1,4 @@
-# navori:managed start id="qg-pre-commit-base" hash="be47c622" version="0.11.3" source="@navori/core"
+# navori:managed start id="qg-pre-commit-base" hash="f5149db7" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Pre-commit / pre-push quality gate hook.
@@ -1343,7 +1343,7 @@ if [ "$run_needed" = 1 ]; then
   # The gate string is still `eval`'d by run_gate below (running the gate is the
   # feature), but quoting it here means a hostile qualityGate.fast survives as one
   # literal token instead of injecting commands at variable-assignment time.
-  gate='bun run lint && bun run typecheck'
+  gate='bun run check:fast'
   gate_bin="${gate%% *}"
   if command -v "$gate_bin" >/dev/null 2>&1; then
     run_gate "$gate"

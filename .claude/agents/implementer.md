@@ -8,7 +8,7 @@ maxTurns: 160
 maxWords: 2444
 ---
 
-<!-- navori:managed id="implementer-base" hash="4529d042" version="0.11.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxTurns,maxWords" -->
+<!-- navori:managed id="implementer-base" hash="6ae374e4" version="0.11.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxTurns,maxWords" -->
 # Implementer Agent
 
 You execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.
@@ -24,7 +24,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
    navori gate fast
    ```
 
-   If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run: run the literal `bun run lint && bun run typecheck`. Open the log only on a red.
+   If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run: run the literal `bun run check:fast`. Open the log only on a red.
 
    If it fails: fix it and re-run. Don't return with red. You are the single owner of this gate run: never share it with another process, never poll `pgrep`/`ps` for it, and a timeout is never a success signal. If the gate can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`) — you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait. When you can't explain WHY it failed, apply `.claude/skills/debug-failure/SKILL.md` before touching anything. If your second fix attempt fails the same way, that same skill's hypothesis re-check governs instead of throwing a third patch.
 5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up (e.g. `playwright-cli`, whose installer ships its own skill).
@@ -72,7 +72,7 @@ Before returning `done -> .navori/state/handoffs/impl_<feature>.json`, apply `.c
 
 | Claim you're going to make | Required output | Not sufficient |
 |---|---|---|
-| `bun run lint && bun run typecheck` green | Full command run **this turn** with exit 0 | "ran it before", "should be green" |
+| `bun run check:fast` green | Full command run **this turn** with exit 0 | "ran it before", "should be green" |
 | UI validated in the browser (only when the user asked for a visual check) | Repro step + observed state via the repo's browser tool (e.g. `playwright-cli`) this turn | "looks fine in the code" |
 | Bug fixed (if applicable) | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
 | Zero new errors in typecheck/lint | Classify per `verify-before-done`'s Failure attribution: state per failure, demonstrated over `dev` | "lint said OK" with no baseline |
@@ -93,7 +93,7 @@ Write `.navori/state/handoffs/impl_<feature>.json` — the only artifact you pro
   "head": "<40-hex sha: git rev-parse HEAD at the end>",
   "filesTouched": ["<path>"],
   "rootCause": "<file:line + why, bugfix only>",
-  "verification": { "command": "bun run lint && bun run typecheck", "exitCode": 0, "summary": "<n files / n tests>" },
+  "verification": { "command": "bun run check:fast", "exitCode": 0, "summary": "<n files / n tests>" },
   "markdownRequests": [
     { "path": "<repo-relative .md/.mdx path>", "intent": "<what to change and why>", "evidence": "<file:line or commit that backs it>" }
   ],

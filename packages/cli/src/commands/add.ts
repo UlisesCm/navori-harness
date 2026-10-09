@@ -89,8 +89,9 @@ function runShellCommand(
   // `shell: true` is required here and pre-existing (see the SECURITY NOTES
   // above `INSTALL_TIMEOUT_MS`): the command is validated plugin.json content,
   // never user input, and is shown + confirmed before running.
+  // prettier-ignore
   // ast-grep-ignore: no-shell-exec
-  const result = spawnSync(cmd, {
+  const result = spawnSync(cmd, { // nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true
     shell: true,
     stdio: captureStderr ? ["inherit", "inherit", "pipe"] : "inherit",
     timeout: INSTALL_TIMEOUT_MS,

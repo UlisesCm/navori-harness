@@ -40,7 +40,7 @@ describe("this repo's quality gate (R23, R25)", () => {
       scripts: Record<string, string>;
     };
     expect(steps(pkg.scripts.check)).toEqual(steps(gate?.full));
-    expect(steps(gate?.fast)).toEqual(["lint", "typecheck"]);
+    expect(steps(gate?.fast)).toEqual(["check:fast"]);
     expect(pkg.scripts.typecheck).toBeTruthy();
     // Covers: R25
     // `scoped` is the static checks of `full` in order: no test step of any kind.

@@ -6,7 +6,7 @@ metadata:
   maxWords: 600
 ---
 
-<!-- navori:managed id="zod-validation" hash="7aa39ca8" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="zod-validation" hash="6bcd004e" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Zod Validation — the canonical pattern
 
 One schema per resource (`<resource>.schema.ts`), a generic validate middleware, and the DTO from `z.infer`.
@@ -93,7 +93,7 @@ if (!parsed.success) return res.status(400).json({ error: z.prettifyError(parsed
 
 - Every hard rule above holds for the code you touched.
 - APIs match the installed major — no `z.nativeEnum` on v4, no `z.prettifyError` on v3.
-- `bun run lint && bun run typecheck` green.
+- `bun run check:fast` green.
 <!-- /navori:managed id="zod-validation" -->
 
 ## This repo's schemas (your domain)

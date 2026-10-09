@@ -38,7 +38,9 @@ nadie tenga que aprobar nada a mano.
 Hay dos niveles:
 
 - **Rápido** — el pre-commit versionado (`bun hooks:install`) corre `bun check:fast` (format,
-  jscpd, ast-grep, lint, typecheck), sin tests. El job `fast` de CI, que corre en `dev` y en los
+  jscpd, ast-grep, lint, typecheck), sin tests. `qualityGate.fast` es `bun run check:fast`, así que
+  el hook de commit de los agentes (`quality-gate-pre-commit.sh`, PreToolUse sobre `git commit`)
+  corre la misma cadena que el pre-commit versionado. El job `fast` de CI, que corre en `dev` y en los
   PRs hacia `dev`, corre además `check:dup` y `check:ast`, sin tests.
 - **Completo** — `bun check`, abajo. Es lo que valida el job `quality` de CI en los PRs hacia
   `main` y en los pushes a `main`; si no pasa, el PR falla. Es el único nivel que corre tests y cobertura:
@@ -99,7 +101,10 @@ Hay dos niveles:
    (versionado): silencioso si pasa, y si falla re-corre en verbose marcando `[NEW]`.
    `check:dup:baseline` es `jscpd --update-baseline`. `check:ast` es
    `ast-grep test --skip-snapshot-tests && ast-grep scan` (reglas en `ast-grep/rules`, tests en
-   `ast-grep/rule-tests`, config `sgconfig.yml`). Una herramienta ausente es rojo, nunca se omite.
+   `ast-grep/rule-tests`, config `sgconfig.yml`). Una herramienta ausente es rojo, nunca se omite: los scripts llaman a
+   `./node_modules/.bin/jscpd` y `./node_modules/.bin/ast-grep` explícitamente, así que sin
+   `bun install` quedan en rojo aunque haya binarios globales. `report/` (salida del reporter JSON
+   de jscpd) está en `.gitignore`.
    Orden de `qualityGate.full` (`bun check`): format:check, lint, typecheck, check:dup, check:ast,
    check:links, check:render, check:assets, check:doc-budgets, check:blame-ignore, check:size,
    test:coverage. `check:scoped` es lo mismo sin test:coverage; `check:fast` (pre-commit) es
@@ -113,7 +118,12 @@ Hay dos niveles:
    **Supresiones.** Solo `// ast-grep-ignore: <rule-id>` (un ignore sin id falla
    `no-bare-ast-grep-ignore`) y `// any justified: <razón>` justo encima de la sentencia, que
    silencia únicamente `no-unjustified-double-cast` (`as unknown as`); **no** silencia
-   `no-explicit-any` de oxlint. Reglas ast-grep: no-shell-exec, no-unjustified-double-cast,
+   `no-explicit-any` de oxlint. Cuando una línea se suprime para ambas herramientas (hoy
+   `packages/cli/src/lib/gate/run.ts` y `packages/cli/src/commands/add.ts`), lleva
+   `// ast-grep-ignore: no-shell-exec` encima de la llamada y
+   `// nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true` al final de su
+   primera línea, más `// prettier-ignore` para que oxfmt no mueva ese comentario. Conserva ambos
+   comentarios: el job `semgrep` de `main` sigue leyendo `nosemgrep`. Reglas ast-grep: no-shell-exec, no-unjustified-double-cast,
    no-explicit-any (en dirs que oxlint no lintea: `apps/website/src`, `scripts`, `packages/core`,
    `packages/plugins`, `.pi/extensions`), no-bare-ast-grep-ignore, no-bash-eval.
    Huecos conocidos: `.astro`, `.mjs`, `.py` y casi todo `.sh` (salvo no-bash-eval) no están
