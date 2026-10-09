@@ -32,6 +32,8 @@ const ROLE_TOOLS: Readonly<Record<string, readonly string[]>> = {
   scout: ["read", "grep", "find", "ls", "write"],
   implementer: ["read", "grep", "find", "ls", "bash", "edit", "write"],
   reviewer: ["read", "grep", "find", "ls", "bash", "write"],
+  // Admitted only with harness.scribeOwnsMarkdown; its Bash runs its own handoff preflight.
+  scribe: ["read", "grep", "find", "ls", "bash", "edit", "write"],
 };
 const EXTENSION = ".pi/extensions/navori.ts";
 
@@ -77,17 +79,26 @@ export function renderPiEngine(
   };
   const plan = resolveHarnessPlan(config, coreAssets, preset);
   const collected = collectPlan(plan, adapter, ctx, { lang: resolveLang(config.language) });
-  const roles = plan.agents.filter((agent) => Object.hasOwn(ROLE_TOOLS, agent.id));
+  const scribeOwnsMarkdown = config.harness?.scribeOwnsMarkdown ?? false;
+  // The scribe is admitted only as the Markdown producer the project policy requires.
+  const admitted = (id: string): boolean =>
+    Object.hasOwn(ROLE_TOOLS, id) && (id !== "scribe" || scribeOwnsMarkdown);
+  const roles = plan.agents.filter((agent) => admitted(agent.id));
   const warnings = plan.agents
     .filter((agent) => !Object.hasOwn(ROLE_TOOLS, agent.id))
     .map((agent) => `Pi subagent role ${agent.id} is unsupported and was not rendered.`);
+  if (scribeOwnsMarkdown && !roles.some((agent) => agent.id === "scribe")) {
+    warnings.push(
+      "harness.scribeOwnsMarkdown forbids implementer Markdown but the scribe role is disabled; Pi implementer dispatch is refused until harness.scribe is enabled or scribeOwnsMarkdown is turned off.",
+    );
+  }
   const serialized = serializePiManifest({
     schemaVersion: 1,
     agents: roles.map((r) => r.id),
     controls: {
       planTiers: config.harness?.planTiers ?? false,
       masterPlan: config.harness?.masterPlan ?? false,
-      scribeOwnsMarkdown: config.harness?.scribeOwnsMarkdown ?? false,
+      scribeOwnsMarkdown,
     },
   });
   const extension = serializePiSource(PI_EXTENSION_SOURCE);

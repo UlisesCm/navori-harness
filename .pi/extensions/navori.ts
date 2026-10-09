@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="93c82773070c7ed6d45c937c628e6a663762b33dbd203015d6f8972232999a42"
+// navori:managed-file id="pi-extension" hash="81ee707d93ce41f50fc5d2ffe894c0ad026ccef8333ff13a13112761aa4b6b41"
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,17 +16,21 @@ function assertTrustedPiParent(ctx: { isProjectTrusted?: () => boolean }): void 
   if (!trusted) throw new Error("Navori Pi subagent requires a trusted parent project");
 }
 
-const assertSupportedPiRuntime = (function(e,t){function n(e){let t=/^v?(\d+)\.(\d+)\.(\d+)(?:\+[\w.-]+)?$/.exec(e.trim());if(!t)return null;let n=Number(t[1]),r=Number(t[2]),i=Number(t[3]);return[n,r,i].every(Number.isSafeInteger)?[n,r,i]:null}function r(e,t){return e[0]===t[0]?e[1]===t[1]?e[2]>=t[2]:e[1]>t[1]:e[0]>t[0]}return(i,a=process.versions.node)=>{let o=n(a),s=n(t);if(!o||!s||!r(o,s))throw Error(`Navori's Pi engine requires Node.js ${t} or later; found ${a}.`);let c=n(i),l=n(e);if(!c||!l||!r(c,l))throw Error(`Navori's Pi engine requires @earendil-works/pi-coding-agent ${e} or later; found ${i}. Run pi --version and upgrade Pi.`)}})("0.87.1", "22.19.0");
+const piRuntimeChecks = (function(e,t,n){function r(e){let t=/^v?(\d+)\.(\d+)\.(\d+)(?:\+[\w.-]+)?$/.exec(e.trim());if(!t)return null;let n=Number(t[1]),r=Number(t[2]),i=Number(t[3]);return[n,r,i].every(Number.isSafeInteger)?[n,r,i]:null}function i(e,t){return e[0]===t[0]?e[1]===t[1]?e[2]>=t[2]:e[1]>t[1]:e[0]>t[0]}return{assert:(n,a=process.versions.node)=>{let o=r(a),s=r(t);if(!o||!s||!i(o,s))throw Error(`Navori's Pi engine requires Node.js ${t} or later; found ${a}.`);let c=r(n),l=r(e);if(!c||!l||!i(c,l))throw Error(`Navori's Pi engine requires @earendil-works/pi-coding-agent ${e} or later; found ${n}. Run pi --version and upgrade Pi.`)},unverified:e=>{let t=r(e);return n.filter(e=>{let n=r(e.verifiedFrom);return!t||!n||!i(t,n)}).map(e=>e.capability+` (verified from Pi `+e.verifiedFrom+`)`)}}})("0.87.1", "22.19.0", [{"capability":"child-mcp-off","verifiedFrom":"1.1.0"},{"capability":"child-model-selection","verifiedFrom":"1.1.0"},{"capability":"child-tool-allowlist","verifiedFrom":"1.1.0"}]);
+const assertSupportedPiRuntime = piRuntimeChecks.assert;
+const unverifiedPiCapabilities = piRuntimeChecks.unverified;
 
 
-type Role = "scout" | "implementer" | "reviewer";
+type Role = "scout" | "implementer" | "reviewer" | "scribe";
 type RoleSpec = { name: Role; description: string; model?: string; tools: string[]; instructions: string };
 type Controls = { planTiers: boolean; masterPlan: boolean; scribeOwnsMarkdown: boolean };
-const ROLES = new Set<Role>(["scout", "implementer", "reviewer"]);
+const ROLES = new Set<Role>(["scout", "implementer", "reviewer", "scribe"]);
 const ROLE_TOOLS: Record<Role, ReadonlySet<string>> = {
   scout: new Set(["read", "grep", "find", "ls", "write"]),
   implementer: new Set(["read", "grep", "find", "ls", "bash", "edit", "write"]),
   reviewer: new Set(["read", "grep", "find", "ls", "bash", "write"]),
+  // The scribe's own Bash runs its handoff preflight; the implementer's Markdown block is unaffected.
+  scribe: new Set(["read", "grep", "find", "ls", "bash", "edit", "write"]),
 };
 const MAX_CHILDREN = 3;
 const TIMEOUT_MS = 600_000;
@@ -92,25 +96,40 @@ async function checkDispatch(cwd: string, role: Role, task: string,
     catch { throw new Error("Navori plan gate unavailable; subagent blocked"); }
     if (result.code !== 0) throw new Error("Navori plan gate blocked the implementer");
   }
-  if (role === "reviewer") {
+  if (role === "reviewer" || role === "scribe") {
     if (!feature || !/^[a-z0-9][a-z0-9_-]*$/.test(feature)) {
-      throw new Error("Reviewer requires an explicit Navori feature slug for handoff check");
+      throw new Error("Navori " + role + " requires an explicit Navori feature slug for handoff check");
     }
     let result;
     try { result = await runNavori(cwd, ["handoff", "check", feature,
-      "--for", "orchestrator", "--cwd", cwd, "--dir", ".navori/state/handoffs", "--json"],
+      "--for", role === "scribe" ? "scribe" : "orchestrator", "--cwd", cwd, "--dir", ".navori/state/handoffs", "--json"],
       "", signal); }
-    catch { throw new Error("Navori handoff check unavailable; reviewer blocked"); }
+    catch { throw new Error("Navori handoff check unavailable; " + role + " blocked"); }
     let parsed: unknown;
-    try { parsed = JSON.parse(result.stdout); } catch { throw new Error("Invalid Navori handoff check JSON; reviewer blocked"); }
+    try { parsed = JSON.parse(result.stdout); } catch { throw new Error("Invalid Navori handoff check JSON; " + role + " blocked"); }
     if (result.code !== 0 || !isRecord(parsed) || parsed.status !== "ok" ||
-        parsed.feature !== feature) throw new Error("Navori handoff check did not pass; reviewer blocked");
+        parsed.feature !== feature) throw new Error("Navori handoff check did not pass; " + role + " blocked");
+  }
+}
+
+function enabledRoles(cwd: string): unknown[] {
+  const manifest: unknown = JSON.parse(readFileSync(join(cwd, ".pi/navori.json"), "utf8"));
+  return isRecord(manifest) && Array.isArray(manifest.agents) ? manifest.agents : [];
+}
+
+/** Refuse before any child starts when the project forbids Markdown without enabling its producer. */
+function assertMarkdownProducer(cwd: string, role: Role): void {
+  const owned = controls(cwd).scribeOwnsMarkdown;
+  if (role === "scribe" && !owned) {
+    throw new Error("Navori scribe is admitted only when harness.scribeOwnsMarkdown is enabled");
+  }
+  if (role === "implementer" && owned && !enabledRoles(cwd).includes("scribe")) {
+    throw new Error("Markdown is owned by the scribe but the scribe role is not enabled; enable harness.scribe or disable harness.scribeOwnsMarkdown, then run navori render");
   }
 }
 
 function roleSpec(cwd: string, role: Role): RoleSpec {
-  const manifest: unknown = JSON.parse(readFileSync(join(cwd, ".pi/navori.json"), "utf8"));
-  if (!isRecord(manifest) || !Array.isArray(manifest.agents) || !manifest.agents.includes(role)) {
+  if (!enabledRoles(cwd).includes(role)) {
     throw new Error("Navori Pi role is not enabled: " + role);
   }
   const raw = readFileSync(join(cwd, ".pi/agents", role + ".md"), "utf8");
@@ -123,6 +142,11 @@ function roleSpec(cwd: string, role: Role): RoleSpec {
     fields.set(field[1], JSON.parse(field[2]));
   }
   const tools = fields.get("tools");
+  const mcpTools = Array.isArray(tools) ? tools.filter((tool: unknown) => typeof tool === "string" && /^mcp(?:$|[_:-])/i.test(tool)) : [];
+  if (mcpTools.length) {
+    throw new Error("Navori Pi role " + role + " requires MCP tools (" + mcpTools.join(", ") +
+      ") and is unavailable: E1 children run with --no-mcp. Remove them from its role file or wait for MCP-in-children support.");
+  }
   if (fields.get("name") !== role || typeof fields.get("description") !== "string" ||
       !Array.isArray(tools) || !tools.every((tool: unknown) => typeof tool === "string" && ROLE_TOOLS[role].has(tool))) {
     throw new Error("Unknown or missing Pi role tool mapping: " + role);
@@ -131,6 +155,30 @@ function roleSpec(cwd: string, role: Role): RoleSpec {
   if (model !== undefined && typeof model !== "string") throw new Error("Invalid Pi role model: " + role);
   return { name: role, description: fields.get("description") as string, model: model as string | undefined,
     tools: tools as string[], instructions: match[2].trim() };
+}
+
+type ModelContext = { model?: { provider?: unknown; id?: unknown }; modelRegistry?: { getAvailable?: () => Array<{ provider: string; id: string }> } };
+
+/** Resolve the exact provider/model a child runs on: role override wins, else the parent's identity. Never credentials. */
+function resolveModel(role: RoleSpec, ctx: ModelContext): string {
+  let effective = role.model;
+  if (effective === undefined) {
+    const parent = ctx.model;
+    if (!parent || typeof parent.provider !== "string" || typeof parent.id !== "string" || !parent.provider || !parent.id) {
+      throw new Error("Navori cannot determine the parent Pi model for role " + role.name + "; select one with /model or set an explicit model for the role");
+    }
+    effective = parent.provider + "/" + parent.id;
+  }
+  const slash = effective.indexOf("/");
+  const registry = ctx.modelRegistry;
+  if (slash > 0 && registry && typeof registry.getAvailable === "function") {
+    const provider = effective.slice(0, slash);
+    const id = effective.slice(slash + 1);
+    const bare = id.replace(/:[^:]*$/, "");
+    const available = registry.getAvailable().some((model) => model.provider === provider && (model.id === id || model.id === bare));
+    if (!available) throw new Error("Pi model " + effective + " is not available for role " + role.name + "; check /login and /model");
+  }
+  return effective;
 }
 
 /** Parse bounded raw-byte records, retaining only the latest complete assistant snapshot. */
@@ -209,9 +257,9 @@ function childParser(): { feed: (chunk: Buffer) => void; finish: () => ChildResu
 }
 
 /** Run one child with bounded incremental parsing and unchanged cancellation deadlines. */
-function runChild(cwd: string, role: RoleSpec, task: string, parentSignal: AbortSignal): Promise<ChildResult> {
-  const args = ["--mode", "json", "--no-session", "--approve"];
-  if (role.model) args.push("--model", role.model);
+function runChild(cwd: string, role: RoleSpec, model: string, task: string, parentSignal: AbortSignal): Promise<ChildResult> {
+  // --no-mcp: ambient MCP must be unreachable from E1 children; --model is always explicit (omitting it is not inheriting).
+  const args = ["--mode", "json", "--no-session", "--approve", "--no-mcp", "--model", model];
   if (role.tools.length) args.push("--tools", role.tools.join(","));
   else args.push("--no-tools");
   args.push("--", role.instructions + "\n\nTask: " + task);
@@ -297,18 +345,22 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool(defineTool({
     name: "navori_subagent",
     label: "Navori subagent",
-    description: "Run a bounded Navori scout, implementer, or reviewer child in this trusted project.",
-    parameters: Type.Object({ role: Type.Union([Type.Literal("scout"), Type.Literal("implementer"), Type.Literal("reviewer")]),
+    description: "Run a bounded Navori scout, implementer, reviewer, or scribe child in this trusted project.",
+    parameters: Type.Object({ role: Type.Union([Type.Literal("scout"), Type.Literal("implementer"), Type.Literal("reviewer"), Type.Literal("scribe")]),
       task: Type.String({ minLength: 1 }), feature: Type.Optional(Type.String()) }),
     async execute(_id, params, signal, _onUpdate, ctx) {
       assertTrustedPiParent(ctx);
       if (!ROLES.has(params.role)) throw new Error("Unsupported Navori Pi role");
+      const unverified = unverifiedPiCapabilities(VERSION);
+      if (unverified.length) throw new Error("Pi " + VERSION + " is not verified for Navori children: " + unverified.join(", ") + "; upgrade Pi");
       if (active >= MAX_CHILDREN) throw new Error("Navori Pi child concurrency limit reached (3)");
+      assertMarkdownProducer(ctx.cwd, params.role);
       const spec = roleSpec(ctx.cwd, params.role);
+      const model = resolveModel(spec, ctx);
       active++;
       try {
         if (params.role !== "scout") await checkDispatch(ctx.cwd, params.role, params.task, params.feature, signal);
-        const result = await runChild(ctx.cwd, spec, params.task, signal);
+        const result = await runChild(ctx.cwd, spec, model, params.task, signal);
         return { content: [{ type: "text", text: result.text }], details: { role: params.role, truncated: result.truncated } };
       } finally { active--; }
     },
