@@ -285,7 +285,6 @@ describe("interpolate — gate runner placeholders (#1272)", () => {
     ({ ...CONFIG, qualityGate }) as unknown as NavoriConfig;
   const safe = withGate({ fast: "pnpm lint && pnpm typecheck", full: "pnpm test" });
   const kinds = ["fast", "full"] as const;
-  const scopes = ["repo", "global"] as const;
 
   it.each(kinds)("repo + safe chain resolves to `navori gate %s`", (kind) => {
     expect(interpolate(`{{gateRun.${kind}}}`, safe)).toBe(`navori gate ${kind}`);
@@ -310,28 +309,18 @@ describe("interpolate — gate runner placeholders (#1272)", () => {
     },
   );
 
-  it.each(kinds)("global + safe chain matches {{qualityGate.%s}}", (kind) => {
-    const opts = { fallbackScope: "global" } as const;
-    expect(interpolate(`{{gateRun.${kind}}}`, safe, opts)).toBe(
-      interpolate(`{{qualityGate.${kind}}}`, safe, opts),
-    );
-    expect(interpolate(`{{gateRun.${kind}}}`, safe, opts)).not.toContain("navori gate");
-  });
-
   it.each<[string, Record<string, string> | undefined]>([
     ["undefined", undefined],
     ["empty", {}],
     ["only the other kind", { full: "pnpm test" }],
-  ])("unconfigured (%s) matches {{qualityGate.<kind>}} in both scopes", (_name, gate) => {
+  ])("unconfigured (%s) matches {{qualityGate.<kind>}}", (_name, gate) => {
     const cfg = withGate(gate);
-    for (const scope of scopes) {
-      // The kind actually configured is covered above; compare the missing one.
-      for (const kind of kinds.filter((k) => gate?.[k] === undefined)) {
-        for (const m of ["", "shq:"]) {
-          expect(interpolate(`{{${m}gateRun.${kind}}}`, cfg, { fallbackScope: scope })).toBe(
-            interpolate(`{{${m}qualityGate.${kind}}}`, cfg, { fallbackScope: scope }),
-          );
-        }
+    // The kind actually configured is covered above; compare the missing one.
+    for (const kind of kinds.filter((k) => gate?.[k] === undefined)) {
+      for (const m of ["", "shq:"]) {
+        expect(interpolate(`{{${m}gateRun.${kind}}}`, cfg)).toBe(
+          interpolate(`{{${m}qualityGate.${kind}}}`, cfg),
+        );
       }
     }
   });

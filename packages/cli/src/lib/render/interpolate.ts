@@ -2,7 +2,7 @@ import type { NavoriConfig } from "../config/config.ts";
 import { DEFAULT_COMPACT_ADVICE_TOKENS } from "../config/schema.ts";
 import { PROGRESS_HARD_CAP_BYTES, PROGRESS_SOFT_CAP_BYTES } from "../assets/doc-budgets.ts";
 import { resolveLang } from "../i18n.ts";
-import { placeholderFallback, type FallbackScope } from "./placeholders.ts";
+import { placeholderFallback } from "./placeholders.ts";
 import { shellSingleQuote } from "../primitives/shell-escape.ts";
 import { gateRunnerCommand } from "../../engines/shared/permission-rules.ts";
 
@@ -47,14 +47,6 @@ import { gateRunnerCommand } from "../../engines/shared/permission-rules.ts";
 export interface InterpolateOptions {
   extraVars?: Record<string, string>;
   omitUnresolvedKeyLines?: boolean;
-  /**
-   * Which scope's fallbacks answer an unresolved placeholder (Spec 0010 FB).
-   * `global` renders the same asset for `~/.claude/skills/navori/`, where
-   * `qualityGate.*`, `branchBase` and `prTarget` describe a repo that is not
-   * there — see `GLOBAL_FALLBACKS`. Defaults to `repo`, so the repo render is
-   * byte-identical to before (§2.4).
-   */
-  fallbackScope?: FallbackScope;
 }
 
 /**
@@ -124,13 +116,12 @@ export function interpolate(
       config.qualityGate?.scoped ?? config.qualityGate?.fast ?? "the repo's fast quality gate",
     ...options.extraVars,
   };
-  const scope = options.fallbackScope ?? "repo";
   if (!options.omitUnresolvedKeyLines) {
-    return interpolateRaw(content, config, extra, scope);
+    return interpolateRaw(content, config, extra);
   }
   return content
     .split("\n")
-    .map((line) => maybeInterpolateLine(line, config, extra, scope))
+    .map((line) => maybeInterpolateLine(line, config, extra))
     .filter((line): line is string => line !== null)
     .join("\n");
 }
@@ -139,7 +130,6 @@ function maybeInterpolateLine(
   line: string,
   config: NavoriConfig,
   extra: Record<string, string>,
-  scope: FallbackScope,
 ): string | null {
   // Both groups are mandatory in KEY_LINE_RE, so either the line is a key line
   // and both are present, or there was no match at all.
@@ -149,7 +139,7 @@ function maybeInterpolateLine(
     if (resolved === null) return null;
     return `${key}: ${resolved}`;
   }
-  return interpolateRaw(line, config, extra, scope);
+  return interpolateRaw(line, config, extra);
 }
 
 const GATE_RUN_RE = /^gateRun\.(fast|full)$/;
@@ -158,7 +148,6 @@ function interpolateRaw(
   content: string,
   config: NavoriConfig,
   extra: Record<string, string>,
-  scope: FallbackScope,
 ): string {
   return content.replace(PLACEHOLDER_RE, (_match, marker: string | undefined, rawPath: string) => {
     let path = rawPath;
@@ -167,7 +156,7 @@ function interpolateRaw(
     // literal gate and its repo/global/unconfigured fallbacks apply unchanged.
     const kind = marker === "raw" ? undefined : GATE_RUN_RE.exec(rawPath)?.[1];
     if (kind === "fast" || kind === "full") {
-      const runner = scope === "repo" ? gateRunnerCommand(config, kind) : null;
+      const runner = gateRunnerCommand(config, kind);
       if (runner !== null) return marker === "shq" ? shellSingleQuote(runner) : runner;
       path = `qualityGate.${kind}`;
     }
@@ -178,7 +167,7 @@ function interpolateRaw(
     // The fallback is prose the reader of the rendered file sees, so it follows
     // the repo's language like the rest of the published copy (#445).
     const resolved =
-      value !== null ? value : placeholderFallback(path, resolveLang(config.language), scope);
+      value !== null ? value : placeholderFallback(path, resolveLang(config.language));
     // `{{shq:path}}` — shell-quote so untrusted config can't escape its string
     // context in a generated `.sh` file (#197). Quote the fallback too, so an
     // unresolved `shq` placeholder still lands as an inert literal.

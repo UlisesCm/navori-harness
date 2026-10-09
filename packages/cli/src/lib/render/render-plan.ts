@@ -53,39 +53,6 @@ export interface CoreManagedAsset {
    */
   rootOnly?: boolean;
   /**
-   * Blocks that may compose the machine-wide global baseline (Spec 0010 §4) —
-   * the prose a session gets in a project with NO navori config at all.
-   *
-   * DECLARED, not inferred (#541). `composeBaseline` used to decide this by
-   * testing the body for `{{`, which measures interpolation, not global
-   * safety — and the two had already drifted apart: `arranque-sesion` stopped
-   * interpolating anything while still talking about `progress/current.md` and
-   * `navori doctor`, so it passed the filter and would have injected
-   * repo-specific prose into every session. Nothing failed, because nothing
-   * was checking the actual property.
-   *
-   * A block earns the mark only when all four hold, and
-   * `global-safe-inventory.test.ts` asserts the equivalence in BOTH directions
-   * so the audit cannot age in silence again:
-   *   1. every `{{...}}` resolves in the global scope — either to a value or to
-   *      a declared fallback. FB (#546) narrowed this from the old blanket ban
-   *      on interpolation: `qualityGate.*`, `branchBase` and `prTarget` now
-   *      render as the instruction to DERIVE them (`lib/placeholders.ts`), so a
-   *      block is disqualified by a placeholder with NO answer, which is the
-   *      defect the rule was always aiming at;
-   *   2. no repo-scoped artifact in the prose (`navori.config.json`,
-   *      `navori doctor`, `specs/`) — none of them exist in such a project.
-   *      `.claude/` and `progress/` left this list with FB: the plugin's agents
-   *      create their own handoff files there, so naming them is an instruction
-   *      the reader can follow;
-   *   3. no `condition` — a condition reads repo config that isn't there;
-   *   4. any navori agent or skill it names is one the global plugin SHIPS.
-   *      Before FB the global scope shipped none, so the rule read "names
-   *      none"; now it guards the real failure — a block citing a preset or
-   *      library skill that only a repo render materializes.
-   */
-  globalSafe?: boolean;
-  /**
    * Who the block is written for. Absent — the normal case — means the always-on
    * layer: it renders into `CLAUDE.md`, which every session AND every subagent
    * receives (`sub-agents#what-loads-at-startup`).
@@ -131,11 +98,6 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/orquestacion.md",
     baseLanguage: "en",
     rootOnly: true,
-    // Global-safe since FB (#546): the plugin installs the agents this doctrine
-    // routes to, and the four placeholders it carries have global fallbacks.
-    // Without it the global harness would ship 8 subagents with nothing telling
-    // the orchestrator when to reach for each.
-    globalSafe: true,
     // Written in the second person to the main agent, and every section decides
     // something only it decides. Out of `CLAUDE.md` since spec 0015 (#573): the
     // subagents that used to receive it declare no `Agent` tool, so none of them
@@ -147,14 +109,12 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/idioma-rol.md",
     baseLanguage: "es",
     rootOnly: true,
-    globalSafe: true,
   },
   {
     id: "formato-respuesta",
     relPath: "core-assets/managed/formato-respuesta.md",
     baseLanguage: "es",
     rootOnly: true,
-    globalSafe: true,
   },
   {
     id: "tipado-fuerte",
@@ -167,7 +127,6 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/operaciones-seguras.md",
     baseLanguage: "en",
     rootOnly: true,
-    globalSafe: true,
   },
   {
     id: "arranque-sesion",
@@ -184,11 +143,6 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/cierre-sesion.md",
     baseLanguage: "en",
     rootOnly: true,
-    // Passes the FB audit (its `{{qualityGate.full}}` derives, and `progress/`
-    // is a file the closing agent writes rather than one it must find). Marked
-    // so the audit stays honest in both directions; NOT in
-    // `DEFAULT_GLOBAL_BLOCKS` — the shipped baseline stays tight.
-    globalSafe: true,
     // Orchestrator-only (#572). The session's ceremonies: the gate, the history entry, clearing
     // `current.md`. The block itself says they belong to the agent that OWNS the
     // session; a subagent closing with `done -> <file>` is not ending one.
@@ -215,9 +169,6 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/intake-tickets.md",
     baseLanguage: "en",
     rootOnly: true,
-    // Interpolates nothing and names only skills the global plugin ships. Like
-    // `cierre-sesion`: eligible, not shipped by default.
-    globalSafe: true,
   },
   // Search v2: how to choose between direct read, Glob, structural discovery and
   // textual discovery. No `audience: "orchestrator"` on purpose — subagents that
@@ -230,27 +181,12 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/code-discovery-routing.md",
     baseLanguage: "en",
     rootOnly: true,
-    // Names no repo path, no navori agent/skill and no config key; interpolates
-    // nothing. Eligible for the global baseline, not shipped by default (like
-    // `cierre-sesion`/`intake-tickets`) — see DEFAULT_GLOBAL_BLOCKS.
-    globalSafe: true,
   },
 ] as const;
 
 /** Ids of every hardcoded core managed block. Used to tell a real (but not
  * excludable) block id apart from a typo when validating `blocks.exclude`. */
 export const CORE_BLOCK_IDS: readonly string[] = CORE_MANAGED_ASSETS.map((a) => a.id);
-
-/**
- * Ids of the core blocks that may compose the GLOBAL baseline, in emission
- * order (#545). Derived from the assets' declared `globalSafe` so the `global
- * init` picker offers exactly what `composeBaseline` accepts: a hand-written
- * second list would let the two drift, which is the defect #541 fixed on the
- * enforcement side.
- */
-export const GLOBAL_SAFE_BLOCK_IDS: readonly string[] = CORE_MANAGED_ASSETS.filter(
-  (a) => a.globalSafe === true,
-).map((a) => a.id);
 
 /**
  * Ids of the core managed blocks a repo may opt OUT of via `blocks.exclude`.
@@ -393,7 +329,7 @@ function resolveConditions(
  * only when `engine === "codex"` and `onClaude` only when `engine === "claude"`;
  * neither reads `config`, so a config key of the same name has no effect. Spans
  * wrapped in `if-not onCodex` therefore render everywhere except Codex. Prose
- * callers (agents-md, cursor, copilot) and the global baseline pass their own
+ * callers (agents-md, cursor, copilot) pass their own
  * engine id so they never take the Claude-only branch.
  */
 export function conditionOrchestration(

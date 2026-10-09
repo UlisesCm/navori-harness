@@ -52,7 +52,7 @@ Estimated LOC: 6000
 ### M4 — Plomería de render (área crítica)
 - **A4** [observable] — el render de repo no cambia un byte · `git diff --exit-code -- packages/cli/src/engines/__tests__/__golden__ && cd packages/cli && bun run test src/engines/__tests__/golden-render-tree.test.ts && cd ../.. && bun run check:render`
   → exit 0, sin diff en `__golden__`
-- [ ] **T9** (R5) — fuera `fallbackScope`, `GLOBAL_FALLBACKS`, `FallbackScope`, el parámetro
+- [x] **T9** (R5) — fuera `fallbackScope`, `GLOBAL_FALLBACKS`, `FallbackScope`, el parámetro
   `scope` de `placeholderFallback`, el campo `globalSafe` y `GLOBAL_SAFE_BLOCK_IDS` (D3);
   `interpolate.test.ts` y `condition-tokens.test.ts` pierden los casos `global` · effect: behavior
   · test: `engines/__tests__/golden-render-tree.test.ts`::"golden render tree" (sin `-u`)

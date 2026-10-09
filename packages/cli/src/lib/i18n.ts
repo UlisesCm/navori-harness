@@ -660,10 +660,6 @@ interface CommonCmdStrings {
   // assets wrap these placeholders in code spans (``not on `{{branchBase}}` ``),
   // and a nested backtick breaks the span. And SHORT: `{{prTarget}}` alone lands
   // 22 times in one agent, so a sentence here is a paragraph there.
-  globalQualityGate: string;
-  globalBranchBase: string;
-  globalPrTarget: string;
-  globalCommits: string;
 }
 
 interface RenderCmdStrings {
@@ -1738,13 +1734,6 @@ const CMD_ES: CmdStrings = {
       "navori preserva intacto todo lo que esté entre estos marcadores en cada render. -->",
     qualityGateNotConfigured:
       "(quality gate sin configurar — corre 'navori configure quality-gate')",
-    globalQualityGate:
-      "el quality gate que el proyecto declare, o el que derives de package.json/Makefile " +
-      "diciendo cuál corriste",
-    globalBranchBase: "la branch base del repo (la que apunte origin/HEAD)",
-    globalPrTarget: "la branch a la que el repo abre sus PRs (su base, salvo que declare otra)",
-    globalCommits:
-      "el estilo de commit que use el repo (Conventional; el idioma, el de su propio historial)",
   },
   render: {
     renderFailed: "El render falló",
@@ -3043,12 +3032,6 @@ const CMD_EN: CmdStrings = {
       "<!-- Write your repo's domain and specific conventions here. " +
       "navori preserves everything between these markers verbatim on every render. -->",
     qualityGateNotConfigured: "(quality gate not configured — run 'navori configure quality-gate')",
-    globalQualityGate:
-      "whichever quality gate the project declares, or one you derive from package.json/Makefile " +
-      "and name",
-    globalBranchBase: "the repo's base branch (whatever origin/HEAD points at)",
-    globalPrTarget: "the branch the repo opens PRs against (its base, unless it declares another)",
-    globalCommits: "the commit style the repo uses (Conventional; language per its own history)",
   },
   render: {
     renderFailed: "Render failed",
