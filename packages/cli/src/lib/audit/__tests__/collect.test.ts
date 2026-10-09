@@ -17,7 +17,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { flattenOtlp, startReceiver, type OtelReceiver } from "../collect.ts";
+import { flattenOtlp, probeReceiver, startReceiver, type OtelReceiver } from "../collect.ts";
 import { sessionLogPath } from "../paths.ts";
 import { getCoreRoot } from "../../render/bundled-assets.ts";
 import { NavoriError } from "../../primitives/errors.ts";
@@ -771,5 +771,44 @@ describe("invariante 9 (#0021, R9)", () => {
     // Named, not counted: the point of the failure is telling the author which
     // file just made navori a server.
     expect(offenders).toEqual([]);
+  });
+});
+
+/** A port nobody is listening on: opened to reserve a number, then released. */
+async function deadPort(): Promise<number> {
+  const probe = createServer();
+  await new Promise<void>((done) => probe.listen(0, "127.0.0.1", () => done()));
+  const address = probe.address();
+  const port = typeof address === "object" && address !== null ? address.port : 0;
+  await new Promise<void>((done) => probe.close(() => done()));
+  return port;
+}
+
+// Covers: R2
+describe("probeReceiver (#697)", () => {
+  it("reconoce al receptor de navori por su propia ruta de salud", async () => {
+    const r = await startReceiver({ port: 0 });
+    open.push(r);
+    expect(await probeReceiver(r.port)).toBe(true);
+  });
+
+  it("dice que no cuando nadie escucha", async () => {
+    expect(await probeReceiver(await deadPort())).toBe(false);
+  });
+
+  it("no confunde al receptor con otro servidor en el mismo puerto", async () => {
+    // The ugly false positive: an operator who already runs an OTLP collector
+    // on 4318 would read a green check while every navori event went into
+    // somebody else's pipeline. A bare connection cannot tell them apart.
+    const impostor = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" }).end('{"status":"ok"}');
+    });
+    await new Promise<void>((done) => impostor.listen(0, "127.0.0.1", () => done()));
+    const address = impostor.address();
+    const port = typeof address === "object" && address !== null ? address.port : 0;
+
+    expect(await probeReceiver(port)).toBe(false);
+
+    await new Promise<void>((done) => impostor.close(() => done()));
   });
 });

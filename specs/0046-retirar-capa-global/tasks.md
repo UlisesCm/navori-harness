@@ -11,14 +11,14 @@ Estimated LOC: 6000
 - **A1** — harness ajeno y receptor de audit en verde tras la extracción ·
   `cd packages/cli && bun run test src/lib/diagnose/__tests__/foreign-harness.test.ts src/lib/audit/__tests__`
   → exit 0, 0 failed
-- [ ] **T1** (R4) — `engines/claude/user-scope.ts` con `claudeUserDir`, `readSettingsFile`
+- [x] **T1** (R4) — `engines/claude/user-scope.ts` con `claudeUserDir`, `readSettingsFile`
   (`SettingsRead`) y `permissionBagOf`, movidos sin cambio de comportamiento desde
   `global-render.ts`/`global-config.ts` (D1) · effect: behavior · test:
   `engines/claude/__tests__/user-scope.test.ts`::"claudeUserDir respeta CLAUDE_CONFIG_DIR"
-- [ ] **T2** (R4) — `scanForeignHarness` importa de `user-scope.ts`, sin `globalLayerInstalled`
+- [x] **T2** (R4) — `scanForeignHarness` importa de `user-scope.ts`, sin `globalLayerInstalled`
   ni `globalConfigExists`; conserva `NAVORI_PLUGIN_DIR` (D2) · effect: behavior · test:
   `lib/diagnose/__tests__/foreign-harness.test.ts`::"con global.json presente, el conflicto del settings personal se reporta"
-- [ ] **T3** (R2) — `probeReceiver` pasa de `lib/audit/launchd.ts` a `lib/audit/collect.ts` con
+- [x] **T3** (R2) — `probeReceiver` pasa de `lib/audit/launchd.ts` a `lib/audit/collect.ts` con
   sus casos de test · effect: behavior · test:
   `lib/audit/__tests__/collect.test.ts`::"probeReceiver"
 

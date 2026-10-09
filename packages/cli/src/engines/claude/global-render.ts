@@ -2,11 +2,10 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { createBackup } from "../../lib/render/backup.ts";
 import { createMigrationSnapshot } from "../../lib/diagnose/migrate.ts";
 import { readCliVersion } from "../../lib/render/bundled-assets.ts";
-import { safeHomedir } from "../../lib/primitives/home.ts";
 import {
   CORE_MANAGED_ASSETS,
   conditionOrchestration,
@@ -16,6 +15,12 @@ import { interpolate } from "../../lib/render/interpolate.ts";
 import type { NavoriConfig } from "../../lib/config/schema.ts";
 import { resolveLang, tc } from "../../lib/i18n.ts";
 import { deepMerge } from "./deep-merge.ts";
+import {
+  claudeUserDir,
+  permissionBagOf,
+  readSettingsFile,
+  type SettingsRead,
+} from "./user-scope.ts";
 import {
   PERMISSION_KINDS,
   type GlobalConfig,
@@ -62,9 +67,7 @@ const HEREDOC = "NAVORI_GLOBAL_BASELINE_EOF_9f3a";
  * resolved against the cwd.
  */
 export function globalTargetDir(): string {
-  const override = process.env.CLAUDE_CONFIG_DIR;
-  if (override && override.trim().length > 0) return resolve(override.trim());
-  return join(safeHomedir(), ".claude");
+  return claudeUserDir();
 }
 
 /** Absolute path of the F1-era gate hook (migration source only — see above). */
@@ -426,29 +429,10 @@ export function permissionsFragment(config: GlobalConfig): Record<string, unknow
  * their model, env, hooks and permissions with no way back (unlike the
  * repo-scoped `.claude/settings.json`, git tracks nothing here).
  */
-export type GlobalSettingsRead =
-  | { kind: "absent" }
-  | { kind: "ok"; settings: Record<string, unknown> }
-  | { kind: "parse-error"; detail: string }
-  | { kind: "not-object" };
+export type GlobalSettingsRead = SettingsRead;
 
-/**
- * Read the existing global settings.json. A file that exists but cannot be
- * parsed (or does not hold a JSON object) comes back as its own kind, so each
- * caller decides what that means for it — never as an empty object.
- */
-export function readExistingSettings(dir: string, fileName = "settings.json"): GlobalSettingsRead {
-  const path = join(dir, fileName);
-  if (!existsSync(path)) return { kind: "absent" };
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(path, "utf-8"));
-  } catch (err) {
-    return { kind: "parse-error", detail: err instanceof Error ? err.message : String(err) };
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { kind: "not-object" };
-  return { kind: "ok", settings: parsed as Record<string, unknown> };
-}
+/** Read the existing global settings.json (see `readSettingsFile`). */
+export const readExistingSettings = readSettingsFile;
 
 /**
  * Localized explanation of why the global settings.json cannot be merged into,
@@ -537,25 +521,7 @@ export interface GlobalRenderPlan {
   ownedPermissions: PermissionBag;
 }
 
-/**
- * The `permissions` object of a settings.json, normalized to three string lists.
- * Exported for the cross-scope doctor check (#547): it needs the SAME notion of
- * a permission bag on both scopes, and a second normalizer would be a second
- * definition of what counts as a rule.
- */
-export function permissionBagOf(settings: Record<string, unknown>): Record<string, string[]> {
-  const perms = settings.permissions;
-  const raw =
-    perms && typeof perms === "object" && !Array.isArray(perms)
-      ? (perms as Record<string, unknown>)
-      : {};
-  const bag: Record<string, string[]> = {};
-  for (const kind of PERMISSION_KINDS) {
-    const list = raw[kind];
-    bag[kind] = Array.isArray(list) ? list.filter((e): e is string => typeof e === "string") : [];
-  }
-  return bag;
-}
+export { permissionBagOf };
 
 /**
  * Which permission entries navori owns after a merge (#544).

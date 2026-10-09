@@ -32,9 +32,13 @@ vi.mock(import("../../lib/audit/launchd.ts"), async (importOriginal) => {
     ...actual,
     isLaunchdPlatform: isLaunchdPlatformMock,
     installLaunchAgent: installLaunchAgentMock,
-    probeReceiver: probeReceiverMock,
     collectLogDir: collectLogDirMock,
   };
+});
+
+vi.mock(import("../../lib/audit/collect.ts"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, probeReceiver: probeReceiverMock };
 });
 
 const outroMock = vi.hoisted(() => vi.fn());

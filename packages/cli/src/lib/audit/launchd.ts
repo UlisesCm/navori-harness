@@ -9,7 +9,7 @@ import {
   removePrivateAuditFile,
   replacePrivateAuditFile,
 } from "./paths.ts";
-import { DEFAULT_PORT, SERVICE_ID } from "./collect.ts";
+import { DEFAULT_PORT } from "./collect.ts";
 
 /**
  * The launchd declaration that keeps the OTel receiver up (#697).
@@ -282,29 +282,4 @@ export function installedArgv(): string[] | null {
   return [...array[1].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) =>
     (m[1] ?? "").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&"),
   );
-}
-
-/**
- * Asks the receiver itself whether it is alive.
- *
- * This is the check that catches the ugly case the issue names — loaded but
- * dead — and the reason `collect.ts` answers a health route at all: a bare
- * connection proves only that SOMETHING holds the port, and the operator's own
- * OTel collector on 4318 would pass that test while dropping every event.
- */
-export async function probeReceiver(port = DEFAULT_PORT): Promise<boolean> {
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}/healthz`, {
-      signal: AbortSignal.timeout(1500),
-    });
-    if (!res.ok) return false;
-    const body: unknown = await res.json();
-    return (
-      typeof body === "object" &&
-      body !== null &&
-      (body as { service?: unknown }).service === SERVICE_ID
-    );
-  } catch {
-    return false;
-  }
 }

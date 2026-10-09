@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 import { z } from "zod";
 import { safeHomedir } from "../primitives/home.ts";
+import { PERMISSION_KINDS } from "../../engines/claude/user-scope.ts";
 
 /**
  * Machine-local config for the OPTIONAL global harness (Spec 0010). Lives next
@@ -56,8 +57,7 @@ export function upgradeDefaultBlocks(config: GlobalConfig): boolean {
   return true;
 }
 
-/** The three permission buckets Claude Code understands, in a stable order. */
-export const PERMISSION_KINDS = ["allow", "deny", "ask"] as const;
+export { PERMISSION_KINDS };
 
 /**
  * One `{allow, deny, ask}` bag of permission rules. A factory, not a shared

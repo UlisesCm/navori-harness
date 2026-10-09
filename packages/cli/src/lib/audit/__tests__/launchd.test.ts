@@ -1,5 +1,4 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { createServer } from "node:http";
 import {
   chmodSync,
   existsSync,
@@ -21,19 +20,11 @@ import {
   installedArgv,
   isLaunchdPlatform,
   launchAgentPath,
-  probeReceiver,
   receiverArgv,
   uninstallLaunchAgent,
 } from "../launchd.ts";
-import { startReceiver, type OtelReceiver } from "../collect.ts";
 
 // Lifecycle tests inject a fake launchctl and isolate HOME; no real job runs.
-
-const open: OtelReceiver[] = [];
-
-afterEach(async () => {
-  while (open.length > 0) await open.pop()?.close();
-});
 
 describe("launchd lifecycle (R12)", () => {
   const originalHome = process.env.HOME;
@@ -254,16 +245,6 @@ describe("launchd lifecycle (R12)", () => {
   });
 });
 
-/** A port nobody is listening on: opened to reserve a number, then released. */
-async function deadPort(): Promise<number> {
-  const probe = createServer();
-  await new Promise<void>((done) => probe.listen(0, "127.0.0.1", () => done()));
-  const address = probe.address();
-  const port = typeof address === "object" && address !== null ? address.port : 0;
-  await new Promise<void>((done) => probe.close(() => done()));
-  return port;
-}
-
 describe("launchd agent (#697)", () => {
   it("declara RunAtLoad y KeepAlive, que es lo que lo mantiene arriba", () => {
     const plist = buildLaunchAgent(["/usr/bin/node", "/opt/navori", "audit", "--collect"], "/logs");
@@ -319,33 +300,5 @@ describe("launchd agent (#697)", () => {
 
   it("solo se declara soportado en darwin", () => {
     expect(isLaunchdPlatform()).toBe(process.platform === "darwin");
-  });
-});
-
-describe("probeReceiver (#697)", () => {
-  it("reconoce al receptor de navori por su propia ruta de salud", async () => {
-    const r = await startReceiver({ port: 0 });
-    open.push(r);
-    expect(await probeReceiver(r.port)).toBe(true);
-  });
-
-  it("dice que no cuando nadie escucha", async () => {
-    expect(await probeReceiver(await deadPort())).toBe(false);
-  });
-
-  it("no confunde al receptor con otro servidor en el mismo puerto", async () => {
-    // The ugly false positive: an operator who already runs an OTLP collector
-    // on 4318 would read a green check while every navori event went into
-    // somebody else's pipeline. A bare connection cannot tell them apart.
-    const impostor = createServer((_req, res) => {
-      res.writeHead(200, { "content-type": "application/json" }).end('{"status":"ok"}');
-    });
-    await new Promise<void>((done) => impostor.listen(0, "127.0.0.1", () => done()));
-    const address = impostor.address();
-    const port = typeof address === "object" && address !== null ? address.port : 0;
-
-    expect(await probeReceiver(port)).toBe(false);
-
-    await new Promise<void>((done) => impostor.close(() => done()));
   });
 });

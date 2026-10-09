@@ -70,8 +70,8 @@ import { NESTED_GITIGNORE_MANAGED_ID } from "../engines/shared/nested-gitignore-
 import { extractManagedContent } from "../lib/render/marker.ts";
 import { scanGitignoreHarness } from "../engines/shared/gitignore-harness.ts";
 import { scanPrettierIgnore } from "../engines/shared/prettierignore-harness.ts";
-import { isLaunchdPlatform, launchAgentLoaded, probeReceiver } from "../lib/audit/launchd.ts";
-import { DEFAULT_PORT as OTEL_RECEIVER_PORT } from "../lib/audit/collect.ts";
+import { isLaunchdPlatform, launchAgentLoaded } from "../lib/audit/launchd.ts";
+import { DEFAULT_PORT as OTEL_RECEIVER_PORT, probeReceiver } from "../lib/audit/collect.ts";
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/diagnose/scan.ts";
 import { loadWorkspace, canonicalPath } from "../lib/workspace/workspace.ts";
 import { scanWorkspaceDrift } from "../lib/workspace/workspace-drift.ts";

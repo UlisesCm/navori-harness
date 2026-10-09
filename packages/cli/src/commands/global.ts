@@ -35,9 +35,9 @@ import {
   collectLogDir,
   installLaunchAgent,
   isLaunchdPlatform,
-  probeReceiver,
   uninstallLaunchAgent,
 } from "../lib/audit/launchd.ts";
+import { probeReceiver } from "../lib/audit/collect.ts";
 import {
   applyGlobalPlugin,
   globalPluginDir,
