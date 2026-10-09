@@ -247,6 +247,10 @@ nunca ejecuta un hook.
 
 Cualquier caso que no encaje cuenta como ausente (R6).
 
+Un `nativeHook` de plugin solo cuenta como declaración cuando sus hooks se omitieron de verdad
+(`LoadedPlugin.nativeHookOmitted`). El error voltea el veredicto de salud (`computeHealthVerdict`),
+así que `status` y `doctor` salen con 2.
+
 Reporte:
 
 | Estado | Config | Nivel |
@@ -295,6 +299,9 @@ Cambios:
   (`task-metrics.ts`), un run con `executions === 0 && deferred > 0` aporta `gate: null` y
   `gateReason: "native-hook"`. La métrica R17 sale `partial` o `unavailable` con esa razón, en vez
   de un cero falso.
+- `EpisodeGate.deferred` también llega al resumen `r17.gate` y al reporte de auditoría (allowlist de
+  claves y fila markdown en `report.ts`). Si cualquier run del episodio tiene `executions === 0` y
+  `deferred > 0`, el gate del episodio es `null` con `gateReason: "native-hook"`.
 - La suma `unattributed.gateExecutions` de `outcomes.ts`: sigue contando solo `completed`.
 - **Desfase de versiones.** Un CLI viejo que lee un registro con `reason: "native-hook"` lo descarta
   en el validador de registros (`model.ts`, comprobación `isHookReason`). Para él se pierde un `skip`

@@ -74,14 +74,15 @@ Estimated LOC: 1150
 - **A8** — detección, doctor y auditoría en verde ·
   `cd packages/cli && bun run test src/lib/diagnose/__tests__/native-hooks.test.ts src/commands/__tests__/doctor-native-hooks.test.ts src/lib/audit/__tests__/outcomes.test.ts src/__tests__/hook-audit-instrumentation.test.ts`
   → exit 0, 0 failed
-- [ ] **T11** (R5, R6) — `detectNativeHooks(cwd)` en `lib/diagnose/native-hooks.ts`: husky (stub
+- [x] **T11** (R5, R6) — `detectNativeHooks(cwd)` en `lib/diagnose/native-hooks.ts`: husky (stub
   sin `.husky/<hook>` = ausente), lefthook, pre-commit, hook plano y `core.hooksPath` relativo, por
   worktree · effect: behavior · test: `lib/diagnose/__tests__/native-hooks.test.ts`::"fixtures por
   gestor y worktree"
-- [ ] **T12** (R5, R6, R7) — `scanNativeHooks` en `doctor`: reporta lo detectado, error si lo
+- [x] **T12** (R5, R6, R7) — `scanNativeHooks` en `doctor`: reporta lo detectado, error si lo
   declarado no está activo, aviso de duplicado si no está declarado · effect: behavior · test:
-  `commands/__tests__/doctor-native-hooks.test.ts`::"filas de D3"
-- [ ] **T13** (R2) — razón `native-hook` en `HOOK_REASON_CODES` y en la allowlist de
+  `commands/__tests__/doctor-native-hooks.test.ts`::"filas de D3". El error voltea
+  `computeHealthVerdict` (salida 2) y las filas de plugin consumen `LoadedPlugin.nativeHookOmitted`
+- [x] **T13** (R2) — razón `native-hook` en `HOOK_REASON_CODES` y en la allowlist de
   `audit-log.sh`; `outcomes.ts` reporta "no observado" en vez de cero · effect: behavior · test:
   `lib/audit/__tests__/outcomes.test.ts`::"skip native-hook"
 
