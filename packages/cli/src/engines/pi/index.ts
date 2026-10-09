@@ -15,6 +15,8 @@ import {
   type SkippedFile,
 } from "../shared/execute-plan.ts";
 import type { ProseEngineResult } from "../shared/prose-harness.ts";
+import { renderAgentsMdEngine } from "../agents-md/index.ts";
+import { ENGINE_CAPABILITIES } from "../shared/engine-capabilities.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
 import { resolveCodexModel } from "../../lib/assets/model-profile.ts";
 import { interpolate } from "../../lib/render/interpolate.ts";
@@ -56,6 +58,20 @@ const adapter: EngineAdapter = {
   extraFiles: () => [],
   orphanScans: () => [],
 };
+
+/**
+ * Pi discovers the repo-root context file natively (docs/configuration.md "Context files").
+ * Pi delegates it to the agents-md adapter only when no other configured engine already owns
+ * it (Codex, agents-md): one writer and one `navori-agents` block across every transition.
+ */
+function piNeedsContextWriter(config: NavoriConfig): boolean {
+  return !config.engines.some(
+    (engine) =>
+      engine !== "pi" &&
+      engine in ENGINE_CAPABILITIES &&
+      ENGINE_CAPABILITIES[engine as keyof typeof ENGINE_CAPABILITIES].ownsAgentsMd,
+  );
+}
 
 /** Render the opt-in Pi manifest through the shared plan and commit choke point. */
 export function renderPiEngine(
@@ -244,5 +260,14 @@ export function renderPiEngine(
     engineLabel: adapter.label,
     lang: resolveLang(config.language),
   });
-  return { ...result, skipped, warnings };
+  if (!piNeedsContextWriter(config)) return { ...result, skipped, warnings };
+  // Foreign content outside the managed block and a hand-edited block are preserved by the
+  // shared prose renderer. Its Claude-parity advisories do not apply to Pi and are dropped.
+  const context = renderAgentsMdEngine(cwd, config, options);
+  return {
+    written: [...result.written, ...context.written],
+    skipped: [...skipped, ...context.skipped],
+    warnings,
+    backupPath: result.backupPath ?? context.backupPath,
+  };
 }
