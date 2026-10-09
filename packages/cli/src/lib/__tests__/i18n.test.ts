@@ -168,7 +168,6 @@ describe("i18n — command catalog (tc)", () => {
       "workspace",
       "status",
       "engine",
-      "global",
     ] as const) {
       expect(keysOf(es[section] as unknown as Record<string, unknown>)).toEqual(
         keysOf(en[section] as unknown as Record<string, unknown>),
@@ -192,7 +191,7 @@ describe("i18n — command catalog (tc)", () => {
     expect(tc("en").doctor.excludedBlocksTitle(1)).toContain("Excluded core blocks");
   });
 
-  it("engine .mcp.json skip reasons and global baseline intro differ per locale (#284)", () => {
+  it("engine .mcp.json skip reasons differ per locale (#284)", () => {
     // Sub-item 4: these strings used to be inline `=== "en" ? … : …` ternaries
     // in the Claude engine; they now live in the catalog so both locales stay in
     // sync with the rest of the i18n surface.
@@ -201,12 +200,9 @@ describe("i18n — command catalog (tc)", () => {
       expect(e.mcpJsonParseFailed("boom")).toContain(".mcp.json");
       expect(e.mcpJsonParseFailed("boom")).toContain("boom");
       expect(e.mcpJsonNotObject).toContain(".mcp.json");
-      expect(e.globalBaselineIntro.length).toBeGreaterThan(0);
     }
     expect(tc("es").engine.mcpJsonNotObject).toContain("no es un objeto JSON");
     expect(tc("en").engine.mcpJsonNotObject).toContain("is not a JSON object");
-    expect(tc("es").engine.globalBaselineIntro).toContain("baseline navori de máquina");
-    expect(tc("en").engine.globalBaselineIntro).toContain("machine-wide navori baseline");
   });
 
   it("doctor Codex health strings render with their args in both locales (feature: codex)", () => {

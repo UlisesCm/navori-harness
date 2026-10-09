@@ -122,8 +122,13 @@ describe("the website documents every registered subcommand (#548)", () => {
 
   it("parses a real registry on both sides (anti-false-green)", () => {
     // Either regex going quiet would compare two empty lists and read as green.
-    expect(registered).toEqual(expect.arrayContaining(["init", "render", "doctor", "global"]));
-    expect(documented).toEqual(expect.arrayContaining(["init", "render", "global"]));
+    expect(registered).toEqual(expect.arrayContaining(["init", "render", "doctor"]));
+    expect(documented).toEqual(expect.arrayContaining(["init", "render"]));
+  });
+
+  // Covers: R1
+  it("global no está registrado", () => {
+    expect(registered).not.toContain("global");
   });
 
   // Covers: R1, R3, R4
@@ -141,14 +146,14 @@ describe("auditCommandDocs (synthetic — the failure modes the repo cannot show
 
   it("flags a registered command that is neither documented nor exempt", () => {
     const audit = auditCommandDocs(
-      ["init", "global", "ticket"],
+      ["init", "audit", "ticket"],
       ["init"],
       new Map([["ticket", reason]]),
     );
-    expect(audit.undocumented).toEqual(["global"]);
+    expect(audit.undocumented).toEqual(["audit"]);
     expect(audit.stale).toEqual([]);
     // The message is the whole point: a diff of counts would not say which one.
-    expect(undocumentedMessage(audit.undocumented)).toContain("global");
+    expect(undocumentedMessage(audit.undocumented)).toContain("audit");
   });
 
   it("flags an exemption whose command is already documented", () => {

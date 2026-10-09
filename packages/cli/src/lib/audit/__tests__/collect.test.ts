@@ -21,6 +21,7 @@ import { flattenOtlp, probeReceiver, startReceiver, type OtelReceiver } from "..
 import { sessionLogPath } from "../paths.ts";
 import { getCoreRoot } from "../../render/bundled-assets.ts";
 import { NavoriError } from "../../primitives/errors.ts";
+import { deadPort } from "../../__tests__/helpers/ports.ts";
 
 /**
  * The receiver is exercised over REAL HTTP against an ephemeral port, never by
@@ -773,16 +774,6 @@ describe("invariante 9 (#0021, R9)", () => {
     expect(offenders).toEqual([]);
   });
 });
-
-/** A port nobody is listening on: opened to reserve a number, then released. */
-async function deadPort(): Promise<number> {
-  const probe = createServer();
-  await new Promise<void>((done) => probe.listen(0, "127.0.0.1", () => done()));
-  const address = probe.address();
-  const port = typeof address === "object" && address !== null ? address.port : 0;
-  await new Promise<void>((done) => probe.close(() => done()));
-  return port;
-}
 
 // Covers: R2
 describe("probeReceiver (#697)", () => {

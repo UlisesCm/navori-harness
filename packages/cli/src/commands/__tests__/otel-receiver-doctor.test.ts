@@ -1,12 +1,13 @@
-import { createServer } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   NavoriConfigSchema,
   type NavoriConfig,
   type NavoriConfigInput,
 } from "../../lib/config/schema.ts";
+import { SUPPORTED_LANGS, tc } from "../../lib/i18n.ts";
 import { scanOtelReceiver } from "../doctor.ts";
 import { startReceiver, type OtelReceiver } from "../../lib/audit/collect.ts";
+import { deadPort } from "../../lib/__tests__/helpers/ports.ts";
 
 /**
  * #697 — the check exists because the failure is silent by construction.
@@ -33,15 +34,6 @@ afterEach(async () => {
   while (open.length > 0) await open.pop()?.close();
 });
 
-async function deadPort(): Promise<number> {
-  const probe = createServer();
-  await new Promise<void>((done) => probe.listen(0, "127.0.0.1", () => done()));
-  const address = probe.address();
-  const port = typeof address === "object" && address !== null ? address.port : 0;
-  await new Promise<void>((done) => probe.close(() => done()));
-  return port;
-}
-
 describe("scanOtelReceiver (#697)", () => {
   it("no pregunta nada en un repo que audita por sesión", async () => {
     // `opt-in` does not need a receiver standing by, and painting that red
@@ -64,8 +56,18 @@ describe("scanOtelReceiver (#697)", () => {
       port: await deadPort(),
     });
     expect(report?.responding).toBe(false);
-    // Supervision and liveness are separate questions: the gap between them is
-    // the case worth reporting — loaded, dead and silent.
-    expect(report?.supportsSupervisor).toBe(process.platform === "darwin");
+  });
+
+  // Covers: R2
+  it("receptor otel sin supervisor: solo dos estados y el aviso apunta a audit --collect", async () => {
+    const report = await scanOtelReceiver(config({ audit: { mode: "always" } }), {
+      port: await deadPort(),
+    });
+    expect(Object.keys(report ?? {}).sort()).toEqual(["port", "responding"]);
+    for (const lang of SUPPORTED_LANGS) {
+      const manual = tc(lang).doctor.otelReceiverManual;
+      expect(manual).toContain("navori audit --collect");
+      expect(manual).not.toContain("global collect");
+    }
   });
 });

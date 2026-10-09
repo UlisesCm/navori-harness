@@ -90,12 +90,6 @@ interface DoctorReport {
     orphan: string[];
     emptyDeclared: boolean;
   } | null;
-  globalScope: {
-    shadowedAgents: Array<{ id: string; globalPath: string; repoPath: string }>;
-    permissionConflicts: string[];
-    hookDrift: { kind: string };
-    managedPolicy: Array<{ key: string; path: string }>;
-  } | null;
   availableExternalProviders: string[];
   config: { monorepo?: { workspaces: Array<{ name: string; path: string }> } };
 }
@@ -419,12 +413,12 @@ describe("doctor --json over a monorepo (#395)", () => {
   });
 });
 
-describe("doctor --json — cross-scope clash with the global harness (#547)", () => {
+describe("doctor --json — personal settings vs this repo, no global layer (#547, spec 0046)", () => {
   /** A rule no preset ships, so the conflict under test is unambiguously ours. */
   const RULE = "Bash(navori-e2e-cross-scope:*)";
   /** The section heading, in both languages: the human run must never print it
-   *  on a machine with no global layer (Spec 0010 §2.4, zero footprint). Kept as
-   *  literals — the point is to pin the string a user would actually see. */
+   *  now that `navori global` is gone (spec 0046). Kept as literals — the point
+   *  is to pin the string a user would actually see. */
   const TITLES = ["Capa global (navori global)", "Global layer (navori global)"];
 
   function seedGlobalRepo(): {
@@ -446,20 +440,17 @@ describe("doctor --json — cross-scope clash with the global harness (#547)", (
     return { repo, home, claudeDir, env };
   }
 
-  it("stays silent with no global layer", () => {
+  // Covers: R1
+  it("no longer reports a globalScope key nor prints the section", () => {
     const { repo, env } = seedGlobalRepo();
-    // Zero footprint, output included: with no `~/.navori/global.json` the key
-    // is null AND the human run never prints the section (Spec 0010 §2.4).
-    expect(doctorJson(repo, env).globalScope).toBeNull();
+    expect(doctorJson(repo, env)).not.toHaveProperty("globalScope");
     const quiet = runCli(["doctor", "--cwd", repo], env);
     expect(quiet.status).toBe(0);
     for (const title of TITLES) expect(quiet.stdout).not.toContain(title);
   });
 
-  it("carries the real conflict once the global layer is installed", () => {
-    const { repo, home, claudeDir, env } = seedGlobalRepo();
-    mkdirSync(join(home, ".navori"), { recursive: true });
-    writeFileSync(join(home, ".navori", "global.json"), JSON.stringify({ version: "0.0.0" }));
+  it("still reports the personal-settings conflict in the human run (foreignHarness)", () => {
+    const { repo, claudeDir, env } = seedGlobalRepo();
     writeFileSync(
       join(claudeDir, "settings.json"),
       JSON.stringify({ permissions: { allow: [RULE, "Read(//tmp/**)"] } }),
@@ -473,20 +464,9 @@ describe("doctor --json — cross-scope clash with the global harness (#547)", (
     repoSettings.permissions = { ...repoSettings.permissions, deny: [...deny, RULE] };
     writeFileSync(repoSettingsPath, JSON.stringify(repoSettings, null, 2), "utf-8");
 
-    const report = doctorJson(repo, env);
-    // The real payload, not the mere presence of the key: only OUR rule is in
-    // both scopes, so a hardcoded `[]` — or a list of everything global — fails.
-    expect(report.globalScope?.permissionConflicts).toEqual([RULE]);
-    // The plugin was never installed here, so nothing shadows anything and the
-    // hook reads as an unmigrated install (not a raw `absent`, which would
-    // describe a path this machine does not use): facts, not a blanket alarm.
-    expect(report.globalScope?.shadowedAgents).toEqual([]);
-    expect(report.globalScope?.hookDrift).toEqual({ kind: "plugin-missing" });
-
-    // And the counterpart of the zero-footprint assert above: once there IS
-    // something to say, the human run does print the section.
     const loud = runCli(["doctor", "--cwd", repo], env);
     expect(loud.status).toBe(0);
-    expect(TITLES.some((title) => loud.stdout.includes(title))).toBe(true);
+    // The conflict is reported by `scanForeignHarness` (spec 0046 D2).
+    expect(loud.stdout).toContain(RULE);
   });
 });

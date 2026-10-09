@@ -426,17 +426,8 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "path comes from a directory listing filtered by the dispatch-file name pattern (spec 0041 R9)",
     "lib/primitives/remote-version-cache.ts":
       "releases only its exclusively acquired empty lock directory with nonrecursive rmdirSync, and removes a lock directory orphaned for over a minute",
-    "lib/config/global-config.ts": "deletes ~/.navori/global.json on an explicit command",
     "lib/workspace/tickets.ts":
       "deletes a ticket from navori's workspace store on an explicit command",
-    "engines/claude/global-render.ts":
-      "`navori global uninstall` removes navori's own global hook file — the whole point of " +
-      "the command, so a marker gate would only make uninstalling fail",
-    "engines/claude/global-plugin.ts":
-      "removes ~/.claude/skills/navori/, the @skills-dir plugin navori installed; there is no " +
-      "marketplace to uninstall from, so deleting that one directory IS the uninstall. The " +
-      "parent skills/ dir goes only when it is left empty, so a sibling skill of the user's " +
-      "is never in reach",
 
     // ── Deletes the USER's files on purpose, after copying them. ──
     "lib/diagnose/migrate.ts":

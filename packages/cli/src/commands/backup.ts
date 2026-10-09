@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readdirSync, statSync, copyFileSync, mkdirSync } from "node:fs";
-import { join, relative, resolve, dirname } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import {
   backupRoot,
   backupRepoLabel,
@@ -11,6 +11,7 @@ import {
 import { brand, dim, accent, color, sym } from "../lib/primitives/style.ts";
 import { tc, DEFAULT_LANG } from "../lib/i18n.ts";
 import { intFlagOrExit } from "../lib/primitives/args.ts";
+import { collectFiles } from "../lib/primitives/collect-files.ts";
 
 interface BackupEntry {
   timestamp: string;
@@ -36,24 +37,6 @@ function listBackups(): BackupEntry[] {
   }
   entries.sort((a, b) => b.mtimeMs - a.mtimeMs);
   return entries;
-}
-
-function collectFiles(root: string, dir: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    try {
-      const stat = statSync(full);
-      if (stat.isDirectory()) {
-        out.push(...collectFiles(root, full));
-      } else if (stat.isFile()) {
-        out.push(relative(root, full));
-      }
-    } catch {
-      // ignore
-    }
-  }
-  return out;
 }
 
 const listSubCommand = defineCommand({

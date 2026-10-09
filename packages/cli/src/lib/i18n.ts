@@ -656,7 +656,7 @@ interface CommonCmdStrings {
   // these three describe is whatever project the session opened — so the text is
   // an instruction to derive the value, not a diagnostic.
   //
-  // Two constraints, both enforced by `global-plugin.test.ts`. NO BACKTICKS: the
+  // Two constraints, both kept by hand (the plugin test that enforced them is gone). NO BACKTICKS: the
   // assets wrap these placeholders in code spans (``not on `{{branchBase}}` ``),
   // and a nested backtick breaks the span. And SHORT: `{{prTarget}}` alone lands
   // 22 times in one agent, so a sentence here is a paragraph there.
@@ -896,8 +896,6 @@ interface DoctorCmdStrings {
   optionalToolRow: (binaries: string, how: string) => string;
   /** #697 — the OTel receiver, only asked about when the repo audits always. */
   otelReceiverOk: (port: number) => string;
-  otelReceiverDead: (port: number) => string;
-  otelReceiverAbsent: string;
   otelReceiverManual: string;
   /** #943 — index freshness for the textual (tgrep) and structural (codegraph)
    *  search providers. Informational only, never feeds the verdict. */
@@ -1154,26 +1152,6 @@ interface DoctorCmdStrings {
   foreignHarnessPermission: (rule: string, path: string) => string;
   /** An `acknowledged` entry that matches no current conflict. */
   foreignHarnessStaleAck: (id: string) => string;
-  /** Note title for the cross-scope section against the global harness (#547). */
-  globalScopeTitle: string;
-  /** A repo agent with no managed marker silently disabling the plugin's copy. */
-  globalScopeShadowedAgent: (id: string, repoPath: string) => string;
-  /** A rule the global settings allow and this repo's settings deny. */
-  globalScopePermissionConflict: (rule: string) => string;
-  /** The installed global hook is not what this CLI would render (drift kind). */
-  globalScopeHookDrift: (kind: string) => string;
-  /** The global baseline / global.json could not be read, so the hook is unknown. */
-  globalScopeHookNotEvaluable: string;
-  /** `~/.navori/global.json` exists but the plugin does not: an unmigrated install. */
-  globalScopeHookLegacyInstall: string;
-  /** A managed-settings policy that may leave the `@skills-dir` plugin inert. */
-  globalScopeStrictPluginOnly: (path: string) => string;
-  /** A managed-settings policy that leaves the global permissions inert. */
-  globalScopeManagedPermissionsOnly: (path: string) => string;
-  /** A marketplace allowlist that does not opt the `~/.claude/skills/` scan back in. */
-  globalScopeStrictKnownMarketplaces: (path: string) => string;
-  /** A marketplace blocklist that turns the `~/.claude/skills/` scan off. */
-  globalScopeBlockedMarketplaces: (path: string) => string;
 }
 
 /**
@@ -1252,8 +1230,6 @@ interface EngineCmdStrings {
    *  configured (R9 scopes only the pointer DESTINATION to Codex), and pushed
    *  exactly once per run regardless of how many engines are enabled. */
   localSkillMissing: (id: string) => string;
-  // Global baseline (Spec 0010)
-  globalBaselineIntro: string;
 }
 
 /**
@@ -1544,103 +1520,6 @@ interface StatusCmdStrings {
   distributionRowBehind: (commits: number, ref: string) => string;
 }
 
-interface GlobalCmdStrings {
-  notInstalled: string;
-  initReinit: (dir: string) => string;
-  initDone: (dir: string) => string;
-  renderApplied: (dir: string) => string;
-  previewTitle: string;
-  previewHint: string;
-  /**
-   * #545 — `global init` is interactive and previews by default, so it needs
-   * copy of its own. `initPreviewHint` must name the exact command that writes:
-   * the default stopped writing, and a user who does not read it would conclude
-   * the install silently did nothing.
-   */
-  initPreviewHint: string;
-  initHeadless: string;
-  initCancelled: string;
-  blocksPrompt: string;
-  /**
-   * One-line description per baseline block, keyed by asset id. A map rather
-   * than a function so a block with no copy yet degrades to no hint instead of
-   * inventing one; the picker itself enumerates `GLOBAL_SAFE_BLOCK_IDS`, never
-   * these keys.
-   */
-  blockHints: Readonly<Record<string, string>>;
-  permsPrompt: string;
-  permsRules: (kind: string) => string;
-  permsPlaceholder: string;
-  permsPlanned: (count: number) => string;
-  settingsUnchanged: (path: string) => string;
-  wroteHook: (path: string) => string;
-  wroteSettings: (path: string) => string;
-  baselineBlocks: (ids: string) => string;
-  doctorTitle: (dir: string) => string;
-  hookPresent: string;
-  hookMissing: string;
-  /**
-   * #542 — the hook's own drift verdicts. `hookHandEdited` must name the file
-   * and must NOT read as "run render": the remediation destroys the edit, so
-   * the user has to be the one who decides that.
-   */
-  hookUnmarked: string;
-  hookHandEdited: (path: string) => string;
-  hookStale: (found: string, expected: string) => string;
-  /** #543 — what running the gate actually produced. */
-  gateOk: string;
-  gateNoJsonTool: string;
-  gateNoEmit: string;
-  gateNoDefer: string;
-  gateMalformed: (detail: string) => string;
-  gateError: (detail: string) => string;
-  /**
-   * FB (#546) — the `@skills-dir` plugin that carries the agents, the skills
-   * and the gate hook. It replaced the SessionStart registration navori used to
-   * merge into the user's settings.json, so the old `settingsRegistered` pair
-   * is gone: settings.json now holds permissions and nothing else.
-   */
-  wrotePlugin: (path: string, count: number) => string;
-  pluginAssets: (agents: number, skills: number) => string;
-  pluginPresent: string;
-  pluginMissing: string;
-  pluginStale: (files: string) => string;
-  pluginNamespaceHint: string;
-  /** The F1 hook found loose in ~/.claude, and what became of it. */
-  legacyMigrated: (snapshotPath: string) => string;
-  legacyLeftover: (path: string) => string;
-  permsMerged: (count: number) => string;
-  permsNotMerged: string;
-  versionOk: (v: string) => string;
-  versionDrift: (found: string, expected: string) => string;
-  hooksDisabledHint: string;
-  uninstallNothing: string;
-  uninstallDone: (dir: string) => string;
-  /** #697 — the launchd agent that keeps `audit --collect` up. */
-  collectUnsupported: (platform: string) => string;
-  collectInstalled: (path: string) => string;
-  collectReplaced: string;
-  collectCommand: (argv: string) => string;
-  collectLoadFailed: (message: string) => string;
-  collectDevBinaryWarn: (entry: string) => string;
-  collectUninstalled: (path: string) => string;
-  collectNothingInstalled: string;
-  /** launchd loaded the agent, but the receiver never answers its own healthz (loaded-but-dead). */
-  collectProbeFailed: (logDir: string) => string;
-  uninstallSettingsUnreadable: (path: string) => string;
-  /**
-   * #497 — the machine-wide settings.json exists but cannot be merged into.
-   * Separate from `engine.settingsParseFailed` (the repo-scoped twin) because
-   * the remediation differs: git can restore `.claude/settings.json`, so there
-   * the answer is `render --force`; nothing can restore `~/.claude/settings.json`,
-   * so the only answer is fixing the JSON by hand.
-   */
-  settingsParseFailed: (path: string, detail: string) => string;
-  settingsNotObject: (path: string) => string;
-  outroOk: string;
-  outroIssues: string;
-}
-
 interface DominioCmdStrings {
   noWorkspace: string;
   ambiguous: (names: string) => string;
@@ -1799,7 +1678,6 @@ interface CmdStrings {
   status: StatusCmdStrings;
   engine: EngineCmdStrings;
   blocks: BlocksCmdStrings;
-  global: GlobalCmdStrings;
   dominio: DominioCmdStrings;
   migrations: MigrationsCmdStrings;
   backup: BackupCmdStrings;
@@ -2193,18 +2071,10 @@ const CMD_ES: CmdStrings = {
     optionalToolRow: (binaries, how) =>
       `— falta ${binaries} en PATH; ${how}. Mientras tanto, locate-code cae a Grep`,
     otelReceiverOk: (port) => `receptor OTel escuchando en 127.0.0.1:${port}`,
-    otelReceiverDead: (port) =>
-      `El LaunchAgent del receptor está cargado pero nadie responde en 127.0.0.1:${port}. ` +
-      `Las sesiones de este repo (audit.mode: always) están exportando eventos que se pierden. ` +
-      `Revisa ~/.navori/logs/collect.err.log y reinstala con 'navori global collect install'.`,
     otelReceiverManual:
       `Este repo audita siempre pero el receptor de eventos OTel no está corriendo, así que las ` +
       `sesiones pierden la tercera fuente (quién aprobó cada permiso, qué skill declaró el host). ` +
-      `Levántalo con 'navori audit --collect', o déjalo supervisado con 'navori global collect install'.`,
-    otelReceiverAbsent:
-      `Este repo audita siempre pero el receptor de eventos OTel no tiene supervisor: si se cae o ` +
-      `reinicias la máquina, las sesiones de ese rato pierden la tercera fuente sin aviso. ` +
-      `Instálalo con 'navori global collect install'.`,
+      `Levántalo con 'navori audit --collect' (en primer plano o bajo el supervisor que prefieras).`,
     tgrepIndexStale: (age, rootPath) =>
       `El índice de tgrep se actualizó hace ${age} y no hay servidor corriendo: ` +
       `las búsquedas responden desde ese snapshot congelado, no desde el árbol actual. ` +
@@ -2497,25 +2367,6 @@ const CMD_ES: CmdStrings = {
       `'${rule}' está en 'deny' del settings de navori y en 'allow' de '${path}' — el guard queda sin efecto donde ese archivo aplica; quítala de uno de los dos`,
     foreignHarnessStaleAck: (id) =>
       `'${id}' está en project.foreignHarness.acknowledged pero ya no corresponde a ningún conflicto — quítalo`,
-    globalScopeTitle: "Capa global (navori global)",
-    globalScopeShadowedAgent: (id, repoPath) =>
-      `el agente '${id}' del plugin global queda inerte: Claude Code resuelve el id a favor del repo y gana '${repoPath}', que no lleva marcador managed de navori — si el reemplazo no era intencional, bórralo o renómbralo`,
-    globalScopePermissionConflict: (rule) =>
-      `'${rule}' está en 'allow' del settings global y en 'deny' del de este repo — un 'deny' tiene precedencia sobre un 'allow', así que aquí la regla queda bloqueada; quítala de uno de los dos scopes`,
-    globalScopeHookDrift: (kind) =>
-      `el hook del harness global no está al día (${kind}) — corre 'navori global doctor' para el detalle`,
-    globalScopeHookNotEvaluable:
-      "no pude evaluar el hook del harness global (no logré componer la baseline o leer '~/.navori/global.json') — corre 'navori global doctor'",
-    globalScopeHookLegacyInstall:
-      "hay una instalación previa del harness global sin migrar: existe '~/.navori/global.json' pero no el plugin, así que el hook viejo sigue suelto y registrado en el settings global — corre 'navori global doctor' para el detalle",
-    globalScopeStrictPluginOnly: (path) =>
-      `'strictPluginOnlyCustomization' está declarado en '${path}': esa policy bloquea skills, agentes y hooks de las fuentes de usuario y de proyecto, así que puede dejar inerte al plugin global de navori (la doc no precisa si alcanza a un plugin descubierto en un skills directory)`,
-    globalScopeManagedPermissionsOnly: (path) =>
-      `'allowManagedPermissionRulesOnly' está declarado en '${path}': solo aplican las reglas de permisos managed, así que los permisos que 'navori global' escribió en el settings global quedan inertes`,
-    globalScopeStrictKnownMarketplaces: (path) =>
-      `'strictKnownMarketplaces' está declarado en '${path}' sin la entrada centinela {"source":"skills-dir"}: cualquier allowlist apaga el escaneo de '~/.claude/skills/', así que el plugin global de navori no se carga — pide que agreguen {"source":"skills-dir"} a esa lista`,
-    globalScopeBlockedMarketplaces: (path) =>
-      `'blockedMarketplaces' incluye la entrada centinela {"source":"skills-dir"} en '${path}': eso apaga el escaneo de '~/.claude/skills/', así que el plugin global de navori no se carga — pide que la quiten de esa lista`,
   },
   update: {
     detectedMigrationSuggestion: (legacy, preferred) =>
@@ -2868,9 +2719,6 @@ const CMD_ES: CmdStrings = {
     localSkillMissing: (id) =>
       `Skill project-local '${id}' declarada en project.localSkills, pero ausente de ` +
       `.claude/skills/${id}/SKILL.md.`,
-    globalBaselineIntro:
-      "Lo siguiente es tu baseline navori de máquina (doctrina agnóstica al repo). " +
-      "Un proyecto con su propio harness navori lo reemplaza.",
   },
   blocks: {
     agentsIndex: {
@@ -2945,122 +2793,6 @@ const CMD_ES: CmdStrings = {
       testsExclude: (list) =>
         `- **Suites fuera de esa regla:** ${list}. Se mantienen a mano — un cambio de código no exige actualizarlas, y el reviewer no bloquea por ellas.`,
     },
-  },
-  global: {
-    notInstalled: "El harness global no está instalado. Corre 'navori global init'.",
-    initReinit: (dir) => `Harness global ya inicializado en ${dir}; regenerando.`,
-    initDone: (dir) => `Harness global instalado en ${dir}.`,
-    renderApplied: (dir) => `Baseline global renderizado en ${dir}.`,
-    previewTitle: "Se escribiría",
-    previewHint: "Corre con --apply para escribir.",
-    initPreviewHint:
-      "Preview: no se escribió un solo byte. Corre 'navori global init --apply' para instalar " +
-      "(agrega --recommended para no responder nada).",
-    initHeadless:
-      "Sin terminal interactiva: se usan los valores recomendados, igual que con --recommended.",
-    initCancelled: "Cancelado: no se escribió nada.",
-    blocksPrompt: "¿Qué bloques quieres en el baseline global?",
-    blockHints: {
-      "operaciones-seguras":
-        "contrato de operaciones seguras: lectura por default, nada destructivo sin tu OK",
-      "idioma-rol": "idioma del chat y rol de Tech Lead Senior",
-      "formato-respuesta": "concisión y formato de respuesta (bug fix, code review, commits)",
-      orquestacion: "doctrina de orquestación: cuándo lanzar cada uno de los 8 agentes del plugin",
-      "cierre-sesion": "protocolo de cierre de sesión (quality gate, historial, commit)",
-      "intake-tickets":
-        "intake de tickets: el problema es el contrato, la solución propuesta es una sugerencia",
-      "code-discovery-routing":
-        "cómo elegir entre leer directo, Glob, búsqueda estructural o textual según lo que falta",
-    },
-    permsPrompt: "¿Declarar permisos personales para ~/.claude/settings.json?",
-    permsRules: (kind) => `Reglas '${kind}' (separadas por coma; vacío = ninguna)`,
-    permsPlaceholder: "Bash(git status:*), Read(//tmp/**)",
-    permsPlanned: (count) => `Permisos personales: ${count} regla(s) a mergear en settings.json`,
-    settingsUnchanged: (path) => `settings: sin cambios (${path})`,
-    wroteHook: (path) => `hook: ${path}`,
-    wroteSettings: (path) => `settings: ${path}`,
-    baselineBlocks: (ids) => `Bloques del baseline: ${ids}`,
-    doctorTitle: (dir) => `Harness global en ${dir}`,
-    hookPresent: "hook de baseline presente y al día",
-    hookMissing: "hook de baseline ausente — corre 'navori global render --apply'",
-    hookUnmarked:
-      "hook sin marcador (lo escribió un navori anterior) — corre 'navori global render --apply' " +
-      "para que quede versionado y doctor pueda detectar cambios",
-    hookHandEdited: (path) =>
-      `hook editado a mano: ${path} no coincide con su propio hash. ` +
-      "'navori global render --apply' lo regenera y DESCARTA esa edición; " +
-      "si la quieres conservar, muévela a otro hook antes de renderizar",
-    hookStale: (found, expected) =>
-      `hook desactualizado (renderizado con ${found}, el CLI es ${expected}) — ` +
-      "corre 'navori global render --apply'",
-    gateOk: "gate funcional (emite baseline fuera de un repo navori, y nada dentro)",
-    gateNoJsonTool:
-      "el gate no puede emitir: no hay 'node' ni 'jq' en el PATH del hook. " +
-      "Ninguna sesión recibe el baseline. Con nvm suele pasar cuando Claude Code " +
-      "arranca fuera de tu shell (app de escritorio): instala 'jq' o expón 'node' al PATH del sistema",
-    gateNoEmit:
-      "el gate no emitió nada en un directorio sin config navori — debería inyectar el baseline. " +
-      "Corre 'navori global render --apply'; si sigue, el hook está roto",
-    gateNoDefer:
-      "el gate emitió el baseline DENTRO de un repo con navori.config.json — debería hacerse a un " +
-      "lado (Spec 0010 §3.1). El repo y el global se estarían duplicando",
-    gateMalformed: (detail) => `el gate emitió algo que no es el JSON esperado (${detail})`,
-    gateError: (detail) => `el gate falló al ejecutarse: ${detail}`,
-    wrotePlugin: (path, count) => `plugin: ${path} (${count} archivos)`,
-    pluginAssets: (agents, skills) => `Plugin: ${agents} agentes, ${skills} skills`,
-    pluginPresent: "plugin 'navori@skills-dir' instalado y al día",
-    pluginMissing:
-      "plugin 'navori@skills-dir' ausente — sin él no hay agentes ni skills globales. " +
-      "Corre 'navori global render --apply'",
-    pluginStale: (files) =>
-      `plugin desactualizado en: ${files} — corre 'navori global render --apply'`,
-    pluginNamespaceHint:
-      "las skills globales se invocan '/navori:<nombre>'; tras un render corre '/reload-plugins' " +
-      "(o abre una sesión nueva) para que Claude Code las recargue",
-    legacyMigrated: (snapshotPath) =>
-      `el hook suelto de ~/.claude se mudó al plugin; copia restaurable en ${snapshotPath}`,
-    legacyLeftover: (path) =>
-      `quedó un hook de una instalación anterior en ${path} — corre 'navori global render --apply' ` +
-      "para mudarlo al plugin y evitar que el baseline se emita dos veces",
-    permsMerged: (count) => `${count} permiso(s) personales presentes en settings.json`,
-    permsNotMerged:
-      "permisos configurados ausentes en settings.json — corre 'navori global render --apply'",
-    versionOk: (v) => `versión ${v}`,
-    versionDrift: (found, expected) =>
-      `versión ${found} < ${expected} del CLI — corre 'navori global render --apply'`,
-    hooksDisabledHint:
-      "recuerda: si deshabilitaste los hooks de Claude Code, el baseline no se inyecta",
-    uninstallNothing: "No hay harness global que desinstalar.",
-    uninstallDone: (dir) => `Harness global desinstalado de ${dir}.`,
-    collectUnsupported: (platform) =>
-      `El supervisor del receptor solo está implementado para launchd (macOS); esta máquina es '${platform}'. ` +
-      `Mientras tanto, levanta 'navori audit --collect' a mano o bájalo con el supervisor que ya uses.`,
-    collectInstalled: (path) => `LaunchAgent escrito en ${path}`,
-    collectReplaced: "había uno instalado — se reemplazó y se recargó",
-    collectCommand: (argv) => `launchd va a correr: ${argv}`,
-    collectLoadFailed: (message) =>
-      `El archivo quedó escrito pero launchctl no lo cargó: ${message || "sin mensaje"}. ` +
-      `Cárgalo a mano con 'launchctl bootstrap gui/$(id -u) <ruta>'.`,
-    collectDevBinaryWarn: (entry) =>
-      `Ojo: el binario que se fijó vive en un build de desarrollo (${entry}). ` +
-      `Un 'pnpm build' lo reescribe y un repo movido lo deja colgando; para uso diario, instala navori global y reinstala el agente.`,
-    collectUninstalled: (path) => `LaunchAgent descargado y borrado de ${path}`,
-    collectNothingInstalled: "No había LaunchAgent del receptor que desinstalar.",
-    collectProbeFailed: (logDir) =>
-      `launchd dice que el agente cargó, pero el receptor no responde en /healthz. ` +
-      `Revisa los logs en ${logDir} (collect.out.log / collect.err.log).`,
-    uninstallSettingsUnreadable: (path) =>
-      `No se pudo parsear ${path}, así que quedó intacto: se borró el archivo del hook, ` +
-      `pero su registro sigue en settings.json. Arregla el JSON y vuelve a correr 'navori global uninstall'.`,
-    settingsParseFailed: (path, detail) =>
-      `El settings.json global (${path}) no se pudo parsear como JSON: ${detail}. ` +
-      `No se escribió nada: es tu archivo, no lo versiona git y navori no puede regenerarlo. ` +
-      `Arregla el JSON a mano y vuelve a correr el comando.`,
-    settingsNotObject: (path) =>
-      `El settings.json global (${path}) no es un objeto JSON — no se puede fusionar. ` +
-      `No se escribió nada: arréglalo a mano y vuelve a correr el comando.`,
-    outroOk: "OK",
-    outroIssues: "Revisa lo anterior",
   },
   dominio: {
     noWorkspace:
@@ -3640,18 +3372,10 @@ const CMD_EN: CmdStrings = {
     optionalToolRow: (binaries, how) =>
       `— missing ${binaries} in PATH; ${how}. Until then, locate-code falls back to Grep`,
     otelReceiverOk: (port) => `OTel receiver listening on 127.0.0.1:${port}`,
-    otelReceiverDead: (port) =>
-      `The receiver's LaunchAgent is loaded but nothing answers on 127.0.0.1:${port}. ` +
-      `This repo's sessions (audit.mode: always) are exporting events that go nowhere. ` +
-      `Check ~/.navori/logs/collect.err.log and reinstall with 'navori global collect install'.`,
     otelReceiverManual:
       `This repo audits every session but the OTel receiver is not running, so those sessions ` +
       `lose the third source (who approved each permission, which skill the host declared). ` +
-      `Start it with 'navori audit --collect', or keep it supervised with 'navori global collect install'.`,
-    otelReceiverAbsent:
-      `This repo audits every session but the OTel receiver has no supervisor: if it dies or the ` +
-      `machine reboots, the sessions in between lose the third source with no warning. ` +
-      `Install it with 'navori global collect install'.`,
+      `Start it with 'navori audit --collect' (in the foreground or under the supervisor you prefer).`,
     tgrepIndexStale: (age, rootPath) =>
       `The tgrep index was last updated ${age} ago and no server is running: ` +
       `searches are answering from that frozen snapshot, not the current tree. ` +
@@ -3942,25 +3666,6 @@ const CMD_EN: CmdStrings = {
       `'${rule}' is in navori's settings 'deny' and in '${path}' 'allow' — the guard has no effect where that file applies; drop it from one of the two`,
     foreignHarnessStaleAck: (id) =>
       `'${id}' is in project.foreignHarness.acknowledged but matches no conflict any more — remove it`,
-    globalScopeTitle: "Global layer (navori global)",
-    globalScopeShadowedAgent: (id, repoPath) =>
-      `the global plugin's '${id}' agent stays inert: Claude Code resolves the id in the repo's favour and '${repoPath}' wins, and that file carries no navori managed marker — if the replacement was not intentional, delete or rename it`,
-    globalScopePermissionConflict: (rule) =>
-      `'${rule}' is in the global settings' 'allow' and in this repo's 'deny' — a 'deny' takes precedence over an 'allow', so the rule is blocked here; drop it from one of the two scopes`,
-    globalScopeHookDrift: (kind) =>
-      `the global harness hook is not up to date (${kind}) — run 'navori global doctor' for the detail`,
-    globalScopeHookNotEvaluable:
-      "could not evaluate the global harness hook (composing the baseline or reading '~/.navori/global.json' failed) — run 'navori global doctor'",
-    globalScopeHookLegacyInstall:
-      "there is an earlier global harness install that was never migrated: '~/.navori/global.json' exists but the plugin does not, so the old loose hook is still registered in the global settings — run 'navori global doctor' for the detail",
-    globalScopeStrictPluginOnly: (path) =>
-      `'strictPluginOnlyCustomization' is declared in '${path}': that policy blocks skills, agents and hooks from user and project sources, so it may leave navori's global plugin inert (the docs do not state whether it reaches a plugin discovered in a skills directory)`,
-    globalScopeManagedPermissionsOnly: (path) =>
-      `'allowManagedPermissionRulesOnly' is declared in '${path}': only managed permission rules apply, so the permissions 'navori global' wrote into the global settings are inert`,
-    globalScopeStrictKnownMarketplaces: (path) =>
-      `'strictKnownMarketplaces' is declared in '${path}' without the {"source":"skills-dir"} sentinel entry: any allowlist turns the '~/.claude/skills/' scan off, so navori's global plugin is not loaded — ask your administrator to add {"source":"skills-dir"} to that list`,
-    globalScopeBlockedMarketplaces: (path) =>
-      `'blockedMarketplaces' carries the {"source":"skills-dir"} sentinel entry in '${path}': that turns the '~/.claude/skills/' scan off, so navori's global plugin is not loaded — ask your administrator to remove it from that list`,
   },
   update: {
     detectedMigrationSuggestion: (legacy, preferred) =>
@@ -4308,9 +4013,6 @@ const CMD_EN: CmdStrings = {
     localSkillMissing: (id) =>
       `Project-local skill '${id}' declared in project.localSkills, but absent from ` +
       `.claude/skills/${id}/SKILL.md.`,
-    globalBaselineIntro:
-      "The following is your machine-wide navori baseline (repo-agnostic doctrine). " +
-      "A project with its own navori harness supersedes it.",
   },
   blocks: {
     agentsIndex: {
@@ -4384,120 +4086,6 @@ const CMD_EN: CmdStrings = {
       testsExclude: (list) =>
         `- **Suites outside that rule:** ${list}. They are maintained by hand — a code change does not require updating them, and the reviewer does not block on them.`,
     },
-  },
-  global: {
-    notInstalled: "The global harness isn't installed. Run 'navori global init'.",
-    initReinit: (dir) => `Global harness already initialized at ${dir}; regenerating.`,
-    initDone: (dir) => `Global harness installed at ${dir}.`,
-    renderApplied: (dir) => `Global baseline rendered to ${dir}.`,
-    previewTitle: "Would write",
-    previewHint: "Run with --apply to write.",
-    initPreviewHint:
-      "Preview: not a single byte was written. Run 'navori global init --apply' to install " +
-      "(add --recommended to answer nothing).",
-    initHeadless: "No interactive terminal: using the recommended values, same as --recommended.",
-    initCancelled: "Cancelled: nothing was written.",
-    blocksPrompt: "Which blocks do you want in the global baseline?",
-    blockHints: {
-      "operaciones-seguras":
-        "safe-operations contract: read-only by default, nothing destructive without your OK",
-      "idioma-rol": "chat language and the Senior Tech Lead role",
-      "formato-respuesta": "concision and response format (bug fix, code review, commits)",
-      orquestacion: "orchestration doctrine: when to reach for each of the plugin's 8 agents",
-      "cierre-sesion": "session closeout protocol (quality gate, history, commit)",
-      "intake-tickets":
-        "ticket intake: the problem is the contract, the proposed solution is a suggestion",
-      "code-discovery-routing":
-        "how to choose direct read, Glob, structural or textual discovery by what's missing",
-    },
-    permsPrompt: "Declare personal permissions for ~/.claude/settings.json?",
-    permsRules: (kind) => `'${kind}' rules (comma-separated; empty = none)`,
-    permsPlaceholder: "Bash(git status:*), Read(//tmp/**)",
-    permsPlanned: (count) => `Personal permissions: ${count} rule(s) to merge into settings.json`,
-    settingsUnchanged: (path) => `settings: unchanged (${path})`,
-    wroteHook: (path) => `hook: ${path}`,
-    wroteSettings: (path) => `settings: ${path}`,
-    baselineBlocks: (ids) => `Baseline blocks: ${ids}`,
-    doctorTitle: (dir) => `Global harness at ${dir}`,
-    hookPresent: "baseline hook present and up to date",
-    hookMissing: "baseline hook missing — run 'navori global render --apply'",
-    hookUnmarked:
-      "hook has no marker (an older navori wrote it) — run 'navori global render --apply' so it " +
-      "carries a version and doctor can detect changes",
-    hookHandEdited: (path) =>
-      `hook edited by hand: ${path} does not match its own hash. ` +
-      "'navori global render --apply' regenerates it and DISCARDS that edit; " +
-      "to keep it, move it to a hook of your own before rendering",
-    hookStale: (found, expected) =>
-      `hook out of date (rendered with ${found}, CLI is ${expected}) — ` +
-      "run 'navori global render --apply'",
-    gateOk: "gate works (emits the baseline outside a navori repo, nothing inside one)",
-    gateNoJsonTool:
-      "the gate cannot emit: neither 'node' nor 'jq' is on the hook's PATH. " +
-      "No session receives the baseline. Common under nvm when Claude Code starts outside your " +
-      "shell (desktop app): install 'jq', or expose 'node' on the system PATH",
-    gateNoEmit:
-      "the gate emitted nothing in a directory with no navori config — it should inject the " +
-      "baseline. Run 'navori global render --apply'; if it persists, the hook is broken",
-    gateNoDefer:
-      "the gate emitted the baseline INSIDE a repo with a navori.config.json — it should step " +
-      "aside (Spec 0010 §3.1). The repo and the global layer would be duplicating each other",
-    gateMalformed: (detail) =>
-      `the gate emitted something that is not the expected JSON (${detail})`,
-    gateError: (detail) => `the gate failed to run: ${detail}`,
-    wrotePlugin: (path, count) => `plugin: ${path} (${count} files)`,
-    pluginAssets: (agents, skills) => `Plugin: ${agents} agents, ${skills} skills`,
-    pluginPresent: "plugin 'navori@skills-dir' installed and up to date",
-    pluginMissing:
-      "plugin 'navori@skills-dir' missing — without it there are no global agents or skills. " +
-      "Run 'navori global render --apply'",
-    pluginStale: (files) => `plugin out of date at: ${files} — run 'navori global render --apply'`,
-    pluginNamespaceHint:
-      "global skills are invoked as '/navori:<name>'; after a render run '/reload-plugins' " +
-      "(or start a new session) so Claude Code picks them up",
-    legacyMigrated: (snapshotPath) =>
-      `the loose hook in ~/.claude moved into the plugin; restorable copy at ${snapshotPath}`,
-    legacyLeftover: (path) =>
-      `a hook from an earlier install is still at ${path} — run 'navori global render --apply' ` +
-      "to move it into the plugin and stop the baseline being emitted twice",
-    permsMerged: (count) => `${count} personal permission(s) present in settings.json`,
-    permsNotMerged:
-      "configured permissions missing from settings.json — run 'navori global render --apply'",
-    versionOk: (v) => `version ${v}`,
-    versionDrift: (found, expected) =>
-      `version ${found} < CLI ${expected} — run 'navori global render --apply'`,
-    hooksDisabledHint: "note: if you disabled Claude Code hooks, the baseline won't be injected",
-    uninstallNothing: "No global harness to uninstall.",
-    uninstallDone: (dir) => `Global harness uninstalled from ${dir}.`,
-    collectUnsupported: (platform) =>
-      `The receiver's supervisor is only implemented for launchd (macOS); this machine is '${platform}'. ` +
-      `For now, run 'navori audit --collect' by hand or keep it up with the supervisor you already use.`,
-    collectInstalled: (path) => `LaunchAgent written to ${path}`,
-    collectReplaced: "one was already installed — replaced and reloaded",
-    collectCommand: (argv) => `launchd will run: ${argv}`,
-    collectLoadFailed: (message) =>
-      `The file was written but launchctl did not load it: ${message || "no message"}. ` +
-      `Load it by hand with 'launchctl bootstrap gui/$(id -u) <path>'.`,
-    collectDevBinaryWarn: (entry) =>
-      `Heads-up: the pinned binary lives in a development build (${entry}). ` +
-      `A 'pnpm build' rewrites it and a moved repo leaves it dangling; for daily use, install navori globally and reinstall the agent.`,
-    collectUninstalled: (path) => `LaunchAgent unloaded and removed from ${path}`,
-    collectNothingInstalled: "There was no receiver LaunchAgent to uninstall.",
-    collectProbeFailed: (logDir) =>
-      `launchd says the agent loaded, but the receiver isn't answering /healthz. ` +
-      `Check the logs under ${logDir} (collect.out.log / collect.err.log).`,
-    uninstallSettingsUnreadable: (path) =>
-      `Could not parse ${path}, so it was left untouched: the hook file is gone, but its ` +
-      `registration is still in settings.json. Fix the JSON and run 'navori global uninstall' again.`,
-    settingsParseFailed: (path, detail) =>
-      `The global settings.json (${path}) could not be parsed as JSON: ${detail}. ` +
-      `Nothing was written: it is your file, git does not track it and navori cannot regenerate it. ` +
-      `Fix the JSON by hand and run the command again.`,
-    settingsNotObject: (path) =>
-      `The global settings.json (${path}) is not a JSON object — can't merge. ` +
-      `Nothing was written: fix it by hand and run the command again.`,
-    outroOk: "OK",
-    outroIssues: "Check the above",
   },
   dominio: {
     noWorkspace:

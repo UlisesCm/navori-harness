@@ -6,8 +6,6 @@ import { renderClaudeEngine } from "../claude/index.ts";
 import { renderAgentsMdEngine } from "../agents-md/index.ts";
 import { renderCursorEngine } from "../cursor/index.ts";
 import { renderCopilotEngine } from "../copilot/index.ts";
-import { composeBaseline } from "../claude/global-render.ts";
-import { defaultGlobalConfig } from "../../lib/config/global-config.ts";
 import { getCoreRoot } from "../../lib/render/bundled-assets.ts";
 import type { NavoriConfig } from "../../lib/config/config.ts";
 
@@ -102,16 +100,6 @@ describe("prose engines keep the full intake and SDD text", () => {
       expect(out).not.toContain("navori:if");
     });
   }
-});
-
-describe("global baseline", () => {
-  it("renders intake-tickets in full, with no marker leaking into the hook prose", () => {
-    const cfg = defaultGlobalConfig("0.5.0", "en");
-    cfg.blocks.include = [...cfg.blocks.include, "intake-tickets"];
-    const body = composeBaseline(cfg);
-    for (const bullet of INTAKE_BULLETS) expect(body).toContain(bullet);
-    expect(body).not.toContain("navori:if");
-  });
 });
 
 describe("intake doctrine: two owners by engine, one wording", () => {

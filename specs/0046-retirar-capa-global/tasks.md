@@ -37,17 +37,17 @@ Estimated LOC: 6000
 - **A3** [observable] — `navori global` no existe y ningún módulo de la capa queda bajo `src/` ·
   `cd packages/cli && bun run test src/__tests__/command-docs-inventory.test.ts src/lib/__tests__/global-layer-removed.test.ts`
   → exit 0, 0 failed
-- [ ] **T6** (R1) — `index.ts` (`subCommands`) sin `global`; `command-docs-inventory.test.ts`
+- [x] **T6** (R1) — `index.ts` (`subCommands`) sin `global`; `command-docs-inventory.test.ts`
   afirma su ausencia y reescribe su fixture de `global` · effect: behavior · test:
   `__tests__/command-docs-inventory.test.ts`::"global no está registrado"
-- [ ] **T7** (R2) — se borran los siete módulos de R2, sus tests (lista de design.md § "Testing
+- [x] **T7** (R2) — se borran los siete módulos de R2, sus tests (lista de design.md § "Testing
   strategy"), sus entradas en `removal-parity.test.ts` y `render-writes-backed-up.test.ts`, y las
   claves i18n de la capa; `doctor` pierde `scanGlobalScope` y la supervisión launchd de
   `scanOtelReceiver` (D6) · effect: behavior · test:
   `lib/__tests__/global-layer-removed.test.ts`::"los módulos de la capa global no existen"
-- [ ] **T8** (R2) — `doctor.otelReceiverManual` sin `global collect`; `scanOtelReceiver` en dos
+- [x] **T8** (R2) — `doctor.otelReceiverManual` sin `global collect`; `scanOtelReceiver` en dos
   estados (responde / no responde) · effect: behavior · test:
-  `commands/__tests__/doctor.test.ts`::"receptor otel sin supervisor"
+  `commands/__tests__/otel-receiver-doctor.test.ts`::"receptor otel sin supervisor"
 
 ### M4 — Plomería de render (área crítica)
 - **A4** [observable] — el render de repo no cambia un byte · `git diff --exit-code -- packages/cli/src/engines/__tests__/__golden__ && cd packages/cli && bun run test src/engines/__tests__/golden-render-tree.test.ts && cd ../.. && bun run check:render`
