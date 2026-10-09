@@ -683,9 +683,10 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "Pi role tool allowlists are model-visible capabilities, not OS/filesystem/network sandboxes; scout and reviewer retain write.",
       },
       "local-skill-discovery": {
-        state: "unsupported",
+        state: "enforced",
         reason:
-          "Pi reads trusted .agents/skills natively, but the Pi renderer does not yet project project.localSkills from .claude/skills into that root.",
+          "The generated pointer under .agents/skills/<id> (classifyLocalSkills), written by Pi only when Codex is not enabled.",
+        evidence: { kind: "local-skill-pointer" },
       },
       "acceptance-evidence": {
         state: "unsupported",

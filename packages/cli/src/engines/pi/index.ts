@@ -29,6 +29,14 @@ import {
   serializePiSource,
 } from "./owned-file.ts";
 import { PI_EXTENSION_SOURCE } from "./extension-source.ts";
+import {
+  buildLocalSkillPointerContent,
+  classifyLocalSkills,
+  localSkillPointerDestRel,
+  localSkillPointerMarkerId,
+  localSkillSourceAbs,
+} from "../shared/local-skill-pointer.ts";
+import { tc } from "../../lib/i18n.ts";
 
 const ROLE_TOOLS: Readonly<Record<string, readonly string[]>> = {
   scout: ["read", "grep", "find", "ls", "write"],
@@ -40,24 +48,67 @@ const ROLE_TOOLS: Readonly<Record<string, readonly string[]>> = {
 const EXTENSION = ".pi/extensions/navori.ts";
 
 const MANIFEST = ".pi/navori.json";
-const adapter: EngineAdapter = {
-  id: "pi",
-  label: "Pi Coding Agent",
-  placeAgent: () => null,
-  // Codex already owns this shared native root when both engines are enabled.
-  placeSkill: (skill, ctx) =>
-    ctx.config.engines.includes("codex")
-      ? null
-      : {
-          assetPath: skill.assetPath,
-          destRelPath: `.agents/skills/${skill.id}/SKILL.md`,
-          managedId: skill.managedId,
-          commentStyle: "html",
-        },
-  placeHook: () => null,
-  extraFiles: () => [],
-  orphanScans: () => [],
-};
+/** Plan-skill ids plus the local-skill pointers Pi may own in the shared `.agents/skills` root. */
+interface PiSkillRoot {
+  /** Local ids with a safe-to-write pointer (`emit`). */
+  emit: readonly string[];
+  /** Local ids whose destination is a foreign file (protected from pruning). */
+  foreign: readonly string[];
+}
+
+/**
+ * Pi adapter. Codex already owns the shared `.agents/skills` root when both engines are
+ * enabled, so Pi writes (and prunes) nothing there then: one writer, one marker.
+ */
+function buildAdapter(local: PiSkillRoot): EngineAdapter {
+  return {
+    id: "pi",
+    label: "Pi Coding Agent",
+    placeAgent: () => null,
+    placeSkill: (skill, ctx) =>
+      ctx.config.engines.includes("codex")
+        ? null
+        : {
+            assetPath: skill.assetPath,
+            destRelPath: `.agents/skills/${skill.id}/SKILL.md`,
+            managedId: skill.managedId,
+            commentStyle: "html",
+          },
+    placeHook: () => null,
+    // Same transform/marker/destination as the Codex pointer: the body stays in the user's
+    // `.claude/skills/<id>/SKILL.md`, this entry only makes it discoverable (spec 0047 R9).
+    extraFiles: (ctx) => {
+      if (ctx.config.engines.includes("codex")) return [];
+      return local.emit.flatMap((id) => {
+        const sourceAbs = localSkillSourceAbs(ctx.cwd, id);
+        if (sourceAbs === null) return [];
+        return [
+          {
+            assetPath: sourceAbs,
+            transform: (text: string) => buildLocalSkillPointerContent(text, id),
+            destRelPath: localSkillPointerDestRel(id),
+            managedId: localSkillPointerMarkerId(id),
+            commentStyle: "html" as const,
+          },
+        ];
+      });
+    },
+    orphanScans: (plan, ctx) =>
+      ctx.config.engines.includes("codex")
+        ? []
+        : [
+            {
+              dir: ".agents/skills",
+              match: () => true,
+              desired: new Set([
+                ...plan.skills.map(({ id }) => `.agents/skills/${id}/SKILL.md`),
+                ...[...local.emit, ...local.foreign].map((id) => localSkillPointerDestRel(id)),
+              ]),
+              shape: "skill-dir",
+            },
+          ],
+  };
+}
 
 /**
  * Pi discovers the repo-root context file natively (docs/configuration.md "Context files").
@@ -94,15 +145,27 @@ export function renderPiEngine(
     plugins: [],
   };
   const plan = resolveHarnessPlan(config, coreAssets, preset);
-  const collected = collectPlan(plan, adapter, ctx, { lang: resolveLang(config.language) });
+  const lang = resolveLang(config.language);
+  const localSkills = classifyLocalSkills(
+    cwd,
+    config.project?.localSkills ?? [],
+    new Set(plan.skills.map((s) => s.id)),
+  );
+  const adapter = buildAdapter(localSkills);
+  const collected = collectPlan(plan, adapter, ctx, { lang });
   const scribeOwnsMarkdown = config.harness?.scribeOwnsMarkdown ?? false;
   // The scribe is admitted only as the Markdown producer the project policy requires.
   const admitted = (id: string): boolean =>
     Object.hasOwn(ROLE_TOOLS, id) && (id !== "scribe" || scribeOwnsMarkdown);
   const roles = plan.agents.filter((agent) => admitted(agent.id));
-  const warnings = plan.agents
+  const warnings: string[] = plan.agents
     .filter((agent) => !Object.hasOwn(ROLE_TOOLS, agent.id))
     .map((agent) => `Pi subagent role ${agent.id} is unsupported and was not rendered.`);
+  if (!config.engines.includes("codex")) {
+    for (const id of localSkills.foreign) {
+      warnings.push(tc(lang).engine.localSkillForeignCodex(localSkillPointerDestRel(id)));
+    }
+  }
   if (scribeOwnsMarkdown && !roles.some((agent) => agent.id === "scribe")) {
     warnings.push(
       "harness.scribeOwnsMarkdown forbids implementer Markdown but the scribe role is disabled; Pi implementer dispatch is refused until harness.scribe is enabled or scribeOwnsMarkdown is turned off.",

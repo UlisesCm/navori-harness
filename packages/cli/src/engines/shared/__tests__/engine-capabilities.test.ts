@@ -147,7 +147,10 @@ describe("Pi control boundaries", () => {
       });
     }
     expect(ENGINE_CAPABILITIES.pi.controls["handoff-shape"].state).toBe("unsupported");
-    expect(ENGINE_CAPABILITIES.pi.controls["local-skill-discovery"].state).toBe("unsupported");
+    expect(ENGINE_CAPABILITIES.pi.controls["local-skill-discovery"]).toMatchObject({
+      state: "enforced",
+      evidence: { kind: "local-skill-pointer" },
+    });
   });
 
   it("does not claim acceptance evidence without a Pi child Bash recorder", () => {
