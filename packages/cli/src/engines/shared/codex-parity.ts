@@ -760,7 +760,7 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
       ),
     ],
     // Flows.
-    ...igualUnits("flow", ["native-task-list", "native-workflows"]),
+    ...igualUnits("flow", ["native-task-list", "native-workflows", "native-git-hooks"]),
     [
       "flow:master-plan-vs-plan-mode",
       limite(

@@ -447,6 +447,7 @@ describe("OVERLAP_ROWS coverage (one row per distributed unit)", () => {
     "native-workflows",
     "nested-agent-dispatch",
     "spec-delivery-publication",
+    "native-git-hooks",
   ]);
 
   // Covers: R2, R3, R57
@@ -472,6 +473,7 @@ describe("OVERLAP_ROWS coverage (one row per distributed unit)", () => {
         "native-workflows",
         "nested-agent-dispatch",
         "spec-delivery-publication",
+        "native-git-hooks",
       ].sort(),
     );
     const nested = OVERLAP_ROWS.find((r) => r.unit.id === "nested-agent-dispatch");
@@ -623,6 +625,18 @@ describe("OVERLAP_ROWS coverage (one row per distributed unit)", () => {
       .map((row) => row.unit.id)
       .sort();
     expect(marked).toEqual(unregistered);
+  });
+});
+
+describe("native-git-hooks flow", () => {
+  // Covers: R24
+  it("native-git-hooks", () => {
+    const row = OVERLAP_ROWS.find(
+      (r) => r.unit.kind === "flow" && r.unit.id === "native-git-hooks",
+    );
+    expect(row?.verdict).toBe("complementa");
+    expect(row?.codexParity.state).toBe("igual");
+    expect(renderOverlapDoc(OVERLAP_ROWS)).toContain("`native-git-hooks`");
   });
 });
 
