@@ -49,4 +49,28 @@ describe("this repo's quality gate (R23, R25)", () => {
     expect(steps(gate?.full).slice(0, CHEAP.length)).toEqual(steps(pkg.scripts["check:scoped"]));
     expect(pkg.scripts["check:scoped"]).not.toMatch(/test|vitest/);
   });
+
+  // Covers: R1
+  it("declaraciones nativas", () => {
+    // Only the gate declares native hooks; no plugin does (amendment after #1282).
+    expect(gate?.nativeHooks).toBe(true);
+    const config = JSON.parse(readFileSync(resolve(REPO_ROOT, "navori.config.json"), "utf8")) as {
+      plugins?: Record<string, { nativeHook?: unknown }>;
+    };
+    for (const plugin of Object.values(config.plugins ?? {})) {
+      expect(plugin.nativeHook).toBeUndefined();
+    }
+    // `prepare` installs the hook; the installer must warn instead of throwing on a foreign one.
+    const pkg = JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    expect(pkg.scripts.prepare).toContain("hooks:install");
+    const installer = readFileSync(resolve(REPO_ROOT, "scripts/js/install-git-hooks.mjs"), "utf8");
+    expect(installer).not.toMatch(/throw new Error/);
+    expect(installer).toContain("console.warn");
+    // The versioned hook runs the fast gate.
+    expect(readFileSync(resolve(REPO_ROOT, "scripts/git-hooks/pre-commit"), "utf8")).toContain(
+      "check:fast",
+    );
+  });
 });

@@ -357,7 +357,7 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
     }
   });
 
-  it("refuses to overwrite a non-navori pre-commit hook and keeps a custom pre-push", () => {
+  it("warns, exits 0 and keeps a non-navori pre-commit hook and a custom pre-push", () => {
     const repo = mkdtempSync(resolve(tmpdir(), "navori-pre-commit-"));
     try {
       execFileSync("git", ["init", "-q"], { cwd: repo, env: cleanGitEnv() });
@@ -370,8 +370,9 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
         env: cleanGitEnv(),
       });
 
-      expect(result.status).not.toBe(0);
-      expect(result.stderr).toContain("Refusing to overwrite non-navori hook");
+      // Runs from `prepare`, so a foreign hook must not break `bun install` (0045 D4).
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("is not a navori hook");
       expect(readFileSync(target, "utf-8")).toContain("echo custom");
 
       rmSync(target);

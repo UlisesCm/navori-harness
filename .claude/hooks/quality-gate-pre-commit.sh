@@ -1,4 +1,4 @@
-# navori:managed start id="qg-pre-commit-base" hash="6d317680" version="0.11.3" source="@navori/core"
+# navori:managed start id="qg-pre-commit-base" hash="855c4410" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Pre-commit / pre-push quality gate hook.
@@ -1344,7 +1344,7 @@ if [ "$run_needed" = 1 ]; then
   # above and the user-section below still run. The value comes from
   # navori.config.json at render time; a raw, unrendered copy keeps the
   # placeholder, which is not `1`, so the gate runs (fail closed).
-  navori_native_fast=0
+  navori_native_fast=1
   if [ "$navori_native_fast" != 1 ]; then
     # qualityGate.fast is shell-quoted at render time via the shq: marker (#197).
     # The gate string is still `eval`'d by run_gate below (running the gate is the
