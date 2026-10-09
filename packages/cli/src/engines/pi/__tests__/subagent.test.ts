@@ -25,7 +25,11 @@ interface SubagentTool {
     params: { role: "scout" | "implementer" | "reviewer"; task: string; feature?: string },
     signal: AbortSignal,
     onUpdate: () => void,
-    context: { cwd: string; isProjectTrusted: () => boolean },
+    context: {
+      cwd: string;
+      isProjectTrusted: () => boolean;
+      model?: { provider: string; id: string };
+    },
   ) => Promise<{
     content: Array<{ type: string; text: string }>;
     details: { role: string; truncated: boolean };
@@ -68,7 +72,7 @@ function loadRuntime(depth?: string): {
     "node:path": { join },
     "@earendil-works/pi-ai": { Type },
     "@earendil-works/pi-coding-agent": {
-      VERSION: "0.87.1",
+      VERSION: "1.1.0",
       defineTool: (value: unknown): unknown => value,
     },
   };
@@ -118,7 +122,7 @@ function execute(
     },
     signal,
     () => {},
-    { cwd, isProjectTrusted: () => true },
+    { cwd, isProjectTrusted: () => true, model: { provider: "openai-codex", id: "gpt-parent" } },
   );
 }
 
@@ -344,6 +348,8 @@ describe("Pi extension executable policy", () => {
       expect(child.kill).toHaveBeenCalledWith("SIGTERM");
       child.emit("close", null);
       await expect(pending).rejects.toThrow("cancelled, timed out, or exceeded output limit");
+      // The SIGKILL escalation outlives the leader's close, then releases itself.
+      await vi.advanceTimersByTimeAsync(5_000);
       expect(vi.getTimerCount()).toBe(0);
       const malformed = execute(runtime.tool!, dir, "scout");
       runtime.calls[1]!.child.stdout.write("not JSON\n");
@@ -360,8 +366,8 @@ describe("Pi extension executable policy", () => {
     }
   });
 
-  // Covers: R8, R9
-  it("bounds a settled assistant result and rejects oversized child output", async () => {
+  // Covers: R4, R8, R9
+  it("bounds a settled assistant result and rejects oversized child records", async () => {
     const dir = freshDir();
     renderPiEngine(dir, config);
     const runtime = loadRuntime();
@@ -371,9 +377,162 @@ describe("Pi extension executable policy", () => {
     expect(result.content[0]!.text).toHaveLength(65_536);
     expect(result.details.truncated).toBe(true);
     const oversized = execute(runtime.tool!, dir, "scout");
-    runtime.calls[1]!.child.stdout.write("x".repeat(270_000));
+    runtime.calls[1]!.child.stdout.write("x".repeat(8 * 1024 * 1024));
+    expect(runtime.calls[1]!.child.kill).not.toHaveBeenCalled();
+    runtime.calls[1]!.child.stdout.write("x");
     expect(runtime.calls[1]!.child.kill).toHaveBeenCalledWith("SIGTERM");
     runtime.calls[1]!.child.emit("close", null);
     await expect(oversized).rejects.toThrow("exceeded output limit");
   });
+
+  // Covers: R4
+  it("rejects a single oversized raw-byte record before buffering it", async () => {
+    const dir = freshDir();
+    renderPiEngine(dir, config);
+    const runtime = loadRuntime();
+    const pending = execute(runtime.tool!, dir, "scout");
+    const child = runtime.calls[0]!.child;
+    child.stdout.write(Buffer.from("é".repeat(4 * 1024 * 1024 + 1)));
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+    child.emit("close", 0);
+    await expect(pending).rejects.toThrow("exceeded output limit: event record");
+  });
+
+  // Covers: R4
+  it("bounds joined blocks and resets truncation for a newer snapshot", async () => {
+    const dir = freshDir();
+    renderPiEngine(dir, config);
+    const runtime = loadRuntime();
+    const pending = execute(runtime.tool!, dir, "scout");
+    const child = runtime.calls[0]!.child;
+    child.stdout.write(
+      `${JSON.stringify({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "text", text: "x".repeat(65_535) },
+            { type: "text", text: "é" },
+          ],
+        },
+      })}\n`,
+    );
+    child.stdout.write('{"type":"agent_settled"}\n');
+    child.emit("close", 0);
+    await expect(pending).resolves.toMatchObject({
+      content: [{ text: "x".repeat(65_535) + "\n" }],
+      details: { truncated: true },
+    });
+    const latest = execute(runtime.tool!, dir, "scout");
+    const next = runtime.calls[1]!.child;
+    next.stdout.write(
+      `${JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "x".repeat(70_000) }] } })}\n`,
+    );
+    settle(next, "short snapshot");
+    await expect(latest).resolves.toMatchObject({
+      content: [{ text: "short snapshot" }],
+      details: { truncated: false },
+    });
+  });
+
+  // Covers: R4
+  it("accepts large cumulative output without retaining deltas or tool events", async () => {
+    const dir = freshDir();
+    renderPiEngine(dir, config);
+    const runtime = loadRuntime();
+    const pending = execute(runtime.tool!, dir, "scout");
+    const child = runtime.calls[0]!.child;
+    for (let index = 0; index < 20; index++) {
+      child.stdout.write(`${JSON.stringify({ type: "tool_result", text: "x".repeat(20_000) })}\n`);
+      child.stdout.write(`${JSON.stringify({ type: "message_update", text: "ignored" })}\n`);
+    }
+    settle(child, "final answer");
+    await expect(pending).resolves.toMatchObject({
+      content: [{ text: "final answer" }],
+      details: { truncated: false },
+    });
+  });
+
+  // Covers: R4
+  it("preserves UTF8 across every byte split and joins only the latest snapshot text blocks", async () => {
+    const dir = freshDir();
+    renderPiEngine(dir, config);
+    const runtime = loadRuntime();
+    const pending = execute(runtime.tool!, dir, "scout");
+    const child = runtime.calls[0]!.child;
+    child.stdout.write(
+      `${JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "old" }] } })}\n`,
+    );
+    const output = Buffer.from(
+      `${JSON.stringify({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "text", text: "México 🌮" },
+            { type: "toolCall", text: "ignored" },
+            { type: "text", text: "你好" },
+          ],
+        },
+      })}\r\n${JSON.stringify({ type: "message_update", text: "ignored" })}\r\n${JSON.stringify({ type: "agent_settled" })}`,
+    );
+    for (const byte of output) child.stdout.write(Buffer.from([byte]));
+    child.emit("close", 0);
+    await expect(pending).resolves.toMatchObject({
+      content: [{ text: "México 🌮\n你好" }],
+      details: { truncated: false },
+    });
+  });
+
+  // Covers: R4
+  it.each([
+    [
+      "malformed after settled",
+      '{"type":"agent_settled"}\nnot JSON\n',
+      0,
+      "Invalid Pi child JSONL",
+    ],
+    ["truncated EOF", '{"type":"agent_settled"}\n{"type":', 0, "Invalid Pi child JSONL"],
+    ["unsettled EOF", '{"type":"message_update"}\n', 0, "before agent_settled"],
+    ["nonzero exit", '{"type":"agent_settled"}\n', 1, "Pi child exited 1"],
+    ["aborted settlement", '{"type":"agent_settled","aborted":true}\n', 0, "agent_settled aborted"],
+    [
+      "bare CR is not a delimiter",
+      '{"type":"message_update"}\r{"type":"agent_settled"}\n',
+      0,
+      "Invalid Pi child JSONL",
+    ],
+  ])("rejects %s", async (_name: string, output: string, code: number, error: string) => {
+    const dir = freshDir();
+    renderPiEngine(dir, config);
+    const runtime = loadRuntime();
+    const pending = execute(runtime.tool!, dir, "scout");
+    const child = runtime.calls[0]!.child;
+    child.stdout.write(output);
+    child.emit("close", code);
+    await expect(pending).rejects.toThrow(error);
+  });
+
+  // Covers: R4
+  it.each([
+    ["x".repeat(65_536), "x".repeat(65_536), false],
+    ["é".repeat(32_768), "é".repeat(32_768), false],
+    ["x".repeat(65_535) + "🌮", "x".repeat(65_535), true],
+    ["x".repeat(65_534) + "🌮", "x".repeat(65_534), true],
+    ["x".repeat(65_533) + "🌮", "x".repeat(65_533), true],
+    ["🌮".repeat(16_385), "🌮".repeat(16_384), true],
+  ])(
+    "reports byte-accurate truncation (case %#)",
+    async (answer: string, expected: string, truncated: boolean) => {
+      const dir = freshDir();
+      renderPiEngine(dir, config);
+      const runtime = loadRuntime();
+      const pending = execute(runtime.tool!, dir, "scout");
+      settle(runtime.calls[0]!.child, answer);
+      await expect(pending).resolves.toMatchObject({
+        content: [{ text: expected }],
+        details: { truncated },
+      });
+    },
+  );
 });

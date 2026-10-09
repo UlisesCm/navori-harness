@@ -117,7 +117,7 @@ function loadRuntime(env: Record<string, string> = {}): {
       if (id === "node:path") return { join };
       if (id === "@earendil-works/pi-ai") return { Type };
       if (id === "@earendil-works/pi-coding-agent")
-        return { VERSION: "0.87.1", defineTool: (value: unknown): unknown => value };
+        return { VERSION: "1.1.0", defineTool: (value: unknown): unknown => value };
       throw new Error(`Unexpected import: ${id}`);
     },
     process: {
@@ -145,13 +145,15 @@ function loadRuntime(env: Record<string, string> = {}): {
   return { tool, handlers, launches, spawn, exec };
 }
 
+const PARENT_MODEL = { provider: "openai-codex", id: "gpt-parent" };
+
 function invoke(tool: Tool, cwd: string, role: Role, feature?: string): Promise<unknown> {
   return tool.execute(
     "call-1",
     { role, task: "workplan: pi_engine\nImplement scoped task", feature },
     new AbortController().signal,
     () => {},
-    { cwd, isProjectTrusted: () => true } as { cwd: string },
+    { cwd, isProjectTrusted: () => true, model: PARENT_MODEL } as { cwd: string },
   );
 }
 

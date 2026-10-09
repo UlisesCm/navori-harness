@@ -1,13 +1,14 @@
 {
   "_navori": {
     "id": "pi-runtime",
-    "hash": "896ae22995c7c817a3d7381c97a7cdedcb4bf9b7b5cc65ffdf3c45b0f390d0c1"
+    "hash": "71b28d178535f3e02ffa046557cbf9054f682368cbd2261c92b8030149d3e9e0"
   },
   "schemaVersion": 1,
   "agents": [
     "implementer",
     "reviewer",
-    "scout"
+    "scout",
+    "scribe"
   ],
   "controls": {
     "planTiers": true,

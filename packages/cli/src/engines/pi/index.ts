@@ -15,6 +15,8 @@ import {
   type SkippedFile,
 } from "../shared/execute-plan.ts";
 import type { ProseEngineResult } from "../shared/prose-harness.ts";
+import { renderAgentsMdEngine } from "../agents-md/index.ts";
+import { ENGINE_CAPABILITIES } from "../shared/engine-capabilities.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
 import { resolveCodexModel } from "../../lib/assets/model-profile.ts";
 import { interpolate } from "../../lib/render/interpolate.ts";
@@ -32,6 +34,8 @@ const ROLE_TOOLS: Readonly<Record<string, readonly string[]>> = {
   scout: ["read", "grep", "find", "ls", "write"],
   implementer: ["read", "grep", "find", "ls", "bash", "edit", "write"],
   reviewer: ["read", "grep", "find", "ls", "bash", "write"],
+  // Admitted only with harness.scribeOwnsMarkdown; its Bash runs its own handoff preflight.
+  scribe: ["read", "grep", "find", "ls", "bash", "edit", "write"],
 };
 const EXTENSION = ".pi/extensions/navori.ts";
 
@@ -55,6 +59,20 @@ const adapter: EngineAdapter = {
   orphanScans: () => [],
 };
 
+/**
+ * Pi discovers the repo-root context file natively (docs/configuration.md "Context files").
+ * Pi delegates it to the agents-md adapter only when no other configured engine already owns
+ * it (Codex, agents-md): one writer and one `navori-agents` block across every transition.
+ */
+function piNeedsContextWriter(config: NavoriConfig): boolean {
+  return !config.engines.some(
+    (engine) =>
+      engine !== "pi" &&
+      engine in ENGINE_CAPABILITIES &&
+      ENGINE_CAPABILITIES[engine as keyof typeof ENGINE_CAPABILITIES].ownsAgentsMd,
+  );
+}
+
 /** Render the opt-in Pi manifest through the shared plan and commit choke point. */
 export function renderPiEngine(
   cwd: string,
@@ -77,17 +95,26 @@ export function renderPiEngine(
   };
   const plan = resolveHarnessPlan(config, coreAssets, preset);
   const collected = collectPlan(plan, adapter, ctx, { lang: resolveLang(config.language) });
-  const roles = plan.agents.filter((agent) => Object.hasOwn(ROLE_TOOLS, agent.id));
+  const scribeOwnsMarkdown = config.harness?.scribeOwnsMarkdown ?? false;
+  // The scribe is admitted only as the Markdown producer the project policy requires.
+  const admitted = (id: string): boolean =>
+    Object.hasOwn(ROLE_TOOLS, id) && (id !== "scribe" || scribeOwnsMarkdown);
+  const roles = plan.agents.filter((agent) => admitted(agent.id));
   const warnings = plan.agents
     .filter((agent) => !Object.hasOwn(ROLE_TOOLS, agent.id))
     .map((agent) => `Pi subagent role ${agent.id} is unsupported and was not rendered.`);
+  if (scribeOwnsMarkdown && !roles.some((agent) => agent.id === "scribe")) {
+    warnings.push(
+      "harness.scribeOwnsMarkdown forbids implementer Markdown but the scribe role is disabled; Pi implementer dispatch is refused until harness.scribe is enabled or scribeOwnsMarkdown is turned off.",
+    );
+  }
   const serialized = serializePiManifest({
     schemaVersion: 1,
     agents: roles.map((r) => r.id),
     controls: {
       planTiers: config.harness?.planTiers ?? false,
       masterPlan: config.harness?.masterPlan ?? false,
-      scribeOwnsMarkdown: config.harness?.scribeOwnsMarkdown ?? false,
+      scribeOwnsMarkdown,
     },
   });
   const extension = serializePiSource(PI_EXTENSION_SOURCE);
@@ -233,5 +260,14 @@ export function renderPiEngine(
     engineLabel: adapter.label,
     lang: resolveLang(config.language),
   });
-  return { ...result, skipped, warnings };
+  if (!piNeedsContextWriter(config)) return { ...result, skipped, warnings };
+  // Foreign content outside the managed block and a hand-edited block are preserved by the
+  // shared prose renderer. Its Claude-parity advisories do not apply to Pi and are dropped.
+  const context = renderAgentsMdEngine(cwd, config, options);
+  return {
+    written: [...result.written, ...context.written],
+    skipped: [...skipped, ...context.skipped],
+    warnings,
+    backupPath: result.backupPath ?? context.backupPath,
+  };
 }

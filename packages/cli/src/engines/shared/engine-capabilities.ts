@@ -162,6 +162,30 @@ export const WRITE_CAPABLE_TOOLS: ReadonlySet<string> = new Set([
   "Bash",
 ]);
 
+/**
+ * Spec 0047 D1 (R1, R2): one native-first admission row per runtime capability an
+ * engine's extension relies on. A row is admitted only with an official source, the
+ * earliest runtime version whose behavior was probed, and a reproducible probe; a
+ * runtime older than `verifiedFrom` (or unparseable) is diagnosed and the capability
+ * is never counted as enforced. `deferred` rows document what is NOT admitted yet.
+ */
+export interface RuntimeAdmission {
+  readonly capability: string;
+  /** The native runtime feature that provides it. */
+  readonly native: string;
+  readonly decision: "admitted" | "deferred";
+  /** Official documentation or CLI surface backing the verdict. */
+  readonly source: string;
+  /** Earliest runtime version whose behavior was probed (exact, stable semver). */
+  readonly verifiedFrom: string;
+  /** How the verdict is reproduced. */
+  readonly probe: string;
+  /** CLI flag the probe looks for in the runtime's help text, when the feature is a flag. */
+  readonly flag?: string;
+  /** What the capability does NOT guarantee. */
+  readonly boundary: string;
+}
+
 /** Frozen capability record for one engine. */
 export interface EngineCapabilities {
   readonly id: EngineId;
@@ -192,6 +216,8 @@ export interface EngineCapabilities {
    * privileges) is explicitly out of scope.
    */
   readonly analyticWriteTools: Readonly<Record<AnalyticRole, readonly string[]>>;
+  /** Native-first runtime admissions (spec 0047 D1); only engines with a probed runtime declare them. */
+  readonly runtimeAdmissions?: readonly RuntimeAdmission[];
 }
 
 /**
@@ -611,7 +637,8 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       },
       {
         surface: "additional-analytic-roles",
-        reason: "Pi project extension currently supports scout, implementer, and reviewer only.",
+        reason:
+          "Pi project extension dispatches scout, implementer, reviewer and, when harness.scribeOwnsMarkdown is on, scribe; auditor, architect and publisher are not admitted.",
       },
     ],
     controls: {
@@ -686,6 +713,49 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       reviewer: ["bash", "write"],
       architect: [],
     },
+    runtimeAdmissions: [
+      {
+        capability: "child-mcp-off",
+        native: "pi --no-mcp",
+        decision: "admitted",
+        source: "Pi 1.1.0 MCP guide and `pi --help` (--no-mcp: no servers connect, no MCP tools)",
+        verifiedFrom: "1.1.0",
+        probe: "`pi --help` lists --no-mcp (missingPiChildFlags); child args carry --no-mcp",
+        flag: "--no-mcp",
+        boundary:
+          "Disables Pi built-in MCP in the child only; not an OS sandbox and the parent keeps its MCP.",
+      },
+      {
+        capability: "child-model-selection",
+        native: "pi --model <provider/id>",
+        decision: "admitted",
+        source: "Pi 1.1.0 `pi --help` (--model accepts provider/id)",
+        verifiedFrom: "1.1.0",
+        probe: "`pi --help` lists --model; child args always carry the resolved provider/model",
+        flag: "--model",
+        boundary: "Selects the child's model; effort/thinking is not redefined.",
+      },
+      {
+        capability: "child-tool-allowlist",
+        native: "pi --tools <allowlist>",
+        decision: "admitted",
+        source: "Pi 1.1.0 `pi --help` (--tools: allowlist of tool names)",
+        verifiedFrom: "1.1.0",
+        probe: "`pi --help` lists --tools",
+        flag: "--tools",
+        boundary:
+          "Model-visible allowlist, not isolation; indirect MCP exposure is closed by --no-mcp.",
+      },
+      {
+        capability: "child-mcp-grants",
+        native: "per-role MCP grants in children",
+        decision: "deferred",
+        source: "Pi 1.1.0 MCP guide (Control tool exposure, Permissions)",
+        verifiedFrom: "1.1.0",
+        probe: "Not probed: direct and indirect grants per role are verified in spec 0047 E3.",
+        boundary: "Roles that need MCP stay unavailable until E3.",
+      },
+    ],
   },
   "agents-md": {
     id: "agents-md",

@@ -1,0 +1,69 @@
+# Pi first — Tasks
+
+**Estado:** límites conservadores y tres enmiendas de la spec aceptados por el usuario el 2026-10-09; todas las tareas pendientes, E1 sin iniciar. Los archivos/casos de test indicados son propuestas de implementación, no pruebas existentes ni ejecutadas. Cada caso añadirá `// Covers: R<n>` sobre el test. Los comandos A<n> se ejecutarán en el worktree de la entrega; no son verificaciones del scaffolding.
+
+**Precondición de implementación:** investigación y challenge independiente mediante scout CLI acotado de solo lectura completados el 2026-10-09; síntesis del orquestador y límites de la spec aceptados por el usuario. La revisión directa y los dispatches fallidos anteriores son historia; el scout exitoso no es revisión de shipping ni evidencia A1–A7. Siguen pendientes workplans y aprobación de implementación por entrega, revisión independiente del diff, pruebas runtime y gates de publicación. Un workplan por entrega; no duplicar este tablero en handoffs. E1 cierra con revisión independiente observada y receipts/gates existentes verificados por humano/host; el enforcement Pi-native de evidencia llega en E2 y nunca se permiten afirmaciones de éxito sin evidencia. Cada milestone ejecuta `bun run check:fast` más sus A<n>; el receipt compartido determina el gate scoped/full y la entrega solo cierra con el gate requerido verde. Verificar que la CLI ejecuta el gate real; un help, comando desconocido o timeout no es éxito.
+
+**Prioridad:** E1/E2 parchan G1–G5. E3/E4 conservan el alcance posterior de primera clase y no deben retrasar esos parches. Las 46 pruebas del checkout y 62 del worktree son antecedentes; ningún A<n> se declara cumplido por ellas. Los ids T15–T17 se añaden al milestone que corresponde para conservar la identidad de las tareas anteriores.
+
+## E1 — Ciclo Pi autónomo, documentación y ejecución confiable
+
+Estimated LOC: 1500
+
+### M1 — Admitir capacidades y ejecutar el ciclo configurado
+
+- **A1** [observable] — Pi-only completa el ciclo código/documentación con modelo efectivo correcto y aprobación aplicable · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-roles.test.ts src/engines/pi/__tests__/first-class-approvals.test.ts src/engines/pi/__tests__/first-class-context.test.ts` → exit 0; contexto autónomo, revisión conjunta, herencia exacta y ciclo core código/docs; hijos E1 con `--no-mcp` nativo, MCP ambiental inaccesible, roles configurados dependientes de MCP explícitamente indisponibles con diagnóstico accionable, sin defaults amplios ni orquestador hijo. Consentimiento observado en padre TUI/RPC ligado a operación/plan/estado; denegación, cancelación, objeto/estado cambiado y UI ausente no autorizan; hijos headless rechazan nuevas operaciones que requieran aprobación y las devuelven al principal. `--approve` es trust, no consentimiento operativo; sin subsistema de autorización delegada y con handoff/preflight inválido rechazado.
+- [x] **T1** (R1, R2) — Extender inventario/capabilities existentes con admisión nativo primero, fuentes/versiones y probes del runtime soportado; diagnosticar API incompatible antes de afirmar enforcement. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-roles.test.ts`::native admission and incompatible runtime
+- [x] **T2** (R3) — Extender dispatch a roles core habilitados necesarios para el flujo configurado conservando instrucciones/modelos/tools; verificar el ciclo core código/docs con hijos E1 usando `--no-mcp` nativo y negativos de MCP ambiental; roles configurados que requieran MCP son explícitamente indisponibles con diagnóstico accionable hasta E3. No instalar el roster de Claude por simetría ni spawn de orquestador o defaults amplios. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-roles.test.ts`::configured role cycle
+- [x] **T3** (R5, R6) — Integrar confirmaciones aplicables y preflight compartido de consumidores; el padre interactivo TUI/RPC requiere consentimiento observable ligado a operación/plan/objeto/estado mediante contratos existentes. Probar denegación, cancelación, cambio de objeto/estado y UI ausente; hijos headless rechazan nuevas operaciones que requieran aprobación y las devuelven al principal. `--approve`/trust no sustituye consentimiento operativo; no crear autorización transferible ni subsistema de delegación. Conservar negativos de handoff ausente/inválido y preflight fallido. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-approvals.test.ts`::trust is not approval and invalid handoff blocks consumer
+
+- [x] **T15** (R16, R11) — Emitir contexto neutral nativamente descubrible en un proyecto Pi-only; coordinar ownership/deduplicación de AGENTS.md en multiengine con un único escritor y preservar contenido ajeno/colisiones. Probar Pi → Pi+Codex → Pi, desactivación y render parcial bajo ownership compartido, preservación y deduplicación sin segundo writer. Validar rutas de skills y comparar arranque/planificación/cierre con y sin contexto en `evals.md`, sin atribuir resultados no ejecutados. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-context.test.ts`::Pi-only bootstrap and multiengine ownership
+- [x] **T16** (R17) — Resolver y transmitir explícitamente proveedor/modelo del padre cuando no hay override; conservar override de rol y diagnosticar modelo no disponible sin fallback silencioso. Probar defaults globales distintos del modelo activo. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-roles.test.ts`::explicit model and exact parent inheritance
+- [x] **T17** (R18, R6) — Habilitar el productor de Markdown requerido por la política del proyecto y validar su handoff antes de revisión conjunta; probar tarea con código/docs y ownership activado, más configuración incompatible, sin usar Bash como bypass. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-roles.test.ts`::code and documentation reviewed together
+
+### M2 — Fallos acotados y flujo recuperable
+
+- **A2** [observable] — Salida extensa válida y cancelación/timeout/parcial recuperables sin procesos pendientes ni falso éxito · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-lifecycle.test.ts src/engines/pi/__tests__/subagent.test.ts` → exit 0; más de 256 KiB acumulados aceptados, límite por registro 8 MiB, respuesta 64 KiB, abort/error rechazados y procesos/timers liberados; descendientes que sobreviven al líder limpiados por grupo de procesos con escalamiento SIGTERM → SIGKILL conservado, no cancelado solo por el cierre del líder.
+- [x] **T4** (R4, R19) — Revisar e integrar el candidato local `childParser` sin asumirlo aceptado; reemplazar el límite acumulado por parsing incremental acotado preservando profundidad/concurrencia/timeout. Probar UTF-8 entre chunks, LF/CRLF/EOF, JSON inválido, última respuesta, truncación por bytes, settlement abortado, spawn failure y cleanup idempotente sin huérfanos; incluir descendientes vivos tras salir el líder, cleanup del grupo de procesos y escalamiento SIGTERM → SIGKILL sin cancelarlo solo por el cierre del líder. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-lifecycle.test.ts`::bounded incremental stream and cancellation
+
+## E2 — Cerrar milestones Pi con evidencia y receipts
+
+Estimated LOC: 900
+
+### M3 — Evidencia host-observed y cierre verificable
+
+- **A3** [observable] — El cierre acepta únicamente evidencia actual de una ejecución exitosa exacta · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-evidence.test.ts src/engines/pi/__tests__/first-class-receipts.test.ts` → exit 0; fallo, comando distinto, árbol obsoleto y worktree distinto rechazados.
+- [ ] **T5** (R7) — Implementar probes versionados de éxito/fallo terminal y cwd efectivo de Bash real en principal e hijos, incluidas herramientas reemplazadas/anidadas, y conectar observación con registro neutral de evidencia. Correlacionar comando exacto y resultado terminal/cwd/HEAD/árbol/sesión/criterio sin inferir éxito de texto ni de `isError` por sí solo. Mantener observación de evidencia en hijos independiente del registro de dispatch/profundidad exclusivo del padre, o consumir explícitamente sus eventos en el padre sin que el guard suprima observación; deduplicar eventos y nunca ejecutar A<n> desde Navori ni simular variables de Claude. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-evidence.test.ts`::parent and child evidence
+- [ ] **T6** (R8) — Integrar cierre Pi con plan update y receipts/gates compartidos; rechazar evidencia ausente/fallida/obsoleta, comando distinto y otro worktree en el camino Pi, sin degradar a `unevidenced`. Conservar compatibilidad explícita de otros engines y selección del gate de milestone/entrega. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-receipts.test.ts`::reject missing failed and stale evidence
+
+## E3 — Skills y plugins nativos utilizables sin regresión
+
+Estimated LOC: 1100
+
+### M4 — Discovery local y acceso MCP efectivo
+
+- **A4** [observable] — Skills locales descubribles y plugins accesibles únicamente según rol/config efectiva · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-resources.test.ts src/engines/pi/__tests__/first-class-plugins.test.ts` → exit 0; fixtures MCP credential-free, codemode/discovery fuera de grant rechazados y configuración ajena intacta.
+- [ ] **T7** (R9) — Proyectar project.localSkills a discovery nativo con una sola fuente, colisiones diagnosticadas y ownership compartido entre engines. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-resources.test.ts`::local skill discovery without duplicate body
+- [ ] **T8** (R10) — Habilitar MCP en hijos solo en E3 mediante transporte nativo existente o registro nativo de sesión justificado, después de verificar grants por rol sobre herramientas directas, discovery, codemode y nested calls con fixtures. Mantener diagnóstico fail-closed accionable de roles/herramientas indisponibles si no se verifican grants efectivos; preservar configuración/precedencia/disablement/credenciales del usuario sin desactivar MCP personal del principal. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-plugins.test.ts`::native MCP role grants include indirect access
+
+### M5 — Upgrade y disable seguros en proyectos multiengine
+
+- **A5** [observable] — Instalar/actualizar/desactivar Pi preserva contenido ajeno y otros engines · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-migration.test.ts` → exit 0; dry-run y writes coinciden, edits preservados, snapshots no Pi sin cambios.
+- [ ] **T9** (R11) — Ejercitar upgrade desde recursos 0040, retiro de recursos owned, conflictos/digests, backups y fallo parcial usando serializers/commitWrites existentes; documentar diagnóstico y recuperación. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-migration.test.ts`::owned upgrade disable and other-engine preservation
+
+## E4 — Operación auditable y aceptación de Pi como primera clase
+
+Estimated LOC: 1200
+
+### M6 — Contexto operativo y audit correlacionados
+
+- **A6** [observable] — Audit correlaciona principal/hijos y contexto/avisos no se duplican tras reload/resume · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-audit.test.ts src/engines/pi/__tests__/first-class-context.test.ts` → exit 0; sin secretos, métricas ausentes explícitas y aviso aditivo tras tres fallos.
+- [ ] **T10** (R12) — Agregar eventos Pi al collector/reporte compartido con identidades de sesión/rol/worktree, límites y redaction; probar correlación principal/hijos, cobertura parcial y métricas no disponibles. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-audit.test.ts`::bounded redacted parent-child correlation
+- [ ] **T11** (R13) — Cargar contexto operativo pertinente con eventos nativos y discovery progresivo, deduplicar startup/resume/reload y separar ramas/worktrees; no reemplazar system prompt entero por conveniencia. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-context.test.ts`::resume reload worktree isolation
+- [ ] **T12** (R14) — Conectar resultados verificados al aviso de atasco aditivo, acotado por sesión/agente; probar recuperación, cambio de firma y fallas del mecanismo sin bloquear resultados. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-context.test.ts`::three identical failures advisory fail open
+
+### M7 — Smoke funcional integral y soporte documentado
+
+- **A7** [observable] — Un ciclo integral del runtime soportado completa receipt y upgrade/disable sin credenciales reales · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-e2e.test.ts` → exit 0; ciclo completo y fronteras negativas demostrados.
+- [ ] **T13** (R15, R16, R17, R18, R19) — Construir smoke Pi-only del runtime soportado con modelo/proveedor de fixture credential-free: instalación/contexto, aprobación, modelo efectivo, código/documentación, flujo extenso, evidencia, revisión conjunta, receipt, upgrade y disable; sin recursos de Claude/Codex ni cuentas reales y conservando diagnóstico de cada fallo. · effect: tests · test: `packages/cli/src/engines/pi/__tests__/first-class-e2e.test.ts`::credential-free first-class cycle
+- [ ] **T14** (R1, R2, R15) — Actualizar dirección y guía Pi con capacidades nativas/complementarias verificadas, versiones probadas, límites/headless y comandos del ciclo; publicar resultado de comparación del contexto always-on y solo afirmar soporte de primera clase con A1–A7 y gate final verdes. · effect: docs · test: `packages/cli/src/engines/pi/__tests__/first-class-e2e.test.ts`::documented support matches admitted runtime controls
