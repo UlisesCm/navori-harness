@@ -1,0 +1,44 @@
+id: no-shell-exec
+language: typescript
+severity: error
+message: "Do not run shell strings. Use execFile/spawn with an argv array; if a shell is intended, justify it and add `// ast-grep-ignore: no-shell-exec`."
+note: "Covers child_process exec/execSync, `shell: true`, Bun.$, execa and zx. Options passed through a variable are not detected (needs dataflow)."
+rule:
+  any:
+    # import { exec, execSync } from "child_process" / "node:child_process"
+    - all:
+        - kind: import_specifier
+        - any:
+            - regex: ^(exec|execSync)(\s+as\s+\w+)?$
+        - inside:
+            stopBy: end
+            kind: import_statement
+            has:
+              field: source
+              regex: ^["'](node:)?child_process["']$
+    # child_process.exec*(...) / cp.exec*(...)
+    - pattern: child_process.exec($$$)
+    - pattern: child_process.execSync($$$)
+    - pattern: cp.exec($$$)
+    - pattern: cp.execSync($$$)
+    # spawn-family calls with a literal `shell: true`
+    - all:
+        - kind: call_expression
+        - has:
+            field: function
+            regex: ^(child_process\.|cp\.)?(spawn|spawnSync|execFile|execFileSync)$
+        - has:
+            field: arguments
+            has:
+              kind: object
+              has:
+                kind: pair
+                regex: ^shell\s*:\s*true$
+    # Bun.$`...`
+    - pattern: Bun.$`$$$`
+    # imports from execa / zx
+    - all:
+        - kind: import_statement
+        - has:
+            field: source
+            regex: ^["'](execa|zx)["']$

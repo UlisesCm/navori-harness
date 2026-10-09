@@ -1,0 +1,43 @@
+id: no-unjustified-double-cast
+language: typescript
+severity: error
+message: "`as unknown as T` bypasses the type system. Add `// any justified: <reason>` directly above the statement."
+note: "The justification must directly precede the nearest enclosing statement, property, or its `export` wrapper."
+ignores:
+  - "**/__tests__/**"
+  - "**/*.test.ts"
+utils:
+  justified-comment-above:
+    follows:
+      stopBy:
+        not:
+          kind: comment
+      kind: comment
+      regex: "any justified:"
+rule:
+  pattern: $X as unknown as $T
+  not:
+    inside:
+      stopBy:
+        any:
+          - kind: lexical_declaration
+          - kind: variable_declaration
+          - kind: expression_statement
+          - kind: return_statement
+          - kind: export_statement
+          - kind: public_field_definition
+          - kind: pair
+      all:
+        - any:
+            - kind: lexical_declaration
+            - kind: variable_declaration
+            - kind: expression_statement
+            - kind: return_statement
+            - kind: export_statement
+            - kind: public_field_definition
+            - kind: pair
+        - any:
+            - matches: justified-comment-above
+            - inside:
+                kind: export_statement
+                matches: justified-comment-above

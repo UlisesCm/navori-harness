@@ -1,0 +1,14 @@
+id: no-explicit-any
+valid:
+  - |
+    const a: unknown = 1;
+  - |
+    function f(x: string): number { return 1; }
+invalid:
+  - |
+    const a: any = 1;
+  - |
+    function f(x: any): void {}
+  - const a = x as any;
+  - |
+    const a: Array<any> = [];

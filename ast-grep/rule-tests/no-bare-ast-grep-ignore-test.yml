@@ -1,0 +1,20 @@
+id: no-bare-ast-grep-ignore
+valid:
+  - |
+    // ast-grep-ignore: no-shell-exec
+    run();
+  - |
+    // unrelated comment
+    run();
+invalid:
+  - |
+    // ast-grep-ignore
+    run();
+  - |
+    /* ast-grep-ignore */
+    run();
+  - |
+    function f() {
+      // ast-grep-ignore
+      run();
+    }

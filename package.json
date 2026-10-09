@@ -9,6 +9,7 @@
     "apps/*"
   ],
   "trustedDependencies": [
+    "@ast-grep/cli",
     "esbuild",
     "sharp"
   ],
@@ -29,6 +30,9 @@
     "check:assets:ci": "node scripts/js/check-asset-commands.mjs --strict",
     "check:doc-budgets": "node packages/cli/scripts/check-doc-budgets.mjs",
     "check:blame-ignore": "node scripts/js/check-blame-ignore.mjs",
+    "check:dup": "jscpd -r silent || (jscpd; exit 1)",
+    "check:dup:baseline": "jscpd --update-baseline",
+    "check:ast": "ast-grep test --skip-snapshot-tests && ast-grep scan",
     "jscpd:check": "bash .claude/scripts/check-jscpd.sh </dev/null",
     "semgrep:check": "bash .claude/scripts/check-semgrep.sh </dev/null",
     "hooks:install": "node scripts/js/install-git-hooks.mjs",
@@ -38,6 +42,8 @@
     "check:fast": "bun run format:check && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun lint && bun typecheck"
   },
   "devDependencies": {
+    "@ast-grep/cli": "0.45.3",
+    "jscpd": "5.4.0",
     "oxfmt": "^0.70.0",
     "oxlint": "1.75.0"
   }

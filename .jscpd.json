@@ -1,0 +1,12 @@
+{
+  "path": ["packages", "apps", "scripts"],
+  "format": ["typescript", "tsx", "javascript"],
+  "minTokens": 100,
+  "minLines": 10,
+  "mode": "strict",
+  "reporters": ["console"],
+  "baseline": ".jscpd-baseline.json",
+  "failOnNewClones": 0,
+  "failOnEmpty": true,
+  "noTips": true
+}

@@ -1,0 +1,9 @@
+id: no-bash-eval
+language: bash
+severity: error
+message: "`eval` executes arbitrary strings. Avoid it; if intended, add `# ast-grep-ignore: no-bash-eval` with the reason."
+rule:
+  kind: command
+  has:
+    field: name
+    regex: ^eval$

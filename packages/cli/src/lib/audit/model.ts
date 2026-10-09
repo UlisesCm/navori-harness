@@ -1592,6 +1592,8 @@ function normalizeDispatchOutcome(record: Record<string, unknown>): DispatchOutc
     (typeof record.spawn !== "string" || !DISPATCH_SPAWN.test(record.spawn))
   )
     return null;
+  // any justified: `record` is validated key by key above (allowed keys, schemaVersion, verdict, field types);
+  // TS cannot narrow a Record<string, unknown> to DispatchOutcome.
   return Buffer.byteLength(JSON.stringify(record)) <= OUTCOME_MAX_BYTES
     ? (record as unknown as DispatchOutcome)
     : null;
@@ -1663,6 +1665,8 @@ function normalizeReceiptOutcome(record: Record<string, unknown>): ReceiptOutcom
   // `fp`/`alg` are only meaningful (and only emitted) for a stable identity.
   if ((record.fp !== undefined || record.alg !== undefined) && record.identity !== "stable")
     return null;
+  // any justified: `record` is validated key by key above (allowed keys, schemaVersion, verdict, field types);
+  // TS cannot narrow a Record<string, unknown> to ReceiptOutcome.
   return Buffer.byteLength(JSON.stringify(record)) <= OUTCOME_MAX_BYTES
     ? (record as unknown as ReceiptOutcome)
     : null;
@@ -1714,6 +1718,8 @@ function normalizeReviewOutcome(record: Record<string, unknown>): ReviewOutcome 
     if (typeof field !== "number" || !Number.isSafeInteger(field) || field < 0) return null;
     if ((OUTCOME_COUNTS as readonly string[]).includes(key) && field > 10_000) return null;
   }
+  // any justified: `record` is validated key by key above (allowed keys, schemaVersion, verdict, field types);
+  // TS cannot narrow a Record<string, unknown> to ReviewOutcome.
   return Buffer.byteLength(JSON.stringify(record)) <= OUTCOME_MAX_BYTES
     ? (record as unknown as ReviewOutcome)
     : null;

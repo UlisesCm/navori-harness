@@ -1,0 +1,36 @@
+id: no-unjustified-double-cast
+valid:
+  - const a = x as Foo;
+  - |
+    // any justified: validated above
+    const a = x as unknown as Foo;
+  - |
+    // any justified: validated above,
+    // TS cannot narrow it.
+    const a = x as unknown as Foo;
+  - |
+    // any justified: validated above
+    export const a = x as unknown as Foo;
+  - |
+    const o = {
+      // any justified: pair-level reason
+      k: x as unknown as Foo,
+    };
+  - |
+    function f() {
+      // any justified: first
+      const a = x as unknown as Foo;
+      // any justified: second
+      const b = y as unknown as Bar;
+    }
+invalid:
+  - const a = x as unknown as Foo;
+  - |
+    // unrelated comment
+    const a = x as unknown as Foo;
+  - |
+    // any justified: only for the function
+    function f() {
+      const a = x as unknown as Foo;
+      const b = y as unknown as Bar;
+    }

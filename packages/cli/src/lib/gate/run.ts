@@ -47,7 +47,7 @@ function runShell(
     // detached => own process group, so a signal reaches vitest/semgrep grandchildren too.
     // Intentional: the gate is a shell chain by contract, and `runGate` validated it with
     // `isSafeGateChain` (no pipes/quotes/`$`) before getting here.
-    // nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true
+    // ast-grep-ignore: no-shell-exec
     const child = spawn(command, {
       cwd,
       shell: true,
