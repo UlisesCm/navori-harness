@@ -103,6 +103,52 @@ async function checkDispatch(cwd: string, role: Role, task: string,
   }
 }
 
+type ApprovalContext = { cwd: string; hasUI?: boolean; ui?: { confirm?: (title: string, message: string) => Promise<boolean> } };
+type ExecResult = { code: number | null; stdout: string };
+type ExecFn = (command: string, args: string[], options: { cwd: string; timeout: number }) => Promise<ExecResult>;
+// Navori's existing human-approval contract: a command carrying --approved-by asserts that the user approved.
+const APPROVAL_CLAIM = /(?:^|\s)--approved-by(?:[=\s]|$)/;
+
+/** Snapshot of the repository the approval is bound to; any failure means "cannot bind", never "unchanged". */
+async function approvalState(exec: ExecFn, cwd: string): Promise<string> {
+  const parts: string[] = [];
+  for (const args of [["rev-parse", "HEAD"], ["status", "--porcelain=v1", "-z"], ["diff", "HEAD"]]) {
+    let result: ExecResult;
+    try { result = await exec("git", args, { cwd, timeout: 10_000 }); }
+    catch { throw new Error("cannot snapshot repository state"); }
+    if (result.code !== 0) throw new Error("cannot snapshot repository state");
+    parts.push(result.stdout);
+  }
+  return parts.join("\0");
+}
+
+/**
+ * Operator consent for one Bash command that claims human approval (--approved-by). Consent is the Pi native
+ * dialog of the interactive parent, bound to this exact command and repository state, and spent by this call.
+ * Trust (--approve, isProjectTrusted) is deliberately never consulted here.
+ */
+async function requireOperatorApproval(exec: ExecFn, ctx: ApprovalContext, command: string): Promise<{ block: true; reason: string } | undefined> {
+  const refuse = (why: string): { block: true; reason: string } => ({ block: true, reason: "Navori approval not granted: " + why });
+  if (process.env.NAVORI_PI_CHILD_DEPTH) {
+    return refuse("headless Navori children cannot approve operations; stop and return this command to the parent session so the user can approve it there.");
+  }
+  if (ctx.hasUI !== true || typeof ctx.ui?.confirm !== "function") {
+    return refuse("this Pi session has no interactive UI (TUI/RPC); resume the task in an interactive Pi session to approve this operation.");
+  }
+  let before: string;
+  try { before = await approvalState(exec, ctx.cwd); }
+  catch { return refuse("the repository state could not be snapshotted, so approval cannot be bound to it."); }
+  let confirmed = false;
+  try { confirmed = (await ctx.ui.confirm("Navori approval required", "Run this operation as approved by you?\n\n" + command)) === true; }
+  catch { /* A failing dialog is not consent. */ }
+  if (!confirmed) return refuse("the user denied or cancelled the confirmation.");
+  let after: string;
+  try { after = await approvalState(exec, ctx.cwd); }
+  catch { return refuse("the repository state could not be re-verified after the confirmation."); }
+  if (after !== before) return refuse("the repository state changed between the confirmation and its use; request approval again.");
+  return undefined;
+}
+
 function enabledRoles(cwd: string): unknown[] {
   const manifest: unknown = JSON.parse(readFileSync(join(cwd, ".pi/navori.json"), "utf8"));
   return isRecord(manifest) && Array.isArray(manifest.agents) ? manifest.agents : [];
@@ -313,6 +359,17 @@ export default function (pi: ExtensionAPI): void {
     return;
   }
   pi.on("tool_call", async (event, ctx) => {
+    if (event.toolName === "bash") {
+      const bashInput: unknown = event.input;
+      if (isRecord(bashInput) && typeof bashInput.command === "string" && APPROVAL_CLAIM.test(bashInput.command)) {
+        const refusal = await requireOperatorApproval(pi.exec.bind(pi), ctx, bashInput.command);
+        if (refusal) return refusal;
+        // The command must still be the one the user saw.
+        if (!isRecord(event.input) || event.input.command !== bashInput.command) {
+          return { block: true, reason: "Navori approval not granted: the command changed after the confirmation; request approval again." };
+        }
+      }
+    }
     if (!controls(ctx.cwd).scribeOwnsMarkdown || process.env.NAVORI_PI_CHILD_ROLE !== "implementer") return;
     if (event.toolName !== "edit" && event.toolName !== "write") return;
     const input: unknown = event.input;
