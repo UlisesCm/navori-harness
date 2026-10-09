@@ -59,14 +59,14 @@ Estimated LOC: 1150
   → exit 0, 0 failed
 - **A7** [observable] — los goldens de render con y sin flags no dependen del estado de git ·
   `bun run check:render` → exit 0
-- [ ] **T8** (R1) — `qualityGate.nativeHooks` y `plugins.<p>.nativeHook` opcionales en el schema;
+- [x] **T8** (R1) — `qualityGate.nativeHooks` y `plugins.<p>.nativeHook` opcionales en el schema;
   variable derivada `navori.nativeHooks` · effect: schema · test:
   `lib/config/__tests__/config.test.ts`::"nativeHooks"
-- [ ] **T9** (R2, R3) — `quality-gate-pre-commit.sh`: el bloque del gate queda bajo
+- [x] **T9** (R2, R3) — `quality-gate-pre-commit.sh`: el bloque del gate queda bajo
   `navori_native_fast`; el tope de `progress/current.md` y la user-section siguen; el skip se
   audita como `skip` con razón `native-hook` · effect: behavior · test:
   `__tests__/quality-gate-native.test.ts`::"tope, user-section y gate omitido en claude y codex"
-- [ ] **T10** (R4) — `loadEnabledPlugins` carga un plugin con `nativeHook` sin hooks y con sus
+- [x] **T10** (R4) — `loadEnabledPlugins` carga un plugin con `nativeHook` sin hooks y con sus
   scripts; `build-settings` y `resolveCodexHooks` no lo registran · effect: behavior · test:
   `lib/config/__tests__/plugins.test.ts`::"nativeHook omite el registro"
 
@@ -89,9 +89,9 @@ Estimated LOC: 1150
 - **A9** [observable] — `doctor` reconoce el pre-commit versionado ·
   `bun packages/cli/src/index.ts doctor` → sin error de hooks nativos y fila con
   `.git/hooks/pre-commit`
-- [ ] **T14** (R1, R4) — `navori.config.json`: `qualityGate.nativeHooks`,
-  `plugins.semgrep.nativeHook` y `plugins.jscpd.nativeHook` en `true`; `prepare` corre
-  `hooks:install`, que avisa y sale 0 ante un hook ajeno · effect: behavior · test:
+- [ ] **T14** (R1) — `navori.config.json` declara solo `qualityGate.nativeHooks: true` (sin
+  `plugins.<p>.nativeHook`; enmienda #1282); `prepare` corre `hooks:install`, que avisa y sale 0
+  ante un hook ajeno · effect: behavior · test:
   `__tests__/repo-gate-config.test.ts`::"declaraciones nativas"
 - [ ] **T15** (R24) — fila `native-git-hooks` en `FLOWS` y `docs/native-overlap.md` regenerado;
   skills de semgrep y jscpd documentan la invocación desde un hook nativo · effect: docs · test:
