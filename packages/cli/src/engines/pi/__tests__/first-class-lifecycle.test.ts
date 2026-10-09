@@ -21,7 +21,11 @@ type Execute = (
   params: { role: "scout"; task: string },
   signal: AbortSignal,
   onUpdate: () => void,
-  context: { cwd: string; isProjectTrusted: () => boolean },
+  context: {
+    cwd: string;
+    isProjectTrusted: () => boolean;
+    model?: { provider: string; id: string };
+  },
 ) => Promise<{ content: Array<{ text: string }>; details: { truncated: boolean } }>;
 
 const GROUP = 4242;
@@ -55,7 +59,7 @@ function load(pid: number | null = GROUP): {
         ["Object", "Union", "Literal", "String", "Optional"].map((name) => [name, () => ({})]),
       ),
     },
-    "@earendil-works/pi-coding-agent": { VERSION: "0.87.1", defineTool: (value: unknown) => value },
+    "@earendil-works/pi-coding-agent": { VERSION: "1.1.0", defineTool: (value: unknown) => value },
   };
   const exports: Record<string, unknown> = {};
   const compiled = stripTypeScriptTypes(PI_EXTENSION_SOURCE)
@@ -89,6 +93,7 @@ function load(pid: number | null = GROUP): {
       execute!("c", { role: "scout", task: "t" }, signal, () => {}, {
         cwd,
         isProjectTrusted: () => true,
+        model: { provider: "openai-codex", id: "gpt-parent" },
       }),
     children,
     groupKills,

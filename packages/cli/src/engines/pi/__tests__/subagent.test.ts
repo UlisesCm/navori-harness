@@ -25,7 +25,11 @@ interface SubagentTool {
     params: { role: "scout" | "implementer" | "reviewer"; task: string; feature?: string },
     signal: AbortSignal,
     onUpdate: () => void,
-    context: { cwd: string; isProjectTrusted: () => boolean },
+    context: {
+      cwd: string;
+      isProjectTrusted: () => boolean;
+      model?: { provider: string; id: string };
+    },
   ) => Promise<{
     content: Array<{ type: string; text: string }>;
     details: { role: string; truncated: boolean };
@@ -68,7 +72,7 @@ function loadRuntime(depth?: string): {
     "node:path": { join },
     "@earendil-works/pi-ai": { Type },
     "@earendil-works/pi-coding-agent": {
-      VERSION: "0.87.1",
+      VERSION: "1.1.0",
       defineTool: (value: unknown): unknown => value,
     },
   };
@@ -118,7 +122,7 @@ function execute(
     },
     signal,
     () => {},
-    { cwd, isProjectTrusted: () => true },
+    { cwd, isProjectTrusted: () => true, model: { provider: "openai-codex", id: "gpt-parent" } },
   );
 }
 
