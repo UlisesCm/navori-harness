@@ -1019,6 +1019,24 @@ interface DoctorCmdStrings {
   gitHygieneEphemeralTracked: (path: string) => string;
   gitHygienePresetsIgnored: string;
   gitHygieneNestedStateUnprotected: string;
+  /** Note title for the native git hooks section (spec 0045 D3). */
+  nativeHooksTitle: string;
+  /** What was found for one event; `manager` is null when it is absent (`absence` says why). */
+  nativeHooksFound: (
+    event: string,
+    manager: string | null,
+    path: string | null,
+    absence: string | null,
+  ) => string;
+  nativeHooksGateMissing: (
+    manager: string | null,
+    absence: string | null,
+    gitVersion: string | null,
+  ) => string;
+  nativeHooksPluginMissing: (plugin: string, gitVersion: string | null) => string;
+  nativeHooksPluginOnlyGuarantee: (plugin: string) => string;
+  nativeHooksDuplicate: (manager: string | null, path: string | null) => string;
+  nativeHooksWorktreeMissing: (path: string) => string;
   /** Note title for the startup-surface budget section (#917). */
   docBudgetTitle: string;
   /** What a session pays: whole file, managed half vs its ceiling, user prose. */
@@ -2259,6 +2277,24 @@ const CMD_ES: CmdStrings = {
       "'.navori/presets/' está ignorado — una regla amplia de .navori/ oculta presets versionables; acota esa regla a '.navori/state/'",
     gitHygieneNestedStateUnprotected:
       "el bloque managed de '.navori/.gitignore' ya no protege 'state/' — revisa el bloque o corre 'navori render --apply --force'",
+    nativeHooksTitle: "Hooks nativos de git",
+    nativeHooksFound: (event, manager, path, absence) =>
+      manager
+        ? `${event}: activo (${manager}) en ${path}`
+        : `${event}: ausente${absence ? ` (${absence})` : ""}${path ? ` — ${path}` : ""}`,
+    nativeHooksGateMissing: (manager, absence, gitVersion) =>
+      `qualityGate.nativeHooks está declarado pero no hay un pre-commit nativo activo en este clone o worktree` +
+      `${manager ? ` (gestor: ${manager})` : ""}${absence ? ` — cuenta como ausente: ${absence}` : ""}` +
+      `${gitVersion ? ` [${gitVersion}]` : ""}; navori ya no corre el gate en el commit, instala el hook (p. ej. 'bun run hooks:install') o quita la declaración`,
+    nativeHooksPluginMissing: (plugin, gitVersion) =>
+      `plugins.${plugin}.nativeHook está declarado pero no hay pre-commit ni pre-push nativo activo en este clone o worktree` +
+      `${gitVersion ? ` [${gitVersion}]` : ""}; el chequeo de '${plugin}' ya no corre en ningún lado`,
+    nativeHooksPluginOnlyGuarantee: (plugin) =>
+      `plugins.${plugin}.nativeHook: el hook nativo es la única garantía de ese chequeo si no está en qualityGate.full`,
+    nativeHooksDuplicate: (manager, path) =>
+      `hay un pre-commit nativo activo${manager ? ` (${manager})` : ""}${path ? ` en ${path}` : ""} y qualityGate.nativeHooks no está declarado: los checks mecánicos corren duplicados; declara "qualityGate": { "nativeHooks": true } si el hook corre qualityGate.fast`,
+    nativeHooksWorktreeMissing: (path) =>
+      `el worktree ${path} no tiene un pre-commit nativo activo; ahí el commit no corre el gate`,
     docBudgetTitle: "Presupuesto de arranque (lo que cada sesión paga antes del primer prompt)",
     docBudgetSummary: (total, managed, ceiling, own) =>
       `CLAUDE.md: ${total} palabras — ${managed} managed contra un techo derivado de ${ceiling}, ` +
@@ -3562,6 +3598,24 @@ const CMD_EN: CmdStrings = {
       "'.navori/presets/' is ignored — a broad .navori/ rule hides versionable presets; narrow that rule to '.navori/state/'",
     gitHygieneNestedStateUnprotected:
       "the managed block in '.navori/.gitignore' no longer protects 'state/' — inspect the block or run 'navori render --apply --force'",
+    nativeHooksTitle: "Native git hooks",
+    nativeHooksFound: (event, manager, path, absence) =>
+      manager
+        ? `${event}: active (${manager}) at ${path}`
+        : `${event}: absent${absence ? ` (${absence})` : ""}${path ? ` — ${path}` : ""}`,
+    nativeHooksGateMissing: (manager, absence, gitVersion) =>
+      `qualityGate.nativeHooks is declared but no native pre-commit is active in this clone or worktree` +
+      `${manager ? ` (manager: ${manager})` : ""}${absence ? ` — counts as absent: ${absence}` : ""}` +
+      `${gitVersion ? ` [${gitVersion}]` : ""}; navori no longer runs the gate on commit, install the hook (e.g. 'bun run hooks:install') or drop the declaration`,
+    nativeHooksPluginMissing: (plugin, gitVersion) =>
+      `plugins.${plugin}.nativeHook is declared but no native pre-commit or pre-push is active in this clone or worktree` +
+      `${gitVersion ? ` [${gitVersion}]` : ""}; the '${plugin}' check now runs nowhere`,
+    nativeHooksPluginOnlyGuarantee: (plugin) =>
+      `plugins.${plugin}.nativeHook: the native hook is the only guarantee of that check unless it is in qualityGate.full`,
+    nativeHooksDuplicate: (manager, path) =>
+      `a native pre-commit is active${manager ? ` (${manager})` : ""}${path ? ` at ${path}` : ""} and qualityGate.nativeHooks is not declared: mechanical checks run twice; declare "qualityGate": { "nativeHooks": true } if the hook runs qualityGate.fast`,
+    nativeHooksWorktreeMissing: (path) =>
+      `worktree ${path} has no active native pre-commit; commits there do not run the gate`,
     docBudgetTitle: "Startup budget (what every session pays before its first prompt)",
     docBudgetSummary: (total, managed, ceiling, own) =>
       `CLAUDE.md: ${total} words — ${managed} managed against a derived ceiling of ${ceiling}, ` +
