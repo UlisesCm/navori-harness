@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   mkdtempSync,
@@ -52,6 +52,22 @@ function resolveBin(name: string): string {
   return execFileSync("bash", ["-c", `command -v ${name}`], { encoding: "utf-8" }).trim();
 }
 
+const home = vi.hoisted(() => ({ dir: "" }));
+vi.mock(import("../primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
+
+/**
+ * Real engine render (claude + codex, jscpd + semgrep enabled) into a tmp repo.
+ * The navori repo itself no longer enables these plugins, so the rendered
+ * `<host>/scripts/check-<id>.sh` copies are produced here, not read from disk.
+ */
+const FIXTURE_BASE = "main";
+let renderedRepo = "";
+
+/** Path of the engine-rendered plugin script for `host` (claude | codex). */
+function renderedScript(host: "claude" | "codex", id: string): string {
+  return join(renderedRepo, `.${host}`, "scripts", `check-${id}.sh`);
+}
+
 const PLUGINS = [
   { id: "jscpd", rel: "scripts/check-jscpd.sh" },
   { id: "semgrep", rel: "scripts/check-semgrep.sh" },
@@ -60,7 +76,20 @@ const PLUGINS = [
 describe.runIf(runsBash)("plugin gate hooks — segment-based git commit/push detection", () => {
   let restrictedEnv: NodeJS.ProcessEnv;
 
-  beforeAll(() => {
+  beforeAll(async () => {
+    home.dir = mkdtempSync(join(tmpdir(), "navori-gate-home-"));
+    renderedRepo = mkdtempSync(join(tmpdir(), "navori-gate-render-"));
+    const { runRender } = await import("../../commands/render.ts");
+    const { writeConfig } = await import("../config/config.ts");
+    writeConfig(join(renderedRepo, "navori.config.json"), {
+      name: "demo",
+      engines: ["claude", "codex"],
+      preset: "custom",
+      branchBase: FIXTURE_BASE,
+      plugins: { jscpd: { enabled: true }, semgrep: { enabled: true } },
+    });
+    const rendered = runRender(renderedRepo, false);
+    expect(rendered.ok).toBe(true);
     // Minimal PATH: enough to extract the command and run the gate, but WITHOUT
     // jscpd/semgrep so the post-gate tool check reports "not installed".
     const bin = mkdtempSync(join(tmpdir(), "navori-plugin-gate-"));
@@ -387,14 +416,9 @@ describe.runIf(runsBash)("plugin gate hooks — untrusted branchBase stays inert
 /** Covers: R5, R6 (spec 0037) — the host decision and audit reason are separate scanner evidence. */
 describe.runIf(runsBash)("plugin gate hooks — rendered scanner outcome fidelity", () => {
   type AuditEvent = { verdict: string; reason?: string; host?: string };
-  // The claude/codex placements run THIS repo's rendered hooks, which bake in its
-  // `branchBase`; the fixture repo and the source render must use the same base.
-  const BASE =
-    (
-      JSON.parse(readFileSync(resolve("../../navori.config.json"), "utf-8")) as {
-        branchBase?: string;
-      }
-    ).branchBase ?? "main";
+  // The claude/codex placements run the engine-rendered hooks, which bake in the
+  // fixture config's `branchBase`; the fixture repo and the source render share it.
+  const BASE = FIXTURE_BASE;
 
   /** Isolate Git history, fake scanner, and audit log for one host/shell case. */
   function fixture(id: "jscpd" | "semgrep") {
@@ -511,7 +535,7 @@ exit "$SCAN_EXIT"
       const script =
         placement === "source"
           ? join(f.root, "hook.sh")
-          : resolve(`../../.${placement}/scripts/check-${id}.sh`);
+          : renderedScript(placement as "claude" | "codex", id);
       if (placement === "source") {
         writeFileSync(script, renderScript(id, rel, BASE));
         chmodSync(script, 0o755);
@@ -596,10 +620,7 @@ exit "$SCAN_EXIT"
       ),
     )(`${id} %s/%s: missing scanner and baseline are explicit skips`, (placement, shell) => {
       const f = fixture(id);
-      const script =
-        placement === "source"
-          ? join(f.root, "hook.sh")
-          : resolve(`../../.codex/scripts/check-${id}.sh`);
+      const script = placement === "source" ? join(f.root, "hook.sh") : renderedScript("codex", id);
       if (placement === "source") {
         writeFileSync(script, renderScript(id, rel, BASE));
         chmodSync(script, 0o755);
@@ -654,10 +675,7 @@ exit "$SCAN_EXIT"
       ),
     )(`${id} %s/%s: handled signal has no false terminal`, (placement, shell) => {
       const f = fixture(id);
-      const script =
-        placement === "source"
-          ? join(f.root, "hook.sh")
-          : resolve(`../../.codex/scripts/check-${id}.sh`);
+      const script = placement === "source" ? join(f.root, "hook.sh") : renderedScript("codex", id);
       if (placement === "source") {
         writeFileSync(script, renderScript(id, rel, BASE));
         chmodSync(script, 0o755);
@@ -674,10 +692,7 @@ exit "$SCAN_EXIT"
       ),
     )(`${id} %s/%s: SIGKILL preserves only start witness`, (placement, shell) => {
       const f = fixture(id);
-      const script =
-        placement === "source"
-          ? join(f.root, "hook.sh")
-          : resolve(`../../.codex/scripts/check-${id}.sh`);
+      const script = placement === "source" ? join(f.root, "hook.sh") : renderedScript("codex", id);
       if (placement === "source") {
         writeFileSync(script, renderScript(id, rel, BASE));
         chmodSync(script, 0o755);
@@ -696,9 +711,7 @@ exit "$SCAN_EXIT"
   )("jscpd %s/%s: cleanup failure cannot alter scanner decision", (placement, shell) => {
     const f = fixture("jscpd");
     const script =
-      placement === "source"
-        ? join(f.root, "hook.sh")
-        : resolve("../../.codex/scripts/check-jscpd.sh");
+      placement === "source" ? join(f.root, "hook.sh") : renderedScript("codex", "jscpd");
     if (placement === "source") {
       writeFileSync(script, renderScript("jscpd", "scripts/check-jscpd.sh", BASE));
       chmodSync(script, 0o755);
@@ -722,9 +735,7 @@ exit "$SCAN_EXIT"
   )("jscpd %s/%s: unsupported flags block without claiming clones", (placement, shell) => {
     const f = fixture("jscpd");
     const script =
-      placement === "source"
-        ? join(f.root, "hook.sh")
-        : resolve("../../.codex/scripts/check-jscpd.sh");
+      placement === "source" ? join(f.root, "hook.sh") : renderedScript("codex", "jscpd");
     if (placement === "source") {
       writeFileSync(script, renderScript("jscpd", "scripts/check-jscpd.sh", BASE));
       chmodSync(script, 0o755);

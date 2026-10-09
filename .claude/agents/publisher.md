@@ -7,7 +7,7 @@ effort: low
 maxWords: 4200
 ---
 
-<!-- navori:managed id="publisher-base" hash="ac9b8a57" version="0.11.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="publisher-base" hash="98986a36" version="0.11.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Publisher Agent
 
 You own the **end of the cycle**: well-structured commits in the configured style and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
@@ -80,7 +80,7 @@ If the real PR base differs from `dev`, pass that actual base as `--target`.
 
 **No count, no judgement about the diff's content.** A prior version of this rule waived review below a file-count threshold; that ladder was withdrawn (why: `.claude/agents/orchestrator.md`) and has not returned. Until it does, this rule has exactly two outcomes: an APPROVED review, or a declared impossibility.
 
-### Gate: `bun run format:check && bun run lint && bun run typecheck && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage` green before the PR
+### Gate: `bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && cd packages/cli && bun run check:size && bun run test:coverage` green before the PR
 
 The PR gate is the FULL one, not `bun run lint && bun run typecheck`. Which steps sit where is a per-project decision; don't assume the fast gate covers all full steps. Three paths:
 
