@@ -20,13 +20,13 @@ const CHEAP = [
   "format:check",
   "lint",
   "typecheck",
+  "check:dup",
+  "check:ast",
   "check:links",
   "check:render",
   "check:assets",
   "check:doc-budgets",
   "check:blame-ignore",
-  "jscpd:check",
-  "semgrep:check",
   "check:size",
 ];
 

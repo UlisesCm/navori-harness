@@ -33,13 +33,11 @@
     "check:dup": "jscpd -r silent || (jscpd; exit 1)",
     "check:dup:baseline": "jscpd --update-baseline",
     "check:ast": "ast-grep test --skip-snapshot-tests && ast-grep scan",
-    "jscpd:check": "bash .claude/scripts/check-jscpd.sh </dev/null",
-    "semgrep:check": "bash .claude/scripts/check-semgrep.sh </dev/null",
     "hooks:install": "node scripts/js/install-git-hooks.mjs",
     "render:apply": "bun run --filter navori build && node packages/cli/dist/index.js render --apply",
-    "check:scoped": "bun run format:check && bun run lint && bun run typecheck && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size",
-    "check": "bun run format:check && bun run lint && bun run typecheck && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage",
-    "check:fast": "bun run format:check && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun lint && bun typecheck"
+    "check:scoped": "bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && cd packages/cli && bun run check:size",
+    "check": "bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && cd packages/cli && bun run check:size && bun run test:coverage",
+    "check:fast": "bun run format:check && bun run check:dup && bun run check:ast && cd packages/cli && bun lint && bun typecheck"
   },
   "devDependencies": {
     "@ast-grep/cli": "0.45.3",

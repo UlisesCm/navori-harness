@@ -104,32 +104,6 @@ const EXEMPT_FROM_CI = new Map<string, string>([
     // `--strict`. Listing it as missing would demand CI run both.
     "CI runs `check:assets:ci`, the same check with `--strict` on top — a strict superset, not a gap",
   ],
-  [
-    "jscpd:check",
-    // See `semgrep:check` below — same reasoning, same ceiling. jscpd is not in
-    // the lockfile either (the hook resolves `node_modules/.bin/jscpd` first and
-    // falls back to a global install), so a CI step would skip itself too.
-    "the tool is not a repo dependency, so a CI step would skip itself and read green — the false-green this suite exists to kill",
-  ],
-  [
-    "semgrep:check",
-    // Three reasons, in order of weight:
-    //  1. semgrep is a python package, not a repo dependency. Both scan hooks
-    //     exit 0 with `⊘ not installed` when the tool is absent — correct for an
-    //     optional local gate, fatal for CI: the step would report green having
-    //     scanned nothing, which is exactly the failure #777 is about.
-    //  2. `p/default` is fetched from a remote registry per run, so the step
-    //     would put a third-party network dependency in front of every PR. Same
-    //     class as `check:assets:ci`'s exemption, pointing the other way: a red
-    //     for an environmental reason instead of for the diff.
-    //  3. The substance runs three times before a merge in the agent cycle: the
-    //     reviewer's Pass 2 (this gate), the commit hook and the push hook.
-    // TODO(ci): ceiling — a PR opened by hand, by someone who never runs the
-    // gate and has no harness hooks, is scanned by nothing. Upgrade trigger: the
-    // first such PR, or the first external contributor. The fix is an install
-    // step plus a pinned ruleset, not merely adding the check here.
-    "the tool is not a repo dependency and `p/default` is fetched per run; a CI step would skip itself (green over an unscanned diff) or fail on a registry outage",
-  ],
 ]);
 
 /**
@@ -414,8 +388,8 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
 /**
  * The fast tier: what runs before every commit and on `dev`.
  *
- * Locally the pre-commit runs `check:fast`; CI's `fast` job runs format, lint
- * and typecheck for `dev` and PRs into it. Neither runs tests: those run only
+ * Locally the pre-commit runs `check:fast`; CI's `fast` job runs the same set
+ * (format, duplication, ast-grep, lint, typecheck) for `dev` and PRs into it. Neither runs tests: those run only
  * on `main` (`quality`). The pass must be a strict subset of
  * `qualityGate.full`, or `dev` would block on a check `main` never runs.
  */
@@ -428,7 +402,7 @@ describe("pre-commit and CI's dev tier run no tests", () => {
 
   it("check:fast runs the scans, lint, format and typecheck (anti-false-green)", () => {
     expect([...fast].sort()).toEqual(
-      ["format:check", "jscpd:check", "lint", "semgrep:check", "typecheck"].sort(),
+      ["check:ast", "check:dup", "format:check", "lint", "typecheck"].sort(),
     );
   });
 
@@ -443,9 +417,9 @@ describe("pre-commit and CI's dev tier run no tests", () => {
     expect(hook).toContain("NAVORI_PRE_COMMIT_RUNNING");
   });
 
-  it("CI's fast job runs only format, lint and typecheck, no tests", () => {
+  it("CI's fast job runs only the check:fast set, no tests", () => {
     const checks = [...ciChecks("fast")].filter((c) => c !== "install");
-    expect(checks.sort()).toEqual(["format:check", "lint", "typecheck"]);
+    expect(checks.sort()).toEqual(["check:ast", "check:dup", "format:check", "lint", "typecheck"]);
     expect(jobBody("fast")).not.toMatch(/\btest\b/);
   });
 
@@ -457,66 +431,119 @@ describe("pre-commit and CI's dev tier run no tests", () => {
     expect(jobBody("quality")).toContain("github.base_ref == 'main'");
     expect(jobBody("fast")).toContain("github.base_ref != 'main'");
   });
+
+  it("the semgrep job is main-only, digest-pinned and blocks only on new findings", () => {
+    const semgrep = jobBody("semgrep");
+    expect(semgrep).toContain("github.ref == 'refs/heads/main' || github.base_ref == 'main'");
+    expect(semgrep).toMatch(/image: semgrep\/semgrep:[\w.]+@sha256:[0-9a-f]{64}/);
+    expect(semgrep).toContain("--error");
+    expect(semgrep).toContain("--baseline-commit");
+    expect(semgrep, "a scan that cannot run must fail the job").not.toContain("|| true");
+  });
 });
 
 /**
- * The security layer runs BEFORE the approval, not after it (#777).
+ * The scans run BEFORE the approval, not after it (#777).
  *
  * The reviewer's Pass 2 runs exactly `qualityGate.full`, and the pilot trusts
- * that evidence instead of re-running it. So for a whole cycle the first thing
- * that ever showed the diff to semgrep or jscpd was the `git commit` hook —
- * AFTER `APPROVED` and after the content receipt was signed. A red there is not
- * a caught bug, it is rework past the point where catching it was cheap, and it
- * happened: an approved diff with a green gate died in the semgrep hook.
- *
- * Putting the scans in the gate is what fixes it, and the assertion is DERIVED
- * from the rendered harness rather than restated: every `check-*.sh` in
- * `.claude/scripts/` is a gate scanner, so each must be reachable from a root
- * script the gate actually invokes. A third scanner added later inherits the
- * rule without anyone remembering to extend a list.
- *
- * The commit hook stays as the backstop — nothing here retires it. Its cost
- * after a green gate is the cache hit (#402), not a second scan.
+ * that evidence instead of re-running it. A scan that lives outside the gate
+ * first shows the diff to a tool AFTER `APPROVED` — rework past the point where
+ * catching it was cheap. Duplication (jscpd) and the structural rules (ast-grep)
+ * are lockfile devDependencies invoked by root scripts, so a missing tool is a
+ * red step, never a skipped one.
  */
 describe("the gate runs the scans before the approval (#777)", () => {
   const config = readConfig(CONFIG_PATH);
   const gate = gateChecks(config.qualityGate?.full ?? "");
+  const fast = gateChecks(
+    (JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8")) as RootPackageJson)
+      .scripts?.["check:fast"] ?? "",
+  );
   const rootPkg = JSON.parse(
     readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8"),
   ) as RootPackageJson;
-  const scanners = readdirSync(resolve(REPO_ROOT, ".claude", "scripts"))
-    .filter((f) => /^check-.+\.sh$/.test(f))
-    .sort();
+  const scans = [
+    ["check:dup", "jscpd"],
+    ["check:ast", "ast-grep"],
+  ] as const;
 
-  it("finds the rendered scanners it is meant to police (anti-false-green)", () => {
-    // An empty listing would make the cases below vacuous — "every scanner is
-    // wired" is trivially true of no scanners.
-    expect(scanners).toEqual(["check-jscpd.sh", "check-semgrep.sh"]);
+  it.each(scans)("%s is in qualityGate.full and check:fast", (name) => {
+    expect([...gate], `\`bun run ${name}\` is missing from qualityGate.full`).toContain(name);
+    expect([...fast], `\`bun run ${name}\` is missing from check:fast`).toContain(name);
   });
 
-  it.each(scanners)("%s is invoked by a root script that qualityGate.full runs", (scanner) => {
-    const runners = Object.entries(rootPkg.scripts ?? {}).filter(([, body]) =>
-      body.includes(scanner),
-    );
-    expect(
-      runners.map(([name]) => name),
-      `no script in the root package.json runs ${scanner} — the gate cannot reach it`,
-    ).toHaveLength(1);
-    const name = runners[0]?.[0] ?? "";
-    expect(
-      [...gate],
-      `\`bun run ${name}\` is missing from qualityGate.full: ${scanner} would first see the diff at commit time, after APPROVED`,
-    ).toContain(name);
+  it.each(scans)("%s invokes its pinned binary (%s)", (name, binary) => {
+    expect(rootPkg.scripts?.[name] ?? "").toContain(binary);
   });
 
-  it("the scan steps read stdin from /dev/null (the hooks block on a TTY)", () => {
-    // These scripts are PreToolUse hooks: they open with `payload=$(cat)`. Run
-    // from a terminal without the redirect, that `cat` waits for input and the
-    // gate hangs with no output — a stall that reads like a slow scan.
-    for (const scanner of scanners) {
-      const body = Object.values(rootPkg.scripts ?? {}).find((s) => s.includes(scanner)) ?? "";
-      expect(body, `${scanner} must be invoked with stdin closed`).toContain("/dev/null");
-    }
+  it("the plugin scan scripts are gone from the root scripts", () => {
+    expect(Object.keys(rootPkg.scripts ?? {})).not.toContain("jscpd:check");
+    expect(Object.keys(rootPkg.scripts ?? {})).not.toContain("semgrep:check");
+  });
+});
+
+/**
+ * Guard for the committed duplication baseline and the exact tool pins (R3).
+ * The baseline stores content fingerprints, so regenerating it can silently
+ * absorb a new clone; growing it must take two visible edits (the JSON and the
+ * constant below, with a reason).
+ */
+// Ceiling = the clone count when the baseline was introduced; lower it whenever a
+// baselined clone is removed, raise it only with a justification in the PR.
+const DUP_BASELINE_CEILING = 22;
+
+describe("the duplication baseline and tool pins stay strict (R3)", () => {
+  const jscpdConfig = JSON.parse(readFileSync(resolve(REPO_ROOT, ".jscpd.json"), "utf-8")) as {
+    baseline?: string;
+    failOnNewClones?: number;
+    failOnEmpty?: boolean;
+  };
+  const pkg = JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8")) as {
+    devDependencies?: Record<string, string>;
+  };
+
+  it("the baseline holds at most DUP_BASELINE_CEILING fingerprints and is not vacuous", () => {
+    const baseline = JSON.parse(
+      readFileSync(resolve(REPO_ROOT, jscpdConfig.baseline ?? ".jscpd-baseline.json"), "utf-8"),
+    ) as { fingerprints?: Record<string, number> };
+    // Each fingerprint maps to how many clones share it: the sum is the clone count.
+    const count = Object.values(baseline.fingerprints ?? {}).reduce((n, c) => n + c, 0);
+    expect(count).toBeGreaterThan(0);
+    expect(
+      count,
+      "baseline grew: dedupe the new clone instead of regenerating",
+    ).toBeLessThanOrEqual(DUP_BASELINE_CEILING);
+  });
+
+  it("jscpd blocks any new clone and refuses to scan nothing", () => {
+    expect(jscpdConfig.failOnNewClones).toBe(0);
+    expect(jscpdConfig.failOnEmpty).toBe(true);
+  });
+
+  it("jscpd and @ast-grep/cli are pinned exactly (a bump regenerates the baseline)", () => {
+    expect(pkg.devDependencies?.jscpd).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(pkg.devDependencies?.["@ast-grep/cli"]).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+/**
+ * Every action in every workflow is pinned to a full commit SHA (supply chain):
+ * a mutable tag can be re-pointed. The tag survives as a trailing comment.
+ */
+describe("workflow actions are pinned to commit SHAs", () => {
+  const dir = resolve(REPO_ROOT, ".github", "workflows");
+  const files = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f));
+
+  it("finds the workflows it polices (anti-false-green)", () => {
+    expect(files.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it.each(files)("%s: every `uses:` is owner/repo@<40-hex sha>", (file) => {
+    const uses = [
+      ...readFileSync(resolve(dir, file), "utf-8").matchAll(/^\s*(?:- )?uses:\s*(\S+)/gm),
+    ].map((m) => m[1] ?? "");
+    const loose = uses.filter((u) => !u.startsWith("./") && !/@[0-9a-f]{40}$/.test(u));
+    expect(loose, "pin these to a commit SHA, keeping the tag as a trailing comment").toEqual([]);
   });
 });
 
