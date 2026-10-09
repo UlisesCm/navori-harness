@@ -30,3 +30,34 @@ Solo se registran resultados ejecutados. Lo no ejecutado se marca "no ejecutado"
 ## No ejecutado: comparación RED/GREEN en vivo
 
 La comparación aislada con el mismo modelo, proyecto y tarea que exige la sección de evals de [design.md](design.md) no se ejecutó. Requiere una sesión Pi real (>= 1.1.0) con un modelo fijo, un proyecto Pi-only sin contexto (RED) y otro con el contexto renderizado (GREEN), y la misma tarea de bootstrap/planning/close en ambos. Queda como smoke manual del usuario.
+
+## E2 M3 (T5, T6): evidencia y cierre en Pi
+
+Feature `0047-pi-first-e2`. Solo se registran resultados ejecutados, tomados del handoff de implementación.
+
+### Ejecutado
+
+- A3 (`first-class-evidence.test.ts`, `first-class-receipts.test.ts`): ronda 2: exit 0; 2 archivos / 12 tests pasan (ronda 1: 10 tests).
+- Respaldado por test (ronda 2): abort/timeout rechazan sin `exit_code` y no registran evidencia; el fingerprint coincide con `fingerprintTree`.
+- Regresión pi + plan + lib/plan: exit 0; 23 archivos / 258 tests pasan.
+- `bun run check:fast`: exit 0.
+
+### Hallazgo del probe de contrato de éxito (Pi 1.1.0)
+
+- El `outputSchema` del bash builtin expone `structuredContent.exit_code`; es la señal terminal de éxito.
+- Un exit distinto de cero produce `isError`.
+- Abort y timeout lanzan error sin `exit_code`, por lo que no cuentan como evidencia.
+- El builtin se identifica por `sourceInfo` `builtin:bash`; una herramienta reemplazada no se acepta como evidencia.
+- El observador (`isVerifiedBashSuccess` en `extension-source.ts`) falla cerrado: solo registra con `builtin:bash` y `exit_code` 0.
+- T6: la sesión Pi se detecta por `PI_SESSION_ID` más `engines` con `pi`, y exige `evidenceRequired` en `plan update`.
+
+### No ejecutado
+
+- Cierre en una sesión Pi viva.
+- Gate completo (`bun check`): no ejecutado; lo corre el reviewer a continuación.
+
+### Límites conocidos
+
+- El procedimiento de fingerprint es una tercera copia (`evidence.ts`, `bash-outcome.sh`, extensión).
+- Los criterios ligados a la entrega (delivery-bound) no se registran desde Pi.
+- Pi < 1.1.0 falla cerrado en runtime (sin `structuredContent`/`getAllTools` no hay evidencia); la tabla de capabilities no se tocó, así que no se bloquea por versión.
