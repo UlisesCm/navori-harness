@@ -1,0 +1,9 @@
+id: no-bash-eval
+valid:
+  - echo "eval is only a word"
+  - '"$cmd" --flag'
+  - '# eval "$1"'
+invalid:
+  - eval "$1"
+  - eval "$cmd" || exit 1
+  - 'if true; then eval "$x"; fi'

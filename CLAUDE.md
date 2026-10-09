@@ -27,7 +27,7 @@ Dos trampas reales dentro de ese comando:
 - **`bun run test:coverage`, no `bun test`.** Solo la primera corre `check-coverage-floor.mjs`, que
   caza además una entrada obsoleta en `KNOWN_ZERO`.
 
-Por qué `jscpd`/`semgrep` están en el gate y cómo funcionan sus excepciones contra `ci.yml`:
+Por qué `check:dup`/`check:ast` están en el gate y `semgrep` corre solo en `main`:
 [why](CONTRIBUTING.md).
 
 ## Engram

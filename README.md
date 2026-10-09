@@ -168,7 +168,7 @@ bun install
 bun run build                 # build de todos los paquetes
 
 bun check                     # quality gate completo (lo que valida CI en PRs a main)
-bun check:fast                # pasada rápida: format, jscpd, semgrep, lint, typecheck
+bun check:fast                # pasada rápida: format, jscpd, ast-grep, lint, typecheck
 bun hooks:install             # instala el pre-commit: check:fast (sin tests)
 
 # probar el binario local sin publicar:

@@ -85,6 +85,7 @@ export function legacyGlobalHookPath(dir = globalTargetDir()): string {
  * written for the repo that declares nothing.
  */
 export function globalRenderConfig(config: GlobalConfig): NavoriConfig {
+  // any justified: deliberately partial NavoriConfig; repo-truth fields stay absent so the interpolator's `global` fallback answers them (see JSDoc above).
   return {
     name: "navori-global",
     language: config.language,

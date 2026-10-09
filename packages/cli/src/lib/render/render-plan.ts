@@ -541,6 +541,7 @@ export function computeRenderPlan(
   const languageFallbacks: string[] = [];
   const updatesAvailable: UpdateAvailable[] = [];
   const downgrades: UpdateAvailable[] = [];
+  // any justified: NavoriConfig has no index signature; `resolveCondition` walks it by dotted path.
   const configRecord = config as unknown as Record<string, unknown>;
   const language = config.language;
   // Core blocks the repo opted out of (`blocks.exclude`), intersected with the

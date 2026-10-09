@@ -10,7 +10,7 @@ metadata:
   maxWordsComposed: 1450
 ---
 
-<!-- navori:managed id="review-diff-base" hash="a552a6bd" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="review-diff-base" hash="e4c4d243" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Code review — checklist for a diff
 
 Apply this checklist to a diff (staged, branch vs `dev`, or a PR). The skeleton is stack-agnostic; repo-specific rules live in the user-section below.
@@ -102,7 +102,7 @@ Rule: if removing the abstraction leaves the code **as correct** and shorter, re
 
 ## 9. Quality gate (run this turn, not assumed)
 
-- `bun run format:check && bun run lint && bun run typecheck && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run jscpd:check && bun run semgrep:check && cd packages/cli && bun run check:size && bun run test:coverage` passes → CRITICAL if it fails; this is the same gate the `reviewer` owns in Pass 2, never re-defined here.
+- `bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && cd packages/cli && bun run check:size && bun run test:coverage` passes → CRITICAL if it fails; this is the same gate the `reviewer` owns in Pass 2, never re-defined here.
 - Failure attribution (per `verify-before-done`): a failure classified *introduced (demonstrated)* → HIGH; never classify one by diff location alone.
 
 ## 10. Commit and PR
@@ -128,27 +128,6 @@ Pay extra attention if the diff touches `render/sync/backup writes and deletes i
 - `verify-before-done`: the §9 quality gate is run this turn, not assumed from the implementer's report.
 <!-- /navori:managed id="review-diff-base" -->
 
-<!-- navori:managed id="jscpd-review-extension" hash="55987bb7" version="0.11.3" source="@navori/plugin-jscpd" -->
-## Code duplication (jscpd)
-
-Before approving a change, run `jscpd` over the changed `.ts`/`.tsx` files vs
-the base branch, failing on any clone that is new vs that base:
-
-```
-git diff --name-only --diff-filter=ACMRT dev -- '*.ts' '*.tsx' | xargs -r jscpd --min-tokens 100 --min-lines 10 --mode strict --baseline-from-ref 'dev' --fail-on-new-clones 0
-```
-
-A literal `dev` left unsubstituted here would be a silent no-op
-scan (#273) — the values above come from the repo's own config at render
-time, never typed by hand.
-- Fingerprint sensitivity: editing inside an existing clone (even a single line) changes its fingerprint, so jscpd reports it as new — it counts as a new clone even though the duplication itself predates the change.
-- If it reports a new clone vs the base branch: **do not approve** the change without justification (reviewers must ask for a refactor or extraction).
-- Silent skip if `jscpd` is not in `PATH` (don't block if the dev doesn't have the tool installed).
-
-In repos with the Claude Code hooks, the commit gate already runs this scan
-for you (`PreToolUse` on `git commit`) — the command above is for running it
-yourself before that point.
-<!-- /navori:managed id="jscpd-review-extension" -->
 
 ## Repo-specific rules
 

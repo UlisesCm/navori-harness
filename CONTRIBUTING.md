@@ -38,8 +38,10 @@ nadie tenga que aprobar nada a mano.
 Hay dos niveles:
 
 - **Rápido** — el pre-commit versionado (`bun hooks:install`) corre `bun check:fast` (format,
-  jscpd, semgrep, lint, typecheck), sin tests. El job `fast` de CI, que corre en `dev` y en los
-  PRs hacia `dev`, corre solo format check, lint y typecheck, sin tests ni scanners.
+  jscpd, ast-grep, lint, typecheck), sin tests. `qualityGate.fast` es `bun run check:fast`, así que
+  el hook de commit de los agentes (`quality-gate-pre-commit.sh`, PreToolUse sobre `git commit`)
+  corre la misma cadena que el pre-commit versionado. El job `fast` de CI, que corre en `dev` y en los
+  PRs hacia `dev`, corre además `check:dup` y `check:ast`, sin tests.
 - **Completo** — `bun check`, abajo. Es lo que valida el job `quality` de CI en los PRs hacia
   `main` y en los pushes a `main`; si no pasa, el PR falla. Es el único nivel que corre tests y cobertura:
 
@@ -94,12 +96,45 @@ Hay dos niveles:
      reinicio no permiten ejecutar la limpieza ni reportar rutas; tampoco hay barrido histórico ni
      garantía de cuota o tamaño máximo en disco.
 
-   **`jscpd:check` y `semgrep:check`** entraron al gate en #777: son los mismos scripts que corren
-   como hook de `git commit` con stdin cerrado, para que la revisión prediga el commit — antes, el
-   primer contacto del diff con seguridad era el hook, **después** de un APPROVED ya firmado.
-   Comparten receta y cache de contenido con el hook (#402), así que el re-escaneo tras un gate
-   verde es un cache-hit, no un segundo escaneo; el hook queda como backstop. Si la herramienta no
-   está instalada, el paso sale `⊘ … not installed` y exit 0 — opcional local, no dependencia dura.
+   **Precheck local: oxlint + jscpd 5.4.0 + ast-grep 0.45.3**, los dos últimos como devDependencies
+   raíz con versión exacta. `check:dup` escanea todo el repo contra `.jscpd-baseline.json`
+   (versionado): silencioso si pasa, y si falla re-corre en verbose marcando `[NEW]`.
+   `check:dup:baseline` es `jscpd --update-baseline`. `check:ast` es
+   `ast-grep test --skip-snapshot-tests && ast-grep scan` (reglas en `ast-grep/rules`, tests en
+   `ast-grep/rule-tests`, config `sgconfig.yml`). Una herramienta ausente es rojo, nunca se omite: los scripts llaman a
+   `./node_modules/.bin/jscpd` y `./node_modules/.bin/ast-grep` explícitamente, así que sin
+   `bun install` quedan en rojo aunque haya binarios globales. `report/` (salida del reporter JSON
+   de jscpd) está en `.gitignore`.
+   Orden de `qualityGate.full` (`bun check`): format:check, lint, typecheck, check:dup, check:ast,
+   check:links, check:render, check:assets, check:doc-budgets, check:blame-ignore, check:size,
+   test:coverage. `check:scoped` es lo mismo sin test:coverage; `check:fast` (pre-commit) es
+   format:check, check:dup, check:ast, lint, typecheck.
+
+   **Baseline de duplicación.** Tiene 22 fingerprints y un test lo topa con
+   `DUP_BASELINE_CEILING = 22`. Regénéralo (`bun run check:dup:baseline`) solo cuando un cambio de
+   formato o un bump de jscpd mueva un clon existente, justificándolo en el PR. Al eliminar un clon,
+   regenera y baja el techo (ratchet). Los tests también se escanean.
+
+   **Supresiones.** Solo `// ast-grep-ignore: <rule-id>` (un ignore sin id falla
+   `no-bare-ast-grep-ignore`) y `// any justified: <razón>` justo encima de la sentencia, que
+   silencia únicamente `no-unjustified-double-cast` (`as unknown as`); **no** silencia
+   `no-explicit-any` de oxlint. Cuando una línea se suprime para ambas herramientas (hoy
+   `packages/cli/src/lib/gate/run.ts` y `packages/cli/src/commands/add.ts`), lleva
+   `// ast-grep-ignore: no-shell-exec` encima de la llamada y
+   `// nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true` al final de su
+   primera línea, más `// prettier-ignore` para que oxfmt no mueva ese comentario. Conserva ambos
+   comentarios: el job `semgrep` de `main` sigue leyendo `nosemgrep`. Reglas ast-grep: no-shell-exec, no-unjustified-double-cast,
+   no-explicit-any (en dirs que oxlint no lintea: `apps/website/src`, `scripts`, `packages/core`,
+   `packages/plugins`, `.pi/extensions`), no-bare-ast-grep-ignore, no-bash-eval.
+   Huecos conocidos: `.astro`, `.mjs`, `.py` y casi todo `.sh` (salvo no-bash-eval) no están
+   cubiertos por ast-grep; semgrep los cubre solo en `main`.
+
+   **CI y semgrep.** `quality` (main) y `fast` (dev) corren `check:dup` y `check:ast`. El job
+   `semgrep` corre solo en `main` (pushes y PRs hacia `main`): imagen Docker oficial fijada por
+   digest, `p/default`, diff-scan con `--baseline-commit` + `--error` (solo bloquean hallazgos
+   nuevos) y SARIF subido a code scanning. Todas las actions de los workflows van fijadas a SHA (un
+   test lo exige). Este repo ya no usa los plugins jscpd/semgrep de navori; el producto sigue
+   distribuyéndolos.
 2. **Si tocaste cualquier cosa que alimente el render**: `bun run check:render` desde la raíz. Este
    repo se auto-hospeda —`.claude/` y `CLAUDE.md` son salida de `navori render`—, así que el PR
    debe incluir el re-render del espejo (`bun run render:apply` desde la raíz, que es exactamente
@@ -157,9 +192,7 @@ razón obligatoria por entrada y anti-staleness en ambos sentidos. Hoy están ex
 - **`check:assets:ci`** (de `EXEMPT_FROM_LOCAL_GATE`): es la misma verificación que `check:assets`
   con `--strict`, y lo estricto depende de tags que CI trae a propósito y un clon fresco no tiene —
   en el gate local fallaría por una causa ambiental, no por el fondo.
-- **`check:assets`, `jscpd:check` y `semgrep:check`** (de `EXEMPT_FROM_CI`): CI corre el superset
-  estricto de `check:assets`, y ninguna de las otras dos herramientas está en el lockfile — un paso
-  de CI que las invocara se saltaría a sí mismo y saldría verde en falso.
+- **`check:assets`** (de `EXEMPT_FROM_CI`): CI corre el superset estricto, `check:assets:ci`.
 
 Cambios **doc-only** (.md): basta `bun run lint` + `bun run format:check`; no necesitas la suite
 completa.

@@ -388,7 +388,7 @@ describe("assets order only commands the settings pre-approve (#506)", () => {
 
   it("derives a vocabulary that covers the CLI and the enabled plugins", () => {
     const vocab = commandVocabulary();
-    for (const binary of ["navori", "git", "jscpd", "semgrep"]) expect(vocab).toContain(binary);
+    for (const binary of ["navori", "git", "gh", "tgrep"]) expect(vocab).toContain(binary);
     expect(navoriSubcommands().size).toBeGreaterThanOrEqual(15);
   });
 
@@ -407,8 +407,8 @@ describe("assets order only commands the settings pre-approve (#506)", () => {
       // The permission rule for it stays in settings.json — the operator still
       // runs it by hand — but this canary tracks what ASSETS order, not what is
       // allowed.
-      "bun run jscpd:check", // review-diff skill (#614), duplication gate
-      "bun run semgrep:check", // security-invariants skill (#614), security gate
+      "bun run check:dup", // review-diff skill, via qualityGate.full (duplication gate)
+      "bun run check:ast", // review-diff skill, via qualityGate.full (ast-grep gate)
       "git push -u origin HEAD", // publisher.md, PR flow step 4 (#499)
     ]) {
       expect(commands, `the extractor no longer finds "${known}"`).toContain(known);
