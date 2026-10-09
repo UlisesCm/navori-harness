@@ -9,14 +9,8 @@ import {
   purgeOldBackups,
 } from "../lib/render/backup.ts";
 import { brand, dim, accent, color, sym } from "../lib/primitives/style.ts";
-import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
-import { readGlobalConfig } from "../lib/config/global-config.ts";
+import { tc, DEFAULT_LANG } from "../lib/i18n.ts";
 import { intFlagOrExit } from "../lib/primitives/args.ts";
-
-/** Language for machine-global backup commands: global config, else default. */
-function globalLang(): Lang {
-  return resolveLang(readGlobalConfig()?.language);
-}
 
 interface BackupEntry {
   timestamp: string;
@@ -81,7 +75,7 @@ const listSubCommand = defineCommand({
       return;
     }
 
-    const tr = tc(globalLang()).backup;
+    const tr = tc(DEFAULT_LANG).backup;
     p.intro(brand("backup list"));
     if (backups.length === 0) {
       p.log.info(tr.listEmpty);
@@ -128,7 +122,7 @@ const restoreSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const backupDir = join(backupRoot(), ts);
 
-    const lang = globalLang();
+    const lang = DEFAULT_LANG;
     const tr = tc(lang).backup;
     p.intro(brand(`backup restore ${accent(ts)}`));
 
@@ -192,7 +186,7 @@ const pruneSubCommand = defineCommand({
   run({ args }) {
     const days = intFlagOrExit(args.days, "days");
     const maxMb = intFlagOrExit(args["max-mb"], "max-mb");
-    const tr = tc(globalLang()).backup;
+    const tr = tc(DEFAULT_LANG).backup;
     p.intro(brand("backup prune"));
     const pruned = purgeOldBackups({
       retentionDays: days,

@@ -26,12 +26,12 @@ Estimated LOC: 6000
 - **A2** [observable] — con `~/.navori/global.json` en `en` en un HOME temporal, los comandos
   siguen en el idioma de D4 · `cd packages/cli && bun run test src/commands/__tests__` → exit 0,
   0 failed
-- [ ] **T4** (R3) — `reportLang` de `audit` resuelve `navori.config.json` del cwd y luego
+- [x] **T4** (R3) — `reportLang` de `audit` resuelve `navori.config.json` del cwd y luego
   `DEFAULT_LANG`, sin `readGlobalConfig` (D4) · effect: behavior · test:
   `commands/__tests__/audit.test.ts`::"idioma ignora global.json"
-- [ ] **T5** (R3) — `backup`, `migrations` y `registry` borran `globalLang()` y usan
+- [x] **T5** (R3) — `backup`, `migrations` y `registry` borran `globalLang()` y usan
   `DEFAULT_LANG` (D4) · effect: behavior · test:
-  `commands/__tests__/backup.test.ts`::"idioma ignora global.json"
+  `commands/__tests__/backup-restore.test.ts`::"idioma ignora global.json"
 
 ### M3 — Borrar el comando y sus módulos
 - **A3** [observable] — `navori global` no existe y ningún módulo de la capa queda bajo `src/` ·

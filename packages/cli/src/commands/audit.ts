@@ -68,8 +68,7 @@ import {
   matchesAuditHeaderIdentity,
 } from "../lib/audit/cli-event.ts";
 import { NavoriError } from "../lib/primitives/errors.ts";
-import { resolveLang } from "../lib/i18n.ts";
-import { readGlobalConfig } from "../lib/config/global-config.ts";
+import { DEFAULT_LANG, resolveLang } from "../lib/i18n.ts";
 import { readCliVersion } from "../lib/render/bundled-assets.ts";
 import { brand, color, dim } from "../lib/primitives/style.ts";
 
@@ -84,7 +83,7 @@ import { brand, color, dim } from "../lib/primitives/style.ts";
  * Strictly read-only over `~/.claude/`; every write lands under the audit root.
  */
 
-/** Language: repo config when present, else the global harness config. */
+/** Language: repo config when present, else the default language. */
 function reportLang(cwd: string): Lang {
   const configPath = join(cwd, "navori.config.json");
   if (existsSync(configPath)) {
@@ -95,10 +94,10 @@ function reportLang(cwd: string): Lang {
         if (typeof lang === "string") return resolveLang(lang) as Lang;
       }
     } catch {
-      // Malformed config must not break the audit: fall through to global.
+      // Malformed config must not break the audit: fall through to the default.
     }
   }
-  return resolveLang(readGlobalConfig()?.language) as Lang;
+  return DEFAULT_LANG as Lang;
 }
 
 /** `audit.mode` of the repo's config, `unknown` when it cannot be read: R43 requires it equal across windows. */

@@ -4,17 +4,8 @@ import { existsSync, readdirSync, statSync, copyFileSync, mkdirSync } from "node
 import { join, relative, resolve, dirname } from "node:path";
 import { migrationsRoot } from "../lib/diagnose/migrate.ts";
 import { brand, dim, accent, color, sym } from "../lib/primitives/style.ts";
-import { tc, resolveLang } from "../lib/i18n.ts";
-import { readGlobalConfig } from "../lib/config/global-config.ts";
+import { tc, DEFAULT_LANG } from "../lib/i18n.ts";
 import { intFlagOrExit } from "../lib/primitives/args.ts";
-
-/**
- * Language for machine-global commands (migrations/backup/registry) that aren't
- * scoped to a single repo: read it off the global harness config, else default.
- */
-function globalLang() {
-  return resolveLang(readGlobalConfig()?.language);
-}
 
 interface MigrationEntry {
   timestamp: string;
@@ -97,7 +88,7 @@ function runMigrationsList(opts: { json: boolean; limit?: unknown }): void {
     return;
   }
 
-  const tr = tc(globalLang()).migrations;
+  const tr = tc(DEFAULT_LANG).migrations;
   p.intro(brand("migrations list"));
   if (migrations.length === 0) {
     p.log.info(tr.listEmpty);
@@ -154,7 +145,7 @@ const restoreSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const migrationDir = join(migrationsRoot(), ts, repoName);
 
-    const lang = globalLang();
+    const lang = DEFAULT_LANG;
     const tr = tc(lang).migrations;
     p.intro(brand(`migrations restore ${accent(`${ts}/${repoName}`)}`));
 

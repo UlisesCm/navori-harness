@@ -218,6 +218,19 @@ describe("audit undeclared args", () => {
     },
   );
 
+  // Covers: R3
+  it("idioma ignora global.json", () => {
+    mkdirSync(join(home, ".navori"), { recursive: true });
+    writeFileSync(
+      join(home, ".navori", "global.json"),
+      JSON.stringify({ version: "1", language: "en" }),
+    );
+    const r = runAudit(["--bogus-flag"]);
+    expect(r.status).toBe(2);
+    expect(r.combined).toContain("no reconoce");
+    expect(r.combined).not.toContain("does not recognize");
+  });
+
   it("names every undeclared arg in --json mode", () => {
     const r = runAudit(["stray", "--json", "--bogus"]);
     expect(r.status).toBe(2);
