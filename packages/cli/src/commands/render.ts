@@ -29,7 +29,7 @@ import { renderCursorEngine } from "../engines/cursor/index.ts";
 import { renderCopilotEngine } from "../engines/copilot/index.ts";
 import { renderCodexEngine } from "../engines/codex/index.ts";
 import { decideCodexWorkspaceSkills } from "../engines/codex/workspace-decision.ts";
-import { renderPiEngine } from "../engines/pi/index.ts";
+import { piOwnershipVerdict, renderPiEngine } from "../engines/pi/index.ts";
 import { resolveCodexHooks, minCodexVersion } from "../engines/codex/hook-registrations.ts";
 import { readCodexTrustState } from "../lib/codex/trust.ts";
 import type { ProseEngineResult } from "../engines/shared/prose-harness.ts";
@@ -83,6 +83,33 @@ import {
   refreshRepoName,
   registryPath,
 } from "../lib/workspace/registry.ts";
+
+/**
+ * Re-judge the `.pi/**` entries of an orphan plan with Pi's own validators (spec 0047 R11).
+ * `planOrphanRemoval` answers by the generic marker / `$navori` test, which Pi's strict JSON and
+ * `navori:managed-file` headers never satisfy: left alone, a disabled Pi would keep every file it
+ * owns, and a foreign `.pi` file that happened to carry a generic marker would be deleted. For
+ * `.pi/` only, the Pi verdict replaces the generic one; symlinks and ephemerals keep theirs.
+ */
+function applyPiOwnership(cwd: string, plan: OrphanRemovalPlan): OrphanRemovalPlan {
+  const isPi = (rel: string): boolean => rel.startsWith(".pi/");
+  const out: OrphanRemovalPlan = { remove: [], keep: [] };
+  const judge = (rel: string): void => {
+    const verdict = piOwnershipVerdict(cwd, rel);
+    if (verdict === "ours") out.remove.push(rel);
+    else out.keep.push({ path: rel, reason: verdict });
+  };
+  for (const rel of plan.remove) {
+    if (isPi(rel)) judge(rel);
+    else out.remove.push(rel);
+  }
+  for (const kept of plan.keep) {
+    if (isPi(kept.path) && (kept.reason === "foreign" || kept.reason === "modified")) {
+      judge(kept.path);
+    } else out.keep.push(kept);
+  }
+  return out;
+}
 
 /** One path `render --prune` deliberately did NOT delete, with its reason. */
 export type KeptEngineOutput = OrphanRemovalPlan["keep"][number];
@@ -920,7 +947,7 @@ function runRenderCore(
     // computes (what goes, what stays and why) only ever appeared AFTER the
     // deletion. Preview now answers it before. Only the writes below stay
     // behind `!dryRun`.
-    const plan = planOrphanRemoval(cwd, paths, EPHEMERAL_HARNESS_PATHS);
+    const plan = applyPiOwnership(cwd, planOrphanRemoval(cwd, paths, EPHEMERAL_HARNESS_PATHS));
     // `.codex/.gitignore` is a required compatibility output even when the
     // Codex engine is disabled: pruning it would expose legacy progress in
     // Claude-only repos with root-ignore management off. Keep only this file,
