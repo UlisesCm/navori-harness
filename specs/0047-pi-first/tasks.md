@@ -58,9 +58,9 @@ Estimated LOC: 1200
 ### M6 — Contexto operativo y audit correlacionados
 
 - **A6** [observable] — Audit correlaciona principal/hijos y contexto/avisos no se duplican tras reload/resume · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-audit.test.ts src/engines/pi/__tests__/first-class-context.test.ts` → exit 0; sin secretos, métricas ausentes explícitas y aviso aditivo tras tres fallos.
-- [ ] **T10** (R12) — Agregar eventos Pi al collector/reporte compartido con identidades de sesión/rol/worktree, límites y redaction; probar correlación principal/hijos, cobertura parcial y métricas no disponibles. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-audit.test.ts`::bounded redacted parent-child correlation
-- [ ] **T11** (R13) — Cargar contexto operativo pertinente con eventos nativos y discovery progresivo, deduplicar startup/resume/reload y separar ramas/worktrees; no reemplazar system prompt entero por conveniencia. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-context.test.ts`::resume reload worktree isolation
-- [ ] **T12** (R14) — Conectar resultados verificados al aviso de atasco aditivo, acotado por sesión/agente; probar recuperación, cambio de firma y fallas del mecanismo sin bloquear resultados. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-context.test.ts`::three identical failures advisory fail open
+- [x] **T10** (R12) — Agregar eventos Pi al collector/reporte compartido con identidades de sesión/rol/worktree, límites y redaction; probar correlación principal/hijos, cobertura parcial y métricas no disponibles. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-audit.test.ts`::bounded redacted parent-child correlation
+- [x] **T11** (R13) — Cargar contexto operativo pertinente con eventos nativos y discovery progresivo, deduplicar startup/resume/reload y separar ramas/worktrees; no reemplazar system prompt entero por conveniencia. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-context.test.ts`::resume reload worktree isolation
+- [x] **T12** (R14) — Conectar resultados verificados al aviso de atasco aditivo, acotado por sesión/agente; probar recuperación, cambio de firma y fallas del mecanismo sin bloquear resultados. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-context.test.ts`::three identical failures advisory fail open
 
 ### M7 — Smoke funcional integral y soporte documentado
 
