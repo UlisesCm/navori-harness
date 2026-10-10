@@ -151,6 +151,33 @@ function mcpRoleDiagnostics(config: NavoriConfig, roles: ReadonlyArray<{ id: str
   return out;
 }
 
+/**
+ * Who wrote a `.pi/**` file, judged ONLY by Pi's own validators (spec 0047 R11). The generic
+ * prune test reads `navori:managed ... version=` or a `$navori` key, neither of which Pi's
+ * strict JSON / `navori:managed-file` headers carry, so it cannot answer for them. `ours` needs
+ * the exact canonical content and digest of a resource Pi writes; a recognizable Navori header
+ * that no longer validates is `modified`; anything else (user settings, foreign agents,
+ * symlinks) is `foreign`. A path Pi never writes is never `ours`.
+ */
+export function piOwnershipVerdict(cwd: string, rel: string): "ours" | "modified" | "foreign" {
+  const path = join(cwd, rel);
+  const stats = lstatSync(path, { throwIfNoEntry: false });
+  if (!stats?.isFile() || stats.isSymbolicLink()) return "foreign";
+  const content = readFileSync(path, "utf-8");
+  const agent = /^\.pi\/agents\/([a-z-]+)\.md$/.exec(rel)?.[1];
+  const owned =
+    rel === MANIFEST
+      ? ownsPiManifest(content)
+      : rel === EXTENSION
+        ? ownsPiSource(content)
+        : agent !== undefined && Object.hasOwn(ROLE_TOOLS, agent) && ownsPiAgent(content, agent);
+  if (owned) return "ours";
+  const claimsNavori =
+    content.includes('navori:managed-file id="pi-') ||
+    /"_navori"\s*:\s*{\s*"id": "pi-runtime"/.test(content);
+  return claimsNavori ? "modified" : "foreign";
+}
+
 /** Render the opt-in Pi manifest through the shared plan and commit choke point. */
 export function renderPiEngine(
   cwd: string,

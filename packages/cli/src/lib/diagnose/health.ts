@@ -387,6 +387,20 @@ export const ENGINE_OUTPUTS: EngineOutputs[] = [
     textDirs: [".agents", ".codex"],
   },
   {
+    // Pi owns `.pi/` outright (manifest, extension, agents: strict JSON / `navori:managed-file`
+    // headers that only Pi's own validators recognize, so the prune asks them, see
+    // `isOwnedPiResource`) and writes the shared skill root and AGENTS.md exactly like Codex
+    // when it is the only engine that does. Listing them under the SAME top-level paths as
+    // Codex (`.agents`, `AGENTS.md`) is what makes an enabled Pi protect them from Codex's
+    // orphan entry and the other way round (spec 0047 R11).
+    engine: "pi",
+    markers: [
+      { kind: "file", path: "AGENTS.md", style: "html" },
+      { kind: "recursive", dir: ".agents/skills", ext: ".md", style: "html" },
+    ],
+    textDirs: [".agents", ".pi"],
+  },
+  {
     engine: "agents-md",
     markers: [{ kind: "file", path: "AGENTS.md", style: "html" }],
     textDirs: [],
