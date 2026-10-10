@@ -49,7 +49,7 @@ Estimated LOC: 1100
 ### M5 — Upgrade y disable seguros en proyectos multiengine
 
 - **A5** [observable] — Instalar/actualizar/desactivar Pi preserva contenido ajeno y otros engines · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-migration.test.ts` → exit 0; dry-run y writes coinciden, edits preservados, snapshots no Pi sin cambios.
-- [ ] **T9** (R11) — Ejercitar upgrade desde recursos 0040, retiro de recursos owned, conflictos/digests, backups y fallo parcial usando serializers/commitWrites existentes; documentar diagnóstico y recuperación. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-migration.test.ts`::owned upgrade disable and other-engine preservation
+- [x] **T9** (R11) — Ejercitar upgrade desde recursos 0040, retiro de recursos owned, conflictos/digests, backups y fallo parcial usando serializers/commitWrites existentes; documentar diagnóstico y recuperación. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-migration.test.ts`::owned upgrade disable and other-engine preservation
 
 ## E4 — Operación auditable y aceptación de Pi como primera clase
 
