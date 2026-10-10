@@ -694,8 +694,10 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "Pi does not record verifiable child Bash results for acceptance criteria, so plan update cannot require host evidence before cumplido.",
       },
       "repeat-failure-advice": {
-        state: "unsupported",
-        reason: "Pi renders no Bash failure hooks.",
+        state: "advisory",
+        reason:
+          "The Pi extension's tool_result handler counts identical built-in bash failures (structuredContent.exit_code, Pi 1.1.0+) in memory and appends one advisory after three; it never blocks, never alters the result and is silent on any error or when exit_code is absent.",
+        evidence: { kind: "extension-tool", path: ".pi/extensions/navori.ts", tool: "bash" },
       },
       "compact-advice": {
         state: "unsupported",

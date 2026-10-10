@@ -666,7 +666,7 @@ export interface MetricEvidence {
   state: AvailabilityState;
   reason: EvidenceReason | null;
   source: "transcript" | "rollout" | "audit-log" | "otlp" | "host-metadata" | "aggregate";
-  adapter: "claude-transcript" | "codex-rollout" | "audit-log" | "otlp" | null;
+  adapter: "claude-transcript" | "codex-rollout" | "pi-session" | "audit-log" | "otlp" | null;
   sourceVersion: string | null;
 }
 /** Content-free source diagnostics, independent of metric completeness. */
@@ -1398,7 +1398,7 @@ export interface SessionAudit {
    * A Codex session comes from its audit log alone: hooks and verdicts are
    * real, everything the transcript would add is `null` (R71).
    */
-  host?: "claude" | "codex";
+  host?: "claude" | "codex" | "pi";
   /** Set when a whole source is missing: `"transcript"` for a Codex session. */
   unavailable?: "transcript";
   /**

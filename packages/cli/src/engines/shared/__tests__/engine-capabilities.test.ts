@@ -161,6 +161,17 @@ describe("Pi control boundaries", () => {
   });
 });
 
+describe("Pi stuck advisory", () => {
+  // Covers: R14
+  it("declares repeat-failure-advice as advisory, not enforced", () => {
+    expect(ENGINE_CAPABILITIES.pi.controls["repeat-failure-advice"]).toMatchObject({
+      state: "advisory",
+      reason: expect.stringContaining("never blocks"),
+      evidence: { kind: "extension-tool", path: ".pi/extensions/navori.ts" },
+    });
+  });
+});
+
 describe("validateEngineCapabilities", () => {
   it("does not throw when the registry matches ENGINES exactly", () => {
     expect(() => validateEngineCapabilities(ENGINE_CAPABILITIES, ENGINES)).not.toThrow();

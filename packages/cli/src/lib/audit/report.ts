@@ -437,8 +437,10 @@ const PUBLIC_TECHNICAL_LABELS = new Set([
   "spawn_agent",
   "wait",
   "send_input",
+  "navori_subagent",
   "claude",
   "codex",
+  "pi",
   "core",
   "engram",
   "codegraph",
@@ -473,6 +475,7 @@ const PUBLIC_TECHNICAL_LABELS = new Set([
   "aggregate",
   "claude-transcript",
   "codex-rollout",
+  "pi-session",
   "missing",
   "unreadable",
   "unsafe",
@@ -2715,6 +2718,21 @@ export function renderMarkdown(
         );
       }
       out.push(permissionsBlock(s, lang));
+      continue;
+    }
+    if (s.host === "pi") {
+      out.push(t(lang, "**Sesión Pi.**", "**Pi session.**"));
+      for (const run of [s.orchestrator, ...s.agents]) {
+        const child = "agentId" in run;
+        const a = child ? run.availability : s.availability;
+        const tokens = measurable(a?.["tokens.input"])
+          ? `in ${run.tokens.input} · out ${run.tokens.output}`
+          : "unavailable";
+        out.push(
+          `Pi usage (${child ? `${run.agentType} ${run.agentId}` : MAIN_THREAD}): ${tokens}`,
+        );
+      }
+      out.push("", permissionsBlock(s, lang));
       continue;
     }
     if (!measurable(s.availability?.tools)) {

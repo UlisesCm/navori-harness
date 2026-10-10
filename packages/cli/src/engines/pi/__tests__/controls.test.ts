@@ -251,8 +251,12 @@ describe("Pi control mappings", () => {
     const cwd = fixture({ masterPlan: true, scribeOwnsMarkdown: true });
     const parent = loadRuntime();
     const before = parent.handlers.get("before_agent_start")!;
-    expect(await before({ systemPrompt: "Original" }, { cwd })).toEqual({
-      systemPrompt: "Original\n\nPlan maestro — etapa activa",
+    // Additive (spec 0047 D6): a prompt section, never a full systemPrompt replacement.
+    const event = { systemPrompt: "Original", systemPromptOptions: { sections: { keep: "x" } } };
+    expect(await before(event, { cwd })).toBeUndefined();
+    expect(event.systemPromptOptions.sections).toEqual({
+      keep: "x",
+      "navori-master-plan": "Plan maestro — etapa activa",
     });
     const child = loadRuntime({ NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "implementer" });
     expect(child.tool).toBeUndefined();

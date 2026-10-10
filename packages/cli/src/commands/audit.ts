@@ -15,6 +15,7 @@ import {
   createAuditDiscoveryContext,
 } from "../lib/audit/discovery.ts";
 import { attachHookEvents, parseCodexSession, parseSession } from "../lib/audit/parse.ts";
+import { parsePiSession } from "../lib/audit/pi-session.ts";
 import { omitAuditFacts } from "../lib/audit/model.ts";
 import { listMarkers } from "../lib/diagnose/health.ts";
 import {
@@ -205,7 +206,7 @@ function lifecycleAppend(
   id: string,
   repo: string,
   cwd: string,
-  host: "claude" | "codex" | undefined,
+  host: "claude" | "codex" | "pi" | undefined,
   line: string,
 ): PrivateAuditResult<number> {
   return appendPrivateAuditFile(path, (fd: number): string => {
@@ -214,7 +215,7 @@ function lifecycleAppend(
     const selected = host ?? declared;
     if (
       !header ||
-      (selected !== "claude" && selected !== "codex") ||
+      (selected !== "claude" && selected !== "codex" && selected !== "pi") ||
       !matchesAuditHeaderIdentity(header, selected, id, repo, cwd)
     )
       throw new Error("identity-conflict");
@@ -499,7 +500,7 @@ const auditArgs = {
   rollout: { type: "string", description: "Exact --capture-child rollout source" },
   host: {
     type: "string",
-    description: "claude/codex; metadata/consumption requires it; start: claude",
+    description: "claude/codex/pi; metadata/consumption requires claude|codex; start: claude",
   },
   stop: {
     type: "string",
@@ -869,10 +870,15 @@ export const auditCommand = defineCommand({
       // in), never inferred from the environment: a wrong guess would file a
       // Claude session as Codex and drop its transcript metrics (R71).
       const hostArg = args.host;
-      if (hostArg !== undefined && hostArg !== "claude" && hostArg !== "codex") {
+      if (
+        hostArg !== undefined &&
+        hostArg !== "claude" &&
+        hostArg !== "codex" &&
+        hostArg !== "pi"
+      ) {
         const message = isEs
-          ? `--host acepta 'claude' o 'codex', recibí '${hostArg}'.`
-          : `--host accepts 'claude' or 'codex', got '${hostArg}'.`;
+          ? `--host acepta 'claude', 'codex' o 'pi', recibí '${hostArg}'.`
+          : `--host accepts 'claude', 'codex' or 'pi', got '${hostArg}'.`;
         if (json) console.log(JSON.stringify({ ok: false, error: "invalid-host", message }));
         else p.cancel(message);
         process.exit(2);
@@ -911,12 +917,16 @@ export const auditCommand = defineCommand({
       );
       // Only the bounded metadata protocol can be consumed; legacy or partial
       // startup content remains untouched and produces a visible coverage gap.
-      const absorbed = absorbAuditMetadataSpool({
-        host: hostArg ?? "claude",
-        rootSessionId: startId,
-        repo,
-        auditRoot: auditsRoot(),
-      });
+      // Pi has no metadata bridge (spec 0047 R12): nothing to absorb.
+      const absorbed =
+        hostArg === "pi"
+          ? { fullyAbsorbed: true }
+          : absorbAuditMetadataSpool({
+              host: hostArg ?? "claude",
+              rootSessionId: startId,
+              repo,
+              auditRoot: auditsRoot(),
+            });
       if (!absorbed.fullyAbsorbed) p.log.warn("audit-observation-gap: startup-spool-retained");
       // #675: the id is only checked for SHAPE (`SESSION_ID_RE`, which exists
       // to stop traversal and does that well). Nothing checked that it names a
@@ -931,7 +941,7 @@ export const auditCommand = defineCommand({
       // session because a file is late would be a worse trade than one line of
       // noise.
       // Codex keeps no Claude transcript, so its absence is not a typo signal.
-      if (hostArg !== "codex" && !resolveTranscript(startId, cwd)) {
+      if (hostArg !== "codex" && hostArg !== "pi" && !resolveTranscript(startId, cwd)) {
         p.log.warn(
           isEs
             ? `No encontré transcript para '${startId}': puede tardar al abrir. Un id incorrecto no genera reporte; borra su log manualmente: ${logFile}`
@@ -962,7 +972,12 @@ export const auditCommand = defineCommand({
       // a single stamp cannot say so. The parser keeps this pair only when one
       // of the two moved.
       const stopHost = args.host;
-      if (stopHost !== undefined && stopHost !== "claude" && stopHost !== "codex")
+      if (
+        stopHost !== undefined &&
+        stopHost !== "claude" &&
+        stopHost !== "codex" &&
+        stopHost !== "pi"
+      )
         flagError("invalid-host", "Host inválido.", "Invalid host.");
       privateResultOrExit(
         lifecycleAppend(
@@ -970,7 +985,7 @@ export const auditCommand = defineCommand({
           target.sessionId,
           repo,
           cwd,
-          stopHost === "claude" || stopHost === "codex" ? stopHost : undefined,
+          stopHost === "claude" || stopHost === "codex" || stopHost === "pi" ? stopHost : undefined,
           `${JSON.stringify({
             ts: new Date().toISOString(),
             event: "stop",
@@ -1055,6 +1070,19 @@ export const auditCommand = defineCommand({
         sourceProblems.push({ sessionId: m.sessionId, status: m.sourceStatus });
         continue;
       }
+      if (m.host === "pi") {
+        const pi = m.source
+          ? parsePiSession(m.sessionId, m.logFile, m.source, {
+              records: m.auditLogRecords ?? [],
+              reading: m.auditReading,
+              normalizationLoss: m.auditNormalizationLoss,
+              budget: readContext.scanBudget,
+            })
+          : null;
+        if (pi) parsed.push(pi);
+        else missing.push(m.sessionId.slice(0, 8));
+        continue;
+      }
       if (!m.transcript) {
         // A Codex session has no transcript by design (R71): it is reported from
         // its log, not listed as an orphan.
@@ -1123,7 +1151,7 @@ export const auditCommand = defineCommand({
       .filter((m) => m.host === "claude")
       .map((m) => ({
         sessionId: m.sessionId,
-        host: m.host,
+        host: "claude" as const,
         transcript: m.sourceStatus === "verified" ? m.transcript : null,
         cwd: m.cwd,
       }));
