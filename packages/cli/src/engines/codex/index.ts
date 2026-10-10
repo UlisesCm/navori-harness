@@ -80,7 +80,7 @@ import {
   localSkillPointerMarkerId,
   localSkillSourceAbs,
   type ClassifiedLocalSkills,
-} from "./local-skill-pointer.ts";
+} from "../shared/local-skill-pointer.ts";
 
 import { readRenderedCodexModel, resolveCodexModel } from "../../lib/assets/model-profile.ts";
 

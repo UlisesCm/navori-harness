@@ -57,7 +57,7 @@ import { probeEnabledToolVersions } from "../lib/primitives/tool-version-probe.t
 import { scanToolUpdates } from "../lib/primitives/tool-version-notice.ts";
 import { currentPlatform } from "../lib/config/platform.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/config/presets.ts";
-import { classifyLocalSkills } from "../engines/codex/local-skill-pointer.ts";
+import { classifyLocalSkills } from "../engines/shared/local-skill-pointer.ts";
 import {
   codexHookCommand,
   minCodexVersion,

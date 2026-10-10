@@ -683,9 +683,10 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "Pi role tool allowlists are model-visible capabilities, not OS/filesystem/network sandboxes; scout and reviewer retain write.",
       },
       "local-skill-discovery": {
-        state: "unsupported",
+        state: "enforced",
         reason:
-          "Pi reads trusted .agents/skills natively, but the Pi renderer does not yet project project.localSkills from .claude/skills into that root.",
+          "The generated pointer under .agents/skills/<id> (classifyLocalSkills), written by Pi only when Codex is not enabled.",
+        evidence: { kind: "local-skill-pointer" },
       },
       "acceptance-evidence": {
         state: "unsupported",
@@ -752,8 +753,10 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         decision: "deferred",
         source: "Pi 1.1.0 MCP guide (Control tool exposure, Permissions)",
         verifiedFrom: "1.1.0",
-        probe: "Not probed: direct and indirect grants per role are verified in spec 0047 E3.",
-        boundary: "Roles that need MCP stay unavailable until E3.",
+        probe:
+          "Not probed: Pi 1.1.0 connects every enabled MCP server and lists all of them in the child prompt, so per-server limiting is not verifiable.",
+        boundary:
+          "Roles that need MCP stay unavailable in children (--no-mcp, render and runtime diagnostics) until per-role grants are verifiable.",
       },
     ],
   },
