@@ -192,8 +192,10 @@ const NO_OPENING_LINE_REASON =
 /**
  * R19: append a fresh `CHANGES_REQUESTED` verdict to the append-only gate log
  * and return how many DISTINCT rejections are on record. `review_<feature>.md`
- * is overwritten on every review cycle, so counting rejections requires this
- * side log instead of counting files.
+ * may be rewritten or have milestone sections appended, so rejections are
+ * counted via this side log (deduped by whole-file hash) instead of counting
+ * files. A rejection is recorded only when the LAST `**Final verdict:**` in
+ * the file is `CHANGES_REQUESTED`, so a historical one is never re-registered.
  */
 function recordAndCountRejections(root: StateRoot, feature: string): number {
   const reviewPath = stateArtifactPath(root, `review_${feature}.md`);
@@ -217,7 +219,9 @@ function recordAndCountRejections(root: StateRoot, feature: string): number {
 
   if (existsSync(reviewPath)) {
     const content = readFileSync(reviewPath, "utf-8");
-    if (/\*\*Final verdict:\*\*\s*CHANGES_REQUESTED/.test(content)) {
+    // Multi-milestone reviews append sections: only the LAST verdict is current.
+    const verdicts = [...content.matchAll(/\*\*Final verdict:\*\*\s*([A-Z_]+)/g)];
+    if (verdicts.at(-1)?.[1] === "CHANGES_REQUESTED") {
       const reviewHash = createHash("sha256").update(content).digest("hex");
       if (!seenHashes.has(reviewHash)) {
         seenHashes.add(reviewHash);
