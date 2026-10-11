@@ -217,7 +217,7 @@ export function renderPiEngine(
     .map((agent) => `Pi subagent role ${agent.id} is unsupported and was not rendered.`);
   if (!config.engines.includes("codex")) {
     for (const id of localSkills.foreign) {
-      warnings.push(tc(lang).engine.localSkillForeignCodex(localSkillPointerDestRel(id)));
+      warnings.push(tc(lang).engine.localSkillForeignPointer(localSkillPointerDestRel(id)));
     }
   }
   warnings.push(...mcpRoleDiagnostics(config, roles));

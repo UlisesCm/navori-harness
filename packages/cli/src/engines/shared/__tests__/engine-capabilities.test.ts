@@ -153,10 +153,11 @@ describe("Pi control boundaries", () => {
     });
   });
 
-  it("does not claim acceptance evidence without a Pi child Bash recorder", () => {
+  it("enforces acceptance evidence through the Pi built-in bash recorder", () => {
     expect(ENGINE_CAPABILITIES.pi.controls["acceptance-evidence"]).toMatchObject({
-      state: "unsupported",
-      reason: expect.stringContaining("does not record verifiable child Bash results"),
+      state: "enforced",
+      reason: expect.stringContaining("host-observed exits"),
+      evidence: { kind: "extension-tool", path: ".pi/extensions/navori.ts", tool: "bash" },
     });
   });
 });

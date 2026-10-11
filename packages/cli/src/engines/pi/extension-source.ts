@@ -197,7 +197,7 @@ function roleSpec(cwd: string, role: Role): RoleSpec {
   const mcpTools = Array.isArray(tools) ? tools.filter((tool: unknown) => typeof tool === "string" && /^mcp(?:$|[_:-])/i.test(tool)) : [];
   if (mcpTools.length) {
     throw new Error("Navori Pi role " + role + " requires MCP tools (" + mcpTools.join(", ") +
-      ") and is unavailable: E1 children run with --no-mcp. Remove them from its role file or wait for MCP-in-children support.");
+      ") and is unavailable: Pi children run with --no-mcp, so MCP tools are never reachable from a Navori child. Remove them from its role file.");
   }
   if (fields.get("name") !== role || typeof fields.get("description") !== "string" ||
       !Array.isArray(tools) || !tools.every((tool: unknown) => typeof tool === "string" && ROLE_TOOLS[role].has(tool))) {
@@ -315,7 +315,7 @@ function childParser(): { feed: (chunk: Buffer) => void; finish: () => ChildResu
 
 /** Run one child with bounded incremental parsing and unchanged cancellation deadlines. */
 function runChild(cwd: string, role: RoleSpec, model: string, task: string, parentSignal: AbortSignal): Promise<ChildResult> {
-  // --no-mcp: ambient MCP must be unreachable from E1 children; --model is always explicit (omitting it is not inheriting).
+  // --no-mcp: ambient MCP must be unreachable from Navori children; --model is always explicit (omitting it is not inheriting).
   const args = ["--mode", "json", "--no-session", "--approve", "--no-mcp", "--model", model];
   if (role.tools.length) args.push("--tools", role.tools.join(","));
   else args.push("--no-tools");

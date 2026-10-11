@@ -365,7 +365,7 @@ export function renderCodexEngine(
     new Set(fullPlan.skills.map((s) => s.id)),
   );
   for (const id of localSkills.foreign) {
-    warnings.push(tc(lang).engine.localSkillForeignCodex(localSkillPointerDestRel(id)));
+    warnings.push(tc(lang).engine.localSkillForeignPointer(localSkillPointerDestRel(id)));
   }
 
   // Floor / safety net (#277): a plugin skill targeting an agent Codex neither

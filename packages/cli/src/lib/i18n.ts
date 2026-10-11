@@ -1232,7 +1232,7 @@ interface EngineCmdStrings {
   codexRulesSummary: (notBash: number, innerWildcard: number, narrowed: number) => string;
   /** Spec 0033 R12: `.agents/skills/<id>/SKILL.md` exists but isn't navori's
    *  pointer — kept intact, never written, never pruned. */
-  localSkillForeignCodex: (destRelPath: string) => string;
+  localSkillForeignPointer: (destRelPath: string) => string;
   /** R39/R41 (spec 0026 T10): a Codex orphan-scan match kept, with its reason
    *  — Codex's own version of the Claude engine's retired-asset report. */
   keptOrphanCodex: (path: string, reason: KeepReason) => string;
@@ -2726,7 +2726,7 @@ const CMD_ES: CmdStrings = {
     pluginLoadFailedCodex: (id, reason) => `Plugin '${id}' no pudo cargarse para Codex: ${reason}.`,
     codexModelFamilyFallback: (family, fallback) =>
       `la familia de modelos Codex '${family}' no está en el catálogo local; se renderizó el último ID conocido '${fallback}'.`,
-    localSkillForeignCodex: (destRelPath) =>
+    localSkillForeignPointer: (destRelPath) =>
       `'${destRelPath}' no lo escribió navori; se conserva intacto. Bórralo para recibir el ` +
       `puntero generado hacia .claude/skills/<id>/SKILL.md.`,
     markerlessCollision: (path, keys, backup) =>
@@ -4042,7 +4042,7 @@ const CMD_EN: CmdStrings = {
       `Plugin '${id}' couldn't be loaded for Codex: ${reason}.`,
     codexModelFamilyFallback: (family, fallback) =>
       `Codex model family '${family}' is not in the local catalog; rendered the last-known id '${fallback}'.`,
-    localSkillForeignCodex: (destRelPath) =>
+    localSkillForeignPointer: (destRelPath) =>
       `'${destRelPath}' wasn't written by navori; kept intact. Delete it to receive the ` +
       `generated pointer to .claude/skills/<id>/SKILL.md.`,
     markerlessCollision: (path, keys, backup) =>

@@ -689,9 +689,10 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         evidence: { kind: "local-skill-pointer" },
       },
       "acceptance-evidence": {
-        state: "unsupported",
+        state: "enforced",
         reason:
-          "Pi does not record verifiable child Bash results for acceptance criteria, so plan update cannot require host evidence before cumplido.",
+          "The Pi extension's tool_result handler records host-observed exits of Pi's built-in bash (parent, child and nested calls, Pi 1.1.0+) as workplan evidence; `plan update` reads it back when PI_SESSION_ID is set and refuses `cumplido` without it. Fails closed: a replaced bash tool or a missing exit_code records nothing.",
+        evidence: { kind: "extension-tool", path: ".pi/extensions/navori.ts", tool: "bash" },
       },
       "repeat-failure-advice": {
         state: "advisory",

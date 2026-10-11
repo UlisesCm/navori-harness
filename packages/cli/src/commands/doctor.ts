@@ -676,7 +676,7 @@ export const doctorCommand = defineCommand({
     }
     if (localSkillsClassification.foreign.length > 0) {
       for (const id of localSkillsClassification.foreign) {
-        p.log.warn(tc(lang).engine.localSkillForeignCodex(`.agents/skills/${id}/SKILL.md`));
+        p.log.warn(tc(lang).engine.localSkillForeignPointer(`.agents/skills/${id}/SKILL.md`));
       }
     }
 
