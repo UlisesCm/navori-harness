@@ -920,6 +920,94 @@ describe.runIf(runsBash)("routing-watch.sh — acceptance evidence lane (spec 00
     expect(lane("bash", loose, bash(COMMAND)).code).toBe(0);
   });
 
+  /** A linked worktree of `main` with its own workplan + acceptance-index (as `plan update --cwd` leaves it). */
+  function linkedWorktree(
+    main: string,
+    commandsFor: (wt: string) => string[] = () => [COMMAND],
+  ): string {
+    const wt = join(realpathSync(mkdtempSync(join(tmpdir(), "navori-lane-wtp-"))), "wt");
+    execFileSync("git", ["-C", main, "worktree", "add", "-q", "-b", "wt-branch", wt], {
+      stdio: "ignore",
+    });
+    const root = resolveStateRoot({ cwd: wt, feature: FEATURE });
+    mkdirSync(root.path, { recursive: true });
+    const plan = {
+      feature: FEATURE,
+      level: 1,
+      classification: { score: 1, level: 1, signals: [] },
+      objective: "o",
+      acceptance: commandsFor(wt).map((command, n) => ({
+        id: `A${n + 1}`,
+        description: "d",
+        command,
+        expected: "exit 0",
+      })),
+    };
+    writeFileSync(join(root.path, `workplan_${FEATURE}.json`), JSON.stringify(plan));
+    writeAcceptanceIndex(root);
+    return wt;
+  }
+
+  // Covers: R6, R7
+  it("session in the main checkout, command cwd in a linked worktree: evidence lands in the worktree index", () => {
+    acrossShells((shell) => {
+      const main = laneProject();
+      const wt = linkedWorktree(main);
+      // CLAUDE_PROJECT_DIR stays the main checkout; the payload cwd follows Claude into the worktree.
+      expect(lane(shell, main, { ...bash(COMMAND), cwd: wt })).toEqual({ code: 0, stdout: "" });
+      expect(evidenceOf(main)).toEqual([]);
+      const lines = evidenceOf(wt);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatchObject({ id: "A1", tree: wt, cwd: wt });
+      const root = resolveStateRoot({ cwd: wt, feature: FEATURE });
+      expect(validateEvidence({ root, feature: FEATURE, id: "A1", command: COMMAND }).ok).toBe(
+        true,
+      );
+      return lines.length;
+    });
+  });
+
+  // Covers: R6
+  it("a subdirectory of the worktree resolves to the same worktree index", () => {
+    const main = laneProject();
+    const wt = linkedWorktree(main);
+    mkdirSync(join(wt, "sub"), { recursive: true });
+    lane("bash", main, { ...bash(COMMAND), cwd: join(wt, "sub") });
+    expect(evidenceOf(wt)).toHaveLength(1);
+    expect(evidenceOf(main)).toEqual([]);
+  });
+
+  // Covers: R6
+  it("a command that itself starts with `cd <wt> &&` is keyed off the payload cwd (the session's), not the cd target", () => {
+    // The hook only sees the payload. Claude's `cwd` is the directory the tool
+    // ran FROM; when it is the main checkout, main's index is read, so the
+    // worktree's criterion is not matched and nothing is recorded anywhere.
+    const main = laneProject([COMMAND]);
+    const wt = linkedWorktree(main, (path) => [`cd ${path} && bun test`]);
+    const cdCommand = `cd ${wt} && bun test`;
+    lane("bash", main, { ...bash(cdCommand), cwd: main });
+    expect(evidenceOf(main)).toEqual([]);
+    expect(evidenceOf(wt)).toEqual([]);
+  });
+
+  // Covers: R6, R7
+  it("cwd in a foreign repository never receives evidence", () => {
+    const main = laneProject();
+    const foreign = laneProject();
+    lane("bash", main, { ...bash(COMMAND), cwd: foreign });
+    expect(evidenceOf(foreign)).toEqual([]);
+    expect(evidenceOf(main)).toEqual([]);
+  });
+
+  // Covers: R6
+  it("a cwd with no .git ancestor or a relative one falls back to the project index", () => {
+    const main = laneProject();
+    const loose = realpathSync(mkdtempSync(join(tmpdir(), "navori-lane-loose-")));
+    expect(lane("bash", main, { ...bash(COMMAND), cwd: loose }).code).toBe(0);
+    expect(lane("bash", main, { ...bash(COMMAND), cwd: "rel/dir" }).code).toBe(0);
+    expect(evidenceOf(main)).toEqual([]);
+  });
+
   // Covers: R7
   it("never executes the criterion's command (touch sentinel stays absent)", () => {
     const sentinel = join(mkdtempSync(join(tmpdir(), "navori-lane-sentinel-")), "ran");
