@@ -107,15 +107,80 @@ describe("runRender — orphaned engine output pruning (#312)", () => {
     expect(existsSync(join(cwd, ".codex"))).toBe(true);
   });
 
+  // Covers: R7, R11 — #1291: the protective ignore survives only while Codex state exists.
+  it("keeps .codex/.gitignore on --prune while .codex/progress/ state exists", () => {
+    mkdirSync(join(cwd, ".codex/progress"), { recursive: true });
+    writeFileSync(join(cwd, ".codex/progress/receipt.txt"), "APPROVED\n");
+
+    const result = runRender(cwd, { dryRun: false, prune: true });
+
+    expect(result.prunedEngineOutputs).not.toContain(".codex/.gitignore");
+    expect(existsSync(join(cwd, ".codex/.gitignore"))).toBe(true);
+    expect(existsSync(join(cwd, ".codex/config.toml"))).toBe(false);
+    expect(existsSync(join(cwd, ".codex/progress/receipt.txt"))).toBe(true);
+  });
+
+  // #1291: render -> prune -> render never creates and deletes the same file.
+  it.each(["pi", "claude"] as const)(
+    "%s-only config: no nested .gitignore for disabled engines, round trip is stable",
+    (engine) => {
+      rmSync(join(cwd, ".codex"), { recursive: true, force: true });
+      rmSync(join(cwd, "AGENTS.md"), { force: true });
+      writeConfig(join(cwd, "navori.config.json"), {
+        name: "demo",
+        engines: [engine],
+        preset: "custom",
+      });
+
+      runRender(cwd, { dryRun: false });
+      const pruneRun = runRender(cwd, { dryRun: false, prune: true });
+      const second = runRender(cwd, { dryRun: false });
+
+      if (engine === "pi") expect(existsSync(join(cwd, ".claude/.gitignore"))).toBe(false);
+      expect(existsSync(join(cwd, ".codex/.gitignore"))).toBe(false);
+      expect(pruneRun.prunedEngineOutputs ?? []).toEqual([]);
+      expect((second.orphanedEngineOutputs ?? []).flatMap((o) => o.paths)).toEqual([]);
+    },
+  );
+
+  // #1291: upgrade path — a nested file rendered by an older navori in a repo that disabled the engine.
+  it("existing .claude/.gitignore in a pi-only repo: kept with state, pruned with backup without", () => {
+    rmSync(join(cwd, ".codex"), { recursive: true, force: true });
+    rmSync(join(cwd, "AGENTS.md"), { force: true });
+    runRender(cwd, { dryRun: false });
+    expect(existsSync(join(cwd, ".claude/.gitignore"))).toBe(true);
+    writeConfig(join(cwd, "navori.config.json"), {
+      name: "demo",
+      engines: ["pi"],
+      preset: "custom",
+    });
+    mkdirSync(join(cwd, ".claude/progress"), { recursive: true });
+    writeFileSync(join(cwd, ".claude/progress/x"), "state\n");
+
+    const kept = runRender(cwd, { dryRun: false, prune: true });
+    expect(kept.prunedEngineOutputs ?? []).not.toContain(".claude/.gitignore");
+    expect(existsSync(join(cwd, ".claude/.gitignore"))).toBe(true);
+
+    rmSync(join(cwd, ".claude/progress"), { recursive: true, force: true });
+    const pruned = runRender(cwd, { dryRun: false, prune: true });
+    expect(pruned.prunedEngineOutputs).toContain(".claude/.gitignore");
+    expect(pruned.prunedBackupPath).not.toBeNull();
+    expect(existsSync(join(cwd, ".claude/.gitignore"))).toBe(false);
+
+    runRender(cwd, { dryRun: false });
+    expect(existsSync(join(cwd, ".claude/.gitignore"))).toBe(false);
+  });
+
   it("deletes orphaned outputs with --prune on an apply run", () => {
     const result = runRender(cwd, { dryRun: false, prune: true });
     expect(result.prunedEngineOutputs).toContain("AGENTS.md");
     // Reported file by file — a directory is emptied, never removed sight unseen.
     expect(result.prunedEngineOutputs).toContain(".codex/config.toml");
     expect(existsSync(join(cwd, "AGENTS.md"))).toBe(false);
-    // Covers: R7, R11 — only the required compatibility ignore survives.
+    // #1291: Claude-only with no Codex state — render never wrote a protective
+    // `.codex/.gitignore`, so there is nothing to prune or keep.
     expect(result.prunedEngineOutputs).not.toContain(".codex/.gitignore");
-    expect(existsSync(join(cwd, ".codex/.gitignore"))).toBe(true);
+    expect(existsSync(join(cwd, ".codex/.gitignore"))).toBe(false);
     expect(existsSync(join(cwd, ".codex/config.toml"))).toBe(false);
   });
 

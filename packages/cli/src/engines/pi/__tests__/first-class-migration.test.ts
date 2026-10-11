@@ -52,10 +52,8 @@ function snapshot(dir: string, roots: string[]): Record<string, string> {
   return out;
 }
 const prune = (dir: string, dryRun: boolean) => runRender(dir, { dryRun, prune: true });
-// Unrelated to Pi: a non-Claude repo still gets `.claude/.gitignore` rendered and then listed as a
-// Claude orphan in the same run. Out of scope for R11, so the assertions ignore it.
 const pruned = (result: ReturnType<typeof runRender>): string[] =>
-  (result.prunedEngineOutputs ?? []).filter((rel) => rel !== ".claude/.gitignore").sort();
+  (result.prunedEngineOutputs ?? []).sort();
 const SCOUT = ".pi/agents/scout.md";
 
 afterEach(() => {

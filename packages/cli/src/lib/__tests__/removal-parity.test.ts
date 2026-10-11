@@ -606,6 +606,9 @@ describe("an orphan root that is itself a symlink (#496)", () => {
     });
     mkdirSync(join(cwd, ".codex/rules"), { recursive: true });
     writeFileSync(join(cwd, ".codex/rules/shared.md"), FIXTURES.navori);
+    // Covers: R7, R11 — #1291: the protective ignore survives only while state exists.
+    mkdirSync(join(cwd, ".codex/progress"), { recursive: true });
+    writeFileSync(join(cwd, ".codex/progress/receipt.txt"), "APPROVED\n");
 
     const result = runRender(cwd, { dryRun: false, prune: true });
 
