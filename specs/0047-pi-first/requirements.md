@@ -1,6 +1,6 @@
 # Pi first — Requirements
 
-**Estado:** límites y tres enmiendas de la spec aceptados por el usuario el 2026-10-09; no implementado. La aceptación no autoriza workplans de entrega, implementación, aceptación runtime ni publicación.
+**Estado:** límites y tres enmiendas de la spec aceptados por el usuario el 2026-10-09. Código de E1–E3 implementado (E3 mergeada en `dev`, `69f4a9b3`); E4 en `feat/0047-pi-first-e4` con T10–T14 hechas (docs de Pi en `docs/pi.md`). Publicación y A1–A7 con gate final pendientes. La aceptación no autoriza workplans de entrega, implementación, aceptación runtime ni publicación.
 **Base:** `origin/dev` en `e3183d84`. Complementa la spec 0040; no modifica su evidencia ni declara cerrado su smoke manual.
 
 ## Context

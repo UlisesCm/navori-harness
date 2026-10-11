@@ -98,6 +98,32 @@ describe("bash-outcome-watch", () => {
   });
 
   // Covers: R13, R14
+  it("ignores runner timings (node --test, vitest, jest) but not assertion values", () => {
+    const node = (ms: string, actual = 99): string =>
+      `Exit code 1\n✖ adds (${ms}ms)\n  AssertionError: 5 !== ${actual}\n    at index.test.js:6:10\nℹ tests 1\nℹ fail 1\nℹ duration_ms ${ms}`;
+    const vitest = (d: string, t: string): string =>
+      `Exit code 1\nFAIL  a.test.ts > adds\n Tests  1 failed (1)\n   Duration  ${d}s (transform ${t}ms, collect 4ms)`;
+    const jest = (t: string): string =>
+      `Exit code 1\nFAIL ./a.test.js\nTests:       1 failed, 1 total\nTime:        ${t} s`;
+    const runs: string[][] = [
+      [node("51.610041"), node("48.2"), node("60.9")],
+      [vitest("4.88", "3"), vitest("5.01", "7"), vitest("10.2", "12")],
+      [jest("1.234"), jest("2.5"), jest("10.01")],
+    ];
+    runs.forEach((errors, index) => {
+      const { dir, failure: hook } = setup();
+      const agent = `runner-${index}`;
+      expect(run(hook, dir, failure(dir, agent, errors[0])).stdout).toBe("");
+      expect(run(hook, dir, failure(dir, agent, errors[1])).stdout).toBe("");
+      expect(run(hook, dir, failure(dir, agent, errors[2])).stdout).toContain("debug-failure");
+    });
+    const { dir, failure: hook } = setup();
+    run(hook, dir, failure(dir, "diff", node("51.6")));
+    run(hook, dir, failure(dir, "diff", node("52.1")));
+    expect(run(hook, dir, failure(dir, "diff", node("50.0", 98))).stdout).toBe("");
+  });
+
+  // Covers: R13, R14
   it("separates agents and signatures, and resets on success", () => {
     const { dir, failure: hook, success } = setup();
     const a = failure(dir, "agent-a");

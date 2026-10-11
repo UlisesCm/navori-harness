@@ -615,7 +615,7 @@ function exactHeader(path: string, ownedRoot = auditsRoot()): Record<string, unk
 /** Match bounded explicit marker identity; absence alone selects legacy Claude. */
 export function matchesAuditHeaderIdentity(
   header: Record<string, unknown>,
-  host: "claude" | "codex",
+  host: "claude" | "codex" | "pi",
   id: string,
   repo: string,
   cwd?: string,
