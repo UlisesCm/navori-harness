@@ -55,7 +55,7 @@ Feature `0047-pi-first-e2`. Solo se registran resultados ejecutados, tomados del
 
 - Cierre en una sesión Pi viva.
 - Comparación de contexto always-on RED/GREEN con modelo en vivo (design.md:114): no ejecutada; pendiente.
-- Smoke manual con modelo en vivo (OAuth `/login openai-codex`): parcial. Confirmado por el usuario: contexto de arranque cargado desde `AGENTS.md` y despacho del implementer vía `navori_subagent`. Lo demás pendiente; ver [docs/pi.md](../../docs/pi.md).
+- Smoke manual con modelo en vivo (OAuth `/login openai-codex`): parcial; resultado en [E4 · smoke manual](#e4--smoke-manual-con-modelo-en-vivo).
 
 ### Gate
 
@@ -78,3 +78,24 @@ Feature `0047-pi-first-e2`. Solo se registran resultados ejecutados, tomados del
 - Sin modelo en vivo: faux prueba el pipeline, no el cumplimiento del modelo.
 - El padre corre en proceso (SDK), no como TUI; la aprobación usa un `ui.confirm` simulado.
 - Sin OAuth en vivo ni credenciales reales.
+
+## E4 · smoke manual con modelo en vivo
+
+Ejecutado por el usuario el 2026-10-11 con Pi 1.1.0 y su modelo activo, en un proyecto Pi-only (repo Node mínimo, `node --test`) renderizado con el CLI de la rama E4. Resultado: parcial.
+
+### Confirmado
+
+- Arranque: el contexto de `AGENTS.md` llega en `session_start` sin pegarlo; el modelo distingue el snapshot de arranque del estado verificado.
+- Implementer: `navori_subagent` con rol `implementer` escribe código y tests, deja `impl_<feature>.md` y el padre verifica con `verify-before-done`.
+- Reviewer: `navori_subagent` con rol `reviewer` vuelve a correr los tests y devuelve `APPROVED`.
+
+### Hallazgos
+
+- Aviso de atasco: tres `npm test` idénticos en llamadas separadas no avisaron. La firma conservaba `duration_ms` de `node --test`. Corregido en M8 (A8) en la extensión y en el hook compartido de Claude/Codex; cubierto con salidas reales de node, vitest y jest. No se repitió en vivo tras el fix.
+- `navori receipt check` falla sin remoto `origin`; preexistente y fuera de Pi (#1292).
+- El resultado de `navori_subagent` no expone el modelo del hijo, así que la herencia no es observable desde el log del padre; la cubre el e2e.
+
+### No ejecutado
+
+- Reanudar la sesión (`pi -c`) y comprobar que el contexto no se duplica: cubierto solo por `first-class-context.test.ts`.
+- Comparación RED/GREEN del contexto always-on.
