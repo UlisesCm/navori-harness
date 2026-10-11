@@ -1,6 +1,6 @@
 # Pi first — Design
 
-**Estado:** investigación y challenge independiente realizados; límites conservadores y tres enmiendas aceptados por el usuario el 2026-10-09. E1 no ha iniciado. Workplans de entrega, implementación, revisión de shipping, aceptación runtime y publicación siguen pendientes de sus gates; no es un veredicto de runtime aprobado.
+**Estado:** investigación y challenge independiente realizados; límites conservadores y tres enmiendas aceptados por el usuario el 2026-10-09. E1–E3 implementados (E3 mergeada en `dev`, `69f4a9b3`); E4 (M6 y M7) entregado en `feat/0047-pi-first-e4`, con docs de Pi pendientes de revisión. Workplans de entrega, implementación, revisión de shipping, aceptación runtime y publicación siguen pendientes de sus gates; no es un veredicto de runtime aprobado.
 
 ## Approach
 
@@ -64,6 +64,8 @@ Probar la superficie efectiva de cada hijo: `--tools` por sí solo no elimina MC
 Conservar serializers, digest/ownership y `commitWrites`, incluidos dry-run y fallos parciales. El snapshot de engines no Pi no cambia. No tocar recursos globales.
 
 Usar eventos de sesión/resultado nativos para audit y contexto. Identidad explícita de sesión, rol y worktree; estado acotado, deduplicado tras reload/resume. No incorporar transcripciones completas, prompts ni valores de credenciales a logs. Publicar cobertura/incompletitud de métricas. Aviso de atasco aditivo; falla abierta del aviso. No crear un compactor o sesión Navori paralelos.
+
+Desviación de implementación (T11, revisión M6 ronda 1 aprobada): la clave de deduplicación es el toplevel del worktree más la rama, dentro de la transcripción de cada sesión (marcador en la transcripción), no `sessionId` + toplevel + rama. Así los forks no duplican el contexto y las sesiones nuevas no tienen marcador previo.
 
 ### D7 — Entregas verticales y definición de primera clase (R15)
 

@@ -1,14 +1,27 @@
 # Pi Coding Agent
 
 Pi is an opt-in Navori engine. It renders Navori-owned project resources for Pi and adds the
-`navori_subagent` extension tool for the supported core roles. Pi remains the owner of project
-trust, MCP, provider authentication, and its user-level agent resources.
+`navori_subagent` extension tool for the admitted roles. Pi remains the owner of project trust, MCP,
+provider authentication, and its user-level agent resources.
+
+This guide documents the verified state only. The machine-checked contract (versions, support matrix,
+runtime admissions) is parsed by `packages/cli/src/engines/pi/__tests__/first-class-e2e.test.ts`.
 
 ## Requirements and setup
 
-The supported baseline is `@earendil-works/pi-coding-agent` **0.87.1 or later** and Node.js
-**22.19.0 or later**. This Navori repository currently requires Node.js **24 or later**, so use
-the higher repository requirement when running its CLI. See the [Pi quickstart](https://pi.dev/docs/latest/quickstart).
+- Minimum supported Pi version: **0.87.1**
+- Tested Pi version: **1.1.0**
+
+The floor is `MIN_PI_VERSION` (`packages/cli/src/engines/pi/runtime-version.ts`). The tested version is
+the pinned `@earendil-works/pi-coding-agent` devDependency of `packages/cli`. Pi 0.87.1 through 1.0.x load
+the extension, but the extension refuses to start `navori_subagent` children there because the admitted
+child runtime capabilities (see [Runtime admissions](#runtime-admissions)) are verified only on 1.1.0.
+Acceptance evidence and repeat-failure advice also need Pi 1.1.0+, because they read Pi's built-in bash
+`structuredContent.exit_code`.
+
+Node.js **22.19.0 or later** is the Pi runtime floor. This Navori repository currently requires Node.js
+**24 or later**, so use the higher repository requirement when running its CLI. See the
+[Pi quickstart](https://pi.dev/docs/latest/quickstart).
 
 Enable Pi in the project configuration:
 
@@ -28,55 +41,111 @@ navori render --apply
 Start Pi in the project and review/accept Pi's project-trust prompt. Rendering files does not make
 untrusted project resources active. The extension checks Node.js and the imported Pi package's
 `VERSION` when it loads and reports an actionable minimum-version error. This is not a universal
-host-side `pi --version` handshake; the runtime smoke tests exercise the pinned Pi package.
+host-side `pi --version` handshake; the runtime tests exercise the pinned Pi package.
+
+## Support matrix
+
+Each row is one Pi control from `ENGINE_CAPABILITIES.pi.controls`. `enforced` means the trusted Pi
+project extension checks the boundary; `advisory` means the signal is context or a warning and never a
+permission boundary; `unsupported` means Navori does not provide the control on Pi.
+
+| Control | State | Boundary |
+| --- | --- | --- |
+| `plan-gate` | enforced | When `harness.planTiers` is on, the extension gates only `navori_subagent` implementer calls. Direct Pi shell and tool calls bypass it. |
+| `master-plan` | advisory | When `harness.masterPlan` is on, a bounded status line is appended before each agent start. Context only, not a permission boundary. |
+| `markdown-ownership` | advisory | When `harness.scribeOwnsMarkdown` is on, direct Pi `edit`/`write` of Markdown in implementer children is blocked. Bash and ambient process writes bypass it. |
+| `handoff-shape` | unsupported | Pi has no persisted implementer handoff validator; a child result does not prove the canonical handoff file exists. |
+| `handoff-consumer` | enforced | Reviewer `navori_subagent` calls with an explicit feature are checked. Direct shell and tool calls bypass it. |
+| `analytic-write-tools` | advisory | Role tool allowlists are model-visible capabilities, not OS, filesystem, or network sandboxes. Scout and reviewer retain `write`. |
+| `local-skill-discovery` | enforced | `project.localSkills` are projected as pointers under `.agents/skills/<id>`, written only when Codex is not enabled. |
+| `acceptance-evidence` | enforced | The extension records host-observed exits of Pi's built-in bash (parent, child, and nested calls, Pi 1.1.0+) as workplan evidence. `plan update` refuses `cumplido` without it when `PI_SESSION_ID` is set. Fails closed: a replaced bash tool or a missing `exit_code` records nothing. |
+| `repeat-failure-advice` | advisory | After three identical built-in bash failures, one advisory is appended. It never blocks, never alters the result, and is silent when `exit_code` is absent. |
+| `compact-advice` | unsupported | Pi runs no Navori hook scripts, so no context-size advice is injected after a publisher dispatch. |
+| `general-purpose-confirm` | unsupported | Pi runs no Claude hook scripts and its `navori_subagent` roster has no general-purpose role to confirm. |
+
+Pi also natively discovers trusted project skills in `.agents/skills/`. When Pi and Codex are both
+selected, Codex owns the shared destinations and Pi does not duplicate them. Claude and Codex hook
+scripts are not copied or run by Pi.
+
+## Runtime admissions
+
+Each row is one child runtime capability from `ENGINE_CAPABILITIES.pi.runtimeAdmissions`. `admitted`
+capabilities are verified on Pi 1.1.0; `deferred` capabilities are not available.
+
+| Capability | Decision | Boundary |
+| --- | --- | --- |
+| `child-mcp-off` | admitted | `--no-mcp` disables Pi built-in MCP in the child only. Not an OS sandbox; the parent keeps its MCP. |
+| `child-model-selection` | admitted | `--model <provider/id>` selects the child's model. Effort and thinking are not redefined. |
+| `child-tool-allowlist` | admitted | `--tools` is a model-visible allowlist, not isolation. Indirect MCP exposure is closed by `--no-mcp`. |
+| `child-mcp-grants` | deferred | Children run with `--no-mcp`. Pi 1.1.0 connects every enabled MCP server and lists all of them in the child prompt, so per-role MCP grants are not verifiable. Roles that need MCP stay unavailable in children. |
 
 ## Navori subagents
 
-Once the trusted project extension is loaded, Pi exposes the `navori_subagent` tool for `scout`,
-`implementer`, and `reviewer`. The tool requires `role` and a non-empty `task`; `feature` is
-optional except for `reviewer`, which requires an explicit Navori feature slug for its handoff
-check. Role instructions and descriptions are preserved. A configured model is used when it maps
-to a concrete `codexMap` model; otherwise the child inherits the selected Pi model. Each role has
-an explicit Pi tool list; missing or unknown mappings fail closed rather than enabling default
-tools.
+Once the trusted project extension is loaded, Pi exposes the `navori_subagent` tool for the admitted
+roles: `scout`, `implementer`, and `reviewer`. `scribe` is admitted only when `harness.scribeOwnsMarkdown`
+is on, and then the implementer requires the `scribe` role to be enabled. `auditor`, `architect`, and
+`publisher` are not admitted on Pi.
 
-Children are limited to one level, three concurrent processes, and ten minutes each. Cancellation
-sends `SIGTERM` and escalates to `SIGKILL` after five seconds. The child does not register another
-`navori_subagent` tool. These limits and tool lists do not create an OS sandbox: child processes
-inherit the user's environment, filesystem/network authority, and Pi agent directory.
+The tool requires `role` and a non-empty `task`; `feature` is optional except for `reviewer`, which
+requires an explicit Navori feature slug for its handoff check. Role instructions and descriptions are
+preserved. A configured model is used when it maps to a concrete `codexMap` model; otherwise the child
+inherits the selected Pi model. Each role has an explicit Pi tool list; missing or unknown mappings fail
+closed rather than enabling default tools. Children never receive MCP grants (see `child-mcp-grants`).
 
-The extension's enforcement is scoped, not full feature parity:
+## Limits and headless runs
 
-| Navori control | Pi behavior and boundary |
-|---|---|
-| `plan-gate` | Enforced only on `navori_subagent` implementer dispatch when plan tiers are enabled. Direct Pi tools and shell bypass it. |
-| `handoff-consumer` | Enforced only on reviewer `navori_subagent` dispatch with an explicit feature. Direct shell/tool calls bypass it. |
-| `acceptance-evidence` | Unsupported: Pi has no verified child Bash-result recorder, so Navori cannot require host-execution evidence when a plan criterion is marked complete. |
-| `master-plan` | Advisory status-line context via `before_agent_start`; not a permission boundary. |
-| `markdown-ownership` | Advisory: blocks direct Pi `edit`/`write` of Markdown in implementer children when enabled; Bash can bypass it. |
-| `handoff-shape` | Unsupported: child output does not validate the persisted canonical handoff. |
-| `analytic-write-tools` | Advisory: model-visible tool allowlists are not OS/filesystem/network sandboxes. |
-| `local-skill-discovery` | Unsupported for `project.localSkills`; those ids are not projected from `.claude/skills/`. |
+- Children are limited to one level, three concurrent processes, and ten minutes each.
+- Child output is truncated to 64 KiB; the truncation is reported, not treated as cancellation.
+- Cancellation sends `SIGTERM` and escalates to `SIGKILL` after five seconds. Descendants that outlive
+  the leader are also escalated.
+- The child does not register another `navori_subagent` tool.
+- Headless children cannot approve operations. The extension refuses approval requests from a child and
+  returns the command to the parent session so the user can approve it there. Trust is not approval: a
+  child receives process-scoped `--approve` only after the trusted parent has loaded the extension.
+- These limits, tool lists, and `--no-mcp` do not create an OS sandbox. Child processes inherit the
+  user's environment, filesystem and network authority, and Pi agent directory.
 
-Pi natively discovers trusted project skills in `.agents/skills/`; Navori-rendered core skills use
-that shared root. When Pi and Codex are both selected, Codex owns the shared destinations and Pi
-does not duplicate them. The unsupported capability above specifically concerns migration of
-`project.localSkills`, not Pi's native discovery of the shared root. Claude/Codex hook scripts are
-not copied or run unchanged by Pi. Additional Navori roles such as `architect`, `auditor`,
-`scribe`, and `publisher` are not currently supported by this extension.
+## Cycle commands
 
-## ChatGPT Plus/Pro OAuth
+The verified cycle, in order:
 
-Pi owns the ChatGPT subscription OAuth flow and credentials. Start Pi interactively in the trusted
-project, run `/login openai-codex` (or `/login` and choose the OpenAI ChatGPT Plus/Pro subscription
-option), then use `/model` to select an available `openai-codex` model and send a harmless prompt.
-See Pi's [provider authentication guide](https://pi.dev/docs/latest/providers) and
-[model guide](https://pi.dev/docs/latest/models).
+1. `navori render` then `navori render --apply` to install the Pi resources.
+2. Start Pi in the trusted project. Navori context (AGENTS.md and the operational snapshot) loads at startup.
+3. `navori plan update <feature> --decision approved --date <YYYY-MM-DD>` approves the workplan and refreshes
+   the acceptance index the extension reads.
+4. Dispatch roles with `navori_subagent` (`role`, `task`, and `feature` where required).
+5. Acceptance commands run through Pi's built-in bash. When `PI_SESSION_ID` is set, the host records each
+   observed exit as evidence.
+6. `navori plan update <feature> --progress <ID>=cumplido --json` closes a criterion only with recorded
+   evidence. Without it the command exits non-zero and names the criterion.
+7. Disable with `navori render --apply --prune` after changing `engines`. Only Navori-owned resources are
+   pruned; foreign files and work product survive.
 
-Navori does not read, copy, generate, refresh, or log Pi's `auth.json` and does not silently fall
-back to an OpenAI API key. If authentication fails, use Pi's `/login` flow; do not provide
-credentials to Navori. Automated runtime tests are credential-free; account authentication is a
-manual user smoke test.
+## Credential-free e2e result
+
+Executed by automation with `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-e2e.test.ts`
+on the pinned Pi 1.1.0 runtime. The test runs the compiled CLI (render, approved plan, `plan update`), the
+real Pi SDK agent loop and tool pipeline in process, real `pi` child processes spawned by the rendered
+extension, Pi's built-in bash and write tools, git, and the filesystem. It covers install, approval
+without UI, denial, a >256 KiB child stream, implementer/scribe/reviewer dispatch on the parent's model,
+evidence recording, the receipt, upgrade, and disable.
+
+Limits, stated rather than hidden:
+
+- No live model. The faux provider proves the pipeline, never model compliance.
+- No TUI or RPC process. The parent runs in process, approval is driven through Pi's real extension runner
+  with a stub `ui.confirm`, so dialog rendering is not exercised.
+- "Receipt" is the shared `plan update ... cumplido` closure over the host-recorded evidence.
+- No live OAuth. No real credentials are read, stored, or used.
+
+## Not executed by automation
+
+- **Always-on context comparison (RED/GREEN, live model)**: not executed. Design requires it
+  (see [design.md](../specs/0047-pi-first/design.md)); it is pending.
+- **Live-model smoke**: partial, see [evals.md](../specs/0047-pi-first/evals.md). The manual smoke has
+  confirmed startup context loaded from `AGENTS.md` and an implementer dispatch via `navori_subagent`. It
+  has not yet covered anything beyond that.
+- **Closure in a live Pi session**: not executed.
 
 ## Native MCP and project trust
 
@@ -91,11 +160,23 @@ either file, add an MCP server, change Pi's `builtin:mcp` setting, or install a 
 extension. Configure servers through Pi's native mechanism and keep credentials out of project
 configuration.
 
-Trust is an explicit Pi decision. A child can receive process-scoped `--approve` only after the
-Navori project extension has loaded in an already-trusted parent. Navori does not auto-approve the
-parent project or use `-e` to bypass trust.
+Trust is an explicit Pi decision. Navori does not auto-approve the parent project or use `-e` to bypass
+trust.
 
-## Manual OAuth smoke
+## ChatGPT Plus/Pro OAuth
+
+Pi owns the ChatGPT subscription OAuth flow and credentials. Start Pi interactively in the trusted
+project, run `/login openai-codex` (or `/login` and choose the OpenAI ChatGPT Plus/Pro subscription
+option), then use `/model` to select an available `openai-codex` model and send a harmless prompt.
+See Pi's [provider authentication guide](https://pi.dev/docs/latest/providers) and
+[model guide](https://pi.dev/docs/latest/models).
+
+Navori does not read, copy, generate, refresh, or log Pi's `auth.json` and does not silently fall
+back to an OpenAI API key. If authentication fails, use Pi's `/login` flow; do not provide
+credentials to Navori. Automated runtime tests are credential-free; account authentication is a
+manual user smoke test.
+
+## Manual smoke
 
 1. Check `pi --version` and confirm it meets the supported baseline above.
 2. Start Pi interactively in a project whose resources you trust.
@@ -103,5 +184,8 @@ parent project or use `-e` to bypass trust.
 4. Run `/model`, select an available `openai-codex` model, and send a harmless prompt.
 5. If login fails, troubleshoot through Pi's `/login`; Navori does not inspect credential files.
 
-See the [Pi engine specification](../specs/0040-pi-engine/requirements.md) for requirements and
+Current status: **manual smoke partial**. See [evals.md](../specs/0047-pi-first/evals.md).
+
+See the [Pi engine specification](../specs/0040-pi-engine/requirements.md) and the
+[Pi first specification](../specs/0047-pi-first/requirements.md) for requirements and
 implementation/review status.

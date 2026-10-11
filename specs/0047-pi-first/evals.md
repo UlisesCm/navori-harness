@@ -54,10 +54,27 @@ Feature `0047-pi-first-e2`. Solo se registran resultados ejecutados, tomados del
 ### No ejecutado
 
 - Cierre en una sesión Pi viva.
-- Gate completo (`bun check`): no ejecutado; lo corre el reviewer a continuación.
+- Comparación de contexto always-on RED/GREEN con modelo en vivo (design.md:114): no ejecutada; pendiente.
+- Smoke manual con modelo en vivo (OAuth `/login openai-codex`): parcial. Confirmado por el usuario: contexto de arranque cargado desde `AGENTS.md` y despacho del implementer vía `navori_subagent`. Lo demás pendiente; ver [docs/pi.md](../../docs/pi.md).
+
+### Gate
+
+- Gate completo (`bun check`): ejecutado en verde en la ronda 2 de revisión de E2 (registrado en el workplan de E4).
 
 ### Límites conocidos
 
 - El procedimiento de fingerprint es una tercera copia (`evidence.ts`, `bash-outcome.sh`, extensión).
 - Los criterios ligados a la entrega (delivery-bound) no se registran desde Pi.
 - Pi < 1.1.0 falla cerrado en runtime (sin `structuredContent`/`getAllTools` no hay evidencia); la tabla de capabilities no se tocó, así que no se bloquea por versión.
+
+## E4 · M7 — ciclo Pi credential-free
+
+### Ejecutado
+
+- `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-e2e.test.ts`: exit 0; 2 tests pasan (ciclo completo credential-free y contrato documental de `docs/pi.md`). Runtime Pi 1.1.0 fijado, proveedor faux.
+
+### Límites
+
+- Sin modelo en vivo: faux prueba el pipeline, no el cumplimiento del modelo.
+- El padre corre en proceso (SDK), no como TUI; la aprobación usa un `ui.confirm` simulado.
+- Sin OAuth en vivo ni credenciales reales.
