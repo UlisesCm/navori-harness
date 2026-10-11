@@ -4,7 +4,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -177,10 +176,10 @@ describe("Pi credential-free first-class cycle", () => {
       const rendered = navori(["render", "--apply"]);
       expect(rendered.status, rendered.stderr + rendered.stdout).toBe(0);
       // Pi-only: nothing another engine would contribute.
-      // (Both engines' directories hold only the `.gitignore` every render writes; nothing else.)
+      // (#1291: a disabled engine's nested `.gitignore` is not written without state, so neither directory exists.)
       expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
       for (const dir of [".claude", ".codex"]) {
-        expect(readdirSync(join(cwd, dir)), `${dir} contents`).toEqual([".gitignore"]);
+        expect(existsSync(join(cwd, dir)), `${dir} exists`).toBe(false);
       }
       expect(existsSync(join(cwd, ".pi/extensions/navori.ts"))).toBe(true);
       expect(readFileSync(join(cwd, ".pi/navori.json"), "utf8")).toContain("scribe");
