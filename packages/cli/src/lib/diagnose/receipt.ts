@@ -170,36 +170,57 @@ function liveBlob(cwd: string, path: string): string {
   return git(cwd, ["hash-object", "-w", "--", path]);
 }
 
+/**
+ * Resolves the base ref the receipt diffs against. With an `origin` remote the target is
+ * fetched and `origin/<target>` is used (a failed fetch fails closed). Without any `origin`
+ * remote there is no remote truth, so the local `refs/heads/<target>` is used instead, never
+ * when the current branch is the target (committed work there would diff as empty).
+ */
+function resolveBase(options: ReceiptOptions): { ref: string; label: string } {
+  const remotes = git(options.cwd, ["remote"]).split("\n");
+  if (remotes.includes("origin")) {
+    git(options.cwd, ["fetch", "origin", options.target]);
+    return { ref: `origin/${options.target}`, label: `origin/${options.target}` };
+  }
+  const local = `refs/heads/${options.target}`;
+  try {
+    git(options.cwd, ["rev-parse", "--verify", "--quiet", local]);
+  } catch {
+    throw new Error(
+      `no 'origin' remote and no local branch '${options.target}': set branchBase (navori configure branch-base <branch>) or pass --target <branch>`,
+    );
+  }
+  let current = "";
+  try {
+    current = git(options.cwd, ["symbolic-ref", "-q", "--short", "HEAD"]);
+  } catch {
+    // Detached HEAD: not the target branch.
+  }
+  if (current === options.target)
+    throw new Error(
+      `no 'origin' remote and the current branch is the target '${options.target}': switch to a feature branch or pass --target <branch>`,
+    );
+  return { ref: local, label: options.target };
+}
+
 function inspect(options: ReceiptOptions): { targetSha: string; headSha: string; paths: string[] } {
-  git(options.cwd, ["fetch", "origin", options.target]);
-  const targetSha = git(options.cwd, ["rev-parse", `origin/${options.target}`]);
+  const base = resolveBase(options);
+  const targetSha = git(options.cwd, ["rev-parse", base.ref]);
   const headSha = git(options.cwd, ["rev-parse", "HEAD"]);
-  if (git(options.cwd, ["rev-list", "--count", `HEAD..origin/${options.target}`]) !== "0")
-    throw new Error(`branch is behind origin/${options.target}`);
+  if (git(options.cwd, ["rev-list", "--count", `HEAD..${base.ref}`]) !== "0")
+    throw new Error(`branch is behind ${base.label}`);
   // `--name-only` intentionally cannot express modes. Inspect the raw records first so
   // V1 never signs metadata it cannot later verify (including gitlinks/submodules).
   const raw = pathsFromNul(
     git(
       options.cwd,
-      [
-        "diff",
-        "--raw",
-        "--no-renames",
-        "-z",
-        "--no-ext-diff",
-        "--no-textconv",
-        `origin/${options.target}`,
-      ],
+      ["diff", "--raw", "--no-renames", "-z", "--no-ext-diff", "--no-textconv", base.ref],
       true,
     ),
   );
   raw.push(
     ...pathsFromNul(
-      git(
-        options.cwd,
-        ["diff", "--cached", "--raw", "--no-renames", "-z", `origin/${options.target}`],
-        true,
-      ),
+      git(options.cwd, ["diff", "--cached", "--raw", "--no-renames", "-z", base.ref], true),
     ),
   );
   for (const record of raw) {
@@ -222,15 +243,7 @@ function inspect(options: ReceiptOptions): { targetSha: string; headSha: string;
   const tracked = pathsFromNul(
     git(
       options.cwd,
-      [
-        "diff",
-        "--name-only",
-        "--no-renames",
-        "-z",
-        "--no-ext-diff",
-        "--no-textconv",
-        `origin/${options.target}`,
-      ],
+      ["diff", "--name-only", "--no-renames", "-z", "--no-ext-diff", "--no-textconv", base.ref],
       true,
     ),
   );
