@@ -1,4 +1,4 @@
-# navori:managed start id="bash-outcome-watch-base" hash="0aa37d1a" version="0.11.3" source="@navori/core"
+# navori:managed start id="bash-outcome-watch-base" hash="e3bbbb3c" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 # PostToolUseFailure(Bash) advisory. The shared state helper also handles reset
 # from routing-watch on a successful PostToolUse(Bash).
@@ -387,7 +387,8 @@ process.stdin.on("end", () => {
         .replace(/(?:\/tmp|\/private\/tmp|\/var\/folders)\/[^\s:]+/g, "<tmp>")
         .replace(/\b\d{4}-\d\d-\d\d[T ]\d\d:\d\d:\d\d(?:\.\d+)?Z?\b/g, "<t>")
         .replace(/\b\d\d:\d\d:\d\d(?:\.\d+)?\b/g, "<t>")
-        .replace(/\b\d+(?:\.\d+)?\s?(?:ms|seconds?|minutes?)\b/gi, "<d>")
+        .replace(/\b\d+(?:\.\d+)?\s?(?:ms|s|m|seconds?|minutes?)\b/gi, "<d>")
+        .replace(/\b(?:duration_ms|duration|time|elapsed)\b[:=\s]+\d+(?:\.\d+)?/gi, "<d>")
         .replace(/\b[0-9a-f]{8,}\b/gi, "<h>")
         .split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 20).join("\n");
       if (!body && exitCode === null) return;

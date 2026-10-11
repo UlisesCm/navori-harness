@@ -325,6 +325,39 @@ describe("Pi stuck advisory on tool_result", () => {
     JSON.stringify(result ?? "").includes("failed 3 times");
 
   // Covers: R14
+  it("advises on real runner output that differs only by timings, not by assertion value", async () => {
+    const node = (ms: string, actual: number): string =>
+      `✖ adds (${ms}ms)\n  AssertionError: 5 !== ${actual}\n    at index.test.js:6:10\nℹ tests 1\nℹ fail 1\nℹ duration_ms ${ms}`;
+    const vitest = (d: string, t: string): string =>
+      `FAIL  a.test.ts > adds\nAssertionError: expected 5 to be 99\n Tests  1 failed (1)\n   Duration  ${d}s (transform ${t}ms, collect 4ms)`;
+    const jest = (t: string): string =>
+      `FAIL ./a.test.js\n  ● adds\nTests:       1 failed, 1 total\nTime:        ${t} s`;
+    const cases: Array<[string, (n: number) => string]> = [
+      ["node", (n) => node(["51.610041", "48.2", "60.9"][n]!, 99)],
+      ["vitest", (n) => vitest(["4.88", "5.01", "10.2"][n]!, ["3", "7", "12"][n]!)],
+      ["jest", (n) => jest(["1.234", "2.5", "10.01"][n]!)],
+    ];
+    for (const [name, text] of cases) {
+      const { handlers } = loadExtension();
+      const run = handlers.get("tool_result")!;
+      const id = `real-${name}`;
+      const fail = (n: number): Record<string, unknown> =>
+        bashFail({ content: [{ type: "text", text: text(n) }] });
+      expect(await run(fail(0), ctx(id))).toBeUndefined();
+      expect(await run(fail(1), ctx(id))).toBeUndefined();
+      expect(advisory(await run(fail(2), ctx(id)))).toBe(true);
+    }
+    // A different assertion value is a different failure.
+    const { handlers } = loadExtension();
+    const run = handlers.get("tool_result")!;
+    const fail = (actual: number, ms: string): Record<string, unknown> =>
+      bashFail({ content: [{ type: "text", text: node(ms, actual) }] });
+    await run(fail(99, "51.6"), ctx("real-diff"));
+    await run(fail(99, "52.1"), ctx("real-diff"));
+    expect(await run(fail(98, "50.0"), ctx("real-diff"))).toBeUndefined();
+  });
+
+  // Covers: R14
   it("three identical failures advisory fail open", async () => {
     const { handlers } = loadExtension();
     const run = handlers.get("tool_result")!;

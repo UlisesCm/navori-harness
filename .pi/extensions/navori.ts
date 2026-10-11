@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="50b00d301500404e63e20f5f5e26642f1306986b82f97e5bd353ddb55ad778bd"
+// navori:managed-file id="pi-extension" hash="3e8a9f64bece3c0c910ceb256c56ca0d9c572f74dd76f0298aacc6a7e5ed1b50"
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -575,7 +575,8 @@ function normalizeFailure(text: string, cwd: string): string {
   if (process.env.HOME) out = out.replace(new RegExp(escape(process.env.HOME), "g"), "~");
   return out.replace(/(?:\/tmp|\/private\/tmp|\/var\/folders)\/[^\s:]+/g, "<tmp>")
     .replace(/\b\d{4}-\d\d-\d\d[T ]\d\d:\d\d:\d\d(?:\.\d+)?Z?\b/g, "<t>").replace(/\b\d\d:\d\d:\d\d(?:\.\d+)?\b/g, "<t>")
-    .replace(/\b\d+(?:\.\d+)?\s?(?:ms|seconds?|minutes?)\b/gi, "<d>").replace(/\b[0-9a-f]{8,}\b/gi, "<h>")
+    .replace(/\b\d+(?:\.\d+)?\s?(?:ms|s|m|seconds?|minutes?)\b/gi, "<d>")
+    .replace(/\b(?:duration_ms|duration|time|elapsed)\b[:=\s]+\d+(?:\.\d+)?/gi, "<d>").replace(/\b[0-9a-f]{8,}\b/gi, "<h>")
     .split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 20).join("\n");
 }
 
