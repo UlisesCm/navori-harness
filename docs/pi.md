@@ -105,6 +105,26 @@ closed rather than enabling default tools. Children never receive MCP grants (se
 - These limits, tool lists, and `--no-mcp` do not create an OS sandbox. Child processes inherit the
   user's environment, filesystem and network authority, and Pi agent directory.
 
+## Parity inventory
+
+`PI_PARITY` (`packages/cli/src/engines/shared/pi-parity.ts`) lists every unit Navori emits for other
+engines (core hooks, shared permission rules, plugin manifest pieces) and what Pi gives for it today.
+Each row has one state:
+
+- `enforced`: blocks or requires something Pi cannot skip by itself. A textual-policy row that blocks
+  is a seatbelt, not a sandbox (Pi has no permission system), and must list its bypass classes.
+- `advisory`: informs without blocking, or covers only part of the shape.
+- `unsupported`: a gap, with its reason.
+- `n/a`: the unit does not apply to Pi, with the reason.
+
+A unit without a row fails the inventory test (`pi-parity.test.ts`), which names it. A row stays
+`unsupported` until the change that implements it flips it together with its code and tests.
+
+- `routing-watch` is `unsupported`: the signal exists in Pi's `tool_result`, but the script keys on
+  Claude tool names. A probe (not a live Pi run) shows the Pi name `edit` emits nothing. It can become
+  `advisory` only once the M2 bridge maps Pi tool names.
+- `model-advisor` is `unsupported`: Pi has no per-turn model-change payload to advise on.
+
 ## Cycle commands
 
 The verified cycle, in order:
