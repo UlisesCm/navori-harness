@@ -13,8 +13,8 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir, userInfo } from "node:os";
-import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { stripTypeScriptTypes } from "node:module";
 import { pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
@@ -23,9 +23,10 @@ import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
 import { fingerprintTree, readEvidenceLog, validateEvidence } from "../../../lib/plan/evidence.ts";
 import { resolveStateRoot } from "../../../lib/primitives/state-root.ts";
 
-const PI_DIST = join(
-  userInfo().homedir,
-  ".pi/agent/install/releases/1.1.0/node_modules/@earendil-works/pi-coding-agent/dist",
+// The pinned devDependency, not a user install: the probe must never skip silently.
+const PI_DIST = resolve(
+  import.meta.dirname,
+  "../../../../node_modules/@earendil-works/pi-coding-agent/dist",
 );
 const COMMAND = "bun run --cwd packages/cli test first-class";
 const DIR = ".navori/state/handoffs";
@@ -121,7 +122,7 @@ const ok = (over: Partial<ResultEvent> = {}): ResultEvent => ({
 const lines = (cwd: string) => readEvidenceLog(join(cwd, DIR, "workplan_demo.evidence.jsonl"));
 
 // Covers: R7
-describe.skipIf(!existsSync(PI_DIST))("Pi 1.1.0 terminal success contract (probe)", () => {
+describe("Pi 1.1.0 terminal success contract (probe)", () => {
   // Covers: R7
   it("bash reports its exit code in structuredContent and a non-zero exit as isError", async () => {
     const { createBashToolDefinition } = (await import(
