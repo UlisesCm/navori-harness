@@ -260,6 +260,70 @@ describe("sign", () => {
   });
 });
 
+describe("no origin remote", () => {
+  /** Local-only repo: `main` plus a `feature` branch with one uncommitted change. */
+  function localFixture(): ReceiptOptions {
+    const options = fixture();
+    git(options.cwd, "remote", "remove", "origin");
+    git(options.cwd, "checkout", "-b", "feature");
+    writeFileSync(join(options.cwd, "new.ts"), "new\n");
+    return options;
+  }
+
+  // Covers: #1292
+  it("signs and checks fresh against the local target branch", () => {
+    const options = localFixture();
+    const signed = signReceipt(options);
+    expect(signed.result.error).toBeNull();
+    expect(signed.exitCode).toBe(0);
+    expect(signed.result.targetSha).toBe(git(options.cwd, "rev-parse", "main"));
+    const checked = checkReceipt(options);
+    expect(checked.result.status).toBe("ok");
+    expect(checked.result.fresh).toBe(true);
+  });
+
+  // Covers: #1292
+  it("rejects when the current branch is the target", () => {
+    const options = fixture();
+    git(options.cwd, "remote", "remove", "origin");
+    const signed = signReceipt(options);
+    expect(signed.exitCode).toBe(1);
+    expect(signed.result.error).toContain("current branch is the target");
+  });
+
+  // Covers: #1292
+  it("names branchBase and --target when the local target ref is missing", () => {
+    const options = { ...localFixture(), target: "master" };
+    const signed = signReceipt(options);
+    expect(signed.exitCode).toBe(1);
+    expect(signed.result.error).toContain("branchBase");
+    expect(signed.result.error).toContain("--target");
+  });
+
+  // Covers: #1292
+  it("keeps the behind check against the local target", () => {
+    const options = localFixture();
+    git(options.cwd, "checkout", "main");
+    writeFileSync(join(options.cwd, "ahead.txt"), "ahead\n");
+    git(options.cwd, "add", ".");
+    git(options.cwd, "commit", "-m", "ahead");
+    git(options.cwd, "checkout", "feature");
+    const signed = signReceipt(options);
+    expect(signed.exitCode).toBe(1);
+    expect(signed.result.error).toContain("behind main");
+  });
+
+  // Covers: #1292
+  it("still fails closed when origin exists but the fetch fails", () => {
+    const options = fixture();
+    git(options.cwd, "checkout", "-b", "feature");
+    git(options.cwd, "remote", "set-url", "origin", join(options.cwd, "..", "gone.git"));
+    const signed = signReceipt(options);
+    expect(signed.exitCode).toBe(1);
+    expect(signed.result.error).toContain("git failed");
+  });
+});
+
 describe("sign and check json", () => {
   // Covers: R2, R3, R5
   it("returns the shared JSON schema for check success, findings and early error", () => {
