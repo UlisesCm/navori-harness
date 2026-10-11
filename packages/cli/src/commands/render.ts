@@ -47,7 +47,10 @@ import {
   renderGitignore,
   type GitignoreRenderResult,
 } from "../engines/shared/gitignore-harness.ts";
-import { renderNestedGitignore } from "../engines/shared/nested-gitignore-harness.ts";
+import {
+  renderNestedGitignore,
+  shouldHaveNestedGitignore,
+} from "../engines/shared/nested-gitignore-harness.ts";
 import {
   ensurePrettierIgnore,
   type PrettierIgnoreResult,
@@ -882,11 +885,13 @@ function runRenderCore(
   // for why the root Cubo A alone leaves `.claude/progress/`, `worktrees/` and
   // `settings.local.json` untracked by nothing under the default config.
   const claudeGitignore = renderNestedGitignore(cwd, ".claude", {
+    enabledEngines: config.engines ?? ["claude"],
     dryRun,
     force: forceFlag,
     lang,
   });
   const codexGitignore = renderNestedGitignore(cwd, ".codex", {
+    enabledEngines: config.engines ?? ["claude"],
     dryRun,
     force: forceFlag,
     lang,
@@ -948,11 +953,17 @@ function runRenderCore(
     // deletion. Preview now answers it before. Only the writes below stay
     // behind `!dryRun`.
     const plan = applyPiOwnership(cwd, planOrphanRemoval(cwd, paths, EPHEMERAL_HARNESS_PATHS));
-    // `.codex/.gitignore` is a required compatibility output even when the
-    // Codex engine is disabled: pruning it would expose legacy progress in
-    // Claude-only repos with root-ignore management off. Keep only this file,
-    // not the rest of the stale Codex tree.
-    const removable = plan.remove.filter((rel) => rel !== ".codex/.gitignore");
+    // #1291: a nested engine `.gitignore` is kept while it still protects state
+    // (or its engine is enabled) — the same predicate render uses to write it,
+    // so render and prune can never cycle. Without state it is a plain orphan.
+    const enabledEngines = config.engines ?? ["claude"];
+    const removable = plan.remove.filter(
+      (rel) =>
+        !(
+          (rel === ".claude/.gitignore" || rel === ".codex/.gitignore") &&
+          shouldHaveNestedGitignore(cwd, rel.slice(0, -"/.gitignore".length), enabledEngines)
+        ),
+    );
     if (!dryRun && removable.length > 0) {
       // Back up before deleting so a mistaken prune is recoverable (same safety
       // net the prose engine uses for overwrites). The excludes are NOT optional:

@@ -1,9 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { nestedGitignoreEntries, renderNestedGitignore } from "../nested-gitignore-harness.ts";
+import {
+  nestedGitignoreEntries,
+  renderNestedGitignore,
+  shouldHaveNestedGitignore,
+} from "../nested-gitignore-harness.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../ephemeral-paths.ts";
 import { writeConfig } from "../../../lib/config/config.ts";
 import { runRender } from "../../../commands/render.ts";
@@ -65,7 +69,48 @@ function tempRepo(): string {
   return dir;
 }
 
+// Covers: R7, R11 — #1291
+describe("shouldHaveNestedGitignore", () => {
+  it("true when the owning engine is enabled, with no state", () => {
+    cwd = tempRepo();
+    expect(shouldHaveNestedGitignore(cwd, ".claude", ["claude"])).toBe(true);
+    expect(shouldHaveNestedGitignore(cwd, ".codex", ["claude", "codex"])).toBe(true);
+  });
+
+  it("true for a dir with no owning engine (.navori)", () => {
+    cwd = tempRepo();
+    expect(shouldHaveNestedGitignore(cwd, ".navori", ["pi"])).toBe(true);
+  });
+
+  it("false for a disabled engine with no state on disk", () => {
+    cwd = tempRepo();
+    expect(shouldHaveNestedGitignore(cwd, ".claude", ["pi"])).toBe(false);
+    expect(shouldHaveNestedGitignore(cwd, ".codex", ["claude"])).toBe(false);
+  });
+
+  it("true for a disabled engine whose ephemeral state exists", () => {
+    cwd = tempRepo();
+    mkdirSync(join(cwd, ".claude", "progress"), { recursive: true });
+    expect(shouldHaveNestedGitignore(cwd, ".claude", ["pi"])).toBe(true);
+  });
+
+  it("true for a disabled engine with a legacy stamp on disk", () => {
+    cwd = tempRepo();
+    mkdirSync(join(cwd, ".claude"), { recursive: true });
+    writeFileSync(join(cwd, ".claude", ".managed-drift-stamp"), "x\n");
+    expect(shouldHaveNestedGitignore(cwd, ".claude", ["pi"])).toBe(true);
+  });
+});
+
 describe("renderNestedGitignore", () => {
+  it("returns null and creates no dir for a disabled engine without state (#1291)", () => {
+    cwd = tempRepo();
+    expect(
+      renderNestedGitignore(cwd, ".claude", { lang: "es", enabledEngines: ["pi"] }),
+    ).toBeNull();
+    expect(existsSync(join(cwd, ".claude"))).toBe(false);
+  });
+
   it("returns null and writes nothing when the dir owns no ephemeral entries", () => {
     cwd = tempRepo();
     expect(renderNestedGitignore(cwd, ".cursor", { lang: "es" })).toBeNull();
@@ -193,6 +238,10 @@ describe("render.ts wiring", () => {
       preset: "custom",
       qualityGate: { fast: "pnpm lint", full: "pnpm test" },
     });
+
+    // #1291: `.codex/.gitignore` is rendered for a disabled Codex only once
+    // legacy state exists under `.codex/`.
+    mkdirSync(join(cwd, ".codex", "progress"), { recursive: true });
 
     const result = runRender(cwd);
     expect(result.codexGitignore?.status).toBe("created");
