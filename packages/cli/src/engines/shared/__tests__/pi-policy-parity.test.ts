@@ -10,6 +10,11 @@ import { buildCodexRules } from "../../codex/build-rules.ts";
 import { renderPiEngine } from "../../pi/index.ts";
 import { renderManagedFile } from "../render-managed-file.ts";
 import {
+  GUARD_GOLDEN,
+  NO_BACKGROUND_GOLDEN,
+  STATE_SCRIPT_GOLDEN,
+} from "./fixtures/claude-verdict-cases.ts";
+import {
   buildPiDenyRules,
   collectShellPermissionRules,
   translateShellPattern,
@@ -146,6 +151,36 @@ describe("Pi policy parity: the Pi copy only adds blocks", () => {
       }
     }
     // 256 script runs (2 scripts x 2 copies x 2 shells x the corpus): a saturated machine needs room.
+  }, 180_000);
+
+  // Covers: R2, R16
+  it("claude copy verdict unchanged: golden cases recorded against the pre-0048 scripts", () => {
+    const claudeGuard = copies.claude("guard-destructive");
+    const piGuard = copies.pi("guard-destructive");
+    for (const { command, exit } of GUARD_GOLDEN) {
+      expect(exitOf(claudeGuard, copies.project, bash(command)), `claude: ${command}`).toBe(exit);
+      // The Pi copy never allows what the Claude copy blocks; it may only block more.
+      const piExit = exitOf(piGuard, copies.project, bash(command));
+      expect([0, 2], `pi: ${command}`).toContain(piExit);
+      if (exit === 2) expect(piExit, `pi: ${command}`).toBe(2);
+    }
+    const claudeNoBg = copies.claude("subagent-no-background");
+    const piNoBg = copies.pi("subagent-no-background");
+    for (const { name, payload, exit } of NO_BACKGROUND_GOLDEN) {
+      expect(exitOf(claudeNoBg, copies.project, payload), `claude: ${name}`).toBe(exit);
+      const piExit = exitOf(piNoBg, copies.project, payload);
+      if (exit === 2) expect(piExit, `pi: ${name}`).toBe(2);
+      else expect([0, 2], `pi: ${name}`).toContain(piExit);
+    }
+    // Every other script the bridge binds: both copies exit 0 or 2, the Claude copy as before.
+    for (const [script, cases] of Object.entries(STATE_SCRIPT_GOLDEN)) {
+      const claude = copies.claude(script);
+      const pi = copies.pi(script);
+      for (const { name, payload, exit } of cases) {
+        expect(exitOf(claude, copies.project, payload), `claude ${script}: ${name}`).toBe(exit);
+        expect([0, 2], `pi ${script}: ${name}`).toContain(exitOf(pi, copies.project, payload));
+      }
+    }
   }, 180_000);
 
   // Covers: R2, R16, R18

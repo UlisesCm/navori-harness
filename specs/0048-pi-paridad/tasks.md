@@ -33,8 +33,8 @@ Estimated LOC: 5300
 
 ### M4 — Identidad de Claude y Codex
 
-- **A4** [observable] — Activar Pi no cambia el comportamiento de Claude ni de Codex · `bun run --cwd packages/cli test src/engines/shared/__tests__/pi-policy-parity.test.ts src/lib/__tests__/golden-render-tree.test.ts src/engines/shared/__tests__/engine-parity.test.ts` → exit 0; render(X) ≡ subárbol X de render(X+pi) para Claude y Codex, `.codex/rules/navori.rules` sin cambios, la copia Claude de cada script da el mismo veredicto que antes del cambio.
-- [ ] **T7** (R16) — Corpus diferencial de comandos benignos y casos dorados del guard contra copias Claude y Pi; goldens actualizados de forma explícita (D-U1) y test de identidad de outputs. · effect: tests · test: `packages/cli/src/engines/shared/__tests__/pi-policy-parity.test.ts`::claude copy verdict unchanged
+- **A4** [observable] — Activar Pi no cambia el comportamiento de Claude ni de Codex · `bun run --cwd packages/cli test src/engines/shared/__tests__/pi-policy-parity.test.ts src/engines/__tests__/golden-render-tree.test.ts src/engines/__tests__/engine-parity.test.ts` → exit 0; render(X) ≡ subárbol X de render(X+pi) para Claude y Codex, `.codex/rules/navori.rules` sin cambios, la copia Claude de cada script da el mismo veredicto que antes del cambio.
+- [x] **T7** (R16) — Corpus diferencial de comandos benignos y casos dorados del guard contra copias Claude y Pi; goldens actualizados de forma explícita (D-U1) y test de identidad de outputs. · effect: tests · test: `packages/cli/src/engines/shared/__tests__/pi-policy-parity.test.ts`::claude copy verdict unchanged
 
 
 ### M5 — Probe IPC y relay al padre
