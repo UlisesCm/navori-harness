@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="ad5bd917cc2ca5fb02796576974b75cfab37fb209ad56504bc97e0953f3b002f"
+// navori:managed-file id="pi-extension" hash="4a4bd8e4711646c29b215410a37e5b35ca55bd94eb29435c3ce6f3f5cd61df64"
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -141,8 +141,12 @@ async function checkDispatch(cwd: string, role: Role, task: string,
 type HandoffFile = { mtimeMs: number; content: string } | null;
 type HandoffSnapshot = { dispatchedAt: number; role: Role; feature: string; file: HandoffFile };
 const HANDOFF_DIR = ".navori/state/handoffs";
+/** The implementer writes impl_<feature>.md unless the project declares the scribe owns Markdown (then .json), as "navori handoff check" expects. */
 function handoffPath(cwd: string, role: Role, feature: string): string {
-  return join(cwd, HANDOFF_DIR, (role === "reviewer" ? "review_" : "impl_") + feature + ".json");
+  if (role === "reviewer") return join(cwd, HANDOFF_DIR, "review_" + feature + ".json");
+  let scribeOwnsMarkdown = false;
+  try { scribeOwnsMarkdown = controls(cwd).scribeOwnsMarkdown; } catch { /* missing or invalid manifest: default (off) */ }
+  return join(cwd, HANDOFF_DIR, "impl_" + feature + (scribeOwnsMarkdown ? ".json" : ".md"));
 }
 function readHandoffFile(path: string): HandoffFile {
   if (!existsSync(path)) return null;
