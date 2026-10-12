@@ -401,7 +401,7 @@ con el motivo observado.
 `subagent-no-background.sh` es un binding `enforced (seatbelt)` solo en hijos. Por D-U2 el carril nuevo
 aplica a **todos** los engines donde el script corre (Claude y Pi), sin brazo `pi`. Codex no registra el
 script (`CODEX_HOOKS_WITHOUT_REGISTRATION`); su fila de `CODEX_PARITY` dice que el carril existe y Codex no lo
-registra.
+registra. Codex no registra `subagent-no-background` (`CODEX_HOOKS_WITHOUT_REGISTRATION`, payload sin `agent_id`), así que el carril de shell cubre Claude hoy y Pi vía el bridge.
 
 - **Qué bloquea.** El operador `&` al final de un segmento: no `&&`, `|&`, `>&`, `&>`, `2>&1`, ni el que está
   dentro de comillas, heredoc o un valor `-m`/`--body`. También `nohup`, `setsid` y `disown` como comando de un

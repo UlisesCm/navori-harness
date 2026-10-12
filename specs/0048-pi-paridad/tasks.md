@@ -52,7 +52,7 @@ Estimated LOC: 5300
 ### M7 — Backgrounding en subagentes
 
 - **A7** [observable] — `cmd &`, `nohup`, `setsid` y `disown` se bloquean en subagentes de Pi y Claude; `&&` y `2>&1` pasan · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-guards.test.ts src/lib/__tests__/subagent-no-background.test.ts` → exit 0.
-- [ ] **T12** (R8) — Carril de shell en `subagent-no-background.sh` para todos los engines que lo registran (D-U2), con `_partials/inert-skeleton.sh` extraído de `guard-destructive.sh` y header actualizado; fila de `CODEX_PARITY` lo declara. · effect: behavior · test: `packages/cli/src/lib/__tests__/subagent-no-background.test.ts`::background operators blocked in subagents
+- [x] **T12** (R8) — Carril de shell en `subagent-no-background.sh` para todos los engines que lo registran (D-U2), con `_partials/inert-skeleton.sh` extraído de `guard-destructive.sh` y header actualizado; fila de `CODEX_PARITY` lo declara. · effect: behavior · test: `packages/cli/src/lib/__tests__/subagent-no-background.test.ts`::background operators blocked in subagents
 
 
 ### M8 — Handoff con frescura
