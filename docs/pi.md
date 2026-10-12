@@ -135,10 +135,16 @@ nothing to check, not an error.
 
 ## Navori subagents
 
-Once the trusted project extension is loaded, Pi exposes the `navori_subagent` tool for the admitted
-roles: `scout`, `implementer`, and `reviewer`. `scribe` is admitted only when `harness.scribeOwnsMarkdown`
-is on, and then the implementer requires the `scribe` role to be enabled. `auditor`, `architect`, and
-`publisher` are not admitted on Pi.
+Once the trusted project extension is loaded, Pi exposes the `navori_subagent` tool. Admitted roles and
+their Pi tool lists (from `packages/cli/src/engines/pi/role-tools.ts`):
+
+- `scout`: `read, grep, find, ls, write`
+- `implementer`: `read, grep, find, ls, bash, edit, write`
+- `reviewer`: `read, grep, find, ls, bash, write`
+- `scribe`: `read, grep, find, ls, bash, edit, write`; admitted only when `harness.scribeOwnsMarkdown` is on, and then the implementer requires the `scribe` role to be enabled
+- `auditor`: `read, grep, find, ls, bash, write`
+- `architect`: `read, grep, find, ls, bash, write`; cannot dispatch nested subagents on Pi (`navori:if-not onPi`)
+- `publisher`: `read, grep, find, ls, bash`; rendered for Pi but refused at dispatch until the M6 publishing gates (R4–R6) land, so publish from the parent session
 
 The tool requires `role` and a non-empty `task`; `feature` is optional except for `reviewer`, which
 requires an explicit Navori feature slug for its handoff check. Role instructions and descriptions are

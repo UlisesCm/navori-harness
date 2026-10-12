@@ -9,10 +9,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { ENGINE_CAPABILITIES } from "../../shared/engine-capabilities.ts";
 import { renderPiEngine } from "../index.ts";
+import { PI_GATE_TIMEOUT_MS, PI_ROLE_NAMES, PI_ROLE_TIMEOUT_MS } from "../role-tools.ts";
+import { conditionOrchestration } from "../../../lib/render/render-plan.ts";
 import { missingPiChildFlags } from "../runtime-version.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
 
 type Role = "scout" | "implementer" | "reviewer" | "scribe";
+type AnalyticRole = "auditor" | "architect" | "publisher";
 interface Model {
   provider: string;
   id: string;
@@ -239,7 +242,7 @@ describe("Pi first-class roles", () => {
       expect(args.at(-1)).toContain(`# ${role[0]!.toUpperCase()}${role.slice(1)} Agent`);
     }
     // No orchestrator or broad default: only the configured core roles dispatch.
-    for (const role of ["orchestrator", "auditor", "general-purpose"]) {
+    for (const role of ["orchestrator", "general-purpose"]) {
       await expect(run(rt, dir, role)).rejects.toThrow("Unsupported Navori Pi role");
     }
     expect(rt.children).toHaveLength(4);
@@ -342,5 +345,76 @@ describe("Pi first-class roles", () => {
     await expect(run(load(), plain.dir, "scribe")).rejects.toThrow(
       /scribe is admitted only when harness.scribeOwnsMarkdown/,
     );
+  });
+
+  // Covers: R14
+  it("auditor architect dispatchable with explicit tools", async () => {
+    const { dir, warnings } = project({ scribeOwnsMarkdown: true, architect: true });
+    expect(warnings.join("\n")).not.toMatch(/unsupported and was not rendered/);
+    expect(ENGINE_CAPABILITIES.pi.unsupportedSurfaces.map((entry) => entry.surface)).not.toContain(
+      "additional-analytic-roles",
+    );
+    const wanted: Record<AnalyticRole, string> = {
+      auditor: "read,grep,find,ls,bash,write",
+      architect: "read,grep,find,ls,bash,write",
+      publisher: "read,grep,find,ls,bash",
+    };
+    const rt = load();
+    for (const role of ["auditor", "architect"] as const) {
+      const file = readFileSync(join(dir, `.pi/agents/${role}.md`), "utf8");
+      const result = await dispatch(rt, dir, role);
+      expect(result.details.role).toBe(role);
+      const { args } = rt.children.at(-1)!;
+      expect(args).toContain("--no-mcp");
+      expect(flag(args, "--tools")).toBe(wanted[role]);
+      expect(flag(args, "--model")).toBe("openai-codex/gpt-parent");
+      // Instructions travel verbatim from the rendered role file.
+      const body = file.split("\n---\n").slice(1).join("\n---\n").trim();
+      expect(args.at(-1)).toContain(body.slice(0, 200));
+    }
+    // A tool outside the role's list is refused.
+    const path = join(dir, ".pi/agents/auditor.md");
+    writeFileSync(path, readFileSync(path, "utf8").replace('"write"]', '"write","edit"]'));
+    await expect(run(rt, dir, "auditor")).rejects.toThrow(
+      /Unknown or missing Pi role tool mapping/,
+    );
+  });
+
+  // Covers: R14
+  it("publisher dispatch is refused until publishing gates land", async () => {
+    const { dir } = project({ scribeOwnsMarkdown: true, architect: true });
+    const rt = load();
+    await expect(run(rt, dir, "publisher")).rejects.toThrow(/publisher is not dispatchable on Pi/);
+    expect(rt.children).toHaveLength(0);
+    for (const role of ["auditor", "architect"] as const) {
+      expect((await dispatch(rt, dir, role)).details.role).toBe(role);
+    }
+  });
+
+  // Covers: R14
+  it("architect nested dispatch excluded on Pi", () => {
+    const config = NavoriConfigSchema.parse({
+      name: "x",
+      preset: "custom",
+      engines: ["pi"],
+      branchBase: "main",
+      qualityGate: { fast: "bun test", full: "bun test" },
+    });
+    const text =
+      "a\n<!-- navori:if-not onPi -->\nAgent(scout, scribe)\n<!-- /navori:if-not -->\nb\n";
+    expect(conditionOrchestration(text, config, "pi")).not.toContain("Agent(");
+    expect(conditionOrchestration(text, config, "claude")).toContain("Agent(");
+    const { dir } = project({ scribeOwnsMarkdown: true, architect: true });
+    expect(readFileSync(join(dir, ".pi/agents/architect.md"), "utf8")).not.toContain(
+      "you may dispatch",
+    );
+  });
+
+  // Covers: R14
+  it("per-role deadlines outlive the gate for commit and push roles", () => {
+    expect(Object.keys(PI_ROLE_TIMEOUT_MS).sort()).toEqual([...PI_ROLE_NAMES].sort());
+    for (const role of ["implementer", "publisher"] as const) {
+      expect(PI_ROLE_TIMEOUT_MS[role]).toBeGreaterThanOrEqual(PI_GATE_TIMEOUT_MS + 600_000);
+    }
   });
 });

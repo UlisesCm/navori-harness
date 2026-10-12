@@ -637,11 +637,6 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "The per-unit state and boundary of every core hook, shared permission rule and plugin unit " +
           "is PI_PARITY (engines/shared/pi-parity.ts, spec 0048 R1).",
       },
-      {
-        surface: "additional-analytic-roles",
-        reason:
-          "Pi project extension dispatches scout, implementer, reviewer and, when harness.scribeOwnsMarkdown is on, scribe; auditor, architect and publisher are not admitted.",
-      },
     ],
     controls: {
       "plan-gate": {

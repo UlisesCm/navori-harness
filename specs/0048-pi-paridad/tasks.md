@@ -76,7 +76,8 @@ Estimated LOC: 5300
 ### M11 — Roles auditor, architect y publisher
 
 - **A11** [observable] — Los tres roles se despachan con su lista de herramientas y el publisher pasa por gate y confirmación · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-roles.test.ts` → exit 0; publisher que intenta `gh pr create` en hijo devuelve el relay al padre; plazo del publisher ≥ gate + margen.
-- [ ] **T18** (R14) — Admitir auditor/architect (`read, grep, find, ls, bash, write`) y publisher (`read, grep, find, ls, bash`) en `ROLE_TOOLS`; despacho anidado del architect bajo `navori:if-not onPi` (`conditionOrchestration`); retirar `additional-analytic-roles`; plazos por rol. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-roles.test.ts`::auditor architect publisher dispatch
+- [x] **T18** (R14) — Admitir auditor/architect (`read, grep, find, ls, bash, write`) y publisher (`read, grep, find, ls, bash`) en `ROLE_TOOLS`; despacho anidado del architect bajo `navori:if-not onPi` (`conditionOrchestration`); retirar `additional-analytic-roles`; plazos por rol. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-roles.test.ts`::auditor architect publisher dispatch
+  - Nota: el despacho de `publisher` se rechaza en `checkDispatch` hasta que los gates de M6 (R4–R6) estén activos; publicar desde la sesión padre.
 
 ### M12 — Verificación en vivo y documentación
 

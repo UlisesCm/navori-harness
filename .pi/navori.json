@@ -1,11 +1,14 @@
 {
   "_navori": {
     "id": "pi-runtime",
-    "hash": "92d1ad6470ce48e9f5ca61eea827ad8ba4888b4b7b681f98367615f325acc06f"
+    "hash": "c67822f6b3a53c0eb79ac8cbb1bef69406cabe5b006ce84f3ce6df0c00da9dde"
   },
   "schemaVersion": 2,
   "agents": [
+    "architect",
+    "auditor",
     "implementer",
+    "publisher",
     "reviewer",
     "scout",
     "scribe"
@@ -17,7 +20,10 @@
   },
   "hooks": [],
   "ownedPaths": [
+    ".pi/agents/architect.md",
+    ".pi/agents/auditor.md",
     ".pi/agents/implementer.md",
+    ".pi/agents/publisher.md",
     ".pi/agents/reviewer.md",
     ".pi/agents/scout.md",
     ".pi/agents/scribe.md",

@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="56992ed11625063a715fef79c166a756491273d6e67fa42f39f0b74cf2af5af4"
+// navori:managed-file id="pi-extension" hash="c87589aba6ef266b4d9c7905b6f27e77fd29f94ed0c073977dae024f04c38433"
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -24,19 +24,22 @@ const isVerifiedPiRuntime = piRuntimeChecks.verified;
 const unverifiedPiCapabilities = piRuntimeChecks.unverified;
 
 
-type Role = "scout" | "implementer" | "reviewer" | "scribe";
+type Role = "scout" | "implementer" | "reviewer" | "scribe" | "auditor" | "architect" | "publisher";
 type RoleSpec = { name: Role; description: string; model?: string; tools: string[]; instructions: string };
 type Controls = { planTiers: boolean; masterPlan: boolean; scribeOwnsMarkdown: boolean };
-const ROLES = new Set<Role>(["scout", "implementer", "reviewer", "scribe"]);
+const ROLES = new Set<Role>(["scout","implementer","reviewer","scribe","auditor","architect","publisher"]);
 const ROLE_TOOLS: Record<Role, ReadonlySet<string>> = {
-  scout: new Set(["read", "grep", "find", "ls", "write"]),
-  implementer: new Set(["read", "grep", "find", "ls", "bash", "edit", "write"]),
-  reviewer: new Set(["read", "grep", "find", "ls", "bash", "write"]),
-  // The scribe's own Bash runs its handoff preflight; the implementer's Markdown block is unaffected.
-  scribe: new Set(["read", "grep", "find", "ls", "bash", "edit", "write"]),
+  scout: new Set(["read","grep","find","ls","write"]),
+  implementer: new Set(["read","grep","find","ls","bash","edit","write"]),
+  reviewer: new Set(["read","grep","find","ls","bash","write"]),
+  scribe: new Set(["read","grep","find","ls","bash","edit","write"]),
+  auditor: new Set(["read","grep","find","ls","bash","write"]),
+  architect: new Set(["read","grep","find","ls","bash","write"]),
+  publisher: new Set(["read","grep","find","ls","bash"]),
 };
+// Per-role child deadline (spec 0048 D9); the quality gate runs inside it.
+const ROLE_TIMEOUT_MS: Record<Role, number> = {"scout":600000,"scribe":600000,"reviewer":1200000,"auditor":1200000,"architect":1200000,"implementer":1800000,"publisher":2400000};
 const MAX_CHILDREN = 3;
-const TIMEOUT_MS = 600_000;
 const GRACE_MS = 5_000;
 const MAX_OUTPUT_BYTES = 65_536;
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
@@ -107,6 +110,8 @@ function runNavori(cwd: string, args: string[], input: string, signal: AbortSign
 
 async function checkDispatch(cwd: string, role: Role, task: string,
     feature: string | undefined, signal: AbortSignal): Promise<void> {
+  // Publishing gates (R4-R6) are not enforced in Pi children yet; publish from the parent session.
+  if (role === "publisher") throw new Error("Navori publisher is not dispatchable on Pi: publishing gates are not yet enforced in children; publish from the parent session");
   if (role === "implementer" && controls(cwd).planTiers) {
     const payload = JSON.stringify({ cwd, tool_input: { agent_type: role, message: task } });
     let result;
@@ -353,7 +358,7 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
       // Not cleared when the leader closes: descendants may outlive it and still need SIGKILL.
       killTimer = setTimeout(() => kill("SIGKILL"), GRACE_MS);
     };
-    const timeout = setTimeout(stop, TIMEOUT_MS);
+    const timeout = setTimeout(stop, ROLE_TIMEOUT_MS[role.name]);
     const abort = (): void => stop();
     const release = (): void => {
       clearTimeout(timeout);
@@ -975,8 +980,8 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool(defineTool({
     name: "navori_subagent",
     label: "Navori subagent",
-    description: "Run a bounded Navori scout, implementer, reviewer, or scribe child in this trusted project.",
-    parameters: Type.Object({ role: Type.Union([Type.Literal("scout"), Type.Literal("implementer"), Type.Literal("reviewer"), Type.Literal("scribe")]),
+    description: "Run a bounded Navori scout, implementer, reviewer, scribe, auditor, architect, or publisher child in this trusted project.",
+    parameters: Type.Object({ role: Type.Union([Type.Literal("scout"), Type.Literal("implementer"), Type.Literal("reviewer"), Type.Literal("scribe"), Type.Literal("auditor"), Type.Literal("architect"), Type.Literal("publisher")]),
       task: Type.String({ minLength: 1 }), feature: Type.Optional(Type.String()) }),
     async execute(_id, params, signal, _onUpdate, ctx) {
       assertTrustedPiParent(ctx);

@@ -202,7 +202,7 @@ describe("Pi subagent resources", () => {
     expect(extension).toContain('args.push("--no-tools")');
     expect(extension).toContain('args.push("--tools", role.tools.join(","))');
     expect(extension).toContain("const MAX_CHILDREN = 3");
-    expect(extension).toContain("const TIMEOUT_MS = 600_000");
+    expect(extension).toContain("const ROLE_TIMEOUT_MS: Record<Role, number> =");
     expect(extension).toContain("const GRACE_MS = 5_000");
     expect(extension).toContain("if (process.env.NAVORI_PI_CHILD_DEPTH) return");
     expect(extension).not.toContain("/Users/ulisescm/");

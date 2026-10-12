@@ -45,14 +45,9 @@ import {
 import { loadEnabledPlugins } from "../../lib/config/plugins.ts";
 import { deriveMcpTools } from "../claude/agent-mcp-tools.ts";
 import { tc } from "../../lib/i18n.ts";
+import { PI_ROLE_TOOLS } from "./role-tools.ts";
 
-const ROLE_TOOLS: Readonly<Record<string, readonly string[]>> = {
-  scout: ["read", "grep", "find", "ls", "write"],
-  implementer: ["read", "grep", "find", "ls", "bash", "edit", "write"],
-  reviewer: ["read", "grep", "find", "ls", "bash", "write"],
-  // Admitted only with harness.scribeOwnsMarkdown; its Bash runs its own handoff preflight.
-  scribe: ["read", "grep", "find", "ls", "bash", "edit", "write"],
-};
+const ROLE_TOOLS = PI_ROLE_TOOLS as Readonly<Record<string, readonly string[]>>;
 const EXTENSION = ".pi/extensions/navori.ts";
 
 const MANIFEST = ".pi/navori.json";

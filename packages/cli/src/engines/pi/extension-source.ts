@@ -1,6 +1,7 @@
 import { PI_BRIDGE_SOURCE } from "./bridge-source.ts";
 import { PI_TRUST_SOURCE } from "./trust-source.ts";
 import { renderPiRuntimeVersionSource } from "./runtime-version.ts";
+import { PI_ROLE_NAMES, PI_ROLE_TIMEOUT_MS, PI_ROLE_TOOLS } from "./role-tools.ts";
 
 /** Self-contained project extension; no import may point back into Navori's CLI checkout. */
 export const PI_EXTENSION_SOURCE = String.raw`
@@ -13,19 +14,16 @@ import { VERSION, defineTool, getShellConfig, type ExtensionAPI } from "@earendi
 ${PI_TRUST_SOURCE}
 ${renderPiRuntimeVersionSource()}
 
-type Role = "scout" | "implementer" | "reviewer" | "scribe";
+type Role = ${PI_ROLE_NAMES.map((role) => JSON.stringify(role)).join(" | ")};
 type RoleSpec = { name: Role; description: string; model?: string; tools: string[]; instructions: string };
 type Controls = { planTiers: boolean; masterPlan: boolean; scribeOwnsMarkdown: boolean };
-const ROLES = new Set<Role>(["scout", "implementer", "reviewer", "scribe"]);
+const ROLES = new Set<Role>(${JSON.stringify(PI_ROLE_NAMES)});
 const ROLE_TOOLS: Record<Role, ReadonlySet<string>> = {
-  scout: new Set(["read", "grep", "find", "ls", "write"]),
-  implementer: new Set(["read", "grep", "find", "ls", "bash", "edit", "write"]),
-  reviewer: new Set(["read", "grep", "find", "ls", "bash", "write"]),
-  // The scribe's own Bash runs its handoff preflight; the implementer's Markdown block is unaffected.
-  scribe: new Set(["read", "grep", "find", "ls", "bash", "edit", "write"]),
+${PI_ROLE_NAMES.map((role) => `  ${role}: new Set(${JSON.stringify(PI_ROLE_TOOLS[role])}),`).join("\n")}
 };
+// Per-role child deadline (spec 0048 D9); the quality gate runs inside it.
+const ROLE_TIMEOUT_MS: Record<Role, number> = ${JSON.stringify(PI_ROLE_TIMEOUT_MS)};
 const MAX_CHILDREN = 3;
-const TIMEOUT_MS = 600_000;
 const GRACE_MS = 5_000;
 const MAX_OUTPUT_BYTES = 65_536;
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
@@ -96,6 +94,8 @@ function runNavori(cwd: string, args: string[], input: string, signal: AbortSign
 
 async function checkDispatch(cwd: string, role: Role, task: string,
     feature: string | undefined, signal: AbortSignal): Promise<void> {
+  // Publishing gates (R4-R6) are not enforced in Pi children yet; publish from the parent session.
+  if (role === "publisher") throw new Error("Navori publisher is not dispatchable on Pi: publishing gates are not yet enforced in children; publish from the parent session");
   if (role === "implementer" && controls(cwd).planTiers) {
     const payload = JSON.stringify({ cwd, tool_input: { agent_type: role, message: task } });
     let result;
@@ -342,7 +342,7 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
       // Not cleared when the leader closes: descendants may outlive it and still need SIGKILL.
       killTimer = setTimeout(() => kill("SIGKILL"), GRACE_MS);
     };
-    const timeout = setTimeout(stop, TIMEOUT_MS);
+    const timeout = setTimeout(stop, ROLE_TIMEOUT_MS[role.name]);
     const abort = (): void => stop();
     const release = (): void => {
       clearTimeout(timeout);
@@ -711,8 +711,8 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool(defineTool({
     name: "navori_subagent",
     label: "Navori subagent",
-    description: "Run a bounded Navori scout, implementer, reviewer, or scribe child in this trusted project.",
-    parameters: Type.Object({ role: Type.Union([Type.Literal("scout"), Type.Literal("implementer"), Type.Literal("reviewer"), Type.Literal("scribe")]),
+    description: "Run a bounded Navori scout, implementer, reviewer, scribe, auditor, architect, or publisher child in this trusted project.",
+    parameters: Type.Object({ role: Type.Union([Type.Literal("scout"), Type.Literal("implementer"), Type.Literal("reviewer"), Type.Literal("scribe"), Type.Literal("auditor"), Type.Literal("architect"), Type.Literal("publisher")]),
       task: Type.String({ minLength: 1 }), feature: Type.Optional(Type.String()) }),
     async execute(_id, params, signal, _onUpdate, ctx) {
       assertTrustedPiParent(ctx);

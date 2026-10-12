@@ -327,7 +327,7 @@ function resolveConditions(
  * `"claude"`, so Claude-side callers that do not pass it keep their output
  * byte-for-byte; prose callers must pass theirs. The reserved key `onCodex` is true
  * only when `engine === "codex"` and `onClaude` only when `engine === "claude"`;
- * neither reads `config`, so a config key of the same name has no effect. Spans
+ * `onPi` only when `engine === "pi"`; none reads `config`, so a config key of the same name has no effect. Spans
  * wrapped in `if-not onCodex` therefore render everywhere except Codex. Prose
  * callers (agents-md, cursor, copilot) pass their own
  * engine id so they never take the Claude-only branch.
@@ -341,6 +341,7 @@ export function conditionOrchestration(
   const enabled = (key: string) => {
     if (key === "onCodex") return engine === "codex";
     if (key === "onClaude") return engine === "claude";
+    if (key === "onPi") return engine === "pi";
     if (key === "sdd") return config.sdd?.enabled !== false;
     // Explicit value wins; unset (including an entirely absent `harness`
     // section) falls back to HARNESS_DEFAULTS rather than assuming "unset"
