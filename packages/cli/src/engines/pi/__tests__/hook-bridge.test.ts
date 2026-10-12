@@ -12,7 +12,7 @@ import { serializePiManifest, type PiManifestHook } from "../owned-file.ts";
 interface Ctx {
   cwd: string;
   hasUI?: boolean;
-  ui?: { select: ReturnType<typeof vi.fn> };
+  ui?: { input: ReturnType<typeof vi.fn> };
   sessionManager: { getSessionId: () => string };
 }
 
@@ -60,9 +60,7 @@ const ctxFor = (cwd: string, hasUI = false, answer = true): Ctx => ({
   ...(hasUI
     ? {
         ui: {
-          select: vi.fn(async (_t: string, options: string[]) =>
-            answer ? options[1] : options[0],
-          ),
+          input: vi.fn(async (_t: string, _p?: string) => (answer ? "yes, run it" : "")),
         },
       }
     : {}),
@@ -390,8 +388,8 @@ describe("hook bridge verdict contract", () => {
     ]);
     const approved = ctxFor(cwd, true, true);
     expect(await load().get("tool_call")!(bash("git reset --hard"), approved)).toBeUndefined();
-    expect(approved.ui!.select).toHaveBeenCalledOnce();
-    const message = String(approved.ui!.select.mock.calls[0]![0]);
+    expect(approved.ui!.input).toHaveBeenCalledOnce();
+    const message = String(approved.ui!.input.mock.calls[0]![0]);
     expect(message).toContain("first reason");
     expect(message).toContain("second reason");
     expect(message).toContain("git reset --hard");

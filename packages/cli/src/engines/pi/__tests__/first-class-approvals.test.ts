@@ -27,7 +27,7 @@ interface Ctx {
   cwd: string;
   hasUI?: boolean;
   isProjectTrusted?: () => boolean;
-  ui?: { select: (title: string, options: string[]) => Promise<string | undefined> };
+  ui?: { input: (title: string, placeholder?: string) => Promise<string | undefined> };
 }
 type ToolCall = (
   event: { toolName: string; input: unknown },
@@ -188,13 +188,13 @@ function interactive(
   answer: boolean,
   whileOpen?: () => void,
 ): { ctx: Ctx; confirm: ReturnType<typeof vi.fn> } {
-  const confirm = vi.fn(async (_title: string, options: string[]) => {
+  const confirm = vi.fn(async (_title: string, _placeholder?: string) => {
     whileOpen?.();
-    return answer ? options[1] : options[0];
+    return answer ? "yes, run it" : "";
   });
   void rt;
   return {
-    ctx: { cwd: project(), hasUI: true, isProjectTrusted: () => true, ui: { select: confirm } },
+    ctx: { cwd: project(), hasUI: true, isProjectTrusted: () => true, ui: { input: confirm } },
     confirm,
   };
 }
@@ -206,23 +206,31 @@ const bash = (command: string): { toolName: string; input: unknown } => ({
 
 describe("Pi first-class approvals", () => {
   // Covers: R5, R18
-  it("the dialog denies by default: the first option refuses and only the explicit yes approves", async () => {
+  it("the typed confirmation approves only the exact phrase and never uses select or confirm", async () => {
     const rt = load();
+    const select = vi.fn();
+    const confirm = vi.fn();
     const outcome = async (
-      pick: (options: string[]) => string | undefined,
+      answer: () => Promise<string | undefined>,
     ): Promise<Block | undefined> => {
-      const ctx: Ctx = {
+      const ctx: Ctx & { ui: { select: typeof select; confirm: typeof confirm } } = {
         cwd: project(),
         hasUI: true,
-        ui: { select: async (_t, options) => pick(options) },
+        ui: { input: answer, select, confirm },
       };
       return rt.toolCall!(bash(APPROVED), ctx);
     };
-    // A bare Enter selects the pre-highlighted first option.
-    expect(await outcome((options) => options[0])).toMatchObject({ block: true });
-    expect(await outcome(() => undefined)).toMatchObject({ block: true });
-    expect(await outcome(() => "Yes")).toMatchObject({ block: true });
-    expect(await outcome((options) => options[1])).toBeUndefined();
+    expect(await outcome(async () => "yes, run it")).toBeUndefined();
+    expect(await outcome(async () => "  yes, run it\n")).toBeUndefined();
+    expect(await outcome(async () => "")).toMatchObject({ block: true });
+    expect(await outcome(async () => undefined)).toMatchObject({ block: true });
+    expect(await outcome(async () => "yes")).toMatchObject({ block: true });
+    expect(await outcome(async () => "Yes, run it")).toMatchObject({ block: true });
+    expect(await outcome(() => Promise.reject(new Error("dialog closed")))).toMatchObject({
+      block: true,
+    });
+    expect(select).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   // Covers: R5
@@ -250,7 +258,7 @@ describe("Pi first-class approvals", () => {
     const failing: Ctx = {
       cwd: project(),
       hasUI: true,
-      ui: { select: () => Promise.reject(new Error("dialog closed")) },
+      ui: { input: () => Promise.reject(new Error("dialog closed")) },
     };
     expect(await rt.toolCall!(bash(APPROVED), failing)).toMatchObject({ block: true });
   });
@@ -516,7 +524,7 @@ describe("Pi first-class approvals", () => {
 interface ScriptCtx {
   cwd: string;
   hasUI: boolean;
-  ui?: { select: ReturnType<typeof vi.fn> };
+  ui?: { input: ReturnType<typeof vi.fn> };
   sessionManager: { getSessionId: () => string };
 }
 
@@ -561,9 +569,9 @@ function scriptCtx(
     ...(mode === "ui"
       ? {
           ui: {
-            select: vi.fn(async (_t: string, options: string[]) => {
+            input: vi.fn(async (_t: string, _p?: string) => {
               whileOpen?.();
-              return answer ? options[1] : options[0];
+              return answer ? "yes, run it" : "";
             }),
           },
         }
@@ -609,8 +617,8 @@ describe("Pi publishing confirmations and shared ask rules", () => {
     for (const command of published) {
       const ctx = scriptCtx(dir, "ui");
       expect(await scriptCall(false, command, ctx), command).toBeUndefined();
-      expect(ctx.ui!.select, command).toHaveBeenCalledOnce();
-      const [message] = ctx.ui!.select.mock.calls[0] as [string];
+      expect(ctx.ui!.input, command).toHaveBeenCalledOnce();
+      const [message] = ctx.ui!.input.mock.calls[0] as [string];
       expect(message).toContain("Navori approval required");
       expect(message).toContain(command);
       if (command.includes("pr-body.txt"))
@@ -658,7 +666,7 @@ describe("Pi publishing confirmations and shared ask rules", () => {
       const refusal = await scriptCall(true, command, ctx, relayed);
       expect(refusal, command).toMatchObject({ block: true });
       expect(refusal?.reason).toMatch(/return this command to the parent/);
-      expect(ctx.ui!.select).not.toHaveBeenCalled();
+      expect(ctx.ui!.input).not.toHaveBeenCalled();
       expect(relayed, command).toHaveLength(1);
       expect(relayed[0]).toMatchObject({ kind: "parent-approval", command });
       if (command.includes("--body-file"))
@@ -668,7 +676,7 @@ describe("Pi publishing confirmations and shared ask rules", () => {
     // Nothing publishing is asked for an unrelated command.
     const quiet = scriptCtx(dir, "ui");
     expect(await scriptCall(false, "git status", quiet)).toBeUndefined();
-    expect(quiet.ui!.select).not.toHaveBeenCalled();
+    expect(quiet.ui!.input).not.toHaveBeenCalled();
   });
 
   // Covers: R18, R6
@@ -685,9 +693,9 @@ describe("Pi publishing confirmations and shared ask rules", () => {
     for (const command of asked) {
       const ctx = scriptCtx(dir, "ui");
       expect(await scriptCall(false, command, ctx), command).toBeUndefined();
-      expect(ctx.ui!.select, command).toHaveBeenCalledOnce();
-      expect((ctx.ui!.select.mock.calls[0] as [string])[0]).toMatch(/shared permission ask rule/);
-      expect((ctx.ui!.select.mock.calls[0] as [string])[0]).toContain(command);
+      expect(ctx.ui!.input, command).toHaveBeenCalledOnce();
+      expect((ctx.ui!.input.mock.calls[0] as [string])[0]).toMatch(/shared permission ask rule/);
+      expect((ctx.ui!.input.mock.calls[0] as [string])[0]).toContain(command);
     }
     for (const command of asked) {
       expect(await scriptCall(false, command, scriptCtx(dir, "ui", false)), command).toMatchObject({
@@ -702,7 +710,7 @@ describe("Pi publishing confirmations and shared ask rules", () => {
       const refusal = await scriptCall(true, command, ctx, relayed);
       expect(refusal, command).toMatchObject({ block: true });
       expect(refusal?.reason).toMatch(/return this command to the parent/);
-      expect(ctx.ui!.select).not.toHaveBeenCalled();
+      expect(ctx.ui!.input).not.toHaveBeenCalled();
       expect(relayed, command).toMatchObject([{ kind: "parent-approval", command }]);
     }
 
@@ -713,18 +721,18 @@ describe("Pi publishing confirmations and shared ask rules", () => {
       const refusal = await scriptCall(false, command, ctx);
       expect(refusal, command).toMatchObject({ block: true });
       expect(refusal?.reason, command).toMatch(/BLOCKED by guard-destructive/);
-      expect(ctx.ui!.select, command).not.toHaveBeenCalled();
+      expect(ctx.ui!.input, command).not.toHaveBeenCalled();
     }
     git(dir, "checkout", "--", "tracked.txt");
 
     // Several asks on one command are one confirmation.
     const both = scriptCtx(dir, "ui");
     expect(await scriptCall(false, "git branch -D x && rm -r y", both)).toBeUndefined();
-    expect(both.ui!.select).toHaveBeenCalledOnce();
+    expect(both.ui!.input).toHaveBeenCalledOnce();
 
     // A command no ask rule matches runs without a dialog.
     const plain = scriptCtx(dir, "ui");
     expect(await scriptCall(false, "git branch -d merged && ls", plain)).toBeUndefined();
-    expect(plain.ui!.select).not.toHaveBeenCalled();
+    expect(plain.ui!.input).not.toHaveBeenCalled();
   });
 });

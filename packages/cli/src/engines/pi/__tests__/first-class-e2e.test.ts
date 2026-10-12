@@ -42,7 +42,7 @@ import { serializePiSource } from "../owned-file.ts";
  * extension fixture). Limits, stated rather than hidden:
  *  - no live model: faux proves the pipeline, never model compliance;
  *  - the parent runs in process (SDK), not as an interactive TUI/RPC process: approval is driven through Pi's
- *    real ExtensionRunner with a stub `ui.select`, so the dialog rendering itself is not exercised;
+ *    real ExtensionRunner with a stub `ui.input`, so the dialog rendering itself is not exercised;
  *  - "receipt" is the shared `plan update ... cumplido` closure over the host-recorded evidence.
  */
 const PKG = resolve(import.meta.dirname, "../../../..");
@@ -435,14 +435,14 @@ describe("Pi credential-free first-class cycle", () => {
         expect(noUi[0]?.text).toContain("no interactive UI");
       });
       const denied = await turn("approval denied", {
-        select: async (_t: string, options: string[]) => options[0],
+        input: async () => "",
       });
       await phase("approval denied", diagnostic, () => {
         expect(denied[0]).toMatchObject({ isError: true });
         expect(denied[0]?.text).toContain("denied or cancelled");
       });
       const allowed = await turn("approval granted", {
-        select: async (_t: string, options: string[]) => options[1],
+        input: async () => "yes, run it",
       });
       await phase("approval granted (positive control)", diagnostic, () => {
         expect(allowed[0]).toMatchObject({ toolName: "bash", isError: false });
@@ -553,10 +553,10 @@ describe("Pi credential-free first-class cycle", () => {
       const asked: string[] = [];
       let swapBody = false;
       const confirming: Partial<ExtensionUIContext> = {
-        select: async (title: string, options: string[]) => {
+        input: async (title: string) => {
           asked.push(title);
           if (swapBody) writeFileSync(join(cwd, "pr-body.txt"), "Swapped body\n");
-          return options[1];
+          return "yes, run it";
         },
       };
       const before = gateRuns();
