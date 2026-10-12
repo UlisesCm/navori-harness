@@ -39,7 +39,7 @@ export const GET: APIRoute = ({ site }) => {
 
 > ${es["site.tagline"]}. ${es["site.description"]}
 
-navori es un CLI (paquete npm \`navori\`, binario \`navori\`, versión ${cliPkg.version}, MIT, Node >= 20)
+navori es un CLI (paquete npm \`navori\`, binario \`navori\`, versión ${cliPkg.version}, MIT, Node >= 22.12)
 que instala y mantiene un harness multi-agente + SDD en cualquier repositorio.
 
 Hechos clave:

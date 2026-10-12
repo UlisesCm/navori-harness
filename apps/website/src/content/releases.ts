@@ -33,6 +33,36 @@ export interface ReleaseEntry {
 
 export const RELEASES: readonly ReleaseEntry[] = [
   {
+    minor: "0.12",
+    date: "2026-10-12",
+    headline: {
+      es: "Pi de primera clase, un gate más barato y retiros con migración",
+      en: "First-class Pi, a cheaper gate and retirements with a migration path",
+    },
+    bullets: [
+      {
+        es: "Pi es un engine de primera clase y ya se ofrece en el wizard de init y en configure engines. Llega con paridad de guardas y hooks con Claude Code, y las acciones sensibles piden una aprobación escrita (yes, run it). Requiere Pi >= 1.1.0.",
+        en: "Pi is a first-class engine and is now offered in the init wizard and in configure engines. It reaches guard and hook parity with Claude Code, and sensitive actions ask for a typed approval (yes, run it). Requires Pi >= 1.1.0.",
+      },
+      {
+        es: "Nuevo navori gate <fast|full>: salida compacta con el veredicto en la primera línea y el log completo en .navori/state/gate/. Además, un gate scoped (qualityGate.scoped) que corre solo lo que tocó el diff, y un hook nativo del gate (qualityGate.nativeHooks) que evita correrlo dos veces.",
+        en: "New navori gate <fast|full>: compact output with the verdict on the first line and the full log under .navori/state/gate/. Plus a scoped gate (qualityGate.scoped) that runs only what the diff touched, and a native gate hook (qualityGate.nativeHooks) that avoids running it twice.",
+      },
+      {
+        es: "navori update consulta npm, instala la última versión de la CLI tras tu confirmación y luego corre navori refresh, que es el update de antes (re-sincroniza el harness). Sin alias: si tus scripts usaban navori update para refrescar el harness, cámbialos a navori refresh.",
+        en: "navori update checks npm, installs the latest CLI after your confirmation and then runs navori refresh, which is the old update (it re-syncs the harness). There is no alias: if your scripts used navori update to refresh the harness, switch them to navori refresh.",
+      },
+      {
+        es: "Retiros incompatibles: el comando navori global y el colector launchd ya no existen, doctor --json deja de emitir globalScope, y los plugins jscpd y semgrep salen del producto. Migra con navori render --apply, que poda sus assets si son de navori, y navori doctor, que reporta lo que quede.",
+        en: "Breaking retirements: the navori global command and the launchd collector are gone, doctor --json no longer emits globalScope, and the jscpd and semgrep plugins leave the product. Migrate with navori render --apply, which prunes their assets when they are navori's own, and navori doctor, which reports any leftovers.",
+      },
+      {
+        es: "Node >= 22.12 es el mínimo. progress/current.md tiene tope (el hook bloquea commits de agente que lo hagan crecer y doctor avisa) y harnessVersion funciona como piso anti-retroceso.",
+        en: "Node >= 22.12 is the minimum. progress/current.md is now capped (the hook blocks agent commits that grow it and doctor warns) and harnessVersion works as an anti-rollback floor.",
+      },
+    ],
+  },
+  {
     minor: "0.11",
     date: "2026-09-29",
     headline: {

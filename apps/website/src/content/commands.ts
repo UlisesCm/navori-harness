@@ -162,7 +162,8 @@ const es: Record<string, CommandDoc> = {
     id: "sync",
     title: "sync",
     summary: "Trae cambios del bundle a todos los engines configurados sin pisar tus ediciones.",
-    usage: "navori sync [--interactive] [--apply] [--workspace <name>]",
+    usage:
+      "navori sync [--interactive] [--apply] [--yes] [--accept-new] [--accept-new-files] [--keep-mine] [--dry-run] [--json] [--workspace <name>]",
     flags: [
       {
         flag: "--interactive",
@@ -320,7 +321,7 @@ const es: Record<string, CommandDoc> = {
     summary:
       "Modifica secciones de navori.config.json después del init. Cada sección es un subcomando.",
     usage:
-      "navori configure <plugins|quality-gate|language|branch-base|pr-target|engines|workspace|blocks> [valor]",
+      "navori configure <plugins|quality-gate|language|branch-base|pr-target|engines|workspace|blocks|migrate> [valor]",
     flags: [
       { flag: "plugins", desc: "Habilita o deshabilita plugins de este repo (interactivo)." },
       {
@@ -335,13 +336,17 @@ const es: Record<string, CommandDoc> = {
       },
       {
         flag: "engines",
-        desc: "Agrega o quita engines: claude, agents-md, cursor, copilot, codex.",
+        desc: "Agrega o quita engines: claude, agents-md, cursor, copilot, codex, pi.",
       },
       {
         flag: "workspace <nombre>",
         desc: "Asocia el repo a un workspace (vacío para desasociar).",
       },
       { flag: "blocks", desc: "Excluye bloques core managed (p. ej. orquestacion, sdd)." },
+      {
+        flag: "migrate [--dry-run] [--yes] [--all [--apply]]",
+        desc: "Renombra claves retiradas del config (harness, models, effort) para que vuelva a cargar. Con --all recorre los repos del registro global (preview por default; --apply escribe).",
+      },
       {
         flag: "--cwd <dir>",
         desc: "Directorio del repo (default: actual). Aplica a todos los subcomandos.",
@@ -829,6 +834,10 @@ const es: Record<string, CommandDoc> = {
         desc: "Spec y milestone del ciclo; con `gate` son obligatorios, con `sign` van juntos con --gate-ran.",
       },
       {
+        flag: "--phase <nombre|índice>",
+        desc: "Fase del workplan (nombre o índice desde 1); alternativa a --spec/--milestone en `sign` y `gate`.",
+      },
+      {
         flag: "--gate-ran <scoped|full>",
         desc: "`sign`: el gate que corrió el ciclo. Se rechaza `scoped` cuando la decisión es `full`.",
       },
@@ -1225,7 +1234,8 @@ const en: Record<string, CommandDoc> = {
     id: "sync",
     title: "sync",
     summary: "Pulls bundle changes into every configured engine without overwriting your edits.",
-    usage: "navori sync [--interactive] [--apply] [--workspace <name>]",
+    usage:
+      "navori sync [--interactive] [--apply] [--yes] [--accept-new] [--accept-new-files] [--keep-mine] [--dry-run] [--json] [--workspace <name>]",
     flags: [
       {
         flag: "--interactive",
@@ -1379,7 +1389,7 @@ const en: Record<string, CommandDoc> = {
     title: "configure",
     summary: "Modify sections of navori.config.json after init. Each section is a subcommand.",
     usage:
-      "navori configure <plugins|quality-gate|language|branch-base|pr-target|engines|workspace|blocks> [value]",
+      "navori configure <plugins|quality-gate|language|branch-base|pr-target|engines|workspace|blocks|migrate> [value]",
     flags: [
       { flag: "plugins", desc: "Enable or disable this repo's plugins (interactive)." },
       {
@@ -1394,10 +1404,14 @@ const en: Record<string, CommandDoc> = {
       },
       {
         flag: "engines",
-        desc: "Add or remove engines: claude, agents-md, cursor, copilot, codex.",
+        desc: "Add or remove engines: claude, agents-md, cursor, copilot, codex, pi.",
       },
       { flag: "workspace <name>", desc: "Associate the repo with a workspace (empty to detach)." },
       { flag: "blocks", desc: "Opt out of core managed blocks (e.g. orquestacion, sdd)." },
+      {
+        flag: "migrate [--dry-run] [--yes] [--all [--apply]]",
+        desc: "Rename retired config keys (harness, models, effort) so the config loads again. With --all it walks the repos in the global registry (preview by default; --apply writes).",
+      },
       {
         flag: "--cwd <dir>",
         desc: "Repo directory (default: current). Applies to every subcommand.",
@@ -1889,6 +1903,10 @@ const en: Record<string, CommandDoc> = {
       {
         flag: "--spec <spec> --milestone M<n>",
         desc: "Spec and milestone of the cycle; required by `gate`, and with `sign` they go together with --gate-ran.",
+      },
+      {
+        flag: "--phase <name|index>",
+        desc: "Workplan phase (name or 1-based index); alternative to --spec/--milestone on `sign` and `gate`.",
       },
       {
         flag: "--gate-ran <scoped|full>",

@@ -30,7 +30,7 @@ export const ui = {
     "nav.npm": "npm",
     "lang.switchTo": "English",
 
-    "hero.eyebrow": "open source · 5 engines",
+    "hero.eyebrow": "open source · 6 engines",
     "hero.headlineA": "El harness multi-agente",
     "hero.headlineB": "para cualquier repo.",
     "hero.subhead":
@@ -258,7 +258,7 @@ export const ui = {
     "commands.ticket.desc": "Tickets como archivos versionables dentro del workspace.",
 
     "engines.eyebrow": "Multi-engine",
-    "engines.title": "Una config, cinco engines.",
+    "engines.title": "Una config, seis engines.",
     "engines.subtitle":
       "El mismo harness materializado en el formato nativo de cada uno, sobre un solo pipeline de render. Agregar el sexto cuesta una tabla declarativa, no reescribir nada.",
     "engines.claude.detail": "agentes · skills · hooks · settings.json con permisos",
@@ -266,6 +266,7 @@ export const ui = {
     "engines.agentsmd.detail": "spec universal · la leen Cursor, Codex, Gemini y Copilot",
     "engines.cursor.detail": "reglas .mdc · contexto de proyecto",
     "engines.copilot.detail": "instrucciones de workspace",
+    "engines.pi.detail": "extensión, agentes y hooks · requiere Pi >= 1.1.0",
     "engines.status": "disponible",
 
     "quickstart.eyebrow": "Quickstart",
@@ -295,10 +296,10 @@ export const ui = {
       "navori coexiste. init detecta tu harness existente y solo agrega bloques managed con marcadores; tu contenido personalizado queda intacto. Si quieres que navori se haga cargo de un archivo tuyo, 'navori adopt' lo envuelve sin cambiar una palabra de lo que dice. Y si tu setup ya trae su propia orquestación o SDD, blocks.exclude deja que navori opte por no renderear esos bloques para no competir con los tuyos.",
     "faq.q2": "¿Qué engines soporta hoy?",
     "faq.a2":
-      "Cinco, todos entregados: Claude Code (.claude/), Codex nativo (agentes, skills, hooks y MCP), AGENTS.md universal, Cursor (.cursor/rules/) y Copilot. Corren sobre el mismo pipeline de render, así que un arreglo llega a todos a la vez en lugar de divergir en silencio.",
+      "Seis, todos entregados: Claude Code (.claude/), Codex nativo (agentes, skills, hooks y MCP), AGENTS.md universal, Cursor (.cursor/rules/), Copilot y Pi (.pi/, con extensión, agentes y hooks; requiere Pi >= 1.1.0). Corren sobre el mismo pipeline de render, así que un arreglo llega a todos a la vez en lugar de divergir en silencio.",
     "faq.q3": "¿Necesito Claude Code para usar navori?",
     "faq.a3":
-      "No. navori es un scaffolder: genera el harness y se sale del camino. La herramienta corre en cualquier Node 20+ y renderiza a cinco engines distintos.",
+      "No. navori es un scaffolder: genera el harness y se sale del camino. La herramienta corre en cualquier Node 22.12+ y renderiza a seis engines distintos.",
     "faq.q4": "¿Qué tan invasivo es? ¿Puedo revertirlo?",
     "faq.a4":
       "render hace preview por default: sin --apply no toca disco. Cuando escribe, deja antes un snapshot restaurable con 'navori backup', y la escritura es atómica. Fuera del repo no existe nada que no hayas pedido por su nombre: sin 'global init' no hay capa global, sin '--start' no hay auditoría.",
@@ -324,7 +325,7 @@ export const ui = {
     "nav.npm": "npm",
     "lang.switchTo": "Español",
 
-    "hero.eyebrow": "open source · 5 engines",
+    "hero.eyebrow": "open source · 6 engines",
     "hero.headlineA": "The multi-agent harness",
     "hero.headlineB": "for any repo.",
     "hero.subhead":
@@ -545,7 +546,7 @@ export const ui = {
     "commands.ticket.desc": "Tickets as versionable files inside the workspace.",
 
     "engines.eyebrow": "Multi-engine",
-    "engines.title": "One config, five engines.",
+    "engines.title": "One config, six engines.",
     "engines.subtitle":
       "The same harness materialized in each one's native format, over a single render pipeline. Adding the sixth costs a declarative table, not a rewrite.",
     "engines.claude.detail": "agents · skills · hooks · settings.json with permissions",
@@ -553,6 +554,7 @@ export const ui = {
     "engines.agentsmd.detail": "universal spec · read by Cursor, Codex, Gemini and Copilot",
     "engines.cursor.detail": ".mdc rules · project context",
     "engines.copilot.detail": "workspace instructions",
+    "engines.pi.detail": "extension, agents and hooks · requires Pi >= 1.1.0",
     "engines.status": "available",
 
     "quickstart.eyebrow": "Quickstart",
@@ -581,10 +583,10 @@ export const ui = {
       "navori coexists. init detects your existing harness and only adds managed blocks marked with delimiters; your custom content stays put. If you want navori to take over one of your files, 'navori adopt' wraps it without changing a word of what it says. And if your setup already ships its own orchestration or SDD, blocks.exclude lets navori opt out of rendering those blocks so it never competes with yours.",
     "faq.q2": "Which engines does it support today?",
     "faq.a2":
-      "Five, all shipped: Claude Code (.claude/), native Codex (agents, skills, hooks and MCP), universal AGENTS.md, Cursor (.cursor/rules/) and Copilot. They run on one render pipeline, so a fix reaches all of them at once instead of diverging in silence.",
+      "Six, all shipped: Claude Code (.claude/), native Codex (agents, skills, hooks and MCP), universal AGENTS.md, Cursor (.cursor/rules/), Copilot and Pi (.pi/, with extension, agents and hooks; requires Pi >= 1.1.0). They run on one render pipeline, so a fix reaches all of them at once instead of diverging in silence.",
     "faq.q3": "Do I need Claude Code to use navori?",
     "faq.a3":
-      "No. navori is a scaffolder: it generates the harness and gets out of the way. The tool runs on any Node 20+ and renders to five different engines.",
+      "No. navori is a scaffolder: it generates the harness and gets out of the way. The tool runs on any Node 22.12+ and renders to six different engines.",
     "faq.q4": "How invasive is it? Can I roll it back?",
     "faq.a4":
       "render previews by default: without --apply it never touches disk. When it does write, it leaves a restorable snapshot first via 'navori backup', and the write is atomic. Outside the repo nothing exists that you didn't ask for by name: no 'global init', no global layer; no '--start', no audit.",

@@ -16,16 +16,19 @@ import { listKnownPluginIds, loadPlugin } from "../lib/config/plugins.ts";
 import { EXCLUDABLE_BLOCK_IDS } from "../lib/render/render-plan.ts";
 import { accent, brand, dim } from "../lib/primitives/style.ts";
 import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
+import type { ENGINES } from "../lib/config/schema.ts";
 
-const ENGINE_OPTIONS = [
+/** Engine choices offered by the wizard; must cover every id in the schema `ENGINES`. */
+export const ENGINE_OPTIONS = [
   { value: "claude", label: "Claude Code (.claude/)" },
   { value: "agents-md", label: "AGENTS.md (universal — Cursor / Codex / Gemini read it)" },
   { value: "codex", label: "Codex (full — agents, skills, hooks, MCP)" },
   { value: "cursor", label: "Cursor (.cursor/rules/)" },
   { value: "copilot", label: "Copilot (.github/copilot-instructions.md)" },
+  { value: "pi", label: "Pi (.pi/ — extension, agents, hooks; requires Pi >= 1.1.0)" },
 ];
 
-type EngineId = "claude" | "agents-md" | "cursor" | "copilot" | "codex";
+type EngineId = (typeof ENGINES)[number];
 
 /** The always-on plugin — ships with navori and can't be disabled (#68). */
 const ENGRAM_ID = "engram";
