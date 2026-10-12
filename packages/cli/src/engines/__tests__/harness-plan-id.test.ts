@@ -122,7 +122,15 @@ describe("resolveHarnessPlan — per-engine scope (spec 0041 D11)", () => {
     for (const id of scopedHooks) expect(hooks).toContain(id);
   });
 
-  it.each([undefined, "cursor", "copilot", "agents-md", "pi"])(
+  // Covers: R5
+  it("plans only the master-accept confirmation for pi: its bash runs `navori master`", () => {
+    const { skills, hooks } = idsFor("pi");
+    for (const id of scoped) expect(skills).not.toContain(id);
+    expect(hooks).not.toContain("master-plan-context");
+    expect(hooks).toContain("master-accept-confirm");
+  });
+
+  it.each([undefined, "cursor", "copilot", "agents-md"])(
     "plans only universal units for %s",
     (engine) => {
       const { skills, hooks } = idsFor(engine);

@@ -333,7 +333,17 @@ describe("validateEvidence", () => {
     expect(verdict.ok).toBe(true);
   });
 
+  // Covers: R7
+  it("names `navori plan render` when the acceptance index has no line for the feature", () => {
+    const verdict = validate();
+    expect(verdict).toMatchObject({ ok: false, why: "no run recorded" });
+    if (!verdict.ok) expect(verdict.fix).toContain("navori plan render demo");
+  });
+
   it("reports no run recorded, with a FIX that mentions large repos", () => {
+    const dir = join(cwd, ".navori/state/handoffs");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "acceptance-index"), `${COMMAND}\tdemo\tA1\t${dir}\n`);
     const verdict = validate();
     expect(verdict).toMatchObject({ ok: false, why: "no run recorded" });
     if (!verdict.ok) expect(verdict.fix).toContain("large repos");

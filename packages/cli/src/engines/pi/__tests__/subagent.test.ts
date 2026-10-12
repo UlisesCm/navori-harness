@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -68,7 +68,7 @@ function loadRuntime(depth?: string): {
   );
   const modules: Record<string, unknown> = {
     "node:child_process": { spawn },
-    "node:fs": { readFileSync },
+    "node:fs": { existsSync, readFileSync, statSync },
     "node:path": { join },
     "@earendil-works/pi-ai": { Type },
     "@earendil-works/pi-coding-agent": {
@@ -202,7 +202,7 @@ describe("Pi subagent resources", () => {
     expect(extension).toContain('args.push("--no-tools")');
     expect(extension).toContain('args.push("--tools", role.tools.join(","))');
     expect(extension).toContain("const MAX_CHILDREN = 3");
-    expect(extension).toContain("const TIMEOUT_MS = 600_000");
+    expect(extension).toContain("const ROLE_TIMEOUT_MS: Record<Role, number> =");
     expect(extension).toContain("const GRACE_MS = 5_000");
     expect(extension).toContain("if (process.env.NAVORI_PI_CHILD_DEPTH) return");
     expect(extension).not.toContain("/Users/ulisescm/");

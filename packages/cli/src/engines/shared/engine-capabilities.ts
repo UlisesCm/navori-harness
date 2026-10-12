@@ -633,12 +633,9 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       {
         surface: "claude-hook-parity",
         reason:
-          "Pi does not run Claude/Codex hook scripts; only mapped project-extension controls apply.",
-      },
-      {
-        surface: "additional-analytic-roles",
-        reason:
-          "Pi project extension dispatches scout, implementer, reviewer and, when harness.scribeOwnsMarkdown is on, scribe; auditor, architect and publisher are not admitted.",
+          "Pi does not run Claude/Codex hook scripts yet; only mapped project-extension controls apply. " +
+          "The per-unit state and boundary of every core hook, shared permission rule and plugin unit " +
+          "is PI_PARITY (engines/shared/pi-parity.ts, spec 0048 R1).",
       },
     ],
     controls: {
@@ -663,9 +660,14 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "When harness.scribeOwnsMarkdown is on, Pi blocks direct edit/write Markdown in implementer children; bash and ambient process writes bypass it.",
       },
       "handoff-shape": {
-        state: "unsupported",
+        state: "enforced",
         reason:
-          "Pi has no persisted impl handoff stop validator; child result does not prove the canonical file exists.",
+          "When an implementer or reviewer navori_subagent child ends, the trusted Pi project extension validates its canonical handoff (navori handoff check, reviewer: --produced-by reviewer with sealed evidence and a review begun after dispatch), requires it fresh against the dispatch snapshot and reports isError otherwise; direct shell/tool calls and other roles bypass it.",
+        evidence: {
+          kind: "extension-tool",
+          path: ".pi/extensions/navori.ts",
+          tool: "navori_subagent",
+        },
       },
       "handoff-consumer": {
         state: "enforced",
@@ -751,6 +753,18 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "Model-visible allowlist, not isolation; indirect MCP exposure is closed by --no-mcp.",
       },
       {
+        capability: "child-ipc-relay",
+        native: 'Node child_process IPC channel (stdio "ipc") to the Pi child',
+        decision: "admitted",
+        source:
+          "Pi 1.1.0 child process on Node 24 (process.send and process.channel present in the child)",
+        verifiedFrom: "1.1.0",
+        probe:
+          "Spawn pi with stdio [ignore, pipe, pipe, ipc]: the child extension sees process.send, the parent receives child.on(message); the model's bash inherits no channel",
+        boundary:
+          "Reports the exact refused command to the parent; it never approves anything. Without the channel the parent falls back to JSONL tool args and reports an error, never success.",
+      },
+      {
         capability: "child-mcp-grants",
         native: "per-role MCP grants in children",
         decision: "deferred",
@@ -760,6 +774,28 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "Not probed: Pi 1.1.0 connects every enabled MCP server and lists all of them in the child prompt, so per-server limiting is not verifiable.",
         boundary:
           "Roles that need MCP stay unavailable in children (--no-mcp, render and runtime diagnostics) until per-role grants are verifiable.",
+      },
+      {
+        capability: "session-end-event",
+        native: "session_shutdown extension event",
+        decision: "admitted",
+        source: "Pi 1.1.0 extensions guide (session_shutdown: quit, reload, new, resume, fork)",
+        verifiedFrom: "1.1.0",
+        probe:
+          "Pi 1.1.0 SessionShutdownEvent carries reason quit|reload|new|resume|fork and also fires in --no-session children (the extension gates on NAVORI_PI_CHILD_DEPTH)",
+        boundary:
+          "Runs on a clean quit or /new only; a SIGKILL fires nothing, so the next close sweeps. Reload, resume and fork do not end the session.",
+      },
+      {
+        capability: "settle-boundary-entries",
+        native: "agent_before_settle extension event",
+        decision: "admitted",
+        source: "Pi 1.1.0 extensions guide (agent_before_settle BoundaryResult: entries, continue)",
+        verifiedFrom: "1.1.0",
+        probe:
+          "Pi 1.1.0 AgentBeforeSettleEvent extends BoundaryState (entries, continue, outcome) and BoundaryResult accepts a custom_message entry draft",
+        boundary:
+          "Appends a visible entry at the end of the agent run; it never sets continue, so it cannot force another model request.",
       },
     ],
   },

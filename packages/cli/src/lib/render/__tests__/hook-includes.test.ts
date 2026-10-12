@@ -156,6 +156,11 @@ describe("every shared partial is consumed and covered by a core hook", () => {
       file: "lib/__tests__/routing-watch.test.ts",
       title: "no cuenta tests, lockfiles ni docs",
     },
+    "draft-body": {
+      hook: "comment-draft-confirm",
+      file: "lib/__tests__/comment-draft-confirm.test.ts",
+      title: "shows --body-file content for gh issue create",
+    },
     "extract-cmd": {
       hook: "quality-gate-pre-commit",
       file: "lib/__tests__/quality-gate-hook.test.ts",
@@ -175,6 +180,11 @@ describe("every shared partial is consumed and covered by a core hook", () => {
       hook: "guard-destructive",
       file: "lib/__tests__/codex-hook-payloads.test.ts",
       title: "blocks a fork bomb under both engines",
+    },
+    "inert-skeleton": {
+      hook: "guard-destructive",
+      file: "lib/__tests__/guard-destructive.test.ts",
+      title: "inert content — written text vs executed text (#462)",
     },
     "resolve-worktree": {
       hook: "quality-gate-pre-commit",

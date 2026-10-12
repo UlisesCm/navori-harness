@@ -53,7 +53,7 @@ describe("Pi render base", () => {
       ).toHaveLength(3);
       expect(reviewer).toContain(`--target ${target} --dir .navori/state/handoffs --json`);
       expect(implementer).toContain(`git diff --stat origin/${target}...HEAD`);
-      expect(existsSync(join(cwd, ".pi/agents/publisher.md"))).toBe(false);
+      expect(existsSync(join(cwd, ".pi/agents/publisher.md"))).toBe(true);
     },
   );
 

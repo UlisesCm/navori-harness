@@ -445,8 +445,9 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
     const guard = readFileSync(join(cwd, ".claude/hooks/guard-destructive.sh"), "utf-8");
     expect(guard).not.toContain("navori:include");
     expect(guard).toContain("extract_cmd() {");
-    // The quality gate gates commit only.
-    expect(gate).not.toContain("(commit|push)");
+    // The quality gate gates commit only here; `push` exists in its Pi arm alone (spec 0048 D5).
+    expect(/^TRIGGER_RE=.*$/m.exec(gate)?.[0]).not.toContain("push");
+    expect(/^TRIGGER_TOKENS=.*$/m.exec(gate)?.[0]).toBe("TRIGGER_TOKENS='commit'");
   });
 
   it("is idempotent: second render of the same plugin script reports unchanged", () => {

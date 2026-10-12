@@ -990,6 +990,12 @@ interface DoctorCmdStrings {
   codexWorktreeHookUnapproved: (hook: string, path: string) => string;
   /** Spec 0041 T17/R27/D14 — installed Codex is newer than the last verified version. */
   codexVersionUnverified: (found: string, verified: string) => string;
+  /** Spec 0048 D10 - installed Pi is below the verified floor, a prerelease or unreadable: writes are blocked. */
+  piVersionUnverified: (found: string, min: string) => string;
+  /** Spec 0048 D-U3 - Pi's `defaultTools` selects powershell, which Navori blocks. */
+  piPowershellDefault: string;
+  /** Spec 0048 D4 - project extensions other than Navori's can mutate a tool call after its guards. */
+  piForeignExtensions: (names: string) => string;
   /** Spec 0041 T20 follow-up — the global `navori` the hooks call is older than this CLI. */
   globalCliStale: (global: string, current: string) => string;
   /** Spec 0046 D5 - leftovers of the retired global layer, with the removal steps that apply. */
@@ -2265,6 +2271,12 @@ const CMD_ES: CmdStrings = {
       `hook '${hook}' sin aprobar en el worktree ${path} — corre 'cd ${path} && navori codex trust'`,
     codexVersionUnverified: (found, verified) =>
       `codex ${found} > ${verified} (última versión verificada) — re-verifica los guards antes de confiar en ellos`,
+    piVersionUnverified: (found, min) =>
+      `pi ${found} no está verificado (se requiere una versión estable ${min} o posterior): la extensión bloquea bash, edit, write y powershell — corre 'pi --version' y actualiza Pi`,
+    piPowershellDefault:
+      "defaultTools de Pi incluye powershell: Navori lo desactiva al iniciar y lo bloquea — instala Git for Windows y usa bash, o quítalo de defaultTools",
+    piForeignExtensions: (names) =>
+      `extensiones de proyecto de Pi ajenas a Navori (${names}): pueden modificar una llamada después de las guardas de Navori — revísalas o quítalas`,
     globalLayerLeftovers: (lines) =>
       `quedan restos de la capa global retirada de navori. Pasos para limpiarlos, en este orden:\n${lines.join("\n")}`,
     globalLayerLeftoverRow: (kind, path) => `  - ${kind}: ${path}`,
@@ -3615,6 +3627,12 @@ const CMD_EN: CmdStrings = {
       `hook '${hook}' unapproved in worktree ${path} — run 'cd ${path} && navori codex trust'`,
     codexVersionUnverified: (found, verified) =>
       `codex ${found} > ${verified} (last verified version) — re-verify the guards before relying on them`,
+    piVersionUnverified: (found, min) =>
+      `pi ${found} is not verified (needs a stable ${min} or later): the extension blocks bash, edit, write and powershell — run 'pi --version' and upgrade Pi`,
+    piPowershellDefault:
+      "Pi defaultTools includes powershell: Navori deactivates it at startup and blocks it — install Git for Windows and use bash, or remove it from defaultTools",
+    piForeignExtensions: (names) =>
+      `Pi project extensions that are not Navori's (${names}): they can mutate a tool call after Navori's guards — review or remove them`,
     globalLayerLeftovers: (lines) =>
       `leftovers of navori's retired global layer remain. Steps to clean them up, in this order:\n${lines.join("\n")}`,
     globalLayerLeftoverRow: (kind, path) => `  - ${kind}: ${path}`,

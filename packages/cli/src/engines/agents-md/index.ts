@@ -24,7 +24,13 @@ const USER_SECTION =
 export function renderAgentsMdEngine(
   cwd: string,
   inputConfig: NavoriConfig,
-  options: { dryRun?: boolean; repoRoot?: string } = {},
+  options: {
+    dryRun?: boolean;
+    repoRoot?: string;
+    /** Pi only (spec 0048 D13): the plugin blocks and sub-blocks it owns in the shared file. */
+    includePluginBlocks?: boolean;
+    extendBody?: (body: string) => string;
+  } = {},
 ): AgentsMdEngineResult {
   return renderProseFile({
     cwd,
@@ -36,5 +42,7 @@ export function renderAgentsMdEngine(
     userSection: USER_SECTION,
     dryRun: options.dryRun,
     repoRoot: options.repoRoot,
+    includePluginBlocks: options.includePluginBlocks,
+    extendBody: options.extendBody,
   });
 }

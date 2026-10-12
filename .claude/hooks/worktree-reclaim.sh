@@ -1,4 +1,4 @@
-# navori:managed start id="worktree-reclaim-base" hash="daf81822" version="0.11.3" source="@navori/core"
+# navori:managed start id="worktree-reclaim-base" hash="a22e7aa5" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 # navori — worktree reclaim (SessionEnd) — #527
 #
@@ -110,10 +110,16 @@ extract_cmd() {
 # so include order between the two partials does not matter.
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
+  # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
+  # through its extension bridge, which sends a Claude-shaped payload (tool names
+  # `Bash`/`Edit`/`Write`, `tool_input`, `cwd`). Every existing `= codex` branch
+  # keeps the Claude semantics for `pi`; behavior that exists only on Pi goes in
+  # an explicit `[ "$nv_engine" = pi ]` branch, never in a shared one.
+  *"/.pi/navori/"*) nv_engine=pi ;;
   *) nv_engine=claude ;;
 esac
 
-if [ "$nv_engine" = codex ]; then
+if [ "$nv_engine" = codex ] || [ "$nv_engine" = pi ]; then
   nv_cwd=$(payload_field cwd)
   # `cwd` is the session's working dir, which may be a workspace subdir in a
   # monorepo; the project root is always the git toplevel from there. Falls
@@ -308,7 +314,7 @@ navori_audit_record_metadata() {
   fi
   command -v navori >/dev/null 2>&1 || return 0
   case "${nv_engine:-}" in
-    claude | codex) navori_audit_host=$nv_engine ;;
+    claude | codex | pi) navori_audit_host=$nv_engine ;;
     *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
   esac
   # The writer assigns eventId/wireVersion before first persistence. Replay
@@ -464,6 +470,17 @@ while IFS= read -r line; do
   if [ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ]; then
     kept="${kept}
   ${wt} — uncommitted changes on '${branch}'"
+    continue
+  fi
+
+  # (1b) Pi arm only (spec 0048 D8/F14c): `git status --porcelain` does not list
+  # IGNORED files, but `git worktree remove` discards them. Handoffs and evidence
+  # under `.navori/state/` are gitignored and exist nowhere else, so any ignored
+  # file there keeps the worktree. Claude and Codex keep the bar above unchanged.
+  if [ "$nv_engine" = pi ] &&
+    [ -n "$(git -C "$wt" status --porcelain --ignored -- .navori/state 2>/dev/null | grep '^!!')" ]; then
+    kept="${kept}
+  ${wt} — ignored state under .navori/state/ would be discarded on '${branch}'"
     continue
   fi
 

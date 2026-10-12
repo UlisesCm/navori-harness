@@ -405,6 +405,11 @@ export const ENGINE_OUTPUTS: EngineOutputs[] = [
     markers: [
       { kind: "file", path: "AGENTS.md", style: "html" },
       { kind: "recursive", dir: ".agents/skills", ext: ".md", style: "html" },
+      // The shared hook scripts Pi runs through its extension bridge (spec 0048 D1): marker-managed
+      // like `.codex/hooks`, so a tampered managed block is drift and a disabled Pi prunes them.
+      { kind: "recursive", dir: ".pi/navori/hooks", ext: ".sh", style: "shell" },
+      // Plugin scripts the bridge runs or a hook extension sources (spec 0048 D13).
+      { kind: "recursive", dir: ".pi/navori/scripts", ext: ".sh", style: "shell" },
     ],
     textDirs: [".agents", ".pi"],
   },
@@ -427,15 +432,15 @@ export const ENGINE_OUTPUTS: EngineOutputs[] = [
 
 /**
  * Engines that materialize plugin-contributed blocks (protocol blocks) into
- * their output. The full Claude engine emits them, and Codex passes
- * `includePluginBlocks: true` (codex/index.ts). The three prose-only engines
+ * their output. The full Claude engine emits them, and Codex and Pi pass
+ * `includePluginBlocks: true` (codex/index.ts; pi/index.ts, only when Codex does not write AGENTS.md). The three prose-only engines
  * (agents-md, cursor, copilot) deliberately DROP them (prose-harness.ts). Doctor
  * uses this to skip validating a plugin's invariants when no configured engine
  * would ever emit the block that carries them — otherwise a prose-only repo goes
  * permanently red on an invariant that by design can't appear (#269). Must stay
  * in sync with who passes `includePluginBlocks`.
  */
-export const PLUGIN_BLOCK_ENGINES = new Set<string>(["claude", "codex"]);
+export const PLUGIN_BLOCK_ENGINES = new Set<string>(["claude", "codex", "pi"]);
 
 /** Repo-relative marker files that exist under `cwd`, deduped by path (AGENTS.md
  *  is claimed by both `codex` and `agents-md`) with their marker style.

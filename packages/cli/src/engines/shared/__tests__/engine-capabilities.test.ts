@@ -146,7 +146,7 @@ describe("Pi control boundaries", () => {
         },
       });
     }
-    expect(ENGINE_CAPABILITIES.pi.controls["handoff-shape"].state).toBe("unsupported");
+    expect(ENGINE_CAPABILITIES.pi.controls["handoff-shape"].state).toBe("enforced");
     expect(ENGINE_CAPABILITIES.pi.controls["local-skill-discovery"]).toMatchObject({
       state: "enforced",
       evidence: { kind: "local-skill-pointer" },

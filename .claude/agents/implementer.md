@@ -5,10 +5,10 @@ tools: Read, Write, Edit, Glob, Grep, Bash, mcp__codegraph__*, mcp__engram__mem_
 model: sonnet
 effort: medium
 maxTurns: 160
-maxWords: 2444
+maxWords: 2473
 ---
 
-<!-- navori:managed id="implementer-base" hash="6ae374e4" version="0.11.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxTurns,maxWords" -->
+<!-- navori:managed id="implementer-base" hash="44df3675" version="0.11.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxTurns,maxWords" -->
 # Implementer Agent
 
 You execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.
@@ -103,6 +103,8 @@ Write `.navori/state/handoffs/impl_<feature>.json` — the only artifact you pro
 ```
 
 `doubts` is optional: declare one `{ "file": "<path>", "reason": "<why you are unsure>" }` entry per spot where you are unsure the change is right, so the reviewer answers it.
+
+Types follow the handoff schema: `rootCause` is a string, present only for a bugfix (omit the key otherwise, never `null`); `blockers` is an array of strings (`[]` when none).
 
 `markdownRequests` carries every piece of prose your task needs — your own non-obvious decisions, a CONTRIBUTING/README update, a spec task checkbox, a skill or agent tweak. State the `intent` and the `evidence`; never the finished sentence — drafting the prose from that intent is the `scribe`'s job, not yours. Empty array when the task touches no Markdown at all.
 

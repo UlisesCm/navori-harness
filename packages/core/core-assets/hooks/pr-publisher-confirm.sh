@@ -111,6 +111,42 @@ case "$0" in
     ;;
 esac
 
+# PI (spec 0048 D5, R4-R6): Pi has no host permission prompt, so its copy asks ALWAYS, for the main
+# thread and for a subagent alike, BEFORE the subagent allow below: the publisher is exactly where the
+# unconfirmed `gh pr create` happens. Decided by `$0`, like the Codex arm. The Pi extension resolves
+# the `ask`: a confirmation showing the title/body in the interactive parent, refusal plus relay to the
+# parent (R6) in a child or without UI. The body file is named in `navoriBodyFiles` so the approval is
+# bound to its content. No parser at all still asks, with a fixed reason: this arm never goes quiet.
+case "$0" in
+  *"/.pi/navori/"*)
+    navori_audit_verdict="ask"
+    navori_audit_reason="gh pr create requires user confirmation (Pi)"
+    nv_kind="gh-pr-open"
+    nv_label="a GitHub pull request"
+    NV_FALLBACK_REASON="[navori] this call opens a GitHub pull request and its draft could not be read or rendered (no readable body, or no jq/node on PATH to parse it). Review the exact command above before confirming."
+    nv_have_jq=0
+    command -v jq >/dev/null 2>&1 && nv_have_jq=1
+    nv_have_node=0
+    command -v node >/dev/null 2>&1 && nv_have_node=1
+    if [ "$nv_have_jq" = 0 ] && [ "$nv_have_node" = 0 ]; then
+      printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' "$NV_FALLBACK_REASON"
+      exit 0
+    fi
+    # navori:include draft-body
+    navori_draft_body
+    nv_pi_files=0
+    [ -z "$nv_bound_file" ] || nv_pi_files=1
+    if [ "$nv_have_jq" = 1 ]; then
+      jq -cn --arg r "$nv_reason" --arg f "$nv_pi_files:$nv_bound_file" \
+        '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$r}}
+          + (if ($f | startswith("1:")) then {navoriBodyFiles: [$f[2:]]} else {} end)'
+    else
+      NV_R="$nv_reason" NV_F="$nv_pi_files:$nv_bound_file" node -e 'const out={hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:process.env.NV_R}};if(process.env.NV_F.startsWith("1:"))out.navoriBodyFiles=[process.env.NV_F.slice(2)];process.stdout.write(JSON.stringify(out))'
+    fi
+    exit 0
+    ;;
+esac
+
 navori_pr_agent=$(payload_field agent_id)
 [ -n "$navori_pr_agent" ] || navori_pr_agent=$(payload_field subagent_id)
 if [ -n "$navori_pr_agent" ]; then

@@ -1,7 +1,9 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import * as nodeFs from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { tmpdir } from "node:os";
+import * as nodePath from "node:path";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { runInNewContext } from "node:vm";
@@ -46,13 +48,16 @@ function fixture(
   writeFileSync(
     join(cwd, ".pi/navori.json"),
     serializePiManifest({
-      schemaVersion: 1,
+      schemaVersion: 2,
       agents: ["scout", "implementer", "reviewer"],
       controls: {
         planTiers: flags.planTiers ?? false,
         masterPlan: flags.masterPlan ?? false,
         scribeOwnsMarkdown: flags.scribeOwnsMarkdown ?? false,
       },
+      hooks: [],
+      ownedPaths: [],
+      permissionRules: { ask: [], deny: [] },
     }),
   );
   for (const role of ["scout", "implementer", "reviewer"] as const) {
@@ -113,8 +118,9 @@ function loadRuntime(env: Record<string, string> = {}): {
     exports,
     require: (id: string): unknown => {
       if (id === "node:child_process") return { spawn };
-      if (id === "node:fs") return { readFileSync };
-      if (id === "node:path") return { join };
+      // The edit/write lane (spec 0048 T5) resolves real paths, so fs and path are the real ones.
+      if (id === "node:fs") return nodeFs;
+      if (id === "node:path") return nodePath;
       if (id === "@earendil-works/pi-ai") return { Type };
       if (id === "@earendil-works/pi-coding-agent")
         return { VERSION: "1.1.0", defineTool: (value: unknown): unknown => value };
@@ -181,7 +187,7 @@ describe("Pi control mappings", () => {
   it("allows an approved implementer only after gate success and skips the gate when disabled", async () => {
     const cwd = fixture({ planTiers: true });
     const runtime = loadRuntime();
-    const pending = invoke(runtime.tool!, cwd, "implementer");
+    const pending = invoke(runtime.tool!, cwd, "implementer", "pi_engine");
     runtime.launches[0]!.child.emit("close", 0);
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(runtime.launches.map((launch) => launch.program)).toEqual(["navori", "pi"]);
@@ -191,7 +197,7 @@ describe("Pi control mappings", () => {
 
     const disabled = fixture();
     const direct = loadRuntime();
-    const directPending = invoke(direct.tool!, disabled, "implementer");
+    const directPending = invoke(direct.tool!, disabled, "implementer", "pi_engine");
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(direct.launches.map((launch) => launch.program)).toEqual(["pi"]);
     direct.launches[0]!.child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);

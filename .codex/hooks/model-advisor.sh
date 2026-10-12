@@ -1,4 +1,4 @@
-# navori:managed start id="model-advisor-base" hash="cc157268" version="0.11.3" source="@navori/core"
+# navori:managed start id="model-advisor-base" hash="28a2e05c" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Advisory-only main-session model recommendation. The hook reads only payload
@@ -99,7 +99,7 @@ navori_audit_record_metadata() {
   fi
   command -v navori >/dev/null 2>&1 || return 0
   case "${nv_engine:-}" in
-    claude | codex) navori_audit_host=$nv_engine ;;
+    claude | codex | pi) navori_audit_host=$nv_engine ;;
     *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
   esac
   # The writer assigns eventId/wireVersion before first persistence. Replay

@@ -1,9 +1,9 @@
-// navori:managed-file id="pi-extension" hash="3e8a9f64bece3c0c910ceb256c56ca0d9c572f74dd76f0298aacc6a7e5ed1b50"
+// navori:managed-file id="pi-extension" hash="aea56e93b214f241060a6f30c6a898b73f5b0f8bd0a363eb099813c4f7508644"
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
-import { VERSION, defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { VERSION, defineTool, getShellConfig, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 
 function assertTrustedPiParent(ctx: { isProjectTrusted?: () => boolean }): void {
@@ -16,30 +16,40 @@ function assertTrustedPiParent(ctx: { isProjectTrusted?: () => boolean }): void 
   if (!trusted) throw new Error("Navori Pi subagent requires a trusted parent project");
 }
 
-const piRuntimeChecks = (function(e,t,n){function r(e){let t=/^v?(\d+)\.(\d+)\.(\d+)(?:\+[\w.-]+)?$/.exec(e.trim());if(!t)return null;let n=Number(t[1]),r=Number(t[2]),i=Number(t[3]);return[n,r,i].every(Number.isSafeInteger)?[n,r,i]:null}function i(e,t){return e[0]===t[0]?e[1]===t[1]?e[2]>=t[2]:e[1]>t[1]:e[0]>t[0]}return{assert:(n,a=process.versions.node)=>{let o=r(a),s=r(t);if(!o||!s||!i(o,s))throw Error(`Navori's Pi engine requires Node.js ${t} or later; found ${a}.`);let c=r(n),l=r(e);if(!c||!l||!i(c,l))throw Error(`Navori's Pi engine requires @earendil-works/pi-coding-agent ${e} or later; found ${n}. Run pi --version and upgrade Pi.`)},unverified:e=>{let t=r(e);return n.filter(e=>{let n=r(e.verifiedFrom);return!t||!n||!i(t,n)}).map(e=>e.capability+` (verified from Pi `+e.verifiedFrom+`)`)}}})("0.87.1", "22.19.0", [{"capability":"child-mcp-off","verifiedFrom":"1.1.0"},{"capability":"child-model-selection","verifiedFrom":"1.1.0"},{"capability":"child-tool-allowlist","verifiedFrom":"1.1.0"}]);
+const MCP_PLUGIN_IDS: readonly string[] = ["engram","codegraph"];
+const mcpServerStates = function(e,t,n){let r=e=>e.replaceAll(`-`,`_`),i=e=>{let t=new Map,n=typeof e==`object`&&e&&!Array.isArray(e)?e.mcpServers:void 0;if(typeof n!=`object`||!n||Array.isArray(n))return t;for(let[e,i]of Object.entries(n))typeof i==`object`&&i&&!Array.isArray(i)&&t.set(r(e),{enabled:i.enabled!==!1,replaces:[`command`,`url`,`type`].some(e=>e in i)});return t},a=i(t),o=i(n);return e.map(e=>{let t=a.get(r(e)),n=o.get(r(e)),i=n===void 0?t:n.replaces?n:t&&{...t,enabled:n.enabled};return t?.enabled===!0&&i?.enabled?`global`:i?.enabled?`project-only`:i===void 0?`missing`:`disabled`})};
+const piRuntimeChecks = (function(e,t,n){function r(e){let t=/^v?(\d+)\.(\d+)\.(\d+)(?:\+[\w.-]+)?$/.exec(e.trim());if(!t)return null;let n=Number(t[1]),r=Number(t[2]),i=Number(t[3]);return[n,r,i].every(Number.isSafeInteger)?[n,r,i]:null}function i(e,t){return e[0]===t[0]?e[1]===t[1]?e[2]>=t[2]:e[1]>t[1]:e[0]>t[0]}let a=(e=process.versions.node)=>{let n=r(e),a=r(t);if(!n||!a||!i(n,a))throw Error(`Navori's Pi engine requires Node.js ${t} or later; found ${e}.`)},o=t=>{let n=r(t),a=r(e);return n!==null&&a!==null&&i(n,a)};return{assert:(t,n=process.versions.node)=>{if(a(n),!o(t))throw Error(`Navori's Pi engine requires @earendil-works/pi-coding-agent ${e} or later; found ${t}. Run pi --version and upgrade Pi.`)},assertNode:a,verified:o,unverified:e=>{let t=r(e);return n.filter(e=>{let n=r(e.verifiedFrom);return!t||!n||!i(t,n)}).map(e=>e.capability+` (verified from Pi `+e.verifiedFrom+`)`)}}})("1.1.0", "22.19.0", [{"capability":"child-mcp-off","verifiedFrom":"1.1.0"},{"capability":"child-model-selection","verifiedFrom":"1.1.0"},{"capability":"child-tool-allowlist","verifiedFrom":"1.1.0"},{"capability":"child-ipc-relay","verifiedFrom":"1.1.0"},{"capability":"session-end-event","verifiedFrom":"1.1.0"},{"capability":"settle-boundary-entries","verifiedFrom":"1.1.0"}]);
+const PI_MIN_VERSION = "1.1.0";
 const assertSupportedPiRuntime = piRuntimeChecks.assert;
+const assertSupportedNode = piRuntimeChecks.assertNode;
+const isVerifiedPiRuntime = piRuntimeChecks.verified;
 const unverifiedPiCapabilities = piRuntimeChecks.unverified;
 
 
-type Role = "scout" | "implementer" | "reviewer" | "scribe";
+type Role = "scout" | "implementer" | "reviewer" | "scribe" | "auditor" | "architect" | "publisher";
 type RoleSpec = { name: Role; description: string; model?: string; tools: string[]; instructions: string };
 type Controls = { planTiers: boolean; masterPlan: boolean; scribeOwnsMarkdown: boolean };
-const ROLES = new Set<Role>(["scout", "implementer", "reviewer", "scribe"]);
+const ROLES = new Set<Role>(["scout","implementer","reviewer","scribe","auditor","architect","publisher"]);
 const ROLE_TOOLS: Record<Role, ReadonlySet<string>> = {
-  scout: new Set(["read", "grep", "find", "ls", "write"]),
-  implementer: new Set(["read", "grep", "find", "ls", "bash", "edit", "write"]),
-  reviewer: new Set(["read", "grep", "find", "ls", "bash", "write"]),
-  // The scribe's own Bash runs its handoff preflight; the implementer's Markdown block is unaffected.
-  scribe: new Set(["read", "grep", "find", "ls", "bash", "edit", "write"]),
+  scout: new Set(["read","grep","find","ls","write"]),
+  implementer: new Set(["read","grep","find","ls","bash","edit","write"]),
+  reviewer: new Set(["read","grep","find","ls","bash","write"]),
+  scribe: new Set(["read","grep","find","ls","bash","edit","write"]),
+  auditor: new Set(["read","grep","find","ls","bash","write"]),
+  architect: new Set(["read","grep","find","ls","bash","write"]),
+  publisher: new Set(["read","grep","find","ls","bash"]),
 };
+// Per-role child deadline (spec 0048 D9); the quality gate runs inside it.
+const ROLE_TIMEOUT_MS: Record<Role, number> = {"scout":600000,"scribe":1200000,"reviewer":1200000,"auditor":1200000,"architect":1200000,"implementer":1800000,"publisher":2400000};
 const MAX_CHILDREN = 3;
-const TIMEOUT_MS = 600_000;
 const GRACE_MS = 5_000;
 const MAX_OUTPUT_BYTES = 65_536;
 const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 type ChildUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number;
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number } };
-type ChildResult = { text: string; truncated: boolean; usage?: ChildUsage };
+type ChildResult = { text: string; truncated: boolean; usage?: ChildUsage;
+  /** Commands of tool calls the child refused for lack of approval, recovered from structured JSONL args (undefined = not recoverable). */
+  refusals?: Array<string | undefined> };
 const USAGE_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
 
 /** Sum one assistant message_end usage into acc; null when any counter is missing or invalid (never a partial total). */
@@ -111,10 +121,11 @@ async function checkDispatch(cwd: string, role: Role, task: string,
     catch { throw new Error("Navori plan gate unavailable; subagent blocked"); }
     if (result.code !== 0) throw new Error("Navori plan gate blocked the implementer");
   }
-  if (role === "reviewer" || role === "scribe") {
+  if (role === "implementer" || role === "reviewer" || role === "scribe") {
     if (!feature || !/^[a-z0-9][a-z0-9_-]*$/.test(feature)) {
       throw new Error("Navori " + role + " requires an explicit Navori feature slug for handoff check");
     }
+    if (role === "implementer") return;
     let result;
     try { result = await runNavori(cwd, ["handoff", "check", feature,
       "--for", role === "scribe" ? "scribe" : "orchestrator", "--cwd", cwd, "--dir", ".navori/state/handoffs", "--json"],
@@ -127,7 +138,52 @@ async function checkDispatch(cwd: string, role: Role, task: string,
   }
 }
 
-type ApprovalContext = { cwd: string; hasUI?: boolean; ui?: { confirm?: (title: string, message: string) => Promise<boolean> } };
+type HandoffFile = { mtimeMs: number; content: string } | null;
+type HandoffSnapshot = { dispatchedAt: number; role: Role; feature: string; file: HandoffFile };
+const HANDOFF_DIR = ".navori/state/handoffs";
+function handoffPath(cwd: string, role: Role, feature: string): string {
+  return join(cwd, HANDOFF_DIR, (role === "reviewer" ? "review_" : "impl_") + feature + ".json");
+}
+function readHandoffFile(path: string): HandoffFile {
+  if (!existsSync(path)) return null;
+  return { mtimeMs: statSync(path).mtimeMs, content: readFileSync(path, "utf8") };
+}
+/** State of the canonical handoff at dispatch; the post-check demands a different one. */
+function snapshotHandoff(cwd: string, role: Role, feature: string): HandoffSnapshot {
+  return { dispatchedAt: Date.now(), role, feature, file: readHandoffFile(handoffPath(cwd, role, feature)) };
+}
+/**
+ * Validates the implementer/reviewer handoff after the child ends (R7): fresh against the dispatch snapshot (mtime or
+ * content differs), shape via "navori handoff check" (reviewer: --produced-by reviewer --since dispatch, sealed evidence)
+ * and, for the implementer, an unmoved HEAD. Returns the diagnostic, or undefined when valid. Any inability to
+ * check is a failure (R15).
+ */
+async function verifyHandoff(cwd: string, snap: HandoffSnapshot, signal: AbortSignal): Promise<string | undefined> {
+  const { role, feature } = snap;
+  try {
+    const now = readHandoffFile(handoffPath(cwd, role, feature));
+    if (!now) return "the " + role + " handoff for " + feature + " was not written";
+    if (snap.file && now.mtimeMs === snap.file.mtimeMs && now.content === snap.file.content) {
+      return "the " + role + " handoff for " + feature + " is stale: it did not change since dispatch";
+    }
+    const args = ["handoff", "check", feature, "--cwd", cwd, "--dir", HANDOFF_DIR, "--json"];
+    if (role === "reviewer") args.push("--produced-by", "reviewer", "--since", new Date(Math.floor(snap.dispatchedAt / 1000) * 1000).toISOString().replace(".000Z", "Z"));
+    else args.push("--for", "orchestrator");
+    const result = await runNavori(cwd, args, "", signal);
+    const parsed: unknown = JSON.parse(result.stdout);
+    if (!isRecord(parsed) || parsed.feature !== feature || !Array.isArray(parsed.failures) || !Array.isArray(parsed.warnings)) {
+      return "handoff check returned an unknown payload";
+    }
+    const issues = [...parsed.failures, ...(role === "implementer" ? parsed.warnings.filter((w) => isRecord(w) && w.check === "head") : [])]
+      .map((f) => (isRecord(f) ? String(f.detail) : "invalid finding"));
+    if (result.code !== 0 || parsed.status !== "ok" || issues.length) return (issues.join("; ") || "handoff check did not pass").slice(0, 1000);
+    return undefined;
+  } catch (cause) {
+    return "handoff validation unavailable (" + (cause instanceof Error ? cause.message : "error") + "); failing closed";
+  }
+}
+
+type ApprovalContext = { cwd: string; hasUI?: boolean; ui?: { select?: (title: string, options: string[]) => Promise<string | undefined> } };
 type ExecResult = { code: number | null; stdout: string };
 type ExecFn = (command: string, args: string[], options: { cwd: string; timeout: number }) => Promise<ExecResult>;
 // Navori's existing human-approval contract: a command carrying --approved-by asserts that the user approved.
@@ -146,30 +202,85 @@ async function approvalState(exec: ExecFn, cwd: string): Promise<string> {
   return parts.join("\0");
 }
 
+type ParentApproval = { command: string; reasons: string[]; bodyFiles: string[] };
+const APPROVAL_REFUSAL_MARKER = "Navori approval not granted:";
+const MAX_RELAY_BYTES = 8192;
+const MAX_RELAYS = 5;
+const RELAY_ACK_MS = 2000;
+const APPROVAL_DENY = "No, cancel";
+const APPROVAL_ALLOW = "Yes, run it";
+
+/** Child side of D6: hand the exact refused command to the parent over the Node IPC channel. True only when the send was acknowledged. */
+function relayToParent(command: string, reasons: string[], named: string[]): Promise<boolean> {
+  const send: unknown = process.send;
+  if (typeof send !== "function") return Promise.resolve(false);
+  // The files the hook named (D5); the --body-file scan only covers a refusal that named none.
+  const bodyFiles = named.length ? named : [...command.matchAll(/--body-file[=\s]+(\S+)/g)].map((match) => match[1]);
+  const message = { kind: "parent-approval", command, reasons, bodyFiles };
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), RELAY_ACK_MS);
+    const done = (ok: boolean): void => { clearTimeout(timer); resolve(ok); };
+    try { send.call(process, message, (error: unknown) => done(!error)); } catch { done(false); }
+  });
+}
+
+type Sha256 = { createHash(algorithm: "sha256"): { update(data: Uint8Array): { digest(encoding: "hex"): string } } };
+
+/** node:crypto is read lazily (Node >= 22.19 has getBuiltinModule) so loading the extension never depends on it. */
+function sha256(data: Uint8Array): string {
+  const load = (process as unknown as { getBuiltinModule?: (id: string) => unknown }).getBuiltinModule;
+  const crypto = typeof load === "function" ? load("node:crypto") as Sha256 | undefined : undefined;
+  if (!crypto) throw new Error("node:crypto is not available");
+  return crypto.createHash("sha256").update(data).digest("hex");
+}
+
+/** sha256 of each draft file the confirmation shows (spec 0048 D5, F12); a file that does not exist yet is its own stable state. */
+function bodyDigest(cwd: string, files: string[]): string {
+  return files.map((file) => {
+    const path = resolve(cwd, file.replace(/^@/, ""));
+    try { return file + "=" + sha256(readFileSync(path)); }
+    catch (cause) {
+      if (isRecord(cause) && cause.code === "ENOENT") return file + "=absent";
+      throw cause;
+    }
+  }).join("\n");
+}
+
 /**
  * Operator consent for one Bash command that claims human approval (--approved-by). Consent is the Pi native
  * dialog of the interactive parent, bound to this exact command and repository state, and spent by this call.
  * Trust (--approve, isProjectTrusted) is deliberately never consulted here.
  */
-async function requireOperatorApproval(exec: ExecFn, ctx: ApprovalContext, command: string): Promise<{ block: true; reason: string } | undefined> {
-  const refuse = (why: string): { block: true; reason: string } => ({ block: true, reason: "Navori approval not granted: " + why });
+async function requireOperatorApproval(exec: ExecFn, ctx: ApprovalContext, command: string, reasons: string[] = [], bodyFiles: string[] = []): Promise<{ block: true; reason: string } | undefined> {
+  const refuse = (why: string): { block: true; reason: string } => ({ block: true, reason: APPROVAL_REFUSAL_MARKER + " " + why });
   if (process.env.NAVORI_PI_CHILD_DEPTH) {
+    // The relay is best-effort: the block holds either way, and the parent falls back to the JSONL args (D6).
+    await relayToParent(command, reasons, bodyFiles);
     return refuse("headless Navori children cannot approve operations; stop and return this command to the parent session so the user can approve it there.");
   }
-  if (ctx.hasUI !== true || typeof ctx.ui?.confirm !== "function") {
+  if (ctx.hasUI !== true || typeof ctx.ui?.select !== "function") {
     return refuse("this Pi session has no interactive UI (TUI/RPC); resume the task in an interactive Pi session to approve this operation.");
   }
   let before: string;
+  let bodiesBefore: string;
   try { before = await approvalState(exec, ctx.cwd); }
   catch { return refuse("the repository state could not be snapshotted, so approval cannot be bound to it."); }
+  try { bodiesBefore = bodyDigest(ctx.cwd, bodyFiles); }
+  catch { return refuse("a draft body could not be read, so approval cannot be bound to it."); }
   let confirmed = false;
-  try { confirmed = (await ctx.ui.confirm("Navori approval required", "Run this operation as approved by you?\n\n" + command)) === true; }
+  // Deny-first: the TUI pre-selects the first option, so a bare Enter must never approve (spec 0048 R5, R18).
+  const title = "Navori approval required\n\nRun this operation as approved by you?\n\n" + (reasons.length ? reasons.join("\n") + "\n\n" : "") + command;
+  try { confirmed = (await ctx.ui.select(title, [APPROVAL_DENY, APPROVAL_ALLOW])) === APPROVAL_ALLOW; }
   catch { /* A failing dialog is not consent. */ }
   if (!confirmed) return refuse("the user denied or cancelled the confirmation.");
   let after: string;
   try { after = await approvalState(exec, ctx.cwd); }
   catch { return refuse("the repository state could not be re-verified after the confirmation."); }
   if (after !== before) return refuse("the repository state changed between the confirmation and its use; request approval again.");
+  let bodiesAfter: string;
+  try { bodiesAfter = bodyDigest(ctx.cwd, bodyFiles); }
+  catch { return refuse("a draft body could not be re-verified after the confirmation."); }
+  if (bodiesAfter !== bodiesBefore) return refuse("a draft body changed between the confirmation and its use; request approval again.");
   return undefined;
 }
 
@@ -251,6 +362,8 @@ function childParser(): { feed: (chunk: Buffer) => void; finish: () => ChildResu
   let usage: ChildUsage | null = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
   let usageSeen = false;
+  const starts = new Map<string, string | undefined>();
+  const refusals: Array<string | undefined> = [];
   const record = (raw: Buffer): void => {
     const line = raw.toString("utf8").replace(/\r$/, "");
     if (!line.trim()) return;
@@ -260,6 +373,17 @@ function childParser(): { feed: (chunk: Buffer) => void; finish: () => ChildResu
     if (event.type === "agent_settled") {
       if (event.aborted === true) throw new Error("Pi child agent_settled aborted");
       settled = true;
+    }
+    // Fallback of D6: structured args of the start event, correlated by toolCallId with an approval-refused end.
+    if (event.type === "tool_execution_start" && typeof event.toolCallId === "string") {
+      const args: unknown = event.args;
+      const label = isRecord(args) ? (typeof args.command === "string" ? args.command : String(event.toolName) + " " + String(args.path ?? "")) : undefined;
+      if (starts.size < 256) starts.set(event.toolCallId, label?.slice(0, 2048));
+      return;
+    }
+    if (event.type === "tool_execution_end" && event.isError === true && typeof event.toolCallId === "string") {
+      if (refusals.length < MAX_RELAYS && JSON.stringify(event.result ?? "").includes(APPROVAL_REFUSAL_MARKER)) refusals.push(starts.get(event.toolCallId));
+      return;
     }
     if (event.type !== "message_end" || !isRecord(event.message) || event.message.role !== "assistant") return;
     usageSeen = true;
@@ -317,22 +441,42 @@ function childParser(): { feed: (chunk: Buffer) => void; finish: () => ChildResu
       pending = Buffer.alloc(0);
       pendingBytes = 0;
       if (!settled) throw new Error("Pi child stopped before agent_settled");
-      return usage && usageSeen ? { ...result, usage } : result;
+      const done: ChildResult = { ...result, ...(refusals.length ? { refusals } : {}) };
+      return usage && usageSeen ? { ...done, usage } : done;
     },
   };
 }
 
+/** Parent side of D6: accept only a well-formed, size-bounded relay message; anything else is dropped. */
+function parseParentApproval(raw: unknown): ParentApproval | undefined {
+  try {
+    if (!isRecord(raw) || raw.kind !== "parent-approval" || typeof raw.command !== "string" || !raw.command) return undefined;
+    if (!Array.isArray(raw.reasons) || !Array.isArray(raw.bodyFiles)) return undefined;
+    if (![...raw.reasons, ...raw.bodyFiles].every((item) => typeof item === "string")) return undefined;
+    if (Buffer.byteLength(JSON.stringify(raw), "utf8") > MAX_RELAY_BYTES) return undefined;
+    return { command: raw.command, reasons: raw.reasons as string[], bodyFiles: raw.bodyFiles as string[] };
+  } catch { return undefined; }
+}
+
 /** Run one child with bounded incremental parsing and unchanged cancellation deadlines. */
-function runChild(cwd: string, role: RoleSpec, model: string, task: string, parentSignal: AbortSignal): Promise<ChildResult> {
+function runChild(cwd: string, role: RoleSpec, model: string, task: string, parentSignal: AbortSignal): Promise<ChildResult & { approvals: ParentApproval[] }> {
   // --no-mcp: ambient MCP must be unreachable from Navori children; --model is always explicit (omitting it is not inheriting).
   const args = ["--mode", "json", "--no-session", "--approve", "--no-mcp", "--model", model];
   if (role.tools.length) args.push("--tools", role.tools.join(","));
   else args.push("--no-tools");
   args.push("--", role.instructions + "\n\nTask: " + task);
-  return new Promise<ChildResult>((resolve, reject) => {
-    const child = spawn("pi", args, { cwd, env: { ...process.env, NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: role.name },
-      detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+  return new Promise<ChildResult & { approvals: ParentApproval[] }>((resolve, reject) => {
+    // The "ipc" stdio slot is the D6 relay channel; the child's model-run bash does not inherit it.
+    const childEnv: NodeJS.ProcessEnv = { ...process.env, NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: role.name };
+    delete childEnv.NODE_CHANNEL_FD;
+    const child = spawn("pi", args, { cwd, env: childEnv,
+      detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe", "ipc"] });
     const parser = childParser();
+    const approvals: ParentApproval[] = [];
+    child.on("message", (raw: unknown) => {
+      const accepted = parseParentApproval(raw);
+      if (accepted && approvals.length < MAX_RELAYS) approvals.push(accepted);
+    });
     let parseError: unknown;
     let stopping = false;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
@@ -350,7 +494,7 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
       // Not cleared when the leader closes: descendants may outlive it and still need SIGKILL.
       killTimer = setTimeout(() => kill("SIGKILL"), GRACE_MS);
     };
-    const timeout = setTimeout(stop, TIMEOUT_MS);
+    const timeout = setTimeout(stop, ROLE_TIMEOUT_MS[role.name]);
     const abort = (): void => stop();
     const release = (): void => {
       clearTimeout(timeout);
@@ -375,7 +519,7 @@ function runChild(cwd: string, role: RoleSpec, model: string, task: string, pare
       if (parseError) reject(parseError);
       else if (stopping) reject(new Error("Pi child cancelled, timed out, or exceeded output limit"));
       else if (code !== 0) reject(new Error("Pi child exited " + code + "; inspect Pi auth with /login openai-codex"));
-      else { try { resolve(parser.finish()); } catch (cause) { reject(cause); } }
+      else { try { resolve({ ...parser.finish(), approvals }); } catch (cause) { reject(cause); } }
     });
   });
 }
@@ -603,23 +747,511 @@ function stuckAdvice(pi: ToolRegistry, event: StuckEvent, ctx: EvidenceContext):
     + "re-read the error, change the approach or inspect the cause, and ask the user if you stay blocked." : undefined;
 }
 
+
+// ---- Navori hook bridge (spec 0048): runs the shared hook scripts under bash with a Claude-shaped payload.
+type BridgeClass = "enforced" | "advisory" | "lifecycle";
+type BridgeHook = { script: string; path: string; on: string; tools?: string[]; scope: string; class: BridgeClass;
+  interactive: boolean; timeoutMs: number };
+type BridgeVerdict = { kind: "allow" } | { kind: "block"; reason: string } | { kind: "ask"; reason: string; bodyFiles: string[] } | { kind: "warn"; text: string };
+type BridgeOutcome = { code: number | null; signal: string | null; timedOut: boolean; failed: boolean; aborted: boolean;
+  json: Record<string, unknown> | undefined; stderr: string };
+type BridgeCall = { event: string; hookEvent: string; toolName?: string; toolCallId?: string; input?: unknown; cwd: string;
+  sessionId: string; hasUI: boolean; reason?: string };
+type BridgeResult = { block?: string; asks: string[]; bodyFiles: string[]; warnings: string[] };
+const BRIDGE_STDOUT_CAP = 65_536;
+const BRIDGE_STDERR_HALF = 2_048;
+const BRIDGE_ADVISORY_CAP = 1_024;
+const BRIDGE_KILL_GRACE_MS = 2_000;
+const BRIDGE_DRAIN_MS = 250;
+const BRIDGE_RENDER_ACTION = "run navori render --apply with the current Navori CLI";
+const BRIDGE_TOOL_NAMES: Record<string, string> = { bash: "Bash", edit: "Edit", write: "Write" };
+// Tools the bridge guards: an unreadable or incompatible manifest blocks these (fail-closed), never the read-only ones.
+const BRIDGE_GUARDED_TOOLS = new Set(["bash", "edit", "write"]);
+const BRIDGE_JSON_KEYS = ["hookSpecificOutput", "systemMessage", "continue"];
+const BRIDGE_BODY_FILES_MAX = 8;
+const BRIDGE_BODY_FILE_CHARS = 4_096;
+
+/** First half and last half of text when it exceeds max, so a long diagnostic keeps both its cause and its end. */
+function bridgeCap(text: string, max: number): string {
+  const clean = text.trim();
+  if (clean.length <= max) return clean;
+  const half = Math.floor(max / 2);
+  return clean.slice(0, half) + "\n...[truncated]...\n" + clean.slice(clean.length - half);
+}
+
+function bridgeHook(raw: unknown): BridgeHook | undefined {
+  if (!isRecord(raw) || typeof raw.script !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(raw.script)) return undefined;
+  // A shared hook copy, or a plugin script (spec 0048 D13); never a path that climbs out of .pi/navori.
+  if (raw.path !== ".pi/navori/hooks/" + raw.script + ".sh"
+    && !(typeof raw.path === "string" && /^\.pi\/navori\/scripts\/[A-Za-z0-9_][A-Za-z0-9_.\/-]*$/.test(raw.path) && !raw.path.includes(".."))) return undefined;
+  if (typeof raw.on !== "string" || !["tool_call", "tool_result", "agent_before_settle", "session_shutdown"].includes(raw.on)) return undefined;
+  if (typeof raw.scope !== "string" || !["parent", "child", "all"].includes(raw.scope)) return undefined;
+  if (raw.class !== "enforced" && raw.class !== "advisory" && raw.class !== "lifecycle") return undefined;
+  if (typeof raw.interactive !== "boolean" || typeof raw.timeoutMs !== "number" || !(raw.timeoutMs > 0)) return undefined;
+  if (raw.tools !== undefined && !(Array.isArray(raw.tools) && raw.tools.every((tool: unknown) => typeof tool === "string"))) return undefined;
+  return { script: raw.script, path: raw.path, on: raw.on, tools: raw.tools as string[] | undefined, scope: raw.scope,
+    class: raw.class, interactive: raw.interactive, timeoutMs: raw.timeoutMs };
+}
+
+/** The bridge bindings from the project manifest; any doubt means the extension cannot evaluate (fail-closed for guarded tools). */
+function bridgeManifest(cwd: string): { ok: true; hooks: BridgeHook[]; ownedPaths: string[] } | { ok: false; reason: string } {
+  const cannot = (why: string): { ok: false; reason: string } => ({ ok: false, reason: "Navori cannot evaluate its Pi controls (" + why + "); " + BRIDGE_RENDER_ACTION + "." });
+  let manifest: unknown;
+  try { manifest = JSON.parse(readFileSync(join(cwd, ".pi/navori.json"), "utf8")); }
+  catch { return cannot("the manifest is missing or unreadable"); }
+  if (!isRecord(manifest) || manifest.schemaVersion !== 2 || !Array.isArray(manifest.hooks) || !Array.isArray(manifest.ownedPaths)) return cannot("the manifest schema is not the one this extension reads");
+  const hooks = manifest.hooks.map(bridgeHook);
+  if (hooks.some((hook) => hook === undefined)) return cannot("a hook binding is malformed");
+  if (!manifest.ownedPaths.every((path: unknown) => typeof path === "string")) return cannot("an owned path is malformed");
+  return { ok: true, hooks: hooks as BridgeHook[], ownedPaths: manifest.ownedPaths as string[] };
+}
+
+/** Bash for the bridge: the SDK default, never a project shellPath; the sh fallback and WSL bash are not accepted. */
+function bridgeShell(): { ok: true; shell: string } | { ok: false; reason: string } {
+  const action = "Install Git for Windows (or bash) and make sure bash is on PATH, then restart Pi.";
+  try {
+    if (typeof getShellConfig !== "function") return { ok: false, reason: "Pi does not expose its shell resolution. " + action };
+    const shell = String(getShellConfig().shell);
+    const name = shell.replace(/\\/g, "/").split("/").pop()!.toLowerCase();
+    if ((name !== "bash" && name !== "bash.exe") || /windows[\\/](?:system32|sysnative)[\\/]bash\.exe$/i.test(shell)) {
+      return { ok: false, reason: "Navori hooks need bash and Pi resolved " + shell + ". " + action };
+    }
+    return { ok: true, shell };
+  } catch { return { ok: false, reason: "Pi found no bash to run Navori hooks. " + action }; }
+}
+
+/** Claude-shaped payload: the subset of fields the shared scripts read (spec 0048 D2). */
+function bridgePayload(call: BridgeCall): string {
+  const child = process.env.NAVORI_PI_CHILD_DEPTH ? true : false;
+  const role = (process.env.NAVORI_PI_CHILD_ROLE ?? "").replace(/[^A-Za-z0-9_-]/g, "");
+  const input = isRecord(call.input) ? call.input : {};
+  const toolInput: Record<string, unknown> = {};
+  if (typeof input.command === "string") toolInput.command = input.command;
+  if (typeof input.path === "string") toolInput.file_path = input.path.replace(/^@/, "");
+  if (call.toolName === "write" && typeof input.content === "string") toolInput.content = input.content;
+  return JSON.stringify({
+    hook_event_name: call.hookEvent,
+    ...(call.toolName ? { tool_name: BRIDGE_TOOL_NAMES[call.toolName] ?? call.toolName, tool_input: toolInput } : {}),
+    ...(call.toolCallId ? { tool_use_id: call.toolCallId } : {}),
+    ...(call.hookEvent === "Stop" ? { stop_hook_active: false } : {}),
+    ...(call.reason ? { reason: call.reason } : {}),
+    cwd: call.cwd,
+    ...(call.sessionId ? { session_id: call.sessionId } : {}),
+    // "default" only where a human can answer an ask; everywhere else the scripts must decide by themselves.
+    permission_mode: !child && call.hasUI ? "default" : "dontAsk",
+    ...(child ? { agent_id: "pi-" + (role || "child"), agent_type: role || "child" } : {}),
+  });
+}
+
+/** A stdout JSON verdict: the whole output, else the last line that is a JSON object; anything else is noise. */
+function bridgeJson(text: string): Record<string, unknown> | undefined {
+  const parse = (candidate: string): Record<string, unknown> | undefined => {
+    if (!candidate.startsWith("{")) return undefined;
+    try {
+      const value: unknown = JSON.parse(candidate);
+      return isRecord(value) && BRIDGE_JSON_KEYS.some((key) => key in value) ? value : undefined;
+    } catch { return undefined; }
+  };
+  const whole = text.trim();
+  const direct = parse(whole);
+  if (direct) return direct;
+  const lines = whole.split("\n").map((line) => line.trim()).filter((line) => line.startsWith("{")).reverse();
+  for (const line of lines) {
+    const found = parse(line);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/** Run one script under bash in its own process group; always resolves, never rejects. */
+function runBridgeScript(shell: string, cwd: string, hook: BridgeHook, payload: string, signal: AbortSignal): Promise<BridgeOutcome> {
+  return new Promise((resolve) => {
+    const base = { code: null, signal: null, timedOut: false, failed: false, aborted: false, json: undefined, stderr: "" };
+    // The model-visible bash must never inherit Pi's IPC descriptor (spec 0048 D6).
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    delete env.NODE_CHANNEL_FD;
+    delete env.NODE_CHANNEL_SERIALIZATION_MODE;
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(shell, [join(cwd, hook.path).replace(/\\/g, "/")], { cwd, env, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] });
+    } catch { resolve({ ...base, failed: true }); return; }
+    let out = Buffer.alloc(0);
+    let errHead = Buffer.alloc(0);
+    let errTail = Buffer.alloc(0);
+    let errTotal = 0;
+    let timedOut = false;
+    let aborted = false;
+    let done = false;
+    let exit: { code: number | null; signal: string | null } | undefined;
+    let drain: ReturnType<typeof setTimeout> | undefined;
+    const kill = (sig: NodeJS.Signals): void => {
+      try {
+        if (child.pid && process.platform !== "win32") process.kill(-child.pid, sig);
+        else child.kill(sig);
+      } catch { /* Process or group already exited. */ }
+    };
+    const stop = (): void => {
+      kill("SIGTERM");
+      setTimeout(() => kill("SIGKILL"), BRIDGE_KILL_GRACE_MS).unref();
+    };
+    const timer = setTimeout(() => { timedOut = true; stop(); }, hook.timeoutMs);
+    const onAbort = (): void => { aborted = true; stop(); };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    const finish = (failed: boolean): void => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (drain) clearTimeout(drain);
+      signal.removeEventListener("abort", onAbort);
+      const stderr = errTotal <= BRIDGE_STDERR_HALF ? errHead.toString("utf8")
+        : errTotal <= 2 * BRIDGE_STDERR_HALF ? errHead.toString("utf8") + errTail.subarray(errTail.length - (errTotal - BRIDGE_STDERR_HALF)).toString("utf8")
+        : errHead.toString("utf8") + "\n...[truncated]...\n" + errTail.toString("utf8");
+      resolve({ code: exit?.code ?? null, signal: exit?.signal ?? null, timedOut, failed, aborted,
+        json: bridgeJson(out.toString("utf8")), stderr: stderr.trim() });
+    };
+    child.stdin!.on("error", () => {});
+    child.stdin!.end(payload);
+    child.stdout!.on("data", (chunk: Buffer) => {
+      if (out.length < BRIDGE_STDOUT_CAP) out = Buffer.concat([out, chunk.subarray(0, BRIDGE_STDOUT_CAP - out.length)]);
+    });
+    child.stderr!.on("data", (chunk: Buffer) => {
+      errTotal += chunk.length;
+      if (errHead.length < BRIDGE_STDERR_HALF) errHead = Buffer.concat([errHead, chunk.subarray(0, BRIDGE_STDERR_HALF - errHead.length)]);
+      errTail = Buffer.concat([errTail, chunk]);
+      if (errTail.length > BRIDGE_STDERR_HALF) errTail = errTail.subarray(errTail.length - BRIDGE_STDERR_HALF);
+    });
+    child.on("error", () => finish(true));
+    // A script that leaves a background process holding its pipes must not hang the call: wait briefly after exit.
+    child.on("exit", (code: number | null, sig: string | null) => { exit = { code, signal: sig }; drain = setTimeout(() => finish(false), BRIDGE_DRAIN_MS); });
+    child.on("close", (code: number | null, sig: string | null) => { exit ??= { code, signal: sig }; finish(false); });
+  });
+}
+
+/** Map one script outcome to a verdict by the table in the module doc (never throws). */
+function bridgeVerdict(hook: BridgeHook, outcome: BridgeOutcome): BridgeVerdict {
+  if (hook.class === "lifecycle" || outcome.aborted) return { kind: "allow" };
+  const enforced = hook.class === "enforced";
+  const failure = outcome.failed ? "it could not be started"
+    : outcome.timedOut ? "it timed out after " + hook.timeoutMs + " ms"
+    : outcome.signal ? "it was killed by " + outcome.signal
+    : outcome.code !== 0 && outcome.code !== 2 ? "it exited with " + outcome.code : undefined;
+  if (failure) {
+    return enforced ? { kind: "block", reason: "Navori " + hook.script + " could not evaluate this call (" + failure + "), so it is blocked."
+      + (outcome.stderr ? " Details: " + outcome.stderr : "") } : { kind: "allow" };
+  }
+  const json = outcome.json;
+  const out = json && isRecord(json.hookSpecificOutput) ? json.hookSpecificOutput : {};
+  if (outcome.code === 2) {
+    if (enforced) return { kind: "block", reason: outcome.stderr || "Navori " + hook.script + " blocked this call." };
+    return outcome.stderr ? { kind: "warn", text: bridgeCap(outcome.stderr, BRIDGE_ADVISORY_CAP) } : { kind: "allow" };
+  }
+  if (!json) return { kind: "allow" };
+  if (!enforced) {
+    const text = typeof out.additionalContext === "string" ? out.additionalContext : typeof json.systemMessage === "string" ? json.systemMessage : "";
+    return text.trim() ? { kind: "warn", text: bridgeCap(text, BRIDGE_ADVISORY_CAP) } : { kind: "allow" };
+  }
+  const reason = typeof out.permissionDecisionReason === "string" && out.permissionDecisionReason.trim()
+    ? out.permissionDecisionReason : "Navori " + hook.script + " returned a decision without a reason.";
+  if (json.continue === false || "updatedInput" in out || "updatedInput" in json ||
+      (json.hookSpecificOutput !== undefined && !isRecord(json.hookSpecificOutput))) {
+    return { kind: "block", reason: "Navori " + hook.script + " returned a control this extension cannot honor, so the call is blocked." };
+  }
+  const decision = out.permissionDecision;
+  if (decision === undefined || decision === "allow") return { kind: "allow" };
+  if (decision === "deny") return { kind: "block", reason };
+  if (decision === "ask") {
+    // Spec 0048 D5: the files whose content the confirmation shows; the approval is bound to their hashes.
+    const files: unknown = json.navoriBodyFiles;
+    if (files !== undefined && !(Array.isArray(files) && files.length <= BRIDGE_BODY_FILES_MAX
+        && files.every((file: unknown) => typeof file === "string" && file.length > 0 && file.length <= BRIDGE_BODY_FILE_CHARS))) {
+      return { kind: "block", reason: "Navori " + hook.script + " named its draft files in a form this extension cannot bind, so the call is blocked." };
+    }
+    return { kind: "ask", reason, bodyFiles: Array.isArray(files) ? files as string[] : [] };
+  }
+  return { kind: "block", reason: "Navori " + hook.script + " returned an unknown decision, so the call is blocked." };
+}
+
+/**
+ * Run every matching script concurrently; the first enforced block wins and kills the rest. Asks are collected
+ * so the caller resolves them with ONE confirmation; advisory warnings are returned, never thrown.
+ */
+async function runBridge(hooks: BridgeHook[], call: BridgeCall, signal: AbortSignal | undefined): Promise<BridgeResult> {
+  const child = process.env.NAVORI_PI_CHILD_DEPTH ? true : false;
+  const selected = hooks.filter((hook) => hook.on === call.event && (hook.scope === "all" || hook.scope === (child ? "child" : "parent"))
+    && (hook.tools === undefined || (call.toolName !== undefined && hook.tools.includes(call.toolName))));
+  const result: BridgeResult = { asks: [], bodyFiles: [], warnings: [] };
+  if (!selected.length) return result;
+  const shell = bridgeShell();
+  if (!shell.ok) {
+    if (selected.some((hook) => hook.class === "enforced")) result.block = shell.reason;
+    return result;
+  }
+  const stop = new AbortController();
+  const outer = (): void => stop.abort();
+  signal?.addEventListener("abort", outer, { once: true });
+  if (signal?.aborted) outer();
+  const payload = bridgePayload(call);
+  try {
+    await Promise.all(selected.map(async (hook) => {
+      const verdict = bridgeVerdict(hook, await runBridgeScript(shell.shell, call.cwd, hook, payload, stop.signal));
+      if (verdict.kind === "block" && result.block === undefined) { result.block = verdict.reason; stop.abort(); }
+      else if (verdict.kind === "ask") { result.asks.push(verdict.reason); result.bodyFiles.push(...verdict.bodyFiles); }
+      else if (verdict.kind === "warn") result.warnings.push(verdict.text);
+    }));
+  } finally { signal?.removeEventListener("abort", outer); }
+  return result;
+}
+
+/** Advisory text after a tool result: manifest or script trouble is silent by contract (spec 0048 R15). */
+async function bridgeAdvisories(event: { toolName: string; toolCallId: string; input: unknown }, ctx: { cwd: string; hasUI?: boolean;
+    sessionManager?: { getSessionId?: () => string } }): Promise<string[]> {
+  const manifest = bridgeManifest(ctx.cwd);
+  if (!manifest.ok) return [];
+  try {
+    const result = await runBridge(manifest.hooks, { event: "tool_result", hookEvent: "PostToolUse", toolName: event.toolName,
+      toolCallId: event.toolCallId, input: event.input, cwd: ctx.cwd, sessionId: ctx.sessionManager?.getSessionId?.() ?? "", hasUI: ctx.hasUI === true }, undefined);
+    return result.warnings;
+  } catch { return []; }
+}
+
+
+// ---- Navori managed-file lane (spec 0048 D4): edit/write against Navori-generated files.
+const LANE_MARKERS = {"html":{"open":"<!-- navori:managed","close":"<!-- /navori:managed"},"shell":{"open":"# navori:managed start","close":"# navori:managed end"}} as const;
+const LANE_MIXED = /^(?:claude\.md|agents\.md|\.github\/copilot-instructions\.md|\.agents\/skills\/.+|\.claude\/.+|\.codex\/(?:config\.toml|agents\/.+|hooks\/.+)|\.cursor\/rules\/.+)$/;
+const LANE_MAX_BYTES = 4 * 1024 * 1024;
+const LANE_TICK = String.fromCharCode(96);
+type LaneSpan = { id: string; start: number; end: number };
+
+function laneEscape(text: string): string {
+  return text.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&");
+}
+
+/** Pi's own path normalization for its tools: strip a leading @, unicode spaces to spaces, expand ~. */
+function laneExpand(raw: string): string {
+  const text = (raw.startsWith("@") ? raw.slice(1) : raw).replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, " ");
+  const home = process.env.HOME || process.env.USERPROFILE || "";
+  if (text === "~") return home || text;
+  if (text.startsWith("~/") && home) return home + text.slice(1);
+  return text;
+}
+
+/** The real location of a path: the nearest existing ancestor resolved, the rest appended; symlinks, dangling ones included, followed. */
+function laneReal(path: string, depth = 0): string {
+  let head = path;
+  const tail: string[] = [];
+  for (;;) {
+    try { return join(realpathSync(head), ...tail.slice().reverse()); }
+    catch {
+      try {
+        if (depth < 16 && lstatSync(head).isSymbolicLink()) return laneReal(resolve(dirname(head), readlinkSync(head)) + (tail.length ? sep + tail.slice().reverse().join(sep) : ""), depth + 1);
+      } catch { /* Not a link, or not even there: keep climbing. */ }
+      const parent = dirname(head);
+      if (parent === head) return path;
+      tail.push(basename(head));
+      head = parent;
+    }
+  }
+}
+
+/** Managed blocks of a text by the real grammar (anchored, balanced, prose level); offsets are into the LF-normalized text. */
+function laneBlocks(text: string): LaneSpan[] {
+  const lines = text.split("\n");
+  const offsets: number[] = [];
+  let at = 0;
+  for (const line of lines) { offsets.push(at); at += line.length + 1; }
+  const fence = new RegExp("^\\s*(" + LANE_TICK + LANE_TICK + LANE_TICK + "|~~~)");
+  const spans: LaneSpan[] = [];
+  for (const style of ["html", "shell"] as const) {
+    const marker = LANE_MARKERS[style];
+    const html = style === "html";
+    const open = new RegExp("^" + laneEscape(marker.open) + "\\s+id=\"([^\"]+)\"" + (html ? "[^>]*-->" : ".*") + "\\s*$");
+    const close = new RegExp("^" + laneEscape(marker.close) + "\\s+id=\"([^\"]+)\"" + (html ? "\\s*-->" : "") + "\\s*$");
+    // The LAST close of each id, fence-blind: a close quoted inside a fence in the body can never shorten the protected span.
+    const lastClose = new Map<string, number>();
+    lines.forEach((line, index) => { const found = close.exec(line); if (found) lastClose.set(found[1]!, index); });
+    let inFence = false;
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index]!;
+      if (html && fence.test(line)) { inFence = !inFence; continue; }
+      if (inFence) continue;
+      const found = open.exec(line);
+      const end = found ? lastClose.get(found[1]!) : undefined;
+      if (found && end !== undefined && end > index) {
+        spans.push({ id: found[1]!, start: offsets[index]!, end: offsets[end]! + lines[end]!.length });
+        index = end;
+      }
+    }
+  }
+  return spans;
+}
+
+/** Every oldText of an edit input (the edits array and the legacy top-level pair); undefined when the shape is not one the lane knows. */
+function laneOldTexts(input: Record<string, unknown>): string[] | undefined {
+  const texts: string[] = [];
+  const take = (entry: unknown): boolean => {
+    if (!isRecord(entry) || typeof entry.oldText !== "string" || entry.oldText.length === 0 || typeof entry.newText !== "string") return false;
+    texts.push(entry.oldText.replace(/\r\n?/g, "\n"));
+    return true;
+  };
+  if (input.edits !== undefined) {
+    if (!Array.isArray(input.edits) || !input.edits.every(take)) return undefined;
+  }
+  if (input.oldText !== undefined || input.newText !== undefined) {
+    if (!take(input)) return undefined;
+  }
+  return texts.length ? texts : undefined;
+}
+
+const LANE_RENDER = "Change the source and run navori render --apply (or navori sync); a direct edit is overwritten, or freezes the block.";
+
+/**
+ * Why a Pi edit/write must not run, or undefined to let it through. Never throws: an error is a
+ * block, because an enforced control that cannot evaluate fails closed (spec 0048 R15).
+ */
+function managedLaneVerdict(cwd: string, toolName: string, rawInput: unknown, ownedPaths: string[]): string | undefined {
+  try {
+    const input = isRecord(rawInput) ? rawInput : {};
+    const given = typeof input.path === "string" ? input.path : typeof input.file_path === "string" ? input.file_path : undefined;
+    if (given === undefined || given.length === 0) return "Navori cannot tell which file this " + toolName + " targets, so it is blocked. Pass a path.";
+    const expanded = laneExpand(given);
+    const target = laneReal(isAbsolute(expanded) ? expanded : resolve(cwd, expanded));
+    const rel = relative(laneReal(resolve(cwd)), target);
+    if (rel === "" || rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel)) return undefined;
+    const key = rel.split(sep).join("/").toLowerCase();
+    const owned = ownedPaths.some((path) => path.toLowerCase() === key);
+    const plane = key === ".pi/settings.json" || key === ".pi/navori.json" || key === ".pi/navori" || key.startsWith(".pi/navori/")
+      || key === ".pi/extensions" || key.startsWith(".pi/extensions/");
+    if (plane || owned) {
+      return "Navori blocked this " + toolName + ": " + rel + (plane ? " is part of the Pi control plane (.pi/navori, .pi/extensions, .pi/settings.json, .pi/navori.json), which decides whether the guards run. " : " is generated by Navori. ")
+        + (owned ? LANE_RENDER + " " : "") + (plane ? "Anything else in the control plane is for the user to edit outside the agent." : "");
+    }
+    if (!LANE_MIXED.test(key)) return undefined;
+    const stats = lstatSync(target, { throwIfNoEntry: false });
+    if (!stats) return undefined;
+    if (!stats.isFile()) return "Navori cannot evaluate " + rel + " (not a regular file), so this " + toolName + " is blocked.";
+    if (stats.size > LANE_MAX_BYTES) return "Navori cannot inspect " + rel + " for managed blocks (it is larger than 4 MiB), so this " + toolName + " is blocked.";
+    const text = readFileSync(target, "utf8").replace(/\r\n?/g, "\n");
+    const blocks = laneBlocks(text);
+    if (!blocks.length) return undefined;
+    const ids = blocks.map((block) => block.id).join(", ");
+    if (toolName === "write") return "Navori blocked this write: " + rel + " holds managed blocks (" + ids + ") and write replaces the whole file. Use edit on text outside them. " + LANE_RENDER;
+    const olds = laneOldTexts(input);
+    if (olds === undefined) return "Navori blocked this edit: " + rel + " holds managed blocks (" + ids + ") and the edit arrived in a shape Navori cannot inspect. Send edits as a list of oldText/newText.";
+    for (const old of olds) {
+      let from = text.indexOf(old);
+      if (from < 0) return "Navori blocked this edit: " + rel + " holds managed blocks (" + ids + ") and an oldText was not found exactly, so Navori cannot tell whether it falls inside one. Use the exact text, outside them.";
+      for (; from >= 0; from = text.indexOf(old, from + 1)) {
+        const hit = blocks.find((block) => from < block.end && from + old.length > block.start);
+        if (hit) return "Navori blocked this edit: it changes the managed block " + hit.id + " in " + rel + ". " + LANE_RENDER;
+      }
+    }
+    return undefined;
+  } catch {
+    return "Navori could not evaluate this " + toolName + " (an unexpected error), so it is blocked.";
+  }
+}
+
+// Tools an unverified Pi may not use (spec 0048 D10): everything that writes or runs code; reads stay available.
+const UNVERIFIED_BLOCKED_TOOLS = new Set(["bash", "edit", "write", "powershell"]);
+type NoticeCtx = { ui?: { notify?: (message: string, type?: "info" | "warning" | "error") => void } };
+type ToolControls = { getActiveTools?: () => string[]; setActiveTools?: (names: string[]) => void };
+let powershellNoticed = false;
+
+/** Tell the user once per process; a failing UI never changes the decision that came with it. */
+function noticeOnce(ctx: NoticeCtx, seen: boolean, message: string): void {
+  if (seen) return;
+  try { ctx.ui?.notify?.(message, "warning"); } catch { /* The notice is informational. */ }
+}
+
+const POWERSHELL_REASON = "Navori disabled Pi's powershell tool: it would run commands outside the shared shell policy. "
+  + "Install Git for Windows and use the bash tool (see docs/pi.md), or run the command yourself.";
+
+/** Registers ONLY the write block for a Pi this extension has not verified: reads stay intact, one notice per process. */
+function registerUnverifiedBlock(pi: ExtensionAPI): void {
+  let noticed = false;
+  const reason = "Navori does not verify Pi " + VERSION + " (it needs a stable release of " + PI_MIN_VERSION + " or later), so bash, edit, write and powershell are blocked and reads stay available. Run pi --version and upgrade Pi.";
+  pi.on("tool_call", (event, ctx) => {
+    if (!UNVERIFIED_BLOCKED_TOOLS.has(event.toolName)) return;
+    noticeOnce(ctx, noticed, reason);
+    noticed = true;
+    return { block: true, reason };
+  });
+}
+
+// ---- Session lifecycle (spec 0048 R10/R11, D8): self-contained blocks, parent thread only.
+// quit -> prompt_input_exit and new -> clear are the only closes; reload, resume and fork keep the session alive.
+const SESSION_END_REASONS: Record<string, string> = { quit: "prompt_input_exit", new: "clear" };
+type LifecycleContext = { cwd: string; sessionManager?: { getSessionId?: () => string } };
+
+/** Reclaim safe worktrees (12 s) and then seal the audit log (3 s); lifecycle scripts, so every failure is silent. */
+async function closeSession(event: { reason?: unknown }, ctx: LifecycleContext): Promise<void> {
+  if (process.env.NAVORI_PI_CHILD_DEPTH) return;
+  const reason = typeof event.reason === "string" && Object.hasOwn(SESSION_END_REASONS, event.reason) ? SESSION_END_REASONS[event.reason] : undefined;
+  if (reason === undefined) return;
+  const manifest = bridgeManifest(ctx.cwd);
+  if (!manifest.ok) return;
+  for (const script of ["worktree-reclaim", "audit-mode-close"]) {
+    // Pi creates no worktrees: without the directory there is nothing to reclaim.
+    if (script === "worktree-reclaim" && !existsSync(join(ctx.cwd, ".claude/worktrees"))) continue;
+    try {
+      await runBridge(manifest.hooks.filter((hook) => hook.script === script), { event: "session_shutdown", hookEvent: "SessionEnd", reason,
+        cwd: ctx.cwd, sessionId: ctx.sessionManager?.getSessionId?.() ?? "", hasUI: false }, undefined);
+    } catch { /* Closing must never fail the session. */ }
+  }
+}
+
+/** The verification reminder as ONE visible custom_message entry; never sets continue, so no extra model request. */
+async function settleReminder(event: { entries?: unknown[] }, ctx: LifecycleContext): Promise<{ entries: unknown[] } | undefined> {
+  if (process.env.NAVORI_PI_CHILD_DEPTH) return undefined;
+  const manifest = bridgeManifest(ctx.cwd);
+  if (!manifest.ok) return undefined;
+  const bridged = await runBridge(manifest.hooks, { event: "agent_before_settle", hookEvent: "Stop", cwd: ctx.cwd,
+    sessionId: ctx.sessionManager?.getSessionId?.() ?? "", hasUI: false }, undefined);
+  const text = bridged.warnings.join("\n").trim();
+  if (!text) return undefined;
+  return { entries: [...(Array.isArray(event.entries) ? event.entries : []), { type: "custom_message", customType: "navori-verify-reminder", content: text, display: true }] };
+}
+
 export default function (pi: ExtensionAPI): void {
   try {
-    assertSupportedPiRuntime(VERSION);
+    assertSupportedNode();
   } catch (cause) {
     process.stderr.write((cause instanceof Error ? cause.message : "Unsupported Pi runtime") + "\n");
     return;
   }
+  if (!isVerifiedPiRuntime(VERSION)) { registerUnverifiedBlock(pi); return; }
   pi.on("tool_call", async (event, ctx) => {
-    if (event.toolName === "bash") {
-      const bashInput: unknown = event.input;
-      if (isRecord(bashInput) && typeof bashInput.command === "string" && APPROVAL_CLAIM.test(bashInput.command)) {
-        const refusal = await requireOperatorApproval(pi.exec.bind(pi), ctx, bashInput.command);
-        if (refusal) return refusal;
-        // The command must still be the one the user saw.
-        if (!isRecord(event.input) || event.input.command !== bashInput.command) {
-          return { block: true, reason: "Navori approval not granted: the command changed after the confirmation; request approval again." };
-        }
+    // D-U3: powershell would run commands outside the shared shell policy; it is never allowed (and is deactivated at session_start).
+    if (event.toolName === "powershell") return { block: true, reason: POWERSHELL_REASON };
+    // Guards first: the operator is never asked to approve a call the guards are about to block.
+    const claimed: unknown = event.input;
+    const claim = event.toolName === "bash" && isRecord(claimed) && typeof claimed.command === "string" && APPROVAL_CLAIM.test(claimed.command);
+    let asks: string[] = [];
+    let bodyFiles: string[] = [];
+    if (BRIDGE_GUARDED_TOOLS.has(event.toolName)) {
+      const manifest = bridgeManifest(ctx.cwd);
+      if (!manifest.ok) return { block: true, reason: manifest.reason };
+      if (event.toolName !== "bash") {
+        // Spec 0048 D4 (R3): Navori-generated files and the control plane are never written through Pi's own tools.
+        const refused = managedLaneVerdict(ctx.cwd, event.toolName, event.input, manifest.ownedPaths);
+        if (refused !== undefined) return { block: true, reason: refused };
+      }
+      const bridged = await runBridge(manifest.hooks, { event: "tool_call", hookEvent: "PreToolUse", toolName: event.toolName,
+        toolCallId: event.toolCallId, input: event.input, cwd: ctx.cwd, sessionId: ctx.sessionManager?.getSessionId?.() ?? "",
+        hasUI: ctx.hasUI === true }, ctx.signal);
+      if (bridged.block !== undefined) return { block: true, reason: bridged.block };
+      asks = bridged.asks;
+      bodyFiles = bridged.bodyFiles;
+    }
+    if (claim || asks.length) {
+      // One confirmation for the --approved-by claim and every ask, bound to the exact call the user saw.
+      const sealed = JSON.stringify(event.input);
+      const label = isRecord(claimed) ? (typeof claimed.command === "string" ? claimed.command : event.toolName + " " + String(claimed.path ?? "")) : event.toolName;
+      const refusal = await requireOperatorApproval(pi.exec.bind(pi), ctx, label, asks, bodyFiles);
+      if (refusal) return refusal;
+      if (JSON.stringify(event.input) !== sealed) {
+        return { block: true, reason: "Navori approval not granted: the " + (claim ? "command" : "call") + " changed after the confirmation; request approval again." };
       }
     }
     if (!controls(ctx.cwd).scribeOwnsMarkdown || process.env.NAVORI_PI_CHILD_ROLE !== "implementer") return;
@@ -634,12 +1266,42 @@ export default function (pi: ExtensionAPI): void {
   pi.on("tool_result", async (event, ctx) => {
     try { await recordEvidence(pi, event, ctx); } catch { /* Observation never alters or fails a tool result. */ }
     try {
-      const advice = stuckAdvice(pi, event, ctx);
-      // Additive: content gains one text block and structuredContent is handed back, because replacing content alone drops it.
-      if (advice && Array.isArray(event.content)) return { content: [...event.content, { type: "text" as const, text: advice }], structuredContent: event.structuredContent };
+      const notes = [stuckAdvice(pi, event, ctx), ...(await bridgeAdvisories(event, ctx))].filter((note): note is string => typeof note === "string");
+      // Additive: content gains text blocks and structuredContent is handed back, because replacing content alone drops it.
+      if (notes.length && Array.isArray(event.content)) return { content: [...event.content, ...notes.map((text) => ({ type: "text" as const, text }))], structuredContent: event.structuredContent };
     } catch { /* The advisory is best-effort; the result goes through untouched. */ }
   });
+  // D-U3, parent and children alike: powershell leaves the active set at startup so the model is never offered it.
+  pi.on("session_start", async (_event, ctx) => {
+    try {
+      const tools: ToolControls = pi;
+      const active = typeof tools.getActiveTools === "function" ? tools.getActiveTools() : [];
+      if (!Array.isArray(active) || !active.includes("powershell") || typeof tools.setActiveTools !== "function") return;
+      tools.setActiveTools(active.filter((name) => name !== "powershell"));
+      noticeOnce(ctx, powershellNoticed, POWERSHELL_REASON);
+      powershellNoticed = true;
+    } catch { /* The tool_call block still refuses powershell. */ }
+  });
   if (process.env.NAVORI_PI_CHILD_DEPTH) return;
+  // Spec 0048 D14 / R13, parent only: a server enabled solely in .pi/mcp.json is not effective until the project is trusted.
+  pi.on("session_start", async (_event, ctx) => {
+    try {
+      if (!MCP_PLUGIN_IDS.length || ctx.isProjectTrusted()) return;
+      const load = (path: string): unknown => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return undefined; } };
+      const agentDir = process.env.PI_CODING_AGENT_DIR || join(process.env.HOME ?? process.env.USERPROFILE ?? "", ".pi", "agent");
+      const states = mcpServerStates(MCP_PLUGIN_IDS, load(join(agentDir, "mcp.json")), load(join(ctx.cwd, ".pi", "mcp.json")));
+      const pending = MCP_PLUGIN_IDS.filter((_id, index) => states[index] === "project-only");
+      if (!pending.length) return;
+      noticeOnce(ctx, false, "Pi MCP server " + pending.join(", ") + " is configured only in .pi/mcp.json and is not effective: the project is not trusted (/trust).");
+    } catch { /* Advisory: a failing check never blocks session start. */ }
+  });
+  pi.on("session_shutdown", async (event, ctx) => {
+    try { await closeSession(event, ctx); } catch { /* Closing must never fail the session. */ }
+  });
+  pi.on("agent_before_settle", async (event, ctx) => {
+    // The draft is the exact CustomMessageEntryDraft shape; the cast only bridges unknown[] to the Pi entry union.
+    try { return (await settleReminder(event, ctx)) as never; } catch { return undefined; }
+  });
   pi.on("session_start", async (_event, ctx) => {
     try { await injectContext(pi, ctx); } catch { /* Context is a convenience; session start must continue. */ }
   });
@@ -658,8 +1320,8 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool(defineTool({
     name: "navori_subagent",
     label: "Navori subagent",
-    description: "Run a bounded Navori scout, implementer, reviewer, or scribe child in this trusted project.",
-    parameters: Type.Object({ role: Type.Union([Type.Literal("scout"), Type.Literal("implementer"), Type.Literal("reviewer"), Type.Literal("scribe")]),
+    description: "Run a bounded Navori scout, implementer, reviewer, scribe, auditor, architect, or publisher child in this trusted project.",
+    parameters: Type.Object({ role: Type.Union([Type.Literal("scout"), Type.Literal("implementer"), Type.Literal("reviewer"), Type.Literal("scribe"), Type.Literal("auditor"), Type.Literal("architect"), Type.Literal("publisher")]),
       task: Type.String({ minLength: 1 }), feature: Type.Optional(Type.String()) }),
     async execute(_id, params, signal, _onUpdate, ctx) {
       assertTrustedPiParent(ctx);
@@ -673,8 +1335,25 @@ export default function (pi: ExtensionAPI): void {
       active++;
       try {
         if (params.role !== "scout") await checkDispatch(ctx.cwd, params.role, params.task, params.feature, signal);
+        const snapshot = (params.role === "implementer" || params.role === "reviewer") && params.feature
+          ? snapshotHandoff(ctx.cwd, params.role, params.feature) : undefined;
         const result = await runChild(ctx.cwd, spec, model, params.task, signal);
-        return { content: [{ type: "text", text: result.text }], details: { role: params.role, truncated: result.truncated },
+        // D6: the exact commands come from the child's hook input (IPC) or structured JSONL args, never from model text.
+        if (!result.approvals.length && result.refusals?.length) {
+          throw new Error("Navori " + params.role + " child asked for parent approval over the JSONL fallback (no IPC relay); the task is not complete. "
+            + "Commands to approve in the parent session: " + result.refusals.map((c) => c === undefined ? "<command not recoverable>" : JSON.stringify(c)).join(", "));
+        }
+        if (snapshot) {
+          const failure = await verifyHandoff(ctx.cwd, snapshot, signal);
+          if (failure) return { isError: true, content: [{ type: "text", text: "Navori " + params.role + " handoff invalid: " + failure + "\n\nChild output:\n" + result.text.slice(0, 2000) }],
+            details: { role: params.role, truncated: result.truncated, handoff: "invalid", ...(result.approvals.length ? { parentApprovals: result.approvals } : {}) } };
+        }
+        const relay = result.approvals.length
+          ? "\n\nParent approval required for " + result.approvals.length + " operation(s) the child could not run; run them in this session so the user is asked: "
+            + result.approvals.map((a) => JSON.stringify(a.command)).join(", ")
+          : "";
+        return { content: [{ type: "text", text: result.text + relay }],
+          details: { role: params.role, truncated: result.truncated, ...(result.approvals.length ? { parentApprovals: result.approvals } : {}) },
           ...(result.usage ? { usage: result.usage } : {}) };
       } finally { active--; }
     },

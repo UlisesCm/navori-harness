@@ -1,4 +1,4 @@
-# navori:managed start id="master-plan-context-base" hash="a5db37df" version="0.11.3" source="@navori/core"
+# navori:managed start id="master-plan-context-base" hash="1155e069" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 # SessionStart master-plan status. Advisory and fail-open: no startup failure
 # may block the user's unrelated request. Render fills the specsDir placeholder.
@@ -86,7 +86,7 @@ navori_audit_record_metadata() {
   fi
   command -v navori >/dev/null 2>&1 || return 0
   case "${nv_engine:-}" in
-    claude | codex) navori_audit_host=$nv_engine ;;
+    claude | codex | pi) navori_audit_host=$nv_engine ;;
     *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
   esac
   # The writer assigns eventId/wireVersion before first persistence. Replay

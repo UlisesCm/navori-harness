@@ -196,7 +196,10 @@ for component in .navori .navori/state .navori/state/hooks; do
     mkdir "$component" 2>/dev/null || exit 0
   fi
 done
+# Spec 0048 D8: a Pi copy keeps its own stamp, so it never consumes the report a concurrent Claude
+# session is about to read (and the other way round).
 stamp="$state_dir/managed-drift-stamp"
+[ "$nv_engine" != pi ] || stamp="$state_dir/managed-drift-stamp-pi"
 [ ! -L "$stamp" ] || exit 0
 
 # sha1 tool, resolved once. `shasum` on macOS, `sha1sum` on most Linuxes; both
@@ -221,6 +224,13 @@ roots=""
 for r in CLAUDE.md AGENTS.md .claude/settings.json .claude/agents .claude/skills .claude/hooks .agents/skills .codex/config.toml .codex/agents .codex/hooks .cursor/rules; do
   [ -e "$r" ] && roots="$roots $r"
 done
+# Spec 0048 D4/D8: the hook copies Pi runs (`.pi/navori/hooks/*.sh`, shell markers) are managed
+# blocks too, and the guard (rule 6c) keeps the agent's hands off them; this is the net for what
+# gets past. The extension, manifest and role files carry whole-file headers with no per-block
+# hash, so they are not roots: the guard and `navori doctor` cover them.
+if [ "$nv_engine" = pi ] && [ -e .pi/navori ]; then
+  roots="$roots .pi/navori"
+fi
 [ -z "$roots" ] && exit 0
 
 # shellcheck disable=SC2086 — word splitting is how the root list is passed.

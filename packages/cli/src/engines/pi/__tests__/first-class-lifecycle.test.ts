@@ -1,8 +1,18 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { EventEmitter } from "node:events";
-import { stripTypeScriptTypes } from "node:module";
+import { createRequire, stripTypeScriptTypes } from "node:module";
 import { PassThrough } from "node:stream";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -52,7 +62,7 @@ function load(pid: number | null = GROUP): {
   };
   const modules: Record<string, unknown> = {
     "node:child_process": { spawn },
-    "node:fs": { readFileSync },
+    "node:fs": { existsSync, readFileSync, statSync },
     "node:path": { join },
     "@earendil-works/pi-ai": {
       Type: Object.fromEntries(
@@ -238,5 +248,250 @@ describe("Pi child bounded incremental stream and cancellation", () => {
     expect(vi.getTimerCount()).toBe(0);
     controller.abort();
     expect(rt.children[0]!.kill).not.toHaveBeenCalled();
+  });
+});
+
+type LifecycleHandler = (
+  event: Record<string, unknown>,
+  ctx: unknown,
+) => Promise<unknown> | unknown;
+
+/** Loads the rendered extension with Pi stubbed and REAL node:* modules, so the shared scripts really run. */
+function loadReal(env: Record<string, string> = {}): Map<string, LifecycleHandler> {
+  const nodeRequire = createRequire(import.meta.url);
+  const handlers = new Map<string, LifecycleHandler>();
+  const modules: Record<string, unknown> = {
+    "@earendil-works/pi-ai": { Type: new Proxy({}, { get: () => () => ({}) }) },
+    "@earendil-works/pi-coding-agent": {
+      VERSION: "1.1.0",
+      defineTool: (value: unknown) => value,
+      getShellConfig: () => ({ shell: "/bin/bash", args: ["-c"] }),
+    },
+  };
+  const exports: { default?: (pi: unknown) => void } = {};
+  const source = stripTypeScriptTypes(PI_EXTENSION_SOURCE)
+    .replace(/^import \{ (.+) \} from "(.+)";$/gm, 'const { $1 } = require("$2");')
+    .replace("export default function", "exports.default = function");
+  runInNewContext(source, {
+    exports,
+    require: (id: string): unknown => modules[id] ?? nodeRequire(id),
+    process: {
+      env: { ...process.env, NAVORI_PI_CHILD_DEPTH: "", NAVORI_PI_CHILD_ROLE: "", ...env },
+      platform: process.platform,
+      versions: { node: "22.19.0" },
+      stderr: { write: () => true },
+      kill: process.kill.bind(process),
+    },
+    Buffer,
+    AbortController,
+    setTimeout,
+    clearTimeout,
+  });
+  exports.default?.({
+    exec: async () => ({ code: 0, stdout: "", stderr: "" }),
+    on: (name: string, handler: LifecycleHandler) => {
+      // The first handler of an event is the lifecycle one: the later ones are context helpers.
+      if (!handlers.has(name)) handlers.set(name, handler);
+    },
+    registerTool: () => {},
+    getActiveTools: () => [],
+  });
+  return handlers;
+}
+
+const GIT_ENV = {
+  ...process.env,
+  GIT_AUTHOR_NAME: "t",
+  GIT_AUTHOR_EMAIL: "t@example.com",
+  GIT_COMMITTER_NAME: "t",
+  GIT_COMMITTER_EMAIL: "t@example.com",
+};
+const git = (cwd: string, ...args: string[]): string =>
+  execFileSync("git", args, { cwd, env: GIT_ENV, encoding: "utf8", stdio: "pipe" });
+
+/** A rendered Pi project that is also a committed git repo with an origin, so worktrees can have upstreams. */
+function gitProject(verifyOnStop = false): { cwd: string; origin: string } {
+  const cwd = mkdtempSync(join(tmpdir(), "navori-pi-lifecycle-git-"));
+  const origin = mkdtempSync(join(tmpdir(), "navori-pi-lifecycle-origin-"));
+  dirs.push(cwd, origin);
+  git(origin, "init", "--bare", "-b", "main");
+  git(cwd, "init", "-b", "main");
+  renderPiEngine(
+    cwd,
+    NavoriConfigSchema.parse({
+      name: "pi-lifecycle",
+      preset: "custom",
+      engines: ["pi"],
+      branchBase: "main",
+      qualityGate: { fast: "bun test", full: "bun test" },
+      ...(verifyOnStop ? { hooks: { verifyOnStop: true } } : {}),
+    }),
+  );
+  writeFileSync(join(cwd, ".gitignore"), ".claude/worktrees/\n.navori/state/\n");
+  writeFileSync(join(cwd, "tracked.txt"), "one\n");
+  git(cwd, "add", "-A");
+  git(cwd, "commit", "-m", "init");
+  git(cwd, "remote", "add", "origin", origin);
+  git(cwd, "push", "-u", "origin", "main");
+  return { cwd, origin };
+}
+
+/** A worktree under `.claude/worktrees/<name>` on its own branch; `push` gives it a clean upstream. */
+function addWorktree(cwd: string, name: string, push: boolean): string {
+  const wt = join(cwd, ".claude/worktrees", name);
+  git(cwd, "worktree", "add", "-b", name, wt);
+  if (push) git(wt, "push", "-u", "origin", name);
+  else {
+    writeFileSync(join(wt, `${name}.txt`), "unpublished\n");
+    git(wt, "add", "-A");
+    git(wt, "commit", "-m", `${name} work`);
+  }
+  return wt;
+}
+
+/**
+ * A bin dir with a `gh` that reports every given branch as a merged PR and a `navori` that records the
+ * audit metadata writer's arguments and stdin to `recorded` (the real writer needs a started audit log).
+ */
+function fakeBin(branches: string[], recorded: string): string {
+  const bin = mkdtempSync(join(tmpdir(), "navori-pi-lifecycle-bin-"));
+  dirs.push(bin);
+  const lines = branches.map((branch, i) => `${branch} ${i + 1}`).join("\n");
+  writeFileSync(join(bin, "gh"), `#!/usr/bin/env bash\ncat <<'EOF'\n${lines}\nEOF\n`);
+  writeFileSync(
+    join(bin, "navori"),
+    `#!/usr/bin/env bash\necho "$*" >> '${recorded}'\ncat >> '${recorded}'\n`,
+  );
+  chmodSync(join(bin, "gh"), 0o755);
+  chmodSync(join(bin, "navori"), 0o755);
+  return bin;
+}
+
+const lifecycleCtx = (
+  cwd: string,
+): { cwd: string; sessionManager: { getSessionId: () => string } } => ({
+  cwd,
+  sessionManager: { getSessionId: () => "sess-1" },
+});
+
+describe("Pi session close and settle reminder", () => {
+  // Covers: R10
+  it("shutdown reclaims safe worktrees only", async () => {
+    const { cwd } = gitProject();
+    const safe = addWorktree(cwd, "safe", true);
+    const unpublished = addWorktree(cwd, "unpublished", false);
+    const ignored = addWorktree(cwd, "ignored", true);
+    mkdirSync(join(ignored, ".navori/state/handoffs"), { recursive: true });
+    writeFileSync(join(ignored, ".navori/state/handoffs/impl_x.json"), "{}\n");
+    const auditsRoot = mkdtempSync(join(tmpdir(), "navori-pi-lifecycle-audits-"));
+    dirs.push(auditsRoot);
+    const log = join(auditsRoot, basename(cwd), "session-sess-1.log");
+    mkdirSync(join(auditsRoot, basename(cwd)), { recursive: true });
+    writeFileSync(log, "");
+    const recorded = join(auditsRoot, "recorded.txt");
+    writeFileSync(recorded, "");
+    const env = {
+      PATH: `${fakeBin(["safe", "unpublished", "ignored"], recorded)}:${process.env.PATH ?? ""}`,
+      NAVORI_AUDITS_ROOT: auditsRoot,
+    };
+
+    // A child, and the sessions that do not end (reload, resume, fork), change nothing.
+    // (A child registers no lifecycle handler at all; the handlers also guard on the child env themselves.)
+    await loadReal({ ...env, NAVORI_PI_CHILD_DEPTH: "1" }).get("session_shutdown")?.(
+      { type: "session_shutdown", reason: "quit" },
+      lifecycleCtx(cwd),
+    );
+    for (const reason of ["reload", "resume", "fork"]) {
+      await loadReal(env).get("session_shutdown")!(
+        { type: "session_shutdown", reason },
+        lifecycleCtx(cwd),
+      );
+    }
+    expect([safe, unpublished, ignored].every((dir) => existsSync(dir))).toBe(true);
+    expect(readFileSync(recorded, "utf8")).toBe("");
+
+    // The parent's quit reclaims only the clean, pushed, merged worktree and seals the audit log.
+    await loadReal(env).get("session_shutdown")!(
+      { type: "session_shutdown", reason: "quit" },
+      lifecycleCtx(cwd),
+    );
+    expect(existsSync(safe)).toBe(false);
+    expect(existsSync(unpublished)).toBe(true);
+    expect(existsSync(join(ignored, ".navori/state/handoffs/impl_x.json"))).toBe(true);
+    const sealed = readFileSync(recorded, "utf8");
+    expect(sealed).toContain("--host pi");
+    expect(sealed).toContain('"event":"session-end"');
+    expect(sealed).toContain('"reason":"prompt_input_exit"');
+  });
+
+  // Covers: R10
+  it("shutdown is silent when there is nothing to do or a script fails", async () => {
+    const { cwd } = gitProject();
+    // No `.claude/worktrees` and no audit log: nothing to reclaim or seal, no throw.
+    await expect(
+      loadReal().get("session_shutdown")!(
+        { type: "session_shutdown", reason: "new" },
+        lifecycleCtx(cwd),
+      ),
+    ).resolves.toBeUndefined();
+    // A broken script and an unreadable manifest are swallowed too.
+    writeFileSync(join(cwd, ".pi/navori/hooks/audit-mode-close.sh"), "exit 1\n");
+    await expect(
+      loadReal().get("session_shutdown")!(
+        { type: "session_shutdown", reason: "quit" },
+        lifecycleCtx(cwd),
+      ),
+    ).resolves.toBeUndefined();
+    rmSync(join(cwd, ".pi/navori.json"));
+    await expect(
+      loadReal().get("session_shutdown")!(
+        { type: "session_shutdown", reason: "quit" },
+        lifecycleCtx(cwd),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  // Covers: R11
+  it("settle reminder with uncommitted changes", async () => {
+    const { cwd } = gitProject(true);
+    const existing = { type: "custom", customType: "other", data: 1 };
+    const settle = (env: Record<string, string> = {}): Promise<unknown> =>
+      Promise.resolve(
+        loadReal(env).get("agent_before_settle")?.(
+          {
+            type: "agent_before_settle",
+            outcome: "completed",
+            entries: [existing],
+            continue: false,
+            context: {},
+          },
+          lifecycleCtx(cwd),
+        ),
+      );
+
+    // A clean tree adds nothing.
+    expect(await settle()).toBeUndefined();
+
+    // Uncommitted tracked changes add ONE visible message, keep earlier entries and never set `continue`.
+    writeFileSync(join(cwd, "tracked.txt"), "two\n");
+    const result = (await settle()) as {
+      entries: Array<Record<string, unknown>>;
+      continue?: boolean;
+    };
+    expect(result.continue).toBeUndefined();
+    expect(result.entries).toHaveLength(2);
+    expect(result.entries[0]).toEqual(existing);
+    expect(result.entries[1]).toMatchObject({
+      type: "custom_message",
+      display: true,
+      content: expect.stringContaining("cambios sin commitear"),
+    });
+
+    // A child never reminds; a failing script or an unreadable manifest is silent.
+    expect(await settle({ NAVORI_PI_CHILD_DEPTH: "1" })).toBeUndefined();
+    writeFileSync(join(cwd, ".pi/navori/hooks/stop-verify-reminder.sh"), "exit 1\n");
+    expect(await settle()).toBeUndefined();
+    rmSync(join(cwd, ".pi/navori.json"));
+    expect(await settle()).toBeUndefined();
   });
 });

@@ -30,6 +30,9 @@
 #     feature branch / --force-with-lease (force-push), literal `rm -rf <absolute path>` (rm over a variable, which
 #     the host asks the user to confirm). Root/home/system rm, --no-preserve-root, fork bomb and block devices
 #     have no route. The tgrep search lane sub-block (guard-destructive-search-lane.sh) is hard as well.
+#   - the Pi arm (rule 6c, spec 0048): hard — a write to the Pi control plane, `pi --no-extensions` and a
+#     shared `deny` rule have no route; the control-plane write names `navori render --apply` as the way
+#     Navori's own files change.
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
@@ -68,7 +71,19 @@ navori_audit_begin
 # they add, the exit code still tells the truth about what happened.
 navori_audit_verdict="allow"
 navori_audit_reason=""
+# Spec 0048 T11: the shared `ask` rule a Pi copy remembered (rule 6c iv); empty everywhere else.
+navori_pi_ask=""
 navori_audit_on_exit() {
+  navori_audit_code=$?
+  # A command every block rule let through but an `ask` rule matched is answered here, after the
+  # whole script (user section included) had its say. The prefix comes from rendered config; quotes,
+  # backslashes and control characters are dropped so the JSON below needs no escaping step.
+  if [ "$navori_audit_code" -eq 0 ] && [ -n "$navori_pi_ask" ]; then
+    navori_pi_ask_text=$(printf '%s' "$navori_pi_ask" | tr -d '"\\[:cntrl:]')
+    navori_audit_verdict="ask"
+    navori_audit_reason="shared permission ask rule '${navori_pi_ask_text}'"
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[navori] shared permission ask rule %s: this command needs your confirmation before it runs (the same rule asks in Claude and Codex)."}}\n' "$navori_pi_ask_text"
+  fi
   navori_audit_log "$navori_audit_verdict" "$navori_audit_reason" || true
   return 0
 }
@@ -84,6 +99,11 @@ fi
 # hostile branchBase in navori.config.json lands here as an inert literal,
 # never executable.
 base={{shq:branchBase}}
+
+# Spec 0048 D15: the shared `deny` and `ask` permission rules, one `deny|ask <token> ...` line each, rendered ONLY
+# into the Pi copy (`extraVars.piPermissionRules`, from the same translation Codex's rules file
+# uses). Every other copy carries `-`, and only the `pi` arm below ever reads it.
+nv_pi_rules={{shq:piPermissionRules}}
 
 block() {
   echo "[navori] BLOCKED by guard-destructive: $1" >&2
@@ -156,199 +176,16 @@ block() {
 # 64k one-char lines in 128k bytes, measures 442ms. It is named because the
 # LINE_MAX row above would otherwise read as "lines are bounded", and they are
 # only bounded on the path where they cost per line.
-CMD_MAX=131072
-LINE_MAX=4096
-HEREDOC_PROBE_MAX=64
+# Heredoc-body / `-m` value elision, `$live`, `$segments`: shared partial
+# (`_partials/inert-skeleton.sh`, spec 0048 T12), also used by subagent-no-background.
+# navori:include inert-skeleton
 if [ "${#cmd}" -gt "$CMD_MAX" ]; then
   block "command too large to inspect (${#cmd} chars > ${CMD_MAX}) — nothing in it was evaluated" oversize "split it into smaller commands the guard can inspect."
 fi
 
-# Pre-expanded newline, shared by the inert-content pass and the segment split.
-# It stays a variable for the reason it became one in #391: an inline $'\n' is
-# NOT expanded by zsh in every position bash expands it, and a divergence here
-# leaves compound commands unsplit — the rules then fail open. A plain variable
-# expands identically in both, in a string concatenation and inside the `sed`
-# replacement the split below builds.
-_nl=$'\n'
-
-# INERT CONTENT (#462) — what the shell EXECUTES vs what it merely WRITES.
-#
-# Every rule below reads the command as TEXT, so a PR body or a commit message
-# that QUOTES a destructive command was blocked even though nothing ran. That
-# fires on every security change, because documenting a fix means quoting the
-# attack it defends against: #403 could not write its own PR body, and a commit
-# message naming a recursive delete of HOME needed the `git commit -F <file>`
-# detour.
-#
-# `live` is `$cmd` minus its INERT spans — the text the shell hands to a program
-# as DATA and never interprets as a command. `$cmd` stays intact for the
-# messages; the rules read `live` (directly, or through `scan`).
-#
-# INERT (dropped before matching):
-#   · a heredoc BODY — `cat > body.md <<'EOF' … EOF` is file content.
-#   · the quoted VALUE of a message/body flag (`-m`, `--body`, …) — it lands in
-#     a commit object or in a PR, the shell never runs it.
-#
-# NOT inert. This is the line the decision draws — stated as the FRONTIER it
-# actually is, denylist included, because an unstated denylist reads as coverage:
-#   · a heredoc whose opener names a SCRIPT path (`cat > run.sh <<'EOF'`) — that
-#     is step 1 of write-then-execute, not documentation. The extension list is
-#     matched case-INSENSITIVELY; an unlisted or absent extension (`Makefile`,
-#     `.mk`, `.lua`, `.awk`, `cat > /tmp/payload`) reads as documentation, and
-#     only the execution tell below can still catch it.
-#   · ANY command that also EXECUTES something. Precisely: a KNOWN interpreter
-#     (`_hd_run`) in COMMAND POSITION — optionally behind `VAR=v` and the simple
-#     prefixes of `_hd_pre` WITH their arguments (`sudo -u me`, `env FOO=1`,
-#     `timeout 5`), and behind the wrappers the tell normalizes away (`(…)`,
-#     `{ …; }`, `\bash`, `"bash"`, `command bash`) —, or a path in command
-#     position (`./x`, `/x`, `~/x`), or a `$(…)`/backtick substitution the shell
-#     would expand (`git commit -m "$(rm -rf ~)"` really does run it). Such a
-#     command is scanned WHOLE, exactly as before #462.
-#     ANY OTHER RUNNER ESCAPES, and that is the accepted trade, not an oversight:
-#     `npx tsx f`, `lua f`, `make -f f`, `find … -exec bash {} \;`, a runner
-#     reached through a shell function or an alias, and one named by a BRACED
-#     variable (`${SH} f` — the wrapper normalization collapses `{` to a space,
-#     so it reaches the tell as `$ SH`; the plain `$SHELL f` IS caught). A word
-#     split by escapes (`b\ash f`) escapes too, as it already does the rules in
-#     the pre-#462 guard. A denylist is never complete;
-#     widening it is cheap per entry, but each entry ALSO drags a legitimate
-#     `… && make build` sitting next to a prose heredoc back into a full scan —
-#     back into the exact false positive #462 exists to kill. Same class as the
-#     `sh -c` / `eval` limitation the header states: a seatbelt, not a sandbox.
-#   · a `<<` that merely sits inside a string (`echo "a << b"`) — it opens no
-#     heredoc, so it can never be used to swallow the next real command. A line
-#     whose quotes do not pair up (`echo "a \" << EOF"`) counts as a NON-opener
-#     for the same reason: inventing a heredoc there would elide the real
-#     commands that follow, the one way this pass could scan LESS than before.
-# Unchanged scope: a deliberate adversary (`sh -c`, `eval`, base64) already had
-# simpler doors and is still out of reach. This is a seatbelt, not a sandbox.
-#
-# COST (#511, second pass). This is the ONE per-line loop in the file, so it is
-# the one place where the number of lines — not the number of bytes — prices the
-# guard. Two things keep it bounded:
-#   · it runs only when the command contains `<<`. There is nothing to elide
-#     without a heredoc, so every other command takes the `*)` arm and the
-#     skeleton IS the command, at zero per-line cost.
-#   · the kept lines land in an ARRAY, joined once at the end. The
-#     `skeleton="${skeleton}${_line}${_nl}"` this replaces was quadratic (bash
-#     copies the whole accumulator on every iteration), and it was 96-99% of the
-#     guard's runtime: 3.5s at 16k lines, 13.2s at 32k, 53.2s at 64k — killed by
-#     the timeout, which reads exactly like an approval. Same inputs through the
-#     array: 445ms, 833ms, 1.6s. Linear, and 32x cheaper at the top end.
-#     Inside LINE_MAX the gap is 3.5s vs 300ms, so the ceiling alone would not
-#     have been enough on a slower box; the two halves are not redundant.
-_hd_q='@navoriQ@'   # marks a QUOTED heredoc delimiter (`<<'EOF'`: no expansion)
-skeleton=""
-_sk=()
-_hd_delim=""
-_hd_inert=0
-_hd_expand=0
-_hd_probes=0
-_hd_lines=0
-case "$cmd" in
-  *'<<'*) _hd_scan=1 ;;
-  *) _hd_scan=0 ;;
-esac
-while [ "$_hd_scan" = 1 ] && IFS= read -r _line; do
-  # BOUNDED WORK (#511): the ceiling is checked HERE, per line, instead of by
-  # counting first — the loop is the only thing the count would protect, so
-  # stopping inside it costs at most LINE_MAX cheap iterations and saves a
-  # whole extra pass over the command on the way in.
-  _hd_lines=$((_hd_lines + 1))
-  if [ "$_hd_lines" -gt "$LINE_MAX" ]; then
-    block "too many lines to inspect (> ${LINE_MAX}) — nothing in it was evaluated" oversize "split it into smaller commands the guard can inspect."
-  fi
-  if [ -n "$_hd_delim" ]; then
-    # Inside a heredoc body. The terminator is compared whitespace-trimmed (a
-    # `<<-` terminator may be indented); trimming can only end the body EARLIER
-    # than the shell would, i.e. scan more, never less.
-    _t="${_line#"${_line%%[![:space:]]*}"}"
-    _t="${_t%"${_t##*[![:space:]]}"}"
-    if [ "$_t" = "$_hd_delim" ]; then
-      _hd_delim=""
-      continue
-    fi
-    if [ "$_hd_inert" = 0 ]; then
-      _sk+=("$_line")
-      continue
-    fi
-    # An UNQUOTED delimiter (`<<EOF`) still runs `$(…)`/backticks inside the
-    # body — plain prose there is inert, a substitution is a real invocation.
-    # Keeping exactly those lines feeds the whole-command fallback below.
-    if [ "$_hd_expand" = 1 ]; then
-      case "$_line" in
-        *'$('* | *'`'*) _sk+=("$_line") ;;
-      esac
-    fi
-    continue
-  fi
-  _sk+=("$_line")
-  # Fast path: no `<<`, no heredoc — a PreToolUse hook runs on EVERY Bash call,
-  # so the sed probes below are worth paying only on the lines that can open one.
-  case "$_line" in
-    *'<<'*) ;;
-    *) continue ;;
-  esac
-  # BOUNDED WORK (#511): every candidate line below pays two `sed` processes and
-  # a `grep`, so a command made of thousands of `<<`-bearing lines is a way to
-  # run the guard out of its timeout — the one failure mode that reads as
-  # approval. A real command opens one to three heredocs; past the ceiling the
-  # verdict is `block`, not silence.
-  _hd_probes=$((_hd_probes + 1))
-  if [ "$_hd_probes" -gt "$HEREDOC_PROBE_MAX" ]; then
-    block "too many heredoc openers to inspect (> ${HEREDOC_PROBE_MAX}) — nothing in it was evaluated" oversize "split it into smaller commands the guard can inspect."
-  fi
-  # Heredoc opener? The probe marks the DELIMITER's own quotes first, then drops
-  # every other quoted span, so `cat <<'EOF'` is told apart from a `<<` inside a
-  # string; `<<<` (here-string) is neutralized so it can't pose as `<<`.
-  _probe=$(printf '%s' "$_line" | sed -E \
-    -e "s/<<(-?)[[:space:]]*'([A-Za-z_][A-Za-z0-9_]*)'/<<\1${_hd_q}\2/g" \
-    -e "s/<<(-?)[[:space:]]*\"([A-Za-z_][A-Za-z0-9_]*)\"/<<\1${_hd_q}\2/g" \
-    -e "s/<<(-?)[[:space:]]*\\\\([A-Za-z_][A-Za-z0-9_]*)/<<\1${_hd_q}\2/g" \
-    -e "s/'[^']*'//g" -e "s/\"[^\"]*\"//g" -e "s/<<</ /g")
-  # A quote left over in the probe means those two `sed` passes paired the quotes
-  # somewhere the shell would not (an escaped `\"`, an odd count): the `<<` may
-  # well sit inside a string, and INVENTING a heredoc here is the one failure
-  # mode of this whole pass that scans LESS — it would elide every following line,
-  # real commands included (`echo "a \" << EOF"` + a real `rm -rf ~/`). Treat the
-  # line as a NON-opener; worst case the body is scanned, which is what the guard
-  # did before #462.
-  case "$_probe" in
-    *'"'* | *"'"*) continue ;;
-  esac
-  # `^[^<]*` anchors on the FIRST `<` of the line: no match (a `<` redirect
-  # before the heredoc) simply leaves the body under the rules.
-  _open=$(printf '%s' "$_probe" \
-    | sed -nE "s/^[^<]*(<<-?[[:space:]]*(${_hd_q})?[A-Za-z_][A-Za-z0-9_]*).*/\1/p")
-  if [ -z "$_open" ]; then continue; fi
-  _hd_delim=$(printf '%s' "$_open" | sed -E "s/^<<-?[[:space:]]*(${_hd_q})?//")
-  _hd_inert=1
-  _hd_expand=0
-  case "$_open" in
-    *"${_hd_q}"*) ;;
-    *) _hd_expand=1 ;;
-  esac
-  # Writing a SCRIPT is not documenting: keep `cat > run.sh <<'EOF'` visible.
-  # Case-INSENSITIVE (`-i`): macOS ships a case-insensitive filesystem, so
-  # `cat > /tmp/p.SH` writes and runs the same file as `p.sh`.
-  if printf '%s' "$_line" \
-    | grep -qiE "\.(sh|bash|zsh|ksh|fish|py|rb|pl|js|jsx|mjs|cjs|ts|tsx|command|bat|ps1|scpt)([[:space:]]|[\"'\`]|\$)"; then
-    _hd_inert=0
-  fi
-done <<< "$cmd"
-# Join ONCE. `$(…)` strips trailing newlines, so the terminator is re-added: a
-# trailing EMPTY line is the only thing that can be lost, and an empty line
-# carries no command. The `${#_sk[@]}` guard is not cosmetic — under `set -u`,
-# bash 3.2 treats `"${_sk[@]}"` on an EMPTY array as an unbound variable and
-# aborts the guard, which the caller cannot tell apart from an approval.
-if [ "$_hd_scan" = 1 ]; then
-  if [ "${#_sk[@]}" -gt 0 ]; then
-    skeleton=$(printf '%s\n' "${_sk[@]}")
-    skeleton="${skeleton}${_nl}"
-  fi
-else
-  skeleton="${cmd}${_nl}"
-fi
+# `$skeleton` and the heredoc ceilings (LINE_MAX, HEREDOC_PROBE_MAX): the shared
+# partial, called here so the fail-closed order is unchanged.
+navori_inert_skeleton
 
 # ─── Fast path: a command no rule below can possibly match ───────────────────
 #
@@ -402,6 +239,24 @@ fi
 # 4096 covers 98.5% of 1,089 real commands from the measured session (p50 370,
 # p90 1650) and sits sixteen times below the cliff.
 FAST_MAX=4096
+# The Pi arm (rule 6c below) adds its own literals: the control-plane paths (`.pi`), the `pi` word
+# (`pi -ne`, `pi --no-extensions`) and the first token of every shared `deny` rule. Lowercased
+# because the paths are matched case-insensitively (APFS); one `tr`, and only in a Pi copy.
+nv_pi_candidate() {
+  [ "$nv_engine" = pi ] || return 1
+  local _lc _r _t
+  _lc=$(printf '%s' "$_fast" | tr '[:upper:]' '[:lower:]')
+  case "$_lc" in *.pi*|*extensions*|*"pi "*|*pi) return 0 ;; esac
+  [ "$nv_pi_rules" != "-" ] || return 1
+  while IFS= read -r _r; do
+    _t=${_r#deny }
+    _t=${_t#ask }
+    _t=${_t%% *}
+    [ -n "$_t" ] || continue
+    case "$_lc" in *"$_t"*) return 0 ;; esac
+  done <<< "$nv_pi_rules"
+  return 1
+}
 if [ "${#cmd}" -le "$FAST_MAX" ]; then
   _fast=${cmd//\'/}
   _fast=${_fast//\"/}
@@ -414,147 +269,18 @@ if [ "${#cmd}" -le "$FAST_MAX" ]; then
     # would never let it run. `rg` needs a word edge: `*rg*` would match `merge`.
     *grep*|*rg\ *|*rg) ;;
     *)
-      navori_audit_verdict="skip"
-      navori_audit_reason="no rule token in the command"
-      exit 0
-      ;;
-  esac
-fi
-
-# A `$(…)`/backtick substitution outside single quotes RUNS: `git commit -m
-# "$(rm -rf ~)"` is an invocation wearing a message's clothes. This check must
-# read the skeleton BEFORE the flag values are elided below — eliding first
-# swallowed the `$(` and let exactly that command through.
-#
-# TWO probes, OR'd, because neither alone is enough:
-#   · single-quoted spans dropped — catches a `$(` sitting outside every quote.
-#   · the double-quoted spans ALONE — inside them an apostrophe is LITERAL, so
-#     the first probe pairs `it's … it's` as if it were a quoted span and deletes
-#     the `$(` between them. That is ordinary punctuation in the very messages
-#     #462 exists to allow (`-m "it's fine $(rm -rf / ) it's"`), and it disarmed
-#     the only check that catches an invocation disguised as a message.
-# Over-reading here only falls back to scanning the whole command, i.e. to the
-# pre-#462 behaviour: the safe side.
-_hd_whole=0
-if printf '%s' "$skeleton" | sed -E "s/'[^']*'//g" | grep -qE '\$\(|`'; then
-  _hd_whole=1
-else
-  # Fast path, same idea as the `<<` one above: probe 2 costs two processes on
-  # EVERY Bash call, and it can only ever fire when a substitution is present
-  # somewhere in the first place.
-  case "$skeleton" in
-    *'$('* | *'`'*)
-      if printf '%s' "$skeleton" | grep -oE '"[^"]*"' | grep -qE '\$\(|`'; then
-        _hd_whole=1
+      if ! nv_pi_candidate; then
+        navori_audit_verdict="skip"
+        navori_audit_reason="no rule token in the command"
+        exit 0
       fi
       ;;
   esac
 fi
 
-# Message/body flag VALUES. The flag itself stays so rule 1 still sees the shape
-# of the invocation (`git commit -m "" --no-verify` is still a skip-flag), and
-# `--body-file` is untouched: `([[:space:]]+|=)` can't match its `-`.
-_hd_flags='-m|--message|--body|--title|--description|--notes'
-skeleton=$(printf '%s' "$skeleton" | sed -E \
-  -e "s/(^|[[:space:]])(${_hd_flags})([[:space:]]+|=)'[^']*'/\1\2 ''/g" \
-  -e "s/(^|[[:space:]])(${_hd_flags})([[:space:]]+|=)\"[^\"]*\"/\1\2 \"\"/g")
+navori_inert_live
 
-# The elision holds ONLY while nothing in the command can run what was written.
-# A segment that STARTS with an interpreter or with a path is an execution, and
-# reverts to the whole command — which is why `cat > x <<'EOF' … EOF; bash x` is
-# still blocked. Anything else keeps only what the shell will interpret.
-#
-# `_hd_pre` — the runner may sit behind simple prefixes, WITH their own arguments:
-# `sudo -u me bash x`, `env FOO=1 bash x`, `timeout 5 bash x`. Matching only a
-# prefix glued to the interpreter turned every one of those into a free pass.
-_hd_pre='(sudo|doas|env|command|nohup|timeout|time|nice|ionice|stdbuf|setsid)'
-_hd_pre="${_hd_pre}([[:space:]]+(-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?"
-_hd_pre="${_hd_pre}|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|[0-9][^[:space:]]*))*[[:space:]]+"
-_hd_run='bash|sh|zsh|ksh|dash|ash|fish|tcsh|csh|source|eval|exec|xargs'
-_hd_run="${_hd_run}|python[0-9.]*|node|deno|bun|perl|ruby|osascript"
-_hd_exec='(^|[;&|])[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*'
-_hd_exec="${_hd_exec}(${_hd_pre})*"
-# `\$[A-Za-z_]` covers a runner named by a plain VARIABLE (`$SHELL x`). The
-# BRACED form (`${SH} x`) is NOT covered and is one of the declared escapes: the
-# same wrapper normalization that puts `{ bash x; }` back in command position
-# collapses `{` to a space, so `${SH}` reaches the tell as `$ SH`. Catching it
-# would mean teaching that normalization about `$`-prefixed braces — a change to
-# a security-sensitive transform, worth its own unit.
-# Why catching the plain form is safe: a variable in command position is never a
-# legitimate WRITER, so the false-positive cost is ~0 and the declared frontier
-# stays complete — which is what the denylist trade-off rests on (#462).
-_hd_exec="${_hd_exec}((${_hd_run})([[:space:]]|\$)|\.[[:space:]]|[.~]?/|\\\$[A-Za-z_])"
-# The tell reads a NORMALIZED copy, never the raw skeleton: `_hd_exec` anchors on
-# `^`/`;&|`, so any wrapper between the boundary and the interpreter used to hide
-# it. The transforms are FIX C's (below) plus quote REMOVAL, which is what puts
-# `(bash x)`, `{ bash x; }`, `\bash x`, `"bash" x` and `command bash x` back in
-# command position. Unquoting is safe HERE and not below: its only effect is
-# deciding whether to fall back to the whole command, i.e. to the pre-#462
-# behaviour — it never reaches the rules, so a quoted skip-flag is untouched.
-if [ "$_hd_whole" = 1 ] || printf '%s' "$skeleton" | sed -E \
-  -e "s/(^|[;&|]|[[:space:]])command[[:space:]]+/\1/g" \
-  -e "s/\\\\([A-Za-z])/ \1/g" \
-  -e "s/[(){}]/ /g" \
-  -e "s/'([^']*)'/\1/g" \
-  -e 's/"([^"]*)"/\1/g' | grep -qE "$_hd_exec"; then
-  live="$cmd"
-else
-  live="$skeleton"
-fi
-
-# Normalized copy used ONLY by the rules below. `$cmd` stays intact for the
-# messages. The transforms only add boundaries / drop noise, so they always push
-# toward MORE blocking:
-#   FIX B — join `\<newline>` continuations into a space and flatten any other
-#           newline to `;` (a boundary the rules already handle) so a multi-line
-#           `git commit \<NL> --no-verify` is matched as one logical command.
-#   FIX C — neutralize wrappers into boundaries: a leading `command ` word, a
-#           leading backslash (`\git`), and `(` runs, so `command git …`,
-#           `\git …` and `(git …)` read as a plain `git …`.
-# `scan` keeps quoted spans intact, so a quoted skip-flag (`git commit
-# "--no-verify"`) is still caught — stripping the quotes there was a real bypass.
-#
-# LINEAR ONLY (#511): what used to be three bash `${var//pat/repl}` passes is
-# now `sed`. Those substitutions are quadratic in bash 3.2.57 and `&&` alone
-# cost 83s on a 2000-segment command — past the hook's timeout, so the guard was
-# killed before evaluating a single rule and the command went through unopposed.
-# The newline→`;` pass is simply gone: the split below turns separators BACK
-# into newlines, so a newline that stays a newline lands in the same place.
-scan=$(printf '%s' "$live" | sed \
-  -e :a -e '/\\$/N' -e 's/\\\n/ /' -e ta)   # FIX B: join line continuations
-scan=$(printf '%s' "$scan" | sed -E \
-  -e "s/(^|[;&|]|[[:space:]])command[[:space:]]+/\1/g" \
-  -e "s/\\\\([A-Za-z])/ \1/g" \
-  -e "s/\(/ /g")
-
-# SEGMENTS — one segment per LINE, shared by rules 1, 2 and 3.
-#
-# This is the backbone of the whole file: `grep` and `sed` match LINE BY LINE, so
-# once a compound command is split one-segment-per-line, every rule below is
-# scoped to a single segment for free — a pattern can no longer pair a `git
-# commit` in one segment with a flag in another, and `$` means "end of this
-# segment", not "end of the whole command line".
-# #307 first did this for the force-push rule with a private copy of the split;
-# rules 1 (#A2) and 3 (#A1) had the cross-segment bug it cured, so the split now
-# happens ONCE, here, and all three rules read `$segments`.
-#
-# Each segment is peeled so it STARTS with its command word: leading whitespace
-# and `VAR=value` env prefixes go away (`FOO=1 git push …` → `git push …`); the
-# `(`, `\` and `command ` wrappers were already neutralized by FIX C above.
-#
-# Both halves are one `sed` pass each, for the reason stated above the `scan`
-# block: the four `${_split//…}` substitutions AND the per-segment string
-# builder that replaced them were the guard's whole time budget (37s just
-# appending 20k segments). `sed` is linear in both.
-# The peel loop is the `:a … ta` branch: it strips ONE `VAR=value` prefix per
-# turn, exactly like the `while` it replaces, and `([[:space:]]+|$)` reproduces
-# its two endings — more words follow, or the segment was nothing but the
-# assignment and collapses to empty.
-_split=$(printf '%s' "$scan" | sed \
-  -e "s/&&/\\$_nl/g" -e "s/||/\\$_nl/g" -e "s/;/\\$_nl/g" -e "s/|/\\$_nl/g")
-segments=$(printf '%s' "$_split" | sed -E \
-  -e 's/^[[:space:]]+//' \
-  -e :a -e 's/^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*([[:space:]]+|$)//' -e ta)
+navori_inert_segments
 
 # Same list with quoted spans dropped, used ONLY by the combined-short-flag
 # check, so a hyphen-word inside a commit message (`-m "add -notify option"`)
@@ -854,7 +580,14 @@ fi
 #        form: it re-checks the hashes AFTER the fact, so anything that gets past
 #        this rule still surfaces. This rule is the seatbelt; that one is the net.
 managed_dir='\.claude/(agents|skills|hooks)|\.agents/skills|\.codex/(agents|hooks)|\.cursor/rules'
-managed_path="(CLAUDE\.md|AGENTS\.md|\.claude/settings\.json|\.codex/config\.toml|(${managed_dir})/[^[:space:];&|]+)"
+# Spec 0048 D4 (R3): in a Pi copy only, the exact names Navori writes under `.pi/`: its extension,
+# manifest, hook copies and the role files of its roster. A `.pi/agents/<other>.md` is the user's.
+# Empty everywhere else, so the Claude and Codex regex is the one it always was.
+managed_pi=''
+if [ "$nv_engine" = pi ]; then
+  managed_pi='|\.pi/extensions/navori\.ts|\.pi/navori\.json|\.pi/navori/[^[:space:];&|]+|\.pi/agents/(scout|implementer|reviewer|scribe|auditor|architect|publisher)\.md'
+fi
+managed_path="(CLAUDE\.md|AGENTS\.md|\.claude/settings\.json|\.codex/config\.toml|(${managed_dir})/[^[:space:];&|]+${managed_pi})"
 managed_rewrite_msg="shell rewrite of a navori-managed file — edit the source asset and run 'navori render --apply' (or 'navori sync'); a direct write invalidates the block hash and freezes it. If the target is outside this project (e.g. a scratchpad), write it with '>' or 'tee' and an absolute path instead"
 # The redirect check reads `scan`, NOT `segments`: the split rewrites every `|`
 # into a newline, so `>| CLAUDE.md` (forced clobber) would be torn in half and
@@ -934,6 +667,90 @@ if [ -n "${nv_project_dir:-}" ]; then
   if printf '%s' "$scan" | grep -qiE "(^|[^>])>\|?[[:space:]]*${abs_managed_path}([[:space:]]|\$)" \
     || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*${abs_managed_path}([[:space:]]|\$)"; then
     block "$managed_rewrite_msg" managed-rewrite
+  fi
+fi
+
+# 6c. The Pi arm (spec 0048 D4/D15, R2/R18) — three rules that exist only in a Pi copy, because only
+#     Pi has no host permission system and runs this script from `.pi/navori/hooks/`. In a Claude or
+#     Codex copy this whole block is skipped.
+#
+#     (i) CONTROL PLANE. `.pi/navori/**` (hook copies, the bridge's own scripts), `.pi/extensions/**`
+#     (the extension that enforces all of this, and anything else Pi loads), `.pi/settings.json` and
+#     `.pi/navori.json` decide whether and how the guards run, so an agent that can rewrite them can
+#     switch the guards off. They are protected against every WRITE verb — `>`/`>>`/`>|`, `tee`,
+#     `sed -i`, `rm`, `mv`, `cp`, `ln`, `dd`, `install`, `truncate`, `chmod`, `git checkout|restore`
+#     and the like — and against INLINE interpreters (`python -c`, `node -e`, `perl -i`, `ruby -e`,
+#     `php -r`) that name them. Reading them (`cat`, `ls`, `grep`) stays free. `cp`/`mv` match either
+#     operand (a read-copy out of the plane is blocked too): the safe side of not parsing operands.
+#     The match is on the path TEXT, case-insensitively: `./.pi/...`, `/abs/proj/.pi/...` and
+#     `"$PWD"/.pi/...` all contain `.pi/<name>`. Still unhandled, by the header's seatbelt rule: a
+#     `cd .pi/navori` followed by a relative write, a path assembled from variables, `sh -c` and
+#     `eval`. The message names `navori render --apply` for the files Navori generates and says the
+#     rest is edited by the user, outside the agent.
+#
+#     (ii) `pi --no-extensions` (or `-ne`) from bash starts a Pi with none of this loaded: no guard,
+#     no bridge. Blocked, no route.
+#
+#     (iii) DENY RULES. The shared `deny` permissions, translated to token prefixes at render time
+#     (`nv_pi_rules`, the same translation as `.codex/rules/navori.rules`), are compared with each
+#     SEGMENT, quotes dropped and blanks squeezed: `sudo rm -rf x` and `mkfs /dev/sda` block, in
+#     a compound command too. `mkfs.ext4 /dev/sda` does NOT: only the exact `mkfs` token matches
+#     (same as Codex, codex-parity F9). A `*` glued to the last token was narrowed to the exact token (as in
+#     Codex), so `rm -rf /` blocks and `rm -rf /tmp/x` does not — the numbered rules above catch the
+#     variants.
+#
+#     (iv) ASK RULES (spec 0048 T11, R18). The shared `ask` permissions (`git reset --hard`,
+#     `git push --force`, `rm -r`, `git branch -D`, …) use the same segments and the same prefix
+#     match, but they do not block: the first one that matches is remembered in `navori_pi_ask` and
+#     the exit trap answers `ask` once EVERY block rule (the numbered ones above and below, a `deny`
+#     rule, the user section) has let the command through, so a block always wins over a question.
+#     The Pi extension resolves the `ask`: one confirmation in the interactive parent, refusal plus
+#     relay to the parent in a child or without UI.
+if [ "$nv_engine" = pi ]; then
+  _q="[\"']"
+  pi_cp="\.pi/(navori(\.json|/[^[:space:];&|<>\"']*)?|extensions(/[^[:space:];&|<>\"']*)?|settings\.json)"
+  pi_cp_end="([[:space:]\"';&|)<>]|\$)"
+  pi_cp_msg="shell write to the Pi control plane (.pi/navori, .pi/extensions, .pi/settings.json, .pi/navori.json) — these files decide whether the guards run. Navori's own are regenerated by 'navori render --apply' (or 'navori sync'); any other change is for the user to make outside the agent"
+  _pi_cp_segs=$(printf '%s' "$segments" | grep -iE "${pi_cp}${pi_cp_end}" || true)
+  pi_cp_verbs="(^|[[:space:]\"'])(rm|rmdir|unlink|mv|cp|ln|dd|install|truncate|chmod|chown|rsync|tee|touch|mkdir)[[:space:]]"
+  pi_cp_sed="(^|[[:space:]\"'])sed[[:space:]]+(-[a-zA-Z]*i[a-zA-Z]*[^[:space:]]*|--in-place)([[:space:]]|=)"
+  pi_cp_git="^git[[:space:]]+(.*[[:space:]])?(checkout|restore)[[:space:]]"
+  pi_cp_interp="(^|[[:space:]\"'])(python[0-9.]*|node(js)?|deno|bun|perl|ruby|php|osascript)[[:space:]]+(.*[[:space:]])?(-[a-zA-Z]*[cepir][a-zA-Z]*|--eval|--print)([[:space:]=]|\$)"
+  if { [ -n "$_pi_cp_segs" ] && {
+         printf '%s' "$_pi_cp_segs" | grep -qiE "${pi_cp_verbs}" \
+         || printf '%s' "$_pi_cp_segs" | grep -qiE "${pi_cp_sed}" \
+         || printf '%s' "$_pi_cp_segs" | grep -qiE "${pi_cp_git}" \
+         || printf '%s' "$_pi_cp_segs" | grep -qiE "${pi_cp_interp}"; } ; } \
+    || printf '%s' "$scan" | grep -qiE ">[>|]?[[:space:]]*${_q}?([^[:space:];&|<>]*/)?${pi_cp}${pi_cp_end}"; then
+    block "$pi_cp_msg" managed-rewrite "navori render --apply"
+  fi
+  if printf '%s' "$segments" | grep -qE "(^|[[:space:]\"'/])pi[[:space:]]+(.*[[:space:]])?(--no-extensions|-ne)([[:space:]=]|\$)"; then
+    block "pi --no-extensions starts an agent without Navori's guards (no extension, no bridge, no hooks)" unspecified
+  fi
+  if [ "$nv_pi_rules" != "-" ]; then
+    _pr_segs=$(printf '%s' "$segments" | tr -d "'\"" | tr -s '[:blank:]' ' ')
+    while IFS= read -r _seg; do
+      _seg=${_seg# }
+      _seg=${_seg% }
+      [ -n "$_seg" ] || continue
+      while IFS= read -r _rule; do
+        case "$_rule" in 'deny '*) ;; *) continue ;; esac
+        _pfx=${_rule#deny }
+        case "$_seg" in
+          "$_pfx" | "$_pfx "*)
+            block "shared permission deny rule '${_pfx}' (the same rule that denies it in Claude and Codex)" unspecified
+            ;;
+        esac
+      done <<< "$nv_pi_rules"
+      [ -z "$navori_pi_ask" ] || continue
+      while IFS= read -r _rule; do
+        case "$_rule" in 'ask '*) ;; *) continue ;; esac
+        _pfx=${_rule#ask }
+        case "$_seg" in
+          "$_pfx" | "$_pfx "*) navori_pi_ask=$_pfx; break ;;
+        esac
+      done <<< "$nv_pi_rules"
+    done <<< "$_pr_segs"
   fi
 fi
 

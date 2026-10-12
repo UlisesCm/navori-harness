@@ -18,6 +18,89 @@ export interface ShellPermissionRules {
   readonly deny: readonly string[];
 }
 
+/** A shell permission pattern: `Bash(<pattern>)`. */
+export const BASH_PATTERN_RE = /^Bash\((.*)\)$/;
+/** Any character that still needs Claude's glob semantics a token prefix can't express. */
+const WILDCARD_RE = /[*?[]/;
+
+/** A shell permission pattern reduced to the literal token prefix it matches. */
+export interface TranslatedShellPattern {
+  readonly tokens: readonly string[];
+  /** True when a glued trailing `*` was dropped: the prefix is LESS strict than Claude's glob. */
+  readonly narrowed: boolean;
+}
+
+/**
+ * Translate one `Bash(<pattern>)` permission string (`ask` or `deny`, never `allow`) into its
+ * token prefix, or `null` when it can't be expressed as one: not a `Bash(...)` rule, or a
+ * wildcard left inside the pattern. The single translation shared by Codex's
+ * `.codex/rules/navori.rules` (`buildCodexRules`) and the Pi guard copy (spec 0048 D15), so
+ * both engines read the same rules the same way.
+ *
+ *   - A trailing ` *` or `:*` means "whatever follows" and is dropped.
+ *   - A pattern with no wildcard still becomes a prefix: STRICTER than Claude's exact match.
+ *   - A `*` glued to the LAST token (`git push --force*`, `rm -rf /*`) is replaced by the exact
+ *     token without the asterisk and reported as `narrowed`.
+ */
+export function translateShellPattern(pattern: string): TranslatedShellPattern | null {
+  const match = BASH_PATTERN_RE.exec(pattern);
+  if (!match) return null;
+  let inner = match[1] ?? "";
+  let narrowed = false;
+
+  if (inner.endsWith(" *")) {
+    inner = inner.slice(0, -2);
+  } else if (inner.endsWith(":*")) {
+    inner = inner.slice(0, -2);
+  } else {
+    const lastSpace = inner.lastIndexOf(" ");
+    const lastToken = lastSpace === -1 ? inner : inner.slice(lastSpace + 1);
+    // A `*` glued directly onto the last token (no preceding space/colon, already ruled out
+    // above) and nowhere else inside that token.
+    if (lastToken.length > 1 && lastToken.endsWith("*") && !lastToken.slice(0, -1).includes("*")) {
+      inner = inner.slice(0, -1);
+      narrowed = true;
+    }
+  }
+
+  if (WILDCARD_RE.test(inner)) return null;
+
+  const tokens = inner.split(/\s+/).filter((t) => t.length > 0);
+  if (tokens.length === 0) return null;
+  return { tokens, narrowed };
+}
+
+/** One `<decision> <token> <token> …` line per distinct translated rule, in rule order. */
+function permissionLines(decision: "deny" | "ask", patterns: readonly string[]): string[] {
+  const lines = new Set<string>();
+  for (const pattern of patterns) {
+    const translated = translateShellPattern(pattern);
+    if (translated) lines.add(`${decision} ${translated.tokens.join(" ")}`);
+  }
+  return [...lines];
+}
+
+/**
+ * The shared `deny` rules as the data the Pi copy of `guard-destructive.sh` embeds
+ * (spec 0048 D15): one `deny <token> <token> …` line per distinct translated rule, in rule order.
+ * `-` when nothing translates, because a blank value would render as "not configured". `allow`
+ * is never translated.
+ */
+export function buildPiDenyRules(rules: ShellPermissionRules): string {
+  const lines = permissionLines("deny", rules.deny);
+  return lines.length === 0 ? "-" : lines.join("\n");
+}
+
+/**
+ * Everything the Pi guard copy embeds (spec 0048 D15, T11): the `deny` lines of
+ * {@link buildPiDenyRules} followed by one `ask <token> …` line per translated `ask` rule, from the
+ * same translation. The guard blocks on `deny` and asks on `ask`. `-` when nothing translates.
+ */
+export function buildPiPermissionRules(rules: ShellPermissionRules): string {
+  const lines = [...permissionLines("deny", rules.deny), ...permissionLines("ask", rules.ask)];
+  return lines.length === 0 ? "-" : lines.join("\n");
+}
+
 const PACKAGE_MANAGERS = new Set(["pnpm", "npm", "yarn", "bun"]);
 
 /** The dev-loop scripts worth a standing rule of their own: run constantly, and

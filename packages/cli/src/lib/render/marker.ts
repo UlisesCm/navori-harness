@@ -41,6 +41,18 @@ const SHELL_SYNTAX: MarkerSyntax = {
   attrsAndTerminatorPattern: `[^\\n]*`,
 };
 
+/**
+ * The literal line prefixes of each marker style, for consumers that must recognize a managed
+ * block without importing this module (the Pi project extension embeds them, spec 0048 D4). Derived
+ * from the syntaxes above so the grammar has a single definition.
+ */
+export const MARKER_PREFIXES: Readonly<
+  Record<CommentStyle, { readonly open: string; readonly close: string }>
+> = {
+  html: { open: HTML_SYNTAX.openPrefix, close: HTML_SYNTAX.closePrefix },
+  shell: { open: SHELL_SYNTAX.openPrefix, close: SHELL_SYNTAX.closePrefix },
+};
+
 function syntaxFor(style: CommentStyle): MarkerSyntax {
   return style === "shell" ? SHELL_SYNTAX : HTML_SYNTAX;
 }

@@ -1,5 +1,8 @@
+import { execFileSync } from "node:child_process";
+import * as nodeFs from "node:fs";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import * as nodePath from "node:path";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { stripTypeScriptTypes } from "node:module";
@@ -9,10 +12,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { ENGINE_CAPABILITIES } from "../../shared/engine-capabilities.ts";
 import { renderPiEngine } from "../index.ts";
+import { PI_GATE_TIMEOUT_MS, PI_ROLE_NAMES, PI_ROLE_TIMEOUT_MS } from "../role-tools.ts";
+import { conditionOrchestration } from "../../../lib/render/render-plan.ts";
 import { missingPiChildFlags } from "../runtime-version.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
+import { load as loadWithScripts } from "./fixtures/load-extension.ts";
 
 type Role = "scout" | "implementer" | "reviewer" | "scribe";
+type AnalyticRole = "auditor" | "architect" | "publisher";
 interface Model {
   provider: string;
   id: string;
@@ -80,8 +87,9 @@ function load(
   };
   const modules: Record<string, unknown> = {
     "node:child_process": { spawn },
-    "node:fs": { readFileSync },
-    "node:path": { join },
+    // The edit/write lane (spec 0048 T5) resolves real paths, so fs and path are the real ones.
+    "node:fs": nodeFs,
+    "node:path": nodePath,
     "@earendil-works/pi-ai": {
       Type: Object.fromEntries(
         ["Object", "Union", "Literal", "String", "Optional"].map((name) => [name, () => ({})]),
@@ -138,6 +146,8 @@ function project(harness: Record<string, unknown> = { scribeOwnsMarkdown: true }
       models: { scout: "haiku", codexMap: { haiku: "openai-codex/gpt-5" } },
       harness,
     }),
+    // These tests drive the extension without a bash for the hook bridge: no scripts are bound.
+    { hookBindings: [] },
   );
   return { dir, warnings };
 }
@@ -192,13 +202,16 @@ const HELP_1_1_0 = [
 
 describe("Pi first-class roles", () => {
   // Covers: R1, R2
-  it("native admission and incompatible runtime", async () => {
+  it("native admission and incompatible runtime", () => {
     const rows = ENGINE_CAPABILITIES.pi.runtimeAdmissions ?? [];
     const admitted = rows.filter((row) => row.decision === "admitted");
     expect(admitted.map((row) => row.capability)).toEqual([
       "child-mcp-off",
       "child-model-selection",
       "child-tool-allowlist",
+      "child-ipc-relay",
+      "session-end-event",
+      "settle-boundary-entries",
     ]);
     for (const row of rows) {
       expect(row.source).toMatch(/Pi \d+\.\d+\.\d+/);
@@ -213,12 +226,10 @@ describe("Pi first-class roles", () => {
     expect(missingPiChildFlags(HELP_1_1_0.replace("--no-mcp", "--no-mpc"))).toEqual(["--no-mcp"]);
     expect(missingPiChildFlags("")).toEqual(["--no-mcp", "--model", "--tools"]);
 
-    // A runtime older than the probed version is diagnosed and never spawns a child.
-    const { dir } = project();
+    // A runtime older than the probed version never gets navori_subagent, so it can never spawn a child
+    // (spec 0048 D10: it only keeps the write block, covered in runtime-version.test.ts).
     const old = load({ version: "0.87.1" });
-    await expect(run(old, dir, "scout")).rejects.toThrow(
-      /Pi 0\.87\.1 is not verified for Navori children: child-mcp-off \(verified from Pi 1\.1\.0\)/,
-    );
+    expect(old.tool).toBeUndefined();
     expect(old.children).toEqual([]);
   });
 
@@ -241,7 +252,7 @@ describe("Pi first-class roles", () => {
       expect(args.at(-1)).toContain(`# ${role[0]!.toUpperCase()}${role.slice(1)} Agent`);
     }
     // No orchestrator or broad default: only the configured core roles dispatch.
-    for (const role of ["orchestrator", "auditor", "general-purpose"]) {
+    for (const role of ["orchestrator", "general-purpose"]) {
       await expect(run(rt, dir, role)).rejects.toThrow("Unsupported Navori Pi role");
     }
     expect(rt.children).toHaveLength(4);
@@ -344,5 +355,115 @@ describe("Pi first-class roles", () => {
     await expect(run(load(), plain.dir, "scribe")).rejects.toThrow(
       /scribe is admitted only when harness.scribeOwnsMarkdown/,
     );
+  });
+
+  // Covers: R14
+  it("auditor architect dispatchable with explicit tools", async () => {
+    const { dir, warnings } = project({ scribeOwnsMarkdown: true, architect: true });
+    expect(warnings.join("\n")).not.toMatch(/unsupported and was not rendered/);
+    expect(ENGINE_CAPABILITIES.pi.unsupportedSurfaces.map((entry) => entry.surface)).not.toContain(
+      "additional-analytic-roles",
+    );
+    const wanted: Record<AnalyticRole, string> = {
+      auditor: "read,grep,find,ls,bash,write",
+      architect: "read,grep,find,ls,bash,write",
+      publisher: "read,grep,find,ls,bash",
+    };
+    const rt = load();
+    for (const role of ["auditor", "architect"] as const) {
+      const file = readFileSync(join(dir, `.pi/agents/${role}.md`), "utf8");
+      const result = await dispatch(rt, dir, role);
+      expect(result.details.role).toBe(role);
+      const { args } = rt.children.at(-1)!;
+      expect(args).toContain("--no-mcp");
+      expect(flag(args, "--tools")).toBe(wanted[role]);
+      expect(flag(args, "--model")).toBe("openai-codex/gpt-parent");
+      // Instructions travel verbatim from the rendered role file.
+      const body = file.split("\n---\n").slice(1).join("\n---\n").trim();
+      expect(args.at(-1)).toContain(body.slice(0, 200));
+    }
+    // A tool outside the role's list is refused.
+    const path = join(dir, ".pi/agents/auditor.md");
+    writeFileSync(path, readFileSync(path, "utf8").replace('"write"]', '"write","edit"]'));
+    await expect(run(rt, dir, "auditor")).rejects.toThrow(
+      /Unknown or missing Pi role tool mapping/,
+    );
+  });
+
+  // Covers: R14
+  it("publisher is dispatchable now that its publishing is gated", async () => {
+    const { dir } = project({ scribeOwnsMarkdown: true, architect: true });
+    const rt = load();
+    for (const role of ["publisher", "auditor", "architect"] as const) {
+      expect((await dispatch(rt, dir, role)).details.role).toBe(role);
+    }
+    expect(flag(rt.children[0]!.args, "--tools")).toBe("read,grep,find,ls,bash");
+  });
+
+  // Covers: R4, R5, R6, R14
+  it("publisher gh pr create relays to the parent and never runs in the child", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-pi-publisher-"));
+    dirs.push(dir);
+    execFileSync("git", ["init", "-q", dir]);
+    renderPiEngine(
+      dir,
+      NavoriConfigSchema.parse({
+        name: "pi-publisher",
+        preset: "custom",
+        engines: ["pi"],
+        branchBase: "main",
+        qualityGate: { fast: "true", full: "true" },
+      }),
+    );
+    writeFileSync(join(dir, "pr-body.txt"), "Body of the pull request");
+    const sent: Array<Record<string, unknown>> = [];
+    const handlers = loadWithScripts({
+      env: { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "publisher" },
+      send: (message, callback) => {
+        sent.push(message);
+        callback(null);
+      },
+    });
+    const command = "gh pr create --title T --body-file pr-body.txt";
+    const result = (await handlers.get("tool_call")!(
+      { toolName: "bash", toolCallId: "c1", input: { command } },
+      { cwd: dir, hasUI: false, sessionManager: { getSessionId: () => "s" } },
+    )) as { block: boolean; reason: string };
+    expect(result.block).toBe(true);
+    expect(result.reason).toMatch(
+      /Navori approval not granted:.*return this command to the parent/,
+    );
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ kind: "parent-approval", command, bodyFiles: ["pr-body.txt"] });
+    expect(String((sent[0] as { reasons: string[] }).reasons[0])).toContain(
+      "Body of the pull request",
+    );
+  });
+
+  // Covers: R14
+  it("architect nested dispatch excluded on Pi", () => {
+    const config = NavoriConfigSchema.parse({
+      name: "x",
+      preset: "custom",
+      engines: ["pi"],
+      branchBase: "main",
+      qualityGate: { fast: "bun test", full: "bun test" },
+    });
+    const text =
+      "a\n<!-- navori:if-not onPi -->\nAgent(scout, scribe)\n<!-- /navori:if-not -->\nb\n";
+    expect(conditionOrchestration(text, config, "pi")).not.toContain("Agent(");
+    expect(conditionOrchestration(text, config, "claude")).toContain("Agent(");
+    const { dir } = project({ scribeOwnsMarkdown: true, architect: true });
+    expect(readFileSync(join(dir, ".pi/agents/architect.md"), "utf8")).not.toContain(
+      "you may dispatch",
+    );
+  });
+
+  // Covers: R14
+  it("per-role deadlines outlive the gate for commit and push roles", () => {
+    expect(Object.keys(PI_ROLE_TIMEOUT_MS).sort()).toEqual([...PI_ROLE_NAMES].sort());
+    for (const role of ["implementer", "publisher"] as const) {
+      expect(PI_ROLE_TIMEOUT_MS[role]).toBeGreaterThanOrEqual(PI_GATE_TIMEOUT_MS + 600_000);
+    }
   });
 });

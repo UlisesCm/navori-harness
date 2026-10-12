@@ -1,4 +1,4 @@
-# navori:managed start id="qg-pre-commit-base" hash="1f834a5f" version="0.11.3" source="@navori/core"
+# navori:managed start id="qg-pre-commit-base" hash="08dfaa73" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Pre-commit / pre-push quality gate hook.
@@ -94,10 +94,16 @@ cmd=$(extract_cmd)
 # so include order between the two partials does not matter.
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
+  # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
+  # through its extension bridge, which sends a Claude-shaped payload (tool names
+  # `Bash`/`Edit`/`Write`, `tool_input`, `cwd`). Every existing `= codex` branch
+  # keeps the Claude semantics for `pi`; behavior that exists only on Pi goes in
+  # an explicit `[ "$nv_engine" = pi ]` branch, never in a shared one.
+  *"/.pi/navori/"*) nv_engine=pi ;;
   *) nv_engine=claude ;;
 esac
 
-if [ "$nv_engine" = codex ]; then
+if [ "$nv_engine" = codex ] || [ "$nv_engine" = pi ]; then
   nv_cwd=$(payload_field cwd)
   # `cwd` is the session's working dir, which may be a workspace subdir in a
   # monorepo; the project root is always the git toplevel from there. Falls
@@ -293,7 +299,7 @@ navori_audit_record_metadata() {
   fi
   command -v navori >/dev/null 2>&1 || return 0
   case "${nv_engine:-}" in
-    claude | codex) navori_audit_host=$nv_engine ;;
+    claude | codex | pi) navori_audit_host=$nv_engine ;;
     *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
   esac
   # The writer assigns eventId/wireVersion before first persistence. Replay
@@ -513,7 +519,7 @@ run_gate() {
   }
 }
 
-# Gate to `git commit` only. $TRIGGER_RE is consumed by the shared detector
+# Gate to `git commit` (and `git push` in a Pi copy, below). $TRIGGER_RE is consumed by the shared detector
 # inlined below.
 TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)'
 # Literal substrings every branch of $TRIGGER_RE needs; read by the fast
@@ -521,6 +527,13 @@ TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:sp
 # a branch added there without its token here silently loses the shortcut
 # (fail-open to the slow path), and the inlined tests pin the pairing.
 TRIGGER_TOKENS='commit'
+# Spec 0048 D5 (R4): Pi has no native git hooks, so its copy gates `git push` as well as `git commit`,
+# with the same wrapper/compound normalization. Claude and Codex keep gating commits only. Indented on
+# purpose: the declarations above are the ones the wiring tests read.
+if [ "$nv_engine" = pi ]; then
+  TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+(commit|push)([[:space:]]|$)'
+  TRIGGER_TOKENS='commit push'
+fi
 # Heredoc bodies fed to `cat` are data, not commands (#1095).
 TRIGGER_STRIP_HEREDOC_BODIES=1
 # Shared gate detector — inlined into each hook at render time (see the include

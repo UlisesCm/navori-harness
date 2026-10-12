@@ -268,7 +268,9 @@ describe("Pi operational context on session_start", () => {
 
     // Children and non-git dirs inject nothing (the additive master-plan section is pinned in controls.test.ts).
     const child = loadExtension({ NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "scout" });
-    expect(child.handlers.has("session_start")).toBe(false);
+    // The child only keeps the powershell deactivation (spec 0048 D10); it never injects the snapshot.
+    await child.handlers.get("session_start")?.({ reason: "startup" }, sessionCtx(cwd, []));
+    expect(child.sent).toEqual([]);
     const bare = mkdtempSync(join(tmpdir(), "navori-pi-ctx-bare-"));
     dirs.push(bare);
     await start({ type: "session_start", reason: "startup" }, sessionCtx(bare, []));

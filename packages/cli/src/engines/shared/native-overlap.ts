@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ENGINES } from "../../lib/config/schema.ts";
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
-import type { EngineId } from "./engine-capabilities.ts";
+import { ENGINE_CAPABILITIES, type EngineId } from "./engine-capabilities.ts";
 import {
   CODEX_PARITY,
   CODEX_VERIFICATIONS,
@@ -15,6 +15,7 @@ import {
   type CodexParity,
 } from "./codex-parity.ts";
 import type { HarnessPlan } from "./harness-plan.ts";
+import { PI_PARITY, piParityKey, piParityState, type PiParityState } from "./pi-parity.ts";
 import {
   HOOK_ENGINES,
   WORKFLOW_SKILL_ENGINES,
@@ -304,8 +305,31 @@ const FLOWS: ReadonlyArray<{ id: string; note: string; codex: EngineSupport }> =
   },
 ];
 
-function support(claude: EngineSupport, codex: EngineSupport, prose: EngineSupport): Support {
-  return { claude, codex, pi: "unsupported", "agents-md": prose, cursor: prose, copilot: prose };
+function support(
+  claude: EngineSupport,
+  codex: EngineSupport,
+  prose: EngineSupport,
+  pi: EngineSupport = "unsupported",
+): Support {
+  return { claude, codex, pi, "agents-md": prose, cursor: prose, copilot: prose };
+}
+
+const PI_SUPPORT: Readonly<Record<PiParityState, EngineSupport>> = {
+  enforced: "emit",
+  advisory: "emit",
+  unsupported: "unsupported",
+  "n/a": "n/a",
+};
+
+/**
+ * What Pi gives for a unit `PI_PARITY` covers (hooks, permission rules and
+ * plugin scripts; spec 0048 R1), derived from that table so the two never
+ * disagree. Throws naming the unit when it has no row.
+ */
+function piSupportOf(unit: OverlapUnit): EngineSupport {
+  const row = PI_PARITY[piParityKey(unit.kind, unit.id)];
+  if (row === undefined) throw new Error(`no PI_PARITY row for unit ${unit.kind}:${unit.id}`);
+  return PI_SUPPORT[piParityState(row, (id) => ENGINE_CAPABILITIES.pi.controls[id].state)];
 }
 
 /** The Codex parity row for `unit`; throws naming the unit when none exists (R3). */
@@ -398,6 +422,7 @@ export const OVERLAP_ROWS: readonly OverlapRow[] = [
           ? "unsupported"
           : "emit",
         "n/a",
+        piSupportOf({ kind: "hook", id }),
       ),
       "No verified native equivalent; registered where the engine can.",
     ),
@@ -428,6 +453,7 @@ export const OVERLAP_ROWS: readonly OverlapRow[] = [
         "emit",
         parityOf({ kind: "plugin-script", id }).state === "limite-codex" ? "unsupported" : "emit",
         "n/a",
+        piSupportOf({ kind: "plugin-script", id }),
       ),
       "Bundled plugin script; no verified native equivalent.",
     ),
@@ -435,7 +461,12 @@ export const OVERLAP_ROWS: readonly OverlapRow[] = [
   ...PERMISSION_RULE_IDS.map((id) =>
     complementa(
       { kind: "permission-rule", id },
-      support("emit", permissionRuleCodexSupport(id), "n/a"),
+      support(
+        "emit",
+        permissionRuleCodexSupport(id),
+        "n/a",
+        piSupportOf({ kind: "permission-rule", id }),
+      ),
       "Claude ask/deny/allow rule; Codex translates it to a prefix_rule where it can.",
     ),
   ),

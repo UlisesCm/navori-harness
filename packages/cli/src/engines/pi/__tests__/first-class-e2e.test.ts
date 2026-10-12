@@ -24,6 +24,12 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { ENGINE_CAPABILITIES } from "../../shared/engine-capabilities.ts";
+import {
+  PI_PARITY,
+  PI_PARITY_DOC_END,
+  PI_PARITY_DOC_START,
+  renderPiParityDoc,
+} from "../../shared/pi-parity.ts";
 import { MIN_PI_VERSION } from "../runtime-version.ts";
 import { serializePiSource } from "../owned-file.ts";
 
@@ -36,7 +42,7 @@ import { serializePiSource } from "../owned-file.ts";
  * extension fixture). Limits, stated rather than hidden:
  *  - no live model: faux proves the pipeline, never model compliance;
  *  - the parent runs in process (SDK), not as an interactive TUI/RPC process: approval is driven through Pi's
- *    real ExtensionRunner with a stub `ui.confirm`, so the dialog rendering itself is not exercised;
+ *    real ExtensionRunner with a stub `ui.select`, so the dialog rendering itself is not exercised;
  *  - "receipt" is the shared `plan update ... cumplido` closure over the host-recorded evidence.
  */
 const PKG = resolve(import.meta.dirname, "../../../..");
@@ -50,7 +56,11 @@ const A1 = "echo e2e-a1";
 const A2 = "exit 3";
 const A3 = "echo e2e-a3";
 const CLAIM = "echo operator-approved --approved-by tester";
+const PR = "gh pr create --title T --body-file pr-body.txt";
+const PR_BODY = "Reviewed body of the e2e pull request\n";
 const BIG = 300 * 1024;
+// Every run is logged outside the repo (a tracked log would dirty the tree); the flag file turns it red.
+const GATE = "echo gate-ran >> ../gate.log; test ! -f .gate-red";
 const ENV_KEYS = [
   "HOME",
   "PATH",
@@ -109,7 +119,7 @@ const dispatch = (role: string, task: string) =>
   call("navori_subagent", { role, task, feature: FEATURE });
 
 describe("Pi credential-free first-class cycle", () => {
-  // Covers: R15, R16, R17, R18, R19
+  // Covers: R4, R5, R6, R15, R16, R17, R18, R19
   it("credential-free first-class cycle", { timeout: 180_000 }, async () => {
     // Under the OS temp dir, never inside the checkout; registered before anything can fail so afterEach
     // removes it on assertion failure and on timeout alike.
@@ -139,6 +149,16 @@ describe("Pi credential-free first-class cycle", () => {
       writeFileSync(join(bin, name), `#!/bin/sh\nexec "${process.execPath}" "${entry}" "$@"\n`);
       chmodSync(join(bin, name), 0o755);
     }
+    // `gh` is recorded, never real: it only proves whether a PR creation reached the shell.
+    const ghLog = join(root, "gh.log");
+    writeFileSync(join(bin, "gh"), `#!/bin/sh\necho "$@" >> "${ghLog}"\n`);
+    chmodSync(join(bin, "gh"), 0o755);
+    const gateRuns = (): number =>
+      existsSync(join(root, "gate.log"))
+        ? readFileSync(join(root, "gate.log"), "utf8").split("\n").filter(Boolean).length
+        : 0;
+    const ghCalls = (): string[] =>
+      existsSync(ghLog) ? readFileSync(ghLog, "utf8").split("\n").filter(Boolean) : [];
     const cleanEnv: NodeJS.ProcessEnv = {
       HOME: home,
       PATH: `${bin}:${process.env.PATH ?? ""}`,
@@ -168,8 +188,9 @@ describe("Pi credential-free first-class cycle", () => {
       preset: "custom",
       engines: ["pi"],
       branchBase: "main",
-      qualityGate: { fast: "true", full: "true" },
+      qualityGate: { fast: GATE, full: GATE },
       harness: { scribeOwnsMarkdown: true },
+      hooks: { verifyOnStop: true },
     });
     writeFileSync(join(cwd, "navori.config.json"), JSON.stringify(config, null, 2));
     await phase("install (navori render --apply)", diagnostic, () => {
@@ -194,6 +215,8 @@ describe("Pi credential-free first-class cycle", () => {
     // Project fixture: previous-session state, the faux provider extension, a pending workplan and its index.
     mkdirSync(join(cwd, "progress"));
     writeFileSync(join(cwd, "progress/current.md"), "Resume the e2e demo feature.\n");
+    // Tracked from the baseline, so the settle turn can leave a tracked change behind (R17 lifecycle).
+    writeFileSync(join(cwd, "progress/state.txt"), "baseline\n");
     writeFileSync(join(cwd, ".pi/extensions/zz-faux.ts"), readFileSync(FAUX_FIXTURE, "utf8"));
     mkdirSync(join(cwd, DIR), { recursive: true });
     writeFileSync(
@@ -214,6 +237,7 @@ describe("Pi credential-free first-class cycle", () => {
         decisions: [],
       }),
     );
+    writeFileSync(join(cwd, DIR, "impl_stale.json"), JSON.stringify({ feature: "stale" }));
     await phase("approved plan (acceptance index)", diagnostic, () => {
       // `plan update` is the CLI write path that refreshes the acceptance index the extension reads.
       const planned = navori([
@@ -232,6 +256,8 @@ describe("Pi credential-free first-class cycle", () => {
     });
     git("add", "-A");
     git("commit", "-m", "baseline");
+    execFileSync("git", ["init", "--bare", "-q", "-b", "main", join(root, "remote.git")]);
+    git("remote", "add", "origin", join(root, "remote.git"));
     const branch = git("branch", "--show-current");
 
     // ---- scripted model: the parent and every child role --------------------------------------------------
@@ -239,6 +265,7 @@ describe("Pi credential-free first-class cycle", () => {
     const handoff = {
       feature: FEATURE,
       status: "DONE",
+      head: git("rev-parse", "HEAD"),
       worktree: cwd,
       branch,
       commits: [],
@@ -271,7 +298,47 @@ describe("Pi credential-free first-class cycle", () => {
             bash(A1),
             bash(A2),
             { text: "turn: evidence" },
+            // R17 guards: destructive, shared deny, control plane and a managed file, all blocked.
+            bash("rm -rf /"),
+            bash("sudo rm -rf /var/e2e"),
+            bash("echo tampered > .pi/navori.json"),
+            call("write", { path: ".pi/agents/scribe.md", content: "tampered\n" }),
+            { text: "turn: guards" },
+            // R17 roles: auditor and architect dispatch like the original four.
+            dispatch("auditor", "audit the diff"),
+            dispatch("architect", "propose a design"),
+            { text: "turn: new roles" },
+            // R17 handoff: the child never rewrites impl_stale.json, so its stale handoff fails the call.
+            call("navori_subagent", { role: "implementer", task: "do nothing", feature: "stale" }),
+            { text: "turn: stale handoff" },
+            // R4 gate: commit and push pass through it; a red gate blocks both.
+            bash("git add -A && git commit -m wip"),
+            bash("git push origin HEAD"),
+            { text: "turn: gate green" },
+            // R18 shared ask rule, confirmed in the parent (clean tree, so the destructive guard stays quiet).
+            bash("git reset --hard"),
+            { text: "turn: ask rule" },
+            bash("touch .gate-red"),
+            bash("git commit --allow-empty -m blocked"),
+            bash("git push origin HEAD"),
+            bash("rm -f .gate-red"),
+            { text: "turn: gate red" },
+            // R5 publishing: the body is shown and bound to its content.
+            call("write", { path: "pr-body.txt", content: PR_BODY }),
+            bash(PR), // confirmed as shown
+            { text: "turn: publishing" },
+            bash(PR), // body swapped while the dialog is open
+            { text: "turn: body swapped" },
+            dispatch("publisher", "publish the work"),
+            { text: "turn: publisher" },
+            bash(A1), // the commits moved HEAD: evidence is bound to the tree, so A1 runs again
+            { text: "turn: fresh evidence" },
+            call("write", { path: "progress/state.txt", content: "edited\n" }),
+            { text: "turn: settle" },
           ],
+          auditor: [{ text: "audit complete" }],
+          publisher: [bash("git reset --hard"), bash(PR), { echoAll: "publisher results:" }],
+          architect: [{ text: "design complete" }],
           scout: [{ bigText: BIG }],
           implementer: [
             call("write", { path: "src/feature.ts", content: "export const feature = 1;\n" }),
@@ -367,12 +434,16 @@ describe("Pi credential-free first-class cycle", () => {
         expect(noUi[0]).toMatchObject({ toolName: "bash", isError: true });
         expect(noUi[0]?.text).toContain("no interactive UI");
       });
-      const denied = await turn("approval denied", { confirm: async () => false });
+      const denied = await turn("approval denied", {
+        select: async (_t: string, options: string[]) => options[0],
+      });
       await phase("approval denied", diagnostic, () => {
         expect(denied[0]).toMatchObject({ isError: true });
         expect(denied[0]?.text).toContain("denied or cancelled");
       });
-      const allowed = await turn("approval granted", { confirm: async () => true });
+      const allowed = await turn("approval granted", {
+        select: async (_t: string, options: string[]) => options[1],
+      });
       await phase("approval granted (positive control)", diagnostic, () => {
         expect(allowed[0]).toMatchObject({ toolName: "bash", isError: false });
         expect(allowed[0]?.text).toContain("operator-approved");
@@ -395,6 +466,8 @@ describe("Pi credential-free first-class cycle", () => {
         expect(implemented[0]).toMatchObject({ toolName: "navori_subagent", isError: false });
         expect(implemented[0]?.text).toContain("scribe owns Markdown");
         expect(implemented[0]?.text).toContain("headless Navori children cannot approve");
+        // R17 relay: the child's approval request reached the parent with the exact command.
+        expect(JSON.stringify(implemented[0]?.details)).toContain(CLAIM);
         expect(readFileSync(join(cwd, "src/feature.ts"), "utf8")).toContain("feature = 1");
         expect(existsSync(join(cwd, "README.md"))).toBe(false);
       });
@@ -405,7 +478,9 @@ describe("Pi credential-free first-class cycle", () => {
       });
       const reviewed = await turn("reviewer child");
       await phase("joint review", diagnostic, () => {
-        expect(reviewed[0]).toMatchObject({ toolName: "navori_subagent", isError: false });
+        // The scripted reviewer writes no sealed review handoff: Pi reports the child as failed (R7).
+        expect(reviewed[0]).toMatchObject({ toolName: "navori_subagent", isError: true });
+        expect(reviewed[0]?.text).toContain("reviewer handoff invalid");
         expect(reviewed[0]?.text).toContain("src/feature.ts");
         expect(reviewed[0]?.text).toContain(docsPath);
       });
@@ -443,6 +518,121 @@ describe("Pi credential-free first-class cycle", () => {
         });
       });
 
+      // ---- 6b. Guards, new roles and a stale handoff (R17) -------------------------------------------
+      const guarded = await turn("guards");
+      await phase(
+        "guards block destructive, deny, control plane and managed edits",
+        diagnostic,
+        () => {
+          expect(guarded.map((o) => [o.toolName, o.isError])).toEqual([
+            ["bash", true],
+            ["bash", true],
+            ["bash", true],
+            ["write", true],
+          ]);
+          expect(readFileSync(join(cwd, ".pi/navori.json"), "utf8")).not.toContain("tampered");
+          expect(readFileSync(join(cwd, ".pi/agents/scribe.md"), "utf8")).not.toContain("tampered");
+        },
+      );
+      const roles = await turn("new roles");
+      await phase("auditor and architect dispatch", diagnostic, () => {
+        expect(roles.map((o) => [o.toolName, o.isError])).toEqual([
+          ["navori_subagent", false],
+          ["navori_subagent", false],
+        ]);
+        expect(roles[0]?.text).toContain("audit complete");
+        expect(roles[1]?.text).toContain("design complete");
+      });
+      const stale = await turn("stale handoff");
+      await phase("stale handoff fails the child", diagnostic, () => {
+        expect(stale[0]).toMatchObject({ toolName: "navori_subagent", isError: true });
+        expect(stale[0]?.text).toContain("stale");
+      });
+
+      // ---- 6c. Gate, shared ask rule and publishing confirmations (R4, R5, R6, R18) ----------------------
+      const asked: string[] = [];
+      let swapBody = false;
+      const confirming: Partial<ExtensionUIContext> = {
+        select: async (title: string, options: string[]) => {
+          asked.push(title);
+          if (swapBody) writeFileSync(join(cwd, "pr-body.txt"), "Swapped body\n");
+          return options[1];
+        },
+      };
+      const before = gateRuns();
+      const green = await turn("gate green", confirming);
+      await phase("commit and push pass through the gate", diagnostic, () => {
+        expect(green.map((o) => [o.toolName, o.isError])).toEqual([
+          ["bash", false],
+          ["bash", false],
+        ]);
+        // One gate run per commit/push, and no confirmation: a green gate asks nothing.
+        expect(gateRuns() - before).toBe(2);
+        expect(asked).toEqual([]);
+        expect(git("log", "--format=%s", "-1")).toBe("wip");
+        expect(git("--git-dir", join(root, "remote.git"), "log", "--format=%s", "-1", "main")).toBe(
+          "wip",
+        );
+      });
+      const reset = await turn("ask rule", confirming);
+      await phase("shared ask rule confirmed in the parent", diagnostic, () => {
+        expect(reset[0]).toMatchObject({ toolName: "bash", isError: false });
+        expect(asked).toHaveLength(1);
+        expect(asked[0]).toMatch(/shared permission ask rule/);
+        expect(asked[0]).toContain("git reset --hard");
+        asked.length = 0;
+      });
+      const red = await turn("gate red", confirming);
+      await phase("a red gate blocks commit and push", diagnostic, () => {
+        expect(red.map((o) => [o.toolName, o.isError])).toEqual([
+          ["bash", false],
+          ["bash", true],
+          ["bash", true],
+          ["bash", false],
+        ]);
+        expect(red[1]?.text).toMatch(/quality-gate fast failed/);
+        expect(red[2]?.text).toMatch(/quality-gate fast failed/);
+        expect(git("log", "--format=%s", "-1")).toBe("wip");
+        expect(existsSync(join(cwd, ".gate-red"))).toBe(false);
+      });
+      asked.length = 0;
+      const published = await turn("publishing", confirming);
+      await phase("PR creation confirmed with its body, bound to its hash", diagnostic, () => {
+        expect(published.map((o) => [o.toolName, o.isError])).toEqual([
+          ["write", false],
+          ["bash", false],
+        ]);
+        expect(asked).toHaveLength(1);
+        expect(asked[0]).toContain(PR);
+        expect(asked[0]).toContain("Reviewed body of the e2e pull request");
+        expect(ghCalls()).toEqual(["pr create --title T --body-file pr-body.txt"]);
+      });
+      swapBody = true;
+      const swapped = await turn("publishing body swapped", confirming);
+      swapBody = false;
+      await phase("a body changed after the confirmation is refused", diagnostic, () => {
+        expect(swapped[0]).toMatchObject({ toolName: "bash", isError: true });
+        expect(swapped[0]?.text).toMatch(/draft body changed between the confirmation and its use/);
+        expect(ghCalls()).toHaveLength(1);
+      });
+
+      // ---- 6d. The publisher child never publishes: both approvals are relayed (R6, R17, R18) -----------
+      writeFileSync(join(cwd, "pr-body.txt"), PR_BODY);
+      const asksBefore = asked.length;
+      const relayed = await turn("publisher child", confirming);
+      await phase("publisher gh pr create and ask rule relayed to the parent", diagnostic, () => {
+        expect(relayed[0]).toMatchObject({ toolName: "navori_subagent", isError: false });
+        expect(relayed[0]?.text).toContain("return this command to the parent");
+        const details = JSON.stringify(relayed[0]?.details);
+        expect(details).toContain(PR);
+        expect(details).toContain("git reset --hard");
+        // Never confirmed from the child, never executed there.
+        expect(asked).toHaveLength(asksBefore);
+        expect(ghCalls()).toHaveLength(1);
+      });
+
+      await turn("fresh evidence");
+
       // ---- 7. Receipt: the shared closure accepts the exact run and rejects the failing one --------------
       const piSession = { PI_SESSION_ID: active.sessionId };
       await phase("receipt", diagnostic, () => {
@@ -460,6 +650,18 @@ describe("Pi credential-free first-class cycle", () => {
         const plan = JSON.parse(readFileSync(join(cwd, DIR, `workplan_${FEATURE}.json`), "utf8"));
         expect(plan.progress).toMatchObject({ A1: "cumplido", A2: "pendiente" });
         expect(plan.evidence.A1).toMatchObject({ kind: "recorded", command: A1 });
+      });
+
+      // R17 lifecycle: the receipt left a tracked file dirty, so settling adds the reminder; shutdown is
+      // clean (no worktrees to reclaim) and never throws.
+      await turn("settle");
+      await phase("settle reminder and shutdown", diagnostic, async () => {
+        const kinds = active.sessionManager
+          .getBranch()
+          .map((entry) => (entry as { customType?: string }).customType);
+        expect(kinds).toContain("navori-verify-reminder");
+        await active.extensionRunner?.emit({ type: "session_shutdown", reason: "quit" } as never);
+        expect(existsSync(join(cwd, ".claude"))).toBe(false);
       });
 
       // No real credentials or accounts: nothing stored, only the fixture provider ever answered.
@@ -551,5 +753,21 @@ describe("Pi documented support", () => {
       (ENGINE_CAPABILITIES.pi.runtimeAdmissions ?? []).map((r) => [r.capability, r.decision]),
     );
     expect(Object.fromEntries(documentedRows(doc, "Runtime admissions"))).toEqual(admissions);
+  });
+});
+
+describe("Pi documented parity table", () => {
+  // Covers: R1, R17
+  it("support matrix matches PI_PARITY", () => {
+    const doc = readFileSync(join(PKG, "../../docs/pi.md"), "utf8");
+    const start = doc.indexOf(PI_PARITY_DOC_START);
+    const end = doc.indexOf(PI_PARITY_DOC_END);
+    expect(start, "pi guide has no pi-parity start marker").toBeGreaterThanOrEqual(0);
+    expect(end, "pi guide has no pi-parity end marker").toBeGreaterThan(start);
+    const generated = renderPiParityDoc(
+      PI_PARITY,
+      (id) => ENGINE_CAPABILITIES.pi.controls[id].state,
+    );
+    expect(doc.slice(start, end + PI_PARITY_DOC_END.length)).toBe(generated);
   });
 });

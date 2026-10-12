@@ -1,10 +1,11 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
 import { renderClaudeEngine } from "../claude/index.ts";
 import { renderCodexEngine } from "../codex/index.ts";
+import { renderPiEngine } from "../pi/index.ts";
 import { CODEX_HOOK_REGISTRATIONS } from "../codex/hook-registrations.ts";
 import { CODEX_HOOKS_WITHOUT_REGISTRATION, CODEX_PARITY } from "../shared/codex-parity.ts";
 
@@ -267,4 +268,69 @@ describe("engine inventory parity (claude ↔ codex)", () => {
       }
     }
   });
+});
+
+/** Every file under `dir` (repo-relative, sorted) mapped to its bytes and exec bit, skipping `skip` prefixes. */
+function snapshotTree(dir: string, skip: readonly string[], rel = ""): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const name of readdirSync(join(dir, rel)).sort()) {
+    const relPath = rel === "" ? name : `${rel}/${name}`;
+    if (skip.some((prefix) => relPath === prefix || relPath.startsWith(`${prefix}/`))) continue;
+    const abs = join(dir, relPath);
+    if (statSync(abs).isDirectory()) {
+      for (const [k, v] of snapshotTree(dir, skip, relPath)) out.set(k, v);
+    } else {
+      const exec = (statSync(abs).mode & 0o111) !== 0 ? "[exec]" : "";
+      out.set(relPath, `${exec}${readFileSync(abs, "utf-8")}`);
+    }
+  }
+  return out;
+}
+
+describe("output identity: Pi writes only under .pi/ (R16)", () => {
+  // Covers: R16
+  it.each(["claude", "codex"] as const)(
+    "render(%s) is byte-identical to its subtree of render(%s+pi)",
+    (engine) => {
+      const base = {
+        name: "identity-demo",
+        preset: "custom",
+        branchBase: "main",
+        qualityGate: { fast: "pnpm test", full: "pnpm test" },
+      } as const;
+      const only = NavoriConfigSchema.parse({ ...base, engines: [engine] });
+      const withPi = NavoriConfigSchema.parse({ ...base, engines: [engine, "pi"] });
+      const render = (cwd: string, config: NavoriConfig): void => {
+        if (engine === "claude") renderClaudeEngine(cwd, config);
+        else renderCodexEngine(cwd, config);
+      };
+      const a = mkdtempSync(join(tmpdir(), `navori-identity-${engine}-`));
+      const b = mkdtempSync(join(tmpdir(), `navori-identity-${engine}-pi-`));
+      try {
+        render(a, only);
+        render(b, withPi);
+        renderPiEngine(b, withPi);
+        expect(existsSync(join(b, ".pi/navori.json"))).toBe(true);
+        const expected = snapshotTree(a, []);
+        const actual = snapshotTree(b, []);
+        // Every byte the lone engine writes survives, identical, once Pi is added.
+        for (const [file, bytes] of expected) expect(actual.get(file), file).toBe(bytes);
+        // What Pi adds lives only in its own output lanes (D3): `.pi/` and the shared agents-md
+        // and `.agents/skills` roots, which Claude does not write and Codex already owns.
+        const isPiLane = (file: string): boolean =>
+          file.startsWith(".pi/") || file === "AGENTS.md" || file.startsWith(".agents/skills/");
+        const added = [...actual.keys()].filter((file) => !expected.has(file));
+        expect(added.filter((file) => !isPiLane(file))).toEqual([]);
+        if (engine === "codex")
+          expect(added.filter((file) => !file.startsWith(".pi/"))).toEqual([]);
+        if (engine === "codex") {
+          const rules = ".codex/rules/navori.rules";
+          expect(readFileSync(join(b, rules), "utf-8")).toBe(readFileSync(join(a, rules), "utf-8"));
+        }
+      } finally {
+        rmSync(a, { recursive: true, force: true });
+        rmSync(b, { recursive: true, force: true });
+      }
+    },
+  );
 });
