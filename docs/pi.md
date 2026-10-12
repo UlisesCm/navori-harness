@@ -140,6 +140,10 @@ extension blocks `bash`, `edit` and `write` because it cannot evaluate them; rea
 removes it from the active tools at `session_start` with `setActiveTools`, and blocks any `powershell` call at
 `tool_call`. On Windows, use the `bash` tool; it requires Git for Windows (Git Bash).
 
+### Latency
+
+Per bash call through the bridge, with all bound scripts running concurrently: p50 26.7 ms, p95 31.1 ms, max 34.6 ms (macOS, n=60). Measured by `packages/cli/src/engines/pi/__tests__/first-class-latency.test.ts`.
+
 ## Plugins
 
 An enabled plugin reaches Pi through `renderPiEngine` (`packages/cli/src/engines/pi/index.ts`) and
@@ -356,10 +360,163 @@ Each row has one state:
 A unit without a row fails the inventory test (`pi-parity.test.ts`), which names it. A row stays
 `unsupported` until the change that implements it flips it together with its code and tests.
 
-- `routing-watch` is `unsupported`: the signal exists in Pi's `tool_result`, but the script keys on
-  Claude tool names. A probe (not a live Pi run) shows the Pi name `edit` emits nothing. It can become
-  `advisory` only once the M2 bridge maps Pi tool names.
-- `model-advisor` is `unsupported`: Pi has no per-turn model-change payload to advise on.
+<!-- pi-parity:start -->
+<!-- Generated from `PI_PARITY` (`packages/cli/src/engines/shared/pi-parity.ts`). Do not edit by hand: `first-class-e2e.test.ts` pins it. -->
+
+Bypass classes of every seatbelt row (a seatbelt is a textual check, not a sandbox):
+
+- sh -c / eval / xargs / obfuscated command
+- a script written to disk and then executed
+- pi --no-extensions outside the covered form
+- write-capable MCP tools of the parent (mcp__github__*)
+- third-party extensions that mutate the tool input after the Navori handler
+
+| Unit | State | Class | Boundary |
+|---|---|---|---|
+| `hook:audit-mode-close` | advisory | — | seals only a log that already exists: Pi never opens an audit-mode log (`audit-mode-trigger` is unsupported), so it is a no-op until one is started. Failures are silent |
+| `hook:audit-mode-trigger` | unsupported | — | Pi never opens an audit-mode log through this hook (out of scope of spec 0048, design non-goal) |
+| `hook:bash-outcome-watch` | advisory | control `repeat-failure-advice` | — |
+| `hook:comment-draft-confirm` | enforced | seatbelt (bypass classes above) | a body that is inline or unreadable is shown only as the command; stdin (`-F -`) bodies and a path built by the shell (`$VAR`, `$(…)`) are not shown. A window remains between the check and the exec. Indirect shell forms bypass it |
+| `hook:engram-write-guard` | n/a | — | Codex-only: Pi children run with `--no-mcp`, so there are no engram grants to guard (child-mcp-grants is deferred) |
+| `hook:general-purpose-confirm` | unsupported | control `general-purpose-confirm` | — |
+| `hook:guard-destructive` | enforced | seatbelt (bypass classes above) | textual policy over the command string: the destructive rules of the shared script, the shared `deny` permission rules, writes to the Pi control plane (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) and `pi --no-extensions`. The shared `ask` rules answer `ask` (their own row) |
+| `hook:implementer-no-markdown` | advisory | control `markdown-ownership` | — |
+| `hook:managed-drift-watch` | advisory | — | never blocks, and only sees blocks with a hash marker (AGENTS.md, skills, hook copies); the extension, manifest and role files have no per-block hash and are protected by the guard and the edit/write lane instead. A drift it cannot evaluate is silent |
+| `hook:master-accept-confirm` | enforced | seatbelt (bypass classes above) | covers `navori master part\|delivery-baseline\|delivery-queue\|delivery-criterion … --approved-by`, `master close`, `delivery-review\|decision\|publication\|revoke` and `delivery-slice --refresh`; indirect shell forms (`sh -c`, a script on disk) bypass it. The confirmation is a seatbelt, not a sandbox |
+| `hook:master-plan-context` | advisory | control `master-plan` | — |
+| `hook:model-advisor` | unsupported | — | In Pi the model is chosen with `/model` and passed to children (spec 0047 R17); there is no per-turn model-change payload to advise on |
+| `hook:plan-gate` | enforced | control `plan-gate` | — |
+| `hook:pr-publisher-confirm` | enforced | seatbelt (bypass classes above) | installed only when the publisher role is enabled; a body that is inline or unreadable is shown only as the command. Indirect shell forms bypass it |
+| `hook:quality-gate-pre-commit` | enforced | seatbelt (bypass classes above) | only with `qualityGate.fast` configured (no row otherwise, as in Claude and Codex); the result holds for the working tree at that moment. Indirect shell forms (`sh -c`, a script on disk) bypass it; a hook outside the agent (the user's own terminal) is not seen |
+| `hook:role-guard` | n/a | — | Codex-only: Claude and Pi restrict roles by their tool allowlist, not a hook (HOOK_ENGINES) |
+| `hook:routing-watch` | unsupported | — | Becomes `advisory` only once the bridge maps Pi tool names and payload fields to the script's contract and turns its additionalContext into an appended result block (spec 0048 E1 M2/E3); never blocks |
+| `hook:session-start-context` | advisory | — | context only, not a boundary; the injection is skipped on any error |
+| `hook:stop-verify-reminder` | advisory | — | never blocks and never sets `continue`, so no extra model request; one reminder per agent run; a failure shows nothing |
+| `hook:subagent-no-background` | enforced | seatbelt (bypass classes above) | textual policy over the command string, children only: the parent may background work |
+| `hook:subagent-stop-handoff` | enforced | control `handoff-shape` | — |
+| `hook:worktree-reclaim` | advisory | — | same bar as Claude (clean, pushed, merged PR) plus: a worktree with ignored files under `.navori/state/` is kept. Pi creates no worktrees; a SIGKILL fires no event and the next close sweeps. Failures are silent |
+| `permission-rule:class:allow-not-translated` | n/a | — | Pi has no permission system, so there is no allow list to translate (same as Codex) |
+| `permission-rule:class:bash-ask` | enforced | seatbelt (bypass classes above) | token prefixes: a pattern with an inner wildcard is dropped and a `*` glued to the last token is narrowed to the exact token (`git clean -f*` asks for `git clean -f`, not `-fd`); a block rule wins over a question |
+| `permission-rule:class:bash-deny` | enforced | seatbelt (bypass classes above) | token prefixes: a pattern with an inner wildcard or a non-Bash entry is dropped (its own row); a `*` glued to the last token is narrowed to the exact token |
+| `permission-rule:class:prompt-amendment` | n/a | — | Codex-only persistent 'do not ask again' amendment; Pi has no prompt rules |
+| `permission-rule:dropped:Agent(orchestrator)` | n/a | — | Pi's roster has no orchestrator role to dispatch, so there is nothing to forbid |
+| `permission-rule:narrowed:Bash(git branch --delete*)` | enforced | seatbelt (bypass classes above) | family git-destructive-prefix: the prefix matches only the literal target (a glued trailing * is narrowed to the exact token) |
+| `permission-rule:narrowed:Bash(git clean -d*)` | enforced | seatbelt (bypass classes above) | family git-destructive-prefix: the prefix matches only the literal target (a glued trailing * is narrowed to the exact token) |
+| `permission-rule:narrowed:Bash(git clean -f*)` | enforced | seatbelt (bypass classes above) | family git-destructive-prefix: the prefix matches only the literal target (a glued trailing * is narrowed to the exact token) |
+| `permission-rule:narrowed:Bash(git push --force*)` | enforced | seatbelt (bypass classes above) | family git-push-force: the prefix matches only the literal target (a glued trailing * is narrowed to the exact token) |
+| `permission-rule:narrowed:Bash(git reset --hard*)` | enforced | seatbelt (bypass classes above) | family git-destructive-prefix: the prefix matches only the literal target (a glued trailing * is narrowed to the exact token) |
+| `permission-rule:narrowed:Bash(git stash clear*)` | enforced | seatbelt (bypass classes above) | family git-destructive-prefix: the prefix matches only the literal target (a glued trailing * is narrowed to the exact token) |
+| `permission-rule:narrowed:Bash(git stash drop*)` | enforced | seatbelt (bypass classes above) | family git-destructive-prefix: the prefix matches only the literal target (a glued trailing * is narrowed to the exact token) |
+| `permission-rule:narrowed:Bash(mkfs*)` | enforced | seatbelt (bypass classes above) | family mkfs: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --force --recursive $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --force --recursive --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --force --recursive /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --force --recursive ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --force -R $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --force -R --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --force -R /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --force -R ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --force -r $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --force -r --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --force -r /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --force -r ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --recursive $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --recursive --force $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --recursive --force --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --recursive --force /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --recursive --force ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --recursive --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --recursive -f $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --recursive -f --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --recursive -f /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --recursive -f ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --recursive /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm --recursive ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -R $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -R --force $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -R --force --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -R --force /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -R --force ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -R --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -R -f $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -R -f --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -R -f /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -R -f ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -R /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -R ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -Rf $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -Rf --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -Rf /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -Rf ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -f --recursive $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -f --recursive --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -f --recursive /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -f --recursive ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -f -R $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -f -R --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -f -R /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -f -R ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -f -r $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -f -r --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -f -r /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -f -r ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -fR $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -fR --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -fR /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -fR ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -fr $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -fr --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -fr /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -fr ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -r $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -r --force $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -r --force --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -r --force /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -r --force ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -r --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -r -f $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -r -f --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -r -f /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -r -f ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -r /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -r ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -rf $HOME/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -rf --no-preserve-root*)` | enforced | seatbelt (bypass classes above) | family rm-no-preserve-root: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -rf /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `permission-rule:narrowed:Bash(rm -rf ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
+| `plugin-hook-extension:tgrep/tgrep-search-lane` | enforced | seatbelt (bypass classes above) | textual seatbelt over grep/rg segments; fails open (audited as fail-open) while the index is unavailable |
+| `plugin-hook:jscpd/0` | enforced | seatbelt (bypass classes above) | enforced only while the extension is loaded; same textual-seatbelt limits as the shared guard |
+| `plugin-hook:semgrep/0` | enforced | seatbelt (bypass classes above) | enforced only while the extension is loaded; same textual-seatbelt limits as the shared guard |
+| `plugin-managed:acli/acli-protocol` | advisory | — | Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it |
+| `plugin-managed:codegraph/codegraph-search-v2` | advisory | — | Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it |
+| `plugin-managed:tgrep/tgrep-search-v2` | advisory | — | Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it |
+| `plugin-mcp-server:codegraph` | advisory | — | configured is not connected: --no-mcp, -builtin:mcp and extensions replacing the native MCP are not detected; only server names and `enabled` are read. Navori never writes Pi MCP config |
+| `plugin-mcp-server:engram` | advisory | — | configured is not connected: --no-mcp, -builtin:mcp and extensions replacing the native MCP are not detected; only server names and `enabled` are read. Navori never writes Pi MCP config |
+| `plugin-script:jscpd/check-jscpd.sh` | enforced | seatbelt (bypass classes above) | a textual check of the command the model writes, not a sandbox; Pi has no permission system of its own |
+| `plugin-script:semgrep/check-semgrep.sh` | enforced | seatbelt (bypass classes above) | a textual check of the command the model writes, not a sandbox; Pi has no permission system of its own |
+| `plugin-script:tgrep/guard-search-routing.sh` | enforced | seatbelt (bypass classes above) | content search (grep/rg) only; fails open when tgrep is missing, its server is not running or no index exists |
+| `plugin-settings:acli` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
+| `plugin-settings:codegraph` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
+| `plugin-settings:engram` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
+| `plugin-settings:gh` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
+| `plugin-settings:jscpd` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
+| `plugin-settings:semgrep` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
+| `plugin-settings:tgrep` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
+| `plugin-skill:acli/acli-comment-channel-publisher` | advisory | — | guidance only, nothing enforces it; with the publisher role disabled no role file exists and the prose is not rendered |
+| `plugin-skill:codegraph/codegraph-access-v2-architect` | unsupported | — | codegraph declares an MCP server and Pi children run with --no-mcp, so the architect prose is not injected; render names the role (mcpRoleDiagnostics) |
+| `plugin-skill:codegraph/codegraph-access-v2-auditor` | unsupported | — | codegraph declares an MCP server and Pi children run with --no-mcp, so the auditor prose is not injected; render names the role (mcpRoleDiagnostics) |
+| `plugin-skill:codegraph/codegraph-access-v2-implementer` | unsupported | — | codegraph declares an MCP server and Pi children run with --no-mcp, so the implementer prose is not injected; render names the role (mcpRoleDiagnostics) |
+| `plugin-skill:codegraph/codegraph-access-v2-orchestrator` | advisory | — | Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it |
+| `plugin-skill:codegraph/codegraph-access-v2-reviewer` | unsupported | — | codegraph declares an MCP server and Pi children run with --no-mcp, so the reviewer prose is not injected; render names the role (mcpRoleDiagnostics) |
+| `plugin-skill:engram/engram-auditor-extension` | unsupported | — | engram declares an MCP server and Pi children run with --no-mcp, so the auditor prose is not injected; render names the role (mcpRoleDiagnostics) |
+| `plugin-skill:engram/engram-implementer-extension` | unsupported | — | engram declares an MCP server and Pi children run with --no-mcp, so the implementer prose is not injected; render names the role (mcpRoleDiagnostics) |
+| `plugin-skill:engram/engram-orchestrator-extension` | advisory | — | Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it |
+| `plugin-skill:engram/engram-reviewer-extension` | unsupported | — | engram declares an MCP server and Pi children run with --no-mcp, so the reviewer prose is not injected; render names the role (mcpRoleDiagnostics) |
+| `plugin-skill:gh/gh-comment-channel-publisher` | advisory | — | guidance only, nothing enforces it; with the publisher role disabled no role file exists and the prose is not rendered |
+| `plugin-skill:jscpd/jscpd-review-extension` | advisory | — | with Codex active, Codex writes that skill and its sub-block; Pi never duplicates it. The text is guidance, nothing enforces it |
+| `plugin-skill:semgrep/semgrep-review-extension` | advisory | — | with Codex active, Codex writes that skill and its sub-block; Pi never duplicates it. The text is guidance, nothing enforces it |
+<!-- pi-parity:end -->
 
 ## Cycle commands
 
@@ -400,7 +557,8 @@ Limits, stated rather than hidden:
   (see [design.md](../specs/0047-pi-first/design.md)); it is pending.
 - **Live-model smoke**: partial, see [evals.md](../specs/0047-pi-first/evals.md). The manual smoke has
   confirmed startup context loaded from `AGENTS.md` and an implementer dispatch via `navori_subagent`. It
-  has not yet covered anything beyond that.
+  has not yet covered anything beyond that. The pending 0048 live smoke is recorded in
+  [evals.md](../specs/0048-pi-paridad/evals.md).
 - **Closure in a live Pi session**: not executed.
 
 ## Native MCP and project trust
@@ -456,13 +614,25 @@ manual user smoke test.
 
 ## Manual smoke
 
-1. Check `pi --version` and confirm it meets the supported baseline above.
-2. Start Pi interactively in a project whose resources you trust.
-3. Run `/login` and select the `openai-codex` ChatGPT Plus/Pro subscription login.
-4. Run `/model`, select an available `openai-codex` model, and send a harmless prompt.
-5. If login fails, troubleshoot through Pi's `/login`; Navori does not inspect credential files.
+The live smoke is the only evidence that the TUI dialog renders and that the model complies with the
+contract. The credential-free e2e proves neither. Run it in a project whose Pi resources you trust, and
+record each step in [evals.md](../specs/0048-pi-paridad/evals.md).
 
-Current status: **manual smoke partial**. See [evals.md](../specs/0047-pi-first/evals.md).
+1. Check `pi --version`; it must be 1.1.0 or newer.
+2. Start Pi interactively and run `/login`, selecting the `openai-codex` ChatGPT Plus/Pro subscription
+   login. Navori does not inspect credential files.
+3. Run `/model` and select the model the children will use.
+4. Run `navori render --apply`.
+5. Approve the plan: `navori plan update <feature> --decision approved --date <YYYY-MM-DD>`.
+6. Implementation: dispatch the `implementer` with `navori_subagent`; its handoff must validate.
+7. Scribe docs: dispatch the `scribe` for the documentation.
+8. Review: dispatch the `reviewer` with the feature.
+9. Commit and push through the quality gate.
+10. Confirm the PR in the TUI dialog, and check the body shown in the dialog.
+11. Close the criterion: `navori plan update <feature> --progress A<n>=cumplido`. It succeeds only with
+    recorded evidence.
+
+Current status: **not yet run**. Evidence goes to [evals.md](../specs/0048-pi-paridad/evals.md).
 
 See the [Pi engine specification](../specs/0040-pi-engine/requirements.md) and the
 [Pi first specification](../specs/0047-pi-first/requirements.md) for requirements and

@@ -514,6 +514,24 @@ describe("Pi plugin projection", () => {
   });
 
   // Covers: R12
+  it("acli and gh publisher skills land in the rendered publisher role, as their rows say", () => {
+    const { dir, config } = project(["pi"], { acli: { enabled: true }, gh: { enabled: true } });
+    renderPiEngine(dir, config);
+    const publisher = read(dir, ".pi/agents/publisher.md");
+    expect(publisher).toContain("GitHub comments and reviews (`gh`)");
+    expect(publisher).toContain("acli");
+    for (const key of [
+      piParityKey("plugin-skill", "acli/acli-comment-channel-publisher"),
+      piParityKey("plugin-skill", "gh/gh-comment-channel-publisher"),
+    ]) {
+      expect(PI_PARITY[key]).toMatchObject({
+        state: "advisory",
+        mechanism: expect.stringContaining(".pi/agents/publisher"),
+      });
+    }
+  });
+
+  // Covers: R12
   it("prose of a plugin without an MCP server is appended to the role file", () => {
     const dir = mkdtempSync(join(tmpdir(), "navori-pi-prose-"));
     dirs.push(dir);

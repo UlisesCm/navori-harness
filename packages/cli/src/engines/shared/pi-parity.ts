@@ -196,9 +196,9 @@ const viaControl = (control: ControlId, boundary?: string): PiControlParity => (
   ...(boundary === undefined ? {} : { boundary }),
 });
 
-/** Why a hook script has no Pi counterpart yet (M1 truth; later milestones flip the row). */
+/** Why the audit-mode trigger has no Pi counterpart: the bridge does not map it. */
 const NO_BRIDGE =
-  "Pi runs no Navori hook scripts yet: the project extension has no hook bridge (spec 0048 E1 M2) and no handler for this event";
+  "the extension bridge runs other Navori hook scripts but has no handler that opens an audit-mode log; Pi's audit capture is the one of spec 0047 R12";
 
 const hookEntries = (): Array<[string, PiParity]> => {
   const h = (id: string, row: PiParity): [string, PiParity] => [piParityKey("hook", id), row];
@@ -273,7 +273,10 @@ const hookEntries = (): Array<[string, PiParity]> => {
     ),
     h(
       "audit-mode-trigger",
-      unsupported(NO_BRIDGE, "Pi never opens an audit-mode log (spec 0048 R10, M9)"),
+      unsupported(
+        NO_BRIDGE,
+        "Pi never opens an audit-mode log through this hook (out of scope of spec 0048, design non-goal)",
+      ),
     ),
     h(
       "audit-mode-close",
@@ -425,12 +428,13 @@ const pluginEntries = (): Array<[string, PiParity]> => {
       `${plugin} declares an MCP server and Pi children run with --no-mcp, so the ${role} prose is not injected; render names the role (mcpRoleDiagnostics)`,
     ),
   ];
-  /** A skill extending a role Pi does not render yet. */
-  const skillOnMissingRole = (plugin: string, id: string, role: string): [string, PiParity] => [
+  /** A skill extending the publisher role: prose appended to the role file Pi renders. */
+  const skillOnPublisher = (plugin: string, id: string): [string, PiParity] => [
     piParityKey("plugin-skill", `${plugin}/${id}`),
-    unsupported(
-      "none",
-      `Pi renders no ${role} role yet (spec 0048 R14, M11); the prose is appended to .pi/agents/${role}.md once it does`,
+    advisory(
+      "prose appended to .pi/agents/publisher.md, the role file Pi renders while the publisher role is enabled",
+      "guidance only, nothing enforces it; with the publisher role disabled no role file exists and the prose is not rendered",
+      PLUGIN_PROJECTION,
     ),
   ];
   const managed = (plugin: string, id: string): [string, PiParity] => [
@@ -480,7 +484,7 @@ const pluginEntries = (): Array<[string, PiParity]> => {
   return [
     managed("acli", "acli-protocol"),
     settings("acli"),
-    skillOnMissingRole("acli", "acli-comment-channel-publisher", "publisher"),
+    skillOnPublisher("acli", "acli-comment-channel-publisher"),
     managed("codegraph", "codegraph-search-v2"),
     mcp("codegraph"),
     settings("codegraph"),
@@ -495,7 +499,7 @@ const pluginEntries = (): Array<[string, PiParity]> => {
       skillOnMcpRole("engram", `engram-${role}-extension`, role),
     ),
     settings("gh"),
-    skillOnMissingRole("gh", "gh-comment-channel-publisher", "publisher"),
+    skillOnPublisher("gh", "gh-comment-channel-publisher"),
     settings("jscpd"),
     runScript("jscpd", "check-jscpd.sh"),
     hook("jscpd", 0),
@@ -533,3 +537,43 @@ const pluginEntries = (): Array<[string, PiParity]> => {
 export const PI_PARITY: Readonly<Record<string, PiParity>> = Object.freeze(
   Object.fromEntries<PiParity>([...hookEntries(), ...permissionRuleEntries(), ...pluginEntries()]),
 );
+
+/** Stable markers delimiting the generated parity block inside `docs/pi.md` (spec 0048 R1, R17). */
+export const PI_PARITY_DOC_START = "<!-- pi-parity:start -->";
+export const PI_PARITY_DOC_END = "<!-- pi-parity:end -->";
+
+/**
+ * Renders the parity inventory as the Markdown block `docs/pi.md` carries between
+ * {@link PI_PARITY_DOC_START} and {@link PI_PARITY_DOC_END} (markers included): one row per unit with its
+ * state, its class (a seatbelt row names the shared bypass classes) and its boundary. Mirrors
+ * `renderOverlapDoc`; `first-class-e2e.test.ts` fails when the committed doc differs from this output.
+ */
+export function renderPiParityDoc(
+  parity: Readonly<Record<string, PiParity>>,
+  resolveControl: (id: ControlId) => PiParityState,
+): string {
+  const cell = (text: string): string => text.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ");
+  const rows = Object.entries(parity)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([key, row]) => {
+      const state = piParityState(row, resolveControl);
+      if (isControlRow(row)) {
+        return `| \`${key}\` | ${state} | control \`${row.control}\` | ${cell(row.boundary ?? "—")} |`;
+      }
+      const kind = row.seatbelt === true ? "seatbelt (bypass classes above)" : "—";
+      return `| \`${key}\` | ${state} | ${kind} | ${cell(row.boundary)} |`;
+    });
+  return [
+    PI_PARITY_DOC_START,
+    "<!-- Generated from `PI_PARITY` (`packages/cli/src/engines/shared/pi-parity.ts`). Do not edit by hand: `first-class-e2e.test.ts` pins it. -->",
+    "",
+    "Bypass classes of every seatbelt row (a seatbelt is a textual check, not a sandbox):",
+    "",
+    ...PI_SEATBELT_BYPASSES.map((bypass) => `- ${cell(bypass)}`),
+    "",
+    "| Unit | State | Class | Boundary |",
+    "|---|---|---|---|",
+    ...rows,
+    PI_PARITY_DOC_END,
+  ].join("\n");
+}
