@@ -418,10 +418,10 @@ describe("Pi plugin projection", () => {
 
   // Covers: R12
   it("plugin skills and prose projected since codex absent", () => {
-    const { dir, config } = project(["pi"], { jscpd: { enabled: true }, tgrep: { enabled: true } });
+    const { dir, config } = project(["pi"], { gh: { enabled: true }, tgrep: { enabled: true } });
     renderPiEngine(dir, config, { hookBindings: [GUARD] });
-    // The skill that extends review-diff is a sub-block of Pi's own shared-root copy.
-    expect(read(dir, ".agents/skills/review-diff/SKILL.md")).toContain("jscpd-review-extension");
+    // The skill that extends the publisher role is a sub-block of Pi's own role file.
+    expect(read(dir, ".pi/agents/publisher.md")).toContain("GitHub comments and reviews (`gh`)");
     // Plugin protocol blocks ride in the context file Pi writes.
     expect(read(dir, "AGENTS.md")).toContain("Textual provider: tgrep");
   });
@@ -429,45 +429,42 @@ describe("Pi plugin projection", () => {
   // Covers: R12
   it("with codex active nothing the codex owns is duplicated", () => {
     const { dir, config } = project(["pi", "codex"], {
-      jscpd: { enabled: true },
+      gh: { enabled: true },
       tgrep: { enabled: true },
     });
     renderPiEngine(dir, config, { hookBindings: [GUARD] });
     expect(existsSync(join(dir, ".agents"))).toBe(false);
     expect(existsSync(join(dir, "AGENTS.md"))).toBe(false);
     // Pi's own executable copies remain Pi's.
-    expect(existsSync(join(dir, ".pi/navori/scripts/check-jscpd.sh"))).toBe(true);
+    expect(existsSync(join(dir, ".pi/navori/scripts/guard-search-routing.sh"))).toBe(true);
   });
 
   // Covers: R12
   it("plugin hook placed under .pi/navori and declared in the manifest", () => {
-    const { dir, config } = project(["pi"], { jscpd: { enabled: true }, tgrep: { enabled: true } });
+    const { dir, config } = project(["pi"], { gh: { enabled: true }, tgrep: { enabled: true } });
     renderPiEngine(dir, config, { hookBindings: [GUARD] });
-    expect(hookPaths(dir)).toEqual(
-      expect.arrayContaining([
-        ".pi/navori/hooks/guard-destructive.sh",
-        ".pi/navori/scripts/check-jscpd.sh",
-      ]),
-    );
+    expect(hookPaths(dir)).toEqual([".pi/navori/hooks/guard-destructive.sh"]);
     // The tgrep lane rides inside Pi's guard copy and the script it sources is installed beside it.
     expect(read(dir, ".pi/navori/hooks/guard-destructive.sh")).toContain("tgrep-search-lane");
     expect(existsSync(join(dir, ".pi/navori/scripts/guard-search-routing.sh"))).toBe(true);
-    expect(statSync(join(dir, ".pi/navori/scripts/check-jscpd.sh")).mode & 0o111).not.toBe(0);
+    expect(statSync(join(dir, ".pi/navori/scripts/guard-search-routing.sh")).mode & 0o111).not.toBe(
+      0,
+    );
   });
 
   // Covers: R12
   it("disabling a plugin prunes its Pi outputs", () => {
-    const on = project(["pi"], { jscpd: { enabled: true }, tgrep: { enabled: true } });
+    const on = project(["pi"], { gh: { enabled: true }, tgrep: { enabled: true } });
     renderPiEngine(on.dir, on.config, { hookBindings: [GUARD] });
     const off = NavoriConfigSchema.parse({
       ...on.config,
-      plugins: { jscpd: { enabled: false }, tgrep: { enabled: false } },
+      plugins: { gh: { enabled: false }, tgrep: { enabled: false } },
     });
     renderPiEngine(on.dir, off, { hookBindings: [GUARD] });
-    expect(existsSync(join(on.dir, ".pi/navori/scripts/check-jscpd.sh"))).toBe(false);
     expect(existsSync(join(on.dir, ".pi/navori/scripts/guard-search-routing.sh"))).toBe(false);
-    expect(read(on.dir, ".agents/skills/review-diff/SKILL.md")).not.toContain(
-      "jscpd-review-extension",
+    expect(existsSync(join(on.dir, ".pi/navori/scripts/guard-search-routing.sh"))).toBe(false);
+    expect(read(on.dir, ".pi/agents/publisher.md")).not.toContain(
+      "GitHub comments and reviews (`gh`)",
     );
     expect(read(on.dir, ".pi/navori/hooks/guard-destructive.sh")).not.toContain(
       "tgrep-search-lane",

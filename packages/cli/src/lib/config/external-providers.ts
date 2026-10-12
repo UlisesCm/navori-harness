@@ -6,7 +6,7 @@ import { isGitHubRepo } from "../primitives/git.ts";
  * Recipe covering what to do AFTER a provider's binary lands (#982):
  * `codegraph init .`, `tgrep serve .`, interactive MCP approval, restarting
  * Claude Code. Deliberately not a manifest field (`setupDocs` alongside
- * `installDocs`) — only 2 of 7 plugins need it today, so a conditional
+ * `installDocs`) — only 2 of 5 plugins need it today, so a conditional
  * string keyed on `PROVIDERS_WITH_SETUP_RECIPE` is the smaller surface.
  * `add`, `doctor` and `init --full`'s missing-binary warning all point here
  * so the three surfaces can't drift into three different doc paths.
@@ -19,7 +19,7 @@ export const EXTERNAL_PROVIDER_SETUP_RECIPE_URL =
 export const PROVIDERS_WITH_SETUP_RECIPE: ReadonlySet<string> = new Set(["codegraph", "tgrep"]);
 
 /**
- * Plugin ids for external providers (tgrep, codegraph, semgrep, jscpd, acli,
+ * Plugin ids for external providers (tgrep, codegraph, acli,
  * gh…) that exist and could be enabled, but currently aren't (#981). A single
  * criterion shared by `add --suggest` and `doctor`'s "available, not enabled"
  * section so the two surfaces can never disagree about what counts as a
@@ -29,7 +29,7 @@ export const PROVIDERS_WITH_SETUP_RECIPE: ReadonlySet<string> = new Set(["codegr
  * `gh` is additionally gated on `isGitHubRepo` — the same signal
  * `init --recommended` already uses to auto-enable it, reused here (not
  * re-derived) so suggesting it in a non-GitHub repo never happens on either
- * surface. codegraph/tgrep/semgrep/jscpd/acli have no equivalent repo signal
+ * surface. codegraph/tgrep/acli have no equivalent repo signal
  * today, so they are always listed when not enabled (D04: offer, never
  * auto-enable).
  */

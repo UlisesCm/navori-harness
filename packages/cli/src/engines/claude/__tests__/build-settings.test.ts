@@ -1101,20 +1101,17 @@ describe("buildClaudeSettings — commands the harness itself orders (#506)", ()
     expect(allow).toContain("Bash(navori dominio doctor:*)");
   });
 
-  it("pre-approves scanner commands only while their plugins are enabled", () => {
+  it("pre-approves a plugin's tool commands only while the plugin is enabled", () => {
     const baseAllow = allowOf(MINIMAL_CONFIG);
+    expect(baseAllow).not.toContain("Bash(tgrep search *)");
     expect(baseAllow).not.toContain("Bash(jscpd:*)");
     expect(baseAllow).not.toContain("Bash(semgrep:*)");
 
-    const jscpdOnly = buildClaudeSettings(MINIMAL_CONFIG, [loadPlugin("jscpd")]);
-    const jscpdAllow = (jscpdOnly.permissions as { allow: string[] }).allow;
-    expect(jscpdAllow).toContain("Bash(jscpd:*)");
-    expect(jscpdAllow).not.toContain("Bash(semgrep:*)");
-
-    const semgrepOnly = buildClaudeSettings(MINIMAL_CONFIG, [loadPlugin("semgrep")]);
-    const semgrepAllow = (semgrepOnly.permissions as { allow: string[] }).allow;
-    expect(semgrepAllow).toContain("Bash(semgrep:*)");
-    expect(semgrepAllow).not.toContain("Bash(jscpd:*)");
+    const tgrepOnly = buildClaudeSettings(MINIMAL_CONFIG, [loadPlugin("tgrep")]);
+    const tgrepAllow = (tgrepOnly.permissions as { allow: string[] }).allow;
+    expect(tgrepAllow).toContain("Bash(tgrep search *)");
+    expect(tgrepAllow).not.toContain("Bash(jscpd:*)");
+    expect(tgrepAllow).not.toContain("Bash(semgrep:*)");
   });
 
   it("pre-approves the read-only git introspection the agents order", () => {

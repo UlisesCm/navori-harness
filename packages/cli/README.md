@@ -41,7 +41,7 @@ npx navori init
 cd ~/tu-repo
 navori init --recommended
 
-# + proveedores externos (tgrep, semgrep, jscpd, acli) + pre-commit hook +
+# + proveedores externos (tgrep, acli) + pre-commit hook +
 # scan-monorepo + project block estricto — requiere instalar los binarios de esos proveedores.
 # También avisa si falta algún binario y cómo instalarlo, sin instalarlo nunca.
 navori init --full
@@ -184,8 +184,6 @@ La resolución es **local → bundled**: si tienes un preset local con el mismo 
 | `tgrep` | Descubrimiento textual de código vía CLI indexado | `tgrep` binary |
 | `acli` | Leer tickets de Jira desde la terminal | `acli` |
 | `gh` | GitHub Issues, PRs y workflow runs | `gh` |
-| `jscpd` | Detección de duplicación en el diff | `jscpd` (opt-in) |
-| `semgrep` | Security gate local | `semgrep` (opt-in) |
 
 > `codegraph` y `tgrep` se retiraron brevemente el 2026-09-15 y se reintrodujeron el
 > 2026-09-16 (#838) con una integración que los hace trabajar entre sí — acta en

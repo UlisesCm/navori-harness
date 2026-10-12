@@ -103,7 +103,7 @@ function reportMissingBinaries(
 /**
  * #1060 — the sibling of `reportMissingBinaries` above for a binary that IS
  * on PATH but doesn't support a capability its plugin's `externalTool`
- * manifest declares (e.g. jscpd < 5.1.1 lacking `--baseline-from-ref`). Runs
+ * manifest declares (e.g. an older release than the manifest's `minVersion`). Runs
  * at the same call sites, in every mode: nobody runs `doctor` after a
  * headless `--yes`/`--recommended`/`--full` init, and by the time the gate
  * hook blocks a commit over this it's too late to have warned.
@@ -228,7 +228,7 @@ export const initCommand = defineCommand({
     full: {
       type: "boolean",
       description:
-        "--recommended + default external providers (tgrep, semgrep, jscpd, acli; codegraph opt-in) + pre-commit hook + monorepo scan + strict project block",
+        "--recommended + default external providers (tgrep, acli; codegraph opt-in) + pre-commit hook + monorepo scan + strict project block",
     },
     lang: {
       type: "string",
@@ -1021,7 +1021,7 @@ export async function pickPlugins(lang: Lang): Promise<string[] | null> {
  * - engram: always (persistent memory is universally useful)
  * - gh: only if the repo's git origin points to github.com
  *
- * Intentionally conservative — semgrep/jscpd require external tools
+ * Intentionally conservative — external-tool plugins need binaries
  * that may not be installed; users add those explicitly.
  */
 /**

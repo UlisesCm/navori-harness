@@ -55,7 +55,7 @@ const agents = [
     model: "sonnet",
     body: "The one that reviews and approves or rejects. It doesn't edit: it judges.",
     detail:
-      "It reviews the implementer's work against the project's rules and gates (security with semgrep, duplication with jscpd). It approves or rejects with concrete reasons. A strict second opinion before code moves on — which is why it uses a model that can judge with criteria.",
+      "It reviews the implementer's work against the project's rules and gates. It approves or rejects with concrete reasons. A strict second opinion before code moves on — which is why it uses a model that can judge with criteria.",
   },
   {
     role: "Publisher",
@@ -241,14 +241,6 @@ const gates = [
     body: "unknown + narrowing, explicit types. The only exception is a // justified any: <reason> — last resort, not a shortcut that turns into debt.",
   },
   {
-    title: "Semgrep · security gate",
-    body: "Static analysis of dangerous patterns, tied to the reviewer. Security issues get caught in review, not in production.",
-  },
-  {
-    title: "jscpd · duplication gate",
-    body: "Detects copy-paste code before it multiplies. Less surface to maintain, fewer places for a bug to hide.",
-  },
-  {
     title: "Defensive hooks",
     body: "guard-destructive intercepts dangerous commands; quality-gate runs lint + tests before every commit.",
   },
@@ -289,18 +281,6 @@ const creditsBuiltOn = [
     by: "Gentleman-Programming",
     role: "Persistent memory across sessions via MCP.",
     href: "https://github.com/Gentleman-Programming/engram",
-  },
-  {
-    name: "semgrep",
-    by: "Semgrep",
-    role: "Static security and pattern analysis.",
-    href: "https://semgrep.dev",
-  },
-  {
-    name: "jscpd",
-    by: "kucherenko",
-    role: "Copy-paste / duplication detection.",
-    href: "https://github.com/kucherenko/jscpd",
   },
   {
     name: "GitHub CLI",

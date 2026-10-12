@@ -266,7 +266,19 @@ function openingTagFor(content: string, id: string): string | null {
  *  unlink it", `ephemeral` means "machine-local state we never version". The
  *  user acts differently on each, and a run that called them all `foreign` told
  *  them navori had not written a file it had generated whole (#538). */
-export type KeepReason = "foreign" | "newer" | "modified" | "ephemeral" | "symlink";
+export type KeepReason =
+  | "foreign"
+  | "newer"
+  | "modified"
+  | "ephemeral"
+  | "symlink"
+  // A retired plugin's script that navori DID write, kept because something may
+  // still call it (`engines/shared/retired-plugin-assets.ts`): a git hook or CI
+  // file names it, a hook config this render left alone registers it, or the
+  // user declared `plugins.<id>.nativeHook`.
+  | "hook-referenced"
+  | "settings-referenced"
+  | "native-hook-declared";
 
 /** What a prune may and may not touch, decided file by file. */
 export interface OrphanRemovalPlan {
@@ -314,6 +326,12 @@ export function planOrphanRemoval(
   cwd: string,
   paths: readonly string[],
   skip: readonly string[] = [],
+  /**
+   * Extra keep rule consulted for each regular file before the authorship test
+   * (a retired plugin's script that something still calls). A non-null reason
+   * keeps the file; null falls through to the authorship test.
+   */
+  keepRule?: (absPath: string) => KeepReason | null,
 ): OrphanRemovalPlan {
   // The list ships directory entries with a trailing slash (it doubles as a
   // .gitignore body); the prefix rule below wants them bare.
@@ -348,6 +366,11 @@ export function planOrphanRemoval(
       return;
     }
     if (stats.isFile()) {
+      const extra = keepRule?.(join(cwd, rel)) ?? null;
+      if (extra !== null) {
+        keep(rel, extra);
+        return;
+      }
       const authorship = navoriAuthorship(join(cwd, rel));
       if (authorship === "ours") plan.remove.push(rel);
       else keep(rel, authorship);

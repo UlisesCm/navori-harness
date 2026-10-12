@@ -148,15 +148,10 @@ describe("collectMissingPlugins", () => {
     expect(missing[0]!.reason).toBe("unknown plugin id");
   });
 
-  it("gives a retired plugin an actionable hint, not 'unknown plugin id' (#271)", () => {
-    const missing = collectMissingPlugins(cfg({ cognitive: { enabled: true } }));
-    expect(missing).toHaveLength(1);
-    expect(missing[0]!.id).toBe("cognitive");
-    // A retired plugin must be distinguishable from a real typo: point the user
-    // at the fix instead of the dead-end "unknown plugin id".
-    expect(missing[0]!.reason).not.toBe("unknown plugin id");
-    expect(missing[0]!.reason).toContain("navori remove cognitive");
-    expect(missing[0]!.reason).toContain("#130");
+  it("does not count a retired plugin as missing: doctor reports it as a warning instead", () => {
+    // A config that still lists a retired plugin must keep the health verdict
+    // green; `scanRetiredPluginLeftovers` carries the actionable hint.
+    expect(collectMissingPlugins(cfg({ cognitive: { enabled: true } }))).toEqual([]);
   });
 
   it("ignores disabled plugins", () => {

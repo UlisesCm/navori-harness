@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
 import { RETIRED_PLUGIN_SUB_BLOCKS } from "../../../lib/config/plugins.ts";
+import { injectManagedSection } from "../../../lib/render/marker.ts";
 
 /**
  * #1013 — the `injectInto` half of the same migration `RETIRED_PLUGIN_BLOCKS`
@@ -49,11 +50,21 @@ afterEach(() => {
   rmSync(home.dir, { recursive: true, force: true });
 });
 
-/** A sub-block exactly as a pre-#838 navori would have appended it. */
+/**
+ * A sub-block exactly as a pre-#838 navori would have appended it: a real marker
+ * whose hash matches its body. Removal is guarded (#1273), so a block with a
+ * placeholder hash would read as hand-edited and be kept.
+ */
 const legacySubBlock = (id: string, source: string): string =>
-  `\n<!-- navori:managed id="${id}" hash="deadbeef" version="0.0.2" source="@navori/plugin-${source}" -->\n` +
-  `## Legacy ${id}\n\nstale body from before #838\n` +
-  `<!-- /navori:managed id="${id}" -->\n`;
+  `\n${
+    injectManagedSection(
+      "",
+      id,
+      `## Legacy ${id}\n\nstale body from before #838`,
+      { source: `@navori/plugin-${source}`, version: "0.0.2" },
+      "html",
+    ).output
+  }`;
 
 describe("#1013 — retired injectInto sub-blocks of a live plugin", () => {
   it("strips every registered sub-block, backs up first, and keeps the rest of the target intact", () => {

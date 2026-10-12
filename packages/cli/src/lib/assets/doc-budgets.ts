@@ -116,7 +116,6 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // Plugin managed blocks (#917). Measured / ceiling → headroom.
   "packages/plugins/acli/managed/acli-protocol.md": 80, // 70 → 14.3%
   "packages/plugins/codegraph/managed/codegraph-search-v2.md": 105, // 91 → 15.4%
-  "packages/plugins/jscpd/managed/jscpd-protocol.md": 90, // 80 → 12.5%
   "packages/plugins/tgrep/managed/tgrep-search-v2.md": 115, // 104 → 10.6%
 
   // Preset `stack.md` blocks (#917). One renders per consumer, picked by preset.

@@ -15,8 +15,8 @@ a un plugin deshabilitado.
 
 Solo a los 2 plugins que traen binario propio + índice: `codegraph` (servidor
 MCP, `packages/plugins/codegraph`) y `tgrep` (CLI + servidor,
-`packages/plugins/tgrep`). El resto de los plugins (`engram`, `semgrep`,
-`jscpd`, `gh`, `acli`) no necesita estos pasos — `navori add <plugin>` ya deja
+`packages/plugins/tgrep`). El resto de los plugins (`engram`, `gh`,
+`acli`) no necesita estos pasos — `navori add <plugin>` ya deja
 el binario listo para usarse.
 
 ## Pasos

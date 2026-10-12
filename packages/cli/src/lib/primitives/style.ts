@@ -36,6 +36,7 @@ export type RenderStatus =
   | "unchanged"
   | "user-modified-skipped"
   | "downgrade-skipped"
+  | "retired-kept"
   | "removed-condition-false"
   | "removed-trimmed";
 
@@ -51,6 +52,7 @@ export function renderStatusSymbol(status: RenderStatus): string {
     case "user-modified-skipped":
       return color.red(sym.conflict);
     case "downgrade-skipped":
+    case "retired-kept":
       return color.yellow(sym.update);
     case "removed-condition-false":
     case "removed-trimmed":
@@ -70,6 +72,7 @@ export function renderStatusLabel(status: RenderStatus): string {
     case "user-modified-skipped":
       return color.red(status);
     case "downgrade-skipped":
+    case "retired-kept":
       return color.yellow(status);
     case "removed-condition-false":
     case "removed-trimmed":

@@ -33,18 +33,6 @@ describe("skills security and quality inventory", () => {
     expect(security).toContain("A **403** means an authenticated principal lacks permission");
     expect(followUp).toContain("gh api --paginate");
     expect(followUp).toContain("external\ncheck without an Actions run id");
-    expect(repositoryFile("packages/plugins/jscpd/skills/jscpd-review.md")).toContain(
-      "--baseline-from-ref {{shq:branchBase}} --fail-on-new-clones 0",
-    );
-    expect(repositoryFile("packages/plugins/jscpd/skills/jscpd-review.md")).not.toContain(
-      "--threshold",
-    );
-    expect(repositoryFile("packages/plugins/semgrep/skills/semgrep-review.md")).toContain(
-      "run semgrep over the diff",
-    );
-    expect(repositoryFile("packages/plugins/semgrep/skills/semgrep-review.md")).toContain(
-      "--config=p/default --error --metrics=off",
-    );
   });
 
   // Covers: R3, R5, R6

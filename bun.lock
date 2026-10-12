@@ -39,8 +39,6 @@
         "@navori/plugin-codegraph": "workspace:*",
         "@navori/plugin-engram": "workspace:*",
         "@navori/plugin-gh": "workspace:*",
-        "@navori/plugin-jscpd": "workspace:*",
-        "@navori/plugin-semgrep": "workspace:*",
         "@navori/plugin-tgrep": "workspace:*",
         "@types/node": "^24.0.0",
         "@vitest/coverage-v8": "^5.0.1",
@@ -71,14 +69,6 @@
     },
     "packages/plugins/gh": {
       "name": "@navori/plugin-gh",
-      "version": "0.0.1",
-    },
-    "packages/plugins/jscpd": {
-      "name": "@navori/plugin-jscpd",
-      "version": "0.0.1",
-    },
-    "packages/plugins/semgrep": {
-      "name": "@navori/plugin-semgrep",
       "version": "0.0.1",
     },
     "packages/plugins/tgrep": {
@@ -327,10 +317,6 @@
     "@navori/plugin-engram": ["@navori/plugin-engram@workspace:packages/plugins/engram"],
 
     "@navori/plugin-gh": ["@navori/plugin-gh@workspace:packages/plugins/gh"],
-
-    "@navori/plugin-jscpd": ["@navori/plugin-jscpd@workspace:packages/plugins/jscpd"],
-
-    "@navori/plugin-semgrep": ["@navori/plugin-semgrep@workspace:packages/plugins/semgrep"],
 
     "@navori/plugin-tgrep": ["@navori/plugin-tgrep@workspace:packages/plugins/tgrep"],
 

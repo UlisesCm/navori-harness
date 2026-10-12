@@ -402,15 +402,6 @@ const CONTEXT_BOUNDARY =
   "Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it";
 
 const pluginEntries = (): Array<[string, PiParity]> => {
-  /** A skill extending another skill: a sub-block of Pi's `.agents/skills/<id>/SKILL.md` copy. */
-  const skillOnSkill = (plugin: string, id: string, target: string): [string, PiParity] => [
-    piParityKey("plugin-skill", `${plugin}/${id}`),
-    advisory(
-      `sub-block of .agents/skills/${target}/SKILL.md, written by Pi only when Codex is not active`,
-      "with Codex active, Codex writes that skill and its sub-block; Pi never duplicates it. The text is guidance, nothing enforces it",
-      PLUGIN_PROJECTION,
-    ),
-  ];
   /** A skill extending the orchestrator: a sub-block of the context file Pi embodies it through. */
   const skillOnOrchestrator = (plugin: string, id: string): [string, PiParity] => [
     piParityKey("plugin-skill", `${plugin}/${id}`),
@@ -447,32 +438,6 @@ const pluginEntries = (): Array<[string, PiParity]> => {
       "only `allow` rules: Pi has no permission system and does not translate allow, as Codex",
     ),
   ];
-  /** A plugin script a bridge row runs: Pi's own executable copy under `.pi/navori/scripts`. */
-  const runScript = (plugin: string, dest: string): [string, PiParity] => [
-    piParityKey("plugin-script", `${plugin}/${dest}`),
-    {
-      state: "enforced",
-      seatbelt: true,
-      mechanism: `.pi/navori/scripts/${dest}, run by the extension bridge on tool_call(bash)`,
-      boundary:
-        "a textual check of the command the model writes, not a sandbox; Pi has no permission system of its own",
-      bypass: PI_SEATBELT_BYPASSES,
-      evidence: "pi-extension:tool_call",
-    },
-  ];
-  const hook = (plugin: string, ordinal: number): [string, PiParity] => [
-    piParityKey("plugin-hook", `${plugin}/${ordinal}`),
-    {
-      state: "enforced",
-      seatbelt: true,
-      mechanism:
-        "binding of the Pi manifest (PreToolUse/Bash, translated like Codex) run by the extension bridge",
-      boundary:
-        "enforced only while the extension is loaded; same textual-seatbelt limits as the shared guard",
-      bypass: PI_SEATBELT_BYPASSES,
-      evidence: "pi-extension:tool_call",
-    },
-  ];
   const mcp = (plugin: string): [string, PiParity] => [
     piParityKey("plugin-mcp-server", plugin),
     advisory(
@@ -500,14 +465,6 @@ const pluginEntries = (): Array<[string, PiParity]> => {
     ),
     settings("gh"),
     skillOnPublisher("gh", "gh-comment-channel-publisher"),
-    settings("jscpd"),
-    runScript("jscpd", "check-jscpd.sh"),
-    hook("jscpd", 0),
-    skillOnSkill("jscpd", "jscpd-review-extension", "review-diff"),
-    settings("semgrep"),
-    runScript("semgrep", "check-semgrep.sh"),
-    hook("semgrep", 0),
-    skillOnSkill("semgrep", "semgrep-review-extension", "security-invariants"),
     managed("tgrep", "tgrep-search-v2"),
     settings("tgrep"),
     [

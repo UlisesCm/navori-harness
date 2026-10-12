@@ -19,7 +19,7 @@
  *      the real case. A workspace's manifest may declare almost nothing while
  *      its repos converged on a practice nobody promoted to the manifest; against
  *      the defaults such a repo is conformant, against its five siblings it is
- *      plainly the odd one out ("5 of 6 repos enable semgrep, this one doesn't").
+ *      plainly the odd one out ("5 of 6 repos enable tgrep, this one doesn't").
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -37,7 +37,7 @@ const UNDECLARED = "—";
 const DISABLED = "disabled";
 
 export interface WorkspaceDriftItem {
-  /** Config key, e.g. `branchBase` or `plugins.semgrep`. */
+  /** Config key, e.g. `branchBase` or `plugins.tgrep`. */
   key: string;
   /** This repo's value (`UNDECLARED` when absent). */
   local: string;
@@ -137,7 +137,7 @@ function driftVsDefaults(
  * Divergences from the siblings' mode: for every key at least one sibling
  * declares, tally the values and report when a strict majority agrees on one
  * this repo doesn't have. Plugins are one-directional on purpose — "the others
- * enable semgrep, you don't" is actionable; "you enable one they don't" is a
+ * enable tgrep, you don't" is actionable; "you enable one they don't" is a
  * local decision, not drift.
  */
 function driftVsSiblings(

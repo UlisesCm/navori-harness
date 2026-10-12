@@ -10,6 +10,7 @@ import {
   PluginNotFoundError,
   PluginManifestError,
   listKnownPluginIds,
+  RETIRED_PLUGINS,
   type PluginExternalTool,
 } from "../lib/config/plugins.ts";
 import { hasBinary } from "../lib/primitives/which.ts";
@@ -294,7 +295,12 @@ export const addCommand = defineCommand({
       plugin = loadPlugin(pluginId);
     } catch (err) {
       if (err instanceof PluginNotFoundError) {
-        p.cancel(ta.unknownPlugin(pluginId, listKnownPluginIds().join(", ") || ta.none));
+        const retired = RETIRED_PLUGINS[pluginId];
+        p.cancel(
+          retired
+            ? ta.retiredPlugin(pluginId, retired.removedIn)
+            : ta.unknownPlugin(pluginId, listKnownPluginIds().join(", ") || ta.none),
+        );
         process.exit(1);
       }
       if (err instanceof PluginManifestError) {
@@ -491,8 +497,8 @@ function printSuggestions(cwd: string, configPath: string, lang: Lang): void {
     lines.push(`${color.cyan(sym.bullet)} ${ta.suggestedEngram}`);
   }
 
-  // #981: name external-tool providers (codegraph, tgrep, semgrep, jscpd,
-  // acli, gh…) that exist but aren't enabled yet — the `--yes`/`--recommended`
+  // #981: name external-tool providers (codegraph, tgrep, acli,
+  // gh…) that exist but aren't enabled yet — the `--yes`/`--recommended`
   // init paths never mention them, so this is the only place a user learns
   // they exist. Offer only, never auto-enable (D04).
   for (const id of listAvailableExternalProviders(config, cwd)) {

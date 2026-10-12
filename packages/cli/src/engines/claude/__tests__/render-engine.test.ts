@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
@@ -336,59 +344,35 @@ describe("renderClaudeEngine — progress bootstrap (E2)", () => {
 });
 
 describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
-  it("copies jscpd script with interpolation, +x, and hook in settings", () => {
+  it("copies the tgrep guard script with +x and registers no PreToolUse hook for it", () => {
     const cfg = {
       ...CONFIG_FULL,
-      plugins: { jscpd: { enabled: true } },
+      plugins: { tgrep: { enabled: true } },
     } as unknown as NavoriConfig;
     renderClaudeEngine(cwd, cfg);
 
-    const scriptPath = join(cwd, ".claude/scripts/check-jscpd.sh");
+    const scriptPath = join(cwd, ".claude/scripts/guard-search-routing.sh");
     expect(existsSync(scriptPath)).toBe(true);
-    const script = readFileSync(scriptPath, "utf-8");
-    // {{shq:branchBase}} → base='main' (shell-quoted, #197/#249)
-    expect(script).toContain("base='main'");
-    // Interpolated AND consumed: the value has to reach a git call, not just an
-    // assignment. Since #777 the baseline is resolved in the shared
-    // `scan-scope` partial, which prefers `origin/<base>` and keeps the local
-    // ref as the fallback — both forms read the same interpolated `$base`.
-    expect(script).toContain('git rev-parse --verify --quiet "origin/$base^{commit}"');
-    expect(script).toContain('git rev-parse --verify --quiet "$base^{commit}"');
-    expect(script).not.toContain("{{branchBase}}");
-    expect(script).not.toContain("{{shq:branchBase}}");
-    // jscpdThreshold was retired (#1060): the gate blocks on new clones vs
-    // $base_sha, not on a duplication percentage.
-    expect(script).toContain('--baseline-from-ref "$base_sha"');
-    expect(script).toContain("--fail-on-new-clones 0");
-    expect(script).not.toContain("--threshold");
-    expect(script).not.toContain("{{jscpdThreshold}}");
-
+    expect(statSync(scriptPath).mode & 0o111).not.toBe(0);
     const settings = JSON.parse(readFileSync(join(cwd, ".claude/settings.json"), "utf-8"));
-    // The gate runs only before commit/push (PreToolUse) — never on Stop.
-    expect(JSON.stringify(settings.hooks?.Stop ?? [])).not.toContain("check-jscpd.sh");
-    const pre = settings.hooks.PreToolUse;
-    const jscpdHook = pre
-      .flatMap((entry: { hooks: Array<{ command: string; timeout?: number }> }) => entry.hooks)
-      .find((h: { command: string }) => h.command.includes("check-jscpd.sh"));
-    expect(jscpdHook?.command).toContain(".claude/scripts/check-jscpd.sh");
-    expect(jscpdHook?.timeout).toBe(600);
+    // It is sourced by guard-destructive, never registered as its own hook.
+    expect(JSON.stringify(settings.hooks ?? {})).not.toContain("guard-search-routing.sh");
   });
 
-  it("renders both jscpd and semgrep scripts when both plugins enabled", () => {
+  it("renders nothing for the retired jscpd and semgrep plugins, even when config still declares them", () => {
     const cfg = {
       ...CONFIG_FULL,
       plugins: { jscpd: { enabled: true }, semgrep: { enabled: true } },
     } as unknown as NavoriConfig;
-    renderClaudeEngine(cwd, cfg);
+    expect(() => renderClaudeEngine(cwd, cfg)).not.toThrow();
 
-    expect(existsSync(join(cwd, ".claude/scripts/check-jscpd.sh"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/scripts/check-semgrep.sh"))).toBe(true);
-    const settings = JSON.parse(readFileSync(join(cwd, ".claude/settings.json"), "utf-8"));
-    const hooks = (
-      settings.hooks.PreToolUse as Array<{ hooks: Array<{ command: string; timeout?: number }> }>
-    ).flatMap((entry) => entry.hooks);
-    const semgrep = hooks.find((hook) => hook.command.includes("check-semgrep.sh"));
-    expect(semgrep?.timeout).toBe(600);
+    expect(existsSync(join(cwd, ".claude/scripts/check-jscpd.sh"))).toBe(false);
+    expect(existsSync(join(cwd, ".claude/scripts/check-semgrep.sh"))).toBe(false);
+    const settings = readFileSync(join(cwd, ".claude/settings.json"), "utf-8");
+    expect(settings).not.toContain("check-jscpd.sh");
+    expect(settings).not.toContain("check-semgrep.sh");
+    expect(settings).not.toContain("Bash(jscpd:*)");
+    expect(settings).not.toContain("Bash(semgrep:*)");
   });
 
   it("does NOT render plugin scripts when plugin is disabled", () => {
@@ -435,7 +419,7 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
 
     const cfg = {
       ...CONFIG_FULL,
-      plugins: { jscpd: { enabled: true } },
+      plugins: { tgrep: { enabled: true } },
     } as unknown as NavoriConfig;
     renderClaudeEngine(cwd, cfg);
 
@@ -443,42 +427,25 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
     expect(existsSync(join(cwd, ".claude/scripts/check-cognitive.sh"))).toBe(false);
     expect(existsSync(join(cwd, ".claude/scripts/cognitive-tool"))).toBe(false);
     // …active plugin script rendered…
-    expect(existsSync(join(cwd, ".claude/scripts/check-jscpd.sh"))).toBe(true);
+    expect(existsSync(join(cwd, ".claude/scripts/guard-search-routing.sh"))).toBe(true);
     // …and the user's unrelated file untouched.
     expect(existsSync(userScript)).toBe(true);
   });
 
   it("expands the shared `# navori:include` hook partials — no directive survives, body is inlined (#261)", () => {
-    const cfg = {
-      ...CONFIG_FULL,
-      plugins: { jscpd: { enabled: true }, semgrep: { enabled: true } },
-    } as unknown as NavoriConfig;
-    renderClaudeEngine(cwd, cfg);
+    renderClaudeEngine(cwd, CONFIG_FULL);
 
-    const gateScripts = {
-      "check-jscpd.sh": join(cwd, ".claude/scripts/check-jscpd.sh"),
-      "check-semgrep.sh": join(cwd, ".claude/scripts/check-semgrep.sh"),
-      "quality-gate-pre-commit.sh": join(cwd, ".claude/hooks/quality-gate-pre-commit.sh"),
-    };
-    for (const [, path] of Object.entries(gateScripts)) {
-      const body = readFileSync(path, "utf-8");
-      // The directive is a build-time marker — it must never reach the repo.
-      expect(body).not.toContain("navori:include");
-      // The shared partial bodies were inlined, keeping the script standalone.
-      expect(body).toContain("extract_cmd() {");
-      expect(body).toContain("is_scan_trigger() {");
-    }
+    const gate = readFileSync(join(cwd, ".claude/hooks/quality-gate-pre-commit.sh"), "utf-8");
+    // The directive is a build-time marker — it must never reach the repo.
+    expect(gate).not.toContain("navori:include");
+    // The shared partial bodies were inlined, keeping the script standalone.
+    expect(gate).toContain("extract_cmd() {");
+    expect(gate).toContain("is_scan_trigger() {");
     // guard-destructive shares only the command extractor, not the gate fn.
     const guard = readFileSync(join(cwd, ".claude/hooks/guard-destructive.sh"), "utf-8");
     expect(guard).not.toContain("navori:include");
     expect(guard).toContain("extract_cmd() {");
-
-    // The one real per-script difference survives: semgrep also gates push / PR
-    // creation; jscpd and the quality gate gate commit only.
-    expect(readFileSync(gateScripts["check-semgrep.sh"], "utf-8")).toContain("(commit|push)");
-    expect(readFileSync(gateScripts["check-jscpd.sh"], "utf-8")).not.toContain("(commit|push)");
     // The quality gate gates commit only here; `push` exists in its Pi arm alone (spec 0048 D5).
-    const gate = readFileSync(gateScripts["quality-gate-pre-commit.sh"], "utf-8");
     expect(/^TRIGGER_RE=.*$/m.exec(gate)?.[0]).not.toContain("push");
     expect(/^TRIGGER_TOKENS=.*$/m.exec(gate)?.[0]).toBe("TRIGGER_TOKENS='commit'");
   });
@@ -486,12 +453,12 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
   it("is idempotent: second render of the same plugin script reports unchanged", () => {
     const cfg = {
       ...CONFIG_FULL,
-      plugins: { jscpd: { enabled: true } },
+      plugins: { tgrep: { enabled: true } },
     } as unknown as NavoriConfig;
     renderClaudeEngine(cwd, cfg);
     const second = renderClaudeEngine(cwd, cfg);
-    const jscpdWrite = second.written.find((w) => w.path.endsWith("check-jscpd.sh"));
-    expect(jscpdWrite).toBeUndefined();
+    const write = second.written.find((w) => w.path.endsWith("guard-search-routing.sh"));
+    expect(write).toBeUndefined();
   });
 });
 
@@ -964,7 +931,7 @@ describe("renderClaudeEngine — user-section preservation", () => {
     "## Reglas del repo\n\n- Nunca usar `context.db`, siempre `context.sudo().db`.\n- PostGIS: `findZoneByCoordinates()`.";
   const CONFIG_UPGRADED = {
     ...CONFIG_FULL,
-    plugins: { engram: { enabled: true }, tgrep: { enabled: true }, semgrep: { enabled: true } },
+    plugins: { engram: { enabled: true }, tgrep: { enabled: true } },
   } as unknown as NavoriConfig;
 
   it("ships a user-section with a placeholder on a fresh CLAUDE.md", () => {
@@ -991,9 +958,7 @@ describe("renderClaudeEngine — user-section preservation", () => {
       ),
     );
 
-    // Upgrade: enabling tgrep introduces a NEW managed block and reorders. (semgrep
-    // is enabled too but no longer contributes one — #614 moved its protocol
-    // into the security-invariants skill, so `tgrep` is what proves the landing.)
+    // Upgrade: enabling tgrep introduces a NEW managed block and reorders.
     renderClaudeEngine(cwd, CONFIG_UPGRADED);
     const after = readFileSync(path, "utf-8");
     expect(after).toContain("## Reglas del repo");

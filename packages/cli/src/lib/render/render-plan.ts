@@ -384,7 +384,11 @@ export function resolveAssetPath(
   return { path: resolve(root, asset.relPath), fallback: base === "es" };
 }
 
-export type AssetStatus = InjectResult["status"] | "removed-condition-false" | "removed-trimmed";
+export type AssetStatus =
+  | InjectResult["status"]
+  | "removed-condition-false"
+  | "removed-trimmed"
+  | "retired-kept";
 
 export interface AssetPlanEntry {
   asset: CoreManagedAsset;
@@ -443,6 +447,16 @@ export interface RenderPlan {
   /** Markers whose existing version is NEWER than this CLI's — the block was
    * written by a newer navori and was preserved, not overwritten (#79). */
   downgrades: UpdateAvailable[];
+}
+
+/**
+ * Status of a retired block that was NOT removed. `newer` keeps the anti-rollback
+ * label; an edited block is `retired-kept`. Both are non-conflict: a retired block
+ * has no new content, so the sync conflict flow (`user-modified-skipped`) would
+ * offer a resolution that can resolve nothing.
+ */
+function keptRetiredStatus(kept: "newer" | "modified"): "downgrade-skipped" | "retired-kept" {
+  return kept === "newer" ? "downgrade-skipped" : "retired-kept";
 }
 
 /**
@@ -682,10 +696,22 @@ export function computeRenderPlan(
         if (retired) {
           for (const blockId of retired.blockIds) {
             if (skipIds.has(blockId)) continue;
+            // Guarded (#1273): an edited block, or one from a newer navori, stays.
+            const result = removeManagedSectionGuarded(working, blockId);
+            const asset = { id: blockId, relPath: `@navori/plugin-${declaredId}` };
+            if ("kept" in result) {
+              entries.push({
+                asset,
+                source: declaredId,
+                status: keptRetiredStatus(result.kept),
+                newContent: null,
+              });
+              continue;
+            }
             const before = working;
-            working = removeManagedSection(working, blockId);
+            working = result.content;
             entries.push({
-              asset: { id: blockId, relPath: `@navori/plugin-${declaredId}` },
+              asset,
               source: declaredId,
               status: before === working ? "unchanged" : "removed-condition-false",
               newContent: null,
@@ -721,7 +747,7 @@ export function computeRenderPlan(
           entries.push({
             asset,
             source: declaredId,
-            status: "downgrade-skipped",
+            status: keptRetiredStatus(result.kept),
             newContent: null,
           });
         } else if (result.content !== working) {

@@ -9,9 +9,8 @@ import type { NavoriConfig } from "../../lib/config/config.ts";
  * `extraVars` or every render call site has to know how to compute it
  * independently (and, before this, four of five forgot to).
  *
- * No plugin currently needs a derived value here (jscpd's own
- * `jscpdThreshold` was retired with #1060, since the gate now blocks on new
- * clones rather than on a duplication percentage). The function — and the
+ * No plugin currently needs a derived value here (the last one,
+ * `jscpdThreshold`, was retired with #1060 together with its plugin). The function — and the
  * six render call sites that call it — stays wired on purpose: it is the
  * single seam future plugins use for this, and removing it would reproduce
  * the "four of five forgot" bug #1057 just fixed the day before this ticket.

@@ -20,7 +20,7 @@ const es: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "--full",
-        desc: "--recommended + proveedores externos por defecto (tgrep, semgrep, jscpd, acli; codegraph opt-in) + pre-commit hook + scan-monorepo + project block estricto (posture/reviewRigor/testsForNewCode). Requiere instalar los binarios de esos proveedores.",
+        desc: "--recommended + proveedores externos por defecto (tgrep, acli; codegraph opt-in) + pre-commit hook + scan-monorepo + project block estricto (posture/reviewRigor/testsForNewCode). Requiere instalar los binarios de esos proveedores.",
       },
       {
         flag: "--recommended",
@@ -62,7 +62,7 @@ const es: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "<plugin>",
-        desc: "Plugin a registrar: engram, codegraph, tgrep, semgrep, jscpd, acli, gh.",
+        desc: "Plugin a registrar: engram, codegraph, tgrep, acli, gh.",
       },
       { flag: "--suggest", desc: "Detecta el stack y sugiere preset + plugins (no instala nada)." },
       { flag: "--yes", desc: "Sin prompts; instala la herramienta externa si hace falta." },
@@ -294,7 +294,7 @@ const es: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "<plugin>",
-        desc: "Id del plugin a quitar (semgrep, jscpd, codegraph, tgrep, acli, gh).",
+        desc: "Id del plugin a quitar (codegraph, tgrep, acli, gh).",
       },
       { flag: "--yes", desc: "Sin confirmación." },
       { flag: "--cwd <dir>", desc: "Directorio del repo (default: actual)." },
@@ -302,7 +302,7 @@ const es: Record<string, CommandDoc> = {
     example: [
       {
         title: "Quitar un plugin",
-        code: "$ navori remove semgrep --yes\n◆  'semgrep' quitado y limpiado.\n└  Listo",
+        code: "$ navori remove tgrep --yes\n◆  'tgrep' quitado y limpiado.\n└  Listo",
       },
       {
         title: "engram no se puede quitar",
@@ -1056,7 +1056,7 @@ const en: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "--full",
-        desc: "--recommended + default external providers (tgrep, semgrep, jscpd, acli; codegraph opt-in) + pre-commit hook + monorepo scan + strict project block (posture/reviewRigor/testsForNewCode). Requires installing those providers' binaries.",
+        desc: "--recommended + default external providers (tgrep, acli; codegraph opt-in) + pre-commit hook + monorepo scan + strict project block (posture/reviewRigor/testsForNewCode). Requires installing those providers' binaries.",
       },
       {
         flag: "--recommended",
@@ -1098,7 +1098,7 @@ const en: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "<plugin>",
-        desc: "Plugin to register: engram, codegraph, tgrep, semgrep, jscpd, acli, gh.",
+        desc: "Plugin to register: engram, codegraph, tgrep, acli, gh.",
       },
       {
         flag: "--suggest",
@@ -1327,7 +1327,7 @@ const en: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "<plugin>",
-        desc: "Plugin id to remove (semgrep, jscpd, codegraph, tgrep, acli, gh).",
+        desc: "Plugin id to remove (codegraph, tgrep, acli, gh).",
       },
       { flag: "--yes", desc: "Skip confirmation." },
       { flag: "--cwd <dir>", desc: "Repo directory (default: current)." },
@@ -1335,7 +1335,7 @@ const en: Record<string, CommandDoc> = {
     example: [
       {
         title: "Remove a plugin",
-        code: "$ navori remove semgrep --yes\n◆  'semgrep' removed and cleaned up.\n└  Done",
+        code: "$ navori remove tgrep --yes\n◆  'tgrep' removed and cleaned up.\n└  Done",
       },
       {
         title: "engram cannot be removed",

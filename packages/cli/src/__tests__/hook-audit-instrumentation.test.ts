@@ -126,12 +126,12 @@ describe("every registered hook carries the audit-log include (#778)", () => {
     // assertion below would pass over an EMPTY list and the test would go green
     // while checking nothing.
     expect(scriptNames.length).toBeGreaterThanOrEqual(12);
-    // One from each source, because the include rule applies to both: a core
-    // hook and a plugin-contributed one.
+    // No bundled plugin registers a hook today; the include rule still applies
+    // to any plugin-contributed one, and `resolves every registered hook` below
+    // checks them all.
     expect(scriptNames).toContain("guard-destructive.sh");
     // Covers: R25 — the gate that can deny a dispatch must be able to say it ran.
     expect(scriptNames).toContain("plan-gate.sh");
-    expect(scriptNames).toContain("check-jscpd.sh");
   });
 
   it("resolves every registered hook to a source asset", () => {

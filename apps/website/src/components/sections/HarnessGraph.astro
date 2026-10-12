@@ -8,7 +8,7 @@
  * is a ROUTE: one prompt enters at stop 1 and comes out a commit at stop 8,
  * lighting up every piece it passes through — hooks, the four context sources,
  * the orchestrator, codegraph and tgrep, the three subagents, the guard and the
- * permission rules, semgrep/jscpd/gate/reviewer, and the memory write that
+ * permission rules, gate/reviewer, and the memory write that
  * closes the loop back into stop 2.
  *
  * MECHANICS. One `<path>` is the route. A travelling token is positioned with
@@ -126,8 +126,6 @@ const STATIONS: Station[] = [
     x: 620,
     y: ROW.c,
     chips: [
-      { id: "semgrep", label: "semgrep", tone: "quality" },
-      { id: "jscpd", label: "jscpd", tone: "quality" },
       { id: "gate", label: "quality gate", tone: "quality" },
       { id: "reviewer", label: "reviewer", tone: "quality" },
     ],

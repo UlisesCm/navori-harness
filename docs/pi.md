@@ -492,22 +492,16 @@ Bypass classes of every seatbelt row (a seatbelt is a textual check, not a sandb
 | `permission-rule:narrowed:Bash(rm -rf /*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
 | `permission-rule:narrowed:Bash(rm -rf ~/*)` | enforced | seatbelt (bypass classes above) | family rm-recursive-root-home: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings |
 | `plugin-hook-extension:tgrep/tgrep-search-lane` | enforced | seatbelt (bypass classes above) | textual seatbelt over grep/rg segments; fails open (audited as fail-open) while the index is unavailable |
-| `plugin-hook:jscpd/0` | enforced | seatbelt (bypass classes above) | enforced only while the extension is loaded; same textual-seatbelt limits as the shared guard |
-| `plugin-hook:semgrep/0` | enforced | seatbelt (bypass classes above) | enforced only while the extension is loaded; same textual-seatbelt limits as the shared guard |
 | `plugin-managed:acli/acli-protocol` | advisory | — | Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it |
 | `plugin-managed:codegraph/codegraph-search-v2` | advisory | — | Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it |
 | `plugin-managed:tgrep/tgrep-search-v2` | advisory | — | Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it |
 | `plugin-mcp-server:codegraph` | advisory | — | configured is not connected: --no-mcp, -builtin:mcp and extensions replacing the native MCP are not detected; only server names and `enabled` are read. Navori never writes Pi MCP config |
 | `plugin-mcp-server:engram` | advisory | — | configured is not connected: --no-mcp, -builtin:mcp and extensions replacing the native MCP are not detected; only server names and `enabled` are read. Navori never writes Pi MCP config |
-| `plugin-script:jscpd/check-jscpd.sh` | enforced | seatbelt (bypass classes above) | a textual check of the command the model writes, not a sandbox; Pi has no permission system of its own |
-| `plugin-script:semgrep/check-semgrep.sh` | enforced | seatbelt (bypass classes above) | a textual check of the command the model writes, not a sandbox; Pi has no permission system of its own |
 | `plugin-script:tgrep/guard-search-routing.sh` | enforced | seatbelt (bypass classes above) | content search (grep/rg) only; fails open when tgrep is missing, its server is not running or no index exists |
 | `plugin-settings:acli` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
 | `plugin-settings:codegraph` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
 | `plugin-settings:engram` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
 | `plugin-settings:gh` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
-| `plugin-settings:jscpd` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
-| `plugin-settings:semgrep` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
 | `plugin-settings:tgrep` | n/a | — | only `allow` rules: Pi has no permission system and does not translate allow, as Codex |
 | `plugin-skill:acli/acli-comment-channel-publisher` | advisory | — | guidance only, nothing enforces it; with the publisher role disabled no role file exists and the prose is not rendered |
 | `plugin-skill:codegraph/codegraph-access-v2-architect` | unsupported | — | codegraph declares an MCP server and Pi children run with --no-mcp, so the architect prose is not injected; render names the role (mcpRoleDiagnostics) |
@@ -520,8 +514,6 @@ Bypass classes of every seatbelt row (a seatbelt is a textual check, not a sandb
 | `plugin-skill:engram/engram-orchestrator-extension` | advisory | — | Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it |
 | `plugin-skill:engram/engram-reviewer-extension` | unsupported | — | engram declares an MCP server and Pi children run with --no-mcp, so the reviewer prose is not injected; render names the role (mcpRoleDiagnostics) |
 | `plugin-skill:gh/gh-comment-channel-publisher` | advisory | — | guidance only, nothing enforces it; with the publisher role disabled no role file exists and the prose is not rendered |
-| `plugin-skill:jscpd/jscpd-review-extension` | advisory | — | with Codex active, Codex writes that skill and its sub-block; Pi never duplicates it. The text is guidance, nothing enforces it |
-| `plugin-skill:semgrep/semgrep-review-extension` | advisory | — | with Codex active, Codex writes that skill and its sub-block; Pi never duplicates it. The text is guidance, nothing enforces it |
 <!-- pi-parity:end -->
 
 ## Cycle commands

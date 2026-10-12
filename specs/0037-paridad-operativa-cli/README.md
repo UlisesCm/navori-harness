@@ -118,3 +118,7 @@ modelo/effort al diagnóstico JSON y reutiliza el resolver existente de Codex si
 y el gate completo pasó (300 archivos de tests, 5,498 aprobados, 1 omitido). Los commits locales son
 `75f1130b` (T6) y `0eec446e` (T12). El avance de la spec es parcial; no se afirma cierre ni
 publicación del PR.
+
+## Enmienda 2026-10-12 — retiro de los plugins jscpd y semgrep
+
+Los plugins `jscpd` y `semgrep` de Navori se retiraron del producto en #1300. Las menciones a sus hooks en el diseño, la evidencia y las tareas de esta spec describen el estado de entonces y se conservan como historia; el uso local de jscpd/semgrep en este repo (`check:dup`, `check:ast`, semgrep en CI) no cambia.

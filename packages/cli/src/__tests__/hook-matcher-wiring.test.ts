@@ -352,10 +352,9 @@ describe("hook wiring — matcher vs. what the script accepts (#767, #775)", () 
   it("encuentra hooks cableados y deriva sus claims del script", () => {
     expect(hooks.length).toBeGreaterThan(0);
     expect(hooks.map((h) => h.script)).toContain("routing-watch.sh");
-    // Plugins are the half the earlier scope excluded; an empty plugin list
-    // would make every plugin assertion below pass by finding nothing.
-    expect(hooks.filter((h) => h.source.startsWith("plugin:")).length).toBeGreaterThan(0);
-    expect(hooks.map((h) => h.script)).toContain("check-semgrep.sh");
+    // No bundled plugin registers a hook today, so there is no plugin half to
+    // assert is non-empty; `pluginWiredHooks` still reads any that appears.
+    expect(hooks.map((h) => h.script)).toContain("quality-gate-pre-commit.sh");
 
     const discriminating = hooks.filter((h) => h.accepts.size > 0);
     expect(discriminating.length).toBeGreaterThan(0);
@@ -373,17 +372,11 @@ describe("hook wiring — matcher vs. what the script accepts (#767, #775)", () 
     // The second claim shape, read off the scripts that declare it.
     const gates = hooks.filter((h) => h.triggers !== null);
     expect(gates.map((h) => h.script).sort()).toEqual([
-      "check-jscpd.sh",
-      "check-semgrep.sh",
       "comment-draft-confirm.sh",
       "pr-publisher-confirm.sh",
       "quality-gate-pre-commit.sh",
     ]);
-    expect(hooks.find((h) => h.script === "check-semgrep.sh")?.triggers).toEqual([
-      "commit",
-      "push",
-      "create",
-    ]);
+    expect(hooks.find((h) => h.script === "pr-publisher-confirm.sh")?.triggers).toEqual(["create"]);
 
     // The third claim shape (#796), read off the state auditor that declares it.
     const auditors = hooks.filter((h) => h.covered !== null);
