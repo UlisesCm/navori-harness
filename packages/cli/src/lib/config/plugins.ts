@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from "node:fs";
-import { resolve, sep } from "node:path";
+import { basename, resolve, sep } from "node:path";
 import { z } from "zod";
 import { NavoriError } from "../primitives/errors.ts";
 import {
@@ -129,8 +129,8 @@ const ExternalToolSchema = z
       .optional(),
     /**
      * Declares that this binary must support a specific CLI capability that
-     * `--version` cannot answer reliably (#1060: `jscpd@5.1.0 --version` prints
-     * `cpd 5.0.16`, a full minor off). `doctor` runs `checkBinary` with `args`
+     * `--version` cannot answer reliably (#1060: a tool whose `--version`
+     * reports a different product version). `doctor` runs `checkBinary` with `args`
      * and checks the captured stdout for every string in `mustContain`.
      *
      * `minVersion` is **display-only** — it appears in the doctor/init message
@@ -230,7 +230,7 @@ const HookEntrySchema = z.object({
    * The hook can only do its job on the main thread — inside a subagent it is
    * a spawn that produces nothing (#924). Same meaning as `PlannedHook`'s field
    * of the same name, declared here because plugin hooks never pass through the
-   * core plan: `check-jscpd` and `check-semgrep` come from this schema.
+   * core plan: plugin hooks come from this schema.
    *
    * It does NOT change the registration. Both hosts fire `PreToolUse` and
    * `PostToolUse` inside subagents and offer no per-thread filter, so the flag
@@ -369,8 +369,6 @@ export const KNOWN_PLUGINS: Record<string, string> = {
   engram: "@navori/plugin-engram",
   acli: "@navori/plugin-acli",
   gh: "@navori/plugin-gh",
-  jscpd: "@navori/plugin-jscpd",
-  semgrep: "@navori/plugin-semgrep",
   codegraph: "@navori/plugin-codegraph",
   tgrep: "@navori/plugin-tgrep",
 };
@@ -398,16 +396,70 @@ export const KNOWN_PLUGINS: Record<string, string> = {
  * cruft. A path pointing at a directory is removed recursively. Keep these EXACT —
  * they're matched literally against disk, so a typo means a silent no-op purge.
  */
-export const RETIRED_PLUGINS: Record<
-  string,
-  { removedIn: string; blockIds: string[]; assets: string[] }
-> = {
+export interface RetiredPluginEntry {
+  removedIn: string;
+  blockIds: string[];
+  assets: string[];
+  /**
+   * Grandfathered policy for leftovers that predate script markers (#637) and are
+   * not in the legacy fingerprint table: a marker-free file under `assets` is
+   * still deleted. Only `cognitive` (retired in #130) sets it. Every newer entry
+   * leaves it unset, so a marker-free file that is not a known legacy render is
+   * the user's and is kept (`retiredAssetKeepReason`).
+   */
+  deleteForeign?: boolean;
+}
+
+export const RETIRED_PLUGINS: Record<string, RetiredPluginEntry> = {
   cognitive: {
     removedIn: "#130",
     blockIds: ["cognitive-protocol"],
     assets: [".claude/scripts/check-cognitive.sh", ".claude/scripts/cognitive-tool"],
+    deleteForeign: true,
+  },
+  jscpd: {
+    removedIn: "#1300",
+    blockIds: ["jscpd-protocol"],
+    assets: [".claude/scripts/check-jscpd.sh"],
+  },
+  semgrep: {
+    removedIn: "#1300",
+    blockIds: ["semgrep-protocol"],
+    assets: [".claude/scripts/check-semgrep.sh"],
   },
 };
+
+/** True when `id` is a plugin navori shipped and later retired (`RETIRED_PLUGINS`). */
+export function isRetiredPlugin(id: string): boolean {
+  return Object.hasOwn(RETIRED_PLUGINS, id);
+}
+
+/**
+ * Basenames of the retired plugins' script assets (`.claude/scripts/<name>`),
+ * derived from `RETIRED_PLUGINS.assets` so no caller hardcodes a script name.
+ * Codex mirrors the same names under `.codex/scripts/`.
+ */
+export function retiredScriptBasenames(): Set<string> {
+  const out = new Set<string>();
+  for (const entry of Object.values(RETIRED_PLUGINS)) {
+    for (const asset of entry.assets) {
+      if (asset.startsWith(".claude/scripts/")) out.add(basename(asset));
+    }
+  }
+  return out;
+}
+
+/** The retired plugin (id + entry) that owns a script/dir basename, or null. */
+export function retiredPluginForScript(
+  name: string,
+): { id: string; entry: RetiredPluginEntry } | null {
+  for (const [id, entry] of Object.entries(RETIRED_PLUGINS)) {
+    if (entry.assets.some((a) => a.startsWith(".claude/scripts/") && basename(a) === name)) {
+      return { id, entry };
+    }
+  }
+  return null;
+}
 
 /**
  * Managed CLAUDE.md blocks that a LIVE plugin used to declare and no longer does.
@@ -425,8 +477,6 @@ export const RETIRED_PLUGINS: Record<
  * retired, whatever happened to its text.
  */
 export const RETIRED_PLUGIN_BLOCKS: Record<string, { retiredIn: string; blockIds: string[] }> = {
-  jscpd: { retiredIn: "#614", blockIds: ["jscpd-protocol"] },
-  semgrep: { retiredIn: "#614", blockIds: ["semgrep-protocol"] },
   // #814: `engram-protocol` shipped ~450 words to every non-fork agent — including
   // ones with no `mem_*` tool — to spend a paragraph explaining who it wasn't for.
   // Its content already had per-role homes: `skills/engram-leader.md` (injected
@@ -488,6 +538,19 @@ export const RETIRED_PLUGIN_SUB_BLOCKS: Record<
   string,
   { retiredIn: string; entries: Array<{ id: string; targetPath: string }> }
 > = {
+  jscpd: {
+    retiredIn: "#1300",
+    entries: [{ id: "jscpd-review-extension", targetPath: ".claude/skills/review-diff/SKILL.md" }],
+  },
+  semgrep: {
+    retiredIn: "#1300",
+    entries: [
+      {
+        id: "semgrep-review-extension",
+        targetPath: ".claude/skills/security-invariants/SKILL.md",
+      },
+    ],
+  },
   codegraph: {
     retiredIn: "#838",
     entries: [
@@ -624,7 +687,7 @@ export interface PluginEntryConfig {
   enabled: boolean;
   nativeHook?: boolean;
 }
-type PluginsConfig = Record<string, PluginEntryConfig>;
+export type PluginsConfig = Record<string, PluginEntryConfig>;
 
 /**
  * Load all plugins that are enabled in the config (plugins[id].enabled === true).
@@ -633,6 +696,12 @@ type PluginsConfig = Record<string, PluginEntryConfig>;
 export interface PluginsLoadResult {
   loaded: LoadedPlugin[];
   missing: Array<{ id: string; reason: string }>;
+  /**
+   * Ids declared in config that navori retired (`RETIRED_PLUGINS`). Tracked apart
+   * from `missing`: a retired id is not a typo or a broken manifest, so it never
+   * fails a health check or raises a load-failure warning; `doctor` reports it.
+   */
+  retired: string[];
 }
 
 export function loadEnabledPlugins(pluginsConfig: PluginsConfig | undefined): PluginsLoadResult {
@@ -658,6 +727,7 @@ function loadPluginsWhere(
 
   const loaded: LoadedPlugin[] = [];
   const missing: Array<{ id: string; reason: string }> = [];
+  const retired: string[] = [];
 
   for (const [id, entry] of entries) {
     try {
@@ -671,7 +741,8 @@ function loadPluginsWhere(
       );
     } catch (err) {
       if (err instanceof PluginNotFoundError) {
-        missing.push({ id, reason: "unknown plugin id" });
+        if (isRetiredPlugin(id)) retired.push(id);
+        else missing.push({ id, reason: "unknown plugin id" });
       } else if (err instanceof PluginManifestError) {
         missing.push({ id, reason: err.message });
       } else {
@@ -680,5 +751,5 @@ function loadPluginsWhere(
     }
   }
 
-  return { loaded, missing };
+  return { loaded, missing, retired };
 }

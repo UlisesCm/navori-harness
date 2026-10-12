@@ -322,7 +322,7 @@ describe("doctor --json — available external providers, not enabled (#981)", (
     runCli(["init", "--recommended", "--cwd", repo]);
 
     const providers = doctorJson(repo).availableExternalProviders;
-    expect(providers).toEqual(expect.arrayContaining(["codegraph", "tgrep", "semgrep", "jscpd"]));
+    expect(providers).toEqual(expect.arrayContaining(["codegraph", "tgrep"]));
     expect(providers).not.toContain("gh"); // no git remote in this fixture
     expect(providers).not.toContain("engram"); // always-on, not a user choice
   });

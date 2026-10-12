@@ -222,6 +222,47 @@ describe("quality-gate hook — declared runner present", () => {
     expect(r.status).toBe(0);
     expect(r.stderr).not.toContain("running quality-gate fast");
   });
+
+  // Re-homed from the plugin gate suites (FIX C): simple wrappers reduce to a plain `git …`.
+  it.each(["command git commit -m x", "\\git commit -m x", "(git commit -m x)"])(
+    "runs the gate on the wrapped form `%s`",
+    (command) => {
+      fakeBin("pnpm", 0);
+      const r = runHook(installHook("pnpm run typecheck"), command);
+      expect(r.status).toBe(0);
+      expect(r.stderr).toContain("running quality-gate fast");
+    },
+  );
+
+  // FIX C negatives: a non-commit subcommand or a lookalike word is never gated.
+  it.each(["git config user.name x", "git commitgraph write"])(
+    "does NOT run the gate on the non-commit `%s`",
+    (command) => {
+      fakeBin("pnpm", 0);
+      const r = runHook(installHook("pnpm run typecheck"), command);
+      expect(r.status).toBe(0);
+      expect(r.stderr).not.toContain("running quality-gate fast");
+    },
+  );
+
+  // Spec 0016: the substring fast path changes the price of the detector, never its verdict.
+  it("still runs the gate on a `git commit` buried at the end of a long compound", () => {
+    fakeBin("pnpm", 0);
+    const long = [...Array.from({ length: 39 }, (_, i) => `echo paso${i}`), "git commit"].join(
+      " && ",
+    );
+    const r = runHook(installHook("pnpm run typecheck"), long);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("running quality-gate fast");
+  });
+
+  it("skips a long compound with no commit (the fast path's whole point)", () => {
+    fakeBin("pnpm", 0);
+    const long = Array.from({ length: 40 }, (_, i) => `echo paso${i}`).join(" && ");
+    const r = runHook(installHook("pnpm run typecheck"), long);
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toContain("running quality-gate fast");
+  });
 });
 
 /**

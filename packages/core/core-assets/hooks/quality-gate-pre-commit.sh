@@ -148,10 +148,9 @@ TRIGGER_STRIP_HEREDOC_BODIES=1
 # could be read out of the tool input at all (no JSON parser, a malformed or
 # truncated payload). `is_scan_trigger ""` simply finds no git segment, so the
 # whole block below was skipped WITHOUT A WORD — a gate that omits itself in
-# silence is indistinguishable from a gate that passed (#511). Its two siblings
-# (`check-semgrep.sh`, `check-jscpd.sh`) already scan unconditionally there,
-# which is the contract the shared extractor documents; this one drifted. The
-# verdict is now stated out loud in both directions, per #88.
+# silence is indistinguishable from a gate that passed (#511). The contract the
+# shared extractor documents is to run unconditionally there; this one had
+# drifted. The verdict is now stated out loud in both directions, per #88.
 run_needed=0
 if [ -z "$cmd" ]; then
   echo "[navori] no command could be read from the tool input; running the quality gate anyway rather than skipping it silently." >&2

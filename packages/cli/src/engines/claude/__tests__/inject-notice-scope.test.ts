@@ -1,10 +1,20 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
 import { removeManagedSection } from "../../../lib/render/marker.ts";
+
+// A plugin that injects into a skill: no bundled plugin does any more.
+vi.mock("../../../lib/render/bundled-assets.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../lib/render/bundled-assets.ts")>();
+  const { withFakePlugins, writeFakeSkillPlugin } =
+    await import("../../../lib/__tests__/helpers/fake-plugins.ts");
+  return withFakePlugins(actual, {
+    skilly: writeFakeSkillPlugin("skilly", ".claude/skills/review-diff/SKILL.md"),
+  });
+});
 
 /**
  * A plugin sub-block whose target is absent has TWO causes, and the render used
@@ -78,35 +88,35 @@ describe("render — el aviso de sub-bloque no inyectado (#676)", () => {
 });
 
 describe("render — un sub-bloque cuyo destino es una skill omitida (spec 0043 R13)", () => {
-  const JSCPD = { ...BASE, plugins: { jscpd: { enabled: true } } } as unknown as NavoriConfig;
+  const SKILLY = { ...BASE, plugins: { skilly: { enabled: true } } } as unknown as NavoriConfig;
   const target = (): string => join(ws, ".claude/skills/review-diff/SKILL.md");
   const omitted = { omitted: new Set(["review-diff"]), prune: false };
 
   it("no avisa aunque el destino no esté en disco", () => {
     // Covers: R13
     // Sin el set de omitidas, ese destino ausente sí es un aviso legítimo (#676).
-    const control = renderClaudeEngine(ws, JSCPD, { repoRoot: root });
+    const control = renderClaudeEngine(ws, SKILLY, { repoRoot: root });
     expect(control.warnings.some((w) => /no inyectado|not injected/.test(w))).toBe(false);
     rmSync(join(ws, ".claude"), { recursive: true });
 
-    const r = renderClaudeEngine(ws, JSCPD, { repoRoot: root, workspaceSkills: omitted });
+    const r = renderClaudeEngine(ws, SKILLY, { repoRoot: root, workspaceSkills: omitted });
     expect(injectWarnings(r.warnings)).toEqual([]);
     expect(existsSync(target())).toBe(false);
   });
 
   it("no reescribe la copia en disco", () => {
     // Covers: R13
-    renderClaudeEngine(ws, JSCPD, { repoRoot: root });
+    renderClaudeEngine(ws, SKILLY, { repoRoot: root });
     // Quitar el sub-bloque: un render normal lo volvería a inyectar.
     const stripped = removeManagedSection(
       readFileSync(target(), "utf-8"),
-      "jscpd-review-extension",
+      "skilly-review-extension",
       "html",
     );
     expect(stripped).not.toBe(readFileSync(target(), "utf-8"));
     writeFileSync(target(), stripped);
 
-    const r = renderClaudeEngine(ws, JSCPD, { repoRoot: root, workspaceSkills: omitted });
+    const r = renderClaudeEngine(ws, SKILLY, { repoRoot: root, workspaceSkills: omitted });
 
     expect(readFileSync(target(), "utf-8")).toBe(stripped);
     expect(r.written.some((w) => w.path.includes("review-diff"))).toBe(false);

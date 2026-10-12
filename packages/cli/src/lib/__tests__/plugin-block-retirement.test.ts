@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../../engines/claude/index.ts";
-import { RETIRED_PLUGIN_BLOCKS } from "../config/plugins.ts";
+import { RETIRED_PLUGIN_BLOCKS, RETIRED_PLUGINS } from "../config/plugins.ts";
 import { injectManagedSection } from "../render/marker.ts";
 import type { NavoriConfig } from "../config/config.ts";
 
@@ -56,26 +56,15 @@ describe("#614 — the reviewer-only blocks land in the skills, not in CLAUDE.md
     expect(claudeMd).not.toContain("Local security gate (semgrep)");
   });
 
-  it("delivers each one to the skill that already owns that moment", () => {
+  it("ships neither review extension once both plugins are retired", () => {
     renderClaudeEngine(cwd, CONFIG);
     const reviewDiff = read(".claude/skills/review-diff/SKILL.md");
-    expect(reviewDiff).toContain("Code duplication (jscpd)");
-    // The interpolation still happens in the new home — a `$BRANCH_BASE` here
-    // would be a silent no-op scan (#273).
-    expect(reviewDiff).toContain("git diff --name-only --diff-filter=ACMRT main");
+    expect(reviewDiff).not.toContain("Code duplication (jscpd)");
+    expect(reviewDiff).not.toContain("jscpd-review-extension");
 
     const security = read(".claude/skills/security-invariants/SKILL.md");
-    expect(security).toContain("Local security gate (semgrep)");
-    expect(security).toContain("--config=p/default");
-  });
-
-  it("preserves the load-bearing invariants both plugins declare", () => {
-    renderClaudeEngine(cwd, CONFIG);
-    const reviewDiff = read(".claude/skills/review-diff/SKILL.md");
-    // `doctor` checks these verbatim against the whole render; moving the text
-    // must not be how they disappear.
-    expect(reviewDiff).toContain("jscpd");
-    expect(reviewDiff).toContain("do not approve");
+    expect(security).not.toContain("Local security gate (semgrep)");
+    expect(security).not.toContain("semgrep-review-extension");
   });
 });
 
@@ -106,8 +95,8 @@ describe("#614 — migration: an already rendered repo loses the orphan", () => 
   it("registers every retired block against the plugin that declared it", () => {
     // The registry is the only thing standing between a moved block and an
     // orphan nobody can strip, so its entries are pinned rather than assumed.
-    expect(RETIRED_PLUGIN_BLOCKS.jscpd?.blockIds).toContain("jscpd-protocol");
-    expect(RETIRED_PLUGIN_BLOCKS.semgrep?.blockIds).toContain("semgrep-protocol");
+    expect(RETIRED_PLUGINS.jscpd?.blockIds).toContain("jscpd-protocol");
+    expect(RETIRED_PLUGINS.semgrep?.blockIds).toContain("semgrep-protocol");
     expect(RETIRED_PLUGIN_BLOCKS.gh?.blockIds).toContain("gh-protocol");
   });
 });

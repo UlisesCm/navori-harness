@@ -265,6 +265,16 @@ agente, además de la sesión principal. **Es un hecho de Claude, no portable**:
 Codex se lanza desde su propio archivo de agente con `developer_instructions` obligatorias, así que
 el reporte omite esa línea cuando `engines` no incluye `claude`.
 
+## Parciales de hook y su test de comportamiento
+
+Los parciales de `core-assets/hooks/_partials/` se incluyen en los hooks con `# navori:include <nombre>`. Un parcial solo vale su lugar si un hook **core** lo incluye, y solo es confiable mientras un test que ejecuta ese hook lo nombra. [hook-includes.test.ts](packages/cli/src/lib/render/__tests__/hook-includes.test.ts) verifica ambas mitades de forma mecánica:
+
+- Un parcial nuevo necesita un consumidor core o una entrada en `PLUGIN_ONLY_PENDING_REMOVAL`. Esa lista es solo para parciales cuyo único consumidor es un plugin, y la entrada se borra junto con el plugin.
+- Cada parcial que no está en esa lista necesita una fila en `PARTIAL_BEHAVIOUR_TESTS`, con `{ hook, file, title }`: `hook` es el hook core que lo incluye, `file` el test que ejercita su comportamiento y `title` el nombre exacto de ese test, que debe aparecer literal en `file`. El archivo también debe nombrar el hook.
+- Una fila sin parcial correspondiente (obsoleta) también falla.
+
+Así, un parcial nuevo sin test de comportamiento hace fallar la suite; no pasa en silencio.
+
 ## Commits y PRs
 
 - Commits: Conventional, español MX, atómicos (`feat|fix|chore|docs(scope): mensaje`).

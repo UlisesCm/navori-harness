@@ -388,14 +388,21 @@ describe("the inventory of delete paths is complete (#496)", () => {
 
   const DELETE_SITES: Record<string, string> = {
     // ── The three that judge a file the USER may own: shared criterion. ──
-    "commands/render.ts": "route B — planOrphanRemoval → isRemovableNavoriFile, file by file",
-    "engines/shared/execute-plan.ts": "route A — collectOrphans → isRemovableNavoriFile",
+    "commands/render.ts":
+      "route B — planOrphanRemoval → isRemovableNavoriFile, file by file; its `keepRule` " +
+      "applies retiredAssetKeepReason to retired plugin scripts first",
+    "engines/shared/execute-plan.ts":
+      "route A — collectOrphans → isRemovableNavoriFile; a scan's optional `keep` rule " +
+      "(the Codex .codex/scripts scan: retiredAssetKeepReason) runs first",
     "engines/claude/index.ts":
       "route C — planFlat/planDirSkillRemoval, planRetiredHookRemoval (#774) and " +
       "planRetiredAgentRemoval (spec 0026 T10) → isRemovableNavoriFile(path, markerId). " +
-      "Its other two removals (disabled-plugin scripts §8.5, retired-plugin assets §8.5-bis) " +
-      "are marker-FREE by construction: a shell script carries no managed block, and the path " +
-      "comes from the plugin's own manifest, so navori is its only writer",
+      "Its other two removals are plugin scripts: disabled-plugin scripts (§8.5) keep an " +
+      "edited or newer one, and retired-plugin assets (§8.5-bis) go through " +
+      "retiredAssetKeepReason (marker + hash with nothing outside the block, a legacy " +
+      "fingerprint, or the entry's own deleteForeign; kept while a hook, a skipped config or " +
+      "nativeHook still references them). Retired sub-blocks (§8.5-ter) and the Codex " +
+      "sub-block sweep use removeManagedSectionGuarded",
     "engines/pi/index.ts":
       "retired .pi/agents/<role>.md only when it is a regular non-symlink file, its role " +
       "is in Navori's fixed allowlist but no longer desired, and ownsPiAgent validates " +

@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   NavoriConfigSchema,
   type NavoriConfig,
@@ -10,6 +10,14 @@ import {
 } from "../../lib/config/schema.ts";
 import { tc } from "../../lib/i18n.ts";
 import { computeHealthVerdict, nativeHookFindingText, scanNativeHooks } from "../doctor.ts";
+
+// No bundled plugin registers a hook any more: `gatey` does.
+vi.mock(import("../../lib/render/bundled-assets.ts"), async (importOriginal) => {
+  const actual = await importOriginal();
+  const { withFakePlugins, writeFakeHookPlugin } =
+    await import("../../lib/__tests__/helpers/fake-plugins.ts");
+  return withFakePlugins(actual, { gatey: writeFakeHookPlugin("gatey") });
+});
 
 const git = (cwd: string, ...args: string[]): void => {
   execFileSync("git", ["-C", cwd, "-c", "user.name=t", "-c", "user.email=t@t", ...args], {
@@ -99,14 +107,14 @@ describe("scanNativeHooks", () => {
 
     it("plugins.<p>.nativeHook: only-guarantee info, error when pre-commit and pre-push are absent", () => {
       const cwd = repo();
-      const cfg = config({ plugins: { semgrep: { enabled: true, nativeHook: true } } });
+      const cfg = config({ plugins: { gatey: { enabled: true, nativeHook: true } } });
       const found = codes(cwd, cfg);
       expect(found).toContain("info:plugin-only-guarantee");
       expect(found).toContain("error:plugin-declared-missing");
       const err = scanNativeHooks(cwd, cfg)!.findings.find(
         (f) => f.code === "plugin-declared-missing",
       )!;
-      expect(err.plugin).toBe("semgrep");
+      expect(err.plugin).toBe("gatey");
       // A native pre-push alone satisfies the plugin declaration.
       hook(cwd, ".git/hooks/pre-push");
       expect(codes(cwd, cfg)).not.toContain("error:plugin-declared-missing");
@@ -114,7 +122,7 @@ describe("scanNativeHooks", () => {
 
     it("ignores a nativeHook plugin whose hooks were not omitted (nothing to guard)", () => {
       const cwd = repo();
-      const cfg = config({ plugins: { semgrep: { enabled: false, nativeHook: true } } });
+      const cfg = config({ plugins: { gatey: { enabled: false, nativeHook: true } } });
       expect(codes(cwd, cfg)).not.toContain("info:plugin-only-guarantee");
     });
 

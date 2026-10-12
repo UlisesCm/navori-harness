@@ -55,7 +55,7 @@ const agents = [
     model: "sonnet",
     body: "El que revisa y aprueba o rechaza. No edita: juzga.",
     detail:
-      "Revisa el trabajo del implementer contra las reglas del proyecto y los gates (seguridad con semgrep, duplicación con jscpd). Aprueba o rechaza con motivos concretos. Es una segunda opinión estricta antes de que el código avance — por eso usa un modelo capaz de juzgar con criterio.",
+      "Revisa el trabajo del implementer contra las reglas del proyecto y los gates. Aprueba o rechaza con motivos concretos. Es una segunda opinión estricta antes de que el código avance — por eso usa un modelo capaz de juzgar con criterio.",
   },
   {
     role: "Publisher",
@@ -244,14 +244,6 @@ const gates = [
     body: "unknown + narrowing, tipado explícito. La única excepción es un // any justificado: <razón> — último recurso, no atajo que se vuelve deuda.",
   },
   {
-    title: "Semgrep · gate de seguridad",
-    body: "Análisis estático de patrones peligrosos, atado al reviewer. Los problemas de seguridad se atrapan en la revisión, no en producción.",
-  },
-  {
-    title: "jscpd · gate de duplicación",
-    body: "Detecta código copy-paste antes de que se multiplique. Menos superficie que mantener, menos lugares donde un bug se esconde.",
-  },
-  {
     title: "Hooks defensivos",
     body: "guard-destructive intercepta comandos peligrosos; quality-gate corre lint + tests antes de cada commit.",
   },
@@ -294,18 +286,6 @@ const creditsBuiltOn = [
     by: "Gentleman-Programming",
     role: "Memoria persistente entre sesiones vía MCP.",
     href: "https://github.com/Gentleman-Programming/engram",
-  },
-  {
-    name: "semgrep",
-    by: "Semgrep",
-    role: "Análisis estático de seguridad y patrones.",
-    href: "https://semgrep.dev",
-  },
-  {
-    name: "jscpd",
-    by: "kucherenko",
-    role: "Detección de código duplicado.",
-    href: "https://github.com/kucherenko/jscpd",
   },
   {
     name: "GitHub CLI",

@@ -757,8 +757,6 @@ describe.each(SHELLS)("audit-mode hook recorder under %s", (shell) => {
       "subagent-stop-handoff.sh",
       "worktree-reclaim.sh",
       "stop-verify-reminder.sh",
-      "check-jscpd.sh",
-      "check-semgrep.sh",
     ]) {
       expect(wired, `${expected} does not record its execution`).toContain(expected);
     }
@@ -848,14 +846,6 @@ describe.each(SHELLS)("audit-mode hook recorder under %s", (shell) => {
     // Attribution by agent id, not by overlapping time windows: with agents
     // running in parallel the windows overlap and timestamps become a guess.
     expect(logEvents().find((e) => e.event === "hook")?.agentId).toBe("ag_07");
-  });
-
-  // Covers: R5
-  it("names the plugin a hook came from, not just 'core'", () => {
-    const semgrep = resolve(HOOKS, "../../../plugins/semgrep/scripts/check-semgrep.sh");
-    // Disabling a plugin changes which hooks run; without `source` the report
-    // cannot explain why a phase thinned out between two sessions.
-    expect(readFileSync(semgrep, "utf-8")).toContain('navori_audit_source="plugin:semgrep"');
   });
 
   // Covers: R7
@@ -982,8 +972,7 @@ describe.each(SHELLS)("subagent end is observable under %s", (shell) => {
 
 /**
  * bash keeps exactly ONE EXIT trap. A hook that installs its own cleanup trap
- * after the recorder's silently discards it — and `check-jscpd` did, on the one
- * path where it does real work.
+ * after the recorder's silently discards it.
  */
 describe("a hook's own EXIT trap must compose with the recorder's", () => {
   // Covers: R5

@@ -171,8 +171,7 @@ describe("CLI e2e — happy paths", () => {
     dirs.push(repo);
 
     expect(runCli(["init", "--recommended", "--no-render", "--cwd", repo]).status).toBe(0);
-    // A gate plugin whose script interpolates {{branchBase}}.
-    expect(runCli(["add", "semgrep", "--skip-install", "--yes", "--cwd", repo]).status).toBe(0);
+    // A core hook interpolates {{shq:branchBase}}.
 
     const r = runCli(["configure", "branch-base", "develop", "--cwd", repo]);
     expect(r.status).toBe(0);
@@ -181,28 +180,9 @@ describe("CLI e2e — happy paths", () => {
     expect(config.branchBase).toBe("develop");
 
     expect(runCli(["render", "--apply", "--cwd", repo]).status).toBe(0);
-    const gate = readFileSync(join(repo, ".claude/scripts/check-semgrep.sh"), "utf-8");
-    expect(gate).toContain("develop");
-    expect(gate).not.toContain("{{branchBase}}");
-  });
-
-  it("gate plugins register a PreToolUse hook only — never a Stop hook", () => {
-    const repo = makeTmpRepo({
-      "package.json": JSON.stringify({ name: "stop-app", dependencies: { typescript: "^5" } }),
-      "tsconfig.json": "{}",
-      "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
-    });
-    dirs.push(repo);
-
-    expect(runCli(["init", "--recommended", "--no-render", "--cwd", repo]).status).toBe(0);
-    expect(runCli(["add", "jscpd", "--skip-install", "--yes", "--cwd", repo]).status).toBe(0);
-    expect(runCli(["render", "--apply", "--cwd", repo]).status).toBe(0);
-
-    const settings = JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8"));
-    // The gate fires only before commit/push (PreToolUse) — no Stop hook, so it
-    // never runs on every turn's session close (only when code is about to land).
-    expect(JSON.stringify(settings.hooks?.PreToolUse ?? [])).toContain("check-jscpd.sh");
-    expect(JSON.stringify(settings.hooks?.Stop ?? [])).not.toContain("check-jscpd.sh");
+    const hook = readFileSync(join(repo, ".claude/hooks/session-start-context.sh"), "utf-8");
+    expect(hook).toContain("base='develop'");
+    expect(hook).not.toContain("{{shq:branchBase}}");
   });
 
   it("project.localSkills renders no skills-index block (#1273); doctor flags a missing file", () => {

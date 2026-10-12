@@ -241,22 +241,10 @@ const MANAGED_BLOCK_IDS: readonly string[] = [
 ];
 
 /** Bundled plugins under `packages/plugins/`. */
-const PLUGIN_IDS: readonly string[] = [
-  "acli",
-  "codegraph",
-  "engram",
-  "gh",
-  "jscpd",
-  "semgrep",
-  "tgrep",
-];
+const PLUGIN_IDS: readonly string[] = ["acli", "codegraph", "engram", "gh", "tgrep"];
 
 /** Scripts bundled plugins copy into `.claude/scripts` (and `.codex/scripts` when registered). */
-const PLUGIN_SCRIPT_IDS: readonly string[] = [
-  "jscpd/check-jscpd.sh",
-  "semgrep/check-semgrep.sh",
-  "tgrep/guard-search-routing.sh",
-];
+const PLUGIN_SCRIPT_IDS: readonly string[] = ["tgrep/guard-search-routing.sh"];
 
 /**
  * `permission-rule` unit ids (spec 0041 R14/R15/R26): the generic classes, every

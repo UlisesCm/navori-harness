@@ -72,12 +72,7 @@ matters.
   makes the scanner never run at all — silently, since an empty scope looks
   identical to a clean one without edge case #511's sentinel.
 
-navori's jscpd and semgrep plugins implement this pattern
-(`packages/plugins/jscpd/scripts/check-jscpd.sh` and
-`packages/plugins/semgrep/scripts/check-semgrep.sh` in navori's source; a
-repo gets a rendered copy only by enabling the plugin). Read them as a
-reference, but they share a partial internal to navori, so a consumer repo
-must write its own script.
+Write your own script following this pattern, with the same worktree and scope handling described above.
 
 ## Wiring: a `package.json` script, not a bare path
 

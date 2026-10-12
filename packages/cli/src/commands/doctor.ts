@@ -105,7 +105,11 @@ import {
   type NativeHookState,
   type NativeHooksDetection,
 } from "../lib/diagnose/native-hooks.ts";
-import { scanPermissionMode, scanRetiredAssets } from "../lib/diagnose/health.ts";
+import {
+  scanPermissionMode,
+  scanRetiredAssets,
+  scanRetiredPluginLeftovers,
+} from "../lib/diagnose/health.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -393,6 +397,10 @@ export const doctorCommand = defineCommand({
     // reconciliation reports (§8.7b–d), so `doctor` never says "clean" while a
     // render still finds one.
     const retiredAssets = scanRetiredAssets(cwd);
+    // What a RETIRED plugin left behind (declared id, scripts, blocks, hooks that
+    // still call them). Warnings only — never in `computeHealthVerdict`, so a
+    // config that still lists a retired plugin keeps `ok`, exit 0 and `--strict`.
+    const retiredPlugins = scanRetiredPluginLeftovers(cwd, config);
     // AGENTS.md is only a first-class filesystem check when an engine that emits
     // it is configured; otherwise a leftover file is surfaced as an orphan below
     // instead of a bare ✓, which contradicted the drift/orphan report (#312).
@@ -485,6 +493,7 @@ export const doctorCommand = defineCommand({
       nameMismatch,
       orphanedEngineOutputs,
       retiredAssets,
+      retiredPlugins,
       legacyAgents,
       excludedBlocks,
       claudeHookScripts,
@@ -574,6 +583,29 @@ export const doctorCommand = defineCommand({
           `  ${color.yellow(sym.update)} ${accent(r.path)}  ${grey(td.retiredAssetRow(r.successor, r.reason))}`,
       );
       p.note(lines.join("\n"), td.retiredAssetsTitle(retiredAssets.length));
+    }
+
+    {
+      const tr = tc(lang).render;
+      const rows = [
+        ...retiredPlugins.declared.map(
+          (d) =>
+            `  ${color.yellow(sym.update)} ${accent(d.id)}  ${grey(td.retiredPluginDeclaredRow(d.id, d.removedIn))}`,
+        ),
+        ...retiredPlugins.assets.map(
+          (a) =>
+            `  ${color.yellow(sym.update)} ${accent(a.path)}  ${grey(td.retiredPluginAssetRow(a.reason === null ? null : tr.keptEngineOutputReason(a.reason)))}`,
+        ),
+        ...retiredPlugins.blocks.map(
+          (b) =>
+            `  ${color.yellow(sym.update)} ${accent(`${b.path}#${b.id}`)}  ${grey(td.retiredPluginBlockRow(b.id))}`,
+        ),
+        ...retiredPlugins.references.map(
+          (r) =>
+            `  ${r.scriptMissing ? color.red(sym.fail) : color.yellow(sym.update)} ${accent(r.source)}  ${grey(td.retiredPluginReferenceRow(r.script, r.scriptMissing))}`,
+        ),
+      ];
+      if (rows.length > 0) p.note(rows.join("\n"), td.retiredPluginsTitle(rows.length));
     }
 
     if (markers.length > 0) {
@@ -1824,7 +1856,7 @@ export interface ClaudeHookScriptsReport {
  * Validate that every `.claude/scripts/*` and `.claude/hooks/*` file referenced
  * by an ACTIVE hook in `.claude/settings.json` exists and is executable — the
  * Claude-side equivalent of Codex's `hooksNotExecutable` (#213). A plugin hook
- * (semgrep/jscpd) points at `.claude/scripts/check-*.sh`; if that file is
+ * points at `.claude/scripts/check-*.sh`; if that file is
  * missing or lost its +x bit, Claude fires it on every Bash and it breaks or
  * no-ops silently. Both failure modes are fixed by `navori render --apply`, so
  * they're warnings (they don't flip `ok`), matching Codex's treatment.
@@ -1957,7 +1989,7 @@ interface MissingExternalTool {
 
 /**
  * Each enabled plugin may declare an `externalTool` (an MCP server / CLI it
- * depends on, e.g. engram, semgrep). Always-on plugins never pass through
+ * depends on, e.g. engram, tgrep). Always-on plugins never pass through
  * `navori add`, so their `checkBinary`/`postInstall` never run — the protocol
  * ends up telling the agent to call tools (mem_save, mem_session_summary…) that
  * may not exist. Warn (non-fatal: the scan hooks self-skip and the protocol is
@@ -2073,9 +2105,8 @@ export interface ExternalToolCapabilityGap {
 /**
  * #1060 — a manifest may declare `externalTool.capabilityProbe` for a binary
  * whose CLI surface (not its `--version` self-report, unreliable per the
- * field's own JSDoc) determines whether a gate can rely on it — jscpd's
- * `check-jscpd.sh` needs `--baseline-from-ref`/`--fail-on-new-clones`, absent
- * before 5.1.1. Same informational tier as `scanPinnedVersionDrift` above:
+ * field's own JSDoc) determines whether a gate can rely on it (a flag
+ * its script needs that older releases lack). Same informational tier as `scanPinnedVersionDrift` above:
  * enabled plugins only, binary must already be present (absence is
  * `missingExternalTools`'s job), and a probe that throws stays silent rather
  * than guess. Never feeds `computeHealthVerdict` or `--strict` — the hook

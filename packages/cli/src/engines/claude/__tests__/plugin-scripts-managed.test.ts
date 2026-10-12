@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +6,6 @@ import { NavoriConfigSchema, type NavoriConfig } from "../../../lib/config/schem
 import { renderClaudeEngine } from "../index.ts";
 import { tc } from "../../../lib/i18n.ts";
 import { navoriAuthorship } from "../../../lib/render/removable.ts";
-import { pluginExtraVars } from "../../shared/plugin-extra-vars.ts";
 import { legacyFingerprintTable } from "../../shared/legacy-plugin-script-fingerprints.ts";
 
 /**
@@ -39,7 +37,7 @@ function config(preset = "custom"): NavoriConfig {
     preset,
     branchBase: "main",
     qualityGate: { fast: "pnpm lint", full: "pnpm test" },
-    plugins: { jscpd: { enabled: true } },
+    plugins: { tgrep: { enabled: true } },
   });
 }
 
@@ -51,15 +49,15 @@ afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
 });
 
-const script = (): string => join(cwd, ".claude/scripts/check-jscpd.sh");
+const script = (): string => join(cwd, ".claude/scripts/guard-search-routing.sh");
 
 describe("scripts de plugin: marcador propio (#637)", () => {
   it("el script renderizado lleva marcador con el plugin como source", () => {
     renderClaudeEngine(cwd, config());
     expect(existsSync(script())).toBe(true);
     const body = readFileSync(script(), "utf-8");
-    expect(body).toMatch(/^# navori:managed start id="jscpd-script-check-jscpd"/);
-    expect(body).toContain('source="@navori/plugin-jscpd"');
+    expect(body).toMatch(/^# navori:managed start id="tgrep-script-guard-search-routing"/);
+    expect(body).toContain('source="@navori/plugin-tgrep"');
     expect(body).toMatch(/hash="[0-9a-f]+"/);
   });
 
@@ -88,7 +86,7 @@ describe("scripts de plugin: marcador propio (#637)", () => {
 
     const result = renderClaudeEngine(cwd, config());
     expect(readFileSync(script(), "utf-8")).toContain("# mío");
-    expect(result.skipped.some((sk) => sk.path.endsWith("check-jscpd.sh"))).toBe(true);
+    expect(result.skipped.some((sk) => sk.path.endsWith("guard-search-routing.sh"))).toBe(true);
   });
 
   it("MIGRA un script legacy sin marcador: lo reemplaza, no lo duplica", () => {
@@ -128,7 +126,7 @@ describe("scripts de plugin: marcador propio (#637)", () => {
 
     const result = renderClaudeEngine(cwd, config());
     expect(readFileSync(script(), "utf-8")).toContain("# lo edité yo");
-    expect(result.skipped.some((sk) => sk.path.endsWith("check-jscpd.sh"))).toBe(true);
+    expect(result.skipped.some((sk) => sk.path.endsWith("guard-search-routing.sh"))).toBe(true);
   });
 
   it("sync-file-resolve: the skip of an in-block edit carries the forced render (marker kept, exec preserved)", () => {
@@ -138,7 +136,7 @@ describe("scripts de plugin: marcador propio (#637)", () => {
     writeFileSync(script(), edited);
 
     const sk = renderClaudeEngine(cwd, config()).skipped.find((s) =>
-      s.path.endsWith("check-jscpd.sh"),
+      s.path.endsWith("guard-search-routing.sh"),
     );
     expect(sk?.resolution?.basis).toBe(edited);
     expect(sk?.resolution?.content).toBe(original);
@@ -153,7 +151,9 @@ describe("scripts de plugin: marcador propio (#637)", () => {
       .join("\n");
   }
   const skipOf = (): ReturnType<typeof renderClaudeEngine>["skipped"][number] | undefined =>
-    renderClaudeEngine(cwd, config()).skipped.find((s) => s.path.endsWith("check-jscpd.sh"));
+    renderClaudeEngine(cwd, config()).skipped.find((s) =>
+      s.path.endsWith("guard-search-routing.sh"),
+    );
 
   // Covers: #1245
   it("#1245: a markerless user-edited legacy script gets markerlessResolution (fresh render, exec), never resolution", () => {
@@ -212,7 +212,7 @@ describe("scripts de plugin: marcador propio (#637)", () => {
     writeFileSync(script(), newer);
 
     const sk = renderClaudeEngine(cwd, config()).skipped.find((s) =>
-      s.path.endsWith("check-jscpd.sh"),
+      s.path.endsWith("guard-search-routing.sh"),
     );
     expect(sk?.status).toBe("downgrade-skipped");
     expect(sk?.resolution).toBeUndefined();
@@ -224,7 +224,7 @@ describe("scripts de plugin: marcador propio (#637)", () => {
     const original = readFileSync(script(), "utf-8");
     writeFileSync(script(), original.replace("#!/usr/bin/env bash", "#!/usr/bin/env bash\n# mío"));
     const resolvable = renderClaudeEngine(cwd, config()).skipped.find((s) =>
-      s.path.endsWith("check-jscpd.sh"),
+      s.path.endsWith("guard-search-routing.sh"),
     );
     expect(resolvable?.reason).toBe(tc("es").engine.managedFileEditedResolvable);
 
@@ -234,13 +234,13 @@ describe("scripts de plugin: marcador propio (#637)", () => {
       .join("\n");
     writeFileSync(script(), `${legacy}\n# user line\n`);
     const markerlessSkip = renderClaudeEngine(cwd, config()).skipped.find((s) =>
-      s.path.endsWith("check-jscpd.sh"),
+      s.path.endsWith("guard-search-routing.sh"),
     );
     expect(markerlessSkip?.reason).toBe(tc("es").engine.markerlessFileEditedResolvable);
 
     writeFileSync(script(), `${legacy}\n# navori:managed (resto borrado)\n`);
     const manual = renderClaudeEngine(cwd, config()).skipped.find((s) =>
-      s.path.endsWith("check-jscpd.sh"),
+      s.path.endsWith("guard-search-routing.sh"),
     );
     expect(manual?.reason).toBe(tc("es").engine.managedBlockEditedByHand);
   });
@@ -248,7 +248,7 @@ describe("scripts de plugin: marcador propio (#637)", () => {
   it("es idempotente: un segundo render no reescribe el script", () => {
     renderClaudeEngine(cwd, config());
     const second = renderClaudeEngine(cwd, config());
-    expect(second.written.some((w) => w.path.endsWith("check-jscpd.sh"))).toBe(false);
+    expect(second.written.some((w) => w.path.endsWith("guard-search-routing.sh"))).toBe(false);
   });
 
   // Covers: R20
@@ -261,15 +261,19 @@ describe("scripts de plugin: marcador propio (#637)", () => {
     writeFileSync(script(), edited);
     const disabled = NavoriConfigSchema.parse({
       ...config(),
-      plugins: { jscpd: { enabled: false } },
+      plugins: { tgrep: { enabled: false } },
     });
 
     const first = renderClaudeEngine(cwd, disabled);
     expect(readFileSync(script(), "utf-8")).toBe(edited);
-    expect(first.written.some((entry) => entry.path.endsWith("check-jscpd.sh"))).toBe(false);
+    expect(first.written.some((entry) => entry.path.endsWith("guard-search-routing.sh"))).toBe(
+      false,
+    );
     const second = renderClaudeEngine(cwd, disabled);
     expect(readFileSync(script(), "utf-8")).toBe(edited);
-    expect(second.written.some((entry) => entry.path.endsWith("check-jscpd.sh"))).toBe(false);
+    expect(second.written.some((entry) => entry.path.endsWith("guard-search-routing.sh"))).toBe(
+      false,
+    );
   });
 
   // Covers: R20
@@ -279,188 +283,15 @@ describe("scripts de plugin: marcador propio (#637)", () => {
     writeFileSync(script(), newer);
     const disabled = NavoriConfigSchema.parse({
       ...config(),
-      plugins: { jscpd: { enabled: false } },
+      plugins: { tgrep: { enabled: false } },
     });
     renderClaudeEngine(cwd, disabled);
     expect(readFileSync(script(), "utf-8")).toBe(newer);
   });
-
-  // Covers: R20
-  it("warns when a preserved script may remain active in settings that could not be updated", () => {
-    renderClaudeEngine(cwd, config());
-    const edited = readFileSync(script(), "utf-8").replace(
-      "#!/usr/bin/env bash",
-      "#!/usr/bin/env bash\n# user-owned edit",
-    );
-    writeFileSync(script(), edited);
-    const settingsPath = join(cwd, ".claude/settings.json");
-    const settings = readFileSync(settingsPath, "utf-8");
-    writeFileSync(settingsPath, settings.slice(0, -2));
-    const disabled = NavoriConfigSchema.parse({
-      ...config(),
-      plugins: { jscpd: { enabled: false } },
-    });
-
-    const result = renderClaudeEngine(cwd, disabled);
-    expect(readFileSync(script(), "utf-8")).toBe(edited);
-    expect(result.warnings).toContainEqual(
-      expect.stringContaining("ALERTA: .claude/scripts/check-jscpd.sh"),
-    );
-  });
 });
 
-describe("#1060: la extensión de skill inyectada ya no publica jscpdThreshold (retirado)", () => {
-  const reviewDiffSkill = (): string => join(cwd, ".claude/skills/review-diff/SKILL.md");
-
-  it.each(["vite-react-ts", "custom"])(
-    "preset '%s': sin placeholder crudo y sin --threshold (el gate bloquea por clones nuevos)",
-    (preset) => {
-      renderClaudeEngine(cwd, config(preset));
-      const body = readFileSync(reviewDiffSkill(), "utf-8");
-      expect(body).not.toContain("<not configured: jscpdThreshold>");
-      expect(body).not.toContain("--threshold");
-      expect(body).toContain("--baseline-from-ref");
-      expect(body).toContain("--fail-on-new-clones 0");
-    },
-  );
-
-  it("pluginExtraVars sigue cableado pero no aporta ningún valor de jscpd", () => {
-    expect(pluginExtraVars(config("vite-react-ts"))).toEqual({});
-  });
-});
-
-/**
- * #1226 — a marker-less script written by ANY pre-#637 navori is adopted, not
- * only the last one. The current-template check recognized just the final
- * marker-less version; older installs were skipped forever.
- */
-describe("migración de scripts legacy de cualquier versión pre-#637 (#1226)", () => {
-  /** First marker-less jscpd script ever shipped (01cad2cb), kept inline so the
-   * case never depends on git history being present. */
-  const OLD_JSCPD_LINES: readonly string[] = [
-    "#!/usr/bin/env bash",
-    "# Generated by @navori/plugin-jscpd. Runs jscpd over TS/TSX files changed vs",
-    "# `{{branchBase}}`. Skips silently if jscpd or git are absent — the tool is",
-    "# optional, not a hard dependency of the project.",
-    "#",
-    "# Triggered as a PreToolUse(Bash) hook, but only fires on `git commit` /",
-    "# `git push` (the gate is inline below).",
-    "",
-    "set -euo pipefail",
-    "",
-    "cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null || true)",
-    'case "$cmd" in',
-    "  'git commit'*|'git push'*) ;;",
-    "  *) exit 0 ;;",
-    "esac",
-    "",
-    "if ! command -v jscpd >/dev/null 2>&1; then",
-    '  echo "⊘ jscpd no instalado localmente — skip (install: pnpm add -g jscpd)" >&2',
-    "  exit 0",
-    "fi",
-    "",
-    "if ! git rev-parse --git-dir >/dev/null 2>&1; then",
-    "  exit 0",
-    "fi",
-    "",
-    "if ! git rev-parse --verify {{branchBase}} >/dev/null 2>&1; then",
-    `  echo "⊘ branch '{{branchBase}}' no existe localmente — skip jscpd" >&2`,
-    "  exit 0",
-    "fi",
-    "",
-    "files=$(git diff --name-only --diff-filter=ACMRT {{branchBase}} 2>/dev/null | grep -E '\\.tsx?$' || true)",
-    'if [ -z "$files" ]; then',
-    '  echo "✓ jscpd: sin cambios vs {{branchBase}}" >&2',
-    "  exit 0",
-    "fi",
-    "",
-    `count=$(echo "$files" | wc -l | tr -d ' ')`,
-    'echo "▶ jscpd: $count archivo(s) modificados vs {{branchBase}}" >&2',
-    "",
-    "tmpdir=$(mktemp -d)",
-    `trap 'rm -rf "$tmpdir"' EXIT`,
-    "",
-    'echo "$files" | xargs jscpd \\',
-    "  --min-tokens 100 \\",
-    "  --min-lines 10 \\",
-    "  --mode strict \\",
-    "  --threshold 3 \\",
-    "  --reporters console \\",
-    '  --output "$tmpdir"',
-    "",
-  ];
-
-  const bothPlugins = (): NavoriConfig =>
-    NavoriConfigSchema.parse({
-      ...config(),
-      plugins: { jscpd: { enabled: true }, semgrep: { enabled: true } },
-    });
-
-  /** Same substitution the old renderer applied: `{{x}}` raw, `{{shq:x}}` quoted. */
-  const interpolateOld = (raw: string, base: string): string =>
-    raw.replace(
-      /\{\{\s*(?:(shq|raw):)?\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}/g,
-      (_m, marker: string | undefined, key: string) => {
-        const value = key === "branchBase" ? base : "7";
-        return marker === "shq" ? `'${value}'` : value;
-      },
-    );
-
-  const scriptPath = (file: string): string => join(cwd, ".claude/scripts", file);
-
-  const fromHistory = (rev: string, path: string): string | null => {
-    try {
-      return execFileSync("git", ["show", `${rev}:${path}`], {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "ignore"],
-      });
-    } catch {
-      return null;
-    }
-  };
-
-  /** Marked file line count after a clean render, the no-duplication yardstick. */
-  const freshLineCount = (file: string): number => {
-    renderClaudeEngine(cwd, bothPlugins());
-    return readFileSync(scriptPath(file), "utf-8").split("\n").length;
-  };
-
-  const adopts = (file: string, legacy: string): void => {
-    const expected = freshLineCount(file);
-    writeFileSync(scriptPath(file), legacy);
-    const result = renderClaudeEngine(cwd, bothPlugins());
-    const after = readFileSync(scriptPath(file), "utf-8");
-    expect(after.split("\n").length).toBe(expected);
-    expect(after).toMatch(/^# navori:managed start/);
-    expect((after.match(/navori:managed/g) ?? []).length).toBe(2);
-    expect(result.skipped.some((sk) => sk.path.endsWith(file))).toBe(false);
-  };
-
-  it("adopta la primera versión sin marcador de jscpd, con una rama no default", () => {
-    adopts("check-jscpd.sh", interpolateOld(OLD_JSCPD_LINES.join("\n"), "release/2.x"));
-  });
-
-  it("la misma versión con UNA línea ajena añadida se salta, no se pisa", () => {
-    freshLineCount("check-jscpd.sh");
-    const edited = interpolateOld(OLD_JSCPD_LINES.join("\n"), "main") + "# lo edité yo\n";
-    writeFileSync(scriptPath("check-jscpd.sh"), edited);
-    const result = renderClaudeEngine(cwd, bothPlugins());
-    expect(readFileSync(scriptPath("check-jscpd.sh"), "utf-8")).toBe(edited);
-    expect(result.skipped.some((sk) => sk.path.endsWith("check-jscpd.sh"))).toBe(true);
-  });
-
-  it("editar una línea que NO lleva config (aunque sea del cuerpo viejo) se salta", () => {
-    freshLineCount("check-jscpd.sh");
-    const edited = interpolateOld(OLD_JSCPD_LINES.join("\n"), "main").replace(
-      "--min-tokens 100",
-      "--min-tokens 50",
-    );
-    writeFileSync(scriptPath("check-jscpd.sh"), edited);
-    renderClaudeEngine(cwd, bothPlugins());
-    expect(readFileSync(scriptPath("check-jscpd.sh"), "utf-8")).toBe(edited);
-  });
-
-  it("la tabla de huellas: sin duplicados, máscaras ordenadas y solo los dos scripts", () => {
+describe("tabla de huellas legacy (#1226)", () => {
+  it("sin duplicados, máscaras ordenadas y solo los dos scripts retirados", () => {
     const table = legacyFingerprintTable();
     expect(Object.keys(table).sort()).toEqual(["check-jscpd.sh", "check-semgrep.sh"]);
     for (const entries of Object.values(table)) {
@@ -471,60 +302,5 @@ describe("migración de scripts legacy de cualquier versión pre-#637 (#1226)", 
         expect([...mask].sort((a, b) => a - b)).toEqual([...mask]);
       }
     }
-  });
-
-  // Fixtures straight from history (raw eras, before `# navori:include`). Skipped
-  // when the clone is shallow and the commits are not there.
-  const JSCPD = "packages/plugins/jscpd/scripts/check-jscpd.sh";
-  const SEMGREP = "packages/plugins/semgrep/scripts/check-semgrep.sh";
-  const HISTORY: ReadonlyArray<readonly [string, string, string]> = [
-    ["check-jscpd.sh", JSCPD, "27fd71b4"],
-    ["check-jscpd.sh", JSCPD, "90e69e5e"],
-    ["check-jscpd.sh", JSCPD, "5ef6125f"],
-    ["check-jscpd.sh", JSCPD, "271380eb"],
-    ["check-jscpd.sh", JSCPD, "07af3e5c"],
-    ["check-jscpd.sh", JSCPD, "6bd3c830"],
-    ["check-semgrep.sh", SEMGREP, "01cad2cb"],
-    ["check-semgrep.sh", SEMGREP, "27fd71b4"],
-    ["check-semgrep.sh", SEMGREP, "90e69e5e"],
-    ["check-semgrep.sh", SEMGREP, "271380eb"],
-    ["check-semgrep.sh", SEMGREP, "07af3e5c"],
-    ["check-semgrep.sh", SEMGREP, "6bd3c830"],
-  ];
-
-  it.each(HISTORY)("adopta %s tal como lo escribió el commit %#", (file, path, rev) => {
-    const raw = fromHistory(rev, path);
-    if (raw === null) return; // shallow clone: the inline case above still runs
-    adopts(file, interpolateOld(raw, "release/2.x"));
-  });
-
-  /** Expand `# navori:include <name>` the way the era's renderer did, from the partials at `rev`. */
-  const expandFromHistory = (raw: string, rev: string): string | null => {
-    let missing = false;
-    const out = raw.replace(
-      /^[^\S\n]*#\s*navori:include\s+([A-Za-z0-9._-]+)[^\S\n]*$/gm,
-      (_line, name: string) => {
-        const partial = fromHistory(rev, `packages/core/core-assets/hooks/_partials/${name}.sh`);
-        if (partial === null) missing = true;
-        return (partial ?? "").replace(/\n$/, "");
-      },
-    );
-    return missing ? null : out;
-  };
-
-  // Include-expanded eras (233c9c24 onward, up to the last marker-less render 5f44015d):
-  // the shape the 0.7.x installs in #1226 actually have on disk.
-  it.each([
-    ["check-jscpd.sh", JSCPD, "233c9c24"],
-    ["check-jscpd.sh", JSCPD, "b399f3cd"],
-    ["check-jscpd.sh", JSCPD, "5f44015d"],
-    ["check-semgrep.sh", SEMGREP, "233c9c24"],
-    ["check-semgrep.sh", SEMGREP, "b399f3cd"],
-    ["check-semgrep.sh", SEMGREP, "5f44015d"],
-  ] as const)("adopta %s con includes expandidos (commit %s)", (file, path, rev) => {
-    const raw = fromHistory(rev, path);
-    const expanded = raw === null ? null : expandFromHistory(raw, rev);
-    if (expanded === null) return; // shallow clone: history unavailable
-    adopts(file, interpolateOld(expanded, "release/2.x"));
   });
 });

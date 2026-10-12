@@ -28,7 +28,7 @@ export type Lang = "es" | "en";
  * the gate's threshold-based scan. The set is legitimately empty until a
  * future plugin needs a render-derived value again — `pluginExtraVars`'s own
  * `extraVars` wiring stays for that day (#1057's "4 of 5 forgot" fix wasn't
- * jscpd-specific). Exported so `i18n.test.ts` can exercise the branch this
+ * specific to that plugin). Exported so `i18n.test.ts` can exercise the branch this
  * set drives without depending on a live producer.
  */
 export const DERIVED_INTERPOLATION_TOKENS: Set<string> = new Set([]);
@@ -802,6 +802,13 @@ interface DoctorCmdStrings {
   orphanedEngineOutputsTitle: (n: number) => string;
   orphanedEngineOutputRow: (engine: string) => string;
   retiredAssetsTitle: (n: number) => string;
+  /** Warnings about a RETIRED plugin's leftovers; never part of the health verdict. */
+  retiredPluginsTitle: (n: number) => string;
+  retiredPluginDeclaredRow: (id: string, removedIn: string) => string;
+  /** `reasonText` is why render keeps it, or null when `render --apply` removes it. */
+  retiredPluginAssetRow: (reasonText: string | null) => string;
+  retiredPluginBlockRow: (id: string) => string;
+  retiredPluginReferenceRow: (script: string, scriptMissing: boolean) => string;
   retiredAssetRow: (successor: string | null, reason?: "foreign" | "newer" | "modified") => string;
   missingPresetFiles: (preset: string, n: number, lines: string) => string;
   missingPresetFileRow: (path: string) => string;
@@ -866,8 +873,8 @@ interface DoctorCmdStrings {
   toolReleaseUnparseable: (n: number, lines: string) => string;
   toolReleaseUnparseableRow: (source: string, id: string) => string;
   /** #1060 — installed binary lacks a CLI capability the manifest's
-   *  `externalTool.capabilityProbe` declares (e.g. jscpd < 5.1.1 missing
-   *  `--baseline-from-ref`). Informational, like `pinnedVersionDrift` above:
+   *  `externalTool.capabilityProbe` declares (e.g. a tool older than
+   *  the manifest's `minVersion`). Informational, like `pinnedVersionDrift` above:
    *  never gates `--strict`, never flips `ok`. */
   externalToolCapabilityGaps: (n: number, lines: string) => string;
   externalToolCapabilityGapRow: (
@@ -1349,6 +1356,8 @@ interface AddCmdStrings {
   pluginRequired: string;
   none: string;
   unknownPlugin: (id: string, known: string) => string;
+  /** A plugin navori shipped and later retired (`RETIRED_PLUGINS`): not "unknown". */
+  retiredPlugin: (id: string, removedIn: string) => string;
   alreadyEnabled: (id: string) => string;
   added: (id: string, path: string) => string;
   renderCrashed: string;
@@ -1821,6 +1830,12 @@ const CMD_ES: CmdStrings = {
           return "lo escribió una navori más nueva que tu CLI: no lo degradamos; actualiza con 'npm i -g navori@latest'";
         case "modified":
           return "archivo managed editado: se conserva para no perder cambios del usuario";
+        case "hook-referenced":
+          return "un hook de git, un script de package.json/Makefile o un workflow aún lo invoca; se conserva";
+        case "settings-referenced":
+          return "un settings.json o config.toml que este render no reescribió aún lo registra; se conserva";
+        case "native-hook-declared":
+          return "el plugin declara nativeHook: true en navori.config.json; se conserva por si tu hook nativo lo llama";
         // No `default`: a new reason must fail to compile in BOTH locales
         // instead of silently rendering as "we did not write it".
         case "foreign":
@@ -1973,6 +1988,20 @@ const CMD_ES: CmdStrings = {
     retiredAssetsTitle: (n) =>
       `Archivos de ids retirados en disco · ${n} ('navori render --apply' borra los que sean de ` +
       `navori; los ajenos, editados o de una versión más nueva se conservan)`,
+    retiredPluginsTitle: (n) =>
+      `Restos de plugins retirados · ${n} (avisos; no afectan el veredicto de doctor)`,
+    retiredPluginDeclaredRow: (id, removedIn) =>
+      `${id}: plugin retirado de navori (${removedIn}); quítalo de navori.config.json`,
+    retiredPluginAssetRow: (reasonText) =>
+      reasonText === null
+        ? "— script de un plugin retirado (se borra en el próximo 'render --apply')"
+        : `— script de un plugin retirado, se conserva: ${reasonText}`,
+    retiredPluginBlockRow: (id) =>
+      `— bloque '${id}' de un plugin retirado; 'render --apply' lo quita si no lo editaste`,
+    retiredPluginReferenceRow: (script, scriptMissing) =>
+      scriptMissing
+        ? `— llama a ${script}, que ya no existe: este hook va a fallar; quita la llamada`
+        : `— llama a ${script} (plugin retirado); por eso se conserva el script; apunta el hook a tu propio comando`,
     retiredAssetRow: (successor, reason) =>
       `— sucesor: ${successor ?? "ninguno"}` +
       (reason
@@ -2456,6 +2485,8 @@ const CMD_ES: CmdStrings = {
       "Pasa un plugin id (ej. 'navori add engram') o usa --suggest para ver recomendaciones.",
     none: "(ninguno)",
     unknownPlugin: (id, known) => `Plugin desconocido '${id}'. Conocidos: ${known}`,
+    retiredPlugin: (id, removedIn) =>
+      `'${id}' se retiró de navori (${removedIn}); corre la herramienta en local desde tus propios scripts.`,
     alreadyEnabled: (id) => `'${id}' ya está habilitado en este config`,
     added: (id, path) => `Agregué '${id}' a ${path}`,
     renderCrashed:
@@ -2554,7 +2585,7 @@ const CMD_ES: CmdStrings = {
     languageUpdated: (value) => `language → ${value}`,
     languageRenderHint:
       "Corre 'navori render --apply' para volver a renderizar los bloques managed en el nuevo idioma.",
-    branchBasePrompt: "Rama base contra la que comparan los gates (semgrep / jscpd)",
+    branchBasePrompt: "Rama base contra la que comparan los gates",
     branchRequired: "El nombre de la rama no puede estar vacío",
     branchBaseUpdated: (value) => `branchBase → ${value}`,
     branchBaseRenderHint: "Corre 'navori render --apply' para actualizar los scripts de gates.",
@@ -2742,7 +2773,13 @@ const CMD_ES: CmdStrings = {
         ? "lo escribió una versión de navori más nueva que este CLI; no se revierte"
         : reason === "modified"
           ? "archivo managed editado; se conserva para no perder cambios"
-          : "no lleva marcador de navori (ajeno); nunca se borra sin probar que navori lo escribió"),
+          : reason === "hook-referenced"
+            ? "un hook de git, un script o un workflow aún lo invoca; se conserva"
+            : reason === "settings-referenced"
+              ? "un config.toml/settings.json que este render no reescribió aún lo registra; se conserva"
+              : reason === "native-hook-declared"
+                ? "el plugin declara nativeHook: true; se conserva por si tu hook nativo lo llama"
+                : "no lleva marcador de navori (ajeno); nunca se borra sin probar que navori lo escribió"),
     codexResidualPluginHook: (path) =>
       `ALERTA: ${path} conserva un registro de plugin deshabilitado en .codex/config.toml; el hook puede seguir activo y no es confiable. Revisa el archivo y el script manualmente.`,
     claudeResidualPluginHook: (path) =>
@@ -3145,6 +3182,12 @@ const CMD_EN: CmdStrings = {
           return "written by a navori newer than your CLI: we do not roll it back; update with 'npm i -g navori@latest'";
         case "modified":
           return "user-edited managed file: kept to avoid losing changes";
+        case "hook-referenced":
+          return "a git hook, a package.json/Makefile script or a workflow still invokes it; kept";
+        case "settings-referenced":
+          return "a settings.json or config.toml this render did not rewrite still registers it; kept";
+        case "native-hook-declared":
+          return "the plugin declares nativeHook: true in navori.config.json; kept in case your native hook calls it";
         case "foreign":
           // See the es-MX twin: states the FACT (no marker), not the inference
           // (it is yours). A JSON written by an older navori, from before it
@@ -3294,6 +3337,20 @@ const CMD_EN: CmdStrings = {
     retiredAssetsTitle: (n) =>
       `Retired-id files still on disk · ${n} ('navori render --apply' deletes the ones navori ` +
       `wrote; foreign, modified or newer-version ones are kept)`,
+    retiredPluginsTitle: (n) =>
+      `Retired plugin leftovers · ${n} (warnings; they do not affect the doctor verdict)`,
+    retiredPluginDeclaredRow: (id, removedIn) =>
+      `${id}: plugin retired from navori (${removedIn}); remove it from navori.config.json`,
+    retiredPluginAssetRow: (reasonText) =>
+      reasonText === null
+        ? "— retired plugin script (removed on the next 'render --apply')"
+        : `— retired plugin script, kept: ${reasonText}`,
+    retiredPluginBlockRow: (id) =>
+      `— block '${id}' from a retired plugin; 'render --apply' removes it if you did not edit it`,
+    retiredPluginReferenceRow: (script, scriptMissing) =>
+      scriptMissing
+        ? `— calls ${script}, which no longer exists: this hook will fail; remove the call`
+        : `— calls ${script} (retired plugin); that is why the script is kept; point the hook at your own command`,
     retiredAssetRow: (successor, reason) =>
       `— successor: ${successor ?? "none"}` +
       (reason
@@ -3775,6 +3832,8 @@ const CMD_EN: CmdStrings = {
       "Pass a plugin id (e.g. 'navori add engram') or use --suggest to see recommendations.",
     none: "(none)",
     unknownPlugin: (id, known) => `Unknown plugin '${id}'. Known: ${known}`,
+    retiredPlugin: (id, removedIn) =>
+      `'${id}' was retired from navori (${removedIn}); run the tool locally from your own scripts.`,
     alreadyEnabled: (id) => `'${id}' is already enabled in this config`,
     added: (id, path) => `Added '${id}' to ${path}`,
     renderCrashed:
@@ -3871,7 +3930,7 @@ const CMD_EN: CmdStrings = {
     languageUpdated: (value) => `language → ${value}`,
     languageRenderHint:
       "Run 'navori render --apply' to re-render managed blocks in the new language.",
-    branchBasePrompt: "Base branch that gates (semgrep / jscpd) diff against",
+    branchBasePrompt: "Base branch that gates diff against",
     branchRequired: "Branch name cannot be empty",
     branchBaseUpdated: (value) => `branchBase → ${value}`,
     branchBaseRenderHint: "Run 'navori render --apply' to update the gate scripts.",
@@ -4058,7 +4117,13 @@ const CMD_EN: CmdStrings = {
         ? "written by a navori newer than this CLI; not rolled back"
         : reason === "modified"
           ? "user-edited managed file; kept to avoid losing changes"
-          : "carries no navori marker (foreign); never deleted without proof navori wrote it"),
+          : reason === "hook-referenced"
+            ? "a git hook, a script or a workflow still invokes it; kept"
+            : reason === "settings-referenced"
+              ? "a config.toml/settings.json this render did not rewrite still registers it; kept"
+              : reason === "native-hook-declared"
+                ? "the plugin declares nativeHook: true; kept in case your native hook calls it"
+                : "carries no navori marker (foreign); never deleted without proof navori wrote it"),
     codexResidualPluginHook: (path) =>
       `WARNING: ${path} retains a disabled plugin registration in .codex/config.toml; the hook may remain active and is untrusted. Review the config and script manually.`,
     claudeResidualPluginHook: (path) =>

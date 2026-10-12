@@ -20,7 +20,7 @@
     "multi-agent"
   ],
   "features": {
-    "plugins": 7,
+    "plugins": 5,
     "presets": 13,
     "coreAgents": 8,
     "coreSkills": 18,
@@ -54,8 +54,6 @@
     "@navori/plugin-codegraph": "workspace:*",
     "@navori/plugin-engram": "workspace:*",
     "@navori/plugin-gh": "workspace:*",
-    "@navori/plugin-jscpd": "workspace:*",
-    "@navori/plugin-semgrep": "workspace:*",
     "@navori/plugin-tgrep": "workspace:*",
     "@types/node": "^24.0.0",
     "@vitest/coverage-v8": "^5.0.1",
