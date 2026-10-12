@@ -527,7 +527,7 @@ describe("CLI e2e — happy paths", () => {
     // Language-agnostic: just confirm the abort message references the config file.
     expect(r.combined).toContain("navori.config.json");
     // F9: the abort must point the user at the next steps, not dead-end.
-    expect(r.combined).toMatch(/update/);
+    expect(r.combined).toMatch(/refresh/);
     expect(r.combined).toMatch(/configure/);
   });
 

@@ -715,7 +715,7 @@ export const doctorCommand = defineCommand({
 
     // `project.libraries` ids this CLI's registry doesn't know: render skips
     // them silently and prunes their managed skill from disk, so a repo upgraded
-    // without `navori update` loses its guidance with zero signal (audit A1 —
+    // without `navori refresh` loses its guidance with zero signal (audit A1 —
     // the socketio → socketio-server/-client split). Warn with the successor
     // skills when the id is a known retired one.
     const staleLibraries = unknownLibraries([

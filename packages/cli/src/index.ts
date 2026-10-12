@@ -10,6 +10,7 @@ import { workspaceCommand } from "./commands/workspace.ts";
 import { ticketCommand } from "./commands/ticket.ts";
 import { configureCommand } from "./commands/configure.ts";
 import { updateCommand } from "./commands/update.ts";
+import { refreshCommand } from "./commands/refresh.ts";
 import { backupCommand } from "./commands/backup.ts";
 import { migrationsCommand } from "./commands/migrations.ts";
 import { presetCommand } from "./commands/preset.ts";
@@ -51,6 +52,7 @@ const main = defineCommand({
     adopt: adoptCommand,
     configure: configureCommand,
     update: updateCommand,
+    refresh: refreshCommand,
     render: renderCommand,
     sync: syncCommand,
     scan: scanCommand,

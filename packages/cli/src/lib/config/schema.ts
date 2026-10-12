@@ -467,7 +467,7 @@ const ProjectSchema = z
      *
      * DERIVED — owned by detection, not by the user (#345). `init` and `update`
      * both overwrite this array with what they detect, so a hand-added id does
-     * NOT survive `navori update`: it reads as drift and is replaced (pinned by
+     * NOT survive `navori refresh`: it reads as drift and is replaced (pinned by
      * "project.libraries — a DERIVED field" in commands/__tests__/update.test.ts).
      * The asymmetry with the sibling `libraryMigrations` — which DOES preserve
      * manual edits — is deliberate: that one protects a value override on a key

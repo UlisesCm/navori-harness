@@ -291,7 +291,7 @@ const ES: Strings = {
 
   dirNotFound: (dir) => `Directorio no encontrado: ${dir}`,
   configExists: (path) =>
-    `navori.config.json ya existe en ${path}. Para ponerte al día corre 'navori update'; ` +
+    `navori.config.json ya existe en ${path}. Para ponerte al día corre 'navori refresh'; ` +
     `para ajustar la config 'navori configure'; para re-renderizar 'navori render --apply'; ` +
     `para revisar el estado 'navori doctor'.`,
   cancelled: "Cancelado",
@@ -468,7 +468,7 @@ const EN: Strings = {
 
   dirNotFound: (dir) => `Directory not found: ${dir}`,
   configExists: (path) =>
-    `navori.config.json already exists at ${path}. Run 'navori update' to catch up; ` +
+    `navori.config.json already exists at ${path}. Run 'navori refresh' to catch up; ` +
     `'navori configure' to tweak config; 'navori render --apply' to re-render; ` +
     `'navori doctor' to inspect state.`,
   cancelled: "Cancelled",
@@ -580,19 +580,14 @@ export function resolveLang(value: unknown): Lang {
 }
 
 /** Localized advisory for an already cached CLI release; never changes stdout. */
-export function updateNoticeText(
-  lang: Lang,
-  current: string,
-  latest: string,
-  command: string,
-): string {
+export function updateNoticeText(lang: Lang, current: string, latest: string): string {
   const page =
     lang === "es"
       ? "https://ulisescm.github.io/navori-harness/versiones/"
       : "https://ulisescm.github.io/navori-harness/en/releases/";
   return lang === "es"
-    ? `navori ${latest} disponible (actual: ${current}). Actualiza con: ${command}\nVersiones: ${page}\nDespués ejecuta: navori render --apply\n`
-    : `navori ${latest} available (current: ${current}). Update with: ${command}\nReleases: ${page}\nThen run: navori render --apply\n`;
+    ? `navori ${latest} disponible (actual: ${current}). Actualiza con: navori update\nVersiones: ${page}\n`
+    : `navori ${latest} available (current: ${current}). Update with: navori update\nReleases: ${page}\n`;
 }
 
 /**
@@ -1702,12 +1697,27 @@ interface PresetCmdStrings {
   skillTemplate: (skillId: string) => string;
 }
 
+interface CliUpdateStrings {
+  upToDate: (version: string) => string;
+  offline: string;
+  available: (current: string, latest: string) => string;
+  willRun: (command: string) => string;
+  confirm: (latest: string) => string;
+  declined: (command: string) => string;
+  nonInteractive: (command: string) => string;
+  installFailed: (command: string) => string;
+  reexecFailed: string;
+  manualRefresh: (command: string) => string;
+  cliOnlyDone: string;
+}
+
 interface CmdStrings {
   common: CommonCmdStrings;
   render: RenderCmdStrings;
   sync: SyncCmdStrings;
   doctor: DoctorCmdStrings;
   update: UpdateCmdStrings;
+  cliUpdate: CliUpdateStrings;
   add: AddCmdStrings;
   scan: ScanCmdStrings;
   configure: ConfigureCmdStrings;
@@ -2023,7 +2033,7 @@ const CMD_ES: CmdStrings = {
       `— falta .claude/skills/${id}/SKILL.md (el directorio no es opcional: un .md suelto no carga)`,
     unknownLibraries: (n, lines) =>
       `Ids en project.libraries que el registro no conoce (${n}) — su guía no se renderiza ` +
-      `y el render borra su skill de disco. Corre 'navori update' para re-detectar:\n${lines}`,
+      `y el render borra su skill de disco. Corre 'navori refresh' para re-detectar:\n${lines}`,
     unknownLibraryRemovedRow: (successors) =>
       successors ? `— retirada del registro; sucesoras: ${successors}` : "— retirada del registro",
     unknownLibraryUnknownRow: "— desconocida para esta versión del CLI",
@@ -2452,6 +2462,21 @@ const CMD_ES: CmdStrings = {
     foreignHarnessStaleAck: (id) =>
       `'${id}' está en project.foreignHarness.acknowledged pero ya no corresponde a ningún conflicto — quítalo`,
   },
+  cliUpdate: {
+    upToDate: (version) => `navori ${version} está al día`,
+    offline: "No pude consultar la última versión de navori; sigo con refresh.",
+    available: (current, latest) => `navori ${latest} disponible (actual: ${current})`,
+    willRun: (command) => `Se ejecutará: ${command}`,
+    confirm: (latest) => `¿Actualizar navori a ${latest}?`,
+    declined: (command) => `No actualicé la CLI. Cuando quieras: ${command}`,
+    nonInteractive: (command) =>
+      `Sin terminal interactiva no instalo nada. Corre tú: ${command} (o usa --yes)`,
+    installFailed: (command) => `Falló la instalación. Corre a mano: ${command}`,
+    manualRefresh: (command) =>
+      `CLI actualizada. No pude ubicar el binario global con certeza; corre a mano: ${command}`,
+    reexecFailed: "Falló 'navori refresh' con la versión nueva.",
+    cliOnlyDone: "CLI actualizada (--cli-only: omito refresh)",
+  },
   update: {
     detectedMigrationSuggestion: (legacy, preferred) =>
       `(detección sugiere ${legacy}→${preferred})`,
@@ -2747,10 +2772,10 @@ const CMD_ES: CmdStrings = {
       "La asignación de modelo por agente (config.models) no aplica fuera de Claude Code; se omitió.",
     libraryRemovedFromRegistry: (id, successors) =>
       successors.length > 0
-        ? `project.libraries/extraLibraries: '${id}' fue retirada del registro (ahora: ${successors.join(", ")}) y su skill se elimina de disco. Corre 'navori update' para re-detectar las sucesoras.`
-        : `project.libraries/extraLibraries: '${id}' fue retirada del registro y su skill se elimina de disco. Corre 'navori update' para limpiar la selección.`,
+        ? `project.libraries/extraLibraries: '${id}' fue retirada del registro (ahora: ${successors.join(", ")}) y su skill se elimina de disco. Corre 'navori refresh' para re-detectar las sucesoras.`
+        : `project.libraries/extraLibraries: '${id}' fue retirada del registro y su skill se elimina de disco. Corre 'navori refresh' para limpiar la selección.`,
     libraryUnknownInRegistry: (id) =>
-      `project.libraries/extraLibraries: '${id}' no existe en el registro de esta versión del CLI; se omite. Corre 'navori update' para re-detectar librerías.`,
+      `project.libraries/extraLibraries: '${id}' no existe en el registro de esta versión del CLI; se omite. Corre 'navori refresh' para re-detectar librerías.`,
     managedBlocksOutOfOrder:
       "CLAUDE.md: los bloques managed están fuera del orden canónico, pero hay texto tuyo intercalado " +
       "entre bloques, así que no los reordené. Mueve ese texto arriba del primer bloque managed o abajo " +
@@ -3378,7 +3403,7 @@ const CMD_EN: CmdStrings = {
       `— missing .claude/skills/${id}/SKILL.md (the directory is not optional: a loose .md never loads)`,
     unknownLibraries: (n, lines) =>
       `Ids in project.libraries the registry doesn't know (${n}) — their guidance is not ` +
-      `rendered and render deletes their skill from disk. Run 'navori update' to re-detect:\n${lines}`,
+      `rendered and render deletes their skill from disk. Run 'navori refresh' to re-detect:\n${lines}`,
     unknownLibraryRemovedRow: (successors) =>
       successors
         ? `— retired from the registry; successors: ${successors}`
@@ -3807,6 +3832,21 @@ const CMD_EN: CmdStrings = {
     foreignHarnessStaleAck: (id) =>
       `'${id}' is in project.foreignHarness.acknowledged but matches no conflict any more — remove it`,
   },
+  cliUpdate: {
+    upToDate: (version) => `navori ${version} is up to date`,
+    offline: "Could not check the latest navori version; continuing with refresh.",
+    available: (current, latest) => `navori ${latest} available (current: ${current})`,
+    willRun: (command) => `Will run: ${command}`,
+    confirm: (latest) => `Update navori to ${latest}?`,
+    declined: (command) => `CLI not updated. When ready: ${command}`,
+    nonInteractive: (command) =>
+      `No interactive terminal, so nothing is installed. Run it yourself: ${command} (or pass --yes)`,
+    installFailed: (command) => `Install failed. Run it manually: ${command}`,
+    manualRefresh: (command) =>
+      `CLI updated. Could not locate the global binary with certainty; run it manually: ${command}`,
+    reexecFailed: "'navori refresh' failed with the new version.",
+    cliOnlyDone: "CLI updated (--cli-only: skipping refresh)",
+  },
   update: {
     detectedMigrationSuggestion: (legacy, preferred) =>
       `(detection suggests ${legacy}→${preferred})`,
@@ -4096,10 +4136,10 @@ const CMD_EN: CmdStrings = {
       "Per-agent model assignment (config.models) doesn't apply outside Claude Code; omitted.",
     libraryRemovedFromRegistry: (id, successors) =>
       successors.length > 0
-        ? `project.libraries/extraLibraries: '${id}' was retired from the registry (now: ${successors.join(", ")}) and its skill is removed from disk. Run 'navori update' to re-detect the successors.`
-        : `project.libraries/extraLibraries: '${id}' was retired from the registry and its skill is removed from disk. Run 'navori update' to clean the selection.`,
+        ? `project.libraries/extraLibraries: '${id}' was retired from the registry (now: ${successors.join(", ")}) and its skill is removed from disk. Run 'navori refresh' to re-detect the successors.`
+        : `project.libraries/extraLibraries: '${id}' was retired from the registry and its skill is removed from disk. Run 'navori refresh' to clean the selection.`,
     libraryUnknownInRegistry: (id) =>
-      `project.libraries/extraLibraries: '${id}' is unknown to this CLI version's registry; skipped. Run 'navori update' to re-detect libraries.`,
+      `project.libraries/extraLibraries: '${id}' is unknown to this CLI version's registry; skipped. Run 'navori refresh' to re-detect libraries.`,
     managedBlocksOutOfOrder:
       "CLAUDE.md: the managed blocks are out of canonical order, but there's text of yours interleaved " +
       "between blocks, so I didn't reorder them. Move that text above the first managed block or below " +

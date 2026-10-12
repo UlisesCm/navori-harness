@@ -901,7 +901,7 @@ export function renderClaudeEngine(
       : trimmedPlan;
   // A `project.libraries` id this registry doesn't know is silently skipped by
   // the plan AND its managed skill is pruned from disk below (§8.6) — a repo
-  // upgraded without `navori update` would lose its guidance with zero signal
+  // upgraded without `navori refresh` would lose its guidance with zero signal
   // (audit v0.5.1 A1, the socketio split). Warn loudly instead.
   for (const lib of unknownLibraries([
     ...(config.project?.libraries ?? []),
@@ -1121,7 +1121,7 @@ export function renderClaudeEngine(
         warnings,
         trimmedHarness,
         omittedSkills,
-        // #215: register version drift so `navori update` reports a plugin
+        // #215: register version drift so `navori refresh` reports a plugin
         // sub-block whose version bumped, instead of silently correcting it on
         // render. Reuses the CLAUDE.md plan's buckets so it flows out via the
         // same `updatesAvailable`/`downgrades` the engine returns.

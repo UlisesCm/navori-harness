@@ -115,7 +115,8 @@ de caché de ambos directorios.
 | `remove <plugin>` | Desactiva un plugin y limpia sus bloques managed, sub-bloques y scripts |
 | `configure <section>` | Ajusta una sección del config sin re-correr el wizard |
 | `adopt <path>` | Toma un archivo de `.claude/` que escribiste a mano bajo gestión de navori: lo envuelve en un bloque managed sin reescribir su contenido (preview por default) |
-| `update` | Re-detecta el repo, refresca config y corre sync en un paso |
+| `refresh` | Re-detecta el repo, refresca config y corre sync en un paso |
+| `update` | Actualiza el propio navori desde npm y luego corre `refresh` con el binario nuevo (ver [Actualizar navori](#actualizar-navori)) |
 | `render` | Genera los archivos nativos de cada engine configurado (preview por default; `--apply` escribe). `--all` renderea todos los repos del registro global; `--prune` limpia los que ya no existen |
 | `registry <sub>` | Registro global de tus repos con navori, para `render --all` (`ls`, `scan <dir>`, `add`, `remove`, `prune`) |
 | `sync` | Refresca todos los engines configurados con conflict resolution + backups. Los bloques en conflicto se resuelven con `--interactive` (diff, keep-mine / accept-new) o en bloque con `--accept-new` / `--keep-mine`. Los archivos completos sin marcador se resuelven archivo por archivo en modo interactivo (diff, keep / accept); `--accept-new-files` acepta en bloque los resolvibles |
@@ -316,7 +317,7 @@ un aviso que **nombra** los repos con bloques editados a mano (conflict, que el
 render no pisa) y un roll-up `ok · changed · conflict · failed`.
 
 El registro (`~/.navori/registry.json`) se puebla solo: cada `navori init` /
-`navori update` te da de alta. Para arrancar con lo que ya tenías instalado,
+`navori refresh` te da de alta. Para arrancar con lo que ya tenías instalado,
 escanéalo una vez:
 
 ```bash
@@ -428,3 +429,15 @@ Contrato del `SKILL.md`: [`docs/recipes/skill-authoring.md`](https://github.com/
 ## Licencia
 
 MIT.
+
+## Actualizar navori
+
+`navori update` consulta npm por la última versión de navori y muestra el comando de
+instalación según cómo lo tengas: npm global, devDependency, dependency o `npx`. Pide
+confirmación (salvo `--yes`), instala y corre `navori refresh` con el binario nuevo.
+
+- `--cli-only`: se detiene tras actualizar el CLI, sin `refresh`.
+- Sin red o ya en la última versión: corre `refresh` directo.
+- Si la instalación falla: imprime el comando manual y sale con código 1.
+- Sin TTY y sin `--yes`: imprime el comando y sale con código 1.
+- Solo soporta npm.
