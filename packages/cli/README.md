@@ -18,6 +18,9 @@ También renderiza un harness Codex completo: `AGENTS.md`, skills en
 
 // Solo guía universal, con el menor número de archivos
 { "engines": ["agents-md"] }
+
+// Solo Pi (opt-in; ver docs/pi.md)
+{ "engines": ["pi"] }
 ```
 
 `codex` ya incluye y administra `AGENTS.md`; no necesitas combinarlo con
@@ -125,10 +128,11 @@ de caché de ambos directorios.
 | `doctor` | Audita el config + drift de cada managed block (CLAUDE.md **y AGENTS.md**), orden canónico, markers malformados, desincronización de monorepo y tools externas faltantes (`--strict` para CI). Informativo, sin afectar `--strict`: versiones instaladas con problema conocido (`externalTool.versionAdvisory`) y avisos de versiones nuevas de herramientas (`navori tools notice`) |
 | `status` | Snapshot rápido: config, plugins activos, conteo de drift y próximos pasos |
 | `audit` | Reporta cómo corrió el harness de verdad: atribución de tokens, huecos de adherencia y outcomes de revisión y receipt; disponibilidad de herramientas por ventanas; eficiencia y ciclo de vida por tarea aceptada. `--snapshot` guarda una foto nombrada del rango y `--compare` la contrasta con otra por cohorte, con causas y evidencia |
-| `receipt <sub>` | Recibo de los bytes revisados antes de publicar: `sign` (`--feature <id>`, `--gate-ran scoped\|full`, `--spec <dir> --milestone <Mn>`), `check`, `gate --spec <dir> --milestone <Mn>` (decide si el milestone necesita el gate acotado o el completo) y `review begin` / `review seal --nonce <n>` (sidecar de revisión con identidad de contenido). Flags comunes: `--target <ref>`, `--dir <path>`, `--json` |
+| `gate <fast\|full>` | Corre `qualityGate.fast` o `qualityGate.full` con la salida completa en un log (`.navori/state/gate/`) y solo un veredicto compacto en stdout. Flag: `--cwd <path>` |
+| `receipt <sub>` | Recibo de los bytes revisados antes de publicar: `sign` (`--feature <id>`, `--gate-ran scoped\|full`, `--spec <dir> --milestone <Mn>` o `--phase <name\|index>`), `check`, `gate --spec <dir> --milestone <Mn>` o `--phase <name\|index>` (decide si el milestone necesita el gate acotado o el completo) y `review begin` / `review seal --nonce <n>` (sidecar de revisión con identidad de contenido). Flags comunes: `--target <ref>`, `--dir <path>`, `--json` |
 | `spec <classify\|check> <feature>` | `classify` decide si una spec sale en 1 PR o en una PR por entrega (umbrales de `sdd.deliveries`); `check` valida su `tasks.md`: milestones, criterios, cobertura y entregas verticales. Flags: `--cwd`, `--json` |
 | `tools notice [--ack <pluginId@x.y.z,…>]` | Emite los avisos de versiones de herramientas externas pendientes para el hook de arranque; `--ack` los marca como entregados |
-| `handoff <check>` | Valida el handoff del implementer (`impl_<feature>.json`) antes de despachar al siguiente agente (`navori handoff check <feature> [--for scribe] [--produced-by reviewer [--since <iso>]] [--dir <path>] [--cwd <checkout>] [--json]`) |
+| `handoff <check\|log-review>` | `check` valida el handoff del implementer (`impl_<feature>.json`) antes de despachar al siguiente agente; `log-review <feature>` valida `review_<feature>.json` y agrega a `findings.jsonl` los hallazgos con score >= 50 (`navori handoff check <feature> [--for scribe] [--produced-by reviewer [--since <iso>]] [--dir <path>] [--cwd <checkout>] [--json]`) |
 | `plan <sub>` | Planificación por niveles (`harness.planTiers`): `classify [--files\|--diff]` mide complejidad y nivel de una tarea, `render`/`update` mantienen el workplan Markdown en sync con su JSON, `check` valida su esquema y reglas, `gate` es el hook `PreToolUse(Agent)` que niega el despacho sin workplan válido |
 | `master <sub>` | Flujo guiado del plan maestro por etapas (`init`, `ux`, `mode`, `template`, `check`, `advance`, `status`, `part`, `close`) y entregas de sus partes: `delivery-slice`, `delivery-check`, `delivery-baseline`, `delivery-queue`, `delivery-criterion`, `delivery-review`, `delivery-present`, `delivery-decision`, `delivery-publication`, `delivery-revoke`. Las que autorizan o aprueban llevan `--approved-by` |
 | `bench` | Corre `render` en dry-run N veces y reporta latencias (detecta regresiones locales) |
@@ -360,9 +364,9 @@ Cambiar una sola cosa sin re-init:
 
 ```bash
 navori configure plugins              # multiselect de plugins activos
-navori configure quality-gate         # nuevo comando de quality gate
+navori configure quality-gate         # comandos del quality gate
 navori configure language en          # switch a inglés (fallback a es)
-navori configure engines              # multiselect: claude / codex / agents-md / cursor / copilot
+navori configure engines              # multiselect: claude / codex / agents-md / cursor / copilot / pi
 navori configure branch-base main     # punto de fork / rama protegida
 navori configure pr-target develop    # rama destino del PR (gh pr create --base)
 navori configure workspace bonum      # asociar a un workspace
@@ -375,6 +379,24 @@ crudo, respalda el archivo y lo reescribe. Los renames 1:1 son automáticos; cua
 retiradas caen en la misma con valores distintos no se infiere nada — se pregunta, o se pasa por
 `--scout=<modelo> --scout-effort=<nivel>`. `--dry-run` no escribe, y `--all` barre el registry
 completo (preview salvo `--apply`).
+
+### Claves de config para el gate y los hooks nativos
+
+- `qualityGate.scoped` (string): carril acotado del reviewer — los checks baratos de `full` más los tests relacionados con el diff. Si falta, usa `fast`. Se interpola como `navori.scopedGate`.
+- `qualityGate.nativeHooks` (boolean): declara que el pre-commit nativo del proyecto ya corre `fast`; el hook `quality-gate-pre-commit` omite solo su paso de gate.
+- `plugins.<id>.nativeHook` (boolean): el hook git nativo corre el check de ese plugin, así que su hook no se registra (los scripts se siguen instalando).
+
+### Tope de `progress/current.md`
+
+`progress/current.md` se carga en cada sesión, así que tiene un tope. El hook pre-commit bloquea los commits de agente que lo dejan sobre el tope duro o lo hacen crecer estando ya sobre él (los commits humanos no se bloquean). `navori doctor` lo mide en bytes con los mismos topes y avisa; el hook de inicio de sesión advierte, sin bloquear, al pasar el tope suave.
+
+## Migrando a 0.12
+
+- Se retiró el comando `global` y el colector launchd (`audit --collect` sigue). `doctor --json` ya no emite `globalScope`.
+- Se retiraron los plugins `jscpd` y `semgrep`: `navori add jscpd|semgrep` responde que están retirados.
+- El piso de Pi sube a 1.1.0: Pi 0.87.x pierde `navori_subagent`. Node mínimo: >= 22.12.
+- `navori update` ahora actualiza el CLI (consulta npm, confirma, instala y luego corre `navori refresh`). El comportamiento anterior es ahora `navori refresh`, sin alias: los scripts que usaban `navori update` para re-sincronizar el harness deben cambiar a `navori refresh`.
+- Migra con `navori render --apply` (poda los assets retirados que navori gestionaba) y luego `navori doctor` (reporta los restos).
 
 ## Extender el harness en tu repo
 

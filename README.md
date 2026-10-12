@@ -58,7 +58,7 @@ Core  →  Preset  →  Workspace  →  Project config  →  Engine adapters
 - **Library skills** — skills modulares **transversales a presets**, inyectadas por *detección de dependencia*: un repo recibe `socketio`, `mongoose`, `redux-toolkit`, `formik`, `zod`, etc. cuando trae esa dependencia, sin importar el preset.
 - **Workspace** — defaults heredables y tickets cross-repo cuando un cambio toca varios repos.
 - **Project config** — tus overrides en `navori.config.json`.
-- **Engine adapters** — Claude Code (`.claude/`) y Codex completo (`AGENTS.md`, `.agents/skills`, `.codex/agents`, hooks y MCP), además de `AGENTS.md` universal, Cursor y Copilot. Pi es opt-in (`.pi/` con extensión y agentes, skills en `.agents/skills`); versión mínima 0.87.1, probada en 1.1.0. Matriz y límites en [docs/pi.md](docs/pi.md).
+- **Engine adapters** — Claude Code (`.claude/`) y Codex completo (`AGENTS.md`, `.agents/skills`, `.codex/agents`, hooks y MCP), además de `AGENTS.md` universal, Cursor y Copilot. Pi es opt-in (`.pi/` con extensión y agentes, skills en `.agents/skills`); versión mínima y probada 1.1.0; Pi requiere Node >= 22.19. Matriz y límites en [docs/pi.md](docs/pi.md).
 
 Para paridad completa usa `"engines": ["claude", "codex"]`. Para un Codex
 ligero junto a Claude usa `["claude", "agents-md"]`; no hace falta un
@@ -70,7 +70,7 @@ verificación en vivo en [`docs/research/codex-paridad-verificacion.md`](./docs/
 
 - Tras `navori render --apply` con Codex, corre `navori codex trust` para aprobar los hooks. Repítelo cuando cambien (por ejemplo, al activar `masterPlan` o tgrep) y en cada worktree; `navori doctor` avisa por ruta.
 - Requiere Codex ≥ 0.160.0; `doctor` avisa si la versión es menor.
-- Los hooks llaman al `navori` global: mantenlo actualizado. `doctor` avisa si es más viejo que el del repo.
+- Los hooks llaman al binario global de npm: mantenlo actualizado. `doctor` avisa si es más viejo que el del repo.
 - El guard de búsqueda de tgrep solo bloquea si existe un índice (`tgrep index`); sin índice deja pasar.
 
 **Modelo de sincronización** — los managed blocks llevan `hash`, `version` y `source`. `sync` reporta updates disponibles y avisa antes de pisar un bloque que editaste a mano; hay backups automáticos antes de cada write.
@@ -114,6 +114,9 @@ clasificador contra el diff real y avisa cuando el trabajo se salió del nivel d
 | `sync` (por archivo) | Además de los bloques, ofrece reemplazo interactivo por archivo para los archivos sin marcador (`--accept-new-files` los acepta en bloque) |
 | `spec <classify\|check>` | Clasifica una spec como una PR o una PR por entrega (`classify`) y valida su `tasks.md` (`check`): milestones, criterios, cobertura y entregas verticales |
 | `plan <sub>` | Planificación por niveles (`classify`, `render`, `update`, `check`, `gate`); ver [Planificación por niveles](#planificación-por-niveles) |
+| `gate <fast\|full>` | Corre el quality gate con la salida completa en un log (`.navori/state/gate/`) y solo un veredicto compacto en stdout |
+| `handoff <check>` | Valida el handoff del implementer antes de despachar al siguiente agente |
+| `codex trust` | Aprueba los hooks del proyecto en `~/.codex/config.toml` |
 | `receipt <sign\|check\|gate\|review>` | Recibo del contenido revisado antes de publicar; `gate` decide si cada milestone necesita el gate acotado o el completo |
 | `tools notice` | Emite los avisos de versiones de herramientas externas pendientes para el hook de arranque (`--ack` marca como entregados) |
 | `master <sub>` | Plan maestro por etapas (`init`, `ux`, `mode`, `advance`, `check`, …) y entregas (`delivery-*`, gated con `--approved-by`) |
@@ -122,6 +125,14 @@ clasificador contra el diff real y avisa cuando el trabajo se salió del nivel d
 | `preset` / `scan` / `backup` / `migrations` / `bench` | Presets locales, monorepos, restore, benchmark |
 
 → Tabla completa, presets y plugins en [`packages/cli/README.md`](./packages/cli/README.md).
+
+## Migrando a 0.12
+
+- Se retiró el comando `global` y el colector launchd (`audit --collect` sigue). `doctor --json` ya no emite `globalScope`.
+- Se retiraron los plugins `jscpd` y `semgrep`: `navori add jscpd|semgrep` responde que están retirados.
+- El piso de Pi sube a 1.1.0: Pi 0.87.x pierde `navori_subagent`. Node mínimo: >= 22.12.
+- `navori update` ahora actualiza el CLI (consulta npm, confirma, instala y luego corre `navori refresh`). El comportamiento anterior es ahora `navori refresh`, sin alias: los scripts que usaban `navori update` para re-sincronizar el harness deben cambiar a `navori refresh`.
+- Migra con `navori render --apply` (poda los assets retirados que navori gestionaba) y luego `navori doctor` (reporta los restos).
 
 ## Extender navori en tu repo
 

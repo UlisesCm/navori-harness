@@ -1,4 +1,4 @@
-# Arquitectura de navori — cómo funciona (v0.11.3)
+# Arquitectura de navori — cómo funciona (v0.12.0)
 
 > Diagramas navegables: en GitHub, **hacé click en los nodos** para saltar al
 > archivo fuente. navori reconstruye `CLAUDE.md` + `.claude/` de forma
