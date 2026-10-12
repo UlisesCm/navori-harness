@@ -129,8 +129,8 @@ const ExternalToolSchema = z
       .optional(),
     /**
      * Declares that this binary must support a specific CLI capability that
-     * `--version` cannot answer reliably (#1060: `jscpd@5.1.0 --version` prints
-     * `cpd 5.0.16`, a full minor off). `doctor` runs `checkBinary` with `args`
+     * `--version` cannot answer reliably (#1060: a tool whose `--version`
+     * reports a different product version). `doctor` runs `checkBinary` with `args`
      * and checks the captured stdout for every string in `mustContain`.
      *
      * `minVersion` is **display-only** — it appears in the doctor/init message
@@ -230,7 +230,7 @@ const HookEntrySchema = z.object({
    * The hook can only do its job on the main thread — inside a subagent it is
    * a spawn that produces nothing (#924). Same meaning as `PlannedHook`'s field
    * of the same name, declared here because plugin hooks never pass through the
-   * core plan: `check-jscpd` and `check-semgrep` come from this schema.
+   * core plan: plugin hooks come from this schema.
    *
    * It does NOT change the registration. Both hosts fire `PreToolUse` and
    * `PostToolUse` inside subagents and offer no per-thread filter, so the flag

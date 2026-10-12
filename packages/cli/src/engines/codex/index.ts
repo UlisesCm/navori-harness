@@ -421,7 +421,7 @@ export function renderCodexEngine(
   });
 
   // Split collect/commit so plugin skills that extend another skill (injectInto
-  // a `.claude/skills/<id>/SKILL.md`, e.g. jscpd → review-diff) can be
+  // a `.claude/skills/<id>/SKILL.md`, e.g. a plugin skill → review-diff) can be
   // appended as a managed sub-block BEFORE the single write — mirroring the
   // Claude adapter, but into Codex's `.agents/skills/<id>/SKILL.md` and adapted
   // to Codex's vocabulary. (skill→agent injectInto is handled in buildAgentToml.)
@@ -489,7 +489,7 @@ export function renderCodexEngine(
       const targetRel = `.agents/skills/${m[1]}/SKILL.md`;
       const targetAbs = join(cwd, targetRel);
       // The base skill may not be in `pending` if it's unchanged this render
-      // (e.g. `navori add jscpd` on an already-rendered repo). Fall back to
+      // (e.g. `navori add <plugin>` on an already-rendered repo). Fall back to
       // the on-disk copy and add it back to the write set, like the Claude adapter.
       const inPending = pending.find((p) => p.path === targetAbs);
       const baseContent =

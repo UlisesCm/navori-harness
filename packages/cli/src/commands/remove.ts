@@ -26,7 +26,7 @@ export const removeCommand = defineCommand({
   args: {
     plugin: {
       type: "positional",
-      description: "Plugin id to remove (e.g. semgrep)",
+      description: "Plugin id to remove (e.g. tgrep)",
       required: true,
     },
     cwd: { type: "string", description: "Directory (default: cwd)" },

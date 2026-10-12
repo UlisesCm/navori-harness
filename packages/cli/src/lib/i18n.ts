@@ -28,7 +28,7 @@ export type Lang = "es" | "en";
  * the gate's threshold-based scan. The set is legitimately empty until a
  * future plugin needs a render-derived value again — `pluginExtraVars`'s own
  * `extraVars` wiring stays for that day (#1057's "4 of 5 forgot" fix wasn't
- * jscpd-specific). Exported so `i18n.test.ts` can exercise the branch this
+ * specific to that plugin). Exported so `i18n.test.ts` can exercise the branch this
  * set drives without depending on a live producer.
  */
 export const DERIVED_INTERPOLATION_TOKENS: Set<string> = new Set([]);
@@ -873,8 +873,8 @@ interface DoctorCmdStrings {
   toolReleaseUnparseable: (n: number, lines: string) => string;
   toolReleaseUnparseableRow: (source: string, id: string) => string;
   /** #1060 — installed binary lacks a CLI capability the manifest's
-   *  `externalTool.capabilityProbe` declares (e.g. jscpd < 5.1.1 missing
-   *  `--baseline-from-ref`). Informational, like `pinnedVersionDrift` above:
+   *  `externalTool.capabilityProbe` declares (e.g. a tool older than
+   *  the manifest's `minVersion`). Informational, like `pinnedVersionDrift` above:
    *  never gates `--strict`, never flips `ok`. */
   externalToolCapabilityGaps: (n: number, lines: string) => string;
   externalToolCapabilityGapRow: (
@@ -2585,7 +2585,7 @@ const CMD_ES: CmdStrings = {
     languageUpdated: (value) => `language → ${value}`,
     languageRenderHint:
       "Corre 'navori render --apply' para volver a renderizar los bloques managed en el nuevo idioma.",
-    branchBasePrompt: "Rama base contra la que comparan los gates (semgrep / jscpd)",
+    branchBasePrompt: "Rama base contra la que comparan los gates",
     branchRequired: "El nombre de la rama no puede estar vacío",
     branchBaseUpdated: (value) => `branchBase → ${value}`,
     branchBaseRenderHint: "Corre 'navori render --apply' para actualizar los scripts de gates.",
@@ -3930,7 +3930,7 @@ const CMD_EN: CmdStrings = {
     languageUpdated: (value) => `language → ${value}`,
     languageRenderHint:
       "Run 'navori render --apply' to re-render managed blocks in the new language.",
-    branchBasePrompt: "Base branch that gates (semgrep / jscpd) diff against",
+    branchBasePrompt: "Base branch that gates diff against",
     branchRequired: "Branch name cannot be empty",
     branchBaseUpdated: (value) => `branchBase → ${value}`,
     branchBaseRenderHint: "Run 'navori render --apply' to update the gate scripts.",

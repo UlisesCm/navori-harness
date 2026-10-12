@@ -1856,7 +1856,7 @@ export interface ClaudeHookScriptsReport {
  * Validate that every `.claude/scripts/*` and `.claude/hooks/*` file referenced
  * by an ACTIVE hook in `.claude/settings.json` exists and is executable — the
  * Claude-side equivalent of Codex's `hooksNotExecutable` (#213). A plugin hook
- * (semgrep/jscpd) points at `.claude/scripts/check-*.sh`; if that file is
+ * points at `.claude/scripts/check-*.sh`; if that file is
  * missing or lost its +x bit, Claude fires it on every Bash and it breaks or
  * no-ops silently. Both failure modes are fixed by `navori render --apply`, so
  * they're warnings (they don't flip `ok`), matching Codex's treatment.
@@ -1989,7 +1989,7 @@ interface MissingExternalTool {
 
 /**
  * Each enabled plugin may declare an `externalTool` (an MCP server / CLI it
- * depends on, e.g. engram, semgrep). Always-on plugins never pass through
+ * depends on, e.g. engram, tgrep). Always-on plugins never pass through
  * `navori add`, so their `checkBinary`/`postInstall` never run — the protocol
  * ends up telling the agent to call tools (mem_save, mem_session_summary…) that
  * may not exist. Warn (non-fatal: the scan hooks self-skip and the protocol is
@@ -2105,9 +2105,8 @@ export interface ExternalToolCapabilityGap {
 /**
  * #1060 — a manifest may declare `externalTool.capabilityProbe` for a binary
  * whose CLI surface (not its `--version` self-report, unreliable per the
- * field's own JSDoc) determines whether a gate can rely on it — jscpd's
- * `check-jscpd.sh` needs `--baseline-from-ref`/`--fail-on-new-clones`, absent
- * before 5.1.1. Same informational tier as `scanPinnedVersionDrift` above:
+ * field's own JSDoc) determines whether a gate can rely on it (a flag
+ * its script needs that older releases lack). Same informational tier as `scanPinnedVersionDrift` above:
  * enabled plugins only, binary must already be present (absence is
  * `missingExternalTools`'s job), and a probe that throws stays silent rather
  * than guess. Never feeds `computeHealthVerdict` or `--strict` — the hook

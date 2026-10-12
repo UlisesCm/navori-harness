@@ -124,7 +124,7 @@ export const RECOMMENDED_EFFORT = {
  * Enable default plugins for `init --full`. Unlike `--recommended` (which is
  * conservative and only adds `gh` when there's a GitHub remote), full mode turns
  * on bundled plugins except measured opt-ins — including ones that need an external
- * binary (jscpd/semgrep/gh/acli). A missing binary is surfaced by
+ * binary (gh/acli). A missing binary is surfaced by
  * `doctor` as a non-fatal yellow warning (never flips its exit code); that's the
  * accepted trade-off for a maximal install.
  *

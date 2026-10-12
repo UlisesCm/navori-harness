@@ -2620,7 +2620,7 @@ function applyCodexCrossReview(
  * render, with no manifest edit and no burden on plugin authors — and an id
  * nobody types is an id nobody can typo into a collision.
  *
- * `jscpd` + `check-jscpd.sh` → `jscpd-script-check-jscpd`.
+ * `acli` + `check-foo.sh` → `acli-script-check-foo`.
  */
 /**
  * Exactly what the pre-#637 renderer wrote for this script: interpolated, with

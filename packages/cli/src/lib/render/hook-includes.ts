@@ -6,7 +6,7 @@ import { getCoreRoot } from "./bundled-assets.ts";
  * Build-once, ship-standalone shell "includes" for the generated hook scripts.
  *
  * The PreToolUse(Bash) hooks (`guard-destructive`, `quality-gate-pre-commit`)
- * and the plugin gate scripts (`check-semgrep`, `check-jscpd`) share a chunk of
+ * and any plugin gate script share a chunk of
  * hardened boilerplate — the jq/node/sed command extractor and the compound-
  * command gate detector (the FIX B/C wrapper-peeling logic). Keeping four hand-
  * synced copies is how a fix to one drifted from the others (#225 / #261).
