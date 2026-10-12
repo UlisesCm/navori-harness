@@ -1,5 +1,7 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, statSync } from "node:fs";
+import * as nodeFs from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import * as nodePath from "node:path";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { stripTypeScriptTypes } from "node:module";
@@ -83,8 +85,9 @@ function load(
   };
   const modules: Record<string, unknown> = {
     "node:child_process": { spawn },
-    "node:fs": { existsSync, readFileSync, statSync },
-    "node:path": { join },
+    // The edit/write lane (spec 0048 T5) resolves real paths, so fs and path are the real ones.
+    "node:fs": nodeFs,
+    "node:path": nodePath,
     "@earendil-works/pi-ai": {
       Type: Object.fromEntries(
         ["Object", "Union", "Literal", "String", "Optional"].map((name) => [name, () => ({})]),
@@ -141,6 +144,8 @@ function project(harness: Record<string, unknown> = { scribeOwnsMarkdown: true }
       models: { scout: "haiku", codexMap: { haiku: "openai-codex/gpt-5" } },
       harness,
     }),
+    // These tests drive the extension without a bash for the hook bridge: no scripts are bound.
+    { hookBindings: [] },
   );
   return { dir, warnings };
 }

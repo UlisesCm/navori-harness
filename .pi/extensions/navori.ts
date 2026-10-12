@@ -1,7 +1,7 @@
-// navori:managed-file id="pi-extension" hash="020bc3d807a81b09141b7468ba9ad2b826d9577b83abcd2c1e66ecbb4e44d462"
+// navori:managed-file id="pi-extension" hash="ae6b14a5ba0c4295660f50503b7d4846b673522243b1f7467710692a587b92a8"
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import { VERSION, defineTool, getShellConfig, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -760,15 +760,16 @@ function bridgeHook(raw: unknown): BridgeHook | undefined {
 }
 
 /** The bridge bindings from the project manifest; any doubt means the extension cannot evaluate (fail-closed for guarded tools). */
-function bridgeManifest(cwd: string): { ok: true; hooks: BridgeHook[] } | { ok: false; reason: string } {
+function bridgeManifest(cwd: string): { ok: true; hooks: BridgeHook[]; ownedPaths: string[] } | { ok: false; reason: string } {
   const cannot = (why: string): { ok: false; reason: string } => ({ ok: false, reason: "Navori cannot evaluate its Pi controls (" + why + "); " + BRIDGE_RENDER_ACTION + "." });
   let manifest: unknown;
   try { manifest = JSON.parse(readFileSync(join(cwd, ".pi/navori.json"), "utf8")); }
   catch { return cannot("the manifest is missing or unreadable"); }
-  if (!isRecord(manifest) || manifest.schemaVersion !== 2 || !Array.isArray(manifest.hooks)) return cannot("the manifest schema is not the one this extension reads");
+  if (!isRecord(manifest) || manifest.schemaVersion !== 2 || !Array.isArray(manifest.hooks) || !Array.isArray(manifest.ownedPaths)) return cannot("the manifest schema is not the one this extension reads");
   const hooks = manifest.hooks.map(bridgeHook);
   if (hooks.some((hook) => hook === undefined)) return cannot("a hook binding is malformed");
-  return { ok: true, hooks: hooks as BridgeHook[] };
+  if (!manifest.ownedPaths.every((path: unknown) => typeof path === "string")) return cannot("an owned path is malformed");
+  return { ok: true, hooks: hooks as BridgeHook[], ownedPaths: manifest.ownedPaths as string[] };
 }
 
 /** Bash for the bridge: the SDK default, never a project shellPath; the sh fallback and WSL bash are not accepted. */
@@ -972,6 +973,143 @@ async function bridgeAdvisories(event: { toolName: string; toolCallId: string; i
   } catch { return []; }
 }
 
+
+// ---- Navori managed-file lane (spec 0048 D4): edit/write against Navori-generated files.
+const LANE_MARKERS = {"html":{"open":"<!-- navori:managed","close":"<!-- /navori:managed"},"shell":{"open":"# navori:managed start","close":"# navori:managed end"}} as const;
+const LANE_MIXED = /^(?:claude\.md|agents\.md|\.github\/copilot-instructions\.md|\.agents\/skills\/.+|\.claude\/.+|\.codex\/(?:config\.toml|agents\/.+|hooks\/.+)|\.cursor\/rules\/.+)$/;
+const LANE_MAX_BYTES = 4 * 1024 * 1024;
+const LANE_TICK = String.fromCharCode(96);
+type LaneSpan = { id: string; start: number; end: number };
+
+function laneEscape(text: string): string {
+  return text.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&");
+}
+
+/** Pi's own path normalization for its tools: strip a leading @, unicode spaces to spaces, expand ~. */
+function laneExpand(raw: string): string {
+  const text = (raw.startsWith("@") ? raw.slice(1) : raw).replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, " ");
+  const home = process.env.HOME || process.env.USERPROFILE || "";
+  if (text === "~") return home || text;
+  if (text.startsWith("~/") && home) return home + text.slice(1);
+  return text;
+}
+
+/** The real location of a path: the nearest existing ancestor resolved, the rest appended; symlinks, dangling ones included, followed. */
+function laneReal(path: string, depth = 0): string {
+  let head = path;
+  const tail: string[] = [];
+  for (;;) {
+    try { return join(realpathSync(head), ...tail.slice().reverse()); }
+    catch {
+      try {
+        if (depth < 16 && lstatSync(head).isSymbolicLink()) return laneReal(resolve(dirname(head), readlinkSync(head)) + (tail.length ? sep + tail.slice().reverse().join(sep) : ""), depth + 1);
+      } catch { /* Not a link, or not even there: keep climbing. */ }
+      const parent = dirname(head);
+      if (parent === head) return path;
+      tail.push(basename(head));
+      head = parent;
+    }
+  }
+}
+
+/** Managed blocks of a text by the real grammar (anchored, balanced, prose level); offsets are into the LF-normalized text. */
+function laneBlocks(text: string): LaneSpan[] {
+  const lines = text.split("\n");
+  const offsets: number[] = [];
+  let at = 0;
+  for (const line of lines) { offsets.push(at); at += line.length + 1; }
+  const fence = new RegExp("^\\s*(" + LANE_TICK + LANE_TICK + LANE_TICK + "|~~~)");
+  const spans: LaneSpan[] = [];
+  for (const style of ["html", "shell"] as const) {
+    const marker = LANE_MARKERS[style];
+    const html = style === "html";
+    const open = new RegExp("^" + laneEscape(marker.open) + "\\s+id=\"([^\"]+)\"" + (html ? "[^>]*-->" : ".*") + "\\s*$");
+    const close = new RegExp("^" + laneEscape(marker.close) + "\\s+id=\"([^\"]+)\"" + (html ? "\\s*-->" : "") + "\\s*$");
+    // The LAST close of each id, fence-blind: a close quoted inside a fence in the body can never shorten the protected span.
+    const lastClose = new Map<string, number>();
+    lines.forEach((line, index) => { const found = close.exec(line); if (found) lastClose.set(found[1]!, index); });
+    let inFence = false;
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index]!;
+      if (html && fence.test(line)) { inFence = !inFence; continue; }
+      if (inFence) continue;
+      const found = open.exec(line);
+      const end = found ? lastClose.get(found[1]!) : undefined;
+      if (found && end !== undefined && end > index) {
+        spans.push({ id: found[1]!, start: offsets[index]!, end: offsets[end]! + lines[end]!.length });
+        index = end;
+      }
+    }
+  }
+  return spans;
+}
+
+/** Every oldText of an edit input (the edits array and the legacy top-level pair); undefined when the shape is not one the lane knows. */
+function laneOldTexts(input: Record<string, unknown>): string[] | undefined {
+  const texts: string[] = [];
+  const take = (entry: unknown): boolean => {
+    if (!isRecord(entry) || typeof entry.oldText !== "string" || entry.oldText.length === 0 || typeof entry.newText !== "string") return false;
+    texts.push(entry.oldText.replace(/\r\n?/g, "\n"));
+    return true;
+  };
+  if (input.edits !== undefined) {
+    if (!Array.isArray(input.edits) || !input.edits.every(take)) return undefined;
+  }
+  if (input.oldText !== undefined || input.newText !== undefined) {
+    if (!take(input)) return undefined;
+  }
+  return texts.length ? texts : undefined;
+}
+
+const LANE_RENDER = "Change the source and run navori render --apply (or navori sync); a direct edit is overwritten, or freezes the block.";
+
+/**
+ * Why a Pi edit/write must not run, or undefined to let it through. Never throws: an error is a
+ * block, because an enforced control that cannot evaluate fails closed (spec 0048 R15).
+ */
+function managedLaneVerdict(cwd: string, toolName: string, rawInput: unknown, ownedPaths: string[]): string | undefined {
+  try {
+    const input = isRecord(rawInput) ? rawInput : {};
+    const given = typeof input.path === "string" ? input.path : typeof input.file_path === "string" ? input.file_path : undefined;
+    if (given === undefined || given.length === 0) return "Navori cannot tell which file this " + toolName + " targets, so it is blocked. Pass a path.";
+    const expanded = laneExpand(given);
+    const target = laneReal(isAbsolute(expanded) ? expanded : resolve(cwd, expanded));
+    const rel = relative(laneReal(resolve(cwd)), target);
+    if (rel === "" || rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel)) return undefined;
+    const key = rel.split(sep).join("/").toLowerCase();
+    const owned = ownedPaths.some((path) => path.toLowerCase() === key);
+    const plane = key === ".pi/settings.json" || key === ".pi/navori.json" || key === ".pi/navori" || key.startsWith(".pi/navori/")
+      || key === ".pi/extensions" || key.startsWith(".pi/extensions/");
+    if (plane || owned) {
+      return "Navori blocked this " + toolName + ": " + rel + (plane ? " is part of the Pi control plane (.pi/navori, .pi/extensions, .pi/settings.json, .pi/navori.json), which decides whether the guards run. " : " is generated by Navori. ")
+        + (owned ? LANE_RENDER + " " : "") + (plane ? "Anything else in the control plane is for the user to edit outside the agent." : "");
+    }
+    if (!LANE_MIXED.test(key)) return undefined;
+    const stats = lstatSync(target, { throwIfNoEntry: false });
+    if (!stats) return undefined;
+    if (!stats.isFile()) return "Navori cannot evaluate " + rel + " (not a regular file), so this " + toolName + " is blocked.";
+    if (stats.size > LANE_MAX_BYTES) return "Navori cannot inspect " + rel + " for managed blocks (it is larger than 4 MiB), so this " + toolName + " is blocked.";
+    const text = readFileSync(target, "utf8").replace(/\r\n?/g, "\n");
+    const blocks = laneBlocks(text);
+    if (!blocks.length) return undefined;
+    const ids = blocks.map((block) => block.id).join(", ");
+    if (toolName === "write") return "Navori blocked this write: " + rel + " holds managed blocks (" + ids + ") and write replaces the whole file. Use edit on text outside them. " + LANE_RENDER;
+    const olds = laneOldTexts(input);
+    if (olds === undefined) return "Navori blocked this edit: " + rel + " holds managed blocks (" + ids + ") and the edit arrived in a shape Navori cannot inspect. Send edits as a list of oldText/newText.";
+    for (const old of olds) {
+      let from = text.indexOf(old);
+      if (from < 0) return "Navori blocked this edit: " + rel + " holds managed blocks (" + ids + ") and an oldText was not found exactly, so Navori cannot tell whether it falls inside one. Use the exact text, outside them.";
+      for (; from >= 0; from = text.indexOf(old, from + 1)) {
+        const hit = blocks.find((block) => from < block.end && from + old.length > block.start);
+        if (hit) return "Navori blocked this edit: it changes the managed block " + hit.id + " in " + rel + ". " + LANE_RENDER;
+      }
+    }
+    return undefined;
+  } catch {
+    return "Navori could not evaluate this " + toolName + " (an unexpected error), so it is blocked.";
+  }
+}
+
 // Tools an unverified Pi may not use (spec 0048 D10): everything that writes or runs code; reads stay available.
 const UNVERIFIED_BLOCKED_TOOLS = new Set(["bash", "edit", "write", "powershell"]);
 type NoticeCtx = { ui?: { notify?: (message: string, type?: "info" | "warning" | "error") => void } };
@@ -1044,34 +1182,32 @@ export default function (pi: ExtensionAPI): void {
   pi.on("tool_call", async (event, ctx) => {
     // D-U3: powershell would run commands outside the shared shell policy; it is never allowed (and is deactivated at session_start).
     if (event.toolName === "powershell") return { block: true, reason: POWERSHELL_REASON };
-    if (event.toolName === "bash") {
-      const bashInput: unknown = event.input;
-      if (isRecord(bashInput) && typeof bashInput.command === "string" && APPROVAL_CLAIM.test(bashInput.command)) {
-        const refusal = await requireOperatorApproval(pi.exec.bind(pi), ctx, bashInput.command);
-        if (refusal) return refusal;
-        // The command must still be the one the user saw.
-        if (!isRecord(event.input) || event.input.command !== bashInput.command) {
-          return { block: true, reason: "Navori approval not granted: the command changed after the confirmation; request approval again." };
-        }
-      }
-    }
+    // Guards first: the operator is never asked to approve a call the guards are about to block.
+    const claimed: unknown = event.input;
+    const claim = event.toolName === "bash" && isRecord(claimed) && typeof claimed.command === "string" && APPROVAL_CLAIM.test(claimed.command);
+    let asks: string[] = [];
     if (BRIDGE_GUARDED_TOOLS.has(event.toolName)) {
       const manifest = bridgeManifest(ctx.cwd);
       if (!manifest.ok) return { block: true, reason: manifest.reason };
+      if (event.toolName !== "bash") {
+        // Spec 0048 D4 (R3): Navori-generated files and the control plane are never written through Pi's own tools.
+        const refused = managedLaneVerdict(ctx.cwd, event.toolName, event.input, manifest.ownedPaths);
+        if (refused !== undefined) return { block: true, reason: refused };
+      }
       const bridged = await runBridge(manifest.hooks, { event: "tool_call", hookEvent: "PreToolUse", toolName: event.toolName,
         toolCallId: event.toolCallId, input: event.input, cwd: ctx.cwd, sessionId: ctx.sessionManager?.getSessionId?.() ?? "",
         hasUI: ctx.hasUI === true }, ctx.signal);
       if (bridged.block !== undefined) return { block: true, reason: bridged.block };
-      if (bridged.asks.length) {
-        const asked: unknown = event.input;
-        const sealed = JSON.stringify(asked);
-        const label = isRecord(asked) ? (typeof asked.command === "string" ? asked.command : event.toolName + " " + String(asked.path ?? "")) : event.toolName;
-        const refusal = await requireOperatorApproval(pi.exec.bind(pi), ctx, label, bridged.asks);
-        if (refusal) return refusal;
-        // The call must still be the one the user saw.
-        if (JSON.stringify(event.input) !== sealed) {
-          return { block: true, reason: "Navori approval not granted: the call changed after the confirmation; request approval again." };
-        }
+      asks = bridged.asks;
+    }
+    if (claim || asks.length) {
+      // One confirmation for the --approved-by claim and every ask, bound to the exact call the user saw.
+      const sealed = JSON.stringify(event.input);
+      const label = isRecord(claimed) ? (typeof claimed.command === "string" ? claimed.command : event.toolName + " " + String(claimed.path ?? "")) : event.toolName;
+      const refusal = await requireOperatorApproval(pi.exec.bind(pi), ctx, label, asks);
+      if (refusal) return refusal;
+      if (JSON.stringify(event.input) !== sealed) {
+        return { block: true, reason: "Navori approval not granted: the " + (claim ? "command" : "call") + " changed after the confirmation; request approval again." };
       }
     }
     if (!controls(ctx.cwd).scribeOwnsMarkdown || process.env.NAVORI_PI_CHILD_ROLE !== "implementer") return;

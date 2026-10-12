@@ -1,15 +1,9 @@
 import { EventEmitter } from "node:events";
-import {
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-  mkdirSync,
-  existsSync,
-  statSync,
-} from "node:fs";
+import * as nodeFs from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { tmpdir } from "node:os";
+import * as nodePath from "node:path";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { runInNewContext } from "node:vm";
@@ -124,8 +118,9 @@ function loadRuntime(env: Record<string, string> = {}): {
     exports,
     require: (id: string): unknown => {
       if (id === "node:child_process") return { spawn };
-      if (id === "node:fs") return { existsSync, readFileSync, statSync };
-      if (id === "node:path") return { join };
+      // The edit/write lane (spec 0048 T5) resolves real paths, so fs and path are the real ones.
+      if (id === "node:fs") return nodeFs;
+      if (id === "node:path") return nodePath;
       if (id === "@earendil-works/pi-ai") return { Type };
       if (id === "@earendil-works/pi-coding-agent")
         return { VERSION: "1.1.0", defineTool: (value: unknown): unknown => value };

@@ -171,6 +171,8 @@ function project(): string {
       qualityGate: { fast: "bun test", full: "bun test" },
       harness: { scribeOwnsMarkdown: true },
     }),
+    // The approval contract is under test, not the hook bridge (it needs a real bash): no scripts are bound.
+    { hookBindings: [] },
   );
   return dir;
 }
@@ -190,7 +192,7 @@ function interactive(
   });
   void rt;
   return {
-    ctx: { cwd: "/p", hasUI: true, isProjectTrusted: () => true, ui: { confirm } },
+    ctx: { cwd: project(), hasUI: true, isProjectTrusted: () => true, ui: { confirm } },
     confirm,
   };
 }
@@ -224,7 +226,7 @@ describe("Pi first-class approvals", () => {
     expect(result).toMatchObject({ block: true });
     expect(result!.reason).toMatch(/denied or cancelled/);
     const failing: Ctx = {
-      cwd: "/p",
+      cwd: project(),
       hasUI: true,
       ui: { confirm: () => Promise.reject(new Error("dialog closed")) },
     };
@@ -256,7 +258,7 @@ describe("Pi first-class approvals", () => {
   // Covers: R5
   it("no UI is not authorized and says how to resume", async () => {
     const rt = load();
-    const result = await rt.toolCall!(bash(APPROVED), { cwd: "/p", hasUI: false });
+    const result = await rt.toolCall!(bash(APPROVED), { cwd: project(), hasUI: false });
     expect(result).toMatchObject({ block: true });
     expect(result!.reason).toMatch(/no interactive UI.*interactive Pi session/);
     // Investigation is not blocked indiscriminately.
@@ -281,7 +283,7 @@ describe("Pi first-class approvals", () => {
   it("trust is not approval", async () => {
     const rt = load();
     // A trusted project without UI, and a trusted project whose user says no, never satisfy an approval.
-    const trusted: Ctx = { cwd: "/p", hasUI: false, isProjectTrusted: () => true };
+    const trusted: Ctx = { cwd: project(), hasUI: false, isProjectTrusted: () => true };
     expect(await rt.toolCall!(bash(APPROVED), trusted)).toMatchObject({ block: true });
     const refused = interactive(rt, false);
     expect(await rt.toolCall!(bash(APPROVED), refused.ctx)).toMatchObject({ block: true });

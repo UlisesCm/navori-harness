@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="6d7291d5" version="0.11.3" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="4b822c9b" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -31,6 +31,9 @@
 #     feature branch / --force-with-lease (force-push), literal `rm -rf <absolute path>` (rm over a variable, which
 #     the host asks the user to confirm). Root/home/system rm, --no-preserve-root, fork bomb and block devices
 #     have no route. The tgrep search lane sub-block (guard-destructive-search-lane.sh) is hard as well.
+#   - the Pi arm (rule 6c, spec 0048): hard — a write to the Pi control plane, `pi --no-extensions` and a
+#     shared `deny` rule have no route; the control-plane write names `navori render --apply` as the way
+#     Navori's own files change.
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
@@ -390,6 +393,11 @@ fi
 # hostile branchBase in navori.config.json lands here as an inert literal,
 # never executable.
 base='dev'
+
+# Spec 0048 D15: the shared `deny` permission rules, one `deny <token> ...` line each, rendered ONLY
+# into the Pi copy (`extraVars.piPermissionRules`, from the same translation Codex's rules file
+# uses). Every other copy carries `-`, and only the `pi` arm below ever reads it.
+nv_pi_rules='-'
 
 block() {
   echo "[navori] BLOCKED by guard-destructive: $1" >&2
@@ -876,6 +884,23 @@ navori_inert_skeleton
 # 4096 covers 98.5% of 1,089 real commands from the measured session (p50 370,
 # p90 1650) and sits sixteen times below the cliff.
 FAST_MAX=4096
+# The Pi arm (rule 6c below) adds its own literals: the control-plane paths (`.pi`), the `pi` word
+# (`pi -ne`, `pi --no-extensions`) and the first token of every shared `deny` rule. Lowercased
+# because the paths are matched case-insensitively (APFS); one `tr`, and only in a Pi copy.
+nv_pi_candidate() {
+  [ "$nv_engine" = pi ] || return 1
+  local _lc _r _t
+  _lc=$(printf '%s' "$_fast" | tr '[:upper:]' '[:lower:]')
+  case "$_lc" in *.pi*|*extensions*|*"pi "*|*pi) return 0 ;; esac
+  [ "$nv_pi_rules" != "-" ] || return 1
+  while IFS= read -r _r; do
+    _t=${_r#deny }
+    _t=${_t%% *}
+    [ -n "$_t" ] || continue
+    case "$_lc" in *"$_t"*) return 0 ;; esac
+  done <<< "$nv_pi_rules"
+  return 1
+}
 if [ "${#cmd}" -le "$FAST_MAX" ]; then
   _fast=${cmd//\'/}
   _fast=${_fast//\"/}
@@ -888,9 +913,11 @@ if [ "${#cmd}" -le "$FAST_MAX" ]; then
     # would never let it run. `rg` needs a word edge: `*rg*` would match `merge`.
     *grep*|*rg\ *|*rg) ;;
     *)
-      navori_audit_verdict="skip"
-      navori_audit_reason="no rule token in the command"
-      exit 0
+      if ! nv_pi_candidate; then
+        navori_audit_verdict="skip"
+        navori_audit_reason="no rule token in the command"
+        exit 0
+      fi
       ;;
   esac
 fi
@@ -1197,7 +1224,14 @@ fi
 #        form: it re-checks the hashes AFTER the fact, so anything that gets past
 #        this rule still surfaces. This rule is the seatbelt; that one is the net.
 managed_dir='\.claude/(agents|skills|hooks)|\.agents/skills|\.codex/(agents|hooks)|\.cursor/rules'
-managed_path="(CLAUDE\.md|AGENTS\.md|\.claude/settings\.json|\.codex/config\.toml|(${managed_dir})/[^[:space:];&|]+)"
+# Spec 0048 D4 (R3): in a Pi copy only, the exact names Navori writes under `.pi/`: its extension,
+# manifest, hook copies and the role files of its roster. A `.pi/agents/<other>.md` is the user's.
+# Empty everywhere else, so the Claude and Codex regex is the one it always was.
+managed_pi=''
+if [ "$nv_engine" = pi ]; then
+  managed_pi='|\.pi/extensions/navori\.ts|\.pi/navori\.json|\.pi/navori/[^[:space:];&|]+|\.pi/agents/(scout|implementer|reviewer|scribe|auditor|architect|publisher)\.md'
+fi
+managed_path="(CLAUDE\.md|AGENTS\.md|\.claude/settings\.json|\.codex/config\.toml|(${managed_dir})/[^[:space:];&|]+${managed_pi})"
 managed_rewrite_msg="shell rewrite of a navori-managed file — edit the source asset and run 'navori render --apply' (or 'navori sync'); a direct write invalidates the block hash and freezes it. If the target is outside this project (e.g. a scratchpad), write it with '>' or 'tee' and an absolute path instead"
 # The redirect check reads `scan`, NOT `segments`: the split rewrites every `|`
 # into a newline, so `>| CLAUDE.md` (forced clobber) would be torn in half and
@@ -1277,6 +1311,74 @@ if [ -n "${nv_project_dir:-}" ]; then
   if printf '%s' "$scan" | grep -qiE "(^|[^>])>\|?[[:space:]]*${abs_managed_path}([[:space:]]|\$)" \
     || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*${abs_managed_path}([[:space:]]|\$)"; then
     block "$managed_rewrite_msg" managed-rewrite
+  fi
+fi
+
+# 6c. The Pi arm (spec 0048 D4/D15, R2/R18) — three rules that exist only in a Pi copy, because only
+#     Pi has no host permission system and runs this script from `.pi/navori/hooks/`. In a Claude or
+#     Codex copy this whole block is skipped.
+#
+#     (i) CONTROL PLANE. `.pi/navori/**` (hook copies, the bridge's own scripts), `.pi/extensions/**`
+#     (the extension that enforces all of this, and anything else Pi loads), `.pi/settings.json` and
+#     `.pi/navori.json` decide whether and how the guards run, so an agent that can rewrite them can
+#     switch the guards off. They are protected against every WRITE verb — `>`/`>>`/`>|`, `tee`,
+#     `sed -i`, `rm`, `mv`, `cp`, `ln`, `dd`, `install`, `truncate`, `chmod`, `git checkout|restore`
+#     and the like — and against INLINE interpreters (`python -c`, `node -e`, `perl -i`, `ruby -e`,
+#     `php -r`) that name them. Reading them (`cat`, `ls`, `grep`) stays free. `cp`/`mv` match either
+#     operand (a read-copy out of the plane is blocked too): the safe side of not parsing operands.
+#     The match is on the path TEXT, case-insensitively: `./.pi/...`, `/abs/proj/.pi/...` and
+#     `"$PWD"/.pi/...` all contain `.pi/<name>`. Still unhandled, by the header's seatbelt rule: a
+#     `cd .pi/navori` followed by a relative write, a path assembled from variables, `sh -c` and
+#     `eval`. The message names `navori render --apply` for the files Navori generates and says the
+#     rest is edited by the user, outside the agent.
+#
+#     (ii) `pi --no-extensions` (or `-ne`) from bash starts a Pi with none of this loaded: no guard,
+#     no bridge. Blocked, no route.
+#
+#     (iii) DENY RULES. The shared `deny` permissions, translated to token prefixes at render time
+#     (`nv_pi_rules`, the same translation as `.codex/rules/navori.rules`), are compared with each
+#     SEGMENT, quotes dropped and blanks squeezed: `sudo rm -rf x` and `mkfs /dev/sda` block, in
+#     a compound command too. `mkfs.ext4 /dev/sda` does NOT: only the exact `mkfs` token matches
+#     (same as Codex, codex-parity F9). A `*` glued to the last token was narrowed to the exact token (as in
+#     Codex), so `rm -rf /` blocks and `rm -rf /tmp/x` does not — the numbered rules above catch the
+#     variants. `ask` rules are not evaluated here (spec 0048 T11).
+if [ "$nv_engine" = pi ]; then
+  _q="[\"']"
+  pi_cp="\.pi/(navori(\.json|/[^[:space:];&|<>\"']*)?|extensions(/[^[:space:];&|<>\"']*)?|settings\.json)"
+  pi_cp_end="([[:space:]\"';&|)<>]|\$)"
+  pi_cp_msg="shell write to the Pi control plane (.pi/navori, .pi/extensions, .pi/settings.json, .pi/navori.json) — these files decide whether the guards run. Navori's own are regenerated by 'navori render --apply' (or 'navori sync'); any other change is for the user to make outside the agent"
+  _pi_cp_segs=$(printf '%s' "$segments" | grep -iE "${pi_cp}${pi_cp_end}" || true)
+  pi_cp_verbs="(^|[[:space:]\"'])(rm|rmdir|unlink|mv|cp|ln|dd|install|truncate|chmod|chown|rsync|tee|touch|mkdir)[[:space:]]"
+  pi_cp_sed="(^|[[:space:]\"'])sed[[:space:]]+(-[a-zA-Z]*i[a-zA-Z]*[^[:space:]]*|--in-place)([[:space:]]|=)"
+  pi_cp_git="^git[[:space:]]+(.*[[:space:]])?(checkout|restore)[[:space:]]"
+  pi_cp_interp="(^|[[:space:]\"'])(python[0-9.]*|node(js)?|deno|bun|perl|ruby|php|osascript)[[:space:]]+(.*[[:space:]])?(-[a-zA-Z]*[cepir][a-zA-Z]*|--eval|--print)([[:space:]=]|\$)"
+  if { [ -n "$_pi_cp_segs" ] && {
+         printf '%s' "$_pi_cp_segs" | grep -qiE "${pi_cp_verbs}" \
+         || printf '%s' "$_pi_cp_segs" | grep -qiE "${pi_cp_sed}" \
+         || printf '%s' "$_pi_cp_segs" | grep -qiE "${pi_cp_git}" \
+         || printf '%s' "$_pi_cp_segs" | grep -qiE "${pi_cp_interp}"; } ; } \
+    || printf '%s' "$scan" | grep -qiE ">[>|]?[[:space:]]*${_q}?([^[:space:];&|<>]*/)?${pi_cp}${pi_cp_end}"; then
+    block "$pi_cp_msg" managed-rewrite "navori render --apply"
+  fi
+  if printf '%s' "$segments" | grep -qE "(^|[[:space:]\"'/])pi[[:space:]]+(.*[[:space:]])?(--no-extensions|-ne)([[:space:]=]|\$)"; then
+    block "pi --no-extensions starts an agent without Navori's guards (no extension, no bridge, no hooks)" unspecified
+  fi
+  if [ "$nv_pi_rules" != "-" ]; then
+    _pr_segs=$(printf '%s' "$segments" | tr -d "'\"" | tr -s '[:blank:]' ' ')
+    while IFS= read -r _seg; do
+      _seg=${_seg# }
+      _seg=${_seg% }
+      [ -n "$_seg" ] || continue
+      while IFS= read -r _rule; do
+        case "$_rule" in 'deny '*) ;; *) continue ;; esac
+        _pfx=${_rule#deny }
+        case "$_seg" in
+          "$_pfx" | "$_pfx "*)
+            block "shared permission deny rule '${_pfx}' (the same rule that denies it in Claude and Codex)" unspecified
+            ;;
+        esac
+      done <<< "$nv_pi_rules"
+    done <<< "$_pr_segs"
   fi
 fi
 

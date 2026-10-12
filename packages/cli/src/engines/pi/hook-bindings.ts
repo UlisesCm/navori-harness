@@ -17,7 +17,8 @@ import type { NavoriConfig } from "../../lib/config/config.ts";
  *   unreadable manifest block the tool); `advisory` and `lifecycle` failures are silent.
  *
  * Rows are added by the milestone that wires each guard (spec 0048 M3 and later), together with its
- * `PI_PARITY` row: a script is never listed here before Pi can honor its verdict end to end.
+ * `PI_PARITY` row: a script is never listed here before Pi can honor its verdict end to end. The
+ * `PI_PARITY` row of a script listed here is never `unsupported` (and the other way round).
  */
 
 /** Pi events the bridge dispatches. */
@@ -52,6 +53,39 @@ export interface PiHookBinding {
 
 /** The scripts Pi runs through the extension bridge. */
 export const PI_HOOK_BINDINGS: readonly PiHookBinding[] = [
+  // Spec 0048 T4 (R2, R18): destructive commands, shared `deny` rules, the Pi control plane and
+  // `pi --no-extensions`, for the parent and every child. It never asks (`ask` rules are T11).
+  {
+    script: "guard-destructive",
+    on: "tool_call",
+    tools: ["bash"],
+    scope: "all",
+    class: "enforced",
+    interactive: false,
+    timeoutMs: 15_000,
+  },
+  // Spec 0048 T12/R8: a child never backgrounds work (`cmd &`, nohup, setsid, disown). The script
+  // keys on `agent_id`, which the bridge sends only in children, so the parent is never in scope.
+  {
+    script: "subagent-no-background",
+    on: "tool_call",
+    tools: ["bash"],
+    scope: "child",
+    class: "enforced",
+    interactive: false,
+    timeoutMs: 10_000,
+  },
+  // Spec 0048 T6 (R9): a managed block left with drift after bash, edit or write. Advisory: its
+  // exit 2 + stderr becomes a notice appended to the tool result, never a block.
+  {
+    script: "managed-drift-watch",
+    on: "tool_result",
+    tools: ["bash", "edit", "write"],
+    scope: "all",
+    class: "advisory",
+    interactive: false,
+    timeoutMs: 10_000,
+  },
   // Spec 0048 R10 (D8): parent session close, 15 s in total (reclaim 12 s, then the audit seal 3 s).
   {
     script: "worktree-reclaim",

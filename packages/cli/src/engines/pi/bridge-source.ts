@@ -67,15 +67,16 @@ function bridgeHook(raw: unknown): BridgeHook | undefined {
 }
 
 /** The bridge bindings from the project manifest; any doubt means the extension cannot evaluate (fail-closed for guarded tools). */
-function bridgeManifest(cwd: string): { ok: true; hooks: BridgeHook[] } | { ok: false; reason: string } {
+function bridgeManifest(cwd: string): { ok: true; hooks: BridgeHook[]; ownedPaths: string[] } | { ok: false; reason: string } {
   const cannot = (why: string): { ok: false; reason: string } => ({ ok: false, reason: "Navori cannot evaluate its Pi controls (" + why + "); " + BRIDGE_RENDER_ACTION + "." });
   let manifest: unknown;
   try { manifest = JSON.parse(readFileSync(join(cwd, ".pi/navori.json"), "utf8")); }
   catch { return cannot("the manifest is missing or unreadable"); }
-  if (!isRecord(manifest) || manifest.schemaVersion !== 2 || !Array.isArray(manifest.hooks)) return cannot("the manifest schema is not the one this extension reads");
+  if (!isRecord(manifest) || manifest.schemaVersion !== 2 || !Array.isArray(manifest.hooks) || !Array.isArray(manifest.ownedPaths)) return cannot("the manifest schema is not the one this extension reads");
   const hooks = manifest.hooks.map(bridgeHook);
   if (hooks.some((hook) => hook === undefined)) return cannot("a hook binding is malformed");
-  return { ok: true, hooks: hooks as BridgeHook[] };
+  if (!manifest.ownedPaths.every((path: unknown) => typeof path === "string")) return cannot("an owned path is malformed");
+  return { ok: true, hooks: hooks as BridgeHook[], ownedPaths: manifest.ownedPaths as string[] };
 }
 
 /** Bash for the bridge: the SDK default, never a project shellPath; the sh fallback and WSL bash are not accepted. */

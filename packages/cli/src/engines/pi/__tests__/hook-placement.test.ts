@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -129,6 +130,15 @@ describe("Pi hook placement and manifest v2", () => {
     renderPiEngine(bare, config, { hookBindings: [] });
     expect(existsSync(join(bare, ".pi/navori/hooks"))).toBe(false);
     expect((manifest(bare).hooks as unknown[]).length).toBe(0);
+    renderPiEngine(bare, config);
+    // The default render installs exactly the scripts of the binding table, no more.
+    const bound = activePiHookBindings(config).map((b) => b.script);
+    expect(
+      readdirSync(join(bare, ".pi/navori/hooks"))
+        .map((name) => name.replace(/\.sh$/, ""))
+        .sort(),
+    ).toEqual([...bound].sort());
+    expect((manifest(bare).hooks as Array<{ script: string }>).map((h) => h.script)).toEqual(bound);
     expect(activePiHookBindings(config, [GUARD, GATE]).map((b) => b.script)).toEqual([
       "guard-destructive",
       "quality-gate-pre-commit",

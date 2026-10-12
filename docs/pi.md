@@ -103,9 +103,15 @@ The trusted extension runs the shared Navori hook scripts through a bridge. The 
 - **Payload.** The bridge sends a Claude-shaped payload: `hook_event_name`, `tool_name` (`Bash`, `Edit` or
   `Write`), `tool_input`, `cwd`, `session_id`, `permission_mode`, and `agent_id`/`agent_type` in children.
   The script copy identifies itself as Pi by its path under `/.pi/navori/`, not by the payload.
-- **Location.** Scripts are copied to `.pi/navori/hooks/<id>.sh`, and the set comes from `PI_HOOK_BINDINGS`.
-  That table is empty in this milestone, so no script runs in a project yet; rows land with the guards that
-  wire them.
+- **Location.** Scripts are copied to `.pi/navori/hooks/<id>.sh`, and the set comes from `PI_HOOK_BINDINGS`
+  (`engines/pi/hook-bindings.ts`):
+  - `guard-destructive`: `tool_call`, bash, `enforced`, parent and children.
+  - `subagent-no-background`: `tool_call`, bash, `enforced`, children only.
+  - `managed-drift-watch`: `tool_result`, bash, edit and write, `advisory`, parent and children.
+  - `worktree-reclaim` and `audit-mode-close`: `session_shutdown`, parent only, `lifecycle`.
+  - `stop-verify-reminder`: `agent_before_settle`, parent only, `advisory`, installed only with `hooks.verifyOnStop`.
+
+  The [Guards](#guards) section describes what each one blocks.
 - **Shell.** Scripts run under bash from Pi's shell configuration. The project's `shellPath` is never used.
   A missing bash, or only the `sh` fallback, blocks every `enforced` script and names the action to take.
 - **Execution.** Non-interactive scripts run concurrently, each with its own timeout. The first block wins.
@@ -175,10 +181,68 @@ Per unit, the states in [Parity inventory](#parity-inventory) are:
 | MCP server | `advisory` | Render warns when the server is missing or disabled in Pi's MCP config. |
 | MCP plugin skill on a child role | `unsupported` | Children run `--no-mcp`, so the prose is not injected. |
 | Skill on a role Pi does not render (for example `publisher`) | `unsupported` | Pending the role work in spec 0048 R14 and M11. |
-| tgrep guard script and `tgrep-search-lane` hook extension | `unsupported` | They ride the Pi guard copy, which lands with spec 0048 M3. |
+| tgrep guard script and `tgrep-search-lane` hook extension | `enforced` (seatbelt) | The script is installed under `.pi/navori/scripts/`. The lane runs inside the Pi guard copy (`.pi/navori/hooks/guard-destructive.sh`) through the bridge. It covers grep/rg only and fails open when tgrep, its server or the index is unavailable. |
 
 Render warns when a plugin's MCP server is missing or disabled in Pi's native MCP config. Navori never writes
 Pi's MCP config.
+
+## Guards
+
+Navori's guards are textual policy. Pi has no permission system, so each rule matches the text of a call
+and is a seatbelt, not a sandbox. The rows are `enforced (seatbelt)` in [Parity inventory](#parity-inventory).
+
+**Destructive commands and deny rules (`guard-destructive`).** The shared destructive rules and the shared
+`deny` permission rules block in the parent and in every child. The `deny` rules are translated to token
+prefixes at render time, the same translation Codex uses. `ask` rules are not evaluated yet (spec 0048 M6).
+The Pi copy adds three rules that exist only there:
+
+- **Control plane.** Write verbs (`>`, `>>`, `>|`, `tee`, `sed -i`, `rm`, `mv`, `cp`, `ln`, `dd`, `install`,
+  `truncate`, `chmod`, `git checkout|restore`) and inline interpreters (`python -c`, `node -e`, `perl -i`,
+  `ruby -e`, `php -r`) are blocked when they name `.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json` or
+  `.pi/navori.json`. Reads stay allowed.
+- **`pi --no-extensions`** (or `-ne`) from bash is blocked. That form starts a Pi with no extension, bridge or
+  hooks.
+
+**Managed files (`edit` and `write` lane).** The extension normalizes the path the way Pi's own tools do:
+it strips a leading `@`, expands `~`, turns unicode spaces into spaces, resolves against the project and follows
+symlinks. Then:
+
+- It blocks the control plane and every `ownedPaths` entry of `.pi/navori.json`, including destinations that
+  do not exist yet.
+- For mixed files (`AGENTS.md`, `CLAUDE.md`, skills, `.claude/`, `.codex/`, `.cursor/rules/`, Copilot
+  instructions), a managed block is recognized only by the real marker grammar: an open and a close marker
+  with the same id, both anchored to column 0 and outside a code fence. `write` is blocked when the file
+  holds a managed block. `edit` is blocked when an `oldText` lands inside one, or when the edit arrives in a
+  shape the lane does not know. Text outside the blocks, the user section included, stays editable.
+- A marker quoted mid-line, or an open marker with no close, is not a block. A file that is not a regular
+  file, or is over 4 MiB, is blocked when it matches a mixed-file path.
+- Foreign `.pi/agents/*.md` files stay editable through `edit`. Known gap: the shell lane names all seven
+  Navori role files (`scout`, `implementer`, `reviewer`, `scribe`, `auditor`, `architect`, `publisher`), a
+  superset, so a user file with one of those names is blocked from shell writes until Navori renders that role.
+
+**Drift advisory (`managed-drift-watch`).** After a bash, edit or write call, the watcher checks the managed
+blocks under the Pi roots, including `.pi/navori/`. It keeps its own baseline in
+`.navori/state/hooks/managed-drift-stamp-pi`, so it never consumes the report a concurrent Claude session
+would see. Drift is a warning on the tool result. It never blocks.
+
+**Bypass classes.** The seatbelt rows list these bypasses (`PI_SEATBELT_BYPASSES`):
+
+- `sh -c`, `eval`, `xargs`, or an obfuscated command.
+- A script written to disk and then executed.
+- `pi --no-extensions` in a form the rule does not cover.
+- Write-capable MCP tools of the parent (`mcp__github__*`).
+- Third-party extensions that mutate the tool input after the Navori handler.
+
+The destructive rules have their own gaps: `cd` into the control plane followed by a relative write
+(`cd .pi/navori && echo x > navori.json` passes), a control-plane path assembled from variables, and
+`mkfs.<fs>` spellings such as `mkfs.ext4`. The shared `mkfs` deny rule matches only the exact token, so
+`mkfs /dev/sda` is blocked and `mkfs.ext4 /dev/sda` is not.
+
+**Order of checks (`tool_call`).** For each call the extension runs, in order: (1) a `powershell` call is
+blocked; (2) the manifest is read, and an unreadable or non-v2 manifest blocks `bash`, `edit` and `write`;
+(3) an `edit` or `write` goes through the managed-file lane; (4) the bridge scripts run, and an `enforced`
+block stops the call; (5) one merged confirmation is requested for the `--approved-by` claim and for every
+`ask` verdict. The confirmation is bound to the exact input the user saw, and a changed input is refused.
 
 ## Doctor findings
 

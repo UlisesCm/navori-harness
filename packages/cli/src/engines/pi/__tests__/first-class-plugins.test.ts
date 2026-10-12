@@ -20,6 +20,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { ENGINE_CAPABILITIES } from "../../shared/engine-capabilities.ts";
 import { renderPiEngine } from "../index.ts";
+import { PI_PARITY, piParityKey } from "../../shared/pi-parity.ts";
+import { load as loadExtension } from "./fixtures/load-extension.ts";
 import { rolePluginProse } from "../plugin-projection.ts";
 import type { LoadedPlugin } from "../../../lib/config/plugins.ts";
 import { PI_EXTENSION_SOURCE, renderPiExtensionSource } from "../extension-source.ts";
@@ -471,6 +473,37 @@ describe("Pi plugin projection", () => {
       "tgrep-search-lane",
     );
     expect(hookPaths(on.dir)).toEqual([".pi/navori/hooks/guard-destructive.sh"]);
+  });
+
+  // Covers: R12
+  it("the tgrep lane is projected, executed by the bridge, and its parity rows match", async () => {
+    const { dir, config } = project(["pi"], { tgrep: { enabled: true } });
+    renderPiEngine(dir, config);
+    expect(existsSync(join(dir, ".pi/navori/scripts/guard-search-routing.sh"))).toBe(true);
+    expect(read(dir, ".pi/navori/hooks/guard-destructive.sh")).toContain("tgrep-search-lane");
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "tgrep"),
+      "#!/bin/sh\nprintf 'Index status for /x\\n  Server:     running\\n'\n",
+      { mode: 0o755 },
+    );
+    const tools = loadExtension({ env: { PATH: `${bin}:/usr/bin:/bin` } });
+    const ctx = { cwd: dir, sessionManager: { getSessionId: () => "s" } };
+    const event = (command: string) => ({ toolName: "bash", toolCallId: "c", input: { command } });
+    const blocked = (await tools.get("tool_call")!(event('grep -rn "foo" src/'), ctx)) as {
+      block: boolean;
+      reason: string;
+    };
+    expect(blocked.block).toBe(true);
+    expect(blocked.reason).toContain("tgrep search");
+    expect(await tools.get("tool_call")!(event("git status"), ctx)).toBeUndefined();
+    for (const key of [
+      piParityKey("plugin-script", "tgrep/guard-search-routing.sh"),
+      piParityKey("plugin-hook-extension", "tgrep/tgrep-search-lane"),
+    ]) {
+      expect(PI_PARITY[key]).toMatchObject({ state: "enforced", seatbelt: true });
+    }
   });
 
   // Covers: R12

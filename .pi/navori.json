@@ -1,7 +1,7 @@
 {
   "_navori": {
     "id": "pi-runtime",
-    "hash": "9a09729b9b620af91ced5d9f18cfef3332eccb21626fa5b1eaedbddc44e877bb"
+    "hash": "6de0c06e1d9196ff9c0930bdf8e752952181139797332cfc00ef0f48182797b9"
   },
   "schemaVersion": 2,
   "agents": [
@@ -19,6 +19,44 @@
     "scribeOwnsMarkdown": true
   },
   "hooks": [
+    {
+      "script": "guard-destructive",
+      "path": ".pi/navori/hooks/guard-destructive.sh",
+      "on": "tool_call",
+      "tools": [
+        "bash"
+      ],
+      "scope": "all",
+      "class": "enforced",
+      "interactive": false,
+      "timeoutMs": 15000
+    },
+    {
+      "script": "subagent-no-background",
+      "path": ".pi/navori/hooks/subagent-no-background.sh",
+      "on": "tool_call",
+      "tools": [
+        "bash"
+      ],
+      "scope": "child",
+      "class": "enforced",
+      "interactive": false,
+      "timeoutMs": 10000
+    },
+    {
+      "script": "managed-drift-watch",
+      "path": ".pi/navori/hooks/managed-drift-watch.sh",
+      "on": "tool_result",
+      "tools": [
+        "bash",
+        "edit",
+        "write"
+      ],
+      "scope": "all",
+      "class": "advisory",
+      "interactive": false,
+      "timeoutMs": 10000
+    },
     {
       "script": "worktree-reclaim",
       "path": ".pi/navori/hooks/worktree-reclaim.sh",
@@ -49,6 +87,9 @@
     ".pi/extensions/navori.ts",
     ".pi/navori.json",
     ".pi/navori/hooks/audit-mode-close.sh",
+    ".pi/navori/hooks/guard-destructive.sh",
+    ".pi/navori/hooks/managed-drift-watch.sh",
+    ".pi/navori/hooks/subagent-no-background.sh",
     ".pi/navori/hooks/worktree-reclaim.sh"
   ],
   "permissionRules": {

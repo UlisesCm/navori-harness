@@ -116,6 +116,10 @@ export function interpolate(
       config.qualityGate?.scoped ?? config.qualityGate?.fast ?? "the repo's fast quality gate",
     // "1" only when declared true; absent or false stays "0" (spec 0045 D1).
     "navori.nativeHooks": config.qualityGate?.nativeHooks === true ? "1" : "0",
+    // Spec 0048 D15: the shared `deny` rules only the Pi copy of `guard-destructive.sh` embeds
+    // (`extraVars` overrides this). Every other copy renders the non-blank "no rules" sentinel,
+    // because a blank value would render as "<not configured: ...>".
+    piPermissionRules: "-",
     ...options.extraVars,
   };
   if (!options.omitUnresolvedKeyLines) {

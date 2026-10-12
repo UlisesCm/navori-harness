@@ -33,7 +33,7 @@ import {
 } from "./owned-file.ts";
 import { renderPiExtensionSource } from "./extension-source.ts";
 import { activePiHookBindings, piHookPath, type PiHookBinding } from "./hook-bindings.ts";
-import { collectShellPermissionRules } from "../shared/permission-rules.ts";
+import { buildPiDenyRules, collectShellPermissionRules } from "../shared/permission-rules.ts";
 import { navoriAuthorship } from "../../lib/render/removable.ts";
 import {
   buildLocalSkillPointerContent,
@@ -111,7 +111,7 @@ function buildAdapter(
           },
     // Spec 0048 D1: the shared script, copied to `.pi/navori/hooks/<id>.sh`, only for rows of the
     // binding table: one table decides what is installed, what the bridge runs and the manifest.
-    placeHook: (hook) =>
+    placeHook: (hook, ctx) =>
       hookIds.has(hook.id)
         ? {
             assetPath: hook.assetPath,
@@ -119,6 +119,17 @@ function buildAdapter(
             managedId: hook.managedId,
             commentStyle: "shell",
             chmodExec: true,
+            // Spec 0048 D15: the guard's Pi copy embeds the shared `deny` rules, translated once
+            // for Pi and Codex alike. Every other copy keeps the "no rules" default.
+            ...(hook.id === "guard-destructive"
+              ? {
+                  extraVars: {
+                    piPermissionRules: buildPiDenyRules(
+                      collectShellPermissionRules(ctx.config, ctx.plugins),
+                    ),
+                  },
+                }
+              : {}),
           }
         : null,
     // Same transform/marker/destination as the Codex pointer: the body stays in the user's

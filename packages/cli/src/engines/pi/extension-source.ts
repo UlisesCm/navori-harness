@@ -1,4 +1,5 @@
 import { PI_BRIDGE_SOURCE } from "./bridge-source.ts";
+import { PI_MANAGED_LANE_SOURCE } from "./managed-lane-source.ts";
 import { PI_TRUST_SOURCE } from "./trust-source.ts";
 import { renderPiRuntimeVersionSource, serializeAnonymousFunction } from "./runtime-version.ts";
 import { PI_ROLE_NAMES, PI_ROLE_TIMEOUT_MS, PI_ROLE_TOOLS } from "./role-tools.ts";
@@ -12,8 +13,8 @@ import { mcpServerStates } from "./mcp-diagnosis.ts";
 export function renderPiExtensionSource(mcpPluginIds: readonly string[] = []): string {
   return String.raw`
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import { VERSION, defineTool, getShellConfig, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -706,6 +707,7 @@ function stuckAdvice(pi: ToolRegistry, event: StuckEvent, ctx: EvidenceContext):
 }
 
 ${PI_BRIDGE_SOURCE}
+${PI_MANAGED_LANE_SOURCE}
 // Tools an unverified Pi may not use (spec 0048 D10): everything that writes or runs code; reads stay available.
 const UNVERIFIED_BLOCKED_TOOLS = new Set(["bash", "edit", "write", "powershell"]);
 type NoticeCtx = { ui?: { notify?: (message: string, type?: "info" | "warning" | "error") => void } };
@@ -778,34 +780,32 @@ export default function (pi: ExtensionAPI): void {
   pi.on("tool_call", async (event, ctx) => {
     // D-U3: powershell would run commands outside the shared shell policy; it is never allowed (and is deactivated at session_start).
     if (event.toolName === "powershell") return { block: true, reason: POWERSHELL_REASON };
-    if (event.toolName === "bash") {
-      const bashInput: unknown = event.input;
-      if (isRecord(bashInput) && typeof bashInput.command === "string" && APPROVAL_CLAIM.test(bashInput.command)) {
-        const refusal = await requireOperatorApproval(pi.exec.bind(pi), ctx, bashInput.command);
-        if (refusal) return refusal;
-        // The command must still be the one the user saw.
-        if (!isRecord(event.input) || event.input.command !== bashInput.command) {
-          return { block: true, reason: "Navori approval not granted: the command changed after the confirmation; request approval again." };
-        }
-      }
-    }
+    // Guards first: the operator is never asked to approve a call the guards are about to block.
+    const claimed: unknown = event.input;
+    const claim = event.toolName === "bash" && isRecord(claimed) && typeof claimed.command === "string" && APPROVAL_CLAIM.test(claimed.command);
+    let asks: string[] = [];
     if (BRIDGE_GUARDED_TOOLS.has(event.toolName)) {
       const manifest = bridgeManifest(ctx.cwd);
       if (!manifest.ok) return { block: true, reason: manifest.reason };
+      if (event.toolName !== "bash") {
+        // Spec 0048 D4 (R3): Navori-generated files and the control plane are never written through Pi's own tools.
+        const refused = managedLaneVerdict(ctx.cwd, event.toolName, event.input, manifest.ownedPaths);
+        if (refused !== undefined) return { block: true, reason: refused };
+      }
       const bridged = await runBridge(manifest.hooks, { event: "tool_call", hookEvent: "PreToolUse", toolName: event.toolName,
         toolCallId: event.toolCallId, input: event.input, cwd: ctx.cwd, sessionId: ctx.sessionManager?.getSessionId?.() ?? "",
         hasUI: ctx.hasUI === true }, ctx.signal);
       if (bridged.block !== undefined) return { block: true, reason: bridged.block };
-      if (bridged.asks.length) {
-        const asked: unknown = event.input;
-        const sealed = JSON.stringify(asked);
-        const label = isRecord(asked) ? (typeof asked.command === "string" ? asked.command : event.toolName + " " + String(asked.path ?? "")) : event.toolName;
-        const refusal = await requireOperatorApproval(pi.exec.bind(pi), ctx, label, bridged.asks);
-        if (refusal) return refusal;
-        // The call must still be the one the user saw.
-        if (JSON.stringify(event.input) !== sealed) {
-          return { block: true, reason: "Navori approval not granted: the call changed after the confirmation; request approval again." };
-        }
+      asks = bridged.asks;
+    }
+    if (claim || asks.length) {
+      // One confirmation for the --approved-by claim and every ask, bound to the exact call the user saw.
+      const sealed = JSON.stringify(event.input);
+      const label = isRecord(claimed) ? (typeof claimed.command === "string" ? claimed.command : event.toolName + " " + String(claimed.path ?? "")) : event.toolName;
+      const refusal = await requireOperatorApproval(pi.exec.bind(pi), ctx, label, asks);
+      if (refusal) return refusal;
+      if (JSON.stringify(event.input) !== sealed) {
+        return { block: true, reason: "Navori approval not granted: the " + (claim ? "command" : "call") + " changed after the confirmation; request approval again." };
       }
     }
     if (!controls(ctx.cwd).scribeOwnsMarkdown || process.env.NAVORI_PI_CHILD_ROLE !== "implementer") return;

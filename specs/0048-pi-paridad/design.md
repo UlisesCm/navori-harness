@@ -196,6 +196,11 @@ confirmación que muestra todas las razones, el comando exacto y el contenido a 
   bash: con el fallback a `sh`, o sin bash, los bindings `enforced` bloquean con la acción de `windows.md`. Nunca
   lee `shellPath` de `.pi/settings.json`; el modelo no elige el shell que evalúa sus propios comandos. La ruta
   del script se pasa con `/`.
+- **Orden de `tool_call` (M3, enmienda).** Por llamada, en este orden: (1) `powershell` se bloquea; (2) se lee el
+  manifiesto, y uno ilegible o no v2 bloquea `bash`, `edit` y `write`; (3) `edit`/`write` pasan por el carril de
+  archivos gestionados (D4); (4) corren los scripts del bridge, y un veredicto `enforced` detiene la llamada;
+  (5) UNA sola confirmación, para la reclamación `--approved-by` y para cada veredicto `ask`, ligada al input
+  exacto que vio el usuario (si cambia tras confirmar, se rechaza).
 - `stop-verify-reminder.sh` se invoca sin argumentos (elige engine por `argv`).
 
 ### D3 — R16: comportamiento idéntico para Claude/Codex; los bytes pueden cambiar (R16, D-U1)
@@ -217,7 +222,10 @@ comando registrado (`codexHookCommand`), no del contenido, así que no se desapr
 - **Bash, en `guard-destructive.sh`.** Fuente única; las reglas nuevas solo en el brazo `pi`:
   - `managed_path` añade nombres exactos de Navori: `.pi/extensions/navori.ts`, `.pi/navori.json`,
     `.pi/navori/` y `.pi/agents/<rol>.md` solo para los roles de `ROLE_TOOLS`. Un `.pi/agents/*` del usuario
-    no se toca.
+    no se toca. **Enmienda (M3):** el carril shell usa un superset de nombres de rol (`scout`, `implementer`,
+    `reviewer`, `scribe`, `auditor`, `architect`, `publisher`), para que M11 no obligue a editar el script; el
+    carril TS usa exactamente los `ownedPaths` del manifiesto. Efecto: un `.pi/agents/<rol>.md` ajeno con nombre de
+    rol queda bloqueado en shell y editable por `edit` hasta que Navori renderice ese rol.
   - **Plano de control:** `.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json` y `.pi/navori.json`
     quedan protegidos contra cualquier verbo de escritura (`>`, `>|`, `tee`, `sed -i`, `rm`, `mv`, `cp`,
     `ln`, `dd`, `install`, `truncate`, `chmod`, `git checkout|restore --`) y contra intérpretes en línea
@@ -462,7 +470,9 @@ id del plugin:
   `translateShellPattern`, la misma traducción y los mismos estrechamientos que Codex.
 - **Render.** Las reglas `Bash(…)` `ask`/`deny` se renderizan como prefijos de tokens en la copia Pi de
   `guard-destructive.sh` (`extraVars.piPermissionRules`, JSON-escapado en render) y en el manifiesto, para
-  `PI_PARITY` y `doctor`. Las copias Claude y Codex reciben la variable vacía.
+  `PI_PARITY` y `doctor`. Las copias Claude y Codex reciben el centinela `-`, no vacío: un valor
+  vacío se renderiza como `<not configured: ...>`. El default vive en `lib/render/interpolate.ts`. En M3 solo se
+  embeben las líneas `deny`; `ask` llega con T11.
 - **Evaluación.** En el brazo `pi`, el guard compara cada segmento que ya calcula contra los prefijos:
   - `deny` → `exit 2`, con la regla y "no hay ruta";
   - `ask` → JSON `ask` con la regla.

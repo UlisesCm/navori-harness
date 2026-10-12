@@ -182,6 +182,15 @@ const advisory = (mechanism: string, boundary: string, evidence: string): PiDire
   evidence,
 });
 
+const seatbelt = (mechanism: string, boundary: string, evidence: string): PiDirectParity => ({
+  state: "enforced",
+  seatbelt: true,
+  mechanism,
+  boundary,
+  bypass: PI_SEATBELT_BYPASSES,
+  evidence,
+});
+
 const viaControl = (control: ControlId, boundary?: string): PiControlParity => ({
   control,
   ...(boundary === undefined ? {} : { boundary }),
@@ -232,23 +241,26 @@ const hookEntries = (): Array<[string, PiParity]> => {
     ),
     h(
       "guard-destructive",
-      unsupported(
-        NO_BRIDGE,
-        "No destructive-command or deny-rule guard runs in Pi bash today (spec 0048 R2, M3)",
+      seatbelt(
+        "the extension's tool_call handler runs the Pi copy of the script (`.pi/navori/hooks/guard-destructive.sh`) under bash for the parent and every child; exit 2 blocks the call before it runs (PI_HOOK_BINDINGS)",
+        "textual policy over the command string: the destructive rules of the shared script, the shared `deny` permission rules, writes to the Pi control plane (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) and `pi --no-extensions`. `ask` rules are not evaluated yet (spec 0048 M6)",
+        "pi-extension:tool_call",
       ),
     ),
     h(
       "subagent-no-background",
-      unsupported(
-        NO_BRIDGE,
-        "A child can launch `cmd &`, nohup, setsid or disown unblocked today (spec 0048 R8, M7)",
+      seatbelt(
+        "the extension's tool_call handler runs the Pi copy of the script for children only (`agent_id` is sent only there); it blocks `cmd &`, nohup, setsid and disown",
+        "textual policy over the command string, children only: the parent may background work",
+        "pi-extension:tool_call",
       ),
     ),
     h(
       "managed-drift-watch",
-      unsupported(
-        NO_BRIDGE,
-        "No drift warning is appended to Pi tool results today (spec 0048 R9, M3)",
+      advisory(
+        "the extension's tool_result handler runs the Pi copy of the script after bash, edit and write; its exit 2 and stderr become a bounded notice appended to the tool result (own stamp, `.pi/navori` hook copies among its roots)",
+        "never blocks, and only sees blocks with a hash marker (AGENTS.md, skills, hook copies); the extension, manifest and role files have no per-block hash and are protected by the guard and the edit/write lane instead. A drift it cannot evaluate is silent",
+        "pi-extension:tool_result",
       ),
     ),
     h(
@@ -321,10 +333,17 @@ const permissionRuleEntries = (): Array<[string, PiParity]> => {
     row,
   ];
   const NO_PERMISSIONS =
-    "Pi 1.1.0 has no permission system (security.md); the shared rules are enforced by nothing in Pi today (spec 0048 R2/R18, M3/M6)";
+    "Pi 1.1.0 has no permission system (security.md); the Pi guard blocks the shared `deny` rules but does not evaluate `ask` rules yet, so no confirmation is requested for them (spec 0048 R18, M6)";
   return [
     p("class:bash-ask", unsupported("none", NO_PERMISSIONS)),
-    p("class:bash-deny", unsupported("none", NO_PERMISSIONS)),
+    p(
+      "class:bash-deny",
+      seatbelt(
+        "the Pi copy of guard-destructive.sh embeds the shared `deny` rules, translated with the same function as Codex's rules file (translateShellPattern), and blocks a segment that starts with a rule's tokens",
+        "token prefixes: a pattern with an inner wildcard or a non-Bash entry is dropped (its own row); a `*` glued to the last token is narrowed to the exact token",
+        "pi-extension:tool_call",
+      ),
+    ),
     p(
       "class:allow-not-translated",
       notApplicable(
@@ -343,9 +362,18 @@ const permissionRuleEntries = (): Array<[string, PiParity]> => {
         ),
       ),
     ),
-    ...NARROWED_PATTERN_FAMILIES.flatMap(({ id, patterns }) =>
+    ...NARROWED_PATTERN_FAMILIES.flatMap(({ id, decision, patterns }) =>
       patterns.map((pattern) =>
-        p(`narrowed:${pattern}`, unsupported("none", `${NO_PERMISSIONS}; family ${id}`)),
+        p(
+          `narrowed:${pattern}`,
+          decision === "forbidden"
+            ? seatbelt(
+                "the same token-prefix deny rule as Codex, evaluated by the Pi copy of guard-destructive.sh",
+                `family ${id}: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings`,
+                "pi-extension:tool_call",
+              )
+            : unsupported("none", `${NO_PERMISSIONS}; family ${id}`),
+        ),
       ),
     ),
   ];
@@ -468,16 +496,18 @@ const pluginEntries = (): Array<[string, PiParity]> => {
     settings("tgrep"),
     [
       piParityKey("plugin-script", "tgrep/guard-search-routing.sh"),
-      unsupported(
-        "none",
-        "installed under .pi/navori/scripts only beside a Pi copy of guard-destructive, which the guard milestone (spec 0048 M3) adds; the projection code already does it",
+      seatbelt(
+        "installed under .pi/navori/scripts beside the Pi copy of guard-destructive, which sources it from the tgrep lane; the bridge runs that copy on every bash call",
+        "content search (grep/rg) only; fails open when tgrep is missing, its server is not running or no index exists",
+        "pi-extension:tool_call",
       ),
     ],
     [
       piParityKey("plugin-hook-extension", "tgrep/tgrep-search-lane"),
-      unsupported(
-        "none",
-        "rides inside .pi/navori/hooks/guard-destructive.sh once that copy exists (spec 0048 M3); the projection code already applies and strips it",
+      seatbelt(
+        "the lane sub-block rides inside .pi/navori/hooks/guard-destructive.sh; the bridge runs it and its exit 2 blocks the bash call with the `tgrep search` remedy",
+        "textual seatbelt over grep/rg segments; fails open (audited as fail-open) while the index is unavailable",
+        "pi-extension:tool_call",
       ),
     ],
   ];
