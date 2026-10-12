@@ -1,12 +1,20 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import {
+  isRetiredPlugin,
   loadPlugin,
   PluginNotFoundError,
   PluginManifestError,
+  RETIRED_PLUGIN_BLOCKS,
+  RETIRED_PLUGIN_SUB_BLOCKS,
   RETIRED_PLUGINS,
 } from "../config/plugins.ts";
-import { navoriAuthorship } from "../render/removable.ts";
+import { navoriAuthorship, type KeepReason } from "../render/removable.ts";
+import {
+  createRetiredAssetContext,
+  findRetiredScriptReferences,
+  retiredAssetKeepReason,
+} from "../../engines/shared/retired-plugin-assets.ts";
 import {
   RETIRED_AGENTS,
   RETIRED_SKILLS,
@@ -556,16 +564,12 @@ export function collectMissingPlugins(config: NavoriConfig): MissingPlugin[] {
       // silently counted as absent and used to flip doctor's verdict (#281).
       if (isTransientFsError(err)) throw err;
       if (err instanceof PluginNotFoundError) {
-        // A RETIRED plugin (one navori shipped and later removed) is not a typo:
-        // give an actionable hint pointing at `navori remove` instead of the bare
-        // "unknown plugin id", which offers no way out.
-        const retired = RETIRED_PLUGINS[id];
-        missing.push({
-          id,
-          reason: retired
-            ? `retired from navori (${retired.removedIn}) — run 'navori remove ${id}'`
-            : "unknown plugin id",
-        });
+        // A RETIRED plugin (one navori shipped and later removed) is not a typo
+        // and not a failure: it is reported as a warning by
+        // `scanRetiredPluginLeftovers`, outside the health verdict, so a config
+        // that still lists it never turns `doctor` red.
+        if (isRetiredPlugin(id)) continue;
+        missing.push({ id, reason: "unknown plugin id" });
       } else if (err instanceof PluginManifestError) {
         missing.push({ id, reason: err.message });
       } else {
@@ -574,6 +578,122 @@ export function collectMissingPlugins(config: NavoriConfig): MissingPlugin[] {
     }
   }
   return missing;
+}
+
+/** A retired script still on disk and whether the next render would remove it. */
+export interface RetiredPluginAssetFinding {
+  /** Repo-relative path. */
+  path: string;
+  /** Why render keeps it, or null when `render --apply` will remove it. */
+  reason: KeepReason | null;
+}
+
+/** A hook source that still names a retired script. */
+export interface RetiredPluginReferenceFinding {
+  script: string;
+  /** Repo-relative path of the file that names it. */
+  source: string;
+  /** The script no longer exists on disk, so that hook will fail when it runs. */
+  scriptMissing: boolean;
+}
+
+/**
+ * What a retired plugin (`RETIRED_PLUGINS`) left behind in this repo. WARNINGS
+ * ONLY: it is never part of `computeHealthVerdict`, so it cannot flip `ok`,
+ * exit 2, or fail `--strict`.
+ */
+export interface RetiredPluginLeftovers {
+  /** Retired ids the config still declares. */
+  declared: Array<{ id: string; removedIn: string }>;
+  assets: RetiredPluginAssetFinding[];
+  /** Retired managed blocks and sub-blocks still present (repo-relative file + block id). */
+  blocks: Array<{ path: string; id: string }>;
+  references: RetiredPluginReferenceFinding[];
+}
+
+/** `.agents/skills/<id>/SKILL.md` for a `.claude/skills/<id>[/SKILL].md` target, else null. */
+function codexSkillTarget(claudePath: string): string | null {
+  const m = claudePath.match(/^\.claude\/skills\/([a-z0-9-]+)(?:\/SKILL)?\.md$/);
+  return m ? `.agents/skills/${m[1]}/SKILL.md` : null;
+}
+
+/**
+ * Doctor's view of retired-plugin leftovers: declared ids, scripts still on disk
+ * (Claude and Codex) with the keep reason render would give them, retired blocks
+ * and sub-blocks still present, and hook files that still name a retired script
+ * (stronger wording when the script is already gone). Lazy: hook sources are read
+ * only when a retired id is declared or a retired asset exists, and then once.
+ */
+export function scanRetiredPluginLeftovers(
+  cwd: string,
+  config: NavoriConfig,
+): RetiredPluginLeftovers {
+  const declared: RetiredPluginLeftovers["declared"] = [];
+  for (const id of Object.keys(config.plugins ?? {})) {
+    const retired = RETIRED_PLUGINS[id];
+    if (!retired) continue;
+    try {
+      loadPlugin(id);
+    } catch (err) {
+      if (err instanceof PluginNotFoundError) declared.push({ id, removedIn: retired.removedIn });
+      else if (isTransientFsError(err)) throw err;
+    }
+  }
+
+  const ctx = createRetiredAssetContext(cwd, config.plugins, [
+    join(cwd, ".claude/settings.local.json"),
+  ]);
+  const assets: RetiredPluginAssetFinding[] = [];
+  const names = new Set<string>();
+  const declaredIds = new Set(declared.map((d) => d.id));
+  for (const [id, retired] of Object.entries(RETIRED_PLUGINS)) {
+    for (const asset of retired.assets) {
+      if (!asset.startsWith(".claude/scripts/")) continue;
+      const name = asset.slice(".claude/scripts/".length);
+      for (const rel of [asset, `.codex/scripts/${name}`]) {
+        const abs = join(cwd, rel);
+        if (!existsSync(abs)) continue;
+        assets.push({ path: rel, reason: retiredAssetKeepReason(abs, ctx) });
+        names.add(name);
+      }
+      if (declaredIds.has(id)) names.add(name);
+    }
+  }
+
+  const blocks: RetiredPluginLeftovers["blocks"] = [];
+  const present = (rel: string, id: string): boolean => {
+    const abs = join(cwd, rel);
+    if (!existsSync(abs)) return false;
+    try {
+      return extractManagedContent(readFileSync(abs, "utf-8"), id, "html") !== null;
+    } catch {
+      return false;
+    }
+  };
+  const blockIds = new Set<string>([
+    ...Object.values(RETIRED_PLUGINS).flatMap((r) => r.blockIds),
+    ...Object.values(RETIRED_PLUGIN_BLOCKS).flatMap((r) => r.blockIds),
+  ]);
+  for (const id of blockIds) if (present("CLAUDE.md", id)) blocks.push({ path: "CLAUDE.md", id });
+  for (const retired of Object.values(RETIRED_PLUGIN_SUB_BLOCKS)) {
+    for (const entry of retired.entries) {
+      for (const target of [entry.targetPath, codexSkillTarget(entry.targetPath)]) {
+        if (target !== null && present(target, entry.id)) {
+          blocks.push({ path: target, id: entry.id });
+        }
+      }
+    }
+  }
+
+  const references: RetiredPluginReferenceFinding[] = findRetiredScriptReferences(ctx, [
+    ...names,
+  ]).map((r) => ({
+    ...r,
+    scriptMissing:
+      !existsSync(join(cwd, ".claude/scripts", r.script)) &&
+      !existsSync(join(cwd, ".codex/scripts", r.script)),
+  }));
+  return { declared, assets, blocks, references };
 }
 
 export interface RetiredAssetOnDisk {

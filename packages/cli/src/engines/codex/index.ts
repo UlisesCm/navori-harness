@@ -6,6 +6,8 @@ import { getCoreRoot, readCliVersion } from "../../lib/render/bundled-assets.ts"
 import {
   loadDisabledPlugins,
   loadEnabledPlugins,
+  RETIRED_PLUGIN_SUB_BLOCKS,
+  retiredScriptBasenames,
   type LoadedPlugin,
 } from "../../lib/config/plugins.ts";
 import { unknownLibraries } from "../../lib/assets/library-skills.ts";
@@ -30,6 +32,7 @@ import {
   extractManagedContent,
   injectManagedSection,
   removeManagedSection,
+  removeManagedSectionGuarded,
 } from "../../lib/render/marker.ts";
 import { buildHarnessProse, type ProseEngineResult } from "../shared/prose-harness.ts";
 import {
@@ -43,6 +46,11 @@ import { pluginExtraVars } from "../shared/plugin-extra-vars.ts";
 import { buildEngramPolicyShell } from "../shared/engram-grant-policy.ts";
 import { buildRolePolicyShell } from "../shared/role-policy.ts";
 import { pluginScriptCollisions, pluginScriptPlacements } from "../shared/plugin-scripts.ts";
+import {
+  createRetiredAssetContext,
+  retiredAssetKeepReason,
+  type RetiredAssetContext,
+} from "../shared/retired-plugin-assets.ts";
 import {
   resolveHarnessPlan,
   type HarnessPlan,
@@ -456,6 +464,14 @@ export function renderCodexEngine(
           warnings.push(tc(lang).engine.codexResidualPluginHook(hook.scriptPath ?? hook.script));
         }
       }
+      // A RETIRED plugin has no manifest to resolve hooks from, so the loop above
+      // cannot see it: name its script directly (the registration embeds the path).
+      for (const name of retiredScriptBasenames()) {
+        const scriptPath = `.codex/scripts/${name}`;
+        if (configText.includes(scriptPath)) {
+          warnings.push(tc(lang).engine.codexResidualPluginHook(scriptPath));
+        }
+      }
     }
   }
   // R39/R41 (spec 0026 T10): Codex reports a kept orphan the same way Claude's
@@ -527,6 +543,44 @@ export function renderCodexEngine(
         inPending.content = stripped;
       } else {
         pending.push({ path: targetAbs, relPath: targetRel, content: stripped, status: "updated" });
+      }
+    }
+  }
+
+  // Retired plugins' skill sub-blocks (mirror of Claude's 8.5-ter, #1013). The
+  // disabled loop above needs a loaded manifest, so a plugin whose package is gone
+  // leaves its `injectInto` block in `.agents/skills/<id>/SKILL.md` forever.
+  // Guarded (#1273): an edited block or one from a newer navori is kept and
+  // reported. Agent targets are skipped: Codex agent TOML is regenerated whole.
+  for (const retired of Object.values(RETIRED_PLUGIN_SUB_BLOCKS)) {
+    for (const entry of retired.entries) {
+      const m = entry.targetPath.match(SKILL_INJECT_RE);
+      if (!m) continue;
+      const targetRel = `.agents/skills/${m[1]}/SKILL.md`;
+      const targetAbs = join(cwd, targetRel);
+      const inPending = pending.find((p) => p.path === targetAbs);
+      const currentContent =
+        inPending?.content ?? (existsSync(targetAbs) ? readFileSync(targetAbs, "utf-8") : null);
+      if (currentContent === null) continue; // target file gone — nothing to strip
+      const result = removeManagedSectionGuarded(currentContent, entry.id, "html");
+      if ("kept" in result) {
+        warnings.push(
+          `kept ${targetRel} — retired block ${entry.id} is ${
+            result.kept === "newer" ? "from a newer navori" : "edited by hand"
+          }`,
+        );
+        continue;
+      }
+      if (result.content === currentContent) continue; // sub-block not present
+      if (inPending) {
+        inPending.content = result.content;
+      } else {
+        pending.push({
+          path: targetAbs,
+          relPath: targetRel,
+          content: result.content,
+          status: "updated",
+        });
       }
     }
   }
@@ -795,6 +849,8 @@ function createCodexAdapter(
     },
 
     orphanScans(plan, ctx): ReturnType<EngineAdapter["orphanScans"]> {
+      // One retired-asset context per scan: it reads hook sources at most once.
+      let retiredCtx: RetiredAssetContext | undefined;
       // `emit ∪ foreign` protects a declared local skill's destination from
       // ever being pruned or reported as an orphan — `foreign` because it
       // isn't navori's to touch either way, `emit` because it IS the desired
@@ -885,6 +941,20 @@ function createCodexAdapter(
             [...installedScripts(ctx)].filter((rel) => rel.startsWith(".codex/scripts/")),
           ),
           shape: "file",
+          // A retired plugin's script: the shared policy (ownership with nothing
+          // outside the block, then "does a hook or config still call it?") runs
+          // BEFORE the generic authorship test. `expected` is null for an unloaded
+          // plugin, so `requirePristine` cannot judge it here.
+          keep: (_rel, abs, skipped) => {
+            retiredCtx ??= createRetiredAssetContext(
+              ctx.cwd,
+              ctx.config.plugins,
+              skipped.some((item) => item.path === ".codex/config.toml")
+                ? [join(ctx.cwd, ".codex/config.toml")]
+                : [],
+            );
+            return retiredAssetKeepReason(abs, retiredCtx);
+          },
           expected: (rel) => {
             for (const plugin of ctx.plugins) {
               const script = pluginScriptPlacements(plugin, "codex").find(

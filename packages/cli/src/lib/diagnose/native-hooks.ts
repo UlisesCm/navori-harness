@@ -1,6 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 
 /**
  * Detection of native git hooks (spec 0045 D3, R5/R6). Read-only: it inspects
@@ -205,4 +213,144 @@ export function listWorktreePaths(cwd: string): string[] {
     .split("\n")
     .filter((l) => l.startsWith("worktree "))
     .map((l) => l.slice("worktree ".length));
+}
+
+/** One file that can run a command when a commit, a push or CI fires. */
+export interface HookSource {
+  /** Absolute path of the file. */
+  path: string;
+  text: string;
+}
+
+/** Each hook source is read up to this many bytes: a script that names a path does so early. */
+const HOOK_SOURCE_MAX_BYTES = 256 * 1024;
+/** Bound on `.husky/**` and `.lefthook/**` walks, so a pathological tree cannot stall a render. */
+const HOOK_SOURCE_MAX_FILES = 200;
+const HOOK_SOURCE_MAX_DEPTH = 4;
+
+/** First `HOOK_SOURCE_MAX_BYTES` of a regular file; null for anything else or on error. */
+function readCapped(path: string): string | null {
+  try {
+    if (!statSync(path).isFile()) return null;
+    const fd = openSync(path, "r");
+    try {
+      const buf = Buffer.alloc(HOOK_SOURCE_MAX_BYTES);
+      const n = readSync(fd, buf, 0, HOOK_SOURCE_MAX_BYTES, 0);
+      return buf.subarray(0, n).toString("utf-8");
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+}
+
+/** Regular files under `dir`, depth- and count-capped. Symlinked directories are not followed. */
+function filesUnder(dir: string, depth = 0, budget = { left: HOOK_SOURCE_MAX_FILES }): string[] {
+  if (depth > HOOK_SOURCE_MAX_DEPTH) return [];
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const entry of entries) {
+    if (budget.left <= 0) break;
+    const abs = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...filesUnder(abs, depth + 1, budget));
+    else if (entry.isFile()) {
+      budget.left -= 1;
+      out.push(abs);
+    }
+  }
+  return out;
+}
+
+/** Repo-relative path tokens (`scripts/x.sh`, `./a/b`) a hook text names, for one hop of delegation. */
+const DELEGATED_PATH = /(?:^|[\s"'=(])((?:\.{1,2}\/)?[\w.@+-]+(?:\/[\w.@+-]+)+)/g;
+
+/**
+ * Every file that may invoke a script by name: the git hooks directory git
+ * resolves (`core.hooksPath` honoured, all events), the husky / lefthook /
+ * pre-commit / overcommit configs, `package.json`, `Makefile` and the GitHub
+ * workflows. Read-only and bounded; shared by `render` (to keep a retired script
+ * something still calls) and `doctor` (to warn about a reference to a missing one).
+ *
+ * One hop of delegation is followed: a repo-relative path named by a hook-entry
+ * file (the hooks directory, `.husky/**`) is read too when it lives inside the
+ * repo. NOT detected, and documented as such: two or more hops, paths built at
+ * runtime, callers outside the repo (IDE tasks, other CI systems) and lefthook
+ * `extends`/`remotes`.
+ *
+ * Spawns `git` (two processes), so callers invoke it lazily, once per render.
+ */
+export function readHookSources(cwd: string): HookSource[] {
+  const top = git(cwd, ["rev-parse", "--show-toplevel"]);
+  const roots = [...new Set([resolve(cwd), ...(top ? [resolve(top)] : [])])];
+  const seen = new Map<string, HookSource>();
+  const add = (path: string): string | null => {
+    const abs = resolve(path);
+    const known = seen.get(abs);
+    if (known) return known.text;
+    const text = readCapped(abs);
+    if (text !== null) seen.set(abs, { path: abs, text });
+    return text;
+  };
+
+  // Hook entry points: the files git (or husky) runs directly. One hop is followed from these.
+  const entries: string[] = [];
+  const hooksRel = top ? git(top, ["rev-parse", "--git-path", "hooks"]) : null;
+  if (top && hooksRel) {
+    const hooksDir = resolve(top, hooksRel);
+    try {
+      for (const name of readdirSync(hooksDir)) {
+        if (!name.endsWith(".sample")) entries.push(join(hooksDir, name));
+      }
+    } catch {
+      // No hooks directory: nothing to read there.
+    }
+  }
+  for (const root of roots) entries.push(...filesUnder(join(root, ".husky")));
+
+  for (const entry of entries) {
+    const text = add(entry);
+    if (text === null) continue;
+    for (const m of text.matchAll(DELEGATED_PATH)) {
+      const candidate = m[1];
+      if (candidate === undefined) continue;
+      for (const root of roots) {
+        const abs = resolve(root, candidate);
+        const rel = relative(root, abs);
+        if (rel === "" || rel.startsWith("..") || rel.startsWith(sep)) continue;
+        add(abs);
+      }
+    }
+  }
+
+  for (const root of roots) {
+    for (const dir of [root, join(root, ".config")]) {
+      let names: string[] = [];
+      try {
+        names = readdirSync(dir);
+      } catch {
+        // Missing directory.
+      }
+      for (const name of names) {
+        if (/^\.?lefthook/.test(name)) add(join(dir, name));
+      }
+    }
+    for (const file of filesUnder(join(root, ".lefthook"))) add(file);
+    for (const name of [".pre-commit-config.yaml", ".overcommit.yml", "package.json", "Makefile"]) {
+      add(join(root, name));
+    }
+    try {
+      for (const name of readdirSync(join(root, ".github/workflows"))) {
+        if (/\.ya?ml$/.test(name)) add(join(root, ".github/workflows", name));
+      }
+    } catch {
+      // No workflows.
+    }
+  }
+  return [...seen.values()];
 }

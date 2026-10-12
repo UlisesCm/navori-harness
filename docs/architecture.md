@@ -320,6 +320,38 @@ de `jq` del partial (un test detecta deriva). Cualquier otro texto se registra c
   `architect`, `publisher` y `scribe` no acceden; el resto, solo lectura. Un acceso denegado sale con
   `exit 2`. Sin `jq` ni `node` el hook también bloquea, y en repos sin engram es inerte.
 
+## 7. Retiro de plugins
+
+Un plugin retirado (`RETIRED_PLUGINS`, en [lib/config/plugins.ts](../packages/cli/src/lib/config/plugins.ts)) ya no tiene manifiesto, así que nada puede re-renderizar sus scripts para comparar bytes. El veredicto sale del archivo mismo y de quién todavía puede llamarlo. La política vive en [engines/shared/retired-plugin-assets.ts](../packages/cli/src/engines/shared/retired-plugin-assets.ts) y la comparten tres sitios de borrado: el barrido de Claude, el de `.codex/scripts` y `render --prune`. Una ruta se borra solo si `retiredAssetKeepReason` devuelve `null`; si no, se conserva, el render avisa con la razón y `doctor` la reporta.
+
+**Propiedad.** Se evalúa archivo por archivo (un directorio se recorre entero; un symlink en cualquier punto lo conserva). Un archivo es de navori si cumple una de tres:
+
+- marcador managed íntegro (hash verificado, no sellado por un navori más nuevo) y nada fuera del bloque managed;
+- sin marcador, pero contenido byte a byte igual al render previo a #637 (huella legacy, en [legacy-plugin-script-fingerprints.ts](../packages/cli/src/engines/shared/legacy-plugin-script-fingerprints.ts));
+- sin marcador, y la entrada del registro declara `deleteForeign` (restos anteriores a los marcadores de script, que no están en la tabla de huellas).
+
+Un marcador íntegro con contenido fuera del bloque se conserva como `modified`.
+
+**Referencias.** Un archivo de navori aún se conserva si algo puede llamarlo:
+
+- `native-hook-declared`: `plugins.<id>.nativeHook: true`; el usuario lo cableó a mano, posiblemente por una ruta que ningún escaneo sigue.
+- `settings-referenced`: un config con hooks que este render no reescribió (`settings.json` o `config.toml` omitido, o `.claude/settings.local.json`) nombra el script.
+- `hook-referenced`: una fuente de hooks nombra el script.
+
+El resto de razones de conservación (`foreign`, `newer`, `modified`, `ephemeral`, `symlink`) está en `KeepReason` de [lib/render/removable.ts](../packages/cli/src/lib/render/removable.ts). La mención se busca por subcadena del nombre base: es conservadora, así que un comentario que nombra el script también lo conserva.
+
+**Fuentes de hooks leídas.** `readHookSources`, en [lib/diagnose/native-hooks.ts](../packages/cli/src/lib/diagnose/native-hooks.ts), se ejecuta de forma perezosa y una vez por render:
+
+- el directorio de hooks que git resuelve (respeta `core.hooksPath`, sin archivos `.sample`) y `.husky/**`;
+- configs de lefthook (`lefthook*` y `.lefthook/`, en la raíz y en `.config/`), `.pre-commit-config.yaml`, `.overcommit.yml`, `package.json`, `Makefile` y `.github/workflows/*.yml|yaml`;
+- un salto de delegación: una ruta relativa al repo que nombra una entrada de hook también se lee.
+
+**No se detecta:** dos o más saltos de delegación, rutas construidas en runtime, llamadores fuera del repo (tareas de IDE, otros CI) y `extends` o `remotes` de lefthook.
+
+**Bloques retirados.** Los bloques y sub-bloques managed de plugins retirados se quitan de `CLAUDE.md` y de los archivos de skills, con guarda (#1273): un bloque editado a mano queda con estado `retired-kept`, y uno sellado por un navori más nuevo queda con `downgrade-skipped`. Ninguno cuenta como conflicto.
+
+**`doctor`.** `scanRetiredPluginLeftovers`, en [lib/diagnose/health.ts](../packages/cli/src/lib/diagnose/health.ts), reporta los ids retirados que el config aún declara, los scripts retirados en disco con su razón de conservación (o sin razón si el próximo `render --apply` los borra), los bloques retirados presentes y las referencias en fuentes de hooks, marcando `scriptMissing` cuando el script ya no existe. Son solo avisos: no entran en `computeHealthVerdict`, así que no cambian `ok`, el exit 2 ni `--strict`.
+
 ## Archivos clave
 
 | Pieza | Archivo |

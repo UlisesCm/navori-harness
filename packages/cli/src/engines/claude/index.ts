@@ -1,7 +1,11 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pluginScriptPlacements } from "../shared/plugin-scripts.ts";
 import { matchesLegacyFingerprint } from "../shared/legacy-plugin-script-fingerprints.ts";
+import {
+  createRetiredAssetContext,
+  retiredAssetKeepReason,
+} from "../shared/retired-plugin-assets.ts";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config/config.ts";
 import {
   enabledMonorepoWorkspaces,
@@ -1199,30 +1203,37 @@ export function renderClaudeEngine(
   // cruft no command strips. This sweep is config-INDEPENDENT on purpose: `navori
   // remove` deletes the plugin's config key, so gating on "still declared" would
   // never fire — it must clean the leftover for any retired id whose assets remain
-  // on disk. Marker-free by design: these paths are navori-owned build outputs
-  // (copied verbatim from the plugin package), not user content. commitWrites
-  // backs them up before deleting and skips deletion entirely under dryRun.
+  // on disk. Since #637 every script carries a managed marker, so the delete is
+  // gated by `retiredAssetKeepReason`, the one policy the Codex scan and
+  // `render --prune` share: only a provably-navori file that nothing still calls
+  // goes (marker + hash with nothing outside the block, a legacy fingerprint, or
+  // the entry's own `deleteForeign`). commitWrites backs the removals up before
+  // deleting and skips deletion entirely under dryRun.
+  const retiredCtx = createRetiredAssetContext(cwd, config.plugins, [
+    join(cwd, ".claude/settings.local.json"),
+    ...(settingsResult.kind === "skip" ? [settingsResult.path] : []),
+  ]);
   for (const retired of Object.values(RETIRED_PLUGINS)) {
     for (const asset of retired.assets) {
       const assetPath = join(cwd, asset);
       if (!existsSync(assetPath)) continue;
       inspected += 1;
-      let recursive = false;
-      try {
-        recursive = statSync(assetPath).isDirectory();
-      } catch {
-        // Unreadable stat — leave `recursive` false. If it was actually a dir,
-        // the non-recursive rmSync throws EISDIR, which the best-effort removal
-        // path swallows: the dir is left in place rather than half-deleted. Safe
-        // degradation for the edge case of an unreadable path.
-      }
-      const authorship = recursive
-        ? "ours"
-        : navoriAuthorship(assetPath, undefined, { verifyHash: true });
-      if (authorship === "ours" || authorship === "foreign") {
+      const reason = retiredAssetKeepReason(assetPath, retiredCtx);
+      if (reason === null) {
+        let recursive = false;
+        try {
+          recursive = lstatSync(assetPath).isDirectory();
+        } catch {
+          // Unreadable stat — leave `recursive` false. If it was actually a dir,
+          // the non-recursive rmSync throws EISDIR, which the best-effort removal
+          // path swallows: the dir is left in place rather than half-deleted.
+        }
         removals.push({ path: assetPath, recursive });
-      } else {
-        warnings.push(`kept ${relative(cwd, assetPath)} — ${authorship} file`);
+        continue;
+      }
+      warnings.push(`kept ${relative(cwd, assetPath)} — retired plugin asset (${reason})`);
+      if (reason === "settings-referenced") {
+        warnings.push(tc(lang).engine.claudeResidualPluginHook(relative(cwd, assetPath)));
       }
     }
   }
@@ -1254,7 +1265,17 @@ export function renderClaudeEngine(
       } else {
         continue; // target file gone — nothing to strip
       }
-      const stripped = removeManagedSection(currentContent, entry.id, "html");
+      // Guarded (#1273): an edited block, or one a newer navori stamped, stays.
+      const result = removeManagedSectionGuarded(currentContent, entry.id, "html");
+      if ("kept" in result) {
+        warnings.push(
+          `kept ${entry.targetPath} — retired block ${entry.id} is ${
+            result.kept === "newer" ? "from a newer navori" : "edited by hand"
+          }`,
+        );
+        continue;
+      }
+      const stripped = result.content;
       // `inspected` only counts a file this render actually acted on (like
       // 8.5-bis's `existsSync` gate) — the target itself (an agent file, a
       // skill) exists on virtually every render regardless of whether THIS

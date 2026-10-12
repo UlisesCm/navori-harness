@@ -75,7 +75,10 @@ export const removeCommand = defineCommand({
     // scripts (#80) — deleting the key first would skip that cleanup.
     const raw = readRaw(configPath);
     const plugins = (raw.plugins as Record<string, unknown> | undefined) ?? {};
-    plugins[id] = { enabled: false };
+    // `nativeHook` survives phase 1: while the entry is still declared, render
+    // keeps a retired plugin's script the user wired into a native hook.
+    plugins[id] =
+      declared.nativeHook === true ? { enabled: false, nativeHook: true } : { enabled: false };
     raw.plugins = plugins;
     writeConfig(configPath, raw as Parameters<typeof writeConfig>[1]);
 

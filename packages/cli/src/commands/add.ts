@@ -10,6 +10,7 @@ import {
   PluginNotFoundError,
   PluginManifestError,
   listKnownPluginIds,
+  RETIRED_PLUGINS,
   type PluginExternalTool,
 } from "../lib/config/plugins.ts";
 import { hasBinary } from "../lib/primitives/which.ts";
@@ -294,7 +295,12 @@ export const addCommand = defineCommand({
       plugin = loadPlugin(pluginId);
     } catch (err) {
       if (err instanceof PluginNotFoundError) {
-        p.cancel(ta.unknownPlugin(pluginId, listKnownPluginIds().join(", ") || ta.none));
+        const retired = RETIRED_PLUGINS[pluginId];
+        p.cancel(
+          retired
+            ? ta.retiredPlugin(pluginId, retired.removedIn)
+            : ta.unknownPlugin(pluginId, listKnownPluginIds().join(", ") || ta.none),
+        );
         process.exit(1);
       }
       if (err instanceof PluginManifestError) {
