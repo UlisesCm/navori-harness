@@ -9,17 +9,19 @@ import { decideClaudeWorkspaceSkills } from "../engines/claude/workspace-decisio
 import { decideCodexWorkspaceSkills } from "../engines/codex/workspace-decision.ts";
 import type { HoistedSkill, WorkspaceHarness } from "../engines/shared/workspace-skills.ts";
 import {
+  recordHarnessVersionIfWritten,
   renderNonClaudeEngines,
   type CodexWorkspaceOptions,
   type EngineRenderSummary,
 } from "./render.ts";
+import { resetRealWrites } from "../engines/shared/execute-plan.ts";
 import {
   effectiveConfigForWorkspace,
   buildMonorepoContext,
   enabledMonorepoWorkspaces,
   type MonorepoRenderContext,
 } from "../lib/workspace/monorepo.ts";
-import { extractManagedContent } from "../lib/render/marker.ts";
+import { extractManagedContent, setMarkerFloorVersion } from "../lib/render/marker.ts";
 import { formatLineDiff } from "../lib/primitives/diff.ts";
 import {
   renderStatusSymbol,
@@ -138,6 +140,9 @@ export const syncCommand = defineCommand({
     }
 
     const config = readConfigOrExit(configPath);
+    // Real-write counter for this run; the registry is recorded once after an
+    // apply that wrote something (see `recordHarnessVersionIfWritten`).
+    resetRealWrites();
     const lang = resolveLang(config.language);
     const ts = tc(lang).sync;
     const workspaceFilter = (args.workspace as string | undefined) ?? null;
@@ -239,6 +244,7 @@ export const syncCommand = defineCommand({
           writtenTotal += countTargetWrites(applied);
           backups.push(...collectTargetBackups(applied));
         }
+        recordHarnessVersionIfWritten(cwd);
       }
       const mode = args["dry-run"] ? "dry-run" : autoApply ? "apply" : "plan";
       console.log(
@@ -449,6 +455,7 @@ export const syncCommand = defineCommand({
     const keptConflicts =
       (bulkMode === "accept-new" ? fileConflicts.length : conflicts.length) -
       fileOutcome.applied.length;
+    recordHarnessVersionIfWritten(cwd);
     p.log.success(ts.wroteFiles(writtenTotal));
     p.outro(`${color.green(ts.doneWord)} ${summarize(writtenTotal, keptConflicts, lang)}`);
   },
@@ -787,6 +794,20 @@ export function buildBulkResolutions(
 }
 
 function renderSyncTarget(
+  target: SyncTarget,
+  dryRun: boolean,
+  resolution?: ConflictResolution,
+): TargetPlan {
+  // Anti-rollback floor for the blocks this target touches (see marker.ts).
+  setMarkerFloorVersion(target.config.harnessVersion);
+  try {
+    return renderSyncTargetInner(target, dryRun, resolution);
+  } finally {
+    setMarkerFloorVersion(undefined);
+  }
+}
+
+function renderSyncTargetInner(
   target: SyncTarget,
   dryRun: boolean,
   resolution?: ConflictResolution,

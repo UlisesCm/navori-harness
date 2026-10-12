@@ -260,6 +260,70 @@ describe("sign", () => {
   });
 });
 
+describe("no origin remote", () => {
+  /** Local-only repo: `main` plus a `feature` branch with one uncommitted change. */
+  function localFixture(): ReceiptOptions {
+    const options = fixture();
+    git(options.cwd, "remote", "remove", "origin");
+    git(options.cwd, "checkout", "-b", "feature");
+    writeFileSync(join(options.cwd, "new.ts"), "new\n");
+    return options;
+  }
+
+  // Covers: #1292
+  it("signs and checks fresh against the local target branch", () => {
+    const options = localFixture();
+    const signed = signReceipt(options);
+    expect(signed.result.error).toBeNull();
+    expect(signed.exitCode).toBe(0);
+    expect(signed.result.targetSha).toBe(git(options.cwd, "rev-parse", "main"));
+    const checked = checkReceipt(options);
+    expect(checked.result.status).toBe("ok");
+    expect(checked.result.fresh).toBe(true);
+  });
+
+  // Covers: #1292
+  it("rejects when the current branch is the target", () => {
+    const options = fixture();
+    git(options.cwd, "remote", "remove", "origin");
+    const signed = signReceipt(options);
+    expect(signed.exitCode).toBe(1);
+    expect(signed.result.error).toContain("current branch is the target");
+  });
+
+  // Covers: #1292
+  it("names branchBase and --target when the local target ref is missing", () => {
+    const options = { ...localFixture(), target: "master" };
+    const signed = signReceipt(options);
+    expect(signed.exitCode).toBe(1);
+    expect(signed.result.error).toContain("branchBase");
+    expect(signed.result.error).toContain("--target");
+  });
+
+  // Covers: #1292
+  it("keeps the behind check against the local target", () => {
+    const options = localFixture();
+    git(options.cwd, "checkout", "main");
+    writeFileSync(join(options.cwd, "ahead.txt"), "ahead\n");
+    git(options.cwd, "add", ".");
+    git(options.cwd, "commit", "-m", "ahead");
+    git(options.cwd, "checkout", "feature");
+    const signed = signReceipt(options);
+    expect(signed.exitCode).toBe(1);
+    expect(signed.result.error).toContain("behind main");
+  });
+
+  // Covers: #1292
+  it("still fails closed when origin exists but the fetch fails", () => {
+    const options = fixture();
+    git(options.cwd, "checkout", "-b", "feature");
+    git(options.cwd, "remote", "set-url", "origin", join(options.cwd, "..", "gone.git"));
+    const signed = signReceipt(options);
+    expect(signed.exitCode).toBe(1);
+    expect(signed.result.error).toContain("git failed");
+  });
+});
+
 describe("sign and check json", () => {
   // Covers: R2, R3, R5
   it("returns the shared JSON schema for check success, findings and early error", () => {
@@ -895,6 +959,79 @@ describe("gateKind", () => {
       process.exitCode = 0;
       stderr.mockRestore();
       stdout.mockRestore();
+    }
+  });
+
+  // Covers: R10, R11
+  it("workplan scoped y full", () => {
+    const options = withSpec();
+    writeFileSync(
+      join(options.cwd, "navori.config.json"),
+      JSON.stringify({
+        name: "test",
+        version: "1",
+        preset: "node",
+        engines: ["claude"],
+        branchBase: "main",
+        qualityGate: { fast: "true", full: options.gate },
+      }),
+    );
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const plan = {
+      feature: options.feature,
+      level: 2,
+      classification: { score: 5, level: 2, signals: [] },
+      objective: "o",
+      acceptance: ["A1", "A2"].map((id) => ({
+        id,
+        description: "d",
+        command: "true",
+        expected: "exit 0",
+      })),
+      progress: { A1: "cumplido" },
+      phases: [
+        { name: "one", acceptance: ["A1"] },
+        { name: "two", acceptance: ["A2"] },
+      ],
+    };
+    const dir = join(options.cwd, options.dir ?? ".claude/progress");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `workplan_${options.feature}.json`);
+    writeFileSync(file, JSON.stringify(plan));
+    const base = { feature: options.feature, cwd: options.cwd, dir: options.dir };
+    try {
+      executeGate({ ...base, phase: "one", json: true });
+      expect(JSON.parse(String(out.mock.calls[0]![0]))).toEqual({
+        gateKind: "scoped",
+        reason: "pending-later-work",
+        unit: options.feature,
+        closingMilestone: null,
+        closingPhase: "two",
+        pendingLater: ["A2"],
+      });
+      // full decision: scoped is refused with exit 1 and no receipt
+      process.exitCode = 0;
+      executeReceipt("sign", { ...base, gateRan: "scoped", phase: "two" });
+      expect(process.exitCode).toBe(1);
+      expect(stderr.mock.calls.join("")).not.toContain("--gate-ran is required");
+      expect(checkReceipt(options).result.error).toBe("receipt is absent");
+      // unreadable workplan is full too
+      writeFileSync(file, "{ not json");
+      process.exitCode = 0;
+      executeReceipt("sign", { ...base, gateRan: "scoped", phase: "one" });
+      expect(process.exitCode).toBe(1);
+      expect(checkReceipt(options).result.error).toBe("receipt is absent");
+      // scoped decision signs scoped
+      writeFileSync(file, JSON.stringify(plan));
+      process.exitCode = 0;
+      executeReceipt("sign", { ...base, gateRan: "scoped", phase: "one" });
+      expect(process.exitCode).toBe(0);
+      expect(checkReceipt(options).result.gateKind).toBe("scoped");
+    } finally {
+      process.exitCode = 0;
+      stderr.mockRestore();
+      out.mockRestore();
     }
   });
 });

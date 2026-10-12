@@ -32,6 +32,17 @@ vi.mock(import("../../lib/primitives/home.ts"), () => ({
   safeHomedir: () => codexHome.dir,
 }));
 
+// No bundled plugin registers a hook any more: `gatey` and `gatez` do.
+vi.mock(import("../../lib/render/bundled-assets.ts"), async (importOriginal) => {
+  const actual = await importOriginal();
+  const { withFakePlugins, writeFakeHookPlugin } =
+    await import("../../lib/__tests__/helpers/fake-plugins.ts");
+  return withFakePlugins(actual, {
+    gatey: writeFakeHookPlugin("gatey"),
+    gatez: writeFakeHookPlugin("gatez"),
+  });
+});
+
 const {
   isCodexVersionTooOld,
   isCodexVersionUnverified,
@@ -572,14 +583,14 @@ describe("buildEngineInventory (Spec 0007 M8)", () => {
     expect(codex.skills).toContain("engram-orchestrator-extension");
   });
 
-  it("folds a plugin's scripts and hooks into the inventory (jscpd)", () => {
+  it("folds a plugin's scripts and hooks into the inventory (gatey)", () => {
     const cwd = tempRepo();
     const { claude } = buildEngineInventory(
-      config({ engines: ["claude"], plugins: { jscpd: { enabled: true } } }),
+      config({ engines: ["claude"], plugins: { gatey: { enabled: true } } }),
       cwd,
     );
     assert.isDefined(claude);
-    expect(claude.scripts).toContain("check-jscpd.sh");
+    expect(claude.scripts).toContain("check-gatey.sh");
     expect(claude.hooks).toContain("PreToolUse:Bash");
   });
 
@@ -795,12 +806,12 @@ describe("doctor evidence (Spec 0037 V01-V03)", () => {
   it("exposes each enabled plugin hook absent from Codex materialization", () => {
     const cwd = tempRepo();
     const cfg = config({
-      plugins: { semgrep: { enabled: true }, jscpd: { enabled: true } },
+      plugins: { gatey: { enabled: true }, gatez: { enabled: true } },
     });
     mkdirSync(join(cwd, ".codex"), { recursive: true });
     writeFileSync(join(cwd, ".codex/config.toml"), buildCodexConfigToml(cfg, []).body);
     const rows = buildEngineEvidence(cfg, cwd);
-    for (const plugin of ["semgrep", "jscpd"]) {
+    for (const plugin of ["gatey", "gatez"]) {
       const hook = rows.find(
         (row) => row.engine === "codex" && row.id === `${plugin}:PreToolUse:Bash`,
       );
@@ -815,16 +826,16 @@ describe("doctor evidence (Spec 0037 V01-V03)", () => {
   // Covers: R4, R20
   it("separates materialized, registered and trusted plugin hook evidence", () => {
     const cwd = tempRepo();
-    const cfg = config({ plugins: { semgrep: { enabled: true } } });
+    const cfg = config({ plugins: { gatey: { enabled: true } } });
     renderCodexEngine(cwd, cfg);
     const find = () =>
       buildEngineEvidence(cfg, cwd).find(
-        (row) => row.engine === "codex" && row.id === "semgrep:PreToolUse:Bash",
+        (row) => row.engine === "codex" && row.id === "gatey:PreToolUse:Bash",
       );
     expect(find()?.materialized.status).toBe("verified");
     expect(find()?.registered.status).toBe("verified");
     expect(find()?.trust.status).toBe("unverified");
-    const scriptPath = join(cwd, ".codex/scripts/check-semgrep.sh");
+    const scriptPath = join(cwd, ".codex/scripts/check-gatey.sh");
     writeFileSync(
       scriptPath,
       readFileSync(scriptPath, "utf-8").replace("set -euo pipefail", "set -eu"),

@@ -29,7 +29,7 @@ For a **master-plan** task, write the requested `<etapa>/plans/plan<n>.md` and p
 
 Use URLs de documentación oficial for expiring facts and include the fecha de consulta. If a source is unavailable, label the claim `[SIN VERIFICAR]` and list the sources consulted or unavailable.
 
-Via `Agent` you may dispatch `scout`/`scribe`; plan-gate and Agent hooks fire inside you with `agent_id`, expected.
+<!-- navori:if-not onPi -->Via `Agent` you may dispatch `scout`/`scribe`; plan-gate and Agent hooks fire inside you with `agent_id`, expected.<!-- /navori:if-not -->
 
 ## Protocol
 

@@ -32,11 +32,11 @@ export const NPM_URL = "https://www.npmjs.com/package/navori";
  */
 export const INVENTORY = {
   /** Subcommands registered in `packages/cli/src/index.ts`. */
-  commands: 28,
+  commands: 29,
   /** Stack presets under `packages/core/core-assets/presets/`. */
   presets: 13,
   /** Plugin bundles under `packages/plugins/`. */
-  plugins: 7,
+  plugins: 5,
   /** Engine adapters under `packages/cli/src/engines/`. */
   engines: 6,
   /** Core agents under `packages/core/core-assets/agents/`. */
@@ -48,15 +48,7 @@ export const INVENTORY = {
 } as const;
 
 /** Plugin ids, in the order the toolbox section presents them. */
-export const PLUGIN_IDS = [
-  "acli",
-  "codegraph",
-  "engram",
-  "gh",
-  "jscpd",
-  "semgrep",
-  "tgrep",
-] as const;
+export const PLUGIN_IDS = ["acli", "codegraph", "engram", "gh", "tgrep"] as const;
 
 /** Engine ids, matching the directory names under `src/engines/`. */
 export const ENGINE_IDS = ["claude", "codex", "agents-md", "cursor", "copilot", "pi"] as const;

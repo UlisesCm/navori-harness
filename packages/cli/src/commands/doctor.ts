@@ -57,21 +57,21 @@ import { probeEnabledToolVersions } from "../lib/primitives/tool-version-probe.t
 import { scanToolUpdates } from "../lib/primitives/tool-version-notice.ts";
 import { currentPlatform } from "../lib/config/platform.ts";
 import { loadPreset, presetExists, resolvePreset } from "../lib/config/presets.ts";
-import { classifyLocalSkills } from "../engines/codex/local-skill-pointer.ts";
+import { classifyLocalSkills } from "../engines/shared/local-skill-pointer.ts";
 import {
   codexHookCommand,
   minCodexVersion,
   resolveCodexHooks,
 } from "../engines/codex/hook-registrations.ts";
 import { readCodexTrustState, type CodexTrustState } from "../lib/codex/trust.ts";
+import { scanPiHealth } from "../lib/diagnose/pi-health.ts";
 import { unknownLibraries } from "../lib/assets/library-skills.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
 import { NESTED_GITIGNORE_MANAGED_ID } from "../engines/shared/nested-gitignore-harness.ts";
 import { extractManagedContent } from "../lib/render/marker.ts";
 import { scanGitignoreHarness } from "../engines/shared/gitignore-harness.ts";
 import { scanPrettierIgnore } from "../engines/shared/prettierignore-harness.ts";
-import { isLaunchdPlatform, launchAgentLoaded, probeReceiver } from "../lib/audit/launchd.ts";
-import { DEFAULT_PORT as OTEL_RECEIVER_PORT } from "../lib/audit/collect.ts";
+import { DEFAULT_PORT as OTEL_RECEIVER_PORT, probeReceiver } from "../lib/audit/collect.ts";
 import { scanMonorepoWorkspaces, diffWorkspaces } from "../lib/diagnose/scan.ts";
 import { loadWorkspace, canonicalPath } from "../lib/workspace/workspace.ts";
 import { scanWorkspaceDrift } from "../lib/workspace/workspace-drift.ts";
@@ -90,13 +90,27 @@ import {
 } from "../lib/assets/model-profile.ts";
 import { scanControlGaps } from "../lib/diagnose/control-gaps.ts";
 import { scanDiskUsage, humanBytes } from "../lib/diagnose/disk-usage.ts";
+import { scanProgressSize } from "../lib/diagnose/progress-size.ts";
 import { scanMasterPlan } from "../lib/diagnose/master-plan.ts";
 import { codegraphWiringFindings, scanCodegraphWiring } from "../lib/diagnose/codegraph-wiring.ts";
 import { scanNestedWorktrees } from "../lib/workspace/nested-worktrees.ts";
-import { scanGlobalScope, type ManagedPolicyKey } from "../lib/workspace/global-scope.ts";
 import { scanForeignHarness, type ForeignHarnessReport } from "../lib/diagnose/foreign-harness.ts";
+import { scanGlobalLayerLeftovers, type GlobalLeftover } from "../lib/diagnose/global-leftovers.ts";
+import { claudeUserDir } from "../engines/claude/user-scope.ts";
 import { scanDistribution, type DistributionReport } from "../lib/diagnose/distribution.ts";
-import { scanPermissionMode, scanRetiredAssets } from "../lib/diagnose/health.ts";
+import {
+  detectNativeHooks,
+  listWorktreePaths,
+  NATIVE_HOOK_EVENTS,
+  type NativeHookEvent,
+  type NativeHookState,
+  type NativeHooksDetection,
+} from "../lib/diagnose/native-hooks.ts";
+import {
+  scanPermissionMode,
+  scanRetiredAssets,
+  scanRetiredPluginLeftovers,
+} from "../lib/diagnose/health.ts";
 import {
   listMarkers,
   collectMissingPlugins,
@@ -210,6 +224,7 @@ export const doctorCommand = defineCommand({
       missingPresetFiles,
       codexHealth,
       duplicateMarkers,
+      nativeHooks,
     } = verdict;
     const drifts = scanManagedDrift(cwd, config);
     const orderReport = scanManagedOrder(cwd, config, CLAUDE_COMPUTED_BLOCK_IDS);
@@ -275,6 +290,9 @@ export const doctorCommand = defineCommand({
     // nobody). Two `du`s so growth is visible before the disk fills; doctor
     // reports and suggests the cleanup command, it never deletes.
     const diskUsage = scanDiskUsage(cwd);
+    // #1263: advisory only — a fat session-state file falls out of startup
+    // context; never part of the health verdict.
+    const progressSize = scanProgressSize(cwd);
     // Spec 0034 D8: registry health remains visible after `close` turns the
     // feature flag off, because closed stages can retain confidential raw input.
     // This is advisory only; a warning must not block the repair command.
@@ -355,12 +373,9 @@ export const doctorCommand = defineCommand({
     const engineInventory = buildEngineInventory(config, cwd);
     const provenance = buildDoctorProvenance(cwd);
     const engineEvidence = buildEngineEvidence(config, cwd);
-    // #547: real clashes between the machine-global harness (`navori global`)
-    // and this repo's. Null — and therefore invisible — when no global layer is
-    // installed, which is Spec 0010's zero-footprint invariant applied to the
-    // output too. Advisory: it feeds neither the verdict nor the exit code.
-    const globalScope = scanGlobalScope(cwd, config);
     const foreignHarness = scanForeignHarness(cwd, config);
+    // Spec 0046 D5: advisory only - feeds neither the verdict nor `--strict`.
+    const globalLayerLeftovers = scanGlobalLayerLeftovers();
     const permissionModes = scanPermissionMode(cwd);
     // Informational: a name like `temp-app` or `my-app` is almost always a
     // never-renamed scaffold (the package.json carried it through). Doesn't
@@ -383,6 +398,10 @@ export const doctorCommand = defineCommand({
     // reconciliation reports (§8.7b–d), so `doctor` never says "clean" while a
     // render still finds one.
     const retiredAssets = scanRetiredAssets(cwd);
+    // What a RETIRED plugin left behind (declared id, scripts, blocks, hooks that
+    // still call them). Warnings only — never in `computeHealthVerdict`, so a
+    // config that still lists a retired plugin keeps `ok`, exit 0 and `--strict`.
+    const retiredPlugins = scanRetiredPluginLeftovers(cwd, config);
     // AGENTS.md is only a first-class filesystem check when an engine that emits
     // it is configured; otherwise a leftover file is surfaced as an orphan below
     // instead of a bare ✓, which contradicted the drift/orphan report (#312).
@@ -458,6 +477,7 @@ export const doctorCommand = defineCommand({
       // already prints the same string — so the JSON leaks nothing extra, and
       // this payload already carries an absolute `configPath`.
       diskUsage,
+      progressSize,
       masterPlan,
       codegraphWiring,
       codegraphDefaultPolicy,
@@ -474,6 +494,7 @@ export const doctorCommand = defineCommand({
       nameMismatch,
       orphanedEngineOutputs,
       retiredAssets,
+      retiredPlugins,
       legacyAgents,
       excludedBlocks,
       claudeHookScripts,
@@ -481,6 +502,7 @@ export const doctorCommand = defineCommand({
       gitignoreHealth,
       prettierIgnoreHealth,
       gitHygiene,
+      nativeHooks,
       // #917. Serialized whole — a `--json` consumer is the reader who can plot
       // the surface over time, and it is the only reader that sees every block,
       // not just the ones over their ceiling.
@@ -494,10 +516,10 @@ export const doctorCommand = defineCommand({
       workspaceFullHarness,
       flatSkills,
       foreignSkillIndexes,
-      globalScope,
       engineInventory,
       provenance,
       engineEvidence,
+      globalLayerLeftovers,
     };
 
     if (args.json) {
@@ -562,6 +584,29 @@ export const doctorCommand = defineCommand({
           `  ${color.yellow(sym.update)} ${accent(r.path)}  ${grey(td.retiredAssetRow(r.successor, r.reason))}`,
       );
       p.note(lines.join("\n"), td.retiredAssetsTitle(retiredAssets.length));
+    }
+
+    {
+      const tr = tc(lang).render;
+      const rows = [
+        ...retiredPlugins.declared.map(
+          (d) =>
+            `  ${color.yellow(sym.update)} ${accent(d.id)}  ${grey(td.retiredPluginDeclaredRow(d.id, d.removedIn))}`,
+        ),
+        ...retiredPlugins.assets.map(
+          (a) =>
+            `  ${color.yellow(sym.update)} ${accent(a.path)}  ${grey(td.retiredPluginAssetRow(a.reason === null ? null : tr.keptEngineOutputReason(a.reason)))}`,
+        ),
+        ...retiredPlugins.blocks.map(
+          (b) =>
+            `  ${color.yellow(sym.update)} ${accent(`${b.path}#${b.id}`)}  ${grey(td.retiredPluginBlockRow(b.id))}`,
+        ),
+        ...retiredPlugins.references.map(
+          (r) =>
+            `  ${r.scriptMissing ? color.red(sym.fail) : color.yellow(sym.update)} ${accent(r.source)}  ${grey(td.retiredPluginReferenceRow(r.script, r.scriptMissing))}`,
+        ),
+      ];
+      if (rows.length > 0) p.note(rows.join("\n"), td.retiredPluginsTitle(rows.length));
     }
 
     if (markers.length > 0) {
@@ -664,13 +709,13 @@ export const doctorCommand = defineCommand({
     }
     if (localSkillsClassification.foreign.length > 0) {
       for (const id of localSkillsClassification.foreign) {
-        p.log.warn(tc(lang).engine.localSkillForeignCodex(`.agents/skills/${id}/SKILL.md`));
+        p.log.warn(tc(lang).engine.localSkillForeignPointer(`.agents/skills/${id}/SKILL.md`));
       }
     }
 
     // `project.libraries` ids this CLI's registry doesn't know: render skips
     // them silently and prunes their managed skill from disk, so a repo upgraded
-    // without `navori update` loses its guidance with zero signal (audit A1 —
+    // without `navori refresh` loses its guidance with zero signal (audit A1 —
     // the socketio → socketio-server/-client split). Warn with the successor
     // skills when the id is a known retired one.
     const staleLibraries = unknownLibraries([
@@ -692,18 +737,14 @@ export const doctorCommand = defineCommand({
         if (d.kind === "content") {
           return `  ${color.red(sym.conflict)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`hash ${d.expectedHash} ≠ ${d.actualHash}`)}  ${grey(td.driftContentRow(d.source))}`;
         }
-        const suffix =
-          d.kind === "downgrade" ? td.driftDowngradeRow(d.source) : td.driftVersionSuffix(d.source);
+        const suffix = d.kind === "harness" ? td.driftHarnessRow : td.driftDowngradeRow(d.source);
         return `  ${color.yellow(sym.update)} ${accent(`${d.filePath}:${d.markerId}`)}  ${grey(`${d.fromVersion} → ${d.toVersion}`)}  ${grey(suffix)}`;
       });
-      // One hint per block; escalate by severity of the fix that actually
-      // applies: content edits (sync) > downgrade (update the CLI) > version
-      // (render). A downgrade's fix is never render, so it must outrank it (#242).
+      // One hint per block; content edits (sync) outrank a downgrade/harness
+      // finding, whose fix is updating the CLI, never render (#242).
       const hint = drifts.some((d) => d.kind === "content")
         ? td.driftHintContent
-        : drifts.some((d) => d.kind === "downgrade")
-          ? td.driftHintDowngrade
-          : td.driftHintVersion;
+        : td.driftHintDowngrade;
       p.log.warn(td.drift(drifts.length, hint, lines.join("\n")));
     }
 
@@ -883,11 +924,6 @@ export const doctorCommand = defineCommand({
     if (otelReceiver) {
       if (otelReceiver.responding) {
         p.log.info(`${check} ${td.otelReceiverOk(otelReceiver.port)}`);
-      } else if (otelReceiver.supervised) {
-        // Loaded and dead: the only state that looks healthy from the outside.
-        p.log.warn(td.otelReceiverDead(otelReceiver.port));
-      } else if (otelReceiver.supportsSupervisor) {
-        p.log.warn(td.otelReceiverAbsent);
       } else {
         p.log.warn(td.otelReceiverManual);
       }
@@ -997,6 +1033,13 @@ export const doctorCommand = defineCommand({
         return `  ${color.yellow(sym.update)} ${accent(issue.path)}  ${grey(row)}`;
       });
       p.log.warn(td.diskUsage(diskUsage.length, lines.join("\n")));
+    }
+
+    if (progressSize) {
+      const row = td.progressSizeRow(progressSize.bytes, progressSize.thresholdBytes);
+      p.log.warn(
+        td.progressSize(`  ${color.yellow(sym.update)} ${accent(progressSize.path)}  ${grey(row)}`),
+      );
     }
 
     if (masterPlan.length > 0) {
@@ -1170,6 +1213,25 @@ export const doctorCommand = defineCommand({
       if (cx.length > 0) p.note(cx.join("\n"), "Codex");
     }
 
+    // Spec 0048 D4/D10: advisory Pi runtime findings; the extension already fails closed on each.
+    const piHealth = scanPiHealth(cwd, config);
+    if (piHealth) {
+      const pi: string[] = [];
+      if (piHealth.versionUnverified) {
+        pi.push(
+          `  ${color.yellow(sym.update)} ${td.piVersionUnverified(piHealth.versionUnverified.found, piHealth.versionUnverified.min)}`,
+        );
+      }
+      if (piHealth.powershellDefault)
+        pi.push(`  ${color.yellow(sym.update)} ${td.piPowershellDefault}`);
+      if (piHealth.foreignExtensions.length > 0) {
+        pi.push(
+          `  ${color.yellow(sym.update)} ${td.piForeignExtensions(piHealth.foreignExtensions.join(", "))}`,
+        );
+      }
+      if (pi.length > 0) p.note(pi.join("\n"), "Pi");
+    }
+
     // Spec 0041 T20 follow-up: advisory only, never flips `ok` or `--strict`.
     const staleGlobalCli = scanStaleGlobalCli(cwd, config);
     if (staleGlobalCli) {
@@ -1213,6 +1275,25 @@ export const doctorCommand = defineCommand({
         gh.push(`  ${color.yellow(sym.update)} ${td.gitHygieneNestedStateUnprotected}`);
       }
       if (gh.length > 0) p.note(gh.join("\n"), td.gitHygieneTitle);
+    }
+
+    // Spec 0045 D3: native git hooks. Errors (declared but not active here) flip
+    // the verdict; the duplicate and worktree findings are warnings.
+    if (nativeHooks) {
+      p.note(
+        nativeHooks.findings
+          .map((f) => {
+            const mark =
+              f.level === "error"
+                ? color.red(sym.fail)
+                : f.level === "warning"
+                  ? color.yellow(sym.update)
+                  : color.cyan(sym.bullet);
+            return `  ${mark} ${nativeHookFindingText(f, td)}`;
+          })
+          .join("\n"),
+        td.nativeHooksTitle,
+      );
     }
 
     // #917: the startup surface. Always one summary line — `doctor` is the
@@ -1292,44 +1373,6 @@ export const doctorCommand = defineCommand({
       p.note(rows.join("\n"), td.foreignSkillIndexTitle);
     }
 
-    // #547: the machine-global harness seen from this repo. Advisory (yellow),
-    // like every section above — it never flips the verdict, and every sub-check
-    // is read-only. Two guards, the optional-section pattern: the null keeps a machine
-    // with no global layer from ever seeing the heading, and the row count keeps
-    // an installed-and-healthy one from seeing an empty box.
-    if (globalScope) {
-      const gs: string[] = [];
-      for (const agent of globalScope.shadowedAgents) {
-        gs.push(
-          `  ${color.yellow(sym.update)} ${td.globalScopeShadowedAgent(agent.id, agent.repoPath)}`,
-        );
-      }
-      for (const rule of globalScope.permissionConflicts) {
-        gs.push(`  ${color.yellow(sym.update)} ${td.globalScopePermissionConflict(rule)}`);
-      }
-      if (globalScope.hookDrift.kind === "not-evaluable") {
-        gs.push(`  ${color.yellow(sym.update)} ${td.globalScopeHookNotEvaluable}`);
-      } else if (globalScope.hookDrift.kind === "plugin-missing") {
-        gs.push(`  ${color.yellow(sym.update)} ${td.globalScopeHookLegacyInstall}`);
-      } else if (globalScope.hookDrift.kind !== "ok") {
-        gs.push(
-          `  ${color.yellow(sym.update)} ${td.globalScopeHookDrift(globalScope.hookDrift.kind)}`,
-        );
-      }
-      for (const finding of globalScope.managedPolicy) {
-        // A map, not a ternary chain: the exhaustive `Record` is what makes the
-        // typecheck fail if a new `ManagedPolicyKey` lands without its row.
-        const rows: Record<ManagedPolicyKey, string> = {
-          strictPluginOnlyCustomization: td.globalScopeStrictPluginOnly(finding.path),
-          allowManagedPermissionRulesOnly: td.globalScopeManagedPermissionsOnly(finding.path),
-          strictKnownMarketplaces: td.globalScopeStrictKnownMarketplaces(finding.path),
-          blockedMarketplaces: td.globalScopeBlockedMarketplaces(finding.path),
-        };
-        gs.push(`  ${color.yellow(sym.update)} ${rows[finding.key]}`);
-      }
-      if (gs.length > 0) p.note(gs.join("\n"), td.globalScopeTitle);
-    }
-
     // #555 / spec 0014: the harness that was already here. Advisory and
     // read-only like every section above, and printed ONLY when something
     // actually clashes — a foreign harness that steps on nothing is never
@@ -1349,6 +1392,16 @@ export const doctorCommand = defineCommand({
       if (fh.length > 0) p.note(fh.join("\n"), td.foreignHarnessTitle);
     }
 
+    if (globalLayerLeftovers.length > 0) {
+      p.log.warn(
+        globalLayerLeftoversMessage(
+          globalLayerLeftovers,
+          join(claudeUserDir(), "settings.json"),
+          td,
+        ),
+      );
+    }
+
     const hasIssues = !verdict.ok;
     const strictFail = isStrictModeFailure(Boolean(args.strict), drifts, mcpCoherenceIssues);
     p.outro(
@@ -1366,6 +1419,39 @@ export const doctorCommand = defineCommand({
     if (strictFail) process.exit(1);
   },
 });
+
+/**
+ * The warning for leftovers of the retired global layer (spec 0046 D5): the
+ * leftovers found and only the removal steps that apply, in an order that keeps
+ * `ownedPermissions` readable until the personal settings are cleaned. Pure;
+ * paths are the resolved ones, never a hardcoded `~/.claude`.
+ */
+export function globalLayerLeftoversMessage(
+  leftovers: GlobalLeftover[],
+  settingsPath: string,
+  td: ReturnType<typeof tc>["doctor"],
+): string {
+  const by = (kind: GlobalLeftover["kind"]): string | undefined =>
+    leftovers.find((l) => l.kind === kind)?.path;
+  const plist = by("launch-agent");
+  const hook = by("legacy-hook");
+  const plugin = by("plugin");
+  const manifest = by("manifest");
+  const steps: string[] = [];
+  if (plist) steps.push(td.globalLayerStepLaunchAgent(plist), td.globalLayerStepAuditAlways);
+  if (hook || manifest) {
+    steps.push(
+      td.globalLayerStepSettings(settingsPath, "navori-global-baseline.sh", manifest ?? null),
+    );
+  }
+  const files = [plugin, hook].filter((x): x is string => x !== undefined);
+  if (files.length > 0) steps.push(td.globalLayerStepFiles(files));
+  if (manifest) steps.push(td.globalLayerStepManifest(manifest));
+  return td.globalLayerLeftovers([
+    ...leftovers.map((l) => td.globalLayerLeftoverRow(l.kind, l.path)),
+    ...steps,
+  ]);
+}
 
 /**
  * The rows doctor prints for a foreign-harness report (#555).
@@ -1569,11 +1655,6 @@ export function docBudgetLines(
       )}`,
     );
   }
-  if (report.staleBlocks > 0) {
-    lines.push(
-      `  ${color.yellow(sym.update)} ${td.docBudgetStale(report.staleBlocks, report.cliVersion)}`,
-    );
-  }
   for (const block of report.blocks.filter((b) => b.over)) {
     lines.push(
       `  ${color.yellow(sym.update)} ${td.docBudgetOverBlock(
@@ -1663,6 +1744,9 @@ export interface HealthVerdict {
   /** Managed ids appearing more than once in a file — the extra copy is invisible
    *  to render/sync/doctor and may hold stale content, so it flips `ok` (#274). */
   duplicateMarkers: DuplicateMarker[];
+  /** Native git hooks vs the config's declarations (spec 0045 D3); null outside git
+   *  when nothing is declared. Its `error` findings flip `ok`. */
+  nativeHooks: NativeHooksReport | null;
 }
 
 /**
@@ -1681,7 +1765,9 @@ export function computeHealthVerdict(cwd: string, config: NavoriConfig): HealthV
   const missingPresetFiles = scanMissingPresetFiles(cwd, config);
   const codexHealth = scanCodexHealth(cwd, config);
   const duplicateMarkers = scanDuplicateMarkers(cwd, config);
+  const nativeHooks = scanNativeHooks(cwd, config);
   const ok =
+    (nativeHooks?.errors ?? 0) === 0 &&
     missingPlugins.length === 0 &&
     corruptedSettings.length === 0 &&
     missingInvariants.length === 0 &&
@@ -1700,6 +1786,7 @@ export function computeHealthVerdict(cwd: string, config: NavoriConfig): HealthV
     missingPresetFiles,
     codexHealth,
     duplicateMarkers,
+    nativeHooks,
   };
 }
 
@@ -1789,7 +1876,7 @@ export interface ClaudeHookScriptsReport {
  * Validate that every `.claude/scripts/*` and `.claude/hooks/*` file referenced
  * by an ACTIVE hook in `.claude/settings.json` exists and is executable — the
  * Claude-side equivalent of Codex's `hooksNotExecutable` (#213). A plugin hook
- * (semgrep/jscpd) points at `.claude/scripts/check-*.sh`; if that file is
+ * points at `.claude/scripts/check-*.sh`; if that file is
  * missing or lost its +x bit, Claude fires it on every Bash and it breaks or
  * no-ops silently. Both failure modes are fixed by `navori render --apply`, so
  * they're warnings (they don't flip `ok`), matching Codex's treatment.
@@ -1922,7 +2009,7 @@ interface MissingExternalTool {
 
 /**
  * Each enabled plugin may declare an `externalTool` (an MCP server / CLI it
- * depends on, e.g. engram, semgrep). Always-on plugins never pass through
+ * depends on, e.g. engram, tgrep). Always-on plugins never pass through
  * `navori add`, so their `checkBinary`/`postInstall` never run — the protocol
  * ends up telling the agent to call tools (mem_save, mem_session_summary…) that
  * may not exist. Warn (non-fatal: the scan hooks self-skip and the protocol is
@@ -2038,9 +2125,8 @@ export interface ExternalToolCapabilityGap {
 /**
  * #1060 — a manifest may declare `externalTool.capabilityProbe` for a binary
  * whose CLI surface (not its `--version` self-report, unreliable per the
- * field's own JSDoc) determines whether a gate can rely on it — jscpd's
- * `check-jscpd.sh` needs `--baseline-from-ref`/`--fail-on-new-clones`, absent
- * before 5.1.1. Same informational tier as `scanPinnedVersionDrift` above:
+ * field's own JSDoc) determines whether a gate can rely on it (a flag
+ * its script needs that older releases lack). Same informational tier as `scanPinnedVersionDrift` above:
  * enabled plugins only, binary must already be present (absence is
  * `missingExternalTools`'s job), and a probe that throws stays silent rather
  * than guess. Never feeds `computeHealthVerdict` or `--strict` — the hook
@@ -2199,10 +2285,9 @@ export interface MissingOptionalTool {
  * not need a receiver standing by, and painting that red would be noise — which
  * is why this never feeds `computeHealthVerdict` either: informative, always.
  *
- * The two questions are separate on purpose. "Is the agent loaded" is what
- * launchd knows; "does the receiver answer" is what the operator actually
- * needs, and the gap between them is the ugly case the issue names — loaded,
- * dead, and silent, while every session exports into nothing.
+ * Two states only: the receiver answers its health route (info) or it does
+ * not (warn, with the manual `navori audit --collect` hint). There is no
+ * supervisor to ask (spec 0046).
  */
 export async function scanOtelReceiver(
   config: NavoriConfig,
@@ -2215,18 +2300,12 @@ export async function scanOtelReceiver(
   const port = opts.port ?? OTEL_RECEIVER_PORT;
   return {
     port,
-    supervised: isLaunchdPlatform() && launchAgentLoaded(),
-    supportsSupervisor: isLaunchdPlatform(),
     responding: await probeReceiver(port),
   };
 }
 
 interface OtelReceiverReport {
   port: number;
-  /** launchd holds the agent (macOS only). */
-  supervised: boolean;
-  /** This platform has a supervisor implementation at all. */
-  supportsSupervisor: boolean;
   /** The receiver answered its own health route. */
   responding: boolean;
 }
@@ -3265,13 +3344,132 @@ export function scanGitHygiene(cwd: string, config: NavoriConfig): GitHygieneRep
   };
 }
 
+export interface NativeHookFinding {
+  level: "info" | "warning" | "error";
+  code:
+    | "found"
+    | "gate-declared-missing"
+    | "plugin-declared-missing"
+    | "plugin-only-guarantee"
+    | "duplicate"
+    | "worktree-missing";
+  event?: NativeHookEvent;
+  plugin?: string;
+  state?: NativeHookState;
+  /** Worktree path, for `worktree-missing`. */
+  path?: string;
+  gitVersion?: string | null;
+}
+
+export interface NativeHooksReport {
+  detection: NativeHooksDetection;
+  findings: NativeHookFinding[];
+  /** Count of `error` findings; they flip the health verdict. */
+  errors: number;
+}
+
+/**
+ * Native git hooks against the config's declarations (spec 0045 D3, R5-R7).
+ *
+ * - Always (inside git): one info finding per event with manager and path.
+ * - `qualityGate.nativeHooks` declared and `pre-commit` not active in THIS
+ *   clone/worktree: error (R6). Undeclared and active: duplicate warning (R7).
+ * - `plugins.<p>.nativeHook`: only plugins whose hooks were actually omitted
+ *   (`loadEnabledPlugins` marks them `nativeHookOmitted`) are declarations that
+ *   depend on a native hook; a plugin with no hooks has nothing to guard. Error
+ *   when both events are absent, plus an info that the hook is then the only
+ *   guarantee of that check.
+ * - With any declaration, a warning per `.claude/worktrees/` worktree whose
+ *   `pre-commit` is absent (never an error: the implementer already runs `fast`).
+ *
+ * Null outside git when nothing is declared. Doctor never runs a hook.
+ */
+export function scanNativeHooks(cwd: string, config: NavoriConfig): NativeHooksReport | null {
+  const gateDeclared = config.qualityGate?.nativeHooks === true;
+  const omitted = loadEnabledPlugins(config.plugins)
+    .loaded.filter((p) => p.nativeHookOmitted === true)
+    .map((p) => p.manifest.id);
+  const declared = gateDeclared || omitted.length > 0;
+  const detection = detectNativeHooks(cwd);
+  if (detection.top === null && !declared) return null;
+
+  const findings: NativeHookFinding[] = [];
+  for (const event of NATIVE_HOOK_EVENTS) {
+    findings.push({ level: "info", code: "found", event, state: detection.hooks[event] });
+  }
+  const commit = detection.hooks["pre-commit"];
+  const push = detection.hooks["pre-push"];
+  if (gateDeclared && !commit.active) {
+    findings.push({
+      level: "error",
+      code: "gate-declared-missing",
+      event: "pre-commit",
+      state: commit,
+      gitVersion: detection.gitVersion,
+    });
+  }
+  if (!gateDeclared && commit.active) {
+    findings.push({ level: "warning", code: "duplicate", event: "pre-commit", state: commit });
+  }
+  for (const plugin of omitted) {
+    findings.push({ level: "info", code: "plugin-only-guarantee", plugin });
+    if (!commit.active && !push.active) {
+      findings.push({
+        level: "error",
+        code: "plugin-declared-missing",
+        plugin,
+        gitVersion: detection.gitVersion,
+      });
+    }
+  }
+  if (declared && detection.top !== null) {
+    for (const path of listWorktreePaths(detection.top)) {
+      if (!path.includes("/.claude/worktrees/") || path === detection.top) continue;
+      if (!detectNativeHooks(path).hooks["pre-commit"].active) {
+        findings.push({ level: "warning", code: "worktree-missing", event: "pre-commit", path });
+      }
+    }
+  }
+  return {
+    detection,
+    findings,
+    errors: findings.filter((f) => f.level === "error").length,
+  };
+}
+
+/** One line of the doctor note for a native-hook finding. */
+export function nativeHookFindingText(
+  f: NativeHookFinding,
+  td: ReturnType<typeof tc>["doctor"],
+): string {
+  switch (f.code) {
+    case "found":
+      return td.nativeHooksFound(
+        f.event!,
+        f.state!.active ? f.state!.manager : null,
+        f.state!.path,
+        f.state!.absence,
+      );
+    case "gate-declared-missing":
+      return td.nativeHooksGateMissing(f.state!.manager, f.state!.absence, f.gitVersion ?? null);
+    case "plugin-declared-missing":
+      return td.nativeHooksPluginMissing(f.plugin!, f.gitVersion ?? null);
+    case "plugin-only-guarantee":
+      return td.nativeHooksPluginOnlyGuarantee(f.plugin!);
+    case "duplicate":
+      return td.nativeHooksDuplicate(f.state!.manager, f.state!.path);
+    case "worktree-missing":
+      return td.nativeHooksWorktreeMissing(f.path!);
+  }
+}
+
 /** Drop a trailing slash so a configured `specsDir` works with or without one. */
 function trimSlash(path: string): string {
   return path.endsWith("/") ? path.slice(0, -1) : path;
 }
 
 /** The config knob that shrinks a given block, ordered by measured yield (#917). */
-export type DocBudgetLever = "project-context" | "local-skills" | "preset" | "plugins" | "core";
+export type DocBudgetLever = "project-context" | "preset" | "plugins" | "core";
 
 /** A measured block plus the knob that shrinks it. */
 export type DocBudgetBlock = ManagedBlockMeasure & { lever: DocBudgetLever };
@@ -3346,8 +3544,6 @@ export interface DocBudgetReport {
   overBy: number | null;
   /** Empty when there is no `CLAUDE.md` — never a block from another surface. */
   blocks: DocBudgetBlock[];
-  /** Blocks whose marker version differs from the running navori. */
-  staleBlocks: number;
   cliVersion: string;
   contextFiles: DocBudgetContextFile[];
   contextWords: number;
@@ -3435,7 +3631,6 @@ export interface DocBudgetMcpServer {
 /** Which knob shrinks this block — keyed off what RENDERED it, not its name. */
 function leverFor(id: string, source: string | null): DocBudgetLever {
   if (id === "contexto-proyecto") return "project-context";
-  if (id === "skills-index") return "local-skills";
   if (id.startsWith("stack-")) return "preset";
   if (source?.startsWith("@navori/plugin-")) return "plugins";
   return "core";
@@ -3491,15 +3686,6 @@ export function scanDocBudget(cwd: string, config: NavoriConfig): DocBudgetRepor
     lever: leverFor(b.id, sourceById.get(b.id) ?? null),
   }));
 
-  // A block rendered by another navori is the "your file is OLD" diagnosis, and
-  // it is a different defect from "your file is FAT" with a different fix: a
-  // re-render recovered 1175 words (−37%) in `bonum-webapp` without its owner
-  // deciding anything. Counted across BOTH files of the surface, since a stale
-  // repo is stale in all of them.
-  const staleBlocks = [...claudeMarkers, ...listContextMarkers(cwd)].filter(
-    (m) => m.version !== null && m.version !== cliVersion,
-  ).length;
-
   return {
     totalWords: measure?.totalWords ?? null,
     managedWords: measure?.managedWords ?? null,
@@ -3508,7 +3694,6 @@ export function scanDocBudget(cwd: string, config: NavoriConfig): DocBudgetRepor
     ceiling: measure?.ceiling ?? null,
     overBy: measure?.overBy ?? null,
     blocks,
-    staleBlocks,
     cliVersion,
     contextFiles,
     contextWords: contextFiles.reduce((sum, f) => sum + f.words, 0),

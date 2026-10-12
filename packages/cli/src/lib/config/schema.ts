@@ -46,6 +46,12 @@ function tolerantEnum<T extends readonly [string, ...string[]]>(values: T, fallb
 const QualityGateSchema = z.object({
   fast: z.string().min(1),
   full: z.string().min(1),
+  /** Cheap checks of `full` plus tests related to the diff; the reviewer's
+   * lane for rounds that end in CHANGES_REQUESTED. Falls back to `fast`. */
+  scoped: z.string().min(1).optional(),
+  /** Declares that the project's native git pre-commit already runs `fast`, so
+   * the `quality-gate-pre-commit` hook skips only its gate step (spec 0045 R1-R3). */
+  nativeHooks: z.boolean().optional(),
 });
 
 // Lifecycle-hook toggles (Claude Stop). The handoff validator is always wired —
@@ -347,6 +353,9 @@ const EffortSchema = z.object({
 
 const PluginEntrySchema = z.object({
   enabled: z.boolean(),
+  /** The native git hook runs this plugin's check, so its hook is not registered
+   * while its scripts still install (spec 0045 R4). */
+  nativeHook: z.boolean().optional(),
 });
 
 // `skills` ({ auto, optIn }) was removed (#236): no engine, template, doctor or
@@ -458,7 +467,7 @@ const ProjectSchema = z
      *
      * DERIVED — owned by detection, not by the user (#345). `init` and `update`
      * both overwrite this array with what they detect, so a hand-added id does
-     * NOT survive `navori update`: it reads as drift and is replaced (pinned by
+     * NOT survive `navori refresh`: it reads as drift and is replaced (pinned by
      * "project.libraries — a DERIVED field" in commands/__tests__/update.test.ts).
      * The asymmetry with the sibling `libraryMigrations` — which DOES preserve
      * manual edits — is deliberate: that one protects a value override on a key
@@ -503,13 +512,22 @@ export const NavoriConfigSchema = z
     name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "name must be kebab-case"),
     /**
      * The PROJECT's version — the user's, not navori's. Nothing in the CLI
-     * writes it after `init`, and nothing should: the navori release that
-     * rendered a harness already lives in `.claude/settings.json` (`$navori.version`)
-     * and in every managed marker's `version=`, which is what `health.ts`
-     * compares to tell drift from a downgrade. A third copy is a copy that
-     * desynchronizes (#604). `status` prints both, labelled apart.
+     * writes it after `init`, and nothing should. The navori release that
+     * applied the harness is recorded apart, in `harnessVersion` below (a
+     * block's `version=` and the settings stamp only say which release last
+     * CHANGED that artifact, so they no longer say which release rendered the
+     * repo). `status` prints both, labelled apart.
      */
     version: z.string().default("1.0.0"),
+    /**
+     * The newest navori release that applied a REAL change to this harness
+     * (written by `render`/`sync`/`adopt --apply`, never lowered, never on a
+     * no-op). It is the registry behind the anti-rollback floor: per-block
+     * `version=` stamps are frozen at their last content change, so this is
+     * what keeps an older CLI from overwriting newer blocks. Optional with no
+     * default, so it is never persisted until an apply records it.
+     */
+    harnessVersion: z.string().optional(),
     // `workspace` names an entry in the machine-local registry (~/.navori/
     // workspaces/<name>/). Registry names are kebab-case by construction
     // (WorkspaceConfigSchema.name), so mirror that here. Without the regex a

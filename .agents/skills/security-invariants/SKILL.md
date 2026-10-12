@@ -1,15 +1,15 @@
 ---
 name: security-invariants
-description: Use when running /security-review or auditing security. Documents the BUSINESS security invariants that the static scanner (semgrep) and the built-in review can't infer from code alone — server-side authorization, object access (IDOR), secrets and env exposed to the client, trust boundaries, PII in logs. The skeleton is universal; your stack's rules go in the user-section.
+description: Use when running /security-review or auditing security. Documents the BUSINESS security invariants that the static scanner (if the repo runs one) and the built-in review can't infer from code alone — server-side authorization, object access (IDOR), secrets and env exposed to the client, trust boundaries, PII in logs. The skeleton is universal; your stack's rules go in the user-section.
 metadata:
   type: reference
   maxWords: 1200
 ---
 
-<!-- navori:managed id="security-invariants-base" hash="8a08c119" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="security-invariants-base" hash="4b081684" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Security invariants — the business security layer
 
-Feeds the `/security-review` flow and is the single owner of the security checklist for `reviewer` and `auditor`. `semgrep` is an OPT-IN plugin, not a given, so the business invariants below (authorization, IDOR, trust) sit next to a compact fallback list (§7) for the generic patterns a scanner would otherwise catch.
+Feeds the `/security-review` flow and is the single owner of the security checklist for `reviewer` and `auditor`. A static scanner is not a given (Navori ships none), so the business invariants below (authorization, IDOR, trust) sit next to a compact fallback list (§7) for the generic patterns a scanner would otherwise catch.
 
 Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `review-diff`. An authorization bypass or an exposed secret is CRITICAL.
 
@@ -50,7 +50,7 @@ Report with severity `[CRITICAL]`/`[HIGH]`/`[MEDIUM]` and `file:line`, as in `re
 
 ## 7. If no scanner is installed
 
-When the repo has no static analyzer (e.g. `semgrep`) wired in, additionally scan the diff by hand for the patterns a scanner would otherwise catch:
+When the repo has no static analyzer wired in, additionally scan the diff by hand for the patterns a scanner would otherwise catch:
 
 1. Hardcoded credentials / API keys / tokens in source.
 2. SQL injection — string-concatenated queries with unsanitized input.
@@ -72,28 +72,6 @@ This list is a manual substitute, not a replacement — where a scanner plugin i
 3. Cross-check with the **rules specific to your stack** (below): the concrete names of your guards, error codes and env prefixes live there — without that, the review only covers the universal layer.
 <!-- /navori:managed id="security-invariants-base" -->
 
-<!-- navori:managed id="semgrep-review-extension" hash="7422be13" version="0.11.3" source="@navori/plugin-semgrep" -->
-## Local security gate (semgrep)
-
-Before closing a relevant change (auth, RBAC, secrets, input validation),
-run semgrep over the diff, scoped to the changed `.ts`/`.tsx` files vs the
-base branch:
-
-```
-git diff --name-only --diff-filter=ACMRT dev -- '*.ts' '*.tsx' | xargs -r semgrep scan --config=p/default --error --metrics=off --baseline-commit dev
-```
-
-`--config=p/default` (not `auto`) keeps the ruleset static and telemetry off
-(`--metrics=off` is incompatible with `auto` on semgrep >=1.x); the
-`--baseline-commit` flag makes the scan fail only on findings this branch
-introduces, not on debt already on `dev`.
-- Custom rules: see `.semgrep.yml` at the repo root if it exists.
-- Silent skip if `semgrep` is not installed (don't block if the dev doesn't have it).
-
-In repos with the Claude Code hooks, the commit/push gate already runs this
-scan for you (`PreToolUse`) — the command above is for running it yourself
-before that point.
-<!-- /navori:managed id="semgrep-review-extension" -->
 
 ## Your stack's security invariants
 

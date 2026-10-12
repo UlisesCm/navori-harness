@@ -5,7 +5,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash
 model: {{models.implementer}}
 effort: {{effort.implementer}}
 maxTurns: 160
-maxWords: 2448
+maxWords: 2473
 ---
 
 # Implementer Agent
@@ -27,7 +27,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
      - [ ] Define interface in <path>
      - [ ] Implement logic in <path>
      - [ ] Cover with a test
-     - [ ] Run `{{qualityGate.fast}}`
+     - [ ] Run `{{gateRun.fast}}`
      ```
 
    - `Expected files: <list>`
@@ -38,10 +38,12 @@ You execute **a single** task from start to verification. You don't orchestrate,
 4. **Quality gate** (mandatory before returning):
 
    ```bash
-   {{qualityGate.fast}}
+   {{gateRun.fast}}
    ```
 
-   If it fails: fix it and re-run. Don't return with red. You are the single owner of this gate run: never share it with another process, never poll `pgrep`/`ps` for it, and a timeout is never a success signal. If the gate can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them (<!-- navori:if-not onCodex -->no shell `&`, no `run_in_background`, no `Monitor`<!-- /navori:if-not --><!-- navori:if onCodex -->no shell `&`, no background execution<!-- /navori:if -->) — you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait. When you can't explain WHY it failed, apply `.claude/skills/debug-failure/SKILL.md` before touching anything — the size of the output is not the trigger, the missing root cause is, and a failure whose error stream you truncated away reads the same as one you understand. If your second fix attempt fails the same way, that same skill's hypothesis re-check governs instead of throwing a third patch.
+   If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run: run the literal `{{qualityGate.fast}}`. Open the log only on a red.
+
+   If it fails: fix it and re-run. Don't return with red. You are the single owner of this gate run: never share it with another process, never poll `pgrep`/`ps` for it, and a timeout is never a success signal. If the gate can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them (<!-- navori:if-not onCodex -->no shell `&`, no `run_in_background`, no `Monitor`<!-- /navori:if-not --><!-- navori:if onCodex -->no shell `&`, no background execution<!-- /navori:if -->) — you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait. When you can't explain WHY it failed, apply `.claude/skills/debug-failure/SKILL.md` before touching anything. If your second fix attempt fails the same way, that same skill's hypothesis re-check governs instead of throwing a third patch.
 5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up (e.g. `playwright-cli`, whose installer ships its own skill).
 6. **No commits** without the `reviewer`'s approval. When you finish, <!-- navori:if-not scribeOwnsMarkdown -->write the report<!-- /navori:if-not --><!-- navori:if scribeOwnsMarkdown -->write your JSON evidence<!-- /navori:if --> and return the reference.
 <!-- navori:if planTiers -->
@@ -60,7 +62,7 @@ When the encargo opens with `workplan: <feature>`, read `.navori/state/handoffs/
 - **Zero new errors** introduced by your code in the quality gate tools (vs. baseline) — classify per `verify-before-done`'s Failure attribution, never by diff location alone; see the evidence table below. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.
 - **Never mutate or discard the shared working tree**: no stashing, no checkout/reset that discards local changes, no working-tree clean — these hit the `ask` permission rule and can stall a background agent indefinitely. Same reasoning for scratch files: leave them, don't clean them with a recursive delete.
 - **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.
-- **SDD traceability** (only if the feature has `{{sdd.specsDir}}/<feature>/tasks.md`, see the SDD block in `CLAUDE.md`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.
+- **SDD traceability** (only if the feature has `{{sdd.specsDir}}/<feature>/tasks.md`, see `spec-bootstrap`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.
 - **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `locate-code`; an entry point you didn't list is one the `reviewer` has to rediscover.
 - If a tool fails weirdly (e.g. tsc breaks with no apparent diff), **don't improvise a workaround**: note `Status: BLOCKED` + the reason in `.navori/state/handoffs/impl_<feature>.md` and stop.
 - **While iterating, run only the tests of the area you touch** (filter by the runner's path). The full gate in step 4 runs at the end, not on each iteration — saves time and context. Never run the full `{{qualityGate.full}}` suite yourself: that's the `reviewer`'s Pass 2 job, and it commonly outlives Bash's timeout. If this repo has a diff-scoped fast check (`scoped-gate`), it's hygiene for iterating, never a substitute for step 4.
@@ -162,6 +164,8 @@ Write `.navori/state/handoffs/impl_<feature>.json` — the only artifact you pro
 ```
 
 `doubts` is optional: declare one `{ "file": "<path>", "reason": "<why you are unsure>" }` entry per spot where you are unsure the change is right, so the reviewer answers it.
+
+Types follow the handoff schema: `rootCause` is a string, present only for a bugfix (omit the key otherwise, never `null`); `blockers` is an array of strings (`[]` when none).
 
 `markdownRequests` carries every piece of prose your task needs — your own non-obvious decisions, a CONTRIBUTING/README update, a spec task checkbox, a skill or agent tweak. State the `intent` and the `evidence`; never the finished sentence — drafting the prose from that intent is the `scribe`'s job, not yours. Empty array when the task touches no Markdown at all.
 

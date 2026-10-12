@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, it, expect } from "vitest";
 import { interpolate } from "../interpolate.ts";
 import type { NavoriConfig } from "../../config/config.ts";
@@ -268,4 +270,119 @@ describe("interpolate — project.* sanitization (#198)", () => {
     // A nested walk through an inherited member stops too.
     expect(interpolate("{{constructor.name}}", CONFIG)).toBe("<not configured: constructor.name>");
   });
+});
+
+describe("interpolate — progress caps (#1263)", () => {
+  it("injects the soft and hard byte caps as built-in vars", () => {
+    expect(
+      interpolate("{{navori.progressSoftCapBytes}}/{{navori.progressHardCapBytes}}", CONFIG),
+    ).toBe("4000/8000");
+  });
+});
+
+describe("interpolate — gate runner placeholders (#1272)", () => {
+  const withGate = (qualityGate?: Record<string, string>): NavoriConfig =>
+    ({ ...CONFIG, qualityGate }) as unknown as NavoriConfig;
+  const safe = withGate({ fast: "pnpm lint && pnpm typecheck", full: "pnpm test" });
+  const kinds = ["fast", "full"] as const;
+
+  it.each(kinds)("repo + safe chain resolves to `navori gate %s`", (kind) => {
+    expect(interpolate(`{{gateRun.${kind}}}`, safe)).toBe(`navori gate ${kind}`);
+  });
+
+  it("shq quotes the runner command in repo scope", () => {
+    expect(interpolate("{{shq:gateRun.fast}}", safe)).toBe("'navori gate fast'");
+  });
+
+  it.each(["pnpm a | tee x", "pnpm a > out", "echo $HOME"])(
+    "repo + unsafe gate %s falls back to the qualityGate text",
+    (gate) => {
+      const cfg = withGate({ fast: gate, full: gate });
+      for (const kind of kinds) {
+        expect(interpolate(`{{gateRun.${kind}}}`, cfg)).toBe(
+          interpolate(`{{qualityGate.${kind}}}`, cfg),
+        );
+        expect(interpolate(`{{shq:gateRun.${kind}}}`, cfg)).toBe(
+          interpolate(`{{shq:qualityGate.${kind}}}`, cfg),
+        );
+      }
+    },
+  );
+
+  it.each<[string, Record<string, string> | undefined]>([
+    ["undefined", undefined],
+    ["empty", {}],
+    ["only the other kind", { full: "pnpm test" }],
+  ])("unconfigured (%s) matches {{qualityGate.<kind>}}", (_name, gate) => {
+    const cfg = withGate(gate);
+    // The kind actually configured is covered above; compare the missing one.
+    for (const kind of kinds.filter((k) => gate?.[k] === undefined)) {
+      for (const m of ["", "shq:"]) {
+        expect(interpolate(`{{${m}gateRun.${kind}}}`, cfg)).toBe(
+          interpolate(`{{${m}qualityGate.${kind}}}`, cfg),
+        );
+      }
+    }
+  });
+});
+describe("interpolate — navori.scopedGate (spec 0045)", () => {
+  const withGate = (gate: object | undefined): NavoriConfig =>
+    ({ ...CONFIG, qualityGate: gate }) as unknown as NavoriConfig;
+
+  // Covers: R8, R25
+  it("prefers qualityGate.scoped", () => {
+    expect(
+      interpolate("{{navori.scopedGate}}", withGate({ fast: "f", full: "F", scoped: "s" })),
+    ).toBe("s");
+  });
+
+  // Covers: R8, R25
+  it("falls back to qualityGate.fast", () => {
+    expect(interpolate("{{navori.scopedGate}}", withGate({ fast: "f", full: "F" }))).toBe("f");
+  });
+
+  // Covers: R8, R24
+  it("always resolves, even without a qualityGate", () => {
+    expect(interpolate("{{navori.scopedGate}}", withGate(undefined))).not.toContain(
+      "not configured",
+    );
+  });
+});
+
+describe("reviewer gate table claude y codex (spec 0045)", () => {
+  const ROOT = resolve(import.meta.dirname, "..", "..", "..", "..", "..", "..");
+  const repoConfig = JSON.parse(
+    readFileSync(resolve(ROOT, "navori.config.json"), "utf-8"),
+  ) as NavoriConfig;
+  const scoped = interpolate("{{navori.scopedGate}}", repoConfig);
+  const renders = {
+    claude: readFileSync(resolve(ROOT, ".claude/agents/reviewer.md"), "utf-8"),
+    codex: readFileSync(resolve(ROOT, ".codex/agents/reviewer.toml"), "utf-8"),
+  };
+
+  for (const [engine, text] of Object.entries(renders)) {
+    describe(engine, () => {
+      // Covers: R8, R9, R24
+      it("CHANGES_REQUESTED round runs the scoped gate plus A<n>, not the full gate", () => {
+        expect(scoped).not.toBe("");
+        expect(text).toContain(
+          `| Ends in \`CHANGES_REQUESTED\` (any issue ≥80) | \`${scoped}\` plus the assigned \`A<n>\` commands. Do NOT run the full gate.`,
+        );
+      });
+
+      // Covers: R9
+      it("ties the full gate to the round that signs APPROVED, incl. delta re-sign", () => {
+        expect(text).toContain(
+          "| About to sign `APPROVED` (including delta re-sign) | The full gate",
+        );
+        expect(text).toContain("The full gate runs only on the round about to sign `APPROVED`");
+      });
+
+      // Covers: R8, R24
+      it("leaves no raw placeholder nor <not configured>", () => {
+        expect(text).not.toContain("{{navori.scopedGate}}");
+        expect(text).not.toContain("<not configured>");
+      });
+    });
+  }
 });

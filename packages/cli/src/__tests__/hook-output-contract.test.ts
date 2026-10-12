@@ -415,7 +415,6 @@ describe("contrato JSON de salida — por evento, con cita (#774)", () => {
    */
   it("encuentra emisiones reales y las atribuye a su evento registrado", () => {
     expect(hooks.length).toBeGreaterThan(0);
-    expect(hooks.filter((h) => h.source.startsWith("plugin:")).length).toBeGreaterThan(0);
 
     // The hooks that speak to the host today, one per channel shape in the tree.
     expect(emitting.map((h) => h.script).sort()).toEqual(

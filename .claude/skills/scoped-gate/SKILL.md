@@ -11,7 +11,7 @@ metadata:
   maxWords: 750
 ---
 
-<!-- navori:managed id="scoped-gate-base" hash="6f8e52e6" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="scoped-gate-base" hash="79bb6ecc" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
 # Scoped gate — diff-scoped quality gate as hygiene, not a seal
 
 ## The problem
@@ -73,11 +73,7 @@ matters.
   makes the scanner never run at all — silently, since an empty scope looks
   identical to a clean one without edge case #511's sentinel.
 
-This repo's own `check-jscpd.sh` and `check-semgrep.sh` (under the Claude
-engine's rendered scripts dir) implement exactly this pattern, sharing their
-logic through a partial internal to navori's own source — read them for a
-working reference, but a consumer repo does not have that partial and must
-write its own script.
+Write your own script following this pattern, with the same worktree and scope handling described above.
 
 ## Wiring: a `package.json` script, not a bare path
 

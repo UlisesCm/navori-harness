@@ -31,12 +31,12 @@ const contentDrift: DriftReport = {
   source: "@navori/core",
   kind: "content",
 };
-const versionDrift: DriftReport = {
-  filePath: ".claude/agents/leader.md",
-  markerId: "leader-base",
-  source: "@navori/core",
-  kind: "version",
-  fromVersion: "0.0.1",
+const harnessDrift: DriftReport = {
+  filePath: "navori.config.json",
+  markerId: "harnessVersion",
+  source: "navori.config.json",
+  kind: "harness",
+  fromVersion: "9.9.9",
   toVersion: "0.0.2",
 };
 const downgradeDrift: DriftReport = {
@@ -63,13 +63,15 @@ describe("suggestNextSteps (spec 0003 §3.5.3)", () => {
     expect(steps.some((s) => s.includes("sync --interactive"))).toBe(true);
   });
 
-  it("suggests render --apply on version drift", () => {
+  // Covers: A3
+  it("tells the user to update the CLI when the harness registry is newer than it", () => {
     const steps = suggestNextSteps({
       claudeMdExists: true,
       missingPlugins: [],
-      drifts: [versionDrift],
+      drifts: [harnessDrift],
     });
-    expect(steps.some((s) => s.includes("render --apply"))).toBe(true);
+    expect(steps.some((s) => s.includes("navori@latest"))).toBe(true);
+    expect(steps.some((s) => s.includes("render --apply"))).toBe(false);
   });
 
   // #242: a downgrade (disk newer than the CLI) is NOT fixed by render — the
@@ -146,15 +148,10 @@ describe("collectMissingPlugins", () => {
     expect(missing[0]!.reason).toBe("unknown plugin id");
   });
 
-  it("gives a retired plugin an actionable hint, not 'unknown plugin id' (#271)", () => {
-    const missing = collectMissingPlugins(cfg({ cognitive: { enabled: true } }));
-    expect(missing).toHaveLength(1);
-    expect(missing[0]!.id).toBe("cognitive");
-    // A retired plugin must be distinguishable from a real typo: point the user
-    // at the fix instead of the dead-end "unknown plugin id".
-    expect(missing[0]!.reason).not.toBe("unknown plugin id");
-    expect(missing[0]!.reason).toContain("navori remove cognitive");
-    expect(missing[0]!.reason).toContain("#130");
+  it("does not count a retired plugin as missing: doctor reports it as a warning instead", () => {
+    // A config that still lists a retired plugin must keep the health verdict
+    // green; `scanRetiredPluginLeftovers` carries the actionable hint.
+    expect(collectMissingPlugins(cfg({ cognitive: { enabled: true } }))).toEqual([]);
   });
 
   it("ignores disabled plugins", () => {
@@ -383,19 +380,33 @@ describe("listMarkers + scanManagedDrift", () => {
     expect(drifts.some((d) => d.kind === "content" && d.markerId === "leader-base")).toBe(true);
   });
 
-  it("detects version drift when the version is older than the bundle", () => {
-    // Correct hash so content drift doesn't fire — isolate the version check.
+  // Covers: A3
+  it("does not report a marker older than the CLI: its version is the last change, not staleness", () => {
     const body = "stable body";
     writeAgent(body, `hash="${computeManagedHash(body)}" version="0.0.0" source="@navori/core"`);
-    const drifts = scanManagedDrift(cwd, config);
-    expect(drifts.some((d) => d.kind === "version" && d.markerId === "leader-base")).toBe(true);
-    expect(drifts.some((d) => d.kind === "content")).toBe(false);
+    expect(scanManagedDrift(cwd, config)).toEqual([]);
+  });
+
+  // Covers: A3
+  it("reports a harnessVersion newer than the CLI, and not one equal or older", () => {
+    const newer = scanManagedDrift(cwd, { ...config, harnessVersion: "999.0.0" });
+    expect(newer).toEqual([
+      expect.objectContaining({
+        kind: "harness",
+        filePath: "navori.config.json",
+        fromVersion: "999.0.0",
+        toVersion: readCliVersion(),
+      }),
+    ]);
+    expect(scanManagedDrift(cwd, { ...config, harnessVersion: readCliVersion() })).toEqual([]);
+    expect(scanManagedDrift(cwd, { ...config, harnessVersion: "0.0.1" })).toEqual([]);
+    expect(scanManagedDrift(cwd, config)).toEqual([]);
   });
 
   // #242: when the on-disk version is NEWER than the running CLI, the mismatch
   // is a downgrade (render's anti-rollback preserves the block), classified
   // apart from a plain version drift so doctor advises updating the CLI.
-  it("classifies a marker newer than the CLI as a downgrade, not version drift", () => {
+  it("classifies a marker newer than the CLI as a downgrade", () => {
     const body = "stable body";
     // 999.0.0 is guaranteed newer than any real CLI version.
     writeAgent(body, `hash="${computeManagedHash(body)}" version="999.0.0" source="@navori/core"`);
@@ -403,7 +414,6 @@ describe("listMarkers + scanManagedDrift", () => {
     const d = drifts.find((x) => x.markerId === "leader-base");
     expect(d?.kind).toBe("downgrade");
     expect(d?.fromVersion).toBe("999.0.0");
-    expect(drifts.some((x) => x.kind === "version")).toBe(false);
   });
 
   it("no drift for a marker without version/hash attrs", () => {
@@ -561,9 +571,9 @@ describe("scanManagedOrder", () => {
 
   it("detects a swap AMONG computed blocks only when the engine's ids are threaded (#228 follow-up)", () => {
     // Two engine-computed blocks in the wrong relative order (canonical:
-    // skills-index before agentes-disponibles).
-    let doc = injectManagedSection("", "agentes-disponibles", "x").output;
-    doc = injectManagedSection(doc, "skills-index", "y").output;
+    // agentes-disponibles before contexto-proyecto).
+    let doc = injectManagedSection("", "contexto-proyecto", "x").output;
+    doc = injectManagedSection(doc, "agentes-disponibles", "y").output;
     writeFileSync(join(cwd, "CLAUDE.md"), doc);
 
     // Without the ids, both computed blocks are absent from the canonical list,
@@ -573,9 +583,9 @@ describe("scanManagedOrder", () => {
     // With the ids threaded (as doctor does), the swap is flagged.
     const r = scanManagedOrder(cwd, config, CLAUDE_COMPUTED_BLOCK_IDS);
     expect(r).not.toBeNull();
-    expect(r!.current).toEqual(["agentes-disponibles", "skills-index"]);
-    expect(r!.expected).toEqual(["skills-index", "agentes-disponibles"]);
-    expect(r!.misplacedFirst).toEqual({ id: "skills-index", currentPos: 2, total: 2 });
+    expect(r!.current).toEqual(["contexto-proyecto", "agentes-disponibles"]);
+    expect(r!.expected).toEqual(["agentes-disponibles", "contexto-proyecto"]);
+    expect(r!.misplacedFirst).toEqual({ id: "agentes-disponibles", currentPos: 2, total: 2 });
   });
 });
 
@@ -834,8 +844,8 @@ describe("monorepo workspace scanning (#235)", () => {
     // scan mirror that (`omitRootOnly:true`), so a realistic workspace order-drift is
     // a swap among the computed blocks (threaded via CLAUDE_COMPUTED_BLOCK_IDS).
     mkdirSync(join(cwd, "apps/api"), { recursive: true });
-    let doc = injectManagedSection("", "agentes-disponibles", "x").output;
-    doc = injectManagedSection(doc, "skills-index", "y").output; // canonical: skills-index first
+    let doc = injectManagedSection("", "contexto-proyecto", "x").output;
+    doc = injectManagedSection(doc, "agentes-disponibles", "y").output; // canonical: agentes-disponibles first
     writeFileSync(join(cwd, "apps/api/CLAUDE.md"), doc);
 
     const r = scanManagedOrder(
@@ -845,8 +855,8 @@ describe("monorepo workspace scanning (#235)", () => {
     );
     expect(r).not.toBeNull();
     expect(r!.workspacePath).toBe("apps/api");
-    expect(r!.current).toEqual(["agentes-disponibles", "skills-index"]);
-    expect(r!.expected).toEqual(["skills-index", "agentes-disponibles"]);
+    expect(r!.current).toEqual(["contexto-proyecto", "agentes-disponibles"]);
+    expect(r!.expected).toEqual(["agentes-disponibles", "contexto-proyecto"]);
   });
 
   it("scanMalformedMarkers scans workspace files when passed the config", () => {

@@ -1,0 +1,101 @@
+# Evals — 0047-pi-first (E1 M1, T15)
+
+Solo se registran resultados ejecutados. Lo no ejecutado se marca "no ejecutado".
+
+## Bootstrap Pi-only (`engines: ["pi"]`)
+
+| Momento | Resultado | Origen |
+| --- | --- | --- |
+| Antes | Dry-run sin destinos `AGENTS.md`/`CLAUDE.md` (gap G1 de [requirements.md](requirements.md)). | Cita de G1; no se re-ejecutó contra el código previo en este ciclo. |
+| Después | El dry-run de `renderPiEngine` en un directorio vacío lista `.pi/navori.json`, `.pi/extensions/navori.ts`, `.pi/agents/{implementer,reviewer,scout}.md` y `AGENTS.md`. | Ejecutado (script ad hoc con bun). |
+| Después | El render real escribe `AGENTS.md` de 14680 bytes con un bloque gestionado `navori-agents`, con secciones "Session startup", "Session closeout", "Workflow" y "Available skills" (sin rutas), y skills en `.agents/skills/<id>/SKILL.md`. | Ejecutado. |
+| Después | No se crean `CLAUDE.md`, `.claude/` ni `.codex`; el cuerpo no contiene las cadenas `.claude/skills` ni `CLAUDE.md`. | Ejecutado. |
+
+## Planning y close
+
+- Ejecutado: el contexto emitido incluye "Session startup", "Session closeout" y el texto de Workflow análisis -> plan -> implementación.
+- No ejecutado: efecto conductual sobre un modelo Pi vivo.
+
+## Límites observados
+
+- El encabezado de `AGENTS.md` dice "Read by Cursor, Codex, Gemini and Copilot" (prosa genérica; no nombra a Pi).
+- El cuerpo es de 14.7 KB siempre cargado; el costo en tokens no se midió.
+- El bloque de orquestación se omite para Pi (depende del Agent tool de Claude).
+
+## Tests
+
+- `first-class-context.test.ts`: 6 tests pasan.
+- A1 (`first-class-roles`, `first-class-approvals`, `first-class-context`): 18 tests pasan.
+
+## No ejecutado: comparación RED/GREEN en vivo
+
+La comparación aislada con el mismo modelo, proyecto y tarea que exige la sección de evals de [design.md](design.md) no se ejecutó. Requiere una sesión Pi real (>= 1.1.0) con un modelo fijo, un proyecto Pi-only sin contexto (RED) y otro con el contexto renderizado (GREEN), y la misma tarea de bootstrap/planning/close en ambos. Queda como smoke manual del usuario.
+
+## E2 M3 (T5, T6): evidencia y cierre en Pi
+
+Feature `0047-pi-first-e2`. Solo se registran resultados ejecutados, tomados del handoff de implementación.
+
+### Ejecutado
+
+- A3 (`first-class-evidence.test.ts`, `first-class-receipts.test.ts`): ronda 2: exit 0; 2 archivos / 12 tests pasan (ronda 1: 10 tests).
+- Respaldado por test (ronda 2): abort/timeout rechazan sin `exit_code` y no registran evidencia; el fingerprint coincide con `fingerprintTree`.
+- Regresión pi + plan + lib/plan: exit 0; 23 archivos / 258 tests pasan.
+- `bun run check:fast`: exit 0.
+
+### Hallazgo del probe de contrato de éxito (Pi 1.1.0)
+
+- El `outputSchema` del bash builtin expone `structuredContent.exit_code`; es la señal terminal de éxito.
+- Un exit distinto de cero produce `isError`.
+- Abort y timeout lanzan error sin `exit_code`, por lo que no cuentan como evidencia.
+- El builtin se identifica por `sourceInfo` `builtin:bash`; una herramienta reemplazada no se acepta como evidencia.
+- El observador (`isVerifiedBashSuccess` en `extension-source.ts`) falla cerrado: solo registra con `builtin:bash` y `exit_code` 0.
+- T6: la sesión Pi se detecta por `PI_SESSION_ID` más `engines` con `pi`, y exige `evidenceRequired` en `plan update`.
+
+### No ejecutado
+
+- Cierre en una sesión Pi viva.
+- Comparación de contexto always-on RED/GREEN con modelo en vivo (design.md:114): no ejecutada; pendiente.
+- Smoke manual con modelo en vivo (OAuth `/login openai-codex`): parcial; resultado en [E4 · smoke manual](#e4--smoke-manual-con-modelo-en-vivo).
+
+### Gate
+
+- Gate completo (`bun check`): ejecutado en verde en la ronda 2 de revisión de E2 (registrado en el workplan de E4).
+
+### Límites conocidos
+
+- El procedimiento de fingerprint es una tercera copia (`evidence.ts`, `bash-outcome.sh`, extensión).
+- Los criterios ligados a la entrega (delivery-bound) no se registran desde Pi.
+- Pi < 1.1.0 falla cerrado en runtime (sin `structuredContent`/`getAllTools` no hay evidencia); la tabla de capabilities no se tocó, así que no se bloquea por versión.
+
+## E4 · M7 — ciclo Pi credential-free
+
+### Ejecutado
+
+- `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-e2e.test.ts`: exit 0; 2 tests pasan (ciclo completo credential-free y contrato documental de `docs/pi.md`). Runtime Pi 1.1.0 fijado, proveedor faux.
+
+### Límites
+
+- Sin modelo en vivo: faux prueba el pipeline, no el cumplimiento del modelo.
+- El padre corre en proceso (SDK), no como TUI; la aprobación usa un `ui.confirm` simulado.
+- Sin OAuth en vivo ni credenciales reales.
+
+## E4 · smoke manual con modelo en vivo
+
+Ejecutado por el usuario el 2026-10-11 con Pi 1.1.0 y su modelo activo, en un proyecto Pi-only (repo Node mínimo, `node --test`) renderizado con el CLI de la rama E4. Resultado: parcial.
+
+### Confirmado
+
+- Arranque: el contexto de `AGENTS.md` llega en `session_start` sin pegarlo; el modelo distingue el snapshot de arranque del estado verificado.
+- Implementer: `navori_subagent` con rol `implementer` escribe código y tests, deja `impl_<feature>.md` y el padre verifica con `verify-before-done`.
+- Reviewer: `navori_subagent` con rol `reviewer` vuelve a correr los tests y devuelve `APPROVED`.
+
+### Hallazgos
+
+- Aviso de atasco: tres `npm test` idénticos en llamadas separadas no avisaron. La firma conservaba `duration_ms` de `node --test`. Corregido en M8 (A8) en la extensión y en el hook compartido de Claude/Codex; cubierto con salidas reales de node, vitest y jest. No se repitió en vivo tras el fix.
+- `navori receipt check` falla sin remoto `origin`; preexistente y fuera de Pi (#1292).
+- El resultado de `navori_subagent` no expone el modelo del hijo, así que la herencia no es observable desde el log del padre; la cubre el e2e.
+
+### No ejecutado
+
+- Reanudar la sesión (`pi -c`) y comprobar que el contexto no se duplica: cubierto solo por `first-class-context.test.ts`.
+- Comparación RED/GREEN del contexto always-on.

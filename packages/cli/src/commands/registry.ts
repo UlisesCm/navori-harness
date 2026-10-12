@@ -13,13 +13,7 @@ import {
 import { readConfig } from "../lib/config/config.ts";
 import { intFlagOrExit } from "../lib/primitives/args.ts";
 import { brand, dim, color, accent, sym } from "../lib/primitives/style.ts";
-import { tc, resolveLang, type Lang } from "../lib/i18n.ts";
-import { readGlobalConfig } from "../lib/config/global-config.ts";
-
-/** Language for the machine-global registry commands: global config, else default. */
-function globalLang(): Lang {
-  return resolveLang(readGlobalConfig()?.language);
-}
+import { tc, DEFAULT_LANG } from "../lib/i18n.ts";
 
 /** Best-effort read of a repo's config.name for display / caching. */
 function repoName(repoPath: string): string | undefined {
@@ -38,7 +32,7 @@ const lsSubCommand = defineCommand({
     description: "List every repo in the global registry",
   },
   run() {
-    const tr = tc(globalLang()).registry;
+    const tr = tc(DEFAULT_LANG).registry;
     p.intro(brand("registry ls"));
     const repos = listRegistryRepos();
     if (repos.length === 0) {
@@ -69,7 +63,7 @@ const scanSubCommand = defineCommand({
     depth: { type: "string", description: "Max directory depth to descend (default 4)" },
   },
   run({ args, rawArgs }) {
-    const tr = tc(globalLang()).registry;
+    const tr = tc(DEFAULT_LANG).registry;
     p.intro(brand("registry scan"));
     // citty gives a single positional in `args.dirs`; grab the rest from rawArgs
     // so `navori registry scan ~/a ~/b` scans both.
@@ -121,7 +115,7 @@ const addSubCommand = defineCommand({
     path: { type: "positional", description: "Path to the repo root", required: true },
   },
   run({ args }) {
-    const tr = tc(globalLang()).registry;
+    const tr = tc(DEFAULT_LANG).registry;
     p.intro(brand("registry add"));
     const repoPath = resolve(String(args.path));
     if (!existsSync(join(repoPath, "navori.config.json"))) {
@@ -144,7 +138,7 @@ const removeSubCommand = defineCommand({
     path: { type: "positional", description: "Path to the repo root", required: true },
   },
   run({ args }) {
-    const tr = tc(globalLang()).registry;
+    const tr = tc(DEFAULT_LANG).registry;
     p.intro(brand("registry remove"));
     const repoPath = resolve(String(args.path));
     const removed = unregisterRepo(repoPath);
@@ -159,7 +153,7 @@ const pruneSubCommand = defineCommand({
     description: "Drop registry entries whose repo no longer exists",
   },
   run() {
-    const tr = tc(globalLang()).registry;
+    const tr = tc(DEFAULT_LANG).registry;
     p.intro(brand("registry prune"));
     const { removed, kept } = pruneRegistry();
     if (removed.length === 0) {

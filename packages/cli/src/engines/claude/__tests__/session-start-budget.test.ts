@@ -272,3 +272,50 @@ describe("#1244 — el aviso de herramientas va al final y no rompe el techo", (
     expect(noNotice).toBe(plain);
   });
 });
+
+describe("#1263 — el aviso de tope blando del resume respeta el techo de entrega", () => {
+  const SOFT = 4000;
+
+  it("no aparece con un resume por debajo del tope", () => {
+    const ctx = runHook(renderedRepo(3000));
+    expect(ctx).not.toContain(`-byte cap`);
+    expect(ctx).not.toContain(`(tope ${SOFT})`);
+  });
+
+  it("aparece inline, tras el resume, cuando este cabe", () => {
+    const ctx = runHook(renderedRepo(4600), { NAVORI_CTX_BUDGET: "30000" });
+    expect(ctx).toContain(`-byte cap`);
+    expect(ctx.indexOf("-byte cap")).toBeGreaterThan(ctx.indexOf("Resume"));
+  });
+
+  it("aparece en el puntero cuando el resume no cabe, y el contexto sigue bajo el techo", () => {
+    const ctx = runHook(renderedRepo(60_000));
+    expect(ctx).toContain("quedó fuera del contexto de arranque");
+    expect(ctx).toContain(`(tope ${SOFT})`);
+    expect(ctx.length).toBeLessThanOrEqual(DELIVERY_CEILING);
+  });
+
+  it("con aviso de herramientas y worktrees conservados presentes sigue bajo el techo", () => {
+    const BODY = "A newer engram is available: 3.2.1 (installed: 3.0.0).";
+    const bin = mkdtempSync(join(tmpdir(), "navori-budget-bin-"));
+    writeFileSync(
+      join(bin, "navori"),
+      `#!/bin/sh\n[ "$3" = "--ack" ] || printf '#navori-tool-notice v1 ack=engram@3.2.1\\n${BODY}\\n'\n`,
+      { mode: 0o755 },
+    );
+    for (const resumeBytes of [4600, 60_000]) {
+      const cwd = renderedRepo(resumeBytes);
+      mkdirSync(join(cwd, ".claude/worktrees"), { recursive: true });
+      writeFileSync(join(cwd, ".claude/worktrees/.navori-kept-notice"), "feature-x: 3 commits\n");
+      const ctx = runHook(cwd, {
+        NAVORI_NO_UPDATE_NOTIFIER: "",
+        PATH: `${bin}:${join(process.execPath, "..")}:/usr/bin:/bin`,
+      });
+      // Inline (English) or pointer (Spanish): one of the two always carries it.
+      expect(/-byte cap|\(tope 4000\)/.test(ctx)).toBe(true);
+      expect(ctx.length).toBeLessThanOrEqual(DELIVERY_CEILING);
+      expect(ctx).toContain(BODY);
+      expect(ctx).toContain('navori:managed id="orquestacion"');
+    }
+  });
+});

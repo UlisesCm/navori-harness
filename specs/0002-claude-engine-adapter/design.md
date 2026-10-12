@@ -57,6 +57,11 @@ Ejemplos de preguntas base:
 - "¿Cuál es tu test runner?" → `project.testRunner`
 - (Las que aporte cada plugin via `plugin.json#prompts[]`)
 
+> **Enmienda 2026-10-08 (#1262):** el atributo `version` del marker ya no es la versión que
+> renderizó el bloque sino la que cambió por última vez su contenido (o frontmatter); lo mismo
+> aplica a `$navori.version` en settings/.mcp.json. El registro a nivel repo es la clave opcional
+> `harnessVersion` de `navori.config.json`. `hash` no cambia. Ver `docs/architecture.md`.
+
 ## Decisiones tomadas (DT-1 a DT-6)
 
 ### DT-1 — Markers en archivos shell (hooks, scripts)

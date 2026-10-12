@@ -1,0 +1,14 @@
+id: no-explicit-any
+language: typescript
+severity: error
+message: "Explicit `any` is forbidden. Use `unknown` + narrowing. Escape (last resort) is `// ast-grep-ignore: no-explicit-any` plus a reason."
+note: "Only covers the directories oxlint does not lint (packages/cli/src is covered by typescript/no-explicit-any)."
+files:
+  - apps/website/src/**
+  - scripts/**
+  - packages/core/**
+  - packages/plugins/**
+  - .pi/extensions/**
+rule:
+  kind: predefined_type
+  regex: ^any$

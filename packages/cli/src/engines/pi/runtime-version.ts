@@ -1,11 +1,37 @@
-export const MIN_PI_VERSION = "0.87.1";
+import { ENGINE_CAPABILITIES } from "../shared/engine-capabilities.ts";
+
+/**
+ * Spec 0048 D10: the verified floor. A Pi older than this, a prerelease or an unparseable version is
+ * NOT verified: the extension then registers only the write block (see `PI_UNVERIFIED_SOURCE`).
+ */
+export const MIN_PI_VERSION = "1.1.0";
 export const MIN_NODE_VERSION = "22.19.0";
 
 type Version = readonly [major: number, minor: number, patch: number];
 type RuntimeCheck = (piVersion: string, nodeVersion?: string) => void;
+type AdmissionVersion = { capability: string; verifiedFrom: string };
+interface RuntimeChecks {
+  assert: RuntimeCheck;
+  /** Throws when Node is below the floor; the Pi version is judged separately by `verified`. */
+  assertNode: (nodeVersion?: string) => void;
+  /** True only for a stable Pi release at or above the floor (a prerelease or unparseable version is unverified). */
+  verified: (piVersion: string) => boolean;
+  /** Admitted capabilities the given Pi version has not been verified for (empty = all verified). */
+  unverified: (piVersion: string) => string[];
+}
+
+/** Admitted Pi runtime capabilities (spec 0047 D1): the single table the extension is gated on. */
+const ADMITTED: readonly AdmissionVersion[] = (ENGINE_CAPABILITIES.pi.runtimeAdmissions ?? [])
+  .filter((row) => row.decision === "admitted")
+  .map(({ capability, verifiedFrom }) => ({ capability, verifiedFrom }));
 
 /** Keep serialized code closure-free so bundled function names remain valid. */
-function createRuntimeCheck(minPiVersion: string, minNodeVersion: string): RuntimeCheck {
+function createRuntimeCheck(
+  minPiVersion: string,
+  minNodeVersion: string,
+  admissions: readonly AdmissionVersion[],
+): RuntimeChecks {
+  // A prerelease (`x.y.z-tag`) never matches: it is unverified by construction (spec 0048 D10).
   function parseStableVersion(value: string): Version | null {
     const match = /^v?(\d+)\.(\d+)\.(\d+)(?:\+[\w.-]+)?$/.exec(value.trim());
     if (!match) return null;
@@ -22,7 +48,7 @@ function createRuntimeCheck(minPiVersion: string, minNodeVersion: string): Runti
     return actual[2] >= minimum[2];
   }
 
-  return (piVersion: string, nodeVersion: string = process.versions.node): void => {
+  const assertNode = (nodeVersion: string = process.versions.node): void => {
     const node = parseStableVersion(nodeVersion);
     const minimumNode = parseStableVersion(minNodeVersion);
     if (!node || !minimumNode || !isAtLeast(node, minimumNode)) {
@@ -30,15 +56,46 @@ function createRuntimeCheck(minPiVersion: string, minNodeVersion: string): Runti
         `Navori's Pi engine requires Node.js ${minNodeVersion} or later; found ${nodeVersion}.`,
       );
     }
+  };
 
+  const verified = (piVersion: string): boolean => {
     const pi = parseStableVersion(piVersion);
     const minimumPi = parseStableVersion(minPiVersion);
-    if (!pi || !minimumPi || !isAtLeast(pi, minimumPi)) {
+    return pi !== null && minimumPi !== null && isAtLeast(pi, minimumPi);
+  };
+
+  const assert = (piVersion: string, nodeVersion: string = process.versions.node): void => {
+    assertNode(nodeVersion);
+    if (!verified(piVersion)) {
       throw new Error(
         `Navori's Pi engine requires @earendil-works/pi-coding-agent ${minPiVersion} or later; found ${piVersion}. Run pi --version and upgrade Pi.`,
       );
     }
   };
+
+  const unverified = (piVersion: string): string[] => {
+    const pi = parseStableVersion(piVersion);
+    return admissions
+      .filter((row) => {
+        const verified = parseStableVersion(row.verifiedFrom);
+        return !pi || !verified || !isAtLeast(pi, verified);
+      })
+      .map((row) => row.capability + " (verified from Pi " + row.verifiedFrom + ")");
+  };
+
+  return { assert, assertNode, verified, unverified };
+}
+
+/**
+ * Reproducible runtime probe: the admitted child flags a Pi help text does not list.
+ * A flag the runtime does not advertise is never counted as an enforced capability.
+ */
+export function missingPiChildFlags(helpText: string): string[] {
+  const tokens = new Set(helpText.split(/[\s,]+/));
+  return (ENGINE_CAPABILITIES.pi.runtimeAdmissions ?? [])
+    .filter((row) => row.decision === "admitted" && row.flag !== undefined)
+    .map((row) => row.flag as string)
+    .filter((flag) => !tokens.has(flag));
 }
 
 /**
@@ -58,13 +115,20 @@ export function serializeAnonymousFunction(fn: (...args: never[]) => unknown): s
 /** Embed a stable binding to the same self-contained check after bundling. */
 export function renderPiRuntimeVersionSource(): string {
   return (
-    `const assertSupportedPiRuntime = (${serializeAnonymousFunction(createRuntimeCheck)})` +
-    `(${JSON.stringify(MIN_PI_VERSION)}, ${JSON.stringify(MIN_NODE_VERSION)});\n`
+    `const piRuntimeChecks = (${serializeAnonymousFunction(createRuntimeCheck)})` +
+    `(${JSON.stringify(MIN_PI_VERSION)}, ${JSON.stringify(MIN_NODE_VERSION)}, ${JSON.stringify(ADMITTED)});\n` +
+    `const PI_MIN_VERSION = ${JSON.stringify(MIN_PI_VERSION)};\n` +
+    "const assertSupportedPiRuntime = piRuntimeChecks.assert;\n" +
+    "const assertSupportedNode = piRuntimeChecks.assertNode;\n" +
+    "const isVerifiedPiRuntime = piRuntimeChecks.verified;\n" +
+    "const unverifiedPiCapabilities = piRuntimeChecks.unverified;\n"
   );
 }
 
 /** Reject incompatible Pi/Node versions before loading Navori's Pi extension. */
-export const assertSupportedPiRuntime: RuntimeCheck = createRuntimeCheck(
-  MIN_PI_VERSION,
-  MIN_NODE_VERSION,
-);
+const checks = createRuntimeCheck(MIN_PI_VERSION, MIN_NODE_VERSION, ADMITTED);
+export const assertSupportedPiRuntime: RuntimeCheck = checks.assert;
+export const isVerifiedPiRuntime: RuntimeChecks["verified"] = checks.verified;
+
+/** Admitted capabilities this Pi version has not been verified for; dispatch refuses a non-empty list. */
+export const unverifiedPiCapabilities: RuntimeChecks["unverified"] = checks.unverified;

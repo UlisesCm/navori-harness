@@ -65,10 +65,10 @@ function config(overrides: Partial<NavoriConfigInput> = {}): NavoriConfig {
 
 // Covers: R8, R9
 it.each([
-  [false, false, "490bfa8d66de1605e4091589beb091b8f658e7713755d22e2dd6ed05ac49f6f1"],
-  [false, true, "918e29553aa27987f0d7f6ce49258ae1bd9883459b7d9dd0a3899225bccfebdf"],
-  [true, false, "4033adc179afea42f55dd73927a40a5196a0d0ef51049601e0722a5209102fcc"],
-  [true, true, "60e26a73769835cbc469d4938d4f5986367548148106c5bf0f6af66af77dbba8"],
+  [false, false, "868e548496c97ff9707c4b16aae93ae9fe2e1696fd28cd972ec1d771e5f01f25"],
+  [false, true, "288c567b98076be364a3ca9a2f5c9a28ff58a67bd83de98382029fcd8588fcb8"],
+  [true, false, "9e1f2d40ccb1311249ff0aa6f467b7bbc8cd5b15169b3f34b9edbcf5b5bd067e"],
+  [true, true, "c410047ce68dcdfcfcc506593ef7d7368a09443e0568e5337511ac0ded0b7c24"],
 ] as const)(
   "keeps every pre-capture indexed tuple with planTiers=%s masterPlan=%s",
   (planTiers, masterPlan, digest) => {
@@ -98,7 +98,8 @@ it.each([
         statusMessage: "navori: child capture",
       },
     ]);
-    // Golden digest taken from HEAD73fd353b before adding capture. Every tuple
+    // Golden digest, re-taken when jscpd and semgrep left the catalog (their two
+    // plugin hooks no longer exist). Every tuple
     // includes script/event/index/args/matcher/timeout/status, including plugins.
     const oldTuples = tuples.filter((hook) => hook.event !== "SubagentStart");
     expect(createHash("sha256").update(JSON.stringify(oldTuples)).digest("hex")).toBe(digest);
@@ -199,7 +200,7 @@ describe("renderCodexEngine", () => {
       expect(publisher).toContain(`git fetch origin ${target} --quiet`);
       expect(publisher).toContain(`HEAD..origin/${target}`);
       expect(publisher).toContain(`git log origin/${target}..HEAD --oneline`);
-      expect(publisher).toContain(`diff --name-only "origin/${target}"`);
+      expect(publisher).toContain(`git diff origin/${target} --stat`);
       expect(publisher).toContain(`navori receipt check --feature <feature> --target ${target} `);
       expect(publisher).toContain(`--base ${target}`);
       expect(implementer).toContain(`git diff --stat origin/${target}...HEAD`);
@@ -1237,21 +1238,6 @@ describe("renderCodexEngine — manual-only skill sidecar (#823)", () => {
   });
 });
 
-describe("renderCodexEngine — plugin skill extension, jscpdThreshold retired (#1060)", () => {
-  it("review-diff/SKILL.md carries no raw placeholder and no --threshold", () => {
-    const cwd = tempRepo();
-    renderCodexEngine(
-      cwd,
-      config({ preset: "vite-react-ts", plugins: { jscpd: { enabled: true } } }),
-    );
-    const skill = readFileSync(join(cwd, ".agents/skills/review-diff/SKILL.md"), "utf-8");
-    expect(skill).not.toContain("<not configured: jscpdThreshold>");
-    expect(skill).not.toContain("--threshold");
-    expect(skill).toContain("--baseline-from-ref");
-    expect(skill).toContain("--fail-on-new-clones 0");
-  });
-});
-
 describe("renderCodexEngine — navori:if conditions in agent TOMLs (spec 0041 T1)", () => {
   // Covers: R28
   it.each([false, true])(
@@ -1284,8 +1270,6 @@ describe("renderCodexEngine — installed scripts follow registration (spec 0041
       harness: { planTiers: true, scribeOwnsMarkdown: true, masterPlan: true },
       plugins: {
         engram: { enabled: true },
-        jscpd: { enabled: true },
-        semgrep: { enabled: true },
         tgrep: { enabled: true },
       },
     });
@@ -1298,7 +1282,6 @@ describe("renderCodexEngine — installed scripts follow registration (spec 0041
       ".codex/hooks/subagent-no-background.sh",
     ])
       expect(actual).not.toContain(gone);
-    expect(actual).toContain(".codex/scripts/check-jscpd.sh");
     // R29: the guard is installed because the hook extension sources it.
     expect(actual).toContain(".codex/scripts/guard-search-routing.sh");
   });
@@ -1380,8 +1363,6 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
   const withPlugins = {
     plugins: {
       engram: { enabled: true },
-      jscpd: { enabled: true },
-      semgrep: { enabled: true },
     },
   } as const;
 
@@ -1450,7 +1431,7 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
     for (const [event, scripts] of before) {
       expect(after.get(event)?.slice(0, scripts.length), event).toEqual(scripts);
     }
-    expect(before.get("PreToolUse")).toContain("check-jscpd.sh");
+    expect(before.get("PreToolUse")).toContain("quality-gate-pre-commit");
     expect(after.get("PreToolUse")?.at(-1)).toBe("master-accept-confirm");
     expect(after.get("SessionStart")?.at(-1)).toBe("master-plan-context");
     // Pinned: the indexes Codex trust already approved.
@@ -1479,7 +1460,9 @@ describe("renderCodexEngine — master-plan in Codex (spec 0041 T15)", () => {
       "quality-gate-pre-commit",
     ]);
     expect(scripts.at(-4)).toBe("role-guard");
-    expect(scripts.indexOf("role-guard")).toBeGreaterThan(scripts.indexOf("check-jscpd.sh"));
+    expect(scripts.indexOf("role-guard")).toBeGreaterThan(
+      scripts.indexOf("quality-gate-pre-commit"),
+    );
     expect(preTool.find((hook) => hook.script === "role-guard")?.matcher).toBe(
       "^apply_patch$|spawn_agent$",
     );

@@ -110,6 +110,13 @@ export interface OrphanScan {
    * workspace `removed-trimmed`.
    */
   removalStatus?: PendingRemoval["status"];
+  /**
+   * Extra keep rule for a `"file"` orphan, consulted BEFORE the authorship test: a
+   * non-null reason keeps (and reports) the file, null falls through. Used for a
+   * retired plugin's script that something may still call. `skipped` is what the
+   * render skipped so far (a skipped `config.toml` may still register the script).
+   */
+  keep?: (relPath: string, absPath: string, skipped: readonly SkippedFile[]) => KeepReason | null;
 }
 
 export interface AdapterCtx {
@@ -396,7 +403,7 @@ export function collectPlan(
     collectRequest(req, ctx, pending, skipped, skipReason, collisions, adapter.id, lang);
 
   const { removals, kept } = prune
-    ? collectOrphans(adapter.orphanScans(plan, ctx), ctx.cwd)
+    ? collectOrphans(adapter.orphanScans(plan, ctx), ctx.cwd, skipped)
     : { removals: [], kept: [] };
 
   return { pending, removals, skipped, kept, collisions };
@@ -641,6 +648,7 @@ function statusOf(scan: OrphanScan): Pick<PendingRemoval, "status"> {
 function collectOrphans(
   scans: readonly OrphanScan[],
   cwd: string,
+  skipped: readonly SkippedFile[],
 ): { removals: PendingRemoval[]; kept: KeptOrphan[] } {
   const removals: PendingRemoval[] = [];
   const kept: KeptOrphan[] = [];
@@ -652,6 +660,11 @@ function collectOrphans(
         const relPath = `${scan.dir}/${entry.name}`;
         const absPath = join(dirAbs, entry.name);
         if (scan.desired.has(relPath)) continue;
+        const extraKeep = scan.keep?.(relPath, absPath, skipped) ?? null;
+        if (extraKeep !== null) {
+          kept.push({ path: relative(cwd, absPath), reason: extraKeep });
+          continue;
+        }
         // Flat orphan files (scripts, hooks, agents): a hand-edited managed block
         // is kept, not deleted (`verifyHash`).
         const expected = scan.expected?.(relPath);
@@ -719,6 +732,29 @@ function collectOrphans(
     }
   }
   return { removals, kept };
+}
+
+let realWrites = 0;
+
+/**
+ * Record that a command REALLY wrote or removed something (not a preview). The
+ * registry (`harnessVersion`) bumps only after an apply that did, so every
+ * commit chokepoint calls this: `commitWrites`, the prose harness, prune, sync
+ * resolutions and `adopt`. A module-level counter on purpose: results come in
+ * about ten shapes and there is no single aggregate to read after the fact.
+ */
+export function noteRealWrite(): void {
+  realWrites += 1;
+}
+
+/** Zero the real-write counter at the start of an apply. */
+export function resetRealWrites(): void {
+  realWrites = 0;
+}
+
+/** Whether a real write/removal happened since {@link resetRealWrites}. */
+export function hadRealWrites(): boolean {
+  return realWrites > 0;
 }
 
 /**
@@ -806,6 +842,7 @@ export function commitWrites(input: {
         current = item.path;
         mkdirSync(dirname(item.path), { recursive: true });
         writeFileAtomic(item.path, item.content);
+        noteRealWrite();
         if (item.chmodExec) {
           try {
             chmodSync(item.path, 0o755);
@@ -819,6 +856,7 @@ export function commitWrites(input: {
         for (const removal of removals) {
           current = removal.path;
           rmSync(removal.path, { recursive: removal.recursive === true, force: true });
+          noteRealWrite();
           completed.push(relative(cwd, removal.path));
         }
       }
@@ -839,6 +877,7 @@ export function commitWrites(input: {
       for (const removal of removals) {
         try {
           rmSync(removal.path, { recursive: removal.recursive === true, force: true });
+          noteRealWrite();
         } catch {
           // Best effort — a read-only scripts dir shouldn't crash the render.
         }

@@ -18,9 +18,18 @@ import { isUnderProgressDir } from "../primitives/progress-dirs.ts";
 import { FEATURE_SLUG, resolveStateRoot, stateArtifactPath } from "../primitives/state-root.ts";
 import { reviewEvidenceWarning } from "./review-evidence.ts";
 
-export type HandoffConsumer = "orchestrator" | "scribe" | "publisher";
+export type HandoffConsumer = "orchestrator" | "scribe" | "publisher" | "reviewer";
 export type HandoffStatus = "ok" | "findings" | "error";
-export type FailureCheck = "exists" | "parse" | "feature" | "worktree" | "branch" | "path";
+export type FailureCheck =
+  | "exists"
+  | "parse"
+  | "feature"
+  | "worktree"
+  | "branch"
+  | "path"
+  | "verdict"
+  | "evidence"
+  | "fresh";
 export type WarningCheck = "head" | "legacy-md" | "review-evidence";
 
 export interface HandoffFinding {

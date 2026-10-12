@@ -84,7 +84,7 @@ function config(over: Partial<NavoriConfig> = {}): NavoriConfig {
 }
 
 function scan(cfg: NavoriConfig = config()) {
-  return scanForeignHarness(cwd, cfg, { claudeDir, globalLayerInstalled: false });
+  return scanForeignHarness(cwd, cfg, { claudeDir });
 }
 
 describe("only a real conflict is reported (R1, R2)", () => {
@@ -225,16 +225,18 @@ describe("permission contradictions and the gitignored signal (R3, R6)", () => {
     expect(scan()?.permissions).toEqual([]);
   });
 
-  it("leaves the personal settings to #547 when navori's global layer is installed", () => {
-    // `scanGlobalScope` already compares that exact pair. One rule printed in
-    // two sections teaches the reader that the sections overlap.
+  // Covers: R4
+  it("con global.json presente, el conflicto del settings personal se reporta", () => {
+    // The scan no longer consults global.json at all: its presence changes nothing.
     repoSettings(["Bash(rm -rf:*)"]);
     write(
       join(claudeDir, "settings.json"),
       `${JSON.stringify({ permissions: { allow: ["Bash(rm -rf:*)"] } }, null, 2)}\n`,
     );
-    const report = scanForeignHarness(cwd, config(), { claudeDir, globalLayerInstalled: true });
-    expect(report?.permissions).toEqual([]);
+    const report = scanForeignHarness(cwd, config(), { claudeDir });
+    expect(report?.permissions).toEqual([
+      { rule: "Bash(rm -rf:*)", path: join(claudeDir, "settings.json") },
+    ]);
   });
 
   it("marks a foreign repo asset that git ignores", () => {

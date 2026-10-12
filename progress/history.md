@@ -1,5 +1,33 @@
 # History
 
+## 2026-10-08 16:40 claude — Revisión adaptativa, entrega E1 (#1275, PR #1278)
+
+Cambios:
+- **M1:** `qualityGate.scoped` y `{{navori.scopedGate}}`. El reviewer corre scoped + `A<n>` en rondas `CHANGES_REQUESTED` y el full solo al firmar `APPROVED`.
+- **M2:** `receipt gate` y `receipt sign` para workplans (`decideWorkplanGate`, fail closed a full).
+- **M3:** `qualityGate.full` ordenado de barato a caro, `fast` = lint + typecheck y `check:scoped` estático sin tests (~8 s). Se descartó `vitest related`: sobre módulos hub seleccionó 241 archivos y tardó 518 s, contra ~408 s del full.
+- El prompt del reviewer volvió bajo su techo de bytes: se quitó el literal del full de la fila CR.
+Quality gate: full verde en la ronda de firma, receipt `gateKind: full` (reviewer APPROVED tras 1 CR por bytes del prompt).
+Notas: la rama se rebaseó sobre #1276 a mitad de ciclo. Se abrió #1277 (evidencia `A<n>` en worktrees).
+
+## 2026-10-08 13:00 claude — Prompts de reviewer y publisher más chicos (#1264)
+
+Cambios: publisher deja de recalcular el shipping set en prosa y lee `navori receipt check --json` con una tabla estado→acción (28,367 → 24,144 B renderizado); reviewer elimina literales duplicados del gate, la regla de navegador repetida y el Setup 5 que repetía el routing (22,194 → 20,050 B); test nuevo `agent-prompt-bytes` fija topes de bytes; `harnessVersion` registrado por el render.
+Quality gate: `bun check` verde, receipt firmado (reviewer APPROVED, nivel 2 con architect + challenge; P-B/R-B descartados).
+Notas: comentario de maxWords del publisher quedó desactualizado (3557 palabras reales); ahorro ~6.4 KB por ciclo.
+
+## 2026-10-08 11:30 claude — Tope duro de progress/current.md (#1263, fase 2)
+
+Cambios: el hook de pre-commit bloquea (trinquete) un commit de agente cuyo `progress/current.md` supera 8000 bytes y creció respecto a HEAD; el hook de arranque avisa desde 4000 bytes; `doctor` mide bytes; topes definidos una vez en `doc-budgets.ts` e interpolados en los hooks; sin override. Doctrina de cierre paso 3 actualizada.
+Quality gate: verde completo, receipt firmado (reviewer APPROVED, nivel 2 con architect + challenge).
+Notas: repos sin `qualityGate.fast` y commits fuera del detector quedan en #1266.
+
+## 2026-10-08 10:30 claude — Acotar progress/current.md (#1263)
+
+Cambios: `navori doctor` avisa (humano y `--json` `progressSize`) cuando `progress/current.md` supera 4000 caracteres (mitad de `SESSION_CONTEXT_DELIVERY_BUDGET_CHARS`), solo informativo; el paso 3 de la doctrina de cierre aclara que los checkpoints van a `history.md`; goldens re-renderizados; `progress/current.md` recortado de 38.8 KB a ~680 caracteres (el log previo queda en `git show 22cc6dea:progress/current.md`).
+Quality gate: verde completo, receipt firmado (reviewer APPROVED).
+Notas: el primer gate falló por otra sesión corriendo vitest en el mismo checkout; se aisló el trabajo en este worktree.
+
 ## 2026-10-05 21:25 codex — Recover audit privacy, usage and bounded mining
 
 Recovered PR #1222's malformed report and context-safe public projection, qualified metadata route and canonical hook capture. Private CLI/lifecycle exports now require checked private storage and explicit identity; human content requires per-call opt-in. Exclusive private arm claims replace the disproved unlink-only contention assumption. Native Node 26 crash tests invoke the built CLI rather than removed TypeScript-transform flags.
@@ -71,3 +99,12 @@ User explicitly chose a draft PR and continuation tomorrow. Publish the branch a
 ## 2026-10-05 22:43 codex — Cierra sesión con PR draft1228
 
 Session closed — 2026-10-05 22:43: operator created PR https://github.com/UlisesCm/navori-harness/pull/1228; fresh GitHub read confirms OPEN, draft=true, target main, head feat/dual-workflow-live-pilot. User explicitly stops here. Next: investigate bundle1231.3KB versus1200KB, scope any fix through implementer then reviewer, and run the complete gate before readiness. Current integration receipt check confirms no matching fresh receipt (stored receipt belongs to prior a5-cleanup-timeout-exception); no repeat full run is attempted at the user's stop. Measured A5 remains pending. Preserve local child repositories, real captures and autostash77701a96. Feature branch remains on this worktree because main is checked out at navori-harness-pr1221; do not move or delete that other worktree. Runtime memory registration remains unavailable, so session closure is persisted in project progress only.
+
+## 2026-10-11 21:10 pi — Guarda spec 0049 de endurecimiento de master-plan
+
+Convertido el workplan aprobado a `specs/0049-master-plan-production-hardening/{requirements,design,tasks}.md`: 15 requisitos EARS, dos entregas de implementación y siete milestones con tareas pendientes. Conserva las políticas aprobadas de validación estricta para specs nuevas y de evidencia huérfana frente a antigua. Este ciclo solo publica documentación; no implementa runtime ni duplica el fix del runner de Pi de la entrega 0048.
+
+Scribe y reviewer externos de Claude ejecutaron el ciclo sin cambiar permisos. La revisión corrigió el alcance por engine de init y aclaró que el modo automático ya funciona: M4 solo cambia la redacción del skill. `navori spec check` pasó sin findings; su warning `merged-deliveries` queda documentado y no sustituye la organización explícita E1/E2.
+
+Gate completo del reviewer: `bun run check` exit 0, 405 archivos de tests, 8794 tests pasaron y dos skipped; coverage floor OK. Recibo verificado `status:ok`, `fresh:true`, `gateKind:full` antes del delta editorial y este cierre. El reviewer debe revalidar y re-firmar esos deltas antes de commit y publicación del PR de scaffold a dev, sin merge automático. Siguiente implementación: E1/M1, tras disponer de un harness funcional.
+

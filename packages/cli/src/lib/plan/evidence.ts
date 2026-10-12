@@ -310,6 +310,16 @@ function candidateProblem(
   return undefined;
 }
 
+/** True when the acceptance index (the file the evidence hook reads) has a pending line for `feature`. */
+function indexHasFeature(root: StateRoot, feature: string): boolean {
+  try {
+    const text = readFileSync(resolve(root.cwd, ".navori/state/handoffs/acceptance-index"), "utf8");
+    return text.split("\n").some((line) => line.split("\t")[1] === feature);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Finds the newest evidence line that still holds for `id`: same command as
  * the criterion today, run at the root of this feature's checkout/worktree,
@@ -329,6 +339,15 @@ export function validateEvidence(input: ValidateEvidenceInput): EvidenceVerdict 
     `       then: navori plan update ${feature} --progress ${id}=cumplido`;
 
   if (lines.length === 0) {
+    if (!indexHasFeature(root, feature)) {
+      return {
+        ok: false,
+        why: "no run recorded",
+        fix:
+          `the acceptance index has no line for ${feature}, so no run could be recorded: ` +
+          `run \`navori plan render ${feature}\`, then rerun the command.\n       ${rerun(treeRoot)}`,
+      };
+    }
     return {
       ok: false,
       why: "no run recorded",

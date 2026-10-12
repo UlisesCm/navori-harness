@@ -13,6 +13,7 @@ import {
 import { basename, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { codexHome } from "../codex/home.ts";
+import { inspectPiSession, resolvePiSession } from "./pi-session.ts";
 import {
   normalizeCodexIdentity,
   type CodexIdentity,
@@ -63,12 +64,12 @@ export interface MarkedSession {
   /** Resolved transcript path, or null when it could not be located. */
   transcript: string | null;
   /** Host that recorded the `start` event; `"codex"` sessions have no Claude transcript. */
-  host: "claude" | "codex" | "unknown";
+  host: "claude" | "codex" | "pi" | "unknown";
   /** Explicit marker or a read-only recovery from matching source metadata. */
   hostProvenance: "declared" | "recovered:rollout" | "recovered:transcript" | "unknown";
   sourceStatus: "verified" | "missing" | "wrong-format" | "identity-conflict";
   /** Adapter is selected only after source shape and root identity verify. */
-  adapter: "claude-transcript" | "codex-rollout" | null;
+  adapter: "claude-transcript" | "codex-rollout" | "pi-session" | null;
   source: string | null;
   sourceVersion: string | null;
   sourceReason: string | null;
@@ -802,7 +803,7 @@ function readHeader(
         if (rec.event !== "start") continue;
         cwd = typeof rec.cwd === "string" ? rec.cwd : null;
         markedAt = typeof rec.ts === "string" ? rec.ts : "";
-        if (rec.host === "codex" || rec.host === "claude") host = rec.host;
+        if (rec.host === "codex" || rec.host === "claude" || rec.host === "pi") host = rec.host;
         else if (rec.host !== undefined) identityConflict = true;
         if (rec.sessionId !== undefined && rec.sessionId !== sessionId) identityConflict = true;
         if (rec.repo !== undefined && rec.repo !== repoName) identityConflict = true;
@@ -1055,6 +1056,7 @@ export function findMarkedSessions(
       const header = readHeader(logFile, sessionId, repoName, records);
       if (withinRange(header.markedAt, filters) || header.identityConflict || !header.cwd)
         return false;
+      if (header.host === "pi") return false;
       const hosts = header.host === "unknown" ? (["claude", "codex"] as const) : [header.host];
       let verified = 0;
       for (const host of hosts) {
@@ -1125,6 +1127,37 @@ export function findMarkedSessions(
     );
     // A Codex hook payload's `transcript_path` is the rollout, not a Claude
     // transcript: it must never reach `parseSession`.
+    if (host === "pi") {
+      // Pi keeps its own session JSONL (no Claude transcript, no Codex rollout).
+      const piFile = resolvePiSession(sessionId);
+      const piStatus =
+        !present || !cwd
+          ? "wrong-format"
+          : identityConflict
+            ? "identity-conflict"
+            : inspectPiSession(piFile, sessionId, cwd);
+      sessions.push({
+        auditLogRecords,
+        auditReading,
+        auditNormalizationLoss,
+        readBudget: context.budget,
+        sessionId,
+        logFile,
+        cwd,
+        markedAt,
+        host: "pi",
+        hostProvenance: "declared",
+        sourceStatus: piStatus,
+        adapter: piStatus === "verified" ? "pi-session" : null,
+        source: piFile,
+        sourceVersion: null,
+        sourceReason: piStatus === "verified" ? null : piStatus,
+        versionReason: piStatus === "verified" ? "not-observed" : null,
+        transcript: null,
+        rollout: null,
+      });
+      continue;
+    }
     const claudeFile =
       host !== "codex" ? resolveTranscript(sessionId, cwd, transcript, context) : null;
     const codexFile =

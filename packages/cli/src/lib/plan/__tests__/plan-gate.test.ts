@@ -5,6 +5,7 @@ import {
   rmSync,
   symlinkSync,
   writeFileSync,
+  appendFileSync,
   readFileSync,
   existsSync,
   realpathSync,
@@ -296,6 +297,37 @@ describe("evaluatePlanGate — escalation after two rejections (R19)", () => {
     expect(existsSync(logPath)).toBe(true);
     const lines = readFileSync(logPath, "utf-8").trim().split("\n");
     expect(lines).toHaveLength(1);
+  });
+
+  // Covers: R19 (#1286)
+  it("counts an appended multi-milestone review by its LAST verdict only", () => {
+    writeConfig(true);
+    writeWorkplan("demo", VALID_LEVEL1);
+    const reviewPath = join(progressDir(), "review_demo.md");
+    const logPath = join(progressDir(), "workplan_demo.gate.jsonl");
+    const logLines = (): number => readFileSync(logPath, "utf-8").trim().split("\n").length;
+    const dispatch = (): ReturnType<typeof evaluatePlanGate> =>
+      evaluatePlanGate(payload("implementer", "workplan: demo\nfix A1"));
+
+    writeChangesRequested("demo"); // M3 rejected
+    expect(dispatch().decision).toBe("allow");
+    expect(logLines()).toBe(1);
+
+    // M4 APPROVED appended: the old rejection must not be re-registered.
+    appendFileSync(reviewPath, "\n## M4\n\n**Final verdict:** APPROVED\n");
+    expect(dispatch().decision).toBe("allow");
+    expect(dispatch().decision).toBe("allow");
+    expect(logLines()).toBe(1);
+
+    // A real second rejection appended: counts as 2 (third dispatch is gated).
+    appendFileSync(reviewPath, "\n## M5\n\n**Final verdict:** CHANGES_REQUESTED\n");
+    const gated = dispatch();
+    expect(logLines()).toBe(2);
+    expect(gated.decision).toBe("deny");
+
+    // Unchanged file re-evaluated: no duplicate log line.
+    dispatch();
+    expect(logLines()).toBe(2);
   });
 });
 

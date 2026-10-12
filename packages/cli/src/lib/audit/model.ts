@@ -666,7 +666,7 @@ export interface MetricEvidence {
   state: AvailabilityState;
   reason: EvidenceReason | null;
   source: "transcript" | "rollout" | "audit-log" | "otlp" | "host-metadata" | "aggregate";
-  adapter: "claude-transcript" | "codex-rollout" | "audit-log" | "otlp" | null;
+  adapter: "claude-transcript" | "codex-rollout" | "pi-session" | "audit-log" | "otlp" | null;
   sourceVersion: string | null;
 }
 /** Content-free source diagnostics, independent of metric completeness. */
@@ -1064,6 +1064,7 @@ export const HOOK_REASON_CODES = [
   "binary-missing",
   "plan-denied",
   "subcommand-unavailable",
+  "native-hook",
 ] as const;
 
 /** Value of a hook record's `reason` on the wire: a code or `"unspecified"`. */
@@ -1397,7 +1398,7 @@ export interface SessionAudit {
    * A Codex session comes from its audit log alone: hooks and verdicts are
    * real, everything the transcript would add is `null` (R71).
    */
-  host?: "claude" | "codex";
+  host?: "claude" | "codex" | "pi";
   /** Set when a whole source is missing: `"transcript"` for a Codex session. */
   unavailable?: "transcript";
   /**
@@ -1592,6 +1593,8 @@ function normalizeDispatchOutcome(record: Record<string, unknown>): DispatchOutc
     (typeof record.spawn !== "string" || !DISPATCH_SPAWN.test(record.spawn))
   )
     return null;
+  // any justified: `record` is validated key by key above (allowed keys, schemaVersion, verdict, field types);
+  // TS cannot narrow a Record<string, unknown> to DispatchOutcome.
   return Buffer.byteLength(JSON.stringify(record)) <= OUTCOME_MAX_BYTES
     ? (record as unknown as DispatchOutcome)
     : null;
@@ -1663,6 +1666,8 @@ function normalizeReceiptOutcome(record: Record<string, unknown>): ReceiptOutcom
   // `fp`/`alg` are only meaningful (and only emitted) for a stable identity.
   if ((record.fp !== undefined || record.alg !== undefined) && record.identity !== "stable")
     return null;
+  // any justified: `record` is validated key by key above (allowed keys, schemaVersion, verdict, field types);
+  // TS cannot narrow a Record<string, unknown> to ReceiptOutcome.
   return Buffer.byteLength(JSON.stringify(record)) <= OUTCOME_MAX_BYTES
     ? (record as unknown as ReceiptOutcome)
     : null;
@@ -1714,6 +1719,8 @@ function normalizeReviewOutcome(record: Record<string, unknown>): ReviewOutcome 
     if (typeof field !== "number" || !Number.isSafeInteger(field) || field < 0) return null;
     if ((OUTCOME_COUNTS as readonly string[]).includes(key) && field > 10_000) return null;
   }
+  // any justified: `record` is validated key by key above (allowed keys, schemaVersion, verdict, field types);
+  // TS cannot narrow a Record<string, unknown> to ReviewOutcome.
   return Buffer.byteLength(JSON.stringify(record)) <= OUTCOME_MAX_BYTES
     ? (record as unknown as ReviewOutcome)
     : null;
@@ -1792,8 +1799,11 @@ export function gateHandle(event: Pick<HookEvent, "name" | "toolUseId">): string
  *  - `duplicate`  — more than one terminal event shares a real handle.
  *  - `unknown`    — the event(s) carry no `toolUseId`, so no real handle exists
  *                   to correlate ownership or detect duplicates against.
+ *  - `deferred`   — the handle's only events are `skip` with reason `native-hook`
+ *                   (spec 0045 D5): the gate belongs to the native git hook, so
+ *                   this commit says nothing about whether it passed.
  */
-export type GateOutcome = "completed" | "timeout" | "duplicate" | "unknown";
+export type GateOutcome = "completed" | "timeout" | "duplicate" | "unknown" | "deferred";
 
 /**
  * One correlated gate execution: a `GATE_HOOK_NAMES` invocation joined to the
@@ -1886,6 +1896,23 @@ export function correlateGateExecutions(
       singleOwnerKey === null
         ? null
         : (owners.find((o) => o.ownerKey === singleOwnerKey)?.agentType ?? null);
+
+    // Spec 0045 D5: a commit whose gate was left to the native hook is not an
+    // unknown handle and not a run: it is deferred, owner kept when exact.
+    if (bucket.events.every((e) => e.verdict === "skip" && e.reason === "native-hook")) {
+      out.push({
+        handle,
+        ownerAgentId,
+        ownerAgentType,
+        startedAt: bucket.events[0]!.ts,
+        endedAt: bucket.events[0]!.ts,
+        durationMs: null,
+        outcome: "deferred",
+        ran: false,
+        ownerExact,
+      });
+      continue;
+    }
 
     if (!hasRealId) {
       out.push({
@@ -2062,6 +2089,8 @@ export interface EpisodeGate {
   notRun: number;
   /** Timeout, duplicate, unknown handle or an owner not named by the payload. */
   unverifiable: number;
+  /** Commits whose gate was left to the native git hook (`skip` + `native-hook`): not observed. */
+  deferred: number;
 }
 export interface EpisodeEfficiency {
   /** Tokens cover implementer dispatch runs only; reviewer and orchestrator are not attributed. */

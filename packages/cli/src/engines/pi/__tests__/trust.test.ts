@@ -93,7 +93,7 @@ function runtime(depth?: string): {
       if (id === "node:path") return { join };
       if (id === "@earendil-works/pi-ai") return { Type };
       if (id === "@earendil-works/pi-coding-agent")
-        return { VERSION: "0.87.1", defineTool: (value: unknown): unknown => value };
+        return { VERSION: "1.1.0", defineTool: (value: unknown): unknown => value };
       throw new Error(`Unexpected extension import: ${id}`);
     },
     process: runtimeProcess,
@@ -115,7 +115,7 @@ function runtime(depth?: string): {
 function execute(
   tool: PiTool,
   cwd: string,
-  ctx: { isProjectTrusted?: () => boolean },
+  ctx: { isProjectTrusted?: () => boolean; model?: { provider: string; id: string } },
 ): ReturnType<PiTool["execute"]> {
   return tool.execute(
     "trust-test",
@@ -164,7 +164,10 @@ describe("Pi trusted-parent handoff", () => {
   it("allows an ephemeral trusted parent to pass process-scoped --approve, never -e", async () => {
     const cwd = project();
     const rt = runtime();
-    const pending = execute(rt.tool!, cwd, { isProjectTrusted: (): boolean => true });
+    const pending = execute(rt.tool!, cwd, {
+      isProjectTrusted: (): boolean => true,
+      model: { provider: "openai-codex", id: "gpt-parent" },
+    });
     await vi.waitFor(() => expect(rt.calls).toHaveLength(1));
     expect(rt.calls[0]!.program).toBe("pi");
     expect(rt.calls[0]!.args).toContain("--approve");

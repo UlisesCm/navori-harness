@@ -1,15 +1,18 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { readConfig, ConfigError, type NavoriConfig } from "../lib/config/config.ts";
 import { scanManagedDrift, suggestNextSteps } from "../lib/diagnose/health.ts";
-import { scanDistribution, type DistributionReport } from "../lib/diagnose/distribution.ts";
+import {
+  scanDistribution,
+  localHarnessVersion,
+  type DistributionReport,
+} from "../lib/diagnose/distribution.ts";
 import { computeHealthVerdict } from "./doctor.ts";
 import { runRender, countPendingRenderChanges } from "./render.ts";
 import { brand, dim as grey, color, sym, kv, accent } from "../lib/primitives/style.ts";
 import { tc, resolveLang, DEFAULT_LANG } from "../lib/i18n.ts";
-import { readNavoriOwnership } from "../lib/primitives/json-ownership.ts";
 
 /**
  * `status` — spec 0003 §3.5.3. A quick "where did this repo land?" snapshot:
@@ -18,26 +21,21 @@ import { readNavoriOwnership } from "../lib/primitives/json-ownership.ts";
  * verbose audit, `status` is the at-a-glance view.
  */
 /**
- * The navori release that actually WROTE this harness, read from the `$navori`
- * stamp in `.claude/settings.json`.
+ * The navori release that last CHANGED this harness: the registry's
+ * `harnessVersion` in `navori.config.json`, else the `$navori` stamp in
+ * `.claude/settings.json` (frozen at the last change too). Not "the CLI that
+ * rendered it" — an apply with nothing to change moves neither.
  *
  * `config.version` is a different thing that shares the name (#604): it is the
  * PROJECT's version, defaulted to "1.0.0" at init and updated by nobody, so
  * printing it next to `preset`/`engines` read as "the version of my harness"
  * and was wrong in every repo. This is the number that answers that question.
  *
- * `null` when the repo renders no Claude engine (Codex-only) or was never
- * rendered — the honest answer, rather than falling back to a value that would
- * mean something else.
+ * `null` when the repo was never rendered (no registry, no stamp) — the honest
+ * answer, rather than falling back to a value that would mean something else.
  */
 export function readRenderedVersion(cwd: string): string | null {
-  const path = resolve(cwd, ".claude/settings.json");
-  if (!existsSync(path)) return null;
-  try {
-    return readNavoriOwnership(readFileSync(path, "utf-8"))?.version ?? null;
-  } catch {
-    return null;
-  }
+  return localHarnessVersion(cwd);
 }
 
 /**
@@ -185,7 +183,7 @@ export const statusCommand = defineCommand({
       kv([
         ["name", accent(config.name)],
         ["version (project)", config.version],
-        ["version (navori)", readRenderedVersion(cwd) ?? grey(ts.none)],
+        ["harness (last changed)", readRenderedVersion(cwd) ?? grey(ts.none)],
         ["preset", config.preset],
         ["engines", config.engines.join(", ")],
         ["plugins", enabledPlugins.length > 0 ? enabledPlugins.join(", ") : grey(ts.none)],

@@ -210,8 +210,32 @@ function resolveBaseRef(cwd: string, config: NavoriConfig): string | null {
   return null;
 }
 
-/** `$navori.version` of the harness on disk, or null when none was rendered. */
-function localHarnessVersion(cwd: string): string | null {
+/** `harnessVersion` out of raw `navori.config.json` text; null for invalid JSON,
+ *  a non-object or a missing/empty field. */
+export function parseHarnessVersion(raw: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const value = (parsed as Record<string, unknown>).harnessVersion;
+    return typeof value === "string" && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The release that last CHANGED the harness on disk: the registry's
+ * `harnessVersion`, else the `$navori.version` stamp of settings.json (also
+ * frozen at the last change). Null when neither exists. Not "the CLI that
+ * rendered it": an apply that changes nothing moves neither.
+ */
+export function localHarnessVersion(cwd: string): string | null {
+  try {
+    const registry = parseHarnessVersion(readFileSync(join(cwd, CONFIG_FILE), "utf-8"));
+    if (registry) return registry;
+  } catch {
+    // no config on disk: fall through to the settings stamp
+  }
   const path = join(cwd, SETTINGS_FILE);
   if (!existsSync(path)) return null;
   try {
@@ -221,10 +245,14 @@ function localHarnessVersion(cwd: string): string | null {
   }
 }
 
-/** `$navori.version` as `ref` publishes it — the other half of the comparison
- *  that makes "the base has a different harness" an actionable sentence rather
- *  than a file count. Null when that ref ships no settings file at all. */
+/** The same value as {@link localHarnessVersion}, as `ref` publishes it — the
+ *  other half of the comparison that makes "the base has a different harness"
+ *  an actionable sentence rather than a file count. A ref with no config (or an
+ *  invalid one) falls back to its settings stamp; null when it has neither. */
 function refHarnessVersion(cwd: string, ref: string): string | null {
+  const config = git(cwd, ["show", `${ref}:${CONFIG_FILE}`]);
+  const registry = config ? parseHarnessVersion(config) : null;
+  if (registry) return registry;
   const raw = git(cwd, ["show", `${ref}:${SETTINGS_FILE}`]);
   if (!raw) return null;
   return readNavoriOwnership(raw)?.version ?? null;

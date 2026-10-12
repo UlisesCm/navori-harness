@@ -36,7 +36,7 @@ import { t, tc, type Lang } from "../lib/i18n.ts";
 import { loadPrompts, type LoadedPrompt } from "../engines/claude/prompts-loader.ts";
 import { scanMonorepoWorkspaces, type DetectedWorkspace } from "../lib/diagnose/scan.ts";
 import type { MonorepoWorkspace } from "../lib/workspace/monorepo.ts";
-import type { NavoriConfigInput, NavoriConfig } from "../lib/config/schema.ts";
+import type { NavoriConfigInput, NavoriConfig, ENGINES } from "../lib/config/schema.ts";
 import {
   buildRecommendedQualityGate,
   buildRecommendedProject,
@@ -103,7 +103,7 @@ function reportMissingBinaries(
 /**
  * #1060 — the sibling of `reportMissingBinaries` above for a binary that IS
  * on PATH but doesn't support a capability its plugin's `externalTool`
- * manifest declares (e.g. jscpd < 5.1.1 lacking `--baseline-from-ref`). Runs
+ * manifest declares (e.g. an older release than the manifest's `minVersion`). Runs
  * at the same call sites, in every mode: nobody runs `doctor` after a
  * headless `--yes`/`--recommended`/`--full` init, and by the time the gate
  * hook blocks a commit over this it's too late to have warned.
@@ -160,15 +160,17 @@ export interface AdoptionResult {
   pendingRemoval: MigrationResult | null;
 }
 
-const ENGINE_OPTIONS = [
+/** Engine choices offered by the wizard; must cover every id in the schema `ENGINES`. */
+export const ENGINE_OPTIONS = [
   { value: "claude", label: "Claude Code (.claude/)" },
   { value: "agents-md", label: "AGENTS.md (universal — Cursor / Codex / Gemini read it)" },
   { value: "codex", label: "Codex (full — agents, skills, hooks, MCP)" },
   { value: "cursor", label: "Cursor (.cursor/rules/)" },
   { value: "copilot", label: "Copilot (.github/copilot-instructions.md)" },
+  { value: "pi", label: "Pi (.pi/ — extension, agents, hooks; requires Pi >= 1.1.0)" },
 ];
 
-type EngineId = "claude" | "agents-md" | "cursor" | "copilot" | "codex";
+type EngineId = (typeof ENGINES)[number];
 
 // Detection is additive, never exclusive: a repo that only has `.cursor/`
 // still needs `claude` so the harness renders CLAUDE.md/.claude/ and actually
@@ -228,7 +230,7 @@ export const initCommand = defineCommand({
     full: {
       type: "boolean",
       description:
-        "--recommended + default external providers (tgrep, semgrep, jscpd, acli; codegraph opt-in) + pre-commit hook + monorepo scan + strict project block",
+        "--recommended + default external providers (tgrep, acli; codegraph opt-in) + pre-commit hook + monorepo scan + strict project block",
     },
     lang: {
       type: "string",
@@ -1021,7 +1023,7 @@ export async function pickPlugins(lang: Lang): Promise<string[] | null> {
  * - engram: always (persistent memory is universally useful)
  * - gh: only if the repo's git origin points to github.com
  *
- * Intentionally conservative — semgrep/jscpd require external tools
+ * Intentionally conservative — external-tool plugins need binaries
  * that may not be installed; users add those explicitly.
  */
 /**

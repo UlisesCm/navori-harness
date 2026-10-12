@@ -63,13 +63,13 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-describe("Pi 0.87.1 credential-free runtime", () => {
+describe("Pi 1.1.0 credential-free runtime", () => {
   // Covers: R7, R9
   it("accepts Pi's three process trust modes without touching user auth", () => {
     const piPackage: unknown = JSON.parse(
       readFileSync(join(PI_PACKAGE_ROOT, "package.json"), "utf8"),
     );
-    expect(piPackage).toMatchObject({ version: "0.87.1" });
+    expect(piPackage).toMatchObject({ version: "1.1.0" });
     const { cwd, agentDir, home } = project();
     expect(readFileSync(join(cwd, ".pi/extensions/navori.ts"), "utf8")).toContain(
       "navori_subagent",
@@ -109,7 +109,7 @@ describe("Pi 0.87.1 credential-free runtime", () => {
       expect(run.stderr).not.toContain("Failed to load extension");
       expect(run.stdout).toContain("Usage:");
       expect(existsSync(marker)).toBe(shouldLoad);
-      if (shouldLoad) expect(readFileSync(marker, "utf8")).toBe("0.87.1");
+      if (shouldLoad) expect(readFileSync(marker, "utf8")).toBe("1.1.0");
     }
     expect(existsSync(join(home, ".pi/agent/auth.json"))).toBe(false);
     expect(JSON.parse(readFileSync(join(agentDir, "auth.json"), "utf8"))).toEqual({});

@@ -27,6 +27,7 @@ import { getCoreRoot, getPluginPath } from "../../../lib/render/bundled-assets.t
 import { writeConfig } from "../../../lib/config/config.ts";
 import { removeCommand } from "../../../commands/remove.ts";
 import { effectiveConfigForWorkspace } from "../../../lib/workspace/monorepo.ts";
+import { injectManagedSection } from "../../../lib/render/marker.ts";
 
 // `removeCommand` prompts via @clack/prompts when `--yes` is absent; R08's
 // remove scenario always passes `--yes`, but `remove.ts` still calls
@@ -331,7 +332,9 @@ describe.each(COMBOS)("search v2 render matrix — combo $label", ({ codegraph, 
     const after = readFileSync(path, "utf-8");
     expect(after).toContain("## Reglas del repo");
     expect(after).toContain("Nunca usar `context.db` directo.");
-    expect(openBlockCount(after, "gh-protocol")).toBe(1);
+    expect(openBlockCount(after, "tgrep-search-v2")).toBe(tgrep ? 1 : 0);
+    // gh no longer ships a managed block (#1273), only its permissions.
+    expect(openBlockCount(after, "gh-protocol")).toBe(0);
     const settings = readSettings(cwd);
     expect(settings.permissions.allow).toContain("Bash(gh pr create*)");
   });
@@ -718,10 +721,13 @@ describe("R13 — retired registries never purge the active v2 ids", () => {
 describe("#1013 — migration: a repo rendered before #838 loses the pre-#838 blocks", () => {
   /** A CLAUDE.md as v0.8.7-era navori left it: `codegraph-protocol`/
    *  `tgrep-protocol` present, in place. */
+  // Pristine (valid hash, older stamp): retirement is guarded (#1273), so only an
+  // untouched block is navori's to strip.
   const legacyBlock = (id: string, source: string): string =>
-    `<!-- navori:managed id="${id}" hash="deadbeef" version="0.8.7" source="@navori/plugin-${source}" -->\n` +
-    `## Legacy ${id}\n\nstale body from before #838\n` +
-    `<!-- /navori:managed id="${id}" -->\n`;
+    injectManagedSection("", id, `## Legacy ${id}\n\nstale body from before #838\n`, {
+      version: "0.8.7",
+      source: `@navori/plugin-${source}`,
+    }).output;
 
   it("strips codegraph-protocol/tgrep-protocol from the root CLAUDE.md, keeps the v2 ids", () => {
     const cwd = mkdtempSync(join(tmpdir(), "navori-1013-root-"));

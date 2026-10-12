@@ -1,0 +1,25 @@
+id: no-shell-exec
+valid:
+  - execFileSync("git", ["status"])
+  - /a/.exec(s)
+  - |
+    spawn("ls", { shell: false })
+  - |
+    import { execFileSync } from "node:child_process";
+  - |
+    import { execa as e } from "other-lib";
+invalid:
+  - |
+    import { exec } from "child_process";
+  - |
+    import { execSync } from "node:child_process";
+  - child_process.execSync(`ls ${dir}`)
+  - cp.exec("ls")
+  - |
+    spawnSync(cmd, { shell: true })
+  - |
+    execFileSync(cmd, [], { cwd, shell: true })
+  - |
+    import { execa } from "execa";
+  - import $ from "zx";
+  - Bun.$`ls`

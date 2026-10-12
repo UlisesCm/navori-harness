@@ -388,14 +388,21 @@ describe("the inventory of delete paths is complete (#496)", () => {
 
   const DELETE_SITES: Record<string, string> = {
     // ── The three that judge a file the USER may own: shared criterion. ──
-    "commands/render.ts": "route B — planOrphanRemoval → isRemovableNavoriFile, file by file",
-    "engines/shared/execute-plan.ts": "route A — collectOrphans → isRemovableNavoriFile",
+    "commands/render.ts":
+      "route B — planOrphanRemoval → isRemovableNavoriFile, file by file; its `keepRule` " +
+      "applies retiredAssetKeepReason to retired plugin scripts first",
+    "engines/shared/execute-plan.ts":
+      "route A — collectOrphans → isRemovableNavoriFile; a scan's optional `keep` rule " +
+      "(the Codex .codex/scripts scan: retiredAssetKeepReason) runs first",
     "engines/claude/index.ts":
       "route C — planFlat/planDirSkillRemoval, planRetiredHookRemoval (#774) and " +
       "planRetiredAgentRemoval (spec 0026 T10) → isRemovableNavoriFile(path, markerId). " +
-      "Its other two removals (disabled-plugin scripts §8.5, retired-plugin assets §8.5-bis) " +
-      "are marker-FREE by construction: a shell script carries no managed block, and the path " +
-      "comes from the plugin's own manifest, so navori is its only writer",
+      "Its other two removals are plugin scripts: disabled-plugin scripts (§8.5) keep an " +
+      "edited or newer one, and retired-plugin assets (§8.5-bis) go through " +
+      "retiredAssetKeepReason (marker + hash with nothing outside the block, a legacy " +
+      "fingerprint, or the entry's own deleteForeign; kept while a hook, a skipped config or " +
+      "nativeHook still references them). Retired sub-blocks (§8.5-ter) and the Codex " +
+      "sub-block sweep use removeManagedSectionGuarded",
     "engines/pi/index.ts":
       "retired .pi/agents/<role>.md only when it is a regular non-symlink file, its role " +
       "is in Navori's fixed allowlist but no longer desired, and ownsPiAgent validates " +
@@ -426,17 +433,8 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "path comes from a directory listing filtered by the dispatch-file name pattern (spec 0041 R9)",
     "lib/primitives/remote-version-cache.ts":
       "releases only its exclusively acquired empty lock directory with nonrecursive rmdirSync, and removes a lock directory orphaned for over a minute",
-    "lib/config/global-config.ts": "deletes ~/.navori/global.json on an explicit command",
     "lib/workspace/tickets.ts":
       "deletes a ticket from navori's workspace store on an explicit command",
-    "engines/claude/global-render.ts":
-      "`navori global uninstall` removes navori's own global hook file — the whole point of " +
-      "the command, so a marker gate would only make uninstalling fail",
-    "engines/claude/global-plugin.ts":
-      "removes ~/.claude/skills/navori/, the @skills-dir plugin navori installed; there is no " +
-      "marketplace to uninstall from, so deleting that one directory IS the uninstall. The " +
-      "parent skills/ dir goes only when it is left empty, so a sibling skill of the user's " +
-      "is never in reach",
 
     // ── Deletes the USER's files on purpose, after copying them. ──
     "lib/diagnose/migrate.ts":
@@ -615,6 +613,9 @@ describe("an orphan root that is itself a symlink (#496)", () => {
     });
     mkdirSync(join(cwd, ".codex/rules"), { recursive: true });
     writeFileSync(join(cwd, ".codex/rules/shared.md"), FIXTURES.navori);
+    // Covers: R7, R11 — #1291: the protective ignore survives only while state exists.
+    mkdirSync(join(cwd, ".codex/progress"), { recursive: true });
+    writeFileSync(join(cwd, ".codex/progress/receipt.txt"), "APPROVED\n");
 
     const result = runRender(cwd, { dryRun: false, prune: true });
 

@@ -152,7 +152,7 @@ function collect(
       if (depth < bounds.maxDepth) collect(path, relPath, depth + 1, bounds, acc);
       continue;
     }
-    // Size + mtime, not just presence: `registry.json` and `global.json` are
+    // Size + mtime, not just presence: `registry.json` is
     // rewritten in place, so a leak there adds no entry — it corrupts one.
     const stat = statOrNull(path);
     if (stat) record(acc, relPath, `${stat.size}:${stat.mtimeMs}`, bounds);
@@ -358,7 +358,7 @@ export function describeNavoriHomeLeak(
     `That path is the run's ephemeral home (#954), so nothing but these tests can`,
     `have written it — off the harness, the same code would have hit the developer's`,
     `real ~/.navori. Point the module under test at a throwaway directory instead:`,
-    `mock os.homedir() (registry, global-config, workspaces, migrations, workspace`,
+    `mock os.homedir() (registry, workspaces, migrations, workspace`,
     `trash) or set NAVORI_BACKUP_ROOT, which vitest.setup.ts already does for every`,
     `spec. Entry paths are relative to the root, so the fixture label or workspace`,
     `name below names the spec that escaped isolation.`,

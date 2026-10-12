@@ -105,7 +105,9 @@ describe("PR pre-flight — one list, no clean-tree requirement (A3, M5)", () =>
     const trigger = section("agents/publisher.md", "When to trigger");
     expect(trigger).not.toMatch(/clean (working tree|status|tree)/i);
     // What replaces it: evidence over the diff that ships, not a git-state check.
-    expect(trigger).toMatch(/fresh `\{\{qualityGate\.full\}\}` evidence over the shipping diff/i);
+    // (#1264: the gate command literal lives once, in the Gate section; the trigger
+    // keeps the evidence-over-the-shipping-diff requirement without repeating it.)
+    expect(trigger).toMatch(/fresh full-gate evidence over the diff that ships/i);
   });
 
   it("the leader's pre-flight matches orquestacion's and adds no gate re-run", () => {
@@ -434,5 +436,43 @@ describe("phase owners (T16)", () => {
     expect(skill).toMatch(/publisher/);
     expect(skill).toMatch(/reply to the comment is `publisher`'s/i);
     expect(skill).not.toMatch(/gh (pr|issue) comment/);
+  });
+});
+
+/**
+ * #1274: the reviewer stops re-reading the whole solution and the whole
+ * review-diff every round, without losing SPEC_MISS detection. Red until the
+ * scribe applies the `reviewer` prose requests.
+ */
+describe("reviewer re-reads (#1274)", () => {
+  const reviewer = read("agents/reviewer.md");
+
+  it("reads the solution by its fixed headings and falls back to the whole file", () => {
+    for (const heading of [
+      "Chosen solution",
+      "Boundaries & contracts",
+      "NOT in scope",
+      "revision after challenge",
+    ]) {
+      expect(reviewer).toContain(heading);
+    }
+    expect(reviewer).toMatch(/whole file when those headings are absent/);
+  });
+
+  it("round 2+ reopens the solution only on SPEC_MISS or out-of-diff files", () => {
+    const line = lineWith("agents/reviewer.md", "From round 2 on");
+    expect(line).toContain("SPEC_MISS");
+    expect(line).toContain("outside the prior diff");
+    expect(line).toContain("review_<feature>.md");
+  });
+
+  it("applies review-diff in full in round 1 and scoped from round 2", () => {
+    const line = lineWith("agents/reviewer.md", "in full in round 1");
+    expect(line).toContain("review-diff/SKILL.md");
+    expect(line).toContain("Pre-pass");
+  });
+
+  it("keeps the Coverage table mandatory on the signing round", () => {
+    expect(reviewer).toMatch(/Coverage[^\n]*signing round/);
   });
 });

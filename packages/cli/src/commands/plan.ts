@@ -161,14 +161,22 @@ function writeWorkplanAndRender(root: StateRoot, feature: string, plan: Workplan
   writeAcceptanceIndex(root);
 }
 
-/** Spec 0039 R10 (0038 D3): evidence is required only inside a Claude Code
- * child session (the env var Claude Code sets for its Bash/hook subprocesses)
- * of a repo that renders the `claude` engine. Anywhere else (Codex, a human
- * terminal, prose engines) there is no verifiable success signal. */
+/** Spec 0039 R10 (0038 D3) + spec 0047 R8: evidence is required inside a
+ * Claude Code child session (the env var Claude Code sets for its Bash/hook
+ * subprocesses) of a repo that renders the `claude` engine, or inside an
+ * identified Pi session of a repo that renders the `pi` engine. Anywhere else
+ * (Codex, a human terminal, prose engines) there is no verifiable success
+ * signal. The Pi signal is `PI_SESSION_ID`, which Pi's built-in bash tool
+ * deletes from the inherited env and sets itself for each command; a Claude
+ * child session always takes the Claude branch, so a stray `PI_SESSION_ID`
+ * cannot change what Claude sessions are held to. */
 function evidenceRequired(cwd: string): boolean {
-  if (process.env.CLAUDE_CODE_CHILD_SESSION !== "1") return false;
+  const claudeChild = process.env.CLAUDE_CODE_CHILD_SESSION === "1";
+  const piSession = /^[A-Za-z0-9._-]+$/.test(process.env.PI_SESSION_ID ?? "");
+  if (!claudeChild && !piSession) return false;
   try {
-    return readConfig(resolve(cwd, "navori.config.json")).engines.includes("claude");
+    const { engines } = readConfig(resolve(cwd, "navori.config.json"));
+    return claudeChild ? engines.includes("claude") : engines.includes("pi");
   } catch {
     return false;
   }
@@ -390,6 +398,8 @@ const renderSubCommand = defineCommand({
     const plan = readWorkplanOrExit(jsonPath(root, args.feature));
     if (!plan) return;
     writeStateFileAtomic(root, `workplan_${args.feature}.md`, renderWorkplan(plan));
+    // Bootstraps the index the evidence hook reads (idempotent); `plan update` is the only other writer.
+    writeAcceptanceIndex(root);
     if (args.json) process.stdout.write(`${JSON.stringify({ rendered: true })}\n`);
   },
 });

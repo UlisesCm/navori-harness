@@ -7,7 +7,7 @@ import {
   classifyLocalSkills,
   localSkillPointerDestRel,
   localSkillPointerMarkerId,
-} from "../local-skill-pointer.ts";
+} from "../../shared/local-skill-pointer.ts";
 import { injectManagedSection } from "../../../lib/render/marker.ts";
 
 /**

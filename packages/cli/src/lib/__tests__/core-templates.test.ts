@@ -149,8 +149,10 @@ describe("prompts.json", () => {
 describe("managed/cierre-sesion.md", () => {
   const raw = readCoreAsset("managed/cierre-sesion.md");
 
-  it("references the qualityGate.full placeholder", () => {
-    expect(raw).toContain("{{qualityGate.full}}");
+  // #1272: the closeout re-runs the gate via `{{gateRun.full}}`, which renders
+  // the runner when it earns its allow rule and `{{qualityGate.full}}` otherwise.
+  it("references the gateRun.full placeholder", () => {
+    expect(raw).toContain("{{gateRun.full}}");
   });
 
   it("does not wrap the qualityGate placeholder in backticks", () => {
@@ -158,5 +160,6 @@ describe("managed/cierre-sesion.md", () => {
     // prose. Inside a code span that prose reads as a runnable command — keep
     // the placeholder out of backticks so the 'no gate' case stays readable.
     expect(raw).not.toContain("`{{qualityGate.full}}`");
+    expect(raw).not.toContain("`{{gateRun.full}}`");
   });
 });

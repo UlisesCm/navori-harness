@@ -142,3 +142,27 @@ describe("backup restore — legacy full-tree snapshot (back-compat)", () => {
     rmSync(legacyDir, { recursive: true, force: true });
   });
 });
+
+describe("backup restore — language", () => {
+  // Covers: R3
+  it("idioma ignora global.json", async () => {
+    mkdirSync(join(home.dir, ".navori"), { recursive: true });
+    writeFileSync(
+      join(home.dir, ".navori", "global.json"),
+      JSON.stringify({ version: "1", language: "en" }),
+    );
+    const clack = await import("@clack/prompts");
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("exit");
+    }) as never);
+    try {
+      await expect(restore("no-such-backup")).rejects.toThrow("exit");
+      const { tc } = await import("../../lib/i18n.ts");
+      expect(clack.cancel).toHaveBeenCalledWith(
+        tc("es").backup.notFound(join(backupRoot(), "no-such-backup")),
+      );
+    } finally {
+      exit.mockRestore();
+    }
+  });
+});

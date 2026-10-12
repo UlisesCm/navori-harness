@@ -1,5 +1,53 @@
-import { assert, describe, it, expect } from "vitest";
-import { PluginManifestSchema, listKnownPluginIds, loadPlugin } from "../plugins.ts";
+import { assert, describe, it, expect, vi } from "vitest";
+import {
+  PluginManifestSchema,
+  listKnownPluginIds,
+  loadEnabledPlugins,
+  loadPlugin,
+} from "../plugins.ts";
+import { NavoriConfigSchema } from "../schema.ts";
+import { buildClaudeSettings } from "../../../engines/claude/build-settings.ts";
+import { resolveCodexHooks } from "../../../engines/codex/hook-registrations.ts";
+
+const HOOKY = "hooky";
+const hooky = vi.hoisted(() => ({ dir: "" }));
+
+// Resolves the throwaway `hooky` plugin from a temp dir; every other id is untouched.
+vi.mock("../../render/bundled-assets.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../render/bundled-assets.ts")>();
+  const { mkdirSync, mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  hooky.dir = mkdtempSync(join(tmpdir(), "navori-hooky-"));
+  mkdirSync(join(hooky.dir, "scripts"));
+  writeFileSync(join(hooky.dir, "scripts", "check-hooky.sh"), "#!/usr/bin/env bash\nexit 0\n");
+  writeFileSync(
+    join(hooky.dir, "plugin.json"),
+    JSON.stringify({
+      id: "hooky",
+      name: "hooky",
+      description: "test plugin",
+      version: "0.0.1",
+      managed: [],
+      scripts: [{ src: "scripts/check-hooky.sh", dest: "check-hooky.sh", exec: true }],
+      hooks: [
+        {
+          event: "PreToolUse",
+          matcher: "Bash",
+          command: 'bash "$CLAUDE_PROJECT_DIR/.claude/scripts/check-hooky.sh"',
+          timeout: 60,
+        },
+      ],
+    }),
+  );
+  return {
+    ...actual,
+    getPluginPath: (id: string) => (id === "hooky" ? hooky.dir : actual.getPluginPath(id)),
+    bundledPluginManifestPath: (id: string) =>
+      id === "hooky" ? join(hooky.dir, "plugin.json") : actual.bundledPluginManifestPath(id),
+    listBundledPluginIds: () => [...actual.listBundledPluginIds(), "hooky"],
+  };
+});
 
 /**
  * Schema parser tests. Containment of resolved paths (scripts.src,
@@ -419,12 +467,6 @@ describe("PluginManifestSchema — externalTool.capabilityProbe (#1060)", () => 
       ).toBe(false);
     },
   );
-
-  it("the bundled jscpd manifest loads with a valid capabilityProbe", () => {
-    const tool = loadPlugin("jscpd").manifest.externalTool;
-    expect(tool?.capabilityProbe?.mustContain.length).toBeGreaterThan(0);
-    expect(tool?.capabilityProbe?.minVersion).toMatch(/^\d+\.\d+\.\d+$/);
-  });
 });
 
 describe("PluginManifestSchema — externalTool.versionAdvisory (#1210)", () => {
@@ -660,4 +702,56 @@ describe("real plugin manifests — install.* version pin matches externalTool.p
       }
     },
   );
+});
+
+// Covers: R4
+// No bundled plugin registers a hook any more, so this runs against a throwaway
+// plugin that bundled-assets resolves from a temp dir (see the mock above).
+describe("nativeHook omite el registro", () => {
+  const cfg = (nativeHook: boolean) =>
+    NavoriConfigSchema.parse({
+      name: "demo",
+      engines: ["claude", "codex"],
+      preset: "custom",
+      branchBase: "main",
+      qualityGate: { fast: "bun lint", full: "bun test" },
+      plugins: { [HOOKY]: { enabled: true, nativeHook }, tgrep: { enabled: true } },
+    });
+  const settingsHooks = (c: ReturnType<typeof cfg>) =>
+    JSON.stringify(buildClaudeSettings(c, loadEnabledPlugins(c.plugins).loaded).hooks ?? {});
+  const codexPlugins = (c: ReturnType<typeof cfg>) =>
+    resolveCodexHooks(c, loadEnabledPlugins(c.plugins).loaded)
+      .filter((h) => h.pluginId !== undefined)
+      .map((h) => h.pluginId);
+
+  it("loadEnabledPlugins keeps the scripts but drops the hooks of a nativeHook plugin", () => {
+    const on = loadEnabledPlugins(cfg(true).plugins).loaded;
+    const off = loadEnabledPlugins(cfg(false).plugins).loaded;
+    const hookyOn = on.find((p) => p.manifest.id === HOOKY);
+    const hookyOff = off.find((p) => p.manifest.id === HOOKY);
+    expect(hookyOff?.manifest.hooks?.length).toBeGreaterThan(0);
+    expect(hookyOn?.manifest.hooks).toEqual([]);
+    expect(hookyOn?.nativeHookOmitted).toBe(true);
+    expect(hookyOn?.scriptAssets).toEqual(hookyOff?.scriptAssets);
+    expect(on.find((p) => p.manifest.id === "tgrep")?.nativeHookOmitted).toBeUndefined();
+  });
+
+  it("Claude settings and Codex hooks register the plugin only without nativeHook", () => {
+    expect(settingsHooks(cfg(false))).toContain("check-hooky.sh");
+    expect(settingsHooks(cfg(true))).not.toContain("check-hooky.sh");
+    expect(codexPlugins(cfg(false))).toContain(HOOKY);
+    expect(codexPlugins(cfg(true))).not.toContain(HOOKY);
+  });
+});
+
+describe("retired plugin ids (jscpd, semgrep)", () => {
+  it("are routed to `retired`, never to `missing`, even with nativeHook", () => {
+    const result = loadEnabledPlugins({
+      jscpd: { enabled: true },
+      semgrep: { enabled: true, nativeHook: true },
+    });
+    expect(result.loaded).toEqual([]);
+    expect(result.missing).toEqual([]);
+    expect(result.retired.sort()).toEqual(["jscpd", "semgrep"]);
+  });
 });

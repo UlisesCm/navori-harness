@@ -51,12 +51,7 @@ describe("computeRenderPlan forceIds / skipIds (spec 0003 §3.1.4)", () => {
 describe("canonicalManagedOrder", () => {
   // #228: the computed block ids are an ADAPTER contribution — the engine-agnostic
   // core no longer hardcodes them; the caller (the Claude engine) passes them.
-  const claudeComputedBlockIds = [
-    "skills-index",
-    "agentes-disponibles",
-    "contexto-monorepo",
-    "contexto-proyecto",
-  ];
+  const claudeComputedBlockIds = ["agentes-disponibles", "contexto-monorepo", "contexto-proyecto"];
 
   it("leads with the orchestrator block and appends the engine's computed blocks", () => {
     const order = canonicalManagedOrder(config, repoRoot, {
@@ -64,14 +59,14 @@ describe("canonicalManagedOrder", () => {
     });
     expect(order[0]).toBe("orquestacion");
     expect(order).toContain("idioma-rol");
-    expect(order.slice(-4)).toEqual(claudeComputedBlockIds);
+    expect(order.slice(-3)).toEqual(claudeComputedBlockIds);
   });
 
   it("appends no computed ids when the caller (a non-Claude context) omits them", () => {
     const order = canonicalManagedOrder(config, repoRoot);
     expect(order[0]).toBe("orquestacion");
     expect(order).toContain("idioma-rol");
-    expect(order).not.toContain("skills-index");
+    expect(order).not.toContain("agentes-disponibles");
   });
 
   it("matches the emission order of a fresh render", () => {

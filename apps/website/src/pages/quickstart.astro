@@ -31,14 +31,14 @@ const steps = [
     title: "Cuando cambies algo, vuelve a renderizar",
     body:
       "add ya renderiza en el mismo paso. Para todo lo demás (editar el config a mano, cambiar de preset), render por default hace preview; --apply escribe. sync solo toca los bloques managed, tu código personalizado queda intacto.",
-    code: "# Agregar un plugin (ya renderiza solo)\n$ npx navori add codegraph\n\n# Actualizar a la última versión\n$ npx navori update\n$ npx navori@latest sync\n\n# ¿Algo se salió de lugar?\n$ npx navori doctor",
+    code: "# Agregar un plugin (ya renderiza solo)\n$ npx navori add codegraph\n\n# Actualizar a la última versión\n$ npx navori@latest update\n\n# ¿Algo se salió de lugar?\n$ npx navori doctor",
   },
 ];
 
 const checklist = [
-  "Tienes Node.js 20 o superior instalado.",
+  "Tienes Node.js 22.12 o superior instalado.",
   "Estás dentro de un repo git (init no toca .git, pero asume que existe).",
-  "navori renderiza a cinco engines: Claude Code, Codex, AGENTS.md, Cursor y Copilot. Eliges cuáles en el wizard.",
+  "navori renderiza a seis engines: Claude Code, Codex, AGENTS.md, Cursor, Copilot y Pi. Eliges cuáles en el wizard.",
   "render hace preview por default: nada se escribe hasta que pasas --apply.",
 ];
 ---
@@ -70,7 +70,7 @@ const checklist = [
       <p
         class="mt-5 max-w-2xl text-base sm:text-lg text-slate-700 dark:text-slate-300"
       >
-        Esta guía asume que tienes Node 20+ y un repo git inicializado. Si ya
+        Esta guía asume que tienes Node 22.12+ y un repo git inicializado. Si ya
         tienes un .claude/ a mano, navori coexiste sin pisarlo.
       </p>
     </div>

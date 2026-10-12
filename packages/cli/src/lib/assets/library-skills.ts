@@ -264,7 +264,7 @@ export const REMOVED_LIB_SKILLS: ReadonlyArray<string> = [
   "formik",
   "joi-validation",
   // Split into `socketio-server` / `socketio-client` (#324). A repo rendered
-  // before the split carries `socketio` in `project.libraries`; `navori update`
+  // before the split carries `socketio` in `project.libraries`; `navori refresh`
   // re-detects the right side and this entry prunes the stale managed file.
   "socketio",
   // Retired for the boilerplate's actual RN styling library, Uniwind — but NOT
@@ -277,7 +277,7 @@ export const REMOVED_LIB_SKILLS: ReadonlyArray<string> = [
 /**
  * Successor skills for retired ids whose guidance moved instead of dying —
  * lets the "unknown library" warning name what replaced the old id, so the
- * user knows `navori update` will re-detect real coverage (not just drop it).
+ * user knows `navori refresh` will re-detect real coverage (not just drop it).
  * Keyed by a REMOVED_LIB_SKILLS entry; ids with no successor simply aren't here.
  */
 export const REMOVED_LIB_SKILL_SUCCESSORS: Readonly<Record<string, readonly string[]>> = {
@@ -300,7 +300,7 @@ export interface UnknownLibrary {
  * Ids in `project.libraries` that this CLI's registry does not ship. The render
  * plan silently skips them (`resolveHarnessPlan`) and the engines then prune
  * their managed skill from disk — which is exactly why callers (render engines,
- * doctor) must WARN: a repo upgraded without `navori update` would otherwise
+ * doctor) must WARN: a repo upgraded without `navori refresh` would otherwise
  * lose its guidance with zero signal (audit v0.5.1 finding A1).
  */
 export function unknownLibraries(libraries: readonly string[] | undefined): UnknownLibrary[] {

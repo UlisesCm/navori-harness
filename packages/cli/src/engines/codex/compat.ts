@@ -28,7 +28,7 @@ const NEVER_COMMIT_SENTINEL = "\u0000navori:never-commit\u0000";
  * #428: the old catch-all assumed tree parity between engines, and that parity
  * does not exist. Only the Claude engine copies plugin scripts (`engines/claude/
  * index.ts` writes `.claude/scripts/`); nothing under `engines/codex/` emits
- * `.codex/scripts/`. So a citation of `.claude/scripts/check-semgrep.sh` —
+ * `.codex/scripts/`. So a citation of `.claude/scripts/check-foo.sh` —
  * correct for a Claude repo — was rewritten into a path no repo can have.
  *
  * A first segment that is NOT here stays spelled `.claude/…` on purpose. That

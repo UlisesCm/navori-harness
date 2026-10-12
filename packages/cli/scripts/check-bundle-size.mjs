@@ -56,8 +56,14 @@ import { dirname, resolve } from "node:path";
  * dependencies. The split into a hard dependency ceiling plus a soft
  * first-party trend line is still owed. Measured at 1314.8KB; restores ~85KB
  * of headroom.
+ *
+ * Raised 1400 -> 1500 by spec 0048 pi-paridad, the fifth raise for
+ * first-party growth: the Pi hook bridge, guards, relay and lifecycle ship as
+ * extension source and hook copies inside the bundle, with ZERO new
+ * dependencies. The split into a hard dependency ceiling plus a soft
+ * first-party trend line is still owed.
  */
-const LIMIT_KB = 1400;
+const LIMIT_KB = 1500;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const bundle = resolve(here, "..", "dist", "index.js");

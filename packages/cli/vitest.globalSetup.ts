@@ -25,9 +25,12 @@ export default async function setup(project: TestProject): Promise<() => void> {
     disarmExitRelease = releaseOnProcessExit(lock);
     const result = spawnSync("bun", ["run", "build"], {
       cwd: pkgRoot,
-      stdio: "inherit",
+      // Piped so a green build adds nothing to the gate log; shown only on failure.
+      stdio: "pipe",
+      encoding: "utf8",
     });
     if (result.status !== 0) {
+      process.stderr.write(`${result.stdout ?? ""}${result.stderr ?? ""}`);
       throw new Error(
         `vitest globalSetup: 'bun run build' failed (exit ${result.status ?? "signal"}). ` +
           `The e2e suite runs against ${resolve(pkgRoot, "dist/index.js")}.`,

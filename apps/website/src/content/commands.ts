@@ -20,7 +20,7 @@ const es: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "--full",
-        desc: "--recommended + proveedores externos por defecto (tgrep, semgrep, jscpd, acli; codegraph opt-in) + pre-commit hook + scan-monorepo + project block estricto (posture/reviewRigor/testsForNewCode). Requiere instalar los binarios de esos proveedores.",
+        desc: "--recommended + proveedores externos por defecto (tgrep, acli; codegraph opt-in) + pre-commit hook + scan-monorepo + project block estricto (posture/reviewRigor/testsForNewCode). Requiere instalar los binarios de esos proveedores.",
       },
       {
         flag: "--recommended",
@@ -62,7 +62,7 @@ const es: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "<plugin>",
-        desc: "Plugin a registrar: engram, codegraph, tgrep, semgrep, jscpd, acli, gh.",
+        desc: "Plugin a registrar: engram, codegraph, tgrep, acli, gh.",
       },
       { flag: "--suggest", desc: "Detecta el stack y sugiere preset + plugins (no instala nada)." },
       { flag: "--yes", desc: "Sin prompts; instala la herramienta externa si hace falta." },
@@ -162,7 +162,8 @@ const es: Record<string, CommandDoc> = {
     id: "sync",
     title: "sync",
     summary: "Trae cambios del bundle a todos los engines configurados sin pisar tus ediciones.",
-    usage: "navori sync [--interactive] [--apply] [--workspace <name>]",
+    usage:
+      "navori sync [--interactive] [--apply] [--yes] [--accept-new] [--accept-new-files] [--keep-mine] [--dry-run] [--json] [--workspace <name>]",
     flags: [
       {
         flag: "--interactive",
@@ -220,6 +221,8 @@ const es: Record<string, CommandDoc> = {
     ],
     notes: [
       "Corre doctor en CI con --strict para fallar el build si hay drift no resuelto.",
+      "'harnessVersion' (clave opcional de navori.config.json) guarda la última versión de navori que aplicó un cambio real; solo la escribe un --apply de render/sync/adopt que escribió o borró algo, y nunca baja. Si es mayor que el CLI que corre doctor, aparece el hallazgo 'harness' y --strict falla.",
+      "Ya no hay drift de 'version' por bloque ni 'staleBlocks': 'version' en un marker es la versión que cambió el contenido por última vez. En --json, DriftReport.kind pasa a downgrade|harness|content (cambio incompatible para quien consuma el JSON).",
       "Valida invariants: substrings load-bearing que deben sobrevivir en el output (exit 2 si faltan).",
       "El estado de confianza de Codex se lee de $CODEX_HOME/config.toml si CODEX_HOME está definido, y de ~/.codex/config.toml si no; un valor relativo se rechaza.",
       "Con el engine codex habilitado, también revisa cada git worktree del repo que tenga .codex/config.toml: advierte con el hook, la ruta y 'cd <ruta> && navori codex trust' si falta aprobarlo. Advierte además si el codex instalado es más nuevo que la última versión verificada. Si git o el disco fallan, degrada a un aviso.",
@@ -241,6 +244,7 @@ const es: Record<string, CommandDoc> = {
       },
     ],
     notes: [
+      "Muestra 'harness (last changed)' con la versión de navori que cambió el harness por última vez (harnessVersion); la clave de --json sigue siendo 'renderedVersion'.",
       "status es la vista al vuelo; doctor es el audit verboso. Comparten la misma lógica de health-check.",
     ],
   },
@@ -282,79 +286,6 @@ const es: Record<string, CommandDoc> = {
       "Si CODEX_HOME está definido, usa $CODEX_HOME/config.toml en lugar de ~/.codex/config.toml; un valor relativo se rechaza.",
     ],
   },
-  global: {
-    id: "global",
-    title: "global",
-    summary:
-      "Instala un harness base por máquina en ~/.claude, para las sesiones que arrancan fuera de un repo con navori. Opt-in y de huella cero: sin 'navori global init' no existe, y navori no tocó nada de tu máquina.",
-    usage:
-      "navori global init [--apply] [--recommended] [--lang <es|en>]\nnavori global render [--apply]\nnavori global doctor\nnavori global collect install|uninstall\nnavori global uninstall",
-    flags: [
-      {
-        flag: "init",
-        desc: "Wizard de la capa global: elige los bloques del baseline y tus permisos personales. Preview por default — sin --apply no escribe un solo byte, solo muestra el plugin, el hook y los settings que instalaría.",
-      },
-      {
-        flag: "init --apply",
-        desc: "Escribe lo que el preview mostró: el manifest ~/.navori/global.json y el plugin 'navori@skills-dir' en ~/.claude/skills/navori/ (8 agentes, 14 skills y el hook del baseline).",
-      },
-      {
-        flag: "init --recommended",
-        desc: "Sin preguntas: toma la selección recomendada (o la que ya tenías, si re-inicializas). Es el camino headless para CI y scripts; también es a lo que cae solo cuando no hay terminal interactiva.",
-      },
-      {
-        flag: "init --lang <es|en>",
-        desc: "Idioma del baseline global y de los prompts. Default: es, o el que ya tenía la instalación.",
-      },
-      {
-        flag: "render",
-        desc: "Re-renderiza el plugin y el hook tras un bump del CLI. Preview por default: sin --apply no toca disco.",
-      },
-      { flag: "render --apply", desc: "Escribe a disco (respalda settings.json si lo modifica)." },
-      {
-        flag: "doctor",
-        desc: "Audita la capa: drift del hook, el gate ejecutado de verdad, el plugin al día, permisos y versión. Si no está instalada, lo dice y ya.",
-      },
-      {
-        flag: "collect install",
-        desc: "Instala el LaunchAgent (macOS) que mantiene arriba 'navori audit --collect', el receptor de la tercera fuente de audit. Con KeepAlive y RunAtLoad: launchd lo revive si se cae y lo levanta al arrancar la máquina. navori escribe el plist; launchd lo ejecuta. Antes de reportar éxito confirma con reintentos acotados que el receptor responde de verdad, no solo que launchd registró el job.",
-      },
-      {
-        flag: "collect uninstall",
-        desc: "Descarga el LaunchAgent y borra el plist. Igual que el resto de 'global': todo lo que navori escribió fuera del repo sabe deshacerse.",
-      },
-      {
-        flag: "uninstall",
-        desc: "Retira solo lo que navori escribió: el plugin, el manifest y los permisos que reclamó — los tuyos quedan intactos.",
-      },
-    ],
-    example: [
-      {
-        title: "Ver qué instalaría (no escribe nada)",
-        code: "$ navori global init --recommended\n  · plugin: ~/.claude/skills/navori (25 archivos)\n  · hook: ~/.claude/skills/navori/hooks/navori-global-baseline.sh\n  · settings: sin cambios (~/.claude/settings.json)\n  · Bloques del baseline: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\nPreview: no se escribió un solo byte. Corre 'navori global init --apply' para instalar.",
-      },
-      {
-        title: "Instalar la capa global",
-        code: "$ navori global init --apply\n  · plugin: ~/.claude/skills/navori (25 archivos)\n  · Bloques del baseline: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\n✓ Harness global instalado en ~/.claude.",
-      },
-      {
-        title: "Auditar",
-        code: "$ navori global doctor\n  ✓ hook de baseline presente y al día\n  ✓ gate funcional (emite baseline fuera de un repo navori, y nada dentro)\n  ✓ plugin 'navori@skills-dir' instalado y al día\n✓ OK",
-      },
-      {
-        title: "Quitarla",
-        code: "$ navori global uninstall\n✓ Harness global desinstalado de ~/.claude.",
-      },
-    ],
-    notes: [
-      "Opt-in de verdad: sin 'navori global init --apply' no existe ~/.navori/global.json y navori no escribió un solo byte en tu máquina. El init sin --apply tampoco escribe: es un preview.",
-      "El wizard es el único camino de UI para 'permissions'. Lo que declares ahí se mergea a ~/.claude/settings.json y queda registrado como de navori, que es lo que permite al uninstall retirarlo sin tocar tus reglas.",
-      "El plugin 'navori@skills-dir' lo carga Claude Code sin marketplace ni paso de instalación; sus skills se invocan '/navori:<nombre>'.",
-      "El hook se hace a un lado solo: si la sesión arranca dentro de un repo con navori.config.json, no emite nada. Manda el harness del repo.",
-      "De ~/.claude/settings.json solo escribe 'permissions', y con la config por default ni siquiera lo crea.",
-      "Respeta CLAUDE_CONFIG_DIR: si lo tienes seteado, el plugin va ahí y no a ~/.claude.",
-    ],
-  },
   remove: {
     id: "remove",
     title: "remove",
@@ -364,7 +295,7 @@ const es: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "<plugin>",
-        desc: "Id del plugin a quitar (semgrep, jscpd, codegraph, tgrep, acli, gh).",
+        desc: "Id del plugin a quitar (codegraph, tgrep, acli, gh).",
       },
       { flag: "--yes", desc: "Sin confirmación." },
       { flag: "--cwd <dir>", desc: "Directorio del repo (default: actual)." },
@@ -372,7 +303,7 @@ const es: Record<string, CommandDoc> = {
     example: [
       {
         title: "Quitar un plugin",
-        code: "$ navori remove semgrep --yes\n◆  'semgrep' quitado y limpiado.\n└  Listo",
+        code: "$ navori remove tgrep --yes\n◆  'tgrep' quitado y limpiado.\n└  Listo",
       },
       {
         title: "engram no se puede quitar",
@@ -390,7 +321,7 @@ const es: Record<string, CommandDoc> = {
     summary:
       "Modifica secciones de navori.config.json después del init. Cada sección es un subcomando.",
     usage:
-      "navori configure <plugins|quality-gate|language|branch-base|pr-target|engines|workspace|blocks> [valor]",
+      "navori configure <plugins|quality-gate|language|branch-base|pr-target|engines|workspace|blocks|migrate> [valor]",
     flags: [
       { flag: "plugins", desc: "Habilita o deshabilita plugins de este repo (interactivo)." },
       {
@@ -405,13 +336,17 @@ const es: Record<string, CommandDoc> = {
       },
       {
         flag: "engines",
-        desc: "Agrega o quita engines: claude, agents-md, cursor, copilot, codex.",
+        desc: "Agrega o quita engines: claude, agents-md, cursor, copilot, codex, pi.",
       },
       {
         flag: "workspace <nombre>",
         desc: "Asocia el repo a un workspace (vacío para desasociar).",
       },
       { flag: "blocks", desc: "Excluye bloques core managed (p. ej. orquestacion, sdd)." },
+      {
+        flag: "migrate [--dry-run] [--yes] [--all [--apply]]",
+        desc: "Renombra claves retiradas del config (harness, models, effort) para que vuelva a cargar. Con --all recorre los repos del registro global (preview por default; --apply escribe).",
+      },
       {
         flag: "--cwd <dir>",
         desc: "Directorio del repo (default: actual). Aplica a todos los subcomandos.",
@@ -436,12 +371,12 @@ const es: Record<string, CommandDoc> = {
       "branchBase y prTarget son dos cosas distintas: la primera es el punto de fork contra el que se mide el diff, la segunda es a dónde apunta el PR. En la mayoría de los repos coinciden.",
     ],
   },
-  update: {
-    id: "update",
-    title: "update",
+  refresh: {
+    id: "refresh",
+    title: "refresh",
     summary:
       "El 'ponme al día' de un solo tiro: vuelve a detectar el repo, ofrece los cambios de config y corre sync.",
-    usage: "navori update [--yes] [--cwd <dir>]",
+    usage: "navori refresh [--yes] [--cwd <dir>]",
     flags: [
       { flag: "--yes", desc: "Aplica los diffs detectados y sincroniza sin preguntar." },
       { flag: "--cwd <dir>", desc: "Directorio del repo (default: actual)." },
@@ -449,7 +384,34 @@ const es: Record<string, CommandDoc> = {
     example: [
       {
         title: "Nada que hacer",
-        code: "$ navori update\n└  Al día — nada que actualizar",
+        code: "$ navori refresh\n└  Al día — nada que actualizar",
+      },
+      {
+        title: "En CI",
+        code: "navori refresh --yes",
+      },
+    ],
+    notes: [
+      "Detecta drift entre lo que el repo es hoy y lo que el config dice: preset sugerido, comandos del quality gate, rama base y migraciones de librería.",
+      "Tu edición manda: cuando la detección discrepa de un valor que ya editaste a mano, el config gana. El quality gate solo se propone si el repo GANÓ pasos que te faltan — nunca para recortarte uno; 'engines' ni se propone, se reporta; y las migraciones de librería se reconcilian por 'legacy'. La excepción declarada es 'project.libraries', que es un campo derivado de tus dependencias y sí se reemplaza.",
+      "Después de acomodar el config corre sync, así que los bloques managed quedan al día en la misma pasada.",
+    ],
+  },
+  update: {
+    id: "update",
+    title: "update",
+    summary:
+      "Actualiza la CLI de navori a la última versión de npm y luego corre 'navori refresh' con el binario nuevo.",
+    usage: "navori update [--yes] [--cli-only] [--cwd <dir>]",
+    flags: [
+      { flag: "--yes", desc: "Instala y refresca sin preguntar." },
+      { flag: "--cli-only", desc: "Solo actualiza la CLI; no corre refresh." },
+      { flag: "--cwd <dir>", desc: "Directorio del repo (default: actual)." },
+    ],
+    example: [
+      {
+        title: "Actualizar y ponerse al día",
+        code: "$ navori update\n◇  navori 0.12.0 disponible (actual: 0.11.3)\n│  Se ejecutará: npm i -g navori@latest",
       },
       {
         title: "En CI",
@@ -457,9 +419,9 @@ const es: Record<string, CommandDoc> = {
       },
     ],
     notes: [
-      "Detecta drift entre lo que el repo es hoy y lo que el config dice: preset sugerido, comandos del quality gate, rama base y migraciones de librería.",
-      "Tu edición manda: cuando la detección discrepa de un valor que ya editaste a mano, el config gana. El quality gate solo se propone si el repo GANÓ pasos que te faltan — nunca para recortarte uno; 'engines' ni se propone, se reporta; y las migraciones de librería se reconcilian por 'legacy'. La excepción declarada es 'project.libraries', que es un campo derivado de tus dependencias y sí se reemplaza.",
-      "Después de acomodar el config corre sync, así que los bloques managed quedan al día en la misma pasada.",
+      "Consulta registry.npmjs.org (2 s de timeout). Si ya estás al día o no hay red, lo dice en una línea y sigue con refresh.",
+      "El comando de instalación depende de cómo instalaste navori: global, devDependency o dependency de npm; con npx se re-ejecuta 'npx navori@latest refresh'.",
+      "Sin terminal interactiva y sin --yes no instala nada: imprime el comando y sale con error.",
     ],
   },
   scan: {
@@ -872,6 +834,10 @@ const es: Record<string, CommandDoc> = {
         desc: "Spec y milestone del ciclo; con `gate` son obligatorios, con `sign` van juntos con --gate-ran.",
       },
       {
+        flag: "--phase <nombre|índice>",
+        desc: "Fase del workplan (nombre o índice desde 1); alternativa a --spec/--milestone en `sign` y `gate`.",
+      },
+      {
         flag: "--gate-ran <scoped|full>",
         desc: "`sign`: el gate que corrió el ciclo. Se rechaza `scoped` cuando la decisión es `full`.",
       },
@@ -1088,6 +1054,32 @@ const es: Record<string, CommandDoc> = {
       "Los subcomandos delivery-* son del modo entregas: validan las partes contra parts.json y toda aprobación exige --approved-by user. El hook master-accept-confirm pide confirmación humana antes de registrar una aceptación; un agente no puede aprobarse a sí mismo.",
     ],
   },
+  gate: {
+    id: "gate",
+    title: "gate",
+    summary:
+      "Corre el quality gate del proyecto con la salida completa en un log y solo un veredicto compacto en stdout.",
+    usage: "navori gate <fast|full> [--cwd <path>]",
+    flags: [
+      {
+        flag: "<fast|full>",
+        desc: "Qué gate correr: qualityGate.fast o qualityGate.full de navori.config.json, tal cual está escrito.",
+      },
+      { flag: "--cwd <path>", desc: "Raíz del proyecto; por defecto el directorio actual." },
+    ],
+    example: [
+      {
+        title: "Correr el gate completo",
+        code: "$ navori gate full\nnavori gate full: exit 0 — log .navori/state/gate/full-20261008T191709Z.log",
+      },
+    ],
+    notes: [
+      "La primera línea de stdout es siempre el centinela 'navori gate <kind>: exit <N> — log <path>'. Sin ese centinela el gate no corrió: ejecuta el comando literal.",
+      "La salida completa va a .navori/state/gate/<kind>-<ts>.log. En verde imprime un resumen corto (menos de 2 KB); en rojo, el fragmento con los errores y la cola, con tope.",
+      "El exit code es el de la cadena del gate. Sale con 2 sin correr nada si el gate configurado ya no pasa el chequeo de seguridad que da su permiso exacto.",
+      "Reenvía SIGINT/SIGTERM a los procesos hijos y deja un centinela 'killed'.",
+    ],
+  },
 };
 
 const en: Record<string, CommandDoc> = {
@@ -1100,7 +1092,7 @@ const en: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "--full",
-        desc: "--recommended + default external providers (tgrep, semgrep, jscpd, acli; codegraph opt-in) + pre-commit hook + monorepo scan + strict project block (posture/reviewRigor/testsForNewCode). Requires installing those providers' binaries.",
+        desc: "--recommended + default external providers (tgrep, acli; codegraph opt-in) + pre-commit hook + monorepo scan + strict project block (posture/reviewRigor/testsForNewCode). Requires installing those providers' binaries.",
       },
       {
         flag: "--recommended",
@@ -1142,7 +1134,7 @@ const en: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "<plugin>",
-        desc: "Plugin to register: engram, codegraph, tgrep, semgrep, jscpd, acli, gh.",
+        desc: "Plugin to register: engram, codegraph, tgrep, acli, gh.",
       },
       {
         flag: "--suggest",
@@ -1242,7 +1234,8 @@ const en: Record<string, CommandDoc> = {
     id: "sync",
     title: "sync",
     summary: "Pulls bundle changes into every configured engine without overwriting your edits.",
-    usage: "navori sync [--interactive] [--apply] [--workspace <name>]",
+    usage:
+      "navori sync [--interactive] [--apply] [--yes] [--accept-new] [--accept-new-files] [--keep-mine] [--dry-run] [--json] [--workspace <name>]",
     flags: [
       {
         flag: "--interactive",
@@ -1362,79 +1355,6 @@ const en: Record<string, CommandDoc> = {
       "If CODEX_HOME is set, it uses $CODEX_HOME/config.toml instead of ~/.codex/config.toml; a relative value is rejected.",
     ],
   },
-  global: {
-    id: "global",
-    title: "global",
-    summary:
-      "Installs a machine-wide harness baseline into ~/.claude, for sessions that start outside a navori repo. Opt-in and zero-footprint: without 'navori global init' it doesn't exist, and navori touched nothing on your machine.",
-    usage:
-      "navori global init [--apply] [--recommended] [--lang <es|en>]\nnavori global render [--apply]\nnavori global doctor\nnavori global collect install|uninstall\nnavori global uninstall",
-    flags: [
-      {
-        flag: "init",
-        desc: "Global-layer wizard: pick the baseline blocks and your personal permissions. Preview by default — without --apply it writes not a single byte, it only shows the plugin, the hook and the settings it would install.",
-      },
-      {
-        flag: "init --apply",
-        desc: "Writes what the preview showed: the ~/.navori/global.json manifest and the 'navori@skills-dir' plugin under ~/.claude/skills/navori/ (8 agents, 14 skills and the baseline hook).",
-      },
-      {
-        flag: "init --recommended",
-        desc: "No questions: takes the recommended selection (or the one you already had, on a re-init). It is the headless path for CI and scripts, and also what it falls back to with no interactive terminal.",
-      },
-      {
-        flag: "init --lang <es|en>",
-        desc: "Language of the global baseline and of the prompts. Default: es, or whatever the existing install already had.",
-      },
-      {
-        flag: "render",
-        desc: "Re-renders the plugin and the hook after a CLI bump. Preview by default: without --apply nothing is written.",
-      },
-      { flag: "render --apply", desc: "Write to disk (backs up settings.json if it changes it)." },
-      {
-        flag: "doctor",
-        desc: "Audits the layer: hook drift, the gate actually executed, plugin up to date, permissions and version. If it isn't installed, it says so and stops.",
-      },
-      {
-        flag: "collect install",
-        desc: "Installs the LaunchAgent (macOS) that keeps 'navori audit --collect' up — the receiver behind audit's third source. With KeepAlive and RunAtLoad: launchd revives it when it dies and starts it at login. navori writes the plist; launchd runs it. Before reporting success it confirms, with bounded retries, that the receiver actually answers — not just that launchd registered the job.",
-      },
-      {
-        flag: "collect uninstall",
-        desc: "Unloads the LaunchAgent and deletes the plist. Like the rest of 'global': everything navori wrote outside the repo knows how to undo itself.",
-      },
-      {
-        flag: "uninstall",
-        desc: "Removes only what navori wrote: the plugin, the manifest and the permissions it claimed — yours are left intact.",
-      },
-    ],
-    example: [
-      {
-        title: "See what it would install (writes nothing)",
-        code: "$ navori global init --recommended\n  · plugin: ~/.claude/skills/navori (25 files)\n  · hook: ~/.claude/skills/navori/hooks/navori-global-baseline.sh\n  · settings: unchanged (~/.claude/settings.json)\n  · Baseline blocks: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\nPreview: not a single byte was written. Run 'navori global init --apply' to install.",
-      },
-      {
-        title: "Install the global layer",
-        code: "$ navori global init --apply\n  · plugin: ~/.claude/skills/navori (25 files)\n  · Baseline blocks: operaciones-seguras, idioma-rol, formato-respuesta, orquestacion\n✓ Global harness installed at ~/.claude.",
-      },
-      {
-        title: "Audit",
-        code: "$ navori global doctor\n  ✓ baseline hook present and up to date\n  ✓ gate works (emits the baseline outside a navori repo, nothing inside one)\n  ✓ plugin 'navori@skills-dir' installed and up to date\n✓ OK",
-      },
-      {
-        title: "Remove it",
-        code: "$ navori global uninstall\n✓ Global harness uninstalled from ~/.claude.",
-      },
-    ],
-    notes: [
-      "Opt-in for real: without 'navori global init --apply' there is no ~/.navori/global.json, and navori wrote not a single byte on your machine. An init without --apply writes nothing either: it is a preview.",
-      "The wizard is the only UI path to 'permissions'. What you declare there is merged into ~/.claude/settings.json and recorded as navori's, which is what lets uninstall retract it without touching your own rules.",
-      "Claude Code loads the 'navori@skills-dir' plugin with no marketplace and no install step; its skills are invoked as '/navori:<name>'.",
-      "The hook steps aside on its own: if the session starts inside a repo with navori.config.json it emits nothing. The repo's harness wins.",
-      "In ~/.claude/settings.json it only writes 'permissions', and with the default config it doesn't even create the file.",
-      "Honors CLAUDE_CONFIG_DIR: if you have it set, the plugin goes there instead of ~/.claude.",
-    ],
-  },
   remove: {
     id: "remove",
     title: "remove",
@@ -1444,7 +1364,7 @@ const en: Record<string, CommandDoc> = {
     flags: [
       {
         flag: "<plugin>",
-        desc: "Plugin id to remove (semgrep, jscpd, codegraph, tgrep, acli, gh).",
+        desc: "Plugin id to remove (codegraph, tgrep, acli, gh).",
       },
       { flag: "--yes", desc: "Skip confirmation." },
       { flag: "--cwd <dir>", desc: "Repo directory (default: current)." },
@@ -1452,7 +1372,7 @@ const en: Record<string, CommandDoc> = {
     example: [
       {
         title: "Remove a plugin",
-        code: "$ navori remove semgrep --yes\n◆  'semgrep' removed and cleaned up.\n└  Done",
+        code: "$ navori remove tgrep --yes\n◆  'tgrep' removed and cleaned up.\n└  Done",
       },
       {
         title: "engram cannot be removed",
@@ -1469,7 +1389,7 @@ const en: Record<string, CommandDoc> = {
     title: "configure",
     summary: "Modify sections of navori.config.json after init. Each section is a subcommand.",
     usage:
-      "navori configure <plugins|quality-gate|language|branch-base|pr-target|engines|workspace|blocks> [value]",
+      "navori configure <plugins|quality-gate|language|branch-base|pr-target|engines|workspace|blocks|migrate> [value]",
     flags: [
       { flag: "plugins", desc: "Enable or disable this repo's plugins (interactive)." },
       {
@@ -1484,10 +1404,14 @@ const en: Record<string, CommandDoc> = {
       },
       {
         flag: "engines",
-        desc: "Add or remove engines: claude, agents-md, cursor, copilot, codex.",
+        desc: "Add or remove engines: claude, agents-md, cursor, copilot, codex, pi.",
       },
       { flag: "workspace <name>", desc: "Associate the repo with a workspace (empty to detach)." },
       { flag: "blocks", desc: "Opt out of core managed blocks (e.g. orquestacion, sdd)." },
+      {
+        flag: "migrate [--dry-run] [--yes] [--all [--apply]]",
+        desc: "Rename retired config keys (harness, models, effort) so the config loads again. With --all it walks the repos in the global registry (preview by default; --apply writes).",
+      },
       {
         flag: "--cwd <dir>",
         desc: "Repo directory (default: current). Applies to every subcommand.",
@@ -1512,12 +1436,12 @@ const en: Record<string, CommandDoc> = {
       "branchBase and prTarget are two different things: the first is the fork point every diff is measured against, the second is where the PR points. In most repos they name the same branch.",
     ],
   },
-  update: {
-    id: "update",
-    title: "update",
+  refresh: {
+    id: "refresh",
+    title: "refresh",
     summary:
       "The one-shot 'bring me up to date': re-detects the repo, offers the config diffs, and runs sync.",
-    usage: "navori update [--yes] [--cwd <dir>]",
+    usage: "navori refresh [--yes] [--cwd <dir>]",
     flags: [
       { flag: "--yes", desc: "Apply the detected diffs and sync without prompting." },
       { flag: "--cwd <dir>", desc: "Repo directory (default: current)." },
@@ -1525,7 +1449,34 @@ const en: Record<string, CommandDoc> = {
     example: [
       {
         title: "Nothing to do",
-        code: "$ navori update\n└  Up to date — nothing to update",
+        code: "$ navori refresh\n└  Up to date — nothing to update",
+      },
+      {
+        title: "In CI",
+        code: "navori refresh --yes",
+      },
+    ],
+    notes: [
+      "It detects drift between what the repo is today and what the config says: suggested preset, quality-gate commands, base branch and library migrations.",
+      "Your edit wins: when detection disagrees with a value you already set by hand, the config keeps it. The quality gate is only proposed when the repo GAINED steps yours lacks — never to trim one away; 'engines' is reported, not proposed; and library migrations are reconciled by 'legacy'. The declared exception is 'project.libraries', a field derived from your dependencies, which is replaced.",
+      "After settling the config it runs sync, so the managed blocks come up to date in the same pass.",
+    ],
+  },
+  update: {
+    id: "update",
+    title: "update",
+    summary:
+      "Updates the navori CLI to the latest npm release, then runs 'navori refresh' with the new binary.",
+    usage: "navori update [--yes] [--cli-only] [--cwd <dir>]",
+    flags: [
+      { flag: "--yes", desc: "Install and refresh without prompting." },
+      { flag: "--cli-only", desc: "Only update the CLI; do not run refresh." },
+      { flag: "--cwd <dir>", desc: "Repo directory (default: current)." },
+    ],
+    example: [
+      {
+        title: "Update and catch up",
+        code: "$ navori update\n◇  navori 0.12.0 available (current: 0.11.3)\n│  Will run: npm i -g navori@latest",
       },
       {
         title: "In CI",
@@ -1533,9 +1484,9 @@ const en: Record<string, CommandDoc> = {
       },
     ],
     notes: [
-      "It detects drift between what the repo is today and what the config says: suggested preset, quality-gate commands, base branch and library migrations.",
-      "Your edit wins: when detection disagrees with a value you already set by hand, the config keeps it. The quality gate is only proposed when the repo GAINED steps yours lacks — never to trim one away; 'engines' is reported, not proposed; and library migrations are reconciled by 'legacy'. The declared exception is 'project.libraries', a field derived from your dependencies, which is replaced.",
-      "After settling the config it runs sync, so the managed blocks come up to date in the same pass.",
+      "It checks registry.npmjs.org (2 s timeout). If you are up to date or offline, it says so in one line and continues with refresh.",
+      "The install command follows how you installed navori: npm global, devDependency or dependency; with npx it re-executes 'npx navori@latest refresh'.",
+      "Without an interactive terminal and without --yes it installs nothing: it prints the command and exits with an error.",
     ],
   },
   scan: {
@@ -1954,6 +1905,10 @@ const en: Record<string, CommandDoc> = {
         desc: "Spec and milestone of the cycle; required by `gate`, and with `sign` they go together with --gate-ran.",
       },
       {
+        flag: "--phase <name|index>",
+        desc: "Workplan phase (name or 1-based index); alternative to --spec/--milestone on `sign` and `gate`.",
+      },
+      {
         flag: "--gate-ran <scoped|full>",
         desc: "`sign`: the gate the cycle ran. `scoped` is refused when the decision is `full`.",
       },
@@ -2176,6 +2131,32 @@ const en: Record<string, CommandDoc> = {
       "The delivery-* subcommands belong to deliveries mode: they validate parts against parts.json and every approval requires --approved-by user. The master-accept-confirm hook asks a human to confirm before an acceptance is recorded; an agent cannot approve itself.",
     ],
   },
+  gate: {
+    id: "gate",
+    title: "gate",
+    summary:
+      "Runs the project's quality gate with the full output in a log and only a compact verdict on stdout.",
+    usage: "navori gate <fast|full> [--cwd <path>]",
+    flags: [
+      {
+        flag: "<fast|full>",
+        desc: "Which gate to run: qualityGate.fast or qualityGate.full from navori.config.json, verbatim.",
+      },
+      { flag: "--cwd <path>", desc: "Project root; defaults to the current directory." },
+    ],
+    example: [
+      {
+        title: "Run the full gate",
+        code: "$ navori gate full\nnavori gate full: exit 0 — log .navori/state/gate/full-20261008T191709Z.log",
+      },
+    ],
+    notes: [
+      "The first stdout line is always the sentinel 'navori gate <kind>: exit <N> — log <path>'. No sentinel means the gate did not run: run the literal command.",
+      "The full output goes to .navori/state/gate/<kind>-<ts>.log. Green prints a short summary (under 2 KB); red prints the error excerpt and the tail, capped.",
+      "The exit code is the gate chain's. It exits 2 without running anything when the configured gate no longer passes the safety check that earns its exact permission.",
+      "It forwards SIGINT/SIGTERM to the child processes and writes a 'killed' sentinel.",
+    ],
+  },
 };
 
 export const commandDocs: Record<Lang, Record<string, CommandDoc>> = { es, en };
@@ -2190,6 +2171,7 @@ export const commandOrder = [
   "render",
   "sync",
   "update",
+  "refresh",
   "scan",
   "doctor",
   "status",
@@ -2203,10 +2185,10 @@ export const commandOrder = [
   "ticket",
   "dominio",
   "tools",
-  "global",
   "receipt",
   "plan",
   "spec",
   "handoff",
   "master",
+  "gate",
 ] as const;

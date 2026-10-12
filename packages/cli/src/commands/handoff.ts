@@ -11,6 +11,7 @@ import { checkHandoff, handoffExitCode, type HandoffConsumer } from "../lib/hand
 import { logReview } from "../lib/handoff/review-schema.ts";
 import { readConfig } from "../lib/config/config.ts";
 import { emitReviewOutcome } from "../lib/handoff/review-evidence.ts";
+import { checkReviewHandoff } from "../lib/handoff/review-check.ts";
 import { resolveReceiptOptions } from "./receipt.ts";
 
 function resolveConsumer(value: string | undefined): HandoffConsumer {
@@ -28,6 +29,16 @@ const checkSubCommand = defineCommand({
     for: {
       type: "string" as const,
       description: "Consumer running the check: orchestrator (default), scribe or publisher",
+    },
+    "produced-by": {
+      type: "string" as const,
+      description:
+        "Validate the handoff a role produced instead of one a consumer needs: reviewer (review_<feature>.md/.json + sealed evidence)",
+    },
+    since: {
+      type: "string" as const,
+      description:
+        "With --produced-by reviewer: ISO UTC time the review must have begun at or after",
     },
     dir: {
       type: "string" as const,
@@ -58,13 +69,21 @@ const checkSubCommand = defineCommand({
     } catch {
       legacyMarkdown = true;
     }
-    const result = checkHandoff({
-      cwd,
-      dir: root.dir,
-      feature: args.feature,
-      consumer: resolveConsumer(args.for),
-      legacyMarkdown,
-    });
+    const result =
+      args["produced-by"] === "reviewer"
+        ? checkReviewHandoff({
+            cwd,
+            dir: root.dir,
+            feature: args.feature,
+            ...(args.since ? { since: args.since } : {}),
+          })
+        : checkHandoff({
+            cwd,
+            dir: root.dir,
+            feature: args.feature,
+            consumer: resolveConsumer(args.for),
+            legacyMarkdown,
+          });
     process.stdout.write(`${args.json ? JSON.stringify(result) : formatResult(result)}\n`);
     process.exitCode = handoffExitCode(result);
   },

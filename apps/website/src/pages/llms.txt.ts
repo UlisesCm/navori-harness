@@ -39,7 +39,7 @@ export const GET: APIRoute = ({ site }) => {
 
 > ${es["site.tagline"]}. ${es["site.description"]}
 
-navori es un CLI (paquete npm \`navori\`, binario \`navori\`, versión ${cliPkg.version}, MIT, Node >= 20)
+navori es un CLI (paquete npm \`navori\`, binario \`navori\`, versión ${cliPkg.version}, MIT, Node >= 22.12)
 que instala y mantiene un harness multi-agente + SDD en cualquier repositorio.
 
 Hechos clave:
@@ -52,9 +52,9 @@ Hechos clave:
 - Inventario: ${INVENTORY.commands} subcomandos, ${INVENTORY.presets} presets, ${INVENTORY.plugins} plugins, ${INVENTORY.engines} engines, ${INVENTORY.agents} agentes, ${INVENTORY.skills} skills.
 - Engines soportados: ${ENGINE_IDS.join(", ")}.
 - Plugins disponibles: ${PLUGIN_IDS.join(", ")}.
-- Tres alcances aditivos y opt-in: el repo (\`navori init\`), la máquina (\`navori global init\`,
-  en \`~/.claude\`) y el workspace (\`navori workspace\`, \`navori dominio\`). Sin el init
-  correspondiente, navori no escribe nada fuera del repo.
+- Dos alcances aditivos y opt-in: el repo (\`navori init\`) y el workspace (\`navori workspace\`,
+  \`navori dominio\`). Sin el init correspondiente,
+  navori no escribe nada fuera del repo.
 - navori GENERA el harness; no ejecuta las herramientas del agente. Dicta qué herramienta usar y
   bajo qué doctrina vía skills, permisos y protocolo.
 

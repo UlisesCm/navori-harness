@@ -46,6 +46,7 @@ export function renderCursorEngine(
     config: inputConfig,
     destRelPath: ".cursor/rules/navori.mdc",
     managedId: MANAGED_ID,
+    engine: "cursor",
     header: HEADER,
     userSection: USER_SECTION,
     dryRun: options.dryRun,

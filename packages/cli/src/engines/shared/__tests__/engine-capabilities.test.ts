@@ -146,14 +146,29 @@ describe("Pi control boundaries", () => {
         },
       });
     }
-    expect(ENGINE_CAPABILITIES.pi.controls["handoff-shape"].state).toBe("unsupported");
-    expect(ENGINE_CAPABILITIES.pi.controls["local-skill-discovery"].state).toBe("unsupported");
+    expect(ENGINE_CAPABILITIES.pi.controls["handoff-shape"].state).toBe("enforced");
+    expect(ENGINE_CAPABILITIES.pi.controls["local-skill-discovery"]).toMatchObject({
+      state: "enforced",
+      evidence: { kind: "local-skill-pointer" },
+    });
   });
 
-  it("does not claim acceptance evidence without a Pi child Bash recorder", () => {
+  it("enforces acceptance evidence through the Pi built-in bash recorder", () => {
     expect(ENGINE_CAPABILITIES.pi.controls["acceptance-evidence"]).toMatchObject({
-      state: "unsupported",
-      reason: expect.stringContaining("does not record verifiable child Bash results"),
+      state: "enforced",
+      reason: expect.stringContaining("host-observed exits"),
+      evidence: { kind: "extension-tool", path: ".pi/extensions/navori.ts", tool: "bash" },
+    });
+  });
+});
+
+describe("Pi stuck advisory", () => {
+  // Covers: R14
+  it("declares repeat-failure-advice as advisory, not enforced", () => {
+    expect(ENGINE_CAPABILITIES.pi.controls["repeat-failure-advice"]).toMatchObject({
+      state: "advisory",
+      reason: expect.stringContaining("never blocks"),
+      evidence: { kind: "extension-tool", path: ".pi/extensions/navori.ts" },
     });
   });
 });

@@ -26,6 +26,26 @@ function config(plugins: Record<string, { enabled: boolean }>): NavoriConfig {
   return { plugins } as unknown as NavoriConfig;
 }
 
+// No bundled plugin declares a capabilityProbe any more: `probed` does.
+vi.mock(import("../../lib/render/bundled-assets.ts"), async (importOriginal) => {
+  const actual = await importOriginal();
+  const { withFakePlugins, writeFakePlugin } =
+    await import("../../lib/__tests__/helpers/fake-plugins.ts");
+  return withFakePlugins(actual, {
+    probed: writeFakePlugin("probed", {
+      externalTool: {
+        name: "probed",
+        checkBinary: "probed",
+        capabilityProbe: {
+          args: ["--help"],
+          mustContain: ["--baseline-from-ref", "--fail-on-new-clones"],
+          minVersion: "5.1.1",
+        },
+      },
+    }),
+  });
+});
+
 beforeEach(() => {
   hasBinary.mockReset();
   execFileSync.mockReset();
@@ -34,12 +54,12 @@ beforeEach(() => {
 describe("scanExternalToolCapabilities", () => {
   it("flags a binary whose probe output is missing a required capability", () => {
     hasBinary.mockReturnValue(true);
-    execFileSync.mockReturnValue("Usage: jscpd [options]\n  --min-tokens <n>\n");
-    const gaps = scanExternalToolCapabilities(config({ jscpd: { enabled: true } }));
+    execFileSync.mockReturnValue("Usage: probed [options]\n  --min-tokens <n>\n");
+    const gaps = scanExternalToolCapabilities(config({ probed: { enabled: true } }));
     expect(gaps).toHaveLength(1);
     expect(gaps[0]).toMatchObject({
-      pluginId: "jscpd",
-      binary: "jscpd",
+      pluginId: "probed",
+      binary: "probed",
       minVersion: "5.1.1",
     });
     expect(gaps[0]?.missing).toEqual(
@@ -50,21 +70,21 @@ describe("scanExternalToolCapabilities", () => {
   it("stays silent when the probe output contains every required capability", () => {
     hasBinary.mockReturnValue(true);
     execFileSync.mockReturnValue(
-      "Usage: jscpd [options]\n  --baseline-from-ref <ref>\n  --fail-on-new-clones [<n>]\n",
+      "Usage: probed [options]\n  --baseline-from-ref <ref>\n  --fail-on-new-clones [<n>]\n",
     );
-    expect(scanExternalToolCapabilities(config({ jscpd: { enabled: true } }))).toEqual([]);
+    expect(scanExternalToolCapabilities(config({ probed: { enabled: true } }))).toEqual([]);
   });
 
   it("stays silent when the binary is absent — missingExternalTools' job", () => {
     hasBinary.mockReturnValue(false);
-    expect(scanExternalToolCapabilities(config({ jscpd: { enabled: true } }))).toEqual([]);
+    expect(scanExternalToolCapabilities(config({ probed: { enabled: true } }))).toEqual([]);
     expect(execFileSync).not.toHaveBeenCalled();
   });
 
   it("ignores a disabled plugin", () => {
     hasBinary.mockReturnValue(true);
-    execFileSync.mockReturnValue("Usage: jscpd\n");
-    expect(scanExternalToolCapabilities(config({ jscpd: { enabled: false } }))).toEqual([]);
+    execFileSync.mockReturnValue("Usage: probed\n");
+    expect(scanExternalToolCapabilities(config({ probed: { enabled: false } }))).toEqual([]);
     expect(hasBinary).not.toHaveBeenCalled();
   });
 
@@ -80,6 +100,6 @@ describe("scanExternalToolCapabilities", () => {
     execFileSync.mockImplementation(() => {
       throw new Error("boom");
     });
-    expect(scanExternalToolCapabilities(config({ jscpd: { enabled: true } }))).toEqual([]);
+    expect(scanExternalToolCapabilities(config({ probed: { enabled: true } }))).toEqual([]);
   });
 });

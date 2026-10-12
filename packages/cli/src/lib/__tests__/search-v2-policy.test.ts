@@ -184,13 +184,17 @@ describe("occurrence counts alone no longer stand in for structural impact evide
     );
   });
 
-  it("reviewer.md requires routed evidence for a structural impact claim, not a text match", () => {
+  it("reviewer.md leaves routed evidence to the always-on routing instead of a private copy (#1264)", () => {
+    // Setup 5 restated what the always-on Code discovery routing already says
+    // (impact and relationships go to structural discovery; pinned above on the
+    // core block, and injected into the reviewer by the codegraph/tgrep access
+    // blocks, see search-v2-render.test.ts ROLE_AGENTS). Restating it cost bytes in
+    // every review dispatch and could drift from the block it copies.
     const reviewer = read(coreAgent("reviewer.md"));
-    expect(reviewer).toContain(
-      "apply Code discovery routing (project instructions) before gathering it",
-    );
-    expect(reviewer).toContain(
-      "occurrences from a text search don't demonstrate structural impact",
+    expect(reviewer).not.toContain("apply Code discovery routing (project instructions)");
+    expect(reviewer).not.toContain("don't demonstrate structural impact");
+    expect(read(coreManaged("code-discovery-routing.md"))).toContain(
+      "Behavior, definitions, architecture, relationships or impact: structural discovery.",
     );
   });
 

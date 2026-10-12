@@ -1,4 +1,4 @@
-# navori:managed start id="routing-watch-base" hash="406306f6" version="0.11.3" source="@navori/core"
+# navori:managed start id="routing-watch-base" hash="d9cfa84f" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse routing watcher (spec 0020).
@@ -155,10 +155,16 @@ extract_cmd() {
 # so include order between the two partials does not matter.
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
+  # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
+  # through its extension bridge, which sends a Claude-shaped payload (tool names
+  # `Bash`/`Edit`/`Write`, `tool_input`, `cwd`). Every existing `= codex` branch
+  # keeps the Claude semantics for `pi`; behavior that exists only on Pi goes in
+  # an explicit `[ "$nv_engine" = pi ]` branch, never in a shared one.
+  *"/.pi/navori/"*) nv_engine=pi ;;
   *) nv_engine=claude ;;
 esac
 
-if [ "$nv_engine" = codex ]; then
+if [ "$nv_engine" = codex ] || [ "$nv_engine" = pi ]; then
   nv_cwd=$(payload_field cwd)
   # `cwd` is the session's working dir, which may be a workspace subdir in a
   # monorepo; the project root is always the git toplevel from there. Falls
@@ -472,7 +478,8 @@ process.stdin.on("end", () => {
         .replace(/(?:\/tmp|\/private\/tmp|\/var\/folders)\/[^\s:]+/g, "<tmp>")
         .replace(/\b\d{4}-\d\d-\d\d[T ]\d\d:\d\d:\d\d(?:\.\d+)?Z?\b/g, "<t>")
         .replace(/\b\d\d:\d\d:\d\d(?:\.\d+)?\b/g, "<t>")
-        .replace(/\b\d+(?:\.\d+)?\s?(?:ms|seconds?|minutes?)\b/gi, "<d>")
+        .replace(/\b\d+(?:\.\d+)?\s?(?:ms|s|m|seconds?|minutes?)\b/gi, "<d>")
+        .replace(/\b(?:duration_ms|duration|time|elapsed)\b[:=\s]+\d+(?:\.\d+)?/gi, "<d>")
         .replace(/\b[0-9a-f]{8,}\b/gi, "<h>")
         .split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 20).join("\n");
       if (!body && exitCode === null) return;
@@ -548,7 +555,23 @@ navori_bash_codex_outcome() {
 # Called by `routing-watch.sh` once it knows the tool is `Bash`, and only under
 # `claude-post-tool-use` (Codex fires PostToolUse on failure too, so no signal).
 navori_bash_success_lane() {
-  local idx=$nv_project_dir/$nv_progress_dir/acceptance-index
+  # The index lives in the checkout that ran `plan update`: the git toplevel of
+  # the payload `cwd` (a linked worktree has a `.git` FILE, main a directory),
+  # found by a builtin-only parent walk (no process on the fast path). No `.git`
+  # ancestor, or an odd `cwd`: the project dir, as before.
+  local top=$nv_project_dir
+  navori_plain_field cwd
+  case "$navori_field" in
+    /*)
+      local w=$navori_field
+      while :; do
+        if [ -e "$w/.git" ]; then top=$w; break; fi
+        [ -n "$w" ] || break
+        w=${w%/*}
+      done
+      ;;
+  esac
+  local idx=$top/$nv_progress_dir/acceptance-index
   [ -s "$idx" ] || return 0
   # A backgrounded call "succeeds" when it LAUNCHES, not when it finishes; an
   # interrupted one did not complete.
@@ -577,6 +600,14 @@ navori_bash_success_lane() {
   agent=$(payload_field agent_id | tr -cd 'A-Za-z0-9._-')
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   root=$(pwd -P 2>/dev/null) || root=$nv_project_dir
+  # A checkout other than the project's receives evidence only when it is a
+  # worktree of the SAME repository (equal git common dir): never a foreign repo.
+  if [ "$tree" != "$nv_project_dir" ] && [ "$tree" != "$root" ]; then
+    local ctree cproj
+    ctree=$(navori_git -C "$tree" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
+    cproj=$(navori_git -C "$nv_project_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
+    [ -n "$ctree" ] && [ "$ctree" = "$cproj" ] || return 0
+  fi
 
   local line extra file
   while IFS=$'\t' read -r c f i d binding stage; do
@@ -589,7 +620,7 @@ navori_bash_success_lane() {
       A[0-9]*) case "${i#A}" in *[!0-9]*) continue ;; esac ;;
       *) continue ;;
     esac
-    case "$d" in "$root"/* | "$nv_project_dir"/*) ;; *) continue ;; esac
+    case "$d" in "$root"/* | "$nv_project_dir"/* | "$tree"/*) ;; *) continue ;; esac
     case "$d" in *[[:cntrl:]]* | */../* | */..) continue ;; esac
     [ -d "$d" ] && [ ! -L "$d" ] || continue
     file=$d/workplan_$f.evidence.jsonl
@@ -711,7 +742,7 @@ navori_audit_record_metadata() {
   fi
   command -v navori >/dev/null 2>&1 || return 0
   case "${nv_engine:-}" in
-    claude | codex) navori_audit_host=$nv_engine ;;
+    claude | codex | pi) navori_audit_host=$nv_engine ;;
     *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
   esac
   # The writer assigns eventId/wireVersion before first persistence. Replay
@@ -752,7 +783,7 @@ navori_audit_log() {
      + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
-        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable"]|index($reason)) != null then {reason:$reason}
+        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook"]|index($reason)) != null then {reason:$reason}
         else {reason:"unspecified"} end)
      + (($kind | if . == "" then (if $verdict == "block" then "hard" elif $verdict == "ask" then "ask" else "" end) else . end) as $k
         | if (["hard","ask","advisory"]|index($k)) != null then {kind:$k} else {} end)' 2>/dev/null) || return 0

@@ -15,14 +15,16 @@ metadata:
   # margin (697/720) instead of reproducing the same 3-word squeeze.
   # Spec 0044 T10 (R10): E/M/A/T grammar added (delivery/milestone/acceptance/task
   # structure), +~150 words measured; 1050 = 981 actual + 7% margin.
-  maxWords: 1050
+  # #1273: re-measured at 823 after the Covers convention moved in; ceil(823 × 1.10)
+  # = 906 (the 1050 above had drifted slack).
+  maxWords: 906
   # Spec 0026 T16 (R35): the critical-areas challenge interpolates
   # {{project.criticalAreas}} INSIDE the managed zone, same defect as
   # review-diff (#683) — a verbose repo config pushes the composed file past
   # the asset's own cap with no plugin involved. Margin measured against the
   # skill-caps-composed.test.ts fixture. Spec 0044: +100 words margin
   # for composition with project config.
-  maxWordsComposed: 1100
+  maxWordsComposed: 1006
 ---
 
 # spec-bootstrap — kickoff of an SDD spec
@@ -105,6 +107,6 @@ Estimated LOC: <n>
 
 - **Zero unresolved placeholders.** Don't leave `<...>`; an unknown value is a question for the user, not a hole. Same rule inside a task: "TBD", "implement later" or "similar to T<n>" describe nothing — name the observable behavior and the evidence expected. That is NOT a licence to dictate the code line by line; the implementer keeps its judgment.
 - **Cite a stable anchor, not a line number:** `file` + symbol name, heading, or managed-block id — never `file:line`. Lines drift before implementation; a stale one skips real sites.
-- **Every `R<n>` ends in ≥1 task and ≥1 test.** A requirement with no task or test isn't traceable → it doesn't enter the spec.
-- **Tracking lives in `tasks.md`, not in <!-- navori:if-not onCodex -->`TaskCreate`<!-- /navori:if-not --><!-- navori:if onCodex -->a parallel task list<!-- /navori:if -->.** See the SDD block.
+- **Every `R<n>` ends in ≥1 task and ≥1 test**, and each test references its requirements with a `// Covers: R<n>` comment above the case. A requirement with no task or test isn't traceable → it doesn't enter the spec; without full traceability the feature is not done.
+- **Tracking lives in `tasks.md`, not in <!-- navori:if-not onCodex -->`TaskCreate`<!-- /navori:if-not --><!-- navori:if onCodex -->a parallel task list<!-- /navori:if -->.** Duplicating it makes the board drift from the spec<!-- navori:if-not onCodex -->; ignore the TaskList reminder in SDD sessions<!-- /navori:if-not -->.
 - **Self-review before closing the scaffolding:** is each `R<n>` a single testable action? does each task point to real `R<n>`? does the design cover all the `R<n>`? If something fails, fix it before handing the spec off.

@@ -482,7 +482,7 @@ describe("navori plan update — evidence gate", () => {
     expect(stderr).toContain("WHY:   no run recorded");
     expect(stderr).toContain("FIX:");
     expect(stderr).toContain(command());
-    expect(stderr).toContain("large repos");
+    expect(stderr).toContain("navori plan render demo");
     expect(JSON.parse(stdout)).toMatchObject({ updated: false, id: "A1" });
     expect(existsSync(sentinel())).toBe(false);
   });
@@ -567,6 +567,84 @@ describe("navori plan update — evidence gate", () => {
     await update();
     expect(process.exitCode ?? 0).toBe(0);
     expect(JSON.parse(planBytes()).evidence.A1.kind).toBe("unevidenced");
+  });
+});
+
+// Covers: R7
+describe("navori plan render — acceptance index bootstrap on Pi", () => {
+  const sentinel = () => join(cwd, "sentinel-ran");
+  const command = () => `touch ${sentinel()}`;
+  const indexPath = () => join(cwd, ".navori/state/handoffs/acceptance-index");
+  let savedPi: string | undefined;
+  let savedClaude: string | undefined;
+
+  beforeEach(() => {
+    savedPi = process.env.PI_SESSION_ID;
+    savedClaude = process.env.CLAUDE_CODE_CHILD_SESSION;
+    // Note: CLAUDE_CODE_CHILD_SESSION=1 in a Pi-only repo fails open (no claude engine), so it is cleared here.
+    delete process.env.CLAUDE_CODE_CHILD_SESSION;
+    process.env.PI_SESSION_ID = "sess-1";
+    writeFileSync(
+      join(cwd, "navori.config.json"),
+      JSON.stringify({ name: "pi", engines: ["pi"], preset: "custom" }),
+    );
+    writePlan("demo", {
+      ...validPlan,
+      acceptance: [{ ...validPlan.acceptance[0], command: command() }],
+    });
+  });
+
+  afterEach(() => {
+    if (savedPi === undefined) delete process.env.PI_SESSION_ID;
+    else process.env.PI_SESSION_ID = savedPi;
+    if (savedClaude === undefined) delete process.env.CLAUDE_CODE_CHILD_SESSION;
+    else process.env.CLAUDE_CODE_CHILD_SESSION = savedClaude;
+  });
+
+  it("render writes the index, so a recorded run lets cumplido pass", async () => {
+    const stderr: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      // Without the index the rejection names the bootstrap fix.
+      await runCommand(planCommand, {
+        rawArgs: ["update", "demo", "--progress", "A1=cumplido", "--cwd", cwd],
+      });
+      expect(process.exitCode).toBe(1);
+      expect(stderr.join("")).toContain("navori plan render demo");
+
+      process.exitCode = undefined;
+      expect(existsSync(indexPath())).toBe(false);
+      await runCommand(planCommand, { rawArgs: ["render", "demo", "--cwd", cwd] });
+      expect(readFileSync(indexPath(), "utf8")).toContain(`\tdemo\tA1\t`);
+
+      writeFileSync(
+        join(cwd, dir, "workplan_demo.evidence.jsonl"),
+        `${JSON.stringify({
+          ts: "2026-09-30T10:00:00Z",
+          feature: "demo",
+          id: "A1",
+          command: command(),
+          tree: cwd,
+          cwd,
+          head: readHead(cwd),
+          worktreeTree: computeWorktreeTree(cwd),
+          dirty: true,
+        })}\n`,
+      );
+      await runCommand(planCommand, {
+        rawArgs: ["update", "demo", "--progress", "A1=cumplido", "--cwd", cwd],
+      });
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode ?? 0).toBe(0);
+    expect(JSON.parse(readFileSync(join(cwd, dir, "workplan_demo.json"), "utf8")).progress.A1).toBe(
+      "cumplido",
+    );
   });
 });
 

@@ -1,5 +1,7 @@
 # Spec 0010 — Harness global (base sólida por-máquina en `~/.claude`)
 
+> **Estado: superseded por la Spec 0046 (2026-10-08).** La capa global se retiró; el resto de este documento queda como historia.
+
 > Estado: **F1 implementado** · 2026-07-30 · Baseline (operaciones-seguras + idioma-rol +
 > formato-respuesta) entregado por hook con gate; comandos `navori global
 > init/render/doctor/uninstall`; invariante de huella-cero con guard estructural. Deriva del

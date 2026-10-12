@@ -144,10 +144,10 @@ describe("add — postInstall reachability (#953)", () => {
     expect(spawnSyncMock.mock.calls[0]?.[0]).toBe("gh auth status || gh auth login");
   });
 
-  it("binary present + plugin WITHOUT postInstall (semgrep) — unchanged, no prompt", async () => {
+  it("binary present + plugin WITHOUT postInstall (tgrep) — unchanged, no prompt", async () => {
     hasBinaryMock.mockReturnValue(true);
 
-    await add("semgrep");
+    await add("tgrep");
 
     expect(confirmMock).not.toHaveBeenCalled();
     expect(spawnSyncMock).not.toHaveBeenCalled();
@@ -516,7 +516,7 @@ describe("add --suggest — available external providers (#981)", () => {
     await add("--suggest");
 
     expect(noteText()).toContain("navori add codegraph");
-    expect(noteText()).toContain("navori add jscpd");
+    expect(noteText()).toContain("navori add tgrep");
   });
 
   it("never lists an already-enabled provider", async () => {

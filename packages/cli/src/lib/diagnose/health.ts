@@ -1,12 +1,20 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import {
+  isRetiredPlugin,
   loadPlugin,
   PluginNotFoundError,
   PluginManifestError,
+  RETIRED_PLUGIN_BLOCKS,
+  RETIRED_PLUGIN_SUB_BLOCKS,
   RETIRED_PLUGINS,
 } from "../config/plugins.ts";
-import { navoriAuthorship } from "../render/removable.ts";
+import { navoriAuthorship, type KeepReason } from "../render/removable.ts";
+import {
+  createRetiredAssetContext,
+  findRetiredScriptReferences,
+  retiredAssetKeepReason,
+} from "../../engines/shared/retired-plugin-assets.ts";
 import {
   RETIRED_AGENTS,
   RETIRED_SKILLS,
@@ -387,6 +395,25 @@ export const ENGINE_OUTPUTS: EngineOutputs[] = [
     textDirs: [".agents", ".codex"],
   },
   {
+    // Pi owns `.pi/` outright (manifest, extension, agents: strict JSON / `navori:managed-file`
+    // headers that only Pi's own validators recognize, so the prune asks them, see
+    // `isOwnedPiResource`) and writes the shared skill root and AGENTS.md exactly like Codex
+    // when it is the only engine that does. Listing them under the SAME top-level paths as
+    // Codex (`.agents`, `AGENTS.md`) is what makes an enabled Pi protect them from Codex's
+    // orphan entry and the other way round (spec 0047 R11).
+    engine: "pi",
+    markers: [
+      { kind: "file", path: "AGENTS.md", style: "html" },
+      { kind: "recursive", dir: ".agents/skills", ext: ".md", style: "html" },
+      // The shared hook scripts Pi runs through its extension bridge (spec 0048 D1): marker-managed
+      // like `.codex/hooks`, so a tampered managed block is drift and a disabled Pi prunes them.
+      { kind: "recursive", dir: ".pi/navori/hooks", ext: ".sh", style: "shell" },
+      // Plugin scripts the bridge runs or a hook extension sources (spec 0048 D13).
+      { kind: "recursive", dir: ".pi/navori/scripts", ext: ".sh", style: "shell" },
+    ],
+    textDirs: [".agents", ".pi"],
+  },
+  {
     engine: "agents-md",
     markers: [{ kind: "file", path: "AGENTS.md", style: "html" }],
     textDirs: [],
@@ -405,15 +432,15 @@ export const ENGINE_OUTPUTS: EngineOutputs[] = [
 
 /**
  * Engines that materialize plugin-contributed blocks (protocol blocks) into
- * their output. The full Claude engine emits them, and Codex passes
- * `includePluginBlocks: true` (codex/index.ts). The three prose-only engines
+ * their output. The full Claude engine emits them, and Codex and Pi pass
+ * `includePluginBlocks: true` (codex/index.ts; pi/index.ts, only when Codex does not write AGENTS.md). The three prose-only engines
  * (agents-md, cursor, copilot) deliberately DROP them (prose-harness.ts). Doctor
  * uses this to skip validating a plugin's invariants when no configured engine
  * would ever emit the block that carries them — otherwise a prose-only repo goes
  * permanently red on an invariant that by design can't appear (#269). Must stay
  * in sync with who passes `includePluginBlocks`.
  */
-export const PLUGIN_BLOCK_ENGINES = new Set<string>(["claude", "codex"]);
+export const PLUGIN_BLOCK_ENGINES = new Set<string>(["claude", "codex", "pi"]);
 
 /** Repo-relative marker files that exist under `cwd`, deduped by path (AGENTS.md
  *  is claimed by both `codex` and `agents-md`) with their marker style.
@@ -542,16 +569,12 @@ export function collectMissingPlugins(config: NavoriConfig): MissingPlugin[] {
       // silently counted as absent and used to flip doctor's verdict (#281).
       if (isTransientFsError(err)) throw err;
       if (err instanceof PluginNotFoundError) {
-        // A RETIRED plugin (one navori shipped and later removed) is not a typo:
-        // give an actionable hint pointing at `navori remove` instead of the bare
-        // "unknown plugin id", which offers no way out.
-        const retired = RETIRED_PLUGINS[id];
-        missing.push({
-          id,
-          reason: retired
-            ? `retired from navori (${retired.removedIn}) — run 'navori remove ${id}'`
-            : "unknown plugin id",
-        });
+        // A RETIRED plugin (one navori shipped and later removed) is not a typo
+        // and not a failure: it is reported as a warning by
+        // `scanRetiredPluginLeftovers`, outside the health verdict, so a config
+        // that still lists it never turns `doctor` red.
+        if (isRetiredPlugin(id)) continue;
+        missing.push({ id, reason: "unknown plugin id" });
       } else if (err instanceof PluginManifestError) {
         missing.push({ id, reason: err.message });
       } else {
@@ -560,6 +583,122 @@ export function collectMissingPlugins(config: NavoriConfig): MissingPlugin[] {
     }
   }
   return missing;
+}
+
+/** A retired script still on disk and whether the next render would remove it. */
+export interface RetiredPluginAssetFinding {
+  /** Repo-relative path. */
+  path: string;
+  /** Why render keeps it, or null when `render --apply` will remove it. */
+  reason: KeepReason | null;
+}
+
+/** A hook source that still names a retired script. */
+export interface RetiredPluginReferenceFinding {
+  script: string;
+  /** Repo-relative path of the file that names it. */
+  source: string;
+  /** The script no longer exists on disk, so that hook will fail when it runs. */
+  scriptMissing: boolean;
+}
+
+/**
+ * What a retired plugin (`RETIRED_PLUGINS`) left behind in this repo. WARNINGS
+ * ONLY: it is never part of `computeHealthVerdict`, so it cannot flip `ok`,
+ * exit 2, or fail `--strict`.
+ */
+export interface RetiredPluginLeftovers {
+  /** Retired ids the config still declares. */
+  declared: Array<{ id: string; removedIn: string }>;
+  assets: RetiredPluginAssetFinding[];
+  /** Retired managed blocks and sub-blocks still present (repo-relative file + block id). */
+  blocks: Array<{ path: string; id: string }>;
+  references: RetiredPluginReferenceFinding[];
+}
+
+/** `.agents/skills/<id>/SKILL.md` for a `.claude/skills/<id>[/SKILL].md` target, else null. */
+function codexSkillTarget(claudePath: string): string | null {
+  const m = claudePath.match(/^\.claude\/skills\/([a-z0-9-]+)(?:\/SKILL)?\.md$/);
+  return m ? `.agents/skills/${m[1]}/SKILL.md` : null;
+}
+
+/**
+ * Doctor's view of retired-plugin leftovers: declared ids, scripts still on disk
+ * (Claude and Codex) with the keep reason render would give them, retired blocks
+ * and sub-blocks still present, and hook files that still name a retired script
+ * (stronger wording when the script is already gone). Lazy: hook sources are read
+ * only when a retired id is declared or a retired asset exists, and then once.
+ */
+export function scanRetiredPluginLeftovers(
+  cwd: string,
+  config: NavoriConfig,
+): RetiredPluginLeftovers {
+  const declared: RetiredPluginLeftovers["declared"] = [];
+  for (const id of Object.keys(config.plugins ?? {})) {
+    const retired = RETIRED_PLUGINS[id];
+    if (!retired) continue;
+    try {
+      loadPlugin(id);
+    } catch (err) {
+      if (err instanceof PluginNotFoundError) declared.push({ id, removedIn: retired.removedIn });
+      else if (isTransientFsError(err)) throw err;
+    }
+  }
+
+  const ctx = createRetiredAssetContext(cwd, config.plugins, [
+    join(cwd, ".claude/settings.local.json"),
+  ]);
+  const assets: RetiredPluginAssetFinding[] = [];
+  const names = new Set<string>();
+  const declaredIds = new Set(declared.map((d) => d.id));
+  for (const [id, retired] of Object.entries(RETIRED_PLUGINS)) {
+    for (const asset of retired.assets) {
+      if (!asset.startsWith(".claude/scripts/")) continue;
+      const name = asset.slice(".claude/scripts/".length);
+      for (const rel of [asset, `.codex/scripts/${name}`]) {
+        const abs = join(cwd, rel);
+        if (!existsSync(abs)) continue;
+        assets.push({ path: rel, reason: retiredAssetKeepReason(abs, ctx) });
+        names.add(name);
+      }
+      if (declaredIds.has(id)) names.add(name);
+    }
+  }
+
+  const blocks: RetiredPluginLeftovers["blocks"] = [];
+  const present = (rel: string, id: string): boolean => {
+    const abs = join(cwd, rel);
+    if (!existsSync(abs)) return false;
+    try {
+      return extractManagedContent(readFileSync(abs, "utf-8"), id, "html") !== null;
+    } catch {
+      return false;
+    }
+  };
+  const blockIds = new Set<string>([
+    ...Object.values(RETIRED_PLUGINS).flatMap((r) => r.blockIds),
+    ...Object.values(RETIRED_PLUGIN_BLOCKS).flatMap((r) => r.blockIds),
+  ]);
+  for (const id of blockIds) if (present("CLAUDE.md", id)) blocks.push({ path: "CLAUDE.md", id });
+  for (const retired of Object.values(RETIRED_PLUGIN_SUB_BLOCKS)) {
+    for (const entry of retired.entries) {
+      for (const target of [entry.targetPath, codexSkillTarget(entry.targetPath)]) {
+        if (target !== null && present(target, entry.id)) {
+          blocks.push({ path: target, id: entry.id });
+        }
+      }
+    }
+  }
+
+  const references: RetiredPluginReferenceFinding[] = findRetiredScriptReferences(ctx, [
+    ...names,
+  ]).map((r) => ({
+    ...r,
+    scriptMissing:
+      !existsSync(join(cwd, ".claude/scripts", r.script)) &&
+      !existsSync(join(cwd, ".codex/scripts", r.script)),
+  }));
+  return { declared, assets, blocks, references };
 }
 
 export interface RetiredAssetOnDisk {
@@ -667,12 +806,13 @@ export interface DriftReport {
   filePath: string;
   markerId: string;
   source: string;
-  /** "version" — the bundle moved ahead (disk older than the CLI; render/sync
-   * brings it forward). "downgrade" — disk is NEWER than the CLI; render's
-   * anti-rollback preserves the block, so the fix is updating the CLI, not
-   * render (#242). "content" — the body of the managed block no longer matches
-   * its `hash=` attribute, i.e. the user edited inside the marker. */
-  kind: "version" | "downgrade" | "content";
+  /** "downgrade" — disk is NEWER than the CLI; render's anti-rollback preserves
+   * the block, so the fix is updating the CLI, not render (#242). "harness" —
+   * the registry's `harnessVersion` is newer than the CLI (same fix, whole
+   * harness). "content" — the body of the managed block no longer matches its
+   * `hash=` attribute, i.e. the user edited inside the marker. A marker OLDER
+   * than the CLI is not drift: its version is the last release that changed it. */
+  kind: "downgrade" | "harness" | "content";
   fromVersion?: string;
   toVersion?: string;
   expectedHash?: string;
@@ -682,7 +822,9 @@ export interface DriftReport {
 /**
  * Walk `.claude/agents/` and `.claude/skills/` and report drift for each
  * managed marker found:
- *   - **version drift** — the marker's `version=` is older than the bundle's.
+ *   - **downgrade** — the marker's `version=` is NEWER than the CLI's (an older
+ *     marker is not drift: it is the last release that changed the block).
+ *   - **harness** — `config.harnessVersion` is newer than the CLI.
  *   - **content drift** — the body no longer hashes to its `hash=` attr,
  *     i.e. hand-edited. `navori sync` surfaces this as a conflict.
  * Markers without `version=`/`hash=` or with unknown sources are skipped.
@@ -700,6 +842,16 @@ export function scanManagedDrift(cwd: string, config: NavoriConfig): DriftReport
   const engines = config.engines ?? ["claude"];
 
   const out = scanManagedDriftAt(cwd, "", naviVersion, knownSources, engines);
+  if (config.harnessVersion && isDowngrade(config.harnessVersion, naviVersion)) {
+    out.push({
+      filePath: "navori.config.json",
+      markerId: "harnessVersion",
+      source: "navori.config.json",
+      kind: "harness",
+      fromVersion: config.harnessVersion,
+      toVersion: naviVersion,
+    });
+  }
   // Monorepo: render/sync manage the managed blocks in EVERY workspace, so the
   // scan must too — otherwise a hand-edited block in `apps/backend/CLAUDE.md`
   // makes `sync` report a conflict while `doctor --strict` exits green (#235).
@@ -760,18 +912,16 @@ function scanManagedDriftAt(
       if (!m.source) continue;
 
       if (m.version) {
-        if (knownSources.has(m.source) && naviVersion !== m.version) {
-          // Direction matters (#242): when the on-disk block is NEWER than the
-          // running CLI, render's anti-rollback (marker.ts `downgrade-skipped`)
-          // preserves the block, so recommending render/sync is a fix that does
-          // nothing. Classify it as a downgrade so doctor tells the user to
-          // update the CLI instead.
-          const kind = isDowngrade(m.version, naviVersion) ? "downgrade" : "version";
+        if (knownSources.has(m.source) && isDowngrade(m.version, naviVersion)) {
+          // Only the NEWER-than-CLI direction is drift (#242): render's
+          // anti-rollback (marker.ts `downgrade-skipped`) preserves the block, so
+          // doctor tells the user to update the CLI. An older marker is the
+          // frozen last-change version, not staleness.
           out.push({
             filePath: rel(path),
             markerId: m.id,
             source: m.source,
-            kind,
+            kind: "downgrade",
             fromVersion: m.version,
             toVersion: naviVersion,
           });
@@ -1242,10 +1392,7 @@ export function suggestNextSteps(state: HealthState, lang: Lang = DEFAULT_LANG):
   if (state.drifts.some((d) => d.kind === "content")) {
     steps.push(ts.nextContentDrift);
   }
-  if (state.drifts.some((d) => d.kind === "version")) {
-    steps.push(ts.nextVersionDrift);
-  }
-  if (state.drifts.some((d) => d.kind === "downgrade")) {
+  if (state.drifts.some((d) => d.kind === "downgrade" || d.kind === "harness")) {
     steps.push(ts.nextDowngradeDrift);
   }
   if (state.orderReport && !state.orderReport.interleaved) {

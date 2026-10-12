@@ -1,20 +1,12 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { existsSync, readdirSync, statSync, copyFileSync, mkdirSync } from "node:fs";
-import { join, relative, resolve, dirname } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { migrationsRoot } from "../lib/diagnose/migrate.ts";
 import { brand, dim, accent, color, sym } from "../lib/primitives/style.ts";
-import { tc, resolveLang } from "../lib/i18n.ts";
-import { readGlobalConfig } from "../lib/config/global-config.ts";
+import { tc, DEFAULT_LANG } from "../lib/i18n.ts";
 import { intFlagOrExit } from "../lib/primitives/args.ts";
-
-/**
- * Language for machine-global commands (migrations/backup/registry) that aren't
- * scoped to a single repo: read it off the global harness config, else default.
- */
-function globalLang() {
-  return resolveLang(readGlobalConfig()?.language);
-}
+import { collectFiles } from "../lib/primitives/collect-files.ts";
 
 interface MigrationEntry {
   timestamp: string;
@@ -58,24 +50,6 @@ function listMigrations(): MigrationEntry[] {
   return entries;
 }
 
-function collectFiles(root: string, dir: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    try {
-      const stat = statSync(full);
-      if (stat.isDirectory()) {
-        out.push(...collectFiles(root, full));
-      } else if (stat.isFile()) {
-        out.push(relative(root, full));
-      }
-    } catch {
-      // ignore
-    }
-  }
-  return out;
-}
-
 /**
  * Body of `migrations list`, shared with the parent command's default run.
  * Takes plain options instead of citty's `ParsedArgs` because the parent
@@ -97,7 +71,7 @@ function runMigrationsList(opts: { json: boolean; limit?: unknown }): void {
     return;
   }
 
-  const tr = tc(globalLang()).migrations;
+  const tr = tc(DEFAULT_LANG).migrations;
   p.intro(brand("migrations list"));
   if (migrations.length === 0) {
     p.log.info(tr.listEmpty);
@@ -154,7 +128,7 @@ const restoreSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     const migrationDir = join(migrationsRoot(), ts, repoName);
 
-    const lang = globalLang();
+    const lang = DEFAULT_LANG;
     const tr = tc(lang).migrations;
     p.intro(brand(`migrations restore ${accent(`${ts}/${repoName}`)}`));
 

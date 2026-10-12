@@ -347,26 +347,39 @@ export function readHarnessCatalog(repoRoot: string, homeDir: string = homedir()
 }
 
 /**
- * The navori version the recorder itself was rendered at, or null.
+ * The navori release the harness on disk reflects, or null.
  *
- * WHY THIS FILE and not a scan of every managed marker: the question the report
- * has to answer is "which harness shaped this session", and the only honest
- * witness is the code that wrote the log. `audit-mode-trigger.sh` is that code —
- * no recorder, no session log, no report. Reading its own marker ties the
- * version to the artifact that produced the data rather than to whatever the
- * rest of the repo happened to be rendered at, which in a half-applied `render`
- * is not the same number.
+ * Source of truth: `harnessVersion` in `navori.config.json` — the latest release
+ * that applied a real change. Markers are frozen at the release that last
+ * changed THEIR block, so a marker's version is not "what rendered the harness"
+ * any more. Repos rendered before the registry existed fall back to the version
+ * on `audit-mode-trigger.sh`'s marker — the recorder is the code that wrote the
+ * session log, so it is the honest witness when there is no registry.
  *
  * Read at `--start`, never at report time: a report generated weeks later would
  * otherwise stamp today's on-disk version onto a session that ran under an older
  * one — exactly the inversion this field exists to prevent.
  */
 export function renderedHarnessVersion(repoRoot: string): string | null {
+  const registry = readRegistryHarnessVersion(join(repoRoot, "navori.config.json"));
+  if (registry) return registry;
   const recorder = join(repoRoot, ".claude", "hooks", "audit-mode-trigger.sh");
   for (const marker of listMarkers(recorder)) {
     if (marker.version) return marker.version;
   }
   return null;
+}
+
+/** `harnessVersion` of a config file, or null when missing, unreadable or not a string. */
+function readRegistryHarnessVersion(configPath: string): string | null {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(configPath, "utf-8"));
+    if (typeof raw !== "object" || raw === null) return null;
+    const value = (raw as Record<string, unknown>).harnessVersion;
+    return typeof value === "string" && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

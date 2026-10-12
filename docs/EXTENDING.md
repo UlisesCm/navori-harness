@@ -78,8 +78,9 @@ Cuando el tema merece su propio archivo, este escalón es tuyo por completo.
 2. Escribe el frontmatter con una `description` que declare **cuándo** usarla. Ese trigger es lo
    que hace que el host la cargue sola en el momento justo. El contrato completo —campos, tipos,
    caps— está en [`recipes/skill-authoring.md`](recipes/skill-authoring.md).
-3. Declara el id en `project.localSkills` de `navori.config.json`. Con eso aparece en el índice de
-   `CLAUDE.md` etiquetada `project-local`, con su trigger leído de tu propio archivo.
+3. Declara el id en `project.localSkills` de `navori.config.json`. Con eso `doctor` lo vigila (avisa si falta
+   `<id>/SKILL.md`) y los engines de prosa lo listan en su índice de skills etiquetada `project-local`; en Claude
+   el host lo descubre solo por su `description` (`CLAUDE.md` ya no lleva índice de skills, #1273).
 
 **navori nunca escribe dentro de ese archivo.** No lleva bloque managed ni user-section: es tuyo
 entero, y ningún render futuro lo va a tocar. Lo que navori aporta es indexarlo y cuidarlo:
@@ -109,8 +110,8 @@ siguiente repo que lo use. Escríbelo una vez, cóbralo en todos.
 ## 4. Plugin — la envoltura de una herramienta externa
 
 Aquí es donde navori conecta el harness con el mundo: un plugin envuelve un binario o un servidor
-MCP y lo deja instalado, permisado, enganchado y documentado de una sola pieza. Los cinco que
-existen —`engram`, `acli`, `gh`, `jscpd`, `semgrep`— comparten esa forma: todos declaran
+MCP y lo deja instalado, permisado, enganchado y documentado de una sola pieza. Los que
+existen —`engram`, `acli`, `gh`, `tgrep`, `codegraph`— comparten esa forma: todos declaran
 `externalTool.checkBinary`. Ése es el patrón a seguir, y es lo que hace que
 `navori add <plugin>` pueda ofrecerte la instalación y que `doctor` sepa verificarla.
 
@@ -127,7 +128,7 @@ Un `plugin.json` te da hasta seis piezas, y usas sólo las que necesites:
 
 | Pieza | Qué te da |
 |---|---|
-| `externalTool` | binario a verificar + comando de instalación por plataforma (`darwin`/`linux`/`win32`; una clave fuera de esas tres falla al cargar) y `installDocs`, la URL oficial de instalación para la plataforma que no tenga comando. Opcional: `capabilityProbe` (`{args, mustContain, minVersion}`) declara que el binario debe soportar una flag que `--version` no reporta con fiabilidad (`jscpd@5.1.0 --version` imprime `cpd 5.0.16`, un minor entero de diferencia); `doctor`/`init` corren `args` y avisan si `mustContain` no aparece en la salida. A diferencia de `pinnedVersion` (exige igualdad exacta contra `--version`), `minVersion` es solo informativo — aparece en el mensaje pero nunca se compara contra la versión instalada. Opcional: `versionAdvisory` (`[{below, reason: {es, en}, ref?}]`) es un piso curado de versiones con problema conocido: si la instalada es `< below` (exclusivo; `below` es la primera versión corregida, `x.y.z` exacto), `doctor` avisa, sin red. Es solo informativo: nunca afecta el veredicto de salud ni `--strict`. Las tres son distintas: `pinnedVersion` exige igualdad exacta (avisa tanto por más nueva como por más vieja), `capabilityProbe.minVersion` solo se muestra y `versionAdvisory.below` es el piso de versiones con problema conocido. Convención: agrega una entrada solo con un `ref` upstream (issue/release); `reason` exige `es` y `en`; si actualizar no basta para limpiar el estado, pon el remedio en `reason` (engram: volver a correr `engram setup codex`). Se reportan todas las entradas que coincidan; un prerelease de la versión corregida cuenta como corregido. Opcional: `latestRelease` (`{source, id, notify?}`) opt-in al aviso "hay versión más nueva en el release upstream" (#1244). Incompatible con `pinnedVersion` — si ambos están presentes, el load falla. La consulta ocurre en un worker detached, una vez por día por herramienta, contra `api.github.com/repos/<id>/releases/latest` (si `source: github`) o `registry.npmjs.org/<id>/latest` (si `source: npm`), sin token; solo se guardan versiones estables en formato `x.y.z` (v prefijo permitido, cualquier otra cosa se marca como "unparseable" en `doctor` y nunca notifica). El aviso aparece en la sesión de arranque si cabe en el presupuesto, o como un puntero a `navori doctor` si no. `notify` es el nivel mínimo de cambio que dispara el aviso: `major` (default `minor`), `minor` o `patch`. Host tools (Claude Code, Codex, pi) no se vigilan porque auto-notifican. Cuando agregues el campo, bumpeá la versión del manifest (`version` en `plugin.json`) |
+| `externalTool` | binario a verificar + comando de instalación por plataforma (`darwin`/`linux`/`win32`; una clave fuera de esas tres falla al cargar) y `installDocs`, la URL oficial de instalación para la plataforma que no tenga comando. Opcional: `capabilityProbe` (`{args, mustContain, minVersion}`) declara que el binario debe soportar una flag que `--version` no reporta con fiabilidad (p. ej. una herramienta cuyo `--version` imprime un minor distinto al del paquete); `doctor`/`init` corren `args` y avisan si `mustContain` no aparece en la salida. A diferencia de `pinnedVersion` (exige igualdad exacta contra `--version`), `minVersion` es solo informativo — aparece en el mensaje pero nunca se compara contra la versión instalada. Opcional: `versionAdvisory` (`[{below, reason: {es, en}, ref?}]`) es un piso curado de versiones con problema conocido: si la instalada es `< below` (exclusivo; `below` es la primera versión corregida, `x.y.z` exacto), `doctor` avisa, sin red. Es solo informativo: nunca afecta el veredicto de salud ni `--strict`. Las tres son distintas: `pinnedVersion` exige igualdad exacta (avisa tanto por más nueva como por más vieja), `capabilityProbe.minVersion` solo se muestra y `versionAdvisory.below` es el piso de versiones con problema conocido. Convención: agrega una entrada solo con un `ref` upstream (issue/release); `reason` exige `es` y `en`; si actualizar no basta para limpiar el estado, pon el remedio en `reason` (engram: volver a correr `engram setup codex`). Se reportan todas las entradas que coincidan; un prerelease de la versión corregida cuenta como corregido. Opcional: `latestRelease` (`{source, id, notify?}`) opt-in al aviso "hay versión más nueva en el release upstream" (#1244). Incompatible con `pinnedVersion` — si ambos están presentes, el load falla. La consulta ocurre en un worker detached, una vez por día por herramienta, contra `api.github.com/repos/<id>/releases/latest` (si `source: github`) o `registry.npmjs.org/<id>/latest` (si `source: npm`), sin token; solo se guardan versiones estables en formato `x.y.z` (v prefijo permitido, cualquier otra cosa se marca como "unparseable" en `doctor` y nunca notifica). El aviso aparece en la sesión de arranque si cabe en el presupuesto, o como un puntero a `navori doctor` si no. `notify` es el nivel mínimo de cambio que dispara el aviso: `major` (default `minor`), `minor` o `patch`. Host tools (Claude Code, Codex, pi) no se vigilan porque auto-notifican. Cuando agregues el campo, bumpeá la versión del manifest (`version` en `plugin.json`) |
 | `managed[]` | bloque(s) inyectados en `CLAUDE.md` |
 | `settingsFragment` | los permisos que tu herramienta necesita, ya puestos |
 | `scripts[]` | archivos copiados a `.claude/scripts/` |
@@ -165,7 +166,7 @@ usa quien revisa.
 
 ### 1. ¿Dónde vive hoy este tema?
 
-Abre el bloque "Skills disponibles" de tu `CLAUDE.md`: ahí están los triggers de las skills core,
+Abre el listado de skills que el host muestra en tu sesión (`CLAUDE.md` ya no lleva un bloque "Skills disponibles", #1273): ahí están los triggers de las skills core,
 las de workflow, las de librería auto-detectadas y las del preset. Es el mejor minuto que vas a
 invertir, porque muy seguido descubres que el tema ya tiene casa — y entonces tu aporte va a la
 **user-section de esa skill** o a un `injectInto`, que es más rápido de escribir y llega con la
@@ -211,7 +212,7 @@ implementación después entra sola, porque la decisión ya está acordada.
 
 Para (a), extender tu repo:
 
-- [ ] Revisé el índice de skills y ya sé si el tema tiene casa o estrena una.
+- [ ] Revisé el listado de skills de mi sesión y ya sé si el tema tiene casa o estrena una.
 - [ ] Está en el escalón más barato que le sirve (user-section antes que skill; skill antes que preset).
 - [ ] La `description` dice **cuándo** usarlo, no sólo qué hace.
 - [ ] `.claude/skills/<id>/SKILL.md` en forma directorio, y el id declarado en `project.localSkills`.

@@ -9,10 +9,10 @@ import { renderCodexEngine } from "../codex/index.ts";
 /**
  * Audit v0.5.1 A1: a repo onboarded before the socketio split carries
  * `"socketio"` in `project.libraries`. Rendering with a newer CLI (without
- * `navori update` first) used to skip the unknown id silently while §8.6
+ * `navori refresh` first) used to skip the unknown id silently while §8.6
  * pruned its managed skill from disk — the repo lost ALL Socket.IO guidance
  * with zero signal. Both engines must now WARN, naming the successors for a
- * known retired id and pointing at `navori update` for a plain unknown one.
+ * known retired id and pointing at `navori refresh` for a plain unknown one.
  */
 
 function configWithLibraries(engines: string[], libraries: string[]): NavoriConfig {
@@ -40,19 +40,19 @@ describe.each([
   ["claude", (c: NavoriConfig) => renderClaudeEngine(cwd, c, { dryRun: true }).warnings],
   ["codex", (c: NavoriConfig) => renderCodexEngine(cwd, c, { dryRun: true }).warnings],
 ] as const)("%s engine — unknown project.libraries ids warn (audit A1)", (engine, render) => {
-  it("warns on a retired id, naming its successors and 'navori update'", () => {
+  it("warns on a retired id, naming its successors and 'navori refresh'", () => {
     const warnings = render(configWithLibraries([engine], ["socketio"]));
     const warning = warnings.find((w) => w.includes("'socketio'"));
     expect(warning).toBeDefined();
     expect(warning).toContain("socketio-server, socketio-client");
-    expect(warning).toContain("navori update");
+    expect(warning).toContain("navori refresh");
   });
 
-  it("warns on a plain unknown id, pointing at 'navori update'", () => {
+  it("warns on a plain unknown id, pointing at 'navori refresh'", () => {
     const warnings = render(configWithLibraries([engine], ["not-a-lib"]));
     const warning = warnings.find((w) => w.includes("'not-a-lib'"));
     expect(warning).toBeDefined();
-    expect(warning).toContain("navori update");
+    expect(warning).toContain("navori refresh");
   });
 
   it("does NOT warn when every id is known to the registry", () => {

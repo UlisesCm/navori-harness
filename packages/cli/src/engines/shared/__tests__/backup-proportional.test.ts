@@ -65,15 +65,16 @@ function listFiles(dir: string, root = dir): string[] {
 }
 
 /**
- * Stamp an OLDER navori version into a rendered file's managed marker, leaving
- * its body byte-identical. That is exactly the shape of a release restamp: the
- * canonical content matches, only the metadata drifts, so the file comes back
- * `updated` and enters `pending` (marker.ts §"Content is identical but metadata
- * differs"). The dominant real-world backup trigger, reduced to one file.
+ * Drift a rendered file's managed marker METADATA (its `source=` provenance),
+ * leaving the body byte-identical and the hash valid. That is a real change the
+ * next render must write back (marker.ts: hash/source/fmkeys differences stamp
+ * the block), so the file comes back `updated` and enters `pending`. A version
+ * difference alone no longer does (#1262: an identical body keeps its version),
+ * which is why this drives the render with `source` instead.
  */
-function restampOlder(path: string): void {
+function driftMarkerMetadata(path: string): void {
   const before = readFileSync(path, "utf-8");
-  const after = before.replace(/version="[^"]+"/, 'version="0.0.1"');
+  const after = before.replace(/source="[^"]+"/, 'source="@navori/drifted"');
   expect(after).not.toBe(before);
   writeFileSync(path, after, "utf-8");
 }
@@ -82,7 +83,7 @@ describe("commitWrites — backup proportional al cambio (#405)", () => {
   it("snapshots only the file the render rewrites, not the `.claude` tree", () => {
     renderClaudeEngine(cwd, CONFIG); // seed a rendered harness
 
-    restampOlder(join(cwd, ".claude/agents/reviewer.md"));
+    driftMarkerMetadata(join(cwd, ".claude/agents/reviewer.md"));
 
     const second = renderClaudeEngine(cwd, CONFIG);
     expect(second.written.map((w) => w.path)).toEqual([".claude/agents/reviewer.md"]);

@@ -10,28 +10,13 @@
 
 navori es un paquete npm (CLI, binario `navori`) que replica un **harness multi-agente + SDD**
 en cualquier repo, de forma reproducible y con soporte **multi-engine**: hoy renderean Claude
-Code, Codex nativo (Spec 0004, ejecutada), AGENTS.md universal, Cursor y Copilot sobre el
+Code, Codex nativo (Spec 0004, ejecutada), Pi (opt-in; controles verificados en
+[`docs/pi.md`](pi.md)), AGENTS.md universal, Cursor y Copilot sobre el
 mismo spine engine-agnostic. Reconstruye
 `CLAUDE.md` + `.claude/` + `progress/` de forma **idempotente** desde una única fuente de
 verdad (`navori.config.json`), sin pisar el trabajo manual del usuario. Estado actual: MVP
 funcional en producción interna (rollout a 15 repos Bonum), monorepo pnpm con `@navori/cli` +
 `@navori/core` + `apps/website`.
-
-### La capa global (`~/.claude`) — qué es y qué no es
-
-Además del harness por repo, navori instala opcionalmente un **piso por máquina** con
-`navori global init` (Spec 0010): el manifest `~/.navori/global.json` y el plugin
-`navori@skills-dir` en `~/.claude/skills/navori/` — agentes, skills y un hook `SessionStart`
-que inyecta el baseline de doctrina. Existe por una razón acotada: las sesiones que arrancan
-**fuera** de un repo con navori (un scratch, un repo ajeno, tu `~`) hoy no tienen harness de
-ninguna clase. Es opt-in y de huella cero — sin ese `init` no existe nada y navori no tocó la
-máquina.
-
-Lo que **no** es: no sustituye al harness del repo; no es un segundo lugar donde vivan las reglas
-del proyecto (ésas siguen saliendo de `navori.config.json`, fuente de verdad única, y duplicarlas
-arriba sería exactamente la deriva que el invariante 3 evita); y no se aplica dentro de un repo con
-navori — el hook encuentra el `navori.config.json` y se hace a un lado sin emitir nada, que es el
-invariante 8 en su forma ejecutable.
 
 ## North Star
 
@@ -65,8 +50,8 @@ oculta: `navori.config.json` sigue siendo la fuente de verdad del harness.
   quality gate es duro.
 - **Optimización de tokens**: el harness rendereado se paga en cada sesión → reducir el peso
   always-on es leverage compuesto (Specs 0005/0006).
-- **Base por-máquina y por-workspace**: piso de doctrina global (`~/.claude`, Spec 0010) +
-  conocimiento durable transversal al workspace (Dominio, Spec 0011), ambos aditivos.
+- **Base por-workspace**: conocimiento durable transversal al workspace (Dominio, Spec 0011),
+  aditivo.
 
 ## No-metas (Non-goals)
 
@@ -93,8 +78,10 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
   a LSP/Serena no se re-litiga por esto.
 - **Que navori ejecute las herramientas del agente.** navori genera el harness (skills +
   allowlists + plugins + protocolo); no corre grep/ast-grep/tests por el agente.
-- **"Voz de navori" / app-builder / review 4R** del harness global — parqueados fuera del
-  MVP lean de Spec 0010.
+- **"Voz de navori" / app-builder / review 4R** — parqueados (Spec 0010, superseded por 0046).
+- **Piso de doctrina por máquina en `~/.claude`** (capa global, Spec 0010). No se adoptó: costaba
+  ~5.5-6k LOC y se retiró con la Spec 0046; las sesiones fuera de un repo con navori quedan sin
+  harness a propósito.
 
 ## Principios de diseño / invariantes (NO se re-litigan sin razón nueva)
 
@@ -107,7 +94,11 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
    *Por qué*: reproducibilidad total; sin estado oculto.
 4. **Modelo híbrido de sync con marcadores** — `<!-- navori:managed ... -->` se sincroniza;
    todo lo de afuera es del usuario e intocable. `hash` detecta drift de contenido; `version`
-   detecta que el bundle avanzó. *Por qué*: regenerar idempotente sin pisar trabajo manual.
+   es la versión de navori que cambió por última vez el contenido del bloque (no la que lo
+   renderizó), así que re-renderizar con un CLI más nuevo sobre contenido igual no toca el archivo.
+   `harnessVersion` en `navori.config.json` es el registro a nivel repo de la última versión que
+   aplicó un cambio real, y sostiene el anti-rollback (#1262). *Por qué*: regenerar idempotente sin
+   pisar trabajo manual ni ensuciar el diff.
 5. **Render preview por default** — `render` no toca disco; `--apply` escribe, con backup previo
    y escritura atómica (fsync). *Por qué*: nunca sorprender al usuario con cambios en disco.
 6. **Plugins como bundles** — cada plugin trae hasta piezas opcionales (settings fragment,
@@ -117,10 +108,9 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
    backup/write/prune viven una vez; los engines son tablas declarativas sobre ese spine
    (Specs 0007/0008). *Por qué*: un fix de pipeline llega a todos los engines a la vez; evita
    divergencia silenciosa entre proveedores.
-8. **Huella-cero sin opt-in** — el harness global (`~/.claude`) y el Dominio son **aditivos**:
-   se hacen a un lado cuando el repo trae su propia config navori y nunca degradan lo que el
-   repo ya trae. Guard estructural protege el invariante (Spec 0010). *Por qué*: instalar base
-   por-máquina no debe romper repos existentes.
+8. **Huella-cero sin opt-in** — el Dominio es **aditivo**: se hace a un lado cuando el repo
+   trae su propia config navori y nunca degrada lo que el repo ya trae. *Por qué*: instalar base
+   por-workspace no debe romper repos existentes.
 9. **navori genera, no ejecuta** — el harness enseña al agente qué herramienta usar; navori no
    corre esas herramientas. *Por qué*: mantiene el CLI simple y el harness portable.
 10. **Auto-hospedaje** — el harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se
@@ -209,7 +199,7 @@ Estas son "decisiones ya tomadas — no re-litigar sin razón nueva". Cambiarlas
   documentada de por qué cambió el contexto).
 - El orden de prioridad de metas: **calidad > tokens > velocidad**.
 - El criterio de admisión de agentes (Spec 0031).
-- El alcance lean de harness global y Dominio (Specs 0010/0011): ampliarlos a "voz",
+- El alcance lean del Dominio (Spec 0011; 0010 superseded por 0046): ampliarlos a "voz",
   app-builder o review 4R está parqueado a propósito.
 - La forma de los assets managed (marcadores, `hash`/`version`, zona managed vs zona usuario):
   romper este contrato rompe `sync` en todos los repos ya instalados.
@@ -291,7 +281,7 @@ Reglas del patrón:
 - `specs/` — decisiones de arquitectura formales. Al día de hoy van de 0001 a 0021 más
   `gitignore-harness`: 0001 render por workspace,
   0002 engine Claude, 0003 v0.2 calidad/tokens, 0004 engine Codex, 0005 lectura eficiente, 0006
-  reducción de contexto, 0007/0008 render-plan unificado, 0009 codegraph, 0010 harness global,
+  reducción de contexto, 0007/0008 render-plan unificado, 0009 codegraph, 0010 (superseded por 0046),
   0011 Dominio, 0012 capa de solutioning, 0013 redefinición de `audit`, 0014 harness ajeno, 0015
   orquestación fuera del always-on, 0016 paridad de modos de permiso, 0017 capa de búsqueda tgrep
   (retirada 2026-09-15, reintroducida por #838 el 2026-09-16 con nueva integración — su banner y

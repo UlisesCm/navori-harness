@@ -3,7 +3,7 @@
 # `extract-cmd` partial to have run first ($payload and $cmd in scope).
 #
 # WHY (#454): settings.json invokes these hooks as
-# `bash "$CLAUDE_PROJECT_DIR/.claude/scripts/check-semgrep.sh"`, so the hook
+# `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/quality-gate-pre-commit.sh"`, so the hook
 # PROCESS starts in the MAIN repo even when the commit happens inside an agent
 # worktree under `.claude/worktrees/`. The old `cd "$(git rev-parse
 # --show-toplevel)"` therefore resolved the main repo — whose tree is clean — so
@@ -217,7 +217,8 @@ navori_worktree() {
 # `same-repo` with no fork. "commit" below means the one gated op.
 #
 # The gated op (#1098) is whatever the caller's $TRIGGER_RE counts: `git commit`
-# for QG and jscpd, plus `git push` and `gh pr create` for semgrep. The walk
+# for QG; a gate that also counts `git push` and `gh pr create` sets its own
+# regex. The walk
 # matches that same regex, so there is no second copy to drift. `gh pr create`
 # lands in the cwd's repo unless it names another one (`-R`/`--repo`/`GH_REPO`),
 # which is `ambiguous` (the scan runs).
@@ -231,8 +232,8 @@ navori_worktree() {
 # rev-parse|push, no global options) and echo|printf|true|:|ls|pwd may follow: the
 # counter cannot see a `-C "dir with spaces"` value, an alias or an exec-capable
 # subcommand, so any other tail (an `export GIT_DIR`, a later `cd`, a shell) is
-# `ambiguous`. QG/jscpd do not gate `push`, so for them `commit(F) && git push`
-# is foreign while semgrep, which counts both ops, decides on both.
+# `ambiguous`. QG does not gate `push`, so `commit(F) && git push` is foreign;
+# a gate whose regex counts both ops decides on both.
 
 # Reads one shell token off the front of $1 into `navori_tok` / `navori_rest`.
 # Returns 1 for anything the shell would expand or that is malformed, so the

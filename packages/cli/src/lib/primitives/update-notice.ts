@@ -63,9 +63,25 @@ function language(argv: readonly string[]): Lang {
   }
 }
 
-function installer(): string {
-  if (process.env.npm_command === "exec" || process.env.npm_command === "npx")
-    return "npx navori@latest <command>";
+/**
+ * How this navori was installed and the argv to update it. `install` is absent for npx (nothing
+ * to install: `npx navori@latest` always fetches the newest). `exec` runs a command with the
+ * freshly installed binary, from `cwd` when the install is project-local.
+ */
+export interface InstallPlan {
+  kind: "global" | "devDependency" | "dependency" | "npx";
+  install?: string[];
+  exec: (args: string[]) => string[];
+  cwd?: string;
+}
+
+/** Detect the install method (npm only) of the running CLI. */
+export function installPlan(): InstallPlan {
+  const npx: InstallPlan = {
+    kind: "npx",
+    exec: (args) => ["npx", "navori@latest", ...args],
+  };
+  if (process.env.npm_command === "exec" || process.env.npm_command === "npx") return npx;
   const prefix = process.env.npm_config_prefix;
   if (
     prefix &&
@@ -73,7 +89,11 @@ function installer(): string {
       join(resolve(prefix), "lib", "node_modules", "navori"),
     )
   )
-    return "npm i -g navori@latest";
+    return {
+      kind: "global",
+      install: ["npm", "i", "-g", "navori@latest"],
+      exec: (args) => ["navori", ...args],
+    };
   let dir = process.cwd();
   for (;;) {
     try {
@@ -84,20 +104,26 @@ function installer(): string {
             ? typeof raw.packageManager === "string" && raw.packageManager.startsWith("npm@")
             : existsSync(join(dir, "package-lock.json"));
         if (!npm) break;
+        const local = (kind: "devDependency" | "dependency", install: string[]): InstallPlan => ({
+          kind,
+          install,
+          cwd: dir,
+          exec: (args) => ["npm", "exec", "--no", "--", "navori", ...args],
+        });
         if (
           "devDependencies" in raw &&
           typeof raw.devDependencies === "object" &&
           raw.devDependencies !== null &&
           "navori" in raw.devDependencies
         )
-          return "npm install --save-dev navori@latest";
+          return local("devDependency", ["npm", "install", "--save-dev", "navori@latest"]);
         if (
           "dependencies" in raw &&
           typeof raw.dependencies === "object" &&
           raw.dependencies !== null &&
           "navori" in raw.dependencies
         )
-          return "npm install navori@latest";
+          return local("dependency", ["npm", "install", "navori@latest"]);
       }
     } catch {
       /* keep searching for the nearest manifest */
@@ -106,7 +132,20 @@ function installer(): string {
     if (parent === dir) break;
     dir = parent;
   }
-  return "npx navori@latest <command>";
+  return npx;
+}
+
+/** Latest stable navori on npm, or `undefined` when offline, slow, oversized or malformed. */
+export async function fetchLatestVersion(timeoutMs = 2_000): Promise<string | undefined> {
+  try {
+    const response = await fetch(REGISTRY, { signal: AbortSignal.timeout(timeoutMs) });
+    const raw = await readBoundedJson(response, MAX_BYTES);
+    return typeof raw === "object" && raw !== null && "version" in raw && stableVersion(raw.version)
+      ? raw.version
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Reserve optional daily work synchronously; the CLI never waits for registry I/O. */
@@ -144,9 +183,7 @@ export function runUpdateNotice(installed: string, argv: readonly string[]): voi
     });
     if (!result) return;
     if (result.version)
-      process.stderr.write(
-        updateNoticeText(language(argv), installed, result.version, installer()),
-      );
+      process.stderr.write(updateNoticeText(language(argv), installed, result.version));
     if (result.token) {
       spawnPrivateWorker(UPDATE_NOTICE_WORKER_ARG, result.token);
     }
@@ -169,19 +206,9 @@ export async function runUpdateNoticeWorker(token: string | undefined): Promise<
       return true;
     });
     if (!claimed) return;
-    const response = await fetch(REGISTRY, { signal: AbortSignal.timeout(2_000) });
-    const raw = await readBoundedJson(response, MAX_BYTES);
-    if (
-      typeof raw !== "object" ||
-      raw === null ||
-      !("version" in raw) ||
-      !stableVersion(raw.version)
-    )
-      return;
-    writeFileAtomic(
-      join(dir, "latest.json"),
-      JSON.stringify({ at: Date.now(), version: raw.version }),
-    );
+    const version = await fetchLatestVersion();
+    if (!version) return;
+    writeFileAtomic(join(dir, "latest.json"), JSON.stringify({ at: Date.now(), version }));
   } catch {
     /* offline and cache failures are silent */
   }

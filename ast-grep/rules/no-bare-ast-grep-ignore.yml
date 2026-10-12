@@ -1,0 +1,7 @@
+id: no-bare-ast-grep-ignore
+language: typescript
+severity: error
+message: "A bare `ast-grep-ignore` silences every rule. Name the rule, e.g. `// ast-grep-ignore: no-shell-exec`."
+rule:
+  kind: comment
+  regex: ^(//|/\*)\s*ast-grep-ignore\s*(\*/)?$

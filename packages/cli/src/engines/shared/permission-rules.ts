@@ -18,6 +18,89 @@ export interface ShellPermissionRules {
   readonly deny: readonly string[];
 }
 
+/** A shell permission pattern: `Bash(<pattern>)`. */
+export const BASH_PATTERN_RE = /^Bash\((.*)\)$/;
+/** Any character that still needs Claude's glob semantics a token prefix can't express. */
+const WILDCARD_RE = /[*?[]/;
+
+/** A shell permission pattern reduced to the literal token prefix it matches. */
+export interface TranslatedShellPattern {
+  readonly tokens: readonly string[];
+  /** True when a glued trailing `*` was dropped: the prefix is LESS strict than Claude's glob. */
+  readonly narrowed: boolean;
+}
+
+/**
+ * Translate one `Bash(<pattern>)` permission string (`ask` or `deny`, never `allow`) into its
+ * token prefix, or `null` when it can't be expressed as one: not a `Bash(...)` rule, or a
+ * wildcard left inside the pattern. The single translation shared by Codex's
+ * `.codex/rules/navori.rules` (`buildCodexRules`) and the Pi guard copy (spec 0048 D15), so
+ * both engines read the same rules the same way.
+ *
+ *   - A trailing ` *` or `:*` means "whatever follows" and is dropped.
+ *   - A pattern with no wildcard still becomes a prefix: STRICTER than Claude's exact match.
+ *   - A `*` glued to the LAST token (`git push --force*`, `rm -rf /*`) is replaced by the exact
+ *     token without the asterisk and reported as `narrowed`.
+ */
+export function translateShellPattern(pattern: string): TranslatedShellPattern | null {
+  const match = BASH_PATTERN_RE.exec(pattern);
+  if (!match) return null;
+  let inner = match[1] ?? "";
+  let narrowed = false;
+
+  if (inner.endsWith(" *")) {
+    inner = inner.slice(0, -2);
+  } else if (inner.endsWith(":*")) {
+    inner = inner.slice(0, -2);
+  } else {
+    const lastSpace = inner.lastIndexOf(" ");
+    const lastToken = lastSpace === -1 ? inner : inner.slice(lastSpace + 1);
+    // A `*` glued directly onto the last token (no preceding space/colon, already ruled out
+    // above) and nowhere else inside that token.
+    if (lastToken.length > 1 && lastToken.endsWith("*") && !lastToken.slice(0, -1).includes("*")) {
+      inner = inner.slice(0, -1);
+      narrowed = true;
+    }
+  }
+
+  if (WILDCARD_RE.test(inner)) return null;
+
+  const tokens = inner.split(/\s+/).filter((t) => t.length > 0);
+  if (tokens.length === 0) return null;
+  return { tokens, narrowed };
+}
+
+/** One `<decision> <token> <token> …` line per distinct translated rule, in rule order. */
+function permissionLines(decision: "deny" | "ask", patterns: readonly string[]): string[] {
+  const lines = new Set<string>();
+  for (const pattern of patterns) {
+    const translated = translateShellPattern(pattern);
+    if (translated) lines.add(`${decision} ${translated.tokens.join(" ")}`);
+  }
+  return [...lines];
+}
+
+/**
+ * The shared `deny` rules as the data the Pi copy of `guard-destructive.sh` embeds
+ * (spec 0048 D15): one `deny <token> <token> …` line per distinct translated rule, in rule order.
+ * `-` when nothing translates, because a blank value would render as "not configured". `allow`
+ * is never translated.
+ */
+export function buildPiDenyRules(rules: ShellPermissionRules): string {
+  const lines = permissionLines("deny", rules.deny);
+  return lines.length === 0 ? "-" : lines.join("\n");
+}
+
+/**
+ * Everything the Pi guard copy embeds (spec 0048 D15, T11): the `deny` lines of
+ * {@link buildPiDenyRules} followed by one `ask <token> …` line per translated `ask` rule, from the
+ * same translation. The guard blocks on `deny` and asks on `ask`. `-` when nothing translates.
+ */
+export function buildPiPermissionRules(rules: ShellPermissionRules): string {
+  const lines = [...permissionLines("deny", rules.deny), ...permissionLines("ask", rules.ask)];
+  return lines.length === 0 ? "-" : lines.join("\n");
+}
+
 const PACKAGE_MANAGERS = new Set(["pnpm", "npm", "yarn", "bun"]);
 
 /** The dev-loop scripts worth a standing rule of their own: run constantly, and
@@ -109,6 +192,30 @@ function gateStepRule(step: string): string | null {
 }
 
 /**
+ * True when EVERY step of a gate string earns an allow rule — the exact
+ * predicate `deriveQualityGateAllow` uses before emitting the compound rule.
+ * `navori gate` re-checks it at run time so a gate edited after render never
+ * runs under a stale rule (#197).
+ */
+export function isSafeGateChain(gate: string): boolean {
+  const steps = gate.split(GATE_SEQUENCERS).map((s) => s.trim());
+  return steps.every((step) => step !== "" && gateStepRule(step) !== null);
+}
+
+const GATE_KINDS = ["fast", "full"] as const;
+
+/**
+ * `navori gate <kind>` when `qualityGate.<kind>` is configured AND safe to
+ * pre-approve (`isSafeGateChain`), else `null`. The one answer shared by the
+ * allow rule and by the `{{gateRun.<kind>}}` placeholder, so the asset never
+ * tells an agent to run the runner under a prompt that hides the command.
+ */
+export function gateRunnerCommand(config: NavoriConfig, kind: "fast" | "full"): string | null {
+  const gate = config.qualityGate?.[kind];
+  return gate?.trim() && isSafeGateChain(gate) ? `navori gate ${kind}` : null;
+}
+
+/**
  * Permission allow-rules derived from the repo's own quality gate + package
  * manager. Three sources:
  *
@@ -138,20 +245,28 @@ function gateStepRule(step: string): string | null {
  */
 function deriveQualityGateAllow(config: NavoriConfig): string[] {
   const rules = new Set<string>();
-  for (const gate of [config.qualityGate?.fast, config.qualityGate?.full]) {
+  for (const gate of [
+    config.qualityGate?.fast,
+    config.qualityGate?.scoped,
+    config.qualityGate?.full,
+  ]) {
     if (!gate?.trim()) continue;
     const steps = gate.split(GATE_SEQUENCERS).map((s) => s.trim());
-    const stepRules = steps.map((step) => (step ? gateStepRule(step) : null));
-    for (const rule of stepRules) {
+    for (const step of steps) {
+      const rule = step ? gateStepRule(step) : null;
       if (rule) rules.add(rule);
     }
+    const safe = isSafeGateChain(gate);
     // The compound as the user actually types it. Reconstructed from nothing —
     // it is the raw gate, trimmed — so it stays byte-identical to what CLAUDE.md
     // tells the agent to run; safe because every step that composes it passed
     // validation and the rule carries no wildcard.
-    if (steps.length > 1 && stepRules.every((rule) => rule !== null)) {
-      rules.add(`Bash(${gate.trim()})`);
-    }
+    if (steps.length > 1 && safe) rules.add(`Bash(${gate.trim()})`);
+  }
+  // The runner, exact per kind and only for a gate that earned its rule above —
+  // never a blanket `navori gate:*` (#197: it would pre-approve any gate string).
+  for (const kind of GATE_KINDS) {
+    if (gateRunnerCommand(config, kind)) rules.add(`Bash(navori gate ${kind})`);
   }
   const pm = resolvePackageManager(config);
   if (pm) {

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # navori pre-commit gate — the fast local pass.
 #
-# Runs `check:fast` (format, jscpd, semgrep, lint, typecheck) and NO tests.
+# Runs `check:fast` (format, check:dup, check:ast, lint, typecheck) and NO tests.
 # Tests run only in CI on `main` (`bun check`, coverage included); CI on `dev`
-# runs just format, lint and typecheck.
+# runs the same set as this hook. Semgrep runs only as a `main` CI job.
 set -euo pipefail
 
 # `bun check` exercises Git commits in its fixtures. A nested hook invocation
@@ -17,8 +17,8 @@ cd "$ROOT"
 
 echo "▶ pre-commit: running check:fast (no tests)…"
 export NAVORI_PRE_COMMIT_RUNNING=1
-# check:fast spawns jscpd, whose --baseline-from-ref runs `git worktree add`; with
-# the commit's GIT_INDEX_FILE inherited it would overwrite the commit's index.
+# No check:fast step may read or write the commit's index: scrub the GIT_*
+# variables a hook inherits so any git call a step makes targets the repo, not it.
 env \
   -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_CONFIG -u GIT_CONFIG_PARAMETERS \
   -u GIT_CONFIG_COUNT -u GIT_OBJECT_DIRECTORY -u GIT_DIR -u GIT_WORK_TREE \

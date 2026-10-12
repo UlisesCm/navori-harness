@@ -109,7 +109,7 @@ export interface CodexVerification {
 /**
  * Hook scripts Codex never registers although their guarantee holds there
  * (`equivalente` rows, spec 0041 T12/T13): `bash-outcome-watch` is a lane inside
- * `routing-watch`, and `subagent-no-background` has no vector to block. Their
+ * `routing-watch`, and `subagent-no-background` has no Codex vector or child identity to gate on. Their
  * script is neither installed nor registered, so they stay unsupported surfaces;
  * `native-overlap.test.ts` pins this list against `CODEX_HOOK_REGISTRATIONS`.
  */
@@ -677,9 +677,9 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
     [
       "hook:subagent-no-background",
       equivalente(
-        "the vector does not exist in Codex (probe V6b, spec 0041 R12): no run_in_background field and no Monitor tool, so there is nothing to block; shell `&` is prose-only on both engines. Reference: " +
+        "the run_in_background/Monitor vector does not exist in Codex (probe V6b, spec 0041 R12), so there is nothing to block there. The script now also carries a shell lane (`&`, nohup, setsid, disown, spec 0048 R8/D-U2) for every engine that registers it, but Codex does not: its hook payload has no agent_id to tell a child from the main thread. Reference: " +
           SOURCES.execCommand,
-        "no hook is registered or installed in Codex; the shell `&` stays a prose rule, as in Claude",
+        "no hook is registered or installed in Codex; shell backgrounding stays a prose rule there, while Claude enforces it mechanically",
       ),
     ],
     [
@@ -746,8 +746,7 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
       "tipado-fuerte",
     ]),
     // Bundled plugins; the script-level gaps live on their plugin-script rows.
-    ...igualUnits("plugin", ["acli", "codegraph", "engram", "gh", "jscpd", "semgrep", "tgrep"]),
-    ...igualUnits("plugin-script", ["jscpd/check-jscpd.sh", "semgrep/check-semgrep.sh"]),
+    ...igualUnits("plugin", ["acli", "codegraph", "engram", "gh", "tgrep"]),
     [
       "plugin-script:tgrep/guard-search-routing.sh",
       verified(
@@ -760,7 +759,7 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
       ),
     ],
     // Flows.
-    ...igualUnits("flow", ["native-task-list", "native-workflows"]),
+    ...igualUnits("flow", ["native-task-list", "native-workflows", "native-git-hooks"]),
     [
       "flow:master-plan-vs-plan-mode",
       limite(

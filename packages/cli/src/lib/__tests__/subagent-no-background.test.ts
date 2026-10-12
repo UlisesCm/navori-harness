@@ -115,3 +115,81 @@ describe("subagent-no-background hook — allows a subagent's legitimate calls (
     expect(r.status).toBe(0);
   });
 });
+
+function cmdPayload(command: string, agentId?: string): Payload {
+  const payload: Payload = {
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command },
+  };
+  if (agentId !== undefined) payload.agent_id = agentId;
+  return payload;
+}
+
+const HEREDOC_AMP = "cat > notes.txt <<'EOF'\nstart server &\nnohup x\nEOF";
+
+describe("background operators blocked in subagents", () => {
+  const blocked: Array<[string, string]> = [
+    ["trailing &", "sleep 30 &"],
+    ["& between commands", "sleep 30 & echo started"],
+    ["& after a chain", "bun run check:fast && sleep 30 &"],
+    ["nohup", "nohup bun run check:fast"],
+    ["setsid", "setsid bun run check:fast"],
+    ["disown", "sleep 30; disown"],
+    ["nohup behind env prefix", "FOO=1 nohup bun run check:fast"],
+    ["nohup behind sudo", "sudo nohup bun run check:fast"],
+    ["nohup in a later chain segment", "cd x && nohup bun run check:fast > out.log"],
+  ];
+
+  for (const [label, command] of blocked) {
+    // Covers: R8
+    it(`blocks ${label}`, () => {
+      const r = runHook(cmdPayload(command, "impl-1"));
+      expect(r.status).toBe(2);
+      expect(r.stderr).toContain("subagent-no-background");
+    });
+  }
+
+  // Covers: R8
+  it("does not block the same commands in the main thread", () => {
+    for (const [, command] of blocked) {
+      expect(runHook(cmdPayload(command)).status).toBe(0);
+    }
+  });
+
+  const allowed: Array<[string, string]> = [
+    ["&& chain", "bun run lint && bun run typecheck"],
+    ["|| chain", "bun run lint || echo failed"],
+    ["2>&1 redirect", "bun run check:fast 2>&1 | tail -5"],
+    ["&> redirect", "bun run check:fast &> out.log"],
+    ["|& pipe", "bun run check:fast |& tail -5"],
+    [">&2 redirect", "echo oops >&2"],
+    ["& inside double quotes", 'echo "a & b"'],
+    ["& inside single quotes", "echo 'start &'"],
+    ["URL query in quotes", "curl 'https://x.test/?a=1&b=2'"],
+    ["& in a heredoc body", HEREDOC_AMP],
+    ["& in a commit message", 'git commit -m "fix a & b; nohup is mentioned"'],
+    ["nohup as an argument", "grep -rn nohup src"],
+    ["plain foreground command", "bun run --cwd packages/cli test src/x.test.ts"],
+  ];
+
+  for (const [label, command] of allowed) {
+    // Covers: R8
+    it(`allows ${label}`, () => {
+      const r = runHook(cmdPayload(command, "impl-1"));
+      expect({ command, status: r.status }).toEqual({ command, status: 0 });
+    });
+  }
+
+  // Covers: R8
+  it("blocks a heredoc that writes a script and then backgrounds it", () => {
+    const command = "cat > run.sh <<'EOF'\necho hi\nEOF\nbash run.sh &";
+    expect(runHook(cmdPayload(command, "impl-1")).status).toBe(2);
+  });
+
+  // Covers: R8
+  it("fails closed on a command too large to inspect", () => {
+    const command = `echo ${"x".repeat(131100)}`;
+    expect(runHook(cmdPayload(command, "impl-1")).status).toBe(2);
+  });
+});

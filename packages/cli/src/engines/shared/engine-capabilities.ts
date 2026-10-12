@@ -162,6 +162,30 @@ export const WRITE_CAPABLE_TOOLS: ReadonlySet<string> = new Set([
   "Bash",
 ]);
 
+/**
+ * Spec 0047 D1 (R1, R2): one native-first admission row per runtime capability an
+ * engine's extension relies on. A row is admitted only with an official source, the
+ * earliest runtime version whose behavior was probed, and a reproducible probe; a
+ * runtime older than `verifiedFrom` (or unparseable) is diagnosed and the capability
+ * is never counted as enforced. `deferred` rows document what is NOT admitted yet.
+ */
+export interface RuntimeAdmission {
+  readonly capability: string;
+  /** The native runtime feature that provides it. */
+  readonly native: string;
+  readonly decision: "admitted" | "deferred";
+  /** Official documentation or CLI surface backing the verdict. */
+  readonly source: string;
+  /** Earliest runtime version whose behavior was probed (exact, stable semver). */
+  readonly verifiedFrom: string;
+  /** How the verdict is reproduced. */
+  readonly probe: string;
+  /** CLI flag the probe looks for in the runtime's help text, when the feature is a flag. */
+  readonly flag?: string;
+  /** What the capability does NOT guarantee. */
+  readonly boundary: string;
+}
+
 /** Frozen capability record for one engine. */
 export interface EngineCapabilities {
   readonly id: EngineId;
@@ -192,6 +216,8 @@ export interface EngineCapabilities {
    * privileges) is explicitly out of scope.
    */
   readonly analyticWriteTools: Readonly<Record<AnalyticRole, readonly string[]>>;
+  /** Native-first runtime admissions (spec 0047 D1); only engines with a probed runtime declare them. */
+  readonly runtimeAdmissions?: readonly RuntimeAdmission[];
 }
 
 /**
@@ -607,11 +633,9 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       {
         surface: "claude-hook-parity",
         reason:
-          "Pi does not run Claude/Codex hook scripts; only mapped project-extension controls apply.",
-      },
-      {
-        surface: "additional-analytic-roles",
-        reason: "Pi project extension currently supports scout, implementer, and reviewer only.",
+          "Pi does not run Claude/Codex hook scripts yet; only mapped project-extension controls apply. " +
+          "The per-unit state and boundary of every core hook, shared permission rule and plugin unit " +
+          "is PI_PARITY (engines/shared/pi-parity.ts, spec 0048 R1).",
       },
     ],
     controls: {
@@ -636,9 +660,14 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "When harness.scribeOwnsMarkdown is on, Pi blocks direct edit/write Markdown in implementer children; bash and ambient process writes bypass it.",
       },
       "handoff-shape": {
-        state: "unsupported",
+        state: "enforced",
         reason:
-          "Pi has no persisted impl handoff stop validator; child result does not prove the canonical file exists.",
+          "When an implementer or reviewer navori_subagent child ends, the trusted Pi project extension validates its canonical handoff (navori handoff check, reviewer: --produced-by reviewer with sealed evidence and a review begun after dispatch), requires it fresh against the dispatch snapshot and reports isError otherwise; direct shell/tool calls and other roles bypass it.",
+        evidence: {
+          kind: "extension-tool",
+          path: ".pi/extensions/navori.ts",
+          tool: "navori_subagent",
+        },
       },
       "handoff-consumer": {
         state: "enforced",
@@ -656,18 +685,22 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "Pi role tool allowlists are model-visible capabilities, not OS/filesystem/network sandboxes; scout and reviewer retain write.",
       },
       "local-skill-discovery": {
-        state: "unsupported",
+        state: "enforced",
         reason:
-          "Pi reads trusted .agents/skills natively, but the Pi renderer does not yet project project.localSkills from .claude/skills into that root.",
+          "The generated pointer under .agents/skills/<id> (classifyLocalSkills), written by Pi only when Codex is not enabled.",
+        evidence: { kind: "local-skill-pointer" },
       },
       "acceptance-evidence": {
-        state: "unsupported",
+        state: "enforced",
         reason:
-          "Pi does not record verifiable child Bash results for acceptance criteria, so plan update cannot require host evidence before cumplido.",
+          "The Pi extension's tool_result handler records host-observed exits of Pi's built-in bash (parent, child and nested calls, Pi 1.1.0+) as workplan evidence; `plan update` reads it back when PI_SESSION_ID is set and refuses `cumplido` without it. Fails closed: a replaced bash tool or a missing exit_code records nothing.",
+        evidence: { kind: "extension-tool", path: ".pi/extensions/navori.ts", tool: "bash" },
       },
       "repeat-failure-advice": {
-        state: "unsupported",
-        reason: "Pi renders no Bash failure hooks.",
+        state: "advisory",
+        reason:
+          "The Pi extension's tool_result handler counts identical built-in bash failures (structuredContent.exit_code, Pi 1.1.0+) in memory and appends one advisory after three; it never blocks, never alters the result and is silent on any error or when exit_code is absent.",
+        evidence: { kind: "extension-tool", path: ".pi/extensions/navori.ts", tool: "bash" },
       },
       "compact-advice": {
         state: "unsupported",
@@ -686,6 +719,85 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       reviewer: ["bash", "write"],
       architect: [],
     },
+    runtimeAdmissions: [
+      {
+        capability: "child-mcp-off",
+        native: "pi --no-mcp",
+        decision: "admitted",
+        source: "Pi 1.1.0 MCP guide and `pi --help` (--no-mcp: no servers connect, no MCP tools)",
+        verifiedFrom: "1.1.0",
+        probe: "`pi --help` lists --no-mcp (missingPiChildFlags); child args carry --no-mcp",
+        flag: "--no-mcp",
+        boundary:
+          "Disables Pi built-in MCP in the child only; not an OS sandbox and the parent keeps its MCP.",
+      },
+      {
+        capability: "child-model-selection",
+        native: "pi --model <provider/id>",
+        decision: "admitted",
+        source: "Pi 1.1.0 `pi --help` (--model accepts provider/id)",
+        verifiedFrom: "1.1.0",
+        probe: "`pi --help` lists --model; child args always carry the resolved provider/model",
+        flag: "--model",
+        boundary: "Selects the child's model; effort/thinking is not redefined.",
+      },
+      {
+        capability: "child-tool-allowlist",
+        native: "pi --tools <allowlist>",
+        decision: "admitted",
+        source: "Pi 1.1.0 `pi --help` (--tools: allowlist of tool names)",
+        verifiedFrom: "1.1.0",
+        probe: "`pi --help` lists --tools",
+        flag: "--tools",
+        boundary:
+          "Model-visible allowlist, not isolation; indirect MCP exposure is closed by --no-mcp.",
+      },
+      {
+        capability: "child-ipc-relay",
+        native: 'Node child_process IPC channel (stdio "ipc") to the Pi child',
+        decision: "admitted",
+        source:
+          "Pi 1.1.0 child process on Node 24 (process.send and process.channel present in the child)",
+        verifiedFrom: "1.1.0",
+        probe:
+          "Spawn pi with stdio [ignore, pipe, pipe, ipc]: the child extension sees process.send, the parent receives child.on(message); the model's bash inherits no channel",
+        boundary:
+          "Reports the exact refused command to the parent; it never approves anything. Without the channel the parent falls back to JSONL tool args and reports an error, never success.",
+      },
+      {
+        capability: "child-mcp-grants",
+        native: "per-role MCP grants in children",
+        decision: "deferred",
+        source: "Pi 1.1.0 MCP guide (Control tool exposure, Permissions)",
+        verifiedFrom: "1.1.0",
+        probe:
+          "Not probed: Pi 1.1.0 connects every enabled MCP server and lists all of them in the child prompt, so per-server limiting is not verifiable.",
+        boundary:
+          "Roles that need MCP stay unavailable in children (--no-mcp, render and runtime diagnostics) until per-role grants are verifiable.",
+      },
+      {
+        capability: "session-end-event",
+        native: "session_shutdown extension event",
+        decision: "admitted",
+        source: "Pi 1.1.0 extensions guide (session_shutdown: quit, reload, new, resume, fork)",
+        verifiedFrom: "1.1.0",
+        probe:
+          "Pi 1.1.0 SessionShutdownEvent carries reason quit|reload|new|resume|fork and also fires in --no-session children (the extension gates on NAVORI_PI_CHILD_DEPTH)",
+        boundary:
+          "Runs on a clean quit or /new only; a SIGKILL fires nothing, so the next close sweeps. Reload, resume and fork do not end the session.",
+      },
+      {
+        capability: "settle-boundary-entries",
+        native: "agent_before_settle extension event",
+        decision: "admitted",
+        source: "Pi 1.1.0 extensions guide (agent_before_settle BoundaryResult: entries, continue)",
+        verifiedFrom: "1.1.0",
+        probe:
+          "Pi 1.1.0 AgentBeforeSettleEvent extends BoundaryState (entries, continue, outcome) and BoundaryResult accepts a custom_message entry draft",
+        boundary:
+          "Appends a visible entry at the end of the agent run; it never sets continue, so it cannot force another model request.",
+      },
+    ],
   },
   "agents-md": {
     id: "agents-md",

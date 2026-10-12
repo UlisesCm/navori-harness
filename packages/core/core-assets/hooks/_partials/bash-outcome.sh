@@ -204,7 +204,8 @@ process.stdin.on("end", () => {
         .replace(/(?:\/tmp|\/private\/tmp|\/var\/folders)\/[^\s:]+/g, "<tmp>")
         .replace(/\b\d{4}-\d\d-\d\d[T ]\d\d:\d\d:\d\d(?:\.\d+)?Z?\b/g, "<t>")
         .replace(/\b\d\d:\d\d:\d\d(?:\.\d+)?\b/g, "<t>")
-        .replace(/\b\d+(?:\.\d+)?\s?(?:ms|seconds?|minutes?)\b/gi, "<d>")
+        .replace(/\b\d+(?:\.\d+)?\s?(?:ms|s|m|seconds?|minutes?)\b/gi, "<d>")
+        .replace(/\b(?:duration_ms|duration|time|elapsed)\b[:=\s]+\d+(?:\.\d+)?/gi, "<d>")
         .replace(/\b[0-9a-f]{8,}\b/gi, "<h>")
         .split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 20).join("\n");
       if (!body && exitCode === null) return;
@@ -280,7 +281,23 @@ navori_bash_codex_outcome() {
 # Called by `routing-watch.sh` once it knows the tool is `Bash`, and only under
 # `claude-post-tool-use` (Codex fires PostToolUse on failure too, so no signal).
 navori_bash_success_lane() {
-  local idx=$nv_project_dir/$nv_progress_dir/acceptance-index
+  # The index lives in the checkout that ran `plan update`: the git toplevel of
+  # the payload `cwd` (a linked worktree has a `.git` FILE, main a directory),
+  # found by a builtin-only parent walk (no process on the fast path). No `.git`
+  # ancestor, or an odd `cwd`: the project dir, as before.
+  local top=$nv_project_dir
+  navori_plain_field cwd
+  case "$navori_field" in
+    /*)
+      local w=$navori_field
+      while :; do
+        if [ -e "$w/.git" ]; then top=$w; break; fi
+        [ -n "$w" ] || break
+        w=${w%/*}
+      done
+      ;;
+  esac
+  local idx=$top/$nv_progress_dir/acceptance-index
   [ -s "$idx" ] || return 0
   # A backgrounded call "succeeds" when it LAUNCHES, not when it finishes; an
   # interrupted one did not complete.
@@ -309,6 +326,14 @@ navori_bash_success_lane() {
   agent=$(payload_field agent_id | tr -cd 'A-Za-z0-9._-')
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   root=$(pwd -P 2>/dev/null) || root=$nv_project_dir
+  # A checkout other than the project's receives evidence only when it is a
+  # worktree of the SAME repository (equal git common dir): never a foreign repo.
+  if [ "$tree" != "$nv_project_dir" ] && [ "$tree" != "$root" ]; then
+    local ctree cproj
+    ctree=$(navori_git -C "$tree" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
+    cproj=$(navori_git -C "$nv_project_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
+    [ -n "$ctree" ] && [ "$ctree" = "$cproj" ] || return 0
+  fi
 
   local line extra file
   while IFS=$'\t' read -r c f i d binding stage; do
@@ -321,7 +346,7 @@ navori_bash_success_lane() {
       A[0-9]*) case "${i#A}" in *[!0-9]*) continue ;; esac ;;
       *) continue ;;
     esac
-    case "$d" in "$root"/* | "$nv_project_dir"/*) ;; *) continue ;; esac
+    case "$d" in "$root"/* | "$nv_project_dir"/* | "$tree"/*) ;; *) continue ;; esac
     case "$d" in *[[:cntrl:]]* | */../* | */..) continue ;; esac
     [ -d "$d" ] && [ ! -L "$d" ] || continue
     file=$d/workplan_$f.evidence.jsonl

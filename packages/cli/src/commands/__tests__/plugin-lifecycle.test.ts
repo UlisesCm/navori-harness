@@ -1,10 +1,18 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeConfig } from "../../lib/config/config.ts";
 import { runRender } from "../render.ts";
 import { extractManagedContent } from "../../lib/render/marker.ts";
+
+// No bundled plugin registers a Codex hook any more: `gatey` does.
+vi.mock(import("../../lib/render/bundled-assets.ts"), async (importOriginal) => {
+  const actual = await importOriginal();
+  const { withFakePlugins, writeFakeHookPlugin } =
+    await import("../../lib/__tests__/helpers/fake-plugins.ts");
+  return withFakePlugins(actual, { gatey: writeFakeHookPlugin("gatey") });
+});
 
 /**
  * #80 — disabling a plugin must clean up ALL its artifacts, not just its
@@ -50,24 +58,24 @@ function gitignoreBlock(): string | null {
 describe("plugin lifecycle cleanup (#80)", () => {
   // Covers: R18, R20
   it("upgrades the pre-T5 Codex config by first materializing plugin scripts, then stays byte-stable", () => {
-    writeCfg({ semgrep: { enabled: true } }, undefined, ["claude", "codex"]);
+    writeCfg({ gatey: { enabled: true } }, undefined, ["claude", "codex"]);
     mkdirSync(join(cwd, ".codex"), { recursive: true });
     const configPath = join(cwd, ".codex/config.toml");
     writeFileSync(configPath, PRE_T5_CODEX_CONFIG);
-    expect(PRE_T5_CODEX_CONFIG).not.toContain("check-semgrep.sh");
-    expect(existsSync(join(cwd, ".codex/scripts/check-semgrep.sh"))).toBe(false);
+    expect(PRE_T5_CODEX_CONFIG).not.toContain("check-gatey.sh");
+    expect(existsSync(join(cwd, ".codex/scripts/check-gatey.sh"))).toBe(false);
 
     runRender(cwd, false);
     const upgradedConfig = readFileSync(configPath, "utf-8");
-    const scriptPath = join(cwd, ".codex/scripts/check-semgrep.sh");
+    const scriptPath = join(cwd, ".codex/scripts/check-gatey.sh");
     const upgradedScript = readFileSync(scriptPath, "utf-8");
-    expect(upgradedConfig).toContain("check-semgrep.sh");
-    expect(upgradedScript).toContain('source="@navori/plugin-semgrep"');
+    expect(upgradedConfig).toContain("check-gatey.sh");
+    expect(upgradedScript).toContain('source="@navori/plugin-gatey"');
 
     const second = runRender(cwd, false);
     expect(readFileSync(configPath, "utf-8")).toBe(upgradedConfig);
     expect(readFileSync(scriptPath, "utf-8")).toBe(upgradedScript);
-    expect(second.engineResult?.written.some((entry) => entry.path.includes("check-semgrep"))).toBe(
+    expect(second.engineResult?.written.some((entry) => entry.path.includes("check-gatey"))).toBe(
       false,
     );
   });
@@ -85,39 +93,38 @@ describe("plugin lifecycle cleanup (#80)", () => {
   });
 
   it("deletes a disabled plugin's script from .claude/scripts/", () => {
-    writeCfg({ semgrep: { enabled: true } });
+    writeCfg({ tgrep: { enabled: true } });
     runRender(cwd, false);
-    const scriptPath = join(cwd, ".claude/scripts/check-semgrep.sh");
+    const scriptPath = join(cwd, ".claude/scripts/guard-search-routing.sh");
     expect(existsSync(scriptPath)).toBe(true);
 
-    writeCfg({ semgrep: { enabled: false } });
+    writeCfg({ tgrep: { enabled: false } });
     runRender(cwd, false);
     expect(existsSync(scriptPath)).toBe(false);
   });
 
   it("removes a disabled plugin's managed block from CLAUDE.md", () => {
-    // engram carries no CLAUDE.md-wide block anymore (#814; its doctrine is a
-    // skill injected straight into the agents that hold `mem_*` tools) — gh
-    // still does, so it covers this scenario.
-    writeCfg({ gh: { enabled: true } });
+    // engram carries no top-level block anymore (#814) and gh dropped
+    // `gh-protocol` (#1273) — tgrep still ships one, so it covers this scenario.
+    writeCfg({ tgrep: { enabled: true } });
     runRender(cwd, false);
     const claudeMd = join(cwd, "CLAUDE.md");
-    expect(readFileSync(claudeMd, "utf-8")).toContain('id="gh-protocol"');
+    expect(readFileSync(claudeMd, "utf-8")).toContain('id="tgrep-search-v2"');
 
-    writeCfg({ gh: { enabled: false } });
+    writeCfg({ tgrep: { enabled: false } });
     runRender(cwd, false);
-    expect(readFileSync(claudeMd, "utf-8")).not.toContain('id="gh-protocol"');
+    expect(readFileSync(claudeMd, "utf-8")).not.toContain('id="tgrep-search-v2"');
   });
 
   it("cleanup is idempotent: re-rendering a disabled plugin is a no-op", () => {
-    writeCfg({ semgrep: { enabled: true } });
+    writeCfg({ tgrep: { enabled: true } });
     runRender(cwd, false);
-    writeCfg({ semgrep: { enabled: false } });
+    writeCfg({ tgrep: { enabled: false } });
     runRender(cwd, false);
     const second = runRender(cwd, false);
     // Nothing left to remove the second time around.
     const removed = (second.engineResult?.written ?? []).filter(
-      (w) => w.status === "removed-condition-false" && w.path.includes("check-semgrep"),
+      (w) => w.status === "removed-condition-false" && w.path.includes("guard-search-routing"),
     );
     expect(removed).toEqual([]);
   });

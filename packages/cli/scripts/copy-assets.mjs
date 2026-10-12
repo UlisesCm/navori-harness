@@ -11,11 +11,16 @@ const REPO_ROOT = resolve(CLI_ROOT, "../..");
 const DIST = resolve(CLI_ROOT, "dist");
 const ASSETS_DIR = resolve(DIST, "assets");
 
-// Plugins to bundle. Source of truth = packages/plugins/* directories.
+// Plugins to bundle. Source of truth = packages/plugins/* directories that hold a
+// manifest. A directory without `plugin.json` is leftover (an untracked
+// `node_modules` of a retired plugin after a branch switch), not a plugin.
 const PLUGINS_DIR = resolve(REPO_ROOT, "packages/plugins");
 const plugins = readdirSync(PLUGINS_DIR).filter((entry) => {
   try {
-    return statSync(join(PLUGINS_DIR, entry)).isDirectory();
+    return (
+      statSync(join(PLUGINS_DIR, entry)).isDirectory() &&
+      existsSync(join(PLUGINS_DIR, entry, "plugin.json"))
+    );
   } catch {
     return false;
   }

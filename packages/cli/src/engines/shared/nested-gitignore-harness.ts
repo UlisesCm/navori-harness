@@ -48,6 +48,31 @@ export function nestedGitignoreEntries(dir: string): string[] {
   );
 }
 
+/** Engine id that owns each nested-gitignore dir; a dir not listed is always kept. */
+const NESTED_GITIGNORE_OWNER: Readonly<Record<string, string>> = {
+  ".claude": "claude",
+  ".codex": "codex",
+};
+
+/**
+ * #1291: single predicate deciding whether the nested `.gitignore` of `dir` is
+ * rendered AND kept by prune. True when the engine owning `dir` is enabled, or
+ * when any ephemeral path the file ignores already exists under `dir` (legacy
+ * `progress/`, `worktrees/`, stamps — spec 0036 R11 keeps them protected).
+ * Otherwise the file protects nothing: render must not create it (the same run
+ * would report the new dir as an orphan) and prune may remove it. A dir with no
+ * known owner (`.navori`) is always kept. Fails toward keeping.
+ */
+export function shouldHaveNestedGitignore(
+  cwd: string,
+  dir: string,
+  enabledEngines: readonly string[],
+): boolean {
+  const owner = NESTED_GITIGNORE_OWNER[dir];
+  if (owner === undefined || enabledEngines.includes(owner)) return true;
+  return nestedGitignoreEntries(dir).some((entry) => existsSync(join(cwd, dir, entry)));
+}
+
 function coreMeta(): MarkerMeta {
   return { source: "@navori/core", version: readCliVersion() };
 }
@@ -57,7 +82,8 @@ function coreMeta(): MarkerMeta {
  * `dir` (e.g. `dir: ".claude"` → `.claude/.gitignore`), listing only the
  * ephemeral entries `dir` itself owns.
  *
- * Returns `null` when `dir` owns no ephemeral entries at all (nothing to ever
+ * Returns `null` when `enabledEngines` is given and the file is not needed
+ * (see `shouldHaveNestedGitignore`), or when `dir` owns no ephemeral entries at all (nothing to ever
  * write — today only possible if `EPHEMERAL_HARNESS_PATHS` stops naming
  * anything under `dir`, e.g. an engine whose config directory holds no
  * machine-local state). Otherwise behaves exactly like `renderGitignore`:
@@ -69,10 +95,22 @@ function coreMeta(): MarkerMeta {
 export function renderNestedGitignore(
   cwd: string,
   dir: string,
-  options: { dryRun?: boolean; force?: boolean; lang: Lang },
+  options: {
+    dryRun?: boolean;
+    force?: boolean;
+    lang: Lang;
+    /** When given, returns null unless `shouldHaveNestedGitignore` holds (#1291). */
+    enabledEngines?: readonly string[];
+  },
 ): GitignoreRenderResult | null {
   const entries = nestedGitignoreEntries(dir);
   if (entries.length === 0) return null;
+  if (
+    options.enabledEngines !== undefined &&
+    !shouldHaveNestedGitignore(cwd, dir, options.enabledEngines)
+  ) {
+    return null;
+  }
   const body = entries.join("\n");
 
   const relPath = join(dir, ".gitignore");

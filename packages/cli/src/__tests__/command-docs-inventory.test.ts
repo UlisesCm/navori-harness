@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -122,8 +122,13 @@ describe("the website documents every registered subcommand (#548)", () => {
 
   it("parses a real registry on both sides (anti-false-green)", () => {
     // Either regex going quiet would compare two empty lists and read as green.
-    expect(registered).toEqual(expect.arrayContaining(["init", "render", "doctor", "global"]));
-    expect(documented).toEqual(expect.arrayContaining(["init", "render", "global"]));
+    expect(registered).toEqual(expect.arrayContaining(["init", "render", "doctor"]));
+    expect(documented).toEqual(expect.arrayContaining(["init", "render"]));
+  });
+
+  // Covers: R1
+  it("global no está registrado", () => {
+    expect(registered).not.toContain("global");
   });
 
   // Covers: R1, R3, R4
@@ -136,19 +141,58 @@ describe("the website documents every registered subcommand (#548)", () => {
   });
 });
 
+/** Public docs surface where the retired `navori global` must not be mentioned (spec 0046). */
+function publicDocSources(): string[] {
+  const website = resolve(REPO_ROOT, "apps", "website", "src");
+  const files = [
+    resolve(REPO_ROOT, "README" + ".md"),
+    resolve(REPO_ROOT, "packages", "cli", "README" + ".md"),
+    resolve(REPO_ROOT, "packages", "cli", "src", "engines", "README" + ".md"),
+  ];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = resolve(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      // releases.ts is the changelog history: it keeps naming the removed command.
+      else if (/\.(ts|astro)$/.test(entry.name) && entry.name !== "releases.ts") files.push(full);
+    }
+  };
+  walk(website);
+  return files;
+}
+
+describe("public docs after retiring the global layer (spec 0046)", () => {
+  // Covers: R9
+  it("docs públicas no mencionan navori global", () => {
+    const sources = publicDocSources();
+    expect(sources.length).toBeGreaterThan(5); // anti-false-green: the walk found the sources
+    const offenders = sources.filter((f) => /navori global/i.test(readFileSync(f, "utf8")));
+    expect(offenders.map((f) => f.slice(REPO_ROOT.length + 1))).toEqual([]);
+  });
+
+  // Covers: R10
+  it("DIRECTION no declara la capa global", () => {
+    const direction = readFileSync(resolve(REPO_ROOT, "docs", "DIRECTION" + ".md"), "utf8");
+    expect(direction).not.toContain("La capa global (`~/.claude`)");
+    expect(direction).not.toContain("navori global");
+    expect(direction).toContain("superseded por 0046");
+    expect(direction).toMatch(/^8\. \*\*Huella-cero sin opt-in\*\*/m);
+  });
+});
+
 describe("auditCommandDocs (synthetic — the failure modes the repo cannot show)", () => {
   const reason = "pending";
 
   it("flags a registered command that is neither documented nor exempt", () => {
     const audit = auditCommandDocs(
-      ["init", "global", "ticket"],
+      ["init", "audit", "ticket"],
       ["init"],
       new Map([["ticket", reason]]),
     );
-    expect(audit.undocumented).toEqual(["global"]);
+    expect(audit.undocumented).toEqual(["audit"]);
     expect(audit.stale).toEqual([]);
     // The message is the whole point: a diff of counts would not say which one.
-    expect(undocumentedMessage(audit.undocumented)).toContain("global");
+    expect(undocumentedMessage(audit.undocumented)).toContain("audit");
   });
 
   it("flags an exemption whose command is already documented", () => {

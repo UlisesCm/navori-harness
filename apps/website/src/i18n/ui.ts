@@ -30,7 +30,7 @@ export const ui = {
     "nav.npm": "npm",
     "lang.switchTo": "English",
 
-    "hero.eyebrow": "open source · 5 engines",
+    "hero.eyebrow": "open source · 6 engines",
     "hero.headlineA": "El harness multi-agente",
     "hero.headlineB": "para cualquier repo.",
     "hero.subhead":
@@ -100,8 +100,6 @@ export const ui = {
     "graph.chip.auditor": "busca lo que duele",
     "graph.chip.guard": "bloquea lo destructivo",
     "graph.chip.permissions": "allow · ask · deny",
-    "graph.chip.semgrep": "seguridad en el diff",
-    "graph.chip.jscpd": "duplicación",
     "graph.chip.gate": "lint · tests · formato",
     "graph.chip.reviewer": "aprueba o rechaza",
     "graph.chip.commit": "commit + PR",
@@ -127,17 +125,12 @@ export const ui = {
     "scopes.eyebrow": "Alcances",
     "scopes.title": "El harness ya no vive solo en el repo",
     "scopes.subtitle":
-      "Tres alcances aditivos, cada uno opt-in. Ninguno degrada al de abajo: el de la máquina se hace a un lado en cuanto encuentra un repo con navori.",
+      "Dos alcances aditivos, cada uno opt-in. El workspace se suma al repo sin degradarlo.",
     "scopes.repo.tag": "por repo",
     "scopes.repo.title": "El repo",
     "scopes.repo.body":
       "navori.config.json checked-in es la fuente de verdad. render reconstruye CLAUDE.md, .claude/ y progress/ desde ahí, idempotente y sin tocar lo que escribiste tú.",
     "scopes.repo.cmd": "navori init",
-    "scopes.global.tag": "por máquina",
-    "scopes.global.title": "La máquina",
-    "scopes.global.body":
-      "Las sesiones que arrancan fuera de un repo con navori —un scratch, un repo ajeno, tu home— hoy no tienen harness de ninguna clase. La capa global instala un piso de doctrina en ~/.claude, y se aparta sola cuando el repo trae el suyo.",
-    "scopes.global.cmd": "navori global init",
     "scopes.workspace.tag": "por organización",
     "scopes.workspace.title": "El workspace",
     "scopes.workspace.body":
@@ -190,12 +183,6 @@ export const ui = {
     "toolbox.tgrep.title": "Buscar por contenido",
     "toolbox.tgrep.body":
       "Índice de trigramas sobre el repo. Qué archivos contienen esta cadena, con el contrato de exit code intacto y sin pelear con el motor que tenga la máquina.",
-    "toolbox.semgrep.title": "Seguridad",
-    "toolbox.semgrep.body":
-      "Análisis estático de patrones peligrosos sobre el diff, integrado al gate del reviewer en lugar de quedar como un paso que alguien tiene que acordarse de correr.",
-    "toolbox.jscpd.title": "Duplicación",
-    "toolbox.jscpd.body":
-      "Detecta copy-paste antes de que se vuelva deuda. Un agente que no ve el código que ya existe lo reescribe; esto es lo que se lo enseña.",
     "toolbox.engram.title": "Memoria persistente",
     "toolbox.engram.body":
       "Decisiones, causas raíz y convenciones que sobreviven al cierre de sesión y a las compactaciones de contexto. No vuelves a explicar el lunes lo que decidiste el viernes.",
@@ -251,7 +238,8 @@ export const ui = {
       "Reconstruye todos los engines configurados. Preview por default; --apply escribe.",
     "commands.sync.desc":
       "Actualiza solo los bloques managed. Con --interactive resuelves los conflictos bloque por bloque, o archivo por archivo en los que no tienen marcadores.",
-    "commands.update.desc":
+    "commands.update.desc": "Actualiza la CLI a la última versión de npm y luego corre refresh.",
+    "commands.refresh.desc":
       "Detecta que el bundle avanzó y te dice qué cambiaría antes de tocarlo.",
     "commands.migrations.desc": "Aplica las migraciones de config entre versiones del CLI.",
     "commands.backup.desc":
@@ -264,15 +252,13 @@ export const ui = {
     "commands.bench.desc": "Mide render sobre N corridas y reporta p50/p95.",
     "commands.audit.desc":
       "Cómo corrió el harness de verdad: tokens por agente y doctrina que nadie siguió.",
-    "commands.global.desc":
-      "El harness base por máquina en ~/.claude, para las sesiones fuera de un repo con navori.",
     "commands.workspace.desc":
       "Config cross-repo y render del estándar a todos los repos de la org.",
     "commands.dominio.desc": "La base de conocimiento del workspace: los hechos que cruzan repos.",
     "commands.ticket.desc": "Tickets como archivos versionables dentro del workspace.",
 
     "engines.eyebrow": "Multi-engine",
-    "engines.title": "Una config, cinco engines.",
+    "engines.title": "Una config, seis engines.",
     "engines.subtitle":
       "El mismo harness materializado en el formato nativo de cada uno, sobre un solo pipeline de render. Agregar el sexto cuesta una tabla declarativa, no reescribir nada.",
     "engines.claude.detail": "agentes · skills · hooks · settings.json con permisos",
@@ -280,6 +266,7 @@ export const ui = {
     "engines.agentsmd.detail": "spec universal · la leen Cursor, Codex, Gemini y Copilot",
     "engines.cursor.detail": "reglas .mdc · contexto de proyecto",
     "engines.copilot.detail": "instrucciones de workspace",
+    "engines.pi.detail": "extensión, agentes y hooks · requiere Pi >= 1.1.0",
     "engines.status": "disponible",
 
     "quickstart.eyebrow": "Quickstart",
@@ -309,16 +296,16 @@ export const ui = {
       "navori coexiste. init detecta tu harness existente y solo agrega bloques managed con marcadores; tu contenido personalizado queda intacto. Si quieres que navori se haga cargo de un archivo tuyo, 'navori adopt' lo envuelve sin cambiar una palabra de lo que dice. Y si tu setup ya trae su propia orquestación o SDD, blocks.exclude deja que navori opte por no renderear esos bloques para no competir con los tuyos.",
     "faq.q2": "¿Qué engines soporta hoy?",
     "faq.a2":
-      "Cinco, todos entregados: Claude Code (.claude/), Codex nativo (agentes, skills, hooks y MCP), AGENTS.md universal, Cursor (.cursor/rules/) y Copilot. Corren sobre el mismo pipeline de render, así que un arreglo llega a todos a la vez en lugar de divergir en silencio.",
+      "Seis, todos entregados: Claude Code (.claude/), Codex nativo (agentes, skills, hooks y MCP), AGENTS.md universal, Cursor (.cursor/rules/), Copilot y Pi (.pi/, con extensión, agentes y hooks; requiere Pi >= 1.1.0). Corren sobre el mismo pipeline de render, así que un arreglo llega a todos a la vez en lugar de divergir en silencio.",
     "faq.q3": "¿Necesito Claude Code para usar navori?",
     "faq.a3":
-      "No. navori es un scaffolder: genera el harness y se sale del camino. La herramienta corre en cualquier Node 20+ y renderiza a cinco engines distintos.",
+      "No. navori es un scaffolder: genera el harness y se sale del camino. La herramienta corre en cualquier Node 22.12+ y renderiza a seis engines distintos.",
     "faq.q4": "¿Qué tan invasivo es? ¿Puedo revertirlo?",
     "faq.a4":
       "render hace preview por default: sin --apply no toca disco. Cuando escribe, deja antes un snapshot restaurable con 'navori backup', y la escritura es atómica. Fuera del repo no existe nada que no hayas pedido por su nombre: sin 'global init' no hay capa global, sin '--start' no hay auditoría.",
     "faq.q5": "¿Cómo actualizo mi proyecto cuando sale una versión nueva?",
     "faq.a5":
-      "npx navori@latest sync. Actualiza solo los bloques managed sin tocar tu código; con --interactive resuelves bloque por bloque lo que hayas editado a mano. 'navori update' te dice antes qué cambiaría.",
+      "npx navori@latest sync. Actualiza solo los bloques managed sin tocar tu código; con --interactive resuelves bloque por bloque lo que hayas editado a mano. 'navori refresh' te dice antes qué cambiaría.",
     "faq.q6": "¿No sale caro correr un harness multi-agente?",
     "faq.a6":
       "Menos de lo que parece, y ya no hace falta creerlo: 'navori audit' te dice a dónde se fueron los tokens de una sesión real. Cada agente corre con su modelo y su effort — el músculo solo donde hay juicio, lo mecánico en un modelo ligero — y cada subagente devuelve su conclusión en vez del volcado de lo que leyó.",
@@ -338,7 +325,7 @@ export const ui = {
     "nav.npm": "npm",
     "lang.switchTo": "Español",
 
-    "hero.eyebrow": "open source · 5 engines",
+    "hero.eyebrow": "open source · 6 engines",
     "hero.headlineA": "The multi-agent harness",
     "hero.headlineB": "for any repo.",
     "hero.subhead":
@@ -408,8 +395,6 @@ export const ui = {
     "graph.chip.auditor": "hunts what hurts",
     "graph.chip.guard": "blocks the destructive",
     "graph.chip.permissions": "allow · ask · deny",
-    "graph.chip.semgrep": "security on the diff",
-    "graph.chip.jscpd": "duplication",
     "graph.chip.gate": "lint · tests · format",
     "graph.chip.reviewer": "approves or rejects",
     "graph.chip.commit": "commit + PR",
@@ -434,17 +419,12 @@ export const ui = {
     "scopes.eyebrow": "Scopes",
     "scopes.title": "The harness no longer lives only in the repo",
     "scopes.subtitle":
-      "Three additive scopes, each opt-in. None degrades the one below it: the machine layer steps aside the moment it finds a repo with navori.",
+      "Two additive scopes, each opt-in. The workspace adds to the repo without degrading it.",
     "scopes.repo.tag": "per repo",
     "scopes.repo.title": "The repo",
     "scopes.repo.body":
       "A checked-in navori.config.json is the source of truth. render rebuilds CLAUDE.md, .claude/ and progress/ from it — idempotent, and without touching what you wrote.",
     "scopes.repo.cmd": "navori init",
-    "scopes.global.tag": "per machine",
-    "scopes.global.title": "The machine",
-    "scopes.global.body":
-      "Sessions that start outside a navori repo — a scratch dir, someone else's project, your home — have no harness at all. The global layer installs a floor of doctrine in ~/.claude, and steps aside on its own when the repo brings its own.",
-    "scopes.global.cmd": "navori global init",
     "scopes.workspace.tag": "per organization",
     "scopes.workspace.title": "The workspace",
     "scopes.workspace.body":
@@ -495,12 +475,6 @@ export const ui = {
     "toolbox.tgrep.title": "Search by content",
     "toolbox.tgrep.body":
       "A trigram index over the repo. Which files hold this string, with the exit-code contract intact and no fight over which engine the machine happens to have.",
-    "toolbox.semgrep.title": "Security",
-    "toolbox.semgrep.body":
-      "Static analysis for dangerous patterns over the diff, wired into the reviewer's gate instead of sitting there as a step someone has to remember to run.",
-    "toolbox.jscpd.title": "Duplication",
-    "toolbox.jscpd.body":
-      "Catches copy-paste before it becomes debt. An agent that can't see the code that already exists rewrites it; this is what shows it.",
     "toolbox.engram.title": "Persistent memory",
     "toolbox.engram.body":
       "Decisions, root causes and conventions that survive session close and context compaction. You don't re-explain on Monday what you settled on Friday.",
@@ -555,7 +529,8 @@ export const ui = {
     "commands.render.desc": "Rebuilds every configured engine. Preview by default; --apply writes.",
     "commands.sync.desc":
       "Refreshes only the managed blocks. With --interactive you resolve conflicts block by block, or file by file for markerless files.",
-    "commands.update.desc": "Detects that the bundle moved and tells you what would change first.",
+    "commands.update.desc": "Updates the CLI to the latest npm release, then runs refresh.",
+    "commands.refresh.desc": "Detects that the bundle moved and tells you what would change first.",
     "commands.migrations.desc": "Applies config migrations between CLI versions.",
     "commands.backup.desc": "The safety net: every write leaves a restorable snapshot first.",
     "commands.doctor.desc":
@@ -566,14 +541,12 @@ export const ui = {
     "commands.bench.desc": "Times render over N runs and reports p50/p95.",
     "commands.audit.desc":
       "How the harness actually ran: tokens per agent, and doctrine nobody followed.",
-    "commands.global.desc":
-      "The per-machine base harness in ~/.claude, for sessions outside a navori repo.",
     "commands.workspace.desc": "Cross-repo config, and rendering the standard to every org repo.",
     "commands.dominio.desc": "The workspace knowledge base: the facts that span repos.",
     "commands.ticket.desc": "Tickets as versionable files inside the workspace.",
 
     "engines.eyebrow": "Multi-engine",
-    "engines.title": "One config, five engines.",
+    "engines.title": "One config, six engines.",
     "engines.subtitle":
       "The same harness materialized in each one's native format, over a single render pipeline. Adding the sixth costs a declarative table, not a rewrite.",
     "engines.claude.detail": "agents · skills · hooks · settings.json with permissions",
@@ -581,6 +554,7 @@ export const ui = {
     "engines.agentsmd.detail": "universal spec · read by Cursor, Codex, Gemini and Copilot",
     "engines.cursor.detail": ".mdc rules · project context",
     "engines.copilot.detail": "workspace instructions",
+    "engines.pi.detail": "extension, agents and hooks · requires Pi >= 1.1.0",
     "engines.status": "available",
 
     "quickstart.eyebrow": "Quickstart",
@@ -609,16 +583,16 @@ export const ui = {
       "navori coexists. init detects your existing harness and only adds managed blocks marked with delimiters; your custom content stays put. If you want navori to take over one of your files, 'navori adopt' wraps it without changing a word of what it says. And if your setup already ships its own orchestration or SDD, blocks.exclude lets navori opt out of rendering those blocks so it never competes with yours.",
     "faq.q2": "Which engines does it support today?",
     "faq.a2":
-      "Five, all shipped: Claude Code (.claude/), native Codex (agents, skills, hooks and MCP), universal AGENTS.md, Cursor (.cursor/rules/) and Copilot. They run on one render pipeline, so a fix reaches all of them at once instead of diverging in silence.",
+      "Six, all shipped: Claude Code (.claude/), native Codex (agents, skills, hooks and MCP), universal AGENTS.md, Cursor (.cursor/rules/), Copilot and Pi (.pi/, with extension, agents and hooks; requires Pi >= 1.1.0). They run on one render pipeline, so a fix reaches all of them at once instead of diverging in silence.",
     "faq.q3": "Do I need Claude Code to use navori?",
     "faq.a3":
-      "No. navori is a scaffolder: it generates the harness and gets out of the way. The tool runs on any Node 20+ and renders to five different engines.",
+      "No. navori is a scaffolder: it generates the harness and gets out of the way. The tool runs on any Node 22.12+ and renders to six different engines.",
     "faq.q4": "How invasive is it? Can I roll it back?",
     "faq.a4":
       "render previews by default: without --apply it never touches disk. When it does write, it leaves a restorable snapshot first via 'navori backup', and the write is atomic. Outside the repo nothing exists that you didn't ask for by name: no 'global init', no global layer; no '--start', no audit.",
     "faq.q5": "How do I upgrade my project when a new version ships?",
     "faq.a5":
-      "npx navori@latest sync. It refreshes only managed blocks without touching your code; with --interactive you resolve block by block whatever you edited by hand. 'navori update' tells you what would change first.",
+      "npx navori@latest sync. It refreshes only managed blocks without touching your code; with --interactive you resolve block by block whatever you edited by hand. 'navori refresh' tells you what would change first.",
     "faq.q6": "Isn't running a multi-agent harness expensive?",
     "faq.a6":
       "Less than you'd think — and you no longer have to take that on faith: 'navori audit' tells you where a real session's tokens went. Each agent runs with its own model and effort — the muscle only where judgment lives, mechanical work on a light model — and every subagent returns its conclusion instead of a dump of what it read.",

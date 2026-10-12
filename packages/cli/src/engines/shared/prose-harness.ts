@@ -89,11 +89,11 @@ export function buildHarnessProse(
   options: {
     includeOrchestration?: boolean;
     includePluginBlocks?: boolean;
-    /** Engine the prose is for (default `"claude"`); resolves the `onCodex` condition key. */
-    engine?: string;
+    /** Engine the prose is for; resolves the `onCodex` / `onClaude` condition keys. */
+    engine: string;
     /** Omit the "Available skills" index (Codex lists `.agents/skills` natively). */
     omitSkillsIndex?: boolean;
-  } = {},
+  },
 ): string {
   // Workspace renders omit root-only blocks — same semantics as the Claude
   // engine (#70): the tools that read these files merge/inherit the root file,
@@ -170,6 +170,10 @@ export interface ProseRenderSpec {
   includeOrchestration?: boolean;
   /** Full engines may retain plugin protocol blocks they can back with MCP. */
   includePluginBlocks?: boolean;
+  /** Appends engine-owned sub-blocks (e.g. plugin extensions) to the harness body before it is injected. */
+  extendBody?: (body: string) => string;
+  /** Engine id (`"agents-md"`, `"cursor"`, `"copilot"`): required so a prose file never renders the Claude-only `onClaude` branch by default. */
+  engine: string;
 }
 
 /**
@@ -190,10 +194,12 @@ export function renderProseFile(spec: ProseRenderSpec): ProseEngineResult {
 
   const firstRender = !existsSync(destPath);
   const existing = firstRender ? spec.header : readFileSync(destPath, "utf-8");
-  const body = buildHarnessProse(config, repoRoot, isWorkspace, {
+  const harnessBody = buildHarnessProse(config, repoRoot, isWorkspace, {
     includeOrchestration: spec.includeOrchestration,
     includePluginBlocks: spec.includePluginBlocks,
+    engine: spec.engine,
   });
+  const body = spec.extendBody ? spec.extendBody(harnessBody) : harnessBody;
 
   const result = injectManagedSection(existing, spec.managedId, body, CORE_META, "html");
   // First render seeds a user-section after the managed block; on re-render the

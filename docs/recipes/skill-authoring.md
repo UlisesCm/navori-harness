@@ -69,7 +69,7 @@ del proyecto ya interpolados.
 Declararlo sólo aplica a una skill que algo extiende (`injectInto`). Cuando nada la extiende, el
 archivo compuesto **es** el asset y `maxWords` ya mide lo correcto. Ejemplo real: `review-diff`
 declara `maxWords: 1200` y `maxWordsComposed: 1450` — 1200 del núcleo, 200 de la extensión de
-`jscpd`, más margen para los `project.criticalAreas` que el render interpola dentro del bloque.
+un plugin, más margen para los `project.criticalAreas` que el render interpola dentro del bloque.
 
 ## Triggers en `description`
 

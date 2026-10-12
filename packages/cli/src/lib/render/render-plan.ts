@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import {
   injectManagedSection,
   removeManagedSection,
+  removeManagedSectionGuarded,
   resolveCondition,
   type InjectResult,
 } from "./marker.ts";
@@ -52,39 +53,6 @@ export interface CoreManagedAsset {
    */
   rootOnly?: boolean;
   /**
-   * Blocks that may compose the machine-wide global baseline (Spec 0010 §4) —
-   * the prose a session gets in a project with NO navori config at all.
-   *
-   * DECLARED, not inferred (#541). `composeBaseline` used to decide this by
-   * testing the body for `{{`, which measures interpolation, not global
-   * safety — and the two had already drifted apart: `arranque-sesion` stopped
-   * interpolating anything while still talking about `progress/current.md` and
-   * `navori doctor`, so it passed the filter and would have injected
-   * repo-specific prose into every session. Nothing failed, because nothing
-   * was checking the actual property.
-   *
-   * A block earns the mark only when all four hold, and
-   * `global-safe-inventory.test.ts` asserts the equivalence in BOTH directions
-   * so the audit cannot age in silence again:
-   *   1. every `{{...}}` resolves in the global scope — either to a value or to
-   *      a declared fallback. FB (#546) narrowed this from the old blanket ban
-   *      on interpolation: `qualityGate.*`, `branchBase` and `prTarget` now
-   *      render as the instruction to DERIVE them (`lib/placeholders.ts`), so a
-   *      block is disqualified by a placeholder with NO answer, which is the
-   *      defect the rule was always aiming at;
-   *   2. no repo-scoped artifact in the prose (`navori.config.json`,
-   *      `navori doctor`, `specs/`) — none of them exist in such a project.
-   *      `.claude/` and `progress/` left this list with FB: the plugin's agents
-   *      create their own handoff files there, so naming them is an instruction
-   *      the reader can follow;
-   *   3. no `condition` — a condition reads repo config that isn't there;
-   *   4. any navori agent or skill it names is one the global plugin SHIPS.
-   *      Before FB the global scope shipped none, so the rule read "names
-   *      none"; now it guards the real failure — a block citing a preset or
-   *      library skill that only a repo render materializes.
-   */
-  globalSafe?: boolean;
-  /**
    * Who the block is written for. Absent — the normal case — means the always-on
    * layer: it renders into `CLAUDE.md`, which every session AND every subagent
    * receives (`sub-agents#what-loads-at-startup`).
@@ -130,11 +98,6 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/orquestacion.md",
     baseLanguage: "en",
     rootOnly: true,
-    // Global-safe since FB (#546): the plugin installs the agents this doctrine
-    // routes to, and the four placeholders it carries have global fallbacks.
-    // Without it the global harness would ship 8 subagents with nothing telling
-    // the orchestrator when to reach for each.
-    globalSafe: true,
     // Written in the second person to the main agent, and every section decides
     // something only it decides. Out of `CLAUDE.md` since spec 0015 (#573): the
     // subagents that used to receive it declare no `Agent` tool, so none of them
@@ -146,14 +109,12 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/idioma-rol.md",
     baseLanguage: "es",
     rootOnly: true,
-    globalSafe: true,
   },
   {
     id: "formato-respuesta",
     relPath: "core-assets/managed/formato-respuesta.md",
     baseLanguage: "es",
     rootOnly: true,
-    globalSafe: true,
   },
   {
     id: "tipado-fuerte",
@@ -166,7 +127,6 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/operaciones-seguras.md",
     baseLanguage: "en",
     rootOnly: true,
-    globalSafe: true,
   },
   {
     id: "arranque-sesion",
@@ -183,11 +143,6 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/cierre-sesion.md",
     baseLanguage: "en",
     rootOnly: true,
-    // Passes the FB audit (its `{{qualityGate.full}}` derives, and `progress/`
-    // is a file the closing agent writes rather than one it must find). Marked
-    // so the audit stays honest in both directions; NOT in
-    // `DEFAULT_GLOBAL_BLOCKS` — the shipped baseline stays tight.
-    globalSafe: true,
     // Orchestrator-only (#572). The session's ceremonies: the gate, the history entry, clearing
     // `current.md`. The block itself says they belong to the agent that OWNS the
     // session; a subagent closing with `done -> <file>` is not ending one.
@@ -214,9 +169,6 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/intake-tickets.md",
     baseLanguage: "en",
     rootOnly: true,
-    // Interpolates nothing and names only skills the global plugin ships. Like
-    // `cierre-sesion`: eligible, not shipped by default.
-    globalSafe: true,
   },
   // Search v2: how to choose between direct read, Glob, structural discovery and
   // textual discovery. No `audience: "orchestrator"` on purpose — subagents that
@@ -229,27 +181,12 @@ export const CORE_MANAGED_ASSETS: readonly CoreManagedAsset[] = [
     relPath: "core-assets/managed/code-discovery-routing.md",
     baseLanguage: "en",
     rootOnly: true,
-    // Names no repo path, no navori agent/skill and no config key; interpolates
-    // nothing. Eligible for the global baseline, not shipped by default (like
-    // `cierre-sesion`/`intake-tickets`) — see DEFAULT_GLOBAL_BLOCKS.
-    globalSafe: true,
   },
 ] as const;
 
 /** Ids of every hardcoded core managed block. Used to tell a real (but not
  * excludable) block id apart from a typo when validating `blocks.exclude`. */
 export const CORE_BLOCK_IDS: readonly string[] = CORE_MANAGED_ASSETS.map((a) => a.id);
-
-/**
- * Ids of the core blocks that may compose the GLOBAL baseline, in emission
- * order (#545). Derived from the assets' declared `globalSafe` so the `global
- * init` picker offers exactly what `composeBaseline` accepts: a hand-written
- * second list would let the two drift, which is the defect #541 fixed on the
- * enforcement side.
- */
-export const GLOBAL_SAFE_BLOCK_IDS: readonly string[] = CORE_MANAGED_ASSETS.filter(
-  (a) => a.globalSafe === true,
-).map((a) => a.id);
 
 /**
  * Ids of the core managed blocks a repo may opt OUT of via `blocks.exclude`.
@@ -261,8 +198,8 @@ export const GLOBAL_SAFE_BLOCK_IDS: readonly string[] = CORE_MANAGED_ASSETS.filt
  * `blocks.exclude` entries outside this set are ignored by the render; `doctor`
  * flags them (a known-but-not-excludable id, or an unknown id → typo). Preset
  * extras and plugin blocks opt out by their own mechanisms (change the preset /
- * disable the plugin), and the computed CLAUDE.md blocks (skills-index,
- * agentes-disponibles, contexto-*) self-strip when empty.
+ * disable the plugin), and the computed CLAUDE.md blocks (agentes-disponibles,
+ * contexto-*) self-strip when empty.
  */
 export const EXCLUDABLE_BLOCK_IDS: readonly string[] = ["orquestacion", "sdd"] as const;
 
@@ -387,20 +324,24 @@ function resolveConditions(
  * Resolves `navori:if` / `navori:if-not` markers in `content`.
  *
  * `engine` names the engine the text is rendered for and defaults to
- * `"claude"`, so every caller that does not pass it (Claude, the prose-only
- * engines) keeps its output byte-for-byte. The reserved key `onCodex` is true
- * only when `engine === "codex"`; it never reads `config`, so a config key of
- * the same name has no effect. Spans wrapped in `if-not onCodex` therefore
- * render everywhere except Codex, and `if onCodex` spans only on Codex.
+ * `"claude"`, so Claude-side callers that do not pass it keep their output
+ * byte-for-byte; prose callers must pass theirs. The reserved key `onCodex` is true
+ * only when `engine === "codex"` and `onClaude` only when `engine === "claude"`;
+ * `onPi` only when `engine === "pi"`; none reads `config`, so a config key of the same name has no effect. Spans
+ * wrapped in `if-not onCodex` therefore render everywhere except Codex. Prose
+ * callers (agents-md, cursor, copilot) pass their own
+ * engine id so they never take the Claude-only branch.
  */
 export function conditionOrchestration(
   content: string,
   config: NavoriConfig,
-  /** Engine id being rendered; only `"codex"` makes the reserved key `onCodex` true. */
+  /** Engine id being rendered; `"codex"` makes `onCodex` true, `"claude"` makes `onClaude` true. */
   engine: string = "claude",
 ): string {
   const enabled = (key: string) => {
     if (key === "onCodex") return engine === "codex";
+    if (key === "onClaude") return engine === "claude";
+    if (key === "onPi") return engine === "pi";
     if (key === "sdd") return config.sdd?.enabled !== false;
     // Explicit value wins; unset (including an entirely absent `harness`
     // section) falls back to HARNESS_DEFAULTS rather than assuming "unset"
@@ -443,7 +384,11 @@ export function resolveAssetPath(
   return { path: resolve(root, asset.relPath), fallback: base === "es" };
 }
 
-export type AssetStatus = InjectResult["status"] | "removed-condition-false" | "removed-trimmed";
+export type AssetStatus =
+  | InjectResult["status"]
+  | "removed-condition-false"
+  | "removed-trimmed"
+  | "retired-kept";
 
 export interface AssetPlanEntry {
   asset: CoreManagedAsset;
@@ -495,11 +440,23 @@ export interface RenderPlan {
   /** Assets that fell back to Spanish because the requested language is not available. */
   languageFallbacks: string[];
   /** Markers whose existing version is older than the source package's current
-   * version. Listed regardless of whether the content changed. */
+   * version. Informational only: a marker's version is the release that last
+   * CHANGED the block (frozen while its body is unchanged), so an older version
+   * with identical content is expected and is not rewritten. */
   updatesAvailable: UpdateAvailable[];
   /** Markers whose existing version is NEWER than this CLI's — the block was
    * written by a newer navori and was preserved, not overwritten (#79). */
   downgrades: UpdateAvailable[];
+}
+
+/**
+ * Status of a retired block that was NOT removed. `newer` keeps the anti-rollback
+ * label; an edited block is `retired-kept`. Both are non-conflict: a retired block
+ * has no new content, so the sync conflict flow (`user-modified-skipped`) would
+ * offer a resolution that can resolve nothing.
+ */
+function keptRetiredStatus(kept: "newer" | "modified"): "downgrade-skipped" | "retired-kept" {
+  return kept === "newer" ? "downgrade-skipped" : "retired-kept";
 }
 
 /**
@@ -535,6 +492,7 @@ export function computeRenderPlan(
   const languageFallbacks: string[] = [];
   const updatesAvailable: UpdateAvailable[] = [];
   const downgrades: UpdateAvailable[] = [];
+  // any justified: NavoriConfig has no index signature; `resolveCondition` walks it by dotted path.
   const configRecord = config as unknown as Record<string, unknown>;
   const language = config.language;
   // Core blocks the repo opted out of (`blocks.exclude`), intersected with the
@@ -738,10 +696,22 @@ export function computeRenderPlan(
         if (retired) {
           for (const blockId of retired.blockIds) {
             if (skipIds.has(blockId)) continue;
+            // Guarded (#1273): an edited block, or one from a newer navori, stays.
+            const result = removeManagedSectionGuarded(working, blockId);
+            const asset = { id: blockId, relPath: `@navori/plugin-${declaredId}` };
+            if ("kept" in result) {
+              entries.push({
+                asset,
+                source: declaredId,
+                status: keptRetiredStatus(result.kept),
+                newContent: null,
+              });
+              continue;
+            }
             const before = working;
-            working = removeManagedSection(working, blockId);
+            working = result.content;
             entries.push({
-              asset: { id: blockId, relPath: `@navori/plugin-${declaredId}` },
+              asset,
               source: declaredId,
               status: before === working ? "unchanged" : "removed-condition-false",
               newContent: null,
@@ -766,11 +736,24 @@ export function computeRenderPlan(
     if (retiredBlocks) {
       for (const blockId of retiredBlocks.blockIds) {
         if (skipIds.has(blockId)) continue;
-        const before = working;
-        working = removeManagedSection(working, blockId);
-        if (before !== working) {
+        // Guarded (#1273): a block the user edited, or one stamped by a newer
+        // navori, is user-kept — only pristine copies are navori's to remove.
+        // "downgrade-skipped" is the non-conflict "kept" status: a retired block
+        // has no new content, so the sync conflict flow (user-modified-skipped)
+        // would offer a resolution that can resolve nothing.
+        const result = removeManagedSectionGuarded(working, blockId);
+        const asset = { id: blockId, relPath: `@navori/plugin-${declaredId}` };
+        if ("kept" in result) {
           entries.push({
-            asset: { id: blockId, relPath: `@navori/plugin-${declaredId}` },
+            asset,
+            source: declaredId,
+            status: keptRetiredStatus(result.kept),
+            newContent: null,
+          });
+        } else if (result.content !== working) {
+          working = result.content;
+          entries.push({
+            asset,
             source: declaredId,
             status: "removed-condition-false",
             newContent: null,
@@ -853,7 +836,7 @@ export function computeRenderPlan(
  *
  * `computedBlockIds` is an ADAPTER contribution (#228): the core is
  * engine-agnostic, so it no longer hardcodes the Claude engine's computed block
- * ids (`skills-index`, `agentes-disponibles`, `contexto-*`). The Claude engine
+ * ids (`agentes-disponibles`, `contexto-*`). The Claude engine
  * owns that list and passes it here; callers that don't (e.g. doctor's order
  * check over a `.claude/CLAUDE.md`) get the core/preset/plugin order, and the
  * engine's computed blocks — always emitted last — sort to the tail on their

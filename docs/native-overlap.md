@@ -36,7 +36,7 @@ Las columnas de paridad Codex salen de `CODEX_PARITY` (`packages/cli/src/engines
 | skill | `context-intake` | complementa | emit | emit | — | — | equivalente | Skill emitted to .agents/skills; confirmations are numbered chat options that end the turn; no AskUserQuestion: request_user_input is behind an UnderDevelopment feature in Default mode (F14) | — | — | — |
 | hook | `guard-destructive` | complementa | emit | emit | — | — | igual | — | — | — | — |
 | hook | `implementer-no-markdown` | complementa | emit | emit | — | — | igual | — | — | — | — |
-| hook | `subagent-no-background` | complementa | emit | unsupported | — | — | equivalente | the vector does not exist in Codex (probe V6b, spec 0041 R12): no run_in_background field and no Monitor tool, so there is nothing to block; shell `&` is prose-only on both engines. Reference: https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs; no hook is registered or installed in Codex; the shell `&` stays a prose rule, as in Claude | — | — | — |
+| hook | `subagent-no-background` | complementa | emit | unsupported | — | — | equivalente | the run_in_background/Monitor vector does not exist in Codex (probe V6b, spec 0041 R12), so there is nothing to block there. The script now also carries a shell lane (`&`, nohup, setsid, disown, spec 0048 R8/D-U2) for every engine that registers it, but Codex does not: its hook payload has no agent_id to tell a child from the main thread. Reference: https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs; no hook is registered or installed in Codex; shell backgrounding stays a prose rule there, while Claude enforces it mechanically | — | — | — |
 | hook | `session-start-context` | complementa | emit | emit | — | — | igual | — | — | — | — |
 | hook | `model-advisor` | complementa | emit | emit | — | — | equivalente | SessionStart with the codex-session-start mode; Codex has no per-turn model-change event registered yet; the advice fires once per session | — | — | — |
 | hook | `subagent-stop-handoff` | complementa | emit | emit | — | — | equivalente | SubagentStop instead of PostToolUse(Agent\|Task) | — | — | — |
@@ -71,8 +71,6 @@ Las columnas de paridad Codex salen de `CODEX_PARITY` (`packages/cli/src/engines
 | managed-block | `tipado-fuerte` | complementa | emit | emit | — | — | igual | — | — | — | — |
 | plugin | `acli` | complementa | emit | emit | — | — | igual | — | — | — | — |
 | plugin | `gh` | complementa | emit | emit | — | — | igual | — | — | — | — |
-| plugin | `jscpd` | complementa | emit | emit | — | — | igual | — | — | — | — |
-| plugin | `semgrep` | complementa | emit | emit | — | — | igual | — | — | — | — |
 | plugin | `tgrep` | complementa | emit | emit | — | — | igual | — | — | — | — |
 | plugin | `engram` | complementa | emit | emit | https://code.claude.com/docs/en/memory | 2026-09-30 | igual | — | — | — | — |
 | plugin | `codegraph` | complementa | emit | emit | — | — | igual | — | — | — | — |
@@ -81,8 +79,7 @@ Las columnas de paridad Codex salen de `CODEX_PARITY` (`packages/cli/src/engines
 | flow | `native-workflows` | complementa | emit | n/a | — | — | igual | — | — | — | — |
 | flow | `nested-agent-dispatch` | complementa | emit | unsupported | — | — | equivalente | the orchestrator runs scout before and scribe after; role-guard denies spawn_agent from any subagent (spec 0041 D13), which keeps depth 1 under V1 and V2 (F17); the deny fires on PreToolUse of the spawn tool, so it holds only where that hook payload carries the caller's agent_type (V2); smoked live under v2 (S2), under v1 the child has no spawn tool (V5) | https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs | 0.160.0 | 2026-10-03 |
 | flow | `spec-delivery-publication` | complementa | emit | emit | — | — | equivalente | the publisher prose renders to both engines; on Codex the user confirms each `gh pr create` per delivery (deny-as-confirmation of pr-publisher-confirm); the secondary delivery-order check with `gh pr list` is confirmed or run by the user; the plan gate is advisory on Codex | — | — | — |
-| plugin-script | `jscpd/check-jscpd.sh` | complementa | emit | emit | — | — | igual | — | — | — | — |
-| plugin-script | `semgrep/check-semgrep.sh` | complementa | emit | emit | — | — | igual | — | — | — | — |
+| flow | `native-git-hooks` | complementa | emit | n/a | — | — | igual | — | — | — | — |
 | plugin-script | `tgrep/guard-search-routing.sh` | complementa | emit | emit | — | — | equivalente | the tgrep hookExtension is injected into the Codex guard-destructive copy and sources this script from .codex/scripts (spec 0041 R29); smoked live (S5): a recursive `grep -rn` through the shell is blocked when a tgrep index exists; without an index the lane fails open by design (exit 43) | https://learn.chatgpt.com/docs/hooks | 0.160.0 | 2026-10-03 |
 | permission-rule | `class:bash-ask` | complementa | emit | emit | — | — | limite-codex | ask is translated to a prefix_rule prompt (F6); solo confirma en el hilo principal (sonda V1): inside a subagent the call runs with no prompt | https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/src/exec_policy.rs | 0.160.0 | 2026-10-02 |
 | permission-rule | `class:bash-deny` | complementa | emit | emit | — | — | equivalente | prefix_rule decision forbidden in .codex/rules/navori.rules; narrowed patterns have their own rows (narrowed:<pattern>) | — | — | — |

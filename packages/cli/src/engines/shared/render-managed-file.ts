@@ -9,7 +9,6 @@ import {
 } from "../../lib/render/marker.ts";
 import { parseAsset } from "../claude/parse-asset.ts";
 import { interpolate } from "../../lib/render/interpolate.ts";
-import type { FallbackScope } from "../../lib/render/placeholders.ts";
 import { expandHookIncludes } from "../../lib/render/hook-includes.ts";
 import { mergeFrontmatter } from "../claude/frontmatter-merge.ts";
 import {
@@ -50,13 +49,6 @@ export interface RenderManagedFileInput {
   meta: { source: string; version: string };
   config: NavoriConfig;
   extraVars?: Record<string, string>;
-  /**
-   * Which scope answers an unresolved placeholder (Spec 0010 FB). The global
-   * plugin render passes `global` so `{{qualityGate.*}}`, `{{branchBase}}` and
-   * `{{prTarget}}` become the instruction to DERIVE them instead of a
-   * `<not configured: …>` hint. Defaults to `repo`.
-   */
-  fallbackScope?: FallbackScope;
   /** Override comment style. Defaults: `.sh` → shell, anything else → html. */
   commentStyle?: CommentStyle;
   /**
@@ -104,21 +96,17 @@ export function renderManagedFile(input: RenderManagedFileInput): RenderManagedF
   const raw = conditionOrchestration(transformed, input.config, input.engine);
   const asset = parseAsset(raw, commentStyle);
 
-  const scope = input.fallbackScope;
   const interpolatedFmObj = interpolateFrontmatter(
     asset.frontmatter,
     input.config,
     input.extraVars,
-    scope,
   );
   const interpolatedBody = interpolate(asset.managedBody, input.config, {
     extraVars: input.extraVars,
-    fallbackScope: scope,
   });
   const interpolatedUserTpl = asset.userTemplate
     ? interpolate(asset.userTemplate, input.config, {
         extraVars: input.extraVars,
-        fallbackScope: scope,
       })
     : null;
 
@@ -175,7 +163,6 @@ function interpolateFrontmatter(
   fm: Record<string, string>,
   config: NavoriConfig,
   extraVars: Record<string, string> | undefined,
-  fallbackScope: FallbackScope | undefined,
 ): Record<string, string> {
   if (Object.keys(fm).length === 0) return {};
   const serialized = Object.entries(fm)
@@ -184,7 +171,6 @@ function interpolateFrontmatter(
   const interp = interpolate(serialized, config, {
     extraVars,
     omitUnresolvedKeyLines: true,
-    fallbackScope,
   });
   return parseFrontmatterFields(interp);
 }
@@ -258,7 +244,8 @@ function rerender(
     commentStyle,
     forceOverwrite,
   );
-  const content = fmHeader + inject.output;
+  let content = fmHeader + inject.output;
+  let injected = inject;
 
   // "unchanged" from injection only speaks for the managed BODY. The
   // frontmatter is merged separately (asset wins for its keys), so a
@@ -269,6 +256,21 @@ function rerender(
   // host reads `.claude/agents/*.md`, which kept the old prose while the
   // source and the tests (which swept the source) were green. Body unchanged
   // but bytes differ ⇒ the frontmatter shifted ⇒ "updated".
+  if (inject.status === "unchanged" && content !== existing) {
+    // A real write (frontmatter shifted) with an identical body: the marker
+    // must record the version that made it, since the frontmatter sits outside
+    // the hash and the inject fast path keeps the old version otherwise.
+    injected = injectManagedSection(
+      restOfDest,
+      managedId,
+      body,
+      metaWithFmKeys,
+      commentStyle,
+      forceOverwrite,
+      true,
+    );
+    content = fmHeader + injected.output;
+  }
   const status: InjectResult["status"] =
     inject.status === "unchanged"
       ? content === existing
@@ -282,7 +284,7 @@ function rerender(
   return {
     content,
     status,
-    details: inject.details,
+    details: injected.details,
     ...(collides && {
       collision: { overwrittenKeys: Object.keys(assetFm).filter((k) => k in destFm) },
     }),

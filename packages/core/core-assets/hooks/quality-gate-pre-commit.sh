@@ -17,6 +17,8 @@
 # bottom — they keep `cmd` and the original exit codes in scope.
 # Blocking classification (#1117):
 #   - cannot enter the commit worktree, gate red: hard — the tree is unknown / a real verdict.
+#   - session state grew past the hard ceiling (#1263): hard — a ratchet on the session-state file (bytes); a
+#     verdict about the commit's content, not about the gate, and it never rewrites the file.
 #   - declared runner missing from PATH: ask (Claude, modes that show the prompt) / hard (Codex, no payload or jq,
 #     bypassPermissions/dontAsk/plan/unknown mode) — no verdict, so nobody can approve a skip silently.
 set -euo pipefail
@@ -114,6 +116,8 @@ run_gate() {
   # the terminal record by tool_use_id and reports an unfinished gate.
   navori_audit_log "gate-started" "inicio del quality gate" || true
   echo "[navori] running quality-gate fast: $1" >&2
+  # Intended: running the configured qualityGate.fast string is this hook's job (shell-quoted at render time).
+  # ast-grep-ignore: no-bash-eval
   eval "$1" || {
     navori_audit_block_reason="quality gate en rojo: '$1' fallo, commit abortado"
     echo "[navori] quality-gate fast failed. Commit aborted." >&2
@@ -123,7 +127,7 @@ run_gate() {
   }
 }
 
-# Gate to `git commit` only. $TRIGGER_RE is consumed by the shared detector
+# Gate to `git commit` (and `git push` in a Pi copy, below). $TRIGGER_RE is consumed by the shared detector
 # inlined below.
 TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)'
 # Literal substrings every branch of $TRIGGER_RE needs; read by the fast
@@ -131,6 +135,13 @@ TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:sp
 # a branch added there without its token here silently loses the shortcut
 # (fail-open to the slow path), and the inlined tests pin the pairing.
 TRIGGER_TOKENS='commit'
+# Spec 0048 D5 (R4): Pi has no native git hooks, so its copy gates `git push` as well as `git commit`,
+# with the same wrapper/compound normalization. Claude and Codex keep gating commits only. Indented on
+# purpose: the declarations above are the ones the wiring tests read.
+if [ "$nv_engine" = pi ]; then
+  TRIGGER_RE='^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+(commit|push)([[:space:]]|$)'
+  TRIGGER_TOKENS='commit push'
+fi
 # Heredoc bodies fed to `cat` are data, not commands (#1095).
 TRIGGER_STRIP_HEREDOC_BODIES=1
 # navori:include gate-trigger
@@ -144,10 +155,9 @@ TRIGGER_STRIP_HEREDOC_BODIES=1
 # could be read out of the tool input at all (no JSON parser, a malformed or
 # truncated payload). `is_scan_trigger ""` simply finds no git segment, so the
 # whole block below was skipped WITHOUT A WORD — a gate that omits itself in
-# silence is indistinguishable from a gate that passed (#511). Its two siblings
-# (`check-semgrep.sh`, `check-jscpd.sh`) already scan unconditionally there,
-# which is the contract the shared extractor documents; this one drifted. The
-# verdict is now stated out loud in both directions, per #88.
+# silence is indistinguishable from a gate that passed (#511). The contract the
+# shared extractor documents is to run unconditionally there; this one had
+# drifted. The verdict is now stated out loud in both directions, per #88.
 run_needed=0
 if [ -z "$cmd" ]; then
   echo "[navori] no command could be read from the tool input; running the quality gate anyway rather than skipping it silently." >&2
@@ -176,6 +186,34 @@ if [ "$run_needed" = 1 ] && [ -n "$cmd" ]; then
   fi
 fi
 
+# Ratchet check for ONE session-state path (#1263); blocks via `exit 2`. Plain
+# function, quoted expansions, no word-splitting: it runs under bash and zsh.
+navori_progress_ratchet() {
+  navori_pr_path=$1
+  # A gitignored file is never committed, so its size is not this gate's business.
+  if git check-ignore -q -- "$navori_pr_path" 2>/dev/null; then return 0; fi
+  navori_pr_wt=0
+  navori_pr_idx=0
+  navori_pr_head=0
+  if [ -f "$navori_pr_path" ]; then
+    navori_pr_wt=$(wc -c <"$navori_pr_path" 2>/dev/null | tr -d '[:space:]') || navori_pr_wt=0
+  fi
+  navori_pr_idx=$(git cat-file -s ":$navori_pr_path" 2>/dev/null) || navori_pr_idx=0
+  navori_pr_head=$(git cat-file -s "HEAD:$navori_pr_path" 2>/dev/null) || navori_pr_head=0
+  case "$navori_pr_wt" in ''|*[!0-9]*) navori_pr_wt=0 ;; esac
+  case "$navori_pr_idx" in ''|*[!0-9]*) navori_pr_idx=0 ;; esac
+  case "$navori_pr_head" in ''|*[!0-9]*) navori_pr_head=0 ;; esac
+  navori_pr_size=$navori_pr_wt
+  if [ "$navori_pr_idx" -gt "$navori_pr_size" ]; then navori_pr_size=$navori_pr_idx; fi
+  if [ "$navori_pr_size" -gt "$navori_progress_hard_cap" ] && [ "$navori_pr_size" -gt "$navori_pr_head" ]; then
+    navori_audit_block_reason="el estado de sesion '$navori_pr_path' crecio a $navori_pr_size bytes, sobre el techo de $navori_progress_hard_cap; commit bloqueado"
+    echo "[navori] Commit BLOCKED: $navori_pr_path is $navori_pr_size bytes, over the $navori_progress_hard_cap-byte ceiling, and larger than at HEAD ($navori_pr_head bytes)." >&2
+    echo "[navori] It must hold only the current state and the next step. Trim it (move older checkpoints to progress/history.md) and commit again." >&2
+    exit 2
+  fi
+  return 0
+}
+
 if [ "$run_needed" = 1 ]; then
   # Pin the cwd to the root of the tree BEING COMMITTED before anything below
   # runs. Claude Code fires PreToolUse hooks from a cwd that is neither always
@@ -192,40 +230,72 @@ if [ "$run_needed" = 1 ]; then
     navori_audit_block_reason="no se pudo entrar al arbol del commit '${gate_root:-${nv_project_dir:-}}'; el gate no corrio"
     exit 2
   }
-  # qualityGate.fast is shell-quoted at render time via the shq: marker (#197).
-  # The gate string is still `eval`'d by run_gate below (running the gate is the
-  # feature), but quoting it here means a hostile qualityGate.fast survives as one
-  # literal token instead of injecting commands at variable-assignment time.
-  gate={{shq:qualityGate.fast}}
-  gate_bin="${gate%% *}"
-  if command -v "$gate_bin" >/dev/null 2>&1; then
-    run_gate "$gate"
-  else
-    # The declared runner isn't on PATH. If it's a package manager, detect the
-    # repo's real one from lockfiles and retry through it (a `pnpm run x` gate
-    # still runs in a bun-only checkout). #88: NEVER skip the gate silently —
-    # when nothing can run it, BLOCK the commit loudly instead of the old
-    # `exit 0` that handed a contributor zero quality gate without a word.
-    detected_pm="$(detect_pm)"
-    if is_pm "$gate_bin" && [ -n "$detected_pm" ] && [ "$detected_pm" != "$gate_bin" ] && command -v "$detected_pm" >/dev/null 2>&1; then
-      echo "[navori] '$gate_bin' is not on PATH; using the lockfile-detected package manager: '$detected_pm'." >&2
-      run_gate "$detected_pm ${gate#* }"
+  # Session-state ratchet (#1263). The session-state file is meant to hold the
+  # CURRENT state and the next step; past the delivery budget it falls out of
+  # startup context. The ceiling is injected from the single TS constant (a raw,
+  # unrendered copy leaves the placeholder text, which is not numeric: the check
+  # then stays off rather than guess a number).
+  # Guarded by `-n "$cmd"`: with an empty `$cmd` (#511) this block would run on
+  # EVERY Bash call and block the very command that fixes the file.
+  # RATCHET, not a plain cap: blocks only when the file is over the ceiling AND
+  # larger than at HEAD, so a trim that is still big passes and an untouched
+  # legacy file never blocks an unrelated commit. The size is the max of the
+  # index (what a plain `git commit` lands) and the worktree (what `-a`, a
+  # pathspec or `add && commit` in one call lands). Bytes via `wc -c` / `git
+  # cat-file -s`: locale-independent, unlike `${#var}`. Every git call is
+  # guarded: an unborn HEAD or an unmerged index exits non-zero under `set -e`.
+  navori_progress_hard_cap={{navori.progressHardCapBytes}}
+  case "$navori_progress_hard_cap" in ''|*[!0-9]*) navori_progress_hard_cap="" ;; esac
+  if [ -n "$cmd" ] && [ -n "$navori_progress_hard_cap" ]; then
+    for navori_pf in "progress/current.md" ".claude/progress/current.md" ".codex/progress/current.md"; do
+      navori_progress_ratchet "$navori_pf"
+    done
+  fi
+  # qualityGate.nativeHooks (spec 0045 D1): the project's native git pre-commit
+  # already runs `fast`, so ONLY the gate step below is skipped. The ratchet
+  # above and the user-section below still run. The value comes from
+  # navori.config.json at render time; a raw, unrendered copy keeps the
+  # placeholder, which is not `1`, so the gate runs (fail closed).
+  navori_native_fast={{navori.nativeHooks}}
+  if [ "$navori_native_fast" != 1 ]; then
+    # qualityGate.fast is shell-quoted at render time via the shq: marker (#197).
+    # The gate string is still `eval`'d by run_gate below (running the gate is the
+    # feature), but quoting it here means a hostile qualityGate.fast survives as one
+    # literal token instead of injecting commands at variable-assignment time.
+    gate={{shq:qualityGate.fast}}
+    gate_bin="${gate%% *}"
+    if command -v "$gate_bin" >/dev/null 2>&1; then
+      run_gate "$gate"
     else
-      echo "[navori] quality-gate NOT run: '$gate_bin' is not on PATH and no alternative package manager was detected that could run it." >&2
-      # No verdict, the TOOL is missing (#1117). Under a Claude PreToolUse hook
-      # the user decides; anywhere else (Codex drops `ask`, no payload) the
-      # commit stays BLOCKED rather than skipping the gate silently (#88).
-      # The explicit engine test is the static proof (hook-claims-vs-scripts) that
-      # the Codex path differs; `navori_can_ask` re-checks it with the payload.
-      if [ "$nv_engine" = codex ] || ! navori_can_ask; then
-        navori_audit_block_reason="quality gate sin veredicto y sin forma de preguntar: '$gate_bin' no esta en PATH, commit bloqueado"
-        echo "[navori] Commit BLOCKED to avoid skipping the gate silently. Install '$gate_bin', or if you really want to skip it run the commit yourself outside the agent." >&2
-        exit 2
+      # The declared runner isn't on PATH. If it's a package manager, detect the
+      # repo's real one from lockfiles and retry through it (a `pnpm run x` gate
+      # still runs in a bun-only checkout). #88: NEVER skip the gate silently —
+      # when nothing can run it, BLOCK the commit loudly instead of the old
+      # `exit 0` that handed a contributor zero quality gate without a word.
+      detected_pm="$(detect_pm)"
+      if is_pm "$gate_bin" && [ -n "$detected_pm" ] && [ "$detected_pm" != "$gate_bin" ] && command -v "$detected_pm" >/dev/null 2>&1; then
+        echo "[navori] '$gate_bin' is not on PATH; using the lockfile-detected package manager: '$detected_pm'." >&2
+        run_gate "$detected_pm ${gate#* }"
+      else
+        echo "[navori] quality-gate NOT run: '$gate_bin' is not on PATH and no alternative package manager was detected that could run it." >&2
+        # No verdict, the TOOL is missing (#1117). Under a Claude PreToolUse hook
+        # the user decides; anywhere else (Codex drops `ask`, no payload) the
+        # commit stays BLOCKED rather than skipping the gate silently (#88).
+        # The explicit engine test is the static proof (hook-claims-vs-scripts) that
+        # the Codex path differs; `navori_can_ask` re-checks it with the payload.
+        if [ "$nv_engine" = codex ] || ! navori_can_ask; then
+          navori_audit_block_reason="quality gate sin veredicto y sin forma de preguntar: '$gate_bin' no esta en PATH, commit bloqueado"
+          echo "[navori] Commit BLOCKED to avoid skipping the gate silently. Install '$gate_bin', or if you really want to skip it run the commit yourself outside the agent." >&2
+          exit 2
+        fi
+        navori_audit_ask_reason="quality gate sin veredicto: '$gate_bin' no esta en PATH y no hay gestor alterno"
+        jq -cn --arg reason "[navori] The quality gate did not run: '$gate_bin' (from qualityGate.fast) is not on PATH and no lockfile-detected package manager could run it, so there is no verdict. Approve to commit WITHOUT the quality gate, or deny and install '$gate_bin'." '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$reason}}'
+        exit 0
       fi
-      navori_audit_ask_reason="quality gate sin veredicto: '$gate_bin' no esta en PATH y no hay gestor alterno"
-      jq -cn --arg reason "[navori] The quality gate did not run: '$gate_bin' (from qualityGate.fast) is not on PATH and no lockfile-detected package manager could run it, so there is no verdict. Approve to commit WITHOUT the quality gate, or deny and install '$gate_bin'." '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$reason}}'
-      exit 0
     fi
+  else
+    navori_audit_skip_reason="native-hook"
+    echo "[navori] quality-gate skipped: qualityGate.nativeHooks is true, the native pre-commit runs it." >&2
   fi
 fi
 

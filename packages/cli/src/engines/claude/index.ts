@@ -1,7 +1,11 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pluginScriptPlacements } from "../shared/plugin-scripts.ts";
 import { matchesLegacyFingerprint } from "../shared/legacy-plugin-script-fingerprints.ts";
+import {
+  createRetiredAssetContext,
+  retiredAssetKeepReason,
+} from "../shared/retired-plugin-assets.ts";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config/config.ts";
 import {
   enabledMonorepoWorkspaces,
@@ -56,6 +60,7 @@ import type { RenderStatus } from "../../lib/primitives/style.ts";
 import {
   isNavoriOwnedSettings,
   NAVORI_OWNERSHIP_KEY,
+  planStampedJson,
 } from "../../lib/primitives/json-ownership.ts";
 import { buildClaudeSettings } from "./build-settings.ts";
 import { mergeCoexistSettings, isPlainObject } from "./coexist-settings.ts";
@@ -81,7 +86,6 @@ import {
   type FilteredInventory,
   type OverlapRow,
 } from "../shared/native-overlap.ts";
-import { buildSkillRows } from "../shared/skills-index.ts";
 import {
   hoistedPlannedSkill,
   hoistTransform,
@@ -245,56 +249,6 @@ function legacyContextPath(cwd: string, id: string): string {
 
 const SKILLS_INDEX_ID = "skills-index";
 
-/**
- * Whether a preset extra applies to this config. An extra with no `condition`
- * is always on; one with a condition is materialized only when the config path
- * resolves truthy (same semantics as CoreManagedAsset.condition). Used in BOTH
- * the skills index and the extras render loop so they never disagree.
- */
-/**
- * Build the body of the skills index — a navigation map of the skills agents
- * can apply: core (navori), preset (stack), library (detected from deps), and
- * project-local (the user's own, declared in `project.localSkills`). navori
- * indexes the local ones so agents discover them, but never owns their `.md`
- * content. Returns null when there's nothing to list so the caller strips the
- * block instead of rendering an empty header (defensive — core skills are
- * always present today, so in practice it always returns content).
- */
-function buildSkillsIndexBody(
-  config: NavoriConfig,
-  localSkills: readonly string[],
-  repoRoot: string,
-  coreAssets: string,
-  lang: Lang,
-  /** Where this CLAUDE.md is written — the `.claude/skills/` it indexes sit
-   * next to it, which on a workspace render is NOT `repoRoot`. */
-  cwd: string,
-  /** Skills this render does not write (they live at the root, whose index lists them). */
-  omitted: ReadonlySet<string>,
-  /** Skills the root writes on behalf of its workspaces, listed under their final name. */
-  hoisted: ReadonlyArray<{ id: string; tag: string }>,
-): string | null {
-  // #908: no trigger — the host's native skill listing already tells the
-  // model when to use each one (see buildSkillRows' docblock).
-  const rows = buildSkillRows(
-    config,
-    repoRoot,
-    coreAssets,
-    localSkills,
-    cwd,
-    false,
-    "claude",
-    omitted,
-    hoisted,
-  );
-  if (rows.length === 0) return null;
-  const t = tc(lang).blocks.skillsIndex;
-  // The project-local note only makes sense when the repo actually declares
-  // local skills; otherwise it points at a category that isn't present.
-  const localNote = localSkills.length > 0 ? [t.localNote] : [];
-  return [t.heading, "", t.intro, ...localNote, "", ...rows, ""].join("\n");
-}
-
 /** Managed-block id for the agents index injected into CLAUDE.md. */
 const AGENTS_INDEX_ID = "agentes-disponibles";
 
@@ -332,8 +286,8 @@ const CODEX_CROSS_REVIEW_ID = "codex-cross-review";
  *
  * The prose lives in `core-assets/managed/codex-cross-review.md` (not inline in
  * TS) so it goes through the same asset+interpolation pipeline as every other
- * managed block (#229). Follow-up: the other computed blocks (`skills-index`,
- * `agentes-disponibles`, `contexto-*`) are shared across engines and build their
+ * managed block (#229). Follow-up: the other computed blocks
+ * (`agentes-disponibles`, `contexto-*`) are shared across engines and build their
  * rows from config, so relocating THEIR prose + localizing it is a larger,
  * cross-engine refactor tracked separately.
  */
@@ -357,7 +311,6 @@ const CONTEXTO_MONOREPO_ID = "contexto-monorepo";
  * hand the same list to doctor's order check (`lib/diagnose/health.ts`).
  */
 export const CLAUDE_COMPUTED_BLOCK_IDS = [
-  SKILLS_INDEX_ID,
   AGENTS_INDEX_ID,
   CONTEXTO_MONOREPO_ID,
   CONTEXTO_PROYECTO_ID,
@@ -705,52 +658,23 @@ export function renderClaudeEngine(
     );
   }
 
-  // 1b. Skills index — a managed block in CLAUDE.md listing the skills agents
-  // can apply: core (always) + preset + library (detected from deps) +
-  // project-local. Rendered whenever there's anything to list (core skills are
-  // always present), so detected library/preset skills are discoverable even
-  // when the repo declares no project-local skills. The block is stripped only
-  // when the body comes back empty.
-  const localSkills = config.project?.localSkills ?? [];
+  // 1b. Skills index — retired from the Claude render (#1273): the main session
+  // lists skills natively and the orchestrator names the skills (with paths) a
+  // subagent needs in its brief. Older renders still carry the block, so it is
+  // removed GUARDED: a pristine copy goes; one the user edited, or a newer navori
+  // stamped, stays (user-kept) and is reported as a skipped entry.
   let claudeMdContent = claudeMdPlan.next;
   const omittedSkills = options.workspaceSkills?.omitted ?? new Set<string>();
-  const hoistRows = (options.rootHoist?.skills ?? []).map((h) => ({
-    id: h.id,
-    tag:
-      h.workspaceName === undefined
-        ? "workspace"
-        : `workspace (\`${sanitizeProjectValue(h.workspaceName)}\`)`,
-  }));
-  const skillsIndexBody = rootScope
-    ? null
-    : buildSkillsIndexBody(
-        config,
-        localSkills,
-        repoRoot,
-        coreAssets,
-        lang,
-        cwd,
-        omittedSkills,
-        hoistRows,
-      );
-  if (skillsIndexBody !== null) {
-    const result = injectManagedSection(
-      claudeMdContent,
-      SKILLS_INDEX_ID,
-      skillsIndexBody,
-      CORE_META,
-      "html",
-      options.forceIds?.has(SKILLS_INDEX_ID) ?? false,
-    );
-    claudeMdContent = result.output;
+  const skillsIndexRemoval = removeManagedSectionGuarded(claudeMdContent, SKILLS_INDEX_ID);
+  if ("kept" in skillsIndexRemoval) {
     claudeMdPlan.entries.push({
       asset: { id: SKILLS_INDEX_ID, relPath: "(computed)" },
       source: "core",
-      status: result.status,
+      status: "downgrade-skipped",
       newContent: null,
     });
   } else {
-    claudeMdContent = removeManagedSection(claudeMdContent, SKILLS_INDEX_ID);
+    claudeMdContent = skillsIndexRemoval.content;
   }
 
   // 1b-bis. Agents index — the catalog of leaf subagents the orchestrator (main
@@ -909,7 +833,11 @@ export function renderClaudeEngine(
     : planSettings(cwd, config, inventory, force);
   if (!trimmedHarness) inspected += 1;
   if (settingsResult.kind === "skip") {
-    skipped.push({ path: relative(cwd, settingsResult.path), reason: settingsResult.reason });
+    skipped.push({
+      path: relative(cwd, settingsResult.path),
+      reason: settingsResult.reason,
+      ...(settingsResult.status && { status: settingsResult.status }),
+    });
   } else if (settingsResult.kind === "write") {
     pending.push({
       path: settingsResult.path,
@@ -941,7 +869,11 @@ export function renderClaudeEngine(
     (enabledPlugins.some((pl) => pl.manifest.mcpServer) || existsSync(join(cwd, ".mcp.json")));
   if (hasMcpDestination) inspected += 1;
   if (mcpResult.kind === "skip") {
-    skipped.push({ path: relative(cwd, mcpResult.path), reason: mcpResult.reason });
+    skipped.push({
+      path: relative(cwd, mcpResult.path),
+      reason: mcpResult.reason,
+      ...(mcpResult.status && { status: mcpResult.status }),
+    });
   } else if (mcpResult.kind === "write") {
     pending.push({
       path: mcpResult.path,
@@ -969,7 +901,7 @@ export function renderClaudeEngine(
       : trimmedPlan;
   // A `project.libraries` id this registry doesn't know is silently skipped by
   // the plan AND its managed skill is pruned from disk below (§8.6) — a repo
-  // upgraded without `navori update` would lose its guidance with zero signal
+  // upgraded without `navori refresh` would lose its guidance with zero signal
   // (audit v0.5.1 A1, the socketio split). Warn loudly instead.
   for (const lib of unknownLibraries([
     ...(config.project?.libraries ?? []),
@@ -1189,7 +1121,7 @@ export function renderClaudeEngine(
         warnings,
         trimmedHarness,
         omittedSkills,
-        // #215: register version drift so `navori update` reports a plugin
+        // #215: register version drift so `navori refresh` reports a plugin
         // sub-block whose version bumped, instead of silently correcting it on
         // render. Reuses the CLAUDE.md plan's buckets so it flows out via the
         // same `updatesAvailable`/`downgrades` the engine returns.
@@ -1271,30 +1203,37 @@ export function renderClaudeEngine(
   // cruft no command strips. This sweep is config-INDEPENDENT on purpose: `navori
   // remove` deletes the plugin's config key, so gating on "still declared" would
   // never fire — it must clean the leftover for any retired id whose assets remain
-  // on disk. Marker-free by design: these paths are navori-owned build outputs
-  // (copied verbatim from the plugin package), not user content. commitWrites
-  // backs them up before deleting and skips deletion entirely under dryRun.
+  // on disk. Since #637 every script carries a managed marker, so the delete is
+  // gated by `retiredAssetKeepReason`, the one policy the Codex scan and
+  // `render --prune` share: only a provably-navori file that nothing still calls
+  // goes (marker + hash with nothing outside the block, a legacy fingerprint, or
+  // the entry's own `deleteForeign`). commitWrites backs the removals up before
+  // deleting and skips deletion entirely under dryRun.
+  const retiredCtx = createRetiredAssetContext(cwd, config.plugins, [
+    join(cwd, ".claude/settings.local.json"),
+    ...(settingsResult.kind === "skip" ? [settingsResult.path] : []),
+  ]);
   for (const retired of Object.values(RETIRED_PLUGINS)) {
     for (const asset of retired.assets) {
       const assetPath = join(cwd, asset);
       if (!existsSync(assetPath)) continue;
       inspected += 1;
-      let recursive = false;
-      try {
-        recursive = statSync(assetPath).isDirectory();
-      } catch {
-        // Unreadable stat — leave `recursive` false. If it was actually a dir,
-        // the non-recursive rmSync throws EISDIR, which the best-effort removal
-        // path swallows: the dir is left in place rather than half-deleted. Safe
-        // degradation for the edge case of an unreadable path.
-      }
-      const authorship = recursive
-        ? "ours"
-        : navoriAuthorship(assetPath, undefined, { verifyHash: true });
-      if (authorship === "ours" || authorship === "foreign") {
+      const reason = retiredAssetKeepReason(assetPath, retiredCtx);
+      if (reason === null) {
+        let recursive = false;
+        try {
+          recursive = lstatSync(assetPath).isDirectory();
+        } catch {
+          // Unreadable stat — leave `recursive` false. If it was actually a dir,
+          // the non-recursive rmSync throws EISDIR, which the best-effort removal
+          // path swallows: the dir is left in place rather than half-deleted.
+        }
         removals.push({ path: assetPath, recursive });
-      } else {
-        warnings.push(`kept ${relative(cwd, assetPath)} — ${authorship} file`);
+        continue;
+      }
+      warnings.push(`kept ${relative(cwd, assetPath)} — retired plugin asset (${reason})`);
+      if (reason === "settings-referenced") {
+        warnings.push(tc(lang).engine.claudeResidualPluginHook(relative(cwd, assetPath)));
       }
     }
   }
@@ -1326,7 +1265,17 @@ export function renderClaudeEngine(
       } else {
         continue; // target file gone — nothing to strip
       }
-      const stripped = removeManagedSection(currentContent, entry.id, "html");
+      // Guarded (#1273): an edited block, or one a newer navori stamped, stays.
+      const result = removeManagedSectionGuarded(currentContent, entry.id, "html");
+      if ("kept" in result) {
+        warnings.push(
+          `kept ${entry.targetPath} — retired block ${entry.id} is ${
+            result.kept === "newer" ? "from a newer navori" : "edited by hand"
+          }`,
+        );
+        continue;
+      }
+      const stripped = result.content;
       // `inspected` only counts a file this render actually acted on (like
       // 8.5-bis's `existsSync` gate) — the target itself (an agent file, a
       // skill) exists on virtually every render regardless of whether THIS
@@ -2016,7 +1965,7 @@ function loadActivePreset(
 
 type SettingsPlan =
   | { kind: "noop" }
-  | { kind: "skip"; path: string; reason: string }
+  | { kind: "skip"; path: string; reason: string; status?: SkipStatus }
   | { kind: "write"; path: string; content: string; status: RenderStatus };
 
 function planSettings(
@@ -2074,14 +2023,32 @@ function planSettings(
     return { kind: "write", path, content: mergedJson, status: "updated" };
   }
 
-  const current = readFileSync(path, "utf-8");
-  if (current === newJson) return { kind: "noop" };
-  return { kind: "write", path, content: newJson, status: "updated" };
+  // The `$navori.version` stamp records the release that last CHANGED the file:
+  // a newer CLI over otherwise identical content leaves it byte-identical, and a
+  // real change never rolls back a newer navori's output (the stamp, or the
+  // registry floor, is newer than this CLI).
+  const plan = planStampedJson(
+    readFileSync(path, "utf-8"),
+    newJson,
+    readCliVersion(),
+    config.harnessVersion,
+    force,
+  );
+  if (plan.kind === "noop") return { kind: "noop" };
+  if (plan.kind === "downgrade-skipped") {
+    return {
+      kind: "skip",
+      path,
+      reason: tc(resolveLang(config.language)).engine.blockFromNewerNavori(plan.existingVersion),
+      status: "downgrade-skipped",
+    };
+  }
+  return { kind: "write", path, content: plan.content, status: "updated" };
 }
 
 type McpPlan =
   | { kind: "noop" }
-  | { kind: "skip"; path: string; reason: string }
+  | { kind: "skip"; path: string; reason: string; status?: SkipStatus }
   | { kind: "write"; path: string; content: string; status: RenderStatus };
 
 /**
@@ -2217,6 +2184,18 @@ export function planMcpRegistration(
 
   const newJson = JSON.stringify(stamped, null, 2) + "\n";
   if (existing === newJson) return { kind: "noop" };
+  if (existing !== null) {
+    const plan = planStampedJson(existing, newJson, readCliVersion(), config.harnessVersion, force);
+    if (plan.kind === "noop") return { kind: "noop" };
+    if (plan.kind === "downgrade-skipped") {
+      return {
+        kind: "skip",
+        path,
+        reason: tc(resolveLang(config.language)).engine.blockFromNewerNavori(plan.existingVersion),
+        status: "downgrade-skipped",
+      };
+    }
+  }
   return {
     kind: "write",
     path,
@@ -2641,7 +2620,7 @@ function applyCodexCrossReview(
  * render, with no manifest edit and no burden on plugin authors — and an id
  * nobody types is an id nobody can typo into a collision.
  *
- * `jscpd` + `check-jscpd.sh` → `jscpd-script-check-jscpd`.
+ * `acli` + `check-foo.sh` → `acli-script-check-foo`.
  */
 /**
  * Exactly what the pre-#637 renderer wrote for this script: interpolated, with

@@ -83,6 +83,19 @@ describe("correlateGateExecutions — terminal states and handle/diff correlatio
     expect(exec?.durationMs).toBeNull();
   });
 
+  // Covers: R2
+  it("classifies a handle whose only event is skip native-hook as deferred, not run", () => {
+    const skip: HookEvent = { ...started(), verdict: "skip", reason: "native-hook" };
+    const s = session({ sealed: true, agents: [agent({ agentId: "a1", hookEvents: [skip] })] });
+    const [exec] = correlateGateExecutions(s);
+    expect(exec).toMatchObject({ outcome: "deferred", ran: false, ownerAgentId: "a1" });
+    // Any other skip reason keeps producing no execution.
+    const other: HookEvent = { ...skip, reason: "unspecified" };
+    expect(
+      correlateGateExecutions(session({ sealed: true, agents: [agent({ hookEvents: [other] })] })),
+    ).toEqual([]);
+  });
+
   it("classifies a recorded gate-killed cancellation as timeout too", () => {
     const reviewer = agent({ hookEvents: [killed()] });
     const s = session({ sealed: true, agents: [reviewer] });

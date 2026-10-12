@@ -25,7 +25,7 @@
 # the ORIGINAL signal with its default disposition — so the process still dies
 # from what it was sent instead of continuing as if nothing happened — and never
 # changes what the host does with the tool call. It is deliberately NOT a
-# process-tree kill: the gate's own child (`pnpm lint`, `semgrep`, `jscpd`)
+# process-tree kill: the gate's own child (`pnpm lint`, a scanner)
 # already outlives the hook today, and killing someone else's build from an
 # observer is a decision of its own (#797, residue 3).
 #

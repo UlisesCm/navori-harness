@@ -293,12 +293,12 @@ describe("C06 — v2 render doesn't disturb other plugins' settings/MCP/hooks fr
       codegraph: { enabled: codegraphOn },
       tgrep: { enabled: tgrepOn },
       engram: { enabled: true },
-      jscpd: { enabled: true },
-      semgrep: { enabled: true },
+      gh: { enabled: true },
+      acli: { enabled: true },
     });
   }
 
-  it("engram, jscpd and semgrep keep their exact fragments with both v2 plugins active", () => {
+  it("engram, gh and acli keep their exact fragments with both v2 plugins active", () => {
     renderClaudeEngine(cwd, multiPluginConfig(true, true));
 
     // engram carries no CLAUDE.md-wide block (#814); its fragment lives in the
@@ -309,18 +309,14 @@ describe("C06 — v2 render doesn't disturb other plugins' settings/MCP/hooks fr
       expect.arrayContaining(["mcp__engram__mem_search", "mcp__codegraph__*"]),
     );
 
-    expect(existsSync(join(cwd, ".claude/scripts/check-jscpd.sh"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/scripts/check-semgrep.sh"))).toBe(true);
-    const reviewSkill = readFileSync(join(cwd, ".claude/skills/review-diff/SKILL.md"), "utf-8");
-    expect(reviewSkill).toContain('id="jscpd-review-extension"');
-    const securitySkill = readFileSync(
-      join(cwd, ".claude/skills/security-invariants/SKILL.md"),
-      "utf-8",
-    );
-    expect(securitySkill).toContain('id="semgrep-review-extension"');
+    const publisher = readFileSync(join(cwd, ".claude/agents/publisher.md"), "utf-8");
+    expect(publisher).toContain('id="gh-comment-channel-publisher"');
+    expect(publisher).toContain('id="acli-comment-channel-publisher"');
 
     expect(readMcp(cwd)?.mcpServers.engram).toBeDefined();
-    expect(readSettings(cwd).permissions.allow).toEqual(expect.arrayContaining(["Bash(jscpd:*)"]));
+    expect(readSettings(cwd).permissions.allow).toEqual(
+      expect.arrayContaining(["Bash(gh auth status*)", "Bash(acli jira workitem view*)"]),
+    );
   });
 
   it("disabling both v2 plugins afterwards leaves the other three plugins' fragments untouched", () => {
@@ -337,10 +333,10 @@ describe("C06 — v2 render doesn't disturb other plugins' settings/MCP/hooks fr
     expect(agentTools(leader)).toContain("mcp__engram__mem_search");
     expect(agentTools(leader)).not.toContain("mcp__codegraph__*");
 
-    expect(existsSync(join(cwd, ".claude/scripts/check-jscpd.sh"))).toBe(true);
-    expect(existsSync(join(cwd, ".claude/scripts/check-semgrep.sh"))).toBe(true);
     expect(readSettings(cwd).permissions.allow).not.toContain("Bash(tgrep search *)");
-    expect(readSettings(cwd).permissions.allow).toEqual(expect.arrayContaining(["Bash(jscpd:*)"]));
+    expect(readSettings(cwd).permissions.allow).toEqual(
+      expect.arrayContaining(["Bash(gh auth status*)", "Bash(acli jira workitem view*)"]),
+    );
   });
 });
 

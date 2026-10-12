@@ -174,7 +174,7 @@ describe("render idempotency (spec 0003 §3.1.2)", () => {
 
   it("upgrade with trailing user prose: a NEW managed block lands before the prose and stays stable (#77)", () => {
     // Scenario: the user wrote notes at the END of CLAUDE.md, then an upgrade
-    // (here: enabling gh) introduces a new managed block. It must be
+    // (here: enabling tgrep) introduces a new managed block. It must be
     // inserted after the last managed block — NOT appended after the prose —
     // so reorderManagedBlocks never reports blockedByInterleaving.
     // (Was `engram`, which #814 moved off CLAUDE.md entirely into a skill
@@ -192,13 +192,13 @@ describe("render idempotency (spec 0003 §3.1.2)", () => {
     const prose = "\n## Mis notas del repo\n\n- Regla propia del usuario.\n";
     writeFileSync(claudeMdPath, readFileSync(claudeMdPath, "utf-8") + prose);
 
-    // Upgrade: gh adds the gh-protocol managed block to CLAUDE.md.
+    // Upgrade: tgrep adds the tgrep-search-v2 managed block to CLAUDE.md.
     writeConfig(join(cwd, "navori.config.json"), {
       name: "upgrade-app",
       engines: ["claude"],
       preset: "custom",
       qualityGate: { fast: "pnpm lint", full: "pnpm test" },
-      plugins: { gh: { enabled: true } },
+      plugins: { tgrep: { enabled: true } },
     });
 
     const first = runRender(cwd);
@@ -209,7 +209,7 @@ describe("render idempotency (spec 0003 §3.1.2)", () => {
     const lastClose = after.lastIndexOf("<!-- /navori:managed");
     // The prose stays BELOW every managed block (no interleaving).
     expect(after.indexOf("## Mis notas del repo")).toBeGreaterThan(lastClose);
-    expect(after).toContain('id="gh-protocol"');
+    expect(after).toContain('id="tgrep-search-v2"');
 
     // Second render: byte-for-byte stable, still no interleaving warning.
     const snapshotA = snapshotTree(cwd);

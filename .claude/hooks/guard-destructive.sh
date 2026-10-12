@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="6922b835" version="0.11.3" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="63efd39d" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -31,6 +31,9 @@
 #     feature branch / --force-with-lease (force-push), literal `rm -rf <absolute path>` (rm over a variable, which
 #     the host asks the user to confirm). Root/home/system rm, --no-preserve-root, fork bomb and block devices
 #     have no route. The tgrep search lane sub-block (guard-destructive-search-lane.sh) is hard as well.
+#   - the Pi arm (rule 6c, spec 0048): hard — a write to the Pi control plane, `pi --no-extensions` and a
+#     shared `deny` rule have no route; the control-plane write names `navori render --apply` as the way
+#     Navori's own files change.
 set -euo pipefail
 
 # Command extraction (payload → $cmd). Shared body, single source of truth.
@@ -108,10 +111,16 @@ cmd=$(extract_cmd)
 # so include order between the two partials does not matter.
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
+  # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
+  # through its extension bridge, which sends a Claude-shaped payload (tool names
+  # `Bash`/`Edit`/`Write`, `tool_input`, `cwd`). Every existing `= codex` branch
+  # keeps the Claude semantics for `pi`; behavior that exists only on Pi goes in
+  # an explicit `[ "$nv_engine" = pi ]` branch, never in a shared one.
+  *"/.pi/navori/"*) nv_engine=pi ;;
   *) nv_engine=claude ;;
 esac
 
-if [ "$nv_engine" = codex ]; then
+if [ "$nv_engine" = codex ] || [ "$nv_engine" = pi ]; then
   nv_cwd=$(payload_field cwd)
   # `cwd` is the session's working dir, which may be a workspace subdir in a
   # monorepo; the project root is always the git toplevel from there. Falls
@@ -307,7 +316,7 @@ navori_audit_record_metadata() {
   fi
   command -v navori >/dev/null 2>&1 || return 0
   case "${nv_engine:-}" in
-    claude | codex) navori_audit_host=$nv_engine ;;
+    claude | codex | pi) navori_audit_host=$nv_engine ;;
     *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
   esac
   # The writer assigns eventId/wireVersion before first persistence. Replay
@@ -348,7 +357,7 @@ navori_audit_log() {
      + (if (.tool_use_id|id) then {toolUseId:.tool_use_id} else {} end)
      + (if (["Bash","Edit","Read","Write","Agent","Task","NotebookEdit"]|index($tool)) != null then {tool:$tool} else {} end)
      + (if $reason == "" then {}
-        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable"]|index($reason)) != null then {reason:$reason}
+        elif (["oversize","no-verify","force-push-base","rm-root","rm-var","no-preserve-root","fork-bomb","block-device","managed-rewrite","binary-missing","plan-denied","subcommand-unavailable","native-hook"]|index($reason)) != null then {reason:$reason}
         else {reason:"unspecified"} end)
      + (($kind | if . == "" then (if $verdict == "block" then "hard" elif $verdict == "ask" then "ask" else "" end) else . end) as $k
         | if (["hard","ask","advisory"]|index($k)) != null then {kind:$k} else {} end)' 2>/dev/null) || return 0
@@ -368,7 +377,19 @@ navori_audit_begin
 # they add, the exit code still tells the truth about what happened.
 navori_audit_verdict="allow"
 navori_audit_reason=""
+# Spec 0048 T11: the shared `ask` rule a Pi copy remembered (rule 6c iv); empty everywhere else.
+navori_pi_ask=""
 navori_audit_on_exit() {
+  navori_audit_code=$?
+  # A command every block rule let through but an `ask` rule matched is answered here, after the
+  # whole script (user section included) had its say. The prefix comes from rendered config; quotes,
+  # backslashes and control characters are dropped so the JSON below needs no escaping step.
+  if [ "$navori_audit_code" -eq 0 ] && [ -n "$navori_pi_ask" ]; then
+    navori_pi_ask_text=$(printf '%s' "$navori_pi_ask" | tr -d '"\\[:cntrl:]')
+    navori_audit_verdict="ask"
+    navori_audit_reason="shared permission ask rule '${navori_pi_ask_text}'"
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[navori] shared permission ask rule %s: this command needs your confirmation before it runs (the same rule asks in Claude and Codex)."}}\n' "$navori_pi_ask_text"
+  fi
   navori_audit_log "$navori_audit_verdict" "$navori_audit_reason" || true
   return 0
 }
@@ -384,6 +405,11 @@ fi
 # hostile branchBase in navori.config.json lands here as an inert literal,
 # never executable.
 base='dev'
+
+# Spec 0048 D15: the shared `deny` and `ask` permission rules, one `deny|ask <token> ...` line each, rendered ONLY
+# into the Pi copy (`extraVars.piPermissionRules`, from the same translation Codex's rules file
+# uses). Every other copy carries `-`, and only the `pi` arm below ever reads it.
+nv_pi_rules='-'
 
 block() {
   echo "[navori] BLOCKED by guard-destructive: $1" >&2
@@ -456,12 +482,31 @@ block() {
 # 64k one-char lines in 128k bytes, measures 442ms. It is named because the
 # LINE_MAX row above would otherwise read as "lines are bounded", and they are
 # only bounded on the path where they cost per line.
+# Heredoc-body / `-m` value elision, `$live`, `$segments`: shared partial
+# (`_partials/inert-skeleton.sh`, spec 0048 T12), also used by subagent-no-background.
+# Shared inert-content skeleton and command segmentation — inlined into
+# `guard-destructive` and `subagent-no-background` at render time (see the
+# include directive in the source scripts + lib/render/hook-includes.ts). DO NOT
+# copy this body back into a hook by hand: it is ~300 lines of security-sensitive
+# text handling, and two hand-synced copies are how scanners drift (#225/#261).
+#
+# Extracted verbatim from `guard-destructive.sh` (spec 0048 T12/D12) with no
+# change of behavior; the comments below keep the reasoning that came with it.
+#
+# Requires, from the caller: `$cmd` (the command text) and a
+# `block <message> [reason] [route]` function that exits. Call order:
+#   navori_inert_skeleton   → sets `$skeleton` (heredoc bodies elided)
+#   navori_inert_live       → sets `$live` (what the shell will interpret)
+#   navori_inert_segments   → sets `$scan` and `$segments` (one segment per line)
+# The caller may run its own work between the calls (guard-destructive's fast
+# path sits between the first and the second, on purpose).
+#
+# BOUNDED WORK (#511) ceilings — shared so every user fails closed identically.
+# The measurements and rationale live in `guard-destructive.sh`'s header block.
 CMD_MAX=131072
 LINE_MAX=4096
 HEREDOC_PROBE_MAX=64
-if [ "${#cmd}" -gt "$CMD_MAX" ]; then
-  block "command too large to inspect (${#cmd} chars > ${CMD_MAX}) — nothing in it was evaluated" oversize "split it into smaller commands the guard can inspect."
-fi
+
 
 # Pre-expanded newline, shared by the inert-content pass and the segment split.
 # It stays a variable for the reason it became one in #391: an inline $'\n' is
@@ -470,6 +515,8 @@ fi
 # expands identically in both, in a string concatenation and inside the `sed`
 # replacement the split below builds.
 _nl=$'\n'
+
+navori_inert_skeleton() {
 
 # INERT CONTENT (#462) — what the shell EXECUTES vs what it merely WRITES.
 #
@@ -649,78 +696,9 @@ if [ "$_hd_scan" = 1 ]; then
 else
   skeleton="${cmd}${_nl}"
 fi
+}
 
-# ─── Fast path: a command no rule below can possibly match ───────────────────
-#
-# WHY: this guard runs on EVERY Bash call, and in auto mode the host tells the
-# agent to work through the shell — so it is in front of reads, greps and edits
-# alike. Measured, it costs ~46 ms against a ~2 ms process floor: the other
-# ~44 ms is the `sed`/`grep` pipeline below, roughly forty forks. Over one
-# audited session that is 901 invocations and ~40 s of wall clock spent proving
-# that `cat file` is not `rm -rf /`. On 9,398 real commands from that session,
-# 80% contain none of the tokens below.
-#
-# WHY IT IS SOUND, which is the only part that matters in a security control:
-# every `block` in this file needs one of these literal substrings to survive
-# into the string its rule reads — `commit`/`push` (rules 1-2), `rm` (rule 3),
-# `:(` (rule 4), `/dev/` (rule 5), `>`/`sed`/`tee` (rule 6, the three write
-# verbs it recognizes), and `reset`/`clean`/`restore`/`checkout` (rule 7, whose
-# regex ends in `(reset|checkout|restore|clean)` — one per git subcommand it
-# inspects). No rule can fire without one.
-#
-# Rules 1-2 are keyed on `commit`/`push`, NOT on `git` (spec 0016 T3.1). Both go
-# through `$git_cp`, whose regex ends in `(commit|push)` — and rule 2 narrows
-# further to `push`. So `git` alone can never reach a `block`, and testing for it
-# only made the fast path miss: `git` is the most frequent command family there
-# is, and every `git status`, `git diff`, `git log` — plus every `cat
-# .gitignore` and `ls .github/`, which merely CONTAIN the substring — paid the
-# full ~46 ms to prove something the rules could not have found. Substring
-# testing stays a superset of the regexes (any command `$git_cp` matches
-# contains `commit` or `push` literally), so the argument above is unchanged;
-# it just stopped being answered by a token four times too wide.
-#
-# The probe is the command with quotes, backslashes and newlines REMOVED, which
-# is what makes the argument hold under the obfuscations the rules normalize
-# away: `r'm' -rf ~` becomes `rm -rf ~`, `\git` becomes `git`, and a `g\<NL>it`
-# split across a continuation is rejoined. Removal is the safe direction on
-# purpose — none of the tokens contains a quote, a backslash or a newline, so
-# stripping those can only CREATE matches, never destroy one. A false match
-# costs the full analysis; a false miss would be a hole, and cannot happen here.
-#
-# PLACEMENT is load-bearing too: this sits AFTER the three fail-closed size
-# limits (`CMD_MAX`, `LINE_MAX`, `HEREDOC_PROBE_MAX`) so a command too large to
-# inspect is still blocked, exactly as before. It skips the rule machinery, never
-# a refusal. And it reads `$cmd`, not `$skeleton`: the skeleton drops inert
-# heredoc bodies, so scanning it would narrow what the probe sees.
-#
-# FAST_MAX exists because `${var//pat/}` is NOT linear in bash: on a string past
-# ~64 KB with thousands of matches it goes superlinear hard — measured, 1024
-# lines of quoted `echo` strip instantly and 2048 lines had not finished after
-# nine minutes. An optimization that hangs the guard is a guard that hangs, so
-# the probe is only built for a command small enough for the cost to be free.
-# Above it, the full analysis runs exactly as it did before this block existed.
-# 4096 covers 98.5% of 1,089 real commands from the measured session (p50 370,
-# p90 1650) and sits sixteen times below the cliff.
-FAST_MAX=4096
-if [ "${#cmd}" -le "$FAST_MAX" ]; then
-  _fast=${cmd//\'/}
-  _fast=${_fast//\"/}
-  _fast=${_fast//\\/}
-  _fast=${_fast//"${_nl}"/}
-  case "$_fast" in
-    *commit*|*push*|*rm*|*sed*|*tee*|*'/dev/'*|*'>'*|*':('*|*reset*|*clean*|*restore*|*checkout*) ;;
-    # Search verbs: not destructive, but the user section below is where a plugin
-    # lane (tgrep's search routing, spec 0039 D6) inspects them, and this early exit
-    # would never let it run. `rg` needs a word edge: `*rg*` would match `merge`.
-    *grep*|*rg\ *|*rg) ;;
-    *)
-      navori_audit_verdict="skip"
-      navori_audit_reason="no rule token in the command"
-      exit 0
-      ;;
-  esac
-fi
-
+navori_inert_live() {
 # A `$(…)`/backtick substitution outside single quotes RUNS: `git commit -m
 # "$(rm -rf ~)"` is an invocation wearing a message's clothes. This check must
 # read the skeleton BEFORE the flag values are elided below — eliding first
@@ -801,7 +779,9 @@ if [ "$_hd_whole" = 1 ] || printf '%s' "$skeleton" | sed -E \
 else
   live="$skeleton"
 fi
+}
 
+navori_inert_segments() {
 # Normalized copy used ONLY by the rules below. `$cmd` stays intact for the
 # messages. The transforms only add boundaries / drop noise, so they always push
 # toward MORE blocking:
@@ -855,6 +835,109 @@ _split=$(printf '%s' "$scan" | sed \
 segments=$(printf '%s' "$_split" | sed -E \
   -e 's/^[[:space:]]+//' \
   -e :a -e 's/^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*([[:space:]]+|$)//' -e ta)
+}
+if [ "${#cmd}" -gt "$CMD_MAX" ]; then
+  block "command too large to inspect (${#cmd} chars > ${CMD_MAX}) — nothing in it was evaluated" oversize "split it into smaller commands the guard can inspect."
+fi
+
+# `$skeleton` and the heredoc ceilings (LINE_MAX, HEREDOC_PROBE_MAX): the shared
+# partial, called here so the fail-closed order is unchanged.
+navori_inert_skeleton
+
+# ─── Fast path: a command no rule below can possibly match ───────────────────
+#
+# WHY: this guard runs on EVERY Bash call, and in auto mode the host tells the
+# agent to work through the shell — so it is in front of reads, greps and edits
+# alike. Measured, it costs ~46 ms against a ~2 ms process floor: the other
+# ~44 ms is the `sed`/`grep` pipeline below, roughly forty forks. Over one
+# audited session that is 901 invocations and ~40 s of wall clock spent proving
+# that `cat file` is not `rm -rf /`. On 9,398 real commands from that session,
+# 80% contain none of the tokens below.
+#
+# WHY IT IS SOUND, which is the only part that matters in a security control:
+# every `block` in this file needs one of these literal substrings to survive
+# into the string its rule reads — `commit`/`push` (rules 1-2), `rm` (rule 3),
+# `:(` (rule 4), `/dev/` (rule 5), `>`/`sed`/`tee` (rule 6, the three write
+# verbs it recognizes), and `reset`/`clean`/`restore`/`checkout` (rule 7, whose
+# regex ends in `(reset|checkout|restore|clean)` — one per git subcommand it
+# inspects). No rule can fire without one.
+#
+# Rules 1-2 are keyed on `commit`/`push`, NOT on `git` (spec 0016 T3.1). Both go
+# through `$git_cp`, whose regex ends in `(commit|push)` — and rule 2 narrows
+# further to `push`. So `git` alone can never reach a `block`, and testing for it
+# only made the fast path miss: `git` is the most frequent command family there
+# is, and every `git status`, `git diff`, `git log` — plus every `cat
+# .gitignore` and `ls .github/`, which merely CONTAIN the substring — paid the
+# full ~46 ms to prove something the rules could not have found. Substring
+# testing stays a superset of the regexes (any command `$git_cp` matches
+# contains `commit` or `push` literally), so the argument above is unchanged;
+# it just stopped being answered by a token four times too wide.
+#
+# The probe is the command with quotes, backslashes and newlines REMOVED, which
+# is what makes the argument hold under the obfuscations the rules normalize
+# away: `r'm' -rf ~` becomes `rm -rf ~`, `\git` becomes `git`, and a `g\<NL>it`
+# split across a continuation is rejoined. Removal is the safe direction on
+# purpose — none of the tokens contains a quote, a backslash or a newline, so
+# stripping those can only CREATE matches, never destroy one. A false match
+# costs the full analysis; a false miss would be a hole, and cannot happen here.
+#
+# PLACEMENT is load-bearing too: this sits AFTER the three fail-closed size
+# limits (`CMD_MAX`, `LINE_MAX`, `HEREDOC_PROBE_MAX`) so a command too large to
+# inspect is still blocked, exactly as before. It skips the rule machinery, never
+# a refusal. And it reads `$cmd`, not `$skeleton`: the skeleton drops inert
+# heredoc bodies, so scanning it would narrow what the probe sees.
+#
+# FAST_MAX exists because `${var//pat/}` is NOT linear in bash: on a string past
+# ~64 KB with thousands of matches it goes superlinear hard — measured, 1024
+# lines of quoted `echo` strip instantly and 2048 lines had not finished after
+# nine minutes. An optimization that hangs the guard is a guard that hangs, so
+# the probe is only built for a command small enough for the cost to be free.
+# Above it, the full analysis runs exactly as it did before this block existed.
+# 4096 covers 98.5% of 1,089 real commands from the measured session (p50 370,
+# p90 1650) and sits sixteen times below the cliff.
+FAST_MAX=4096
+# The Pi arm (rule 6c below) adds its own literals: the control-plane paths (`.pi`), the `pi` word
+# (`pi -ne`, `pi --no-extensions`) and the first token of every shared `deny` rule. Lowercased
+# because the paths are matched case-insensitively (APFS); one `tr`, and only in a Pi copy.
+nv_pi_candidate() {
+  [ "$nv_engine" = pi ] || return 1
+  local _lc _r _t
+  _lc=$(printf '%s' "$_fast" | tr '[:upper:]' '[:lower:]')
+  case "$_lc" in *.pi*|*extensions*|*"pi "*|*pi) return 0 ;; esac
+  [ "$nv_pi_rules" != "-" ] || return 1
+  while IFS= read -r _r; do
+    _t=${_r#deny }
+    _t=${_t#ask }
+    _t=${_t%% *}
+    [ -n "$_t" ] || continue
+    case "$_lc" in *"$_t"*) return 0 ;; esac
+  done <<< "$nv_pi_rules"
+  return 1
+}
+if [ "${#cmd}" -le "$FAST_MAX" ]; then
+  _fast=${cmd//\'/}
+  _fast=${_fast//\"/}
+  _fast=${_fast//\\/}
+  _fast=${_fast//"${_nl}"/}
+  case "$_fast" in
+    *commit*|*push*|*rm*|*sed*|*tee*|*'/dev/'*|*'>'*|*':('*|*reset*|*clean*|*restore*|*checkout*) ;;
+    # Search verbs: not destructive, but the user section below is where a plugin
+    # lane (tgrep's search routing, spec 0039 D6) inspects them, and this early exit
+    # would never let it run. `rg` needs a word edge: `*rg*` would match `merge`.
+    *grep*|*rg\ *|*rg) ;;
+    *)
+      if ! nv_pi_candidate; then
+        navori_audit_verdict="skip"
+        navori_audit_reason="no rule token in the command"
+        exit 0
+      fi
+      ;;
+  esac
+fi
+
+navori_inert_live
+
+navori_inert_segments
 
 # Same list with quoted spans dropped, used ONLY by the combined-short-flag
 # check, so a hyphen-word inside a commit message (`-m "add -notify option"`)
@@ -1154,7 +1237,14 @@ fi
 #        form: it re-checks the hashes AFTER the fact, so anything that gets past
 #        this rule still surfaces. This rule is the seatbelt; that one is the net.
 managed_dir='\.claude/(agents|skills|hooks)|\.agents/skills|\.codex/(agents|hooks)|\.cursor/rules'
-managed_path="(CLAUDE\.md|AGENTS\.md|\.claude/settings\.json|\.codex/config\.toml|(${managed_dir})/[^[:space:];&|]+)"
+# Spec 0048 D4 (R3): in a Pi copy only, the exact names Navori writes under `.pi/`: its extension,
+# manifest, hook copies and the role files of its roster. A `.pi/agents/<other>.md` is the user's.
+# Empty everywhere else, so the Claude and Codex regex is the one it always was.
+managed_pi=''
+if [ "$nv_engine" = pi ]; then
+  managed_pi='|\.pi/extensions/navori\.ts|\.pi/navori\.json|\.pi/navori/[^[:space:];&|]+|\.pi/agents/(scout|implementer|reviewer|scribe|auditor|architect|publisher)\.md'
+fi
+managed_path="(CLAUDE\.md|AGENTS\.md|\.claude/settings\.json|\.codex/config\.toml|(${managed_dir})/[^[:space:];&|]+${managed_pi})"
 managed_rewrite_msg="shell rewrite of a navori-managed file — edit the source asset and run 'navori render --apply' (or 'navori sync'); a direct write invalidates the block hash and freezes it. If the target is outside this project (e.g. a scratchpad), write it with '>' or 'tee' and an absolute path instead"
 # The redirect check reads `scan`, NOT `segments`: the split rewrites every `|`
 # into a newline, so `>| CLAUDE.md` (forced clobber) would be torn in half and
@@ -1234,6 +1324,90 @@ if [ -n "${nv_project_dir:-}" ]; then
   if printf '%s' "$scan" | grep -qiE "(^|[^>])>\|?[[:space:]]*${abs_managed_path}([[:space:]]|\$)" \
     || printf '%s' "$segments" | grep -qiE "(^|[[:space:]])tee[[:space:]]+([^-][^[:space:]]*[[:space:]]+)*${abs_managed_path}([[:space:]]|\$)"; then
     block "$managed_rewrite_msg" managed-rewrite
+  fi
+fi
+
+# 6c. The Pi arm (spec 0048 D4/D15, R2/R18) — three rules that exist only in a Pi copy, because only
+#     Pi has no host permission system and runs this script from `.pi/navori/hooks/`. In a Claude or
+#     Codex copy this whole block is skipped.
+#
+#     (i) CONTROL PLANE. `.pi/navori/**` (hook copies, the bridge's own scripts), `.pi/extensions/**`
+#     (the extension that enforces all of this, and anything else Pi loads), `.pi/settings.json` and
+#     `.pi/navori.json` decide whether and how the guards run, so an agent that can rewrite them can
+#     switch the guards off. They are protected against every WRITE verb — `>`/`>>`/`>|`, `tee`,
+#     `sed -i`, `rm`, `mv`, `cp`, `ln`, `dd`, `install`, `truncate`, `chmod`, `git checkout|restore`
+#     and the like — and against INLINE interpreters (`python -c`, `node -e`, `perl -i`, `ruby -e`,
+#     `php -r`) that name them. Reading them (`cat`, `ls`, `grep`) stays free. `cp`/`mv` match either
+#     operand (a read-copy out of the plane is blocked too): the safe side of not parsing operands.
+#     The match is on the path TEXT, case-insensitively: `./.pi/...`, `/abs/proj/.pi/...` and
+#     `"$PWD"/.pi/...` all contain `.pi/<name>`. Still unhandled, by the header's seatbelt rule: a
+#     `cd .pi/navori` followed by a relative write, a path assembled from variables, `sh -c` and
+#     `eval`. The message names `navori render --apply` for the files Navori generates and says the
+#     rest is edited by the user, outside the agent.
+#
+#     (ii) `pi --no-extensions` (or `-ne`) from bash starts a Pi with none of this loaded: no guard,
+#     no bridge. Blocked, no route.
+#
+#     (iii) DENY RULES. The shared `deny` permissions, translated to token prefixes at render time
+#     (`nv_pi_rules`, the same translation as `.codex/rules/navori.rules`), are compared with each
+#     SEGMENT, quotes dropped and blanks squeezed: `sudo rm -rf x` and `mkfs /dev/sda` block, in
+#     a compound command too. `mkfs.ext4 /dev/sda` does NOT: only the exact `mkfs` token matches
+#     (same as Codex, codex-parity F9). A `*` glued to the last token was narrowed to the exact token (as in
+#     Codex), so `rm -rf /` blocks and `rm -rf /tmp/x` does not — the numbered rules above catch the
+#     variants.
+#
+#     (iv) ASK RULES (spec 0048 T11, R18). The shared `ask` permissions (`git reset --hard`,
+#     `git push --force`, `rm -r`, `git branch -D`, …) use the same segments and the same prefix
+#     match, but they do not block: the first one that matches is remembered in `navori_pi_ask` and
+#     the exit trap answers `ask` once EVERY block rule (the numbered ones above and below, a `deny`
+#     rule, the user section) has let the command through, so a block always wins over a question.
+#     The Pi extension resolves the `ask`: one confirmation in the interactive parent, refusal plus
+#     relay to the parent in a child or without UI.
+if [ "$nv_engine" = pi ]; then
+  _q="[\"']"
+  pi_cp="\.pi/(navori(\.json|/[^[:space:];&|<>\"']*)?|extensions(/[^[:space:];&|<>\"']*)?|settings\.json)"
+  pi_cp_end="([[:space:]\"';&|)<>]|\$)"
+  pi_cp_msg="shell write to the Pi control plane (.pi/navori, .pi/extensions, .pi/settings.json, .pi/navori.json) — these files decide whether the guards run. Navori's own are regenerated by 'navori render --apply' (or 'navori sync'); any other change is for the user to make outside the agent"
+  _pi_cp_segs=$(printf '%s' "$segments" | grep -iE "${pi_cp}${pi_cp_end}" || true)
+  pi_cp_verbs="(^|[[:space:]\"'])(rm|rmdir|unlink|mv|cp|ln|dd|install|truncate|chmod|chown|rsync|tee|touch|mkdir)[[:space:]]"
+  pi_cp_sed="(^|[[:space:]\"'])sed[[:space:]]+(-[a-zA-Z]*i[a-zA-Z]*[^[:space:]]*|--in-place)([[:space:]]|=)"
+  pi_cp_git="^git[[:space:]]+(.*[[:space:]])?(checkout|restore)[[:space:]]"
+  pi_cp_interp="(^|[[:space:]\"'])(python[0-9.]*|node(js)?|deno|bun|perl|ruby|php|osascript)[[:space:]]+(.*[[:space:]])?(-[a-zA-Z]*[cepir][a-zA-Z]*|--eval|--print)([[:space:]=]|\$)"
+  if { [ -n "$_pi_cp_segs" ] && {
+         printf '%s' "$_pi_cp_segs" | grep -qiE "${pi_cp_verbs}" \
+         || printf '%s' "$_pi_cp_segs" | grep -qiE "${pi_cp_sed}" \
+         || printf '%s' "$_pi_cp_segs" | grep -qiE "${pi_cp_git}" \
+         || printf '%s' "$_pi_cp_segs" | grep -qiE "${pi_cp_interp}"; } ; } \
+    || printf '%s' "$scan" | grep -qiE ">[>|]?[[:space:]]*${_q}?([^[:space:];&|<>]*/)?${pi_cp}${pi_cp_end}"; then
+    block "$pi_cp_msg" managed-rewrite "navori render --apply"
+  fi
+  if printf '%s' "$segments" | grep -qE "(^|[[:space:]\"'/])pi[[:space:]]+(.*[[:space:]])?(--no-extensions|-ne)([[:space:]=]|\$)"; then
+    block "pi --no-extensions starts an agent without Navori's guards (no extension, no bridge, no hooks)" unspecified
+  fi
+  if [ "$nv_pi_rules" != "-" ]; then
+    _pr_segs=$(printf '%s' "$segments" | tr -d "'\"" | tr -s '[:blank:]' ' ')
+    while IFS= read -r _seg; do
+      _seg=${_seg# }
+      _seg=${_seg% }
+      [ -n "$_seg" ] || continue
+      while IFS= read -r _rule; do
+        case "$_rule" in 'deny '*) ;; *) continue ;; esac
+        _pfx=${_rule#deny }
+        case "$_seg" in
+          "$_pfx" | "$_pfx "*)
+            block "shared permission deny rule '${_pfx}' (the same rule that denies it in Claude and Codex)" unspecified
+            ;;
+        esac
+      done <<< "$nv_pi_rules"
+      [ -z "$navori_pi_ask" ] || continue
+      while IFS= read -r _rule; do
+        case "$_rule" in 'ask '*) ;; *) continue ;; esac
+        _pfx=${_rule#ask }
+        case "$_seg" in
+          "$_pfx" | "$_pfx "*) navori_pi_ask=$_pfx; break ;;
+        esac
+      done <<< "$nv_pi_rules"
+    done <<< "$_pr_segs"
   fi
 fi
 

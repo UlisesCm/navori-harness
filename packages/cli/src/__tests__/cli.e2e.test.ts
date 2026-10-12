@@ -171,8 +171,7 @@ describe("CLI e2e — happy paths", () => {
     dirs.push(repo);
 
     expect(runCli(["init", "--recommended", "--no-render", "--cwd", repo]).status).toBe(0);
-    // A gate plugin whose script interpolates {{branchBase}}.
-    expect(runCli(["add", "semgrep", "--skip-install", "--yes", "--cwd", repo]).status).toBe(0);
+    // A core hook interpolates {{shq:branchBase}}.
 
     const r = runCli(["configure", "branch-base", "develop", "--cwd", repo]);
     expect(r.status).toBe(0);
@@ -181,31 +180,12 @@ describe("CLI e2e — happy paths", () => {
     expect(config.branchBase).toBe("develop");
 
     expect(runCli(["render", "--apply", "--cwd", repo]).status).toBe(0);
-    const gate = readFileSync(join(repo, ".claude/scripts/check-semgrep.sh"), "utf-8");
-    expect(gate).toContain("develop");
-    expect(gate).not.toContain("{{branchBase}}");
+    const hook = readFileSync(join(repo, ".claude/hooks/session-start-context.sh"), "utf-8");
+    expect(hook).toContain("base='develop'");
+    expect(hook).not.toContain("{{shq:branchBase}}");
   });
 
-  it("gate plugins register a PreToolUse hook only — never a Stop hook", () => {
-    const repo = makeTmpRepo({
-      "package.json": JSON.stringify({ name: "stop-app", dependencies: { typescript: "^5" } }),
-      "tsconfig.json": "{}",
-      "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
-    });
-    dirs.push(repo);
-
-    expect(runCli(["init", "--recommended", "--no-render", "--cwd", repo]).status).toBe(0);
-    expect(runCli(["add", "jscpd", "--skip-install", "--yes", "--cwd", repo]).status).toBe(0);
-    expect(runCli(["render", "--apply", "--cwd", repo]).status).toBe(0);
-
-    const settings = JSON.parse(readFileSync(join(repo, ".claude/settings.json"), "utf-8"));
-    // The gate fires only before commit/push (PreToolUse) — no Stop hook, so it
-    // never runs on every turn's session close (only when code is about to land).
-    expect(JSON.stringify(settings.hooks?.PreToolUse ?? [])).toContain("check-jscpd.sh");
-    expect(JSON.stringify(settings.hooks?.Stop ?? [])).not.toContain("check-jscpd.sh");
-  });
-
-  it("project.localSkills renders a skills-index block; doctor flags a missing file", () => {
+  it("project.localSkills renders no skills-index block (#1273); doctor flags a missing file", () => {
     const repo = makeTmpRepo({
       "package.json": JSON.stringify({ name: "ls-app", dependencies: { typescript: "^5" } }),
       "tsconfig.json": "{}",
@@ -224,9 +204,7 @@ describe("CLI e2e — happy paths", () => {
     expect(runCli(["render", "--apply", "--cwd", repo]).status).toBe(0);
 
     const claudeMd = readFileSync(join(repo, "CLAUDE.md"), "utf-8");
-    expect(claudeMd).toContain('navori:managed id="skills-index"');
-    expect(claudeMd).toContain("rest-nexus-workflow");
-    expect(claudeMd).toContain("project-local");
+    expect(claudeMd).not.toContain('navori:managed id="skills-index"');
 
     // doctor warns: the declared skill has no file on disk.
     expect(runCli(["doctor", "--cwd", repo]).combined).toMatch(/project-local.*sin archivo/);
@@ -549,7 +527,7 @@ describe("CLI e2e — happy paths", () => {
     // Language-agnostic: just confirm the abort message references the config file.
     expect(r.combined).toContain("navori.config.json");
     // F9: the abort must point the user at the next steps, not dead-end.
-    expect(r.combined).toMatch(/update/);
+    expect(r.combined).toMatch(/refresh/);
     expect(r.combined).toMatch(/configure/);
   });
 
@@ -784,13 +762,13 @@ describe("CLI e2e — happy paths", () => {
     // engram carries no CLAUDE.md-wide managed block anymore (#814; its doctrine
     // is a skill injected straight into the agents that hold `mem_*` tools) —
     // add a plugin that still does, to keep covering the "source: plugin" case.
-    runCli(["add", "gh", "--skip-install", "--yes", "--cwd", repo]);
+    runCli(["add", "tgrep", "--skip-install", "--yes", "--cwd", repo]);
     runCli(["render", "--apply", "--cwd", repo]);
 
     const r = runCli(["doctor", "--cwd", repo]);
     expect(r.status).toBe(0);
     expect(r.combined).toMatch(/idioma-rol.*@navori\/core/);
-    expect(r.combined).toMatch(/gh-protocol.*@navori\/plugin-gh/);
+    expect(r.combined).toMatch(/tgrep-search-v2.*@navori\/plugin-tgrep/);
   });
 
   it("doctor --json outputs valid pipeable JSON", () => {
@@ -808,7 +786,7 @@ describe("CLI e2e — happy paths", () => {
     // orquestacion (rol del orquestador), idioma-rol, formato-respuesta,
     // tipado-fuerte, operaciones-seguras, arranque-sesion, cierre-sesion,
     // sdd (enabled by default), intake-tickets, code-discovery-routing (#838),
-    // plus the computed skills-index and agentes-disponibles. engram carries
+    // plus the computed agentes-disponibles (skills-index left in #1273). engram carries
     // no CLAUDE.md-wide block (#814): its doctrine is a skill injected
     // straight into the agents that hold `mem_*` tools.
     const blockIds = parsed.managedBlocks.map((m: { id: string }) => m.id).sort();
@@ -823,7 +801,6 @@ describe("CLI e2e — happy paths", () => {
       "operaciones-seguras",
       "orquestacion",
       "sdd",
-      "skills-index",
       "tipado-fuerte",
     ]);
     // G1: drifts array shipped (empty after a fresh render)
@@ -1111,33 +1088,48 @@ describe("CLI e2e — happy paths", () => {
     expect(strict.status).toBe(2);
   });
 
-  it("doctor reports version drift when an agent file is older than the bundle", () => {
+  // Covers: A3
+  it("doctor does not report drift for an agent marker older than the CLI", () => {
     const repo = makeTmpRepo();
     dirs.push(repo);
     runCli(["init", "--recommended", "--cwd", repo]);
 
-    // Tamper with leader.md: replace the version="..." attr with an older one.
+    // A marker's version is the release that last CHANGED the block: an older
+    // one with unchanged content is expected after any release that skipped it.
     const leaderPath = join(repo, ".claude/agents/orchestrator.md");
-    const tampered = readFileSync(leaderPath, "utf-8").replace(
+    const older = readFileSync(leaderPath, "utf-8").replace(
       /version="\d+\.\d+\.\d+"/,
       'version="0.0.0"',
     );
-    writeFileSync(leaderPath, tampered, "utf-8");
+    writeFileSync(leaderPath, older, "utf-8");
 
     const r = runCli(["doctor", "--json", "--cwd", repo]);
     expect(r.status).toBe(0);
-    const parsed = JSON.parse(r.stdout);
-    const drift = parsed.drifts.find(
-      (d: { filePath: string; markerId: string; kind: string }) =>
-        d.filePath === ".claude/agents/orchestrator.md" &&
-        d.markerId === "orchestrator-base" &&
-        d.kind === "version",
+    expect(JSON.parse(r.stdout).drifts).toEqual([]);
+    expect(runCli(["doctor", "--strict", "--cwd", repo]).status).toBe(0);
+  });
+
+  // Covers: A3
+  it("doctor reports a harnessVersion newer than the CLI and --strict fails on it", () => {
+    const repo = makeTmpRepo();
+    dirs.push(repo);
+    runCli(["init", "--recommended", "--cwd", repo]);
+
+    const configPath = join(repo, "navori.config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+    writeFileSync(
+      configPath,
+      `${JSON.stringify({ ...config, harnessVersion: "999.0.0" }, null, 2)}\n`,
+      "utf-8",
     );
+
+    const r = runCli(["doctor", "--json", "--cwd", repo]);
+    expect(r.status).toBe(0);
+    const drift = JSON.parse(r.stdout).drifts.find((d: { kind: string }) => d.kind === "harness");
     expect(drift).toBeDefined();
-    expect(drift.fromVersion).toBe("0.0.0");
+    expect(drift.fromVersion).toBe("999.0.0");
     expect(drift.toVersion).toMatch(/^\d+\.\d+\.\d+$/);
-    // ok stays true — drift is informational, not an error
-    expect(parsed.ok).toBe(true);
+    expect(runCli(["doctor", "--strict", "--cwd", repo]).status).not.toBe(0);
   });
 
   it("configure language changes the config field", () => {
@@ -2166,6 +2158,7 @@ describe("CLI e2e — global registry + render --all", () => {
     expect(ls.combined).not.toContain("reg-gone");
   });
 
+  // Covers: A3
   it("render --all row detail surfaces a changed .claude/ file, not just CLAUDE.md blocks", () => {
     // Regression: when a repo's only pending change is a .claude/ file (hook,
     // agent, skill, settings) and every CLAUDE.md block is unchanged, the row
@@ -2177,16 +2170,15 @@ describe("CLI e2e — global registry + render --all", () => {
     dirs.push(repo);
     expect(runCli(["init", "--yes", "--apply", "--cwd", repo], { HOME: fakeHome }).status).toBe(0);
 
-    // Drift ONE managed .claude/ file's version so render wants to update it,
-    // while every CLAUDE.md block stays byte-identical.
+    // Really change ONE managed .claude/ file (a version-only edit no longer
+    // counts), while every CLAUDE.md block stays byte-identical.
     const agent = join(repo, ".claude", "agents", "orchestrator.md");
-    const before = readFileSync(agent, "utf-8");
-    writeFileSync(agent, before.replace(/version="[0-9.]+"/, 'version="0.0.1"'));
+    rmSync(agent);
 
     const preview = runCli(["render", "--all"], { HOME: fakeHome });
     expect(preview.combined).toMatch(/1 would change/);
-    // The row detail names the update instead of showing only "unchanged".
-    expect(preview.combined).toMatch(/file-detail.*updated/);
+    // The row detail names the change instead of showing only "unchanged".
+    expect(preview.combined).toMatch(/file-detail.*(created|updated)/);
 
     // --verbose lists the actual file path.
     const verbose = runCli(["render", "--all", "--verbose"], { HOME: fakeHome });

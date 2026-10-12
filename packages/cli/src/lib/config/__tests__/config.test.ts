@@ -8,6 +8,7 @@ import {
   effectiveConfig,
   ConfigError,
   findUnknownConfigKeys,
+  recordHarnessVersion,
   checkRetiredConfigKeys,
   migrateRetiredConfigKeys,
   RETIRED_CONFIG_KEYS,
@@ -52,6 +53,29 @@ describe("effectiveConfig — prTarget fallback", () => {
     } finally {
       rmSync(dir, { recursive: true });
     }
+  });
+});
+
+describe("qualityGate.scoped (spec 0045)", () => {
+  const parse = (qualityGate: object): ReturnType<typeof NavoriConfigSchema.safeParse> =>
+    NavoriConfigSchema.safeParse({
+      name: "demo",
+      engines: ["claude"],
+      preset: "custom",
+      qualityGate,
+    });
+
+  // Covers: R25
+  it("accepts an optional scoped command and leaves it unset by default", () => {
+    const withScoped = parse({ fast: "f", full: "F", scoped: "s" });
+    expect(withScoped.success && withScoped.data.qualityGate?.scoped).toBe("s");
+    const without = parse({ fast: "f", full: "F" });
+    expect(without.success && without.data.qualityGate?.scoped).toBeUndefined();
+  });
+
+  // Covers: R25
+  it("rejects an empty scoped command", () => {
+    expect(parse({ fast: "f", full: "F", scoped: "" }).success).toBe(false);
   });
 });
 
@@ -487,6 +511,17 @@ describe("readConfig", () => {
 });
 
 describe("config key diagnostics (#779)", () => {
+  // Covers: R1
+  it("knows the native-hook declarations", () => {
+    expect(
+      findUnknownConfigKeys({
+        name: "demo",
+        qualityGate: { fast: "x", full: "y", nativeHooks: true },
+        plugins: { semgrep: { enabled: true, nativeHook: true } },
+      }),
+    ).toEqual([]);
+  });
+
   it("finds typos at each declared level but leaves extension points open", () => {
     expect(
       findUnknownConfigKeys({
@@ -942,5 +977,98 @@ describe("readConfig — valor de enum desconocido (spec 0043 R1)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// Covers: A2
+describe("harnessVersion registry", () => {
+  const canonical = (obj: Record<string, unknown>): string => JSON.stringify(obj, null, 2) + "\n";
+  function fixture(raw: string): string {
+    const path = join(makeTmpDir(), "navori.config.json");
+    writeFileSync(path, raw);
+    return path;
+  }
+
+  it("is a known top-level key (no unknown-key warning) and survives a read", () => {
+    const full = { name: "demo", engines: ["claude"], preset: "custom", harnessVersion: "0.11.3" };
+    const path = fixture(canonical(full));
+    expect(findUnknownConfigKeys({ name: "demo", harnessVersion: "0.11.3" })).toEqual([]);
+    expect(readConfig(path).harnessVersion).toBe("0.11.3");
+  });
+
+  it("is never injected by writeConfig when absent", () => {
+    const path = join(makeTmpDir(), "navori.config.json");
+    writeConfig(path, { name: "demo", engines: ["claude"], preset: "custom" });
+    expect(readFileSync(path, "utf-8")).not.toContain("harnessVersion");
+  });
+
+  it("inserts the key right after `version`, touching nothing else", () => {
+    const path = fixture(canonical({ name: "demo", version: "1.0.0", engines: ["claude"] }));
+    expect(recordHarnessVersion(path, "0.12.0")).toBe("recorded");
+    expect(readFileSync(path, "utf-8")).toBe(
+      canonical({ name: "demo", version: "1.0.0", harnessVersion: "0.12.0", engines: ["claude"] }),
+    );
+  });
+
+  it("raises an older value in place and never lowers a newer or equal one", () => {
+    const path = fixture(canonical({ name: "demo", harnessVersion: "0.11.0" }));
+    expect(recordHarnessVersion(path, "0.12.0")).toBe("recorded");
+    expect(JSON.parse(readFileSync(path, "utf-8")).harnessVersion).toBe("0.12.0");
+
+    expect(recordHarnessVersion(path, "0.11.5")).toBe("unchanged");
+    expect(recordHarnessVersion(path, "0.12.0")).toBe("unchanged");
+    expect(JSON.parse(readFileSync(path, "utf-8")).harnessVersion).toBe("0.12.0");
+  });
+
+  it("skips a CLI version that does not parse (dev build)", () => {
+    const path = fixture(canonical({ name: "demo" }));
+    expect(recordHarnessVersion(path, "dev")).toBe("unchanged");
+    expect(readFileSync(path, "utf-8")).toBe(canonical({ name: "demo" }));
+  });
+
+  it("leaves a non-canonical file byte-identical", () => {
+    const raw = JSON.stringify({ name: "demo", engines: ["claude"] }, null, 4) + "\n";
+    const path = fixture(raw);
+    expect(recordHarnessVersion(path, "0.12.0")).toBe("non-canonical");
+    expect(readFileSync(path, "utf-8")).toBe(raw);
+  });
+
+  it("reports an unreadable or non-object config without throwing", () => {
+    expect(recordHarnessVersion(join(makeTmpDir(), "missing.json"), "0.12.0")).toBe("unreadable");
+    expect(recordHarnessVersion(fixture("[1]\n"), "0.12.0")).toBe("unreadable");
+  });
+});
+
+describe("nativeHooks config (spec 0045)", () => {
+  const base = {
+    name: "demo",
+    engines: ["claude"],
+    preset: "custom",
+    branchBase: "main",
+    qualityGate: { fast: "bun lint", full: "bun test" },
+  };
+
+  // Covers: R1
+  it("nativeHooks", () => {
+    const off = NavoriConfigSchema.parse(base);
+    // No `.default()`: an undeclared key stays absent and does not enter the written config.
+    expect(Object.keys(off.qualityGate ?? {})).not.toContain("nativeHooks");
+    expect(
+      NavoriConfigSchema.parse({ ...base, plugins: { semgrep: { enabled: true } } }).plugins,
+    ).toEqual({ semgrep: { enabled: true } });
+
+    const on = NavoriConfigSchema.parse({
+      ...base,
+      qualityGate: { ...base.qualityGate, nativeHooks: true },
+      plugins: { semgrep: { enabled: true, nativeHook: true } },
+    });
+    expect(on.qualityGate?.nativeHooks).toBe(true);
+    expect(on.plugins?.semgrep?.nativeHook).toBe(true);
+    expect(
+      NavoriConfigSchema.safeParse({
+        ...base,
+        qualityGate: { ...base.qualityGate, nativeHooks: "yes" },
+      }).success,
+    ).toBe(false);
   });
 });

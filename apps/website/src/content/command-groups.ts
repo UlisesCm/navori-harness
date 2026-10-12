@@ -31,7 +31,7 @@ export const COMMAND_GROUPS: readonly CommandGroup[] = [
     id: "render",
     labelKey: "commands.group.render",
     accent: "var(--color-violet-500)",
-    commands: ["render", "sync", "update", "migrations", "backup"],
+    commands: ["render", "sync", "update", "refresh", "migrations", "backup"],
   },
   {
     id: "operate",
@@ -45,6 +45,7 @@ export const COMMAND_GROUPS: readonly CommandGroup[] = [
       "bench",
       "codex",
       "receipt",
+      "gate",
       "plan",
       "spec",
       "handoff",
@@ -61,7 +62,7 @@ export const COMMAND_GROUPS: readonly CommandGroup[] = [
     id: "scale",
     labelKey: "commands.group.scale",
     accent: "var(--color-violet-400)",
-    commands: ["global", "workspace", "dominio", "ticket", "tools"],
+    commands: ["workspace", "dominio", "ticket", "tools"],
   },
 ] as const;
 

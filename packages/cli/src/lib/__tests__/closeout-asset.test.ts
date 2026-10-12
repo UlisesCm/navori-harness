@@ -25,8 +25,10 @@ function readCloseoutStep1(): string {
 describe("cierre-sesion.md — quality-gate step reuses cycle evidence (#398)", () => {
   const step1 = readCloseoutStep1();
 
-  it("interpolates {{qualityGate.full}} in step 1", () => {
-    expect(step1).toContain("{{qualityGate.full}}");
+  // #1272: step 1 runs the full gate through `{{gateRun.full}}` (the runner when
+  // it earns its allow rule, the literal `{{qualityGate.full}}` otherwise).
+  it("interpolates {{gateRun.full}} in step 1", () => {
+    expect(step1).toContain("{{gateRun.full}}");
   });
 
   // Covers: R6, R8
@@ -35,11 +37,11 @@ describe("cierre-sesion.md — quality-gate step reuses cycle evidence (#398)", 
     // longer relies on human judgment about which prior run still applies.
     // It now runs `navori receipt check --include-consumed` and reuses the
     // evidence only when the receipt reports "fresh":true; any other result
-    // falls back to running {{qualityGate.full}} again in this same step.
+    // falls back to running {{gateRun.full}} again in this same step.
     expect(step1).toContain("navori receipt check");
     expect(step1).toContain("--include-consumed");
     expect(step1).toContain('"fresh":true');
-    expect(step1).toMatch(/"fresh":true[\s\S]*\{\{qualityGate\.full\}\}/);
+    expect(step1).toMatch(/"fresh":true[\s\S]*\{\{gateRun\.full\}\}/);
   });
 
   it("does not mandate an unconditional run (old wording)", () => {
