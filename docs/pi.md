@@ -280,6 +280,12 @@ them, bound to the exact call.
 - The `publisher` is admitted and is subject to all of the rules above: its publishing operations are
   refused in the child, relayed to the parent, and confirmed there.
 
+**Confirmation dialog (deny-first).** The parent shows a select dialog titled "Navori approval required"
+with the exact command and its reasons. The first option is `No, cancel` and the second is `Yes, run it`.
+Only the explicit `Yes, run it` approves. Escape, `No, cancel`, any other answer, or a failing dialog
+refuses the call. After the confirmation the extension re-checks the repository state and the body digests;
+a change in either refuses the call and asks for approval again.
+
 ## Doctor findings
 
 When the engine is enabled, `navori doctor` reports these Pi findings. All are advisory: none changes doctor's
@@ -525,7 +531,9 @@ The verified cycle, in order:
 1. `navori render` then `navori render --apply` to install the Pi resources.
 2. Start Pi in the trusted project. Navori context (AGENTS.md and the operational snapshot) loads at startup.
 3. `navori plan update <feature> --decision approved --date <YYYY-MM-DD>` approves the workplan and refreshes
-   the acceptance index the extension reads.
+   the acceptance index the extension reads. `navori plan render <feature>` rewrites the workplan Markdown and
+   also writes the acceptance index. If the index has no line for the feature, acceptance evidence fails with
+   the error `run navori plan render <feature>, then rerun the command`.
 4. Dispatch roles with `navori_subagent` (`role`, `task`, and `feature` where required).
 5. Acceptance commands run through Pi's built-in bash. When `PI_SESSION_ID` is set, the host records each
    observed exit as evidence.

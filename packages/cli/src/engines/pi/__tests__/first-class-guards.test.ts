@@ -23,7 +23,7 @@ import { load } from "./fixtures/load-extension.ts";
 interface Ctx {
   cwd: string;
   hasUI?: boolean;
-  ui?: { confirm: ReturnType<typeof vi.fn> };
+  ui?: { select: ReturnType<typeof vi.fn> };
   sessionManager: { getSessionId: () => string };
 }
 type Env = Record<string, string>;
@@ -62,7 +62,15 @@ function piProject(): string {
 const ctxFor = (cwd: string, hasUI = false, answer = true): Ctx => ({
   cwd,
   hasUI,
-  ...(hasUI ? { ui: { confirm: vi.fn(async () => answer) } } : {}),
+  ...(hasUI
+    ? {
+        ui: {
+          select: vi.fn(async (_t: string, options: string[]) =>
+            answer ? options[1] : options[0],
+          ),
+        },
+      }
+    : {}),
   sessionManager: { getSessionId: () => "sess-g" },
 });
 const call = (toolName: string, input: Record<string, unknown>): Record<string, unknown> => ({
@@ -209,13 +217,13 @@ describe("Pi guards: destructive commands, deny rules and the control plane", ()
     );
     expect(result).toMatchObject({ block: true });
     expect(reasonOf(result)).toMatch(SCRIPT_BLOCK);
-    expect(ctx.ui!.confirm).not.toHaveBeenCalled();
+    expect(ctx.ui!.select).not.toHaveBeenCalled();
     // A command the guard accepts reaches the confirmation, once.
     const asked = ctxFor(dir, true, true);
     expect(
       await verdict(PARENT, dir, bash("navori master close --approved-by user"), asked),
     ).toBeUndefined();
-    expect(asked.ui!.confirm).toHaveBeenCalledOnce();
+    expect(asked.ui!.select).toHaveBeenCalledOnce();
   });
 });
 

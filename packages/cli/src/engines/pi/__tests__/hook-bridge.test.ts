@@ -12,7 +12,7 @@ import { serializePiManifest, type PiManifestHook } from "../owned-file.ts";
 interface Ctx {
   cwd: string;
   hasUI?: boolean;
-  ui?: { confirm: ReturnType<typeof vi.fn> };
+  ui?: { select: ReturnType<typeof vi.fn> };
   sessionManager: { getSessionId: () => string };
 }
 
@@ -57,7 +57,15 @@ function project(specs: Spec[]): string {
 const ctxFor = (cwd: string, hasUI = false, answer = true): Ctx => ({
   cwd,
   hasUI,
-  ...(hasUI ? { ui: { confirm: vi.fn(async () => answer) } } : {}),
+  ...(hasUI
+    ? {
+        ui: {
+          select: vi.fn(async (_t: string, options: string[]) =>
+            answer ? options[1] : options[0],
+          ),
+        },
+      }
+    : {}),
   sessionManager: { getSessionId: () => "sess-1" },
 });
 const bash = (command: string): Record<string, unknown> => ({
@@ -382,8 +390,8 @@ describe("hook bridge verdict contract", () => {
     ]);
     const approved = ctxFor(cwd, true, true);
     expect(await load().get("tool_call")!(bash("git reset --hard"), approved)).toBeUndefined();
-    expect(approved.ui!.confirm).toHaveBeenCalledOnce();
-    const message = String(approved.ui!.confirm.mock.calls[0]![1]);
+    expect(approved.ui!.select).toHaveBeenCalledOnce();
+    const message = String(approved.ui!.select.mock.calls[0]![0]);
     expect(message).toContain("first reason");
     expect(message).toContain("second reason");
     expect(message).toContain("git reset --hard");

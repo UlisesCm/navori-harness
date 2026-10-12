@@ -398,6 +398,8 @@ const renderSubCommand = defineCommand({
     const plan = readWorkplanOrExit(jsonPath(root, args.feature));
     if (!plan) return;
     writeStateFileAtomic(root, `workplan_${args.feature}.md`, renderWorkplan(plan));
+    // Bootstraps the index the evidence hook reads (idempotent); `plan update` is the only other writer.
+    writeAcceptanceIndex(root);
     if (args.json) process.stdout.write(`${JSON.stringify({ rendered: true })}\n`);
   },
 });

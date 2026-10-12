@@ -174,7 +174,7 @@ async function verifyHandoff(cwd: string, snap: HandoffSnapshot, signal: AbortSi
   }
 }
 
-type ApprovalContext = { cwd: string; hasUI?: boolean; ui?: { confirm?: (title: string, message: string) => Promise<boolean> } };
+type ApprovalContext = { cwd: string; hasUI?: boolean; ui?: { select?: (title: string, options: string[]) => Promise<string | undefined> } };
 type ExecResult = { code: number | null; stdout: string };
 type ExecFn = (command: string, args: string[], options: { cwd: string; timeout: number }) => Promise<ExecResult>;
 // Navori's existing human-approval contract: a command carrying --approved-by asserts that the user approved.
@@ -198,6 +198,8 @@ const APPROVAL_REFUSAL_MARKER = "Navori approval not granted:";
 const MAX_RELAY_BYTES = 8192;
 const MAX_RELAYS = 5;
 const RELAY_ACK_MS = 2000;
+const APPROVAL_DENY = "No, cancel";
+const APPROVAL_ALLOW = "Yes, run it";
 
 /** Child side of D6: hand the exact refused command to the parent over the Node IPC channel. True only when the send was acknowledged. */
 function relayToParent(command: string, reasons: string[], named: string[]): Promise<boolean> {
@@ -247,7 +249,7 @@ async function requireOperatorApproval(exec: ExecFn, ctx: ApprovalContext, comma
     await relayToParent(command, reasons, bodyFiles);
     return refuse("headless Navori children cannot approve operations; stop and return this command to the parent session so the user can approve it there.");
   }
-  if (ctx.hasUI !== true || typeof ctx.ui?.confirm !== "function") {
+  if (ctx.hasUI !== true || typeof ctx.ui?.select !== "function") {
     return refuse("this Pi session has no interactive UI (TUI/RPC); resume the task in an interactive Pi session to approve this operation.");
   }
   let before: string;
@@ -257,7 +259,9 @@ async function requireOperatorApproval(exec: ExecFn, ctx: ApprovalContext, comma
   try { bodiesBefore = bodyDigest(ctx.cwd, bodyFiles); }
   catch { return refuse("a draft body could not be read, so approval cannot be bound to it."); }
   let confirmed = false;
-  try { confirmed = (await ctx.ui.confirm("Navori approval required", "Run this operation as approved by you?\n\n" + (reasons.length ? reasons.join("\n") + "\n\n" : "") + command)) === true; }
+  // Deny-first: the TUI pre-selects the first option, so a bare Enter must never approve (spec 0048 R5, R18).
+  const title = "Navori approval required\n\nRun this operation as approved by you?\n\n" + (reasons.length ? reasons.join("\n") + "\n\n" : "") + command;
+  try { confirmed = (await ctx.ui.select(title, [APPROVAL_DENY, APPROVAL_ALLOW])) === APPROVAL_ALLOW; }
   catch { /* A failing dialog is not consent. */ }
   if (!confirmed) return refuse("the user denied or cancelled the confirmation.");
   let after: string;

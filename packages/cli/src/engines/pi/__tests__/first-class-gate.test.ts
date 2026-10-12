@@ -17,7 +17,7 @@ import { load } from "./fixtures/load-extension.ts";
 interface Ctx {
   cwd: string;
   hasUI?: boolean;
-  ui?: { confirm: ReturnType<typeof vi.fn> };
+  ui?: { select: ReturnType<typeof vi.fn> };
   sessionManager: { getSessionId: () => string };
 }
 type Env = Record<string, string>;
@@ -54,7 +54,15 @@ function piProject(fast: string | undefined): string {
 const ctxFor = (cwd: string, hasUI = false, answer = true): Ctx => ({
   cwd,
   hasUI,
-  ...(hasUI ? { ui: { confirm: vi.fn(async () => answer) } } : {}),
+  ...(hasUI
+    ? {
+        ui: {
+          select: vi.fn(async (_t: string, options: string[]) =>
+            answer ? options[1] : options[0],
+          ),
+        },
+      }
+    : {}),
   sessionManager: { getSessionId: () => "sess-gate" },
 });
 
@@ -128,8 +136,8 @@ describe("Pi quality gate on commit and push", () => {
     // An interactive parent may decide: that is an ask, shown in the native dialog, and denial refuses.
     const denied = ctxFor(dir, true, false);
     const refusal = await verdict(PARENT, dir, "git push", denied);
-    expect(denied.ui!.confirm).toHaveBeenCalledOnce();
-    expect(denied.ui!.confirm.mock.calls[0]![1]).toContain("did not run");
+    expect(denied.ui!.select).toHaveBeenCalledOnce();
+    expect(denied.ui!.select.mock.calls[0]![0]).toContain("did not run");
     expect(isBlocked(refusal)).toBe(true);
     const approved = ctxFor(dir, true, true);
     expect(await verdict(PARENT, dir, "git push", approved)).toBeUndefined();

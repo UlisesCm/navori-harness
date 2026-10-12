@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-implementer" hash="b465fd6c177e865b2e5ff07bb53a286bef474806ca2c796c671b41199fe5c876"
+# navori:managed-file id="pi-agent-implementer" hash="6c3d3320ab4da178acab952e726d007e8f3066e047f4d40870b8b228aa0cf9bd"
 name: "implementer"
 description: "Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself."
 model: "gpt-6.1-sol"
@@ -99,6 +99,8 @@ Write `.navori/state/handoffs/impl_<feature>.json` — the only artifact you pro
 ```
 
 `doubts` is optional: declare one `{ "file": "<path>", "reason": "<why you are unsure>" }` entry per spot where you are unsure the change is right, so the reviewer answers it.
+
+Types follow the handoff schema: `rootCause` is a string, present only for a bugfix (omit the key otherwise, never `null`); `blockers` is an array of strings (`[]` when none).
 
 `markdownRequests` carries every piece of prose your task needs — your own non-obvious decisions, a CONTRIBUTING/README update, a spec task checkbox, a skill or agent tweak. State the `intent` and the `evidence`; never the finished sentence — drafting the prose from that intent is the `scribe`'s job, not yours. Empty array when the task touches no Markdown at all.
 
