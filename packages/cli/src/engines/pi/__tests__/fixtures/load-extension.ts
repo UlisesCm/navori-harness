@@ -9,7 +9,13 @@ export const BASH: Shell = () => ({ shell: "/bin/bash", args: ["-c"] });
 
 /** Loads the rendered extension with Pi stubbed and real node:* modules (the scripts really run). */
 export function load(
-  options: { shell?: Shell; env?: Record<string, string>; version?: string } = {},
+  options: {
+    shell?: Shell;
+    env?: Record<string, string>;
+    version?: string;
+    /** Node IPC `process.send` of a child, to observe what it relays to its parent. */
+    send?: (message: Record<string, unknown>, callback: (error: Error | null) => void) => void;
+  } = {},
 ): Map<string, Handler> {
   const nodeRequire = createRequire(import.meta.url);
   const handlers = new Map<string, Handler>();
@@ -34,6 +40,8 @@ export function load(
       versions: { node: "22.19.0" },
       stderr: { write: () => true },
       kill: process.kill.bind(process),
+      getBuiltinModule: process.getBuiltinModule.bind(process),
+      ...(options.send ? { send: options.send } : {}),
     },
     Buffer,
     AbortController,

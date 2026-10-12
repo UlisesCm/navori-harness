@@ -33,7 +33,7 @@ import {
 } from "./owned-file.ts";
 import { renderPiExtensionSource } from "./extension-source.ts";
 import { activePiHookBindings, piHookPath, type PiHookBinding } from "./hook-bindings.ts";
-import { buildPiDenyRules, collectShellPermissionRules } from "../shared/permission-rules.ts";
+import { buildPiPermissionRules, collectShellPermissionRules } from "../shared/permission-rules.ts";
 import { navoriAuthorship } from "../../lib/render/removable.ts";
 import {
   buildLocalSkillPointerContent,
@@ -124,7 +124,7 @@ function buildAdapter(
             ...(hook.id === "guard-destructive"
               ? {
                   extraVars: {
-                    piPermissionRules: buildPiDenyRules(
+                    piPermissionRules: buildPiPermissionRules(
                       collectShellPermissionRules(ctx.config, ctx.plugins),
                     ),
                   },
@@ -308,7 +308,7 @@ export function renderPiEngine(
     preset,
     plugins,
   };
-  const plan = resolveHarnessPlan(config, coreAssets, preset);
+  const plan = resolveHarnessPlan(config, coreAssets, preset, { engine: "pi" });
   const lang = resolveLang(config.language);
   const localSkills = classifyLocalSkills(
     cwd,

@@ -16,6 +16,7 @@ import {
 } from "./fixtures/claude-verdict-cases.ts";
 import {
   buildPiDenyRules,
+  buildPiPermissionRules,
   collectShellPermissionRules,
   translateShellPattern,
 } from "../permission-rules.ts";
@@ -223,7 +224,7 @@ describe("Pi policy parity: the Pi copy only adds blocks", () => {
     // What the Pi copy embeds is what the shared translation yields, nothing hand-written.
     const piScript = readFileSync(copies.pi("guard-destructive"), "utf8");
     const embedded = /nv_pi_rules='([^']*)'/.exec(piScript)?.[1];
-    expect(embedded).toBe(buildPiDenyRules(rules));
+    expect(embedded).toBe(buildPiPermissionRules(rules));
     // The Claude copy and any other copy carry only the "no rules" sentinel.
     expect(readFileSync(copies.claude("guard-destructive"), "utf8")).toContain("nv_pi_rules='-'");
     // Codex's forbidden prefix rules and Pi's deny lines are the same token sets.
@@ -237,6 +238,19 @@ describe("Pi policy parity: the Pi copy only adds blocks", () => {
       .map((line) => line.replace(/^deny /, ""));
     expect([...new Set(codexForbidden)].sort()).toEqual([...new Set(piDeny)].sort());
     expect(piDeny.length).toBeGreaterThan(0);
+    // Spec 0048 T11: the `ask` rules come from the same source as Codex's prompt rules.
+    const codexPrompt = [
+      ...buildCodexRules(rules).body.matchAll(/pattern = \[([^\]]*)\],\n\s*decision = "prompt"/g),
+    ].map((match) => (JSON.parse(`[${match[1]}]`) as string[]).join(" "));
+    const piAsk = buildPiPermissionRules(rules)
+      .split("\n")
+      .filter((line) => line.startsWith("ask "))
+      .map((line) => line.replace(/^ask /, ""));
+    // `gh pr create` is Codex's separate prompt rule; in Pi `pr-publisher-confirm` always asks for it.
+    expect([...new Set(codexPrompt)].filter((rule) => rule !== "gh pr create").sort()).toEqual(
+      [...new Set(piAsk)].sort(),
+    );
+    expect(piAsk).toContain("git reset --hard");
     // The manifest records the very rules the script was rendered from.
     const manifest = JSON.parse(readFileSync(join(copies.project, ".pi/navori.json"), "utf8")) as {
       permissionRules: { deny: string[] };

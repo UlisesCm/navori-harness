@@ -1,7 +1,7 @@
 {
   "_navori": {
     "id": "pi-runtime",
-    "hash": "6de0c06e1d9196ff9c0930bdf8e752952181139797332cfc00ef0f48182797b9"
+    "hash": "2b01ad507271b1afb2b27f8912f4a35d84cd6779479eb7c655183d91cb24a6f1"
   },
   "schemaVersion": 2,
   "agents": [
@@ -28,8 +28,56 @@
       ],
       "scope": "all",
       "class": "enforced",
-      "interactive": false,
+      "interactive": true,
       "timeoutMs": 15000
+    },
+    {
+      "script": "quality-gate-pre-commit",
+      "path": ".pi/navori/hooks/quality-gate-pre-commit.sh",
+      "on": "tool_call",
+      "tools": [
+        "bash"
+      ],
+      "scope": "all",
+      "class": "enforced",
+      "interactive": true,
+      "timeoutMs": 600000
+    },
+    {
+      "script": "pr-publisher-confirm",
+      "path": ".pi/navori/hooks/pr-publisher-confirm.sh",
+      "on": "tool_call",
+      "tools": [
+        "bash"
+      ],
+      "scope": "all",
+      "class": "enforced",
+      "interactive": true,
+      "timeoutMs": 10000
+    },
+    {
+      "script": "comment-draft-confirm",
+      "path": ".pi/navori/hooks/comment-draft-confirm.sh",
+      "on": "tool_call",
+      "tools": [
+        "bash"
+      ],
+      "scope": "all",
+      "class": "enforced",
+      "interactive": true,
+      "timeoutMs": 10000
+    },
+    {
+      "script": "master-accept-confirm",
+      "path": ".pi/navori/hooks/master-accept-confirm.sh",
+      "on": "tool_call",
+      "tools": [
+        "bash"
+      ],
+      "scope": "all",
+      "class": "enforced",
+      "interactive": true,
+      "timeoutMs": 10000
     },
     {
       "script": "subagent-no-background",
@@ -87,8 +135,12 @@
     ".pi/extensions/navori.ts",
     ".pi/navori.json",
     ".pi/navori/hooks/audit-mode-close.sh",
+    ".pi/navori/hooks/comment-draft-confirm.sh",
     ".pi/navori/hooks/guard-destructive.sh",
     ".pi/navori/hooks/managed-drift-watch.sh",
+    ".pi/navori/hooks/master-accept-confirm.sh",
+    ".pi/navori/hooks/pr-publisher-confirm.sh",
+    ".pi/navori/hooks/quality-gate-pre-commit.sh",
     ".pi/navori/hooks/subagent-no-background.sh",
     ".pi/navori/hooks/worktree-reclaim.sh"
   ],

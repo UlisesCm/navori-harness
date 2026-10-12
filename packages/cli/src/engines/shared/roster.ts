@@ -125,7 +125,8 @@ export const WORKFLOW_SKILL_ENGINES: Readonly<Record<string, readonly string[]>>
 /** Hooks scoped to a subset of engines; same contract as {@link WORKFLOW_SKILL_ENGINES}. */
 export const HOOK_ENGINES: Readonly<Record<string, readonly string[]>> = {
   "master-plan-context": ["claude", "codex"],
-  "master-accept-confirm": ["claude", "codex"],
+  // Pi has no master-plan skills, but `navori master …` runs in its bash: the confirmation applies (spec 0048 R5).
+  "master-accept-confirm": ["claude", "codex", "pi"],
   // Spec 0041 D5: Claude restricts roles with `tools:`; only Codex needs the guard.
   "role-guard": ["codex"],
   // Same reason, for the engram MCP tools (grants compiled from the Claude `tools:` source).

@@ -52,7 +52,8 @@ function piProject(): string {
       preset: "custom",
       engines: ["pi"],
       branchBase: "main",
-      qualityGate: { fast: "bun test", full: "bun test" },
+      // A gate that passes: these tests are about the guards, not about the gate (first-class-gate.test.ts).
+      qualityGate: { fast: "true", full: "true" },
     }),
   );
   return dir;

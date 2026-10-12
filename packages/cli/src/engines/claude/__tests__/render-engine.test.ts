@@ -477,9 +477,10 @@ describe("renderClaudeEngine — plugin scripts + hooks (F1)", () => {
     // creation; jscpd and the quality gate gate commit only.
     expect(readFileSync(gateScripts["check-semgrep.sh"], "utf-8")).toContain("(commit|push)");
     expect(readFileSync(gateScripts["check-jscpd.sh"], "utf-8")).not.toContain("(commit|push)");
-    expect(readFileSync(gateScripts["quality-gate-pre-commit.sh"], "utf-8")).not.toContain(
-      "(commit|push)",
-    );
+    // The quality gate gates commit only here; `push` exists in its Pi arm alone (spec 0048 D5).
+    const gate = readFileSync(gateScripts["quality-gate-pre-commit.sh"], "utf-8");
+    expect(/^TRIGGER_RE=.*$/m.exec(gate)?.[0]).not.toContain("push");
+    expect(/^TRIGGER_TOKENS=.*$/m.exec(gate)?.[0]).toBe("TRIGGER_TOKENS='commit'");
   });
 
   it("is idempotent: second render of the same plugin script reports unchanged", () => {

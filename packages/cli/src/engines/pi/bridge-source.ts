@@ -27,12 +27,12 @@ export const PI_BRIDGE_SOURCE = String.raw`
 type BridgeClass = "enforced" | "advisory" | "lifecycle";
 type BridgeHook = { script: string; path: string; on: string; tools?: string[]; scope: string; class: BridgeClass;
   interactive: boolean; timeoutMs: number };
-type BridgeVerdict = { kind: "allow" } | { kind: "block"; reason: string } | { kind: "ask"; reason: string } | { kind: "warn"; text: string };
+type BridgeVerdict = { kind: "allow" } | { kind: "block"; reason: string } | { kind: "ask"; reason: string; bodyFiles: string[] } | { kind: "warn"; text: string };
 type BridgeOutcome = { code: number | null; signal: string | null; timedOut: boolean; failed: boolean; aborted: boolean;
   json: Record<string, unknown> | undefined; stderr: string };
 type BridgeCall = { event: string; hookEvent: string; toolName?: string; toolCallId?: string; input?: unknown; cwd: string;
   sessionId: string; hasUI: boolean; reason?: string };
-type BridgeResult = { block?: string; asks: string[]; warnings: string[] };
+type BridgeResult = { block?: string; asks: string[]; bodyFiles: string[]; warnings: string[] };
 const BRIDGE_STDOUT_CAP = 65_536;
 const BRIDGE_STDERR_HALF = 2_048;
 const BRIDGE_ADVISORY_CAP = 1_024;
@@ -43,6 +43,8 @@ const BRIDGE_TOOL_NAMES: Record<string, string> = { bash: "Bash", edit: "Edit", 
 // Tools the bridge guards: an unreadable or incompatible manifest blocks these (fail-closed), never the read-only ones.
 const BRIDGE_GUARDED_TOOLS = new Set(["bash", "edit", "write"]);
 const BRIDGE_JSON_KEYS = ["hookSpecificOutput", "systemMessage", "continue"];
+const BRIDGE_BODY_FILES_MAX = 8;
+const BRIDGE_BODY_FILE_CHARS = 4_096;
 
 /** First half and last half of text when it exceeds max, so a long diagnostic keeps both its cause and its end. */
 function bridgeCap(text: string, max: number): string {
@@ -233,7 +235,15 @@ function bridgeVerdict(hook: BridgeHook, outcome: BridgeOutcome): BridgeVerdict 
   const decision = out.permissionDecision;
   if (decision === undefined || decision === "allow") return { kind: "allow" };
   if (decision === "deny") return { kind: "block", reason };
-  if (decision === "ask") return { kind: "ask", reason };
+  if (decision === "ask") {
+    // Spec 0048 D5: the files whose content the confirmation shows; the approval is bound to their hashes.
+    const files: unknown = json.navoriBodyFiles;
+    if (files !== undefined && !(Array.isArray(files) && files.length <= BRIDGE_BODY_FILES_MAX
+        && files.every((file: unknown) => typeof file === "string" && file.length > 0 && file.length <= BRIDGE_BODY_FILE_CHARS))) {
+      return { kind: "block", reason: "Navori " + hook.script + " named its draft files in a form this extension cannot bind, so the call is blocked." };
+    }
+    return { kind: "ask", reason, bodyFiles: Array.isArray(files) ? files as string[] : [] };
+  }
   return { kind: "block", reason: "Navori " + hook.script + " returned an unknown decision, so the call is blocked." };
 }
 
@@ -245,7 +255,7 @@ async function runBridge(hooks: BridgeHook[], call: BridgeCall, signal: AbortSig
   const child = process.env.NAVORI_PI_CHILD_DEPTH ? true : false;
   const selected = hooks.filter((hook) => hook.on === call.event && (hook.scope === "all" || hook.scope === (child ? "child" : "parent"))
     && (hook.tools === undefined || (call.toolName !== undefined && hook.tools.includes(call.toolName))));
-  const result: BridgeResult = { asks: [], warnings: [] };
+  const result: BridgeResult = { asks: [], bodyFiles: [], warnings: [] };
   if (!selected.length) return result;
   const shell = bridgeShell();
   if (!shell.ok) {
@@ -261,7 +271,7 @@ async function runBridge(hooks: BridgeHook[], call: BridgeCall, signal: AbortSig
     await Promise.all(selected.map(async (hook) => {
       const verdict = bridgeVerdict(hook, await runBridgeScript(shell.shell, call.cwd, hook, payload, stop.signal));
       if (verdict.kind === "block" && result.block === undefined) { result.block = verdict.reason; stop.abort(); }
-      else if (verdict.kind === "ask") result.asks.push(verdict.reason);
+      else if (verdict.kind === "ask") { result.asks.push(verdict.reason); result.bodyFiles.push(...verdict.bodyFiles); }
       else if (verdict.kind === "warn") result.warnings.push(verdict.text);
     }));
   } finally { signal?.removeEventListener("abort", outer); }

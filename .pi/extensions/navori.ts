@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="ae6b14a5ba0c4295660f50503b7d4846b673522243b1f7467710692a587b92a8"
+// navori:managed-file id="pi-extension" hash="a636e9a13661ba19e83d9ad7920cb532cb78769e17699cf892396452088cb882"
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -40,7 +40,7 @@ const ROLE_TOOLS: Record<Role, ReadonlySet<string>> = {
   publisher: new Set(["read","grep","find","ls","bash"]),
 };
 // Per-role child deadline (spec 0048 D9); the quality gate runs inside it.
-const ROLE_TIMEOUT_MS: Record<Role, number> = {"scout":600000,"scribe":600000,"reviewer":1200000,"auditor":1200000,"architect":1200000,"implementer":1800000,"publisher":2400000};
+const ROLE_TIMEOUT_MS: Record<Role, number> = {"scout":600000,"scribe":1200000,"reviewer":1200000,"auditor":1200000,"architect":1200000,"implementer":1800000,"publisher":2400000};
 const MAX_CHILDREN = 3;
 const GRACE_MS = 5_000;
 const MAX_OUTPUT_BYTES = 65_536;
@@ -114,8 +114,6 @@ function runNavori(cwd: string, args: string[], input: string, signal: AbortSign
 
 async function checkDispatch(cwd: string, role: Role, task: string,
     feature: string | undefined, signal: AbortSignal): Promise<void> {
-  // Publishing gates (R4-R6) are not enforced in Pi children yet; publish from the parent session.
-  if (role === "publisher") throw new Error("Navori publisher is not dispatchable on Pi: publishing gates are not yet enforced in children; publish from the parent session");
   if (role === "implementer" && controls(cwd).planTiers) {
     const payload = JSON.stringify({ cwd, tool_input: { agent_type: role, message: task } });
     let result;
@@ -211,10 +209,11 @@ const MAX_RELAYS = 5;
 const RELAY_ACK_MS = 2000;
 
 /** Child side of D6: hand the exact refused command to the parent over the Node IPC channel. True only when the send was acknowledged. */
-function relayToParent(command: string, reasons: string[]): Promise<boolean> {
+function relayToParent(command: string, reasons: string[], named: string[]): Promise<boolean> {
   const send: unknown = process.send;
   if (typeof send !== "function") return Promise.resolve(false);
-  const bodyFiles = [...command.matchAll(/--body-file[=\s]+(\S+)/g)].map((match) => match[1]);
+  // The files the hook named (D5); the --body-file scan only covers a refusal that named none.
+  const bodyFiles = named.length ? named : [...command.matchAll(/--body-file[=\s]+(\S+)/g)].map((match) => match[1]);
   const message = { kind: "parent-approval", command, reasons, bodyFiles };
   return new Promise<boolean>((resolve) => {
     const timer = setTimeout(() => resolve(false), RELAY_ACK_MS);
@@ -223,24 +222,49 @@ function relayToParent(command: string, reasons: string[]): Promise<boolean> {
   });
 }
 
+type Sha256 = { createHash(algorithm: "sha256"): { update(data: Uint8Array): { digest(encoding: "hex"): string } } };
+
+/** node:crypto is read lazily (Node >= 22.19 has getBuiltinModule) so loading the extension never depends on it. */
+function sha256(data: Uint8Array): string {
+  const load = (process as unknown as { getBuiltinModule?: (id: string) => unknown }).getBuiltinModule;
+  const crypto = typeof load === "function" ? load("node:crypto") as Sha256 | undefined : undefined;
+  if (!crypto) throw new Error("node:crypto is not available");
+  return crypto.createHash("sha256").update(data).digest("hex");
+}
+
+/** sha256 of each draft file the confirmation shows (spec 0048 D5, F12); a file that does not exist yet is its own stable state. */
+function bodyDigest(cwd: string, files: string[]): string {
+  return files.map((file) => {
+    const path = resolve(cwd, file.replace(/^@/, ""));
+    try { return file + "=" + sha256(readFileSync(path)); }
+    catch (cause) {
+      if (isRecord(cause) && cause.code === "ENOENT") return file + "=absent";
+      throw cause;
+    }
+  }).join("\n");
+}
+
 /**
  * Operator consent for one Bash command that claims human approval (--approved-by). Consent is the Pi native
  * dialog of the interactive parent, bound to this exact command and repository state, and spent by this call.
  * Trust (--approve, isProjectTrusted) is deliberately never consulted here.
  */
-async function requireOperatorApproval(exec: ExecFn, ctx: ApprovalContext, command: string, reasons: string[] = []): Promise<{ block: true; reason: string } | undefined> {
+async function requireOperatorApproval(exec: ExecFn, ctx: ApprovalContext, command: string, reasons: string[] = [], bodyFiles: string[] = []): Promise<{ block: true; reason: string } | undefined> {
   const refuse = (why: string): { block: true; reason: string } => ({ block: true, reason: APPROVAL_REFUSAL_MARKER + " " + why });
   if (process.env.NAVORI_PI_CHILD_DEPTH) {
     // The relay is best-effort: the block holds either way, and the parent falls back to the JSONL args (D6).
-    await relayToParent(command, reasons);
+    await relayToParent(command, reasons, bodyFiles);
     return refuse("headless Navori children cannot approve operations; stop and return this command to the parent session so the user can approve it there.");
   }
   if (ctx.hasUI !== true || typeof ctx.ui?.confirm !== "function") {
     return refuse("this Pi session has no interactive UI (TUI/RPC); resume the task in an interactive Pi session to approve this operation.");
   }
   let before: string;
+  let bodiesBefore: string;
   try { before = await approvalState(exec, ctx.cwd); }
   catch { return refuse("the repository state could not be snapshotted, so approval cannot be bound to it."); }
+  try { bodiesBefore = bodyDigest(ctx.cwd, bodyFiles); }
+  catch { return refuse("a draft body could not be read, so approval cannot be bound to it."); }
   let confirmed = false;
   try { confirmed = (await ctx.ui.confirm("Navori approval required", "Run this operation as approved by you?\n\n" + (reasons.length ? reasons.join("\n") + "\n\n" : "") + command)) === true; }
   catch { /* A failing dialog is not consent. */ }
@@ -249,6 +273,10 @@ async function requireOperatorApproval(exec: ExecFn, ctx: ApprovalContext, comma
   try { after = await approvalState(exec, ctx.cwd); }
   catch { return refuse("the repository state could not be re-verified after the confirmation."); }
   if (after !== before) return refuse("the repository state changed between the confirmation and its use; request approval again.");
+  let bodiesAfter: string;
+  try { bodiesAfter = bodyDigest(ctx.cwd, bodyFiles); }
+  catch { return refuse("a draft body could not be re-verified after the confirmation."); }
+  if (bodiesAfter !== bodiesBefore) return refuse("a draft body changed between the confirmation and its use; request approval again.");
   return undefined;
 }
 
@@ -720,12 +748,12 @@ function stuckAdvice(pi: ToolRegistry, event: StuckEvent, ctx: EvidenceContext):
 type BridgeClass = "enforced" | "advisory" | "lifecycle";
 type BridgeHook = { script: string; path: string; on: string; tools?: string[]; scope: string; class: BridgeClass;
   interactive: boolean; timeoutMs: number };
-type BridgeVerdict = { kind: "allow" } | { kind: "block"; reason: string } | { kind: "ask"; reason: string } | { kind: "warn"; text: string };
+type BridgeVerdict = { kind: "allow" } | { kind: "block"; reason: string } | { kind: "ask"; reason: string; bodyFiles: string[] } | { kind: "warn"; text: string };
 type BridgeOutcome = { code: number | null; signal: string | null; timedOut: boolean; failed: boolean; aborted: boolean;
   json: Record<string, unknown> | undefined; stderr: string };
 type BridgeCall = { event: string; hookEvent: string; toolName?: string; toolCallId?: string; input?: unknown; cwd: string;
   sessionId: string; hasUI: boolean; reason?: string };
-type BridgeResult = { block?: string; asks: string[]; warnings: string[] };
+type BridgeResult = { block?: string; asks: string[]; bodyFiles: string[]; warnings: string[] };
 const BRIDGE_STDOUT_CAP = 65_536;
 const BRIDGE_STDERR_HALF = 2_048;
 const BRIDGE_ADVISORY_CAP = 1_024;
@@ -736,6 +764,8 @@ const BRIDGE_TOOL_NAMES: Record<string, string> = { bash: "Bash", edit: "Edit", 
 // Tools the bridge guards: an unreadable or incompatible manifest blocks these (fail-closed), never the read-only ones.
 const BRIDGE_GUARDED_TOOLS = new Set(["bash", "edit", "write"]);
 const BRIDGE_JSON_KEYS = ["hookSpecificOutput", "systemMessage", "continue"];
+const BRIDGE_BODY_FILES_MAX = 8;
+const BRIDGE_BODY_FILE_CHARS = 4_096;
 
 /** First half and last half of text when it exceeds max, so a long diagnostic keeps both its cause and its end. */
 function bridgeCap(text: string, max: number): string {
@@ -926,7 +956,15 @@ function bridgeVerdict(hook: BridgeHook, outcome: BridgeOutcome): BridgeVerdict 
   const decision = out.permissionDecision;
   if (decision === undefined || decision === "allow") return { kind: "allow" };
   if (decision === "deny") return { kind: "block", reason };
-  if (decision === "ask") return { kind: "ask", reason };
+  if (decision === "ask") {
+    // Spec 0048 D5: the files whose content the confirmation shows; the approval is bound to their hashes.
+    const files: unknown = json.navoriBodyFiles;
+    if (files !== undefined && !(Array.isArray(files) && files.length <= BRIDGE_BODY_FILES_MAX
+        && files.every((file: unknown) => typeof file === "string" && file.length > 0 && file.length <= BRIDGE_BODY_FILE_CHARS))) {
+      return { kind: "block", reason: "Navori " + hook.script + " named its draft files in a form this extension cannot bind, so the call is blocked." };
+    }
+    return { kind: "ask", reason, bodyFiles: Array.isArray(files) ? files as string[] : [] };
+  }
   return { kind: "block", reason: "Navori " + hook.script + " returned an unknown decision, so the call is blocked." };
 }
 
@@ -938,7 +976,7 @@ async function runBridge(hooks: BridgeHook[], call: BridgeCall, signal: AbortSig
   const child = process.env.NAVORI_PI_CHILD_DEPTH ? true : false;
   const selected = hooks.filter((hook) => hook.on === call.event && (hook.scope === "all" || hook.scope === (child ? "child" : "parent"))
     && (hook.tools === undefined || (call.toolName !== undefined && hook.tools.includes(call.toolName))));
-  const result: BridgeResult = { asks: [], warnings: [] };
+  const result: BridgeResult = { asks: [], bodyFiles: [], warnings: [] };
   if (!selected.length) return result;
   const shell = bridgeShell();
   if (!shell.ok) {
@@ -954,7 +992,7 @@ async function runBridge(hooks: BridgeHook[], call: BridgeCall, signal: AbortSig
     await Promise.all(selected.map(async (hook) => {
       const verdict = bridgeVerdict(hook, await runBridgeScript(shell.shell, call.cwd, hook, payload, stop.signal));
       if (verdict.kind === "block" && result.block === undefined) { result.block = verdict.reason; stop.abort(); }
-      else if (verdict.kind === "ask") result.asks.push(verdict.reason);
+      else if (verdict.kind === "ask") { result.asks.push(verdict.reason); result.bodyFiles.push(...verdict.bodyFiles); }
       else if (verdict.kind === "warn") result.warnings.push(verdict.text);
     }));
   } finally { signal?.removeEventListener("abort", outer); }
@@ -1186,6 +1224,7 @@ export default function (pi: ExtensionAPI): void {
     const claimed: unknown = event.input;
     const claim = event.toolName === "bash" && isRecord(claimed) && typeof claimed.command === "string" && APPROVAL_CLAIM.test(claimed.command);
     let asks: string[] = [];
+    let bodyFiles: string[] = [];
     if (BRIDGE_GUARDED_TOOLS.has(event.toolName)) {
       const manifest = bridgeManifest(ctx.cwd);
       if (!manifest.ok) return { block: true, reason: manifest.reason };
@@ -1199,12 +1238,13 @@ export default function (pi: ExtensionAPI): void {
         hasUI: ctx.hasUI === true }, ctx.signal);
       if (bridged.block !== undefined) return { block: true, reason: bridged.block };
       asks = bridged.asks;
+      bodyFiles = bridged.bodyFiles;
     }
     if (claim || asks.length) {
       // One confirmation for the --approved-by claim and every ask, bound to the exact call the user saw.
       const sealed = JSON.stringify(event.input);
       const label = isRecord(claimed) ? (typeof claimed.command === "string" ? claimed.command : event.toolName + " " + String(claimed.path ?? "")) : event.toolName;
-      const refusal = await requireOperatorApproval(pi.exec.bind(pi), ctx, label, asks);
+      const refusal = await requireOperatorApproval(pi.exec.bind(pi), ctx, label, asks, bodyFiles);
       if (refusal) return refusal;
       if (JSON.stringify(event.input) !== sealed) {
         return { block: true, reason: "Navori approval not granted: the " + (claim ? "command" : "call") + " changed after the confirmation; request approval again." };

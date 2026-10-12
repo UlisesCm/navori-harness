@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync, existsSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, existsSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -9,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { renderPiEngine } from "../index.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
+import { load as loadScripts } from "./fixtures/load-extension.ts";
 
 interface Child extends EventEmitter {
   pid: number;
@@ -486,5 +488,225 @@ describe("Pi first-class approvals", () => {
       { type: "tool_execution_end", toolCallId: "t2", isError: true, result: "exit 1" },
     ]);
     await expect(plainRun).resolves.toMatchObject({ details: { role: "scout" } });
+  });
+});
+
+// ---- Spec 0048 T10/T11: publishing and shared ask rules, with the REAL shared scripts under bash ----
+
+interface ScriptCtx {
+  cwd: string;
+  hasUI: boolean;
+  ui?: { confirm: ReturnType<typeof vi.fn> };
+  sessionManager: { getSessionId: () => string };
+}
+
+const git = (cwd: string, ...args: string[]): void => {
+  execFileSync("git", ["-c", "user.email=t@t.t", "-c", "user.name=t", ...args], {
+    cwd,
+    stdio: "ignore",
+  });
+};
+
+/** A committed git repo rendered for Pi (publisher enabled by default), with a PR body file. */
+function scriptProject(): string {
+  const dir = mkdtempSync(join(tmpdir(), "navori-pi-publish-"));
+  dirs.push(dir);
+  execFileSync("git", ["init", "-q", dir]);
+  renderPiEngine(
+    dir,
+    NavoriConfigSchema.parse({
+      name: "pi-publish",
+      preset: "custom",
+      engines: ["pi"],
+      branchBase: "main",
+    }),
+  );
+  writeFileSync(join(dir, "pr-body.txt"), "Reviewed body of the pull request");
+  writeFileSync(join(dir, "tracked.txt"), "one");
+  git(dir, "add", "tracked.txt");
+  git(dir, "commit", "-q", "-m", "init");
+  return dir;
+}
+
+/** The context of a thread: interactive (dialog answers `answer`, may mutate while open), or without UI. */
+function scriptCtx(
+  cwd: string,
+  mode: "ui" | "no-ui",
+  answer = true,
+  whileOpen?: () => void,
+): ScriptCtx {
+  return {
+    cwd,
+    hasUI: mode === "ui",
+    ...(mode === "ui"
+      ? {
+          ui: {
+            confirm: vi.fn(async () => {
+              whileOpen?.();
+              return answer;
+            }),
+          },
+        }
+      : {}),
+    sessionManager: { getSessionId: () => "sess-approvals" },
+  };
+}
+
+/** Runs one bash tool_call through the real extension and bridge; `relayed` collects what a child sends. */
+async function scriptCall(
+  child: boolean,
+  command: string,
+  ctx: ScriptCtx,
+  relayed: Array<Record<string, unknown>> = [],
+): Promise<{ block?: boolean; reason?: string } | undefined> {
+  const handlers = loadScripts({
+    env: child ? { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "publisher" } : {},
+    send: (message, callback) => {
+      relayed.push(message);
+      callback(null);
+    },
+  });
+  return (await handlers.get("tool_call")!(
+    { toolName: "bash", toolCallId: "c-approval", input: { command } },
+    ctx,
+  )) as { block?: boolean; reason?: string } | undefined;
+}
+
+const PR = "gh pr create --title T --body-file pr-body.txt";
+
+describe("Pi publishing confirmations and shared ask rules", () => {
+  // Covers: R5, R6
+  it("publishing confirmed bound to body", async () => {
+    const dir = scriptProject();
+    const published = [
+      PR,
+      "gh pr comment 7 --body-file pr-body.txt",
+      "gh issue create --title T --body-file pr-body.txt",
+      "navori master close",
+    ];
+
+    // Confirmed in the interactive parent: the dialog shows the content, the call is then allowed.
+    for (const command of published) {
+      const ctx = scriptCtx(dir, "ui");
+      expect(await scriptCall(false, command, ctx), command).toBeUndefined();
+      expect(ctx.ui!.confirm, command).toHaveBeenCalledOnce();
+      const [title, message] = ctx.ui!.confirm.mock.calls[0] as [string, string];
+      expect(title).toBe("Navori approval required");
+      expect(message).toContain(command);
+      if (command.includes("pr-body.txt"))
+        expect(message).toContain("Reviewed body of the pull request");
+    }
+
+    // Denied or cancelled: refused.
+    for (const command of published) {
+      const refusal = await scriptCall(false, command, scriptCtx(dir, "ui", false));
+      expect(refusal, command).toMatchObject({ block: true });
+      expect(refusal?.reason).toMatch(/denied or cancelled/);
+    }
+
+    // No UI: refused, and it says how to resume.
+    for (const command of published) {
+      const refusal = await scriptCall(false, command, scriptCtx(dir, "no-ui"));
+      expect(refusal, command).toMatchObject({ block: true });
+      expect(refusal?.reason).toMatch(/no interactive UI/);
+    }
+
+    // The body changed while the dialog was open: the approval does not authorize what it did not show.
+    for (const command of [PR, "gh pr comment 7 --body-file pr-body.txt"]) {
+      writeFileSync(join(dir, "pr-body.txt"), "Reviewed body of the pull request");
+      const ctx = scriptCtx(dir, "ui", true, () =>
+        writeFileSync(join(dir, "pr-body.txt"), "Swapped body"),
+      );
+      const refusal = await scriptCall(false, command, ctx);
+      expect(refusal, command).toMatchObject({ block: true });
+      expect(refusal?.reason).toMatch(/draft body changed between the confirmation and its use/);
+    }
+
+    // A body that appears after an "absent" snapshot is also a change.
+    const ghost = scriptCtx(dir, "ui", true, () => writeFileSync(join(dir, "late.txt"), "late"));
+    const lateRefusal = await scriptCall(
+      false,
+      "gh pr create --title T --body-file late.txt",
+      ghost,
+    );
+    expect(lateRefusal?.reason).toMatch(/draft body changed/);
+
+    // A child is refused and relays the exact command (and its body file) to the parent: never confirmed there.
+    for (const command of published) {
+      const relayed: Array<Record<string, unknown>> = [];
+      const ctx = scriptCtx(dir, "ui");
+      const refusal = await scriptCall(true, command, ctx, relayed);
+      expect(refusal, command).toMatchObject({ block: true });
+      expect(refusal?.reason).toMatch(/return this command to the parent/);
+      expect(ctx.ui!.confirm).not.toHaveBeenCalled();
+      expect(relayed, command).toHaveLength(1);
+      expect(relayed[0]).toMatchObject({ kind: "parent-approval", command });
+      if (command.includes("--body-file"))
+        expect(relayed[0]).toMatchObject({ bodyFiles: ["pr-body.txt"] });
+    }
+
+    // Nothing publishing is asked for an unrelated command.
+    const quiet = scriptCtx(dir, "ui");
+    expect(await scriptCall(false, "git status", quiet)).toBeUndefined();
+    expect(quiet.ui!.confirm).not.toHaveBeenCalled();
+  });
+
+  // Covers: R18, R6
+  it("shared ask rules confirm in parent relay from child", async () => {
+    const dir = scriptProject();
+    const asked = [
+      "git reset --hard",
+      "rm -r build",
+      "git branch -D feature/x",
+      "git stash drop",
+      "chmod -R 755 out",
+    ];
+
+    for (const command of asked) {
+      const ctx = scriptCtx(dir, "ui");
+      expect(await scriptCall(false, command, ctx), command).toBeUndefined();
+      expect(ctx.ui!.confirm, command).toHaveBeenCalledOnce();
+      expect((ctx.ui!.confirm.mock.calls[0] as [string, string])[1]).toMatch(
+        /shared permission ask rule/,
+      );
+      expect((ctx.ui!.confirm.mock.calls[0] as [string, string])[1]).toContain(command);
+    }
+    for (const command of asked) {
+      expect(await scriptCall(false, command, scriptCtx(dir, "ui", false)), command).toMatchObject({
+        block: true,
+      });
+      const headless = await scriptCall(false, command, scriptCtx(dir, "no-ui"));
+      expect(headless?.reason, command).toMatch(/no interactive UI/);
+    }
+    for (const command of asked) {
+      const relayed: Array<Record<string, unknown>> = [];
+      const ctx = scriptCtx(dir, "ui");
+      const refusal = await scriptCall(true, command, ctx, relayed);
+      expect(refusal, command).toMatchObject({ block: true });
+      expect(refusal?.reason).toMatch(/return this command to the parent/);
+      expect(ctx.ui!.confirm).not.toHaveBeenCalled();
+      expect(relayed, command).toMatchObject([{ kind: "parent-approval", command }]);
+    }
+
+    // A block rule wins over a question: a deny rule and a destructive reset never reach the dialog.
+    writeFileSync(join(dir, "tracked.txt"), "dirty");
+    for (const command of ["sudo rm -rf build", "git reset --hard"]) {
+      const ctx = scriptCtx(dir, "ui");
+      const refusal = await scriptCall(false, command, ctx);
+      expect(refusal, command).toMatchObject({ block: true });
+      expect(refusal?.reason, command).toMatch(/BLOCKED by guard-destructive/);
+      expect(ctx.ui!.confirm, command).not.toHaveBeenCalled();
+    }
+    git(dir, "checkout", "--", "tracked.txt");
+
+    // Several asks on one command are one confirmation.
+    const both = scriptCtx(dir, "ui");
+    expect(await scriptCall(false, "git branch -D x && rm -r y", both)).toBeUndefined();
+    expect(both.ui!.confirm).toHaveBeenCalledOnce();
+
+    // A command no ask rule matches runs without a dialog.
+    const plain = scriptCtx(dir, "ui");
+    expect(await scriptCall(false, "git branch -d merged && ls", plain)).toBeUndefined();
+    expect(plain.ui!.confirm).not.toHaveBeenCalled();
   });
 });

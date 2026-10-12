@@ -1,4 +1,6 @@
 import type { NavoriConfig } from "../../lib/config/config.ts";
+import { isAgentEnabled } from "../shared/harness-assets.ts";
+import { PI_GATE_TIMEOUT_MS } from "./role-tools.ts";
 
 /**
  * Spec 0048 D1/D2: the single table of the shared hook scripts Pi runs, one row per script.
@@ -54,15 +56,59 @@ export interface PiHookBinding {
 /** The scripts Pi runs through the extension bridge. */
 export const PI_HOOK_BINDINGS: readonly PiHookBinding[] = [
   // Spec 0048 T4 (R2, R18): destructive commands, shared `deny` rules, the Pi control plane and
-  // `pi --no-extensions`, for the parent and every child. It never asks (`ask` rules are T11).
+  // `pi --no-extensions`, for the parent and every child. Its shared `ask` rules (T11) answer `ask`.
   {
     script: "guard-destructive",
     on: "tool_call",
     tools: ["bash"],
     scope: "all",
     class: "enforced",
-    interactive: false,
+    interactive: true,
     timeoutMs: 15_000,
+  },
+  // Spec 0048 T9 (R4): `git commit` and `git push` run `qualityGate.fast` first (the Pi arm of the
+  // script adds `push`); a red gate or a missing runner blocks. The gate runs inside this deadline, so
+  // it equals the gate timeout and every role that may commit or push outlives it (PI_ROLE_TIMEOUT_MS).
+  // Without `qualityGate.fast` there is no script and no row, as on Claude and Codex.
+  {
+    script: "quality-gate-pre-commit",
+    on: "tool_call",
+    tools: ["bash"],
+    scope: "all",
+    class: "enforced",
+    interactive: true,
+    timeoutMs: PI_GATE_TIMEOUT_MS,
+    when: (config) => Boolean(config.qualityGate?.fast),
+  },
+  // Spec 0048 T10 (R5, R6): publishing operations ask for confirmation, in the parent; a child is
+  // refused and the exact command is relayed to the parent (extension, `requireOperatorApproval`).
+  {
+    script: "pr-publisher-confirm",
+    on: "tool_call",
+    tools: ["bash"],
+    scope: "all",
+    class: "enforced",
+    interactive: true,
+    timeoutMs: 10_000,
+    when: (config) => isAgentEnabled(config, "publisher"),
+  },
+  {
+    script: "comment-draft-confirm",
+    on: "tool_call",
+    tools: ["bash"],
+    scope: "all",
+    class: "enforced",
+    interactive: true,
+    timeoutMs: 10_000,
+  },
+  {
+    script: "master-accept-confirm",
+    on: "tool_call",
+    tools: ["bash"],
+    scope: "all",
+    class: "enforced",
+    interactive: true,
+    timeoutMs: 10_000,
   },
   // Spec 0048 T12/R8: a child never backgrounds work (`cmd &`, nohup, setsid, disown). The script
   // keys on `agent_id`, which the bridge sends only in children, so the parent is never in scope.

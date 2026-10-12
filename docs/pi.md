@@ -193,7 +193,8 @@ and is a seatbelt, not a sandbox. The rows are `enforced (seatbelt)` in [Parity 
 
 **Destructive commands and deny rules (`guard-destructive`).** The shared destructive rules and the shared
 `deny` permission rules block in the parent and in every child. The `deny` rules are translated to token
-prefixes at render time, the same translation Codex uses. `ask` rules are not evaluated yet (spec 0048 M6).
+prefixes at render time, the same translation Codex uses. Its `ask` rules are confirmed in the parent
+(see the shared `ask` rules below).
 The Pi copy adds three rules that exist only there:
 
 - **Control plane.** Write verbs (`>`, `>>`, `>|`, `tee`, `sed -i`, `rm`, `mv`, `cp`, `ln`, `dd`, `install`,
@@ -244,6 +245,37 @@ blocked; (2) the manifest is read, and an unreadable or non-v2 manifest blocks `
 block stops the call; (5) one merged confirmation is requested for the `--approved-by` claim and for every
 `ask` verdict. The confirmation is bound to the exact input the user saw, and a changed input is refused.
 
+**Commit and push gate (`quality-gate-pre-commit`).** Pi has no native git hooks, so the Pi copy gates
+`git commit` and `git push` alike. It runs `qualityGate.fast` with a 600 s deadline. A red gate blocks the
+call in the parent and in a child. A gate whose runner is missing blocks in a child or without UI; in the
+parent with UI it asks instead. The script exists only when `qualityGate.fast` is set. The progress-file
+size ratchet (`progress/current.md`) also applies on push, not only on commit. Role deadlines must outlive
+the gate: every role with `bash` has a deadline of at least gate + 10 min (20 min). The per-role deadlines
+are `PI_ROLE_TIMEOUT_MS` in `packages/cli/src/engines/pi/role-tools.ts`: `implementer` 30 min, `publisher`
+40 min, `scribe`, `reviewer`, `auditor` and `architect` 20 min each. `scout` has no `bash` and keeps 10 min.
+
+**Publishing confirmations.** These scripts ask before any publishing operation, and the ask shows the body:
+
+- `pr-publisher-confirm` asks on every `gh pr create` (Pi has no host prompt, so the Pi copy always asks).
+- `comment-draft-confirm` asks for comment and review drafts, and `master-accept-confirm` for master
+  accept and close.
+- An approval for a body file is bound to the sha256 of that file. The extension re-checks the digests after
+  the confirmation and before it allows the call. A body that is changed, created or removed after the
+  confirmation, or that cannot be read, is refused.
+- Shell-built bodies, stdin and inline bodies are shown in the confirmation but are not hash-bound.
+
+**Shared `ask` rules.** The bridge collects the `ask` verdicts of every script and of the shared `ask`
+permission rules. The extension then shows one confirmation for the `--approved-by` claim and for all of
+them, bound to the exact call.
+
+- A block always wins over a question: enforced scripts run first, so a call that will be blocked never
+  reaches the user.
+- The confirmation happens in the parent. A child (`NAVORI_PI_CHILD_DEPTH` set) is refused, and the exact
+  command is relayed to the parent (see [Approval relay](#approval-relay)). Without UI (RPC or headless),
+  the call is refused.
+- The `publisher` is admitted and is subject to all of the rules above: its publishing operations are
+  refused in the child, relayed to the parent, and confirmed there.
+
 ## Doctor findings
 
 When the engine is enabled, `navori doctor` reports these Pi findings. All are advisory: none changes doctor's
@@ -267,7 +299,7 @@ their Pi tool lists (from `packages/cli/src/engines/pi/role-tools.ts`):
 - `scribe`: `read, grep, find, ls, bash, edit, write`; admitted only when `harness.scribeOwnsMarkdown` is on, and then the implementer requires the `scribe` role to be enabled
 - `auditor`: `read, grep, find, ls, bash, write`
 - `architect`: `read, grep, find, ls, bash, write`; cannot dispatch nested subagents on Pi (`navori:if-not onPi`)
-- `publisher`: `read, grep, find, ls, bash`; rendered for Pi but refused at dispatch until the M6 publishing gates (R4–R6) land, so publish from the parent session
+- `publisher`: `read, grep, find, ls, bash`; its git commit and push run the quality gate, and its publishing operations need the parent's confirmation (see [Guards](#guards))
 
 The tool requires `role` and a non-empty `task`; `feature` is optional except for `reviewer`, which
 requires an explicit Navori feature slug for its handoff check; `implementer`, `reviewer` and `scribe` all require `feature`. Role instructions and descriptions are

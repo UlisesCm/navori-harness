@@ -1,4 +1,4 @@
-# navori:managed start id="comment-draft-confirm-base" hash="d1cdce9a" version="0.11.3" source="@navori/core"
+# navori:managed start id="comment-draft-confirm-base" hash="a32668fb" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash): a call that PUBLISHES a comment/review or creates a GitHub
@@ -549,6 +549,24 @@ if [ "$nv_have_jq" = 0 ] && [ "$nv_have_node" = 0 ]; then
   exit 0
 fi
 
+# Draft reader shared by every hook that shows the user WHAT is about to be published
+# (`comment-draft-confirm`, and the Pi copy of `pr-publisher-confirm`, spec 0048 D5/R5).
+# Inlined at render time (see lib/render/hook-includes.ts). Pure reading: it decides which
+# file or inline text carries the body and renders a bounded preview; the JSON that speaks to
+# the host stays in each script (partials never carry host output vocabulary).
+#
+# Needs, from the caller: `cmd`, `nv_kind` (gh-comment, gh-review, gh-issue-create, gh-pr-open,
+# gh-api-graphql, gh-api-rest, acli-create, acli-update), `nv_label`, `NV_FALLBACK_REASON`, and
+# `nv_have_jq` / `nv_have_node` (0 or 1). Defines only functions; nothing runs until
+# `navori_draft_body` is called.
+#
+# `navori_draft_body` sets, as globals (the callers read them after the call):
+#   nv_body_source  none | inline | gql-text | file
+#   nv_reason       the text the user reads before confirming
+#   nv_body_path    the body file named by the command, when there is one
+#   nv_bound_file   every file the preview was read from, so a caller can bind the approval to
+#                   its content (empty when the preview came from the command itself)
+
 # --- Locate the flag value for a small set of alternatives (`-F|--body-file`,
 # `--body-adf`, `--input`, …). Reads the WHOLE $cmd, so it only ever targets a
 # flag whose VALUE is a file path — never a body carried inline in the command,
@@ -644,60 +662,49 @@ nv_truncate() {
   fi
 }
 
-nv_body_source="none"
-nv_body_path=""
-nv_sniff_adf=0
-nv_force_adf=0
+navori_draft_body() {
+  nv_body_source="none"
+  nv_body_path=""
+  nv_bound_file=""
+  nv_sniff_adf=0
+  nv_force_adf=0
 
-case "$nv_kind" in
-  gh-comment | gh-review | gh-issue-create)
-    nv_body_path=$(nv_flag_value "$cmd" '-F|--body-file')
-    if [ -n "$nv_body_path" ] && [ "$nv_body_path" != "-" ]; then
-      nv_body_source="file"
-    elif printf '%s' "$cmd" | grep -qE '(^|[[:space:]])(-b|--body)([[:space:]=]|$)'; then
-      nv_body_source="inline"
-    fi
-    ;;
-  gh-api-graphql)
-    nv_body_path=$(printf '%s' "$cmd" | grep -oE -- '-F[[:space:]]+body=@[^[:space:]]+' | head -1 | sed -E 's/^-F[[:space:]]+body=@//') || true
-    if [ -n "$nv_body_path" ]; then
-      nv_body_source="file"
-    elif printf '%s' "$cmd" | grep -qE -- '-f[[:space:]]+body=[^[:space:]]+'; then
-      nv_body_source="inline"
-    else
-      nv_input=$(nv_flag_value "$cmd" '--input')
-      if [ -n "$nv_input" ] && [ "$nv_input" != "-" ] && nv_read_body "$nv_input"; then
-        nv_gql_text=$(nv_gql_body_from_input "$nv_input")
-        if [ -n "$nv_gql_text" ]; then
-          nv_body_source="gql-text"
+  case "$nv_kind" in
+    gh-comment | gh-review | gh-issue-create | gh-pr-open)
+      nv_body_path=$(nv_flag_value "$cmd" '-F|--body-file')
+      if [ -n "$nv_body_path" ] && [ "$nv_body_path" != "-" ]; then
+        nv_body_source="file"
+      elif printf '%s' "$cmd" | grep -qE '(^|[[:space:]])(-b|--body)([[:space:]=]|$)'; then
+        nv_body_source="inline"
+      fi
+      ;;
+    gh-api-graphql)
+      nv_body_path=$(printf '%s' "$cmd" | grep -oE -- '-F[[:space:]]+body=@[^[:space:]]+' | head -1 | sed -E 's/^-F[[:space:]]+body=@//') || true
+      if [ -n "$nv_body_path" ]; then
+        nv_body_source="file"
+      elif printf '%s' "$cmd" | grep -qE -- '-f[[:space:]]+body=[^[:space:]]+'; then
+        nv_body_source="inline"
+      else
+        nv_input=$(nv_flag_value "$cmd" '--input')
+        if [ -n "$nv_input" ] && [ "$nv_input" != "-" ] && nv_read_body "$nv_input"; then
+          nv_gql_text=$(nv_gql_body_from_input "$nv_input")
+          if [ -n "$nv_gql_text" ]; then
+            nv_body_source="gql-text"
+            nv_bound_file="$nv_input"
+          fi
         fi
       fi
-    fi
-    ;;
-  gh-api-rest)
-    nv_body_path=$(nv_flag_value "$cmd" '--input')
-    if [ -z "$nv_body_path" ]; then
-      nv_body_path=$(printf '%s' "$cmd" | grep -oE -- '-F[[:space:]]+[A-Za-z0-9_]+=@[^[:space:]]+' | head -1 | sed -E 's/^-F[[:space:]]+[A-Za-z0-9_]+=@//') || true
-    fi
-    if [ -n "$nv_body_path" ] && [ "$nv_body_path" != "-" ]; then
-      nv_body_source="file"
-    fi
-    ;;
-  acli-create)
-    nv_body_path=$(nv_flag_value "$cmd" '-F|--body-file')
-    if [ -n "$nv_body_path" ]; then
-      nv_body_source="file"
-      nv_sniff_adf=1
-    elif printf '%s' "$cmd" | grep -qE '(^|[[:space:]])(-b|--body)([[:space:]=]|$)'; then
-      nv_body_source="inline"
-    fi
-    ;;
-  acli-update)
-    nv_body_path=$(nv_flag_value "$cmd" '--body-adf')
-    if [ -n "$nv_body_path" ]; then
-      nv_body_source="file"
-      nv_force_adf=1
-    else
+      ;;
+    gh-api-rest)
+      nv_body_path=$(nv_flag_value "$cmd" '--input')
+      if [ -z "$nv_body_path" ]; then
+        nv_body_path=$(printf '%s' "$cmd" | grep -oE -- '-F[[:space:]]+[A-Za-z0-9_]+=@[^[:space:]]+' | head -1 | sed -E 's/^-F[[:space:]]+[A-Za-z0-9_]+=@//') || true
+      fi
+      if [ -n "$nv_body_path" ] && [ "$nv_body_path" != "-" ]; then
+        nv_body_source="file"
+      fi
+      ;;
+    acli-create)
       nv_body_path=$(nv_flag_value "$cmd" '-F|--body-file')
       if [ -n "$nv_body_path" ]; then
         nv_body_source="file"
@@ -705,51 +712,78 @@ case "$nv_kind" in
       elif printf '%s' "$cmd" | grep -qE '(^|[[:space:]])(-b|--body)([[:space:]=]|$)'; then
         nv_body_source="inline"
       fi
-    fi
-    ;;
-esac
-
-nv_reason=""
-case "$nv_body_source" in
-  inline)
-    # R11: never re-derive the value (it might carry `;`/`|`/newlines the
-    # compound-command scan above does not respect quoting for); the reason
-    # just points back at the command the host already shows the user.
-    nv_reason="[navori] this call publishes $nv_label. Its body is inline in the command above — review it there before confirming."
-    ;;
-  gql-text)
-    nv_preview=$(nv_truncate "$nv_gql_text")
-    nv_reason="[navori] this call publishes $nv_label. \`body\` variable:
-
-$nv_preview"
-    ;;
-  file)
-    if nv_read_body "$nv_body_path"; then
-      nv_text="$nv_body_content"
-      if [ "$nv_force_adf" = 1 ] || { [ "$nv_sniff_adf" = 1 ] && nv_looks_like_json "$nv_body_content"; }; then
-        nv_adf_text=$(nv_adf_text_from_file "$nv_body_path")
-        [ -n "$nv_adf_text" ] && nv_text="$nv_adf_text"
+      ;;
+    acli-update)
+      nv_body_path=$(nv_flag_value "$cmd" '--body-adf')
+      if [ -n "$nv_body_path" ]; then
+        nv_body_source="file"
+        nv_force_adf=1
+      else
+        nv_body_path=$(nv_flag_value "$cmd" '-F|--body-file')
+        if [ -n "$nv_body_path" ]; then
+          nv_body_source="file"
+          nv_sniff_adf=1
+        elif printf '%s' "$cmd" | grep -qE '(^|[[:space:]])(-b|--body)([[:space:]=]|$)'; then
+          nv_body_source="inline"
+        fi
       fi
-      nv_preview=$(nv_truncate "$nv_text")
-      nv_reason="[navori] this call publishes $nv_label from file '$nv_body_path':
+      ;;
+  esac
+
+  nv_reason=""
+  case "$nv_body_source" in
+    inline)
+      # R11: never re-derive the value (it might carry `;`/`|`/newlines the
+      # compound-command scan above does not respect quoting for); the reason
+      # just points back at the command the host already shows the user.
+      nv_reason="[navori] this call publishes $nv_label. Its body is inline in the command above — review it there before confirming."
+      ;;
+    gql-text)
+      nv_preview=$(nv_truncate "$nv_gql_text")
+      nv_reason="[navori] this call publishes $nv_label. \`body\` variable:
 
 $nv_preview"
-    else
+      ;;
+    file)
+      nv_bound_file="$nv_body_path"
+      if nv_read_body "$nv_body_path"; then
+        nv_text="$nv_body_content"
+        if [ "$nv_force_adf" = 1 ] || { [ "$nv_sniff_adf" = 1 ] && nv_looks_like_json "$nv_body_content"; }; then
+          nv_adf_text=$(nv_adf_text_from_file "$nv_body_path")
+          [ -n "$nv_adf_text" ] && nv_text="$nv_adf_text"
+        fi
+        nv_preview=$(nv_truncate "$nv_text")
+        nv_reason="[navori] this call publishes $nv_label from file '$nv_body_path':
+
+$nv_preview"
+      else
+        nv_reason="$NV_FALLBACK_REASON"
+      fi
+      ;;
+    *)
       nv_reason="$NV_FALLBACK_REASON"
-    fi
-    ;;
-  *)
-    nv_reason="$NV_FALLBACK_REASON"
-    ;;
-esac
+      ;;
+  esac
+}
+navori_draft_body
 
 navori_audit_reason="$nv_body_source"
 
+# Spec 0048 D5 (R5): a Pi copy (decided by `$0`, like the Codex arm above) also names the file the
+# draft was read from in the top-level `navoriBodyFiles`, a key Claude never sees. The Pi extension
+# hashes it when it shows the confirmation and again right before allowing the call, so a body edited
+# in between is refused.
+nv_pi_files=0
+case "$0" in
+  *"/.pi/navori/"*) [ -z "$nv_bound_file" ] || nv_pi_files=1 ;;
+esac
+
 if [ "$nv_have_jq" = 1 ]; then
-  jq -cn --arg d "$nv_decision" --arg r "$nv_reason" \
-    '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:$d,permissionDecisionReason:$r}}'
+  jq -cn --arg d "$nv_decision" --arg r "$nv_reason" --arg f "$nv_pi_files:$nv_bound_file" \
+    '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:$d,permissionDecisionReason:$r}}
+      + (if ($f | startswith("1:")) then {navoriBodyFiles: [$f[2:]]} else {} end)'
 else
-  NV_D="$nv_decision" NV_R="$nv_reason" node -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:process.env.NV_D,permissionDecisionReason:process.env.NV_R}}))'
+  NV_D="$nv_decision" NV_R="$nv_reason" NV_F="$nv_pi_files:$nv_bound_file" node -e 'const out={hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:process.env.NV_D,permissionDecisionReason:process.env.NV_R}};if(process.env.NV_F.startsWith("1:"))out.navoriBodyFiles=[process.env.NV_F.slice(2)];process.stdout.write(JSON.stringify(out))'
 fi
 exit 0
 # navori:managed end id="comment-draft-confirm-base"

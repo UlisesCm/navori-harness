@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="f6784c69" version="0.11.3" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="fffc3843" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -377,7 +377,19 @@ navori_audit_begin
 # they add, the exit code still tells the truth about what happened.
 navori_audit_verdict="allow"
 navori_audit_reason=""
+# Spec 0048 T11: the shared `ask` rule a Pi copy remembered (rule 6c iv); empty everywhere else.
+navori_pi_ask=""
 navori_audit_on_exit() {
+  navori_audit_code=$?
+  # A command every block rule let through but an `ask` rule matched is answered here, after the
+  # whole script (user section included) had its say. The prefix comes from rendered config; quotes,
+  # backslashes and control characters are dropped so the JSON below needs no escaping step.
+  if [ "$navori_audit_code" -eq 0 ] && [ -n "$navori_pi_ask" ]; then
+    navori_pi_ask_text=$(printf '%s' "$navori_pi_ask" | tr -d '"\\[:cntrl:]')
+    navori_audit_verdict="ask"
+    navori_audit_reason="shared permission ask rule '${navori_pi_ask_text}'"
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[navori] shared permission ask rule %s: this command needs your confirmation before it runs (the same rule asks in Claude and Codex)."}}\n' "$navori_pi_ask_text"
+  fi
   navori_audit_log "$navori_audit_verdict" "$navori_audit_reason" || true
   return 0
 }
@@ -394,7 +406,7 @@ fi
 # never executable.
 base='dev'
 
-# Spec 0048 D15: the shared `deny` permission rules, one `deny <token> ...` line each, rendered ONLY
+# Spec 0048 D15: the shared `deny` and `ask` permission rules, one `deny|ask <token> ...` line each, rendered ONLY
 # into the Pi copy (`extraVars.piPermissionRules`, from the same translation Codex's rules file
 # uses). Every other copy carries `-`, and only the `pi` arm below ever reads it.
 nv_pi_rules='deny engram delete
@@ -514,7 +526,46 @@ deny rm --force -r --no-preserve-root
 deny rm --force -R --no-preserve-root
 deny rm --force --recursive --no-preserve-root
 deny sudo rm
-deny mkfs'
+deny mkfs
+ask rm -rf
+ask rm -fr
+ask rm -Rf
+ask rm -fR
+ask rm -r
+ask rm -R
+ask rm --recursive
+ask rm -r -f
+ask rm -r --force
+ask rm -R -f
+ask rm -R --force
+ask rm --recursive -f
+ask rm --recursive --force
+ask rm -f -r
+ask rm -f -R
+ask rm -f --recursive
+ask rm --force -r
+ask rm --force -R
+ask rm --force --recursive
+ask git push --force
+ask git push -f
+ask git reset --hard
+ask git clean -f
+ask git clean -d
+ask git checkout -- .
+ask git checkout .
+ask git branch -D
+ask git branch --delete
+ask git stash drop
+ask git stash clear
+ask chmod -R
+ask engram import
+ask gh issue create
+ask navori master init
+ask navori master mode
+ask navori master ux
+ask navori master advance
+ask navori master part
+ask navori master close'
 
 block() {
   echo "[navori] BLOCKED by guard-destructive: $1" >&2
@@ -1012,6 +1063,7 @@ nv_pi_candidate() {
   [ "$nv_pi_rules" != "-" ] || return 1
   while IFS= read -r _r; do
     _t=${_r#deny }
+    _t=${_t#ask }
     _t=${_t%% *}
     [ -n "$_t" ] || continue
     case "$_lc" in *"$_t"*) return 0 ;; esac
@@ -1458,7 +1510,15 @@ fi
 #     a compound command too. `mkfs.ext4 /dev/sda` does NOT: only the exact `mkfs` token matches
 #     (same as Codex, codex-parity F9). A `*` glued to the last token was narrowed to the exact token (as in
 #     Codex), so `rm -rf /` blocks and `rm -rf /tmp/x` does not — the numbered rules above catch the
-#     variants. `ask` rules are not evaluated here (spec 0048 T11).
+#     variants.
+#
+#     (iv) ASK RULES (spec 0048 T11, R18). The shared `ask` permissions (`git reset --hard`,
+#     `git push --force`, `rm -r`, `git branch -D`, …) use the same segments and the same prefix
+#     match, but they do not block: the first one that matches is remembered in `navori_pi_ask` and
+#     the exit trap answers `ask` once EVERY block rule (the numbered ones above and below, a `deny`
+#     rule, the user section) has let the command through, so a block always wins over a question.
+#     The Pi extension resolves the `ask`: one confirmation in the interactive parent, refusal plus
+#     relay to the parent in a child or without UI.
 if [ "$nv_engine" = pi ]; then
   _q="[\"']"
   pi_cp="\.pi/(navori(\.json|/[^[:space:];&|<>\"']*)?|extensions(/[^[:space:];&|<>\"']*)?|settings\.json)"
@@ -1493,6 +1553,14 @@ if [ "$nv_engine" = pi ]; then
           "$_pfx" | "$_pfx "*)
             block "shared permission deny rule '${_pfx}' (the same rule that denies it in Claude and Codex)" unspecified
             ;;
+        esac
+      done <<< "$nv_pi_rules"
+      [ -z "$navori_pi_ask" ] || continue
+      while IFS= read -r _rule; do
+        case "$_rule" in 'ask '*) ;; *) continue ;; esac
+        _pfx=${_rule#ask }
+        case "$_seg" in
+          "$_pfx" | "$_pfx "*) navori_pi_ask=$_pfx; break ;;
         esac
       done <<< "$nv_pi_rules"
     done <<< "$_pr_segs"

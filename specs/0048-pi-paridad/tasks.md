@@ -45,9 +45,9 @@ Estimated LOC: 5300
 ### M6 — Gate y confirmaciones
 
 - **A6** [observable] — Commit y push pasan por el gate; operaciones publicadoras y reglas `ask` piden confirmación ligada al contenido · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-gate.test.ts src/engines/pi/__tests__/first-class-approvals.test.ts` → exit 0; gate rojo o sin runner bloquea; `git reset --hard` confirmado, denegado y sin UI; `gh pr create` con cuerpo cambiado tras el diálogo bloqueado.
-- [ ] **T9** (R4) — `quality-gate-pre-commit.sh` cubre `git push` en el brazo `pi`; plazo por rol con la invariante plazo ≥ gate + 10 min. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-gate.test.ts`::commit and push gated
-- [ ] **T10** (R5) — Brazo `pi` de `pr-publisher-confirm.sh` (siempre `ask`), `comment-draft-confirm.sh` y `master-accept-confirm.sh` vía bridge; partial `_partials/draft-body.sh`; aprobación con `sha256` de los archivos de cuerpo re-comprobado antes de permitir. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-approvals.test.ts`::publishing confirmed bound to body hash
-- [ ] **T11** (R18) — Reglas `ask` de permisos compartidos evaluadas en el brazo `pi` del guard: confirmación en el padre, rechazo y relay desde hijo. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-approvals.test.ts`::shared ask rules confirm in parent relay from child
+- [x] **T9** (R4) — `quality-gate-pre-commit.sh` cubre `git push` en el brazo `pi`; plazo por rol con la invariante plazo ≥ gate + 10 min. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-gate.test.ts`::commit and push gated
+- [x] **T10** (R5) — Brazo `pi` de `pr-publisher-confirm.sh` (siempre `ask`), `comment-draft-confirm.sh` y `master-accept-confirm.sh` vía bridge; partial `_partials/draft-body.sh`; aprobación con `sha256` de los archivos de cuerpo re-comprobado antes de permitir. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-approvals.test.ts`::publishing confirmed bound to body hash
+- [x] **T11** (R18) — Reglas `ask` de permisos compartidos evaluadas en el brazo `pi` del guard: confirmación en el padre, rechazo y relay desde hijo. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-approvals.test.ts`::shared ask rules confirm in parent relay from child
 
 ### M7 — Backgrounding en subagentes
 
@@ -77,8 +77,6 @@ Estimated LOC: 5300
 
 - **A11** [observable] — Los tres roles se despachan con su lista de herramientas y el publisher pasa por gate y confirmación · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-roles.test.ts` → exit 0; publisher que intenta `gh pr create` en hijo devuelve el relay al padre; plazo del publisher ≥ gate + margen.
 - [x] **T18** (R14) — Admitir auditor/architect (`read, grep, find, ls, bash, write`) y publisher (`read, grep, find, ls, bash`) en `ROLE_TOOLS`; despacho anidado del architect bajo `navori:if-not onPi` (`conditionOrchestration`); retirar `additional-analytic-roles`; plazos por rol. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-roles.test.ts`::auditor architect publisher dispatch
-  - Nota: el despacho de `publisher` se rechaza en `checkDispatch` hasta que los gates de M6 (R4–R6) estén activos; publicar desde la sesión padre.
-
 ### M12 — Verificación en vivo y documentación
 
 - **A12** [observable] — Ciclo Pi-only en vivo completo y RED/GREEN registrados por el usuario · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-e2e.test.ts` → exit 0 y `specs/0048-pi-paridad/evals.md` con el ciclo en vivo (instalación, plan, implementación, docs, revisión, commit y push con gate, PR confirmado, cierre con evidencia) y la tabla RED/GREEN con resultados adversos conservados.

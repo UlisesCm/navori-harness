@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import * as nodeFs from "node:fs";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,6 +16,7 @@ import { PI_GATE_TIMEOUT_MS, PI_ROLE_NAMES, PI_ROLE_TIMEOUT_MS } from "../role-t
 import { conditionOrchestration } from "../../../lib/render/render-plan.ts";
 import { missingPiChildFlags } from "../runtime-version.ts";
 import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
+import { load as loadWithScripts } from "./fixtures/load-extension.ts";
 
 type Role = "scout" | "implementer" | "reviewer" | "scribe";
 type AnalyticRole = "auditor" | "architect" | "publisher";
@@ -389,14 +391,53 @@ describe("Pi first-class roles", () => {
   });
 
   // Covers: R14
-  it("publisher dispatch is refused until publishing gates land", async () => {
+  it("publisher is dispatchable now that its publishing is gated", async () => {
     const { dir } = project({ scribeOwnsMarkdown: true, architect: true });
     const rt = load();
-    await expect(run(rt, dir, "publisher")).rejects.toThrow(/publisher is not dispatchable on Pi/);
-    expect(rt.children).toHaveLength(0);
-    for (const role of ["auditor", "architect"] as const) {
+    for (const role of ["publisher", "auditor", "architect"] as const) {
       expect((await dispatch(rt, dir, role)).details.role).toBe(role);
     }
+    expect(flag(rt.children[0]!.args, "--tools")).toBe("read,grep,find,ls,bash");
+  });
+
+  // Covers: R4, R5, R6, R14
+  it("publisher gh pr create relays to the parent and never runs in the child", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-pi-publisher-"));
+    dirs.push(dir);
+    execFileSync("git", ["init", "-q", dir]);
+    renderPiEngine(
+      dir,
+      NavoriConfigSchema.parse({
+        name: "pi-publisher",
+        preset: "custom",
+        engines: ["pi"],
+        branchBase: "main",
+        qualityGate: { fast: "true", full: "true" },
+      }),
+    );
+    writeFileSync(join(dir, "pr-body.txt"), "Body of the pull request");
+    const sent: Array<Record<string, unknown>> = [];
+    const handlers = loadWithScripts({
+      env: { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "publisher" },
+      send: (message, callback) => {
+        sent.push(message);
+        callback(null);
+      },
+    });
+    const command = "gh pr create --title T --body-file pr-body.txt";
+    const result = (await handlers.get("tool_call")!(
+      { toolName: "bash", toolCallId: "c1", input: { command } },
+      { cwd: dir, hasUI: false, sessionManager: { getSessionId: () => "s" } },
+    )) as { block: boolean; reason: string };
+    expect(result.block).toBe(true);
+    expect(result.reason).toMatch(
+      /Navori approval not granted:.*return this command to the parent/,
+    );
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ kind: "parent-approval", command, bodyFiles: ["pr-body.txt"] });
+    expect(String((sent[0] as { reasons: string[] }).reasons[0])).toContain(
+      "Body of the pull request",
+    );
   });
 
   // Covers: R14

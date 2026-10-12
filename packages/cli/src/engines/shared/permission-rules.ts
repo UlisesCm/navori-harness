@@ -70,19 +70,35 @@ export function translateShellPattern(pattern: string): TranslatedShellPattern |
   return { tokens, narrowed };
 }
 
+/** One `<decision> <token> <token> …` line per distinct translated rule, in rule order. */
+function permissionLines(decision: "deny" | "ask", patterns: readonly string[]): string[] {
+  const lines = new Set<string>();
+  for (const pattern of patterns) {
+    const translated = translateShellPattern(pattern);
+    if (translated) lines.add(`${decision} ${translated.tokens.join(" ")}`);
+  }
+  return [...lines];
+}
+
 /**
  * The shared `deny` rules as the data the Pi copy of `guard-destructive.sh` embeds
  * (spec 0048 D15): one `deny <token> <token> …` line per distinct translated rule, in rule order.
  * `-` when nothing translates, because a blank value would render as "not configured". `allow`
- * is never translated and `ask` evaluation belongs to a later milestone (spec 0048 T11).
+ * is never translated.
  */
 export function buildPiDenyRules(rules: ShellPermissionRules): string {
-  const lines = new Set<string>();
-  for (const pattern of rules.deny) {
-    const translated = translateShellPattern(pattern);
-    if (translated) lines.add(`deny ${translated.tokens.join(" ")}`);
-  }
-  return lines.size === 0 ? "-" : [...lines].join("\n");
+  const lines = permissionLines("deny", rules.deny);
+  return lines.length === 0 ? "-" : lines.join("\n");
+}
+
+/**
+ * Everything the Pi guard copy embeds (spec 0048 D15, T11): the `deny` lines of
+ * {@link buildPiDenyRules} followed by one `ask <token> …` line per translated `ask` rule, from the
+ * same translation. The guard blocks on `deny` and asks on `ask`. `-` when nothing translates.
+ */
+export function buildPiPermissionRules(rules: ShellPermissionRules): string {
+  const lines = [...permissionLines("deny", rules.deny), ...permissionLines("ask", rules.ask)];
+  return lines.length === 0 ? "-" : lines.join("\n");
 }
 
 const PACKAGE_MANAGERS = new Set(["pnpm", "npm", "yarn", "bun"]);

@@ -219,9 +219,9 @@ const hookEntries = (): Array<[string, PiParity]> => {
     ),
     h(
       "master-accept-confirm",
-      advisory(
-        "the extension's tool_call handler asks the operator to confirm a bash command that carries `--approved-by`, and blocks it without UI or on denial",
-        "covers only the `--approved-by` forms: `navori master close` and the delivery-review/decision/publication/revoke forms are not asked about; indirect shell forms bypass it. The full command set is spec 0048 E1 M6",
+      seatbelt(
+        "the extension's tool_call handler runs the Pi copy of the script (`.pi/navori/hooks/master-accept-confirm.sh`) under bash for the parent and every child; its `ask` needs the operator's confirmation in the interactive parent (the native dialog), and is refused without UI or on denial. A child is refused and the exact command is relayed to the parent (PI_HOOK_BINDINGS). The extension additionally asks for any command that carries `--approved-by`",
+        "covers `navori master part|delivery-baseline|delivery-queue|delivery-criterion … --approved-by`, `master close`, `delivery-review|decision|publication|revoke` and `delivery-slice --refresh`; indirect shell forms (`sh -c`, a script on disk) bypass it. The confirmation is a seatbelt, not a sandbox",
         "pi-extension:tool_call",
       ),
     ),
@@ -243,7 +243,7 @@ const hookEntries = (): Array<[string, PiParity]> => {
       "guard-destructive",
       seatbelt(
         "the extension's tool_call handler runs the Pi copy of the script (`.pi/navori/hooks/guard-destructive.sh`) under bash for the parent and every child; exit 2 blocks the call before it runs (PI_HOOK_BINDINGS)",
-        "textual policy over the command string: the destructive rules of the shared script, the shared `deny` permission rules, writes to the Pi control plane (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) and `pi --no-extensions`. `ask` rules are not evaluated yet (spec 0048 M6)",
+        "textual policy over the command string: the destructive rules of the shared script, the shared `deny` permission rules, writes to the Pi control plane (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) and `pi --no-extensions`. The shared `ask` rules answer `ask` (their own row)",
         "pi-extension:tool_call",
       ),
     ),
@@ -285,23 +285,26 @@ const hookEntries = (): Array<[string, PiParity]> => {
     ),
     h(
       "comment-draft-confirm",
-      unsupported(
-        NO_BRIDGE,
-        "Publishing a comment or review from Pi bash asks for no confirmation today (spec 0048 R5, M6)",
+      seatbelt(
+        "the extension's tool_call handler runs the Pi copy of the script for the parent and every child: a comment, review, issue, GraphQL/REST comment write or `acli` comment asks for confirmation showing the draft, bound to the sha256 of the body file (re-checked right before the call is allowed; a changed body is refused). Without UI or on denial it is refused; a child is refused and the exact command is relayed to the parent",
+        "a body that is inline or unreadable is shown only as the command; stdin (`-F -`) bodies and a path built by the shell (`$VAR`, `$(…)`) are not shown. A window remains between the check and the exec. Indirect shell forms bypass it",
+        "pi-extension:tool_call",
       ),
     ),
     h(
       "pr-publisher-confirm",
-      unsupported(
-        NO_BRIDGE,
-        "`gh pr create` and similar publishing commands ask for no confirmation in Pi today (spec 0048 R5, M6)",
+      seatbelt(
+        "the extension's tool_call handler runs the Pi copy of the script for the parent and every child: a `gh pr create` always asks (the subagent allow of the Claude copy does not apply), showing the body, bound to the sha256 of its body file. Without UI or on denial it is refused; a child (the publisher) is refused and the exact command is relayed to the parent",
+        "installed only when the publisher role is enabled; a body that is inline or unreadable is shown only as the command. Indirect shell forms bypass it",
+        "pi-extension:tool_call",
       ),
     ),
     h(
       "quality-gate-pre-commit",
-      unsupported(
-        NO_BRIDGE,
-        "`git commit` and `git push` run no quality gate in Pi today (spec 0048 R4, M6)",
+      seatbelt(
+        "the extension's tool_call handler runs the Pi copy of the script (enforced, parent and children, 600 s) before `git commit` AND `git push`: it runs `qualityGate.fast`, and a red gate, a gate that cannot run or a missing runner blocks (a missing runner asks only where an operator can answer)",
+        "only with `qualityGate.fast` configured (no row otherwise, as in Claude and Codex); the result holds for the working tree at that moment. Indirect shell forms (`sh -c`, a script on disk) bypass it; a hook outside the agent (the user's own terminal) is not seen",
+        "pi-extension:tool_call",
       ),
     ),
     h(
@@ -332,10 +335,15 @@ const permissionRuleEntries = (): Array<[string, PiParity]> => {
     piParityKey("permission-rule", id),
     row,
   ];
-  const NO_PERMISSIONS =
-    "Pi 1.1.0 has no permission system (security.md); the Pi guard blocks the shared `deny` rules but does not evaluate `ask` rules yet, so no confirmation is requested for them (spec 0048 R18, M6)";
   return [
-    p("class:bash-ask", unsupported("none", NO_PERMISSIONS)),
+    p(
+      "class:bash-ask",
+      seatbelt(
+        "the Pi copy of guard-destructive.sh embeds the shared `ask` rules next to the `deny` ones (same translation as Codex's rules file) and answers `ask` for a segment that starts with a rule's tokens, after every block rule let it through. The extension asks the operator in the interactive parent (one confirmation); without UI or on denial it is refused, and a child is refused and the command relayed to the parent",
+        "token prefixes: a pattern with an inner wildcard is dropped and a `*` glued to the last token is narrowed to the exact token (`git clean -f*` asks for `git clean -f`, not `-fd`); a block rule wins over a question",
+        "pi-extension:tool_call",
+      ),
+    ),
     p(
       "class:bash-deny",
       seatbelt(
@@ -372,7 +380,11 @@ const permissionRuleEntries = (): Array<[string, PiParity]> => {
                 `family ${id}: the prefix matches only the literal target; the numbered rules of the same script (root/home/system rm, --no-preserve-root, mkfs variants) block the other spellings`,
                 "pi-extension:tool_call",
               )
-            : unsupported("none", `${NO_PERMISSIONS}; family ${id}`),
+            : seatbelt(
+                "the same token-prefix ask rule as Codex's prompt rule, evaluated by the Pi copy of guard-destructive.sh: the operator confirms in the parent, a child is refused and relayed",
+                `family ${id}: the prefix matches only the literal target (a glued trailing * is narrowed to the exact token)`,
+                "pi-extension:tool_call",
+              ),
         ),
       ),
     ),
