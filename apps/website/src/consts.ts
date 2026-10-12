@@ -36,7 +36,7 @@ export const INVENTORY = {
   /** Stack presets under `packages/core/core-assets/presets/`. */
   presets: 13,
   /** Plugin bundles under `packages/plugins/`. */
-  plugins: 7,
+  plugins: 5,
   /** Engine adapters under `packages/cli/src/engines/`. */
   engines: 6,
   /** Core agents under `packages/core/core-assets/agents/`. */

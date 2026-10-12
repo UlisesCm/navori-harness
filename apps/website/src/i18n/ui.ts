@@ -100,8 +100,6 @@ export const ui = {
     "graph.chip.auditor": "busca lo que duele",
     "graph.chip.guard": "bloquea lo destructivo",
     "graph.chip.permissions": "allow · ask · deny",
-    "graph.chip.semgrep": "seguridad en el diff",
-    "graph.chip.jscpd": "duplicación",
     "graph.chip.gate": "lint · tests · formato",
     "graph.chip.reviewer": "aprueba o rechaza",
     "graph.chip.commit": "commit + PR",
@@ -185,12 +183,6 @@ export const ui = {
     "toolbox.tgrep.title": "Buscar por contenido",
     "toolbox.tgrep.body":
       "Índice de trigramas sobre el repo. Qué archivos contienen esta cadena, con el contrato de exit code intacto y sin pelear con el motor que tenga la máquina.",
-    "toolbox.semgrep.title": "Seguridad",
-    "toolbox.semgrep.body":
-      "Análisis estático de patrones peligrosos sobre el diff, integrado al gate del reviewer en lugar de quedar como un paso que alguien tiene que acordarse de correr.",
-    "toolbox.jscpd.title": "Duplicación",
-    "toolbox.jscpd.body":
-      "Detecta copy-paste antes de que se vuelva deuda. Un agente que no ve el código que ya existe lo reescribe; esto es lo que se lo enseña.",
     "toolbox.engram.title": "Memoria persistente",
     "toolbox.engram.body":
       "Decisiones, causas raíz y convenciones que sobreviven al cierre de sesión y a las compactaciones de contexto. No vuelves a explicar el lunes lo que decidiste el viernes.",
@@ -401,8 +393,6 @@ export const ui = {
     "graph.chip.auditor": "hunts what hurts",
     "graph.chip.guard": "blocks the destructive",
     "graph.chip.permissions": "allow · ask · deny",
-    "graph.chip.semgrep": "security on the diff",
-    "graph.chip.jscpd": "duplication",
     "graph.chip.gate": "lint · tests · format",
     "graph.chip.reviewer": "approves or rejects",
     "graph.chip.commit": "commit + PR",
@@ -483,12 +473,6 @@ export const ui = {
     "toolbox.tgrep.title": "Search by content",
     "toolbox.tgrep.body":
       "A trigram index over the repo. Which files hold this string, with the exit-code contract intact and no fight over which engine the machine happens to have.",
-    "toolbox.semgrep.title": "Security",
-    "toolbox.semgrep.body":
-      "Static analysis for dangerous patterns over the diff, wired into the reviewer's gate instead of sitting there as a step someone has to remember to run.",
-    "toolbox.jscpd.title": "Duplication",
-    "toolbox.jscpd.body":
-      "Catches copy-paste before it becomes debt. An agent that can't see the code that already exists rewrites it; this is what shows it.",
     "toolbox.engram.title": "Persistent memory",
     "toolbox.engram.body":
       "Decisions, root causes and conventions that survive session close and context compaction. You don't re-explain on Monday what you settled on Friday.",
