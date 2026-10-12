@@ -122,6 +122,52 @@ extension blocks `bash`, `edit` and `write` because it cannot evaluate them; rea
 removes it from the active tools at `session_start` with `setActiveTools`, and blocks any `powershell` call at
 `tool_call`. On Windows, use the `bash` tool; it requires Git for Windows (Git Bash).
 
+## Plugins
+
+An enabled plugin reaches Pi through `renderPiEngine` (`packages/cli/src/engines/pi/index.ts`) and
+`plugin-projection.ts`. A plugin the overlap matrix marks native on Pi is skipped. What an enabled plugin
+projects:
+
+- **Skills on skills.** A plugin skill with `injectInto: .claude/skills/<id>/SKILL.md` becomes a managed
+  sub-block of `.agents/skills/<id>/SKILL.md`. Pi writes it only when Codex is not in `engines`; with Codex
+  active, Codex writes that skill and Pi never duplicates it.
+- **Role prose.** A plugin skill with `injectInto: .claude/agents/<role>.md` is appended to
+  `.pi/agents/<role>.md`, interpolated and conditioned for Pi. A plugin that declares an `mcpServer`
+  contributes no role prose at all: Pi children run with `--no-mcp`.
+- **Orchestrator and AGENTS.md blocks.** A skill injected into `.claude/agents/orchestrator.md` and the
+  plugin `managed` blocks become sub-blocks of the shared `AGENTS.md`. Pi writes them only when no other
+  enabled engine owns that file (`ownsAgentsMd`); otherwise that owner's output stands.
+- **Scripts.** Plugin scripts are copied to `.pi/navori/scripts/<dest>` as Pi's own executable copies, even
+  when Codex is active. A script is installed only when a bridge row runs it, or when its plugin's hook
+  extension rides inside an installed Pi hook copy. Colliding destinations are skipped.
+- **Hooks.** Plugin `PreToolUse`/`Bash` hooks use the grammar Codex translates. They become manifest v2
+  rows in `.pi/navori.json` that point at `.pi/navori/scripts/<dest>`: `tool_call`, `bash`, scope `all`,
+  `enforced`, non-interactive, with the manifest timeout. A hook that does not translate is reported as a
+  warning and is not installed.
+- **Hook extensions.** A plugin `hookExtensions` entry targeting a core Claude hook becomes a managed
+  sub-block of Pi's copy, `.pi/navori/hooks/<hook>`, and is stripped again when the plugin is disabled.
+
+Ownership, backup and prune use the shared render plan, the same as the other engines: the plugin outputs
+are Navori-owned paths, the plan reports its backup path, and a script in `.pi/navori/scripts/` with no
+remaining binding is pruned. Disabling a plugin strips its sub-blocks from `.agents/skills/<id>/SKILL.md`
+and prunes its Pi outputs.
+
+Per unit, the states in [Parity inventory](#parity-inventory) are:
+
+| Plugin unit | Pi state | What it means on Pi |
+| --- | --- | --- |
+| Skill sub-block (`.agents/skills`, `AGENTS.md`) | `advisory` | Text the model reads; nothing enforces it. |
+| Plugin script run by a hook | `enforced` | Seatbelt on `bash` tool calls only, not a sandbox. |
+| Plugin hook | `enforced` | Same limits as the shared guard; enforced only while the extension is loaded. |
+| `settingsFragment` | `n/a` | Only `allow` rules, which Pi does not translate (as Codex). |
+| MCP server | `advisory` | Render warns when the server is missing or disabled in Pi's MCP config. |
+| MCP plugin skill on a child role | `unsupported` | Children run `--no-mcp`, so the prose is not injected. |
+| Skill on a role Pi does not render (for example `publisher`) | `unsupported` | Pending the role work in spec 0048 R14 and M11. |
+| tgrep guard script and `tgrep-search-lane` hook extension | `unsupported` | They ride the Pi guard copy, which lands with spec 0048 M3. |
+
+Render warns when a plugin's MCP server is missing or disabled in Pi's native MCP config. Navori never writes
+Pi's MCP config.
+
 ## Doctor findings
 
 When the engine is enabled, `navori doctor` reports these Pi findings. All are advisory: none changes doctor's

@@ -34,11 +34,14 @@ const CLAUDE_HOOKS_PREFIX = ".claude/hooks/";
  * `.codex/hooks/`. Returns null for a target that is not an engine hook mirror,
  * which Codex does not extend.
  */
-export function hookExtensionTarget(target: string, engine: "claude" | "codex"): string | null {
+export function hookExtensionTarget(
+  target: string,
+  engine: "claude" | "codex" | "pi",
+): string | null {
   if (engine === "claude") return target;
-  return target.startsWith(CLAUDE_HOOKS_PREFIX)
-    ? `.codex/hooks/${target.slice(CLAUDE_HOOKS_PREFIX.length)}`
-    : null;
+  if (!target.startsWith(CLAUDE_HOOKS_PREFIX)) return null;
+  const hook = target.slice(CLAUDE_HOOKS_PREFIX.length);
+  return engine === "pi" ? `.pi/navori/hooks/${hook}` : `.codex/hooks/${hook}`;
 }
 
 /**

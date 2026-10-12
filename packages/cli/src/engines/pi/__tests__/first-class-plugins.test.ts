@@ -7,6 +7,7 @@ import {
   readFileSync,
   readlinkSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,6 +20,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { ENGINE_CAPABILITIES } from "../../shared/engine-capabilities.ts";
 import { renderPiEngine } from "../index.ts";
+import { rolePluginProse } from "../plugin-projection.ts";
+import type { LoadedPlugin } from "../../../lib/config/plugins.ts";
 import { PI_EXTENSION_SOURCE, renderPiExtensionSource } from "../extension-source.ts";
 
 interface Tool {
@@ -377,5 +380,127 @@ describe("Pi MCP check at session start", () => {
         trusted: false,
       }),
     ).toEqual([]);
+  });
+});
+
+describe("Pi plugin projection", () => {
+  const GUARD = {
+    script: "guard-destructive",
+    on: "tool_call",
+    tools: ["bash"],
+    scope: "all",
+    class: "enforced",
+    interactive: true,
+    timeoutMs: 30_000,
+  } as const;
+
+  /** A project directory plus the config for the given engines and plugin switches. */
+  function project(engines: string[], plugins: Record<string, { enabled: boolean }>) {
+    const dir = mkdtempSync(join(tmpdir(), "navori-pi-plugins-"));
+    dirs.push(dir);
+    const config = NavoriConfigSchema.parse({
+      name: "pi-plugins",
+      preset: "custom",
+      engines,
+      branchBase: "main",
+      qualityGate: { fast: "bun test", full: "bun test" },
+      plugins,
+    });
+    return { dir, config };
+  }
+  const read = (dir: string, rel: string): string => readFileSync(join(dir, rel), "utf8");
+  const hookPaths = (dir: string): string[] =>
+    (JSON.parse(read(dir, ".pi/navori.json")) as { hooks: Array<{ path: string }> }).hooks.map(
+      (hook) => hook.path,
+    );
+
+  // Covers: R12
+  it("plugin skills and prose projected since codex absent", () => {
+    const { dir, config } = project(["pi"], { jscpd: { enabled: true }, tgrep: { enabled: true } });
+    renderPiEngine(dir, config, { hookBindings: [GUARD] });
+    // The skill that extends review-diff is a sub-block of Pi's own shared-root copy.
+    expect(read(dir, ".agents/skills/review-diff/SKILL.md")).toContain("jscpd-review-extension");
+    // Plugin protocol blocks ride in the context file Pi writes.
+    expect(read(dir, "AGENTS.md")).toContain("Textual provider: tgrep");
+  });
+
+  // Covers: R12
+  it("with codex active nothing the codex owns is duplicated", () => {
+    const { dir, config } = project(["pi", "codex"], {
+      jscpd: { enabled: true },
+      tgrep: { enabled: true },
+    });
+    renderPiEngine(dir, config, { hookBindings: [GUARD] });
+    expect(existsSync(join(dir, ".agents"))).toBe(false);
+    expect(existsSync(join(dir, "AGENTS.md"))).toBe(false);
+    // Pi's own executable copies remain Pi's.
+    expect(existsSync(join(dir, ".pi/navori/scripts/check-jscpd.sh"))).toBe(true);
+  });
+
+  // Covers: R12
+  it("plugin hook placed under .pi/navori and declared in the manifest", () => {
+    const { dir, config } = project(["pi"], { jscpd: { enabled: true }, tgrep: { enabled: true } });
+    renderPiEngine(dir, config, { hookBindings: [GUARD] });
+    expect(hookPaths(dir)).toEqual(
+      expect.arrayContaining([
+        ".pi/navori/hooks/guard-destructive.sh",
+        ".pi/navori/scripts/check-jscpd.sh",
+      ]),
+    );
+    // The tgrep lane rides inside Pi's guard copy and the script it sources is installed beside it.
+    expect(read(dir, ".pi/navori/hooks/guard-destructive.sh")).toContain("tgrep-search-lane");
+    expect(existsSync(join(dir, ".pi/navori/scripts/guard-search-routing.sh"))).toBe(true);
+    expect(statSync(join(dir, ".pi/navori/scripts/check-jscpd.sh")).mode & 0o111).not.toBe(0);
+  });
+
+  // Covers: R12
+  it("disabling a plugin prunes its Pi outputs", () => {
+    const on = project(["pi"], { jscpd: { enabled: true }, tgrep: { enabled: true } });
+    renderPiEngine(on.dir, on.config, { hookBindings: [GUARD] });
+    const off = NavoriConfigSchema.parse({
+      ...on.config,
+      plugins: { jscpd: { enabled: false }, tgrep: { enabled: false } },
+    });
+    renderPiEngine(on.dir, off, { hookBindings: [GUARD] });
+    expect(existsSync(join(on.dir, ".pi/navori/scripts/check-jscpd.sh"))).toBe(false);
+    expect(existsSync(join(on.dir, ".pi/navori/scripts/guard-search-routing.sh"))).toBe(false);
+    expect(read(on.dir, ".agents/skills/review-diff/SKILL.md")).not.toContain(
+      "jscpd-review-extension",
+    );
+    expect(read(on.dir, ".pi/navori/hooks/guard-destructive.sh")).not.toContain(
+      "tgrep-search-lane",
+    );
+    expect(hookPaths(on.dir)).toEqual([".pi/navori/hooks/guard-destructive.sh"]);
+  });
+
+  // Covers: R12
+  it("an MCP plugin's prose is not injected into a child role", () => {
+    const { dir, config } = project(["pi"], { engram: { enabled: true } });
+    renderPiEngine(dir, config);
+    expect(read(dir, ".pi/agents/reviewer.md")).not.toContain("engram");
+  });
+
+  // Covers: R12
+  it("prose of a plugin without an MCP server is appended to the role file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-pi-prose-"));
+    dirs.push(dir);
+    writeFileSync(join(dir, "ext.txt"), "Extra reviewer guidance.\n");
+    const config = NavoriConfigSchema.parse({
+      name: "pi-prose",
+      preset: "custom",
+      engines: ["pi"],
+      branchBase: "main",
+    });
+    const target = [".claude", "agents", "reviewer.md"].join("/");
+    const plugin = (mcp: boolean): LoadedPlugin =>
+      ({
+        manifest: { id: "x", ...(mcp ? { mcpServer: { name: "x" } } : {}) },
+        skillAssets: [{ id: "x-ext", absPath: join(dir, "ext.txt"), injectInto: target }],
+      }) as unknown as LoadedPlugin;
+    expect(rolePluginProse("reviewer", [plugin(false)], config)).toContain(
+      "Extra reviewer guidance.",
+    );
+    expect(rolePluginProse("implementer", [plugin(false)], config)).toBe("");
+    expect(rolePluginProse("reviewer", [plugin(true)], config)).toBe("");
   });
 });

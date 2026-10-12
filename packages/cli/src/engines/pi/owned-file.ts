@@ -194,6 +194,16 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item: unknown) => typeof item === "string");
 }
 
+/** A shared hook copy, or a plugin script under `.pi/navori/scripts` (spec 0048 D13); never a path that climbs out. */
+function isPiHookPath(script: string, path: unknown): path is string {
+  if (path === `.pi/navori/hooks/${script}.sh`) return true;
+  return (
+    typeof path === "string" &&
+    /^\.pi\/navori\/scripts\/[A-Za-z0-9_][A-Za-z0-9_./-]*$/.test(path) &&
+    !path.includes("..")
+  );
+}
+
 /** Strict shape check of one `hooks[]` entry: a script id, a Navori-owned relative path and closed enums. */
 function parseManifestHook(raw: unknown): PiManifestHook | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
@@ -203,7 +213,7 @@ function parseManifestHook(raw: unknown): PiManifestHook | null {
   if (
     typeof hook.script !== "string" ||
     !/^[a-z0-9][a-z0-9-]*$/.test(hook.script) ||
-    hook.path !== `.pi/navori/hooks/${hook.script}.sh` ||
+    !isPiHookPath(hook.script, hook.path) ||
     typeof hook.on !== "string" ||
     !HOOK_EVENTS.includes(hook.on) ||
     typeof hook.scope !== "string" ||

@@ -12,10 +12,13 @@ export function pluginScriptManagedId(pluginId: string, dest: string): string {
 }
 
 /** Source and provenance for one engine-specific managed plugin script. */
-export function pluginScriptPlacements(plugin: LoadedPlugin, engine: "claude" | "codex") {
+export function pluginScriptPlacements(plugin: LoadedPlugin, engine: "claude" | "codex" | "pi") {
   return plugin.scriptAssets.map((script) => ({
     ...script,
-    destRelPath: `.${engine}/scripts/${script.dest}`,
+    // Pi keeps its copies beside its hook copies (`.pi/navori/hooks/../scripts`), so a hook
+    // extension that sources `$(dirname "$0")/../scripts/<x>` resolves under every engine.
+    destRelPath:
+      engine === "pi" ? `.pi/navori/scripts/${script.dest}` : `.${engine}/scripts/${script.dest}`,
     managedId: pluginScriptManagedId(plugin.manifest.id, script.dest),
     meta: { source: `@navori/plugin-${plugin.manifest.id}`, version: readCliVersion() },
   }));

@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="ac0a5b44b280d4b4bb6081657b3dabe4a530d888cbac8bca8a479c164bfe700f"
+// navori:managed-file id="pi-extension" hash="f02c87ef2d797d67551e38d104a939589bbabbaeebf2fca59c8a105afed8cb29"
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -701,7 +701,9 @@ function bridgeCap(text: string, max: number): string {
 
 function bridgeHook(raw: unknown): BridgeHook | undefined {
   if (!isRecord(raw) || typeof raw.script !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(raw.script)) return undefined;
-  if (raw.path !== ".pi/navori/hooks/" + raw.script + ".sh") return undefined;
+  // A shared hook copy, or a plugin script (spec 0048 D13); never a path that climbs out of .pi/navori.
+  if (raw.path !== ".pi/navori/hooks/" + raw.script + ".sh"
+    && !(typeof raw.path === "string" && /^\.pi\/navori\/scripts\/[A-Za-z0-9_][A-Za-z0-9_.\/-]*$/.test(raw.path) && !raw.path.includes(".."))) return undefined;
   if (typeof raw.on !== "string" || !["tool_call", "tool_result", "agent_before_settle", "session_shutdown"].includes(raw.on)) return undefined;
   if (typeof raw.scope !== "string" || !["parent", "child", "all"].includes(raw.scope)) return undefined;
   if (raw.class !== "enforced" && raw.class !== "advisory" && raw.class !== "lifecycle") return undefined;

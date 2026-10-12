@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-publisher" hash="23ae54b7fe5983c75f4a250b6fd11be74c410ddf46e9581972fd3fc03e5ebcce"
+# navori:managed-file id="pi-agent-publisher" hash="aa8ba9ffeddf68db61c43baf9e691ca8118f2afc8067f5a3824c2d1ba8d1919e"
 name: "publisher"
 description: "Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use after the reviewer approves, when the cycle ends in a commit, a push or a PR."
 tools: ["read","grep","find","ls","bash"]
@@ -289,3 +289,11 @@ proof the work is safe: what makes it recoverable is the branch being pushed.
 
 - If all OK: one line with the PR URL and the title, plus the `worktree:` line.
 - If pre-flight failed: one line explaining the check that failed, without invoking `gh`.
+
+### GitHub comments and reviews (`gh`)
+
+The body always comes from a file, never inline:
+
+- `gh pr comment`, `gh issue comment` (incl. `--edit-last`), `gh pr review -c/-a/-r`: `--body-file <path>`.
+- `gh api` on a `/comments` or `/reviews` endpoint: `--input <path>` or `-F body=@<path>`.
+- `gh api graphql` mutations (`add*Comment`, `updateIssueComment`, `updateDiscussionComment`, `updatePullRequestReview`, `updatePullRequestReviewComment`): the `body` variable/field sourced from `@<path>`; the `query` string never carries the comment text.

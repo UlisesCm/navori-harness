@@ -42,7 +42,25 @@ import {
   localSkillPointerMarkerId,
   localSkillSourceAbs,
 } from "../shared/local-skill-pointer.ts";
-import { loadEnabledPlugins } from "../../lib/config/plugins.ts";
+import { loadDisabledPlugins, loadEnabledPlugins } from "../../lib/config/plugins.ts";
+import {
+  applyHookExtension,
+  hookExtensionTarget,
+  removeHookExtension,
+} from "../shared/hook-extension.ts";
+import { pluginExtraVars } from "../shared/plugin-extra-vars.ts";
+import { pluginScriptCollisions, pluginScriptPlacements } from "../shared/plugin-scripts.ts";
+import {
+  applySkillSubBlocks,
+  extendWithOrchestratorBlocks,
+  piBindingPath,
+  piInstalledPluginScripts,
+  piLivePlugins,
+  resolvePiPluginHooks,
+  rolePluginProse,
+  type PiPluginBinding,
+} from "./plugin-projection.ts";
+import type { LoadedPlugin } from "../../lib/config/plugins.ts";
 import { deriveMcpTools } from "../claude/agent-mcp-tools.ts";
 import { tc } from "../../lib/i18n.ts";
 import { PI_ROLE_TOOLS } from "./role-tools.ts";
@@ -53,6 +71,7 @@ const EXTENSION = ".pi/extensions/navori.ts";
 
 const MANIFEST = ".pi/navori.json";
 const HOOKS_DIR = ".pi/navori/hooks";
+const SCRIPTS_DIR = ".pi/navori/scripts";
 /** Plan-skill ids plus the local-skill pointers Pi may own in the shared `.agents/skills` root. */
 interface PiSkillRoot {
   /** Local ids with a safe-to-write pointer (`emit`). */
@@ -65,8 +84,18 @@ interface PiSkillRoot {
  * Pi adapter. Codex already owns the shared `.agents/skills` root when both engines are
  * enabled, so Pi writes (and prunes) nothing there then: one writer, one marker.
  */
-function buildAdapter(local: PiSkillRoot, bindings: readonly PiHookBinding[]): EngineAdapter {
+function buildAdapter(
+  local: PiSkillRoot,
+  bindings: readonly PiHookBinding[],
+  plugins: readonly LoadedPlugin[],
+  pluginBindings: readonly PiPluginBinding[],
+): EngineAdapter {
   const hookIds = new Set(bindings.map(({ script }) => script));
+  const installedScripts = piInstalledPluginScripts(
+    plugins,
+    pluginBindings,
+    new Set(bindings.map(({ script }) => piHookPath(script))),
+  );
   return {
     id: "pi",
     label: "Pi Coding Agent",
@@ -95,8 +124,27 @@ function buildAdapter(local: PiSkillRoot, bindings: readonly PiHookBinding[]): E
     // Same transform/marker/destination as the Codex pointer: the body stays in the user's
     // `.claude/skills/<id>/SKILL.md`, this entry only makes it discoverable (spec 0047 R9).
     extraFiles: (ctx) => {
-      if (ctx.config.engines.includes("codex")) return [];
-      return local.emit.flatMap((id) => {
+      // Plugin scripts are Pi's own copies even when Codex is active (`.pi/navori/scripts`).
+      const collisions = pluginScriptCollisions(ctx.plugins);
+      const pluginScripts = ctx.plugins.flatMap((plugin) =>
+        pluginScriptPlacements(plugin, "pi").flatMap((script) =>
+          collisions.has(script.dest) || !installedScripts.has(script.destRelPath)
+            ? []
+            : [
+                {
+                  assetPath: script.src,
+                  destRelPath: script.destRelPath,
+                  managedId: script.managedId,
+                  meta: script.meta,
+                  extraVars: pluginExtraVars(ctx.config),
+                  commentStyle: "shell" as const,
+                  chmodExec: script.exec,
+                },
+              ],
+        ),
+      );
+      if (ctx.config.engines.includes("codex")) return pluginScripts;
+      const pointers = local.emit.flatMap((id) => {
         const sourceAbs = localSkillSourceAbs(ctx.cwd, id);
         if (sourceAbs === null) return [];
         return [
@@ -109,6 +157,7 @@ function buildAdapter(local: PiSkillRoot, bindings: readonly PiHookBinding[]): E
           },
         ];
       });
+      return [...pointers, ...pluginScripts];
     },
     orphanScans: (plan, ctx) => [
       // A script whose binding is gone (or whose `when` no longer holds) is pruned like any managed hook.
@@ -118,6 +167,12 @@ function buildAdapter(local: PiSkillRoot, bindings: readonly PiHookBinding[]): E
         desired: new Set(
           plan.hooks.filter(({ id }) => hookIds.has(id)).map(({ id }) => piHookPath(id)),
         ),
+        shape: "file",
+      },
+      {
+        dir: SCRIPTS_DIR,
+        match: (name) => name.endsWith(".sh"),
+        desired: new Set(installedScripts),
         shape: "file",
       },
       ...(ctx.config.engines.includes("codex")
@@ -189,7 +244,7 @@ export function piOwnershipVerdict(cwd: string, rel: string): "ours" | "modified
   const stats = lstatSync(path, { throwIfNoEntry: false });
   if (!stats?.isFile() || stats.isSymbolicLink()) return "foreign";
   // Hook scripts are marker-managed (shell comments) with a user-section, not whole-file owned.
-  if (/^\.pi\/navori\/hooks\/[a-z0-9-]+\.sh$/.test(rel)) {
+  if (/^\.pi\/navori\/(hooks\/[a-z0-9-]+|scripts\/[A-Za-z0-9_][A-Za-z0-9_./-]*)\.sh$/.test(rel)) {
     const authorship = navoriAuthorship(path, undefined, { verifyHash: true });
     return authorship === "ours" ? "ours" : authorship === "foreign" ? "foreign" : "modified";
   }
@@ -220,8 +275,16 @@ export function renderPiEngine(
   } = {},
 ): ProseEngineResult {
   const config = effectiveConfig(inputConfig);
-  const bindings = activePiHookBindings(config, options.hookBindings);
+  const coreBindings = activePiHookBindings(config, options.hookBindings);
   const repoRoot = options.repoRoot ?? cwd;
+  const loadedPlugins = loadEnabledPlugins(config.plugins);
+  // Spec 0048 D13: the plugins Pi projects (the matrix may mark one native on Pi).
+  const plugins = piLivePlugins(loadedPlugins.loaded);
+  const pluginHooks = resolvePiPluginHooks(plugins);
+  const bindings: readonly (PiHookBinding | PiPluginBinding)[] = [
+    ...coreBindings,
+    ...pluginHooks.bindings,
+  ];
   const coreAssets = resolve(getCoreRoot(), "core-assets");
   const preset =
     config.preset && config.preset !== "custom" ? loadPreset(config.preset, repoRoot) : null;
@@ -232,7 +295,7 @@ export function renderPiEngine(
     isWorkspace: resolve(cwd) !== resolve(repoRoot),
     coreAssets,
     preset,
-    plugins: [],
+    plugins,
   };
   const plan = resolveHarnessPlan(config, coreAssets, preset);
   const lang = resolveLang(config.language);
@@ -241,21 +304,76 @@ export function renderPiEngine(
     config.project?.localSkills ?? [],
     new Set(plan.skills.map((s) => s.id)),
   );
-  const adapter = buildAdapter(localSkills, bindings);
+  const adapter = buildAdapter(localSkills, coreBindings, plugins, pluginHooks.bindings);
   const collected = collectPlan(plan, adapter, ctx, { lang });
+  const warnings: string[] = [];
+  const disabledPlugins = loadDisabledPlugins(config.plugins).loaded;
+  // Codex owns the shared skill root when active: its sub-blocks come from there, never twice.
+  if (!config.engines.includes("codex")) {
+    applySkillSubBlocks({
+      cwd,
+      config,
+      enabled: plugins,
+      disabled: disabledPlugins,
+      pending: collected.pending,
+      warnings,
+      notInjected: tc(lang).engine.pluginSkillNotInjected,
+    });
+  }
+  // Hook extensions ride inside Pi's own copy of the hook they extend (the extension body is
+  // engine-neutral); a target Pi does not install is left alone.
+  const extensionSkipped: SkippedFile[] = [];
+  const installedHooks = new Set(coreBindings.map(({ script }) => piHookPath(script)));
+  for (const plugin of plugins) {
+    for (const extension of plugin.hookExtensionAssets ?? []) {
+      const target = hookExtensionTarget(extension.target, "pi");
+      if (target === null || !installedHooks.has(target)) continue;
+      applyHookExtension({
+        cwd,
+        plugin,
+        extension,
+        target,
+        config,
+        pending: collected.pending,
+        skipped: extensionSkipped,
+        updatesAvailable: [],
+        downgrades: [],
+        withRelPath: true,
+      });
+    }
+  }
+  for (const plugin of disabledPlugins) {
+    for (const extension of plugin.hookExtensionAssets ?? []) {
+      const target = hookExtensionTarget(extension.target, "pi");
+      if (target === null) continue;
+      removeHookExtension({
+        cwd,
+        extension,
+        target,
+        pending: collected.pending,
+        withRelPath: true,
+      });
+    }
+  }
   const scribeOwnsMarkdown = config.harness?.scribeOwnsMarkdown ?? false;
   // The scribe is admitted only as the Markdown producer the project policy requires.
   const admitted = (id: string): boolean =>
     Object.hasOwn(ROLE_TOOLS, id) && (id !== "scribe" || scribeOwnsMarkdown);
   const roles = plan.agents.filter((agent) => admitted(agent.id));
-  const warnings: string[] = plan.agents
-    .filter((agent) => !Object.hasOwn(ROLE_TOOLS, agent.id))
-    .map((agent) => `Pi subagent role ${agent.id} is unsupported and was not rendered.`);
+  warnings.push(
+    ...plan.agents
+      .filter((agent) => !Object.hasOwn(ROLE_TOOLS, agent.id))
+      .map((agent) => `Pi subagent role ${agent.id} is unsupported and was not rendered.`),
+  );
   if (!config.engines.includes("codex")) {
     for (const id of localSkills.foreign) {
       warnings.push(tc(lang).engine.localSkillForeignPointer(localSkillPointerDestRel(id)));
     }
   }
+  for (const { id, reason } of loadedPlugins.missing) {
+    warnings.push(`Pi could not load plugin ${id}: ${reason}`);
+  }
+  warnings.push(...pluginHooks.warnings);
   warnings.push(...mcpRoleDiagnostics(config, roles));
   warnings.push(...mcpServerDiagnostics(cwd, config));
   if (scribeOwnsMarkdown && !roles.some((agent) => agent.id === "scribe")) {
@@ -265,7 +383,7 @@ export function renderPiEngine(
   }
   const hooks: PiManifestHook[] = bindings.map((binding) => ({
     script: binding.script,
-    path: piHookPath(binding.script),
+    path: piBindingPath(binding),
     on: binding.on,
     ...(binding.tools ? { tools: [...binding.tools] } : {}),
     scope: binding.scope,
@@ -328,7 +446,7 @@ export function renderPiEngine(
       description,
       ...(model ? { model } : {}),
       tools: ROLE_TOOLS[agent.id]!,
-      instructions,
+      instructions: instructions + rolePluginProse(agent.id, plugins, config),
     });
     resources.push({
       relPath: `.pi/agents/${agent.id}.md`,
@@ -349,7 +467,10 @@ export function renderPiEngine(
   // `.pi/navori/**` joins the all-or-nothing rule: an edited managed block in a hook copy means the
   // extension, manifest and scripts are not committed as a mixed generation (spec 0048 "Render parcial").
   const navoriDir = join(cwd, ".pi/navori") + sep;
-  let collided = collected.skipped.some((skip) => skip.path.startsWith(".pi/navori/"));
+  let collided =
+    extensionSkipped.length > 0 ||
+    collected.skipped.some((skip) => skip.path.startsWith(".pi/navori/"));
+  skipped.push(...extensionSkipped);
   for (const relPath of [".pi", ".pi/extensions", ".pi/agents", ".pi/navori", HOOKS_DIR]) {
     const path = join(cwd, relPath);
     if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) {
@@ -454,7 +575,13 @@ export function renderPiEngine(
   if (!piNeedsContextWriter(config)) return { ...result, skipped, warnings };
   // Foreign content outside the managed block and a hand-edited block are preserved by the
   // shared prose renderer. Its Claude-parity advisories do not apply to Pi and are dropped.
-  const context = renderAgentsMdEngine(cwd, config, options);
+  // Pi is the only writer of the shared context file here, so it also carries the plugin blocks
+  // and the orchestrator sub-blocks (Codex, when active, does it for them: no duplication).
+  const context = renderAgentsMdEngine(cwd, config, {
+    ...options,
+    includePluginBlocks: true,
+    extendBody: (body) => extendWithOrchestratorBlocks(body, plugins, config),
+  });
   return {
     written: [...result.written, ...context.written],
     skipped: [...skipped, ...context.skipped],

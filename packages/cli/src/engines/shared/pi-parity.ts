@@ -345,24 +345,51 @@ const permissionRuleEntries = (): Array<[string, PiParity]> => {
   ];
 };
 
-/** Why a plugin unit does not reach Pi today. */
-const NO_PLUGINS =
-  "renderPiEngine builds the adapter context with `plugins: []` (spec 0048 R12/R13, M10)";
+/** Where a plugin's prose and skills reach Pi from (spec 0048 D13, R12). */
+const PLUGIN_PROJECTION = "render:plugin-projection";
+
+/** The shared context file: Pi writes it only when neither Codex nor agents-md owns it. */
+const CONTEXT_BOUNDARY =
+  "Pi writes the AGENTS file (with includePluginBlocks) only when neither Codex nor agents-md owns it; then that owner's output stands. The block is prose: Pi reads it, nothing enforces it";
 
 const pluginEntries = (): Array<[string, PiParity]> => {
-  const skill = (plugin: string, id: string, target: string): [string, PiParity] => [
+  /** A skill extending another skill: a sub-block of Pi's `.agents/skills/<id>/SKILL.md` copy. */
+  const skillOnSkill = (plugin: string, id: string, target: string): [string, PiParity] => [
+    piParityKey("plugin-skill", `${plugin}/${id}`),
+    advisory(
+      `sub-block of .agents/skills/${target}/SKILL.md, written by Pi only when Codex is not active`,
+      "with Codex active, Codex writes that skill and its sub-block; Pi never duplicates it. The text is guidance, nothing enforces it",
+      PLUGIN_PROJECTION,
+    ),
+  ];
+  /** A skill extending the orchestrator: a sub-block of the context file Pi embodies it through. */
+  const skillOnOrchestrator = (plugin: string, id: string): [string, PiParity] => [
+    piParityKey("plugin-skill", `${plugin}/${id}`),
+    advisory(
+      "sub-block of the AGENTS file, the main thread's durable guide",
+      CONTEXT_BOUNDARY,
+      PLUGIN_PROJECTION,
+    ),
+  ];
+  /** A skill extending a child role of an MCP plugin: Pi children run `--no-mcp`, so it is not injected. */
+  const skillOnMcpRole = (plugin: string, id: string, role: string): [string, PiParity] => [
     piParityKey("plugin-skill", `${plugin}/${id}`),
     unsupported(
       "none",
-      `${NO_PLUGINS}; the skill injected into ${target} is not emitted by Pi (when Codex is also active, it writes .agents/skills itself)`,
+      `${plugin} declares an MCP server and Pi children run with --no-mcp, so the ${role} prose is not injected; render names the role (mcpRoleDiagnostics)`,
+    ),
+  ];
+  /** A skill extending a role Pi does not render yet. */
+  const skillOnMissingRole = (plugin: string, id: string, role: string): [string, PiParity] => [
+    piParityKey("plugin-skill", `${plugin}/${id}`),
+    unsupported(
+      "none",
+      `Pi renders no ${role} role yet (spec 0048 R14, M11); the prose is appended to .pi/agents/${role}.md once it does`,
     ),
   ];
   const managed = (plugin: string, id: string): [string, PiParity] => [
     piParityKey("plugin-managed", `${plugin}/${id}`),
-    unsupported(
-      "none",
-      `${NO_PLUGINS}; Pi owns no AGENTS.md, so the block reaches Pi only through the Codex or agents-md owner of that file`,
-    ),
+    advisory("block of the AGENTS file (includePluginBlocks)", CONTEXT_BOUNDARY, PLUGIN_PROJECTION),
   ];
   const settings = (plugin: string): [string, PiParity] => [
     piParityKey("plugin-settings", plugin),
@@ -370,13 +397,31 @@ const pluginEntries = (): Array<[string, PiParity]> => {
       "only `allow` rules: Pi has no permission system and does not translate allow, as Codex",
     ),
   ];
-  const script = (plugin: string, dest: string): [string, PiParity] => [
+  /** A plugin script a bridge row runs: Pi's own executable copy under `.pi/navori/scripts`. */
+  const runScript = (plugin: string, dest: string): [string, PiParity] => [
     piParityKey("plugin-script", `${plugin}/${dest}`),
-    unsupported("none", `${NO_PLUGINS}; no .pi/navori/scripts copy exists`),
+    {
+      state: "enforced",
+      seatbelt: true,
+      mechanism: `.pi/navori/scripts/${dest}, run by the extension bridge on tool_call(bash)`,
+      boundary:
+        "a textual check of the command the model writes, not a sandbox; Pi has no permission system of its own",
+      bypass: PI_SEATBELT_BYPASSES,
+      evidence: "pi-extension:tool_call",
+    },
   ];
   const hook = (plugin: string, ordinal: number): [string, PiParity] => [
     piParityKey("plugin-hook", `${plugin}/${ordinal}`),
-    unsupported("none", `${NO_PLUGINS}; ${NO_BRIDGE}`),
+    {
+      state: "enforced",
+      seatbelt: true,
+      mechanism:
+        "binding of the Pi manifest (PreToolUse/Bash, translated like Codex) run by the extension bridge",
+      boundary:
+        "enforced only while the extension is loaded; same textual-seatbelt limits as the shared guard",
+      bypass: PI_SEATBELT_BYPASSES,
+      evidence: "pi-extension:tool_call",
+    },
   ];
   const mcp = (plugin: string): [string, PiParity] => [
     piParityKey("plugin-mcp-server", plugin),
@@ -389,34 +434,45 @@ const pluginEntries = (): Array<[string, PiParity]> => {
   return [
     managed("acli", "acli-protocol"),
     settings("acli"),
-    skill("acli", "acli-comment-channel-publisher", "publisher.md"),
+    skillOnMissingRole("acli", "acli-comment-channel-publisher", "publisher"),
     managed("codegraph", "codegraph-search-v2"),
     mcp("codegraph"),
     settings("codegraph"),
-    ...["orchestrator", "implementer", "reviewer", "auditor", "architect"].map((role) =>
-      skill("codegraph", `codegraph-access-v2-${role}`, `${role}.md`),
+    skillOnOrchestrator("codegraph", "codegraph-access-v2-orchestrator"),
+    ...["implementer", "reviewer", "auditor", "architect"].map((role) =>
+      skillOnMcpRole("codegraph", `codegraph-access-v2-${role}`, role),
     ),
     mcp("engram"),
     settings("engram"),
-    ...["orchestrator", "implementer", "reviewer", "auditor"].map((role) =>
-      skill("engram", `engram-${role}-extension`, `${role}.md`),
+    skillOnOrchestrator("engram", "engram-orchestrator-extension"),
+    ...["implementer", "reviewer", "auditor"].map((role) =>
+      skillOnMcpRole("engram", `engram-${role}-extension`, role),
     ),
     settings("gh"),
-    skill("gh", "gh-comment-channel-publisher", "publisher.md"),
+    skillOnMissingRole("gh", "gh-comment-channel-publisher", "publisher"),
     settings("jscpd"),
-    script("jscpd", "check-jscpd.sh"),
+    runScript("jscpd", "check-jscpd.sh"),
     hook("jscpd", 0),
-    skill("jscpd", "jscpd-review-extension", "the review-diff skill"),
+    skillOnSkill("jscpd", "jscpd-review-extension", "review-diff"),
     settings("semgrep"),
-    script("semgrep", "check-semgrep.sh"),
+    runScript("semgrep", "check-semgrep.sh"),
     hook("semgrep", 0),
-    skill("semgrep", "semgrep-review-extension", "the security-invariants skill"),
+    skillOnSkill("semgrep", "semgrep-review-extension", "security-invariants"),
     managed("tgrep", "tgrep-search-v2"),
     settings("tgrep"),
-    script("tgrep", "guard-search-routing.sh"),
+    [
+      piParityKey("plugin-script", "tgrep/guard-search-routing.sh"),
+      unsupported(
+        "none",
+        "installed under .pi/navori/scripts only beside a Pi copy of guard-destructive, which the guard milestone (spec 0048 M3) adds; the projection code already does it",
+      ),
+    ],
     [
       piParityKey("plugin-hook-extension", "tgrep/tgrep-search-lane"),
-      unsupported("none", `${NO_PLUGINS}; its target guard-destructive has no Pi copy to extend`),
+      unsupported(
+        "none",
+        "rides inside .pi/navori/hooks/guard-destructive.sh once that copy exists (spec 0048 M3); the projection code already applies and strips it",
+      ),
     ],
   ];
 };
