@@ -104,9 +104,10 @@ clasificador contra el diff real y avisa cuando el trabajo se salió del nivel d
 | Comando | Qué hace |
 |---|---|
 | `init` | Bootstrap con detección de stack + wizard (o `--recommended` sin preguntas y sin instalar nada externo, o `--full` para sumar proveedores externos + política estricta) |
-| `update` | Re-detecta el repo, refresca el config y corre el engine completo — *bring me up to date* |
+| `refresh` | Re-detecta el repo, refresca el config y corre el engine completo — *bring me up to date* |
+| `update` | Actualiza navori desde npm y corre `refresh` con el binario nuevo (`--cli-only` se detiene tras el CLI) |
 | `render` | Genera los archivos nativos de cada engine configurado (preview por default; `--apply` escribe). `--all` renderea **todos** los repos del registro global de una — el rollout tras un bump de navori en un comando |
-| `registry` | Registro global de tus repos con navori (`ls` / `scan <dir>` / `add` / `remove` / `prune`). `init` y `update` te dan de alta solos; `scan` puebla lo que ya existía |
+| `registry` | Registro global de tus repos con navori (`ls` / `scan <dir>` / `add` / `remove` / `prune`). `init` y `refresh` te dan de alta solos; `scan` puebla lo que ya existía |
 | `sync` | Refresca todos los engines configurados con conflict resolution + backups |
 | `add` / `remove` / `configure` | Activa un plugin / lo desactiva limpiando sus bloques y scripts / ajusta una sección del config sin re-init. `configure migrate` renombra las claves retiradas que dejan el config sin cargar (`--all` para todo el registro) |
 | `doctor` / `status` / `audit` | Audita config + drift y avisa de versiones de herramientas externas (informativo, no afecta `--strict`) / snapshot rápido / mide cómo se usó el harness en tus sesiones (resultados, ventanas de disponibilidad, comparación de snapshots) |

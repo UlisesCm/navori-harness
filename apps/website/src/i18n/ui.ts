@@ -238,7 +238,8 @@ export const ui = {
       "Reconstruye todos los engines configurados. Preview por default; --apply escribe.",
     "commands.sync.desc":
       "Actualiza solo los bloques managed. Con --interactive resuelves los conflictos bloque por bloque, o archivo por archivo en los que no tienen marcadores.",
-    "commands.update.desc":
+    "commands.update.desc": "Actualiza la CLI a la última versión de npm y luego corre refresh.",
+    "commands.refresh.desc":
       "Detecta que el bundle avanzó y te dice qué cambiaría antes de tocarlo.",
     "commands.migrations.desc": "Aplica las migraciones de config entre versiones del CLI.",
     "commands.backup.desc":
@@ -303,7 +304,7 @@ export const ui = {
       "render hace preview por default: sin --apply no toca disco. Cuando escribe, deja antes un snapshot restaurable con 'navori backup', y la escritura es atómica. Fuera del repo no existe nada que no hayas pedido por su nombre: sin 'global init' no hay capa global, sin '--start' no hay auditoría.",
     "faq.q5": "¿Cómo actualizo mi proyecto cuando sale una versión nueva?",
     "faq.a5":
-      "npx navori@latest sync. Actualiza solo los bloques managed sin tocar tu código; con --interactive resuelves bloque por bloque lo que hayas editado a mano. 'navori update' te dice antes qué cambiaría.",
+      "npx navori@latest sync. Actualiza solo los bloques managed sin tocar tu código; con --interactive resuelves bloque por bloque lo que hayas editado a mano. 'navori refresh' te dice antes qué cambiaría.",
     "faq.q6": "¿No sale caro correr un harness multi-agente?",
     "faq.a6":
       "Menos de lo que parece, y ya no hace falta creerlo: 'navori audit' te dice a dónde se fueron los tokens de una sesión real. Cada agente corre con su modelo y su effort — el músculo solo donde hay juicio, lo mecánico en un modelo ligero — y cada subagente devuelve su conclusión en vez del volcado de lo que leyó.",
@@ -527,7 +528,8 @@ export const ui = {
     "commands.render.desc": "Rebuilds every configured engine. Preview by default; --apply writes.",
     "commands.sync.desc":
       "Refreshes only the managed blocks. With --interactive you resolve conflicts block by block, or file by file for markerless files.",
-    "commands.update.desc": "Detects that the bundle moved and tells you what would change first.",
+    "commands.update.desc": "Updates the CLI to the latest npm release, then runs refresh.",
+    "commands.refresh.desc": "Detects that the bundle moved and tells you what would change first.",
     "commands.migrations.desc": "Applies config migrations between CLI versions.",
     "commands.backup.desc": "The safety net: every write leaves a restorable snapshot first.",
     "commands.doctor.desc":
@@ -588,7 +590,7 @@ export const ui = {
       "render previews by default: without --apply it never touches disk. When it does write, it leaves a restorable snapshot first via 'navori backup', and the write is atomic. Outside the repo nothing exists that you didn't ask for by name: no 'global init', no global layer; no '--start', no audit.",
     "faq.q5": "How do I upgrade my project when a new version ships?",
     "faq.a5":
-      "npx navori@latest sync. It refreshes only managed blocks without touching your code; with --interactive you resolve block by block whatever you edited by hand. 'navori update' tells you what would change first.",
+      "npx navori@latest sync. It refreshes only managed blocks without touching your code; with --interactive you resolve block by block whatever you edited by hand. 'navori refresh' tells you what would change first.",
     "faq.q6": "Isn't running a multi-agent harness expensive?",
     "faq.a6":
       "Less than you'd think — and you no longer have to take that on faith: 'navori audit' tells you where a real session's tokens went. Each agent runs with its own model and effort — the muscle only where judgment lives, mechanical work on a light model — and every subagent returns its conclusion instead of a dump of what it read.",
