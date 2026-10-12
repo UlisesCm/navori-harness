@@ -46,7 +46,7 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function project(): string {
+function project(scribeOwnsMarkdown = true): string {
   const cwd = mkdtempSync(join(tmpdir(), "navori-pi-handoff-"));
   dirs.push(cwd);
   mkdirSync(join(cwd, ".pi/agents"), { recursive: true });
@@ -55,14 +55,16 @@ function project(): string {
     join(cwd, ".pi/navori.json"),
     serializePiManifest({
       schemaVersion: 2,
-      agents: ["scout", "implementer", "reviewer"],
-      controls: { planTiers: false, masterPlan: false, scribeOwnsMarkdown: false },
+      agents: scribeOwnsMarkdown
+        ? ["scout", "implementer", "reviewer", "scribe"]
+        : ["scout", "implementer", "reviewer"],
+      controls: { planTiers: false, masterPlan: false, scribeOwnsMarkdown },
       hooks: [],
       ownedPaths: [],
       permissionRules: { ask: [], deny: [] },
     }),
   );
-  for (const role of ["scout", "implementer", "reviewer"] as const) {
+  for (const role of ["scout", "implementer", "reviewer", "scribe"] as const) {
     writeFileSync(
       join(cwd, `.pi/agents/${role}.md`),
       serializePiAgent({
@@ -74,7 +76,10 @@ function project(): string {
     );
   }
   // The reviewer dispatch precondition: an implementer handoff that already exists.
-  writeFileSync(join(cwd, HANDOFFS, `impl_${FEATURE}.json`), '{"round":0}');
+  writeFileSync(
+    join(cwd, HANDOFFS, `impl_${FEATURE}.${scribeOwnsMarkdown ? "json" : "md"}`),
+    '{"round":0}',
+  );
   return cwd;
 }
 
@@ -195,6 +200,43 @@ describe("Pi child handoff validation (spec 0048 R7, R15)", () => {
       expect.arrayContaining(["handoff", "check", FEATURE, "--produced-by", "reviewer", "--since"]),
     );
     expect(args[args.indexOf("--since") + 1]).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+  });
+
+  // Covers: R7
+  it("markdown mode (scribeOwnsMarkdown off) validates impl_<feature>.md and rejects a lone .json", async () => {
+    const cwd = project(false);
+    const md = load(() => check());
+    const done = await run(cwd, md, "implementer", () =>
+      writeHandoff(cwd, `impl_${FEATURE}.md`, "Status: DONE\n"),
+    );
+    expect(done.isError).toBeUndefined();
+    expect(md.navori.at(-1)).toEqual(expect.arrayContaining(["handoff", "check", FEATURE]));
+
+    rmSync(join(cwd, HANDOFFS, `impl_${FEATURE}.md`));
+    const json = await run(
+      cwd,
+      load(() => check()),
+      "implementer",
+      () => writeHandoff(cwd, `impl_${FEATURE}.json`, '{"round":1}'),
+    );
+    expect(json.isError).toBe(true);
+    expect(json.content[0]!.text).toContain("was not written");
+  });
+
+  // Covers: R7
+  it("a manifest that disappears mid-run does not throw from handoff validation and defaults to markdown", async () => {
+    const cwd = project(false);
+    const outcome = await run(
+      cwd,
+      load(() => check()),
+      "implementer",
+      () => {
+        rmSync(join(cwd, ".pi/navori.json"));
+        writeHandoff(cwd, `impl_${FEATURE}.md`, "Status: DONE\n");
+      },
+    );
+    expect(outcome.isError).toBeUndefined();
+    expect(outcome.content[0]!.text).not.toContain("was not written");
   });
 
   // Covers: R7

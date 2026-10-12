@@ -132,8 +132,12 @@ async function checkDispatch(cwd: string, role: Role, task: string,
 type HandoffFile = { mtimeMs: number; content: string } | null;
 type HandoffSnapshot = { dispatchedAt: number; role: Role; feature: string; file: HandoffFile };
 const HANDOFF_DIR = ".navori/state/handoffs";
+/** The implementer writes impl_<feature>.md unless the project declares the scribe owns Markdown (then .json), as "navori handoff check" expects. */
 function handoffPath(cwd: string, role: Role, feature: string): string {
-  return join(cwd, HANDOFF_DIR, (role === "reviewer" ? "review_" : "impl_") + feature + ".json");
+  if (role === "reviewer") return join(cwd, HANDOFF_DIR, "review_" + feature + ".json");
+  let scribeOwnsMarkdown = false;
+  try { scribeOwnsMarkdown = controls(cwd).scribeOwnsMarkdown; } catch { /* missing or invalid manifest: default (off) */ }
+  return join(cwd, HANDOFF_DIR, "impl_" + feature + (scribeOwnsMarkdown ? ".json" : ".md"));
 }
 function readHandoffFile(path: string): HandoffFile {
   if (!existsSync(path)) return null;
