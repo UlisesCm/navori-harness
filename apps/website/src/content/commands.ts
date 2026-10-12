@@ -366,12 +366,12 @@ const es: Record<string, CommandDoc> = {
       "branchBase y prTarget son dos cosas distintas: la primera es el punto de fork contra el que se mide el diff, la segunda es a dónde apunta el PR. En la mayoría de los repos coinciden.",
     ],
   },
-  update: {
-    id: "update",
-    title: "update",
+  refresh: {
+    id: "refresh",
+    title: "refresh",
     summary:
       "El 'ponme al día' de un solo tiro: vuelve a detectar el repo, ofrece los cambios de config y corre sync.",
-    usage: "navori update [--yes] [--cwd <dir>]",
+    usage: "navori refresh [--yes] [--cwd <dir>]",
     flags: [
       { flag: "--yes", desc: "Aplica los diffs detectados y sincroniza sin preguntar." },
       { flag: "--cwd <dir>", desc: "Directorio del repo (default: actual)." },
@@ -379,7 +379,34 @@ const es: Record<string, CommandDoc> = {
     example: [
       {
         title: "Nada que hacer",
-        code: "$ navori update\n└  Al día — nada que actualizar",
+        code: "$ navori refresh\n└  Al día — nada que actualizar",
+      },
+      {
+        title: "En CI",
+        code: "navori refresh --yes",
+      },
+    ],
+    notes: [
+      "Detecta drift entre lo que el repo es hoy y lo que el config dice: preset sugerido, comandos del quality gate, rama base y migraciones de librería.",
+      "Tu edición manda: cuando la detección discrepa de un valor que ya editaste a mano, el config gana. El quality gate solo se propone si el repo GANÓ pasos que te faltan — nunca para recortarte uno; 'engines' ni se propone, se reporta; y las migraciones de librería se reconcilian por 'legacy'. La excepción declarada es 'project.libraries', que es un campo derivado de tus dependencias y sí se reemplaza.",
+      "Después de acomodar el config corre sync, así que los bloques managed quedan al día en la misma pasada.",
+    ],
+  },
+  update: {
+    id: "update",
+    title: "update",
+    summary:
+      "Actualiza la CLI de navori a la última versión de npm y luego corre 'navori refresh' con el binario nuevo.",
+    usage: "navori update [--yes] [--cli-only] [--cwd <dir>]",
+    flags: [
+      { flag: "--yes", desc: "Instala y refresca sin preguntar." },
+      { flag: "--cli-only", desc: "Solo actualiza la CLI; no corre refresh." },
+      { flag: "--cwd <dir>", desc: "Directorio del repo (default: actual)." },
+    ],
+    example: [
+      {
+        title: "Actualizar y ponerse al día",
+        code: "$ navori update\n◇  navori 0.12.0 disponible (actual: 0.11.3)\n│  Se ejecutará: npm i -g navori@latest",
       },
       {
         title: "En CI",
@@ -387,9 +414,9 @@ const es: Record<string, CommandDoc> = {
       },
     ],
     notes: [
-      "Detecta drift entre lo que el repo es hoy y lo que el config dice: preset sugerido, comandos del quality gate, rama base y migraciones de librería.",
-      "Tu edición manda: cuando la detección discrepa de un valor que ya editaste a mano, el config gana. El quality gate solo se propone si el repo GANÓ pasos que te faltan — nunca para recortarte uno; 'engines' ni se propone, se reporta; y las migraciones de librería se reconcilian por 'legacy'. La excepción declarada es 'project.libraries', que es un campo derivado de tus dependencias y sí se reemplaza.",
-      "Después de acomodar el config corre sync, así que los bloques managed quedan al día en la misma pasada.",
+      "Consulta registry.npmjs.org (2 s de timeout). Si ya estás al día o no hay red, lo dice en una línea y sigue con refresh.",
+      "El comando de instalación depende de cómo instalaste navori: global, devDependency o dependency de npm; con npx se re-ejecuta 'npx navori@latest refresh'.",
+      "Sin terminal interactiva y sin --yes no instala nada: imprime el comando y sale con error.",
     ],
   },
   scan: {
@@ -1395,12 +1422,12 @@ const en: Record<string, CommandDoc> = {
       "branchBase and prTarget are two different things: the first is the fork point every diff is measured against, the second is where the PR points. In most repos they name the same branch.",
     ],
   },
-  update: {
-    id: "update",
-    title: "update",
+  refresh: {
+    id: "refresh",
+    title: "refresh",
     summary:
       "The one-shot 'bring me up to date': re-detects the repo, offers the config diffs, and runs sync.",
-    usage: "navori update [--yes] [--cwd <dir>]",
+    usage: "navori refresh [--yes] [--cwd <dir>]",
     flags: [
       { flag: "--yes", desc: "Apply the detected diffs and sync without prompting." },
       { flag: "--cwd <dir>", desc: "Repo directory (default: current)." },
@@ -1408,7 +1435,34 @@ const en: Record<string, CommandDoc> = {
     example: [
       {
         title: "Nothing to do",
-        code: "$ navori update\n└  Up to date — nothing to update",
+        code: "$ navori refresh\n└  Up to date — nothing to update",
+      },
+      {
+        title: "In CI",
+        code: "navori refresh --yes",
+      },
+    ],
+    notes: [
+      "It detects drift between what the repo is today and what the config says: suggested preset, quality-gate commands, base branch and library migrations.",
+      "Your edit wins: when detection disagrees with a value you already set by hand, the config keeps it. The quality gate is only proposed when the repo GAINED steps yours lacks — never to trim one away; 'engines' is reported, not proposed; and library migrations are reconciled by 'legacy'. The declared exception is 'project.libraries', a field derived from your dependencies, which is replaced.",
+      "After settling the config it runs sync, so the managed blocks come up to date in the same pass.",
+    ],
+  },
+  update: {
+    id: "update",
+    title: "update",
+    summary:
+      "Updates the navori CLI to the latest npm release, then runs 'navori refresh' with the new binary.",
+    usage: "navori update [--yes] [--cli-only] [--cwd <dir>]",
+    flags: [
+      { flag: "--yes", desc: "Install and refresh without prompting." },
+      { flag: "--cli-only", desc: "Only update the CLI; do not run refresh." },
+      { flag: "--cwd <dir>", desc: "Repo directory (default: current)." },
+    ],
+    example: [
+      {
+        title: "Update and catch up",
+        code: "$ navori update\n◇  navori 0.12.0 available (current: 0.11.3)\n│  Will run: npm i -g navori@latest",
       },
       {
         title: "In CI",
@@ -1416,9 +1470,9 @@ const en: Record<string, CommandDoc> = {
       },
     ],
     notes: [
-      "It detects drift between what the repo is today and what the config says: suggested preset, quality-gate commands, base branch and library migrations.",
-      "Your edit wins: when detection disagrees with a value you already set by hand, the config keeps it. The quality gate is only proposed when the repo GAINED steps yours lacks — never to trim one away; 'engines' is reported, not proposed; and library migrations are reconciled by 'legacy'. The declared exception is 'project.libraries', a field derived from your dependencies, which is replaced.",
-      "After settling the config it runs sync, so the managed blocks come up to date in the same pass.",
+      "It checks registry.npmjs.org (2 s timeout). If you are up to date or offline, it says so in one line and continues with refresh.",
+      "The install command follows how you installed navori: npm global, devDependency or dependency; with npx it re-executes 'npx navori@latest refresh'.",
+      "Without an interactive terminal and without --yes it installs nothing: it prints the command and exits with an error.",
     ],
   },
   scan: {
@@ -2099,6 +2153,7 @@ export const commandOrder = [
   "render",
   "sync",
   "update",
+  "refresh",
   "scan",
   "doctor",
   "status",

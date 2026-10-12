@@ -13,7 +13,7 @@ import { computeManagedHash, extractManagedContent } from "../../../lib/render/m
  *           Codex `config.toml` registration), so the `mcp__<id>__*` permission
  *           and the protocol's MCP tools point at a server that actually exists.
  *   - #215: a plugin sub-block whose version drifted shows up in
- *           `updatesAvailable`, so `navori update` reports it.
+ *           `updatesAvailable`, so `navori refresh` reports it.
  */
 
 function tempRepo(): string {

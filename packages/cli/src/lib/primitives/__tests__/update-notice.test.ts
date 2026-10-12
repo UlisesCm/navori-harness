@@ -151,9 +151,9 @@ describe("daily update notice", () => {
     try {
       runUpdateNotice("0.1.0", ["status", "--cwd", target]);
       const text = String(output.mock.calls[0]?.[0]);
-      expect(text).toContain("npx navori@latest <command>");
+      expect(text).toContain("navori update");
+      expect(text).not.toContain("render --apply");
       expect(text).toContain("/en/releases/");
-      expect(text).toContain("navori render --apply");
     } finally {
       delete process.env.npm_command;
     }

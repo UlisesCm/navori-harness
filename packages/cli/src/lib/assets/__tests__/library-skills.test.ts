@@ -507,7 +507,7 @@ describe("librarySkillById", () => {
 // Audit v0.5.1 A1: an id in `project.libraries` the registry doesn't know is
 // silently skipped by the render plan AND its managed skill is pruned from
 // disk. This helper feeds the warning render/doctor must emit so an upgrade
-// without `navori update` (the socketio split) never loses guidance silently.
+// without `navori refresh` (the socketio split) never loses guidance silently.
 describe("unknownLibraries", () => {
   it("returns [] when every id is known (and for an empty/absent selection)", () => {
     expect(unknownLibraries(["mongoose", "vitest"])).toEqual([]);

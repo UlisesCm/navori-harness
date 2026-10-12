@@ -2132,7 +2132,7 @@ export function reportRepoRenderRows(
   // registry-wide advisory (e.g. a `project.libraries` id removed in this CLI
   // version) fires identically in every repo of a rollout: one line naming all
   // 15 repos is a signal; 15 near-identical lines are noise the operator skims
-  // past. Each message already carries its own remedy (e.g. 'navori update').
+  // past. Each message already carries its own remedy (e.g. 'navori refresh').
   if (warnings > 0) {
     const byMessage = new Map<string, string[]>();
     for (const r of rows) {

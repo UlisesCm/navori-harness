@@ -30,7 +30,7 @@ import {
  * id gone from the registry, e.g. the socketio split) is emitted by every
  * engine, but `render --all` / `workspace render` used to drop it — the row
  * carried only status/detail/conflicts. The mass rollout is exactly where the
- * bug bites (15 repos upgraded without `navori update`, all losing guidance
+ * bug bites (15 repos upgraded without `navori refresh`, all losing guidance
  * silently), so the batch rows must carry engine warnings and the report must
  * surface them like it already surfaces conflicts: named repos, explicit
  * roll-up column, same numbers in human and --json modes.
@@ -70,7 +70,7 @@ describe("renderRepoRows carries engine warnings (audit A1, batch)", () => {
     assert.isDefined(row);
     const warning = row.warnings.find((w) => w.includes("'socketio'"));
     expect(warning).toBeDefined();
-    expect(warning).toContain("navori update");
+    expect(warning).toContain("navori refresh");
     expect(rollupRenderRows(rows).warnings).toBeGreaterThanOrEqual(1);
   });
 
@@ -120,7 +120,7 @@ describe("reportRepoRenderRows surfaces warnings like conflicts", () => {
   });
 
   it("groups an identical warning into ONE line naming every affected repo", () => {
-    const msg = "project.libraries: 'socketio' was removed. Run 'navori update'.";
+    const msg = "project.libraries: 'socketio' was removed. Run 'navori refresh'.";
     const result = reportRepoRenderRows(
       [row("repo-a", [msg]), row("repo-b", [msg]), row("repo-c", [])],
       true,
