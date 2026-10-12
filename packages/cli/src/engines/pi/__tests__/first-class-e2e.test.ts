@@ -716,7 +716,11 @@ describe("Pi credential-free first-class cycle", () => {
 
 /** Value of a `- <label>: **x.y.z**` line in the Pi guide, undefined when absent. */
 function documentedVersion(doc: string, label: string): string | undefined {
-  return new RegExp(`^- ${label}: \\*\\*(\\d+\\.\\d+\\.\\d+)\\*\\*\\s*$`, "m").exec(doc)?.[1];
+  const prefix = `- ${label}: `;
+  const line = doc.split("\n").find((l) => l.startsWith(prefix));
+  return line === undefined
+    ? undefined
+    : /^\*\*(\d+\.\d+\.\d+)\*\*\s*$/.exec(line.slice(prefix.length))?.[1];
 }
 
 /** `| `key` | state |` rows under a `## <heading>` section of the Pi guide, as key -> state. */

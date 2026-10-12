@@ -193,10 +193,13 @@ describe("every shared partial is consumed and covered by a core hook", () => {
     },
   };
 
-  const includesPartial = (hook: string, partial: string): boolean =>
-    new RegExp(`^[^\\S\\n]*#\\s*navori:include\\s+${partial}[^\\S\\n]*$`, "m").test(
-      readFileSync(join(hooksDir, `${hook}.sh`), "utf-8"),
+  const includesPartial = (hook: string, partial: string): boolean => {
+    const text = readFileSync(join(hooksDir, `${hook}.sh`), "utf-8");
+    const names = [...text.matchAll(/^[^\S\n]*#\s*navori:include\s+(\S+)[^\S\n]*$/gm)].map(
+      (m) => m[1],
     );
+    return names.includes(partial);
+  };
 
   it("every partial is included by at least one core hook", () => {
     const orphans = partials.filter(

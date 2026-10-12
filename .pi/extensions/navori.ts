@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="4a4bd8e4711646c29b215410a37e5b35ca55bd94eb29435c3ce6f3f5cd61df64"
+// navori:managed-file id="pi-extension" hash="c9ebe26c22b0365d6dd0cfd9cf541c1249dacc5976c5a90b1eb6b755878b10ba"
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -717,9 +717,8 @@ type StuckEvent = EvidenceEvent & { content?: unknown };
 
 /** Failure output without volatile parts (paths, times, hashes), first 20 lines; mirrors the shell normalizer. */
 function normalizeFailure(text: string, cwd: string): string {
-  const escape = (value: string): string => value.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&");
-  let out = text.replace(/\x1b\[[0-9;]*m/g, "").replace(new RegExp(escape(cwd), "g"), "<root>");
-  if (process.env.HOME) out = out.replace(new RegExp(escape(process.env.HOME), "g"), "~");
+  let out = text.replace(/\x1b\[[0-9;]*m/g, "").replaceAll(cwd, "<root>");
+  if (process.env.HOME) out = out.replaceAll(process.env.HOME, "~");
   return out.replace(/(?:\/tmp|\/private\/tmp|\/var\/folders)\/[^\s:]+/g, "<tmp>")
     .replace(/\b\d{4}-\d\d-\d\d[T ]\d\d:\d\d:\d\d(?:\.\d+)?Z?\b/g, "<t>").replace(/\b\d\d:\d\d:\d\d(?:\.\d+)?\b/g, "<t>")
     .replace(/\b\d+(?:\.\d+)?\s?(?:ms|s|m|seconds?|minutes?)\b/gi, "<d>")
