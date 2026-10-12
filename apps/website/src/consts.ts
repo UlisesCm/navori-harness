@@ -48,15 +48,7 @@ export const INVENTORY = {
 } as const;
 
 /** Plugin ids, in the order the toolbox section presents them. */
-export const PLUGIN_IDS = [
-  "acli",
-  "codegraph",
-  "engram",
-  "gh",
-  "jscpd",
-  "semgrep",
-  "tgrep",
-] as const;
+export const PLUGIN_IDS = ["acli", "codegraph", "engram", "gh", "tgrep"] as const;
 
 /** Engine ids, matching the directory names under `src/engines/`. */
 export const ENGINE_IDS = ["claude", "codex", "agents-md", "cursor", "copilot", "pi"] as const;

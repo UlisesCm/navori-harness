@@ -296,8 +296,8 @@ describe("applyFileResolutions partial failure (#1240)", () => {
 
 // Covers: #1245
 describe("sync interactive: replace a markerless file (#1245)", () => {
-  const SCRIPT = ".claude/scripts/check-jscpd.sh";
-  const FOREIGN = ".codex/scripts/check-jscpd.sh";
+  const SCRIPT = ".claude/scripts/guard-search-routing.sh";
+  const FOREIGN = ".codex/scripts/guard-search-routing.sh";
 
   /** The managed script, the way pre-#637 navori wrote it (no marker), plus a user line. */
   function makeMarkerless(rel: string, extra = "# user line\n"): { fresh: string; mine: string } {
@@ -321,7 +321,7 @@ describe("sync interactive: replace a markerless file (#1245)", () => {
   const ts = tc("es").sync;
 
   it("keep (the default) changes nothing, makes no backup and the prompt defaults to keep", async () => {
-    seed({ jscpd: { enabled: true } });
+    seed({ tgrep: { enabled: true } });
     const { mine } = makeMarkerless(SCRIPT);
 
     await runSync({ interactive: true }); // no scripted answer -> the mock answers "keep"
@@ -339,7 +339,7 @@ describe("sync interactive: replace a markerless file (#1245)", () => {
   });
 
   it("replace writes the fresh render (one block), keeps the exec bit, backs up the basis, prints the path, and the next full syncs are clean", async () => {
-    seed({ jscpd: { enabled: true } });
+    seed({ tgrep: { enabled: true } });
     const { fresh, mine } = makeMarkerless(SCRIPT);
     chmodSync(join(cwd, SCRIPT), 0o644);
     ui.answers = ["accept"];
@@ -367,7 +367,7 @@ describe("sync interactive: replace a markerless file (#1245)", () => {
   });
 
   it("site 2: a foreign file at a codex plugin script path is replaced with the null-existing render, exec bit kept, idempotent", async () => {
-    seed({ jscpd: { enabled: true } }, ["claude", "codex"]);
+    seed({ tgrep: { enabled: true } }, ["claude", "codex"]);
     const fresh = readFileSync(join(cwd, FOREIGN), "utf-8");
     // Truly foreign: not navori's rendered text at all.
     writeFileSync(join(cwd, FOREIGN), "echo mine\n", "utf-8");
@@ -390,7 +390,7 @@ describe("sync interactive: replace a markerless file (#1245)", () => {
   });
 
   it("a mixed list resolves each file on its own: accept the marker-kept agent, keep the markerless script", async () => {
-    seed({ jscpd: { enabled: true } });
+    seed({ tgrep: { enabled: true } });
     const [agent] = agentFiles();
     const { pristine } = editAgent(agent!);
     const { mine } = makeMarkerless(SCRIPT);
@@ -409,7 +409,7 @@ describe("sync interactive: replace a markerless file (#1245)", () => {
   });
 
   it("accepting the markerless file while keeping the marker-kept one also works (and vice versa order-independent)", async () => {
-    seed({ jscpd: { enabled: true } });
+    seed({ tgrep: { enabled: true } });
     const [agent] = agentFiles();
     const { edited } = editAgent(agent!);
     const { fresh } = makeMarkerless(SCRIPT);
@@ -425,7 +425,7 @@ describe("sync interactive: replace a markerless file (#1245)", () => {
   });
 
   it("a markerless file changed after the diff is dropped, not written", async () => {
-    seed({ jscpd: { enabled: true } });
+    seed({ tgrep: { enabled: true } });
     makeMarkerless(SCRIPT);
     const abs = join(cwd, SCRIPT);
     const late = `${readFileSync(abs, "utf-8")}# late edit\n`;
@@ -440,7 +440,7 @@ describe("sync interactive: replace a markerless file (#1245)", () => {
   });
 
   it("cancel writes nothing for a markerless file", async () => {
-    seed({ jscpd: { enabled: true } });
+    seed({ tgrep: { enabled: true } });
     const { mine } = makeMarkerless(SCRIPT);
     ui.answers = ["accept"];
     ui.cancelAt = 1;
@@ -454,7 +454,7 @@ describe("sync interactive: replace a markerless file (#1245)", () => {
   });
 
   it("a file carrying another id's block (or a partial marker) is never offered", async () => {
-    seed({ jscpd: { enabled: true } });
+    seed({ tgrep: { enabled: true } });
     const { mine } = makeMarkerless(
       SCRIPT,
       '# navori:managed start id="other" version="999.0.0"\n',

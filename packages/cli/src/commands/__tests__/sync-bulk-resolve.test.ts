@@ -614,10 +614,10 @@ describe("sync --accept-new-files (#1240)", () => {
   // markerless script; no bulk path may write the script, JSON never carries its
   // bodies, and the marker-kept file is still resolved where the flag says so.
   describe("#1245 markerless files are interactive-only", () => {
-    const SCRIPT = ".claude/scripts/check-jscpd.sh";
+    const SCRIPT = ".claude/scripts/guard-search-routing.sh";
 
     function seedMixed(): { script: string; mine: string; agent: string; edited: string } {
-      const { agent, edited } = seedEditedAgent({ jscpd: { enabled: true } });
+      const { agent, edited } = seedEditedAgent({ tgrep: { enabled: true } });
       const script = join(cwd, SCRIPT);
       const mine = `${readFileSync(script, "utf-8")
         .split("\n")
@@ -665,7 +665,7 @@ describe("sync --accept-new-files (#1240)", () => {
         expect(raw).not.toContain("user line");
         expect(raw).not.toContain("markerlessResolution");
         const out = JSON.parse(raw) as SyncJson;
-        const entry = out.conflicts.find((c) => c.path.includes("check-jscpd.sh"));
+        const entry = out.conflicts.find((c) => c.path.includes("guard-search-routing.sh"));
         expect(entry?.resolvable).toBe("none");
         expect(entry?.kind).toBe("file");
         // The reason (the plan hint) names the interactive-only exit.
@@ -679,7 +679,7 @@ describe("sync --accept-new-files (#1240)", () => {
       const out = await runSyncJson({ "accept-new-files": true, apply: true });
       expect(readFileSync(agent, "utf-8")).not.toBe(edited);
       expect(readFileSync(script, "utf-8")).toBe(mine);
-      expect(out.conflicts.some((c) => c.path.includes("check-jscpd.sh"))).toBe(true);
+      expect(out.conflicts.some((c) => c.path.includes("guard-search-routing.sh"))).toBe(true);
       expect(out.conflicts.some((c) => c.path.includes(agent.split("/").pop()!))).toBe(false);
       for (const b of out.backups) {
         expect(existsSync(join(b.path, SCRIPT))).toBe(false);

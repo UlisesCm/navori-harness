@@ -42,6 +42,16 @@ vi.mock(import("../../shared/native-overlap.ts"), async (importOriginal) => {
   };
 });
 
+// A plugin that injects into a skill: no bundled plugin does any more.
+vi.mock("../../../lib/render/bundled-assets.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../lib/render/bundled-assets.ts")>();
+  const { withFakePlugins, writeFakeSkillPlugin } =
+    await import("../../../lib/__tests__/helpers/fake-plugins.ts");
+  return withFakePlugins(actual, {
+    skilly: writeFakeSkillPlugin("skilly", ".claude/skills/review-diff/SKILL.md"),
+  });
+});
+
 const { renderClaudeEngine, planClaudeSkills, composeFreshClaudeSkill } =
   await import("../index.ts");
 
@@ -55,7 +65,7 @@ const BASE = {
   commits: "conventional-es",
   qualityGate: { fast: "bun lint", full: "bun test" },
 } as unknown as NavoriConfig;
-const WITH_JSCPD = { ...BASE, plugins: { jscpd: { enabled: true } } } as unknown as NavoriConfig;
+const WITH_SKILLY = { ...BASE, plugins: { skilly: { enabled: true } } } as unknown as NavoriConfig;
 
 let root: string;
 beforeEach(() => {
@@ -69,7 +79,7 @@ afterEach(() => {
 describe("composeFreshClaudeSkill (spec 0043 T2)", () => {
   for (const [label, config, skillId] of [
     ["sin plugin que inyecte", BASE, "review-diff"],
-    ["con un plugin que inyecta en la skill", WITH_JSCPD, "review-diff"],
+    ["con un plugin que inyecta en la skill", WITH_SKILLY, "review-diff"],
   ] as const) {
     it(`da los mismos bytes que render en un directorio vacío, ${label}`, () => {
       // Covers: R2
@@ -85,9 +95,9 @@ describe("composeFreshClaudeSkill (spec 0043 T2)", () => {
   it("el plugin que inyecta cambia los bytes: el caso con plugin no es el de sin plugin", () => {
     // Covers: R2
     const plain = planClaudeSkills(root, BASE, { repoRoot: root });
-    const injected = planClaudeSkills(root, WITH_JSCPD, { repoRoot: root });
+    const injected = planClaudeSkills(root, WITH_SKILLY, { repoRoot: root });
     const pick = (p: typeof plain) => p.skills.find((s) => s.id === "review-diff")!;
-    expect(composeFreshClaudeSkill(pick(injected), WITH_JSCPD, injected.plugins)).not.toBe(
+    expect(composeFreshClaudeSkill(pick(injected), WITH_SKILLY, injected.plugins)).not.toBe(
       composeFreshClaudeSkill(pick(plain), BASE, plain.plugins),
     );
   });

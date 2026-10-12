@@ -34,7 +34,7 @@ describe("listAvailableExternalProviders", () => {
   it("lists external-tool plugins that aren't enabled, excluding gh outside a GitHub repo", () => {
     const ids = listAvailableExternalProviders(config(), nonGitDir());
     expect(ids).toContain("codegraph");
-    expect(ids).toContain("jscpd");
+    expect(ids).toContain("tgrep");
     expect(ids).not.toContain("gh");
   });
 
@@ -49,7 +49,7 @@ describe("listAvailableExternalProviders", () => {
       nonGitDir(),
     );
     expect(ids).not.toContain("codegraph");
-    expect(ids).toContain("jscpd");
+    expect(ids).toContain("tgrep");
   });
 
   it("lists gh once the repo has a GitHub remote", () => {

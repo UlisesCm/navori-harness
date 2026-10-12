@@ -549,7 +549,7 @@ describe("blocking classification (#1117)", () => {
 
   it("finds the blocking scripts it is meant to police", () => {
     // Guards the guard: an empty list would make the next test vacuous.
-    expect(blocking.length).toBeGreaterThanOrEqual(12);
+    expect(blocking.length).toBeGreaterThanOrEqual(10);
     const names = blocking.map(({ file }) => file.split("/").at(-1));
     expect(names).toContain("guard-search-routing.sh");
     expect(names).toContain("guard-destructive-search-lane.sh");

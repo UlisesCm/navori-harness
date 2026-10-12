@@ -369,8 +369,6 @@ export const KNOWN_PLUGINS: Record<string, string> = {
   engram: "@navori/plugin-engram",
   acli: "@navori/plugin-acli",
   gh: "@navori/plugin-gh",
-  jscpd: "@navori/plugin-jscpd",
-  semgrep: "@navori/plugin-semgrep",
   codegraph: "@navori/plugin-codegraph",
   tgrep: "@navori/plugin-tgrep",
 };
@@ -418,6 +416,16 @@ export const RETIRED_PLUGINS: Record<string, RetiredPluginEntry> = {
     blockIds: ["cognitive-protocol"],
     assets: [".claude/scripts/check-cognitive.sh", ".claude/scripts/cognitive-tool"],
     deleteForeign: true,
+  },
+  jscpd: {
+    removedIn: "#1300",
+    blockIds: ["jscpd-protocol"],
+    assets: [".claude/scripts/check-jscpd.sh"],
+  },
+  semgrep: {
+    removedIn: "#1300",
+    blockIds: ["semgrep-protocol"],
+    assets: [".claude/scripts/check-semgrep.sh"],
   },
 };
 
@@ -469,8 +477,6 @@ export function retiredPluginForScript(
  * retired, whatever happened to its text.
  */
 export const RETIRED_PLUGIN_BLOCKS: Record<string, { retiredIn: string; blockIds: string[] }> = {
-  jscpd: { retiredIn: "#614", blockIds: ["jscpd-protocol"] },
-  semgrep: { retiredIn: "#614", blockIds: ["semgrep-protocol"] },
   // #814: `engram-protocol` shipped ~450 words to every non-fork agent — including
   // ones with no `mem_*` tool — to spend a paragraph explaining who it wasn't for.
   // Its content already had per-role homes: `skills/engram-leader.md` (injected
@@ -532,6 +538,19 @@ export const RETIRED_PLUGIN_SUB_BLOCKS: Record<
   string,
   { retiredIn: string; entries: Array<{ id: string; targetPath: string }> }
 > = {
+  jscpd: {
+    retiredIn: "#1300",
+    entries: [{ id: "jscpd-review-extension", targetPath: ".claude/skills/review-diff/SKILL.md" }],
+  },
+  semgrep: {
+    retiredIn: "#1300",
+    entries: [
+      {
+        id: "semgrep-review-extension",
+        targetPath: ".claude/skills/security-invariants/SKILL.md",
+      },
+    ],
+  },
   codegraph: {
     retiredIn: "#838",
     entries: [

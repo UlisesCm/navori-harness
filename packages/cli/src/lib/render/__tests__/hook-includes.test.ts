@@ -41,7 +41,7 @@ describe("gate-trigger partial (behavioral)", () => {
   const gateBody = readFileSync(join(hookPartialsDir(), "gate-trigger.sh"), "utf-8");
   const COMMIT_RE =
     "^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+commit([[:space:]]|$)";
-  const SEMGREP_RE =
+  const PUSH_RE =
     "(^git([[:space:]]+-[a-zA-Z-]+(=[^[:space:]]+)?([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+(commit|push)([[:space:]]|$))|(^gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$))";
 
   /** Runs under every available shell (bash AND zsh, #391); the verdicts must agree. */
@@ -63,11 +63,11 @@ describe("gate-trigger partial (behavioral)", () => {
     expect(gate(COMMIT_RE, "git push")).toBe(false); // commit-only gate ignores push
   });
 
-  it("semgrep gate: additionally fires on git push and gh pr create", () => {
-    expect(gate(SEMGREP_RE, "git commit -m x")).toBe(true);
-    expect(gate(SEMGREP_RE, "git push origin main")).toBe(true);
-    expect(gate(SEMGREP_RE, "gh pr create --fill")).toBe(true);
-    expect(gate(SEMGREP_RE, "gh pr view")).toBe(false);
+  it("push gate: additionally fires on git push and gh pr create", () => {
+    expect(gate(PUSH_RE, "git commit -m x")).toBe(true);
+    expect(gate(PUSH_RE, "git push origin main")).toBe(true);
+    expect(gate(PUSH_RE, "gh pr create --fill")).toBe(true);
+    expect(gate(PUSH_RE, "gh pr view")).toBe(false);
   });
 
   /** Same table with TRIGGER_STRIP_HEREDOC_BODIES set (or not) — #1095. */
@@ -120,9 +120,6 @@ describe("every shared partial is consumed and covered by a core hook", () => {
     .map((f) => f.replace(/\.sh$/, ""))
     .sort();
   const coreHooks = readdirSync(hooksDir).filter((f) => f.endsWith(".sh"));
-
-  /** Partials whose only consumers are plugin scripts today; entries are deleted with those plugins. */
-  const PLUGIN_ONLY_PENDING_REMOVAL = new Set(["scan-scope"]);
 
   /**
    * partial -> a core hook that includes it + a test that runs that hook and
@@ -191,26 +188,15 @@ describe("every shared partial is consumed and covered by a core hook", () => {
       readFileSync(join(hooksDir, `${hook}.sh`), "utf-8"),
     );
 
-  it("every partial is included by at least one core hook, or is allowlisted as plugin-only", () => {
+  it("every partial is included by at least one core hook", () => {
     const orphans = partials.filter(
-      (p) =>
-        !PLUGIN_ONLY_PENDING_REMOVAL.has(p) &&
-        !coreHooks.some((h) => includesPartial(h.replace(/\.sh$/, ""), p)),
+      (p) => !coreHooks.some((h) => includesPartial(h.replace(/\.sh$/, ""), p)),
     );
     expect(orphans, "a partial no core hook includes is dead code").toEqual([]);
   });
 
-  it("the plugin-only allowlist holds only partials that exist and have no core consumer", () => {
-    for (const p of PLUGIN_ONLY_PENDING_REMOVAL) {
-      expect(partials, `${p} no longer exists: drop it from the allowlist`).toContain(p);
-      const consumers = coreHooks.filter((h) => includesPartial(h.replace(/\.sh$/, ""), p));
-      expect(consumers, `${p} gained a core consumer: drop it from the allowlist`).toEqual([]);
-    }
-  });
-
-  it("every non-allowlisted partial maps to a behaviour test, and the map has no stale rows", () => {
-    const expected = partials.filter((p) => !PLUGIN_ONLY_PENDING_REMOVAL.has(p));
-    expect(Object.keys(PARTIAL_BEHAVIOUR_TESTS).sort()).toEqual(expected);
+  it("every partial maps to a behaviour test, and the map has no stale rows", () => {
+    expect(Object.keys(PARTIAL_BEHAVIOUR_TESTS).sort()).toEqual(partials);
   });
 
   it.each(Object.entries(PARTIAL_BEHAVIOUR_TESTS))(

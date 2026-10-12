@@ -746,8 +746,7 @@ export const CODEX_PARITY: Readonly<Record<string, CodexParity>> = Object.freeze
       "tipado-fuerte",
     ]),
     // Bundled plugins; the script-level gaps live on their plugin-script rows.
-    ...igualUnits("plugin", ["acli", "codegraph", "engram", "gh", "jscpd", "semgrep", "tgrep"]),
-    ...igualUnits("plugin-script", ["jscpd/check-jscpd.sh", "semgrep/check-semgrep.sh"]),
+    ...igualUnits("plugin", ["acli", "codegraph", "engram", "gh", "tgrep"]),
     [
       "plugin-script:tgrep/guard-search-routing.sh",
       verified(

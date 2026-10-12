@@ -17,7 +17,7 @@ import {
   resolveCodexHooks,
   type ResolvedCodexHook,
 } from "../../engines/codex/hook-registrations.ts";
-import { loadEnabledPlugins } from "../config/plugins.ts";
+import type { LoadedPlugin } from "../config/plugins.ts";
 import { NavoriConfigSchema, type NavoriConfig } from "../config/schema.ts";
 
 function config(overrides: Partial<NavoriConfig> = {}): NavoriConfig {
@@ -144,17 +144,39 @@ describe("Codex plugin trust transitions (spec 0037 T7)", () => {
   it("distinguishes added, removed and replaced hooks without deleting stale positional rows", () => {
     const root = "/tmp/navori-plugin-trust";
     const configPath = `${root}/.codex/config.toml`;
-    const withPlugins = (jscpd: boolean, semgrep: boolean): ResolvedCodexHook[] => {
-      const cfg = config({
-        plugins: { jscpd: { enabled: jscpd }, semgrep: { enabled: semgrep } },
-      });
-      return resolveCodexHooks(cfg, loadEnabledPlugins(cfg.plugins).loaded);
-    };
+    // No bundled plugin registers a Codex hook any more, so the transitions are
+    // driven with two synthetic plugins that each declare one gate script.
+    const fakePlugin = (id: string, script: string): LoadedPlugin => ({
+      manifest: {
+        id,
+        name: id,
+        description: id,
+        version: "0.0.1",
+        managed: [],
+        hooks: [
+          {
+            event: "PreToolUse",
+            matcher: "Bash",
+            command: `bash "$CLAUDE_PROJECT_DIR/.claude/scripts/${script}"`,
+            timeout: 600,
+          },
+        ],
+      } as unknown as LoadedPlugin["manifest"], // any justified: only the fields resolveCodexHooks reads
+      packageRoot: `/tmp/${id}`,
+      managedAssets: [],
+      scriptAssets: [{ src: `scripts/${script}`, dest: script, exec: true }],
+      skillAssets: [],
+    });
+    const withPlugins = (alpha: boolean, beta: boolean): ResolvedCodexHook[] =>
+      resolveCodexHooks(config(), [
+        ...(alpha ? [fakePlugin("alpha", "check-alpha.sh")] : []),
+        ...(beta ? [fakePlugin("beta", "check-beta.sh")] : []),
+      ]);
     const baseline = withPlugins(true, false);
     const baselineState = readCodexTrustState(root, configPath, baseline, {
       codexHomeConfigPath: writeTempHome(""),
     });
-    const approvedPlugin = baselineState.hooks.find((entry) => entry.script === "check-jscpd.sh");
+    const approvedPlugin = baselineState.hooks.find((entry) => entry.script === "check-alpha.sh");
     expect(approvedPlugin).toBeDefined();
     const homeText = [
       `[projects."${root}"]`,
@@ -168,15 +190,13 @@ describe("Codex plugin trust transitions (spec 0037 T7)", () => {
     const read = (hooks: ResolvedCodexHook[]) =>
       readCodexTrustState(root, configPath, hooks, { codexHomeConfigPath: homePath });
 
-    expect(read(baseline).hooks.find((entry) => entry.script === "check-jscpd.sh")?.status).toBe(
+    expect(read(baseline).hooks.find((entry) => entry.script === "check-alpha.sh")?.status).toBe(
       "Trusted",
     );
     const added = read(withPlugins(true, true));
-    expect(added.hooks.find((entry) => entry.script === "check-semgrep.sh")?.status).toBe(
-      "Untrusted",
-    );
+    expect(added.hooks.find((entry) => entry.script === "check-beta.sh")?.status).toBe("Untrusted");
     const removed = read(withPlugins(false, false));
-    expect(removed.hooks.some((entry) => entry.script === "check-jscpd.sh")).toBe(false);
+    expect(removed.hooks.some((entry) => entry.script === "check-alpha.sh")).toBe(false);
     // Spec 0041 D8 (accepted cost): the late `role-guard` group slides into the
     // freed slot, and the plugin's approval never transfers to it.
     const slot = removed.hooks.find((entry) => entry.key === approvedPlugin!.key);
@@ -185,25 +205,25 @@ describe("Codex plugin trust transitions (spec 0037 T7)", () => {
     // The home row still exists; render/inspection cannot infer ownership of a positional row.
     expect(readFileSync(homePath, "utf-8")).toBe(homeText);
     const replaced = read(withPlugins(false, true)).hooks.find(
-      (entry) => entry.script === "check-semgrep.sh",
+      (entry) => entry.script === "check-beta.sh",
     );
     expect(replaced?.key).toBe(approvedPlugin!.key);
     expect(replaced?.status).toBe("Modified");
 
     const identicalRegistration: ResolvedCodexHook[] = baseline.map((hook) =>
-      hook.pluginId === "jscpd" ? { ...hook, pluginId: "different-plugin" } : hook,
+      hook.pluginId === "alpha" ? { ...hook, pluginId: "different-plugin" } : hook,
     );
     expect(
-      read(identicalRegistration).hooks.find((entry) => entry.script === "check-jscpd.sh")?.status,
+      read(identicalRegistration).hooks.find((entry) => entry.script === "check-alpha.sh")?.status,
     ).toBe("Trusted"); // Codex hashes registrations, not plugin identity.
   });
 
   // Covers: R20
   it("does not include script bytes in Codex's registration hash", () => {
     const hook: ResolvedCodexHook = {
-      script: "check-semgrep.sh",
-      scriptPath: ".codex/scripts/check-semgrep.sh",
-      pluginId: "semgrep",
+      script: "check-beta.sh",
+      scriptPath: ".codex/scripts/check-beta.sh",
+      pluginId: "beta",
       event: "PreToolUse",
       matcher: "^Bash$",
       timeout: 600,
