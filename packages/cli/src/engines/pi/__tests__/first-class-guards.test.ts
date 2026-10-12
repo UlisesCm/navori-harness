@@ -23,7 +23,7 @@ import { load } from "./fixtures/load-extension.ts";
 interface Ctx {
   cwd: string;
   hasUI?: boolean;
-  ui?: { select: ReturnType<typeof vi.fn> };
+  ui?: { input: ReturnType<typeof vi.fn> };
   sessionManager: { getSessionId: () => string };
 }
 type Env = Record<string, string>;
@@ -65,9 +65,7 @@ const ctxFor = (cwd: string, hasUI = false, answer = true): Ctx => ({
   ...(hasUI
     ? {
         ui: {
-          select: vi.fn(async (_t: string, options: string[]) =>
-            answer ? options[1] : options[0],
-          ),
+          input: vi.fn(async (_t: string, _p?: string) => (answer ? "yes, run it" : "")),
         },
       }
     : {}),
@@ -217,13 +215,13 @@ describe("Pi guards: destructive commands, deny rules and the control plane", ()
     );
     expect(result).toMatchObject({ block: true });
     expect(reasonOf(result)).toMatch(SCRIPT_BLOCK);
-    expect(ctx.ui!.select).not.toHaveBeenCalled();
+    expect(ctx.ui!.input).not.toHaveBeenCalled();
     // A command the guard accepts reaches the confirmation, once.
     const asked = ctxFor(dir, true, true);
     expect(
       await verdict(PARENT, dir, bash("navori master close --approved-by user"), asked),
     ).toBeUndefined();
-    expect(asked.ui!.select).toHaveBeenCalledOnce();
+    expect(asked.ui!.input).toHaveBeenCalledOnce();
   });
 });
 

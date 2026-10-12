@@ -275,16 +275,18 @@ them, bound to the exact call.
 - A block always wins over a question: enforced scripts run first, so a call that will be blocked never
   reaches the user.
 - The confirmation happens in the parent. A child (`NAVORI_PI_CHILD_DEPTH` set) is refused, and the exact
-  command is relayed to the parent (see [Approval relay](#approval-relay)). Without UI (RPC or headless),
-  the call is refused.
+  command is relayed to the parent (see [Approval relay](#approval-relay)). The typed
+  confirmation works in the TUI and in RPC mode (which provides a real UI context). In headless/print mode,
+  with no interactive UI, the call is refused.
 - The `publisher` is admitted and is subject to all of the rules above: its publishing operations are
   refused in the child, relayed to the parent, and confirmed there.
 
-**Confirmation dialog (deny-first).** The parent shows a select dialog titled "Navori approval required"
-with the exact command and its reasons. The first option is `No, cancel` and the second is `Yes, run it`.
-Only the explicit `Yes, run it` approves. Escape, `No, cancel`, any other answer, or a failing dialog
-refuses the call. After the confirmation the extension re-checks the repository state and the body digests;
-a change in either refuses the call and asks for approval again.
+**Confirmation dialog (deny-first).** The parent shows a typed-input dialog (`ctx.ui.input`) titled "Navori
+approval required" with the exact command, its reasons, and the instruction to type `yes, run it`. Only that
+exact text, trimmed of surrounding whitespace, approves. Empty Enter, Escape, any other text, a timeout, or
+a failing dialog refuses the call. No selector is used, so no option can be pre-highlighted. After the
+confirmation the extension re-checks the repository state and the body digests; a change in
+either refuses the call and asks for approval again.
 
 ## Doctor findings
 
@@ -547,7 +549,7 @@ Limits, stated rather than hidden:
 
 - No live model. The faux provider proves the pipeline, never model compliance.
 - No TUI or RPC process. The parent runs in process, approval is driven through Pi's real extension runner
-  with a stub `ui.confirm`, so dialog rendering is not exercised.
+  with a stub `ui.input`, so dialog rendering is not exercised.
 - "Receipt" is the shared `plan update ... cumplido` closure over the host-recorded evidence.
 - No live OAuth. No real credentials are read, stored, or used.
 
