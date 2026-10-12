@@ -17,7 +17,7 @@
 npx navori init           # wizard con detección de stack
 # o, sin preguntas — harness completo sin instalar nada externo:
 npx navori init --recommended
-# o, + proveedores externos (tgrep, semgrep, jscpd, acli) y política estricta:
+# o, + proveedores externos (tgrep, acli) y política estricta:
 npx navori init --full
 ```
 
@@ -150,7 +150,7 @@ navori-harness/
 ├─ packages/
 │  ├─ cli/            # el CLI `navori` (publicado a npm)
 │  ├─ core/           # @navori/core — managed assets (agentes, skills, presets, hooks), bundleados al CLI
-│  └─ plugins/        # acli · codegraph · engram · gh · jscpd · semgrep · tgrep
+│  └─ plugins/        # acli · codegraph · engram · gh · tgrep
 ├─ apps/
 │  └─ website/        # landing + docs (Astro, deploy a GitHub Pages)
 └─ package.json      # workspaces + trustedDependencies (bun)
