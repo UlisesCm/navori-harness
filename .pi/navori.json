@@ -1,7 +1,7 @@
 {
   "_navori": {
     "id": "pi-runtime",
-    "hash": "c67822f6b3a53c0eb79ac8cbb1bef69406cabe5b006ce84f3ce6df0c00da9dde"
+    "hash": "9a09729b9b620af91ced5d9f18cfef3332eccb21626fa5b1eaedbddc44e877bb"
   },
   "schemaVersion": 2,
   "agents": [
@@ -18,7 +18,26 @@
     "masterPlan": false,
     "scribeOwnsMarkdown": true
   },
-  "hooks": [],
+  "hooks": [
+    {
+      "script": "worktree-reclaim",
+      "path": ".pi/navori/hooks/worktree-reclaim.sh",
+      "on": "session_shutdown",
+      "scope": "parent",
+      "class": "lifecycle",
+      "interactive": false,
+      "timeoutMs": 12000
+    },
+    {
+      "script": "audit-mode-close",
+      "path": ".pi/navori/hooks/audit-mode-close.sh",
+      "on": "session_shutdown",
+      "scope": "parent",
+      "class": "lifecycle",
+      "interactive": false,
+      "timeoutMs": 3000
+    }
+  ],
   "ownedPaths": [
     ".pi/agents/architect.md",
     ".pi/agents/auditor.md",
@@ -28,7 +47,9 @@
     ".pi/agents/scout.md",
     ".pi/agents/scribe.md",
     ".pi/extensions/navori.ts",
-    ".pi/navori.json"
+    ".pi/navori.json",
+    ".pi/navori/hooks/audit-mode-close.sh",
+    ".pi/navori/hooks/worktree-reclaim.sh"
   ],
   "permissionRules": {
     "ask": [

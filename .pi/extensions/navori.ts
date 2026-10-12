@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="d7d65b827ff379e450e632a3897ef3364e1e8b8762c42391840aaed3294e58c3"
+// navori:managed-file id="pi-extension" hash="020bc3d807a81b09141b7468ba9ad2b826d9577b83abcd2c1e66ecbb4e44d462"
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -18,7 +18,7 @@ function assertTrustedPiParent(ctx: { isProjectTrusted?: () => boolean }): void 
 
 const MCP_PLUGIN_IDS: readonly string[] = ["engram","codegraph"];
 const mcpServerStates = function(e,t,n){let r=e=>e.replaceAll(`-`,`_`),i=e=>{let t=new Map,n=typeof e==`object`&&e&&!Array.isArray(e)?e.mcpServers:void 0;if(typeof n!=`object`||!n||Array.isArray(n))return t;for(let[e,i]of Object.entries(n))typeof i==`object`&&i&&!Array.isArray(i)&&t.set(r(e),{enabled:i.enabled!==!1,replaces:[`command`,`url`,`type`].some(e=>e in i)});return t},a=i(t),o=i(n);return e.map(e=>{let t=a.get(r(e)),n=o.get(r(e)),i=n===void 0?t:n.replaces?n:t&&{...t,enabled:n.enabled};return t?.enabled===!0&&i?.enabled?`global`:i?.enabled?`project-only`:i===void 0?`missing`:`disabled`})};
-const piRuntimeChecks = (function(e,t,n){function r(e){let t=/^v?(\d+)\.(\d+)\.(\d+)(?:\+[\w.-]+)?$/.exec(e.trim());if(!t)return null;let n=Number(t[1]),r=Number(t[2]),i=Number(t[3]);return[n,r,i].every(Number.isSafeInteger)?[n,r,i]:null}function i(e,t){return e[0]===t[0]?e[1]===t[1]?e[2]>=t[2]:e[1]>t[1]:e[0]>t[0]}let a=(e=process.versions.node)=>{let n=r(e),a=r(t);if(!n||!a||!i(n,a))throw Error(`Navori's Pi engine requires Node.js ${t} or later; found ${e}.`)},o=t=>{let n=r(t),a=r(e);return n!==null&&a!==null&&i(n,a)};return{assert:(t,n=process.versions.node)=>{if(a(n),!o(t))throw Error(`Navori's Pi engine requires @earendil-works/pi-coding-agent ${e} or later; found ${t}. Run pi --version and upgrade Pi.`)},assertNode:a,verified:o,unverified:e=>{let t=r(e);return n.filter(e=>{let n=r(e.verifiedFrom);return!t||!n||!i(t,n)}).map(e=>e.capability+` (verified from Pi `+e.verifiedFrom+`)`)}}})("1.1.0", "22.19.0", [{"capability":"child-mcp-off","verifiedFrom":"1.1.0"},{"capability":"child-model-selection","verifiedFrom":"1.1.0"},{"capability":"child-tool-allowlist","verifiedFrom":"1.1.0"},{"capability":"child-ipc-relay","verifiedFrom":"1.1.0"}]);
+const piRuntimeChecks = (function(e,t,n){function r(e){let t=/^v?(\d+)\.(\d+)\.(\d+)(?:\+[\w.-]+)?$/.exec(e.trim());if(!t)return null;let n=Number(t[1]),r=Number(t[2]),i=Number(t[3]);return[n,r,i].every(Number.isSafeInteger)?[n,r,i]:null}function i(e,t){return e[0]===t[0]?e[1]===t[1]?e[2]>=t[2]:e[1]>t[1]:e[0]>t[0]}let a=(e=process.versions.node)=>{let n=r(e),a=r(t);if(!n||!a||!i(n,a))throw Error(`Navori's Pi engine requires Node.js ${t} or later; found ${e}.`)},o=t=>{let n=r(t),a=r(e);return n!==null&&a!==null&&i(n,a)};return{assert:(t,n=process.versions.node)=>{if(a(n),!o(t))throw Error(`Navori's Pi engine requires @earendil-works/pi-coding-agent ${e} or later; found ${t}. Run pi --version and upgrade Pi.`)},assertNode:a,verified:o,unverified:e=>{let t=r(e);return n.filter(e=>{let n=r(e.verifiedFrom);return!t||!n||!i(t,n)}).map(e=>e.capability+` (verified from Pi `+e.verifiedFrom+`)`)}}})("1.1.0", "22.19.0", [{"capability":"child-mcp-off","verifiedFrom":"1.1.0"},{"capability":"child-model-selection","verifiedFrom":"1.1.0"},{"capability":"child-tool-allowlist","verifiedFrom":"1.1.0"},{"capability":"child-ipc-relay","verifiedFrom":"1.1.0"},{"capability":"session-end-event","verifiedFrom":"1.1.0"},{"capability":"settle-boundary-entries","verifiedFrom":"1.1.0"}]);
 const PI_MIN_VERSION = "1.1.0";
 const assertSupportedPiRuntime = piRuntimeChecks.assert;
 const assertSupportedNode = piRuntimeChecks.assertNode;
@@ -724,7 +724,7 @@ type BridgeVerdict = { kind: "allow" } | { kind: "block"; reason: string } | { k
 type BridgeOutcome = { code: number | null; signal: string | null; timedOut: boolean; failed: boolean; aborted: boolean;
   json: Record<string, unknown> | undefined; stderr: string };
 type BridgeCall = { event: string; hookEvent: string; toolName?: string; toolCallId?: string; input?: unknown; cwd: string;
-  sessionId: string; hasUI: boolean };
+  sessionId: string; hasUI: boolean; reason?: string };
 type BridgeResult = { block?: string; asks: string[]; warnings: string[] };
 const BRIDGE_STDOUT_CAP = 65_536;
 const BRIDGE_STDERR_HALF = 2_048;
@@ -799,6 +799,7 @@ function bridgePayload(call: BridgeCall): string {
     ...(call.toolName ? { tool_name: BRIDGE_TOOL_NAMES[call.toolName] ?? call.toolName, tool_input: toolInput } : {}),
     ...(call.toolCallId ? { tool_use_id: call.toolCallId } : {}),
     ...(call.hookEvent === "Stop" ? { stop_hook_active: false } : {}),
+    ...(call.reason ? { reason: call.reason } : {}),
     cwd: call.cwd,
     ...(call.sessionId ? { session_id: call.sessionId } : {}),
     // "default" only where a human can answer an ask; everywhere else the scripts must decide by themselves.
@@ -998,6 +999,40 @@ function registerUnverifiedBlock(pi: ExtensionAPI): void {
   });
 }
 
+// ---- Session lifecycle (spec 0048 R10/R11, D8): self-contained blocks, parent thread only.
+// quit -> prompt_input_exit and new -> clear are the only closes; reload, resume and fork keep the session alive.
+const SESSION_END_REASONS: Record<string, string> = { quit: "prompt_input_exit", new: "clear" };
+type LifecycleContext = { cwd: string; sessionManager?: { getSessionId?: () => string } };
+
+/** Reclaim safe worktrees (12 s) and then seal the audit log (3 s); lifecycle scripts, so every failure is silent. */
+async function closeSession(event: { reason?: unknown }, ctx: LifecycleContext): Promise<void> {
+  if (process.env.NAVORI_PI_CHILD_DEPTH) return;
+  const reason = typeof event.reason === "string" && Object.hasOwn(SESSION_END_REASONS, event.reason) ? SESSION_END_REASONS[event.reason] : undefined;
+  if (reason === undefined) return;
+  const manifest = bridgeManifest(ctx.cwd);
+  if (!manifest.ok) return;
+  for (const script of ["worktree-reclaim", "audit-mode-close"]) {
+    // Pi creates no worktrees: without the directory there is nothing to reclaim.
+    if (script === "worktree-reclaim" && !existsSync(join(ctx.cwd, ".claude/worktrees"))) continue;
+    try {
+      await runBridge(manifest.hooks.filter((hook) => hook.script === script), { event: "session_shutdown", hookEvent: "SessionEnd", reason,
+        cwd: ctx.cwd, sessionId: ctx.sessionManager?.getSessionId?.() ?? "", hasUI: false }, undefined);
+    } catch { /* Closing must never fail the session. */ }
+  }
+}
+
+/** The verification reminder as ONE visible custom_message entry; never sets continue, so no extra model request. */
+async function settleReminder(event: { entries?: unknown[] }, ctx: LifecycleContext): Promise<{ entries: unknown[] } | undefined> {
+  if (process.env.NAVORI_PI_CHILD_DEPTH) return undefined;
+  const manifest = bridgeManifest(ctx.cwd);
+  if (!manifest.ok) return undefined;
+  const bridged = await runBridge(manifest.hooks, { event: "agent_before_settle", hookEvent: "Stop", cwd: ctx.cwd,
+    sessionId: ctx.sessionManager?.getSessionId?.() ?? "", hasUI: false }, undefined);
+  const text = bridged.warnings.join("\n").trim();
+  if (!text) return undefined;
+  return { entries: [...(Array.isArray(event.entries) ? event.entries : []), { type: "custom_message", customType: "navori-verify-reminder", content: text, display: true }] };
+}
+
 export default function (pi: ExtensionAPI): void {
   try {
     assertSupportedNode();
@@ -1079,6 +1114,13 @@ export default function (pi: ExtensionAPI): void {
       if (!pending.length) return;
       noticeOnce(ctx, false, "Pi MCP server " + pending.join(", ") + " is configured only in .pi/mcp.json and is not effective: the project is not trusted (/trust).");
     } catch { /* Advisory: a failing check never blocks session start. */ }
+  });
+  pi.on("session_shutdown", async (event, ctx) => {
+    try { await closeSession(event, ctx); } catch { /* Closing must never fail the session. */ }
+  });
+  pi.on("agent_before_settle", async (event, ctx) => {
+    // The draft is the exact CustomMessageEntryDraft shape; the cast only bridges unknown[] to the Pi entry union.
+    try { return (await settleReminder(event, ctx)) as never; } catch { return undefined; }
   });
   pi.on("session_start", async (_event, ctx) => {
     try { await injectContext(pi, ctx); } catch { /* Context is a convenience; session start must continue. */ }

@@ -63,8 +63,8 @@ Estimated LOC: 5300
 ### M9 — Fin de sesión y fin de turno
 
 - **A9** [observable] — El cierre reclama solo worktrees seguros y sella audit-mode; el fin de turno con cambios avisa sin bloquear · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-lifecycle.test.ts src/engines/pi/__tests__/runtime.test.ts` → exit 0; worktree con trabajo sin push y con `.navori/state` ignorado conservados; nada corre en hijos `--no-session` ni en `resume`/`fork`; presupuesto de 15 s.
-- [ ] **T14** (R10) — `session_shutdown` en el padre con `reason` quit/new ejecuta `worktree-reclaim.sh` (solo si existe `.claude/worktrees`, preservando estado ignorado en el brazo `pi`) y `audit-mode-close.sh`; admisión `session-end-event`. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-lifecycle.test.ts`::shutdown reclaims safe worktrees only
-- [ ] **T15** (R11) — `agent_before_settle` añade el recordatorio de verificación como `custom_message` visible sin otra petición al modelo; admisión `settle-boundary-entries`; `routing-watch` solo si T1 lo admitió. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-lifecycle.test.ts`::settle reminder with uncommitted changes
+- [x] **T14** (R10) — `session_shutdown` en el padre con `reason` quit/new ejecuta `worktree-reclaim.sh` (solo si existe `.claude/worktrees`, preservando estado ignorado en el brazo `pi`) y `audit-mode-close.sh`; admisión `session-end-event`. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-lifecycle.test.ts`::shutdown reclaims safe worktrees only
+- [x] **T15** (R11) — `agent_before_settle` añade el recordatorio de verificación como `custom_message` visible sin otra petición al modelo; admisión `settle-boundary-entries`; `routing-watch` solo si T1 lo admitió. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-lifecycle.test.ts`::settle reminder with uncommitted changes
 
 
 ### M10 — Plugins y diagnóstico MCP

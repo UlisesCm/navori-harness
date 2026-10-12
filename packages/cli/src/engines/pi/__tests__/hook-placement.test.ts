@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { ENGINE_OUTPUTS, engineOwnedPaths } from "../../../lib/diagnose/health.ts";
-import { activePiHookBindings, PI_HOOK_BINDINGS, type PiHookBinding } from "../hook-bindings.ts";
+import { activePiHookBindings, type PiHookBinding } from "../hook-bindings.ts";
 import { piOwnershipVerdict, renderPiEngine } from "../index.ts";
 import {
   ownsPiManifest,
@@ -125,9 +125,8 @@ describe("Pi hook placement and manifest v2", () => {
     expect(existsSync(join(cwd, HOOK))).toBe(true);
     expect(existsSync(join(cwd, ".pi/navori/hooks/quality-gate-pre-commit.sh"))).toBe(false);
     const bare = dir();
-    renderPiEngine(bare, config);
-    // M2 wires no guard: the table is empty and no script is placed (spec 0048 M3 and later add rows).
-    expect(PI_HOOK_BINDINGS).toEqual([]);
+    // With no binding row no script is placed (the real table is exercised by the lifecycle and guard suites).
+    renderPiEngine(bare, config, { hookBindings: [] });
     expect(existsSync(join(bare, ".pi/navori/hooks"))).toBe(false);
     expect((manifest(bare).hooks as unknown[]).length).toBe(0);
     expect(activePiHookBindings(config, [GUARD, GATE]).map((b) => b.script)).toEqual([

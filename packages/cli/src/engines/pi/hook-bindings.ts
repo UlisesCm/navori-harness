@@ -51,7 +51,35 @@ export interface PiHookBinding {
 }
 
 /** The scripts Pi runs through the extension bridge. */
-export const PI_HOOK_BINDINGS: readonly PiHookBinding[] = [];
+export const PI_HOOK_BINDINGS: readonly PiHookBinding[] = [
+  // Spec 0048 R10 (D8): parent session close, 15 s in total (reclaim 12 s, then the audit seal 3 s).
+  {
+    script: "worktree-reclaim",
+    on: "session_shutdown",
+    scope: "parent",
+    class: "lifecycle",
+    interactive: false,
+    timeoutMs: 12_000,
+  },
+  {
+    script: "audit-mode-close",
+    on: "session_shutdown",
+    scope: "parent",
+    class: "lifecycle",
+    interactive: false,
+    timeoutMs: 3_000,
+  },
+  // Spec 0048 R11 (D8): advisory (its text is appended, never blocks); opt-in like Claude's Stop hook.
+  {
+    script: "stop-verify-reminder",
+    on: "agent_before_settle",
+    scope: "parent",
+    class: "advisory",
+    interactive: false,
+    timeoutMs: 10_000,
+    when: (config) => Boolean(config.hooks?.verifyOnStop),
+  },
+];
 
 /** Destination of a script copy, relative to the project root, always with `/` separators. */
 export function piHookPath(script: string): string {

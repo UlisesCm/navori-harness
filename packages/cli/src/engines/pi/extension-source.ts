@@ -733,6 +733,40 @@ function registerUnverifiedBlock(pi: ExtensionAPI): void {
   });
 }
 
+// ---- Session lifecycle (spec 0048 R10/R11, D8): self-contained blocks, parent thread only.
+// quit -> prompt_input_exit and new -> clear are the only closes; reload, resume and fork keep the session alive.
+const SESSION_END_REASONS: Record<string, string> = { quit: "prompt_input_exit", new: "clear" };
+type LifecycleContext = { cwd: string; sessionManager?: { getSessionId?: () => string } };
+
+/** Reclaim safe worktrees (12 s) and then seal the audit log (3 s); lifecycle scripts, so every failure is silent. */
+async function closeSession(event: { reason?: unknown }, ctx: LifecycleContext): Promise<void> {
+  if (process.env.NAVORI_PI_CHILD_DEPTH) return;
+  const reason = typeof event.reason === "string" && Object.hasOwn(SESSION_END_REASONS, event.reason) ? SESSION_END_REASONS[event.reason] : undefined;
+  if (reason === undefined) return;
+  const manifest = bridgeManifest(ctx.cwd);
+  if (!manifest.ok) return;
+  for (const script of ["worktree-reclaim", "audit-mode-close"]) {
+    // Pi creates no worktrees: without the directory there is nothing to reclaim.
+    if (script === "worktree-reclaim" && !existsSync(join(ctx.cwd, ".claude/worktrees"))) continue;
+    try {
+      await runBridge(manifest.hooks.filter((hook) => hook.script === script), { event: "session_shutdown", hookEvent: "SessionEnd", reason,
+        cwd: ctx.cwd, sessionId: ctx.sessionManager?.getSessionId?.() ?? "", hasUI: false }, undefined);
+    } catch { /* Closing must never fail the session. */ }
+  }
+}
+
+/** The verification reminder as ONE visible custom_message entry; never sets continue, so no extra model request. */
+async function settleReminder(event: { entries?: unknown[] }, ctx: LifecycleContext): Promise<{ entries: unknown[] } | undefined> {
+  if (process.env.NAVORI_PI_CHILD_DEPTH) return undefined;
+  const manifest = bridgeManifest(ctx.cwd);
+  if (!manifest.ok) return undefined;
+  const bridged = await runBridge(manifest.hooks, { event: "agent_before_settle", hookEvent: "Stop", cwd: ctx.cwd,
+    sessionId: ctx.sessionManager?.getSessionId?.() ?? "", hasUI: false }, undefined);
+  const text = bridged.warnings.join("\n").trim();
+  if (!text) return undefined;
+  return { entries: [...(Array.isArray(event.entries) ? event.entries : []), { type: "custom_message", customType: "navori-verify-reminder", content: text, display: true }] };
+}
+
 export default function (pi: ExtensionAPI): void {
   try {
     assertSupportedNode();
@@ -814,6 +848,13 @@ export default function (pi: ExtensionAPI): void {
       if (!pending.length) return;
       noticeOnce(ctx, false, "Pi MCP server " + pending.join(", ") + " is configured only in .pi/mcp.json and is not effective: the project is not trusted (/trust).");
     } catch { /* Advisory: a failing check never blocks session start. */ }
+  });
+  pi.on("session_shutdown", async (event, ctx) => {
+    try { await closeSession(event, ctx); } catch { /* Closing must never fail the session. */ }
+  });
+  pi.on("agent_before_settle", async (event, ctx) => {
+    // The draft is the exact CustomMessageEntryDraft shape; the cast only bridges unknown[] to the Pi entry union.
+    try { return (await settleReminder(event, ctx)) as never; } catch { return undefined; }
   });
   pi.on("session_start", async (_event, ctx) => {
     try { await injectContext(pi, ctx); } catch { /* Context is a convenience; session start must continue. */ }

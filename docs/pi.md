@@ -83,6 +83,18 @@ capabilities are verified on Pi 1.1.0; `deferred` capabilities are not available
 | `child-tool-allowlist` | admitted | `--tools` is a model-visible allowlist, not isolation. Indirect MCP exposure is closed by `--no-mcp`. |
 | `child-ipc-relay` | admitted | Node IPC (`stdio` `ipc`) from the child to the parent reports the exact refused command. It never approves anything; see [Approval relay](#approval-relay). |
 | `child-mcp-grants` | deferred | Children run with `--no-mcp`. Pi 1.1.0 connects every enabled MCP server and lists all of them in the child prompt, so per-role MCP grants are not verifiable. Roles that need MCP stay unavailable in children. |
+| `session-end-event` | admitted | `session_shutdown` runs on a clean quit or `/new` only, in the parent. A SIGKILL fires nothing, so the next close sweeps. Reload, resume and fork do not end the session. |
+| `settle-boundary-entries` | admitted | `agent_before_settle` appends a visible entry at the end of the agent run. It never sets `continue`, so it cannot force another model request. |
+
+## Session lifecycle
+
+These run only in the parent session; children do nothing. All failures are silent and never fail the session.
+
+- **Quit or `/new`** (`session_shutdown` with reason `quit` or `new`):
+  1. `worktree-reclaim` runs with a 12 s deadline, only if `.claude/worktrees` exists. The Pi arm keeps any worktree that has unpublished work or ignored files under `.navori/state/`.
+  2. `audit-mode-close` runs with a 3 s deadline and seals only an existing audit log.
+- **Reload, resume and fork**: nothing runs.
+- **Verification reminder** (`agent_before_settle`, only when `hooks.verifyOnStop` is set): if the tree has uncommitted changes, a fixed Spanish reminder to run the quality gate and commit is appended as a visible `custom_message`. It never triggers another model request.
 
 ## Hook bridge
 

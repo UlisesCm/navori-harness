@@ -775,6 +775,28 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         boundary:
           "Roles that need MCP stay unavailable in children (--no-mcp, render and runtime diagnostics) until per-role grants are verifiable.",
       },
+      {
+        capability: "session-end-event",
+        native: "session_shutdown extension event",
+        decision: "admitted",
+        source: "Pi 1.1.0 extensions guide (session_shutdown: quit, reload, new, resume, fork)",
+        verifiedFrom: "1.1.0",
+        probe:
+          "Pi 1.1.0 SessionShutdownEvent carries reason quit|reload|new|resume|fork and also fires in --no-session children (the extension gates on NAVORI_PI_CHILD_DEPTH)",
+        boundary:
+          "Runs on a clean quit or /new only; a SIGKILL fires nothing, so the next close sweeps. Reload, resume and fork do not end the session.",
+      },
+      {
+        capability: "settle-boundary-entries",
+        native: "agent_before_settle extension event",
+        decision: "admitted",
+        source: "Pi 1.1.0 extensions guide (agent_before_settle BoundaryResult: entries, continue)",
+        verifiedFrom: "1.1.0",
+        probe:
+          "Pi 1.1.0 AgentBeforeSettleEvent extends BoundaryState (entries, continue, outcome) and BoundaryResult accepts a custom_message entry draft",
+        boundary:
+          "Appends a visible entry at the end of the agent run; it never sets continue, so it cannot force another model request.",
+      },
     ],
   },
   "agents-md": {

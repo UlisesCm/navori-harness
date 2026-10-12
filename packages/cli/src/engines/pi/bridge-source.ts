@@ -31,7 +31,7 @@ type BridgeVerdict = { kind: "allow" } | { kind: "block"; reason: string } | { k
 type BridgeOutcome = { code: number | null; signal: string | null; timedOut: boolean; failed: boolean; aborted: boolean;
   json: Record<string, unknown> | undefined; stderr: string };
 type BridgeCall = { event: string; hookEvent: string; toolName?: string; toolCallId?: string; input?: unknown; cwd: string;
-  sessionId: string; hasUI: boolean };
+  sessionId: string; hasUI: boolean; reason?: string };
 type BridgeResult = { block?: string; asks: string[]; warnings: string[] };
 const BRIDGE_STDOUT_CAP = 65_536;
 const BRIDGE_STDERR_HALF = 2_048;
@@ -106,6 +106,7 @@ function bridgePayload(call: BridgeCall): string {
     ...(call.toolName ? { tool_name: BRIDGE_TOOL_NAMES[call.toolName] ?? call.toolName, tool_input: toolInput } : {}),
     ...(call.toolCallId ? { tool_use_id: call.toolCallId } : {}),
     ...(call.hookEvent === "Stop" ? { stop_hook_active: false } : {}),
+    ...(call.reason ? { reason: call.reason } : {}),
     cwd: call.cwd,
     ...(call.sessionId ? { session_id: call.sessionId } : {}),
     // "default" only where a human can answer an ask; everywhere else the scripts must decide by themselves.

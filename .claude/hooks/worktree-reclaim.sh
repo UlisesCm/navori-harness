@@ -1,4 +1,4 @@
-# navori:managed start id="worktree-reclaim-base" hash="dec8496e" version="0.11.3" source="@navori/core"
+# navori:managed start id="worktree-reclaim-base" hash="a22e7aa5" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 # navori — worktree reclaim (SessionEnd) — #527
 #
@@ -470,6 +470,17 @@ while IFS= read -r line; do
   if [ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ]; then
     kept="${kept}
   ${wt} — uncommitted changes on '${branch}'"
+    continue
+  fi
+
+  # (1b) Pi arm only (spec 0048 D8/F14c): `git status --porcelain` does not list
+  # IGNORED files, but `git worktree remove` discards them. Handoffs and evidence
+  # under `.navori/state/` are gitignored and exist nowhere else, so any ignored
+  # file there keeps the worktree. Claude and Codex keep the bar above unchanged.
+  if [ "$nv_engine" = pi ] &&
+    [ -n "$(git -C "$wt" status --porcelain --ignored -- .navori/state 2>/dev/null | grep '^!!')" ]; then
+    kept="${kept}
+  ${wt} — ignored state under .navori/state/ would be discarded on '${branch}'"
     continue
   fi
 

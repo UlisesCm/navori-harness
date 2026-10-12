@@ -253,9 +253,10 @@ const hookEntries = (): Array<[string, PiParity]> => {
     ),
     h(
       "worktree-reclaim",
-      unsupported(
-        NO_BRIDGE,
-        "The extension has no session-end handler, so no worktree is reclaimed on Pi close (spec 0048 R10, M9)",
+      advisory(
+        "the extension's session_shutdown handler (parent only, reason quit or new) runs the shared script under the bridge, 12 s, only when `.claude/worktrees` exists",
+        "same bar as Claude (clean, pushed, merged PR) plus: a worktree with ignored files under `.navori/state/` is kept. Pi creates no worktrees; a SIGKILL fires no event and the next close sweeps. Failures are silent",
+        "pi-extension:session_shutdown",
       ),
     ),
     h(
@@ -264,7 +265,11 @@ const hookEntries = (): Array<[string, PiParity]> => {
     ),
     h(
       "audit-mode-close",
-      unsupported(NO_BRIDGE, "Pi never seals an audit-mode log (spec 0048 R10, M9)"),
+      advisory(
+        "the extension's session_shutdown handler (parent only, reason quit or new) runs the shared script after the reclaim, 3 s, with a SessionEnd payload",
+        "seals only a log that already exists: Pi never opens an audit-mode log (`audit-mode-trigger` is unsupported), so it is a no-op until one is started. Failures are silent",
+        "pi-extension:session_shutdown",
+      ),
     ),
     h(
       "comment-draft-confirm",
@@ -289,9 +294,10 @@ const hookEntries = (): Array<[string, PiParity]> => {
     ),
     h(
       "stop-verify-reminder",
-      unsupported(
-        NO_BRIDGE,
-        "No end-of-turn verification reminder is appended in Pi (spec 0048 R11, M9)",
+      advisory(
+        "the extension's agent_before_settle handler (parent only, with hooks.verifyOnStop) appends the script's Spanish reminder as a visible custom_message entry when tracked files are uncommitted",
+        "never blocks and never sets `continue`, so no extra model request; one reminder per agent run; a failure shows nothing",
+        "pi-extension:agent_before_settle",
       ),
     ),
     h(
