@@ -46,13 +46,16 @@ function fixture(
   writeFileSync(
     join(cwd, ".pi/navori.json"),
     serializePiManifest({
-      schemaVersion: 1,
+      schemaVersion: 2,
       agents: ["scout", "implementer", "reviewer"],
       controls: {
         planTiers: flags.planTiers ?? false,
         masterPlan: flags.masterPlan ?? false,
         scribeOwnsMarkdown: flags.scribeOwnsMarkdown ?? false,
       },
+      hooks: [],
+      ownedPaths: [],
+      permissionRules: { ask: [], deny: [] },
     }),
   );
   for (const role of ["scout", "implementer", "reviewer"] as const) {

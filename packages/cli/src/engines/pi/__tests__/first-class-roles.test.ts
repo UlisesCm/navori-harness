@@ -192,7 +192,7 @@ const HELP_1_1_0 = [
 
 describe("Pi first-class roles", () => {
   // Covers: R1, R2
-  it("native admission and incompatible runtime", async () => {
+  it("native admission and incompatible runtime", () => {
     const rows = ENGINE_CAPABILITIES.pi.runtimeAdmissions ?? [];
     const admitted = rows.filter((row) => row.decision === "admitted");
     expect(admitted.map((row) => row.capability)).toEqual([
@@ -213,12 +213,10 @@ describe("Pi first-class roles", () => {
     expect(missingPiChildFlags(HELP_1_1_0.replace("--no-mcp", "--no-mpc"))).toEqual(["--no-mcp"]);
     expect(missingPiChildFlags("")).toEqual(["--no-mcp", "--model", "--tools"]);
 
-    // A runtime older than the probed version is diagnosed and never spawns a child.
-    const { dir } = project();
+    // A runtime older than the probed version never gets navori_subagent, so it can never spawn a child
+    // (spec 0048 D10: it only keeps the write block, covered in runtime-version.test.ts).
     const old = load({ version: "0.87.1" });
-    await expect(run(old, dir, "scout")).rejects.toThrow(
-      /Pi 0\.87\.1 is not verified for Navori children: child-mcp-off \(verified from Pi 1\.1\.0\)/,
-    );
+    expect(old.tool).toBeUndefined();
     expect(old.children).toEqual([]);
   });
 

@@ -9,15 +9,19 @@ runtime admissions) is parsed by `packages/cli/src/engines/pi/__tests__/first-cl
 
 ## Requirements and setup
 
-- Minimum supported Pi version: **0.87.1**
+- Minimum supported Pi version: **1.1.0**
 - Tested Pi version: **1.1.0**
 
 The floor is `MIN_PI_VERSION` (`packages/cli/src/engines/pi/runtime-version.ts`). The tested version is
-the pinned `@earendil-works/pi-coding-agent` devDependency of `packages/cli`. Pi 0.87.1 through 1.0.x load
-the extension, but the extension refuses to start `navori_subagent` children there because the admitted
-child runtime capabilities (see [Runtime admissions](#runtime-admissions)) are verified only on 1.1.0.
-Acceptance evidence and repeat-failure advice also need Pi 1.1.0+, because they read Pi's built-in bash
-`structuredContent.exit_code`.
+the pinned `@earendil-works/pi-coding-agent` devDependency of `packages/cli`. The floor also covers
+acceptance evidence, which reads Pi's built-in bash `structuredContent.exit_code`, and the admitted child
+runtime capabilities (see [Runtime admissions](#runtime-admissions)), which are verified only on 1.1.0.
+
+A Pi is **unverified** when it is below the floor, is a prerelease (for example `1.2.0-rc.1`), or reports a
+version that cannot be parsed. An unverified Pi loads the extension in write-block mode only: `bash`,
+`edit`, `write` and `powershell` are blocked, `read`, `grep`, `find` and `ls` stay intact, the first blocked
+call shows one notice per process, and `navori_subagent` is not registered. Stable releases above the floor
+stay admitted; there is no declared upper bound yet, so a later incompatibility is handled by publishing one.
 
 Node.js **22.19.0 or later** is the Pi runtime floor. This Navori repository currently requires Node.js
 **24 or later**, so use the higher repository requirement when running its CLI. See the
@@ -40,7 +44,7 @@ navori render --apply
 
 Start Pi in the project and review/accept Pi's project-trust prompt. Rendering files does not make
 untrusted project resources active. The extension checks Node.js and the imported Pi package's
-`VERSION` when it loads and reports an actionable minimum-version error. This is not a universal
+`VERSION` when it loads; an unverified Pi gets the write-block mode described above. This is not a universal
 host-side `pi --version` handshake; the runtime tests exercise the pinned Pi package.
 
 ## Support matrix
@@ -78,6 +82,56 @@ capabilities are verified on Pi 1.1.0; `deferred` capabilities are not available
 | `child-model-selection` | admitted | `--model <provider/id>` selects the child's model. Effort and thinking are not redefined. |
 | `child-tool-allowlist` | admitted | `--tools` is a model-visible allowlist, not isolation. Indirect MCP exposure is closed by `--no-mcp`. |
 | `child-mcp-grants` | deferred | Children run with `--no-mcp`. Pi 1.1.0 connects every enabled MCP server and lists all of them in the child prompt, so per-role MCP grants are not verifiable. Roles that need MCP stay unavailable in children. |
+
+## Hook bridge
+
+The trusted extension runs the shared Navori hook scripts through a bridge. The contract:
+
+- **Payload.** The bridge sends a Claude-shaped payload: `hook_event_name`, `tool_name` (`Bash`, `Edit` or
+  `Write`), `tool_input`, `cwd`, `session_id`, `permission_mode`, and `agent_id`/`agent_type` in children.
+  The script copy identifies itself as Pi by its path under `/.pi/navori/`, not by the payload.
+- **Location.** Scripts are copied to `.pi/navori/hooks/<id>.sh`, and the set comes from `PI_HOOK_BINDINGS`.
+  That table is empty in this milestone, so no script runs in a project yet; rows land with the guards that
+  wire them.
+- **Shell.** Scripts run under bash from Pi's shell configuration. The project's `shellPath` is never used.
+  A missing bash, or only the `sh` fallback, blocks every `enforced` script and names the action to take.
+- **Execution.** Non-interactive scripts run concurrently, each with its own timeout. The first block wins.
+- **Verdict.** Only a stdout JSON object with `hookSpecificOutput`, `systemMessage` or `continue` is a verdict.
+  Other stdout is noise and nothing beyond 64 KiB of it is kept. Stderr is kept as head and tail.
+
+| Script outcome | `enforced` (tool_call) | `advisory` (tool_result) | `lifecycle` |
+| --- | --- | --- | --- |
+| exit 0, no verdict JSON | allow | nothing | nothing |
+| exit 2 | block, reason = stderr | warning = stderr | nothing |
+| JSON `permissionDecision` deny | block | nothing | nothing |
+| JSON `permissionDecision` ask | ask | nothing | nothing |
+| JSON `permissionDecision` allow, context or message | allow | warning = context | nothing |
+| JSON unknown decision, `updatedInput`, or `continue` false | block | nothing | nothing |
+| exit other than 0 or 2, signal, timeout, no spawn, no bash | block | nothing | nothing |
+
+Failures of `advisory` and `lifecycle` scripts are silent. Fail-closed applies only to `enforced` scripts.
+
+**Manifest v2.** `.pi/navori.json` has `schemaVersion: 2` with `hooks` (the bridge bindings), `ownedPaths`
+(Navori-owned paths) and `permissionRules` (`ask` and `deny`). Anti-downgrade: a v1-only Navori reads v2 as
+foreign and refuses to write Pi resources, and this CLI refuses to write over a newer schema. A v1 manifest
+is still recognized, and a render upgrades it. When the manifest is unreadable, malformed or not v2, the
+extension blocks `bash`, `edit` and `write` because it cannot evaluate them; reads stay available.
+
+**Powershell (D-U3).** Pi's `powershell` tool would run commands outside the shared shell policy, so Navori
+removes it from the active tools at `session_start` with `setActiveTools`, and blocks any `powershell` call at
+`tool_call`. On Windows, use the `bash` tool; it requires Git for Windows (Git Bash).
+
+## Doctor findings
+
+When the engine is enabled, `navori doctor` reports these Pi findings. All are advisory: none changes doctor's
+`ok`, and the extension already fails closed on each. An absent `pi` binary or an unreadable settings file is
+nothing to check, not an error.
+
+- **Unverified version**: the installed Pi is below the floor, a prerelease, or unparseable.
+- **Powershell default**: the effective `defaultTools` (project `.pi/settings.json`, else user settings)
+  selects `powershell`.
+- **Foreign extensions**: project extension entries other than Navori's own, from `.pi/extensions/` and the
+  project `extensions` setting.
 
 ## Navori subagents
 

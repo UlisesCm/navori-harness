@@ -1,4 +1,4 @@
-# navori:managed start id="comment-draft-confirm-base" hash="70905c1e" version="0.11.3" source="@navori/core"
+# navori:managed start id="comment-draft-confirm-base" hash="d1cdce9a" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(Bash): a call that PUBLISHES a comment/review or creates a GitHub
@@ -373,7 +373,7 @@ navori_audit_record_metadata() {
   fi
   command -v navori >/dev/null 2>&1 || return 0
   case "${nv_engine:-}" in
-    claude | codex) navori_audit_host=$nv_engine ;;
+    claude | codex | pi) navori_audit_host=$nv_engine ;;
     *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
   esac
   # The writer assigns eventId/wireVersion before first persistence. Replay

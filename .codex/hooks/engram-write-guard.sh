@@ -1,4 +1,4 @@
-# navori:managed start id="engram-write-guard-base" hash="ae6fa8fc" version="0.11.3" source="@navori/core"
+# navori:managed start id="engram-write-guard-base" hash="be1a57d1" version="0.11.3" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PreToolUse(mcp__engram__*) guard, CODEX ONLY. Claude gives a role its engram
@@ -98,10 +98,16 @@ extract_cmd() {
 # so include order between the two partials does not matter.
 case "$0" in
   *".codex/hooks/"*) nv_engine=codex ;;
+  # Spec 0048 D2: Pi runs a COPY of each shared script from `.pi/navori/hooks/`
+  # through its extension bridge, which sends a Claude-shaped payload (tool names
+  # `Bash`/`Edit`/`Write`, `tool_input`, `cwd`). Every existing `= codex` branch
+  # keeps the Claude semantics for `pi`; behavior that exists only on Pi goes in
+  # an explicit `[ "$nv_engine" = pi ]` branch, never in a shared one.
+  *"/.pi/navori/"*) nv_engine=pi ;;
   *) nv_engine=claude ;;
 esac
 
-if [ "$nv_engine" = codex ]; then
+if [ "$nv_engine" = codex ] || [ "$nv_engine" = pi ]; then
   nv_cwd=$(payload_field cwd)
   # `cwd` is the session's working dir, which may be a workspace subdir in a
   # monorepo; the project root is always the git toplevel from there. Falls
@@ -292,7 +298,7 @@ navori_audit_record_metadata() {
   fi
   command -v navori >/dev/null 2>&1 || return 0
   case "${nv_engine:-}" in
-    claude | codex) navori_audit_host=$nv_engine ;;
+    claude | codex | pi) navori_audit_host=$nv_engine ;;
     *) case "$navori_audit_script" in *".codex/hooks/"* | *".codex/scripts/"*) navori_audit_host=codex ;; *) navori_audit_host=claude ;; esac ;;
   esac
   # The writer assigns eventId/wireVersion before first persistence. Replay

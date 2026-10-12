@@ -64,6 +64,7 @@ import {
   resolveCodexHooks,
 } from "../engines/codex/hook-registrations.ts";
 import { readCodexTrustState, type CodexTrustState } from "../lib/codex/trust.ts";
+import { scanPiHealth } from "../lib/diagnose/pi-health.ts";
 import { unknownLibraries } from "../lib/assets/library-skills.ts";
 import { EPHEMERAL_HARNESS_PATHS } from "../engines/shared/ephemeral-paths.ts";
 import { NESTED_GITIGNORE_MANAGED_ID } from "../engines/shared/nested-gitignore-harness.ts";
@@ -1178,6 +1179,25 @@ export const doctorCommand = defineCommand({
         );
       }
       if (cx.length > 0) p.note(cx.join("\n"), "Codex");
+    }
+
+    // Spec 0048 D4/D10: advisory Pi runtime findings; the extension already fails closed on each.
+    const piHealth = scanPiHealth(cwd, config);
+    if (piHealth) {
+      const pi: string[] = [];
+      if (piHealth.versionUnverified) {
+        pi.push(
+          `  ${color.yellow(sym.update)} ${td.piVersionUnverified(piHealth.versionUnverified.found, piHealth.versionUnverified.min)}`,
+        );
+      }
+      if (piHealth.powershellDefault)
+        pi.push(`  ${color.yellow(sym.update)} ${td.piPowershellDefault}`);
+      if (piHealth.foreignExtensions.length > 0) {
+        pi.push(
+          `  ${color.yellow(sym.update)} ${td.piForeignExtensions(piHealth.foreignExtensions.join(", "))}`,
+        );
+      }
+      if (pi.length > 0) p.note(pi.join("\n"), "Pi");
     }
 
     // Spec 0041 T20 follow-up: advisory only, never flips `ok` or `--strict`.

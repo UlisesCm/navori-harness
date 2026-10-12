@@ -1,0 +1,67 @@
+import type { NavoriConfig } from "../../lib/config/config.ts";
+
+/**
+ * Spec 0048 D1/D2: the single table of the shared hook scripts Pi runs, one row per script.
+ * `placeHook` copies exactly these scripts to `.pi/navori/hooks/<script>.sh` and the manifest
+ * (`.pi/navori.json` v2 `hooks`) is derived from the same rows, so what is installed, what the
+ * extension bridge runs and what the manifest declares cannot drift apart.
+ *
+ * Bridge contract (implemented in `bridge-source.ts`, documented in `docs/pi.md`):
+ * - The extension sends a Claude-shaped payload (`hook_event_name`, `tool_name` `Bash|Edit|Write`,
+ *   `tool_input`, `cwd`, `session_id`, `permission_mode`, plus `agent_id`/`agent_type` in children).
+ *   The copy identifies itself as Pi by its path (`/.pi/navori/`), never by the payload.
+ * - Scripts run under bash (never the project's `shellPath`), concurrently, each with its own timeout.
+ * - Only a stdout JSON object (`hookSpecificOutput` or `systemMessage`) and the exit code carry a
+ *   verdict; any other stdout is noise. Stderr is kept as head + tail for diagnostics.
+ * - `enforced` fails closed (unknown JSON, exit other than 0/2, signal, timeout, missing bash,
+ *   unreadable manifest block the tool); `advisory` and `lifecycle` failures are silent.
+ *
+ * Rows are added by the milestone that wires each guard (spec 0048 M3 and later), together with its
+ * `PI_PARITY` row: a script is never listed here before Pi can honor its verdict end to end.
+ */
+
+/** Pi events the bridge dispatches. */
+export type PiBridgeEvent =
+  | "tool_call"
+  | "tool_result"
+  | "agent_before_settle"
+  | "session_shutdown";
+
+/** Which Pi thread runs the script. */
+export type PiBridgeScope = "parent" | "child" | "all";
+
+/** `enforced` blocks (fail-closed), `advisory` warns (fail-open), `lifecycle` only runs on session events. */
+export type PiBridgeClass = "enforced" | "advisory" | "lifecycle";
+
+/** One row of {@link PI_HOOK_BINDINGS}. */
+export interface PiHookBinding {
+  /** Hook script id, without extension: the asset is `core-assets/hooks/<script>.sh`. */
+  readonly script: string;
+  readonly on: PiBridgeEvent;
+  /** Pi tool names the row matches (`bash`, `edit`, `write`); absent = every tool of the event. */
+  readonly tools?: readonly string[];
+  readonly scope: PiBridgeScope;
+  readonly class: PiBridgeClass;
+  /** The script may answer `ask`; the bridge then serializes the user confirmation. */
+  readonly interactive: boolean;
+  /** Per-script deadline; a timeout is a block for `enforced` and silence otherwise. */
+  readonly timeoutMs: number;
+  /** Installed only when this returns true; always installed when absent. */
+  readonly when?: (config: NavoriConfig) => boolean;
+}
+
+/** The scripts Pi runs through the extension bridge. */
+export const PI_HOOK_BINDINGS: readonly PiHookBinding[] = [];
+
+/** Destination of a script copy, relative to the project root, always with `/` separators. */
+export function piHookPath(script: string): string {
+  return `.pi/navori/hooks/${script}.sh`;
+}
+
+/** Rows installed for `config`, in table order. `bindings` is a parameter only so tests can inject rows. */
+export function activePiHookBindings(
+  config: NavoriConfig,
+  bindings: readonly PiHookBinding[] = PI_HOOK_BINDINGS,
+): readonly PiHookBinding[] {
+  return bindings.filter((binding) => binding.when === undefined || binding.when(config));
+}

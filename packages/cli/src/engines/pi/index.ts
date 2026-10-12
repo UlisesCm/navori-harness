@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { conditionOrchestration } from "../../lib/render/render-plan.ts";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { effectiveConfig, type NavoriConfig } from "../../lib/config/config.ts";
 import { getCoreRoot } from "../../lib/render/bundled-assets.ts";
 import { loadPreset } from "../../lib/config/presets.ts";
@@ -24,11 +24,17 @@ import {
   ownsPiAgent,
   ownsPiManifest,
   ownsPiSource,
+  PI_MANIFEST_SCHEMA,
+  piManifestSchemaVersion,
   serializePiAgent,
   serializePiManifest,
   serializePiSource,
+  type PiManifestHook,
 } from "./owned-file.ts";
 import { PI_EXTENSION_SOURCE } from "./extension-source.ts";
+import { activePiHookBindings, piHookPath, type PiHookBinding } from "./hook-bindings.ts";
+import { collectShellPermissionRules } from "../shared/permission-rules.ts";
+import { navoriAuthorship } from "../../lib/render/removable.ts";
 import {
   buildLocalSkillPointerContent,
   classifyLocalSkills,
@@ -50,6 +56,7 @@ const ROLE_TOOLS: Readonly<Record<string, readonly string[]>> = {
 const EXTENSION = ".pi/extensions/navori.ts";
 
 const MANIFEST = ".pi/navori.json";
+const HOOKS_DIR = ".pi/navori/hooks";
 /** Plan-skill ids plus the local-skill pointers Pi may own in the shared `.agents/skills` root. */
 interface PiSkillRoot {
   /** Local ids with a safe-to-write pointer (`emit`). */
@@ -62,7 +69,8 @@ interface PiSkillRoot {
  * Pi adapter. Codex already owns the shared `.agents/skills` root when both engines are
  * enabled, so Pi writes (and prunes) nothing there then: one writer, one marker.
  */
-function buildAdapter(local: PiSkillRoot): EngineAdapter {
+function buildAdapter(local: PiSkillRoot, bindings: readonly PiHookBinding[]): EngineAdapter {
+  const hookIds = new Set(bindings.map(({ script }) => script));
   return {
     id: "pi",
     label: "Pi Coding Agent",
@@ -76,7 +84,18 @@ function buildAdapter(local: PiSkillRoot): EngineAdapter {
             managedId: skill.managedId,
             commentStyle: "html",
           },
-    placeHook: () => null,
+    // Spec 0048 D1: the shared script, copied to `.pi/navori/hooks/<id>.sh`, only for rows of the
+    // binding table: one table decides what is installed, what the bridge runs and the manifest.
+    placeHook: (hook) =>
+      hookIds.has(hook.id)
+        ? {
+            assetPath: hook.assetPath,
+            destRelPath: piHookPath(hook.id),
+            managedId: hook.managedId,
+            commentStyle: "shell",
+            chmodExec: true,
+          }
+        : null,
     // Same transform/marker/destination as the Codex pointer: the body stays in the user's
     // `.claude/skills/<id>/SKILL.md`, this entry only makes it discoverable (spec 0047 R9).
     extraFiles: (ctx) => {
@@ -95,8 +114,17 @@ function buildAdapter(local: PiSkillRoot): EngineAdapter {
         ];
       });
     },
-    orphanScans: (plan, ctx) =>
-      ctx.config.engines.includes("codex")
+    orphanScans: (plan, ctx) => [
+      // A script whose binding is gone (or whose `when` no longer holds) is pruned like any managed hook.
+      {
+        dir: HOOKS_DIR,
+        match: (name) => name.endsWith(".sh"),
+        desired: new Set(
+          plan.hooks.filter(({ id }) => hookIds.has(id)).map(({ id }) => piHookPath(id)),
+        ),
+        shape: "file",
+      },
+      ...(ctx.config.engines.includes("codex")
         ? []
         : [
             {
@@ -106,9 +134,10 @@ function buildAdapter(local: PiSkillRoot): EngineAdapter {
                 ...plan.skills.map(({ id }) => `.agents/skills/${id}/SKILL.md`),
                 ...[...local.emit, ...local.foreign].map((id) => localSkillPointerDestRel(id)),
               ]),
-              shape: "skill-dir",
+              shape: "skill-dir" as const,
             },
-          ],
+          ]),
+    ],
   };
 }
 
@@ -163,6 +192,11 @@ export function piOwnershipVerdict(cwd: string, rel: string): "ours" | "modified
   const path = join(cwd, rel);
   const stats = lstatSync(path, { throwIfNoEntry: false });
   if (!stats?.isFile() || stats.isSymbolicLink()) return "foreign";
+  // Hook scripts are marker-managed (shell comments) with a user-section, not whole-file owned.
+  if (/^\.pi\/navori\/hooks\/[a-z0-9-]+\.sh$/.test(rel)) {
+    const authorship = navoriAuthorship(path, undefined, { verifyHash: true });
+    return authorship === "ours" ? "ours" : authorship === "foreign" ? "foreign" : "modified";
+  }
   const content = readFileSync(path, "utf-8");
   const agent = /^\.pi\/agents\/([a-z-]+)\.md$/.exec(rel)?.[1];
   const owned =
@@ -182,9 +216,15 @@ export function piOwnershipVerdict(cwd: string, rel: string): "ours" | "modified
 export function renderPiEngine(
   cwd: string,
   inputConfig: NavoriConfig,
-  options: { dryRun?: boolean; repoRoot?: string } = {},
+  options: {
+    dryRun?: boolean;
+    repoRoot?: string;
+    /** Test seam: the rows to install instead of {@link PI_HOOK_BINDINGS}. */
+    hookBindings?: readonly PiHookBinding[];
+  } = {},
 ): ProseEngineResult {
   const config = effectiveConfig(inputConfig);
+  const bindings = activePiHookBindings(config, options.hookBindings);
   const repoRoot = options.repoRoot ?? cwd;
   const coreAssets = resolve(getCoreRoot(), "core-assets");
   const preset =
@@ -205,7 +245,7 @@ export function renderPiEngine(
     config.project?.localSkills ?? [],
     new Set(plan.skills.map((s) => s.id)),
   );
-  const adapter = buildAdapter(localSkills);
+  const adapter = buildAdapter(localSkills, bindings);
   const collected = collectPlan(plan, adapter, ctx, { lang });
   const scribeOwnsMarkdown = config.harness?.scribeOwnsMarkdown ?? false;
   // The scribe is admitted only as the Markdown producer the project policy requires.
@@ -226,14 +266,34 @@ export function renderPiEngine(
       "harness.scribeOwnsMarkdown forbids implementer Markdown but the scribe role is disabled; Pi implementer dispatch is refused until harness.scribe is enabled or scribeOwnsMarkdown is turned off.",
     );
   }
+  const hooks: PiManifestHook[] = bindings.map((binding) => ({
+    script: binding.script,
+    path: piHookPath(binding.script),
+    on: binding.on,
+    ...(binding.tools ? { tools: [...binding.tools] } : {}),
+    scope: binding.scope,
+    class: binding.class,
+    interactive: binding.interactive,
+    timeoutMs: binding.timeoutMs,
+  }));
+  const permissions = collectShellPermissionRules(config, ctx.plugins);
   const serialized = serializePiManifest({
-    schemaVersion: 1,
+    schemaVersion: PI_MANIFEST_SCHEMA,
     agents: roles.map((r) => r.id),
     controls: {
       planTiers: config.harness?.planTiers ?? false,
       masterPlan: config.harness?.masterPlan ?? false,
       scribeOwnsMarkdown,
     },
+    hooks,
+    // Whole-file destinations only; AGENTS.md and skills mix user text with managed blocks (marker lane).
+    ownedPaths: [
+      MANIFEST,
+      EXTENSION,
+      ...roles.map((agent) => `.pi/agents/${agent.id}.md`),
+      ...hooks.map((hook) => hook.path),
+    ],
+    permissionRules: { ask: permissions.ask, deny: permissions.deny },
   });
   const extension = serializePiSource(PI_EXTENSION_SOURCE);
   const resources: Array<{ relPath: string; content: string; owned: (value: string) => boolean }> =
@@ -289,8 +349,11 @@ export function renderPiEngine(
     ({ resolution: _resolution, ...skip }) => skip,
   );
   const piPending: PendingWrite[] = [];
-  let collided = false;
-  for (const relPath of [".pi", ".pi/extensions", ".pi/agents"]) {
+  // `.pi/navori/**` joins the all-or-nothing rule: an edited managed block in a hook copy means the
+  // extension, manifest and scripts are not committed as a mixed generation (spec 0048 "Render parcial").
+  const navoriDir = join(cwd, ".pi/navori") + sep;
+  let collided = collected.skipped.some((skip) => skip.path.startsWith(".pi/navori/"));
+  for (const relPath of [".pi", ".pi/extensions", ".pi/agents", ".pi/navori", HOOKS_DIR]) {
     const path = join(cwd, relPath);
     if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) {
       throw new Error(`Pi resource parent is a symlink: ${relPath}`);
@@ -312,10 +375,16 @@ export function renderPiEngine(
       const current = readFileSync(path, "utf-8");
       if (!resource.owned(current)) {
         collided = true;
+        // Anti-downgrade: a manifest written by a NEWER Navori is never overwritten.
+        const newer =
+          resource.relPath === MANIFEST &&
+          (piManifestSchemaVersion(current) ?? 0) > PI_MANIFEST_SCHEMA;
         skipped.push({
           path: resource.relPath,
-          reason: "Pi resource ownership mismatch; preserved user file.",
-          status: "user-modified-skipped",
+          reason: newer
+            ? "Pi manifest was written by a newer Navori; update this CLI before rendering."
+            : "Pi resource ownership mismatch; preserved user file.",
+          status: newer ? "downgrade-skipped" : "user-modified-skipped",
         });
       } else if (current !== resource.content) {
         piPending.push({
@@ -368,11 +437,18 @@ export function renderPiEngine(
       "Pi generation was not committed because at least one owned destination collides or was edited.",
     );
   }
-  const pending: PendingWrite[] = [...collected.pending, ...(!collided ? piPending : [])];
+  const pending: PendingWrite[] = [
+    ...(collided
+      ? collected.pending.filter((write) => !write.path.startsWith(navoriDir))
+      : collected.pending),
+    ...(!collided ? piPending : []),
+  ];
 
   const result = commitWrites({
     pending,
-    removals: collided ? collected.removals : removals,
+    removals: collided
+      ? collected.removals.filter((removal) => !removal.path.startsWith(navoriDir))
+      : removals,
     cwd,
     dryRun: options.dryRun,
     engineLabel: adapter.label,

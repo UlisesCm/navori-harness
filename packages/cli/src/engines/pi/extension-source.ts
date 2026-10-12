@@ -1,3 +1,4 @@
+import { PI_BRIDGE_SOURCE } from "./bridge-source.ts";
 import { PI_TRUST_SOURCE } from "./trust-source.ts";
 import { renderPiRuntimeVersionSource } from "./runtime-version.ts";
 
@@ -7,7 +8,7 @@ import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
-import { VERSION, defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { VERSION, defineTool, getShellConfig, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 ${PI_TRUST_SOURCE}
 ${renderPiRuntimeVersionSource()}
@@ -142,7 +143,7 @@ async function approvalState(exec: ExecFn, cwd: string): Promise<string> {
  * dialog of the interactive parent, bound to this exact command and repository state, and spent by this call.
  * Trust (--approve, isProjectTrusted) is deliberately never consulted here.
  */
-async function requireOperatorApproval(exec: ExecFn, ctx: ApprovalContext, command: string): Promise<{ block: true; reason: string } | undefined> {
+async function requireOperatorApproval(exec: ExecFn, ctx: ApprovalContext, command: string, reasons: string[] = []): Promise<{ block: true; reason: string } | undefined> {
   const refuse = (why: string): { block: true; reason: string } => ({ block: true, reason: "Navori approval not granted: " + why });
   if (process.env.NAVORI_PI_CHILD_DEPTH) {
     return refuse("headless Navori children cannot approve operations; stop and return this command to the parent session so the user can approve it there.");
@@ -154,7 +155,7 @@ async function requireOperatorApproval(exec: ExecFn, ctx: ApprovalContext, comma
   try { before = await approvalState(exec, ctx.cwd); }
   catch { return refuse("the repository state could not be snapshotted, so approval cannot be bound to it."); }
   let confirmed = false;
-  try { confirmed = (await ctx.ui.confirm("Navori approval required", "Run this operation as approved by you?\n\n" + command)) === true; }
+  try { confirmed = (await ctx.ui.confirm("Navori approval required", "Run this operation as approved by you?\n\n" + (reasons.length ? reasons.join("\n") + "\n\n" : "") + command)) === true; }
   catch { /* A failing dialog is not consent. */ }
   if (!confirmed) return refuse("the user denied or cancelled the confirmation.");
   let after: string;
@@ -594,14 +595,45 @@ function stuckAdvice(pi: ToolRegistry, event: StuckEvent, ctx: EvidenceContext):
     + "re-read the error, change the approach or inspect the cause, and ask the user if you stay blocked." : undefined;
 }
 
+${PI_BRIDGE_SOURCE}
+// Tools an unverified Pi may not use (spec 0048 D10): everything that writes or runs code; reads stay available.
+const UNVERIFIED_BLOCKED_TOOLS = new Set(["bash", "edit", "write", "powershell"]);
+type NoticeCtx = { ui?: { notify?: (message: string, type?: "info" | "warning" | "error") => void } };
+type ToolControls = { getActiveTools?: () => string[]; setActiveTools?: (names: string[]) => void };
+let powershellNoticed = false;
+
+/** Tell the user once per process; a failing UI never changes the decision that came with it. */
+function noticeOnce(ctx: NoticeCtx, seen: boolean, message: string): void {
+  if (seen) return;
+  try { ctx.ui?.notify?.(message, "warning"); } catch { /* The notice is informational. */ }
+}
+
+const POWERSHELL_REASON = "Navori disabled Pi's powershell tool: it would run commands outside the shared shell policy. "
+  + "Install Git for Windows and use the bash tool (see docs/pi.md), or run the command yourself.";
+
+/** Registers ONLY the write block for a Pi this extension has not verified: reads stay intact, one notice per process. */
+function registerUnverifiedBlock(pi: ExtensionAPI): void {
+  let noticed = false;
+  const reason = "Navori does not verify Pi " + VERSION + " (it needs a stable release of " + PI_MIN_VERSION + " or later), so bash, edit, write and powershell are blocked and reads stay available. Run pi --version and upgrade Pi.";
+  pi.on("tool_call", (event, ctx) => {
+    if (!UNVERIFIED_BLOCKED_TOOLS.has(event.toolName)) return;
+    noticeOnce(ctx, noticed, reason);
+    noticed = true;
+    return { block: true, reason };
+  });
+}
+
 export default function (pi: ExtensionAPI): void {
   try {
-    assertSupportedPiRuntime(VERSION);
+    assertSupportedNode();
   } catch (cause) {
     process.stderr.write((cause instanceof Error ? cause.message : "Unsupported Pi runtime") + "\n");
     return;
   }
+  if (!isVerifiedPiRuntime(VERSION)) { registerUnverifiedBlock(pi); return; }
   pi.on("tool_call", async (event, ctx) => {
+    // D-U3: powershell would run commands outside the shared shell policy; it is never allowed (and is deactivated at session_start).
+    if (event.toolName === "powershell") return { block: true, reason: POWERSHELL_REASON };
     if (event.toolName === "bash") {
       const bashInput: unknown = event.input;
       if (isRecord(bashInput) && typeof bashInput.command === "string" && APPROVAL_CLAIM.test(bashInput.command)) {
@@ -610,6 +642,25 @@ export default function (pi: ExtensionAPI): void {
         // The command must still be the one the user saw.
         if (!isRecord(event.input) || event.input.command !== bashInput.command) {
           return { block: true, reason: "Navori approval not granted: the command changed after the confirmation; request approval again." };
+        }
+      }
+    }
+    if (BRIDGE_GUARDED_TOOLS.has(event.toolName)) {
+      const manifest = bridgeManifest(ctx.cwd);
+      if (!manifest.ok) return { block: true, reason: manifest.reason };
+      const bridged = await runBridge(manifest.hooks, { event: "tool_call", hookEvent: "PreToolUse", toolName: event.toolName,
+        toolCallId: event.toolCallId, input: event.input, cwd: ctx.cwd, sessionId: ctx.sessionManager?.getSessionId?.() ?? "",
+        hasUI: ctx.hasUI === true }, ctx.signal);
+      if (bridged.block !== undefined) return { block: true, reason: bridged.block };
+      if (bridged.asks.length) {
+        const asked: unknown = event.input;
+        const sealed = JSON.stringify(asked);
+        const label = isRecord(asked) ? (typeof asked.command === "string" ? asked.command : event.toolName + " " + String(asked.path ?? "")) : event.toolName;
+        const refusal = await requireOperatorApproval(pi.exec.bind(pi), ctx, label, bridged.asks);
+        if (refusal) return refusal;
+        // The call must still be the one the user saw.
+        if (JSON.stringify(event.input) !== sealed) {
+          return { block: true, reason: "Navori approval not granted: the call changed after the confirmation; request approval again." };
         }
       }
     }
@@ -625,10 +676,21 @@ export default function (pi: ExtensionAPI): void {
   pi.on("tool_result", async (event, ctx) => {
     try { await recordEvidence(pi, event, ctx); } catch { /* Observation never alters or fails a tool result. */ }
     try {
-      const advice = stuckAdvice(pi, event, ctx);
-      // Additive: content gains one text block and structuredContent is handed back, because replacing content alone drops it.
-      if (advice && Array.isArray(event.content)) return { content: [...event.content, { type: "text" as const, text: advice }], structuredContent: event.structuredContent };
+      const notes = [stuckAdvice(pi, event, ctx), ...(await bridgeAdvisories(event, ctx))].filter((note): note is string => typeof note === "string");
+      // Additive: content gains text blocks and structuredContent is handed back, because replacing content alone drops it.
+      if (notes.length && Array.isArray(event.content)) return { content: [...event.content, ...notes.map((text) => ({ type: "text" as const, text }))], structuredContent: event.structuredContent };
     } catch { /* The advisory is best-effort; the result goes through untouched. */ }
+  });
+  // D-U3, parent and children alike: powershell leaves the active set at startup so the model is never offered it.
+  pi.on("session_start", async (_event, ctx) => {
+    try {
+      const tools: ToolControls = pi;
+      const active = typeof tools.getActiveTools === "function" ? tools.getActiveTools() : [];
+      if (!Array.isArray(active) || !active.includes("powershell") || typeof tools.setActiveTools !== "function") return;
+      tools.setActiveTools(active.filter((name) => name !== "powershell"));
+      noticeOnce(ctx, powershellNoticed, POWERSHELL_REASON);
+      powershellNoticed = true;
+    } catch { /* The tool_call block still refuses powershell. */ }
   });
   if (process.env.NAVORI_PI_CHILD_DEPTH) return;
   pi.on("session_start", async (_event, ctx) => {

@@ -397,6 +397,9 @@ export const ENGINE_OUTPUTS: EngineOutputs[] = [
     markers: [
       { kind: "file", path: "AGENTS.md", style: "html" },
       { kind: "recursive", dir: ".agents/skills", ext: ".md", style: "html" },
+      // The shared hook scripts Pi runs through its extension bridge (spec 0048 D1): marker-managed
+      // like `.codex/hooks`, so a tampered managed block is drift and a disabled Pi prunes them.
+      { kind: "recursive", dir: ".pi/navori/hooks", ext: ".sh", style: "shell" },
     ],
     textDirs: [".agents", ".pi"],
   },
