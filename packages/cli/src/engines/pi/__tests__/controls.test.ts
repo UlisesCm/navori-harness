@@ -1,5 +1,13 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  mkdirSync,
+  existsSync,
+  statSync,
+} from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -116,7 +124,7 @@ function loadRuntime(env: Record<string, string> = {}): {
     exports,
     require: (id: string): unknown => {
       if (id === "node:child_process") return { spawn };
-      if (id === "node:fs") return { readFileSync };
+      if (id === "node:fs") return { existsSync, readFileSync, statSync };
       if (id === "node:path") return { join };
       if (id === "@earendil-works/pi-ai") return { Type };
       if (id === "@earendil-works/pi-coding-agent")
@@ -184,7 +192,7 @@ describe("Pi control mappings", () => {
   it("allows an approved implementer only after gate success and skips the gate when disabled", async () => {
     const cwd = fixture({ planTiers: true });
     const runtime = loadRuntime();
-    const pending = invoke(runtime.tool!, cwd, "implementer");
+    const pending = invoke(runtime.tool!, cwd, "implementer", "pi_engine");
     runtime.launches[0]!.child.emit("close", 0);
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(runtime.launches.map((launch) => launch.program)).toEqual(["navori", "pi"]);
@@ -194,7 +202,7 @@ describe("Pi control mappings", () => {
 
     const disabled = fixture();
     const direct = loadRuntime();
-    const directPending = invoke(direct.tool!, disabled, "implementer");
+    const directPending = invoke(direct.tool!, disabled, "implementer", "pi_engine");
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(direct.launches.map((launch) => launch.program)).toEqual(["pi"]);
     direct.launches[0]!.child.stdout.write(`${JSON.stringify({ type: "agent_settled" })}\n`);

@@ -5,6 +5,8 @@ import {
   mkdtempSync,
   rmSync,
   writeFileSync,
+  existsSync,
+  statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -265,7 +267,7 @@ describe("Pi session audit (spec 0047 R12)", () => {
       const exports: Record<string, unknown> = {};
       const modules: Record<string, unknown> = {
         "node:child_process": { spawn },
-        "node:fs": { readFileSync },
+        "node:fs": { existsSync, readFileSync, statSync },
         "node:path": { join },
         "@earendil-works/pi-ai": { Type: new Proxy({}, { get: () => () => ({}) }) },
         "@earendil-works/pi-coding-agent": {

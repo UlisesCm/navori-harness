@@ -58,7 +58,7 @@ Estimated LOC: 5300
 ### M8 — Handoff con frescura
 
 - **A8** [observable] — Un implementer o reviewer sin handoff nuevo y válido termina como fallido · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-handoff.test.ts` → exit 0; handoff viejo, sin cambio de hash o inválido → `isError`; reviewer sin `beginReview.startedAt` posterior al dispatch → `isError`.
-- [ ] **T13** (R7) — Validación del handoff al terminar el hijo con `navori handoff check` más modo `review`, frescura por hash/mtime y `checkSealedEvidence`; `handoff-shape` pasa a `enforced`. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-handoff.test.ts`::stale or invalid handoff fails child
+- [x] **T13** (R7) — Validación del handoff al terminar el hijo con `navori handoff check` más modo `review`, frescura por hash/mtime y `checkSealedEvidence`; `handoff-shape` pasa a `enforced`. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-handoff.test.ts`::stale or invalid handoff fails child
 
 ### M9 — Fin de sesión y fin de turno
 

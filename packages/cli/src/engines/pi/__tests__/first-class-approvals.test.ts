@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -102,7 +102,7 @@ function load(
   const schema = new Proxy({}, { get: () => () => ({}) });
   const modules = new Map<string, unknown>([
     ["node:child_process", { spawn }],
-    ["node:fs", { readFileSync }],
+    ["node:fs", { existsSync, readFileSync, statSync }],
     ["node:path", { join }],
     ["@earendil-works/pi-ai", { Type: schema }],
     [

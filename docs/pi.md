@@ -58,7 +58,7 @@ permission boundary; `unsupported` means Navori does not provide the control on 
 | `plan-gate` | enforced | When `harness.planTiers` is on, the extension gates only `navori_subagent` implementer calls. Direct Pi shell and tool calls bypass it. |
 | `master-plan` | advisory | When `harness.masterPlan` is on, a bounded status line is appended before each agent start. Context only, not a permission boundary. |
 | `markdown-ownership` | advisory | When `harness.scribeOwnsMarkdown` is on, direct Pi `edit`/`write` of Markdown in implementer children is blocked. Bash and ambient process writes bypass it. |
-| `handoff-shape` | unsupported | Pi has no persisted implementer handoff validator; a child result does not prove the canonical handoff file exists. |
+| `handoff-shape` | enforced | When an `implementer` or `reviewer` `navori_subagent` child ends, the trusted extension validates its canonical handoff (fresh against the dispatch snapshot). A missing, stale or invalid handoff returns `isError`. Direct shell/tool calls and other roles bypass it. |
 | `handoff-consumer` | enforced | Reviewer `navori_subagent` calls with an explicit feature are checked. Direct shell and tool calls bypass it. |
 | `analytic-write-tools` | advisory | Role tool allowlists are model-visible capabilities, not OS, filesystem, or network sandboxes. Scout and reviewer retain `write`. |
 | `local-skill-discovery` | enforced | `project.localSkills` are projected as pointers under `.agents/skills/<id>`, written only when Codex is not enabled. |
@@ -194,7 +194,7 @@ their Pi tool lists (from `packages/cli/src/engines/pi/role-tools.ts`):
 - `publisher`: `read, grep, find, ls, bash`; rendered for Pi but refused at dispatch until the M6 publishing gates (R4–R6) land, so publish from the parent session
 
 The tool requires `role` and a non-empty `task`; `feature` is optional except for `reviewer`, which
-requires an explicit Navori feature slug for its handoff check. Role instructions and descriptions are
+requires an explicit Navori feature slug for its handoff check; `implementer`, `reviewer` and `scribe` all require `feature`. Role instructions and descriptions are
 preserved. A configured model is used when it maps to a concrete `codexMap` model; otherwise the child
 inherits the selected Pi model. Each role has an explicit Pi tool list; missing or unknown mappings fail
 closed rather than enabling default tools. Children never receive MCP grants (see `child-mcp-grants`).
@@ -210,6 +210,15 @@ the parent accepts at most 5 per child. Accepted requests are reported in `detai
 Without IPC, the parent recovers the command from the `tool_execution_start` args of the same
 `toolCallId`, and the call ends as an error, never as success. The model's Bash does not inherit the
 channel.
+
+### Child-end handoff validation
+
+At dispatch the extension snapshots the child's canonical handoff: `impl_<feature>.json` for `implementer`, `review_<feature>.json` for `reviewer`. When the child ends, a handoff that is missing, or unchanged since the snapshot (same content and mtime), fails as stale.
+
+- `implementer` runs `navori handoff check <feature> --for orchestrator`. A `head` warning also fails.
+- `reviewer` runs `navori handoff check <feature> --produced-by reviewer --since <dispatch time>`. The sidecar and verdict must be valid, and the sealed evidence must check with the review begun at or after dispatch.
+
+Any failure, including an unreadable check, returns `isError` with the reason and the child output (fail-closed). `scribe` is not validated at child end; only its `feature` requirement applies.
 
 ## Limits and headless runs
 

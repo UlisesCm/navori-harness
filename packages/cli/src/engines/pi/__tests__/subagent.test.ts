@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -68,7 +68,7 @@ function loadRuntime(depth?: string): {
   );
   const modules: Record<string, unknown> = {
     "node:child_process": { spawn },
-    "node:fs": { readFileSync },
+    "node:fs": { existsSync, readFileSync, statSync },
     "node:path": { join },
     "@earendil-works/pi-ai": { Type },
     "@earendil-works/pi-coding-agent": {

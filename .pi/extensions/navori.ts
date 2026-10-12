@@ -1,6 +1,6 @@
-// navori:managed-file id="pi-extension" hash="f02c87ef2d797d67551e38d104a939589bbabbaeebf2fca59c8a105afed8cb29"
+// navori:managed-file id="pi-extension" hash="d7d65b827ff379e450e632a3897ef3364e1e8b8762c42391840aaed3294e58c3"
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync } from "node:fs";
+import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import { VERSION, defineTool, getShellConfig, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -123,10 +123,11 @@ async function checkDispatch(cwd: string, role: Role, task: string,
     catch { throw new Error("Navori plan gate unavailable; subagent blocked"); }
     if (result.code !== 0) throw new Error("Navori plan gate blocked the implementer");
   }
-  if (role === "reviewer" || role === "scribe") {
+  if (role === "implementer" || role === "reviewer" || role === "scribe") {
     if (!feature || !/^[a-z0-9][a-z0-9_-]*$/.test(feature)) {
       throw new Error("Navori " + role + " requires an explicit Navori feature slug for handoff check");
     }
+    if (role === "implementer") return;
     let result;
     try { result = await runNavori(cwd, ["handoff", "check", feature,
       "--for", role === "scribe" ? "scribe" : "orchestrator", "--cwd", cwd, "--dir", ".navori/state/handoffs", "--json"],
@@ -136,6 +137,51 @@ async function checkDispatch(cwd: string, role: Role, task: string,
     try { parsed = JSON.parse(result.stdout); } catch { throw new Error("Invalid Navori handoff check JSON; " + role + " blocked"); }
     if (result.code !== 0 || !isRecord(parsed) || parsed.status !== "ok" ||
         parsed.feature !== feature) throw new Error("Navori handoff check did not pass; " + role + " blocked");
+  }
+}
+
+type HandoffFile = { mtimeMs: number; content: string } | null;
+type HandoffSnapshot = { dispatchedAt: number; role: Role; feature: string; file: HandoffFile };
+const HANDOFF_DIR = ".navori/state/handoffs";
+function handoffPath(cwd: string, role: Role, feature: string): string {
+  return join(cwd, HANDOFF_DIR, (role === "reviewer" ? "review_" : "impl_") + feature + ".json");
+}
+function readHandoffFile(path: string): HandoffFile {
+  if (!existsSync(path)) return null;
+  return { mtimeMs: statSync(path).mtimeMs, content: readFileSync(path, "utf8") };
+}
+/** State of the canonical handoff at dispatch; the post-check demands a different one. */
+function snapshotHandoff(cwd: string, role: Role, feature: string): HandoffSnapshot {
+  return { dispatchedAt: Date.now(), role, feature, file: readHandoffFile(handoffPath(cwd, role, feature)) };
+}
+/**
+ * Validates the implementer/reviewer handoff after the child ends (R7): fresh against the dispatch snapshot (mtime or
+ * content differs), shape via "navori handoff check" (reviewer: --produced-by reviewer --since dispatch, sealed evidence)
+ * and, for the implementer, an unmoved HEAD. Returns the diagnostic, or undefined when valid. Any inability to
+ * check is a failure (R15).
+ */
+async function verifyHandoff(cwd: string, snap: HandoffSnapshot, signal: AbortSignal): Promise<string | undefined> {
+  const { role, feature } = snap;
+  try {
+    const now = readHandoffFile(handoffPath(cwd, role, feature));
+    if (!now) return "the " + role + " handoff for " + feature + " was not written";
+    if (snap.file && now.mtimeMs === snap.file.mtimeMs && now.content === snap.file.content) {
+      return "the " + role + " handoff for " + feature + " is stale: it did not change since dispatch";
+    }
+    const args = ["handoff", "check", feature, "--cwd", cwd, "--dir", HANDOFF_DIR, "--json"];
+    if (role === "reviewer") args.push("--produced-by", "reviewer", "--since", new Date(Math.floor(snap.dispatchedAt / 1000) * 1000).toISOString().replace(".000Z", "Z"));
+    else args.push("--for", "orchestrator");
+    const result = await runNavori(cwd, args, "", signal);
+    const parsed: unknown = JSON.parse(result.stdout);
+    if (!isRecord(parsed) || parsed.feature !== feature || !Array.isArray(parsed.failures) || !Array.isArray(parsed.warnings)) {
+      return "handoff check returned an unknown payload";
+    }
+    const issues = [...parsed.failures, ...(role === "implementer" ? parsed.warnings.filter((w) => isRecord(w) && w.check === "head") : [])]
+      .map((f) => (isRecord(f) ? String(f.detail) : "invalid finding"));
+    if (result.code !== 0 || parsed.status !== "ok" || issues.length) return (issues.join("; ") || "handoff check did not pass").slice(0, 1000);
+    return undefined;
+  } catch (cause) {
+    return "handoff validation unavailable (" + (cause instanceof Error ? cause.message : "error") + "); failing closed";
   }
 }
 
@@ -1067,11 +1113,18 @@ export default function (pi: ExtensionAPI): void {
       active++;
       try {
         if (params.role !== "scout") await checkDispatch(ctx.cwd, params.role, params.task, params.feature, signal);
+        const snapshot = (params.role === "implementer" || params.role === "reviewer") && params.feature
+          ? snapshotHandoff(ctx.cwd, params.role, params.feature) : undefined;
         const result = await runChild(ctx.cwd, spec, model, params.task, signal);
         // D6: the exact commands come from the child's hook input (IPC) or structured JSONL args, never from model text.
         if (!result.approvals.length && result.refusals?.length) {
           throw new Error("Navori " + params.role + " child asked for parent approval over the JSONL fallback (no IPC relay); the task is not complete. "
             + "Commands to approve in the parent session: " + result.refusals.map((c) => c === undefined ? "<command not recoverable>" : JSON.stringify(c)).join(", "));
+        }
+        if (snapshot) {
+          const failure = await verifyHandoff(ctx.cwd, snapshot, signal);
+          if (failure) return { isError: true, content: [{ type: "text", text: "Navori " + params.role + " handoff invalid: " + failure + "\n\nChild output:\n" + result.text.slice(0, 2000) }],
+            details: { role: params.role, truncated: result.truncated, handoff: "invalid", ...(result.approvals.length ? { parentApprovals: result.approvals } : {}) } };
         }
         const relay = result.approvals.length
           ? "\n\nParent approval required for " + result.approvals.length + " operation(s) the child could not run; run them in this session so the user is asked: "

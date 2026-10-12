@@ -239,6 +239,7 @@ describe("Pi credential-free first-class cycle", () => {
     const handoff = {
       feature: FEATURE,
       status: "DONE",
+      head: git("rev-parse", "HEAD"),
       worktree: cwd,
       branch,
       commits: [],
@@ -405,7 +406,9 @@ describe("Pi credential-free first-class cycle", () => {
       });
       const reviewed = await turn("reviewer child");
       await phase("joint review", diagnostic, () => {
-        expect(reviewed[0]).toMatchObject({ toolName: "navori_subagent", isError: false });
+        // The scripted reviewer writes no sealed review handoff: Pi reports the child as failed (R7).
+        expect(reviewed[0]).toMatchObject({ toolName: "navori_subagent", isError: true });
+        expect(reviewed[0]?.text).toContain("reviewer handoff invalid");
         expect(reviewed[0]?.text).toContain("src/feature.ts");
         expect(reviewed[0]?.text).toContain(docsPath);
       });

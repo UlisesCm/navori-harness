@@ -77,7 +77,7 @@ function load(): { tool: Tool; children: Spawned[] } {
       if (id === "@earendil-works/pi-coding-agent") {
         return { VERSION: "1.1.0", defineTool: (value: unknown) => value };
       }
-      return id === "node:path" ? { join } : { readFileSync };
+      return id === "node:path" ? { join } : { existsSync, readFileSync, statSync };
     },
     process: {
       env: {},

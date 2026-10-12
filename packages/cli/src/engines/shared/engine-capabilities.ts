@@ -660,9 +660,14 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "When harness.scribeOwnsMarkdown is on, Pi blocks direct edit/write Markdown in implementer children; bash and ambient process writes bypass it.",
       },
       "handoff-shape": {
-        state: "unsupported",
+        state: "enforced",
         reason:
-          "Pi has no persisted impl handoff stop validator; child result does not prove the canonical file exists.",
+          "When an implementer or reviewer navori_subagent child ends, the trusted Pi project extension validates its canonical handoff (navori handoff check, reviewer: --produced-by reviewer with sealed evidence and a review begun after dispatch), requires it fresh against the dispatch snapshot and reports isError otherwise; direct shell/tool calls and other roles bypass it.",
+        evidence: {
+          kind: "extension-tool",
+          path: ".pi/extensions/navori.ts",
+          tool: "navori_subagent",
+        },
       },
       "handoff-consumer": {
         state: "enforced",
