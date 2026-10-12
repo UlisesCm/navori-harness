@@ -34,7 +34,7 @@ flowchart TD
     click ENGINE "../packages/cli/src/engines/claude/index.ts" "Claude engine"
 ```
 
-> Los **plugins** (engram / gh / jscpd / semgrep / acli / cognitive) se declaran
+> Los **plugins** (engram / gh / acli / tgrep / codegraph / cognitive) se declaran
 > en la capa Project config y el render los aplica junto a core + preset — ver
 > el pipeline abajo. [packages/plugins/](../packages/plugins)
 
@@ -271,8 +271,8 @@ Cada script managed con `exit 2` declara su clasificación en el header
 
 | Clase | Significa | Hooks |
 |---|---|---|
-| `hard` | hay veredicto o una contención: no hay nada que aprobar | `guard-destructive` (límites, `--no-verify`, force-push a base, `rm` sobre root/home/sistema, reescritura de archivos managed, descarte de árbol completo con trabajo sin commitear: `git reset --hard`, `git checkout -f` / `git checkout .`, `git restore` de rutas sin `--staged`, `git clean -f`), `plan-gate` con plan denegado, `quality-gate-pre-commit` con cwd inválido o gate en rojo, `role-guard`, `implementer-no-markdown`, `subagent-no-background`, `engram-write-guard`, `check-jscpd`/`check-semgrep` con hallazgos |
-| `ask` | no hay veredicto (falta la herramienta): decide el humano en la UI | `plan-gate` con `navori` ausente o sin subcomando `plan`; `quality-gate-pre-commit` con runner ausente; `check-jscpd` sin flags, ambiguo o con corrida fallida |
+| `hard` | hay veredicto o una contención: no hay nada que aprobar | `guard-destructive` (límites, `--no-verify`, force-push a base, `rm` sobre root/home/sistema, reescritura de archivos managed, descarte de árbol completo con trabajo sin commitear: `git reset --hard`, `git checkout -f` / `git checkout .`, `git restore` de rutas sin `--staged`, `git clean -f`), `plan-gate` con plan denegado, `quality-gate-pre-commit` con cwd inválido o gate en rojo, `role-guard`, `implementer-no-markdown`, `subagent-no-background`, `engram-write-guard` |
+| `ask` | no hay veredicto (falta la herramienta): decide el humano en la UI | `plan-gate` con `navori` ausente o sin subcomando `plan`; `quality-gate-pre-commit` con runner ausente |
 | `advisory` | `PostToolUse`: el `exit 2` solo llega al modelo | `managed-drift-watch` |
 
 Los mensajes de bloqueo son accionables: cuando existe una salida segura, la línea `route:` la nombra

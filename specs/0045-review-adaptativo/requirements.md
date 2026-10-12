@@ -160,3 +160,7 @@ y de no correr la suite en las rondas intermedias: los tests de cada ronda son s
 - Correr el gate en paralelo con la lectura del reviewer (M2 de la auditoría): se evalúa con el
   baseline posterior a esta spec.
 - Memo por fingerprint en los hooks de semgrep/jscpd (M9): queda obsoleto con el bloque A.
+
+## Enmienda 2026-10-12 — retiro de los plugins jscpd y semgrep
+
+Los plugins `jscpd` y `semgrep` de Navori se retiraron del producto en #1300. Las menciones a sus hooks (memo por fingerprint, checks en git hooks nativos) en los requisitos y el diseño de esta spec describen el estado de entonces y se conservan como historia; el uso local de jscpd/semgrep en este repo (`check:dup`, `check:ast`, semgrep en CI) no cambia.
