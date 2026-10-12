@@ -81,6 +81,7 @@ capabilities are verified on Pi 1.1.0; `deferred` capabilities are not available
 | `child-mcp-off` | admitted | `--no-mcp` disables Pi built-in MCP in the child only. Not an OS sandbox; the parent keeps its MCP. |
 | `child-model-selection` | admitted | `--model <provider/id>` selects the child's model. Effort and thinking are not redefined. |
 | `child-tool-allowlist` | admitted | `--tools` is a model-visible allowlist, not isolation. Indirect MCP exposure is closed by `--no-mcp`. |
+| `child-ipc-relay` | admitted | Node IPC (`stdio` `ipc`) from the child to the parent reports the exact refused command. It never approves anything; see [Approval relay](#approval-relay). |
 | `child-mcp-grants` | deferred | Children run with `--no-mcp`. Pi 1.1.0 connects every enabled MCP server and lists all of them in the child prompt, so per-role MCP grants are not verifiable. Roles that need MCP stay unavailable in children. |
 
 ## Hook bridge
@@ -151,6 +152,18 @@ requires an explicit Navori feature slug for its handoff check. Role instruction
 preserved. A configured model is used when it maps to a concrete `codexMap` model; otherwise the child
 inherits the selected Pi model. Each role has an explicit Pi tool list; missing or unknown mappings fail
 closed rather than enabling default tools. Children never receive MCP grants (see `child-mcp-grants`).
+
+### Approval relay
+
+A headless child cannot approve an operation. When a child's Bash command claims human approval
+(`--approved-by`) and is refused, the child sends the exact refused command to the parent over the Node
+IPC channel. The parent validates each message: it must match the expected schema, be at most 8 KiB, and
+the parent accepts at most 5 per child. Accepted requests are reported in `details.parentApprovals` of the
+`navori_subagent` result, with a line in its content. The relay only reports; the refusal still stands.
+
+Without IPC, the parent recovers the command from the `tool_execution_start` args of the same
+`toolCallId`, and the call ends as an error, never as success. The model's Bash does not inherit the
+channel.
 
 ## Limits and headless runs
 

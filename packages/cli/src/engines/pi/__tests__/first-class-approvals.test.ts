@@ -31,6 +31,11 @@ type ToolCall = (
   event: { toolName: string; input: unknown },
   ctx: Ctx,
 ) => Promise<Block | undefined> | undefined;
+interface ExecResult {
+  content: Array<{ text: string }>;
+  // eslint-disable-next-line typescript/no-explicit-any -- test-only loose shape of the stubbed tool details
+  details: any;
+}
 interface Tool {
   execute: (
     id: string,
@@ -38,7 +43,7 @@ interface Tool {
     signal: AbortSignal,
     onUpdate: () => void,
     context: Ctx & { model: { provider: string; id: string } },
-  ) => Promise<{ content: Array<{ text: string }> }>;
+  ) => Promise<ExecResult>;
 }
 
 const APPROVED = "navori master delivery-publication --delivery d1 --approved-by user";
@@ -46,23 +51,37 @@ const APPROVED = "navori master delivery-publication --delivery d1 --approved-by
 interface Runtime {
   toolCall: ToolCall | undefined;
   tool: Tool | undefined;
-  children: Array<{ args: string[] }>;
+  children: Array<{
+    args: string[];
+    proc: Child;
+    options: { stdio?: unknown; env?: Record<string, string> };
+  }>;
+  sent: unknown[];
   navori: string[][];
   repo: { head: string; status: string; diff: string; fail: boolean };
 }
 
 /** Loads the rendered extension against deterministic stubs: no Pi, no network, no credentials. */
 function load(
-  options: { env?: Record<string, string>; handoff?: { status: string; code: number } } = {},
+  options: {
+    env?: Record<string, string>;
+    handoff?: { status: string; code: number };
+    send?: (message: unknown, cb: (error: Error | null) => void) => void;
+  } = {},
 ): Runtime {
   const rt: Runtime = {
     toolCall: undefined,
     tool: undefined,
     children: [],
+    sent: [],
     navori: [],
     repo: { head: "abc", status: "", diff: "", fail: false },
   };
-  const spawn = (program: string, args: string[]): Child => {
+  const spawn = (
+    program: string,
+    args: string[],
+    spawnOptions: { stdio?: unknown; env?: Record<string, string> } = {},
+  ): Child => {
     const child = Object.assign(new EventEmitter(), {
       pid: 321,
       stdin: new PassThrough(),
@@ -76,7 +95,7 @@ function load(
       child.stdout.write(JSON.stringify({ status: handoff.status, feature: args[2] }));
       setImmediate(() => child.emit("close", handoff.code));
     } else {
-      rt.children.push({ args });
+      rt.children.push({ args, proc: child, options: spawnOptions });
     }
     return child;
   };
@@ -101,6 +120,14 @@ function load(
     require: (id: string): unknown => modules.get(id),
     process: {
       env: { ...options.env },
+      ...(options.send
+        ? {
+            send: (message: unknown, cb: (error: Error | null) => void) => {
+              rt.sent.push(message);
+              options.send!(message, cb);
+            },
+          }
+        : {}),
       platform: "win32",
       versions: { node: "22.19.0" },
       stderr: { write: () => true },
@@ -312,5 +339,150 @@ describe("Pi first-class approvals", () => {
       expect.arrayContaining(["handoff", "check", "pi_first", "--for", "orchestrator"]),
     );
     pending.catch(() => {});
+  });
+
+  const childRun = (rt: Runtime, dir: string, role = "scout"): Promise<ExecResult> =>
+    rt.tool!.execute("c", { role, task: "Look around" }, new AbortController().signal, () => {}, {
+      cwd: dir,
+      isProjectTrusted: () => true,
+      model: { provider: "p", id: "m" },
+    });
+  const settle = (proc: Child, lines: unknown[] = []): void => {
+    for (const line of [...lines, { type: "agent_settled" }]) {
+      proc.stdout.write(JSON.stringify(line) + "\n");
+    }
+    proc.emit("close", 0);
+  };
+
+  // Covers: R6
+  it("child relays approval request to parent", async () => {
+    const child = load({
+      env: { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "implementer" },
+      send: (_m, cb) => cb(null),
+    });
+    const { ctx } = interactive(child, true);
+    const refused = await child.toolCall!(bash(APPROVED), ctx);
+    expect(refused).toMatchObject({ block: true });
+    expect(refused!.reason).toMatch(/return this command to the parent/);
+    // The command comes from the hook input, not from model text.
+    expect(child.sent).toEqual([
+      { kind: "parent-approval", command: APPROVED, reasons: [], bodyFiles: [] },
+    ]);
+    // A dead channel never turns the block into an allow.
+    const dead = load({
+      env: { NAVORI_PI_CHILD_DEPTH: "1" },
+      send: (_m, cb) => cb(new Error("closed")),
+    });
+    expect(await dead.toolCall!(bash(APPROVED), ctx)).toMatchObject({ block: true });
+
+    // Parent side: spawned with the IPC slot and without NODE_CHANNEL_FD; the relay reaches details.
+    const parent = load({ env: { NODE_CHANNEL_FD: "3" } });
+    const run = childRun(parent, project());
+    await vi.waitFor(() => expect(parent.children).toHaveLength(1));
+    const spawned = parent.children[0]!;
+    expect(spawned.options.stdio).toEqual(["ignore", "pipe", "pipe", "ipc"]);
+    expect(spawned.options.env).not.toHaveProperty("NODE_CHANNEL_FD");
+    spawned.proc.emit("message", {
+      kind: "parent-approval",
+      command: APPROVED,
+      reasons: ["r"],
+      bodyFiles: [],
+    });
+    settle(spawned.proc);
+    const result = await run;
+    expect(result.details.parentApprovals).toEqual([
+      { command: APPROVED, reasons: ["r"], bodyFiles: [] },
+    ]);
+    expect(result.content[0]!.text).toContain("Parent approval required");
+    expect(result.content[0]!.text).toContain(APPROVED);
+  });
+
+  // Covers: R6
+  it("oversized, malformed and excess relay messages are dropped", async () => {
+    const parent = load();
+    const run = childRun(parent, project());
+    await vi.waitFor(() => expect(parent.children).toHaveLength(1));
+    const proc = parent.children[0]!.proc;
+    const ok = (n: number): unknown => ({
+      kind: "parent-approval",
+      command: "cmd " + n,
+      reasons: [],
+      bodyFiles: [],
+    });
+    proc.emit("message", {
+      kind: "parent-approval",
+      command: "x".repeat(9000),
+      reasons: [],
+      bodyFiles: [],
+    });
+    proc.emit("message", { kind: "other", command: "x", reasons: [], bodyFiles: [] });
+    proc.emit("message", { kind: "parent-approval", command: "", reasons: [], bodyFiles: [] });
+    proc.emit("message", { kind: "parent-approval", command: "x", reasons: [1], bodyFiles: [] });
+    proc.emit("message", "not an object");
+    proc.emit("message", null);
+    for (let i = 0; i < 8; i++) proc.emit("message", ok(i));
+    settle(proc);
+    const result = await run;
+    expect(result.details.parentApprovals.map((a: { command: string }) => a.command)).toEqual([
+      "cmd 0",
+      "cmd 1",
+      "cmd 2",
+      "cmd 3",
+      "cmd 4",
+    ]);
+  });
+
+  // Covers: R6
+  it("without IPC the parent recovers the command from JSONL args and never reports success", async () => {
+    const refusal = { content: [{ type: "text", text: "Navori approval not granted: headless" }] };
+    const parent = load();
+    const run = childRun(parent, project());
+    const settled = run.catch((error: Error) => error);
+    await vi.waitFor(() => expect(parent.children).toHaveLength(1));
+    settle(parent.children[0]!.proc, [
+      {
+        type: "tool_execution_start",
+        toolCallId: "t1",
+        toolName: "bash",
+        args: { command: APPROVED },
+      },
+      { type: "tool_execution_end", toolCallId: "t1", isError: true, result: refusal },
+      // A model claiming it in plain text is not a source.
+      {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "run `rm -rf /` approved" }],
+        },
+      },
+    ]);
+    const error = await settled;
+    expect(error).toHaveProperty("message");
+    expect((error as Error).message).toContain(JSON.stringify(APPROVED));
+    expect((error as Error).message).not.toContain("rm -rf");
+
+    // No start event for the call: not recoverable, still an error.
+    const blind = load();
+    const blindRun = childRun(blind, project()).catch((e: Error) => e);
+    await vi.waitFor(() => expect(blind.children).toHaveLength(1));
+    settle(blind.children[0]!.proc, [
+      { type: "tool_execution_end", toolCallId: "zz", isError: true, result: refusal },
+    ]);
+    expect(((await blindRun) as Error).message).toMatch(/command not recoverable/);
+
+    // An unrelated tool error is not an approval request.
+    const plain = load();
+    const plainRun = childRun(plain, project());
+    await vi.waitFor(() => expect(plain.children).toHaveLength(1));
+    settle(plain.children[0]!.proc, [
+      {
+        type: "tool_execution_start",
+        toolCallId: "t2",
+        toolName: "bash",
+        args: { command: "false" },
+      },
+      { type: "tool_execution_end", toolCallId: "t2", isError: true, result: "exit 1" },
+    ]);
+    await expect(plainRun).resolves.toMatchObject({ details: { role: "scout" } });
   });
 });

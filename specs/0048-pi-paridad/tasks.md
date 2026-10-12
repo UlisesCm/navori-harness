@@ -40,7 +40,7 @@ Estimated LOC: 5300
 ### M5 — Probe IPC y relay al padre
 
 - **A5** [observable] — Una operación que pide aprobación en un hijo se rechaza ahí y llega al padre con el comando exacto, sin depender de texto del modelo · `bun run --cwd packages/cli test src/engines/pi/__tests__/runtime.test.ts src/engines/pi/__tests__/first-class-approvals.test.ts` → exit 0; el probe IPC en `pi` 1.1.0 registra su resultado y, si el canal no existe, el fallback devuelve `isError`, nunca éxito.
-- [ ] **T8** (R6) — Probe del canal IPC hijo→extensión en `pi` 1.1.0 como primera tarea; relay determinista desde la extensión del hijo con el fallback decidido (argumentos de `tool_execution_start`, si no `isError`); admisión `child-ipc-relay` en `runtimeAdmissions`. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-approvals.test.ts`::child relays approval request over IPC
+- [x] **T8** (R6) — Probe del canal IPC hijo→extensión en `pi` 1.1.0 como primera tarea; relay determinista desde la extensión del hijo con el fallback decidido (argumentos de `tool_execution_start`, si no `isError`); admisión `child-ipc-relay` en `runtimeAdmissions`. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-approvals.test.ts`::child relays approval request over IPC
 
 ### M6 — Gate y confirmaciones
 

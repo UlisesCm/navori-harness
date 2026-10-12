@@ -202,6 +202,7 @@ describe("Pi first-class roles", () => {
       "child-mcp-off",
       "child-model-selection",
       "child-tool-allowlist",
+      "child-ipc-relay",
     ]);
     for (const row of rows) {
       expect(row.source).toMatch(/Pi \d+\.\d+\.\d+/);

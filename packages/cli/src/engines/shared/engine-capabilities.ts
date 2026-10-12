@@ -748,6 +748,18 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "Model-visible allowlist, not isolation; indirect MCP exposure is closed by --no-mcp.",
       },
       {
+        capability: "child-ipc-relay",
+        native: 'Node child_process IPC channel (stdio "ipc") to the Pi child',
+        decision: "admitted",
+        source:
+          "Pi 1.1.0 child process on Node 24 (process.send and process.channel present in the child)",
+        verifiedFrom: "1.1.0",
+        probe:
+          "Spawn pi with stdio [ignore, pipe, pipe, ipc]: the child extension sees process.send, the parent receives child.on(message); the model's bash inherits no channel",
+        boundary:
+          "Reports the exact refused command to the parent; it never approves anything. Without the channel the parent falls back to JSONL tool args and reports an error, never success.",
+      },
+      {
         capability: "child-mcp-grants",
         native: "per-role MCP grants in children",
         decision: "deferred",
