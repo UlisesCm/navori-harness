@@ -99,3 +99,12 @@ User explicitly chose a draft PR and continuation tomorrow. Publish the branch a
 ## 2026-10-05 22:43 codex — Cierra sesión con PR draft1228
 
 Session closed — 2026-10-05 22:43: operator created PR https://github.com/UlisesCm/navori-harness/pull/1228; fresh GitHub read confirms OPEN, draft=true, target main, head feat/dual-workflow-live-pilot. User explicitly stops here. Next: investigate bundle1231.3KB versus1200KB, scope any fix through implementer then reviewer, and run the complete gate before readiness. Current integration receipt check confirms no matching fresh receipt (stored receipt belongs to prior a5-cleanup-timeout-exception); no repeat full run is attempted at the user's stop. Measured A5 remains pending. Preserve local child repositories, real captures and autostash77701a96. Feature branch remains on this worktree because main is checked out at navori-harness-pr1221; do not move or delete that other worktree. Runtime memory registration remains unavailable, so session closure is persisted in project progress only.
+
+## 2026-10-11 21:10 pi — Guarda spec 0049 de endurecimiento de master-plan
+
+Convertido el workplan aprobado a `specs/0049-master-plan-production-hardening/{requirements,design,tasks}.md`: 15 requisitos EARS, dos entregas de implementación y siete milestones con tareas pendientes. Conserva las políticas aprobadas de validación estricta para specs nuevas y de evidencia huérfana frente a antigua. Este ciclo solo publica documentación; no implementa runtime ni duplica el fix del runner de Pi de la entrega 0048.
+
+Scribe y reviewer externos de Claude ejecutaron el ciclo sin cambiar permisos. La revisión corrigió el alcance por engine de init y aclaró que el modo automático ya funciona: M4 solo cambia la redacción del skill. `navori spec check` pasó sin findings; su warning `merged-deliveries` queda documentado y no sustituye la organización explícita E1/E2.
+
+Gate completo del reviewer: `bun run check` exit 0, 405 archivos de tests, 8794 tests pasaron y dos skipped; coverage floor OK. Recibo verificado `status:ok`, `fresh:true`, `gateKind:full` antes del delta editorial y este cierre. El reviewer debe revalidar y re-firmar esos deltas antes de commit y publicación del PR de scaffold a dev, sin merge automático. Siguiente implementación: E1/M1, tras disponer de un harness funcional.
+

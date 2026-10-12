@@ -3,15 +3,10 @@
 **Estado:** en pausa
 
 ## Tarea
-Spec 0045 review adaptativo (#1275). E1 mergeada (#1278). Worktree
-`.claude/worktrees/0045-review-adaptativo`, rama `feat/0045-review-adaptativo-e2` (desde `dev`).
-Tablero: `specs/0045-review-adaptativo/tasks.md`.
+Spec `0049-master-plan-production-hardening` creada para guardar el plan aprobado. Este ciclo es documentación únicamente; todas las tareas de implementación siguen pendientes.
 
 ## Siguiente paso
-E2/M4 — omisión por config de los checks mecánicos (`qualityGate.nativeHooks`,
-`plugins.<x>.nativeHook`). Crear workplan `0045-review-adaptativo-e2` (fases M4–M6) y `plan check`.
+Publicar el PR de scaffold a `dev` después del re-sign del reviewer; no hacer merge automático. Después, E1/M1: recuperación de `init` en un worktree desde la base actualizada, con implementer → reviewer. E2 cubre validación estricta, evidencia y ruteo de workflows.
 
-## Notas
-- Evidencia A<n> en worktree: copiar las líneas 0045 del `acceptance-index` del worktree al del
-  checkout principal y correr el comando exacto, sin pipes (#1277).
-- Pendientes aparte: #1266, #1269, #1270, #1277.
+## Bloqueo de ejecución
+El runner de la sesión Pi de origen conserva el límite acumulado de JSONL. Su corrección pertenece a la entrega 0048, fuera de esta spec. Usar un harness funcional o la extensión corregida y cargada antes de retomar implementación. `tasks.md` es el tablero canónico; el workplan previo no debe duplicarlo.
