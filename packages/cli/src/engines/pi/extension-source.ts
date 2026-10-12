@@ -1,10 +1,16 @@
 import { PI_BRIDGE_SOURCE } from "./bridge-source.ts";
 import { PI_TRUST_SOURCE } from "./trust-source.ts";
-import { renderPiRuntimeVersionSource } from "./runtime-version.ts";
+import { renderPiRuntimeVersionSource, serializeAnonymousFunction } from "./runtime-version.ts";
 import { PI_ROLE_NAMES, PI_ROLE_TIMEOUT_MS, PI_ROLE_TOOLS } from "./role-tools.ts";
+import { mcpServerStates } from "./mcp-diagnosis.ts";
 
-/** Self-contained project extension; no import may point back into Navori's CLI checkout. */
-export const PI_EXTENSION_SOURCE = String.raw`
+/**
+ * Self-contained project extension; no import may point back into Navori's CLI checkout.
+ * `mcpPluginIds` are the enabled plugins declaring an MCP server (spec 0048 D14): the parent
+ * re-checks them at `session_start`. The default (none) renders the check inert.
+ */
+export function renderPiExtensionSource(mcpPluginIds: readonly string[] = []): string {
+  return String.raw`
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -12,6 +18,8 @@ import { Type } from "@earendil-works/pi-ai";
 import { VERSION, defineTool, getShellConfig, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 ${PI_TRUST_SOURCE}
+const MCP_PLUGIN_IDS: readonly string[] = ${JSON.stringify(mcpPluginIds)};
+const mcpServerStates = ${serializeAnonymousFunction(mcpServerStates)};
 ${renderPiRuntimeVersionSource()}
 
 type Role = ${PI_ROLE_NAMES.map((role) => JSON.stringify(role)).join(" | ")};
@@ -693,6 +701,18 @@ export default function (pi: ExtensionAPI): void {
     } catch { /* The tool_call block still refuses powershell. */ }
   });
   if (process.env.NAVORI_PI_CHILD_DEPTH) return;
+  // Spec 0048 D14 / R13, parent only: a server enabled solely in .pi/mcp.json is not effective until the project is trusted.
+  pi.on("session_start", async (_event, ctx) => {
+    try {
+      if (!MCP_PLUGIN_IDS.length || ctx.isProjectTrusted()) return;
+      const load = (path: string): unknown => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return undefined; } };
+      const agentDir = process.env.PI_CODING_AGENT_DIR || join(process.env.HOME ?? process.env.USERPROFILE ?? "", ".pi", "agent");
+      const states = mcpServerStates(MCP_PLUGIN_IDS, load(join(agentDir, "mcp.json")), load(join(ctx.cwd, ".pi", "mcp.json")));
+      const pending = MCP_PLUGIN_IDS.filter((_id, index) => states[index] === "project-only");
+      if (!pending.length) return;
+      noticeOnce(ctx, false, "Pi MCP server " + pending.join(", ") + " is configured only in .pi/mcp.json and is not effective: the project is not trusted (/trust).");
+    } catch { /* Advisory: a failing check never blocks session start. */ }
+  });
   pi.on("session_start", async (_event, ctx) => {
     try { await injectContext(pi, ctx); } catch { /* Context is a convenience; session start must continue. */ }
   });
@@ -734,3 +754,6 @@ export default function (pi: ExtensionAPI): void {
   }));
 }
 `;
+}
+
+export const PI_EXTENSION_SOURCE = renderPiExtensionSource();

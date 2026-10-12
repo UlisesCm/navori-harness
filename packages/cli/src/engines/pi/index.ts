@@ -31,7 +31,7 @@ import {
   serializePiSource,
   type PiManifestHook,
 } from "./owned-file.ts";
-import { PI_EXTENSION_SOURCE } from "./extension-source.ts";
+import { renderPiExtensionSource } from "./extension-source.ts";
 import { activePiHookBindings, piHookPath, type PiHookBinding } from "./hook-bindings.ts";
 import { collectShellPermissionRules } from "../shared/permission-rules.ts";
 import { navoriAuthorship } from "../../lib/render/removable.ts";
@@ -46,6 +46,7 @@ import { loadEnabledPlugins } from "../../lib/config/plugins.ts";
 import { deriveMcpTools } from "../claude/agent-mcp-tools.ts";
 import { tc } from "../../lib/i18n.ts";
 import { PI_ROLE_TOOLS } from "./role-tools.ts";
+import { mcpPluginIds, mcpServerDiagnostics } from "./mcp-diagnosis.ts";
 
 const ROLE_TOOLS = PI_ROLE_TOOLS as Readonly<Record<string, readonly string[]>>;
 const EXTENSION = ".pi/extensions/navori.ts";
@@ -256,6 +257,7 @@ export function renderPiEngine(
     }
   }
   warnings.push(...mcpRoleDiagnostics(config, roles));
+  warnings.push(...mcpServerDiagnostics(cwd, config));
   if (scribeOwnsMarkdown && !roles.some((agent) => agent.id === "scribe")) {
     warnings.push(
       "harness.scribeOwnsMarkdown forbids implementer Markdown but the scribe role is disabled; Pi implementer dispatch is refused until harness.scribe is enabled or scribeOwnsMarkdown is turned off.",
@@ -290,7 +292,7 @@ export function renderPiEngine(
     ],
     permissionRules: { ask: permissions.ask, deny: permissions.deny },
   });
-  const extension = serializePiSource(PI_EXTENSION_SOURCE);
+  const extension = serializePiSource(renderPiExtensionSource(mcpPluginIds(config)));
   const resources: Array<{ relPath: string; content: string; owned: (value: string) => boolean }> =
     [
       { relPath: MANIFEST, content: serialized, owned: ownsPiManifest },

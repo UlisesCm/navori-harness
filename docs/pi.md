@@ -243,6 +243,28 @@ configuration.
 Trust is an explicit Pi decision. Navori does not auto-approve the parent project or use `-e` to bypass
 trust.
 
+### MCP diagnosis for plugins
+
+A plugin that declares an MCP server is checked against Pi's native MCP config. The check is read-only
+and advisory: it reads `${PI_CODING_AGENT_DIR:-~/.pi/agent}/mcp.json` and `.pi/mcp.json`, and records only
+server names, `enabled`, and whether an entry defines a transport (`command`, `url`, or `type`). It never
+copies values such as env or tokens, and it never writes either file. Server names match with `-` and `_`
+treated as equivalent. A project entry that defines a transport replaces the global entry of the same name;
+an entry that only sets `enabled` toggles the global one.
+
+At render time, a server that is not configured or is disabled produces a warning with the action
+`pi mcp add <id> -- <command> <args...>`. A server enabled only in `.pi/mcp.json` also produces a warning,
+which says it takes effect only if the project is trusted. If the file is not valid JSON, the warning is a fixed message
+that names the path and never the parser's text.
+
+At session start, the parent Pi extension repeats the check. If a server is enabled only in
+`.pi/mcp.json` and the project is not trusted (`ctx.isProjectTrusted()`), it shows one notice for that
+session start that the server is not effective until the project is trusted (`/trust`). The check is
+silent on failure and does not run in child sessions.
+
+The diagnosis reports a server as configured, not connected. It cannot detect `--no-mcp` or an MCP
+extension that replaces Pi's MCP support.
+
 ## ChatGPT Plus/Pro OAuth
 
 Pi owns the ChatGPT subscription OAuth flow and credentials. Start Pi interactively in the trusted

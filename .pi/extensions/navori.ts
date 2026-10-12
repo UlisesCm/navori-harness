@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="c87589aba6ef266b4d9c7905b6f27e77fd29f94ed0c073977dae024f04c38433"
+// navori:managed-file id="pi-extension" hash="c3e43ab61750a4536f169558d39b78092a8af0c2e10bb831ab2851006f119cd3"
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -16,6 +16,8 @@ function assertTrustedPiParent(ctx: { isProjectTrusted?: () => boolean }): void 
   if (!trusted) throw new Error("Navori Pi subagent requires a trusted parent project");
 }
 
+const MCP_PLUGIN_IDS: readonly string[] = ["engram","codegraph"];
+const mcpServerStates = function(e,t,n){let r=e=>e.replaceAll(`-`,`_`),i=e=>{let t=new Map,n=typeof e==`object`&&e&&!Array.isArray(e)?e.mcpServers:void 0;if(typeof n!=`object`||!n||Array.isArray(n))return t;for(let[e,i]of Object.entries(n))typeof i==`object`&&i&&!Array.isArray(i)&&t.set(r(e),{enabled:i.enabled!==!1,replaces:[`command`,`url`,`type`].some(e=>e in i)});return t},a=i(t),o=i(n);return e.map(e=>{let t=a.get(r(e)),n=o.get(r(e)),i=n===void 0?t:n.replaces?n:t&&{...t,enabled:n.enabled};return t?.enabled===!0&&i?.enabled?`global`:i?.enabled?`project-only`:i===void 0?`missing`:`disabled`})};
 const piRuntimeChecks = (function(e,t,n){function r(e){let t=/^v?(\d+)\.(\d+)\.(\d+)(?:\+[\w.-]+)?$/.exec(e.trim());if(!t)return null;let n=Number(t[1]),r=Number(t[2]),i=Number(t[3]);return[n,r,i].every(Number.isSafeInteger)?[n,r,i]:null}function i(e,t){return e[0]===t[0]?e[1]===t[1]?e[2]>=t[2]:e[1]>t[1]:e[0]>t[0]}let a=(e=process.versions.node)=>{let n=r(e),a=r(t);if(!n||!a||!i(n,a))throw Error(`Navori's Pi engine requires Node.js ${t} or later; found ${e}.`)},o=t=>{let n=r(t),a=r(e);return n!==null&&a!==null&&i(n,a)};return{assert:(t,n=process.versions.node)=>{if(a(n),!o(t))throw Error(`Navori's Pi engine requires @earendil-works/pi-coding-agent ${e} or later; found ${t}. Run pi --version and upgrade Pi.`)},assertNode:a,verified:o,unverified:e=>{let t=r(e);return n.filter(e=>{let n=r(e.verifiedFrom);return!t||!n||!i(t,n)}).map(e=>e.capability+` (verified from Pi `+e.verifiedFrom+`)`)}}})("1.1.0", "22.19.0", [{"capability":"child-mcp-off","verifiedFrom":"1.1.0"},{"capability":"child-model-selection","verifiedFrom":"1.1.0"},{"capability":"child-tool-allowlist","verifiedFrom":"1.1.0"}]);
 const PI_MIN_VERSION = "1.1.0";
 const assertSupportedPiRuntime = piRuntimeChecks.assert;
@@ -962,6 +964,18 @@ export default function (pi: ExtensionAPI): void {
     } catch { /* The tool_call block still refuses powershell. */ }
   });
   if (process.env.NAVORI_PI_CHILD_DEPTH) return;
+  // Spec 0048 D14 / R13, parent only: a server enabled solely in .pi/mcp.json is not effective until the project is trusted.
+  pi.on("session_start", async (_event, ctx) => {
+    try {
+      if (!MCP_PLUGIN_IDS.length || ctx.isProjectTrusted()) return;
+      const load = (path: string): unknown => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return undefined; } };
+      const agentDir = process.env.PI_CODING_AGENT_DIR || join(process.env.HOME ?? process.env.USERPROFILE ?? "", ".pi", "agent");
+      const states = mcpServerStates(MCP_PLUGIN_IDS, load(join(agentDir, "mcp.json")), load(join(ctx.cwd, ".pi", "mcp.json")));
+      const pending = MCP_PLUGIN_IDS.filter((_id, index) => states[index] === "project-only");
+      if (!pending.length) return;
+      noticeOnce(ctx, false, "Pi MCP server " + pending.join(", ") + " is configured only in .pi/mcp.json and is not effective: the project is not trusted (/trust).");
+    } catch { /* Advisory: a failing check never blocks session start. */ }
+  });
   pi.on("session_start", async (_event, ctx) => {
     try { await injectContext(pi, ctx); } catch { /* Context is a convenience; session start must continue. */ }
   });

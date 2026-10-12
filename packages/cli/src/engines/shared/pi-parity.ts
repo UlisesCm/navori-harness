@@ -380,9 +380,10 @@ const pluginEntries = (): Array<[string, PiParity]> => {
   ];
   const mcp = (plugin: string): [string, PiParity] => [
     piParityKey("plugin-mcp-server", plugin),
-    unsupported(
-      "none",
-      "Pi has no render-time diagnosis of the server against its native MCP config; only the child role diagnostics mention it (spec 0048 R13, M10). Navori never writes Pi MCP config",
+    advisory(
+      "render warns when the plugin's MCP server is missing or disabled in Pi's native MCP config, with the `pi mcp add` action",
+      "configured is not connected: --no-mcp, -builtin:mcp and extensions replacing the native MCP are not detected; only server names and `enabled` are read. Navori never writes Pi MCP config",
+      "render:mcp-diagnosis",
     ),
   ];
   return [

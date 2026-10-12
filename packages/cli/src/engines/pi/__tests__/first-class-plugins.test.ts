@@ -1,4 +1,14 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -9,7 +19,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { ENGINE_CAPABILITIES } from "../../shared/engine-capabilities.ts";
 import { renderPiEngine } from "../index.ts";
-import { PI_EXTENSION_SOURCE } from "../extension-source.ts";
+import { PI_EXTENSION_SOURCE, renderPiExtensionSource } from "../extension-source.ts";
 
 interface Tool {
   execute: (
@@ -175,5 +185,197 @@ describe("Pi MCP in children", () => {
     );
     expect(grants).toMatchObject({ decision: "deferred" });
     expect(grants?.probe).toMatch(/connects every enabled MCP server/);
+  });
+});
+
+describe("Pi MCP server diagnosis", () => {
+  const SECRET = "sk-secret-sentinel";
+
+  /** Renders with the engram plugin against the given Pi MCP config files; returns MCP warnings. */
+  function diagnose(
+    globalJson?: string,
+    projectJson?: string,
+  ): { warnings: string[]; files: string[] } {
+    const dir = mkdtempSync(join(tmpdir(), "navori-pi-mcp-"));
+    const agentDir = mkdtempSync(join(tmpdir(), "navori-pi-mcp-home-"));
+    dirs.push(dir, agentDir);
+    mkdirSync(join(dir, ".pi"));
+    const files: string[] = [];
+    if (globalJson !== undefined) writeFileSync(join(agentDir, "mcp.json"), globalJson);
+    if (projectJson !== undefined) writeFileSync(join(dir, ".pi/mcp.json"), projectJson);
+    for (const f of [join(agentDir, "mcp.json"), join(dir, ".pi/mcp.json")]) {
+      try {
+        files.push(readFileSync(f, "utf8"));
+      } catch {
+        files.push("");
+      }
+    }
+    const previous = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    try {
+      const { warnings } = renderPiEngine(
+        dir,
+        NavoriConfigSchema.parse({
+          name: "pi-mcp",
+          preset: "custom",
+          engines: ["pi"],
+          branchBase: "main",
+          qualityGate: { fast: "bun test", full: "bun test" },
+          plugins: { engram: { enabled: true } },
+        }),
+      );
+      const mcp = warnings.filter((w) => /Pi MCP server|Could not read/.test(w));
+      // The files are never rewritten.
+      expect(files).toEqual([globalJson ?? "", projectJson ?? ""]);
+      return { warnings: mcp, files };
+    } finally {
+      if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+      else process.env.PI_CODING_AGENT_DIR = previous;
+    }
+  }
+
+  // Covers: R13
+  it("missing mcp server diagnosed without echo", () => {
+    const { warnings } = diagnose(
+      `{"mcpServers":{"other":{"command":"x","env":{"TOKEN":"${SECRET}"}}}}`,
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/engram.*not configured.*pi mcp add engram \[-l\] -- <command>/);
+    expect(warnings[0]).not.toContain(SECRET);
+    expect(warnings[0]).not.toContain("other");
+  });
+
+  // Covers: R13
+  it("a configured and enabled server passes, with - and _ equivalent", () => {
+    expect(diagnose('{"mcpServers":{"engram":{"command":"x"}}}').warnings).toEqual([]);
+    expect(diagnose('{"mcpServers":{"engram":{"command":"x","enabled":true}}}').warnings).toEqual(
+      [],
+    );
+  });
+
+  // Covers: R13
+  it("a disabled server is flagged", () => {
+    const { warnings } = diagnose(
+      `{"mcpServers":{"engram":{"command":"x","enabled":false,"env":{"T":"${SECRET}"}}}}`,
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/is disabled.*pi mcp add engram/);
+    expect(warnings[0]).not.toContain(SECRET);
+  });
+
+  // Covers: R13
+  it("a server only in the project file is effective only if trusted", () => {
+    const { warnings } = diagnose(undefined, '{"mcpServers":{"engram":{"command":"x"}}}');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/only in \.pi\/mcp\.json.*\/trust/);
+  });
+
+  // Covers: R13
+  it("malformed json is handled without a crash or echo", () => {
+    const { warnings } = diagnose(`{"mcpServers": {"engram": ${SECRET} oops`);
+    expect(warnings.some((w) => /Could not read .*mcp\.json; check its JSON\./.test(w))).toBe(true);
+    expect(warnings.join("\n")).not.toContain(SECRET);
+    expect(warnings.some((w) => w.includes("pi mcp add engram"))).toBe(true);
+  });
+});
+
+describe("Pi MCP check at session start", () => {
+  const SECRET = "mcp-runtime-secret-sentinel";
+
+  /** Runs every `session_start` handler of the parent extension and returns the notices shown. */
+  async function sessionStart(opts: {
+    projectJson?: string;
+    trusted: boolean;
+    throwOnTrust?: boolean;
+    child?: boolean;
+  }): Promise<string[]> {
+    const dir = mkdtempSync(join(tmpdir(), "navori-pi-mcp-rt-"));
+    const agentDir = mkdtempSync(join(tmpdir(), "navori-pi-mcp-rt-home-"));
+    dirs.push(dir, agentDir);
+    mkdirSync(join(dir, ".pi"));
+    if (opts.projectJson !== undefined) writeFileSync(join(dir, ".pi/mcp.json"), opts.projectJson);
+    const handlers: Array<(event: unknown, ctx: unknown) => Promise<void> | void> = [];
+    const notices: string[] = [];
+    const sandbox = {
+      exports: {} as { default?: (pi: unknown) => void },
+      require: (id: string): unknown => {
+        if (id === "node:child_process") {
+          // The context injector's `navori` call fails fast; it is irrelevant here.
+          return {
+            spawn: (): FakeChild => {
+              const child = new FakeChild();
+              setImmediate(() => child.emit("close", 1));
+              return child;
+            },
+          };
+        }
+        if (id === "@earendil-works/pi-ai")
+          return { Type: new Proxy({}, { get: () => () => ({}) }) };
+        if (id === "@earendil-works/pi-coding-agent") {
+          return { VERSION: "1.1.0", defineTool: (value: unknown) => value };
+        }
+        return id === "node:path"
+          ? { join }
+          : { readFileSync, existsSync, appendFileSync, lstatSync, readlinkSync };
+      },
+      process: {
+        env: {
+          PI_CODING_AGENT_DIR: agentDir,
+          ...(opts.child ? { NAVORI_PI_CHILD_DEPTH: "1" } : {}),
+        },
+        platform: "linux",
+        versions: { node: "22.19.0" },
+        stderr: { write: () => true },
+      },
+      Buffer,
+      setTimeout,
+      clearTimeout,
+    };
+    runInNewContext(
+      stripTypeScriptTypes(renderPiExtensionSource(["engram"]))
+        .replace(/^import \{ (.+) \} from "(.+)";$/gm, 'const { $1 } = require("$2");')
+        .replace("export default function", "exports.default = function"),
+      sandbox,
+    );
+    sandbox.exports.default?.({
+      on: (name: string, handler: (event: unknown, ctx: unknown) => Promise<void> | void) => {
+        if (name === "session_start") handlers.push(handler);
+      },
+      registerTool: () => {},
+    });
+    const ctx = {
+      cwd: dir,
+      isProjectTrusted: () => {
+        if (opts.throwOnTrust) throw new Error(SECRET);
+        return opts.trusted;
+      },
+      ui: { notify: (message: string) => notices.push(message) },
+    };
+    for (const handler of handlers) await handler({}, ctx);
+    return notices;
+  }
+
+  // Covers: R13
+  it("untrusted project mcp server reported at session start", async () => {
+    const project = '{"mcpServers":{"engram":{"command":"x","env":{"T":"' + SECRET + '"}}}}';
+    const notices = await sessionStart({ projectJson: project, trusted: false });
+    const mcp = notices.filter((n) => /Pi MCP server/.test(n));
+    expect(mcp).toHaveLength(1);
+    expect(mcp[0]).toMatch(/engram.*only in \.pi\/mcp\.json.*not effective.*\/trust/);
+    expect(mcp[0]).not.toContain(SECRET);
+    // Trusted projects and children stay silent.
+    expect(await sessionStart({ projectJson: project, trusted: true })).toEqual([]);
+    expect(await sessionStart({ projectJson: project, trusted: false, child: true })).toEqual([]);
+  });
+
+  // Covers: R13, R15
+  it("runtime mcp check failure stays silent", async () => {
+    expect(await sessionStart({ trusted: false, throwOnTrust: true })).toEqual([]);
+    expect(
+      await sessionStart({
+        projectJson: '{"mcpServers": {"engram": ' + SECRET + " oops",
+        trusted: false,
+      }),
+    ).toEqual([]);
   });
 });

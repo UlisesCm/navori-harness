@@ -71,7 +71,7 @@ Estimated LOC: 5300
 
 - **A10** [observable] — Skills y prosa de plugins llegan a Pi con un solo escritor por destino; el diagnóstico MCP no escribe ni hace eco de valores · `bun run --cwd packages/cli test src/engines/pi/__tests__/first-class-plugins.test.ts` → exit 0; con y sin Codex, transición Codex on→off, `-`/`_` normalizados, JSON inválido con mensaje fijo, `.pi/mcp.json` sin trust reportado como condicional.
 - [ ] **T16** (R12) — `ctx.plugins` reales en `renderPiEngine`: skills a `.agents/skills` y `AGENTS.md` con `includePluginBlocks` solo sin Codex, prosa sin MCP anexada a `.pi/agents/<rol>.md`, hooks y `hookExtensions` a `.pi/navori/` (`hookExtensionTarget` "pi"). · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-plugins.test.ts`::plugin skills and prose projected single writer
-- [ ] **T17** (R13) — Diagnóstico MCP de solo lectura sobre `.pi/mcp.json` y `${PI_CODING_AGENT_DIR}/mcp.json`: solo nombres y `enabled`, acción `pi mcp add`, nunca escribe. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-plugins.test.ts`::missing mcp server diagnosed without echo
+- [x] **T17** (R13) — Diagnóstico MCP de solo lectura sobre `.pi/mcp.json` y `${PI_CODING_AGENT_DIR}/mcp.json`: solo nombres y `enabled`, acción `pi mcp add`, nunca escribe. · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/first-class-plugins.test.ts`::missing mcp server diagnosed without echo
 
 ### M11 — Roles auditor, architect y publisher
 
