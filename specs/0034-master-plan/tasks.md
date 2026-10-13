@@ -155,6 +155,7 @@ Orden de los lotes:
     `lib/master/__tests__/part.test.ts`, con `// Covers: R33, R44, R48, R59, R61, R62`, cubre el
     issue duplicado, la spec inexistente, la razón obligatoria y cada validación de `--accept`
     (método equivocado, árbol sucio, `manual` con `--command`, bandera apagada).
+  - Enmendado por 0051 R6 (2026-10-13): `commitsBehind` y `orphan` salen en `status --json`, no en `STATUS.md`; la evidencia huérfana vive en `evidenceBlockers`, que bloquea `close` sin afectar `closable`.
 - [x] **T9** (R47, R49, R50, R57, R58, R63) — `close`, `close --convert` y `close --abandon`.
   - `lib/master/close.ts` con la secuencia reanudable de 6 pasos de D10: validar, escribir
     `CLOSURE.md` determinista (con "Integridad" y cada criterio con su método, evidencia, fecha,

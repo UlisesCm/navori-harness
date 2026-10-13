@@ -65,6 +65,11 @@ export interface MasterStatus {
   allDone: boolean;
   closable: boolean;
   blockers: string[];
+  /**
+   * Orphaned executable evidence: HEAD-dependent, so kept out of `blockers`,
+   * `closable` and the rendered status; `runMasterClose` rejects while non-empty (0051 R6).
+   */
+  evidenceBlockers: string[];
   lastClosed: { number: number; slug: string; state: string; closedAt: string | null } | null;
   architectContext?: ReturnType<typeof contextForArchitects>;
 }
@@ -162,6 +167,7 @@ export function readMasterStatus(cwd: string): MasterStatus {
     allDone: false,
     closable: false,
     blockers: [],
+    evidenceBlockers: [],
     lastClosed,
   };
   if (!stage) return empty;
@@ -224,6 +230,7 @@ export function readMasterStatus(cwd: string): MasterStatus {
     : [];
   const discrepancies: string[] = [];
   const blockers: string[] = [];
+  const evidenceBlockers: string[] = [];
   // Delivery must not skip the UX decision (a stage closed from `mastered`/`ux`
   // never ran the ux -> executing gate); legacy `executing` stages with no
   // decision only get the presence-consistency check.
@@ -259,7 +266,7 @@ export function readMasterStatus(cwd: string): MasterStatus {
       .map((a) => `${part.id}.${a.id}: sin evidencia`);
     let effective: PartState = part.state;
     if (part.state !== "descartada" && part.state !== "diferida") {
-      blockers.push(
+      evidenceBlockers.push(
         ...acceptance
           .filter((a) => a.orphan)
           .map(
@@ -327,6 +334,7 @@ export function readMasterStatus(cwd: string): MasterStatus {
     closable:
       mapped.length > 0 && blockers.length === 0 && closeBlockers(state, mapped).length === 0,
     blockers,
+    evidenceBlockers,
     lastClosed,
     ...(stage.number >= 2 ? { architectContext: contextForArchitects(index as MasterIndex) } : {}),
   };
@@ -376,7 +384,7 @@ export function renderStatusMd(status: MasterStatus): string {
   for (const part of status.parts)
     for (const criterion of part.acceptance)
       lines.push(
-        `- ${part.id}.${criterion.id} (${criterion.method}): ${criterion.verified ? "verificado" : "sin evidencia"}${criterion.commitsBehind === null ? "" : ` · commitsBehind=${criterion.commitsBehind}`}${criterion.orphan ? " · orphan" : ""}${criterion.commitsBehind !== null && criterion.commitsBehind > 0 ? ` · revalidar con 'navori master part ${part.id} --accept ${criterion.id}'` : ""}`,
+        `- ${part.id}.${criterion.id} (${criterion.method}): ${criterion.verified ? "verificado" : "sin evidencia"}`,
       );
   lines.push(
     "",

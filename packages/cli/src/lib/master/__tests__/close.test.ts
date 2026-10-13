@@ -140,8 +140,8 @@ beforeEach(() => {
 afterEach(() => rmSync(cwd, { recursive: true, force: true }));
 
 describe("master close", () => {
-  // Covers: R11
-  it("uses the status orphan blocker and writes nothing on rejected closure", (): void => {
+  // Covers: R11, R6
+  it("close rechaza evidencia huérfana desde evidenceBlockers sin escribir aunque closable sea verdadero", (): void => {
     seed("executing");
     const input = {
       ...part("hecho"),
@@ -163,9 +163,9 @@ describe("master close", () => {
     };
     writeFileSync(join(stage(), "parts.json"), JSON.stringify({ version: 1, parts: [input] }));
     const before = listStageFiles().map((name) => [name, read(name)]);
-    const blocker = readMasterStatus(cwd).blockers[0]!;
+    const blocker = readMasterStatus(cwd).evidenceBlockers[0]!;
     expect(blocker).toContain("P1.A1: evidencia huérfana");
-    expect(readMasterStatus(cwd).closable).toBe(false);
+    expect(readMasterStatus(cwd).closable).toBe(true);
     expect(() => runMasterClose(cwd)).toThrow(blocker);
     expect(listStageFiles().map((name) => [name, read(name)])).toEqual(before);
     expect(readConfig(join(cwd, "navori.config.json")).harness?.masterPlan).toBe(true);

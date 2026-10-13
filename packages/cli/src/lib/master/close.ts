@@ -309,6 +309,11 @@ export function runMasterClose(cwd: string, options: CloseOptions = {}): CloseRe
       if (blocked.length > 0) throw new Error(blocked.join("\n"));
       if (!status.closable)
         throw new Error(`no se puede cerrar; blockers:\n${status.blockers.join("\n")}`);
+      // Orphaned evidence depends on HEAD, so it gates close without touching `closable` (0051 R6).
+      if (status.evidenceBlockers.length > 0)
+        throw new Error(
+          `no se puede cerrar; evidencia huérfana:\n${status.evidenceBlockers.join("\n")}`,
+        );
     } else {
       const partsFile = join(stagePath, "parts.json");
       // Late abandon is the exit for a stage stuck with no parts (spec 0051 R5).

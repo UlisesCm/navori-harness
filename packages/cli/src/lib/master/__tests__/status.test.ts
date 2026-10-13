@@ -156,9 +156,53 @@ function commitHead(): string {
 }
 
 describe("master status", () => {
-  // Covers: R11
+  // Covers: R6
+  it("STATUS.md estable tras commit ajeno y tras evidencia huérfana; --json expone evidenceBlockers, commitsBehind y orphan", (): void => {
+    commitHead();
+    const evidence = commitHead();
+    executablePart(evidence, "comando", false);
+    const statusPath = join(cwd, "specs/_master/01-mvp/STATUS.md");
+    writeMasterStatus(cwd);
+    const first = readFileSync(statusPath, "utf8");
+    expect(first).not.toMatch(/commitsBehind|orphan|revalidar|huérfana/);
+    // Unrelated commit: byte-stable render, age only in the JSON status.
+    commitHead();
+    const aged = readMasterStatus(cwd);
+    expect(aged.parts[0]?.acceptance[0]).toMatchObject({ orphan: false, commitsBehind: 1 });
+    expect(aged.evidenceBlockers).toEqual([]);
+    writeMasterStatus(cwd);
+    expect(readFileSync(statusPath, "utf8")).toBe(first);
+    // Orphaned evidence: reset away the evidence commit and add a new one.
+    execFileSync("git", ["reset", "-q", "--hard", "HEAD~2"], { cwd });
+    // A distinct message keeps the new commit from hashing to the dropped evidence commit.
+    execFileSync(
+      "git",
+      ["-c", "user.name=Test", "-c", "user.email=test@example.test"].concat([
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "replacement",
+      ]),
+      { cwd },
+    );
+    const orphaned = readMasterStatus(cwd);
+    expect(orphaned.parts[0]?.acceptance[0]).toMatchObject({ orphan: true, commitsBehind: null });
+    expect(orphaned.evidenceBlockers).toEqual([
+      "P1.A1: evidencia huérfana; revalidar con 'navori master part P1 --accept A1'",
+    ]);
+    expect(orphaned.blockers).toEqual([]);
+    expect(orphaned.closable).toBe(true);
+    writeMasterStatus(cwd);
+    expect(readFileSync(statusPath, "utf8")).toBe(first);
+    const json = JSON.parse(JSON.stringify(orphaned)) as typeof orphaned;
+    expect(json.evidenceBlockers).toHaveLength(1);
+    expect(json.parts[0]?.acceptance[0]).toHaveProperty("commitsBehind");
+    expect(json.parts[0]?.acceptance[0]).toHaveProperty("orphan");
+  });
+
+  // Covers: R11, R6
   it.each(["test", "comando"] as const)(
-    "blocks orphan %s evidence with and without a linked spec",
+    "exposes orphan %s evidence in evidenceBlockers, not in STATUS.md",
     (method): void => {
       const baseline = commitHead();
       const tree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], {
@@ -187,20 +231,22 @@ describe("master status", () => {
           orphan: true,
           commitsBehind: null,
         });
-        expect(status.blockers).toContain(
+        expect(status.evidenceBlockers).toContain(
           "P1.A1: evidencia huérfana; revalidar con 'navori master part P1 --accept A1'",
         );
-        expect(status.closable).toBe(false);
+        expect(status.blockers.join("\n")).not.toContain("huérfana");
+        expect(renderStatusMd(status)).not.toContain("huérfana");
       }
     },
   );
 
-  // Covers: R11
+  // Covers: R11, R6
   it("blocks an absent executable evidence commit", (): void => {
     commitHead();
     executablePart("0".repeat(40), "comando", false);
-    expect(readMasterStatus(cwd).closable).toBe(false);
-    expect(readMasterStatus(cwd).blockers.join("\n")).toContain("P1.A1: evidencia huérfana");
+    expect(readMasterStatus(cwd).evidenceBlockers.join("\n")).toContain(
+      "P1.A1: evidencia huérfana",
+    );
   });
 
   // Covers: R12
@@ -216,8 +262,8 @@ describe("master status", () => {
       expect(status.parts[0]?.acceptance[0]).toMatchObject({ orphan: false, commitsBehind: 1 });
       expect(status.blockers).toEqual([]);
       expect(status.closable).toBe(true);
-      expect(renderStatusMd(status)).toContain("commitsBehind=1");
-      expect(renderStatusMd(status)).toContain("revalidar con 'navori master part P1 --accept A1'");
+      expect(renderStatusMd(status)).not.toContain("commitsBehind");
+      expect(renderStatusMd(status)).not.toContain("revalidar");
     },
   );
 
@@ -235,6 +281,7 @@ describe("master status", () => {
       const status = readMasterStatus(cwd);
       expect(status.parts[0]?.effective).toBe(state);
       expect(status.blockers).toEqual([]);
+      expect(status.evidenceBlockers).toEqual([]);
       expect(status.closable).toBe(true);
     },
   );

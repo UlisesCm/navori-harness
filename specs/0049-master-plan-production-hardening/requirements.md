@@ -2,6 +2,8 @@
 
 **Estado:** E1 (M1–M4, R1–R6) integrada mediante PR1313 en `dev`, commit `7d12fa42b6fdc4cf67db46267a0ff3c0beeeb7c5`. E2 (M5–M7, R7–R15) completada, revisada `APPROVED` y fusionada mediante PR1316 en `dev`, merge commit `336c0621b9d647ecdaee2634212859ceb81aeddc` (2026-10-13); el commit final de M7 es `bb7f616cd6d2cf238347c51a2af5b3ee1484512a`. Todas las tareas T1–T7 están completas y los R1–R15 tienen cobertura trazada en `tasks.md`. En la revisión final, A7 enfocado pasó en 26 archivos/592 pruebas y el gate full pasó en 418 archivos/8644 pruebas, 2 omitidas y 0 fallidas; el recibo full quedó `status:ok`, `fresh:true` antes de publicar. El primer A7 full falló por nueve prompts no documentados; tras la reparación aprobada y acotada a la lista de prompts, A7/full pasaron en la revisión final. Los checkpoints previos de M5 como PR1316 DRAFT y la pausa antes de M6/M7 son historia ya superada. Los contratos aprobados siguen vigentes; no hay aceptación de implementación, revisión ni publicación pendiente.
 
+Enmendado por `specs/0051-master-plan-correcciones` (2026-10-13): la evidencia huérfana ya no está en `closable`/`blockers` ni en `STATUS.md`; vive en `evidenceBlockers` (`--json`) y bloquea `close` (0051 R6).
+
 ## Contexto
 
 El flujo `navori master` (init, advance, status, part, close) y `navori spec check` tienen huecos que se reprodujeron con pruebas manuales: un `init` repetido tras un fallo o un corte no recrea los artefactos derivados de los engines configurados (p. ej. `CLAUDE.md` solo si Claude está habilitado); `advance` deja `STATUS` obsoleto; `spec check` da `ok` sin `requirements.md`; y un plan queda `closable` con evidencia ejecutable huérfana. Las pruebas manuales muestran los defectos, no prueban que un arreglo funcione ni que la suite completa esté en verde.
@@ -33,8 +35,8 @@ El diagnóstico histórico del runner de Pi pertenece a la spec 0048 y queda fue
 - **R10** — The system SHALL NOT afirmar cobertura semántica de pruebas: la validación es estructural (existencia y referencias), no garantiza que una prueba demuestre el requisito.
 
 ### Política de evidencia
-- **R11** — IF existe evidencia ejecutable huérfana en una parte sin disposición, THEN `status.closable` SHALL ser falso y `navori master close` SHALL bloquear con el mismo criterio.
-- **R12** — WHEN la evidencia pertenece a un commit ancestro más antiguo (no huérfano), the system SHALL no bloquear, SHALL mostrar su antigüedad y SHALL ofrecer revalidarla. Esta política es deliberada: no exige todas las pruebas en `HEAD`.
+- **R11** — IF existe evidencia ejecutable huérfana en una parte sin disposición, THEN `status.closable` SHALL ser falso y `navori master close` SHALL bloquear con el mismo criterio. (enmendado por 0051 R6: `evidenceBlockers` en lugar de `status.closable`)
+- **R12** — WHEN la evidencia pertenece a un commit ancestro más antiguo (no huérfano), the system SHALL no bloquear, SHALL mostrar su antigüedad y SHALL ofrecer revalidarla. Esta política es deliberada: no exige todas las pruebas en `HEAD`. (la antigüedad se muestra en `--json`, `CLOSURE.md` y el skill, no en `STATUS.md`; 0051 R6)
 - **R13** — The system SHALL conservar sin cambios las aprobaciones manuales válidas y las exenciones de partes descartadas o diferidas.
 
 ### Ruteo y verificación integrada
