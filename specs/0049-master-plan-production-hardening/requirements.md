@@ -1,6 +1,6 @@
 # Endurecimiento de producción del plan maestro — Requirements
 
-**Estado:** scaffold de spec únicamente. Este PR solo documenta; nada de lo descrito aquí está implementado. Todas las tareas de `tasks.md` están sin marcar.
+**Estado:** M1 (R1, R2) implementado y revisado en el diff de trabajo; revisión de documentación pendiente. M2–M7 siguen pendientes en `tasks.md`. Sin commit, push ni PR de implementación.
 
 ## Contexto
 
@@ -10,12 +10,12 @@ El usuario aprobó dos PRs de implementación con commits atómicos (E1 y E2), m
 
 Fuentes estables (símbolos): `packages/cli/src/lib/master/init.ts` (`runMasterInit`), `packages/cli/src/lib/master/checks.ts` (`runMasterAdvance`, `runMasterCheck`), `packages/cli/src/lib/master/status.ts` (`readMasterStatus`, `writeMasterStatus`, `evidenceAge`), `packages/cli/src/commands/master.ts` (`setMasterMode`), `packages/cli/src/lib/spec/check.ts` (`checkSpec`) y los puntos de entrada del ciclo de entregas en `packages/cli/src/lib/master/delivery.ts`.
 
-Prerrequisito separado: el diagnóstico del runner de Pi pertenece a la entrega activa de la spec 0048 y no forma parte de la implementación de esta spec. Hoy sigue bloqueado y no se marca como resuelto aquí.
+El diagnóstico histórico del runner de Pi pertenece a la spec 0048 y queda fuera de esta implementación. No es un bloqueo vigente de M1: las ejecuciones acotadas de agentes concluyeron. Esto no afirma una corrección global de 0048.
 
 ## Requirements (EARS)
 
 ### Inicialización
-- **R1** — WHEN `navori master init` se ejecuta sobre un estado válido ya existente (tras un fallo de render capturado, un resultado `ok:false` o un corte abrupto entre la activación y el render), the system SHALL re-ejecutar el renderizado idempotente existente de modo que los artefactos derivados de los engines configurados queden presentes (`CLAUDE.md` solo si el engine Claude está habilitado; con un engine no Claude, p. ej. solo `AGENTS.md`, no se exige `CLAUDE.md`). Esto incluye el estado durable parcial con `harness.masterPlan: true` ya persistido sin render previo (hoy `runMasterInit` omite el render en flujo legacy) y el corte abrupto entre la activación y el render. Los reintentos de render fallido o `ok:false` en entregas ya tienen cobertura en `init.test.ts`: son controles de compatibilidad, no el hueco.
+- **R1** — WHEN `navori master init` se ejecuta sobre un estado válido ya existente (tras un fallo de render capturado, un resultado `ok:false` o un corte abrupto entre la activación y el render), the system SHALL re-ejecutar el renderizado idempotente existente de modo que los artefactos derivados de los engines configurados queden presentes (`CLAUDE.md` solo si el engine Claude está habilitado; con un engine no Claude, p. ej. solo `AGENTS.md`, no se exige `CLAUDE.md`). Esto incluye el estado durable parcial con `harness.masterPlan: true` ya persistido sin render previo (en la base `7faec48f`, `runMasterInit` omitía el render en flujo legacy) y el corte abrupto entre la activación y el render. Los controles de reintento tras throw o `ok:false` en entregas no existían en la base `7faec48f`; se añadieron en M1 a `init.test.ts` junto con los casos legacy. Protegen la compatibilidad de entregas; el defecto de la condición de render estaba en legacy.
 - **R2** — WHEN `navori master init` se repite sobre un estado sano, the system SHALL conservar la etapa, el historial, la prosa del usuario y los guardias anti-rollback sin cambios.
 
 ### Estado derivado
@@ -43,4 +43,4 @@ Prerrequisito separado: el diagnóstico del runner de Pi pertenece a la entrega 
 
 ## Trazabilidad
 
-Cada `R<n>` termina en al menos una tarea y una prueba planeada nombrada en `tasks.md`. Las pruebas citadas ahí son planeadas: aún no existen, salvo los archivos de prueba que ya están en la base.
+Cada `R<n>` termina en al menos una tarea y una prueba nombrada en `tasks.md`. Los casos de M1 para R1/R2 se añadieron y verificaron; los casos de M2–M7 siguen planeados, salvo la cobertura que ya existe en la base.

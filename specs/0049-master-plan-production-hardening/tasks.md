@@ -1,22 +1,29 @@
 # Endurecimiento de producción del plan maestro — Tasks
 
-**Estado:** scaffold de spec únicamente; nada está implementado y ninguna tarea está marcada. Dos entregas (E1, E2) son la organización aceptada, no una promesa de clasificación automática del CLI; el LOC es una estimación, no una medición. Tres PRs en total: este scaffold, E1 y E2.
+**Estado:** M1/T1 implementado y revisado (`APPROVED` para el diff de M1); revisión de documentación pendiente. M2–M7 siguen pendientes; M2 no iniciado. Sin commit, push ni PR de implementación. Dos entregas (E1, E2) son la organización aceptada, no una promesa de clasificación automática del CLI; el LOC es una estimación, no una medición. Tres PRs previstos en total: scaffold, E1 y E2.
 
 Reglas de ejecución:
 - Un workplan por entrega (`0049-master-plan-production-hardening-e1`, `-e2`); `tasks.md` es el tracking canónico.
 - Commits atómicos, uno por milestone. Cada prueba nueva lleva `// Covers: R<n>`.
 - Cada entrega cierra con el gate completo `bun run check` y un recibo, y la revisa un reviewer fresco. M4 y M7 exigen el gate completo además de sus probes nombrados.
 - Los espejos generados se renderizan con el CLI, nunca a mano; cualquier fuente fuera del alcance medido requiere aprobación antes de despachar.
-- Sin librerías nuevas. Exclusiones: diagnóstico del runner de Pi (prerrequisito bloqueado, propiedad de la spec 0048), esquema, flags nuevos.
-- Los archivos de prueba citados ya existen en la base; los casos nombrados son planeados.
+- Sin librerías nuevas. Exclusiones: diagnóstico del runner de Pi (propiedad de la spec 0048), esquema, flags nuevos. El bloqueo histórico del runner no está vigente en M1: las ejecuciones acotadas de agentes concluyeron; no se afirma una corrección global de 0048.
+- Los archivos de prueba citados ya existen en la base; los casos de M1 se añadieron y verificaron, los de M2–M7 siguen planeados.
 
 ## E1 — Init, estado derivado, contexto y modo
 Estimated LOC: 600
 
-### M1 — Recuperación de init
+### M1 — Recuperación de init — completado (implementación y revisión)
+
+Evidencia independiente del reviewer en `.navori/state/handoffs/review_0049-master-plan-production-hardening-e1.md`:
+- A1: comando exacto indicado abajo, exit `0`; **2 archivos, 52 pruebas aprobadas, 0 fallos**.
+- `bun run check:scoped`: exit `0`; checks encadenados aprobados, AST 5 aprobados y 0 fallos.
+- `navori gate fast`: exit `0`; AST 5 aprobados y 0 fallos; log `.navori/state/gate/fast-20261012T233351079Z.log`.
+- Aprobación limitada al diff de M1, no al envío de E1. Tras estas ediciones, se requiere reviewer y recibo renovados: la consulta `navori receipt check --feature 0049-master-plan-production-hardening-e1 --include-consumed --json`, previa a editar documentación, devolvió `status:ok`, `fresh:false`, `stale:["gate"]`, `gateKind:scoped`.
+- Intento de gate full: el host alcanzó su timeout de 120 s, pero el log `.navori/state/gate/full-20261012T233538010Z.log` continuó y reportó 418 archivos aprobados, 8563 pruebas aprobadas y 2 omitidas, además del coverage floor aprobado. Sin evidencia del exit global, no se registra como fallo de pruebas ni como gate full en verde.
 - **A1** [observable] — un init repetido sobre `masterPlan:true` legacy persistido o tras corte previo al render recrea los artefactos de los engines configurados (`CLAUDE.md` solo con Claude; caso AGENTS.md-only sin exigirlo) y conserva etapa, historial y prosa ·
   `cd packages/cli && bun run test src/lib/master/__tests__/init.test.ts src/commands/__tests__/master-first-use.test.ts` → exit 0, 0 failed
-- [ ] **T1** (R1, R2) — `runMasterInit` re-ejecuta el render idempotente en cada init validado; sin flags, `force` ni `prune`; también con `harness.masterPlan:true` legacy ya persistido y tras corte abrupto previo al render; los reintentos de entregas existentes en `init.test.ts` son controles de compatibilidad; lectura cerrada: `packages/cli/src/lib/master/init.ts`, `packages/cli/src/lib/master/__tests__/init.test.ts`, `packages/cli/src/commands/__tests__/master-first-use.test.ts` · effect: behavior · test: `packages/cli/src/lib/master/__tests__/init.test.ts`::"masterPlan:true legacy persistido o corte previo al render se repara en el reintento (AGENTS.md-only sin CLAUDE.md; con Claude, CLAUDE.md); init sano repetido conserva etapa, historial y prosa"
+- [x] **T1** (R1, R2) — `runMasterInit` re-ejecuta el render idempotente en cada init validado; sin flags, `force` ni `prune`; también con `harness.masterPlan:true` legacy ya persistido y tras corte abrupto previo al render; los controles de reintento de entregas tras throw o `ok:false` se añadieron en M1 a `init.test.ts` (no existían en la base `7faec48f`) y protegen compatibilidad; lectura cerrada: `packages/cli/src/lib/master/init.ts`, `packages/cli/src/lib/master/__tests__/init.test.ts`, `packages/cli/src/commands/__tests__/master-first-use.test.ts` · effect: behavior · test: `packages/cli/src/lib/master/__tests__/init.test.ts`::"masterPlan:true legacy persistido o corte previo al render se repara en el reintento (AGENTS.md-only sin CLAUDE.md; con Claude, CLAUDE.md); init sano repetido conserva etapa, historial y prosa"
 
 ### M2 — Estado derivado tras advance
 - **A2** — `advance` regenera `STATUS` y un fallo parcial informa fase durable y reparación ·

@@ -265,11 +265,9 @@ export function runMasterInit(
       harness: { ...(config.harness ?? {}), masterPlan: true },
     });
   }
-  if (config.harness?.masterPlan !== true || active.workflow === "deliveries") {
-    const rendered = runRender(cwd);
-    if (!rendered.ok)
-      throw new MasterInitError(`render failed: ${rendered.reason ?? "unknown error"}`);
-  }
+  const rendered = runRender(cwd);
+  if (!rendered.ok)
+    throw new MasterInitError(`render failed: ${rendered.reason ?? "unknown error"}`);
 
   // STATUS.md exists from the start: INDEX.md already links to it (R54).
   writeMasterStatus(cwd);

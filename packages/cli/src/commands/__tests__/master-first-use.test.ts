@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCommand } from "citty";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { repoFromCwd, sessionLogPath } from "../../lib/audit/paths.ts";
 import { getCoreRoot } from "../../lib/render/bundled-assets.ts";
 import { masterCommand } from "../master.ts";
+import * as renderer from "../render.ts";
 import { createCommitHelper, createGitHelper } from "../../lib/master/__tests__/test-utils.ts";
 
 /**
@@ -24,6 +25,7 @@ const temps: string[] = [];
 const exercised: string[][] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -70,6 +72,55 @@ async function ok(cwd: string, ...argv: string[]): Promise<RunResult> {
   expect(result.exitCode, `${argv.join(" ")}: ${result.err}`).toBeUndefined();
   return result;
 }
+
+// Covers: R1
+it("recovers CLI init with a persisted legacy flag and missing engine artifacts", async (): Promise<void> => {
+  const cwd = freshRepo();
+  const configPath = join(cwd, "navori.config.json");
+  writeFileSync(
+    configPath,
+    JSON.stringify({ ...readJson(configPath), harness: { masterPlan: true } }),
+  );
+  await ok(cwd, "init", "mvp");
+  expect(readFileSync(join(cwd, ".claude/skills/master-plan/SKILL.md"), "utf8")).toContain(
+    "navori master",
+  );
+  expect(readFileSync(join(cwd, "CLAUDE.md"), "utf8")).toContain("navori:managed");
+});
+
+// Covers: R1, R2
+it("reports ok:false as nonzero without success guidance, then repairs on retry", async (): Promise<void> => {
+  const cwd = freshRepo();
+  const render = vi.spyOn(renderer, "runRender").mockReturnValueOnce({
+    ok: false,
+    reason: "test render failure",
+    language: "es",
+    filePath: join(cwd, "CLAUDE.md"),
+    entries: [],
+    written: false,
+    languageFallbacks: [],
+    updatesAvailable: [],
+    downgrades: [],
+    workspaces: [],
+  });
+  const failed = await master(cwd, "init", "mvp");
+  expect(failed.exitCode).toBe(1);
+  expect(failed.err).toContain("render failed: test render failure");
+  expect(failed.out).toBe("");
+  expect(failed.out).not.toContain("context/raw/");
+  expect(failed.out).not.toContain("preparación, baseline y cola disponibles");
+  render.mockRestore();
+  const statePath = stageFile(cwd, "state.json");
+  const indexPath = join(cwd, "specs/_master/index.json");
+  const before = [statePath, indexPath].map((path: string): string => readFileSync(path, "utf8"));
+  await ok(cwd, "init");
+  expect([statePath, indexPath].map((path: string): string => readFileSync(path, "utf8"))).toEqual(
+    before,
+  );
+  expect(readFileSync(join(cwd, ".claude/skills/master-plan/SKILL.md"), "utf8")).toContain(
+    "navori master",
+  );
+});
 
 it("opts into deliveries only explicitly and rejects legacy commands without writes", async () => {
   const cwd = freshRepo();
