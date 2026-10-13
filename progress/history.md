@@ -130,3 +130,11 @@ A4 exacto desde el principal: exit 0, focused 31/31 y gate completo con 418 arch
 
 Dev integrado preservando el trabajo concurrente de 0050. Respaldos de M2/M3 conservados; conflictos de estado resueltos directamente bajo autorización del operador, sin cambiar código de las otras sesiones. Las fallas de Pi al ejecutar full dentro de un hijo se distinguieron del resultado verde en el principal; no se modificó Pi ni se desactivaron pruebas. Siguiente paso: revisar/publicar E1 y atender CI/feedback antes de E2.
 
+## 2026-10-12 23:14 pi — Prepara checkpoint DRAFT de E2/M5 de 0049
+
+Verificado merge de E1 por PR1313 a dev en `7d12fa42`; creada rama E2 desde esa base. Workplan E2 nivel 3 por spec aceptada, clasificación base 4/10, render/check verdes. Preflight acotado confirmó los defectos y controles de compatibilidad sin ampliar arquitectura.
+
+M5 (R7–R10) implementado y revisado APPROVED: requirements ausente/ilegible y R no declarado fallan en formato nuevo; legacy mantiene su comportamiento. Sin cambios de parser, esquema ni validación semántica. Pruebas unitarias y CLI real distinguen undefined, archivo vacío legible, lectura ilegible determinista y requisitos desconocidos. A5 pasó de baseline 95 a 106 pruebas; fast y full verdes. Full desde el principal: 418 archivos, 8631 pruebas aprobadas y dos omitidas, log full-20261013T050413060Z.log. Revisión documental/recibo finales requeridos antes del commit de checkpoint.
+
+Usuario pidió detener implementación y dejar PR DRAFT de checkpoint hacia dev; M6/M7 no iniciados y E2 no lista para merge. Siguiente paso de este cierre: publicar el checkpoint y revisar CI/feedback. Al reanudar: M6 política de evidencia, después M7 ruteo/smoke, mediante implementer → reviewer. Sin merge automático, despliegue ni release; trabajo de 0050 y respaldos de E1 conservados.
+

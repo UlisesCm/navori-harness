@@ -65,8 +65,9 @@ export interface MasterMapping {
  * to a delivery of `parts.json`.
  *
  * `requirementIds` is `undefined` when `requirements.md` could not be read:
- * coverage is then skipped with a warning. A legacy file (R14) yields only
- * `legacy-format` warnings, so it can never fail the check.
+ * new-format validation fails, since requirement references cannot be checked.
+ * Undeclared requirement references also fail in the new format. A legacy file
+ * (R14) yields only `legacy-format` warnings, so it can never fail the check.
  */
 export function checkSpec(
   parsed: ParsedTasks,
@@ -267,7 +268,7 @@ export function checkSpec(
   if (requirementIds === undefined) {
     add(
       "requirements-unreadable",
-      "warning",
+      "error",
       "requirements.md",
       "requirements.md could not be read; requirement coverage was not checked",
     );
@@ -288,7 +289,7 @@ export function checkSpec(
         if (!known.has(r)) {
           add(
             "unknown-requirement",
-            "warning",
+            "error",
             task.id,
             `${task.id} cites ${r}, which requirements.md does not declare`,
             task.line,

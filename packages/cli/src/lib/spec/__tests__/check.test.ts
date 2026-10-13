@@ -38,7 +38,7 @@ describe("parseRequirementIds", () => {
 });
 
 describe("checkSpec — una regla por caso", () => {
-  // Covers: R11
+  // Covers: R10, R11
   it("accepts a well-formed spec", () => {
     const result = check(valid);
     expect(result.ok).toBe(true);
@@ -75,23 +75,61 @@ describe("checkSpec — una regla por caso", () => {
     expect(rules(dup)).toContain("duplicate-id");
   });
 
-  // Covers: R11
-  it("flags a requirement no task covers and warns about an unknown one", () => {
-    expect(rules(valid, ["R1", "R2"])).toContain("requirement-uncovered");
-    const unknown = check(valid, []);
-    const finding = unknown.findings.find((f) => f.rule === "unknown-requirement");
-    expect(finding?.severity).toBe("warning");
-    expect(unknown.ok).toBe(true);
+  // Covers: R8, R11
+  it("fails for a declared requirement no task covers", () => {
+    const result = check(valid, ["R1", "R2"]);
+    expect(result.ok).toBe(false);
+    expect(result.findings).toEqual([
+      {
+        rule: "requirement-uncovered",
+        severity: "error",
+        where: "R2",
+        message: expect.any(String),
+      },
+    ]);
   });
 
-  // Covers: R11
-  it("warns, without failing, when requirements are unreadable", () => {
+  // Covers: R8
+  it.each([{ ids: [] }, { ids: ["R2"] }])(
+    "fails for an unknown requirement with declared ids $ids",
+    ({ ids }: { ids: string[] }) => {
+      const result = check(valid, ids);
+      expect(result.ok).toBe(false);
+      expect(result.findings).toContainEqual({
+        rule: "unknown-requirement",
+        severity: "error",
+        where: "T1",
+        message: "T1 cites R1, which requirements.md does not declare",
+        line: 4,
+      });
+      expect(result.findings.map((f) => f.rule)).not.toContain("requirements-unreadable");
+    },
+  );
+
+  // Covers: R7
+  it("fails when requirements are absent or unreadable", () => {
     const result = checkSpec(parseTasks(valid), DEFAULT_DELIVERIES, undefined);
-    expect(result.ok).toBe(true);
-    expect(result.findings.map((f) => f.rule)).toEqual(["requirements-unreadable"]);
+    expect(result.ok).toBe(false);
+    expect(result.findings).toEqual([
+      {
+        rule: "requirements-unreadable",
+        severity: "error",
+        where: "requirements.md",
+        message: "requirements.md could not be read; requirement coverage was not checked",
+      },
+    ]);
   });
 
-  // Covers: R12
+  // Covers: R10
+  it("checks command shape without executing or proving its meaning", () => {
+    const result = check(
+      valid.replace("`ls` → ok", "`navori-command-that-does-not-exist` → proof"),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.findings).toEqual([]);
+  });
+
+  // Covers: R10, R12
   it("flags a non-vertical delivery: error in split, warning in single", () => {
     const docs = (e: number, t: number): string =>
       [
@@ -125,9 +163,9 @@ describe("checkSpec — una regla por caso", () => {
   // Covers: R12
   it("warns about a task without a valid effect", () => {
     const text = ["## E1 — d", "### M1 — m", OK_A, "- [ ] **T1** (R1) — t"].join("\n");
-    expect(check(text).findings.find((f) => f.rule === "task-without-effect")?.severity).toBe(
-      "warning",
-    );
+    const result = check(text);
+    expect(result.ok).toBe(true);
+    expect(result.findings.find((f) => f.rule === "task-without-effect")?.severity).toBe("warning");
   });
 
   // Covers: R13
@@ -170,6 +208,20 @@ describe("checkSpec — una regla por caso", () => {
 });
 
 describe("checkSpec — formato anterior", () => {
+  // Covers: R9
+  it.each([{ ids: undefined }, { ids: [] }])(
+    "ignores absent or unknown requirements $ids in legacy",
+    ({ ids }: { ids: string[] | undefined }) => {
+      const result = checkSpec(parseTasks("- [ ] **T1** (R1) — t"), DEFAULT_DELIVERIES, ids);
+      expect(result.format).toBe("legacy");
+      expect(result.ok).toBe(true);
+      expect(result.findings.length).toBeGreaterThan(0);
+      expect(
+        result.findings.every((f) => f.rule === "legacy-format" && f.severity === "warning"),
+      ).toBe(true);
+    },
+  );
+
   // Covers: R14
   it("reports only legacy-format warnings, never an error", () => {
     const result = check(

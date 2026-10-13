@@ -1,14 +1,12 @@
 # Sesión actual
 
-**Estado:** spec `0049-master-plan-production-hardening`, E1 (M1–M4) implementada y verificada. M1 `0309c30d`, M2 `a69affc2`, M3 `b78df7d2`; M4 preparado para revisión final y commit. Publicación del PR de E1 a `dev` autorizada, sin merge automático. E2 (M5–M7) pendiente; `specs/0049-master-plan-production-hardening/tasks.md` es el tablero canónico.
+**Estado:** spec `0049-master-plan-production-hardening`, E2/M5 implementado y revisado (`APPROVED`). Usuario pidió detener el trabajo y guardar checkpoint como PR DRAFT hacia `dev`; preparación de commit/publicación en curso. M6 y M7 no iniciados. E2 no está completa ni lista para merge.
 
 ## Evidencia
-A4 exacto ejecutado desde el principal: exit 0, focused 31/31 y full 418 archivos, 8620 pruebas aprobadas, 2 omitidas. Evidencia en `.navori/state/handoffs/verification_0049-e1-m4-main.json`. El recibo anterior pertenece a M3 y no certifica M4; revisión/recibo frescos del diff final pendientes.
+E1 integrada por PR1313 en `dev`, commit `7d12fa42`. M5 cambia únicamente las severidades de requirements ilegible/ausente y R no declarado en formato nuevo; legacy conserva su retorno temprano. A5 independiente: 5 archivos, 106 pruebas aprobadas. Fast y full verdes; full desde el principal: 418 archivos, 8631 pruebas aprobadas y 2 omitidas, log `.navori/state/gate/full-20261013T050413060Z.log`. Revisión del delta final documental y recibo renovado pendientes antes de publicar el checkpoint.
 
 ## Siguiente paso
-Terminar revisión y commit de M4, publicar el PR de E1 y revisar CI/feedback. Tras el merge autorizado de E1, comenzar E2 desde la base actualizada; no implementar E2 antes. No despliegue ni release autorizado.
+Cerrar commit/publicación DRAFT de M5, revisar CI/feedback del checkpoint y, al reanudar, continuar E2/M6 (evidencia huérfana frente a antigua) con implementer → reviewer. Después M7 ruteo/smoke. El workplan es `.navori/state/handoffs/workplan_0049-master-plan-production-hardening-e2.json`; `specs/0049-master-plan-production-hardening/tasks.md` es el tablero canónico. No marcar ready ni mergear hasta terminar E2.
 
 ## Trabajo concurrente conservado
-0050 tiene su propio worktree y tablero. Según `dev`, scaffold #1308 integrado, E1 aprobado y fix #1309 integrado por #1310; verificar disponibilidad en CLI y smoke vivo antes de continuar ese trabajo. Este ciclo no implementa 0050 ni afirma una corrección global del runner de Pi (0048).
-
-Respaldos de integración conservados: M3 `e537ac9412a940d2ae066a4e202e1d0851223835`, M2 `8a9bf196c908381f0d827f7e1ec52e29195af1da`. No eliminarlos sin verificar el cierre publicado.
+0050 mantiene su propio worktree y tablero; este ciclo no lo implementa ni cambia sus permisos. Respaldos de integración E1 conservados: M3 `e537ac9412a940d2ae066a4e202e1d0851223835` y M2 `8a9bf196c908381f0d827f7e1ec52e29195af1da`. Sin despliegue, release ni merge automático autorizado.

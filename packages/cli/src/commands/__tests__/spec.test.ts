@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { runCommand } from "citty";
 import { specCommand } from "../spec.ts";
 
@@ -62,6 +64,26 @@ async function run(...argv: string[]): Promise<Run> {
     process.stderr.write = err;
   }
   return { stdout, stderr, exitCode: Number(process.exitCode ?? 0) };
+}
+
+/** Runs the source CLI in a separate process so exit-code assertions reach the real entry point. */
+function runCheckProcess(json: boolean): Run {
+  const result = spawnSync(
+    "bun",
+    [
+      fileURLToPath(new URL("../../index.ts", import.meta.url)),
+      "spec",
+      "check",
+      "demo",
+      "--cwd",
+      cwd,
+      ...(json ? ["--json"] : []),
+    ],
+    { encoding: "utf8", timeout: 30_000, env: { ...process.env, NO_COLOR: "1" } },
+  );
+  if (result.error) throw result.error;
+  if (result.status === null) throw new Error(`CLI terminated with signal ${result.signal}`);
+  return { stdout: result.stdout, stderr: result.stderr, exitCode: result.status };
 }
 
 // Covers: R4, R8
@@ -195,6 +217,87 @@ function writeRequirements(feature: string, ids: string[]): void {
     ids.map((id) => `- **${id}** — x`).join("\n"),
   );
 }
+
+describe("navori spec check — strict requirements subprocess", () => {
+  // Covers: R7, R8
+  it.each([
+    { scenario: "missing", rule: "requirements-unreadable", where: "requirements.md" },
+    { scenario: "unreadable directory", rule: "requirements-unreadable", where: "requirements.md" },
+    { scenario: "empty readable", rule: "unknown-requirement", where: "T1" },
+    { scenario: "unknown R1", rule: "unknown-requirement", where: "T1" },
+  ])(
+    "fails for $scenario requirements in JSON and human output",
+    ({ scenario, rule, where }: { scenario: string; rule: string; where: string }) => {
+      writeTasks("demo", deliveries(1, 1));
+      if (scenario === "unreadable directory")
+        mkdirSync(join(cwd, "specs", "demo", "requirements.md"));
+      else if (scenario === "empty readable") writeRequirements("demo", []);
+      else if (scenario === "unknown R1") {
+        writeRequirements("demo", ["R2"]);
+        writeTasks("demo", `${deliveries(1, 1)}\n- [ ] **T2** (R2) — t · effect: behavior`);
+      }
+
+      const json = runCheckProcess(true);
+      expect(json.exitCode).toBe(2);
+      expect(JSON.parse(json.stdout)).toMatchObject({
+        format: "deliveries",
+        ok: false,
+        findings: expect.arrayContaining([
+          {
+            rule,
+            severity: "error",
+            where,
+            message: expect.any(String),
+            ...(rule === "unknown-requirement" ? { line: 5 } : {}),
+          },
+        ]),
+      });
+      expect(json.stderr).toContain(`[${rule}]`);
+      const human = runCheckProcess(false);
+      expect(human.exitCode).toBe(2);
+      expect(human.stdout).toBe("demo: findings — 1 error(s), 0 warning(s)\n");
+      for (const result of [json, human]) {
+        expect(result.stderr).toContain("ERROR:");
+        expect(result.stderr).toContain("WHY:");
+        expect(result.stderr).toContain("FIX:");
+        expect(result.stderr).toContain(
+          rule === "unknown-requirement"
+            ? "T1 cites R1, which requirements.md does not declare"
+            : "requirements.md could not be read; requirement coverage was not checked",
+        );
+        expect(result.stderr).not.toContain("WARN:");
+      }
+    },
+  );
+
+  // Covers: R9
+  it.each(["missing", "unknown"])(
+    "keeps legacy success with %s requirements",
+    (scenario: string) => {
+      writeTasks("demo", "- [ ] **T1** (R1) — t\n");
+      if (scenario === "unknown") writeRequirements("demo", []);
+      const json = runCheckProcess(true);
+      expect(json.exitCode).toBe(0);
+      const payload = JSON.parse(json.stdout) as {
+        format: string;
+        ok: boolean;
+        findings: { rule: string; severity: string }[];
+      };
+      expect(payload).toMatchObject({ format: "legacy", ok: true });
+      expect(payload.findings.length).toBeGreaterThan(0);
+      expect(
+        payload.findings.every((f) => f.rule === "legacy-format" && f.severity === "warning"),
+      ).toBe(true);
+      const human = runCheckProcess(false);
+      expect(human.exitCode).toBe(0);
+      expect(human.stdout).toContain("demo: ok — 0 error(s)");
+      for (const result of [json, human]) {
+        expect(result.stderr).toContain("WARN:  [legacy-format]");
+        expect(result.stderr).not.toContain("ERROR:");
+      }
+    },
+  );
+});
 
 // Covers: R4, R11
 describe("navori spec check", () => {
