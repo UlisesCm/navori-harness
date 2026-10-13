@@ -1,10 +1,19 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
+import { renderCodexEngine } from "../../codex/index.ts";
 import { simulateContextDelivery } from "../../../lib/assets/doc-budgets.ts";
-import type { NavoriConfig } from "../../../lib/config/config.ts";
+import { readConfig, writeConfig, type NavoriConfig } from "../../../lib/config/config.ts";
 
 const base = {
   name: "master-plan-demo",
@@ -31,6 +40,46 @@ function contextFiles(cwd: string): string[] {
     .filter((file) => file.endsWith(".md"))
     .sort();
 }
+
+describe("master-plan architect context rendering", () => {
+  // Covers: R5
+  it.each(["claude", "codex"] as const)(
+    "renders architectContext for %s, preserves user prose and is byte-idempotent",
+    (engine: "claude" | "codex"): void => {
+      const cwd = freshDir();
+      const configPath = join(cwd, "navori.config.json");
+      writeConfig(configPath, { ...base, engines: [engine], harness: { masterPlan: true } });
+      const config: NavoriConfig = readConfig(configPath);
+      const render = (): void => {
+        if (engine === "claude") renderClaudeEngine(cwd, config);
+        else renderCodexEngine(cwd, config);
+      };
+      const path = join(
+        cwd,
+        engine === "claude" ? ".claude" : ".agents",
+        "skills/master-plan/SKILL.md",
+      );
+      render();
+      const fresh = readFileSync(path, "utf8");
+      expect(fresh).toContain('navori:managed id="master-plan"');
+      expect(fresh).toContain('<!-- /navori:managed id="master-plan" -->');
+      expect(fresh).toContain("<!-- user:");
+      const userProse = "\nUser constraint: retain prior architecture decisions.\n";
+      writeFileSync(path, `${fresh}${userProse}`);
+      render();
+      const withUserProse = readFileSync(path, "utf8");
+      expect(withUserProse).toBe(`${fresh}${userProse}`);
+      render();
+      expect(readFileSync(path, "utf8")).toBe(withUserProse);
+      expect(withUserProse.match(/contextForArchitects/g)).toBeNull();
+      expect(withUserProse).toContain("incluye `architectContext` de `status --json`");
+      expect(withUserProse).toContain("El campo `architectContext` es la fuente de estas rutas");
+      expect(withUserProse).toContain(
+        "En `architectContext`, conserva explícitamente la lista de etapas",
+      );
+    },
+  );
+});
 
 describe("master-plan managed context (spec 0034 T11)", () => {
   // Covers: R39, R62

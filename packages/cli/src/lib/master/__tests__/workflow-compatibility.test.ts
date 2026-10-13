@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getCoreRoot } from "../../render/bundled-assets.ts";
 import { runMasterInit } from "../init.ts";
 import { readMasterStatus, writeMasterStatus } from "../status.ts";
 import { runMasterClose } from "../close.ts";
@@ -59,6 +60,17 @@ function snapshot(cwd: string): string {
   }
   return walk(cwd).sort().join("\n");
 }
+
+describe("master-plan architect context contract", () => {
+  // Covers: R5
+  it("makes the canonical skill consume architectContext from status JSON without the stale name", () => {
+    const skill = readFileSync(join(getCoreRoot(), "core-assets/skills/master-plan.md"), "utf8");
+    expect(skill.match(/contextForArchitects/g)).toBeNull();
+    expect(skill).toContain("incluye `architectContext` de `status --json`");
+    expect(skill).toContain("El campo `architectContext` es la fuente de estas rutas");
+    expect(skill).toContain("En `architectContext`, conserva explícitamente la lista de etapas");
+  });
+});
 
 describe("deliveries D1 foundation", () => {
   it("persists selection in registry2, resumes without flag, and preserves MASTER bytes", () => {

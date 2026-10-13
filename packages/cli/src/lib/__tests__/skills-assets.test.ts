@@ -223,6 +223,7 @@ describe("master-plan — workflow contract (T18)", () => {
     expect(startup).toMatch(/etapas posteriores[^\n]*`en-curso` sin preguntar/i);
   });
 
+  // Covers: R5
   it("enforces per-phase checks, delegated plans, deferred scope, and evidence-based synthesis", () => {
     expect(body).toContain("navori master check");
     expect(body).toContain("navori master advance");
@@ -233,7 +234,8 @@ describe("master-plan — workflow contract (T18)", () => {
     expect(body).toContain("plans/plan2.md");
     expect(body).toContain("plans/plan3.md");
     expect(body).toMatch(/mismo turno/i);
-    expect(body).toContain("contextForArchitects");
+    expect(body).toContain("architectContext");
+    expect(body).not.toContain("contextForArchitects");
     expect(body).toContain("D<n>");
     expect(body).toContain("[SUPUESTO]");
     expect(body).toContain("[SIN VERIFICAR]");

@@ -7,7 +7,7 @@ metadata:
   maxWords: 2700
 ---
 
-<!-- navori:managed id="master-plan" hash="7e52ad5b" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="master-plan" hash="bcd1eca1" version="0.12.0" source="@navori/core" fmkeys="name,description,metadata" -->
 # Plan maestro de proyecto
 
 ## Candado: pedido explícito
@@ -53,11 +53,11 @@ Continúa desde la fase registrada. En cada fase completa su lista, corre `navor
 
 En `mapped`, despacha tres `architect` independientes en el mismo turno, sin acceso a los planes de los otros: cada uno recibe `DIGEST.md`, `CODEBASE.md`, el modo, la plantilla `navori master template plan` y una prioridad distinta. `plans/plan1.md`: tiempo a valor; `plans/plan2.md`: solidez; `plans/plan3.md`: reuso del ecosistema. Son propuestas de partes, no tareas de implementación. No descomponen tareas, no emiten veredicto ni hacen preguntas al usuario; las dudas van a “Preguntas abiertas”.
 
-En etapa posterior incluye `contextForArchitects` de `status --json`. Pasa rutas de `MASTER.md`, `DECISIONS.md` y `CLOSURE.md` de etapas cerradas/convertidas/abandonadas. Lee completos el `MASTER.md`, `DECISIONS.md` y `CLOSURE.md` de la última etapa entregada; también `DECISIONS.md` y `CLOSURE.md` de cada etapa convertida o abandonada posterior; de etapas anteriores, solo `CLOSURE.md` e `INDEX.md`. Si ninguna se entregó, lee completos `DECISIONS.md` y `CLOSURE.md` de todas. El campo `contextForArchitects` es la fuente de estas rutas. Trata decisiones previas como restricciones; contradicciones con contexto nuevo son preguntas. Ofrece cada parte diferida de la etapa anterior y registra su inclusión/exclusión como `D<n>`.
+En etapa posterior incluye `architectContext` de `status --json`. Pasa rutas de `MASTER.md`, `DECISIONS.md` y `CLOSURE.md` de etapas cerradas/convertidas/abandonadas. Lee completos el `MASTER.md`, `DECISIONS.md` y `CLOSURE.md` de la última etapa entregada; también `DECISIONS.md` y `CLOSURE.md` de cada etapa convertida o abandonada posterior; de etapas anteriores, solo `CLOSURE.md` e `INDEX.md`. Si ninguna se entregó, lee completos `DECISIONS.md` y `CLOSURE.md` de todas. El campo `architectContext` es la fuente de estas rutas. Trata decisiones previas como restricciones; contradicciones con contexto nuevo son preguntas. Ofrece cada parte diferida de la etapa anterior y registra su inclusión/exclusión como `D<n>`.
 
 ## Consolidación y preguntas
 
-Compara los planes por sección: coincidencias pasan al `MASTER.md`; si una opción es superior con evidencia, consérvala y cita su origen; si difieren por negocio, preferencia o incertidumbre, pregunta de una en una con `AskUserQuestion`, recomendación primero y opciones de los planes. No preguntes lo que ya contestan el contexto o el código. Registra respuestas en `DECISIONS.md` como `D<n>`. Ningún supuesto sin resolver pasa al `MASTER.md`. En `contextForArchitects`, conserva explícitamente la lista de etapas cerradas/convertidas/abandonadas y cuál se leyó completa; abre `MASTER.md`/`DECISIONS.md` anteriores solo para comprobar una cita o contradicción puntual.
+Compara los planes por sección: coincidencias pasan al `MASTER.md`; si una opción es superior con evidencia, consérvala y cita su origen; si difieren por negocio, preferencia o incertidumbre, pregunta de una en una con `AskUserQuestion`, recomendación primero y opciones de los planes. No preguntes lo que ya contestan el contexto o el código. Registra respuestas en `DECISIONS.md` como `D<n>`. Ningún supuesto sin resolver pasa al `MASTER.md`. En `architectContext`, conserva explícitamente la lista de etapas cerradas/convertidas/abandonadas y cuál se leyó completa; abre `MASTER.md`/`DECISIONS.md` anteriores solo para comprobar una cita o contradicción puntual.
 
 ## Checklist de rigor
 
