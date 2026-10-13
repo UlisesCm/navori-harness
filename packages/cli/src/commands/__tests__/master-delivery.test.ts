@@ -1,12 +1,323 @@
 import { afterEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { runCommand } from "citty";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { masterCommand } from "../master.ts";
 import * as delivery from "../../lib/master/delivery.ts";
 import * as part from "../../lib/master/part.ts";
 import { DeliveryStateSchema } from "../../lib/master/delivery-schema.ts";
+import type { DeliveryParts, DeliveryState } from "../../lib/master/delivery-schema.ts";
+import type { Workplan } from "../../lib/plan/schema.ts";
+import { contractDigest, deliveryDigest } from "../../lib/master/delivery-checks.ts";
+import { fingerprintTree, readHead } from "../../lib/plan/evidence.ts";
+import { createCommitHelper, createGitHelper } from "../../lib/master/__tests__/test-utils.ts";
+
+/** Runs the source entry point without inheriting fixture authority or the host's audit session. */
+function cli(cwd: string, ...args: string[]): { code: number; out: string; err: string } {
+  const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: "1" };
+  for (const key of [
+    "NAVORI_AUDIT_HOST",
+    "NAVORI_AUDIT_SESSION_ID",
+    "CLAUDE_CODE_SESSION_ID",
+    "CODEX_SESSION_ID",
+    "CODEX_THREAD_ID",
+  ])
+    delete env[key];
+  const result = spawnSync(
+    "bun",
+    [fileURLToPath(new URL("../../index.ts", import.meta.url)), ...args, "--cwd", cwd],
+    { cwd, encoding: "utf8", timeout: 30_000, env },
+  );
+  if (result.error) throw result.error;
+  if (result.status === null) throw new Error(`CLI terminated: ${result.signal}`);
+  return { code: result.status, out: result.stdout, err: result.stderr };
+}
+
+/** Asserts subprocess success before reading any emitted JSON. */
+function cliOk(cwd: string, ...args: string[]): string {
+  const result = cli(cwd, ...args);
+  expect(result.code, `${args.join(" ")}: ${result.err}`).toBe(0);
+  return result.out;
+}
+
+// Covers: R15
+it("smoke integrated: first stage, close, second stage, conversion and full deliveries lifecycle", (): void => {
+  const cwd = realpathSync(mkdtempSync(join(tmpdir(), "navori-integrated-master-")));
+  dirs.push(cwd);
+  const git = createGitHelper(cwd);
+  const commit = createCommitHelper(git);
+  git(["init", "-q"]);
+  git(["switch", "-q", "-c", "feat/one"]);
+  writeFileSync(
+    join(cwd, "navori.config.json"),
+    JSON.stringify({
+      name: "demo",
+      engines: ["claude"],
+      preset: "custom",
+      sdd: { enabled: true },
+      qualityGate: { full: "true", fast: "true" },
+      branchBase: "main",
+      prTarget: "main",
+    }),
+  );
+  writeFileSync(join(cwd, ".gitignore"), ".navori/state/\n");
+  commit("initial");
+  git(["branch", "main"]);
+  git(["remote", "add", "origin", cwd]);
+  const json = (path: string): Record<string, unknown> =>
+    JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  const master = (...args: string[]): string => cliOk(cwd, "master", ...args);
+  expect(JSON.parse(master("status", "--json"))).toMatchObject({ stage: null, lastClosed: null });
+  master("init", "first");
+  master("mode", "template");
+  const first = join(cwd, "specs/_master/01-first");
+  // Seed authored plan output; transitions and dispositions still use the real CLI.
+  writeFileSync(
+    join(first, "parts.json"),
+    JSON.stringify({
+      version: 1,
+      parts: [
+        {
+          id: "P1",
+          title: "One",
+          objective: "Review",
+          scope: [],
+          outOfScope: [],
+          dependsOn: [],
+          seedRequirements: [],
+          inheritedFrom: null,
+          state: "pendiente",
+          reason: null,
+          spec: null,
+          issue: null,
+          acceptance: [
+            {
+              id: "A1",
+              description: "Inspect",
+              method: "manual",
+              manual: { check: "Inspect", how: "Read" },
+              evidence: null,
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  writeFileSync(
+    join(first, "state.json"),
+    JSON.stringify({ ...json(join(first, "state.json")), phase: "executing" }),
+  );
+  commit("first plan");
+  master("part", "P1", "--accept", "A1", "--approved-by", "user");
+  master("part", "P1", "--state", "hecho");
+  expect(JSON.parse(master("status", "--json"))).toMatchObject({ closable: true });
+  master("close");
+  expect(json(join(first, "state.json"))).toMatchObject({ outcome: "entregada" });
+  master("init", "second");
+  const second = join(cwd, "specs/_master/02-second");
+  expect(json(join(second, "state.json"))).toMatchObject({ mode: "en-curso" });
+  expect(cli(cwd, "master", "mode", "template").code).toBe(1);
+  master("close", "--convert", "specs/converted", "--reason", "Single delivery");
+  expect(json(join(second, "state.json"))).toMatchObject({ outcome: "convertida" });
+  expect(JSON.parse(master("status", "--json"))).toMatchObject({
+    stage: null,
+  });
+  master("init", "delivery", "--workflow", "deliveries");
+  const stage = join(cwd, "specs/_master/03-delivery");
+  master("init");
+  expect(JSON.parse(master("status", "--json"))).toMatchObject({
+    workflow: "deliveries",
+    closable: false,
+  });
+  const statePath = join(stage, "state.json");
+  const before = readFileSync(statePath, "utf8");
+  expect(cli(cwd, "master", "advance").code).toBe(1);
+  expect(readFileSync(statePath, "utf8")).toBe(before);
+  const source = "RN-1\n";
+  writeFileSync(join(cwd, "source.txt"), source);
+  writeFileSync(join(cwd, "review.txt"), "Cooperative manual fixture inspection\n");
+  writeFileSync(join(stage, "MASTER.md"), "# Reviewed delivery\nRN-1\n");
+  const parts: DeliveryParts = {
+    version: 2,
+    workflow: "deliveries",
+    revision: 1,
+    digest: "0".repeat(64),
+    sources: [
+      {
+        id: "source",
+        path: "source.txt",
+        digest: createHash("sha256").update(source).digest("hex"),
+        locator: "RN-1",
+        requirements: ["RN-1"],
+        uiBearing: false,
+      },
+    ],
+    requirements: [{ id: "RN-1", sourceId: "source", disposition: "in-scope", reason: null }],
+    design: { ui: "none", reason: "CLI only" },
+    deliveries: [
+      {
+        id: "E1",
+        title: "One",
+        outcome: "Observed",
+        partIds: ["P1"],
+        dependsOn: [],
+        git: { branch: "feat/one", base: "main", integrationTarget: "main", prTarget: "main" },
+      },
+    ],
+    parts: [
+      {
+        id: "P1",
+        deliveryId: "E1",
+        title: "One",
+        objective: "Check CLI",
+        scope: ["source.txt"],
+        outOfScope: [],
+        dependsOn: [],
+        sourceIds: ["source"],
+        requirementIds: ["RN-1"],
+        spec: null,
+        foundation: false,
+        acceptance: [
+          {
+            id: "A1",
+            method: "command",
+            description: "Success",
+            command: "true",
+            expected: "exit 0",
+          },
+          {
+            id: "A2",
+            method: "manual",
+            description: "Inspect",
+            check: "Review fixture",
+            artifact: "review.txt",
+          },
+        ],
+        questions: [],
+      },
+    ],
+  };
+  parts.digest = contractDigest(parts);
+  writeFileSync(join(stage, "parts.json"), JSON.stringify(parts));
+  expect(JSON.parse(master("delivery-check"))).toMatchObject({ ready: true });
+  expect(cli(cwd, "master", "delivery-baseline").code).toBe(1);
+  master("delivery-baseline", "--approved-by", "user");
+  expect(cli(cwd, "master", "delivery-queue", "--delivery", "E1", "--parts", "P1").code).toBe(1);
+  master("delivery-queue", "--delivery", "E1", "--parts", "P1", "--approved-by", "user");
+  master("delivery-slice", "--part", "P1");
+  const dir = join(cwd, ".navori/state/handoffs");
+  const feature = "delivery-delivery-p1";
+  const planPath = join(dir, `workplan_${feature}.json`);
+  const projection = JSON.parse(readFileSync(planPath, "utf8")) as Workplan;
+  const plan: Workplan = {
+    ...projection,
+    solution: { path: "fixture-design.txt", verdict: "READY" },
+    phases: [{ name: "fixture", acceptance: ["A1"] }],
+    risks: [{ risk: "drift", rollback: "stop" }],
+    progress: { A1: "pendiente" },
+  };
+  writeFileSync(planPath, JSON.stringify(plan));
+  commit("delivery contract");
+  const binding = delivery.captureDeliveryCriterion(cwd, plan.source!, "A1", "true");
+  const tree = fingerprintTree(cwd, binding);
+  if (!tree.ok) throw new Error(tree.reason);
+  // Cooperative host/review artifacts are disposable inputs, never authentication claims.
+  const run = spawnSync("true", [], { cwd });
+  expect(run.status).toBe(0);
+  writeFileSync(
+    join(dir, `workplan_${feature}.evidence.jsonl`),
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      feature,
+      id: "A1",
+      command: "true",
+      tree: cwd,
+      cwd,
+      head: readHead(cwd),
+      worktreeTree: tree.tree,
+      dirty: true,
+      deliveryBinding: binding,
+    }) + "\n",
+  );
+  master("delivery-criterion", "--part", "P1", "--criterion", "A1");
+  master("delivery-criterion", "--part", "P1", "--criterion", "A2", "--approved-by", "user");
+  const proof = part.deliveryPartProof(cwd, "P1");
+  const state = JSON.parse(readFileSync(statePath, "utf8")) as DeliveryState;
+  const report = "Disposable cooperative technical report\n";
+  writeFileSync(join(dir, "technical-report.txt"), report);
+  writeFileSync(
+    join(dir, "technical-envelope.json"),
+    JSON.stringify({
+      kind: "operator-attested-technical-review",
+      feature,
+      stageSlug: "delivery",
+      partId: "P1",
+      baselineIdentity: plan.source!.baselineIdentity,
+      authorityGeneration: state.authorityGeneration,
+      queueIdentity: state.authorization!.identity,
+      criteriaIdentity: proof.criteriaIdentity,
+      worktreeTree: proof.tree.worktreeTree,
+      producerId: "fixture-producer",
+      reviewerId: "fixture-reviewer",
+      verdict: "APPROVED",
+      reportDigest: deliveryDigest(report),
+      gate: "true",
+      exitCode: 0,
+      executionReference: "Disposable fixture command ran; no real project QA or human attestation",
+    }),
+  );
+  cliOk(cwd, "receipt", "sign", "--feature", feature);
+  master(
+    "delivery-review",
+    "--part",
+    "P1",
+    "--report",
+    "technical-report.txt",
+    "--envelope",
+    "technical-envelope.json",
+    "--approved-by",
+    "user",
+  );
+  const presented = JSON.parse(master("delivery-present", "--delivery", "E1")) as {
+    identity: string;
+  };
+  master(
+    "delivery-decision",
+    "--delivery",
+    "E1",
+    "--identity",
+    presented.identity,
+    "--decision",
+    "accepted",
+    "--approved-by",
+    "user",
+  );
+  expect(cli(cwd, "master", "close").code).toBe(1);
+  master(
+    "delivery-publication",
+    "--delivery",
+    "E1",
+    "--identity",
+    presented.identity,
+    "--kind",
+    "release",
+    "--reference",
+    "fixture-v1",
+    "--approved-by",
+    "user",
+  );
+  expect(JSON.parse(master("status", "--json"))).toMatchObject({ closable: true });
+  master("close");
+  expect(json(statePath)).toMatchObject({ phase: "closed" });
+  expect(JSON.parse(master("status", "--json"))).toMatchObject({
+    stage: null,
+    lastClosed: { slug: "delivery", state: "cerrada" },
+  });
+}, 120_000);
 
 const dirs: string[] = [];
 afterEach(() => {

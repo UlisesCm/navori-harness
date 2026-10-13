@@ -23,6 +23,7 @@ import { buildCheckContext } from "../checks.ts";
 import { scanMasterPlan } from "../../diagnose/master-plan.ts";
 import { readConfig } from "../../config/config.ts";
 import * as renderModule from "../../../commands/render.ts";
+import { masterCommand } from "../../../commands/master.ts";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -97,6 +98,42 @@ describe("master-plan inherited mode contract", () => {
     expect(notice).toContain("Cada aviso requiere confirmación");
     expect(notice).toMatch(/solo después de confirmar[^.]*`navori master init <slug>`/);
   });
+});
+
+// Covers: R14
+it("routes default legacy and deliveries explicitly after readonly status using supported commands", () => {
+  const skill = readFileSync(join(getCoreRoot(), "core-assets/skills/master-plan.md"), "utf8");
+  const route = skill.slice(
+    skill.indexOf("## Ruteo de etapa"),
+    skill.indexOf("## Aviso de inicio"),
+  );
+  const status = route.indexOf("navori master status --json");
+  expect(status).toBeGreaterThanOrEqual(0);
+  const branch = route.slice(status);
+  expect(branch).toMatch(/legacy[^\n]*(?:defecto|ausente)|(?:defecto|ausente)[^\n]*legacy/);
+  expect(branch).toContain('`workflow: "deliveries"`');
+  expect(branch).toMatch(/(?:solo|únicamente)[^\n]*delivery-/);
+  for (const command of [
+    "delivery-check",
+    "delivery-baseline",
+    "delivery-queue",
+    "delivery-slice",
+    "delivery-criterion",
+    "delivery-review",
+    "delivery-present",
+    "delivery-decision",
+    "delivery-publication",
+  ])
+    expect(branch).toContain(`navori master ${command}`);
+  const commands = [...skill.matchAll(/navori master (delivery-[a-z-]+)/g)].map(
+    (match) => match[1],
+  );
+  expect(
+    commands.every((command) => Object.hasOwn(masterCommand.subCommands ?? {}, command!)),
+  ).toBe(true);
+  expect(route).toContain("no escribas ni cambies configuración");
+  expect(branch).toMatch(/(?:consentimiento|confirmación|aprobación)/);
+  expect(branch).toMatch(/(?:no|sin)[^\n]*(?:legacy|fases)/);
 });
 
 describe("deliveries D1 foundation", () => {

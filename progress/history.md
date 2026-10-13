@@ -138,3 +138,11 @@ M5 (R7–R10) implementado y revisado APPROVED: requirements ausente/ilegible y 
 
 Usuario pidió detener implementación y dejar PR DRAFT de checkpoint hacia dev; M6/M7 no iniciados y E2 no lista para merge. Siguiente paso de este cierre: publicar el checkpoint y revisar CI/feedback. Al reanudar: M6 política de evidencia, después M7 ruteo/smoke, mediante implementer → reviewer. Sin merge automático, despliegue ni release; trabajo de 0050 y respaldos de E1 conservados.
 
+## 2026-10-13 09:55 codex — Prepara envío de E2/M6–M7 de 0049
+
+Usuario reanudó PR1316 y autorizó instalar globalmente la CLI del checkout para habilitar dispatch SDD. M6 corrige la autoridad existente de status: evidencia ejecutable huérfana bloquea closable/close, ancestros antiguos siguen válidos con antigüedad y oferta de revalidación, y manuales/disposiciones conservan sus exenciones. A6 independiente 61/61 y scoped verdes; reviewer APPROVED; commit `9db6e079`.
+
+M7 añade una rama compacta legacy/entregas al skill, espejos y snapshots oficiales, y un smoke real de CLI aislado que recorre primera etapa, cierre, segunda etapa, conversión y el ciclo de entregas. Los artefactos técnicos son fixtures cooperativos, no QA productiva ni identidad humana certificada. Controles combinados 91/91, golden 5/5, render/assets/budgets/fast verdes.
+
+Primer A7 desde el principal: focused 592/592; full 8643 aprobadas, una falla y dos omitidas, por nueve comandos delivery citados sin prompt documentado. Usuario autorizó ampliar solo la prueba de permisos: nueve prefijos exactos con razones, límite 21→30, sin settings ni permisos nuevos. Reproducción 11 aprobadas/1 fallo; ajuste 12/12 y fast verde. El gate completo y la revisión fresca del diff final son condiciones del envío; esta entrada es el checkpoint previo, no afirma que el primer A7 haya pasado ni que el PR esté mergeado. Siguiente paso externo tras el envío validado: CI y feedback de PR1316 DRAFT. Sin merge, despliegue ni release; 0050 se conserva.
+

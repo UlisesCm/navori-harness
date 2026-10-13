@@ -390,7 +390,8 @@ interface SkillForm {
 
 function skillForms(skill: string): SkillForm[] {
   const forms: SkillForm[] = [];
-  for (const match of skill.matchAll(/navori master ([a-z]+)([^`\n.;]*)/g)) {
+  // Delivery forms have a separate real subprocess lifecycle in master-delivery.test.ts.
+  for (const match of skill.matchAll(/navori master ((?!delivery-)[a-z]+)([^`\n.;]*)/g)) {
     const rest = match[2] ?? "";
     const positional = /^ ([a-z][a-z-]*)(?= |$)/.exec(rest)?.[1] ?? null;
     forms.push({
