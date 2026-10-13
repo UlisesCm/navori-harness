@@ -1,12 +1,14 @@
 # Sesión actual
 
-**Estado:** spec `0049-master-plan-production-hardening`, E2/M5–M7 implementados en la rama de PR1316 a `dev`. M5 publicado en `61837a08`; M6 revisado `APPROVED` y comprometido en `9db6e079`. M7 incorpora ruteo legacy/entregas y smoke real aislado. Su aceptación de envío exige A7 completo y revisión fresca sobre el diff definitivo; el checkbox de implementación no acredita ese gate ni autoriza merge.
+**Estado:** idle. La spec `0049-master-plan-production-hardening` terminó sus dos entregas; T1–T7 y R1–R15 están implementados, verificados y mergeados en `dev`.
 
-## Evidencia
-E1 integrada por PR1313 en `dev`, commit `7d12fa42`. M6: A6 independiente 61/61, scoped verde y recibo aprobado. M7: controles combinados 91/91, golden 5/5, render sin drift, assets/budgets/fast verdes. Primer A7: focused 592/592; full 8643 aprobadas, 1 fallo y 2 omitidas por nueve prompts delivery sin documentar. Usuario autorizó documentarlos explícitamente en la prueba, con límite 21→30 y sin cambios de permisos; reproducción 11 aprobadas/1 fallo, corrección 12/12 y fast verde. La evidencia de envío posterior debe distinguirse de este checkpoint previo a revisión.
+## Cierre de 0049
 
-## Siguiente paso
-Revisar CI y feedback de PR1316 después del envío validado de M7. El gate completo y el reviewer fresco son prerrequisitos de ese envío; conservar el PR DRAFT hasta aceptación humana. `specs/0049-master-plan-production-hardening/tasks.md` es el tablero canónico. La CLI global se actualizó desde el checkout con autorización expresa para habilitar dispatch SDD. Sin merge, despliegue ni release automáticos.
+- E1: PR1313, merge `7d12fa42b6fdc4cf67db46267a0ff3c0beeeb7c5`.
+- E2: PR1316, merge `336c0621b9d647ecdaee2634212859ceb81aeddc`, 2026-10-13. M7 se publicó en `bb7f616cd6d2cf238347c51a2af5b3ee1484512a`.
+- A7 final, previo al envío: exit `0`, 26 archivos y 592 pruebas focused; gate full con 418 archivos, 8644 aprobadas, 2 omitidas y 0 fallos. Reviewer `APPROVED` y recibo full fresco antes de publicación. Esta evidencia histórica no se presenta como una nueva ejecución del cierre documental.
+- Tablero canónico: `specs/0049-master-plan-production-hardening/tasks.md`. No queda implementación ni aceptación pendiente en 0049; el cierre documental no añade otra entrega funcional.
 
 ## Trabajo concurrente conservado
-0050 mantiene su propio worktree y tablero; este ciclo no lo implementa ni cambia sus permisos. Respaldos de integración E1 conservados: M3 `e537ac9412a940d2ae066a4e202e1d0851223835` y M2 `8a9bf196c908381f0d827f7e1ec52e29195af1da`. Sin despliegue, release ni merge automático autorizado.
+
+0050 mantiene su propio worktree y tablero; este cierre no lo modifica ni cambia permisos. Respaldos de integración E1 conservados: M3 `e537ac9412a940d2ae066a4e202e1d0851223835` y M2 `8a9bf196c908381f0d827f7e1ec52e29195af1da`. Sin despliegue ni release automáticos autorizados.

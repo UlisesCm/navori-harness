@@ -146,3 +146,11 @@ M7 añade una rama compacta legacy/entregas al skill, espejos y snapshots oficia
 
 Primer A7 desde el principal: focused 592/592; full 8643 aprobadas, una falla y dos omitidas, por nueve comandos delivery citados sin prompt documentado. Usuario autorizó ampliar solo la prueba de permisos: nueve prefijos exactos con razones, límite 21→30, sin settings ni permisos nuevos. Reproducción 11 aprobadas/1 fallo; ajuste 12/12 y fast verde. El gate completo y la revisión fresca del diff final son condiciones del envío; esta entrada es el checkpoint previo, no afirma que el primer A7 haya pasado ni que el PR esté mergeado. Siguiente paso externo tras el envío validado: CI y feedback de PR1316 DRAFT. Sin merge, despliegue ni release; 0050 se conserva.
 
+## 2026-10-13 10:39 codex — Cierra el estado documental de la spec 0049
+
+Usuario confirmó el merge de PR1316 y pidió cerrar la documentación. Verificados E1 por PR1313 en `7d12fa42b6fdc4cf67db46267a0ff3c0beeeb7c5` y E2 por PR1316 en `336c0621b9d647ecdaee2634212859ceb81aeddc`, ambas integradas en `dev`; M7 publicado en `bb7f616cd6d2cf238347c51a2af5b3ee1484512a`. T1–T7 cubren R1–R15; no queda implementación ni aceptación funcional pendiente.
+
+La revisión final de E2, posterior al checkpoint anterior, fue `APPROVED`: A7 exacto exit `0`, 26 archivos/592 pruebas focused; full exit `0`, 418 archivos/8644 aprobadas/2 omitidas/0 fallos y piso de cobertura aprobado en 140 módulos. Recibo full fresco sin drift antes de publicación. Estos resultados son evidencia histórica del envío de E2, no un nuevo full del cierre documental; el primer A7 fallido queda conservado como antecedente supersedido.
+
+Este cierre actualiza únicamente requirements/design/tasks y el progreso, conserva las políticas, contratos, trazabilidad y trabajo concurrente de 0050, y deja current en idle. Baseline documental: spec check sin errores, links/budgets/diff y fast verdes; la revisión del diff documental y su gate de envío son pasos propios de esta publicación. No se reabre A7, ni se autorizan merge, despliegue o release automáticos.
+
