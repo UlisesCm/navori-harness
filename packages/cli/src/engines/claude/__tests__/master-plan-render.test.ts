@@ -43,7 +43,7 @@ function contextFiles(cwd: string): string[] {
 }
 
 describe("master-plan canonical prose rendering", () => {
-  // Covers: R5, R6
+  // Covers: R5, R6, R14
   it.each(["claude", "codex"] as const)(
     "renders architectContext and the full mode notice for %s, preserving user prose and bytes",
     (engine: "claude" | "codex"): void => {
@@ -85,6 +85,16 @@ describe("master-plan canonical prose rendering", () => {
         join(getCoreRoot(), "core-assets/skills/master-plan.md"),
         "utf8",
       );
+      const route = canonical.slice(
+        canonical.indexOf("## Ruteo de etapa"),
+        canonical.indexOf("## Aviso de inicio"),
+      );
+      expect(
+        withUserProse.slice(
+          withUserProse.indexOf("## Ruteo de etapa"),
+          withUserProse.indexOf("## Aviso de inicio"),
+        ),
+      ).toBe(route);
       const expectedNotice = canonical
         .slice(canonical.indexOf("## Aviso de inicio"), canonical.indexOf("## Mensaje de fase"))
         .replace(

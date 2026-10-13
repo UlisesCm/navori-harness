@@ -336,6 +336,42 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
     "writes workplan_<feature>.json (progress/decisions) and re-renders its `.md` — a write, same reason as `navori plan render`",
   ],
   [
+    "navori master delivery-check",
+    "read-only preparation check; this opt-in deliveries route retains its existing prompt rather than granting global pre-approval through a documentation change",
+  ],
+  [
+    "navori master delivery-baseline",
+    "writes the operator-approved baseline identity to delivery state; --approved-by user attests consent and the command remains behind its existing prompt",
+  ],
+  [
+    "navori master delivery-queue",
+    "writes bounded queue authority and its generation; selecting or replacing authorized parts requires explicit user consent, not blanket command pre-approval",
+  ],
+  [
+    "navori master delivery-slice",
+    "writes the authorized part's workplan projection; refresh can reset pending criteria and requires explicit user approval, so the write keeps its prompt",
+  ],
+  [
+    "navori master delivery-criterion",
+    "writes criterion evidence after consuming host provenance or explicit manual attestation; the state write keeps its prompt and does not grant manual consent",
+  ],
+  [
+    "navori master delivery-review",
+    "writes technical review evidence for an exact snapshot and requires the user's separate-reviewer and observed-QA attestation; its prompt remains intentional",
+  ],
+  [
+    "navori master delivery-present",
+    "writes a technically reviewed presentation identity and review phase; this state mutation keeps its prompt and never records client acceptance",
+  ],
+  [
+    "navori master delivery-decision",
+    "writes an identity-bound operator attestation of acceptance, rejection, deferral or discard; explicit user consent must not become global pre-approval",
+  ],
+  [
+    "navori master delivery-publication",
+    "writes an explicitly user-attested release or deploy reference for the accepted identity; it keeps its prompt and does not execute a deployment",
+  ],
+  [
     "navori gate",
     "cited bare as the shape `navori gate <kind>` in the sentinel contract; the exact `Bash(navori gate fast|full)` allow is emitted only for gates that earn their compound rule, never a blanket `navori gate:*` — a hostile PR-edited gate must keep prompting (#197, #1272)",
   ],
@@ -477,8 +513,10 @@ describe("assets order only commands the settings pre-approve (#506)", () => {
     // for the two one-time `git config` setups `rebase-rerender` orders (each
     // writes .git/config, none a broadened existing prefix). Raised 20 → 21 for
     // #1272: the bare `navori gate <kind>` shape of the sentinel contract; its
-    // exact per-kind allow rules exist only for safe gates (#197).
-    expect(EXPECTED_PROMPTS.length, "the exception list is growing into a filter").toBeLessThan(21);
+    // exact per-kind allow rules exist only for safe gates (#197). Raised 21 → 30
+    // for spec 0049 M7: nine exact delivery subcommands retain their existing
+    // prompts; no broader master prefix or permission rule is introduced.
+    expect(EXPECTED_PROMPTS.length, "the exception list is growing into a filter").toBeLessThan(30);
     for (const [prefix, why] of EXPECTED_PROMPTS) {
       expect(why.length, `${prefix} needs a real reason, not a placeholder`).toBeGreaterThan(30);
     }

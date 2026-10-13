@@ -259,6 +259,14 @@ export function readMasterStatus(cwd: string): MasterStatus {
       .map((a) => `${part.id}.${a.id}: sin evidencia`);
     let effective: PartState = part.state;
     if (part.state !== "descartada" && part.state !== "diferida") {
+      blockers.push(
+        ...acceptance
+          .filter((a) => a.orphan)
+          .map(
+            (a) =>
+              `${part.id}.${a.id}: evidencia huérfana; revalidar con 'navori master part ${part.id} --accept ${a.id}'`,
+          ),
+      );
       if (part.spec)
         effective = !spec
           ? "pendiente"
@@ -368,7 +376,7 @@ export function renderStatusMd(status: MasterStatus): string {
   for (const part of status.parts)
     for (const criterion of part.acceptance)
       lines.push(
-        `- ${part.id}.${criterion.id} (${criterion.method}): ${criterion.verified ? "verificado" : "sin evidencia"}${criterion.commitsBehind === null ? "" : ` · commitsBehind=${criterion.commitsBehind}`}${criterion.orphan ? " · orphan" : ""}`,
+        `- ${part.id}.${criterion.id} (${criterion.method}): ${criterion.verified ? "verificado" : "sin evidencia"}${criterion.commitsBehind === null ? "" : ` · commitsBehind=${criterion.commitsBehind}`}${criterion.orphan ? " · orphan" : ""}${criterion.commitsBehind !== null && criterion.commitsBehind > 0 ? ` · revalidar con 'navori master part ${part.id} --accept ${criterion.id}'` : ""}`,
       );
   lines.push(
     "",

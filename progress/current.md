@@ -1,14 +1,12 @@
 # Sesión actual
 
-**Estado:** spec `0049-master-plan-production-hardening`, E1 (M1–M4) implementada y verificada. M1 `0309c30d`, M2 `a69affc2`, M3 `b78df7d2`; M4 preparado para revisión final y commit. Publicación del PR de E1 a `dev` autorizada, sin merge automático. E2 (M5–M7) pendiente; `specs/0049-master-plan-production-hardening/tasks.md` es el tablero canónico.
+**Estado:** spec `0049-master-plan-production-hardening`, E2/M5–M7 implementados en la rama de PR1316 a `dev`. M5 publicado en `61837a08`; M6 revisado `APPROVED` y comprometido en `9db6e079`. M7 incorpora ruteo legacy/entregas y smoke real aislado. Su aceptación de envío exige A7 completo y revisión fresca sobre el diff definitivo; el checkbox de implementación no acredita ese gate ni autoriza merge.
 
 ## Evidencia
-A4 exacto ejecutado desde el principal: exit 0, focused 31/31 y full 418 archivos, 8620 pruebas aprobadas, 2 omitidas. Evidencia en `.navori/state/handoffs/verification_0049-e1-m4-main.json`. El recibo anterior pertenece a M3 y no certifica M4; revisión/recibo frescos del diff final pendientes.
+E1 integrada por PR1313 en `dev`, commit `7d12fa42`. M6: A6 independiente 61/61, scoped verde y recibo aprobado. M7: controles combinados 91/91, golden 5/5, render sin drift, assets/budgets/fast verdes. Primer A7: focused 592/592; full 8643 aprobadas, 1 fallo y 2 omitidas por nueve prompts delivery sin documentar. Usuario autorizó documentarlos explícitamente en la prueba, con límite 21→30 y sin cambios de permisos; reproducción 11 aprobadas/1 fallo, corrección 12/12 y fast verde. La evidencia de envío posterior debe distinguirse de este checkpoint previo a revisión.
 
 ## Siguiente paso
-Terminar revisión y commit de M4, publicar el PR de E1 y revisar CI/feedback. Tras el merge autorizado de E1, comenzar E2 desde la base actualizada; no implementar E2 antes. No despliegue ni release autorizado.
+Revisar CI y feedback de PR1316 después del envío validado de M7. El gate completo y el reviewer fresco son prerrequisitos de ese envío; conservar el PR DRAFT hasta aceptación humana. `specs/0049-master-plan-production-hardening/tasks.md` es el tablero canónico. La CLI global se actualizó desde el checkout con autorización expresa para habilitar dispatch SDD. Sin merge, despliegue ni release automáticos.
 
 ## Trabajo concurrente conservado
-0050 tiene su propio worktree y tablero. Según `dev`, scaffold #1308 integrado, E1 aprobado y fix #1309 integrado por #1310; verificar disponibilidad en CLI y smoke vivo antes de continuar ese trabajo. Este ciclo no implementa 0050 ni afirma una corrección global del runner de Pi (0048).
-
-Respaldos de integración conservados: M3 `e537ac9412a940d2ae066a4e202e1d0851223835`, M2 `8a9bf196c908381f0d827f7e1ec52e29195af1da`. No eliminarlos sin verificar el cierre publicado.
+0050 mantiene su propio worktree y tablero; este ciclo no lo implementa ni cambia sus permisos. Respaldos de integración E1 conservados: M3 `e537ac9412a940d2ae066a4e202e1d0851223835` y M2 `8a9bf196c908381f0d827f7e1ec52e29195af1da`. Sin despliegue, release ni merge automático autorizado.
