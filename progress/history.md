@@ -116,3 +116,9 @@ El challenge incorporó autorización humana verificable, cobertura de cada rol 
 
 Reviewer APPROVED. Gate completo exit 0: 418 archivos de tests, 8539 aprobados, dos omitidos y cero fallos. Recibo para `main` verificado con `status:ok`, `fresh:true`, `gateKind:full`; review sellado y correlacionado. Publicación autorizada a `main`, sin merge automático. La instalación frozen del worktree corrigió dependencias de entorno anteriores sin modificar fuente ni lockfile. La spec 0049 permanece fuera de este ciclo.
 
+## 2026-10-12 21:58 codex — Corrige dispatch SDD del plan-gate (#1309)
+
+El gate rechazaba `spec: <spec> E<n> M<n>` porque solo parseaba workplan/nivel-0, aunque el contrato SDD exigía esa apertura. Se añadió la rama spec con lectura desde la raíz del checkout, pertenencia única de entrega/milestone, identidad del workplan nivel 3 y vínculo del dispatch cifrado al feature derivado. Se preservan validación, escalamiento, TTL y consumo existente, sin cambios a permisos, hooks ni trust.
+
+Auditoría y challenge completados; usuario aprobó el plan. Suite específica 84/84, reviewer APPROVED y gate completo exit 0: 418 archivos, 8582 tests aprobados, dos omitidos y cero fallos; coverage floor verde. Recibo vigente para `main`, review sellado y correlacionado. La acreditación automática de señal Bash no está disponible en esta sesión; se conserva la evidencia de ejecución sin inventar autoridad. Activación global y smoke vivo pendientes. Siguiente paso: publicar el fix y retomar E1 de 0050 con su workplan aprobado; el scaffold ya está integrado por #1308.
+
