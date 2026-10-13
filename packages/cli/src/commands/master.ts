@@ -23,7 +23,12 @@ import {
   captureDeliveryReview,
 } from "../lib/master/part.ts";
 import { runMasterClose } from "../lib/master/close.ts";
-import { readMasterStatus, statusLine, writeMasterStatus } from "../lib/master/status.ts";
+import {
+  derivedWriteFailure,
+  readMasterStatus,
+  statusLine,
+  writeMasterStatus,
+} from "../lib/master/status.ts";
 import { readConfig } from "../lib/config/config.ts";
 import { MasterInitError, runMasterInit } from "../lib/master/init.ts";
 import {
@@ -472,6 +477,15 @@ const partSubCommand = defineCommand({
         approvedBy: args["approved-by"],
       });
       if (args.accept) appendCliEvent(cwd, { name: "master-part-accept", verdict: "allow" });
+      try {
+        writeMasterStatus(cwd);
+      } catch (cause) {
+        const specsDir = readConfig(join(cwd, "navori.config.json")).sdd?.specsDir ?? "specs";
+        const dir = activeStage(readMasterIndex(cwd, specsDir))?.dir ?? "etapa activa";
+        throw new Error(
+          derivedWriteFailure(`${dir}: parts.json actualizado`, "navori master part", cause),
+        );
+      }
       process.stdout.write(`${args.id as string}: updated\n`);
     } catch (cause) {
       reportError(cause);

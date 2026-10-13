@@ -40,6 +40,7 @@ import {
   readMasterStatus,
   renderMasterParts,
   renderStatusMd,
+  derivedWriteFailure,
   writeMasterStatus,
 } from "./status.ts";
 import { checkUxArtifacts, checkUxDecision } from "./ux.ts";
@@ -519,7 +520,9 @@ function checkMasterDocument(ctx: CheckContext): CheckFailure[] {
     } else {
       const expected = renderMasterParts(parsed.data.parts, ctx.state.mode);
       if (masterPartsRegion(content) !== expected)
-        failures.push(`${ctx.stage.dir}/MASTER.md: navori:master-parts differs from parts.json`);
+        failures.push(
+          `${ctx.stage.dir}/MASTER.md: navori:master-parts differs from parts.json; repare con 'navori master status'`,
+        );
     }
   }
 
@@ -599,10 +602,12 @@ export function runMasterAdvance(cwd: string, options: CheckOptions = {}): Advan
   try {
     writeMasterStatus(cwd);
   } catch (cause: unknown) {
-    const detail = cause instanceof Error ? cause.message : String(cause);
     throw new MasterCheckSetupError(
-      `${ctx.stage.dir}: fase durable '${target}'; falló la escritura derivada: ${detail}. ` +
-        "Repare con 'navori master status'; no repita 'navori master advance'.",
+      derivedWriteFailure(
+        `${ctx.stage.dir}: fase durable '${target}'`,
+        "navori master advance",
+        cause,
+      ),
     );
   }
   return { advanced: true, from: ctx.state.phase, to: target, failures: [] };
@@ -628,7 +633,9 @@ export function runMasterCheck(cwd: string, options: CheckOptions = {}): CheckRe
   const statusPath = join(ctx.stagePath, "STATUS.md");
   if (existsSync(statusPath)) {
     if (normalizeEol(readFileSync(statusPath, "utf8")) !== renderStatusMd(readMasterStatus(cwd)))
-      failures.push(`${ctx.stage.dir}/STATUS.md differs from its render`);
+      failures.push(
+        `${ctx.stage.dir}/STATUS.md differs from its render; repare con 'navori master status'`,
+      );
   } else if (["mastered", "ux", "executing"].includes(ctx.state.phase)) {
     failures.push(`${ctx.stage.dir}: missing STATUS.md; run navori master status`);
   }

@@ -441,6 +441,18 @@ function assertWritableInRepo(cwd: string, path: string): void {
     throw new Error(`refusing symlink write outside repository: ${path}`);
 }
 
+/**
+ * Message for a derived-write failure that happens after a durable write already
+ * succeeded: names the committed state and the status-only repair.
+ */
+export function derivedWriteFailure(subject: string, command: string, cause: unknown): string {
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  return (
+    `${subject}; falló la escritura derivada: ${detail}. ` +
+    `Repare con 'navori master status'; no repita '${command}'.`
+  );
+}
+
 /** Regenerate only derived files of the active stage after all inputs validate. */
 export function writeMasterStatus(cwd: string): MasterStatus {
   const status = readMasterStatus(cwd);
@@ -502,5 +514,6 @@ export function statusLine(status: MasterStatus, specsDir: string): string {
     .replace(/\s+/g, " ")
     .trim();
   const shortTitle = [...clean].slice(0, 60).join("").replace(/"/g, "'");
-  return `Plan maestro — etapa ${status.stage.dir}: ${part ? `parte activa ${part.id} "${shortTitle}"` : "sin parte activa"} · ${part?.tasksDone ?? 0}/${part?.tasksTotal ?? 0} tareas · ${specsDir}/_master/${status.stage.dir}/STATUS.md. En tu primera respuesta de la sesión, ofrece continuar con el plan maestro en una sola línea, sin interrumpir lo que el usuario pidió.`;
+  const orphan = status.evidenceBlockers.length ? " · no cerrable: evidencia huérfana" : "";
+  return `Plan maestro — etapa ${status.stage.dir}: ${part ? `parte activa ${part.id} "${shortTitle}"` : "sin parte activa"} · ${part?.tasksDone ?? 0}/${part?.tasksTotal ?? 0} tareas${orphan} · ${specsDir}/_master/${status.stage.dir}/STATUS.md. En tu primera respuesta de la sesión, ofrece continuar con el plan maestro en una sola línea, sin interrumpir lo que el usuario pidió.`;
 }

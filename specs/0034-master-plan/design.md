@@ -1151,7 +1151,10 @@ solo corrieron comandos de lectura (`navori doctor`, `status --json`).
 - **Ediciones a mano de `state.json`, `STATUS.md` o la región de partes** de la etapa activa. No
   se previenen (un hook de bloqueo por ruta no compensa en un flujo tan raro); se detectan. `check`
   compara la región y `STATUS.md` contra su render, y valida que el historial de `state.json` sea
-  una cadena de fases consecutivas.
+  una cadena de fases consecutivas. La reparación viene nombrada: los mensajes de drift de `check`
+  para `STATUS.md` y `navori:master-parts` terminan en "repare con 'navori master status'", y
+  `part` regenera lo derivado tras la escritura durable de `parts.json` (enmendado por 0051
+  R7/R9).
 - **Issue duplicado al reintentar** (R44). Si `gh` crea el issue y la sesión se corta antes de
   `navori master part --issue`, un reintento lo duplicaría. La skill busca antes con `gh issue list
   --search "[<NN>-<slug>] P<n> in:title" --state all`; si lo encuentra, registra ese número en vez

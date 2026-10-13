@@ -192,6 +192,9 @@ describe("master status", () => {
     ]);
     expect(orphaned.blockers).toEqual([]);
     expect(orphaned.closable).toBe(true);
+    // Covers: R6
+    expect(statusLine(orphaned, "specs")).toContain("no cerrable: evidencia huérfana");
+    expect(statusLine(aged, "specs")).not.toContain("no cerrable");
     writeMasterStatus(cwd);
     expect(readFileSync(statusPath, "utf8")).toBe(first);
     const json = JSON.parse(JSON.stringify(orphaned)) as typeof orphaned;
@@ -358,9 +361,10 @@ describe("master status", () => {
     expect(readFileSync(join(cwd, "specs/_master/01-mvp/MASTER.md"), "utf8")).toContain(
       "navori:master-parts hash=",
     );
-    expect(runMasterCheck(cwd).failures).not.toContain("01-mvp/STATUS.md differs from its render");
+    const drift = "01-mvp/STATUS.md differs from its render; repare con 'navori master status'";
+    expect(runMasterCheck(cwd).failures).not.toContain(drift);
     writeFileSync(path, `${bytes}tampered`);
-    expect(runMasterCheck(cwd).failures).toContain("01-mvp/STATUS.md differs from its render");
+    expect(runMasterCheck(cwd).failures).toContain(drift);
   });
 
   // Covers: R44, R46, R54

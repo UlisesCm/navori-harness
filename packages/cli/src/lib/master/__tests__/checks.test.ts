@@ -762,8 +762,8 @@ describe("checksForTransition('mastered'/'executing') — R30-R33, R59", () => {
     expect(checksForTransition(noDecision, "executing").join("\n")).toContain("navori master ux");
   });
 
-  // Covers: R31, R36, R50
-  it("checks altered and missing master-parts during executing, not only on a transition", () => {
+  // Covers: R31, R36, R50, R9
+  it("mensajes de drift de STATUS.md y de la región nombran navori master status", () => {
     const ctx = makeCtx();
     writeFileSync(indexJsonPath(cwd, SPECS_DIR), JSON.stringify(ctx.index));
     write(
@@ -789,9 +789,14 @@ describe("checksForTransition('mastered'/'executing') — R30-R33, R59", () => {
     for (const replacement of ["altered", ""]) {
       write(ctx, "MASTER.md", generated.replace(renderedParts(ctx), replacement));
       expect(runMasterCheck(cwd, { templatesRoot }).failures).toContain(
-        `${ctx.stage.dir}/MASTER.md: navori:master-parts differs from parts.json`,
+        `${ctx.stage.dir}/MASTER.md: navori:master-parts differs from parts.json; repare con 'navori master status'`,
       );
     }
+    write(ctx, "MASTER.md", generated);
+    writeFileSync(join(ctx.stagePath, "STATUS.md"), "tampered\n");
+    expect(runMasterCheck(cwd, { templatesRoot }).failures).toContain(
+      `${ctx.stage.dir}/STATUS.md differs from its render; repare con 'navori master status'`,
+    );
   });
 });
 
@@ -962,7 +967,7 @@ describe("runMasterAdvance — never skips, never leaves executing (R8)", () => 
       renderStatusMd(readMasterStatus(cwd)),
     );
     expect(runMasterCheck(cwd, { templatesRoot }).failures).not.toContain(
-      "01-mvp/STATUS.md differs from its render",
+      "01-mvp/STATUS.md differs from its render; repare con 'navori master status'",
     );
   });
 
@@ -1052,7 +1057,7 @@ describe("runMasterAdvance — never skips, never leaves executing (R8)", () => 
       expect(readFileSync(join(stagePath(), "../INDEX.md"), "utf8")).toContain("01-mvp");
       expect(readFileSync(statePath, "utf8")).toBe(durableBytes);
       expect(runMasterCheck(cwd, { templatesRoot }).failures).not.toContain(
-        "01-mvp/STATUS.md differs from its render",
+        "01-mvp/STATUS.md differs from its render; repare con 'navori master status'",
       );
     },
   );

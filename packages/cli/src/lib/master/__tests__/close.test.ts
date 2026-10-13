@@ -563,7 +563,9 @@ describe("navori master ux", () => {
     expect(JSON.parse(read("state.json")).ux).toBe("none");
     expect(read("STATUS.md")).toBe(renderStatusMd(readMasterStatus(cwd)));
     expect(read("STATUS.md")).toContain("UX: none");
-    expect(runMasterCheck(cwd).failures).not.toContain("01-mvp/STATUS.md differs from its render");
+    expect(
+      runMasterCheck(cwd).failures.filter((f) => f.includes("STATUS.md differs from its render")),
+    ).toEqual([]);
   });
 
   it("re-choosing in phase ux overwrites the decision", async () => {

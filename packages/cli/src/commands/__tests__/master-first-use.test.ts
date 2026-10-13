@@ -7,6 +7,8 @@ import { repoFromCwd, sessionLogPath } from "../../lib/audit/paths.ts";
 import { getCoreRoot } from "../../lib/render/bundled-assets.ts";
 import { masterCommand } from "../master.ts";
 import * as renderer from "../render.ts";
+import * as atomic from "../../lib/primitives/atomic.ts";
+import { readMasterStatus, renderStatusMd } from "../../lib/master/status.ts";
 import { createCommitHelper, createGitHelper } from "../../lib/master/__tests__/test-utils.ts";
 
 /**
@@ -364,6 +366,65 @@ describe("master commands record CLI audit events (R55, R70)", () => {
       expect.objectContaining({ name: "master-part-accept", verdict: "allow" }),
       expect.objectContaining({ name: "master-part-accept", verdict: "allow" }),
       expect.objectContaining({ name: "master-close", verdict: "allow" }),
+    ]);
+  }, 120_000);
+
+  /** Seeds an executing stage with PART committed, ready for `part` mutations. */
+  async function executingStage(): Promise<{ cwd: string; log: string }> {
+    const cwd = freshRepo();
+    const log = startAudit(cwd);
+    await ok(cwd, "init", "mvp");
+    writeFileSync(
+      stageFile(cwd, "parts.json"),
+      `${JSON.stringify({ version: 1, parts: [PART] }, null, 2)}\n`,
+    );
+    setPhase(cwd, "executing");
+    mkdirSync(join(cwd, "specs", "p1-spec"), { recursive: true });
+    createCommitHelper(createGitHelper(cwd))("plan");
+    return { cwd, log };
+  }
+
+  // Covers: R7
+  it("tras part --state, --spec, --issue y --accept no hay drift de STATUS.md", async () => {
+    const { cwd } = await executingStage();
+    const inSync = (): void =>
+      expect(readFileSync(stageFile(cwd, "STATUS.md"), "utf8")).toBe(
+        renderStatusMd(readMasterStatus(cwd)),
+      );
+    await ok(cwd, "part", "P1", "--state", "parcial");
+    inSync();
+    await ok(cwd, "part", "P1", "--spec", "specs/p1-spec");
+    inSync();
+    await ok(cwd, "part", "P1", "--issue", "7");
+    inSync();
+    await ok(cwd, "part", "P1", "--accept", "A2", "--approved-by", "user");
+    inSync();
+    expect(readFileSync(stageFile(cwd, "STATUS.md"), "utf8")).toContain("verificado");
+  }, 120_000);
+
+  // Covers: R8
+  it("fallo de regeneración tras --accept conserva parts.json y el evento master-part-accept y dice Repare con navori master status", async () => {
+    const { cwd, log } = await executingStage();
+    const original = atomic.writeFileAtomic;
+    vi.spyOn(atomic, "writeFileAtomic").mockImplementation(
+      (path: string, content: string): void => {
+        if (path === stageFile(cwd, "STATUS.md")) throw new Error("derived failure");
+        original(path, content);
+      },
+    );
+    const failed = await master(cwd, "part", "P1", "--accept", "A2", "--approved-by", "user");
+    vi.restoreAllMocks();
+    expect(failed.exitCode).toBe(1);
+    expect(failed.err).toContain(`${STAGE}: parts.json actualizado`);
+    expect(failed.err).toContain("derived failure");
+    expect(failed.err).toContain("Repare con 'navori master status'");
+    expect(failed.err).toContain("no repita 'navori master part'");
+    const parts = readJson(stageFile(cwd, "parts.json")) as {
+      parts: Array<{ acceptance: Array<{ id: string; evidence: unknown }> }>;
+    };
+    expect(parts.parts[0]?.acceptance.find((a) => a.id === "A2")?.evidence).not.toBeNull();
+    expect(cliEvents(log)).toEqual([
+      expect.objectContaining({ name: "master-part-accept", verdict: "allow" }),
     ]);
   }, 120_000);
 
