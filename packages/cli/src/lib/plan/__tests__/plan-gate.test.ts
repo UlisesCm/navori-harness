@@ -341,6 +341,210 @@ describe("evaluatePlanGate — cumplido without evidence (R11)", () => {
   });
 });
 
+describe("evaluatePlanGate — SDD delivery dispatch (#1309)", () => {
+  const FEATURE = "demo-e1";
+  const OPENING = "spec: demo E1 M1";
+  const TASKS =
+    "## E1 — First\n### M1 — First milestone\n## E2 — Second\n### M2 — Second milestone\n";
+  const PLAN: Workplan = {
+    ...VALID_LEVEL1,
+    feature: FEATURE,
+    level: 3,
+    solution: { path: "solution_demo.md", verdict: "READY" },
+    phases: [{ name: "Delivery", acceptance: ["A1"] }],
+    risks: [{ risk: "Invalid dispatch", rollback: "Revert gate extension" }],
+  };
+  const NOW = Date.parse("2026-10-03T12:00:00.000Z");
+  const FERNET = "gAAAAABp_encrypted-token_0123456789abcdef==";
+
+  function writeTasks(text: string = TASKS, specsDir: string = "specs"): string {
+    const dir = join(cwd, specsDir, "demo");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, "tasks.md");
+    writeFileSync(file, text);
+    return file;
+  }
+
+  function writeDispatch(feature: string = FEATURE, age: number = 60_000): string {
+    const dir = join(cwd, ".navori/state/handoffs");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `dispatch_${feature}.json`);
+    writeFileSync(
+      file,
+      JSON.stringify({ feature, opening: OPENING, createdAt: new Date(NOW - age).toISOString() }),
+    );
+    return file;
+  }
+
+  beforeEach(() => {
+    writeConfig(true);
+    writeTasks();
+    writeWorkplan(FEATURE, PLAN);
+    writeWorkplan("demo-e2", { ...PLAN, feature: "demo-e2" });
+  });
+
+  it.each(["claude", "codex", "encrypted", "absent"])(
+    "allows %s with delivery metadata and consumes only fallback dispatch",
+    (host) => {
+      const file = host === "encrypted" || host === "absent" ? writeDispatch() : undefined;
+      const tool_input =
+        host === "claude"
+          ? { subagent_type: "implementer", prompt: `${OPENING}\nbody` }
+          : {
+              agent_type: "implementer",
+              message: host === "encrypted" ? FERNET : host === "absent" ? undefined : OPENING,
+            };
+      expect(
+        evaluatePlanGate({ cwd, session_id: "session", tool_use_id: "spawn", tool_input }, NOW),
+      ).toEqual({
+        decision: "allow",
+        dispatch: {
+          feature: FEATURE,
+          cwd,
+          codex: host !== "claude",
+          sessionId: "session",
+          spawn: "spawn",
+        },
+      });
+      if (file) {
+        expect(existsSync(file)).toBe(false);
+        expect(evaluatePlanGate({ cwd, tool_input }, NOW).decision).toBe("deny");
+      }
+    },
+  );
+
+  it("allows a later delivery with its exact plan", () => {
+    writeWorkplan("demo-e2", { ...PLAN, feature: "demo-e2" });
+    expect(evaluatePlanGate(payload("implementer", "spec: demo E2 M2")).dispatch?.feature).toBe(
+      "demo-e2",
+    );
+  });
+
+  it("uses configured specsDir", () => {
+    const config = JSON.parse(readFileSync(join(cwd, "navori.config.json"), "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    writeFileSync(
+      join(cwd, "navori.config.json"),
+      JSON.stringify({ ...config, sdd: { specsDir: "plans" } }),
+    );
+    writeTasks(TASKS, "plans");
+    rmSync(join(cwd, "specs"), { recursive: true });
+    expect(evaluatePlanGate(payload("implementer", OPENING)).decision).toBe("allow");
+  });
+
+  it("resolves spec from checkout root and never accepts a nested cwd decoy", () => {
+    const nested = join(cwd, "packages/cli");
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(
+      join(nested, "navori.config.json"),
+      readFileSync(join(cwd, "navori.config.json")),
+    );
+    writeTasks("## E1 — Decoy\n### M9 — Decoy\n", "packages/cli/specs");
+    const raw = { cwd: nested, tool_input: { subagent_type: "implementer", prompt: OPENING } };
+    expect(evaluatePlanGate(raw).decision).toBe("allow");
+    writeTasks("## E1 — Root\n### M9 — Root\n");
+    writeTasks(TASKS, "packages/cli/specs");
+    expect(evaluatePlanGate(raw).decision).toBe("deny");
+  });
+
+  it.each([
+    "spec: demo E1",
+    "spec: demo M1 E1",
+    "spec: demo E0 M1",
+    "spec: demo E01 M1",
+    "spec: demo E1 M0",
+    "spec: demo E1 M01",
+    "spec: demo E1 M1 suffix",
+    "spec: ../demo E1 M1",
+    "spec: /demo E1 M1",
+    "spec: a/demo E1 M1",
+    "spec: Demo E1 M1",
+    "spec: de..mo E1 M1",
+    "spec: demo E9 M1",
+    "spec: demo E1 M2",
+  ])("denies invalid or foreign opening %s", (opening) => {
+    expect(evaluatePlanGate(payload("implementer", opening)).decision).toBe("deny");
+  });
+
+  it.each([
+    "- [ ] legacy",
+    "## E1 — First\n### M1 — First\n- [ ] malformed\n",
+    "## E1 — First\n- [ ] **T1** orphan\n### M1 — First\n",
+    "## E1 — First\n- **A1** orphan\n### M1 — First\n",
+    `${TASKS}\n## E1 — Duplicate\n### M1 — Duplicate\n`,
+    `${TASKS}\n## E2 — Duplicate\n### M1 — Foreign\n`,
+    "## E1 — First\n### M1 — First\n### M1 — Duplicate\n",
+    "## E1 — First\n```md\n### M1 — Fenced\n```\n",
+  ])("denies malformed, orphan, ambiguous or fenced tasks: %s", (text) => {
+    // Duplicate unrelated E2 does not affect the unique E1/M1 target.
+    const opening = text.includes("## E2 — Duplicate") ? "spec: demo E2 M1" : OPENING;
+    writeTasks(text);
+    expect(evaluatePlanGate(payload("implementer", opening)).decision).toBe("deny");
+  });
+
+  it.each(["missing", "unreadable"])("denies %s tasks", (kind) => {
+    const file = join(cwd, "specs/demo/tasks.md");
+    rmSync(file);
+    if (kind === "unreadable") mkdirSync(file);
+    expect(evaluatePlanGate(payload("implementer", OPENING)).decision).toBe("deny");
+  });
+
+  it.each(["missing", "json", "unreadable", "check", "feature", "level0", "level1", "level2"])(
+    "denies %s workplan and retains encrypted dispatch",
+    (kind) => {
+      const file = join(progressDir(), `workplan_${FEATURE}.json`);
+      if (kind === "missing" || kind === "unreadable") rmSync(file);
+      if (kind === "unreadable") mkdirSync(file);
+      if (kind === "json") writeFileSync(file, "{bad");
+      if (kind === "check") writeWorkplan(FEATURE, { ...PLAN, acceptance: [] });
+      if (kind === "feature") writeWorkplan(FEATURE, { ...PLAN, feature: "foreign-e1" });
+      if (kind.startsWith("level"))
+        writeWorkplan(FEATURE, { ...PLAN, level: Number(kind.slice(-1)) as 0 | 1 | 2 });
+      const dispatch = writeDispatch();
+      expect(
+        evaluatePlanGate({ cwd, tool_input: { agent_type: "implementer", message: FERNET } }, NOW)
+          .decision,
+      ).toBe("deny");
+      expect(existsSync(dispatch)).toBe(true);
+    },
+  );
+
+  it("denies a foreign encrypted dispatch identity without consuming it", () => {
+    const file = writeDispatch("foreign-e1");
+    const result = evaluatePlanGate(
+      { cwd, tool_input: { agent_type: "implementer", message: FERNET } },
+      NOW,
+    );
+    expect(result.reason).toContain("does not match spec delivery");
+    expect(existsSync(file)).toBe(true);
+  });
+
+  it.each(["stale", "multiple"])("preserves %s dispatch denial", (kind) => {
+    const file = writeDispatch(FEATURE, kind === "stale" ? 11 * 60_000 : 60_000);
+    if (kind === "multiple") writeDispatch("foreign-e1");
+    expect(
+      evaluatePlanGate({ cwd, tool_input: { agent_type: "implementer", message: FERNET } }, NOW)
+        .decision,
+    ).toBe("deny");
+    expect(existsSync(file)).toBe(true);
+  });
+
+  it("keeps rejection escalation scoped to the delivery feature", () => {
+    const log = join(progressDir(), `workplan_${FEATURE}.gate.jsonl`);
+    writeFileSync(
+      log,
+      `${JSON.stringify({ reviewHash: "one" })}\n${JSON.stringify({ reviewHash: "two" })}\n`,
+    );
+    const result = evaluatePlanGate(payload("implementer", OPENING));
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("escalate to the user");
+    writeWorkplan("demo-e2", { ...PLAN, feature: "demo-e2" });
+    expect(evaluatePlanGate(payload("implementer", "spec: demo E2 M2")).decision).toBe("allow");
+  });
+});
+
 describe("evaluatePlanGate — Codex spawn_agent payloads (spec 0041 R9)", () => {
   const NOW = Date.parse("2026-10-03T12:00:00.000Z");
   const FERNET = "gAAAAABp_encrypted-token_0123456789abcdef==";

@@ -22,6 +22,8 @@ import { classify } from "./classify.ts";
 import { checkWorkplan, formatCheckResult } from "./check.ts";
 import type { Workplan } from "./schema.ts";
 import { appendCliEvent, hasAuditTarget, outcomeFeatureKey } from "../audit/cli-event.ts";
+import { locateSpecDir } from "../spec/locate.ts";
+import { parseTasks } from "../spec/tasks.ts";
 
 /** What an allowed `workplan: <feature>` spawn tells the audit log (spec 0042 T10a). */
 export interface GateDispatch {
@@ -38,7 +40,7 @@ export interface PlanGateResult {
   decision: "allow" | "deny";
   /** Only set on `deny` — names the skill to load and the command to run (R16). */
   reason?: string;
-  /** Only set on an `allow` resolved from a `workplan:` opening line. */
+  /** Only set on an `allow` resolved from a `workplan:` or `spec:` opening line. */
   dispatch?: GateDispatch;
 }
 
@@ -104,6 +106,7 @@ const ALLOW: PlanGateResult = { decision: "allow" };
 
 const WORKPLAN_LINE = /^workplan:\s*(\S+)/;
 const NIVEL0_LINE = /^nivel-0:\s*(\S+)/;
+const SPEC_LINE = /^spec:\s*([a-z0-9][a-z0-9._-]*)\s+E([1-9][0-9]*)\s+M([1-9][0-9]*)$/;
 
 /** A Fernet token (what Codex's V2 `spawn_agent` sends in place of `message`). */
 const ENCRYPTED_MESSAGE = /^gAAAAA[A-Za-z0-9_=-]*$/;
@@ -121,7 +124,7 @@ const DISPATCH_FILE = /^dispatch_([a-z0-9][a-z0-9._-]*)\.json$/;
  */
 export const DispatchSchema = z.object({
   feature: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/),
-  /** The encargo's first line: `workplan: <feature>` or `nivel-0: <path>`. */
+  /** The encargo's first line: `workplan:`, `nivel-0:` or `spec:`. */
   opening: z.string().min(1),
   /**
    * ISO-8601 timestamp; the file is stale `DISPATCH_TTL_MS` after it. Offsets and
@@ -146,12 +149,12 @@ const DISPATCH_FIX =
 function readDispatch(
   cwd: string,
   now: number,
-): { opening: string; file: string } | { reason: string } {
+): { opening: string; file: string; feature: string } | { reason: string } {
   const root = resolveStateRoot({ cwd, feature: "dispatch", dir: DISPATCH_DIR });
   const names = existsSync(root.path)
     ? readdirSync(root.path).filter((n) => DISPATCH_FILE.test(n))
     : [];
-  const fresh: { opening: string; file: string }[] = [];
+  const fresh: { opening: string; file: string; feature: string }[] = [];
   let stale = 0;
   for (const name of names) {
     const file = stateArtifactPath(root, name);
@@ -168,7 +171,7 @@ function readDispatch(
       stale++;
       continue;
     }
-    fresh.push({ opening: parsed.opening, file });
+    fresh.push({ opening: parsed.opening, file, feature: parsed.feature });
   }
   if (fresh.length === 1) return fresh[0]!;
   if (fresh.length > 1) {
@@ -185,7 +188,7 @@ function readDispatch(
 }
 
 const NO_OPENING_LINE_REASON =
-  "the encargo does not open with `workplan: <feature>` or `nivel-0: <path>` — " +
+  "the encargo does not open with `workplan: <feature>`, `nivel-0: <path>` or `spec: <spec> E<n> M<n>` — " +
   "load skill `plan-simple` (level 1) or `plan-advanced` (level 2) and produce a " +
   "workplan, or confirm a level-0 exemption with `navori plan classify <feature>`.";
 
@@ -287,7 +290,8 @@ function evaluateNivel0(cwd: string, config: NavoriConfig, rawPath: string): Pla
   return ALLOW;
 }
 
-function evaluateWorkplan(root: StateRoot, feature: string): PlanGateResult {
+/** Runs shared plan validation/escalation, with delivery identity required for SDD. */
+function evaluateWorkplan(root: StateRoot, feature: string, spec: boolean = false): PlanGateResult {
   const workplanPath = stateArtifactPath(root, `workplan_${feature}.json`);
   if (!existsSync(workplanPath)) {
     return deny(
@@ -319,7 +323,41 @@ function evaluateWorkplan(root: StateRoot, feature: string): PlanGateResult {
   }
 
   const level = (raw as Pick<Workplan, "level">).level;
+  if (spec && (level !== 3 || (raw as Pick<Workplan, "feature">).feature !== feature)) {
+    return deny(`spec dispatch requires workplan feature "${feature}" and level 3.`);
+  }
   return evaluateEscalation(root, feature, level) ?? ALLOW;
+}
+
+/** Validates exact delivery/milestone membership before the common workplan gate. */
+function evaluateSpec(
+  root: StateRoot,
+  config: NavoriConfig,
+  spec: string,
+  delivery: string,
+  milestone: string,
+  feature: string,
+): PlanGateResult {
+  const location = locateSpecDir(root.cwd, config.sdd?.specsDir ?? "specs", spec);
+  if (!location.ok) return deny(location.why);
+  const tasksPath = join(location.dir, "tasks.md");
+  const tasks = parseTasks(readFileSync(tasksPath, "utf-8"));
+  if (
+    tasks.format !== "deliveries" ||
+    tasks.malformed.length > 0 ||
+    tasks.orphanTasks.length > 0 ||
+    tasks.orphanCriteria.length > 0
+  ) {
+    return deny(`${tasksPath} must use deliveries without malformed or orphan items.`);
+  }
+  const deliveries = tasks.deliveries.filter((entry) => entry.id === delivery);
+  if (deliveries.length !== 1) {
+    return deny(`${tasksPath} must contain exactly one ${delivery} delivery.`);
+  }
+  if (deliveries[0]!.milestones.filter((entry) => entry.id === milestone).length !== 1) {
+    return deny(`${tasksPath} must contain exactly one ${milestone} milestone in ${delivery}.`);
+  }
+  return evaluateWorkplan(root, feature, true);
 }
 
 /**
@@ -350,6 +388,7 @@ export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()):
   const prompt = payload.tool_input.prompt ?? "";
   let firstLine = (prompt.split("\n")[0] ?? "").trim();
   let consume: string | undefined;
+  let dispatchFeature: string | undefined;
   // Codex V2: the message is encrypted (or absent), so the opening line comes
   // from the orchestrator's dispatch file. A readable message keeps the V1 path.
   if (payload.tool_input.codex && (firstLine === "" || ENCRYPTED_MESSAGE.test(firstLine))) {
@@ -358,32 +397,49 @@ export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()):
       if ("reason" in dispatch) return deny(dispatch.reason);
       firstLine = dispatch.opening.split("\n")[0]!.trim();
       consume = dispatch.file;
+      dispatchFeature = dispatch.feature;
     } catch (cause: unknown) {
       return deny(cause instanceof Error ? cause.message : "unsafe state root");
     }
   }
   const workplanMatch = WORKPLAN_LINE.exec(firstLine);
   const nivel0Match = NIVEL0_LINE.exec(firstLine);
+  const specMatch = SPEC_LINE.exec(firstLine);
+  const feature = specMatch ? `${specMatch[1]}-e${specMatch[2]}` : workplanMatch?.[1];
 
-  if (!workplanMatch && !nivel0Match) return deny(NO_OPENING_LINE_REASON);
+  if (!workplanMatch && !nivel0Match && !specMatch) return deny(NO_OPENING_LINE_REASON);
   let result: PlanGateResult;
   if (nivel0Match) {
     result = evaluateNivel0(cwd, config, nivel0Match[1]!);
   } else {
     try {
-      result = evaluateWorkplan(
-        resolveStateRoot({ cwd, feature: workplanMatch![1]! }),
-        workplanMatch![1]!,
-      );
+      const root = resolveStateRoot({ cwd, feature: feature! });
+      if (specMatch) {
+        if (dispatchFeature !== undefined && dispatchFeature !== feature) {
+          return deny(
+            `dispatch feature "${dispatchFeature}" does not match spec delivery "${feature}".`,
+          );
+        }
+        result = evaluateSpec(
+          root,
+          config,
+          specMatch[1]!,
+          `E${specMatch[2]}`,
+          `M${specMatch[3]}`,
+          feature!,
+        );
+      } else {
+        result = evaluateWorkplan(root, feature!);
+      }
     } catch (cause: unknown) {
       return deny(cause instanceof Error ? cause.message : "unsafe state root");
     }
   }
   // One dispatch per spawn: an allowed spawn consumes its dispatch file.
   if (consume && result.decision === "allow") rmSync(consume, { force: true });
-  if (result.decision === "allow" && workplanMatch) {
+  if (result.decision === "allow" && feature) {
     const dispatch: GateDispatch = {
-      feature: workplanMatch[1]!,
+      feature,
       cwd,
       codex: payload.tool_input.codex,
       ...(payload.sessionId ? { sessionId: payload.sessionId } : {}),
