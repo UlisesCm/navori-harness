@@ -108,3 +108,11 @@ Scribe y reviewer externos de Claude ejecutaron el ciclo sin cambiar permisos. L
 
 Gate completo del reviewer: `bun run check` exit 0, 405 archivos de tests, 8794 tests pasaron y dos skipped; coverage floor OK. Recibo verificado `status:ok`, `fresh:true`, `gateKind:full` antes del delta editorial y este cierre. El reviewer debe revalidar y re-firmar esos deltas antes de commit y publicación del PR de scaffold a dev, sin merge automático. Siguiente implementación: E1/M1, tras disponer de un harness funcional.
 
+## 2026-10-12 20:01 codex — Define spec 0050 de resultados y perfiles actuales
+
+Creada `specs/0050-codex-resultados-equivalentes/{requirements,design,tasks}.md` con 18 requisitos EARS, cuatro entregas, cinco milestones y 12 tareas pendientes. Define resultados comparables entre Claude Code y Codex mediante sus mecanismos nativos y perfiles de última versión conocida para principal y todos los subagentes: Opus medium → Sol medium; Sonnet medium → Luna high; otros esfuerzos, pins y overrides explícitos se conservan. El diseño reutiliza evidencia, handoffs, receipts y dispatch existentes; distingue configuración de modelo efectivo y exige evaluación comparativa futura.
+
+El challenge incorporó autorización humana verificable, cobertura de cada rol habilitado, consumo exclusivo de preparación y frescura desconocida del catálogo. `spec check` pasó sin findings; `spec classify` produjo cuatro PRs de implementación y 2800 LOC estimadas. Este ciclo entrega únicamente el scaffold y no ejecuta tareas ni sondas vivas.
+
+Reviewer APPROVED. Gate completo exit 0: 418 archivos de tests, 8539 aprobados, dos omitidos y cero fallos. Recibo para `main` verificado con `status:ok`, `fresh:true`, `gateKind:full`; review sellado y correlacionado. Publicación autorizada a `main`, sin merge automático. La instalación frozen del worktree corrigió dependencias de entorno anteriores sin modificar fuente ni lockfile. La spec 0049 permanece fuera de este ciclo.
+

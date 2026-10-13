@@ -1,11 +1,17 @@
 # Sesión actual
 
-**Estado:** `0049-master-plan-production-hardening` E1/M1 implementado y revisado; revisión de documentación pendiente. Sin commit, push ni PR de implementación. M2 no iniciado; M2–M7 pendientes en `tasks.md`, tablero canónico.
+**Estado:** spec `0049-master-plan-production-hardening`, E1 en curso. M1 comprometido en `0309c30d`. M2 implementado y revisado; commit pendiente de cerrar la integración de `origin/dev`. M3–M7 pendientes. Sin push ni PR de implementación.
 
 ## Evidencia
-Reviewer: A1 independiente, exit 0, 2 archivos/52 pruebas aprobadas; scoped y fast exit 0. Recibo consultado antes de editar documentación: `status:ok`, `fresh:false`, gate vencido. El intento full excedió el timeout del host (120 s), pero el log continuó con 418 archivos/8563 pruebas aprobadas y 2 omitidas; sin exit global comprobado, full no confirmado.
+- M1: A1 52/52, revisión aprobada y gate full verde.
+- M2: A2 73/73, revisión aprobada y gate full exit 0: 8568 pruebas aprobadas, 2 omitidas.
+- El handoff canónico de M2 y el recibo full se renovaron antes de integrar. Deben validarse de nuevo sobre el resultado integrado.
+- El diff de M2 está respaldado en el stash `8a9bf196c908381f0d827f7e1ec52e29195af1da`.
 
 ## Siguiente paso
-Reviewer fresco sobre el diff con documentación y recibo renovado; después, commit atómico de M1 vía publisher si el flujo lo autoriza. Sin iniciar M2 ni autorizar push, PR, merge o despliegue en este paso.
+Verificar el resultado integrado, renovar revisión/recibo y cerrar el commit local de M2. Después, medir el alcance de M3 antes de despachar. `specs/0049-master-plan-production-hardening/tasks.md` es el tablero canónico.
 
-El bloqueo histórico del runner de Pi no está vigente: los agentes acotados concluyeron. No se afirma una corrección global de 0048, que sigue fuera del alcance de esta spec.
+## Trabajo concurrente conservado
+El scaffold de `0050-codex-resultados-equivalentes` quedó integrado en `dev`, con revisión y verificación documentadas. Su implementación no está iniciada ni autorizada por este ciclo. Siguiente paso propio: clasificar y aprobar el workplan E1 desde la base actualizada.
+
+Los agentes acotados de 0049 funcionaron; esto no afirma una corrección global del runner de Pi de la spec 0048.
