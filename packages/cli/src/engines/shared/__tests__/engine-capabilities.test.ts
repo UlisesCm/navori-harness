@@ -9,9 +9,78 @@ import {
   ENGINE_CAPABILITIES,
   validateEngineCapabilities,
   CONTROL_DEFINITIONS,
+  RESULT_DEFINITIONS,
+  pendingCycleResults,
+  codexControlCapability,
   type ControlDeclaration,
   type EngineCapabilities,
 } from "../engine-capabilities.ts";
+import { codexCapabilityFor } from "../codex-parity.ts";
+
+describe("spec 0050 result contract", () => {
+  // Covers: R1
+  it("result-contract: names five outcomes with owners, mechanisms and evidence, initially pending", () => {
+    const ids = [
+      "authorized-scope",
+      "independent-review",
+      "current-acceptance-evidence",
+      "action-authorization",
+      "continuity",
+    ];
+    expect(Object.keys(RESULT_DEFINITIONS)).toEqual(ids);
+    for (const engine of ["claude", "codex"] as const) {
+      const cycle = pendingCycleResults("0050-e1", engine);
+      expect(cycle.task).toBe("0050-e1");
+      expect(cycle.engine).toBe(engine);
+      expect(Object.keys(cycle.results)).toEqual(ids);
+      for (const [id, definition] of Object.entries(RESULT_DEFINITIONS)) {
+        expect(definition.owner, id).not.toBe("");
+        expect(definition.mechanism, id).not.toBe("");
+        expect(definition.evidenceBindings.length, id).toBeGreaterThan(0);
+      }
+      expect(Object.values(cycle.results)).toEqual(
+        ids.map(() => ({ state: "pending", evidence: null })),
+      );
+    }
+  });
+
+  // Covers: R2
+  it("versioned-evidence-consistency: control claims resolve the canonical version and surface", () => {
+    for (const [control, surface] of [
+      ["plan-gate", "hook:plan-gate"],
+      ["general-purpose-confirm", "hook:general-purpose-confirm"],
+      ["repeat-failure-advice", "hook:routing-watch"],
+    ] as const) {
+      expect(codexControlCapability(control, "0.160.0")).toEqual(
+        codexCapabilityFor(surface, "0.160.0"),
+      );
+    }
+    expect(codexControlCapability("plan-gate", "0.160.0")).toMatchObject({
+      state: "enforced",
+      evidence: { surfaces: ["hook:plan-gate"], smoke: "pass" },
+    });
+  });
+
+  // Covers: R2
+  it("unverified-surface: a rendered control or newer host never inherits historical enforcement", () => {
+    expect(codexControlCapability("plan-gate", "0.161.0")).toMatchObject({
+      state: "unknown",
+      evidence: null,
+    });
+    expect(codexControlCapability("handoff-consumer", "0.160.0")).toMatchObject({
+      state: "unknown",
+      evidence: null,
+    });
+    expect(codexControlCapability("markdown-ownership", "0.160.0")).toMatchObject({
+      state: "unknown",
+      evidence: null,
+    });
+    expect(pendingCycleResults("0050-e1", "codex").results["action-authorization"]).toEqual({
+      state: "pending",
+      evidence: null,
+    });
+  });
+});
 
 const FAKE_ENGINE_CAPABILITIES: EngineCapabilities = {
   id: "claude",
@@ -157,7 +226,11 @@ describe("Pi control boundaries", () => {
     expect(ENGINE_CAPABILITIES.pi.controls["acceptance-evidence"]).toMatchObject({
       state: "enforced",
       reason: expect.stringContaining("host-observed exits"),
-      evidence: { kind: "extension-tool", path: ".pi/extensions/navori.ts", tool: "bash" },
+      evidence: {
+        kind: "extension-tool",
+        path: ".pi/extensions/navori.ts",
+        tool: "bash",
+      },
     });
   });
 });
@@ -224,7 +297,10 @@ describe("controls (spec 0033 D5, R20)", () => {
 
   it("rejects an `enforced` object literal with no `evidence` at compile time", () => {
     // @ts-expect-error — `state: "enforced"` requires `evidence` by the type.
-    const invalid: ControlDeclaration = { state: "enforced", reason: "missing evidence" };
+    const invalid: ControlDeclaration = {
+      state: "enforced",
+      reason: "missing evidence",
+    };
     expect(invalid).toBeDefined();
   });
 });

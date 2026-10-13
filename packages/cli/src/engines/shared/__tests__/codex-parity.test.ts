@@ -9,9 +9,11 @@ import {
   codexParityIssues,
   codexSourceIssue,
   minCodexVersion,
+  codexCapabilityFor,
   type CodexParity,
   type CodexVerification,
 } from "../codex-parity.ts";
+import { codexControlCapability } from "../engine-capabilities.ts";
 
 const SOURCE = {
   url: "https://learn.chatgpt.com/docs/hooks",
@@ -29,6 +31,81 @@ const verification = (
   verifiedAt: "2026-10-02",
   probe: "pass",
   ...overrides,
+});
+
+describe("spec 0050 scoped capability evidence", () => {
+  // Covers: R2
+  it("parity-version-and-surface: every published live row names exact scope and reproduction", () => {
+    for (const [surface, row] of Object.entries(CODEX_PARITY)) {
+      if (row.state === "limite-codex" || row.verification === undefined) continue;
+      const claim = codexCapabilityFor(surface, "0.160.0");
+      expect(claim, surface).toMatchObject({
+        codexVersion: "0.160.0",
+        surface,
+        state: row.enforcing ? "enforced" : "advisory",
+        evidence: {
+          reproduction: expect.stringContaining(`#${row.verification.toLowerCase()}`),
+          surfaces: expect.arrayContaining([surface]),
+        },
+      });
+    }
+  });
+
+  // Covers: R2
+  it("same-version-surface-is-consistent: controls and parity share historical enforcement", () => {
+    for (const control of ["plan-gate", "general-purpose-confirm"] as const) {
+      expect(codexControlCapability(control, "0.160.0")).toEqual(
+        codexCapabilityFor(`hook:${control}`, "0.160.0"),
+      );
+      expect(codexControlCapability(control, "0.160.0").state).toBe("enforced");
+    }
+  });
+
+  // Covers: R2
+  it("historical-difference-is-version-scoped: a limit from an older version remains distinct", () => {
+    const surface = "hook:plan-gate";
+    const history: Record<string, CodexParity> = {
+      [surface]: {
+        state: "limite-codex",
+        source: { ...SOURCE, codexVersion: "0.150.0" },
+      },
+    };
+    expect(codexCapabilityFor(surface, "0.150.0", history).state).toBe("unsupported");
+    expect(codexCapabilityFor(surface, "0.160.0", history).state).toBe("unknown");
+    expect(codexCapabilityFor(surface, "0.160.0").state).toBe("enforced");
+    expect(codexCapabilityFor(surface, "0.170.0").state).toBe("unknown");
+  });
+
+  // Covers: R2
+  it("smoke-scope-is-bounded: passing one hook cannot promote another surface or role", () => {
+    const row = CODEX_PARITY["hook:general-purpose-confirm"]!;
+    expect(codexCapabilityFor("hook:plan-gate", "0.160.0", { "hook:plan-gate": row }).state).toBe(
+      "unknown",
+    );
+    expect(codexCapabilityFor("agent:scout", "0.160.0").state).toBe("unknown");
+    expect(codexCapabilityFor("hook:master-plan-context", "0.160.0").state).toBe("advisory");
+    expect(codexCapabilityFor("hook:role-guard", "0.160.0").evidence).toMatchObject({
+      surfaces: ["hook:role-guard"],
+    });
+  });
+
+  // Covers: R2
+  it.each([
+    { surfaces: undefined },
+    { reproduction: undefined },
+    { probe: "fail" as const },
+    { smoke: "fail" as const },
+    { verifiedAt: "invalid" },
+    { verifiedAt: "9999-01-01" },
+    { url: "https://example.invalid/hooks" },
+  ])("does not publish unverified or invalid evidence: %j", (override) => {
+    const evidence = { ...CODEX_VERIFICATIONS.S4!, ...override };
+    expect(
+      codexCapabilityFor("hook:plan-gate", "0.160.0", CODEX_PARITY, {
+        S4: evidence,
+      }),
+    ).toMatchObject({ state: "unknown", evidence: null });
+  });
 });
 
 describe("CodexParitySchema", () => {
@@ -56,8 +133,11 @@ describe("CodexParitySchema", () => {
   // Covers: R1
   it("an equivalente row must name its mechanism, a limite-codex row its source", () => {
     expect(
-      CodexParitySchema.safeParse({ state: "equivalente", mechanism: "", enforcing: false })
-        .success,
+      CodexParitySchema.safeParse({
+        state: "equivalente",
+        mechanism: "",
+        enforcing: false,
+      }).success,
     ).toBe(false);
     expect(CodexParitySchema.safeParse({ state: "limite-codex" }).success).toBe(false);
   });
@@ -152,7 +232,11 @@ describe("the real CODEX_PARITY table", () => {
 });
 
 describe("minCodexVersion", () => {
-  const equal: CodexParity = { state: "igual", enforcing: false, verification: "V1" };
+  const equal: CodexParity = {
+    state: "igual",
+    enforcing: false,
+    verification: "V1",
+  };
   const equivalent: CodexParity = {
     state: "equivalente",
     mechanism: "m",
@@ -197,7 +281,10 @@ describe("minCodexVersion", () => {
           unverified: { state: "igual", enforcing: false },
           failed: { ...equal, verification: "V3" },
         },
-        { V1: verification("0.140.0"), V3: verification("0.170.0", { probe: "fail" }) },
+        {
+          V1: verification("0.140.0"),
+          V3: verification("0.170.0", { probe: "fail" }),
+        },
       ),
     ).toBe("0.140.0");
     expect(minCodexVersion({ limit }, {})).toBe("0.0.0");

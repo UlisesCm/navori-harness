@@ -122,3 +122,9 @@ El gate rechazaba `spec: <spec> E<n> M<n>` porque solo parseaba workplan/nivel-0
 
 Auditoría y challenge completados; usuario aprobó el plan. Suite específica 84/84, reviewer APPROVED y gate completo exit 0: 418 archivos, 8582 tests aprobados, dos omitidos y cero fallos; coverage floor verde. Recibo vigente para `main`, review sellado y correlacionado. La acreditación automática de señal Bash no está disponible en esta sesión; se conserva la evidencia de ejecución sin inventar autoridad. Activación global y smoke vivo pendientes. Siguiente paso: publicar el fix y retomar E1 de 0050 con su workplan aprobado; el scaffold ya está integrado por #1308.
 
+## 2026-10-12 22:23 codex — Implementa 0050 E1 de resultados y capacidades verificables
+
+Integrado el fix #1309 por #1310; main y origin/dev actualizados a 8ebe56ed, preservando el worktree local dev con cambios ajenos. E1/M1 implementa el contrato tipado de cinco resultados, sus responsables y vínculos de evidencia, con inicialización pendiente. Las capacidades Codex se resuelven desde el inventario existente por versión y superficie exactas; conserva evidencia histórica y devuelve unknown para contextos no verificados. T1/T2 completadas; E2–E4 permanecen pendientes en tasks.md. No se afirma equivalencia viva ni se implementan aún perfiles dinámicos.
+
+Usuario aprobó E1. A1/A2 ejecutados 52/52 cada uno, fast gate verde y spec check sin findings. Reviewer APPROVED sin findings; gate completo exit 0: 418 archivos, 8596 tests aprobados, dos omitidos y cero fallos, coverage floor verde. Recibo vigente para main con gateKind full; revisión sellada y correlacionada. La sesión no acredita automáticamente identidad de señal Bash, por lo que no se inventó evidencia del workplan. Siguiente paso: publicar e integrar E1 y preparar el workplan E2; activación global y smoke vivo del encabezado SDD siguen fuera de este ciclo.
+

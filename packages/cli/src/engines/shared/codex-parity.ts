@@ -93,6 +93,10 @@ export type CodexParity = z.infer<typeof CodexParitySchema>;
 /** A dated live probe of one Codex capability (filled in by the probe tasks). */
 export interface CodexVerification {
   readonly capability: string;
+  /** Exact inventory surfaces exercised; absent on legacy evidence, never inferred. */
+  readonly surfaces?: readonly string[];
+  /** Repository evidence section containing the reproduction steps and observations. */
+  readonly reproduction?: string;
   /** Official doc or source URL; same allowlist as a `limite-codex` source. */
   readonly url: string;
   /** Semver of the Codex binary that was probed. */
@@ -104,6 +108,69 @@ export interface CodexVerification {
   readonly multiAgent?: readonly ("v1" | "v2")[];
   /** Required when a referencing row is `enforcing` (R25). */
   readonly smoke?: "pass" | "fail";
+}
+
+/** A capability claim for one exact host version and inventory surface. */
+interface CodexCapabilityScope {
+  readonly codexVersion: string;
+  readonly surface: string;
+  readonly mechanism: string;
+}
+
+type CodexParitySource = Extract<CodexParity, { state: "limite-codex" }>["source"];
+
+/** Known claims require evidence; an unknown host never carries a promoted record. */
+export type CodexCapabilityDeclaration = CodexCapabilityScope &
+  (
+    | { readonly state: "unknown"; readonly evidence: null }
+    | { readonly state: "unsupported"; readonly evidence: CodexParitySource }
+    | { readonly state: "enforced" | "advisory"; readonly evidence: CodexVerification }
+  );
+
+/**
+ * Resolve historical evidence only within its exact version and surface. Rendered
+ * inventory, a newer host, and another hook/agent never inherit a passing smoke.
+ * This describes capability evidence, not consent or a successful work cycle.
+ */
+export function codexCapabilityFor(
+  surface: string,
+  codexVersion: string,
+  parity: Readonly<Record<string, CodexParity>> = CODEX_PARITY,
+  verifications: Readonly<Record<string, CodexVerification>> = CODEX_VERIFICATIONS,
+): CodexCapabilityDeclaration {
+  const row = parity[surface];
+  const mechanism = row?.state === "equivalente" ? row.mechanism : surface;
+  const unknown: CodexCapabilityDeclaration = {
+    surface,
+    codexVersion,
+    mechanism,
+    state: "unknown",
+    evidence: null,
+  };
+  if (row === undefined || codexParityIssues(row, verifications).length > 0) return unknown;
+  if (row.state === "limite-codex") {
+    return row.source.codexVersion === codexVersion
+      ? { ...unknown, state: "unsupported", evidence: row.source }
+      : unknown;
+  }
+  const evidence = verifications[row.verification ?? ""];
+  if (
+    evidence?.codexVersion !== codexVersion ||
+    evidence.probe !== "pass" ||
+    !evidence.surfaces?.includes(surface) ||
+    !evidence.reproduction ||
+    codexSourceIssue(evidence.url, codexVersion) !== null ||
+    !SEMVER.test(codexVersion) ||
+    !ISO_DATE.test(evidence.verifiedAt) ||
+    Number.isNaN(Date.parse(evidence.verifiedAt)) ||
+    evidence.verifiedAt > new Date().toISOString().slice(0, 10)
+  )
+    return unknown;
+  return {
+    ...unknown,
+    state: row.enforcing ? "enforced" : "advisory",
+    evidence,
+  };
 }
 
 /**
@@ -184,7 +251,7 @@ export function codexParityIssues(
   if (parity.verification !== undefined && verification === undefined) {
     issues.push(`references unknown verification ${parity.verification}`);
   }
-  if (parity.enforcing && verification?.smoke !== "pass") {
+  if (parity.enforcing && (verification?.smoke !== "pass" || verification.probe !== "pass")) {
     issues.push("an enforcing row needs a verification with smoke 'pass'");
   }
   const versions = verification?.multiAgent;
@@ -275,11 +342,13 @@ const SOURCES = {
 
 const PROBED_AT = "2026-10-03";
 
-type Evidence = Pick<CodexVerification, "capability" | "url"> &
-  Partial<Pick<CodexVerification, "probe" | "multiAgent" | "smoke">>;
+type Evidence = Pick<CodexVerification, "capability" | "url"> & {
+  readonly surfaces: readonly string[];
+} & Partial<Pick<CodexVerification, "probe" | "multiAgent" | "smoke">>;
 
 /** A verification run on {@link CODEX_VERSION} on {@link PROBED_AT}; the probe passed unless said otherwise. */
-const ran = ({ probe = "pass", ...rest }: Evidence): CodexVerification => ({
+const ran = (id: VerificationId, { probe = "pass", ...rest }: Evidence): CodexVerification => ({
+  reproduction: `docs/research/codex-paridad-verificacion.md#${id.toLowerCase()}`,
   codexVersion: CODEX_VERSION,
   verifiedAt: PROBED_AT,
   probe,
@@ -296,94 +365,111 @@ const ran = ({ probe = "pass", ...rest }: Evidence): CodexVerification => ({
  * one alone). Rows without an entry here were not run and stay unpromoted.
  */
 export const CODEX_VERIFICATIONS: Readonly<Record<string, CodexVerification>> = {
-  V1: ran({
+  V1: ran("V1", {
+    surfaces: ["permission-rule:class:prompt-amendment"],
     capability:
       "prefix_rule prompt: asks in the main thread, runs with no prompt inside a spawned subagent",
     url: SOURCES.execPolicyReadme,
     probe: "fail",
   }),
-  V2: ran({
+  V2: ran("V2", {
+    surfaces: ["host:hook-child-payload"],
     capability:
       "PreToolUse/PostToolUse(Bash) payload carries top-level agent_type and agent_id inside a subagent",
     url: SOURCES.hooksDoc,
   }),
-  V3: ran({
+  V3: ran("V3", {
+    surfaces: ["host:spawn-payload"],
     capability:
       "spawn_agent hook payload: v1 exposes agent_type and a readable message; v2 flattens the tool name to spawn_agent and encrypts the message",
     url: SOURCES.spawnV2,
     multiAgent: ["v1", "v2"],
   }),
-  V4: ran({
+  V4: ran("V4", {
+    surfaces: ["host:bash-exit-record"],
     capability:
       "the rollout holds the current Bash call's item_completed record (with exit_code) when PostToolUse fires",
     url: SOURCES.hooksDoc,
   }),
-  V5: ran({
+  V5: ran("V5", {
+    surfaces: ["host:nested-spawn"],
     capability:
       "a subagent can spawn a grandchild under v2 (depth 2); under v1 it has no spawn tool",
     url: SOURCES.spawnV2,
     multiAgent: ["v1", "v2"],
   }),
-  V6: ran({
+  V6: ran("V6", {
+    surfaces: ["host:background-tools"],
     capability:
       "no run_in_background field and no Monitor tool exist in Codex; a shell `&` leaves no runtime marker",
     url: SOURCES.execCommand,
   }),
-  V7: ran({
+  V7: ran("V7", {
+    surfaces: ["host:model-payload"],
     capability: "the model id is a top-level field of the PreToolUse/PostToolUse payloads",
     url: SOURCES.hooksDoc,
   }),
-  V10: ran({
+  V10: ran("V10", {
+    surfaces: ["host:unknown-agent-type"],
     capability: "spawn_agent with an unknown agent_type (orchestrator) fails as unknown",
     url: SOURCES.spawnV2,
   }),
-  S1: ran({
+  S1: ran("S1", {
+    surfaces: ["hook:role-guard"],
     capability: "role-guard denies a scout apply_patch outside its handoff and specs prefixes",
     url: SOURCES.hooksDoc,
     smoke: "pass",
   }),
-  S2: ran({
+  S2: ran("S2", {
+    surfaces: ["flow:nested-agent-dispatch"],
     capability:
       "role-guard denies spawn_agent from a subagent under v2; under v1 the child has no spawn tool (V5)",
     url: SOURCES.spawnV2,
     multiAgent: ["v1", "v2"],
     smoke: "pass",
   }),
-  S3: ran({
+  S3: ran("S3", {
+    surfaces: ["hook:plan-gate"],
     capability:
       "plan-gate under v1, the v1 half of the S4 pair: denies a spawn without the opening line, allows `nivel-0:`",
     url: SOURCES.spawnV2,
     smoke: "pass",
   }),
-  S4: ran({
+  S4: ran("S4", {
+    surfaces: ["hook:plan-gate"],
     capability:
       "plan-gate under v1 (S3) and v2 (deny, allow through the dispatch file). The model-written dispatch (S4d) was rejected for its +00:00 offset: fixed in the same task and re-smoked live (S4f, PASS): the model wrote its own dispatch, the spawn was allowed and the dispatch consumed",
     url: SOURCES.spawnV2,
     multiAgent: ["v1", "v2"],
     smoke: "pass",
   }),
-  S5: ran({
+  S5: ran("S5", {
+    surfaces: ["plugin-script:tgrep/guard-search-routing.sh"],
     capability:
       "the tgrep lane of guard-destructive blocks a recursive `grep -rn` through the shell when a tgrep index exists",
     url: SOURCES.hooksDoc,
     smoke: "pass",
   }),
-  S7: ran({
+  S7: ran("S7", {
+    surfaces: ["hook:pr-publisher-confirm"],
     capability: "pr-publisher-confirm denies `gh pr create` in the main thread",
     url: SOURCES.hooksDoc,
     smoke: "pass",
   }),
-  S8: ran({
+  S8: ran("S8", {
+    surfaces: ["hook:bash-outcome-watch"],
     capability: "bash-outcome-watch advises after three consecutive failing Bash calls",
     url: SOURCES.hooksDoc,
     smoke: "pass",
   }),
-  S9: ran({
+  S9: ran("S9", {
+    surfaces: ["hook:general-purpose-confirm"],
     capability: "general-purpose-confirm denies a general-purpose spawn_agent",
     url: SOURCES.hooksDoc,
     smoke: "pass",
   }),
-  S10: ran({
+  S10: ran("S10", {
+    surfaces: ["hook:master-plan-context"],
     capability:
       "master-plan-context SessionStart output reaches the session; indirect: the model offered to continue specs/_master/INDEX.md, the hook itself was not smoked",
     url: SOURCES.hooksDoc,

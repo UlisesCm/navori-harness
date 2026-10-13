@@ -1,10 +1,10 @@
 # Codex: resultados equivalentes y perfiles actuales — Tasks
 
-**Estado:** scaffold; todas las tareas y aceptaciones están pendientes. Este documento no representa implementación, suite ejecutada ni evaluación viva. Cada caso futuro debe incluir `// Covers: R<n>`.
+**Estado:** E1/M1 implementados y probados; E2–E4 pendientes. La evaluación comparativa viva está pendiente. Cada caso debe incluir `// Covers: R<n>`.
 
-**Precondición:** crear y clasificar un workplan independiente por entrega y obtener la aprobación correspondiente. E<n+1> comienza después de que E<n> se integre. Cada milestone ejecuta su criterio y `bun run check:fast` desde la raíz del repo; al cerrar cada entrega se ejecuta `bun run check` desde la raíz. Este scaffold no autoriza iniciar E1. Los paths marcados *futuro* son salidas que deberá crear la tarea indicada.
+**Precondición:** crear y clasificar un workplan independiente por entrega y obtener la aprobación correspondiente. E<n+1> comienza después de que E<n> se integre. Cada milestone ejecuta su criterio y `bun run check:fast` desde la raíz del repo; al cerrar cada entrega se ejecuta `bun run check` desde la raíz. Para E2–E4, esta precondición sigue vigente. Los paths marcados *futuro* son salidas que deberá crear la tarea indicada.
 
-## E1 — Contrato de resultados y baseline
+## E1 — Contrato de resultados y baseline — implementado
 
 Estimated LOC: 450
 
@@ -13,8 +13,10 @@ Estimated LOC: 450
 - **A1** [observable] — Ejecutar `cd packages/cli && bun run test src/engines/shared/__tests__/engine-capabilities.test.ts src/engines/shared/__tests__/codex-parity.test.ts` → exit 0; matriz distingue resultados, versión, superficie y evidencia, reconcilia contradicciones para la misma versión/superficie y conserva diferencias históricas acotadas por versión/contexto.
 - **A2** [observable] — Ejecutar `cd packages/cli && bun run test src/engines/shared/__tests__/engine-capabilities.test.ts src/engines/shared/__tests__/codex-parity.test.ts` → exit 0; las cinco garantías tienen owner, mecanismo y estado/evidencia, y la capacidad Codex registra versión y superficie verificadas.
 
-- [ ] **T1** (R1, R2) — Definir contrato común de outcomes y evidencia de capacidades. Casos: `result-contract`, `versioned-evidence-consistency`, `unverified-surface`; suite existente `packages/cli/src/engines/shared/__tests__/engine-capabilities.test.ts`. `effect: behavior`; `test: engine-capabilities.test.ts::versioned-evidence-consistency`.
-- [ ] **T2** (R2) — Reconciliar contradicciones de capacidades para la misma versión/superficie y mantener diferencias históricas acotadas por versión/contexto. Casos: `parity-version-and-surface`, `same-version-surface-is-consistent`, `historical-difference-is-version-scoped`, `smoke-scope-is-bounded`; suite existente `packages/cli/src/engines/shared/__tests__/codex-parity.test.ts`. `effect: behavior`; `test: codex-parity.test.ts::same-version-surface-is-consistent`.
+Verificación ejecutada: A1 y A2 pasaron con 52 pruebas cada una. `bun run check:fast` terminó con exit 0 (formatter, duplicación, AST checks, lint y typecheck). La identidad de grabación observada por el host Bash no fue confirmada; el progreso del workplan sigue pendiente.
+
+- [x] **T1** (R1, R2) — Definir contrato común de outcomes y evidencia de capacidades. Casos: `result-contract`, `versioned-evidence-consistency`, `unverified-surface`; suite existente `packages/cli/src/engines/shared/__tests__/engine-capabilities.test.ts`. `effect: behavior`; `test: engine-capabilities.test.ts::versioned-evidence-consistency`.
+- [x] **T2** (R2) — Reconciliar contradicciones de capacidades para la misma versión/superficie y mantener diferencias históricas acotadas por versión/contexto. Casos: `parity-version-and-surface`, `same-version-surface-is-consistent`, `historical-difference-is-version-scoped`, `smoke-scope-is-bounded`; suite existente `packages/cli/src/engines/shared/__tests__/codex-parity.test.ts`. `effect: behavior`; `test: codex-parity.test.ts::same-version-surface-is-consistent`.
 
 ## E2 — Evidencia actual y revisión independiente
 
