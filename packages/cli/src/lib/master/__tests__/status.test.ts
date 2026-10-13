@@ -1,4 +1,4 @@
-// Covers: R31, R36, R40, R44, R46, R47, R54, R61
+// Covers: R10, R11, R31, R36, R40, R44, R46, R47, R54, R61
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -499,6 +499,47 @@ describe("master status", () => {
     const line = statusLine(readMasterStatus(cwd), "specs");
     expect(line).toContain("sin parte activa");
     expect(line).not.toContain("ninguna");
+  });
+
+  // Covers: R10
+  it("primera inserción conserva Origen y prosa tras dos corridas idénticas; MASTER.md en CRLF sigue solo CRLF", () => {
+    const masterPath = join(cwd, "specs/_master/01-mvp/MASTER.md");
+    const body = "Origen: context/raw/a.md\n\nProsa previa.\n";
+    const doc = `# Master\n\n## Entrega en partes\n\n${body}\n## Preguntas abiertas\n\nNinguna\n`;
+    writeFileSync(masterPath, doc);
+    writeMasterStatus(cwd);
+    const first = readFileSync(masterPath, "utf8");
+    expect(first).toContain("Origen: context/raw/a.md");
+    expect(first).toContain("Prosa previa.");
+    expect(first).toMatch(
+      /## Entrega en partes\n\n<!-- navori:master-parts[^]*<!-- \/navori:master-parts -->\n\nOrigen: /,
+    );
+    expect(first).toContain("\n## Preguntas abiertas\n\nNinguna\n");
+    writeMasterStatus(cwd);
+    expect(readFileSync(masterPath, "utf8")).toBe(first);
+
+    writeFileSync(masterPath, doc.replace(/\n/g, "\r\n"));
+    writeMasterStatus(cwd);
+    const crlf = readFileSync(masterPath, "utf8");
+    expect(crlf).toContain("Origen: context/raw/a.md");
+    expect(crlf.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+    writeMasterStatus(cwd);
+    expect(readFileSync(masterPath, "utf8")).toBe(crlf);
+  });
+
+  // Covers: R11
+  it("marcador de apertura sin cierre falla sin escribir", () => {
+    const dir = join(cwd, "specs/_master/01-mvp");
+    const masterPath = join(dir, "MASTER.md");
+    writeFileSync(
+      masterPath,
+      '# Master\n\n## Entrega en partes\n\n<!-- navori:master-parts hash="abc" -->\nResto\n\n## Otra\n',
+    );
+    const before = readFileSync(masterPath, "utf8");
+    expect(() => writeMasterStatus(cwd)).toThrow("navori:master-parts");
+    expect(readFileSync(masterPath, "utf8")).toBe(before);
+    expect(() => readFileSync(join(dir, "STATUS.md"))).toThrow();
+    expect(() => readFileSync(join(cwd, "specs/_master/INDEX.md"))).toThrow();
   });
 
   // Covers: R36, R54

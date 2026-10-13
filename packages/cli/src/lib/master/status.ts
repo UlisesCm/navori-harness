@@ -4,6 +4,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { readConfig } from "../config/config.ts";
 import { writeFileAtomic } from "../primitives/atomic.ts";
+import { detectEol } from "../primitives/eol.ts";
 import { checkPart } from "./check-part.ts";
 import { DeliveryStateSchema } from "./delivery-schema.ts";
 import { checkActiveDelivery, deliveryLifecycle } from "./delivery.ts";
@@ -478,17 +479,29 @@ export function writeMasterStatus(cwd: string): MasterStatus {
     let replacement: string | null = null;
     if (existsSync(masterPath)) {
       const content = readFileSync(masterPath, "utf8");
-      const region = renderMasterParts(parts, status.mode);
+      const eol = detectEol(content);
+      const region = renderMasterParts(parts, status.mode).replace(/\n/g, eol);
       const existing = masterPartsRegion(content);
-      if (existing) replacement = content.replace(existing, region);
+      if (existing) replacement = content.replace(existing, () => region);
+      else if (content.includes("<!-- navori:master-parts"))
+        // R11: an opening marker without its close; fail before any write.
+        throw new Error(
+          `${masterPath}: marcador '<!-- navori:master-parts' sin cierre '<!-- /navori:master-parts -->'; corríjalo a mano`,
+        );
       else {
-        const heading = /^## (?:Entrega en partes|Delivery in parts)\s*$/m.exec(content);
+        const heading = /^## (?:Entrega en partes|Delivery in parts)[ \t]*$/m.exec(content);
         if (heading?.index !== undefined) {
           const start = heading.index + heading[0].length;
           const next = /^## /gm;
           next.lastIndex = start;
           const end = next.exec(content)?.index ?? content.length;
-          replacement = `${content.slice(0, start)}\n\n${region}\n\n${content.slice(end).trimStart()}`;
+          const previous = content.slice(start, end).trim();
+          // R10: heading, region, previous body (keeps `Origen:`), then the next section.
+          replacement =
+            content.slice(0, start) +
+            `${eol}${eol}${region}${eol}${eol}` +
+            (previous ? `${previous}${eol}${eol}` : "") +
+            content.slice(end);
         }
       }
     }
