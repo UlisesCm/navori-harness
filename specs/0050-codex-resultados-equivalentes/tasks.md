@@ -1,8 +1,8 @@
 # Codex: resultados equivalentes y perfiles actuales — Tasks
 
-**Estado:** E1/M1 implementados y probados; E2–E4 pendientes. La evaluación comparativa viva está pendiente. Cada caso debe incluir `// Covers: R<n>`.
+**Estado:** E1/M1 y E2/M2 implementados; E2 aprobado con gate completo verificado. E3/E4 pendientes. La evaluación comparativa viva sigue pendiente. Cada caso debe incluir `// Covers: R<n>`.
 
-**Precondición:** crear y clasificar un workplan independiente por entrega y obtener la aprobación correspondiente. E<n+1> comienza después de que E<n> se integre. Cada milestone ejecuta su criterio y `bun run check:fast` desde la raíz del repo; al cerrar cada entrega se ejecuta `bun run check` desde la raíz. Para E2–E4, esta precondición sigue vigente. Los paths marcados *futuro* son salidas que deberá crear la tarea indicada.
+**Precondición:** crear y clasificar un workplan independiente por entrega y obtener la aprobación correspondiente. E<n+1> comienza después de que E<n> se integre. Cada milestone ejecuta su criterio y `bun run check:fast` desde la raíz del repo; al cerrar cada entrega se ejecuta `bun run check` desde la raíz. Para E3–E4, esta precondición sigue vigente. Los paths marcados *futuro* son salidas que deberá crear la tarea indicada.
 
 ## E1 — Contrato de resultados y baseline — implementado
 
@@ -18,7 +18,7 @@ Verificación ejecutada: A1 y A2 pasaron con 52 pruebas cada una. `bun run check
 - [x] **T1** (R1, R2) — Definir contrato común de outcomes y evidencia de capacidades. Casos: `result-contract`, `versioned-evidence-consistency`, `unverified-surface`; suite existente `packages/cli/src/engines/shared/__tests__/engine-capabilities.test.ts`. `effect: behavior`; `test: engine-capabilities.test.ts::versioned-evidence-consistency`.
 - [x] **T2** (R2) — Reconciliar contradicciones de capacidades para la misma versión/superficie y mantener diferencias históricas acotadas por versión/contexto. Casos: `parity-version-and-surface`, `same-version-surface-is-consistent`, `historical-difference-is-version-scoped`, `smoke-scope-is-bounded`; suite existente `packages/cli/src/engines/shared/__tests__/codex-parity.test.ts`. `effect: behavior`; `test: codex-parity.test.ts::same-version-surface-is-consistent`.
 
-## E2 — Evidencia actual y revisión independiente
+## E2 — Evidencia actual y revisión independiente — implementado, aprobado; gate completo verificado
 
 Estimated LOC: 750
 
@@ -27,9 +27,11 @@ Estimated LOC: 750
 - **A3** [observable] — Ejecutar `cd packages/cli && bun run test src/lib/plan/__tests__/evidence.test.ts src/lib/diagnose/__tests__/receipt.test.ts` → exit 0; evidencia faltante, fallida, de otro criterio o de inputs cambiados no pasa y una ejecución pertinente actual sí.
 - **A4** [observable] — Ejecutar `cd packages/cli && bun run test src/lib/handoff/__tests__/review-evidence.test.ts src/lib/__tests__/receipt-wiring.test.ts src/lib/plan/__tests__/codex-resume.test.ts` → exit 0; producer-review y review de diff cambiado se rechazan, review independiente actual se admite y resume conserva tarea sin revivir garantías obsoletas. `codex-resume.test.ts` es futuro y lo crea T5.
 
-- [ ] **T3** (R3, R4) — Vincular aceptación con ejecución, criterio, comando e identidad de estado; invalidar ante cambios. Casos: `missing-command-evidence`, `failed-command`, `wrong-criterion`, `changed-inputs`, `current-success`; suites existentes `packages/cli/src/lib/plan/__tests__/evidence.test.ts` y `packages/cli/src/lib/diagnose/__tests__/receipt.test.ts`. `effect: behavior`; `test: evidence.test.ts::changed-inputs`.
-- [ ] **T4** (R5) — Exigir revisión distinta al productor y vigente para el diff. Casos: `producer-review-rejected`, `independent-current-review`, `diff-invalidation`; suites existentes `packages/cli/src/lib/handoff/__tests__/review-evidence.test.ts` y `packages/cli/src/lib/__tests__/receipt-wiring.test.ts`. `effect: behavior`; `test: review-evidence.test.ts::independent-current-review`.
-- [ ] **T5** (R8) — Reanudar tarea y siguiente paso e invalidar garantías cuyo vínculo no se conserva. Casos: `resume-retains-task`, `resume-invalidates-stale-guarantees`; suite futura `packages/cli/src/lib/plan/__tests__/codex-resume.test.ts`, creada por T5. `effect: behavior`; `test: codex-resume.test.ts::resume-invalidates-stale-guarantees`.
+**Registro de aceptación E2:** A3 pasó 83/83 y A4 pasó 34/34. La regresión de deadline pasó 5/5; las fixtures legacy pasaron 76/76; las suites de prosa, 232/232; y los golden tests, 5/5. Revisión independiente: `APPROVED`. Gate completo: 420 archivos; 8610 pruebas aprobadas, 2 omitidas y 0 fallidas; coverage floor verde. Las atestaciones nativas del producer y del scribe, y el ciclo independiente `begin`/`seal`, fueron aceptados por la CLI fuente dentro del host acotado de esta sesión. Los comandos A3/A4 se ejecutaron y sus resultados se verificaron; los hooks legacy cargados no aportaron señal automática de workplan, por lo que no se afirma registro automático de aceptación. Esto no acredita equivalencia general entre modelos; la evaluación comparativa viva de E4 sigue pendiente.
+
+- [x] **T3** (R3, R4) — Vincular aceptación con ejecución, criterio, comando e identidad de estado; invalidar ante cambios. Casos: `missing-command-evidence`, `failed-command`, `wrong-criterion`, `changed-inputs`, `current-success`; suites existentes `packages/cli/src/lib/plan/__tests__/evidence.test.ts` y `packages/cli/src/lib/diagnose/__tests__/receipt.test.ts`. `effect: behavior`; `test: evidence.test.ts::changed-inputs`.
+- [x] **T4** (R5) — Exigir revisión distinta al productor y vigente para el diff. Casos: `producer-review-rejected`, `independent-current-review`, `diff-invalidation`; suites existentes `packages/cli/src/lib/handoff/__tests__/review-evidence.test.ts` y `packages/cli/src/lib/__tests__/receipt-wiring.test.ts`. `effect: behavior`; `test: review-evidence.test.ts::independent-current-review`.
+- [x] **T5** (R8) — Reanudar tarea y siguiente paso e invalidar garantías cuyo vínculo no se conserva. Casos: `resume-retains-task`, `resume-invalidates-stale-guarantees`; suite futura `packages/cli/src/lib/plan/__tests__/codex-resume.test.ts`, creada por T5. `effect: behavior`; `test: codex-resume.test.ts::resume-invalidates-stale-guarantees`.
 
 ## E3 — Autorización y ruta al principal
 

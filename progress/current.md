@@ -1,17 +1,19 @@
 # Sesión actual
 
-**Estado:** 0050 E1/M1 revisado; publicación e integración pendientes
+**Estado:** 0050 E2/M2 implementada y revisada; integración pendiente.
 
-## Tarea
-Spec `0050-codex-resultados-equivalentes`: E1/M1 implementado en `feat/0050-codex-resultados-e1`, worktree `navori-harness-0050-e1`. Contrato tipado de cinco resultados y capacidades Codex derivadas de evidencia acotada por versión y superficie; T1/T2 completadas. El fix #1309 del encabezado SDD ya se integró por #1310.
+## Trabajo conservado
+
+Branch `feat/0050-codex-resultados-e2`, worktree `/Users/ulisescm/Documents/dev-docs/navori-harness-0050-e2`, PR #1315 a `main`. E2/T3–T5: evidencia ejecutada actual, ownership nativo, revisión independiente vigente y resume read-only con deadline total. E1 mergeada; E3/E4 sin iniciar.
 
 ## Siguiente paso
-Publicar E1 a `main` y esperar su integración, sin merge automático. Después preparar y aprobar workplan E2/M2; `tasks.md` es el tablero canónico y E2–E4 permanecen pendientes. El hook exige que el usuario ejecute la creación del PR con título/cuerpo revisados. La CLI global 0.11.2 aún requiere activar un build corregido para probar en vivo el encabezado SDD; la ruta workplan permitió el ciclo aprobado sin modificar el hook.
 
-## Verificación
+Esperar integración de #1315 a `main`, sin merge automático. Después preparar y aprobar E3/M3; no iniciarla antes del merge. Conservar branch y worktree. El dispatch Codex se prepara en el checkout de la sesión, no en el worktree del encargo; la CLI global 0.12.0 aún requiere la ruta `workplan:` aprobada para esta entrega.
 
-E1: A1/A2 ejecutados, 52/52 cada uno; spec check verde, reviewer APPROVED sin findings y gate completo exit 0: 418 archivos, 8596 tests aprobados, dos omitidos y cero fallos; coverage floor verde. Recibo para `main` vigente (`status:ok`, `fresh:true`, `gateKind:full`). No se inventa acreditación automática de señal Bash, no disponible en esta sesión. La evaluación comparativa viva y los perfiles dinámicos siguen pendientes para E4.
+## Evidencia disponible
 
-## Trabajo previo conservado
+A3 83/83, A4 34/34, fixtures legacy 76/76, prosa/render 232/232, golden 5/5 y fast verdes. Reviewer APPROVED; full gate exit0: 420 archivos, 8610 aprobados, dos omitidos, cero fallos. SourceCLI validó attest de producer/scribe y begin/seal independiente; evidencia acotada al host observado, no equivalencia general. T3–T5 cerradas; delta editorial revalidado, review re-firmado y receipt final para main statusok/freshtrue/full. Hooks legacy no grabaron A3/A4; no inventar progreso recorded.
 
-Spec `0049-master-plan-production-hardening` mantiene su implementación pendiente y su propio tablero. Este ciclo no altera su scaffold ni su estado de publicación. Sus prerrequisitos del runner de Pi deben comprobarse al retomar ese trabajo.
+## Seguimientos
+
+#1314 demora excesiva de orquestación y #1312 disciplina de entregas se trabajan por separado. Detalle de cierre en `progress/history.md`.

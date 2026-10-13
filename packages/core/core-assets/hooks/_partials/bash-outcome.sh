@@ -278,6 +278,38 @@ navori_bash_codex_outcome() {
   return 0
 }
 
+ # Codex 0.162.1 observed CommandExecution: argv, file-URL cwd and completed exit.
+ # Missing effective cwd/command or an uncorrelated item never produces evidence.
+navori_codex_acceptance_payload() {
+  NV_CODEX_PAYLOAD="$payload" node -e '
+const fs = require("node:fs");
+const { fileURLToPath } = require("node:url");
+try {
+  const p = JSON.parse(process.env.NV_CODEX_PAYLOAD);
+  if (!p.tool_use_id || !p.transcript_path || p.is_interrupt || p.tool_input?.run_in_background) process.exit(0);
+  const fd = fs.openSync(p.transcript_path, "r");
+  let lines;
+  try {
+    const size = fs.fstatSync(fd).size;
+    const len = Math.min(size, 1048576);
+    const b = Buffer.alloc(len);
+    fs.readSync(fd, b, 0, len, size-len);
+    lines = b.toString("utf8").split("\n");
+  } finally { fs.closeSync(fd); }
+  for (let i = lines.length-1; i >= 0; i--) {
+    let r; try { r = JSON.parse(lines[i]); } catch { continue; }
+    const item = r?.payload?.item;
+    if (r?.type !== "event_msg" || r?.payload?.type !== "item_completed" || item?.type !== "CommandExecution" || item.id !== p.tool_use_id) continue;
+    if (item.exit_code !== 0 || item.status !== "completed" || typeof item.cwd !== "string") break;
+    if (!Array.isArray(item.command) || item.command.length !== 3 || !["-lc", "-c"].includes(item.command[1]) || item.command[2] !== p.tool_input?.command) break;
+    const cwd = item.cwd.startsWith("file:") ? fileURLToPath(item.cwd) : item.cwd;
+    if (!cwd.startsWith("/") || /[\r\n]/.test(cwd)) break;
+    process.stdout.write(JSON.stringify({...p, cwd}));
+    break;
+  }
+} catch {}'
+}
+
 # Called by `routing-watch.sh` once it knows the tool is `Bash`, and only under
 # `claude-post-tool-use` (Codex fires PostToolUse on failure too, so no signal).
 navori_bash_success_lane() {

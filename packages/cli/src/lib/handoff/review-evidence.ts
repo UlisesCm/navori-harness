@@ -25,7 +25,11 @@ import { z } from "zod";
 import { appendCliEvent, hasAuditTarget, outcomeFeatureKey } from "../audit/cli-event.ts";
 import type { ReviewCorrelation, ReviewOutcome, ReviewOutcomeVerdict } from "../audit/model.ts";
 import { evidenceIdentity } from "../diagnose/receipt.ts";
-import { CONTENT_ALG, contentIdentity } from "../primitives/content-identity.ts";
+import {
+  CONTENT_ALG,
+  contentIdentity,
+  type ContentIdentity,
+} from "../primitives/content-identity.ts";
 import { isUnderProgressDir } from "../primitives/progress-dirs.ts";
 import {
   resolveStateRoot,
@@ -38,6 +42,12 @@ import {
   ReviewSidecarSchema,
   type ReviewSidecar,
 } from "./review-schema.ts";
+import {
+  currentOwnership,
+  independentActor,
+  nativeActor,
+  NativeActorSchema,
+} from "./actor-provenance.ts";
 
 const hex64 = z.string().regex(/^[a-f0-9]{64}$/);
 const gitSha = z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/);
@@ -52,6 +62,8 @@ const IdentityShape = {
   gate: hex64.optional(),
   inputs: hex64,
   startedAt: isoUtc,
+  reviewer: NativeActorSchema.optional(),
+  ownership: hex64.optional(),
 };
 
 /** The CLI-owned begin stamp. */
@@ -85,6 +97,7 @@ export interface EvidenceOptions {
   target: string;
   /** `qualityGate.full`; `""` means no gate configured. */
   gate: string;
+  currentContent?: ContentIdentity;
 }
 
 export type BeginResult =
@@ -145,7 +158,7 @@ type Identity = Pick<ReviewStamp, "fingerprint" | "base" | "head" | "gate" | "in
 /** Current content + gate/inputs identity; `undefined` when it cannot be computed completely. */
 function currentIdentity(root: StateRoot, options: EvidenceOptions): Identity | undefined {
   try {
-    const content = contentIdentity(root.cwd, { target: options.target });
+    const content = options.currentContent ?? contentIdentity(root.cwd, { target: options.target });
     if (!content.ok) return undefined;
     const evidence = evidenceIdentity(root.cwd, options.gate);
     return {
@@ -189,6 +202,26 @@ export function beginReview(options: EvidenceOptions): BeginResult {
       );
     }
     const nonce = randomUUID();
+    const reviewer = process.env.CODEX_THREAD_ID ? nativeActor(root.cwd) : undefined;
+    const ownership = currentOwnership(
+      root.cwd,
+      options.feature,
+      options.target,
+      identity.fingerprint,
+      identity.head,
+      identity.base,
+      root.dir,
+    );
+    if (
+      process.env.CODEX_THREAD_ID &&
+      (!reviewer || !ownership || !independentActor(reviewer, ownership.actors))
+    ) {
+      return fail(
+        "independent native review unavailable",
+        "the current designated producers and reviewer must have distinct verified native contexts",
+        "have each producer attest the current delivery, then begin from the native reviewer context",
+      );
+    }
     const stamp: ReviewStamp = {
       v: 1,
       alg: CONTENT_ALG,
@@ -200,6 +233,7 @@ export function beginReview(options: EvidenceOptions): BeginResult {
       ...(identity.gate === undefined ? {} : { gate: identity.gate }),
       inputs: identity.inputs,
       startedAt,
+      ...(reviewer && ownership ? { reviewer, ownership: ownership.handoff } : {}),
     };
     // TODO(hygiene): stamps accumulate one per begin; prune when a state dir passes ~100 stamps.
     writeStateFileAtomic(root, stampName(options.feature, nonce), `${JSON.stringify(stamp)}\n`);
@@ -269,6 +303,30 @@ export function sealReview(options: EvidenceOptions & { nonce: string }): SealRe
       );
     }
     const same = sameIdentity(stamp, current);
+    if (stamp.reviewer) {
+      const reviewer = nativeActor(root.cwd);
+      const ownership = currentOwnership(
+        root.cwd,
+        options.feature,
+        options.target,
+        current.fingerprint,
+        current.head,
+        current.base,
+        root.dir,
+      );
+      if (
+        !reviewer ||
+        reviewer.thread !== stamp.reviewer.thread ||
+        !ownership ||
+        ownership.handoff !== stamp.ownership ||
+        !independentActor(reviewer, ownership.actors)
+      )
+        return fail(
+          "review ownership changed or unavailable",
+          "seal belongs to the native reviewer and the current delivery",
+          "begin a fresh independent review",
+        );
+    }
     const body: Omit<ReviewEvidence, "seal"> = {
       v: 1,
       alg: CONTENT_ALG,
@@ -283,6 +341,7 @@ export function sealReview(options: EvidenceOptions & { nonce: string }): SealRe
       ...(stamp.gate === undefined ? {} : { gate: stamp.gate }),
       inputs: stamp.inputs,
       startedAt: stamp.startedAt,
+      ...(stamp.reviewer ? { reviewer: stamp.reviewer, ownership: stamp.ownership } : {}),
       sealedAt: new Date().toISOString(),
     };
     const evidence: ReviewEvidence = { ...body, seal: sealDigest(parsed.data, body) };
@@ -330,7 +389,9 @@ export function checkSealedEvidence(root: StateRoot, sidecar: ReviewSidecar): Se
     stamp === null ||
     !sameIdentity(stamp, evidence) ||
     stamp.head !== evidence.head ||
-    stamp.startedAt !== evidence.startedAt
+    stamp.startedAt !== evidence.startedAt ||
+    canonical(stamp.reviewer) !== canonical(evidence.reviewer) ||
+    stamp.ownership !== evidence.ownership
   )
     return { status: "invalid" };
   const { seal, ...body } = evidence;
@@ -356,21 +417,50 @@ export function correlateReview(
   }
   const current = options === undefined ? undefined : currentIdentity(root, options);
   if (current === undefined) return { correlation: "unavailable", evidence: checked.evidence };
+  if (process.env.CODEX_THREAD_ID || checked.evidence.reviewer) {
+    const reviewer = checked.evidence.reviewer;
+    const ownership =
+      options &&
+      currentOwnership(
+        root.cwd,
+        sidecar.feature,
+        options.target,
+        current.fingerprint,
+        current.head,
+        current.base,
+        root.dir,
+      );
+    if (
+      !reviewer ||
+      !ownership ||
+      ownership.handoff !== checked.evidence.ownership ||
+      !independentActor(reviewer, ownership.actors)
+    )
+      return { correlation: "unavailable", evidence: checked.evidence };
+  }
   return sameIdentity(current, checked.evidence)
     ? { correlation: "correlated", evidence: checked.evidence }
     : { correlation: "changed-after-review", evidence: checked.evidence };
 }
 
 /** Publisher-side nudge (`handoff check --for publisher`): why this review is not sealed, or `null`. */
-export function reviewEvidenceWarning(root: StateRoot, feature: string): string | null {
+export function reviewEvidenceWarning(
+  root: StateRoot,
+  feature: string,
+  options?: EvidenceOptions,
+): string | null {
   const path = stateArtifactPath(root, `review_${feature}.json`);
   if (!existsSync(path)) return `review_${feature}.json not found; the review is uncorrelated`;
   const parsed = ReviewSidecarSchema.safeParse(readJson(path));
   if (!parsed.success) return `review_${feature}.json is not a valid sidecar`;
-  const checked = checkSealedEvidence(root, parsed.data);
-  return checked.status === "sealed"
+  if (parsed.data.feature !== feature || parsed.data.verdict !== "APPROVED")
+    return `review_${feature}.json does not approve this feature`;
+  const checked = options
+    ? correlateReview(root, parsed.data, options).correlation
+    : checkSealedEvidence(root, parsed.data).status;
+  return checked === (options ? "correlated" : "sealed")
     ? null
-    : `review_${feature}.json has no valid evidence (${checked.status}); the review is uncorrelated`;
+    : `review_${feature}.json has no current independent evidence (${checked}); the review is uncorrelated`;
 }
 
 function outcomeVerdict(verdict: string): ReviewOutcomeVerdict {
