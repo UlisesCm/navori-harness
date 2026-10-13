@@ -139,6 +139,105 @@ beforeEach(() => {
 afterEach(() => rmSync(cwd, { recursive: true, force: true }));
 
 describe("master close", () => {
+  // Covers: R11
+  it("uses the status orphan blocker and writes nothing on rejected closure", (): void => {
+    seed("executing");
+    const input = {
+      ...part("hecho"),
+      acceptance: [
+        {
+          id: "A1",
+          description: "Run",
+          method: "comando",
+          command: { run: "true", expected: "exit 0" },
+          evidence: {
+            kind: "run",
+            command: "true",
+            result: "ok",
+            commit: "0".repeat(40),
+            date: "2026-01-01",
+          },
+        },
+      ],
+    };
+    writeFileSync(join(stage(), "parts.json"), JSON.stringify({ version: 1, parts: [input] }));
+    const before = listStageFiles().map((name) => [name, read(name)]);
+    const blocker = readMasterStatus(cwd).blockers[0]!;
+    expect(blocker).toContain("P1.A1: evidencia huérfana");
+    expect(readMasterStatus(cwd).closable).toBe(false);
+    expect(() => runMasterClose(cwd)).toThrow(blocker);
+    expect(listStageFiles().map((name) => [name, read(name)])).toEqual(before);
+    expect(readConfig(join(cwd, "navori.config.json")).harness?.masterPlan).toBe(true);
+  });
+
+  // Covers: R12
+  it("closes with older ancestor evidence and records its age", (): void => {
+    seed("executing");
+    const commitArgs = [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.test",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "baseline",
+    ];
+    execFileSync("git", commitArgs, { cwd });
+    const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" }).trim();
+    execFileSync("git", commitArgs, { cwd });
+    const input = {
+      ...part("hecho"),
+      acceptance: [
+        {
+          id: "A1",
+          description: "Run",
+          method: "comando",
+          command: { run: "true", expected: "exit 0" },
+          evidence: { kind: "run", command: "true", result: "ok", commit, date: "2026-01-01" },
+        },
+      ],
+    };
+    writeFileSync(join(stage(), "parts.json"), JSON.stringify({ version: 1, parts: [input] }));
+    expect(readMasterStatus(cwd).closable).toBe(true);
+    runMasterClose(cwd);
+    expect(read("CLOSURE.md")).toContain("commitsBehind=1");
+    expect(checkClosedStage(cwd, "specs", "01-mvp", "es")).toEqual([]);
+  });
+
+  // Covers: R13
+  it.each(["descartada", "diferida"] as const)(
+    "closes a %s part despite orphan evidence",
+    (state): void => {
+      seed("executing");
+      const input = {
+        ...part("hecho"),
+        state,
+        reason: "out of this stage",
+        acceptance: [
+          {
+            id: "A1",
+            description: "Run",
+            method: "comando",
+            command: { run: "true", expected: "exit 0" },
+            evidence: {
+              kind: "run",
+              command: "true",
+              result: "ok",
+              commit: "0".repeat(40),
+              date: "2026-01-01",
+            },
+          },
+        ],
+      };
+      writeFileSync(join(stage(), "parts.json"), JSON.stringify({ version: 1, parts: [input] }));
+      expect(readMasterStatus(cwd).closable).toBe(true);
+      runMasterClose(cwd);
+      expect(read("CLOSURE.md")).toContain("no verificado");
+      expect(read("CLOSURE.md")).not.toContain("orphan");
+    },
+  );
+
   // Covers: R47
   it("lists a partial part and writes nothing when delivery is blocked", () => {
     seed("executing", "parcial");
@@ -236,8 +335,8 @@ describe("master close", () => {
     expect(readConfig(join(cwd, "navori.config.json")).harness?.masterPlan).toBe(false);
   });
 
-  // Covers: R50, R63
-  it("renders run evidence, commit age and orphan marks; detects post-close evidence edits", () => {
+  // Covers: R11, R50, R63
+  it("requires revalidation of orphan runs before closure and detects post-close evidence edits", () => {
     seed("executing");
     execFileSync("git", ["add", "-A"], { cwd });
     execFileSync(
@@ -276,10 +375,24 @@ describe("master close", () => {
       },
     ];
     writeFileSync(join(stage(), "parts.json"), JSON.stringify(parts));
+    expect(() => runMasterClose(cwd)).toThrow("P1.A2: evidencia huérfana");
+    expect(existsSync(join(stage(), "CLOSURE.md"))).toBe(false);
+    execFileSync("git", ["add", "-A"], { cwd });
+    execFileSync(
+      "git",
+      ["-c", "user.email=t@t.com", "-c", "user.name=t", "commit", "-qm", "criteria"],
+      { cwd },
+    );
+    const revalidatedCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd,
+      encoding: "utf8",
+    }).trim();
+    changeMasterPart(cwd, "P1", { accept: "A2", command: "bun build", result: "ok" });
+    expect(readMasterStatus(cwd).closable).toBe(true);
     runMasterClose(cwd);
     const closure = read("CLOSURE.md");
-    expect(closure).toContain(`bun test; passed; ${commit.slice(0, 8)} · commitsBehind=0`);
-    expect(closure).toContain("bun build; ok; 00000000 · orphan");
+    expect(closure).toContain(`bun test; passed; ${commit.slice(0, 8)} · commitsBehind=1`);
+    expect(closure).toContain(`bun build; ok; ${revalidatedCommit.slice(0, 8)} · commitsBehind=0`);
     expect(closure).toContain("| P1.A1 | test |");
     expect(closure).toContain("| P1.A2 | comando |");
     expect(checkClosedStage(cwd, "specs", "01-mvp", "es")).toEqual([]);

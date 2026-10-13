@@ -14,7 +14,7 @@ import {
   writeMasterStatus,
 } from "../status.ts";
 import { runMasterCheck } from "../checks.ts";
-import type { MasterIndex, StageEntry } from "../schema.ts";
+import type { MasterIndex, Part, StageEntry } from "../schema.ts";
 
 let cwd: string;
 const part = (state: string, evidence: unknown = null) => ({
@@ -93,7 +93,151 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(cwd, { recursive: true, force: true }));
 
+/** Seed valid executable evidence, optionally linked to a complete part spec. */
+function executablePart(commit: string, method: "test" | "comando", linked: boolean): Part {
+  const input: Part = {
+    ...part("hecho"),
+    state: "hecho",
+    acceptance: [
+      {
+        id: "A1",
+        description: "Works",
+        ...(method === "test"
+          ? { method, test: { file: "test.ts", case: "works" } }
+          : { method, command: { run: "true", expected: "exit 0" } }),
+        evidence: { kind: "run", command: "true", result: "ok", commit, date: "2026-01-01" },
+      },
+    ],
+  };
+  if (linked) {
+    input.spec = "specs/demo";
+    const spec = join(cwd, input.spec);
+    mkdirSync(spec);
+    writeFileSync(join(spec, "requirements.md"), "**R1** — P1.A1 works\n");
+    writeFileSync(join(spec, "design.md"), "Contract\n");
+    writeFileSync(
+      join(spec, "tasks.md"),
+      [
+        "- [x] **T1** Build",
+        "  - **Archivos:** test.ts",
+        "  - **Interfaces:** Contract",
+        "  - **Patrón:** navori.config.json",
+        "  - **Lectura:** design.md",
+        "  - **Librerías:** ninguna",
+        '  - **Done:** command `true`, expected exit 0, test case: "works", P1.A1',
+        "  - **Fuera de alcance:** none",
+      ].join("\n"),
+    );
+  }
+  writeFileSync(
+    join(cwd, "specs/_master/01-mvp/parts.json"),
+    JSON.stringify({ version: 1, parts: [input] }),
+  );
+  return input;
+}
+
+/** Advance the isolated fixture history without changing its working tree. */
+function commitHead(): string {
+  execFileSync(
+    "git",
+    [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.test",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "baseline",
+    ],
+    { cwd },
+  );
+  return execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" }).trim();
+}
+
 describe("master status", () => {
+  // Covers: R11
+  it.each(["test", "comando"] as const)(
+    "blocks orphan %s evidence with and without a linked spec",
+    (method): void => {
+      const baseline = commitHead();
+      const tree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], {
+        cwd,
+        encoding: "utf8",
+      }).trim();
+      const orphan = execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.test",
+          "commit-tree",
+          tree,
+          "-p",
+          baseline,
+        ],
+        { cwd, input: "unreachable evidence\n", encoding: "utf8" },
+      ).trim();
+      for (const linked of [false, true]) {
+        executablePart(orphan, method, linked);
+        const status = readMasterStatus(cwd);
+        expect(status.parts[0]?.acceptance[0]).toMatchObject({
+          verified: true,
+          orphan: true,
+          commitsBehind: null,
+        });
+        expect(status.blockers).toContain(
+          "P1.A1: evidencia huérfana; revalidar con 'navori master part P1 --accept A1'",
+        );
+        expect(status.closable).toBe(false);
+      }
+    },
+  );
+
+  // Covers: R11
+  it("blocks an absent executable evidence commit", (): void => {
+    commitHead();
+    executablePart("0".repeat(40), "comando", false);
+    expect(readMasterStatus(cwd).closable).toBe(false);
+    expect(readMasterStatus(cwd).blockers.join("\n")).toContain("P1.A1: evidencia huérfana");
+  });
+
+  // Covers: R12
+  it.each(["test", "comando"] as const)(
+    "keeps current and ancestor %s evidence valid and offers revalidation only for old evidence",
+    (method): void => {
+      const baseline = commitHead();
+      executablePart(baseline, method, false);
+      expect(readMasterStatus(cwd).closable).toBe(true);
+      expect(renderStatusMd(readMasterStatus(cwd))).not.toContain("revalidar");
+      commitHead();
+      const status = readMasterStatus(cwd);
+      expect(status.parts[0]?.acceptance[0]).toMatchObject({ orphan: false, commitsBehind: 1 });
+      expect(status.blockers).toEqual([]);
+      expect(status.closable).toBe(true);
+      expect(renderStatusMd(status)).toContain("commitsBehind=1");
+      expect(renderStatusMd(status)).toContain("revalidar con 'navori master part P1 --accept A1'");
+    },
+  );
+
+  // Covers: R13
+  it.each(["descartada", "diferida"] as const)(
+    "exempts orphan executable evidence for a %s part",
+    (state): void => {
+      const input = executablePart("0".repeat(40), "comando", false);
+      input.state = state;
+      input.reason = "later";
+      writeFileSync(
+        join(cwd, "specs/_master/01-mvp/parts.json"),
+        JSON.stringify({ version: 1, parts: [input] }),
+      );
+      const status = readMasterStatus(cwd);
+      expect(status.parts[0]?.effective).toBe(state);
+      expect(status.blockers).toEqual([]);
+      expect(status.closable).toBe(true);
+    },
+  );
   // Covers: R5
   it("omits the optional architectContext JSON field in the first stage", () => {
     const status = readMasterStatus(cwd);
@@ -219,8 +363,8 @@ describe("master status", () => {
     expect(renderMasterParts(parts, "template")).toBe(renderMasterParts(parts, "template"));
   });
 
-  // Covers: R47, R54, R61
-  it("does not let orphan evidence block closure", () => {
+  // Covers: R13, R47, R54, R61
+  it("preserves valid manual approval without requiring a Git commit", () => {
     const input = part("hecho") as ReturnType<typeof part>;
     input.acceptance = [
       {
