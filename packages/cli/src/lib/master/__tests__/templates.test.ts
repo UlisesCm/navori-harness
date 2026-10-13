@@ -94,6 +94,12 @@ describe("splitTemplateSections — parsing", () => {
     ]);
   });
 
+  // Covers: R1
+  it("yields the same sections for a CRLF document as for its LF twin", () => {
+    const crlf = PLAN_FIXTURE.replace(/\n/g, "\r\n");
+    expect(splitTemplateSections(crlf)).toEqual(splitTemplateSections(PLAN_FIXTURE));
+  });
+
   it("reads the only-mode marker and strips it from the exposed body", () => {
     const sections = splitTemplateSections(PLAN_FIXTURE);
     const gated = sections.find((s) => s.heading === "Estado actual vs. objetivo")!;

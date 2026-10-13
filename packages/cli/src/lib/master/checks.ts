@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { readConfig } from "../config/config.ts";
 import { writeFileAtomic } from "../primitives/atomic.ts";
+import { normalizeEol } from "../primitives/eol.ts";
 import {
   MASTER_PHASES,
   MasterStateSchema,
@@ -188,7 +189,7 @@ export function checkHistoryChain(ctx: CheckContext): CheckFailure[] {
 
 function readStageFile(ctx: CheckContext, relPath: string): string | null {
   const path = join(ctx.stagePath, relPath);
-  return existsSync(path) ? readFileSync(path, "utf8") : null;
+  return existsSync(path) ? normalizeEol(readFileSync(path, "utf8")) : null;
 }
 
 interface MarkdownTable {
@@ -263,7 +264,7 @@ function checkTranscribed(ctx: CheckContext): CheckFailure[] {
         failures.push(`${ctx.stage.dir}: ${raw} apunta a ${mdRelPath}, que no existe`);
         continue;
       }
-      const firstLine = readFileSync(mdPath, "utf8").split("\n")[0] ?? "";
+      const firstLine = normalizeEol(readFileSync(mdPath, "utf8")).split("\n")[0] ?? "";
       if (!firstLine.includes(raw) || !includesCI(firstLine, methodLabel)) {
         failures.push(
           `${ctx.stage.dir}: ${mdRelPath} no empieza con el archivo original y el método`,
@@ -622,7 +623,7 @@ export function runMasterCheck(cwd: string, options: CheckOptions = {}): CheckRe
   }
   const statusPath = join(ctx.stagePath, "STATUS.md");
   if (existsSync(statusPath)) {
-    if (readFileSync(statusPath, "utf8") !== renderStatusMd(readMasterStatus(cwd)))
+    if (normalizeEol(readFileSync(statusPath, "utf8")) !== renderStatusMd(readMasterStatus(cwd)))
       failures.push(`${ctx.stage.dir}/STATUS.md differs from its render`);
   } else if (["mastered", "ux", "executing"].includes(ctx.state.phase)) {
     failures.push(`${ctx.stage.dir}: missing STATUS.md; run navori master status`);
@@ -633,8 +634,7 @@ export function runMasterCheck(cwd: string, options: CheckOptions = {}): CheckRe
 // --- closed-stage validation (`check --stage`, R50) ------------------------
 
 function sha256Normalized(content: string): string {
-  const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  return createHash("sha256").update(normalized, "utf8").digest("hex");
+  return createHash("sha256").update(normalizeEol(content), "utf8").digest("hex");
 }
 
 /** Reads `CLOSURE.md`'s hash table under the `integridad`-named heading
@@ -711,7 +711,7 @@ export function checkClosedStage(
     failures.push(`${stageDir}: falta CLOSURE.md`);
     return failures;
   }
-  const closure = readFileSync(closurePath, "utf8");
+  const closure = normalizeEol(readFileSync(closurePath, "utf8"));
   const integrity = parseIntegrityTable(closure, markers.integridad);
   if (!integrity) {
     failures.push(

@@ -1,6 +1,7 @@
 // Covers: R47, R49, R50, R57, R58, R63, A1, A2 (master_plan_ux)
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdtempSync,
@@ -270,6 +271,16 @@ describe("master close", () => {
     const frozen = read("CLOSURE.md");
     expect(runMasterClose(cwd).stage).toBeNull();
     expect(read("CLOSURE.md")).toBe(frozen);
+  });
+
+  // Covers: R1
+  it("records the sha256 of the LF-normalized content, unchanged by the shared EOL helper", () => {
+    seed("executing", "hecho");
+    runMasterClose(cwd);
+    const expected = createHash("sha256")
+      .update(read("MASTER.md").replace(/\r\n/g, "\n"), "utf8")
+      .digest("hex");
+    expect(read("CLOSURE.md")).toContain(`| MASTER.md | ${expected}`);
   });
 
   // Covers: R49

@@ -777,6 +777,93 @@ describe("checksForTransition('mastered'/'executing') — R30-R33, R59", () => {
   });
 });
 
+describe("runMasterCheck — CRLF documents", () => {
+  const INTAKE_CRLF =
+    "| Archivo | Método | Resultado |\r\n|---|---|---|\r\n| doc.pdf | markitdown | context/md/doc.md |\r\n";
+
+  // Covers: R1
+  it("is green when MASTER.md, INTAKE.md and STATUS.md use CRLF", () => {
+    const ctx = makeCtx();
+    writeFileSync(indexJsonPath(cwd, SPECS_DIR), JSON.stringify(ctx.index));
+    write(
+      ctx,
+      "state.json",
+      JSON.stringify(
+        baseState({
+          phase: "executing",
+          mode: "template",
+          history: MASTER_PHASES.slice(0, 7).map((phase) => ({ phase, at: "2026-01-01" })),
+        }),
+      ),
+    );
+    write(ctx, "context/raw/.gitignore", "*\n!.gitignore\n");
+    writeSinglePart(ctx);
+    write(
+      ctx,
+      "MASTER.md",
+      [
+        "## Metadatos",
+        "",
+        "Proyecto demo.\n\nOrigen: plan1 §1",
+        "",
+        "## Entrega en partes",
+        "",
+        `P1 con objetivo.\n\nOrigen: plan1 §15\n\n${renderedParts(ctx)}`,
+        "",
+        "## Preguntas abiertas",
+        "",
+        "Ninguna",
+        "",
+      ].join("\n"),
+    );
+    writeMasterStatus(cwd);
+    const toCrlf = (rel: string): void =>
+      write(ctx, rel, readFileSync(join(ctx.stagePath, rel), "utf8").replace(/\n/g, "\r\n"));
+    write(ctx, "context/INTAKE.md", INTAKE_CRLF);
+    toCrlf("MASTER.md");
+    toCrlf("STATUS.md");
+    expect(runMasterCheck(cwd, { templatesRoot }).failures).toEqual([]);
+  });
+
+  // Covers: R1
+  it("reads a CRLF INTAKE.md table at the transcribed gate", () => {
+    const ctx = makeCtx({ state: baseState({ mode: "template" }) });
+    write(ctx, "context/raw/.gitignore", "*\n!.gitignore\n");
+    write(ctx, "context/raw/doc.pdf", "raw");
+    write(
+      ctx,
+      "context/md/doc.md",
+      "> Fuente: context/raw/doc.pdf · Método: markitdown 0.1.2\r\n\r\ncontent\r\n",
+    );
+    write(ctx, "context/INTAKE.md", INTAKE_CRLF);
+    expect(checksForTransition(ctx, "transcribed")).toEqual([]);
+  });
+});
+
+describe("checkTranscribed — first-line read honors every EOL", () => {
+  // Covers: R1
+  it("treats a CR-only converted file's first line as the header, not the whole file", () => {
+    const ctx = makeCtx({ state: baseState({ mode: "template" }) });
+    write(ctx, "context/raw/.gitignore", "*\n!.gitignore\n");
+    write(ctx, "context/raw/doc.pdf", "raw");
+    // Header lacks a markitdown version; the version only appears in the body.
+    // Without normalizing, the whole CR-only file would count as "line 1".
+    write(
+      ctx,
+      "context/md/doc.md",
+      "> Fuente: context/raw/doc.pdf · Método: markitdown\r\rbody markitdown 0.1.2\r",
+    );
+    write(
+      ctx,
+      "context/INTAKE.md",
+      "| Archivo | Método | Resultado |\n|---|---|---|\n| doc.pdf | markitdown | context/md/doc.md |\n",
+    );
+    expect(checksForTransition(ctx, "transcribed").join("\n")).toContain(
+      "usa markitdown sin versión",
+    );
+  });
+});
+
 describe("runMasterAdvance — never skips, never leaves executing (R8)", () => {
   async function master(...argv: string[]): Promise<void> {
     await runCommand(masterCommand, { rawArgs: [...argv, "--cwd", cwd] });
@@ -1055,6 +1142,14 @@ describe("checkClosedStage — R50, hash integrity with CRLF normalization", () 
   it("passes when only line endings changed to CRLF (normalized hash)", () => {
     seedClosedStage("# MASTER\n\ncontent\n");
     writeFileSync(join(stagePath("01-mvp"), "MASTER.md"), "# MASTER\r\n\r\ncontent\r\n");
+    expect(checkClosedStage(cwd, SPECS_DIR, "01-mvp", "es")).toEqual([]);
+  });
+
+  // Covers: R1
+  it("reads a CRLF CLOSURE.md integrity table", () => {
+    seedClosedStage("# MASTER\n\ncontent\n");
+    const closurePath = join(stagePath("01-mvp"), "CLOSURE.md");
+    writeFileSync(closurePath, readFileSync(closurePath, "utf8").replace(/\n/g, "\r\n"));
     expect(checkClosedStage(cwd, SPECS_DIR, "01-mvp", "es")).toEqual([]);
   });
 

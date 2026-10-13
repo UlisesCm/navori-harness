@@ -17,6 +17,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { normalizeEol } from "../primitives/eol.ts";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { masterMarkers } from "./markers.ts";
 import type { AssetLanguage } from "../render/render-plan.ts";
@@ -95,7 +96,7 @@ export function readTemplateFile(
  * involved.
  */
 export function splitTemplateSections(content: string): TemplateSection[] {
-  const lines = content.split("\n");
+  const lines = normalizeEol(content).split("\n");
   const sections: TemplateSection[] = [];
   let heading: string | null = null;
   let bodyLines: string[] = [];

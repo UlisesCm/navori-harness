@@ -6,6 +6,7 @@ import { join, relative, resolve, sep } from "node:path";
 import { readConfig, writeConfig } from "../config/config.ts";
 import { runRender } from "../../commands/render.ts";
 import { writeFileAtomic } from "../primitives/atomic.ts";
+import { normalizeEol } from "../primitives/eol.ts";
 import { masterMarkers } from "./markers.ts";
 import {
   MasterStateSchema,
@@ -65,9 +66,7 @@ function finishRender(
 }
 
 function hash(content: string): string {
-  return createHash("sha256")
-    .update(content.replace(/\r\n/g, "\n").replace(/\r/g, "\n"), "utf8")
-    .digest("hex");
+  return createHash("sha256").update(normalizeEol(content), "utf8").digest("hex");
 }
 
 function escapeCell(value: string | number | null | undefined): string {
