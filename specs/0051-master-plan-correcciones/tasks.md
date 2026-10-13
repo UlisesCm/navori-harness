@@ -52,7 +52,7 @@ Estimated LOC: 1000
 - [ ] **T12** (R11) — apertura de región sin cierre: `writeMasterStatus` falla nombrando el marcador antes de escribir `MASTER.md` o `STATUS.md` · effect: behavior · test: `packages/cli/src/lib/master/__tests__/status.test.ts`::"marcador de apertura sin cierre falla sin escribir"
 
 ### M8 — Plantilla parts e impresión de plantillas sin secciones
-- **A8** — `template parts` imprime un JSON válido contra `PartsSchema` y `template intake` no sale vacío · `cd packages/cli && bun run test src/lib/master/__tests__/templates.test.ts && bun run check:assets` → exit 0, 0 failed
+- **A8** — `template parts` imprime un JSON válido contra `PartsSchema` y `template intake` no sale vacío · `bun run check:assets && cd packages/cli && bun run test src/lib/master/__tests__/templates.test.ts` → exit 0, 0 failed
 - [ ] **T13** (R12) — assets `packages/core/core-assets/master-plan/parts.md` y `en/parts.md` (vía scribe) con un criterio por método; `parts` en `TEMPLATE_NAMES` · effect: behavior · test: `packages/cli/src/lib/master/__tests__/templates.test.ts`::"el JSON de template parts valida con PartsSchema en es y en"
 - [ ] **T14** (R13) — `printTemplate` imprime el contenido completo cuando la plantilla no tiene secciones `##`; las demás no cambian · effect: behavior · test: `packages/cli/src/lib/master/__tests__/templates.test.ts`::"template intake imprime la tabla; template master igual que la base"
 

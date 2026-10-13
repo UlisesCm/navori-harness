@@ -34,6 +34,7 @@ export const TEMPLATE_NAMES = [
   "ux",
   "delivery-master",
   "slice",
+  "parts",
 ] as const;
 export type TemplateName = (typeof TEMPLATE_NAMES)[number];
 
@@ -162,10 +163,12 @@ export function printTemplate(
   mode: MasterMode | null = null,
   options: TemplateOptions = {},
 ): string {
-  const sections = sectionsForMode(
-    splitTemplateSections(readTemplateFile(name, language, options)),
-    mode,
-  );
+  const content = readTemplateFile(name, language, options);
+  const allSections = splitTemplateSections(content);
+  // A template with no `##` section (intake, parts) is a table or a JSON
+  // example: print it whole instead of an empty string (0051 R13).
+  if (allSections.length === 0) return `${normalizeEol(content).trimEnd()}\n`;
+  const sections = sectionsForMode(allSections, mode);
   return `${sections.map((s) => `## ${s.heading}\n\n${s.body}`).join("\n\n")}\n`;
 }
 
