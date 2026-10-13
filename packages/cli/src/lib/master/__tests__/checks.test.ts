@@ -1,5 +1,6 @@
 // Covers: R8, R10, R11, R12, R14, R16, R21, R22, R23, R29, R30, R31, R32, R50, R52
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import * as atomic from "../../primitives/atomic.ts";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -27,7 +28,12 @@ import {
   type Part,
   type StageEntry,
 } from "../schema.ts";
-import { renderMasterParts, writeMasterStatus } from "../status.ts";
+import {
+  readMasterStatus,
+  renderStatusMd,
+  renderMasterParts,
+  writeMasterStatus,
+} from "../status.ts";
 import { createGitHelper, createCommitHelper, createSeedConfigHelper } from "./test-utils.ts";
 
 let cwd: string;
@@ -163,6 +169,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   rmSync(cwd, { recursive: true, force: true });
   rmSync(templatesRoot, { recursive: true, force: true });
 });
@@ -794,17 +801,23 @@ describe("runMasterAdvance — never skips, never leaves executing (R8)", () => 
     expect(activeEntry.state).toBe("activa");
   });
 
+  // Covers: R3
   it("does not write when the transition's checks fail", () => {
     runMasterInit(cwd, "mvp");
     const stagePathAbs = stagePath();
     const before = readFileSync(join(stagePathAbs, "state.json"), "utf8");
+    const statusBefore = readFileSync(join(stagePathAbs, "STATUS.md"), "utf8");
+    const writer = vi.spyOn(atomic, "writeFileAtomic");
     const result = runMasterAdvance(cwd, { templatesRoot });
     expect(result.advanced).toBe(false);
     expect(result.failures.length).toBeGreaterThan(0);
+    expect(writer).not.toHaveBeenCalled();
     expect(readFileSync(join(stagePathAbs, "state.json"), "utf8")).toBe(before);
+    expect(readFileSync(join(stagePathAbs, "STATUS.md"), "utf8")).toBe(statusBefore);
   });
 
-  it("advances exactly one phase (context -> transcribed) when the checks pass", () => {
+  /** Seed only the inputs required by the context -> transcribed checks. */
+  function readyToAdvance(): void {
     runMasterInit(cwd, "mvp");
     const stagePathAbs = stagePath();
     const stateBeforeMode: MasterState = JSON.parse(
@@ -827,6 +840,12 @@ describe("runMasterAdvance — never skips, never leaves executing (R8)", () => 
         "| doc.pdf | markitdown | context/md/doc.md |",
       ].join("\n"),
     );
+  }
+
+  // Covers: R3
+  it("advances exactly one phase and regenerates STATUS when the checks pass", () => {
+    readyToAdvance();
+    const stagePathAbs = stagePath();
     const result = runMasterAdvance(cwd, { templatesRoot });
     expect(result.advanced).toBe(true);
     expect(result.from).toBe("context");
@@ -834,7 +853,104 @@ describe("runMasterAdvance — never skips, never leaves executing (R8)", () => 
     const state: MasterState = JSON.parse(readFileSync(join(stagePathAbs, "state.json"), "utf8"));
     expect(state.phase).toBe("transcribed");
     expect(state.history.map((h) => h.phase)).toEqual(["context", "transcribed"]);
+    expect(readFileSync(join(stagePathAbs, "STATUS.md"), "utf8")).toBe(
+      renderStatusMd(readMasterStatus(cwd)),
+    );
+    expect(runMasterCheck(cwd, { templatesRoot }).failures).not.toContain(
+      "01-mvp/STATUS.md differs from its render",
+    );
   });
+
+  // Covers: R3, R4
+  it("does not run derived writes when the durable state write fails", () => {
+    readyToAdvance();
+    const statePath = join(stagePath(), "state.json");
+    const before = readFileSync(statePath, "utf8");
+    const statusBefore = readFileSync(join(stagePath(), "STATUS.md"), "utf8");
+    const writer = vi.spyOn(atomic, "writeFileAtomic").mockImplementation((): never => {
+      throw new Error("state write failed");
+    });
+    expect(() => runMasterAdvance(cwd, { templatesRoot })).toThrow("state write failed");
+    expect(writer.mock.calls.map(([path]) => path)).toEqual([statePath]);
+    expect(readFileSync(statePath, "utf8")).toBe(before);
+    expect(readFileSync(join(stagePath(), "STATUS.md"), "utf8")).toBe(statusBefore);
+  });
+
+  // Covers: R4
+  it("the existing CLI handler reports the durable phase and status-only repair", async () => {
+    readyToAdvance();
+    const originalWriter = atomic.writeFileAtomic;
+    vi.spyOn(atomic, "writeFileAtomic").mockImplementation(
+      (path: string, content: string): void => {
+        if (path === join(stagePath(), "STATUS.md")) throw new Error("derived failure");
+        originalWriter(path, content);
+      },
+    );
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation((): boolean => true);
+    const previousExitCode = process.exitCode;
+    try {
+      await master("advance");
+      expect(process.exitCode).toBe(1);
+      expect(stderr.mock.calls.map(([text]) => String(text)).join("")).toMatch(
+        /fase durable 'transcribed'.*navori master status.*no repita.*advance/,
+      );
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
+  // Covers: R4
+  it.each(["STATUS.md", "MASTER.md", "../INDEX.md"])(
+    "reports durable phase after %s fails; status repairs without another advance",
+    (derivative: string): void => {
+      readyToAdvance();
+      const ctx = buildCheckContext(cwd, { templatesRoot });
+      writeSinglePart(ctx);
+      write(ctx, "MASTER.md", "# Master\n\n## Entrega en partes\n\nPending\n");
+      const originalWriter = atomic.writeFileAtomic;
+      const faultPath = join(stagePath(), derivative);
+      const writer = vi
+        .spyOn(atomic, "writeFileAtomic")
+        .mockImplementation((path: string, content: string): void => {
+          if (path === faultPath) throw new Error(`cannot write ${derivative}`);
+          originalWriter(path, content);
+        });
+      let failure: unknown;
+      try {
+        runMasterAdvance(cwd, { templatesRoot });
+      } catch (cause: unknown) {
+        failure = cause;
+      }
+      // The CLI already reports this error type; the message must prevent a second advance.
+      expect(failure).toBeInstanceOf(MasterCheckSetupError);
+      expect(failure instanceof Error ? failure.message : "").toMatch(
+        /fase durable 'transcribed'.*navori master status.*no repita.*advance/,
+      );
+      expect(failure instanceof Error ? failure.message : "").toContain(
+        `cannot write ${derivative}`,
+      );
+      const statePath = join(stagePath(), "state.json");
+      const durableBytes = readFileSync(statePath, "utf8");
+      const durable: MasterState = JSON.parse(durableBytes);
+      expect(durable.phase).toBe("transcribed");
+      expect(durable.history.map((entry) => entry.phase)).toEqual(["context", "transcribed"]);
+      writer.mockRestore();
+      const repaired = writeMasterStatus(cwd);
+      expect(repaired.phase).toBe("transcribed");
+      expect(readFileSync(join(stagePath(), "STATUS.md"), "utf8")).toBe(renderStatusMd(repaired));
+      const parts = PartsSchema.parse(
+        JSON.parse(readFileSync(join(stagePath(), "parts.json"), "utf8")) as unknown,
+      ).parts;
+      expect(readFileSync(join(stagePath(), "MASTER.md"), "utf8")).toContain(
+        renderMasterParts(parts, repaired.mode),
+      );
+      expect(readFileSync(join(stagePath(), "../INDEX.md"), "utf8")).toContain("01-mvp");
+      expect(readFileSync(statePath, "utf8")).toBe(durableBytes);
+      expect(runMasterCheck(cwd, { templatesRoot }).failures).not.toContain(
+        "01-mvp/STATUS.md differs from its render",
+      );
+    },
+  );
 });
 
 describe("runMasterCheck — read-only preview", () => {

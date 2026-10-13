@@ -122,3 +122,11 @@ El gate rechazaba `spec: <spec> E<n> M<n>` porque solo parseaba workplan/nivel-0
 
 Auditoría y challenge completados; usuario aprobó el plan. Suite específica 84/84, reviewer APPROVED y gate completo exit 0: 418 archivos, 8582 tests aprobados, dos omitidos y cero fallos; coverage floor verde. Recibo vigente para `main`, review sellado y correlacionado. La acreditación automática de señal Bash no está disponible en esta sesión; se conserva la evidencia de ejecución sin inventar autoridad. Activación global y smoke vivo pendientes. Siguiente paso: publicar el fix y retomar E1 de 0050 con su workplan aprobado; el scaffold ya está integrado por #1308.
 
+## 2026-10-12 22:17 pi — Prepara E1 de 0049 para publicación
+
+Implementada E1 (M1–M4): init recupera artefactos mediante el renderer existente; advance regenera derivados después de persistir la fase y comunica reparación sin doble avance; el skill consume architectContext y conserva en-curso heredado desde init en etapas posteriores sin invocar mode. Runtime y contrato JSON de contexto permanecen intactos; espejos y snapshots regenerados por comandos oficiales. M1, M2 y M3 comprometidos por milestone; M4 preparado para revisión y commit final.
+
+A4 exacto desde el principal: exit 0, focused 31/31 y gate completo con 418 archivos, 8620 pruebas aprobadas y dos omitidas. La evidencia precede el ajuste final de estado/documentación: se requiere revisión y recibo frescos del diff de envío. Usuario autorizó publicar el PR de E1 a dev, sin merge automático; E2 sigue pendiente y comienza solo tras el merge de E1.
+
+Dev integrado preservando el trabajo concurrente de 0050. Respaldos de M2/M3 conservados; conflictos de estado resueltos directamente bajo autorización del operador, sin cambiar código de las otras sesiones. Las fallas de Pi al ejecutar full dentro de un hijo se distinguieron del resultado verde en el principal; no se modificó Pi ni se desactivaron pruebas. Siguiente paso: revisar/publicar E1 y atender CI/feedback antes de E2.
+

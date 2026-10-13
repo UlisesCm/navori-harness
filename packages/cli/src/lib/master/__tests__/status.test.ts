@@ -14,6 +14,7 @@ import {
   writeMasterStatus,
 } from "../status.ts";
 import { runMasterCheck } from "../checks.ts";
+import type { MasterIndex, StageEntry } from "../schema.ts";
 
 let cwd: string;
 const part = (state: string, evidence: unknown = null) => ({
@@ -93,6 +94,65 @@ beforeEach(() => {
 afterEach(() => rmSync(cwd, { recursive: true, force: true }));
 
 describe("master status", () => {
+  // Covers: R5
+  it("omits the optional architectContext JSON field in the first stage", () => {
+    const status = readMasterStatus(cwd);
+    expect(status.stage?.number).toBe(1);
+    expect(status).not.toHaveProperty("architectContext");
+    expect(JSON.parse(JSON.stringify(status))).not.toHaveProperty("architectContext");
+    expect(status).not.toHaveProperty("contextForArchitects");
+  });
+
+  // Covers: R5
+  it.each(["cerrada", "convertida", "abandonada"] as const)(
+    "keeps the exact architectContext JSON reading lists in stage two after a %s stage",
+    (previousState: "cerrada" | "convertida" | "abandonada"): void => {
+      const base = join(cwd, "specs", "_master");
+      const index = JSON.parse(readFileSync(join(base, "index.json"), "utf8")) as MasterIndex;
+      const first = index.stages[0]!;
+      const previous: StageEntry = {
+        ...first,
+        state: previousState,
+        closedAt: "2026-02-01",
+        ...(previousState === "convertida" ? { spec: "specs/demo" } : {}),
+      };
+      const current: StageEntry = {
+        ...first,
+        number: 2,
+        slug: "next",
+        dir: "02-next",
+        openedAt: "2026-02-02",
+      };
+      mkdirSync(join(base, current.dir));
+      for (const file of ["state.json", "parts.json", "MASTER.md"]) {
+        writeFileSync(
+          join(base, current.dir, file),
+          readFileSync(join(base, "01-mvp", file), "utf8"),
+        );
+      }
+      writeFileSync(
+        join(base, "index.json"),
+        JSON.stringify({ version: 1, stages: [previous, current] }),
+      );
+
+      const status = readMasterStatus(cwd);
+      expect(status.stage?.number).toBe(2);
+      expect(status.architectContext).toEqual({
+        full: [
+          ...(previousState === "cerrada" ? ["01-mvp/MASTER.md"] : []),
+          "01-mvp/DECISIONS.md",
+          "01-mvp/CLOSURE.md",
+        ],
+        referenceOnly: previousState === "cerrada" ? ["INDEX.md"] : [],
+      });
+      expect(JSON.parse(JSON.stringify(status))).toHaveProperty(
+        "architectContext",
+        status.architectContext,
+      );
+      expect(status).not.toHaveProperty("contextForArchitects");
+    },
+  );
+
   // Covers: R31, R36, R40, R47, R61
   it("downgrades unevidenced done and renders identical bytes twice", () => {
     const first = writeMasterStatus(cwd);

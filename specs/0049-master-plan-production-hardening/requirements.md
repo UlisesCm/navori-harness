@@ -1,6 +1,6 @@
 # Endurecimiento de producción del plan maestro — Requirements
 
-**Estado:** scaffold de spec únicamente. Este PR solo documenta; nada de lo descrito aquí está implementado. Todas las tareas de `tasks.md` están sin marcar.
+**Estado:** M1 (R1, R2), M2 (R3, R4) y M3 (R5) implementados, revisados y comprometidos en `0309c30d`, `a69affc2` y `b78df7d2`, respectivamente. M4 (R6) implementado en el diff combinado de pruebas, prosa y salidas generadas; el principal ejecutó A4 exacto con full y exit `0` (31 pruebas focused y 8620 full aprobadas, 2 omitidas). T4 se marca solo por implementación y probes completados: no representa aprobación de revisión final ni publicación. E1 tiene M1–M4 implementados, pero su revisión fresca final, recibo del diff de envío y cierre siguen pendientes. M5–M7 de E2 siguen pendientes en `tasks.md`. Sin commit de M4, push ni PR de implementación.
 
 ## Contexto
 
@@ -10,12 +10,12 @@ El usuario aprobó dos PRs de implementación con commits atómicos (E1 y E2), m
 
 Fuentes estables (símbolos): `packages/cli/src/lib/master/init.ts` (`runMasterInit`), `packages/cli/src/lib/master/checks.ts` (`runMasterAdvance`, `runMasterCheck`), `packages/cli/src/lib/master/status.ts` (`readMasterStatus`, `writeMasterStatus`, `evidenceAge`), `packages/cli/src/commands/master.ts` (`setMasterMode`), `packages/cli/src/lib/spec/check.ts` (`checkSpec`) y los puntos de entrada del ciclo de entregas en `packages/cli/src/lib/master/delivery.ts`.
 
-Prerrequisito separado: el diagnóstico del runner de Pi pertenece a la entrega activa de la spec 0048 y no forma parte de la implementación de esta spec. Hoy sigue bloqueado y no se marca como resuelto aquí.
+El diagnóstico histórico del runner de Pi pertenece a la spec 0048 y queda fuera de esta implementación. No es un bloqueo vigente de M1: las ejecuciones acotadas de agentes concluyeron. Esto no afirma una corrección global de 0048.
 
 ## Requirements (EARS)
 
 ### Inicialización
-- **R1** — WHEN `navori master init` se ejecuta sobre un estado válido ya existente (tras un fallo de render capturado, un resultado `ok:false` o un corte abrupto entre la activación y el render), the system SHALL re-ejecutar el renderizado idempotente existente de modo que los artefactos derivados de los engines configurados queden presentes (`CLAUDE.md` solo si el engine Claude está habilitado; con un engine no Claude, p. ej. solo `AGENTS.md`, no se exige `CLAUDE.md`). Esto incluye el estado durable parcial con `harness.masterPlan: true` ya persistido sin render previo (hoy `runMasterInit` omite el render en flujo legacy) y el corte abrupto entre la activación y el render. Los reintentos de render fallido o `ok:false` en entregas ya tienen cobertura en `init.test.ts`: son controles de compatibilidad, no el hueco.
+- **R1** — WHEN `navori master init` se ejecuta sobre un estado válido ya existente (tras un fallo de render capturado, un resultado `ok:false` o un corte abrupto entre la activación y el render), the system SHALL re-ejecutar el renderizado idempotente existente de modo que los artefactos derivados de los engines configurados queden presentes (`CLAUDE.md` solo si el engine Claude está habilitado; con un engine no Claude, p. ej. solo `AGENTS.md`, no se exige `CLAUDE.md`). Esto incluye el estado durable parcial con `harness.masterPlan: true` ya persistido sin render previo (en la base `7faec48f`, `runMasterInit` omitía el render en flujo legacy) y el corte abrupto entre la activación y el render. Los controles de reintento tras throw o `ok:false` en entregas no existían en la base `7faec48f`; se añadieron en M1 a `init.test.ts` junto con los casos legacy. Protegen la compatibilidad de entregas; el defecto de la condición de render estaba en legacy.
 - **R2** — WHEN `navori master init` se repite sobre un estado sano, the system SHALL conservar la etapa, el historial, la prosa del usuario y los guardias anti-rollback sin cambios.
 
 ### Estado derivado
@@ -43,4 +43,4 @@ Prerrequisito separado: el diagnóstico del runner de Pi pertenece a la entrega 
 
 ## Trazabilidad
 
-Cada `R<n>` termina en al menos una tarea y una prueba planeada nombrada en `tasks.md`. Las pruebas citadas ahí son planeadas: aún no existen, salvo los archivos de prueba que ya están en la base.
+Cada `R<n>` termina en al menos una tarea y una prueba nombrada en `tasks.md`. Los casos de M1–M3 (R1–R5) se añadieron y verificaron; `tasks.md` conserva su procedencia, revisión y commits. Las regresiones de M4 (R6) están implementadas y A4 exacto/full fue ejecutado por el principal con exit `0`, según `.navori/state/handoffs/verification_0049-e1-m4-main.json`; no por scribe. Esta evidencia precede a la actualización final de documentación y no certifica un recibo fresco del diff de envío. La revisión fresca final de E1 sigue pendiente; no hay comportamiento runtime nuevo. Los casos de M5–M7 siguen planeados, salvo la cobertura que ya existe en la base.

@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getCoreRoot } from "../../render/bundled-assets.ts";
 import { runMasterInit } from "../init.ts";
 import { readMasterStatus, writeMasterStatus } from "../status.ts";
 import { runMasterClose } from "../close.ts";
@@ -59,6 +60,44 @@ function snapshot(cwd: string): string {
   }
   return walk(cwd).sort().join("\n");
 }
+
+describe("master-plan architect context contract", () => {
+  // Covers: R5
+  it("makes the canonical skill consume architectContext from status JSON without the stale name", () => {
+    const skill = readFileSync(join(getCoreRoot(), "core-assets/skills/master-plan.md"), "utf8");
+    expect(skill.match(/contextForArchitects/g)).toBeNull();
+    expect(skill).toContain("incluye `architectContext` de `status --json`");
+    expect(skill).toContain("El campo `architectContext` es la fuente de estas rutas");
+    expect(skill).toContain("En `architectContext`, conserva explícitamente la lista de etapas");
+  });
+});
+
+describe("master-plan inherited mode contract", () => {
+  // Covers: R6
+  it("inherits en-curso from init for stages >= 2 without calling mode, preserving first-stage consent", () => {
+    const skill = readFileSync(join(getCoreRoot(), "core-assets/skills/master-plan.md"), "utf8");
+    const notice = skill.slice(
+      skill.indexOf("## Aviso de inicio"),
+      skill.indexOf("## Mensaje de fase"),
+    );
+    const firstStage = notice.match(/Solo para la primera etapa[^.]*\./)?.[0] ?? "";
+    const laterStages = notice.match(/En etapas posteriores[^.]*\./)?.[0] ?? "";
+
+    expect(firstStage).toMatch(/primera pregunta[^.]*modo `desde-cero`, `template` o `en-curso`/);
+    expect(firstStage).toContain("con la sugerencia del CLI primero y como recomendación");
+    expect(firstStage).toMatch(/registra la elección con `navori master mode`/);
+    expect(laterStages).toMatch(/(?:≥\s*2|>=\s*2|mayor o igual a 2)/);
+    expect(laterStages).toContain("`navori master init`");
+    expect(laterStages).toMatch(/hereda[^.]*automáticamente|automáticamente[^.]*hereda/);
+    expect(laterStages).toContain("`en-curso`");
+    expect(laterStages).toContain("sin preguntar");
+    expect(laterStages).toMatch(/(?:no|nunca) invo(?:ques|car) `navori master mode`/);
+    expect(laterStages).not.toMatch(/registra[^.]*`en-curso`/);
+    expect(notice).toContain("Sin confirmación no escribas nada");
+    expect(notice).toContain("Cada aviso requiere confirmación");
+    expect(notice).toMatch(/solo después de confirmar[^.]*`navori master init <slug>`/);
+  });
+});
 
 describe("deliveries D1 foundation", () => {
   it("persists selection in registry2, resumes without flag, and preserves MASTER bytes", () => {

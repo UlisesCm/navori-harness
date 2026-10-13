@@ -1,6 +1,6 @@
 # Endurecimiento de producción del plan maestro — Design
 
-**Estado:** diseño aprobado, sin implementar (scaffold únicamente).
+**Estado:** diseño aprobado; M1, M2 y M3 implementados, revisados y comprometidos en `0309c30d`, `a69affc2` y `b78df7d2`, respectivamente, con procedencia en `tasks.md`. M4 implementado en el diff combinado de pruebas, prosa y salidas generadas, sin cambios de runtime ni arquitectura; A4 exacto con full ejecutado por el principal con exit `0` (31 pruebas focused y 8620 full aprobadas, 2 omitidas), según `.navori/state/handoffs/verification_0049-e1-m4-main.json`, no ejecutado por scribe. M1–M4 tienen implementación completada; T4 se marca solo por implementación y probes, no por aprobación final ni publicación. Esta evidencia precede a la documentación final: revisión fresca de E1, recibo del diff de envío, commit de M4 y cierre siguen pendientes. M5–M7 de E2 siguen sin implementar. Sin commit de M4, push ni PR de implementación.
 
 **Procedencia.** El diseño original se preparó bajo la excepción de rol ausente: los roles `architect` y `auditor` no estaban disponibles en la sesión de origen (Pi) y el diseño no fue auditado de forma independiente entonces. Este documento no afirma aprobación de `architect` ni de `auditor`. La implementación futura debe pasar revisión y, donde aplique, el challenge de áreas críticas.
 
@@ -8,7 +8,7 @@
 
 Cada defecto se corrige en el dueño existente, sin piezas nuevas:
 
-- **Init** (`runMasterInit`): en cada init o reanudación validado, se reutiliza el renderizador idempotente existente (`runRender`, independiente del engine, sobre los engines configurados; `CLAUDE.md` solo con Claude habilitado), también cuando `harness.masterPlan: true` ya está persistido (legacy). Sin flags nuevos, sin esquema nuevo, sin `force` ni `prune`. Se descarta un rollback solo con `catch`: un corte abrupto escapa al `catch`, así que la recuperación debe vivir en el reintento (R1, R2). Los reintentos de entregas con render fallido/`ok:false` ya están probados en `init.test.ts` (compatibilidad); el hueco es el estado legacy persistido y el corte previo al render.
+- **Init** (`runMasterInit`): en cada init o reanudación validado, se reutiliza el renderizador idempotente existente (`runRender`, independiente del engine, sobre los engines configurados; `CLAUDE.md` solo con Claude habilitado), también cuando `harness.masterPlan: true` ya está persistido (legacy). Sin flags nuevos, sin esquema nuevo, sin `force` ni `prune`. Se descarta un rollback solo con `catch`: un corte abrupto escapa al `catch`, así que la recuperación debe vivir en el reintento (R1, R2). Los controles de entregas tras throw o `ok:false` no estaban en la base `7faec48f`: se añadieron en M1 a `init.test.ts`, junto con los casos legacy y assertions de salida real tras el reintento. Son controles de compatibilidad; el defecto de la condición de render afectaba al estado legacy persistido y al corte previo al render.
 - **Estado derivado** (`runMasterAdvance`): tras la actualización durable de la fase, llama al dueño existente del estado (`writeMasterStatus`). Si una escritura derivada posterior falla, reporta la fase durable y la reparación explícita con `navori master status` (que ya regenera), sin avanzar dos veces (R3, R4).
 - **Skill y modo**: se cambia solo el texto del skill canónico; el contrato JSON de `architectContext` no cambia. El runtime ya fija `en-curso` en etapas ≥ 2 (`init.ts`) y rechaza `navori master mode` (`setMasterMode`); el skill debe conservar ese `en-curso` automático y no invocar `mode` (R5, R6). M4 es solo de redacción.
 - **Política estricta de spec**: solo en formato nuevo, según lo aprobado; el legacy no cambia (R7–R10).
@@ -17,7 +17,7 @@ Cada defecto se corrige en el dueño existente, sin piezas nuevas:
 
 ## Components
 
-- `packages/cli/src/lib/master/init.ts` (`runMasterInit`) — reaplica el render idempotente en init/reanudación, incluido el estado legacy con `masterPlan:true` persistido (hoy se omite) — covers R1, R2.
+- `packages/cli/src/lib/master/init.ts` (`runMasterInit`) — reaplica el render idempotente en init/reanudación, incluido el estado legacy con `masterPlan:true` persistido (se omitía en la base `7faec48f`) — covers R1, R2.
 - `packages/cli/src/lib/master/checks.ts` (`runMasterAdvance`) — regenera estado tras avanzar y reporta fallo parcial — covers R3, R4.
 - `packages/cli/src/lib/master/status.ts` (`writeMasterStatus`, `readMasterStatus`, `evidenceAge`) — dueño de estado derivado, `architectContext` y bloqueadores de evidencia — covers R3, R4, R5, R11, R12, R13.
 - `packages/core/core-assets/skills/master-plan.md` — skill canónico: consumo de `architectContext`, redacción de `en-curso` heredado en etapas ≥ 2 (sin invocar `mode`), rama legacy/entregas — covers R5, R6, R14.
@@ -43,7 +43,7 @@ Cada defecto se corrige en el dueño existente, sin piezas nuevas:
 
 ## Failure modes
 
-- Corte abrupto tras activar `masterPlan` y antes del render, o estado legacy persistido sin render: el siguiente `init` valida el estado y completa el render de los engines configurados (R1). Fallo capturado/`ok:false` en entregas: ya cubierto, se conserva.
+- Corte abrupto tras activar `masterPlan` y antes del render, o estado legacy persistido sin render: el siguiente `init` valida el estado y completa el render de los engines configurados (R1). Fallo capturado/`ok:false` en entregas: comportamiento conservado con controles de recuperación añadidos en M1, ausentes en la base `7faec48f`.
 - Fallo parcial de escritura derivada tras avanzar: se informa la fase durable y se repara con `navori master status`; no hay doble avance (R4).
 - Evidencia huérfana en parte sin disposición: `closable` falso y `close` bloquea con el mismo criterio, al derivar ambos de la misma autoridad (R11).
 - `requirements.md` ausente o ilegible, o `R<n>` no declarado, en formato nuevo: `spec check` falla (R7, R8).
