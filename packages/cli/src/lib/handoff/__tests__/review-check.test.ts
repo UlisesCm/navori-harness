@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,7 +7,9 @@ import { checkReviewHandoff } from "../review-check.ts";
 import { beginReview, sealReview, type EvidenceOptions } from "../review-evidence.ts";
 
 const dirs: string[] = [];
+beforeEach(() => vi.stubEnv("CODEX_THREAD_ID", undefined));
 afterEach(() => {
+  vi.unstubAllEnvs();
   dirs.splice(0).forEach((d) => rmSync(d, { force: true, recursive: true }));
 });
 

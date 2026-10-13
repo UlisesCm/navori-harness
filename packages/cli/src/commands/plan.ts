@@ -27,6 +27,7 @@ import {
 } from "../lib/plan/schema.ts";
 import { readConfig } from "../lib/config/config.ts";
 import { appendCliEvent } from "../lib/audit/cli-event.ts";
+import { resumePlans } from "../lib/plan/resume.ts";
 
 function splitList(value: string | undefined): string[] {
   if (!value) return [];
@@ -161,24 +162,23 @@ function writeWorkplanAndRender(root: StateRoot, feature: string, plan: Workplan
   writeAcceptanceIndex(root);
 }
 
-/** Spec 0039 R10 (0038 D3) + spec 0047 R8: evidence is required inside a
- * Claude Code child session (the env var Claude Code sets for its Bash/hook
- * subprocesses) of a repo that renders the `claude` engine, or inside an
- * identified Pi session of a repo that renders the `pi` engine. Anywhere else
- * (Codex, a human terminal, prose engines) there is no verifiable success
- * signal. The Pi signal is `PI_SESSION_ID`, which Pi's built-in bash tool
- * deletes from the inherited env and sets itself for each command; a Claude
- * child session always takes the Claude branch, so a stray `PI_SESSION_ID`
- * cannot change what Claude sessions are held to. */
+/** Requires host-recorded execution in identified Claude, Pi and Codex sessions.
+ * Claude's child and Pi's native session signals retain their existing priority.
+ * An identified Codex session without readable config fails closed. */
 function evidenceRequired(cwd: string): boolean {
   const claudeChild = process.env.CLAUDE_CODE_CHILD_SESSION === "1";
   const piSession = /^[A-Za-z0-9._-]+$/.test(process.env.PI_SESSION_ID ?? "");
-  if (!claudeChild && !piSession) return false;
+  const codexSession = Boolean(process.env.CODEX_THREAD_ID);
+  if (!claudeChild && !piSession && !codexSession) return false;
   try {
     const { engines } = readConfig(resolve(cwd, "navori.config.json"));
-    return claudeChild ? engines.includes("claude") : engines.includes("pi");
+    return claudeChild
+      ? engines.includes("claude")
+      : piSession
+        ? engines.includes("pi")
+        : engines.includes("codex");
   } catch {
-    return false;
+    return codexSession;
   }
 }
 
@@ -552,6 +552,19 @@ const gateSubCommand = defineCommand({
 export const planCommand = defineCommand({
   meta: { name: "plan", description: "Classify, render, update and check a level-1/2 workplan" },
   subCommands: {
+    resume: defineCommand({
+      meta: {
+        name: "resume",
+        description: "Revalidate continuity without reviving stale guarantees",
+      },
+      args: { json: { type: "boolean", description: "Output JSON" } },
+      run({ args }) {
+        const result = resumePlans(process.cwd());
+        process.stdout.write(
+          `${args.json ? JSON.stringify(result) : JSON.stringify(result, null, 2)}\n`,
+        );
+      },
+    }),
     classify: classifySubCommand,
     render: renderSubCommand,
     update: updateSubCommand,

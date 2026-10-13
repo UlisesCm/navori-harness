@@ -40,6 +40,10 @@ The `implementer` (or another JSON-handoff producer) leaves `.navori/state/hando
 ## Apply markdownRequests (R7)
 
 For every entry, draft the prose from its `intent` and `evidence` — read the surrounding file for tone and format, but never invent a decision the request doesn't state; an ambiguous intent is a blocker to report, not a guess to make. Apply it in the producer's own worktree and branch, touching ONLY the listed `path`s, and commit it yourself — a commit separate from the producer's.
+<!-- navori:if onCodex -->
+
+After the requested prose and every official derived render are final, run `bun packages/cli/src/index.ts handoff attest <feature> --target main --json` from the producer's actual checkout. This records the designated scribe through the supported native runtime. Preserve the producer JSON byte-for-byte, including its hash; do not claim forensic authorship of every write. If native role or ownership is missing, leave it pending and report the blocker. Do not commit before the reviewer approves.
+<!-- /navori:if -->
 
 ## When NOT to trigger
 

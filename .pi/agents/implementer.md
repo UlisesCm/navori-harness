@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-implementer" hash="6c3d3320ab4da178acab952e726d007e8f3066e047f4d40870b8b228aa0cf9bd"
+# navori:managed-file id="pi-agent-implementer" hash="3037251909f7638fbeb717f7416dd7ac1345c09dccde91a5d21abd718d41c43a"
 name: "implementer"
 description: "Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself."
 model: "gpt-6.1-sol"
@@ -25,6 +25,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
    If it fails: fix it and re-run. Don't return with red. You are the single owner of this gate run: never share it with another process, never poll `pgrep`/`ps` for it, and a timeout is never a success signal. If the gate can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`) — you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait. When you can't explain WHY it failed, apply `.claude/skills/debug-failure/SKILL.md` before touching anything. If your second fix attempt fails the same way, that same skill's hypothesis re-check governs instead of throwing a third patch.
 5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up (e.g. `playwright-cli`, whose installer ships its own skill).
 6. **No commits** without the `reviewer`'s approval. When you finish, write your JSON evidence and return the reference.
+
 When the encargo opens with `workplan: <feature>`, read `.navori/state/handoffs/workplan_<feature>.json`, run each assigned `A<n>` `command` exactly as written (same string, foreground, no rewrites), then mark progress and report it in `impl_<feature>.json` under `acceptance` (`id`, `command`, `exitCode`, `excerpt`). The routing-watch hook records acceptance evidence only when the host itself ran that exact command; `navori plan update <feature> --progress A<n>=cumplido` is rejected without it and never runs the command for you. A file outside the workplan's files is a blocker to report, not a change to make.
 
 ## Hard rules (generic, always apply)

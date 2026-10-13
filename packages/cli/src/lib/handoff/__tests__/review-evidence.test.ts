@@ -26,6 +26,12 @@ import { logReview, ReviewSidecarSchema } from "../review-schema.ts";
 import { resolveStateRoot } from "../../primitives/state-root.ts";
 
 const dirs: string[] = [];
+// Covers: R5
+it("rejects begin when a Codex context has no native producer ownership or reviewer identity", () => {
+  const cwd = repo();
+  process.env.CODEX_THREAD_ID = "00000000-0000-0000-0000-000000000009";
+  expect(beginReview(options(cwd)).status).toBe("error");
+});
 let saved: Record<string, string | undefined>;
 beforeEach(() => {
   saved = {

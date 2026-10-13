@@ -16,7 +16,7 @@ import { spawnSync } from "node:child_process";
 import { ImplHandoffSchema, type MarkdownRequest } from "./schema.ts";
 import { isUnderProgressDir } from "../primitives/progress-dirs.ts";
 import { FEATURE_SLUG, resolveStateRoot, stateArtifactPath } from "../primitives/state-root.ts";
-import { reviewEvidenceWarning } from "./review-evidence.ts";
+import { reviewEvidenceWarning, type EvidenceOptions } from "./review-evidence.ts";
 
 export type HandoffConsumer = "orchestrator" | "scribe" | "publisher" | "reviewer";
 export type HandoffStatus = "ok" | "findings" | "error";
@@ -61,6 +61,7 @@ export interface HandoffCheckOptions {
    * `impl_<feature>.md` instead of the JSON handoff, tied to the feature
    * only by the file name; R16 (worktree/branch/path) does not apply. */
   legacyMarkdown?: boolean;
+  evidenceOptions?: EvidenceOptions;
 }
 
 function empty(feature: string, consumer: HandoffConsumer): HandoffCheckResult {
@@ -157,12 +158,14 @@ export function checkHandoff(options: HandoffCheckOptions): HandoffCheckResult {
   // Intent: the publisher always follows an implementer, so the base impl check stays for it.
   const result = checkHandoffBase(options);
   if (options.consumer !== "publisher" || !FEATURE_SLUG.test(options.feature)) return result;
-  // M8: the publisher is told when the review carries no valid producer evidence.
-  // A WARN only: it never changes status or exit code.
+  // R5: publisher consumes the same current approval binding as receipt signing.
   try {
     const root = resolveStateRoot({ cwd: options.cwd, feature: options.feature, dir: options.dir });
-    const detail = reviewEvidenceWarning(root, options.feature);
-    if (detail !== null) result.warnings.push({ check: "review-evidence", detail });
+    const detail = reviewEvidenceWarning(root, options.feature, options.evidenceOptions);
+    if (detail !== null) {
+      result.failures.push({ check: "evidence", detail });
+      result.status = "findings";
+    }
   } catch {
     // an unresolvable state root is already reported by the base check
   }

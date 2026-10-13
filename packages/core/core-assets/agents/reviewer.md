@@ -41,7 +41,10 @@ You are a strict reviewer. Your only function is to **approve or reject**. You d
    ```
 
    `begin` stamps the content identity BEFORE you read the diff, so it must run first.
+<!-- navori:if onCodex -->
 
+For Codex, use the source CLI in this actual checkout to run `bun packages/cli/src/index.ts receipt review begin <feature> --target {{prTarget}} --dir .navori/state/handoffs --json` before reading the diff, then retain its nonce. After deciding the verdict and writing the review artifacts, run `bun packages/cli/src/index.ts receipt review seal <feature> --nonce <nonce> --target {{prTarget}} --dir .navori/state/handoffs --json`, followed by `bun packages/cli/src/index.ts handoff log-review <feature> --dir .navori/state/handoffs`. The native runtime must independently identify the reviewer; the review must bind to the current producer handoff, publication bytes, and target. Missing, stale, unknown, same-producer, or drifted evidence cannot be approved. Never supply free-form actor IDs or claim the begin proves the reviewer read the diff. An unchanged-bytes publication commit may retain correlation without repeating the full gate.
+<!-- /navori:if -->
    A nonzero `behind` count is a hard stop: do not review, approve, or write a
    receipt. A target-only file would otherwise look like a deletion in this
    worktree and the receipt would sign that phantom deletion.

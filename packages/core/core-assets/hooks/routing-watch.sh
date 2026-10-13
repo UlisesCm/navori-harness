@@ -218,11 +218,19 @@ fi
 # registration (the Codex hooks-per-Bash count stays pinned). Codex fires
 # PostToolUse on failure too, so the outcome comes from the rollout record of
 # this `tool_use_id`, never from the event. Silent on any missing piece; it only
-# ever prints the repeated-failure advice that Claude's bash-outcome-watch gives.
+# registers acceptance only with a correlated completed command/effective cwd,
+# and prints the repeated-failure advice that Claude's bash-outcome-watch gives.
 # SHORTCUT: when it advises it ends the run, so that one call is not counted
 # toward the routing threshold; ceiling one call per three repeated failures,
 # trigger: if routing counts must stay exact, merge both notes into one output.
 if [ "$tool" = "Bash" ] && [ "$nv_engine" = codex ]; then
+  navori_acceptance_payload=$(navori_codex_acceptance_payload 2>/dev/null) || navori_acceptance_payload=
+  if [ -n "$navori_acceptance_payload" ]; then
+    navori_original_payload=$payload
+    payload=$navori_acceptance_payload
+    navori_bash_success_lane
+    payload=$navori_original_payload
+  fi
   navori_codex_advice=$(navori_bash_codex_outcome 2>/dev/null) || navori_codex_advice=
   if [ -n "$navori_codex_advice" ]; then
     navori_audit_log "advise" "same Bash failure reached three consecutive occurrences"

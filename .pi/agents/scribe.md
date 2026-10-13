@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-scribe" hash="5c06430e9cfd87b1b1488d125b58bb28b78274a2924f403b3bd680fd869e60e1"
+# navori:managed-file id="pi-agent-scribe" hash="3911702025787404002a02621c27d82c8ec66023844251d62b04de92557effae"
 name: "scribe"
 description: "Serializes verified structured evidence into Markdown handoff artifacts. Use after a producer completes and before its consumer reads the artifact."
 tools: ["read","grep","find","ls","bash","edit","write"]
@@ -22,6 +22,7 @@ The `implementer` (or another JSON-handoff producer) leaves `.navori/state/hando
 ## Apply markdownRequests (R7)
 
 For every entry, draft the prose from its `intent` and `evidence` — read the surrounding file for tone and format, but never invent a decision the request doesn't state; an ambiguous intent is a blocker to report, not a guess to make. Apply it in the producer's own worktree and branch, touching ONLY the listed `path`s, and commit it yourself — a commit separate from the producer's.
+
 
 ## When NOT to trigger
 

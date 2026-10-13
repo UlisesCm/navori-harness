@@ -409,6 +409,30 @@ describe("session-start context hook — Codex payload (spec 0035 D3)", () => {
     );
   });
 
+  // Covers: R8
+  it("invokes read-only resume revalidation on Codex resume and preserves pending guarantees", () => {
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "navori"),
+      '#!/bin/sh\nif [ "$1 $2 $3" = "plan resume --json" ]; then printf \'%s\\n\' \'{"status":"pending","reason":"changed-after-review"}\'; fi\n',
+    );
+    chmodSync(join(bin, "navori"), 0o755);
+    const hookPath = installHook(join(".codex", "hooks", "session-start-context.sh"));
+    const stdout = acrossShells(
+      (shell) =>
+        runOnce(
+          shell,
+          "resume",
+          hookPath,
+          { cwd: dir },
+          { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin` },
+        ).stdout,
+    );
+    expect(parseCtx(stdout)).toContain("Revalidated continuity");
+    expect(parseCtx(stdout)).toContain("changed-after-review");
+  });
+
   it("never emits the `.claude/context`/`.codex/context` doctrine blocks (D3)", () => {
     const ctxDir = join(dir, ".claude", "context");
     mkdirSync(ctxDir, { recursive: true });
