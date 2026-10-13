@@ -1,6 +1,6 @@
 # Endurecimiento de producción del plan maestro — Requirements
 
-**Estado:** M1 (R1, R2) implementado y revisado en el diff de trabajo; revisión de documentación pendiente. M2–M7 siguen pendientes en `tasks.md`. Sin commit, push ni PR de implementación.
+**Estado:** M1 (R1, R2), M2 (R3, R4) y M3 (R5) implementados, revisados y comprometidos en `0309c30d`, `a69affc2` y `b78df7d2`, respectivamente. M4 (R6) implementado en el diff combinado de pruebas, prosa y salidas generadas; el principal ejecutó A4 exacto con full y exit `0` (31 pruebas focused y 8620 full aprobadas, 2 omitidas). T4 se marca solo por implementación y probes completados: no representa aprobación de revisión final ni publicación. E1 tiene M1–M4 implementados, pero su revisión fresca final, recibo del diff de envío y cierre siguen pendientes. M5–M7 de E2 siguen pendientes en `tasks.md`. Sin commit de M4, push ni PR de implementación.
 
 ## Contexto
 
@@ -43,4 +43,4 @@ El diagnóstico histórico del runner de Pi pertenece a la spec 0048 y queda fue
 
 ## Trazabilidad
 
-Cada `R<n>` termina en al menos una tarea y una prueba nombrada en `tasks.md`. Los casos de M1 para R1/R2 se añadieron y verificaron; los casos de M2–M7 siguen planeados, salvo la cobertura que ya existe en la base.
+Cada `R<n>` termina en al menos una tarea y una prueba nombrada en `tasks.md`. Los casos de M1–M3 (R1–R5) se añadieron y verificaron; `tasks.md` conserva su procedencia, revisión y commits. Las regresiones de M4 (R6) están implementadas y A4 exacto/full fue ejecutado por el principal con exit `0`, según `.navori/state/handoffs/verification_0049-e1-m4-main.json`; no por scribe. Esta evidencia precede a la actualización final de documentación y no certifica un recibo fresco del diff de envío. La revisión fresca final de E1 sigue pendiente; no hay comportamiento runtime nuevo. Los casos de M5–M7 siguen planeados, salvo la cobertura que ya existe en la base.

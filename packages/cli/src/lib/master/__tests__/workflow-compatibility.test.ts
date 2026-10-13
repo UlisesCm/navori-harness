@@ -72,6 +72,33 @@ describe("master-plan architect context contract", () => {
   });
 });
 
+describe("master-plan inherited mode contract", () => {
+  // Covers: R6
+  it("inherits en-curso from init for stages >= 2 without calling mode, preserving first-stage consent", () => {
+    const skill = readFileSync(join(getCoreRoot(), "core-assets/skills/master-plan.md"), "utf8");
+    const notice = skill.slice(
+      skill.indexOf("## Aviso de inicio"),
+      skill.indexOf("## Mensaje de fase"),
+    );
+    const firstStage = notice.match(/Solo para la primera etapa[^.]*\./)?.[0] ?? "";
+    const laterStages = notice.match(/En etapas posteriores[^.]*\./)?.[0] ?? "";
+
+    expect(firstStage).toMatch(/primera pregunta[^.]*modo `desde-cero`, `template` o `en-curso`/);
+    expect(firstStage).toContain("con la sugerencia del CLI primero y como recomendación");
+    expect(firstStage).toMatch(/registra la elección con `navori master mode`/);
+    expect(laterStages).toMatch(/(?:≥\s*2|>=\s*2|mayor o igual a 2)/);
+    expect(laterStages).toContain("`navori master init`");
+    expect(laterStages).toMatch(/hereda[^.]*automáticamente|automáticamente[^.]*hereda/);
+    expect(laterStages).toContain("`en-curso`");
+    expect(laterStages).toContain("sin preguntar");
+    expect(laterStages).toMatch(/(?:no|nunca) invo(?:ques|car) `navori master mode`/);
+    expect(laterStages).not.toMatch(/registra[^.]*`en-curso`/);
+    expect(notice).toContain("Sin confirmación no escribas nada");
+    expect(notice).toContain("Cada aviso requiere confirmación");
+    expect(notice).toMatch(/solo después de confirmar[^.]*`navori master init <slug>`/);
+  });
+});
+
 describe("deliveries D1 foundation", () => {
   it("persists selection in registry2, resumes without flag, and preserves MASTER bytes", () => {
     const cwd = repo();

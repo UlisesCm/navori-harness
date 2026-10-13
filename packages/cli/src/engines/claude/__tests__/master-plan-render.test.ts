@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { renderClaudeEngine } from "../index.ts";
 import { renderCodexEngine } from "../../codex/index.ts";
 import { simulateContextDelivery } from "../../../lib/assets/doc-budgets.ts";
+import { getCoreRoot } from "../../../lib/render/bundled-assets.ts";
 import { readConfig, writeConfig, type NavoriConfig } from "../../../lib/config/config.ts";
 
 const base = {
@@ -41,10 +42,10 @@ function contextFiles(cwd: string): string[] {
     .sort();
 }
 
-describe("master-plan architect context rendering", () => {
-  // Covers: R5
+describe("master-plan canonical prose rendering", () => {
+  // Covers: R5, R6
   it.each(["claude", "codex"] as const)(
-    "renders architectContext for %s, preserves user prose and is byte-idempotent",
+    "renders architectContext and the full mode notice for %s, preserving user prose and bytes",
     (engine: "claude" | "codex"): void => {
       const cwd = freshDir();
       const configPath = join(cwd, "navori.config.json");
@@ -77,6 +78,32 @@ describe("master-plan architect context rendering", () => {
       expect(withUserProse).toContain(
         "En `architectContext`, conserva explícitamente la lista de etapas",
       );
+
+      // Canonical tests own semantics; this checks full paragraph fidelity,
+      // including first-stage consent, through each engine's conditional expansion.
+      const canonical = readFileSync(
+        join(getCoreRoot(), "core-assets/skills/master-plan.md"),
+        "utf8",
+      );
+      const expectedNotice = canonical
+        .slice(canonical.indexOf("## Aviso de inicio"), canonical.indexOf("## Mensaje de fase"))
+        .replace(
+          /<!-- navori:if-not onCodex -->([\s\S]*?)<!-- \/navori:if-not -->/g,
+          engine === "claude" ? "$1" : "",
+        )
+        .replace(
+          /<!-- navori:if onCodex -->([\s\S]*?)<!-- \/navori:if -->/g,
+          engine === "codex" ? "$1" : "",
+        );
+      expect(expectedNotice).toContain("Solo para la primera etapa");
+      expect(expectedNotice).not.toContain("<!-- navori:if");
+      const renderedNotice = withUserProse.slice(
+        withUserProse.indexOf("## Aviso de inicio"),
+        withUserProse.indexOf("## Mensaje de fase"),
+      );
+      expect(renderedNotice).toBe(expectedNotice);
+      const laterInstruction = renderedNotice.match(/En etapas posteriores[^.]*\./)?.[0];
+      expect(laterInstruction).toMatch(/(?:no|nunca) invo(?:ques|car) `navori master mode`/);
     },
   );
 });

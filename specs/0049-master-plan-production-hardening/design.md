@@ -1,6 +1,6 @@
 # Endurecimiento de producción del plan maestro — Design
 
-**Estado:** diseño aprobado; M1 implementado y revisado en el diff de trabajo, con revisión de documentación pendiente. M2–M7 sin implementar. Sin commit, push ni PR de implementación.
+**Estado:** diseño aprobado; M1, M2 y M3 implementados, revisados y comprometidos en `0309c30d`, `a69affc2` y `b78df7d2`, respectivamente, con procedencia en `tasks.md`. M4 implementado en el diff combinado de pruebas, prosa y salidas generadas, sin cambios de runtime ni arquitectura; A4 exacto con full ejecutado por el principal con exit `0` (31 pruebas focused y 8620 full aprobadas, 2 omitidas), según `.navori/state/handoffs/verification_0049-e1-m4-main.json`, no ejecutado por scribe. M1–M4 tienen implementación completada; T4 se marca solo por implementación y probes, no por aprobación final ni publicación. Esta evidencia precede a la documentación final: revisión fresca de E1, recibo del diff de envío, commit de M4 y cierre siguen pendientes. M5–M7 de E2 siguen sin implementar. Sin commit de M4, push ni PR de implementación.
 
 **Procedencia.** El diseño original se preparó bajo la excepción de rol ausente: los roles `architect` y `auditor` no estaban disponibles en la sesión de origen (Pi) y el diseño no fue auditado de forma independiente entonces. Este documento no afirma aprobación de `architect` ni de `auditor`. La implementación futura debe pasar revisión y, donde aplique, el challenge de áreas críticas.
 

@@ -208,8 +208,8 @@ describe("master-plan — workflow contract (T18)", () => {
     expect(body).toMatch(/template[\s\S]*en-curso/i);
   });
 
-  // Covers: R51
-  it("opens both the first and later stages after confirmation, asking mode only for the first", () => {
+  // Covers: R51, R6
+  it("opens stages after confirmation, registering only the first-stage choice and inheriting later mode", () => {
     const startup = body.slice(
       body.indexOf("## Aviso de inicio"),
       body.indexOf("## Procedimiento por fase"),
@@ -220,7 +220,16 @@ describe("master-plan — workflow contract (T18)", () => {
     expect(startup).toMatch(
       /primera[^\n]*pregunta[^\n]*modo `desde-cero`, `template` o `en-curso`/i,
     );
-    expect(startup).toMatch(/etapas posteriores[^\n]*`en-curso` sin preguntar/i);
+    const firstStage = startup.match(/Solo para la primera etapa[^.]*\./)?.[0] ?? "";
+    const laterStages = startup.match(/En etapas posteriores[^.]*\./)?.[0] ?? "";
+    expect(firstStage).toMatch(/registra la elección con `navori master mode`/);
+    expect(laterStages).toMatch(/(?:≥\s*2|>=\s*2|mayor o igual a 2)/);
+    expect(laterStages).toContain("`navori master init`");
+    expect(laterStages).toMatch(/hereda[^.]*automáticamente|automáticamente[^.]*hereda/);
+    expect(laterStages).toContain("`en-curso`");
+    expect(laterStages).toContain("sin preguntar");
+    expect(laterStages).toMatch(/(?:no|nunca) invo(?:ques|car) `navori master mode`/);
+    expect(laterStages).not.toMatch(/registra[^.]*`en-curso`/);
   });
 
   // Covers: R5
