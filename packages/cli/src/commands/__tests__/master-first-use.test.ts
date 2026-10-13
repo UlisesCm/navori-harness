@@ -226,6 +226,7 @@ describe("master-plan first use — executable scenario (R59)", () => {
     expect(readJson(stageFile(cwd, "state.json")).mode).toBe("template");
     await ok(cwd, "template", "plan");
     await ok(cwd, "template", "ux");
+    await ok(cwd, "template", "parts");
 
     // Context phase without raw files: check and advance refuse, and say why.
     expect((await master(cwd, "check")).exitCode).toBe(1);
@@ -498,4 +499,32 @@ describe("master-plan skill — every `navori master …` form is exercised (R59
       expect.objectContaining({ sub: "template", positional: "ux", flags: [] }),
     ]);
   });
+});
+
+// Covers: R14
+it("check --part ausente, vacío o espacios es error de uso sin check de etapa", async () => {
+  const cwd = freshRepo();
+  await ok(cwd, "init", "mvp");
+  const before = readFileSync(stageFile(cwd, "state.json"), "utf8");
+  for (const value of ["", "   "]) {
+    const result = await master(cwd, "check", "--part", value);
+    expect(result.exitCode).toBe(1);
+    expect(result.err).toContain("--part");
+    expect(result.out).toBe("");
+  }
+  const exclusive = await master(cwd, "check", "--part", "", "--fit");
+  expect(exclusive.exitCode).toBe(1);
+  expect(exclusive.err).toContain("mutually exclusive");
+  expect(readFileSync(stageFile(cwd, "state.json"), "utf8")).toBe(before);
+});
+
+// Covers: R15
+it("init con otro slug y etapa activa explica en stderr y sale 1", async () => {
+  const cwd = freshRepo();
+  await ok(cwd, "init", "mvp");
+  const result = await master(cwd, "init", "other");
+  expect(result.exitCode).toBe(1);
+  expect(result.err).toContain('"other"');
+  expect(result.err).toContain("ignorado");
+  expect(result.err).toContain(STAGE);
 });

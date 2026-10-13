@@ -123,7 +123,12 @@ const initSubCommand = defineCommand({
             `${specsDir}/${MASTER_DIR_NAME}/${result.stage.dir}/context/raw/\n`,
         );
       }
-      if (result.requestedSlugIgnored) process.exitCode = 1;
+      if (result.requestedSlugIgnored) {
+        process.stderr.write(
+          `[navori] slug "${args.slug}" ignorado: ya hay una etapa activa (${result.stage.dir}); ciérrala antes de abrir otra\n`,
+        );
+        process.exitCode = 1;
+      }
     } catch (cause) {
       if (cause instanceof MasterInitError) {
         reportError(cause);
@@ -361,16 +366,25 @@ const checkSubCommand = defineCommand({
     const cwd = resolve(args.cwd ?? process.cwd());
     try {
       if (
-        [Boolean(args.stage), Boolean(args.part), Boolean(args.fit)].filter(Boolean).length > 1 ||
+        [Boolean(args.stage), args.part !== undefined, Boolean(args.fit)].filter(Boolean).length >
+          1 ||
         (args.json && !args.fit)
       ) {
-        throw new Error("--stage, --part and --fit are mutually exclusive; --json requires --fit");
+        reportError(
+          new Error("--stage, --part and --fit are mutually exclusive; --json requires --fit"),
+        );
+        return;
       }
-      if (args.part) {
-        const findings = checkPart(cwd, args.part as string);
+      if (args.part !== undefined) {
+        const partId = String(args.part).trim();
+        if (!partId) {
+          reportError(new Error("--part requires a P<n> value"));
+          return;
+        }
+        const findings = checkPart(cwd, partId);
         for (const finding of findings) process.stderr.write(`[navori] ${finding}\n`);
         if (findings.some((finding) => !finding.startsWith("warning:"))) process.exitCode = 1;
-        else process.stdout.write(`${args.part as string}: ok\n`);
+        else process.stdout.write(`${partId}: ok\n`);
         return;
       }
       if (args.fit) {

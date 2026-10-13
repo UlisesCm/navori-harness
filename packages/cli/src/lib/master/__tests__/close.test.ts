@@ -527,6 +527,34 @@ describe("master close", () => {
   });
 });
 
+describe("close --reason without --abandon/--convert", () => {
+  // Covers: R16
+  it("close --reason en entrega legacy sale 1 sin escrituras; deliveries rechaza igual", async () => {
+    seed("planned");
+    writeMasterStatus(cwd);
+    const before = listStageFiles();
+    const state = read("state.json");
+    const indexBefore = readFileSync(join(root(), "index.json"), "utf8");
+    expect(() => runMasterClose(cwd, { reason: "x" })).toThrow(/--reason/);
+    const cli = await invoke(["close", "--reason", "x"]);
+    expect(cli.exitCode).toBe(1);
+    expect(cli.error).toContain("--reason");
+    expect(listStageFiles()).toEqual(before);
+    expect(read("state.json")).toBe(state);
+    expect(readFileSync(join(root(), "index.json"), "utf8")).toBe(indexBefore);
+
+    const index = JSON.parse(indexBefore) as {
+      version: number;
+      stages: Array<Record<string, unknown>>;
+    };
+    index.version = 2;
+    index.stages[0]!.workflow = "deliveries";
+    writeFileSync(join(root(), "index.json"), JSON.stringify(index));
+    expect(() => runMasterClose(cwd, { reason: "x" })).toThrow(/identity-bound/);
+    expect(read("state.json")).toBe(state);
+  });
+});
+
 describe("late abandon without parts", () => {
   // Covers: R5
   it("abandono tardío sin partes cierra abandonada; con una parte se rechaza; convert en mastered se rechaza", () => {

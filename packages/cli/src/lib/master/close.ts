@@ -299,6 +299,8 @@ export function runMasterClose(cwd: string, options: CloseOptions = {}): CloseRe
     existing ?? (options.convert ? "convertida" : options.abandon ? "abandonada" : "entregada");
   if (existing && (options.reason || options.convert || options.abandon))
     throw new Error("cierre ya iniciado: reanude con 'navori master close' sin opciones");
+  if (options.reason !== undefined && !options.convert && !options.abandon)
+    throw new Error("--reason solo aplica con --abandon o --convert");
   if (!existing) {
     const early = ["context", "transcribed", "mapped", "planned", "questioned"].includes(
       state.phase,
