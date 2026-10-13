@@ -6,15 +6,26 @@ import { activeStage, masterDirPath, readMasterIndex } from "./stages.ts";
 
 const TASK_ENTRY = /^- \[[ xX]\](?: .*)?$/gm;
 const TASK_TITLE = /^- \[[ xX]\] \*\*(T\d+)\*\*/;
-const FIELDS = [
-  "Archivos",
-  "Interfaces",
-  "Patrón",
-  "Lectura",
-  "Librerías",
-  "Done",
-  "Fuera de alcance",
-] as const;
+type FieldKey =
+  | "files"
+  | "interfaces"
+  | "pattern"
+  | "reading"
+  | "libraries"
+  | "done"
+  | "outOfScope";
+type Lang = "es" | "en";
+
+/** Canonical task field -> label per language; both are accepted when validating. */
+const FIELDS: Record<FieldKey, Record<Lang, string>> = {
+  files: { es: "Archivos", en: "Files" },
+  interfaces: { es: "Interfaces", en: "Interfaces" },
+  pattern: { es: "Patrón", en: "Pattern" },
+  reading: { es: "Lectura", en: "Reading" },
+  libraries: { es: "Librerías", en: "Libraries" },
+  done: { es: "Done", en: "Done" },
+  outOfScope: { es: "Fuera de alcance", en: "Out of scope" },
+};
 const CRITERION = /P\d+\.A\d+/g;
 
 function hasNamedTestCase(done: string): boolean {
@@ -29,6 +40,7 @@ function hasNamedTestCase(done: string): boolean {
 export function checkPart(cwd: string, partId: string): string[] {
   if (!/^P[1-9]\d*$/.test(partId)) return [`invalid part id ${partId}`];
   const config = readConfig(join(cwd, "navori.config.json"));
+  const language: Lang = config.language === "en" ? "en" : "es";
   if (!config.harness?.masterPlan) return ["harness.masterPlan is disabled"];
   const specsDir = config.sdd?.specsDir ?? "specs";
   const stage = activeStage(readMasterIndex(cwd, specsDir));
@@ -46,7 +58,7 @@ export function checkPart(cwd: string, partId: string): string[] {
   const spec = resolve(cwd, part.spec);
   if (spec !== root && !spec.startsWith(`${root}${sep}`))
     return [`part ${partId} spec is outside specsDir`];
-  return checkPartFiles(cwd, spec, part, parsed.data.parts);
+  return checkPartFiles(cwd, spec, part, parsed.data.parts, language);
 }
 
 /** Pure-content validator for tests and for the linked spec on disk. */
@@ -57,6 +69,7 @@ export function validatePartSpec(
   tasks: string,
   design: string,
   requirements: string,
+  language: Lang = "es",
 ): string[] {
   const failures: string[] = [];
   const starts = [...tasks.matchAll(TASK_ENTRY)].map((match) => match.index);
@@ -68,35 +81,41 @@ export function validatePartSpec(
       failures.push(`${part.id}: task ${index + 1} needs a **T<n>** heading`);
       continue;
     }
-    const values = new Map<string, string>();
-    for (const field of FIELDS) {
-      const marker = `- **${field}:**`;
-      const line = block.split("\n").find((candidate) => candidate.trimStart().startsWith(marker));
-      const value = line?.trimStart().slice(marker.length).trim();
-      if (!value) failures.push(`${taskId}: missing ${field}`);
-      else values.set(field, value);
+    const values = new Map<FieldKey, string>();
+    for (const [key, labels] of Object.entries(FIELDS) as [FieldKey, Record<Lang, string>][]) {
+      const markers = [labels.es, labels.en].map((label) => `- **${label}:**`);
+      let value: string | undefined;
+      for (const line of block.split("\n")) {
+        const marker = markers.find((m) => line.trimStart().startsWith(m));
+        if (marker) {
+          value = line.trimStart().slice(marker.length).trim();
+          break;
+        }
+      }
+      if (!value) failures.push(`${taskId}: missing ${labels[language]}`);
+      else values.set(key, value);
     }
     for (const name of values
-      .get("Interfaces")
+      .get("interfaces")
       ?.split(/[,;]+/)
       .map((s) => s.trim()) ?? []) {
       if (name && !design.includes(name))
         failures.push(`${taskId}: interface ${name} not in design.md`);
     }
-    const pattern = values.get("Patrón")?.replace(/`/g, "").trim();
+    const pattern = values.get("pattern")?.replace(/`/g, "").trim();
     if (pattern) {
       const path = resolve(cwd, pattern);
       if (!path.startsWith(`${resolve(cwd)}${sep}`) || !existsSync(path))
         failures.push(`${taskId}: pattern file does not exist: ${pattern}`);
     }
-    const libraries = values.get("Librerías");
+    const libraries = values.get("libraries");
     if (libraries && !/^(ninguna|none)$/i.test(libraries)) {
       for (const library of libraries.split(/[,;]+/).map((s) => s.trim())) {
         if (!/^[\w@./-]+@[0-9]+\.[0-9]+\.[0-9]+(?:-[\w.-]+)?$/.test(library))
           failures.push(`${taskId}: library needs exact version: ${library}`);
       }
     }
-    const done = values.get("Done") ?? "";
+    const done = values.get("done") ?? "";
     if (
       done &&
       (!/comando|command|`[^`]+`/i.test(done) ||
@@ -133,6 +152,7 @@ function checkPartFiles(
   spec: string,
   part: Part,
   allParts: readonly Part[],
+  language: Lang,
 ): string[] {
   const paths = ["tasks.md", "design.md", "requirements.md"].map((name) => join(spec, name));
   const missing = paths.filter((path) => !existsSync(path));
@@ -142,5 +162,6 @@ function checkPartFiles(
     part,
     allParts,
     ...(paths.map((path) => readFileSync(path, "utf8")) as [string, string, string]),
+    language,
   );
 }
