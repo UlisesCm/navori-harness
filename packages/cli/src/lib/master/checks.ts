@@ -39,6 +39,7 @@ import {
   readMasterStatus,
   renderMasterParts,
   renderStatusMd,
+  writeMasterStatus,
 } from "./status.ts";
 import { checkUxArtifacts, checkUxDecision } from "./ux.ts";
 import {
@@ -563,7 +564,9 @@ export interface AdvanceResult {
  * `navori master advance`: moves the active stage to its next phase ONLY when
  * every mechanical check for that transition passes (R8). Never skips a phase
  * (the target is always `MASTER_PHASES[current + 1]`) and never leaves
- * `executing` (that phase has no `next`; only `close` does).
+ * `executing` (that phase has no `next`; only `close` does). Regenerates derived
+ * status after the durable write; a partial failure reports the committed phase
+ * and status-only repair through the CLI's existing error handler.
  */
 export function runMasterAdvance(cwd: string, options: CheckOptions = {}): AdvanceResult {
   const ctx = buildCheckContext(cwd, options);
@@ -588,6 +591,15 @@ export function runMasterAdvance(cwd: string, options: CheckOptions = {}): Advan
     history: [...ctx.state.history, { phase: target, at: today() }],
   };
   writeFileAtomic(statePath(ctx), `${JSON.stringify(updated, null, 2)}\n`);
+  try {
+    writeMasterStatus(cwd);
+  } catch (cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new MasterCheckSetupError(
+      `${ctx.stage.dir}: fase durable '${target}'; falló la escritura derivada: ${detail}. ` +
+        "Repare con 'navori master status'; no repita 'navori master advance'.",
+    );
+  }
   return { advanced: true, from: ctx.state.phase, to: target, failures: [] };
 }
 
