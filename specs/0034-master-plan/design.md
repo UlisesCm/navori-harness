@@ -9,6 +9,8 @@ nuevos y cambiados; permisos de `settings-base.json`), ampliación de agentes ex
 `eacf1b99` (v0.10.1) antes de publicar: de los tres commits nuevos, solo #1047 toca un área del
 diseño (ver la nota de D8).
 
+Enmendado por `specs/0051-master-plan-correcciones` (2026-10-13): D10 y Failure modes admiten el abandono tardío sin partes (0051 R5).
+
 **Convención de rutas** (la de `requirements.md`): `<etapa>` es la carpeta de la etapa activa,
 `<specsDir>/_master/<NN>-<slug>/`. Las rutas relativas (`context/…`, `plans/…`, `state.json`,
 `parts.json`, `DECISIONS.md`, `MASTER.md`, `STATUS.md`, `CLOSURE.md`) cuelgan de ella. Solo
@@ -682,7 +684,7 @@ trabajo a una parte que no va a existir.
 
 | | `close` (entrega) | `close --convert <ruta> --reason` | `close --abandon --reason` |
 |---|---|---|---|
-| Fases permitidas | `mastered`, `executing` | `context` a `questioned` (R56) | `context` a `questioned` (R58) |
+| Fases permitidas | `mastered`, `executing` | `context` a `questioned` (R56) | `context` a `questioned` (R58); además `mastered`/`ux`/`executing` sin partes (0051 R5) |
 | Precondición | `closable`; si no, sale con 1 y lista `blockers` (R47) | `<ruta>` dentro de `<specsDir>`, fuera de `_master/`, y que no exista o esté vacía; razón no vacía | razón no vacía |
 | Confirmación del usuario | `AskUserQuestion` de entrega en la skill (R47) + prompt de permiso | `AskUserQuestion` de R56 + prompt de permiso | `AskUserQuestion` de abandono en la skill (R58) + prompt de permiso |
 | `CLOSURE.md` | resultado `entregada`, partes con estado final | resultado `convertida`, razón y ruta de la spec | corto: resultado `abandonada`, razón y fase en que se abandonó |
@@ -690,8 +692,10 @@ trabajo a una parte que no va a existir.
 
 `--convert` y `--abandon` juntos fallan antes de escribir nada. El abandono comparte la secuencia
 de `close.ts` (abajo) y no borra ningún archivo de la etapa (R58): todo queda como registro de solo
-lectura, igual que una etapa cerrada. En `mastered` o después, `--abandon` se rechaza y el mensaje
-nombra `navori master close` (entrega, con las partes `descartada`/`diferida` que hagan falta).
+lectura, igual que una etapa cerrada. En `mastered`, `ux` o `executing`, `--abandon` se permite solo si la etapa no tiene partes
+(`parts.json` ausente o con `parts` vacío); con al menos una parte se rechaza y el mensaje nombra
+`navori master close` (entrega, con las partes `descartada`/`diferida` que hagan falta).
+`--convert` sigue limitado a las fases tempranas. (enmendado por 0051 R5)
 
 Antes de `close` de entrega, la skill recorre las partes que no están en `hecho` efectivo y le
 pregunta al usuario, de una en una, el estado final con `AskUserQuestion`. Las opciones son
@@ -1135,9 +1139,12 @@ solo corrieron comandos de lectura (`navori doctor`, `status --json`).
 - **Cierre con partes sin resolver** (R47). `close` sale con 1 y lista `blockers`; nada se
   escribe. Una parte `diferida` o `descartada` sin razón no puede existir, porque zod la rechaza
   al escribirla.
-- **Abandono en `mastered` o después** (R58). `close --abandon` se rechaza sin escribir nada, y el
-  mensaje nombra `navori master close` (entrega), que exige resolver cada parte como `hecho`,
-  `descartada` o `diferida`. Pasar `--abandon` y `--convert` juntos también se rechaza.
+- **Abandono en `mastered` o después, con partes** (R58). `close --abandon` se rechaza sin escribir
+  nada cuando la etapa tiene al menos una parte, y el mensaje nombra `navori master close`
+  (entrega), que exige resolver cada parte como `hecho`, `descartada` o `diferida`. Sin partes
+  (`parts.json` ausente o con `parts` vacío) el abandono se acepta en `mastered`, `ux` y
+  `executing`, para que una etapa atorada tenga salida (enmendado por 0051 R5). Pasar `--abandon`
+  y `--convert` juntos también se rechaza, y `--convert` sigue limitado a las fases tempranas.
 - **Conversión hacia una ruta ocupada** (R57). `close --convert` falla si la ruta existe y no
   está vacía, así que nunca mezcla la etapa con otra spec. Si la conversión se cerró pero
   `spec-bootstrap` no llegó a crear la spec, `check --stage` e `INDEX.md` lo muestran con el

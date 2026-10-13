@@ -310,7 +310,13 @@ export function runMasterClose(cwd: string, options: CloseOptions = {}): CloseRe
       if (!status.closable)
         throw new Error(`no se puede cerrar; blockers:\n${status.blockers.join("\n")}`);
     } else {
-      if (!early) throw new Error(`en fase ${state.phase} use 'navori master close' para entregar`);
+      const partsFile = join(stagePath, "parts.json");
+      // Late abandon is the exit for a stage stuck with no parts (spec 0051 R5).
+      const noParts =
+        !existsSync(partsFile) ||
+        json(partsFile, PartsSchema.parse.bind(PartsSchema)).parts.length === 0;
+      if (!(early || (outcome === "abandonada" && noParts)))
+        throw new Error(`en fase ${state.phase} use 'navori master close' para entregar`);
       if (!options.reason?.trim()) throw new Error("--reason no puede estar vacío");
       if (outcome === "convertida") specPath(cwd, specsDir, options.convert!);
     }

@@ -527,6 +527,34 @@ describe("master close", () => {
   });
 });
 
+describe("late abandon without parts", () => {
+  // Covers: R5
+  it("abandono tardío sin partes cierra abandonada; con una parte se rechaza; convert en mastered se rechaza", () => {
+    for (const phase of ["mastered", "ux", "executing"]) {
+      for (const setup of ["absent", "empty"] as const) {
+        seed(phase);
+        rmSync(join(stage(), "CLOSURE.md"), { force: true });
+        if (setup === "absent") rmSync(join(stage(), "parts.json"));
+        else writeFileSync(join(stage(), "parts.json"), JSON.stringify({ version: 1, parts: [] }));
+        const result = runMasterClose(cwd, { abandon: true, reason: "stuck" });
+        expect(result.outcome).toBe("abandonada");
+        expect(read("CLOSURE.md")).toContain(`Fase: ${phase}`);
+      }
+    }
+    seed("executing");
+    const before = read("state.json");
+    expect(() => runMasterClose(cwd, { abandon: true, reason: "stop" })).toThrow(
+      /navori master close/,
+    );
+    expect(read("state.json")).toBe(before);
+    writeFileSync(join(stage(), "parts.json"), JSON.stringify({ version: 1, parts: [] }));
+    expect(() => runMasterClose(cwd, { convert: "specs/new", reason: "focus" })).toThrow(
+      /navori master close/,
+    );
+    expect(read("state.json")).toBe(before);
+  });
+});
+
 describe("navori master ux", () => {
   it("records the choice in phase ux and regenerates STATUS.md in the same operation", async () => {
     seed("ux");

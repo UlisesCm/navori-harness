@@ -514,6 +514,8 @@ function checkMasterDocument(ctx: CheckContext): CheckFailure[] {
       failures.push(
         `${ctx.stage.dir}/parts.json no es válido: ${parsed.error.issues.map((i) => i.message).join("; ")}`,
       );
+    } else if (parsed.data.parts.length === 0) {
+      failures.push(`${ctx.stage.dir}/parts.json no declara ninguna parte`);
     } else {
       const expected = renderMasterParts(parsed.data.parts, ctx.state.mode);
       if (masterPartsRegion(content) !== expected)

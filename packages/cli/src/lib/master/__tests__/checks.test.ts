@@ -685,6 +685,14 @@ describe("checksForTransition('mastered'/'executing') — R30-R33, R59", () => {
     expect(checksForTransition(ctx, "mastered").length).toBeGreaterThan(0);
   });
 
+  // Covers: R4
+  it("advance a mastered con parts vacío falla y nombra parts.json", () => {
+    const ctx = makeCtx();
+    write(ctx, "MASTER.md", masterContent());
+    writeFileSync(join(ctx.stagePath, "parts.json"), JSON.stringify({ version: 1, parts: [] }));
+    expect(checksForTransition(ctx, "mastered").some((f) => f.includes("parts.json"))).toBe(true);
+  });
+
   it("fails without parts.json", () => {
     const ctx = makeCtx();
     write(ctx, "MASTER.md", masterContent());

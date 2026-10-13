@@ -2,6 +2,8 @@
 
 **Status:** borrador · **Fecha:** 2026-09-24 · **Base revisada:** `eacf1b99`
 
+Enmendado por `specs/0051-master-plan-correcciones` (2026-10-13): R58 admite el abandono tardío sin partes (0051 R5).
+
 - **Origen:** pedido del usuario del 2026-09-24: planear un proyecto completo de principio a fin
   a partir de documentos de contexto (propuestas ejecutivas, formularios, hojas de cálculo) en
   docx, pdf o xlsx. Tres arquitectos escriben tres planes, el orquestador los consolida en un
@@ -318,10 +320,13 @@ ella.
   que recibe `DIGEST.md`, `CODEBASE.md` y `context/md/` como entrada y los cita. La confirmación
   del usuario cuenta como la aceptación explícita que exige `spec-bootstrap`.
 - **R58** — El usuario DEBERÁ poder abandonar la etapa activa en cualquier fase anterior a
-  `mastered` con `navori master close --abandon --reason <texto>`, después de confirmarlo con
+  `mastered`, y también en `mastered`, `ux` o `executing` cuando la etapa no tiene partes
+  (`parts.json` ausente o con `parts` vacío), con `navori master close --abandon --reason <texto>`, después de confirmarlo con
   `AskUserQuestion`. La etapa DEBERÁ quedar `abandonada` en `index.json`, con un `CLOSURE.md` corto
   que registra la razón y la fase en que se abandonó; la bandera DEBERÁ apagarse y el render
-  aplicarse. NO DEBERÁ borrarse ningún archivo de la etapa (decisión del usuario, 2026-09-24).
+  aplicarse. NO DEBERÁ borrarse ningún archivo de la etapa (decisión del usuario, 2026-09-24). (enmendado por 0051 R5: con al menos una parte, el abandono
+  desde `mastered` sigue rechazado y se entrega con `navori master close`; `--convert` sigue
+  limitado a las fases tempranas)
 
 ## Fuera de alcance
 

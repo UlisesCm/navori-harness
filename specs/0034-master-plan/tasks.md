@@ -172,6 +172,10 @@ Orden de los lotes:
     ruta ocupada; `--abandon` en `mastered`, sin razón y combinado con `--convert`; y la misma
     lista de archivos antes y después de abandonar; los criterios en `CLOSURE.md` con evidencia y
     los de una parte `diferida` como no verificados.
+  - Enmendado por 0051 R5 (2026-10-13): `--abandon` también se acepta en `mastered`/`ux`/`executing`
+    cuando la etapa no tiene partes; con una parte sigue rechazado. La prueba de 0034 "rejects both
+    early exits in mastered" sigue vigente porque su fixture tiene una parte; la cobertura nueva
+    está en `close.test.ts` (0051 T5).
 - [x] **T10** (R4, R49, R50) — Fila de `doctor`.
   - `lib/diagnose/master-plan.ts`: corre siempre que exista `<specsDir>/_master/index.json`, con la
     bandera encendida o no (cuarta excepción del principio 3). Da `warn`, nunca error, en los tres
