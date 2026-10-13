@@ -1,6 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { getCoreRoot } from "../render/bundled-assets.ts";
@@ -153,6 +162,161 @@ describe.runIf(runsBash)("pr-publisher-confirm.sh — Codex copy (spec 0041 R10)
     const r = runCodex(bash("git status"));
     expect(r.code).toBe(0);
     expect(r.stdout.trim()).toBe("");
+  });
+});
+
+/** Actual source CLI behind the rendered Codex hook, with checkout-local shims. */
+function codexRouteFixture(): {
+  cwd: string;
+  hook: string;
+  bin: string;
+  payload: string;
+  env: NodeJS.ProcessEnv;
+} {
+  const cwd = realpathSync(mkdtempSync(join(tmpdir(), "navori-real-pr-route-")));
+  const git = (...args: string[]): void => {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+  };
+  git("init", "-q", "-b", "feat/request");
+  git("config", "user.email", "fixture@example.test");
+  git("config", "user.name", "Fixture");
+  const dir = join(cwd, ".codex/hooks");
+  mkdirSync(dir, { recursive: true });
+  const hook = join(dir, "pr-publisher-confirm.sh");
+  writeFileSync(hook, readFileSync(hookPath));
+  writeFileSync(join(cwd, "body.txt"), "Review body\n");
+  git("add", ".");
+  git("commit", "-qm", "fixture");
+  const bin = join(cwd, ".navori/state/bin");
+  mkdirSync(bin, { recursive: true });
+  const bun = spawnSync("which", ["bun"], { encoding: "utf8" }).stdout.trim();
+  const source = resolve("src/index.ts");
+  writeFileSync(join(bin, "navori"), `#!/bin/sh\nexec '${bun}' '${source}' "$@"\n`, {
+    mode: 0o755,
+  });
+  writeFileSync(join(bin, "gh"), "#!/bin/sh\ntouch effect\nexit 99\n", { mode: 0o755 });
+  const command =
+    "gh pr create --repo owner/repository --base main --head feat/request --title 'feat: concrete title' --body-file body.txt --draft";
+  const payload = JSON.stringify({
+    cwd,
+    tool_name: "Bash",
+    tool_input: { command },
+    agent_id: "publisher-child",
+    session_id: "session-fixture",
+  });
+  return {
+    cwd,
+    hook,
+    bin,
+    payload,
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      HOME: cwd,
+      CODEX_HOME: cwd,
+      CODEX_THREAD_ID: undefined,
+      NAVORI_AUDIT_SESSION_ID: undefined,
+    },
+  };
+}
+
+describe.runIf(runsBash)("Codex actual hook-to-principal mediation (0050 E3)", () => {
+  // Covers: R6, R7, R16
+  it("always denies and relays a usable bound summary without executing gh", () => {
+    const f = codexRouteFixture();
+    try {
+      const result = spawnSync("bash", [f.hook], {
+        cwd: f.cwd,
+        env: f.env,
+        input: f.payload,
+        encoding: "utf8",
+        timeout: 8_000,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      const verdict = verdictOf({ code: 0, stdout: result.stdout });
+      expect(verdict.decision).toBe("deny");
+      const id = verdict.reason.match(/Pending request ([a-f0-9-]+)/)?.[1];
+      expect(id).toBeTruthy();
+      const relay = spawnSync(
+        join(f.bin, "navori"),
+        ["codex", "approval", "relay", id!, "--cwd", f.cwd],
+        { cwd: f.cwd, env: f.env, encoding: "utf8", timeout: 8_000 },
+      );
+      expect(relay.status, relay.stderr).toBe(0);
+      const summary = JSON.parse(relay.stdout) as {
+        status: string;
+        fields: Record<string, string>;
+        reviewCommand: string;
+        remoteState: string;
+      };
+      expect(summary.status).toBe("pending");
+      expect(summary.fields).toMatchObject({
+        repo: "owner/repository",
+        base: "main",
+        head: "feat/request",
+        title: "feat: concrete title",
+        bodyFile: "body.txt",
+      });
+      expect(summary.reviewCommand).toContain("--title 'feat: concrete title'");
+      expect(summary.remoteState).toBe("unverified");
+      expect(existsSync(join(f.cwd, "effect"))).toBe(false);
+    } finally {
+      rmSync(f.cwd, { recursive: true, force: true });
+    }
+  });
+
+  // Covers: R6, R7, R16
+  it("outer deadline kills a Git stall before identity and preserves fixed deny", () => {
+    const f = codexRouteFixture();
+    try {
+      const realGit = spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim();
+      writeFileSync(
+        join(f.bin, "git"),
+        `#!/bin/sh\ncase "$*" in\n  *--show-toplevel*) echo $$ > '${f.bin}/stalled-pid'; sleep 20; exit 1 ;;\nesac\nexec '${realGit}' "$@"\n`,
+        { mode: 0o755 },
+      );
+      const start = Date.now();
+      const result = spawnSync("bash", [f.hook], {
+        cwd: f.cwd,
+        env: f.env,
+        input: f.payload,
+        encoding: "utf8",
+        timeout: 8_000,
+      });
+      expect(Date.now() - start).toBeLessThan(7_000);
+      expect(result.status, result.stderr).toBe(0);
+      expect(verdictOf({ code: 0, stdout: result.stdout }).decision).toBe("deny");
+      expect(result.stdout).not.toContain("Pending request");
+      const pid = Number(readFileSync(join(f.bin, "stalled-pid"), "utf8"));
+      expect(() => process.kill(pid, 0)).toThrow();
+      expect(existsSync(join(f.cwd, "effect"))).toBe(false);
+    } finally {
+      rmSync(f.cwd, { recursive: true, force: true });
+    }
+  }, 12_000);
+
+  // Covers: R6, R7
+  it.each([
+    "exit 1",
+    "printf invalid",
+    'printf \'%s\' \'{"hookSpecificOutput":{"permissionDecision":"allow"}}\'',
+  ])("broken/untrusted handler stays denied: %s", (script) => {
+    const f = codexRouteFixture();
+    try {
+      writeFileSync(join(f.bin, "navori"), `#!/bin/sh\n${script}\n`, { mode: 0o755 });
+      const result = spawnSync("bash", [f.hook], {
+        cwd: f.cwd,
+        env: f.env,
+        input: f.payload,
+        encoding: "utf8",
+      });
+      expect(result.status).toBe(0);
+      expect(verdictOf({ code: 0, stdout: result.stdout }).decision).toBe("deny");
+      expect(existsSync(join(f.cwd, "effect"))).toBe(false);
+    } finally {
+      rmSync(f.cwd, { recursive: true, force: true });
+    }
   });
 });
 
