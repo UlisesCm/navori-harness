@@ -222,9 +222,11 @@ function checkTranscribed(ctx: CheckContext): CheckFailure[] {
   if (ctx.state.mode === null) failures.push(`${ctx.stage.dir}: mode no está registrado`);
 
   const rawDir = join(ctx.stagePath, "context", "raw");
-  const rawFiles = existsSync(rawDir) ? readdirSync(rawDir).filter((f) => f !== ".gitignore") : [];
+  const rawFiles = existsSync(rawDir) ? readdirSync(rawDir).filter((f) => !f.startsWith(".")) : [];
   if (rawFiles.length === 0) {
-    failures.push(`${ctx.stage.dir}: context/raw/ no tiene ningún archivo aparte de .gitignore`);
+    failures.push(
+      `${ctx.stage.dir}: context/raw/ no tiene ningún archivo visible (los que empiezan con . se ignoran)`,
+    );
   }
 
   const intake = readStageFile(ctx, "context/INTAKE.md");

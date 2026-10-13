@@ -391,6 +391,16 @@ describe("checksForTransition('transcribed') — R9-R11", () => {
     expect(checksForTransition(ctx, "transcribed").length).toBeGreaterThan(0);
   });
 
+  // Covers: R2
+  it("context/raw ignora archivos ocultos y solo-ocultos cuenta como vacío", () => {
+    const ctx = makeCtx();
+    write(ctx, "context/raw/.hidden-notes", "hidden");
+    write(ctx, "context/INTAKE.md", "| Archivo | Método | Resultado |\n|---|---|---|\n");
+    const failures = checksForTransition(ctx, "transcribed");
+    expect(failures.some((f) => f.includes("context/raw/ no tiene ningún archivo"))).toBe(true);
+    expect(failures.some((f) => f.includes(".hidden-notes"))).toBe(false);
+  });
+
   it("fails when a markitdown row's header has no version", () => {
     const ctx = makeCtx();
     write(ctx, "context/raw/doc.pdf", "raw");
