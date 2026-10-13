@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeConfig } from "../config/config.ts";
 import { checkReceipt, signReceipt } from "../diagnose/receipt.ts";
 import { resolveStateRoot, writeStateFileAtomic } from "../primitives/state-root.ts";
@@ -22,7 +22,10 @@ import { scanGitHygiene } from "../../commands/doctor.ts";
 import { NavoriConfigSchema } from "../config/schema.ts";
 
 const temporary: string[] = [];
+// Legacy cross-engine fixtures must not inherit the host's native review context.
+beforeEach(() => vi.stubEnv("CODEX_THREAD_ID", undefined));
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 

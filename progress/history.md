@@ -141,3 +141,9 @@ Implementer: A3 83/83, A4 32/32, dirigidos 152/152, actor 4/4, gate fast exit0; 
 ## Siguiente paso
 
 Retomar esta misma branch/worktree; corregir target del scribe mediante implementer/scribe, render oficial/goldens, nueva revisión y A3/A4 pertinentes. Completar gate full, receipt vigente y marcado T3–T5 antes de ready/merge. E3/E4 siguen pendientes. Issues preventivos #1312 y #1314 separados; no cambiar plan de 0050.
+
+## 2026-10-13 10:06 codex — Cierra implementación 0050 E2 en PR #1315
+
+Retomada E2 en su branch/worktree. El dispatch vencido estaba en el checkout de la sesión; se renovó allí y se siguió la ruta workplan aprobada de la CLI global, sin desactivar guards. Corregidos destino configurable del scribe y detector de JSON capturado; prosa compactada conserva obligaciones y caps. El repro de resume confirmó Git metadata sin deadline: se propagó el presupuesto total a readHead/memoryTree y hash en memoria, conservando pending y estado read-only. Los fixtures legacy aíslan/restauran CODEX_THREAD_ID del host sin cambiar la validación de producción. Usuario autorizó ampliaciones de tests y la nueva ronda tras dos rechazos.
+
+A3 83/83, A4 34/34, fixtures 76/76, prosa/render 232/232, golden 5/5 y fast verdes. Reviewer fresco APPROVED y full gate exit0: 420 archivos, 8610 aprobados, dos omitidos, cero fallos. Native producer/scribe attest y reviewer begin/seal validados; T3–T5 cerradas, delta editorial revalidado y review re-firmado. Receipt final para main statusok/freshtrue/full sobre los bytes finales antes de commit/publicación en #1315. La grabación automática de A3/A4 sigue ausente en hooks legacy; no se fabricó evidencia del workplan. E3/E4 y evaluación comparativa permanecen pendientes; esperar merge de E2, sin merge automático.

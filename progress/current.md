@@ -1,18 +1,18 @@
 # Sesión actual
 
-**Estado:** 0050 E2/M2 pendiente; usuario pidió PR draft y cierre.
+**Estado:** 0050 E2/M2 implementada y revisada; integración pendiente.
 
 ## Trabajo conservado
 
-Branch `feat/0050-codex-resultados-e2`, worktree `/Users/ulisescm/Documents/dev-docs/navori-harness-0050-e2`, base/PR target `main`. T3–T5 tienen código, prosa y espejos renderizados; permanecen pendientes en el tablero hasta aprobación/gate final. E1 mergeada; E3/E4 sin iniciar.
+Branch `feat/0050-codex-resultados-e2`, worktree `/Users/ulisescm/Documents/dev-docs/navori-harness-0050-e2`, PR #1315 a `main`. E2/T3–T5: evidencia ejecutada actual, ownership nativo, revisión independiente vigente y resume read-only con deadline total. E1 mergeada; E3/E4 sin iniciar.
 
-## Bloqueo y siguiente paso
+## Siguiente paso
 
-Reviewer CHANGES_REQUESTED: `packages/core/core-assets/agents/scribe.md` hardcodea `--target main`; reemplazar por `{{prTarget}}` y regenerar mediante scribe. Después revisar límite total de resume (duda sin repro), repetir verificaciones pertinentes y reviewer fresco; gate full y receipt vigentes antes de marcar tareas y publicar ready/merge. Conservar este worktree y branch; no replan ni nueva investigación general. El usuario pidió detener aquí, no corregir ahora.
+Esperar integración de #1315 a `main`, sin merge automático. Después preparar y aprobar E3/M3; no iniciarla antes del merge. Conservar branch y worktree. El dispatch Codex se prepara en el checkout de la sesión, no en el worktree del encargo; la CLI global 0.12.0 aún requiere la ruta `workplan:` aprobada para esta entrega.
 
 ## Evidencia disponible
 
-Implementer A3 83/83, A4 32/32, dirigidos152/152, actor4/4, fast exit0; scribe golden5/5. Native attest implementer/scribe y begin reviewer independiente0.162.1 comprobados por sourceCLI. Full gate no ejecutado, receipt full/fresh ausente. Hooks legacy no grabaron A3/A4; no inventar progreso recorded.
+A3 83/83, A4 34/34, fixtures legacy 76/76, prosa/render 232/232, golden 5/5 y fast verdes. Reviewer APPROVED; full gate exit0: 420 archivos, 8610 aprobados, dos omitidos, cero fallos. SourceCLI validó attest de producer/scribe y begin/seal independiente; evidencia acotada al host observado, no equivalencia general. T3–T5 cerradas; delta editorial revalidado, review re-firmado y receipt final para main statusok/freshtrue/full. Hooks legacy no grabaron A3/A4; no inventar progreso recorded.
 
 ## Seguimientos
 

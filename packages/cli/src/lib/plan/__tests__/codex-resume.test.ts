@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCommand } from "citty";
@@ -55,6 +63,50 @@ afterEach(() => {
 });
 
 describe("Codex resume continuity", () => {
+  // Covers: R8, R3, R4
+  it.each(["--show-object-format", "HEAD"])(
+    "cancels delayed Git %s within the shared budget without reviving guarantees or writing Git state",
+    (argument) => {
+      const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+      const bin = state("git-shim");
+      mkdirSync(bin);
+      const marker = state("delayed-git");
+      const delayed = `
+const { writeFileSync } = require("node:fs");
+writeFileSync(${JSON.stringify(marker)}, "entered");
+const end = Date.now() + 1500;
+while (Date.now() < end) {}
+`;
+      writeFileSync(
+        join(bin, "git"),
+        `#!/bin/sh
+case " $* " in
+  *" ${argument} "*) exec '${process.execPath}' -e '${delayed.replaceAll("'", "'\\''")}' ;;
+esac
+exec '${realGit}' "$@"
+`,
+        { mode: 0o755 },
+      );
+      const beforePlan = readFileSync(state("workplan_demo.json"), "utf8");
+      const beforeIndex = readFileSync(join(cwd, ".git/index"));
+      const beforeGit = readdirSync(join(cwd, ".git"), { recursive: true }).sort();
+      vi.stubEnv("PATH", `${bin}:${process.env.PATH}`);
+      const started = Date.now();
+      const result = resumePlans(cwd, 700);
+      expect(Date.now() - started).toBeLessThan(1100);
+      expect(readFileSync(marker, "utf8")).toBe("entered");
+      expect(result.status).toBe("pending");
+      expect(result.reason).toBe("resume deadline exceeded");
+      expect(result.current).toBe(current);
+      expect(result.plans).toHaveLength(1);
+      expect(result.plans[0]?.acceptance.A1?.status).toBe("pending");
+      expect(result.plans[0]?.review.status).toBe("pending");
+      expect(result.plans[0]?.receipt.status).toBe("pending");
+      expect(readFileSync(state("workplan_demo.json"), "utf8")).toBe(beforePlan);
+      expect(readFileSync(join(cwd, ".git/index"))).toEqual(beforeIndex);
+      expect(readdirSync(join(cwd, ".git"), { recursive: true }).sort()).toEqual(beforeGit);
+    },
+  );
   // Covers: R8, R3, R4
   it("retains task/next step, revalidates actual evidence and invalidates drift without rewriting the plan", () => {
     const fp = fingerprintTree(cwd);

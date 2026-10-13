@@ -72,26 +72,29 @@ export type EvidenceLine = z.infer<typeof EvidenceLineSchema>;
  */
 const GIT_HARDENING = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"] as const;
 
+/** Runs hardened Git plumbing using only the remaining shared deadline, when provided. */
 function git(
   cwd: string,
   args: string[],
   options: { env?: NodeJS.ProcessEnv; input?: string; deadline?: number } = {},
 ): string | undefined {
+  if (Date.now() >= (options.deadline ?? Infinity)) return undefined;
   const result = spawnSync("git", [...GIT_HARDENING, ...args], {
     cwd,
     encoding: "utf8",
     env: options.env ?? process.env,
     input: options.input,
     maxBuffer: 256 * 1024 * 1024,
-    timeout: options.deadline ? Math.max(1, options.deadline - Date.now()) : undefined,
+    timeout:
+      options.deadline !== undefined ? Math.max(1, options.deadline - Date.now()) : undefined,
   });
   if (result.error || result.status !== 0) return undefined;
   return result.stdout;
 }
 
-/** `git rev-parse HEAD` of `tree`, or `""` when unborn/unreadable. */
-export function readHead(tree: string): string {
-  return git(tree, ["rev-parse", "HEAD"])?.trim() ?? "";
+/** `git rev-parse HEAD` of `tree`, or `""` when unborn, unreadable or out of budget. */
+export function readHead(tree: string, deadline?: number): string {
+  return git(tree, ["rev-parse", "HEAD"], { deadline })?.trim() ?? "";
 }
 
 export type Fingerprint = { ok: true; tree: string } | { ok: false; reason: string };
@@ -192,7 +195,7 @@ export function fingerprintTree(
     if (!sha) return { ok: false, reason: "git hash-object failed" };
     entries.push(`120000 ${sha}\t${link.path}\0`);
   }
-  if (options.readOnly) return memoryTree(entries, tree);
+  if (options.readOnly) return memoryTree(entries, tree, options.deadline);
   const env = { ...process.env, GIT_INDEX_FILE: scratch };
   if (git(tree, ["read-tree", "--empty"], { env }) === undefined) {
     return { ok: false, reason: `cannot write ${scratch} (read-only git dir?)` };
@@ -209,13 +212,16 @@ export function fingerprintTree(
 }
 
 /** Builds Git tree object IDs in memory without objects or a scratch index. */
-function memoryTree(entries: string[], cwd: string): Fingerprint {
-  const format = git(cwd, ["rev-parse", "--show-object-format"])?.trim();
+function memoryTree(entries: string[], cwd: string, deadline: number = Infinity): Fingerprint {
+  const format = git(cwd, ["rev-parse", "--show-object-format"], {
+    deadline: Number.isFinite(deadline) ? deadline : undefined,
+  })?.trim();
   if (format !== "sha1" && format !== "sha256")
     return { ok: false, reason: "unknown object format" };
   type Node = Map<string, { mode: string; hash: string } | Node>;
   const root: Node = new Map();
   for (const entry of entries) {
+    if (Date.now() >= deadline) return { ok: false, reason: "timeout" };
     const [metadata, path] = entry.slice(0, -1).split("\t");
     const [mode, hash] = (metadata ?? "").split(" ");
     if (!path || !mode || !hash) return { ok: false, reason: "invalid tree entry" };
@@ -230,24 +236,33 @@ function memoryTree(entries: string[], cwd: string): Fingerprint {
     }
     node.set(parts.at(-1)!, { mode, hash });
   }
-  const hashTree = (node: Node): string => {
+  /** Hashes a subtree without publishing an incomplete result after budget exhaustion. */
+  const hashTree = (node: Node): string | undefined => {
+    if (Date.now() >= deadline) return undefined;
     const sorted = [...node].sort(([a, av], [b, bv]) =>
       Buffer.compare(
         Buffer.from(a + (av instanceof Map ? "/" : "")),
         Buffer.from(b + (bv instanceof Map ? "/" : "")),
       ),
     );
-    const bytes = Buffer.concat(
-      sorted.map(([name, value]) =>
-        Buffer.concat([
-          Buffer.from(`${value instanceof Map ? "40000" : value.mode} ${name}\0`),
-          Buffer.from(value instanceof Map ? hashTree(value) : value.hash, "hex"),
-        ]),
-      ),
-    );
+    const chunks: Buffer[] = [];
+    for (const [name, value] of sorted) {
+      if (Date.now() >= deadline) return undefined;
+      const hash = value instanceof Map ? hashTree(value) : value.hash;
+      if (!hash) return undefined;
+      chunks.push(
+        Buffer.from(`${value instanceof Map ? "40000" : value.mode} ${name}\0`),
+        Buffer.from(hash, "hex"),
+      );
+    }
+    const bytes = Buffer.concat(chunks);
+    if (Date.now() >= deadline) return undefined;
     return createHash(format).update(`tree ${bytes.length}\0`).update(bytes).digest("hex");
   };
-  return { ok: true, tree: hashTree(root) };
+  const hash = hashTree(root);
+  return hash && Date.now() < deadline
+    ? { ok: true, tree: hash }
+    : { ok: false, reason: "timeout" };
 }
 
 /** `fingerprintTree`'s hash, or `undefined` when it cannot be computed. */

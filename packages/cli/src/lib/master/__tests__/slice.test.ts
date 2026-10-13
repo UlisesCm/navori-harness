@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
@@ -67,7 +67,10 @@ function divergeStateDigests(): void {
 }
 
 const dirs: string[] = [];
+// Cooperative legacy fixtures must not inherit the host's native review context.
+beforeEach(() => vi.stubEnv("CODEX_THREAD_ID", undefined));
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });

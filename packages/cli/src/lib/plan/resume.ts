@@ -56,7 +56,7 @@ export function resumePlans(cwd: string, budgetMs = 5000): ResumeResult {
     const defaultTarget = config.prTarget ?? config.branchBase;
     const gate = config.qualityGate?.full ?? "";
     const fingerprint = fingerprintTree(root.cwd, undefined, { readOnly: true, deadline });
-    const head = readHead(root.cwd);
+    const head = readHead(root.cwd, deadline);
     const identities = new Map<string, ContentIdentity>();
     for (const name of names) {
       const path = stateArtifactPath(root, name);

@@ -229,6 +229,35 @@ function balanced(src: string, open: number): string {
  */
 const FILE_REDIRECT = /(?:^|[^0-9&<>])>>?[^&]/;
 
+/**
+ * Bounded shell assignments whose JSON is data, not output to the host.
+ * Recognize single-quoted command bodies and literal assignments; unfamiliar
+ * shell syntax stays visible to the fail-closed emission checker. A captured
+ * value forwarded by printf/echo to host stdout remains an emission.
+ */
+function capturedRanges(code: string): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = [];
+  const forwarded = new Set<string>();
+  for (const print of code.matchAll(/\b(?:printf|echo)\b[^\n]*/g)) {
+    if (FILE_REDIRECT.test(print[0])) continue;
+    for (const variable of print[0].matchAll(
+      /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g,
+    )) {
+      forwarded.add(variable[1] ?? variable[2]!);
+    }
+  }
+  for (const pattern of [
+    /\b([A-Za-z_][A-Za-z0-9_]*)=\$\([^'\n]*'[^']*'[^)\n]*\)/g,
+    /\b([A-Za-z_][A-Za-z0-9_]*)='[^']*'/g,
+  ]) {
+    for (const match of code.matchAll(pattern)) {
+      if (forwarded.has(match[1]!)) continue;
+      ranges.push({ start: match.index, end: match.index + match[0].length });
+    }
+  }
+  return ranges;
+}
+
 /** One object literal a hook prints to stdout, with where each field sat. */
 interface Emitted {
   literal: string;
@@ -249,6 +278,7 @@ interface Emitted {
  */
 function emittedLiterals(script: string): Emitted[] {
   const code = codeOf(script);
+  const captured = capturedRanges(code);
   const opens: number[] = [];
 
   for (const m of code.matchAll(/JSON\.stringify\(\s*\{/g)) {
@@ -260,6 +290,7 @@ function emittedLiterals(script: string): Emitted[] {
 
   const out: Emitted[] = [];
   for (const open of opens.sort((a, b) => a - b)) {
+    if (captured.some(({ start, end }) => open >= start && open < end)) continue;
     const literal = balanced(code, open);
     const lineEnd = code.indexOf("\n", open + literal.length);
     const tail = code.slice(open + literal.length, lineEnd === -1 ? undefined : lineEnd);
@@ -511,6 +542,33 @@ describe("contrato JSON de salida — por evento, con cita (#774)", () => {
  * only worth running if it rejects them.
  */
 describe("el checker rechaza los canales que el evento descarta", () => {
+  // Covers: R8
+  it("distinguishes captured continuity data from the SessionStart envelope", () => {
+    const script = `resume_state=$(node -e '
+process.stdout.write(JSON.stringify({status:"pending",reason:"unavailable"}));
+' 2>/dev/null) || resume_state='{"status":"pending","reason":"unavailable"}'
+node -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:process.env.CTX}}))'`;
+    const emitted = emittedLiterals(script);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]?.hookSpecific).toContain("additionalContext");
+    expect(violations("SessionStart", emitted[0]!)).toEqual([]);
+  });
+
+  // Covers: R8
+  it("still rejects invalid root output after captured data and in printed substitutions", () => {
+    for (const script of [
+      `resume_state=$(node -e 'process.stdout.write(JSON.stringify({status:"pending"}))')
+node -e 'process.stdout.write(JSON.stringify({status:"pending"}))'`,
+      `printf '%s' "$(node -e 'process.stdout.write(JSON.stringify({status:"pending"}))')"`,
+      `output=$(node -e 'process.stdout.write(JSON.stringify({status:"pending"}))')
+printf '%s\\n' "$output"`,
+    ]) {
+      const emitted = emittedLiterals(script);
+      expect(emitted).toHaveLength(1);
+      expect(violations("SessionStart", emitted[0]!)).toContain('SessionStart no entrega "status"');
+    }
+  });
+
   const cases: Array<[string, string, string]> = [
     // [event, literal, the substring the failure must name]
     [
