@@ -6,6 +6,7 @@ import { join, relative, resolve, sep } from "node:path";
 import { readConfig, writeConfig } from "../config/config.ts";
 import { runRender } from "../../commands/render.ts";
 import { writeFileAtomic } from "../primitives/atomic.ts";
+import { normalizeEol } from "../primitives/eol.ts";
 import { masterMarkers } from "./markers.ts";
 import {
   MasterStateSchema,
@@ -65,9 +66,7 @@ function finishRender(
 }
 
 function hash(content: string): string {
-  return createHash("sha256")
-    .update(content.replace(/\r\n/g, "\n").replace(/\r/g, "\n"), "utf8")
-    .digest("hex");
+  return createHash("sha256").update(normalizeEol(content), "utf8").digest("hex");
 }
 
 function escapeCell(value: string | number | null | undefined): string {
@@ -300,6 +299,8 @@ export function runMasterClose(cwd: string, options: CloseOptions = {}): CloseRe
     existing ?? (options.convert ? "convertida" : options.abandon ? "abandonada" : "entregada");
   if (existing && (options.reason || options.convert || options.abandon))
     throw new Error("cierre ya iniciado: reanude con 'navori master close' sin opciones");
+  if (options.reason !== undefined && !options.convert && !options.abandon)
+    throw new Error("--reason solo aplica con --abandon o --convert");
   if (!existing) {
     const early = ["context", "transcribed", "mapped", "planned", "questioned"].includes(
       state.phase,
@@ -310,8 +311,19 @@ export function runMasterClose(cwd: string, options: CloseOptions = {}): CloseRe
       if (blocked.length > 0) throw new Error(blocked.join("\n"));
       if (!status.closable)
         throw new Error(`no se puede cerrar; blockers:\n${status.blockers.join("\n")}`);
+      // Orphaned evidence depends on HEAD, so it gates close without touching `closable` (0051 R6).
+      if (status.evidenceBlockers.length > 0)
+        throw new Error(
+          `no se puede cerrar; evidencia huérfana:\n${status.evidenceBlockers.join("\n")}`,
+        );
     } else {
-      if (!early) throw new Error(`en fase ${state.phase} use 'navori master close' para entregar`);
+      const partsFile = join(stagePath, "parts.json");
+      // Late abandon is the exit for a stage stuck with no parts (spec 0051 R5).
+      const noParts =
+        !existsSync(partsFile) ||
+        json(partsFile, PartsSchema.parse.bind(PartsSchema)).parts.length === 0;
+      if (!(early || (outcome === "abandonada" && noParts)))
+        throw new Error(`en fase ${state.phase} use 'navori master close' para entregar`);
       if (!options.reason?.trim()) throw new Error("--reason no puede estar vacío");
       if (outcome === "convertida") specPath(cwd, specsDir, options.convert!);
     }

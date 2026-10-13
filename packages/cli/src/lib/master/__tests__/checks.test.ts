@@ -391,6 +391,16 @@ describe("checksForTransition('transcribed') — R9-R11", () => {
     expect(checksForTransition(ctx, "transcribed").length).toBeGreaterThan(0);
   });
 
+  // Covers: R2
+  it("context/raw ignora archivos ocultos y solo-ocultos cuenta como vacío", () => {
+    const ctx = makeCtx();
+    write(ctx, "context/raw/.hidden-notes", "hidden");
+    write(ctx, "context/INTAKE.md", "| Archivo | Método | Resultado |\n|---|---|---|\n");
+    const failures = checksForTransition(ctx, "transcribed");
+    expect(failures.some((f) => f.includes("context/raw/ no tiene ningún archivo"))).toBe(true);
+    expect(failures.some((f) => f.includes(".hidden-notes"))).toBe(false);
+  });
+
   it("fails when a markitdown row's header has no version", () => {
     const ctx = makeCtx();
     write(ctx, "context/raw/doc.pdf", "raw");
@@ -675,6 +685,14 @@ describe("checksForTransition('mastered'/'executing') — R30-R33, R59", () => {
     expect(checksForTransition(ctx, "mastered").length).toBeGreaterThan(0);
   });
 
+  // Covers: R4
+  it("advance a mastered con parts vacío falla y nombra parts.json", () => {
+    const ctx = makeCtx();
+    write(ctx, "MASTER.md", masterContent());
+    writeFileSync(join(ctx.stagePath, "parts.json"), JSON.stringify({ version: 1, parts: [] }));
+    expect(checksForTransition(ctx, "mastered").some((f) => f.includes("parts.json"))).toBe(true);
+  });
+
   it("fails without parts.json", () => {
     const ctx = makeCtx();
     write(ctx, "MASTER.md", masterContent());
@@ -744,8 +762,8 @@ describe("checksForTransition('mastered'/'executing') — R30-R33, R59", () => {
     expect(checksForTransition(noDecision, "executing").join("\n")).toContain("navori master ux");
   });
 
-  // Covers: R31, R36, R50
-  it("checks altered and missing master-parts during executing, not only on a transition", () => {
+  // Covers: R31, R36, R50, R9
+  it("mensajes de drift de STATUS.md y de la región nombran navori master status", () => {
     const ctx = makeCtx();
     writeFileSync(indexJsonPath(cwd, SPECS_DIR), JSON.stringify(ctx.index));
     write(
@@ -771,9 +789,101 @@ describe("checksForTransition('mastered'/'executing') — R30-R33, R59", () => {
     for (const replacement of ["altered", ""]) {
       write(ctx, "MASTER.md", generated.replace(renderedParts(ctx), replacement));
       expect(runMasterCheck(cwd, { templatesRoot }).failures).toContain(
-        `${ctx.stage.dir}/MASTER.md: navori:master-parts differs from parts.json`,
+        `${ctx.stage.dir}/MASTER.md: navori:master-parts differs from parts.json; repare con 'navori master status'`,
       );
     }
+    write(ctx, "MASTER.md", generated);
+    writeFileSync(join(ctx.stagePath, "STATUS.md"), "tampered\n");
+    expect(runMasterCheck(cwd, { templatesRoot }).failures).toContain(
+      `${ctx.stage.dir}/STATUS.md differs from its render; repare con 'navori master status'`,
+    );
+  });
+});
+
+describe("runMasterCheck — CRLF documents", () => {
+  const INTAKE_CRLF =
+    "| Archivo | Método | Resultado |\r\n|---|---|---|\r\n| doc.pdf | markitdown | context/md/doc.md |\r\n";
+
+  // Covers: R1
+  it("is green when MASTER.md, INTAKE.md and STATUS.md use CRLF", () => {
+    const ctx = makeCtx();
+    writeFileSync(indexJsonPath(cwd, SPECS_DIR), JSON.stringify(ctx.index));
+    write(
+      ctx,
+      "state.json",
+      JSON.stringify(
+        baseState({
+          phase: "executing",
+          mode: "template",
+          history: MASTER_PHASES.slice(0, 7).map((phase) => ({ phase, at: "2026-01-01" })),
+        }),
+      ),
+    );
+    write(ctx, "context/raw/.gitignore", "*\n!.gitignore\n");
+    writeSinglePart(ctx);
+    write(
+      ctx,
+      "MASTER.md",
+      [
+        "## Metadatos",
+        "",
+        "Proyecto demo.\n\nOrigen: plan1 §1",
+        "",
+        "## Entrega en partes",
+        "",
+        `P1 con objetivo.\n\nOrigen: plan1 §15\n\n${renderedParts(ctx)}`,
+        "",
+        "## Preguntas abiertas",
+        "",
+        "Ninguna",
+        "",
+      ].join("\n"),
+    );
+    writeMasterStatus(cwd);
+    const toCrlf = (rel: string): void =>
+      write(ctx, rel, readFileSync(join(ctx.stagePath, rel), "utf8").replace(/\n/g, "\r\n"));
+    write(ctx, "context/INTAKE.md", INTAKE_CRLF);
+    toCrlf("MASTER.md");
+    toCrlf("STATUS.md");
+    expect(runMasterCheck(cwd, { templatesRoot }).failures).toEqual([]);
+  });
+
+  // Covers: R1
+  it("reads a CRLF INTAKE.md table at the transcribed gate", () => {
+    const ctx = makeCtx({ state: baseState({ mode: "template" }) });
+    write(ctx, "context/raw/.gitignore", "*\n!.gitignore\n");
+    write(ctx, "context/raw/doc.pdf", "raw");
+    write(
+      ctx,
+      "context/md/doc.md",
+      "> Fuente: context/raw/doc.pdf · Método: markitdown 0.1.2\r\n\r\ncontent\r\n",
+    );
+    write(ctx, "context/INTAKE.md", INTAKE_CRLF);
+    expect(checksForTransition(ctx, "transcribed")).toEqual([]);
+  });
+});
+
+describe("checkTranscribed — first-line read honors every EOL", () => {
+  // Covers: R1
+  it("treats a CR-only converted file's first line as the header, not the whole file", () => {
+    const ctx = makeCtx({ state: baseState({ mode: "template" }) });
+    write(ctx, "context/raw/.gitignore", "*\n!.gitignore\n");
+    write(ctx, "context/raw/doc.pdf", "raw");
+    // Header lacks a markitdown version; the version only appears in the body.
+    // Without normalizing, the whole CR-only file would count as "line 1".
+    write(
+      ctx,
+      "context/md/doc.md",
+      "> Fuente: context/raw/doc.pdf · Método: markitdown\r\rbody markitdown 0.1.2\r",
+    );
+    write(
+      ctx,
+      "context/INTAKE.md",
+      "| Archivo | Método | Resultado |\n|---|---|---|\n| doc.pdf | markitdown | context/md/doc.md |\n",
+    );
+    expect(checksForTransition(ctx, "transcribed").join("\n")).toContain(
+      "usa markitdown sin versión",
+    );
   });
 });
 
@@ -857,7 +967,7 @@ describe("runMasterAdvance — never skips, never leaves executing (R8)", () => 
       renderStatusMd(readMasterStatus(cwd)),
     );
     expect(runMasterCheck(cwd, { templatesRoot }).failures).not.toContain(
-      "01-mvp/STATUS.md differs from its render",
+      "01-mvp/STATUS.md differs from its render; repare con 'navori master status'",
     );
   });
 
@@ -947,7 +1057,7 @@ describe("runMasterAdvance — never skips, never leaves executing (R8)", () => 
       expect(readFileSync(join(stagePath(), "../INDEX.md"), "utf8")).toContain("01-mvp");
       expect(readFileSync(statePath, "utf8")).toBe(durableBytes);
       expect(runMasterCheck(cwd, { templatesRoot }).failures).not.toContain(
-        "01-mvp/STATUS.md differs from its render",
+        "01-mvp/STATUS.md differs from its render; repare con 'navori master status'",
       );
     },
   );
@@ -1055,6 +1165,14 @@ describe("checkClosedStage — R50, hash integrity with CRLF normalization", () 
   it("passes when only line endings changed to CRLF (normalized hash)", () => {
     seedClosedStage("# MASTER\n\ncontent\n");
     writeFileSync(join(stagePath("01-mvp"), "MASTER.md"), "# MASTER\r\n\r\ncontent\r\n");
+    expect(checkClosedStage(cwd, SPECS_DIR, "01-mvp", "es")).toEqual([]);
+  });
+
+  // Covers: R1
+  it("reads a CRLF CLOSURE.md integrity table", () => {
+    seedClosedStage("# MASTER\n\ncontent\n");
+    const closurePath = join(stagePath("01-mvp"), "CLOSURE.md");
+    writeFileSync(closurePath, readFileSync(closurePath, "utf8").replace(/\n/g, "\r\n"));
     expect(checkClosedStage(cwd, SPECS_DIR, "01-mvp", "es")).toEqual([]);
   });
 

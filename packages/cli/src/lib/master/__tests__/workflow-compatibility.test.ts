@@ -339,3 +339,21 @@ describe("deliveries D1 foundation", () => {
     expect(readdirSync(external)).toEqual([]);
   });
 });
+
+describe("master-plan skill alignment with the CLI", () => {
+  // Covers: R17
+  it("el skill indica check --part P<n>, commit antes de --accept, template parts, status tras marcar tareas y evidenceBlockers antes de cerrar", () => {
+    const skill = readFileSync(join(getCoreRoot(), "core-assets/skills/master-plan.md"), "utf8");
+    expect(skill).toContain("`navori master check --part P<n>`");
+    expect(skill).toContain(
+      "tras hacer commit del código probado, con `navori master part P<n> --accept",
+    );
+    expect(skill).toContain("`navori master template parts`");
+    expect(skill).toContain(
+      "Tras marcar tareas de la spec, genera o actualiza `STATUS.md` con `navori master status`",
+    );
+    expect(skill).toContain("`closable` verdadero y `evidenceBlockers` vacío");
+    expect(skill).toContain("o hay `evidenceBlockers`");
+    expect(skill).toContain("o después solo si no hay partes");
+  });
+});

@@ -4,6 +4,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { readConfig } from "../config/config.ts";
 import { writeFileAtomic } from "../primitives/atomic.ts";
+import { detectEol } from "../primitives/eol.ts";
 import { checkPart } from "./check-part.ts";
 import { DeliveryStateSchema } from "./delivery-schema.ts";
 import { checkActiveDelivery, deliveryLifecycle } from "./delivery.ts";
@@ -65,6 +66,11 @@ export interface MasterStatus {
   allDone: boolean;
   closable: boolean;
   blockers: string[];
+  /**
+   * Orphaned executable evidence: HEAD-dependent, so kept out of `blockers`,
+   * `closable` and the rendered status; `runMasterClose` rejects while non-empty (0051 R6).
+   */
+  evidenceBlockers: string[];
   lastClosed: { number: number; slug: string; state: string; closedAt: string | null } | null;
   architectContext?: ReturnType<typeof contextForArchitects>;
 }
@@ -162,6 +168,7 @@ export function readMasterStatus(cwd: string): MasterStatus {
     allDone: false,
     closable: false,
     blockers: [],
+    evidenceBlockers: [],
     lastClosed,
   };
   if (!stage) return empty;
@@ -224,6 +231,7 @@ export function readMasterStatus(cwd: string): MasterStatus {
     : [];
   const discrepancies: string[] = [];
   const blockers: string[] = [];
+  const evidenceBlockers: string[] = [];
   // Delivery must not skip the UX decision (a stage closed from `mastered`/`ux`
   // never ran the ux -> executing gate); legacy `executing` stages with no
   // decision only get the presence-consistency check.
@@ -259,7 +267,7 @@ export function readMasterStatus(cwd: string): MasterStatus {
       .map((a) => `${part.id}.${a.id}: sin evidencia`);
     let effective: PartState = part.state;
     if (part.state !== "descartada" && part.state !== "diferida") {
-      blockers.push(
+      evidenceBlockers.push(
         ...acceptance
           .filter((a) => a.orphan)
           .map(
@@ -327,6 +335,7 @@ export function readMasterStatus(cwd: string): MasterStatus {
     closable:
       mapped.length > 0 && blockers.length === 0 && closeBlockers(state, mapped).length === 0,
     blockers,
+    evidenceBlockers,
     lastClosed,
     ...(stage.number >= 2 ? { architectContext: contextForArchitects(index as MasterIndex) } : {}),
   };
@@ -376,7 +385,7 @@ export function renderStatusMd(status: MasterStatus): string {
   for (const part of status.parts)
     for (const criterion of part.acceptance)
       lines.push(
-        `- ${part.id}.${criterion.id} (${criterion.method}): ${criterion.verified ? "verificado" : "sin evidencia"}${criterion.commitsBehind === null ? "" : ` · commitsBehind=${criterion.commitsBehind}`}${criterion.orphan ? " · orphan" : ""}${criterion.commitsBehind !== null && criterion.commitsBehind > 0 ? ` · revalidar con 'navori master part ${part.id} --accept ${criterion.id}'` : ""}`,
+        `- ${part.id}.${criterion.id} (${criterion.method}): ${criterion.verified ? "verificado" : "sin evidencia"}`,
       );
   lines.push(
     "",
@@ -433,6 +442,18 @@ function assertWritableInRepo(cwd: string, path: string): void {
     throw new Error(`refusing symlink write outside repository: ${path}`);
 }
 
+/**
+ * Message for a derived-write failure that happens after a durable write already
+ * succeeded: names the committed state and the status-only repair.
+ */
+export function derivedWriteFailure(subject: string, command: string, cause: unknown): string {
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  return (
+    `${subject}; falló la escritura derivada: ${detail}. ` +
+    `Repare con 'navori master status'; no repita '${command}'.`
+  );
+}
+
 /** Regenerate only derived files of the active stage after all inputs validate. */
 export function writeMasterStatus(cwd: string): MasterStatus {
   const status = readMasterStatus(cwd);
@@ -458,17 +479,29 @@ export function writeMasterStatus(cwd: string): MasterStatus {
     let replacement: string | null = null;
     if (existsSync(masterPath)) {
       const content = readFileSync(masterPath, "utf8");
-      const region = renderMasterParts(parts, status.mode);
+      const eol = detectEol(content);
+      const region = renderMasterParts(parts, status.mode).replace(/\n/g, eol);
       const existing = masterPartsRegion(content);
-      if (existing) replacement = content.replace(existing, region);
+      if (existing) replacement = content.replace(existing, () => region);
+      else if (content.includes("<!-- navori:master-parts"))
+        // R11: an opening marker without its close; fail before any write.
+        throw new Error(
+          `${masterPath}: marcador '<!-- navori:master-parts' sin cierre '<!-- /navori:master-parts -->'; corríjalo a mano`,
+        );
       else {
-        const heading = /^## (?:Entrega en partes|Delivery in parts)\s*$/m.exec(content);
+        const heading = /^## (?:Entrega en partes|Delivery in parts)[ \t]*$/m.exec(content);
         if (heading?.index !== undefined) {
           const start = heading.index + heading[0].length;
           const next = /^## /gm;
           next.lastIndex = start;
           const end = next.exec(content)?.index ?? content.length;
-          replacement = `${content.slice(0, start)}\n\n${region}\n\n${content.slice(end).trimStart()}`;
+          const previous = content.slice(start, end).trim();
+          // R10: heading, region, previous body (keeps `Origen:`), then the next section.
+          replacement =
+            content.slice(0, start) +
+            `${eol}${eol}${region}${eol}${eol}` +
+            (previous ? `${previous}${eol}${eol}` : "") +
+            content.slice(end);
         }
       }
     }
@@ -494,5 +527,6 @@ export function statusLine(status: MasterStatus, specsDir: string): string {
     .replace(/\s+/g, " ")
     .trim();
   const shortTitle = [...clean].slice(0, 60).join("").replace(/"/g, "'");
-  return `Plan maestro — etapa ${status.stage.dir}: ${part ? `parte activa ${part.id} "${shortTitle}"` : "sin parte activa"} · ${part?.tasksDone ?? 0}/${part?.tasksTotal ?? 0} tareas · ${specsDir}/_master/${status.stage.dir}/STATUS.md. En tu primera respuesta de la sesión, ofrece continuar con el plan maestro en una sola línea, sin interrumpir lo que el usuario pidió.`;
+  const orphan = status.evidenceBlockers.length ? " · no cerrable: evidencia huérfana" : "";
+  return `Plan maestro — etapa ${status.stage.dir}: ${part ? `parte activa ${part.id} "${shortTitle}"` : "sin parte activa"} · ${part?.tasksDone ?? 0}/${part?.tasksTotal ?? 0} tareas${orphan} · ${specsDir}/_master/${status.stage.dir}/STATUS.md. En tu primera respuesta de la sesión, ofrece continuar con el plan maestro en una sola línea, sin interrumpir lo que el usuario pidió.`;
 }

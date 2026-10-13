@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { readConfig } from "../config/config.ts";
 import { writeFileAtomic } from "../primitives/atomic.ts";
+import { normalizeEol } from "../primitives/eol.ts";
 import {
   MASTER_PHASES,
   MasterStateSchema,
@@ -39,6 +40,7 @@ import {
   readMasterStatus,
   renderMasterParts,
   renderStatusMd,
+  derivedWriteFailure,
   writeMasterStatus,
 } from "./status.ts";
 import { checkUxArtifacts, checkUxDecision } from "./ux.ts";
@@ -188,7 +190,7 @@ export function checkHistoryChain(ctx: CheckContext): CheckFailure[] {
 
 function readStageFile(ctx: CheckContext, relPath: string): string | null {
   const path = join(ctx.stagePath, relPath);
-  return existsSync(path) ? readFileSync(path, "utf8") : null;
+  return existsSync(path) ? normalizeEol(readFileSync(path, "utf8")) : null;
 }
 
 interface MarkdownTable {
@@ -221,9 +223,11 @@ function checkTranscribed(ctx: CheckContext): CheckFailure[] {
   if (ctx.state.mode === null) failures.push(`${ctx.stage.dir}: mode no está registrado`);
 
   const rawDir = join(ctx.stagePath, "context", "raw");
-  const rawFiles = existsSync(rawDir) ? readdirSync(rawDir).filter((f) => f !== ".gitignore") : [];
+  const rawFiles = existsSync(rawDir) ? readdirSync(rawDir).filter((f) => !f.startsWith(".")) : [];
   if (rawFiles.length === 0) {
-    failures.push(`${ctx.stage.dir}: context/raw/ no tiene ningún archivo aparte de .gitignore`);
+    failures.push(
+      `${ctx.stage.dir}: context/raw/ no tiene ningún archivo visible (los que empiezan con . se ignoran)`,
+    );
   }
 
   const intake = readStageFile(ctx, "context/INTAKE.md");
@@ -263,7 +267,7 @@ function checkTranscribed(ctx: CheckContext): CheckFailure[] {
         failures.push(`${ctx.stage.dir}: ${raw} apunta a ${mdRelPath}, que no existe`);
         continue;
       }
-      const firstLine = readFileSync(mdPath, "utf8").split("\n")[0] ?? "";
+      const firstLine = normalizeEol(readFileSync(mdPath, "utf8")).split("\n")[0] ?? "";
       if (!firstLine.includes(raw) || !includesCI(firstLine, methodLabel)) {
         failures.push(
           `${ctx.stage.dir}: ${mdRelPath} no empieza con el archivo original y el método`,
@@ -511,10 +515,14 @@ function checkMasterDocument(ctx: CheckContext): CheckFailure[] {
       failures.push(
         `${ctx.stage.dir}/parts.json no es válido: ${parsed.error.issues.map((i) => i.message).join("; ")}`,
       );
+    } else if (parsed.data.parts.length === 0) {
+      failures.push(`${ctx.stage.dir}/parts.json no declara ninguna parte`);
     } else {
       const expected = renderMasterParts(parsed.data.parts, ctx.state.mode);
       if (masterPartsRegion(content) !== expected)
-        failures.push(`${ctx.stage.dir}/MASTER.md: navori:master-parts differs from parts.json`);
+        failures.push(
+          `${ctx.stage.dir}/MASTER.md: navori:master-parts differs from parts.json; repare con 'navori master status'`,
+        );
     }
   }
 
@@ -594,10 +602,12 @@ export function runMasterAdvance(cwd: string, options: CheckOptions = {}): Advan
   try {
     writeMasterStatus(cwd);
   } catch (cause: unknown) {
-    const detail = cause instanceof Error ? cause.message : String(cause);
     throw new MasterCheckSetupError(
-      `${ctx.stage.dir}: fase durable '${target}'; falló la escritura derivada: ${detail}. ` +
-        "Repare con 'navori master status'; no repita 'navori master advance'.",
+      derivedWriteFailure(
+        `${ctx.stage.dir}: fase durable '${target}'`,
+        "navori master advance",
+        cause,
+      ),
     );
   }
   return { advanced: true, from: ctx.state.phase, to: target, failures: [] };
@@ -622,8 +632,10 @@ export function runMasterCheck(cwd: string, options: CheckOptions = {}): CheckRe
   }
   const statusPath = join(ctx.stagePath, "STATUS.md");
   if (existsSync(statusPath)) {
-    if (readFileSync(statusPath, "utf8") !== renderStatusMd(readMasterStatus(cwd)))
-      failures.push(`${ctx.stage.dir}/STATUS.md differs from its render`);
+    if (normalizeEol(readFileSync(statusPath, "utf8")) !== renderStatusMd(readMasterStatus(cwd)))
+      failures.push(
+        `${ctx.stage.dir}/STATUS.md differs from its render; repare con 'navori master status'`,
+      );
   } else if (["mastered", "ux", "executing"].includes(ctx.state.phase)) {
     failures.push(`${ctx.stage.dir}: missing STATUS.md; run navori master status`);
   }
@@ -633,8 +645,7 @@ export function runMasterCheck(cwd: string, options: CheckOptions = {}): CheckRe
 // --- closed-stage validation (`check --stage`, R50) ------------------------
 
 function sha256Normalized(content: string): string {
-  const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  return createHash("sha256").update(normalized, "utf8").digest("hex");
+  return createHash("sha256").update(normalizeEol(content), "utf8").digest("hex");
 }
 
 /** Reads `CLOSURE.md`'s hash table under the `integridad`-named heading
@@ -711,7 +722,7 @@ export function checkClosedStage(
     failures.push(`${stageDir}: falta CLOSURE.md`);
     return failures;
   }
-  const closure = readFileSync(closurePath, "utf8");
+  const closure = normalizeEol(readFileSync(closurePath, "utf8"));
   const integrity = parseIntegrityTable(closure, markers.integridad);
   if (!integrity) {
     failures.push(

@@ -1,6 +1,7 @@
 // Covers: R47, R49, R50, R57, R58, R63, A1, A2 (master_plan_ux)
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdtempSync,
@@ -139,8 +140,8 @@ beforeEach(() => {
 afterEach(() => rmSync(cwd, { recursive: true, force: true }));
 
 describe("master close", () => {
-  // Covers: R11
-  it("uses the status orphan blocker and writes nothing on rejected closure", (): void => {
+  // Covers: R11, R6
+  it("close rechaza evidencia huérfana desde evidenceBlockers sin escribir aunque closable sea verdadero", (): void => {
     seed("executing");
     const input = {
       ...part("hecho"),
@@ -162,9 +163,9 @@ describe("master close", () => {
     };
     writeFileSync(join(stage(), "parts.json"), JSON.stringify({ version: 1, parts: [input] }));
     const before = listStageFiles().map((name) => [name, read(name)]);
-    const blocker = readMasterStatus(cwd).blockers[0]!;
+    const blocker = readMasterStatus(cwd).evidenceBlockers[0]!;
     expect(blocker).toContain("P1.A1: evidencia huérfana");
-    expect(readMasterStatus(cwd).closable).toBe(false);
+    expect(readMasterStatus(cwd).closable).toBe(true);
     expect(() => runMasterClose(cwd)).toThrow(blocker);
     expect(listStageFiles().map((name) => [name, read(name)])).toEqual(before);
     expect(readConfig(join(cwd, "navori.config.json")).harness?.masterPlan).toBe(true);
@@ -270,6 +271,16 @@ describe("master close", () => {
     const frozen = read("CLOSURE.md");
     expect(runMasterClose(cwd).stage).toBeNull();
     expect(read("CLOSURE.md")).toBe(frozen);
+  });
+
+  // Covers: R1
+  it("records the sha256 of the LF-normalized content, unchanged by the shared EOL helper", () => {
+    seed("executing", "hecho");
+    runMasterClose(cwd);
+    const expected = createHash("sha256")
+      .update(read("MASTER.md").replace(/\r\n/g, "\n"), "utf8")
+      .digest("hex");
+    expect(read("CLOSURE.md")).toContain(`| MASTER.md | ${expected}`);
   });
 
   // Covers: R49
@@ -516,6 +527,62 @@ describe("master close", () => {
   });
 });
 
+describe("close --reason without --abandon/--convert", () => {
+  // Covers: R16
+  it("close --reason en entrega legacy sale 1 sin escrituras; deliveries rechaza igual", async () => {
+    seed("planned");
+    writeMasterStatus(cwd);
+    const before = listStageFiles();
+    const state = read("state.json");
+    const indexBefore = readFileSync(join(root(), "index.json"), "utf8");
+    expect(() => runMasterClose(cwd, { reason: "x" })).toThrow(/--reason/);
+    const cli = await invoke(["close", "--reason", "x"]);
+    expect(cli.exitCode).toBe(1);
+    expect(cli.error).toContain("--reason");
+    expect(listStageFiles()).toEqual(before);
+    expect(read("state.json")).toBe(state);
+    expect(readFileSync(join(root(), "index.json"), "utf8")).toBe(indexBefore);
+
+    const index = JSON.parse(indexBefore) as {
+      version: number;
+      stages: Array<Record<string, unknown>>;
+    };
+    index.version = 2;
+    index.stages[0]!.workflow = "deliveries";
+    writeFileSync(join(root(), "index.json"), JSON.stringify(index));
+    expect(() => runMasterClose(cwd, { reason: "x" })).toThrow(/identity-bound/);
+    expect(read("state.json")).toBe(state);
+  });
+});
+
+describe("late abandon without parts", () => {
+  // Covers: R5
+  it("abandono tardío sin partes cierra abandonada; con una parte se rechaza; convert en mastered se rechaza", () => {
+    for (const phase of ["mastered", "ux", "executing"]) {
+      for (const setup of ["absent", "empty"] as const) {
+        seed(phase);
+        rmSync(join(stage(), "CLOSURE.md"), { force: true });
+        if (setup === "absent") rmSync(join(stage(), "parts.json"));
+        else writeFileSync(join(stage(), "parts.json"), JSON.stringify({ version: 1, parts: [] }));
+        const result = runMasterClose(cwd, { abandon: true, reason: "stuck" });
+        expect(result.outcome).toBe("abandonada");
+        expect(read("CLOSURE.md")).toContain(`Fase: ${phase}`);
+      }
+    }
+    seed("executing");
+    const before = read("state.json");
+    expect(() => runMasterClose(cwd, { abandon: true, reason: "stop" })).toThrow(
+      /navori master close/,
+    );
+    expect(read("state.json")).toBe(before);
+    writeFileSync(join(stage(), "parts.json"), JSON.stringify({ version: 1, parts: [] }));
+    expect(() => runMasterClose(cwd, { convert: "specs/new", reason: "focus" })).toThrow(
+      /navori master close/,
+    );
+    expect(read("state.json")).toBe(before);
+  });
+});
+
 describe("navori master ux", () => {
   it("records the choice in phase ux and regenerates STATUS.md in the same operation", async () => {
     seed("ux");
@@ -524,7 +591,9 @@ describe("navori master ux", () => {
     expect(JSON.parse(read("state.json")).ux).toBe("none");
     expect(read("STATUS.md")).toBe(renderStatusMd(readMasterStatus(cwd)));
     expect(read("STATUS.md")).toContain("UX: none");
-    expect(runMasterCheck(cwd).failures).not.toContain("01-mvp/STATUS.md differs from its render");
+    expect(
+      runMasterCheck(cwd).failures.filter((f) => f.includes("STATUS.md differs from its render")),
+    ).toEqual([]);
   });
 
   it("re-choosing in phase ux overwrites the decision", async () => {

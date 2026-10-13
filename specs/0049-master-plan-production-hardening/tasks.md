@@ -2,6 +2,8 @@
 
 **Estado:** E1 (M1–M4) se integró mediante PR1313 en `dev`, commit `7d12fa42b6fdc4cf67db46267a0ff3c0beeeb7c5`. E2 (M5–M7) se revisó `APPROVED` y se integró mediante PR1316 en `dev`, merge commit `336c0621b9d647ecdaee2634212859ceb81aeddc`; el commit final de M7 es `bb7f616cd6d2cf238347c51a2af5b3ee1484512a`. T1–T7 están completos y R1–R15 trazados. El A7 inicial falló en el full (417 archivos, 8643 aprobadas, 1 fallida, 2 omitidas) por nueve prompts de entregas que no estaban documentados en el test; tras la reparación aprobada, la revisión final pasó A7 focused (26 archivos/592 pruebas) y full (418 archivos/8644 aprobadas, 2 omitidas, 0 fallidas), con recibo full `status:ok`, `fresh:true` antes de publicación. La primera publicación de M5 como DRAFT y la aceptación pendiente son checkpoints históricos ya superados. Las integraciones históricas de `dev` quedaron comprometidas en `6b7ae245` y `87f4322d`; sus recibos no certifican diffs posteriores. Dos entregas (E1, E2) son la organización aceptada; LOC es una estimación, no una medición. La organización aceptada fue un scaffold y dos entregas funcionales (E1, E2); este cierre documental no añade otra entrega funcional.
 
+Enmendado por `specs/0051-master-plan-correcciones` (2026-10-13): la evidencia huérfana ya no está en `closable`/`blockers` ni en `STATUS.md`; vive en `evidenceBlockers` (`--json`) y bloquea `close` (0051 R6).
+
 Reglas de ejecución:
 - Un workplan por entrega (`0049-master-plan-production-hardening-e1`, `-e2`); `tasks.md` es el tracking canónico.
 - Commits atómicos, uno por milestone. Cada prueba nueva lleva `// Covers: R<n>`.
@@ -88,6 +90,7 @@ Evidencia del productor en `.navori/state/handoffs/impl_0049-master-plan-product
 - [x] **T5** (R7, R8, R9, R10) — `checkSpec` falla en formato nuevo por requirements ausente/ilegible o `R<n>` sin declarar; el legacy no cambia; la documentación no promete cobertura semántica; lectura: `packages/cli/src/lib/spec/check.ts`, `packages/cli/src/lib/spec/__tests__/check.test.ts` · effect: behavior · test: `packages/cli/src/lib/spec/__tests__/check.test.ts`::"formato nuevo: requirements ausente o ilegible y R no declarado fallan; legacy compatible"
 
 ### M6 — Evidencia huérfana frente a antigua — revisado y comprometido
+- Enmendado por 0051 R6 (2026-10-13): A6 y T6 se cumplen ahora con `evidenceBlockers` (la huérfana ya no baja `closable` ni aparece en `STATUS.md`; `close` la rechaza sin escribir). Las pruebas de `status.test.ts` y `close.test.ts` se editaron al nuevo contrato.
 - Evidencia del productor y verificación independiente del principal en `.navori/state/handoffs/impl_0049-master-plan-production-hardening-e2.json`: A6 exacto, **3 archivos, 61 pruebas aprobadas, exit `0`**; `navori gate fast` exit `0`, log `.navori/state/gate/fast-20261013T151827747Z.log`. Root confirmó la revisión aprobada y el commit `9db6e079`.
 - La regresión de estado fue RED antes del arreglo (5 fallidas, 17 aprobadas); la verificación final volvió a verde. `navori plan update` aceptó la evidencia con una advertencia de señal de éxito Bash no verificable. Root confirmó revisión `APPROVED` y commit `9db6e079`; esta evidencia no certifica M7 ni el cierre de E2.
 - **A6** — una parte con evidencia huérfana bloquea `closable` y `close` igual; un ancestro antiguo avisa con antigüedad ·

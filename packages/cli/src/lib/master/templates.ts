@@ -17,6 +17,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { normalizeEol } from "../primitives/eol.ts";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { masterMarkers } from "./markers.ts";
 import type { AssetLanguage } from "../render/render-plan.ts";
@@ -33,6 +34,7 @@ export const TEMPLATE_NAMES = [
   "ux",
   "delivery-master",
   "slice",
+  "parts",
 ] as const;
 export type TemplateName = (typeof TEMPLATE_NAMES)[number];
 
@@ -95,7 +97,7 @@ export function readTemplateFile(
  * involved.
  */
 export function splitTemplateSections(content: string): TemplateSection[] {
-  const lines = content.split("\n");
+  const lines = normalizeEol(content).split("\n");
   const sections: TemplateSection[] = [];
   let heading: string | null = null;
   let bodyLines: string[] = [];
@@ -161,10 +163,12 @@ export function printTemplate(
   mode: MasterMode | null = null,
   options: TemplateOptions = {},
 ): string {
-  const sections = sectionsForMode(
-    splitTemplateSections(readTemplateFile(name, language, options)),
-    mode,
-  );
+  const content = readTemplateFile(name, language, options);
+  const allSections = splitTemplateSections(content);
+  // A template with no `##` section (intake, parts) is a table or a JSON
+  // example: print it whole instead of an empty string (0051 R13).
+  if (allSections.length === 0) return `${normalizeEol(content).trimEnd()}\n`;
+  const sections = sectionsForMode(allSections, mode);
   return `${sections.map((s) => `## ${s.heading}\n\n${s.body}`).join("\n\n")}\n`;
 }
 
