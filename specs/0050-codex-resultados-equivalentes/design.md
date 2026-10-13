@@ -1,10 +1,23 @@
 # Codex: resultados equivalentes y perfiles actuales — Design
 
+## Estado de M4 (T8–T10)
+
+M4 implementa resolución de perfil, proyección del inventario del proyecto y diagnósticos de
+catálogo. La evidencia registrada para esta entrega es A7 (33 pruebas en 2 archivos), A8
+(18 pruebas en 3 archivos) y `bun run check:fast` con exit 0; el bundle fue de 1473.4 KB
+frente al límite de 1500 KB. Esto valida el contrato determinista de resolución, render y
+doctor. No demuestra selección efectiva ni aplicación de modelo/esfuerzo en el host.
+
+T6/E3 sigue pendiente. También quedan pendientes M5: T11/A9, T12/A10, la aceptación viva
+R17, la revisión independiente y el gate completo de envío. M4 no cierra E4 ni esta spec.
+
 ## Enfoque
 
-Extender el spine, adaptador, receipts, handoffs y primitivas de dispatch existentes. Los resultados son compartidos; los mecanismos pueden ser nativos de cada engine. Se reutiliza aceptación de specs, `executeReceipt`, handoffs de revisión y `evaluatePlanGate`; no se crea otro runner ni un servicio OAuth/API.
-
-La resolución dinámica de familias existente es la base para seguir versiones dentro del contrato conocido del catálogo. La extensión cubre modelo y esfuerzo, principal y todos los roles habilitados, provenance y los límites de actualización en cada frontera de ejecución. El host conserva el control sobre su modelo efectivo.
+M4 extiende los resolvers de perfiles y el renderer/doctor existentes; no añade un registry.
+El host conserva el control sobre su modelo efectivo. El render y el doctor comparten la
+proyección de perfiles para el principal, los roles habilitados y los TOML nativos locales.
+Esta entrega no implementa las futuras garantías de autorización, dispatch exclusivo ni
+evaluación viva descritas en la spec.
 
 ## Componentes y anchors
 
@@ -12,9 +25,9 @@ La resolución dinámica de familias existente es la base para seguir versiones 
 - `executeReceipt`, `evidenceIdentity` y `checkReceipt` en `packages/cli/src/commands/receipt.ts` y `packages/cli/src/lib/diagnose/receipt.ts`: evidencia de aceptación e invalidación — R3, R4.
 - `evaluatePlanGate` y `DispatchSchema` en `packages/cli/src/lib/plan/gate.ts`: handoff, revisión actual y preparación de dispatch — R5, R8, R13.
 - Guardas de publicación, reglas y flujo de aprobación de Codex: autorización ligada a acción/destino/diff y devolución desde subagente — R6, R7, R16.
-- `resolveCodexModel` y `scanModelProfileProvenance` en `packages/cli/src/lib/assets/model-profile.ts`: selección por rol, herencia, overrides y provenance — R9, R11, R12, R14.
-- `readCodexCatalogSlugs`, `highestOfFamily` y `resolveCodexModelValue` en `packages/cli/src/lib/codex/model-catalog.ts`: orden numérico, catálogo y candidatos degradados — R10, R15, R18.
-- `buildCodexConfigToml` en `packages/cli/src/engines/codex/build-config-toml.ts` y renderer de agentes: configuración project-managed para futuros inicios — R12, R13, R16.
+- `resolveCodexProfile`, `projectCodexProfiles` y `scanModelProfileProvenance` en `packages/cli/src/lib/assets/model-profile.ts`: selección por campo, proyección/provenance y lectura contenida de agentes locales — R9, R11, R12, R14.
+- `inspectCodexCatalog`, `highestOfFamily` y `resolveCodexModelValue` en `packages/cli/src/lib/codex/model-catalog.ts`: orden numérico, evidencia de catálogo y candidatos degradados — R10, R15, R18.
+- `buildCodexConfigToml` en `packages/cli/src/engines/codex/build-config-toml.ts` y renderer de agentes: intención administrada del proyecto para futuros inicios, con preservación de campos del usuario — R12, R13, R16.
 
 Estos anchors nombran el diseño actual, no afirman que la feature esté implementada.
 
@@ -24,23 +37,43 @@ Estos anchors nombran el diseño actual, no afirman que la feature esté impleme
 
 La intención durable permanece en `navori.config.json`; resolución y provenance se derivan para render, doctor y dispatch. La precedencia es por campo: override explícito de Codex por rol, mapping Codex explícito aplicable, default derivado del perfil Claude y finalmente herencia declarada. Se conserva `models.codexMap`; cualquier ampliación debe representar overrides por rol/esfuerzo sin duplicar configuración global. Un pin de modelo no reemplaza por sí mismo la regla del esfuerzo.
 
-Defaults acordados: Opus medium → Sol medium; Sonnet medium → Luna high; Haiku → Luna conservando esfuerzo; otros esfuerzos permanecen configurados. Por ejemplo, Sonnet low continúa low y Sonnet high continúa high. Overrides explícitos de esfuerzo y pins prevalecen en su campo.
+Defaults implementados: Opus medium → Sol medium; Sonnet medium → Luna high; Haiku → Luna conservando esfuerzo. Otros esfuerzos permanecen configurados; por ejemplo, Sonnet low continúa low y Sonnet high continúa high. Los overrides explícitos y pins prevalecen solo en su campo, por lo que un pin o mapping de modelo no suprime la conversión Sonnet medium → high.
+
+`models.codexProfiles` es opcional y usa el nombre TOML nativo exacto como clave. Permite
+configurar `model`, `effort` o ambos de forma independiente; `orchestrator` nombra el
+principal y está reservado. El mapping heredado `models.codexMap` continúa disponible. El
+esfuerzo de perfiles Claude no se transforma para Claude o Pi; la regla Sonnet medium →
+high y los overrides por nombre se aplican en la resolución de Codex. Pi conserva su
+consumidor explícito de modelo `codexMap`.
 
 Cada registro de perfil identifica rol, ámbito (principal/subagente), fuente, familia o pin, esfuerzo de entrada y destino, catálogo y estado. Los estados `candidate`, `configured`, `observed`, `degraded`, `unknown` y `pending` son distintos. `observed` requiere dato del host ligado al inicio o dispatch correspondiente. Una entrada de catálogo no demuestra soporte de esfuerzo ni disponibilidad runtime.
 
 ### Frescura y frontera de dispatch
 
-La lectura de catálogo ocurre al render, inicio y preparación de cada nuevo dispatch. Una fuente verificable del host/contexto debe sustentar la frescura. Los slugs por sí solos no permiten inferir un TTL o timestamp: sin evidencia, el estado es unknown/degraded y el candidato no se anuncia como latest vigente. Formatos desconocidos se omiten con diagnóstico; no se comparan lexicográficamente ni se adivinan IDs. El soporte cubre nuevas versiones numéricas dentro del formato conocido, no cambios incompatibles del protocolo.
+En M4, el catálogo local se inspecciona para producir candidatos durante render/doctor. El
+resolver puede recibir provenance opcional con fuente, timestamp y contexto; sin esos datos
+el estado queda `unknown`. Su cache, metadatos internos, mtime o slugs no prueban frescura.
+Los valores opcionales de provenance no son por sí mismos evidencia autenticada del host.
+Sin esos datos queda `unknown`; catálogo ausente, inválido o sin entradas compatibles queda
+`degraded`. Formatos desconocidos se diagnostican y no se comparan lexicográficamente ni se
+adivinan IDs. La comparación numérica cubre versiones dentro del formato conocido.
 
 Cada preparación tiene identidad propia, rol y acción. Solo un consumidor puede reclamar y consumir esa identidad; otra acción, rol o consumidor concurrente no puede reutilizarla. El diseño requiere probar dos consumidores sobre el mismo record, además de cruces de rol/acción. No se presupone que TTL, escritura atómica o eliminación tolerante a ausencia proporcionen exclusividad.
 
 ### Principal, aprobación y ciclo de vida
 
-El principal es propiedad del host. Una configuración project-managed puede expresar intención para futuros inicios, pero solo evidencia runtime prueba el modelo efectivo. Si el host no aplica esa selección, el perfil queda pending y se ofrece el remedio de inicio correspondiente. No se introduce un agente orquestador sustituto ni se cambia una sesión en curso.
+El principal es propiedad del host. La configuración project-managed expresa intención
+para futuros inicios; conserva los campos del usuario y valores más nuevos de la misma
+familia. El inventario lee perfiles TOML del proyecto dentro del checkout, incluidos los
+locales, que no administra ni reescribe. Solo observación del host ligada al contexto
+iniciado probaría el modelo efectivo; M4 no recoge tal observación. Por tanto, los perfiles
+configurados/candidatos/renderizados se distinguen de `observed`; sin observación, aplicación
+queda `pending` y el remedio es iniciar un contexto Codex nuevo y verificar allí modelo y
+esfuerzo. No se cambia una sesión en curso.
 
 Un subagente devuelve una solicitud concreta. El principal puede tramitarla o acreditar una autorización humana/host previamente concedida que cubra exactamente la acción y alcance. El principal no genera consentimiento por redactar un registro. Handoff, receipt o hash vinculan contenido y estado, pero no autentican por sí mismos a quien autorizó. Una denegación no habilita retries con otra herramienta; superficies no verificadas quedan declaradas sin cobertura.
 
-Los records antiguos pueden seguir leyéndose como historia, pero no prueban garantías nuevas cuando les faltan los vínculos requeridos. Al reanudar se recupera tarea y siguiente paso; las aprobaciones, revisiones y evidencia se revalidan contra estado actual.
+Los records antiguos pueden seguir leyéndose como historia, pero no prueban garantías nuevas cuando les faltan los vínculos requeridos. Al reanudar se recupera tarea y siguiente paso; las aprobaciones, revisiones y evidencia se revalidan contra estado actual. A7/A8 no cubren startup, dispatch, aplicación en vivo ni la aceptación R17; no afirman equivalencia de calidad entre modelos.
 
 ## Atributos de calidad y fallos
 

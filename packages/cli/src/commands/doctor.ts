@@ -280,7 +280,7 @@ export const doctorCommand = defineCommand({
     // drops the line silently (by design), so this is the only place the gap
     // surfaces. Warning-level: an unset tier is a valid default.
     const missingModelProfile = scanMissingModelProfile(config);
-    const modelProfileProvenance = scanModelProfileProvenance(config);
+    const modelProfileProvenance = scanModelProfileProvenance(config, cwd);
     // Spec 0033 D5, R21: one registry (`engine-capabilities.ts`) feeds every
     // control's diagnostic, including the spec 0032 R17 planTiers-gate
     // degradation this used to report on its own (`scanPlanTiersGateSupport`).

@@ -90,7 +90,13 @@ import {
   type ClassifiedLocalSkills,
 } from "../shared/local-skill-pointer.ts";
 
-import { readRenderedCodexModel, resolveCodexModel } from "../../lib/assets/model-profile.ts";
+import {
+  readRenderedCodexModel,
+  resolveCodexProfile,
+  plannedCodexProfileInput,
+  projectCodexProfiles,
+  readNativeCodexProfile,
+} from "../../lib/assets/model-profile.ts";
 
 const NAVORI_VERSION = readCliVersion();
 
@@ -336,6 +342,10 @@ export function renderCodexEngine(
     : "";
 
   const fullPlan = resolveHarnessPlan(config, coreAssets, preset, { engine: "codex" });
+  if (!rootScope) {
+    const profiles = projectCodexProfiles(cwd, config, { plannedAgents: fullPlan.agents });
+    warnings.push(...new Set(profiles.flatMap((profile) => profile.diagnostics)));
+  }
   // Spec 0043 R8: under `root` a workspace keeps no agents, no hooks and only the
   // skills the root does not provide; everything else is the root's.
   const omittedSkills = rootScope
@@ -734,7 +744,14 @@ function createCodexAdapter(
     id: "codex",
     label: "Codex",
 
-    placeAgent(agent, ctx): PlacementRequest {
+    placeAgent(agent, ctx): PlacementRequest | null {
+      const path = `.codex/agents/${agent.id}.toml`;
+      if (existsSync(join(ctx.cwd, path)) && !readNativeCodexProfile(ctx.cwd, agent.id).managed) {
+        warningsSink.push(
+          `Preserved user-owned native agent at ${path}; resolve the managed placement collision before rendering this role.`,
+        );
+        return null;
+      }
       const { body, description } = buildAgentToml(
         agent,
         ctx.config,
@@ -808,7 +825,13 @@ function createCodexAdapter(
         );
       }
 
-      const codexConfig = buildCodexConfigToml(ctx.config, ctx.plugins, wsSubpath, agentsMdBytes);
+      const codexConfig = buildCodexConfigToml(
+        ctx.config,
+        ctx.plugins,
+        wsSubpath,
+        agentsMdBytes,
+        ctx.cwd,
+      );
       warningsSink.push(...codexConfig.warnings);
 
       const collisions = pluginScriptCollisions(ctx.plugins);
@@ -1267,8 +1290,11 @@ function buildAgentToml(
     }
   }
 
-  const modelTier = source.modelKey ? config.models?.[source.modelKey] : undefined;
-  const effort = source.modelKey ? config.effort?.[source.modelKey] : undefined;
+  const profile = resolveCodexProfile(config, {
+    ...plannedCodexProfileInput(source, config),
+    previous: readRenderedCodexModel(cwd, source.id),
+  });
+  warningsSink.push(...profile.diagnostics);
   const sandbox = source.sandbox ?? "workspace-write";
   const lines = [
     `name = ${JSON.stringify(source.id)}`,
@@ -1276,23 +1302,16 @@ function buildAgentToml(
     `developer_instructions = ${JSON.stringify(instructions.trim())}`,
   ];
   if (sandbox === "read-only") lines.push('sandbox_mode = "read-only"');
-  if (modelTier) {
-    const choice = resolveCodexModel(
-      config,
-      modelTier,
-      undefined,
-      readRenderedCodexModel(cwd, source.id),
-    );
-    if (choice.source === "fallback") {
-      const warning = tc(resolveLang(config.language)).engine.codexModelFamilyFallback(
-        choice.family ?? choice.model,
-        choice.model,
-      );
+  const model = profile.model.wouldRender;
+  if (model) {
+    if (profile.model.source === "fallback") {
+      const warning = `Codex model ${model} is a last-known candidate; catalog freshness/availability is unverified.`;
       if (!warningsSink.includes(warning)) warningsSink.push(warning);
     }
-    lines.push(`model = ${JSON.stringify(choice.model)}`);
+    lines.push(`model = ${JSON.stringify(model)}`);
   }
-  if (effort) lines.push(`model_reasoning_effort = ${JSON.stringify(effort)}`);
+  if (profile.effort.wouldRender)
+    lines.push(`model_reasoning_effort = ${JSON.stringify(profile.effort.wouldRender)}`);
 
   return { body: lines.join("\n") + "\n", description };
 }

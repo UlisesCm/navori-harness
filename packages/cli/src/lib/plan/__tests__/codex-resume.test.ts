@@ -71,19 +71,15 @@ describe("Codex resume continuity", () => {
       const bin = state("git-shim");
       mkdirSync(bin);
       const marker = state("delayed-git");
-      const delayed = `
-const { writeFileSync } = require("node:fs");
-writeFileSync(${JSON.stringify(marker)}, "entered");
-const end = Date.now() + 1500;
-while (Date.now() < end) {}
-`;
       writeFileSync(
         join(bin, "git"),
         `#!/bin/sh
 case " $* " in
-  *" ${argument} "*) exec '${process.execPath}' -e '${delayed.replaceAll("'", "'\\''")}' ;;
+  *" ${argument} "*)
+    printf '%s' entered > '${marker.replaceAll("'", "'\\''")}'
+    exec sleep 1.5 ;;
 esac
-exec '${realGit}' "$@"
+exec '${realGit.replaceAll("'", "'\\''")}' "$@"
 `,
         { mode: 0o755 },
       );

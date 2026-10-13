@@ -1,19 +1,19 @@
 # Sesión actual
 
-**Estado:** 0050 E3 parcial revisada; publicación y T6 pendientes.
+**Estado:** 0050 E4/M4 implementada; con fixture autorizada corregida; revisión fresca/full pendientes. No receipt verde ni publicación.
 
 ## Trabajo conservado
 
-Branch `feat/0050-codex-resultados-e3`, worktree `/Users/ulisescm/Documents/dev-docs/navori-harness-0050-e3`, base/destino `main`. E2 integrada por #1315. Usuario aprobó entregar la ruta pending de T7 conservando T6 y el cierre de E3 pendientes. Hook y CLI producen solicitud acotada y relay al principal; claims de mediación no autorizan publicación. T7 marcada entregada; E4 sigue pendiente.
+Branch `feat/0050-codex-resultados-e4`, worktree `/Users/ulisescm/Documents/dev-docs/navori-harness-0050-e4`, base/destino `main` e548a0b8. E3 parcial T7 integrada por #1317; T6 y cierre E3 siguen pendientes. Usuario aprobó workplan E4/M4: perfiles por campo, inventario principal/core/extra/local, render y doctor; sin cambios globales/trust ni sesiones en curso.
 
 ## Siguiente paso
 
-Publicar el commit de esta branch y crear su PR a `main` con título/cuerpo revisados, mediante la ruta humana exigida por el guard. No merge automático. T6 requiere demostrar una fuente aplicable de consentimiento autenticado y consumo de autorización de un solo uso antes de cerrar E3; no trasladarla silenciosamente a E4. Conservar branch y worktree.
+Usuario autorizó incluir `packages/cli/src/lib/plan/__tests__/codex-resume.test.ts` y otra ronda tras dos CR en nivel 3. El marcador de entrada se escribe desde POSIX antes de exec sleep; budget700 ms, límite1100 ms y garantías read-only conservados. A4 5/5 y fast verdes. Siguiente: handoff nativo, scribe del handoff, revisión fresca y full del shipping diff; receipt vigente es condición de cierre. Conservar branch/worktree; publicar solo con autorización correspondiente. T6 necesita vínculo de autorización/estado en executor; T11/A9 y T12/A10 mantienen aplicación nativa/evaluación viva pendientes. No cerrar E3/E4/spec.
 
 ## Evidencia disponible
 
-A5 22/22, A6 34/34, retired-names 12/12, goldens 5/5 y fast verdes. Reviewer final independiente APPROVED; full gate exit0: 421 archivos, 8649 aprobadas, 2 omitidas y 0 fallidas; coverage floor verde. Producer/scribes attest y reviewer begin/seal nativos validados. Receipt para main statusok/freshtrue/full sobre bytes finales. El primer full falló por un identificador retirado en el encabezado; se corrigió sin debilitar el sweep. La grabación automática final del workplan quedó pendiente por fingerprint cambiado; las ejecuciones reales y el receipt se verificaron, sin inventar recorded.
+Workplan E4/M4 nivel 3, score8, aprobado; A7 33/33, A8 18/18, fast/size verdes y producer/scribe nativos atestados. Primer full rojo por codemode1.2.0 temporal en vez de1.1.0 del lock: corregido, Pi6/6. Segundo full:8678 aprobadas,2 omitidas,1 fallo en codex-resume:97 por marcador ausente; ambas CR selladas nativamente, sin receipt firmado. El test no difiere de main y pasa5/5 aislado. Probe de startup: shimHEAD invocado, marcadorNode aún ausente, resume pending en722 ms, índice/plan intactos. No se asume regresión de producción ni se debilitan asserts.
 
 ## Seguimientos
 
-CLI de fuente y hook local probados; investigación acotada a command-hooks Codex 0.162.1, con versión unknown si la invocación no la demuestra. Base remota unverified; no consentimiento positivo, cambios globales/trust ni equivalencia viva. Drift preexistente de `.pi/extensions/navori.ts` confirmado en main y preservado. #1312/#1314 separados. Detalle en `progress/history.md`.
+Investigación estática Codex 0.162.1 de hooks/app-server: un accept nativo puede autorizar una ejecución, pero no se demostró vínculo exacto a destino/diff de PR. No ausencia universal. Drift preexistente de `.pi/extensions/navori.ts` preservado; no render general ni local-agent rewrite. #1312/#1314 separados. Historia en `progress/history.md`; el workplan no se duplica aquí.
