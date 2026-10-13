@@ -106,6 +106,35 @@ case "$0" in
   *".codex/hooks/"*)
     navori_audit_verdict="deny"
     navori_audit_reason="gh pr create requires user confirmation (Codex)"
+    # The outer process deadline also covers synchronous Git/state resolution.
+    # Only a complete deny is forwarded; a missing, stale or stalled CLI falls back.
+    if command -v node >/dev/null 2>&1 && command -v navori >/dev/null 2>&1; then
+      if printf '%s' "$payload" | node -e '
+        const {spawn}=require("node:child_process");
+        let raw="", out="", failed=false;
+        process.stdin.on("data", chunk => {raw+=chunk;if(Buffer.byteLength(raw)>65536)failed=true;});
+        process.stdin.on("end", () => {
+          if(failed){process.exitCode=1;return;}
+          const child=spawn("navori",["codex","approval","request"],{detached:true,stdio:["pipe","pipe","ignore"]});
+          const stop=()=>{failed=true;try{process.kill(-child.pid,"SIGKILL")}catch{}};
+          const timer=setTimeout(stop,5000);
+          child.on("error",()=>{clearTimeout(timer);process.exitCode=1;});
+          child.stdin.on("error",()=>{});
+          child.stdout.on("data",chunk=>{out+=chunk;if(Buffer.byteLength(out)>65536)stop();});
+          child.on("close",code=>{
+            clearTimeout(timer);
+            try{
+              const result=JSON.parse(out), h=result.hookSpecificOutput;
+              if(failed||code!==0||Object.keys(result).length!==1||h.hookEventName!=="PreToolUse"||h.permissionDecision!=="deny"||typeof h.permissionDecisionReason!=="string")throw Error();
+              process.stdout.write(JSON.stringify(result)+"\n");
+            }catch{process.exitCode=1;}
+          });
+          child.stdin.end(raw);
+        });
+      ' 2>/dev/null; then
+        exit 0
+      fi
+    fi
     printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[navori] this `gh pr create` opens a PR and Codex hooks cannot prompt. Show the user the title and body, and let them confirm and run the command themselves."}}'
     exit 0
     ;;

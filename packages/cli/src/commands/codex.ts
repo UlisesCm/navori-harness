@@ -372,5 +372,6 @@ export const codexCommand = defineCommand({
   },
   subCommands: {
     trust: trustSubCommand,
+    approval: () => import("./codex-approval.ts").then((module) => module.codexApprovalCommand),
   },
 });

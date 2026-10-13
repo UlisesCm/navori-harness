@@ -1,19 +1,19 @@
 # Sesión actual
 
-**Estado:** 0050 E2/M2 implementada y revisada; integración pendiente.
+**Estado:** 0050 E3 parcial revisada; publicación y T6 pendientes.
 
 ## Trabajo conservado
 
-Branch `feat/0050-codex-resultados-e2`, worktree `/Users/ulisescm/Documents/dev-docs/navori-harness-0050-e2`, PR #1315 a `main`. E2/T3–T5: evidencia ejecutada actual, ownership nativo, revisión independiente vigente y resume read-only con deadline total. E1 mergeada; E3/E4 sin iniciar.
+Branch `feat/0050-codex-resultados-e3`, worktree `/Users/ulisescm/Documents/dev-docs/navori-harness-0050-e3`, base/destino `main`. E2 integrada por #1315. Usuario aprobó entregar la ruta pending de T7 conservando T6 y el cierre de E3 pendientes. Hook y CLI producen solicitud acotada y relay al principal; claims de mediación no autorizan publicación. T7 marcada entregada; E4 sigue pendiente.
 
 ## Siguiente paso
 
-Esperar integración de #1315 a `main`, sin merge automático. Después preparar y aprobar E3/M3; no iniciarla antes del merge. Conservar branch y worktree. El dispatch Codex se prepara en el checkout de la sesión, no en el worktree del encargo; la CLI global 0.12.0 aún requiere la ruta `workplan:` aprobada para esta entrega.
+Publicar el commit de esta branch y crear su PR a `main` con título/cuerpo revisados, mediante la ruta humana exigida por el guard. No merge automático. T6 requiere demostrar una fuente aplicable de consentimiento autenticado y consumo de autorización de un solo uso antes de cerrar E3; no trasladarla silenciosamente a E4. Conservar branch y worktree.
 
 ## Evidencia disponible
 
-A3 83/83, A4 34/34, fixtures legacy 76/76, prosa/render 232/232, golden 5/5 y fast verdes. Reviewer APPROVED; full gate exit0: 420 archivos, 8610 aprobados, dos omitidos, cero fallos. SourceCLI validó attest de producer/scribe y begin/seal independiente; evidencia acotada al host observado, no equivalencia general. T3–T5 cerradas; delta editorial revalidado, review re-firmado y receipt final para main statusok/freshtrue/full. Hooks legacy no grabaron A3/A4; no inventar progreso recorded.
+A5 22/22, A6 34/34, retired-names 12/12, goldens 5/5 y fast verdes. Reviewer final independiente APPROVED; full gate exit0: 421 archivos, 8649 aprobadas, 2 omitidas y 0 fallidas; coverage floor verde. Producer/scribes attest y reviewer begin/seal nativos validados. Receipt para main statusok/freshtrue/full sobre bytes finales. El primer full falló por un identificador retirado en el encabezado; se corrigió sin debilitar el sweep. La grabación automática final del workplan quedó pendiente por fingerprint cambiado; las ejecuciones reales y el receipt se verificaron, sin inventar recorded.
 
 ## Seguimientos
 
-#1314 demora excesiva de orquestación y #1312 disciplina de entregas se trabajan por separado. Detalle de cierre en `progress/history.md`.
+CLI de fuente y hook local probados; investigación acotada a command-hooks Codex 0.162.1, con versión unknown si la invocación no la demuestra. Base remota unverified; no consentimiento positivo, cambios globales/trust ni equivalencia viva. Drift preexistente de `.pi/extensions/navori.ts` confirmado en main y preservado. #1312/#1314 separados. Detalle en `progress/history.md`.

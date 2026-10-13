@@ -112,6 +112,14 @@ If the brief says `mode: commit-only`, or `navori receipt check` returns `"gateK
 
 ## PR flow
 
+<!-- navori:if onCodex -->
+### Codex: pending publication mediation
+
+When the Codex `gh pr create` guard denies a canonical request, do not invoke `gh` again or retry through another tool. Prepare the request through the source CLI by sending the proposed tool payload on stdin to `navori codex approval request`; this only records a bounded pending request. Use the returned UUID with `navori codex approval relay <UUID> --cwd <checkout>` to obtain its read-only summary for the principal.
+
+Present the repository, base, current head, title, body-file reference and draft flag, together with the UUID and a reconstructed command for the user to review and run themselves. Keep the body in its referenced file; do not paste raw command text or body contents into the request summary. Caller-supplied origin/provenance, JSON, principal assertions, and a mediation claim are not human consent. The result remains pending until an applicable authenticated human/host consent path exists; the agent must not publish or retry the denied effect through another tool. Unsupported request forms remain denied.
+<!-- /navori:if -->
+
 1. **Gather context** (curated, not the whole repo). The PR diff is against `{{prTarget}}`:
    - `git log origin/{{prTarget}}..HEAD --oneline` — commits included.
    - `git diff origin/{{prTarget}}...HEAD --stat` — always.

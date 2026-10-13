@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-publisher" hash="f49ec8c90213460fec82935c9bfa51846765224c17f5bc304ee6c78cbf096728"
+# navori:managed-file id="pi-agent-publisher" hash="10b1b9ed0d478dac049d06449b1a2db8617e5a19ddca00c303acbdd4dabe6162"
 name: "publisher"
 description: "Drafts commits in the configured style and opens the PR with the repo's title + body format, after a git/gh pre-flight. Does not edit project code. Use after the reviewer approves, when the cycle ends in a commit, a push or a PR."
 tools: ["read","grep","find","ls","bash"]
@@ -105,6 +105,8 @@ Never open the PR with the gate red.
 If the brief says `mode: commit-only`, or `navori receipt check` returns `"gateKind":"scoped"`, run the Commit flow through step 8 and STOP: no push, no PR, whatever `fresh` says.
 
 ## PR flow
+
+
 
 1. **Gather context** (curated, not the whole repo). The PR diff is against `dev`:
    - `git log origin/dev..HEAD --oneline` — commits included.
