@@ -236,13 +236,13 @@ describe("implementer/reviewer — doubts and coverage prose (T25, T27)", () => 
   });
 
   // Covers: R22
-  it.each(["implementer", "reviewer"])("%s maxWords is its measured count plus 10", (id) => {
+  it.each(["implementer", "reviewer"])("%s maxWords is its measured count times 1.05", (id) => {
     const parsed = parseAsset(readAgent(id));
     const cap = Number(parsed.frontmatter.maxWords);
     const managed = parsed.body.slice(0, parsed.body.indexOf(SENTINEL));
     const words = managed.trim().split(/\s+/).filter(Boolean).length;
-    // Spec 0052 M15: the reviewer ceiling is measured × 1.05 (rounded up); the implementer keeps +10.
-    expect(cap).toBe(id === "reviewer" ? Math.ceil(words * 1.05) : words + 10);
+    // Spec 0052 (M15 reviewer, M16 implementer): the ceiling is measured × 1.05, rounded up.
+    expect(cap).toBe(Math.ceil(words * 1.05));
   });
 });
 

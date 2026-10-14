@@ -13,7 +13,9 @@ Reglas de ejecución:
   "acceptance-evidence control") se editan en el milestone que cambia su comportamiento.
 - Los assets Markdown (managed, agents, skills, `docs/native-overlap.md`) pasan por `scribe`
   (`markdownRequests`); los espejos se regeneran con `navori render --apply`, nunca a mano. Los
-  hooks `.sh` y `settings-base.json` son código y los edita el implementer.
+  hooks `.sh` y `settings-base.json` son código y los edita el implementer. Desde M16 (R49) el
+  implementer escribe también el Markdown de doctrina de IA (managed, agents, skills, hooks); el
+  scribe conserva `docs/`, `specs/`, `progress/` y los handoffs.
 - Sin librerías ni esquemas persistidos nuevos: el lock es `withFileLock`, la huella sin escrituras
   es `fingerprintTree({ readOnly })`. La línea `reset` del log del gate es el único formato nuevo.
 - Los milestones que tocan hooks, settings o Markdown corren además `bun run test:golden`,
@@ -123,3 +125,9 @@ Estimated LOC: 2400
 - [ ] **T54** (R45) — `agents/reviewer.md` documenta `navori receipt gate --phase` · effect: docs · test: `packages/cli/src/__tests__/plan-tiers-contracts.test.ts`::"reviewer documenta receipt gate --phase para workplans con fases"
 - [ ] **T55** (R47) — `agents/reviewer.md` y `plan-advanced`: el recibo, el log del gate y el `reset` son atestaciones locales sin autenticación (seatbelt) y la independencia del review en Codex depende de `CODEX_THREAD_ID`; `maxWords` medido × 1.05 · effect: docs · test: `packages/cli/src/__tests__/plan-tiers-contracts.test.ts`::"reviewer declara el recibo y el reset como atestación local y CODEX_THREAD_ID"
 - [ ] **T56** (R46) — `skills/master-plan.md`: todos los subcomandos que mutan estado, cómo abrir una etapa `deliveries` y cuándo usar `delivery-revoke`; `maxWords` medido × 1.05; espejos con `navori render --apply` · effect: docs · test: `packages/cli/src/lib/master/__tests__/workflow-compatibility.test.ts`::"master-plan lista los subcomandos que mutan, la apertura deliveries y delivery-revoke"
+
+### M16 — Markdown de doctrina para el implementer
+- **A16** [observable] — el implementer escribe `.md` de doctrina de IA con las herramientas de edición en Claude, Codex y Pi, y cualquier otro Markdown, una ruta con `..` o una escritura por Bash sigue bloqueada · `cd packages/cli && bun run test src/lib/__tests__/implementer-no-markdown.test.ts src/lib/__tests__/codex-hook-payloads.test.ts src/engines/pi/__tests__/controls.test.ts src/__tests__/scribe-owns-markdown-contracts.test.ts && bun run test:golden` → exit 0, 0 failed; luego `bun check` → exit 0
+- [ ] **T57** (R49) — `implementer-no-markdown.sh` deja pasar `Write`/`Edit`/`NotebookEdit`/cada ruta de `apply_patch` sobre un `.md`/`.mdx` bajo la lista cerrada de prefijos de doctrina (relativa a la raíz; absoluta se recorta; `..` o fuera de la raíz bloquea); las formas de Bash no cambian; el mensaje nombra los prefijos · effect: behavior · test: `packages/cli/src/lib/__tests__/implementer-no-markdown.test.ts`::"el implementer edita doctrina de IA y sigue bloqueado en progress, specs, docs, rutas con .. y Bash"
+- [ ] **T58** (R49) — la misma lista en Codex (`apply_patch`) y en Pi (`role-tools.ts`) · effect: behavior · test: `packages/cli/src/engines/pi/__tests__/controls.test.ts`::"Pi deja al implementer escribir doctrina de IA y bloquea el resto del Markdown"
+- [ ] **T59** (R49) — `agents/implementer.md` y `agents/scribe.md` dicen qué Markdown escribe cada rol (doctrina: implementer, editando la fuente y con `navori render --apply`; estado y entregables: scribe); regla de ejecución de `tasks.md` actualizada · effect: docs · test: `packages/cli/src/__tests__/scribe-owns-markdown-contracts.test.ts`::"implementer y scribe declaran la división del Markdown por doctrina y estado"

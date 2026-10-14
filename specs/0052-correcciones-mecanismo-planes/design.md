@@ -420,6 +420,35 @@ incluye `"` ni `'`. La corrección:
   - Así se ven las copias de `plan-gate.sh` sin `NAVORI_HOOK_ENGINE` y la doctrina con la apertura
     `nivel-0:` vieja.
 
+### Markdown de doctrina para el implementer (R49)
+
+Decisión de Ulises (2026-10-14), tomada en M15: la doctrina de IA es parte del código que el
+implementer cambia. Mandarla al scribe obliga a una ronda implementer → scribe → implementer en cada
+hito de doctrina (M15 la tuvo) sin ganar nada: el scribe escribe la misma prosa con menos contexto.
+Revierte en parte la decisión de 0030 ("ningún `.md`"): el scribe sigue dueño del Markdown de
+estado y de entregables para humanos.
+
+- **Lista cerrada de prefijos, relativa a la raíz del repo**, en el hook (no en la configuración):
+  - fuente: `packages/core/core-assets/{agents,skills,managed,hooks}/`;
+  - Claude: `.claude/{agents,skills,context,hooks}/`;
+  - Codex: `.codex/agents/`, `.codex/hooks/`, `.agents/skills/` y `.codex/orchestrator.md`;
+  - Pi: `.pi/navori/` (hooks y doctrina que renderiza su motor).
+- **Solo herramientas de edición.** `Write`, `Edit`, `NotebookEdit` y cada ruta de `apply_patch`
+  pasan si la ruta está en la lista. Las formas de Bash (redirección, `tee`, `sed -i`, `perl -i`,
+  `cp`/`mv`, intérpretes) siguen bloqueando todo `.md`: el texto de un comando no da una ruta
+  confiable, y la herramienta de edición basta.
+- **Normalización.** Una ruta absoluta se recorta contra la raíz del repo (`git rev-parse
+  --show-toplevel` desde el `cwd` del payload, o `CLAUDE_PROJECT_DIR`). Una ruta fuera de la raíz o
+  con un segmento `..` se bloquea. Symlinks: misma limitación aceptada del encabezado del hook.
+- **Espejos.** Editar un espejo generado (`.claude/agents/…`) lo pisa el siguiente render; la
+  doctrina del implementer dice que edite la fuente y corra `navori render --apply`. El hook no lo
+  distingue: es contrato, no barrera.
+- **Mensaje.** El bloqueo nombra los prefijos permitidos y la ruta `markdownRequests` para el resto.
+- **Pi.** `role-tools.ts` aplica la misma lista para el implementer. La vía gestionada de Pi (D4)
+  rechaza `.pi/navori/` antes de esta lista, así que ahí la escritura sigue bloqueada en Pi.
+- **Doctrina.** `agents/implementer.md`, `agents/scribe.md` y la regla de ejecución de `tasks.md`
+  dicen qué Markdown escribe cada rol.
+
 ### Opciones descartadas
 
 - **R11: compare-and-swap sin lock** (releer el hash y reintentar). Con evidencia lenta, dos
@@ -856,6 +885,7 @@ Los hitos que tocan hooks, settings o Markdown corren además `bun run test:gold
 | M13 | R36 | `hooks/master-accept-confirm.sh`, `settings-base.json` (ask `delivery-*`) | `master-accept-confirm.test.ts`, `build-settings.test.ts`, `codex-rules.test.ts`, `asset-command-permissions.test.ts`, goldens | `fix(hooks): confirma comandos de master envueltos o entrecomillados y delivery-* en Codex` |
 | M14 | R48 | `settings-base.json` (allow) | `asset-command-permissions.test.ts`, `build-settings.test.ts`, goldens | `fix(settings): pre-aprueba navori plan render y plan update` |
 | M15 | R13, R37–R47 | `managed/planificacion.md`, `managed/orquestacion.md`, `agents/orchestrator.md`, `agents/reviewer.md`, skills `plan-simple`, `plan-advanced`, `master-plan`, `spec-bootstrap`, `engine-capabilities.ts`, `codex-parity.ts`, `docs/native-overlap.md`, `lib/assets/doc-budgets.ts`, espejos | `plan-tiers-contracts.test.ts`, `orquestacion-doctrina.test.ts`, `skills-assets.test.ts`, `skill-caps.test.ts`, `doc-budgets-check.test.ts`, `engine-capabilities.test.ts`, `control-inventory.test.ts`, `codex-parity.test.ts`, `native-overlap.test.ts`, goldens | `docs(planes): alinea la doctrina con el gate, la escalación y el CLI` |
+| M16 | R49 | `hooks/implementer-no-markdown.sh`, `engines/pi/role-tools.ts`, `agents/implementer.md`, `agents/scribe.md`, espejos | `implementer-no-markdown.test.ts`, `codex-hook-payloads.test.ts`, `pi/__tests__/controls.test.ts`, `scribe-owns-markdown-contracts.test.ts`, goldens | `feat(hooks): el implementer escribe Markdown de doctrina de IA` |
 
 Dependencias:
 
@@ -865,6 +895,7 @@ Dependencias:
 - M7 cambia `slice.ts` después de M4, que ya tocó sus llamadores.
 - M12 cambia la firma de `renderStatusMd`, que M10 ya tocó: M10 primero.
 - M15 al final, porque documenta la gramática y los comandos de M5, M13 y M14.
+- M16 después de M15 (decisión tomada durante M15); no depende de otros hitos.
 
 ## NOT in scope
 
@@ -894,7 +925,7 @@ Dependencias:
 
 R1, R2, R4 → M1 · R3 → M2 · R17, R18, R19 → M3 · R5, R15 → M4 · R6, R8, R9 → M5 · R7 → M6 · R10,
 R11, R12, R16 → M7 · R14 → M8 · R20, R21, R22, R33 → M9 · R24, R25, R26, R27, R30, R32 → M10 · R23,
-R28, R35 → M11 · R29, R31, R34 → M12 · R36 → M13 · R48 → M14 · R13, R37–R47 → M15.
+R28, R35 → M11 · R29, R31, R34 → M12 · R36 → M13 · R48 → M14 · R13, R37–R47 → M15 · R49 → M16.
 
 ## Preguntas abiertas
 

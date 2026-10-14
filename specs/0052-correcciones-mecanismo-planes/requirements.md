@@ -174,6 +174,12 @@ y la doctrina en `packages/core/core-assets/{managed,skills,agents}`.
   que la independencia del review en Codex depende de `CODEX_THREAD_ID`.
 - **R48** — The rendered Claude settings SHALL pre-aprobar `navori plan render` y
   `navori plan update`.
+- **R49** — WHEN `scribeOwnsMarkdown` está activo, the `implementer` SHALL poder crear o editar con
+  `Write`, `Edit`, `NotebookEdit` o `apply_patch` un `.md`/`.mdx` de doctrina de IA (agentes,
+  skills, contexto gestionado y hooks, en su fuente de `core-assets` o en las carpetas de doctrina
+  de cada motor), y the hook `implementer-no-markdown` SHALL seguir bloqueando cualquier otro
+  Markdown (`progress/`, handoffs, `specs/`, `docs/`, README, CHANGELOG, CONTRIBUTING), toda ruta
+  con un segmento `..` y toda escritura de Markdown por Bash, en Claude, Codex y Pi.
 
 ## Trazabilidad
 
