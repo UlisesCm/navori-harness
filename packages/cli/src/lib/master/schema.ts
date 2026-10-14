@@ -289,6 +289,44 @@ function acceptanceIdsAreConsecutive(acceptance: readonly AcceptanceCriterion[])
   return null;
 }
 
+/** Every legacy-part text that `renderMasterParts` writes into the STATUS region, as
+ * `[field, text]` pairs (list items as `field[i]`). A newline or `<!--` in any of them
+ * would break the region's line structure or its markers (R20). */
+function regionTexts(part: {
+  title: string;
+  objective: string;
+  scope: readonly string[];
+  outOfScope: readonly string[];
+  seedRequirements: readonly string[];
+  acceptance: readonly AcceptanceCriterion[];
+}): [string, string][] {
+  const texts: [string, string][] = [
+    ["title", part.title],
+    ["objective", part.objective],
+  ];
+  const list = (field: string, items: readonly string[]): void => {
+    items.forEach((item, i) => texts.push([`${field}[${i}]`, item]));
+  };
+  list("scope", part.scope);
+  list("outOfScope", part.outOfScope);
+  list("seedRequirements", part.seedRequirements);
+  part.acceptance.forEach((criterion, i) => {
+    const at = `acceptance[${i}]`;
+    texts.push([`${at}.description`, criterion.description]);
+    if (criterion.method === "test") {
+      texts.push(
+        [`${at}.test.file`, criterion.test.file],
+        [`${at}.test.case`, criterion.test.case],
+      );
+    } else if (criterion.method === "comando") {
+      texts.push([`${at}.command.run`, criterion.command.run]);
+    } else {
+      texts.push([`${at}.manual.check`, criterion.manual.check]);
+    }
+  });
+  return texts;
+}
+
 const PartSchema = z
   .object({
     id: z.string().regex(PART_ID, "part id must look like P1, P2, ..."),
@@ -320,6 +358,16 @@ const PartSchema = z
         message: "reason is only allowed when state is 'descartada' or 'diferida'",
         path: ["reason"],
       });
+    }
+    for (const [field, text] of regionTexts(part)) {
+      if (/[\r\n]|<!--/.test(text)) {
+        ctx.addIssue({
+          code: "custom",
+          message:
+            `${part.id}.${field}: no puede contener salto de línea ni '<!--'; edite parts.json ` +
+            `y sepárelo en elementos de lista o en una sola línea`,
+        });
+      }
     }
     const acceptanceError = acceptanceIdsAreConsecutive(part.acceptance);
     if (acceptanceError) {

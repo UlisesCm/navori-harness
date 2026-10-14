@@ -119,6 +119,15 @@ export function assertLegacyStage(stage: StageEntry): void {
     throw new Error(`${stage.dir}: deliveries workflow is not supported by this legacy operation`);
 }
 
+/** A started close (`state.outcome` set) must be resumed with `navori master close`;
+ * any other mutation of the stage would race its half-written closure (R21). */
+export function assertNoCloseInProgress(state: { outcome: string | null }, stageDir: string): void {
+  if (state.outcome !== null)
+    throw new Error(
+      `${stageDir}: cierre iniciado (${state.outcome}); reanude con 'navori master close'`,
+    );
+}
+
 /** The last stage that closed as a delivery (`cerrada`), in registration
  * order — the entry point (R51) and D11's context window both key off it. */
 export function lastClosedStage(index: MasterIndex | null): StageEntry | null {

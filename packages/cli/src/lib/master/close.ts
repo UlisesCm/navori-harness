@@ -204,6 +204,8 @@ function renderClosure(
 /** Close one active stage, or repair only the final config/render step after a cut. */
 export function runMasterClose(cwd: string, options: CloseOptions = {}): CloseResult {
   if (options.convert && options.abandon) throw new Error("--convert y --abandon son excluyentes");
+  if (options.reason !== undefined && options.reason.trim() === "")
+    throw new Error("--reason no puede estar vacío");
   const configPath = join(cwd, "navori.config.json");
   const config = readConfig(configPath);
   const specsDir = config.sdd?.specsDir ?? "specs";

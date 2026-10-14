@@ -33,6 +33,7 @@ import { readConfig } from "../lib/config/config.ts";
 import { MasterInitError, runMasterInit } from "../lib/master/init.ts";
 import {
   activeStage,
+  assertNoCloseInProgress,
   MASTER_DIR_NAME,
   masterDirPath,
   readMasterIndex,
@@ -200,6 +201,7 @@ function setMasterUx(cwd: string, value: string): void {
     throw new Error(`state.json not found for stage ${active.dir}`);
   }
   const state = MasterStateSchema.parse(JSON.parse(readFileSync(statePath, "utf8")) as unknown);
+  assertNoCloseInProgress(state, active.dir);
   if (state.phase !== "ux") {
     throw new Error(`ux can only be set in phase 'ux' (current phase: '${state.phase}')`);
   }

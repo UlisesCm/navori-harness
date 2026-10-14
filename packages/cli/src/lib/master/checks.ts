@@ -28,6 +28,7 @@ import {
 } from "./schema.ts";
 import {
   activeStage,
+  assertNoCloseInProgress,
   lastClosedStage,
   masterDirPath,
   MasterIndexError,
@@ -578,6 +579,12 @@ export interface AdvanceResult {
  */
 export function runMasterAdvance(cwd: string, options: CheckOptions = {}): AdvanceResult {
   const ctx = buildCheckContext(cwd, options);
+  try {
+    assertNoCloseInProgress(ctx.state, ctx.stage.dir);
+  } catch (cause) {
+    // Surface as a setup failure so the CLI reports it as an exit-1 message, not a crash.
+    throw new MasterCheckSetupError(cause instanceof Error ? cause.message : String(cause));
+  }
   const target = nextPhase(ctx.state.phase);
   if (!target) {
     return {

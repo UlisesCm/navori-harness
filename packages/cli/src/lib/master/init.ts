@@ -104,6 +104,10 @@ function openNewStage(
       `invalid slug "${slug}": must be kebab-case (lowercase letters, digits and hyphens), max 40 chars`,
     );
   }
+  const previous = index?.stages.find((stage) => stage.slug === slug);
+  if (previous) {
+    throw new MasterInitError(`slug "${slug}" ya lo usó la etapa ${previous.dir}; elija otro`);
+  }
   const number = nextStageNumber(index);
   if (number > MAX_STAGE_NUMBER) {
     throw new MasterInitError(

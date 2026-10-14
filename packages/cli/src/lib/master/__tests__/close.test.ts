@@ -555,6 +555,37 @@ describe("close --reason without --abandon/--convert", () => {
   });
 });
 
+describe("close --reason in blank", () => {
+  // Covers: R33
+  it("close con reason en blanco se rechaza sin escribir en legacy y en deliveries", () => {
+    seed("planned");
+    writeMasterStatus(cwd);
+    const before = listStageFiles();
+    const state = read("state.json");
+    const indexPath = join(root(), "index.json");
+    const indexBefore = readFileSync(indexPath, "utf8");
+    for (const reason of ["", "   "]) {
+      expect(() => runMasterClose(cwd, { reason })).toThrow(/--reason no puede estar vacío/);
+      expect(() => runMasterClose(cwd, { abandon: true, reason })).toThrow(
+        /--reason no puede estar vacío/,
+      );
+    }
+    expect(listStageFiles()).toEqual(before);
+    expect(read("state.json")).toBe(state);
+
+    const index = JSON.parse(indexBefore) as {
+      version: number;
+      stages: Array<Record<string, unknown>>;
+    };
+    index.version = 2;
+    index.stages[0]!.workflow = "deliveries";
+    writeFileSync(indexPath, JSON.stringify(index));
+    for (const reason of ["", "   "])
+      expect(() => runMasterClose(cwd, { reason })).toThrow(/--reason no puede estar vacío/);
+    expect(read("state.json")).toBe(state);
+  });
+});
+
 describe("late abandon without parts", () => {
   // Covers: R5
   it("abandono tardío sin partes cierra abandonada; con una parte se rechaza; convert en mastered se rechaza", () => {

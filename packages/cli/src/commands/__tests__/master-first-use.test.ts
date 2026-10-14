@@ -403,6 +403,24 @@ describe("master commands record CLI audit events (R55, R70)", () => {
     expect(readFileSync(stageFile(cwd, "STATUS.md"), "utf8")).toContain("verificado");
   }, 120_000);
 
+  // Covers: R21
+  it("con cierre iniciado part, advance y ux piden reanudar con close sin escribir", async () => {
+    const { cwd } = await executingStage();
+    const statePath = stageFile(cwd, "state.json");
+    writeFileSync(
+      statePath,
+      `${JSON.stringify({ ...readJson(statePath), outcome: "entregada" }, null, 2)}\n`,
+    );
+    const files = ["parts.json", "state.json"].map((name) => stageFile(cwd, name));
+    const before = files.map((path) => readFileSync(path, "utf8"));
+    for (const argv of [["part", "P1", "--state", "parcial"], ["advance"], ["ux", "none"]]) {
+      const result = await master(cwd, ...argv);
+      expect(result.exitCode, argv.join(" ")).toBe(1);
+      expect(result.err).toContain("reanude con 'navori master close'");
+    }
+    expect(files.map((path) => readFileSync(path, "utf8"))).toEqual(before);
+  }, 120_000);
+
   // Covers: R8
   it("fallo de regeneración tras --accept conserva parts.json y el evento master-part-accept y dice Repare con navori master status", async () => {
     const { cwd, log } = await executingStage();

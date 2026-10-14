@@ -4,7 +4,7 @@ import { isAbsolute, join, resolve, sep } from "node:path";
 import { readConfig } from "../config/config.ts";
 import { writeFileAtomic } from "../primitives/atomic.ts";
 import { MasterStateSchema, PartsSchema, type PartState } from "./schema.ts";
-import { activeStage, masterDirPath, readMasterIndex } from "./stages.ts";
+import { activeStage, assertNoCloseInProgress, masterDirPath, readMasterIndex } from "./stages.ts";
 import { checkWorkplan } from "../plan/check.ts";
 import { WorkplanSchema } from "../plan/schema.ts";
 import { validateEvidence } from "../plan/evidence.ts";
@@ -386,6 +386,7 @@ export function changeMasterPart(cwd: string, id: string, change: PartChange): v
     JSON.parse(readFileSync(join(stagePath, "state.json"), "utf8")) as unknown,
   );
   if (state.phase === "closed") throw new Error("closed stage is read-only");
+  assertNoCloseInProgress(state, stage.dir);
   const path = join(stagePath, "parts.json");
   const repoRoot = realpathSync(cwd);
   if (
