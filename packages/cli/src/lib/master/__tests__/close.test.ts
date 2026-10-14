@@ -620,7 +620,7 @@ describe("navori master ux", () => {
     const result = await invoke(["ux", "none"]);
     expect(result.exitCode).toBeUndefined();
     expect(JSON.parse(read("state.json")).ux).toBe("none");
-    expect(read("STATUS.md")).toBe(renderStatusMd(readMasterStatus(cwd)));
+    expect(read("STATUS.md")).toBe(renderStatusMd(readMasterStatus(cwd), "es"));
     expect(read("STATUS.md")).toContain("UX: none");
     expect(
       runMasterCheck(cwd).failures.filter((f) => f.includes("STATUS.md differs from its render")),
@@ -727,12 +727,12 @@ describe("STATUS.md compat", () => {
     seed("executing");
     const legacy = readMasterStatus(cwd);
     expect("ux" in legacy).toBe(false);
-    expect(renderStatusMd(legacy)).not.toContain("UX:");
+    expect(renderStatusMd(legacy, "es")).not.toContain("UX:");
     seed("ux", "hecho", "md-json");
     const status = readMasterStatus(cwd);
     expect(status.ux).toBe("md-json");
     expect(status.nextPhase).toBe("executing");
-    expect(renderStatusMd(status)).toContain("UX: md-json");
+    expect(renderStatusMd(status, "es")).toContain("UX: md-json");
   });
 
   it("mastered's next phase is ux", () => {

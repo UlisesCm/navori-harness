@@ -651,7 +651,7 @@ describe("cooperative technical snapshot and lifecycle", { timeout: 60_000 }, ()
       const pending = readMasterStatus(cwd);
       expect(pending.closable).toBe(false);
       expect(pending.deliveryLifecycle?.pendingPublication).toEqual(["E1"]);
-      expect(renderStatusMd(pending)).toMatch(
+      expect(renderStatusMd(pending, "es")).toMatch(
         /Cerrable: no\nPublicación pendiente: E1; ejecute 'navori master delivery-publication'/,
       );
       const watched = [
@@ -669,7 +669,7 @@ describe("cooperative technical snapshot and lifecycle", { timeout: 60_000 }, ()
       expect(snapshot()).toEqual(untouched);
       publishDelivery(cwd, "E1", presentation.identity, "release", "fixture-v1", "user");
       expect(readMasterStatus(cwd).closable).toBe(true);
-      expect(renderStatusMd(readMasterStatus(cwd))).not.toMatch(/Publicación pendiente/);
+      expect(renderStatusMd(readMasterStatus(cwd), "es")).not.toMatch(/Publicación pendiente/);
       expect(() =>
         runMasterClose(cwd, {
           afterStep: (completed) => {

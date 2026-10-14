@@ -285,13 +285,6 @@ function checkTranscribed(ctx: CheckContext): CheckFailure[] {
   return failures;
 }
 
-// CODEBASE.md has no `templates.ts` template (it's the `scout`'s free-form
-// deliverable, not something an `architect` fills from a template file), so
-// its section names cannot be read from a file the way `digest`'s can.
-// TODO(i18n): hardcoded Spanish; add an English fixture pair here once a repo
-// with `language: "en"` actually exercises the master-plan flow.
-const CODEBASE_HEADERS = ["Stack", "Estructura", "Convenciones", "Specs"] as const;
-
 function checkMapped(ctx: CheckContext): CheckFailure[] {
   const markers = masterMarkers(ctx.language);
   const failures: CheckFailure[] = [];
@@ -335,7 +328,7 @@ function checkMapped(ctx: CheckContext): CheckFailure[] {
     failures.push(
       ...validateSections(
         codebase,
-        CODEBASE_HEADERS,
+        markers.codebaseHeaders,
         `${ctx.stage.dir}/context/CODEBASE.md`,
         markers.noAplica,
       ),
@@ -520,8 +513,14 @@ function checkMasterDocument(ctx: CheckContext): CheckFailure[] {
     } else if (parsed.data.parts.length === 0) {
       failures.push(`${ctx.stage.dir}/parts.json no declara ninguna parte`);
     } else {
-      const expected = renderMasterParts(parsed.data.parts, ctx.state.mode);
-      if (masterPartsRegion(content) !== expected)
+      const expected = renderMasterParts(parsed.data.parts, ctx.state.mode, ctx.language);
+      const region = masterPartsRegion(content);
+      if (region === null && content.includes("<!-- navori:master-parts"))
+        // R29: `master status` refuses an opening marker without its close, so the fix is manual.
+        failures.push(
+          `${ctx.stage.dir}/MASTER.md: marcador '<!-- navori:master-parts' sin cierre; corríjalo a mano`,
+        );
+      else if (region !== expected)
         failures.push(
           `${ctx.stage.dir}/MASTER.md: navori:master-parts differs from parts.json; repare con 'navori master status'`,
         );
@@ -640,7 +639,10 @@ export function runMasterCheck(cwd: string, options: CheckOptions = {}): CheckRe
   }
   const statusPath = join(ctx.stagePath, "STATUS.md");
   if (existsSync(statusPath)) {
-    if (normalizeEol(readFileSync(statusPath, "utf8")) !== renderStatusMd(readMasterStatus(cwd)))
+    if (
+      normalizeEol(readFileSync(statusPath, "utf8")) !==
+      renderStatusMd(readMasterStatus(cwd), ctx.language)
+    )
       failures.push(
         `${ctx.stage.dir}/STATUS.md differs from its render; repare con 'navori master status'`,
       );

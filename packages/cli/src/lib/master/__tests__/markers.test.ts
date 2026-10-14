@@ -20,9 +20,8 @@ describe("masterMarkers — one map, resolved by language", () => {
     expect(markers.sinVerificar).toBe("[UNVERIFIED]");
     expect(markers.sinDecisiones).toBe("No decisions");
     expect(markers.noAplica).toBe("Not applicable:");
-    for (const value of Object.values(markers)) {
-      expect(value).not.toMatch(/[áéíóúñ]/i);
-    }
+    // Covers: R31 (nested label groups included)
+    expect(JSON.stringify(markers)).not.toMatch(/[áéíóúñ]/i);
   });
 });
 

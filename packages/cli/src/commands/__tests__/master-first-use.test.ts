@@ -390,7 +390,7 @@ describe("master commands record CLI audit events (R55, R70)", () => {
     const { cwd } = await executingStage();
     const inSync = (): void =>
       expect(readFileSync(stageFile(cwd, "STATUS.md"), "utf8")).toBe(
-        renderStatusMd(readMasterStatus(cwd)),
+        renderStatusMd(readMasterStatus(cwd), "es"),
       );
     await ok(cwd, "part", "P1", "--state", "parcial");
     inSync();

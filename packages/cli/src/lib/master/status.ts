@@ -20,6 +20,8 @@ import {
   type Part,
   type PartState,
 } from "./schema.ts";
+import type { AssetLanguage } from "../render/render-plan.ts";
+import { masterMarkers } from "./markers.ts";
 import { checkUxArtifacts, checkUxDecision } from "./ux.ts";
 import {
   activeStage,
@@ -359,22 +361,34 @@ export function readMasterStatus(cwd: string): MasterStatus {
     blockers,
     evidenceBlockers,
     lastClosed,
-    ...(stage.number >= 2 ? { architectContext: contextForArchitects(index as MasterIndex) } : {}),
+    ...(stage.number >= 2
+      ? {
+          architectContext: contextForArchitects(
+            index as MasterIndex,
+            masterDirPath(cwd, specsDir),
+          ),
+        }
+      : {}),
   };
 }
 
-/** Render derived STATUS.md without wall-clock data. */
-export function renderStatusMd(status: MasterStatus): string {
+/** Render derived STATUS in `language`, without wall-clock data (R31). */
+export function renderStatusMd(status: MasterStatus, language: AssetLanguage): string {
+  const markers = masterMarkers(language);
+  const l = markers.status;
+  const closable = `${l.closable}: ${status.closable ? l.yes : l.no}`;
   if (status.workflow === "deliveries")
     return [
-      `# Estado de entrega ${status.stage?.dir ?? "ninguna"}`,
+      `# ${l.delivery} ${status.stage?.dir ?? l.none}`,
       "",
       "Workflow: deliveries",
-      `Fase: ${status.phase ?? "context"}`,
-      `Cerrable: ${status.closable ? "sí" : "no"}`,
+      `${l.phase}: ${status.phase ?? "context"}`,
+      closable,
       ...(status.deliveryLifecycle?.pendingPublication.length
         ? [
-            `Publicación pendiente: ${status.deliveryLifecycle.pendingPublication.join(", ")}; ejecute 'navori master delivery-publication' antes de cerrar`,
+            language === "es"
+              ? `${l.pendingPublication}: ${status.deliveryLifecycle.pendingPublication.join(", ")}; ejecute 'navori master delivery-publication' antes de cerrar`
+              : `${l.pendingPublication}: ${status.deliveryLifecycle.pendingPublication.join(", ")}; run 'navori master delivery-publication' before closing`,
           ]
         : []),
       ...(status.deliveryLifecycle?.deliveries ?? []).map(
@@ -382,57 +396,65 @@ export function renderStatusMd(status: MasterStatus): string {
           `${entry.id}: ${entry.decision ?? "pending"}; publication=${entry.published ? "recorded" : "pending"}`,
       ),
       "",
-      "## Bloqueos",
+      `## ${l.blockers}`,
       "",
       ...status.blockers.map((blocker) => `- ${blocker}`),
       "",
     ].join("\n");
   const lines = [
-    `# Estado de etapa ${status.stage?.dir ?? "ninguna"}`,
+    `# ${l.stage} ${status.stage?.dir ?? l.none}`,
     "",
-    `Fase: ${status.phase ?? "ninguna"}`,
+    `${l.phase}: ${status.phase ?? l.none}`,
     ...(status.ux ? [`UX: ${status.ux}`] : []),
-    `Parte activa: ${status.activePart ?? "ninguna"}`,
-    `Cerrable: ${status.closable ? "sí" : "no"}`,
+    `${l.activePart}: ${status.activePart ?? l.none}`,
+    closable,
     "",
-    "| Parte | Estado | Tareas | Spec | Issue |",
+    `| ${l.columns.join(" | ")} |`,
     "|---|---|---|---|---|",
   ];
   for (const part of status.parts)
     lines.push(
       `| ${part.id} | ${part.effective} | ${part.tasksDone}/${part.tasksTotal} | ${part.spec ?? "—"} | ${part.issue ?? "—"} |`,
     );
-  lines.push("", "## Evidencia", "");
+  lines.push("", `## ${l.evidence}`, "");
   for (const part of status.parts)
     for (const criterion of part.acceptance)
       lines.push(
-        `- ${part.id}.${criterion.id} (${criterion.method}): ${criterion.verified ? "verificado" : "sin evidencia"}`,
+        `- ${part.id}.${criterion.id} (${criterion.method}): ${criterion.verified ? l.verified : l.unverified}`,
       );
   lines.push(
     "",
-    "## Discrepancias",
+    `## ${l.discrepancies}`,
     "",
-    ...(status.discrepancies.length ? status.discrepancies.map((d) => `- ${d}`) : ["Ninguna"]),
+    ...(status.discrepancies.length
+      ? status.discrepancies.map((d) => `- ${d}`)
+      : [markers.ninguna]),
     "",
-    "## Bloqueos",
+    `## ${l.blockers}`,
     "",
-    ...(status.blockers.length ? status.blockers.map((b) => `- ${b}`) : ["Ninguno"]),
+    ...(status.blockers.length ? status.blockers.map((b) => `- ${b}`) : [markers.ningunoDigest]),
     "",
   );
   return lines.join("\n");
 }
 
-export function renderMasterParts(parts: readonly Part[], mode: string | null): string {
+/** Render the `navori:master-parts` region with its labels in `language` (R31). */
+export function renderMasterParts(
+  parts: readonly Part[],
+  mode: string | null,
+  language: AssetLanguage,
+): string {
+  const l = masterMarkers(language).parts;
   const body = parts
     .flatMap((part) => [
       `### ${part.id} — ${part.title}`,
       "",
-      `Objetivo: ${part.objective}`,
-      `Alcance: ${part.scope.join("; ") || "—"}`,
-      `Fuera de alcance: ${part.outOfScope.join("; ") || "—"}`,
-      `Dependencias: ${part.dependsOn.join(", ") || "—"}`,
-      `Requisitos semilla: ${part.seedRequirements.join(", ") || "—"}`,
-      ...(mode === "en-curso" ? [`Estado: ${part.state}`] : []),
+      `${l.objective}: ${part.objective}`,
+      `${l.scope}: ${part.scope.join("; ") || "—"}`,
+      `${l.outOfScope}: ${part.outOfScope.join("; ") || "—"}`,
+      `${l.dependsOn}: ${part.dependsOn.join(", ") || "—"}`,
+      `${l.seedRequirements}: ${part.seedRequirements.join(", ") || "—"}`,
+      ...(mode === "en-curso" ? [`${l.state}: ${part.state}`] : []),
       ...part.acceptance.map(
         (a) =>
           `- ${part.id}.${a.id} (${a.method}): ${a.description} — ${a.method === "test" ? `${a.test.file}#${a.test.case}` : a.method === "comando" ? a.command.run : a.manual.check}`,
@@ -488,7 +510,7 @@ export function writeMasterStatus(cwd: string): MasterStatus {
       const statusPath = join(stagePath, "STATUS.md");
       assertWritableInRepo(cwd, statusPath);
       assertWritableInRepo(cwd, indexMdPath(cwd, specsDir));
-      writeFileAtomic(statusPath, renderStatusMd(status));
+      writeFileAtomic(statusPath, renderStatusMd(status, config.language));
       writeFileAtomic(indexMdPath(cwd, specsDir), renderIndexMd(index, specsDir));
       return status;
     }
@@ -501,7 +523,7 @@ export function writeMasterStatus(cwd: string): MasterStatus {
     if (existsSync(masterPath)) {
       const content = readFileSync(masterPath, "utf8");
       const eol = detectEol(content);
-      const region = renderMasterParts(parts, status.mode).replace(/\n/g, eol);
+      const region = renderMasterParts(parts, status.mode, config.language).replace(/\n/g, eol);
       const existing = masterPartsRegion(content);
       if (existing) replacement = content.replace(existing, () => region);
       else if (content.includes("<!-- navori:master-parts"))
@@ -530,7 +552,7 @@ export function writeMasterStatus(cwd: string): MasterStatus {
     assertWritableInRepo(cwd, statusPath);
     if (replacement !== null) assertWritableInRepo(cwd, masterPath);
     assertWritableInRepo(cwd, indexMdPath(cwd, specsDir));
-    writeFileAtomic(statusPath, renderStatusMd(status));
+    writeFileAtomic(statusPath, renderStatusMd(status, config.language));
     if (replacement !== null) writeFileAtomic(masterPath, replacement);
   } else assertWritableInRepo(cwd, indexMdPath(cwd, specsDir));
   writeFileAtomic(indexMdPath(cwd, specsDir), renderIndexMd(index, specsDir));

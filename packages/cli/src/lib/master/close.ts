@@ -111,30 +111,28 @@ function renderClosure(
   finalStateBytes: string,
 ): string {
   const outcome = state.outcome!;
+  const markers = masterMarkers(language);
+  const l = markers.closure;
   const lines = [
-    `# ${language === "es" ? "Cierre" : "Closure"}: ${stageDir}`,
+    `# ${l.title}: ${stageDir}`,
     "",
-    `- ${language === "es" ? "Resultado" : "Outcome"}: ${outcome}`,
-    `- ${language === "es" ? "Apertura" : "Opened"}: ${openedAt}`,
-    `- ${language === "es" ? "Cierre" : "Closed"}: ${state.closedAt}`,
+    `- ${l.outcome}: ${outcome}`,
+    `- ${l.opened}: ${openedAt}`,
+    `- ${l.closed}: ${state.closedAt}`,
   ];
   if (outcome === "abandonada") {
-    lines.push(
-      `- ${language === "es" ? "Razón" : "Reason"}: ${escapeCell(state.abandonment?.reason)}`,
-    );
-    lines.push(`- ${language === "es" ? "Fase" : "Phase"}: ${state.abandonment?.phase}`);
+    lines.push(`- ${l.reason}: ${escapeCell(state.abandonment?.reason)}`);
+    lines.push(`- ${l.phase}: ${state.abandonment?.phase}`);
   } else {
     if (outcome === "convertida") {
-      lines.push(
-        `- ${language === "es" ? "Razón" : "Reason"}: ${escapeCell(state.conversion?.reason)}`,
-      );
+      lines.push(`- ${l.reason}: ${escapeCell(state.conversion?.reason)}`);
       lines.push(`- Spec: ${state.conversion?.spec}`);
     }
     lines.push(
       "",
-      "## Partes",
+      `## ${l.parts}`,
       "",
-      "| ID | Estado | Spec | Issue | Razón |",
+      `| ${l.partColumns.join(" | ")} |`,
       "|---|---|---|---|---|",
     );
     for (const part of parts) {
@@ -143,13 +141,19 @@ function renderClosure(
         `| ${part.id} | ${effective} | ${escapeCell(part.spec)} | ${escapeCell(part.issue)} | ${escapeCell(part.reason)} |`,
       );
     }
-    lines.push("", "## Criterios", "", "| ID | Método | Evidencia | Fecha |", "|---|---|---|---|");
+    lines.push(
+      "",
+      `## ${l.criteria}`,
+      "",
+      `| ${l.criterionColumns.join(" | ")} |`,
+      "|---|---|---|---|",
+    );
     for (const part of parts)
       for (const criterion of part.acceptance) {
         const disposition = part.state === "descartada" || part.state === "diferida";
         const evidence = disposition ? null : criterion.evidence;
-        let detail = "no verificado";
-        if (evidence?.kind === "approval") detail = "aprobado por el usuario";
+        let detail = l.unverified;
+        if (evidence?.kind === "approval") detail = l.approvedByUser;
         if (evidence?.kind === "run") {
           let orphan = false;
           let behind: string | null = null;
@@ -172,16 +176,13 @@ function renderClosure(
           `| ${part.id}.${criterion.id} | ${criterion.method} | ${escapeCell(detail)} | ${evidence?.date ?? "—"} |`,
         );
       }
-    lines.push(
-      "",
-      `- ${language === "es" ? "Decisiones" : "Decisions"}: ${decisionCount(join(stagePath, "DECISIONS.md"))}`,
-    );
+    lines.push("", `- ${l.decisions}: ${decisionCount(join(stagePath, "DECISIONS.md"))}`);
   }
   lines.push(
     "",
-    `## ${masterMarkers(language).integridad}`,
+    `## ${markers.integridad}`,
     "",
-    "| Archivo | SHA-256 |",
+    `| ${markers.archivoColumn} | SHA-256 |`,
     "|---|---|",
   );
   for (const file of [
