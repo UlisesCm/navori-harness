@@ -13,7 +13,12 @@ import {
   type StateRoot,
   writeStateFileAtomic,
 } from "../lib/primitives/state-root.ts";
-import { classify, declaredFlagsFromSignals, type ClassifyInput } from "../lib/plan/classify.ts";
+import {
+  classify,
+  declaredFlagsFromSignals,
+  projectClassifyContext,
+  type ClassifyInput,
+} from "../lib/plan/classify.ts";
 import { checkWorkplan, formatCheckResult } from "../lib/plan/check.ts";
 import { applyPlanGate, UNREADABLE_PAYLOAD } from "../lib/plan/gate.ts";
 import { applyWorkplanUpdate, renderWorkplan, type WorkplanUpdate } from "../lib/plan/render.ts";
@@ -25,7 +30,7 @@ import {
   type ProgressStatus,
   type Workplan,
 } from "../lib/plan/schema.ts";
-import { readConfig } from "../lib/config/config.ts";
+import { effectiveConfig, readConfig } from "../lib/config/config.ts";
 import { appendCliEvent } from "../lib/audit/cli-event.ts";
 import { resumePlans } from "../lib/plan/resume.ts";
 
@@ -128,32 +133,37 @@ function readWorkplanOrExit(path: string): Workplan | undefined {
   }
 }
 
-/** `project.criticalPaths`/`project.localSkills` (R9), falling back to
- * `undefined` for a repo without `navori.config.json` or without a `project`
- * block — shared by `--files` and `--diff` classification so neither
- * re-derives the read. */
-function readProjectClassifyContext(cwd: string): {
-  criticalPaths: string[] | undefined;
-  localSkillIds: string[] | undefined;
-} {
+/** Default `--diff` base: `origin/<prTarget>` of the repo's config, or
+ * `origin/main` when there is no readable configuration (R18). */
+function defaultDiffBase(cwd: string): string {
   try {
-    const project = readConfig(resolve(cwd, "navori.config.json")).project;
-    return { criticalPaths: project?.criticalPaths, localSkillIds: project?.localSkills };
+    const config = effectiveConfig(readConfig(resolve(cwd, "navori.config.json")));
+    return `origin/${config.prTarget ?? config.branchBase}`;
   } catch {
-    return { criticalPaths: undefined, localSkillIds: undefined };
+    return "origin/main";
   }
 }
 
-/** `git diff --name-only <base>...HEAD`'s touched files, repo-relative. */
-function diffFiles(cwd: string, base: string): string[] {
-  const out = execFileSync("git", ["diff", "--name-only", `${base}...HEAD`], {
+/** Runs git in `cwd` and splits its NUL-terminated output (`-z`). */
+function gitLines(cwd: string, args: string[]): string[] {
+  const out = execFileSync("git", ["-c", "core.fsmonitor=false", "--no-optional-locks", ...args], {
     cwd,
     encoding: "utf8",
   });
-  return out
-    .split("\n")
-    .map((f) => f.trim())
-    .filter(Boolean);
+  return out.split("\0").filter(Boolean);
+}
+
+/**
+ * The work tree's touched files vs `base` (R18): the union of
+ * `git diff --name-only <merge-base>` (committed + uncommitted tracked
+ * changes) and `git ls-files --others --exclude-standard` (untracked files),
+ * repo-relative, sorted and de-duplicated.
+ */
+function diffFiles(cwd: string, base: string): string[] {
+  const mergeBase = gitLines(cwd, ["merge-base", "HEAD", base]).at(0)?.trim() ?? "";
+  const tracked = gitLines(cwd, ["diff", "--name-only", "-z", mergeBase || base]);
+  const untracked = gitLines(cwd, ["ls-files", "-z", "--others", "--exclude-standard"]);
+  return [...new Set([...tracked, ...untracked])].sort();
 }
 
 function writeWorkplanAndRender(root: StateRoot, feature: string, plan: Workplan): void {
@@ -243,8 +253,8 @@ const classifySubCommand = defineCommand({
     diff: {
       type: "string",
       description:
-        "Classify `git diff --name-only <base>...HEAD` against the feature's workplan " +
-        "instead of --files; value is the base ref (default origin/main, R21)",
+        "Classify the work tree's changes (committed, uncommitted and untracked) against the feature's workplan " +
+        "instead of --files; value is the base ref (default origin/<prTarget>)",
     },
     criticalArea: { type: "boolean", description: "Declared: touches a critical area" },
     moneyCredentialsPii: {
@@ -276,10 +286,10 @@ const classifySubCommand = defineCommand({
     // `criticalPaths`/`localSkills` are optional (R9): a repo without
     // `navori.config.json` or without a `project` block simply falls back to
     // the declared flag / the default "generated" classification.
-    const { criticalPaths, localSkillIds } = readProjectClassifyContext(cwd);
+    const { criticalPaths, localSkillIds } = projectClassifyContext(cwd);
 
     if (args.diff !== undefined) {
-      classifyDiff(root, args.feature, args.diff || "origin/main", args.json ?? false, {
+      classifyDiff(root, args.feature, args.diff || defaultDiffBase(cwd), args.json ?? false, {
         criticalPaths,
         localSkillIds,
       });
@@ -300,6 +310,13 @@ const classifySubCommand = defineCommand({
         process.exitCode = 1;
         return;
       }
+    }
+    if (args.files === undefined && (draft?.files.length ?? 0) === 0) {
+      process.stderr.write(
+        "classify needs --files, --diff or a workplan draft with files; refusing to report level 0 for an empty list\n",
+      );
+      process.exitCode = 1;
+      return;
     }
     const declaredFromDraft = draft ? declaredFlagsFromSignals(draft.signals) : {};
 
@@ -328,7 +345,7 @@ const classifySubCommand = defineCommand({
 
 /**
  * `navori plan classify <feature> --diff [<base>]` (R21) — classifies the
- * REAL diff (`git diff --name-only <base>...HEAD`) with the feature's
+ * REAL diff (`git diff --name-only <merge-base>` plus untracked files) with the feature's
  * declared workplan signals (`declaredFlagsFromSignals`, no re-derivation of
  * `signals.ts`'s weights) and exits non-zero when that comes back at a higher
  * level than the workplan declared. The reviewer runs this exact command to
@@ -350,7 +367,7 @@ function classifyDiff(
     files = diffFiles(cwd, base);
   } catch (cause: unknown) {
     process.stderr.write(
-      `git diff --name-only ${base}...HEAD failed: ${cause instanceof Error ? cause.message : String(cause)}\n`,
+      `git diff --name-only ${base} failed: ${cause instanceof Error ? cause.message : String(cause)}\n`,
     );
     process.exitCode = 1;
     return;

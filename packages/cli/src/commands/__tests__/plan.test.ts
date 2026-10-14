@@ -158,6 +158,22 @@ describe("navori plan classify", () => {
     expect(parsed.level).toBe(2);
   });
 
+  // Covers: R17
+  it("classify sin archivos ni borrador falla con error de uso", async () => {
+    const logs: string[] = [];
+    const spy = vi_spyConsole(logs);
+    await runCommand(planCommand, { rawArgs: ["classify", "demo", "--json", "--cwd", cwd] });
+    const noDraftExit = process.exitCode;
+    // A draft whose `files` is empty is the same silent-level-0 trap.
+    writeDraft([]);
+    process.exitCode = undefined;
+    await runCommand(planCommand, { rawArgs: ["classify", "demo", "--json", "--cwd", cwd] });
+    spy.restore();
+    expect(noDraftExit).toBe(1);
+    expect(process.exitCode).toBe(1);
+    expect(logs.join("")).toBe("");
+  });
+
   // Covers: #1067
   it("fails with a clear message when the draft workplan is not readable JSON", async () => {
     mkdirSync(join(cwd, dir), { recursive: true });
@@ -210,7 +226,8 @@ describe("navori plan classify --diff", () => {
     });
     spy.restore();
     const parsed = JSON.parse(logs.join(""));
-    expect(parsed.files).toEqual(["src/a.ts"]);
+    // The untracked workplan itself is part of the work tree's diff (R18).
+    expect(parsed.files).toEqual([".claude/progress/workplan_demo.json", "src/a.ts"]);
     expect(parsed.declaredLevel).toBe(1);
     expect(parsed.exceedsDeclared).toBe(false);
     expect(process.exitCode ?? 0).toBe(0);
@@ -275,6 +292,36 @@ describe("navori plan classify --diff", () => {
     });
     // origin/main == main here, so the diff is empty and level stays declared.
     expect(process.exitCode ?? 0).toBe(0);
+  });
+
+  // Covers: R18
+  it("classify --diff incluye un archivo sin commitear y otro sin seguimiento contra origin/prTarget", async () => {
+    gitRepoWithDiff(["src/a.ts"]);
+    // Only `origin/develop` exists: the default base must come from `prTarget`.
+    execFileSync("git", ["branch", "origin/develop", "main"], { cwd });
+    writeFileSync(
+      join(cwd, "navori.config.json"),
+      JSON.stringify({
+        name: "demo",
+        engines: ["claude"],
+        preset: "custom",
+        qualityGate: { full: "true", fast: "true" },
+        branchBase: "main",
+        prTarget: "develop",
+      }),
+    );
+    writeFileSync(join(cwd, "README.md"), "edited, not committed\n");
+    writeFileSync(join(cwd, "untracked.ts"), "export {};\n");
+    writePlan("demo", validPlan);
+    const logs: string[] = [];
+    const spy = vi_spyConsole(logs);
+    await runCommand(planCommand, {
+      rawArgs: ["classify", "demo", "--diff", "--json", "--cwd", cwd],
+    });
+    spy.restore();
+    const parsed = JSON.parse(logs.join(""));
+    expect(parsed.base).toBe("origin/develop");
+    expect(parsed.files).toEqual(expect.arrayContaining(["src/a.ts", "README.md", "untracked.ts"]));
   });
 
   it("fails when the feature has no workplan", async () => {
