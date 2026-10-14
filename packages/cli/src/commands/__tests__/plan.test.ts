@@ -717,6 +717,28 @@ describe("navori plan check", () => {
     );
   });
 
+  // Covers: R15
+  it("check con JSON ilegible sale 2 con hallazgo schema y sin traza", async () => {
+    mkdirSync(join(cwd, dir), { recursive: true });
+    writeFileSync(join(cwd, dir, "workplan_garbled.json"), "{ not json");
+    const logs: string[] = [];
+    const spy = vi_spyConsole(logs);
+    let thrown: unknown;
+    try {
+      await runCommand(planCommand, { rawArgs: ["check", "garbled", "--json", "--cwd", cwd] });
+    } catch (error) {
+      thrown = error;
+    }
+    spy.restore();
+    expect(thrown).toBeUndefined();
+    expect(process.exitCode).toBe(2);
+    const parsed = JSON.parse(logs.join(""));
+    expect(parsed.ok).toBe(false);
+    expect(parsed.findings).toHaveLength(1);
+    expect(parsed.findings[0].rule).toBe("schema");
+    expect(logs.join("")).not.toContain("    at ");
+  });
+
   it("fails when the workplan file is missing", async () => {
     await runCommand(planCommand, { rawArgs: ["check", "absent", "--cwd", cwd] });
     expect(process.exitCode).toBe(1);

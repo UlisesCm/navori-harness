@@ -77,7 +77,7 @@ export function recordDeliveryCriterion(
         readFileSync(stateArtifactPath(root, `workplan_${feature}.json`), "utf8"),
       ) as unknown,
     );
-    if (!plan.source || !checkWorkplan(plan, root.cwd).ok)
+    if (!plan.source || !checkWorkplan(plan, { cwd: root.cwd, feature }).ok)
       throw new Error("source-backed plan requires current approved planning metadata");
     const id = Object.entries(plan.source.criterionMap).find(
       ([, value]) => value === qualifiedId,
@@ -178,7 +178,7 @@ export function deliveryPartProof(
           readFileSync(stateArtifactPath(root, `workplan_${record.proof.feature}.json`), "utf8"),
         ) as unknown,
       );
-      if (!plan.source || !checkWorkplan(plan, root.cwd).ok)
+      if (!plan.source || !checkWorkplan(plan, { cwd: root.cwd, feature: record.proof.feature }).ok)
         throw new Error("source-backed plan is stale or unapproved");
       const binding = captureDeliveryCriterion(
         root.cwd,

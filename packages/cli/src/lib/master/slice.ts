@@ -201,7 +201,7 @@ export function prepareDeliverySlice(
           },
         ],
       });
-      if (!checkWorkplan(next, root.cwd).ok)
+      if (!checkWorkplan(next, { cwd: root.cwd, feature: projection.feature }).ok)
         throw new Error("refreshed projection needs valid human planning metadata");
       // The index is derived from the plan files on disk, so the plan is written first.
       // If the index write fails the previous plan bytes are restored: a retry then sees the
@@ -221,7 +221,7 @@ export function prepareDeliverySlice(
         `existing workplan diverged; manual review required: ${sourceProblems.join("; ")}` +
           " (after a queue change, re-run with --refresh --approved-by user)",
       );
-    const validation = checkWorkplan(parsed, root.cwd);
+    const validation = checkWorkplan(parsed, { cwd: root.cwd, feature: projection.feature });
     if (!validation.ok)
       throw new Error(
         `existing workplan requires valid human planning metadata: ${validation.findings.map((finding) => finding.message).join("; ")}`,

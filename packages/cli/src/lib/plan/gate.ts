@@ -367,7 +367,7 @@ function evaluateWorkplan(root: StateRoot, feature: string, spec: boolean = fals
     );
   }
 
-  const result = checkWorkplan(raw, root.cwd);
+  const result = checkWorkplan(raw, { cwd: root.cwd, feature });
   if (!result.ok) {
     return deny(
       `\`navori plan check ${feature}\` fails:\n${formatCheckResult(result)}\n` +

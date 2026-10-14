@@ -216,6 +216,39 @@ describe("evaluatePlanGate — the opening line (R16)", () => {
   });
 });
 
+describe("evaluatePlanGate — shared check rules (R5)", () => {
+  // Covers: R5
+  it("workplan con feature ajeno, nivel bajo el recálculo o BLOCKED se deniega", () => {
+    writeConfig(true);
+    const open = () => evaluatePlanGate(payload("implementer", "workplan: demo\ndo A1"));
+
+    writeWorkplan("demo", { ...VALID_LEVEL1, feature: "other" });
+    let result = open();
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("feature-mismatch");
+
+    writeWorkplan("demo", {
+      ...VALID_LEVEL1,
+      classification: { score: 0, level: 0, signals: ["floor:shared-contract"] },
+    });
+    result = open();
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("level-below-classification");
+
+    writeWorkplan("demo", {
+      ...VALID_LEVEL1,
+      level: 2,
+      classification: { score: 8, level: 2, signals: [] },
+      solution: { path: "solution_demo", verdict: "BLOCKED" },
+      phases: [{ name: "Core", acceptance: ["A1"] }],
+      risks: [{ risk: "r", rollback: "r" }],
+    });
+    result = open();
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("solution-blocked");
+  });
+});
+
 describe("evaluatePlanGate — the level-0 exemption (R16)", () => {
   it("allows nivel-0 when classify confirms level 0", () => {
     writeConfig(true);

@@ -19,7 +19,7 @@ import {
   projectClassifyContext,
   type ClassifyInput,
 } from "../lib/plan/classify.ts";
-import { checkWorkplan, formatCheckResult } from "../lib/plan/check.ts";
+import { checkWorkplan, formatCheckResult, type CheckResult } from "../lib/plan/check.ts";
 import { applyPlanGate, UNREADABLE_PAYLOAD } from "../lib/plan/gate.ts";
 import { applyWorkplanUpdate, renderWorkplan, type WorkplanUpdate } from "../lib/plan/render.ts";
 import { writeAcceptanceIndex } from "../lib/plan/acceptance-index.ts";
@@ -536,8 +536,17 @@ const checkSubCommand = defineCommand({
       process.exitCode = 1;
       return;
     }
-    const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
-    const result = checkWorkplan(raw, root.cwd);
+    let raw: unknown;
+    let unreadable: string | undefined;
+    try {
+      raw = JSON.parse(readFileSync(path, "utf8"));
+    } catch (cause) {
+      unreadable = cause instanceof Error ? cause.message : String(cause);
+    }
+    const result: CheckResult =
+      unreadable === undefined
+        ? checkWorkplan(raw, { cwd: root.cwd, feature: args.feature })
+        : { ok: false, findings: [{ rule: "schema", message: unreadable }], warnings: [] };
     process.stdout.write(`${args.json ? JSON.stringify(result) : formatCheckResult(result)}\n`);
     // Explicit on both branches — see `classifyDiff`'s comment on the same
     // pattern: a stale non-zero code from an earlier command run in this
