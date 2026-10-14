@@ -177,9 +177,26 @@ export function readMasterStatus(cwd: string): MasterStatus {
     const state = DeliveryStateSchema.parse(
       JSON.parse(readFileSync(join(stagePath, "state.json"), "utf8")) as unknown,
     );
-    const preparation = existsSync(join(stagePath, "parts.json")) ? checkActiveDelivery(cwd) : null;
-    if (preparation && !preparation.parts)
-      throw new Error(`${stage.dir}: invalid parts.json: ${preparation.blockers.join("; ")}`);
+    let preparation: ReturnType<typeof checkActiveDelivery> | null = null;
+    let invalidParts: string | null = null;
+    if (existsSync(join(stagePath, "parts.json"))) {
+      try {
+        preparation = checkActiveDelivery(cwd);
+        if (!preparation.parts) invalidParts = preparation.blockers.join("; ");
+      } catch (cause: unknown) {
+        invalidParts = cause instanceof Error ? cause.message : String(cause);
+      }
+    }
+    // R26: status stays readable (and `init` traceless) when parts.json is unusable.
+    if (invalidParts !== null)
+      return {
+        ...empty,
+        workflow: "deliveries",
+        stage: { number: stage.number, slug: stage.slug, dir: stage.dir },
+        phase: state.phase,
+        mode: state.mode,
+        blockers: [`parts.json inválido: ${invalidParts}`],
+      };
     const blockers = preparation?.blockers ?? ["parts.json is not prepared"];
     if (
       preparation?.parts &&
@@ -193,7 +210,12 @@ export function readMasterStatus(cwd: string): MasterStatus {
         preparation.designDigest,
         preparation.masterDigest,
       ]);
-      if (state.baseline?.identity !== identity) blockers.push("baseline is missing or stale");
+      if (state.baseline?.identity !== identity)
+        blockers.push(
+          state.authorization
+            ? "baseline obsoleta con cola autorizada; revóquela con 'navori master delivery-revoke' y apruebe baseline y cola de nuevo"
+            : "baseline is missing or stale",
+        );
       if (!state.authorization) blockers.push("queue authorization is pending");
     }
     let lifecycle: ReturnType<typeof deliveryLifecycle> | undefined;
@@ -349,7 +371,6 @@ export function renderStatusMd(status: MasterStatus): string {
       "",
       "Workflow: deliveries",
       `Fase: ${status.phase ?? "context"}`,
-      `Preparación: ${status.blockers.length === 0 ? "lista" : "pendiente"}`,
       `Cerrable: ${status.closable ? "sí" : "no"}`,
       ...(status.deliveryLifecycle?.pendingPublication.length
         ? [
@@ -358,7 +379,7 @@ export function renderStatusMd(status: MasterStatus): string {
         : []),
       ...(status.deliveryLifecycle?.deliveries ?? []).map(
         (entry) =>
-          `${entry.id}: ${entry.decision ?? "pending"}; publication=${entry.published ? "recorded" : "pending"}; presented=${entry.presentedIdentity ?? "none"}; scope=${entry.scopeIdentity}`,
+          `${entry.id}: ${entry.decision ?? "pending"}; publication=${entry.published ? "recorded" : "pending"}`,
       ),
       "",
       "## Bloqueos",

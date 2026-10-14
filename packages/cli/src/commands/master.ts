@@ -115,7 +115,7 @@ const initSubCommand = defineCommand({
       );
       if (result.workflow === "deliveries")
         process.stdout.write(
-          "Deliveries: preparación, baseline y cola disponibles; ejecución, aceptación y publicación aún no disponibles.\n",
+          "Deliveries: siguiente paso navori master delivery-check; luego delivery-baseline, delivery-queue, delivery-slice, delivery-criterion, delivery-review, delivery-present, delivery-decision y delivery-publication.\n",
         );
       if (result.phase === "context") {
         const specsDir = readConfig(join(cwd, "navori.config.json")).sdd?.specsDir ?? "specs";

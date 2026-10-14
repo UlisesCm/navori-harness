@@ -238,7 +238,11 @@ describe("deliveries D1 foundation", () => {
     writeFileSync(join(stage(cwd), "parts.json"), JSON.stringify({ version: 1, parts: [] }));
     const before = snapshot(cwd);
     expect(() => runMasterInit(cwd, undefined)).toThrow(/parts.json/);
-    expect(() => writeMasterStatus(cwd)).toThrow(/parts.json/);
+    // R26: status no longer throws; it names the invalid parts.json as a blocker.
+    expect(readMasterStatus(cwd)).toMatchObject({
+      workflow: "deliveries",
+      blockers: [expect.stringContaining("parts.json inválido")],
+    });
     expect(snapshot(cwd)).toBe(before);
   });
 

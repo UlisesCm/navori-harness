@@ -14,12 +14,14 @@ import {
   writeMasterStatus,
 } from "../status.ts";
 import { runMasterCheck } from "../checks.ts";
+import { approveDeliveryBaseline } from "../delivery.ts";
+import { presentedDeliveryFixture } from "./delivery-flow.ts";
 import type { MasterIndex, Part, StageEntry } from "../schema.ts";
 
 let cwd: string;
 const part = (state: string, evidence: unknown = null) => ({
   id: "P1",
-  title: "Title\nwith control",
+  title: "Title with control",
   objective: "Build",
   scope: [],
   outOfScope: [],
@@ -371,8 +373,13 @@ describe("master status", () => {
   it("reports active part and sanitizes the line title", () => {
     const status = readMasterStatus(cwd);
     expect(status.activePart).toBe("P1");
-    expect(statusLine(status, "specs")).toContain('P1 "Title with control"');
-    expect(statusLine(status, "specs")).not.toContain("\n");
+    // The schema now rejects a newline in a title (R20), so inject it past the reader.
+    const dirty = {
+      ...status,
+      parts: status.parts.map((p) => ({ ...p, title: "Title\nwith control" })),
+    };
+    expect(statusLine(dirty, "specs")).toContain('P1 "Title with control"');
+    expect(statusLine(dirty, "specs")).not.toContain("\n");
     expect(renderStatusMd(status)).toContain("Discrepancias");
   });
 
@@ -555,4 +562,52 @@ describe("master status", () => {
       rmSync(outside, { recursive: true, force: true });
     }
   });
+});
+
+describe("master status (deliveries)", () => {
+  const fixtures: string[] = [];
+  afterEach(() => {
+    for (const dir of fixtures.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+  const presented = (): ReturnType<typeof presentedDeliveryFixture> => {
+    const fixture = presentedDeliveryFixture();
+    fixtures.push(fixture.cwd);
+    return fixture;
+  };
+
+  // Covers: R24
+  it("STATUS.md de entregas no lleva presented ni scope y status --json sí", () => {
+    const { cwd: repo, identity } = presented();
+    const status = readMasterStatus(repo);
+    const md = renderStatusMd(status);
+    expect(md).toContain("E1: pending; publication=pending");
+    expect(md).not.toContain("presented=");
+    expect(md).not.toContain("scope=");
+    expect(md).not.toContain("Preparación");
+    const json = JSON.parse(JSON.stringify(status)) as {
+      deliveryLifecycle: { deliveries: { presentedIdentity: string; scopeIdentity: string }[] };
+    };
+    expect(json.deliveryLifecycle.deliveries[0]).toMatchObject({ presentedIdentity: identity });
+    expect(json.deliveryLifecycle.deliveries[0]?.scopeIdentity).toMatch(/^[0-9a-f]{64}$/);
+  }, 120_000);
+
+  // Covers: R26
+  it("parts.json inválido en entregas devuelve workflow y bloqueo sin excepción", () => {
+    const { cwd: repo, stage } = presented();
+    writeFileSync(join(stage, "parts.json"), "{ not json");
+    const status = readMasterStatus(repo);
+    expect(status.workflow).toBe("deliveries");
+    expect(status.blockers).toEqual([expect.stringContaining("parts.json inválido")]);
+    expect(() => writeMasterStatus(repo)).not.toThrow();
+  }, 120_000);
+
+  // Covers: R27
+  it("baseline obsoleta con cola autorizada nombra delivery-revoke", () => {
+    const { cwd: repo, stage } = presented();
+    writeFileSync(join(stage, "MASTER.md"), "# Reviewed delivery\nRN-1 changed\n");
+    expect(readMasterStatus(repo).blockers).toContainEqual(
+      expect.stringContaining("navori master delivery-revoke"),
+    );
+    expect(() => approveDeliveryBaseline(repo, "user")).toThrow("navori master delivery-revoke");
+  }, 120_000);
 });

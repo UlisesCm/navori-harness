@@ -110,7 +110,7 @@ it("reports ok:false as nonzero without success guidance, then repairs on retry"
   expect(failed.err).toContain("render failed: test render failure");
   expect(failed.out).toBe("");
   expect(failed.out).not.toContain("context/raw/");
-  expect(failed.out).not.toContain("preparación, baseline y cola disponibles");
+  expect(failed.out).not.toContain("navori master delivery-check");
   render.mockRestore();
   const statePath = stageFile(cwd, "state.json");
   const indexPath = join(cwd, "specs/_master/index.json");
@@ -127,7 +127,7 @@ it("reports ok:false as nonzero without success guidance, then repairs on retry"
 it("opts into deliveries only explicitly and rejects legacy commands without writes", async () => {
   const cwd = freshRepo();
   expect((await ok(cwd, "init", "delivery", "--workflow", "deliveries")).out).toContain(
-    "preparación, baseline y cola disponibles",
+    "navori master delivery-check",
   );
   const stage = join(cwd, "specs", "_master", "01-delivery");
   const statePath = join(stage, "state.json");
@@ -140,7 +140,7 @@ it("opts into deliveries only explicitly and rejects legacy commands without wri
   expect((await master(cwd, "close", "--abandon", "--reason", "test")).exitCode).toBe(1);
   expect((await master(cwd, "init", "--workflow", "legacy")).exitCode).toBe(1);
   expect(readFileSync(statePath, "utf8")).toBe(before);
-  expect((await ok(cwd, "init")).out).toContain("preparación, baseline y cola disponibles");
+  expect((await ok(cwd, "init")).out).toContain("navori master delivery-check");
 });
 
 it("rejects an invalid workflow flag before creating the registry", async () => {
