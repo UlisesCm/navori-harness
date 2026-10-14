@@ -6,7 +6,12 @@
  * every time — no timestamps, no random ids, no locale-dependent formatting.
  * Nothing else writes `workplan_<feature>.md` by hand (R11).
  */
-import type { AcceptanceCriterion, ProgressStatus, Workplan } from "./schema.ts";
+import type {
+  AcceptanceCriterion,
+  AcceptanceEvidence,
+  ProgressStatus,
+  Workplan,
+} from "./schema.ts";
 
 function heading(text: string): string {
   return `## ${text}`;
@@ -142,4 +147,50 @@ export function applyWorkplanUpdate(plan: Workplan, update: WorkplanUpdate): Wor
     return { ...plan, progress: { ...plan.progress, [update.id]: update.status } };
   }
   return { ...plan, decisions: [...plan.decisions, { text: update.text, date: update.date }] };
+}
+
+/** A change `navori plan update` computed in phase 1 and applies, under the
+ * lock, to the RAW workplan JSON (R16). `evidence` with `value: null` deletes
+ * the entry. */
+export type RawMutation =
+  | { kind: "progress"; id: string; status: ProgressStatus }
+  | { kind: "evidence"; id: string; value: AcceptanceEvidence | null }
+  | { kind: "decision"; text: string; date: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Applies `mutations` to the raw parsed JSON and returns a new object. Unlike
+ * `applyWorkplanUpdate` it never goes through `WorkplanSchema`, so fields the
+ * schema doesn't declare survive at any depth (R16). `progress`, `decisions`
+ * and `evidence` are created when absent, because the schema defaults them
+ * but the raw file may not carry them. Pure; throws if `raw` isn't an object. */
+export function applyMutationsToRaw(
+  raw: unknown,
+  mutations: readonly RawMutation[],
+): Record<string, unknown> {
+  if (!isRecord(raw)) throw new Error("workplan JSON must be an object");
+  const next: Record<string, unknown> = { ...raw };
+  const mapOf = (key: "progress" | "evidence"): Record<string, unknown> => {
+    const current = next[key];
+    const copy = isRecord(current) ? { ...current } : {};
+    next[key] = copy;
+    return copy;
+  };
+  for (const mutation of mutations) {
+    if (mutation.kind === "progress") {
+      mapOf("progress")[mutation.id] = mutation.status;
+    } else if (mutation.kind === "evidence") {
+      if (mutation.value === null) {
+        if (isRecord(next.evidence)) delete mapOf("evidence")[mutation.id];
+      } else {
+        mapOf("evidence")[mutation.id] = mutation.value;
+      }
+    } else {
+      const decisions = Array.isArray(next.decisions) ? next.decisions : [];
+      next.decisions = [...decisions, { text: mutation.text, date: mutation.date }];
+    }
+  }
+  return next;
 }

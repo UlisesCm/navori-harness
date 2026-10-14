@@ -194,6 +194,18 @@ describe("delivery slice projection", () => {
     expect(() => prepareDeliverySlice(cwd, "P1")).toThrow(/branch/);
   });
 
+  // Covers: R11
+  it("prepareDeliverySlice with the plan-state lock taken fails without writing", () => {
+    const { cwd } = fixture();
+    approveDeliveryBaseline(cwd, "user");
+    authorizeDeliveryQueue(cwd, "E1", ["P1"], "user");
+    const state = join(cwd, ".navori", "state", "handoffs");
+    mkdirSync(state, { recursive: true });
+    writeFileSync(join(state, ".plan-update.lock"), "999999\n");
+    expect(() => prepareDeliverySlice(cwd, "P1")).toThrow(/lock/);
+    expect(existsSync(join(state, "workplan_delivery-demo-p1.json"))).toBe(false);
+  }, 20_000);
+
   it("projects executable criteria only, preserves level-2 floor and refuses diverged replay", () => {
     const { cwd } = fixture();
     approveDeliveryBaseline(cwd, "user");

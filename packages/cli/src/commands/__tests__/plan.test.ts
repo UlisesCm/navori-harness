@@ -16,11 +16,27 @@ import { runCommand } from "citty";
 import { planCommand } from "../plan.ts";
 import { computeWorktreeTree, readHead } from "../../lib/plan/evidence.ts";
 
+/** Lets a test edit the workplan "between phases" of `plan update`: runs right
+ * after the real evidence validation, before the lock is taken (R11). */
+const evidenceHook = vi.hoisted(() => ({ afterValidate: undefined as (() => void) | undefined }));
+vi.mock("../../lib/plan/evidence.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/plan/evidence.ts")>();
+  return {
+    ...actual,
+    validateEvidence: (...args: Parameters<typeof actual.validateEvidence>) => {
+      const verdict = actual.validateEvidence(...args);
+      evidenceHook.afterValidate?.();
+      return verdict;
+    },
+  };
+});
+
 let cwd: string;
 const dir = ".claude/progress";
 
 beforeEach(() => {
   vi.stubEnv("CODEX_THREAD_ID", undefined);
+  evidenceHook.afterValidate = undefined;
   cwd = realpathSync(mkdtempSync(join(tmpdir(), "navori-plan-")));
   execFileSync("git", ["init", "-b", "main"], { cwd });
   process.exitCode = undefined;
@@ -460,6 +476,137 @@ describe("navori plan update", () => {
   });
 });
 
+// Covers: R10, R11, R12, R16
+describe("navori plan update — input, lock and config (M7)", () => {
+  const jsonFile = (): string => join(cwd, dir, "workplan_demo.json");
+  const bytes = (): string => readFileSync(jsonFile(), "utf8");
+  const update = async (...flags: string[]): Promise<void> => {
+    process.exitCode = undefined;
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      await runCommand(planCommand, { rawArgs: ["update", "demo", ...flags, "--cwd", cwd] });
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  // Covers: R10
+  it("update con estado inválido, id inexistente, fecha no ISO o progress con decision sale 1 sin cambiar bytes", async () => {
+    writePlan("demo", validPlan);
+    const before = bytes();
+    const cases: string[][] = [
+      ["--progress", "A1=hecho"],
+      ["--progress", "A9=cumplido"],
+      ["--progress", "A1=cumplido=x"],
+      ["--decision", "x", "--date", "ayer"],
+      ["--decision", "x", "--date", "2026-02-30"],
+      ["--progress", "A1=cumplido", "--decision", "x", "--date", "2026-10-14"],
+    ];
+    for (const flags of cases) {
+      await update(...flags);
+      expect(process.exitCode, flags.join(" ")).toBe(1);
+      expect(bytes()).toBe(before);
+    }
+  });
+
+  // Covers: R11
+  it("update con el lock tomado sale 1 sin escribir y dos updates seguidos conservan ambos", async () => {
+    writePlan("demo", {
+      ...validPlan,
+      acceptance: [
+        ...validPlan.acceptance,
+        { id: "A2", description: "second", command: "bun test", expected: "pass" },
+      ],
+      progress: { A1: "pendiente", A2: "pendiente" },
+    });
+    const before = bytes();
+    const lock = join(cwd, dir, ".plan-update.lock");
+    writeFileSync(lock, "999999\n");
+    await update("--progress", "A1=cumplido");
+    expect(process.exitCode).toBe(1);
+    expect(bytes()).toBe(before);
+    rmSync(lock);
+
+    await update("--progress", "A1=cumplido");
+    await update("--progress", "A2=bloqueado");
+    const written: { progress: Record<string, string> } = JSON.parse(bytes());
+    expect(written.progress).toEqual({ A1: "cumplido", A2: "bloqueado" });
+    expect(existsSync(lock)).toBe(false);
+  }, 20_000);
+
+  // Covers: R11
+  it("update sale 1 sin escribir si el criterion cambia entre las dos fases", async () => {
+    vi.stubEnv("CLAUDE_CODE_CHILD_SESSION", "1");
+    writeFileSync(
+      join(cwd, "navori.config.json"),
+      JSON.stringify({ name: "ev", engines: ["claude"], preset: "custom" }),
+    );
+    writePlan("demo", validPlan);
+    const command = validPlan.acceptance[0]?.command as string;
+    writeFileSync(
+      join(cwd, dir, "workplan_demo.evidence.jsonl"),
+      `${JSON.stringify({
+        ts: "2026-09-30T10:00:00Z",
+        feature: "demo",
+        id: "A1",
+        command,
+        tree: cwd,
+        cwd,
+        head: readHead(cwd),
+        worktreeTree: computeWorktreeTree(cwd),
+        dirty: true,
+      })}\n`,
+    );
+    evidenceHook.afterValidate = () => {
+      const edited = { ...validPlan, acceptance: [{ ...validPlan.acceptance[0], command: "x" }] };
+      writeFileSync(jsonFile(), JSON.stringify(edited, null, 2));
+    };
+    await update("--progress", "A1=cumplido");
+    expect(process.exitCode).toBe(1);
+    expect(JSON.parse(bytes()).progress.A1).toBe("pendiente");
+  });
+
+  // Covers: R12
+  it("configuración ilegible rechaza cumplido sin evidencia en Claude, Pi y Codex", async () => {
+    const sessions: Array<[string, string]> = [
+      ["CLAUDE_CODE_CHILD_SESSION", "1"],
+      ["PI_SESSION_ID", "pi-1"],
+      ["CODEX_THREAD_ID", "thread-1"],
+    ];
+    for (const [name, value] of sessions) {
+      for (const [other] of sessions) vi.stubEnv(other, undefined);
+      vi.stubEnv(name, value);
+      writePlan("demo", validPlan);
+      const before = bytes();
+      writeFileSync(join(cwd, "navori.config.json"), "{ not json");
+      await update("--progress", "A1=cumplido");
+      expect(process.exitCode, `${name} unreadable`).toBe(1);
+      expect(bytes()).toBe(before);
+
+      rmSync(join(cwd, "navori.config.json"));
+      await update("--progress", "A1=cumplido");
+      expect(process.exitCode ?? 0, `${name} absent`).toBe(0);
+      expect(JSON.parse(bytes()).evidence.A1.kind).toBe("unevidenced");
+    }
+  });
+
+  // Covers: R16
+  it("update conserva campos no declarados en la raíz y dentro de un criterion", async () => {
+    const { progress: _omit, ...withoutProgress } = validPlan;
+    writePlan("demo", {
+      ...withoutProgress,
+      "x-note": { keep: ["me"] },
+      acceptance: [{ ...validPlan.acceptance[0], "x-note": "inner" }],
+    });
+    await update("--progress", "A1=bloqueado");
+    expect(process.exitCode ?? 0).toBe(0);
+    const written = JSON.parse(bytes());
+    expect(written["x-note"]).toEqual({ keep: ["me"] });
+    expect(written.acceptance[0]["x-note"]).toBe("inner");
+    expect(written.progress.A1).toBe("bloqueado");
+  });
+});
+
 // Covers: R7, R8, R9, R10
 describe("navori plan update — evidence gate", () => {
   const sentinel = () => join(cwd, "sentinel-ran");
@@ -745,9 +892,6 @@ describe("navori plan check", () => {
   });
 });
 
-/** Captures `process.stdout.write` calls into `sink`, restoring the original
- * on `.restore()`. `plan`'s commands write JSON/text directly to stdout
- * (receipt.ts's pattern), so a `console.log` spy would miss them. */
 /** Covers: R9 */
 describe("navori plan escalation-reset", () => {
   const level2 = {
@@ -840,6 +984,9 @@ describe("navori plan escalation-reset", () => {
   });
 });
 
+/** Captures `process.stdout.write` calls into `sink`, restoring the original
+ * on `.restore()`. `plan`'s commands write JSON/text directly to stdout
+ * (receipt.ts's pattern), so a `console.log` spy would miss them. */
 function vi_spyConsole(sink: string[]): { restore: () => void } {
   const original = process.stdout.write.bind(process.stdout);
   process.stdout.write = ((chunk: string | Uint8Array) => {

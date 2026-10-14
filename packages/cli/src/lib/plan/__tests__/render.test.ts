@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyWorkplanUpdate, renderWorkplan } from "../render.ts";
+import { applyMutationsToRaw, applyWorkplanUpdate, renderWorkplan } from "../render.ts";
 import type { Workplan } from "../schema.ts";
 
 const level1: Workplan = {
@@ -143,5 +143,36 @@ describe("renderWorkplan — evidence cases (0038 D4)", () => {
         },
       }),
     ).toContain("(cumplido, evidencia de otro comando)");
+  });
+});
+
+/** Covers: R16 */
+describe("applyMutationsToRaw", () => {
+  it("applyMutationsToRaw crea progress ausente y conserva claves desconocidas anidadas", () => {
+    const raw = {
+      feature: "demo",
+      "x-note": { deep: { keep: true } },
+      acceptance: [{ id: "A1", command: "c", "x-inner": 1 }],
+    };
+    const next = applyMutationsToRaw(raw, [
+      { kind: "progress", id: "A1", status: "cumplido" },
+      {
+        kind: "evidence",
+        id: "A1",
+        value: { kind: "unevidenced", reason: "engine-without-signal" },
+      },
+      { kind: "decision", text: "d", date: "2026-10-14" },
+    ]);
+    expect(next.progress).toEqual({ A1: "cumplido" });
+    expect(next.evidence).toEqual({ A1: { kind: "unevidenced", reason: "engine-without-signal" } });
+    expect(next.decisions).toEqual([{ text: "d", date: "2026-10-14" }]);
+    expect(next["x-note"]).toEqual({ deep: { keep: true } });
+    expect(next.acceptance).toEqual(raw.acceptance);
+    expect(raw).not.toHaveProperty("progress");
+  });
+
+  it("deleting evidence does not create an absent evidence map", () => {
+    const next = applyMutationsToRaw({ a: 1 }, [{ kind: "evidence", id: "A1", value: null }]);
+    expect(next).toEqual({ a: 1 });
   });
 });

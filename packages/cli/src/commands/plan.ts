@@ -4,6 +4,7 @@
  * R15).
  */
 import { defineCommand } from "citty";
+import { z } from "zod";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -22,15 +23,18 @@ import {
 } from "../lib/plan/classify.ts";
 import { checkWorkplan, formatCheckResult, type CheckResult } from "../lib/plan/check.ts";
 import { applyPlanGate, recordAndCountRejections, UNREADABLE_PAYLOAD } from "../lib/plan/gate.ts";
-import { applyWorkplanUpdate, renderWorkplan, type WorkplanUpdate } from "../lib/plan/render.ts";
+import {
+  applyMutationsToRaw,
+  applyWorkplanUpdate,
+  renderWorkplan,
+  type RawMutation,
+  type WorkplanUpdate,
+} from "../lib/plan/render.ts";
+import { withPlanStateLock } from "../lib/plan/update-lock.ts";
+import { LockTimeoutError } from "../lib/primitives/lockfile.ts";
 import { writeAcceptanceIndex } from "../lib/plan/acceptance-index.ts";
 import { validateEvidence } from "../lib/plan/evidence.ts";
-import {
-  WorkplanSchema,
-  type AcceptanceEvidence,
-  type ProgressStatus,
-  type Workplan,
-} from "../lib/plan/schema.ts";
+import { WorkplanSchema, type ProgressStatus, type Workplan } from "../lib/plan/schema.ts";
 import { effectiveConfig, readConfig } from "../lib/config/config.ts";
 import { appendCliEvent } from "../lib/audit/cli-event.ts";
 import { resumePlans } from "../lib/plan/resume.ts";
@@ -51,6 +55,9 @@ function normalizeProgressList(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((v) => String(v));
   return [String(value)];
 }
+
+/** One `--progress` entry (R10). */
+const PROGRESS_ENTRY = /^(A\d+)=(pendiente|cumplido|bloqueado)$/;
 
 function jsonPath(root: StateRoot, feature: string): string {
   return stateArtifactPath(root, `workplan_${feature}.json`);
@@ -167,15 +174,23 @@ function diffFiles(cwd: string, base: string): string[] {
   return [...new Set([...tracked, ...untracked])].sort();
 }
 
-function writeWorkplanAndRender(root: StateRoot, feature: string, plan: Workplan): void {
-  writeStateFileAtomic(root, `workplan_${feature}.json`, `${JSON.stringify(plan, null, 2)}\n`);
+/** Writes the JSON text as given (raw, so undeclared fields survive — R16),
+ * then the Markdown rendered from the validated plan and the acceptance index.
+ * Callers hold the plan-state lock (R11). */
+function writeWorkplanAndRender(
+  root: StateRoot,
+  feature: string,
+  jsonText: string,
+  plan: Workplan,
+): void {
+  writeStateFileAtomic(root, `workplan_${feature}.json`, jsonText);
   writeStateFileAtomic(root, `workplan_${feature}.md`, renderWorkplan(plan));
   writeAcceptanceIndex(root);
 }
 
 /** Requires host-recorded execution in identified Claude, Pi and Codex sessions.
  * Claude's child and Pi's native session signals retain their existing priority.
- * An identified Codex session without readable config fails closed. */
+ * An identified session with a present-but-unreadable config fails closed (R12). */
 function evidenceRequired(cwd: string): boolean {
   const claudeChild = process.env.CLAUDE_CODE_CHILD_SESSION === "1";
   const piSession = /^[A-Za-z0-9._-]+$/.test(process.env.PI_SESSION_ID ?? "");
@@ -189,7 +204,9 @@ function evidenceRequired(cwd: string): boolean {
         ? engines.includes("pi")
         : engines.includes("codex");
   } catch {
-    return codexSession;
+    // Inside an identified session, a config that exists but can't be read
+    // fails closed for every engine; an absent one means no navori setup (R12).
+    return existsSync(resolve(cwd, "navori.config.json"));
   }
 }
 
@@ -413,12 +430,23 @@ const renderSubCommand = defineCommand({
       feature: args.feature,
       dir: args.dir,
     });
-    const plan = readWorkplanOrExit(jsonPath(root, args.feature));
-    if (!plan) return;
-    writeStateFileAtomic(root, `workplan_${args.feature}.md`, renderWorkplan(plan));
-    // Bootstraps the index the evidence hook reads (idempotent); `plan update` is the only other writer.
-    writeAcceptanceIndex(root);
-    if (args.json) process.stdout.write(`${JSON.stringify({ rendered: true })}\n`);
+    // Early exit on a missing/invalid workplan, before the lock creates anything.
+    if (!readWorkplanOrExit(jsonPath(root, args.feature))) return;
+    try {
+      const rendered = withPlanStateLock(root, () => {
+        // Re-read under the lock: an `update` may have written since the check above.
+        const plan = readWorkplanOrExit(jsonPath(root, args.feature));
+        if (!plan) return false;
+        writeStateFileAtomic(root, `workplan_${args.feature}.md`, renderWorkplan(plan));
+        // Bootstraps the index the evidence hook reads (idempotent); `plan update` is the only other writer.
+        writeAcceptanceIndex(root);
+        return true;
+      });
+      if (rendered && args.json) process.stdout.write(`${JSON.stringify({ rendered: true })}\n`);
+    } catch (cause: unknown) {
+      if (!(cause instanceof LockTimeoutError)) throw cause;
+      failUsage(cause.message);
+    }
   },
 });
 
@@ -442,40 +470,48 @@ const updateSubCommand = defineCommand({
     const plan = readWorkplanOrExit(jsonPath(root, args.feature));
     if (!plan) return;
 
+    // Strict parsing (R10): nothing is written unless every flag is well-formed.
     const progressEntries = normalizeProgressList(args.progress);
+    if (progressEntries.length > 0 && args.decision !== undefined) {
+      failUsage("--progress and --decision are mutually exclusive");
+      return;
+    }
+    if (args.date !== undefined && !z.iso.date().safeParse(args.date).success) {
+      failUsage(`--date must be an ISO date (YYYY-MM-DD), got ${JSON.stringify(args.date)}`);
+      return;
+    }
     let updates: WorkplanUpdate[];
     if (progressEntries.length > 0) {
       updates = [];
       for (const entry of progressEntries) {
-        const [id, status] = entry.split("=") as [string, string];
-        if (!id || !status) {
-          process.stderr.write("--progress must look like A1=cumplido\n");
-          process.exitCode = 1;
+        const match = PROGRESS_ENTRY.exec(entry);
+        if (!match) {
+          failUsage(`--progress must look like A1=pendiente|cumplido|bloqueado, got "${entry}"`);
           return;
         }
-        updates.push({ kind: "progress", id, status: status as ProgressStatus });
+        updates.push({
+          kind: "progress",
+          id: match[1] as string,
+          status: match[2] as ProgressStatus,
+        });
       }
     } else if (args.decision) {
       if (!args.date) {
-        process.stderr.write("--decision requires --date\n");
-        process.exitCode = 1;
+        failUsage("--decision requires --date");
         return;
       }
       updates = [{ kind: "decision", text: args.decision, date: args.date }];
     } else {
-      process.stderr.write("plan update requires --progress or --decision\n");
-      process.exitCode = 1;
+      failUsage("plan update requires --progress or --decision");
       return;
     }
 
-    // All-or-nothing: `applyWorkplanUpdate` returns a new Workplan without
-    // mutating its input, so a failure mid-loop leaves `plan` (and thus the
-    // file on disk) untouched.
-    let updated: Workplan = plan;
+    // Validates every id against the workplan's criteria (unknown id throws)
+    // before any evidence work; the result is discarded — phase 2 applies the
+    // mutations to the raw JSON instead (R16).
     try {
-      for (const update of updates) {
-        updated = applyWorkplanUpdate(updated, update);
-      }
+      let probe: Workplan = plan;
+      for (const update of updates) probe = applyWorkplanUpdate(probe, update);
     } catch (cause: unknown) {
       process.stderr.write(`${cause instanceof Error ? cause.message : "update failed"}\n`);
       process.exitCode = 1;
@@ -486,17 +522,27 @@ const updateSubCommand = defineCommand({
     // criterion; never executes the criterion's `command` (R7). Validated for
     // every `cumplido` before anything is written (all-or-nothing).
     const required = evidenceRequired(root.cwd);
-    const evidence: Record<string, AcceptanceEvidence> = { ...plan.evidence };
+    const mutations: RawMutation[] = [];
+    const validatedCommands = new Map<string, string>();
     for (const update of updates) {
-      if (update.kind !== "progress") continue;
+      if (update.kind === "decision") {
+        mutations.push(update);
+        continue;
+      }
+      mutations.push(update);
       if (update.status !== "cumplido") {
-        delete evidence[update.id];
+        mutations.push({ kind: "evidence", id: update.id, value: null });
         continue;
       }
       const criterion = plan.acceptance.find((a) => a.id === update.id);
       if (!criterion) continue;
+      validatedCommands.set(update.id, criterion.command);
       if (!required) {
-        evidence[update.id] = { kind: "unevidenced", reason: "engine-without-signal" };
+        mutations.push({
+          kind: "evidence",
+          id: update.id,
+          value: { kind: "unevidenced", reason: "engine-without-signal" },
+        });
         process.stderr.write(
           `WARNING: ${update.id} marked cumplido without evidence — this engine/session ` +
             `exposes no verifiable Bash success signal\n`,
@@ -514,11 +560,55 @@ const updateSubCommand = defineCommand({
         rejectCumplido(root.cwd, update.id, criterion.command, verdict, args.json ?? false);
         return;
       }
-      evidence[update.id] = verdict.evidence;
+      mutations.push({ kind: "evidence", id: update.id, value: verdict.evidence });
     }
-    if (Object.keys(evidence).length > 0 || plan.evidence) updated = { ...updated, evidence };
-    writeWorkplanAndRender(root, args.feature, updated);
-    if (args.json) process.stdout.write(`${JSON.stringify({ updated: true })}\n`);
+
+    // Phase 2 (R11): re-read the RAW JSON and apply the mutations under the
+    // state-root lock, so concurrent updates stack instead of overwriting.
+    try {
+      const wrote = withPlanStateLock(root, () => {
+        const path = jsonPath(root, args.feature);
+        let raw: unknown;
+        try {
+          raw = JSON.parse(readFileSync(path, "utf8"));
+        } catch (cause: unknown) {
+          failUsage(`cannot re-read ${path}: ${cause instanceof Error ? cause.message : cause}`);
+          return false;
+        }
+        const rawAcceptance = (raw as { acceptance?: unknown } | null)?.acceptance;
+        const rawCommands = new Map<string, unknown>(
+          Array.isArray(rawAcceptance)
+            ? rawAcceptance.map((a: { id?: unknown; command?: unknown }) => [
+                a?.id as string,
+                a?.command,
+              ])
+            : [],
+        );
+        for (const [id, command] of validatedCommands) {
+          if (rawCommands.get(id) !== command) {
+            failUsage("criterion changed concurrently; rerun");
+            return false;
+          }
+        }
+        const next = applyMutationsToRaw(raw, mutations);
+        const parsed = WorkplanSchema.safeParse(next);
+        if (!parsed.success) {
+          failUsage(`update would write an invalid workplan: ${parsed.error.message}`);
+          return false;
+        }
+        writeWorkplanAndRender(
+          root,
+          args.feature,
+          `${JSON.stringify(next, null, 2)}\n`,
+          parsed.data,
+        );
+        return true;
+      });
+      if (wrote && args.json) process.stdout.write(`${JSON.stringify({ updated: true })}\n`);
+    } catch (cause: unknown) {
+      if (!(cause instanceof LockTimeoutError)) throw cause;
+      failUsage(cause.message);
+    }
   },
 });
 
