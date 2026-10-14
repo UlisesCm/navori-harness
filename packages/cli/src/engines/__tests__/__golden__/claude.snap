@@ -545,7 +545,7 @@ Once the plan/scope is approved, execute ALL the sub-tasks without pausing to as
 2. **Ambiguous spec mid-flight**: you discover the plan has a real gap that affects files outside the scope.
 3. **All sub-tasks complete**: the cycle finished, ready for `publisher`.
 
-**Caps, so a loop cannot pass for persistence.** 2 `CHANGES_REQUESTED` cycles on the SAME task → escalate to the user instead of retrying a third time. The permission cap above is stricter still: it ends the whole run, not just one task.
+**Caps, so a loop cannot pass for persistence.** The cap is 2 `CHANGES_REQUESTED` cycles on the SAME task. Two `CHANGES_REQUESTED`: at level 0/1, a fresh `solution_<f>.md` and its challenge before the next dispatch (each pair of rejections needs its own); at level ≥2, escalate to the user, who alone authorizes another round with `navori plan escalation-reset`. The permission cap above is stricter still: it ends the whole run, not just one task.
 
 Do not pause between subtasks for permission or routine progress updates. Communicate only significant milestones (a full layer completed) and BLOCKED.
 
@@ -1013,7 +1013,7 @@ The body always comes from a file, never inline:
 name: reviewer
 description: Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes.
 tools: Read, Glob, Grep, Bash, Write, mcp__engram__mem_search, mcp__engram__mem_get_observation
-maxWords: 3046
+maxWords: 3241
 ---
 
 <!-- navori:managed id="reviewer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxWords" -->
@@ -15293,8 +15293,8 @@ name: master-plan
 description: Use when the user explicitly asks to start or resume a project master plan, invokes `/master-plan`, or accepts the offer with “sí, continúa”. Guides the staged workflow, user confirmations, evidence and closure. Not for manual context conversion (`context-intake`) or creating a standalone specification (`spec-bootstrap`).
 metadata:
   type: reference
-  # Excede el tope de 500 de las skills core: reúne los contratos completos de T18 (etapas y procedimientos), el mensaje de fase guiado, la fase ux, la regla de sdd.enabled y las variantes de confirmación (spec 0039 R56). Sube a 2500: los 13 tramos inline onCodex (marcadores más texto alterno de Codex) suman ~150 palabras al render (2453 medidas) (spec 0041 R20). Sube a 2700: nueva sección Part-spec (D7 de 0044 R21) ~100 palabras, medidas 2555 * 1.05 => 2681, con holgura => 2700. Sube a 2870: alineación con el CLI (0051 R17) ~33 palabras, medidas 2724 * 1.05 => 2860, redondeo a la decena => 2870.
-  maxWords: 2870
+  # Excede el tope de 500 de las skills core: reúne los contratos completos de T18 (etapas y procedimientos), el mensaje de fase guiado, la fase ux, la regla de sdd.enabled y las variantes de confirmación (spec 0039 R56). Sube a 2500: los 13 tramos inline onCodex (marcadores más texto alterno de Codex) suman ~150 palabras al render (2453 medidas) (spec 0041 R20). Sube a 2700: nueva sección Part-spec (D7 de 0044 R21) ~100 palabras, medidas 2555 * 1.05 => 2681, con holgura => 2700. Sube a 2870: alineación con el CLI (0051 R17) ~33 palabras, medidas 2724 * 1.05 => 2860, redondeo a la decena => 2870. Sube a 2957: sección de subcomandos que mutan (0052 T56), medidas 2816 * 1.05 => 2957.
+  maxWords: 2957
 ---
 
 <!-- navori:managed id="master-plan" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,metadata" -->
@@ -15371,6 +15371,12 @@ Solo GitHub; nunca otro tracker. Por cada parte `P<n>`, busca duplicados con `gh
 
 Corre el test o comando indicado por el criterio, y registra el resultado observado, tras hacer commit del código probado, con `navori master part P<n> --accept A<m> --command "…" --result "…"`. No inventes salida. Un criterio `manual` solo puede registrarse después de presentar con `AskUserQuestion` qué revisa el usuario y cómo; registra únicamente si el usuario responde exactamente “Aprobado”, entonces usa `--approved-by user`. Nunca registres aprobación manual por tu cuenta. Antes de cerrar, muestra criterios con evidencia huérfana o atrasada y ofrece volver a verificarlos y registrarlos sobre HEAD.
 
+## Subcomandos que mutan estado
+
+Solo estos escriben estado: `navori master init`, `navori master ux`, `navori master mode`, `navori master advance`, `navori master part`, `navori master close`, `navori master delivery-baseline`, `navori master delivery-queue`, `navori master delivery-slice`, `navori master delivery-criterion`, `navori master delivery-review`, `navori master delivery-present`, `navori master delivery-decision`, `navori master delivery-publication` y `navori master delivery-revoke`. Solo lectura: `status`, `check`, `template` y `delivery-check`.
+
+Para abrir una etapa de entregas usa `navori master init <slug> --workflow deliveries`. Usa `navori master delivery-revoke` solo cuando el usuario retira la autoridad de la cola, con `--approved-by user`.
+
 ## Cierre, conversión y abandono
 
 Si `status --json` muestra `closable` verdadero y `evidenceBlockers` vacío (partes en `hecho`, `descartada` o `diferida`, y fase que permite entregar), ofrece cerrar; si `closable` es falso o hay `evidenceBlockers`, aunque `allDone` sea verdadero, no ofrezcas el cierre; nunca cierres ni cambies configuración sin confirmación. Antes de entregar, pregunta parte por parte por cada parte sin terminar: `hecho`, `descartada`, `diferida` o no cerrar todavía; exige razón para descartarla/diferirla y usa el comando del CLI. Resuelve bloqueadores y criterios huérfanos/atrasados; luego pregunta con `AskUserQuestion` si confirma la entrega. Solo tras confirmar la entrega corre `navori master close`.
@@ -15417,17 +15423,17 @@ metadata:
    rationale, scope, pertinent risks/blockers and verification. "Present the surviving options to
    the user with the recommended one first and the challenge findings beside each; the user picks."
    If only one survives, say so and move on.
-4. Your verdict, post-challenge: READY / CONCERNS / BLOCKED.
+4. Your verdict, post-challenge: READY / CONCERNS / BLOCKED. `solution.verdict: BLOCKED` blocks dispatch;
+   `bloqueado` means the criterion cannot be run or accepted until unblocked.
 5. Write the level-2 workplan: everything `plan-simple` covers plus `solution {path, verdict}`,
    phases with their `A<n>`, and risks with their rollback; render and check it, then give the
    compact `resumen de decisión` in chat per `formato-respuesta.md` before asking for approval. As in
    `plan-simple`, an `A<n>` reaches `cumplido` only with evidence the routing-watch hook recorded
-   because the host ran its exact `command`.
-6. After two rejections, the gate requires `solution_<feature>.md` and
-   `solution_review_<feature>.md`: the architect diagnoses why the previous design failed before
-   redesigning.
+   because the host ran its exact `command`. Also: replan when `navori plan classify <feature> --diff` returns a higher level, and update `level` and `classification` in the workplan.
+6. Two `CHANGES_REQUESTED`: at level 0/1, a fresh `solution_<f>.md` and its challenge before the next dispatch (each pair of rejections needs its own); at level ≥2, escalate to the user, who alone authorizes another round with `navori plan escalation-reset`. The architect diagnoses why the previous design failed before redesigning.
 7. "Knowledge destinations the architect proposes are proposals: write none without the user's
    approval, and a Dominio entry only on explicit approval."
+8. Receipts, gate logs and `navori plan escalation-reset` are local attestations without authentication: seatbelts, not boundaries. Codex review independence depends on `CODEX_THREAD_ID`.
 
 ## Before declaring done
 
@@ -15436,12 +15442,14 @@ metadata:
 - [ ] Fresh-context `auditor` challenge ran; `solution_review_<feature>.md` exists.
 - [ ] Surviving options presented to the user with the recommended one first and the challenge
       findings beside each (or the single survivor named); the user picked.
-- [ ] Your verdict recorded: READY / CONCERNS / BLOCKED.
+- [ ] Your verdict recorded: READY / CONCERNS / BLOCKED; a `BLOCKED` solution blocks dispatch.
 - [ ] Level-2 workplan written (solution reference, phases with `A<n>`, risks with rollback),
       rendered, checked green, and approved.
-- [ ] After two rejections, both `solution_<feature>.md` and `solution_review_<feature>.md` cover
-      the diagnosis before any redesign.
+- [ ] Replanned on a higher `classify --diff` level, with `level` and `classification` updated.
+- [ ] Two rejections handled by the R38 rule above; after the second, the diagnosis in both
+      `solution_<feature>.md` and `solution_review_<feature>.md` precedes any redesign.
 - [ ] No knowledge destination written without the user's explicit approval.
+- [ ] Receipts and resets treated as local attestations; Codex review independence checked via `CODEX_THREAD_ID`.
 
 If any item fails, fix it and re-run the whole list.
 <!-- /navori:managed id="plan-advanced" -->
@@ -15468,7 +15476,21 @@ metadata:
 
 1. Draft `.navori/state/handoffs/workplan_<feature>.json`: a one-line observable goal; 1 to 5
    `A<n>` criteria, each with `command` and `expected`; at least one item out of scope;
-   files measured against the repo (`"new": true` for new ones); declared signals.
+   files measured against the repo (`"new": true` for new ones); declared signals
+   (`floor:<name>`, `critical-area:declared`, `bug-without-root-cause`) in `classification.signals`:
+
+   ```json
+   {
+     "feature": "<feature>",
+     "level": 1,
+     "classification": { "score": 0, "level": 1, "signals": [] },
+     "objective": "<one observable line>",
+     "acceptance": [{ "id": "A1", "description": "<criterion>", "command": "<exact command>", "expected": "<observable output>" }],
+     "outOfScope": ["<item>"],
+     "files": [{ "path": "<path>", "new": false }]
+   }
+   ```
+
 2. Run `navori plan classify <feature>` → tell the user the level, score and breakdown in ≤ 4
    lines. If it comes back level 2 or higher, switch to `plan-advanced`.
 3. Run `navori plan render <feature>` and `navori plan check <feature>` until both are green;
@@ -15477,10 +15499,12 @@ metadata:
    show the rendered `.md` and wait for the user's approval.
 4. "Open every implementer encargo with `workplan: <feature>` and list the `A<n>` that sub-task covers."
 5. "When a sub-task closes, record it with `navori plan update`" (each `A<n>`'s status and
-   decisions); `progress/current.md` points at the workplan, it doesn't copy it. `--progress A<n>=cumplido` is accepted only with acceptance evidence, which the routing-watch hook records when the host itself ran the exact `command` of that `A<n>`; the update never runs it. Run the command as written, then mark.
+   decisions); `progress/current.md` points at the workplan, it doesn't copy it. Acceptance evidence depends on the host's signal (Claude's main thread included): the routing-watch hook records it only when the host itself ran the exact `command` of that `A<n>`. `--progress A<n>=cumplido` is accepted only with that evidence, and `cumplido` without evidence is a `plan check` warning. A single owner runs `navori plan update` and must mark right after running the command on the same tree.
 6. A change outside the approved files is a decision: record it and ask the user before
    dispatching it.
 7. "Never write `workplan_<feature>.md` by hand — it is `navori plan render` output."
+
+Level 2's `solution.verdict: BLOCKED` blocks dispatch; `bloqueado` means the criterion cannot be run or accepted until unblocked.
 
 ## Before declaring done
 
@@ -16206,7 +16230,7 @@ Produces `specs/<feature>/{requirements.md, design.md, tasks.md}`. `orchestrator
 
 1. **requirements.md first.** No clear requirements, no design. Derive from the ticket/request; each requirement is EARS with id `R<n>`.
 2. **design.md** — how to meet those `R<n>`: affected components, contracts, decisions and trade-offs. Reference the `R<n>` each decision satisfies. Design BEFORE decomposing: an architecture decision (e.g. a contract or a migration path) moves task boundaries, so tasks written first get rewritten. The `architect` writes `design.md`, applying `solution-design`.
-3. **tasks.md** — structured by deliveries `E<n>` (one PR each), milestones `M<n>` (one verification/commit each), acceptance criteria `A<n>` per milestone, and tasks `T<n>` that declare the `R<n>` they cover; see the grammar below.
+3. **tasks.md** — structured by deliveries `E<n>` (one PR each), milestones `M<n>` (one verification/commit each), acceptance criteria `A<n>` per milestone, and tasks `T<n>` that declare the `R<n>` they cover; see the grammar below. A spec without deliveries opens with `workplan: <feature>`; a delivery's workplan is level 3 (`"level": 3`), one per delivery `<spec>-e<n>` with phases = milestones, and its encargo is `spec: <spec> E<n> M<n>`.
 4. **`evals.md` — optional, rare.** Only when the feature ships a new **always-on layer** (context every session pays for), where prose can't prove behavior moved: `specs/<feature>/evals.md` tabulates RED (without the layer) / GREEN (with it) over ONE isolated variable — same ticket, same repo, same model — with named scenarios, each failure against its evidence, and inverted results kept exactly as they came out. The raw transcript dies with the session; the distilled table survives in git.
 
 The reasoning that fills `design.md` is the `solution-design` skill — also the lighter home for an R2-architectural change that skips a full spec.

@@ -3,11 +3,11 @@ name: master-plan
 description: Use when the user explicitly asks to start or resume a project master plan, invokes `/master-plan`, or accepts the offer with “sí, continúa”. Guides the staged workflow, user confirmations, evidence and closure. Not for manual context conversion (`context-intake`) or creating a standalone specification (`spec-bootstrap`).
 metadata:
   type: reference
-  # Excede el tope de 500 de las skills core: reúne los contratos completos de T18 (etapas y procedimientos), el mensaje de fase guiado, la fase ux, la regla de sdd.enabled y las variantes de confirmación (spec 0039 R56). Sube a 2500: los 13 tramos inline onCodex (marcadores más texto alterno de Codex) suman ~150 palabras al render (2453 medidas) (spec 0041 R20). Sube a 2700: nueva sección Part-spec (D7 de 0044 R21) ~100 palabras, medidas 2555 * 1.05 => 2681, con holgura => 2700. Sube a 2870: alineación con el CLI (0051 R17) ~33 palabras, medidas 2724 * 1.05 => 2860, redondeo a la decena => 2870.
-  maxWords: 2870
+  # Excede el tope de 500 de las skills core: reúne los contratos completos de T18 (etapas y procedimientos), el mensaje de fase guiado, la fase ux, la regla de sdd.enabled y las variantes de confirmación (spec 0039 R56). Sube a 2500: los 13 tramos inline onCodex (marcadores más texto alterno de Codex) suman ~150 palabras al render (2453 medidas) (spec 0041 R20). Sube a 2700: nueva sección Part-spec (D7 de 0044 R21) ~100 palabras, medidas 2555 * 1.05 => 2681, con holgura => 2700. Sube a 2870: alineación con el CLI (0051 R17) ~33 palabras, medidas 2724 * 1.05 => 2860, redondeo a la decena => 2870. Sube a 2957: sección de subcomandos que mutan (0052 T56), medidas 2816 * 1.05 => 2957.
+  maxWords: 2957
 ---
 
-<!-- navori:managed id="master-plan" hash="f47f8634" version="0.12.0" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="master-plan" hash="baa12a36" version="0.12.0" source="@navori/core" fmkeys="name,description,metadata" -->
 # Plan maestro de proyecto
 
 ## Candado: pedido explícito
@@ -80,6 +80,12 @@ Solo GitHub; nunca otro tracker. Por cada parte `P<n>`, busca duplicados con `gh
 ## Evidencia de aceptación
 
 Corre el test o comando indicado por el criterio, y registra el resultado observado, tras hacer commit del código probado, con `navori master part P<n> --accept A<m> --command "…" --result "…"`. No inventes salida. Un criterio `manual` solo puede registrarse después de presentar con `AskUserQuestion` qué revisa el usuario y cómo; registra únicamente si el usuario responde exactamente “Aprobado”, entonces usa `--approved-by user`. Nunca registres aprobación manual por tu cuenta. Antes de cerrar, muestra criterios con evidencia huérfana o atrasada y ofrece volver a verificarlos y registrarlos sobre HEAD.
+
+## Subcomandos que mutan estado
+
+Solo estos escriben estado: `navori master init`, `navori master ux`, `navori master mode`, `navori master advance`, `navori master part`, `navori master close`, `navori master delivery-baseline`, `navori master delivery-queue`, `navori master delivery-slice`, `navori master delivery-criterion`, `navori master delivery-review`, `navori master delivery-present`, `navori master delivery-decision`, `navori master delivery-publication` y `navori master delivery-revoke`. Solo lectura: `status`, `check`, `template` y `delivery-check`.
+
+Para abrir una etapa de entregas usa `navori master init <slug> --workflow deliveries`. Usa `navori master delivery-revoke` solo cuando el usuario retira la autoridad de la cola, con `--approved-by user`.
 
 ## Cierre, conversión y abandono
 

@@ -270,7 +270,7 @@ it("the shared planning claim distinguishes Claude's hook from Codex's advisory 
     "utf-8",
   );
   expect(planning).toMatch(/Claude Code[^\n]*plan-gate[^\n]*hook/i);
-  expect(planning).toMatch(/Codex[^\n]*plan-gate[^\n]*advisory/i);
+  expect(planning).toMatch(/Codex[^\n]*plan-gate[^\n]*denies/i);
   expect(planning).not.toContain("A hook denies dispatching");
   expect(ENGINE_CAPABILITIES.claude.controls["plan-gate"].state).toBe("enforced");
   expect(ENGINE_CAPABILITIES.codex.controls["plan-gate"].state).toBe("advisory");

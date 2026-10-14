@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-reviewer" hash="92156bbad05eace9b73be0ec606e4ff541e20a14e2cea171e9c5aece31d1037a"
+# navori:managed-file id="pi-agent-reviewer" hash="569598469ea52ec6c69fa6097fcdffbc4e962bb96d37b9cba27f3917eaad8de4"
 name: "reviewer"
 description: "Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes."
 model: "gpt-6.1-sol"
@@ -59,6 +59,9 @@ Does the diff do EXACTLY what was asked? You don't review style yet.
 - **SDD traceability** (only if `specs/<feature>/tasks.md` exists): read `specs/<spec>/tasks.md` using the `<spec>` from the `spec:` line (handoff key is `<spec>-e<n>`), check the milestone's tasks and verify `effect`/`[observable]` against the diff; a `behavior` task without observable behavior → `SPEC_MISS`. Each `R<n>` is covered by ≥1 test with `// Covers: R<n>` → `SPEC_MISS` if missing.
 - With a workplan: an assigned `A<n>` without evidence in `acceptance`, a file outside the workplan's files without a covering decision, or `navori plan classify <feature> --diff` returning a higher level than declared → `CHANGES_REQUESTED`.
 - With a workplan: run `navori plan check <feature> --json`; every `A<n>` marked `cumplido` without recorded evidence (the routing-watch hook records it only when the host ran the exact `command`) is a finding → `CHANGES_REQUESTED`.
+- `progress-unevidenced` or `progress-evidence-stale` → `CHANGES_REQUESTED`; `progress-unevidenced-accepted` is not a rejection.
+- With phases: check each phase's receipt with `navori receipt gate --feature <feature> --phase <phase>`.
+- The receipt, the gate log and `navori plan escalation-reset` are local attestations without authentication: seatbelts, not boundaries. Codex review independence depends on `CODEX_THREAD_ID`.
 - Screen changes are reviewed on the **diff + the repo's tests** — browser/visual validation is **not a default gate**. Only when the user explicitly requested a visual check in this task do you confirm it happened; if it was requested and skipped, flag it. Never escalate a screen change to a human just because no browser check ran.
 
 **Partial verdict:**

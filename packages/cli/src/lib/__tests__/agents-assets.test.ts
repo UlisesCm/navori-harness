@@ -187,7 +187,7 @@ describe("implementer/reviewer — plan-tiers wiring is gated behind planTiers (
   it("R21: reviewer's workplan-evidence rule is wrapped in the planTiers conditional", () => {
     const body = readAgent("reviewer");
     expect(body).toMatch(
-      /<!-- navori:if planTiers -->\n- With a workplan: an assigned `A<n>` without evidence in `acceptance`, a file outside the workplan's files without a covering decision, or `navori plan classify <feature> --diff` returning a higher level than declared → `CHANGES_REQUESTED`\.\n- With a workplan: run `navori plan check <feature> --json`; every `A<n>` marked `cumplido` without recorded evidence \(the routing-watch hook records it only when the host ran the exact `command`\) is a finding → `CHANGES_REQUESTED`\.\n<!-- \/navori:if -->/,
+      /<!-- navori:if planTiers -->\n- With a workplan: an assigned `A<n>` without evidence in `acceptance`, a file outside the workplan's files without a covering decision, or `navori plan classify <feature> --diff` returning a higher level than declared → `CHANGES_REQUESTED`\.\n- With a workplan: run `navori plan check <feature> --json`; every `A<n>` marked `cumplido` without recorded evidence \(the routing-watch hook records it only when the host ran the exact `command`\) is a finding → `CHANGES_REQUESTED`\.\n(?:- [^\n]*\n)*<!-- \/navori:if -->/,
     );
   });
 });
@@ -241,7 +241,8 @@ describe("implementer/reviewer — doubts and coverage prose (T25, T27)", () => 
     const cap = Number(parsed.frontmatter.maxWords);
     const managed = parsed.body.slice(0, parsed.body.indexOf(SENTINEL));
     const words = managed.trim().split(/\s+/).filter(Boolean).length;
-    expect(cap).toBe(words + 10);
+    // Spec 0052 M15: the reviewer ceiling is measured × 1.05 (rounded up); the implementer keeps +10.
+    expect(cap).toBe(id === "reviewer" ? Math.ceil(words * 1.05) : words + 10);
   });
 });
 
