@@ -28,6 +28,7 @@ import {
 } from "./schema.ts";
 import {
   activeStage,
+  assertNoCloseInProgress,
   lastClosedStage,
   masterDirPath,
   MasterIndexError,
@@ -35,6 +36,7 @@ import {
 } from "./stages.ts";
 import { splitTemplateSections, templateHeaders, type TemplateSection } from "./templates.ts";
 import { masterMarkers, type MasterMarkers } from "./markers.ts";
+import { DeliveryStateSchema } from "./delivery-schema.ts";
 import {
   masterPartsRegion,
   readMasterStatus,
@@ -283,13 +285,6 @@ function checkTranscribed(ctx: CheckContext): CheckFailure[] {
   return failures;
 }
 
-// CODEBASE.md has no `templates.ts` template (it's the `scout`'s free-form
-// deliverable, not something an `architect` fills from a template file), so
-// its section names cannot be read from a file the way `digest`'s can.
-// TODO(i18n): hardcoded Spanish; add an English fixture pair here once a repo
-// with `language: "en"` actually exercises the master-plan flow.
-const CODEBASE_HEADERS = ["Stack", "Estructura", "Convenciones", "Specs"] as const;
-
 function checkMapped(ctx: CheckContext): CheckFailure[] {
   const markers = masterMarkers(ctx.language);
   const failures: CheckFailure[] = [];
@@ -333,7 +328,7 @@ function checkMapped(ctx: CheckContext): CheckFailure[] {
     failures.push(
       ...validateSections(
         codebase,
-        CODEBASE_HEADERS,
+        markers.codebaseHeaders,
         `${ctx.stage.dir}/context/CODEBASE.md`,
         markers.noAplica,
       ),
@@ -518,8 +513,14 @@ function checkMasterDocument(ctx: CheckContext): CheckFailure[] {
     } else if (parsed.data.parts.length === 0) {
       failures.push(`${ctx.stage.dir}/parts.json no declara ninguna parte`);
     } else {
-      const expected = renderMasterParts(parsed.data.parts, ctx.state.mode);
-      if (masterPartsRegion(content) !== expected)
+      const expected = renderMasterParts(parsed.data.parts, ctx.state.mode, ctx.language);
+      const region = masterPartsRegion(content);
+      if (region === null && content.includes("<!-- navori:master-parts"))
+        // R29: `master status` refuses an opening marker without its close, so the fix is manual.
+        failures.push(
+          `${ctx.stage.dir}/MASTER.md: marcador '<!-- navori:master-parts' sin cierre; corríjalo a mano`,
+        );
+      else if (region !== expected)
         failures.push(
           `${ctx.stage.dir}/MASTER.md: navori:master-parts differs from parts.json; repare con 'navori master status'`,
         );
@@ -578,6 +579,12 @@ export interface AdvanceResult {
  */
 export function runMasterAdvance(cwd: string, options: CheckOptions = {}): AdvanceResult {
   const ctx = buildCheckContext(cwd, options);
+  try {
+    assertNoCloseInProgress(ctx.state, ctx.stage.dir);
+  } catch (cause) {
+    // Surface as a setup failure so the CLI reports it as an exit-1 message, not a crash.
+    throw new MasterCheckSetupError(cause instanceof Error ? cause.message : String(cause));
+  }
   const target = nextPhase(ctx.state.phase);
   if (!target) {
     return {
@@ -632,7 +639,10 @@ export function runMasterCheck(cwd: string, options: CheckOptions = {}): CheckRe
   }
   const statusPath = join(ctx.stagePath, "STATUS.md");
   if (existsSync(statusPath)) {
-    if (normalizeEol(readFileSync(statusPath, "utf8")) !== renderStatusMd(readMasterStatus(cwd)))
+    if (
+      normalizeEol(readFileSync(statusPath, "utf8")) !==
+      renderStatusMd(readMasterStatus(cwd), ctx.language)
+    )
       failures.push(
         `${ctx.stage.dir}/STATUS.md differs from its render; repare con 'navori master status'`,
       );
@@ -670,6 +680,26 @@ function parseIntegrityTable(
   return map.size > 0 ? map : null;
 }
 
+/** Closed `deliveries` stage (R23): `state.json` must satisfy the deliveries
+ * schema and carry `closure`. No `CLOSURE.md` is required and `STATUS.md` is not
+ * compared, since a closed stage is never re-rendered. */
+function checkClosedDeliveryStage(stagePath: string, stageDir: string): CheckFailure[] {
+  const statePathAbs = join(stagePath, "state.json");
+  if (!existsSync(statePathAbs)) return [`${stageDir}: falta state.json`];
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(statePathAbs, "utf8"));
+  } catch {
+    return [`${stageDir}/state.json no es válido`];
+  }
+  const parsed = DeliveryStateSchema.safeParse(raw);
+  if (!parsed.success) return [`${stageDir}/state.json no es válido`];
+  if (parsed.data.phase !== "closed")
+    return [`${stageDir}: state.json.phase es '${parsed.data.phase}', no 'closed'`];
+  if (!parsed.data.closure) return [`${stageDir}: state.json no tiene closure`];
+  return [];
+}
+
 /**
  * `navori master check --stage <NN-slug>`: a closed stage is read-only (R50).
  * Verifies its `state.json` is `closed`, its `raw/.gitignore` is still there,
@@ -696,12 +726,16 @@ export function checkClosedStage(
   if (entry?.state === "convertida" && entry.spec && !existsSync(join(cwd, entry.spec))) {
     failures.push(`${stageDir}: spec aún no creada: ${entry.spec}`);
   }
-
   const gitignore = join(stagePath, "context", "raw", ".gitignore");
   if (!existsSync(gitignore)) {
     failures.push(
       `${stageDir}: falta context/raw/.gitignore (repárelo con: git checkout -- ${gitignore})`,
     );
+  }
+
+  if (entry?.workflow === "deliveries") {
+    failures.push(...checkClosedDeliveryStage(stagePath, stageDir));
+    return failures;
   }
 
   const statePathAbs = join(stagePath, "state.json");

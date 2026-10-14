@@ -697,9 +697,11 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
       "plan-gate": {
         state: "advisory",
         reason:
-          "harness.planTiers registers PreToolUse(spawn_agent$) as the last late row; only implementer is gated, " +
-          "with the role from tool_input.agent_type and, when the message is encrypted (probe V2), the opening " +
-          "line from the orchestrator's dispatch_<feature>.json (spec 0041 R9). This unversioned render declaration is advisory; codexControlCapability reports S4 enforcement only for its verified version and surface.",
+          "harness.planTiers registers PreToolUse(spawn_agent$) as the last late row; the gate denies a " +
+          "nonconforming implementer dispatch, with the role from tool_input.agent_type and, when the " +
+          "message is encrypted (probe V2), the opening line from the orchestrator's dispatch_<feature>.json " +
+          "(spec 0041 R9). Implementers are dispatched one at a time (two or more fresh dispatch files deny) " +
+          "and every analysis spawn names a listed role (spec 0052 R41). This unversioned render declaration is advisory; codexControlCapability reports S4 enforcement only for its verified version and surface.",
         evidence: {
           kind: "hook",
           script: "plan-gate.sh",
@@ -743,10 +745,12 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         evidence: { kind: "local-skill-pointer" },
       },
       "acceptance-evidence": {
-        state: "unsupported",
+        state: "advisory",
         reason:
-          "No verifiable Bash success signal: PostToolUse fires on exit != 0 too, so `plan update` " +
-          "accepts cumplido as unevidenced (spec 0039 R10).",
+          "A lane inside routing-watch reads the exit code from the rollout item_completed record " +
+          "(probe V4, spec 0050), so `plan update` can record evidence; without that record " +
+          "`cumplido` stays unevidenced. No per-version verification exists for this lane, so " +
+          "codexControlCapability reports it as unknown (spec 0052 R41).",
       },
       "repeat-failure-advice": {
         state: "advisory",

@@ -238,7 +238,11 @@ describe("deliveries D1 foundation", () => {
     writeFileSync(join(stage(cwd), "parts.json"), JSON.stringify({ version: 1, parts: [] }));
     const before = snapshot(cwd);
     expect(() => runMasterInit(cwd, undefined)).toThrow(/parts.json/);
-    expect(() => writeMasterStatus(cwd)).toThrow(/parts.json/);
+    // R26: status no longer throws; it names the invalid parts.json as a blocker.
+    expect(readMasterStatus(cwd)).toMatchObject({
+      workflow: "deliveries",
+      blockers: [expect.stringContaining("parts.json inválido")],
+    });
     expect(snapshot(cwd)).toBe(before);
   });
 
@@ -355,5 +359,34 @@ describe("master-plan skill alignment with the CLI", () => {
     expect(skill).toContain("`closable` verdadero y `evidenceBlockers` vacío");
     expect(skill).toContain("o hay `evidenceBlockers`");
     expect(skill).toContain("o después solo si no hay partes");
+  });
+
+  // Covers: R46
+  it("master-plan lista los subcomandos que mutan, la apertura deliveries y delivery-revoke", () => {
+    const skill = readFileSync(
+      join(getCoreRoot(), "core-assets/skills/master-plan.md"),
+      "utf8",
+    ).replace(/\s+/g, " ");
+    for (const sub of [
+      "init",
+      "ux",
+      "mode",
+      "advance",
+      "part",
+      "close",
+      "delivery-baseline",
+      "delivery-queue",
+      "delivery-slice",
+      "delivery-criterion",
+      "delivery-review",
+      "delivery-present",
+      "delivery-decision",
+      "delivery-publication",
+      "delivery-revoke",
+    ]) {
+      expect(skill, `falta \`navori master ${sub}\``).toContain(`\`navori master ${sub}\``);
+    }
+    expect(skill).toContain("`navori master init <slug> --workflow deliveries`");
+    expect(skill).toContain("`navori master delivery-revoke` solo");
   });
 });

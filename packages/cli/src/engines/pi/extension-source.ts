@@ -2,7 +2,12 @@ import { PI_BRIDGE_SOURCE } from "./bridge-source.ts";
 import { PI_MANAGED_LANE_SOURCE } from "./managed-lane-source.ts";
 import { PI_TRUST_SOURCE } from "./trust-source.ts";
 import { renderPiRuntimeVersionSource, serializeAnonymousFunction } from "./runtime-version.ts";
-import { PI_ROLE_NAMES, PI_ROLE_TIMEOUT_MS, PI_ROLE_TOOLS } from "./role-tools.ts";
+import {
+  PI_IMPLEMENTER_DOCTRINE_PREFIXES,
+  PI_ROLE_NAMES,
+  PI_ROLE_TIMEOUT_MS,
+  PI_ROLE_TOOLS,
+} from "./role-tools.ts";
 import { mcpServerStates } from "./mcp-diagnosis.ts";
 
 /**
@@ -32,6 +37,8 @@ ${PI_ROLE_NAMES.map((role) => `  ${role}: new Set(${JSON.stringify(PI_ROLE_TOOLS
 };
 // Per-role child deadline (spec 0048 D9); the quality gate runs inside it.
 const ROLE_TIMEOUT_MS: Record<Role, number> = ${JSON.stringify(PI_ROLE_TIMEOUT_MS)};
+// Spec 0052 R49: Markdown the implementer may edit/write directly (AI doctrine), repo-root relative.
+const DOCTRINE_PREFIXES: readonly string[] = ${JSON.stringify(PI_IMPLEMENTER_DOCTRINE_PREFIXES)};
 const MAX_CHILDREN = 3;
 const GRACE_MS = 5_000;
 const MAX_OUTPUT_BYTES = 65_536;
@@ -57,6 +64,14 @@ function addUsage(acc: ChildUsage, raw: unknown): ChildUsage | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** True when a Markdown target is AI doctrine: inside the repo root, no ".." segment, under a DOCTRINE_PREFIXES entry. */
+function isDoctrinePath(cwd: string, target: string): boolean {
+  if (target.split(/[\\/]/).includes("..")) return false;
+  const rel = relative(cwd, resolve(cwd, target)).split(sep).join("/");
+  if (rel === "" || rel.startsWith("../") || isAbsolute(rel)) return false;
+  return DOCTRINE_PREFIXES.some((prefix) => (prefix.endsWith("/") ? rel.startsWith(prefix) && rel.length > prefix.length : rel === prefix));
 }
 
 function controls(cwd: string): Controls {
@@ -848,8 +863,8 @@ export default function (pi: ExtensionAPI): void {
     if (event.toolName !== "edit" && event.toolName !== "write") return;
     const input: unknown = event.input;
     if (!isRecord(input) || typeof input.path !== "string") return;
-    if (/\.mdx?$/i.test(input.path)) {
-      return { block: true, reason: "Navori scribe owns Markdown; direct Pi edit/write blocked. Bash is outside this advisory boundary." };
+    if (/\.mdx?$/i.test(input.path) && !isDoctrinePath(ctx.cwd, input.path)) {
+      return { block: true, reason: "Navori scribe owns Markdown; direct Pi edit/write is allowed only for AI doctrine under: " + DOCTRINE_PREFIXES.join(", ") + ". Put the rest in markdownRequests. Bash is outside this advisory boundary." };
     }
   });
   // Registered before the parent-only return below: children and nested calls must be observed too.

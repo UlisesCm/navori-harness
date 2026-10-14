@@ -13,7 +13,8 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { writeConfig } from "../../lib/config/config.ts";
 import { runRender } from "../render.ts";
-import { computeRenderPending, statusCommand } from "../status.ts";
+import { statusCommand } from "../status.ts";
+import { computeRenderPending } from "../../lib/render/render-pending.ts";
 
 /**
  * #1143: `status` reported `drift: 0` while `render` would create/remove files,

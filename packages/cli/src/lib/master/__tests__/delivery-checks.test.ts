@@ -172,6 +172,20 @@ describe("delivery preparation", () => {
     writeFileSync(join(cwd, "system.txt"), "Design changed");
     expect(checkDeliveryPreparation(cwd, parts).designDigest).not.toBe(before);
   });
+  // Covers: R28
+  it("spec inexistente o fuera de specsDir es bloqueo de delivery-check", () => {
+    const { cwd, parts } = fixture();
+    mkdirSync(join(cwd, "specs/0001-login"), { recursive: true });
+    mkdirSync(join(cwd, "other"), { recursive: true });
+    const blockersFor = (spec: string | null): string[] => {
+      parts.parts[0]!.spec = spec;
+      parts.digest = contractDigest(parts);
+      return checkDeliveryPreparation(cwd, parts).blockers;
+    };
+    expect(blockersFor("specs/0001-login")).toEqual([]);
+    expect(blockersFor("specs/0002-missing").join(" ")).toMatch(/P1: spec is missing or outside/);
+    expect(blockersFor("other").join(" ")).toMatch(/P1: spec is missing or outside/);
+  });
   it("rejects physically escaping source symlinks", () => {
     const { cwd, parts } = fixture();
     const outside = mkdtempSync(join(tmpdir(), "navori-d2-outside-"));

@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
+  CODEX_BUILTIN_READ_ONLY_ROLES,
+  NON_IMPLEMENTER_ROLES,
   ROSTER_AGENTS,
   ROSTER_INDEXED_AGENT_IDS,
   ROSTER_CORE_SKILLS,
@@ -126,5 +128,17 @@ describe("roster-parity", () => {
       ROSTER_INDEXED_AGENT_IDS,
       Object.keys(tc("en").blocks.agentsIndex.when),
     );
+  });
+
+  // Covers: R3
+  it("NON_IMPLEMENTER_ROLES pertenece al roster o a los roles integrados de Codex y solo deja fuera orchestrator e implementer", () => {
+    const known = new Set([...rosterIds, ...CODEX_BUILTIN_READ_ONLY_ROLES]);
+    for (const role of NON_IMPLEMENTER_ROLES) {
+      expect(known.has(role), `'${role}' is neither a roster id nor a Codex built-in`).toBe(true);
+    }
+    expect(rosterIds.filter((id) => !NON_IMPLEMENTER_ROLES.includes(id)).sort()).toEqual([
+      "implementer",
+      "orchestrator",
+    ]);
   });
 });

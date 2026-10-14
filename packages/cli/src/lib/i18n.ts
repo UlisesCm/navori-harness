@@ -951,6 +951,8 @@ interface DoctorCmdStrings {
   /** #1263 — the session-state file grew past the session-start cap. */
   progressSize: (lines: string) => string;
   progressSizeRow: (bytes: number, cap: number) => string;
+  /** Hooks or doctrine rendered by an older binary: a render would still change files. */
+  renderPending: (n: number) => string;
   /** #522 — nested agent worktrees with their own install break eslint's
    *  upward config resolution, so no agent can commit from one. */
   nestedWorktrees: (n: number, eslintConfig: string, lines: string) => string;
@@ -2225,6 +2227,9 @@ const CMD_ES: CmdStrings = {
     progressSizeRow: (bytes, cap) =>
       `— ${bytes} bytes (tope ${cap}); mueve los checkpoints a progress/history.md y deja ` +
       `solo el estado actual y el siguiente paso`,
+    renderPending: (n) =>
+      `Render pendiente: ${n} archivo(s) o bloque(s) cambiarían (hooks o doctrina de una ` +
+      `versión anterior de navori) — corre 'navori render --apply'`,
     nestedWorktrees: (n, eslintConfig, lines) =>
       `Worktrees anidados con node_modules propio y eslint en el repo (${n}) — eslint ` +
       `resuelve su configuración subiendo por el árbol, así que una corrida dentro del ` +
@@ -3596,6 +3601,9 @@ const CMD_EN: CmdStrings = {
     progressSizeRow: (bytes, cap) =>
       `— ${bytes} bytes (cap ${cap}); move checkpoints to progress/history.md and keep ` +
       `only the current state and next step`,
+    renderPending: (n) =>
+      `Render pending: ${n} file(s) or block(s) would change (hooks or doctrine from an ` +
+      `older navori version) — run 'navori render --apply'`,
     nestedWorktrees: (n, eslintConfig, lines) =>
       `Nested worktrees with their own node_modules while the repo runs eslint (${n}) — ` +
       `eslint resolves its config by walking up the tree, so a run started inside the ` +

@@ -5,6 +5,7 @@
  */
 import { evidenceCase } from "./render.ts";
 import { checkDeliveryPlanSource } from "../master/slice.ts";
+import { classify, declaredFlagsFromSignals, projectClassifyContext } from "./classify.ts";
 import { WorkplanSchema, type Workplan } from "./schema.ts";
 
 export interface CheckFinding {
@@ -22,8 +23,32 @@ export interface CheckResult {
   warnings: CheckFinding[];
 }
 
-function checkStructural(plan: Workplan): CheckFinding[] {
+function checkStructural(plan: Workplan, feature: string | undefined): CheckFinding[] {
   const findings: CheckFinding[] = [];
+
+  if (feature !== undefined && plan.feature !== feature) {
+    findings.push({
+      rule: "feature-mismatch",
+      message: `workplan feature "${plan.feature}" is not "${feature}"`,
+    });
+  }
+  if (plan.solution?.verdict === "BLOCKED") {
+    findings.push({
+      rule: "solution-blocked",
+      message: `solution ${plan.solution.path} has verdict BLOCKED`,
+    });
+  }
+
+  const seen = new Set<string>();
+  for (const criterion of plan.acceptance) {
+    if (seen.has(criterion.id)) {
+      findings.push({
+        rule: "acceptance-duplicate-id",
+        message: `acceptance id ${criterion.id} is declared more than once`,
+      });
+    }
+    seen.add(criterion.id);
+  }
 
   for (const criterion of plan.acceptance) {
     if (!criterion.command.trim()) {
@@ -110,25 +135,39 @@ function checkEvidence(plan: Workplan): CheckFinding[] {
   return warnings;
 }
 
-/** R15's third rule: the declared level cannot be lower than what `classify`
- * computed when the workplan was created — `classification.level` IS that
- * computed value, embedded at creation time (schema.ts's `Classification`). */
-function checkLevel(plan: Workplan): CheckFinding[] {
-  if (plan.classification.level > plan.level) {
-    return [
-      {
-        rule: "level-below-classification",
-        message: `declared level ${plan.level} is below classify's level ${plan.classification.level}`,
-      },
-    ];
-  }
-  return [];
+/** R15's third rule: the declared level cannot be lower than the larger of
+ * the level embedded at creation (`classification.level`) and a fresh
+ * `classify` over the workplan's files and declared signals. Without `cwd`
+ * the recomputation skips `criticalPaths`/`localSkills` (laxer, never
+ * stricter). */
+function checkLevel(plan: Workplan, cwd: string | undefined): CheckFinding[] {
+  const context = cwd ? projectClassifyContext(cwd) : {};
+  const recomputed = classify({
+    files: plan.files.map((file) => file.path),
+    ...declaredFlagsFromSignals(plan.classification.signals),
+    ...context,
+  }).level;
+  const embedded = plan.classification.level;
+  const expected = Math.max(embedded, recomputed);
+  if (expected <= plan.level) return [];
+  const winner =
+    recomputed > embedded ? `recomputed level ${recomputed}` : `embedded level ${embedded}`;
+  return [
+    {
+      rule: "level-below-classification",
+      message: `declared level ${plan.level} is below classify's level ${expected} (${winner})`,
+    },
+  ];
 }
 
 /** Validates a raw (unparsed) workplan value against the schema and R15's
  * structural rules. Returns every failure, not just the first, so a single
  * run can drive a full fix. */
-export function checkWorkplan(raw: unknown, cwd?: string): CheckResult {
+export function checkWorkplan(
+  raw: unknown,
+  options: { cwd?: string; feature?: string } = {},
+): CheckResult {
+  const { cwd, feature } = options;
   const parsed = WorkplanSchema.safeParse(raw);
   if (!parsed.success) {
     const findings = parsed.error.issues.map((issue) => ({
@@ -138,7 +177,7 @@ export function checkWorkplan(raw: unknown, cwd?: string): CheckResult {
     return { ok: false, findings, warnings: [] };
   }
 
-  const findings = [...checkStructural(parsed.data), ...checkLevel(parsed.data)];
+  const findings = [...checkStructural(parsed.data, feature), ...checkLevel(parsed.data, cwd)];
   if (parsed.data.source) {
     const problems = cwd
       ? checkDeliveryPlanSource(cwd, parsed.data)

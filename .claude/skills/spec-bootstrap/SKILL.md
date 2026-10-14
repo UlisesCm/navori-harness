@@ -27,7 +27,7 @@ metadata:
   maxWordsComposed: 1006
 ---
 
-<!-- navori:managed id="spec-bootstrap" hash="276b5994" version="0.11.3" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="spec-bootstrap" hash="426d6103" version="0.12.0" source="@navori/core" fmkeys="name,description,metadata" -->
 # spec-bootstrap — kickoff of an SDD spec
 
 ## Before scaffolding — blocking precondition
@@ -46,7 +46,7 @@ Produces `specs/<feature>/{requirements.md, design.md, tasks.md}`. `orchestrator
 
 1. **requirements.md first.** No clear requirements, no design. Derive from the ticket/request; each requirement is EARS with id `R<n>`.
 2. **design.md** — how to meet those `R<n>`: affected components, contracts, decisions and trade-offs. Reference the `R<n>` each decision satisfies. Design BEFORE decomposing: an architecture decision (e.g. a contract or a migration path) moves task boundaries, so tasks written first get rewritten. The `architect` writes `design.md`, applying `solution-design`.
-3. **tasks.md** — structured by deliveries `E<n>` (one PR each), milestones `M<n>` (one verification/commit each), acceptance criteria `A<n>` per milestone, and tasks `T<n>` that declare the `R<n>` they cover; see the grammar below.
+3. **tasks.md** — structured by deliveries `E<n>` (one PR each), milestones `M<n>` (one verification/commit each), acceptance criteria `A<n>` per milestone, and tasks `T<n>` that declare the `R<n>` they cover; see the grammar below. A spec without deliveries opens with `workplan: <feature>`; a delivery's workplan is level 3 (`"level": 3`), one per delivery `<spec>-e<n>` with phases = milestones, and its encargo is `spec: <spec> E<n> M<n>`.
 4. **`evals.md` — optional, rare.** Only when the feature ships a new **always-on layer** (context every session pays for), where prose can't prove behavior moved: `specs/<feature>/evals.md` tabulates RED (without the layer) / GREEN (with it) over ONE isolated variable — same ticket, same repo, same model — with named scenarios, each failure against its evidence, and inverted results kept exactly as they came out. The raw transcript dies with the session; the distilled table survives in git.
 
 The reasoning that fills `design.md` is the `solution-design` skill — also the lighter home for an R2-architectural change that skips a full spec.

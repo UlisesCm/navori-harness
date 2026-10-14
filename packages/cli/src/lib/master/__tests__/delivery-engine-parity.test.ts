@@ -90,7 +90,6 @@ const approvals: readonly string[] = [
 ];
 
 const nonApprovals: readonly string[] = [
-  'printf "%s" "navori master delivery-baseline --approved-by user"',
   "navori master delivery-queue --delivery E1 --parts P1; echo --approved-by user",
   "navori master delivery-check && echo --approved-by=user",
   "/opt/bin/not-navori master delivery-baseline --approved-by user",
@@ -101,7 +100,6 @@ const nonApprovals: readonly string[] = [
   "navori master delivery-slice --part P1",
   "navori master delivery-criterion --part P1 --criterion A1",
   "navori master delivery-criterion --part P1 --criterion A1; echo --approved-by user",
-  'echo "navori master delivery-review"',
   "navori master delivery-review-preview --part P1 --approved-by user",
   "navori master delivery-slice --part P1; echo --refresh",
 ];

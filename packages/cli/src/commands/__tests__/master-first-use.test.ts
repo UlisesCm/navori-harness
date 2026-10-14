@@ -110,7 +110,7 @@ it("reports ok:false as nonzero without success guidance, then repairs on retry"
   expect(failed.err).toContain("render failed: test render failure");
   expect(failed.out).toBe("");
   expect(failed.out).not.toContain("context/raw/");
-  expect(failed.out).not.toContain("preparación, baseline y cola disponibles");
+  expect(failed.out).not.toContain("navori master delivery-check");
   render.mockRestore();
   const statePath = stageFile(cwd, "state.json");
   const indexPath = join(cwd, "specs/_master/index.json");
@@ -127,7 +127,7 @@ it("reports ok:false as nonzero without success guidance, then repairs on retry"
 it("opts into deliveries only explicitly and rejects legacy commands without writes", async () => {
   const cwd = freshRepo();
   expect((await ok(cwd, "init", "delivery", "--workflow", "deliveries")).out).toContain(
-    "preparación, baseline y cola disponibles",
+    "navori master delivery-check",
   );
   const stage = join(cwd, "specs", "_master", "01-delivery");
   const statePath = join(stage, "state.json");
@@ -140,7 +140,7 @@ it("opts into deliveries only explicitly and rejects legacy commands without wri
   expect((await master(cwd, "close", "--abandon", "--reason", "test")).exitCode).toBe(1);
   expect((await master(cwd, "init", "--workflow", "legacy")).exitCode).toBe(1);
   expect(readFileSync(statePath, "utf8")).toBe(before);
-  expect((await ok(cwd, "init")).out).toContain("preparación, baseline y cola disponibles");
+  expect((await ok(cwd, "init")).out).toContain("navori master delivery-check");
 });
 
 it("rejects an invalid workflow flag before creating the registry", async () => {
@@ -390,7 +390,7 @@ describe("master commands record CLI audit events (R55, R70)", () => {
     const { cwd } = await executingStage();
     const inSync = (): void =>
       expect(readFileSync(stageFile(cwd, "STATUS.md"), "utf8")).toBe(
-        renderStatusMd(readMasterStatus(cwd)),
+        renderStatusMd(readMasterStatus(cwd), "es"),
       );
     await ok(cwd, "part", "P1", "--state", "parcial");
     inSync();
@@ -401,6 +401,24 @@ describe("master commands record CLI audit events (R55, R70)", () => {
     await ok(cwd, "part", "P1", "--accept", "A2", "--approved-by", "user");
     inSync();
     expect(readFileSync(stageFile(cwd, "STATUS.md"), "utf8")).toContain("verificado");
+  }, 120_000);
+
+  // Covers: R21
+  it("con cierre iniciado part, advance y ux piden reanudar con close sin escribir", async () => {
+    const { cwd } = await executingStage();
+    const statePath = stageFile(cwd, "state.json");
+    writeFileSync(
+      statePath,
+      `${JSON.stringify({ ...readJson(statePath), outcome: "entregada" }, null, 2)}\n`,
+    );
+    const files = ["parts.json", "state.json"].map((name) => stageFile(cwd, name));
+    const before = files.map((path) => readFileSync(path, "utf8"));
+    for (const argv of [["part", "P1", "--state", "parcial"], ["advance"], ["ux", "none"]]) {
+      const result = await master(cwd, ...argv);
+      expect(result.exitCode, argv.join(" ")).toBe(1);
+      expect(result.err).toContain("reanude con 'navori master close'");
+    }
+    expect(files.map((path) => readFileSync(path, "utf8"))).toEqual(before);
   }, 120_000);
 
   // Covers: R8

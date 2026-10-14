@@ -6,8 +6,17 @@
  * directly, the same split `session-start-context.sh` and its TS-driven
  * partials already use.
  */
-import { existsSync, readFileSync, appendFileSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import {
+  existsSync,
+  readFileSync,
+  appendFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { spawnSync } from "node:child_process";
+import { basename, dirname, join } from "node:path";
 import {
   checkoutRoot,
   ensureStateDirectory,
@@ -18,11 +27,12 @@ import {
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { readConfig, type NavoriConfig } from "../config/config.ts";
-import { classify } from "./classify.ts";
+import { classify, matchesCriticalPaths, normalizeRepoPath } from "./classify.ts";
 import { checkWorkplan, formatCheckResult } from "./check.ts";
 import type { Workplan } from "./schema.ts";
 import { appendCliEvent, hasAuditTarget, outcomeFeatureKey } from "../audit/cli-event.ts";
 import { locateSpecDir } from "../spec/locate.ts";
+import { NON_IMPLEMENTER_ROLES } from "../../engines/shared/roster.ts";
 import { parseTasks } from "../spec/tasks.ts";
 
 /** What an allowed `workplan: <feature>` spawn tells the audit log (spec 0042 T10a). */
@@ -69,33 +79,86 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-/** Loosely parses the hook payload — a malformed/foreign shape reads as "no
- * fields present", which the caller treats as "not our concern" (allow), not
- * as a crash. A hard gate must never break the tool call it cannot recognize. */
-function parsePayload(raw: unknown): AgentHookPayload {
-  if (!isRecord(raw)) return {};
-  const toolInput = isRecord(raw.tool_input) ? raw.tool_input : undefined;
+/** What `navori plan gate` passes when stdin is not valid JSON. */
+export const UNREADABLE_PAYLOAD: unique symbol = Symbol("unreadable-payload");
+
+/** `parsePayload` outcome: a usable payload, or the problem that makes it unreadable (R4). */
+type ParsedPayload = { ok: true; payload: AgentHookPayload } | { ok: false; problem: string };
+
+/**
+ * Normalizes a spawn role for comparison: no whitespace, lowercase, without a
+ * `<plugin>:` prefix (R3). `" Navori:Implementer "` becomes `implementer`.
+ */
+export function normalizeRole(role: string): string {
+  return role
+    .replace(/\s+/g, "")
+    .toLowerCase()
+    .replace(/^[^:]*:/, "");
+}
+
+/**
+ * Whether a spawn is gated as an implementer (R3). Claude: the normalized
+ * `subagent_type` is `implementer` (no type is `general-purpose`, which passes).
+ * Codex: fail-closed, anything whose normalized role is missing or outside
+ * {@link NON_IMPLEMENTER_ROLES} (`default`, `worker`, unknown roles).
+ */
+export function isImplementerSpawn(role: string | undefined, codex: boolean): boolean {
+  const normalized = normalizeRole(role ?? "");
+  return codex ? !NON_IMPLEMENTER_ROLES.includes(normalized) : normalized === "implementer";
+}
+
+/** Options for {@link evaluatePlanGate}. */
+export interface PlanGateOptions {
+  /**
+   * Treat the spawn as Codex even without `agent_type`. Set from
+   * `NAVORI_HOOK_ENGINE=codex`, which the Codex copy of `plan-gate.sh` exports;
+   * an old hook copy lacks it and falls back to "`agent_type` is present".
+   */
+  codex?: boolean;
+}
+
+/**
+ * Parses the hook payload. Only a non-object root or a missing/non-object
+ * `tool_input` is a `problem`; any field with a non-string type is treated as
+ * absent (a null Codex V2 `message` must not deny every spawn).
+ */
+function parsePayload(raw: unknown, forceCodex: boolean): ParsedPayload {
+  if (raw === UNREADABLE_PAYLOAD) return { ok: false, problem: "payload is not valid JSON" };
+  if (!isRecord(raw)) return { ok: false, problem: "payload is not a JSON object" };
+  if (!isRecord(raw.tool_input)) return { ok: false, problem: "payload has no tool_input object" };
+  const toolInput = raw.tool_input;
   const codexAgentType =
-    typeof toolInput?.agent_type === "string" ? toolInput.agent_type : undefined;
+    typeof toolInput.agent_type === "string" ? toolInput.agent_type : undefined;
   return {
-    cwd: typeof raw.cwd === "string" ? raw.cwd : undefined,
-    sessionId: typeof raw.session_id === "string" ? raw.session_id : undefined,
-    toolUseId:
-      typeof raw.tool_use_id === "string" && SPAWN_ID.test(raw.tool_use_id)
-        ? raw.tool_use_id
-        : undefined,
-    tool_input: toolInput
-      ? {
-          subagentType:
-            codexAgentType ??
-            (typeof toolInput.subagent_type === "string" ? toolInput.subagent_type : undefined),
-          prompt:
-            (typeof toolInput.message === "string" ? toolInput.message : undefined) ??
-            (typeof toolInput.prompt === "string" ? toolInput.prompt : undefined),
-          codex: codexAgentType !== undefined,
-        }
-      : undefined,
+    ok: true,
+    payload: {
+      cwd: typeof raw.cwd === "string" ? raw.cwd : undefined,
+      sessionId: typeof raw.session_id === "string" ? raw.session_id : undefined,
+      toolUseId:
+        typeof raw.tool_use_id === "string" && SPAWN_ID.test(raw.tool_use_id)
+          ? raw.tool_use_id
+          : undefined,
+      tool_input: {
+        subagentType:
+          codexAgentType ??
+          (typeof toolInput.subagent_type === "string" ? toolInput.subagent_type : undefined),
+        prompt:
+          (typeof toolInput.message === "string" ? toolInput.message : undefined) ??
+          (typeof toolInput.prompt === "string" ? toolInput.prompt : undefined),
+        codex: forceCodex || codexAgentType !== undefined,
+      },
+    },
   };
+}
+
+/**
+ * Resolves the Git toplevel from `cwd` so a subdirectory gets the same
+ * decision as the root (R2). Never throws: outside a checkout it is `cwd`.
+ */
+export function configRoot(cwd: string): string {
+  const result = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8" });
+  const top = result.error || result.status !== 0 ? "" : result.stdout.trim();
+  return top === "" ? cwd : top;
 }
 
 function deny(reason: string): PlanGateResult {
@@ -105,7 +168,8 @@ function deny(reason: string): PlanGateResult {
 const ALLOW: PlanGateResult = { decision: "allow" };
 
 const WORKPLAN_LINE = /^workplan:\s*(\S+)/;
-const NIVEL0_LINE = /^nivel-0:\s*(\S+)/;
+const NIVEL0_LINE = /^nivel-0:\s*(\S+)(?:\s+(.*))?$/;
+const FEATURE_SLUG = /^[a-z0-9][a-z0-9._-]*$/;
 const SPEC_LINE = /^spec:\s*([a-z0-9][a-z0-9._-]*)\s+E([1-9][0-9]*)\s+M([1-9][0-9]*)$/;
 
 /** A Fernet token (what Codex's V2 `spawn_agent` sends in place of `message`). */
@@ -113,6 +177,17 @@ const ENCRYPTED_MESSAGE = /^gAAAAA[A-Za-z0-9_=-]*$/;
 
 /** How long a dispatch file stays valid after `createdAt` (spec 0041 R9, OQ2). */
 export const DISPATCH_TTL_MS = 10 * 60 * 1000;
+
+/** Clock skew tolerated for a `createdAt` ahead of now; beyond it the dispatch is stale (R7). */
+const DISPATCH_FUTURE_SKEW_MS = 60 * 1000;
+
+interface DispatchHit {
+  opening: string;
+  file: string;
+  feature: string;
+  /** Exact bytes evaluated, compared against the claimed file. */
+  raw: string;
+}
 const DISPATCH_DIR = ".navori/state/handoffs";
 const DISPATCH_FILE = /^dispatch_([a-z0-9][a-z0-9._-]*)\.json$/;
 
@@ -141,37 +216,63 @@ const DISPATCH_FIX =
   "spawning the implementer, and keep exactly one fresh dispatch (TTL 10 min)";
 
 /**
+ * One dispatch per spawn (R7): claims `file` by renaming it to a dot-prefixed name
+ * (which DISPATCH_FILE never matches), so of several parallel hooks only one wins.
+ * Returns the deny reason, or `undefined` when the claim succeeded with the same
+ * bytes that were evaluated. Fail-closed on any error.
+ */
+export function claimDispatch(file: string, raw: string, now: number): string | undefined {
+  // Ceiling: a crash between rename and rm leaves a hidden .claim-* file; harmless, removable by hand.
+  const claimPath = join(dirname(file), `.${basename(file)}.claim-${process.pid}-${now}`);
+  try {
+    renameSync(file, claimPath);
+  } catch (cause: unknown) {
+    return (cause as NodeJS.ErrnoException).code === "ENOENT"
+      ? "dispatch already claimed by a concurrent spawn."
+      : `dispatch could not be claimed (${cause instanceof Error ? cause.message : "rename failed"}).`;
+  }
+  let same = false;
+  try {
+    same = readFileSync(claimPath, "utf-8") === raw;
+  } catch {
+    // Unreadable claim: treated as changed.
+  }
+  rmSync(claimPath, { force: true });
+  return same ? undefined : "dispatch changed during evaluation; rewrite it and retry.";
+}
+
+/**
  * Reads the opening line of the single fresh dispatch file. The feature cannot
  * be taken from the (encrypted) message, so the rule is: exactly ONE valid,
  * non-stale dispatch file may exist; zero, several or any malformed one denies
  * rather than guessing. Returns the opening line plus the file to consume.
  */
-function readDispatch(
-  cwd: string,
-  now: number,
-): { opening: string; file: string; feature: string } | { reason: string } {
+function readDispatch(cwd: string, now: number): DispatchHit | { reason: string } {
   const root = resolveStateRoot({ cwd, feature: "dispatch", dir: DISPATCH_DIR });
   const names = existsSync(root.path)
     ? readdirSync(root.path).filter((n) => DISPATCH_FILE.test(n))
     : [];
-  const fresh: { opening: string; file: string; feature: string }[] = [];
+  const fresh: DispatchHit[] = [];
   let stale = 0;
   for (const name of names) {
     const file = stateArtifactPath(root, name);
     let parsed: Dispatch;
+    let raw: string;
     try {
-      parsed = DispatchSchema.parse(JSON.parse(readFileSync(file, "utf-8")));
+      raw = readFileSync(file, "utf-8");
+      parsed = DispatchSchema.parse(JSON.parse(raw));
     } catch {
       return { reason: `${file} is malformed — ${DISPATCH_FIX}.` };
     }
     if (parsed.feature !== DISPATCH_FILE.exec(name)![1]) {
       return { reason: `${file}: "feature" does not match the file name — ${DISPATCH_FIX}.` };
     }
-    if (now - Date.parse(parsed.createdAt) > DISPATCH_TTL_MS) {
+    const age = now - Date.parse(parsed.createdAt);
+    if (age > DISPATCH_TTL_MS || -age > DISPATCH_FUTURE_SKEW_MS) {
       stale++;
       continue;
     }
-    fresh.push({ opening: parsed.opening, file, feature: parsed.feature });
+    fresh.push({ opening: parsed.opening, file, feature: parsed.feature, raw });
   }
   if (fresh.length === 1) return fresh[0]!;
   if (fresh.length > 1) {
@@ -188,19 +289,27 @@ function readDispatch(
 }
 
 const NO_OPENING_LINE_REASON =
-  "the encargo does not open with `workplan: <feature>`, `nivel-0: <path>` or `spec: <spec> E<n> M<n>` — " +
+  "the encargo does not open with `workplan: <feature>`, `nivel-0: <path> <feature>` or `spec: <spec> E<n> M<n>` — " +
   "load skill `plan-simple` (level 1) or `plan-advanced` (level 2) and produce a " +
   "workplan, or confirm a level-0 exemption with `navori plan classify <feature>`.";
 
+/** Rejections on record after the last `reset` line, plus their timestamps. */
+export interface RejectionCount {
+  count: number;
+  /** `ts` of each counted rejection, oldest first. */
+  timestamps: string[];
+}
+
 /**
- * R19: append a fresh `CHANGES_REQUESTED` verdict to the append-only gate log
- * and return how many DISTINCT rejections are on record. `review_<feature>.md`
- * may be rewritten or have milestone sections appended, so rejections are
- * counted via this side log (deduped by whole-file hash) instead of counting
- * files. A rejection is recorded only when the LAST `**Final verdict:**` in
- * the file is `CHANGES_REQUESTED`, so a historical one is never re-registered.
+ * R19/R9: append a fresh `CHANGES_REQUESTED` verdict to the append-only gate log
+ * and return the DISTINCT rejections on record after the last `reset` line.
+ * `review_<feature>.md` may be rewritten or have milestone sections appended, so
+ * rejections are counted via this side log (deduped by whole-file hash across the
+ * WHOLE history, so the review that motivated a reset is not recounted) instead
+ * of counting files. A rejection is recorded only when the LAST
+ * `**Final verdict:**` in the file is `CHANGES_REQUESTED`.
  */
-function recordAndCountRejections(root: StateRoot, feature: string): number {
+export function recordAndCountRejections(root: StateRoot, feature: string): RejectionCount {
   const reviewPath = stateArtifactPath(root, `review_${feature}.md`);
   const logPath = stateArtifactPath(root, `workplan_${feature}.gate.jsonl`);
 
@@ -209,16 +318,21 @@ function recordAndCountRejections(root: StateRoot, feature: string): number {
         .split("\n")
         .filter((l) => l.trim() !== "")
     : [];
-  const seenHashes = new Set(
-    lines.flatMap((line) => {
-      try {
-        const entry = JSON.parse(line) as { reviewHash?: unknown };
-        return typeof entry.reviewHash === "string" ? [entry.reviewHash] : [];
-      } catch {
-        return [];
+  const seenHashes = new Set<string>();
+  let timestamps: string[] = [];
+  for (const line of lines) {
+    try {
+      const entry = JSON.parse(line) as { reviewHash?: unknown; kind?: unknown; ts?: unknown };
+      if (entry.kind === "reset") {
+        timestamps = [];
+      } else if (typeof entry.reviewHash === "string") {
+        seenHashes.add(entry.reviewHash);
+        timestamps.push(typeof entry.ts === "string" ? entry.ts : "");
       }
-    }),
-  );
+    } catch {
+      // A torn line is ignored.
+    }
+  }
 
   if (existsSync(reviewPath)) {
     const content = readFileSync(reviewPath, "utf-8");
@@ -227,54 +341,125 @@ function recordAndCountRejections(root: StateRoot, feature: string): number {
     if (verdicts.at(-1)?.[1] === "CHANGES_REQUESTED") {
       const reviewHash = createHash("sha256").update(content).digest("hex");
       if (!seenHashes.has(reviewHash)) {
-        seenHashes.add(reviewHash);
-        const entry = { ts: new Date().toISOString(), reviewHash, verdict: "CHANGES_REQUESTED" };
+        const ts = new Date().toISOString();
+        timestamps.push(ts);
+        const entry = { ts, reviewHash, verdict: "CHANGES_REQUESTED" };
         ensureStateDirectory(root);
         appendFileSync(logPath, `${JSON.stringify(entry)}\n`);
       }
     }
   }
 
-  return seenHashes.size;
+  return { count: timestamps.length, timestamps };
 }
 
-/** R19: after two recorded rejections, the third dispatch needs the next
- * level's artifacts — never a plain re-dispatch of the same level. */
+/**
+ * R8/R9: after two recorded rejections, the next dispatch needs the next
+ * level's artifacts. At level 0/1 the cap renews by pairs: `solution_*` and its
+ * challenge must be newer than the rejection that closed the latest pair
+ * (number `2·⌊n/2⌋`). At level >= 2 it escalates to the user.
+ */
 function evaluateEscalation(
   root: StateRoot,
   feature: string,
   level: number,
 ): PlanGateResult | null {
-  const rejections = recordAndCountRejections(root, feature);
+  const { count: rejections, timestamps } = recordAndCountRejections(root, feature);
   if (rejections < 2) return null;
 
   if (level >= 2) {
     return deny(
       `feature "${feature}" has ${rejections} recorded CHANGES_REQUESTED at level ${level} — ` +
-        "escalate to the user instead of a third dispatch (orchestrator.md's cap).",
+        "escalate to the user instead of another dispatch (orchestrator.md's cap). Only the user " +
+        `can authorize another round: \`navori plan escalation-reset ${feature} --approved-by user ` +
+        '--reason "<why>"\'.',
     );
   }
 
+  const pairTs = Date.parse(timestamps[2 * Math.floor(rejections / 2) - 1] ?? "");
+  const fresh = (path: string): boolean =>
+    existsSync(path) && (Number.isNaN(pairTs) || statSync(path).mtimeMs >= pairTs);
   const solutionPath = stateArtifactPath(root, `solution_${feature}.md`);
   const solutionReviewPath = stateArtifactPath(root, `solution_review_${feature}.md`);
-  if (!existsSync(solutionPath) || !existsSync(solutionReviewPath)) {
+  if (!fresh(solutionPath) || !fresh(solutionReviewPath)) {
     return deny(
-      `feature "${feature}" has ${rejections} recorded CHANGES_REQUESTED — produce ` +
-        `solution_${feature}.md and its challenge (solution_review_${feature}.md) before ` +
-        "the next dispatch, skill `plan-advanced`.",
+      `feature "${feature}" has ${rejections} recorded CHANGES_REQUESTED — produce a NEW ` +
+        `solution_${feature}.md and its challenge (solution_review_${feature}.md), written after ` +
+        "the latest rejection pair, before the next dispatch, skill `plan-advanced`.",
     );
   }
   return null;
 }
 
+const NIVEL0_FORM = "`nivel-0: <path>[,<path>] <feature>`";
+
+/** Whether the rendered doctrine still shows the old one-token `nivel-0:` form. */
+function doctrineIsStale(cwd: string): boolean {
+  return ["CLAUDE.md", "AGENTS.md"].some((name) => {
+    try {
+      return readFileSync(join(cwd, name), "utf-8").includes("`nivel-0: <path>`");
+    } catch {
+      return false;
+    }
+  });
+}
+
 /**
- * `nivel-0: <path>` accepts a comma-separated list (no spaces, so it stays
- * one token the opening-line regex can capture) — R4's "at most one
- * non-trivial file" only means something to verify when more than one
- * candidate file is on the table.
+ * `nivel-0: <path>[,<path>] <feature>` (R6, R8). The path list is one
+ * comma-separated token; `<feature>` indexes the rejection count. The gate only
+ * verifies the declared paths, not the real diff.
  */
-function evaluateNivel0(cwd: string, config: NavoriConfig, rawPath: string): PlanGateResult {
+function evaluateNivel0(
+  cwd: string,
+  config: NavoriConfig,
+  rawPath: string,
+  rawFeature: string | undefined,
+  dispatchFeature: string | undefined,
+): PlanGateResult {
+  const feature = rawFeature?.trim() ?? "";
+  if (!FEATURE_SLUG.test(feature)) {
+    return deny(
+      `\`nivel-0:\` needs a feature — open with ${NIVEL0_FORM}.` +
+        (doctrineIsStale(cwd)
+          ? " The rendered doctrine is outdated: run `navori render --apply`."
+          : ""),
+    );
+  }
+  if (dispatchFeature !== undefined && dispatchFeature !== feature) {
+    return deny(
+      `dispatch feature "${dispatchFeature}" does not match nivel-0 feature "${feature}".`,
+    );
+  }
+  let root: StateRoot;
+  try {
+    root = resolveStateRoot({ cwd, feature });
+  } catch (cause: unknown) {
+    return deny(cause instanceof Error ? cause.message : "unsafe state root");
+  }
+  if (existsSync(stateArtifactPath(root, `workplan_${feature}.json`))) {
+    return deny(
+      `feature "${feature}" already has a workplan — open with \`workplan: ${feature}\`, not nivel-0.`,
+    );
+  }
+
   const files = rawPath.split(",").filter((f) => f.length > 0);
+  if (files.length === 0) return deny(`\`nivel-0:\` has no path — open with ${NIVEL0_FORM}.`);
+  const unsafe = files.find((f) => {
+    const n = normalizeRepoPath(f);
+    return n.absolute || n.escapes;
+  });
+  if (unsafe !== undefined) {
+    return deny(
+      `\`nivel-0:\` path "${unsafe}" is absolute or climbs out with \`..\` — use repo-relative paths.`,
+    );
+  }
+  const criticalPaths = config.project?.criticalPaths ?? [];
+  if (matchesCriticalPaths(files, criticalPaths)) {
+    return deny(
+      `\`nivel-0: ${rawPath}\` touches a critical path (project.criticalPaths) — level 0 is not ` +
+        "allowed; run `navori plan classify <feature>` and produce a workplan.",
+    );
+  }
   const result = classify({
     files,
     criticalPaths: config.project?.criticalPaths,
@@ -287,7 +472,7 @@ function evaluateNivel0(cwd: string, config: NavoriConfig, rawPath: string): Pla
         "with skill `plan-simple` (level 1) or `plan-advanced` (level 2).",
     );
   }
-  return ALLOW;
+  return evaluateEscalation(root, feature, 0) ?? ALLOW;
 }
 
 /** Runs shared plan validation/escalation, with delivery identity required for SDD. */
@@ -312,7 +497,7 @@ function evaluateWorkplan(root: StateRoot, feature: string, spec: boolean = fals
     );
   }
 
-  const result = checkWorkplan(raw, root.cwd);
+  const result = checkWorkplan(raw, { cwd: root.cwd, feature });
   if (!result.ok) {
     return deny(
       `\`navori plan check ${feature}\` fails:\n${formatCheckResult(result)}\n` +
@@ -363,20 +548,35 @@ function evaluateSpec(
 /**
  * Core decision (R16/R17/R19). Pure with respect to its inputs besides the
  * gate-log append (a deliberate, idempotent side effect — see
- * `recordAndCountRejections`). Never throws: an unexpected payload shape or a
- * config that fails to parse falls back to `allow` rather than blocking a
- * tool call the gate cannot make sense of.
+ * `recordAndCountRejections`). Fail-closed under `planTiers`: an unreadable
+ * config or payload denies; only an absent config or a non-implementer allows.
  */
-export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()): PlanGateResult {
-  const payload = parsePayload(rawPayload);
-  if (payload.tool_input?.subagentType !== "implementer") return ALLOW;
+export function evaluatePlanGate(
+  rawPayload: unknown,
+  now: number = Date.now(),
+  options: PlanGateOptions = {},
+): PlanGateResult {
+  const parsed = parsePayload(rawPayload, options.codex === true);
+  if (
+    parsed.ok &&
+    !isImplementerSpawn(parsed.payload.tool_input?.subagentType, parsed.payload.tool_input!.codex)
+  ) {
+    return ALLOW;
+  }
 
-  const cwd = payload.cwd ?? process.cwd();
+  // The payload's cwd is honoured even when the rest of it is a `problem`.
+  const rawCwd = isRecord(rawPayload) ? rawPayload.cwd : undefined;
+  const cwd = typeof rawCwd === "string" && rawCwd !== "" ? rawCwd : process.cwd();
+  const configPath = join(configRoot(cwd), "navori.config.json");
+  if (!existsSync(configPath)) return ALLOW; // no config — nothing to gate
   let config: NavoriConfig;
   try {
-    config = readConfig(join(cwd, "navori.config.json"));
-  } catch {
-    return ALLOW; // no config to read `harness.planTiers` from — nothing to gate
+    config = readConfig(configPath);
+  } catch (cause: unknown) {
+    return deny(
+      `${cause instanceof Error ? cause.message : String(cause)} — fix navori.config.json, or ` +
+        "update navori if the config is newer than the binary.",
+    );
   }
   if (config.harness?.planTiers !== true) return ALLOW;
   try {
@@ -384,19 +584,22 @@ export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()):
   } catch (cause: unknown) {
     return deny(cause instanceof Error ? cause.message : "unsafe checkout");
   }
+  if (!parsed.ok) return deny(`the hook payload is unreadable (${parsed.problem}).`);
+  const payload = parsed.payload;
+  const toolInput = payload.tool_input!;
 
-  const prompt = payload.tool_input.prompt ?? "";
+  const prompt = toolInput.prompt ?? "";
   let firstLine = (prompt.split("\n")[0] ?? "").trim();
-  let consume: string | undefined;
+  let consume: { file: string; raw: string } | undefined;
   let dispatchFeature: string | undefined;
   // Codex V2: the message is encrypted (or absent), so the opening line comes
   // from the orchestrator's dispatch file. A readable message keeps the V1 path.
-  if (payload.tool_input.codex && (firstLine === "" || ENCRYPTED_MESSAGE.test(firstLine))) {
+  if (toolInput.codex && (firstLine === "" || ENCRYPTED_MESSAGE.test(firstLine))) {
     try {
       const dispatch = readDispatch(cwd, now);
       if ("reason" in dispatch) return deny(dispatch.reason);
       firstLine = dispatch.opening.split("\n")[0]!.trim();
-      consume = dispatch.file;
+      consume = { file: dispatch.file, raw: dispatch.raw };
       dispatchFeature = dispatch.feature;
     } catch (cause: unknown) {
       return deny(cause instanceof Error ? cause.message : "unsafe state root");
@@ -410,7 +613,7 @@ export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()):
   if (!workplanMatch && !nivel0Match && !specMatch) return deny(NO_OPENING_LINE_REASON);
   let result: PlanGateResult;
   if (nivel0Match) {
-    result = evaluateNivel0(cwd, config, nivel0Match[1]!);
+    result = evaluateNivel0(cwd, config, nivel0Match[1]!, nivel0Match[2], dispatchFeature);
   } else {
     try {
       const root = resolveStateRoot({ cwd, feature: feature! });
@@ -435,13 +638,15 @@ export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()):
       return deny(cause instanceof Error ? cause.message : "unsafe state root");
     }
   }
-  // One dispatch per spawn: an allowed spawn consumes its dispatch file.
-  if (consume && result.decision === "allow") rmSync(consume, { force: true });
+  if (consume && result.decision === "allow") {
+    const denied = claimDispatch(consume.file, consume.raw, now);
+    if (denied) return deny(denied);
+  }
   if (result.decision === "allow" && feature) {
     const dispatch: GateDispatch = {
       feature,
       cwd,
-      codex: payload.tool_input.codex,
+      codex: toolInput.codex,
       ...(payload.sessionId ? { sessionId: payload.sessionId } : {}),
       ...(payload.toolUseId ? { spawn: payload.toolUseId } : {}),
     };
@@ -487,7 +692,9 @@ export function emitDispatchOutcome(dispatch: GateDispatch): void {
  * dispatch. The emission runs after the exit code is settled and is swallowed.
  */
 export function applyPlanGate(raw: unknown): void {
-  const result = evaluatePlanGate(raw);
+  const result = evaluatePlanGate(raw, Date.now(), {
+    codex: process.env.NAVORI_HOOK_ENGINE === "codex",
+  });
   if (result.decision === "deny") {
     process.stderr.write(`[navori] BLOCKED by plan-gate: ${result.reason}\n`);
     process.exitCode = 2;

@@ -4,15 +4,23 @@ import { createHash } from "node:crypto";
 import {
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { approveDeliveryBaseline, authorizeDeliveryQueue } from "../delivery.ts";
+import {
+  approveDeliveryBaseline,
+  authorizeDeliveryQueue,
+  deliveryLifecycle,
+  reviewedDeliveryIdentity,
+} from "../delivery.ts";
+import { presentedDeliveryFixture } from "./delivery-flow.ts";
 import { contractDigest } from "../delivery-checks.ts";
 import type { DeliveryParts } from "../delivery-schema.ts";
 import { masterCommand } from "../../../commands/master.ts";
@@ -168,7 +176,9 @@ describe("delivery authority", () => {
     writeFileSync(path, changed);
     expect(() => authorizeDeliveryQueue(cwd, "E1", ["P1"], "user")).toThrow(/baseline.*stale/);
     expect(() => approveDeliveryBaseline(cwd, "user")).toThrow(/queue revision/);
-    expect(readMasterStatus(cwd).blockers).toContain("baseline is missing or stale");
+    expect(readMasterStatus(cwd).blockers).toContainEqual(
+      expect.stringContaining("navori master delivery-revoke"),
+    );
     expect(readFileSync(join(stage, "state.json"), "utf8")).toBe(before);
     expect(readFileSync(path, "utf8")).toBe(changed);
   });
@@ -274,4 +284,38 @@ describe("delivery authority", () => {
     expect(readFileSync(join(stage, "state.json"), "utf8")).toBe(before);
     expect(authorizeDeliveryQueue(cwd, "E1", ["P1"], "user").unchanged).toBe(false);
   });
+
+  // Covers: R25
+  it("editar el árbol tras presentar bloquea nombrando la prueba obsoleta", () => {
+    const { cwd } = presentedDeliveryFixture();
+    dirs.push(cwd);
+    expect(deliveryLifecycle(cwd).blockers).toEqual([
+      "E1: current acceptance or reasoned disposition pending",
+    ]);
+    // The manual artifact is part of the proof tree but not of the source/baseline digests.
+    writeFileSync(join(cwd, "review.txt"), "Edited after presenting\n");
+    const blockers = deliveryLifecycle(cwd).blockers;
+    expect(blockers.some((b) => /^E1: la prueba técnica quedó obsoleta: \S/.test(b))).toBe(true);
+  }, 120_000);
+
+  // Covers: R30
+  it("deliveryLifecycle no escribe objetos ni índice en .git y da la misma identidad", () => {
+    const { cwd, identity } = presentedDeliveryFixture();
+    dirs.push(cwd);
+    /** Every file under .git with size and mtime: any new object or index write changes it. */
+    const snapshot = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) return snapshot(path);
+        const stat = statSync(path);
+        return [`${path} ${stat.size} ${stat.mtimeMs}`];
+      });
+    expect(deliveryLifecycle(cwd).deliveries[0]?.presentedIdentity).toBe(identity);
+    expect(reviewedDeliveryIdentity(cwd, "E1").identity).toBe(identity);
+    // A never-hashed file would become a new loose object if the proof tree were written.
+    writeFileSync(join(cwd, "unseen.txt"), "content git has never stored\n");
+    const before = snapshot(join(cwd, ".git")).sort();
+    deliveryLifecycle(cwd);
+    expect(snapshot(join(cwd, ".git")).sort()).toEqual(before);
+  }, 120_000);
 });

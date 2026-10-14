@@ -357,3 +357,48 @@ describe("plan-simple / plan-advanced — literal content contract (T9)", () => 
     expect(body).toMatch(/risks? with (its |their )?rollback/i);
   });
 });
+
+/** Spec 0052 (R13, R37, R39, R43, R44) — plan-skill doctrine, read whitespace-normalized. */
+describe("plan skills — spec 0052 doctrine", () => {
+  const body = (id: string): string => readSkill(id).replace(/\s+/g, " ");
+
+  // Covers: R13
+  it("plan-simple explica la señal de evidencia del host y la advertencia de plan check", () => {
+    const text = body("plan-simple");
+    expect(text).toContain("evidence depends on the host's signal (Claude's main thread included)");
+    expect(text).toContain("`cumplido` without evidence is a `plan check` warning");
+  });
+
+  // Covers: R43
+  it("plan-simple nombra un responsable de plan update y trae borrador mínimo con classification", () => {
+    const text = body("plan-simple");
+    expect(text).toContain("A single owner runs `navori plan update`");
+    expect(text).toContain("mark right after running the command on the same tree");
+    expect(text).toContain('"classification"');
+  });
+
+  // Covers: R44
+  it("plan-simple y plan-advanced explican BLOCKED y bloqueado", () => {
+    for (const id of ["plan-simple", "plan-advanced"]) {
+      const text = body(id);
+      expect(text, id).toContain("`solution.verdict: BLOCKED` blocks dispatch");
+      expect(text, id).toContain("`bloqueado` means");
+    }
+  });
+
+  // Covers: R37
+  it("plan-advanced indica replanear y actualizar level y classification tras classify --diff", () => {
+    const text = body("plan-advanced");
+    expect(text).toContain(
+      "replan when `navori plan classify <feature> --diff` returns a higher level",
+    );
+    expect(text).toContain("update `level` and `classification` in the workplan");
+  });
+
+  // Covers: R39
+  it("spec-bootstrap documenta la apertura sin entregas y el workplan de entrega de nivel 3", () => {
+    const text = body("spec-bootstrap");
+    expect(text).toContain("A spec without deliveries opens with `workplan: <feature>`");
+    expect(text).toContain('a delivery\'s workplan is level 3 (`"level": 3`)');
+  });
+});

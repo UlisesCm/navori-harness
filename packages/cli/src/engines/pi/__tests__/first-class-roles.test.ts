@@ -314,7 +314,7 @@ describe("Pi first-class roles", () => {
     ]);
     expect(rt.navori.every((args) => args[2] === "pi_first")).toBe(true);
     const scribe = rt.children[1]!.args;
-    expect(scribe.at(-1)).toContain("sole author of the Markdown");
+    expect(scribe.at(-1)).toContain("author of the status and deliverable Markdown");
     expect(flag(scribe, "--tools")).toContain("write");
 
     // The implementer cannot write Markdown directly; the scribe's child is not blocked.

@@ -4,6 +4,8 @@
  * duplicating its file-significance rules (R2's "single module" is about the
  * WEIGHTS, not about re-deriving what counts as a file).
  */
+import { posix, resolve } from "node:path";
+import { readConfig } from "../config/config.ts";
 import { countNonTrivial } from "../diagnose/source-classify.ts";
 import {
   BUG_WITHOUT_ROOT_CAUSE_WEIGHT,
@@ -112,17 +114,62 @@ function matchesGlobSegments(
   );
 }
 
-function matchesCriticalPaths(files: readonly string[], criticalPaths: readonly string[]): boolean {
+/** A repo path after `normalizeRepoPath`, with the two shapes that are not
+ * repo-relative flagged so callers (the `nivel-0:` gate) can refuse them. */
+export interface NormalizedRepoPath {
+  path: string;
+  /** Starts at `/` or a drive letter: not repo-relative. */
+  absolute: boolean;
+  /** Climbs out of the repo through `..`. */
+  escapes: boolean;
+}
+
+/**
+ * Normalizes a repo path (R19): `\` becomes `/`, `./` prefixes and `//` runs
+ * collapse via `posix.normalize`, a trailing `/` is dropped; case is NOT
+ * folded (the filesystem may be case-sensitive). Absolute and `..` paths are
+ * returned as-is, flagged, so they never match a relative glob by accident.
+ */
+export function normalizeRepoPath(input: string): NormalizedRepoPath {
+  const slashed = input.trim().replaceAll("\\", "/");
+  const absolute = slashed.startsWith("/") || /^[A-Za-z]:\//.test(slashed);
+  let path = posix.normalize(slashed);
+  if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
+  if (path === ".") path = "";
+  const escapes = path === ".." || path.startsWith("../");
+  return { path, absolute, escapes };
+}
+
+/** Whether any of `files` (normalized here) matches a `criticalPaths` glob. */
+export function matchesCriticalPaths(
+  files: readonly string[],
+  criticalPaths: readonly string[],
+): boolean {
   if (criticalPaths.length === 0) return false;
   const patterns = criticalPaths.map((glob) => glob.split("/"));
   return files.some((file) => {
-    const segments = file.split("/");
+    const segments = normalizeRepoPath(file).path.split("/");
     return patterns.some((pattern) => matchesGlobSegments(segments, pattern));
   });
 }
 
 function rootDirsOf(files: readonly string[]): Set<string> {
   return new Set(files.map((file) => file.split("/").slice(0, 2).join("/")));
+}
+
+/** `project.criticalPaths`/`project.localSkills` (R9) of the repo at `cwd`,
+ * `undefined` for a repo without `navori.config.json` or without a `project`
+ * block — shared by the CLI, `plan check` and the gate. */
+export function projectClassifyContext(cwd: string): {
+  criticalPaths: string[] | undefined;
+  localSkillIds: string[] | undefined;
+} {
+  try {
+    const project = readConfig(resolve(cwd, "navori.config.json")).project;
+    return { criticalPaths: project?.criticalPaths, localSkillIds: project?.localSkills };
+  } catch {
+    return { criticalPaths: undefined, localSkillIds: undefined };
+  }
 }
 
 /** The subset of `ClassifyInput`'s declared (non-file-derived) flags —
@@ -163,7 +210,8 @@ export function declaredFlagsFromSignals(signals: readonly string[]): DeclaredSi
  * (design.md), calibrated in #1011 (T0). */
 export function classify(input: ClassifyInput): ClassifyResult {
   const localSkillIds = input.localSkillIds ? new Set(input.localSkillIds) : undefined;
-  const nonTrivial = countNonTrivial(input.files, "", localSkillIds);
+  const files = input.files.map((f) => normalizeRepoPath(f).path).filter(Boolean);
+  const nonTrivial = countNonTrivial(files, "", localSkillIds);
   const signals: string[] = [];
   let score = 0;
 
@@ -171,7 +219,7 @@ export function classify(input: ClassifyInput): ClassifyResult {
   if (fileWeight > 0) signals.push(`non-trivial-files:${nonTrivial.ceiling}(+${fileWeight})`);
   score += fileWeight;
 
-  const distinctRootDirs = rootDirsOf(input.files).size;
+  const distinctRootDirs = rootDirsOf(files).size;
   const dirWeight = rootDirWeight(distinctRootDirs);
   if (dirWeight > 0) signals.push(`root-dirs:${distinctRootDirs}(+${dirWeight})`);
   score += dirWeight;
@@ -181,7 +229,7 @@ export function classify(input: ClassifyInput): ClassifyResult {
     score += BUG_WITHOUT_ROOT_CAUSE_WEIGHT;
   }
 
-  const criticalAreaMatched = matchesCriticalPaths(input.files, input.criticalPaths ?? []);
+  const criticalAreaMatched = matchesCriticalPaths(files, input.criticalPaths ?? []);
   const criticalArea = criticalAreaMatched || Boolean(input.criticalArea);
   if (criticalArea) {
     signals.push(

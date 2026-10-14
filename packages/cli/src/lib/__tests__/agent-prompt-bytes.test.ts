@@ -30,7 +30,8 @@ const REPO_ROOT = resolve(HERE, "..", "..", "..", "..", "..");
 
 /** Max rendered bytes per agent, as `.claude/agents/<id>.md`. */
 const RENDERED_BYTE_CEILINGS: Readonly<Record<string, number>> = {
-  reviewer: 21_100,
+  // 0052 M15: +138 B for the evidence-code, --phase and local-attestation rules (R42, R45, R47).
+  reviewer: 21_300,
   publisher: 25_500,
 };
 

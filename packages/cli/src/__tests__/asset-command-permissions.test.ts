@@ -328,48 +328,16 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
     "read-only, but this is a project-local skill's own convenience, not a core-asset need every navori consumer should carry pre-approved; the prompt is accepted here rather than widening `settings-base.json` for one repo's skill",
   ],
   [
-    "navori plan render",
-    "writes workplan_<feature>.md from its JSON source (R11) — a write, not a read; `navori plan classify`/`plan check` are pre-approved instead",
-  ],
-  [
-    "navori plan update",
-    "writes workplan_<feature>.json (progress/decisions) and re-renders its `.md` — a write, same reason as `navori plan render`",
-  ],
-  [
     "navori master delivery-check",
     "read-only preparation check; this opt-in deliveries route retains its existing prompt rather than granting global pre-approval through a documentation change",
-  ],
-  [
-    "navori master delivery-baseline",
-    "writes the operator-approved baseline identity to delivery state; --approved-by user attests consent and the command remains behind its existing prompt",
-  ],
-  [
-    "navori master delivery-queue",
-    "writes bounded queue authority and its generation; selecting or replacing authorized parts requires explicit user consent, not blanket command pre-approval",
   ],
   [
     "navori master delivery-slice",
     "writes the authorized part's workplan projection; refresh can reset pending criteria and requires explicit user approval, so the write keeps its prompt",
   ],
   [
-    "navori master delivery-criterion",
-    "writes criterion evidence after consuming host provenance or explicit manual attestation; the state write keeps its prompt and does not grant manual consent",
-  ],
-  [
-    "navori master delivery-review",
-    "writes technical review evidence for an exact snapshot and requires the user's separate-reviewer and observed-QA attestation; its prompt remains intentional",
-  ],
-  [
     "navori master delivery-present",
     "writes a technically reviewed presentation identity and review phase; this state mutation keeps its prompt and never records client acceptance",
-  ],
-  [
-    "navori master delivery-decision",
-    "writes an identity-bound operator attestation of acceptance, rejection, deferral or discard; explicit user consent must not become global pre-approval",
-  ],
-  [
-    "navori master delivery-publication",
-    "writes an explicitly user-attested release or deploy reference for the accepted identity; it keeps its prompt and does not execute a deployment",
   ],
   [
     "navori gate",
@@ -507,9 +475,9 @@ describe("assets order only commands the settings pre-approve (#506)", () => {
     expect(stale, `no asset orders these any more — delete them: ${stale.join(", ")}`).toEqual([]);
     // Raised 15 → 16 for #998: five distinct-risk entries from two new
     // project-local skills, none a broadened existing prefix. Raised 16 → 18
-    // for #1011: `navori plan render`/`navori plan update` are the two write
-    // subcommands of `plan-simple`; `plan classify`/`plan check` are read-only
-    // and went into `settings-base.json`'s allowlist instead. Raised 18 → 20
+    // for #1011: `navori plan render`/`navori plan update` were the two write
+    // subcommands of `plan-simple` (spec 0052 R48 moved both into
+    // `settings-base.json`'s allowlist, alongside `plan classify`/`plan check`). Raised 18 → 20
     // for the two one-time `git config` setups `rebase-rerender` orders (each
     // writes .git/config, none a broadened existing prefix). Raised 20 → 21 for
     // #1272: the bare `navori gate <kind>` shape of the sentinel contract; its

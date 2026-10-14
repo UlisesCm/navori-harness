@@ -555,6 +555,37 @@ describe("close --reason without --abandon/--convert", () => {
   });
 });
 
+describe("close --reason in blank", () => {
+  // Covers: R33
+  it("close con reason en blanco se rechaza sin escribir en legacy y en deliveries", () => {
+    seed("planned");
+    writeMasterStatus(cwd);
+    const before = listStageFiles();
+    const state = read("state.json");
+    const indexPath = join(root(), "index.json");
+    const indexBefore = readFileSync(indexPath, "utf8");
+    for (const reason of ["", "   "]) {
+      expect(() => runMasterClose(cwd, { reason })).toThrow(/--reason no puede estar vacío/);
+      expect(() => runMasterClose(cwd, { abandon: true, reason })).toThrow(
+        /--reason no puede estar vacío/,
+      );
+    }
+    expect(listStageFiles()).toEqual(before);
+    expect(read("state.json")).toBe(state);
+
+    const index = JSON.parse(indexBefore) as {
+      version: number;
+      stages: Array<Record<string, unknown>>;
+    };
+    index.version = 2;
+    index.stages[0]!.workflow = "deliveries";
+    writeFileSync(indexPath, JSON.stringify(index));
+    for (const reason of ["", "   "])
+      expect(() => runMasterClose(cwd, { reason })).toThrow(/--reason no puede estar vacío/);
+    expect(read("state.json")).toBe(state);
+  });
+});
+
 describe("late abandon without parts", () => {
   // Covers: R5
   it("abandono tardío sin partes cierra abandonada; con una parte se rechaza; convert en mastered se rechaza", () => {
@@ -589,7 +620,7 @@ describe("navori master ux", () => {
     const result = await invoke(["ux", "none"]);
     expect(result.exitCode).toBeUndefined();
     expect(JSON.parse(read("state.json")).ux).toBe("none");
-    expect(read("STATUS.md")).toBe(renderStatusMd(readMasterStatus(cwd)));
+    expect(read("STATUS.md")).toBe(renderStatusMd(readMasterStatus(cwd), "es"));
     expect(read("STATUS.md")).toContain("UX: none");
     expect(
       runMasterCheck(cwd).failures.filter((f) => f.includes("STATUS.md differs from its render")),
@@ -696,12 +727,12 @@ describe("STATUS.md compat", () => {
     seed("executing");
     const legacy = readMasterStatus(cwd);
     expect("ux" in legacy).toBe(false);
-    expect(renderStatusMd(legacy)).not.toContain("UX:");
+    expect(renderStatusMd(legacy, "es")).not.toContain("UX:");
     seed("ux", "hecho", "md-json");
     const status = readMasterStatus(cwd);
     expect(status.ux).toBe("md-json");
     expect(status.nextPhase).toBe("executing");
-    expect(renderStatusMd(status)).toContain("UX: md-json");
+    expect(renderStatusMd(status, "es")).toContain("UX: md-json");
   });
 
   it("mastered's next phase is ux", () => {

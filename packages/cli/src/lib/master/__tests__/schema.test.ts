@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { MasterIndexSchema, MasterStateSchema, PartsSchema } from "../schema.ts";
-import { DeliveryStateSchema } from "../delivery-schema.ts";
+import { DeliveryPartsSchema, DeliveryStateSchema } from "../delivery-schema.ts";
 
 describe("mixed master registries", () => {
   const entry = {
@@ -390,5 +390,102 @@ describe("PartsSchema — ids, dependsOn and reason (R48, R59)", () => {
     if (!parsed.success) {
       expect(parsed.error.issues.some((i) => i.message.includes("version 1"))).toBe(true);
     }
+  });
+});
+
+// Covers: R20
+describe("PartsSchema — region texts (R20)", () => {
+  const legacyPart = (overrides: Record<string, unknown> = {}) => ({
+    id: "P1",
+    title: "Parte 1",
+    objective: "objective",
+    scope: ["uno", "dos"],
+    acceptance: [
+      {
+        id: "A1",
+        description: "does the thing",
+        method: "test",
+        test: { file: "src/x.test.ts", case: "does the thing" },
+      },
+    ],
+    ...overrides,
+  });
+  const messages = (part: Record<string, unknown>): string[] => {
+    const result = PartsSchema.safeParse({ version: 1, parts: [part] });
+    return result.success ? [] : result.error.issues.map((issue) => issue.message);
+  };
+
+  it("parte legacy con salto de línea o <!-- se rechaza nombrando parte y campo; deliveries sigue válida", () => {
+    expect(messages(legacyPart())).toEqual([]);
+    expect(messages(legacyPart({ scope: ["uno", "dos\ntres"] }))).toEqual([
+      expect.stringMatching(/^P1\.scope\[1\]: .*salto de línea.*parts\.json/),
+    ]);
+    expect(messages(legacyPart({ scope: ["a\rb"] }))[0]).toContain("P1.scope[0]");
+    expect(messages(legacyPart({ title: "x <!-- y" }))[0]).toContain("P1.title");
+    expect(
+      messages(
+        legacyPart({
+          acceptance: [
+            {
+              id: "A1",
+              description: "ok",
+              method: "comando",
+              command: { run: "a\nb", expected: "ok" },
+            },
+          ],
+        }),
+      )[0],
+    ).toContain("P1.acceptance[0].command.run");
+
+    // Deliveries parts use their own schema and are not refined.
+    const digest = "0".repeat(64);
+    const delivery = DeliveryPartsSchema.safeParse({
+      version: 2,
+      workflow: "deliveries",
+      revision: 1,
+      digest,
+      sources: [
+        {
+          id: "client",
+          path: "req.txt",
+          digest,
+          locator: "L",
+          requirements: ["RN-1"],
+          uiBearing: false,
+        },
+      ],
+      requirements: [{ id: "RN-1", sourceId: "client", disposition: "in-scope", reason: null }],
+      design: { ui: "none", reason: "no ui" },
+      deliveries: [
+        {
+          id: "E1",
+          title: "Login",
+          outcome: "ok",
+          partIds: ["P1"],
+          dependsOn: [],
+          git: { branch: "b", base: "main", integrationTarget: "dev", prTarget: "dev" },
+        },
+      ],
+      parts: [
+        {
+          id: "P1",
+          deliveryId: "E1",
+          title: "Login\nmultilínea",
+          objective: "Sign in",
+          scope: ["uno\ndos"],
+          outOfScope: [],
+          dependsOn: [],
+          sourceIds: ["client"],
+          requirementIds: ["RN-1"],
+          spec: null,
+          foundation: false,
+          acceptance: [
+            { id: "A1", method: "test", description: "d", command: "bun test", expected: "exit 0" },
+          ],
+          questions: [],
+        },
+      ],
+    });
+    expect(delivery.success).toBe(true);
   });
 });

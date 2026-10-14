@@ -14,12 +14,14 @@ import {
   writeMasterStatus,
 } from "../status.ts";
 import { runMasterCheck } from "../checks.ts";
+import { approveDeliveryBaseline } from "../delivery.ts";
+import { presentedDeliveryFixture } from "./delivery-flow.ts";
 import type { MasterIndex, Part, StageEntry } from "../schema.ts";
 
 let cwd: string;
 const part = (state: string, evidence: unknown = null) => ({
   id: "P1",
-  title: "Title\nwith control",
+  title: "Title with control",
   objective: "Build",
   scope: [],
   outOfScope: [],
@@ -238,7 +240,7 @@ describe("master status", () => {
           "P1.A1: evidencia huérfana; revalidar con 'navori master part P1 --accept A1'",
         );
         expect(status.blockers.join("\n")).not.toContain("huérfana");
-        expect(renderStatusMd(status)).not.toContain("huérfana");
+        expect(renderStatusMd(status, "es")).not.toContain("huérfana");
       }
     },
   );
@@ -259,14 +261,14 @@ describe("master status", () => {
       const baseline = commitHead();
       executablePart(baseline, method, false);
       expect(readMasterStatus(cwd).closable).toBe(true);
-      expect(renderStatusMd(readMasterStatus(cwd))).not.toContain("revalidar");
+      expect(renderStatusMd(readMasterStatus(cwd), "es")).not.toContain("revalidar");
       commitHead();
       const status = readMasterStatus(cwd);
       expect(status.parts[0]?.acceptance[0]).toMatchObject({ orphan: false, commitsBehind: 1 });
       expect(status.blockers).toEqual([]);
       expect(status.closable).toBe(true);
-      expect(renderStatusMd(status)).not.toContain("commitsBehind");
-      expect(renderStatusMd(status)).not.toContain("revalidar");
+      expect(renderStatusMd(status, "es")).not.toContain("commitsBehind");
+      expect(renderStatusMd(status, "es")).not.toContain("revalidar");
     },
   );
 
@@ -329,6 +331,10 @@ describe("master status", () => {
         JSON.stringify({ version: 1, stages: [previous, current] }),
       );
 
+      // R34: only files that exist are listed (01-mvp/MASTER.md already exists).
+      for (const file of ["01-mvp/DECISIONS.md", "01-mvp/CLOSURE.md", "INDEX.md"])
+        writeFileSync(join(base, file), "");
+
       const status = readMasterStatus(cwd);
       expect(status.stage?.number).toBe(2);
       expect(status.architectContext).toEqual({
@@ -371,9 +377,14 @@ describe("master status", () => {
   it("reports active part and sanitizes the line title", () => {
     const status = readMasterStatus(cwd);
     expect(status.activePart).toBe("P1");
-    expect(statusLine(status, "specs")).toContain('P1 "Title with control"');
-    expect(statusLine(status, "specs")).not.toContain("\n");
-    expect(renderStatusMd(status)).toContain("Discrepancias");
+    // The schema now rejects a newline in a title (R20), so inject it past the reader.
+    const dirty = {
+      ...status,
+      parts: status.parts.map((p) => ({ ...p, title: "Title\nwith control" })),
+    };
+    expect(statusLine(dirty, "specs")).toContain('P1 "Title with control"');
+    expect(statusLine(dirty, "specs")).not.toContain("\n");
+    expect(renderStatusMd(status, "es")).toContain("Discrepancias");
   });
 
   // Covers: R31, R40, R47
@@ -411,7 +422,25 @@ describe("master status", () => {
     const parts = JSON.parse(
       readFileSync(join(cwd, "specs/_master/01-mvp/parts.json"), "utf8"),
     ).parts;
-    expect(renderMasterParts(parts, "template")).toBe(renderMasterParts(parts, "template"));
+    expect(renderMasterParts(parts, "template", "es")).toBe(
+      renderMasterParts(parts, "template", "es"),
+    );
+  });
+
+  // Covers: R31
+  it("repo en rotula STATUS.md y la región en inglés", () => {
+    const parts = JSON.parse(
+      readFileSync(join(cwd, "specs/_master/01-mvp/parts.json"), "utf8"),
+    ).parts;
+    const md = renderStatusMd(readMasterStatus(cwd), "en");
+    expect(md).toContain("# Stage status 01-mvp");
+    expect(md).toContain("Closable:");
+    expect(md).toContain("## Blockers");
+    expect(md).not.toContain("Estado de etapa");
+    const region = renderMasterParts(parts, "en-curso", "en");
+    expect(region).toContain("Objective: Build");
+    expect(region).toContain("State:");
+    expect(region).not.toContain("Objetivo:");
   });
 
   // Covers: R13, R47, R54, R61
@@ -555,4 +584,52 @@ describe("master status", () => {
       rmSync(outside, { recursive: true, force: true });
     }
   });
+});
+
+describe("master status (deliveries)", () => {
+  const fixtures: string[] = [];
+  afterEach(() => {
+    for (const dir of fixtures.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+  const presented = (): ReturnType<typeof presentedDeliveryFixture> => {
+    const fixture = presentedDeliveryFixture();
+    fixtures.push(fixture.cwd);
+    return fixture;
+  };
+
+  // Covers: R24
+  it("STATUS.md de entregas no lleva presented ni scope y status --json sí", () => {
+    const { cwd: repo, identity } = presented();
+    const status = readMasterStatus(repo);
+    const md = renderStatusMd(status, "es");
+    expect(md).toContain("E1: pending; publication=pending");
+    expect(md).not.toContain("presented=");
+    expect(md).not.toContain("scope=");
+    expect(md).not.toContain("Preparación");
+    const json = JSON.parse(JSON.stringify(status)) as {
+      deliveryLifecycle: { deliveries: { presentedIdentity: string; scopeIdentity: string }[] };
+    };
+    expect(json.deliveryLifecycle.deliveries[0]).toMatchObject({ presentedIdentity: identity });
+    expect(json.deliveryLifecycle.deliveries[0]?.scopeIdentity).toMatch(/^[0-9a-f]{64}$/);
+  }, 120_000);
+
+  // Covers: R26
+  it("parts.json inválido en entregas devuelve workflow y bloqueo sin excepción", () => {
+    const { cwd: repo, stage } = presented();
+    writeFileSync(join(stage, "parts.json"), "{ not json");
+    const status = readMasterStatus(repo);
+    expect(status.workflow).toBe("deliveries");
+    expect(status.blockers).toEqual([expect.stringContaining("parts.json inválido")]);
+    expect(() => writeMasterStatus(repo)).not.toThrow();
+  }, 120_000);
+
+  // Covers: R27
+  it("baseline obsoleta con cola autorizada nombra delivery-revoke", () => {
+    const { cwd: repo, stage } = presented();
+    writeFileSync(join(stage, "MASTER.md"), "# Reviewed delivery\nRN-1 changed\n");
+    expect(readMasterStatus(repo).blockers).toContainEqual(
+      expect.stringContaining("navori master delivery-revoke"),
+    );
+    expect(() => approveDeliveryBaseline(repo, "user")).toThrow("navori master delivery-revoke");
+  }, 120_000);
 });

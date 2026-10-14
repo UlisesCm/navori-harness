@@ -501,6 +501,33 @@ describe("runMasterInit — second stage registers en-curso (R16)", () => {
   });
 });
 
+describe("runMasterInit — slug reuse (R22)", () => {
+  // Covers: R22
+  it("init con el slug de una etapa abandonada falla nombrando la etapa previa", () => {
+    const masterDir = masterDirPath(cwd, SPECS_DIR);
+    writeIndexRaw({
+      version: 1,
+      stages: [
+        {
+          number: 1,
+          slug: "mvp",
+          dir: "01-mvp",
+          state: "abandonada",
+          openedAt: "2026-01-01",
+          closedAt: "2026-02-01",
+          spec: null,
+        },
+      ],
+    });
+    mkdirSync(join(masterDir, "01-mvp"), { recursive: true });
+    const before = readFileSync(indexJsonPath(cwd, SPECS_DIR), "utf8");
+
+    expect(() => runMasterInit(cwd, "mvp")).toThrow(/slug "mvp" ya lo usó la etapa 01-mvp/);
+    expect(readFileSync(indexJsonPath(cwd, SPECS_DIR), "utf8")).toBe(before);
+    expect(runMasterInit(cwd, "otro").stage.dir).toBe("02-otro");
+  });
+});
+
 describe("navori master init — context guidance", () => {
   it("prints the repo-relative raw/ path when the phase is context", async () => {
     const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
