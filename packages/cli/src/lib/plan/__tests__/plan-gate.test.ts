@@ -13,7 +13,7 @@ import {
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyPlanGate, evaluatePlanGate } from "../gate.ts";
+import { applyPlanGate, evaluatePlanGate, UNREADABLE_PAYLOAD } from "../gate.ts";
 import { hasAuditTarget, outcomeFeatureKey } from "../../audit/cli-event.ts";
 import { repoFromCwd, sessionLogPath } from "../../audit/paths.ts";
 import type { Workplan } from "../schema.ts";
@@ -22,7 +22,7 @@ import type { Workplan } from "../schema.ts";
  * `navori plan gate` — the TypeScript half of the `PreToolUse(Agent)` hook
  * (spec 0032, #1011).
  *
- * Covers: R16, R17, R19
+ * Covers: R1, R2, R4, R16, R17, R19
  */
 
 vi.mock(import("../../audit/cli-event.ts"), { spy: true });
@@ -98,6 +98,36 @@ describe("evaluatePlanGate — off switch and scope", () => {
   it("allows when there is no navori.config.json to read planTiers from", () => {
     const result = evaluatePlanGate(payload("implementer", "do the thing"));
     expect(result.decision).toBe("allow");
+  });
+});
+
+describe("evaluatePlanGate — config and root (R1, R2)", () => {
+  // Covers: R1
+  it("configuración ilegible deniega nombrando el error y sin archivo deja pasar", () => {
+    expect(evaluatePlanGate(payload("implementer", "do it")).decision).toBe("allow");
+    writeFileSync(join(cwd, "navori.config.json"), "{ not json");
+    const result = evaluatePlanGate(payload("implementer", "do it"));
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("Invalid JSON");
+    expect(result.reason).toContain("update navori");
+    // A non-implementer never reads the config.
+    expect(evaluatePlanGate(payload("reviewer", "x")).decision).toBe("allow");
+  });
+
+  // Covers: R2
+  it("cwd en subdirectorio recibe la misma decisión que la raíz", () => {
+    writeConfig(true);
+    const sub = join(cwd, "packages", "a");
+    mkdirSync(sub, { recursive: true });
+    const at = (dir: string) =>
+      evaluatePlanGate({
+        cwd: dir,
+        tool_input: { subagent_type: "implementer", prompt: "no opening line" },
+      });
+    expect(at(cwd).decision).toBe("deny");
+    expect(at(sub)).toEqual(at(cwd));
+    writeFileSync(join(cwd, "navori.config.json"), "{ not json");
+    expect(at(sub).decision).toBe("deny");
   });
 });
 
@@ -675,10 +705,26 @@ describe("evaluatePlanGate — Codex spawn_agent payloads (spec 0041 R9)", () =>
     expect(evaluatePlanGate(codex("implementer"), NOW).decision).toBe("allow");
   });
 
-  // Covers: R9
-  it("an unknown payload shape is allowed, not a crash", () => {
+  // Covers: R4
+  it("payload ilegible o sin tool_input deniega con planTiers y message nulo cae al despacho", () => {
     writeConfig(true);
-    expect(evaluatePlanGate({ cwd, tool_input: { foo: 1 } }, NOW).decision).toBe("allow");
+    for (const bad of [UNREADABLE_PAYLOAD, "x", null, { cwd }, { cwd, tool_input: "x" }]) {
+      const result = evaluatePlanGate(bad, NOW);
+      expect(result.decision).toBe("deny");
+      expect(result.reason).toContain("unreadable");
+    }
+    expect(evaluatePlanGate(UNREADABLE_PAYLOAD, NOW).reason).toContain("not valid JSON");
+    // With the gate off, the same payload is not our concern.
+    writeConfig(false);
+    expect(evaluatePlanGate({ cwd }, NOW).decision).toBe("allow");
+    // A null message on a Codex spawn falls to the dispatch path, not a shape denial.
+    writeConfig(true);
+    const result = evaluatePlanGate(
+      { cwd, tool_input: { agent_type: "implementer", message: null } },
+      NOW,
+    );
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("no dispatch file");
   });
 });
 

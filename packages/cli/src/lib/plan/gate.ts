@@ -7,6 +7,7 @@
  * partials already use.
  */
 import { existsSync, readFileSync, appendFileSync, readdirSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import {
   checkoutRoot,
@@ -69,33 +70,54 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-/** Loosely parses the hook payload — a malformed/foreign shape reads as "no
- * fields present", which the caller treats as "not our concern" (allow), not
- * as a crash. A hard gate must never break the tool call it cannot recognize. */
-function parsePayload(raw: unknown): AgentHookPayload {
-  if (!isRecord(raw)) return {};
-  const toolInput = isRecord(raw.tool_input) ? raw.tool_input : undefined;
+/** What `navori plan gate` passes when stdin is not valid JSON. */
+export const UNREADABLE_PAYLOAD: unique symbol = Symbol("unreadable-payload");
+
+/** `parsePayload` outcome: a usable payload, or the problem that makes it unreadable (R4). */
+type ParsedPayload = { ok: true; payload: AgentHookPayload } | { ok: false; problem: string };
+
+/**
+ * Parses the hook payload. Only a non-object root or a missing/non-object
+ * `tool_input` is a `problem`; any field with a non-string type is treated as
+ * absent (a null Codex V2 `message` must not deny every spawn).
+ */
+function parsePayload(raw: unknown): ParsedPayload {
+  if (raw === UNREADABLE_PAYLOAD) return { ok: false, problem: "payload is not valid JSON" };
+  if (!isRecord(raw)) return { ok: false, problem: "payload is not a JSON object" };
+  if (!isRecord(raw.tool_input)) return { ok: false, problem: "payload has no tool_input object" };
+  const toolInput = raw.tool_input;
   const codexAgentType =
-    typeof toolInput?.agent_type === "string" ? toolInput.agent_type : undefined;
+    typeof toolInput.agent_type === "string" ? toolInput.agent_type : undefined;
   return {
-    cwd: typeof raw.cwd === "string" ? raw.cwd : undefined,
-    sessionId: typeof raw.session_id === "string" ? raw.session_id : undefined,
-    toolUseId:
-      typeof raw.tool_use_id === "string" && SPAWN_ID.test(raw.tool_use_id)
-        ? raw.tool_use_id
-        : undefined,
-    tool_input: toolInput
-      ? {
-          subagentType:
-            codexAgentType ??
-            (typeof toolInput.subagent_type === "string" ? toolInput.subagent_type : undefined),
-          prompt:
-            (typeof toolInput.message === "string" ? toolInput.message : undefined) ??
-            (typeof toolInput.prompt === "string" ? toolInput.prompt : undefined),
-          codex: codexAgentType !== undefined,
-        }
-      : undefined,
+    ok: true,
+    payload: {
+      cwd: typeof raw.cwd === "string" ? raw.cwd : undefined,
+      sessionId: typeof raw.session_id === "string" ? raw.session_id : undefined,
+      toolUseId:
+        typeof raw.tool_use_id === "string" && SPAWN_ID.test(raw.tool_use_id)
+          ? raw.tool_use_id
+          : undefined,
+      tool_input: {
+        subagentType:
+          codexAgentType ??
+          (typeof toolInput.subagent_type === "string" ? toolInput.subagent_type : undefined),
+        prompt:
+          (typeof toolInput.message === "string" ? toolInput.message : undefined) ??
+          (typeof toolInput.prompt === "string" ? toolInput.prompt : undefined),
+        codex: codexAgentType !== undefined,
+      },
+    },
   };
+}
+
+/**
+ * Resolves the Git toplevel from `cwd` so a subdirectory gets the same
+ * decision as the root (R2). Never throws: outside a checkout it is `cwd`.
+ */
+export function configRoot(cwd: string): string {
+  const result = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8" });
+  const top = result.error || result.status !== 0 ? "" : result.stdout.trim();
+  return top === "" ? cwd : top;
 }
 
 function deny(reason: string): PlanGateResult {
@@ -363,20 +385,26 @@ function evaluateSpec(
 /**
  * Core decision (R16/R17/R19). Pure with respect to its inputs besides the
  * gate-log append (a deliberate, idempotent side effect — see
- * `recordAndCountRejections`). Never throws: an unexpected payload shape or a
- * config that fails to parse falls back to `allow` rather than blocking a
- * tool call the gate cannot make sense of.
+ * `recordAndCountRejections`). Fail-closed under `planTiers`: an unreadable
+ * config or payload denies; only an absent config or a non-implementer allows.
  */
 export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()): PlanGateResult {
-  const payload = parsePayload(rawPayload);
-  if (payload.tool_input?.subagentType !== "implementer") return ALLOW;
+  const parsed = parsePayload(rawPayload);
+  if (parsed.ok && parsed.payload.tool_input?.subagentType !== "implementer") return ALLOW;
 
-  const cwd = payload.cwd ?? process.cwd();
+  // The payload's cwd is honoured even when the rest of it is a `problem`.
+  const rawCwd = isRecord(rawPayload) ? rawPayload.cwd : undefined;
+  const cwd = typeof rawCwd === "string" && rawCwd !== "" ? rawCwd : process.cwd();
+  const configPath = join(configRoot(cwd), "navori.config.json");
+  if (!existsSync(configPath)) return ALLOW; // no config — nothing to gate
   let config: NavoriConfig;
   try {
-    config = readConfig(join(cwd, "navori.config.json"));
-  } catch {
-    return ALLOW; // no config to read `harness.planTiers` from — nothing to gate
+    config = readConfig(configPath);
+  } catch (cause: unknown) {
+    return deny(
+      `${cause instanceof Error ? cause.message : String(cause)} — fix navori.config.json, or ` +
+        "update navori if the config is newer than the binary.",
+    );
   }
   if (config.harness?.planTiers !== true) return ALLOW;
   try {
@@ -384,14 +412,17 @@ export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()):
   } catch (cause: unknown) {
     return deny(cause instanceof Error ? cause.message : "unsafe checkout");
   }
+  if (!parsed.ok) return deny(`the hook payload is unreadable (${parsed.problem}).`);
+  const payload = parsed.payload;
+  const toolInput = payload.tool_input!;
 
-  const prompt = payload.tool_input.prompt ?? "";
+  const prompt = toolInput.prompt ?? "";
   let firstLine = (prompt.split("\n")[0] ?? "").trim();
   let consume: string | undefined;
   let dispatchFeature: string | undefined;
   // Codex V2: the message is encrypted (or absent), so the opening line comes
   // from the orchestrator's dispatch file. A readable message keeps the V1 path.
-  if (payload.tool_input.codex && (firstLine === "" || ENCRYPTED_MESSAGE.test(firstLine))) {
+  if (toolInput.codex && (firstLine === "" || ENCRYPTED_MESSAGE.test(firstLine))) {
     try {
       const dispatch = readDispatch(cwd, now);
       if ("reason" in dispatch) return deny(dispatch.reason);
@@ -441,7 +472,7 @@ export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()):
     const dispatch: GateDispatch = {
       feature,
       cwd,
-      codex: payload.tool_input.codex,
+      codex: toolInput.codex,
       ...(payload.sessionId ? { sessionId: payload.sessionId } : {}),
       ...(payload.toolUseId ? { spawn: payload.toolUseId } : {}),
     };

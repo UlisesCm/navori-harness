@@ -15,7 +15,7 @@ import {
 } from "../lib/primitives/state-root.ts";
 import { classify, declaredFlagsFromSignals, type ClassifyInput } from "../lib/plan/classify.ts";
 import { checkWorkplan, formatCheckResult } from "../lib/plan/check.ts";
-import { applyPlanGate } from "../lib/plan/gate.ts";
+import { applyPlanGate, UNREADABLE_PAYLOAD } from "../lib/plan/gate.ts";
 import { applyWorkplanUpdate, renderWorkplan, type WorkplanUpdate } from "../lib/plan/render.ts";
 import { writeAcceptanceIndex } from "../lib/plan/acceptance-index.ts";
 import { validateEvidence } from "../lib/plan/evidence.ts";
@@ -541,9 +541,8 @@ const gateSubCommand = defineCommand({
     try {
       raw = JSON.parse(readFileSync(0, "utf8"));
     } catch {
-      // Malformed or empty stdin — nothing to gate against; a hard-fail here
-      // would block every tool call the moment the payload shape changes.
-      return;
+      // Unreadable stdin is a payload problem: the gate denies it under planTiers (R4).
+      raw = UNREADABLE_PAYLOAD;
     }
     applyPlanGate(raw);
   },
