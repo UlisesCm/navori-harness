@@ -10,11 +10,18 @@ import {
   existsSync,
   realpathSync,
   utimesSync,
+  readdirSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyPlanGate, evaluatePlanGate, normalizeRole, UNREADABLE_PAYLOAD } from "../gate.ts";
+import {
+  applyPlanGate,
+  claimDispatch,
+  evaluatePlanGate,
+  normalizeRole,
+  UNREADABLE_PAYLOAD,
+} from "../gate.ts";
 import { hasAuditTarget, outcomeFeatureKey } from "../../audit/cli-event.ts";
 import { repoFromCwd, sessionLogPath } from "../../audit/paths.ts";
 import type { Workplan } from "../schema.ts";
@@ -811,6 +818,37 @@ describe("evaluatePlanGate — Codex spawn_agent payloads (spec 0041 R9)", () =>
     const now = Date.parse("2026-10-03T20:28:30.000Z");
     expect(evaluatePlanGate(codex("implementer", FERNET), now).decision).toBe("allow");
     expect(existsSync(file)).toBe(false);
+  });
+
+  // Covers: R7
+  it("el segundo spawn sobre el mismo despacho se deniega y un createdAt futuro en más de 60 s caduca", () => {
+    writeConfig(true);
+    writeWorkplan("demo", VALID_LEVEL1);
+    const file = writeDispatch("demo");
+    expect(evaluatePlanGate(codex("implementer", FERNET), NOW).decision).toBe("allow");
+    expect(existsSync(file)).toBe(false);
+    expect(readdirSync(dispatchDir()).filter((n) => n.includes(".claim-"))).toEqual([]);
+    expect(evaluatePlanGate(codex("implementer", FERNET), NOW).decision).toBe("deny");
+
+    // Claim path: the file vanishes (a concurrent spawn won) or changes between read and claim.
+    const raced = writeDispatch("demo");
+    const raw = readFileSync(raced, "utf-8");
+    rmSync(raced);
+    expect(claimDispatch(raced, raw, NOW)).toContain("already claimed");
+    writeFileSync(raced, raw + " ");
+    expect(claimDispatch(raced, raw, NOW)).toContain("changed during evaluation");
+    expect(existsSync(raced)).toBe(false);
+
+    // Within the 60 s skew a future createdAt is still fresh; beyond it, stale.
+    for (const offset of [59_000, 60_000]) {
+      writeDispatch("demo", { createdAt: new Date(NOW + offset).toISOString() });
+      expect(evaluatePlanGate(codex("implementer", FERNET), NOW).decision).toBe("allow");
+    }
+    const future = writeDispatch("demo", { createdAt: new Date(NOW + 61_000).toISOString() });
+    const result = evaluatePlanGate(codex("implementer", FERNET), NOW);
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("stale");
+    expect(existsSync(future)).toBe(true);
   });
 
   // Covers: R9

@@ -6,9 +6,17 @@
  * directly, the same split `session-start-context.sh` and its TS-driven
  * partials already use.
  */
-import { existsSync, readFileSync, appendFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  appendFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { spawnSync } from "node:child_process";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import {
   checkoutRoot,
   ensureStateDirectory,
@@ -169,6 +177,17 @@ const ENCRYPTED_MESSAGE = /^gAAAAA[A-Za-z0-9_=-]*$/;
 
 /** How long a dispatch file stays valid after `createdAt` (spec 0041 R9, OQ2). */
 export const DISPATCH_TTL_MS = 10 * 60 * 1000;
+
+/** Clock skew tolerated for a `createdAt` ahead of now; beyond it the dispatch is stale (R7). */
+const DISPATCH_FUTURE_SKEW_MS = 60 * 1000;
+
+interface DispatchHit {
+  opening: string;
+  file: string;
+  feature: string;
+  /** Exact bytes evaluated, compared against the claimed file. */
+  raw: string;
+}
 const DISPATCH_DIR = ".navori/state/handoffs";
 const DISPATCH_FILE = /^dispatch_([a-z0-9][a-z0-9._-]*)\.json$/;
 
@@ -197,37 +216,63 @@ const DISPATCH_FIX =
   "spawning the implementer, and keep exactly one fresh dispatch (TTL 10 min)";
 
 /**
+ * One dispatch per spawn (R7): claims `file` by renaming it to a dot-prefixed name
+ * (which DISPATCH_FILE never matches), so of several parallel hooks only one wins.
+ * Returns the deny reason, or `undefined` when the claim succeeded with the same
+ * bytes that were evaluated. Fail-closed on any error.
+ */
+export function claimDispatch(file: string, raw: string, now: number): string | undefined {
+  // Ceiling: a crash between rename and rm leaves a hidden .claim-* file; harmless, removable by hand.
+  const claimPath = join(dirname(file), `.${basename(file)}.claim-${process.pid}-${now}`);
+  try {
+    renameSync(file, claimPath);
+  } catch (cause: unknown) {
+    return (cause as NodeJS.ErrnoException).code === "ENOENT"
+      ? "dispatch already claimed by a concurrent spawn."
+      : `dispatch could not be claimed (${cause instanceof Error ? cause.message : "rename failed"}).`;
+  }
+  let same = false;
+  try {
+    same = readFileSync(claimPath, "utf-8") === raw;
+  } catch {
+    // Unreadable claim: treated as changed.
+  }
+  rmSync(claimPath, { force: true });
+  return same ? undefined : "dispatch changed during evaluation; rewrite it and retry.";
+}
+
+/**
  * Reads the opening line of the single fresh dispatch file. The feature cannot
  * be taken from the (encrypted) message, so the rule is: exactly ONE valid,
  * non-stale dispatch file may exist; zero, several or any malformed one denies
  * rather than guessing. Returns the opening line plus the file to consume.
  */
-function readDispatch(
-  cwd: string,
-  now: number,
-): { opening: string; file: string; feature: string } | { reason: string } {
+function readDispatch(cwd: string, now: number): DispatchHit | { reason: string } {
   const root = resolveStateRoot({ cwd, feature: "dispatch", dir: DISPATCH_DIR });
   const names = existsSync(root.path)
     ? readdirSync(root.path).filter((n) => DISPATCH_FILE.test(n))
     : [];
-  const fresh: { opening: string; file: string; feature: string }[] = [];
+  const fresh: DispatchHit[] = [];
   let stale = 0;
   for (const name of names) {
     const file = stateArtifactPath(root, name);
     let parsed: Dispatch;
+    let raw: string;
     try {
-      parsed = DispatchSchema.parse(JSON.parse(readFileSync(file, "utf-8")));
+      raw = readFileSync(file, "utf-8");
+      parsed = DispatchSchema.parse(JSON.parse(raw));
     } catch {
       return { reason: `${file} is malformed — ${DISPATCH_FIX}.` };
     }
     if (parsed.feature !== DISPATCH_FILE.exec(name)![1]) {
       return { reason: `${file}: "feature" does not match the file name — ${DISPATCH_FIX}.` };
     }
-    if (now - Date.parse(parsed.createdAt) > DISPATCH_TTL_MS) {
+    const age = now - Date.parse(parsed.createdAt);
+    if (age > DISPATCH_TTL_MS || -age > DISPATCH_FUTURE_SKEW_MS) {
       stale++;
       continue;
     }
-    fresh.push({ opening: parsed.opening, file, feature: parsed.feature });
+    fresh.push({ opening: parsed.opening, file, feature: parsed.feature, raw });
   }
   if (fresh.length === 1) return fresh[0]!;
   if (fresh.length > 1) {
@@ -545,7 +590,7 @@ export function evaluatePlanGate(
 
   const prompt = toolInput.prompt ?? "";
   let firstLine = (prompt.split("\n")[0] ?? "").trim();
-  let consume: string | undefined;
+  let consume: { file: string; raw: string } | undefined;
   let dispatchFeature: string | undefined;
   // Codex V2: the message is encrypted (or absent), so the opening line comes
   // from the orchestrator's dispatch file. A readable message keeps the V1 path.
@@ -554,7 +599,7 @@ export function evaluatePlanGate(
       const dispatch = readDispatch(cwd, now);
       if ("reason" in dispatch) return deny(dispatch.reason);
       firstLine = dispatch.opening.split("\n")[0]!.trim();
-      consume = dispatch.file;
+      consume = { file: dispatch.file, raw: dispatch.raw };
       dispatchFeature = dispatch.feature;
     } catch (cause: unknown) {
       return deny(cause instanceof Error ? cause.message : "unsafe state root");
@@ -593,8 +638,10 @@ export function evaluatePlanGate(
       return deny(cause instanceof Error ? cause.message : "unsafe state root");
     }
   }
-  // One dispatch per spawn: an allowed spawn consumes its dispatch file.
-  if (consume && result.decision === "allow") rmSync(consume, { force: true });
+  if (consume && result.decision === "allow") {
+    const denied = claimDispatch(consume.file, consume.raw, now);
+    if (denied) return deny(denied);
+  }
   if (result.decision === "allow" && feature) {
     const dispatch: GateDispatch = {
       feature,
