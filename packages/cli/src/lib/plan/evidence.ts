@@ -325,24 +325,40 @@ function sameBinding(left?: DeliveryEvidenceBinding, right?: DeliveryEvidenceBin
 
 /**
  * Claude Code persists `cd`, so the recorded cwd of a `cd <dir> && ...`
- * criterion is `<tree>/<dir>`. Returns that `<dir>` only for a strict leading
- * `cd <dir> &&`: relative, plain segments (no `..`, `~`, quotes, variables,
- * globs or other shell syntax).
+ * criterion is `<tree>/<dir>`. Composes, in order, every `&&` segment that is
+ * exactly `cd <dir>` (`cd a && x && cd b` ⇒ `a/b`). Each `<dir>` is relative with
+ * plain segments (no `..`, `~`, quotes, variables or globs). Any `;`, `||`,
+ * newline, `(`, backtick or `$(`, or a non-`cd` segment mentioning
+ * `cd`/`pushd`/`popd`, makes the chain non-composable (`undefined`).
  */
-function leadingCdDir(command: string): string | undefined {
-  const dir = /^cd[ \t]+([^\s&;|<>$`"'\\*?[\]{}()~]+)[ \t]*&&/.exec(command)?.[1];
-  if (dir === undefined || dir.startsWith("/")) return undefined;
-  const segments = dir.split("/");
-  return segments.some((s) => s === "" || s === "." || s === "..") ? undefined : dir;
+function cdChainDir(command: string): string | undefined {
+  if (/;|\|\||\n|\(|`|\$\(/.test(command)) return undefined;
+  const parts: string[] = [];
+  for (const raw of command.split("&&")) {
+    const segment = raw.trim();
+    const dir = /^cd[ \t]+([^\s&;|<>$`"'\\*?[\]{}()~]+)$/.exec(segment)?.[1];
+    if (dir === undefined) {
+      if (/(^|\s)(cd|pushd|popd)(\s|$)/.test(segment)) return undefined;
+      continue;
+    }
+    if (dir.startsWith("/")) return undefined;
+    const segments = dir.split("/");
+    if (segments.some((s) => s === "" || s === "." || s === "..")) return undefined;
+    parts.push(dir);
+  }
+  return parts.length === 0 ? undefined : parts.join("/");
 }
 
-/** Real path of the criterion's leading `cd` target, only if it stays inside `tree`. */
+/** Real path of the criterion's composed `cd` target, only if it stays inside `tree`. */
 function cdTargetCwd(tree: string, command: string): string | undefined {
-  const dir = leadingCdDir(command);
+  const dir = cdChainDir(command);
   if (dir === undefined) return undefined;
   const target = real(join(tree, dir));
   return target?.startsWith(`${tree}${sep}`) ? target : undefined;
 }
+
+/** One rejected candidate; `cwdMismatch` marks a run from the wrong directory. */
+type Problem = { why: string; tree: string; cwdMismatch?: boolean };
 
 /** Why one command-matching candidate is not valid, or `undefined` if it is. */
 function candidateProblem(
@@ -351,7 +367,7 @@ function candidateProblem(
   command: string,
   binding?: DeliveryEvidenceBinding,
   current?: ValidateEvidenceInput["current"],
-): { why: string; tree: string } | undefined {
+): Problem | undefined {
   const tree = real(line.tree);
   if (tree === undefined) return { why: `tree ${line.tree} no longer exists`, tree: line.tree };
   if (!accepted.includes(tree)) {
@@ -359,7 +375,7 @@ function candidateProblem(
   }
   const cwd = real(line.cwd);
   if (cwd !== tree && (cwd === undefined || cwd !== cdTargetCwd(tree, command))) {
-    return { why: `ran from ${line.cwd}, not the tree root ${tree}`, tree };
+    return { why: `ran from ${line.cwd}, not the tree root ${tree}`, tree, cwdMismatch: true };
   }
   const head = current?.cwd === tree ? current.head : readHead(tree);
   const headMoved = `tree changed since the run (HEAD ${line.head.slice(0, 7) || "none"} → ${head.slice(0, 7) || "none"})`;
@@ -432,7 +448,7 @@ export function validateEvidence(input: ValidateEvidenceInput): EvidenceVerdict 
   if (sameCommand.length === 0) {
     return { ok: false, why: "recorded for a different command", fix: rerun(treeRoot) };
   }
-  let firstProblem: { why: string; tree: string } | undefined;
+  let firstProblem: Problem | undefined;
   for (const line of sameCommand) {
     const problem = candidateProblem(line, accepted, command, input.deliveryBinding, input.current);
     if (problem === undefined) {
@@ -452,6 +468,17 @@ export function validateEvidence(input: ValidateEvidenceInput): EvidenceVerdict 
     firstProblem ??= problem;
   }
   const problem = firstProblem!;
+  if (problem.cwdMismatch) {
+    return {
+      ok: false,
+      why: problem.why,
+      fix:
+        `${problem.why}. Either \`cd ${problem.tree}\` first and rerun from there, ` +
+        "or change the criterion's `command` to `cd <dir> && …` (a simple relative `cd` " +
+        `chain joined by \`&&\`), re-render (\`navori plan render ${feature}\`) and run it.\n` +
+        `       then: navori plan update ${feature} --progress ${id}=cumplido`,
+    };
+  }
   return {
     ok: false,
     why: problem.why,
