@@ -13,7 +13,7 @@ import {
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyPlanGate, evaluatePlanGate, UNREADABLE_PAYLOAD } from "../gate.ts";
+import { applyPlanGate, evaluatePlanGate, normalizeRole, UNREADABLE_PAYLOAD } from "../gate.ts";
 import { hasAuditTarget, outcomeFeatureKey } from "../../audit/cli-event.ts";
 import { repoFromCwd, sessionLogPath } from "../../audit/paths.ts";
 import type { Workplan } from "../schema.ts";
@@ -907,5 +907,54 @@ describe("applyPlanGate — dispatch-outcome emission (spec 0042 T10a)", () => {
     });
     expect(seen).toEqual({ exitCode: undefined, stdout: "", stderr: "" });
     expect(lines(log)).toHaveLength(1);
+  });
+});
+
+describe("evaluatePlanGate — implementer role recognition (spec 0052 R3)", () => {
+  // Covers: R3
+  it("Implementer con prefijo o espacios se gatea en Claude y Codex gatea default, worker y sin rol pero no los siete roles de la lista", () => {
+    writeConfig(true);
+    expect(normalizeRole(" Navori:Implementer ")).toBe("implementer");
+
+    // Claude: prefix, case and spaces still gate; other types pass.
+    for (const type of ["implementer", "navori:implementer", " Implementer ", "plug:IMPLEMENTER"]) {
+      const result = evaluatePlanGate(payload(type, "just fix the bug"));
+      expect(result.decision, type).toBe("deny");
+      expect(result.reason).toContain("workplan: <feature>");
+    }
+    for (const type of ["general-purpose", "reviewer", "implementer-x"]) {
+      expect(evaluatePlanGate(payload(type, "x")).decision, type).toBe("allow");
+    }
+
+    // Codex: fail-closed outside the list (agent_type present, or the engine env flag).
+    const codex = (agentType?: string): unknown => ({
+      cwd,
+      tool_input: {
+        ...(agentType === undefined ? {} : { agent_type: agentType }),
+        message: "just do it",
+      },
+    });
+    for (const type of ["default", "worker", "orchestrator", "implementer", "mystery", undefined]) {
+      expect(
+        evaluatePlanGate(codex(type), Date.now(), { codex: true }).decision,
+        String(type),
+      ).toBe("deny");
+    }
+    expect(evaluatePlanGate(codex("default")).decision).toBe("deny"); // heuristic fallback
+    for (const type of [
+      "scout",
+      "architect",
+      "auditor",
+      "reviewer",
+      "scribe",
+      "publisher",
+      "explorer",
+    ]) {
+      expect(evaluatePlanGate(codex(type), Date.now(), { codex: true }).decision, type).toBe(
+        "allow",
+      );
+    }
+    // Without the env flag and without agent_type this is a Claude spawn: general-purpose.
+    expect(evaluatePlanGate(codex(undefined)).decision).toBe("allow");
   });
 });

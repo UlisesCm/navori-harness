@@ -24,6 +24,7 @@ import { checkWorkplan, formatCheckResult } from "./check.ts";
 import type { Workplan } from "./schema.ts";
 import { appendCliEvent, hasAuditTarget, outcomeFeatureKey } from "../audit/cli-event.ts";
 import { locateSpecDir } from "../spec/locate.ts";
+import { NON_IMPLEMENTER_ROLES } from "../../engines/shared/roster.ts";
 import { parseTasks } from "../spec/tasks.ts";
 
 /** What an allowed `workplan: <feature>` spawn tells the audit log (spec 0042 T10a). */
@@ -77,11 +78,43 @@ export const UNREADABLE_PAYLOAD: unique symbol = Symbol("unreadable-payload");
 type ParsedPayload = { ok: true; payload: AgentHookPayload } | { ok: false; problem: string };
 
 /**
+ * Normalizes a spawn role for comparison: no whitespace, lowercase, without a
+ * `<plugin>:` prefix (R3). `" Navori:Implementer "` becomes `implementer`.
+ */
+export function normalizeRole(role: string): string {
+  return role
+    .replace(/\s+/g, "")
+    .toLowerCase()
+    .replace(/^[^:]*:/, "");
+}
+
+/**
+ * Whether a spawn is gated as an implementer (R3). Claude: the normalized
+ * `subagent_type` is `implementer` (no type is `general-purpose`, which passes).
+ * Codex: fail-closed, anything whose normalized role is missing or outside
+ * {@link NON_IMPLEMENTER_ROLES} (`default`, `worker`, unknown roles).
+ */
+export function isImplementerSpawn(role: string | undefined, codex: boolean): boolean {
+  const normalized = normalizeRole(role ?? "");
+  return codex ? !NON_IMPLEMENTER_ROLES.includes(normalized) : normalized === "implementer";
+}
+
+/** Options for {@link evaluatePlanGate}. */
+export interface PlanGateOptions {
+  /**
+   * Treat the spawn as Codex even without `agent_type`. Set from
+   * `NAVORI_HOOK_ENGINE=codex`, which the Codex copy of `plan-gate.sh` exports;
+   * an old hook copy lacks it and falls back to "`agent_type` is present".
+   */
+  codex?: boolean;
+}
+
+/**
  * Parses the hook payload. Only a non-object root or a missing/non-object
  * `tool_input` is a `problem`; any field with a non-string type is treated as
  * absent (a null Codex V2 `message` must not deny every spawn).
  */
-function parsePayload(raw: unknown): ParsedPayload {
+function parsePayload(raw: unknown, forceCodex: boolean): ParsedPayload {
   if (raw === UNREADABLE_PAYLOAD) return { ok: false, problem: "payload is not valid JSON" };
   if (!isRecord(raw)) return { ok: false, problem: "payload is not a JSON object" };
   if (!isRecord(raw.tool_input)) return { ok: false, problem: "payload has no tool_input object" };
@@ -104,7 +137,7 @@ function parsePayload(raw: unknown): ParsedPayload {
         prompt:
           (typeof toolInput.message === "string" ? toolInput.message : undefined) ??
           (typeof toolInput.prompt === "string" ? toolInput.prompt : undefined),
-        codex: codexAgentType !== undefined,
+        codex: forceCodex || codexAgentType !== undefined,
       },
     },
   };
@@ -388,9 +421,18 @@ function evaluateSpec(
  * `recordAndCountRejections`). Fail-closed under `planTiers`: an unreadable
  * config or payload denies; only an absent config or a non-implementer allows.
  */
-export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()): PlanGateResult {
-  const parsed = parsePayload(rawPayload);
-  if (parsed.ok && parsed.payload.tool_input?.subagentType !== "implementer") return ALLOW;
+export function evaluatePlanGate(
+  rawPayload: unknown,
+  now: number = Date.now(),
+  options: PlanGateOptions = {},
+): PlanGateResult {
+  const parsed = parsePayload(rawPayload, options.codex === true);
+  if (
+    parsed.ok &&
+    !isImplementerSpawn(parsed.payload.tool_input?.subagentType, parsed.payload.tool_input!.codex)
+  ) {
+    return ALLOW;
+  }
 
   // The payload's cwd is honoured even when the rest of it is a `problem`.
   const rawCwd = isRecord(rawPayload) ? rawPayload.cwd : undefined;
@@ -518,7 +560,9 @@ export function emitDispatchOutcome(dispatch: GateDispatch): void {
  * dispatch. The emission runs after the exit code is settled and is swallowed.
  */
 export function applyPlanGate(raw: unknown): void {
-  const result = evaluatePlanGate(raw);
+  const result = evaluatePlanGate(raw, Date.now(), {
+    codex: process.env.NAVORI_HOOK_ENGINE === "codex",
+  });
   if (result.decision === "deny") {
     process.stderr.write(`[navori] BLOCKED by plan-gate: ${result.reason}\n`);
     process.exitCode = 2;
