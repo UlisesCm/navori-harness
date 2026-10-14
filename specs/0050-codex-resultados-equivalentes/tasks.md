@@ -1,6 +1,6 @@
 # Codex: resultados equivalentes y perfiles actuales — Tasks
 
-**Estado:** E1/M1 y E2/M2 implementados; E2 aprobado con gate completo verificado. E3/E4 pendientes. La evaluación comparativa viva sigue pendiente. Cada caso debe incluir `// Covers: R<n>`.
+**Estado:** E1/M1 y E2/M2 implementados; E2 aprobado con gate completo verificado. E3 pendiente. E4/M4 T8–T10 implementado con A7/A8 y `check:fast` verificados; revisión independiente y gate completo de envío pendientes. M5 T11/A9 y T12/A10 siguen pendientes. La evaluación comparativa viva y el cierre de E4/spec siguen pendientes. Cada caso debe incluir `// Covers: R<n>`.
 
 **Precondición:** crear y clasificar un workplan independiente por entrega y obtener la aprobación correspondiente. E<n+1> comienza después de que E<n> se integre. Cada milestone ejecuta su criterio y `bun run check:fast` desde la raíz del repo; al cerrar cada entrega se ejecuta `bun run check` desde la raíz. Para E3–E4, esta precondición sigue vigente. Los paths marcados *futuro* son salidas que deberá crear la tarea indicada.
 
@@ -53,12 +53,22 @@ Estimated LOC: 1000
 
 ### M4 — Resolución y render preservan intención
 
-- **A7** [observable] — Ejecutar `cd packages/cli && bun run test src/lib/assets/__tests__/model-profile.test.ts src/lib/codex/__tests__/model-catalog.test.ts` → exit 0; Opus medium resuelve Sol medium, Sonnet medium Luna high, otros efforts se conservan, pins/override prevalecen y 6.10 supera 6.9.
-- **A8** [observable] — Ejecutar `cd packages/cli && bun run test src/commands/__tests__/model-profile-doctor.test.ts src/engines/codex/__tests__/profile-render.test.ts src/lib/codex/__tests__/profile-selection.test.ts` → exit 0; cada rol habilitado tiene provenance, herencia explícita se distingue, configured no equivale a observed y preservación se mantiene. `profile-render.test.ts` y `profile-selection.test.ts` son futuros; los crea T9 y T10.
+**Registro M4:** T8–T10 implementados. A7 pasó 33 pruebas en 2 archivos; A8 pasó 18
+pruebas en 3 archivos; `bun run check:fast` terminó con exit 0 y el bundle midió
+1473.4 KB frente al límite de 1500 KB. El alcance verificado es resolución/proyección,
+render y diagnóstico deterministas. No verifica selección ni aplicación runtime en Codex.
+Revisión independiente y gate completo de envío pendientes.
 
-- [ ] **T8** (R9, R10, R11) — Resolver modelo y effort respetando precedencia y comparación numérica. Casos: `opus-medium-sol-medium`, `sonnet-medium-luna-high`, `other-efforts-preserved`, `model-pin`, `explicit-effort-override`, `6.10-over-6.9`, `listed-future-major`; suites existentes `packages/cli/src/lib/assets/__tests__/model-profile.test.ts` y `packages/cli/src/lib/codex/__tests__/model-catalog.test.ts`. `effect: behavior`; `test: model-profile.test.ts::sonnet-medium-luna-high`.
-- [ ] **T9** (R12, R14, R16) — Cubrir todos los roles habilitados y diferenciar intención, render y runtime, preservando ámbito. Casos: `every-enabled-main-core-extra-local`, `explicit-inheritance`, `configured-not-observed`, `user-global-trust-preservation`; suite existente `packages/cli/src/commands/__tests__/model-profile-doctor.test.ts` y futura `packages/cli/src/engines/codex/__tests__/profile-render.test.ts`, creada por T9. `effect: behavior`; `test: profile-render.test.ts::every-enabled-main-core-extra-local`.
-- [ ] **T10** (R15, R18) — Representar frescura desconocida/obsoleta y rechazo del host sin sustitución silenciosa. Casos: `valid-but-obsolete-catalog`, `freshness-unknown`, `malformed-catalog`, `offline-catalog`, `unsupported-effort`, `runtime-rejection`; suite existente `packages/cli/src/lib/codex/__tests__/model-catalog.test.ts` y futura `packages/cli/src/lib/codex/__tests__/profile-selection.test.ts`, creada por T10. `effect: behavior`; `test: profile-selection.test.ts::freshness-unknown`.
+- **A7** [observable] — Ejecutar `cd packages/cli && bun run test src/lib/assets/__tests__/model-profile.test.ts src/lib/codex/__tests__/model-catalog.test.ts` → exit 0; Opus medium resuelve Sol medium, Sonnet medium Luna high, otros efforts se conservan, pins/override prevalecen y 6.10 supera 6.9.
+- **A8** [observable] — Ejecutar `cd packages/cli && bun run test src/commands/__tests__/model-profile-doctor.test.ts src/engines/codex/__tests__/profile-render.test.ts src/lib/codex/__tests__/profile-selection.test.ts` → exit 0; cada rol habilitado tiene provenance, herencia explícita se distingue, configured no equivale a observed y preservación se mantiene.
+
+- [x] **T8** (R9, R10, R11) — Resolver modelo y effort respetando precedencia y comparación numérica. Casos: `opus-medium-sol-medium`, `sonnet-medium-luna-high`, `other-efforts-preserved`, `model-pin`, `explicit-effort-override`, `6.10-over-6.9`, `listed-future-major`; suites `packages/cli/src/lib/assets/__tests__/model-profile.test.ts` y `packages/cli/src/lib/codex/__tests__/model-catalog.test.ts`. A7 pasó 33 pruebas en 2 archivos. `effect: behavior`; `test: model-profile.test.ts::sonnet-medium-luna-high`.
+- [x] **T9** (R12, R14, R16) — Cubrir los roles habilitados y diferenciar intención, render y runtime, preservando ámbito. Casos: `every-enabled-main-core-extra-local`, `explicit-inheritance`, `configured-not-observed`, `user-global-trust-preservation`; suites `packages/cli/src/commands/__tests__/model-profile-doctor.test.ts` y `packages/cli/src/engines/codex/__tests__/profile-render.test.ts`. A8 cubre las suites de T9/T10: 18 pruebas en 3 archivos. `effect: behavior`; `test: profile-render.test.ts::every-enabled-main-core-extra-local`.
+- [x] **T10** (R15, R18) — Representar frescura desconocida/obsoleta y rechazo del host sin sustitución silenciosa. Casos: `valid-but-obsolete-catalog`, `freshness-unknown`, `malformed-catalog`, `offline-catalog`, `unsupported-effort`, `runtime-rejection`; suites `packages/cli/src/lib/codex/__tests__/model-catalog.test.ts` y `packages/cli/src/lib/codex/__tests__/profile-selection.test.ts`. A8 cubre la suite futura de selección; 18 pruebas en 3 archivos en total. `effect: behavior`; `test: profile-selection.test.ts::freshness-unknown`.
+
+El alcance de M4 es la metadata y configuración renderizada para futuros contextos. Startup,
+dispatch, selección/aplicación runtime y perfiles efectivos del host no se observaron;
+ningún test unitario/mocked cierra A9 o A10. T6/E3 permanece pendiente.
 
 ### M5 — Aplicación por frontera y evaluación final
 

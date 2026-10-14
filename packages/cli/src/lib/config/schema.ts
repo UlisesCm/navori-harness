@@ -295,7 +295,18 @@ export const HARNESS_DEFAULTS: Readonly<Record<string, boolean>> = (() => {
   return flags;
 })();
 
+const CodexProfileSchema = z
+  .object({
+    model: z.string().trim().min(1).optional(),
+    effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
+  })
+  .strict();
+
 const ModelsSchema = z.object({
+  codexProfiles: z
+    .record(z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/), CodexProfileSchema)
+    .describe("Per-native-agent Codex overrides; orchestrator is reserved for the main thread")
+    .optional(),
   orchestrator: z.enum(MODELS).optional(),
   implementer: z.enum(MODELS).optional(),
   reviewer: z.enum(MODELS).optional(),

@@ -265,6 +265,34 @@
     "models": {
       "type": "object",
       "properties": {
+        "codexProfiles": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "model": {
+                "type": "string",
+                "minLength": 1
+              },
+              "effort": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Per-native-agent Codex overrides; orchestrator is reserved for the main thread"
+        },
         "orchestrator": {
           "type": "string",
           "enum": [

@@ -1,3 +1,4 @@
+import { resolveCodexProfile, readNativeCodexProfile } from "../../lib/assets/model-profile.ts";
 import type { NavoriConfig } from "../../lib/config/config.ts";
 import type { LoadedPlugin } from "../../lib/config/plugins.ts";
 import {
@@ -25,6 +26,7 @@ function nextPowerOfTwoAtLeast(n: number): number {
   return p;
 }
 
+/** Build project-managed future-start intent; it does not change an active main thread. */
 export function buildCodexConfigToml(
   config: NavoriConfig,
   plugins: readonly LoadedPlugin[],
@@ -32,6 +34,7 @@ export function buildCodexConfigToml(
   /** Byte size of the AGENTS.md this SAME render plans to write (D8) — not the
    *  one on disk, since `AGENTS.md` and `config.toml` are written together. */
   agentsMdBytes = 0,
+  cwd?: string,
 ): { body: string; warnings: string[] } {
   // Codex currently defaults both features on, but a full navori adapter must
   // stay deterministic when a user's global config disables either one.
@@ -40,6 +43,17 @@ export function buildCodexConfigToml(
     'approval_policy = "on-request"',
     'approvals_reviewer = "user"',
   ];
+  const existing = cwd ? readNativeCodexProfile(cwd, "orchestrator") : null;
+  const main = resolveCodexProfile(config, {
+    name: "orchestrator",
+    tier: config.models?.orchestrator,
+    effort: config.effort?.orchestrator,
+    previous: existing?.model,
+  });
+  if (main.model.wouldRender && !existing?.userModel)
+    lines.push(`model = ${tomlString(main.model.wouldRender)}`);
+  if (main.effort.wouldRender && !existing?.userEffort)
+    lines.push(`model_reasoning_effort = ${tomlString(main.effort.wouldRender)}`);
   // R12/D8: only written above Codex's own default — a render that stays under
   // it must not pin a value that would silently diverge from a future Codex
   // default.
