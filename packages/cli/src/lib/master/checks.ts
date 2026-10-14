@@ -36,6 +36,7 @@ import {
 } from "./stages.ts";
 import { splitTemplateSections, templateHeaders, type TemplateSection } from "./templates.ts";
 import { masterMarkers, type MasterMarkers } from "./markers.ts";
+import { DeliveryStateSchema } from "./delivery-schema.ts";
 import {
   masterPartsRegion,
   readMasterStatus,
@@ -677,6 +678,26 @@ function parseIntegrityTable(
   return map.size > 0 ? map : null;
 }
 
+/** Closed `deliveries` stage (R23): `state.json` must satisfy the deliveries
+ * schema and carry `closure`. No `CLOSURE.md` is required and `STATUS.md` is not
+ * compared, since a closed stage is never re-rendered. */
+function checkClosedDeliveryStage(stagePath: string, stageDir: string): CheckFailure[] {
+  const statePathAbs = join(stagePath, "state.json");
+  if (!existsSync(statePathAbs)) return [`${stageDir}: falta state.json`];
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(statePathAbs, "utf8"));
+  } catch {
+    return [`${stageDir}/state.json no es válido`];
+  }
+  const parsed = DeliveryStateSchema.safeParse(raw);
+  if (!parsed.success) return [`${stageDir}/state.json no es válido`];
+  if (parsed.data.phase !== "closed")
+    return [`${stageDir}: state.json.phase es '${parsed.data.phase}', no 'closed'`];
+  if (!parsed.data.closure) return [`${stageDir}: state.json no tiene closure`];
+  return [];
+}
+
 /**
  * `navori master check --stage <NN-slug>`: a closed stage is read-only (R50).
  * Verifies its `state.json` is `closed`, its `raw/.gitignore` is still there,
@@ -703,12 +724,16 @@ export function checkClosedStage(
   if (entry?.state === "convertida" && entry.spec && !existsSync(join(cwd, entry.spec))) {
     failures.push(`${stageDir}: spec aún no creada: ${entry.spec}`);
   }
-
   const gitignore = join(stagePath, "context", "raw", ".gitignore");
   if (!existsSync(gitignore)) {
     failures.push(
       `${stageDir}: falta context/raw/.gitignore (repárelo con: git checkout -- ${gitignore})`,
     );
+  }
+
+  if (entry?.workflow === "deliveries") {
+    failures.push(...checkClosedDeliveryStage(stagePath, stageDir));
+    return failures;
   }
 
   const statePathAbs = join(stagePath, "state.json");

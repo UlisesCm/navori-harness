@@ -1,14 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, join, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { readConfig } from "../config/config.ts";
 import { writeFileAtomic } from "../primitives/atomic.ts";
 import { MasterStateSchema, PartsSchema, type PartState } from "./schema.ts";
 import { activeStage, assertNoCloseInProgress, masterDirPath, readMasterIndex } from "./stages.ts";
 import { checkWorkplan } from "../plan/check.ts";
-import { WorkplanSchema } from "../plan/schema.ts";
+import { WorkplanSchema, type Workplan } from "../plan/schema.ts";
 import { validateEvidence } from "../plan/evidence.ts";
-import { resolveStateRoot, stateArtifactPath } from "../primitives/state-root.ts";
+import { resolveStateRoot, stateArtifactPath, type StateRoot } from "../primitives/state-root.ts";
 import { checkReceipt, evidenceIdentity } from "../diagnose/receipt.ts";
 import { containedFile, deliveryDigest } from "./delivery-checks.ts";
 import {
@@ -32,6 +32,16 @@ export interface PartChange {
   command?: string;
   result?: string;
   approvedBy?: string;
+}
+
+/** Reads a delivery's workplan; a missing file names the expected path relative to the checkout (R35). */
+function readDeliveryWorkplan(root: StateRoot, feature: string): Workplan {
+  const path = stateArtifactPath(root, `workplan_${feature}.json`);
+  if (!existsSync(path))
+    throw new Error(
+      `falta el workplan ${relative(root.cwd, path).split(sep).join("/")}; créelo con 'navori master delivery-slice <P>'`,
+    );
+  return WorkplanSchema.parse(JSON.parse(readFileSync(path, "utf8")) as unknown);
 }
 
 /** Record current host provenance or an explicitly attested manual obligation. */
@@ -72,11 +82,7 @@ export function recordDeliveryCriterion(
     )!;
     const feature = `delivery-${snapshot.slug}-${partId.toLowerCase()}`;
     const root = resolveStateRoot({ cwd, feature });
-    const plan = WorkplanSchema.parse(
-      JSON.parse(
-        readFileSync(stateArtifactPath(root, `workplan_${feature}.json`), "utf8"),
-      ) as unknown,
-    );
+    const plan = readDeliveryWorkplan(root, feature);
     if (!plan.source || !checkWorkplan(plan, { cwd: root.cwd, feature }).ok)
       throw new Error("source-backed plan requires current approved planning metadata");
     const id = Object.entries(plan.source.criterionMap).find(
@@ -173,11 +179,7 @@ export function deliveryPartProof(
       if (record.proof.kind !== "recorded")
         throw new Error(`${qualifiedId}: executable provenance required`);
       const root = resolveStateRoot({ cwd, feature: record.proof.feature });
-      const plan = WorkplanSchema.parse(
-        JSON.parse(
-          readFileSync(stateArtifactPath(root, `workplan_${record.proof.feature}.json`), "utf8"),
-        ) as unknown,
-      );
+      const plan = readDeliveryWorkplan(root, record.proof.feature);
       if (!plan.source || !checkWorkplan(plan, { cwd: root.cwd, feature: record.proof.feature }).ok)
         throw new Error("source-backed plan is stale or unapproved");
       const binding = captureDeliveryCriterion(

@@ -1189,6 +1189,45 @@ describe("checkClosedStage — R50, hash integrity with CRLF normalization", () 
     expect(failures.some((f) => f.includes("git checkout"))).toBe(true);
   });
 
+  // Covers: R23
+  it("check --stage de una entrega cerrada valida su esquema sin exigir CLOSURE.md", () => {
+    const dir = stagePath("01-mvp");
+    mkdirSync(join(dir, "context", "raw"), { recursive: true });
+    writeFileSync(join(dir, "context", "raw", ".gitignore"), "*\n!.gitignore\n");
+    writeFileSync(
+      indexJsonPath(cwd, SPECS_DIR),
+      JSON.stringify({
+        version: 2,
+        stages: [stage({ state: "cerrada", closedAt: "2026-01-02", workflow: "deliveries" })],
+      }),
+    );
+    const state = {
+      version: 2,
+      workflow: "deliveries",
+      phase: "closed",
+      mode: null,
+      signal: baseState().signal,
+      history: [{ phase: "closed", at: "2026-01-02" }],
+      closure: {
+        closedAt: "2026-01-02T00:00:00.000Z",
+        baselineIdentity: "a".repeat(64),
+        authorityGeneration: 1,
+        pendingPublication: [],
+      },
+    };
+    writeFileSync(join(dir, "state.json"), JSON.stringify(state));
+    expect(checkClosedStage(cwd, SPECS_DIR, "01-mvp", "es")).toEqual([]);
+    writeFileSync(join(dir, "state.json"), JSON.stringify({ ...state, version: 1 }));
+    expect(checkClosedStage(cwd, SPECS_DIR, "01-mvp", "es")).toEqual([
+      "01-mvp/state.json no es válido",
+    ]);
+    writeFileSync(join(dir, "state.json"), JSON.stringify(state));
+    rmSync(join(dir, "context", "raw", ".gitignore"));
+    expect(checkClosedStage(cwd, SPECS_DIR, "01-mvp", "es").join(" ")).toContain(
+      "context/raw/.gitignore",
+    );
+  });
+
   it("fails a closed stage whose CLOSURE.md has no Integridad table at all (bypass closed, R50)", () => {
     seedClosedStageWithoutIntegrityTable();
     const failures = checkClosedStage(cwd, SPECS_DIR, "01-mvp", "es");

@@ -383,3 +383,21 @@ describe("delivery CLI", () => {
     expect((await invoke(cwd, "delivery-check")).output).toMatch(/no active deliveries stage/);
   });
 });
+
+// Covers: R35
+it("delivery-criterion sin workplan nombra la ruta relativa sin ENOENT ni ruta absoluta", (): void => {
+  const { cwd, master } = initDeliveryRepo();
+  dirs.push(cwd);
+  master("init", "delivery", "--workflow", "deliveries");
+  master("init");
+  writeDeliveryParts(cwd, join(cwd, "specs/_master/01-delivery"));
+  master("delivery-baseline", "--approved-by", "user");
+  master("delivery-queue", "--delivery", "E1", "--parts", "P1", "--approved-by", "user");
+  const result = cli(cwd, "master", "delivery-criterion", "--part", "P1", "--criterion", "A1");
+  const output = `${result.out}${result.err}`;
+  expect(result.code).not.toBe(0);
+  expect(output).toContain(".navori/state/handoffs/workplan_delivery-delivery-p1.json");
+  expect(output).toContain("navori master delivery-slice");
+  expect(output).not.toMatch(/ENOENT/);
+  expect(output).not.toContain(cwd);
+}, 120_000);
