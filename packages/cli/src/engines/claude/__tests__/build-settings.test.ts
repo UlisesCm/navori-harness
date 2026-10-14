@@ -462,7 +462,7 @@ describe("buildClaudeSettings — recursive-rm permissions are a derived cross p
     expect(observed).toEqual([...MATCHING_SEMANTICS]);
   });
 
-  // Keep the `:*` model bounded to the seven intentionally prompted commands.
+  // Keep the `:*` model bounded to the eight intentionally prompted commands.
   it("recognizes only the intended `:*` ask entries, never a deny entry", () => {
     const { ask, deny } = permissions();
     expect(ask.filter((entry) => entry.includes(":"))).toEqual([
@@ -473,6 +473,7 @@ describe("buildClaudeSettings — recursive-rm permissions are a derived cross p
       "Bash(navori master advance:*)",
       "Bash(navori master part:*)",
       "Bash(navori master close:*)",
+      "Bash(navori plan escalation-reset:*)",
     ]);
     expect(deny.filter((entry) => entry.includes(":"))).toEqual([]);
   });

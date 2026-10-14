@@ -275,6 +275,36 @@ describe.runIf(runsBash)("master-accept-confirm.sh", () => {
     expect(run(payload(command)).stdout.trim()).toBe("");
   });
 
+  // Covers: R9
+  it("escalation-reset con approved-by pregunta en Claude y deniega como confirmación en Codex", () => {
+    const description = "another review round after two rejections at level 2 or higher";
+    const command = 'navori plan escalation-reset demo --approved-by user --reason "again"';
+    expectAsk(payload(command), undefined, description);
+    expectAsk(
+      payload(`cd x && npx navori plan escalation-reset demo --approved-by=user`),
+      undefined,
+      description,
+    );
+
+    // Without --approved-by the CLI itself refuses; the hook stays silent.
+    expect(run(payload("navori plan escalation-reset demo --reason x")).stdout.trim()).toBe("");
+    expect(run(payload("navori plan check demo --approved-by user")).stdout.trim()).toBe("");
+
+    const dir = join(mkdtempSync(join(tmpdir(), "navori-reset-codex-")), ".codex/hooks");
+    mkdirSync(dir, { recursive: true });
+    const codexPath = join(dir, "master-accept-confirm.sh");
+    writeFileSync(codexPath, readFileSync(hookPath, "utf-8"));
+    chmodSync(codexPath, 0o755);
+    const result = spawnSync("bash", [codexPath], {
+      input: JSON.stringify(payload(command)),
+      encoding: "utf-8",
+    });
+    expect(result.status).toBe(0);
+    const out = JSON.parse(result.stdout).hookSpecificOutput;
+    expect(out.permissionDecision).toBe("deny");
+    expect(out.permissionDecisionReason).toContain(description);
+  });
+
   // Covers: R62
   it("emits the fixed reason without jq or node", () => {
     expectAsk(payload("navori master part P2 --accept A3 --approved-by user"), {

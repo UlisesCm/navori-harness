@@ -133,6 +133,16 @@ describe("buildCodexRules — translation (spec 0035 D5)", () => {
 });
 
 describe("Codex permission translation guarantees (spec 0041)", () => {
+  // Covers: R9
+  it("translates the escalation-reset ask rule to a Codex prompt, never an allow", () => {
+    const rules = collectShellPermissionRules(MINIMAL_CONFIG, []);
+    expect(rules.ask).toContain("Bash(navori plan escalation-reset:*)");
+    expect(rules.allow).not.toContain("Bash(navori plan escalation-reset:*)");
+    expect(buildCodexRules(rules).body).toMatch(
+      /pattern = \["navori", "plan", "escalation-reset"\][\s\S]*?decision = "prompt"/,
+    );
+  });
+
   // Covers: R14, R15
   it("never emits allow, even for the real merged rule set", () => {
     const rules = collectShellPermissionRules(MINIMAL_CONFIG, []);

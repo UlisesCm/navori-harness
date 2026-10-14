@@ -5,9 +5,10 @@
  */
 import { defineCommand } from "citty";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  ensureStateDirectory,
   resolveStateRoot,
   stateArtifactPath,
   type StateRoot,
@@ -20,7 +21,7 @@ import {
   type ClassifyInput,
 } from "../lib/plan/classify.ts";
 import { checkWorkplan, formatCheckResult, type CheckResult } from "../lib/plan/check.ts";
-import { applyPlanGate, UNREADABLE_PAYLOAD } from "../lib/plan/gate.ts";
+import { applyPlanGate, recordAndCountRejections, UNREADABLE_PAYLOAD } from "../lib/plan/gate.ts";
 import { applyWorkplanUpdate, renderWorkplan, type WorkplanUpdate } from "../lib/plan/render.ts";
 import { writeAcceptanceIndex } from "../lib/plan/acceptance-index.ts";
 import { validateEvidence } from "../lib/plan/evidence.ts";
@@ -574,6 +575,75 @@ const gateSubCommand = defineCommand({
   },
 });
 
+/** Exits 1 with a one-line usage error, writing nothing. */
+function failUsage(message: string): void {
+  process.stderr.write(`ERROR: ${message}\n`);
+  process.exitCode = 1;
+}
+
+/**
+ * `navori plan escalation-reset` (R9): the user's explicit restart of the
+ * rejection count after two `CHANGES_REQUESTED` at level >= 2. Appends one
+ * `reset` line to the gate log. A local seatbelt, not an authenticated
+ * attestation: the host asks for confirmation (ask rule + hook).
+ */
+const escalationResetSubCommand = defineCommand({
+  meta: {
+    name: "escalation-reset",
+    description: "Restart the gate's rejection count for a level >= 2 feature (user approval)",
+  },
+  args: {
+    ...shared,
+    "approved-by": { type: "string", description: "Must be user" },
+    reason: { type: "string", description: "Why another review round is authorized" },
+  },
+  run({ args }) {
+    const reason = typeof args.reason === "string" ? args.reason.trim() : "";
+    if (args["approved-by"] !== "user") {
+      return failUsage("escalation-reset requires --approved-by user");
+    }
+    if (reason === "") return failUsage("escalation-reset requires a non-empty --reason");
+    const root = resolveStateRoot({
+      cwd: args.cwd ?? process.cwd(),
+      feature: args.feature,
+      dir: args.dir,
+    });
+    const path = jsonPath(root, args.feature);
+    if (!existsSync(path)) return failUsage(`workplan not found: ${path}`);
+    let level: unknown;
+    try {
+      level = (JSON.parse(readFileSync(path, "utf8")) as { level?: unknown } | null)?.level;
+    } catch {
+      return failUsage(`${path} is not valid JSON; run \`navori plan check ${args.feature}\``);
+    }
+    if (typeof level !== "number" || level < 2) {
+      return failUsage(
+        "escalation-reset applies to level >= 2 workplans; at level 0/1 the way out is a new " +
+          "solution and its challenge",
+      );
+    }
+    const { count } = recordAndCountRejections(root, args.feature);
+    if (count < 2) {
+      return failUsage(`escalation-reset needs two recorded rejections (found ${count})`);
+    }
+    ensureStateDirectory(root);
+    const entry = {
+      ts: new Date().toISOString(),
+      kind: "reset",
+      approvedBy: "user",
+      reason,
+      rejectionsBefore: count,
+    };
+    appendFileSync(
+      stateArtifactPath(root, `workplan_${args.feature}.gate.jsonl`),
+      `${JSON.stringify(entry)}\n`,
+    );
+    appendCliEvent(root.cwd, { name: "plan-escalation-reset", verdict: "allow" });
+    if (args.json)
+      process.stdout.write(`${JSON.stringify({ reset: true, rejectionsBefore: count })}\n`);
+  },
+});
+
 export const planCommand = defineCommand({
   meta: { name: "plan", description: "Classify, render, update and check a level-1/2 workplan" },
   subCommands: {
@@ -595,5 +665,6 @@ export const planCommand = defineCommand({
     update: updateSubCommand,
     check: checkSubCommand,
     gate: gateSubCommand,
+    "escalation-reset": escalationResetSubCommand,
   },
 });

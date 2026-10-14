@@ -133,7 +133,8 @@
       "Bash(navori master ux:*)",
       "Bash(navori master advance:*)",
       "Bash(navori master part:*)",
-      "Bash(navori master close:*)"
+      "Bash(navori master close:*)",
+      "Bash(navori plan escalation-reset:*)"
     ],
     "deny": [
       "Agent(orchestrator)",

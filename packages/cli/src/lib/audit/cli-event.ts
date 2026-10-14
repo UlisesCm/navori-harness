@@ -477,6 +477,7 @@ const METADATA_NAMES = new Set([
   "review-outcome",
   "receipt-outcome",
   "dispatch-outcome",
+  "plan-escalation-reset",
   "test",
 ]);
 

@@ -748,6 +748,98 @@ describe("navori plan check", () => {
 /** Captures `process.stdout.write` calls into `sink`, restoring the original
  * on `.restore()`. `plan`'s commands write JSON/text directly to stdout
  * (receipt.ts's pattern), so a `console.log` spy would miss them. */
+/** Covers: R9 */
+describe("navori plan escalation-reset", () => {
+  const level2 = {
+    ...validPlan,
+    level: 2,
+    classification: { score: 8, level: 2, signals: [] },
+    solution: { path: ".claude/progress/solution_demo.md", verdict: "READY" },
+    phases: [{ name: "phase 1", acceptance: ["A1"] }],
+    risks: [{ risk: "regression", rollback: "revert the commit" }],
+  };
+  const logFile = (): string => join(cwd, dir, "workplan_demo.gate.jsonl");
+  const rejections = (n: number): void => {
+    mkdirSync(join(cwd, dir), { recursive: true });
+    const lines = Array.from({ length: n }, (_, i) =>
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        reviewHash: `h${i}`,
+        verdict: "CHANGES_REQUESTED",
+      }),
+    );
+    writeFileSync(logFile(), lines.map((l) => `${l}\n`).join(""));
+  };
+  const reset = async (...flags: string[]): Promise<void> => {
+    process.exitCode = undefined;
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      await runCommand(planCommand, {
+        rawArgs: ["escalation-reset", "demo", "--cwd", cwd, ...flags],
+      });
+    } finally {
+      spy.mockRestore();
+    }
+  };
+  const lineCount = (): number => readFileSync(logFile(), "utf8").trim().split("\n").length;
+
+  // Covers: R9
+  it("escalation-reset rechaza sin usuario, razón vacía, nivel 1 o un rechazo y escribe una sola línea reset", async () => {
+    writePlan("demo", level2);
+    rejections(2);
+    const before = readFileSync(logFile(), "utf8");
+
+    for (const flags of [
+      ["--reason", "again"],
+      ["--approved-by", "agent", "--reason", "again"],
+      ["--approved-by", "user"],
+      ["--approved-by", "user", "--reason", "   "],
+    ]) {
+      await reset(...flags);
+      expect(process.exitCode).toBe(1);
+      expect(readFileSync(logFile(), "utf8")).toBe(before);
+    }
+
+    // Level 1: the way out is the design, not the reset.
+    writePlan("demo", validPlan);
+    await reset("--approved-by", "user", "--reason", "again");
+    expect(process.exitCode).toBe(1);
+    expect(readFileSync(logFile(), "utf8")).toBe(before);
+
+    // One rejection only.
+    writePlan("demo", level2);
+    rejections(1);
+    const one = readFileSync(logFile(), "utf8");
+    await reset("--approved-by", "user", "--reason", "again");
+    expect(process.exitCode).toBe(1);
+    expect(readFileSync(logFile(), "utf8")).toBe(one);
+
+    rejections(2);
+    await reset("--approved-by", "user", "--reason", "client asked for another round");
+    expect(process.exitCode).toBeUndefined();
+    expect(lineCount()).toBe(3);
+    const last = JSON.parse(readFileSync(logFile(), "utf8").trim().split("\n")[2] ?? "");
+    expect(last).toMatchObject({
+      kind: "reset",
+      approvedBy: "user",
+      reason: "client asked for another round",
+      rejectionsBefore: 2,
+    });
+    expect(typeof last.ts).toBe("string");
+
+    // After the reset the count is back to zero: a second reset is refused.
+    await reset("--approved-by", "user", "--reason", "again");
+    expect(process.exitCode).toBe(1);
+    expect(lineCount()).toBe(3);
+  });
+
+  it("escalation-reset sin workplan sale 1 sin escribir", async () => {
+    await reset("--approved-by", "user", "--reason", "again");
+    expect(process.exitCode).toBe(1);
+    expect(existsSync(logFile())).toBe(false);
+  });
+});
+
 function vi_spyConsole(sink: string[]): { restore: () => void } {
   const original = process.stdout.write.bind(process.stdout);
   process.stdout.write = ((chunk: string | Uint8Array) => {

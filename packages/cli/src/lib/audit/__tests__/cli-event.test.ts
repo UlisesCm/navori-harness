@@ -896,7 +896,7 @@ describe("private metadata recorder and replay", () => {
   );
 
   // Covers: R10, R11, R21
-  it.each(["master-advance", "master-part-accept", "master-close"])(
+  it.each(["master-advance", "master-part-accept", "master-close", "plan-escalation-reset"])(
     "retains the fixed %s mechanism while hashing caller content",
     (name) => {
       const log = markSession();
