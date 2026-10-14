@@ -9,6 +9,7 @@ import {
   readFileSync,
   existsSync,
   realpathSync,
+  utimesSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -146,7 +147,7 @@ describe("evaluatePlanGate — enabled checkout validation (R6)", () => {
     );
     const nonGitResult = evaluatePlanGate({
       cwd: nonGit,
-      tool_input: { subagent_type: "implementer", prompt: "nivel-0: README.md" },
+      tool_input: { subagent_type: "implementer", prompt: "nivel-0: README.md demo" },
     });
     expect(nonGitResult.decision).toBe("deny");
     const alias = join(cwd, "alias");
@@ -154,7 +155,7 @@ describe("evaluatePlanGate — enabled checkout validation (R6)", () => {
     writeConfig(true);
     const aliasResult = evaluatePlanGate({
       cwd: alias,
-      tool_input: { subagent_type: "implementer", prompt: "nivel-0: README.md" },
+      tool_input: { subagent_type: "implementer", prompt: "nivel-0: README.md demo" },
     });
     expect(aliasResult.decision).toBe("deny");
     rmSync(nonGit, { recursive: true, force: true });
@@ -174,7 +175,7 @@ describe("evaluatePlanGate — enabled checkout validation (R6)", () => {
     );
     const result = evaluatePlanGate({
       cwd: nonGit,
-      tool_input: { subagent_type: "implementer", prompt: "nivel-0: README.md" },
+      tool_input: { subagent_type: "implementer", prompt: "nivel-0: README.md demo" },
     });
     expect(result.decision).toBe("allow");
     rmSync(nonGit, { recursive: true, force: true });
@@ -252,7 +253,7 @@ describe("evaluatePlanGate — shared check rules (R5)", () => {
 describe("evaluatePlanGate — the level-0 exemption (R16)", () => {
   it("allows nivel-0 when classify confirms level 0", () => {
     writeConfig(true);
-    const result = evaluatePlanGate(payload("implementer", "nivel-0: README.md\nfix a typo"));
+    const result = evaluatePlanGate(payload("implementer", "nivel-0: README.md demo\nfix a typo"));
     expect(result.decision).toBe("allow");
   });
 
@@ -262,10 +263,56 @@ describe("evaluatePlanGate — the level-0 exemption (R16)", () => {
     // spaces) — 8 non-trivial files crosses R4's "at most one" bound.
     const manyFiles = Array.from({ length: 8 }, (_, i) => `src/module-${i}/file.ts`).join(",");
     const result = evaluatePlanGate(
-      payload("implementer", `nivel-0: ${manyFiles}\ntweak several modules`),
+      payload("implementer", `nivel-0: ${manyFiles} demo\ntweak several modules`),
     );
     expect(result.decision).toBe("deny");
     expect(result.reason).toContain("not confirmed by classify");
+  });
+
+  // Covers: R6
+  it("nivel-0 deniega sin feature, con workplan existente, con ruta absoluta o .. y con ruta crítica", () => {
+    writeFileSync(
+      join(cwd, "navori.config.json"),
+      JSON.stringify({
+        name: "gate-demo",
+        engines: ["claude"],
+        preset: "custom",
+        harness: { planTiers: true },
+        project: { criticalPaths: ["src/payments/**"] },
+      }),
+    );
+    const open = (line: string) => evaluatePlanGate(payload("implementer", `${line}\nfix it`));
+
+    // Without a feature: the new form is named; a stale doctrine asks for a render.
+    let result = open("nivel-0: README.md");
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("nivel-0: <path>[,<path>] <feature>");
+    expect(result.reason).not.toContain("navori render --apply");
+    writeFileSync(join(cwd, "CLAUDE.md"), "encargo opens with `nivel-0: <path>`\n");
+    result = open("nivel-0: README.md");
+    expect(result.reason).toContain("navori render --apply");
+    expect(open("nivel-0: README.md demo").decision).toBe("allow");
+
+    // An existing workplan sends the opening to `workplan:`.
+    writeWorkplan("demo", VALID_LEVEL1);
+    result = open("nivel-0: README.md demo");
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("workplan: demo");
+    rmSync(join(progressDir(), "workplan_demo.json"));
+
+    // Absolute and `..` paths, even when only one of the list is unsafe.
+    for (const path of ["/abs/x.ts", "a/../../x.ts", "README.md,../x.ts", "C:\\x.ts"]) {
+      result = open(`nivel-0: ${path} demo`);
+      expect(result.decision).toBe("deny");
+      expect(result.reason).toContain("absolute or climbs out");
+    }
+
+    // A critical path, however it is spelled.
+    for (const path of ["src/payments/x.ts", "./src//payments/x.ts"]) {
+      result = open(`nivel-0: ${path} demo`);
+      expect(result.decision).toBe("deny");
+      expect(result.reason).toContain("critical path");
+    }
   });
 });
 
@@ -391,6 +438,98 @@ describe("evaluatePlanGate — escalation after two rejections (R19)", () => {
     // Unchanged file re-evaluated: no duplicate log line.
     dispatch();
     expect(logLines()).toBe(2);
+  });
+});
+
+describe("evaluatePlanGate — pairwise cap and reset (spec 0052 R8, R9)", () => {
+  const LEVEL2: Workplan = {
+    ...VALID_LEVEL1,
+    level: 2,
+    classification: { score: 8, level: 2, signals: [] },
+    solution: { path: ".claude/progress/solution_demo.md", verdict: "READY" },
+    phases: [{ name: "phase 1", acceptance: ["A1"] }],
+    risks: [{ risk: "regression", rollback: "revert the commit" }],
+  };
+  const at = (day: number): Date => new Date(Date.UTC(2026, 0, day));
+  const logPath = (): string => join(progressDir(), "workplan_demo.gate.jsonl");
+
+  function writeLog(entries: object[]): void {
+    mkdirSync(progressDir(), { recursive: true });
+    writeFileSync(logPath(), entries.map((e) => `${JSON.stringify(e)}\n`).join(""));
+  }
+  const rejection = (day: number, hash: string): object => ({
+    ts: at(day).toISOString(),
+    reviewHash: hash,
+    verdict: "CHANGES_REQUESTED",
+  });
+  function touchSolutions(day: number): void {
+    for (const name of ["solution_demo.md", "solution_review_demo.md"]) {
+      const file = join(progressDir(), name);
+      writeFileSync(file, "# x\n");
+      utimesSync(file, at(day), at(day));
+    }
+  }
+  const openNivel0 = (): ReturnType<typeof evaluatePlanGate> =>
+    evaluatePlanGate(payload("implementer", "nivel-0: README.md demo\nfix it"));
+
+  // Covers: R8
+  it("tras dos y cuatro rechazos exige solution nuevos y acepta los posteriores al último par", () => {
+    writeConfig(true);
+    writeLog([rejection(1, "h1"), rejection(2, "h2")]);
+
+    // Two rejections, no solution at all (nivel-0 goes through the same count).
+    expect(openNivel0().decision).toBe("deny");
+    // Solutions older than the rejection that closed the pair do not count.
+    touchSolutions(1);
+    expect(openNivel0().decision).toBe("deny");
+    touchSolutions(3);
+    expect(openNivel0().decision).toBe("allow");
+
+    // Four rejections: the day-3 solutions predate rejection #4 and no longer count.
+    writeLog([rejection(1, "h1"), rejection(2, "h2"), rejection(4, "h3"), rejection(5, "h4")]);
+    const stale = openNivel0();
+    expect(stale.decision).toBe("deny");
+    expect(stale.reason).toContain("NEW solution_demo.md");
+    // A third rejection alone (odd count) keeps the pair-2 solutions valid.
+    writeLog([rejection(1, "h1"), rejection(2, "h2"), rejection(4, "h3")]);
+    expect(openNivel0().decision).toBe("allow");
+    writeLog([rejection(1, "h1"), rejection(2, "h2"), rejection(4, "h3"), rejection(5, "h4")]);
+    touchSolutions(6);
+    expect(openNivel0().decision).toBe("allow");
+  });
+
+  // Covers: R9
+  it("un reset reinicia la cuenta en nivel 2 sin recontar la misma revisión", () => {
+    writeConfig(true);
+    writeWorkplan("demo", LEVEL2);
+    const review = (text: string): void =>
+      writeFileSync(
+        join(progressDir(), "review_demo.md"),
+        `# Review\n\n**Final verdict:** CHANGES_REQUESTED\n\n${text}\n`,
+      );
+    const dispatch = (): ReturnType<typeof evaluatePlanGate> =>
+      evaluatePlanGate(payload("implementer", "workplan: demo\nfix A1"));
+
+    review("one");
+    expect(dispatch().decision).toBe("allow"); // rejection 1
+    review("two");
+    const denied = dispatch(); // rejection 2
+    expect(denied.decision).toBe("deny");
+    expect(denied.reason).toContain("escalation-reset");
+    expect(denied.reason).toContain("--approved-by user");
+
+    appendFileSync(
+      logPath(),
+      `${JSON.stringify({ ts: new Date().toISOString(), kind: "reset", approvedBy: "user", reason: "r", rejectionsBefore: 2 })}\n`,
+    );
+    // Same review file: its hash predates the reset, so it is not recounted.
+    expect(dispatch().decision).toBe("allow");
+    expect(dispatch().decision).toBe("allow");
+    // One new rejection after the reset counts as 1, not 3.
+    review("three");
+    expect(dispatch().decision).toBe("allow");
+    review("four");
+    expect(dispatch().decision).toBe("deny");
   });
 });
 
@@ -895,7 +1034,7 @@ describe("applyPlanGate — dispatch-outcome emission (spec 0042 T10a)", () => {
   // Covers: R17
   it("emits nothing for a nivel-0 allow", () => {
     const log = startAudit();
-    expect(observe(spawnPayload("nivel-0: README.md\nfix a typo")).exitCode).toBeUndefined();
+    expect(observe(spawnPayload("nivel-0: README.md typo\nfix a typo")).exitCode).toBeUndefined();
     expect(lines(log)).toHaveLength(1);
   });
 

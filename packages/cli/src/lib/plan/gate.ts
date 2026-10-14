@@ -6,7 +6,7 @@
  * directly, the same split `session-start-context.sh` and its TS-driven
  * partials already use.
  */
-import { existsSync, readFileSync, appendFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, appendFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import {
@@ -19,7 +19,7 @@ import {
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { readConfig, type NavoriConfig } from "../config/config.ts";
-import { classify } from "./classify.ts";
+import { classify, matchesCriticalPaths, normalizeRepoPath } from "./classify.ts";
 import { checkWorkplan, formatCheckResult } from "./check.ts";
 import type { Workplan } from "./schema.ts";
 import { appendCliEvent, hasAuditTarget, outcomeFeatureKey } from "../audit/cli-event.ts";
@@ -160,7 +160,8 @@ function deny(reason: string): PlanGateResult {
 const ALLOW: PlanGateResult = { decision: "allow" };
 
 const WORKPLAN_LINE = /^workplan:\s*(\S+)/;
-const NIVEL0_LINE = /^nivel-0:\s*(\S+)/;
+const NIVEL0_LINE = /^nivel-0:\s*(\S+)(?:\s+(.*))?$/;
+const FEATURE_SLUG = /^[a-z0-9][a-z0-9._-]*$/;
 const SPEC_LINE = /^spec:\s*([a-z0-9][a-z0-9._-]*)\s+E([1-9][0-9]*)\s+M([1-9][0-9]*)$/;
 
 /** A Fernet token (what Codex's V2 `spawn_agent` sends in place of `message`). */
@@ -243,19 +244,27 @@ function readDispatch(
 }
 
 const NO_OPENING_LINE_REASON =
-  "the encargo does not open with `workplan: <feature>`, `nivel-0: <path>` or `spec: <spec> E<n> M<n>` — " +
+  "the encargo does not open with `workplan: <feature>`, `nivel-0: <path> <feature>` or `spec: <spec> E<n> M<n>` — " +
   "load skill `plan-simple` (level 1) or `plan-advanced` (level 2) and produce a " +
   "workplan, or confirm a level-0 exemption with `navori plan classify <feature>`.";
 
+/** Rejections on record after the last `reset` line, plus their timestamps. */
+export interface RejectionCount {
+  count: number;
+  /** `ts` of each counted rejection, oldest first. */
+  timestamps: string[];
+}
+
 /**
- * R19: append a fresh `CHANGES_REQUESTED` verdict to the append-only gate log
- * and return how many DISTINCT rejections are on record. `review_<feature>.md`
- * may be rewritten or have milestone sections appended, so rejections are
- * counted via this side log (deduped by whole-file hash) instead of counting
- * files. A rejection is recorded only when the LAST `**Final verdict:**` in
- * the file is `CHANGES_REQUESTED`, so a historical one is never re-registered.
+ * R19/R9: append a fresh `CHANGES_REQUESTED` verdict to the append-only gate log
+ * and return the DISTINCT rejections on record after the last `reset` line.
+ * `review_<feature>.md` may be rewritten or have milestone sections appended, so
+ * rejections are counted via this side log (deduped by whole-file hash across the
+ * WHOLE history, so the review that motivated a reset is not recounted) instead
+ * of counting files. A rejection is recorded only when the LAST
+ * `**Final verdict:**` in the file is `CHANGES_REQUESTED`.
  */
-function recordAndCountRejections(root: StateRoot, feature: string): number {
+export function recordAndCountRejections(root: StateRoot, feature: string): RejectionCount {
   const reviewPath = stateArtifactPath(root, `review_${feature}.md`);
   const logPath = stateArtifactPath(root, `workplan_${feature}.gate.jsonl`);
 
@@ -264,16 +273,21 @@ function recordAndCountRejections(root: StateRoot, feature: string): number {
         .split("\n")
         .filter((l) => l.trim() !== "")
     : [];
-  const seenHashes = new Set(
-    lines.flatMap((line) => {
-      try {
-        const entry = JSON.parse(line) as { reviewHash?: unknown };
-        return typeof entry.reviewHash === "string" ? [entry.reviewHash] : [];
-      } catch {
-        return [];
+  const seenHashes = new Set<string>();
+  let timestamps: string[] = [];
+  for (const line of lines) {
+    try {
+      const entry = JSON.parse(line) as { reviewHash?: unknown; kind?: unknown; ts?: unknown };
+      if (entry.kind === "reset") {
+        timestamps = [];
+      } else if (typeof entry.reviewHash === "string") {
+        seenHashes.add(entry.reviewHash);
+        timestamps.push(typeof entry.ts === "string" ? entry.ts : "");
       }
-    }),
-  );
+    } catch {
+      // A torn line is ignored.
+    }
+  }
 
   if (existsSync(reviewPath)) {
     const content = readFileSync(reviewPath, "utf-8");
@@ -282,54 +296,125 @@ function recordAndCountRejections(root: StateRoot, feature: string): number {
     if (verdicts.at(-1)?.[1] === "CHANGES_REQUESTED") {
       const reviewHash = createHash("sha256").update(content).digest("hex");
       if (!seenHashes.has(reviewHash)) {
-        seenHashes.add(reviewHash);
-        const entry = { ts: new Date().toISOString(), reviewHash, verdict: "CHANGES_REQUESTED" };
+        const ts = new Date().toISOString();
+        timestamps.push(ts);
+        const entry = { ts, reviewHash, verdict: "CHANGES_REQUESTED" };
         ensureStateDirectory(root);
         appendFileSync(logPath, `${JSON.stringify(entry)}\n`);
       }
     }
   }
 
-  return seenHashes.size;
+  return { count: timestamps.length, timestamps };
 }
 
-/** R19: after two recorded rejections, the third dispatch needs the next
- * level's artifacts — never a plain re-dispatch of the same level. */
+/**
+ * R8/R9: after two recorded rejections, the next dispatch needs the next
+ * level's artifacts. At level 0/1 the cap renews by pairs: `solution_*` and its
+ * challenge must be newer than the rejection that closed the latest pair
+ * (number `2·⌊n/2⌋`). At level >= 2 it escalates to the user.
+ */
 function evaluateEscalation(
   root: StateRoot,
   feature: string,
   level: number,
 ): PlanGateResult | null {
-  const rejections = recordAndCountRejections(root, feature);
+  const { count: rejections, timestamps } = recordAndCountRejections(root, feature);
   if (rejections < 2) return null;
 
   if (level >= 2) {
     return deny(
       `feature "${feature}" has ${rejections} recorded CHANGES_REQUESTED at level ${level} — ` +
-        "escalate to the user instead of a third dispatch (orchestrator.md's cap).",
+        "escalate to the user instead of another dispatch (orchestrator.md's cap). Only the user " +
+        `can authorize another round: \`navori plan escalation-reset ${feature} --approved-by user ` +
+        '--reason "<why>"\'.',
     );
   }
 
+  const pairTs = Date.parse(timestamps[2 * Math.floor(rejections / 2) - 1] ?? "");
+  const fresh = (path: string): boolean =>
+    existsSync(path) && (Number.isNaN(pairTs) || statSync(path).mtimeMs >= pairTs);
   const solutionPath = stateArtifactPath(root, `solution_${feature}.md`);
   const solutionReviewPath = stateArtifactPath(root, `solution_review_${feature}.md`);
-  if (!existsSync(solutionPath) || !existsSync(solutionReviewPath)) {
+  if (!fresh(solutionPath) || !fresh(solutionReviewPath)) {
     return deny(
-      `feature "${feature}" has ${rejections} recorded CHANGES_REQUESTED — produce ` +
-        `solution_${feature}.md and its challenge (solution_review_${feature}.md) before ` +
-        "the next dispatch, skill `plan-advanced`.",
+      `feature "${feature}" has ${rejections} recorded CHANGES_REQUESTED — produce a NEW ` +
+        `solution_${feature}.md and its challenge (solution_review_${feature}.md), written after ` +
+        "the latest rejection pair, before the next dispatch, skill `plan-advanced`.",
     );
   }
   return null;
 }
 
+const NIVEL0_FORM = "`nivel-0: <path>[,<path>] <feature>`";
+
+/** Whether the rendered doctrine still shows the old one-token `nivel-0:` form. */
+function doctrineIsStale(cwd: string): boolean {
+  return ["CLAUDE.md", "AGENTS.md"].some((name) => {
+    try {
+      return readFileSync(join(cwd, name), "utf-8").includes("`nivel-0: <path>`");
+    } catch {
+      return false;
+    }
+  });
+}
+
 /**
- * `nivel-0: <path>` accepts a comma-separated list (no spaces, so it stays
- * one token the opening-line regex can capture) — R4's "at most one
- * non-trivial file" only means something to verify when more than one
- * candidate file is on the table.
+ * `nivel-0: <path>[,<path>] <feature>` (R6, R8). The path list is one
+ * comma-separated token; `<feature>` indexes the rejection count. The gate only
+ * verifies the declared paths, not the real diff.
  */
-function evaluateNivel0(cwd: string, config: NavoriConfig, rawPath: string): PlanGateResult {
+function evaluateNivel0(
+  cwd: string,
+  config: NavoriConfig,
+  rawPath: string,
+  rawFeature: string | undefined,
+  dispatchFeature: string | undefined,
+): PlanGateResult {
+  const feature = rawFeature?.trim() ?? "";
+  if (!FEATURE_SLUG.test(feature)) {
+    return deny(
+      `\`nivel-0:\` needs a feature — open with ${NIVEL0_FORM}.` +
+        (doctrineIsStale(cwd)
+          ? " The rendered doctrine is outdated: run `navori render --apply`."
+          : ""),
+    );
+  }
+  if (dispatchFeature !== undefined && dispatchFeature !== feature) {
+    return deny(
+      `dispatch feature "${dispatchFeature}" does not match nivel-0 feature "${feature}".`,
+    );
+  }
+  let root: StateRoot;
+  try {
+    root = resolveStateRoot({ cwd, feature });
+  } catch (cause: unknown) {
+    return deny(cause instanceof Error ? cause.message : "unsafe state root");
+  }
+  if (existsSync(stateArtifactPath(root, `workplan_${feature}.json`))) {
+    return deny(
+      `feature "${feature}" already has a workplan — open with \`workplan: ${feature}\`, not nivel-0.`,
+    );
+  }
+
   const files = rawPath.split(",").filter((f) => f.length > 0);
+  if (files.length === 0) return deny(`\`nivel-0:\` has no path — open with ${NIVEL0_FORM}.`);
+  const unsafe = files.find((f) => {
+    const n = normalizeRepoPath(f);
+    return n.absolute || n.escapes;
+  });
+  if (unsafe !== undefined) {
+    return deny(
+      `\`nivel-0:\` path "${unsafe}" is absolute or climbs out with \`..\` — use repo-relative paths.`,
+    );
+  }
+  const criticalPaths = config.project?.criticalPaths ?? [];
+  if (matchesCriticalPaths(files, criticalPaths)) {
+    return deny(
+      `\`nivel-0: ${rawPath}\` touches a critical path (project.criticalPaths) — level 0 is not ` +
+        "allowed; run `navori plan classify <feature>` and produce a workplan.",
+    );
+  }
   const result = classify({
     files,
     criticalPaths: config.project?.criticalPaths,
@@ -342,7 +427,7 @@ function evaluateNivel0(cwd: string, config: NavoriConfig, rawPath: string): Pla
         "with skill `plan-simple` (level 1) or `plan-advanced` (level 2).",
     );
   }
-  return ALLOW;
+  return evaluateEscalation(root, feature, 0) ?? ALLOW;
 }
 
 /** Runs shared plan validation/escalation, with delivery identity required for SDD. */
@@ -483,7 +568,7 @@ export function evaluatePlanGate(
   if (!workplanMatch && !nivel0Match && !specMatch) return deny(NO_OPENING_LINE_REASON);
   let result: PlanGateResult;
   if (nivel0Match) {
-    result = evaluateNivel0(cwd, config, nivel0Match[1]!);
+    result = evaluateNivel0(cwd, config, nivel0Match[1]!, nivel0Match[2], dispatchFeature);
   } else {
     try {
       const root = resolveStateRoot({ cwd, feature: feature! });
