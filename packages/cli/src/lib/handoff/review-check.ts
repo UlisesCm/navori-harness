@@ -10,7 +10,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { FEATURE_SLUG, resolveStateRoot, stateArtifactPath } from "../primitives/state-root.ts";
 import type { HandoffCheckResult } from "./check.ts";
-import { checkSealedEvidence } from "./review-evidence.ts";
+import { checkSealedEvidence, correlateReview, type EvidenceOptions } from "./review-evidence.ts";
 import { ReviewSidecarSchema } from "./review-schema.ts";
 
 export interface ReviewHandoffOptions {
@@ -19,6 +19,7 @@ export interface ReviewHandoffOptions {
   feature: string;
   /** ISO UTC instant (the dispatch time); the review must have begun at or after it. */
   since?: string;
+  evidenceOptions?: EvidenceOptions;
 }
 
 const VERDICT = /\b(?:APPROVED|CHANGES_REQUESTED)\b/;
@@ -91,6 +92,15 @@ export function checkReviewHandoff(options: ReviewHandoffOptions): HandoffCheckR
       });
     }
     const sealed = checkSealedEvidence(root, parsed.data);
+    if (
+      options.evidenceOptions &&
+      correlateReview(root, parsed.data, options.evidenceOptions).correlation !== "correlated"
+    ) {
+      result.failures.push({
+        check: "evidence",
+        detail: "review does not match the current independent delivery",
+      });
+    }
     if (sealed.status !== "sealed") {
       result.failures.push({
         check: "evidence",

@@ -7,6 +7,7 @@ import { isUnderProgressDir } from "../primitives/progress-dirs.ts";
 import { appendCliEvent, outcomeFeatureKey } from "../audit/cli-event.ts";
 import type { OutcomePayload, ReceiptAction, ReceiptOutcome } from "../audit/model.ts";
 import type { ContentIdentity } from "../primitives/content-identity.ts";
+import { reviewEvidenceWarning } from "../handoff/review-evidence.ts";
 import {
   ensureStateDirectory,
   resolveStateRoot,
@@ -57,6 +58,10 @@ export interface ReceiptOptions {
    * never changes the result, the exit code or `ReceiptResult`.
    */
   observer?: ReceiptObserver;
+  /** Resume uses local refs and hashes without writing Git objects. */
+  readOnly?: boolean;
+  deadline?: number;
+  currentContent?: ContentIdentity;
 }
 
 /**
@@ -135,12 +140,18 @@ function empty(options: ReceiptOptions, error: string): ReceiptResult {
   };
 }
 
-function git(cwd: string, args: string[], nul = false): string {
+function git(cwd: string, args: string[], nul = false, deadline?: number): string {
+  if (deadline !== undefined && Date.now() >= deadline) throw new Error("receipt timeout");
   if (!process.env.PATH) throw new Error("git failed: PATH is empty");
   const result = spawnSync(
     "git",
     ["-c", "core.fsmonitor=false", "-c", "core.quotepath=false", ...args],
-    { cwd, env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" }, encoding: "buffer" },
+    {
+      cwd,
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+      encoding: "buffer",
+      timeout: deadline ? Math.max(1, deadline - Date.now()) : undefined,
+    },
   );
   if (result.error) throw new Error(`git failed: ${result.error.message}`);
   if (result.status !== 0)
@@ -162,12 +173,17 @@ function validatePath(cwd: string, path: string): void {
     throw new Error(`path escapes repository: ${path}`);
 }
 
-function liveBlob(cwd: string, path: string): string {
+function liveBlob(cwd: string, path: string, options?: ReceiptOptions): string {
   const absolute = resolve(cwd, path);
   const stat = lstatSync(absolute);
   if (!stat.isFile()) throw new Error(`unsupported non-regular file: ${path}`);
   // `-w` stores the approved bytes, allowing the reviewer to inspect a later drift.
-  return git(cwd, ["hash-object", "-w", "--", path]);
+  return git(
+    cwd,
+    ["hash-object", ...(options?.readOnly ? ["--no-filters"] : ["-w"]), "--", path],
+    false,
+    options?.deadline,
+  );
 }
 
 /**
@@ -177,14 +193,16 @@ function liveBlob(cwd: string, path: string): string {
  * when the current branch is the target (committed work there would diff as empty).
  */
 function resolveBase(options: ReceiptOptions): { ref: string; label: string } {
-  const remotes = git(options.cwd, ["remote"]).split("\n");
+  const run = (args: string[], nul = false): string =>
+    git(options.cwd, args, nul, options.deadline);
+  const remotes = run(["remote"]).split("\n");
   if (remotes.includes("origin")) {
-    git(options.cwd, ["fetch", "origin", options.target]);
+    if (!options.readOnly) run(["fetch", "origin", options.target]);
     return { ref: `origin/${options.target}`, label: `origin/${options.target}` };
   }
   const local = `refs/heads/${options.target}`;
   try {
-    git(options.cwd, ["rev-parse", "--verify", "--quiet", local]);
+    run(["rev-parse", "--verify", "--quiet", local]);
   } catch {
     throw new Error(
       `no 'origin' remote and no local branch '${options.target}': set branchBase (navori configure branch-base <branch>) or pass --target <branch>`,
@@ -192,7 +210,7 @@ function resolveBase(options: ReceiptOptions): { ref: string; label: string } {
   }
   let current = "";
   try {
-    current = git(options.cwd, ["symbolic-ref", "-q", "--short", "HEAD"]);
+    current = run(["symbolic-ref", "-q", "--short", "HEAD"]);
   } catch {
     // Detached HEAD: not the target branch.
   }
@@ -204,24 +222,20 @@ function resolveBase(options: ReceiptOptions): { ref: string; label: string } {
 }
 
 function inspect(options: ReceiptOptions): { targetSha: string; headSha: string; paths: string[] } {
+  const run = (args: string[], nul = false): string =>
+    git(options.cwd, args, nul, options.deadline);
   const base = resolveBase(options);
-  const targetSha = git(options.cwd, ["rev-parse", base.ref]);
-  const headSha = git(options.cwd, ["rev-parse", "HEAD"]);
-  if (git(options.cwd, ["rev-list", "--count", `HEAD..${base.ref}`]) !== "0")
+  const targetSha = run(["rev-parse", base.ref]);
+  const headSha = run(["rev-parse", "HEAD"]);
+  if (run(["rev-list", "--count", `HEAD..${base.ref}`]) !== "0")
     throw new Error(`branch is behind ${base.label}`);
   // `--name-only` intentionally cannot express modes. Inspect the raw records first so
   // V1 never signs metadata it cannot later verify (including gitlinks/submodules).
   const raw = pathsFromNul(
-    git(
-      options.cwd,
-      ["diff", "--raw", "--no-renames", "-z", "--no-ext-diff", "--no-textconv", base.ref],
-      true,
-    ),
+    run(["diff", "--raw", "--no-renames", "-z", "--no-ext-diff", "--no-textconv", base.ref], true),
   );
   raw.push(
-    ...pathsFromNul(
-      git(options.cwd, ["diff", "--cached", "--raw", "--no-renames", "-z", base.ref], true),
-    ),
+    ...pathsFromNul(run(["diff", "--cached", "--raw", "--no-renames", "-z", base.ref], true)),
   );
   for (const record of raw) {
     if (!record.startsWith(":")) continue;
@@ -241,15 +255,12 @@ function inspect(options: ReceiptOptions): { targetSha: string; headSha: string;
       throw new Error("diff changes file mode only");
   }
   const tracked = pathsFromNul(
-    git(
-      options.cwd,
+    run(
       ["diff", "--name-only", "--no-renames", "-z", "--no-ext-diff", "--no-textconv", base.ref],
       true,
     ),
   );
-  const untracked = pathsFromNul(
-    git(options.cwd, ["ls-files", "--others", "--exclude-standard", "-z"], true),
-  );
+  const untracked = pathsFromNul(run(["ls-files", "--others", "--exclude-standard", "-z"], true));
   const paths = [...new Set([...tracked, ...untracked])]
     .filter((path) => !isUnderProgressDir(path))
     .sort();
@@ -279,7 +290,7 @@ function success(
 
 function receiptRoot(options: ReceiptOptions): StateRoot {
   const root = resolveStateRoot({ cwd: options.cwd, feature: options.feature, dir: options.dir });
-  ensureStateDirectory(root);
+  if (!options.readOnly) ensureStateDirectory(root);
   return root;
 }
 
@@ -287,11 +298,22 @@ function receiptPath(root: StateRoot, consumed = false): string {
   return stateArtifactPath(root, consumed ? "receipt.consumed.txt" : "receipt.txt");
 }
 
+/** Sign and check share the same current independent approval requirement. */
+function requireCurrentReview(root: StateRoot, options: ReceiptOptions): void {
+  const recorded = ["ownership", "review"].some((kind) =>
+    existsSync(stateArtifactPath(root, `${kind}_${options.feature}.json`)),
+  );
+  if (!process.env.CODEX_THREAD_ID && !recorded) return;
+  const problem = reviewEvidenceWarning(root, options.feature, options);
+  if (problem) throw new Error(problem);
+}
+
 /** Signs exactly the working-tree content that differs from the remote target. */
 export function signReceipt(options: ReceiptOptions): { exitCode: number; result: ReceiptResult } {
   try {
     const root = receiptRoot(options);
     options = { ...options, cwd: root.cwd, dir: root.dir };
+    requireCurrentReview(root, options);
     if (options.observer) options.observer.before = sampleIdentity(options.observer);
     if (options.gateRan === "scoped" && options.gateDecision?.gateKind !== "scoped") {
       throw new Error(
@@ -398,6 +420,7 @@ export function checkReceipt(options: ReceiptOptions): { exitCode: number; resul
   try {
     const root = receiptRoot(options);
     options = { ...options, cwd: root.cwd, dir: root.dir };
+    requireCurrentReview(root, options);
     if (options.observer) options.observer.before = sampleIdentity(options.observer);
     const state = inspect(options);
     const { path, consumed } = resolveReceiptSource(root, options);
@@ -413,7 +436,8 @@ export function checkReceipt(options: ReceiptOptions): { exitCode: number; resul
       if (blob === "deleted") {
         if (present) drift.push({ path, blob: null, kind: "reappeared" });
       } else if (!present) drift.push({ path, blob, kind: "missing" });
-      else if (liveBlob(options.cwd, path) !== blob) drift.push({ path, blob, kind: "changed" });
+      else if (liveBlob(options.cwd, path, options) !== blob)
+        drift.push({ path, blob, kind: "changed" });
     }
     const stale: StaleReason[] = [];
     if (header.version !== 2) {

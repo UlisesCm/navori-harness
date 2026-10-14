@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
@@ -20,12 +20,14 @@ let cwd: string;
 const dir = ".claude/progress";
 
 beforeEach(() => {
+  vi.stubEnv("CODEX_THREAD_ID", undefined);
   cwd = realpathSync(mkdtempSync(join(tmpdir(), "navori-plan-")));
   execFileSync("git", ["init", "-b", "main"], { cwd });
   process.exitCode = undefined;
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   rmSync(cwd, { recursive: true, force: true });
   process.exitCode = undefined;
 });

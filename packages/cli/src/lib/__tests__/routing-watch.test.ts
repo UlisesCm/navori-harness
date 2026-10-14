@@ -1086,7 +1086,7 @@ describe.runIf(runsBash)("routing-watch — Codex bash-outcome lane (spec 0041 T
   }
 
   /** A rollout line in the shape observed in probe V4 (`event_msg` / `item_completed`). */
-  function itemCompleted(id: string, exitCode: number, output = ""): string {
+  function itemCompleted(id: string, exitCode: number, output = "", cwd?: string): string {
     return JSON.stringify({
       timestamp: "2026-10-03T18:23:02.485Z",
       type: "event_msg",
@@ -1100,6 +1100,7 @@ describe.runIf(runsBash)("routing-watch — Codex bash-outcome lane (spec 0041 T
           stdout: output,
           aggregated_output: output,
           exit_code: exitCode,
+          ...(cwd ? { cwd } : {}),
         },
       },
     });
@@ -1110,6 +1111,41 @@ describe.runIf(runsBash)("routing-watch — Codex bash-outcome lane (spec 0041 T
     writeFileSync(p, `${lines.join("\n")}\n`);
     return p;
   }
+
+  // Covers: R3, R4
+  it("records only an exact completed Codex execution with observed effective worktree cwd", () => {
+    acrossShells((shell) => {
+      const root = project();
+      const sibling = join(
+        realpathSync(mkdtempSync(join(tmpdir(), "navori-codex-sibling-"))),
+        "checkout",
+      );
+      execFileSync("git", ["worktree", "add", "-b", "sibling", sibling], { cwd: root });
+      const state = join(sibling, ".navori/state/handoffs");
+      mkdirSync(state, { recursive: true });
+      writeFileSync(join(state, "acceptance-index"), `${COMMAND}\tdemo\tA1\t${state}\n`);
+      const transcript = rollout(state, [itemCompleted("own-call", 0, "", `file://${sibling}`)]);
+      const result = call(shell, root, transcript, "own-call");
+      expect(result.code).toBe(0);
+      const recorded = readEvidenceLog(join(state, "workplan_demo.evidence.jsonl"));
+      expect(recorded).toHaveLength(1);
+      expect(recorded[0]?.tree).toBe(sibling);
+      expect(recorded[0]?.cwd).toBe(sibling);
+      expect(existsSync(join(root, ".navori/state/handoffs/workplan_demo.evidence.jsonl"))).toBe(
+        false,
+      );
+      for (const [line, toolId] of [
+        [itemCompleted("failed", 1, "", `file://${sibling}`), "failed"],
+        [itemCompleted("no-cwd", 0), "no-cwd"],
+        [itemCompleted("other", 0, "", `file://${sibling}`), "wrong-call"],
+      ]) {
+        writeFileSync(transcript, `${line}\n`);
+        call(shell, root, transcript!, toolId!);
+        expect(readEvidenceLog(join(state, "workplan_demo.evidence.jsonl"))).toHaveLength(1);
+      }
+      return result;
+    });
+  });
 
   function call(
     shell: HookShell,

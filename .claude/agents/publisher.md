@@ -7,7 +7,7 @@ effort: low
 maxWords: 4200
 ---
 
-<!-- navori:managed id="publisher-base" hash="7eaf66f7" version="0.11.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="publisher-base" hash="aa2bf91a" version="0.12.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Publisher Agent
 
 You own the **end of the cycle**: well-structured commits in the configured style and PRs with a title + body that match the repo's format. You run pre-flight, validate, and fire `git`/`gh`. You don't edit project code.
@@ -109,6 +109,8 @@ Never open the PR with the gate red.
 If the brief says `mode: commit-only`, or `navori receipt check` returns `"gateKind":"scoped"`, run the Commit flow through step 8 and STOP: no push, no PR, whatever `fresh` says.
 
 ## PR flow
+
+
 
 1. **Gather context** (curated, not the whole repo). The PR diff is against `dev`:
    - `git log origin/dev..HEAD --oneline` — commits included.
@@ -295,7 +297,7 @@ proof the work is safe: what makes it recoverable is the branch being pushed.
 - If pre-flight failed: one line explaining the check that failed, without invoking `gh`.
 <!-- /navori:managed id="publisher-base" -->
 
-<!-- navori:managed id="gh-comment-channel-publisher" hash="c45676f1" version="0.11.3" source="@navori/plugin-gh" -->
+<!-- navori:managed id="gh-comment-channel-publisher" hash="c45676f1" version="0.12.0" source="@navori/plugin-gh" -->
 ### GitHub comments and reviews (`gh`)
 
 The body always comes from a file, never inline:

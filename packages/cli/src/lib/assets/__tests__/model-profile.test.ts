@@ -5,6 +5,7 @@ import { describe, it, expect } from "vitest";
 import type { NavoriConfig } from "../../config/config.ts";
 import {
   resolveCodexModel,
+  resolveCodexProfile,
   scanMissingModelProfile,
   scanModelProfileProvenance,
 } from "../model-profile.ts";
@@ -263,5 +264,79 @@ describe("model profile provenance (Spec 0037 R12)", () => {
       );
       expect(rows.some((row) => row.agent === "orchestrator")).toBe(false);
     }
+  });
+});
+
+describe("Codex field precedence (Spec 0050)", () => {
+  // Covers: R9, R11
+  it.each([
+    ["opus", "medium", "gpt-6-sol", "medium"],
+    ["sonnet", "medium", "gpt-6-luna", "high"],
+    ["haiku", "medium", "gpt-6-luna", "medium"],
+    ["sonnet", "low", "gpt-6-luna", "low"],
+    ["sonnet", "high", "gpt-6-luna", "high"],
+    ["sonnet", "xhigh", "gpt-6-luna", "xhigh"],
+    ["sonnet", "max", "gpt-6-luna", "max"],
+  ])("%s %s resolves to %s %s", (tier, effort, model, expectedEffort) => {
+    const choice = resolveCodexProfile(config(), { name: "reviewer", tier, effort }, null);
+    expect(choice.model.wouldRender).toBe(model);
+    expect(choice.effort.wouldRender).toBe(expectedEffort);
+  });
+
+  // Covers: R9, R11
+  it("sonnet-medium-luna-high stays independent of model-only pin or map", () => {
+    for (const models of [
+      { codexProfiles: { reviewer: { model: "gpt-6.9-sol" } } },
+      { codexMap: { sonnet: "astra" } },
+      { codexMap: { sonnet: "gpt-6.9-sol" } },
+    ]) {
+      const choice = resolveCodexProfile(
+        config({ models }),
+        { name: "reviewer", tier: "sonnet", effort: "medium" },
+        null,
+      );
+      expect(choice.effort).toMatchObject({
+        configured: "medium",
+        wouldRender: "high",
+        origin: "mapped",
+      });
+    }
+  });
+
+  // Covers: R9, R11
+  it("explicit-effort-override wins without changing the independently selected model", () => {
+    for (const effort of ["low", "medium", "high", "xhigh", "max"] as const) {
+      const choice = resolveCodexProfile(
+        config({ models: { codexProfiles: { reviewer: { effort } } } }),
+        { name: "reviewer", tier: "sonnet", effort: "medium" },
+        null,
+      );
+      expect(choice.model.wouldRender).toBe("gpt-6-luna");
+      expect(choice.effort.wouldRender).toBe(effort);
+    }
+    const choice = resolveCodexProfile(
+      config({ models: { codexProfiles: { reviewer: { model: "gpt-5.6-sol", effort: "low" } } } }),
+      { name: "reviewer", tier: "sonnet", effort: "medium" },
+      null,
+    );
+    expect(choice.model.wouldRender).toBe("gpt-5.6-sol");
+    expect(choice.effort.wouldRender).toBe("low");
+  });
+
+  // Covers: R11, R12, R16
+  it("does not invent medium and leaves the shared Pi model-only consumer contract unchanged", () => {
+    const cfg = config({
+      models: {
+        codexMap: { sonnet: "astra" },
+        codexProfiles: { reviewer: { model: "gpt-8-luna", effort: "low" } },
+      },
+    });
+    const choice = resolveCodexProfile(cfg, { name: "reviewer", tier: "sonnet" }, null);
+    expect(choice.effort.wouldRender).toBe("low");
+    expect(
+      resolveCodexProfile(config(), { name: "reviewer", tier: "sonnet" }, null).effort.origin,
+    ).toBe("inherited");
+    // Pi calls this existing model-only helper only with explicit codexMap.
+    expect(resolveCodexModel(cfg, "sonnet", null).model).toBe("gpt-6-astra");
   });
 });

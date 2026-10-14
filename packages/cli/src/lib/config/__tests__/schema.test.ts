@@ -353,3 +353,28 @@ describe("MonorepoWorkspaceSchema — marker forgery hardening (#264)", () => {
     );
   });
 });
+
+// Covers: R11, R12, R16
+it("validates optional independent Codex native-name overrides", () => {
+  expect(
+    NavoriConfigSchema.parse({
+      ...MINIMAL,
+      models: {
+        codexProfiles: {
+          orchestrator: { effort: "high" },
+          "native-extra": { model: "gpt-6.10-luna" },
+        },
+      },
+    }).models?.codexProfiles,
+  ).toEqual({ orchestrator: { effort: "high" }, "native-extra": { model: "gpt-6.10-luna" } });
+  for (const codexProfiles of [
+    { "../escape": { model: "gpt-6-luna" } },
+    { reviewer: { effort: "ultra" } },
+    { reviewer: { model: " " } },
+    { reviewer: { effrot: "high" } },
+  ]) {
+    expect(NavoriConfigSchema.safeParse({ ...MINIMAL, models: { codexProfiles } }).success).toBe(
+      false,
+    );
+  }
+});

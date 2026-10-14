@@ -26,6 +26,69 @@ export interface CodexModelResolution {
 const CatalogSchema = z.object({ models: z.array(z.unknown()) });
 const EntrySchema = z.object({ slug: z.string() });
 
+/** Catalog contents are candidates; only independently bound provenance proves freshness. */
+export interface CodexCatalogEvidence {
+  status: "unknown" | "degraded" | "obsolete" | "current";
+  slugs: string[];
+  diagnostics: string[];
+}
+
+/** Host-provided evidence, never inferred from cache timestamps, mtime or model slugs. */
+export interface CatalogProvenance {
+  source: string;
+  context: string;
+  checkedAt: string;
+  validUntil: string;
+}
+
+/** Inspect a local catalog without reading home or treating its own metadata as verified. */
+export function inspectCodexCatalog(
+  catalogPath: string | null,
+  provenance?: CatalogProvenance,
+  context?: string,
+  now = new Date(),
+): CodexCatalogEvidence {
+  const diagnostics: string[] = [];
+  if (catalogPath === null)
+    return { status: "degraded", slugs: [], diagnostics: ["catalog unavailable"] };
+  try {
+    const parsed = CatalogSchema.safeParse(JSON.parse(readFileSync(catalogPath, "utf-8")));
+    if (!parsed.success)
+      return { status: "degraded", slugs: [], diagnostics: ["malformed catalog"] };
+    const slugs: string[] = [];
+    for (const entry of parsed.data.models) {
+      const result = EntrySchema.safeParse(entry);
+      if (!result.success || !parseSlug(result.data.slug))
+        diagnostics.push("unknown catalog entry format");
+      else slugs.push(result.data.slug);
+    }
+    if (slugs.length === 0)
+      return {
+        status: "degraded",
+        slugs,
+        diagnostics: [...diagnostics, "no compatible catalog entries"],
+      };
+    const checked = Date.parse(provenance?.checkedAt ?? "");
+    const until = Date.parse(provenance?.validUntil ?? "");
+    const verified =
+      provenance?.source.trim() &&
+      context &&
+      provenance.context === context &&
+      Number.isFinite(checked) &&
+      Number.isFinite(until) &&
+      checked <= now.getTime() &&
+      until >= checked;
+    if (!verified) diagnostics.push("catalog freshness lacks bound source/timestamp/context");
+    return {
+      status: verified ? (until < now.getTime() ? "obsolete" : "current") : "unknown",
+      slugs,
+      diagnostics,
+    };
+  } catch {
+    return { status: "degraded", slugs: [], diagnostics: ["catalog unavailable or invalid JSON"] };
+  }
+}
+
 // `gpt-<version>-<family>`, e.g. gpt-6-sol, gpt-6.1-sol, gpt-5.6-luna.
 const SLUG_RE = /^gpt-(\d+(?:\.\d+)*)-([a-z]+)$/;
 // A family is a bare lowercase word; anything else (hyphen, digit, slash) is a pin.
@@ -78,7 +141,9 @@ function compareVersions(a: readonly number[], b: readonly number[]): number {
 /** Parse a `gpt-<version>-<family>` slug; null when it does not match. */
 function parseSlug(slug: string): { version: number[]; family: string } | null {
   const match = SLUG_RE.exec(slug);
-  return match ? { version: match[1]!.split(".").map(Number), family: match[2]! } : null;
+  if (!match) return null;
+  const version = match[1]!.split(".").map(Number);
+  return version.every(Number.isSafeInteger) ? { version, family: match[2]! } : null;
 }
 
 /** Highest-version slug of `family` among `slugs`, or null. Unparseable slugs are ignored. */
