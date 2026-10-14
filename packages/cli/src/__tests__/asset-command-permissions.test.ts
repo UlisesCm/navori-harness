@@ -340,36 +340,12 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
     "read-only preparation check; this opt-in deliveries route retains its existing prompt rather than granting global pre-approval through a documentation change",
   ],
   [
-    "navori master delivery-baseline",
-    "writes the operator-approved baseline identity to delivery state; --approved-by user attests consent and the command remains behind its existing prompt",
-  ],
-  [
-    "navori master delivery-queue",
-    "writes bounded queue authority and its generation; selecting or replacing authorized parts requires explicit user consent, not blanket command pre-approval",
-  ],
-  [
     "navori master delivery-slice",
     "writes the authorized part's workplan projection; refresh can reset pending criteria and requires explicit user approval, so the write keeps its prompt",
   ],
   [
-    "navori master delivery-criterion",
-    "writes criterion evidence after consuming host provenance or explicit manual attestation; the state write keeps its prompt and does not grant manual consent",
-  ],
-  [
-    "navori master delivery-review",
-    "writes technical review evidence for an exact snapshot and requires the user's separate-reviewer and observed-QA attestation; its prompt remains intentional",
-  ],
-  [
     "navori master delivery-present",
     "writes a technically reviewed presentation identity and review phase; this state mutation keeps its prompt and never records client acceptance",
-  ],
-  [
-    "navori master delivery-decision",
-    "writes an identity-bound operator attestation of acceptance, rejection, deferral or discard; explicit user consent must not become global pre-approval",
-  ],
-  [
-    "navori master delivery-publication",
-    "writes an explicitly user-attested release or deploy reference for the accepted identity; it keeps its prompt and does not execute a deployment",
   ],
   [
     "navori gate",

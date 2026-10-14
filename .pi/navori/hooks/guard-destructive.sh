@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="87e390c0" version="0.12.0" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="04dcb15a" version="0.12.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -566,6 +566,13 @@ ask navori master ux
 ask navori master advance
 ask navori master part
 ask navori master close
+ask navori master delivery-baseline
+ask navori master delivery-queue
+ask navori master delivery-criterion
+ask navori master delivery-review
+ask navori master delivery-decision
+ask navori master delivery-publication
+ask navori master delivery-revoke
 ask navori plan escalation-reset'
 
 block() {

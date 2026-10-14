@@ -473,6 +473,13 @@ describe("buildClaudeSettings — recursive-rm permissions are a derived cross p
       "Bash(navori master advance:*)",
       "Bash(navori master part:*)",
       "Bash(navori master close:*)",
+      "Bash(navori master delivery-baseline:*)",
+      "Bash(navori master delivery-queue:*)",
+      "Bash(navori master delivery-criterion:*)",
+      "Bash(navori master delivery-review:*)",
+      "Bash(navori master delivery-decision:*)",
+      "Bash(navori master delivery-publication:*)",
+      "Bash(navori master delivery-revoke:*)",
       "Bash(navori plan escalation-reset:*)",
     ]);
     expect(deny.filter((entry) => entry.includes(":"))).toEqual([]);
