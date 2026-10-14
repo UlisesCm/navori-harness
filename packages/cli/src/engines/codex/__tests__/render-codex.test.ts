@@ -365,8 +365,8 @@ describe("renderCodexEngine", () => {
     expect(agentsMd).toContain("mem_context");
 
     const implementer = readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8");
-    // Spec 0035 D7: sonnet → gpt-6-sol (shared with opus; effort tells them apart).
-    expect(implementer).toContain('model = "gpt-6-sol"');
+    // Covers: R9 — Sonnet maps to Luna; configured high is preserved.
+    expect(implementer).toContain('model = "gpt-6-luna"');
     expect(implementer).toContain('model_reasoning_effort = "high"');
     expect(implementer).toContain("AGENTS.md");
     expect(implementer).not.toContain("CLAUDE.md");
@@ -799,7 +799,7 @@ describe("renderCodexEngine", () => {
     expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8")).toContain(
       'model = "gpt-6-astra"',
     );
-    const warns = result.warnings.filter((w) => w.includes("'astra'"));
+    const warns = result.warnings.filter((w) => w.includes("gpt-6-astra"));
     expect(warns).toHaveLength(1);
     expect(warns[0]).toContain("gpt-6-astra");
   });
@@ -828,7 +828,7 @@ describe("renderCodexEngine", () => {
   });
 
   // Covers: R12 — configured tier, mapped output and independent effort override.
-  it("renders per-agent model mapping and effort without forcing a root model", () => {
+  it("renders per-agent mapping and future-start main intent", () => {
     const cwd = tempRepo();
     renderCodexEngine(
       cwd,
@@ -848,7 +848,9 @@ describe("renderCodexEngine", () => {
     const reviewer = readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8");
     expect(reviewer).toContain('model = "gpt-6-luna"');
     expect(reviewer).toContain('model_reasoning_effort = "low"');
-    expect(readFileSync(join(cwd, ".codex/config.toml"), "utf-8")).not.toMatch(/^model\s*=/m);
+    expect(readFileSync(join(cwd, ".codex/config.toml"), "utf-8")).toMatch(
+      /^model = "gpt-6-sol"$/m,
+    );
     expect(existsSync(join(cwd, ".codex/agents/orchestrator.toml"))).toBe(false);
   });
 
@@ -872,7 +874,7 @@ describe("renderCodexEngine", () => {
     // implementer/reviewer are the two rendered agents this fixture assigns a
     // tier to.
     expect(readFileSync(join(cwd, ".codex/agents/implementer.toml"), "utf-8")).toContain(
-      'model = "gpt-6-sol"', // sonnet
+      'model = "gpt-6-luna"', // sonnet
     );
     expect(readFileSync(join(cwd, ".codex/agents/reviewer.toml"), "utf-8")).toContain(
       'model = "gpt-6-luna"', // haiku

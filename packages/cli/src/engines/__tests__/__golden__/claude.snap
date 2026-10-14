@@ -330,9 +330,10 @@ You execute **a single** task from start to verification. You don't orchestrate,
 
    If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run: run the literal `pnpm lint`. Open the log only on a red.
 
-   If it fails: fix it and re-run. Don't return with red. You are the single owner of this gate run: never share it with another process, never poll `pgrep`/`ps` for it, and a timeout is never a success signal. If the gate can outlive the Bash timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its chained steps one by one in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`) — you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait. When you can't explain WHY it failed, apply `.claude/skills/debug-failure/SKILL.md` before touching anything. If your second fix attempt fails the same way, that same skill's hypothesis re-check governs instead of throwing a third patch.
+   If it fails, fix and rerun; don't return red. You are the single owner of this gate run: never share it, never poll `pgrep`/`ps`, and a timeout is never a success signal. If it may outlive Bash's timeout, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run chained steps one by one in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`). If no chained step fits under any foreground timeout, report `BLOCKED` instead of improvising a background wait. If you can't explain the failure, apply `.claude/skills/debug-failure/SKILL.md` before editing. If the second fix fails identically, use the skill's hypothesis re-check; don't try a third patch.
 5. **UI**: for screen changes, the default evidence is the repo's tests plus a correct diff — **do NOT spin up a browser or dev server automatically**. Visual/browser validation is **optional and strictly on-request**: run it only when the user explicitly asks to check the UI in this prompt, and then drive the repo's browser-automation tool if one is set up (e.g. `playwright-cli`, whose installer ships its own skill).
 6. **No commits** without the `reviewer`'s approval. When you finish, write the report and return the reference.
+
 
 
 ## Hard rules (generic, always apply)
@@ -345,13 +346,13 @@ You execute **a single** task from start to verification. You don't orchestrate,
 - **No hardcode**: secrets / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, depending on the stack).
 - **No `console.log`** in code that will be merged (guard with `import.meta.env.DEV` or the runtime's equivalent).
 - **Zero new errors** introduced by your code in the quality gate tools (vs. baseline) — classify per `verify-before-done`'s Failure attribution, never by diff location alone; see the evidence table below. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.
-- **Never mutate or discard the shared working tree**: no stashing, no checkout/reset that discards local changes, no working-tree clean — these hit the `ask` permission rule and can stall a background agent indefinitely. Same reasoning for scratch files: leave them, don't clean them with a recursive delete.
+- **Never mutate or discard shared work**: don't stash, checkout/reset away local changes, clean the tree, or recursively delete scratch files; these hit `ask` and can stall a background agent.
 - **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.
 - **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see `spec-bootstrap`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.
 - **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `locate-code`; an entry point you didn't list is one the `reviewer` has to rediscover.
-- If a tool fails weirdly (e.g. tsc breaks with no apparent diff), **don't improvise a workaround**: note `Status: BLOCKED` + the reason in `.navori/state/handoffs/impl_<feature>.md` and stop.
-- **While iterating, run only the tests of the area you touch** (filter by the runner's path). The full gate in step 4 runs at the end, not on each iteration — saves time and context. Never run the full `pnpm test && pnpm lint` suite yourself: that's the `reviewer`'s Pass 2 job, and it commonly outlives Bash's timeout. If this repo has a diff-scoped fast check (`scoped-gate`), it's hygiene for iterating, never a substitute for step 4.
-- **Silent reporters on intermediate runs.** Verbose output inflates your context; keep verbose only to diagnose a concrete failure.
+- If a tool fails unexpectedly (e.g. tsc breaks without a diff), don't improvise: report `Status: BLOCKED` and the reason in `.navori/state/handoffs/impl_<feature>.md`, then stop.
+- Iterate with area tests only (filter by runner path). Run step 4's fast gate at the end, not each iteration; never run full `pnpm test && pnpm lint`—that's the reviewer's Pass 2 and may outlive Bash's timeout. A diff-scoped check (`scoped-gate`) is iteration hygiene, never a substitute for step 4.
+- Keep intermediate runs quiet; use verbose output only to diagnose a concrete failure. Record this turn's gate command, exit code, and summary before reporting green.
 
 ## Restraint (YAGNI)
 
@@ -787,6 +788,8 @@ If the brief says `mode: commit-only`, or `navori receipt check` returns `"gateK
 
 ## PR flow
 
+
+
 1. **Gather context** (curated, not the whole repo). The PR diff is against `main`:
    - `git log origin/main..HEAD --oneline` — commits included.
    - `git diff origin/main...HEAD --stat` — always.
@@ -1100,7 +1103,7 @@ The full gate runs once, on the round that signs; a rejected round never spends 
 If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run (an old navori prints help and exits 0): run the literal `pnpm lint` or `pnpm test && pnpm lint` instead. Read only the verdict.
 
 
-Read the verdict to verify (exit code + failure count), but leave only `exit 0` + the summary line in the report (e.g. `N passed`); when red, only the failing tail. Don't drag the full verbose log turn to turn. This evidence —green gate over the final diff, this cycle— is what the `publisher` reuses so it does **not** re-run the gate, so it must be fresh and over the diff that's going to be committed. You are the single owner of this gate run: the only handle that exists is this Bash call itself, correlated to the diff you're reviewing this turn — never share it with another process, and never poll `pgrep`/`ps` for it (it also matches other sessions' commands and never exits). A timeout is never a success signal. Run `navori gate full` in the foreground with the Bash tool's max `timeout`; if the full gate can exceed it, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run its `&&`-chained steps one by one in the foreground, each under the timeout — never background it (no shell `&`, no `run_in_background`, no `Monitor`), you won't be re-woken to read the result. If no chained step fits under any foreground timeout, stop and report `BLOCKED` instead of improvising a background wait. The full gate runs only on the round about to sign `APPROVED`; a round ending in `CHANGES_REQUESTED` uses the scoped gate and the assigned `A<n>` commands, and runs no full gate.
+Read verdict (exit code and failure count); report only `exit 0` plus summary or failing tail. Publisher reuses fresh gate evidence. You are the single owner of this gate run, correlated to the diff you're reviewing this turn: never share it, never poll `pgrep`/`ps`, and a timeout is never a success signal. Run `navori gate full` in the foreground with Bash's maximum timeout. If it may exceed that, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run `&&`-chained steps separately in the foreground, never background them (no shell `&`, no `run_in_background`, no `Monitor`). If no chained step fits under any foreground timeout, report `BLOCKED` instead of improvising a background wait. A yield is neither timeout nor success; run evidence must match the final diff being signed and include exit code and failure count. Missing actual process exit, code, or failure count; timeout, cancellation, rejection, or lost handle means `BLOCKED` with no receipt. Nonzero exit or gate failures mean `QUALITY_MISS`. The full gate runs only on the round about to sign `APPROVED`; `CHANGES_REQUESTED` uses the scoped gate and assigned `A<n>` commands only.
 
 
 **Partial verdict:**
@@ -2682,6 +2685,38 @@ navori_bash_codex_outcome() {
   esac
   navori_bash_failure_state codex "$tp" "$tid"
   return 0
+}
+
+ # Codex 0.162.1 observed CommandExecution: argv, file-URL cwd and completed exit.
+ # Missing effective cwd/command or an uncorrelated item never produces evidence.
+navori_codex_acceptance_payload() {
+  NV_CODEX_PAYLOAD="$payload" node -e '
+const fs = require("node:fs");
+const { fileURLToPath } = require("node:url");
+try {
+  const p = JSON.parse(process.env.NV_CODEX_PAYLOAD);
+  if (!p.tool_use_id || !p.transcript_path || p.is_interrupt || p.tool_input?.run_in_background) process.exit(0);
+  const fd = fs.openSync(p.transcript_path, "r");
+  let lines;
+  try {
+    const size = fs.fstatSync(fd).size;
+    const len = Math.min(size, 1048576);
+    const b = Buffer.alloc(len);
+    fs.readSync(fd, b, 0, len, size-len);
+    lines = b.toString("utf8").split("\n");
+  } finally { fs.closeSync(fd); }
+  for (let i = lines.length-1; i >= 0; i--) {
+    let r; try { r = JSON.parse(lines[i]); } catch { continue; }
+    const item = r?.payload?.item;
+    if (r?.type !== "event_msg" || r?.payload?.type !== "item_completed" || item?.type !== "CommandExecution" || item.id !== p.tool_use_id) continue;
+    if (item.exit_code !== 0 || item.status !== "completed" || typeof item.cwd !== "string") break;
+    if (!Array.isArray(item.command) || item.command.length !== 3 || !["-lc", "-c"].includes(item.command[1]) || item.command[2] !== p.tool_input?.command) break;
+    const cwd = item.cwd.startsWith("file:") ? fileURLToPath(item.cwd) : item.cwd;
+    if (!cwd.startsWith("/") || /[\r\n]/.test(cwd)) break;
+    process.stdout.write(JSON.stringify({...p, cwd}));
+    break;
+  }
+} catch {}'
 }
 
 # Called by `routing-watch.sh` once it knows the tool is `Bash`, and only under
@@ -8411,6 +8446,35 @@ case "$0" in
   *".codex/hooks/"*)
     navori_audit_verdict="deny"
     navori_audit_reason="gh pr create requires user confirmation (Codex)"
+    # The outer process deadline also covers synchronous Git/state resolution.
+    # Only a complete deny is forwarded; a missing, stale or stalled CLI falls back.
+    if command -v node >/dev/null 2>&1 && command -v navori >/dev/null 2>&1; then
+      if printf '%s' "$payload" | node -e '
+        const {spawn}=require("node:child_process");
+        let raw="", out="", failed=false;
+        process.stdin.on("data", chunk => {raw+=chunk;if(Buffer.byteLength(raw)>65536)failed=true;});
+        process.stdin.on("end", () => {
+          if(failed){process.exitCode=1;return;}
+          const child=spawn("navori",["codex","approval","request"],{detached:true,stdio:["pipe","pipe","ignore"]});
+          const stop=()=>{failed=true;try{process.kill(-child.pid,"SIGKILL")}catch{}};
+          const timer=setTimeout(stop,5000);
+          child.on("error",()=>{clearTimeout(timer);process.exitCode=1;});
+          child.stdin.on("error",()=>{});
+          child.stdout.on("data",chunk=>{out+=chunk;if(Buffer.byteLength(out)>65536)stop();});
+          child.on("close",code=>{
+            clearTimeout(timer);
+            try{
+              const result=JSON.parse(out), h=result.hookSpecificOutput;
+              if(failed||code!==0||Object.keys(result).length!==1||h.hookEventName!=="PreToolUse"||h.permissionDecision!=="deny"||typeof h.permissionDecisionReason!=="string")throw Error();
+              process.stdout.write(JSON.stringify(result)+"\n");
+            }catch{process.exitCode=1;}
+          });
+          child.stdin.end(raw);
+        });
+      ' 2>/dev/null; then
+        exit 0
+      fi
+    fi
     printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[navori] this `gh pr create` opens a PR and Codex hooks cannot prompt. Show the user the title and body, and let them confirm and run the command themselves."}}'
     exit 0
     ;;
@@ -10684,6 +10748,38 @@ navori_bash_codex_outcome() {
   return 0
 }
 
+ # Codex 0.162.1 observed CommandExecution: argv, file-URL cwd and completed exit.
+ # Missing effective cwd/command or an uncorrelated item never produces evidence.
+navori_codex_acceptance_payload() {
+  NV_CODEX_PAYLOAD="$payload" node -e '
+const fs = require("node:fs");
+const { fileURLToPath } = require("node:url");
+try {
+  const p = JSON.parse(process.env.NV_CODEX_PAYLOAD);
+  if (!p.tool_use_id || !p.transcript_path || p.is_interrupt || p.tool_input?.run_in_background) process.exit(0);
+  const fd = fs.openSync(p.transcript_path, "r");
+  let lines;
+  try {
+    const size = fs.fstatSync(fd).size;
+    const len = Math.min(size, 1048576);
+    const b = Buffer.alloc(len);
+    fs.readSync(fd, b, 0, len, size-len);
+    lines = b.toString("utf8").split("\n");
+  } finally { fs.closeSync(fd); }
+  for (let i = lines.length-1; i >= 0; i--) {
+    let r; try { r = JSON.parse(lines[i]); } catch { continue; }
+    const item = r?.payload?.item;
+    if (r?.type !== "event_msg" || r?.payload?.type !== "item_completed" || item?.type !== "CommandExecution" || item.id !== p.tool_use_id) continue;
+    if (item.exit_code !== 0 || item.status !== "completed" || typeof item.cwd !== "string") break;
+    if (!Array.isArray(item.command) || item.command.length !== 3 || !["-lc", "-c"].includes(item.command[1]) || item.command[2] !== p.tool_input?.command) break;
+    const cwd = item.cwd.startsWith("file:") ? fileURLToPath(item.cwd) : item.cwd;
+    if (!cwd.startsWith("/") || /[\r\n]/.test(cwd)) break;
+    process.stdout.write(JSON.stringify({...p, cwd}));
+    break;
+  }
+} catch {}'
+}
+
 # Called by `routing-watch.sh` once it knows the tool is `Bash`, and only under
 # `claude-post-tool-use` (Codex fires PostToolUse on failure too, so no signal).
 navori_bash_success_lane() {
@@ -11029,11 +11125,19 @@ fi
 # registration (the Codex hooks-per-Bash count stays pinned). Codex fires
 # PostToolUse on failure too, so the outcome comes from the rollout record of
 # this `tool_use_id`, never from the event. Silent on any missing piece; it only
-# ever prints the repeated-failure advice that Claude's bash-outcome-watch gives.
+# registers acceptance only with a correlated completed command/effective cwd,
+# and prints the repeated-failure advice that Claude's bash-outcome-watch gives.
 # SHORTCUT: when it advises it ends the run, so that one call is not counted
 # toward the routing threshold; ceiling one call per three repeated failures,
 # trigger: if routing counts must stay exact, merge both notes into one output.
 if [ "$tool" = "Bash" ] && [ "$nv_engine" = codex ]; then
+  navori_acceptance_payload=$(navori_codex_acceptance_payload 2>/dev/null) || navori_acceptance_payload=
+  if [ -n "$navori_acceptance_payload" ]; then
+    navori_original_payload=$payload
+    payload=$navori_acceptance_payload
+    navori_bash_success_lane
+    payload=$navori_original_payload
+  fi
   navori_codex_advice=$(navori_bash_codex_outcome 2>/dev/null) || navori_codex_advice=
   if [ -n "$navori_codex_advice" ]; then
     navori_audit_log "advise" "same Bash failure reached three consecutive occurrences"
@@ -12001,6 +12105,20 @@ $(fence_body "$log")
 ${FENCE_CLOSE}" \
       "[navori] recent commits didn't fit the startup context; run \`git log --oneline -15\` to reconstruct them."
   fi
+fi
+
+# Previous-session state. The default lives at `progress/current.md` — the
+if [ "$nv_engine" = codex ] && [ "$_ss_source" = resume ]; then
+  resume_state=$(node -e '
+const { spawnSync } = require("node:child_process");
+const r = spawnSync("navori", ["plan", "resume", "--json"], { encoding: "utf8", timeout: 5500, maxBuffer: 65536 });
+try { const p = JSON.parse(r.stdout); if (r.status === 0) process.stdout.write(JSON.stringify(p)); else throw 0; }
+catch { process.stdout.write(JSON.stringify({status:"pending",reason:"resume revalidation unavailable"})); }
+' 2>/dev/null) || resume_state='{"status":"pending","reason":"resume unavailable"}'
+  add_bounded "Revalidated continuity (claims not evaluated remain pending):
+${FENCE_OPEN}
+$(fence_body "$resume_state")
+${FENCE_CLOSE}" "[navori] continuity revalidation did not fit; run navori plan resume --json."
 fi
 
 # Previous-session state. The default lives at `progress/current.md` — the

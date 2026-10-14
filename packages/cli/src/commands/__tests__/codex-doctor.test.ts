@@ -219,10 +219,10 @@ describe("scanCodexHealth (Spec 0007 M5)", () => {
     // Covers: R32
     it("warns with agent, rendered id and newer id when the family moved on", () => {
       const cwd = tempRepo();
-      renderCodexEngine(cwd, cfg()); // no catalog: fallback gpt-6-sol
-      writeCatalog(["gpt-6-sol", "gpt-6.1-sol"]);
+      renderCodexEngine(cwd, cfg()); // no catalog: fallback gpt-6-luna
+      writeCatalog(["gpt-6-luna", "gpt-6.1-luna"]);
       expect(scanCodexHealth(cwd, cfg())?.staleModels).toEqual([
-        { agent: "implementer", rendered: "gpt-6-sol", current: "gpt-6.1-sol" },
+        { agent: "implementer", rendered: "gpt-6-luna", current: "gpt-6.1-luna" },
       ]);
       expect(tc("en").doctor.codexModelStale("implementer", "gpt-6-sol", "gpt-6.1-sol")).toContain(
         "navori render --apply",
@@ -232,7 +232,7 @@ describe("scanCodexHealth (Spec 0007 M5)", () => {
     // Covers: R32
     it("is silent when the rendered model matches the current resolution", () => {
       const cwd = tempRepo();
-      writeCatalog(["gpt-6-sol", "gpt-6.1-sol"]);
+      writeCatalog(["gpt-6-luna", "gpt-6.1-luna"]);
       renderCodexEngine(cwd, cfg());
       expect(scanCodexHealth(cwd, cfg())?.staleModels).toEqual([]);
     });
@@ -242,7 +242,7 @@ describe("scanCodexHealth (Spec 0007 M5)", () => {
       const cwd = tempRepo();
       const pinned = cfg({ sonnet: "gpt-6-sol" });
       renderCodexEngine(cwd, pinned);
-      writeCatalog(["gpt-6-sol", "gpt-6.1-sol"]);
+      writeCatalog(["gpt-6-luna", "gpt-6.1-luna"]);
       expect(scanCodexHealth(cwd, pinned)?.staleModels).toEqual([]);
     });
   });

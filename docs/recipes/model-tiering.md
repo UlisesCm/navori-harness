@@ -46,16 +46,51 @@ donde fijar su tier.
 
 ## Codex
 
-Los tiers de Claude (`opus`/`sonnet`/`haiku`) se traducen con `models.codexMap`. Por defecto
-usan familias: `opus` y `sonnet` → `sol`, `haiku` → `luna` (existe también `astra`).
+Codex resuelve modelo y esfuerzo de forma independiente. Los defaults por familia son
+Opus → Sol, Sonnet → Luna y Haiku → Luna; `models.codexMap` puede cambiar el valor de cada
+tier a otra familia o a un ID completo. Un ID completo, como `gpt-6-sol`, es un pin; una
+familia como `sol`, `luna` o `astra` busca la versión numérica más alta compatible del
+catálogo local de Codex, por ejemplo `gpt-6.1-sol`.
 
-- Cada familia se resuelve en cada render a la versión más alta del catálogo local de Codex,
-  `<CODEX_HOME>/models_cache.json` (por ejemplo `gpt-6.1-sol`).
-- Un ID completo (`gpt-6-sol`) queda fijo (pin).
-- Sin catálogo se conserva el modelo ya renderizado de la misma familia, que nunca se degrada;
-  si no hay, se usa el fallback (`gpt-6-sol`, `gpt-6-luna`, `gpt-6-astra`) con warning.
-- `navori doctor` avisa cuando hay una versión más nueva en la familia.
-- Pi resuelve igual, con el prefijo `openai-codex/`.
+El esfuerzo de Claude solo alimenta esta resolución de Codex: Sonnet con `medium` pasa a
+`high`, incluso cuando el modelo viene de un pin o de `codexMap`. Los demás esfuerzos se
+conservan (`Sonnet low` sigue en `low`, y `Sonnet high` en `high`). Un override explícito
+por agente prevalece en su campo correspondiente.
+
+Se pueden definir overrides por nombre TOML nativo en `models.codexProfiles`. Las claves
+deben ser los nombres exactos, como `implementer`; `orchestrator` está reservado para el
+agente principal y usa `.codex/config.toml`. Cada registro puede fijar `model`, `effort` o
+ambos sin que uno sustituya al otro:
+
+```json
+{
+  "models": {
+    "codexProfiles": {
+      "orchestrator": { "model": "gpt-6.1-sol", "effort": "xhigh" },
+      "implementer": { "model": "luna", "effort": "medium" }
+    }
+  }
+}
+```
+
+El inventario considera el principal y los agentes Codex habilitados, además de los TOML
+nativos del proyecto que no administra navori. Esos archivos se leen dentro del checkout;
+los archivos locales del usuario no se reescriben. El render expresa intención administrada
+para futuros inicios y conserva campos del usuario, valores más nuevos de la misma familia
+y TOML de agentes que pertenecen al usuario.
+
+Una entrada de `models_cache.json` solo aporta candidatos. La frescura es `unknown` si no
+hay fuente, timestamp y contexto verificados externamente; si falta el catálogo, está
+malformado o no contiene entradas compatibles, el estado es `degraded`. El cache, su mtime
+y sus slugs no prueban disponibilidad actual. `configured`, candidato a render y `observed`
+son estados distintos: sin observación ligada al contexto iniciado, el resultado efectivo
+permanece desconocido y la aplicación queda `pending`, con el remedio de iniciar un contexto
+Codex nuevo y verificar ahí modelo y esfuerzo. No se afirma equivalencia de calidad entre
+modelos.
+
+Pi conserva su consumidor explícito de `codexMap`, que solo resuelve el modelo; la
+transformación de esfuerzo y los overrides nombrados se limitan a Codex. Los perfiles de
+Claude permanecen sin cambios.
 
 ## No definas todo en el tier top
 

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { doctorCommand } from "../doctor.ts";
 
 describe("doctor model profile provenance (Spec 0037 R12)", () => {
-  // Covers: R12
+  // Covers: R12, R14
   it("serializes mapped and inherited profiles without claiming observed execution", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "navori-profile-doctor-"));
     writeFileSync(
@@ -35,14 +35,14 @@ describe("doctor model profile provenance (Spec 0037 R12)", () => {
         }>;
       };
       expect(report.modelProfileProvenance.find((row) => row.agent === "reviewer")).toMatchObject({
-        model: { origin: "mapped", wouldRender: "gpt-6-sol", effectiveObserved: null },
+        model: { origin: "mapped", wouldRender: "gpt-6-luna", effectiveObserved: null },
         effort: { origin: "explicit", wouldRender: "low", effectiveObserved: null },
       });
       expect(report.modelProfileProvenance.find((row) => row.agent === "architect")).toMatchObject({
         model: { origin: "inherited", wouldRender: null, effectiveObserved: null },
         effort: { origin: "inherited", wouldRender: null, effectiveObserved: null },
       });
-      expect(report.modelProfileProvenance.some((row) => row.agent === "orchestrator")).toBe(false);
+      expect(report.modelProfileProvenance.some((row) => row.agent === "orchestrator")).toBe(true);
     } finally {
       output.mockRestore();
       rmSync(cwd, { recursive: true, force: true });

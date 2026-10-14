@@ -1,4 +1,4 @@
-# navori:managed start id="session-start-context-base" hash="e53dc622" version="0.11.3" source="@navori/core"
+# navori:managed start id="session-start-context-base" hash="233c7910" version="0.12.0" source="@navori/core"
 #!/usr/bin/env bash
 #
 # SessionStart context hook.
@@ -708,6 +708,20 @@ $(fence_body "$log")
 ${FENCE_CLOSE}" \
       "[navori] recent commits didn't fit the startup context; run \`git log --oneline -15\` to reconstruct them."
   fi
+fi
+
+# Previous-session state. The default lives at `progress/current.md` — the
+if [ "$nv_engine" = codex ] && [ "$_ss_source" = resume ]; then
+  resume_state=$(node -e '
+const { spawnSync } = require("node:child_process");
+const r = spawnSync("navori", ["plan", "resume", "--json"], { encoding: "utf8", timeout: 5500, maxBuffer: 65536 });
+try { const p = JSON.parse(r.stdout); if (r.status === 0) process.stdout.write(JSON.stringify(p)); else throw 0; }
+catch { process.stdout.write(JSON.stringify({status:"pending",reason:"resume revalidation unavailable"})); }
+' 2>/dev/null) || resume_state='{"status":"pending","reason":"resume unavailable"}'
+  add_bounded "Revalidated continuity (claims not evaluated remain pending):
+${FENCE_OPEN}
+$(fence_body "$resume_state")
+${FENCE_CLOSE}" "[navori] continuity revalidation did not fit; run navori plan resume --json."
 fi
 
 # Previous-session state. The default lives at `progress/current.md` — the

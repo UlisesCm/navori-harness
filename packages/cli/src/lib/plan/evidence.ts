@@ -12,6 +12,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { stateArtifactPath, type StateRoot } from "../primitives/state-root.ts";
 import type { RecordedEvidence } from "./schema.ts";
 
@@ -71,25 +72,29 @@ export type EvidenceLine = z.infer<typeof EvidenceLineSchema>;
  */
 const GIT_HARDENING = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"] as const;
 
+/** Runs hardened Git plumbing using only the remaining shared deadline, when provided. */
 function git(
   cwd: string,
   args: string[],
-  options: { env?: NodeJS.ProcessEnv; input?: string } = {},
+  options: { env?: NodeJS.ProcessEnv; input?: string; deadline?: number } = {},
 ): string | undefined {
+  if (Date.now() >= (options.deadline ?? Infinity)) return undefined;
   const result = spawnSync("git", [...GIT_HARDENING, ...args], {
     cwd,
     encoding: "utf8",
     env: options.env ?? process.env,
     input: options.input,
     maxBuffer: 256 * 1024 * 1024,
+    timeout:
+      options.deadline !== undefined ? Math.max(1, options.deadline - Date.now()) : undefined,
   });
   if (result.error || result.status !== 0) return undefined;
   return result.stdout;
 }
 
-/** `git rev-parse HEAD` of `tree`, or `""` when unborn/unreadable. */
-export function readHead(tree: string): string {
-  return git(tree, ["rev-parse", "HEAD"])?.trim() ?? "";
+/** `git rev-parse HEAD` of `tree`, or `""` when unborn, unreadable or out of budget. */
+export function readHead(tree: string, deadline?: number): string {
+  return git(tree, ["rev-parse", "HEAD"], { deadline })?.trim() ?? "";
 }
 
 export type Fingerprint = { ok: true; tree: string } | { ok: false; reason: string };
@@ -109,6 +114,7 @@ export type Fingerprint = { ok: true; tree: string } | { ok: false; reason: stri
 export function fingerprintTree(
   tree: string,
   binding?: Pick<DeliveryEvidenceBinding, "stagePath">,
+  options: { readOnly?: boolean; deadline?: number } = {},
 ): Fingerprint {
   const excludes: string[] = [...FINGERPRINT_EXCLUDES];
   if (binding) {
@@ -125,7 +131,11 @@ export function fingerprintTree(
       excludes.push(`${binding.stagePath}/${name}`);
     }
   }
-  const scratch = git(tree, [
+  const run = (args: string[], input?: string): string | undefined =>
+    Date.now() >= (options.deadline ?? Infinity)
+      ? undefined
+      : git(tree, args, { input, deadline: options.deadline });
+  const scratch = run([
     "rev-parse",
     "--path-format=absolute",
     "--git-path",
@@ -138,7 +148,7 @@ export function fingerprintTree(
       reason: `stale lock file ${scratch}.lock (remove it if no git process is running)`,
     };
   }
-  const listed = git(tree, [
+  const listed = run([
     "ls-files",
     "-z",
     "--cached",
@@ -153,6 +163,7 @@ export function fingerprintTree(
   const files: Array<{ path: string; mode: string }> = [];
   const links: Array<{ path: string; target: string }> = [];
   for (const path of listed.split("\0").filter(Boolean)) {
+    if (Date.now() >= (options.deadline ?? Infinity)) return { ok: false, reason: "timeout" };
     if (path.includes("\n")) return { ok: false, reason: "a tracked path contains a newline" };
     let stat;
     try {
@@ -165,9 +176,10 @@ export function fingerprintTree(
   }
   const entries: string[] = [];
   if (files.length > 0) {
-    const shas = git(tree, ["hash-object", "-w", "--no-filters", "--stdin-paths"], {
-      input: `${files.map((f) => f.path).join("\n")}\n`,
-    })
+    const shas = run(
+      ["hash-object", ...(options.readOnly ? [] : ["-w"]), "--no-filters", "--stdin-paths"],
+      `${files.map((f) => f.path).join("\n")}\n`,
+    )
       ?.split("\n")
       .filter(Boolean);
     if (!shas || shas.length !== files.length) {
@@ -176,12 +188,14 @@ export function fingerprintTree(
     files.forEach((f, i) => entries.push(`${f.mode} ${shas[i]}\t${f.path}\0`));
   }
   for (const link of links) {
-    const sha = git(tree, ["hash-object", "-w", "--no-filters", "--stdin"], {
-      input: link.target,
-    })?.trim();
+    const sha = run(
+      ["hash-object", ...(options.readOnly ? [] : ["-w"]), "--no-filters", "--stdin"],
+      link.target,
+    )?.trim();
     if (!sha) return { ok: false, reason: "git hash-object failed" };
     entries.push(`120000 ${sha}\t${link.path}\0`);
   }
+  if (options.readOnly) return memoryTree(entries, tree, options.deadline);
   const env = { ...process.env, GIT_INDEX_FILE: scratch };
   if (git(tree, ["read-tree", "--empty"], { env }) === undefined) {
     return { ok: false, reason: `cannot write ${scratch} (read-only git dir?)` };
@@ -195,6 +209,60 @@ export function fingerprintTree(
   }
   const written = git(tree, ["write-tree"], { env })?.trim();
   return written ? { ok: true, tree: written } : { ok: false, reason: "git write-tree failed" };
+}
+
+/** Builds Git tree object IDs in memory without objects or a scratch index. */
+function memoryTree(entries: string[], cwd: string, deadline: number = Infinity): Fingerprint {
+  const format = git(cwd, ["rev-parse", "--show-object-format"], {
+    deadline: Number.isFinite(deadline) ? deadline : undefined,
+  })?.trim();
+  if (format !== "sha1" && format !== "sha256")
+    return { ok: false, reason: "unknown object format" };
+  type Node = Map<string, { mode: string; hash: string } | Node>;
+  const root: Node = new Map();
+  for (const entry of entries) {
+    if (Date.now() >= deadline) return { ok: false, reason: "timeout" };
+    const [metadata, path] = entry.slice(0, -1).split("\t");
+    const [mode, hash] = (metadata ?? "").split(" ");
+    if (!path || !mode || !hash) return { ok: false, reason: "invalid tree entry" };
+    const parts = path.split("/");
+    let node = root;
+    for (const part of parts.slice(0, -1)) {
+      const existing = node.get(part);
+      if (existing && !(existing instanceof Map)) return { ok: false, reason: "tree collision" };
+      const child: Node = existing ?? new Map();
+      node.set(part, child);
+      node = child;
+    }
+    node.set(parts.at(-1)!, { mode, hash });
+  }
+  /** Hashes a subtree without publishing an incomplete result after budget exhaustion. */
+  const hashTree = (node: Node): string | undefined => {
+    if (Date.now() >= deadline) return undefined;
+    const sorted = [...node].sort(([a, av], [b, bv]) =>
+      Buffer.compare(
+        Buffer.from(a + (av instanceof Map ? "/" : "")),
+        Buffer.from(b + (bv instanceof Map ? "/" : "")),
+      ),
+    );
+    const chunks: Buffer[] = [];
+    for (const [name, value] of sorted) {
+      if (Date.now() >= deadline) return undefined;
+      const hash = value instanceof Map ? hashTree(value) : value.hash;
+      if (!hash) return undefined;
+      chunks.push(
+        Buffer.from(`${value instanceof Map ? "40000" : value.mode} ${name}\0`),
+        Buffer.from(hash, "hex"),
+      );
+    }
+    const bytes = Buffer.concat(chunks);
+    if (Date.now() >= deadline) return undefined;
+    return createHash(format).update(`tree ${bytes.length}\0`).update(bytes).digest("hex");
+  };
+  const hash = hashTree(root);
+  return hash && Date.now() < deadline
+    ? { ok: true, tree: hash }
+    : { ok: false, reason: "timeout" };
 }
 
 /** `fingerprintTree`'s hash, or `undefined` when it cannot be computed. */
@@ -234,6 +302,8 @@ export interface ValidateEvidenceInput {
   implWorktree?: string;
   /** Required current identity for source-backed slices; never synthesize from a log. */
   deliveryBinding?: DeliveryEvidenceBinding;
+  /** Invocation-local snapshot; never derived from recorded evidence. */
+  current?: { cwd: string; head: string; fingerprint: Fingerprint };
 }
 
 function real(path: string): string | undefined {
@@ -280,6 +350,7 @@ function candidateProblem(
   accepted: readonly string[],
   command: string,
   binding?: DeliveryEvidenceBinding,
+  current?: ValidateEvidenceInput["current"],
 ): { why: string; tree: string } | undefined {
   const tree = real(line.tree);
   if (tree === undefined) return { why: `tree ${line.tree} no longer exists`, tree: line.tree };
@@ -290,12 +361,12 @@ function candidateProblem(
   if (cwd !== tree && (cwd === undefined || cwd !== cdTargetCwd(tree, command))) {
     return { why: `ran from ${line.cwd}, not the tree root ${tree}`, tree };
   }
-  const head = readHead(tree);
+  const head = current?.cwd === tree ? current.head : readHead(tree);
   const headMoved = `tree changed since the run (HEAD ${line.head.slice(0, 7) || "none"} → ${head.slice(0, 7) || "none"})`;
   if (head !== line.head && !binding) return { why: headMoved, tree };
   if (!sameBinding(line.deliveryBinding, binding))
     return { why: "producer delivery authority or criterion definition changed", tree };
-  const fingerprint = fingerprintTree(tree, binding);
+  const fingerprint = current?.cwd === tree ? current.fingerprint : fingerprintTree(tree, binding);
   if (!fingerprint.ok) {
     return { why: `cannot compute the tree fingerprint: ${fingerprint.reason}`, tree };
   }
@@ -363,7 +434,7 @@ export function validateEvidence(input: ValidateEvidenceInput): EvidenceVerdict 
   }
   let firstProblem: { why: string; tree: string } | undefined;
   for (const line of sameCommand) {
-    const problem = candidateProblem(line, accepted, command, input.deliveryBinding);
+    const problem = candidateProblem(line, accepted, command, input.deliveryBinding, input.current);
     if (problem === undefined) {
       return {
         ok: true,

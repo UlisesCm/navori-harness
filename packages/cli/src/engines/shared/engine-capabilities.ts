@@ -1,8 +1,146 @@
 import { ENGINES } from "../../lib/config/schema.ts";
-import { CODEX_HOOKS_WITHOUT_REGISTRATION, CODEX_PARITY } from "./codex-parity.ts";
+import {
+  CODEX_HOOKS_WITHOUT_REGISTRATION,
+  CODEX_PARITY,
+  codexCapabilityFor,
+  type CodexCapabilityDeclaration,
+} from "./codex-parity.ts";
 
 /** A valid engine id — the same union `NavoriConfigSchema.engines` accepts. */
 export type EngineId = (typeof ENGINES)[number];
+
+/** Engine-independent outcomes required by a work cycle (spec 0050 R1). */
+export type ResultId =
+  | "authorized-scope"
+  | "independent-review"
+  | "current-acceptance-evidence"
+  | "action-authorization"
+  | "continuity";
+
+/** Accountability and evidence bindings; mechanisms do not establish success. */
+export interface ResultDefinition {
+  readonly owner: string;
+  readonly mechanism: string;
+  readonly evidenceBindings: readonly string[];
+}
+
+/** Shared outcome vocabulary, separate from each engine's capability inventory. */
+export const RESULT_DEFINITIONS: Readonly<Record<ResultId, ResultDefinition>> = {
+  "authorized-scope": {
+    owner: "human/orchestrator",
+    mechanism: "approved workplan and scoped dispatch",
+    evidenceBindings: ["task", "approved files", "dispatch identity", "authorization source"],
+  },
+  "independent-review": {
+    owner: "independent reviewer",
+    mechanism: "reviewer handoff and review receipt",
+    evidenceBindings: ["producer identity", "reviewer identity", "diff identity"],
+  },
+  "current-acceptance-evidence": {
+    owner: "gate/test runner",
+    mechanism: "recorded command execution and acceptance receipt",
+    evidenceBindings: ["criterion", "command", "inputs", "exit result", "work identity"],
+  },
+  "action-authorization": {
+    owner: "human/host",
+    mechanism: "action-specific authorization and consumption",
+    evidenceBindings: [
+      "action",
+      "destination",
+      "diff identity",
+      "authorization source",
+      "consumer",
+    ],
+  },
+  continuity: {
+    owner: "session host/orchestrator",
+    mechanism: "resume context and next-step handoff",
+    evidenceBindings: ["task", "next step", "work identity", "revalidated guarantees"],
+  },
+};
+
+/** Evidence bindings specific to each outcome; validation belongs to subsequent deliveries. */
+export interface ResultEvidence {
+  readonly "authorized-scope": {
+    readonly task: string;
+    readonly files: readonly string[];
+    readonly dispatchId: string;
+    readonly authorizationSource: string;
+  };
+  readonly "independent-review": {
+    readonly producerId: string;
+    readonly reviewerId: string;
+    readonly diffIdentity: string;
+  };
+  readonly "current-acceptance-evidence": {
+    readonly criterion: string;
+    readonly command: string;
+    readonly inputs: readonly string[];
+    readonly exitCode: number;
+    readonly workIdentity: string;
+  };
+  readonly "action-authorization": {
+    readonly action: string;
+    readonly destination: string;
+    readonly diffIdentity: string;
+    readonly authorizationSource: string;
+    readonly consumerId: string;
+  };
+  readonly continuity: {
+    readonly task: string;
+    readonly nextStep: string;
+    readonly workIdentity: string;
+    readonly revalidatedGuarantees: readonly ResultId[];
+  };
+}
+
+/** A cycle result is pending until its own evidence is available; support is separate. */
+export type CycleResult<Id extends ResultId> =
+  | { readonly state: "pending"; readonly evidence: null }
+  | {
+      readonly state: "passed" | "failed" | "stale";
+      readonly evidence: ResultEvidence[Id];
+    };
+
+/** The five required results, identified independently of the engine's tools. */
+export interface CycleResults {
+  readonly task: string;
+  readonly engine: EngineId;
+  readonly results: { readonly [Id in ResultId]: CycleResult<Id> };
+}
+
+/** Start a cycle without manufacturing approval, review, acceptance or continuity evidence. */
+export function pendingCycleResults(task: string, engine: EngineId): CycleResults {
+  return {
+    task,
+    engine,
+    results: {
+      "authorized-scope": { state: "pending", evidence: null },
+      "independent-review": { state: "pending", evidence: null },
+      "current-acceptance-evidence": { state: "pending", evidence: null },
+      "action-authorization": { state: "pending", evidence: null },
+      continuity: { state: "pending", evidence: null },
+    },
+  };
+}
+
+/**
+ * Read Codex control evidence from the canonical parity inventory. Unversioned
+ * controls below describe render/advisory support, never an active host smoke.
+ * Controls without a probed inventory surface remain unknown for that host.
+ */
+export function codexControlCapability(
+  control: ControlId,
+  codexVersion: string,
+): CodexCapabilityDeclaration {
+  const declaration = ENGINE_CAPABILITIES.codex.controls[control];
+  const evidence = declaration.state === "unsupported" ? undefined : declaration.evidence;
+  const surface =
+    evidence?.kind === "hook"
+      ? `hook:${evidence.script.replace(/\.sh$/, "")}`
+      : `control:${control}`;
+  return codexCapabilityFor(surface, codexVersion);
+}
 
 /**
  * One documented gap between an engine's render and full Claude parity. The
@@ -59,7 +197,11 @@ export type RenderEvidence =
     }
   | { readonly kind: "native-skill-root" }
   | { readonly kind: "local-skill-pointer" }
-  | { readonly kind: "extension-tool"; readonly path: string; readonly tool: string };
+  | {
+      readonly kind: "extension-tool";
+      readonly path: string;
+      readonly tool: string;
+    };
 
 /**
  * One control's declared state for one engine. `enforced` requires `evidence`
@@ -68,8 +210,16 @@ export type RenderEvidence =
  * uses for a required field (R20).
  */
 export type ControlDeclaration =
-  | { readonly state: "enforced"; readonly reason: string; readonly evidence: RenderEvidence }
-  | { readonly state: "advisory"; readonly reason: string; readonly evidence?: RenderEvidence }
+  | {
+      readonly state: "enforced";
+      readonly reason: string;
+      readonly evidence: RenderEvidence;
+    }
+  | {
+      readonly state: "advisory";
+      readonly reason: string;
+      readonly evidence?: RenderEvidence;
+    }
   | { readonly state: "unsupported"; readonly reason: string };
 
 /** Static description of a control, independent of any one engine. */
@@ -428,7 +578,12 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
           "harness.planTiers registers the PreToolUse(Agent) hook (build-settings.ts). A plan " +
           "denial blocks; when navori is missing or has no plan subcommand it asks (Claude, " +
           "prompting modes only) and stays a hard block on Codex and non-prompting modes (#1117).",
-        evidence: { kind: "hook", script: "plan-gate.sh", event: "PreToolUse", matcher: "Agent" },
+        evidence: {
+          kind: "hook",
+          script: "plan-gate.sh",
+          event: "PreToolUse",
+          matcher: "Agent",
+        },
       },
       "markdown-ownership": {
         state: "enforced",
@@ -544,7 +699,7 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         reason:
           "harness.planTiers registers PreToolUse(spawn_agent$) as the last late row; only implementer is gated, " +
           "with the role from tool_input.agent_type and, when the message is encrypted (probe V2), the opening " +
-          "line from the orchestrator's dispatch_<feature>.json (spec 0041 R9); advisory until the live smoke (T20).",
+          "line from the orchestrator's dispatch_<feature>.json (spec 0041 R9). This unversioned render declaration is advisory; codexControlCapability reports S4 enforcement only for its verified version and surface.",
         evidence: {
           kind: "hook",
           script: "plan-gate.sh",
@@ -614,7 +769,7 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         state: "advisory",
         reason:
           "PreToolUse(spawn_agent$) denies a general-purpose spawn as a confirmation, since Codex hooks " +
-          "cannot emit `ask` (spec 0041 R10); advisory until the live smoke (T20).",
+          "cannot emit `ask` (spec 0041 R10). This unversioned render declaration is advisory; codexControlCapability reports S9 enforcement only for its verified version and surface.",
         evidence: {
           kind: "hook",
           script: "general-purpose-confirm.sh",
@@ -694,13 +849,21 @@ export const ENGINE_CAPABILITIES: Readonly<Record<EngineId, EngineCapabilities>>
         state: "enforced",
         reason:
           "The Pi extension's tool_result handler records host-observed exits of Pi's built-in bash (parent, child and nested calls, Pi 1.1.0+) as workplan evidence; `plan update` reads it back when PI_SESSION_ID is set and refuses `cumplido` without it. Fails closed: a replaced bash tool or a missing exit_code records nothing.",
-        evidence: { kind: "extension-tool", path: ".pi/extensions/navori.ts", tool: "bash" },
+        evidence: {
+          kind: "extension-tool",
+          path: ".pi/extensions/navori.ts",
+          tool: "bash",
+        },
       },
       "repeat-failure-advice": {
         state: "advisory",
         reason:
           "The Pi extension's tool_result handler counts identical built-in bash failures (structuredContent.exit_code, Pi 1.1.0+) in memory and appends one advisory after three; it never blocks, never alters the result and is silent on any error or when exit_code is absent.",
-        evidence: { kind: "extension-tool", path: ".pi/extensions/navori.ts", tool: "bash" },
+        evidence: {
+          kind: "extension-tool",
+          path: ".pi/extensions/navori.ts",
+          tool: "bash",
+        },
       },
       "compact-advice": {
         state: "unsupported",

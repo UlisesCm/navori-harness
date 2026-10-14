@@ -13,6 +13,7 @@ import { readConfig } from "../lib/config/config.ts";
 import { emitReviewOutcome } from "../lib/handoff/review-evidence.ts";
 import { checkReviewHandoff } from "../lib/handoff/review-check.ts";
 import { resolveReceiptOptions } from "./receipt.ts";
+import { attestHandoff } from "../lib/handoff/actor-provenance.ts";
 
 function resolveConsumer(value: string | undefined): HandoffConsumer {
   return value === "scribe" || value === "publisher" ? value : "orchestrator";
@@ -40,6 +41,7 @@ const checkSubCommand = defineCommand({
       description:
         "With --produced-by reviewer: ISO UTC time the review must have begun at or after",
     },
+    target: { type: "string" as const, description: "Current review target branch" },
     dir: {
       type: "string" as const,
       description: "Progress directory",
@@ -75,6 +77,12 @@ const checkSubCommand = defineCommand({
             cwd,
             dir: root.dir,
             feature: args.feature,
+            evidenceOptions: resolveReceiptOptions({
+              feature: args.feature,
+              cwd,
+              dir: root.dir,
+              target: args.target,
+            }),
             ...(args.since ? { since: args.since } : {}),
           })
         : checkHandoff({
@@ -83,6 +91,12 @@ const checkSubCommand = defineCommand({
             feature: args.feature,
             consumer: resolveConsumer(args.for),
             legacyMarkdown,
+            evidenceOptions: resolveReceiptOptions({
+              feature: args.feature,
+              cwd,
+              dir: root.dir,
+              target: args.target,
+            }),
           });
     process.stdout.write(`${args.json ? JSON.stringify(result) : formatResult(result)}\n`);
     process.exitCode = handoffExitCode(result);
@@ -137,6 +151,30 @@ const logReviewSubCommand = defineCommand({
 export const handoffCommand = defineCommand({
   meta: { name: "handoff", description: "Validate the implementer's handoff before dispatch" },
   subCommands: {
+    attest: defineCommand({
+      meta: {
+        name: "attest",
+        description: "Attest delivery ownership from the native producer context",
+      },
+      args: {
+        feature: { type: "positional" as const, required: true, description: "Feature slug" },
+        target: { type: "string" as const, description: "Review target branch" },
+        dir: { type: "string" as const, description: "State directory" },
+        json: { type: "boolean" as const, description: "Output JSON" },
+      },
+      run({ args }) {
+        const options = resolveReceiptOptions({
+          feature: args.feature,
+          target: args.target,
+          dir: args.dir,
+        });
+        const result = attestHandoff(options);
+        process.stdout.write(
+          `${args.json ? JSON.stringify(result) : (result.message ?? result.status)}\n`,
+        );
+        process.exitCode = result.status === "attested" ? 0 : 1;
+      },
+    }),
     check: checkSubCommand,
     "log-review": logReviewSubCommand,
   },

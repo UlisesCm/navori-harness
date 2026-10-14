@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   defaultCodexCatalogPath,
+  inspectCodexCatalog,
   highestOfFamily,
   readCodexCatalogSlugs,
   resolveCodexModelValue,
@@ -136,5 +137,46 @@ describe("codex model catalog (spec 0041 R32)", () => {
       model: "gpt-6.1-sol",
       source: "family",
     });
+  });
+});
+
+// Covers: R10, R11, R15
+it("6.10-over-6.9 and listed-future-major preserve pins and newer rendered candidates", () => {
+  const path = catalog(
+    JSON.stringify({
+      models: ["gpt-6.9-luna", "gpt-6.10-luna", "gpt-9-luna"].map((slug) => ({ slug })),
+    }),
+  );
+  expect(highestOfFamily("luna", ["gpt-6.9-luna", "gpt-6.10-luna"])).toBe("gpt-6.10-luna");
+  expect(resolveCodexModelValue("luna", path)).toMatchObject({
+    model: "gpt-9-luna",
+    source: "family",
+  });
+  expect(resolveCodexModelValue("luna", path, "gpt-10-luna")).toMatchObject({
+    model: "gpt-10-luna",
+    source: "rendered",
+  });
+  expect(resolveCodexModelValue("gpt-6.9-luna", path)).toMatchObject({
+    model: "gpt-6.9-luna",
+    source: "pin",
+  });
+});
+
+// Covers: R10, R15
+it("diagnoses unknown catalog protocols without claiming freshness from a slug", () => {
+  const path = catalog(
+    JSON.stringify({
+      fetched_at: "2099-01-01",
+      models: [{ slug: "gpt-6.10-luna" }, { slug: "next-luna" }, { slug: 4 }],
+    }),
+  );
+  expect(inspectCodexCatalog(path)).toMatchObject({
+    status: "unknown",
+    slugs: ["gpt-6.10-luna"],
+    diagnostics: [
+      "unknown catalog entry format",
+      "unknown catalog entry format",
+      "catalog freshness lacks bound source/timestamp/context",
+    ],
   });
 });

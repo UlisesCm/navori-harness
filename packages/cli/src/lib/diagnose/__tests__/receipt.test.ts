@@ -30,6 +30,8 @@ vi.mock("node:child_process", async (importOriginal) => {
 });
 
 const workspaces: string[] = [];
+beforeEach(() => vi.stubEnv("CODEX_THREAD_ID", undefined));
+afterEach(() => vi.unstubAllEnvs());
 afterEach(() =>
   workspaces.splice(0).forEach((path) => rmSync(path, { force: true, recursive: true })),
 );

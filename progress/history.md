@@ -154,3 +154,48 @@ La revisión final de E2, posterior al checkpoint anterior, fue `APPROVED`: A7 e
 
 Este cierre actualiza únicamente requirements/design/tasks y el progreso, conserva las políticas, contratos, trazabilidad y trabajo concurrente de 0050, y deja current en idle. Baseline documental: spec check sin errores, links/budgets/diff y fast verdes; la revisión del diff documental y su gate de envío son pasos propios de esta publicación. No se reabre A7, ni se autorizan merge, despliegue o release automáticos.
 
+## 2026-10-12 22:23 codex — Implementa 0050 E1 de resultados y capacidades verificables
+
+Integrado el fix #1309 por #1310; main y origin/dev actualizados a 8ebe56ed, preservando el worktree local dev con cambios ajenos. E1/M1 implementa el contrato tipado de cinco resultados, sus responsables y vínculos de evidencia, con inicialización pendiente. Las capacidades Codex se resuelven desde el inventario existente por versión y superficie exactas; conserva evidencia histórica y devuelve unknown para contextos no verificados. T1/T2 completadas; E2–E4 permanecen pendientes en tasks.md. No se afirma equivalencia viva ni se implementan aún perfiles dinámicos.
+
+Usuario aprobó E1. A1/A2 ejecutados 52/52 cada uno, fast gate verde y spec check sin findings. Reviewer APPROVED sin findings; gate completo exit 0: 418 archivos, 8596 tests aprobados, dos omitidos y cero fallos, coverage floor verde. Recibo vigente para main con gateKind full; revisión sellada y correlacionada. La sesión no acredita automáticamente identidad de señal Bash, por lo que no se inventó evidencia del workplan. Siguiente paso: publicar e integrar E1 y preparar el workplan E2; activación global y smoke vivo del encabezado SDD siguen fuera de este ciclo.
+
+## 2026-10-12 23:15 codex — Conserva E2 pendiente para PR draft
+
+## Cambios
+
+0050 E2/M2 (T3–T5) implementada parcialmente en feat/0050-codex-resultados-e2: evidencia Codex correlacionada con resultado/comando/cwd real; ownership nativo implementer/scribe, begin independiente reviewer y consumo vigente de review/receipt; plan resume read-only con garantías pending. Prosa, espejos Claude/Codex/Pi y goldens renderizados. Usuario pidió conservar avance en PR draft y cerrar, sin continuar corrigiendo.
+
+## Verificación y revisión
+
+Implementer: A3 83/83, A4 32/32, dirigidos 152/152, actor 4/4, gate fast exit0; scribe golden 5/5. SOURCE attest implementer y scribe exitosos; reviewer begin nativo 0.162.1 independiente confirmado en checkout E2. Review CHANGES_REQUESTED: core-assets/agents/scribe.md hardcodea --target main; debe usar {{prTarget}} para no invalidar ownership en destinos dev/develop. Es un bloqueo conocido sin corregir. Gate completo no ejecutado; no receipt full/fresh ni E2 cerrada. T3–T5 conservan checkbox pendiente. Presupuesto total de resume requiere revisión adicional; no se presenta como fallo reproducido.
+
+## Siguiente paso
+
+Retomar esta misma branch/worktree; corregir target del scribe mediante implementer/scribe, render oficial/goldens, nueva revisión y A3/A4 pertinentes. Completar gate full, receipt vigente y marcado T3–T5 antes de ready/merge. E3/E4 siguen pendientes. Issues preventivos #1312 y #1314 separados; no cambiar plan de 0050.
+
+## 2026-10-13 10:06 codex — Cierra implementación 0050 E2 en PR #1315
+
+Retomada E2 en su branch/worktree. El dispatch vencido estaba en el checkout de la sesión; se renovó allí y se siguió la ruta workplan aprobada de la CLI global, sin desactivar guards. Corregidos destino configurable del scribe y detector de JSON capturado; prosa compactada conserva obligaciones y caps. El repro de resume confirmó Git metadata sin deadline: se propagó el presupuesto total a readHead/memoryTree y hash en memoria, conservando pending y estado read-only. Los fixtures legacy aíslan/restauran CODEX_THREAD_ID del host sin cambiar la validación de producción. Usuario autorizó ampliaciones de tests y la nueva ronda tras dos rechazos.
+
+A3 83/83, A4 34/34, fixtures 76/76, prosa/render 232/232, golden 5/5 y fast verdes. Reviewer fresco APPROVED y full gate exit0: 420 archivos, 8610 aprobados, dos omitidos, cero fallos. Native producer/scribe attest y reviewer begin/seal validados; T3–T5 cerradas, delta editorial revalidado y review re-firmado. Receipt final para main statusok/freshtrue/full sobre los bytes finales antes de commit/publicación en #1315. La grabación automática de A3/A4 sigue ausente en hooks legacy; no se fabricó evidencia del workplan. E3/E4 y evaluación comparativa permanecen pendientes; esperar merge de E2, sin merge automático.
+
+## 2026-10-13 12:01 codex — Entrega ruta pending de 0050 E3 y conserva T6 pendiente
+
+Usuario aprobó E3 parcial después del merge de E2: ruta pending de T7 entregada, T6 y cierre E3 conservados pendientes. Solicitud ligada a repo/base/head actual/título/body-file/HEAD/base/contenido; relay siempre pending, claim solo mediación con resumen para duplicados, sin gh, consentimiento fabricado ni cambios globales/trust. Supervisores externos acotan Git/descendientes antes de identidad y limpian el grupo de procesos. Publisher y derivados oficiales actualizados; drift Pi preexistente preservado. Primer full rechazó encabezado con id retirado; nueva scribe corrigió solo el texto y los derivados, sin debilitar el sweep.
+
+A5 22/22, A6 34/34, retired-names 12/12, goldens 5/5 y fast exit0. Reviewer fresco APPROVED; full gate final exit0: 421 archivos, 8649 aprobadas, 2 omitidas y 0 fallidas; coverage floor verde. Producer/scribes attest y reviewer begin/seal validados, receipt main statusok/freshtrue/full. Registro automático final pendiente por cambio de fingerprint; no se inventó evidencia. Alcance de host limitado a command-hooks CLI 0.162.1 investigados y versión unknown cuando no demostrable; no autorización positiva ni comparación viva. Siguiente paso: publicación a main por ruta humana; T6 necesita fuente auténtica y consumo no reutilizable antes del cierre E3; E4 sigue pendiente.
+
+## 2026-10-13 15:25 codex — Implementa 0050 E4/M4 y prepara firma del diff final
+
+Usuario aprobó T8–T10 después de integrar E3 parcial por #1317. Resolución Codex por campo: Opus→Sol, Sonnet/Haiku→Luna; Sonnet medium→high independiente del pin de modelo, con prioridad del override explícito de esfuerzo. Inventario principal/core/extra/local por identidad nativa, render y doctor con intención/configuración/candidato separados de observación efectiva. Se preservan archivos locales, valores user-owned, otros engines y ámbito global/trust. Schema y derivados permitidos regenerados; documentos registran implementación de M4 sin cierre de E3/E4/spec ni garantías runtime.
+
+A7 33/33 y A8 18/18, fast y bundle 1473.4 KB dentro del límite 1500 KB verdes. Producer/scribe nativos atestados contra main; revisión inicial conforme al alcance. Primer full: 8673 aprobadas, 2 omitidas y dos suites Pi fallidas antes de ejecutar sus casos. El entorno npm temporal flotó codemode a 1.2.0, incompatible con el import de coding-agent 1.1.0; bun.lock fija codemode 1.1.0. Restauradas únicamente las dependencias aisladas y revalidado el repro Pi 6/6, sin cambios en código/tests/manifests/lock del proyecto. Esta consolidación precede la firma: gate completo y receipt frescos del shipping diff son requisitos de cierre/publicación, y la ejecución roja no se reutiliza.
+
+T6/E3 permanece pendiente por vínculo fuente/acción/destino/diff no demostrado en el host inspeccionado. T11/A9 y T12/A10 mantienen readiness, aplicación nativa y evaluación viva pendientes. No runner, broker, dependencia nueva ni mutación de sesiones en curso. PR parcial a main requiere confirmación humana; sin publicación/merge automáticos. Branch/worktree conservados.
+
+La revisión fresca devolvió una segunda CR: el nuevo full aprobó 8678 casos, omitió dos y falló uno en codex-resume.test.ts:97 por marcador ausente. El archivo no difiere de main y pasó 5/5 aislado. Un probe controlado de startup mostró shimHEAD invocado con marcador Node aún ausente, resume pending en 722 ms y Git/plan intactos: la presencia de ese marcador tardío no es condición necesaria de un timeout correcto. No se modificó producción ni el test fuera de scope; se escaló al usuario para ampliar ese único fixture y autorizar otra ronda de nivel 3. Ambos reviewers sellaron CR nativas; no receipt verde, commit, push ni PR.
+
+Usuario autorizó ampliar únicamente codex-resume.test.ts y otra ronda implementer → reviewer → full, conservando presupuestos y garantías; workplan render/check verdes (score8, nivel3 por spec). La corrección y su verificación quedan a cargo de un productor nuevo; ninguna CR anterior constituye evidencia verde.
+
+La fixture autorizada escribe el marcador desde POSIX antes de exec sleep1.5, evitando depender del startup de Node y sin ocupar CPU en un busy loop. Conserva 700/1100 ms, ambas entradas demoradas y todas las aserciones de pending/solo lectura. A4 5/5 y fast exit0. El gate completo y la firma independientes sobre estos bytes finales siguen siendo condición de cierre; las evidencias rojas anteriores se conservan como checkpoints.
