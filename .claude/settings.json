@@ -283,6 +283,8 @@
       "Bash(navori dominio doctor:*)",
       "Bash(navori plan classify:*)",
       "Bash(navori plan check:*)",
+      "Bash(navori plan render:*)",
+      "Bash(navori plan update:*)",
       "Bash(navori spec classify:*)",
       "Bash(navori spec check:*)",
       "Bash(navori master status:*)",

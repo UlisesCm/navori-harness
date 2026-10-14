@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildClaudeSettings } from "../build-settings.ts";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
 import { loadPlugin, type LoadedPlugin } from "../../../lib/config/plugins.ts";
+import { buildCodexRules } from "../../codex/build-rules.ts";
 import { readCliVersion } from "../../../lib/render/bundled-assets.ts";
 
 const MINIMAL_CONFIG = {
@@ -55,6 +56,17 @@ describe("buildClaudeSettings — base shape", () => {
     const allow = (s.permissions as { allow: string[] }).allow;
     expect(allow).toContain("Bash(git status*)");
     expect(allow).toContain("Bash(git diff*)");
+  });
+
+  // Covers: R48
+  it("allow incluye navori plan render y plan update y Codex no traduce allow", () => {
+    const s = buildClaudeSettings(MINIMAL_CONFIG, []);
+    const perms = s.permissions as { allow: string[]; ask: string[]; deny: string[] };
+    expect(perms.allow).toContain("Bash(navori plan render:*)");
+    expect(perms.allow).toContain("Bash(navori plan update:*)");
+    const { body } = buildCodexRules({ allow: perms.allow, ask: [], deny: [] });
+    expect(body).not.toContain("render");
+    expect(body).not.toContain("update");
   });
 
   it("ships read-only allow entries so trivial reads don't prompt (native tools + file inspection)", () => {
