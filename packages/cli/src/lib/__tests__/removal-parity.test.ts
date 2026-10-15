@@ -420,6 +420,10 @@ describe("the inventory of delete paths is complete (#496)", () => {
     "lib/primitives/state-root.ts":
       "removes only its own exclusively created state temporary after a failed atomic write; " +
       "an existing temporary (including a symlink) is never removed",
+    "lib/codex/host-observation.ts":
+      "finally unlinks the per-call catalog-${randomUUID()}.json projection input, " +
+      "at stateArtifactPath(root, name), after projection succeeds or throws. " +
+      "The final path is installed by atomic rename; deletion does not check inode identity",
     "lib/audit/paths.ts":
       "cleans only its exclusively created, identity-checked atomic-write temporary; " +
       "removes consumed spool files after successful absorption and identity checks, or the " +
@@ -454,6 +458,19 @@ describe("the inventory of delete paths is complete (#496)", () => {
       .map((f) => f.slice(SRC.length + 1))
       .sort();
     expect(found).toEqual(Object.keys(DELETE_SITES).sort());
+  });
+
+  // Covers: R13
+  it("bounds the observation exception to one generated catalog projection path", () => {
+    const source = readFileSync(join(SRC, "lib/codex/host-observation.ts"), "utf-8");
+    expect(source.match(/\bunlinkSync\s*\([^)]*\)/g)).toEqual(["unlinkSync(path)"]);
+    expect(source).toContain("const name = `catalog-${randomUUID()}.json`;");
+    expect(source).toContain("const path = stateArtifactPath(root, name);");
+    expect(source).toMatch(
+      /try\s*\{\s*rows = projectCodexProfiles\(root\.cwd, config, \{ catalogPath: path \}\);\s*\}\s*finally\s*\{\s*unlinkSync\(path\);\s*\}/,
+    );
+    expect(DELETES.test("unlinkSync(unexpectedUserPath)")).toBe(true);
+    expect(DELETE_SITES["lib/codex/unexpected-observer.ts"]).toBeUndefined();
   });
 
   it("sees the promise-based and the aliased spellings too", () => {

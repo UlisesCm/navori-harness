@@ -1,22 +1,21 @@
-# navori:managed start id="model-advisor-base" hash="28a2e05c" version="0.11.3" source="@navori/core"
+# navori:managed start id="model-advisor-base" hash="6769b0f7" version="0.12.0" source="@navori/core"
 #!/usr/bin/env bash
 #
-# Advisory-only main-session model recommendation. The hook reads only payload
-# fields recorded in host-contracts.ts; `/model` remains the user's native,
-# explicit switch path. It never writes navori.config.json or agent profiles.
+# Startup/lifecycle modes advise the main session; `/model` remains the user's
+# explicit switch path. The fixed Codex PreToolUse mode rewrites future child
+# arguments or denies recoverable failures. No mode writes project config or profiles.
 set -euo pipefail
 
 payload=$(cat 2>/dev/null) || payload=""
 mode=${1:-}
 
-# The advisor has no effect on permissions or control flow, but its execution
-# must remain observable while audit mode is active. Its three Claude entry
-# points share one script, so derive the host phase from the explicit mode
-# rather than guessing from payload fields.
+# Lifecycle advice has no permission effect; the fixed native PreToolUse mode
+# does affect tool control flow. Audit both through their explicit host phase.
 case "$mode" in
   claude-session-start|codex-session-start) navori_audit_phase="SessionStart" ;;
   claude-post-model-switch) navori_audit_phase="PostModelSwitch" ;;
   claude-stop) navori_audit_phase="Stop" ;;
+  codex-pretool-profile) navori_audit_phase="PreToolUse" ;;
   *) navori_audit_phase="unknown" ;;
 esac
 navori_audit_name="model-advisor"
@@ -148,11 +147,99 @@ navori_audit_log() {
   return 0
 }
 navori_audit_begin
+navori_profile_verdict="skip"
 navori_audit_on_exit() {
-  navori_audit_log "skip" || true
+  navori_audit_log "$navori_profile_verdict" || true
   return 0
 }
 trap navori_audit_on_exit EXIT
+
+# Fixed native argument rewrite, before the advisory subagent skip. Recoverable
+# failures deny; an outer host timeout/crash can fail open and remains uncertain.
+if [ "$mode" = "codex-pretool-profile" ]; then
+  if [ "${#payload}" -gt 1048576 ]; then
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"profile-hook-input-too-large; effective-selection-pending"}}'
+    navori_profile_verdict="block"
+    exit 0
+  fi
+  profile_exit=0
+  profile_output=$(node 3<<<"$payload" <<'PROFILE_NODE'
+const { spawn } = require("node:child_process");
+const rawPayload = require("node:fs").readFileSync(3, "utf8");
+const deny = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "profile-hook-cli-unavailable-or-invalid; effective-selection-pending" } };
+let child;
+let timer;
+let finished = false;
+const finish = (value, code) => {
+  if (finished) return;
+  finished = true;
+  clearTimeout(timer);
+  if (child?.pid) {
+    try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); }
+  }
+  process.stdout.write(JSON.stringify(value) + "\n");
+  process.exitCode = code;
+};
+let original;
+try { original = JSON.parse(rawPayload); }
+catch { finish(deny, 2); }
+if (!finished) {
+  const bytes = Buffer.byteLength(rawPayload);
+  if (bytes > 1024 * 1024) finish(deny, 2);
+  else {
+    child = spawn("navori", ["codex", "profile", "hook"], { detached: true, stdio: ["pipe", "pipe", "pipe"] });
+    const chunks = [];
+    let size = 0;
+    timer = setTimeout(() => finish(deny, 2), 11_000);
+    child.once("error", () => finish(deny, 2));
+    child.stdin.on("error", () => finish(deny, 2));
+    child.stdout.on("data", chunk => {
+      size += chunk.length;
+      if (size > 1024 * 1024) finish(deny, 2);
+      else chunks.push(chunk);
+    });
+    // Audit belongs on stderr; do not forward untrusted CLI diagnostics/payloads.
+    child.stderr.on("data", () => {});
+    child.once("close", (code, signal) => {
+      if (finished) return;
+      if (code !== 0 || signal) return finish(deny, 2);
+      try {
+        const result = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        if (result !== null && typeof result === "object" && !Array.isArray(result) && Object.getPrototypeOf(result) === Object.prototype && Object.keys(result).length === 0) return finish({}, 3);
+        const output = result?.hookSpecificOutput;
+        if (output?.hookEventName !== "PreToolUse") return finish(deny, 2);
+        if (output.permissionDecision === "deny" && typeof output.permissionDecisionReason === "string") return finish(result, 2);
+        const updated = output.updatedInput;
+        const input = original?.tool_input;
+        if (output.permissionDecision !== "allow" || !updated || !input || Array.isArray(updated) || Array.isArray(input) || typeof updated !== "object" || typeof input !== "object" || typeof updated.model !== "string" || !updated.model || typeof updated.reasoning_effort !== "string" || !updated.reasoning_effort) return finish(deny, 2);
+        const keys = new Set([...Object.keys(input), ...Object.keys(updated)]);
+        for (const key of keys) {
+          if (key === "model" || key === "reasoning_effort") continue;
+          if (JSON.stringify(input[key]) !== JSON.stringify(updated[key])) return finish(deny, 2);
+        }
+        finish(result, 0);
+      } catch { finish(deny, 2); }
+    });
+    child.stdin.end(rawPayload);
+  }
+}
+PROFILE_NODE
+  ) || profile_exit=$?
+  # Capture first: a missing/fatal/signaled supervisor cannot leak a partial
+  # response or append a second JSON document after an already valid denial.
+  if [ -n "$profile_output" ] && { [ "$profile_exit" -eq 0 ] || [ "$profile_exit" -eq 2 ] || [ "$profile_exit" -eq 3 ]; }; then
+    printf '%s\n' "$profile_output"
+  else
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"profile-hook-supervisor-unavailable; effective-selection-pending"}}'
+    profile_exit=2
+  fi
+  case "$profile_exit" in
+    0) navori_profile_verdict="allow" ;;
+    3) navori_profile_verdict="skip" ;;
+    *) navori_profile_verdict="block" ;;
+  esac
+  exit 0
+fi
 
 # `Stop` fires for the main agent, but a session started with `--agent` carries
 # `agent_type`, and any payload with `agent_id` belongs to a subagent: neither

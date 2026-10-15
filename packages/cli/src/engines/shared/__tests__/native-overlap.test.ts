@@ -2,9 +2,10 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, it, expect } from "vitest";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
+import { NavoriConfigSchema } from "../../../lib/config/schema.ts";
 import { getCoreRoot, listBundledPluginIds } from "../../../lib/render/bundled-assets.ts";
 import { buildCodexRules } from "../../codex/build-rules.ts";
-import { CODEX_HOOK_REGISTRATIONS } from "../../codex/hook-registrations.ts";
+import { CODEX_HOOK_REGISTRATIONS, resolveCodexHooks } from "../../codex/hook-registrations.ts";
 import { loadPlugin } from "../../../lib/config/plugins.ts";
 import {
   CODEX_HOOKS_WITHOUT_REGISTRATION,
@@ -74,7 +75,66 @@ it("adds startup observation on the same script with the verified native produce
     minVersion: "0.160.0",
     late: true,
   });
-  expect(CODEX_HOOK_REGISTRATIONS.at(-1)).toBe(rows[1]);
+  // Published table positions are trust keys: the new row must append without
+  // moving a single old script/event/argument tuple, including capture-start.
+  expect(
+    CODEX_HOOK_REGISTRATIONS.slice(0, -1).map(({ script, registration }) => [
+      script,
+      registration?.event ?? null,
+      registration?.args ?? null,
+    ]),
+  ).toEqual([
+    ["guard-destructive", "PreToolUse", null],
+    ["comment-draft-confirm", "PreToolUse", null],
+    ["quality-gate-pre-commit", "PreToolUse", null],
+    ["model-advisor", "SessionStart", "codex-session-start"],
+    ["session-start-context", "SessionStart", null],
+    ["implementer-no-markdown", "PreToolUse", null],
+    ["managed-drift-watch", "PostToolUse", null],
+    ["routing-watch", "PostToolUse", null],
+    ["bash-outcome-watch", null, null],
+    ["subagent-stop-handoff", "SubagentStop", "codex"],
+    ["audit-mode-trigger", "UserPromptSubmit", null],
+    ["audit-mode-close", "SessionEnd", null],
+    ["worktree-reclaim", "SessionStart", null],
+    ["stop-verify-reminder", "Stop", "codex"],
+    ["subagent-no-background", null, null],
+    ["master-accept-confirm", "PreToolUse", null],
+    ["master-plan-context", "SessionStart", null],
+    ["role-guard", "PreToolUse", null],
+    ["pr-publisher-confirm", "PreToolUse", null],
+    ["general-purpose-confirm", "PreToolUse", null],
+    ["plan-gate", "PreToolUse", null],
+    ["engram-write-guard", "PreToolUse", null],
+    ["subagent-stop-handoff", "SubagentStart", "codex capture-start"],
+  ]);
+  expect(CODEX_HOOK_REGISTRATIONS.at(-2)).toBe(rows[1]);
+});
+
+// Covers: R13
+it("appends the future-child profile row only with explicit project opt-in", () => {
+  const row = CODEX_HOOK_REGISTRATIONS.at(-1)!;
+  expect(row.script).toBe("model-advisor");
+  const { when, ...registration } = row.registration!;
+  expect(registration).toEqual({
+    event: "PreToolUse",
+    matcher: "^(Agent|spawn_agent)$",
+    args: "codex-pretool-profile",
+    timeout: 15,
+    statusMessage: "navori: future child profile",
+    minVersion: "0.162.1",
+    late: true,
+  });
+  expect(when?.(FULL_CONFIG)).toBe(false);
+  const optedIn = NavoriConfigSchema.parse({
+    ...FULL_CONFIG,
+    harness: { ...FULL_CONFIG.harness, codexIntegration: true },
+  });
+  expect(when?.(optedIn)).toBe(true);
+  const before = resolveCodexHooks(FULL_CONFIG);
+  const after = resolveCodexHooks(optedIn);
+  expect(after.slice(0, -1)).toEqual(before);
+  expect(after.at(-1)?.args).toBe("codex-pretool-profile");
 });
 
 /** A `limite-codex` parity with a valid source, to mutate in negative cases. */

@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-implementer" hash="ad98c5c1f2190464d00bed5da6c34a5bd44a3f41c174cbf6237e10c53a909585"
+# navori:managed-file id="pi-agent-implementer" hash="a6ee1060b49c013b1a453c40cf0460dbb4537e24b25eae0f9d72ae801e30d100"
 name: "implementer"
 description: "Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself."
 model: "gpt-6.1-sol"
@@ -32,7 +32,7 @@ When the encargo opens with `workplan: <feature>`, read `.navori/state/handoffs/
 
 - **One task per session.** If you discover your change requires touching something else outside the scope, you stop and report `blocked`.
 - **A guard, cap/threshold, test, or core asset blocks the requested in-scope change** → report `Status: BLOCKED` naming the guard, the possible exits, and the cost of each. Forbidden: raising the guard's threshold, rewriting content so it stops being detected, or touching core/harness assets outside your scope to route around it — the orchestrator decides the exit, not you.
-- **Self scope review before reporting**: `git diff --stat origin/dev...HEAD` (plus the working tree, for what's still uncommitted) — every file outside the encargo's scope is either justified in the report or reverted before you close.
+- **Self scope review before reporting**: `git diff --stat origin/main...HEAD` (plus the working tree, for what's still uncommitted) — every file outside the encargo's scope is either justified in the report or reverted before you close.
 - **Never write `progress/current.md` (root).** Session state is consolidated by the orchestrator; you may run in parallel with other implementers and that file is shared. Your only progress file is `.navori/state/handoffs/impl_<feature>.json`.
 - **Strong typing, `any` forbidden in new code.** Define correct types before moving on. Use `unknown` + narrowing, generics, or domain types. Cover parameters, returns, callbacks, events, props, hooks, and service responses. If typing it well is genuinely impossible (third-party lib without types), a `// any justified: <reason>` comment — last resort, not a shortcut.
 - **No hardcode**: secrets / URLs / endpoints via env vars (`process.env.*`, `import.meta.env.*`, depending on the stack).
@@ -72,7 +72,7 @@ Before returning `done -> .navori/state/handoffs/impl_<feature>.json`, apply `.c
 | `bun run check:fast` green | Full command run **this turn** with exit 0 | "ran it before", "should be green" |
 | UI validated in the browser (only when the user asked for a visual check) | Repro step + observed state via the repo's browser tool (e.g. `playwright-cli`) this turn | "looks fine in the code" |
 | Bug fixed (if applicable) | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
-| Zero new errors in typecheck/lint | Classify per `verify-before-done`'s Failure attribution: state per failure, demonstrated over `dev` | "lint said OK" with no baseline |
+| Zero new errors in typecheck/lint | Classify per `verify-before-done`'s Failure attribution: state per failure, demonstrated over `main` | "lint said OK" with no baseline |
 
 If any claim can't be backed with evidence you ran this turn, declare it EXPLICITLY in the report. Never infer success.
 

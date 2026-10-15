@@ -55,6 +55,7 @@ describe("NavoriConfigSchema — defaults (spec 0003 §3.4.2)", () => {
       // renders now.
       scribeOwnsMarkdown: false,
       planTiers: false,
+      codexIntegration: false,
       masterPlan: false,
       compactAdviceTokens: 175000,
     });
@@ -377,4 +378,18 @@ it("validates optional independent Codex native-name overrides", () => {
       false,
     );
   }
+});
+
+// Covers: R6, R16
+it("keeps the native host integration opt-in and strictly boolean", () => {
+  expect(NavoriConfigSchema.parse({ ...MINIMAL, harness: {} }).harness?.codexIntegration).toBe(
+    false,
+  );
+  expect(
+    NavoriConfigSchema.parse({ ...MINIMAL, harness: { codexIntegration: true } }).harness
+      ?.codexIntegration,
+  ).toBe(true);
+  expect(
+    NavoriConfigSchema.safeParse({ ...MINIMAL, harness: { codexIntegration: "true" } }).success,
+  ).toBe(false);
 });

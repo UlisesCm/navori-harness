@@ -15,6 +15,7 @@ import { assert, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NavoriConfigSchema, type NavoriConfig } from "../../lib/config/schema.ts";
 import {
   codexHookCommand,
+  CODEX_HOOK_REGISTRATIONS,
   minCodexVersion,
   resolveCodexHooks,
 } from "../../engines/codex/hook-registrations.ts";
@@ -22,6 +23,7 @@ import { buildCodexConfigToml } from "../../engines/codex/build-config-toml.ts";
 import { renderCodexEngine } from "../../engines/codex/index.ts";
 import { codexHookHash, codexHookKey } from "../../lib/codex/trust.ts";
 import { tc } from "../../lib/i18n.ts";
+import { compareSemver } from "../../lib/primitives/semver.ts";
 
 // `scanCodexHealth` now reads `~/.codex/config.toml` (spec 0035 D10/T10) —
 // `safeHomedir` is mocked so every test in this file writes/reads a
@@ -94,19 +96,25 @@ describe("scanCodexHealth (Spec 0007 M5)", () => {
   });
 
   it("compares Codex versions numerically instead of treating 0.160 as older than 0.16", () => {
-    expect(isCodexVersionTooOld("0.159.9")).toBe(true);
-    expect(isCodexVersionTooOld("0.160.0")).toBe(false);
+    expect(compareSemver("0.160.0", "0.16.0")).toBe(1);
+    expect(compareSemver("0.16.0", "0.160.0")).toBe(-1);
+    expect(isCodexVersionTooOld("0.16.0")).toBe(true);
     expect(isCodexVersionTooOld("0.170.0")).toBe(false);
   });
 
   // Covers: R18
   it("derives the minimum Codex version from the registrations", () => {
-    // 0.160.0 is the version the live probes and smokes passed on (spec 0041
-    // T20), which outranks the table's own floor (0.145.0, `audit-mode-close`,
-    // spec 0035 D1): one floor, computed rather than hardcoded.
-    expect(minCodexVersion()).toBe("0.160.0");
-    expect(isCodexVersionTooOld("0.159.9")).toBe(true);
-    expect(isCodexVersionTooOld("0.160.0")).toBe(false);
+    // The appended native profile hook requires 0.162.1, above the earlier
+    // 0.160.0 live-probe floor. Every registered requirement must be respected.
+    const required = CODEX_HOOK_REGISTRATIONS.flatMap((row) =>
+      row.registration ? [row.registration.minVersion] : [],
+    ).sort((left, right) => compareSemver(left, right)!);
+    const floor = required.at(-1)!;
+    expect(floor).toBe("0.162.1");
+    expect(minCodexVersion()).toBe(floor);
+    expect(isCodexVersionTooOld("0.162.0")).toBe(true);
+    expect(isCodexVersionTooOld(floor)).toBe(false);
+    expect(isCodexVersionTooOld("0.162.2")).toBe(false);
   });
 
   it("returns null when codex is not a configured engine", () => {

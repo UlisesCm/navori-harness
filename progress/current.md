@@ -1,19 +1,19 @@
 # Sesión actual
 
-**Estado:** 0050 E4/M4 implementada; con fixture autorizada corregida; revisión fresca/full pendientes. No receipt verde ni publicación.
+**Estado:** Plan-gate recuperado; composite E4 y documentación del borrador aplicados y atestados. Pendiente revisión independiente del diff completo/receipt. Sin commits nuevos, push ni PR.
 
 ## Trabajo conservado
 
-Branch `feat/0050-codex-resultados-e4`, worktree `/Users/ulisescm/Documents/dev-docs/navori-harness-0050-e4`, base/destino `main` e548a0b8. E3 parcial T7 integrada por #1317; T6 y cierre E3 siguen pendientes. Usuario aprobó workplan E4/M4: perfiles por campo, inventario principal/core/extra/local, render y doctor; sin cambios globales/trust ni sesiones en curso.
+Branch `feat/0050-cierre`, worktree `/Users/ulisescm/Documents/dev-docs/navori-harness-0050-final`, base/destino `main`, HEAD `d3e81758`. El usuario autorizó completar el trabajo necesario para tener el PR y alinear la configuración y el harness a `main`. Se preservan los criterios originales y el ámbito global/trust.
 
 ## Siguiente paso
 
-Usuario autorizó incluir `packages/cli/src/lib/plan/__tests__/codex-resume.test.ts` y otra ronda tras dos CR en nivel 3. El marcador de entrada se escribe desde POSIX antes de exec sleep; budget700 ms, límite1100 ms y garantías read-only conservados. A4 5/5 y fast verdes. Siguiente: handoff nativo, scribe del handoff, revisión fresca y full del shipping diff; receipt vigente es condición de cierre. Conservar branch/worktree; publicar solo con autorización correspondiente. T6 necesita vínculo de autorización/estado en executor; T11/A9 y T12/A10 mantienen aplicación nativa/evaluación viva pendientes. No cerrar E3/E4/spec.
+El operador aplicó el composite JSON después del segundo falso positivo del guard, sin retry del agente. El mismo productor verificó/atestó el handoff actual; scribe modificó sólo tasks.md/evaluation.md para reflejar la autorización del borrador, conservando originales sin marcar, y atestó el resultado. La referencia previousScope corresponde al blocker histórico; el QA anterior se conserva en reportes/logs. Sigue reviewer fresco E4 sobre todo el diff y receipt vigente antes de publisher. No regenerar el acuse consumido; no merge ni cierre de spec.
 
 ## Evidencia disponible
 
-Workplan E4/M4 nivel 3, score8, aprobado; A7 33/33, A8 18/18, fast/size verdes y producer/scribe nativos atestados. Primer full rojo por codemode1.2.0 temporal en vez de1.1.0 del lock: corregido, Pi6/6. Segundo full:8678 aprobadas,2 omitidas,1 fallo en codex-resume:97 por marcador ausente; ambas CR selladas nativamente, sin receipt firmado. El test no difiere de main y pasa5/5 aislado. Probe de startup: shimHEAD invocado, marcadorNode aún ausente, resume pending en722 ms, índice/plan intactos. No se asume regresión de producción ni se debilitan asserts.
+Fix final: 151/151 pruebas, fast/build/size exit0; bundle 1,519,705 bytes. Full del reviewer mantenimiento exit0: 433 suites, 8,849 aprobadas y 2 omitidas, coverage150 módulos verde; log `.navori/state/gate/full-20261014T232403559Z.log`. Esto verifica calidad técnica del checkpoint previo a la enmienda documental, no aceptación ni publicación E4. Se requiere revisión/receipt E4 vigente para el borrador. Backup del paquete previo: `/tmp/navori-cli-recovery.q31BIO/navori-0.12.0.tgz`.
 
 ## Seguimientos
 
-Investigación estática Codex 0.162.1 de hooks/app-server: un accept nativo puede autorizar una ejecución, pero no se demostró vínculo exacto a destino/diff de PR. No ausencia universal. Drift preexistente de `.pi/extensions/navori.ts` preservado; no render general ni local-agent rewrite. #1312/#1314 separados. Historia en `progress/history.md`; el workplan no se duplica aquí.
+T6 sigue sin fuente humana/host verificable ligada a acción, destino y diff. T11 carece de aplicación nativa observada de todos los perfiles; T12 carece de los ocho outcomes vivos y sus controles. Los diagnósticos, JSON y pruebas deterministas no cumplen esos criterios. No se habilitará una aceptación falsa ni se reintentará un despacho bloqueado por otra vía. Historia en `progress/history.md`; el workplan no se duplica aquí.
