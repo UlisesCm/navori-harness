@@ -199,3 +199,9 @@ La revisión fresca devolvió una segunda CR: el nuevo full aprobó 8678 casos, 
 Usuario autorizó ampliar únicamente codex-resume.test.ts y otra ronda implementer → reviewer → full, conservando presupuestos y garantías; workplan render/check verdes (score8, nivel3 por spec). La corrección y su verificación quedan a cargo de un productor nuevo; ninguna CR anterior constituye evidencia verde.
 
 La fixture autorizada escribe el marcador desde POSIX antes de exec sleep1.5, evitando depender del startup de Node y sin ocupar CPU en un busy loop. Conserva 700/1100 ms, ambas entradas demoradas y todas las aserciones de pending/solo lectura. A4 5/5 y fast exit0. El gate completo y la firma independientes sobre estos bytes finales siguen siendo condición de cierre; las evidencias rojas anteriores se conservan como checkpoints.
+
+## 2026-10-15 18:40 codex — Aprueba el binding de review entre worktrees (1329)
+
+La implementación de 1329 quedó aprobada en `fix/1329-review-worktree-binding`, sobre `origin/dev`. El hook aceptó en runtime nativo ambos outputs de review del worktree enlazado. Gate full final exit0: 426 archivos, 8864 aprobadas, 2 omitidas, 0 fallidas; 5 pruebas Rust aprobadas. A1 pasó 7 archivos/201 pruebas; render sin drift y fast verdes. Reviewer `APPROVED` y receipt verificado `status: ok`, `fresh: true`, `gateKind: full`. Sin commit ni push.
+
+Siguiente: integrar el fix al branch de release del draft #1328 y verificar el gate final de release. Issue #1330 sigue abierto por el bug separado de rutas Markdown entre worktrees. En 0050 continúan pendientes T6, T11 y T12.

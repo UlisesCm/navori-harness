@@ -45,6 +45,7 @@ set -euo pipefail
 
 # navori:include extract-cmd
 # navori:include hook-input
+# navori:include review-edit-binding
 
 navori_audit_name="role-guard"
 navori_audit_phase="PreToolUse"
@@ -216,6 +217,7 @@ fi
 navori_allowed=$(nv_role_prefixes "$navori_role")
 navori_allowed_list=$(printf '%s' "$navori_allowed" | tr '\n' ' ')
 navori_allowed_list=${navori_allowed_list% }
+navori_external=""
 
 while IFS= read -r navori_path; do
   [ -n "$navori_path" ] || continue
@@ -251,7 +253,17 @@ EOF
       block "$navori_role no escribe '$navori_path' (permitido: $navori_allowed_list)"
       ;;
     *)
-      if ! nv_in_temp "$navori_real"; then
+      # The existing temp grant is independent of any bound review output.
+      if nv_in_temp "$navori_real"; then continue; fi
+      if [ "$navori_role" = "reviewer" ]; then
+        # Keep lexical input so the binding reader can reject traversal and symlinks.
+        case "$navori_path" in
+          /*) navori_external="$navori_external
+$navori_path" ;;
+          *) navori_external="$navori_external
+$navori_cwd/$navori_path" ;;
+        esac
+      else
         block "$navori_role no escribe '$navori_path' (fuera del repo; permitido: $navori_allowed_list)"
       fi
       ;;
@@ -259,6 +271,21 @@ EOF
 done <<EOF
 $(nv_edited_paths)
 EOF
+
+if [ -n "$navori_external" ]; then
+  set --
+  while IFS= read -r navori_path; do
+    [ -n "$navori_path" ] || continue
+    set -- "$@" "$navori_path"
+  done <<EOF
+$navori_external
+EOF
+  if navori_binding_result=$(nv_review_edit_binding "$navori_root" "$(payload_field agent_id)" "$navori_role" "$navori_allowed" "$@"); then
+    echo "[navori] role-guard: bound-review-output" >&2
+  else
+    block "$navori_role no escribe fuera del repo (${navori_binding_result:-role-prefix-denied}); run receipt review preflight before the full gate"
+  fi
+fi
 
 navori_audit_verdict="allow"
 navori_audit_reason="rutas dentro del rol"

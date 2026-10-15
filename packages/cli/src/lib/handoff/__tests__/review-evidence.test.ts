@@ -159,6 +159,7 @@ describe("begin", () => {
       feature: "demo",
     });
     expect(stamp.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(stamp.editBinding).toBeUndefined();
   });
 
   // Covers: R16

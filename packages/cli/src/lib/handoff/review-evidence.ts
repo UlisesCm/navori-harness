@@ -22,6 +22,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { z } from "zod";
+import {
+  createReviewEditBinding,
+  ReviewEditBindingSchema,
+  reviewEditIndexName,
+} from "./review-edit-binding.ts";
 import { appendCliEvent, hasAuditTarget, outcomeFeatureKey } from "../audit/cli-event.ts";
 import type { ReviewCorrelation, ReviewOutcome, ReviewOutcomeVerdict } from "../audit/model.ts";
 import { evidenceIdentity } from "../diagnose/receipt.ts";
@@ -72,6 +77,7 @@ const ReviewStampSchema = z.strictObject({
   alg: z.literal(CONTENT_ALG),
   nonce: nonceSchema,
   feature: z.string().min(1),
+  editBinding: ReviewEditBindingSchema.optional(),
   ...IdentityShape,
 });
 type ReviewStamp = z.infer<typeof ReviewStampSchema>;
@@ -101,7 +107,12 @@ export interface EvidenceOptions {
 }
 
 export type BeginResult =
-  | { status: "begun"; nonce: string; indexDiverges: boolean }
+  | {
+      status: "begun";
+      nonce: string;
+      indexDiverges: boolean;
+      editBinding?: "supported" | "unavailable";
+    }
   | { status: "error"; message: string };
 export type SealResult =
   | { status: "validated" | "changed-during-review"; nonce: string }
@@ -222,6 +233,9 @@ export function beginReview(options: EvidenceOptions): BeginResult {
         "have each producer attest the current delivery, then begin from the native reviewer context",
       );
     }
+    const editBinding = reviewer
+      ? createReviewEditBinding(root, reviewer, options.target)
+      : undefined;
     const stamp: ReviewStamp = {
       v: 1,
       alg: CONTENT_ALG,
@@ -234,10 +248,24 @@ export function beginReview(options: EvidenceOptions): BeginResult {
       inputs: identity.inputs,
       startedAt,
       ...(reviewer && ownership ? { reviewer, ownership: ownership.handoff } : {}),
+      ...(editBinding ? { editBinding } : {}),
     };
     // TODO(hygiene): stamps accumulate one per begin; prune when a state dir passes ~100 stamps.
     writeStateFileAtomic(root, stampName(options.feature, nonce), `${JSON.stringify(stamp)}\n`);
-    return { status: "begun", nonce, indexDiverges: identity.indexDiverges };
+    if (editBinding && reviewer)
+      writeStateFileAtomic(
+        root,
+        reviewEditIndexName(options.feature, reviewer.thread),
+        `${JSON.stringify({ v: 1, feature: options.feature, thread: reviewer.thread, nonce })}\n`,
+      );
+    return {
+      status: "begun",
+      nonce,
+      indexDiverges: identity.indexDiverges,
+      ...(reviewer
+        ? { editBinding: editBinding ? ("supported" as const) : ("unavailable" as const) }
+        : {}),
+    };
   } catch (error) {
     return fail(
       error instanceof Error ? error.message : String(error),
