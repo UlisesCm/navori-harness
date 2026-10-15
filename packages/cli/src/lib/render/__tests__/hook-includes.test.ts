@@ -126,6 +126,11 @@ describe("every shared partial is consumed and covered by a core hook", () => {
    * exercises the partial's behaviour. `title` must appear verbatim in `file`.
    */
   const PARTIAL_BEHAVIOUR_TESTS: Record<string, { hook: string; file: string; title: string }> = {
+    "review-edit-binding": {
+      hook: "role-guard",
+      file: "lib/__tests__/role-guard.test.ts",
+      title: "authorizes registered linked-worktree review outputs through the binding branch",
+    },
     "audit-arm": {
       hook: "audit-mode-trigger",
       file: "__tests__/audit-hooks.test.ts",

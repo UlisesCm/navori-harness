@@ -420,6 +420,10 @@ describe("the inventory of delete paths is complete (#496)", () => {
     "lib/primitives/state-root.ts":
       "removes only its own exclusively created state temporary after a failed atomic write; " +
       "an existing temporary (including a symlink) is never removed",
+    "lib/codex/host-observation.ts":
+      "finally unlinks the per-call catalog-${randomUUID()}.json projection input, " +
+      "at stateArtifactPath(root, name), after projection succeeds or throws. " +
+      "The final path is installed by atomic rename; deletion does not check inode identity",
     "lib/audit/paths.ts":
       "cleans only its exclusively created, identity-checked atomic-write temporary; " +
       "removes consumed spool files after successful absorption and identity checks, or the " +
@@ -427,6 +431,11 @@ describe("the inventory of delete paths is complete (#496)", () => {
       "private ownership alone does not authorize deletion",
     "lib/render/backup.ts": "prunes navori's own backup store (~/.navori/backups) by age and size",
     "lib/primitives/lockfile.ts": "removes its own lock file",
+    "lib/plan/escalation.ts":
+      "finally unlinks only this invocation's UUID-named escalation_private_*.tmp, " +
+      "after exclusive wx creation in the contained state directory; no-replace hard-link " +
+      "publication retains the destination on success or uncertainty. Existing private paths " +
+      "are never acquired or cleaned, and published grants and burns are never removed",
     "lib/plan/gate.ts":
       "consumes (one dispatch per spawn) the single `.navori/state/handoffs/dispatch_<feature>.json` " +
       "the orchestrator wrote for the allowed spawn; a navori state artifact, non-recursive, and the " +
@@ -454,6 +463,33 @@ describe("the inventory of delete paths is complete (#496)", () => {
       .map((f) => f.slice(SRC.length + 1))
       .sort();
     expect(found).toEqual(Object.keys(DELETE_SITES).sort());
+  });
+
+  // Covers: R13
+  it("bounds the observation exception to one generated catalog projection path", () => {
+    const source = readFileSync(join(SRC, "lib/codex/host-observation.ts"), "utf-8");
+    expect(source.match(/\bunlinkSync\s*\([^)]*\)/g)).toEqual(["unlinkSync(path)"]);
+    expect(source).toContain("const name = `catalog-${randomUUID()}.json`;");
+    expect(source).toContain("const path = stateArtifactPath(root, name);");
+    expect(source).toMatch(
+      /try\s*\{\s*rows = projectCodexProfiles\(root\.cwd, config, \{ catalogPath: path \}\);\s*\}\s*finally\s*\{\s*unlinkSync\(path\);\s*\}/,
+    );
+    expect(DELETES.test("unlinkSync(unexpectedUserPath)")).toBe(true);
+    expect(DELETE_SITES["lib/codex/unexpected-observer.ts"]).toBeUndefined();
+  });
+
+  it("bounds escalation cleanup to its exclusively created private publication temporary", () => {
+    const source = readFileSync(join(SRC, "lib/plan/escalation.ts"), "utf-8");
+    expect(source.match(/\bunlinkSync\s*\([^)]*\)/g)).toEqual(["unlinkSync(temporary)"]);
+    expect(source).toMatch(
+      /const temporary = stateArtifactPath\(root, `escalation_private_\$\{randomUUID\(\)\}\.tmp`\);\s*const fd = openSync\(temporary, "wx", 0o600\);\s*let published = false;\s*try\s*\{/,
+    );
+    expect(source).toContain("linkSync(temporary, destination);");
+    expect(source).toMatch(
+      /finally\s*\{\s*closeSync\(fd\);\s*\/\/[^\n]*\n\s*unlinkSync\(temporary\);\s*\}/,
+    );
+    expect(DELETES.test("unlinkSync(unexpectedPublishedGrant)")).toBe(true);
+    expect(DELETE_SITES["lib/plan/unexpected-publication.ts"]).toBeUndefined();
   });
 
   it("sees the promise-based and the aliased spellings too", () => {

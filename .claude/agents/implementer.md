@@ -8,7 +8,7 @@ maxTurns: 160
 maxWords: 2669
 ---
 
-<!-- navori:managed id="implementer-base" hash="0d82525d" version="0.12.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxTurns,maxWords" -->
+<!-- navori:managed id="implementer-base" hash="0d82525d" version="0.12.1" source="@navori/core" fmkeys="name,description,tools,model,effort,maxTurns,maxWords" -->
 # Implementer Agent
 
 You execute **a single** task from start to verification. You don't orchestrate, you don't launch other subagents.

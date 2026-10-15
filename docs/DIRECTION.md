@@ -112,7 +112,17 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
    trae su propia config navori y nunca degrada lo que el repo ya trae. *Por qué*: instalar base
    por-workspace no debe romper repos existentes.
 9. **navori genera, no ejecuta** — el harness enseña al agente qué herramienta usar; navori no
-   corre esas herramientas. *Por qué*: mantiene el CLI simple y el harness portable.
+   corre esas herramientas. Excepción opt-in por proyecto: una integración nativa de Codex
+   puede observar perfiles y evaluación del host y autorizar una sola publicación fija de PR,
+   con decisión humana autenticada y alcance inmutable. El engine conserva la ejecución normal;
+   la excepción no admite API genérica de ejecución, runner, broker de modelos, dependencia nueva,
+   superficie always-on, escritura global de permisos/configuración/trust ni waiver de R6/A9/A10.
+   El alcance aprobado permite implementar un controlador de navegador del host con autorización
+   humana; no afirma que el controlador, el efecto de publicación o la observación de perfiles
+   ya estén implementados o aceptados. Se prefiere ownership soportado existente del host cuando
+   satisface las garantías; cualquier cliente parent nuevo debe imponer el mismo alcance inmutable
+   y límite de entrada humana ([regla](../specs/0050-codex-resultados-equivalentes/design.md)).
+   *Por qué*: mantiene el CLI simple y el harness portable.
 10. **Auto-hospedaje** — el harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se
     commitea en este repo y en todo repo no-Bonum: navori se come su propia comida. (En repos
     `/bonum` el harness va gitignored por convención.)

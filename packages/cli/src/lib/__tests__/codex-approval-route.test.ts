@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
+  chmodSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -18,6 +19,8 @@ import {
   relayApproval,
   requestApproval,
   type ApprovalPending,
+  snapshotNativeApproval,
+  revalidateNativeApproval,
 } from "../codex/approval-route.ts";
 
 const CLI = resolve("src/index.ts");
@@ -65,6 +68,93 @@ function fixture(): { cwd: string; command: string; payload: string; home: strin
 function requestFile(cwd: string, id: string): string {
   return join(cwd, ".navori/state/handoffs", `approval_${id}.json`);
 }
+
+/** Fixed read-only remote-query double outside the checkout; no publication/network occurs. */
+function nativeScopeFixture(): { cwd: string; id: string; remote: string; restore: () => void } {
+  const f = fixture();
+  const bin = mkdtempSync(join(tmpdir(), "navori-approval-remote-"));
+  dirs.push(bin);
+  const remote = join(bin, "remote.json");
+  const git = (...args: string[]): string => {
+    const result = spawnSync("git", args, { cwd: f.cwd, encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    return result.stdout.trim();
+  };
+  git("branch", "main");
+  git("remote", "add", "origin", "https://example.test/owner/repository.git");
+  const head = git("rev-parse", "HEAD");
+  git("update-ref", "refs/remotes/origin/main", head);
+  writeFileSync(
+    remote,
+    JSON.stringify({
+      head,
+      base: head,
+      repo: { nameWithOwner: "owner/repository", url: "https://example.test/owner/repository" },
+    }),
+  );
+  const executable = join(bin, "gh");
+  writeFileSync(
+    executable,
+    `#!${process.execPath}\nconst data=JSON.parse(require('node:fs').readFileSync(${JSON.stringify(remote)},'utf8'));const args=process.argv.slice(2);if(args[0]==='repo')process.stdout.write(JSON.stringify(data.repo));else if(args[0]==='api'&&args[2]==='GET')process.stdout.write(JSON.stringify({object:{sha:args[3].endsWith('/main')?data.base:data.head}}));else process.exit(1);\n`,
+  );
+  chmodSync(executable, 0o755);
+  const previous = process.env.PATH;
+  process.env.PATH = `${bin}:${previous ?? ""}`;
+  const id = requestApproval(f.payload).requestId;
+  expect(id).toBeTruthy();
+  return {
+    cwd: f.cwd,
+    id: id!,
+    remote,
+    restore: () => {
+      process.env.PATH = previous;
+    },
+  };
+}
+
+describe("native immutable scope snapshot", () => {
+  // Covers: R6, R8
+  it("binds remote destination/current object IDs and snapshots title/body/draft without granting permission", () => {
+    const f = nativeScopeFixture();
+    try {
+      const scope = snapshotNativeApproval(f.id, f.cwd);
+      expect(scope).toMatchObject({
+        action: "github.pr.create",
+        repository: "owner/repository",
+        body: "Proposed body\n",
+        draft: true,
+      });
+      expect(scope.remoteHead).toBe(scope.localHead);
+      expect(scope.remoteBase).toMatch(/^[a-f0-9]{40}$/);
+      expect(revalidateNativeApproval(scope)).toBe(true);
+      writeFileSync(join(f.cwd, "body.txt"), "changed after UI");
+      expect(revalidateNativeApproval(scope)).toBe(false);
+    } finally {
+      f.restore();
+    }
+  });
+  // Covers: R6
+  it.each(["head", "base", "repo"] as const)(
+    "rejects changed remote %s before any effect",
+    (field) => {
+      const f = nativeScopeFixture();
+      try {
+        const scope = snapshotNativeApproval(f.id, f.cwd);
+        const remote = JSON.parse(readFileSync(f.remote, "utf8")) as {
+          head: string;
+          base: string;
+          repo: { nameWithOwner: string; url: string };
+        };
+        if (field === "repo") remote.repo.url = "https://example.test/other/repository";
+        else remote[field] = "0".repeat(40);
+        writeFileSync(f.remote, JSON.stringify(remote));
+        expect(revalidateNativeApproval(scope)).toBe(false);
+      } finally {
+        f.restore();
+      }
+    },
+  );
+});
 
 /** Invoke actual registered source CLI, with isolated home and no external effects. */
 function cli(args: string[], cwd: string, input?: string): string {

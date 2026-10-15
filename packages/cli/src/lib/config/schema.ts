@@ -256,6 +256,8 @@ const HarnessSchema = z.object({
   // on. Same rollout shape as `scribeOwnsMarkdown` above — default `false`
   // because it changes an always-on block across every rendered repo.
   planTiers: z.boolean().default(false),
+  /** Opt-in fixed native PR boundary; never enables caller-supplied approvals. */
+  codexIntegration: z.boolean().default(false),
   // Spec 0034 (#1050), R37/R39: gates the master-plan flow (`navori master`,
   // the `master-plan`/`context-intake` skills' effects, the `plan-maestro`
   // managed block and its SessionStart hook). Default `false`: principle 3 of

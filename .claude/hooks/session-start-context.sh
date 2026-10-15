@@ -1,4 +1,4 @@
-# navori:managed start id="session-start-context-base" hash="233c7910" version="0.12.0" source="@navori/core"
+# navori:managed start id="session-start-context-base" hash="233c7910" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # SessionStart context hook.

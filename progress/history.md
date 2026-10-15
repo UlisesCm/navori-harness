@@ -199,3 +199,41 @@ La revisión fresca devolvió una segunda CR: el nuevo full aprobó 8678 casos, 
 Usuario autorizó ampliar únicamente codex-resume.test.ts y otra ronda implementer → reviewer → full, conservando presupuestos y garantías; workplan render/check verdes (score8, nivel3 por spec). La corrección y su verificación quedan a cargo de un productor nuevo; ninguna CR anterior constituye evidencia verde.
 
 La fixture autorizada escribe el marcador desde POSIX antes de exec sleep1.5, evitando depender del startup de Node y sin ocupar CPU en un busy loop. Conserva 700/1100 ms, ambas entradas demoradas y todas las aserciones de pending/solo lectura. A4 5/5 y fast exit0. El gate completo y la firma independientes sobre estos bytes finales siguen siendo condición de cierre; las evidencias rojas anteriores se conservan como checkpoints.
+
+## 2026-10-14 17:36 codex — Prepara borrador 0050 y recupera escalamiento de plan
+
+El usuario autorizó un PR borrador a main, conservando T6/T11/T12 pendientes y sin merge. Se conserva el control cerrado ante ausencia de fuente humana verificable, el precursor de perfiles y su preflight fija sin turnos, el codec de render data, la alineación normal del harness a main y las correcciones de contratos de verificación. Los 14 fallos de siete suites se reprodujeron contra main (196/0 versus 182/14) y se corrigieron; las suites focales pasaron 204/204. No se acredita aceptación viva ni cierre de E3/E4.
+
+El plan-gate exigía escalamiento tras dos rechazos pero no implementaba recuperación. La extensión revisada añade un acuse de workflow ligado a checkout, plan/spec, apertura y conjunto exacto de rechazos, con consumo exclusivo permanente por época; corrupción y deriva niegan. No borra historial ni concede aprobación de review/receipt/efectos protegidos. El hook Markdown rechazó un fixture TypeScript; se detuvo sin reintento y el usuario ejecutó una vez el comando como operador. La implementación de seis owners se verificó de nuevo: 151 pruebas y fast/build/size verdes; bundle 1,519,705 bytes dentro de 1,536,000. El reviewer realizó full exit0, 433 suites, 8,849 aprobadas y 2 omitidas, coverage150 módulos verde, log `.navori/state/gate/full-20261014T232403559Z.log`. La revisión técnica del fix no emitió receipt parcial porque el contrato firma el checkout completo.
+
+La CLI revisada se empaquetó e instaló por npm, con backup del paquete anterior. El acuse instalado reconoció la decisión del usuario y el harness admitió el despacho E4 mediante su consumo, sin desactivar guards ni usar otra vía. Este checkpoint antecede la enmienda documental y revisión completa del alcance borrador; commit/push/publicación y receipt E4 siguen pendientes. La spec conserva requisitos, comandos vivos y tareas originales sin marcar.
+
+## 2026-10-14 23:24 codex — Conserva checkpoint de release 0.12.1 a dev
+
+## Goal
+Conservar la preparación de navori 0.12.1 como checkpoint draft a dev y cerrar la sesión por solicitud del usuario.
+
+## Instructions
+El usuario autoriza checkpoint incompleto, sin merge, npm ni tag. Incluye main, dev y los siete archivos locales de escalamiento. Aprobó plan nivel 2 (9/10), artefactos en el checkout original y presupuesto 1600 KiB; este último ajuste aún no se aplicó. El draft no acredita revisión ni aceptación de release.
+
+## Discoveries
+- Reset de dev y grants inmutables requieren hashes históricos completos para identidad y proyección activa tras reset para conteo. Claim privado UUID precede al burn; sólo se limpia el claim propio.
+- Renderer Pi de dev tiene once interpolaciones; codec ajustado a cardinalidad exacta 11 con negativos 10/12 y equivalencia.
+- Reviewer/receipt/publisher requieren dev en HEAD; un merge pendiente no satisface ese preflight. Checkpoint solicitado explícitamente antes de completar el flujo.
+- implementer-no-markdown rechazó un handoff JSON por referencias .md dentro de evidencia. Sin reintento; el handoff canónico conserva el BLOCKED inicial y no representa la fuente actual.
+
+## Accomplished
+- Integración sin conflictos en release/0.12.1, worktree navori-harness-release-0.12.1, desde main 9e4c407f con dev fa02f055 pendiente de commit. Original navori-harness-0050-final conservado.
+- CLI/harness 0.12.1, configuración dev y notas es/en; render normal, snapshots, assets, doc budgets y links verificados por productor.
+- Evidencia previa del productor: A3 4 suites/294 pruebas, fast exit 0, git diff --check origin/dev exit 0. Build 1545568 bytes (1509.3 KiB); size falla contra límite 1500 aún vigente. No dependencias nuevas ni lock churn.
+- Revisión independiente final, full gate y receipt pendientes. Receipt check de cierre devuelve revisión no correlacionada; no se acredita aprobación. T6/T11/T12 de0050 siguen pendientes;0053 sólo documentación.
+
+## Next Steps
+Retomar el draft por release/0.12.1; aplicar presupuesto1600 ya autorizado mediante implementer, reconstruir handoff fiel y atestarlo con productor. Ejecutar reviewer independiente y full gate/receipt antes de considerar ready o merge. No reintentar el comando bloqueado por otra vía sin nueva autorización.
+
+## Relevant Files
+packages/cli/src/lib/plan/{escalation,gate}.ts; packages/cli/src/commands/plan.ts; packages/cli/scripts/{bundle-render-data.ts,check-bundle-size.mjs}; packages/cli/package.json; navori.config.json; apps/website/src/content/releases.ts; progress/current.md; progress/history.md.
+
+## 2026-10-15 19:03 codex — Cierra revisión full de la integración en draft #1328
+
+El PR draft #1328 integra el fix #1329 revisado desde `9aeb92a4`, el presupuesto de bundle de 1600 KiB (1512.3 KiB), la corrección de ownership en removal-parity y las referencias de procedencia 0.12.1. El gate full del worktree release terminó exit 0: 436 archivos, 9,136 pruebas aprobadas, 2 omitidas, 0 fallidas; log `.navori/state/gate/full-20261015T185156539Z.log`. Review `APPROVED` sellada y receipt full `status:ok`, `fresh:true`; las escrituras nativas exactas de MD/JSON fueron aceptadas. Fast (294 + 201 pruebas) y render normales también pasaron. El registro A1 del workplan sigue pendiente porque la invocación compuesta no lo capturó; no invalida el gate ni el receipt nativos. T6, T11 y T12 de 0050 y el issue #1330 siguen pendientes. Siguiente: publisher debe crear el commit, hacer push y actualizar el draft existente; todavía no hay commit ni push de esta integración.

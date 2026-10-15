@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import {
   mkdtempSync,
@@ -16,12 +17,14 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  acknowledgePlanEscalation,
   applyPlanGate,
   claimDispatch,
   evaluatePlanGate,
   normalizeRole,
   UNREADABLE_PAYLOAD,
 } from "../gate.ts";
+import * as escalation from "../escalation.ts";
 import { hasAuditTarget, outcomeFeatureKey } from "../../audit/cli-event.ts";
 import { repoFromCwd, sessionLogPath } from "../../audit/paths.ts";
 import type { Workplan } from "../schema.ts";
@@ -34,6 +37,9 @@ import type { Workplan } from "../schema.ts";
  */
 
 vi.mock(import("../../audit/cli-event.ts"), { spy: true });
+vi.mock(import("../escalation.ts"), { spy: true });
+const actualEscalation =
+  await vi.importActual<typeof import("../escalation.ts")>("../escalation.ts");
 
 let cwd: string;
 
@@ -82,12 +88,256 @@ function payload(subagentType: string, prompt: string): unknown {
 }
 
 beforeEach(() => {
+  vi.mocked(escalation.consumeEscalation).mockImplementation(actualEscalation.consumeEscalation);
   cwd = realpathSync(mkdtempSync(join(tmpdir(), "navori-plan-gate-")));
   execFileSync("git", ["init", "-b", "main"], { cwd });
 });
 
 afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
+});
+
+/** Builds only disposable escalation state; no real acknowledgement is issued. */
+function continuationFixture(spec: boolean): {
+  feature: string;
+  opening: string;
+  currentSnapshot: string;
+  predecessor: string;
+} {
+  writeConfig(true);
+  const feature = spec ? "demo-e1" : "demo",
+    opening = spec ? "spec: demo E1 M1" : "workplan: demo";
+  writeWorkplan(feature, {
+    ...VALID_LEVEL1,
+    feature,
+    level: spec ? 3 : 2,
+    solution: { path: "solution_demo.md", verdict: "CONCERNS" },
+    phases: [{ name: "one", acceptance: ["A1"] }],
+    risks: [{ risk: "retry", rollback: "deny" }],
+  });
+  writeFileSync(
+    join(progressDir(), `workplan_${feature}.gate.jsonl`),
+    ["a", "b"]
+      .map((letter) =>
+        JSON.stringify({
+          ts: "2026-10-14T00:00:00Z",
+          reviewHash: letter.repeat(64),
+          verdict: "CHANGES_REQUESTED",
+        }),
+      )
+      .join("\n") + "\n",
+  );
+  if (spec) {
+    mkdirSync(join(cwd, "specs/demo"), { recursive: true });
+    writeFileSync(
+      join(cwd, "specs/demo/tasks.md"),
+      "## E1 — Delivery\n### M1 — Milestone\n### M2 — Another\n",
+    );
+  }
+  acknowledgePlanEscalation(cwd, feature, opening, "fixture approval");
+  expect(evaluatePlanGate(payload("implementer", opening)).decision).toBe("allow");
+  appendFileSync(join(progressDir(), `workplan_${feature}.json`), "\n");
+  const info = acknowledgePlanEscalation(cwd, feature, opening, "", { inspect: true });
+  if (info.status !== "inspected") throw new Error("fixture inspection missing");
+  return {
+    feature,
+    opening,
+    currentSnapshot: info.currentSnapshot,
+    predecessor: info.eligiblePredecessor!,
+  };
+}
+function authorizeFixture(info: ReturnType<typeof continuationFixture>): void {
+  acknowledgePlanEscalation(cwd, info.feature, info.opening, "fixture successor approval", {
+    continuation: {
+      continueAfter: info.predecessor,
+      authorizationId: "fixture-successor",
+      snapshot: info.currentSnapshot,
+    },
+  });
+}
+
+describe("normal continuation gate integration", () => {
+  it.each(
+    [false, true].flatMap((spec) =>
+      ["claude", "codex", "encrypted"].map((engine) => ({ spec, engine })),
+    ),
+  )(
+    "retains exact normal validation and one-use authority for $engine spec=$spec",
+    ({ spec, engine }) => {
+      const info = continuationFixture(spec);
+      const planPath = join(progressDir(), `workplan_${info.feature}.json`);
+      const plan = readFileSync(planPath, "utf8"),
+        history = readFileSync(join(progressDir(), `workplan_${info.feature}.gate.jsonl`), "utf8");
+      authorizeFixture(info);
+      if (spec)
+        expect(evaluatePlanGate(payload("implementer", "spec: demo E1 M2")).decision).toBe("deny");
+      expect(
+        evaluatePlanGate({
+          cwd,
+          tool_input: { agent_type: "implementer", message: "gAAAAABencrypted" },
+        }).decision,
+      ).toBe("deny");
+      const raw =
+        engine === "claude"
+          ? payload("implementer", info.opening)
+          : {
+              cwd,
+              tool_input: {
+                agent_type: "implementer",
+                message: engine === "encrypted" ? "gAAAAABencrypted" : info.opening,
+              },
+            };
+      if (engine === "encrypted") {
+        const neutral = join(cwd, ".navori/state/handoffs");
+        mkdirSync(neutral, { recursive: true });
+        writeFileSync(
+          join(neutral, `dispatch_${info.feature}.json`),
+          JSON.stringify({
+            feature: info.feature,
+            opening: info.opening,
+            createdAt: new Date().toISOString(),
+          }),
+        );
+      }
+      expect(evaluatePlanGate(raw).decision).toBe("allow");
+      expect(evaluatePlanGate(raw).decision).toBe("deny");
+      expect(readFileSync(planPath, "utf8")).toBe(plan);
+      expect(readFileSync(join(progressDir(), `workplan_${info.feature}.gate.jsonl`), "utf8")).toBe(
+        history,
+      );
+    },
+  );
+
+  it("inspection is read-only and refuses a fresh unrecorded review rejection", () => {
+    const info = continuationFixture(false);
+    writeFileSync(
+      join(progressDir(), "review_demo.md"),
+      "**Final verdict:** CHANGES_REQUESTED\nnew fixture review\n",
+    );
+    const history = readFileSync(join(progressDir(), "workplan_demo.gate.jsonl"), "utf8");
+    expect(() =>
+      acknowledgePlanEscalation(cwd, info.feature, info.opening, "", { inspect: true }),
+    ).toThrow("unrecorded");
+    expect(readFileSync(join(progressDir(), "workplan_demo.gate.jsonl"), "utf8")).toBe(history);
+  });
+
+  it.each(["before-burn", "after-burn", "before-removal"])(
+    "preserves a public replacement %s while consuming only the private claimed marker",
+    (moment) => {
+      const info = continuationFixture(false);
+      authorizeFixture(info);
+      const path = join(cwd, ".navori/state/handoffs/dispatch_demo.json");
+      writeFileSync(
+        path,
+        JSON.stringify({
+          feature: info.feature,
+          opening: info.opening,
+          createdAt: new Date().toISOString(),
+        }),
+      );
+      const replacement = JSON.stringify({
+        feature: info.feature,
+        opening: info.opening,
+        createdAt: new Date(Date.now() + 1).toISOString(),
+        replacement: true,
+      });
+      vi.mocked(escalation.consumeEscalation).mockImplementation((binding, markerUnchanged) => {
+        if (moment === "before-burn") writeFileSync(path, replacement);
+        let checks = 0;
+        actualEscalation.consumeEscalation(binding, () => {
+          if (++checks === 3 && moment === "after-burn") writeFileSync(path, replacement);
+          return markerUnchanged();
+        });
+        if (moment === "before-removal") writeFileSync(path, replacement);
+      });
+      const result = evaluatePlanGate({
+        cwd,
+        tool_input: { agent_type: "implementer", message: "gAAAAABencrypted" },
+      });
+      expect(result.decision).toBe("allow");
+      expect(readFileSync(path, "utf8")).toBe(replacement);
+      const status = acknowledgePlanEscalation(cwd, info.feature, info.opening, "", {
+        inspect: true,
+      });
+      if (status.status !== "inspected") throw new Error("fixture inspection missing");
+      expect(status.terminal.status).toBe("consumed");
+    },
+  );
+});
+
+describe("exclusive private dispatch claims", () => {
+  // Covers: R7
+  it("keeps same-PID/time nested claims distinct and cleans up only their owned paths (C1)", () => {
+    const marker = join(cwd, "dispatch.json"),
+      now = 1;
+    writeFileSync(marker, "A");
+    let first = "",
+      second = "";
+    expect(
+      claimDispatch(marker, "A", now, (unchangedA) => {
+        first = readdirSync(cwd).find((name) => name.includes(".claim-"))!;
+        writeFileSync(marker, "B");
+        expect(
+          claimDispatch(marker, "B", now, (unchangedB) => {
+            second = readdirSync(cwd).find((name) => name.includes(".claim-") && name !== first)!;
+            expect(second).toBeTruthy();
+            expect(second).not.toBe(first);
+            expect(readFileSync(join(cwd, first), "utf8")).toBe("A");
+            expect(unchangedA()).toBe(true);
+            expect(unchangedB()).toBe(true);
+            writeFileSync(marker, "C");
+          }),
+        ).toBeUndefined();
+        expect(existsSync(join(cwd, second))).toBe(false);
+        expect(readFileSync(join(cwd, first), "utf8")).toBe("A");
+        expect(readFileSync(marker, "utf8")).toBe("C");
+      }),
+    ).toBeUndefined();
+    expect(existsSync(join(cwd, first))).toBe(false);
+    expect(readFileSync(marker, "utf8")).toBe("C");
+  });
+
+  // Covers: R7, R19
+  it.each(["pre-burn", "post-burn"])("cleans only the owned claim after %s drift", (moment) => {
+    const info = continuationFixture(false);
+    authorizeFixture(info);
+    const marker = join(cwd, ".navori/state/handoffs/dispatch_demo.json");
+    mkdirSync(join(cwd, ".navori/state/handoffs"), { recursive: true });
+    writeFileSync(
+      marker,
+      JSON.stringify({
+        feature: info.feature,
+        opening: info.opening,
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    vi.mocked(escalation.consumeEscalation).mockImplementation((binding, unchanged) => {
+      const name = readdirSync(join(cwd, ".navori/state/handoffs")).find((entry) =>
+        entry.includes(".claim-"),
+      )!;
+      const claim = join(cwd, ".navori/state/handoffs", name);
+      writeFileSync(marker, "replacement");
+      if (moment === "pre-burn") writeFileSync(claim, "drift");
+      actualEscalation.consumeEscalation(binding, unchanged);
+      writeFileSync(claim, "post-burn drift");
+    });
+    expect(
+      evaluatePlanGate({
+        cwd,
+        tool_input: { agent_type: "implementer", message: "gAAAAABencrypted" },
+      }).decision,
+    ).toBe("deny");
+    expect(readFileSync(marker, "utf8")).toBe("replacement");
+    expect(
+      readdirSync(join(cwd, ".navori/state/handoffs")).filter((name) => name.includes(".claim-")),
+    ).toEqual([]);
+    const status = acknowledgePlanEscalation(cwd, info.feature, info.opening, "", {
+      inspect: true,
+    });
+    expect(status.status).toBe("inspected");
+    if (status.status !== "inspected") throw new Error("missing inspection");
+    expect(status.terminal.status).toBe(moment === "pre-burn" ? "unconsumed" : "consumed");
+  });
 });
 
 describe("evaluatePlanGate — off switch and scope", () => {
@@ -466,7 +716,7 @@ describe("evaluatePlanGate — pairwise cap and reset (spec 0052 R8, R9)", () =>
   }
   const rejection = (day: number, hash: string): object => ({
     ts: at(day).toISOString(),
-    reviewHash: hash,
+    reviewHash: createHash("sha256").update(hash).digest("hex"),
     verdict: "CHANGES_REQUESTED",
   });
   function touchSolutions(day: number): void {
@@ -480,7 +730,7 @@ describe("evaluatePlanGate — pairwise cap and reset (spec 0052 R8, R9)", () =>
     evaluatePlanGate(payload("implementer", "nivel-0: README.md demo\nfix it"));
 
   // Covers: R8
-  it("tras dos y cuatro rechazos exige solution nuevos y acepta los posteriores al último par", () => {
+  it("tras dos, cuatro y seis rechazos exige solution nuevos y acepta los posteriores al último par", () => {
     writeConfig(true);
     writeLog([rejection(1, "h1"), rejection(2, "h2")]);
 
@@ -503,6 +753,24 @@ describe("evaluatePlanGate — pairwise cap and reset (spec 0052 R8, R9)", () =>
     writeLog([rejection(1, "h1"), rejection(2, "h2"), rejection(4, "h3"), rejection(5, "h4")]);
     touchSolutions(6);
     expect(openNivel0().decision).toBe("allow");
+    writeLog([
+      rejection(1, "h1"),
+      rejection(2, "h2"),
+      rejection(4, "h3"),
+      rejection(5, "h4"),
+      rejection(7, "h5"),
+      rejection(8, "h6"),
+    ]);
+    expect(openNivel0().decision).toBe("deny");
+    touchSolutions(9);
+    expect(openNivel0().decision).toBe("allow");
+  });
+
+  // Covers: R8, R9
+  it("denies malformed nivel-0 history without throwing", () => {
+    writeConfig(true);
+    writeLog([{ kind: "reset", approvedBy: "agent" }]);
+    expect(openNivel0().decision).toBe("deny");
   });
 
   // Covers: R9
@@ -580,7 +848,11 @@ describe("evaluatePlanGate — SDD delivery dispatch (#1309)", () => {
     const file = join(dir, `dispatch_${feature}.json`);
     writeFileSync(
       file,
-      JSON.stringify({ feature, opening: OPENING, createdAt: new Date(NOW - age).toISOString() }),
+      JSON.stringify({
+        feature,
+        opening: OPENING,
+        createdAt: new Date(NOW - age).toISOString(),
+      }),
     );
     return file;
   }
@@ -651,7 +923,10 @@ describe("evaluatePlanGate — SDD delivery dispatch (#1309)", () => {
       readFileSync(join(cwd, "navori.config.json")),
     );
     writeTasks("## E1 — Decoy\n### M9 — Decoy\n", "packages/cli/specs");
-    const raw = { cwd: nested, tool_input: { subagent_type: "implementer", prompt: OPENING } };
+    const raw = {
+      cwd: nested,
+      tool_input: { subagent_type: "implementer", prompt: OPENING },
+    };
     expect(evaluatePlanGate(raw).decision).toBe("allow");
     writeTasks("## E1 — Root\n### M9 — Root\n");
     writeTasks(TASKS, "packages/cli/specs");
@@ -710,7 +985,10 @@ describe("evaluatePlanGate — SDD delivery dispatch (#1309)", () => {
       if (kind === "check") writeWorkplan(FEATURE, { ...PLAN, acceptance: [] });
       if (kind === "feature") writeWorkplan(FEATURE, { ...PLAN, feature: "foreign-e1" });
       if (kind.startsWith("level"))
-        writeWorkplan(FEATURE, { ...PLAN, level: Number(kind.slice(-1)) as 0 | 1 | 2 });
+        writeWorkplan(FEATURE, {
+          ...PLAN,
+          level: Number(kind.slice(-1)) as 0 | 1 | 2,
+        });
       const dispatch = writeDispatch();
       expect(
         evaluatePlanGate({ cwd, tool_input: { agent_type: "implementer", message: FERNET } }, NOW)
@@ -744,7 +1022,7 @@ describe("evaluatePlanGate — SDD delivery dispatch (#1309)", () => {
     const log = join(progressDir(), `workplan_${FEATURE}.gate.jsonl`);
     writeFileSync(
       log,
-      `${JSON.stringify({ reviewHash: "one" })}\n${JSON.stringify({ reviewHash: "two" })}\n`,
+      `${JSON.stringify({ ts: new Date().toISOString(), reviewHash: "a".repeat(64), verdict: "CHANGES_REQUESTED" })}\n${JSON.stringify({ ts: new Date().toISOString(), reviewHash: "b".repeat(64), verdict: "CHANGES_REQUESTED" })}\n`,
     );
     const result = evaluatePlanGate(payload("implementer", OPENING));
     expect(result.decision).toBe("deny");
@@ -760,7 +1038,10 @@ describe("evaluatePlanGate — Codex spawn_agent payloads (spec 0041 R9)", () =>
   const dispatchDir = (): string => join(cwd, ".navori/state/handoffs");
 
   function codex(agentType: string, message?: string): unknown {
-    return { cwd, tool_input: { agent_type: agentType, task_name: "t", message } };
+    return {
+      cwd,
+      tool_input: { agent_type: agentType, task_name: "t", message },
+    };
   }
 
   function writeDispatch(feature: string, overrides: Record<string, unknown> = {}): string {
@@ -814,7 +1095,9 @@ describe("evaluatePlanGate — Codex spawn_agent payloads (spec 0041 R9)", () =>
   it("V2: accepts the offset and fractional createdAt the Codex orchestrator writes (smoke S4d)", () => {
     writeConfig(true);
     writeWorkplan("demo", VALID_LEVEL1);
-    const file = writeDispatch("demo", { createdAt: "2026-10-03T20:27:54.004865+00:00" });
+    const file = writeDispatch("demo", {
+      createdAt: "2026-10-03T20:27:54.004865+00:00",
+    });
     const now = Date.parse("2026-10-03T20:28:30.000Z");
     expect(evaluatePlanGate(codex("implementer", FERNET), now).decision).toBe("allow");
     expect(existsSync(file)).toBe(false);
@@ -880,7 +1163,9 @@ describe("evaluatePlanGate — Codex spawn_agent payloads (spec 0041 R9)", () =>
   it("V2: a stale dispatch file is denied", () => {
     writeConfig(true);
     writeWorkplan("demo", VALID_LEVEL1);
-    writeDispatch("demo", { createdAt: new Date(NOW - 11 * 60_000).toISOString() });
+    writeDispatch("demo", {
+      createdAt: new Date(NOW - 11 * 60_000).toISOString(),
+    });
     const result = evaluatePlanGate(codex("implementer", FERNET), NOW);
     expect(result.decision).toBe("deny");
     expect(result.reason).toContain("stale");
@@ -971,7 +1256,11 @@ describe("applyPlanGate — dispatch-outcome emission (spec 0042 T10a)", () => {
     ...extra,
   });
   /** Runs the hook and returns everything observable: exit code, stdout and stderr. */
-  function observe(raw: unknown): { exitCode: unknown; stdout: string; stderr: string } {
+  function observe(raw: unknown): {
+    exitCode: unknown;
+    stdout: string;
+    stderr: string;
+  } {
     const out: string[] = [];
     const err: string[] = [];
     const stdout = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
@@ -986,7 +1275,11 @@ describe("applyPlanGate — dispatch-outcome emission (spec 0042 T10a)", () => {
     process.exitCode = undefined;
     try {
       applyPlanGate(raw);
-      return { exitCode: process.exitCode, stdout: out.join(""), stderr: err.join("") };
+      return {
+        exitCode: process.exitCode,
+        stdout: out.join(""),
+        stderr: err.join(""),
+      };
     } finally {
       process.exitCode = before;
       stdout.mockRestore();
@@ -1049,7 +1342,10 @@ describe("applyPlanGate — dispatch-outcome emission (spec 0042 T10a)", () => {
     ["a throw while computing the feature key", () => vi.mocked(outcomeFeatureKey)],
   ])("keeps the allow byte-identical when there is %s (B2)", (_label, target) => {
     startAudit();
-    const baseline = observe({ ...(spawnPayload("workplan: demo") as object), session_id: "none" });
+    const baseline = observe({
+      ...(spawnPayload("workplan: demo") as object),
+      session_id: "none",
+    });
     target().mockImplementation(() => {
       throw new Error("forced");
     });
@@ -1113,7 +1409,10 @@ describe("applyPlanGate — dispatch-outcome emission (spec 0042 T10a)", () => {
     const seen = observe({
       cwd,
       session_id: SESSION,
-      tool_input: { agent_type: "implementer", message: "workplan: demo\nbody" },
+      tool_input: {
+        agent_type: "implementer",
+        message: "workplan: demo\nbody",
+      },
     });
     expect(seen).toEqual({ exitCode: undefined, stdout: "", stderr: "" });
     expect(lines(log)).toHaveLength(1);

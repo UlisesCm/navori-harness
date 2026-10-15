@@ -322,6 +322,20 @@ export const CODEX_HOOK_REGISTRATIONS: readonly CodexHookRow[] = [
       late: true,
     },
   },
+  {
+    // R13 precursor: append only. Concurrent native hooks do not guarantee rewrite precedence.
+    script: "model-advisor",
+    registration: {
+      event: "PreToolUse",
+      matcher: "^(Agent|spawn_agent)$",
+      args: "codex-pretool-profile",
+      timeout: 15,
+      statusMessage: "navori: future child profile",
+      minVersion: "0.162.1",
+      when: (config) => config.harness?.codexIntegration === true,
+      late: true,
+    },
+  },
 ];
 
 /** One Codex hook ready to serialize into `.codex/config.toml`. */

@@ -12,12 +12,14 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { NavoriConfigSchema, type NavoriConfig } from "../config/schema.ts";
 import { getCoreRoot } from "../render/bundled-assets.ts";
 import { renderCodexEngine } from "../../engines/codex/index.ts";
 import { renderClaudeEngine } from "../../engines/claude/index.ts";
 import { buildRolePolicyShell } from "../../engines/shared/role-policy.ts";
 import { acrossShells } from "./helpers/shells.ts";
+import { checkReviewEditOutputs } from "../handoff/review-edit-binding.ts";
 
 /**
  * Behavioral tests for `role-guard.sh` (spec 0041 T8/T9). Each case renders the
@@ -57,12 +59,13 @@ interface Outcome {
   stderr: string;
 }
 
-function run(payload: Record<string, unknown>): Outcome {
+function run(payload: Record<string, unknown>, env?: NodeJS.ProcessEnv): Outcome {
   return acrossShells((shell) => {
     const r = spawnSync(shell, [script], {
       cwd: repo,
       input: JSON.stringify({ hook_event_name: "PreToolUse", cwd: repo, ...payload }),
       encoding: "utf-8",
+      env,
     });
     return { status: r.status ?? -1, stderr: r.stderr ?? "" };
   });
@@ -83,6 +86,189 @@ function patch(role: string | undefined, ...files: string[]): Record<string, unk
 }
 
 const HANDOFF = ".navori/state/handoffs/impl_x.json";
+
+describe("role-guard linked review outputs", () => {
+  it("authorizes registered linked-worktree review outputs through the binding branch", () => {
+    // Outside OS temp: removing the exact binding must deny this same physical destination.
+    rmSync(repo, { recursive: true, force: true });
+    const runtimeState = resolve(getCoreRoot(), "../../.navori/state");
+    mkdirSync(runtimeState, { recursive: true });
+    repo = realpathSync(mkdtempSync(join(runtimeState, "role-binding-")));
+    install();
+    const host = join(repo, "host");
+    const target = join(repo, "target");
+    mkdirSync(host);
+    const git = (cwd: string, ...args: string[]): string => {
+      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      if (result.status !== 0) throw new Error(result.stderr);
+      return result.stdout.trim();
+    };
+    git(host, "init", "-b", "main");
+    git(
+      host,
+      "-c",
+      "user.name=Guard",
+      "-c",
+      "user.email=guard@example.test",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "base",
+    );
+    git(host, "worktree", "add", "-b", "review", target);
+    const state = join(target, ".navori/state/handoffs");
+    mkdirSync(state, { recursive: true });
+    const thread = "20000000-0000-0000-0000-000000000003";
+    const nonce = "20000000-0000-0000-0000-000000000004";
+    const actor = {
+      host: "codex",
+      version: "0.162.1",
+      thread,
+      root: nonce,
+      parent: nonce,
+      role: "reviewer",
+      sourceCwd: host,
+      sourceHash: "a".repeat(64),
+    };
+    const handoff = "{}\n";
+    const ownership = createHash("sha256").update(handoff).digest("hex");
+    writeFileSync(join(state, "impl_demo.json"), handoff);
+    writeFileSync(
+      join(state, "ownership_demo.json"),
+      JSON.stringify({
+        feature: "demo",
+        cwd: target,
+        target: "main",
+        fingerprint: "b".repeat(64),
+        base: null,
+        handoff: ownership,
+        actors: [{ ...actor, thread: "20000000-0000-0000-0000-000000000002", role: "implementer" }],
+      }),
+    );
+    writeFileSync(
+      join(state, `review_demo.${nonce}.begin.json`),
+      JSON.stringify({
+        v: 1,
+        alg: "navori-content/v1",
+        feature: "demo",
+        nonce,
+        reviewer: actor,
+        ownership,
+        fingerprint: "b".repeat(64),
+        base: null,
+        editBinding: {
+          v: 1,
+          checkout: target,
+          target: "main",
+          stateDir: ".navori/state/handoffs",
+          gitDir: realpathSync(git(target, "rev-parse", "--path-format=absolute", "--git-dir")),
+          commonDir: realpathSync(
+            git(target, "rev-parse", "--path-format=absolute", "--git-common-dir"),
+          ),
+        },
+      }),
+    );
+    const index = join(state, `review_demo.${thread}.edit.json`);
+    writeFileSync(index, JSON.stringify({ v: 1, feature: "demo", thread, nonce }));
+    const md = join(state, "review_demo.md");
+    const json = join(state, "review_demo.json");
+    for (const header of ["Add File", "Update File", "Delete File", "Move to"]) {
+      const command = `*** Begin Patch\n*** ${header}: ${md}\n*** Add File: ${json}\n*** End Patch`;
+      const result = run({
+        cwd: host,
+        agent_id: thread,
+        agent_type: "reviewer",
+        tool_name: "apply_patch",
+        tool_input: { command },
+      });
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("bound-review-output");
+    }
+    const scratch = join(realpathSync(tmpdir()), "navori-bound-review-scratch.md");
+    for (const files of [
+      [md, scratch],
+      [scratch, md],
+    ]) {
+      const mixed = run({ ...patch("reviewer", ...files), cwd: host, agent_id: thread });
+      expect(mixed.status, JSON.stringify(mixed)).toBe(0);
+      expect(mixed.stderr).toContain("bound-review-output");
+    }
+    for (const files of [
+      [md, scratch, join(target, "source.ts")],
+      [join(target, "source.ts"), scratch, md],
+    ]) {
+      expect(run({ ...patch("reviewer", ...files), cwd: host, agent_id: thread }).status).toBe(2);
+    }
+    const traversal = run({
+      ...patch("reviewer", "../target/.navori/state/handoffs/review_demo.md"),
+      cwd: host,
+      agent_id: thread,
+    });
+    expect(traversal.status, JSON.stringify(traversal)).toBe(2);
+    expect(run({ ...patch("reviewer", md), cwd: host, agent_id: "" }).status).toBe(2);
+    expect(
+      run({ ...patch("reviewer", md), cwd: host, agent_id: "20000000-0000-0000-0000-000000000009" })
+        .status,
+    ).toBe(2);
+    expect(run({ ...patch("auditor", md), cwd: host, agent_id: thread }).status).toBe(2);
+    expect(
+      run({ ...patch("reviewer", md, join(target, "source.ts")), cwd: host, agent_id: thread })
+        .status,
+    ).toBe(2);
+    expect(
+      run({
+        ...patch("reviewer", md, join(state, "review_other.json")),
+        cwd: host,
+        agent_id: thread,
+      }).status,
+    ).toBe(2);
+    const move = `*** Begin Patch\n*** Update File: ${md}\n*** Move to: ${join(target, "source.ts")}\n*** End Patch`;
+    expect(
+      run({
+        cwd: host,
+        agent_id: thread,
+        agent_type: "reviewer",
+        tool_name: "apply_patch",
+        tool_input: { command: move },
+      }).status,
+    ).toBe(2);
+    const bin = join(repo, "bin");
+    mkdirSync(bin);
+    for (const command of [
+      "bash",
+      "zsh",
+      "jq",
+      "cat",
+      "git",
+      "tr",
+      "sed",
+      "dirname",
+      "readlink",
+      "date",
+    ]) {
+      const located = spawnSync("which", [command], { encoding: "utf8" }).stdout.trim();
+      if (located) symlinkSync(located, join(bin, command));
+    }
+    const noNode = run(
+      { ...patch("reviewer", md), cwd: host, agent_id: thread },
+      { ...process.env, PATH: bin },
+    );
+    expect(noNode.status).toBe(2);
+    expect(noNode.stderr).toContain("node-unavailable");
+    expect(
+      run({ ...patch("reviewer", HANDOFF), cwd: host }, { ...process.env, PATH: bin }).status,
+    ).toBe(0);
+    expect(
+      checkReviewEditOutputs({ hostCwd: host, thread, outputs: [md, join(target, "source.ts")] })
+        .status,
+    ).toBe("error");
+    rmSync(index);
+    expect(checkReviewEditOutputs({ hostCwd: host, thread, outputs: [md] }).status).toBe("error");
+    const samePath = run({ ...patch("reviewer", md), cwd: host, agent_id: thread });
+    expect(samePath.stderr).not.toContain("bound-review-output");
+    expect(samePath.status).toBe(2);
+  });
+});
 
 // Covers: R6, R8
 describe("role-guard apply_patch — allowed callers", () => {

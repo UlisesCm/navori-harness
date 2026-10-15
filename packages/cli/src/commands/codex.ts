@@ -371,7 +371,12 @@ export const codexCommand = defineCommand({
     description: "Codex-specific commands",
   },
   subCommands: {
+    evaluation: () =>
+      import("./codex-evaluation.ts").then((module) => module.codexEvaluationCommand),
+    profile: () => import("./codex-profile.ts").then((module) => module.codexProfileCommand),
     trust: trustSubCommand,
     approval: () => import("./codex-approval.ts").then((module) => module.codexApprovalCommand),
+    integration: () =>
+      import("./codex-integration.ts").then((module) => module.codexIntegrationCommand),
   },
 });
