@@ -127,16 +127,18 @@ export function readPlanSnapshot(path: string, maximum: number = MAX_BYTES): Pla
     throw cause;
   }
   try {
-    if (!fstatSync(fd).isFile() || fstatSync(fd).size > maximum)
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.size > maximum)
       throw new Error(`unsafe or oversized plan state: ${path}`);
-    const bytes = Buffer.alloc(maximum + 1);
+    // One spare byte detects a file that grows past its stat'd size mid-read.
+    const bytes = Buffer.alloc(stat.size + 1);
     let size = 0;
-    while (size <= maximum) {
+    while (size < bytes.length) {
       const count = readSync(fd, bytes, size, bytes.length - size, null);
       if (count === 0) break;
       size += count;
     }
-    if (size > maximum) throw new Error(`oversized plan state: ${path}`);
+    if (size > stat.size) throw new Error(`plan state changed during read: ${path}`);
     const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, size));
     return { path, content };
   } finally {
