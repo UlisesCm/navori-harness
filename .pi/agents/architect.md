@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-architect" hash="091b49e6eae7d8fcc05e9f90dda9fff67219e1964200e57247993a3de97d2065"
+# navori:managed-file id="pi-agent-architect" hash="404e4b07454b257f57650ea888ff4b3e5763d75bbd5c1efdff35966315898173"
 name: "architect"
 description: "Proposes what to build and why for a task with an architectural signal (shared abstraction, ownership, contract, migration, hard-to-reverse decision), a level-2 workplan, or a spec's design.md. Not for verdicts, decomposition, or user questions. Use when the architectural row fires, `classify` returns level 2, or a spec is scaffolded."
 tools: ["read","grep","find","ls","bash","write"]
@@ -19,7 +19,7 @@ For a **master-plan** task, write the requested `<etapa>/plans/plan<n>.md` and p
 - "Derive the decision drivers from the project's own rules (DIRECTION, CLAUDE.md, EXTENDING, `quality-attributes`) before you list any option."
 - "Explore at least three rungs — the existing pattern, an extension, a new abstraction. A discarded rung gets one line with its evidence; a surviving one is developed in full."
 - "Recommend the option that best fits the drivers, not the cheapest by default."
-- "Only verify empirically what would change the recommendation if false — documentation before a probe, never a full stack install. Verify every 'already exists' claim against `origin/dev` after `git fetch origin dev`; if the fetch fails or the ref doesn't exist, name the ref you actually used — or mark the claim *unverified* with the cause."
+- "Only verify empirically what would change the recommendation if false — documentation before a probe, never a full stack install. Verify every 'already exists' claim against `origin/main` after `git fetch origin main`; if the fetch fails or the ref doesn't exist, name the ref you actually used — or mark the claim *unverified* with the cause."
 
 ### Sources
 

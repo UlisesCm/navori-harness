@@ -71,6 +71,25 @@ const inputSchema = z
 type Action = z.infer<typeof actionSchema>;
 type Request = z.infer<typeof requestSchema>;
 
+/** Immutable reviewed bytes plus current local and remote object identities. */
+export interface NativeApprovalScope {
+  readonly pendingId: string;
+  readonly checkout: string;
+  readonly action: "github.pr.create";
+  readonly destination: string;
+  readonly repository: string;
+  readonly base: string;
+  readonly head: string;
+  readonly localHead: string;
+  readonly remoteBase: string;
+  readonly remoteHead: string;
+  readonly fingerprint: string;
+  readonly title: string;
+  readonly body: string;
+  readonly bodyDigest: string;
+  readonly draft: boolean;
+}
+
 /** Pending output has no allowed/verified state and cannot execute external effects. */
 export interface ApprovalPending {
   status: "pending";
@@ -294,6 +313,118 @@ export function relayApproval(id: string, cwd: string): ApprovalPending {
     };
   } catch {
     return pending("malformed-stale-or-unavailable");
+  }
+}
+
+/** Fixed read-only GitHub metadata queries never execute shell or caller-selected binaries. */
+function remoteMetadata(args: string[], cwd: string, deadline: number): unknown {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error("remote-metadata-timeout");
+  const result = spawnSync("gh", args, {
+    cwd,
+    encoding: "utf8",
+    timeout: remaining,
+    maxBuffer: LIMIT,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error || result.status !== 0) throw new Error("remote-metadata-unavailable");
+  return JSON.parse(result.stdout) as unknown;
+}
+
+/** Resolve the origin URL without invoking transport helpers or treating config as consent. */
+function canonicalRepositoryUrl(remote: string): string {
+  const ssh = /^git@([^/:]+):([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+?)(?:\.git)?$/.exec(remote);
+  if (ssh) return `https://${ssh[1]}/${ssh[2]}`;
+  const url = new URL(remote);
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash)
+    throw new Error("unsupported-remote");
+  return `${url.origin}${url.pathname.replace(/\.git$/, "").replace(/\/$/, "")}`;
+}
+
+/** Snapshot a pending request; this reads scope only and grants no permission. */
+export function snapshotNativeApproval(id: string, cwd: string): NativeApprovalScope {
+  const deadline = Date.now() + 15_000;
+  if (!z.uuid().safeParse(id).success) throw new Error("invalid-request-id");
+  const root = stateRoot(cwd, deadline);
+  const request = requestSchema.parse(
+    JSON.parse(
+      boundedFile(stateArtifactPath(root, `approval_${id}.json`)).toString("utf8"),
+    ) as unknown,
+  );
+  if (
+    request.id !== id ||
+    request.checkout !== root.cwd ||
+    request.createdAt > Date.now() ||
+    Date.now() - request.createdAt > 15 * 60_000
+  )
+    throw new Error("stale-request");
+  const current = binding(root, request.fields, deadline);
+  if (
+    request.commandDigest !== hash(reviewCommand(request.fields)) ||
+    Object.entries(current).some(([key, value]) => request[key as keyof Request] !== value)
+  )
+    throw new Error("stale-request");
+  const repository = z
+    .strictObject({ nameWithOwner: text, url: z.url() })
+    .parse(
+      remoteMetadata(
+        ["repo", "view", request.fields.repo, "--json", "nameWithOwner,url"],
+        root.cwd,
+        deadline,
+      ),
+    );
+  if (
+    repository.nameWithOwner !== request.fields.repo ||
+    canonicalRepositoryUrl(git(root.cwd, ["remote", "get-url", "origin"], deadline)) !==
+      canonicalRepositoryUrl(repository.url)
+  )
+    throw new Error("destination-mismatch");
+  const remoteObject = (branchName: string): string => {
+    const response = z
+      .object({ object: z.object({ sha: z.string().regex(/^[a-f0-9]{40}$/) }) })
+      .parse(
+        remoteMetadata(
+          ["api", "--method", "GET", `repos/${request.fields.repo}/git/ref/heads/${branchName}`],
+          root.cwd,
+          deadline,
+        ),
+      );
+    return response.object.sha;
+  };
+  const remoteBase = remoteObject(request.fields.base);
+  const remoteHead = remoteObject(request.fields.head);
+  if (remoteHead !== current.head || remoteBase !== current.base)
+    throw new Error("remote-ref-mismatch");
+  const body = boundedFile(physical(resolve(root.cwd, request.fields.bodyFile))).toString("utf8");
+  if (hash(body) !== request.bodyDigest) throw new Error("body-changed");
+  return Object.freeze({
+    pendingId: id,
+    checkout: root.cwd,
+    action: "github.pr.create",
+    destination: repository.url,
+    repository: repository.nameWithOwner,
+    base: request.fields.base,
+    head: request.fields.head,
+    localHead: current.head,
+    remoteBase,
+    remoteHead,
+    fingerprint: current.fingerprint,
+    title: request.fields.title,
+    body,
+    bodyDigest: request.bodyDigest,
+    draft: request.fields.draft,
+  });
+}
+
+/** Re-read every local/remote binding immediately before the held effect. */
+export function revalidateNativeApproval(scope: NativeApprovalScope): boolean {
+  try {
+    return (
+      JSON.stringify(snapshotNativeApproval(scope.pendingId, scope.checkout)) ===
+      JSON.stringify(scope)
+    );
+  } catch {
+    return false;
   }
 }
 

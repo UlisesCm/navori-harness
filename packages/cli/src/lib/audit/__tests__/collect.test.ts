@@ -22,6 +22,9 @@ import { sessionLogPath } from "../paths.ts";
 import { getCoreRoot } from "../../render/bundled-assets.ts";
 import { NavoriError } from "../../primitives/errors.ts";
 import { deadPort } from "../../__tests__/helpers/ports.ts";
+import { approvalSourceIsolationAvailable } from "../../codex/approval-ui.ts";
+import { requestBrowserDecision } from "../../codex/approval-controller.ts";
+import { startCodexIntegration } from "../../../commands/codex-integration.ts";
 
 /**
  * The receiver is exercised over REAL HTTP against an ephemeral port, never by
@@ -717,16 +720,34 @@ describe("startReceiver (#0021)", () => {
  * Invariant 9 of `DIRECTION.md` — "navori generates, it does not run" — in
  * executable form.
  *
- * Without this, "navori opens no ports" is a promise the next PR can break in
- * silence, and the whole argument for making the operator run the receiver
- * evaporates. Read over the SHIPPED sources and assets, the same way
+ * The receiver and the two exact, bounded opt-in Codex owners are the only
+ * approved exceptions. Any new listener still requires explicit review.
+ * Read over the SHIPPED sources and assets, the same way
  * `agent-descriptions.test.ts` reads the real assets instead of a fixture.
  */
 const SRC_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const RECEIVER = resolve(SRC_ROOT, "lib", "audit", "collect.ts");
+const CODEX_LISTENER_OWNERS = new Set([
+  resolve(SRC_ROOT, "lib/codex/approval-controller.ts"),
+  resolve(SRC_ROOT, "lib/codex/native-integration.ts"),
+]);
 
 /** Code-shaped ways to bind a port. Prose can say "listen"; it can't say `.listen(`. */
 const LISTENS = [/\.listen\s*\(/, /createServer\s*\(/, /\bBun\.serve\s*\(/, /\bDeno\.serve\s*\(/];
+
+/** Pin every listener-shaped line to the one approved function in its owner. */
+function listenerLines(source: string): string[] {
+  return source.split("\n").filter((line) => LISTENS.some((pattern) => pattern.test(line)));
+}
+
+/** A top-level source function, bounded by its unindented closing brace. */
+function sourceFunction(source: string, name: string): string {
+  const body = new RegExp(`(?:export )?async function ${name}\\([\\s\\S]*?^}`, "m").exec(
+    source,
+  )?.[0];
+  if (!body) throw new Error(`missing listener boundary: ${name}`);
+  return body;
+}
 
 /**
  * Only what navori EXECUTES — its own source, its hook scripts, and the JSON
@@ -754,11 +775,12 @@ function* walk(dir: string): Generator<string> {
 
 describe("invariante 9 (#0021, R9)", () => {
   // Covers: R9
-  it("solo el receptor escucha en un puerto", () => {
+  it("only the receiver and two declared bounded Codex owners contain listeners", () => {
     const offenders: string[] = [];
     for (const dir of [SRC_ROOT, getCoreRoot()]) {
       for (const file of walk(dir)) {
-        if (file === RECEIVER || file.endsWith(".test.ts")) continue;
+        if (file === RECEIVER || CODEX_LISTENER_OWNERS.has(file) || file.endsWith(".test.ts"))
+          continue;
         if (!EXECUTABLE.has(extname(file))) continue;
         let text: string;
         try {
@@ -772,6 +794,104 @@ describe("invariante 9 (#0021, R9)", () => {
     // Named, not counted: the point of the failure is telling the author which
     // file just made navori a server.
     expect(offenders).toEqual([]);
+  });
+
+  // Covers: R9, R6
+  it("keeps the exact-scope controller unreachable without verified human-source isolation", async () => {
+    const source = readFileSync(resolve(SRC_ROOT, "lib/codex/approval-controller.ts"), "utf-8");
+    const controller = sourceFunction(source, "requestBrowserDecision");
+    expect(listenerLines(source)).toEqual(listenerLines(controller));
+    expect(listenerLines(controller)).toHaveLength(2);
+    expect(controller).toContain('server.listen(0, "127.0.0.1", resolve)');
+    const gate = controller.indexOf('if (!approvalSourceIsolationAvailable()) return "pending";');
+    expect(gate).toBeGreaterThanOrEqual(0);
+    expect(gate).toBeLessThan(controller.indexOf("createServer("));
+    expect(controller).toContain("request.headers.host !== host || !outstanding");
+    expect(controller).toContain('request.method !== "POST"');
+    expect(controller).toContain('request.url !== "/decision"');
+    expect(controller).toContain("request.headers.origin !== origin");
+    expect(controller).toContain(
+      "JSON.stringify(parsed.data.identity) !== JSON.stringify(boundIdentity)",
+    );
+    expect(controller).toContain("consume(parsed.data.decision)");
+    expect(controller).toContain('setTimeout(() => consume("pending"), timeoutMs)');
+    expect(controller).toContain("server.closeAllConnections()");
+    expect(approvalSourceIsolationAvailable()).toBe(false);
+    expect(
+      await requestBrowserDecision(
+        {
+          requestId: 0,
+          threadId: "thread",
+          turnId: "turn",
+          callId: "call",
+          action: "github.pr.create",
+        },
+        {},
+        10,
+      ),
+    ).toBe("pending");
+  });
+
+  // Covers: R9, R6
+  it("bounds the sandbox probe to loopback, project opt-in, and no turn or effect", async () => {
+    const source = readFileSync(resolve(SRC_ROOT, "lib/codex/native-integration.ts"), "utf-8");
+    const probe = sourceFunction(source, "verifySandbox");
+    expect(listenerLines(source)).toEqual(listenerLines(probe));
+    expect(listenerLines(probe)).toHaveLength(3);
+    expect(probe).toContain('server.listen(0, "127.0.0.1", resolve)');
+    expect(probe).toContain('sandboxPolicy: { type: "readOnly", networkAccess: false }');
+    expect(probe).toContain('bootstrap.stderr === "EPERM"');
+    expect(probe).toContain("hits === 0");
+    expect(probe).toContain("server.closeAllConnections()");
+    const integration = sourceFunction(source, "runNativeIntegration");
+    const refusal = integration.indexOf(
+      'if (probeOnly) return result("pending", "native-context-probed-without-action");',
+    );
+    expect(refusal).toBeGreaterThan(integration.indexOf("await verifySandbox("));
+    expect(refusal).toBeLessThan(integration.indexOf('native.rpc("turn/start"'));
+    expect(refusal).toBeLessThan(integration.indexOf("requestBrowserDecision("));
+    expect(refusal).toBeLessThan(integration.indexOf("publishOnce("));
+    const entry = sourceFunction(
+      readFileSync(resolve(SRC_ROOT, "commands/codex-integration.ts"), "utf-8"),
+      "startCodexIntegration",
+    );
+    expect(entry).toContain(
+      '!config.engines.includes("codex") || config.harness?.codexIntegration !== true',
+    );
+    expect(entry.indexOf('reason: "project-opt-in-required"')).toBeLessThan(
+      entry.indexOf("runNativeIntegration("),
+    );
+    expect(entry).toContain('if (process.platform !== "darwin")');
+    writeFileSync(
+      join(root, "navori.config.json"),
+      JSON.stringify({ name: "probe", engines: ["codex"], preset: "custom" }),
+    );
+    for (const probeOnly of [false, true]) {
+      expect(
+        await startCodexIntegration(root, "00000000-0000-4000-8000-000000000000", probeOnly),
+      ).toEqual({
+        status: "pending",
+        reason: "project-opt-in-required",
+        connection: "unstarted",
+        events: [],
+      });
+    }
+  });
+
+  // Covers: R9
+  it("does not permit arbitrary listeners or another file in the Codex directory", () => {
+    expect(CODEX_LISTENER_OWNERS.size).toBe(2);
+    expect(CODEX_LISTENER_OWNERS.has(resolve(SRC_ROOT, "lib/codex/another-controller.ts"))).toBe(
+      false,
+    );
+    for (const source of [
+      "app.listen(0)",
+      "createServer(handler)",
+      "Bun.serve({})",
+      "Deno.serve(handler)",
+    ]) {
+      expect(listenerLines(source)).toHaveLength(1);
+    }
   });
 });
 

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildClaudeSettings } from "../engines/claude/build-settings.ts";
+import { resolveCodexHooks } from "../engines/codex/hook-registrations.ts";
 import { getCoreRoot } from "../lib/render/bundled-assets.ts";
 import { listKnownPluginIds, loadPlugin } from "../lib/config/plugins.ts";
 import type { LoadedPlugin } from "../lib/config/plugins.ts";
@@ -276,8 +277,8 @@ interface Emitted {
  * `jq -n` or `printf`. Both are found by their opening brace, never by the
  * command name, so a new emitter is covered the day it is written.
  */
-function emittedLiterals(script: string): Emitted[] {
-  const code = codeOf(script);
+function emittedLiterals(script: string, mode?: string): Emitted[] {
+  const code = codeOf(invocationCode(script, mode));
   const captured = capturedRanges(code);
   const opens: number[] = [];
 
@@ -298,6 +299,60 @@ function emittedLiterals(script: string): Emitted[] {
     out.push(fieldsOf(literal));
   }
   return out;
+}
+
+/**
+ * Select only literal shell mode guards; unfamiliar dispatch syntax stays
+ * visible to the fail-closed checker. Heredoc bodies cannot close a shell if.
+ * Ceiling: this is a bounded shell reader, not an interpreter; extend it only
+ * when a shipped registration introduces another literal dispatch shape.
+ */
+function invocationCode(script: string, mode?: string): string {
+  if (!mode) return script;
+  const lines = script.split("\n");
+  const selected: string[] = [];
+  for (let start = 0; start < lines.length; start++) {
+    const guard = /^if \[ "\$mode" = "([\w-]+)" \]; then$/.exec(lines[start]!);
+    if (!guard) {
+      selected.push(lines[start]!);
+      continue;
+    }
+    let depth = 1;
+    let heredoc: string | undefined;
+    let end = start + 1;
+    let alternate = false;
+    for (; end < lines.length; end++) {
+      const line = lines[end]!;
+      if (heredoc) {
+        if (line === heredoc) heredoc = undefined;
+        continue;
+      }
+      heredoc = /<<\s*'([\w]+)'/.exec(line)?.[1];
+      if (line.includes("<<") && !heredoc) return script;
+      if (/^\s*if\s/.test(line)) depth++;
+      if (/^\s*fi\s*$/.test(line) && --depth === 0) break;
+      if (depth === 1 && /^\s*(?:else|elif)\b/.test(line)) alternate = true;
+    }
+    if (end === lines.length) throw new Error("mode guard sin cerrar");
+    const body = lines.slice(start + 1, end);
+    if (alternate) selected.push(...lines.slice(start, end + 1));
+    else if (guard[1] === mode) {
+      selected.push(...body);
+      if (/^\s*exit 0\s*$/.test(codeOf(body.join("\n")).trimEnd().split("\n").at(-1)!)) break;
+    }
+    start = end;
+  }
+  return selected.join("\n");
+}
+
+/** Only a literal first argument may select a script's literal mode branch. */
+function commandMode(command: string): string | undefined {
+  const invocation =
+    /(?:^|(?:&&|;)\s*)(?:exec\s+)?bash\s+("\$f"|"[^"\n]*\.sh"|[\w./-]+\.sh)\s+([\w-]+)(?=[\s;]|$)/.exec(
+      command,
+    );
+  if (invocation?.[1] === '"$f"' && !/^f="[^"\n]*\.sh";/.test(command)) return undefined;
+  return invocation?.[2];
 }
 
 /** Split a literal into its top-level fields and its `hookSpecificOutput` ones. */
@@ -376,6 +431,7 @@ interface WiredHook {
   source: string;
   event: string;
   script: string;
+  command: string;
   emissions: Emitted[];
 }
 
@@ -397,7 +453,8 @@ function coreWiredHooks(): WiredHook[] {
           source: "core",
           event,
           script: name,
-          emissions: emittedLiterals(readFileSync(path, "utf-8")),
+          command: entry.command ?? "",
+          emissions: emittedLiterals(readFileSync(path, "utf-8"), commandMode(entry.command ?? "")),
         });
       }
     }
@@ -424,7 +481,8 @@ function pluginWiredHooks(): WiredHook[] {
         source: `plugin:${id}`,
         event: hook.event,
         script: name,
-        emissions: emittedLiterals(readFileSync(asset.src, "utf-8")),
+        command: hook.command,
+        emissions: emittedLiterals(readFileSync(asset.src, "utf-8"), commandMode(hook.command)),
       });
     }
   }
@@ -542,6 +600,67 @@ describe("contrato JSON de salida — por evento, con cita (#774)", () => {
  * only worth running if it rejects them.
  */
 describe("el checker rechaza los canales que el evento descarta", () => {
+  // Covers: R13
+  it("checks the native profile branch on its real opt-in PreToolUse registration", () => {
+    const config = {
+      ...MINIMAL_CONFIG,
+      engines: ["codex"],
+      harness: { codexIntegration: true },
+    } as NavoriConfig;
+    const rows = resolveCodexHooks(config).filter((row) => row.args === "codex-pretool-profile");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.event).toBe("PreToolUse");
+    const script = readFileSync(resolve(HOOKS_ROOT, `${rows[0]!.script}.sh`), "utf-8");
+    const emissions = emittedLiterals(script, rows[0]!.args);
+    expect(emissions.length).toBeGreaterThanOrEqual(2);
+    for (const emitted of emissions) {
+      expect(emitted.eventName).toBe("PreToolUse");
+      expect(emitted.hookSpecific).toContain("permissionDecision");
+      expect(violations(rows[0]!.event, emitted)).toEqual([]);
+    }
+    for (const hook of coreWiredHooks().filter((row) => row.script === "model-advisor.sh")) {
+      expect(commandMode(hook.command)).toMatch(/^claude-/);
+      expect(hook.emissions).toHaveLength(1);
+      expect(hook.emissions[0]?.topLevel).toEqual(["systemMessage"]);
+    }
+  });
+
+  // Covers: R13
+  it("keeps invalid emissions in the active mode and common code visible", () => {
+    const invalid = `printf '%s' '{"status":"pending"}'`;
+    const guarded = `if [ "$mode" = "native-profile" ]; then\n${invalid}\n  exit 0\nfi`;
+    expect(emittedLiterals(guarded, "lifecycle")).toEqual([]);
+    for (const script of [guarded, `${invalid}\n${guarded}`, `${guarded}\n${invalid}`]) {
+      const mode = script.endsWith(invalid) ? "lifecycle" : "native-profile";
+      const emissions = emittedLiterals(script, mode);
+      expect(emissions.length).toBeGreaterThan(0);
+      expect(emissions.flatMap((item) => violations("SessionStart", item))).toContain(
+        'SessionStart no entrega "status"',
+      );
+    }
+    expect(emittedLiterals(guarded)).toHaveLength(1);
+    expect(commandMode('bash "hook.sh" "$untrusted_mode"')).toBeUndefined();
+    expect(commandMode('exec bash "$f" native-profile')).toBeUndefined();
+    expect(
+      commandMode('f="hook.sh"; exec bash "$f" native-profile; echo "hook.sh cannot be parsed"'),
+    ).toBe("native-profile");
+    expect(emittedLiterals(guarded.replace('"$mode"', '"$payload"'), "lifecycle")).toHaveLength(1);
+  });
+
+  // Covers: R13
+  it("preserves unfamiliar alternatives and ignores heredoc shell-shaped lines", () => {
+    const invalid = `printf '%s' '{"status":"pending"}'`;
+    const alternative = `if [ "$mode" = "native-profile" ]; then\n${invalid}\nelse\n${invalid}\nfi`;
+    expect(emittedLiterals(alternative, "lifecycle")).toHaveLength(2);
+    const heredoc = `if [ "$mode" = "native-profile" ]; then\nnode <<'BODY'\nfi\nBODY\n${invalid}\n  exit 0\nfi\nprintf '%s' '{"systemMessage":"advice"}'`;
+    expect(emittedLiterals(heredoc, "lifecycle")[0]?.topLevel).toEqual(["systemMessage"]);
+    expect(emittedLiterals(heredoc, "native-profile")[0]?.topLevel).toEqual(["status"]);
+    expect(emittedLiterals(heredoc.replace("<<'BODY'", "<<BODY"), "lifecycle")).toHaveLength(2);
+    expect(() => emittedLiterals('if [ "$mode" = "native-profile" ]; then', "lifecycle")).toThrow(
+      /sin cerrar/,
+    );
+  });
+
   // Covers: R8
   it("distinguishes captured continuity data from the SessionStart envelope", () => {
     const script = `resume_state=$(node -e '

@@ -15,7 +15,7 @@ import {
 } from "../lib/primitives/state-root.ts";
 import { classify, declaredFlagsFromSignals, type ClassifyInput } from "../lib/plan/classify.ts";
 import { checkWorkplan, formatCheckResult } from "../lib/plan/check.ts";
-import { applyPlanGate } from "../lib/plan/gate.ts";
+import { acknowledgePlanEscalation, applyPlanGate } from "../lib/plan/gate.ts";
 import { applyWorkplanUpdate, renderWorkplan, type WorkplanUpdate } from "../lib/plan/render.ts";
 import { writeAcceptanceIndex } from "../lib/plan/acceptance-index.ts";
 import { validateEvidence } from "../lib/plan/evidence.ts";
@@ -138,7 +138,10 @@ function readProjectClassifyContext(cwd: string): {
 } {
   try {
     const project = readConfig(resolve(cwd, "navori.config.json")).project;
-    return { criticalPaths: project?.criticalPaths, localSkillIds: project?.localSkills };
+    return {
+      criticalPaths: project?.criticalPaths,
+      localSkillIds: project?.localSkills,
+    };
   } catch {
     return { criticalPaths: undefined, localSkillIds: undefined };
   }
@@ -226,14 +229,21 @@ function rejectCumplido(
 }
 
 const shared = {
-  feature: { type: "positional" as const, required: true, description: "Feature slug" },
+  feature: {
+    type: "positional" as const,
+    required: true,
+    description: "Feature slug",
+  },
   dir: { type: "string" as const, description: "Progress directory" },
   cwd: { type: "string" as const, description: "Repo root" },
   json: { type: "boolean" as const, description: "Output as JSON" },
 };
 
 const classifySubCommand = defineCommand({
-  meta: { name: "classify", description: "Compute a task's complexity score and level" },
+  meta: {
+    name: "classify",
+    description: "Compute a task's complexity score and level",
+  },
   args: {
     ...shared,
     files: {
@@ -246,17 +256,26 @@ const classifySubCommand = defineCommand({
         "Classify `git diff --name-only <base>...HEAD` against the feature's workplan " +
         "instead of --files; value is the base ref (default origin/main, R21)",
     },
-    criticalArea: { type: "boolean", description: "Declared: touches a critical area" },
+    criticalArea: {
+      type: "boolean",
+      description: "Declared: touches a critical area",
+    },
     moneyCredentialsPii: {
       type: "boolean",
       description: "Declared: handles money, credentials or PII",
     },
-    multiRepo: { type: "boolean", description: "Declared: spans two or more repos" },
+    multiRepo: {
+      type: "boolean",
+      description: "Declared: spans two or more repos",
+    },
     newExternalDependency: {
       type: "boolean",
       description: "Declared: adds a new external dependency",
     },
-    sharedContract: { type: "boolean", description: "Declared: changes a shared contract" },
+    sharedContract: {
+      type: "boolean",
+      description: "Declared: changes a shared contract",
+    },
     dataSchemaMigration: {
       type: "boolean",
       description: "Declared: includes a data or schema migration",
@@ -339,7 +358,10 @@ function classifyDiff(
   feature: string,
   base: string,
   json: boolean,
-  project: { criticalPaths: string[] | undefined; localSkillIds: string[] | undefined },
+  project: {
+    criticalPaths: string[] | undefined;
+    localSkillIds: string[] | undefined;
+  },
 ): void {
   const cwd = root.cwd;
   const plan = readWorkplanOrExit(jsonPath(root, feature));
@@ -387,7 +409,10 @@ function classifyDiff(
 }
 
 const renderSubCommand = defineCommand({
-  meta: { name: "render", description: "Render workplan_<feature>.md from its JSON source" },
+  meta: {
+    name: "render",
+    description: "Render workplan_<feature>.md from its JSON source",
+  },
   args: shared,
   run({ args }) {
     const root = resolveStateRoot({
@@ -411,9 +436,15 @@ const updateSubCommand = defineCommand({
   },
   args: {
     ...shared,
-    progress: { type: "string", description: "A<n>=status (pendiente|cumplido|bloqueado)" },
+    progress: {
+      type: "string",
+      description: "A<n>=status (pendiente|cumplido|bloqueado)",
+    },
     decision: { type: "string", description: "Decision text to append" },
-    date: { type: "string", description: "Decision date (ISO), required with --decision" },
+    date: {
+      type: "string",
+      description: "Decision date (ISO), required with --decision",
+    },
   },
   run({ args }) {
     const root = resolveStateRoot({
@@ -435,7 +466,11 @@ const updateSubCommand = defineCommand({
           process.exitCode = 1;
           return;
         }
-        updates.push({ kind: "progress", id, status: status as ProgressStatus });
+        updates.push({
+          kind: "progress",
+          id,
+          status: status as ProgressStatus,
+        });
       }
     } else if (args.decision) {
       if (!args.date) {
@@ -478,7 +513,10 @@ const updateSubCommand = defineCommand({
       const criterion = plan.acceptance.find((a) => a.id === update.id);
       if (!criterion) continue;
       if (!required) {
-        evidence[update.id] = { kind: "unevidenced", reason: "engine-without-signal" };
+        evidence[update.id] = {
+          kind: "unevidenced",
+          reason: "engine-without-signal",
+        };
         process.stderr.write(
           `WARNING: ${update.id} marked cumplido without evidence — this engine/session ` +
             `exposes no verifiable Bash success signal\n`,
@@ -505,7 +543,10 @@ const updateSubCommand = defineCommand({
 });
 
 const checkSubCommand = defineCommand({
-  meta: { name: "check", description: "Validate a workplan against its schema and R15's rules" },
+  meta: {
+    name: "check",
+    description: "Validate a workplan against its schema and R15's rules",
+  },
   args: shared,
   run({ args }) {
     const root = resolveStateRoot({
@@ -549,8 +590,52 @@ const gateSubCommand = defineCommand({
   },
 });
 
+const acknowledgeSubCommand = defineCommand({
+  meta: {
+    name: "acknowledge",
+    description:
+      "Record one bound user workflow escalation decision; does not approve review or protected effects",
+  },
+  args: {
+    feature: shared.feature,
+    cwd: shared.cwd,
+    json: shared.json,
+    opening: {
+      type: "string",
+      required: true,
+      description: "Exact normal dispatch opening",
+    },
+    decision: {
+      type: "string",
+      required: true,
+      description: "Explicit user workflow escalation decision retained by the orchestrator",
+    },
+  },
+  run({ args }) {
+    try {
+      const result = acknowledgePlanEscalation(
+        args.cwd ?? process.cwd(),
+        args.feature,
+        args.opening,
+        args.decision,
+      );
+      process.stdout.write(
+        `${args.json ? JSON.stringify(result) : `${result.feature}: ${result.status}`}\n`,
+      );
+      process.exitCode = 0;
+    } catch (cause: unknown) {
+      const error = cause instanceof Error ? cause.message : "invalid escalation acknowledgement";
+      process.stdout.write(`${args.json ? JSON.stringify({ status: "denied", error }) : error}\n`);
+      process.exitCode = 2;
+    }
+  },
+});
+
 export const planCommand = defineCommand({
-  meta: { name: "plan", description: "Classify, render, update and check a level-1/2 workplan" },
+  meta: {
+    name: "plan",
+    description: "Classify, render, update and check a level-1/2 workplan",
+  },
   subCommands: {
     resume: defineCommand({
       meta: {
@@ -570,5 +655,6 @@ export const planCommand = defineCommand({
     update: updateSubCommand,
     check: checkSubCommand,
     gate: gateSubCommand,
+    acknowledge: acknowledgeSubCommand,
   },
 });

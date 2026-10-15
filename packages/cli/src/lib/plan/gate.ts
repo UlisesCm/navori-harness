@@ -6,16 +6,14 @@
  * directly, the same split `session-start-context.sh` and its TS-driven
  * partials already use.
  */
-import { existsSync, readFileSync, appendFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
   checkoutRoot,
-  ensureStateDirectory,
   resolveStateRoot,
   stateArtifactPath,
   type StateRoot,
 } from "../primitives/state-root.ts";
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import { readConfig, type NavoriConfig } from "../config/config.ts";
 import { classify } from "./classify.ts";
@@ -24,6 +22,24 @@ import type { Workplan } from "./schema.ts";
 import { appendCliEvent, hasAuditTarget, outcomeFeatureKey } from "../audit/cli-event.ts";
 import { locateSpecDir } from "../spec/locate.ts";
 import { parseTasks } from "../spec/tasks.ts";
+import {
+  acknowledgeEscalation,
+  consumeEscalation,
+  escalationBinding,
+  readPlanSnapshot,
+  recordRejections,
+  requireAcknowledgement,
+  snapshotsMatch,
+  type EscalationBinding,
+  type PlanSnapshot,
+} from "./escalation.ts";
+
+interface RecoveryContext {
+  opening: string;
+  files: PlanSnapshot[];
+  binding?: EscalationBinding;
+  acknowledging?: boolean;
+}
 
 /** What an allowed `workplan: <feature>` spawn tells the audit log (spec 0042 T10a). */
 export interface GateDispatch {
@@ -149,29 +165,46 @@ const DISPATCH_FIX =
 function readDispatch(
   cwd: string,
   now: number,
-): { opening: string; file: string; feature: string } | { reason: string } {
-  const root = resolveStateRoot({ cwd, feature: "dispatch", dir: DISPATCH_DIR });
+): { opening: string; file: string; feature: string; snapshot: PlanSnapshot } | { reason: string } {
+  const root = resolveStateRoot({
+    cwd,
+    feature: "dispatch",
+    dir: DISPATCH_DIR,
+  });
   const names = existsSync(root.path)
     ? readdirSync(root.path).filter((n) => DISPATCH_FILE.test(n))
     : [];
-  const fresh: { opening: string; file: string; feature: string }[] = [];
+  const fresh: {
+    opening: string;
+    file: string;
+    feature: string;
+    snapshot: PlanSnapshot;
+  }[] = [];
   let stale = 0;
   for (const name of names) {
     const file = stateArtifactPath(root, name);
     let parsed: Dispatch;
+    const snapshot = readPlanSnapshot(file);
     try {
-      parsed = DispatchSchema.parse(JSON.parse(readFileSync(file, "utf-8")));
+      parsed = DispatchSchema.parse(JSON.parse(snapshot.content ?? ""));
     } catch {
       return { reason: `${file} is malformed — ${DISPATCH_FIX}.` };
     }
     if (parsed.feature !== DISPATCH_FILE.exec(name)![1]) {
-      return { reason: `${file}: "feature" does not match the file name — ${DISPATCH_FIX}.` };
+      return {
+        reason: `${file}: "feature" does not match the file name — ${DISPATCH_FIX}.`,
+      };
     }
     if (now - Date.parse(parsed.createdAt) > DISPATCH_TTL_MS) {
       stale++;
       continue;
     }
-    fresh.push({ opening: parsed.opening, file, feature: parsed.feature });
+    fresh.push({
+      opening: parsed.opening,
+      file,
+      feature: parsed.feature,
+      snapshot,
+    });
   }
   if (fresh.length === 1) return fresh[0]!;
   if (fresh.length > 1) {
@@ -192,67 +225,29 @@ const NO_OPENING_LINE_REASON =
   "load skill `plan-simple` (level 1) or `plan-advanced` (level 2) and produce a " +
   "workplan, or confirm a level-0 exemption with `navori plan classify <feature>`.";
 
-/**
- * R19: append a fresh `CHANGES_REQUESTED` verdict to the append-only gate log
- * and return how many DISTINCT rejections are on record. `review_<feature>.md`
- * may be rewritten or have milestone sections appended, so rejections are
- * counted via this side log (deduped by whole-file hash) instead of counting
- * files. A rejection is recorded only when the LAST `**Final verdict:**` in
- * the file is `CHANGES_REQUESTED`, so a historical one is never re-registered.
- */
-function recordAndCountRejections(root: StateRoot, feature: string): number {
-  const reviewPath = stateArtifactPath(root, `review_${feature}.md`);
-  const logPath = stateArtifactPath(root, `workplan_${feature}.gate.jsonl`);
-
-  const lines = existsSync(logPath)
-    ? readFileSync(logPath, "utf-8")
-        .split("\n")
-        .filter((l) => l.trim() !== "")
-    : [];
-  const seenHashes = new Set(
-    lines.flatMap((line) => {
-      try {
-        const entry = JSON.parse(line) as { reviewHash?: unknown };
-        return typeof entry.reviewHash === "string" ? [entry.reviewHash] : [];
-      } catch {
-        return [];
-      }
-    }),
-  );
-
-  if (existsSync(reviewPath)) {
-    const content = readFileSync(reviewPath, "utf-8");
-    // Multi-milestone reviews append sections: only the LAST verdict is current.
-    const verdicts = [...content.matchAll(/\*\*Final verdict:\*\*\s*([A-Z_]+)/g)];
-    if (verdicts.at(-1)?.[1] === "CHANGES_REQUESTED") {
-      const reviewHash = createHash("sha256").update(content).digest("hex");
-      if (!seenHashes.has(reviewHash)) {
-        seenHashes.add(reviewHash);
-        const entry = { ts: new Date().toISOString(), reviewHash, verdict: "CHANGES_REQUESTED" };
-        ensureStateDirectory(root);
-        appendFileSync(logPath, `${JSON.stringify(entry)}\n`);
-      }
-    }
-  }
-
-  return seenHashes.size;
-}
-
 /** R19: after two recorded rejections, the third dispatch needs the next
  * level's artifacts — never a plain re-dispatch of the same level. */
 function evaluateEscalation(
   root: StateRoot,
   feature: string,
   level: number,
+  context: RecoveryContext,
 ): PlanGateResult | null {
-  const rejections = recordAndCountRejections(root, feature);
+  const history = recordRejections(root, feature);
+  const rejections = history.hashes.length;
   if (rejections < 2) return null;
 
   if (level >= 2) {
-    return deny(
-      `feature "${feature}" has ${rejections} recorded CHANGES_REQUESTED at level ${level} — ` +
-        "escalate to the user instead of a third dispatch (orchestrator.md's cap).",
+    context.binding = escalationBinding(
+      root,
+      feature,
+      level,
+      context.opening,
+      history,
+      context.files,
     );
+    if (!context.acknowledging) requireAcknowledgement(context.binding);
+    return ALLOW;
   }
 
   const solutionPath = stateArtifactPath(root, `solution_${feature}.md`);
@@ -291,7 +286,12 @@ function evaluateNivel0(cwd: string, config: NavoriConfig, rawPath: string): Pla
 }
 
 /** Runs shared plan validation/escalation, with delivery identity required for SDD. */
-function evaluateWorkplan(root: StateRoot, feature: string, spec: boolean = false): PlanGateResult {
+function evaluateWorkplan(
+  root: StateRoot,
+  feature: string,
+  context: RecoveryContext,
+  spec: boolean = false,
+): PlanGateResult {
   const workplanPath = stateArtifactPath(root, `workplan_${feature}.json`);
   if (!existsSync(workplanPath)) {
     return deny(
@@ -304,7 +304,9 @@ function evaluateWorkplan(root: StateRoot, feature: string, spec: boolean = fals
 
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(workplanPath, "utf-8"));
+    const snapshot = readPlanSnapshot(workplanPath);
+    raw = JSON.parse(snapshot.content ?? "");
+    context.files.push(snapshot);
   } catch (cause) {
     return deny(
       `${workplanPath} is not valid JSON (${cause instanceof Error ? cause.message : String(cause)}) ` +
@@ -326,7 +328,9 @@ function evaluateWorkplan(root: StateRoot, feature: string, spec: boolean = fals
   if (spec && (level !== 3 || (raw as Pick<Workplan, "feature">).feature !== feature)) {
     return deny(`spec dispatch requires workplan feature "${feature}" and level 3.`);
   }
-  return evaluateEscalation(root, feature, level) ?? ALLOW;
+  if ((raw as Pick<Workplan, "feature">).feature !== feature)
+    return deny("workplan feature does not match opening");
+  return evaluateEscalation(root, feature, level, context) ?? ALLOW;
 }
 
 /** Validates exact delivery/milestone membership before the common workplan gate. */
@@ -337,11 +341,14 @@ function evaluateSpec(
   delivery: string,
   milestone: string,
   feature: string,
+  context: RecoveryContext,
 ): PlanGateResult {
   const location = locateSpecDir(root.cwd, config.sdd?.specsDir ?? "specs", spec);
   if (!location.ok) return deny(location.why);
   const tasksPath = join(location.dir, "tasks.md");
-  const tasks = parseTasks(readFileSync(tasksPath, "utf-8"));
+  const snapshot = readPlanSnapshot(tasksPath);
+  const tasks = parseTasks(snapshot.content ?? "");
+  context.files.push(snapshot);
   if (
     tasks.format !== "deliveries" ||
     tasks.malformed.length > 0 ||
@@ -357,13 +364,13 @@ function evaluateSpec(
   if (deliveries[0]!.milestones.filter((entry) => entry.id === milestone).length !== 1) {
     return deny(`${tasksPath} must contain exactly one ${milestone} milestone in ${delivery}.`);
   }
-  return evaluateWorkplan(root, feature, true);
+  return evaluateWorkplan(root, feature, context, true);
 }
 
 /**
  * Core decision (R16/R17/R19). Pure with respect to its inputs besides the
  * gate-log append (a deliberate, idempotent side effect — see
- * `recordAndCountRejections`). Never throws: an unexpected payload shape or a
+ * `recordRejections`). Never throws: an unexpected payload shape or a
  * config that fails to parse falls back to `allow` rather than blocking a
  * tool call the gate cannot make sense of.
  */
@@ -373,10 +380,21 @@ export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()):
 
   const cwd = payload.cwd ?? process.cwd();
   let config: NavoriConfig;
+  let configSnapshot: PlanSnapshot;
+  try {
+    configSnapshot = readPlanSnapshot(join(cwd, "navori.config.json"));
+  } catch (cause: unknown) {
+    return deny(cause instanceof Error ? cause.message : "unsafe configuration snapshot");
+  }
   try {
     config = readConfig(join(cwd, "navori.config.json"));
   } catch {
     return ALLOW; // no config to read `harness.planTiers` from — nothing to gate
+  }
+  try {
+    if (!snapshotsMatch([configSnapshot])) return deny("configuration changed during validation");
+  } catch (cause: unknown) {
+    return deny(cause instanceof Error ? cause.message : "unsafe configuration snapshot");
   }
   if (config.harness?.planTiers !== true) return ALLOW;
   try {
@@ -388,6 +406,7 @@ export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()):
   const prompt = payload.tool_input.prompt ?? "";
   let firstLine = (prompt.split("\n")[0] ?? "").trim();
   let consume: string | undefined;
+  let dispatchSnapshot: PlanSnapshot | undefined;
   let dispatchFeature: string | undefined;
   // Codex V2: the message is encrypted (or absent), so the opening line comes
   // from the orchestrator's dispatch file. A readable message keeps the V1 path.
@@ -397,6 +416,7 @@ export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()):
       if ("reason" in dispatch) return deny(dispatch.reason);
       firstLine = dispatch.opening.split("\n")[0]!.trim();
       consume = dispatch.file;
+      dispatchSnapshot = dispatch.snapshot;
       dispatchFeature = dispatch.feature;
     } catch (cause: unknown) {
       return deny(cause instanceof Error ? cause.message : "unsafe state root");
@@ -408,6 +428,10 @@ export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()):
   const feature = specMatch ? `${specMatch[1]}-e${specMatch[2]}` : workplanMatch?.[1];
 
   if (!workplanMatch && !nivel0Match && !specMatch) return deny(NO_OPENING_LINE_REASON);
+  const context: RecoveryContext = {
+    opening: firstLine,
+    files: [configSnapshot],
+  };
   let result: PlanGateResult;
   if (nivel0Match) {
     result = evaluateNivel0(cwd, config, nivel0Match[1]!);
@@ -427,16 +451,35 @@ export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()):
           `E${specMatch[2]}`,
           `M${specMatch[3]}`,
           feature!,
+          context,
         );
       } else {
-        result = evaluateWorkplan(root, feature!);
+        result = evaluateWorkplan(root, feature!, context);
       }
     } catch (cause: unknown) {
       return deny(cause instanceof Error ? cause.message : "unsafe state root");
     }
   }
-  // One dispatch per spawn: an allowed spawn consumes its dispatch file.
-  if (consume && result.decision === "allow") rmSync(consume, { force: true });
+  // A replaced marker is never treated as the validated dispatch. Checks precede the burn.
+  if (result.decision === "allow") {
+    try {
+      const markerUnchanged = (): boolean => {
+        if (!dispatchSnapshot) return true;
+        const current = readDispatch(cwd, now);
+        return (
+          !("reason" in current) && current.file === consume && snapshotsMatch([dispatchSnapshot])
+        );
+      };
+      if (!markerUnchanged()) return deny("dispatch marker changed during validation");
+      if (context.binding) consumeEscalation(context.binding, markerUnchanged);
+      if (consume) {
+        if (!markerUnchanged()) return deny("dispatch marker changed before removal");
+        rmSync(consume, { force: true });
+      }
+    } catch (cause: unknown) {
+      return deny(cause instanceof Error ? cause.message : "escalation consumption failed");
+    }
+  }
   if (result.decision === "allow" && feature) {
     const dispatch: GateDispatch = {
       feature,
@@ -448,6 +491,36 @@ export function evaluatePlanGate(rawPayload: unknown, now: number = Date.now()):
     return { ...result, dispatch };
   }
   return result;
+}
+
+/** Retains an explicit user escalation decision after the normal scope validation, without dispatching. */
+export function acknowledgePlanEscalation(
+  cwd: string,
+  feature: string,
+  opening: string,
+  decision: string,
+): { status: "acknowledged" | "consumed"; feature: string } {
+  const root = resolveStateRoot({ cwd, feature });
+  const configSnapshot = readPlanSnapshot(join(root.cwd, "navori.config.json"));
+  const config = readConfig(join(root.cwd, "navori.config.json"));
+  if (!snapshotsMatch([configSnapshot])) throw new Error("configuration changed during validation");
+  if (config.harness?.planTiers !== true)
+    throw new Error("plan tiers must be enabled for escalation acknowledgement");
+  const context: RecoveryContext = {
+    opening,
+    files: [configSnapshot],
+    acknowledging: true,
+  };
+  const spec = SPEC_LINE.exec(opening);
+  if (opening !== `workplan: ${feature}` && (!spec || `${spec[1]}-e${spec[2]}` !== feature))
+    throw new Error("exact normal dispatch opening required");
+  const result = spec
+    ? evaluateSpec(root, config, spec[1]!, `E${spec[2]}`, `M${spec[3]}`, feature, context)
+    : evaluateWorkplan(root, feature, context);
+  if (result.decision !== "allow") throw new Error(result.reason);
+  if (!context.binding)
+    throw new Error("acknowledgement requires two recorded rejections at level 2 or 3");
+  return acknowledgeEscalation(context.binding, decision);
 }
 
 /**

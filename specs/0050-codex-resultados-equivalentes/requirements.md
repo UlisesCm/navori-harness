@@ -1,6 +1,6 @@
 # Codex: resultados equivalentes y perfiles actuales — Requirements
 
-**Estado:** scaffold autorizado; implementación y evaluación pendientes.
+**Estado:** E1/M1, E2/M2 y E3/T7 están integrados. E4/M4 (T8–T10, resolución/render/doctor deterministas) se envió como entrega parcial en PR #1320; el PR no completó las obligaciones E3/E4. T6, T11 y T12 permanecen pendientes para el cierre final de E4 en un PR, sujeto a workplan clasificado/aprobado, aceptación y verificación de envío.
 
 ## Contexto
 
@@ -31,4 +31,28 @@ Esta spec extiende el spine existente para comparar resultados de trabajo entre 
 
 La evaluación cubre un conjunto acotado de escenarios reproducibles; no demuestra equivalencia universal. “Latest-known” significa el candidato compatible más alto del catálogo cuya actualidad pueda acreditarse con evidencia del host/contexto. Sin fuente de frescura, la actualidad es unknown/degraded. Configurado o renderizado no equivale a observado. Los perfiles nuevos aplican a inicios y dispatches futuros; no modifican trabajo ya iniciado.
 
-Este cambio crea únicamente la spec. Cada entrega futura requiere su propio workplan clasificado y aprobado antes de implementar; este scaffold no autoriza la ejecución de E1.
+## Alcance aprobado de la entrega final
+
+La entrega final puede añadir, con opt-in explícito por proyecto, una integración nativa
+Codex acotada a autorización de una publicación fija de PR y observación de catálogo,
+perfiles y evaluación del host. La ejecución ordinaria sigue bajo control del engine. El
+diseño permite implementar un controlador de navegador del host operado por una persona y
+una frontera de efecto fija; la aprobación de alcance no acredita que ese controlador, el
+efecto o la observación de perfiles ya existan o funcionen. No se autoriza una API genérica
+de ejecución, runner, broker de modelos, dependencia nueva, superficie always-on ni cambios
+globales de permisos, configuración o trust. La integración no reduce ni sustituye las
+garantías R6, R9 o R10.
+
+Para R14, una selección de contexto Codex observada al inicio puede servir como evidencia
+del perfil principal si queda vinculada a ese contexto real. No se exige telemetría de
+inferencia por turno ni se acepta un hilo de rol ajeno. La observación faltante, desconocida
+o discordante mantiene A9 pendiente. R1–R18 y sus garantías EARS anteriores permanecen sin
+cambio. La evaluación R17 exige los controles definidos y ocho resultados vivos acotados;
+no establece equivalencia universal ni causalidad atribuible al modelo.
+
+E1 y E2 están integrados; E4/M4 fue una entrega parcial en PR #1320, sin completar E4.
+E3/T6 y E4/M5 conservan evidencia parcial o pendiente según `tasks.md`. El cierre final de
+E4 entregará T6, T11 y T12 junto con A5/A6/A9/A10 originales en un PR, tras workplan
+clasificado/aprobado, revisión independiente y verificación de envío. Esta enmienda
+documental no cierra esos requisitos ni convierte la evidencia histórica en aceptación
+actual.

@@ -116,7 +116,10 @@ describe("evaluatePlanGate — enabled checkout validation (R6)", () => {
     );
     const nonGitResult = evaluatePlanGate({
       cwd: nonGit,
-      tool_input: { subagent_type: "implementer", prompt: "nivel-0: README.md" },
+      tool_input: {
+        subagent_type: "implementer",
+        prompt: "nivel-0: README.md",
+      },
     });
     expect(nonGitResult.decision).toBe("deny");
     const alias = join(cwd, "alias");
@@ -124,7 +127,10 @@ describe("evaluatePlanGate — enabled checkout validation (R6)", () => {
     writeConfig(true);
     const aliasResult = evaluatePlanGate({
       cwd: alias,
-      tool_input: { subagent_type: "implementer", prompt: "nivel-0: README.md" },
+      tool_input: {
+        subagent_type: "implementer",
+        prompt: "nivel-0: README.md",
+      },
     });
     expect(aliasResult.decision).toBe("deny");
     rmSync(nonGit, { recursive: true, force: true });
@@ -144,7 +150,10 @@ describe("evaluatePlanGate — enabled checkout validation (R6)", () => {
     );
     const result = evaluatePlanGate({
       cwd: nonGit,
-      tool_input: { subagent_type: "implementer", prompt: "nivel-0: README.md" },
+      tool_input: {
+        subagent_type: "implementer",
+        prompt: "nivel-0: README.md",
+      },
     });
     expect(result.decision).toBe("allow");
     rmSync(nonGit, { recursive: true, force: true });
@@ -371,7 +380,11 @@ describe("evaluatePlanGate — SDD delivery dispatch (#1309)", () => {
     const file = join(dir, `dispatch_${feature}.json`);
     writeFileSync(
       file,
-      JSON.stringify({ feature, opening: OPENING, createdAt: new Date(NOW - age).toISOString() }),
+      JSON.stringify({
+        feature,
+        opening: OPENING,
+        createdAt: new Date(NOW - age).toISOString(),
+      }),
     );
     return file;
   }
@@ -442,7 +455,10 @@ describe("evaluatePlanGate — SDD delivery dispatch (#1309)", () => {
       readFileSync(join(cwd, "navori.config.json")),
     );
     writeTasks("## E1 — Decoy\n### M9 — Decoy\n", "packages/cli/specs");
-    const raw = { cwd: nested, tool_input: { subagent_type: "implementer", prompt: OPENING } };
+    const raw = {
+      cwd: nested,
+      tool_input: { subagent_type: "implementer", prompt: OPENING },
+    };
     expect(evaluatePlanGate(raw).decision).toBe("allow");
     writeTasks("## E1 — Root\n### M9 — Root\n");
     writeTasks(TASKS, "packages/cli/specs");
@@ -501,7 +517,10 @@ describe("evaluatePlanGate — SDD delivery dispatch (#1309)", () => {
       if (kind === "check") writeWorkplan(FEATURE, { ...PLAN, acceptance: [] });
       if (kind === "feature") writeWorkplan(FEATURE, { ...PLAN, feature: "foreign-e1" });
       if (kind.startsWith("level"))
-        writeWorkplan(FEATURE, { ...PLAN, level: Number(kind.slice(-1)) as 0 | 1 | 2 });
+        writeWorkplan(FEATURE, {
+          ...PLAN,
+          level: Number(kind.slice(-1)) as 0 | 1 | 2,
+        });
       const dispatch = writeDispatch();
       expect(
         evaluatePlanGate({ cwd, tool_input: { agent_type: "implementer", message: FERNET } }, NOW)
@@ -535,7 +554,7 @@ describe("evaluatePlanGate — SDD delivery dispatch (#1309)", () => {
     const log = join(progressDir(), `workplan_${FEATURE}.gate.jsonl`);
     writeFileSync(
       log,
-      `${JSON.stringify({ reviewHash: "one" })}\n${JSON.stringify({ reviewHash: "two" })}\n`,
+      `${JSON.stringify({ ts: new Date().toISOString(), reviewHash: "a".repeat(64), verdict: "CHANGES_REQUESTED" })}\n${JSON.stringify({ ts: new Date().toISOString(), reviewHash: "b".repeat(64), verdict: "CHANGES_REQUESTED" })}\n`,
     );
     const result = evaluatePlanGate(payload("implementer", OPENING));
     expect(result.decision).toBe("deny");
@@ -551,7 +570,10 @@ describe("evaluatePlanGate — Codex spawn_agent payloads (spec 0041 R9)", () =>
   const dispatchDir = (): string => join(cwd, ".navori/state/handoffs");
 
   function codex(agentType: string, message?: string): unknown {
-    return { cwd, tool_input: { agent_type: agentType, task_name: "t", message } };
+    return {
+      cwd,
+      tool_input: { agent_type: agentType, task_name: "t", message },
+    };
   }
 
   function writeDispatch(feature: string, overrides: Record<string, unknown> = {}): string {
@@ -605,7 +627,9 @@ describe("evaluatePlanGate — Codex spawn_agent payloads (spec 0041 R9)", () =>
   it("V2: accepts the offset and fractional createdAt the Codex orchestrator writes (smoke S4d)", () => {
     writeConfig(true);
     writeWorkplan("demo", VALID_LEVEL1);
-    const file = writeDispatch("demo", { createdAt: "2026-10-03T20:27:54.004865+00:00" });
+    const file = writeDispatch("demo", {
+      createdAt: "2026-10-03T20:27:54.004865+00:00",
+    });
     const now = Date.parse("2026-10-03T20:28:30.000Z");
     expect(evaluatePlanGate(codex("implementer", FERNET), now).decision).toBe("allow");
     expect(existsSync(file)).toBe(false);
@@ -640,7 +664,9 @@ describe("evaluatePlanGate — Codex spawn_agent payloads (spec 0041 R9)", () =>
   it("V2: a stale dispatch file is denied", () => {
     writeConfig(true);
     writeWorkplan("demo", VALID_LEVEL1);
-    writeDispatch("demo", { createdAt: new Date(NOW - 11 * 60_000).toISOString() });
+    writeDispatch("demo", {
+      createdAt: new Date(NOW - 11 * 60_000).toISOString(),
+    });
     const result = evaluatePlanGate(codex("implementer", FERNET), NOW);
     expect(result.decision).toBe("deny");
     expect(result.reason).toContain("stale");
@@ -715,7 +741,11 @@ describe("applyPlanGate — dispatch-outcome emission (spec 0042 T10a)", () => {
     ...extra,
   });
   /** Runs the hook and returns everything observable: exit code, stdout and stderr. */
-  function observe(raw: unknown): { exitCode: unknown; stdout: string; stderr: string } {
+  function observe(raw: unknown): {
+    exitCode: unknown;
+    stdout: string;
+    stderr: string;
+  } {
     const out: string[] = [];
     const err: string[] = [];
     const stdout = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
@@ -730,7 +760,11 @@ describe("applyPlanGate — dispatch-outcome emission (spec 0042 T10a)", () => {
     process.exitCode = undefined;
     try {
       applyPlanGate(raw);
-      return { exitCode: process.exitCode, stdout: out.join(""), stderr: err.join("") };
+      return {
+        exitCode: process.exitCode,
+        stdout: out.join(""),
+        stderr: err.join(""),
+      };
     } finally {
       process.exitCode = before;
       stdout.mockRestore();
@@ -793,7 +827,10 @@ describe("applyPlanGate — dispatch-outcome emission (spec 0042 T10a)", () => {
     ["a throw while computing the feature key", () => vi.mocked(outcomeFeatureKey)],
   ])("keeps the allow byte-identical when there is %s (B2)", (_label, target) => {
     startAudit();
-    const baseline = observe({ ...(spawnPayload("workplan: demo") as object), session_id: "none" });
+    const baseline = observe({
+      ...(spawnPayload("workplan: demo") as object),
+      session_id: "none",
+    });
     target().mockImplementation(() => {
       throw new Error("forced");
     });
@@ -857,7 +894,10 @@ describe("applyPlanGate — dispatch-outcome emission (spec 0042 T10a)", () => {
     const seen = observe({
       cwd,
       session_id: SESSION,
-      tool_input: { agent_type: "implementer", message: "workplan: demo\nbody" },
+      tool_input: {
+        agent_type: "implementer",
+        message: "workplan: demo\nbody",
+      },
     });
     expect(seen).toEqual({ exitCode: undefined, stdout: "", stderr: "" });
     expect(lines(log)).toHaveLength(1);

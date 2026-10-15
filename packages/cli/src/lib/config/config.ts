@@ -314,6 +314,7 @@ const CONFIG_KEY_RULE: ConfigObjectRule = {
         ...AGENT_ROLE_KEYS.filter((k) => k !== "architect"),
         "scribeOwnsMarkdown",
         "planTiers",
+        "codexIntegration",
         "masterPlan",
         "compactAdviceTokens",
       ],

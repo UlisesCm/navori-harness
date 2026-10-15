@@ -236,6 +236,10 @@
           "default": false,
           "type": "boolean"
         },
+        "codexIntegration": {
+          "default": false,
+          "type": "boolean"
+        },
         "masterPlan": {
           "default": false,
           "type": "boolean"
@@ -257,6 +261,7 @@
         "scribe",
         "scribeOwnsMarkdown",
         "planTiers",
+        "codexIntegration",
         "masterPlan",
         "compactAdviceTokens"
       ],
