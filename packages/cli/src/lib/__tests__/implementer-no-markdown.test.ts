@@ -1,5 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, chmodSync, mkdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+  chmodSync,
+  mkdirSync,
+  realpathSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -27,6 +36,7 @@ interface Payload {
   tool_name: string;
   tool_input: Record<string, unknown>;
   agent_type?: string;
+  cwd?: string;
 }
 
 /** Install the rendered hook and run it under every available shell (#391). */
@@ -105,6 +115,28 @@ describe("implementer-no-markdown hook — closed Python Path rewrite", () => {
     },
   );
 
+  // #1330: destination-based rule; no Markdown write. These programs only write
+  // a literal non-Markdown path, so deviations from the old template shape are fine.
+  // Covers: #1330
+  it.each([
+    {
+      name: "extra call",
+      source: PATH_SOURCE.replace("text = text.replace", 'print("hostile")\ntext = text.replace'),
+    },
+    {
+      name: "different text binding",
+      source: PATH_SOURCE.replace("text = text.replace", "other = text.replace"),
+    },
+    {
+      name: "nonlocal write content",
+      source: PATH_SOURCE.replace("p.write_text(text", 'p.write_text("AGENTS.md"'),
+    },
+    { name: "nonUTF8 read", source: PATH_SOURCE.replace('encoding="utf-8"', 'encoding="latin1"') },
+    { name: "additional write", source: PATH_SOURCE + '\np.write_text(text, encoding="utf-8")' },
+  ])("allows $name (#1330)", ({ source }: { name: string; source: string }) => {
+    expect(runHook(bash(pathCommand(source))).status).toBe(0);
+  });
+
   // Covers: R3, R4
   it.each([
     { name: "Markdown destination", source: PATH_SOURCE.replace('"fixture.ts"', '"notes.md"') },
@@ -142,10 +174,6 @@ describe("implementer-no-markdown hook — closed Python Path rewrite", () => {
       ),
     },
     {
-      name: "extra call",
-      source: PATH_SOURCE.replace("text = text.replace", 'print("hostile")\ntext = text.replace'),
-    },
-    {
       name: "replacement callback",
       source: PATH_SOURCE.replace('"instructions.md"', "callback()"),
     },
@@ -155,19 +183,9 @@ describe("implementer-no-markdown hook — closed Python Path rewrite", () => {
       source: PATH_SOURCE.replace("text.replace", "other.replace"),
     },
     {
-      name: "different text binding",
-      source: PATH_SOURCE.replace("text = text.replace", "other = text.replace"),
-    },
-    {
       name: "different write destination",
       source: PATH_SOURCE.replace("p.write_text(text", "other.write_text(text"),
     },
-    {
-      name: "nonlocal write content",
-      source: PATH_SOURCE.replace("p.write_text(text", 'p.write_text("AGENTS.md"'),
-    },
-    { name: "nonUTF8 read", source: PATH_SOURCE.replace('encoding="utf-8"', 'encoding="latin1"') },
-    { name: "additional write", source: PATH_SOURCE + '\np.write_text(text, encoding="utf-8")' },
     {
       name: "hostile side effect",
       source: PATH_SOURCE + '\n__import__("pathlib").Path("should-not-exist").write_text("x")',
@@ -352,6 +370,30 @@ describe.each(["claude", "codex"] as const)("closed Python JSON handoff — %s",
     expect(() => readFileSync(join(dir, "git-called"))).toThrow();
   });
 
+  // #1330: destination-based rule; no Markdown write.
+  // Covers: #1330
+  it.each([
+    PYTHON_PROGRAM.replace(
+      "print('handoff written')",
+      "(root / 'other.json').write_text('{}')\nprint('handoff written')",
+    ),
+    PYTHON_PROGRAM.replace(".strip()", ".strip('x')"),
+    PYTHON_PROGRAM.replace("str(root)", "str(root, 'utf8')"),
+    PYTHON_PROGRAM.replace("'docs/task.md'", "[x for x in ['docs/task.md']]"),
+    PYTHON_PROGRAM.replace("['git', 'rev-parse', 'HEAD']", "['git', 'status', '--short']"),
+  ])("allows a destination-safe variant %#", (command: string): void => {
+    expect(runHook(bash(command), undefined, true, engine).status).toBe(0);
+  });
+
+  // Covers: #1330
+  it.each([
+    PYTHON_PROGRAM.replace("['git', 'rev-parse', 'HEAD']", "['git', 'checkout', 'HEAD']"),
+    PYTHON_PROGRAM.replace("['git', 'rev-parse', 'HEAD']", "['git', 'diff', '--output=x.json']"),
+    PYTHON_PROGRAM.replace("['git', 'rev-parse', 'HEAD']", "['rm', '-rf', 'x']"),
+  ])("denies subprocess outside read-only git %#", (command: string): void => {
+    expect(runHook(bash(command), undefined, true, engine).status).toBe(2);
+  });
+
   it.each([
     PYTHON_PROGRAM.replace("'impl.json'", "'notes.md'"),
     PYTHON_PROGRAM.replace("'impl.json'", "'NOTES.MDX'"),
@@ -365,10 +407,6 @@ describe.each(["claude", "codex"] as const)("closed Python JSON handoff — %s",
     PYTHON_PROGRAM.replace("report =", "open('notes.md', 'w').write('x')\nreport ="),
     PYTHON_PROGRAM.replace(
       "print('handoff written')",
-      "(root / 'other.json').write_text('{}')\nprint('handoff written')",
-    ),
-    PYTHON_PROGRAM.replace(
-      "print('handoff written')",
       "(root / 'other.md').write_text('x')\nprint('handoff written')",
     ),
     PYTHON_PROGRAM.replace("'--show-current'", "'--delete'"),
@@ -376,11 +414,8 @@ describe.each(["claude", "codex"] as const)("closed Python JSON handoff — %s",
     PYTHON_PROGRAM.replace("text=True", "text=True, cwd=root"),
     PYTHON_PROGRAM.replace("text=True", "text=True, env={}"),
     PYTHON_PROGRAM.replace("['git', 'rev-parse', 'HEAD']", "argv"),
-    PYTHON_PROGRAM.replace(".strip()", ".strip('x')"),
-    PYTHON_PROGRAM.replace("str(root)", "str(root, 'utf8')"),
     PYTHON_PROGRAM.replace("runtime['repo']", "runtime[key]"),
     PYTHON_PROGRAM.replace("'docs/task.md'", "danger('docs/task.md')"),
-    PYTHON_PROGRAM.replace("'docs/task.md'", "[x for x in ['docs/task.md']]"),
     PYTHON_PROGRAM.replace("'docs/task.md'", "'''\nPY\ntouch notes.md\n'''"),
     PYTHON_PROGRAM.slice(0, -2),
     PYTHON_PROGRAM + " ",
@@ -733,4 +768,262 @@ describe("implementer-no-markdown hook — AI doctrine exception (R49)", () => {
     expect(runHook(edit("progress/current.md", "Edit", "scribe")).status).toBe(0);
     expect(runHook(edit("progress/current.md", "Edit", null)).status).toBe(0);
   });
+});
+
+// Covers: #1330
+describe("implementer-no-markdown hook — registered worktrees (#1330)", () => {
+  let root: string;
+  let host: string;
+  let sibling: string;
+  let other: string;
+  const git = (cwd: string, ...args: string[]): void => {
+    const r = spawnSync("git", args, { cwd, encoding: "utf-8" });
+    if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+  };
+  const init = (path: string): void => {
+    mkdirSync(path, { recursive: true });
+    git(path, "init", "-q", "-b", "main");
+    git(
+      path,
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "i",
+    );
+  };
+  beforeEach(() => {
+    root = realpathSync(dir);
+    host = join(root, "host");
+    sibling = join(root, "sibling");
+    other = join(root, "other");
+    init(host);
+    git(host, "worktree", "add", "-q", "-b", "delivery", sibling);
+    init(other);
+  });
+  const prelude = (): string =>
+    `CLAUDE_PROJECT_DIR=${JSON.stringify(host)}; export CLAUDE_PROJECT_DIR`;
+  const run = (path: string, tool = "Edit", extra = ""): number =>
+    runHook({ ...edit(path, tool), cwd: host }, undefined, true, "claude", `${prelude()}\n${extra}`)
+      .status;
+  const patch = (...headers: string[]): Payload => ({
+    hook_event_name: "PreToolUse",
+    tool_name: "apply_patch",
+    tool_input: { command: `${headers.join("\n")}\n` },
+    agent_type: "implementer",
+    cwd: host,
+  });
+  const codex = (p: Payload): number => runHook(p, undefined, true, "codex").status;
+
+  it("allows every doctrine prefix in a registered sibling worktree", () => {
+    for (const rel of [
+      "packages/core/core-assets/agents/x.md",
+      "packages/core/core-assets/skills/x.md",
+      "packages/core/core-assets/managed/x.md",
+      "packages/core/core-assets/hooks/x.mdx",
+      ".claude/agents/x.md",
+      ".claude/skills/s/SKILL.md",
+      ".claude/context/x.md",
+      ".claude/hooks/x.md",
+      ".codex/agents/x.md",
+      ".codex/hooks/x.md",
+      ".codex/orchestrator.md",
+      ".agents/skills/s/SKILL.md",
+      ".pi/navori/x.md",
+    ]) {
+      for (const tool of ["Write", "Edit"]) expect(run(`${sibling}/${rel}`, tool), rel).toBe(0);
+    }
+    expect(
+      runHook(
+        {
+          hook_event_name: "PreToolUse",
+          tool_name: "NotebookEdit",
+          tool_input: { notebook_path: `${sibling}/.claude/agents/n.md` },
+          agent_type: "implementer",
+          cwd: host,
+        },
+        undefined,
+        true,
+        "claude",
+        prelude(),
+      ).status,
+    ).toBe(0);
+    // Controls: host-relative, host-absolute, and a session sitting inside the sibling.
+    expect(run(".claude/agents/a.md")).toBe(0);
+    expect(run(`${host}/.claude/agents/a.md`)).toBe(0);
+    expect(
+      runHook(
+        { ...edit(`${sibling}/.claude/agents/a.md`), cwd: sibling },
+        undefined,
+        true,
+        "claude",
+        `CLAUDE_PROJECT_DIR=${JSON.stringify(sibling)}; export CLAUDE_PROJECT_DIR`,
+      ).status,
+    ).toBe(0);
+  });
+
+  it("checks every apply_patch header against registered worktrees (Codex)", () => {
+    const doc = `${sibling}/.codex/agents/a.md`;
+    expect(codex(patch(`*** Add File: ${doc}`, "+x"))).toBe(0);
+    expect(codex(patch(`*** Update File: ${doc}`, "@@", "-a", "+b"))).toBe(0);
+    expect(codex(patch(`*** Delete File: ${doc}`))).toBe(0);
+    expect(
+      codex(patch(`*** Update File: ${doc}`, `*** Move to: ${sibling}/.agents/skills/s/SKILL.md`)),
+    ).toBe(0);
+    expect(
+      codex(patch(`*** Add File: ${doc}`, "+x", `*** Add File: ${host}/.claude/agents/h.md`, "+y")),
+    ).toBe(0);
+    expect(
+      codex(patch(`*** Add File: ${doc}`, "+x", `*** Add File: ${sibling}/docs/x.md`, "+y")),
+    ).toBe(2);
+    expect(codex(patch(`*** Update File: ${doc}`, "*** Move to: progress/x.md"))).toBe(2);
+  });
+
+  it("blocks sibling paths outside the closed doctrine list", () => {
+    for (const rel of [
+      "docs/x.md",
+      "progress/current.md",
+      "specs/0052/tasks.md",
+      ".navori/state/handoffs/x.md",
+      ".claude/agents-evil/a.md",
+      "packages/core/core-assets/agentsX/a.md",
+    ]) {
+      expect(run(`${sibling}/${rel}`), rel).toBe(2);
+    }
+  });
+
+  it("blocks doctrine in an unrelated repo, a non-git dir and unregistered checkouts", () => {
+    expect(run(`${other}/.claude/agents/a.md`)).toBe(2);
+    mkdirSync(join(root, "plain/.claude/agents"), { recursive: true });
+    expect(run(`${root}/plain/.claude/agents/a.md`)).toBe(2);
+    // A clone shares no worktree entry with the host.
+    git(root, "clone", "-q", host, "clone");
+    expect(run(`${root}/clone/.claude/agents/a.md`)).toBe(2);
+    // A worktree directory removed behind git's back is not an existing checkout.
+    rmSync(sibling, { recursive: true, force: true });
+    expect(run(`${sibling}/.claude/agents/a.md`)).toBe(2);
+  });
+
+  it("blocks traversal and symlinks fail-closed", () => {
+    expect(run(`${sibling}/.claude/skills/../../progress/current.md`)).toBe(2);
+    expect(run(`${host}/../sibling/.claude/agents/a.md`)).toBe(2);
+    symlinkSync(sibling, join(host, "link"));
+    expect(run(`${host}/link/.claude/agents/a.md`)).toBe(2);
+    // Symlink leaf pointing at a non-doctrine file.
+    mkdirSync(join(sibling, "docs"), { recursive: true });
+    writeFileSync(join(sibling, "docs/x.md"), "x");
+    mkdirSync(join(sibling, ".claude/agents"), { recursive: true });
+    symlinkSync(join(sibling, "docs/x.md"), join(sibling, ".claude/agents/leaf.md"));
+    expect(run(`${sibling}/.claude/agents/leaf.md`)).toBe(2);
+    // The sibling root itself reached through a symlinked ancestor.
+    symlinkSync(root, join(root, "via"));
+    expect(run(`${root}/via/sibling/.claude/agents/a.md`)).toBe(2);
+  });
+
+  it("fails closed when git is unavailable, without regressing host paths", () => {
+    const noGit = "git() { return 127; }";
+    expect(run(`${sibling}/.claude/agents/a.md`, "Edit", noGit)).toBe(2);
+    expect(run(`${host}/.claude/agents/a.md`, "Edit", noGit)).toBe(0);
+    expect(run(".claude/agents/a.md", "Edit", noGit)).toBe(0);
+  });
+
+  it("leaves other roles alone and never relaxes Bash forms", () => {
+    const asRole = (agent: string | null): number =>
+      runHook(
+        { ...edit(`${sibling}/docs/x.md`, "Edit", agent), cwd: host },
+        undefined,
+        true,
+        "claude",
+        prelude(),
+      ).status;
+    expect(asRole("scribe")).toBe(0);
+    expect(asRole(null)).toBe(0);
+    for (const cmd of [
+      `echo hi > ${sibling}/.claude/agents/a.md`,
+      `tee ${sibling}/.claude/agents/a.md`,
+      `cp a ${sibling}/.claude/agents/a.md`,
+    ]) {
+      expect(runHook({ ...bash(cmd), cwd: host }).status, cmd).toBe(2);
+    }
+  });
+});
+
+// Covers: #1330
+describe("implementer-no-markdown hook — destination-based interpreter rule (#1330)", () => {
+  const heredoc = (source: string): string => `python3 - <<'PY'\n${source}\nPY`;
+  const DATA = '{"filesTouched": ["docs/a.md", "specs/x/tasks.mdx"]}';
+  // The text gate needs a Markdown literal plus a write API; this prefix makes sure it fires so
+  // the AST analyzer decides on the rest of the program.
+  const risky = (source: string): string =>
+    heredoc(`NOTE = "docs/a.md"\nopen("keep.json", "w")\n${source}`);
+
+  it.each([
+    heredoc(
+      `import json\nfrom pathlib import Path\nd = ${DATA}\nPath(".navori/state/handoffs/impl_x.json").write_text(json.dumps(d))`,
+    ),
+    `python3 -c 'import json; open("out/impl_x.json", "w").write(json.dumps(${DATA}))'`,
+    heredoc(`import json\nd = ${DATA}\njson.dump(d, open("x.json", "w"))`),
+    heredoc(`import json\nd = ${DATA}\nwith open("x.json", "w") as f:\n    json.dump(d, f)`),
+    `node -e 'require("fs").writeFileSync("out/impl_x.json", JSON.stringify({f:["docs/a.md"]}))'`,
+    `node -e 'const d={f:["docs/a.md"]};const p="x.json";require("node:fs").writeFileSync(p, JSON.stringify(d, null, 2) + "\\n");'`,
+  ])("allows a JSON write whose data mentions Markdown: %#", (command: string): void => {
+    expect(runHook(bash(command)).status).toBe(0);
+  });
+
+  // Covers: #1330
+  it.each([
+    heredoc(`import shutil\nshutil.copy("x.json", "y.md")`),
+    heredoc(`import shutil\nshutil.move("x.json", "y.md")`),
+    heredoc(`import os\nos.rename("x.json", "y.md")`),
+    heredoc(`import os\nos.replace("x.json", "y.md")`),
+    heredoc(`from pathlib import Path\nPath("x.json").rename("y.md")`),
+    heredoc(`from pathlib import Path\nPath("x.json").replace("y.md")`),
+    `node -e 'require("fs").copyFileSync("x.json", "y.md")'`,
+    `node -e 'require("fs").renameSync("x.json", "y.md")'`,
+  ])("denies copy/move onto Markdown without a write clue: %#", (command: string): void => {
+    const result = runHook(bash(command));
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("markdownRequests");
+  });
+
+  it.each([
+    risky(`open("notes.md", "w").write("x")`),
+    risky(`from pathlib import Path\nPath("a.md").write_text("x")`),
+    risky(`open(sys.argv[1], "w").write("x")`),
+    risky(`d = "no" + "tes.md"\nopen(d, "w").write("x")`),
+    risky(`n = "notes"\nopen(f"{n}.md", "w").write("x")`),
+    risky(`open("x.json", "w").write("{}")\nopen("notes.md", "w").write("x")`),
+    risky(`import shutil\nshutil.copy("x.json", "y.md")`),
+    risky(`import subprocess\nsubprocess.run(["cp", "x.json", "y.md"])`),
+    risky(`import os\nos.rename("x.json", "y.md")`),
+    risky(`from pathlib import Path\nPath("x.json").rename("y.md")`),
+    risky(`from pathlib import Path\nPath("x.json").replace("y.md")`),
+    risky(`open("NOTES.MD", "w").write("x")`),
+    risky(`open("notes\\u002emd", "w").write("x")`),
+    risky(`exec("open('notes.md','w')")`),
+    risky(`__import__("os").system("touch notes.md")`),
+    // The shell closes the heredoc at the first delimiter line.
+    `python3 - <<'PY'\nopen("x.json", "w").write("x")\nPY\ntouch notes.md\nPY`,
+    risky(`open("x.json", "w").write("${"x".repeat(17000)}")`),
+    risky(`open("x.json", "w"`),
+    `ruby -e 'File.write("x.json", "docs/a.md")'`,
+    `perl -e 'open(my $f, ">", "x.json"); print $f "docs/a.md"'`,
+    `deno eval 'Deno.writeTextFileSync("x.json", "docs/a.md")'`,
+    `bun -e 'Bun.write("x.json", "docs/a.md")'`,
+    `node -e 'require("fs").writeFileSync("notes.md", JSON.stringify({}))'`,
+    `node -e 'const p="notes.md";require("fs").writeFileSync(p, JSON.stringify({}))'`,
+    `node -e 'require("fs").writeFileSync("x.json", JSON.stringify({}));require("fs").writeFileSync("n.md", "x")'`,
+    `node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({f:["a.md"]}))'`,
+  ])(
+    "denies a program that can write Markdown or is not analyzable: %#",
+    (command: string): void => {
+      const result = runHook(bash(command));
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain("markdownRequests");
+    },
+  );
 });

@@ -297,7 +297,7 @@ name: implementer
 description: Implements ONE scoped task with its tests, respects CLAUDE.md conventions and leaves the quality gate green. Use proactively when a change touches 4+ files or 2+ non-trivial files, before writing the code yourself.
 tools: Read, Write, Edit, Glob, Grep, Bash, mcp__engram__mem_search, mcp__engram__mem_get_observation
 maxTurns: 160
-maxWords: 2669
+maxWords: 2695
 ---
 
 <!-- navori:managed id="implementer-base" hash="<HASH>" version="<VERSION>" source="@navori/core" fmkeys="name,description,tools,maxTurns,maxWords" -->
@@ -347,6 +347,7 @@ You execute **a single** task from start to verification. You don't orchestrate,
 - **No `console.log`** in code that will be merged (guard with `import.meta.env.DEV` or the runtime's equivalent).
 - **Zero new errors** introduced by your code in the quality gate tools (vs. baseline) — classify per `verify-before-done`'s Failure attribution, never by diff location alone; see the evidence table below. Returning with any tool red (because of your change) is automatic grounds for `CHANGES_REQUESTED`.
 - **Never mutate or discard shared work**: don't stash, checkout/reset away local changes, clean the tree, or recursively delete scratch files; these hit `ask` and can stall a background agent.
+- **Author files with Edit/Write**, never interpreter heredocs (`python3 - <<EOF`, `node -e`): the hook reads them as text and denies any that mention `.md`.
 - **JSDoc** mandatory on public exports and functions >15 lines or with dense conditional logic.
 - **SDD traceability** (only if the feature has `specs/<feature>/tasks.md`, see `spec-bootstrap`): each `R<n>` in your batch is covered by ≥1 test, and each test references its requirements with a `// Covers: R<n>` comment above the case. Without full traceability the `reviewer` rejects.
 - **Guard/policy coverage** (only if your task introduces or modifies a guard, policy or permission check): your report carries the enumeration, not just the diff — every entry point that mutates the same resource (routes, bulk/admin variants, jobs, scripts) with its `file:line` evidence, each marked covered or excluded with the reason. Locate them with `locate-code`; an entry point you didn't list is one the `reviewer` has to rediscover.
@@ -5594,7 +5595,10 @@ exit 0
 # relative to the repo root. This partly reverts 0030's "no .md at all"; the
 # scribe still owns status Markdown and human-facing deliverables. The Bash forms
 # are NOT relaxed: command text gives no trustworthy path. Absolute paths are
-# trimmed against the repo root; a `..` segment or a path outside the root blocks.
+# trimmed against the repo root, or against another REGISTERED worktree of the
+# same repo (#1330: no `..`, no symlink component, listed in `git worktree list`,
+# same --git-common-dir; any git doubt blocks). A `..` segment or any other path
+# blocks. Residual: every registered worktree of the repo is trusted.
 # Symlinks: same accepted limitation as above. Editing a generated mirror
 # (`.claude/agents/...`) is overwritten by the next render; the contract tells the
 # implementer to edit the source and run `navori render --apply` (contract, not
@@ -5985,7 +5989,7 @@ block() {
   echo "[navori] BLOCKED by implementer-no-markdown: $1" >&2
   # `placeHook` ships this byte-identical to Claude and Codex (#389), so the
   # message names the engine-neutral handoff home, never one engine's folder.
-  echo "[navori] the implementer writes Markdown only for AI doctrine (spec 0052, R49), with the edit tools, under: ${navori_doctrine_prefixes[*]}. Anything else (progress/, specs/, docs/, README, handoffs, paths with '..') goes in \"markdownRequests\", inside .navori/state/handoffs/impl_<feature>.json — the scribe applies it in this worktree. Bash never writes Markdown." >&2
+  echo "[navori] the implementer writes Markdown only for AI doctrine (spec 0052, R49), with the edit tools, under: ${navori_doctrine_prefixes[*]}. Absolute paths are accepted inside registered worktrees of this repo. Anything else (progress/, specs/, docs/, README, handoffs, paths with '..', other repos, symlinks) goes in \"markdownRequests\", inside .navori/state/handoffs/impl_<feature>.json — the scribe applies it in this worktree. Bash never writes Markdown." >&2
   navori_audit_verdict="block"
   navori_audit_reason="$1"
   exit 2
@@ -6000,10 +6004,63 @@ is_md_path() {
   esac
 }
 
+# True when $1 is relative to a doctrine prefix (closed list, exact match or a
+# non-empty remainder under a directory prefix).
+nv_rel_is_doctrine() {
+  local rel=$1 prefix
+  for prefix in "${navori_doctrine_prefixes[@]}"; do
+    case "$prefix" in
+      */) case "$rel" in "$prefix"?*) return 0 ;; esac ;;
+      *) [ "$rel" = "$prefix" ] && return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# Absolute $1 inside ANOTHER registered worktree of the session's repo (#1330).
+# Same identity primitives as #1329's review-edit-binding (physical path with no
+# symlink component, registered in `git worktree list`, same --git-common-dir),
+# fail closed on any doubt. Prints the path relative to that worktree's toplevel.
+# Residual ceiling (documented): every registered worktree of the repo is trusted
+# for the doctrine prefixes; no per-delivery grant exists before review begins.
+nv_sibling_rel() {
+  local p=$1 cursor="" part dir top session common sessioncommon rest list
+  case "$p" in /*) ;; *) return 1 ;; esac
+  # No symlink in any existing component, leaf included.
+  rest=${p#/}
+  while [ -n "$rest" ]; do
+    part=${rest%%/*}
+    if [ "$part" = "$rest" ]; then rest=""; else rest=${rest#*/}; fi
+    cursor="$cursor/$part"
+    if [ -L "$cursor" ]; then return 1; fi
+  done
+  dir=${p%/*}
+  while [ -n "$dir" ] && [ ! -d "$dir" ]; do dir=${dir%/*}; done
+  [ -n "$dir" ] || return 1
+  top=$(git -c core.fsmonitor=false -C "$dir" rev-parse --show-toplevel 2>/dev/null) || return 1
+  [ -n "$top" ] || return 1
+  case "$p" in "$top"/?*) ;; *) return 1 ;; esac
+  common=$(git -c core.fsmonitor=false -C "$top" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+  [ -n "$common" ] || return 1
+  for session in "${nv_project_dir:-}" "$(git -C "$(payload_field cwd)" rev-parse --show-toplevel 2>/dev/null || true)"; do
+    [ -n "$session" ] || continue
+    sessioncommon=$(git -c core.fsmonitor=false -C "$session" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || continue
+    [ "$sessioncommon" = "$common" ] || continue
+    list=$(git -c core.fsmonitor=false -C "$session" worktree list --porcelain 2>/dev/null) || continue
+    if printf '%s\n' "$list" | grep -Fxq "worktree $top" &&
+      printf '%s\n' "$list" | grep -Fxq "worktree ${session%/}"; then
+      printf '%s' "${p#"$top"/}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # True when $1 (a `.md`/`.mdx` target of an EDIT tool) is AI doctrine: relative to
-# the repo root, or absolute and inside it; never with a `..` segment.
+# the repo root, or absolute and inside it or inside another registered worktree
+# of the same repo (#1330); never with a `..` segment. Cheap roots first.
 is_doctrine_path() {
-  local p=$1 rel root candidate prefix
+  local p=$1 rel root candidate
   case "$p" in
     .. | ../* | */.. | */../*) return 1 ;;
   esac
@@ -6017,17 +6074,13 @@ is_doctrine_path() {
           "$root"/*) rel=${p#"$root"/}; break ;;
         esac
       done
+      if [ -n "$rel" ] && nv_rel_is_doctrine "$rel"; then return 0; fi
+      rel=$(nv_sibling_rel "$p") || return 1
       [ -n "$rel" ] || return 1
       ;;
     *) rel=${p#./} ;;
   esac
-  for prefix in "${navori_doctrine_prefixes[@]}"; do
-    case "$prefix" in
-      */) case "$rel" in "$prefix"?*) return 0 ;; esac ;;
-      *) [ "$rel" = "$prefix" ] && return 0 ;;
-    esac
-  done
-  return 1
+  nv_rel_is_doctrine "$rel"
 }
 
 case "$navori_tool" in
@@ -6108,100 +6161,12 @@ fi
 interpreter_cmd=$(printf '%s' "$cmd" | tr '\n' ' ')
 INTERPRETER='(^|[;&|[:space:]])([^[:space:];&|]*/)?(python([0-9]+(\.[0-9]+)*)?|node|ruby|perl|deno|bun)([[:space:]]|$)'
 MD_LITERAL="${MD_EXT}(['\"]|[[:space:]]|$)"
-WRITE_API='(^|[^[:alnum:]_])(writeFile(Sync)?|appendFile(Sync)?|writeTextFile(Sync)?|write_text|write_bytes)[[:space:]]*\('
+WRITE_API='(^|[^[:alnum:]_])(writeFile(Sync)?|appendFile(Sync)?|writeTextFile(Sync)?|write_text|write_bytes|copyFile(Sync)?|cpSync|renameSync)[[:space:]]*\(|shutil[[:space:]]*\.[[:space:]]*(copy|copy2|copyfile|copyfileobj|copytree|move)[[:space:]]*\(|os[[:space:]]*\.[[:space:]]*(rename|renames|replace)[[:space:]]*\(|\.[[:space:]]*(rename|replace)[[:space:]]*\([^,()]*\)'
 FILE_WRITE='(File|Bun)[[:space:]]*\.[[:space:]]*(write|binwrite)[[:space:]]*\('
 OPEN_WRITE="(^|[^[:alnum:]_])open[[:space:]]*\\([^)]*,[[:space:]]*(mode[[:space:]]*=[[:space:]]*)?['\"]([wax][bt+]*|r[bt]*\\+|[+]?>>?)['\"]"
 if printf '%s' "$interpreter_cmd" | grep -qE "$INTERPRETER" &&
   printf '%s' "$interpreter_cmd" | grep -qiE "$MD_LITERAL" &&
   printf '%s' "$interpreter_cmd" | grep -qE "${WRITE_API}|${FILE_WRITE}|${OPEN_WRITE}"; then
-  # A fixed trusted parser recognizes only this complete, bounded Path rewrite.
-  # All failures retain the original denial; no submitted Python is executed.
-  IFS= read -r -d '' navori_python_analyzer <<'NAVORI_PYTHON_ANALYZER' || :
-import ast
-import re
-import sys
-
-def require(value):
-    if not value:
-        raise ValueError("unrecognized Path rewrite")
-
-def literal(node):
-    require(isinstance(node, ast.Constant) and type(node.value) is str)
-    return node.value
-
-def assignment(node):
-    require(isinstance(node, ast.Assign) and len(node.targets) == 1)
-    require(isinstance(node.targets[0], ast.Name))
-    return node.targets[0].id, node.value
-
-def method(node, owner, name):
-    require(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute))
-    require(isinstance(node.func.value, ast.Name) and node.func.value.id == owner)
-    require(node.func.attr == name)
-    return node
-
-def utf8(call):
-    require(len(call.keywords) == 1 and call.keywords[0].arg == "encoding")
-    require(literal(call.keywords[0].value) == "utf-8")
-
-try:
-    command = sys.stdin.buffer.read(16385)
-    require(len(command) <= 16384)
-    command = command.decode("utf-8", errors="strict")
-    heredoc = re.fullmatch(r"[ \t]*python3[ \t]+-[ \t]+<<(['\"])([A-Za-z_][A-Za-z_0-9]*)\1[ \t]*\n(.*)\n\2\n?", command, re.S)
-    if heredoc:
-        source = heredoc.group(3)
-    else:
-        # Single shell quotes are literal; double quotes may not expand or
-        # escape anything. Unsupported shell quoting is deliberately denied.
-        invocation = re.fullmatch(r"[ \t]*python3[ \t]+-c[ \t]+(?:'([^']*)'|\"([^\"\\$`]*)\")[ \t]*", command, re.S)
-        require(invocation is not None)
-        source = invocation.group(1) if invocation.group(1) is not None else invocation.group(2)
-    tree = ast.parse(source, mode="exec")
-    pending = [(tree, 0)]
-    nodes = 0
-    while pending:
-        node, depth = pending.pop()
-        nodes += 1
-        require(nodes <= 4096 and depth <= 16)
-        pending.extend((child, depth + 1) for child in ast.iter_child_nodes(node))
-    body = tree.body
-    require(len(body) >= 5)
-    imported = body[0]
-    require(isinstance(imported, ast.ImportFrom) and imported.module == "pathlib" and imported.level == 0)
-    require(len(imported.names) == 1 and imported.names[0].name == "Path" and imported.names[0].asname is None)
-    path, constructor = assignment(body[1])
-    require(path != "Path" and isinstance(constructor, ast.Call))
-    require(isinstance(constructor.func, ast.Name) and constructor.func.id == "Path")
-    require(len(constructor.args) == 1 and not constructor.keywords)
-    destination = literal(constructor.args[0])
-    require(destination and not any(char in destination for char in "\x00\r\n"))
-    require(not destination.lower().endswith((".md", ".mdx")))
-    text, read = assignment(body[2])
-    require(text not in (path, "Path"))
-    read = method(read, path, "read_text")
-    require(not read.args)
-    utf8(read)
-    for statement in body[3:-1]:
-        target, replacement = assignment(statement)
-        require(target == text)
-        replacement = method(replacement, text, "replace")
-        require(len(replacement.args) == 2 and not replacement.keywords)
-        for argument in replacement.args:
-            literal(argument)
-    require(isinstance(body[-1], ast.Expr))
-    write = method(body[-1].value, path, "write_text")
-    require(len(write.args) == 1 and isinstance(write.args[0], ast.Name) and write.args[0].id == text)
-    utf8(write)
-    print("ALLOW_PATH_REWRITE")
-except Exception:
-    sys.exit(1)
-NAVORI_PYTHON_ANALYZER
-  navori_python_safe=$(printf '%s' "$cmd" | python3 -c "$navori_python_analyzer" 2>/dev/null) || navori_python_safe=""
-  if [ "$navori_python_safe" = "ALLOW_PATH_REWRITE" ]; then
-    navori_audit_reason="reescritura Path no-md clasificada"
-    exit 0
-  fi
   # The program is fixed hook code. The submitted command enters only on
   # stdin as data; never eval it. A nonzero analyzer, missing node, empty or
   # malformed output all fall through to the existing exit-2 block.
@@ -6324,110 +6289,363 @@ try {
   process.stdout.write("ALLOW");
 } catch { process.exitCode = 1; }
 NAVORI_JSON_ANALYZER
+  # #1330: closed creation form `fs.writeFileSync("<x>.json", JSON.stringify(<literal>))`.
+  # Same contract as above: fixed trusted program, submitted text is data only.
+  IFS= read -r -d '' navori_node_write_analyzer <<'NAVORI_NODE_WRITE_ANALYZER' || :
+const input = require("node:fs").readFileSync(0, "utf8");
+const fail = () => { throw Error("unrecognized JSON writer"); };
+try {
+  if (Buffer.byteLength(input) > 16384) fail();
+  const shell = /^[ \t]*node[ \t]+-e[ \t]+\x27([^\x27]*)\x27[ \t]*$/s.exec(input);
+  if (!shell) fail();
+  const source = shell[1];
+  const tokens = [];
+  const forbidden = new Set(["__proto__", "prototype", "constructor", "toJSON"]);
+  const reserved = new Set(["const", "true", "false", "null", "require", "JSON", "new", "this", "function", "class", "var", "let", "return", "import", "export", "await", "async", "delete", "typeof", "void", "yield", "in", "of", "if", "for", "while", "do", "else", "try", "catch", "throw", "switch", "case", "default", "break", "continue", "with", "super", "extends", "static", "instanceof"]);
+  for (let at = 0; at < source.length;) {
+    const rest = source.slice(at);
+    const space = /^[\t\n\r ]+/.exec(rest);
+    if (space) { at += space[0].length; continue; }
+    const string = /^"(?:[^"\\\x00-\x1f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/.exec(rest);
+    if (string) { tokens.push({ kind: "string", value: JSON.parse(string[0]) }); at += string[0].length; }
+    else {
+      const id = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(rest);
+      const number = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/.exec(rest);
+      if (id) { tokens.push({ kind: "id", value: id[0] }); at += id[0].length; }
+      else if (number) {
+        if (!Number.isFinite(Number(number[0]))) fail();
+        tokens.push({ kind: "number", value: number[0] }); at += number[0].length;
+      } else if (".,;:=()[]{}+".includes(rest[0])) { tokens.push({ kind: "punct", value: rest[0] }); at++; }
+      else fail();
+    }
+    if (tokens.length > 4096) fail();
+  }
+  let pos = 0;
+  const peek = (value) => tokens[pos]?.value === value && tokens[pos].kind !== "string";
+  const take = (value) => { const t = tokens[pos++]; if (!t || t.kind === "string" || t.value !== value) fail(); };
+  const kind = (wanted) => { const t = tokens[pos++]; if (!t || t.kind !== wanted) fail(); return t.value; };
+  const name = () => { const v = kind("id"); if (reserved.has(v) || forbidden.has(v)) fail(); return v; };
+  const value = (depth = 0) => {
+    if (depth > 16) fail();
+    if (tokens[pos]?.kind === "string" || tokens[pos]?.kind === "number") { pos++; return; }
+    if (peek("true") || peek("false") || peek("null")) { pos++; return; }
+    if (peek("[")) {
+      take("[");
+      if (!peek("]")) { do { value(depth + 1); if (!peek(",")) break; take(","); if (peek("]")) fail(); } while (true); }
+      take("]"); return;
+    }
+    if (peek("{")) {
+      take("{"); const keys = new Set();
+      if (!peek("}")) {
+        do {
+          const key = tokens[pos]?.kind === "string" ? kind("string") : kind("id");
+          if (forbidden.has(key) || keys.has(key)) fail();
+          keys.add(key); take(":"); value(depth + 1);
+          if (!peek(",")) break; take(","); if (peek("}")) fail();
+        } while (true);
+      }
+      take("}"); return;
+    }
+    fail();
+  };
+  const requireFs = () => { take("require"); take("("); const m = kind("string"); if (m !== "fs" && m !== "node:fs") fail(); take(")"); };
+  const strings = new Map();
+  const values = new Set();
+  let fsName = null;
+  while (peek("const")) {
+    take("const"); const id = name();
+    if (id === fsName || strings.has(id) || values.has(id)) fail();
+    take("=");
+    if (!fsName && peek("require")) { requireFs(); fsName = id; }
+    else if (tokens[pos]?.kind === "string") { strings.set(id, kind("string")); }
+    else { value(); values.add(id); }
+    take(";");
+  }
+  if (fsName) { take(fsName); } else requireFs();
+  take("."); take("writeFileSync"); take("(");
+  let destination;
+  if (tokens[pos]?.kind === "string") destination = kind("string");
+  else {
+    const id = kind("id");
+    if (!strings.has(id)) fail();
+    destination = strings.get(id);
+  }
+  if (!destination || /[\x00-\x1f\x7f]/.test(destination) || !/\.json$/i.test(destination)) fail();
+  take(",");
+  take("JSON"); take("."); take("stringify"); take("(");
+  if (tokens[pos]?.kind === "id" && !peek("true") && !peek("false") && !peek("null")) { if (!values.has(kind("id"))) fail(); }
+  else value();
+  if (peek(",")) { take(","); take("null"); take(","); kind("number"); }
+  take(")");
+  if (peek("+")) { take("+"); if (kind("string") !== "\n") fail(); }
+  take(")"); if (peek(";")) take(";");
+  if (pos !== tokens.length) fail();
+  process.stdout.write("ALLOW");
+} catch { process.exitCode = 1; }
+NAVORI_NODE_WRITE_ANALYZER
   if command -v node >/dev/null 2>&1; then
     if navori_json_result=$(printf '%s' "$cmd" | node -e "$navori_json_analyzer" 2>/dev/null) && [ "$navori_json_result" = "ALLOW" ]; then
       navori_audit_verdict="allow"
       navori_audit_reason="programa JSON estático reconocido"
       exit 0
     fi
+    if navori_json_result=$(printf '%s' "$cmd" | node -e "$navori_node_write_analyzer" 2>/dev/null) && [ "$navori_json_result" = "ALLOW" ]; then
+      navori_audit_verdict="allow"
+      navori_audit_reason="escritura JSON Node literal reconocida"
+      exit 0
+    fi
   fi
-  # Closed Python handoff grammar: parse supplied text, never run its imports,
-  # reads, Git queries or writes. The producer still assumes trusted Python,
-  # stdlib, Git and filesystem; this is destination classification, not isolation.
-  IFS= read -r -d '' navori_python_analyzer <<'NAVORI_PYTHON_ANALYZER' || :
+  # #1330: ONE generic Python destination analyzer (replaces the former rigid
+  # templates). A Markdown literal that is only DATA (e.g. a filesTouched list in
+  # a JSON handoff) is not a write destination. Fixed trusted program built on
+  # `ast`; submitted code is parsed, never run. Allows only a closed vocabulary
+  # (json/re/pathlib/subprocess-for-read-only-git imports, known builtins and
+  # methods) where every write destination is a literal non-Markdown path. Any
+  # unknown callable, dynamic destination, syntax error, byte/AST cap, missing
+  # python3 or malformed output keeps the exit-2 block. Not a sandbox: it assumes
+  # trusted Python, stdlib, Git and filesystem (symlinks are not resolved).
+  IFS= read -r -d '' navori_python_dest_analyzer <<'NAVORI_PYTHON_DEST_ANALYZER' || :
 import ast
-import math
+import posixpath
 import re
 import sys
 
-def recognize() -> bool:
-    """Recognize one bounded, complete JSON handoff without evaluating source."""
-    command = sys.stdin.buffer.read(16385)
-    if len(command) > 16384:
-        return False
-    command = command.decode('utf-8')
-    header = re.match(r"python3 - <<'([A-Za-z_][A-Za-z0-9_]*)'\n", command)
-    if not header:
-        return False
-    lines = command[header.end():].split('\n')
-    # Shell closes at the FIRST exact delimiter, including inside Python strings.
-    close = lines.index(header.group(1))
-    if lines[close + 1:] not in ([], ['']):
-        return False
-    tree = ast.parse('\n'.join(lines[:close]))
-    if sum(1 for _ in ast.walk(tree)) > 4096 or len(tree.body) != 7:
-        return False
-    template = ast.parse("""import json, subprocess
-from pathlib import Path
-root = Path.cwd()
-runtime = json.loads((root / 'INPUT').read_text())
-report = {}
-(root / 'OUTPUT').write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\\n')
-print('MESSAGE')
-""")
-    # Only these two exact, read-only argv shapes may occur as report values.
-    expressions = {
-        ast.dump(ast.parse(source, mode='eval').body)
-        for source in (
-            'str(root)', "runtime['repo']", "runtime['results']",
-            "subprocess.check_output(['git', 'branch', '--show-current'], text=True).strip()",
-            "subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()",
-        )
-    }
+ALLOWED_MODULES = {"json", "re", "subprocess", "pathlib"}
+PATH_CLASSES = {"Path", "PurePath"}
+BUILTIN_CALLS = {"open", "print", "str", "int", "float", "bool", "len", "sorted", "list", "dict", "set",
+                 "tuple", "range", "enumerate", "zip", "min", "max", "sum", "any", "all", "repr",
+                 "reversed"}
+MODULE_CALLS = {
+    "json": {"dump", "dumps", "load", "loads"},
+    "re": {"sub", "subn", "match", "search", "findall", "fullmatch", "split", "escape"},
+    "subprocess": {"check_output", "run"},
+    "pathlib": PATH_CLASSES,
+}
+METHODS = {"replace", "strip", "lstrip", "rstrip", "split", "rsplit", "join", "lower", "upper", "startswith",
+           "endswith", "format", "encode", "decode", "splitlines", "removeprefix", "removesuffix", "count",
+           "find", "title", "append", "extend", "sort", "get", "items", "keys", "values", "update", "pop",
+           "setdefault", "insert", "index", "group", "groups", "span", "read_text", "read_bytes",
+           "write_text", "write_bytes", "exists", "is_file", "is_dir", "mkdir", "touch", "open",
+           "write", "writelines", "read", "readline", "readlines", "close", "flush"}
+DENIED_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda, ast.Global, ast.Nonlocal,
+                ast.Await, ast.Yield, ast.YieldFrom, ast.NamedExpr, ast.Delete, ast.Try)
+GUARDED_ATTRS = {"write_text", "write_bytes", "touch", "mkdir", "open", "replace"}
+GIT_READ = {"rev-parse", "diff", "status", "log"}
+GIT_UNSAFE = ("output", "exec", "ext-diff", "textconv")
 
-    def data(node: ast.AST, depth: int = 0) -> bool:
-        """Allow JSON literals and the fixed evidence expressions only."""
-        if depth > 16:
+def fail():
+    raise ValueError("unrecognized write")
+
+def read_source(command):
+    heredoc = re.match(r"[ \t]*python3[ \t]+-[ \t]+<<(['\"])([A-Za-z_][A-Za-z_0-9]*)\1[ \t]*\n", command)
+    if heredoc:
+        lines = command[heredoc.end():].split("\n")
+        # The shell closes at the FIRST exact delimiter line; anything after it is shell, not data.
+        close = lines.index(heredoc.group(2))
+        if lines[close + 1:] not in ([], [""]):
+            fail()
+        return "\n".join(lines[:close])
+    invocation = re.fullmatch(r"[ \t]*python3[ \t]+-c[ \t]+(?:'([^']*)'|\"([^\"\\$`]*)\")[ \t]*", command, re.S)
+    if invocation is None:
+        fail()
+    return invocation.group(1) if invocation.group(1) is not None else invocation.group(2)
+
+def main():
+    raw = sys.stdin.buffer.read(16385)
+    if len(raw) > 16384:
+        fail()
+    tree = ast.parse(read_source(raw.decode("utf-8", errors="strict")), mode="exec")
+    nodes = list(ast.walk(tree))
+    if len(nodes) > 4096:
+        fail()
+    parents = {}
+    for node in nodes:
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+
+    def depth(node):
+        below = max((depth(child) for child in ast.iter_child_nodes(node)), default=0)
+        return below + (1 if isinstance(node, (ast.List, ast.Dict, ast.Tuple, ast.Set)) else 0)
+
+    if depth(tree) > 16:
+        fail()
+
+    def is_func_of(node):
+        owner = parents.get(node)
+        return isinstance(owner, ast.Call) and owner.func is node
+
+    path_names = set()
+    modules = {}
+    for node in nodes:
+        if isinstance(node, DENIED_NODES):
+            fail()
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name not in ALLOWED_MODULES or alias.asname:
+                    fail()
+                modules[alias.name] = alias.name
+        elif isinstance(node, ast.ImportFrom):
+            if node.module != "pathlib" or node.level != 0:
+                fail()
+            for alias in node.names:
+                if alias.name not in PATH_CLASSES or alias.asname:
+                    fail()
+                path_names.add(alias.name)
+    stored = {}
+    values = {}
+    for node in nodes:
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            stored[node.id] = stored.get(node.id, 0) + 1
+            owner = parents.get(node)
+            if (isinstance(owner, ast.Assign) and len(owner.targets) == 1 and owner.targets[0] is node
+                    and isinstance(parents.get(owner), ast.Module)):
+                values[node.id] = owner.value
+    reserved = path_names | set(modules) | BUILTIN_CALLS
+    if any(name in stored for name in reserved):
+        fail()
+    for node in nodes:
+        if isinstance(node, ast.Name):
+            if node.id.startswith("__") and node.id.endswith("__"):
+                fail()
+            if isinstance(node.ctx, ast.Load):
+                if node.id in path_names or node.id in BUILTIN_CALLS:
+                    if not is_func_of(node) and not (isinstance(parents.get(node), ast.Attribute)
+                                                     and node.id in path_names):
+                        fail()
+                elif node.id in modules:
+                    owner = parents.get(node)
+                    if not (isinstance(owner, ast.Attribute) and owner.value is node and is_func_of(owner)):
+                        fail()
+                elif node.id not in stored:
+                    fail()
+        elif isinstance(node, ast.Attribute):
+            if node.attr.startswith("__"):
+                fail()
+            if node.attr in GUARDED_ATTRS and not is_func_of(node):
+                fail()
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name):
+                if func.id not in BUILTIN_CALLS and func.id not in path_names:
+                    fail()
+            elif isinstance(func, ast.Attribute):
+                base = func.value
+                if isinstance(base, ast.Name) and base.id in modules:
+                    if func.attr not in MODULE_CALLS[base.id]:
+                        fail()
+                elif isinstance(base, ast.Name) and base.id in path_names:
+                    if func.attr not in ("cwd", "home") or node.args or node.keywords:
+                        fail()
+                elif func.attr not in METHODS:
+                    fail()
+                elif func.attr == "replace" and len(node.args) + len(node.keywords) != 2:
+                    fail()
+            else:
+                fail()
+
+    def is_ctor(func):
+        if isinstance(func, ast.Name):
+            return func.id in path_names
+        return (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
+                and func.value.id == "pathlib" and "pathlib" in modules and func.attr in PATH_CLASSES)
+
+    def resolve(node, seen=()):
+        """Return the literal path or string an expression denotes, or fail."""
+        if len(seen) > 16:
+            fail()
+        if isinstance(node, ast.Constant) and type(node.value) is str:
+            return node.value
+        if isinstance(node, ast.Name):
+            if node.id in seen or stored.get(node.id) != 1 or node.id not in values:
+                fail()
+            return resolve(values[node.id], seen + (node.id,))
+        if isinstance(node, ast.Call):
+            if is_ctor(node.func):
+                if node.keywords:
+                    fail()
+                parts = [resolve(arg, seen) for arg in node.args]
+                return posixpath.join(*parts) if parts else "."
+            if (isinstance(node.func, ast.Attribute) and node.func.attr in ("cwd", "home")
+                    and isinstance(node.func.value, ast.Name) and node.func.value.id in path_names and not node.args and not node.keywords):
+                return "."
+            fail()
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            return posixpath.join(resolve(node.left, seen), resolve(node.right, seen))
+        fail()
+
+    def check(destination):
+        parts = destination.split("/")
+        if not destination or ".." in parts or re.search(r"[\x00-\x1f\x7f]", destination):
+            fail()
+        parts = [part for part in parts if part not in ("", ".")]
+        if not parts or parts[-1].lower().endswith((".md", ".mdx")):
+            fail()
+
+    def mode_writes(call, position):
+        mode = call.args[position] if len(call.args) > position else next(
+            (k.value for k in call.keywords if k.arg == "mode"), None)
+        if mode is None:
             return False
-        if isinstance(node, ast.Constant):
-            return (type(node.value) in (str, int, bool, type(None)) or
-                    type(node.value) is float and math.isfinite(node.value))
-        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-            return (isinstance(node.operand, ast.Constant) and
-                    type(node.operand.value) in (int, float) and
-                    math.isfinite(node.operand.value))
-        if isinstance(node, ast.List):
-            return all(data(value, depth + 1) for value in node.elts)
-        if isinstance(node, ast.Dict):
-            keys = [key.value for key in node.keys
-                    if isinstance(key, ast.Constant) and type(key.value) is str]
-            return (len(keys) == len(node.keys) == len(set(keys)) and
-                    all(data(value, depth + 1) for value in node.values))
-        return ast.dump(node) in expressions
+        if not (isinstance(mode, ast.Constant) and type(mode.value) is str):
+            fail()
+        return any(char in mode.value for char in "wax+")
 
-    def json_path(node: ast.AST) -> bool:
-        """Validate decoded literal destinations without accessing the filesystem."""
-        return (isinstance(node, ast.Constant) and type(node.value) is str and
-                bool(node.value) and not re.search(r'[\x00-\x1f\x7f]', node.value) and
-                node.value.lower().endswith('.json'))
+    def check_git(call):
+        if len(call.args) != 1 or not isinstance(call.args[0], ast.List):
+            fail()
+        argv = call.args[0].elts
+        if not all(isinstance(item, ast.Constant) and type(item.value) is str for item in argv):
+            fail()
+        items = [item.value for item in argv]
+        if items == ["git", "branch", "--show-current"]:
+            pass
+        elif len(items) >= 2 and items[0] == "git" and items[1] in GIT_READ:
+            for item in items[2:]:
+                lowered = item.lower()
+                if item == "-c" or item.startswith("-C") or any(word in lowered for word in GIT_UNSAFE):
+                    fail()
+        else:
+            fail()
+        for keyword in call.keywords:
+            allowed_flag = (keyword.arg in ("text", "check", "capture_output")
+                            and isinstance(keyword.value, ast.Constant) and type(keyword.value.value) is bool)
+            allowed_encoding = (keyword.arg == "encoding" and isinstance(keyword.value, ast.Constant)
+                                and keyword.value.value == "utf-8")
+            if not (allowed_flag or allowed_encoding):
+                fail()
 
-    input_path = tree.body[3].value.args[0].func.value.right
-    output_path = tree.body[5].value.func.value.right
-    message = tree.body[6].value.args[0]
-    report = tree.body[4].value
-    if not (json_path(input_path) and json_path(output_path) and
-            isinstance(message, ast.Constant) and type(message.value) is str and
-            isinstance(report, ast.Dict) and data(report)):
-        return False
-    for node in ast.walk(template):
-        if isinstance(node, ast.Constant) and node.value in ('INPUT', 'OUTPUT', 'MESSAGE'):
-            node.value = {'INPUT': input_path.value, 'OUTPUT': output_path.value,
-                          'MESSAGE': message.value}[node.value]
-    template.body[4].value = report
-    return ast.dump(tree) == ast.dump(template)
+    for node in nodes:
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name) and func.id == "open":
+            if any(k.arg in ("opener", None) for k in node.keywords):
+                fail()
+            if mode_writes(node, 1):
+                target = node.args[0] if node.args else next(
+                    (k.value for k in node.keywords if k.arg == "file"), None)
+                if target is None:
+                    fail()
+                check(resolve(target))
+        elif isinstance(func, ast.Attribute):
+            base = func.value
+            if isinstance(base, ast.Name) and base.id == "subprocess":
+                check_git(node)
+            elif func.attr in ("write_text", "write_bytes", "touch", "mkdir"):
+                check(resolve(base))
+            elif func.attr == "open" and mode_writes(node, 0):
+                check(resolve(base))
+    sys.stdout.write("ALLOW")
 
 try:
-    if recognize():
-        sys.stdout.write('ALLOW')
-    else:
-        sys.exit(1)
+    main()
 except Exception:
     sys.exit(1)
-NAVORI_PYTHON_ANALYZER
+NAVORI_PYTHON_DEST_ANALYZER
   if command -v python3 >/dev/null 2>&1; then
-    if navori_python_result=$(printf '%s' "$cmd" | python3 -I -S -c "$navori_python_analyzer" 2>/dev/null) && [ "$navori_python_result" = "ALLOW" ]; then
+    if navori_python_result=$(printf '%s' "$cmd" | python3 -I -S -c "$navori_python_dest_analyzer" 2>/dev/null) && [ "$navori_python_result" = "ALLOW" ]; then
       navori_audit_verdict="allow"
-      navori_audit_reason="programa JSON Python estático reconocido"
+      navori_audit_reason="escritura Python con destinos literales no-md"
       exit 0
     fi
   fi

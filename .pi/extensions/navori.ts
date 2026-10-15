@@ -1,5 +1,5 @@
-// navori:managed-file id="pi-extension" hash="4ce0cdfd21253d95aebe7ab44dc92c2d782e799aa3da39ead932431466a9bd71"
-import { spawn } from "node:child_process";
+// navori:managed-file id="pi-extension" hash="3da7aa0e481dfae8efa9cb351a8c424e21ac46bdaa4e1a08dba15658c388d893"
+import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
@@ -70,12 +70,47 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** True when a Markdown target is AI doctrine: inside the repo root, no ".." segment, under a DOCTRINE_PREFIXES entry. */
+function relIsDoctrine(rel: string): boolean {
+  if (rel === "" || rel.startsWith("../") || isAbsolute(rel)) return false;
+  return DOCTRINE_PREFIXES.some((prefix) => (prefix.endsWith("/") ? rel.startsWith(prefix) && rel.length > prefix.length : rel === prefix));
+}
+
+function gitOut(cwd: string, args: string[]): string | null {
+  const r = spawnSync("git", ["-c", "core.fsmonitor=false", ...args], { cwd, encoding: "utf8", timeout: 2000, maxBuffer: 1048576 });
+  return r.status === 0 && typeof r.stdout === "string" ? r.stdout.trim() : null;
+}
+
+/** #1330: path relative to another REGISTERED worktree of cwd's repo (same common dir, no symlink component); null on any doubt. */
+function siblingWorktreeRel(cwd: string, target: string): string | null {
+  if (!isAbsolute(target)) return null;
+  let cursor = "/";
+  for (const part of target.split(sep).filter(Boolean)) {
+    cursor = join(cursor, part);
+    try { if (lstatSync(cursor).isSymbolicLink()) return null; }
+    catch (e) { if ((e as { code?: unknown } | null)?.code !== "ENOENT") return null; }
+  }
+  let dir = dirname(target);
+  while (!existsSync(dir) && dirname(dir) !== dir) dir = dirname(dir);
+  const top = gitOut(dir, ["rev-parse", "--show-toplevel"]);
+  if (!top || !target.startsWith(top + sep)) return null;
+  const common = gitOut(top, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  const session = gitOut(cwd, ["rev-parse", "--show-toplevel"]);
+  if (!common || !session || gitOut(session, ["rev-parse", "--path-format=absolute", "--git-common-dir"]) !== common) return null;
+  const list = gitOut(session, ["worktree", "list", "--porcelain"]);
+  if (list === null) return null;
+  const lines = list.split("\n");
+  if (!lines.includes("worktree " + top) || !lines.includes("worktree " + session)) return null;
+  return target.slice(top.length + 1);
+}
+
+/** True when a Markdown target is AI doctrine: under the repo root or another registered worktree of it, no ".." segment, under a DOCTRINE_PREFIXES entry. */
 function isDoctrinePath(cwd: string, target: string): boolean {
   if (target.split(/[\\/]/).includes("..")) return false;
   const rel = relative(cwd, resolve(cwd, target)).split(sep).join("/");
-  if (rel === "" || rel.startsWith("../") || isAbsolute(rel)) return false;
-  return DOCTRINE_PREFIXES.some((prefix) => (prefix.endsWith("/") ? rel.startsWith(prefix) && rel.length > prefix.length : rel === prefix));
+  if (relIsDoctrine(rel)) return true;
+  if (!isAbsolute(target)) return false;
+  const sibling = siblingWorktreeRel(cwd, target);
+  return sibling !== null && relIsDoctrine(sibling);
 }
 
 function controls(cwd: string): Controls {

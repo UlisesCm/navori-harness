@@ -31,7 +31,8 @@ import {
   renderPiParityDoc,
 } from "../../shared/pi-parity.ts";
 import { MIN_PI_VERSION } from "../runtime-version.ts";
-import { serializePiSource } from "../owned-file.ts";
+import { serializePiManifest, serializePiSource } from "../owned-file.ts";
+import { load } from "./fixtures/load-extension.ts";
 
 /**
  * Credential-free first-class cycle on the pinned Pi 1.1.0 runtime.
@@ -773,5 +774,70 @@ describe("Pi documented parity table", () => {
       (id) => ENGINE_CAPABILITIES.pi.controls[id].state,
     );
     expect(doc.slice(start, end + PI_PARITY_DOC_END.length)).toBe(generated);
+  });
+});
+
+describe("Pi implementer doctrine in registered worktrees", () => {
+  // Covers: #1330
+  it("allows doctrine in a registered sibling worktree and blocks everything else", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "navori-pi-wt-")));
+    dirs.push(root);
+    const git = (cwd: string, ...args: string[]): void => {
+      execFileSync("git", args, { cwd, stdio: "ignore" });
+    };
+    const host = join(root, "host");
+    const sibling = join(root, "sibling");
+    const other = join(root, "other");
+    for (const repo of [host, other]) {
+      mkdirSync(repo, { recursive: true });
+      git(repo, "init", "-q", "-b", "main");
+      git(
+        repo,
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "i",
+      );
+    }
+    git(host, "worktree", "add", "-q", "-b", "delivery", sibling);
+    mkdirSync(join(host, ".pi"), { recursive: true });
+    writeFileSync(
+      join(host, ".pi/navori.json"),
+      serializePiManifest({
+        schemaVersion: 2,
+        agents: ["implementer"],
+        controls: { planTiers: false, masterPlan: false, scribeOwnsMarkdown: true },
+        hooks: [],
+        ownedPaths: [],
+        permissionRules: { ask: [], deny: [] },
+      }),
+    );
+    symlinkSync(sibling, join(host, "link"));
+    const handler = load({
+      env: { NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "implementer" },
+    }).get("tool_call")!;
+    const run = (path: string) => handler({ toolName: "write", input: { path } }, { cwd: host });
+    for (const path of [
+      `${sibling}/.claude/agents/a.md`,
+      `${sibling}/packages/core/core-assets/skills/s.md`,
+      `${sibling}/.codex/orchestrator.md`,
+    ]) {
+      expect(await run(path), path).toBeUndefined();
+    }
+    for (const path of [
+      `${sibling}/docs/a.md`,
+      `${sibling}/progress/current.md`,
+      `${sibling}/.claude/agents-evil/a.md`,
+      `${other}/.claude/agents/a.md`,
+      `${host}/link/.claude/agents/a.md`,
+      `${sibling}/.claude/skills/../../progress/current.md`,
+    ]) {
+      expect(await run(path), path).toMatchObject({ block: true });
+    }
   });
 });
