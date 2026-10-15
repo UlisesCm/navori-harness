@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getCoreRoot } from "../../render/bundled-assets.ts";
 import { runMasterInit } from "../init.ts";
 import { readMasterStatus, writeMasterStatus } from "../status.ts";
 import { runMasterClose } from "../close.ts";
@@ -22,6 +23,7 @@ import { buildCheckContext } from "../checks.ts";
 import { scanMasterPlan } from "../../diagnose/master-plan.ts";
 import { readConfig } from "../../config/config.ts";
 import * as renderModule from "../../../commands/render.ts";
+import { masterCommand } from "../../../commands/master.ts";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -59,6 +61,80 @@ function snapshot(cwd: string): string {
   }
   return walk(cwd).sort().join("\n");
 }
+
+describe("master-plan architect context contract", () => {
+  // Covers: R5
+  it("makes the canonical skill consume architectContext from status JSON without the stale name", () => {
+    const skill = readFileSync(join(getCoreRoot(), "core-assets/skills/master-plan.md"), "utf8");
+    expect(skill.match(/contextForArchitects/g)).toBeNull();
+    expect(skill).toContain("incluye `architectContext` de `status --json`");
+    expect(skill).toContain("El campo `architectContext` es la fuente de estas rutas");
+    expect(skill).toContain("En `architectContext`, conserva explícitamente la lista de etapas");
+  });
+});
+
+describe("master-plan inherited mode contract", () => {
+  // Covers: R6
+  it("inherits en-curso from init for stages >= 2 without calling mode, preserving first-stage consent", () => {
+    const skill = readFileSync(join(getCoreRoot(), "core-assets/skills/master-plan.md"), "utf8");
+    const notice = skill.slice(
+      skill.indexOf("## Aviso de inicio"),
+      skill.indexOf("## Mensaje de fase"),
+    );
+    const firstStage = notice.match(/Solo para la primera etapa[^.]*\./)?.[0] ?? "";
+    const laterStages = notice.match(/En etapas posteriores[^.]*\./)?.[0] ?? "";
+
+    expect(firstStage).toMatch(/primera pregunta[^.]*modo `desde-cero`, `template` o `en-curso`/);
+    expect(firstStage).toContain("con la sugerencia del CLI primero y como recomendación");
+    expect(firstStage).toMatch(/registra la elección con `navori master mode`/);
+    expect(laterStages).toMatch(/(?:≥\s*2|>=\s*2|mayor o igual a 2)/);
+    expect(laterStages).toContain("`navori master init`");
+    expect(laterStages).toMatch(/hereda[^.]*automáticamente|automáticamente[^.]*hereda/);
+    expect(laterStages).toContain("`en-curso`");
+    expect(laterStages).toContain("sin preguntar");
+    expect(laterStages).toMatch(/(?:no|nunca) invo(?:ques|car) `navori master mode`/);
+    expect(laterStages).not.toMatch(/registra[^.]*`en-curso`/);
+    expect(notice).toContain("Sin confirmación no escribas nada");
+    expect(notice).toContain("Cada aviso requiere confirmación");
+    expect(notice).toMatch(/solo después de confirmar[^.]*`navori master init <slug>`/);
+  });
+});
+
+// Covers: R14
+it("routes default legacy and deliveries explicitly after readonly status using supported commands", () => {
+  const skill = readFileSync(join(getCoreRoot(), "core-assets/skills/master-plan.md"), "utf8");
+  const route = skill.slice(
+    skill.indexOf("## Ruteo de etapa"),
+    skill.indexOf("## Aviso de inicio"),
+  );
+  const status = route.indexOf("navori master status --json");
+  expect(status).toBeGreaterThanOrEqual(0);
+  const branch = route.slice(status);
+  expect(branch).toMatch(/legacy[^\n]*(?:defecto|ausente)|(?:defecto|ausente)[^\n]*legacy/);
+  expect(branch).toContain('`workflow: "deliveries"`');
+  expect(branch).toMatch(/(?:solo|únicamente)[^\n]*delivery-/);
+  for (const command of [
+    "delivery-check",
+    "delivery-baseline",
+    "delivery-queue",
+    "delivery-slice",
+    "delivery-criterion",
+    "delivery-review",
+    "delivery-present",
+    "delivery-decision",
+    "delivery-publication",
+  ])
+    expect(branch).toContain(`navori master ${command}`);
+  const commands = [...skill.matchAll(/navori master (delivery-[a-z-]+)/g)].map(
+    (match) => match[1],
+  );
+  expect(
+    commands.every((command) => Object.hasOwn(masterCommand.subCommands ?? {}, command!)),
+  ).toBe(true);
+  expect(route).toContain("no escribas ni cambies configuración");
+  expect(branch).toMatch(/(?:consentimiento|confirmación|aprobación)/);
+  expect(branch).toMatch(/(?:no|sin)[^\n]*(?:legacy|fases)/);
+});
 
 describe("deliveries D1 foundation", () => {
   it("persists selection in registry2, resumes without flag, and preserves MASTER bytes", () => {
@@ -162,7 +238,11 @@ describe("deliveries D1 foundation", () => {
     writeFileSync(join(stage(cwd), "parts.json"), JSON.stringify({ version: 1, parts: [] }));
     const before = snapshot(cwd);
     expect(() => runMasterInit(cwd, undefined)).toThrow(/parts.json/);
-    expect(() => writeMasterStatus(cwd)).toThrow(/parts.json/);
+    // R26: status no longer throws; it names the invalid parts.json as a blocker.
+    expect(readMasterStatus(cwd)).toMatchObject({
+      workflow: "deliveries",
+      blockers: [expect.stringContaining("parts.json inválido")],
+    });
     expect(snapshot(cwd)).toBe(before);
   });
 
@@ -261,5 +341,52 @@ describe("deliveries D1 foundation", () => {
     expect(() => runMasterInit(resumed, undefined)).toThrow(/outside repository/);
     expect(snapshot(resumed)).toBe(before);
     expect(readdirSync(external)).toEqual([]);
+  });
+});
+
+describe("master-plan skill alignment with the CLI", () => {
+  // Covers: R17
+  it("el skill indica check --part P<n>, commit antes de --accept, template parts, status tras marcar tareas y evidenceBlockers antes de cerrar", () => {
+    const skill = readFileSync(join(getCoreRoot(), "core-assets/skills/master-plan.md"), "utf8");
+    expect(skill).toContain("`navori master check --part P<n>`");
+    expect(skill).toContain(
+      "tras hacer commit del código probado, con `navori master part P<n> --accept",
+    );
+    expect(skill).toContain("`navori master template parts`");
+    expect(skill).toContain(
+      "Tras marcar tareas de la spec, genera o actualiza `STATUS.md` con `navori master status`",
+    );
+    expect(skill).toContain("`closable` verdadero y `evidenceBlockers` vacío");
+    expect(skill).toContain("o hay `evidenceBlockers`");
+    expect(skill).toContain("o después solo si no hay partes");
+  });
+
+  // Covers: R46
+  it("master-plan lista los subcomandos que mutan, la apertura deliveries y delivery-revoke", () => {
+    const skill = readFileSync(
+      join(getCoreRoot(), "core-assets/skills/master-plan.md"),
+      "utf8",
+    ).replace(/\s+/g, " ");
+    for (const sub of [
+      "init",
+      "ux",
+      "mode",
+      "advance",
+      "part",
+      "close",
+      "delivery-baseline",
+      "delivery-queue",
+      "delivery-slice",
+      "delivery-criterion",
+      "delivery-review",
+      "delivery-present",
+      "delivery-decision",
+      "delivery-publication",
+      "delivery-revoke",
+    ]) {
+      expect(skill, `falta \`navori master ${sub}\``).toContain(`\`navori master ${sub}\``);
+    }
+    expect(skill).toContain("`navori master init <slug> --workflow deliveries`");
+    expect(skill).toContain("`navori master delivery-revoke` solo");
   });
 });

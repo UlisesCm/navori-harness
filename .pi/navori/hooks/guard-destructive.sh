@@ -1,4 +1,4 @@
-# navori:managed start id="guard-destructive-base" hash="7b3eb228" version="0.12.0" source="@navori/core"
+# navori:managed start id="guard-destructive-base" hash="04dcb15a" version="0.12.1" source="@navori/core"
 #!/usr/bin/env bash
 #
 # Defensive PreToolUse(Bash) guard.
@@ -404,7 +404,7 @@ fi
 # branchBase is shell-quoted at render time via the shq: marker (#197): a
 # hostile branchBase in navori.config.json lands here as an inert literal,
 # never executable.
-base='main'
+base='dev'
 
 # Spec 0048 D15: the shared `deny` and `ask` permission rules, one `deny|ask <token> ...` line each, rendered ONLY
 # into the Pi copy (`extraVars.piPermissionRules`, from the same translation Codex's rules file
@@ -565,7 +565,15 @@ ask navori master mode
 ask navori master ux
 ask navori master advance
 ask navori master part
-ask navori master close'
+ask navori master close
+ask navori master delivery-baseline
+ask navori master delivery-queue
+ask navori master delivery-criterion
+ask navori master delivery-review
+ask navori master delivery-decision
+ask navori master delivery-publication
+ask navori master delivery-revoke
+ask navori plan escalation-reset'
 
 block() {
   echo "[navori] BLOCKED by guard-destructive: $1" >&2

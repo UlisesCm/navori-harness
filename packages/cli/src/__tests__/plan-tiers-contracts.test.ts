@@ -105,6 +105,86 @@ describe("harness.planTiers on — R6, R8, R22: the block reaches the injected c
     // 250-word ceiling is a small fraction of the 8000-char session budget).
     expect(planificacion!.chars).toBeLessThan(SESSION_CONTEXT_DELIVERY_BUDGET_CHARS);
   });
+
+  // Covers: R40
+  it("con planTiers el contexto inline trae precondición, regla sin ruta inline y spec aunque orquestacion sea puntero", () => {
+    const cwd = freshDir();
+    renderClaudeEngine(cwd, configWithTiers());
+    // A field-sized `progress/current.md` pushes `10-orquestacion.md` past the
+    // budget: it degrades to a pointer, while `05-` (first in order) stays inline.
+    const files = contextFiles(cwd).map((f) =>
+      f.path.endsWith("10-orquestacion.md") ? { ...f, chars: 9000 } : f,
+    );
+    const delivered = simulateContextDelivery(files);
+    expect(delivered.find((f) => f.path.endsWith("10-orquestacion.md"))?.delivered).toBe("pointer");
+    expect(delivered.find((f) => f.path.endsWith("05-planificacion.md"))?.delivered).toBe("inline");
+
+    const text = readFileSync(join(cwd, CONTEXT_DIR, "05-planificacion.md"), "utf-8").replace(
+      /\s+/g,
+      " ",
+    );
+    expect(text).toContain("Plan precondition:");
+    expect(text).toContain(
+      "every code write goes through `implementer` → `reviewer`, with no inline route",
+    );
+    expect(text).toContain("spec: <spec> E<n> M<n>");
+    expect(text).not.toContain("see `orquestacion`");
+  });
+
+  // Covers: R6
+  it("planificacion declara nivel-0 con feature y que el gate no ve el diff real", () => {
+    const cwd = freshDir();
+    renderClaudeEngine(cwd, configWithTiers());
+    const text = readFileSync(join(cwd, CONTEXT_DIR, "05-planificacion.md"), "utf-8").replace(
+      /\s+/g,
+      " ",
+    );
+    expect(text).toContain("nivel-0: <path>[,<path>] <feature>");
+    // The old one-token grammar must not survive anywhere in the block.
+    expect(text).not.toMatch(/nivel-0: <path>(?![[ ])/);
+    expect(text).toContain("the gate checks only the declared path, never the real diff");
+    expect(text).toContain("a feature with a workplan opens with `workplan: <feature>`");
+  });
+});
+
+/**
+ * Spec 0052 (R42, R45, R47) — the reviewer's and plan-advanced's rendered
+ * doctrine about evidence codes, phase receipts and the local-attestation caveat.
+ */
+describe("reviewer / plan-advanced — spec 0052 doctrine", () => {
+  function rendered(rel: string): string {
+    const cwd = freshDir();
+    renderClaudeEngine(cwd, {
+      ...CONFIG_BASE,
+      harness: { planTiers: true },
+    } as unknown as NavoriConfig);
+    return readFileSync(join(cwd, rel), "utf-8").replace(/\s+/g, " ");
+  }
+
+  // Covers: R42
+  it("reviewer rechaza progress-unevidenced y stale pero no unevidenced-accepted", () => {
+    const reviewer = rendered(".claude/agents/reviewer.md");
+    expect(reviewer).toContain(
+      "`progress-unevidenced` or `progress-evidence-stale` → `CHANGES_REQUESTED`",
+    );
+    expect(reviewer).toContain("`progress-unevidenced-accepted` is not a rejection");
+  });
+
+  // Covers: R45
+  it("reviewer documenta receipt gate --phase para workplans con fases", () => {
+    const reviewer = rendered(".claude/agents/reviewer.md");
+    expect(reviewer).toContain("`navori receipt gate --feature <feature> --phase <phase>`");
+  });
+
+  // Covers: R47
+  it("reviewer declara el recibo y el reset como atestación local y CODEX_THREAD_ID", () => {
+    const reviewer = rendered(".claude/agents/reviewer.md");
+    const advanced = rendered(".claude/skills/plan-advanced/SKILL.md");
+    for (const text of [reviewer, advanced]) {
+      expect(text).toContain("local attestations without authentication");
+      expect(text).toContain("`CODEX_THREAD_ID`");
+    }
+  });
 });
 
 /**

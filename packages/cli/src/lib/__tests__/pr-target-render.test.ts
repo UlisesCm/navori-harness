@@ -7,13 +7,13 @@ const read = (rel: string): string => readFileSync(resolve(REPO_ROOT, rel), "utf
 
 describe("prTarget of this repo (spec 0044)", () => {
   // Covers: R20
-  it("reviewer y publisher apuntan a main en los tres motores", () => {
+  it("reviewer y publisher apuntan a dev en los tres motores", () => {
     const config = JSON.parse(read("navori.config.json")) as {
       prTarget?: string;
       branchBase?: string;
     };
-    expect(config.prTarget).toBe("main");
-    expect(config.branchBase).toBe("main");
+    expect(config.prTarget).toBe("dev");
+    expect(config.branchBase).toBe("dev");
 
     const rendered = [
       ".claude/agents/reviewer.md",
@@ -26,10 +26,10 @@ describe("prTarget of this repo (spec 0044)", () => {
     for (const rel of rendered) {
       expect(existsSync(resolve(REPO_ROOT, rel)), rel).toBe(true);
       const text = read(rel);
-      expect(text, rel).toContain("origin/main");
-      expect(text, rel).not.toContain("origin/dev");
-      expect(text, rel).not.toContain("--base dev");
-      if (rel.includes("publisher")) expect(text, rel).toContain("--base main");
+      expect(text, rel).toContain("origin/dev");
+      expect(text, rel).not.toContain("origin/main");
+      expect(text, rel).not.toContain("--base main");
+      if (rel.includes("publisher")) expect(text, rel).toContain("--base dev");
     }
   });
 });

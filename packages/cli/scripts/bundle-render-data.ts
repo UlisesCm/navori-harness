@@ -95,7 +95,7 @@ export function encodeBridgeRenderData(
   )
     throw new Error("Unsupported render data target expression");
   const quasi = node(init.quasi);
-  const expected = id === bridgeModule ? 0 : 10;
+  const expected = id === bridgeModule ? 0 : 11;
   if (
     !Array.isArray(quasi.expressions) ||
     quasi.expressions.length !== expected ||

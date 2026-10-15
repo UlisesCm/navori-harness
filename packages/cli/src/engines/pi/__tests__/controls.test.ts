@@ -277,4 +277,35 @@ describe("Pi control mappings", () => {
       await call({ toolName: "bash", input: { command: "cat > task.md" } }, { cwd }),
     ).toBeUndefined();
   });
+
+  // Covers: R49
+  it("Pi deja al implementer escribir doctrina de IA y bloquea el resto del Markdown", async () => {
+    const cwd = fixture({ scribeOwnsMarkdown: true });
+    const child = loadRuntime({ NAVORI_PI_CHILD_DEPTH: "1", NAVORI_PI_CHILD_ROLE: "implementer" });
+    const call = child.handlers.get("tool_call")!;
+    for (const path of [
+      "packages/core/core-assets/agents/implementer.md",
+      ".claude/skills/x/SKILL.md",
+      ".codex/orchestrator.md",
+      ".agents/skills/x/SKILL.md",
+      // `.pi/navori/` is in the list too, but Pi's managed lane refuses it first (D4); not asserted here.
+      join(cwd, ".claude/agents/a.md"),
+    ]) {
+      expect(await call({ toolName: "write", input: { path } }, { cwd }), path).toBeUndefined();
+    }
+    for (const path of [
+      "progress/current.md",
+      "specs/x/tasks.md",
+      "docs/a.md",
+      "README.md",
+      ".navori/state/handoffs/x.md",
+      ".claude/skills/../../progress/current.md",
+      join(cwd, "../elsewhere/.claude/agents/a.md"),
+    ]) {
+      expect(await call({ toolName: "edit", input: { path } }, { cwd }), path).toMatchObject({
+        block: true,
+        reason: expect.stringContaining(".claude/agents/"),
+      });
+    }
+  });
 });

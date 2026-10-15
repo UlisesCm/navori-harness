@@ -240,14 +240,19 @@ export function deliveryPartAuthority(
  * Fingerprint the whole worktree, excluding only this stage's own `state.json`
  * and `STATUS.md` (the lifecycle files this tooling rewrites). Any other change
  * (code, MASTER.md, sibling stages, the global receipt) alters the fingerprint.
+ * `readOnly` computes the same tree id without writing git objects or the index
+ * (status path); writers keep the default.
  */
 export function deliveryProofTree(
   cwd: string,
   stagePath: string,
+  options: { readOnly?: boolean } = {},
 ): { head: string; worktreeTree: string } {
-  const fingerprint = fingerprintTree(cwd, {
-    stagePath: relative(realpathSync(cwd), realpathSync(stagePath)).split(sep).join("/"),
-  });
+  const fingerprint = fingerprintTree(
+    cwd,
+    { stagePath: relative(realpathSync(cwd), realpathSync(stagePath)).split(sep).join("/") },
+    options.readOnly ? { readOnly: true } : {},
+  );
   if (!fingerprint.ok) throw new Error(fingerprint.reason);
   return { head: readHead(cwd), worktreeTree: fingerprint.tree };
 }
@@ -294,7 +299,7 @@ export function approveDeliveryBaseline(
   if (state.baseline?.identity === identity) return { identity, unchanged: true };
   if (state.authorization)
     throw new Error(
-      "changed baseline requires explicit queue revision; existing authorization retained",
+      "changed baseline requires explicit queue revision; revoke with 'navori master delivery-revoke' and approve baseline and queue again; existing authorization retained",
     );
   const fresh = recheckPrepared(cwd, before, identity, "baseline approval");
   fresh.state.baseline = {
@@ -467,6 +472,7 @@ function proofQueue(
 export function effectiveDeliveryPart(
   cwd: string,
   partId: string,
+  options: { readOnly?: boolean } = {},
 ): NonNullable<DeliveryState["verifiedParts"]>[number] {
   const context = deliveryAuthority(cwd);
   const part = context.checked.parts.find((entry) => entry.id === partId);
@@ -478,7 +484,7 @@ export function effectiveDeliveryPart(
     review.authorityGeneration !== context.state.authorityGeneration
   )
     throw new Error(`${partId}: current technical review is missing`);
-  const tree = deliveryProofTree(cwd, context.stagePath);
+  const tree = deliveryProofTree(cwd, context.stagePath, options);
   const stagePath = relative(realpathSync(cwd), realpathSync(context.stagePath))
     .split(sep)
     .join("/");
@@ -601,12 +607,15 @@ export function assertDeliveryEligibility(cwd: string, partId: string): void {
 export function reviewedDeliveryIdentity(
   cwd: string,
   deliveryId: string,
+  options: { readOnly?: boolean } = {},
 ): { identity: string; partIdentities: string[]; tree: { head: string; worktreeTree: string } } {
   const context = deliveryAuthority(cwd);
   const delivery = context.checked.deliveries.find((entry) => entry.id === deliveryId);
   if (!delivery) throw new Error("unknown delivery");
-  const partIdentities = delivery.partIds.map((id) => effectiveDeliveryPart(cwd, id).identity);
-  const tree = deliveryProofTree(cwd, context.stagePath);
+  const partIdentities = delivery.partIds.map(
+    (id) => effectiveDeliveryPart(cwd, id, options).identity,
+  );
+  const tree = deliveryProofTree(cwd, context.stagePath, options);
   return {
     identity: deliveryDigest([
       context.identity,
@@ -654,7 +663,11 @@ export function presentDelivery(
 }
 
 /** Current unimplemented scope identity for explicit reasoned deferral/discard. */
-export function deliveryScopeIdentity(cwd: string, deliveryId: string): string {
+export function deliveryScopeIdentity(
+  cwd: string,
+  deliveryId: string,
+  options: { readOnly?: boolean } = {},
+): string {
   const context = deliveryAuthority(cwd);
   const delivery = context.checked.deliveries.find((entry) => entry.id === deliveryId);
   if (!delivery) throw new Error("unknown delivery");
@@ -662,7 +675,7 @@ export function deliveryScopeIdentity(cwd: string, deliveryId: string): string {
     context.identity,
     context.state.authorityGeneration,
     delivery,
-    deliveryProofTree(cwd, context.stagePath).worktreeTree,
+    deliveryProofTree(cwd, context.stagePath, options).worktreeTree,
   ]);
 }
 
@@ -801,17 +814,22 @@ export function deliveryLifecycle(cwd: string): {
   const blockers: string[] = [],
     pendingPublication: string[] = [];
   const deliveries = context.checked.deliveries.map((delivery) => {
-    const scopeIdentity = deliveryScopeIdentity(cwd, delivery.id);
+    const scopeIdentity = deliveryScopeIdentity(cwd, delivery.id, { readOnly: true });
     const lastPresentation = context.state.presentations
       ?.filter((entry) => entry.deliveryId === delivery.id)
       .at(-1);
     let presentedIdentity: string | null = null;
+    // A stale proof never supplies a consent target, but its cause is named, not swallowed.
+    let staleCause: string | null = null;
     try {
-      const reviewed = reviewedDeliveryIdentity(cwd, delivery.id).identity;
+      const reviewed = reviewedDeliveryIdentity(cwd, delivery.id, { readOnly: true }).identity;
       if (lastPresentation?.identity === reviewed) presentedIdentity = reviewed;
-    } catch {
-      /* Stale proof never supplies a consent target. */
+      else if (lastPresentation) staleCause = "el árbol cambió desde la presentación";
+    } catch (cause: unknown) {
+      if (lastPresentation) staleCause = cause instanceof Error ? cause.message : String(cause);
     }
+    if (staleCause)
+      blockers.push(`${delivery.id}: la prueba técnica quedó obsoleta: ${staleCause}`);
     const last = context.state.decisions
       ?.filter((entry) => entry.deliveryId === delivery.id)
       .at(-1);

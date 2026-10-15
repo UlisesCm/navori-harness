@@ -742,11 +742,10 @@ function listenerLines(source: string): string[] {
 
 /** A top-level source function, bounded by its unindented closing brace. */
 function sourceFunction(source: string, name: string): string {
-  const body = new RegExp(`(?:export )?async function ${name}\\([\\s\\S]*?^}`, "m").exec(
-    source,
-  )?.[0];
-  if (!body) throw new Error(`missing listener boundary: ${name}`);
-  return body;
+  for (const match of source.matchAll(/^(?:export )?async function ([$\w]+)\([\s\S]*?^}/gm)) {
+    if (match[1] === name) return match[0];
+  }
+  throw new Error(`missing listener boundary: ${name}`);
 }
 
 /**
@@ -774,6 +773,28 @@ function* walk(dir: string): Generator<string> {
 }
 
 describe("invariante 9 (#0021, R9)", () => {
+  it.each(["", "export "])(
+    "bounds a %sasync function by its top-level closing brace",
+    (prefix: string) => {
+      const body = `${prefix}async function target(\n  input: string,\n) {\n  if (input) {\n    return input;\n  }\n}`;
+      const source = `async function targetExtra() {\n}\n${body}\nasync function after() {\n}`;
+      expect(sourceFunction(source, "target")).toBe(body);
+    },
+  );
+
+  it("fails closed for missing names or closing boundaries and treats names literally", () => {
+    const source = "async function target() {\n  return true;\n}";
+    for (const name of ["missing", "tar", "target.*", "(target)", "target|missing"]) {
+      expect(() => sourceFunction(source, name)).toThrow(`missing listener boundary: ${name}`);
+    }
+    expect(() => sourceFunction("async function target() {\n  if (true) {\n  }", "target")).toThrow(
+      "missing listener boundary: target",
+    );
+    expect(() => sourceFunction("  async function target() {\n}", "target")).toThrow(
+      "missing listener boundary: target",
+    );
+  });
+
   // Covers: R9
   it("only the receiver and two declared bounded Codex owners contain listeners", () => {
     const offenders: string[] = [];

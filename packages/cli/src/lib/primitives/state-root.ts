@@ -66,7 +66,13 @@ export function checkoutRoot(cwd: string): string {
     cwd: requested,
     encoding: "utf8",
   });
-  if (result.error || result.status !== 0) throw new Error(`--cwd is not a Git checkout: ${cwd}`);
+  if (result.error) {
+    const code = (result.error as NodeJS.ErrnoException).code;
+    throw new Error(
+      `failed to run git for --cwd ${cwd}: ${code ? `${code}: ` : ""}${result.error.message}`,
+    );
+  }
+  if (result.status !== 0) throw new Error(`--cwd is not a Git checkout: ${cwd}`);
   const top = result.stdout.trim();
   const canonical = realpathSync(top);
   const physicalRequested = realpathSync(requested);

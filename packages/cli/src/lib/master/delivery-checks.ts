@@ -22,13 +22,9 @@ export interface SpecDeliveryRef {
  * authority or queues.
  */
 export function deliveryIdsForSpec(cwd: string, specPath: string): SpecDeliveryRef[] | null {
-  let specsDir = "specs";
+  const specsDir = specsDirOf(cwd);
   let stage;
   try {
-    const configPath = join(cwd, "navori.config.json");
-    if (existsSync(configPath)) {
-      specsDir = readConfig(configPath).sdd?.specsDir ?? specsDir;
-    }
     stage = activeStage(readMasterIndex(cwd, specsDir));
   } catch {
     return null;
@@ -100,6 +96,26 @@ function cycle(
     if (found) return found;
   }
   return null;
+}
+
+function specsDirOf(cwd: string): string {
+  const configPath = join(cwd, "navori.config.json");
+  try {
+    return (existsSync(configPath) ? readConfig(configPath).sdd?.specsDir : undefined) ?? "specs";
+  } catch {
+    return "specs";
+  }
+}
+
+/** A `parts.json` spec must exist physically inside `specsDir` (same pattern as `status.ts` `safeSpec`). */
+function containedSpec(cwd: string, specsDir: string, spec: string): boolean {
+  const root = resolve(cwd, specsDir);
+  const target = resolve(cwd, spec);
+  if (target !== root && !target.startsWith(`${root}${sep}`)) return false;
+  if (!existsSync(target) || !existsSync(root)) return false;
+  const realRoot = realpathSync(root);
+  const real = realpathSync(target);
+  return real === realRoot || real.startsWith(`${realRoot}${sep}`);
 }
 
 /** Resolve only existing, physically contained source/design files. */
@@ -244,6 +260,10 @@ export function checkDeliveryPreparation(
     if (doc.design.ui === "new" && !parts.get(doc.design.foundationPartId)?.foundation)
       blockers.push("new UI needs a declared foundation part");
   }
+  const specsDir = specsDirOf(cwd);
+  for (const part of doc.parts)
+    if (part.spec !== null && !containedSpec(cwd, specsDir, part.spec))
+      blockers.push(`${part.id}: spec is missing or outside ${specsDir}`);
   const design = doc.design;
   const designBytes =
     design.ui === "none"

@@ -64,7 +64,7 @@ export function scanMasterPlan(cwd: string, config: NavoriConfig): MasterPlanDia
       if (!existsSync(partsPath))
         issues.push({
           kind: "deliveries-pending",
-          detail: `${active.dir}: preparation pending; not ready for delivery`,
+          detail: `${active.dir}: parts.json missing; write it, then run navori master delivery-check`,
         });
       else {
         try {
@@ -78,7 +78,7 @@ export function scanMasterPlan(cwd: string, config: NavoriConfig): MasterPlanDia
             checked.parts
               ? {
                   kind: "deliveries-pending",
-                  detail: `${active.dir}: ${checked.blockers.length ? checked.blockers.join("; ") : "preparation ready"}; execution not ready for delivery`,
+                  detail: `${active.dir}: ${checked.blockers.length ? `${checked.blockers.join("; ")}; fix them and rerun navori master delivery-check` : "preparation ready; next: navori master delivery-baseline"}`,
                 }
               : {
                   kind: "invalid-state",

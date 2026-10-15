@@ -504,4 +504,35 @@ describe("criteria shaped `cd <dir> && ...` (host persists cd)", () => {
       rmSync(outside, { recursive: true, force: true });
     }
   });
+
+  // Covers: R14
+  it("cd dentro de una cadena && vale como cwd y el rechazo por cwd no repite el comando", () => {
+    mkdirSync(join(cwd, "a/b"), { recursive: true });
+    const chain = "cd a && echo x && cd b && bun test x";
+    writeLog([logLine({ command: chain, cwd: join(cwd, "a/b") })]);
+    expect(validate(chain).ok).toBe(true);
+
+    for (const command of [
+      "cd a; cd b && x",
+      "cd a || cd b && x",
+      "(cd a) && cd b && x",
+      "cd a && cd `echo b` && x",
+      "cd a && cd $(echo b) && x",
+      "cd a && cd .. && cd a/b && x",
+      "pushd a && cd b && x",
+    ]) {
+      writeLog([logLine({ command, cwd: join(cwd, "a/b") })]);
+      expect(validate(command).ok, command).toBe(false);
+    }
+
+    const bad = "cd a && bun test x";
+    writeLog([logLine({ command: bad, cwd: join(cwd, "a/b") })]);
+    const verdict = validate(bad);
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) {
+      expect(verdict.fix).toContain(`cd ${cwd}`);
+      expect(verdict.fix).toContain("change the criterion's `command`");
+      expect(verdict.fix).not.toContain(`run exactly:\n         ${bad}`);
+    }
+  });
 });

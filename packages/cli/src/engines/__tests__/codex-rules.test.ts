@@ -133,6 +133,16 @@ describe("buildCodexRules — translation (spec 0035 D5)", () => {
 });
 
 describe("Codex permission translation guarantees (spec 0041)", () => {
+  // Covers: R9
+  it("translates the escalation-reset ask rule to a Codex prompt, never an allow", () => {
+    const rules = collectShellPermissionRules(MINIMAL_CONFIG, []);
+    expect(rules.ask).toContain("Bash(navori plan escalation-reset:*)");
+    expect(rules.allow).not.toContain("Bash(navori plan escalation-reset:*)");
+    expect(buildCodexRules(rules).body).toMatch(
+      /pattern = \["navori", "plan", "escalation-reset"\][\s\S]*?decision = "prompt"/,
+    );
+  });
+
   // Covers: R14, R15
   it("never emits allow, even for the real merged rule set", () => {
     const rules = collectShellPermissionRules(MINIMAL_CONFIG, []);
@@ -163,5 +173,30 @@ describe("Codex permission translation guarantees (spec 0041)", () => {
       row.registration ? [row.registration.event] : [],
     );
     expect(events).not.toContain("PermissionRequest");
+  });
+});
+
+describe("navori.rules delivery confirmations (spec 0052 R36)", () => {
+  // Covers: R36
+  it("navori.rules pide confirmación de los delivery que aprueban, deciden, publican o revocan", () => {
+    const { body } = buildCodexRules(collectShellPermissionRules(MINIMAL_CONFIG, []));
+    for (const sub of [
+      "baseline",
+      "queue",
+      "criterion",
+      "review",
+      "decision",
+      "publication",
+      "revoke",
+    ]) {
+      expect(body).toMatch(
+        new RegExp(
+          `pattern = \\["navori", "master", "delivery-${sub}"\\],\\n    decision = "prompt"`,
+        ),
+      );
+    }
+    for (const sub of ["check", "slice", "present"]) {
+      expect(body).not.toContain(`delivery-${sub}`);
+    }
   });
 });

@@ -144,9 +144,9 @@ describe("doctor master-plan diagnostics", () => {
     );
     expect(doctor(cwd).report.masterPlan).toContainEqual({
       kind: "deliveries-pending",
-      detail: expect.stringContaining("not ready"),
+      detail: expect.stringContaining("navori master delivery-check"),
     });
-    expect(doctor(cwd, false).output).toContain("not ready for delivery");
+    expect(doctor(cwd, false).output).toContain("navori master delivery-check");
     const source = "RN-1\n";
     writeFileSync(join(cwd, "requirements.txt"), source);
     // Diagnostics need one valid source-backed contract, not an independently
@@ -233,6 +233,36 @@ describe("doctor master-plan diagnostics", () => {
       detail: expect.stringContaining("01-bootstrap"),
     });
     expect(doctor(cwd, false).output).toContain("_master/state.json");
+  });
+  // Covers: R32
+  it("deliveries-pending nombra el siguiente subcomando y no dice ejecución no disponible", () => {
+    const cwd = repo(true);
+    writeDeliveryIndex(cwd);
+    const stage = join(cwd, "specs", "_master", "01-bootstrap");
+    writeFileSync(
+      join(stage, "state.json"),
+      JSON.stringify({
+        version: 2,
+        workflow: "deliveries",
+        phase: "context",
+        mode: null,
+        signal: {
+          commits: null,
+          firstCommit: null,
+          filesChangedSinceFirst: null,
+          framework: null,
+          libraries: [],
+          suggested: "template",
+        },
+        history: [],
+      }),
+    );
+    const details = doctor(cwd)
+      .report.masterPlan.filter((item) => item.kind === "deliveries-pending")
+      .map((item) => item.detail);
+    expect(details).toHaveLength(1);
+    expect(details[0]).toContain("navori master delivery-check");
+    expect(details[0]).not.toMatch(/not ready|execution/);
   });
   // Covers: R4, R49, R50
   it("scans every registry state directly for coverage", () => {

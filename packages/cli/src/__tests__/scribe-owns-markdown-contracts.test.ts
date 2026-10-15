@@ -119,6 +119,22 @@ describe("scribe.md — flag ON carries the R5/R6/R7 contract", () => {
   });
 });
 
+describe("implementer.md + scribe.md — Markdown split by doctrine and status (R49)", () => {
+  // Covers: R49
+  it("implementer y scribe declaran la división del Markdown por doctrina y estado", () => {
+    const implementer = renderedAgent("implementer", true);
+    expect(implementer).toContain("AI doctrine");
+    expect(implementer).toContain("packages/core/core-assets/{agents,skills,managed,hooks}/");
+    expect(implementer).toContain("navori render --apply");
+    expect(implementer).toMatch(/never with Bash/);
+    const scribe = renderedAgent("scribe", true);
+    expect(scribe).toMatch(/implementer.*writes AI doctrine itself/);
+    expect(scribe).toContain("`progress/`");
+    // Flag OFF keeps the pre-spec text: no doctrine split.
+    expect(renderedAgent("implementer", false)).not.toContain("AI doctrine");
+  });
+});
+
 // Covers: R8, R9
 describe("orchestrator.md + orquestacion.md — flag OFF keeps the current chain (R13)", () => {
   it("orchestrator.md: no scribe leg, no per-dispatch model rule", () => {

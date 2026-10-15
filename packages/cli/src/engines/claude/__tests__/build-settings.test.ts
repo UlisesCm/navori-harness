@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildClaudeSettings } from "../build-settings.ts";
 import type { NavoriConfig } from "../../../lib/config/config.ts";
 import { loadPlugin, type LoadedPlugin } from "../../../lib/config/plugins.ts";
+import { buildCodexRules } from "../../codex/build-rules.ts";
 import { readCliVersion } from "../../../lib/render/bundled-assets.ts";
 
 const MINIMAL_CONFIG = {
@@ -55,6 +56,17 @@ describe("buildClaudeSettings — base shape", () => {
     const allow = (s.permissions as { allow: string[] }).allow;
     expect(allow).toContain("Bash(git status*)");
     expect(allow).toContain("Bash(git diff*)");
+  });
+
+  // Covers: R48
+  it("allow incluye navori plan render y plan update y Codex no traduce allow", () => {
+    const s = buildClaudeSettings(MINIMAL_CONFIG, []);
+    const perms = s.permissions as { allow: string[]; ask: string[]; deny: string[] };
+    expect(perms.allow).toContain("Bash(navori plan render:*)");
+    expect(perms.allow).toContain("Bash(navori plan update:*)");
+    const { body } = buildCodexRules({ allow: perms.allow, ask: [], deny: [] });
+    expect(body).not.toContain("render");
+    expect(body).not.toContain("update");
   });
 
   it("ships read-only allow entries so trivial reads don't prompt (native tools + file inspection)", () => {
@@ -462,7 +474,7 @@ describe("buildClaudeSettings — recursive-rm permissions are a derived cross p
     expect(observed).toEqual([...MATCHING_SEMANTICS]);
   });
 
-  // Keep the `:*` model bounded to the seven intentionally prompted commands.
+  // Keep the `:*` model bounded to the eight intentionally prompted commands.
   it("recognizes only the intended `:*` ask entries, never a deny entry", () => {
     const { ask, deny } = permissions();
     expect(ask.filter((entry) => entry.includes(":"))).toEqual([
@@ -473,6 +485,14 @@ describe("buildClaudeSettings — recursive-rm permissions are a derived cross p
       "Bash(navori master advance:*)",
       "Bash(navori master part:*)",
       "Bash(navori master close:*)",
+      "Bash(navori master delivery-baseline:*)",
+      "Bash(navori master delivery-queue:*)",
+      "Bash(navori master delivery-criterion:*)",
+      "Bash(navori master delivery-review:*)",
+      "Bash(navori master delivery-decision:*)",
+      "Bash(navori master delivery-publication:*)",
+      "Bash(navori master delivery-revoke:*)",
+      "Bash(navori plan escalation-reset:*)",
     ]);
     expect(deny.filter((entry) => entry.includes(":"))).toEqual([]);
   });

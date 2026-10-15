@@ -122,6 +122,38 @@ El gate rechazaba `spec: <spec> E<n> M<n>` porque solo parseaba workplan/nivel-0
 
 Auditoría y challenge completados; usuario aprobó el plan. Suite específica 84/84, reviewer APPROVED y gate completo exit 0: 418 archivos, 8582 tests aprobados, dos omitidos y cero fallos; coverage floor verde. Recibo vigente para `main`, review sellado y correlacionado. La acreditación automática de señal Bash no está disponible en esta sesión; se conserva la evidencia de ejecución sin inventar autoridad. Activación global y smoke vivo pendientes. Siguiente paso: publicar el fix y retomar E1 de 0050 con su workplan aprobado; el scaffold ya está integrado por #1308.
 
+## 2026-10-12 22:17 pi — Prepara E1 de 0049 para publicación
+
+Implementada E1 (M1–M4): init recupera artefactos mediante el renderer existente; advance regenera derivados después de persistir la fase y comunica reparación sin doble avance; el skill consume architectContext y conserva en-curso heredado desde init en etapas posteriores sin invocar mode. Runtime y contrato JSON de contexto permanecen intactos; espejos y snapshots regenerados por comandos oficiales. M1, M2 y M3 comprometidos por milestone; M4 preparado para revisión y commit final.
+
+A4 exacto desde el principal: exit 0, focused 31/31 y gate completo con 418 archivos, 8620 pruebas aprobadas y dos omitidas. La evidencia precede el ajuste final de estado/documentación: se requiere revisión y recibo frescos del diff de envío. Usuario autorizó publicar el PR de E1 a dev, sin merge automático; E2 sigue pendiente y comienza solo tras el merge de E1.
+
+Dev integrado preservando el trabajo concurrente de 0050. Respaldos de M2/M3 conservados; conflictos de estado resueltos directamente bajo autorización del operador, sin cambiar código de las otras sesiones. Las fallas de Pi al ejecutar full dentro de un hijo se distinguieron del resultado verde en el principal; no se modificó Pi ni se desactivaron pruebas. Siguiente paso: revisar/publicar E1 y atender CI/feedback antes de E2.
+
+## 2026-10-12 23:14 pi — Prepara checkpoint DRAFT de E2/M5 de 0049
+
+Verificado merge de E1 por PR1313 a dev en `7d12fa42`; creada rama E2 desde esa base. Workplan E2 nivel 3 por spec aceptada, clasificación base 4/10, render/check verdes. Preflight acotado confirmó los defectos y controles de compatibilidad sin ampliar arquitectura.
+
+M5 (R7–R10) implementado y revisado APPROVED: requirements ausente/ilegible y R no declarado fallan en formato nuevo; legacy mantiene su comportamiento. Sin cambios de parser, esquema ni validación semántica. Pruebas unitarias y CLI real distinguen undefined, archivo vacío legible, lectura ilegible determinista y requisitos desconocidos. A5 pasó de baseline 95 a 106 pruebas; fast y full verdes. Full desde el principal: 418 archivos, 8631 pruebas aprobadas y dos omitidas, log full-20261013T050413060Z.log. Revisión documental/recibo finales requeridos antes del commit de checkpoint.
+
+Usuario pidió detener implementación y dejar PR DRAFT de checkpoint hacia dev; M6/M7 no iniciados y E2 no lista para merge. Siguiente paso de este cierre: publicar el checkpoint y revisar CI/feedback. Al reanudar: M6 política de evidencia, después M7 ruteo/smoke, mediante implementer → reviewer. Sin merge automático, despliegue ni release; trabajo de 0050 y respaldos de E1 conservados.
+
+## 2026-10-13 09:55 codex — Prepara envío de E2/M6–M7 de 0049
+
+Usuario reanudó PR1316 y autorizó instalar globalmente la CLI del checkout para habilitar dispatch SDD. M6 corrige la autoridad existente de status: evidencia ejecutable huérfana bloquea closable/close, ancestros antiguos siguen válidos con antigüedad y oferta de revalidación, y manuales/disposiciones conservan sus exenciones. A6 independiente 61/61 y scoped verdes; reviewer APPROVED; commit `9db6e079`.
+
+M7 añade una rama compacta legacy/entregas al skill, espejos y snapshots oficiales, y un smoke real de CLI aislado que recorre primera etapa, cierre, segunda etapa, conversión y el ciclo de entregas. Los artefactos técnicos son fixtures cooperativos, no QA productiva ni identidad humana certificada. Controles combinados 91/91, golden 5/5, render/assets/budgets/fast verdes.
+
+Primer A7 desde el principal: focused 592/592; full 8643 aprobadas, una falla y dos omitidas, por nueve comandos delivery citados sin prompt documentado. Usuario autorizó ampliar solo la prueba de permisos: nueve prefijos exactos con razones, límite 21→30, sin settings ni permisos nuevos. Reproducción 11 aprobadas/1 fallo; ajuste 12/12 y fast verde. El gate completo y la revisión fresca del diff final son condiciones del envío; esta entrada es el checkpoint previo, no afirma que el primer A7 haya pasado ni que el PR esté mergeado. Siguiente paso externo tras el envío validado: CI y feedback de PR1316 DRAFT. Sin merge, despliegue ni release; 0050 se conserva.
+
+## 2026-10-13 10:39 codex — Cierra el estado documental de la spec 0049
+
+Usuario confirmó el merge de PR1316 y pidió cerrar la documentación. Verificados E1 por PR1313 en `7d12fa42b6fdc4cf67db46267a0ff3c0beeeb7c5` y E2 por PR1316 en `336c0621b9d647ecdaee2634212859ceb81aeddc`, ambas integradas en `dev`; M7 publicado en `bb7f616cd6d2cf238347c51a2af5b3ee1484512a`. T1–T7 cubren R1–R15; no queda implementación ni aceptación funcional pendiente.
+
+La revisión final de E2, posterior al checkpoint anterior, fue `APPROVED`: A7 exacto exit `0`, 26 archivos/592 pruebas focused; full exit `0`, 418 archivos/8644 aprobadas/2 omitidas/0 fallos y piso de cobertura aprobado en 140 módulos. Recibo full fresco sin drift antes de publicación. Estos resultados son evidencia histórica del envío de E2, no un nuevo full del cierre documental; el primer A7 fallido queda conservado como antecedente supersedido.
+
+Este cierre actualiza únicamente requirements/design/tasks y el progreso, conserva las políticas, contratos, trazabilidad y trabajo concurrente de 0050, y deja current en idle. Baseline documental: spec check sin errores, links/budgets/diff y fast verdes; la revisión del diff documental y su gate de envío son pasos propios de esta publicación. No se reabre A7, ni se autorizan merge, despliegue o release automáticos.
+
 ## 2026-10-12 22:23 codex — Implementa 0050 E1 de resultados y capacidades verificables
 
 Integrado el fix #1309 por #1310; main y origin/dev actualizados a 8ebe56ed, preservando el worktree local dev con cambios ajenos. E1/M1 implementa el contrato tipado de cinco resultados, sus responsables y vínculos de evidencia, con inicialización pendiente. Las capacidades Codex se resuelven desde el inventario existente por versión y superficie exactas; conserva evidencia histórica y devuelve unknown para contextos no verificados. T1/T2 completadas; E2–E4 permanecen pendientes en tasks.md. No se afirma equivalencia viva ni se implementan aún perfiles dinámicos.
@@ -175,3 +207,33 @@ El usuario autorizó un PR borrador a main, conservando T6/T11/T12 pendientes y 
 El plan-gate exigía escalamiento tras dos rechazos pero no implementaba recuperación. La extensión revisada añade un acuse de workflow ligado a checkout, plan/spec, apertura y conjunto exacto de rechazos, con consumo exclusivo permanente por época; corrupción y deriva niegan. No borra historial ni concede aprobación de review/receipt/efectos protegidos. El hook Markdown rechazó un fixture TypeScript; se detuvo sin reintento y el usuario ejecutó una vez el comando como operador. La implementación de seis owners se verificó de nuevo: 151 pruebas y fast/build/size verdes; bundle 1,519,705 bytes dentro de 1,536,000. El reviewer realizó full exit0, 433 suites, 8,849 aprobadas y 2 omitidas, coverage150 módulos verde, log `.navori/state/gate/full-20261014T232403559Z.log`. La revisión técnica del fix no emitió receipt parcial porque el contrato firma el checkout completo.
 
 La CLI revisada se empaquetó e instaló por npm, con backup del paquete anterior. El acuse instalado reconoció la decisión del usuario y el harness admitió el despacho E4 mediante su consumo, sin desactivar guards ni usar otra vía. Este checkpoint antecede la enmienda documental y revisión completa del alcance borrador; commit/push/publicación y receipt E4 siguen pendientes. La spec conserva requisitos, comandos vivos y tareas originales sin marcar.
+
+## 2026-10-14 23:24 codex — Conserva checkpoint de release 0.12.1 a dev
+
+## Goal
+Conservar la preparación de navori 0.12.1 como checkpoint draft a dev y cerrar la sesión por solicitud del usuario.
+
+## Instructions
+El usuario autoriza checkpoint incompleto, sin merge, npm ni tag. Incluye main, dev y los siete archivos locales de escalamiento. Aprobó plan nivel 2 (9/10), artefactos en el checkout original y presupuesto 1600 KiB; este último ajuste aún no se aplicó. El draft no acredita revisión ni aceptación de release.
+
+## Discoveries
+- Reset de dev y grants inmutables requieren hashes históricos completos para identidad y proyección activa tras reset para conteo. Claim privado UUID precede al burn; sólo se limpia el claim propio.
+- Renderer Pi de dev tiene once interpolaciones; codec ajustado a cardinalidad exacta 11 con negativos 10/12 y equivalencia.
+- Reviewer/receipt/publisher requieren dev en HEAD; un merge pendiente no satisface ese preflight. Checkpoint solicitado explícitamente antes de completar el flujo.
+- implementer-no-markdown rechazó un handoff JSON por referencias .md dentro de evidencia. Sin reintento; el handoff canónico conserva el BLOCKED inicial y no representa la fuente actual.
+
+## Accomplished
+- Integración sin conflictos en release/0.12.1, worktree navori-harness-release-0.12.1, desde main 9e4c407f con dev fa02f055 pendiente de commit. Original navori-harness-0050-final conservado.
+- CLI/harness 0.12.1, configuración dev y notas es/en; render normal, snapshots, assets, doc budgets y links verificados por productor.
+- Evidencia previa del productor: A3 4 suites/294 pruebas, fast exit 0, git diff --check origin/dev exit 0. Build 1545568 bytes (1509.3 KiB); size falla contra límite 1500 aún vigente. No dependencias nuevas ni lock churn.
+- Revisión independiente final, full gate y receipt pendientes. Receipt check de cierre devuelve revisión no correlacionada; no se acredita aprobación. T6/T11/T12 de0050 siguen pendientes;0053 sólo documentación.
+
+## Next Steps
+Retomar el draft por release/0.12.1; aplicar presupuesto1600 ya autorizado mediante implementer, reconstruir handoff fiel y atestarlo con productor. Ejecutar reviewer independiente y full gate/receipt antes de considerar ready o merge. No reintentar el comando bloqueado por otra vía sin nueva autorización.
+
+## Relevant Files
+packages/cli/src/lib/plan/{escalation,gate}.ts; packages/cli/src/commands/plan.ts; packages/cli/scripts/{bundle-render-data.ts,check-bundle-size.mjs}; packages/cli/package.json; navori.config.json; apps/website/src/content/releases.ts; progress/current.md; progress/history.md.
+
+## 2026-10-15 19:03 codex — Cierra revisión full de la integración en draft #1328
+
+El PR draft #1328 integra el fix #1329 revisado desde `9aeb92a4`, el presupuesto de bundle de 1600 KiB (1512.3 KiB), la corrección de ownership en removal-parity y las referencias de procedencia 0.12.1. El gate full del worktree release terminó exit 0: 436 archivos, 9,136 pruebas aprobadas, 2 omitidas, 0 fallidas; log `.navori/state/gate/full-20261015T185156539Z.log`. Review `APPROVED` sellada y receipt full `status:ok`, `fresh:true`; las escrituras nativas exactas de MD/JSON fueron aceptadas. Fast (294 + 201 pruebas) y render normales también pasaron. El registro A1 del workplan sigue pendiente porque la invocación compuesta no lo capturó; no invalida el gate ni el receipt nativos. T6, T11 y T12 de 0050 y el issue #1330 siguen pendientes. Siguiente: publisher debe crear el commit, hacer push y actualizar el draft existente; todavía no hay commit ni push de esta integración.

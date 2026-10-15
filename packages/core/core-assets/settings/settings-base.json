@@ -87,6 +87,8 @@
       "Bash(navori dominio doctor:*)",
       "Bash(navori plan classify:*)",
       "Bash(navori plan check:*)",
+      "Bash(navori plan render:*)",
+      "Bash(navori plan update:*)",
       "Bash(navori spec classify:*)",
       "Bash(navori spec check:*)",
       "Bash(navori master status:*)",
@@ -133,7 +135,15 @@
       "Bash(navori master ux:*)",
       "Bash(navori master advance:*)",
       "Bash(navori master part:*)",
-      "Bash(navori master close:*)"
+      "Bash(navori master close:*)",
+      "Bash(navori master delivery-baseline:*)",
+      "Bash(navori master delivery-queue:*)",
+      "Bash(navori master delivery-criterion:*)",
+      "Bash(navori master delivery-review:*)",
+      "Bash(navori master delivery-decision:*)",
+      "Bash(navori master delivery-publication:*)",
+      "Bash(navori master delivery-revoke:*)",
+      "Bash(navori plan escalation-reset:*)"
     ],
     "deny": [
       "Agent(orchestrator)",

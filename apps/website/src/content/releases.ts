@@ -34,6 +34,16 @@ export interface ReleaseEntry {
 export const RELEASES: readonly ReleaseEntry[] = [
   {
     minor: "0.12",
+    patches: [
+      {
+        version: "0.12.1",
+        date: "2026-10-14",
+        note: {
+          es: "Corrige clasificación, evidencia y escalamiento de planes; incorpora mejoras del master plan y controles de aprobación y perfiles de Codex. La integración de Codex continúa en validación.",
+          en: "Fixes plan classification, evidence and escalation; adds master plan improvements and Codex approval and profile controls. Codex integration remains under validation.",
+        },
+      },
+    ],
     date: "2026-10-12",
     headline: {
       es: "Pi de primera clase, un gate más barato y retiros con migración",

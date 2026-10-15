@@ -1,3 +1,4 @@
+import { computeRenderPending } from "../lib/render/render-pending.ts";
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import {
@@ -293,6 +294,9 @@ export const doctorCommand = defineCommand({
     // #1263: advisory only — a fat session-state file falls out of startup
     // context; never part of the health verdict.
     const progressSize = scanProgressSize(cwd);
+    // Advisory: hooks/doctrine rendered by an older binary (e.g. a `plan-gate.sh`
+    // without `NAVORI_HOOK_ENGINE`) surface as pending render changes. A dry run.
+    const renderPending = computeRenderPending(cwd, existsSync(claudeMdPath));
     // Spec 0034 D8: registry health remains visible after `close` turns the
     // feature flag off, because closed stages can retain confidential raw input.
     // This is advisory only; a warning must not block the repair command.
@@ -478,6 +482,7 @@ export const doctorCommand = defineCommand({
       // this payload already carries an absolute `configPath`.
       diskUsage,
       progressSize,
+      renderPending,
       masterPlan,
       codegraphWiring,
       codegraphDefaultPolicy,
@@ -1040,6 +1045,10 @@ export const doctorCommand = defineCommand({
       p.log.warn(
         td.progressSize(`  ${color.yellow(sym.update)} ${accent(progressSize.path)}  ${grey(row)}`),
       );
+    }
+
+    if (renderPending !== null && renderPending > 0) {
+      p.log.warn(td.renderPending(renderPending));
     }
 
     if (masterPlan.length > 0) {

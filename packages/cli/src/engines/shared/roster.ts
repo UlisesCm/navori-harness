@@ -64,6 +64,30 @@ export const ROSTER_AGENTS: ReadonlyArray<RosterAgent> = [
 ];
 
 /**
+ * Read-only roles Codex ships built in, outside the navori roster. `explorer`
+ * never writes code, so the Codex plan gate does not treat it as an implementer.
+ */
+export const CODEX_BUILTIN_READ_ONLY_ROLES: readonly string[] = ["explorer"];
+
+/**
+ * Roles that never write code (spec 0052, R3): the plan gate lets them through
+ * without a workplan. Explicit on purpose — deriving it from the roster by
+ * exclusion would exempt a future writing role until someone noticed;
+ * `roster-parity.test.ts` forces that decision. On Codex every spawn whose
+ * normalized role is absent from this list is gated as an implementer
+ * (fail-closed): `default`, `worker`, `orchestrator`, unknown roles.
+ */
+export const NON_IMPLEMENTER_ROLES: readonly string[] = [
+  "scout",
+  "architect",
+  "auditor",
+  "reviewer",
+  "scribe",
+  "publisher",
+  ...CODEX_BUILTIN_READ_ONLY_ROLES,
+];
+
+/**
  * Agent ids that appear in `agentsIndex.when` (the i18n "when to reach for
  * each agent" table) — every roster agent except `orchestrator`, whose casing
  * is described by the embodied "## Role: orchestrator" prose instead of a

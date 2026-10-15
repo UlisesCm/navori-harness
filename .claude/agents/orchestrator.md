@@ -7,7 +7,7 @@ effort: medium
 maxWords: 3365
 ---
 
-<!-- navori:managed id="orchestrator-base" hash="6e6e19cb" version="0.12.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="orchestrator-base" hash="a64065f2" version="0.12.1" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Orchestrator Playbook (embodied by the main agent)
 
 > This file is a **depth reference** — the orchestrator role **is embodied by the main agent**, not a subagent. The essential mechanics (escalation table, parallelism, synthesis) live in the "## Role: orchestrator" block, which the `SessionStart` hook delivers to the session, not to a subagent: only the main agent can act on it. Below: extended detail and the **Project rules**. Do NOT invoke `Agent(subagent_type: orchestrator)`.
@@ -80,7 +80,7 @@ Once the plan/scope is approved, execute ALL the sub-tasks without pausing to as
 2. **Ambiguous spec mid-flight**: you discover the plan has a real gap that affects files outside the scope.
 3. **All sub-tasks complete**: the cycle finished, ready for `publisher`.
 
-**Caps, so a loop cannot pass for persistence.** 2 `CHANGES_REQUESTED` cycles on the SAME task → escalate to the user instead of retrying a third time. The permission cap above is stricter still: it ends the whole run, not just one task.
+**Caps, so a loop cannot pass for persistence.** The cap is 2 `CHANGES_REQUESTED` cycles on the SAME task. Two `CHANGES_REQUESTED`: at level 0/1, a fresh `solution_<f>.md` and its challenge before the next dispatch (each pair of rejections needs its own); at level ≥2, escalate to the user, who alone authorizes another round with `navori plan escalation-reset`. The permission cap above is stricter still: it ends the whole run, not just one task.
 
 Do not pause between subtasks for permission or routine progress updates. Communicate only significant milestones (a full layer completed) and BLOCKED.
 
@@ -129,7 +129,7 @@ When `.navori/state/handoffs/review_<feature>.md` contains `APPROVED`:
 
 1. **Before** invoking `publisher`: apply `cierre-sesion`'s History + Clear current steps now — that commit must land inside this PR, per that block's timing rule (and its no-PR exception).
 2. Invoke `publisher` to draft the title + body following the repo's format and open the PR.
-3. Pre-flight on you before invoking — the list in `## Role: orchestrator` and nothing more: not on `main`, `gh auth status` ok. No clean working tree (the publisher's trigger IS the uncommitted diff, now including `progress/`) and no gate re-run on you: the publisher owns both that commit and the PR gate, with the reviewer's Pass-2 evidence behind it.
+3. Pre-flight on you before invoking — the list in `## Role: orchestrator` and nothing more: not on `dev`, `gh auth status` ok. No clean working tree (the publisher's trigger IS the uncommitted diff, now including `progress/`) and no gate re-run on you: the publisher owns both that commit and the PR gate, with the reviewer's Pass-2 evidence behind it.
 4. Return to the user only the PR URL + title.
 
 If the review returned `CHANGES_REQUESTED`, do NOT invoke `publisher`: launch a **fresh** `implementer` scoped to just the findings — not a resume of the hot one (dragging a large transcript re-feeds its whole history every turn and rarely pays for a bounded fix round), and not the publisher.
@@ -176,13 +176,13 @@ If the task is a pure reading / conceptual question → answer directly, no suba
 Apply Code discovery routing from the project instructions. Use the available `codegraph_explore` capability for missing structural evidence, not as a mandatory preflight. Continue with scoped native tools if unavailable.
 <!-- /navori:managed id="codegraph-access-v2-orchestrator" -->
 
-<!-- navori:managed id="codex-cross-review" hash="3407b4bc" version="0.12.0" source="@navori/core" -->
+<!-- navori:managed id="codex-cross-review" hash="352a2910" version="0.12.1" source="@navori/core" -->
 ## Cross-model review (Codex second opinion)
 
 For a second opinion from a **different provider**, after `reviewer` approves a non-trivial diff—or for a critical-area change—you MAY ask Codex to review it against `AGENTS.md`:
 
 ```bash
-codex exec "revisa el diff origin/main...HEAD según los estándares del repo; inspecciona sin editar archivos ni hacer commits"
+codex exec "revisa el diff origin/dev...HEAD según los estándares del repo; inspecciona sin editar archivos ni hacer commits"
 ```
 
 - Plain root `codex exec` does not select `.codex/agents/reviewer.toml`; its prompt is not a read-only boundary. Effective permissions and approvals depend on Codex configuration and host policy. Full Access can modify files and use the network; do not assume isolation or approvals.

@@ -9,6 +9,8 @@ nuevos y cambiados; permisos de `settings-base.json`), ampliación de agentes ex
 `eacf1b99` (v0.10.1) antes de publicar: de los tres commits nuevos, solo #1047 toca un área del
 diseño (ver la nota de D8).
 
+Enmendado por `specs/0051-master-plan-correcciones` (2026-10-13): D10 y Failure modes admiten el abandono tardío sin partes (0051 R5); Components, D12, Failure modes de evidencia, Testing strategy y la cobertura de R61 llevan `commitsBehind`/`orphan` en `status --json` y `CLOSURE.md`, no en `STATUS.md`, y la evidencia huérfana vive en `evidenceBlockers` y bloquea `close` (0051 R6).
+
 **Convención de rutas** (la de `requirements.md`): `<etapa>` es la carpeta de la etapa activa,
 `<specsDir>/_master/<NN>-<slug>/`. Las rutas relativas (`context/…`, `plans/…`, `state.json`,
 `parts.json`, `DECISIONS.md`, `MASTER.md`, `STATUS.md`, `CLOSURE.md`) cuelgan de ella. Solo
@@ -145,7 +147,7 @@ Tres principios, los mismos de las specs 0032 y 0033:
 - `packages/cli/src/lib/master/status.ts` — estado efectivo por parte, parte activa, render
   determinista de `STATUS.md` y de la región de partes de `MASTER.md`, la línea corta de
   `--line`, y los campos `closable`/`blockers` que usa `close`, con la evidencia por criterio
-  (`commitsBehind`, `orphan`) — cubre R31, R36, R38, R40, R44, R47, R54, R61.
+  (`commitsBehind`, `orphan`, solo en `status --json`; `STATUS.md` no lleva datos que dependan de HEAD) y `evidenceBlockers` (evidencia huérfana, que bloquea `close` pero no `closable`; enmendado por 0051 R6) — cubre R31, R36, R38, R40, R44, R47, R54, R61.
 - `packages/cli/src/lib/master/close.ts` — `close` y `close --convert`: valida, escribe
   `CLOSURE.md` determinista, pasa la etapa a `closed`, la marca `cerrada` o `convertida` en
   `index.json`, apaga la bandera y aplica el render. Es reanudable paso por paso, incluido el
@@ -682,7 +684,7 @@ trabajo a una parte que no va a existir.
 
 | | `close` (entrega) | `close --convert <ruta> --reason` | `close --abandon --reason` |
 |---|---|---|---|
-| Fases permitidas | `mastered`, `executing` | `context` a `questioned` (R56) | `context` a `questioned` (R58) |
+| Fases permitidas | `mastered`, `executing` | `context` a `questioned` (R56) | `context` a `questioned` (R58); además `mastered`/`ux`/`executing` sin partes (0051 R5) |
 | Precondición | `closable`; si no, sale con 1 y lista `blockers` (R47) | `<ruta>` dentro de `<specsDir>`, fuera de `_master/`, y que no exista o esté vacía; razón no vacía | razón no vacía |
 | Confirmación del usuario | `AskUserQuestion` de entrega en la skill (R47) + prompt de permiso | `AskUserQuestion` de R56 + prompt de permiso | `AskUserQuestion` de abandono en la skill (R58) + prompt de permiso |
 | `CLOSURE.md` | resultado `entregada`, partes con estado final | resultado `convertida`, razón y ruta de la spec | corto: resultado `abandonada`, razón y fase en que se abandonó |
@@ -690,8 +692,10 @@ trabajo a una parte que no va a existir.
 
 `--convert` y `--abandon` juntos fallan antes de escribir nada. El abandono comparte la secuencia
 de `close.ts` (abajo) y no borra ningún archivo de la etapa (R58): todo queda como registro de solo
-lectura, igual que una etapa cerrada. En `mastered` o después, `--abandon` se rechaza y el mensaje
-nombra `navori master close` (entrega, con las partes `descartada`/`diferida` que hagan falta).
+lectura, igual que una etapa cerrada. En `mastered`, `ux` o `executing`, `--abandon` se permite solo si la etapa no tiene partes
+(`parts.json` ausente o con `parts` vacío); con al menos una parte se rechaza y el mensaje nombra
+`navori master close` (entrega, con las partes `descartada`/`diferida` que hagan falta).
+`--convert` sigue limitado a las fases tempranas. (enmendado por 0051 R5)
 
 Antes de `close` de entrega, la skill recorre las partes que no están en `hecho` efectivo y le
 pregunta al usuario, de una en una, el estado final con `AskUserQuestion`. Las opciones son
@@ -834,8 +838,7 @@ nunca regenera nada dentro de una etapa cerrada. `check --stage` la valida: fase
   muestra un `ask` de hook en `bypassPermissions`.
 - Que la evidencia siga vigente. `status` calcula, por criterio, cuántos commits hay entre el de la
   evidencia y HEAD (`commitsBehind`) y si el commit sigue en la historia de HEAD (`orphan`, con
-  `git merge-base --is-ancestor`). Los dos aparecen en `STATUS.md` y en `CLOSURE.md`, pero no
-  bloquean. Un squash-merge vuelve huérfanos los commits de la rama, y bloquear por eso regresaría
+  `git merge-base --is-ancestor`). Los dos aparecen en `status --json` y en `CLOSURE.md`, no en `STATUS.md`, que no lleva datos que dependan de HEAD. La antigüedad no bloquea; la huérfana sale en `evidenceBlockers` y `close` la rechaza hasta revalidarla (enmendado por 0051 R6). Un squash-merge vuelve huérfanos los commits de la rama, y bloquear por eso regresaría
   a `parcial` toda parte ya integrada. Antes de `close`, la skill muestra los criterios huérfanos
   o atrasados y propone registrarlos de nuevo en HEAD.
 
@@ -1135,9 +1138,12 @@ solo corrieron comandos de lectura (`navori doctor`, `status --json`).
 - **Cierre con partes sin resolver** (R47). `close` sale con 1 y lista `blockers`; nada se
   escribe. Una parte `diferida` o `descartada` sin razón no puede existir, porque zod la rechaza
   al escribirla.
-- **Abandono en `mastered` o después** (R58). `close --abandon` se rechaza sin escribir nada, y el
-  mensaje nombra `navori master close` (entrega), que exige resolver cada parte como `hecho`,
-  `descartada` o `diferida`. Pasar `--abandon` y `--convert` juntos también se rechaza.
+- **Abandono en `mastered` o después, con partes** (R58). `close --abandon` se rechaza sin escribir
+  nada cuando la etapa tiene al menos una parte, y el mensaje nombra `navori master close`
+  (entrega), que exige resolver cada parte como `hecho`, `descartada` o `diferida`. Sin partes
+  (`parts.json` ausente o con `parts` vacío) el abandono se acepta en `mastered`, `ux` y
+  `executing`, para que una etapa atorada tenga salida (enmendado por 0051 R5). Pasar `--abandon`
+  y `--convert` juntos también se rechaza, y `--convert` sigue limitado a las fases tempranas.
 - **Conversión hacia una ruta ocupada** (R57). `close --convert` falla si la ruta existe y no
   está vacía, así que nunca mezcla la etapa con otra spec. Si la conversión se cerró pero
   `spec-bootstrap` no llegó a crear la spec, `check --stage` e `INDEX.md` lo muestran con el
@@ -1145,7 +1151,10 @@ solo corrieron comandos de lectura (`navori doctor`, `status --json`).
 - **Ediciones a mano de `state.json`, `STATUS.md` o la región de partes** de la etapa activa. No
   se previenen (un hook de bloqueo por ruta no compensa en un flujo tan raro); se detectan. `check`
   compara la región y `STATUS.md` contra su render, y valida que el historial de `state.json` sea
-  una cadena de fases consecutivas.
+  una cadena de fases consecutivas. La reparación viene nombrada: los mensajes de drift de `check`
+  para `STATUS.md` y `navori:master-parts` terminan en "repare con 'navori master status'", y
+  `part` regenera lo derivado tras la escritura durable de `parts.json` (enmendado por 0051
+  R7/R9).
 - **Issue duplicado al reintentar** (R44). Si `gh` crea el issue y la sesión se corta antes de
   `navori master part --issue`, un reintento lo duplicaría. La skill busca antes con `gh issue list
   --search "[<NN>-<slug>] P<n> in:title" --state all`; si lo encuentra, registra ese número en vez
@@ -1171,11 +1180,11 @@ solo corrieron comandos de lectura (`navori doctor`, `status --json`).
   decisión es del usuario, así que un conteo sesgado produce a lo sumo una recomendación
   equivocada, nunca un cambio.
 - **Evidencia vieja: el código cambió después de registrarla** (R61). No se invalida sola, porque
-  eso castigaría cada commit posterior. `STATUS.md` muestra `commitsBehind` por criterio, y antes
+  eso castigaría cada commit posterior. `status --json` muestra `commitsBehind` por criterio, y antes
   de cerrar la skill propone volver a verificar lo atrasado. Es consultivo (D12).
 - **Evidencia de un commit que ya no existe en la historia** (rebase, squash-merge, reset). `status`
-  lo marca `orphan`; `STATUS.md` y `CLOSURE.md` lo dicen. No regresa la parte a `parcial`, por el
-  caso del squash-merge, y la skill propone registrar de nuevo en HEAD antes de `close`.
+  lo marca `orphan`; `status --json` (`evidenceBlockers`) y `CLOSURE.md` lo dicen. No regresa la parte a `parcial`, por el
+  caso del squash-merge, y la skill propone registrar de nuevo en HEAD antes de `close`. Pero `close` la rechaza hasta revalidarla con `part --accept` (enmendado por 0051 R6).
 - **Evidencia registrada con cambios sin commitear.** `--accept` la rechaza, porque el commit
   registrado no sería el código probado.
 - **Aprobación `manual` registrada sin preguntar** (R62). El CLI no puede detectarlo, pero
@@ -1228,7 +1237,7 @@ solo corrieron comandos de lectura (`navori doctor`, `status --json`).
 | Mapeo criterio ↔ requisito roto | `check --part`: criterio `P2.A3` sin ningún `R<n>` que lo cite → falla; `R4` que cita `P2.A9` inexistente → falla; `R4` que cita `P1.A1` existente de otra parte → aviso; mapeo completo → pasa | R60 |
 | Evidencia falsa en forma, ausente o en árbol sucio | `accept.test.ts`: `comando` con `--command` distinto de `command.run` → falla; `test` con un `--command` que no nombra el archivo → falla; `manual` con `--command` → falla; `run` con cambios sin commitear fuera de `specs/` → falla; `run` válido guarda `commit` = `git rev-parse HEAD` y la fecha; `--accept` sobre una parte `diferida` o de una etapa cerrada → falla; `--accept` combinado con `--issue` → falla | R61, R62 |
 | `hecho` sin evidencia | `status.test.ts`: tareas todas marcadas y `P2.A3` sin evidencia → `parcial`, y `blockers` y `STATUS.md` nombran `P2.A3`; con evidencia completa → `hecho`; `hecho` declarado sin spec y sin evidencia → `parcial`; `closable` falso con una parte así | R61 |
-| Evidencia vieja o huérfana | `status.test.ts` en repo temporal: evidencia en `C1`, dos commits después → `commitsBehind: 2`; `git reset --hard` a antes de `C1` y un commit nuevo → `orphan: true`, sin cambiar el estado efectivo; los dos aparecen en `STATUS.md` | R61 |
+| Evidencia vieja o huérfana | `status.test.ts` en repo temporal: evidencia en `C1`, dos commits después → `commitsBehind: 2`; `git reset --hard` a antes de `C1` y un commit nuevo → `orphan: true`, sin cambiar el estado efectivo; los dos aparecen en `status --json` (la huérfana también en `evidenceBlockers`) y `STATUS.md` queda idéntico byte a byte tras un commit ajeno y tras la evidencia huérfana (0051 R6) | R61 |
 | Aprobación manual sin pregunta | test de asset de `master-plan`: la sección de aprobación manual presenta el criterio y cómo verificarlo en una `AskUserQuestion` y solo registra con la respuesta "Aprobado"; `settings-base.json` no tiene ninguna regla `allow` que cubra `navori master part`; `accept.test.ts`: `--approved-by user` con `harness.masterPlan: false` falla nombrando `navori master init` | R62 |
 | Aprobación manual sin confirmación del humano | `master-accept-confirm.test.ts`, casos con nombre: `asks on navori master part P2 --accept A3 --approved-by user (main thread)`, `asks on approved-by from a subagent`, `asks on approved-by under auto`, `asks on approved-by under bypassPermissions`, `asks on approved-by under dontAsk`, `ignores --accept of a test criterion (--command … --result …)`, `ignores --accept of a comando criterion`, `ignores navori master status and check`, `asks on chained cd x && navori master part … --approved-by user`, `asks on chained true; navori master part … --approved-by user`, `asks on subshell (navori master part … --approved-by user)`, `asks on command substitution $(navori master part … --approved-by user)`, `emits the fixed reason without jq or node`, más la suite diferencial bash×zsh con las mismas entradas; golden de `settings.json`: el hook registrado con `masterPlan` en `true` y ausente en `false` | R62 |
 | Acta sin criterios | `close.test.ts`: `CLOSURE.md` lista cada `P<n>.A<m>` con método, evidencia y fecha; los de una parte `diferida` como "no verificado"; los huérfanos marcados; editar a mano una evidencia de la etapa cerrada rompe el hash de `parts.json` en `check --stage` | R63 |
@@ -1370,6 +1379,6 @@ principal (eje tokens).
 | R58 | `close --abandon --reason` (`close.ts`, excluyente con `--convert`, solo antes de `mastered`), `CLOSURE.md` corto `abandonada`, `index.json` `abandonada`, `master-plan.md` (`AskUserQuestion` de abandono) |
 | R59 | `PartsSchema.acceptance` (id `A<m>`, `method`, detalle), plantillas `plan`/`master` (sección 15), `tasks` e `issue` |
 | R60 | `check --part` (mapeo `P<n>.A<m>` ↔ `R<n>` en los dos sentidos), guía "Spec de una parte" en `master-plan.md`, `closable` |
-| R61 | `part --accept` (D12), estado efectivo de D2 (`hecho` exige evidencia), `blockers`, `STATUS.md` (`commitsBehind`, `orphan`) |
+| R61 | `part --accept` (D12), estado efectivo de D2 (`hecho` exige evidencia), `blockers`, `status --json` (`commitsBehind`, `orphan`, `evidenceBlockers`) y `CLOSURE.md`; `STATUS.md` sin datos de HEAD (0051 R6) |
 | R62 | `master-plan.md` (`AskUserQuestion` antes de `--approved-by user`), `part` fuera de `allow` (`settings-base.json`), `master-accept-confirm.sh` (`ask` en todos los modos, registro condicional en `build-settings.ts`), `part --accept` rechazado con la bandera apagada (D12) |
 | R63 | `CLOSURE.md` (tabla de criterios con método, evidencia y fecha; "no verificado" en `descartada`/`diferida`), hash de `parts.json` en "Integridad" |

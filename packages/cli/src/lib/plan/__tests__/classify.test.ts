@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { classify, declaredFlagsFromSignals } from "../classify.ts";
+import {
+  classify,
+  declaredFlagsFromSignals,
+  matchesCriticalPaths,
+  normalizeRepoPath,
+} from "../classify.ts";
 
 /**
  * T0 — calibration fixtures (#1011).
@@ -467,5 +472,26 @@ describe("declaredFlagsFromSignals", () => {
   it("returns every flag false for an empty signal list", () => {
     const flags = declaredFlagsFromSignals([]);
     expect(Object.values(flags).every((v) => v === false)).toBe(true);
+  });
+});
+
+/** Covers: R19 */
+describe("classify — path normalization", () => {
+  // Covers: R19
+  it("rutas con ./, barras invertidas y // casan con criticalPaths y cuentan un solo directorio raíz", () => {
+    const dirty = ["./src/payments/a.ts", "src\\payments\\b.ts", "src//payments//c.ts"];
+    const clean = ["src/payments/a.ts", "src/payments/b.ts", "src/payments/c.ts"];
+    const criticalPaths = ["src/payments/**"];
+    expect(matchesCriticalPaths(dirty, criticalPaths)).toBe(true);
+    const result = classify({ files: dirty, criticalPaths });
+    expect(result.signals).toContain("critical-area:matched(+3)");
+    expect(result.signals.some((s) => s.startsWith("root-dirs:"))).toBe(false);
+    expect(result).toEqual(classify({ files: clean, criticalPaths }));
+    // Case is never folded.
+    expect(matchesCriticalPaths(["SRC/payments/a.ts"], criticalPaths)).toBe(false);
+    // Absolute and `..` paths are flagged and never match a relative glob.
+    expect(normalizeRepoPath("/etc/x")).toMatchObject({ absolute: true });
+    expect(normalizeRepoPath("a/../../x")).toMatchObject({ escapes: true, path: "../x" });
+    expect(matchesCriticalPaths(["../src/payments/a.ts"], criticalPaths)).toBe(false);
   });
 });

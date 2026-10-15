@@ -1,19 +1,11 @@
 # Sesión actual
 
-**Estado:** Plan-gate recuperado; composite E4 y documentación del borrador aplicados y atestados. Pendiente revisión independiente del diff completo/receipt. Sin commits nuevos, push ni PR.
+**Estado:** PR draft #1328 en `release/0.12.1`; integración revisada y aprobada, pendiente del publisher. Integra el fix #1329 de `9aeb92a4`, el presupuesto de bundle de 1600 KiB (1512.3 KiB), la corrección de ownership en removal-parity y las referencias de procedencia 0.12.1.
 
-## Trabajo conservado
+El gate full del worktree release terminó exit 0: 436 archivos, 9,136 pruebas aprobadas, 2 omitidas, 0 fallidas; log `.navori/state/gate/full-20261015T185156539Z.log`. Review `APPROVED` sellada y receipt full `status:ok`, `fresh:true`; las escrituras nativas exactas de MD/JSON fueron aceptadas. Fast (294 + 201 pruebas) y render normales también pasaron. El registro A1 del workplan sigue pendiente porque la invocación compuesta no lo capturó; no invalida el gate ni el receipt nativos.
 
-Branch `feat/0050-cierre`, worktree `/Users/ulisescm/Documents/dev-docs/navori-harness-0050-final`, base/destino `main`, HEAD `d3e81758`. El usuario autorizó completar el trabajo necesario para tener el PR y alinear la configuración y el harness a `main`. Se preservan los criterios originales y el ámbito global/trust.
+T6, T11 y T12 de 0050 y el issue #1330 siguen pendientes.
 
 ## Siguiente paso
 
-El operador aplicó el composite JSON después del segundo falso positivo del guard, sin retry del agente. El mismo productor verificó/atestó el handoff actual; scribe modificó sólo tasks.md/evaluation.md para reflejar la autorización del borrador, conservando originales sin marcar, y atestó el resultado. La referencia previousScope corresponde al blocker histórico; el QA anterior se conserva en reportes/logs. Sigue reviewer fresco E4 sobre todo el diff y receipt vigente antes de publisher. No regenerar el acuse consumido; no merge ni cierre de spec.
-
-## Evidencia disponible
-
-Fix final: 151/151 pruebas, fast/build/size exit0; bundle 1,519,705 bytes. Full del reviewer mantenimiento exit0: 433 suites, 8,849 aprobadas y 2 omitidas, coverage150 módulos verde; log `.navori/state/gate/full-20261014T232403559Z.log`. Esto verifica calidad técnica del checkpoint previo a la enmienda documental, no aceptación ni publicación E4. Se requiere revisión/receipt E4 vigente para el borrador. Backup del paquete previo: `/tmp/navori-cli-recovery.q31BIO/navori-0.12.0.tgz`.
-
-## Seguimientos
-
-T6 sigue sin fuente humana/host verificable ligada a acción, destino y diff. T11 carece de aplicación nativa observada de todos los perfiles; T12 carece de los ocho outcomes vivos y sus controles. Los diagnósticos, JSON y pruebas deterministas no cumplen esos criterios. No se habilitará una aceptación falsa ni se reintentará un despacho bloqueado por otra vía. Historia en `progress/history.md`; el workplan no se duplica aquí.
+Publisher: crear el commit, hacer push y actualizar el draft #1328. Todavía no hay commit ni push de esta integración; no hacer merge, publicación npm ni tag.

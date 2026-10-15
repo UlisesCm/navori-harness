@@ -4,28 +4,43 @@
  * R15).
  */
 import { defineCommand } from "citty";
+import { z } from "zod";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  ensureStateDirectory,
   resolveStateRoot,
   stateArtifactPath,
   type StateRoot,
   writeStateFileAtomic,
 } from "../lib/primitives/state-root.ts";
-import { classify, declaredFlagsFromSignals, type ClassifyInput } from "../lib/plan/classify.ts";
-import { checkWorkplan, formatCheckResult } from "../lib/plan/check.ts";
-import { acknowledgePlanEscalation, applyPlanGate } from "../lib/plan/gate.ts";
-import { applyWorkplanUpdate, renderWorkplan, type WorkplanUpdate } from "../lib/plan/render.ts";
+import {
+  classify,
+  declaredFlagsFromSignals,
+  projectClassifyContext,
+  type ClassifyInput,
+} from "../lib/plan/classify.ts";
+import { checkWorkplan, formatCheckResult, type CheckResult } from "../lib/plan/check.ts";
+import {
+  acknowledgePlanEscalation,
+  applyPlanGate,
+  recordAndCountRejections,
+  UNREADABLE_PAYLOAD,
+} from "../lib/plan/gate.ts";
+import {
+  applyMutationsToRaw,
+  applyWorkplanUpdate,
+  renderWorkplan,
+  type RawMutation,
+  type WorkplanUpdate,
+} from "../lib/plan/render.ts";
+import { withPlanStateLock } from "../lib/plan/update-lock.ts";
+import { LockTimeoutError } from "../lib/primitives/lockfile.ts";
 import { writeAcceptanceIndex } from "../lib/plan/acceptance-index.ts";
 import { validateEvidence } from "../lib/plan/evidence.ts";
-import {
-  WorkplanSchema,
-  type AcceptanceEvidence,
-  type ProgressStatus,
-  type Workplan,
-} from "../lib/plan/schema.ts";
-import { readConfig } from "../lib/config/config.ts";
+import { WorkplanSchema, type ProgressStatus, type Workplan } from "../lib/plan/schema.ts";
+import { effectiveConfig, readConfig } from "../lib/config/config.ts";
 import { appendCliEvent } from "../lib/audit/cli-event.ts";
 import { resumePlans } from "../lib/plan/resume.ts";
 
@@ -45,6 +60,9 @@ function normalizeProgressList(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((v) => String(v));
   return [String(value)];
 }
+
+/** One `--progress` entry (R10). */
+const PROGRESS_ENTRY = /^(A\d+)=(pendiente|cumplido|bloqueado)$/;
 
 function jsonPath(root: StateRoot, feature: string): string {
   return stateArtifactPath(root, `workplan_${feature}.json`);
@@ -128,46 +146,56 @@ function readWorkplanOrExit(path: string): Workplan | undefined {
   }
 }
 
-/** `project.criticalPaths`/`project.localSkills` (R9), falling back to
- * `undefined` for a repo without `navori.config.json` or without a `project`
- * block — shared by `--files` and `--diff` classification so neither
- * re-derives the read. */
-function readProjectClassifyContext(cwd: string): {
-  criticalPaths: string[] | undefined;
-  localSkillIds: string[] | undefined;
-} {
+/** Default `--diff` base: `origin/<prTarget>` of the repo's config, or
+ * `origin/main` when there is no readable configuration (R18). */
+function defaultDiffBase(cwd: string): string {
   try {
-    const project = readConfig(resolve(cwd, "navori.config.json")).project;
-    return {
-      criticalPaths: project?.criticalPaths,
-      localSkillIds: project?.localSkills,
-    };
+    const config = effectiveConfig(readConfig(resolve(cwd, "navori.config.json")));
+    return `origin/${config.prTarget ?? config.branchBase}`;
   } catch {
-    return { criticalPaths: undefined, localSkillIds: undefined };
+    return "origin/main";
   }
 }
 
-/** `git diff --name-only <base>...HEAD`'s touched files, repo-relative. */
-function diffFiles(cwd: string, base: string): string[] {
-  const out = execFileSync("git", ["diff", "--name-only", `${base}...HEAD`], {
+/** Runs git in `cwd` and splits its NUL-terminated output (`-z`). */
+function gitLines(cwd: string, args: string[]): string[] {
+  const out = execFileSync("git", ["-c", "core.fsmonitor=false", "--no-optional-locks", ...args], {
     cwd,
     encoding: "utf8",
   });
-  return out
-    .split("\n")
-    .map((f) => f.trim())
-    .filter(Boolean);
+  return out.split("\0").filter(Boolean);
 }
 
-function writeWorkplanAndRender(root: StateRoot, feature: string, plan: Workplan): void {
-  writeStateFileAtomic(root, `workplan_${feature}.json`, `${JSON.stringify(plan, null, 2)}\n`);
+/**
+ * The work tree's touched files vs `base` (R18): the union of
+ * `git diff --name-only <merge-base>` (committed + uncommitted tracked
+ * changes) and `git ls-files --others --exclude-standard` (untracked files),
+ * repo-relative, sorted and de-duplicated.
+ */
+function diffFiles(cwd: string, base: string): string[] {
+  const mergeBase = gitLines(cwd, ["merge-base", "HEAD", base]).at(0)?.trim() ?? "";
+  const tracked = gitLines(cwd, ["diff", "--name-only", "-z", mergeBase || base]);
+  const untracked = gitLines(cwd, ["ls-files", "-z", "--others", "--exclude-standard"]);
+  return [...new Set([...tracked, ...untracked])].sort();
+}
+
+/** Writes the JSON text as given (raw, so undeclared fields survive — R16),
+ * then the Markdown rendered from the validated plan and the acceptance index.
+ * Callers hold the plan-state lock (R11). */
+function writeWorkplanAndRender(
+  root: StateRoot,
+  feature: string,
+  jsonText: string,
+  plan: Workplan,
+): void {
+  writeStateFileAtomic(root, `workplan_${feature}.json`, jsonText);
   writeStateFileAtomic(root, `workplan_${feature}.md`, renderWorkplan(plan));
   writeAcceptanceIndex(root);
 }
 
 /** Requires host-recorded execution in identified Claude, Pi and Codex sessions.
  * Claude's child and Pi's native session signals retain their existing priority.
- * An identified Codex session without readable config fails closed. */
+ * An identified session with a present-but-unreadable config fails closed (R12). */
 function evidenceRequired(cwd: string): boolean {
   const claudeChild = process.env.CLAUDE_CODE_CHILD_SESSION === "1";
   const piSession = /^[A-Za-z0-9._-]+$/.test(process.env.PI_SESSION_ID ?? "");
@@ -181,7 +209,9 @@ function evidenceRequired(cwd: string): boolean {
         ? engines.includes("pi")
         : engines.includes("codex");
   } catch {
-    return codexSession;
+    // Inside an identified session, a config that exists but can't be read
+    // fails closed for every engine; an absent one means no navori setup (R12).
+    return existsSync(resolve(cwd, "navori.config.json"));
   }
 }
 
@@ -253,8 +283,8 @@ const classifySubCommand = defineCommand({
     diff: {
       type: "string",
       description:
-        "Classify `git diff --name-only <base>...HEAD` against the feature's workplan " +
-        "instead of --files; value is the base ref (default origin/main, R21)",
+        "Classify the work tree's changes (committed, uncommitted and untracked) against the feature's workplan " +
+        "instead of --files; value is the base ref (default origin/<prTarget>)",
     },
     criticalArea: {
       type: "boolean",
@@ -295,10 +325,10 @@ const classifySubCommand = defineCommand({
     // `criticalPaths`/`localSkills` are optional (R9): a repo without
     // `navori.config.json` or without a `project` block simply falls back to
     // the declared flag / the default "generated" classification.
-    const { criticalPaths, localSkillIds } = readProjectClassifyContext(cwd);
+    const { criticalPaths, localSkillIds } = projectClassifyContext(cwd);
 
     if (args.diff !== undefined) {
-      classifyDiff(root, args.feature, args.diff || "origin/main", args.json ?? false, {
+      classifyDiff(root, args.feature, args.diff || defaultDiffBase(cwd), args.json ?? false, {
         criticalPaths,
         localSkillIds,
       });
@@ -319,6 +349,13 @@ const classifySubCommand = defineCommand({
         process.exitCode = 1;
         return;
       }
+    }
+    if (args.files === undefined && (draft?.files.length ?? 0) === 0) {
+      process.stderr.write(
+        "classify needs --files, --diff or a workplan draft with files; refusing to report level 0 for an empty list\n",
+      );
+      process.exitCode = 1;
+      return;
     }
     const declaredFromDraft = draft ? declaredFlagsFromSignals(draft.signals) : {};
 
@@ -347,7 +384,7 @@ const classifySubCommand = defineCommand({
 
 /**
  * `navori plan classify <feature> --diff [<base>]` (R21) — classifies the
- * REAL diff (`git diff --name-only <base>...HEAD`) with the feature's
+ * REAL diff (`git diff --name-only <merge-base>` plus untracked files) with the feature's
  * declared workplan signals (`declaredFlagsFromSignals`, no re-derivation of
  * `signals.ts`'s weights) and exits non-zero when that comes back at a higher
  * level than the workplan declared. The reviewer runs this exact command to
@@ -372,7 +409,7 @@ function classifyDiff(
     files = diffFiles(cwd, base);
   } catch (cause: unknown) {
     process.stderr.write(
-      `git diff --name-only ${base}...HEAD failed: ${cause instanceof Error ? cause.message : String(cause)}\n`,
+      `git diff --name-only ${base} failed: ${cause instanceof Error ? cause.message : String(cause)}\n`,
     );
     process.exitCode = 1;
     return;
@@ -420,12 +457,23 @@ const renderSubCommand = defineCommand({
       feature: args.feature,
       dir: args.dir,
     });
-    const plan = readWorkplanOrExit(jsonPath(root, args.feature));
-    if (!plan) return;
-    writeStateFileAtomic(root, `workplan_${args.feature}.md`, renderWorkplan(plan));
-    // Bootstraps the index the evidence hook reads (idempotent); `plan update` is the only other writer.
-    writeAcceptanceIndex(root);
-    if (args.json) process.stdout.write(`${JSON.stringify({ rendered: true })}\n`);
+    // Early exit on a missing/invalid workplan, before the lock creates anything.
+    if (!readWorkplanOrExit(jsonPath(root, args.feature))) return;
+    try {
+      const rendered = withPlanStateLock(root, () => {
+        // Re-read under the lock: an `update` may have written since the check above.
+        const plan = readWorkplanOrExit(jsonPath(root, args.feature));
+        if (!plan) return false;
+        writeStateFileAtomic(root, `workplan_${args.feature}.md`, renderWorkplan(plan));
+        // Bootstraps the index the evidence hook reads (idempotent); `plan update` is the only other writer.
+        writeAcceptanceIndex(root);
+        return true;
+      });
+      if (rendered && args.json) process.stdout.write(`${JSON.stringify({ rendered: true })}\n`);
+    } catch (cause: unknown) {
+      if (!(cause instanceof LockTimeoutError)) throw cause;
+      failUsage(cause.message);
+    }
   },
 });
 
@@ -455,44 +503,48 @@ const updateSubCommand = defineCommand({
     const plan = readWorkplanOrExit(jsonPath(root, args.feature));
     if (!plan) return;
 
+    // Strict parsing (R10): nothing is written unless every flag is well-formed.
     const progressEntries = normalizeProgressList(args.progress);
+    if (progressEntries.length > 0 && args.decision !== undefined) {
+      failUsage("--progress and --decision are mutually exclusive");
+      return;
+    }
+    if (args.date !== undefined && !z.iso.date().safeParse(args.date).success) {
+      failUsage(`--date must be an ISO date (YYYY-MM-DD), got ${JSON.stringify(args.date)}`);
+      return;
+    }
     let updates: WorkplanUpdate[];
     if (progressEntries.length > 0) {
       updates = [];
       for (const entry of progressEntries) {
-        const [id, status] = entry.split("=") as [string, string];
-        if (!id || !status) {
-          process.stderr.write("--progress must look like A1=cumplido\n");
-          process.exitCode = 1;
+        const match = PROGRESS_ENTRY.exec(entry);
+        if (!match) {
+          failUsage(`--progress must look like A1=pendiente|cumplido|bloqueado, got "${entry}"`);
           return;
         }
         updates.push({
           kind: "progress",
-          id,
-          status: status as ProgressStatus,
+          id: match[1] as string,
+          status: match[2] as ProgressStatus,
         });
       }
     } else if (args.decision) {
       if (!args.date) {
-        process.stderr.write("--decision requires --date\n");
-        process.exitCode = 1;
+        failUsage("--decision requires --date");
         return;
       }
       updates = [{ kind: "decision", text: args.decision, date: args.date }];
     } else {
-      process.stderr.write("plan update requires --progress or --decision\n");
-      process.exitCode = 1;
+      failUsage("plan update requires --progress or --decision");
       return;
     }
 
-    // All-or-nothing: `applyWorkplanUpdate` returns a new Workplan without
-    // mutating its input, so a failure mid-loop leaves `plan` (and thus the
-    // file on disk) untouched.
-    let updated: Workplan = plan;
+    // Validates every id against the workplan's criteria (unknown id throws)
+    // before any evidence work; the result is discarded — phase 2 applies the
+    // mutations to the raw JSON instead (R16).
     try {
-      for (const update of updates) {
-        updated = applyWorkplanUpdate(updated, update);
-      }
+      let probe: Workplan = plan;
+      for (const update of updates) probe = applyWorkplanUpdate(probe, update);
     } catch (cause: unknown) {
       process.stderr.write(`${cause instanceof Error ? cause.message : "update failed"}\n`);
       process.exitCode = 1;
@@ -503,20 +555,27 @@ const updateSubCommand = defineCommand({
     // criterion; never executes the criterion's `command` (R7). Validated for
     // every `cumplido` before anything is written (all-or-nothing).
     const required = evidenceRequired(root.cwd);
-    const evidence: Record<string, AcceptanceEvidence> = { ...plan.evidence };
+    const mutations: RawMutation[] = [];
+    const validatedCommands = new Map<string, string>();
     for (const update of updates) {
-      if (update.kind !== "progress") continue;
+      if (update.kind === "decision") {
+        mutations.push(update);
+        continue;
+      }
+      mutations.push(update);
       if (update.status !== "cumplido") {
-        delete evidence[update.id];
+        mutations.push({ kind: "evidence", id: update.id, value: null });
         continue;
       }
       const criterion = plan.acceptance.find((a) => a.id === update.id);
       if (!criterion) continue;
+      validatedCommands.set(update.id, criterion.command);
       if (!required) {
-        evidence[update.id] = {
-          kind: "unevidenced",
-          reason: "engine-without-signal",
-        };
+        mutations.push({
+          kind: "evidence",
+          id: update.id,
+          value: { kind: "unevidenced", reason: "engine-without-signal" },
+        });
         process.stderr.write(
           `WARNING: ${update.id} marked cumplido without evidence — this engine/session ` +
             `exposes no verifiable Bash success signal\n`,
@@ -534,11 +593,55 @@ const updateSubCommand = defineCommand({
         rejectCumplido(root.cwd, update.id, criterion.command, verdict, args.json ?? false);
         return;
       }
-      evidence[update.id] = verdict.evidence;
+      mutations.push({ kind: "evidence", id: update.id, value: verdict.evidence });
     }
-    if (Object.keys(evidence).length > 0 || plan.evidence) updated = { ...updated, evidence };
-    writeWorkplanAndRender(root, args.feature, updated);
-    if (args.json) process.stdout.write(`${JSON.stringify({ updated: true })}\n`);
+
+    // Phase 2 (R11): re-read the RAW JSON and apply the mutations under the
+    // state-root lock, so concurrent updates stack instead of overwriting.
+    try {
+      const wrote = withPlanStateLock(root, () => {
+        const path = jsonPath(root, args.feature);
+        let raw: unknown;
+        try {
+          raw = JSON.parse(readFileSync(path, "utf8"));
+        } catch (cause: unknown) {
+          failUsage(`cannot re-read ${path}: ${cause instanceof Error ? cause.message : cause}`);
+          return false;
+        }
+        const rawAcceptance = (raw as { acceptance?: unknown } | null)?.acceptance;
+        const rawCommands = new Map<string, unknown>(
+          Array.isArray(rawAcceptance)
+            ? rawAcceptance.map((a: { id?: unknown; command?: unknown }) => [
+                a?.id as string,
+                a?.command,
+              ])
+            : [],
+        );
+        for (const [id, command] of validatedCommands) {
+          if (rawCommands.get(id) !== command) {
+            failUsage("criterion changed concurrently; rerun");
+            return false;
+          }
+        }
+        const next = applyMutationsToRaw(raw, mutations);
+        const parsed = WorkplanSchema.safeParse(next);
+        if (!parsed.success) {
+          failUsage(`update would write an invalid workplan: ${parsed.error.message}`);
+          return false;
+        }
+        writeWorkplanAndRender(
+          root,
+          args.feature,
+          `${JSON.stringify(next, null, 2)}\n`,
+          parsed.data,
+        );
+        return true;
+      });
+      if (wrote && args.json) process.stdout.write(`${JSON.stringify({ updated: true })}\n`);
+    } catch (cause: unknown) {
+      if (!(cause instanceof LockTimeoutError)) throw cause;
+      failUsage(cause.message);
+    }
   },
 });
 
@@ -560,8 +663,17 @@ const checkSubCommand = defineCommand({
       process.exitCode = 1;
       return;
     }
-    const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
-    const result = checkWorkplan(raw, root.cwd);
+    let raw: unknown;
+    let unreadable: string | undefined;
+    try {
+      raw = JSON.parse(readFileSync(path, "utf8"));
+    } catch (cause) {
+      unreadable = cause instanceof Error ? cause.message : String(cause);
+    }
+    const result: CheckResult =
+      unreadable === undefined
+        ? checkWorkplan(raw, { cwd: root.cwd, feature: args.feature })
+        : { ok: false, findings: [{ rule: "schema", message: unreadable }], warnings: [] };
     process.stdout.write(`${args.json ? JSON.stringify(result) : formatCheckResult(result)}\n`);
     // Explicit on both branches — see `classifyDiff`'s comment on the same
     // pattern: a stale non-zero code from an earlier command run in this
@@ -582,9 +694,8 @@ const gateSubCommand = defineCommand({
     try {
       raw = JSON.parse(readFileSync(0, "utf8"));
     } catch {
-      // Malformed or empty stdin — nothing to gate against; a hard-fail here
-      // would block every tool call the moment the payload shape changes.
-      return;
+      // Unreadable stdin is a payload problem: the gate denies it under planTiers (R4).
+      raw = UNREADABLE_PAYLOAD;
     }
     applyPlanGate(raw);
   },
@@ -607,20 +718,70 @@ const acknowledgeSubCommand = defineCommand({
     },
     decision: {
       type: "string",
-      required: true,
       description: "Explicit user workflow escalation decision retained by the orchestrator",
     },
+    inspect: {
+      type: "boolean",
+      description: "Read-only terminal grant and current snapshot inspection",
+    },
+    "continue-after": { type: "string", description: "Explicit consumed predecessor reference" },
+    "authorization-id": {
+      type: "string",
+      description: "Operator-assigned intent/idempotency identifier, not authentication",
+    },
+    snapshot: { type: "string", description: "Expected current snapshot SHA-256" },
   },
   run({ args }) {
     try {
+      const strings = new Set([
+        "feature",
+        "cwd",
+        "opening",
+        "decision",
+        "continue-after",
+        "authorization-id",
+        "snapshot",
+      ]);
+      const booleans = new Set(["json", "inspect"]);
+      for (const [key, value] of Object.entries(args)) {
+        if (key === "_") {
+          if (!Array.isArray(value) || value.length !== 1)
+            throw new Error("exactly one feature required");
+        } else if (
+          value !== undefined &&
+          !(strings.has(key)
+            ? typeof value === "string"
+            : booleans.has(key) && typeof value === "boolean")
+        ) {
+          throw new Error(`unknown or repeated acknowledgement flag: ${key}`);
+        }
+      }
+      const supplied = [args["continue-after"], args["authorization-id"], args.snapshot];
+      const continuing = supplied.some((value) => value !== undefined);
+      if (continuing && supplied.some((value) => value === undefined))
+        throw new Error("continue-after, authorization-id and snapshot are required together");
+      if (args.inspect ? args.decision !== undefined || continuing : !args.decision?.trim())
+        throw new Error("inspect excludes mutation inputs; mutations require decision");
       const result = acknowledgePlanEscalation(
         args.cwd ?? process.cwd(),
         args.feature,
         args.opening,
-        args.decision,
+        args.decision ?? "",
+        {
+          inspect: args.inspect,
+          ...(continuing
+            ? {
+                continuation: {
+                  continueAfter: args["continue-after"]!,
+                  authorizationId: args["authorization-id"]!,
+                  snapshot: args.snapshot!,
+                },
+              }
+            : {}),
+        },
       );
       process.stdout.write(
-        `${args.json ? JSON.stringify(result) : `${result.feature}: ${result.status}`}\n`,
+        `${args.json || result.status === "inspected" ? JSON.stringify(result) : `${result.feature}: ${result.status}${"reference" in result && result.reference ? ` ${result.reference}` : ""}`}\n`,
       );
       process.exitCode = 0;
     } catch (cause: unknown) {
@@ -628,6 +789,78 @@ const acknowledgeSubCommand = defineCommand({
       process.stdout.write(`${args.json ? JSON.stringify({ status: "denied", error }) : error}\n`);
       process.exitCode = 2;
     }
+  },
+});
+
+/** Exits 1 with a one-line usage error, writing nothing. */
+function failUsage(message: string): void {
+  process.stderr.write(`ERROR: ${message}\n`);
+  process.exitCode = 1;
+}
+
+/**
+ * `navori plan escalation-reset` (R9): the user's explicit restart of the
+ * rejection count after two `CHANGES_REQUESTED` at level >= 2. Appends one
+ * `reset` line to the gate log. A local seatbelt, not an authenticated
+ * attestation: the host asks for confirmation (ask rule + hook).
+ */
+const escalationResetSubCommand = defineCommand({
+  meta: {
+    name: "escalation-reset",
+    description: "Restart the gate's rejection count for a level >= 2 feature (user approval)",
+  },
+  args: {
+    ...shared,
+    "approved-by": { type: "string", description: "Must be user" },
+    reason: { type: "string", description: "Why another review round is authorized" },
+  },
+  run({ args }) {
+    const reason = typeof args.reason === "string" ? args.reason.trim() : "";
+    if (args["approved-by"] !== "user") {
+      return failUsage("escalation-reset requires --approved-by user");
+    }
+    if (reason === "") return failUsage("escalation-reset requires a non-empty --reason");
+    if (reason.length > 4096) return failUsage("escalation-reset reason exceeds 4096 characters");
+    const root = resolveStateRoot({
+      cwd: args.cwd ?? process.cwd(),
+      feature: args.feature,
+      dir: args.dir,
+    });
+    const path = jsonPath(root, args.feature);
+    if (!existsSync(path)) return failUsage(`workplan not found: ${path}`);
+    let level: unknown;
+    try {
+      level = (JSON.parse(readFileSync(path, "utf8")) as { level?: unknown } | null)?.level;
+    } catch {
+      return failUsage(`${path} is not valid JSON; run \`navori plan check ${args.feature}\``);
+    }
+    if (typeof level !== "number" || level < 2) {
+      return failUsage(
+        "escalation-reset applies to level >= 2 workplans; at level 0/1 the way out is a new " +
+          "solution and its challenge",
+      );
+    }
+    const { count } = recordAndCountRejections(root, args.feature);
+    if (count < 2) {
+      return failUsage(`escalation-reset needs two recorded rejections (found ${count})`);
+    }
+    const entry = {
+      ts: new Date().toISOString(),
+      kind: "reset",
+      approvedBy: "user",
+      reason,
+      rejectionsBefore: count,
+    };
+    if (Buffer.byteLength(JSON.stringify(entry)) > 8192)
+      return failUsage("escalation-reset record exceeds 8192 bytes");
+    ensureStateDirectory(root);
+    appendFileSync(
+      stateArtifactPath(root, `workplan_${args.feature}.gate.jsonl`),
+      `${JSON.stringify(entry)}\n`,
+    );
+    appendCliEvent(root.cwd, { name: "plan-escalation-reset", verdict: "allow" });
+    if (args.json)
+      process.stdout.write(`${JSON.stringify({ reset: true, rejectionsBefore: count })}\n`);
   },
 });
 
@@ -656,5 +889,6 @@ export const planCommand = defineCommand({
     check: checkSubCommand,
     gate: gateSubCommand,
     acknowledge: acknowledgeSubCommand,
+    "escalation-reset": escalationResetSubCommand,
   },
 });
